@@ -190,8 +190,10 @@ describe("H4a — end-to-end harness (Convention: end-to-end harness)", () => {
       fixtures: [{ slashName: "a", run: async () => {} }],
     });
     // The slash name is the in-memory fixture's, proving the discovery source
-    // is the harness-provided fixture rather than any on-disk `.theta`.
-    expect([...loaded.double.commands.keys()]).toEqual(["a"]);
+    // is the harness-provided fixture rather than any on-disk `.theta`. RFC
+    // 0010 (EXST-11): `/theta-status` registers once per instance ahead of the
+    // per-theta loop, so it leads the set.
+    expect([...loaded.double.commands.keys()]).toEqual(["theta-status", "a"]);
   });
 });
 

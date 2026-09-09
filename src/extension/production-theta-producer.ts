@@ -104,6 +104,9 @@ import type {
   ActiveInvocationTicket,
 } from "../runtime/active-invocation-registry";
 import type { ForwardingSignalSource, EmissionSink } from "./session-shutdown";
+import type { ExecutionStatusBus, ParForLaneHooks } from "./execution-status/types";
+import { decorateCheckpoint } from "./execution-status/checkpoint-decorator";
+import { attachChildActivityTap } from "./execution-status/child-tap";
 import {
   emitCancelledBySessionShutdownNote,
   createProductionEmissionSink,
@@ -562,6 +565,17 @@ export interface ProductionProducerInput {
    * no-ops) — the pre-B1 behaviour.
    */
   readonly activeInvocations?: ActiveInvocationRegistry;
+  /**
+   * RFC 0010 (execution-status.md EXST-3): the extension-instance
+   * execution-status bus every producer hook publishes into — invocation
+   * lifecycle at the ticket sites, `(invocationId, kind, site)` through the
+   * `Checkpoint` decorator, `par for` lane transitions through
+   * `ExecuteBodyDeps.statusLanes`, and depth-1 child activity through the
+   * stdout tap. Absent on non-production harnesses, in which case every hook
+   * is a `?.` no-op and the observed surfaces behave byte-identically
+   * (EXST-3's no-observable-effect rule; the `activeInvocations?` precedent).
+   */
+  readonly statusBus?: ExecutionStatusBus;
   /**
    * Decision 6 / Increment B2 (session-shutdown-semantics.md sub-step 5): the
    * extension-instance-scoped mutable sink of INVOCATION-SCOPED forwarding
@@ -1083,7 +1097,17 @@ class ProductionThetaProducer implements ThetaProducerDeps {
     // captured for the defaults-merge.
     let okArgs: Record<string, unknown> = {};
     const phase = await runCheckpointedBinderCall(
-      this.#input.root.checkpoint,
+      // EXST-4: the binder-call checkpoint publishes under the PRE-BINDER
+      // ticket's invocation id when the dispatch entry opened one; a
+      // ticket-less binder run (an in-memory harness) stays undecorated and
+      // publishes nothing.
+      binderInput.invocationTicket === undefined
+        ? this.#input.root.checkpoint
+        : decorateCheckpoint(
+            this.#input.root.checkpoint,
+            this.#input.statusBus,
+            binderInput.invocationTicket.invocationId,
+          ),
       signal,
       binderSite,
       () =>
@@ -1981,6 +2005,10 @@ class ProductionThetaProducer implements ThetaProducerDeps {
       invocationId: this.#input.root.idSource.newInvocationId(),
     };
     activeInvocations?.add(entry);
+    // EXST-3(b): the bus is a READ-ONLY observer of the registry's closed
+    // five-field entry — published right AFTER the add, so the registry's own
+    // `size()` transition points are unchanged.
+    this.#input.statusBus?.invocationStarted(entry.invocationId, entry.theta);
     let finished = false;
     return {
       settleDisposeBarrier: settleDispose,
@@ -1991,6 +2019,7 @@ class ProductionThetaProducer implements ThetaProducerDeps {
         finished = true;
         settleDispose();
         activeInvocations?.remove(entry);
+        this.#input.statusBus?.invocationEnded(entry.invocationId);
         // Bug 0073: AFTER the barrier settles and the entry is removed, so a
         // PIC-67 rethrow out of the note delivery cannot leave a live entry
         // behind or an unsettled barrier.
@@ -2060,8 +2089,43 @@ class ProductionThetaProducer implements ThetaProducerDeps {
         ctx.sessionManager.getLeafId(),
       ).messages as unknown as readonly Message[];
 
+    // Decision 6 / Increment B1 (active-invocation-registry.md §"Active
+    // invocation registry"): the invocation's registry entry, keyed by THIS
+    // `thetaAbort` so sub-step 2 (cancel in-flight) and sub-step 3 (await
+    // dispose) reach it. The slash dispatch entry point already opened the
+    // entry ahead of the binder await (`beginInvocation`); this bind REUSES that
+    // ticket via `bindInput.invocationTicket` rather than adding a second entry.
+    // A bind reached with no ticket (an `invoke` spawn site, the child-side
+    // regime, or an in-memory harness) opens its own here. Prompt mode has no
+    // `AgentSession.dispose()` analogue, so the barrier settles immediately at
+    // finish.
+    //
+    // RFC 0010 (EXST-4): hoisted above the host/execute deps so this
+    // invocation's id is in scope for the telemetry `Checkpoint` decorator and
+    // the lane hooks below. The hoist is inside the same all-synchronous
+    // prologue, so the registry's `size()` transition points are unchanged.
+    const ticket =
+      bindInput.invocationTicket ?? this.#openInvocationTicket(theta.slashName, thetaAbort);
+    const statusBus = this.#input.statusBus;
+    statusBus?.invocationBound(ticket.invocationId, {
+      mode: "prompt",
+      ...(bindInput.parentInvocationId !== undefined
+        ? { parentInvocationId: bindInput.parentInvocationId }
+        : {}),
+    });
+    // EXST-4: the per-invocation decorator wrapping the SHARED production
+    // `Checkpoint` (the seam itself is untouched; `before(kind, site)` carries
+    // no invocation identity, so the id is bound here). Identity passthrough
+    // when no bus is wired.
+    const checkpoint = decorateCheckpoint(root.checkpoint, statusBus, ticket.invocationId);
+    // EXST-3(c): the `par for` lane-set producer adapter.
+    const statusLanes: ParForLaneHooks | undefined =
+      statusBus === undefined
+        ? undefined
+        : { open: (total, width) => statusBus.openLaneSet(ticket.invocationId, total, width) };
+
     const hostDeps: EffectfulStatementHostDeps = {
-      checkpoint: root.checkpoint,
+      checkpoint,
       signal,
       sink: noopSink(),
       file: theta.slashName,
@@ -2103,14 +2167,14 @@ class ProductionThetaProducer implements ThetaProducerDeps {
       // `#driveCallee` so an `invoke`d prompt-mode callee attaches to this user
       // session (prompt→prompt) rather than spawning fresh.
       resolveInvoke: (expr, env, overrideChain) =>
-        this.#resolveInvoke(theta, expr, env, ctx, overrideChain ?? chain, signal, "prompt"),
+        this.#resolveInvoke(theta, expr, env, ctx, overrideChain ?? chain, signal, "prompt", ticket.invocationId),
       // Bug 0088: pair the wrapper `runInvokeEffect` builds for a failed hop
       // with its provenance record.
       recordInvokeHop: (wrapper, calleePath, callSite) =>
         this.#recordInvokeHop(theta, wrapper, calleePath, callSite),
       classifyCall: (expr) => this.#classifyCall(theta, expr),
       resolveCallAsInvoke: (expr, env, overrideChain) =>
-        this.#resolveCallAsInvoke(theta, expr, env, ctx, overrideChain ?? chain, signal, "prompt"),
+        this.#resolveCallAsInvoke(theta, expr, env, ctx, overrideChain ?? chain, signal, "prompt", ticket.invocationId),
       // RFC 0001 (`subagent fn`, FN-8): a prompt-mode theta may call a
       // `subagent fn` — the safe prompt→subagent direction. Each call spawns a
       // fresh isolated session under the resolved config; the depth frame
@@ -2128,7 +2192,7 @@ class ProductionThetaProducer implements ThetaProducerDeps {
         theta.sourcePath,
       ),
       host: createEffectfulStatementHost(hostDeps),
-      checkpoint: root.checkpoint,
+      checkpoint,
       signal,
       mutator: new NoopConversationMutator(),
       mode: "prompt",
@@ -2141,20 +2205,11 @@ class ProductionThetaProducer implements ThetaProducerDeps {
       // `subagentInboundInvokeDepth` above), so an invoke child's fn frames
       // share the same per-chain counter its invoke frames increment.
       invokeChain: chain,
+      // RFC 0010 (EXST-3(c)): absent unless a bus is wired, in which case
+      // `evalParFor` is byte-identical to the pre-RFC loop.
+      ...(statusLanes !== undefined ? { statusLanes } : {}),
     };
 
-    // Decision 6 / Increment B1 (active-invocation-registry.md §"Active
-    // invocation registry"): the invocation's registry entry, keyed by THIS
-    // `thetaAbort` so sub-step 2 (cancel in-flight) and sub-step 3 (await
-    // dispose) reach it. The slash dispatch entry point already opened the
-    // entry ahead of the binder await (`beginInvocation`); this bind REUSES that
-    // ticket via `bindInput.invocationTicket` rather than adding a second entry.
-    // A bind reached with no ticket (an `invoke` spawn site, the child-side
-    // regime, or an in-memory harness) opens its own here. Prompt mode has no
-    // `AgentSession.dispose()` analogue, so the barrier settles immediately at
-    // finish.
-    const ticket =
-      bindInput.invocationTicket ?? this.#openInvocationTicket(theta.slashName, thetaAbort);
     // Publish the invocation-scoped forwarding sources onto the shared sink LAST
     // (this method is synchronous and cannot throw between here and the return),
     // so a normal settle removes them via `finishInvocation` and only a
@@ -2399,8 +2454,33 @@ class ProductionThetaProducer implements ThetaProducerDeps {
     // private `complete()` conversation, never the caller's. The file-callee
     // path (below) uses `drive()` and never runs the body in-process.
     const signal = thetaAbort.signal;
+    // Decision 6 / Increment B1: the invocation's registry entry, opened before
+    // the lazy child launch below so the entry SPANS the real in-flight window;
+    // removal is deferred to `finishInvocation`. The slash dispatch entry
+    // point's pre-binder ticket is REUSED when present (`bindInput.invocationTicket`),
+    // so the entry also spans the binder window and no second entry is added.
+    //
+    // RFC 0010 (EXST-4): hoisted above the host/execute deps so this
+    // invocation's id is in scope for the telemetry `Checkpoint` decorator, the
+    // lane hooks, and the child tap below. The hoist stays inside the same
+    // all-synchronous prologue, so the registry's `size()` transition points
+    // are unchanged.
+    const ticket =
+      bindInput.invocationTicket ?? this.#openInvocationTicket(theta.slashName, thetaAbort);
+    const statusBus = this.#input.statusBus;
+    statusBus?.invocationBound(ticket.invocationId, {
+      mode: "subagent",
+      ...(bindInput.parentInvocationId !== undefined
+        ? { parentInvocationId: bindInput.parentInvocationId }
+        : {}),
+    });
+    const checkpoint = decorateCheckpoint(root.checkpoint, statusBus, ticket.invocationId);
+    const statusLanes: ParForLaneHooks | undefined =
+      statusBus === undefined
+        ? undefined
+        : { open: (total, width) => statusBus.openLaneSet(ticket.invocationId, total, width) };
     const hostDeps: EffectfulStatementHostDeps = {
-      checkpoint: root.checkpoint,
+      checkpoint,
       signal,
       sink: noopSink(),
       file: theta.slashName,
@@ -2422,14 +2502,14 @@ class ProductionThetaProducer implements ThetaProducerDeps {
       resolveToolCall: (expr, env, evaluatedToolArgs) =>
         this.#resolveToolCall(theta, expr, env, signal, evaluatedToolArgs),
       resolveInvoke: (expr, env, overrideChain) =>
-        this.#resolveInvoke(theta, expr, env, ctx, overrideChain ?? chain, signal, "subagent"),
+        this.#resolveInvoke(theta, expr, env, ctx, overrideChain ?? chain, signal, "subagent", ticket.invocationId),
       // Bug 0088: pair the wrapper `runInvokeEffect` builds for a failed hop
       // with its provenance record.
       recordInvokeHop: (wrapper, calleePath, callSite) =>
         this.#recordInvokeHop(theta, wrapper, calleePath, callSite),
       classifyCall: (expr) => this.#classifyCall(theta, expr),
       resolveCallAsInvoke: (expr, env, overrideChain) =>
-        this.#resolveCallAsInvoke(theta, expr, env, ctx, overrideChain ?? chain, signal, "subagent"),
+        this.#resolveCallAsInvoke(theta, expr, env, ctx, overrideChain ?? chain, signal, "subagent", ticket.invocationId),
       spawnSubagentFnSession: (config, overrideChain) =>
         this.#spawnSubagentFnSession(theta, config, ctx, overrideChain ?? chain, signal),
     };
@@ -2443,7 +2523,7 @@ class ProductionThetaProducer implements ThetaProducerDeps {
         theta.sourcePath,
       ),
       host: createEffectfulStatementHost(hostDeps),
-      checkpoint: root.checkpoint,
+      checkpoint,
       signal,
       mutator: new NoopConversationMutator(),
       mode: "subagent",
@@ -2455,15 +2535,10 @@ class ProductionThetaProducer implements ThetaProducerDeps {
       // THIS invocation's own chain, so a `subagent fn` body's fn frames share
       // the same per-chain counter its invoke frames increment.
       invokeChain: chain,
+      // RFC 0010 (EXST-3(c)): absent unless a bus is wired.
+      ...(statusLanes !== undefined ? { statusLanes } : {}),
     };
 
-    // Decision 6 / Increment B1: the invocation's registry entry, opened before
-    // the lazy child launch below so the entry SPANS the real in-flight window;
-    // removal is deferred to `finishInvocation`. The slash dispatch entry
-    // point's pre-binder ticket is REUSED when present (`bindInput.invocationTicket`),
-    // so the entry also spans the binder window and no second entry is added.
-    const ticket =
-      bindInput.invocationTicket ?? this.#openInvocationTicket(theta.slashName, thetaAbort);
     const detachForwarding = this.#trackForwardingSources(forwardingSources);
     let finished = false;
     const finishInvocation = (): void => {
@@ -2583,6 +2658,17 @@ class ProductionThetaProducer implements ThetaProducerDeps {
       throw new SubagentSpawnFailedError(reason);
     }
     const child = launch.child;
+    // RFC 0010 (EXST-5): the depth-1 child-activity tap — a SECOND listener on
+    // the child's existing stdout line pump, beside the envelope scan. It never
+    // consumes, detaches, or reorders the drive listener's lines (PIC-59's
+    // stray-line tolerance and terminal-signal ordering are unchanged) and it
+    // forwards only the bounded class-1 projection.
+    const detachChildTap =
+      statusBus === undefined
+        ? undefined
+        : attachChildActivityTap(child, (event) => {
+            statusBus.childEvent(ticket.invocationId, event);
+          });
 
     // PIC-66: forward cancellation to the `-p` child by killing it (the
     // child's stdin is spawned closed — bug 0002 — so no in-band stop
@@ -2640,6 +2726,9 @@ class ProductionThetaProducer implements ThetaProducerDeps {
     const teardown = async (): Promise<void> => {
       if (toreDown) return;
       toreDown = true;
+      // EXST-5: detach the activity tap before the child teardown runs
+      // (idempotent — a Set delete after close is a no-op).
+      detachChildTap?.();
       // PIC-60 backstop: delete the params temp file regardless of launch outcome.
       try {
         paramsCleanup();
@@ -3053,8 +3142,34 @@ class ProductionThetaProducer implements ThetaProducerDeps {
     ];
     const signal = thetaAbort.signal;
     const isolatedCtx = effectiveCtx;
+
+    // Decision 6 / Increment B1: register the in-flight invocation so the
+    // factory's `session_shutdown` teardown operates on it; settle the barrier on
+    // dispose (there is no child exit to observe on the in-process path).
+    //
+    // RFC 0010 (EXST-4): hoisted above the host deps so this session's id is in
+    // scope for the telemetry `Checkpoint` decorator below. All-synchronous, so
+    // the registry's `size()` transition points are unchanged.
+    const activeInvocations = this.#input.activeInvocations;
+    let settleDispose: () => void = (): void => {};
+    const disposeBarrier = new Promise<void>((resolve) => {
+      settleDispose = resolve;
+    });
+    const entry: ActiveInvocationEntry = {
+      thetaAbort,
+      disposeBarrier,
+      shutdownReason: undefined,
+      theta: overriddenTheta.slashName,
+      invocationId: root.idSource.newInvocationId(),
+    };
+    activeInvocations?.add(entry);
+    const statusBus = this.#input.statusBus;
+    statusBus?.invocationStarted(entry.invocationId, entry.theta);
+    statusBus?.invocationBound(entry.invocationId, { mode: "subagent-fn" });
+    const checkpoint = decorateCheckpoint(root.checkpoint, statusBus, entry.invocationId);
+
     const hostDeps: EffectfulStatementHostDeps = {
-      checkpoint: root.checkpoint,
+      checkpoint,
       signal,
       sink: noopSink(),
       file: overriddenTheta.slashName,
@@ -3073,34 +3188,18 @@ class ProductionThetaProducer implements ThetaProducerDeps {
       resolveToolCall: (expr, env, evaluatedToolArgs) =>
         this.#resolveToolCall(overriddenTheta, expr, env, signal, evaluatedToolArgs),
       resolveInvoke: (expr, env, overrideChain) =>
-        this.#resolveInvoke(overriddenTheta, expr, env, isolatedCtx, overrideChain ?? childChain, signal, "subagent"),
+        this.#resolveInvoke(overriddenTheta, expr, env, isolatedCtx, overrideChain ?? childChain, signal, "subagent", entry.invocationId),
       // Bug 0088: pair the wrapper `runInvokeEffect` builds for a failed hop
       // with its provenance record.
       recordInvokeHop: (wrapper, calleePath, callSite) =>
         this.#recordInvokeHop(overriddenTheta, wrapper, calleePath, callSite),
       classifyCall: (expr) => this.#classifyCall(overriddenTheta, expr),
       resolveCallAsInvoke: (expr, env, overrideChain) =>
-        this.#resolveCallAsInvoke(overriddenTheta, expr, env, isolatedCtx, overrideChain ?? childChain, signal, "subagent"),
+        this.#resolveCallAsInvoke(overriddenTheta, expr, env, isolatedCtx, overrideChain ?? childChain, signal, "subagent", entry.invocationId),
       spawnSubagentFnSession: (nestedConfig, overrideChain) =>
         this.#spawnSubagentFnSession(overriddenTheta, nestedConfig, isolatedCtx, overrideChain ?? childChain, signal),
     };
 
-    // Decision 6 / Increment B1: register the in-flight invocation so the
-    // factory's `session_shutdown` teardown operates on it; settle the barrier on
-    // dispose (there is no child exit to observe on the in-process path).
-    const activeInvocations = this.#input.activeInvocations;
-    let settleDispose: () => void = (): void => {};
-    const disposeBarrier = new Promise<void>((resolve) => {
-      settleDispose = resolve;
-    });
-    const entry: ActiveInvocationEntry = {
-      thetaAbort,
-      disposeBarrier,
-      shutdownReason: undefined,
-      theta: overriddenTheta.slashName,
-      invocationId: root.idSource.newInvocationId(),
-    };
-    activeInvocations?.add(entry);
     const detachForwarding = this.#trackForwardingSources(forwardingSources);
     let finished = false;
 
@@ -3112,6 +3211,7 @@ class ProductionThetaProducer implements ThetaProducerDeps {
         settleDispose();
         detachForwarding();
         activeInvocations?.remove(entry);
+        statusBus?.invocationEnded(entry.invocationId);
         // Bug 0073: AFTER the barrier settles and the entry is removed, so a
         // PIC-67 rethrow out of the note delivery cannot leave a live entry
         // behind or an unsettled barrier.
@@ -3929,6 +4029,13 @@ class ProductionThetaProducer implements ThetaProducerDeps {
     parentSignal: AbortSignal,
     /** The invoking theta's own `mode:` — selects the cross-mode attach cell. */
     callerMode: ThetaMode,
+    /**
+     * RFC 0010 (EXST-3(b)): the CALLING invocation's id, carried onto the
+     * callee's bind input so the execution-status bus renders the callee as a
+     * child node of its caller. `undefined` on a bind that holds no ticket (an
+     * in-memory harness).
+     */
+    parentInvocationId: string | undefined,
   ): InvokeChild {
     // `expr.args[0]` is the callee path literal; the remaining args are the
     // positional invocation arguments bound to the callee's params.
@@ -3950,6 +4057,7 @@ class ProductionThetaProducer implements ThetaProducerDeps {
       parentSignal,
       callerMode,
       evaluateCallSiteCwd(expr, env, chain),
+      parentInvocationId,
     );
   }
 
@@ -3968,6 +4076,13 @@ class ProductionThetaProducer implements ThetaProducerDeps {
     parentSignal: AbortSignal,
     /** The invoking theta's own `mode:` — threaded to `#driveCallee`. */
     callerMode: ThetaMode,
+    /**
+     * RFC 0010 (EXST-3(b)): the CALLING invocation's id, carried onto the
+     * callee's bind input so the execution-status bus renders the callee as a
+     * child node of its caller. `undefined` on a bind that holds no ticket (an
+     * in-memory harness).
+     */
+    parentInvocationId: string | undefined,
   ): InvokeChild {
     const calleePath = thetaCalleePath(theta, expr.callee) ?? `./${expr.callee}.theta`;
     const argValues = expr.args.map((arg) => evaluatePureExpression(arg, env, chain));
@@ -3986,6 +4101,7 @@ class ProductionThetaProducer implements ThetaProducerDeps {
       parentSignal,
       callerMode,
       rawCwd,
+      parentInvocationId,
     );
   }
 
@@ -4005,6 +4121,13 @@ class ProductionThetaProducer implements ThetaProducerDeps {
      * one). Validated and resolved in `#driveCallee`, pre-spawn.
      */
     rawCwd: ThetaValue | undefined,
+    /**
+     * RFC 0010 (EXST-3(b)): the CALLING invocation's id, carried onto the
+     * callee's bind input so the execution-status bus renders the callee as a
+     * child node of its caller. `undefined` on a bind that holds no ticket (an
+     * in-memory harness).
+     */
+    parentInvocationId: string | undefined,
   ): InvokeChild {
     return {
       calleePath,
@@ -4053,6 +4176,7 @@ class ProductionThetaProducer implements ThetaProducerDeps {
             parentSignal,
             callerMode,
             rawCwd,
+            parentInvocationId,
           ),
           signalGuard(parentSignal),
           noopSwallowChannels(),
@@ -4081,6 +4205,13 @@ class ProductionThetaProducer implements ThetaProducerDeps {
     parentSignal: AbortSignal,
     callerMode: ThetaMode,
     rawCwd: ThetaValue | undefined,
+    /**
+     * RFC 0010 (EXST-3(b)): the CALLING invocation's id, carried onto the
+     * callee's bind input so the execution-status bus renders the callee as a
+     * child node of its caller. `undefined` on a bind that holds no ticket (an
+     * in-memory harness).
+     */
+    parentInvocationId: string | undefined,
   ): Promise<DrivenInvokeResult> {
     // INV-1 (invocation.md §Resolution): re-run the realpath + discovery-root
     // containment check at the moment the runtime opens the callee,
@@ -4242,6 +4373,9 @@ class ProductionThetaProducer implements ThetaProducerDeps {
         paramBindings,
         chain,
         parentSignal,
+        // EXST-3(b): guarded spread — `exactOptionalPropertyTypes` distinguishes
+        // an omitted key from one set to `undefined`.
+        ...(parentInvocationId !== undefined ? { parentInvocationId } : {}),
       });
       // Decision 6 / Increment B1: the child bind registered an
       // ActiveInvocationRegistry entry; the `finally` calls its
@@ -4315,6 +4449,8 @@ class ProductionThetaProducer implements ThetaProducerDeps {
       paramBindings,
       chain,
       parentSignal,
+      // EXST-3(b): the caller's invocation id, for the child-node relation.
+      ...(parentInvocationId !== undefined ? { parentInvocationId } : {}),
       // RFC 0009 INV-8: the validated, `path.resolve`-normalised call-site cwd.
       // Guarded spread, not a bare `resolvedCwd` — `exactOptionalPropertyTypes`
       // distinguishes an omitted key from one explicitly set to `undefined`,

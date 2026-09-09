@@ -48,6 +48,7 @@ import type {
   WhileStmt,
 } from "../parser/theta-document";
 import type { Checkpoint, CheckpointKind, CheckpointSite } from "../seams/checkpoint";
+import type { ParForLaneHooks } from "../extension/execution-status/types";
 import type { Diagnostic } from "../diagnostics/diagnostic";
 import { assembleDiagnostics } from "../diagnostics/diagnostic";
 import type { CancellableStatement, OperationResult } from "./cancellation-core";
@@ -215,6 +216,17 @@ export interface ExecuteBodyDeps {
    * never share budget.
    */
   readonly invokeChain?: InvokeChain;
+  /**
+   * RFC 0010 (execution-status.md EXST-3(c)): the `par for` lane-set producer
+   * hooks, threaded from the bound invocation's executeDeps. OPTIONAL because
+   * existing constructors of this interface omit it (the `emitDiagnostic?` /
+   * `invokeChain?` precedent) — a required field would flip every one of them
+   * outside this seam's enumerated scope. `evalParFor` does not yet read this
+   * field (builder-surface pass, Phase 4b-B); the analyst leaf wires
+   * `open`/`claim`/`settle`/`close` per the seam sheet's producer-threading
+   * table (par. 2.4).
+   */
+  readonly statusLanes?: ParForLaneHooks;
 }
 
 /**
@@ -2003,6 +2015,15 @@ async function evalParFor(
   let wholeThetaCancelled = false;
   let nextIndex = 0;
 
+  // RFC 0010 (execution-status.md EXST-3(c)): open one lane set for this
+  // fan-out. The width handed to the observer is the POST-CTRL-2 clamped
+  // `workerCount` (resolved just below), so the rendered `w<n>` is the width
+  // actually in flight, not the requested `max`. Absent hooks ⇒ every call
+  // below is a `?.` no-op and this loop is byte-identical to the pre-RFC one
+  // (EXST-3's no-observable-effect rule).
+  const workerCount = Math.min(width, n);
+  const laneSet = deps.statusLanes?.open(n, workerCount);
+
   // A bounded worker pool: `min(width, n)` workers each pull the next input
   // index, run its iteration to completion, and record the result at that
   // index. Index claiming is synchronous (no await between read and
@@ -2022,23 +2043,32 @@ async function evalParFor(
         return;
       }
       nextIndex += 1;
+      // Published immediately after the SYNCHRONOUS claim (no await between
+      // the read and the increment above), so the observer sees the same claim
+      // order the pool dispatched in.
+      laneSet?.claim(index);
       const element = snapshot[index] as ThetaValue;
       const outcome = await runParForIteration(expr, element, env, deps);
       if (outcome.kind === "whole-theta-cancel") {
+        // CTRL-5 whole-theta cancel: the lane never settles — it drops with the
+        // node at end of invocation.
         wholeThetaCancelled = true;
         return;
       }
       results[index] = outcome.result;
       childDiagnostics[index] = outcome.diagnostics;
+      laneSet?.settle(index, outcome.result.ok ? "done" : "err");
     }
   };
 
-  const workerCount = Math.min(width, n);
   const workers: Promise<void>[] = [];
   for (let i = 0; i < workerCount; i += 1) {
     workers.push(worker());
   }
   await Promise.all(workers); // allow: CTRL-2 — control-flow.md#par-for
+  // Every exit path below (value AND cancel) leaves the fan-out here, so the
+  // lane set closes exactly once, before either.
+  laneSet?.close();
 
   // CTRL-5 — whole-theta cancellation observed (pre- or mid-flight): terminal
   // Cancelled outcome, no partial array surfaced as a value.

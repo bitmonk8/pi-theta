@@ -132,6 +132,33 @@ export interface SurfaceInventoryEntry {
  * `Object.freeze` keeps this module-level constant off the *No globals,
  * statics, singletons* mutable-binding scan (a frozen runtime-immutable list).
  */
+/**
+ * PIC-73 — the optional UI/entry capability class: a frozen five-member list
+ * with failure semantics OPPOSITE to the seven-item SDK capability inventory.
+ * Every member is presence-probed `typeof`-only and PER SURFACE; a missing or
+ * failing member removes only that surface's consumers, never refuses factory
+ * registration, never degrades any theta's registration, and mints NO
+ * diagnostic.
+ *
+ * Disjoint from {@link CAPABILITY_OBLIGATIONS} by construction: these members
+ * MUST NOT join the seven-set (its `length === 7` is a GOV-31 in-code witness)
+ * nor the Step 0 (c) factory-probable member loop. They appear in
+ * {@link SDK_SURFACE_INVENTORY} as presence RECORDS only — never gates.
+ *
+ * `ctx.hasUI` is a sibling advisory INPUT to these surfaces' consumers, not a
+ * member of the class.
+ *
+ * `Object.freeze` keeps this module-level constant off the *No globals,
+ * statics, singletons* mutable-binding scan (a frozen runtime-immutable list).
+ */
+export const OPTIONAL_UI_CAPABILITIES: readonly string[] = Object.freeze([
+  "ctx.ui.setStatus",
+  "ctx.ui.setWidget",
+  "ctx.ui.setWorkingMessage",
+  "pi.appendEntry",
+  "pi.registerEntryRenderer",
+]);
+
 export const CAPABILITY_OBLIGATIONS: readonly CapabilityObligation[] =
   Object.freeze(
     (
@@ -206,6 +233,18 @@ export const SDK_SURFACE_INVENTORY: readonly SurfaceInventoryEntry[] =
     { id: "pi.getAllTools", kind: "namespace-function" },
     { id: "pi.registerMessageRenderer", kind: "namespace-function" },
     { id: "pi.sendMessage", kind: "namespace-function" },
+    // RFC 0010 / PIC-73: the five OPTIONAL UI/entry surfaces
+    // (`OPTIONAL_UI_CAPABILITIES`, above) as presence rows — records, never
+    // gates: the two `pi.*` members carry the category-(1) `pi-member` kind
+    // (the inventory-closure audit's join key for the entry channel's own
+    // `pi.appendEntry` / `pi.registerEntryRenderer` accesses), and the three
+    // `ctx.ui.*` members the category-(3) `ctx-member` kind. None of them joins
+    // `CAPABILITY_OBLIGATIONS` (GOV-31's seven-set) or the Step 0 (c) probe.
+    { id: "pi.appendEntry", kind: "pi-member" },
+    { id: "pi.registerEntryRenderer", kind: "pi-member" },
+    { id: "ctx.ui.setStatus", kind: "ctx-member" },
+    { id: "ctx.ui.setWidget", kind: "ctx-member" },
+    { id: "ctx.ui.setWorkingMessage", kind: "ctx-member" },
     // RFC-0005: `createAgentSession` and the former in-process subagent
     // satellites (`SessionManager` / `DefaultResourceLoader` / `getAgentDir` /
     // `defineTool` / `AgentToolResult`) have LEFT the inventory entirely

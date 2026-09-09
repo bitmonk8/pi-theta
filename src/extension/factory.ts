@@ -33,6 +33,15 @@ import type { Diagnostic } from "../diagnostics/diagnostic";
 import { renderUnderlyingError } from "../diagnostics/placeholder";
 import { createSystemNoteRenderer } from "./system-note-renderer";
 import {
+  createEntryChannel,
+  type EntryChannelHandle,
+} from "./execution-status/entry-channel";
+import type { ExecutionStatusBus } from "./execution-status/types";
+import {
+  registerThetaStatusCommand,
+  THETA_STATUS_COMMAND_NAME,
+} from "./execution-status/status-command";
+import {
   RendererGate,
   SystemNoteChannelHealth,
   sendSystemNote,
@@ -397,6 +406,14 @@ export interface ThetaExtensionDeps {
     pi: ExtensionAPI,
     ctx: ExtensionContext,
     ownRegisteredNames: ReadonlySet<string>,
+    // RFC 0010: the fourth/fifth parameters are the factory-owned optional-UI
+    // surfaces the compose pass needs — the PIC-71 entry channel (constructed
+    // in the factory body beside the message renderer) and the latch the
+    // composed instance hands its execution-status bus back through, so
+    // `/theta-status` (registered in the factory body) reaches the LIVE bus and
+    // `session_shutdown` can dispose it (EXST-2).
+    entryChannel?: EntryChannelHandle,
+    latchStatusBus?: (bus: ExecutionStatusBus) => void,
   ) => Promise<ExtensionInstanceWiring>;
 
   /**
@@ -549,6 +566,16 @@ export function createThetaExtension(
     // `pi.getCommands()` and must still be excluded on the next pass, which only
     // this cumulative ledger (not a registry snapshot) remembers.
     const ownRegisteredNames = new Set<string>();
+    // RFC 0010 (EXST-2/EXST-11): the LIVE execution-status bus of the current
+    // composed instance, latched by the compose pass and read by the
+    // `/theta-status` handler. Factory-scoped closure state like every other
+    // binding here — no globals, no statics.
+    let liveStatusBus: ExecutionStatusBus | undefined;
+    // RFC 0010 (EXST-11): `/theta-status` registers exactly once per extension
+    // instance (not once per `registerFixtures` pass — the composed path can
+    // re-run `registerFixtures` across a supersession/rebind), so this latch
+    // guards the single registration below.
+    let statusCommandRegistered = false;
     // Step 1 — `--theta` flag. Synchronous-void; per-call wrapped. A
     // `registerFlag` throw is FATAL to the whole extension: step 1's `--theta`
     // flag is what every subsequent discovery / `resources_discover` walk reads
@@ -580,6 +607,14 @@ export function createThetaExtension(
         bootstrapFailedDiagnostic("pi.registerMessageRenderer", e),
       );
     }
+
+    // RFC 0010 / PIC-71 — the `theta-progress-entry` channel, registered
+    // synchronously BESIDE the message renderer. Deliberately unlike the arm
+    // above: both members are optional-capability-class surfaces (PIC-73), so
+    // an absent member or a throwing registration degrades the channel
+    // SILENTLY (no diagnostic, no refusal) and PIC-72's message-channel
+    // fallback owns delivery for the whole session.
+    const entryChannel = createEntryChannel(pi);
 
     // The three factory-time `pi.on` subscriptions (steps 1/3/4). A
     // subscription throw is FATAL to the whole extension: the subscribed
@@ -689,6 +724,24 @@ export function createThetaExtension(
       } catch (e: unknown) { // allow-broad-catch: pi-sdk-boundary — conventions.md Specific exception types only
         deps.emitDiagnostic?.(bootstrapFailedDiagnostic("pi.getCommands", e));
         return;
+      }
+      // RFC 0010 / EXST-11 — `/theta-status` registers once per extension
+      // instance, guarded by `statusCommandRegistered` (not per `registerFixtures`
+      // call, and not per theta). Mirrors the per-theta idiom below: the ledger is
+      // stamped before the call, and a throw drops only this registration (one
+      // diagnostic) without aborting the theta registrations that follow.
+      if (!statusCommandRegistered) {
+        statusCommandRegistered = true;
+        ownRegisteredNames.add(THETA_STATUS_COMMAND_NAME);
+        try {
+          registerThetaStatusCommand(pi, { current: () => liveStatusBus });
+        } catch (e: unknown) { // allow-broad-catch: pi-sdk-boundary — conventions.md Specific exception types only
+          deps.emitDiagnostic?.(
+            bootstrapFailedDiagnostic("pi.registerCommand", e, {
+              theta: THETA_STATUS_COMMAND_NAME,
+            }),
+          );
+        }
       }
       for (const fixture of fixtures) {
         // Bug 0024 (registration-steps.md#pic-69): stamp the ledger BEFORE the
@@ -881,7 +934,15 @@ export function createThetaExtension(
         // own-registration ledger so this pass's cross-format collision check
         // excludes every name this instance itself registered — including a
         // prior generation's, on a supersession or start-after-shutdown rebind.
-        wiring = await deps.composeInstance!(pi, ctx, ownRegisteredNames);
+        wiring = await deps.composeInstance!(
+          pi,
+          ctx,
+          ownRegisteredNames,
+          entryChannel,
+          (bus: ExecutionStatusBus): void => {
+            liveStatusBus = bus;
+          },
+        );
       } catch (e: unknown) { // allow-broad-catch: pi-sdk-boundary — conventions.md Specific exception types only
         if (composeTailSuperseded()) {
           return;
@@ -1189,6 +1250,11 @@ export function createThetaExtension(
           hotReloadHandle = undefined;
           liveActiveInvocations = undefined;
           liveForwardingSignals = undefined;
+          // EXST-2: the bus is torn down with the instance, so a fresh
+          // `/reload` instance starts with a fresh bus and every sink
+          // un-degraded. `dispose()` is idempotent and never throws.
+          liveStatusBus?.dispose();
+          liveStatusBus = undefined;
           supersededGenerations.length = 0;
 
           // The classifier reads `event.reason` in its own `try` (PIC-47), so
@@ -1271,8 +1337,24 @@ export default function thetaExtension(pi: ExtensionAPI): void {
     // own-registration ledger into the composition root so every compose pass
     // — first start, hot-reload, and every supersession/rebind pass alike —
     // excludes this instance's own prior registrations from the collision read.
-    composeInstance: (pi, ctx: ExtensionContext, ownRegisteredNames: ReadonlySet<string>) =>
-      composeExtensionInstance(pi, ctx, undefined, rendererGate, ownRegisteredNames),
+    composeInstance: (
+      pi,
+      ctx: ExtensionContext,
+      ownRegisteredNames: ReadonlySet<string>,
+      // RFC 0010: the factory-owned entry channel (PIC-71) and the
+      // execution-status-bus latch (EXST-2/EXST-11) ride through unchanged.
+      entryChannel,
+      latchStatusBus,
+    ) =>
+      composeExtensionInstance(
+        pi,
+        ctx,
+        undefined,
+        rendererGate,
+        ownRegisteredNames,
+        entryChannel,
+        latchStatusBus,
+      ),
     isSubagentChild,
   })(pi);
 }

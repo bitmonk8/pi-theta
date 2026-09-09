@@ -41,6 +41,39 @@ function textComponent(lines: readonly string[]): Component {
 }
 
 /**
+ * The shared note-body formatting step (PIC-71): given a note's `content` and
+ * `display`, produce the very `Component` the `theta-system-note` message
+ * renderer draws — `undefined` for `display === false`. The `theta-progress-
+ * entry` renderer reuses THIS function so a migrated operator note renders
+ * byte-identical lines on either channel.
+ *
+ * PIC-21 / PIC-56 obligations ride here: an internal throw from the injected
+ * `formatLines` step falls back to the raw content lines, and every returned
+ * `Component` fits its output to the supplied render width.
+ */
+export function renderSystemNoteBody(
+  content: string,
+  display: boolean | undefined,
+  formatLines?: (content: string) => readonly string[],
+): Component | undefined {
+  try {
+    if (display === false) {
+      return undefined;
+    }
+    const lines = formatLines ? formatLines(content) : content.split("\n");
+    return textComponent(lines);
+  } catch (e: unknown) { // allow-broad-catch: PIC-21 — runtime-event-channel.md / extension-bootstrap-and-per-theta.md#pic-21
+    // PIC-21: trap any internal renderer-body failure. `display === false`
+    // still renders nothing; otherwise fall back to the raw content lines.
+    void e;
+    if (display === false) {
+      return undefined;
+    }
+    return textComponent(content.split("\n"));
+  }
+}
+
+/**
  * Construction dependencies for the `theta-system-note` renderer. `formatLines`
  * is the dim-styling step PIC-21 wraps: a throw from it is an internal
  * renderer failure the V7d hardening catches, falling back to the raw
@@ -68,22 +101,6 @@ export function createSystemNoteRenderer(
   return (message, _options, _theme): Component | undefined => {
     const content =
       typeof message.content === "string" ? message.content : "";
-    try {
-      if (message.display === false) {
-        return undefined;
-      }
-      const lines = deps?.formatLines
-        ? deps.formatLines(content)
-        : content.split("\n");
-      return textComponent(lines);
-    } catch (e: unknown) { // allow-broad-catch: PIC-21 — runtime-event-channel.md / extension-bootstrap-and-per-theta.md#pic-21
-      // PIC-21: trap any internal renderer-body failure. `display === false`
-      // still renders nothing; otherwise fall back to the raw content lines.
-      void e;
-      if (message.display === false) {
-        return undefined;
-      }
-      return textComponent(content.split("\n"));
-    }
+    return renderSystemNoteBody(content, message.display, deps?.formatLines);
   };
 }

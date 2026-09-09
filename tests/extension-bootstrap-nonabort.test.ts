@@ -289,8 +289,9 @@ describe("V9p extension bootstrap — pi.registerCommand failure (theta/load/ext
     expect(() => rec.fireSessionStart()).not.toThrow();
 
     // Only the failing theta is dropped; the siblings register through their own
-    // `pi.registerCommand` calls.
-    expect(rec.registeredCommands).toEqual(["a", "c"]);
+    // `pi.registerCommand` calls. RFC 0010 (EXST-11): `/theta-status` registers
+    // once per instance ahead of the per-theta loop, so it leads the set.
+    expect(rec.registeredCommands).toEqual(["theta-status", "a", "c"]);
 
     // Exactly one diagnostic — for the one failing theta — naming the capability
     // and the failing theta's slash name.
@@ -313,8 +314,10 @@ describe("V9p extension bootstrap — pi.registerCommand failure (theta/load/ext
     })(rec.pi);
     rec.fireSessionStart();
 
-    // The non-failing sibling still registers.
-    expect(rec.registeredCommands).toEqual(["b"]);
+    // The non-failing sibling still registers. RFC 0010 (EXST-11):
+    // `/theta-status` leads the set (registers once per instance ahead of the
+    // per-theta loop).
+    expect(rec.registeredCommands).toEqual(["theta-status", "b"]);
 
     // One diagnostic per failing theta, each naming its own slash name.
     expect(diagnostics).toHaveLength(2);

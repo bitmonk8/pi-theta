@@ -40,7 +40,7 @@
 // runtime-event-channel.md §"System notes".
 
 import {
-  sendSystemNote,
+  deliverOperatorNotePreferringEntry,
   type SystemNote,
   type SystemNoteChannelDeps,
 } from "./system-note-channel";
@@ -105,7 +105,10 @@ export function createLoadFailurePreEvalRouter(
       // reload-integration reuse; every cause routes through the one delivery
       // path, so no per-cause branching is required here.
       void cause;
-      sendSystemNote(note, deps.channel);
+      // PIC-72: error-severity parse/load failures are single-element members
+      // of the diagnostic-BATCH class, so they ride the entry channel first
+      // and fall back to the unchanged `sendMessage` realization.
+      deliverOperatorNotePreferringEntry(note, deps.channel);
     },
   };
 }

@@ -27,7 +27,7 @@ import { nodeErrorCode } from "./node-error-code";
 /** A parsed JSON object (the on-disk shape of one settings file's root). */
 export type JsonObject = Record<string, unknown>;
 
-/** The four recognised `theta.*` scalar keys (post-validation, cleaned view). */
+/** The five recognised `theta.*` scalar keys (post-validation, cleaned view). */
 export interface ThetasSettings {
   /** `theta.binderModel` — a non-empty model identifier; no built-in default. */
   readonly binderModel?: string;
@@ -37,6 +37,13 @@ export interface ThetasSettings {
   readonly scanPackagesMaxFiles?: number;
   /** `theta.scanPackagesTimeoutMs` — integer ≥ 1 (default `2000`). */
   readonly scanPackagesTimeoutMs?: number;
+  /**
+   * `theta.progress` — the live execution-status verbosity ceiling (EXST-10);
+   * one of `"off"` / `"counts"` / `"names"`, case-sensitive. No defaulting
+   * here: the `"names"` default is applied at the read site, per this module's
+   * treated-absent convention.
+   */
+  readonly progress?: "off" | "counts" | "names";
 }
 
 /**
@@ -139,12 +146,13 @@ const SETTINGS_INVALID_ENTRY = "theta/load/settings-invalid-entry";
 const SETTINGS_INVALID_JSON = "theta/load/settings-invalid-json";
 const SETTINGS_UNREADABLE = "theta/load/settings-unreadable";
 
-/** The four recognised `thetas.*` scalar keys, in their fixed inspection order. */
+/** The five recognised `thetas.*` scalar keys, in their fixed inspection order. */
 const THETAS_SCALAR_KEYS = [
   "binderModel",
   "scanPackages",
   "scanPackagesMaxFiles",
   "scanPackagesTimeoutMs",
+  "progress",
 ] as const;
 
 /** Validate one `thetas.*` scalar value against its declared type/range. */
@@ -157,6 +165,10 @@ function isScalarKeyValid(key: (typeof THETAS_SCALAR_KEYS)[number], value: unkno
     case "scanPackagesMaxFiles":
     case "scanPackagesTimeoutMs":
       return typeof value === "number" && Number.isInteger(value) && value >= 1;
+    case "progress":
+      // EXST-10: the closed literal set, case-sensitive — any other string and
+      // every non-string is out of range (package-and-settings.md).
+      return value === "off" || value === "counts" || value === "names";
   }
 }
 

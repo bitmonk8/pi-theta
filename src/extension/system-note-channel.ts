@@ -24,6 +24,7 @@ import {
   type Diagnostic,
 } from "../diagnostics/diagnostic";
 import { isStaleCtxError } from "./stale-ctx";
+import type { EntryChannelHandle } from "./execution-status/entry-channel";
 
 /**
  * Spell a single diagnostic's `file` / `related[].file` with the pinned POSIX
@@ -284,6 +285,38 @@ export interface SystemNoteChannelDeps {
    * still rethrows rather than re-entering the equally-stale `ctx.ui` fallback.
    */
   readonly health?: SystemNoteChannelHealth;
+  /**
+   * RFC 0010 (PIC-71/72): the `theta-progress-entry` entry channel, when this
+   * host exposes both entry members. The three OPERATOR-FACING note classes
+   * (parse/load/type diagnostic batches, structural-change notes, binder-model
+   * recovery notes) deliver through {@link deliverOperatorNotePreferringEntry}
+   * first, because an entry never enters provider replay and so cannot land
+   * between an assistant `tool_use` and its `tool_result` (bug 0469). Absent
+   * (or dead) means the pre-migration `pi.sendMessage` realization owns
+   * delivery for those classes too; every OTHER emitter is unchanged either
+   * way.
+   */
+  readonly entryChannel?: EntryChannelHandle;
+}
+
+/**
+ * PIC-72: deliver one operator-facing note, preferring the LLM-context-free
+ * entry channel and falling back to the unchanged `pi.sendMessage`
+ * realization. Exactly one channel realizes each note — never both (the
+ * channel change must not double-render), never neither (a dead/absent channel
+ * always falls back, so no class is silently dropped). No dedup on either
+ * channel: a re-scan re-emits (diagnostic-shape.md re-scan rule).
+ */
+export function deliverOperatorNotePreferringEntry(
+  note: SystemNote,
+  deps: SystemNoteChannelDeps,
+): void {
+  if (deps.entryChannel !== undefined && deps.entryChannel.live()) {
+    if (deps.entryChannel.append(note)) {
+      return;
+    }
+  }
+  sendSystemNote(note, deps);
 }
 
 /**
@@ -459,11 +492,12 @@ export function emitDiagnosticBatch(
   diagnostics: readonly Diagnostic[],
   deps: SystemNoteChannelDeps,
 ): void {
-  // One `theta-system-note` per `.theta` scan carrying the full batch — no
-  // per-error fan-out. Content is the serialised batch; `details.diagnostics`
-  // carries the full `Diagnostic[]`. A re-scan re-emits with no dedup /
-  // supersede (a second call is a second `sendMessage`).
-  sendSystemNote(
+  // One note per `.theta` scan carrying the full batch — no per-error fan-out.
+  // Content is the serialised batch; `details.diagnostics` carries the full
+  // `Diagnostic[]`. A re-scan re-emits with no dedup / supersede (a second call
+  // is a second delivery). PIC-72: the batch class is entry-first, so this one
+  // swap migrates every batch emitter with no caller edits.
+  deliverOperatorNotePreferringEntry(
     {
       content: renderDiagnosticBatch(diagnostics),
       display: true,

@@ -163,9 +163,11 @@ describe("S6 — composition-root package two-stage merge", () => {
     expect(harness.commands.has("dup")).toBe(true);
     expect(harness.registrations.filter((n) => n === "dup")).toHaveLength(1);
 
-    // Only the three expected commands register (no stray package duplicate).
+    // Only the expected commands register (no stray package duplicate). RFC
+    // 0010 (EXST-11): `/theta-status` registers once per instance alongside
+    // the composed thetas.
     expect(new Set(harness.registrations)).toEqual(
-      new Set(["dup", "uniquepkg"]),
+      new Set(["dup", "uniquepkg", "theta-status"]),
     );
   });
 });

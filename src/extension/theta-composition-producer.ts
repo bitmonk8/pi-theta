@@ -233,6 +233,13 @@ export interface ConversationBindInput {
    * a fresh chain at depth 0.
    */
   readonly chain?: InvokeChain;
+  /**
+   * RFC 0010 (execution-status.md EXST-3(b)): the CALLING invocation's id, so
+   * the execution-status bus can render the callee as a child node of its
+   * caller. Present only on a nested `invoke(...)` / `.theta`-callable bind;
+   * absent for a top-level slash dispatch (a parentless root node).
+   */
+  readonly parentInvocationId?: string;
 }
 
 /**

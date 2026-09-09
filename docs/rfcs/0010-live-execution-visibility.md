@@ -244,10 +244,14 @@ envelope-vs-not classification is not widened (its behaviour for
 - **L0 footer heartbeat** — `ctx.ui.setStatus("theta", …)`:
 
   ```
-  θ /quality-loop 14m · bash tools/… (2m) · children 3▶ 2✓
+  θ /quality-loop 14m · tool-call @ quality-loop.theta:37 (2m) · children 3▶ 2✓
   ```
 
-  theta, elapsed, current effect kind + age, child lane summary. Also
+  theta, elapsed, current effect kind @ theta source site + age, child lane
+  summary (the parent-regime producer set is the closed checkpoint payload
+  `(invocationId, kind, site)` — tool *names* enter the telemetry class only
+  where a producer carries them: the child tap's `tool_execution_start` and,
+  at L3, self-reports). Also
   `ctx.ui.setWorkingMessage` while a driven prompt-mode turn is streaming; no
   `setWorkingIndicator` frames (§Resolved questions, item 5).
 - **L2 tree widget** — `ctx.ui.setWidget`, placement `belowEditor`, height
@@ -685,3 +689,21 @@ run is mandatory per `AGENTS.md`):
   throwing renderer registration marks the entry channel absent for the
   session (PIC-71) and the message-channel fallback owns all delivery from
   registration onward.
+- **Erratum B — EXST-6 tick anchoring** (Phase 4, 2026-09-09). The landed
+  EXST-6 parenthetical read "the same shape as the reload debounce", but an
+  event-anchored debounce restarts its window on each new event and so never
+  fires under continuous dirt — starving the L0 acceptance gate's own
+  heartbeat during exactly the long-running activity the surface exists for.
+  EXST-6 now pins the last-render-anchored throttle (deadline kept, extra
+  schedules dropped) and cites the reload debounce as the deliberate
+  contrast, not the template. The normative "minimum inter-render interval"
+  clause is unchanged.
+- **Erratum C — footer example over-promised parent-regime tool names**
+  (Phase 4, 2026-09-09). §Sinks' illustrative footer line showed `bash
+  tools/…`, but the parent-regime producer set is the closed checkpoint
+  payload `(invocationId, kind, site)` (EXST-3/EXST-4) — no tool name exists
+  there to render. The example now shows `tool-call @ <file>:<line>`; tool
+  names appear where a producer genuinely carries them (child-tap
+  `tool_execution_start`; L3 self-reports). No decision line is touched:
+  verbosity level `names` gates what may render, not what producers must
+  carry.

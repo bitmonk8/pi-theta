@@ -182,6 +182,14 @@ import { createProductionProducerDeps } from "./production-theta-producer";
 import type { CalleeParseOutcome } from "./production-theta-producer";
 import { ActiveInvocationRegistry } from "../runtime/active-invocation-registry";
 import type { ForwardingSignalSource } from "./session-shutdown";
+import { createExecutionStatusBus } from "./execution-status/bus";
+import type { ExecutionStatusBus, StatusSink } from "./execution-status/types";
+import { createFooterSink, type FooterUi } from "./execution-status/footer-sink";
+import { createWidgetSink, type WidgetUi } from "./execution-status/widget-sink";
+import {
+  RESERVED_COMMAND_NAMES,
+} from "./execution-status/status-command";
+import type { EntryChannelHandle } from "./execution-status/entry-channel";
 
 /** Seam overrides for test injection — the FAKE FileWatcher / Clock the
  * watcher-hot-reload integration test drives through the real composition. */
@@ -579,6 +587,13 @@ async function runComposePass(
   // the same gate; the reload-less `discoverAndComposeFixtures` helper holds no
   // instance and passes none.
   rendererGate?: RendererGate,
+  // RFC 0010 (PIC-71/72): the factory's `theta-progress-entry` channel, so this
+  // pass's parse/load diagnostic BATCHES deliver entry-first.
+  entryChannel?: EntryChannelHandle,
+  // RFC 0010 (EXST-2/3): the extension-instance execution-status bus, threaded
+  // into every composed theta's producer. Absent on harness paths ⇒ every
+  // producer hook is a `?.` no-op.
+  statusBus?: ExecutionStatusBus,
 ): Promise<ComposePassResult> {
   const fileSystem = root.fileSystem;
   const clock = root.clock;
@@ -635,6 +650,13 @@ async function runComposePass(
   sink.emitGroup(settingsResult.diagnostics);
   const settings: ThetaSettings = settingsResult.settings;
 
+  // EXST-10: the telemetry-class ceiling, read like every other settings key
+  // and defaulted at the READ site (an absent OR out-of-range value is absent
+  // in the cleaned view, so both land on `names`). A hot-reload re-compose
+  // pass re-runs this, so a settings edit takes effect at the next reload
+  // without reconstructing the bus.
+  statusBus?.setVerbosity(settings.theta?.progress ?? "names");
+
   // RFC-0006 (PIC-58): the subagent-root regime detected once from the process
   // env, hoisted ahead of the discovery walk so bug 0331's marked-root winner
   // threads INTO the walk rather than only being consulted after it. Active
@@ -654,7 +676,15 @@ async function runComposePass(
   // Discovery walk. CLI `--theta` roots are split on the platform path
   // delimiter (the walk is platform-independent over already-split paths).
   const cliPaths = readThetaFlagPaths(pi);
-  const piOwnedNames = readPiOwnedCommands(pi, excludeOwnedNames);
+  // EXST-11: the reserved `/theta-status` stem joins the Pi-owned set the
+  // collision pass reads. The ledger alone would NOT reserve it — PIC-69's
+  // source-conditioned exclusion drops this instance's own registrations from
+  // the collision read — so the reservation is explicit here, and a discovered
+  // theta stem `theta-status` draws the EXISTING cross-format-collision code.
+  const piOwnedNames = [
+    ...readPiOwnedCommands(pi, excludeOwnedNames),
+    ...RESERVED_COMMAND_NAMES.map((name) => ({ name })),
+  ];
 
   // Package source (V10b, priority 4) — the bounded scan runs FIRST (it needs
   // the injected clock/bounds the walk itself does not carry) and its results
@@ -715,7 +745,7 @@ async function runComposePass(
   // re-invoke the very host call that just threw whenever a note's
   // `pi.sendMessage` delivery throws (runtime-event-channel.md:135 re-entry
   // MUST NOT).
-  const systemNote = buildSystemNoteDeps(pi, ctx, makeLoadEmit(ctx), rendererGate);
+  const systemNote = buildSystemNoteDeps(pi, ctx, makeLoadEmit(ctx), rendererGate, entryChannel);
   // Bug 0264: one pass-scoped parse cache, created here (never module-level —
   // no global/static/singleton) and carried on `parseDeps` itself so a file
   // reached by more than one walk in THIS pass is parsed once and its lex rows
@@ -875,6 +905,10 @@ async function runComposePass(
     // it observes this instance's renderer gate and delivery-health latch
     // instead of a freshly-built channel that carries neither.
     systemNoteChannel: systemNote,
+    // RFC 0010 (EXST-3): the execution-status bus every bind choke point
+    // publishes invocation lifecycle, checkpoint, lane, and child-tap material
+    // to. Absent ⇒ every hook is a `?.` no-op.
+    ...(statusBus !== undefined ? { statusBus } : {}),
     // H8b: resolve a code-side Pi-tool name to its `execute` dispatch over the
     // live host `cwd` / `ctx`.
     resolvePiTool: (name: string) => resolvePiTool(name, ctx),
@@ -1595,6 +1629,13 @@ export interface ExtensionInstanceWiring {
    */
   readonly activeRoots?: readonly string[];
   /**
+   * RFC 0010 (EXST-2): the live per-instance execution-status bus, exposed so
+   * the factory's `session_shutdown` teardown disposes the SAME instance the
+   * producers publish into. Optional: type-annotated wiring literals in this
+   * repo's test doubles predate this field and omit it.
+   */
+  readonly statusBus?: ExecutionStatusBus;
+  /**
    * The live `Clock` seam the composition root built once and the step-5
    * watcher / 250 ms debounce measure against. Threaded so the factory's
    * `session_shutdown` teardown reads the SAME clock instance the watcher used
@@ -1640,6 +1681,11 @@ export async function composeExtensionInstance(
   // detection. The hot-reload rediscover pass keeps the registry-snapshot
   // carve-out below in that case.
   ownRegisteredNames?: ReadonlySet<string>,
+  // RFC 0010 (PIC-71/72): the factory-owned `theta-progress-entry` channel.
+  entryChannel?: EntryChannelHandle,
+  // RFC 0010 (EXST-2/EXST-11): hand the constructed bus back to the factory so
+  // `/theta-status` reaches the LIVE instance and `session_shutdown` disposes it.
+  latchStatusBus?: (bus: ExecutionStatusBus) => void,
 ): Promise<ExtensionInstanceWiring> {
   // The transient toast + stderr emit. Retained ONLY as the `theta-system-note`
   // channel's own delivery-failure fallback: it MUST stay off-channel so a
@@ -1654,7 +1700,7 @@ export async function composeExtensionInstance(
   // `rendererGate` (bug 0023 element 2) threads the SAME instance the factory
   // degrades on a `pi.registerMessageRenderer` failure, so the degrade branch
   // below reads live state instead of a permanently-absent gate.
-  const channel = buildSystemNoteDeps(pi, ctx, emitToast, rendererGate);
+  const channel = buildSystemNoteDeps(pi, ctx, emitToast, rendererGate, entryChannel);
 
   // V4e — the load-time pre-evaluation failure router. Each error-severity
   // load-phase diagnostic routes onto the `theta-system-note` channel with the
@@ -1731,6 +1777,54 @@ export async function composeExtensionInstance(
   // passes.
   const forwardingSignals: ForwardingSignalSource[] = [];
 
+  // RFC 0010 (EXST-2): ONE execution-status bus per extension instance,
+  // constructed beside `activeInvocations` and reading the SAME `Clock` the
+  // reload debouncer measures against (PIC-12 — `root.clock`, never a bare
+  // global timer). Reused across hot-reload passes and disposed with the
+  // instance at `session_shutdown`, so a fresh `/reload` instance starts with a
+  // fresh bus and every sink un-degraded.
+  //
+  // PIC-73: each optional UI surface is presence-probed INDEPENDENTLY and
+  // `typeof`-only (the probe never calls the member). A missing surface simply
+  // removes that sink; it never refuses or degrades theta registration and
+  // mints no diagnostic. `ctx.hasUI` is advisory only and gates nothing here.
+  // `ctx.ui` is read IN PLACE at each probe and each call (never captured into
+  // a local binding — the inventory-closure audit's family-(4) shape rule), and
+  // every read is optional-chained so a divergent host missing the whole `ui`
+  // carrier degrades instead of throwing.
+  const statusSinks: StatusSink[] = [];
+  if (
+    typeof (ctx.ui as unknown as Partial<FooterUi> | undefined)?.setStatus === "function" ||
+    typeof (ctx.ui as unknown as Partial<FooterUi> | undefined)?.setWorkingMessage ===
+      "function"
+  ) {
+    statusSinks.push(
+      createFooterSink({
+        setStatus: (key, text) => {
+          (ctx.ui as unknown as Partial<FooterUi> | undefined)?.setStatus?.(key, text);
+        },
+        setWorkingMessage: (message) => {
+          (ctx.ui as unknown as Partial<FooterUi> | undefined)?.setWorkingMessage?.(message);
+        },
+      }),
+    );
+  }
+  if (typeof (ctx.ui as unknown as Partial<WidgetUi> | undefined)?.setWidget === "function") {
+    statusSinks.push(
+      createWidgetSink({
+        setWidget: (key, content, options) => {
+          (ctx.ui as unknown as Partial<WidgetUi> | undefined)?.setWidget?.(
+            key,
+            content,
+            options,
+          );
+        },
+      }),
+    );
+  }
+  const statusBus = createExecutionStatusBus({ clock: root.clock, sinks: statusSinks });
+  latchStatusBus?.(statusBus);
+
   // Watcher-time re-compose diagnostics (re-parse / re-merge failures) reuse the
   // same channel routing as the initial load pass, so load and reload surface
   // load-phase failures identically (the ERR-7 `theta/runtime/registry-swap-failed`
@@ -1751,6 +1845,8 @@ export async function composeExtensionInstance(
     overrides?.subagentExecutableHost,
     overrides?.emitResultEnvelope,
     rendererGate,
+    entryChannel,
+    statusBus,
   );
 
   // The watched set: `watchRoots` (the file-derived active-root union unioned
@@ -1789,6 +1885,7 @@ export async function composeExtensionInstance(
     forwardingSignals,
     activeRoots: initial.activeRoots,
     clock: root.clock,
+    statusBus,
     installHotReload(reRegister): HotReloadHandle {
       return installHotReload({
         watcher: root.fileWatcher,
@@ -1820,6 +1917,8 @@ export async function composeExtensionInstance(
             overrides?.subagentExecutableHost,
             overrides?.emitResultEnvelope,
             rendererGate,
+            entryChannel,
+            statusBus,
           );
           // Bug 0312: record this pass's watch set (its resolved `.thetalib`
           // closure dirs already unioned in by `runComposePass`), plus the two
@@ -3870,6 +3969,10 @@ function buildSystemNoteDeps(
   ctx: ExtensionContext,
   emitDiagnostic: (diagnostic: Diagnostic) => void,
   rendererGate?: RendererGate,
+  // RFC 0010 (PIC-72): the `theta-progress-entry` channel the three
+  // operator-facing note classes prefer. Absent ⇒ every note class keeps the
+  // pre-migration `pi.sendMessage` realization.
+  entryChannel?: EntryChannelHandle,
 ): SystemNoteChannelDeps {
   // Bug 0018 (PIC-67): one mutable delivery-health latch per channel instance
   // (stale-dead + fail-loud-once), closure-scoped — no module-level state.
@@ -3900,6 +4003,7 @@ function buildSystemNoteDeps(
     emitDiagnostic,
     emitDeliveryFailed: makeDeliveryFailedEmit(ctx, emitDiagnostic),
     ...(rendererGate !== undefined ? { rendererGate } : {}),
+    ...(entryChannel !== undefined ? { entryChannel } : {}),
   };
 }
 

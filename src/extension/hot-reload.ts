@@ -46,8 +46,8 @@ import {
   type ParsedTheta,
 } from "./reload-wiring";
 import {
+  deliverOperatorNotePreferringEntry,
   emitDiagnosticBatch,
-  sendSystemNote,
   type SystemNoteChannelDeps,
 } from "./system-note-channel";
 import { toPosixFileSpelling, type Diagnostic } from "../diagnostics/diagnostic";
@@ -361,7 +361,10 @@ export function installHotReload(deps: InstallHotReloadDeps): HotReloadHandle {
       )];
       const note = structuralChangeNote(added, removed);
       if (note !== undefined) {
-        sendSystemNote(note, deps.channel);
+        // PIC-72: the structural-change class is entry-first — a watcher-driven
+        // emission must not be able to insert a custom message between an
+        // assistant `tool_use` and its `tool_result` (bug 0469).
+        deliverOperatorNotePreferringEntry(note, deps.channel);
       }
 
       // Bug 0312 (Option 1): re-arm the ONE watcher when this published pass's
