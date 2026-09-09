@@ -6,6 +6,11 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.465.0]
+
+### Fixed
+- **Bug 0471 — the hot-reload watcher triggered a full corpus re-parse on EVERY file change under a discovery root, not just `.theta`/`.thetalib`/settings edits** — an unrelated write (a scratch `.md`, an editor temp file) under a watched directory scheduled a rebuild and re-emitted the whole load-diagnostic set. `registration-steps.md` §"Hot-reload subsystem" already pins the trigger as *"a chokidar event for an existing theta or `.thetalib` file"* (plus settings-file edits), so the implementation diverged from its own spec. `installHotReload` now gates the watcher stream through one `onChange` closure that admits an event only when `isThetaSourcePath(path)` (`.theta`/`.thetalib`, separator-independent) or the separator-normalised path is one of the exact settings-file paths — threaded in as the new `InstallHotReloadDeps.reloadTriggerPaths` (project + global `settings.json`), matched via `toPosixFileSpelling` (bug-0467 class); both arming sites (initial + the bug-0312 re-arm) share the closure. This is the **root-cause fix for the bug-0470 note storm** (408 byte-identical warning notes in one session, ~25k tokens of duplicated LLM context) and materially reduces the trigger frequency of **bug 0469** (a note landing mid-tool-execution corrupting `tool_use`/`tool_result` adjacency). Bug 0470's originally-proposed emission-time dedup was **withdrawn before merge**: it contradicts the normative Re-scan deduplication rule (`diagnostics/diagnostic-shape.md`), which forbids suppressing duplicate diagnostic lines and is depended on by Argument-mismatch multiplicity. (`src/extension/hot-reload.ts`, `src/extension/production-composition.ts`; witness `tests/watcher-hot-reload-integration.test.ts` (f)/(g); reports `docs/bugs/0469`–`0471`)
+
 ## [0.464.0]
 
 ### Fixed

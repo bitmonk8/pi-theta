@@ -293,6 +293,48 @@ describe("Phase 5 (DISCO-2) — watcher / hot-reload wired through the shipped c
     expect(wiring?.registry.get("second")).toBeUndefined();
   });
 
+  it("(f) bug 0471: a change to a NON-theta file under a discovery root does not trigger a reload", async () => {
+    await harness.fireSessionStart();
+    expect(wiring?.registry.get("greet")).toBeDefined();
+    const notesBefore = harness.notes.length;
+
+    // Plant a new theta on disk so that IF a reload ran it WOULD register it —
+    // this isolates "the filter blocked the reload" from "there was nothing to
+    // do". Then fire a watcher event for an unrelated Markdown file under the
+    // SAME discovery root (the exact shape that caused bug 0471: writing .md
+    // scratch files into .localpi/ triggered a full rescan + warning storm).
+    writeFileSync(join(thetaDir, "second.theta"), SECOND_THETA, "utf8");
+    writeFileSync(join(thetaDir, "notes.md"), "# scratch\n", "utf8");
+    fakeWatcher.emit({ kind: "change", path: join(thetaDir, "notes.md") });
+    fakeClock.advance(RELOAD_DEBOUNCE_WINDOW_MS * 4);
+    await new Promise((resolve) => setTimeout(resolve, 40));
+
+    // No reload ran: the planted theta was never discovered/registered, and no
+    // note (the storm) was emitted for the non-theta change.
+    expect(wiring?.registry.get("second")).toBeUndefined();
+    expect(harness.commands.has("second")).toBe(false);
+    expect(harness.notes.length).toBe(notesBefore);
+  });
+
+  it("(g) bug 0471: a change to the project settings.json still triggers a reload", async () => {
+    await harness.fireSessionStart();
+    expect(wiring?.registry.get("greet")).toBeDefined();
+
+    // Plant a new theta, then fire a watcher event for the PROJECT settings file
+    // (the settings-re-merge arm — one of the two non-.theta paths that must
+    // still trigger a rebuild). If the reload runs, `second` is discovered.
+    writeFileSync(join(thetaDir, "second.theta"), SECOND_THETA, "utf8");
+    fakeWatcher.emit({ kind: "change", path: join(workspace, ".pi", "settings.json") });
+    fakeClock.advance(RELOAD_DEBOUNCE_WINDOW_MS);
+    await waitFor(
+      () => wiring?.registry.get("second") !== undefined,
+      "settings-triggered reload to settle",
+    );
+
+    expect(wiring?.registry.get("second")).toBeDefined();
+    expect(harness.commands.has("second")).toBe(true);
+  });
+
   it("(e): session_shutdown detaches the watcher and cancels the pending debounce timer", async () => {
     await harness.fireSessionStart();
     expect(wiring?.registry.get("greet")).toBeDefined();

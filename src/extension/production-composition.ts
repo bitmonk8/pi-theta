@@ -1687,6 +1687,12 @@ export async function composeExtensionInstance(
         details: { diagnostics: [diagnostic] },
       });
     }
+    // Re-scan deduplication (diagnostics/diagnostic-shape.md#re-scan-deduplication)
+    // is a normative theta 1.0 contract: a watcher-triggered reload RE-EMITS the
+    // persistent diagnostic for a still-broken file, and the runtime MUST NOT
+    // suppress duplicates. So no emission-time dedup here; the 408-note storm
+    // (bug 0470) was a symptom of bug 0471 (reloads firing on non-theta files),
+    // fixed at the watcher-trigger filter, not here.
     const warnings = diagnostics.filter(
       (diagnostic) => diagnostic.severity === "warning",
     );
@@ -1757,9 +1763,10 @@ export async function composeExtensionInstance(
   // either). `watchRoots` rather than `activeRoots` so a present-but-empty
   // active root (a scaffolded `.pi/theta/`) is armed: the first `.theta`
   // created there must still fire a watcher event (bug 0310).
+  const settingsPaths = settingsFilePaths(ctx, root.fileSystem);
   const roots = [
     ...initial.watchRoots,
-    ...settingsFilePaths(ctx, root.fileSystem),
+    ...settingsPaths,
   ];
 
   // Bug 0312: the latest rediscover pass's watch set (its `.thetalib` import
@@ -1787,6 +1794,11 @@ export async function composeExtensionInstance(
         watcher: root.fileWatcher,
         clock: root.clock,
         roots,
+        // Bug 0471: the exact non-`.theta` paths that must still trigger a
+        // reload (project + global `settings.json`). The `onChange` filter
+        // admits `.theta`/`.thetalib` by extension plus these; every other
+        // file under a watched directory no longer schedules a rebuild.
+        reloadTriggerPaths: settingsPaths,
         registry,
         channel,
         rediscover: async () => {

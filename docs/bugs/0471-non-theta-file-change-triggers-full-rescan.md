@@ -1,14 +1,20 @@
 # Bug 0471 — the watcher→debouncer wiring forwards *every* `add`/`change`/`unlink` under a discovery root to the reload debouncer with no `.theta`/`.thetalib`/settings filter, so writing an unrelated file (a `.md` scratch note, an editor swap file) triggers a full corpus re-parse and load-diagnostic re-emission — contradicting the debouncer's own documented contract
 
-- **Status:** open.
+- **Status:** fixed (0.465.0).
 - **Sev/Diff estimate:** S3/D1 — S3: wasted work and, through
   [0470](./0470-load-diagnostics-re-emit-without-dedup.md) and
   [0469](./0469-watcher-note-mid-tool-execution-breaks-tool-adjacency.md),
   the trigger for both a noise storm and a session-corrupting race; no
   incorrect theta behaviour on its own. D1: a predicate at one call site plus
   unit tests; the predicate already exists in the same file.
-- **Kind:** defect — the implementation contradicts its own documented
-  contract. `ReloadDebouncer.onWatcherEvent`'s doc-comment
+- **Kind:** defect — the implementation contradicts BOTH the spec and its own
+  documented contract. [`registration-steps.md`](../spec_topics/pi-integration-contract/registration-steps.md)
+  §"Hot-reload subsystem" pins the trigger normatively: *"On a chokidar event
+  for an **existing** theta or `.thetalib` file the watcher debounces…"* — a
+  reload fires on a theta/`.thetalib` source (and, per §"Structural changes" and
+  package-and-settings.md §"Caching and reload", a settings-file edit), not on an
+  arbitrary file under a watched directory. `ReloadDebouncer.onWatcherEvent`'s
+  doc-comment
   (`src/extension/reload-debounce.ts:109-111`) opens with "A watcher event for
   an existing theta / `.thetalib` / settings file", i.e. the debouncer is
   specified over a *filtered* event stream. Nothing filters it. The predicate
@@ -79,7 +85,28 @@ rebuild: re-parse the corpus, re-run the load pass, re-emit every load
 diagnostic (0470), with the completion landing at an arbitrary point in the
 session's turn structure (0469).
 
-## Fix
+## Fix (shipped 0.465.0)
+
+`installHotReload` now gates the watcher stream: an `onChange` closure admits an
+event only when `isThetaSourcePath(event.path)` (`.theta`/`.thetalib`, by
+separator-independent `endsWith`) or the separator-normalised path is one of the
+exact settings-file paths, threaded in as the new optional
+`InstallHotReloadDeps.reloadTriggerPaths` (the project + global `settings.json`
+resolved by `settingsFilePaths(ctx, fs)` in the composition). Every other event
+is dropped before the debouncer schedules anything. Both arming sites (initial
+arm + the bug-0312 re-arm) share the one closure. The settings match is
+separator-normalised through `toPosixFileSpelling` (bug-0467 class). Witnessed by
+`tests/watcher-hot-reload-integration.test.ts` cases (f) (a `.md` write under a
+discovery root triggers no reload and emits no note) and (g) (a `settings.json`
+change still triggers one). (`src/extension/hot-reload.ts`,
+`src/extension/production-composition.ts`.)
+
+The structural-note filtering at `hot-reload.ts` `:342`/`:346` is unchanged —
+this added a gate upstream of the debounce, it did not move the existing one;
+bug-0312's out-of-root `.thetalib` closure still passes (the filter is by
+extension, not by root).
+
+### The design fix (unchanged from the original recommendation)
 
 Apply the existing predicate at the wiring, in both arming sites, before
 `debouncer.onWatcherEvent(event)`:

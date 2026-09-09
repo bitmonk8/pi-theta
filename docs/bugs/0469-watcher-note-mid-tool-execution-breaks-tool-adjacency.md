@@ -1,6 +1,7 @@
 # Bug 0469 — a watcher-driven `theta-system-note` delivered while a Pi tool call is in flight lands between the assistant `tool_use` and its `toolResult`, and Pi's replay renders it as a `user`-role provider message: the orphaned `tool_result` makes every subsequent driven turn in that session fail with a provider 400, and the corruption is durable in the session file
 
-- **Status:** open.
+- **Status:** open — trigger frequency materially reduced by bug 0471
+  (0.465.0); the principled fix is tracked in RFC 0010 (see §Mitigation).
 - **Sev/Diff estimate:** S2/D3 — S2: it destroys the *reported* output of a
   completed long run and it is durable. In the seeding incident a 14-hour
   `/quality-loop` run did all of its work successfully (7 clusters fixed and
@@ -57,6 +58,29 @@
   - Not affected: the delivery channel's fallback chain and stale-ctx latch,
     which behave exactly as specified — the note *was* delivered successfully.
     The defect is the timing of a successful delivery, not a delivery failure.
+
+## Mitigation shipped (0.465.0) — and why the full fix is deferred
+
+Bug [0471](./0471-non-theta-file-change-triggers-full-rescan.md) shipped: the
+watcher no longer rescans on non-theta file writes. That removes this bug's
+dominant trigger — a watcher rebuild (and its note emission) now happens only on
+a real `.theta`/`.thetalib`/settings edit, not on every `src/**` or scratch-file
+write under a discovery root. In the seeding workflow (a `/quality-loop` run,
+which edits no theta sources) that means zero watcher-driven emissions during
+the run, so the exact incident cannot recur. The residual window — an operator
+editing a theta/settings file *while a tool call is in flight* — is rare and
+partly under operator control.
+
+The interim **idle-gate** the original plan proposed (queue watcher-driven notes
+while a run is active, flush on `ctx.waitForIdle()`) was **not** shipped in this
+pass: it threads idle-state through the whole note channel with real
+ordering/lifetime/shutdown surface area, and it is **thrown away** the moment
+the principled fix lands. The principled fix is option 1 below — route
+operator-facing note classes through `pi.appendEntry` (entries never enter
+provider replay, so adjacency cannot break) — carried as the first increment of
+RFC 0010, whose optional-capability machinery it shares. Re-scan deduplication
+(the rule that blocked bug 0470's dedup) does not obstruct it: `appendEntry` is
+a channel change, not a suppression.
 
 ## Symptom
 

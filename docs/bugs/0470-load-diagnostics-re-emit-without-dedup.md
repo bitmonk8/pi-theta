@@ -1,6 +1,9 @@
 # Bug 0470 — every rescan re-emits the full load-diagnostic set as fresh `theta-system-note` messages with no dedup or supersede, so an unchanged project accumulates hundreds of byte-identical warning notes in one session (408 observed, in bursts of 60/minute), each one burning LLM context and each one an independent chance to detonate bug 0469
 
-- **Status:** open.
+- **Status:** resolved via bug 0471 (0.465.0) — the proposed dedup is
+  **spec-forbidden** and was deliberately NOT implemented (see
+  §Resolution). The storm was a symptom of the spurious rescans bug 0471 fixed,
+  not an independent defect.
 - **Sev/Diff estimate:** S3/D2 — S3: nothing is functionally wrong, but three
   distinct costs compound. (a) Custom messages participate in LLM context
   (Pi's `docs/extensions.md`), so 408 copies of three warnings is roughly 25k
@@ -14,14 +17,22 @@
   tool-execution window. D2: the mechanical change is a per-file digest
   compared across scans, plus one adjudication (what, if anything, to emit when
   a set is unchanged) and a spec sentence.
-- **Kind:** defect — spec and implementation agree with each other and together
-  fail at production scale. The re-emission is deliberate and documented at
-  `src/extension/system-note-channel.ts:464`: "A re-scan re-emits with no
-  dedup / supersede (a second call is a second `sendMessage`)." That contract is
-  defensible for the scan-once-at-load case it was written for; it was never
-  reconciled with a watcher that rescans dozens of times per hour
-  ([0471](./0471-non-theta-file-change-triggers-full-rescan.md)) on a project
-  whose warning set is permanently non-empty.
+- **Kind:** NOT a defect in the emission rule — the re-emission is
+  **normatively specified**. [`diagnostics/diagnostic-shape.md`
+  §"Re-scan deduplication"](../spec_topics/diagnostics/diagnostic-shape.md#re-scan-deduplication)
+  pins it with a MUST NOT: *"A watcher-triggered reload re-emits the persistent
+  diagnostic for any file whose contents are still broken… the renderer MUST NOT
+  attempt to suppress duplicates… Authors will therefore see the same diagnostic
+  line recur after each reload until the underlying file is fixed; this is the
+  theta 1.0 contract."* The code comment at `system-note-channel.ts:464` ("A
+  re-scan re-emits with no dedup / supersede") faithfully implements that rule,
+  and [`diagnostic-shape.md` §"Argument-mismatch multiplicity"] *depends* on it
+  (it emits `tool-arg-type-mismatch` once-per-site precisely because a duplicate
+  line "would render byte-identical… and Re-scan deduplication already forbids
+  the renderer suppressing duplicate lines"). So the storm is a **symptom of the
+  trigger defect [0471](./0471-non-theta-file-change-triggers-full-rescan.md)**
+  (rescans firing on non-theta files), not a defect in the re-emission rule. The
+  bug's original framing — that dedup is the fix — is withdrawn.
 - **Related:**
   - [0469](./0469-watcher-note-mid-tool-execution-breaks-tool-adjacency.md)
     (open) — the failure this bug's volume converts from unlikely to nightly.
@@ -67,64 +78,78 @@ three-line block pasted into the transcript over and over.
 
 ## Expected
 
-Load diagnostics describe the *state of the discovered corpus*. When that state
-has not changed, re-announcing it carries no information. The channel's own
-design elsewhere already recognises supersede-style semantics — the binder-model
-hot-reload recovery note is explicitly a *single consolidated* note that "MUST
-NOT be emitted when `recovery.thetas.length === 0`"
-([`binder-model-and-context.md#binder-model-hot-reload`](../spec_topics/binder/binder-model-and-context.md),
-implemented at `src/binder/binder-model.ts` `computeBinderModelRecoveryNote`) —
-so "emit only when there is something new to say" is an established principle on
-this channel, applied to one note class and not to the diagnostic batch.
+The re-emission itself is expected and required: on a *legitimate* reload (a
+theta/`.thetalib`/settings edit) the runtime re-emits the persistent diagnostics
+for the re-parsed files, and MUST NOT suppress the duplicate
+([Re-scan deduplication](../spec_topics/diagnostics/diagnostic-shape.md#re-scan-deduplication)).
+What is NOT expected is a reload firing when no theta source changed at all —
+that is bug 0471, and it is what turned an intended once-per-edit reminder into
+a 408-note storm.
 
 ## Actual
 
-`emitDiagnosticBatch` is stateless. Every scan builds the full `Diagnostic[]`
-and hands it to `sendSystemNote`, which unconditionally calls `pi.sendMessage`.
-There is no comparison against the previous scan's set, no per-file digest, and
-no suppression path. The rescan trigger being over-eager (0471) then multiplies
-a fixed 3-note cost by however many times an unrelated file is touched.
+`emitDiagnosticBatch` re-emits the full set every time it is called, exactly as
+the Re-scan deduplication rule requires. The pathology was entirely upstream:
+bug 0471 called it dozens of times per hour for file changes that touched no
+theta source, so a spec-correct once-per-edit re-emission became a flood.
 
-## Fix
+## Resolution (0.465.0) — the proposed dedup is spec-forbidden
 
-Keep a per-scan digest of the emitted diagnostic set — keyed per file, over the
-`(severity, code, file, line, column, message)` tuple of each row — in the same
-per-extension-instance state that owns the channel deps (constructed once and
-injected, never module-level, per the repo's no-globals rule). On a rescan:
+The original report proposed a per-file digest that suppresses an unchanged
+warning set on rescan. **That was withdrawn**: it directly contradicts the
+normative [Re-scan deduplication](../spec_topics/diagnostics/diagnostic-shape.md#re-scan-deduplication)
+MUST NOT, and the [Argument-mismatch multiplicity] rule reasons *from* the
+visibility of duplicates, so a silent emission-time dedup would also invalidate
+that rule's design. A dedup would need to amend that contract — an RFC-level
+spec change with review, not a bug-fix pass.
 
-- emit the batch for a file whose digest changed (including "changed to empty",
-  which is a genuine transition worth surfacing);
-- suppress a file whose digest is identical to the last emitted one;
-- keep the first emission after construction unconditional, so
-  [0013](./0013-load-warnings-dropped-by-both-production-sinks.md) does not
-  regress and a fresh session still learns its corpus state.
+What shipped instead: **bug 0471's watcher-trigger filter**, which removes the
+spurious rescans. After it, `emitDiagnosticBatch` is called only on a real
+theta/settings edit, so the re-emission returns to its spec-intended cadence
+(once per edit) and the storm cannot recur — during a `/quality-loop` run, which
+edits no theta sources, there are now zero reloads and zero re-emissions.
 
-Two adjudications for the fix pass:
+### Residual, narrower concerns (not fixed here; route to RFC 0010 / spec work)
 
-1. **Whether an unchanged rescan says anything at all.** Recommended: nothing on
-   the persistent channel. If a "still N warnings" signal is wanted it belongs
-   on the transient/status surface (RFC 0010's footer), not as a transcript
-   entry.
-2. **Whether the host-capability warning should be per-scan at all.**
-   `binder-model-strict-capability-unknown` is a fact about the *host*, not
-   about the theta file it is attributed to; on current Pi it is guaranteed for
-   every non-bypass theta. Recommended: collapse it to one note per extension
-   instance naming the affected count (`3 thetas`), rather than one note per
-   theta per scan. That alone removes the observed noise entirely, and it is
-   the change the operator will actually notice.
+Two points remain that a *spec* change — not a silent dedup — could address:
 
-This fix composes with 0469 option 1: if operator-facing diagnostics move to
-`pi.appendEntry`, the context-burn cost disappears, but the *noise* cost does
-not — an entry repeated 408 times is still 408 lines of transcript. Both changes
-are wanted.
+1. **`binder-model-strict-capability-unknown` is a host-capability fact, not a
+   "still-broken file".** The Re-scan deduplication rule is scoped to "any file
+   whose contents are still broken"; this warning is not about file contents at
+   all (it fires because `Model<Api>.strictCapable` is absent on the pinned
+   SDK). Whether such a host-capability notice should re-emit per reload is a
+   question for its emission policy in `binder-model-and-context.md`, not the
+   general diagnostic rule.
+2. **A single-file edit re-emits every theta's warnings.** registration-steps.md
+   §"Hot-reload subsystem" says a reload "re-parses just the changed file plus
+   every transitive `.thetalib` importer," but the implementation re-runs full
+   discovery (`runComposePass`) and re-emits every theta's load diagnostics.
+   Scoping reload re-emission to the changed file would align impl with that
+   spec sentence — a separate, larger change tracked for follow-up.
+
+The context-burn cost (custom messages participate in LLM context) is the
+strongest argument for RFC 0010's move of operator-facing note classes to
+`pi.appendEntry` (entries do not enter LLM context) — which is a spec-blessed
+channel change, not a suppression, and therefore does not run afoul of Re-scan
+deduplication.
 
 ## Test obligations
 
-- Offline: two consecutive scans with an identical diagnostic set produce
-  exactly one emission; a third scan with one row changed produces a second
-  emission carrying the new set.
-- Offline: a set transitioning to empty emits once (the "cleared" transition),
-  and a further empty scan emits nothing.
-- Offline: first emission after construction is never suppressed (0013 guard).
-- Offline: the collapsed host-capability note (if adjudication 2 is taken)
-  names the count and fires once per instance across repeated scans.
+The dedup tests originally listed here are withdrawn (a dedup would violate
+Re-scan deduplication). The behaviour that matters is covered by bug 0471's
+witnesses:
+
+- Offline (shipped): a non-theta write under a discovery root schedules no
+  reload and emits no note; a real `.theta`/settings edit still does
+  (`tests/watcher-hot-reload-integration.test.ts` (f)/(g)).
+- If the residual concerns above are taken up as spec work: the
+  host-capability-warning emission-policy change and the reload-scoping change
+  each get their own witnesses at that time.
+
+## Do NOT add
+
+- An emission-time or renderer-time dedup / supersede of `theta-system-note`
+  diagnostics. It is forbidden by
+  [Re-scan deduplication](../spec_topics/diagnostics/diagnostic-shape.md#re-scan-deduplication)
+  and depended on by Argument-mismatch multiplicity. A prior draft of this fix
+  did exactly that and was reverted before merge.

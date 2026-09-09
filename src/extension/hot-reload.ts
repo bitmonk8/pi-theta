@@ -50,7 +50,7 @@ import {
   sendSystemNote,
   type SystemNoteChannelDeps,
 } from "./system-note-channel";
-import type { Diagnostic } from "../diagnostics/diagnostic";
+import { toPosixFileSpelling, type Diagnostic } from "../diagnostics/diagnostic";
 import { isStaleCtxError, StaleQuiesceLog } from "./stale-ctx";
 
 /** Construction dependencies for the step-5 watcher / hot-reload wiring. */
@@ -61,6 +61,19 @@ export interface InstallHotReloadDeps {
   readonly clock: Clock;
   /** The discovery-root union plus the two settings-file paths to watch. */
   readonly roots: readonly string[];
+  /**
+   * Bug 0471: the exact non-`.theta` file paths that must still trigger a
+   * reload — the project + global `settings.json` paths the settings-re-merge
+   * arm consumes. The watcher watches whole discovery-root DIRECTORIES, so it
+   * delivers a `change`/`add`/`unlink` for EVERY file under them (a scratch
+   * `.md`, an editor swap file, `Thumbs.db`); without a filter each such event
+   * triggers a full corpus re-parse and load-diagnostic re-emission (the
+   * bug-0471 storm). The `onChange` filter admits only `.theta`/`.thetalib`
+   * sources (by extension, via `isThetaSourcePath`) plus these exact paths, and
+   * drops the rest before the debouncer schedules anything. Omitted ⇒ only
+   * `.theta`/`.thetalib` trigger reload (a test harness with no settings arm).
+   */
+  readonly reloadTriggerPaths?: readonly string[];
   /** The live `ThetaRegistry` the reload swaps atomically (PIC-36). */
   readonly registry: ThetaRegistry;
   /**
@@ -383,7 +396,7 @@ export function installHotReload(deps: InstallHotReloadDeps): HotReloadHandle {
           unsub = armWatcherWithTerminalRecovery({
             watcher: terminalLatchWatcher,
             roots: freshRoots,
-            onChange: (event) => debouncer.onWatcherEvent(event),
+            onChange,
             registry: deps.registry,
             channel: deps.channel,
             staleLog,
@@ -403,6 +416,25 @@ export function installHotReload(deps: InstallHotReloadDeps): HotReloadHandle {
 
   const debouncer = new ReloadDebouncer({ clock: deps.clock, rebuild: runReload });
 
+  // Bug 0471: gate the watcher stream so only `.theta`/`.thetalib` sources and
+  // the exact settings-file paths reach the debouncer. The watcher watches
+  // whole directories, so every unrelated write under a discovery root would
+  // otherwise schedule a full rebuild (and, via bug 0470, re-emit the whole
+  // load-diagnostic set). The settings match is separator-normalised (bug 0467
+  // class): chokidar may echo a settings path whose spelling differs from the
+  // resolved one only by `\` vs `/`. `isThetaSourcePath` is already
+  // separator-independent (`endsWith`).
+  const reloadTriggerKeys = new Set(
+    (deps.reloadTriggerPaths ?? []).map(toPosixFileSpelling),
+  );
+  const isReloadTrigger = (path: string): boolean =>
+    isThetaSourcePath(path) || reloadTriggerKeys.has(toPosixFileSpelling(path));
+  const onChange = (event: FileWatchEvent): void => {
+    if (isReloadTrigger(event.path)) {
+      debouncer.onWatcherEvent(event);
+    }
+  };
+
   // Bug 0312: the currently-armed root set, mutated in place by the re-arm
   // branch above so a later publish's comparison is against what is ACTUALLY
   // armed right now, not the install-time set.
@@ -418,7 +450,7 @@ export function installHotReload(deps: InstallHotReloadDeps): HotReloadHandle {
   let unsub = armWatcherWithTerminalRecovery({
     watcher: terminalLatchWatcher,
     roots: deps.roots,
-    onChange: (event) => debouncer.onWatcherEvent(event),
+    onChange,
     registry: deps.registry,
     channel: deps.channel,
     staleLog,
