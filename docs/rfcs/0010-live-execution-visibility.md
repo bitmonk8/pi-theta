@@ -1,6 +1,6 @@
 # RFC 0010 — Live execution visibility for running thetas
 
-- **Status:** draft
+- **Status:** accepted (all ten decisions ratified 2026-09-09)
 - **Scope:** runtime/extension observability surface; no grammar change. The
   one language-adjacent addition is an ordinarily-registered extension tool
   (`theta_progress`, layer L3), governed by
@@ -527,7 +527,7 @@ all others with L0–L2.
 | `docs/spec_topics/execution-status.md` | new page | **New topic page**: bus model, the three privacy classes' operational bounds, emission caps and coalescing tick, degradation ladder, `theta.progress` key, `/theta-status`, (L3) the `theta_progress` tool and wire bounds. |
 | `docs/spec_topics/governance/req-id-prefix-table-active-b.md` | [GOV-7](../spec_topics/governance/req-id-prefix-table-active-b.md#gov-7) *Add* | One appended row binding a previously-unused prefix (e.g. `EXST`) to the new page, in the **same commit** as its first REQ-ID ([GOV-6](../spec_topics/governance/req-id-prefix-table-active-b.md#gov-6)); binding append-only per [GOV-24](../spec_topics/governance/req-id-prefix-table-active-b.md#gov-24). |
 | `docs/spec_topics/slash-invocation.md` | [SLSH-2](../spec_topics/slash-invocation.md#slsh-2), the subagent-mode paragraph | The telemetry carve-out paragraph (§Privacy, drafted verbatim above) appended after the "In subagent mode, no assistant tokens…" paragraph, under the same anchor. |
-| `docs/spec_topics/pi-integration-contract/host-interfaces-core.md` | the inline `ExtensionContext` TS block (the `ui:` row's comment style) | Six **new** member rows, all marked optional / degrade-silent: `ctx.ui.setStatus`, `ctx.ui.setWidget`, `ctx.ui.setWorkingMessage`, `ctx.hasUI`, `pi.appendEntry`, `pi.registerEntryRenderer` (none is documented on the host-interfaces pages today), plus the enumerating paragraph's member-set restatement. |
+| `docs/spec_topics/pi-integration-contract/host-interfaces-core.md` | the inline `ExtensionContext` TS block (the `ui:` row's comment style) for `ctx.*` members; the `ExtensionAPI` block on `extension-bootstrap-and-per-theta.md` for `pi.*` members | Six **new** member rows, all marked optional / degrade-silent: `ctx.ui.setStatus`, `ctx.ui.setWidget`, `ctx.ui.setWorkingMessage`, `ctx.hasUI` on `host-interfaces-core.md`; `pi.appendEntry`, `pi.registerEntryRenderer` beside the other `pi.*` signatures on `extension-bootstrap-and-per-theta.md` (none is documented on these pages today), plus the enumerating paragraph's member-set restatement. |
 | `docs/spec_topics/pi-integration-contract/capability-probe.md` | after [PIC-5](../spec_topics/pi-integration-contract/capability-probe.md#pic-5); precedent: the PIC-64 rung-availability "non-gating record" paragraph | New normative section for the **optional-capability class**: probe, degrade-silent, never refuse registration; explicitly NOT a Step 0 check, so PIC-5's "six enumerated checks" prohibition is untouched. |
 | `docs/spec_topics/pi-integration-contract/version-bump-step2.md` | items [(o)](../spec_topics/pi-integration-contract/version-bump-step2.md#bump-checklist-subagent-cli-wire-pins) / [(aj)](../spec_topics/pi-integration-contract/version-bump-step2.md#bump-checklist-no-session-ephemeral) template | One new lettered checklist item covering the six optional UI/entry surfaces — existence plus the `appendEntry` no-LLM-context behaviour — SHOULD-level with the standard escalation sentence; names the five new `SDK_SURFACE_INVENTORY` presence rows (item 8). |
 | `docs/spec_topics/cancellation.md` | Race-semantics edge-case list, final bullet | "The seam is purely a test surface…" → "The seam is a test/telemetry surface and imposes no observable behaviour on production code beyond the always-`await`ed no-op." Same-edit consistency check on [PIC-10](../spec_topics/pi-integration-contract/host-interfaces-services.md#pic-10)'s "no observable production effect" sentence. |
@@ -535,6 +535,8 @@ all others with L0–L2.
 | `docs/spec_topics/pi-integration-contract/subagent.md` **(L3)** | [PIC-59](../spec_topics/pi-integration-contract/subagent.md#pic-59); [CLI-flag and wire pins](../spec_topics/pi-integration-contract/subagent.md#subagent-cli-wire-pins) | "the parent matches the reserved key" (singular) becomes the two-member reserved-key set `{theta_result, theta_progress}`; the consumed-stdout-wire bullet gains the `theta_progress` line, its emission bounds, and the untrusted-payload trust posture (item 10). |
 | `docs/spec_topics/tool-calls.md` **(L3)** | the "No conversation turn" paragraph's neighbourhood | `theta_progress` as an ordinarily-registered extension tool; milestone rendering is entry-channel-only, so the no-conversation-turn rule holds unchanged. |
 | `docs/spec_topics/frontmatter/frontmatter-fields-a.md` **(L3)** | `tools:` field / [FRNT-2](../spec_topics/frontmatter/frontmatter-fields-a.md#frnt-2) | Callable-set consequence note: the same entry serves code and model, so a worker's model may self-report; cross-link to the class-2 clamps. |
+| `docs/spec_topics/discovery/package-and-settings.md` | Keys read / Scalar-key validation | Key count five→six (scalars four→five); the `theta.progress` key bullet (string, `"off"`/`"counts"`/`"names"`, default `"names"`, session-scoped `/theta-status` override cross-ref) + its acceptance-set row + the absent-behaviour enumerations extended. |
+| `docs/spec_topics/diagnostics/code-registry-load.md` | `theta/load/settings-value-out-of-range` row | Trigger co-edit (DIAG-2: trigger changes land in the registry table): `progress` joins the recognised-scalar parenthetical and the per-key acceptance enumeration. No new code. |
 | `docs/reference/**` | settings / commands / tools reference pages | Mirrors for `theta.progress`, `/theta-status`, and (L3) `theta_progress`; `docs/reference/coverage-matrix.md` rows only for the reference pages that change (that matrix is doc-set-keyed). |
 | `docs/plan_topics/coverage-matrix.md` | code-keyed obligation areas | New `cka-<n>` rows per shipped component with "RFC 0010 (<facet>)" parentheticals (the cka-65 row-shape precedent). |
 | `docs/rfcs/README.md` | index | This RFC's row. |
@@ -658,3 +660,28 @@ run is mandatory per `AGENTS.md`):
   ([capability-probe.md](../spec_topics/pi-integration-contract/capability-probe.md#pic-5)
   neighbourhood) — the probe-but-never-refuse precedent for the
   optional-capability class.
+
+## Erratum log
+
+- **Erratum A — the migrated note classes fall back to the message channel,
+  never to silence** (Phase 3, 2026-09-09). §Compatibility's "the optional
+  surfaces degrade silently to fewer sinks" is correct for the *progress*
+  sinks but must not be read over the L1 note-class migration: on a host
+  where `pi.appendEntry` / `pi.registerEntryRenderer` is absent (or the
+  `appendEntry` call throws), silently dropping a load-diagnostic batch, a
+  structural-change note, or a binder-model recovery note would trade the
+  bug-0469 adjacency hazard for a silent loss of fail-loud operator surfaces
+  — the exact inversion of the repo's fail-closed posture. The landed spec
+  therefore pins a two-tier delivery for exactly those three classes: entry
+  channel primary, the pre-existing `pi.sendMessage` `theta-system-note`
+  realization (unchanged `display`/`content`/`details`, unchanged five-shape
+  partition) as the fallback
+  ([runtime-event-channel.md — PIC-72](../spec_topics/pi-integration-contract/runtime-event-channel.md#pic-72)).
+  Degrade-to-fewer-sinks remains the rule for every class-1/class-2 progress
+  surface ([execution-status.md — EXST-8](../spec_topics/execution-status.md#exst-8)).
+  Phase 3 review widened the fallback trigger to close a hole: a *present*
+  entry-channel pair whose factory-time `pi.registerEntryRenderer` call throws
+  would otherwise accept `appendEntry` emissions no renderer can draw — so a
+  throwing renderer registration marks the entry channel absent for the
+  session (PIC-71) and the message-channel fallback owns all delivery from
+  registration onward.

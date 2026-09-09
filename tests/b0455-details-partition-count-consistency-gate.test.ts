@@ -25,7 +25,7 @@ import { describe, expect, it } from "vitest";
 //   (b) runtime-event-channel.md:22 — the diagnostics bullet's content TAIL
 //       gains a content arm for the non-BNDR-9 operator-facing-routed case
 //       (the head already names five batch classes; the tail carries three).
-//   (c) coverage-matrix.md:185 — cka-58 reads "five `details` shapes".
+//   (c) coverage-matrix.md:188 — cka-58 reads "five `details` shapes".
 //   (d) runtime-event-channel.ts:4 — module header reads "five `details`
 //       variants".
 //   (e)–(j) six test headers stop carrying the retired four-partition phrasings.
@@ -177,8 +177,8 @@ describe("bug 0455 — corpus count words / enumerations track the five-shape `d
     ).toBe(true);
   });
 
-  it("cell C (RED-now) — coverage-matrix.md:185 cka-58 row reads five `details` shapes", () => {
-    const n = 185;
+  it("cell C (RED-now) — coverage-matrix.md:188 cka-58 row reads five `details` shapes", () => {
+    const n = 188;
     const line = lineAt(COVERAGE, n);
     requireAnchor(COVERAGE, n, line, "cka-58");
     expect(

@@ -136,7 +136,7 @@ files are optional); present but unreadable → `theta/load/settings-unreadable`
 `theta/load/settings-invalid-json`; valid JSON whose root is not an object →
 `theta/load/settings-value-out-of-range` (once, root rendered `(root)`).
 
-Keys read (five): `thetaPaths` (top-level `string[]`), and four scalars under
+Keys read (six): `thetaPaths` (top-level `string[]`), and five scalars under
 `theta`:
 
 - `theta.binderModel` — non-empty string; binder fallback when `bind_model:` is
@@ -146,6 +146,13 @@ Keys read (five): `thetaPaths` (top-level `string[]`), and four scalars under
 - `theta.scanPackages` — boolean, default `true`.
 - `theta.scanPackagesMaxFiles` — integer ≥ 1, default `2000`.
 - `theta.scanPackagesTimeoutMs` — integer ≥ 1, default `2000`.
+- `theta.progress` — one of `"off" | "counts" | "names"`, default `names`
+  (defaulted at the read site; the first closed-string-enum key). Selects the
+  execution-status telemetry-class ceiling: `off` renders no execution-status
+  sink, `counts` withholds tool names, `names` renders the full class-1 field
+  set. Never written by the runtime; the session-scoped `/theta-status
+  off|min|tree` command adjusts the live view shape only and never persists.
+  Provenance: `execution-status.md` EXST-10/EXST-11 (RFC 0010).
 
 Unknown `thetas.*` keys are ignored without diagnostic. A recognised scalar whose
 value fails its type/range is treated as absent and logged

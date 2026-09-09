@@ -6,6 +6,8 @@
 | `pi-integration.md` | (no IDs — narrative) |
 | `grammar.md` | `GRAM` |
 | `governance/` | `GOV` |
+| `execution-status.md` | `EXST` |
+<!-- EXST (GOV-7 Add, RFC 0010) placed with the ID-bearing rows: the narrative tail below must stay adjacent to its "appended immediately above" rationale paragraph. -->
 | `glossary.md` | (no IDs — narrative) |
 | `overview.md` | (no IDs — narrative) |
 | `influences.md` | (no IDs — narrative) |

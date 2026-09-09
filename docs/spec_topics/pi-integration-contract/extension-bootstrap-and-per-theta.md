@@ -61,7 +61,19 @@ The `options: MessageRenderOptions` carries `{ expanded: boolean }` from the Pi 
 - The literal `"theta-system-note"` is owned by the pi-theta extension. No other extension SHOULD register a renderer for this `customType`.
 - Pi does not enforce ownership: collision is a coordination failure between extensions, not a Pi-level error. Pi's runner resolves a `customType` by iterating `this.extensions` in load order and returning the first hit (`@earendil-works/pi-coding-agent`'s `dist/core/extensions/runner.js` `getMessageRenderer`), so when two installed extensions both register `"theta-system-note"` the **first-loaded** extension's renderer wins and the later registration is unreachable. Whether pi-theta or the other extension wins is non-deterministic from theta's point of view (Pi controls extension load order).
 - Theta emits no diagnostic for this case in theta 1.0 — ownership is by convention.
-- The `customType` naming convention for theta-internal channels is `theta-<purpose>` (kebab-case, `theta-` prefix). Future theta channels MUST follow this convention; other extensions SHOULD NOT use the `theta-` prefix. theta 1.0.0 ships exactly one channel under this prefix (`theta-system-note`). The `theta-<purpose>` kebab-case form nests inside the binder's [transcript-safe `customType` class](../binder/binder-model-and-context.md#bndr-9), so theta-internal channels never trip the binder's transcript-safety rejection.
+- The `customType` naming convention for theta-internal channels is `theta-<purpose>` (kebab-case, `theta-` prefix). Future theta channels MUST follow this convention; other extensions SHOULD NOT use the `theta-` prefix. theta 1.0.0 ships exactly one channel under this prefix (`theta-system-note`). Entry-channel `customType`s (`pi.registerEntryRenderer`) follow the same convention and namespace; `theta-progress-entry` ([Runtime event channel — PIC-71](./runtime-event-channel.md#pic-71), RFC 0010) is the sole theta-owned entry `customType`. The `theta-<purpose>` kebab-case form nests inside the binder's [transcript-safe `customType` class](../binder/binder-model-and-context.md#bndr-9), so theta-internal channels never trip the binder's transcript-safety rejection.
+
+**Entry-renderer registration (`pi.appendEntry` / `pi.registerEntryRenderer`).** The entry-channel pair is declared on the same `ExtensionAPI` surface as the message-channel members, at `dist/core/extensions/types.d.ts` in `@earendil-works/pi-coding-agent` (the [theta 1.0 Pi-SDK pin](./host-prerequisites.md#pi-sdk-pin)); the inline shape below is the theta-load-bearing subset, re-validated on each Pi minor bump per [bump-checklist item (au)](./version-bump-step2.md#bump-checklist-optional-ui-entry-surfaces):
+
+```ts
+// On `pi: ExtensionAPI`:
+appendEntry<T = unknown>(customType: string, data?: T): void;
+registerEntryRenderer<T = unknown>(customType: string, renderer: EntryRenderer<T>): void;
+// "Custom entries do not participate in LLM context." — the pinned doc comment
+// on registerEntryRenderer; the no-LLM-context behaviour is the load-bearing half.
+```
+
+Unlike the seven SDK capabilities and the message-renderer registration above, this pair belongs to the optional degrade-silent capability class ([Capability probe — PIC-73](./capability-probe.md#pic-73)): absence refuses nothing and mints no diagnostic. Its one consumer contract — the `theta-progress-entry` channel, its factory-time registration timing, and the operator-facing note-class delivery it carries — is owned by [Runtime event channel — PIC-71 / PIC-72](./runtime-event-channel.md#pic-71); this paragraph is the signature snapshot only.
 
 <a id="factory-time-synchronous-void-registration"></a>
 

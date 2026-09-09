@@ -90,12 +90,15 @@ Use the REQ-ID prefix table in [`../spec_topics/governance.md`](../spec_topics/g
 | PIC-68 | bug 0021 fix (repeat-`session_start` supersession — compose-generation zero-touch evidence, supersede-before-publish detach+drain, one-shutdown teardown reach across generations) |
 | PIC-69 | bug 0024 fix (own-registration exclusion from the cross-format collision source set — source-conditioned, ledger-keyed, on the first-start, hot-reload, supersession and start-after-shutdown rebind passes alike; surviving-name re-ownership) |
 | PIC-70 | bug 0288 fix (prompt-mode driven-turn completion contract — started-and-settled per-turn window anchor, pre-send idle gate, bounded start / end / waitForIdle-race / settle waits, loud named lifecycle-expiry TransportError on the PIC-50/PIC-51 register — tests/b0288-prompt-turn-completion-witness.test.ts) |
+| PIC-71, PIC-72 | RFC 0010 `V22a` (live execution visibility — the `theta-progress-entry` entry channel; operator-facing note-class entry-channel delivery with message-channel fallback, bug 0469 principled fix) |
+| PIC-73 | RFC 0010 `V22a` (live execution visibility — optional UI/entry capability class: per-surface presence probe, degrade-silent, never refuse registration, disjoint from the seven-item CAPABILITY_OBLIGATIONS set) |
 | INV-1 | `V15a`, bug 0110 fix (tools: .theta-entry load-time containment site — tests/tools-entry-containment.test.ts) |
 | INV-2, INV-3 | `V15k` |
 | INV-4 | `V15b` |
 | INV-5 | RFC 0006 (child-process theta execution — envelope return propagation) |
 | INV-6 … INV-8 | RFC 0009 `V21a` (per-call subagent cwd — options-surface value semantics, no existence pre-check, mode gating) |
 | TOOL-1 | RFC 0009 `V21a` (per-call subagent cwd — Argument shape: Pi-tool clause rejection) |
+| EXST-1 … EXST-12 | RFC 0010 `V22a` (live execution visibility — channel constraint, per-instance bus + producer set, checkpoint decorator, child tap, coalescing/bounds, sinks + degradation ladder, containment, `theta.progress` / `/theta-status` verbosity, telemetry classes) |
 | DIAG-1 | `V7a` |
 | DIAG-2, DIAG-3 | `V7b` |
 | DIAG-4 | `V7b`, `V7c` |
