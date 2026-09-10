@@ -963,6 +963,16 @@ export function createThetaExtension(
       const composeTailSuperseded = (): boolean =>
         shutdownEventsObserved !== shutdownsAtComposeStart ||
         composeStartsObserved !== generationAtComposeStart;
+      // RFC 0010 (EXST-2) + bug 0021 (PIC-68) — snapshot the OUTGOING
+      // generation's execution-status bus BEFORE the compose below. Unlike
+      // every other live slot, `liveStatusBus` is published from INSIDE
+      // `composeInstance` (the `latchStatusBus` callback), so by the time the
+      // supersession step runs the single-occupancy latch already names the
+      // INCOMING bus and the outgoing one is unreachable from every teardown
+      // path (the `session_shutdown` handler reads the latch lazily and sees
+      // only the latest occupant). Held TOUCH-FREE like the other staleness
+      // evidence above: a zero-touch return disposes nothing.
+      const outgoingStatusBus = liveStatusBus;
       let wiring: ExtensionInstanceWiring | undefined;
       try {
         // Bug 0024 (registration-steps.md#pic-69): thread the live
@@ -981,6 +991,16 @@ export function createThetaExtension(
       } catch (e: unknown) { // allow-broad-catch: pi-sdk-boundary — conventions.md Specific exception types only
         if (composeTailSuperseded()) {
           return;
+        }
+        // RFC 0010 (EXST-2/EXST-8) — a compose pass that latched its bus and
+        // THEN threw would otherwise leave the single-occupancy latch naming
+        // the failed pass's bus while the outgoing generation stays live and
+        // rendering: /theta-status and the shutdown path would target a bus
+        // whose instance never published. Fail-closed: dispose the failed
+        // pass's bus and restore the latch to the surviving generation's.
+        if (liveStatusBus !== outgoingStatusBus) {
+          liveStatusBus?.dispose();
+          liveStatusBus = outgoingStatusBus;
         }
         // Bug 0023 element 4: a throw escaping the whole compose pass — the
         // discovery walk, settings read, parse, schema compile, or registry
@@ -1077,6 +1097,12 @@ export function createThetaExtension(
         });
       }
       liveRegistry?.drain();
+      // RFC 0010 (EXST-2) — dispose the superseded generation's bus in the
+      // same infallible run as the drain, BEFORE the fallible `detach()`:
+      // its pending coalescing tick and done-flash linger sweep would
+      // otherwise keep writing the SHARED footer/widget keys over the
+      // incoming generation's renders for the rest of the session.
+      outgoingStatusBus?.dispose();
       hotReloadHandle = undefined;
       try {
         outgoingHandle?.detach();

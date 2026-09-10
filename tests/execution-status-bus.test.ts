@@ -18,13 +18,11 @@ import { ReloadDebouncer, RELOAD_DEBOUNCE_WINDOW_MS, type RebuildOutcome } from 
 
 // RFC 0010 (execution-status.md EXST-2/3/6/7/9) — `tests/execution-status-bus.test.ts`
 // (T-BUS). Behaviour-matrix rows B1-B20 (bus core, coalescing tick, memory
-// bounds, lifecycle + lanes). Written against `createExecutionStatusBus`,
-// whose current body is an honest no-op stub (bus.ts): every producer method
-// discards its publication, `snapshot()` always returns the empty snapshot,
-// and no render tick is ever scheduled through the injected `Clock`. Every
-// test below therefore reds on its PRIMARY assertion (the real observable —
-// a recorded sink call, a populated snapshot, a scheduled/cleared timer) —
-// none reds on a setup throw.
+// bounds, lifecycle + lanes). Exercises `createExecutionStatusBus`: producer
+// methods fold into the tracked snapshot, `snapshot()` reflects the current
+// state, and render ticks are scheduled/cleared through the injected `Clock`.
+// Assertions target real observables — a recorded sink call, a populated
+// snapshot, a scheduled/cleared timer.
 
 /** A `StatusSink` recording every `render`/`clear` call for assertions. */
 function recordingSink(id: "footer" | "widget" = "footer"): StatusSink & {
@@ -429,7 +427,7 @@ describe("T-BUS — par-for lane lifecycle (EXST-3(c))", () => {
     expect(() => bus.snapshot()).not.toThrow();
   });
 
-  it("B14-scoped adapter shape: a ParForLaneHooks adapter over bus.openLaneSet forwards (invocationId, total, width) unchanged (par. 2.4 producer-adapter shape)", () => {
+  it("B14-scoped adapter shape: a ParForLaneHooks adapter over bus.openLaneSet forwards (invocationId, total, width) unchanged (EXST-3(c) producer-adapter shape)", () => {
     const clock = new FakeClock();
     const bus = makeBus([recordingSink()], clock);
     bus.invocationStarted("inv-1", "quality-loop");

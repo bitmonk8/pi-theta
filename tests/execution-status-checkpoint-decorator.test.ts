@@ -16,11 +16,10 @@ import { FakeClock } from "./helpers/fake-clock";
 // duplication; B27's binder-path threading is producer-wiring, out of scope
 // for this decorator-only unit — see punted ambiguities).
 //
-// `checkpoint-decorator.ts`'s current body (a stub) delegates to the wrapped
-// `Checkpoint` WITHOUT publishing to the bus — so every publish-observing
-// assertion below reds on its primary observable (no bus call recorded),
-// while the yield-semantics and bus-absent-identity tests are already
-// honestly satisfied by the stub (undisturbed delegation).
+// `checkpoint-decorator.ts` publishes to the bus and THEN delegates to the
+// wrapped `Checkpoint` — every publish-observing assertion below asserts the
+// recorded bus call, and the yield-semantics and bus-absent-identity tests
+// pin the delegation is undisturbed regardless.
 
 const SITE: CheckpointSite = { file: "quality-loop.theta", line: 214, column: 1 };
 const ALL_KINDS: readonly CheckpointKind[] = [
@@ -194,8 +193,7 @@ describe("T-DEC — delegation preserves call order (no awaited work before dele
     );
 
     await decorated.before("query", SITE);
-    // EXST-4: publish happens synchronously, THEN delegate — this ordering
-    // reds while the stub never publishes (order would be just ["inner:query"]).
+    // EXST-4: publish happens synchronously, THEN delegate.
     expect(order).toEqual(["bus:query", "inner:query"]);
   });
 });

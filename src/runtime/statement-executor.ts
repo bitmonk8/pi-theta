@@ -221,10 +221,9 @@ export interface ExecuteBodyDeps {
    * hooks, threaded from the bound invocation's executeDeps. OPTIONAL because
    * existing constructors of this interface omit it (the `emitDiagnostic?` /
    * `invokeChain?` precedent) — a required field would flip every one of them
-   * outside this seam's enumerated scope. `evalParFor` does not yet read this
-   * field (builder-surface pass, Phase 4b-B); the analyst leaf wires
-   * `open`/`claim`/`settle`/`close` per the seam sheet's producer-threading
-   * table (par. 2.4).
+   * outside this seam's enumerated scope. `evalParFor` opens a lane set and
+   * drives `claim`/`settle`/`close` around each lane body (see
+   * docs/spec_topics/execution-status.md EXST-3 lane lifecycle).
    */
   readonly statusLanes?: ParForLaneHooks;
 }

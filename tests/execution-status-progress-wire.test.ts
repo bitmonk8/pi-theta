@@ -12,15 +12,14 @@ import { ActiveInvocationRegistry, type ActiveInvocationEntry } from "../src/run
 import { FakeClock } from "./helpers/fake-clock";
 import { FakeRpcChild } from "./helpers/fake-rpc-child";
 
-// RFC 0010 Phase 7b (execution-status.md EXST-5/EXST-15; subagent.md PIC-74;
-// L3 seam-sheet addendum) — T-WIRE, `tests/execution-status-progress-wire.test.ts`.
-// Behaviour-matrix rows L3-B18 .. L3-B30 (child regime emit + parent tap
-// ingest).
+// RFC 0010 Layer L3 (execution-status.md EXST-5/EXST-15; subagent.md PIC-74)
+// — T-WIRE, `tests/execution-status-progress-wire.test.ts`. Behaviour-matrix
+// rows L3-B18 .. L3-B30 (child regime emit + parent tap ingest).
 //
-// Child-regime `execute` (par. 3 of the addendum) SHIPS the wire arm: an
-// accepted call calls `deps.writeWireLine` with the `{v, invocation_id, seq,
-// event}` envelope. `child-tap.ts`'s `theta_progress` branch (par. 5) SHIPS
-// the ingest side: it recognises the reserved key, applies the acceptance
+// Child-regime `execute` (EXST-15) SHIPS the wire arm: an accepted call
+// calls `deps.writeWireLine` with the `{v, invocation_id, seq, event}`
+// envelope. `child-tap.ts`'s `theta_progress` branch (EXST-5) SHIPS the
+// ingest side: it recognises the reserved key, applies the acceptance
 // guards (version, monotonic seq, latched invocation_id) and the defensive
 // re-clamp, and calls `publish` for an accepted line. Rows below assert the
 // real shipped effect — a written wire line, an accepted publish, or a
@@ -251,7 +250,7 @@ describe("T-WIRE — L3-B24: a valid wire line publishes ONE theta_progress even
     attachChildActivityTap(child, publish);
     child.emitRawLine(validWireLine());
 
-    // child-tap.ts's `theta_progress` branch (par. 5) accepts a well-formed
+    // child-tap.ts's `theta_progress` branch (EXST-5) accepts a well-formed
     // line and publishes it.
     expect(events).toHaveLength(1);
     expect(events[0]).toMatchObject({ type: "theta_progress" });
@@ -350,7 +349,7 @@ describe("T-WIRE — L3-B27: a burst inside one 200ms window tap-drops the exces
     child.emitRawLine(validWireLine({ seq: 2 }));
     child.emitRawLine(validWireLine({ seq: 3 }));
 
-    // The per-child rate gate (par. 5, opts.clock passed) accepts the first
+    // The per-child rate gate (EXST-5, opts.clock passed) accepts the first
     // line inside the 200ms window and tap-drops the other two.
     expect(events).toHaveLength(1);
   });

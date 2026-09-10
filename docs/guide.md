@@ -300,7 +300,8 @@ extension tool in a subagent](./how-to/use-an-extension-tool-in-a-subagent.md).
 
 - [Tutorial](./tutorial.md) — one worked path from an empty file to a running
   theta.
-- [How-to guides](./how-to/) — recipes for specific goals.
+- [How-to guides](./how-to/) — recipes for specific goals, including watching
+  and reporting live execution progress.
 - [Reference](./reference/) — grammar, type system, frontmatter, the error and
   result model, hard ceilings, diagnostics, and the discovery / CLI surface.
 

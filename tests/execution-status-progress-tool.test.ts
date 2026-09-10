@@ -28,19 +28,19 @@ import { discoverAndComposeFixtures } from "../src/extension/production-composit
 import { SessionDouble } from "./harness/index";
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
 
-// RFC 0010 Phase 7b (execution-status.md EXST-13/EXST-14; L3 seam-sheet
-// addendum `.localpi/tmp/visibility-seam-sheet-l3.md`) — T-PRG,
-// `tests/execution-status-progress-tool.test.ts`. Behaviour-matrix rows
-// L3-B1 .. L3-B17 (registration + schema; parent regime).
+// RFC 0010 Layer L3 (execution-status.md EXST-13/EXST-14; runtime-event-
+// channel.md PIC-71) — T-PRG, `tests/execution-status-progress-tool.test.ts`.
+// Behaviour-matrix rows L3-B1 .. L3-B17 (registration + schema; parent
+// regime).
 //
 // `progress-tool.ts`'s `execute` SHIPS the full L3-B1..L3-B17 contract:
 // registration (EXST-13), the parent-regime bus publication + durable
 // `theta-progress-entry` milestone (EXST-14), the message/scope clamp and
 // strip, the 200ms acceptance interval with its counted-but-dropped carry,
 // the `off`-gate, best-effort attribution, and the footer/entry render
-// segments (par. 6 of the L3 addendum). Every row below asserts the real
-// shipped effect (a `bus.authorMessage` call, an `appendMilestone` call, a
-// clamp, a drop count, a rendered string) — none of them are vacuous.
+// segments (EXST-14; PIC-71). Every row below asserts the real shipped
+// effect (a `bus.authorMessage` call, an `appendMilestone` call, a clamp, a
+// drop count, a rendered string) — none of them are vacuous.
 
 function fakeHostApi(): {
   hostApi: { registerTool: (t: ToolDefinition<typeof THETA_PROGRESS_PARAMETERS>) => void };
@@ -341,7 +341,7 @@ describe("T-PRG — L3-B15: bus latch undefined but registry live — milestone 
   });
 });
 
-describe("T-PRG — L3-B16: footer render carries the ✎ class-2 segment (EXST-14 par. 6 grammar)", () => {
+describe("T-PRG — L3-B16: footer render carries the ✎ class-2 segment (EXST-14 grammar)", () => {
   it("a node snapshot carrying an authorMessage renders '✎ built 3 of 12' on the footer line", () => {
     const snapshot = {
       nodes: [
@@ -356,7 +356,7 @@ describe("T-PRG — L3-B16: footer render carries the ✎ class-2 segment (EXST-
       untracked: 0,
     };
     const line = renderFooterLine(snapshot, "names", 0);
-    // Par. 6 grammar (footer-sink.ts): the class-2 segment renders after the
+    // EXST-14 grammar (footer-sink.ts): the class-2 segment renders after the
     // node's kids and before the trailing elision tail.
     expect(line).toContain("✎ built 3 of 12");
   });
@@ -380,8 +380,8 @@ describe("T-PRG — L3-B17: entry renderer's exact milestone template (PIC-71)",
     } as never;
     const component = renderer(entry, { expanded: false } as never, {} as never);
     const rendered = component === undefined ? "" : JSON.stringify(component);
-    // The renderer's `milestone`-key discriminated arm (par. 6 of the L3
-    // addendum, PIC-71) draws the exact template below.
+    // The renderer's `milestone`-key discriminated arm (PIC-71) draws the
+    // exact template below.
     expect(rendered).toContain("progress /quality-loop fix: built 3 of 12 (3/12) (+2 dropped)");
   });
 

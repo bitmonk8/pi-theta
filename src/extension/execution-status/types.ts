@@ -10,7 +10,7 @@ import type { Clock } from "../../seams/clock";
 import type { ChildTapEvent } from "./child-tap";
 
 // ---------------------------------------------------------------------------
-// Caps constants (frozen; par. 2.1 of the seam sheet).
+// Caps constants (frozen; EXST-7).
 // ---------------------------------------------------------------------------
 
 /** Minimum inter-render interval (EXST-6). Tuning value, not observable contract. */
@@ -34,7 +34,7 @@ export const NAME_CLAMP_CHARS = 64;
 export const FOOTER_CLAMP_CHARS = 200;
 /** Widget height budget (EXST-8 — normative 6, not tuning). */
 export const WIDGET_HEIGHT_LINES = 6;
-/** Tap per-line size gate (par. 4). */
+/** Tap per-line size gate (EXST-5). */
 export const TAP_LINE_MAX_BYTES = 32768;
 
 // ---------------------------------------------------------------------------
@@ -45,7 +45,7 @@ export const TAP_LINE_MAX_BYTES = 32768;
 
 /** EXST-13: the tool name, the wire key, and the grep token (RFC 0010 decision 3). */
 export const THETA_PROGRESS_TOOL_NAME = "theta_progress";
-/** PIC-74 reserved wire key — deliberately == the tool name (par. 2.1). */
+/** PIC-74 reserved wire key — deliberately == the tool name. */
 export const PROGRESS_WIRE_KEY = "theta_progress";
 /** PIC-74 `v` literal. */
 export const PROGRESS_WIRE_VERSION = 1;

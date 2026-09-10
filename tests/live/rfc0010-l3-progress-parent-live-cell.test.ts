@@ -1,8 +1,7 @@
 // RFC 0010 (Phase 7d, H8a, live, L3) — the parent-regime `theta_progress`
-// arm. Seam-sheet addendum rows L3-B35 (the pinned cell) plus the addendum's
-// "ALSO" cheap model-call-direction bonus. Contract:
-// `.localpi/tmp/visibility-seam-sheet-l3.md` par. 3 (execute() regime
-// branch) + par. 6 (render grammar) + EXST-14 + PIC-71 (milestone entry).
+// arm. Behaviour-matrix row L3-B35 (the pinned cell) plus a cheap
+// model-call-direction bonus. Contract: `execute()`'s parent regime branch
+// + the render grammar (EXST-14) + the milestone entry (PIC-71).
 //
 // PRECEDENTS MIRRORED: `execution-status-parfor-ui-live-cell.test.ts`'s
 // `handle.runner.setUIContext(ui, "print")` injection point (the same public,
@@ -31,11 +30,10 @@
 //   (2) MODEL SELF-REPORT — the query itself instructs the model to call
 //       `theta_progress` once with a fixed message, `theta_progress` present
 //       in the callee's `tools:` list (the model-driven tool-call loop,
-//       PIC-64's model-facing reach). This is the cheap "ALSO" bonus the
-//       addendum asks for: the model can paraphrase or vary its own tool-call
-//       argument, so this cell asserts only that a milestone entry LANDED
-//       (par. addendum "assert the milestone entry landed"), not its exact
-//       text — unlike cell (1), whose code-side call argument is
+//       PIC-64's model-facing reach). This is a cheap "ALSO" bonus: the
+//       model can paraphrase or vary its own tool-call
+//       argument, so this cell asserts only that a milestone entry LANDED,
+//       not its exact text — unlike cell (1), whose code-side call argument is
 //       deterministic and pinned exactly.
 //
 // BUDGET: cell (1) is one small model turn (the arithmetic query); cell (2)

@@ -200,8 +200,7 @@ describe("RFC 0010 spec surface — live execution visibility (L0-L2)", () => {
 
 // --- RFC 0010 Phase 7b: L3 `theta_progress` (EXST-13/14/15, PIC-74) ---
 //
-// The L3 seam-sheet addendum (`.localpi/tmp/visibility-seam-sheet-l3.md` §9)
-// pins these four cells as the citing test the closing gate's
+// These four cells are the citing test the closing gate's
 // `mapped-req-id-no-citing-test` arm requires for the four L3 REQ-IDs the L3
 // normative landing coined: EXST-13, EXST-14, EXST-15 (execution-status.md)
 // and PIC-74 (pi-integration-contract/subagent.md). Same idioms as the

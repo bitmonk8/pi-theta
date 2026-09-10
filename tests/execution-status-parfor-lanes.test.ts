@@ -29,10 +29,10 @@ import type { ThetaValue } from "../src/runtime/value";
 import type { ParForLaneHooks, ParForLaneSetHandle } from "../src/extension/execution-status/types";
 
 // RFC 0010 (execution-status.md EXST-3(c)) — `tests/execution-status-parfor-lanes.test.ts`
-// (B18). `ExecuteBodyDeps.statusLanes` is a new OPTIONAL field
-// (`statement-executor.ts`); `evalParFor` does not read it yet (builder
-// surface pass, Phase 4b-B) — so the primary assertion here (the lane hooks
-// were invoked at all) reds, not on a throw. Harness mirrors
+// (B18). `ExecuteBodyDeps.statusLanes` is an OPTIONAL field
+// (`statement-executor.ts`); `evalParFor` reads it and drives
+// open()/claim()/settle()/close() per lane when present, and is
+// byte-identical when absent. Harness mirrors
 // `tests/b0325-nan-infinity-max-zero-workers.test.ts`'s
 // `RecordingParForHost`/`execDeps`/parse-and-drive shape exactly (same
 // `executeBody` entry point, same `NoopMutator`, same pure-eval subset).
@@ -151,10 +151,9 @@ describe("B18 — evalParFor invokes statusLanes hooks (claim/complete per lane)
     const { hooks, events } = recordingLaneHooks();
     const body = bodyOf('par for f in [1, 2, 3] max 2 { invoke("./c.theta", f) f }');
     const exec = await executeBody(body, execDeps(body, host, hooks));
-    expect(exec.outcome, "the drive itself is unaffected by the (currently ignored) hooks").toBe("success");
+    expect(exec.outcome, "the drive itself is unaffected by the status-lane hooks").toBe("success");
 
-    // Primary assertion: the hooks were invoked at all. `evalParFor` does not
-    // yet read `deps.statusLanes` (stub), so `events` is empty here — RED.
+    // Primary assertion: the hooks were invoked, in the documented order.
     expect(events.length, "statusLanes.open was never called").toBeGreaterThan(0);
     expect(events[0]).toBe("open(3,2)"); // n=3, clamped width=min(2,3)=2
     expect(events).toContain("claim(0)");

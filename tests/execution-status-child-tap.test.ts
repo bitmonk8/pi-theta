@@ -9,14 +9,10 @@ import { FakeRpcChild } from "./helpers/fake-rpc-child";
 // `tests/subagent-envelope.test.ts`, verified separately — not duplicated
 // here).
 //
-// `child-tap.ts`'s current body (a stub) attaches a real second
-// `onStdoutLine` listener (so non-consumption/detach ordering is already
-// honest) but classifies every line as "ignored": `publish` is never called.
-// Every assertion that expects a real `publish` call therefore reds on its
-// primary observable; the "ignored" assertions for garbage/unknown/oversized
-// lines are vacuously true on the stub — flagged as green-on-stub in the
-// report (the stub already satisfies "no publish", honestly, by doing
-// nothing at all).
+// `child-tap.ts` attaches a second `onStdoutLine` listener (non-consumption:
+// the original listener still runs, ordering preserved) and classifies each
+// line, calling `publish` for recognised event lines and skipping publish
+// for garbage/unknown/oversized/ignored-type lines.
 
 const FAKE_CHILD = () => new FakeRpcChild({ exitOnStdinEof: false });
 

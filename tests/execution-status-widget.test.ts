@@ -11,14 +11,13 @@ import type {
 } from "../src/extension/execution-status/types";
 
 // RFC 0010 (execution-status.md EXST-8/EXST-11) — `tests/execution-status-widget.test.ts`
-// (T-WDG). Behaviour-matrix rows B41-B44 (par. 5.2 render algorithm, worked
+// (T-WDG). Behaviour-matrix rows B41-B44 (EXST-8 render algorithm, worked
 // example, 6-line budget + overflow, width clipping, counts-verbosity lane
 // rows).
 //
-// `widget-sink.ts`'s current bodies (stubs) return `[]` from
-// `renderStatusTree` unconditionally and never call it from `render()`; only
-// `clear()` is real. Every line-content assertion below reds on the missing
-// lines, not on a throw.
+// `widget-sink.ts`'s `renderStatusTree` produces the tree lines, and
+// `render()` calls it and forwards the result to `setWidget`. Every
+// line-content assertion below asserts the real rendered lines.
 
 function node(overrides: Partial<InvocationNodeSnapshot> & Pick<InvocationNodeSnapshot, "invocationId" | "theta" | "startedAtMs">): InvocationNodeSnapshot {
   return { counters: { checkpoints: 0, loopIters: 0 }, ...overrides };
@@ -29,10 +28,10 @@ function snapshotOf(nodes: readonly InvocationNodeSnapshot[], untracked = 0): Ex
 }
 
 // ---------------------------------------------------------------------------
-// B41 — the par. 5.2 worked example, width 100, names, tree.
+// B41 — the EXST-8 worked example, width 100, names, tree.
 // ---------------------------------------------------------------------------
 
-describe("T-WDG — B41: renderStatusTree worked example (par. 5.2)", () => {
+describe("T-WDG — B41: renderStatusTree worked example (EXST-8)", () => {
   it("renders the exact 6-line worked example byte-for-byte", () => {
     const root = node({
       invocationId: "root",

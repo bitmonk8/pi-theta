@@ -9,16 +9,12 @@ import { FakeFileSystem } from "./helpers/fake-file-system";
 // `tests/settings-merge.test.ts`'s `FileSpec`/`build`/`byCode` harness
 // exactly (same FakeFileSystem-backed `loadSettings` entry point).
 //
-// `theta.progress` is NOT yet a recognised `thetas.*` scalar key in
-// `src/discovery/settings.ts` (the seam sheet par. 1 edit is the paired
-// analyst's, not this builder pass's) — so every assertion below reds:
-// a valid `"counts"` value never survives `cleanSettingsFile`'s
-// `THETAS_SCALAR_KEYS` allowlist (the cleaned `theta` object has no
-// `progress` key at all, so `settings.theta?.progress` is always
-// `undefined`, never `"counts"`), and an invalid value fires no
-// `theta/load/settings-value-out-of-range` diagnostic for the `progress`
-// key at all (the key is silently dropped as "unrecognised", not validated
-// and rejected).
+// `theta.progress` is a recognised `thetas.*` scalar key in
+// `src/discovery/settings.ts` (EXST-10): a valid `"counts"` value survives
+// `cleanSettingsFile`'s `THETAS_SCALAR_KEYS` allowlist into
+// `settings.theta?.progress`, and an invalid value fires the
+// `theta/load/settings-value-out-of-range` diagnostic naming `thetas.progress`
+// and is treated absent.
 
 const HOME = "/home/theta";
 const CWD = "/project";
@@ -43,12 +39,9 @@ function byCode(diagnostics: readonly Diagnostic[], code: string): readonly Diag
 }
 
 /**
- * `ThetasSettings.progress` is not yet a declared field on the production
- * type (the seam sheet par. 1 edit is the paired analyst's, not this
- * builder pass's) — read it through an `unknown` widening so the test
- * compiles against TODAY's type and still observes tomorrow's field once it
- * lands, rather than asserting against a locally-augmented interface no
- * production code ever produces.
+ * Read `progress` through an `unknown` widening rather than a locally-
+ * augmented interface, so the assertion exercises the same production
+ * `ThetaSettings.theta` shape every other read site consumes.
  */
 function progressOf(settings: ThetaSettings): unknown {
   return (settings.theta as Record<string, unknown> | undefined)?.["progress"];

@@ -38,6 +38,15 @@ mental model read the [Guide](../guide.md); for the first end-to-end run, the
   `par for` with the per-call `with { cwd }` clause to run fixers in disjoint
   git worktrees, then integrate the results sequentially.
 
+## Watching and reporting live progress
+
+- [Watch a running theta](./watch-a-running-theta.md) — read the footer
+  heartbeat and invocation-tree widget, adjust `/theta-status` verbosity, and
+  know where durable progress milestones land.
+- [Report progress from a theta](./report-progress-from-a-theta.md) — add
+  `theta_progress` to `tools:` and emit author-facing milestones, with the
+  clamps and parent/child regime differences.
+
 ## Hosting the runtime
 
 - [Embed the theta runtime as a Pi extension](./embed-the-theta-runtime-as-a-pi-extension.md)

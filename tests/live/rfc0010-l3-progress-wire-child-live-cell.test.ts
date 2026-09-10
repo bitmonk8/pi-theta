@@ -1,18 +1,17 @@
 // RFC 0010 (Phase 7d, H8a, live, L3) — the child-regime wire arm, both
-// directions. Seam-sheet addendum rows L3-B33 (PRESENT) / L3-B34 (ABSENT).
-// Contract: `.localpi/tmp/visibility-seam-sheet-l3.md` par. 3 (child-regime
-// execute() branch), par. 5 (`child-tap.ts`'s `theta_progress` ingest
-// branch), EXST-15, PIC-74.
+// directions. Behaviour-matrix rows L3-B33 (PRESENT) / L3-B34 (ABSENT).
+// Contract: child-regime `execute()` branch (EXST-15), `child-tap.ts`'s
+// `theta_progress` ingest branch (EXST-5), PIC-74.
 //
 // H9a OBSERVABLE ROUTE — INVESTIGATED AND REJECTED, WITH REASON:
 //
-// The addendum's H9a framing spawns an OUTER real `pi -p` process and asks
+// The naive H9a framing spawns an OUTER real `pi -p` process and asks
 // whether ITS captured stdout can see a grandchild's `theta_progress` wire
 // line. It cannot, by construction, and this is not a harness gap: PIC-74's
-// no-relay clause (par. 5 of the addendum: "nothing here writes stdout; …
-// the only stdout writer is the child-regime EXECUTE arm, never the tap")
-// means the wire line is written to the INNER (grandchild) process's OWN fd
-// 1, consumed inside the OUTER process's own extension instance by
+// no-relay clause ("nothing here writes stdout; … the only stdout writer is
+// the child-regime EXECUTE arm, never the tap") means the wire line is
+// written to the INNER (grandchild) process's OWN fd 1, consumed inside
+// the OUTER process's own extension instance by
 // `attachChildActivityTap`'s in-process line-pump listener
 // (`production-subagent-host.ts`'s `makeLinePump` fan-out) — never
 // re-emitted onto the OUTER process's stdout. `tests/live/acceptance/
@@ -20,17 +19,16 @@
 // `child.stdout` (`node:child_process` pipe), which is a sibling stream to
 // the grandchild's — nothing forwards the grandchild's bytes across that
 // boundary. So no H9a spawn, however instrumented, can observe the wire line
-// as a raw stdout string; the addendum's own par. 8 "F-questions" section (a
-// prior phase) already establishes that the wire is parent-tap-internal.
+// as a raw stdout string; the wire is parent-tap-internal by construction.
 //
-// ROUTE CHOSEN — the addendum's sanctioned alternative: an H8a-style cell
+// ROUTE CHOSEN — the sanctioned alternative: an H8a-style cell
 // using the REAL spawned child through the production subagent-launch path
 // (`invoke("./child.theta")` against a `mode: subagent` callee, exactly as
 // `execution-status-parfor-ui-live-cell.test.ts` reaches a real child),
 // asserting the PARENT TAP'S OWN observables — the bus fold's rendered ✎
 // segment on the injected UI double (footer/widget), which is the same
-// production surface `child-tap.ts`'s ingest branch (par. 5 of the addendum)
-// feeds. This is strictly the parent-side effect the wire exists to produce,
+// production surface `child-tap.ts`'s ingest branch (EXST-5) feeds. This is
+// strictly the parent-side effect the wire exists to produce,
 // through the SAME public `ExtensionRunner.setUIContext` seam
 // `execution-status-parfor-ui-live-cell.test.ts` uses, and requires the
 // #subagent-child-pins this file's `./harness` import already sets at module

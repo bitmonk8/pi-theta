@@ -48,7 +48,7 @@ export type ChildTapEvent =
   | { readonly type: "tool_execution_end" }
   | { readonly type: "agent_end" }
   // L3 (EXST-5/EXST-15; PIC-74) — the reserved-key `theta_progress` wire line,
-  // recognised in the tap's OWN parse (par. 5 of the L3 seam-sheet addendum).
+  // recognised in the tap's OWN parse (EXST-5).
   | { readonly type: "theta_progress"; readonly payload: ProgressAuthorMessage };
 
 /** Attach the second stdout consumer beside the envelope scan (EXST-5).

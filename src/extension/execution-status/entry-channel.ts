@@ -79,7 +79,7 @@ export function createEntryChannel(pi: ExtensionAPI): EntryChannelHandle {
       try {
         // PIC-71: the milestone shares the SAME `theta-progress-entry` custom-
         // entry type as the migrated-note payload; the renderer discriminates
-        // on the `milestone` key (par. 6 of the L3 seam-sheet addendum).
+        // on the `milestone` key (PIC-71).
         pi.appendEntry(THETA_PROGRESS_ENTRY_TYPE, { milestone: m });
         return true;
       } catch { // allow-broad-catch: pi-sdk-boundary — conventions.md Specific exception types only
@@ -97,8 +97,8 @@ export function createEntryChannel(pi: ExtensionAPI): EntryChannelHandle {
  * object literal) so the rendered line is an own enumerable property: the
  * milestone template is then inspectable on the returned `Component` without
  * a render pass, which is how the L3 suite pins the template. `render`
- * hard-clips rather than wraps — a milestone is one line by contract (par. 6
- * of the L3 seam sheet) — and never throws (PIC-21).
+ * hard-clips rather than wraps — a milestone is one line by contract
+ * (PIC-71) — and never throws (PIC-21).
  */
 class MilestoneLineComponent implements Component {
   readonly lines: readonly string[];
@@ -117,7 +117,7 @@ class MilestoneLineComponent implements Component {
 }
 
 /**
- * PIC-71's milestone template (par. 6 of the L3 seam sheet, exact):
+ * PIC-71's milestone template (exact):
  * `progress[ /<theta>][ <scope>]: <message>[ (<done>/<total>)][ (+<n> dropped)]`
  * — absent parts omitted. The fields are read defensively: the payload has
  * already been clamped at the emitter, but a renderer must not depend on it.

@@ -69,7 +69,7 @@ function claimedLanes(lanes: NonNullable<InvocationNodeSnapshot["lanes"]>): numb
 
 /**
  * `  ✎ [<scope>: ]<message>[ <done>/<total>][ (+<n> dropped)]` — the widget's
- * class-2 line (par. 6 of the L3 seam sheet). Renders under `names` AND
+ * class-2 line (EXST-14). Renders under `names` AND
  * `counts` alike: EXST-12 makes class-2 an off/on axis, not a ceiling step.
  */
 function renderAuthorMessageLine(payload: ProgressAuthorMessage): string {
@@ -89,7 +89,7 @@ function renderAuthorMessageLine(payload: ProgressAuthorMessage): string {
 }
 
 /**
- * Pure tree renderer (seam sheet par. 5.2). Line priority: (a) one header per
+ * Pure tree renderer (EXST-8). Line priority: (a) one header per
  * top-level node, oldest first; (b) the focused node's lane summary; (b2) the
  * focused node's (or its children's) newest class-2 line; (c) one
  * row per running lane in claim order; (d) nested non-lane child nodes. The
@@ -142,7 +142,7 @@ export function renderStatusTree(
         `  par for ${claimedLanes(lanes)}/${lanes.total} · ${counters} · w${lanes.width}`,
       );
     }
-    // Line priority (par. 6): the class-2 line sits between the lane summary
+    // Line priority (EXST-14): the class-2 line sits between the lane summary
     // and the per-lane rows, so a self-report survives lane-row elision.
     if (authorMessage !== undefined) {
       candidates.push(renderAuthorMessageLine(authorMessage));

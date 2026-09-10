@@ -733,3 +733,10 @@ run is mandatory per `AGENTS.md`):
   its ephemeral `--no-session` transcript, so no durable record exists to
   preserve. The transient render keeps the operator-visibility goal; durable
   worker journals are L4 territory if field evidence demands them.
+- **Erratum E — L0–L3 collapsed into one release** (Phase 8). §Delivery
+  layers planned L0–L2 and L3 as two releases with a human hold between; the
+  2026-09-09 ratification discharged every hold (tool name, clamps, merge),
+  so 0.467.0 ships L0–L3 together — each layer's own acceptance gate was
+  still run and passed separately (L0–L2: the Phase 4–6 offline/live gates;
+  L3: the citing gates + the H9a json-mode wire cells in both directions).
+  L4 remains unscheduled, per the layer table.

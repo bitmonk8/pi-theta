@@ -91,10 +91,10 @@ function clampName(name: string): string {
 }
 
 /**
- * L3 defence in depth (par. 4 of the L3 seam sheet): the emitter clamps and
- * the tap re-clamps, and the bus clamps ONCE MORE at fold because a stored
- * payload is instance state — the EXST-7 memory bound must not depend on an
- * upstream having done its job.
+ * L3 defence in depth (EXST-7): the emitter clamps and the tap re-clamps, and
+ * the bus clamps ONCE MORE at fold because a stored payload is instance
+ * state — the EXST-7 memory bound must not depend on an upstream having done
+ * its job.
  */
 function clampFoldedAuthorMessage(p: ProgressAuthorMessage): ProgressAuthorMessage {
   return {

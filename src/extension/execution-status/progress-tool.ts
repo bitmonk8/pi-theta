@@ -70,7 +70,7 @@ export const THETA_PROGRESS_PARAMETERS = Type.Unsafe<ThetaProgressParams>({
 
 /** The narrow dependency surface `registerThetaProgressTool` reads. */
 export interface ProgressToolDeps {
-  /** `deps.isSubagentChild === true` at the factory (par. 1.4 of the addendum). */
+  /** `deps.isSubagentChild === true` at the factory (EXST-15). */
   readonly isChildRegime: boolean;
   /** The factory's `liveStatusBus` latch. */
   readonly bus: () => ExecutionStatusBus | undefined;

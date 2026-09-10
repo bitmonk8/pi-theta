@@ -1,7 +1,6 @@
 // RFC 0010 (Phase 7d, H9a, live, L3) — the child-regime `theta_progress` wire,
-// L3-B33 (PRESENT) / L3-B34 (ABSENT). Seam-sheet addendum
-// `.localpi/tmp/visibility-seam-sheet-l3.md` par. 3 (`execute()`'s
-// child-regime branch), EXST-15, PIC-74.
+// L3-B33 (PRESENT) / L3-B34 (ABSENT). Contract: `execute()`'s child-regime
+// branch (EXST-15), the reserved-key wire line (PIC-74).
 //
 // UNLIKE `tests/live/rfc0010-l3-progress-wire-child-live-cell.test.ts` (whose
 // header explains why an OUTER `pi -p` cannot observe a grandchild's wire

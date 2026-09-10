@@ -17,12 +17,10 @@ import { FakeClock } from "./helpers/fake-clock";
 // `bootstrapFailedDiagnostic` call site respectively — neither touched by
 // this builder pass, so not asserted here; punted, see builder report).
 //
-// `registerThetaStatusCommand`'s handler (a stub) never reads `args`, never
-// calls `deps.current()`, never calls `ctx.ui.notify` — every
-// session-scoped-effect / notify assertion below reds on the missing effect,
-// not on a throw. `parseThetaStatusArg` itself is a real, pure
-// implementation (trivial grammar, no dependency to fake), so its own direct
-// assertions are expected GREEN — flagged as such, not a vacuous stub green.
+// `registerThetaStatusCommand`'s handler reads `args`, calls `deps.current()`,
+// and calls `ctx.ui.notify` — every session-scoped-effect / notify assertion
+// below asserts the resulting effect. `parseThetaStatusArg` itself is a real,
+// pure implementation (trivial grammar, no dependency to fake).
 
 /** A recording fake `pi` exposing `registerCommand` (mirrors the
  *  `tests/extension-factory-harness.test.ts` recording-double style). */
@@ -59,7 +57,7 @@ function recordingNotify(): { ctx: StatusCommandCtx; calls: { message: string; t
 }
 
 // ---------------------------------------------------------------------------
-// parseThetaStatusArg — real, pure (not a stub).
+// parseThetaStatusArg — real, pure grammar.
 // ---------------------------------------------------------------------------
 
 describe("T-CMD — parseThetaStatusArg (real, pure grammar)", () => {
@@ -77,7 +75,7 @@ describe("T-CMD — parseThetaStatusArg (real, pure grammar)", () => {
 });
 
 // ---------------------------------------------------------------------------
-// RESERVED_COMMAND_NAMES — real, pure (not a stub).
+// RESERVED_COMMAND_NAMES — real, pure constant.
 // ---------------------------------------------------------------------------
 
 describe("T-CMD — RESERVED_COMMAND_NAMES", () => {

@@ -10,6 +10,18 @@ import thetaExtension, {
 } from "../src/extension/factory";
 import { loadExtension, SessionDouble } from "./harness/index";
 import { createSystemNoteRenderer } from "../src/extension/system-note-renderer";
+import type { ThetaExtensionDeps } from "../src/extension/factory";
+import type { ExtensionInstanceWiring } from "../src/extension/production-composition";
+import { ThetaRegistry } from "../src/extension/reload-wiring";
+import { ActiveInvocationRegistry } from "../src/runtime/active-invocation-registry";
+import { createExecutionStatusBus } from "../src/extension/execution-status/bus";
+import {
+  DONE_LINGER_MS,
+  STATUS_TICK_MS,
+  type ExecutionStatusBus,
+  type StatusSink,
+} from "../src/extension/execution-status/types";
+import { FakeClock } from "./helpers/fake-clock";
 
 // H4a — extension factory shell and end-to-end harness. This is a horizontal
 // (Convention.) leaf: the assertions below ARE the inline test surface its
@@ -287,5 +299,244 @@ describe("H4a — session-double fidelity contract self-check (Convention: end-t
     await double.ctx.waitForIdle();
     // After the turn settles, ctx.signal is undefined again.
     expect(double.ctx.signal).toBeUndefined();
+  });
+});
+
+// --- RFC 0010 (EXST-2) + bug 0021 (PIC-68) — supersession disposes the
+// --- outgoing generation's execution-status bus ------------------------------
+
+/** A `StatusSink` counting `render`/`clear` calls (the only observables needed). */
+interface CountingStatusSink extends StatusSink {
+  renders: number;
+  clears: number;
+}
+
+function countingStatusSink(): CountingStatusSink {
+  return {
+    id: "footer",
+    renders: 0,
+    clears: 0,
+    render(): void {
+      this.renders += 1;
+    },
+    clear(): void {
+      this.clears += 1;
+    },
+  };
+}
+
+/** One composed generation's status-bus pair, captured per `composeInstance` call. */
+interface StatusGeneration {
+  readonly bus: ExecutionStatusBus;
+  readonly sink: CountingStatusSink;
+}
+
+interface StatusBusSupersessionBoot {
+  readonly clock: FakeClock;
+  /** Per-compose generations, indexed by compose order. */
+  readonly generations: StatusGeneration[];
+  /** When set, the NEXT compose latches its bus and then throws (one-shot). */
+  readonly flags: { failNextCompose: boolean };
+  fireSessionStart(): Promise<void>;
+}
+
+/**
+ * Boot the REAL factory with a `composeInstance` double that mints ONE
+ * execution-status bus per compose over a SHARED `FakeClock` (production's
+ * `root.clock`) and hands it back through the factory's `latchStatusBus`
+ * parameter — the exact publication path the supersession step must reach.
+ */
+function bootStatusBusSupersession(): StatusBusSupersessionBoot {
+  const clock = new FakeClock();
+  const generations: StatusGeneration[] = [];
+  const flags = { failNextCompose: false };
+  const commands = new Map<string, unknown>();
+  const subscriptions = new Map<
+    string,
+    ((event: unknown, ctx: ExtensionContext) => unknown)[]
+  >();
+  const pi = {
+    registerFlag: (): void => {},
+    registerMessageRenderer: (): void => {},
+    registerCommand: (name: string, options: unknown): void => {
+      commands.set(name, options);
+    },
+    on: (event: string, handler: (e: unknown, c: ExtensionContext) => unknown): void => {
+      const list = subscriptions.get(event) ?? [];
+      list.push(handler);
+      subscriptions.set(event, list);
+    },
+    getFlag: (): undefined => undefined,
+    getCommands: (): { name: string; source: string }[] =>
+      [...commands.keys()].map((name) => ({ name, source: "extension" })),
+    sendMessage: (): void => {},
+  } as unknown as ExtensionAPI;
+
+  const ctx = {
+    cwd: "/does/not/matter",
+    hasUI: false,
+    modelRegistry: { getAvailable: (): readonly unknown[] => [] },
+    ui: { notify: (): void => {} },
+  } as unknown as ExtensionContext;
+
+  const deps: ThetaExtensionDeps = {
+    fixtures: [],
+    composeInstance: async (
+      _pi,
+      _ctx,
+      _ownRegisteredNames,
+      _entryChannel,
+      latchStatusBus,
+    ): Promise<ExtensionInstanceWiring> => {
+      const sink = countingStatusSink();
+      const bus = createExecutionStatusBus({ clock, sinks: [sink] });
+      generations.push({ bus, sink });
+      // Production latches from INSIDE the compose (production-composition.ts),
+      // so the factory's live slot already names the incoming bus by the time
+      // its supersession step runs — the reason the outgoing one must be
+      // snapshotted before the compose.
+      latchStatusBus?.(bus);
+      if (flags.failNextCompose) {
+        // The compose-failure witness: the latch already names this pass's
+        // bus when the throw unwinds — exactly the state factory.ts's
+        // catch-path restoration (RFC 0010 EXST-2/EXST-8) must repair.
+        flags.failNextCompose = false;
+        throw new Error("forced compose failure (witness)");
+      }
+      return {
+        thetas: [],
+        registry: new ThetaRegistry(),
+        activeInvocations: new ActiveInvocationRegistry(),
+        forwardingSignals: [],
+        statusBus: bus,
+        clock,
+        installHotReload: () => ({ detach: (): void => {} }),
+      };
+    },
+  };
+  createThetaExtension(deps)(pi);
+
+  return {
+    clock,
+    generations,
+    flags,
+    fireSessionStart: async (): Promise<void> => {
+      for (const handler of subscriptions.get("session_start") ?? []) {
+        await handler({ type: "session_start" }, ctx);
+      }
+    },
+  };
+}
+
+/** Loud indexed access — a missing generation is a harness fault, never a skip. */
+function generationAt(
+  boot: StatusBusSupersessionBoot,
+  index: number,
+): StatusGeneration {
+  const generation = boot.generations[index];
+  if (generation === undefined) {
+    throw new Error(`compose #${index + 1} never minted its status bus`);
+  }
+  return generation;
+}
+
+describe("RFC 0010 (EXST-2) — supersede-before-publish disposes the outgoing status bus", () => {
+  it("a shutdown-less repeat session_start silences the superseded generation's bus while the new one keeps rendering", async () => {
+    const boot = bootStatusBusSupersession();
+
+    // Generation 1 publishes and renders normally through its own sink.
+    await boot.fireSessionStart();
+    const a = generationAt(boot, 0);
+    a.bus.invocationStarted("inv-a", "alpha");
+    boot.clock.advance(STATUS_TICK_MS);
+    expect(a.sink.renders).toBe(1);
+
+    // Dirt with a PENDING tick and a lingering done-flash node: exactly the
+    // state whose later linger/tick renders would write the SHARED footer key
+    // against the incoming generation's bus.
+    a.bus.invocationStarted("inv-a2", "alpha2");
+    a.bus.invocationEnded("inv-a");
+    const rendersBeforeSupersession = a.sink.renders;
+    const clearsBeforeSupersession = a.sink.clears;
+
+    // Supersession: the repeat delivery publishes generation 2 over generation 1.
+    await boot.fireSessionStart();
+    expect(boot.generations).toHaveLength(2);
+    const b = generationAt(boot, 1);
+
+    // (a) The outgoing bus was disposed at supersession — its sinks were
+    // cleared exactly once on the way out.
+    expect
+      .soft(a.sink.clears, "(a) the outgoing bus is disposed at supersession")
+      .toBe(clearsBeforeSupersession + 1);
+
+    // (b) No further render EVER reaches the superseded generation's sink, not
+    // from its pending coalescing tick, not from its done-flash linger sweep,
+    // and not from a late publication into the orphaned bus.
+    boot.clock.advance(STATUS_TICK_MS * 4 + DONE_LINGER_MS * 2);
+    a.bus.invocationStarted("inv-a3", "alpha3");
+    boot.clock.advance(STATUS_TICK_MS * 4 + DONE_LINGER_MS * 2);
+    expect
+      .soft(
+        a.sink.renders,
+        "(b) no superseded-generation render reaches the shared footer key",
+      )
+      .toBe(rendersBeforeSupersession);
+
+    // (c) The live generation is untouched: its bus renders normally.
+    b.bus.invocationStarted("inv-b", "beta");
+    boot.clock.advance(STATUS_TICK_MS);
+    expect(b.sink.renders).toBeGreaterThanOrEqual(1);
+  });
+
+  it("a compose pass that latched its bus and then threw is disposed and the latch restored to the surviving generation (EXST-2/EXST-8)", async () => {
+    const boot = bootStatusBusSupersession();
+
+    // Generation A composes and renders normally.
+    await boot.fireSessionStart();
+    const a = generationAt(boot, 0);
+    a.bus.invocationStarted("inv-a", "alpha");
+    boot.clock.advance(STATUS_TICK_MS);
+    expect(a.sink.renders).toBe(1);
+
+    // Generation B latches its bus, then the compose throws.
+    boot.flags.failNextCompose = true;
+    await boot.fireSessionStart();
+    expect(boot.generations).toHaveLength(2);
+    const b = generationAt(boot, 1);
+
+    // (a) The failed pass's bus is disposed on the catch path: sinks cleared
+    // once, and no render EVER reaches it — not even from late publications.
+    expect
+      .soft(b.sink.clears, "(a) the failed pass's bus is disposed")
+      .toBe(1);
+    b.bus.invocationStarted("inv-b", "beta");
+    boot.clock.advance(STATUS_TICK_MS * 4 + DONE_LINGER_MS * 2);
+    expect
+      .soft(b.sink.renders, "(a) no render reaches the failed pass's bus")
+      .toBe(0);
+
+    // (b) The surviving generation kept its bus: it renders new dirt normally
+    // (a disposal would have silenced the tick).
+    const rendersBefore = a.sink.renders;
+    a.bus.invocationStarted("inv-a2", "alpha2");
+    boot.clock.advance(STATUS_TICK_MS);
+    expect
+      .soft(a.sink.renders, "(b) the surviving generation still renders")
+      .toBeGreaterThan(rendersBefore);
+
+    // (c) The latch was RESTORED to A — witnessed through the next successful
+    // supersession: its outgoing-bus snapshot must dispose A (not the failed
+    // B twice, and not nothing).
+    const clearsBefore = a.sink.clears;
+    await boot.fireSessionStart();
+    expect(boot.generations).toHaveLength(3);
+    expect
+      .soft(
+        a.sink.clears,
+        "(c) the next supersession disposes A — the latch named A, not the failed B",
+      )
+      .toBe(clearsBefore + 1);
+    expect.soft(b.sink.clears, "(c) the failed B is not disposed twice").toBe(1);
   });
 });

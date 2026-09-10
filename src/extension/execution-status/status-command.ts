@@ -13,7 +13,7 @@ import type { ExecutionStatusBus, ViewShape } from "./types";
 /** The one non-theta-derived command name this extension registers (EXST-11). */
 export const THETA_STATUS_COMMAND_NAME = "theta-status";
 
-/** EXST-11 reserved command-name stem union (par. 6.2 step 3). */
+/** EXST-11 reserved command-name stem union. */
 export const RESERVED_COMMAND_NAMES = Object.freeze([THETA_STATUS_COMMAND_NAME] as const);
 
 /**
@@ -54,12 +54,12 @@ export interface StatusCommandCtx {
 }
 
 export interface RegisterThetaStatusCommandDeps {
-  /** The factory's `liveStatusBus` latch (par. 1 factory row). */
+  /** The factory's `liveStatusBus` latch (EXST-2). */
   readonly current: () => ExecutionStatusBus | undefined;
 }
 
 /**
- * Register `/theta-status` (seam sheet par. 6.2). The handler never throws:
+ * Register `/theta-status` (EXST-11). The handler never throws:
  * an invalid argument and an absent live instance each realize as one
  * best-effort `ctx.ui.notify(…, "warning")` with no state change and no
  * note-channel involvement (the pinned informational-note set on

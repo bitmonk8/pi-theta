@@ -24,8 +24,8 @@ import {
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
 
 // RFC 0010 (execution-status.md EXST-8; runtime-event-channel.md PIC-71/72) —
-// bug 0469's fix witnesses, migrated per the seam sheet's B52-B54/B64/B65
-// rows (green-on-arrival: the production code these rows exercise
+// bug 0469's fix witnesses, migrated per behaviour-matrix rows B52-B54/B64/B65
+// (green-on-arrival: the production code these rows exercise
 // — `entry-channel.ts`, `deliverOperatorNotePreferringEntry`, and the factory
 // registration site — already landed; these tests are new PERMANENT
 // witnesses, not TDD reds).

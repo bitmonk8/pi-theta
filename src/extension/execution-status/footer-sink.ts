@@ -10,7 +10,7 @@
 // `file:line`, checkpoint kinds, lane counts, timing, and — under `names` —
 // tool names sourced from the child tap. A parent-side effect renders
 // `kind base(file):line`: the checkpoint payload carries no tool name, so tool
-// names appear only on child-sourced material (seam sheet F10).
+// names appear only on child-sourced material (EXST-5).
 //
 // Spec: docs/spec_topics/execution-status.md EXST-8, EXST-10, EXST-12.
 
@@ -24,7 +24,7 @@ import type {
 } from "./types";
 import { FOOTER_CLAMP_CHARS } from "./types";
 
-/** The class-2 author-message marker (L3 render grammar, par. 6). */
+/** The class-2 author-message marker (EXST-14). */
 export const AUTHOR_MESSAGE_GLYPH = "\u270E";
 
 /** The narrow `ctx.ui` surface the footer sink touches (EXST-8 per-surface gate). */
@@ -55,7 +55,7 @@ export function baseFileName(file: string): string {
 }
 
 /**
- * The shared elapsed/age grammar (seam sheet par. 5.1): `<n>s` under a minute,
+ * The shared elapsed/age grammar (EXST-8): `<n>s` under a minute,
  * `<m>m[<s>s]` under an hour (the seconds token omitted when it is zero), and
  * `<h>h<mm>m` above, with zero-padded minutes.
  */
@@ -126,7 +126,7 @@ function renderKidsSegment(
 /**
  * The newest class-2 payload across the rendered node and its descendants — a
  * child's wire-ingested self-report lives on the CHILD node, so a parent's
- * footer line must reach down one level to show it (par. 6). Descendant
+ * footer line must reach down one level to show it (EXST-14). Descendant
  * payloads win over the node's own only when the node carries none: the
  * snapshot holds no per-payload timestamp, and node insertion order puts the
  * more recently started (deeper) node last.
@@ -149,7 +149,7 @@ function newestAuthorMessage(
   return descendant ?? node.authorMessage;
 }
 
-/** `✎ <message>[ (+<n> dropped)]` — the class-2 footer segment (par. 6). */
+/** `✎ <message>[ (+<n> dropped)]` — the class-2 footer segment (EXST-14). */
 export function renderAuthorMessageSegment(payload: ProgressAuthorMessage): string {
   const dropped = payload.dropped ?? 0;
   return `${AUTHOR_MESSAGE_GLYPH} ${payload.message}${dropped > 0 ? ` (+${dropped} dropped)` : ""}`;
@@ -179,7 +179,7 @@ function lastToolNameOf(
 }
 
 /**
- * Pure footer-line renderer (seam sheet par. 5.1). Segments joined by `" · "`;
+ * Pure footer-line renderer (EXST-8). Segments joined by `" · "`;
  * a zero-content segment is omitted; the result is clamped to
  * `FOOTER_CLAMP_CHARS` with a trailing `…` when clipped.
  */
@@ -220,7 +220,7 @@ export function renderFooterLine(
 }
 
 /**
- * Pure working-message renderer (seam sheet par. 5.1 / F7): `θ /<theta>
+ * Pure working-message renderer (EXST-8): `θ /<theta>
  * <elapsed>` while a PROMPT-mode node's `currentEffect.kind === "query"` — the
  * observable approximation of EXST-8's "only while a driven prompt-mode turn
  * is streaming". The next non-query checkpoint (or the node's end) clears it,

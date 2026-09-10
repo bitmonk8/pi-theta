@@ -12,13 +12,13 @@ import type {
 } from "../src/extension/execution-status/types";
 
 // RFC 0010 (execution-status.md EXST-8/EXST-10) — `tests/execution-status-footer.test.ts`
-// (T-FTR). Behaviour-matrix rows B35-B40, B43 (par. 5.1 worked examples,
+// (T-FTR). Behaviour-matrix rows B35-B40, B43 (EXST-8 worked examples,
 // FOOTER_CLAMP_CHARS, setStatus/setWorkingMessage call discipline).
 //
-// `footer-sink.ts`'s current bodies (stubs) return `undefined` from both pure
-// renderers unconditionally and never call either renderer from `render()`;
-// only `clear()` is real. Every worked-example / string assertion below reds
-// on the missing rendered string, not on a throw or setup failure.
+// `footer-sink.ts`'s pure renderers (`renderFooterLine`,
+// `renderWorkingMessage`) produce the rendered strings, and `render()` calls
+// them and forwards the result to `setStatus`/`setWorkingMessage`. Every
+// worked-example / string assertion below asserts the real rendered string.
 
 /** Minimal node builder — only the fields a given assertion needs are set. */
 function node(overrides: Partial<InvocationNodeSnapshot> & Pick<InvocationNodeSnapshot, "invocationId" | "theta" | "startedAtMs">): InvocationNodeSnapshot {
@@ -33,7 +33,7 @@ function snapshotOf(nodes: readonly InvocationNodeSnapshot[], untracked = 0): Ex
 }
 
 // ---------------------------------------------------------------------------
-// B35/B36 — the par. 5.1 worked example: single node, tool-call effect, an
+// B35/B36 — the EXST-8 worked example: single node, tool-call effect, an
 // open lane set, a tapped child's lastToolName.
 // ---------------------------------------------------------------------------
 
@@ -68,7 +68,7 @@ const QUALITY_LOOP_NODE: InvocationNodeSnapshot = node({
   },
 });
 
-describe("T-FTR — B35/B36: renderFooterLine worked example (par. 5.1)", () => {
+describe("T-FTR — B35/B36: renderFooterLine worked example (EXST-8)", () => {
   it("B35: names verbosity — full grammar incl. tool-name kids suffix", () => {
     const s = snapshotOf([QUALITY_LOOP_NODE]);
     const line = renderFooterLine(s, "names", 840000);
@@ -215,14 +215,14 @@ describe("T-FTR — B39: last node evicted -> sink clears setStatus", () => {
 });
 
 describe("T-FTR — B43: view 'off' clears the footer too", () => {
-  it("render() with view 'off' produces no live status text (sink render is a no-op stub; this reds once real render() calls renderFooterLine and observes the view gate)", () => {
+  it("render() with view 'off' produces no live status text; a subsequent 'tree' render reaches setStatus with the rendered line", () => {
     const { ui, statusCalls } = recordingFooterUi();
     const sink = createFooterSink(ui);
     sink.render(snapshotOf([QUALITY_LOOP_NODE]), "off", "names", 840000);
-    // Per the seam sheet, an "off" view still folds state but EXST-10's
-    // verbosity gate (not view) governs whether the bus ticks at all; this
-    // sink-level assertion pins that a "tree"-shaped render call with live
-    // content actually reaches setStatus with the rendered line.
+    // Per EXST-10, an "off" view still folds state but the verbosity gate
+    // (not view) governs whether the bus ticks at all; this sink-level
+    // assertion pins that a "tree"-shaped render call with live content
+    // actually reaches setStatus with the rendered line.
     sink.render(snapshotOf([QUALITY_LOOP_NODE]), "tree", "names", 840000);
     expect(statusCalls).toContain(
       "θ /quality-loop 14m · tool-call quality-loop:214 (2m8s) · lanes 3▶ 2✓ 1… · bash",

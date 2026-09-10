@@ -10,18 +10,15 @@ import type { SystemNote } from "../src/extension/system-note-channel";
 
 // RFC 0010 (execution-status.md EXST-8; runtime-event-channel.md PIC-71/72) —
 // `tests/execution-status-entry-channel.test.ts` (T-ENT). Behaviour-matrix
-// rows B45-B51, B55 (B52-B54 require the `system-note-channel.ts` /
-// `factory.ts` wiring the seam sheet reserves for a later analyst pass — not
-// duplicated here as unit-level assertions since neither is touched by this
-// builder pass).
+// rows B45-B51, B55 (B52-B54 exercise the `system-note-channel.ts` /
+// `factory.ts` wiring (PIC-72) end-to-end and are covered in
+// `tests/execution-status-entry-migration-witnesses.test.ts` — not
+// duplicated here as unit-level assertions).
 //
-// `entry-channel.ts`'s current `append()` body (a stub) NEVER calls
-// `pi.appendEntry` — every note falls through unconditionally, regardless of
-// `live()`. So every "delivered as an entry" assertion below reds on the
-// missing `pi.appendEntry` call; the `live()`-only "absent surface" /
-// "registration throws" assertions are real (probe/registration wiring is
-// wired for real) and are flagged vacuous-green in the builder report where
-// noted.
+// `entry-channel.ts`'s `append()` calls `pi.appendEntry` when `live()` is
+// true — every "delivered as an entry" assertion below asserts that real
+// `pi.appendEntry` call; the `live()`-only "absent surface" / "registration
+// throws" assertions cover the probe/registration wiring directly.
 
 /** A recording fake `pi` exposing appendEntry + registerEntryRenderer (mirrors
  *  tests/extension-factory-harness.test.ts's `makeAbsentSeamPi` recording-double
@@ -109,7 +106,7 @@ describe("T-ENT — B45/B46/B47: live channel delivers each note class as an ent
 // ---------------------------------------------------------------------------
 
 describe("T-ENT — B48: absent pi.appendEntry -> channel dead, caller falls back", () => {
-  it("live() is false and append() returns false (vacuous-green precondition note in builder report: append() is stubbed false regardless)", () => {
+  it("live() is false and append() returns false (absent pi.appendEntry: no surface to deliver through)", () => {
     const { pi } = fakePi({ absentAppendEntry: true });
     const channel = createEntryChannel(pi);
     expect(channel.live()).toBe(false);
