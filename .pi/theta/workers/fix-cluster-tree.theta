@@ -54,6 +54,7 @@ let mut done = false
 let mut sha = ""
 let mut confirmed: array<string> = []
 let mut notes = ""
+let mut trail = ""
 
 while attempt < 2 && !done {
   attempt += 1
@@ -68,8 +69,14 @@ while attempt < 2 && !done {
   let _ = theta_progress({ message: "gating " + key, scope: key, done: attempt, total: 2 })?
   // The gate is bounded (the orchestrator passes a test-runner-width-capped
   // gate_cmd): N trees x M runner workers must stay under the core budget.
-  let gate = bash({ command: gate_cmd + " && echo GATE_PASS || echo GATE_FAIL", timeout: 3600 })?
+  // Gate output goes to a gitignored in-tree log so a red gate is
+  // DIAGNOSABLE: the failing tail feeds attempt 2's guidance and the final
+  // notes. (A user-supplied gate_cmd carrying its own >/dev/null redirects
+  // degrades to the old blind behaviour - the log is then empty.)
+  let gate = bash({ command: "{ " + gate_cmd + " ; } > quality/tmp/gate.log 2>&1 && echo GATE_PASS || echo GATE_FAIL", timeout: 3600 })?
+  let gate_tail = gate.includes("GATE_PASS") ? "" : bash({ command: "{ grep -E 'FAIL|failed|Error' quality/tmp/gate.log | head -25 ; tail -c 1500 quality/tmp/gate.log ; } 2>/dev/null" })?
   let _ = theta_progress({ message: "gate " + (gate.includes("GATE_PASS") ? "green" : "red") + ": " + key, scope: key, done: attempt, total: 2 })?
+  trail = trail + "attempt " + att + ": gate " + (gate.includes("GATE_PASS") ? "green" : "red") + "; "
   let rv = match review_fix(man) {
     Ok(r) => r,
     Err(e) => FixReview { ok: false, fixed_confirmed: [], must_fix: "fix-review worker failed: " + e.kind + " - fixer notes were: " + fr.notes },
@@ -90,7 +97,8 @@ while attempt < 2 && !done {
       let _ = theta_progress({ message: "committed " + key + " @ " + sha, scope: key, done: attempt, total: 2 })?
     }
   } else {
-    guidance = rv.must_fix + (gate.includes("GATE_PASS") ? "" : " ALSO: the offline gate is red after your changes - make it green (gate: " + gate_cmd + ")")
+    trail = trail + "review ok=" + (rv.ok ? "true" : "false") + ", confirmed " + (rv.fixed_confirmed.length == 0 ? "none" : rv.fixed_confirmed.join(",")) + (rv.must_fix == "" ? "" : ", must_fix: " + rv.must_fix) + "; fixer: " + fr.notes + " | "
+    guidance = rv.must_fix + (gate.includes("GATE_PASS") ? "" : " ALSO: the offline gate is red after your changes - make it green. Gate failures (tail): " + gate_tail + " -- If a census/pin/inventory gate reds, its own failure message names the sanctioned same-commit re-derivation - follow it rather than avoiding the edit.")
     if attempt >= 2 {
       // Same revert boundary as the single-tree loop had, now per tree: undo
       // the rejected attempt and report leftovers loudly rather than commit
@@ -100,10 +108,10 @@ while attempt < 2 && !done {
       let _ = theta_progress({ message: "reverting " + key + " after 2 rejected attempts", scope: key, done: 2, total: 2 })?
       let _ = bash({ command: "git restore ." })?
       let residue_n = bash({ command: "git status --porcelain | wc -l" })?
-      notes = "2 rejected fix attempts, reverted in-tree; last review said: " + rv.must_fix
+      notes = "2 rejected fix attempts, reverted in-tree. Trail: " + trail
       if residue_n.trim() != "0" {
         let residue = bash({ command: "git status --porcelain | head -20" })?
-        notes = "2 rejected fix attempts; UNCLEAN in-tree revert (leftovers below, worktree discarded): " + residue.trim() + " | last review said: " + rv.must_fix
+        notes = "2 rejected fix attempts; UNCLEAN in-tree revert (leftovers below, worktree discarded): " + residue.trim() + " | Trail: " + trail
       }
     }
   }

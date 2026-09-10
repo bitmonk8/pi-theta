@@ -14,7 +14,7 @@ params:
   budget: integer = 10
   parallel: integer = 4
   push: boolean = true
-  gate_cmd: string = "npx tsc --noEmit >/dev/null 2>&1 && npm test >/dev/null 2>&1"
+  gate_cmd: string = "npx tsc --noEmit && npm test"
   cluster_max: string = "12"
   tree_workers: string = "6"
 ---
@@ -78,7 +78,7 @@ if dirty_n.trim() != "0" {
 ${dirty}`?
   return "refused: dirty worktree"
 }
-let baseline = bash({ command: gate_cmd + " && echo GATE_PASS || echo GATE_FAIL", timeout: 3600 })?
+let baseline = bash({ command: "{ " + gate_cmd + " ; } >/dev/null 2>&1 && echo GATE_PASS || echo GATE_FAIL", timeout: 3600 })?
 if !baseline.includes("GATE_PASS") {
   let _ = @`Tell the user: /quality-loop refused to start — the offline gate is already red on the untouched tree, so fix failures could not be attributed. Fix the baseline first (gate: ${gate_cmd}).`?
   return "refused: red baseline"
@@ -251,7 +251,7 @@ while cycle < max_cycles && !converged {
 
     let mut kept = applied.length
     if applied.length > 0 {
-      let batch = bash({ command: gate_cmd + " && echo GATE_PASS || echo GATE_FAIL", timeout: 3600 })?
+      let batch = bash({ command: "{ " + gate_cmd + " ; } >/dev/null 2>&1 && echo GATE_PASS || echo GATE_FAIL", timeout: 3600 })?
       let mut batch_ok = batch.includes("GATE_PASS")
       while !batch_ok && kept > 0 {
         // Every branch was gated alone in its own tree and clusters are
@@ -268,7 +268,7 @@ while cycle < max_cycles && !converged {
 ${residue}`?
           return "halted: unclean revert"
         }
-        let regate = bash({ command: gate_cmd + " && echo GATE_PASS || echo GATE_FAIL", timeout: 3600 })?
+        let regate = bash({ command: "{ " + gate_cmd + " ; } >/dev/null 2>&1 && echo GATE_PASS || echo GATE_FAIL", timeout: 3600 })?
         batch_ok = regate.includes("GATE_PASS")
         report = report + "wave " + wave + ": batch gate red - dropped cluster " + applied[kept].key + ", gate now " + (batch_ok ? "green" : "still red") + "\n"
       }
