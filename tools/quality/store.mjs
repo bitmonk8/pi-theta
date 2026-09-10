@@ -28,10 +28,16 @@
 //   reject --finding <intake .md> --verdict <v> [--reason <text>]
 //       Append a TRIAGE_LOG row (reason defaults to the finding's ## Triage
 //       note), delete the file.
-//   clusters [--wave <id>]
+//   clusters [--wave <id>] [--max <n>]
 //       Group quality/issues/ by fix surface (first two path segments of the
 //       first cited location); write quality/tmp/clusters[-<wave>]/<key>.txt;
-//       print "key<TAB>manifest<TAB>count" per cluster.
+//       print "key<TAB>manifest<TAB>count" per cluster. With --max present
+//       (bare flag = 12), a cluster larger than n is split into ordered parts
+//       <key>__p1, <key>__p2, … so one oversized surface cannot swallow a whole
+//       parallel fix wave. Without --max the grouping is unsplit.
+//   open-count
+//       Print the number of status: open issues in quality/issues/ — the
+//       quality loop's convergence signal (0 = backlog empty).
 //   resolve --manifest <cluster manifest> --fixed <basename,basename,...>
 //       Mark the named issues status: fixed and move them to quality/resolved/.
 
@@ -339,13 +345,42 @@ switch (cmd) {
       clusters.get(key).push(posix(path.join("quality", "issues", f)));
     }
     if (clusters.size === 0) break;
+    // Absent --max keeps the historical unsplit grouping; a bare --max means 12.
+    const maxPer = flags.max === undefined ? Infinity : flags.max === "true" ? 12 : Number(flags.max);
+    if (!(maxPer > 0)) die("--max must be a positive number");
     const outDir = path.join(TMP, flags.wave ? `clusters-${flags.wave}` : "clusters");
     fs.mkdirSync(outDir, { recursive: true });
     for (const [key, paths] of [...clusters.entries()].sort()) {
-      const p = path.join(outDir, `${key.replaceAll("/", "__")}.txt`);
-      fs.writeFileSync(p, paths.join("\n") + "\n");
-      process.stdout.write(`${key}\t${rel(p)}\t${paths.length}\n`);
+      // Parts inherit the parent cluster's already-sorted issue order, so the
+      // same backlog always splits the same way (stable across waves).
+      const parts = [];
+      if (paths.length <= maxPer) {
+        parts.push([key, paths]);
+      } else {
+        for (let i = 0, n = 1; i < paths.length; i += maxPer, n++) {
+          parts.push([`${key}__p${n}`, paths.slice(i, i + maxPer)]);
+        }
+      }
+      for (const [partKey, partPaths] of parts) {
+        const p = path.join(outDir, `${partKey.replaceAll("/", "__")}.txt`);
+        fs.writeFileSync(p, partPaths.join("\n") + "\n");
+        process.stdout.write(`${partKey}\t${rel(p)}\t${partPaths.length}\n`);
+      }
     }
+    break;
+  }
+
+  case "open-count": {
+    // Cheap convergence probe: no manifests written, no git calls — the loop
+    // runs it every wave between triage and the fix phase.
+    let open = 0;
+    if (fs.existsSync(ISSUES)) {
+      for (const f of fs.readdirSync(ISSUES).filter((x) => x.endsWith(".md"))) {
+        const { fields } = readFrontmatter(path.join(ISSUES, f));
+        if ((fields.status ?? "open") === "open") open++;
+      }
+    }
+    process.stdout.write(`${open}\n`);
     break;
   }
 

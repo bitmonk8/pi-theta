@@ -123,6 +123,7 @@
   "theta/wireonsession",
   "theta/wireprod",
   "theta/worker",
+  "theta/workers/fix-cluster-tree",
   "theta/workers/quality",
   "theta/zqx-root"
 ]

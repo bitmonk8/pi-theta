@@ -441,11 +441,12 @@ describe("bug 0195 (D) — no committed theta carries an empty array literal", (
     expect(
       files.length,
       `D1: the census is over ${files.length} committed files; sibling fixes land \`.theta\` files, so a changed count means the disposition below must be re-derived rather than trusted. Files: ${JSON.stringify(files)}`,
-    ).toBe(40);
+    ).toBe(41);
     const offenders = files.filter((f) =>
       readFileSync(path.join(REPO_ROOT, f), "utf8").includes("[]"),
     );
-    // Re-derived 2026-09-07 (quality-loop thetas landed): the corpus now
+    // Re-derived 2026-09-10 (the quality-loop worktree fan-out landed a third
+    // such file): the corpus now
     // carries `[]` literals, all of them type-sunk (annotated `let mut x:
     // array<string> = []` initialisers and schema-constructor fields), none an
     // iterand. Route (a)'s input shape is a `for`-iterand `[]`, so the GOV-15
@@ -454,7 +455,11 @@ describe("bug 0195 (D) — no committed theta carries an empty array literal", (
     expect(
       offenders.sort(),
       "D1: the committed `[]` occurrences live in exactly these type-sunk, non-iterand sites; a new offender means the disposition must be re-derived rather than trusted",
-    ).toEqual([".pi/theta/quality-loop.theta", ".pi/theta/workers/quality.thetalib"]);
+    ).toEqual([
+      ".pi/theta/quality-loop.theta",
+      ".pi/theta/workers/fix-cluster-tree.theta",
+      ".pi/theta/workers/quality.thetalib",
+    ]);
     for (const f of offenders) {
       expect(
         /\bin\s*\[\]/.test(readFileSync(path.join(REPO_ROOT, f), "utf8")),

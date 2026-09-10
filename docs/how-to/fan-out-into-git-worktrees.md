@@ -6,8 +6,10 @@ The call-site `with { cwd: <expr> }` clause (theta 1.3) lets a `par for` fan a
 subagent-mode callee out across separate git worktrees — one child `pi`
 process per tree, each editing and testing in its own directory. This is the
 worked example [RFC 0009](../rfcs/0009-per-call-subagent-cwd.md) validates its
-payoff against; reworking `/quality-loop`'s fix phase into this shape is the
-RFC 0009 plan's Phase 8 (not yet landed at this writing).
+payoff against, and `/quality-loop`'s fix phase is built in this shape
+(RFC 0009 plan Phase 8): `.pi/theta/quality-loop.theta` provisions the trees
+and integrates, `.pi/theta/workers/fix-cluster-tree.theta` is the wrapper
+worker.
 
 ## Shape
 
@@ -75,8 +77,13 @@ for row in rows {
 // directory for this one call only — everything else about the launch
 // (discovery roots, tools allowlist, trust flags) is unchanged (RFC 0009
 // §4, the identity/location principle — see "Safety notes" below).
+// The postfix `?` matters: it unwraps the CALL's own Result inside the lane,
+// so a failed worker surfaces as the lane's Err and a green one hands the
+// integration loop a bare TreeReport. Without it every lane is Ok(<inner
+// Result>) for normal lanes and the `rep.ok` reads below panic on a Result
+// receiver (`theta/runtime/non-object-receiver`).
 let reports = par for w in work max 4 {
-  fix_cluster_in_tree(w.manifest, w.guidance) with { cwd: w.tree }
+  fix_cluster_in_tree(w.manifest, w.guidance) with { cwd: w.tree }?
 }
 ```
 
@@ -92,7 +99,7 @@ never writes to the shared store (see [Store writes](#store-writes-stay-orchestr
 
 ```theta
 ---
-description: Fix one cluster inside its own worktree; gate, review, and commit once green
+description: "Fix one cluster inside its own worktree; gate, review, and commit once green"
 mode: subagent
 params:
   manifest: string

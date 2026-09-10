@@ -1,0 +1,94 @@
+---
+description: "Fix one cluster inside its own git worktree - up to 2 attempts behind a bounded gate, one in-tree commit once green, never touches the quality store"
+mode: subagent
+model: "anthropic/claude-sonnet-5"
+tools:
+  - bash
+  - ./fix-cluster.theta
+  - ./review-fix.theta
+params:
+  manifest_src: string
+  key: string
+  wave: string
+  gate_cmd: string
+---
+// Runs with cwd == its own git worktree (the orchestrator dispatches it as
+// `fix_cluster_tree(...) with { cwd: tree }`), so every side effect of a fix
+// attempt - edits, gate runs, the commit - stays in that one tree and cannot
+// collide with a sibling fixer. The two workers it calls inherit that cwd,
+// which is why they need no change: their repo-relative paths and git commands
+// resolve against the tree. See docs/how-to/fan-out-into-git-worktrees.md.
+import { FixReport, FixReview, TreeFixReport } from "./quality.thetalib"
+
+// Manifest transport. The cluster manifest is written under quality/tmp/,
+// which is gitignored - so the worktree's HEAD checkout does NOT carry it,
+// while the issue files it lists (quality/issues/*.md) ARE committed and
+// therefore present in this tree. Copying the main tree's manifest into this
+// tree's own quality/tmp/ keeps fix-cluster.theta and review-fix.theta reading
+// a repo-relative manifest path exactly as they do in the main tree, and the
+// copy is invisible to git (gitignored), so it cannot reach the commit.
+let man = "quality/tmp/tree-cluster.txt"
+let staged = match bash({ command: "mkdir -p quality/tmp && cp \"" + manifest_src + "\" " + man + " && wc -l < " + man }) {
+  Ok(_) => true,
+  Err(_) => false,
+}
+if !staged {
+  return TreeFixReport { ok: false, sha: "", fixed_confirmed: [], notes: "could not stage the cluster manifest into the worktree: " + manifest_src }
+}
+
+let mut attempt = 0
+let mut guidance = ""
+let mut done = false
+let mut sha = ""
+let mut confirmed: array<string> = []
+let mut notes = ""
+
+while attempt < 2 && !done {
+  attempt += 1
+  let fr = match fix_cluster(man, guidance) {
+    Ok(f) => f,
+    Err(e) => FixReport { fixed: [], skipped: [], notes: "fix worker failed: " + e.kind },
+  }
+  // The gate is bounded (the orchestrator passes a test-runner-width-capped
+  // gate_cmd): N trees x M runner workers must stay under the core budget.
+  let gate = bash({ command: gate_cmd + " && echo GATE_PASS || echo GATE_FAIL", timeout: 3600 })?
+  let rv = match review_fix(man) {
+    Ok(r) => r,
+    Err(e) => FixReview { ok: false, fixed_confirmed: [], must_fix: "fix-review worker failed: " + e.kind + " - fixer notes were: " + fr.notes },
+  }
+  if gate.includes("GATE_PASS") && rv.ok && rv.fixed_confirmed.length > 0 {
+    // Single-writer rule: the tree commits code only. Any stray quality/ edit
+    // is unstaged before the commit so the store stays the orchestrator's.
+    let committed = bash({ command: "git add -A && git restore --staged -- quality >/dev/null 2>&1; git commit -q -m \"quality: " + wave + " D2 fix " + key + "\" >/dev/null 2>&1 && git rev-parse HEAD || echo COMMIT_FAIL" })?
+    if committed.includes("COMMIT_FAIL") {
+      notes = "in-tree commit failed after a green gate and a confirming review"
+    } else {
+      sha = committed.trim()
+      confirmed = rv.fixed_confirmed
+      done = true
+      notes = "gate green, review confirmed " + rv.fixed_confirmed.join(",") + " on attempt " + (attempt == 1 ? "1" : "2")
+    }
+  } else {
+    guidance = rv.must_fix + (gate.includes("GATE_PASS") ? "" : " ALSO: the offline gate is red after your changes - make it green (gate: " + gate_cmd + ")")
+    if attempt >= 2 {
+      // Same revert boundary as the single-tree loop had, now per tree: undo
+      // the rejected attempt and report leftovers loudly rather than commit
+      // them. The tree itself is discarded by the orchestrator either way, so
+      // an unclean revert here cannot poison the main tree - it is reported,
+      // not a halt.
+      let _ = bash({ command: "git restore ." })?
+      let residue_n = bash({ command: "git status --porcelain | wc -l" })?
+      notes = "2 rejected fix attempts, reverted in-tree; last review said: " + rv.must_fix
+      if residue_n.trim() != "0" {
+        let residue = bash({ command: "git status --porcelain | head -20" })?
+        notes = "2 rejected fix attempts; UNCLEAN in-tree revert (leftovers below, worktree discarded): " + residue.trim() + " | last review said: " + rv.must_fix
+      }
+    }
+  }
+}
+
+if done {
+  TreeFixReport { ok: true, sha: sha, fixed_confirmed: confirmed, notes: notes }
+} else {
+  TreeFixReport { ok: false, sha: "", fixed_confirmed: [], notes: notes }
+}

@@ -1,5 +1,5 @@
 ---
-description: "Ralph-style quality loop - review changed pi-theta sources lens-by-lens, triage, fix confirmed findings cluster-by-cluster behind the offline gate, commit, repeat until converged (state under quality/)"
+description: "Ralph-style quality loop - review changed pi-theta sources lens-by-lens, triage, fix confirmed findings in parallel git worktrees behind the offline gate, integrate, repeat until the open backlog is empty (state under quality/)"
 argument-hint: "[max_cycles] [shard_loc] [budget] [parallel] [push true/false]"
 mode: prompt
 bind_model: "anthropic/claude-sonnet-5"
@@ -7,8 +7,7 @@ tools:
   - bash
   - ./workers/lens-d2-cruft.theta
   - ./workers/triage-finding.theta
-  - ./workers/fix-cluster.theta
-  - ./workers/review-fix.theta
+  - ./workers/fix-cluster-tree.theta
 params:
   max_cycles: integer = 3
   shard_loc: string = "6000"
@@ -16,16 +15,61 @@ params:
   parallel: integer = 4
   push: boolean = true
   gate_cmd: string = "npx tsc --noEmit >/dev/null 2>&1 && npm test >/dev/null 2>&1"
+  cluster_max: string = "12"
+  tree_workers: string = "6"
 ---
-import { TriageVerdict, FixReport, FixReview, lines } from "./workers/quality.thetalib"
+// cluster_max and tree_workers are string-typed because they are spliced into
+// shell commands: cluster_max caps one manifest's issue count (an oversized
+// cluster splits into <key>__p1, __p2, ...), tree_workers caps ONE worktree's
+// vitest width so parallel x tree_workers stays inside the core budget
+// (default 4 x 6 = 24 on a 32-core host).
+import { TriageVerdict, TreeFixReport, lines } from "./workers/quality.thetalib"
 
 // Convention used throughout: branch on COUNTS (wc -l), never on empty output.
 // The host bash tool renders empty stdout as a placeholder string, so a
 // raw-emptiness check like trim() == "" misfires on clean/empty results.
 
+/// Provision one detached worktree for a cluster, OUTSIDE the repo root (under
+/// $TEMP, forward-slashed so the path is usable as a child `cwd`), and give it
+/// a node_modules so the in-tree gate can run: a Windows directory junction
+/// where cygpath exists, a symlink otherwise. Copying node_modules per tree
+/// would cost minutes per wave. Prints the tree path, or PROVISION_FAIL.
+fn provision_cmd(wave: string, safe_key: string): string {
+  return "set -e; base=$(cygpath -m \"$TEMP\" 2>/dev/null || printf %s \"${TMPDIR:-/tmp}\"); tree=\"$base/qfix-" + wave + "-" + safe_key + "\"; rm -rf \"$tree\"; git worktree add --detach \"$tree\" HEAD >/dev/null 2>&1 || { echo PROVISION_FAIL; exit 0; }; if command -v cygpath >/dev/null 2>&1; then MSYS_NO_PATHCONV=1 cmd /c mklink /J \"$(cygpath -w \"$tree/node_modules\")\" \"$(cygpath -w \"$PWD/node_modules\")\" >/dev/null 2>&1 || { echo PROVISION_FAIL; exit 0; }; else ln -s \"$PWD/node_modules\" \"$tree/node_modules\" || { echo PROVISION_FAIL; exit 0; }; fi; echo \"$tree\""
+}
+
+/// Remove every qfix-* worktree (this loop's trees only - a sibling worktree
+/// of this repo is never touched). Run at wave START (reclaims anything a
+/// halted run leaked) and again at wave end, including on the halt paths.
+/// SAFETY: the shared node_modules link is unlinked FIRST and the directory is
+/// left standing if that fails - a recursive delete that followed a junction
+/// would take the main tree's node_modules with it.
+fn sweep_cmd(): string {
+  return "git worktree prune; git worktree list --porcelain | sed -n 's/^worktree //p' | grep -F /qfix- | while read -r t; do if command -v cygpath >/dev/null 2>&1; then MSYS_NO_PATHCONV=1 cmd /c rmdir \"$(cygpath -w \"$t/node_modules\")\" >/dev/null 2>&1; else rm -f \"$t/node_modules\"; fi; if [ -e \"$t/node_modules\" ]; then echo \"SWEEP_SKIP $t\"; else git worktree remove --force \"$t\" >/dev/null 2>&1; rm -rf \"$t\"; fi; done; git worktree prune; true"
+}
+
+/// One cluster picked for this wave. `manifest_rel` is what store.mjs takes
+/// (it resolves against the repo root); `manifest_abs` is what the worktree
+/// worker copies in, because quality/tmp/ is gitignored and therefore absent
+/// from the tree's HEAD checkout.
+schema Pick {
+  key: string,
+  manifest_rel: string,
+  manifest_abs: string,
+  tree: string
+}
+
+/// A cluster whose worktree went green: one commit to cherry-pick.
+schema Green {
+  key: string,
+  manifest_rel: string,
+  sha: string,
+  fixed: string
+}
+
 // ---------------------------------------------------------------- preflight
-// The loop needs clean revert boundaries (a failed cluster is undone with
-// git restore) and a green baseline (otherwise gate failures cannot be
+// The loop needs clean revert boundaries (a failed batch is undone with
+// git reset) and a green baseline (otherwise gate failures cannot be
 // attributed to fixes). Refuse loudly rather than improvise.
 let dirty_n = bash({ command: "git status --porcelain | wc -l" })?
 if dirty_n.trim() != "0" {
@@ -40,6 +84,11 @@ if !baseline.includes("GATE_PASS") {
   return "refused: red baseline"
 }
 
+// The per-tree gate: same gate, bounded test-runner width. vitest 2.x rejects
+// a maxWorkers below its default minWorkers, so both ends are pinned.
+let tree_gate_cmd = gate_cmd.replace("npm test", "npm test -- --minWorkers=1 --maxWorkers=" + tree_workers)
+let repo_root = bash({ command: "pwd -W 2>/dev/null || pwd" })?.trim()
+
 let mut cycle = 0
 let mut converged = false
 let mut report = ""
@@ -48,20 +97,22 @@ let mut total_confirmed = 0
 let mut total_questionable = 0
 let mut total_clusters_fixed = 0
 let mut total_clusters_reverted = 0
+let mut total_picked = 0
+let mut total_deferred = 0
 
 while cycle < max_cycles && !converged {
   cycle += 1
   let wave = bash({ command: "date -u +qw%Y%m%d%H%M%S" })?.trim()
   let review_sha = bash({ command: "git rev-parse HEAD" })?.trim()
 
+  // Prune at wave START, not at the previous wave's end: anything a halted
+  // run left behind is reclaimed here (docs/how-to/fan-out-into-git-worktrees.md).
+  let _ = bash({ command: sweep_cmd(), timeout: 600 })?
+
   // ---- 1. what needs review: recorded per-file review state vs git changes ----
+  // review() runs every wave and is internally incremental; convergence is
+  // judged AFTER triage, on the open backlog alone (RFC 0009 Phase 8 §A).
   let need_n = bash({ command: "node tools/quality/store.mjs needs-review --lens D2 | wc -l" })?.trim()
-  let leftover_n = bash({ command: "ls -1 quality/intake/*.md 2>/dev/null | wc -l" })?.trim()
-  if need_n == "0" && leftover_n == "0" {
-    converged = true
-    report = report + "wave " + wave + ": nothing needs review and intake is empty - converged.\n"
-    break
-  }
 
   // ---- 2+3. shard the due surface, run the lens over shards in parallel ----
   if need_n != "0" {
@@ -92,7 +143,6 @@ while cycle < max_cycles && !converged {
 
   // ---- 4. triage every candidate in intake (leftovers included) ----
   let cand_n = bash({ command: "ls -1 quality/intake/*.md 2>/dev/null | wc -l" })?.trim()
-  let mut confirmed = 0
   if cand_n != "0" {
     let mut cands: array<string> = []
     cands = lines(bash({ command: "ls -1 quality/intake/*.md 2>/dev/null | sort" })?)
@@ -107,10 +157,11 @@ while cycle < max_cycles && !converged {
       }
       if v.verdict == "confirmed" {
         let _ = bash({ command: "node tools/quality/store.mjs accept --finding " + cands[j] })?
-        confirmed += 1
         total_confirmed += 1
       } else if v.verdict == "questionable" {
-        // Stays in intake/ as the owner queue; re-triaged next cycle.
+        // Stays in intake/ as the owner queue; re-triaged next cycle. Never a
+        // convergence signal - a questionable is a human's call, not the
+        // loop's work item.
         total_questionable += 1
       } else {
         let _ = bash({ command: "node tools/quality/store.mjs reject --finding " + cands[j] + " --verdict " + v.verdict })?
@@ -122,55 +173,138 @@ while cycle < max_cycles && !converged {
   // ---- store commit: review state + accepted/rejected findings ----
   let _ = bash({ command: "git add -A quality && (git diff --cached --quiet || git commit -m \"quality: " + wave + " D2 review pass\")" })?
 
-  // ---- 5-7. fix confirmed issues, one cluster at a time, behind the gate ----
-  if confirmed > 0 {
-    let mut clus: array<string> = []
-    clus = lines(bash({ command: "node tools/quality/store.mjs clusters --wave " + wave })?)
-    for cl in clus {
+  // ---- 5. convergence: the open backlog, judged after triage ----
+  let open_n = bash({ command: "node tools/quality/store.mjs open-count" })?.trim()
+  if open_n == "0" {
+    converged = true
+    report = report + "wave " + wave + ": open backlog empty after triage - converged.\n"
+  }
+
+  // ---- 6. fix phase: one git worktree per cluster, fanned out in parallel ----
+  if !converged {
+    let mut rows: array<string> = []
+    rows = lines(bash({ command: "node tools/quality/store.mjs clusters --wave " + wave + " --max " + cluster_max })?)
+
+    // Up to `parallel` manifests per wave; the rest wait for the next wave
+    // (the loop re-clusters every wave, so nothing is lost).
+    let mut picked: array<Pick> = []
+    let mut ri = 0
+    while ri < rows.length {
       let mut cols: array<string> = []
-      cols = cl.split("\t")
-      let key = cols[0]
-      let man = cols[1]
-      let mut attempt = 0
-      let mut done = false
-      let mut guidance = ""
-      while attempt < 2 && !done {
-        attempt += 1
-        let fr = match fix_cluster(man, guidance) {
-          Ok(f) => f,
-          Err(e) => FixReport { fixed: [], skipped: [], notes: "fix worker failed: " + e.kind },
-        }
-        let gate = bash({ command: gate_cmd + " && echo GATE_PASS || echo GATE_FAIL", timeout: 3600 })?
-        let rv = match review_fix(man) {
-          Ok(r) => r,
-          Err(e) => FixReview { ok: false, fixed_confirmed: [], must_fix: "fix-review worker failed: " + e.kind + " - fixer notes were: " + fr.notes },
-        }
-        if gate.includes("GATE_PASS") && rv.ok && rv.fixed_confirmed.length > 0 {
-          let _ = bash({ command: "node tools/quality/store.mjs resolve --manifest " + man + " --fixed " + rv.fixed_confirmed.join(",") })?
-          let _ = bash({ command: "git add -A && git commit -m \"quality: " + wave + " D2 fix " + key + "\"" })?
-          total_clusters_fixed += 1
-          done = true
-          report = report + "wave " + wave + ": cluster " + key + " fixed and committed\n"
-        } else {
-          guidance = rv.must_fix + (gate.includes("GATE_PASS") ? "" : " ALSO: the offline gate is red after your changes - make it green (gate: " + gate_cmd + ")")
-          if attempt >= 2 {
-            let _ = bash({ command: "git restore ." })?
-            let residue_n = bash({ command: "git status --porcelain | wc -l" })?
-            if residue_n.trim() != "0" {
-              let residue = bash({ command: "git status --porcelain | head -20" })?
-              let _ = @`Tell the user: /quality-loop halted at a safe boundary — after reverting a failed fix for cluster ${key}, the tree still holds leftover changes (likely untracked files a fixer created). Manual cleanup needed:
-${residue}`?
-              return "halted: unclean revert"
-            }
-            total_clusters_reverted += 1
-            report = report + "wave " + wave + ": cluster " + key + " reverted after 2 rejected fix attempts - issues stay open\n"
-          }
-        }
+      cols = rows[ri].split("\t")
+      if picked.length < parallel {
+        picked = picked.concat([Pick { key: cols[0], manifest_rel: cols[1], manifest_abs: repo_root + "/" + cols[1], tree: "" }])
+      } else {
+        total_deferred += 1
       }
+      ri += 1
+    }
+
+    let mut work: array<Pick> = []
+    for p in picked {
+      let out = bash({ command: provision_cmd(wave, p.key.replace("/", "__")), timeout: 900 })?
+      let mut got: array<string> = []
+      got = lines(out)
+      let tree = got.length > 0 ? got[got.length - 1] : "PROVISION_FAIL"
+      if tree.includes("PROVISION_FAIL") {
+        report = report + "wave " + wave + ": cluster " + p.key + " skipped - worktree provisioning failed\n"
+      } else {
+        work = work.concat([Pick { key: p.key, manifest_rel: p.manifest_rel, manifest_abs: p.manifest_abs, tree: tree }])
+      }
+    }
+    total_picked += work.length
+
+    // One isolated child per tree: `cwd` relocates the callee's side effects
+    // (edits, gate runs, the commit), never its identity - the child still
+    // loads THIS tree's worker code (RFC 0009 §4, identity/location).
+    let reports = par for w in work max parallel {
+      fix_cluster_tree(w.manifest_abs, w.key, wave, tree_gate_cmd) with { cwd: w.tree }?
+    }
+
+    let mut greens: array<Green> = []
+    let mut gi = 0
+    while gi < work.length {
+      let rep = match reports[gi] {
+        Ok(r) => r,
+        Err(e) => TreeFixReport { ok: false, sha: "", fixed_confirmed: [], notes: "tree worker failed: " + e.kind },
+      }
+      if rep.ok && rep.fixed_confirmed.length > 0 {
+        greens = greens.concat([Green { key: work[gi].key, manifest_rel: work[gi].manifest_rel, sha: rep.sha, fixed: rep.fixed_confirmed.join(",") }])
+      } else {
+        total_clusters_reverted += 1
+        report = report + "wave " + wave + ": cluster " + work[gi].key + " not fixed in its worktree - " + rep.notes + "\n"
+      }
+      gi += 1
+    }
+
+    // ---- 7. integrate sequentially: cherry-pick, ONE batch gate, revert last-to-first ----
+    let mut applied: array<Green> = []
+    for g in greens {
+      let cp = bash({ command: "git cherry-pick " + g.sha + " >/dev/null 2>&1 && echo CP_OK || { git cherry-pick --abort >/dev/null 2>&1; echo CP_FAIL; }" })?
+      if cp.includes("CP_OK") {
+        applied = applied.concat([g])
+      } else {
+        total_clusters_reverted += 1
+        report = report + "wave " + wave + ": cluster " + g.key + " cherry-pick conflicted - dropped, issues stay open\n"
+      }
+    }
+
+    let mut kept = applied.length
+    if applied.length > 0 {
+      let batch = bash({ command: gate_cmd + " && echo GATE_PASS || echo GATE_FAIL", timeout: 3600 })?
+      let mut batch_ok = batch.includes("GATE_PASS")
+      while !batch_ok && kept > 0 {
+        // Every branch was gated alone in its own tree and clusters are
+        // directory-disjoint, so a red batch is rare; recover by dropping the
+        // cherry-picks last-to-first, re-gating after each drop.
+        kept -= 1
+        let _ = bash({ command: "git reset --hard HEAD~1 >/dev/null 2>&1" })?
+        let residue_n = bash({ command: "git status --porcelain | wc -l" })?
+        if residue_n.trim() != "0" {
+          let residue = bash({ command: "git status --porcelain | head -20" })?
+          let _ = bash({ command: sweep_cmd(), timeout: 600 })?
+          let dropped_key = applied[kept].key
+          let _ = @`Tell the user: /quality-loop halted at a safe boundary — while reverting a red integration batch (wave ${wave}, dropped cherry-pick for cluster ${dropped_key}), the tree still holds leftover changes. Manual cleanup needed:
+${residue}`?
+          return "halted: unclean revert"
+        }
+        let regate = bash({ command: gate_cmd + " && echo GATE_PASS || echo GATE_FAIL", timeout: 3600 })?
+        batch_ok = regate.includes("GATE_PASS")
+        report = report + "wave " + wave + ": batch gate red - dropped cluster " + applied[kept].key + ", gate now " + (batch_ok ? "green" : "still red") + "\n"
+      }
+      if !batch_ok {
+        let _ = bash({ command: sweep_cmd(), timeout: 600 })?
+        let _ = @`Tell the user: /quality-loop halted at a safe boundary — the offline gate is still red (wave ${wave}) after dropping every cherry-pick of this wave, so the redness predates the fixes. Investigate the baseline (gate: ${gate_cmd}).`?
+        return "halted: red baseline after full revert"
+      }
+    }
+
+    // ---- 8. store writes: orchestrator only, after integration ----
+    let mut si = 0
+    while si < applied.length {
+      if si < kept {
+        let _ = bash({ command: "node tools/quality/store.mjs resolve --manifest " + applied[si].manifest_rel + " --fixed " + applied[si].fixed })?
+        total_clusters_fixed += 1
+        report = report + "wave " + wave + ": cluster " + applied[si].key + " fixed in its worktree and integrated\n"
+      } else {
+        total_clusters_reverted += 1
+        report = report + "wave " + wave + ": cluster " + applied[si].key + " dropped by the batch gate - issues stay open\n"
+      }
+      si += 1
+    }
+    let _ = bash({ command: "git add -A quality && (git diff --cached --quiet || git commit -m \"quality: " + wave + " D2 fix batch\")" })?
+
+    // Trees are disposable: the failure paths above sweep before they halt, so
+    // no wave can leak one. (The how-to keeps failed trees for autopsy until
+    // the next wave; here the wrapper already reverted in-tree, so there is
+    // nothing left to inspect and a leaked tree would pin a stale HEAD.)
+    let swept = bash({ command: sweep_cmd(), timeout: 600 })?
+    if swept.includes("SWEEP_SKIP") {
+      report = report + "wave " + wave + ": a worktree could not be removed (its node_modules link is still in place) - remove it by hand\n"
     }
   }
 
-  // ---- 8. push, then next cycle (fix commits re-dirty fixed files) ----
+  // ---- 9. push, then next cycle (fix commits re-dirty fixed files) ----
   if push {
     let pushed = bash({ command: "git push >/dev/null 2>&1 && echo PUSH_OK || echo PUSH_FAIL" })?
     if !pushed.includes("PUSH_OK") {
@@ -184,10 +318,15 @@ ${residue}`?
 // ---------------------------------------------------------------- report
 // Prompt mode: the final value is invisible; this closing query IS the
 // user-facing summary.
+let intake_n = bash({ command: "ls -1 quality/intake/*.md 2>/dev/null | wc -l" })?.trim()
+let open_left = bash({ command: "node tools/quality/store.mjs open-count" })?.trim()
 @`Report the quality-loop outcome to the user, concisely:
-- cycles run: ${cycle} of ${max_cycles}, converged: ${converged}
-- candidates filed: ${total_filed}, confirmed: ${total_confirmed}, questionable (owner queue in quality/intake/): ${total_questionable}
-- clusters fixed and committed: ${total_clusters_fixed}, clusters reverted: ${total_clusters_reverted}
+- cycles run: ${cycle} of ${max_cycles}, converged (open backlog empty): ${converged}
+- candidates filed: ${total_filed}, confirmed: ${total_confirmed}, questionable verdicts issued (cumulative; live queue is the intake count below): ${total_questionable}
+- clusters picked into worktrees: ${total_picked}, deferred to a later wave: ${total_deferred}
+- clusters fixed and integrated: ${total_clusters_fixed}, clusters not integrated (reverted, conflicted, or dropped): ${total_clusters_reverted}
+- open issues remaining: ${open_left}
+- awaiting human ruling (questionable candidates in quality/intake/): ${intake_n}
 - log:
 ${report}
 Remind the user: quality/issues/ holds open confirmed issues, quality/resolved/ holds fixed ones, quality/intake/ holds questionable candidates awaiting a human ruling, and quality/state.json records what was reviewed when. Re-running /quality-loop continues from that state.`

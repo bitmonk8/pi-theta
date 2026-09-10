@@ -56,7 +56,7 @@ const SEEDED_INVALID_DIR = "tests/fixtures/h7b-invalid/";
  * loudly naming the unmet precondition (`AGENTS.md:60`) rather than passing
  * over fewer files.
  */
-const EXPECTED_SHIPPED_THETA = 36;
+const EXPECTED_SHIPPED_THETA = 37;
 const EXPECTED_SHIPPED_THETALIB = 3;
 
 /**

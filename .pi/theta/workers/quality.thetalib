@@ -23,6 +23,19 @@ schema FixReport {
   notes: string
 }
 
+/// One worktree-resident cluster fix attempt's outcome (fix-cluster-tree
+/// worker final value). `sha` names the single commit that worker made inside
+/// its own git worktree; the orchestrator cherry-picks it into the main tree.
+/// `fixed_confirmed` carries the issue basenames the in-tree review verified —
+/// the orchestrator (the store's only writer) hands them to `store.mjs resolve`
+/// after integration, so no fixer ever writes the shared store.
+schema TreeFixReport {
+  ok: boolean,
+  sha: string,
+  fixed_confirmed: array<string>,
+  notes: string
+}
+
 /// Post-fix correctness review (fix-review worker final value).
 schema FixReview {
   ok: boolean,
