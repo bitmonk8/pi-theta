@@ -86,6 +86,33 @@ describe("PIC-64 rung 2 — production host-loop dispatch collaborators", () => 
     expect(host.pi.getActiveTools()).toEqual(["ambient-a", "ambient-b"]);
   });
 
+  it("registers the bridge provider under a BESPOKE api tag, never a reserved built-in name (bug 0473 — a host that reserves built-in API names rejects reuse, breaking ALL code-side dispatch)", async () => {
+    const host = new FakeChildHost(OK_EXECUTOR);
+    const dispatch = createProductionHostLoopDispatch(host.host());
+
+    await dispatch({ toolName: "finding_store", args: { op: "write" } }, new AbortController().signal);
+
+    // The public `KnownApi` built-ins a host's api-registry reserves for its own
+    // adapters (`@earendil-works/pi-ai` types.ts). The bridge authors its own
+    // `streamSimple`, so its provider `api` MUST be none of these.
+    const RESERVED_BUILTIN_APIS = [
+      "openai-completions",
+      "mistral-conversations",
+      "openai-responses",
+      "azure-openai-responses",
+      "openai-codex-responses",
+      "anthropic-messages",
+      "bedrock-converse-stream",
+      "google-generative-ai",
+      "google-vertex",
+      "pi-messages",
+    ];
+    expect(host.registeredApis).toHaveLength(1);
+    const api = host.registeredApis[0];
+    expect(typeof api).toBe("string");
+    expect(RESERVED_BUILTIN_APIS).not.toContain(api);
+  });
+
   it("the send happens while the bridge model + the [toolName] active set are installed (the authored call can execute)", async () => {
     const host = new FakeChildHost(OK_EXECUTOR);
     const dispatch = createProductionHostLoopDispatch(host.host());
