@@ -27,7 +27,7 @@ import type { ParsedTheta } from "../src/extension/reload-wiring";
 // judges the child by its own `.thetalib` imports and by re-running
 // `resolveCallableSet` over the child's own `tools:` with a stub
 // `resolveThetaCallee` (line 2287) that answers `{kind: "theta", mode:
-// "subagent", callee: undefined}` for every `.theta` spec bug 0270's
+// "subagent", calleePath}` for every `.theta` spec bug 0270's
 // existence/readability probe recorded readable. The grandchild's bytes are
 // therefore read for existence and discarded unparsed, so no condition derived
 // from the grandchild's CONTENTS can reach the child's verdict, the V15f

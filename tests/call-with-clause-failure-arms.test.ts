@@ -260,8 +260,8 @@ describe("RFC 0009 failure arms — V4: a statically-provable non-string clause 
       tail: null,
     };
     const callableSet: CallableSetSnapshot = {
-      entries: new Map<string, { kind: "theta"; mode: "subagent"; calleePath: string; callee: unknown }>([
-        ["helper", { kind: "theta", mode: "subagent", calleePath: "./helper.theta", callee: undefined }],
+      entries: new Map<string, { kind: "theta"; mode: "subagent"; calleePath: string }>([
+        ["helper", { kind: "theta", mode: "subagent", calleePath: "./helper.theta" }],
       ]) as unknown as CallableSetSnapshot["entries"],
     } as unknown as CallableSetSnapshot;
     const input: ThetaCompositionInput = {

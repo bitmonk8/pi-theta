@@ -4766,9 +4766,9 @@ export interface LoweredThetaCallableResult {
  * resolver recorded it from the `tools:` `spec`, so renamed / hyphenated callees
  * carry their real path). Mirrors `callableSetPiToolNames`; the callee schema /
  * param order / description are resolved asynchronously at spawn time via
- * `parseCallee` (production freezes each entry with `callee: undefined`, so the
- * parsed callee itself is not held on the snapshot). A theta with no snapshot
- * yields `[]`.
+ * `parseCallee` (the frozen entry carries the callee's `mode` and `calleePath`
+ * only; the parsed callee itself is not held on the snapshot). A theta with no
+ * snapshot yields `[]`.
  */
 function callableSetThetaEntries(
   theta: ConversationBindInput["theta"],

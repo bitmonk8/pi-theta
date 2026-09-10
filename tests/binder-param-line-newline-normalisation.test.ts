@@ -10,10 +10,7 @@ import {
   renderBinderParamLine,
   type SystemPromptParamField,
 } from "../src/binder/binder-system-prompt";
-import {
-  checkLiteralSublanguage,
-  type LiteralPosition,
-} from "../src/parser/literal-sublanguage";
+import { checkLiteralSublanguage } from "../src/parser/literal-sublanguage";
 import type { SourceRange } from "../src/diagnostics/diagnostic";
 import {
   parseExpressionSource,
@@ -611,7 +608,6 @@ function decodedStringOf(label: string, literalText: string): string {
 }
 
 /** The literal-sublanguage check's site; the range plays no part in the verdict. */
-const LITERAL_POSITION: LiteralPosition = "default";
 const LITERAL_SITE = {
   file: "bug0060.theta",
   range: { start: { line: 1, column: 1 }, end: { line: 1, column: 2 } } satisfies SourceRange,
@@ -855,7 +851,7 @@ describe("bug 0060 (d) — the rendered `<literal>` is one line and denotes the 
       // reads is the notation :142 names ("the same notation accepted on the
       // RHS of `params:` defaults").
       expect(
-        checkLiteralSublanguage(literal, LITERAL_POSITION, LITERAL_SITE).map((d) => d.code),
+        checkLiteralSublanguage(literal, LITERAL_SITE).map((d) => d.code),
         `${label}: the rendered literal must draw no diagnostic from the is-literal check \`parseParams\` runs at the same position (src/parser/params.ts)`,
       ).toEqual([]);
     });
@@ -907,7 +903,7 @@ describe("bug 0060 (d) — the rendered `<literal>` is one line and denotes the 
       // emits must still be a literal-sublanguage form, so the text the model
       // reads is the notation :142 names.
       expect(
-        checkLiteralSublanguage(literal, LITERAL_POSITION, LITERAL_SITE).map((d) => d.code),
+        checkLiteralSublanguage(literal, LITERAL_SITE).map((d) => d.code),
         `${label}: the rendered literal must draw no diagnostic from the is-literal check the same position runs (src/parser/params.ts, the per-field default loop)`,
       ).toEqual([]);
     });

@@ -6,13 +6,6 @@
 // name-collision / unresolvable-path diagnostics (per imports.md, incl. the
 // IMP-1 resolver failure contract).
 //
-// V15c-T (tests-task) declares these seams and stubs each behaviour-bearing
-// function inert so the failing tests compile and red on their own primary
-// assertions. The paired V15c implementation leaf fills them in. Each stub
-// returns a benign wrong value (no diagnostic / the empty string / a
-// "registered" verdict with no resolved path) so the assertions red for the
-// intended reason (implementation absent), never on a thrown harness error.
-//
 // Diagnostic *Message* strings are sourced from the diagnostics registry
 // (diagnostics/code-registry-parse.md, diagnostics/code-registry-load.md) per
 // the *Diagnostic message anchors* rule; `<path>` / `<name>` placeholders are
@@ -65,9 +58,6 @@ const PERMITTED_THETALIB_TOP_LEVEL_FORMS: ReadonlySet<ThetaLibTopLevelForm> = ne
  * Check a `.thetalib` file's top-level form, returning
  * `theta/parse/thetalib-top-level-statement` for a non-permitted form and
  * `undefined` for a permitted one.
- *
- * V15c-T stubs this inert (always `undefined`), so the non-permitted-form test
- * reds on its own primary assertion. The paired V15c leaf fills it in.
  */
 export function checkThetaLibTopLevelForm(
   form: ThetaLibTopLevelForm,
@@ -127,10 +117,6 @@ export function importNonThetaLibExtensionMessage(path: string): string {
  * regardless of the filesystem's case-equivalence model (imports.md §"Path
  * resolution"; lexical.md §"Extension matching"). Returns `undefined` for a
  * byte-exact `.thetalib` path.
- *
- * V15c-T stubs this inert (always `undefined`), so both the `.theta` and the
- * `.THETALIB` variant tests red on their own primary assertions. The paired V15c
- * leaf fills it in.
  */
 export function checkImportExtension(
   pathLiteral: string,
@@ -167,11 +153,9 @@ export function unresolvableThetaLibPathMessage(path: string): string {
  * load pipeline treats a throw from `resolve` as a resolution failure.
  */
 export class UnresolvableThetaLibPathError extends Error {
-  readonly spec: string;
   constructor(spec: string) {
     super(unresolvableThetaLibPathMessage(spec));
     this.name = "UnresolvableThetaLibPathError";
-    this.spec = spec;
   }
 }
 
@@ -217,10 +201,6 @@ export interface ThetaLibDirectoryProbe {
  * Non-relative specs (`@scope/pkg`, `/theta/...`), a missing byte-exact
  * final-segment directory entry, and a byte-exact-but-unreadable entry are all
  * unresolvable and throw `UnresolvableThetaLibPathError` (IMP-1).
- *
- * V15c-T stubs `resolve` inert (returns the empty string), so the IMP-1 throw
- * test reds (no throw is raised) and the success-path test reds (`""` is not
- * the resolved path). The paired V15c leaf fills it in.
  */
 export class RelativeThetaLibResolver implements Resolver {
   constructor(private readonly probe: ThetaLibDirectoryProbe) {}
@@ -280,11 +260,6 @@ export interface ThetaLibImportLoad {
  * `resolver.resolve` and, on an `UnresolvableThetaLibPathError` throw, emit
  * `theta/load/unresolvable-thetalib-path` against the importing file and do NOT
  * register it; on success, register the file and carry the resolved path.
- *
- * V15c-T stubs this inert — it reports the file as registered with no resolved
- * path and no diagnostic — so the IMP-1 failure test reds (no diagnostic /
- * `registered` not `false`) and the success test reds (no `resolvedPath`). The
- * paired V15c leaf fills it in.
  */
 export function loadThetaLibImport(
   resolver: Resolver,
@@ -495,8 +470,9 @@ export function checkImportDanglingAlias(
  * them, a `,` with no specifier before it or with a `,` already pending, or a
  * token the specifier loop's catch-all discarded. `ImportDecl` / `ExportDecl`
  * spell the list as `"{" ImportSpec ("," ImportSpec)* ","? "}"` (imports.md
- * §"Re-exports", :62–:65 at this HEAD) — one specifier between separators and
- * exactly one optional trailing comma — so each of those three shapes is
+ * §"Re-exports", the `ImportDecl` / `ExportDecl` production block) — one
+ * specifier between separators and exactly one optional trailing comma — so
+ * each of those three shapes is
  * outside the production even though the recovered list is non-empty and
  * alias-complete, which is why neither `checkImportMalformedSpecifierList`
  * above (subject: an absent or zero-specifier list) nor `checkImportDanglingAlias`
@@ -506,20 +482,21 @@ export function checkImportDanglingAlias(
  * (`hasFromKeyword && hasPathLiteral`): this is a third arm of the same
  * STATEMENT-level fact family, so it stays inside the same trailing-clause
  * fence rather than widen `checkImportMissingFromClause`'s registry *Trigger*
- * (bug 0211 §Fix constraint 3; registry disposition at
- * `docs/spec_topics/diagnostics/code-registry-parse.md:122`'s statement-arm
- * gate) — a from-less degenerate list already draws that one code alone, and
- * un-gating this arm would co-emit a second statement-ranged diagnostic
- * there.
+ * (bug 0211 §Fix constraint 3; registry disposition in the
+ * `theta/parse/import-malformed-specifier-list` row's statement-arm gate,
+ * docs/spec_topics/diagnostics/code-registry-parse.md) — a from-less
+ * degenerate list already draws that one code alone, and un-gating this arm
+ * would co-emit a second statement-ranged diagnostic there.
  *
  * SUPPRESSED on an empty recovered list (`specifierCount === 0`, the
  * zero-specifier arm's own subject above) or when any specifier in the list
  * carried a dangling `as` (`anyDanglingAlias`, the dangling-alias arm's own
  * subject above): the three arms of this one code must partition the
  * recovered list so at most one statement-ranged diagnostic fires per
- * statement (bug 0211 §Fix constraint 2's granularity, carried in
- * `code-registry-parse.md:122`'s partition sentence) — without the
- * suppression, `{ , }` (a stray leading comma into an empty list) and
+ * statement (bug 0211 §Fix constraint 2's granularity, carried in the
+ * `theta/parse/import-malformed-specifier-list` row's partition sentence,
+ * code-registry-parse.md) — without the suppression, `{ , }` (a stray leading
+ * comma into an empty list) and
  * `{ a as as b }` (a discarded second `as` beside a dangling first one)
  * would each draw a second, redundant diagnostic of the same code.
  */
@@ -703,9 +680,6 @@ export interface ThetaLibImportGraph {
  * it defaults to identity so existing stem-keyed callers render
  * byte-identically; the resolved-path-keyed IMP-5 pass (bug 0302) supplies
  * its own.
- *
- * V15c-T stubs this inert (always `undefined`), so the cycle test reds on its
- * own primary assertion. The paired V15c leaf fills it in.
  */
 export function detectImportCycle(
   entry: string,
@@ -765,17 +739,6 @@ export function detectImportCycle(
 // (no `export` keyword, no privacy modifier); an aliased `export … from` re-export
 // is visible downstream as its alias while creating NO local binding for the
 // re-exported source symbol; and a plain `import` is NOT re-exported downstream.
-//
-// V15i-T (tests-task) declares these two seams and stubs each inert-but-wrong so
-// the failing visibility tests compile and red on their own primary assertions.
-// `computeThetaLibExports` returns the WRONG set — the plain-import locals, which
-// are precisely the names that are NOT downstream-visible — and omits the
-// auto-exported declarations and the `export … from` re-exports that ARE, so
-// every positive/negative visibility assertion reds for the intended reason
-// (implementation absent). `thetalibLocalBindings` symmetrically returns the
-// re-export SOURCE names, which create no local binding, so the "no local
-// binding for the re-exported symbol" assertion reds. The paired V15i leaf
-// fills both in.
 
 /** A top-level `.thetalib` declaration kind — each is implicitly exported (imports.md §Visibility). */
 export type ThetaLibDeclarationKind = "schema" | "enum" | "fn";

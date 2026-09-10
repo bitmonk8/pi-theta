@@ -4,8 +4,11 @@
 // read-only whole-program pass over a parsed `V19a` `ThetaBody` that assigns a
 // static type to every expression node (literal, identifier, binary, ternary,
 // member, index, call, `match`, enum, `Ok`/`Err`) using the `V2b`
-// type-compatibility engine (`⊑`), and publishes a per-node inferred-type
-// lookup the `V20c` type-layer checkers consume.
+// type-compatibility engine (`⊑`). `infer` publishes a per-node inferred-type
+// lookup over a whole body (the seam surface the pass's own witness tests
+// read); the `V20c` type-layer checkers and the invoke static checks instead
+// bind the pass and query the pure per-node `typeOf` / `declaredFieldType`
+// seams, threading their own binding scopes.
 //
 // The pass is the missing "Bucket B" substrate between `V2b`'s compatibility
 // engine and the type-phase checkers: there is a `checkCompatible` relation but
@@ -54,8 +57,11 @@ export type CheckCompatible = (
 ) => Compatibility;
 
 /**
- * The per-node inferred-type lookup the pass publishes and the `V20c`
- * type-layer checkers consume: keyed by the expression node itself.
+ * The per-node inferred-type lookup `infer` publishes over a whole body, keyed
+ * by the expression node itself. Production consumers (`V20c`'s type-layer
+ * walk, the invoke static checks) bind the pass and query `typeOf` /
+ * `declaredFieldType` per node instead; this map is read by the pass's own
+ * witness tests.
  */
 export interface InferredTypeMap {
   /**
@@ -80,10 +86,11 @@ export interface StaticTypeInferenceDeps {
    * same-file `schema` shares the spelling — the same shape, and the same
    * local-first precedence, `evalExpr`'s member arm applies before it resolves
    * the enum variant (../runtime/statement-executor.ts). Explicit dependency injection,
-   * no default: both production construction sites
+   * no default: every production construction site
    * (./type-layer-checks.ts's `checkTypeLayer`,
-   * ../extension/invoke-static-checks.ts's `checkInvokeStaticResolution`)
-   * have `body.statements` in scope and must pass the real set, so a missing
+   * ../extension/invoke-static-checks.ts's `checkInvokeStaticResolution` and
+   * `checkImportedFnCallArgs`)
+   * has the walked body's `statements` in scope and must pass the real set, so a missing
    * value is a wiring bug caught at the call site, not a silent empty-set
    * fallback that would let a production path mis-resolve a shadowed enum
    * variant.
@@ -126,7 +133,7 @@ export class StaticTypeInferencePass {
       types.set(expr, this.#typeExpr(expr, env, noBindings));
       nodes.push(expr);
     };
-    this.#walkBlock(body, record, env);
+    this.#walkBlock(body, record);
     return {
       typeOf: (node: Expr): CompatType | undefined => types.get(node),
       nodes,
@@ -134,9 +141,9 @@ export class StaticTypeInferencePass {
   }
 
   /** Record every statement-level expression of `block`, then its tail. */
-  #walkBlock(block: Block, record: (expr: Expr) => void, env: TypeEnv): void {
+  #walkBlock(block: Block, record: (expr: Expr) => void): void {
     for (const stmt of block.statements) {
-      this.#walkStmt(stmt, record, env);
+      this.#walkStmt(stmt, record);
     }
     if (block.tail !== null) {
       record(block.tail);
@@ -148,7 +155,7 @@ export class StaticTypeInferencePass {
    * nested block. Declaration-only forms (`schema` / `enum` / `import` /
    * `export` / `break` / `continue` / `doc-comment`) expose no expression.
    */
-  #walkStmt(stmt: Stmt, record: (expr: Expr) => void, env: TypeEnv): void {
+  #walkStmt(stmt: Stmt, record: (expr: Expr) => void): void {
     switch (stmt.kind) {
       case "expr":
         record(stmt.expr);
@@ -163,22 +170,22 @@ export class StaticTypeInferencePass {
         return;
       case "if":
         record(stmt.condition);
-        this.#walkBlock(stmt.then, record, env);
+        this.#walkBlock(stmt.then, record);
         if (stmt.otherwise !== null) {
           if ("statements" in stmt.otherwise) {
-            this.#walkBlock(stmt.otherwise, record, env);
+            this.#walkBlock(stmt.otherwise, record);
           } else {
-            this.#walkStmt(stmt.otherwise as IfStmt, record, env);
+            this.#walkStmt(stmt.otherwise as IfStmt, record);
           }
         }
         return;
       case "while":
         record(stmt.condition);
-        this.#walkBlock(stmt.body, record, env);
+        this.#walkBlock(stmt.body, record);
         return;
       case "for":
         record(stmt.iterand);
-        this.#walkBlock(stmt.body, record, env);
+        this.#walkBlock(stmt.body, record);
         return;
       case "return":
         if (stmt.operand !== null) {
@@ -186,7 +193,7 @@ export class StaticTypeInferencePass {
         }
         return;
       case "fn":
-        this.#walkBlock(stmt.body, record, env);
+        this.#walkBlock(stmt.body, record);
         return;
       case "tool-call":
         record(stmt.call);
@@ -394,7 +401,7 @@ export class StaticTypeInferencePass {
    * not acquire one. Two things are true about the withheld name now,
    * precisely: the name alone (with no marker) still makes a sibling
    * `resolveNamed` lookup unresolvable and therefore defer
-   * (`type-system.md:48`, *Unresolvable operands*) — that holds for any
+   * (type-system.md §*Unresolvable operands*) — that holds for any
    * `named` spelled `<withheld>`, marked or not; but the WITHHOLD decision
    * itself (`containsWithheldBinderType`) now keys on the `withheld` marker,
    * not on the name, which is why this site must mint through
@@ -460,7 +467,7 @@ export class StaticTypeInferencePass {
    * the enum test below runs BEFORE the receiver is resolved at all (bug 0191
    * §Fix route 1). A conformant `schema` can never own a field spelled like a
    * variant (variant names are PascalCase, field names lowercase-first,
-   * lexical.md:15; the ill-cased spelling draws `binding-case-mismatch`), so
+   * lexical.md §Identifiers; the ill-cased spelling draws `binding-case-mismatch`), so
    * without the enum test the arm would fall through every time to the
    * closing fabrication below and adopt an unrelated declaration's type
    * (docs/bugs/0191-enum-name-shadowed-by-schema-fabricates-member-type.md).

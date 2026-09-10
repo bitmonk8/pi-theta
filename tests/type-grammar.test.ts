@@ -6,7 +6,6 @@ import {
 import {
   checkLiteralSublanguage,
   checkObjectLiteralFields,
-  type LiteralPosition,
 } from "../src/parser/literal-sublanguage";
 import type { Diagnostic, SourceRange } from "../src/diagnostics/diagnostic";
 
@@ -174,9 +173,8 @@ describe("V2a-T — Result in schema position (theta/parse/result-in-schema-posi
 
 describe("V2a-T — literal-sublanguage violations", () => {
   it("theta/parse/default-not-literal: a non-literal `params:` default RHS (an operator form) fires", () => {
-    const position: LiteralPosition = "default";
     // `a + b` is a binary-operator form — outside the unary-`-` numeric carve-out.
-    const diags = checkLiteralSublanguage("a + b", position, site());
+    const diags = checkLiteralSublanguage("a + b", site());
     const d = withCode(diags, "theta/parse/default-not-literal");
     expect(d, "theta/parse/default-not-literal").toBeDefined();
     // Message template prefix `params default RHS must be a literal-sublanguage
@@ -193,8 +191,7 @@ describe("V2a-T — literal-sublanguage violations", () => {
     // tests/tool-calls.test.ts). The `params:`-default arm of the literal
     // sublanguage is explicitly unaffected: the SAME function-call form still
     // fires `theta/parse/default-not-literal` in a `params:` default.
-    const position: LiteralPosition = "default";
-    const diags = checkLiteralSublanguage("{ k: f(x) }", position, site());
+    const diags = checkLiteralSublanguage("{ k: f(x) }", site());
     const d = withCode(diags, "theta/parse/default-not-literal");
     expect(d, "a function-call form is still non-literal in a params: default").toBeDefined();
     expect(d?.message).toMatch(

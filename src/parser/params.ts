@@ -25,11 +25,6 @@
 //     when the byte check failed.
 //   - the lowered schema — the per-theta `params:` object document, validated
 //     through AJV (the `V8c` `SchemaValidator` seam) at invocation time.
-//
-// V6b-T (tests-task) declares these seam shapes and stubs `parseParams` as an
-// inert pass (no diagnostics, no lowered schema) so the failing tests compile
-// and red on their own primary assertions (the `params:` contract is absent).
-// The paired V6b implementation leaf fills it in.
 
 // The rendered message's field-name interpolation is collapsed through
 // `normaliseLiteralValueLineBreaks` so an author-controlled name carrying a
@@ -159,10 +154,6 @@ export interface ParamsParseResult {
  *     `required`, named types lowered to in-document `$ref`s against a `$defs`
  *     table holding the transitive closure — see `hoistNestedDefs`), validated
  *     through the `V8c` AJV `SchemaValidator` at invocation time.
- *
- * V6b-T stubs this as an inert pass (no diagnostics, no lowered schema); the
- * paired V6b implementation leaf computes the ordering check, the default-literal
- * delegation, the whole-file named-type resolution, and the lowering.
  */
 export function parseParams(
   fields: readonly ParamFieldInput[],
@@ -217,7 +208,8 @@ export function parseParams(
       slugCollisions,
     };
     // A `params:` field type is a lowered-schema position
-    // (code-registry-parse.md:59, :60), wired here as the schema-body field
+    // (code-registry-parse.md's `theta/parse/void-in-non-return-position` and
+    // `theta/parse/result-in-schema-position` rows), wired here as the schema-body field
     // position already is: `void`, a schema-feeding `Result`, and a
     // generic-arity mismatch all draw their registered row ahead of either
     // sink below, matching that position's own order (bug 0044 §Fix).
@@ -404,7 +396,8 @@ export function parseParams(
     // parsed NODE and never reaches one for empty text (the `node === undefined`
     // return in literal-sublanguage.ts). This sits BEHIND the bug-0059 guard
     // above, so a field whose type half was already refused still draws exactly
-    // one diagnostic (code-registry-load.md:19's third precedence rule), and it
+    // one diagnostic (the third of the `theta/load/params-type-not-expression`
+    // row's three precedence rules, code-registry-load.md), and it
     // `continue`s so the raw-newline check, the is-literal check and the compat
     // check below never judge a field that carries no literal at all — the same
     // one-diagnostic-per-offending-field precedence those rules already keep
@@ -461,7 +454,7 @@ export function parseParams(
       continue;
     }
     diagnostics.push(
-      ...checkLiteralSublanguage(field.defaultSource, "default", {
+      ...checkLiteralSublanguage(field.defaultSource, {
         file: site.file,
         range: field.range,
       }),
@@ -818,7 +811,8 @@ export function lowerTypeExpr(source: string, lowerCtx: LowerCtx): Record<string
       // constructor name at any arity, applied or not. `NamedType ::= Ident`
       // (grammar.md:98) is the only production such a head could otherwise
       // read as, so the refusal converges on the row the BARE spelling of the
-      // same identifier already draws (code-registry-parse.md:112), and the
+      // same identifier already draws (`theta/parse/unresolved-named-type`,
+      // code-registry-parse.md), and the
       // `Message` names the head rather than the argument list beside it —
       // which is why the identifier-shape test gates the push rather than a
       // membership test alone: this row's *Message* fills `<name>` with a name,
@@ -987,16 +981,17 @@ export function lowerTypeExpr(source: string, lowerCtx: LowerCtx): Record<string
  * `type` naming a primitive is the one shape admitted into the multi-type-array
  * form, and every other fragment is `non-primitive` and forces `anyOf`.
  *
- * Exported because `lowerTypeSource` (body-type-lowering.ts) dispatches a
- * union's arms one at a time — an inline-object arm hoists where the others go
- * to `lowerTypeExpr` (bug 0039 §Fix part B) — and must then reach the SAME
- * verdict `lowerTypeExpr`'s own union branch reaches for the same fragment.
- * Two classifications that disagreed would lower one source to
- * `{"type": [...]}` at one type position and `{"anyOf": [...]}` at another,
- * against type-system.md's one-grammar-everywhere rule. `PRIMITIVE_TYPES` is
- * the single set both read.
+ * Both type positions reach this classification through the one shared arm
+ * dispatch, `lowerBraceGroupUnionArms` (below; bug 0097 §Fix): `lowerTypeSource`
+ * (body-type-lowering.ts) and `lowerParamsFieldType` each hand it a union whose
+ * inline-object arms hoist where the others go to `lowerTypeExpr` (bug 0039
+ * §Fix part B), so every arm reaches the SAME verdict `lowerTypeExpr`'s own
+ * union branch reaches for the same fragment. Two classifications that
+ * disagreed would lower one source to `{"type": [...]}` at one type position
+ * and `{"anyOf": [...]}` at another, against type-system.md's
+ * one-grammar-everywhere rule. `PRIMITIVE_TYPES` is the single set both read.
  */
-export function classifyLoweredUnionArm(lowered: Record<string, unknown>): LoweredUnionArm {
+function classifyLoweredUnionArm(lowered: Record<string, unknown>): LoweredUnionArm {
   const type = lowered["type"];
   if (
     Object.keys(lowered).length === 1 &&
@@ -1867,7 +1862,7 @@ export function isUnspellableTextRefusable(text: string): boolean {
  * but scanning the whole source text finds the open quote regardless of what
  * brace or angle structure surrounds it.
  */
-export function hasUnterminatedStringLiteral(text: string): boolean {
+function hasUnterminatedStringLiteral(text: string): boolean {
   let quote: string | undefined;
   for (let i = 0; i < text.length; i += 1) {
     const c = text[i] ?? "";

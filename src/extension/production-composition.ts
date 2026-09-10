@@ -2265,7 +2265,7 @@ async function resolveThetaToolsAtLoad(
       spec.length > 0 &&
       !isBareToolName(spec) &&
       !calleeCache.has(spec) &&
-      checkInvokeExtension({ literalPath: spec, surface: "tools", site: { file: parsed.sourcePath } })
+      checkInvokeExtension({ literalPath: spec, site: { file: parsed.sourcePath } })
         .length === 0
     ) {
       calleeCache.set(
@@ -2356,7 +2356,6 @@ async function resolveThetaToolsAtLoad(
       return {
         kind: "theta",
         mode: callee.mode,
-        callee: undefined,
         calleePath: thetaPath,
         ...(callee.onDiskName !== undefined ? { onDiskName: callee.onDiskName } : {}),
       };
@@ -3168,7 +3167,6 @@ async function calleeFailsOwnStructuralChecksBody(
       return {
         kind: "theta",
         mode: declaredMode.get(thetaPath) ?? "subagent",
-        callee: undefined,
         calleePath: thetaPath,
         ...(onDiskName !== undefined ? { onDiskName } : {}),
       };

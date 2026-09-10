@@ -83,8 +83,8 @@ export type PropagationCapture =
   | { readonly kind: "fn-param"; readonly range: SourceRange; readonly paramIndex: number };
 
 /**
- * One annotation text this pass carried onto a query the author left
- * schema-less, attributed to the capture that supplied it.
+ * One propagation this pass performed — an annotation carried onto a query the
+ * author left schema-less — identified by the capture that supplied it.
  *
  * This report is the authoritative answer to "did the annotation written HERE
  * end up on a query?". A consumer deciding whether a capture must withhold
@@ -95,10 +95,6 @@ export type PropagationCapture =
  */
 export interface QueryPropagation {
   readonly capture: PropagationCapture;
-  /** The capture's verbatim written annotation text. */
-  readonly annotationSource: string;
-  /** The range of the query the text reached. */
-  readonly queryRange: SourceRange;
 }
 
 /** The resolved body, the QRY-4 diagnostics, and the propagation report. */
@@ -116,7 +112,6 @@ export interface ResolveQuerySchemasResult {
  */
 interface FrameOrigin {
   readonly capture: PropagationCapture;
-  readonly annotationSource: string;
 }
 
 type OriginFrame = SchemaSinkFrame & { readonly origin?: FrameOrigin };
@@ -210,10 +205,7 @@ class QuerySchemaResolveWalk {
         const origin: FrameOrigin | undefined =
           stmt.annotation === null
             ? undefined
-            : {
-                capture: { kind: "let", range: stmt.range },
-                annotationSource: stmt.annotation,
-              };
+            : { capture: { kind: "let", range: stmt.range } };
         const frames: readonly OriginFrame[] =
           annotation === undefined || origin === undefined
             ? []
@@ -228,13 +220,13 @@ class QuerySchemaResolveWalk {
       case "while":
         return {
           ...stmt,
-          condition: this.rewriteExpr(stmt.condition, [{ kind: "stop", label: "while-condition" }]),
+          condition: this.rewriteExpr(stmt.condition, [{ kind: "stop" }]),
           body: this.rewriteBlock(stmt.body, []),
         };
       case "for":
         return {
           ...stmt,
-          iterand: this.rewriteExpr(stmt.iterand, [{ kind: "stop", label: "for-iterand" }]),
+          iterand: this.rewriteExpr(stmt.iterand, [{ kind: "stop" }]),
           body: this.rewriteBlock(stmt.body, []),
         };
       case "fn": {
@@ -268,10 +260,7 @@ class QuerySchemaResolveWalk {
             : {
                 kind: "fn-return",
                 returnType,
-                origin: {
-                  capture: { kind: "fn-return", range: stmt.range },
-                  annotationSource: stmt.returnType,
-                },
+                origin: { capture: { kind: "fn-return", range: stmt.range } },
               },
         ];
         return { ...stmt, body: this.rewriteFnBlock(stmt.body, fnFrames) };
@@ -329,7 +318,7 @@ class QuerySchemaResolveWalk {
         return {
           ...stmt,
           condition: this.rewriteExpr(stmt.condition, [
-            { kind: "stop", label: "if-condition" },
+            { kind: "stop" },
           ]),
           then: rewriteBranch(stmt.then),
           otherwise,
@@ -344,7 +333,7 @@ class QuerySchemaResolveWalk {
         return {
           ...stmt,
           condition: this.rewriteExpr(stmt.condition, [
-            { kind: "stop", label: "while-condition" },
+            { kind: "stop" },
           ]),
           body: this.rewriteLoopBody(stmt.body, returnFrames),
         };
@@ -354,7 +343,7 @@ class QuerySchemaResolveWalk {
         return {
           ...stmt,
           iterand: this.rewriteExpr(stmt.iterand, [
-            { kind: "stop", label: "for-iterand" },
+            { kind: "stop" },
           ]),
           body: this.rewriteLoopBody(stmt.body, returnFrames),
         };
@@ -386,7 +375,7 @@ class QuerySchemaResolveWalk {
           : this.rewriteIf(stmt.otherwise);
     return {
       ...stmt,
-      condition: this.rewriteExpr(stmt.condition, [{ kind: "stop", label: "if-condition" }]),
+      condition: this.rewriteExpr(stmt.condition, [{ kind: "stop" }]),
       then: this.rewriteBlock(stmt.then, []),
       otherwise,
     };
@@ -414,7 +403,7 @@ class QuerySchemaResolveWalk {
         return {
           ...expr,
           condition: this.rewriteExpr(expr.condition, [
-            { kind: "stop", label: "ternary-condition" },
+            { kind: "stop" },
           ]),
           consequent: this.rewriteExpr(expr.consequent, [{ kind: "ternary" }, ...frames]),
           alternate: this.rewriteExpr(expr.alternate, [{ kind: "ternary" }, ...frames]),
@@ -432,21 +421,21 @@ class QuerySchemaResolveWalk {
         // Binary operators are opaque.
         return {
           ...expr,
-          left: this.rewriteExpr(expr.left, [{ kind: "stop", label: expr.op }]),
-          right: this.rewriteExpr(expr.right, [{ kind: "stop", label: expr.op }]),
+          left: this.rewriteExpr(expr.left, [{ kind: "stop" }]),
+          right: this.rewriteExpr(expr.right, [{ kind: "stop" }]),
         } satisfies BinaryExpr;
       case "member":
         // Member access is opaque.
         return {
           ...expr,
-          target: this.rewriteExpr(expr.target, [{ kind: "stop", label: "member" }]),
+          target: this.rewriteExpr(expr.target, [{ kind: "stop" }]),
         } satisfies MemberExpr;
       case "index":
         // Indexed access is opaque (both receiver and index).
         return {
           ...expr,
-          target: this.rewriteExpr(expr.target, [{ kind: "stop", label: "index" }]),
-          index: this.rewriteExpr(expr.index, [{ kind: "stop", label: "index" }]),
+          target: this.rewriteExpr(expr.target, [{ kind: "stop" }]),
+          index: this.rewriteExpr(expr.index, [{ kind: "stop" }]),
         } satisfies IndexExpr;
       case "match":
         // The scrutinee is opaque; a `match` arm is neither transparent nor in
@@ -454,11 +443,11 @@ class QuerySchemaResolveWalk {
         return {
           ...expr,
           scrutinee: this.rewriteExpr(expr.scrutinee, [
-            { kind: "stop", label: "match-scrutinee" },
+            { kind: "stop" },
           ]),
           arms: expr.arms.map((arm) => ({
             ...arm,
-            body: this.rewriteExpr(arm.body, [{ kind: "stop", label: "match-arm" }]),
+            body: this.rewriteExpr(arm.body, [{ kind: "stop" }]),
           })),
         } satisfies MatchExpr;
       case "call":
@@ -493,21 +482,21 @@ class QuerySchemaResolveWalk {
           ...expr,
           fields: expr.fields.map((field) => ({
             ...field,
-            value: this.rewriteExpr(field.value, [{ kind: "stop", label: "object-field" }]),
+            value: this.rewriteExpr(field.value, [{ kind: "stop" }]),
           })),
         } satisfies ObjectExpr;
       case "result-ctor":
         // `Ok(…)` / `Err(…)` is not a transparent sink position.
         return {
           ...expr,
-          arg: this.rewriteExpr(expr.arg, [{ kind: "stop", label: expr.ctor }]),
+          arg: this.rewriteExpr(expr.arg, [{ kind: "stop" }]),
         } satisfies ResultCtorExpr;
       case "method-call":
         // A stdlib method receiver is opaque; its arguments are untyped
         // call-args (the builtin parameter types are not carried in the AST).
         return {
           ...expr,
-          target: this.rewriteExpr(expr.target, [{ kind: "stop", label: "member" }]),
+          target: this.rewriteExpr(expr.target, [{ kind: "stop" }]),
           args: expr.args.map((arg) => this.rewriteExpr(arg, [{ kind: "call-arg" }])),
         } satisfies MethodCallExpr;
       case "block":
@@ -528,11 +517,11 @@ class QuerySchemaResolveWalk {
         // unlike `case "block"` above, where the block's value IS its tail.
         return {
           ...expr,
-          iterand: this.rewriteExpr(expr.iterand, [{ kind: "stop", label: "for-iterand" }]),
+          iterand: this.rewriteExpr(expr.iterand, [{ kind: "stop" }]),
           max:
             expr.max === null
               ? null
-              : this.rewriteExpr(expr.max, [{ kind: "stop", label: "par-for-max" }]),
+              : this.rewriteExpr(expr.max, [{ kind: "stop" }]),
           body: this.rewriteBlock(expr.body, []),
         } satisfies ParForExpr;
       default:
@@ -541,16 +530,6 @@ class QuerySchemaResolveWalk {
     }
   }
 
-  /**
-   * The `call-arg` frame for argument `index` of a call to `callee`.
-   *
-   * DOCUMENTED PARSE-TIME LIMITATION (query-forms.md:41): only a call to a local
-   * `fn` in this file is statically resolvable to a typed parameter. A tool call
-   * is also a `CallExpr`, but tool signatures live in the host tool registry,
-   * not in this single-file parse; likewise `invoke` targets external `.theta`
-   * files resolved at load/runtime. Those args therefore have no resolvable
-   * parameter type here and stay untyped (the walk stops at the call boundary).
-   */
   /**
    * Rewrite a call-site `with { cwd: … }` clause's value expressions (RFC 0009),
    * so a `@`-query inside one resolves exactly as one inside an argument does
@@ -581,6 +560,16 @@ class QuerySchemaResolveWalk {
     };
   }
 
+  /**
+   * The `call-arg` frame for argument `index` of a call to `callee`.
+   *
+   * DOCUMENTED PARSE-TIME LIMITATION (query-forms.md:41): only a call to a local
+   * `fn` in this file is statically resolvable to a typed parameter. A tool call
+   * is also a `CallExpr`, but tool signatures live in the host tool registry,
+   * not in this single-file parse; likewise `invoke` targets external `.theta`
+   * files resolved at load/runtime. Those args therefore have no resolvable
+   * parameter type here and stay untyped (the walk stops at the call boundary).
+   */
   private callArgFrame(callee: string, index: number): OriginFrame {
     const fn = this.fns.get(callee);
     if (fn === undefined) {
@@ -606,7 +595,6 @@ class QuerySchemaResolveWalk {
           // the parameter's position in its list, not the call site.
           origin: {
             capture: { kind: "fn-param", range: fn.range, paramIndex: index },
-            annotationSource: param.type,
           },
         };
   }
@@ -624,11 +612,7 @@ class QuerySchemaResolveWalk {
     if (query === null || query.schemaFromLetAnnotation !== true) {
       return;
     }
-    this.propagations.push({
-      capture: { kind: "let", range: stmt.range },
-      annotationSource: stmt.annotation,
-      queryRange: query.range,
-    });
+    this.propagations.push({ capture: { kind: "let", range: stmt.range } });
   }
 
   /** Fill a null-schema query from its enclosing sink; leave a typed one intact. */
@@ -644,11 +628,7 @@ class QuerySchemaResolveWalk {
     }
     const origin = (sink.frame as OriginFrame | undefined)?.origin;
     if (origin !== undefined) {
-      this.propagations.push({
-        capture: origin.capture,
-        annotationSource: origin.annotationSource,
-        queryRange: expr.range,
-      });
+      this.propagations.push({ capture: origin.capture });
     }
     return { ...expr, schema: serializeInferred(sink.schema) };
   }

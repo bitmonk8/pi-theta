@@ -206,7 +206,7 @@ function deps(
         : undefined,
     resolveThetaCallee: (thetaPath) =>
       callees.has(thetaPath)
-        ? { kind: "theta", mode: "subagent", callee: undefined, calleePath: thetaPath }
+        ? { kind: "theta", mode: "subagent", calleePath: thetaPath }
         : undefined,
     reservedNames: new Set<string>(),
   };

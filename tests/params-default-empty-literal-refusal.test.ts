@@ -4,10 +4,7 @@ import { describe, expect, it } from "vitest";
 // @ts-expect-error — JS code-registry module, no type declarations.
 import { parseRegistry, registryMessage } from "../tools/code-registry/index.js";
 import type { SourceRange } from "../src/diagnostics/diagnostic";
-import {
-  checkLiteralSublanguage,
-  type LiteralPosition,
-} from "../src/parser/literal-sublanguage";
+import { checkLiteralSublanguage } from "../src/parser/literal-sublanguage";
 import type { ThetaDocument } from "../src/parser/theta-document";
 import { parseDoc } from "./helpers/e2e-s1";
 
@@ -603,9 +600,9 @@ describe("bug 0165 (F) — the refusal removes the record the null bind came fro
 // stays deliberately silent: §Fix (b) — closing that arm instead — was not the
 // route taken, and making "the default RHS parses to a literal" a total
 // predicate at the position is a stronger claim than this report measures.
-// `LiteralPosition` is the single value `"default"` (:40) and the function has
-// one production caller, inside `parseParams` (src/parser/params.ts), so
-// nothing else depends on the arm either way.
+// The `params:` default RHS is the sole literal-sublanguage position and the
+// function has one production caller, inside `parseParams`
+// (src/parser/params.ts), so nothing else depends on the arm either way.
 //
 // THIS CELL IS GREEN AT HEAD AND MUST STAY GREEN. It is not a red witness: it
 // converts a branch no committed call reaches into a documented boundary, so a
@@ -616,18 +613,17 @@ describe("bug 0165 (F) — the refusal removes the record the null bind came fro
 describe("bug 0165 (G) — the is-literal checker keeps its no-node silence", () => {
   const span: SourceRange = { start: { line: 1, column: 1 }, end: { line: 1, column: 2 } };
   const site = { file: "bug0165.theta", range: span };
-  const position: LiteralPosition = "default";
 
   it("GREEN (g1): an empty source yields no diagnostic", () => {
     expect(
-      checkLiteralSublanguage("", position, site),
+      checkLiteralSublanguage("", site),
       "g1: the checker judges a parsed node, and an empty source produces none — route (a) decides this input one seam earlier, at the declaration form, so closing this arm as well would double-report the same field",
     ).toEqual([]);
   });
 
   it("GREEN (g2): a whitespace-only source yields no diagnostic", () => {
     expect(
-      checkLiteralSublanguage("   ", position, site),
+      checkLiteralSublanguage("   ", site),
       "g2: whitespace-only text reaches the same no-node arm; `splitParamValue` trims before `parseParams` reads it, so this spelling never arrives at the production caller and the arm's silence is unobservable from the load path",
     ).toEqual([]);
   });

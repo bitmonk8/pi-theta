@@ -295,7 +295,6 @@ function parentTheta(
         kind: "theta" as const,
         mode: "subagent" as const,
         calleePath,
-        callee: undefined,
         // #subagent-theta-callable-hash: the LOAD-TIME transitive-closure hash
         // the resolution snapshot captured (deterministic, keyed on the callee
         // path). The launch marshals THIS stored value — never a fresh
@@ -459,7 +458,6 @@ describe("SUBAG-2 (B) — RFC-0005 launch contract: host tools → `--tools`, `.
           kind: "theta" as const,
           mode: "subagent" as const,
           calleePath: "./child.theta",
-          callee: undefined,
           closureHash: "sha256:./child.theta",
         },
       ],
@@ -638,7 +636,7 @@ describe("#subagent-theta-callable-hash — the LOAD-captured hash is marshalled
     const entries = new Map([
       [
         "child",
-        { kind: "theta" as const, mode: "subagent" as const, calleePath: "./child.theta", callee: undefined },
+        { kind: "theta" as const, mode: "subagent" as const, calleePath: "./child.theta" },
       ],
     ]);
     const theta = {

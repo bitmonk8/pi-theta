@@ -359,7 +359,6 @@ describe("bug 0328 (2) — the producer marshals rootClosureHash into PI_THETA_S
           kind: "theta" as const,
           mode: "subagent" as const,
           calleePath: "./child.theta",
-          callee: undefined,
           closureHash: "sha256:child",
         },
       ],

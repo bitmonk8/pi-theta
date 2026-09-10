@@ -22,22 +22,9 @@
 //   - `theta/parse/missing-object-field` — a bare- or named-object literal omits
 //     a declared (required) field of its LHS / variant schema (partial defaults
 //     are not supported).
-//
-// V2a-T (tests-task) declares these seam shapes and stubs both checks as inert
-// no-ops (no diagnostic produced) so the failing tests compile and red on their
-// own primary assertions (the is-literal check and the full-field-requirement
-// check are absent). The paired V2a implementation leaf fills them in.
 
 import { type Diagnostic, type SourceRange } from "../diagnostics/diagnostic";
 import { type CompatType, type PrimitiveName } from "./type-compat";
-
-/**
- * Which literal position an expression occupies. RFC 0002 retired the Pi-tool
- * argument position, so `default` (a `params:` frontmatter default RHS →
- * `theta/parse/default-not-literal`) is the sole remaining literal-sublanguage
- * position.
- */
-export type LiteralPosition = "default";
 
 /** A located site at which a literal-sublanguage check is run. */
 export interface LiteralCheckSite {
@@ -46,14 +33,14 @@ export interface LiteralCheckSite {
 }
 
 /**
- * Run the is-literal check against an expression as written in source at a
- * literal position, returning every diagnostic raised. A form outside the
- * literal sublanguage fires `theta/parse/default-not-literal`; the diagnostic
- * names the offending sub-expression.
+ * Run the is-literal check against an expression as written in source at the
+ * `params:` default RHS — the sole literal-sublanguage position since RFC 0002
+ * retired the Pi-tool argument position — returning every diagnostic raised. A
+ * form outside the literal sublanguage fires `theta/parse/default-not-literal`;
+ * the diagnostic names the offending sub-expression.
  */
 export function checkLiteralSublanguage(
   source: string,
-  _position: LiteralPosition,
   site: LiteralCheckSite,
 ): Diagnostic[] {
   const tokens = tokeniseExpr(source);
@@ -593,9 +580,6 @@ export interface ObjectSchemaSpec {
  * fires `theta/parse/missing-object-field` (partial defaults are not supported);
  * field order is free. Returns one diagnostic per omitted field, in declared
  * order.
- *
- * V2a-T stubs this as an inert no-op (returns no diagnostics); the paired V2a
- * implementation leaf computes the omitted-field set.
  */
 export function checkObjectLiteralFields(
   schema: ObjectSchemaSpec,

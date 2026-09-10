@@ -13,17 +13,6 @@
 // executor walks and `V19e`'s composition producer parses; the AST node types
 // declared here are that cross-leaf contract.
 //
-// V19a-T (tests-task) declares the AST node shapes and stubs `parseThetaDocument`
-// inertly: it returns `{ frontmatter: null, body: { statements: [], tail: null },
-// diagnostics: [] }` regardless of input. Every paired V19a-T test therefore
-// reds on its own primary assertion — an empty body where a `LetStmt` /
-// `IfStmt` / `SchemaDecl` / … node was expected, a missing tail `Expr`, a wrong
-// statement count where newline-continuation should have joined (or split) a
-// statement, or an empty `diagnostics` array where the delegated checkers should
-// have aggregated multiple sorted errors — not on a compile error, a missing
-// fixture, or a harness throw. The paired V19a implementation leaf fills the
-// parser in.
-//
 // Spec: implementation-notes.md (§Parser *Contract*), grammar.md
 // (§"Block expressions", §"fn declarations", §"schema X by <field>",
 // §"/// placement", §"Newline continuation"), bindings.md, control-flow.md,
@@ -87,8 +76,6 @@ import {
   detectTypeAliasCycles,
   type EnumValueKind,
   type EnumVariantDecl,
-  type ByClauseDecl,
-  type DiscriminatedUnionDecl,
   type DiscriminatorCandidateField,
   type SchemaDeclSite,
   type SchemaGraphNode,
@@ -283,7 +270,7 @@ export interface QueryExpr extends NodeBase {
    * PROPAGATED annotation's junk text is the `let` binding's, and
    * `theta/parse/annotation-type-not-expression` (bug 0124) already refuses it
    * at the `let` position — a second refusal at the query would double up on
-   * one statement. Optional rather than required: six committed test files
+   * one statement. Optional rather than required: committed test files
    * construct a `kind: "query"` literal directly, and a required field would
    * red their typecheck for no behavioural gain — so `undefined` is reachable
    * only from such a literal, which is why the refusal site tests `=== true`
@@ -907,8 +894,9 @@ export interface EnumDecl extends NodeBase {
   /**
    * The declared variant names in source order, captured so the runtime can
    * register the enum and resolve `Enum.Variant` access to a first-class enum
-   * value (runtime-value-model.md, enum row). Absent for a non-`{ … }` enum
-   * shape the body parser could not read.
+   * value (runtime-value-model.md, enum row). `parseEnum` always writes it —
+   * empty (`[]`) for a non-`{ … }` enum shape the body parser could not read;
+   * absent only on a hand-built literal that omits it.
    */
   readonly variants?: readonly string[];
   /**
@@ -924,8 +912,9 @@ export interface EnumDecl extends NodeBase {
    * and text), captured so the parse pipeline can run `checkEnumDeclaration`
    * (schemas.md §Enum declarations): empty body, non-string values, duplicate
    * variant names. Unlike `variantValues` (string wire values only) this
-   * retains non-string explicit values so they can be rejected. Absent for a
-   * non-`{ … }` enum shape the body parser could not read.
+   * retains non-string explicit values so they can be rejected. `parseEnum`
+   * always writes it — empty (`[]`) for a non-`{ … }` enum shape the body
+   * parser could not read; absent only on a hand-built literal that omits it.
    */
   readonly variantDecls?: readonly EnumVariantDecl[];
   /**
@@ -1045,10 +1034,6 @@ export interface ParseThetaDocumentDeps {
  * executable `ThetaBody` statement-list AST, and the delegated V-slice
  * parse-checkers' diagnostics are aggregated in one pass, sorted `(file, line,
  * col)`, per implementation-notes.md §Parser *Contract* (`cka-49`).
- *
- * The whole file — not a single expression — is walked into the executable
- * `ThetaBody` statement-list AST; the delegated V-slice parse-checkers'
- * diagnostics are aggregated in one pass and sorted `(file, line, col)`.
  */
 export function parseThetaDocument(
   source: ThetaSource,
@@ -1088,7 +1073,7 @@ export function parseThetaDocument(
   // obligation is the loader's (V6*), not the whole-file body parser's, and
   // every V19a-T fixture supplies a bare body — so parsing frontmatter only
   // when a fence is present keeps a spurious `missing mode:` diagnostic out of
-  // the aggregated set. See notes.md.
+  // the aggregated set.
   const split = splitFrontmatter(text);
 
   // V1a's newline-continuation lexer is the integration witness for statement
@@ -1260,10 +1245,10 @@ export function parseThetaDocument(
     // `extractFrontmatterBlock` matches a leading/closing `---` fence). Re-wrap
     // the block in fences so the frontmatter fields (`mode:` / `model:` / …)
     // actually parse; without this every fenced `.theta` yields `frontmatter:
-    // null` and a spurious `theta/load/missing-mode`. See notes.md (the
-    // frontmatter line numbers are block-relative for a fence at file line 0 —
-    // the common case; a fence preceded by blank lines shifts them by the
-    // blank-line count, which no current obligation asserts).
+    // null` and a spurious `theta/load/missing-mode`. The frontmatter line
+    // numbers are block-relative for a fence at file line 0 — the common case;
+    // a fence preceded by blank lines shifts them by the blank-line count,
+    // which no current obligation asserts.
     const fm = parseFrontmatter(`---\n${split.frontmatterText}\n---`, {
       file,
       modelMatcher: deps.modelMatcher,
@@ -2115,7 +2100,7 @@ export function parseExpressionSource(source: string): Expr | null {
  * difference is driving `parseSingleExpressionWithResidue()` so a residue after
  * the expression — not only the expression's own emitters — has a chance to
  * draw a diagnostic before it is discarded. `parseExpressionSource` itself is
- * untouched: its other four call sites do not want the residue drain.
+ * untouched: its other call sites do not want the residue drain.
  */
 function parseInterpolationSource(source: string): {
   readonly expr: Expr | null;
@@ -2892,7 +2877,7 @@ class BodyParser {
      * (punctuation, interpolation braces, and internal spacing) rather than a
      * lossy space-join of the interior tokens.
      */
-    private readonly bodyText: string = "",
+    private readonly bodyText: string,
     /**
      * The frontmatter `params:` field wire names. A theta's `params:` fields ARE
      * its parameters (bindings.md:31 "Function parameters"), an always-immutable
@@ -4160,10 +4145,9 @@ class BodyParser {
   }
 
   /**
-   * Capture a `schema X { field: Type, … }` object body's field sources.
-   * Returns `null` (and consumes nothing) when the next token is not `{` —
-   * unreachable from `parseSchema`'s dispatch, which calls this only after
-   * confirming `{`, so this guard is defensive only. A field name is an
+   * Capture a `schema X { field: Type, … }` object body's field sources,
+   * starting at the opening `{` that `parseSchema`'s dispatch has already
+   * confirmed at the cursor. A field name is an
    * `ident` / `keyword` token followed by `:` and a type expression. Three
    * shapes cannot derive a `Field` at the current token: the token where a
    * field name belongs is neither `ident` nor `keyword`; an `as` rename's
@@ -4192,9 +4176,6 @@ class BodyParser {
    * fires beside the parameter's own refusal.
    */
   private parseSchemaObjectBody(): SchemaFieldSource[] | null {
-    if (!(this.peek().kind === "punct" && this.peek().text === "{")) {
-      return null;
-    }
     const openTok = this.advance(); // opening `{`
     const fields: SchemaFieldSource[] = [];
     // Sticky for the whole body, mirroring `closeParenAbsorbed`: once a field
@@ -4522,7 +4503,7 @@ class BodyParser {
           if (currentDecl !== null) {
             currentDecl.value = captured;
           }
-          if (captured.kind === "string" && currentName !== null) {
+          if (captured.kind === "string") {
             values[currentName] = captured.text;
           }
           this.advance();
@@ -5382,8 +5363,8 @@ class BodyParser {
   /**
    * The increment/decrement operator at the cursor, or `undefined` for
    * anything else. Narrows the token's plain `string` text to the
-   * `IncrementDecrementOp.op` literal union so neither call site casts past
-   * the check.
+   * `IncrementDecrementOp.op` literal union so no call site casts past the
+   * check.
    */
   private incrementDecrementOp(): "++" | "--" | undefined {
     const t = this.peek();
@@ -5406,13 +5387,9 @@ class BodyParser {
       // `++` / `--` are rejected, not lowered (bindings.md §"Increment /
       // decrement"): the operator carries no AST node of its own, so the
       // operand alone survives once the diagnostic is filed.
-      const diag = checkIncrementDecrement(
-        { op: incDecOp },
-        { file: this.file, range: op.range },
+      this.diagnostics.push(
+        checkIncrementDecrement({ op: incDecOp }, { file: this.file, range: op.range }),
       );
-      if (diag !== undefined) {
-        this.diagnostics.push(diag);
-      }
       const operand = this.parsePostfix();
       if (operand === null) {
         return null;
@@ -5551,13 +5528,9 @@ class BodyParser {
         // consumed here rather than left for the statement loop — that is
         // what keeps it out of the stray-punctuation recovery below.
         const op = this.advance();
-        const diag = checkIncrementDecrement(
-          { op: incDecOp },
-          { file: this.file, range: op.range },
+        this.diagnostics.push(
+          checkIncrementDecrement({ op: incDecOp }, { file: this.file, range: op.range }),
         );
-        if (diag !== undefined) {
-          this.diagnostics.push(diag);
-        }
         continue;
       }
       break;
@@ -5818,12 +5791,6 @@ class BodyParser {
   }
 
   /**
-   * Parse one `match` pattern (expressions.md §"Pattern grammar (theta 1.0)"):
-   * wildcard `_`, `Ok(p)` / `Err(p)` constructors, a named/bare object pattern
-   * `Ident { field: p, … }`, an array pattern `[p, …]`, a literal
-   * (`"s"` / `42` / `true` / `null`), or an identifier binding.
-   */
-  /**
    * If the cursor begins a bare statement in `match`-arm-body position
    * (a leading `if` / `for` / `while` / `let` / `break` / `continue` /
    * `return` keyword, or a bare assignment), emit
@@ -5949,6 +5916,12 @@ class BodyParser {
     this.parseExpression(); // consume + discard the RHS
   }
 
+  /**
+   * Parse one `match` pattern (expressions.md §"Pattern grammar (theta 1.0)"):
+   * wildcard `_`, `Ok(p)` / `Err(p)` constructors, a named/bare object pattern
+   * `Ident { field: p, … }`, an array pattern `[p, …]`, a literal
+   * (`"s"` / `42` / `true` / `null`), or an identifier binding.
+   */
   private parsePattern(): PatternNode {
     if (this.tryConsumeRestPattern()) {
       return { kind: "wildcard" };
@@ -6161,13 +6134,9 @@ class BodyParser {
     const incDecOp = this.incrementDecrementOp();
     if (incDecOp !== undefined) {
       const opTok = this.advance();
-      const diag = checkIncrementDecrement(
-        { op: incDecOp },
-        { file: this.file, range: opTok.range },
+      this.diagnostics.push(
+        checkIncrementDecrement({ op: incDecOp }, { file: this.file, range: opTok.range }),
       );
-      if (diag !== undefined) {
-        this.diagnostics.push(diag);
-      }
       const next = this.peek();
       const nextBeginsPattern =
         next.kind === "number" ||
@@ -7877,8 +7846,9 @@ const RESULT_APPLICATION = /^Result\s*<([\s\S]*)>$/;
  * §Fix clause (iv)(2) withholds the `let` capture's own resolution of this
  * SAME propagated text, leaving this arm its sole emitter. What this peel
  * protects is the BUILTIN `QueryError`, by the same builtin error-model
- * admission the `let`, `fn` parameter, `fn` return and `invoke<Type>`
- * captures carry (`withBuiltinErrorModelNames`) — not the argument slot: the
+ * admission the `let`, `fn` parameter, `fn` return, `invoke<Type>` and
+ * `Result<T, E>` error-side captures carry (`withBuiltinErrorModelNames`) —
+ * not the argument slot: the
  * `"query"` arm resolves names in `args[1]` beside the response part it reads
  * from this function (bug 0273 §Fix), so an undeclared head written there is
  * still refused. The `T` side — the shape the response is validated against
@@ -8454,7 +8424,7 @@ interface StructuralRefs {
   readonly schemas: ReadonlyMap<string, readonly string[]>;
   /**
    * The whole-file type-declaring name universe `collectBodyTypes` builds
-   * (`FrontmatterBodyTypes`, frontmatter.ts:228–243): every body `schema` name
+   * (`FrontmatterBodyTypes`, frontmatter.ts): every body `schema` name
    * (object or alias/union form) with its object field sources or `undefined`,
    * every body `enum` name, and every symbol a body `import` pulls in. Feeds
    * `checkObjectExpr`'s constructor-name classification when a name misses
@@ -8706,14 +8676,14 @@ function walkParamsDefaultNames(
  * `typeNames` widened with the builtin error-model names the pattern-head
  * position already admits (`patternHeadTypeNames`'s own seed,
  * `BUILTIN_VALUE_NAMES` above — clause (iv)(1)). Reusing that constant rather
- * than a literal at each of the four call sites is what keeps the admission
- * one fact instead of four: an APPLIED `Result` is never tested as an atom
+ * than a literal at each call site is what keeps the admission one fact
+ * instead of one per capture: an APPLIED `Result` is never tested as an atom
  * (`lowerTypeExpr`'s generic-application arm reads a `ctor` name structurally,
  * never through the identifier-resolution arm), so admitting it here is inert
  * for that spelling; an UNAPPLIED `Result` reaches the atom arm instead and is
  * the reserved-keyword class `theta/parse/reserved-keyword-as-identifier`
  * reports at every capture (bug 0277 §Fix route (a)) — `QueryError` is the
- * only name the four new captures ever resolve as a `NamedType`.
+ * only name these captures ever resolve as a `NamedType`.
  */
 function withBuiltinErrorModelNames(typeNames: ReadonlySet<string>): ReadonlySet<string> {
   return new Set([...typeNames, ...BUILTIN_VALUE_NAMES]);
@@ -8937,8 +8907,8 @@ function checkStructural(
   // The alias/union declaration-graph checks (bug 0033 §Fix): scoped to
   // TOP-LEVEL declarations only, mirroring `collectBodyTypes` (the lowering
   // and `NamedType`-resolution set is top-level-only; a block-nested schema
-  // decl brands nothing at runtime either —
-  // src/runtime/lexical-environment.ts:383–389).
+  // decl brands nothing at runtime either — `LexicalEnvironment`'s `schemas`
+  // registry is root-only, src/runtime/lexical-environment.ts).
   out.push(...checkSchemaDeclarationGraph(body.statements, typeNames, file));
   return out;
 }
@@ -9828,7 +9798,7 @@ function checkObjectExpr(
 /**
  * The declared field-name set a `match` object-pattern head resolves to, for
  * `checkPatternObjectFields`'s field-name check (bug 0226 §Fix). Mirrors
- * `checkObjectExpr`'s constructor-position classification (`:8342–:8375`)
+ * `checkObjectExpr`'s constructor-position classification
  * over the SAME three sources — `StructuralRefs.schemas` first, then the
  * whole-file `bodyTypes` universe — but with one deliberate divergence at the
  * alias/union branch: the constructor position refuses an alias/union name
@@ -10379,8 +10349,8 @@ function checkQueryTemplateInterpolations(
 
 /**
  * A forbidden interpolation construct detected at the TOKEN level, for the
- * malformed-interpolation path where `parseExpressionSource` returns `null` and
- * the AST walk is unavailable. `match` is a reserved keyword and `@` a punct, so
+ * malformed-interpolation path where `parseInterpolationSource` returns a
+ * `null` `expr` and the AST walk is unavailable. `match` is a reserved keyword and `@` a punct, so
  * a token match is unambiguous (never a string-literal false positive). Returns
  * `"match"` / `"@-query template"` for the first such token, else `null`.
  */

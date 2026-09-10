@@ -21,12 +21,17 @@
 //   * `theta/parse/mixed-plus-operands` (A5) / `theta/parse/non-orderable-operands`
 //     (A6) — the `+` / ordering operand-type checks (expressions.md §"`+`
 //     operator", §"Ordering comparisons"),
+//   * `theta/parse/non-numeric-arithmetic-operands` (A7) — the spelled (`-` /
+//     `*` / `/` / `%`) and unary-`-` arithmetic operand-type check
+//     (expressions.md §"Other arithmetic"; bugs 0332 / 0392),
+//   * `theta/parse/non-integer-max` — the `par for` `max` operand check
+//     (control-flow.md CTRL-2; bug 0324),
 //   * `theta/parse/unknown-method` (A2) — a member / method access on a built-in
 //     receiver type outside the theta 1.0 stdlib surface (expressions.md
 //     §"Built-in methods and properties").
 //
-// A5 / A6 / A2 fire ONLY when the operand / receiver static type is concretely
-// resolvable. An operand past the parser's static view (an unresolved
+// A5 / A6 / A7 / A2 and the `max` check fire ONLY when the operand / receiver
+// static type is concretely resolvable. An operand past the parser's static view (an unresolved
 // `NamedType`, a sentinel reference) is left unclassified and deferred to the
 // runtime safety net — no `type`-phase diagnostic — mirroring the
 // `let-rhs-type-mismatch` "statically resolvable" guard so no valid theta is
@@ -327,13 +332,11 @@ export interface ParamsFieldSource {
  *     from (`paramsFieldBindings`), so a `params:`-declared read carries its
  *     declared `CompatType` into the walk the same way an annotated `fn`
  *     parameter does (`walkFn`).
- *
- * Defaults to `[]` so an existing two-argument caller keeps compiling.
  */
 export function checkTypeLayer(
   body: ThetaBody,
   file: string,
-  paramsFields: readonly ParamsFieldSource[] = [],
+  paramsFields: readonly ParamsFieldSource[],
 ): Diagnostic[] {
   const pass = new StaticTypeInferencePass({
     checkCompatible,
@@ -347,9 +350,6 @@ export function checkTypeLayer(
     body,
     paramsFields.map((f) => f.name),
   );
-  // Run the `V20b` read-only whole-program pass in production: it types every
-  // statement-level node and validates the substrate composes with the parse.
-  pass.infer(body, env);
   const checker = new TypeLayerWalk(
     pass,
     env,
@@ -907,10 +907,11 @@ function collectSchemaFields(
  * treats as deferred.
  *
  * Bug 0130 §Fix (f): this function's OWN behaviour is unchanged — it never
- * mints `CompatType`'s `object` arm. That is deliberate, not an oversight: its
- * four consumers besides the `let`-annotation site each carry another bug's
- * LANDED bound on the inline-object direction, and widening this shared
- * conversion would move all of them at once.
+ * mints `CompatType`'s `object` arm. That is deliberate, not an oversight:
+ * every consumer besides the `let`-annotation site reads a declared type in a
+ * position another bug's LANDED bound, or the position's own contract,
+ * already governs on the inline-object direction, and widening this shared
+ * conversion would move all of them at once. The bounds that pin the hold:
  *
  *   - `collectSchemaFields` (→ `theta/parse/object-field-type-mismatch`) and
  *     the member-access field-type reader it feeds are pinned by
@@ -930,12 +931,16 @@ function collectSchemaFields(
  *     the conversion it still reaches for every annotation the guard lets
  *     through is this same unwidened function, so bug 0130's hold here is
  *     not narrowed.
- *   - the alias-RHS conversion (`collectTypeEnv`, below) and the `fn`-param
- *     binding seed (`walkFn`'s parameter loop) both read a declared type in a
- *     position TYPE-11 or the parameter contract already governs by name,
- *     not by this report's authority.
+ *   - the alias-RHS conversion (`collectTypeEnv`, below), the `fn`-param
+ *     binding seed (`walkFn`'s parameter loop), the frontmatter `params:`
+ *     binding seed (`paramsFieldBindings`), the `subagent fn` return
+ *     annotation (`checkSubagentReturnAnnotation`), and the same-file /
+ *     imported `fn`-call parameter conversions (`checkFnCallArgs`;
+ *     `invoke-static-checks.ts`'s `checkImportedFnCallArgs`) all read a
+ *     declared type in a position TYPE-11 or the parameter contract already
+ *     governs by name, not by this report's authority.
  *
- * Widening any of the five is separate work; `letAnnotationToCompatType`
+ * Widening any of these is separate work; `letAnnotationToCompatType`
  * below is the ONLY caller authorised to mint an `object` arm, at the `let`
  * annotation site alone.
  */
@@ -1560,7 +1565,7 @@ class TypeLayerWalk {
           // call site authorised to mint TYPE-8's `object` arm for a
           // well-formed inline object type. Every other reader of an
           // annotation source keeps calling `annotationToCompatType`
-          // (see that function's own comment for why those four are held).
+          // (see that function's own comment for why the others are held).
           const annotation =
             stmt.annotation !== null && stmt.annotation.length > 0
               ? letAnnotationToCompatType(stmt.annotation)

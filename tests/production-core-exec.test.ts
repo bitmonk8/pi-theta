@@ -271,7 +271,7 @@ describe("core-exec — code-driven renamed/hyphenated `.theta` callee resolves 
     const entries = new Map([
       [
         presentedName,
-        { kind: "theta" as const, mode: "subagent" as const, calleePath, callee: undefined },
+        { kind: "theta" as const, mode: "subagent" as const, calleePath },
       ],
     ]);
     const frontmatter = {

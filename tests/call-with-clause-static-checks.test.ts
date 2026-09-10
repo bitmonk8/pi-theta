@@ -88,9 +88,9 @@ function mixedCallableSet(): CallableSetSnapshot {
   return {
     entries: new Map<
       string,
-      { kind: "theta" | "pi-tool"; mode?: "subagent" | "prompt"; calleePath?: string; callee?: unknown; toolDefinition?: unknown }
+      { kind: "theta" | "pi-tool"; mode?: "subagent" | "prompt"; calleePath?: string; toolDefinition?: unknown }
     >([
-      ["helper", { kind: "theta", mode: "subagent", calleePath: "./helper.theta", callee: undefined }],
+      ["helper", { kind: "theta", mode: "subagent", calleePath: "./helper.theta" }],
       ["read", { kind: "pi-tool", toolDefinition: {} }],
     ]) as unknown as CallableSetSnapshot["entries"],
   } as unknown as CallableSetSnapshot;

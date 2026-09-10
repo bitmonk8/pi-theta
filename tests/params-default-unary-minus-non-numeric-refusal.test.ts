@@ -155,7 +155,6 @@ import type { ModelReferenceMatcher } from "../src/parser/frontmatter";
 import {
   checkLiteralSublanguage,
   defaultLiteralStaticType,
-  type LiteralPosition,
 } from "../src/parser/literal-sublanguage";
 import {
   parseThetaDocument,
@@ -596,11 +595,10 @@ const LITERAL_SITE_RANGE: SourceRange = {
   end: { line: 1, column: 2 },
 };
 const LITERAL_SITE = { file: "bug0166.theta", range: LITERAL_SITE_RANGE };
-const LITERAL_POSITION: LiteralPosition = "default";
 
 /** The rendered `<code>: <message>` list for one direct is-literal call. */
 function checkLines(source: string): string[] {
-  return checkLiteralSublanguage(source, LITERAL_POSITION, LITERAL_SITE).map(
+  return checkLiteralSublanguage(source, LITERAL_SITE).map(
     (d) => `${d.code}: ${d.message}`,
   );
 }

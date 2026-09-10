@@ -25,15 +25,6 @@
 //     schema document carries only the `$defs` transitively reachable from its
 //     response-schema root; unreachable `$defs` are pruned.
 //
-// V13b-T (tests-task) declares these seam shapes and stubs every behaviour-
-// bearing function inertly so the failing tests compile and red on their own
-// primary assertions: `inferQuerySchema` returns an unimplemented sentinel
-// schema (so both the sink and the untyped assertions red), the
-// `explicit-schema-mismatch` check returns an inert sentinel diagnostic (so both
-// the firing and the no-warning vectors red), and `prunePerQueryDefs` is an
-// identity that prunes nothing (so a document with an unreachable `$def` reds).
-// The paired V13b implementation leaf fills these in.
-//
 // Spec: query/query-forms.md, schema-subset.md §"Lowering Algorithm" step 4.
 
 import { type Diagnostic } from "../diagnostics/diagnostic";
@@ -67,9 +58,10 @@ export type InferredSchema =
  * One enclosing AST frame between a query expression and the outermost context,
  * ordered innermost-first in an `inferQuerySchema` input. The §"Schema inference
  * algorithm" classifies each construct as *crossed* (transparent — the walk
- * continues outward) or *stopped* (opaque — the walk halts):
+ * continues outward) or *stopped* (opaque — the walk halts). Parenthesisation
+ * `(…)` is crossed too, but needs no frame: the expression parser folds the
+ * parentheses away, so no node stands between a query and its context there.
  *
- *   - `paren`        — parenthesisation `(…)`. Crossed.
  *   - `propagate`    — the postfix error-propagation `?` (ERR-18), whose unwrap
  *     of `Result<T, QueryError>` to `T` preserves the operand's type context.
  *     Crossed.
@@ -86,18 +78,16 @@ export type InferredSchema =
  *     function with a declared return type; the sink is that return type. A
  *     `.theta` file has no declared return type, so it supplies no sink here.
  *   - `stop`         — an opaque construct (binary / unary operator, member or
- *     indexed access, `match` scrutinee, `if` / `while` condition). Stopped; the
- *     `label` names the construct for diagnostics.
+ *     indexed access, `match` scrutinee, `if` / `while` condition). Stopped.
  */
 export type SchemaSinkFrame =
-  | { readonly kind: "paren" }
   | { readonly kind: "propagate" }
   | { readonly kind: "ternary" }
   | { readonly kind: "array-literal" }
   | { readonly kind: "let"; readonly annotation: InferredSchema }
   | { readonly kind: "call-arg"; readonly paramType?: InferredSchema }
   | { readonly kind: "fn-return"; readonly returnType?: InferredSchema }
-  | { readonly kind: "stop"; readonly label: string };
+  | { readonly kind: "stop" };
 
 /** The input to `inferQuerySchema`: the enclosing frames and the explicit ascription. */
 export interface QuerySchemaInferenceInput {
@@ -150,7 +140,7 @@ export interface QuerySchemaSink {
  * (or exhausts the frames) without a sink returns `undefined` (untyped, `string`).
  *
  * The walk is shallow (query-forms.md §"Schema inference algorithm"):
- *   - `paren` / `propagate` — context-preserving, crossed.
+ *   - `propagate` — context-preserving, crossed.
  *   - `ternary` — crossed; the ternary is transparent and the walk continues
  *     outward to the sink the ternary itself has (if any).
  *   - `array-literal` — crossed; the element inherits the enclosing array sink's
@@ -187,7 +177,6 @@ export function resolveQuerySchemaSink(
   let arrayDepth = 0;
   for (const frame of input.frames) {
     switch (frame.kind) {
-      case "paren":
       case "propagate":
       case "ternary":
         // Transparent: continue the outward walk.
@@ -244,9 +233,7 @@ export const EXPLICIT_SCHEMA_MISMATCH_MESSAGE =
  * annotation could not accept); a safe widening is silent. When either side is
  * past the parser's static view the warning is skipped (the runtime AJV check is
  * the safety net). Returns the warning diagnostic, or `[]` when no warning fires.
- *
- * V13b-T stubs this inert (a sentinel diagnostic); the paired V13b leaf computes
- * the relation via type-compat's `checkCompatible(ascription, annotation, env)`.
+ * The relation is type-compat's `checkCompatible(ascription, annotation, env)`.
  */
 export function checkExplicitSchemaMismatch(opts: {
   readonly ascription: CompatType;
@@ -297,10 +284,6 @@ export interface QueryDefsDocument {
  * schema document's `$defs`: keep only the `$defs` transitively reachable from
  * the response-schema root; prune the unreachable ones. Recursive references are
  * followed once (a visited set bounds the walk).
- *
- * V13b-T stubs this as an identity that prunes nothing (returns every `$def`),
- * so a document containing an unreachable `$def` reds the pruning assertion; the
- * paired V13b implementation leaf performs the reachability prune.
  */
 export function prunePerQueryDefs(
   doc: QueryDefsDocument,
