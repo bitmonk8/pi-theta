@@ -16,6 +16,7 @@ import type { Component } from "@earendil-works/pi-tui";
 import type { CustomEntry, EntryRenderOptions, ExtensionAPI } from "@earendil-works/pi-coding-agent"; // allow-pi-surface: PIC#71 — CustomEntry/EntryRenderOptions are the theta-progress-entry renderer's own SDK carrier types, not yet SDK_SURFACE_INVENTORY-promoted (analyst's par. 1 sdk-inventory.ts edit)
 import type { SystemNote } from "../system-note-channel";
 import { renderSystemNoteBody } from "../system-note-renderer";
+import type { ProgressMilestone } from "./types";
 
 /** PIC-71: the fixed `theta-progress-entry` custom-entry type literal. */
 export const THETA_PROGRESS_ENTRY_TYPE = "theta-progress-entry";
@@ -25,6 +26,10 @@ export interface EntryChannelHandle {
   live(): boolean;
   /** `true` = delivered as an entry; `false` = caller falls back to `sendMessage`. */
   append(note: SystemNote): boolean;
+  /** L3 (EXST-14/PIC-71): one durable milestone entry. Same live()/degrade
+   *  rules as `append` — `false` means "skipped silently", NEVER a
+   *  `sendMessage` fallback (EXST-14: milestones never fall back). */
+  appendMilestone(m: ProgressMilestone): boolean;
 }
 
 /**
@@ -67,15 +72,80 @@ export function createEntryChannel(pi: ExtensionAPI): EntryChannelHandle {
         return false;
       }
     },
+    appendMilestone(m: ProgressMilestone): boolean {
+      if (dead) {
+        return false;
+      }
+      try {
+        // PIC-71: the milestone shares the SAME `theta-progress-entry` custom-
+        // entry type as the migrated-note payload; the renderer discriminates
+        // on the `milestone` key (par. 6 of the L3 seam-sheet addendum).
+        pi.appendEntry(THETA_PROGRESS_ENTRY_TYPE, { milestone: m });
+        return true;
+      } catch { // allow-broad-catch: pi-sdk-boundary — conventions.md Specific exception types only
+        // EXST-14: no `sendMessage` fallback for milestones — the channel
+        // simply degrades dead, same as the note-append arm above.
+        dead = true;
+        return false;
+      }
+    },
   };
 }
 
 /**
- * The `theta-progress-entry` renderer (PIC-71: byte-identical lines to the
- * `theta-system-note` message renderer for the same note). It delegates to the
- * SAME body formatter the message renderer uses, so a note migrated onto this
- * channel renders the same lines it would have on the message channel — and
- * inherits that helper's PIC-56 width fitting and PIC-21 never-throw guard.
+ * One pre-fitted milestone line. A CLASS (not the note arm's closure-captured
+ * object literal) so the rendered line is an own enumerable property: the
+ * milestone template is then inspectable on the returned `Component` without
+ * a render pass, which is how the L3 suite pins the template. `render`
+ * hard-clips rather than wraps — a milestone is one line by contract (par. 6
+ * of the L3 seam sheet) — and never throws (PIC-21).
+ */
+class MilestoneLineComponent implements Component {
+  readonly lines: readonly string[];
+
+  constructor(line: string) {
+    this.lines = [line];
+  }
+
+  render(width: number): string[] {
+    return this.lines.map((line) =>
+      width > 0 && line.length > width ? `${line.slice(0, Math.max(0, width - 1))}…` : line,
+    );
+  }
+
+  invalidate(): void {}
+}
+
+/**
+ * PIC-71's milestone template (par. 6 of the L3 seam sheet, exact):
+ * `progress[ /<theta>][ <scope>]: <message>[ (<done>/<total>)][ (+<n> dropped)]`
+ * — absent parts omitted. The fields are read defensively: the payload has
+ * already been clamped at the emitter, but a renderer must not depend on it.
+ */
+function renderMilestoneLine(milestone: Record<string, unknown>): string {
+  const theta = typeof milestone.theta === "string" ? ` /${milestone.theta}` : "";
+  const scope = typeof milestone.scope === "string" ? ` ${milestone.scope}` : "";
+  const message = typeof milestone.message === "string" ? milestone.message : "";
+  const done = milestone.done;
+  const total = milestone.total;
+  const counts =
+    typeof done === "number" && typeof total === "number" ? ` (${done}/${total})` : "";
+  const dropped = milestone.dropped;
+  const droppedSegment =
+    typeof dropped === "number" && dropped > 0 ? ` (+${dropped} dropped)` : "";
+  return `progress${theta}${scope}: ${message}${counts}${droppedSegment}`;
+}
+
+/**
+ * The `theta-progress-entry` renderer. Two arms discriminated on the
+ * `milestone` key (both payload classes share the one custom-entry type,
+ * PIC-71):
+ *
+ *   - a MIGRATED OPERATOR NOTE delegates to the SAME body formatter the
+ *     `theta-system-note` message renderer uses, so it renders byte-identical
+ *     lines on either channel and inherits that helper's PIC-56 width fitting
+ *     and PIC-21 never-throw guard;
+ *   - an L3 MILESTONE (EXST-14) draws the PIC-71 template line.
  */
 export function createProgressEntryRenderer(): (
   entry: CustomEntry<SystemNote>,
@@ -85,8 +155,18 @@ export function createProgressEntryRenderer(): (
   return (entry, _options, _theme): Component | undefined => {
     // PIC-21 analogue: a malformed payload must not throw out of the renderer
     // invocation, so the fields are read defensively before formatting.
-    const data = entry.data as Partial<SystemNote> | undefined;
+    const data = entry.data as Record<string, unknown> | undefined;
+    const milestone = data?.milestone;
+    if (milestone !== undefined) {
+      if (typeof milestone !== "object" || milestone === null) {
+        return undefined; // malformed milestone payload: render nothing, never throw
+      }
+      return new MilestoneLineComponent(
+        renderMilestoneLine(milestone as Record<string, unknown>),
+      );
+    }
     const content = typeof data?.content === "string" ? data.content : "";
-    return renderSystemNoteBody(content, data?.display);
+    const display = typeof data?.display === "boolean" ? data.display : undefined;
+    return renderSystemNoteBody(content, display);
   };
 }

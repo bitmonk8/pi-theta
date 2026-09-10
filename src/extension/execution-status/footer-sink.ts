@@ -17,11 +17,15 @@
 import type {
   ExecutionStatusSnapshot,
   InvocationNodeSnapshot,
+  ProgressAuthorMessage,
   ProgressVerbosity,
   StatusSink,
   ViewShape,
 } from "./types";
 import { FOOTER_CLAMP_CHARS } from "./types";
+
+/** The class-2 author-message marker (L3 render grammar, par. 6). */
+export const AUTHOR_MESSAGE_GLYPH = "\u270E";
 
 /** The narrow `ctx.ui` surface the footer sink touches (EXST-8 per-surface gate). */
 export interface FooterUi {
@@ -119,6 +123,38 @@ function renderKidsSegment(
   return children > 0 ? `children ${children}▶` : undefined;
 }
 
+/**
+ * The newest class-2 payload across the rendered node and its descendants — a
+ * child's wire-ingested self-report lives on the CHILD node, so a parent's
+ * footer line must reach down one level to show it (par. 6). Descendant
+ * payloads win over the node's own only when the node carries none: the
+ * snapshot holds no per-payload timestamp, and node insertion order puts the
+ * more recently started (deeper) node last.
+ */
+function newestAuthorMessage(
+  s: ExecutionStatusSnapshot,
+  node: InvocationNodeSnapshot,
+): ProgressAuthorMessage | undefined {
+  let descendant: ProgressAuthorMessage | undefined;
+  const ids = new Set<string>([node.invocationId]);
+  for (const candidate of s.nodes) {
+    if (candidate.parentInvocationId === undefined || !ids.has(candidate.parentInvocationId)) {
+      continue;
+    }
+    ids.add(candidate.invocationId);
+    if (candidate.authorMessage !== undefined) {
+      descendant = candidate.authorMessage;
+    }
+  }
+  return descendant ?? node.authorMessage;
+}
+
+/** `✎ <message>[ (+<n> dropped)]` — the class-2 footer segment (par. 6). */
+export function renderAuthorMessageSegment(payload: ProgressAuthorMessage): string {
+  const dropped = payload.dropped ?? 0;
+  return `${AUTHOR_MESSAGE_GLYPH} ${payload.message}${dropped > 0 ? ` (+${dropped} dropped)` : ""}`;
+}
+
 /** The most recent tool name across the node's tapped children (names only). */
 function lastToolNameOf(
   s: ExecutionStatusSnapshot,
@@ -168,6 +204,13 @@ export function renderFooterLine(
         line += ` · ${toolName}`;
       }
     }
+  }
+  // EXST-12: class-2 is an off/on axis, not a class-1 ceiling step — it
+  // renders under `names` AND `counts` (only `theta.progress: off` withholds
+  // it, and that never reaches a sink at all).
+  const authorMessage = newestAuthorMessage(s, node);
+  if (authorMessage !== undefined) {
+    line += ` · ${renderAuthorMessageSegment(authorMessage)}`;
   }
   const more = tops.length - 1 + s.untracked;
   if (more > 0) {

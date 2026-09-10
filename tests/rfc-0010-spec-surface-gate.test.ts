@@ -197,3 +197,70 @@ describe("RFC 0010 spec surface — live execution visibility (L0-L2)", () => {
     expect(text).toMatch(/\| PIC-73 \| RFC 0010/);
   });
 });
+
+// --- RFC 0010 Phase 7b: L3 `theta_progress` (EXST-13/14/15, PIC-74) ---
+//
+// The L3 seam-sheet addendum (`.localpi/tmp/visibility-seam-sheet-l3.md` §9)
+// pins these four cells as the citing test the closing gate's
+// `mapped-req-id-no-citing-test` arm requires for the four L3 REQ-IDs the L3
+// normative landing coined: EXST-13, EXST-14, EXST-15 (execution-status.md)
+// and PIC-74 (pi-integration-contract/subagent.md). Same idioms as the
+// sixteen L0-L2 cells above — GOV-1 dual-form anchor + verbatim MUST-clause
+// substrings; no runtime-behaviour assertions here (the behavioural witnesses
+// are `tests/execution-status-progress-tool.test.ts` /
+// `tests/execution-status-progress-wire.test.ts`).
+
+const SUBAGENT = "docs/spec_topics/pi-integration-contract/subagent.md";
+
+describe("RFC 0010 spec surface — L3 theta_progress (EXST-13/14/15, PIC-74)", () => {
+  it("EXST-13 — the theta_progress tool: fixed ok return, additional properties rejected, one registration per instance, in GOV-1 dual form", () => {
+    const text = readCorpus(EXECUTION_STATUS);
+    expect(text).toContain('<a id="exst-13"></a> **EXST-13.**');
+    expect(text).toMatch(/Execution MUST return the fixed success result/);
+    expect(text).toMatch(/a no-op that still returns `ok`/);
+    expect(text).toMatch(/one `pi\.registerTool` registration per extension instance/);
+    expect(text).toMatch(/additional properties rejected/);
+  });
+
+  it("EXST-14 — parent-regime execution: exactly two effects per accepted call, the 200/64-char clamps, the 200ms acceptance interval, and no fallback for milestones, in GOV-1 dual form", () => {
+    const text = readCorpus(EXECUTION_STATUS);
+    expect(text).toContain('<a id="exst-14"></a> **EXST-14.**');
+    expect(text).toMatch(
+      /each \*\*accepted\*\* call MUST produce exactly two effects and nothing else/,
+    );
+    expect(text).toMatch(
+      /`message` clamped to \*\*200\*\* characters and `scope` to \*\*64\*\* characters/,
+    );
+    expect(text).toMatch(/a minimum inter-acceptance interval of \*\*200 ms\*\*/);
+    expect(text).toMatch(/MUST NOT be applied to milestones/);
+  });
+
+  it("EXST-15 — child-regime execution: exactly one wire line per accepted call touching nothing else, and no milestone entry for a wire-ingested self-report, in GOV-1 dual form", () => {
+    const text = readCorpus(EXECUTION_STATUS);
+    expect(text).toContain('<a id="exst-15"></a> **EXST-15.**');
+    expect(text).toMatch(
+      /each accepted call MUST emit exactly one `theta_progress` reserved-key line on the process's own stdout and MUST touch nothing else/,
+    );
+    expect(text).toMatch(
+      /a wire-ingested self-report MUST NOT be appended as a milestone entry/,
+    );
+  });
+
+  it("PIC-74 — the theta_progress wire line: closed two-member reserved-key set, the 4096-byte/200ms emission bounds, and the no-relay clause, in GOV-1 dual form", () => {
+    const text = readCorpus(SUBAGENT);
+    expect(text).toContain('<a id="pic-74"></a> **PIC-74.');
+    expect(text).toMatch(/closed at exactly \*\*two\*\* members/);
+    expect(text).toMatch(
+      /A line MUST NOT exceed \*\*4096\*\* bytes \(UTF-8\), and the emitter MUST NOT emit two lines less than \*\*200 ms\*\* apart/,
+    );
+    expect(text).toMatch(
+      /MUST NOT re-emit an ingested `theta_progress` line on its own stdout/,
+    );
+  });
+
+  it("the coverage matrix maps EXST-13…EXST-15 and PIC-74 to RFC 0010 (the L3 continuation table)", () => {
+    const text = readCorpus(MATRIX);
+    expect(text).toMatch(/\| EXST-13 … EXST-15 \| RFC 0010/);
+    expect(text).toMatch(/\| PIC-74 \| RFC 0010/);
+  });
+});

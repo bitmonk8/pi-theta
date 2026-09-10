@@ -18,8 +18,9 @@ import type {
   StatusSink,
   ViewShape,
 } from "./types";
+import type { ProgressAuthorMessage } from "./types";
 import { WIDGET_HEIGHT_LINES } from "./types";
-import { formatDuration, renderNodeHeader } from "./footer-sink";
+import { AUTHOR_MESSAGE_GLYPH, formatDuration, renderNodeHeader } from "./footer-sink";
 
 /** The narrow `ctx.ui` surface the widget sink touches (EXST-8 per-surface gate). */
 export interface WidgetUi {
@@ -67,8 +68,30 @@ function claimedLanes(lanes: NonNullable<InvocationNodeSnapshot["lanes"]>): numb
 }
 
 /**
+ * `  ✎ [<scope>: ]<message>[ <done>/<total>][ (+<n> dropped)]` — the widget's
+ * class-2 line (par. 6 of the L3 seam sheet). Renders under `names` AND
+ * `counts` alike: EXST-12 makes class-2 an off/on axis, not a ceiling step.
+ */
+function renderAuthorMessageLine(payload: ProgressAuthorMessage): string {
+  let line = `  ${AUTHOR_MESSAGE_GLYPH} `;
+  if (payload.scope !== undefined) {
+    line += `${payload.scope}: `;
+  }
+  line += payload.message;
+  if (payload.done !== undefined && payload.total !== undefined) {
+    line += ` ${payload.done}/${payload.total}`;
+  }
+  const dropped = payload.dropped ?? 0;
+  if (dropped > 0) {
+    line += ` (+${dropped} dropped)`;
+  }
+  return line;
+}
+
+/**
  * Pure tree renderer (seam sheet par. 5.2). Line priority: (a) one header per
- * top-level node, oldest first; (b) the focused node's lane summary; (c) one
+ * top-level node, oldest first; (b) the focused node's lane summary; (b2) the
+ * focused node's (or its children's) newest class-2 line; (c) one
  * row per running lane in claim order; (d) nested non-lane child nodes. The
  * budget is `WIDGET_HEIGHT_LINES` with the overflow collapsed into a final
  * `… +<n> more`; every line is hard-clipped to `width`.
@@ -89,10 +112,13 @@ export function renderStatusTree(
   }
 
   // The focused node: the oldest top-level with an open lane set, else the
-  // oldest with child nodes.
+  // oldest with child nodes, else (L3) the oldest carrying a class-2 payload
+  // — a lane-less, child-less theta reporting its own progress is the
+  // commonest parent-regime shape and must still draw its `✎` line.
   const focused =
     tops.find((n) => n.lanes !== undefined) ??
-    tops.find((n) => s.nodes.some((c) => c.parentInvocationId === n.invocationId));
+    tops.find((n) => s.nodes.some((c) => c.parentInvocationId === n.invocationId)) ??
+    tops.find((n) => n.authorMessage !== undefined);
 
   /** Child nodes already accounted for by a lane row (never re-rendered as `↳`). */
   const laneRendered = new Set<string>();
@@ -100,6 +126,14 @@ export function renderStatusTree(
   if (focused !== undefined) {
     const lanes = focused.lanes;
     const children = s.nodes.filter((c) => c.parentInvocationId === focused.invocationId);
+    // (b2): the focused node's own self-report, else the newest one a child
+    // reported over the wire (a child's payload folds onto the CHILD node).
+    const authorMessage =
+      focused.authorMessage ??
+      children.reduce<ProgressAuthorMessage | undefined>(
+        (best, child) => child.authorMessage ?? best,
+        undefined,
+      );
     if (lanes !== undefined) {
       let counters = `${lanes.running.length}▶`;
       if (lanes.done > 0) counters += ` ${lanes.done}✓`;
@@ -107,6 +141,13 @@ export function renderStatusTree(
       candidates.push(
         `  par for ${claimedLanes(lanes)}/${lanes.total} · ${counters} · w${lanes.width}`,
       );
+    }
+    // Line priority (par. 6): the class-2 line sits between the lane summary
+    // and the per-lane rows, so a self-report survives lane-row elision.
+    if (authorMessage !== undefined) {
+      candidates.push(renderAuthorMessageLine(authorMessage));
+    }
+    if (lanes !== undefined) {
       // Lane rows in claim order; the callee node is matched by
       // `parentInvocationId` + start order against the running lane order.
       lanes.running.forEach((lane, position) => {

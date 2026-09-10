@@ -523,8 +523,16 @@ parse-phase surface exists here.
 ## Specification impact
 
 One row per touched normative surface. Anchors verified against today's tree
-by the Phase 1 inventory; rows marked **(L3)** land with the second release,
-all others with L0–L2.
+by the Phase 1 inventory. Rows marked **(L3)** shipped with the L3 amendment
+pass on `feat/rfc-0010-visibility` (hold discharged 2026-09-09: tool name
+`theta_progress` and the clamps ratified — 200-char message / 64-char scope /
+200 ms acceptance interval / 4096-byte wire line): the landed anchors are
+[EXST-13…EXST-15](../spec_topics/execution-status.md#exst-13) (tool contract,
+parent-regime execution + clamps, child-regime wire arm),
+[PIC-74](../spec_topics/pi-integration-contract/subagent.md#pic-74) (the
+two-member reserved-key wire pin), the now-normative PIC-71 milestone arm, and
+the tool-calls / frontmatter cross-link notes. All other rows shipped with
+L0–L2.
 
 | Surface | Anchor | Change |
 |---|---|---|
@@ -707,3 +715,21 @@ run is mandatory per `AGENTS.md`):
   `tool_execution_start`; L3 self-reports). No decision line is touched:
   verbosity level `names` gates what may render, not what producers must
   carry.
+- **Erratum D — wire-ingested self-reports render transiently only** (Phase
+  7a, L3 landing). §Sinks' "L3 durable milestones — author-driven only" and
+  §Author surface's "the parent tap ingests and attributes it" read together
+  as if a subagent worker's `theta_progress` call could reach the parent's
+  durable entry channel. The landed spec narrows fail-closed: milestone
+  entries are appended only by the PARENT-regime tool arm
+  ([execution-status.md — EXST-14](../spec_topics/execution-status.md#exst-14));
+  a wire-ingested child self-report renders on the transient sinks only and
+  MUST NOT become an entry
+  ([EXST-15](../spec_topics/execution-status.md#exst-15), PIC-71's milestone
+  arm). Reasons: the wire payload is untrusted display data and the durable
+  transcript is the wrong place for it (a defective or hostile child could
+  otherwise append 5 entries/sec for its whole runtime into the operator's
+  persisted session); under `par for` fan-out the parent-side entry rate would
+  multiply per child; and the emitting child's own entry channel writes only
+  its ephemeral `--no-session` transcript, so no durable record exists to
+  preserve. The transient render keeps the operator-visibility goal; durable
+  worker journals are L4 territory if field evidence demands them.

@@ -150,9 +150,12 @@ Keys read (six): `thetaPaths` (top-level `string[]`), and five scalars under
   (defaulted at the read site; the first closed-string-enum key). Selects the
   execution-status telemetry-class ceiling: `off` renders no execution-status
   sink, `counts` withholds tool names, `names` renders the full class-1 field
-  set. Never written by the runtime; the session-scoped `/theta-status
+  set. `off` also disables the class-2 author-message surface — `theta_progress`
+  tool calls render nothing and append no milestone (the tool still returns
+  `ok`), and a subagent child under `off` emits no progress wire line. Never
+  written by the runtime; the session-scoped `/theta-status
   off|min|tree` command adjusts the live view shape only and never persists.
-  Provenance: `execution-status.md` EXST-10/EXST-11 (RFC 0010).
+  Provenance: `execution-status.md` EXST-10/EXST-11, EXST-13…EXST-15 (RFC 0010).
 
 Unknown `thetas.*` keys are ignored without diagnostic. A recognised scalar whose
 value fails its type/range is treated as absent and logged

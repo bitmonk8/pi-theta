@@ -37,10 +37,12 @@ import {
   type EntryChannelHandle,
 } from "./execution-status/entry-channel";
 import type { ExecutionStatusBus } from "./execution-status/types";
+import { THETA_PROGRESS_TOOL_NAME } from "./execution-status/types";
 import {
   registerThetaStatusCommand,
   THETA_STATUS_COMMAND_NAME,
 } from "./execution-status/status-command";
+import { registerThetaProgressTool } from "./execution-status/progress-tool";
 import {
   RendererGate,
   SystemNoteChannelHealth,
@@ -136,7 +138,8 @@ type BootstrapCapability =
   | "pi.on"
   | "pi.registerMessageRenderer"
   | "pi.registerCommand"
-  | "pi.getCommands";
+  | "pi.getCommands"
+  | "pi.registerTool";
 
 /**
  * Bug 0021 (PIC-68): the teardown-reach residue of one superseded compose
@@ -615,6 +618,38 @@ export function createThetaExtension(
     // SILENTLY (no diagnostic, no refusal) and PIC-72's message-channel
     // fallback owns delivery for the whole session.
     const entryChannel = createEntryChannel(pi);
+
+    // RFC 0010 / EXST-13 — the `theta_progress` tool: ONE `pi.registerTool`
+    // call per extension instance, in the factory's SYNCHRONOUS BODY, before
+    // any `session_start`/compose pass resolves a callable set (so the
+    // `pi.getAllTools()` snapshot `tools:` admission reads already carries the
+    // name). A throwing registration draws the standard bootstrap diagnostic
+    // and does not abort factory registration (EXST-13 "best-effort"). The
+    // deps below read the LIVE `liveStatusBus` / `liveActiveInvocations` /
+    // `liveClock` latches lazily (published at compose, further below) —
+    // pre-compose calls hit the tool's own no-live-invocation no-op arm.
+    // Presence-probed like the other optional-capability surfaces above
+    // (`typeof`-only) so a harness `pi` double that models no `registerTool`
+    // member at all (the great majority of this repo's existing test
+    // doubles, predating RFC 0010 L3) is left untouched — EXST-13's
+    // "throwing registration draws the standard bootstrap diagnostic" arm is
+    // for a PRESENT member that THROWS, not for a member the double never
+    // modelled.
+    if (typeof pi.registerTool === "function") {
+      try {
+        registerThetaProgressTool(pi, {
+          isChildRegime: deps.isSubagentChild === true,
+          bus: () => liveStatusBus,
+          invocations: () => liveActiveInvocations,
+          clock: () => liveClock,
+          entryChannel,
+        });
+      } catch (e: unknown) { // allow-broad-catch: pi-sdk-boundary — conventions.md Specific exception types only
+        deps.emitDiagnostic?.(
+          bootstrapFailedDiagnostic("pi.registerTool", e, { theta: THETA_PROGRESS_TOOL_NAME }),
+        );
+      }
+    }
 
     // The three factory-time `pi.on` subscriptions (steps 1/3/4). A
     // subscription throw is FATAL to the whole extension: the subscribed

@@ -197,3 +197,18 @@ Each row carries a **canonical code-keyed-area token** in its leading *Token* co
 ## Governance REQ-IDs (GOV-*) — corpus governance, not runtime obligations
 
 GOV-1, GOV-3, GOV-5 … GOV-9, GOV-15 … GOV-31 govern the **spec corpus itself** (REQ-ID anchoring, retirement, cross-link form, aggregator lock-step) per [`../spec_topics/governance.md`](../spec_topics/governance.md). They are arm-(b) corpus invariants enforced by review and out-of-corpus tooling, not behaviours the theta runtime implements, so they map to no runtime leaf. The mechanizable slice that touches this plan — the REQ-ID / diagnostic-code / coverage-matrix closing gate — is operationalised by [`H5a`](./H5a-closing-gate-automation.md).
+
+## RFC 0010 L3 rows (REQ-ID → implementation leaf, continuation)
+
+Continuation of the REQ-ID → leaf table above for the RFC 0010 layer-L3
+surface. Placed below the code-keyed table deliberately: the b0455
+consistency gate line-pins the `cka-58` row at `coverage-matrix.md:188`
+(`tests/b0455-details-partition-count-consistency-gate.test.ts` cell C), so
+rows landing after that pin append here rather than shifting it; the
+closing gate's matrix parser reads table rows position-independently. Fold
+these into the main table whenever that line pin is next re-derived.
+
+| REQ-ID | Implementation leaf |
+|---|---|
+| EXST-13 … EXST-15 | RFC 0010 `V23a` (live execution visibility L3 — the `theta_progress` tool: factory-time registration before callable-set resolution, exact schema + ordinary tool-arg validation, fixed `ok` return, no-live-invocation no-op; parent-regime class-2 bus event + one milestone entry per accepted call with the normative clamps (200-char message, 64-char scope, control/ANSI strip, 200 ms acceptance interval, counted-but-dropped carry); child-regime wire arm + per-process ceiling + tap-side class-2 ingest, transient-only) |
+| PIC-74 | RFC 0010 `V23a` (live execution visibility L3 — the `theta_progress` reserved stdout key: two-member reserved-key set, `v: 1` envelope with per-process `invocation_id`/monotonic `seq`, fd-1 write discipline, emission bounds (4096-byte line cap, 200 ms inter-emission interval), parent-side defensive re-clamp / untrusted display data / seq-and-id acceptance, stray-line fold with zero diagnostics, no L3 upward relay) |

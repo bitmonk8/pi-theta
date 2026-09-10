@@ -38,6 +38,26 @@ export const WIDGET_HEIGHT_LINES = 6;
 export const TAP_LINE_MAX_BYTES = 32768;
 
 // ---------------------------------------------------------------------------
+// L3 `theta_progress` constants (execution-status.md EXST-13/14/15;
+// pi-integration-contract/subagent.md PIC-74). Frozen; the VALUES are
+// normative per EXST-14/PIC-74, not implementer tuning.
+// ---------------------------------------------------------------------------
+
+/** EXST-13: the tool name, the wire key, and the grep token (RFC 0010 decision 3). */
+export const THETA_PROGRESS_TOOL_NAME = "theta_progress";
+/** PIC-74 reserved wire key — deliberately == the tool name (par. 2.1). */
+export const PROGRESS_WIRE_KEY = "theta_progress";
+/** PIC-74 `v` literal. */
+export const PROGRESS_WIRE_VERSION = 1;
+/** EXST-14 length clamps (mirror FOOTER_CLAMP_CHARS / NAME_CLAMP_CHARS magnitudes). */
+export const PROGRESS_MESSAGE_CLAMP_CHARS = 200;
+export const PROGRESS_SCOPE_CLAMP_CHARS = 64;
+/** EXST-14 acceptance interval (== STATUS_TICK_MS). Counted-but-dropped. */
+export const PROGRESS_MIN_INTERVAL_MS = 200;
+/** PIC-74 wire line byte cap (UTF-8). Defensive only — post-clamp lines fit well under it. */
+export const PROGRESS_WIRE_MAX_LINE_BYTES = 4096;
+
+// ---------------------------------------------------------------------------
 // Model snapshots (immutable, handed to sinks; class-3-free by construction).
 // ---------------------------------------------------------------------------
 
@@ -58,6 +78,25 @@ export interface ChildActivity {
   readonly toolExecs: number;
   readonly lastToolName?: string; // clamped NAME_CLAMP_CHARS at bus ingest
   readonly lastEventAtMs: number;
+}
+
+/**
+ * L3 (EXST-13/14/15, PIC-74) — the post-clamp class-2 payload: the bus's
+ * `authorMessage` currency, the milestone entry payload, and the tap-publish
+ * currency all share this shape.
+ */
+export interface ProgressAuthorMessage {
+  readonly message: string; // stripped + clamped to PROGRESS_MESSAGE_CLAMP_CHARS
+  readonly scope?: string; // stripped + clamped to PROGRESS_SCOPE_CLAMP_CHARS
+  readonly done?: number; // integer, author-supplied, rendered verbatim
+  readonly total?: number;
+  readonly dropped?: number; // counted-but-dropped carry; omitted/absent when 0
+}
+
+/** PIC-71 milestone entry payload: `{ milestone: ProgressMilestone }`. */
+export interface ProgressMilestone extends ProgressAuthorMessage {
+  readonly theta?: string; // best-effort attribution (registry entry fields)
+  readonly invocation_id?: string; // both present or both absent — never invented
 }
 
 export interface RunningLane {
@@ -84,12 +123,14 @@ export interface InvocationNodeSnapshot {
   readonly counters: { readonly checkpoints: number; readonly loopIters: number };
   readonly lanes?: LaneSetSnapshot; // deepest open tracked lane set
   readonly childActivity?: ChildActivity; // present on subagent nodes with a tapped child
+  readonly authorMessage?: ProgressAuthorMessage; // L3: newest class-2 payload on this node
   readonly endedAtMs?: number; // set => lingering until eviction
 }
 
 export interface ExecutionStatusSnapshot {
   readonly nodes: readonly InvocationNodeSnapshot[]; // insertion order
   readonly untracked: number; // nodes refused by MAX_TRACKED_INVOCATIONS
+  readonly unattributedAuthorMessage?: ProgressAuthorMessage; // L3: unattributed class-2 payload
 }
 
 // ---------------------------------------------------------------------------
@@ -135,8 +176,13 @@ export interface ExecutionStatusBus {
   checkpointBefore(invocationId: string, kind: CheckpointKind, site: CheckpointSite): void;
   openLaneSet(invocationId: string, total: number, width: number): ParForLaneSetHandle;
   childEvent(invocationId: string, event: ChildTapEvent): void;
+  /** L3 (EXST-14): one class-2 author-message publication. `invocationId`
+   *  undefined => the unattributed slot (best-effort attribution, never invented). */
+  authorMessage(invocationId: string | undefined, payload: ProgressAuthorMessage): void;
   // -- configuration / view (EXST-10 / EXST-11) --
   setVerbosity(v: ProgressVerbosity): void; // called per compose pass
+  /** L3 (EXST-10/14): pure read of the current ceiling — the tool's off-gate. */
+  verbosity(): ProgressVerbosity;
   setViewShape(v: ViewShape): void; // called by /theta-status; marks dirty
   viewShape(): ViewShape;
   // -- render machinery --

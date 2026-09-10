@@ -23,6 +23,7 @@ import type {
   InvocationNodeSnapshot,
   LaneSetSnapshot,
   ParForLaneSetHandle,
+  ProgressAuthorMessage,
   ProgressVerbosity,
   RunningLane,
   StatusSink,
@@ -34,8 +35,11 @@ import {
   MAX_RUNNING_LANES_TRACKED,
   MAX_TRACKED_INVOCATIONS,
   NAME_CLAMP_CHARS,
+  PROGRESS_MESSAGE_CLAMP_CHARS,
+  PROGRESS_SCOPE_CLAMP_CHARS,
   STATUS_TICK_MS,
 } from "./types";
+import { clampProgressField } from "./progress-tool";
 import type { Clock, TimerHandle } from "../../seams/clock";
 import type { CheckpointKind, CheckpointSite } from "../../seams/checkpoint";
 import type { ChildTapEvent } from "./child-tap";
@@ -76,12 +80,32 @@ interface NodeState {
   childLastToolName: string | undefined;
   childLastEventAtMs: number;
   childSeen: boolean;
+  /** L3 (EXST-14): the NEWEST class-2 payload on this node; replaced, never queued. */
+  authorMessage: ProgressAuthorMessage | undefined;
   endedAtMs: number | undefined;
 }
 
 /** Clamp a rendered identifier at ingest (EXST-7 memory bound). */
 function clampName(name: string): string {
   return name.length <= NAME_CLAMP_CHARS ? name : name.slice(0, NAME_CLAMP_CHARS);
+}
+
+/**
+ * L3 defence in depth (par. 4 of the L3 seam sheet): the emitter clamps and
+ * the tap re-clamps, and the bus clamps ONCE MORE at fold because a stored
+ * payload is instance state — the EXST-7 memory bound must not depend on an
+ * upstream having done its job.
+ */
+function clampFoldedAuthorMessage(p: ProgressAuthorMessage): ProgressAuthorMessage {
+  return {
+    message: clampProgressField(p.message, PROGRESS_MESSAGE_CLAMP_CHARS),
+    ...(typeof p.scope === "string"
+      ? { scope: clampProgressField(p.scope, PROGRESS_SCOPE_CLAMP_CHARS) }
+      : {}),
+    ...(Number.isInteger(p.done) ? { done: p.done } : {}),
+    ...(Number.isInteger(p.total) ? { total: p.total } : {}),
+    ...(Number.isInteger(p.dropped) && (p.dropped ?? 0) > 0 ? { dropped: p.dropped } : {}),
+  };
 }
 
 class ExecutionStatusBusImpl implements ExecutionStatusBus {
@@ -94,6 +118,8 @@ class ExecutionStatusBusImpl implements ExecutionStatusBus {
   /** Ids refused by the node cap, kept so their `invocationEnded` decrements. */
   readonly #untrackedIds = new Set<string>();
   #untracked = 0;
+  /** L3 (EXST-14): the newest class-2 payload attributed to no live node. */
+  #unattributedAuthorMessage: ProgressAuthorMessage | undefined;
   #verbosity: ProgressVerbosity = "names";
   #view: ViewShape = "tree";
   #dirty = false;
@@ -146,6 +172,7 @@ class ExecutionStatusBusImpl implements ExecutionStatusBus {
         childLastToolName: undefined,
         childLastEventAtMs: 0,
         childSeen: false,
+        authorMessage: undefined,
         endedAtMs: undefined,
       });
       this.#markDirty();
@@ -259,6 +286,13 @@ class ExecutionStatusBusImpl implements ExecutionStatusBus {
           node.childToolExecs += 1;
           node.childLastToolName = clampName(event.toolName);
           break;
+        case "theta_progress":
+          // EXST-15: a wire-ingested self-report folds onto the TAPPED
+          // child's node and renders on the transient sinks only — no
+          // milestone entry is ever appended for it (Erratum D: untrusted
+          // wire data stays off the durable transcript).
+          node.authorMessage = clampFoldedAuthorMessage(event.payload);
+          break;
         default:
           break;
       }
@@ -267,6 +301,30 @@ class ExecutionStatusBusImpl implements ExecutionStatusBus {
       this.#markDirty();
     } catch { // allow-broad-catch: EXST-9 — execution-status.md#exst-9
     }
+  }
+
+  authorMessage(invocationId: string | undefined, payload: ProgressAuthorMessage): void {
+    try {
+      if (this.#disposed) {
+        return;
+      }
+      const clamped = clampFoldedAuthorMessage(payload);
+      const node = invocationId === undefined ? undefined : this.#nodes.get(invocationId);
+      if (node === undefined || node.endedAtMs !== undefined) {
+        // EXST-14 "never invented": an id the bus does not track (or a node
+        // already lingering) lands in the unattributed slot rather than being
+        // stamped onto some other node.
+        this.#unattributedAuthorMessage = clamped;
+      } else {
+        node.authorMessage = clamped;
+      }
+      this.#markDirty();
+    } catch { // allow-broad-catch: EXST-9 — execution-status.md#exst-9
+    }
+  }
+
+  verbosity(): ProgressVerbosity {
+    return this.#verbosity;
   }
 
   setVerbosity(v: ProgressVerbosity): void {
@@ -483,7 +541,13 @@ class ExecutionStatusBusImpl implements ExecutionStatusBus {
     for (const node of this.#nodes.values()) {
       nodes.push(snapshotOfNode(node));
     }
-    return { nodes, untracked: this.#untracked };
+    return {
+      nodes,
+      untracked: this.#untracked,
+      ...(this.#unattributedAuthorMessage !== undefined
+        ? { unattributedAuthorMessage: this.#unattributedAuthorMessage }
+        : {}),
+    };
   }
 }
 
@@ -519,6 +583,7 @@ function snapshotOfNode(node: NodeState): InvocationNodeSnapshot {
     counters: { checkpoints: node.checkpoints, loopIters: node.loopIters },
     ...(lanes !== undefined ? { lanes: snapshotOfLaneSet(lanes) } : {}),
     ...(childActivity !== undefined ? { childActivity } : {}),
+    ...(node.authorMessage !== undefined ? { authorMessage: node.authorMessage } : {}),
     ...(node.endedAtMs !== undefined ? { endedAtMs: node.endedAtMs } : {}),
   };
 }

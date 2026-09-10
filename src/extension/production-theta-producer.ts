@@ -2666,9 +2666,13 @@ class ProductionThetaProducer implements ThetaProducerDeps {
     const detachChildTap =
       statusBus === undefined
         ? undefined
-        : attachChildActivityTap(child, (event) => {
-            statusBus.childEvent(ticket.invocationId, event);
-          });
+        : attachChildActivityTap(
+            child,
+            (event) => {
+              statusBus.childEvent(ticket.invocationId, event);
+            },
+            { clock: this.#input.root.clock },
+          );
 
     // PIC-66: forward cancellation to the `-p` child by killing it (the
     // child's stdin is spawned closed — bug 0002 — so no in-band stop

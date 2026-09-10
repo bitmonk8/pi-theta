@@ -238,6 +238,21 @@ establishable — a host missing the required Pi surfaces or carrying no backing
 host session — where a theta whose code calls an extension tool refuses to
 load with `theta/load/extension-tool-unreachable` (distinct from
 `theta/load/unknown-tool`, which means the tool is absent from Pi's registry).
+
+One extension tool is registered by pi-theta itself: **`theta_progress`**
+(RFC 0010, L3) — the author-facing live-progress reporter. It resolves like
+any registry name above, takes `{ message: string, scope?: string, done?:
+integer, total?: integer }` (additional properties rejected; violations are
+ordinary tool-arg validation, no dedicated diagnostics), always returns the
+literal `ok`, and renders only on the execution-status sinks and the
+LLM-context-free entry channel — clamped (message ≤ 200 chars, scope ≤ 64,
+one accepted call per 200 ms, excess counted-but-dropped; control/ANSI
+stripped). In a subagent child it instead emits one `theta_progress` stdout
+wire line per accepted call, which the parent ingests as untrusted display
+data. Because the callable set serves code and model alike, listing it also
+lets the worker's model self-report. Provenance: `execution-status.md`
+EXST-13…EXST-15, `subagent.md` PIC-74.
+
 The child is granted tool approval up front only when the callable set contains
 a *project-local* extension tool (already trusted in the parent session);
 otherwise it runs least-privilege. Installed extensions load in the child
