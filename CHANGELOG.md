@@ -6,6 +6,36 @@ and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [0.468.0]
+
+### Added
+
+- Execution-status age liveness ([RFC 0010](docs/rfcs/0010-live-execution-visibility.md)
+  erratum F; [EXST-6](docs/spec_topics/execution-status.md#exst-6) clarifying
+  append): while any invocation, lane, or child is running, the passage of a
+  render interval itself constitutes dirt, so footer/widget ages advance at the
+  coalescing cadence even when a child emits no tap events (observed: a
+  code-only wrapper child froze the footer at `0s` for minutes); an idle bus
+  still schedules nothing. Witnessed in `tests/execution-status-bus.test.ts`
+  (red-proven: reschedule disabled ⇒ single render, frozen age).
+
+### Fixed
+
+- Bug 0473 filed and witnessed (open): the spec's cross-file static
+  `invoke<Schema>` return-type check (invocation.md "Typed return" + "Static
+  resolution") is unimplemented — a statically-resolvable literal-path callee
+  with an empty-tail (`null`) final value loads clean and fails only at the
+  runtime AJV net as `Err(return_validation)`.
+  `tests/quality-loop-empty-tail-return-validation.test.ts` pins today's
+  behaviour (tripwire cell A flips when the check lands) and the runtime net
+  (cells C–E).
+
+### Tooling (not part of the package surface)
+
+- `/quality-loop` worktree-parallel fix phase (RFC 0009 Phase 8), the
+  `Ok(null)` abort fix (expression tail + typed `invoke<TreeFixReport>` call
+  site), and per-lane `theta_progress` self-reports in the tree wrapper.
+
 ## [0.467.0]
 
 ### Added
