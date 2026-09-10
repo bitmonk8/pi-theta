@@ -30,7 +30,6 @@ import {
 } from "../src/runtime/subagent-envelope";
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
 import type { InvokeInfraError, QueryError, TransportError } from "../src/runtime/query-error";
-import { WallClock } from "../src/seams/wall-clock";
 import { FakeJsonChild } from "./helpers/fake-json-child";
 
 function driveOver(
@@ -43,7 +42,6 @@ function driveOver(
     thetaAbort,
     calleePath: "/theta/child.theta",
     emitDiagnostic: (d) => emitted.push(d),
-    clock: new WallClock(),
   });
 }
 

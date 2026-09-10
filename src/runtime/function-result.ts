@@ -12,13 +12,9 @@
 //     value silently; its produced final value is `null` regardless of the tail
 //     expression's value.
 //
-// V3d-T (tests-task) declares the seam shapes and stubs the behaviour-bearing
-// functions inertly (`functionResult` returns an unimplemented sentinel for
-// every outcome; `discardForVoid` returns the tail value unchanged instead of
-// discarding it). Each obligation test reds on its own primary assertion (the
-// sentinel value, the wrong present-flag, or the un-discarded value), not on a
-// compile error, a missing fixture, or a harness throw. The paired V3d
-// implementation leaf fills these in.
+// V3d-T (tests-task) declared the seam shapes; V3d (this leaf) supplies the
+// behaviour: `functionResult` reports the value present on success only, and
+// `discardForVoid` produces `null`.
 
 import { type ThetaValue } from "./value";
 
@@ -64,10 +60,6 @@ export function functionResult(
  * Apply a `void` function's tail discard (FN-4): a `void`-annotated function
  * discards its tail value silently and produces `null`, regardless of the tail
  * expression's value.
- *
- * V3d-T stubs this so it returns the tail value unchanged (no discard), so the
- * FN-4 void-discard test reds on its own primary assertion. The paired V3d leaf
- * returns `null`.
  */
 export function discardForVoid(tailValue: ThetaValue): ThetaValue {
   // FN-4 — a `void`-annotated function discards its tail value silently and

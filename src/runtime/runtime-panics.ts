@@ -23,15 +23,13 @@
 // so it delivers no throw to a catch site and `theta/runtime/internal-error`
 // emits no diagnostic for it.
 //
-// V4b-T (tests-task) declares the seam — the `ThetaPanic` base and the five
+// V4b-T (tests-task) declared the seam — the `ThetaPanic` base and the five
 // panic classes, the `evaluateIndexAccess` / `evaluateMemberAccess` /
 // `enterInvokeFrame` accessor seams, the `evaluateQuestion` `?`-propagation
 // seam, the `HostFatal` NOCEIL-3 marker, and the `surfaceUnexpectedThrow`
-// runtime-defect surface — and stubs every behaviour-bearing function inertly
-// so the failing tests red on their own primary assertions (an accessor that
-// raises no panic, a `?` seam that neither propagates nor lets a panic through,
-// and a runtime-defect surface that emits a wrong-code sentinel for every
-// input). The paired V4b implementation leaf fills these in.
+// runtime-defect surface; V4b (this leaf) supplies the behaviour: the accessors
+// raise their panics, `?` propagates or lets a panic through, and the
+// runtime-defect surface emits the registered codes.
 
 import type { Diagnostic, SourceRange } from "../diagnostics/diagnostic";
 import { renderInteger, renderSourceDerived } from "../diagnostics/placeholder";
@@ -240,6 +238,16 @@ function assertKeyPresent(target: ThetaValue, key: string): void {
   }
 }
 
+// A string index renders QUOTED (JSON.stringify — the bug 0300 precedent) so a
+// string cannot masquerade as an in-range integer in the message; an integer
+// renders via the category-4 numeric rule (renderInteger), byte-identical to
+// the pre-widening message; a non-integer number (1.5, NaN) renders as its
+// plain decimal — the honest offending value.
+function renderIndexOperand(index: number | string): string {
+  if (typeof index === "string") return JSON.stringify(index);
+  return Number.isInteger(index) ? renderInteger(index) : String(index);
+}
+
 /**
  * Runtime `[i]` indexed access (errors-and-results/error-model.md §"Runtime
  * panics"). `target[index]`:
@@ -261,16 +269,6 @@ function assertKeyPresent(target: ThetaValue, key: string): void {
  * rendering categories (`<i>` / `<length>` are category-4 numerics; `<key>` is
  * a category-5 source-derived identifier).
  */
-// A string index renders QUOTED (JSON.stringify — the bug 0300 precedent) so a
-// string cannot masquerade as an in-range integer in the message; an integer
-// renders via the category-4 numeric rule (renderInteger), byte-identical to
-// the pre-widening message; a non-integer number (1.5, NaN) renders as its
-// plain decimal — the honest offending value.
-function renderIndexOperand(index: number | string): string {
-  if (typeof index === "string") return JSON.stringify(index);
-  return Number.isInteger(index) ? renderInteger(index) : String(index);
-}
-
 export function evaluateIndexAccess(
   target: ThetaValue,
   index: number | string,

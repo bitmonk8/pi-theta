@@ -127,7 +127,6 @@ import {
   type ChildExitInfo,
   type ExecutableHost,
 } from "../src/runtime/subagent-launcher";
-import { WallClock } from "../src/seams/wall-clock";
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
 import { parseDeps } from "./helpers/e2e-s1";
 
@@ -660,7 +659,6 @@ describe("bug 0337 (4) MODE-INVARIANCE — cross-file enum inequality is identic
           thetaAbort: new AbortController(),
           calleePath: join(thetaDir, "top.theta"),
           emitDiagnostic,
-          clock: new WallClock(),
         });
         clearTimeout(watchdog);
 

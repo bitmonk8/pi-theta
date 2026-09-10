@@ -27,12 +27,9 @@
 // consumption posture, not a theta-side guarantee (tool-calls.md §"Parallel-tool-
 // mode batch delivery").
 //
-// V14b-T (tests-task) declares this surface and stubs `settleModelToolBatch`
-// inertly — it settles no sibling and lowers nothing, returning an empty result
-// array — so the settle-all-before-next-turn, per-sibling-independence, and
-// failing-sibling `isError: true` assertions each red on their own primary
-// expectation, not on a compile error, a missing fixture, or a harness throw.
-// The paired V14b implementation leaf fills it in.
+// V14b-T (tests-task) declared this surface; V14b (this leaf) supplies
+// `settleModelToolBatch`, which settles every sibling before the next turn and
+// lowers each independently.
 //
 // Spec: tool-calls.md §Concurrency (cka-13); query/query-tool-loop.md §"Tool
 // calls during a query"; pi-integration-contract/host-interfaces-core.md §"Tool

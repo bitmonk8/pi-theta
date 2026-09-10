@@ -50,8 +50,6 @@ export interface SpawnRecord {
   readonly child: FakeJsonChild;
 }
 
-let nextFakePid = 5000;
-
 /** Options for one fake json child. */
 export interface FakeJsonChildOptions {
   /**
@@ -72,8 +70,6 @@ export interface FakeJsonChildOptions {
  * is controlled with `crashWith` / `kill` / `closeStdin`.
  */
 export class FakeJsonChild implements SubagentChildProcess {
-  readonly pid: number | undefined;
-
   #stdoutListeners: ((line: string) => void)[] = [];
   #stderrListeners: ((line: string) => void)[] = [];
   #exitListeners: ((info: ChildExitInfo) => void)[] = [];
@@ -85,7 +81,6 @@ export class FakeJsonChild implements SubagentChildProcess {
   readonly #exitOnStdinEof: boolean;
 
   constructor(options: FakeJsonChildOptions = {}) {
-    this.pid = nextFakePid++;
     this.#exitOnStdinEof = options.exitOnStdinEof ?? true;
   }
 

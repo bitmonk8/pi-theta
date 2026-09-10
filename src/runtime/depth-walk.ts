@@ -10,11 +10,16 @@
 //
 // This module owns two pure, stateless Class-2 seams — categorically like
 // `V16a`'s cross-ceiling arbitration seam: the decision is exercised directly
-// in isolation and the *live* AJV-boundary sites (typed-query response,
-// model-driven / code-driven tool args, `params`, `invoke<T>` return) are built
-// downstream by the site-owner leaves (`V13c`, `V14e`, `V15j`, `V4e`) that
-// consult this seam. The seam runs no AJV, receives no events, and owns none of
-// the per-boundary carriers:
+// in isolation and the *live* AJV-boundary sites are built downstream by the
+// leaves that import from here. `depthWalk` is run by the typed-query response
+// sites (`V13c` `query-tool-loop.ts`, `V13e` `typed-query-validation.ts`), the
+// model-driven tool-args row (`enforceModelToolArgDepth`, `tool-call.ts`), and
+// the slash-load `params` post-default-merge validation (`V11g`,
+// `binder/defaulting.ts`); `V15j` (`invoke-ceiling-depth.ts`) and `V11f`
+// (`binder/retry-taxonomy.ts`) import only the issue / result types — the
+// `invoke<T>` and code-driven tool-args rows run `wireFormDepthWalk` over the
+// interpreter's own value instead (bug 0202). The seam runs no AJV, receives no
+// events, and owns none of the per-boundary carriers:
 //
 //   1. `depthWalk(value)` — the recursive descent over a *materialised* JSON
 //      value that fast-fails the first node whose depth would exceed 5,
@@ -29,12 +34,9 @@
 //      surface class. The actual wrapping of a depth-6 breach into each carrier
 //      is owned by the site-owner leaves; this seam decides only the routing.
 //
-// V5e-T (tests-task) declares the seam shapes and stubs both behaviour-bearing
-// functions inertly — `jsonDepth` returns a wrong constant, `depthWalk` never
-// fires, and `routeDepthBoundary` deranges the site→destination map — so the
-// failing tests compile and red on their own primary assertions. The paired
-// `V5e` implementation leaf fills in the counting algorithm, the fast-fail
-// short-circuit, the canonical issue shape, and the routing table.
+// V5e-T (tests-task) declared the seam shapes; V5e (this leaf) supplies the
+// counting algorithm, the fast-fail short-circuit, the canonical issue shape,
+// and the routing table.
 
 /** The JSON-document depth cap theta fixes for itself (schema-subset.md §Depth). */
 export const MAX_JSON_DEPTH = 5;

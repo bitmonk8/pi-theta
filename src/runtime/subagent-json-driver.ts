@@ -27,7 +27,6 @@ import type { Diagnostic } from "../diagnostics/diagnostic";
 import type { QueryError } from "./query-error";
 import type { InvokeResultSource } from "./invoke-cancellation";
 import type { SubagentChildProcess, ChildExitInfo } from "./subagent-launcher";
-import type { Clock } from "../seams/clock";
 import { makeCancelledError } from "./cancellation-core";
 import {
   classifyChildStdoutLine,
@@ -70,16 +69,17 @@ function renderExitDetail(info: ChildExitInfo): string {
  * nested `invoke(...)` failure — it is callee-returned and must WRAP for INV-5
  * wrap parity vs the in-process leg:
  *
- *   - `parse_failure` — sole mint at `production-theta-producer.ts:3880`
- *     (`#driveCallee`); reaches the envelope only by body `?`-propagation.
- *   - `panic` — the child-side regime catch routes body panics to
- *     `internal_error` (`production-theta-producer.ts:2699`), so every
- *     `cause:"panic"` reaching the envelope is a propagated body value (a
- *     nested-hop boundary catch, a nested depth overflow, `par for` ERR-20, a
+ *   - `parse_failure` — sole mint in `#driveCallee`
+ *     (`production-theta-producer.ts`); reaches the envelope only by body
+ *     `?`-propagation.
+ *   - `panic` — the child-side regime catch (`driveSubagentRootRegime`,
+ *     `production-theta-producer.ts`) routes body panics to `internal_error`,
+ *     so every `cause:"panic"` reaching the envelope is a propagated body value
+ *     (a nested-hop boundary catch, a nested depth overflow, `par for` ERR-20, a
  *     `subagent fn` downgrade).
  *   - `subagent_model_unresolved` — minted PARENT-SIDE only (`guardResolvedModel`,
- *     `subagent-model-guard.ts:116`, thrown at
- *     `production-theta-producer.ts:2055`); the child-side preflight mints
+ *     `subagent-model-guard.ts`, thrown from `spawnSubagentConversation` in
+ *     `production-theta-producer.ts`); the child-side preflight mints
  *     `subagent_model_preflight_mismatch` instead, so it reaches the envelope
  *     only by a nested modelless subagent invoke propagating.
  *
@@ -118,8 +118,6 @@ export interface SubagentDriveDeps {
   readonly calleePath: string;
   /** Diagnostic sink for the envelope / exit failure-class diagnostics. */
   readonly emitDiagnostic: (diagnostic: Diagnostic) => void;
-  /** Injected PIC-12 timer seam (no ambient `setTimeout`); defaults at the composition root. */
-  readonly clock?: Clock;
 }
 
 /**
@@ -223,16 +221,19 @@ export function driveSubagentChild(deps: SubagentDriveDeps): Promise<SubagentInv
           // so its `cause` on the wire is provenance-ambiguous and defaults
           // BARE absent the sidecar:
           //   - `load_failure` — marked-root registration refusal (bug 0178,
-          //     `subagent-root-regime.ts:218` → `production-composition.ts:1249`);
-          //   - `validation` — params-intake refusal
-          //     (`production-theta-producer.ts:2592`; `subagent-params.ts:313`);
-          //   - `return_validation` — return-value refusal
-          //     (`production-theta-producer.ts:2657/2660`;
-          //     `subagent-envelope.ts:894/932`);
+          //     `markedRootRegistrationRefusal` in `subagent-root-regime.ts`,
+          //     called from `runComposePass` in `production-composition.ts`);
+          //   - `validation` — params-intake refusal (`intakeChildParams` in
+          //     `subagent-params.ts`, called from `#intakeSubagentRootParams` in
+          //     `production-theta-producer.ts`);
+          //   - `return_validation` — return-value refusal (`mapTooDeepReturnValue`
+          //     / `mapNonRepresentableReturnValue` in `subagent-envelope.ts`, called
+          //     from `driveSubagentRootRegime` in `production-theta-producer.ts`);
           //   - `internal_error` — child body panic / defect catch
-          //     (`production-theta-producer.ts:2699`);
+          //     (`driveSubagentRootRegime`, `production-theta-producer.ts`);
           //   - `subagent_model_preflight_mismatch` — child-side preflight
-          //     (`production-theta-producer.ts:2573`; `subagent-model-guard.ts:164`).
+          //     (`confirmChildModel` in `subagent-model-guard.ts`, called from
+          //     `driveSubagentRootRegime` in `production-theta-producer.ts`).
           //
           // A non-`invoke_infra` err (ValidationError, CodeToolError, transport,
           // model_tool, context_overflow, tool_loop_exhausted, invoke_callee) is

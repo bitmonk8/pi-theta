@@ -265,8 +265,6 @@ describe("PIC-60 — child-side intake", () => {
     expect(intake.ok).toBe(true);
     if (intake.ok) {
       expect(intake.params).toEqual({ topic: "sea" });
-      // PIC-60: the binder is skipped entirely on the marshalled path.
-      expect(intake.binderBypassed).toBe(true);
     }
   });
 

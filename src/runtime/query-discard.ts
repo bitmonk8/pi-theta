@@ -19,17 +19,11 @@
 //     location of the discarding `let _ =` binding (or the tail `@`...``
 //     expression, for the void-tail form). A discarded `Ok` produces no event.
 //
-// V13g-T (this tests-task) declares the seam shapes and stubs the two
-// behaviour-bearing functions inertly so the failing tests compile and red on
-// their own primary assertions:
-//   - `checkDiscardedQueryResult` returns `undefined` always (never fires the
-//     parse error), so the QRY-19 positive assertion reds.
-//   - `emitDiscardObservability` unconditionally emits one sentinel event with
-//     `display: true` and a payload that preserves neither `kind` / `message`
-//     nor `discard_site`, so both the QRY-20 `Err`-arm assertions (wrong
-//     display / kind / message / discard_site) and the `Ok`-arm assertion (an
-//     `Ok` discard must emit nothing) red.
-// The paired V13g implementation leaf fills these in.
+// V13g-T (tests-task) declared the seam shapes; V13g (this leaf) supplies the
+// two behaviour-bearing functions: `checkDiscardedQueryResult` fires the QRY-19
+// parse error, and `emitDiscardObservability` emits the `display: false`
+// QRY-20 event preserving `kind` / `message` / `discard_site` on an `Err` and
+// nothing on an `Ok`.
 //
 // Spec: query/query-escapes-stringification.md (QRY-19, QRY-20),
 // pi-integration-contract/runtime-event-channel.md §"Runtime event channel".
@@ -128,14 +122,6 @@ export interface DiscardSite {
 }
 
 /**
- * Which discard form produced the observability event (QRY-20). The
- * `discard_site` is the location of the discarding `let _ =` binding for the
- * expression-statement form, or the start of the tail `@`...`` expression for
- * the void-tail-function form.
- */
-export type DiscardForm = "let-underscore" | "void-tail";
-
-/**
  * The settled outcome of a discarded query: `Ok` (nothing to observe) or `Err`
  * carrying the `QueryError` whose `kind` / `message` the event preserves.
  */
@@ -147,9 +133,11 @@ export type DiscardedOutcome =
 export interface DiscardEmitInput {
   /** The settled query outcome. */
   readonly outcome: DiscardedOutcome;
-  /** The discard form (selects the `discard_site` derivation upstream). */
-  readonly form: DiscardForm;
-  /** The `discard_site` location (already derived per `form`). */
+  /**
+   * The `discard_site` location, derived upstream per the discard form (QRY-20):
+   * the discarding `let _ =` binding for the expression-statement form, or the
+   * start of the tail `@`...`` expression for the void-tail-function form.
+   */
   readonly discardSite: DiscardSite;
   /** Slash name of the theta that owned the failure. */
   readonly theta: string;

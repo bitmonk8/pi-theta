@@ -27,14 +27,14 @@
 //     subtype case `42 == 42.0` is `true` because `integer ⊑ number` routes the
 //     pair to per-shape value comparison.
 //
-// V2c-T (tests-task) declares the seam shapes — `ThetaValue`, the opaque
+// V2c-T (tests-task) declared the seam shapes — `ThetaValue`, the opaque
 // `EnumValue`, the `ResultValue` discriminated union, the `makeEnumValue` /
 // `makeOk` / `makeErr` constructors, the `valuesEqual` structural-equality
-// relation, and the `isWireLowerable` predicate — and stubs the behaviour-
-// bearing functions inertly so the failing tests compile and red on their own
-// primary assertions (the declaring-enum-tagged representation, the structural-
-// equality relation, and the `Result`-not-lowerable recognition are absent).
-// The paired V2c implementation leaf fills these in.
+// relation, and the `isWireLowerable` predicate. V2c (this leaf) supplies the
+// behaviour: `makeEnumValue` installs the interpreter-private declaring-enum
+// tag, `valuesEqual` implements the structural-equality relation summarised
+// above, and `isWireLowerable` recognises a `Result` as the one value with no
+// lowered-schema (wire) form.
 
 /** Brand marking a value as a Theta enum runtime value (type-level only). */
 declare const enumBrand: unique symbol;
@@ -209,13 +209,13 @@ function privateBrandOf(value: ThetaValue, tag: symbol): unknown {
  * array, a primitive) to its caller, each of which already applies the
  * exclusion it needs before consulting this function.
  *
- * The single classification point the four runtime read entry points route
- * through ahead of the object path, so a classification change has one
- * definition site rather than four: `applyStdlibMethod`
- * (statement-executor.ts) and `evaluateStdlibMethod`
- * (production-theta-producer.ts) ahead of their `evaluateObjectMember` call;
- * the widened non-object guard in `evaluateIndexAccess` and the enum/`Result`
- * guard in `evaluateMemberAccess` (both runtime-panics.ts).
+ * The single classification point every runtime surface that classifies an
+ * object value routes through ahead of the object path, so a classification
+ * change has one definition site: `applyStdlibMethod` (statement-executor.ts)
+ * and `evaluateStdlibMethod` (production-theta-producer.ts) ahead of their
+ * `evaluateObjectMember` call; the widened non-object guard in
+ * `evaluateIndexAccess` and the enum/`Result` guard in `evaluateMemberAccess`
+ * (both runtime-panics.ts); and `matchPattern`'s object arm (match-result.ts).
  */
 export function isObjectValue(value: ThetaValue): boolean {
   return !isEnumValue(value) && !isResultValue(value);
@@ -264,11 +264,13 @@ export function enumDeclaringTagOf(value: ThetaValue): string | undefined {
  * never appears in JSON output, never appears in a `keys()` result, and never
  * affects equality (runtime-value-model.md: an object schema is a "JS plain
  * object keyed by theta-side names"). {@link brandSchemaValue} installs it
- * **non-enumerable**, the posture {@link privateBrandOf} states. Two
- * consumers recover it: the QRY-18 interpolation render path, which needs
- * the declaring schema to apply outbound wire-name translation recursively,
- * and the `QuestionOperandDefectError` operand summariser
- * (`runtime-panics.ts`), which names the schema in its diagnostic text.
+ * **non-enumerable**, the posture {@link privateBrandOf} states. Its
+ * consumers recover it through {@link schemaTagOf}: the QRY-18 interpolation
+ * render path (outbound wire-name translation), the
+ * `QuestionOperandDefectError` operand summariser (`runtime-panics.ts`), the
+ * discriminated-union arm pick in `unionArmObjectType`
+ * (`system-interpolation.ts`), and `rebuildUnderFirstAdmittingArm`'s
+ * re-brand (`wire-translation.ts`).
  * The `"__thetaSchema"` description is debug-only, carries no semantics, and
  * exists only so the brand reads legibly under a debugger and greps against
  * the bug docs.
@@ -502,7 +504,6 @@ export function makeErr(error: ThetaValue): ResultValue {
  * variants compare the declaring-enum tag *and* the wire value; `Result`
  * compares the discriminator and recurses on the payload. Never panics and
  * never raises a diagnostic — a cross-type comparison simply evaluates `false`.
- *
  */
 export function valuesEqual(a: ThetaValue, b: ThetaValue): boolean {
   // Enum variants compare the declaring-enum tag *and* the wire value; an enum
@@ -585,7 +586,6 @@ export function valuesEqual(a: ThetaValue, b: ThetaValue): boolean {
  * **never** lowerable — it has no lowered-schema form and never crosses the
  * wire (runtime-value-model.md, value-representation table, `Result` row).
  * Plain primitives, arrays, objects, and enum variants are lowerable.
- *
  */
 export function isWireLowerable(value: ThetaValue): boolean {
   return !isResultValue(value);

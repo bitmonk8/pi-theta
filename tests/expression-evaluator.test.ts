@@ -229,7 +229,6 @@ describe("V3a-T — equality, ordering, and arithmetic widening (expressions.md 
 describe("V3a-T — non-boolean condition (expressions.md §Truthiness)", () => {
   it("theta/parse/non-boolean-condition: a non-boolean ternary condition fires", () => {
     const diags = checkBooleanPosition({
-      position: "ternary-condition",
       operandType: prim("string"),
       site: site(),
     });
@@ -241,7 +240,6 @@ describe("V3a-T — non-boolean condition (expressions.md §Truthiness)", () => 
 
   it("theta/parse/non-boolean-condition: a non-boolean `&&` operand fires; a boolean operand does not", () => {
     const diags = checkBooleanPosition({
-      position: "&&",
       operandType: prim("number"),
       site: site(),
     });
@@ -252,7 +250,6 @@ describe("V3a-T — non-boolean condition (expressions.md §Truthiness)", () => 
     // A `boolean` operand is admissible — the rule is not over-applied (theta
     // performs no truthiness coercion, but it also raises nothing on `boolean`).
     const ok = checkBooleanPosition({
-      position: "||",
       operandType: prim("boolean"),
       site: site(),
     });
@@ -264,7 +261,6 @@ describe("V3a-T — non-boolean condition (expressions.md §Truthiness)", () => 
 
   it("theta/parse/non-boolean-condition: a non-boolean `if` / `while` condition fires", () => {
     const ifDiags = checkBooleanPosition({
-      position: "if",
       operandType: prim("integer"),
       site: site(),
     });
@@ -274,7 +270,6 @@ describe("V3a-T — non-boolean condition (expressions.md §Truthiness)", () => 
     ).toBeDefined();
 
     const whileDiags = checkBooleanPosition({
-      position: "while",
       operandType: prim("null"),
       site: site(),
     });

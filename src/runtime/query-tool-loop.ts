@@ -36,9 +36,10 @@
 //     compensating turn injected.
 //
 // At its ceiling-#2 first-enforcement point (the round boundary) this leaf
-// consults `V16a`'s cross-ceiling arbitration seam for the cross-ceiling
-// surfacing precedence and the `masked` enumeration, and the `V9d` `computeMasked`
-// V1-reachable predicate that populates `details.event.masked`.
+// populates `details.event.masked` through the `V9d` `computeMasked`
+// V1-reachable predicate; the cross-ceiling surfacing precedence itself is
+// witnessed at `V16a`'s arbitration seam by that seam's tests, not consulted
+// from here.
 //
 // V13c (this implementation leaf) drives both surfaces: `runUntypedQueryLoop`
 // fires the pre-dispatch `query` cancellation checkpoint, advances the free
@@ -284,12 +285,10 @@ export type TypedQueryOutcome =
 // observable invocations: schema resolution → lowering → `AjvSchemaValidator`
 // → `runRespondRepairLoop`.
 //
-// V13e-T declares this seam and adds it as an OPTIONAL, ignored parameter to
-// `runTypedQueryLoop` (the paired `V13e` implementation wires the loop to
-// orchestrate it). The `V13c` loop body added no orchestration, so a test that
-// injects this seam and drives the loop reds: none of the seam's steps are
-// invoked and a non-conforming response is bound as the query value instead of
-// routing through respond-repair.
+// V13e-T declared this seam as an optional parameter of `runTypedQueryLoop`;
+// V13e wired the loop to orchestrate it (resolve → lower → convey → validate,
+// then respond-repair on non-conformance), so a non-conforming response is
+// never bound as the query value.
 //
 // Spec: query/query-failure-and-repair.md (QRY-22 typed-query schema-validation
 // integration; QRY-11 respond-repair), schema-subset.md (SUBS-1 lowering),
@@ -346,7 +345,7 @@ export interface TypedQuerySchemaValidation {
 }
 
 // ---------------------------------------------------------------------------
-// The two drivers (V13c-T stubs; the paired V13c fills them in).
+// The two drivers (V13c-T declared them; V13c implements them).
 // ---------------------------------------------------------------------------
 
 /**
@@ -357,11 +356,6 @@ export interface TypedQuerySchemaValidation {
  * terminating plain-text turn the loop returns `text`; on reaching `max_rounds`
  * without a terminating turn it returns the `tool_loop_exhausted` outcome, its
  * `masked` field omitted (never `[]`).
- *
- * V13c-T stubs this inert: it fires no checkpoint, runs no tool-call round, and
- * returns an inert terminating text outcome with no committed side effects — so
- * the exhaustion, checkpoint, and ERR-13 assertions red on their own primary
- * expectation. The paired V13c leaf implements the loop.
  */
 export async function runUntypedQueryLoop(
   checkpoint: Checkpoint,
@@ -475,12 +469,8 @@ export async function runUntypedQueryLoop(
  * before AJV (CIO-3): a depth-6 payload surfaces as `Err(ValidationError {
  * cause: "schema_validation", schema_keyword: "maxDepth" })` and enumerates the
  * co-satisfied ceiling #2 on the operator-facing `RuntimeEvent`'s
- * `details.event.masked` (`["ceiling#2"]`), consulting `V16a`/`V9d`.
- *
- * V13c-T stubs this inert: it fires no checkpoint, dispatches no forced respond
- * turn, and returns an inert `value` outcome with `forcedRespond` unset — so the
- * CIO-4 slot-accounting, `max_rounds: 0`, and depth-6 co-fire assertions red on
- * their own primary expectation. The paired V13c leaf implements the loop.
+ * `details.event.masked` (`["ceiling#2"]`) through the `V9d` `computeMasked`
+ * predicate.
  */
 export async function runTypedQueryLoop(
   checkpoint: Checkpoint,

@@ -1,14 +1,16 @@
-// RFC-0005 — subagent child-process launcher seam.
+// RFC-0006 — subagent child-process launcher seam.
 //
-// This module owns the child-process launch half of the RFC-0005 subagent
+// This module owns the child-process launch half of the RFC-0006 subagent
 // drive (pi-integration-contract/subagent.md): the executable-resolution
 // ladder (#subagent-executable-resolution), argv assembly (#subagent-launch-
 // contract), the env marshalling (the live `PI_THETA_SUBAGENT_ROOT` regime
 // marker — which subsumed RFC-0005's retired `PI_THETA_SUBAGENT_CHILD` per
 // PIC-58 — the parent-PID carriage, and the per-chain invoke-depth carriage per
-// invocation.md §INV-4), and the spawn seam. The theta interpreter stays in the
-// parent; only the child-`pi` process launch lives here, behind the
-// `conversation-drive.ts` drive seam.
+// invocation.md §INV-4), and the spawn seam. The child owns the whole callee
+// (interpreter, extension discovery, and its own host agent loop); only the
+// child-`pi` process launch lives here, driven from the producer's subagent
+// path (`production-theta-producer.ts`) and settled by the `--mode json` event
+// line drive (`subagent-json-driver.ts`).
 //
 // Spec: pi-integration-contract/subagent.md (#subagent-executable-resolution,
 // #subagent-launch-contract, #subagent-tools-allowlist-suppression, PIC-65
@@ -44,27 +46,26 @@ export const SUBAGENT_EXECUTABLE_UNRESOLVED_MESSAGE =
 
 /**
  * `theta/runtime/subagent-spawn-failed` — the child `pi` process spawn failed
- * at launch (ENOENT, EPERM, immediate nonzero exit before the RPC stdio was
- * usable). Records the spawn-specific detail; the failure also routes through
+ * at launch (ENOENT, EPERM, immediate nonzero exit before its stdout line
+ * stream was usable). Records the spawn-specific detail; the failure also routes through
  * the runtime-defect surface (`theta/runtime/internal-error`).
  */
 export const SUBAGENT_SPAWN_FAILED_CODE = "theta/runtime/subagent-spawn-failed";
 
-/**
- * RFC-0006 (PIC-58): the subagent-root regime marker (`PI_THETA_SUBAGENT_ROOT=<slug>`)
- * SUBSUMES RFC-0005's `PI_THETA_SUBAGENT_CHILD` marker and carries its duties
- * (watcher suppression, no-recursion guard, parent-PID carriage) alongside regime
- * selection. The old boolean child marker is retired — its presence is now
- * expressed by the presence of the root-slug marker. Re-exported from the regime
- * module (single source of truth) so launcher-side consumers resolve it here.
- */
-export { SUBAGENT_ROOT_ENV_MARKER };
+// RFC-0006 (PIC-58): the subagent-root regime marker (`PI_THETA_SUBAGENT_ROOT=<slug>`,
+// `SUBAGENT_ROOT_ENV_MARKER` in `subagent-root-regime.ts`, the single source of
+// truth) SUBSUMES RFC-0005's `PI_THETA_SUBAGENT_CHILD` marker and carries its
+// duties (watcher suppression, no-recursion guard, parent-PID carriage)
+// alongside regime selection. The old boolean child marker is retired — its
+// presence is now expressed by the presence of the root-slug marker.
 
 /**
- * The env var carrying the parent PID to the child, reserved for the RECORDED
- * BUT UNIMPLEMENTED child-side parent-PID watchdog (PIC-65 orphan-prevention
- * class-2 fallback — nothing in `src/` reads it today; the carriage exists so
- * the watchdog can be added without a wire change). This is NOT the
+ * The env var carrying the parent PID to the child. Its live reader is the
+ * control-plane authentication gate (`authenticateControlPlane`,
+ * `production-subagent-host.ts`): the child compares it against its real
+ * `ppid` and drops every control-plane carriage on a mismatch. It is also the
+ * input reserved for the RECORDED BUT UNIMPLEMENTED child-side parent-PID
+ * watchdog (PIC-65 orphan-prevention class-2 fallback). This is NOT the
  * invoke-depth counter — that rides `SUBAGENT_INVOKE_DEPTH_ENV` below.
  */
 export const SUBAGENT_PARENT_PID_ENV = "PI_THETA_SUBAGENT_PARENT_PID";
@@ -210,9 +211,10 @@ export function inferChildTrust(
  * host spells it with. Two hosts run a theta today and they do not share a flag
  * vocabulary, so the contract cannot be one hardcoded flag list:
  *
- *   - Pi accepts `-ne`, `--no-prompt-templates`, `--no-themes`,
+ *   - Pi accepts `-ne`, `--no-skills`, `--no-prompt-templates`, `--no-themes`,
  *     `--no-context-files`, `--approve` / `--no-approve`.
- *   - Oh-My-Pi has NONE of those spellings, and it REJECTS unknown flags
+ *   - Oh-My-Pi shares only `--no-skills` with that list, has NONE of the
+ *     other spellings, and REJECTS unknown flags
  *     outright (`Error: unknown flags: …`, exit code 2 before any session
  *     starts) rather than absorbing them into an extension-flag map the way Pi
  *     does. A Pi-spelled argv therefore does not degrade on Oh-My-Pi — it kills
@@ -476,8 +478,8 @@ export function assembleSubagentArgv(
  * Build the child environment: full inheritance of the parent env plus the
  * per-chain invoke-depth carriage (`invokeDepth` — the parent's CURRENT chain
  * depth, so the child continues the depth-32 ceiling across the process hop per
- * invocation.md §INV-4), the parent-PID carriage (reserved for the PIC-65
- * orphan-prevention watchdog, unimplemented), and — when `rootSlug` is supplied
+ * invocation.md §INV-4), the parent-PID carriage (the control-plane
+ * authentication key — see `SUBAGENT_PARENT_PID_ENV`), and — when `rootSlug` is supplied
  * — the PIC-58 subagent-root regime marker (`PI_THETA_SUBAGENT_ROOT=<slug>`),
  * which subsumes RFC-0005's boolean child marker and carries watcher
  * suppression + no-recursion + regime selection. Credentials are never
@@ -490,9 +492,10 @@ export function buildSubagentChildEnv(
   rootSlug?: string,
 ): Record<string, string | undefined> {
   // Full inheritance is the credential mechanism (credentials are never
-  // marshalled). The parent PID is the (unimplemented) PIC-65 orphan-prevention
-  // watchdog input; the invoke depth is the wire-level INV-4 counter the child
-  // seeds its chain from (two DISTINCT carriages — the PID is not the depth).
+  // marshalled). The parent PID is the child's control-plane authentication key
+  // (and the reserved, unimplemented PIC-65 watchdog input); the invoke depth is
+  // the wire-level INV-4 counter the child seeds its chain from (two DISTINCT
+  // carriages — the PID is not the depth).
   // The PIC-58 root marker (when set) subsumes the old child marker: it selects
   // the subagent-root regime and suppresses the child's own file watcher.
   return {
@@ -519,8 +522,6 @@ export interface ChildExitInfo {
  * production spawn adapts a Node `ChildProcess`.
  */
 export interface SubagentChildProcess {
-  /** The OS process id, or `undefined` if the spawn has not assigned one. */
-  readonly pid: number | undefined;
   /**
    * Release any parent-held stdin handle. A structural no-op under the
    * production spawn config — the child's stdin is spawned closed (bug 0002:
@@ -531,10 +532,9 @@ export interface SubagentChildProcess {
    */
   closeStdin(): void;
   /**
-   * Subscribe to LF-split stdout lines (strict-JSONL RPC events). Returns an
-   * unsubscribe handle so a per-query reader detaches its listener on settle —
-   * a long-lived child driving many queries must not accumulate O(queries)
-   * stdout listeners.
+   * Subscribe to LF-split stdout lines (the child's `--mode json` event lines,
+   * among which the one `theta_result` envelope rides). Returns an unsubscribe
+   * handle so a reader detaches its listener on settle.
    */
   onStdoutLine(listener: (line: string) => void): () => void;
   /**

@@ -537,9 +537,8 @@ class InProcessSubagentCancelHost implements StatementEvalHost {
   runEffect(): Promise<OperationResult> {
     return Promise.resolve({ ok: false, error: makeCancelledError() });
   }
-  spawnSubagentSession(): string {
+  spawnSubagentSession(): void {
     this.spawned += 1;
-    return "subagent-fn-1";
   }
   exitSubagentSession(): void {}
 }

@@ -163,15 +163,15 @@ export interface StatementEvalHost {
   /**
    * RFC 0001 (`subagent fn`) session-switch hook. Around a `subagent fn` CALL
    * the executor enters a fresh isolated subagent session for the body
-   * (`spawnSubagentSession`, returning its id) and discards it on return
-   * (`exitSubagentSession`), so the body's `@` queries / calls target the
-   * spawned session and the caller's conversation stays unpolluted (FN-6). The
+   * (`spawnSubagentSession`) and discards it on return (`exitSubagentSession`,
+   * positional — sessions nest LIFO), so the body's `@` queries / calls target
+   * the spawned session and the caller's conversation stays unpolluted (FN-6). The
    * spawned session's configuration (`system` / `model` / `tools`, FN-7) is
    * inherit-then-`with`-override resolved on the `subagent fn` node. Optional:
    * a host with no isolation substrate omits both, and a `subagent fn` body then
    * runs against the same host with no session switch.
    */
-  spawnSubagentSession?(config: SubagentSessionConfig, chain?: InvokeChain): string | Promise<string>;
+  spawnSubagentSession?(config: SubagentSessionConfig, chain?: InvokeChain): void | Promise<void>;
   exitSubagentSession?(): void | Promise<void>;
 }
 

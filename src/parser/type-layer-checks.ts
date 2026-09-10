@@ -1778,13 +1778,13 @@ class TypeLayerWalk {
         return;
       }
       case "if":
-        this.checkBoolean(stmt.condition, "if", bindings);
+        this.checkBoolean(stmt.condition, bindings);
         this.walkExpr(stmt.condition, bindings, flow);
         this.walkBlock(stmt.then, new Map(bindings), flow);
         this.walkOtherwise(stmt.otherwise, bindings, flow);
         return;
       case "while":
-        this.checkBoolean(stmt.condition, "while", bindings);
+        this.checkBoolean(stmt.condition, bindings);
         this.walkExpr(stmt.condition, bindings, flow);
         this.walkBlock(stmt.body, new Map(bindings), flow);
         return;
@@ -2287,12 +2287,10 @@ class TypeLayerWalk {
   /** The boolean-position check for an `if` / `while` condition. */
   private checkBoolean(
     condition: Expr,
-    position: "if" | "while",
     bindings: ReadonlyMap<string, CompatType>,
   ): void {
     this.diagnostics.push(
       ...checkBooleanPosition({
-        position,
         operandType: this.typeOf(condition, bindings),
         site: { file: this.file, range: condition.range },
       }),
@@ -3074,7 +3072,6 @@ class TypeLayerWalk {
       case "ternary":
         this.diagnostics.push(
           ...checkBooleanPosition({
-            position: "ternary-condition",
             operandType: this.typeOf(e.condition, bindings),
             site: { file: this.file, range: e.condition.range },
           }),
@@ -3088,7 +3085,6 @@ class TypeLayerWalk {
           for (const operand of [e.left, e.right]) {
             this.diagnostics.push(
               ...checkBooleanPosition({
-                position: e.op,
                 operandType: this.typeOf(operand, bindings),
                 site: { file: this.file, range: operand.range },
               }),
@@ -3104,7 +3100,6 @@ class TypeLayerWalk {
           // runtime belt.
           this.diagnostics.push(
             ...checkBooleanPosition({
-              position: "!",
               operandType: this.typeOf(e.right, bindings),
               site: { file: this.file, range: e.right.range },
             }),

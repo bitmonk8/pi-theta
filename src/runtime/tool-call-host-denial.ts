@@ -24,15 +24,10 @@
 // this guard an `{ content, isError: true }` denial would lower to a silent
 // `Ok(<content text>)` — exactly the "silent success on denial" PIC-52 forbids.
 //
-// V14d-T (tests-task) declares the seam and stubs the behaviour-bearing
-// functions inertly:
-//   - `isHostDenial` returns `false` (so the denial-recognition assertions red),
-//   - `classifyHostDenial` returns the *forbidden* silent-`Ok` accepted outcome
-//     for every input (so the denial → `Err(CodeToolError { cause: "execution" })`
-//     and never-silent-`Ok` assertions red on their own primary assertion).
-// Each paired V14d-T test reds on its own primary assertion, not on a compile
-// error, a missing fixture, or a harness throw. The paired V14d implementation
-// leaf fills these in.
+// V14d-T (tests-task) declared the seam; V14d (this leaf) supplies the
+// behaviour: `isHostDenial` recognises the throw and `isError: true` forms, and
+// `classifyHostDenial` lowers a denial to `Err(CodeToolError { cause:
+// "execution" })`, never a silent `Ok`.
 //
 // Spec: pi-integration-contract/trust-boundary.md §"No additional access
 // channels" (PIC-52); pi-integration-contract/host-interfaces-core.md §"Tool
@@ -97,8 +92,6 @@ export type HostDenialLowering =
  * Whether `outcome` is a host-side denial per PIC-52: a thrown value, or a
  * return whose `isError` flag is `true`. A non-denial return (`isError` absent
  * or falsy) is not a denial.
- *
- * V14d-T stubs this to `false` so the denial-recognition assertions red.
  */
 export function isHostDenial(outcome: HostToolOutcome): boolean {
   // A thrown value is always a host-side denial (PIC-52); a return is a denial
@@ -118,10 +111,6 @@ export function isHostDenial(outcome: HostToolOutcome): boolean {
  * the `isError: true` form carries the joined denial text as its message).
  * A non-denial return lowers to `Ok(<joined text>)`. Silent success on denial is
  * forbidden: the `denied` arm never yields an `Ok`.
- *
- * V14d-T stubs this to the *forbidden* silent-`Ok` accepted outcome for every
- * input, so the denial → `Err(CodeToolError { cause: "execution" })` and
- * never-silent-`Ok` assertions red on their own primary assertions.
  */
 export function classifyHostDenial(
   outcome: HostToolOutcome,

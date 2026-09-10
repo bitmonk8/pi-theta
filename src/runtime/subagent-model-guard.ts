@@ -30,10 +30,6 @@
 // through the envelope. The pinned diagnostic codes and `InvokeInfraError`
 // causes are preserved (stable diagnostics contract); the mechanism is re-coined.
 //
-// RED EXPECTATION (RFC-0006 not yet implemented): `guardResolvedModel` /
-// `confirmChildModel` throw `not implemented: RFC 0006`, so each assertion reds
-// on its primary behaviour; the paired implementation leaf greens them.
-//
 // Spec: pi-integration-contract/subagent.md (PIC-62 #subagent-pre-spawn-model-guard,
 // #subagent-model-marshalling), diagnostics/code-registry-runtime.md
 // (`theta/runtime/subagent-model-unresolved`,

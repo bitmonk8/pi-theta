@@ -26,14 +26,9 @@
 // integration-realisation witness that the existing seams execute against the
 // real driven conversation under the `V19c` executor.
 //
-// V19d-T (this tests task) declares the assembly seam and stubs the
-// behaviour-bearing `runEffect` inertly: the returned host dispatches NO effect
-// through the real query / tool-call / invoke hosts — it returns an inert
-// `Ok(null)` — so every paired integration assertion reds on its own primary
-// expectation (an un-serviced query loop, an un-dispatched tool call, an
-// un-driven invoke child, an out-of-order effect log, or an un-interrupted
-// invoke-checkpoint cancellation), not on a compile error, a missing fixture, or
-// a harness throw. The paired `V19d` implementation leaf fills `runEffect` in.
+// V19d-T (tests-task) declared the assembly seam; V19d (this leaf) supplies
+// `runEffect`, which dispatches each effect through the real query / tool-call /
+// invoke hosts against the driven conversation.
 //
 // Spec: query.md, query/query-tool-loop.md, query/query-forms.md,
 // query/query-failure-and-repair.md, tool-calls.md, invocation.md,
@@ -562,10 +557,6 @@ async function runInvokeEffect(
  * `invoke(...)` as its checkpointed effect kind, and `runEffect` dispatches the
  * effect through the matching REAL host against the driven conversation,
  * normalising the host outcome to the executor's `OperationResult`.
- *
- * V19d-T stub: `runEffect` is inert — it dispatches NO effect through the real
- * query / tool-call / invoke hosts and returns an inert `Ok(null)`, so every
- * integration assertion reds. The paired `V19d` leaf fills it in.
  */
 export function createEffectfulStatementHost(baseDeps: EffectfulStatementHostDeps): StatementEvalHost {
   // RFC 0001 (`subagent fn`): a stack of active spawned-session scopes. Empty by
@@ -647,7 +638,7 @@ export function createEffectfulStatementHost(baseDeps: EffectfulStatementHostDep
   if (baseDeps.spawnSubagentFnSession !== undefined) {
     return {
       ...host,
-      async spawnSubagentSession(config: SubagentSessionConfig, chain?: InvokeChain): Promise<string> {
+      async spawnSubagentSession(config: SubagentSessionConfig, chain?: InvokeChain): Promise<void> {
         // INV-4 / FN-6 depth accumulation: route the nested spawn through the
         // ACTIVE session's seam, NOT the fixed `baseDeps` closure. Each spawned
         // session's own `deps.spawnSubagentFnSession` is bound to THAT
@@ -662,7 +653,6 @@ export function createEffectfulStatementHost(baseDeps: EffectfulStatementHostDep
         const seam = active().spawnSubagentFnSession ?? baseDeps.spawnSubagentFnSession!;
         const session = await seam(config, chain);
         sessions.push(session);
-        return `subagent-fn-${sessions.length}`;
       },
       async exitSubagentSession(): Promise<void> {
         const session = sessions.pop();

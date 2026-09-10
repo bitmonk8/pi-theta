@@ -87,7 +87,6 @@ import {
 } from "../src/extension/system-note-channel";
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
 import { runPromptSuspendInvoke } from "../src/runtime/invoke-prompt-suspend";
-import type { CrossModeCell } from "../src/runtime/invoke-cross-mode";
 
 // The runtime diagnostics-registry code the PIC-8 restore-failure protocol emits
 // (diagnostics/code-registry-runtime.md); mirrors tool-registration-lifetime.test.ts.
@@ -178,7 +177,6 @@ function makeRecorders(): Recorders {
 // the masked result / absent diagnostic, NOT on a compile error.
 // ===========================================================================
 
-const PROMPT_PROMPT_CELL: CrossModeCell = { callerMode: "prompt", calleeMode: "prompt" };
 const SUSPEND_SNAPSHOT = ["ambient-a", "ambient-b"];
 const SUSPEND_CHILD_SET = ["child-tool"];
 const SUSPEND_THETA_NAME = "callee-name";
@@ -186,7 +184,6 @@ const SUSPEND_THETA_NAME = "callee-name";
 /** Build a `runPromptSuspendInvoke` input carrying the Option-1 compliant deps. */
 function suspendInput(gate: RecordingActiveSet, rec: Recorders, childBody: () => Promise<string>) {
   return {
-    cell: PROMPT_PROMPT_CELL,
     childCallableSet: SUSPEND_CHILD_SET,
     pi: gate,
     childBody,
@@ -307,7 +304,6 @@ describe("bug 0372 (RED) — runPromptSuspendInvoke restores under the PIC-8/PIC
       suspendInput(gate, rec, async () => "CHILD-OK"),
     );
 
-    expect(outcome.engaged).toBe(true);
     expect(outcome.result).toBe("CHILD-OK");
     // Exact call sequence: install the child set (snapshot NOT unioned in),
     // then restore the snapshot. Byte-identical between fork and fix.

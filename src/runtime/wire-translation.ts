@@ -140,11 +140,12 @@ export interface InboundTranslationInput {
    * tag via `enumDeclaringKey(enumDeclaringPath, name)` rather than the bare
    * declared name (bug 0337), so an inbound query / params result of a
    * `.theta`-declared enum compares equal to a body-constructed variant of the
-   * SAME file-qualified declaration. Absent (a harness with no source path, or
-   * a boundary whose retagged names are not the local file's own declarations)
-   * keeps the bare declared name. Every retagged position at the two boundaries
-   * that supply this is a body-declared enum of that one file, so a single
-   * path qualifies them all.
+   * SAME file-qualified declaration. Absent (a harness with no source path)
+   * keeps the bare declared name. Every retagged position at a supplying
+   * boundary is a declaration of exactly one file — the local file's own
+   * enums at the binder-args and typed-query-results boundaries, the CALLEE's
+   * at the `invoke<T>` return (runtime-value-model.md) — so a single path
+   * qualifies them all.
    */
   readonly enumDeclaringPath?: string;
 }
@@ -371,14 +372,16 @@ function rebuildInbound(
     // other position is one no sidecar keys — a union arm, a permissive `{}`,
     // an unresolved reference — so copying would add nothing and would discard
     // a brand the value already carries: an in-process callee's value arrives
-    // theta-side and already branded, and both `schemaTagOf` consumers (the
+    // theta-side and already branded, and every `schemaTagOf` consumer (the
     // QRY-18 outbound render's `as` renames, the `QuestionOperandDefectError`
-    // summariser's schema name) degrade silently once the brand is gone.
+    // summariser's schema name, the union-arm pick in `unionArmObjectType`,
+    // this module's `rebuildUnderFirstAdmittingArm` re-brand) degrades
+    // silently once the brand is gone.
     return value as ThetaValue;
   }
 
   // Null-prototype for the same class of hazard `collectTypeEnv`'s design
-  // note (`../parser/type-layer-checks.ts:317`) states for a `NamedType`
+  // note (`../parser/type-layer-checks.ts`) states for a `NamedType`
   // reference: `thetaKey` below is a string this walk did not mint — a
   // payload's own key, or an author's rename-map target — so it may spell
   // an `Object.prototype` own property (`__proto__` among them) verbatim,
@@ -386,15 +389,15 @@ function rebuildInbound(
   // setter instead of minting an own key.
   //
   // No read in this module needs a matching own-key guard. The three
-  // per-position lookups are `Map`s (`indexOf`, `:212`; `wireToTheta`
-  // `:217`, `enumByPointer` `:221`, `refByPointer` `:225`), and a `Map`
-  // key never collides with `Object.prototype`; the payload walk below is
+  // per-position lookups are `Map`s (`indexOf`'s `wireToTheta`,
+  // `enumByPointer`, and `refByPointer`), and a `Map` key never collides
+  // with `Object.prototype`; the payload walk below is
   // `Object.entries`, own-enumerable only. Nothing in this file answers
   // through a prototype chain, so the construction half is the one no
   // read-side guard can supply: a write the inherited setter swallows
   // loses the field outright, leaving nothing for a later read to guard.
   // A lookup this walk adds later by an author- or payload-controlled key
-  // uses `Object.hasOwn`, per `type-compat.ts:98-109` (`resolveNamed`).
+  // uses `Object.hasOwn`, per `resolveNamed` (`type-compat.ts`).
   const result: { [k: string]: ThetaValue } = Object.create(null) as { [k: string]: ThetaValue };
   // `orderedEntries` reorders; it never changes WHICH entries are visited or
   // how many — the walk below still guards `Object.hasOwn`-equivalent access
@@ -402,10 +405,10 @@ function rebuildInbound(
   // is unaffected by the reorder.
   for (const [wireKey, fieldValue] of orderedEntries(value, index)) {
     // The wire-name map describes the fragment's OWN fields, so it applies at
-    // the fragment root and nowhere deeper: a value one or more `/items`
-    // segments down, or behind an unresolved nested position, is not a field of
-    // this schema and must not be re-keyed by its map.
-    const thetaKey = pointer === "" ? (index?.wireToTheta.get(wireKey) ?? wireKey) : wireKey;
+    // the fragment root and nowhere deeper; the guard above already returned
+    // for every `pointer !== ""` position, so this lookup is reached at the
+    // fragment root only.
+    const thetaKey = index?.wireToTheta.get(wireKey) ?? wireKey;
     const fieldPointer = `${pointer}/properties/${encodePointerSegment(wireKey)}`;
     const fallbackTarget =
       index !== undefined &&
@@ -663,10 +666,13 @@ function lowerOutbound(
 }
 
 /**
- * Project a value to the shape the `invoke<T>` return-value AJV gate reads
- * structurally, for that `validate` call only. The caller of this function
- * hands the ORIGINAL value downstream unchanged on every path; this
- * projection is disposable and never itself crosses the invoke boundary.
+ * Project a value to the wire-form shape an AJV gate reads structurally. Two
+ * callers with differing retention: the `invoke<T>` return-value gate
+ * validates the projection and hands the ORIGINAL value downstream, so there
+ * the projection is disposable and never crosses the invoke boundary; the
+ * `params:` defaults recovery (`#recoverDeclaredDefaults`,
+ * `production-theta-producer.ts`) keeps the projection as the contracted
+ * wire-form `DefaultedField.defaultValue`.
  *
  * AJV's `type: "string"` check is a `typeof` test, and the enum carrier
  * {@link makeEnumValue} builds is a boxed `String` (`typeof === "object"`).
@@ -693,7 +699,7 @@ function lowerOutbound(
 export function projectForValidation(value: ThetaValue): unknown {
   if (value instanceof String) {
     // The boxed enum carrier's wire form is its bare string — the same
-    // collapse `lowerOutbound` performs for the outbound direction (`:578`).
+    // collapse `lowerOutbound` performs for the outbound direction.
     return value.valueOf();
   }
   if (Array.isArray(value)) {
@@ -712,7 +718,7 @@ export function projectForValidation(value: ThetaValue): unknown {
     // Algorithm" step 3), so no position a `returnSchema` describes can hold
     // one; descending would differ from the gate above only at positions AJV
     // places no constraint on, and this projection exists solely for AJV's
-    // eyes. Mirrors `rebuildInbound`'s own `isResultValue` arm (`:320`).
+    // eyes. Mirrors `rebuildInbound`'s own `isResultValue` arm.
     return value;
   }
   if (!isPlainObject(value)) {

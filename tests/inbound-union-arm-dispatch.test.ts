@@ -96,7 +96,6 @@ import {
   type ExecutableHost,
 } from "../src/runtime/subagent-launcher";
 import { SUBAGENT_PARAMS_ENV, SUBAGENT_PARAMS_FILE_ENV } from "../src/runtime/subagent-params";
-import { WallClock } from "../src/seams/wall-clock";
 import {
   AjvSchemaValidator,
   type LoweredSchema,
@@ -1487,7 +1486,6 @@ async function driveRootChild(input: {
       thetaAbort: new AbortController(),
       calleePath: join(input.thetaDir, `${input.slug}.theta`),
       emitDiagnostic,
-      clock: new WallClock(),
     });
     clearTimeout(watchdog);
   } finally {

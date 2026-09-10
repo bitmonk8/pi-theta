@@ -176,7 +176,7 @@ const GRAMMAR_FNPARAM_LINE = 145; // the current optional-form production line
 const GRAMMAR_FNPARAM_OPTIONAL = 'FnParam      ::= Ident (":" Type)?';
 
 const RUNTIME_PANICS = "src/runtime/runtime-panics.ts";
-const RUNTIME_PANICS_BELT_LINE = 509; // the current wrong-kind belt template
+const RUNTIME_PANICS_BELT_LINE = 507; // the current wrong-kind belt template
 const RUNTIME_PANICS_CURRENT_TAIL = "reached the runtime belt unjudged (bugs 0394/0402)";
 
 describe("bug 0457 — six committed surfaces quote retired normative text as current", () => {
@@ -230,7 +230,7 @@ describe("bug 0457 — six committed surfaces quote retired normative text as cu
   // Cell C — GREEN control. Pins the spec truth the sweep aligns to. Passes at
   // the fork and after the fix; guards the targets so a spec drift reds here.
   // =========================================================================
-  it("cell C (GREEN control) — grammar.md:145 carries the optional FnParam form and runtime-panics.ts:509 carries the current belt tail", () => {
+  it("cell C (GREEN control) — grammar.md:145 carries the optional FnParam form and runtime-panics.ts:507 carries the current belt tail", () => {
     const grammarLines = linesOf(readCorpus(GRAMMAR));
     expect(
       grammarLines.length,

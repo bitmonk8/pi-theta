@@ -2641,7 +2641,6 @@ class ProductionThetaProducer implements ThetaProducerDeps {
         thetaAbort,
         calleePath: theta.sourcePath ?? theta.slashName,
         emitDiagnostic,
-        clock: root.clock,
       });
       if (result.ok) {
         forwardedEnumTagsHolder = result.enumTags;
@@ -4313,7 +4312,6 @@ class ProductionThetaProducer implements ThetaProducerDeps {
       // entry SPANS the nested callee's real in-flight window.
       try {
         const outcome = await runPromptSuspendInvoke<ResultValue>({
-          cell: { callerMode: "prompt", calleeMode: "prompt" },
           childCallableSet: callableSetPiToolNames(callee),
           pi: this.#input.pi,
           // Bug 0372 §Fix: the compliant `ActiveSetGateDeps` the cross-mode

@@ -157,7 +157,6 @@ describe("RFC-0005 — PIC-65 subagent child-process teardown", () => {
   it("PIC-65: a teardown-step throw (stdin release) is logged as advisory theta/runtime/subagent-dispose-failure and does not propagate", async () => {
     let exited = false;
     const throwingChild: SubagentChildProcess = {
-      pid: 9,
       closeStdin: (): void => {
         throw new Error("stdin close exploded\nsecond line");
       },
@@ -190,7 +189,6 @@ describe("RFC-0005 — PIC-65 subagent child-process teardown", () => {
     // step itself then throws. The registry re-scopes subagent-dispose-failure
     // to any teardown-step throw — stdin release OR bounded kill.
     const throwingKillChild: SubagentChildProcess = {
-      pid: 11,
       closeStdin: (): void => {},
       onStdoutLine: () => () => {},
       onStderrLine: () => () => {},

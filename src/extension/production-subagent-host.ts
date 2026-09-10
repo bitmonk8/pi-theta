@@ -380,7 +380,6 @@ export function adaptChild(child: NodeChildLike): SubagentChildProcess {
   });
 
   return {
-    pid: child.pid,
     closeStdin: (): void => {
       // Under the production spawn config (stdin "ignore", bug 0002) `child.
       // stdin` is null, so this is a structural no-op; residual teardown-path

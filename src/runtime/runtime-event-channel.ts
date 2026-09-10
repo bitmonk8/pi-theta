@@ -7,12 +7,10 @@
 // (pi-integration-contract/runtime-event-channel.md §"Runtime event channel"
 // and §PIC-1).
 //
-// V9d-T (tests-task) declares the seam shapes and stubs every behaviour-bearing
-// function inertly — builders that return a wrong-display / sentinel-content
-// note, a `computeMasked` that returns a sentinel id, emit helpers that emit
-// nothing, a `cascadeReemit` that strips `masked`, and a `dedupKey` that wrongly
-// includes `masked` — so the failing tests red on their own primary assertions.
-// The paired V9d implementation leaf fills these in.
+// V9d-T (tests-task) declared the seam shapes; V9d (this leaf) supplies the
+// behaviour: the `display`/`content` builders, the PIC-1 `computeMasked`
+// predicate, the `sendSystemNote`-backed emit helpers, the `masked`-preserving
+// `cascadeReemit`, and the `masked`-excluding `dedupKey`.
 
 import type { Diagnostic } from "../diagnostics/diagnostic";
 import {

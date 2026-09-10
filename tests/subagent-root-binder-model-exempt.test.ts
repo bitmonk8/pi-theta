@@ -138,7 +138,6 @@ import {
   SUBAGENT_PARAMS_ENV,
   SUBAGENT_PARAMS_FILE_ENV,
 } from "../src/runtime/subagent-params";
-import { WallClock } from "../src/seams/wall-clock";
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
 
 /** The repo's pinned pi CLI entry — the SAME executable resolution rung 1 uses in production. */
@@ -441,7 +440,6 @@ async function driveDirect(input: {
       thetaAbort: new AbortController(),
       calleePath: join(input.thetaDir, `${input.slug}.theta`),
       emitDiagnostic,
-      clock: new WallClock(),
     });
     clearTimeout(watchdog);
   } finally {

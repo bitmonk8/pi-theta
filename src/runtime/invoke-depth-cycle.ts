@@ -5,14 +5,15 @@
 // hard-ceilings/ceilings-3-and-4.md CIO-2):
 //
 //   - INV-4 — the per-chain `invoke`-depth counter. A single per-chain counter,
-//     incremented BEFORE the child frame begins executing, counting all three
+//     incremented BEFORE the child frame begins executing, counting all four
 //     countable frame classes — a direct `invoke(...)` frame, a `.theta`
-//     callable frame dispatched through a `tools:` entry, and a *cross-file*
+//     callable frame dispatched through a `tools:` entry, a *cross-file*
 //     `.thetalib` `fn` frame (caller and callee residing in different source
-//     files). An intra-file `.thetalib` `fn` call is NOT countable. The counter is
-//     per-chain, not per-process: sibling invokes do not share budget, and the
-//     counter crosses subagent-mode boundaries UNCHANGED (a subagent invocation
-//     does not reset it). The cap is 32; the breach fires
+//     files), and a `subagent fn` frame (RFC 0001). An intra-file `.thetalib`
+//     `fn` call is NOT countable. The counter is per-chain, not per-process:
+//     sibling invokes do not share budget, and the counter crosses
+//     subagent-mode boundaries UNCHANGED (a subagent invocation does not reset
+//     it). The cap is 32; the breach fires
 //     `InvokeDepthExceededPanic` (`theta/runtime/invoke-depth-exceeded`) when the
 //     runtime is about to push the 33rd frame (`invoke chain depth exceeded:
 //     33 > 32`). The panic routes in two separately-required modes: a top-level
@@ -57,7 +58,7 @@ export {
 // --------------------------------------------------------------------------
 
 /**
- * The three countable frame classes that each contribute +1 to the single
+ * The four countable frame classes that each contribute +1 to the single
  * shared per-chain depth counter (invocation.md §INV-4):
  *   - `"direct-invoke"`       — a literal `invoke(...)` / `invoke<Schema>(...)` call;
  *   - `"theta-tools-callable"` — a `.theta` callable call dispatched through a `tools:` entry;

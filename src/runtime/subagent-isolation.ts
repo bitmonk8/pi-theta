@@ -48,23 +48,6 @@ import type { Clock } from "../seams/clock";
 export const SUBAGENT_DISPOSE_BUDGET_MS = 30000;
 
 // ---------------------------------------------------------------------------
-// PIC-62 — pre-spawn model-guard diagnostic codes / message / renderer.
-// ---------------------------------------------------------------------------
-//
-// The pre-spawn model guard itself is the SINGLE-SOURCE-OF-TRUTH
-// `guardResolvedModel` in the PIC-62 module (`subagent-model-guard.ts`); the
-// dead RFC-0005 `preSpawnModelGuard` duplicate that used to live here is deleted.
-// The diagnostic codes / message / renderer are re-exported from here so
-// existing RFC-0005 importers (and the isolation suite) keep resolving them
-// unchanged.
-export {
-  SUBAGENT_MODEL_UNRESOLVED_CODE,
-  SUBAGENT_MODEL_UNRESOLVED_MESSAGE,
-  SUBAGENT_MODEL_PREFLIGHT_MISMATCH_CODE,
-  renderModelPreflightMismatchMessage,
-} from "./subagent-model-guard";
-
-// ---------------------------------------------------------------------------
 // PIC-65 — teardown-step advisory diagnostic.
 // ---------------------------------------------------------------------------
 
@@ -73,7 +56,7 @@ export const SUBAGENT_DISPOSE_FAILURE_CODE = "theta/runtime/subagent-dispose-fai
 
 /**
  * PIC-65 advisory diagnostic message (diagnostics registry Message column, code
- * `theta/runtime/subagent-dispose-failure`): `subagent dispose failed: <dispose
+ * `theta/runtime/subagent-dispose-failure`): `subagent teardown failed: <teardown
  * error first line>`.
  */
 export function renderSubagentDisposeFailureMessage(disposeError: unknown): string {
@@ -221,8 +204,12 @@ export async function runSubagentChildTeardown(
   }
 
   if (exited) {
-    // Child already exited (normal path: envelope → self-exit, replayed by the
-    // adapter) — no kill, no timeout.
+    // A `SubagentChildProcess` whose `onExit` fired synchronously during the
+    // subscribe / stdin-release above (the test doubles' already-exited or
+    // exit-on-stdin-EOF shapes) — no kill, no timeout. The production adapter
+    // replays an already-recorded exit on a microtask, so the production normal
+    // path (envelope → self-exit) is served by the bounded await below
+    // short-circuiting on that replay, not by this branch.
     return;
   }
 

@@ -81,7 +81,6 @@ import {
   type ChildExitInfo,
   type ExecutableHost,
 } from "../src/runtime/subagent-launcher";
-import { WallClock } from "../src/seams/wall-clock";
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
 
 /** The repo's pinned pi CLI entry — the SAME executable resolution rung 1 uses in production. */
@@ -270,7 +269,6 @@ describe("bug 0342 — a forwarded enum keeps its declaring file's identity acro
           thetaAbort: new AbortController(),
           calleePath: join(thetaDir, "top.theta"),
           emitDiagnostic,
-          clock: new WallClock(),
         });
         clearTimeout(watchdog);
 

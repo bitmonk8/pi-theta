@@ -232,7 +232,6 @@ describe("PIC-59 — adapter terminal signal fires on stdio close, not process e
 /** A `SubagentChildProcess` double whose `kill` throws (a thrown cancellation kill). */
 function throwingKillChild(): SubagentChildProcess {
   return {
-    pid: 1,
     closeStdin: (): void => {},
     onStdoutLine: (): (() => void) => (): void => {},
     onStderrLine: (): (() => void) => (): void => {},

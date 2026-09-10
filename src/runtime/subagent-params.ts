@@ -135,8 +135,6 @@ export interface MarshalledParams {
    * `readMarshalledParams`'s `!== undefined` test and fail closed on parse).
    */
   readonly env: Record<string, string | undefined>;
-  /** The temp-file path on the file channel (absent on the env channel). */
-  readonly tempFilePath?: string;
   /** The parent-`finally` backstop: delete the temp file (a no-op on the env channel). */
   readonly cleanup: () => void;
 }
@@ -195,7 +193,6 @@ export function marshalParams(
       [SUBAGENT_PARAMS_ENV]: undefined,
       [SUBAGENT_PARAMS_FILE_ENV]: tempFilePath,
     },
-    tempFilePath,
     cleanup: (): void => {
       deps.unlink(tempFilePath);
     },
@@ -269,7 +266,7 @@ export interface ParamsSchemaValidator {
 
 /** The child-side intake outcome: bound params (binder bypassed) or a fail-closed refusal. */
 export type ChildParamsIntake =
-  | { readonly ok: true; readonly params: Record<string, unknown>; readonly binderBypassed: true }
+  | { readonly ok: true; readonly params: Record<string, unknown> }
   | { readonly ok: false; readonly error: InvokeInfraError; readonly diagnostic: Diagnostic };
 
 /**
@@ -297,7 +294,7 @@ export function intakeChildParams(
   }
   // PIC-60: the marshalled path never re-enters the binder — the validated params
   // are bound directly with the binder BYPASSED entirely.
-  return { ok: true, params: parsed as Record<string, unknown>, binderBypassed: true };
+  return { ok: true, params: parsed as Record<string, unknown> };
 }
 
 /** Build the fail-closed params refusal: pinned diagnostic + Err(invoke_infra validation). */

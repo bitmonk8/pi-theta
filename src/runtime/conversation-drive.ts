@@ -1,8 +1,8 @@
 // V9c / V9c-T — prompt-mode conversation drive and active-set gating seam.
 //
 // This module owns the PIC-17 active-set install-vector computation, the
-// process-global `pi.on` cancel-forwarding subscription, and the untyped-query
-// trailing-turn `Ok(string)` extraction
+// untyped-query trailing-turn `Ok(string)` extraction, and the test-witnessed
+// PIC-18 `pi.on` cancel-forwarding subscription seam
 // (pi-integration-contract/conversation-drive.md):
 //
 //   - PIC-17 active-set install-vector computation: `computeActiveSetInstall`
@@ -13,17 +13,23 @@
 //     unioned in — "ambient tools are deliberately not inherited". The gating
 //     window itself (snapshot / swap-install / restore under the PIC-8/PIC-19
 //     protocol) is `withActiveSetGate` (`../runtime/tool-registration.ts`,
-//     bug 0372 §Fix): every production caller threads this module's computed
-//     install vector into that gate rather than restoring bare.
+//     bug 0372 §Fix): the producer's prompt-mode query window threads this
+//     module's computed install vector into that gate; the prompt→prompt
+//     `invoke` window (`invoke-prompt-suspend.ts`) hands the gate the child's
+//     callable set directly.
 //   - PIC-2 prompt-mode sequential execution: within a single user session no
 //     two prompt-mode bodies hold an open snapshot/restore window at a time —
 //     a nested prompt → prompt `invoke(...)` opens its window only after the
 //     parent body's window has been restored (cross-body non-overlap).
-//   - PIC-18 prompt-mode turn-lifecycle event subscription: the driver observes
-//     the five turn-lifecycle events through the factory-captured `ExtensionAPI`
-//     `pi.on`, process-global with no per-session origin marker, and uses them
-//     ONLY to forward the active invocation's captured signal into the V17a
-//     `thetaAbort` controller — never to resolve query completion.
+//   - PIC-18 prompt-mode turn-lifecycle event subscription
+//     (`subscribePromptModeCancelForwarding`): observes the five turn-lifecycle
+//     events through the factory-captured `ExtensionAPI` `pi.on`, process-global
+//     with no per-session origin marker, and uses them ONLY to forward the
+//     active invocation's captured signal into the V17a `thetaAbort` controller
+//     — never to resolve query completion. No production module installs this
+//     subscription today: production forwards the slash-command `ctx.signal`
+//     directly (`forwardSlashCommandCancel`, `cancellation-core.ts`); the seam
+//     is witnessed by its tests.
 //   - PIC-53 untyped-query `Ok(string)` trailing-turn extraction: the value is
 //     the accumulated assistant text of the final turn.
 //
@@ -52,10 +58,11 @@ export interface CallableSetInstall {
  * Compute the PIC-17 step-2 install vector: exactly
  * `[...thetaCallableSetNames, respondToolName?]`, with the respond tool appended
  * last only on a forced-respond turn. The ambient snapshot is deliberately not a
- * parameter here — it is never unioned into the install. Exported: every
- * production gating-window caller (`withActiveSetGate`,
- * `../runtime/tool-registration.ts`) computes its `installVector` through this
- * function rather than re-deriving the vector shape at each call site.
+ * parameter here — it is never unioned into the install. Exported: the
+ * producer's prompt-mode query window computes the `installVector` it threads
+ * into `withActiveSetGate` (`../runtime/tool-registration.ts`) through this
+ * function; the prompt→prompt `invoke` window (`invoke-prompt-suspend.ts`)
+ * hands the gate the child's callable set directly.
  */
 export function computeActiveSetInstall(install: CallableSetInstall): string[] {
   const names = [...install.thetaCallableSetNames];

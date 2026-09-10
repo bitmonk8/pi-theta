@@ -89,13 +89,6 @@ export function checkObjectIndex(opts: {
 }
 
 /**
- * Evaluate an `object` standard-library member on `receiver`: one of the method
- * calls `keys()` / `values()` / `has(k)`, with the arguments already evaluated
- * by the V3a interpreter. Returns the member's theta value per the expressions.md
- * stdlib table (`keys()` / `values()` follow the object's key order; `has(k)`
- * returns `false` for an unknown key without panic).
- */
-/**
  * The `object` standard-library member surface (expressions.md §"Built-in
  * methods and properties"): the allow-list the `type`-phase
  * `theta/parse/unknown-method` check consumes. Kept in lockstep with the
@@ -122,6 +115,13 @@ export const OBJECT_MEMBER_SIGNATURES: ReadonlyMap<string, StdlibMemberSignature
   ["has", { min: 1, max: 1, params: ["string"] }],
 ]);
 
+/**
+ * Evaluate an `object` standard-library member on `receiver`: one of the method
+ * calls `keys()` / `values()` / `has(k)`, with the arguments already evaluated
+ * by the V3a interpreter. Returns the member's theta value per the expressions.md
+ * stdlib table (`keys()` / `values()` follow the object's key order; `has(k)`
+ * returns `false` for an unknown key without panic).
+ */
 export function evaluateObjectMember(
   receiver: { readonly [key: string]: ThetaValue },
   member: string,

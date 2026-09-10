@@ -27,27 +27,14 @@
 // `V6c`) but does NOT populate or execute it — that is supplied by `V19d`
 // (effect wiring) / `V19e` (composition).
 //
-// V19b-T (tests-task) declares these seam shapes — the `LexicalEnvironment`
+// V19b-T (tests-task) declared these seam shapes — the `LexicalEnvironment`
 // scope model, the arm-labelled `Resolution`, the `WriteResult`, the
 // `MaterializedImport` / `EnumRegistration` inputs, the `buildEnvironment`
-// factory, and the real `ThetaEvalHost` realising `V3a`'s `EvalHost` — and stubs
-// each behaviour-bearing method inertly so the failing tests compile and red on
-// their own primary assertions:
-//
-//   - `resolve` returns the inert `unresolved` arm, so every precedence,
-//     `fn`-hoisting, and import-materialisation assertion reds (no arm matches);
-//   - `writeBinding` inertly accepts every write without recording it, so the
-//     `let mut` value-update assertion reds (the value never changes) and the
-//     immutable-rejection assertion reds (the write is not rejected);
-//   - `bindIterationVariable` / `child` return inert scopes, so the
-//     per-iteration fresh-binding assertion reds;
-//   - `resolveSchema` / `resolveEnumVariant` return `undefined`, so the
-//     schema-constructor / `Enum.Variant` assertions red;
-//   - the `ThetaEvalHost` methods return the inert `null` sentinel, so the host
-//     identifier-read / call assertions red.
-//
-// No test reds on a compile error, a missing fixture, or a harness throw. The
-// paired V19b implementation leaf fills these in.
+// factory, and the real `ThetaEvalHost` realising `V3a`'s `EvalHost`; V19b
+// (this leaf) supplies the behaviour: the precedence walk in `resolve`, the
+// `let mut` discipline in `writeBinding`, the per-iteration fresh scopes of
+// `bindIterationVariable` / `child`, the `resolveSchema` / `resolveEnumVariant`
+// lookups, and the environment-backed `ThetaEvalHost`.
 //
 // Spec: expressions.md (§"Identifier resolution"), bindings.md, functions.md,
 // imports.md, runtime-value-model.md.
@@ -84,8 +71,6 @@ export interface Resolution {
   readonly arm: ResolutionArm;
   /** The bound value — present for a `local` read. */
   readonly value?: ThetaValue;
-  /** Whether a `local` slot was declared `let mut`. */
-  readonly mutable?: boolean;
   /** The carried `fn` body — present for an `fn` / imported-`fn` resolution. */
   readonly fn?: FnDecl;
   /** Whether the resolution names a callable target (a `fn`, imported `fn`, or callable). */
@@ -253,9 +238,6 @@ export interface EnvironmentInputs {
  * and delegate outward for the identifier-resolution precedence walk.
  *
  * State is per-instance (constructor-injected) — no module-level mutable state.
- *
- * V19b-T stubs every behaviour-bearing method inertly (see the module header).
- * The paired V19b implementation leaf fills the scope model in.
  */
 /** A local binding slot: its current value and whether it was declared `let mut`. */
 interface LocalSlot {
@@ -598,7 +580,7 @@ export class LexicalEnvironment {
     for (let env: LexicalEnvironment | null = this; env !== null; env = env.parent) {
       const slot = env.locals.get(name);
       if (slot !== undefined) {
-        return { arm: "local", value: slot.value, mutable: slot.mutable };
+        return { arm: "local", value: slot.value };
       }
     }
     const root = this.root();
@@ -813,10 +795,6 @@ export class LexicalEnvironment {
  * resolves in either textual order), registers top-level `schema` / `enum`
  * declarations, materialises imported symbols, and records the callable-set
  * names (the precedence position `V19b` defines but does not populate).
- *
- * V19b-T stubs this inert — it returns an environment whose methods are inert,
- * so no hoisting / registration / materialisation is observable. The paired
- * V19b leaf fills it in.
  */
 export function buildEnvironment(inputs: EnvironmentInputs): LexicalEnvironment {
   return new LexicalEnvironment(inputs, null);
@@ -830,10 +808,6 @@ export function buildEnvironment(inputs: EnvironmentInputs): LexicalEnvironment 
  * The real `EvalHost` (`V3a`'s seam): resolves a bare identifier read and
  * performs a call `f(args)` against the lexical environment, in the
  * expressions.md §"Identifier resolution" first-match order.
- *
- * V19b-T stubs both methods as the inert `null` sentinel — neither consults the
- * environment — so the host identifier-read / call assertions red. The paired
- * V19b leaf wires the host to the environment.
  */
 export class ThetaEvalHost implements EvalHost {
   public constructor(private readonly env: LexicalEnvironment) {}

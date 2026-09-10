@@ -33,22 +33,11 @@
 // `type`-phase parse diagnostic (expressions.md §Truthiness). `checkBooleanPosition`
 // is the per-site checker that reports it, mirroring the V2b per-site checkers.
 //
-// V3a-T (tests-task) declares the seam — the `EvalHost` collaborator, the
+// V3a-T (tests-task) declared the seam — the `EvalHost` collaborator, the
 // `evaluateSource` entry point, and the `checkBooleanPosition` type-phase
-// checker — and stubs the behaviour-bearing functions inertly so the failing
-// tests compile and red on their own primary assertions:
-//
-//   - `evaluateSource` returns the inert `null` sentinel without parsing,
-//     evaluating, or calling the host, so every result-value assertion reds
-//     (a precedence result, an equality/ordering/arithmetic value) and the
-//     short-circuit observability assertion reds because the must-run operand's
-//     call is never recorded;
-//   - `checkBooleanPosition` returns no diagnostics, so the
-//     `theta/parse/non-boolean-condition` assertion reds on its absent
-//     diagnostic.
-//
-// No test reds on a compile error, a missing fixture, or a harness throw. The
-// paired V3a implementation leaf fills these in.
+// checker; V3a (this leaf) supplies the behaviour: `evaluateSource` tokenizes,
+// parses, and evaluates against the host, and `checkBooleanPosition` reports
+// `theta/parse/non-boolean-condition`.
 
 import type { Diagnostic } from "../diagnostics/diagnostic";
 import {
@@ -83,11 +72,6 @@ export interface EvalHost {
  * expressions.md operator-precedence table, left-to-right short-circuit /
  * ternary evaluation order, structural equality, and the arithmetic / ordering
  * rules. Never panics on div/mod-by-zero (it yields `±Infinity` / `NaN`).
- *
- * V3a-T stubs this as the inert `null` sentinel: it neither parses nor
- * evaluates `source` and never touches `host`, so every value assertion reds on
- * its own primary expectation and the short-circuit must-run assertion reds
- * because the host call is never recorded. The paired V3a leaf implements it.
  */
 export function evaluateSource(source: string, host: EvalHost): ThetaValue {
   const tokens = tokenize(source);
@@ -161,7 +145,7 @@ function tokenize(source: string): Token[] {
     // by the unary-`-` production, not the tokenizer.
     if (c >= "0" && c <= "9") {
       let j = i;
-      while (j < n && source[j] !== undefined && /[0-9]/.test(source[j] as string)) {
+      while (j < n && /[0-9]/.test(source[j] as string)) {
         j += 1;
       }
       if (j < n && source[j] === ".") {
@@ -559,25 +543,16 @@ function compareOrdered(
 }
 
 /**
- * The boolean positions of expressions.md §Truthiness: the `if` / `while`
- * scrutinees, the ternary condition, the `&&` / `||` operands, and the unary
- * `!` operand. Each accepts only `boolean`; a non-`boolean` there is
- * `theta/parse/non-boolean-condition`.
- */
-export type BooleanPosition = "if" | "while" | "ternary-condition" | "&&" | "||" | "!";
-
-/**
  * The type-phase boolean-position check. Reports
- * `theta/parse/non-boolean-condition` for any of the six `BooleanPosition`
- * values above (`if` / `while` / ternary condition, `&&` / `||` operand, or
- * the unary `!` operand) whose static type is other than `boolean` — theta
- * performs no truthiness coercion (expressions.md §Truthiness). Returns no
- * diagnostic for a `boolean`-typed operand.
- *
- * V3a-T stubs this inert (no diagnostics); the paired V3a leaf fills it in.
+ * `theta/parse/non-boolean-condition` for an operand in any of the six boolean
+ * positions of expressions.md §Truthiness (the `if` / `while` scrutinees, the
+ * ternary condition, the `&&` / `||` operands, or the unary `!` operand) whose
+ * static type is other than `boolean` — theta performs no truthiness coercion.
+ * Returns no diagnostic for a `boolean`-typed operand. The check is
+ * position-independent: the caller classifies the site, the diagnostic names
+ * only the operand's type.
  */
 export function checkBooleanPosition(opts: {
-  readonly position: BooleanPosition;
   readonly operandType: CompatType;
   readonly site: CompatSite;
 }): Diagnostic[] {

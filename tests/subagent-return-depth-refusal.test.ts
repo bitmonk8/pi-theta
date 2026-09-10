@@ -202,7 +202,6 @@ import {
 import { makeEnumValue, makeOk, type ThetaValue } from "../src/runtime/value";
 import { enumDeclaringKey } from "../src/runtime/lexical-environment";
 import { collectForwardedEnumTags } from "../src/runtime/enum-tag-carriage";
-import { WallClock } from "../src/seams/wall-clock";
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
 import type { ThetaSource } from "../src/lexer/lexer";
 import type { ModelReferenceMatcher, ParsedFrontmatter } from "../src/parser/frontmatter";
@@ -1274,7 +1273,6 @@ describe("bug 0187 (UNINFERRED) — what a caller binds at a return boundary tha
             thetaAbort: new AbortController(),
             calleePath: join(thetaDir, `${slug}.theta`),
             emitDiagnostic,
-            clock: new WallClock(),
           });
           clearTimeout(watchdog);
           const exit = await exited;

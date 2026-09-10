@@ -30,15 +30,6 @@ import { assertStdlibArgumentKinds, type StdlibMemberSignature } from "./stdlib-
 import { valuesEqual, type ThetaValue } from "./value";
 
 /**
- * Evaluate an `array<T>` standard-library member on `receiver`: the `length`
- * property (called with `args === []`) or one of the method calls (`join` /
- * `includes` / `indexOf` / `slice` / `concat`), with the arguments already evaluated by
- * the V3a interpreter. Returns the member's theta value per the expressions.md
- * stdlib table (`includes` / `indexOf` use the V2c `valuesEqual` structural
- * equality; `slice` follows JS semantics).
- *
- */
-/**
  * The `array<T>` standard-library member surface (expressions.md §"Built-in
  * methods and properties"): the allow-list the `type`-phase
  * `theta/parse/unknown-method` check consumes. Kept in lockstep with the
@@ -74,6 +65,14 @@ export const ARRAY_MEMBER_SIGNATURES: ReadonlyMap<string, StdlibMemberSignature>
   ["concat", { min: 1, max: 1, params: ["array"] }],
 ]);
 
+/**
+ * Evaluate an `array<T>` standard-library member on `receiver`: the `length`
+ * property (called with `args === []`) or one of the method calls (`join` /
+ * `includes` / `indexOf` / `slice` / `concat`), with the arguments already evaluated by
+ * the V3a interpreter. Returns the member's theta value per the expressions.md
+ * stdlib table (`includes` / `indexOf` use the V2c `valuesEqual` structural
+ * equality; `slice` follows JS semantics).
+ */
 export function evaluateArrayMember(
   receiver: readonly ThetaValue[],
   member: string,

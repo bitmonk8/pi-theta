@@ -79,7 +79,7 @@ import {
   InvokeInfraCauseError,
   type InvokeInfraCause,
 } from "../src/runtime/query-error";
-import { SUBAGENT_MODEL_UNRESOLVED_CODE } from "../src/runtime/subagent-isolation";
+import { SUBAGENT_MODEL_UNRESOLVED_CODE } from "../src/runtime/subagent-model-guard";
 
 // =============================================================================
 // (A) The deterministic model-driven core — scripted collaborators, no SDK.

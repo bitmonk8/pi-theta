@@ -37,7 +37,6 @@ import {
   type ChildExitInfo,
   type ExecutableHost,
 } from "../src/runtime/subagent-launcher";
-import { WallClock } from "../src/seams/wall-clock";
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
 
 /** The repo's pinned pi CLI entry — the SAME executable resolution rung 1 uses in production. */
@@ -152,7 +151,6 @@ describe("bug 0002 — real subagent child spawn (production spawn path, provide
           thetaAbort: new AbortController(),
           calleePath: join(thetaDir, "min-child.theta"),
           emitDiagnostic,
-          clock: new WallClock(),
         });
         clearTimeout(watchdog);
 

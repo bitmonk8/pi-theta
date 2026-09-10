@@ -240,7 +240,6 @@ import {
   type SchemaSlug,
   type SchemaValidator,
 } from "../src/seams/schema-validator";
-import { WallClock } from "../src/seams/wall-clock";
 
 // ===========================================================================
 // Shared constants.
@@ -1914,7 +1913,6 @@ describe("bug 0201 (BOUND) — what a caller binds when the callee's payload car
             thetaAbort: new AbortController(),
             calleePath: join(thetaDir, `${slug}.theta`),
             emitDiagnostic,
-            clock: new WallClock(),
           });
           clearTimeout(watchdog);
           const exit = await exited;

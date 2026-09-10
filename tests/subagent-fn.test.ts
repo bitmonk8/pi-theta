@@ -729,8 +729,8 @@ describe("RFC-0001 subagent-fn — countable under the depth-32 invoke ceiling (
 // through a `SubagentSessionHost` that extends `StatementEvalHost` with two
 // additive methods the executor is obliged to call around a subagent fn body:
 //
-//   spawnSubagentSession(config): string   // enter a fresh isolated session,
-//                                           // returning its id; records config
+//   spawnSubagentSession(config): void     // enter a fresh isolated session;
+//                                           // records config
 //   exitSubagentSession(): void            // discard it on return
 //
 // and tags every checkpointed effect (`@` query / call) with the currently-active
@@ -777,7 +777,7 @@ interface SessionConfig {
  * today).
  */
 interface SubagentSessionHost extends StatementEvalHost {
-  spawnSubagentSession(config: SessionConfig): string;
+  spawnSubagentSession(config: SessionConfig): void;
   exitSubagentSession(): void;
 }
 
@@ -806,12 +806,11 @@ class SubagentFnHost implements SubagentSessionHost {
     return this.sessionStack[this.sessionStack.length - 1] as string;
   }
 
-  spawnSubagentSession(config: SessionConfig): string {
+  spawnSubagentSession(config: SessionConfig): void {
     this.#nextSession += 1;
     const id = `subagent-${this.#nextSession}`;
     this.spawnedSessions.push({ id, config });
     this.sessionStack.push(id);
-    return id;
   }
 
   exitSubagentSession(): void {
@@ -1525,7 +1524,7 @@ describe("RFC-0001 subagent-fn — nested depth ACCUMULATES and trips at the 33r
   it("a nested subagent-fn spawn climbs the shared chain and the 33rd push trips invoke-depth-exceeded, downgraded to InvokeInfraError{panic}", async () => {
     const host = createEffectfulStatementHost(chainThreadingDeps(newInvokeChain()));
     const spawn = (
-      host as unknown as { spawnSubagentSession(config: SessionConfig): Promise<string> }
+      host as unknown as { spawnSubagentSession(config: SessionConfig): Promise<void> }
     ).spawnSubagentSession.bind(host);
 
     // INVOKE_DEPTH_CAP (32) nested spawns succeed — each routes through the

@@ -95,7 +95,6 @@ import {
   type ChildExitInfo,
   type ExecutableHost,
 } from "../src/runtime/subagent-launcher";
-import { WallClock } from "../src/seams/wall-clock";
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
 
 /** The repo's pinned pi CLI entry — the SAME executable resolution rung 1 uses in production. */
@@ -367,7 +366,6 @@ describe("bug 0174 — typed invoke return validation across the prompt→prompt
           thetaAbort: new AbortController(),
           calleePath: join(thetaDir, "top-typed.theta"),
           emitDiagnostic,
-          clock: new WallClock(),
         });
         clearTimeout(watchdog);
 

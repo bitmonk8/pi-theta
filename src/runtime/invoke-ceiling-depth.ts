@@ -34,12 +34,9 @@
 // the `InvokeInfraError` carrier and surfacing it as `Err(InvokeInfraError)` to the
 // invoke parent.
 //
-// V15j-T (tests-task) declares the seam shapes and stubs both behaviour-bearing
-// functions inertly — each never fires (returns `undefined`), so a depth-6 value
-// yields no breach and the failing tests red on their own primary "expected a
-// breach" assertion, per the per-phase TDD ritual's "fail red for the intended
-// reason". The paired `V15j` implementation leaf fills in the depth-walk
-// short-circuit and the `InvokeInfraError` wrapping.
+// V15j-T (tests-task) declared the seam shapes; V15j (this leaf) supplies both
+// behaviour-bearing functions: the depth-walk short-circuit and the
+// `InvokeInfraError` wrapping.
 //
 // Spec: hard-ceilings/ceilings-3-and-4.md §"Per-boundary destination/surface
 // table (ceiling #4)" (#ceiling-4-table, the `params` / `invoke<T>`-return rows)

@@ -13,10 +13,11 @@
 // PIC-17 step-4 restore, generalised from the per-query window to the child's
 // whole body).
 //
-// Scope: the prompt→prompt cell only. Every other cross-mode cell (any
-// subagent-mode participant) reaches the model through `customTools` on a
-// spawned `AgentSession` and never touches the user session's active set, so no
-// suspend/snapshot/restore window engages there (owned by `V15l`).
+// Scope: the prompt→prompt cell only — the caller (the producer's `invoke`
+// path) selects this window for that cell and routes every other cross-mode
+// cell (any subagent-mode participant) to the spawn path, where the callee
+// reaches the model through `customTools` on a spawned `AgentSession` and
+// never touches the user session's active set (owned by `V15l`).
 //
 // The suspend-until-child-settles behaviour this module owns is distinct from
 // PIC-2 cross-body non-overlap (owned by `V9c`): here the child body is what
@@ -31,10 +32,8 @@
 // active set (step 1), installs the child's callable set (step 2), suspends
 // the parent by awaiting the child body, and restores the snapshot under the
 // PIC-8/PIC-19 protocol once the child settles (step 4) — including the fail /
-// cancel / throw paths, with the inner failure surfaced unmasked. For every
-// other cell no window engages and the child body runs untouched.
+// cancel / throw paths, with the inner failure surfaced unmasked.
 
-import type { CrossModeCell } from "./invoke-cross-mode";
 import type { Diagnostic } from "../diagnostics/diagnostic";
 import { withActiveSetGate, type ActiveSetAdvisoryNote, type ActiveSetPi } from "./tool-registration";
 
@@ -49,12 +48,6 @@ export type PromptSuspendPi = ActiveSetPi;
 
 /** Inputs to one prompt→prompt `invoke` hop's suspend/snapshot/restore window. */
 export interface PromptSuspendInput<T> {
-  /**
-   * The cross-mode cell for this hop. The suspend + snapshot/restore window
-   * engages ONLY for the prompt→prompt cell (invocation.md §Cross-mode
-   * semantics); every other cell leaves the user session's active set untouched.
-   */
-  readonly cell: CrossModeCell;
   /**
    * The child's declared callable set — the exact step-2 install vector the
    * window installs while the child runs. The step-1 snapshot is held only for
@@ -85,11 +78,6 @@ export interface PromptSuspendInput<T> {
 
 /** The outcome of a prompt→prompt `invoke` hop's suspend window. */
 export interface PromptSuspendOutcome<T> {
-  /**
-   * Whether the prompt→prompt parent-suspend + snapshot/restore window engaged
-   * for this hop. `true` only for the prompt→prompt cell.
-   */
-  readonly engaged: boolean;
   /** The child body's success value (fire-and-forget / typed-return payload). */
   readonly result: T;
 }
@@ -98,11 +86,11 @@ export interface PromptSuspendOutcome<T> {
  * Run one prompt→prompt `invoke` hop under the parent-suspend + active-set
  * snapshot/restore window (invocation.md §Cross-mode semantics; PIC-17).
  *
- * For the prompt→prompt cell: snapshot the user session's active set, install
- * the child's callable set, suspend the parent by awaiting the child body, and
- * restore the snapshot in a `finally` once the child settles — including the
- * fail / cancel / throw paths, with the inner failure surfaced unmasked. For any
- * other cell no window engages and the child body runs untouched.
+ * Snapshot the user session's active set, install the child's callable set,
+ * suspend the parent by awaiting the child body, and restore the snapshot once
+ * the child settles — including the fail / cancel / throw paths, with the inner
+ * failure surfaced unmasked. The caller invokes this for the prompt→prompt cell
+ * only (see the module header).
  *
  * The step-1 snapshot is held only for the step-4 restore and is deliberately
  * NOT unioned into the install vector — ambient tools are not inherited by the
@@ -112,14 +100,7 @@ export interface PromptSuspendOutcome<T> {
 export async function runPromptSuspendInvoke<T>(
   input: PromptSuspendInput<T>,
 ): Promise<PromptSuspendOutcome<T>> {
-  const { cell, childCallableSet, pi, childBody } = input;
-
-  // Only the prompt→prompt cell engages the suspend + snapshot/restore window;
-  // every other cell leaves the user session's active set untouched.
-  if (cell.callerMode !== "prompt" || cell.calleeMode !== "prompt") {
-    const result = await childBody();
-    return { engaged: false, result };
-  }
+  const { childCallableSet, pi, childBody } = input;
 
   // Bug 0372 §Fix: the snapshot/swap-install/restore steps run under
   // `withActiveSetGate` (tool-registration.ts) rather than a bare
@@ -138,5 +119,5 @@ export async function runPromptSuspendInvoke<T>(
     },
     childBody,
   );
-  return { engaged: true, result };
+  return { result };
 }

@@ -50,21 +50,11 @@
 // `Ok`; the only `CodeToolError { cause: "execution" }` code-side path is the
 // `execute()` throw.
 //
-// V14g-T (tests-task) declares this surface and stubs every behaviour-bearing
-// function inertly:
-//   - `filterJoinToolText` returns a sentinel constant (so the filter/join and
-//     non-text-discard assertions red on their own value),
-//   - `lowerResolvedToolEnvelope` returns an inert `Err` (so the accepted-path
-//     `Ok(string)` / `Ok("")` assertions red on `.ok`),
-//   - `truncateUtf8CodePointBoundary` returns its input unchanged (so the
-//     4096-byte code-point-boundary assertions red on the resulting byte length),
-//   - `lowerToolExecuteThrow` returns a sentinel-`message` carrier (so the
-//     coercion / truncation assertions red on `.message`),
-//   - `runCodeSideToolCall` fires no checkpoint and dispatches nothing (so the
-//     tool-call-checkpoint presence, abort-skip, and ERR-13 assertions red).
-// Each paired V14g-T test reds on its own primary assertion, not on a compile
-// error, a missing fixture, or a harness throw. The paired V14g implementation
-// leaf fills these in.
+// V14g-T (tests-task) declared this surface; V14g (this leaf) supplies the
+// behaviour: the `filterJoinToolText` filter/join, the accepted-path
+// `lowerResolvedToolEnvelope` lowering, the `truncateUtf8CodePointBoundary`
+// code-point-boundary truncation, the `lowerToolExecuteThrow` coercion, and
+// the checkpoint-first `runCodeSideToolCall` dispatch.
 //
 // Spec: pi-integration-contract/host-interfaces-core.md §"Tool execution from
 // theta code"; cancellation.md §Granularity; errors-and-results/
