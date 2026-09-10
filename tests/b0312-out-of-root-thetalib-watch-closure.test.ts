@@ -359,7 +359,6 @@ function installDirectRig(
     },
     currentWatchRoots: () => rootsB,
     reRegister: (): void => {},
-    initialNames: [],
     probeRuntime: (): void => {},
   });
   return {

@@ -64,7 +64,7 @@ import {
  * node is the code-side tool-call surface (`<name>(args)`), distinct from
  * `invoke` / `method-call` / `query`.
  */
-export function collectCodeSideCallNames(body: ThetaBody): Set<string> {
+function collectCodeSideCallNames(body: ThetaBody): Set<string> {
   const out = new Set<string>();
   walkBlock(body, out);
   return out;

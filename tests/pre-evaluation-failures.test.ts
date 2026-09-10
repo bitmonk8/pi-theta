@@ -85,10 +85,7 @@ describe("V4e-T — load-time pre-evaluation failure routing", () => {
     const { channel, sendMessage } = recordingChannel();
     const router = createLoadFailurePreEvalRouter({ channel });
 
-    router.routePreEvalFailure(
-      "capability-probe",
-      diagNote("theta/load/host-incompatible"),
-    );
+    router.routePreEvalFailure(diagNote("theta/load/host-incompatible"));
 
     const note = onlyNote(sendMessage);
     expect(note.customType).toBe(SYSTEM_NOTE_CHANNEL);
@@ -102,10 +99,7 @@ describe("V4e-T — load-time pre-evaluation failure routing", () => {
     const { channel, sendMessage } = recordingChannel();
     const router = createLoadFailurePreEvalRouter({ channel });
 
-    router.routePreEvalFailure(
-      "lex-parse-type",
-      diagNote("theta/parse/unterminated-template"),
-    );
+    router.routePreEvalFailure(diagNote("theta/parse/unterminated-template"));
 
     const note = onlyNote(sendMessage);
     expect(note.customType).toBe(SYSTEM_NOTE_CHANNEL);
@@ -117,7 +111,7 @@ describe("V4e-T — load-time pre-evaluation failure routing", () => {
     const { channel, sendMessage } = recordingChannel();
     const router = createLoadFailurePreEvalRouter({ channel });
 
-    router.routePreEvalFailure("frontmatter", diagNote("theta/load/missing-mode"));
+    router.routePreEvalFailure(diagNote("theta/load/missing-mode"));
 
     const note = onlyNote(sendMessage);
     expect(note.customType).toBe(SYSTEM_NOTE_CHANNEL);
@@ -130,10 +124,7 @@ describe("V4e-T — load-time pre-evaluation failure routing", () => {
     const { channel, sendMessage } = recordingChannel();
     const router = createLoadFailurePreEvalRouter({ channel });
 
-    router.routePreEvalFailure(
-      "binder-model",
-      diagNote("theta/load/binder-model-unresolved"),
-    );
+    router.routePreEvalFailure(diagNote("theta/load/binder-model-unresolved"));
 
     const note = onlyNote(sendMessage);
     expect(note.customType).toBe(SYSTEM_NOTE_CHANNEL);
@@ -152,7 +143,7 @@ describe("V4e-T — load-time pre-evaluation failure routing", () => {
       display: true,
       details: { event: { kind: "ceiling", surfaced: "ceiling#3" } },
     };
-    router.routePreEvalFailure("binder-arg-binding", note);
+    router.routePreEvalFailure(note);
 
     const routed = onlyNote(sendMessage);
     expect(routed.customType).toBe(SYSTEM_NOTE_CHANNEL);
@@ -165,10 +156,7 @@ describe("V4e-T — load-time pre-evaluation failure routing", () => {
     const { channel, sendMessage } = recordingChannel();
     const router = createLoadFailurePreEvalRouter({ channel });
 
-    router.routePreEvalFailure(
-      "tools-resolution",
-      diagNote("theta/load/unknown-tool"),
-    );
+    router.routePreEvalFailure(diagNote("theta/load/unknown-tool"));
 
     const note = onlyNote(sendMessage);
     expect(note.customType).toBe(SYSTEM_NOTE_CHANNEL);
@@ -194,7 +182,7 @@ describe("V4e-T — load-time pre-evaluation failure routing", () => {
       // `<ajv-summary>`, so the cross-route surfaces ceiling #3 alone.
       details: { event: { kind: "ceiling", surfaced: "ceiling#3" } },
     };
-    router.routePreEvalFailure("slash-load-params", crossRoute);
+    router.routePreEvalFailure(crossRoute);
 
     // Primary assertion — the cross-route note routes pre-eval onto the
     // theta-system-note channel with `triggerTurn:false`, never firing a turn.
@@ -213,19 +201,20 @@ describe("V4e-T — load-time pre-evaluation failure routing", () => {
     // Exercise every diagnostic-batch cause through the one routing surface:
     // each MUST surface exactly one theta-system-note carrying
     // `triggerTurn:false`, so no cause ever fires a turn or becomes an
-    // evaluation Failure.
-    const cases: ReadonlyArray<readonly [PreEvalFailureCause, string]> = [
-      ["capability-probe", "theta/load/host-incompatible"],
-      ["lex-parse-type", "theta/parse/unterminated-template"],
-      ["frontmatter", "theta/load/missing-mode"],
-      ["binder-model", "theta/load/binder-model-unresolved"],
-      ["tools-resolution", "theta/load/unknown-tool"],
+    // evaluation Failure. One representative code per cause (ERR-1, ERR-2,
+    // ERR-3, ERR-4, ERR-6).
+    const codes: readonly string[] = [
+      "theta/load/host-incompatible",
+      "theta/parse/unterminated-template",
+      "theta/load/missing-mode",
+      "theta/load/binder-model-unresolved",
+      "theta/load/unknown-tool",
     ];
-    for (const [cause, code] of cases) {
+    for (const code of codes) {
       const { channel, sendMessage } = recordingChannel();
       const router = createLoadFailurePreEvalRouter({ channel });
 
-      router.routePreEvalFailure(cause, diagNote(code));
+      router.routePreEvalFailure(diagNote(code));
 
       const note = onlyNote(sendMessage);
       expect(note.customType).toBe(SYSTEM_NOTE_CHANNEL);
@@ -274,12 +263,12 @@ describe("V4e-T — load-time pre-evaluation failure routing", () => {
   // open bug 0107's axis, outside bug 0109's settled §Fix.
   //
   // WHY A DIRECT-CALL CELL: the mapping has no routable observable.
-  // `routePreEvalFailure` (`src/extension/load-pre-eval.ts`) discards its cause
-  // argument (`void cause;`) and delivers every cause over the one
-  // `theta-system-note` surface with the same fixed options, so a `tools:` code
-  // misclassified as ERR-3 `frontmatter` produces a byte-identical note. The
-  // cell therefore asserts `preEvalCauseOf` itself; the function is pure and
-  // total on `string`, so nothing else can witness the divergence.
+  // `routePreEvalFailure` (`src/extension/load-pre-eval.ts`) takes no cause
+  // argument and delivers every cause over the one `theta-system-note` surface
+  // with the same fixed options, so a `tools:` code misclassified as ERR-3
+  // `frontmatter` produces a byte-identical note. The cell therefore asserts
+  // `preEvalCauseOf` itself; the function is pure and total on `string`, so
+  // nothing else can witness the divergence.
   //
   // The three non-`tools:` rows are guards: `theta/load/missing-mode` MUST stay
   // ERR-3 `frontmatter` (reds if the batch is over-widened into the ERR-3 arm),

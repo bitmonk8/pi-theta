@@ -2,7 +2,7 @@
 id: PTQ-0176
 title: The invoke-static-checks.ts module header inventories the checks the module wires but stops at bug 0138, omitting the three later imported-.thetalib checks (bugs 0429/0430/0448) exported from the same file and the RFC 0009 with-clause checks
 lens: D2
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/extension/invoke-static-checks.ts:1-58

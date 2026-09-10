@@ -2,7 +2,7 @@
 id: PTQ-0046
 title: SystemNote doc comment describes SystemNoteDetails as a "closed 4-arm" union "below" with no possible "fifth member", but the union has five arms and sits above
 lens: D2                     # the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - src/extension/system-note-channel.ts:128-136

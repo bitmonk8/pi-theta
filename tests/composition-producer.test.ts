@@ -3,6 +3,7 @@ import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import type { AssistantMessage, Message, UserMessage } from "@earendil-works/pi-ai";
 import {
   composeThetaFixture,
+  type BodyExecutingConversationBinding,
   type ConversationBinding,
   type ConversationBindInput,
   type BinderRunInput,
@@ -320,7 +321,7 @@ function makeHarness(opts: { bound?: boolean; surfaceErr?: QueryError } = {}): H
     session: RecordingSession,
     mode: DrivenConversationMode,
     drivenAgainst: DrivenConversation,
-  ): ConversationBinding {
+  ): BodyExecutingConversationBinding {
     const messages: Message[] = [];
     const executeDeps = boundExecuteDeps(session, messages, mode, () => order.push("stmt:query"));
     state.drivenAgainst = drivenAgainst;
@@ -344,7 +345,7 @@ function makeHarness(opts: { bound?: boolean; surfaceErr?: QueryError } = {}): H
       order.push("bind");
       return Promise.resolve({ bound: opts.bound ?? true });
     },
-    bindPromptConversation(_input: ConversationBindInput): ConversationBinding {
+    bindPromptConversation(_input: ConversationBindInput): BodyExecutingConversationBinding {
       state.promptBound = true;
       return bindingOver(userSession, "prompt", "prompt-user-session");
     },

@@ -2,7 +2,7 @@
 id: PTQ-0042
 title: sdk-inventory.ts comment claims createAgentSession "stays catalogued below as a still-imported surface", but no such row or import exists
 lens: D2                     # the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - src/extension/sdk-inventory.ts:190-194

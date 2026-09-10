@@ -118,7 +118,6 @@ import {
   checkImportedNonCtorTypeNames,
   checkImportedSchemaCtorFields,
   type ImportedFnCallee,
-  type ImportedNonCtorKind,
 } from "./invoke-static-checks";
 
 /** Forward-slash-normalise a host path so the posix-based resolver joins cleanly. */
@@ -281,7 +280,6 @@ function collectImportedTypeDecls(
   const schemas = new Map<string, SchemaDecl>();
   const enums = new Map<string, EnumDecl>();
   const visitedSchemas = new Set<string>();
-  const visitedEnums = new Set<string>();
 
   const typeSourcesOf = (decl: SchemaDecl): readonly string[] =>
     decl.fields !== undefined
@@ -338,10 +336,6 @@ function collectImportedTypeDecls(
         enums.set(asName, { ...decl, name: asName });
       }
     }
-    if (visitedEnums.has(sourceName)) {
-      return;
-    }
-    visitedEnums.add(sourceName);
   };
 
   if (entrySchema !== undefined) {
@@ -1239,13 +1233,14 @@ export async function checkThetaImports(
   // variant list for `checkImportedEnumVariantAccess` to judge each
   // `MemberExpr` access site against.
   const importedEnums = new Map<string, readonly string[]>();
-  // Bug 0448 route — the KIND sibling of the `importedSchemas` /
+  // Bug 0448 route — the non-constructible sibling of the `importedSchemas` /
   // `importedEnums` lookups above, keyed the same way (specifier LOCAL name)
   // and populated in the SAME per-decl loop: every imported binding whose
   // DIRECT declaration is not brace-constructible (an `enum`, a `fn`, or a
   // fields-less/alias-form `schema`), for `checkImportedNonCtorTypeNames` to
-  // judge each `ObjectExpr` constructor site against.
-  const importedNonCtorKinds = new Map<string, ImportedNonCtorKind>();
+  // judge each `ObjectExpr` constructor site against. Membership alone decides
+  // that verdict (all three shapes draw one diagnostic), so this is a name set.
+  const importedNonCtorNames = new Set<string>();
   // Bug 0465 route — the QUERY/INVOKE-LOWERING sibling of `importedSchemas` /
   // `importedEnums` above: the two producer call sites that lower a typed
   // `@<Schema>` / `invoke<Schema>` annotation (query-schema-lowering.ts) need
@@ -1383,7 +1378,7 @@ export async function checkThetaImports(
       // name classification) because it is not brace-constructible under any
       // reading. This LOAD route judges FIELD SETS only (`importedSchemas`) —
       // a fields-less decl carries none to judge against — so bug 0448 records
-      // the KIND instead, in `importedNonCtorKinds`, for
+      // the NAME instead, in `importedNonCtorNames`, for
       // `checkImportedNonCtorTypeNames` to judge the constructor-head question
       // the field-set walk cannot reach (a sibling of bug 0430's enum-variant
       // class).
@@ -1398,14 +1393,14 @@ export async function checkThetaImports(
       // precedence: a specifier whose direct decl carries such a schema is
       // constructible, so it enters `importedSchemas` (bug 0429's field-set
       // walk) and NONE of the non-ctor arms below record it. Every
-      // `importedNonCtorKinds` arm is gated on `!hasCtorSchema`, keeping the
-      // map's meaning — non-brace-constructible imported bindings — honest.
+      // `importedNonCtorNames` arm is gated on `!hasCtorSchema`, keeping the
+      // set's meaning — non-brace-constructible imported bindings — honest.
       const hasCtorSchema = schemaDecl !== undefined && schemaDecl.fields !== undefined;
       if (schemaDecl !== undefined && schemaDecl.fields !== undefined) {
         importedSchemas.set(specifier.local, schemaDecl.fields);
       }
       if (schemaDecl !== undefined && !hasCtorSchema) {
-        importedNonCtorKinds.set(specifier.local, { kind: "schema-alias" });
+        importedNonCtorNames.add(specifier.local);
       }
       const fnDecl = parsed.document.body.statements.find(
         (stmt): stmt is FnDecl => stmt.kind === "fn" && stmt.name === specifier.source,
@@ -1426,7 +1421,7 @@ export async function checkThetaImports(
         // `checkImportedNonCtorTypeNames` can judge the constructor question
         // this loop otherwise drops.
         if (!hasCtorSchema) {
-          importedNonCtorKinds.set(specifier.local, { kind: "fn" });
+          importedNonCtorNames.add(specifier.local);
         }
       }
       // Bug 0430 — the `enum` sibling of the `schema` lookup above, same
@@ -1450,7 +1445,7 @@ export async function checkThetaImports(
         // brace-constructibility one) — recorded on any direct top-level
         // `enum` match unless a fields-bearing schema of the same name outranks
         // it (`hasCtorSchema`, above), mirroring same-file precedence.
-        importedNonCtorKinds.set(specifier.local, { kind: "enum" });
+        importedNonCtorNames.add(specifier.local);
       }
       // Bug 0465: feed the QUERY/INVOKE lowering seam the SAME direct-decl
       // finds (`schemaDecl` / `enumDecl`) already made above, plus their
@@ -1483,18 +1478,15 @@ export async function checkThetaImports(
       if (materialized !== undefined) {
         imports.push(materialized);
       }
-      // Bug 0422 route (a): a direct schema match (the same body this
-      // specifier's own decl loop already parsed, `parsed.document.body`)
-      // builds the real object shell for the load-phase template
-      // revalidation below. `collectBodyTypes` over the LIB's own body gives
-      // `toSystemParamType` the lib's own named-type set (nested fields
-      // referencing another schema/enum IN THE SAME LIB resolve; a nested
-      // import stays `opaque-object`, admitting further — unchanged from the
-      // parse-time disposition for that deeper case).
-      const directSchema = parsed.document.body.statements.find(
-        (stmt): stmt is SchemaDecl => stmt.kind === "schema" && stmt.name === specifier.source,
-      );
-      if (directSchema !== undefined) {
+      // Bug 0422 route (a): a direct schema match (`schemaDecl`, the find this
+      // specifier's own decl loop already made above over
+      // `parsed.document.body`) builds the real object shell for the
+      // load-phase template revalidation below. `collectBodyTypes` over the
+      // LIB's own body gives `toSystemParamType` the lib's own named-type set
+      // (nested fields referencing another schema/enum IN THE SAME LIB
+      // resolve; a nested import stays `opaque-object`, admitting further —
+      // unchanged from the parse-time disposition for that deeper case).
+      if (schemaDecl !== undefined) {
         const { bodyTypes: libBodyTypes } = collectBodyTypes(
           parsed.document.body.statements,
           resolvedPath,
@@ -1842,14 +1834,14 @@ export async function checkThetaImports(
   // Bug 0448: judge every imported constructor site whose head resolves to a
   // NON-brace-constructible declaration (an `enum`, a `fn`, or a fields-less
   // `schema`), ONCE over the importing theta's own body, now that the
-  // per-decl loop above holds the whole `importedNonCtorKinds` map — the same
+  // per-decl loop above holds the whole `importedNonCtorNames` set — the same
   // wiring shape as the two pushes immediately above.
   diagnostics.push(
     ...checkImportedNonCtorTypeNames(
       input.body,
       input.sourcePath,
       (input.frontmatter?.params?.fields ?? []).map((f) => f.wireName),
-      importedNonCtorKinds,
+      importedNonCtorNames,
     ),
   );
 

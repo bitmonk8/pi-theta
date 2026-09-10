@@ -116,6 +116,7 @@ import { isStaleCtxError } from "./stale-ctx";
 import type {
   BinderRunInput,
   BinderRunResult,
+  BodyExecutingConversationBinding,
   ConversationBinding,
   ConversationBindInput,
   ThetaCompositionInput,
@@ -2028,7 +2029,7 @@ class ProductionThetaProducer implements ThetaProducerDeps {
     };
   }
 
-  bindPromptConversation(bindInput: ConversationBindInput): ConversationBinding {
+  bindPromptConversation(bindInput: ConversationBindInput): BodyExecutingConversationBinding {
     const { pi, root } = this.#input;
     const { theta, ctx } = bindInput;
     // INV-4 / ceiling #1: a top-level dispatch starts a fresh chain, seeded at
@@ -2449,22 +2450,17 @@ class ProductionThetaProducer implements ThetaProducerDeps {
     // envelope failures). Absent on non-production harnesses (a no-op).
     const emitDiagnostic = this.#input.emitDiagnostic ?? ((): void => {});
 
-    // ---- IN-PROCESS host backing `executeDeps.host` ----
-    // Queries resolve via `#resolvePromptQuery(..., userVisible: false)` — a
-    // private `complete()` conversation, never the caller's. The file-callee
-    // path (below) uses `drive()` and never runs the body in-process.
-    const signal = thetaAbort.signal;
     // Decision 6 / Increment B1: the invocation's registry entry, opened before
-    // the lazy child launch below so the entry SPANS the real in-flight window;
+    // the child launch below so the entry SPANS the real in-flight window;
     // removal is deferred to `finishInvocation`. The slash dispatch entry
     // point's pre-binder ticket is REUSED when present (`bindInput.invocationTicket`),
     // so the entry also spans the binder window and no second entry is added.
     //
-    // RFC 0010 (EXST-4): hoisted above the host/execute deps so this
-    // invocation's id is in scope for the telemetry `Checkpoint` decorator, the
-    // lane hooks, and the child tap below. The hoist stays inside the same
-    // all-synchronous prologue, so the registry's `size()` transition points
-    // are unchanged.
+    // RFC 0010 (EXST-4): opened inside the same all-synchronous prologue as the
+    // bus notification and the child tap below, so the registry's `size()`
+    // transition points are unchanged. The body never runs in-process on this
+    // binding — it runs in the spawned child, and `drive()` (below) resolves
+    // the `Result` — so no executor host or deps are built here.
     const ticket =
       bindInput.invocationTicket ?? this.#openInvocationTicket(theta.slashName, thetaAbort);
     const statusBus = this.#input.statusBus;
@@ -2474,70 +2470,6 @@ class ProductionThetaProducer implements ThetaProducerDeps {
         ? { parentInvocationId: bindInput.parentInvocationId }
         : {}),
     });
-    const checkpoint = decorateCheckpoint(root.checkpoint, statusBus, ticket.invocationId);
-    const statusLanes: ParForLaneHooks | undefined =
-      statusBus === undefined
-        ? undefined
-        : { open: (total, width) => statusBus.openLaneSet(ticket.invocationId, total, width) };
-    const hostDeps: EffectfulStatementHostDeps = {
-      checkpoint,
-      signal,
-      sink: noopSink(),
-      file: theta.slashName,
-      evaluatePure: (expr, env, overrideChain) => evaluatePureExpression(expr, env, overrideChain ?? chain),
-      // Bug 0388: `overrideChain` (present only for a dispatch nested inside a
-      // cross-file `.thetalib` fn body) takes priority over the bind-level
-      // `chain` seed; absent, this is byte-identical to the pre-fix dispatch.
-      resolveQuery: (expr, env, overrideChain) =>
-        this.#resolvePromptQuery(expr, env, {
-          pi: this.#input.pi,
-          ctx,
-          theta,
-          signal,
-          thetaAbort,
-          readMessages: () => [],
-          userVisible: false,
-          chain: overrideChain ?? chain,
-        }),
-      resolveToolCall: (expr, env, evaluatedToolArgs) =>
-        this.#resolveToolCall(theta, expr, env, signal, evaluatedToolArgs),
-      resolveInvoke: (expr, env, overrideChain) =>
-        this.#resolveInvoke(theta, expr, env, ctx, overrideChain ?? chain, signal, "subagent", ticket.invocationId),
-      // Bug 0088: pair the wrapper `runInvokeEffect` builds for a failed hop
-      // with its provenance record.
-      recordInvokeHop: (wrapper, calleePath, callSite) =>
-        this.#recordInvokeHop(theta, wrapper, calleePath, callSite),
-      classifyCall: (expr) => this.#classifyCall(theta, expr),
-      resolveCallAsInvoke: (expr, env, overrideChain) =>
-        this.#resolveCallAsInvoke(theta, expr, env, ctx, overrideChain ?? chain, signal, "subagent", ticket.invocationId),
-      spawnSubagentFnSession: (config, overrideChain) =>
-        this.#spawnSubagentFnSession(theta, config, ctx, overrideChain ?? chain, signal),
-    };
-
-    const executeDeps: ExecuteBodyDeps = {
-      env: buildBoundEnvironment(
-        theta.body,
-        bindInput.paramBindings,
-        theta.imports,
-        presentedCallableNames(theta),
-        theta.sourcePath,
-      ),
-      host: createEffectfulStatementHost(hostDeps),
-      checkpoint,
-      signal,
-      mutator: new NoopConversationMutator(),
-      mode: "subagent",
-      file: theta.slashName,
-      // Bug 0324: thread the real runtime-diagnostic channel so a non-number
-      // `par for` `max` value's clamp-to-1 is not silent.
-      emitDiagnostic: this.#input.emitDiagnostic ?? ((): void => {}),
-      // Bug 0354, INV-4: seed the cross-file `.thetalib` fn accounting with
-      // THIS invocation's own chain, so a `subagent fn` body's fn frames share
-      // the same per-chain counter its invoke frames increment.
-      invokeChain: chain,
-      // RFC 0010 (EXST-3(c)): absent unless a bus is wired.
-      ...(statusLanes !== undefined ? { statusLanes } : {}),
-    };
 
     const detachForwarding = this.#trackForwardingSources(forwardingSources);
     let finished = false;
@@ -2749,23 +2681,16 @@ class ProductionThetaProducer implements ThetaProducerDeps {
 
     return {
       drivenAgainst: "subagent-private-session",
-      executeDeps,
       drive,
       // Bug 0342 §Fix: hands the subagent leg's per-position declaring-enum
       // tags (captured by `drive()`, above) to `#validateInvokeReturn`'s
-      // invoke-return retag. Undefined on the in-process `subagent fn` path,
-      // which never calls `drive()`.
+      // invoke-return retag. Undefined until `drive()` has settled an `Ok`
+      // whose envelope carried the sidecar.
       forwardedEnumTags: (): readonly EnumTagEntry[] | undefined => forwardedEnumTagsHolder,
       // Bug 0294: exposes `lastDriveSource` (set by `drive()`, above) so
       // `#driveCallee` can source-tag the subagent leg's body outcome for the
       // XMODE-1 wrap without re-deriving it from the settled `Result`'s `kind`.
       driveSource: (): InvokeResultSource => lastDriveSource,
-      // FN-5: on the in-process `subagent fn` path the caller's executor runs the
-      // inline body against the spawned session's own host deps, then surfaces the
-      // body's terminal final value the same way the file-callee `drive()` maps
-      // its envelope.
-      surface: (execution: BodyExecution): ResultValue =>
-        surfaceCalleeFinalValue(execution),
       teardown,
       finishInvocation,
     };

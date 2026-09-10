@@ -2,7 +2,7 @@
 id: PTQ-0134
 title: SDK_SURFACE_INVENTORY's doc comment and module header enumerate fourteen rows in three categories while the array holds sixty-four rows across nine kinds
 lens: D2
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/extension/sdk-inventory.ts:156-172

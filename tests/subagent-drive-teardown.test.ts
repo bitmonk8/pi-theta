@@ -49,6 +49,7 @@ vi.mock("../src/runtime/statement-executor", async (importOriginal) => {
 
 import { composeThetaFixture } from "../src/extension/theta-composition-producer";
 import type {
+  BodyExecutingConversationBinding,
   ConversationBinding,
   ThetaCompositionInput,
   ThetaProducerDeps,
@@ -111,7 +112,7 @@ function makeDriveProbe(surfaceReturn: ResultValue): DriveProbe {
     panicNote: undefined as { framing: string; diagnostic: Diagnostic } | undefined,
     panicNoteCalls: 0,
   };
-  const binding: ConversationBinding = {
+  const binding: BodyExecutingConversationBinding = {
     drivenAgainst: "subagent-private-session",
     executeDeps: {} as unknown as ExecuteBodyDeps,
     surface: (): ResultValue => {
@@ -130,7 +131,7 @@ function makeDriveProbe(surfaceReturn: ResultValue): DriveProbe {
   };
   const deps: ThetaProducerDeps = {
     runBinder: (): Promise<{ bound: true }> => Promise.resolve({ bound: true }),
-    bindPromptConversation: (): ConversationBinding => binding,
+    bindPromptConversation: (): BodyExecutingConversationBinding => binding,
     spawnSubagentConversation: (): Promise<ConversationBinding> =>
       Promise.resolve(binding),
     emitTopLevelErrNote: (thetaName: string, error: QueryError): void => {

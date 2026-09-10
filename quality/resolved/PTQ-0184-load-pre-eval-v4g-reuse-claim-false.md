@@ -2,7 +2,7 @@
 id: PTQ-0184
 title: load-pre-eval.ts states twice that its routing surface is "the surface the watcher-time reload cause (ERR-7, V4g) reuses", but no reload-path module has ever imported it — V4g shipped its own router and today's ERR-7 emit in hot-reload.ts calls emitDiagnosticBatch directly
 lens: D2
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/extension/load-pre-eval.ts:3-7

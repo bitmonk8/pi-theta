@@ -2,7 +2,7 @@
 id: PTQ-0050
 title: ImportedNonCtorKind.kind is populated with three distinct discriminants that no consumer ever reads — the map is used for key membership only
 lens: D2                     # the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - src/extension/invoke-static-checks.ts:1692-1694

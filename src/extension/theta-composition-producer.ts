@@ -25,16 +25,6 @@
 // `governance.md` GOV-22 un-anchored declarative MUST routed to release-time
 // residue-inspection item 5, so this leaf closes NO coverage-matrix row.
 //
-// V19e-T (this tests task) declares the producer seam and stubs the composed
-// `run` INERTLY: the returned fixture carries the correct `slashName` but its
-// `run` runs NO binder, performs NO mode routing, drives NO executor, and
-// surfaces NO result. Every paired test therefore reds on its own primary
-// assertion — a binder that never ran, an executor never driven against the
-// user / private conversation, a prompt turn never issued, a subagent session
-// never spawned, or a bind step that never committed ahead of the executor's
-// first statement — not on a compile error, a missing fixture, or a harness
-// throw. The paired `V19e` implementation leaf fills the composed `run` in.
-//
 // Spec: pi-integration-contract/extension-bootstrap-and-per-theta.md
 // (§"Per-theta registration"), pi-integration-contract/registration-steps.md,
 // pi-integration-contract/conversation-drive.md (SLSH-2 / PIC-53 witnesses),
@@ -148,8 +138,9 @@ export interface BinderRunInput {
    * The pre-binder `ActiveInvocationRegistry` ticket `beginInvocation` opened at
    * dispatch entry (mirrors `ConversationBindInput.invocationTicket`): a binder
    * failure's runtime event sources `invocation_id`/`theta` from THIS entry
-   * (runtime-event-channel.md:83), not a fresh mint. Absent on harnesses that
-   * call `runBinder` directly without a dispatch-level `beginInvocation`.
+   * (runtime-event-channel.md §"Binder-failure sourcing"), not a fresh mint.
+   * Absent on harnesses that call `runBinder` directly without a
+   * dispatch-level `beginInvocation`.
    */
   readonly invocationTicket?: ActiveInvocationTicket;
 }
@@ -243,27 +234,12 @@ export interface ConversationBindInput {
 }
 
 /**
- * A conversation the `V19d` executor is driven against, plus the mode's return
- * surfacing. `executeDeps` is the `V19c`/`V19d` executor-deps bound to this
- * conversation (its `host` dispatches `@`-queries against the bound session);
- * `surface` projects the terminal execution onto the mode's returned value
- * (prompt-mode extracts the trailing-turn `Ok(string)` per `PIC-53`).
+ * A conversation the drive seam resolves an invocation's `Result` against:
+ * either a body-executing binding or a self-driven one (the two arms below),
+ * discriminated on `drive !== undefined`. The members here are common to both.
  */
-export interface ConversationBinding {
+interface ConversationBindingCommon {
   readonly drivenAgainst: DrivenConversation;
-  readonly executeDeps: ExecuteBodyDeps;
-  surface(execution: BodyExecution): ResultValue;
-  /**
-   * RFC-0006 (PIC-59): a fully self-contained drive that resolves the
-   * invocation's `Result` WITHOUT the drive seam running `executeBody` against
-   * `executeDeps`. Present on the parent-side subagent-mode binding, whose body
-   * runs in a spawned child `pi` process (the parent only launches, awaits the
-   * `theta_result` envelope, and maps `ok`/`err`); when present the drive seam
-   * calls `drive()` instead of `executeBody(theta.body, executeDeps) + surface`.
-   * Absent for prompt-mode / child-side in-process bindings (the drive seam runs
-   * the body directly).
-   */
-  readonly drive?: () => Promise<ResultValue>;
   /**
    * The subagent leg's per-position declaring-enum tags parsed off the
    * PIC-59 envelope's OPTIONAL `enum_tags` sidecar (bug 0342 §Fix, D3
@@ -316,6 +292,39 @@ export interface ConversationBinding {
 }
 
 /**
+ * A conversation the `V19d` executor is driven against, plus the mode's return
+ * surfacing (prompt mode, and the child-side in-process subagent root).
+ * `executeDeps` is the `V19c`/`V19d` executor-deps bound to this conversation
+ * (its `host` dispatches `@`-queries against the bound session); `surface`
+ * projects the terminal execution onto the mode's returned value (prompt-mode
+ * extracts the trailing-turn `Ok(string)` per `PIC-53`). The drive seam runs
+ * `executeBody(theta.body, executeDeps)` and then `surface(execution)`.
+ */
+export interface BodyExecutingConversationBinding extends ConversationBindingCommon {
+  readonly executeDeps: ExecuteBodyDeps;
+  surface(execution: BodyExecution): ResultValue;
+  readonly drive?: undefined;
+}
+
+/**
+ * RFC-0006 (PIC-59): a fully self-contained drive that resolves the
+ * invocation's `Result` WITHOUT the drive seam running `executeBody`. The
+ * parent-side subagent-mode binding, whose body runs in a spawned child `pi`
+ * process (the parent only launches, awaits the `theta_result` envelope, and
+ * maps `ok`/`err`): the drive seam calls `drive()`, and no in-process
+ * executor deps or return surfacing exist on this arm.
+ */
+export interface SelfDrivenConversationBinding extends ConversationBindingCommon {
+  readonly drive: () => Promise<ResultValue>;
+  readonly executeDeps?: undefined;
+  readonly surface?: undefined;
+}
+
+export type ConversationBinding =
+  | BodyExecutingConversationBinding
+  | SelfDrivenConversationBinding;
+
+/**
  * The collaborators the per-theta runnable producer composes: the `V11a` binder,
  * the prompt-mode conversation driver (`V12a`/`V9c`), and the subagent-mode
  * spawn-and-drive seam (`V9i`).
@@ -341,8 +350,11 @@ export interface ThetaProducerDeps {
     readonly theta: ThetaCompositionInput;
     readonly thetaAbort: AbortController;
   }): ActiveInvocationTicket;
-  /** Prompt-mode (`V12a`/`V9c`): bind `V19d`'s executor to the user session. */
-  bindPromptConversation(input: ConversationBindInput): ConversationBinding;
+  /**
+   * Prompt-mode (`V12a`/`V9c`): bind `V19d`'s executor to the user session —
+   * always a body-executing binding (the drive seam runs the body directly).
+   */
+  bindPromptConversation(input: ConversationBindInput): BodyExecutingConversationBinding;
   /**
    * Subagent-mode (`V9i`): bind the callee for a private, isolated drive rather
    * than the user conversation. Under RFC-0006 the returned binding carries a

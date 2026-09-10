@@ -2,7 +2,7 @@
 id: PTQ-0150
 title: watcher-recovery.ts exports WATCHER_TERMINATED_MESSAGE and watcherTerminatedDiagnostic, which nothing outside the module imports
 lens: D2
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/extension/watcher-recovery.ts:43-51

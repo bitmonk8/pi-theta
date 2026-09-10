@@ -2,7 +2,7 @@
 id: PTQ-0076
 title: collectImportedTypeDecls maintains a visitedEnums set whose guard protects only the set's own add — the branch controls nothing observable
 lens: D2                     # the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - src/extension/import-static-checks.ts:284

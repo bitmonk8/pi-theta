@@ -2,7 +2,7 @@
 id: PTQ-0112
 title: Spec line-number citations in system-note-channel.ts and theta-composition-producer.ts point at the wrong lines of runtime-event-channel.md
 lens: D2                     # the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - src/extension/system-note-channel.ts:255-260

@@ -16,11 +16,6 @@
 // pi-integration-contract/host-interfaces-services.md (PIC-14 FileWatcher seam),
 // diagnostics.md, diagnostics/code-registry-runtime.md
 // (`theta/runtime/watcher-terminated`).
-//
-// V9q-T (tests-task) declares this seam and stubs the behaviour-bearing
-// `armWatcherWithTerminalRecovery` function so the failing tests compile and
-// red on their own primary assertions; the paired V9q implementation fills in
-// the terminal-recovery body (tear-down + persistent-note emission).
 
 import type {
   FileWatcher,
@@ -47,7 +42,7 @@ export const WATCHER_TERMINATED_CODE = "theta/runtime/watcher-terminated";
  * expected string from the registry rather than this constant, per the
  * *Diagnostic message anchors* rule.
  */
-export const WATCHER_TERMINATED_MESSAGE =
+const WATCHER_TERMINATED_MESSAGE =
   "theta watcher terminated; hot-reload halted until /reload";
 
 /**
@@ -55,7 +50,7 @@ export const WATCHER_TERMINATED_MESSAGE =
  * the terminal-signal path. Location-less (a watcher-lifecycle event, not a
  * source-position defect).
  */
-export function watcherTerminatedDiagnostic(): Diagnostic {
+function watcherTerminatedDiagnostic(): Diagnostic {
   return {
     severity: "error",
     code: WATCHER_TERMINATED_CODE,

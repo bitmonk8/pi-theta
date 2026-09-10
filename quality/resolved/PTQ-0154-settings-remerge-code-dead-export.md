@@ -2,7 +2,7 @@
 id: PTQ-0154
 title: SETTINGS_REMERGE_FAILED_CODE is exported from reload-wiring.ts but read only by the injector arm in the same module
 lens: D2
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/extension/reload-wiring.ts:305-313

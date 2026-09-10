@@ -48,6 +48,24 @@
 //     (bug 0071's one-walker lesson), `collectProvableArgTypes` and
 //     `dedupeArgType` below, plus the parser's unchanged `checkFnCallArity` /
 //     `checkFnArgCompat` emitters.
+//   - bugs 0429 / 0430 / 0448 — `checkImportedSchemaCtorFields`,
+//     `checkImportedEnumVariantAccess` and `checkImportedNonCtorTypeNames`,
+//     wired from the same `checkThetaImports` site as bug 0138's check: an
+//     imported-`.thetalib` constructor site's field set against the imported
+//     `schema`'s declared fields, an imported `enum`'s member access against
+//     its variant list, and a constructor whose imported head is not
+//     brace-constructible (an `enum`, a `fn`, or an alias-form `schema`) —
+//     each reusing an existing parse-time diagnostic row and walking the
+//     importing theta's body through the one shared collection.
+//   - RFC 0009 (invocation.md INV-6 / INV-8) — the call-site `with` clause
+//     checks inside `checkInvokeStaticResolution`: `checkClauseCwdType` judges
+//     the clause's `cwd` value as an ordinary `string` argument slot on both
+//     call surfaces (the surface's own arg-type row, no new code); the mode gate
+//     refuses a clause on a statically-resolvable PROMPT-mode callee
+//     (`theta/parse/with-clause-prompt-mode-callee`); and the Erratum A′
+//     default-reject loop convicts a clause on any bare-ident callee the frozen
+//     callable set does not classify `theta` (`theta/parse/with-clause-pi-tool`
+//     / `theta/parse/with-clause-in-process-callee`).
 //
 // The invoke-graph is keyed by discovered slash name (unique per registration),
 // so the cycle message renders `invocation cycle: A → B → A` per the spec prose.
@@ -140,7 +158,7 @@ function normalizePath(path: string): string {
  * keeps the two call surfaces in lockstep: a second, independently written
  * walker would drift out of sync as the `Expr` / `Stmt` node shapes evolve
  * (bug 0071). `checkInvokeStaticResolution` therefore traverses a body once and
- * feeds both of its check loops from that one result.
+ * feeds every one of its check loops from that one result.
  */
 interface CollectedCallSites {
   readonly invokeExprs: InvokeExpr[];
@@ -170,7 +188,7 @@ interface CollectedCallSites {
  * member reaching a `default` is walked as a leaf and its sub-tree is not
  * collected.
  */
-export function collectInvokeExprs(body: ThetaBody): InvokeExpr[] {
+function collectInvokeExprs(body: ThetaBody): InvokeExpr[] {
   return collectCallSites(body).invokeExprs;
 }
 
@@ -1000,10 +1018,18 @@ function dedupeArgType(types: readonly CompatType[]): CompatType {
  *     or one reached by an `invoke(...)` literal, whose own nested entries that judgement
  *     does not reach — the defence is the runtime open-time re-check (`#driveCallee` →
  *     `#recheckCalleeContainment`), which fails the call closed instead;
+ *   - `theta/load/callee-has-errors` (WARNING, via `checkCalleeHasErrors` with
+ *     `surface: "invoke"`) for a literal `invoke(...)` callee that is unreadable
+ *     or absent on disk (discovery-cli.md §Static resolution): the parent still
+ *     registers and the remaining static checks for that site are skipped;
  *   - INV-3 arity (`theta/parse/invoke-arity-too-{many,few}`) against the
  *     statically-resolved callee's `params:` counts, over BOTH the
  *     `invoke(...)` call surface and the `.theta`-callable call surface
  *     (tool-calls.md §"Argument shape" binds the two by name);
+ *   - bug 0137 `theta/parse/invoke-arg-type-mismatch` over the `invoke(...)`
+ *     call surface (via `checkInvokeCall`), immediately AFTER its arity check
+ *     and only when arity raised no diagnostic: a positional argument whose
+ *     static type does not match the callee's corresponding `params:` field;
  *   - bug 0072 `theta/parse/tool-arg-type-mismatch` over the `.theta`-callable
  *     call surface, immediately AFTER its arity check and only when arity
  *     raised no diagnostic (arity before type, invocation.md §Argument
@@ -1015,10 +1041,20 @@ function dedupeArgType(types: readonly CompatType[]): CompatType {
  *     that field (RFC 0002's provable-disjointness front-run of the runtime
  *     AJV check);
  *
- *     Both type checks judge an expression by the SET of types it can evaluate
- *     to (`collectProvableArgTypes`), never by the single type a composite
- *     narrows to, which is what keeps them off values the runtime AJV check
- *     accepts — see that function's own comment.
+ *     All three type checks judge an expression by the SET of types it can
+ *     evaluate to (`collectProvableArgTypes`), never by the single type a
+ *     composite narrows to, which is what keeps them off values the runtime
+ *     AJV check accepts — see that function's own comment.
+ *   - RFC 0009 INV-8 `theta/parse/with-clause-prompt-mode-callee` on both call
+ *     surfaces: a call-site `with` clause on a statically-resolvable
+ *     PROMPT-mode callee, refused before that site's arity/type block;
+ *   - RFC 0009 INV-6 (`checkClauseCwdType`, both surfaces): the clause's `cwd`
+ *     value judged as an ordinary `string` argument slot, drawing the surface's
+ *     own arg-type row above (no dedicated code);
+ *   - RFC 0009 Erratum A′ `theta/parse/with-clause-pi-tool` /
+ *     `theta/parse/with-clause-in-process-callee`: the default-reject loop over
+ *     the bare-ident call surface for a clause on any callee the frozen
+ *     callable set does not classify `theta`;
  *   - INV-4 invocation cycle (`theta/load/invocation-cycle`) via the graph walk.
  *
  * The extension-matching and forward-slash path-literal checks (lexical.md
@@ -1046,7 +1082,7 @@ export async function checkInvokeStaticResolution(
   const callerPath = input.sourcePath;
 
   if (callerPath !== undefined) {
-    // One traversal feeds both check loops below (`CollectedCallSites`): the two
+    // One traversal feeds every check loop below (`CollectedCallSites`): the two
     // call surfaces are checked against the same reachable-node set by
     // construction, so neither can be reached by a walk the other misses.
     const callSites = collectCallSites(input.body);
@@ -1928,20 +1964,6 @@ export function checkImportedEnumVariantAccess(
 }
 
 /**
- * The KIND of one imported binding's DIRECT declaration, for exactly the
- * three shapes bug 0448 §Fix judges: `"enum"`, `"fn"`, and `"schema-alias"`
- * (a `schema` declared without an object body — the alias/head-only form).
- * None of the three is brace-constructible (expressions.md §"Object
- * construction"; `code-registry-parse.md`'s `theta/parse/unresolved-named-
- * type` row, the object-constructor clause) — a fields-BEARING object-form
- * `schema` is the disjoint, already-judged class `importedSchemas` /
- * `checkImportedSchemaCtorFields` own.
- */
-export interface ImportedNonCtorKind {
-  readonly kind: "enum" | "fn" | "schema-alias";
-}
-
-/**
  * Bug 0448 §Fix Option 1 — judge an imported-`.thetalib` constructor site
  * whose head resolves to a NON-brace-constructible declaration at the COMPOSE
  * layer, mirroring `checkImportedSchemaCtorFields` above exactly. Parse
@@ -1959,14 +1981,22 @@ export interface ImportedNonCtorKind {
  * `imports`, `enums`, or `bodySchemas`), with the byte-identical message
  * template (`unresolved named type '<name>'`).
  *
- * `importedNonCtorKinds` keys by the CONSTRUCTOR-SITE local binding name (the
+ * `importedNonCtorNames` holds the CONSTRUCTOR-SITE local binding names (the
  * `as`-alias where written, else the source name) — the same key
- * `importedSchemas` / `importedEnums` above use — and its value is the
- * directly-resolved library's own declaration KIND. A DIRECT top-level
- * declaration only (bug 0138's `ImportedFnCallee` restriction, mirrored): a
- * declaration reached only through a re-export chain is absent from the map,
- * so this route withholds a verdict for it rather than duplicating
- * `materializeChain`'s own chain-follow at a second call site.
+ * `importedSchemas` / `importedEnums` above use — of every imported binding
+ * whose directly-resolved library declaration is one of exactly the three
+ * shapes bug 0448 §Fix judges: an `enum`, a `fn`, or an alias/head-only
+ * `schema` (declared without an object body). None of the three is
+ * brace-constructible (expressions.md §"Object construction";
+ * `code-registry-parse.md`'s `theta/parse/unresolved-named-type` row, the
+ * object-constructor clause), and all three draw the same diagnostic, so
+ * membership alone decides the verdict — a fields-BEARING object-form
+ * `schema` is the disjoint, already-judged class `importedSchemas` /
+ * `checkImportedSchemaCtorFields` own. A DIRECT top-level declaration only
+ * (bug 0138's `ImportedFnCallee` restriction, mirrored): a declaration reached
+ * only through a re-export chain is absent from the set, so this route
+ * withholds a verdict for it rather than duplicating `materializeChain`'s own
+ * chain-follow at a second call site.
  *
  * Shadowing outranks import resolution (expressions.md §"Identifier
  * resolution" arm (1) over arm (3)): a constructor name bound anywhere in the
@@ -1986,16 +2016,16 @@ export interface ImportedNonCtorKind {
  * only, never a library body — the same fence `checkImportedSchemaCtorFields`
  * states for its own constructor sites. A fields-BEARING object-form
  * `schema` constructor stays silent here too — it is not in
- * `importedNonCtorKinds` at all (bug 0429's already-judged class, disjoint
+ * `importedNonCtorNames` at all (bug 0429's already-judged class, disjoint
  * from this one).
  */
 export function checkImportedNonCtorTypeNames(
   importingBody: ThetaBody,
   importingFile: string,
   paramsFieldNames: readonly string[],
-  importedNonCtorKinds: ReadonlyMap<string, ImportedNonCtorKind>,
+  importedNonCtorNames: ReadonlySet<string>,
 ): Diagnostic[] {
-  if (importedNonCtorKinds.size === 0) {
+  if (importedNonCtorNames.size === 0) {
     return [];
   }
   const diagnostics: Diagnostic[] = [];
@@ -2015,10 +2045,10 @@ export function checkImportedNonCtorTypeNames(
       // applies to its own constructor sites.
       continue;
     }
-    if (!importedNonCtorKinds.has(typeName)) {
+    if (!importedNonCtorNames.has(typeName)) {
       // Not a non-brace-constructible imported binding this route reaches: a
       // same-file declaration, an imported OBJECT-form schema (0429's class),
-      // an unresolved name, or a re-export-chain declaration this map's own
+      // an unresolved name, or a re-export-chain declaration this set's own
       // doc comment (above) defers on.
       continue;
     }

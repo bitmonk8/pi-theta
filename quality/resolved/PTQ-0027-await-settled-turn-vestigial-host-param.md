@@ -2,7 +2,7 @@
 id: PTQ-0027
 title: awaitSettledTurn takes a dispatchHost parameter although it is closure-scoped and its single call site passes the enclosing host
 lens: D2                     # the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - src/extension/production-host-loop-dispatch.ts:509-513

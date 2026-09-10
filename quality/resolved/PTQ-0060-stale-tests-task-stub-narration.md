@@ -2,7 +2,7 @@
 id: PTQ-0060
 title: Module headers in inventory-closure-audit.ts and load-pre-eval.ts still narrate the retired tests-task stub state ("ships a non-compliant stub", "the routed note never reaches pi.sendMessage") after the paired implementations landed
 lens: D2                     # the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - src/extension/inventory-closure-audit.ts:35-38

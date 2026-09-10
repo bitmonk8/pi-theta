@@ -64,11 +64,6 @@ export interface HarnessRunOutcome {
   readonly allAssertionsPassed: boolean;
 }
 
-/** The build-time surface-inventory verdict (output (a)). */
-export interface SurfaceInventoryOutcome {
-  readonly green: boolean;
-}
-
 /**
  * Runtime-evidence acceptance gate (`version-bump-triggers.md` output (c);
  * `cka-19`): return a non-empty failure list unless acceptance is satisfied.
@@ -79,18 +74,14 @@ export interface SurfaceInventoryOutcome {
  * the surface inventory is green. A missing surface or a failed harness
  * assertion also reddens.
  *
- * The build-time surface-inventory verdict is accepted as an operand for shape
- * parity with output (a), but a green inventory NEVER substitutes for the
- * harness run: acceptance is decided solely by the `H4a` runtime-evidence run.
+ * The build-time surface-inventory verdict (output (a)) is not an operand: a
+ * green inventory does not exercise the theta against the bumped SDK at
+ * runtime and NEVER substitutes for the harness run, so acceptance is decided
+ * solely by the `H4a` runtime-evidence run.
  */
 export function runtimeEvidenceAcceptanceFailures(
   harnessRun: HarnessRunOutcome,
-  surfaceInventory: SurfaceInventoryOutcome,
 ): readonly string[] {
-  // A green surface inventory (output (a)) does not exercise the theta against
-  // the bumped SDK at runtime, so it is deliberately not consulted here.
-  void surfaceInventory;
-
   const failures: string[] = [];
 
   if (!harnessRun.harnessDriven) {

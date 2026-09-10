@@ -2,7 +2,7 @@
 id: PTQ-0079
 title: collectCodeSideCallNames is exported but its only caller is checkExtensionToolReachability in the same module
 lens: D2                     # the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - src/extension/extension-tool-reachability.ts:66-70

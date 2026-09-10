@@ -2,7 +2,7 @@
 id: PTQ-0178
 title: Two comments in invoke-static-checks.ts say the shared call-site walk "feeds both check loops" of checkInvokeStaticResolution, while the function now runs four loops over that collection and the same file elsewhere calls one of them "a THIRD loop"
 lens: D2
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/extension/invoke-static-checks.ts:135-144

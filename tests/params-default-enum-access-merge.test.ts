@@ -139,6 +139,7 @@ import {
   composeThetaFixture,
   type BinderRunInput,
   type BinderRunResult,
+  type BodyExecutingConversationBinding,
   type ConversationBinding,
   type ConversationBindInput,
   type ThetaCompositionInput,
@@ -590,7 +591,7 @@ async function driveSlash(name: CellName): Promise<DispatchCapture> {
       binder = result;
       return result;
     },
-    bindPromptConversation: (input: ConversationBindInput): ConversationBinding => {
+    bindPromptConversation: (input: ConversationBindInput): BodyExecutingConversationBinding => {
       paramBindings = input.paramBindings;
       return {
         drivenAgainst: "prompt-user-session",

@@ -2,7 +2,7 @@
 id: PTQ-0053
 title: runInventoryClosureAudit's push helper threads a cls AuditClass parameter that every call site fixes to "violation", and the exported AuditClass type has no importer
 lens: D2                     # the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - src/extension/inventory-closure-audit.ts:64

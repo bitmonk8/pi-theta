@@ -2,7 +2,7 @@
 id: PTQ-0038
 title: InstallHotReloadDeps.initialNames is a required field that installHotReload never reads, retained only so supplier object literals keep compiling
 lens: D2                     # the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - src/extension/hot-reload.ts:99-108

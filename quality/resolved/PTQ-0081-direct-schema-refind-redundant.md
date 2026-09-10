@@ -2,7 +2,7 @@
 id: PTQ-0081
 title: checkThetaImports' specifier loop re-derives directSchema with a byte-identical .find of the schemaDecl already bound earlier in the same iteration
 lens: D2                     # the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - src/extension/import-static-checks.ts:1390-1392

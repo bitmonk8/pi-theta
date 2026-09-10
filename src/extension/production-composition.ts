@@ -337,11 +337,10 @@ function sinkOverPerDiagnosticEmit(
 /**
  * Map a load-phase diagnostic's registry code to its pre-evaluation failure
  * cause discriminant (errors-and-results/error-model.md ERR-1…ERR-6/ERR-16).
- * The V4e router shares ONE delivery surface across all seven causes, so the
- * discriminant is carried for caller / reload-integration reuse rather than
- * driving routing (WHY: `routePreEvalFailure` applies the fixed
- * `triggerTurn:false` option uniformly); an honest mapping documents which
- * pre-eval cause each shipped load-path diagnostic realises. ERR-5
+ * The V4e router shares ONE delivery surface across all seven causes and takes
+ * no discriminant, so this mapping drives no routing: it is the honest,
+ * test-pinned record (tests/pre-evaluation-failures.test.ts, bugs 0109 / 0260)
+ * of which pre-eval cause each shipped load-path diagnostic realises. ERR-5
  * (binder-arg-binding) and ERR-16 (slash-load `params`) are runtime/slash-load
  * cross-routes, not load-scan diagnostics, so they are not produced here. An
  * unmatched code falls to the ERR-2 lex/parse/type batch (the default
@@ -1727,7 +1726,7 @@ export async function composeExtensionInstance(
       if (diagnostic.severity !== "error") {
         continue;
       }
-      preEvalRouter.routePreEvalFailure(preEvalCauseOf(diagnostic.code), {
+      preEvalRouter.routePreEvalFailure({
         content: renderDiagnosticBatch([diagnostic]),
         display: true,
         details: { diagnostics: [diagnostic] },
@@ -1932,7 +1931,6 @@ export async function composeExtensionInstance(
         },
         currentWatchRoots: () => latestWatchRoots,
         reRegister,
-        initialNames: initial.thetas.map((theta) => theta.slashName),
         // Bug 0018 (PIC-67) stale-runtime entry probe: read the `ctx.cwd`
         // getter — side-effect-free on a live ctx, and the cheapest guarded
         // surface this wiring already holds. On a runtime invalidated WITHOUT

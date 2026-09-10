@@ -506,7 +506,7 @@ export function createProductionHostLoopDispatch(
         // `waitForIdle()` alone would return before the tool ever runs. Also
         // resolve early on abort so `restoreModel` runs promptly and the bridge
         // model is never left installed.
-        await awaitSettledTurn(host, signal, (): void => {
+        await awaitSettledTurn(signal, (): void => {
           host.pi.sendUserMessage(
             marker + JSON.stringify({ tool: request.toolName, args: request.args }),
           );
@@ -550,13 +550,10 @@ export function createProductionHostLoopDispatch(
   };
 
   // The `agent_settled` arming barrier, closing over the shared `pendingSettle`
-  // slot. Declared as a bound helper (not a closure per call) so the serialised
-  // dispatches share one slot. `send` is invoked AFTER the barrier is armed.
-  function awaitSettledTurn(
-    dispatchHost: HostLoopDispatchHost,
-    signal: AbortSignal,
-    send: () => void,
-  ): Promise<void> {
+  // slot and the composition's `host`. Declared as a bound helper (not a closure
+  // per call) so the serialised dispatches share one slot. `send` is invoked
+  // AFTER the barrier is armed.
+  function awaitSettledTurn(signal: AbortSignal, send: () => void): Promise<void> {
     return new Promise<void>((resolve) => {
       let done = false;
       const finish = (): void => {
@@ -580,7 +577,7 @@ export function createProductionHostLoopDispatch(
       signal.addEventListener("abort", onAbort, { once: true });
       pendingSettle = settle;
       send();
-    }).then(() => confirmIdle(dispatchHost, signal));
+    }).then(() => confirmIdle(host, signal));
   }
 
   return (request: EncodedToolRequest, signal: AbortSignal): Promise<HostToolResult> => {

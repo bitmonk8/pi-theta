@@ -796,7 +796,6 @@ function makeBoot(workspace: string, thetaDir: string, options: BootOptions): Bo
                 activePass.label = previous;
               }
             },
-            initialNames: real.thetas.map((theta) => theta.slashName),
             probeRuntime: (): void => {
               void ctx.cwd;
             },

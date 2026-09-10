@@ -2,7 +2,7 @@
 id: PTQ-0061
 title: collectInvokeExprs is exported from invoke-static-checks.ts but nothing in src, extensions, tools, or tests imports it — its only caller is same-module buildInvokeGraph
 lens: D2                     # the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - src/extension/invoke-static-checks.ts:159-161

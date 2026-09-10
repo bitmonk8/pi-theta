@@ -19,15 +19,14 @@
 //     than the seven capabilities (inventory-audit-intro.md §SDK capability
 //     inventory). Beyond the capability members it carries the non-capability
 //     `pi.<member>` surfaces (`pi.registerFlag` / `pi.getFlag`, per §"Non-
-//     capability `pi.<member>` surfaces") and the `pi-engines-node`,
-//     `peer-dep-range`, `strict-capability-probe`, and `api-coverage` rows the
-//     version-bump gates read as operands. Each row is tagged with its kind
-//     under the leaf-owned entry-kind taxonomy (`SurfaceEntryKind`).
-//
-// V18a-T (this tests-task) declares the seam types and stubs both constants as
-// empty frozen arrays so the paired failing tests compile and red on their own
-// primary assertions (cardinality / partition / row-resolution). The paired
-// `V18a` implementation leaf fills the two constants in.
+//     capability `pi.<member>` surfaces"), the `type-union-snapshot` row the
+//     unknown-reason rule reads, the operand rows the version-bump gates read
+//     (`engines-pin` / `peer-dep-range` / `strict-capability-probe` /
+//     `api-coverage`), and the `pi-member` / `ctx-member` /
+//     `peer-named-import` surface rows the inventory-closure audit (`V18b`)
+//     and the step-2(a) presence gate resolve against. Each row is tagged with
+//     its kind under the leaf-owned entry-kind taxonomy (`SurfaceEntryKind`),
+//     which documents every kind the array uses.
 //
 // `Object.freeze` keeps these module-level constants off the *No globals,
 // statics, singletons* mutable-binding scan (runtime-immutable lists).
@@ -182,21 +181,27 @@ export const CAPABILITY_OBLIGATIONS: readonly CapabilityObligation[] =
 
 /**
  * The full Pi-side surface inventory — strictly broader than the seven
- * capabilities (inventory-audit-intro.md §SDK capability inventory). It holds:
+ * capabilities (inventory-audit-intro.md §SDK capability inventory). Every row
+ * carries one of the `SurfaceEntryKind` kinds, and the array holds rows of
+ * every kind that taxonomy names:
  *
  *   • the eight `namespace-function` members of the factory-probable capability
  *     subset (capabilities 1/2/4/6, per Step 0 (c) of the capability probe;
  *     RFC-0005 retired capability 3's `createAgentSession` /
  *     `AgentSession.prototype.abort` members; bug 0001 / PIC-64 added
- *     capability 4's `pi.getAllTools`);
- *   • the two non-capability category-(1) `pi.<member>` `namespace-function`
- *     surfaces `pi.registerFlag` / `pi.getFlag` (inventory-audit-intro.md
- *     §"Non-capability `pi.<member>` surfaces"); and
- *   • the four non-`namespace-function` operand rows the version-bump gates
+ *     capability 4's `pi.getAllTools`), plus the two non-capability
+ *     category-(1) `pi.<member>` `namespace-function` surfaces
+ *     `pi.registerFlag` / `pi.getFlag` (inventory-audit-intro.md §"Non-
+ *     capability `pi.<member>` surfaces");
+ *   • the `type-union-snapshot` row the unknown-reason rule (`V9h`) reads;
+ *   • the non-`namespace-function` operand rows the version-bump gates
  *     (`V18c`) read — the in-repo Node floor (`pi-engines-node`), the
  *     `peerDependencies` literal (`peer-dep-range`), the strict-capability
  *     probe (`strict-capability-probe`), and the provider seed-field gate
- *     (`api-coverage`).
+ *     (`api-coverage`); and
+ *   • the `pi-member` / `ctx-member` / `peer-named-import` surface rows the
+ *     inventory-closure audit (`V18b`) resolves against and the step-2(a)
+ *     presence gate checks, each introduced by its own comment in the array.
  *
  * `Object.freeze` keeps this module-level constant off the *No globals,
  * statics, singletons* mutable-binding scan (a frozen runtime-immutable list).
@@ -216,9 +221,7 @@ export const SDK_SURFACE_INVENTORY: readonly SurfaceInventoryEntry[] =
     },
     // The eight factory-probable capability function members (Step 0 (c)).
     // RFC-0005 retired capability 3's `AgentSession.prototype.abort` member from
-    // the probe loop (verified by Step 0 (f) instead). `createAgentSession`
-    // stays catalogued below as a still-imported surface until the producer's
-    // RFC-0005 child-process retirement lands (production-theta-producer.ts).
+    // the probe loop (verified by Step 0 (f) instead).
     { id: "pi.registerCommand", kind: "namespace-function" },
     { id: "pi.sendUserMessage", kind: "namespace-function" },
     { id: "pi.registerTool", kind: "namespace-function" },

@@ -110,16 +110,6 @@ export interface InstallHotReloadDeps {
    */
   readonly reRegister: (thetas: readonly ParsedTheta[]) => void;
   /**
-   * The slash names registered at `session_start`. Retained because three call
-   * sites still supply it and dropping it from the interface would red their
-   * object literals: `production-composition.ts`,
-   * `tests/hot-reload-stale-quiesce-arms.test.ts`, and
-   * `tests/supersession-inflight-rebuild-quiesce.test.ts`. Bug 0311 moved the
-   * structural-note basis off the registered-name set onto the debounce-window
-   * event batch, so this field is no longer read here.
-   */
-  readonly initialNames: Iterable<string>;
-  /**
    * Bug 0018 (PIC-67) — the stale-runtime entry probe: touch ONE cheap,
    * side-effect-free guarded host surface (production: the `ctx.cwd` getter)
    * and return normally on a live runtime. On an invalidated runtime the touch

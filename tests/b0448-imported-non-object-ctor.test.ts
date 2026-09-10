@@ -519,7 +519,7 @@ describe("bug 0448 (K7) — an aliased imported constructor renders the alias, n
 // brace-constructible and wins the constructor question, the enum never
 // reached. The load pass must mirror that precedence — a specifier whose
 // direct decl carries a fields-bearing schema is CONSTRUCTIBLE and is not
-// recorded in `importedNonCtorKinds` (bug 0429's field-set walk owns it), so
+// recorded in `importedNonCtorNames` (bug 0429's field-set walk owns it), so
 // `checkImportedNonCtorTypeNames` draws nothing on the valid construction.
 // ===========================================================================
 

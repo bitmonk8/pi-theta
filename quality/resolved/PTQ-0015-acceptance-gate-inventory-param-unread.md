@@ -2,7 +2,7 @@
 id: PTQ-0015
 title: runtimeEvidenceAcceptanceFailures takes a surfaceInventory operand it explicitly voids, and every call site passes the same literal
 lens: D2                     # the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - src/extension/version-bump-acceptance.ts:67-70

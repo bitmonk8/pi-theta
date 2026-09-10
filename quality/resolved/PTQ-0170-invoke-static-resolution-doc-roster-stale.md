@@ -2,7 +2,7 @@
 id: PTQ-0170
 title: checkInvokeStaticResolution's doc comment claims to list "every diagnostic" the function returns but omits five codes its body emits (invoke-arg-type-mismatch and the four RFC 0009 with-clause routes) and calls the type checks "Both" where the body counts three
 lens: D2
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/extension/invoke-static-checks.ts:989-1028

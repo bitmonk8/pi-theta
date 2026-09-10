@@ -2,7 +2,7 @@
 id: PTQ-0182
 title: Four comments in load-pre-eval.ts still name sendSystemNote / the pi.sendMessage seam as the mechanism routePreEvalFailure delivers through, after the PIC-72 commit rerouted the call to deliverOperatorNotePreferringEntry (entry channel first, sendMessage as fallback)
 lens: D2
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/extension/load-pre-eval.ts:20-23

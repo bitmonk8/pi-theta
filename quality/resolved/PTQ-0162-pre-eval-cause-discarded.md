@@ -2,7 +2,7 @@
 id: PTQ-0162
 title: preEvalCauseOf computes a pre-eval cause discriminant whose only production consumer, routePreEvalFailure, discards it
 lens: D2                     # the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - src/extension/production-composition.ts:342-371

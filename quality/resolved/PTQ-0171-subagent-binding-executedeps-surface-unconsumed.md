@@ -2,7 +2,7 @@
 id: PTQ-0171
 title: spawnSubagentConversation builds a full in-process EffectfulStatementHost and ExecuteBodyDeps and a surface projection for a binding whose two consumers both take the unconditionally-present drive() first, so executeDeps and surface on the subagent binding are constructed and never read
 lens: D2
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/extension/production-theta-producer.ts:2452-2455
