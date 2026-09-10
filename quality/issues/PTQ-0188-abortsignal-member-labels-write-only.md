@@ -1,9 +1,9 @@
 ---
-id: pending                  # PTQ-NNNN minted at acceptance; never self-assigned
+id: PTQ-0188
 title: The seven member-name labels in runCapabilityProbe's step-(b) typeofMembers table are constructed and never read
 lens: D2                     # the lens that filed this
-status: intake               # intake | open | fixed | rejected (store mechanics own transitions)
-verdict: pending             # pending | confirmed | questionable | false-positive | duplicate | out-of-scope | malformed
+status: open
+verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - src/extension/capability-probe.ts:297-309
   - src/extension/capability-probe.ts:339-353
@@ -96,3 +96,4 @@ getter list alone preserves; it does not depend on the labels.
 ## Triage
 verdict: questionable — labels verified unread by any code (typeofMembers only at :299/:311, `[, get]` discards them, no member field on the abortsignal-shape arm, no test/tool reader), but capability-probe.md ¶6 and sub-step (b) pin the AbortSignal/AbortController member-name list as a constant living in the extension module, so these strings are a spec-mirroring record rather than proven cruft — a human should rule (triage: claude-opus-5)
 verdict: questionable — reproduces mechanically (typeofMembers only at :299/:311 with 2-line drift, `[, get]` discards the labels, the abortsignal-shape arm at :316 carries no member and spec/registry pin `details.member` to sdk-capability-missing only, no test/tool/literal-read assertion reads the seven strings), but git shows the labels were authored discarded in the module's first commit b00cdc36 so no vestige exists, and capability-probe.md ¶6 + sub-step (b) direct the member-name list to live co-located in this module as the spec's pinned record — the strings are a spec-mirroring roster encoded as data, so the anchor reduces to taste and a human should rule (triage: claude-opus-5)
+verdict: confirmed — independently re-checked the two priors' own rebuttal ground and it does not hold: capability-probe.md's clause says this table is "co-located ... in the pinned-constants block that the build-time surface-inventory assertion also consumes", but no such assertion exists for AbortSignal/AbortController anywhere in the repo — version-bump-gates.ts's seven gates and sdk-inventory.ts's SDK_SURFACE_INVENTORY reconcile only Node floor, FACTORY_PROBABLE_CAPABILITIES, PEER_DEP_PACKAGES, session-shutdown reasons, provider seed fields and the strict-capability probe (grep for "Abort" across version-bump-gates.ts, version-bump-acceptance.ts, sdk-inventory.ts and their test files: 0 hits), and tests/capability-probe.test.ts's two abortsignal-shape cases assert only observed/required, never a member; ProbeFailureDetails.member's own doc (:171-172) and clause (ii) pin `details.member` to sdk-capability-missing alone, so the payload structurally cannot read these labels; each getter's own `readProp(x,"prop")` literal already names the member the label repeats, so the string carries no information the line lacks; git log -S"typeofMembers" shows the array was authored complete with the `[, get]` discard in the module's first commit (b00cdc36) — never-had-a-reader, not a later-orphaned vestige — which is the same shape PTQ-0172 (SubagentChildProcess.pid, "has never had a reader" per its own git-log check) and PTQ-0001 confirmed rather than excused; the "spec-mirroring roster" defense therefore rests on a spec clause whose code-side half does not exist (triage: claude-opus-5)
