@@ -31,6 +31,7 @@ import { writeSync } from "node:fs";
 import { Type } from "typebox";
 import type { AgentToolResult, ToolDefinition } from "@earendil-works/pi-coding-agent"; // allow-pi-surface: PIC#64 — ToolDefinition/AgentToolResult are the shipped registerTool carriers, mirrored from production-theta-producer.ts's own respond-tool registration
 import type { ActiveInvocationRegistry } from "../../runtime/active-invocation-registry";
+import type { AgentToolResultEnvelope, InProcessToolExecute } from "../../runtime/tool-call-execute";
 import type { Clock } from "../../seams/clock";
 import type { EntryChannelHandle } from "./entry-channel";
 import type { ExecutionStatusBus, ProgressAuthorMessage } from "./types";
@@ -89,6 +90,14 @@ const OK_RESULT: AgentToolResult<unknown> = Object.freeze({
   details: undefined,
   isError: false,
 }) as unknown as AgentToolResult<unknown>;
+
+/** EXST-13: the fixed `ok` envelope a code-side `theta_progress(...)` call
+ *  lowers to `Ok("ok")` — the `content`-only `AgentToolResultEnvelope` the
+ *  in-process dispatch surface returns (the model-facing `execute` returns the
+ *  richer `OK_RESULT` above; both spell the same single `"ok"` text block). */
+const CODE_SIDE_OK: AgentToolResultEnvelope = Object.freeze({
+  content: Object.freeze([Object.freeze({ type: "text", text: "ok" as const })]),
+});
 
 /**
  * ANSI/OSC-style escape sequences: CSI in both its 7-bit (`ESC [`) and 8-bit
@@ -286,13 +295,24 @@ export interface ProgressToolHostApi {
   registerTool(tool: ToolDefinition<typeof THETA_PROGRESS_PARAMETERS>): void;
 }
 
+/** The result of registering `theta_progress`: the model-facing tool is live on
+ *  the host, and `codeSideExecute` dispatches the SAME in-process handler —
+ *  sharing the one per-registration clamp/drop `state` — for a code-side
+ *  `theta_progress(...)` call, so it never routes through the host-loop bridge. */
+export interface ThetaProgressRegistration {
+  readonly codeSideExecute: InProcessToolExecute;
+}
+
 /**
  * Register the `theta_progress` tool (EXST-13). Call site: the factory BODY,
  * synchronous arm, before any `session_start`/compose pass resolves a
  * callable set — see `factory.ts`'s call site comment for the ordering
- * argument.
+ * argument. Returns the shared-state code-side executor (`ThetaProgressRegistration`).
  */
-export function registerThetaProgressTool(hostApi: ProgressToolHostApi, deps: ProgressToolDeps): void {
+export function registerThetaProgressTool(
+  hostApi: ProgressToolHostApi,
+  deps: ProgressToolDeps,
+): ThetaProgressRegistration {
   // EXST-2's no-globals posture: the acceptance interval, the drop carry, and
   // the wire sequence are per-registration closure state, torn down with the
   // extension instance.
@@ -310,4 +330,16 @@ export function registerThetaProgressTool(hostApi: ProgressToolHostApi, deps: Pr
     execute: async (_toolCallId, params) => executeThetaProgress(params, deps, state),
   };
   hostApi.registerTool(definition);
+  return {
+    // EXST-13: the handler ALWAYS returns `ok`. Run it for its class-2 side
+    // effect (parent-regime bus publish / child-regime wire line) and return
+    // the fixed envelope theta lowers to `Ok("ok")` — the strict
+    // `AgentToolResultEnvelope` shape the code-side dispatch narrows on, which
+    // `executeThetaProgress`'s SDK-typed `AgentToolResult` does not satisfy
+    // structurally (its `content` is the wider host block union).
+    codeSideExecute: async (_toolCallId, params) => {
+      executeThetaProgress(params as ThetaProgressParams, deps, state);
+      return CODE_SIDE_OK;
+    },
+  };
 }

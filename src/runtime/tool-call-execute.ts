@@ -117,6 +117,20 @@ export interface AgentToolResultEnvelope {
   readonly content: readonly ToolContentBlock[];
 }
 
+/**
+ * RFC 0010 (EXST-13): the code-side dispatch surface for a tool whose `execute`
+ * runs IN THIS extension process — pi-theta's own `theta_progress`, whose
+ * handler is held live at `registerThetaProgressTool` rather than reached
+ * through the host loop. The signature is exactly the one `PiToolDispatch.execute`
+ * narrows on, so a code-side `<name>(args)` call dispatches it directly instead
+ * of fabricating a host turn (`production-host-loop-dispatch.ts`).
+ */
+export type InProcessToolExecute = (
+  toolCallId: string,
+  params: unknown,
+  signal: AbortSignal,
+) => Promise<AgentToolResultEnvelope>;
+
 // --------------------------------------------------------------------------
 // Discard-path side-channel sink (must stay untouched on non-text discard)
 // --------------------------------------------------------------------------

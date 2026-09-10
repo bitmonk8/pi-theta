@@ -180,6 +180,7 @@ import {
 } from "./theta-composition-producer";
 import { createProductionProducerDeps } from "./production-theta-producer";
 import type { CalleeParseOutcome } from "./production-theta-producer";
+import type { InProcessToolExecute } from "../runtime/tool-call-execute";
 import { ActiveInvocationRegistry } from "../runtime/active-invocation-registry";
 import type { ForwardingSignalSource } from "./session-shutdown";
 import { createExecutionStatusBus } from "./execution-status/bus";
@@ -594,6 +595,10 @@ async function runComposePass(
   // into every composed theta's producer. Absent on harness paths ⇒ every
   // producer hook is a `?.` no-op.
   statusBus?: ExecutionStatusBus,
+  // RFC 0010 (EXST-13): pi-theta's OWN in-process tool handlers, threaded into
+  // every composed theta's producer so a code-side call dispatches directly.
+  // Absent on harness paths and on a host without `registerTool`.
+  inProcessTools?: Readonly<Record<string, InProcessToolExecute>>,
 ): Promise<ComposePassResult> {
   const fileSystem = root.fileSystem;
   const clock = root.clock;
@@ -909,6 +914,11 @@ async function runComposePass(
     // publishes invocation lifecycle, checkpoint, lane, and child-tap material
     // to. Absent ⇒ every hook is a `?.` no-op.
     ...(statusBus !== undefined ? { statusBus } : {}),
+    // RFC 0010 (EXST-13): pi-theta's OWN in-process tool handlers (currently
+    // `theta_progress`), so a code-side call dispatches directly rather than
+    // through the host-loop bridge. Absent ⇒ code-side extension-tool calls
+    // route through the PIC-64 ladder unchanged.
+    ...(inProcessTools !== undefined ? { inProcessToolExecutors: inProcessTools } : {}),
     // H8b: resolve a code-side Pi-tool name to its `execute` dispatch over the
     // live host `cwd` / `ctx`.
     resolvePiTool: (name: string) => resolvePiTool(name, ctx),
@@ -1686,6 +1696,10 @@ export async function composeExtensionInstance(
   // RFC 0010 (EXST-2/EXST-11): hand the constructed bus back to the factory so
   // `/theta-status` reaches the LIVE instance and `session_shutdown` disposes it.
   latchStatusBus?: (bus: ExecutionStatusBus) => void,
+  // RFC 0010 (EXST-13): the factory-owned in-process tool handlers (currently
+  // `theta_progress`'s shared-state code-side executor), threaded to every
+  // compose pass this call arms so a code-side call dispatches in-process.
+  inProcessTools?: Readonly<Record<string, InProcessToolExecute>>,
 ): Promise<ExtensionInstanceWiring> {
   // The transient toast + stderr emit. Retained ONLY as the `theta-system-note`
   // channel's own delivery-failure fallback: it MUST stay off-channel so a
@@ -1847,6 +1861,7 @@ export async function composeExtensionInstance(
     rendererGate,
     entryChannel,
     statusBus,
+    inProcessTools,
   );
 
   // The watched set: `watchRoots` (the file-derived active-root union unioned
@@ -1919,6 +1934,7 @@ export async function composeExtensionInstance(
             rendererGate,
             entryChannel,
             statusBus,
+            inProcessTools,
           );
           // Bug 0312: record this pass's watch set (its resolved `.thetalib`
           // closure dirs already unioned in by `runComposePass`), plus the two

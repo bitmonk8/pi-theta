@@ -218,6 +218,53 @@ describe("T-PRG — L3-B9: one bus.authorMessage AND one appendMilestone per acc
   });
 });
 
+describe("T-PRG — code-side executor: registration returns a shared-state in-process dispatch (EXST-13)", () => {
+  it("codeSideExecute runs the SAME parent-regime handler (one bus.authorMessage + one milestone) and returns the fixed ok envelope", async () => {
+    const registry = new ActiveInvocationRegistry();
+    const entry = fakeEntry();
+    registry.add(entry);
+    const { bus, authorMessageCalls } = fakeBus();
+    const { entryChannel, milestoneCalls } = fakeEntryChannel();
+    const { hostApi } = fakeHostApi();
+    const { codeSideExecute } = registerThetaProgressTool(
+      hostApi,
+      baseDeps({ invocations: () => registry, bus: () => bus, entryChannel, isChildRegime: false }),
+    );
+
+    const result = await codeSideExecute("code-1", ARGS, new AbortController().signal);
+
+    expect(result).toEqual({ content: [{ type: "text", text: "ok" }] });
+    expect(authorMessageCalls).toHaveLength(1);
+    expect(milestoneCalls).toHaveLength(1);
+    expect(milestoneCalls[0]).toMatchObject({
+      message: "built 3 of 12",
+      invocation_id: entry.invocationId,
+    });
+  });
+
+  it("shares the 200ms clamp state with the model-facing execute: a code-side call inside the window after an accepted model-side call is counted-but-dropped, and its count rides the next accepted code-side call", async () => {
+    const clock = new FakeClock();
+    const { bus, authorMessageCalls } = fakeBus();
+    const { hostApi, calls } = fakeHostApi();
+    const { codeSideExecute } = registerThetaProgressTool(
+      hostApi,
+      baseDeps({ bus: () => bus, clock: () => clock }),
+    );
+
+    // Model-facing execute accepted at t=0.
+    await calls[0]!.execute("m1", ARGS, undefined, undefined, {} as never);
+    clock.advance(100);
+    // Code-side call inside the shared 200ms window → counted-but-dropped.
+    await codeSideExecute("c1", ARGS, new AbortController().signal);
+    clock.advance(150); // t=+250 from the model-side acceptance
+    // Code-side call now accepted, carrying the dropped count from the SHARED state.
+    await codeSideExecute("c2", ARGS, new AbortController().signal);
+
+    expect(authorMessageCalls).toHaveLength(2); // model t0 + code t+250; code t+100 dropped
+    expect(authorMessageCalls[1]!.payload.dropped).toBe(1);
+  });
+});
+
 describe("T-PRG — L3-B10: message/scope clamp + strip", () => {
   it("a 201-char message with ANSI/tab/control and a 65-char scope clamp to 200/64, stripped", async () => {
     const longMessage = `${"m".repeat(190)}\u001B[31m\tred\u0007${"x".repeat(20)}`; // > 200 chars, control-bearing

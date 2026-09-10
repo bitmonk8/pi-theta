@@ -171,6 +171,7 @@ import type {
 import type {
   AgentToolResultEnvelope,
   CodeSideToolCall,
+  InProcessToolExecute,
   ToolLoweringSink,
 } from "../runtime/tool-call-execute";
 import { filterJoinToolText, lowerToolExecuteThrow } from "../runtime/tool-call-execute";
@@ -432,6 +433,19 @@ export interface ProductionProducerInput {
    * unknown host tool rather than fabricating a value.
    */
   readonly resolvePiTool?: (name: string) => PiToolDispatch | undefined;
+  /**
+   * RFC 0010 (EXST-13): pi-theta's OWN in-process tools, keyed by underlying
+   * tool name, whose `execute` runs in THIS extension process. A code-side
+   * `<name>(args)` call to one dispatches its handler DIRECTLY — bypassing the
+   * PIC-64 host-loop bridge — because the tool is not a third-party host tool
+   * whose `execute` the `getAllTools()` snapshot strips, but pi-theta's own
+   * handler held live at registration (`registerThetaProgressTool`). Wired per
+   * process at the composition root, so the parent and each subagent child each
+   * carry their OWN executor (the child's `isChildRegime` handler emits the
+   * EXST-15 wire line). Currently just `theta_progress`. Absent on harnesses
+   * that register no in-process tool, and empty on a host without `registerTool`.
+   */
+  readonly inProcessToolExecutors?: Readonly<Record<string, InProcessToolExecute>>;
   /**
    * RFC-0005 subagent launch seams (subagent.md #subagent-launch-contract). The
    * child-`pi`-process spawn function, the executable-resolution host snapshot,
@@ -3833,6 +3847,21 @@ class ProductionThetaProducer implements ThetaProducerDeps {
           );
         }
         if (typeof tool.execute !== "function") {
+          // RFC 0010 (EXST-13): the snapshot strips `execute` from every
+          // extension tool, but pi-theta's OWN tools (`theta_progress`) hold a
+          // live in-process handler this process registered. Dispatch it
+          // directly — same CANCEL-3 swallowing-handler attachment as a
+          // built-in's `execute` below — so a code-side `theta_progress(...)`
+          // call never fabricates a host turn (the PIC-64 bridge a host without
+          // the fabricated-turn settle semantics cannot drive; bug 0473).
+          const inProcess = this.#input.inProcessToolExecutors?.[tool.toolName];
+          if (inProcess !== undefined) {
+            return guardToolExecutePromise(
+              inProcess(toolCallId, params, signal),
+              signalGuard(signal),
+              noopSwallowChannels(),
+            );
+          }
           return this.#dispatchExtensionToolViaLadder(tool.toolName, params, signal);
         }
         // CANCEL-3 (cancellation.md §swallowing-handler attachment): attach the

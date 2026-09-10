@@ -53,6 +53,7 @@ import type {
   ResolvedCallable,
 } from "../src/parser/callable-set";
 import type { SourceRange } from "../src/diagnostics/diagnostic";
+import type { InProcessToolExecute } from "../src/runtime/tool-call-execute";
 import type {
   DispatchLadderProbe,
   EncodedToolRequest,
@@ -149,6 +150,7 @@ interface ProducerOpts {
     signal: AbortSignal,
   ) => Promise<HostToolResult>;
   readonly getAllTools?: () => readonly unknown[];
+  readonly inProcessToolExecutors?: Readonly<Record<string, InProcessToolExecute>>;
 }
 
 function producer(opts: ProducerOpts) {
@@ -166,6 +168,9 @@ function producer(opts: ProducerOpts) {
       : {}),
     ...(opts.getAllTools !== undefined
       ? { getAllTools: opts.getAllTools as never }
+      : {}),
+    ...(opts.inProcessToolExecutors !== undefined
+      ? { inProcessToolExecutors: opts.inProcessToolExecutors }
       : {}),
   });
 }
@@ -534,5 +539,70 @@ describe("Resolution snapshot — load-time-only resolution: invocation does NOT
       getAllToolsCalls,
       "the pi.getAllTools() registry snapshot is a LOAD-time read; invocation never re-reads it",
     ).toBe(0);
+  });
+});
+
+describe("RFC 0010 EXST-13 — a code-side call to an in-process tool dispatches its handler directly, never the host-loop bridge (bug 0473)", () => {
+  it("prefers the in-process executor over an AVAILABLE host-loop rung, runs it with verbatim args, and lowers its result to Ok(text)", async () => {
+    const hostLoop = recordingHostLoop();
+    const seen: unknown[] = [];
+    const inProcessToolExecutors: Readonly<Record<string, InProcessToolExecute>> = {
+      theta_progress: async (_id, params) => {
+        seen.push(params);
+        return { content: [{ type: "text", text: "ok" }] };
+      },
+    };
+    const set = snapshot([
+      ["theta_progress", extensionToolEntry("theta_progress", FINDING_STORE_SCHEMA)],
+    ]);
+    const theta = thetaWithSet(
+      callExpr("theta_progress", [objArg({ op: strExpr("write") })]),
+      set,
+    );
+
+    const inner = (await runBody(
+      producer({
+        // Host-loop is available AND wired — the in-process path must still win.
+        dispatchLadderProbe: HOST_LOOP_PROBE,
+        hostLoopDispatch: hostLoop.dispatch,
+        inProcessToolExecutors,
+      }),
+      theta,
+    )) as ResultValue;
+
+    // The in-process handler ran with the code-supplied args verbatim...
+    expect(seen).toEqual([{ op: "write" }]);
+    // ...the host-loop bridge was NEVER consulted...
+    expect(hostLoop.seen).toEqual([]);
+    // ...and its `ok` envelope lowered to the tool's Ok value.
+    expect(inner.ok, "the in-process result lowers to Ok, never an Err").toBe(true);
+    if (inner.ok) {
+      expect(inner.value).toBe("ok");
+    }
+  });
+
+  it("a tool NOT in the in-process map still routes through the host-loop rung (the branch is name-scoped, not a blanket bypass)", async () => {
+    const hostLoop = recordingHostLoop();
+    const inProcessToolExecutors: Readonly<Record<string, InProcessToolExecute>> = {
+      theta_progress: async () => ({ content: [{ type: "text", text: "ok" }] }),
+    };
+    const set = snapshot([
+      ["finding_store", extensionToolEntry("finding_store", FINDING_STORE_SCHEMA)],
+    ]);
+    const theta = thetaWithSet(
+      callExpr("finding_store", [objArg({ op: strExpr("write") })]),
+      set,
+    );
+
+    await runBody(
+      producer({
+        dispatchLadderProbe: HOST_LOOP_PROBE,
+        hostLoopDispatch: hostLoop.dispatch,
+        inProcessToolExecutors,
+      }),
+      theta,
+    );
+
+    expect(hostLoop.seen).toEqual([{ toolName: "finding_store", args: { op: "write" } }]);
   });
 });

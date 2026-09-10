@@ -65,6 +65,15 @@ const BRIDGE_PROVIDER_STEM = "theta-host-loop-bridge";
 /** The single bridge model id registered under the per-dispatch provider. */
 export const BRIDGE_MODEL_ID = "host-loop-bridge";
 
+/** The bridge provider's synthetic API tag. It is a BESPOKE name, never a
+ *  built-in one (`openai-completions`, `anthropic-messages`, …): a host that
+ *  reserves built-in API names for its own registry (Oh-My-Pi's `api-registry`)
+ *  rejects `registerProvider` for a custom provider that reuses one, which broke
+ *  ALL code-side extension-tool dispatch there (bug 0473). The bridge's own
+ *  `streamSimple` authors the turn (provider-composer dispatches it whenever
+ *  `model.api === provider.api`), so no real API adapter is ever consulted. */
+const BRIDGE_API = "theta-host-loop-bridge";
+
 /** The reserved marker prefixing the encoded request in the fabricated user turn. */
 export const REQUEST_MARKER = "THETA-HOST-LOOP-REQUEST:";
 
@@ -463,7 +472,7 @@ export function createProductionHostLoopDispatch(
           // A dummy literal apiKey ⇒ `hasConfiguredAuth() === true`, so the
           // bridge model is selectable with no network call (prototype-verified).
           apiKey: "x",
-          api: "openai-completions",
+          api: BRIDGE_API,
           streamSimple,
           models: [
             {

@@ -111,6 +111,36 @@ describe("T-WIRE — L3-B19: monotonic seq, one invocation_id per stream", () =>
   });
 });
 
+describe("T-WIRE — code-side executor: registration's codeSideExecute emits the child-regime wire line, sharing the seq stream with the model-facing execute (bug 0473)", () => {
+  it("a child-regime codeSideExecute call writes exactly one wire line (seq 1) and returns the fixed ok envelope", async () => {
+    const { deps, writtenLines } = childDeps();
+    const { hostApi } = fakeHostApi();
+    const { codeSideExecute } = registerThetaProgressTool(hostApi, deps);
+
+    const result = await codeSideExecute("code-1", ARGS, new AbortController().signal);
+
+    expect(result).toEqual({ content: [{ type: "text", text: "ok" }] });
+    expect(writtenLines).toHaveLength(1);
+    const parsed = JSON.parse(writtenLines[0]!.trimEnd());
+    expect(parsed.theta_progress.seq).toBe(1);
+    expect(parsed.theta_progress.event.message).toBe("built 3 of 12");
+  });
+
+  it("shares the monotonic seq stream with the model-facing execute: a model-side call then a code-side call (200ms apart) carry seq 1 then 2", async () => {
+    const clock = new FakeClock();
+    const { deps, writtenLines } = childDeps({ clock: () => clock });
+    const { hostApi, calls } = fakeHostApi();
+    const { codeSideExecute } = registerThetaProgressTool(hostApi, deps);
+
+    await calls[0]!.execute("m1", ARGS, undefined, undefined, {} as never);
+    clock.advance(200);
+    await codeSideExecute("c1", ARGS, new AbortController().signal);
+
+    const seqs = writtenLines.map((l) => JSON.parse(l.trimEnd()).theta_progress.seq);
+    expect(seqs).toEqual([1, 2]);
+  });
+});
+
 describe("T-WIRE — L3-B20: 200ms acceptance interval carries dropped:1 on the wire", () => {
   it("t=0/+100/+250 -> 2 lines, second carries dropped:1", async () => {
     const clock = new FakeClock();
