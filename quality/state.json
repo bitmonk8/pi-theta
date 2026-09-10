@@ -22,7 +22,7 @@
     "src/discovery/settings.ts": "b75e1ff136b381dcde54fd46e0676963cd2f1372",
     "src/extension/capability-probe.ts": "5566186d2f82f6fb71b46422ffc0315b8b591a3f",
     "src/extension/drain-state.ts": "b75e1ff136b381dcde54fd46e0676963cd2f1372",
-    "src/extension/execution-status/bus.ts": "b75e1ff136b381dcde54fd46e0676963cd2f1372",
+    "src/extension/execution-status/bus.ts": "4d98cf2b7637c39350a9a2266cb8e05f06bb2057",
     "src/extension/execution-status/checkpoint-decorator.ts": "b75e1ff136b381dcde54fd46e0676963cd2f1372",
     "src/extension/execution-status/child-tap.ts": "b75e1ff136b381dcde54fd46e0676963cd2f1372",
     "src/extension/execution-status/entry-channel.ts": "b75e1ff136b381dcde54fd46e0676963cd2f1372",
