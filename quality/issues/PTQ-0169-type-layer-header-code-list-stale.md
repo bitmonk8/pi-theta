@@ -1,9 +1,9 @@
 ---
-id: pending
+id: PTQ-0169
 title: type-layer-checks' header enumerates the code-keyed areas the module realises and omits two codes the module itself constructs — non-numeric-arithmetic-operands (A7) and non-integer-max
 lens: D2
-status: intake
-verdict: pending
+status: open
+verdict: confirmed
 locations:
   - src/parser/type-layer-checks.ts:12-33
   - src/parser/type-layer-checks.ts:3257-3263
@@ -148,3 +148,4 @@ comment-only.
 - Behaviour: the header is comment text; nothing reads it.
 
 ## Triage
+verdict: confirmed — independently reproduced: header :12-33 byte-matches and its subject is unscoped ("each diagnostic is an integration realisation of a code-keyed area" + list), yet `grep 'code: "theta/parse/'` gives 7 emissions over 6 codes of which `non-integer-max` (:3269) and `non-numeric-arithmetic-operands` (:3884, :3913; ~10-line drift from the cited :3259/:3874/:3903) appear nowhere in lines 1-40 while both are registered peers of the listed codes in docs/spec_topics/diagnostics/code-registry-parse.md:29/:43; blame puts the list at d23c22be (2026-07-13; 2bc69157 on 07-19 was only the Loom→Theta rename) and the three later commits 6ed73f9b/d9b74193/a5355f72 minted both codes in this very file (first `-S` hit anywhere in src/) without touching the header (hunks start at :117/:1738/:3074, :3212, :2798/:3088), so the "A5 / A6 / A2 fire ONLY when…" sentence is also stale — A7's doc (:3858-3863) states the same deferral and the `non-integer-max` arm (:3260-3264) explicitly refers back to "the type layer's documented posture"; reachability holds (dispatches :3123/:3131/:3500, par-for arm :3269); no existing PTQ or intake sibling covers the header list; sole inaccuracy is the claimed ":3262 (message)" hit — the message text does not contain the code name (4 hits, not 5) — immaterial to the root cause (triage: claude-opus-5)

@@ -1,9 +1,9 @@
 ---
-id: pending                  # PTQ-NNNN minted at acceptance; never self-assigned
+id: PTQ-0163
 title: ThetaExtensionDeps.registry is declared and documented as consumed, but no code path reads it
 lens: D2                     # the lens that filed this
-status: intake               # intake | open | fixed | rejected (store mechanics own transitions)
-verdict: pending             # pending | confirmed | questionable | false-positive | duplicate | out-of-scope | malformed
+status: open
+verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - src/extension/factory.ts:363-371
   - tests/extension-bootstrap-nonabort.test.ts:333-340
@@ -104,3 +104,4 @@ and 3a8732da (H8a) touching the surrounding text; no commit ever added a
 
 ## Triage
 verdict: questionable — field at :371, the sole supplier at extension-bootstrap-nonabort.test.ts:340 and zero `deps.registry` reads in factory.ts all reproduce (git confirms the string only ever lived in a comment, 37b0098e→3a8732da), but the doc names the field an injection seam making V9p's MUST-NOT-touch-drain-state falsifiable and the factory closure DOES hold the reference via `deps`, refuting the candidate's decisive "no reference either way" step (its "zero hits across src/" claim is also wrong — 9 hits on other deps types); structural-vs-witness removal is a human call, same shape as d2-03 (triage: claude-opus-5)
+verdict: confirmed — reproduced at HEAD: optional field at factory.ts:383 (12-line drift), `createThetaExtension` the sole consumer (:453; harness `loadExtension` only forwards), zero `deps.registry` reads in factory.ts with no spread/destructure/bracket access of `deps`, a brace-matched scan of all 71 `ThetaExtensionDeps` literals across src/tests/extensions/tools finds exactly one supplying `registry` (extension-bootstrap-nonabort.test.ts:340) whose :365 assertion reads its own local, `registerFixtures`' `registry?` param is fed only by `wiring.registry` (:1141/:1154) or nothing on the test's static path (:732/:1011), and git shows the string only ever lived in a V9p comment (37b0098e) that H8a deleted (3a8732da) — no read ever existed; this is NOT d2-03's shape: there a `void deps.registry` marker and commit 49d517ba evidence a conscious held-reference witness over the SAME registry production threads, whereas here no marker or intent survives at HEAD (PTQ-0001's discriminator) and the injected object is never the registry the handler could touch, so the doc's own witness rationale is vacuous under any implementation and "consumed by V9p" is false; the FP-check's "zero hits" for `deps.registry` is wrong (9 hits, all on other deps types) but does not touch the conclusion (triage: claude-opus-5)

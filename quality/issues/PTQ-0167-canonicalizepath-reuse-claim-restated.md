@@ -1,9 +1,9 @@
 ---
-id: pending
+id: PTQ-0167
 title: canonicalizePath's doc claims the static-resolution parse-cache key reuses it "rather than restating it" while the same file's static-resolution pass inlines the composition twice
 lens: D2
-status: intake
-verdict: pending
+status: open
+verdict: confirmed
 locations:
   - src/runtime/invocation.ts:133-147
   - src/runtime/invocation.ts:315-317
@@ -136,3 +136,4 @@ file currently disagree.
 
 ## Triage
 verdict: confirmed — re-verified: :133-141 does claim "consumers reuse it rather than restating it" and names the parse-cache key, while :317/:333 inline the helper's exact body and runStaticResolutionPass appears in no canonicalizePath call site (re-grepped src/ tests/ extensions/ tools/); the blame narrative is wrong (the clause dates to 24f68d562 2026-07-01, not the 2bc691576 Loom->Theta rename), but that commit's own diff converted the containment check's two inlines and left the pass's, so the mismatch and its intent stand (triage: claude-opus-5)
+verdict: confirmed — every excerpt reproduces verbatim (:133-147 doc + helper body, :108/:112 reuse, :317/:333 inlines) and the mismatch is mechanical, not taste: the doc names "the static-resolution per-pass parse cache key" among consumers that "reuse it rather than restating it", yet the only realpath-keyed per-pass parse cache in the repo is `runStaticResolutionPass` in this same file (section header :267; `pass-parse-cache.ts` keys on the separator-normalised path with no `realpath`, so it is not the referent) and it inlines the helper's exact body twice while `canonicalizePath` is never called inside it (re-grepped src/ tests/ extensions/ tools/: calls at invocation.ts:108/:112, import-static-checks.ts:535, invoke-static-checks.ts:529, production-composition.ts:491, invoke-provenance-ledger.ts:116, invoke-provenance.ts:116 — candidate's :422/:481 are minor drift); the candidate's blame narrative is wrong — `2bc691576` is the Loom→Theta rename that only changed `.warp`→`.thetalib` on :139, and the clause was born in `24f68d562` (2026-07-01, V15e) together with the helper — but that commit's own diff converted the containment check's two inlines and left the pass's two (still `0fccd7d5a`), so the claim was false on arrival rather than drifted, exactly the confirmed PTQ-0128 pattern, and the intent evidence still supports the finding; not a deadness claim (helper has five production importing modules), so `runStaticResolutionPass` being test-only-reachable (sole caller tests/invocation-core.test.ts) does not invoke the witness-caller rule — the defect sits in live production narration; not a duplicate (PTQ-0073 covers only the :20-32 stub-status header); fix is a one-sentence narrowing or two one-line replacements (`deps.fs` is already `Pick<FileSystem, "realpath" | "readText">`, :289); aside outside this filing's root cause: production-composition.ts:1485/:1513 also inline `realpath(...).replace(/\\/g, "/")`, a separate restating consumer worth its own filing (triage: claude-opus-5)

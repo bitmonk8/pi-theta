@@ -1,9 +1,9 @@
 ---
-id: pending
+id: PTQ-0168
 title: matchAvailableModel's doc-comment names two consumers ("the strict-capability probe and the runtime binder dispatch"); production has six call sites
 lens: D2
-status: intake
-verdict: pending
+status: open
+verdict: confirmed
 locations:
   - src/binder/binder-model.ts:112-114
   - src/extension/production-composition.ts:705
@@ -149,3 +149,4 @@ to the six current sites.
 
 ## Triage
 verdict: confirmed — reproduced exactly: comment verbatim at 112-114, `grep -rnE "matchAvailableModel\(" src extensions tools` returns precisely the 6 cited production call sites with the stated subsystem attributions, and git proves the narration (comment born in a215e1f8 when exactly the 2 named sites existed, block never revised since); in-scope src/ historical-narration comment, no dedupe (the only other binder-model.ts candidate targets the 32-36 header). (triage: claude-opus-5)
+verdict: confirmed — independently reproduced: the sentence is byte-identical (drifted to binder-model.ts:106-108), `grep -rnE "matchAvailableModel\(" src extensions tools` yields exactly the 6 cited production call sites (now composition :737/:1280, producer :978/:2896/:3124/:3489) and reading each in context confirms the stated subsystem attributions, no `export *` barrel or string-keyed access exists, and git proves historical narration rather than a deliberate pair: a215e1f8 authored the "both … reuse it" sentence when exactly 2 call sites existed (the composition probe and the loom-producer binder dispatch it names), adoptions landed in 645bcb02 (→3, FN-7 override), 4866d4d2 (→4, PIC-62 confirmation) and 30492948 (→6, typed-query resolveModel + respond model), and the sentence was never revised since; in-scope D2 stale-consumer-roster on a src/ comment (same accepted pattern as PTQ-0086/0104/0125/0137), not a duplicate (PTQ-0010 targets the :32-36 module header, PTQ-0160 is capability-probe.ts). (triage: claude-opus-5)

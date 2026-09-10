@@ -1,9 +1,9 @@
 ---
-id: pending
+id: PTQ-0165
 title: SchemaSinkFrame declares a `paren` variant and resolveQuerySchemaSink keeps a switch arm for it, but nothing in the repository constructs a `paren` frame
 lens: D2
-status: intake
-verdict: pending
+status: open
+verdict: confirmed
 locations:
   - src/parser/query-schema-inference.ts:92-100
   - src/parser/query-schema-inference.ts:188-194
@@ -130,3 +130,4 @@ kind the AST does not retain.
 
 ## Triage
 verdict: questionable — every mechanical claim reproduced (`"paren"` = exactly 2 src hits, decl :93 and fall-through consumer :190; zero producers among the 7 kinds the sole frame builder constructs; no computed/`as`/string-keyed `kind`; `Expr` has 20 kinds and no paren node, the primary parser folding `(…)` to `inner` at theta-document.ts:5360-5367), and it is not the confirmed `stop.label` filing's root cause — but the harm anchor is taste: the candidate itself concedes the transparent arm is behaviourally identical reached or not, and it omits that this union is a named 1:1 mirror of query-forms.md:41's normative crossed list whose FIRST item is "parenthesisation `(...)`", the arm being born with the union in 6d6f8a41 rather than stranded by a removed producer, so deleting it trades two inert lines against code-to-spec enumeration parity (and paren transparency is satisfied structurally, as static-type-inference.ts:696 also records) — a human should rule delete-vs-annotate (triage: claude-opus-5)
+verdict: confirmed — re-verified independently: `"paren"` occurs at exactly 2 ts sites across src/extensions/tools/tests (query-schema-inference.ts:93 declaration, :190 fall-through case); the sole production frame builder query-schema-resolve.ts constructs 7 kinds (propagate 1, ternary 2, array-literal 1, let 5, call-arg 7, fn-return 4, stop 19) and never `paren`, tests/query-schema-inference.test.ts constructs 6 kinds and never `paren` (so not test-only-reachable), no computed/cast/string-keyed `kind`, no `default`/never exhaustiveness over `frame.kind`; `Expr` (theta-document.ts:474-494) has 20 node kinds with no parenthesis node and the primary parser folds `(…)` to `inner` (:5658-5665 — content verbatim, line drift only); `git log -S` shows the arm born in V13b-T red commit 6d6f8a41 with impl 72272a20 never producing it and no src commit ever constructing one — the same shape as confirmed PTQ-0017/PTQ-0037/PTQ-0138. The prior "questionable" grounds do not hold: "behaviourally identical reached or not" is the definition of deadness, not a downgrade; the arm is a transparent fall-through, not a spec-mandated fail-closed branch; query-forms.md:41 states language semantics the parser satisfies structurally and no doc maps `paren` as a code identifier; delete-vs-annotate is the fix stage's call. Not PTQ-0052 (`stop.label` write-only) (triage: claude-opus-5)

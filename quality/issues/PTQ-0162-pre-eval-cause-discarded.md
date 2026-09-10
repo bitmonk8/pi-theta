@@ -1,9 +1,9 @@
 ---
-id: pending                  # PTQ-NNNN minted at acceptance; never self-assigned
+id: PTQ-0162
 title: preEvalCauseOf computes a pre-eval cause discriminant whose only production consumer, routePreEvalFailure, discards it
 lens: D2                     # the lens that filed this
-status: intake               # intake | open | fixed | rejected (store mechanics own transitions)
-verdict: pending             # pending | confirmed | questionable | false-positive | duplicate | out-of-scope | malformed
+status: open
+verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - src/extension/production-composition.ts:342-371
   - src/extension/production-composition.ts:1674-1678
@@ -125,3 +125,4 @@ owns the choice.
 
 ## Triage
 verdict: questionable — mechanics reproduce (`void cause;` load-pre-eval.ts:107, sole src caller production-composition.ts:1682, zero hot-reload reuse), but preEvalCauseOf is production-called and deliberately witness-tested, and the unbranched cause parameter is an explicit settled §Non-goal in bugs 0109 and 0260, so the residual is a cosmetic design call a human should rule (triage: claude-opus-5)
+verdict: confirmed — independently reproduced at HEAD with line drift only (def :350, sole src call :1730, `void cause;` load-pre-eval.ts:107; the excerpt's `sendSystemNote` line was rerouted to `deliverOperatorNotePreferringEntry` post-filing by 1dad42ac without touching the discard): `cause` has been voided since the module's stub birth (f419ff13 voided both `cause` and `note`; implementing f701ba71 gave `note` its reader and kept `void cause;`), no historical version ever branched on it, the fed value is a pure total mapping so the production call is a provable no-op and the note at :1731-1733 is built from the diagnostic alone, and the comment's sole justification — "caller / reload-integration reuse" — names a consumer that never existed in any commit (hot-reload.ts never imported the router and emits ERR-7 via emitDiagnosticBatch at :198; zero hits in extensions/ and tools/; no re-exports) — this is the brief's own "vestigial parameter … value is never read" bullet with confirmed precedent (PTQ-0032 `void parsed.mode`, PTQ-0088, PTQ-0124); the test-only-callers carve-out does not apply because preEvalCauseOf is production-called and the filing targets the discarded value, not the witness-pinned mapping (whose own header concedes "the mapping has no routable observable"), the spec mandates only uniform triggerTurn:false delivery rather than a carried cause, and bugs 0109/0260 §Non-goals are report-scope exclusions ("measures the mapping's fidelity, not the router's shape") that themselves describe the retention as for "any future per-cause consumer" — recorded speculative generality, not a design ruling; the disposition of the test-pinned mapping function is the fix stage's one fork; distinct from PTQ-0060 (stub-header narration) and intake d2-05 (the false V4g-reuse comment) (triage: claude-opus-5)

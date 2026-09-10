@@ -1,9 +1,9 @@
 ---
-id: pending                  # PTQ-NNNN minted at acceptance; never self-assigned
+id: PTQ-0164
 title: DiscardEmitInput's required form field (and the DiscardForm type that exists only to type it) is written at every construction site and read by no code anywhere
 lens: D2                     # the lens that filed this
-status: intake               # intake | open | fixed | rejected (store mechanics own transitions)
-verdict: pending             # pending | confirmed | questionable | false-positive | duplicate | out-of-scope | malformed
+status: open
+verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - src/runtime/query-discard.ts:127-136
   - src/runtime/query-discard.ts:147-158
@@ -132,3 +132,4 @@ discriminates nothing.
 
 ## Triage
 verdict: questionable — `form` verifiably has zero readers ever (pickaxe `input.form`: no commit; no dynamic/spread access), but its whole seam has no production caller by recorded design (.pi/bug-hunt/logs/note-channel-6.md:51-54 "filed residual/non-goal"), so prune-vs-stamp is the QRY-20 owner's call, and the site set is mis-stated (4 writes incl. tests/query-discard.test.ts:186-189, which iterates both DiscardForm members, not 3) (triage: claude-opus-5)
+verdict: confirmed — reproduces independently: `form` (:151) and `DiscardForm` (:136) have zero readers across src/, extensions/, tools/, tests/ (`\.form\b` hits only `decl.form` on ByClauseDecl at schema-declarations.ts:792/807; no bracket, destructure or spread access; no `export *`), pickaxe `input.form` is empty across all history, and d88e07ec declared the field alongside an already-derived `discardSite` with stub bodies that never touched it while cbd64750 added no reader — inert from birth, not orphaned by a redesign; the event carries no form (runtime-event-channel.ts:45 and spec runtime-event-channel.md:88 pin `discard_site` as the only discard field), so the "stamp" alternative is a spec extension, not a restoration, leaving pruning as the only spec-consistent direction; the test-only-caller rule is not engaged because no test observes `form` either — the :187-189 loop over both members yields identical behaviour, so the member is inert even to its witnesses (the PTQ-0007 standard), and the seam's recorded production-unwired status (note-channel-6.md:51-54) is orthogonal to a member its own implementation ignores; two filing inaccuracies, neither bearing on the claim: 4 write sites not 3 (misses tests/query-discard.test.ts:187-189) and the producer citation drifted :1739→:1771 (triage: claude-opus-5)

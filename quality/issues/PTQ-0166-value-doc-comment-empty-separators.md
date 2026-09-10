@@ -1,9 +1,9 @@
 ---
-id: pending
+id: PTQ-0166
 title: Two doc comments in value.ts end with a dangling blank comment line left behind when the V2c commit deleted the stub paragraph they separated
 lens: D2
-status: intake
-verdict: pending
+status: open
+verdict: confirmed
 locations:
   - src/runtime/value.ts:497-506
   - src/runtime/value.ts:583-589
@@ -108,3 +108,4 @@ The two lines are the tail of an already-completed deletion.
 
 ## Triage
 verdict: questionable — all cited facts reproduce exactly (lines 506/589, commits 984796c1/eed66a89, awk 2 hits in scope), but the anchor is semantically inert whitespace (no doc generator, no formatter, eslint clean) and the named root cause recurs repo-wide at 22 sites in 8 files with identical stub-deletion provenance (query-error.ts/aef88150, stdlib-array.ts/d0679392), so sites:2 + localized misframes it; human should rule (triage: claude-opus-5)
+verdict: confirmed — both excerpts byte-match (blank ` *` at value.ts:505 and :588) and `git log -L` at both ranges reproduces eed66a89 adding ` *` + the "V2c-T inert stub" paragraph in one hunk and 984796c1 deleting only the paragraph, so each blank line is the un-removed remainder of a historical-narration comment whose feature landed — the D2 brief's "leftover scaffolding / historical narration comments" category and the same blame-proven excision-residue anchor the store accepted for the doc-duplicate issues, not taste (the other 23 `/**` blocks in the file close directly on ` */`); nothing consumes it (no typedoc/jsdoc/api-extractor in package.json, eslint.config.js has no comment rules and passes, no test reads the source text); no PTQ covers these lines (PTQ-0013 is the :30-37 header narration, a different root cause); the same mechanism recurs repo-wide at 22 sites in 7 files with identical T-commit/impl-commit provenance (verified query-error.ts/aef88150, stdlib-array.ts/d0679392, tool-call-execute.ts/38155d3a, invoke-diagnostics.ts/d9ea72a6, drain-state.ts/c1f11bbe, literals.ts/b7f981a9), but the reviewer is confined to its 15-file shard and the store already confirms shard-scoped fragments of one mechanism as separate issues (PTQ-0071/0072/0073/0075/0093/0106/0107 stub-narration family), so sites:2/localized is correct as filed (triage: claude-opus-5)
