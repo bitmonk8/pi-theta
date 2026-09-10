@@ -2,7 +2,7 @@
 id: PTQ-0168
 title: matchAvailableModel's doc-comment names two consumers ("the strict-capability probe and the runtime binder dispatch"); production has six call sites
 lens: D2
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/binder/binder-model.ts:112-114

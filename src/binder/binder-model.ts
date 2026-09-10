@@ -104,8 +104,8 @@ export interface StrictCapableProbe {
  * `provider` plus `id`. Returns the single matched model, or `undefined` when
  * zero or more than one available model matches (the load-time resolver already
  * decided such a reference resolves to no model). Generic over the model shape
- * so both the strict-capability probe and the runtime binder dispatch reuse it
- * against `ctx.modelRegistry.getAvailable()`.
+ * so every site that resolves a model reference against
+ * `modelRegistry.getAvailable()` reuses it.
  */
 export function matchAvailableModel<M extends { readonly id: string; readonly provider: string }>(
   reference: string,
