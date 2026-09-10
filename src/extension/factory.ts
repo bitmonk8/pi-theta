@@ -43,6 +43,7 @@ import {
   THETA_STATUS_COMMAND_NAME,
 } from "./execution-status/status-command";
 import { registerThetaProgressTool } from "./execution-status/progress-tool";
+import type { InProcessToolExecute } from "../runtime/tool-call-execute";
 import {
   RendererGate,
   SystemNoteChannelHealth,
@@ -417,6 +418,10 @@ export interface ThetaExtensionDeps {
     // `session_shutdown` can dispose it (EXST-2).
     entryChannel?: EntryChannelHandle,
     latchStatusBus?: (bus: ExecutionStatusBus) => void,
+    // RFC 0010 (EXST-13): the factory-owned in-process tool handlers (currently
+    // `theta_progress`'s shared-state code-side executor), so a code-side call
+    // dispatches in-process instead of through the host-loop bridge.
+    inProcessTools?: Readonly<Record<string, InProcessToolExecute>>,
   ) => Promise<ExtensionInstanceWiring>;
 
   /**
@@ -635,15 +640,21 @@ export function createThetaExtension(
     // "throwing registration draws the standard bootstrap diagnostic" arm is
     // for a PRESENT member that THROWS, not for a member the double never
     // modelled.
+    // RFC 0010 (EXST-13): the in-process tool handlers this instance threads to
+    // every compose pass, so a code-side `theta_progress(...)` call dispatches
+    // directly instead of through the host-loop bridge (bug 0473). Empty on a
+    // host without `registerTool` (the tool never registers there anyway).
+    let inProcessTools: Readonly<Record<string, InProcessToolExecute>> | undefined;
     if (typeof pi.registerTool === "function") {
       try {
-        registerThetaProgressTool(pi, {
+        const progress = registerThetaProgressTool(pi, {
           isChildRegime: deps.isSubagentChild === true,
           bus: () => liveStatusBus,
           invocations: () => liveActiveInvocations,
           clock: () => liveClock,
           entryChannel,
         });
+        inProcessTools = { [THETA_PROGRESS_TOOL_NAME]: progress.codeSideExecute };
       } catch (e: unknown) { // allow-broad-catch: pi-sdk-boundary — conventions.md Specific exception types only
         deps.emitDiagnostic?.(
           bootstrapFailedDiagnostic("pi.registerTool", e, { theta: THETA_PROGRESS_TOOL_NAME }),
@@ -987,6 +998,7 @@ export function createThetaExtension(
           (bus: ExecutionStatusBus): void => {
             liveStatusBus = bus;
           },
+          inProcessTools,
         );
       } catch (e: unknown) { // allow-broad-catch: pi-sdk-boundary — conventions.md Specific exception types only
         if (composeTailSuperseded()) {
@@ -1406,6 +1418,7 @@ export default function thetaExtension(pi: ExtensionAPI): void {
       // execution-status-bus latch (EXST-2/EXST-11) ride through unchanged.
       entryChannel,
       latchStatusBus,
+      inProcessTools,
     ) =>
       composeExtensionInstance(
         pi,
@@ -1415,6 +1428,7 @@ export default function thetaExtension(pi: ExtensionAPI): void {
         ownRegisteredNames,
         entryChannel,
         latchStatusBus,
+        inProcessTools,
       ),
     isSubagentChild,
   })(pi);
