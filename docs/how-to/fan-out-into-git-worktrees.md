@@ -62,6 +62,15 @@ schema WorktreeRow {
   tree: string
 }
 
+// The worker's return schema — in a real setup both thetas import it from a
+// shared .thetalib so the `invoke<TreeReport>` annotation below and the
+// worker's constructor stay one definition.
+schema TreeReport {
+  ok: boolean,
+  sha: string,
+  fixed_confirmed: boolean
+}
+
 let provisioned = bash({ command: "node tools/worktrees.mjs provision --clusters " + clusters })?
 let rows: array<string> = provisioned.split("\n")
 
@@ -83,7 +92,7 @@ for row in rows {
 // Result>) for normal lanes and the `rep.ok` reads below panic on a Result
 // receiver (`theta/runtime/non-object-receiver`).
 let reports = par for w in work max 4 {
-  fix_cluster_in_tree(w.manifest, w.guidance) with { cwd: w.tree }?
+  invoke<TreeReport>("./fix-cluster-in-tree.theta", w.manifest, w.guidance) with { cwd: w.tree }?
 }
 ```
 
@@ -130,19 +139,23 @@ while attempt < 2 && !gate_ok {
   }
 }
 
-if !gate_ok {
-  TreeReport { ok: false, sha: "", fixed_confirmed: false }
-} else {
+// An `if` is a STATEMENT in theta: a trailing if/else's branch values go
+// nowhere, the callee's final value becomes null, and the orchestrator's
+// member reads panic on it at runtime. Bind into a `let mut`, end on a bare
+// expression tail — and have the caller use `invoke<TreeReport>` (below) so
+// a null return is refused as `return_validation` instead of crossing as
+// `Ok(null)`.
+let mut out = TreeReport { ok: false, sha: "", fixed_confirmed: false }
+if gate_ok {
   let verdict: ReviewVerdict = @`Review the diff in this worktree against the guidance: ${guidance}.
 Report whether the cluster is genuinely fixed.`?
-  if !verdict.confirmed {
-    TreeReport { ok: false, sha: "", fixed_confirmed: false }
-  } else {
+  if verdict.confirmed {
     bash({ command: "git add -A && git commit -m \"fix: " + manifest + "\"" })?
     let sha = bash({ command: "git rev-parse HEAD" })?.trim()
-    TreeReport { ok: true, sha: sha, fixed_confirmed: true }
+    out = TreeReport { ok: true, sha: sha, fixed_confirmed: true }
   }
 }
+out
 ```
 
 A tree that never goes green (2 failed attempts, or a review that does not

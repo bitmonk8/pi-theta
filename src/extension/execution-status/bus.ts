@@ -457,6 +457,15 @@ class ExecutionStatusBusImpl implements ExecutionStatusBus {
     if (this.#evictExpired(now)) {
       this.#dirty = true;
     }
+    // EXST-6 (RFC 0010 Erratum F): while anything is RUNNING, the passage of a
+    // render interval is dirt of its own — a running row's age is a function of
+    // the current time, so it advances with no publication at all. Without this,
+    // a code-only child (the quality loop's `fix-cluster-tree` wrapper drives
+    // workers and a gate, taking no turn of its own) publishes nothing for
+    // minutes and every rendered age freezes at its first value.
+    if (this.#hasRunningWork()) {
+      this.#dirty = true;
+    }
     if (!this.#dirty) {
       return; // no-dirty-no-render (EXST-6)
     }
@@ -481,7 +490,7 @@ class ExecutionStatusBusImpl implements ExecutionStatusBus {
         this.#disabledSinks.add(sink);
       }
     }
-    this.#scheduleLingerSweep(now);
+    this.#scheduleFollowUp(now);
   }
 
   /** Drop every node whose done-flash linger has expired (EXST-7). */
@@ -497,11 +506,38 @@ class ExecutionStatusBusImpl implements ExecutionStatusBus {
   }
 
   /**
-   * A lingering ended node needs ONE follow-up tick to be evicted even when no
-   * further publication arrives (EXST-7's bounded linger).
+   * Whether the surface currently draws anything whose rendering is a function
+   * of the CLOCK rather than of the last publication (EXST-6, Erratum F): a
+   * node that has not ended — its own age, its lanes' ages, and its tapped
+   * child's last-event age all advance on their own. An ended node inside its
+   * done-flash linger is NOT running (its row is static and the linger sweep
+   * below owns its one remaining tick), and the untracked-invocation counter
+   * renders a bare count with no age, so neither keeps the bus awake.
    */
-  #scheduleLingerSweep(now: number): void {
+  #hasRunningWork(): boolean {
+    for (const node of this.#nodes.values()) {
+      if (node.endedAtMs === undefined) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /**
+   * Arm the next tick for the work the SURFACE still owes with no publication
+   * to trigger it: a running node owes a re-render at the coalescing cadence
+   * (EXST-6's age-liveness, Erratum F — re-armed through `#schedule` so the
+   * last-render anchoring and the drop-extra-schedule discipline are the same
+   * one), and a lingering ended node owes ONE follow-up tick to be evicted
+   * (EXST-7's bounded linger). With neither outstanding nothing is scheduled —
+   * an idle bus stays render-free rather than paying a perpetual heartbeat.
+   */
+  #scheduleFollowUp(now: number): void {
     if (this.#pending !== undefined || this.#disposed || this.#verbosity === "off") {
+      return;
+    }
+    if (this.#hasRunningWork()) {
+      this.#schedule();
       return;
     }
     let earliest: number | undefined;

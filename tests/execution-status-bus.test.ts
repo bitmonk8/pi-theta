@@ -15,6 +15,7 @@ import {
 import type { Clock, TimerHandle } from "../src/seams/clock";
 import { FakeClock } from "./helpers/fake-clock";
 import { ReloadDebouncer, RELOAD_DEBOUNCE_WINDOW_MS, type RebuildOutcome } from "../src/extension/reload-debounce";
+import { renderNodeHeader } from "../src/extension/execution-status/footer-sink";
 
 // RFC 0010 (execution-status.md EXST-2/3/6/7/9) — `tests/execution-status-bus.test.ts`
 // (T-BUS). Behaviour-matrix rows B1-B20 (bus core, coalescing tick, memory
@@ -137,13 +138,25 @@ describe("T-BUS — coalescing tick (EXST-6)", () => {
     }
   });
 
-  it("B3: after a render, no further publishes for 10 s produces zero further renders (no-dirty-no-render)", () => {
+  // RFC 0010 Erratum F narrowed this row's Given, and the narrowing is the only
+  // edit: while a node is RUNNING the passage of an interval is dirt of its own
+  // (a rendered age advances with the clock), so "no publishes" no longer means
+  // "no dirt" for a live node — the running direction is asserted by the
+  // age-liveness case below. What survives unweakened, and is asserted here, is
+  // EXST-6's no-dirty-no-render itself: once nothing is running and no linger is
+  // outstanding, a quiet bus renders zero more times however long the clock runs.
+  it("B3: after a render, no further publishes for 10 s produces zero further renders (no-dirty-no-render; settled bus, per Erratum F)", () => {
     const clock = new FakeClock();
     const sink = recordingSink();
     const bus = makeBus([sink], clock);
 
     bus.invocationStarted("inv-1", "quality-loop");
     clock.advance(STATUS_TICK_MS);
+    expect(sink.renders.length).toBeGreaterThanOrEqual(1);
+    // Settle the bus: the node ends and its done-flash linger expires, so the
+    // surface owes nothing the clock alone could change.
+    bus.invocationEnded("inv-1");
+    clock.advance(STATUS_TICK_MS + DONE_LINGER_MS + STATUS_TICK_MS);
     const countAfterFirstTick = sink.renders.length;
     expect(countAfterFirstTick).toBeGreaterThanOrEqual(1);
 
@@ -472,6 +485,115 @@ describe("T-BUS — containment (EXST-9) + publish-path discipline (EXST-6)", ()
 
     // The surviving sink keeps receiving renders across both ticks.
     expect(survivor.renders.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it("a running node keeps the surface live with zero further events, and the bus goes quiet once nothing runs (EXST-6 age-liveness, RFC 0010 Erratum F)", () => {
+    // Case 1 + case 2 of the Erratum F witness, in one arc so the SAME bus
+    // shows both directions: renders continue while the node runs, then stop
+    // once it has ended and its linger has expired.
+    const clock = new FakeClock();
+    const sink = recordingSink();
+    const bus = makeBus([sink], clock);
+
+    bus.invocationStarted("inv-1", "fix-cluster-tree");
+    // Zero further publications from here on: the wrapper this reproduces is
+    // code-only, so its child emits no tap event for minutes.
+    for (let i = 0; i < 20; i++) {
+      clock.advance(STATUS_TICK_MS);
+    }
+
+    // Renders CONTINUE at the coalescing cadence, one per interval.
+    expect(sink.renders.length).toBeGreaterThanOrEqual(20);
+    for (let i = 1; i < sink.renders.length; i++) {
+      expect(sink.renders[i]!.nowMs - sink.renders[i - 1]!.nowMs).toBeGreaterThanOrEqual(
+        STATUS_TICK_MS,
+      );
+    }
+
+    // …and the RENDERED age advances: the first and last renders are fed
+    // through the shipped header renderer, whose age token is a function of the
+    // render's `nowMs` (`0s` frozen for the whole run was the observed bug).
+    const headerAt = (index: number): string => {
+      const render = sink.renders[index]!;
+      const node = render.snapshot.nodes.find((n) => n.invocationId === "inv-1")!;
+      return renderNodeHeader(node, render.nowMs);
+    };
+    expect(headerAt(0)).toBe("θ /fix-cluster-tree 0s");
+    expect(headerAt(sink.renders.length - 1)).toBe("θ /fix-cluster-tree 4s");
+
+    // Case 2 — nothing running and the linger elapsed: the keepalive stops.
+    bus.invocationEnded("inv-1");
+    clock.advance(STATUS_TICK_MS + DONE_LINGER_MS + STATUS_TICK_MS);
+    const settled = sink.renders.length;
+    expect(bus.snapshot().nodes).toHaveLength(0);
+
+    clock.advance(10_000);
+    expect(sink.renders).toHaveLength(settled);
+  });
+
+  it("the keepalive is one ordinary tick, not a second timer class: exactly one pending timer at a time across a quiet running stretch (EXST-6 drop-extra-schedule)", () => {
+    const recording = new RecordingClock(new FakeClock());
+    const sink = recordingSink();
+    const bus = makeBus([sink], recording);
+
+    bus.invocationStarted("inv-1", "fix-cluster-tree");
+    for (let i = 0; i < 5; i++) {
+      recording.advance(STATUS_TICK_MS);
+    }
+
+    // One arm per elapsed interval (the initial publication's + one per
+    // keepalive render) and no `clearTimeout` at all: a quiet stretch never
+    // races two pending ticks, so no schedule is ever dropped.
+    expect(recording.setTimeoutCalls).toHaveLength(6);
+    expect(recording.clearTimeoutCalls).toHaveLength(0);
+    for (const call of recording.setTimeoutCalls) {
+      expect(call.ms).toBe(STATUS_TICK_MS);
+    }
+  });
+
+  it("age-liveness does not weaken the EXST-7 caps: a quiet running stretch neither grows nodes past the cap nor resurrects an evicted one (containment)", () => {
+    const clock = new FakeClock();
+    const sink = recordingSink();
+    const bus = makeBus([sink], clock);
+
+    for (let i = 0; i < MAX_TRACKED_INVOCATIONS + 1; i++) {
+      bus.invocationStarted(`inv-${i}`, "quality-loop");
+    }
+    // The one refused id ends; the rest keep running through a quiet stretch.
+    bus.invocationEnded("inv-32");
+    for (let i = 0; i < 10; i++) {
+      clock.advance(STATUS_TICK_MS);
+    }
+
+    const snap = bus.snapshot();
+    expect(snap.nodes).toHaveLength(MAX_TRACKED_INVOCATIONS);
+    expect(snap.untracked).toBe(0);
+    // Every keepalive render carries the SAME bounded node set — the tick adds
+    // no node and drops none while they run.
+    for (const render of sink.renders) {
+      expect(render.snapshot.nodes).toHaveLength(MAX_TRACKED_INVOCATIONS);
+    }
+  });
+
+  it("'off' verbosity and dispose() both beat the keepalive: a RUNNING node schedules nothing under either (EXST-10 / EXST-2)", () => {
+    const recording = new RecordingClock(new FakeClock());
+    const sink = recordingSink();
+    const bus = makeBus([sink], recording);
+
+    bus.invocationStarted("inv-1", "fix-cluster-tree");
+    recording.advance(STATUS_TICK_MS); // one render, keepalive armed
+    bus.setVerbosity("off");
+    const rendersAtOff = sink.renders.length;
+    recording.advance(10_000);
+    expect(sink.renders).toHaveLength(rendersAtOff);
+
+    bus.setVerbosity("names");
+    recording.advance(STATUS_TICK_MS);
+    expect(sink.renders.length).toBeGreaterThan(rendersAtOff);
+    bus.dispose();
+    const rendersAtDispose = sink.renders.length;
+    recording.advance(10_000);
+    expect(sink.renders).toHaveLength(rendersAtDispose);
   });
 
   it("producer publish does no rendering work inline: a sink is never called synchronously on publish, only later on the tick", () => {

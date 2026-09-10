@@ -218,7 +218,7 @@ while cycle < max_cycles && !converged {
     // (edits, gate runs, the commit), never its identity - the child still
     // loads THIS tree's worker code (RFC 0009 §4, identity/location).
     let reports = par for w in work max parallel {
-      fix_cluster_tree(w.manifest_abs, w.key, wave, tree_gate_cmd) with { cwd: w.tree }?
+      invoke<TreeFixReport>("./workers/fix-cluster-tree.theta", w.manifest_abs, w.key, wave, tree_gate_cmd) with { cwd: w.tree }?
     }
 
     let mut greens: array<Green> = []

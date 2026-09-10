@@ -4,6 +4,7 @@ mode: subagent
 model: "anthropic/claude-sonnet-5"
 tools:
   - bash
+  - theta_progress
   - ./fix-cluster.theta
   - ./review-fix.theta
 params:
@@ -18,6 +19,17 @@ params:
 // collide with a sibling fixer. The two workers it calls inherit that cwd,
 // which is why they need no change: their repo-relative paths and git commands
 // resolve against the tree. See docs/how-to/fan-out-into-git-worktrees.md.
+//
+// This wrapper is code-only: it drives two workers and a gate and never takes
+// a turn of its own, so the parent's child-activity tap sees no model traffic
+// for minutes at a time and the lane looks dead. The `theta_progress` calls
+// below are the narrative channel that makes it watchable - running in the
+// child regime each accepted call is exactly one PIC-74 stdout wire line, and
+// the parent's tap renders it per-lane as the class-2 segment (EXST-15). They
+// are placed at attempt/gate/review/commit boundaries only: each is separated
+// from the next by a worker invocation or a gate run, so the EXST-14 200 ms
+// inter-acceptance clamp drops none of them in practice.
+// See docs/how-to/report-progress-from-a-theta.md.
 import { FixReport, FixReview, TreeFixReport } from "./quality.thetalib"
 
 // Manifest transport. The cluster manifest is written under quality/tmp/,
@@ -45,28 +57,37 @@ let mut notes = ""
 
 while attempt < 2 && !done {
   attempt += 1
+  // A number cannot be concatenated with a string in theta; the attempt index
+  // is bounded at 2, so a ternary spells it (the same idiom the notes below use).
+  let att = attempt == 1 ? "1" : "2"
+  let _ = theta_progress({ message: "attempt " + att + ": fixing " + key, scope: key, done: attempt, total: 2 })?
   let fr = match fix_cluster(man, guidance) {
     Ok(f) => f,
     Err(e) => FixReport { fixed: [], skipped: [], notes: "fix worker failed: " + e.kind },
   }
+  let _ = theta_progress({ message: "gating " + key, scope: key, done: attempt, total: 2 })?
   // The gate is bounded (the orchestrator passes a test-runner-width-capped
   // gate_cmd): N trees x M runner workers must stay under the core budget.
   let gate = bash({ command: gate_cmd + " && echo GATE_PASS || echo GATE_FAIL", timeout: 3600 })?
+  let _ = theta_progress({ message: "gate " + (gate.includes("GATE_PASS") ? "green" : "red") + ": " + key, scope: key, done: attempt, total: 2 })?
   let rv = match review_fix(man) {
     Ok(r) => r,
     Err(e) => FixReview { ok: false, fixed_confirmed: [], must_fix: "fix-review worker failed: " + e.kind + " - fixer notes were: " + fr.notes },
   }
+  let _ = theta_progress({ message: "review " + (rv.ok ? "confirmed" : "rejected") + ": " + key, scope: key, done: attempt, total: 2 })?
   if gate.includes("GATE_PASS") && rv.ok && rv.fixed_confirmed.length > 0 {
     // Single-writer rule: the tree commits code only. Any stray quality/ edit
     // is unstaged before the commit so the store stays the orchestrator's.
     let committed = bash({ command: "git add -A && git restore --staged -- quality >/dev/null 2>&1; git commit -q -m \"quality: " + wave + " D2 fix " + key + "\" >/dev/null 2>&1 && git rev-parse HEAD || echo COMMIT_FAIL" })?
     if committed.includes("COMMIT_FAIL") {
       notes = "in-tree commit failed after a green gate and a confirming review"
+      let _ = theta_progress({ message: "commit FAILED: " + key, scope: key, done: attempt, total: 2 })?
     } else {
       sha = committed.trim()
       confirmed = rv.fixed_confirmed
       done = true
-      notes = "gate green, review confirmed " + rv.fixed_confirmed.join(",") + " on attempt " + (attempt == 1 ? "1" : "2")
+      notes = "gate green, review confirmed " + rv.fixed_confirmed.join(",") + " on attempt " + att
+      let _ = theta_progress({ message: "committed " + key + " @ " + sha, scope: key, done: attempt, total: 2 })?
     }
   } else {
     guidance = rv.must_fix + (gate.includes("GATE_PASS") ? "" : " ALSO: the offline gate is red after your changes - make it green (gate: " + gate_cmd + ")")
@@ -76,6 +97,7 @@ while attempt < 2 && !done {
       // them. The tree itself is discarded by the orchestrator either way, so
       // an unclean revert here cannot poison the main tree - it is reported,
       // not a halt.
+      let _ = theta_progress({ message: "reverting " + key + " after 2 rejected attempts", scope: key, done: 2, total: 2 })?
       let _ = bash({ command: "git restore ." })?
       let residue_n = bash({ command: "git status --porcelain | wc -l" })?
       notes = "2 rejected fix attempts, reverted in-tree; last review said: " + rv.must_fix
@@ -87,8 +109,13 @@ while attempt < 2 && !done {
   }
 }
 
+// Tail value. An `if` is a STATEMENT in theta — a trailing if/else's branch
+// values go nowhere and the callee's final value would be null (the exact
+// shape of the 2026-09-10 abort: Ok(null) crossing PIC-59, then `.ok` panics
+// in the orchestrator). Bind, then end on a bare expression tail like
+// fix-cluster.theta's `r`.
+let mut out = TreeFixReport { ok: false, sha: "", fixed_confirmed: [], notes: notes }
 if done {
-  TreeFixReport { ok: true, sha: sha, fixed_confirmed: confirmed, notes: notes }
-} else {
-  TreeFixReport { ok: false, sha: "", fixed_confirmed: [], notes: notes }
+  out = TreeFixReport { ok: true, sha: sha, fixed_confirmed: confirmed, notes: notes }
 }
+out
