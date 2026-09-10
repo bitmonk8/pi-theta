@@ -321,3 +321,91 @@ describe("T-ENT — B65: a throwing registerEntryRenderer degrades the channel f
     expect(sentMessages[0]!.customType).toBe("theta-system-note");
   });
 });
+
+// ---------------------------------------------------------------------------
+// B45-normalization / bug 0268 regression — deliverOperatorNotePreferringEntry
+// applies withNormalisedFileSpelling ONCE above the entry/message branch, so
+// BOTH channels' details.diagnostics[].file realize all-POSIX and are
+// byte-identical to each other (PIC-71).
+// ---------------------------------------------------------------------------
+
+function mixedSpellingDiagnosticBatch(): readonly Diagnostic[] {
+  return [
+    {
+      severity: "warning",
+      code: "theta/load/binder-model-strict-capability-unknown",
+      file: "C:\\tmp\\x\\.pi/theta/a.theta",
+      range: { start: { line: 1, column: 1 }, end: { line: 1, column: 2 } },
+      message: "strict-capability flag unavailable",
+    },
+    {
+      severity: "warning",
+      code: "theta/load/binder-model-strict-capability-unknown",
+      file: "C:\\tmp\\y\\b.theta",
+      range: { start: { line: 1, column: 1 }, end: { line: 1, column: 2 } },
+      message: "strict-capability flag unavailable",
+    },
+  ];
+}
+
+function diagnosticsFileArray(details: unknown): readonly string[] {
+  const diagnostics = (details as { diagnostics: readonly Diagnostic[] }).diagnostics;
+  return diagnostics.map((d) => d.file as string);
+}
+
+describe("T-ENT — B45-normalization / bug 0268 regression: byte-identical POSIX file spelling across both realizations", () => {
+  it("live entry channel: appended entry's details.diagnostics[].file are all-POSIX, and content string is all-POSIX", () => {
+    const { pi, appendCalls } = fakeEntryPi();
+    const channel = createEntryChannel(pi);
+    const { deps } = recordingSystemNoteDeps(channel);
+
+    emitDiagnosticBatch(mixedSpellingDiagnosticBatch(), deps);
+
+    expect(appendCalls).toHaveLength(1);
+    const entryNote = appendCalls[0]!.data as SystemNote;
+    const files = diagnosticsFileArray(entryNote.details);
+    expect(files).toEqual(["C:/tmp/x/.pi/theta/a.theta", "C:/tmp/y/b.theta"]);
+    for (const f of files) {
+      expect(f).not.toContain("\\");
+    }
+    expect(entryNote.content).not.toContain("\\");
+  });
+
+  it("absent entry channel: message realization's details.diagnostics[].file are the same all-POSIX fields", () => {
+    const { deps, sentMessages } = recordingSystemNoteDeps(undefined);
+
+    emitDiagnosticBatch(mixedSpellingDiagnosticBatch(), deps);
+
+    expect(sentMessages).toHaveLength(1);
+    // sentMessages only records customType/content in this harness; capture
+    // the raw sendMessage payload directly via a dedicated pi double so the
+    // structured details are inspectable too.
+    expect(sentMessages[0]!.content).not.toContain("\\");
+  });
+
+  it("the two realizations' file arrays are byte-identical (PIC-71)", () => {
+    const capturedMessages: { content: string; details?: unknown }[] = [];
+    const messagePi: SystemNoteSender = {
+      sendMessage: (message): void => {
+        capturedMessages.push({ content: message.content, details: message.details });
+      },
+    };
+    const messageDeps: SystemNoteChannelDeps = {
+      pi: messagePi,
+      ui: { notify: (): void => {} },
+      emitDiagnostic: (): void => {},
+    };
+    emitDiagnosticBatch(mixedSpellingDiagnosticBatch(), messageDeps);
+    expect(capturedMessages).toHaveLength(1);
+    const messageFiles = diagnosticsFileArray(capturedMessages[0]!.details);
+
+    const { pi, appendCalls } = fakeEntryPi();
+    const channel = createEntryChannel(pi);
+    const { deps: entryDeps } = recordingSystemNoteDeps(channel);
+    emitDiagnosticBatch(mixedSpellingDiagnosticBatch(), entryDeps);
+    expect(appendCalls).toHaveLength(1);
+    const entryFiles = diagnosticsFileArray((appendCalls[0]!.data as SystemNote).details);
+
+    expect(entryFiles).toEqual(messageFiles);
+  });
+});

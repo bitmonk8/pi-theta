@@ -166,14 +166,27 @@ describe("bug 0150 — a `fn` parameter with no type annotation is the blessed s
       // boot, outside the per-drive slice below).
       const bootNotes: string[] = [];
       for (const entry of handle.sessionManager.getEntries()) {
-        const e = entry as { customType?: string; content?: unknown };
-        if (e.customType !== "theta-system-note") continue;
-        if (typeof e.content === "string") bootNotes.push(e.content);
-        else if (Array.isArray(e.content)) {
-          for (const part of e.content) {
-            const t = (part as { text?: string }).text;
-            if (typeof t === "string") bootNotes.push(t);
+        const e = entry as { customType?: string; content?: unknown; data?: unknown };
+        if (e.customType === "theta-system-note") {
+          if (typeof e.content === "string") bootNotes.push(e.content);
+          else if (Array.isArray(e.content)) {
+            for (const part of e.content) {
+              const t = (part as { text?: string }).text;
+              if (typeof t === "string") bootNotes.push(t);
+            }
           }
+        } else if (e.customType === "theta-progress-entry") {
+          // PIC-72 (runtime-event-channel.md): the three migrated operator-note
+          // classes (parse/load/type diagnostic BATCH, structural-change,
+          // binder-model recovery) deliver through the `theta-progress-entry`
+          // custom-entry channel instead of `theta-system-note` whenever both
+          // entry members are present (entry-channel.ts). The entry's `data`
+          // carries the SAME `SystemNote` shape the message channel used to
+          // carry (PIC-71: byte-identical rendered content), so extracting its
+          // `content` keeps every existing substring assertion working
+          // unchanged — a channel-union repair, not a weakening.
+          const data = e.data as { content?: unknown } | undefined;
+          if (typeof data?.content === "string") bootNotes.push(data.content);
         }
       }
       expect(

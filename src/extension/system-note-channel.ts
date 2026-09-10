@@ -90,6 +90,22 @@ function normaliseDetailsFileSpelling(
   return changed ? { diagnostics } : details;
 }
 
+/**
+ * One note re-spelled under the pinned POSIX `file` convention (bug 0268
+ * §Fix constraint 1), keeping the caller's own object identity — and, with it
+ * bug 0401's details-ABSENT wire shape — whenever no spelling moved.
+ */
+function withNormalisedFileSpelling(note: SystemNote): SystemNote {
+  const details = normaliseDetailsFileSpelling(note.details);
+  // `undefined` can only come back when the note carried no `details` key at
+  // all, so an unchanged payload (the common case) returns the note itself and
+  // the key is never materialised as `details: undefined`.
+  if (details === undefined || details === note.details) {
+    return note;
+  }
+  return { ...note, details };
+}
+
 /** Extract a human-readable message from an arbitrary thrown value. */
 function throwMessage(thrown: unknown): string {
   return thrown instanceof Error ? thrown.message : String(thrown);
@@ -311,12 +327,20 @@ export function deliverOperatorNotePreferringEntry(
   note: SystemNote,
   deps: SystemNoteChannelDeps,
 ): void {
+  // PIC-71 requires the entry payload to carry the SAME payload as its
+  // message-channel realization, so bug 0268 §Fix constraint 1's POSIX `file`
+  // spelling is applied HERE — once, above the channel branch — rather than
+  // inside either channel: `sendSystemNote`'s own normalisation would leave an
+  // entry-delivered note carrying the mint sites' raw Win32 spellings in
+  // `details.diagnostics[].file` while its rendered `content` (already POSIX
+  // via `renderDiagnosticLine`) disagreed with it.
+  const spelled = withNormalisedFileSpelling(note);
   if (deps.entryChannel !== undefined && deps.entryChannel.live()) {
-    if (deps.entryChannel.append(note)) {
+    if (deps.entryChannel.append(spelled)) {
       return;
     }
   }
-  sendSystemNote(note, deps);
+  sendSystemNote(spelled, deps);
 }
 
 /**
