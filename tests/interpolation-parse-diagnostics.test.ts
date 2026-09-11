@@ -1203,12 +1203,12 @@ describe("bug 0122 (f) — the rendered turn: a refused source renders nothing",
 const REPO_ROOT = fileURLToPath(new URL("..", import.meta.url));
 const SEEDED_INVALID_DIR = "tests/fixtures/h7b-invalid/";
 
-/** Measured at the Phase-8 rework commit (fix-cluster-tree.theta added): bump in the SAME commit that adds/removes a file. */
-const EXPECTED_SHIPPED_THETA = 37;
+/** Measured at the second-lens commit (lens-d7-testquality.theta added): bump in the SAME commit that adds/removes a file. */
+const EXPECTED_SHIPPED_THETA = 38;
 const EXPECTED_SHIPPED_THETALIB = 3;
-/** Measured at the Phase-8 rework commit: 47 `@`-templates carrying 77 interpolations. */
-const EXPECTED_TEMPLATES = 47;
-const EXPECTED_INTERPOLATIONS = 77;
+/** Measured at the second-lens commit: 49 `@`-templates carrying 88 interpolations. */
+const EXPECTED_TEMPLATES = 49;
+const EXPECTED_INTERPOLATIONS = 88;
 
 /**
  * The token classes expressions.md:25–40 refuses, as raw substrings. A committed

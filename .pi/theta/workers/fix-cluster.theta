@@ -15,13 +15,14 @@ let extra = guidance == "" ? "(none)" : guidance
 
 import { FixReport } from "./quality.thetalib"
 
-let r: FixReport = @`FIX TASK — resolve this cluster of confirmed code-quality issues (lens D2, cruft).
+let r: FixReport = @`FIX TASK — resolve this cluster of confirmed code-quality issues.
 
 Issue files, one per line — read each fully; they carry the evidence and a
 non-binding direction:
 ${issue_files}
 
 Rules:
+- Each issue's lens: frontmatter selects the per-lens rules below.
 - Re-verify each issue against the CURRENT code before touching anything (code
   may have moved since filing). If it no longer reproduces, skip it and say why.
 - A fix is the minimal change that removes the crufted code or vestige. Preserve
@@ -33,10 +34,28 @@ Rules:
 - Never edit anything under quality/. Never run git commands that change state
   (add, commit, restore, checkout, stash) — the orchestrator owns git and the
   store. Reading git history is fine.
+
 - Verification, after all edits: run "npx tsc --noEmit" and then "npm test"
   (use a generous bash timeout, e.g. 2400 seconds — the suite is large). Both
   must pass. If red, repair your own change, or back the offending edit out by
   editing the code back to its original text, and mark that issue skipped.
+
+Per-lens rules — apply per issue, by its lens: frontmatter:
+- lens: D2 (cruft in src/): as today — minimal removal of the crufted code or
+  vestige, behavior preserved. Deleting production code may orphan tests that
+  existed only to exercise the deleted cruft: delete those tests with it and
+  say so in your notes, per issue. Never weaken or delete an assertion that
+  guards live behavior.
+- lens: D7 (test quality in tests/): remove the smell WITHOUT weakening the
+  suite. A vacuous assertion is replaced by a real observable (system notes,
+  userTexts/toolCalls, recorded double state — never a bare
+  resolves.toBeDefined and never a stochastic-text sentinel); a test is
+  deleted only if it verifies nothing AND nothing cites it (grep
+  docs/reference/coverage-matrix.md, docs/bugs/, and test files for its name
+  first). Dedupe boilerplate into tests/helpers/ — extend an existing helper
+  before adding a new one. If a change renames or merges a test cited by
+  coverage-matrix.md or a bug doc's witness list, re-point that citation in
+  the same change. Never touch production src/ for a D7 issue.
 
 Guidance from a previous rejected attempt — address it explicitly if present:
 ${extra}

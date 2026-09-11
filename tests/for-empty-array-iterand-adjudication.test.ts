@@ -441,12 +441,12 @@ describe("bug 0195 (D) — no committed theta carries an empty array literal", (
     expect(
       files.length,
       `D1: the census is over ${files.length} committed files; sibling fixes land \`.theta\` files, so a changed count means the disposition below must be re-derived rather than trusted. Files: ${JSON.stringify(files)}`,
-    ).toBe(41);
+    ).toBe(42);
     const offenders = files.filter((f) =>
       readFileSync(path.join(REPO_ROOT, f), "utf8").includes("[]"),
     );
-    // Re-derived 2026-09-10 (the quality-loop worktree fan-out landed a third
-    // such file): the corpus now
+    // Re-derived 2026-09-11 (the D7 lens worker joined the corpus; it carries
+    // no `[]`, so the offender set is unchanged): the corpus now
     // carries `[]` literals, all of them type-sunk (annotated `let mut x:
     // array<string> = []` initialisers and schema-constructor fields), none an
     // iterand. Route (a)'s input shape is a `for`-iterand `[]`, so the GOV-15

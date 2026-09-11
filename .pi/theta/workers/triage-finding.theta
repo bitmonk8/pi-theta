@@ -36,10 +36,27 @@ Method — run every step:
 3. Anchor. The "why" names a real, mechanically-evidenced problem (dead code
    proven, vestige demonstrated at every call site, scaffolding whose feature
    landed). Taste-only reasoning = questionable.
-4. Scope. D2 covers simplicity and cruft in production sources under src/. Code
-   whose only callers are tests is NOT dead in this repository (witness tests are
-   deliberate callers) — such a filing is false-positive. Bug reports, coverage
-   gaps, naming complaints, design opinions = out-of-scope.
+4. Scope — apply the block matching the candidate's lens: frontmatter.
+   lens: D2 — covers simplicity and cruft in production sources under src/.
+   Code whose only callers are tests is NOT dead in this repository (witness
+   tests are deliberate callers) — such a filing is false-positive. Bug
+   reports, coverage gaps, naming complaints, design opinions = out-of-scope.
+   lens: D7 — covers test-code smells in test sources under tests/ ONLY, and
+   the "why" must be one of the five D7 classes: silent skip, assertion that
+   cannot fail, boilerplate duplication, copy-paste fixture/double, misleading
+   name. A location outside tests/ = out-of-scope. Coverage claims ("a test
+   should exist"), suite-composition/E2E-vs-unit opinions, and flaky or
+   wrong-behaviour claims (those are bugs) = out-of-scope. False-positive
+   carve-outs — a candidate ignoring one of these is false-positive: census/
+   pin gate tests (*gate*.test.ts, closing-gate, cross-cutting-gates,
+   rfc-*-spec-surface-gate, committed-fixture-parse-gate,
+   registry-closed-set-corpus-gate) assert pinned counts BY DESIGN; negative
+   witnesses through recording doubles are legitimate; a red test citing an
+   open docs/bugs/ signature is a documented correct-reason red, not a skip;
+   a proposal to merge/rename/delete a test cited by
+   docs/reference/coverage-matrix.md or a bug doc's witness list that does not
+   say so; tests/live/** failLoudly posture is correct skipping.
+   Any other lens: value = out-of-scope (no triage rules exist for it).
 5. Dedupe. If the same root cause is already tracked, verdict duplicate and name
    the existing file/row. Existing issues and resolved issues:
 ${prior}

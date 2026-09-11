@@ -108,7 +108,7 @@ while attempt < 2 && !done {
   if gate.includes("GATE_PASS") && rv.ok && rv.fixed_confirmed.length > 0 {
     // Single-writer rule: the tree commits code only. Any stray quality/ edit
     // is unstaged before the commit so the store stays the orchestrator's.
-    let committed = bash({ command: "git add -A && git restore --staged -- quality >/dev/null 2>&1; git commit -q -m \"quality: " + wave + " D2 fix " + key + "\" >/dev/null 2>&1 && git rev-parse HEAD || echo COMMIT_FAIL" })?
+    let committed = bash({ command: "git add -A && git restore --staged -- quality >/dev/null 2>&1; git commit -q -m \"quality: " + wave + " fix " + key + "\" >/dev/null 2>&1 && git rev-parse HEAD || echo COMMIT_FAIL" })?
     if committed.includes("COMMIT_FAIL") {
       notes = "in-tree commit failed after a green gate and a confirming review"
       let _ = theta_progress({ message: "commit FAILED: " + key, scope: key, done: attempt, total: 2 })?

@@ -3,6 +3,14 @@
     "description": "simplicity & cruft: dead code, vestigial names/flags/params, leftover scaffolding, commented-out code, speculative generality, redundant abstraction layers — over the production TypeScript sources",
     "include": ["src/"],
     "exclude": [],
-    "ext": [".ts"]
+    "ext": [".ts"],
+    "shard_loc": 6000
+  },
+  "D7": {
+    "description": "test quality: silent skips, assertions that cannot fail, boilerplate duplication, copy-paste fixtures/doubles, misleading test names — over the committed test suite; never coverage, never suite composition",
+    "include": ["tests/"],
+    "exclude": ["tests/fixtures/"],
+    "ext": [".ts"],
+    "shard_loc": 3000
   }
 }

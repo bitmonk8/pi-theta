@@ -5,7 +5,7 @@
 // store invariants hold regardless of what any model does.
 //
 // Store layout (all version-controlled except quality/tmp/):
-//   quality/surfaces.json   lens -> { include[], exclude[], ext[] } over git-tracked files
+//   quality/surfaces.json   lens -> { include[], exclude[], ext[], shard_loc } over git-tracked files
 //   quality/state.json      lens -> { "<repo path>": "<commit sha last reviewed at>" }
 //   quality/intake/         candidate findings awaiting triage (one .md each)
 //   quality/issues/         confirmed open issues (PTQ-NNNN-*.md)
@@ -14,12 +14,19 @@
 //   quality/tmp/            transient shard/cluster manifests (gitignored)
 //
 // Subcommands (line-oriented stdout; repo-relative forward-slash paths):
+//   lenses
+//       Print every configured lens id, sorted, one per line - the loop's
+//       start-up roster check.
 //   needs-review --lens D2
 //       Print every surface file needing review: absent from state, or changed
 //       since its recorded sha (per-sha batched `git diff --name-only`).
-//   shard --lens D2 --wave <id> [--target-loc 6000] [--max-files 15]
+//   shard --lens D2 --wave <id> [--target-loc 6000] [--max-files 15] [--max-shards N]
 //       Partition the needs-review set path-contiguously, loc-balanced; write
-//       quality/tmp/<wave>/shard-NN.txt manifests; print manifest paths.
+//       quality/tmp/<wave>/<lens>/shard-NN.txt manifests; print manifest paths.
+//       --target-loc absent or 0 resolves to the lens's own surfaces.json
+//       shard_loc (falling back to 6000). --max-shards > 0 emits only that
+//       many shards (the path-contiguous prefix); the rest stay unwritten and
+//       due. --max-shards absent or 0 = unlimited.
 //   mark-reviewed --lens D2 --sha <sha> --manifest <file>
 //       Record every manifest path as reviewed at <sha>.
 //   accept --finding <intake .md> [--note <text>]
@@ -32,8 +39,9 @@
 //       Append a TRIAGE_LOG row (reason defaults to the finding's ## Triage
 //       note), delete the file.
 //   clusters [--wave <id>] [--max <n>]
-//       Group quality/issues/ by fix surface (first two path segments of the
-//       first cited location); write quality/tmp/clusters[-<wave>]/<key>.txt;
+//       Group quality/issues/ by fix surface (first two DIRECTORY segments of
+//       the first cited location's dirname); write
+//       quality/tmp/clusters[-<wave>]/<key>.txt;
 //       print "key<TAB>manifest<TAB>count" per cluster. With --max present
 //       (bare flag = 12), a cluster larger than n is split into ordered parts
 //       <key>__p1, <key>__p2, … so one oversized surface cannot swallow a whole
@@ -49,7 +57,14 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
+// QUALITY_STORE_ROOT is a store-mechanics test seam only (tests/quality-store.test.ts),
+// deliberately NOT named PI_THETA_* - that prefix is the authenticated subagent
+// control plane (subagent.md #subagent-control-plane-authentication) and a
+// store-mechanics knob must not read as one. Production behaviour (var absent)
+// is byte-identical to before.
+const ROOT = process.env.QUALITY_STORE_ROOT
+  ? path.resolve(process.env.QUALITY_STORE_ROOT)
+  : path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 const Q = path.join(ROOT, "quality");
 const STATE = path.join(Q, "state.json");
 const SURFACES = path.join(Q, "surfaces.json");
@@ -252,6 +267,12 @@ const [, , cmd, ...rest] = process.argv;
 const flags = parseFlags(rest);
 
 switch (cmd) {
+  case "lenses": {
+    // Configured lens ids, one per line - the loop's start-up roster check.
+    for (const k of Object.keys(readJson(SURFACES)).sort()) process.stdout.write(k + "\n");
+    break;
+  }
+
   case "needs-review": {
     const lens = flags.lens ?? die("--lens required");
     for (const f of needsReview(lens)) process.stdout.write(f + "\n");
@@ -261,16 +282,22 @@ switch (cmd) {
   case "shard": {
     const lens = flags.lens ?? die("--lens required");
     const wave = flags.wave ?? die("--wave required");
-    const targetLoc = Number(flags["target-loc"] ?? 6000);
+    const s = surfaceFor(lens);
+    const flagLoc = Number(flags["target-loc"] ?? 0);
+    const targetLoc = flagLoc > 0 ? flagLoc : Number(s.shard_loc ?? 6000);
     const maxFiles = Number(flags["max-files"] ?? 15);
-    if (!Number.isFinite(targetLoc) || targetLoc < 500) die("--target-loc must be a number >= 500");
+    const maxShards = Number(flags["max-shards"] ?? 0);
+    if (!Number.isFinite(targetLoc) || targetLoc < 500) die("--target-loc must be a number >= 500, or 0 = the lens's surfaces.json shard_loc");
+    if (!Number.isFinite(maxShards) || maxShards < 0) die("--max-shards must be a non-negative number (0 = unlimited)");
     const files = needsReview(lens).filter((f) => {
       if (fs.existsSync(path.join(ROOT, f))) return true;
       process.stderr.write(`store.mjs: skipping missing file ${f}\n`);
       return false;
     });
     if (files.length === 0) break;
-    const outDir = path.join(TMP, wave);
+    // Per-lens subdirectory: two lenses sharding into the same wave must not
+    // overwrite each other's manifests before the par-for reads them.
+    const outDir = path.join(TMP, wave, lens);
     fs.mkdirSync(outDir, { recursive: true });
     const shards = [];
     let current = [];
@@ -286,7 +313,11 @@ switch (cmd) {
       loc += n;
     }
     if (current.length > 0) shards.push(current);
-    shards.forEach((shard, i) => {
+    // Files are pre-sorted (needsReview sorts) and packing is sequential, so an
+    // un-emitted remainder is the path-contiguous TAIL: it lands in no
+    // manifest, is never mark-reviewed, and stays due.
+    const emit = maxShards > 0 ? shards.slice(0, maxShards) : shards;
+    emit.forEach((shard, i) => {
       const p = path.join(outDir, `shard-${String(i + 1).padStart(2, "0")}.txt`);
       fs.writeFileSync(p, shard.join("\n") + "\n");
       process.stdout.write(rel(p) + "\n");
@@ -350,7 +381,8 @@ switch (cmd) {
       if ((fields.status ?? "open") !== "open") continue;
       const first = locations[0] ?? "";
       const filePart = first.split(":")[0];
-      const segs = filePart.split("/").filter(Boolean);
+      const dir = posix(path.dirname(filePart));
+      const segs = dir.split("/").filter((x) => x && x !== ".");
       const key = segs.length >= 2 ? `${segs[0]}/${segs[1]}` : segs[0] || "unclustered";
       if (!clusters.has(key)) clusters.set(key, []);
       clusters.get(key).push(posix(path.join("quality", "issues", f)));

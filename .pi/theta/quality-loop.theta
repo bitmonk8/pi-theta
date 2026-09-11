@@ -1,16 +1,19 @@
 ---
-description: "Ralph-style quality loop - review changed pi-theta sources lens-by-lens, triage, fix confirmed findings in parallel git worktrees behind the offline gate, integrate, repeat until the open backlog is empty (state under quality/)"
-argument-hint: "[max_cycles] [shard_loc] [budget] [parallel] [push true/false]"
+description: "Ralph-style quality loop - review changed pi-theta sources lens-by-lens (roster in `lenses`), triage, fix confirmed findings in parallel git worktrees behind the offline gate, integrate, repeat until the open backlog is empty (state under quality/)"
+argument-hint: "[max_cycles] [lenses] [shard_loc] [review_cap] [budget] [parallel] [push true/false]"
 mode: prompt
 bind_model: "anthropic/claude-sonnet-5"
 tools:
   - bash
   - ./workers/lens-d2-cruft.theta
+  - ./workers/lens-d7-testquality.theta
   - ./workers/triage-finding.theta
   - ./workers/fix-cluster-tree.theta
 params:
   max_cycles: integer = 3
-  shard_loc: string = "6000"
+  lenses: string = "D2,D7"
+  shard_loc: string = "0"
+  review_cap: string = "0"
   budget: integer = 10
   parallel: integer = 4
   push: boolean = true
@@ -23,7 +26,7 @@ params:
 // cluster splits into <key>__p1, __p2, ...), tree_workers caps ONE worktree's
 // vitest width so parallel x tree_workers stays inside the core budget
 // (default 4 x 6 = 24 on a 32-core host).
-import { TriageVerdict, TreeFixReport, lines } from "./workers/quality.thetalib"
+import { ReviewSummary, TriageVerdict, TreeFixReport, lines } from "./workers/quality.thetalib"
 
 // Convention used throughout: branch on COUNTS (wc -l), never on empty output.
 // The host bash tool renders empty stdout as a placeholder string, so a
@@ -78,6 +81,31 @@ if dirty_n.trim() != "0" {
 ${dirty}`?
   return "refused: dirty worktree"
 }
+
+// Lens-roster refusal: a config error refuses in seconds, before the
+// (expensive) baseline gate. A lens id must have BOTH a surfaces.json entry
+// AND a worker dispatch arm below (worker-backed today: D2, D7).
+let mut lens_list: array<string> = []
+lens_list = lines(lenses.replace(",", "\n"))
+let lenses_out = bash({ command: "node tools/quality/store.mjs lenses" })?
+let mut configured: array<string> = []
+configured = lines(lenses_out)
+let mut bad_lens = ""
+for l in lens_list {
+  let has_worker = l == "D2" || l == "D7"
+  if !has_worker || !configured.includes(l) {
+    bad_lens = l
+  }
+}
+if lens_list.length == 0 {
+  bad_lens = "(empty)"
+}
+if bad_lens != "" {
+  let _ = @`Tell the user: /quality-loop refused to start — lens "${bad_lens}" is not runnable. A lens id must have BOTH a quality/surfaces.json entry AND a worker dispatch arm in quality-loop.theta (worker-backed today: D2, D7). surfaces.json configures:
+${lenses_out}`?
+  return "refused: unknown lens " + bad_lens
+}
+
 let baseline = bash({ command: "{ " + gate_cmd + " ; } >/dev/null 2>&1 && echo GATE_PASS || echo GATE_FAIL", timeout: 3600 })?
 if !baseline.includes("GATE_PASS") {
   let _ = @`Tell the user: /quality-loop refused to start — the offline gate is already red on the untouched tree, so fix failures could not be attributed. Fix the baseline first (gate: ${gate_cmd}).`?
@@ -109,22 +137,41 @@ while cycle < max_cycles && !converged {
   // run left behind is reclaimed here (docs/how-to/fan-out-into-git-worktrees.md).
   let _ = bash({ command: sweep_cmd(), timeout: 600 })?
 
-  // ---- 1. what needs review: recorded per-file review state vs git changes ----
+  // ---- 1. what needs review, per lens; 2. shard the due surfaces ----
   // review() runs every wave and is internally incremental; convergence is
   // judged AFTER triage, on the open backlog alone (RFC 0009 Phase 8 §A).
-  let need_n = bash({ command: "node tools/quality/store.mjs needs-review --lens D2 | wc -l" })?.trim()
+  // Rows are "lens<TAB>manifest"; ONE par-for dispatches all lenses' shards.
+  let mut review_rows: array<string> = []
+  let mut reviewed_lenses = ""
+  for l in lens_list {
+    let need_n = bash({ command: "node tools/quality/store.mjs needs-review --lens " + l + " | wc -l" })?.trim()
+    if need_n != "0" {
+      reviewed_lenses = reviewed_lenses == "" ? l : reviewed_lenses + " " + l
+      let mut mans: array<string> = []
+      mans = lines(bash({ command: "node tools/quality/store.mjs shard --lens " + l + " --wave " + wave + " --target-loc " + shard_loc + " --max-shards " + review_cap })?)
+      for m in mans {
+        review_rows = review_rows.concat([l + "\t" + m])
+      }
+    }
+  }
 
-  // ---- 2+3. shard the due surface, run the lens over shards in parallel ----
-  if need_n != "0" {
-    // Annotated-mut + reassignment keeps these array-typed on older installed
-    // parsers too (their checkers treat call results as opaque).
-    let mut shards: array<string> = []
-    shards = lines(bash({ command: "node tools/quality/store.mjs shard --lens D2 --wave " + wave + " --target-loc " + shard_loc })?)
-    let reviews = par for m in shards max parallel {
-      lens_d2_cruft(m, wave, budget)?
+  // ---- 3. run the lens workers over all rows in ONE parallel fan-out ----
+  if review_rows.length > 0 {
+    let reviews = par for row in review_rows max parallel {
+      let mut cols: array<string> = []
+      cols = row.split("\t")
+      let mut s = ReviewSummary { shard: cols[1], filed: -1, notes: "no worker dispatched for lens " + cols[0] }
+      if cols[0] == "D2" {
+        s = lens_d2_cruft(cols[1], wave, budget)?
+      } else if cols[0] == "D7" {
+        s = lens_d7_testquality(cols[1], wave, budget)?
+      }
+      s
     }
     let mut i = 0
-    while i < shards.length {
+    while i < review_rows.length {
+      let mut cols: array<string> = []
+      cols = review_rows[i].split("\t")
       let filed = match reviews[i] {
         Ok(s) => s.filed,
         Err(_) => -1,
@@ -132,10 +179,10 @@ while cycle < max_cycles && !converged {
       if filed >= 0 {
         // Reviewed at review_sha: later fix commits re-dirty these files, so
         // the next cycle re-reviews exactly what the fixes touched.
-        let _ = bash({ command: "node tools/quality/store.mjs mark-reviewed --lens D2 --sha " + review_sha + " --manifest " + shards[i] })?
+        let _ = bash({ command: "node tools/quality/store.mjs mark-reviewed --lens " + cols[0] + " --sha " + review_sha + " --manifest " + cols[1] })?
         total_filed += filed
       } else {
-        report = report + "wave " + wave + ": review shard failed (files stay due): " + shards[i] + "\n"
+        report = report + "wave " + wave + ": review shard failed (files stay due): " + review_rows[i] + "\n"
       }
       i += 1
     }
@@ -171,7 +218,8 @@ while cycle < max_cycles && !converged {
   }
 
   // ---- store commit: review state + accepted/rejected findings ----
-  let _ = bash({ command: "git add -A quality && (git diff --cached --quiet || git commit -m \"quality: " + wave + " D2 review pass\")" })?
+  let lens_suffix = reviewed_lenses == "" ? "" : " [" + reviewed_lenses + "]"
+  let _ = bash({ command: "git add -A quality && (git diff --cached --quiet || git commit -m \"quality: " + wave + " review pass" + lens_suffix + "\")" })?
 
   // ---- 5. convergence: the open backlog, judged after triage ----
   let open_n = bash({ command: "node tools/quality/store.mjs open-count" })?.trim()
@@ -292,7 +340,7 @@ ${residue}`?
       }
       si += 1
     }
-    let _ = bash({ command: "git add -A quality && (git diff --cached --quiet || git commit -m \"quality: " + wave + " D2 fix batch\")" })?
+    let _ = bash({ command: "git add -A quality && (git diff --cached --quiet || git commit -m \"quality: " + wave + " fix batch\")" })?
 
     // Trees are disposable: the failure paths above sweep before they halt, so
     // no wave can leak one. (The how-to keeps failed trees for autopsy until

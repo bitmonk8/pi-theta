@@ -40,6 +40,11 @@ Judge, in order:
    cruft introduced? Any weakened or deleted test that guarded live behavior (a
    test deleted together with the cruft it exercised is fine when an issue's fix
    implies it)? Untracked leftover files in git status?
+   For issues whose lens: is D7 the bar is: the smell is gone AND the suite is
+   not weakened — a replaced assertion observes something real, a deleted test
+   verifiably verified nothing and nothing cites it, helper dedupe kept every
+   caller green, coverage-matrix.md / bug-doc citations still resolve, and no
+   production src/ file changed for a D7 issue.
 3. Honesty. Do not take the diff's or any report's word for anything you can
    check directly.
 

@@ -10,7 +10,7 @@ triage appends its note under that heading.
 ---
 id: pending                  # PTQ-NNNN minted at acceptance; never self-assigned
 title: <symptom as one sentence; names the code, not the fix>
-lens: D2                     # the lens that filed this
+lens: D2                     # D2 | D7 — the lens that filed this
 status: intake               # intake | open | fixed | rejected (store mechanics own transitions)
 verdict: pending             # pending | confirmed | questionable | false-positive | duplicate | out-of-scope | malformed
 locations:                   # every cited site, repo-relative path:line-range
