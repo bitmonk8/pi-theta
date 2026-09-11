@@ -227,9 +227,17 @@ which is precisely what 14 test files (and any future non-producer caller) do.
   `tests/inbound-union-arm-dispatch.test.ts` — these layered THIS launch's
   params into `parentEnv` and now pass them on `controlPlaneEnv`.
 
-### Residual (recorded, not fixed here)
+### Residual (recorded here, CLOSED by a follow-up test-hygiene change)
 
-Three of the 14 files stay red under a poisoned ambient environment after the
+**Status: closed** by the 2026-09-11 test-hygiene change that added
+`tests/helpers/ambient-control-plane-scrub.ts` and wired it into all three
+files below (scrub the per-launch control plane off `process.env` in
+`beforeEach`/`beforeAll`, before the test plants its own plane; restore in
+`afterEach`/`afterAll`). Re-proved with the poisoned environment recorded in
+§Reproduction: 3 files / 33 tests green poisoned and clean, no assertion
+weakened. The original record follows.
+
+Three of the 14 files stayed red under a poisoned ambient environment after the
 fix: `tests/b0331-root-winner-preempt.test.ts`,
 `tests/extension-tool-unreachable-load-refusal-e2e.test.ts`,
 `tests/subagent-root-registration-refusal-envelope.test.ts`. They are
@@ -240,4 +248,7 @@ An ambient `PI_THETA_PARAMS_FILE` / root marker therefore reaches the
 simulated child directly; no composition of ours is involved. The loop belt
 above removes the exposure for the gate that found this bug; hardening those
 three harnesses against an arbitrary ambient control plane is a separate
-change to test setup.
+change to test setup — the change made above, which closes this residual. The
+same reasoning as the launcher fix applies: the simulated child's control plane
+must be composed from the test alone, because the authentication gate honestly
+validates an ambient plane written by the real parent.

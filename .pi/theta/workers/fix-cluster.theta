@@ -35,8 +35,13 @@ Rules:
   (add, commit, restore, checkout, stash) — the orchestrator owns git and the
   store. Reading git history is fine.
 
-- Verification, after all edits: run "npx tsc --noEmit" and then "npm test"
-  (use a generous bash timeout, e.g. 2400 seconds — the suite is large). Both
+- Verification, after all edits: run, as ONE bash command, exactly
+  "unset PI_THETA_SUBAGENT_ROOT PI_THETA_SUBAGENT_ROOT_WINNER PI_THETA_PARAMS PI_THETA_PARAMS_FILE PI_THETA_SUBAGENT_INVOKE_DEPTH PI_THETA_SUBAGENT_CALLABLE_HASHES PI_THETA_SUBAGENT_PARENT_PID; npx tsc --noEmit && npm test"
+  (use a generous bash timeout, e.g. 2400 seconds — the suite is large). The
+  unset prefix is required because you run inside a subagent whose environment
+  carries the wrapper's control plane, and the suite spawns real child pi
+  processes that would otherwise inherit and legitimately re-authenticate that
+  foreign plane, turning unrelated tests fail-closed red (bug 0474). Both
   must pass. If red, repair your own change, or back the offending edit out by
   editing the code back to its original text, and mark that issue skipped.
 

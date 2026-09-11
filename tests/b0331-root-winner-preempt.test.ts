@@ -45,6 +45,11 @@ import type {
 import type { ThetaFixture } from "../src/extension/factory";
 import { discoverAndComposeFixtures } from "../src/extension/production-composition";
 import { SUBAGENT_PARENT_PID_ENV } from "../src/runtime/subagent-launcher";
+import {
+  restoreAmbientControlPlane,
+  scrubAmbientControlPlane,
+  type AmbientControlPlaneSnapshot,
+} from "./helpers/ambient-control-plane-scrub";
 import { SUBAGENT_ROOT_ENV_MARKER } from "../src/runtime/subagent-root-regime";
 
 // The not-yet-existent control-plane carrier, referenced by literal so the file
@@ -70,6 +75,8 @@ interface LoadOutcome {
 
 let workspaceDir: string;
 const savedEnv: Record<string, string | undefined> = {};
+/** Ambient control plane carried by the RUNNING process, parked for the test. */
+let ambientControlPlane: AmbientControlPlaneSnapshot | undefined;
 
 function setEnv(key: string, value: string): void {
   if (!(key in savedEnv)) {
@@ -179,6 +186,13 @@ async function runLoad(
 }
 
 beforeEach(() => {
+  // Bug 0474 §Residual: this file simulates a subagent CHILD in-process, so an
+  // ambient control plane on `process.env` (a `npm test` run from inside a
+  // subagent child) authenticates just as legitimately as the plane the test
+  // plants and preempts it. Scrub BEFORE any `setEnv`, so `savedEnv` records
+  // the post-scrub (absent) value and the ambient restore below is the last
+  // word.
+  ambientControlPlane = scrubAmbientControlPlane();
   workspaceDir = mkdtempSync(join(tmpdir(), "theta-b0331-"));
 });
 
@@ -190,6 +204,10 @@ afterEach(() => {
       process.env[key] = value;
     }
     delete savedEnv[key];
+  }
+  if (ambientControlPlane !== undefined) {
+    restoreAmbientControlPlane(ambientControlPlane);
+    ambientControlPlane = undefined;
   }
   rmSync(workspaceDir, { recursive: true, force: true });
 });

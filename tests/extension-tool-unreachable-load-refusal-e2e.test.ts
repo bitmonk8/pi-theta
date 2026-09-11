@@ -39,6 +39,11 @@ import { readParentEnv } from "../src/extension/production-subagent-host";
 import { detectSubagentRootRegime } from "../src/runtime/subagent-root-regime";
 import type { ExecutableHost } from "../src/runtime/subagent-launcher";
 import { EXTENSION_TOOL_UNREACHABLE_CODE } from "../src/runtime/host-loop-dispatch";
+import {
+  restoreAmbientControlPlane,
+  scrubAmbientControlPlane,
+  type AmbientControlPlaneSnapshot,
+} from "./helpers/ambient-control-plane-scrub";
 
 function theta(...lines: string[]): string {
   return lines.join("\n") + "\n";
@@ -350,8 +355,16 @@ function noteLinesContaining(
 }
 
 let workspaceDir: string;
+/** Ambient control plane carried by the RUNNING process, parked for this file. */
+let ambientControlPlane: AmbientControlPlaneSnapshot | undefined;
 
 beforeAll(() => {
+  // Bug 0474 §Residual: `runLoad` simulates a subagent CHILD in-process by
+  // planting `PI_THETA_SUBAGENT_ROOT` + a real-ppid `PI_THETA_SUBAGENT_PARENT_PID`.
+  // An ambient control plane on `process.env` (a `npm test` run from inside a
+  // subagent child) authenticates by the same rule and preempts the planted
+  // one, so scrub it for the whole file and restore it afterwards.
+  ambientControlPlane = scrubAmbientControlPlane();
   workspaceDir = mkdtempSync(join(tmpdir(), "theta-rfc0006-ext-unreachable-"));
   const dir = join(workspaceDir, ".pi", "theta");
   mkdirSync(dir, { recursive: true });
@@ -365,6 +378,10 @@ beforeAll(() => {
 
 afterAll(() => {
   rmSync(workspaceDir, { recursive: true, force: true });
+  if (ambientControlPlane !== undefined) {
+    restoreAmbientControlPlane(ambientControlPlane);
+    ambientControlPlane = undefined;
+  }
 });
 
 describe("PIC-64 — the host-loop rung is establishable in the PARENT: code-calling thetas REGISTER when the surfaces are present", () => {

@@ -172,9 +172,12 @@ relative to `.pi/`; `~` expands per DISC-1; absolute paths as-is. Globs and
 `theta/load/invalid-extension`, error). Deduplicated silently by resolved absolute
 path. The project array fully **replaces** the global array (no concatenation).
 
-**Caching & reload.** Both files read once and cached; a per-path file-watcher
-invalidates on change; watcher events are debounced over a `250 ms` window (against
-the `Clock` seam). Watcher-time rebuild failures surface as **ERR-7** on the
+**Re-reading & reload.** Both files are re-read and re-merged on every compose pass
+(initial load and every rebuild), so a settings edit takes effect at the next
+rebuild; there is no settings cache and no invalidation step. A per-path
+file-watcher schedules the rebuild on change; watcher events are debounced over a
+`250 ms` window (against the `Clock` seam). Re-reading the files does not re-resolve
+already-loaded thetas (BNDR-11). Watcher-time rebuild failures surface as **ERR-7** on the
 `theta-system-note` channel (`theta/runtime/registry-swap-failed` for a swap that
 throws before publish; re-emitted `theta/load/*` / `theta/parse/*` codes for a
 re-parse/re-merge diagnostic), at watcher-event time.
