@@ -112,8 +112,12 @@ export function chooseParamsChannel(canonicalJson: string): ParamsChannelPlan {
 
 /** Injected fs seam the parent-side marshalling drives (fake in tests; real fs at the composition root). */
 export interface ParamsMarshalDeps {
-  /** Write `contents` to a fresh temp file at `mode` and return its path (0600 channel). */
-  readonly writeTempFile: (contents: string, mode: number) => string;
+  /**
+   * Write `contents` to a fresh temp file and return its path (0600 channel).
+   * The mode is fixed by contract (`SUBAGENT_PARAMS_TEMP_FILE_MODE`, owner-only)
+   * — the implementation chooses it, not the caller.
+   */
+  readonly writeTempFile: (contents: string) => string;
   /** Delete the temp file (the parent-`finally` backstop). */
   readonly unlink: (path: string) => void;
 }
@@ -187,7 +191,7 @@ export function marshalParams(
   // At/above-threshold: write the 0600 temp file and carry its path on the file
   // env var; the large payload does NOT also ride the env var (that would defeat
   // the cutover). The parent-`finally` backstop deletes the temp file.
-  const tempFilePath = deps.writeTempFile(plan.contents, SUBAGENT_PARAMS_TEMP_FILE_MODE);
+  const tempFilePath = deps.writeTempFile(plan.contents);
   return {
     env: {
       [SUBAGENT_PARAMS_ENV]: undefined,

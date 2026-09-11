@@ -470,7 +470,7 @@ export interface ProductionProducerInput {
    * env-channel params never touch it, so it is only needed for ≥8 KB payloads).
    */
   readonly subagentParamsFs?: {
-    readonly writeTempFile: (contents: string, mode: number) => string;
+    readonly writeTempFile: (contents: string) => string;
     readonly unlink: (path: string) => void;
     readonly readFile: (path: string) => string;
   };
@@ -2706,13 +2706,13 @@ class ProductionThetaProducer implements ThetaProducerDeps {
   #paramsMarshalDeps(): ParamsMarshalDeps {
     const fs = this.#input.subagentParamsFs;
     return {
-      writeTempFile: (contents: string, mode: number): string => {
+      writeTempFile: (contents: string): string => {
         if (fs === undefined) {
           throw new SubagentSpawnFailedError(
             "subagent params temp-file channel unavailable: no params-fs seam wired",
           );
         }
-        return fs.writeTempFile(contents, mode);
+        return fs.writeTempFile(contents);
       },
       unlink: (path: string): void => {
         fs?.unlink(path);

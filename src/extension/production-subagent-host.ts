@@ -40,6 +40,7 @@ import {
   SUBAGENT_CONTROL_PLANE_ENV_KEYS,
   SUBAGENT_PARENT_PID_ENV,
 } from "../runtime/subagent-launcher";
+import { SUBAGENT_PARAMS_TEMP_FILE_MODE } from "../runtime/subagent-params";
 
 /**
  * Matches a path that lives inside a compiled binary's OWN embedded filesystem —
@@ -185,23 +186,25 @@ export function readParentPid(): number {
 
 /**
  * RFC-0006 (PIC-60). The production params-channel filesystem seam. `writeTempFile`
- * writes the canonical params JSON to a fresh 0600 temp file (owner-only) in a
- * private temp directory and returns its path; `unlink` deletes it (the parent's
- * `finally` backstop); `readFile` is the child-side read of the marshalled path.
- * Windows-safe: `mkdtempSync` + `writeFileSync` with an explicit `mode`, no shell.
+ * writes the canonical params JSON to a fresh temp file at the pinned 0600 mode
+ * (owner-only, `SUBAGENT_PARAMS_TEMP_FILE_MODE`) in a private temp directory and
+ * returns its path; `unlink` deletes it (the parent's `finally` backstop);
+ * `readFile` is the child-side read of the marshalled path. Windows-safe:
+ * `mkdtempSync` + `writeFileSync` with an explicit `mode`, no shell.
  */
 export function createProductionParamsFs(): {
-  writeTempFile: (contents: string, mode: number) => string;
+  writeTempFile: (contents: string) => string;
   unlink: (path: string) => void;
   readFile: (path: string) => string;
 } {
   return {
-    writeTempFile: (contents: string, mode: number): string => {
+    writeTempFile: (contents: string): string => {
       // A per-invocation private directory avoids name collisions under `par for`
-      // fan-out; the 0600 file mode keeps the brief on-disk param exposure owner-only.
+      // fan-out; the 0600 file mode (pinned by contract, not caller-selected) keeps
+      // the brief on-disk param exposure owner-only.
       const dir = mkdtempSync(join(tmpdir(), "pi-theta-params-")); // allow-sync: RFC-0006 one-shot params temp-file write, not event-loop I/O
       const path = join(dir, "params.json");
-      writeFileSync(path, contents, { mode }); // allow-sync: RFC-0006 one-shot params temp-file write
+      writeFileSync(path, contents, { mode: SUBAGENT_PARAMS_TEMP_FILE_MODE }); // allow-sync: RFC-0006 one-shot params temp-file write
       return path;
     },
     unlink: (path: string): void => {

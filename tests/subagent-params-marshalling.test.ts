@@ -46,20 +46,20 @@ import {
 /** A fake parent-side fs seam recording temp-file writes and unlinks. */
 function fakeMarshalFs(): {
   readonly deps: ParamsMarshalDeps;
-  readonly writes: { path: string; contents: string; mode: number }[];
+  readonly writes: { path: string; contents: string }[];
   readonly unlinks: string[];
 } {
-  const writes: { path: string; contents: string; mode: number }[] = [];
+  const writes: { path: string; contents: string }[] = [];
   const unlinks: string[] = [];
   let counter = 0;
   return {
     writes,
     unlinks,
     deps: {
-      writeTempFile: (contents, mode): string => {
+      writeTempFile: (contents): string => {
         counter += 1;
         const path = `/tmp/pi-theta-params-${counter}.json`;
-        writes.push({ path, contents, mode });
+        writes.push({ path, contents });
         return path;
       },
       unlink: (path): void => {
@@ -189,8 +189,6 @@ describe("PIC-60 — env / temp-file threshold cutover", () => {
     const fs = fakeMarshalFs();
     const marshalled = marshalParams(bigParams(), fs.deps);
     expect(fs.writes).toHaveLength(1);
-    // The temp file is written 0600 (owner read/write only).
-    expect(fs.writes[0]!.mode).toBe(SUBAGENT_PARAMS_TEMP_FILE_MODE);
     expect(marshalled.env[SUBAGENT_PARAMS_FILE_ENV]).toBe(fs.writes[0]!.path);
     // The large payload does NOT also ride the env var (that would defeat the cutover).
     expect(marshalled.env[SUBAGENT_PARAMS_ENV]).toBeUndefined();
@@ -213,8 +211,8 @@ describe("PIC-60 — env / temp-file threshold cutover", () => {
     // POSIX only: a real fs write at the pinned mode is owner read/write only.
     const path = join(tmpdir(), `pi-theta-params-perm-${process.pid}.json`);
     const realFs: ParamsMarshalDeps = {
-      writeTempFile: (contents, mode): string => {
-        writeFileSync(path, contents, { mode });
+      writeTempFile: (contents): string => {
+        writeFileSync(path, contents, { mode: SUBAGENT_PARAMS_TEMP_FILE_MODE });
         return path;
       },
       unlink: (p): void => {
