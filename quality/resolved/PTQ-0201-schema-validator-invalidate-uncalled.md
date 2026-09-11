@@ -2,7 +2,7 @@
 id: PTQ-0201
 title: SchemaValidator.invalidate is a cache-invalidation entry point no code path has ever called
 lens: D2
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/seams/schema-validator.ts:35-39
