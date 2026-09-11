@@ -2,7 +2,7 @@
 id: PTQ-0191
 title: CONTROL_PLANE_ENV_KEYS's doc-comment gives a behavioural-role bullet for each key except SUBAGENT_PARENT_PID_ENV, the array's eighth member
 lens: D2                     # the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - src/extension/production-subagent-host.ts:133-157

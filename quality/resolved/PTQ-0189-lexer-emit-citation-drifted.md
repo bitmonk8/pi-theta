@@ -2,7 +2,7 @@
 id: PTQ-0189
 title: The dropped-theta comment in parseDiscoveredTheta cites src/lexer/lexer.ts:131/:109 for the emitDiagnosticBatch calls, but those lines are now a blank line and a closing brace
 lens: D2                     # the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - src/extension/production-composition.ts:3852-3853

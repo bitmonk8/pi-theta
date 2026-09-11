@@ -2,7 +2,7 @@
 id: PTQ-0196
 title: createProductionParamsFs's writeTempFile threads a mode parameter that has received exactly one value, at exactly one call site, since its introduction
 lens: D2                     # the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - src/extension/production-subagent-host.ts:193-206

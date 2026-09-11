@@ -2,7 +2,7 @@
 id: PTQ-0105
 title: routeDrainStateArm's doc comment states the same two-arm tuple mapping twice in consecutive paragraphs
 lens: D2                     # the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - src/extension/drain-state.ts:40-51

@@ -2,7 +2,7 @@
 id: PTQ-0159
 title: buildSubagentFnGraph is exported from subagent-fn-static-checks.ts but called only by checkSubagentFnStaticResolution in the same module
 lens: D2
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/extension/subagent-fn-static-checks.ts:179-197

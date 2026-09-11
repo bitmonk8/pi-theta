@@ -2,7 +2,7 @@
 id: PTQ-0106
 title: Eight extension modules carry tests-task stub narration describing implemented functions and populated constants as inert stubs
 lens: D2                     # the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - src/extension/reload-debounce.ts:20-24

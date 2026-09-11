@@ -2,7 +2,7 @@
 id: PTQ-0163
 title: ThetaExtensionDeps.registry is declared and documented as consumed, but no code path reads it
 lens: D2                     # the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - src/extension/factory.ts:363-371

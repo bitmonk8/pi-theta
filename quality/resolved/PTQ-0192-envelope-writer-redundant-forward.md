@@ -2,7 +2,7 @@
 id: PTQ-0192
 title: createProductionEnvelopeWriter returns a new closure whose only statement calls the writeToFd parameter it already received
 lens: D2                     # the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - src/extension/production-subagent-host.ts:276-287

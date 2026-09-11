@@ -2,7 +2,7 @@
 id: PTQ-0111
 title: Three doc comments in session-swap-tripwire.ts carry a second paragraph that restates the first paragraph's content verbatim-in-substance
 lens: D2                     # the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - src/extension/session-swap-tripwire.ts:88-96

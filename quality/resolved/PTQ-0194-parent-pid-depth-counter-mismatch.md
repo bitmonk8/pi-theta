@@ -2,7 +2,7 @@
 id: PTQ-0194
 title: readParentPid's doc comment names its carried value a depth-counter input, which subagent-launcher.ts's account of the same env var twice states it is not
 lens: D2                     # the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - src/extension/production-subagent-host.ts:181-184

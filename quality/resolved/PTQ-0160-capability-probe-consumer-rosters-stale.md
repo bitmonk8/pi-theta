@@ -2,7 +2,7 @@
 id: PTQ-0160
 title: capability-probe.ts constant doc-comments name V17a and V18c as consumers of SHUTDOWN_AWAIT_CAP_MS / FACTORY_PROBABLE_CAPABILITIES, and neither leaf holds any reference to either constant
 lens: D2
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/extension/capability-probe.ts:68-78

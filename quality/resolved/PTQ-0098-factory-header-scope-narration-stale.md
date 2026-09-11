@@ -2,7 +2,7 @@
 id: PTQ-0098
 title: The factory.ts module header says the bootstrap-failed diagnostics are added by V9a and that this leaf establishes only the never-throw boundary and the fixture registration seam, while the file itself now owns both and much more
 lens: D2                     # the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - src/extension/factory.ts:22-25

@@ -2,7 +2,7 @@
 id: PTQ-0188
 title: The seven member-name labels in runCapabilityProbe's step-(b) typeofMembers table are constructed and never read
 lens: D2                     # the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - src/extension/capability-probe.ts:297-309
