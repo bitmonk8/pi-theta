@@ -1,6 +1,7 @@
 import { fileURLToPath } from "node:url";
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
+import { nearAll } from "./helpers/spec-prose-proximity";
 
 // b0269 — conformance oracle over the `params:` **Type side** prose on the
 // frontmatter authoring surface: the spec topic
@@ -188,33 +189,6 @@ function malformedYamlHintCell(): string {
   return hint;
 }
 
-function matchIndices(text: string, needle: RegExp): number[] {
-  const re = new RegExp(
-    needle.source,
-    needle.flags.includes("g") ? needle.flags : `${needle.flags}g`,
-  );
-  const out: number[] = [];
-  for (const m of text.matchAll(re)) out.push(m.index ?? 0);
-  return out;
-}
-
-/**
- * True when some occurrence of `anchor` carries every one of `tokens` within
- * `window` characters either side. A proximity window stands in for "in the
- * same region" without demanding a sentence-splitting heuristic.
- */
-function nearAll(
-  text: string,
-  anchor: RegExp,
-  tokens: readonly RegExp[],
-  window = 500,
-): boolean {
-  return matchIndices(text, anchor).some((at) => {
-    const slice = text.slice(Math.max(0, at - window), at + window);
-    return tokens.every((t) => t.test(slice));
-  });
-}
-
 /** Element 1 — a type text whose first character is a quote. */
 const LEADING_QUOTE =
   /(?:start|begin|open)\w*\s+with[^.]{0,60}quote|first\s+character[^.]{0,60}quote/i;
@@ -251,7 +225,7 @@ describe("b0269 — the params: Type side states the leading-quote quoted-scalar
       `b0269: the Type-side bullet in ${SPEC_PATH} must name \`theta/load/malformed-frontmatter-yaml\` as what the unwrapped spelling draws, refusing the whole frontmatter block`,
     ).toBe(true);
     expect(
-      nearAll(SPEC_BULLET, AUTHORED_FORM, [LEADING_QUOTE, QUOTED_SCALAR, MALFORMED_CODE]),
+      nearAll(SPEC_BULLET, AUTHORED_FORM, [LEADING_QUOTE, QUOTED_SCALAR, MALFORMED_CODE], 500),
       `b0269: in ${SPEC_PATH} the four elements — leading quote, quoted YAML scalar, the authored form, and \`theta/load/malformed-frontmatter-yaml\` — must sit in one region of the Type-side bullet, not scattered across it`,
     ).toBe(true);
   });
@@ -274,7 +248,7 @@ describe("b0269 — the params: Type side states the leading-quote quoted-scalar
       `b0269: the Type-side bullet in ${MIRROR_PATH} must name \`theta/load/malformed-frontmatter-yaml\` as what the unwrapped spelling draws`,
     ).toBe(true);
     expect(
-      nearAll(MIRROR_BULLET, AUTHORED_FORM, [LEADING_QUOTE, QUOTED_SCALAR, MALFORMED_CODE]),
+      nearAll(MIRROR_BULLET, AUTHORED_FORM, [LEADING_QUOTE, QUOTED_SCALAR, MALFORMED_CODE], 500),
       `b0269: in ${MIRROR_PATH} the four elements must sit in one region of the Type-side bullet, not scattered across it`,
     ).toBe(true);
   });

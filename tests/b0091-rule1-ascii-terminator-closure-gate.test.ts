@@ -2,6 +2,7 @@ import { fileURLToPath } from "node:url";
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { renderEchoValue, type EchoType } from "../src/render/argument-echo";
+import { nearAll } from "./helpers/spec-prose-proximity";
 
 // b0091 — conformance oracle over rule 1 of the system-note rendering rules
 // (docs/spec_topics/binder/defaulting-system-note-echo.md, the paragraph
@@ -120,35 +121,6 @@ function rule1Paragraph(): string {
     );
   }
   return paragraph;
-}
-
-/** Every index at which `needle` (a regex) matches `text`. */
-function matchIndices(text: string, needle: RegExp): number[] {
-  const re = new RegExp(
-    needle.source,
-    needle.flags.includes("g") ? needle.flags : `${needle.flags}g`,
-  );
-  const out: number[] = [];
-  for (const m of text.matchAll(re)) out.push(m.index ?? 0);
-  return out;
-}
-
-/**
- * True when some occurrence of `anchor` in `text` has every one of `tokens`
- * within `window` characters on either side. A proximity window stands in for
- * "in the same clause" without demanding a sentence-splitting heuristic or a
- * verbatim sentence.
- */
-function nearAll(
-  text: string,
-  anchor: RegExp,
-  tokens: readonly RegExp[],
-  window = 400,
-): boolean {
-  return matchIndices(text, anchor).some((at) => {
-    const slice = text.slice(Math.max(0, at - window), at + window);
-    return tokens.every((t) => t.test(slice));
-  });
 }
 
 /** The one `{…}` enumeration inside rule 1's paragraph (the whitespace set). */

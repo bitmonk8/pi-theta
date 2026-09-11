@@ -370,7 +370,7 @@ describe("bug 0117 — §Runtime panics is namespace-scoped and names its one ex
     ).toBe(true);
   });
 
-  it("cell E — the exception keeps panic routing, is not contained by `match` / `?` / `let _ =`, and is not on the runtime-defect surface", () => {
+  it("cell E — the exception is not contained by `let _ =` (QRY-21), and is not on the runtime-defect surface", () => {
     const p = SPEC.headerParagraph;
     expect(
       p.includes("let _ ="),

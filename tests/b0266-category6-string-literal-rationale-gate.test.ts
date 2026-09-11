@@ -2,6 +2,7 @@ import { fileURLToPath } from "node:url";
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { codes, lexSrc, parseDoc } from "./helpers/e2e-s1";
+import { nearAll } from "./helpers/spec-prose-proximity";
 
 // b0266 — conformance oracle over the rationale carried by the "Category 6
 // line-separator scope" edge-case bullet in
@@ -76,34 +77,6 @@ function category6Bullet(): string {
     );
   }
   return hits[0] as string;
-}
-
-/** Every index at which `needle` matches `text`. */
-function matchIndices(text: string, needle: RegExp): number[] {
-  const re = new RegExp(
-    needle.source,
-    needle.flags.includes("g") ? needle.flags : `${needle.flags}g`,
-  );
-  const out: number[] = [];
-  for (const m of text.matchAll(re)) out.push(m.index ?? 0);
-  return out;
-}
-
-/**
- * True when some occurrence of `anchor` in `text` has every one of `tokens`
- * within `window` characters on either side. A proximity window stands in for
- * "in the same clause" without demanding a sentence-splitting heuristic.
- */
-function nearAll(
-  text: string,
-  anchor: RegExp,
-  tokens: readonly RegExp[],
-  window = 400,
-): boolean {
-  return matchIndices(text, anchor).some((at) => {
-    const slice = text.slice(Math.max(0, at - window), at + window);
-    return tokens.every((t) => t.test(slice));
-  });
 }
 
 const BULLET = category6Bullet();
