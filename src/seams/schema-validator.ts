@@ -34,8 +34,6 @@ export interface CompiledValidator {
 
 export interface SchemaValidator {
   compile(schema: LoweredSchema): CompiledValidator;
-  /** File-watcher entry point per the cache-invalidation rule. */
-  invalidate(schemaSlug: string): void;
 }
 
 // --------------------------------------------------------------------------
@@ -406,10 +404,6 @@ export class AjvSchemaValidator implements SchemaValidator {
     const validator = this.#build(schema);
     this.#cache.set(slug, { validator, canonicalBytes });
     return validator;
-  }
-
-  invalidate(schemaSlug: string): void {
-    this.#cache.delete(schemaSlug);
   }
 
   /**

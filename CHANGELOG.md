@@ -4,6 +4,35 @@ All notable changes to `@bitmonk8/pi-theta` will be documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.471.0]
+
+### Changed
+- Spec amendment (quality issue PTQ-0201, human-ruled 2026-09-11, delete-plus-spec-correct): the
+  corpus described a staged / evicted / watcher-invalidated AJV compiled-validator
+  cache that never existed and, given content addressing, has no job. The
+  validator cache is keyed by the schema slug (canonical-form hash) with
+  byte-equality verified on every hit, so a changed schema compiles under a new
+  slug and a stale entry can never be served. Amended sites: PIC's registration
+  steps (hot-reload paragraph, [PIC-36](docs/spec_topics/pi-integration-contract/registration-steps.md#pic-36),
+  [PIC-49](docs/spec_topics/pi-integration-contract/registration-steps.md#pic-49),
+  [PIC-37](docs/spec_topics/pi-integration-contract/registration-steps.md#pic-37)
+  and the *Structural changes* paragraph) no longer stage, publish, evict or
+  serialize a validator cache; [PIC-11](docs/spec_topics/pi-integration-contract/host-interfaces-services.md#pic-11)'s
+  architectural constraints state that no invalidation path exists or is needed
+  (the one-instance-per-runtime, never-module-global constraint stays) and its
+  non-normative TS illustration drops `invalidate(schemaSlug)`; Implementation
+  Notes, Tool Calls, Frontmatter templates, Discovery settings and the
+  `registry-swap-failed` registry row are made consistent. The `ThetaRegistry`
+  and prompt-mode registration-cache staging / single-synchronous-publish
+  atomicity claims are unchanged — those are real. A non-normative Future
+  Considerations item records that unreferenced slugs stay cached for the
+  session (growth bounded by distinct schema texts seen) and that eviction at
+  publish is a possible future refinement.
+- Removed the `SchemaValidator.invalidate(schemaSlug)` seam member and its
+  `AjvSchemaValidator` implementation (PTQ-0201: zero callers in `src/`,
+  `extensions/`, `tools/`, `tests/` since introduction; freshness is structural,
+  not event-driven), plus the two conformance-only test-double members it forced.
+
 ## [0.470.0]
 
 ### Changed

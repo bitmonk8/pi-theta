@@ -57,7 +57,6 @@ const stubValidator: SchemaValidator = {
   compile: (_schema: LoweredSchema): CompiledValidator => ({
     validate: () => ({ ok: true }),
   }),
-  invalidate: () => {},
 };
 
 const stubClock: Clock = {
