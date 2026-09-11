@@ -226,7 +226,7 @@ while cycle < max_cycles && !converged {
     while gi < work.length {
       let rep = match reports[gi] {
         Ok(r) => r,
-        Err(e) => TreeFixReport { ok: false, sha: "", fixed_confirmed: [], notes: "tree worker failed: " + e.kind },
+        Err(e) => TreeFixReport { ok: false, sha: "", fixed_confirmed: [], notes: "tree worker failed: " + e.kind + " - " + e.message },
       }
       if rep.ok && rep.fixed_confirmed.length > 0 {
         greens = greens.concat([Green { key: work[gi].key, manifest_rel: work[gi].manifest_rel, sha: rep.sha, fixed: rep.fixed_confirmed.join(",") }])

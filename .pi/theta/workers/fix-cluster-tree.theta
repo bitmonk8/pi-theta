@@ -85,10 +85,21 @@ while attempt < 2 && !done {
   // DIAGNOSABLE: the failing tail feeds attempt 2's guidance and the final
   // notes. (A user-supplied gate_cmd carrying its own >/dev/null redirects
   // degrades to the old blind behaviour - the log is then empty.)
-  let gate = bash({ command: env_scrub + "{ " + gate_cmd + " ; } > quality/tmp/gate.log 2>&1 && echo GATE_PASS || echo GATE_FAIL", timeout: 3600 })?
-  let gate_tail = gate.includes("GATE_PASS") ? "" : bash({ command: env_scrub + "{ grep -E 'FAIL|failed|Error' quality/tmp/gate.log | head -25 ; tail -c 1500 quality/tmp/gate.log ; } 2>/dev/null" })?
-  let _ = theta_progress({ message: "gate " + (gate.includes("GATE_PASS") ? "green" : "red") + ": " + key, scope: key, done: attempt, total: 2 })?
-  trail = trail + "attempt " + att + ": gate " + (gate.includes("GATE_PASS") ? "green" : "red") + "; "
+  // The wrapper's contract is a typed report on EVERY path - an operational
+  // failure here (gate bash timeout, tool error) folds into the report
+  // instead of Err-ing the whole worker (the qw20260911055804 lane died as a
+  // bare invoke_callee exactly this way).
+  let gate = match bash({ command: env_scrub + "{ " + gate_cmd + " ; } > quality/tmp/gate.log 2>&1 && echo GATE_PASS || echo GATE_FAIL", timeout: 3600 }) {
+    Ok(g) => g,
+    Err(e) => "GATE_FAIL gate-bash-error: " + e.kind + " - " + e.message,
+  }
+  let gate_tail = gate.includes("GATE_PASS") ? "" : match bash({ command: env_scrub + "{ grep -E 'FAIL|failed|Error' quality/tmp/gate.log | head -25 ; tail -c 1500 quality/tmp/gate.log ; } 2>/dev/null" }) {
+    Ok(t) => t,
+    Err(e) => "(gate log unavailable: " + e.kind + ")",
+  }
+  let gate_state = gate.includes("GATE_PASS") ? "green" : (gate.includes("gate-bash-error:") ? gate : "red")
+  let _ = theta_progress({ message: "gate " + gate_state + ": " + key, scope: key, done: attempt, total: 2 })?
+  trail = trail + "attempt " + att + ": gate " + gate_state + "; "
   let rv = match review_fix(man) {
     Ok(r) => r,
     Err(e) => FixReview { ok: false, fixed_confirmed: [], must_fix: "fix-review worker failed: " + e.kind + " - fixer notes were: " + fr.notes },
@@ -118,8 +129,17 @@ while attempt < 2 && !done {
       // an unclean revert here cannot poison the main tree - it is reported,
       // not a halt.
       let _ = theta_progress({ message: "reverting " + key + " after 2 rejected attempts", scope: key, done: 2, total: 2 })?
-      let _ = bash({ command: "git restore ." })?
-      let residue_n = bash({ command: "git status --porcelain | wc -l" })?
+      let restore_ok = match bash({ command: "git restore ." }) {
+        Ok(_) => true,
+        Err(e) => false,
+      }
+      let residue_n = match bash({ command: "git status --porcelain | wc -l" }) {
+        Ok(n) => n,
+        Err(e) => "unknown",
+      }
+      if !restore_ok {
+        trail = trail + "in-tree revert bash FAILED; "
+      }
       notes = "2 rejected fix attempts, reverted in-tree. Trail: " + trail
       if residue_n.trim() != "0" {
         let residue = bash({ command: "git status --porcelain | head -20" })?
