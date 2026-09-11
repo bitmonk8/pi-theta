@@ -2,7 +2,7 @@
 id: PTQ-0215
 title: The registry-oracle bundle (RegistryRow, REGISTRY, registryMessageOf, registryRowOf) is redefined byte-for-byte across hundreds of test files
 lens: D7                     # D2 | D7 — the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - tests/annotation-nontype-text-refusal.test.ts:223-230

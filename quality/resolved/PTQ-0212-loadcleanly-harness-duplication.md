@@ -2,7 +2,7 @@
 id: PTQ-0212
 title: The `loadCleanly` params-loading harness and two of its three throw messages are duplicated byte-for-byte across seven schema/params-lowering test files
 lens: D7                     # D2 | D7 — the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - tests/annotation-root-brace-union-lowering.test.ts:517-531

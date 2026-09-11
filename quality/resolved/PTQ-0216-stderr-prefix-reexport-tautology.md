@@ -2,7 +2,7 @@
 id: PTQ-0216
 title: acceptance-stderr-gate.test.ts asserts two of a four-part check against values that are the same binding as themselves
 lens: D7                     # D2 | D7 — the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - tests/acceptance-stderr-gate.test.ts:78

@@ -2,7 +2,7 @@
 id: PTQ-0193
 title: lowerOutbound re-tests `pointer === ""` for a field's wire key, a condition its own `thetaToWire` construction already decided
 lens: D2                     # the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - src/runtime/wire-translation.ts:615-620

@@ -2,7 +2,7 @@
 id: PTQ-0200
 title: production-host-loop-dispatch.ts's header points at an "(a)–(f) wiring below" while the list below it is a three-item numbered list and no lettered items exist in the module
 lens: D2
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/extension/production-host-loop-dispatch.ts:3-12

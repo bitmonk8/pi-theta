@@ -2,7 +2,7 @@
 id: PTQ-0202
 title: resolveSubagentSessionConfigAt is a same-signature wrapper whose body forwards its two parameters unchanged to resolveSubagentSessionConfig
 lens: D2
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/parser/theta-document.ts:1486-1500

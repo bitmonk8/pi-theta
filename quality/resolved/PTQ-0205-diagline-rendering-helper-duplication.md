@@ -2,7 +2,7 @@
 id: PTQ-0205
 title: diagLines/diagCodes redefine, verbatim, a diagnostics-rendering helper duplicated across dozens of test files
 lens: D7                     # D2 | D7 — the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - tests/annotation-nontype-text-refusal.test.ts:393-407

@@ -2,7 +2,7 @@
 id: PTQ-0195
 title: SUBAGENT_PER_LAUNCH_CONTROL_PLANE_ENV_KEYS is exported from subagent-launcher.ts but imported by nothing outside the file, including its own bug-0474 witness test
 lens: D2                     # the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - src/runtime/subagent-launcher.ts:512-518

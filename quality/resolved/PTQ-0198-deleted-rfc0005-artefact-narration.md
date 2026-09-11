@@ -2,7 +2,7 @@
 id: PTQ-0198
 title: subagent-isolation.ts and subagent-json-driver.ts headers narrate RFC-0005 artefacts that no longer exist in the tree (preSpawnModelGuard, subagent-rpc-driver.ts)
 lens: D2
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/runtime/subagent-isolation.ts:16-22

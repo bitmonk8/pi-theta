@@ -2,7 +2,7 @@
 id: PTQ-0210
 title: The fake-host `runProductionLoad` stderr-mirror load harness is duplicated byte-for-byte across five test files
 lens: D7                     # D2 | D7 — the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - tests/arg-mismatch-diagnostic-count-by-surface.test.ts:701-710

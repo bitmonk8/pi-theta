@@ -2,7 +2,7 @@
 id: PTQ-0199
 title: production-subagent-host.ts's header states the module owns two production collaborators and enumerates its ambient reads, while the composition root imports six collaborators and the module reads more ambient primitives than listed
 lens: D2
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/extension/production-subagent-host.ts:1-19

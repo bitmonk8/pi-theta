@@ -2,7 +2,7 @@
 id: PTQ-0218
 title: b0091's matchIndices/nearAll spec-prose-proximity helper is retyped verbatim into two more conformance-oracle test files
 lens: D7
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - tests/b0091-rule1-ascii-terminator-closure-gate.test.ts:126-153

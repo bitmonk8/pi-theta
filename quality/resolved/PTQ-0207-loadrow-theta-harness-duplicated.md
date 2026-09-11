@@ -2,7 +2,7 @@
 id: PTQ-0207
 title: b0272 and b0273 duplicate their LoadRow/theta/registered fixture-load harness and msg/line message renderer almost byte-for-byte
 lens: D7                     # D2 | D7 — the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - tests/b0272-enclosing-annotation-refusal-nested-head.test.ts:168-242

@@ -2,7 +2,7 @@
 id: PTQ-0124
 title: typed-query-validation's injected resolveShape dependency and resolveDeclaredSchema step feed lower(shape), whose argument no implementation reads
 lens: D2
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/runtime/typed-query-validation.ts:128-131

@@ -2,7 +2,7 @@
 id: PTQ-0204
 title: Two drain-state.ts functions carry a JSDoc paragraph their own body's inline comment restates almost verbatim
 lens: D2                     # D2 | D7 — the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - src/extension/drain-state.ts:66-83

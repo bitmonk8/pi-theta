@@ -2,7 +2,7 @@
 id: PTQ-0209
 title: array-sink-unresolvable-deferral.test.ts redefines a NOOP_CHECKPOINT/rootDouble/producer double that recurs verbatim across dozens of test files
 lens: D7
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - tests/array-sink-unresolvable-deferral.test.ts:291-316

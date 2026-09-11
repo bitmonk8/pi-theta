@@ -2,7 +2,7 @@
 id: PTQ-0190
 title: ToolLoweringSink's runtimeEvent member is implemented by every constructor as a no-op or unread recorder but invoked at no call site in the repository
 lens: D2                     # the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - src/runtime/tool-call-execute.ts:114-125

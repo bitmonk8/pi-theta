@@ -2,7 +2,7 @@
 id: PTQ-0203
 title: factory.ts's two prose rosters of factory-time host-binding calls both omit pi.registerTool
 lens: D2                     # D2 | D7 — the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - src/extension/factory.ts:17-19

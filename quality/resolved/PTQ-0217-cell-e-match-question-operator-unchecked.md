@@ -2,7 +2,7 @@
 id: PTQ-0217
 title: b0117's cell E test name claims non-containment by match and the ? operator, but no assertion in the test checks either
 lens: D7                     # D2 | D7 — the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - tests/b0117-panic-namespace-scoping-gate.test.ts:393-407

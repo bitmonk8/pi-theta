@@ -2,7 +2,7 @@
 id: PTQ-0208
 title: The repoFile/readCorpus/linesOf corpus-reading harness in b0117 and b0265 is copied, traceably, into at least 15 further test files
 lens: D7                     # D2 | D7 — the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - tests/b0265-panic-scoping-remnant-surfaces-gate.test.ts:80-104

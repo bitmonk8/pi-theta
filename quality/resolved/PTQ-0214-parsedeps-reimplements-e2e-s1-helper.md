@@ -2,7 +2,7 @@
 id: PTQ-0214
 title: array-sink-unresolvable-deferral.test.ts reimplements tests/helpers/e2e-s1.ts's parseDeps/parseDoc instead of importing them
 lens: D7
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - tests/array-sink-unresolvable-deferral.test.ts:253-263

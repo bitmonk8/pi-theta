@@ -2,7 +2,7 @@
 id: PTQ-0206
 title: b0274 and b0277 redefine, near-verbatim, the same LoadRow/registered/expectCaptured/expectRows diagnostic-load harness
 lens: D7                     # D2 | D7 — the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - tests/b0274-reserved-keyword-type-head-at-five-unwired-captures.test.ts:161-330

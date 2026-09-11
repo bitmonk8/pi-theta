@@ -2,7 +2,7 @@
 id: PTQ-0213
 title: b0275 redefines, near-verbatim, the makeHost/ComposeWorkspace composition-root harness from tests/grandchild-callee-drop-un-registers-depth-two-caller.test.ts
 lens: D7                     # D2 | D7 — the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - tests/b0275-escaping-tools-entry-below-immediate-callee.test.ts:102-110

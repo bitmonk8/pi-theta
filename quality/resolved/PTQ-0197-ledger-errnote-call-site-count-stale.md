@@ -2,7 +2,7 @@
 id: PTQ-0197
 title: invoke-provenance-ledger's header says emitTopLevelErrNote has two call sites; the code has one
 lens: D2                     # the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - src/runtime/invoke-provenance-ledger.ts:1-6

@@ -2,7 +2,7 @@
 id: PTQ-0211
 title: The driveOver fake-child drive harness in b0258 is copied byte-for-byte from two sibling subagent test files
 lens: D7                     # D2 | D7 — the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - tests/b0258-envelope-parse-failed-line-summary-cr.test.ts:76-88
