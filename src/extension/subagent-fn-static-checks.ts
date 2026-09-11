@@ -191,7 +191,7 @@ function walkExpr(expr: Expr, out: string[]): void {
  * not an edge; only spawned-boundary calls count toward the cycle, exactly as
  * only `.theta`/`.thetalib` boundary crossings count for the cross-file graph.
  */
-export function buildSubagentFnGraph(fns: readonly FnDecl[]): InvokeGraph {
+function buildSubagentFnGraph(fns: readonly FnDecl[]): InvokeGraph {
   const subagentNames = new Set(fns.map((fn) => fn.name));
   const edges = new Map<string, readonly string[]>();
   for (const fn of fns) {

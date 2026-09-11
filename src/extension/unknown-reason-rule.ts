@@ -8,12 +8,6 @@
 // membership check; PIC-46 constant-source pinning / single-site edit; PIC-47
 // handler-internal `try`/`catch` discipline + `pinned-constant-unreadable`
 // discriminators; PIC-48 anchor-stable contract surface).
-//
-// V9h-T (tests-task) declares this seam and stubs the behaviour-bearing
-// `classifyShutdownReason` so the failing tests compile and red on their own
-// primary assertions; the paired V9h implementation fills it in (and adds the
-// `SessionShutdownEvent.reason` `type-union-snapshot` entry to
-// `SDK_SURFACE_INVENTORY` per PIC-46).
 
 import type { Diagnostic } from "../diagnostics/diagnostic";
 

@@ -3850,8 +3850,9 @@ async function parseDiscoveredTheta(
             parseDiagnostics: document.diagnostics,
           });
     // Bug 0255: `lexTheta` already delivered `document.deliveredDiagnostics`
-    // through the V7d seam (`src/lexer/lexer.ts:131`/`:109`) before this parse
-    // ran; re-delivering them here (`runComposePass`'s
+    // through the V7d seam (`lexTheta`'s two `emitDiagnosticBatch` calls in
+    // `src/lexer/lexer.ts`) before this parse ran; re-delivering them here
+    // (`runComposePass`'s
     // `sink.emitGroup(parsed.dropped)`) would double-deliver every lex row. Exclude by object identity (a `Set`, not a code-
     // prefix test — `theta/parse/*` spans both the lex and parse phases, so a
     // prefix cannot tell them apart). `subagentFnFraming` is computed here, not

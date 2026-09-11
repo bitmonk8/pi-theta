@@ -89,10 +89,7 @@ export interface TripwireGuardDeps {
  * Build the `theta/host/session-swap-instance-survived` (E, runtime) diagnostic
  * carrying `details: { event: { reason } }` with the armed session-only reason
  * (diagnostics/code-registry-host.md; the message is the registry *Message*
- * column with `<reason>` interpolated).
- *
- * The message is the registry *Message* column with `<reason>` interpolated
- * (diagnostics/code-registry-host.md; sourced verbatim).
+ * column with `<reason>` interpolated, sourced verbatim).
  */
 export function sessionSwapInstanceSurvivedDiagnostic(
   reason: SessionOnlyReason,
@@ -131,12 +128,9 @@ export function armSessionSwapTripwireForReason(
  * any dispatch or `readDrainState` branch) and the `session_start` handler run:
  * read `sessionSwapTornDown`; if armed, emit exactly one
  * `theta/host/session-swap-instance-survived` diagnostic via `console.error` and
- * then fail-fast-terminate the process. A no-op (dormant) when the tripwire is
- * unset (the proven governed-by-rebind steady state).
- *
- * Fires only on the ARMED tripwire (the proven governed-by-rebind steady state
- * leaves it dormant): emit exactly one survived diagnostic, then fail-fast-
- * terminate (control does not return past the trip). A no-op when unarmed.
+ * then fail-fast-terminate the process (control does not return past the trip).
+ * A no-op (dormant) when the tripwire is unset (the proven governed-by-rebind
+ * steady state).
  */
 export function guardSessionSwapTripwire(deps: TripwireGuardDeps): void {
   const state = deps.registry.readSessionSwapTornDown();
@@ -156,9 +150,6 @@ export function guardSessionSwapTripwire(deps: TripwireGuardDeps): void {
  * otherwise, then `dispatch` runs. The Pi-owned `/reload` command is not a
  * theta-registered handler and is never wrapped by this function, so it is not
  * guarded (host-prerequisites clause (c-i)).
- *
- * The guard runs at entry: on an armed tripwire it fail-fast-terminates before
- * `dispatch` is ever called; otherwise it is a no-op and `dispatch` runs.
  */
 export function runGuardedSlashHandler<T>(
   deps: TripwireGuardDeps,

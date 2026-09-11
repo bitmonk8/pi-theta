@@ -340,7 +340,6 @@ describe("V9p extension bootstrap — pi.getCommands() read failure (theta/load/
     createThetaExtension({
       fixtures: [fixture("a"), fixture("b"), fixture("c")],
       emitDiagnostic: (d) => diagnostics.push(d),
-      registry,
     })(rec.pi);
 
     // The handler swallows the read throw rather than propagating it into Pi's

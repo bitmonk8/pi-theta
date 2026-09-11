@@ -178,7 +178,7 @@ export function authenticateControlPlane(
   return authenticated;
 }
 
-/** The parent process id carried to the child (orphan-prevention watchdog / depth counter). */
+/** The parent process id carried to the child (control-plane authentication key; also the reserved, unimplemented orphan-prevention watchdog input). */
 export function readParentPid(): number {
   return process.pid;
 }
@@ -242,9 +242,7 @@ export function createProductionParamsFs(): {
 export function createProductionEnvelopeWriter(
   writeToFd: (line: string) => void = defaultStdoutFdWrite,
 ): (line: string) => void {
-  return (line: string): void => {
-    writeToFd(line);
-  };
+  return writeToFd;
 }
 
 /** The default fd-1 envelope write (see `createProductionEnvelopeWriter`'s WHY). */

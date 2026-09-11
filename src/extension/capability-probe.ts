@@ -56,7 +56,7 @@ export type CapabilityId = 1 | 2 | 3 | 4 | 5 | 6 | 7;
  * former in-process `createAgentSession` `typeof` pin is retired, and it is now
  * verified by the Step 0 (f) executable-resolution probe rather than by the
  * factory-probable `typeof` member loop. This is the importable symbol
- * `V18a`/`V18c` reconcile their factory-probed partition flags against (it is
+ * `V18a` reconciles its factory-probed partition flags against (it is
  * the partition target, not the probe's eight-member iteration target).
  *
  * `Object.freeze` keeps this module-level constant off the *No globals,
@@ -68,12 +68,11 @@ export const FACTORY_PROBABLE_CAPABILITIES: readonly CapabilityId[] =
 /**
  * Cancellation-runtime constant: the bounded wait (milliseconds) the
  * `session_shutdown` teardown awaits in-flight invocation drainage before
- * proceeding. Semantics are owned by `V17a`; the value is sourced from
- * session-shutdown-semantics.md §`session_shutdown` sub-step 3. `V9a` is the
- * single declaration site the shutdown-leg consumers `V9g` and `V17a` import
- * (rather than redeclare) and that `V18c`'s build-time literal-read assertion
- * reads. `V9i` no longer imports it: bug 0468 decoupled the per-invocation
- * subagent child-exit wait onto its own `SUBAGENT_DISPOSE_BUDGET_MS`.
+ * proceeding. The value is sourced from session-shutdown-semantics.md
+ * §`session_shutdown` sub-step 3. `V9a` is the single declaration site the
+ * shutdown-leg consumer `V9g` imports (rather than redeclare). `V9i` no
+ * longer imports it: bug 0468 decoupled the per-invocation subagent
+ * child-exit wait onto its own `SUBAGENT_DISPOSE_BUDGET_MS`.
  */
 export const SHUTDOWN_AWAIT_CAP_MS = 2000;
 
@@ -296,19 +295,16 @@ export function runCapabilityProbe(host: ProbeHost): ProbeOutcome {
     const abortSignal = host.abortSignal;
     // `typeof`-checked members, in the table's listed order (constructors,
     // prototype-methods, static-methods) — short-circuit at the first.
-    const typeofMembers: ReadonlyArray<readonly [string, () => unknown]> = [
-      ["AbortController", () => abortController],
-      ["AbortSignal", () => abortSignal],
-      ["AbortController.prototype.abort", () =>
-        readProp(readProp(abortController, "prototype"), "abort")],
-      ["AbortSignal.any", () => readProp(abortSignal, "any")],
-      ["AbortSignal.timeout", () => readProp(abortSignal, "timeout")],
-      ["AbortSignal.prototype.throwIfAborted", () =>
-        readProp(readProp(abortSignal, "prototype"), "throwIfAborted")],
-      ["AbortSignal.prototype.addEventListener", () =>
-        readProp(readProp(abortSignal, "prototype"), "addEventListener")],
+    const typeofMembers: ReadonlyArray<() => unknown> = [
+      () => abortController,
+      () => abortSignal,
+      () => readProp(readProp(abortController, "prototype"), "abort"),
+      () => readProp(abortSignal, "any"),
+      () => readProp(abortSignal, "timeout"),
+      () => readProp(readProp(abortSignal, "prototype"), "throwIfAborted"),
+      () => readProp(readProp(abortSignal, "prototype"), "addEventListener"),
     ];
-    for (const [, get] of typeofMembers) {
+    for (const get of typeofMembers) {
       const observed = typeof get();
       if (observed !== "function") {
         return {

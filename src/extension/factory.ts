@@ -19,10 +19,11 @@
 // subscriptions (`resources_discover`, `session_start`, `session_shutdown`).
 // `pi.registerCommand` is NOT a factory-body call — it fires later from the
 // `session_start` handler (the registration-timing split in
-// registration-steps.md). The capability-probe refusal logic and the
-// `theta/load/extension-bootstrap-failed` diagnostics are added by `V9a`; this
-// leaf establishes only the never-throw factory boundary and the per-theta
-// command-registration seam the in-memory fixture supply drives.
+// registration-steps.md). The capability-probe logic lives in
+// `capability-probe.ts` (`V9a`); this file runs the probe, emits the
+// resulting `theta/load/host-incompatible` refusal and the
+// `theta/load/extension-bootstrap-failed` diagnostics (`V9k`), and drives the
+// per-theta command-registration seam the in-memory fixture supply drives.
 
 import type {
   ExtensionAPI,
@@ -371,16 +372,6 @@ export interface ThetaExtensionDeps {
    * `pi` + the latched `ctx` + `emitDiagnostic` for these two sites.
    */
   readonly systemNoteChannel?: () => SystemNoteChannelDeps | undefined;
-
-  /**
-   * The extension-scoped `ThetaRegistry` whose drain-state contract the
-   * `session_start` handler MUST NOT touch on a `pi.getCommands()` read failure
-   * (drain state is owned by `V9m`'s `ThetaRegistry` contract). Injected so the
-   * `V9p` getCommands-failure path can be witnessed to leave the registry in
-   * its steady-state drain tuple. Optional; declared by `V9p-T`, consumed by
-   * `V9p`.
-   */
-  readonly registry?: ThetaRegistry;
 
   /**
    * The Phase-5 production supplier that composes one extension instance and

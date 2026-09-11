@@ -42,11 +42,6 @@ export function supersededNote(name: string): string {
  * `(false|true, "shutting-down")` and `(true, undefined)` → (b)
  * `"shutting-down"`. The arms are mutually exclusive and exhaust the tuple
  * state space; no third arm (PIC-30).
- *
- * The mapping keys on the tuple per PIC-29's closed two-arm map: arm (b)
- * `"shutting-down"` fires on the tag `"shutting-down"` or on
- * `(true, undefined)`; arm (a) `"dispatch"` is the steady-state residue
- * `(false, undefined)`. There is no third arm (PIC-30).
  */
 export function routeDrainStateArm(snapshot: DrainStateSnapshot): DispatchArm {
   if (snapshot.tag === "shutting-down" || snapshot.drained) {

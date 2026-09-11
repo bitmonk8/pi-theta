@@ -45,13 +45,6 @@
 //     the `strict-capability-probe` row's `probedName` payload from
 //     `SDK_SURFACE_INVENTORY` (version-bump-triggers.md step 7,
 //     inventory-audit-intro.md #strict-capability-absence-under-probed-name).
-//
-// V18c-T (this tests-task) declares every gate seam and stubs each with an inert
-// sentinel result — never the real reconciliation — so the paired failing tests
-// compile and red on their own primary assertions in BOTH the conformant and the
-// drifted direction. The paired `V18c` implementation leaf fills the gate bodies
-// in. The pinned data constants below are real (the tests reference them), but no
-// gate consults the pinned SDK yet.
 
 import { SDK_SURFACE_INVENTORY } from "./sdk-inventory";
 
@@ -126,10 +119,6 @@ export interface PinnedSdkSurface {
  * rows (`engines-pin` / `peer-dep-range` / `strict-capability-probe` /
  * `api-coverage`) are pinned literals, not SDK members, so they are not
  * presence-checked.
- *
- * V18c-T stub: performs no presence diff (returns no failures), so the
- * adversarial direction — which expects the dropped id — reds on its detection
- * assertion because the reconciliation is absent. The paired `V18c` fills it in.
  */
 export function surfaceInventoryPresenceFailures(
   sdk: PinnedSdkSurface,
@@ -153,10 +142,6 @@ export function surfaceInventoryPresenceFailures(
  * `CAPABILITY_OBLIGATIONS` cardinality diverges from the pinned integer literal
  * (`7` at theta 1.0). Adding or removing a capability without co-editing the
  * literal in the same edit reddens this gate.
- *
- * V18c-T stub: performs no count check (returns no failures), so the added
- * (8 vs 7) and removed (6 vs 7) directions red on their detection assertion.
- * The paired `V18c` fills it in.
  */
 export function capabilityCountCoEditFailures(
   obligationsLength: number,
@@ -179,9 +164,6 @@ export function capabilityCountCoEditFailures(
  * upstream floor read from the installed `@earendil-works/pi-coding-agent`
  * `package.json`. Operand (iii) is the only live read, so an upstream floor move
  * (iii differs while i and ii stay pinned) reddens.
- *
- * V18c-T stub: performs no equality check (returns no failures), so the
- * upstream-moved direction reds on its detection assertion.
  */
 export function enginesNodeEqualityFailures(
   thetaLiteral: string,
@@ -203,9 +185,6 @@ export function enginesNodeEqualityFailures(
  * all four `@earendil-works/*` entries are byte-equal to the Pi-SDK pin literal
  * AND `typebox` is exactly `"*"`. Any one of the four diverging from the pin, or a
  * `typebox` entry other than `"*"`, reddens (the "joint move" property).
- *
- * V18c-T stub: performs no literal-read (returns no failures), so the
- * one-diverging and bad-typebox directions red on their detection assertion.
  */
 export function peerDependencyPinFailures(
   peerDependencies: Readonly<Record<string, string>>,
@@ -244,10 +223,6 @@ export function peerDependencyPinFailures(
  * member absent from the union) both redden. This is the runtime companion of
  * the `theta/typecheck/session-shutdown-reason-snapshot` brand-string
  * type-equality assertion.
- *
- * V18c-T stub: performs no consistency check (returns no failures), so the
- * widen, narrow, empty, and duplicate directions red on their detection
- * assertion.
  */
 export function reasonSnapshotConsistencyFailures(
   snapshotLiterals: readonly string[],
@@ -289,9 +264,6 @@ export function reasonSnapshotConsistencyFailures(
  * and the binder temperature placement table
  * (#binder-temperature-placement-mapping): `tableRowKeys` is whichever of the
  * two tables' row keys the caller is asserting coverage over.
- *
- * V18c-T stub: performs no coverage check (returns no failures), so the
- * new-unlisted-Api direction reds on its detection assertion.
  */
 export function apiCoverageFailures(
   apiUnionSnapshot: readonly string[],
@@ -305,10 +277,6 @@ export function apiCoverageFailures(
  * Step 6 per-provider seed-field fixture: return a non-empty failure list when a
  * supported provider's seed field is renamed, retyped, or moved between the
  * supporting and non-supporting (`"omitted"`) sets relative to the pinned table.
- *
- * V18c-T stub: performs no fixture comparison (returns no failures), so the
- * renamed-field and moved-across-sets directions red on their detection
- * assertion.
  */
 export function seedFieldFixtureFailures(
   pinnedTable: Readonly<Record<string, string>>,
@@ -359,11 +327,6 @@ export interface StrictCapabilityProbeFailure {
  * The gate consumes `probedName` from the `strict-capability-probe`
  * `SDK_SURFACE_INVENTORY` row payload; `modelMembers` is the reachable
  * `Model<Api>` member-name set.
- *
- * V18c-T stub: detects neither arm (returns no failures), so both the
- * rename-detection and absence-under-probed-name negative fixtures red on their
- * arm-detection assertion because the reconciliation is absent. The paired
- * `V18c` fills it in.
  */
 export function strictCapabilityProbeFailures(
   probedName: string,
