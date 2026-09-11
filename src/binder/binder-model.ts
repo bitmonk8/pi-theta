@@ -12,10 +12,20 @@
 // the two paths cannot diverge on the "reference matches no available model"
 // condition (host-interfaces-core.md#model-registry-pin). On a resolved model
 // the runtime then probes the concrete `Model<Api>` for a duck-typed
-// `strictCapable` field, a three-valued check:
+// `strictCapable` field, a four-way check (bug 0475's spec amendment bifurcated
+// the `undefined` arm on whether the HOST exposes the indicator at all):
 //   - `true`      → admit the model (no diagnostic);
 //   - `false`     → `theta/load/binder-model-not-strict-capable` (E), refuse;
-//   - `undefined` → `theta/load/binder-model-strict-capability-unknown` (W), admit.
+//   - `undefined`, indicator exposed on ≥ 1 available model
+//                 → `theta/load/binder-model-strict-capability-unknown` (W), admit
+//                   (the host HAS an indicator and this model's is missing, so the
+//                   warning is per-model information);
+//   - `undefined`, indicator exposed on NO available model
+//                 → admit SILENTLY — host-wide absence is a documented constant
+//                   (pi-integration-contract/audit-target-categories.md
+//                   #strict-capability-absence-pin), not a per-theta event, and it
+//                   is the condition under the theta 1.0 Pi-SDK pin, where neither
+//                   strict-capability code fires.
 //
 // A hot reload that recovers a previously-unresolved binder model emits a single
 // consolidated informational recovery `theta-system-note` (no `theta/load/*` code)
@@ -86,11 +96,24 @@ export function binderModelStrictCapabilityUnknownMessage(model: string): string
  * The duck-typed strict-capability probe target
  * (binder-model-and-context.md#strict-capability-requirement): the runtime reads
  * `(model as { strictCapable?: boolean }).strictCapable`. Under the theta 1.0
- * Pi-SDK pin the field is absent (`undefined`), so production is the universal-W
- * branch.
+ * Pi-SDK pin the field is absent (`undefined`) on every Pi-supplied model.
  */
 export interface StrictCapableProbe {
   readonly strictCapable?: boolean;
+}
+
+/**
+ * What one probe call reports: the resolved model's duck-typed read PLUS the
+ * host-wide condition the `undefined` arm is bifurcated on (bug 0475).
+ * `hostExposesIndicator` is `true` iff SOME model in the same
+ * `ctx.modelRegistry.getAvailable()` snapshot exposes a defined `strictCapable`
+ * — the only condition under which an absent indicator on the resolved model is
+ * per-model information rather than a restatement of the host-wide constant
+ * documented at
+ * pi-integration-contract/audit-target-categories.md#strict-capability-absence-pin.
+ */
+export interface StrictCapableProbeResult extends StrictCapableProbe {
+  readonly hostExposesIndicator: boolean;
 }
 
 // --- concrete-model resolution (reference → Model<Api>) ----------------------
@@ -151,10 +174,14 @@ export interface BinderModelResolutionInput {
   readonly matcher: ModelReferenceMatcher;
   /**
    * Probe the concrete resolved `Model<Api>` for the duck-typed `strictCapable`
-   * field. Returns `undefined` when the reference resolves to no model (the probe
-   * is short-circuited by the caller in that case).
+   * field, alongside the host-wide `hostExposesIndicator` condition read off the
+   * SAME available-models snapshot. Returns `undefined` when the reference
+   * resolves to no model (the probe is short-circuited by the caller in that
+   * case).
    */
-  readonly probeStrictCapable: (reference: string) => StrictCapableProbe | undefined;
+  readonly probeStrictCapable: (
+    reference: string,
+  ) => StrictCapableProbeResult | undefined;
 }
 
 /** The outcome of resolving a single theta's binder model. */
@@ -174,7 +201,7 @@ export interface BinderModelResolution {
 /**
  * Resolve a single theta's binder model via the two-step chain
  * (`bind_model:` → `theta.binderModel`) over the shared matcher, then run the
- * three-valued `strictCapable` probe. Bypass-eligible thetas skip both checks.
+ * four-way `strictCapable` probe. Bypass-eligible thetas skip both checks.
  */
 export function resolveBinderModel(
   input: BinderModelResolutionInput,
@@ -206,9 +233,10 @@ export function resolveBinderModel(
 
   // The reference resolved to a model, so the strict-capability probe runs (it
   // is short-circuited only when resolution yielded no model). Duck-typed
-  // three-valued read of `Model<Api>.strictCapable`
+  // four-way read of `Model<Api>.strictCapable`
   // (binder-model-and-context.md#strict-capability-requirement).
-  const strictCapable = input.probeStrictCapable(reference)?.strictCapable;
+  const probe = input.probeStrictCapable(reference);
+  const strictCapable = probe?.strictCapable;
   if (strictCapable === false) {
     return {
       resolved: false,
@@ -222,9 +250,18 @@ export function resolveBinderModel(
       ],
     };
   }
+  if (strictCapable === undefined && probe?.hostExposesIndicator !== true) {
+    // Bug 0475 / the amended #strict-capability-requirement: the indicator is
+    // exposed on NO available model (the theta 1.0 Pi-SDK-pin condition), so the
+    // absence is a host-wide constant documented once at the PIC absence anchor,
+    // not a per-theta event — the probe short-circuits SILENTLY and the theta
+    // registers with no diagnostic. A probe that found no concrete model reports
+    // nothing about the host either, so it takes this same silent arm.
+    return { resolved: true, binderModel: reference, diagnostics: [] };
+  }
   if (strictCapable === undefined) {
-    // The pinned production branch: the field is absent on `Model<Api>`. W-level
-    // — the theta still registers.
+    // The indicator IS exposed somewhere in the same snapshot and this model
+    // lacks it: now per-model information. W-level — the theta still registers.
     return {
       resolved: true,
       binderModel: reference,
@@ -383,7 +420,9 @@ export interface BinderModelLoadPassDeps {
   /** The merged theta-extension settings (supplies `theta.binderModel`). */
   readonly settings: ThetaSettings;
   /** The strict-capability probe over the resolved concrete model. */
-  readonly probeStrictCapable: (reference: string) => StrictCapableProbe | undefined;
+  readonly probeStrictCapable: (
+    reference: string,
+  ) => StrictCapableProbeResult | undefined;
 }
 
 /** One `.theta` file processed in the binder-model load pass. */

@@ -154,6 +154,7 @@ import {
   resolveBinderModel,
   type BinderModelResolution,
   type StrictCapableProbe,
+  type StrictCapableProbeResult,
 } from "../binder/binder-model";
 import { classifyBinderBypass } from "../binder/binder-envelope";
 import {
@@ -726,15 +727,39 @@ async function runComposePass(
   // resolution). Threaded, alongside the shared `modelMatcher`, into every
   // non-bypass theta's load-time binder-model resolution below.
   const settingsBinderModel = settings.theta?.binderModel;
+  // Bug 0475 / binder-model-and-context.md#strict-capability-requirement: the
+  // host-wide arm of the four-way probe. ONE `getAvailable()` pass for the whole
+  // load pass (not one per theta): `hostExposesIndicator` is a property of the
+  // host, identical for every theta in the pass, and the pass runs to completion
+  // synchronously against this snapshot. Under the theta 1.0 Pi-SDK pin it is
+  // `false` on every host, which is what makes the probe admit silently instead
+  // of warning once per theta per load.
+  const hostExposesStrictCapability = ctx.modelRegistry
+    .getAvailable()
+    .some(
+      (model) => (model as unknown as StrictCapableProbe).strictCapable !== undefined,
+    );
   // The duck-typed strict-capability probe (binder-model-and-context.md
   // #strict-capability-requirement): resolve the reference to a concrete
-  // `Model<Api>` and read `strictCapable`. Under the theta 1.0 Pi-SDK pin the
-  // field is absent on every model, so this is the universal-W branch and the
-  // theta still registers; the probe is short-circuited by `resolveBinderModel`
-  // when the reference resolves to no model.
-  const probeStrictCapable = (reference: string): StrictCapableProbe | undefined => {
+  // `Model<Api>` and read `strictCapable`, reported alongside the host-wide
+  // condition above so `resolveBinderModel` can tell "this model lacks an
+  // indicator the host has" (W) from "no model anywhere has one" (silent). The
+  // probe is short-circuited by `resolveBinderModel` when the reference resolves
+  // to no model.
+  const probeStrictCapable = (
+    reference: string,
+  ): StrictCapableProbeResult | undefined => {
     const model = matchAvailableModel(reference, ctx.modelRegistry.getAvailable());
-    return model === undefined ? undefined : (model as unknown as StrictCapableProbe);
+    if (model === undefined) {
+      return undefined;
+    }
+    const strictCapable = (model as unknown as StrictCapableProbe).strictCapable;
+    // `exactOptionalPropertyTypes` forbids an explicit `undefined` on the
+    // optional key, so include it only when the host model actually defines it.
+    return {
+      ...(strictCapable !== undefined ? { strictCapable } : {}),
+      hostExposesIndicator: hostExposesStrictCapability,
+    };
   };
   // Off-channel fallback, mirroring the sibling channel's `emitToast` fallback
   // in `composeExtensionInstance` and the tier-2 `makeLoadEmit(ctx)` wiring:

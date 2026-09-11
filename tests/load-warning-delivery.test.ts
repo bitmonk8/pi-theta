@@ -84,9 +84,12 @@ import { FakeFileWatcher } from "./helpers/fake-file-watcher";
 //     whose model: resolves to an api outside the pinned six-member set.
 //   - theta/load/settings-invalid-json (W) — a .pi/settings.json that is not
 //     valid UTF-8 JSON.
-//   - theta/load/binder-model-strict-capability-unknown (W) — the registry-
-//     documented "universal production branch under the pin": every
-//     non-bypass theta fires it (Model<Api>.strictCapable absent).
+//   - theta/load/binder-model-strict-capability-unknown (W) — fires when the
+//     host exposes `strictCapable` on SOME available model and the resolved
+//     binder model lacks it (code-registry-load.md; bug 0475's spec
+//     amendment bifurcated the `undefined` arm, so the registry no longer
+//     calls this a universal branch — under the theta 1.0 Pi-SDK pin, where
+//     NO available model exposes the indicator, the probe admits silently).
 //   - theta/load/unknown-frontmatter-field (W) — an unknown frontmatter key
 //     on a theta that still registers (the drop-site-3 witness).
 // HONEST LIMIT: theta/load/case-collision (suggested by the bug doc) is NOT
@@ -198,11 +201,14 @@ const TYPED_GEM_THETA = [
 ].join("\n");
 
 /**
- * Provokes theta/load/binder-model-strict-capability-unknown (W): two params
- * fields → NOT bypass-eligible → binder-model resolution runs; `bind_model:`
- * resolves to a model with NO strictCapable field (the pinned production
- * shape), so the three-valued probe reads undefined — the registry-documented
- * universal-W branch. The theta still registers.
+ * Provokes theta/load/binder-model-strict-capability-unknown (W) WHEN the host
+ * exposes the indicator on some other available model: two params fields → NOT
+ * bypass-eligible → binder-model resolution runs; `bind_model: m1` resolves to
+ * a model with NO strictCapable field, so the four-way probe reads undefined
+ * and — with the indicator present elsewhere in the same getAvailable()
+ * snapshot — the W fires as per-model information (bug 0475's amended
+ * #strict-capability-requirement). The theta still registers. Planted with the
+ * non-exposing registry instead, the same fixture must produce NO diagnostic.
  */
 const BINDER_WARN_THETA = [
   "---",
@@ -248,11 +254,25 @@ const INVALID_SETTINGS_JSON = "{ this is not json";
 /**
  * Available models for the fake ctx.modelRegistry. DELIBERATELY no
  * `strictCapable` field on either — the theta 1.0 Pi-SDK pin shape, so the
- * binder probe's duck-typed read yields undefined (the universal-W branch).
- * m-gem's api is outside TYPED_QUERY_SUPPORTED_PROVIDER_APIS.
+ * binder probe's duck-typed read yields undefined AND no available model
+ * exposes the indicator: bug 0475's silent-admit branch. m-gem's api is
+ * outside TYPED_QUERY_SUPPORTED_PROVIDER_APIS.
  */
 const ANTHROPIC_M1 = { id: "m1", provider: "anthropic", api: "anthropic-messages" };
 const GOOGLE_MGEM = { id: "m-gem", provider: "google", api: "google-generative-ai" };
+
+/**
+ * A model that DOES expose the strict-capability indicator. Its only role is to
+ * make the host an indicator-exposing host, which is what lifts the resolved
+ * model's absent field from a host-wide constant to per-model information and
+ * so arms the W (bug 0475).
+ */
+const ANTHROPIC_MSTRICT = {
+  id: "m-strict",
+  provider: "anthropic",
+  api: "anthropic-messages",
+  strictCapable: true,
+};
 
 // ===========================================================================
 // Shipped-path harness (tests/load-phase-pre-eval-routing.test.ts, extended
@@ -594,14 +614,15 @@ describe("bug 0013 (A) shipped path — load-phase warnings route onto the theta
     );
   });
 
-  it("RED A3: theta/load/binder-model-strict-capability-unknown — the universal non-bypass branch surfaces as a theta-system-note; the theta still registers", async () => {
-    // code-registry-load.md row: "This is the universal production branch
-    // under the pin" — Model<Api>.strictCapable is absent on every
-    // Pi-supplied model, so EVERY non-bypass theta emits this W at EVERY
-    // load. The bug doc: "its hint … is advice no operator has ever seen."
+  it("RED A3: theta/load/binder-model-strict-capability-unknown — the indicator-exposing-host branch surfaces as a theta-system-note; the theta still registers", async () => {
+    // code-registry-load.md row (as amended by bug 0475): the W fires when the
+    // host exposes `strictCapable` on some available model and the RESOLVED
+    // binder model lacks it. The planted registry therefore carries the
+    // exposing sibling m-strict beside the non-exposing m1 the fixture binds,
+    // which is what makes the omission per-model information worth a note.
     writeFileSync(join(thetaDir, "binderwarn.theta"), BINDER_WARN_THETA, "utf8");
 
-    const harness = makeShippedHarness(workspace, [ANTHROPIC_M1]);
+    const harness = makeShippedHarness(workspace, [ANTHROPIC_M1, ANTHROPIC_MSTRICT]);
     await harness.fireSessionStart();
 
     expect(
@@ -623,8 +644,43 @@ describe("bug 0013 (A) shipped path — load-phase warnings route onto the theta
           { model: "m1" },
         ),
       },
-      "drop site 2 (emitLoadNote), the binder-model universal-W branch",
+      "drop site 2 (emitLoadNote), the binder-model strict-capability-unknown branch",
     );
+  });
+
+  it("bug 0475 A3b: with NO available model exposing the indicator (the pinned host shape) the SAME fixture emits no strict-capability diagnostic at all; it still registers", async () => {
+    // The spec amendment's production arm (binder-model-and-context.md
+    // #strict-capability-requirement, audit-target-categories.md
+    // #strict-capability-absence-pin): host-wide absence of `strictCapable` is
+    // a documented constant, not a per-theta event, so the probe short-circuits
+    // SILENTLY — no W, no E, and no note of any severity carrying either code.
+    // Pre-fix this cell reds on the W arriving for every non-bypass theta.
+    writeFileSync(join(thetaDir, "binderwarn.theta"), BINDER_WARN_THETA, "utf8");
+
+    const harness = makeShippedHarness(workspace, [ANTHROPIC_M1]);
+    await harness.fireSessionStart();
+
+    expect(
+      harness.commands.has("binderwarn"),
+      "guard: the silent-admit branch still REGISTERS the non-bypass theta — " +
+        "absence of a diagnostic must not become absence of the command. " +
+        "Registered: " + JSON.stringify([...harness.commands.keys()]),
+    ).toBe(true);
+    expect(
+      warningNotesWithCode(
+        harness.notes,
+        "theta/load/binder-model-strict-capability-unknown",
+      ),
+      "bug 0475: under the pin NO available model exposes `strictCapable`, so " +
+        "the W carries no per-theta information and MUST NOT be emitted. " +
+        "Notes: " + JSON.stringify(harness.notes),
+    ).toHaveLength(0);
+    expect(
+      errorNotesWithCode(harness.notes, "theta/load/binder-model-not-strict-capable"),
+      "the sibling E arm is equally silent under the pin (the four-way probe's " +
+        "`false` arm is never reached when the field is absent everywhere). " +
+        "Notes: " + JSON.stringify(harness.notes),
+    ).toHaveLength(0);
   });
 });
 

@@ -4,6 +4,40 @@ All notable changes to `@bitmonk8/pi-theta` will be documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.470.0]
+
+### Changed
+- Spec amendment (bug 0475, human-ruled 2026-09-11): the binder strict-capability
+  probe ([binder-model-and-context.md
+  #strict-capability-requirement](docs/spec_topics/binder/binder-model-and-context.md#strict-capability-requirement))
+  is now a FOUR-way check — its `undefined` arm is bifurcated on whether the
+  host exposes the indicator at all. With `strictCapable` exposed on NO
+  available `Model<Api>` (the theta 1.0 Pi-SDK-pin condition, gated at
+  [PIC #strict-capability-absence-pin](docs/spec_topics/pi-integration-contract/audit-target-categories.md#strict-capability-absence-pin))
+  the probe admits the resolved model SILENTLY, so
+  `theta/load/binder-model-strict-capability-unknown` no longer fires for every
+  non-bypass theta on every load and reload; with the indicator exposed on some
+  available model and the resolved one lacking it, the W fires exactly as
+  before — then it is per-model information. Under the pin neither
+  strict-capability code fires, symmetric with the
+  `theta/load/binder-model-not-strict-capable` sibling row. The code, severity
+  and Message template stay in the closed registry (DIAG-2/DIAG-4 untouched),
+  as does the SDK-inventory absence-under-the-probed-name audit arm.
+
+### Fixed
+- Bug 0475: `resolveBinderModel` emitted the W unconditionally on an absent
+  indicator because `probeStrictCapable` reported only the resolved model's
+  field, never the host-wide condition — a warning whose message and hint were
+  identical for every model choice, restating a constant the spec already
+  documents once. The probe result now carries `hostExposesIndicator`, computed
+  ONCE per load pass from the existing `ctx.modelRegistry.getAvailable()`
+  snapshot; renderer-side dedup was NOT the fix and remains spec-forbidden
+  (bug 0470, diagnostic-shape.md §Re-scan deduplication). Witnesses:
+  `tests/binder-model-resolution.test.ts` (cells a / a′ / b),
+  `tests/load-warning-delivery.test.ts` (A3 re-pointed, A3b added),
+  `tests/live/live-production-acceptance.test.ts` (absence through the real
+  host); both directions red-proven.
+
 ## [0.469.0]
 
 ### Fixed

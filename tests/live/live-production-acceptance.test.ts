@@ -9329,11 +9329,35 @@ describe("H8a-T — bug 0197: a params: default whose member-access head resolve
         ),
         "a theta/parse/ note named the enum-head sibling, whose default " +
           "RESOLVES — the gate must keep its enum-first head precedence and " +
-          "draw no theta/parse/ refusal against it; the universal W-severity " +
-          "theta/load/binder-model-strict-capability-unknown note naming its " +
-          "path (code-registry-load.md:37) fires on every conforming run and " +
-          "is expected, out of scope here. Notes: " + JSON.stringify(notes),
+          "draw no theta/parse/ refusal against it. Notes: " +
+          JSON.stringify(notes),
       ).toBe(false);
+      // Bug 0475 (spec amendment): the real host exposes `strictCapable` on NO
+      // `Model<Api>`, so the four-way strict-capability probe
+      // (binder-model-and-context.md#strict-capability-requirement) takes the
+      // SILENT-admit branch — absence of the W is the live observable now,
+      // where before the amendment it fired for every non-bypass theta on every
+      // load. The registered `b197liveresolves` fixture is non-bypass (a
+      // `params:` field with a default) and carries `bind_model:`, so the probe
+      // demonstrably ran: this witnesses the silent-admit branch, not an
+      // empty-load vacuity.
+      expect(
+        notes.filter((note) =>
+          note.includes("theta/load/binder-model-strict-capability-unknown"),
+        ),
+        "the strict-capability-unknown W reached the operator on a host that " +
+          "exposes the indicator on no model at all: under the pin its absence " +
+          "is a host-wide constant documented at " +
+          "audit-target-categories.md#strict-capability-absence-pin, so the " +
+          "probe must short-circuit silently. Notes: " + JSON.stringify(notes),
+      ).toHaveLength(0);
+      expect(
+        notes.filter((note) =>
+          note.includes("theta/load/binder-model-not-strict-capable"),
+        ),
+        "the sibling E arm fired on a host with no indicator at all. Notes: " +
+          JSON.stringify(notes),
+      ).toHaveLength(0);
     } finally {
       await handle.dispose();
       workspace.dispose();

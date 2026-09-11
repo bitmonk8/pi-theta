@@ -188,7 +188,7 @@ function binderInput(
       resolve: (reference: unknown): "resolved" | "no-match" =>
         reference === SETTINGS_BINDER_MODEL ? "resolved" : "no-match",
     },
-    probeStrictCapable: () => ({ strictCapable: true }),
+    probeStrictCapable: () => ({ strictCapable: true, hostExposesIndicator: true }),
   } as BinderModelResolutionInput;
 }
 

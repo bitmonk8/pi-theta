@@ -12,7 +12,7 @@ import {
   binderModelNotStrictCapableMessage,
   binderModelStrictCapabilityUnknownMessage,
   type BinderModelResolutionInput,
-  type StrictCapableProbe,
+  type StrictCapableProbeResult,
   type LoadedTheta,
 } from "../src/binder/binder-model";
 import {
@@ -49,7 +49,7 @@ const registryOf = (models: readonly AvailableModel[]): ModelRegistrySurface => 
 });
 
 /** A probe that never runs (the reference resolves to no model). */
-const noProbe = (): StrictCapableProbe | undefined => undefined;
+const noProbe = (): StrictCapableProbeResult | undefined => undefined;
 
 // --- theta/load/binder-model-unresolved -------------------------------------
 
@@ -124,7 +124,15 @@ describe("V11a-T — binder-model unresolved (theta/load/binder-model-unresolved
   });
 });
 
-// --- strict-capability probe (three-valued) --------------------------------
+// --- strict-capability probe (four-way) ------------------------------------
+// Bug 0475 (spec amendment, human ruling 2026-09-11): the `undefined` arm is
+// BIFURCATED on whether the HOST exposes the indicator at all
+// (binder-model-and-context.md#strict-capability-requirement). `undefined` with
+// the indicator exposed on ≥ 1 available model → the W (then it IS per-model
+// information); `undefined` with the indicator exposed on NO available model
+// (the theta 1.0 Pi-SDK-pin shape, audit-target-categories.md
+// #strict-capability-absence-pin) → admit SILENTLY, because host-wide absence is
+// a documented constant, not a per-theta event. `true`/`false` arms unchanged.
 
 describe("V11a-T — strictCapable probe (binder-model-and-context.md#strict-capability-requirement)", () => {
   const resolvableMatcher = (): ModelReferenceMatcher =>
@@ -138,7 +146,9 @@ describe("V11a-T — strictCapable probe (binder-model-and-context.md#strict-cap
       bindModel: "claude-haiku",
       bypassEligible: false,
       matcher: resolvableMatcher(),
-      probeStrictCapable: () => ({ strictCapable: false }),
+      // The host exposes the indicator (this very model carries it), so the
+      // `false` arm is reached exactly as before the bug-0475 amendment.
+      probeStrictCapable: () => ({ strictCapable: false, hostExposesIndicator: true }),
     });
 
     const diag = result.diagnostics.find(
@@ -152,14 +162,17 @@ describe("V11a-T — strictCapable probe (binder-model-and-context.md#strict-cap
     expect(result.resolved).toBe(false);
   });
 
-  it("strictCapable undefined → theta/load/binder-model-strict-capability-unknown (W), theta registered", () => {
+  it("bug 0475 cell (b): strictCapable undefined while the host exposes the indicator on another available model → theta/load/binder-model-strict-capability-unknown (W), theta registered", () => {
     const result = resolveBinderModel({
       file: "/x/a.theta",
       bindModel: "claude-haiku",
       bypassEligible: false,
       matcher: resolvableMatcher(),
-      // The pinned production branch: the field is absent on `Model<Api>`.
-      probeStrictCapable: () => ({}),
+      // The resolved model's own field is absent, but SOME available model in
+      // the same `getAvailable()` snapshot exposes a defined `strictCapable` —
+      // so this model's omission is per-model information and the W fires
+      // exactly as it did before the amendment.
+      probeStrictCapable: () => ({ hostExposesIndicator: true }),
     });
 
     const diag = result.diagnostics.find(
@@ -172,6 +185,44 @@ describe("V11a-T — strictCapable probe (binder-model-and-context.md#strict-cap
     );
     // W-level: the theta still registers.
     expect(result.resolved).toBe(true);
+    expect(result.binderModel).toBe("claude-haiku");
+  });
+
+  it("bug 0475 cell (a): strictCapable undefined while NO available model exposes the indicator (the pinned host shape) → resolves SILENTLY, zero diagnostics", () => {
+    const result = resolveBinderModel({
+      file: "/x/a.theta",
+      bindModel: "claude-haiku",
+      bypassEligible: false,
+      matcher: resolvableMatcher(),
+      // Today's pinned condition: `Model<Api>.strictCapable` is absent on EVERY
+      // available model, so there is no per-theta fact to report.
+      probeStrictCapable: () => ({ hostExposesIndicator: false }),
+    });
+
+    expect(result.resolved).toBe(true);
+    expect(result.binderModel).toBe("claude-haiku");
+    expect(
+      result.diagnostics,
+      "host-wide absence of the strict-capability indicator is a documented " +
+        "constant (audit-target-categories.md#strict-capability-absence-pin), not " +
+        "a per-theta event: the probe MUST short-circuit silently. Diagnostics: " +
+        JSON.stringify(result.diagnostics),
+    ).toHaveLength(0);
+  });
+
+  it("bug 0475 cell (a′): an unresolvable probe result (no concrete model found) also resolves silently — no host indicator is observable", () => {
+    const result = resolveBinderModel({
+      file: "/x/a.theta",
+      bindModel: "claude-haiku",
+      bypassEligible: false,
+      matcher: resolvableMatcher(),
+      // The matcher resolved the reference but the probe found no concrete
+      // model, so nothing about the host's indicator is observable.
+      probeStrictCapable: () => undefined,
+    });
+
+    expect(result.resolved).toBe(true);
+    expect(result.diagnostics).toHaveLength(0);
   });
 
   it("strictCapable true → resolves with no diagnostic", () => {
@@ -180,7 +231,7 @@ describe("V11a-T — strictCapable probe (binder-model-and-context.md#strict-cap
       bindModel: "claude-haiku",
       bypassEligible: false,
       matcher: resolvableMatcher(),
-      probeStrictCapable: () => ({ strictCapable: true }),
+      probeStrictCapable: () => ({ strictCapable: true, hostExposesIndicator: true }),
     });
 
     expect(result.resolved).toBe(true);
@@ -206,7 +257,7 @@ describe("V11a-T — binder-model two-step chain (binder-model-and-context.md#bi
       settingsBinderModel: merged,
       bypassEligible: false,
       matcher,
-      probeStrictCapable: () => ({ strictCapable: true }),
+      probeStrictCapable: () => ({ strictCapable: true, hostExposesIndicator: true }),
     });
 
     // The merged setting resolves the binder model (no unresolved diagnostic),
@@ -233,7 +284,7 @@ describe("V11a-T — binder-model hot-reload recovery note", () => {
       settingsBinderModel: "claude-haiku",
       bypassEligible: false,
       matcher,
-      probeStrictCapable: () => ({ strictCapable: true }),
+      probeStrictCapable: () => ({ strictCapable: true, hostExposesIndicator: true }),
     };
 
     const note = computeBinderModelRecoveryNote([
@@ -299,7 +350,7 @@ describe("V11a-T — single-matcher cross-resolution reconciliation (host-interf
         parse,
         resolveBinderModel: resolveFn,
         settings,
-        probeStrictCapable: () => ({ strictCapable: true }),
+        probeStrictCapable: () => ({ strictCapable: true, hostExposesIndicator: true }),
       },
     );
 

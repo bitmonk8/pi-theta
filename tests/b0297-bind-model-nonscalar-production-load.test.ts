@@ -37,10 +37,12 @@ import { discoverAndComposeFixtures } from "../src/extension/production-composit
 // marker through.
 //
 // THE PLANTED CONFIGURATION. `ctx.modelRegistry.getAvailable()` returns one
-// model with NO `strictCapable` field, so a resolved reference degrades to the
-// W-level strict-capability-unknown branch and the theta still registers — that
-// W-level admission is what lets the pre-fix offender REGISTER via the settings
-// fallback. `.pi/settings.json` pins `theta.binderModel` to that available model
+// model with NO `strictCapable` field — the theta 1.0 Pi-SDK-pin shape — so a
+// resolved reference takes the strict-capability probe's silent-admit branch
+// (bug 0475's amendment: no available model exposes the indicator, so the
+// absence is a host-wide constant and no diagnostic is emitted) and the theta
+// still registers — that admission is what lets the pre-fix offender REGISTER
+// via the settings fallback. `.pi/settings.json` pins `theta.binderModel` to that available model
 // (`test/binder`), which is the chain-step-2 fallback the fix must NOT reach for
 // a non-scalar `bind_model:`.
 //
@@ -121,10 +123,11 @@ async function runProductionLoad(cwd: string): Promise<LoadOutcome> {
   } as unknown as ExtensionAPI;
   const ctx = {
     cwd,
-    // One available model with NO `strictCapable` field: a resolved reference
-    // degrades to the W-level strict-capability-unknown branch and still
-    // registers, so the settings-fallback path the offender would take pre-fix
-    // is an admitting path.
+    // One available model with NO `strictCapable` field: with the indicator
+    // exposed on no available model, a resolved reference takes the probe's
+    // silent-admit branch (bug 0475) and still registers, so the
+    // settings-fallback path the offender would take pre-fix is an admitting
+    // path.
     modelRegistry: {
       getAvailable: (): readonly unknown[] => [{ provider: "test", id: "binder" }],
     },
@@ -173,9 +176,9 @@ describe("bug 0297 face 2 — non-scalar bind_model: threaded through the produc
 
   it("a scalar bind_model: that resolves against the available model registers (control)", () => {
     // The harness resolves the model and a well-formed scalar `bind_model:`
-    // loads: `test/binder` matches the one available model, degrades to the
-    // W-level strict-capability-unknown branch, and the non-bypass theta
-    // registers.
+    // loads: `test/binder` matches the one available model, takes the
+    // strict-capability probe's silent-admit branch (bug 0475), and the
+    // non-bypass theta registers.
     expect(
       outcome.registered,
       "the scalar-bind_model control must register, proving the harness resolves " +

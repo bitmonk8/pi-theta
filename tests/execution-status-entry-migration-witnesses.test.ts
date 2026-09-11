@@ -149,7 +149,7 @@ describe("T-ENT — B54: binder-model recovery note delivers entry-first, byte-i
     settingsBinderModel: "claude-sonnet-5",
     bypassEligible: false,
     matcher,
-    probeStrictCapable: () => ({ strictCapable: true }),
+    probeStrictCapable: () => ({ strictCapable: true, hostExposesIndicator: true }),
   };
   const recoveryNote = computeBinderModelRecoveryNote([
     { slashName: "fix-cluster", resolution },
