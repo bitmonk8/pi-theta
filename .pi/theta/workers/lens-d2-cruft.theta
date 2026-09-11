@@ -46,6 +46,25 @@ Out of scope (do not file): bugs or behavior changes; naming quality; duplicatio
 between live copies; design or architecture opinions; anything about tests/ or
 docs/ themselves; performance. One root cause per finding file.
 
+Human-ruled precedents (do not file these shapes; each was filed, verified as
+mechanically true, and rejected by the repository owner as deliberate design):
+- An export keyword with no external importer is NOT cruft when the declaration
+  itself is alive (house export style: *Deps interfaces, diagnostic code/message/
+  hint anchors, kind discriminators). File only when the declaration is dead.
+- A threaded-but-unread parameter or field whose only reader is a MUST-NOT witness
+  test (a recording double asserting nothing was called) is a deliberate seam.
+- A type arm, discriminant, switch branch, or boolean conjunct that mirrors a
+  spec-named enumeration or formula is not vestigial even if only one value is
+  produced today; a documented placeholder for a bug doc's stated end state is
+  the same shape.
+- A knob, belt-and-braces guard, or uniform-posture threading whose rationale is
+  stated in code or in a bug doc is a design decision; file only when that
+  rationale is demonstrably false. Never propose a fix that would demote live
+  production code to test-only reachability.
+Stale, wrong, or historical header prose IS in scope: a header that names deleted
+artefacts, miscounts its call sites or collaborators, or dangles a forward
+reference is a filing target even when the surrounding code is deliberate.
+
 Evidence rules (all mandatory):
 - Every claim cites path:line-range plus a verbatim excerpt of at most 15 lines.
 - Pattern claims cite every counted site or state the exact search and hit count.

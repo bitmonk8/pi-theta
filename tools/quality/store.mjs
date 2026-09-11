@@ -22,9 +22,12 @@
 //       quality/tmp/<wave>/shard-NN.txt manifests; print manifest paths.
 //   mark-reviewed --lens D2 --sha <sha> --manifest <file>
 //       Record every manifest path as reviewed at <sha>.
-//   accept --finding <intake .md>
+//   accept --finding <intake .md> [--note <text>]
 //       Mint the next PTQ-NNNN, stamp frontmatter (id, verdict: confirmed,
-//       status: open), move to quality/issues/; print the new path.
+//       status: open), move to quality/issues/; print the new path. --note
+//       appends "verdict: confirmed — <text>" under ## Triage so a human
+//       ruling (and its agreed fix direction) reaches the fix worker after
+//       the stacked questionable notes.
 //   reject --finding <intake .md> --verdict <v> [--reason <text>]
 //       Append a TRIAGE_LOG row (reason defaults to the finding's ## Triage
 //       note), delete the file.
@@ -227,6 +230,13 @@ function triageNote(file) {
   return lines.length > 0 ? lines[lines.length - 1] : "";
 }
 
+function appendTriageLine(text, line) {
+  const eol = text.includes("\r\n") ? "\r\n" : "\n";
+  const body = text.endsWith(eol) ? text : text + eol;
+  if (!/^## Triage\s*$/m.test(body)) return body + eol + "## Triage" + eol + line + eol;
+  return body + line + eol;
+}
+
 function logRow(cols) {
   const esc = (s) => String(s).replaceAll("|", "\\|").replaceAll(/\r?\n/g, " ").trim();
   fs.appendFileSync(TRIAGE_LOG, `| ${cols.map(esc).join(" | ")} |\n`);
@@ -307,6 +317,7 @@ switch (cmd) {
     text = setFrontmatterField(text, "id", id);
     text = setFrontmatterField(text, "verdict", "confirmed");
     text = setFrontmatterField(text, "status", "open");
+    if (flags.note) text = appendTriageLine(text, `verdict: confirmed — ${flags.note}`);
     // Slug: strip the wave-lens-NN- prefix the reviewer used, keep the tail.
     const base = path.basename(finding, ".md");
     const slug = (base.replace(/^[a-z0-9]+-[a-z0-9]+-\d+-/, "") || base).slice(0, 60);
