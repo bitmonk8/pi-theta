@@ -4,7 +4,22 @@ All notable changes to `@bitmonk8/pi-theta` will be documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.469.0]
+
+### Fixed
+- Bug 0474: the subagent launcher composed the child `PI_THETA_*` control plane
+  by inheriting the parent environment wholesale and re-deriving only three of
+  its eight carriers, so a launching process holding a control plane of its own
+  (a nested subagent child, a quality-loop worker session) leaked a FOREIGN
+  invocation's callable-hash map, params carrier and marked-root winner into
+  every child — authenticated, because the launcher wrote the true parent pid
+  beside them, and therefore refused fail-closed by the child (14 test files /
+  19 tests red under the field environment, green with the vars unset).
+  `buildSubagentChildEnv` now scrubs the per-launch control plane out of the
+  inherited environment (the extension pin stays heritable by contract) and
+  this launch's carriers arrive on their own `controlPlaneEnv` channel;
+  subagent.md #subagent-launch-contract pins the rule. Witness:
+  `tests/subagent-child-env-scrub.test.ts`.
 
 ## [0.468.0]
 

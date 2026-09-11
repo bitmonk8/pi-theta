@@ -1445,6 +1445,12 @@ async function driveRootChild(input: {
       parentEnv: {
         ...process.env,
         [SUBAGENT_EXTENSION_PIN_ENV]: EXTENSION_ENTRY,
+      },
+      // THIS launch's params ride the per-launch control-plane channel (bug
+      // 0474): the launcher scrubs every inherited per-launch carrier out of
+      // `parentEnv`, so a carrier this process itself holds cannot reach the
+      // child; both carriers are named so the channel choice is authoritative.
+      controlPlaneEnv: {
         [SUBAGENT_PARAMS_ENV]: input.params,
         [SUBAGENT_PARAMS_FILE_ENV]: undefined,
       },

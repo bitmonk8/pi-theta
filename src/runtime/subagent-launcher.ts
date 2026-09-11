@@ -26,7 +26,9 @@ import {
 } from "../seams/host-tool-snapshot";
 import type { InvokeInfraError } from "./query-error";
 import { INTERNAL_ERROR_CODE, surfaceUnexpectedThrow } from "./runtime-panics";
-import { SUBAGENT_ROOT_ENV_MARKER } from "./subagent-root-regime";
+import { SUBAGENT_CALLABLE_HASHES_ENV } from "./subagent-callable-hash";
+import { SUBAGENT_PARAMS_ENV, SUBAGENT_PARAMS_FILE_ENV } from "./subagent-params";
+import { SUBAGENT_ROOT_ENV_MARKER, SUBAGENT_ROOT_WINNER_ENV } from "./subagent-root-regime";
 
 // ---------------------------------------------------------------------------
 // Diagnostic codes (owned here; re-audited per Pi bump).
@@ -475,31 +477,102 @@ export function assembleSubagentArgv(
 // ---------------------------------------------------------------------------
 
 /**
- * Build the child environment: full inheritance of the parent env plus the
- * per-chain invoke-depth carriage (`invokeDepth` — the parent's CURRENT chain
- * depth, so the child continues the depth-32 ceiling across the process hop per
- * invocation.md §INV-4), the parent-PID carriage (the control-plane
- * authentication key — see `SUBAGENT_PARENT_PID_ENV`), and — when `rootSlug` is supplied
- * — the PIC-58 subagent-root regime marker (`PI_THETA_SUBAGENT_ROOT=<slug>`),
- * which subsumes RFC-0005's boolean child marker and carries watcher
- * suppression + no-recursion + regime selection. Credentials are never
- * marshalled — full inheritance is the mechanism.
+ * The `PI_THETA_*` control-plane variables — the ones that steer a theta
+ * process's behaviour rather than merely being passed along. Each is normally
+ * written by a pi-theta parent at spawn and read by the child it spawned:
+ *
+ *   - the extension pin becomes `-e <path>`, i.e. "load this file as an extension";
+ *   - the root marker puts the process into subagent-root regime (watcher
+ *     suppression, in-process root drive, a machine envelope on fd 1);
+ *   - the marked-root winner path (bug 0331) steers the child's collision
+ *     resolution to the parent's own source-priority outcome, for the marked
+ *     root's slug alone;
+ *   - the params carriers supply the callee's arguments and BYPASS the binder;
+ *   - the invoke depth seeds the recursion ceiling;
+ *   - the callable-hash map is the load-to-spawn tamper check;
+ *   - the parent-pid carriage authenticates all of the above
+ *     (`authenticateControlPlane`, `production-subagent-host.ts`).
+ *
+ * The list lives HERE, beside the three keys this module owns and at the site
+ * that WRITES the child control plane, so the writer and the child-side reader
+ * (`authenticateControlPlane`, which imports it) cannot drift apart; the
+ * extension layer consumes it in the existing extension→runtime direction.
+ */
+export const SUBAGENT_CONTROL_PLANE_ENV_KEYS: readonly string[] = Object.freeze([
+  SUBAGENT_EXTENSION_PIN_ENV,
+  SUBAGENT_ROOT_ENV_MARKER,
+  SUBAGENT_ROOT_WINNER_ENV,
+  SUBAGENT_PARAMS_ENV,
+  SUBAGENT_PARAMS_FILE_ENV,
+  SUBAGENT_INVOKE_DEPTH_ENV,
+  SUBAGENT_CALLABLE_HASHES_ENV,
+  SUBAGENT_PARENT_PID_ENV,
+]);
+
+/**
+ * The control-plane keys that are PER-LAUNCH — re-derived by every launch and
+ * therefore scrubbed out of the inherited environment before this launch's own
+ * values are applied (bug 0474). The set is the control plane above MINUS the
+ * extension pin, which is deliberately heritable down the process tree
+ * (#subagent-extension-pin: a harness pins the top of the chain once and every
+ * nesting level must keep loading that build).
+ *
+ * WHY a scrub and not the authentication gate: the gate answers "did a real
+ * parent write this?", and for a leaked value the honest answer is YES — the
+ * launcher writes the true parent pid beside whatever its own environment
+ * happened to carry, so the child authenticates a control plane that belongs to
+ * a DIFFERENT invocation (a foreign hash map, a foreign params file) and
+ * refuses fail-closed. Composition, not authentication, is the fix: the child's
+ * control plane is built from THIS launch alone.
+ */
+export const SUBAGENT_PER_LAUNCH_CONTROL_PLANE_ENV_KEYS: readonly string[] = Object.freeze(
+  SUBAGENT_CONTROL_PLANE_ENV_KEYS.filter((key) => key !== SUBAGENT_EXTENSION_PIN_ENV),
+);
+
+/**
+ * Build the child environment: full inheritance of the parent env — MINUS the
+ * per-launch control plane (see `SUBAGENT_PER_LAUNCH_CONTROL_PLANE_ENV_KEYS`) —
+ * plus this launch's own control-plane carriage: the optional `controlPlane`
+ * patch (the params carriers, the callable-hash map and the marked-root winner
+ * path the caller marshalled for THIS invocation), the per-chain invoke-depth
+ * carriage (`invokeDepth` — the parent's CURRENT chain depth, so the child
+ * continues the depth-32 ceiling across the process hop per invocation.md
+ * §INV-4), the parent-PID carriage (the control-plane authentication key — see
+ * `SUBAGENT_PARENT_PID_ENV`), and — when `rootSlug` is supplied — the PIC-58
+ * subagent-root regime marker (`PI_THETA_SUBAGENT_ROOT=<slug>`), which subsumes
+ * RFC-0005's boolean child marker and carries watcher suppression +
+ * no-recursion + regime selection. Credentials are never marshalled — full
+ * inheritance is the mechanism.
  */
 export function buildSubagentChildEnv(
   parentEnv: Readonly<Record<string, string | undefined>>,
   parentPid: number,
   invokeDepth: number,
   rootSlug?: string,
+  controlPlane?: Readonly<Record<string, string | undefined>>,
 ): Record<string, string | undefined> {
   // Full inheritance is the credential mechanism (credentials are never
-  // marshalled). The parent PID is the child's control-plane authentication key
-  // (and the reserved, unimplemented PIC-65 watchdog input); the invoke depth is
-  // the wire-level INV-4 counter the child seeds its chain from (two DISTINCT
+  // marshalled) — but inheritance stops at the control plane (bug 0474,
+  // subagent.md #subagent-launch-contract): a launching process frequently
+  // carries a control plane of its own (it is itself a subagent child, or a
+  // harness/wrapper session whose environment holds one), and those values name
+  // a DIFFERENT invocation's params, hashes and marked root. The child's
+  // parent-pid gate cannot catch that — this launcher writes the real pid, so
+  // the leak authenticates — so the stale carriers are removed here and every
+  // per-launch value is re-derived below.
+  const inherited: Record<string, string | undefined> = { ...parentEnv };
+  for (const key of SUBAGENT_PER_LAUNCH_CONTROL_PLANE_ENV_KEYS) {
+    delete inherited[key];
+  }
+  // The parent PID is the child's control-plane authentication key (and the
+  // reserved, unimplemented PIC-65 watchdog input); the invoke depth is the
+  // wire-level INV-4 counter the child seeds its chain from (two DISTINCT
   // carriages — the PID is not the depth).
   // The PIC-58 root marker (when set) subsumes the old child marker: it selects
   // the subagent-root regime and suppresses the child's own file watcher.
   return {
-    ...parentEnv,
+    ...inherited,
+    ...(controlPlane ?? {}),
     ...(rootSlug !== undefined ? { [SUBAGENT_ROOT_ENV_MARKER]: rootSlug } : {}),
     [SUBAGENT_PARENT_PID_ENV]: String(parentPid),
     [SUBAGENT_INVOKE_DEPTH_ENV]: String(invokeDepth),
@@ -560,6 +633,14 @@ export interface SubagentLaunchRequest {
   readonly argv: SubagentArgvInput;
   readonly cwd: string;
   readonly parentEnv: Readonly<Record<string, string | undefined>>;
+  /**
+   * THIS launch's own control-plane carriage (marshalled params carriers,
+   * callable-hash map, marked-root winner path). Kept separate from `parentEnv`
+   * because the launcher scrubs the per-launch control plane out of the
+   * inherited environment (bug 0474): a value layered into `parentEnv` would be
+   * indistinguishable from a stale inherited one and would be scrubbed with it.
+   */
+  readonly controlPlaneEnv?: Readonly<Record<string, string | undefined>>;
   readonly parentPid: number;
   /** The parent's CURRENT per-chain invoke depth, marshalled to the child (INV-4). */
   readonly invokeDepth: number;
@@ -617,6 +698,7 @@ export function launchSubagentChild(
     request.parentPid,
     request.invokeDepth,
     request.argv.slug,
+    request.controlPlaneEnv,
   );
   try {
     const child = deps.spawn(resolution.execPath, argv, { cwd: request.cwd, env });

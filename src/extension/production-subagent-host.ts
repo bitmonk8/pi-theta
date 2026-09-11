@@ -37,19 +37,9 @@ import type {
   SubagentChildProcess,
 } from "../runtime/subagent-launcher";
 import {
-  SUBAGENT_EXTENSION_PIN_ENV,
-  SUBAGENT_INVOKE_DEPTH_ENV,
+  SUBAGENT_CONTROL_PLANE_ENV_KEYS,
   SUBAGENT_PARENT_PID_ENV,
 } from "../runtime/subagent-launcher";
-import {
-  SUBAGENT_ROOT_ENV_MARKER,
-  SUBAGENT_ROOT_WINNER_ENV,
-} from "../runtime/subagent-root-regime";
-import { SUBAGENT_CALLABLE_HASHES_ENV } from "../runtime/subagent-callable-hash";
-import {
-  SUBAGENT_PARAMS_ENV,
-  SUBAGENT_PARAMS_FILE_ENV,
-} from "../runtime/subagent-params";
 
 /**
  * Matches a path that lives inside a compiled binary's OWN embedded filesystem —
@@ -131,35 +121,10 @@ export function createProductionExecutableHost(): ExecutableHost {
 }
 
 /**
- * The `PI_THETA_*` control-plane variables — the ones that steer THIS process's
- * behaviour rather than merely being passed along. Each is normally written by a
- * pi-theta parent at spawn and read by the child it spawned:
- *
- *   - the extension pin becomes `-e <path>`, i.e. "load this file as an extension";
- *   - the root marker puts the process into subagent-root regime (watcher
- *     suppression, in-process root drive, a machine envelope on fd 1);
- *   - the params carriers supply the callee's arguments and BYPASS the binder;
- *   - the invoke depth seeds the recursion ceiling;
- *   - the callable-hash map is the load-to-spawn tamper check;
- *   - the marked-root winner path (bug 0331) steers the child's collision
- *     resolution to the parent's own source-priority outcome, for the marked
- *     root's slug alone.
- */
-const CONTROL_PLANE_ENV_KEYS: readonly string[] = Object.freeze([
-  SUBAGENT_EXTENSION_PIN_ENV,
-  SUBAGENT_ROOT_ENV_MARKER,
-  SUBAGENT_ROOT_WINNER_ENV,
-  SUBAGENT_PARAMS_ENV,
-  SUBAGENT_PARAMS_FILE_ENV,
-  SUBAGENT_INVOKE_DEPTH_ENV,
-  SUBAGENT_CALLABLE_HASHES_ENV,
-  SUBAGENT_PARENT_PID_ENV,
-]);
-
-/**
  * The parent environment inherited by every subagent child (full inheritance is
  * the RFC-0005 credential mechanism — credentials are never marshalled), with the
- * control plane above ACCEPTED ONLY FROM A REAL PI-THETA PARENT.
+ * `PI_THETA_*` control plane (`SUBAGENT_CONTROL_PLANE_ENV_KEYS`, owned beside the
+ * launcher that writes it) ACCEPTED ONLY FROM A REAL PI-THETA PARENT.
  *
  * Those variables were designed on the assumption that only a pi-theta parent
  * writes them — the root marker is documented as "set ONLY by the parent launcher
@@ -179,8 +144,9 @@ const CONTROL_PLANE_ENV_KEYS: readonly string[] = Object.freeze([
  * state. On a mismatch (including the ordinary top-level case, where no launcher
  * wrote anything) the whole control plane is dropped and every value is re-derived
  * per launch, which is what the launcher already does: `buildSubagentChildEnv`
- * spreads its own markers LAST, so dropping an inherited value cannot disturb a
- * real spawn.
+ * SCRUBS the per-launch control plane out of the inherited environment and
+ * composes this launch's own values over it (bug 0474), so dropping an inherited
+ * value cannot disturb a real spawn.
  *
  * This narrows the channel rather than closing it: a `ppid` is a small integer, so
  * a writer able to observe the live process tree could still match it. What it
@@ -206,7 +172,7 @@ export function authenticateControlPlane(
     return env;
   }
   const authenticated: Record<string, string | undefined> = { ...env };
-  for (const key of CONTROL_PLANE_ENV_KEYS) {
+  for (const key of SUBAGENT_CONTROL_PLANE_ENV_KEYS) {
     delete authenticated[key];
   }
   return authenticated;

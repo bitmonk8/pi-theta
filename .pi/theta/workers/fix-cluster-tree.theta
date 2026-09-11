@@ -48,6 +48,18 @@ if !staged {
   return TreeFixReport { ok: false, sha: "", fixed_confirmed: [], notes: "could not stage the cluster manifest into the worktree: " + manifest_src }
 }
 
+// Bug 0474 belt. This wrapper runs INSIDE a subagent child, so its own process
+// environment carries the PI_THETA_* control plane of the invocation that
+// launched it. The gate below must measure the CODE, not the wrapper's session
+// context: a leaked root marker / hash map / params carrier reaches the real
+// child pi processes the test suite spawns, whose parent-pid gate legitimately
+// authenticates it, and the suite reds fail-closed on a foreign invocation's
+// data (subagent.md #subagent-launch-contract, docs/bugs/0474). Every per-launch
+// control-plane var is dropped from the gate shell; the extension pin is NOT -
+// it is heritable by design and the harnesses depend on it
+// (AGENTS.md #subagent-child-pins).
+let env_scrub = "unset PI_THETA_SUBAGENT_ROOT PI_THETA_SUBAGENT_ROOT_WINNER PI_THETA_PARAMS PI_THETA_PARAMS_FILE PI_THETA_SUBAGENT_INVOKE_DEPTH PI_THETA_SUBAGENT_CALLABLE_HASHES PI_THETA_SUBAGENT_PARENT_PID; "
+
 let mut attempt = 0
 let mut guidance = ""
 let mut done = false
@@ -73,8 +85,8 @@ while attempt < 2 && !done {
   // DIAGNOSABLE: the failing tail feeds attempt 2's guidance and the final
   // notes. (A user-supplied gate_cmd carrying its own >/dev/null redirects
   // degrades to the old blind behaviour - the log is then empty.)
-  let gate = bash({ command: "{ " + gate_cmd + " ; } > quality/tmp/gate.log 2>&1 && echo GATE_PASS || echo GATE_FAIL", timeout: 3600 })?
-  let gate_tail = gate.includes("GATE_PASS") ? "" : bash({ command: "{ grep -E 'FAIL|failed|Error' quality/tmp/gate.log | head -25 ; tail -c 1500 quality/tmp/gate.log ; } 2>/dev/null" })?
+  let gate = bash({ command: env_scrub + "{ " + gate_cmd + " ; } > quality/tmp/gate.log 2>&1 && echo GATE_PASS || echo GATE_FAIL", timeout: 3600 })?
+  let gate_tail = gate.includes("GATE_PASS") ? "" : bash({ command: env_scrub + "{ grep -E 'FAIL|failed|Error' quality/tmp/gate.log | head -25 ; tail -c 1500 quality/tmp/gate.log ; } 2>/dev/null" })?
   let _ = theta_progress({ message: "gate " + (gate.includes("GATE_PASS") ? "green" : "red") + ": " + key, scope: key, done: attempt, total: 2 })?
   trail = trail + "attempt " + att + ": gate " + (gate.includes("GATE_PASS") ? "green" : "red") + "; "
   let rv = match review_fix(man) {

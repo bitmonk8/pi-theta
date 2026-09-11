@@ -2501,28 +2501,30 @@ class ProductionThetaProducer implements ThetaProducerDeps {
     const marshalled = marshalParams(paramValues, this.#paramsMarshalDeps());
     const paramsCleanup = marshalled.cleanup;
 
-    const baseParentEnv = this.#input.subagentParentEnv ?? {};
-    // The hash carrier is named on EVERY launch — cleared (`undefined`, absent
-    // in the child) when this launch marshals none — for the same layering
-    // reason `marshalParams` names both params carriers (SPAWN-08): this env is
-    // spread over the launching process's own inherited environment, and that
-    // process is itself frequently a subagent child still carrying the hash map
-    // of the invocation that launched IT. A conditional spread cannot clear the
-    // inherited map, and the grandchild's hash verification would then check the
-    // CALLER's callable names against its own discovery — a spurious
-    // `subagent-callable-hash-mismatch` drop for a file edited between the two
-    // launches (subagent.md #subagent-theta-callable-hash).
-    // The winner-path carrier is likewise named on EVERY launch, cleared to
-    // `undefined` when this launch marshals none, for the same layering reason
-    // as the hash carrier above: this theta IS the marked root of the child it
-    // spawns (its slug is `theta.slashName`), and an inherited grandparent
-    // value must not leak into a child marked for a different slug
-    // (subagent.md #subagent-control-plane-authentication). Forward-slash
-    // normalized defensively — discovery already normalizes `sourcePath`, but
-    // the carrier is the child's collision-resolution comparison key, so this
-    // guards against a future upstream change to that invariant.
-    const parentEnv: Record<string, string | undefined> = {
-      ...baseParentEnv,
+    const parentEnv = this.#input.subagentParentEnv ?? {};
+    // THIS launch's control-plane carriage, handed to the launcher on its own
+    // channel rather than layered into `parentEnv`: the launcher scrubs the
+    // per-launch control plane out of the inherited environment (bug 0474,
+    // subagent.md #subagent-launch-contract), so a value spread into `parentEnv`
+    // would be indistinguishable from a stale inherited one.
+    //
+    // Every carrier is named on EVERY launch — cleared (`undefined`, absent in
+    // the child) when this launch marshals none — for the same reason
+    // `marshalParams` names both params carriers (SPAWN-08): naming the key
+    // makes THIS launch's channel choice authoritative for the child rather
+    // than a question about what the composition happened to leave behind. For
+    // the hash map that matters because a grandchild's hash verification would
+    // otherwise check the CALLER's callable names against its own discovery — a
+    // spurious `subagent-callable-hash-mismatch` drop for a file edited between
+    // the two launches (subagent.md #subagent-theta-callable-hash).
+    // The winner path names the marked root of the child this launch spawns
+    // (its slug is `theta.slashName`), so a value marked for a different slug
+    // must never stand in for it (subagent.md
+    // #subagent-control-plane-authentication). Forward-slash normalized
+    // defensively — discovery already normalizes `sourcePath`, but the carrier
+    // is the child's collision-resolution comparison key, so this guards
+    // against a future upstream change to that invariant.
+    const controlPlaneEnv: Record<string, string | undefined> = {
       ...marshalled.env,
       [SUBAGENT_CALLABLE_HASHES_ENV]:
         Object.keys(callableHashes).length > 0
@@ -2565,6 +2567,7 @@ class ProductionThetaProducer implements ThetaProducerDeps {
         // relocates the callee's side effects, never its identity.
         cwd: bindInput.resolvedCwd ?? ctx.cwd,
         parentEnv,
+        controlPlaneEnv,
         parentPid: this.#input.subagentParentPid ?? 0,
         // INV-4: marshal the CURRENT per-chain depth so the child continues the
         // depth-32 ceiling across the process hop (wire-level carriage).
