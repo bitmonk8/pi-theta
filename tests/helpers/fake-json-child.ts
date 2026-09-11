@@ -15,12 +15,14 @@
 // assertions. It is test-support code (Pi never loads it), so it lives under
 // `tests/` outside the `src/**` mechanical gates.
 
+import type { Diagnostic } from "../../src/diagnostics/diagnostic";
 import type {
   ChildExitInfo,
   ExecutableHost,
   SpawnFn,
   SubagentChildProcess,
 } from "../../src/runtime/subagent-launcher";
+import { driveSubagentChild } from "../../src/runtime/subagent-json-driver";
 import {
   serializeErrEnvelope,
   serializeOkEnvelope,
@@ -259,4 +261,23 @@ export function emfileSpawnError(): Error {
   const err = new Error("spawn EMFILE") as Error & { code?: string };
   err.code = "EMFILE";
   return err;
+}
+
+/**
+ * Drive a `FakeJsonChild` through the real `driveSubagentChild`, recording every
+ * diagnostic it emits into `emitted`. The small wrapper several `subagent-*`
+ * test files (this repo's `driveOver` fake-child harness) declared verbatim.
+ */
+export function driveOver(
+  child: FakeJsonChild,
+  thetaAbort: AbortController,
+  emitted: Diagnostic[],
+  calleePath: string,
+): ReturnType<typeof driveSubagentChild> {
+  return driveSubagentChild({
+    child,
+    thetaAbort,
+    calleePath,
+    emitDiagnostic: (d) => emitted.push(d),
+  });
 }

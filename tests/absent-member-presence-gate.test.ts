@@ -2,7 +2,6 @@ import { fileURLToPath } from "node:url";
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import type {
-  ExtensionAPI,
   ExtensionCommandContext,
   ModelRegistry,
 } from "@earendil-works/pi-coding-agent";
@@ -33,8 +32,7 @@ import type {
   ConversationBindInput,
   ThetaCompositionInput,
 } from "../src/extension/theta-composition-producer";
-import type { RuntimeRoot } from "../src/runtime-root";
-import type { Checkpoint } from "../src/seams/checkpoint";
+import { noopPi, rootDouble } from "./helpers/call-with-clause-harness";
 
 // Bug 0032 — member access on a name an object value does not carry reads the
 // JS property unfiltered (`evaluateMemberAccess`,
@@ -252,26 +250,9 @@ function parseTheta(path: string, src: string): ThetaDocument {
   return doc;
 }
 
-const NOOP_CHECKPOINT: Checkpoint = {
-  before(): Promise<void> {
-    return Promise.resolve();
-  },
-};
-
-function rootDouble(): RuntimeRoot {
-  return {
-    checkpoint: NOOP_CHECKPOINT,
-    idSource: { newInvocationId: () => "inv-1", newToolCallId: () => "tc-1" },
-  } as unknown as RuntimeRoot;
-}
-
-function producer() {
+function producer(): ReturnType<typeof createProductionProducerDeps> {
   return createProductionProducerDeps({
-    pi: {
-      sendMessage: () => {},
-      getActiveTools: () => [],
-      setActiveTools: () => {},
-    } as unknown as ExtensionAPI,
+    pi: noopPi(),
     root: rootDouble(),
     modelRegistry: {} as unknown as ModelRegistry,
   });

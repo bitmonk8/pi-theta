@@ -3,14 +3,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import type {
-  ExtensionAPI,
-  ExtensionContext,
-} from "@earendil-works/pi-coding-agent";
 // @ts-expect-error — JS code-registry module, no type declarations.
 import { parseRegistry, registryMessage } from "../tools/code-registry/index.js";
-import type { ThetaFixture } from "../src/extension/factory";
-import { discoverAndComposeFixtures } from "../src/extension/production-composition";
+import { runProductionLoad, type LoadOutcome } from "./helpers/production-load-harness";
 
 // Bug 0147 — INTRA-SITE MULTIPLICITY for the argument-type-mismatch family.
 //
@@ -662,63 +657,8 @@ function expectedCodes(surface: Surface, cell: Cell): readonly string[] {
 // The load, and the three channels it surfaces on.
 // ===========================================================================
 
-interface LoadOutcome {
-  readonly registered: readonly string[];
-  readonly notifications: readonly string[];
-  /** `theta: <file>:<line>:<col>: <code>: <message>`, one per diagnostic. */
-  readonly diagnosticLines: readonly string[];
-}
-
 let outcome: LoadOutcome;
 let workspaceDir: string;
-
-async function runProductionLoad(cwd: string): Promise<LoadOutcome> {
-  const notifications: string[] = [];
-  const chunks: string[] = [];
-  const pi = {
-    getFlag: (): undefined => undefined,
-    getCommands: (): readonly unknown[] => [],
-    sendMessage: (): void => {},
-    sendUserMessage: (): void => {},
-    getActiveTools: (): readonly string[] => [],
-    setActiveTools: (): void => {},
-  } as unknown as ExtensionAPI;
-  const ctx = {
-    cwd,
-    modelRegistry: { getAvailable: (): readonly unknown[] => [] },
-    ui: {
-      notify: (message: string, _type: "error"): void => {
-        notifications.push(message);
-      },
-    },
-  } as unknown as ExtensionContext;
-
-  // The stderr mirror is a real production channel (a `-p` / CI operator's only
-  // sight of a load diagnostic) written directly rather than through an
-  // injectable seam, so interposing on the handle is the only way to read it.
-  // The window is one awaited call and the handle is restored on both outcomes,
-  // so no assertion below runs while the interposition is live.
-  const write = process.stderr.write.bind(process.stderr);
-  process.stderr.write = ((chunk: unknown): boolean => {
-    chunks.push(String(chunk));
-    return true;
-  }) as typeof process.stderr.write;
-  const fixtures: readonly ThetaFixture[] = await discoverAndComposeFixtures(
-    pi,
-    ctx,
-  ).finally(() => {
-    process.stderr.write = write;
-  });
-
-  return {
-    registered: fixtures.map((f) => f.slashName),
-    notifications,
-    diagnosticLines: chunks
-      .join("")
-      .split(/\r?\n/)
-      .filter((line) => line.length > 0),
-  };
-}
 
 beforeAll(async () => {
   // No planted stem may be a suffix of another: the per-caller channel filter

@@ -59,7 +59,7 @@ import {
 import { driveSubagentChild } from "../src/runtime/subagent-json-driver";
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
 import type { InvokeInfraError } from "../src/runtime/query-error";
-import { FakeJsonChild } from "./helpers/fake-json-child";
+import { driveOver as driveOverChild, FakeJsonChild } from "./helpers/fake-json-child";
 
 const CALLEE = "/theta/child.theta";
 const CR = "\r";
@@ -73,18 +73,13 @@ const CR = "\r";
  */
 const SHIPPED_PREFIX = "subagent return envelope parse failed: ";
 
-/** Mirror of `tests/subagent-json-wire.test.ts`'s `driveOver` fake-child harness. */
+/** This file's binding of the shared `tests/helpers/fake-json-child.ts` `driveOver` harness. */
 function driveOver(
   child: FakeJsonChild,
   thetaAbort: AbortController,
   emitted: Diagnostic[],
 ): ReturnType<typeof driveSubagentChild> {
-  return driveSubagentChild({
-    child,
-    thetaAbort,
-    calleePath: CALLEE,
-    emitDiagnostic: (d) => emitted.push(d),
-  });
+  return driveOverChild(child, thetaAbort, emitted, CALLEE);
 }
 
 describe("bug b0258 — <line summary> on subagent-envelope-parse-failed renders per category 8", () => {

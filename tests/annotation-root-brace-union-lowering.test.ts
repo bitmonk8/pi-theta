@@ -15,7 +15,7 @@ import {
   type LoweredSchema,
   type SchemaSlug,
 } from "../src/seams/schema-validator";
-import { parseDoc } from "./helpers/e2e-s1";
+import { loadCleanly as loadCleanlyShared, parseDoc, type LoadedParams } from "./helpers/e2e-s1";
 
 // Bug 0053 — `lowerQueryResponseSchema`'s ROOT brace dispatch is a
 // prefix/suffix test, so a top-level union of object arms is read as ONE inline
@@ -497,41 +497,9 @@ function loweredAnnotation(
   return lowered;
 }
 
-/** A parsed, cleanly-lowered `params:` block. */
-interface LoadedParams {
-  readonly defs: Record<string, unknown>;
-  readonly loweredSchema: LoweredSchema;
-}
-
-/**
- * Parse a fixture that must LOAD, and read its lowered `params:` schema back.
- * Every absent intermediate — a `null` frontmatter, an absent `params`, an
- * absent `loweredSchema` — throws with the diagnostics rendered.
- */
+/** This file's binding of the shared `tests/helpers/e2e-s1.ts` `loadCleanly` harness. */
 function loadCleanly(label: string, source: string): LoadedParams {
-  const doc = parseDoc(source, "bug0053.theta");
-  expect(
-    diagLines(doc),
-    `${label}: this declaration is legal theta (grammar.md:94/:101), so the fixture must load with NO diagnostics; observed ${JSON.stringify(diagLines(doc))}`,
-  ).toEqual([]);
-  if (doc.frontmatter === null) {
-    throw new Error(
-      `${label}: the theta was REFUSED — frontmatter is null. Diagnostics: ${JSON.stringify(diagLines(doc))}`,
-    );
-  }
-  const params = doc.frontmatter.params;
-  if (params === undefined) {
-    throw new Error(
-      `${label}: the frontmatter carries no parsed params block. Diagnostics: ${JSON.stringify(diagLines(doc))}`,
-    );
-  }
-  const lowered = params.loweredSchema;
-  if (lowered === undefined) {
-    throw new Error(
-      `${label}: the params block lowered to NOTHING (loweredSchema absent), so there is no AJV-validatable document for the argument boundary. Diagnostics: ${JSON.stringify(diagLines(doc))}`,
-    );
-  }
-  return { defs: (lowered["$defs"] ?? {}) as Record<string, unknown>, loweredSchema: lowered };
+  return loadCleanlyShared(label, source, "bug0053.theta");
 }
 
 /** A real `AjvSchemaValidator` plus the diagnostics it emitted. */

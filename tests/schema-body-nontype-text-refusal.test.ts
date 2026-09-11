@@ -1,9 +1,7 @@
 import { createHash } from "node:crypto";
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 // @ts-expect-error — JS code-registry module, no type declarations.
-import { parseRegistry, registryMessage } from "../tools/code-registry/index.js";
+import { registryMessage } from "../tools/code-registry/index.js";
 import type { Diagnostic, SourceRange } from "../src/diagnostics/diagnostic";
 import type {
   EnumDecl,
@@ -13,7 +11,8 @@ import type {
   ThetaDocument,
 } from "../src/parser/theta-document";
 import { lowerQueryResponseSchema } from "../src/runtime/query-schema-lowering";
-import { parseDoc } from "./helpers/e2e-s1";
+import { diagCodes, diagLines, parseDoc } from "./helpers/e2e-s1";
+import { REGISTRY, type RegistryRow } from "./helpers/registry-oracle";
 
 // Bug 0061 — the two `Type` positions INSIDE a theta body capture their type as
 // source text and never ask whether that text derives from `Type`. A `schema`
@@ -181,32 +180,6 @@ import { parseDoc } from "./helpers/e2e-s1";
  */
 const CODE = "theta/parse/schema-type-not-expression";
 
-interface RegistryRow {
-  readonly code: string;
-  readonly namespace: string;
-  readonly severity: string;
-  readonly phase: string;
-  readonly trigger: string;
-  readonly message: string;
-}
-
-/** The live four-page sharded registry — the input tests/code-registry.test.ts reconciles. */
-const REGISTRY = parseRegistry(
-  [
-    "code-registry-parse.md",
-    "code-registry-load.md",
-    "code-registry-runtime.md",
-    "code-registry-host.md",
-  ]
-    .map((page) =>
-      readFileSync(
-        fileURLToPath(new URL(`../docs/spec_topics/diagnostics/${page}`, import.meta.url)),
-        "utf8",
-      ),
-    )
-    .join("\n"),
-) as RegistryRow[];
-
 /**
  * A registry row's normative *Message* (DIAG-4), read rather than restated.
  * Definedness is asserted first so a missing row reds by naming the registry
@@ -277,16 +250,6 @@ function declSrc(wrapper: string, declText: string): string {
 /** `schema S { a: <T> }` or `schema X = <T>` — the two positions, one type text. */
 function declText(position: BodyPosition, typeSource: string): string {
   return position === "field" ? `schema S { a: ${typeSource} }` : `schema X = ${typeSource}`;
-}
-
-/** Every diagnostic rendered `<severity> <code>`, in emission order. */
-function diagCodes(doc: ThetaDocument): string[] {
-  return doc.diagnostics.map((d) => `${d.severity} ${d.code}`);
-}
-
-/** Every diagnostic rendered `<severity> <code>: <message>`, in emission order. */
-function diagLines(doc: ThetaDocument): string[] {
-  return doc.diagnostics.map((d) => `${d.severity} ${d.code}: ${d.message}`);
 }
 
 /** The lowered `params:` document, absent when the load withheld it. */

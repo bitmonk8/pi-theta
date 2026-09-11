@@ -1,15 +1,21 @@
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 // @ts-expect-error — JS code-registry module, no type declarations.
 import { parseRegistry, registryMessage } from "../tools/code-registry/index.js";
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
 import { composeExtensionInstance } from "../src/extension/production-composition";
 import { RendererGate, SYSTEM_NOTE_CHANNEL } from "../src/extension/system-note-channel";
 import type { ParsedTheta } from "../src/extension/reload-wiring";
+import {
+  finishWorkspace,
+  makeHost,
+  normalisePath,
+  type ComposeWorkspace,
+  type RecordedNote,
+} from "./helpers/compose-workspace-harness";
 
 // Bug 0275 — FILED SYMPTOM: an escaping `tools:` `.theta` entry un-registered
 // its owner and its owner's IMMEDIATE caller and stopped there, so every caller
@@ -218,78 +224,7 @@ function normativeMessagePattern(code: string): RegExp {
   return new RegExp(escaped.replace(/<[a-z-]+>/g, ".+"));
 }
 
-// ── Host doubles ────────────────────────────────────────────────────────────
-
-type PiHandler = (event: unknown, ctx: ExtensionContext) => unknown;
-
-interface RecordedNote {
-  readonly customType: string;
-  readonly content: string;
-  readonly details: unknown;
-}
-
-interface HostDouble {
-  readonly pi: ExtensionAPI;
-  readonly ctx: ExtensionContext;
-  readonly notes: RecordedNote[];
-  readonly notified: Array<readonly [string, string]>;
-}
-
-function makeHost(cwd: string): HostDouble {
-  const notes: RecordedNote[] = [];
-  const notified: Array<readonly [string, string]> = [];
-  const handlers = new Map<string, PiHandler>();
-
-  const pi = {
-    registerFlag: (): void => {},
-    getFlag: (): undefined => undefined,
-    getCommands: (): readonly { name: string; source: string }[] => [],
-    on: (event: string, handler: PiHandler): void => {
-      handlers.set(event, handler);
-    },
-    registerCommand: (): void => {},
-    sendUserMessage: (): void => {},
-    registerTool: (): void => {},
-    setActiveTools: (): void => {},
-    getActiveTools: (): readonly unknown[] => [],
-    getAllTools: (): readonly unknown[] => [],
-    registerMessageRenderer: (): void => {},
-    sendMessage: (message: { customType: string; content: string; details: unknown }): void => {
-      notes.push({
-        customType: message.customType,
-        content: message.content,
-        details: message.details,
-      });
-    },
-  } as unknown as ExtensionAPI;
-
-  const ctx = {
-    cwd,
-    hasUI: false,
-    modelRegistry: { getAvailable: (): readonly unknown[] => [] },
-    ui: {
-      notify: (message: string, type: "error"): void => {
-        notified.push([message, type]);
-      },
-    },
-  } as unknown as ExtensionContext;
-
-  return { pi, ctx, notes, notified };
-}
-
 // ── The workspace ───────────────────────────────────────────────────────────
-
-interface ComposeWorkspace {
-  readonly cwd: string;
-  /** Absolute, separator-normalised path of a file planted on the project source. */
-  path: (name: string) => string;
-  readonly dispose: () => void;
-}
-
-/** Separator-normalise a path so Win32 `\` and POSIX `/` spellings compare. */
-function normalisePath(path: string): string {
-  return path.replace(/\\/g, "/");
-}
 
 /**
  * A planted body, or a function of the workspace root that produces one. Cell
@@ -323,15 +258,7 @@ function plantWorkspace(
       writeFileSync(join(cwd, "outside", name), render(body), "utf8");
     }
   }
-  // A minimal valid settings file pins the fixture's settings read to a known
-  // value. An ABSENT settings file is silent (package-and-settings.md §Failure
-  // modes), so the plant is hermeticity, not noise suppression.
-  writeFileSync(join(cwd, ".pi", "settings.json"), "{}", "utf8");
-  return {
-    cwd,
-    path: (name: string): string => normalisePath(join(cwd, ".pi", "theta", name)),
-    dispose: (): void => rmSync(cwd, { recursive: true, force: true }),
-  };
+  return finishWorkspace(cwd);
 }
 
 // ── The load pass ───────────────────────────────────────────────────────────

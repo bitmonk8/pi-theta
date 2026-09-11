@@ -3,13 +3,14 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 // @ts-expect-error — JS code-registry module, no type declarations.
-import { parseRegistry, registryMessage } from "../tools/code-registry/index.js";
+import { registryMessage } from "../tools/code-registry/index.js";
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
 import type { FnDecl, LetStmt, Stmt, ThetaDocument } from "../src/parser/theta-document";
 import { parseTypeExpression, type TypePosition } from "../src/parser/type-grammar";
 import * as typeLayerChecks from "../src/parser/type-layer-checks";
 import { annotationToCompatType } from "../src/parser/type-layer-checks";
-import { parseDoc } from "./helpers/e2e-s1";
+import { diagCodes, diagLines, parseDoc } from "./helpers/e2e-s1";
+import { REGISTRY, type RegistryRow } from "./helpers/registry-oracle";
 
 // Bug 0124 — the three `Type` positions OUTSIDE a schema (a `let` annotation, an
 // `fn` parameter type, an `fn` return type) capture their annotation as source
@@ -220,32 +221,6 @@ import { parseDoc } from "./helpers/e2e-s1";
  */
 const CODE = "theta/parse/annotation-type-not-expression";
 
-interface RegistryRow {
-  readonly code: string;
-  readonly namespace: string;
-  readonly severity: string;
-  readonly phase: string;
-  readonly trigger: string;
-  readonly message: string;
-}
-
-/** The live four-page sharded registry — the input tests/code-registry.test.ts reconciles. */
-const REGISTRY = parseRegistry(
-  [
-    "code-registry-parse.md",
-    "code-registry-load.md",
-    "code-registry-runtime.md",
-    "code-registry-host.md",
-  ]
-    .map((page) =>
-      readFileSync(
-        fileURLToPath(new URL(`../docs/spec_topics/diagnostics/${page}`, import.meta.url)),
-        "utf8",
-      ),
-    )
-    .join("\n"),
-) as RegistryRow[];
-
 /**
  * A registry row's normative *Message* template (DIAG-4), read rather than
  * restated. THROWS, naming the missing row and the page it belongs on, so a
@@ -388,22 +363,6 @@ function srcAt(position: Position, typeSource: string, rhsOrBody?: string): stri
     case "return":
       return `${FM}${DECLS}fn f(): ${typeSource} { ${rhsOrBody ?? "1"} }\nlet inert = 1\ninert\n`;
   }
-}
-
-/** Every diagnostic rendered `<severity> <code>: <message>`, in emission order. */
-function diagLines(doc: ThetaDocument): string[] {
-  return doc.diagnostics.map((d) => `${d.severity} ${d.code}: ${d.message}`);
-}
-
-/**
- * Every diagnostic rendered `<severity> <code>`, in emission order — the
- * REGISTRY-FREE half of a refusal expectation. Asserted BEFORE the rendered
- * message on every refusal cell so the red at HEAD names the symptom the bug
- * reports (an annotation that draws nothing at all) rather than the absent
- * registry row, which is a separate, separately-titled red.
- */
-function diagCodes(doc: ThetaDocument): string[] {
-  return doc.diagnostics.map((d) => `${d.severity} ${d.code}`);
 }
 
 /** The statement kinds a parse produced — failure-message payload. */

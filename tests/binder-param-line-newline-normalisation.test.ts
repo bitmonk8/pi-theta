@@ -17,7 +17,7 @@ import {
   type Expr,
   type ThetaDocument,
 } from "../src/parser/theta-document";
-import { parseDoc } from "./helpers/e2e-s1";
+import { diagCodes, diagLines, parseDoc } from "./helpers/e2e-s1";
 
 // Bug 0060 — the binder `Parameters:` per-field line shape is violable by an
 // embedded newline: a recorded declared type or default source carrying a line
@@ -333,16 +333,6 @@ function bodySrc(body: string): string {
 // ===========================================================================
 // Reading a parsed document. Loud on every unexpected disposition.
 // ===========================================================================
-
-/** Every diagnostic rendered `<severity> <code>: <message>`, in emission order. */
-function diagLines(doc: ThetaDocument): string[] {
-  return doc.diagnostics.map((d) => `${d.severity} ${d.code}: ${d.message}`);
-}
-
-/** Every diagnostic rendered `<severity> <code>` — the count/code/severity triple. */
-function diagCodes(doc: ThetaDocument): string[] {
-  return doc.diagnostics.map((d) => `${d.severity} ${d.code}`);
-}
 
 /** The lowered `params:` document plus the recorded per-field records. */
 interface LoadedParams {

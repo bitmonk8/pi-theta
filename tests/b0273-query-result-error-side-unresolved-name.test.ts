@@ -2,10 +2,15 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 // @ts-expect-error — JS code-registry module, no type declarations.
-import { parseRegistry, registryMessage } from "../tools/code-registry/index.js";
+import { parseRegistry } from "../tools/code-registry/index.js";
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
-import type { ThetaDocument } from "../src/parser/theta-document";
-import { parseDoc } from "./helpers/e2e-s1";
+import {
+  loadRowFromBody,
+  registered,
+  registryLineOf,
+  registryMessageOf,
+  type LoadRow,
+} from "./helpers/load-row-harness";
 
 // Bug 0273 — an unresolvable `NamedType` written in the `E` argument of a
 // `Result<T, E>` annotation that reaches the `@<T>` query capture draws nothing
@@ -131,31 +136,16 @@ const ARITY = "theta/parse/generic-arity-mismatch";
 
 /**
  * The registry row's normative *Message* template with its named placeholders
- * filled (DIAG-4). Definedness and placeholder presence are asserted first, so
- * a row whose *Message* moved reds by naming the registry page rather than by a
- * bare `undefined` comparison downstream. No message prose is written out in
- * this file.
+ * filled (DIAG-4), delegating to the shared load-row harness
+ * (`tests/helpers/load-row-harness.ts`).
  */
 function msg(code: string, fills: ReadonlyArray<readonly [string, string]> = []): string {
-  const template = registryMessage(REGISTRY, code) as string | undefined;
-  expect(
-    template,
-    `DIAG-4 anchor: ${REGISTRY_PATH} must carry the Message row for ${code}`,
-  ).toBeDefined();
-  let out = template as string;
-  for (const [placeholder, value] of fills) {
-    expect(
-      out,
-      `DIAG-4: the ${code} Message template must carry the ${placeholder} placeholder; template=${JSON.stringify(template)}`,
-    ).toContain(placeholder);
-    out = out.replace(placeholder, value);
-  }
-  return out;
+  return registryMessageOf(REGISTRY, REGISTRY_PATH, code, fills);
 }
 
 /** One rendered diagnostic line, `<severity> <code>: <message>` — the bug document's own rendering. */
 function line(code: string, fills: ReadonlyArray<readonly [string, string]> = []): string {
-  return `error ${code}: ${msg(code, fills)}`;
+  return registryLineOf(REGISTRY, REGISTRY_PATH, code, fills);
 }
 
 /** The refusal, rendered for the head `name`. */
@@ -175,45 +165,15 @@ function arityLine(actual: string): string {
 // ===========================================================================
 // The load harness.
 // ===========================================================================
-
-/** One parsed row: its codes, its rendered lines, and the declarations it captured. */
-interface LoadRow {
-  readonly label: string;
-  readonly codes: readonly string[];
-  readonly lines: readonly string[];
-  readonly declared: readonly string[];
-  readonly statements: number;
-  readonly doc: ThetaDocument;
-}
-
-/** The frontmatter every fixture carries, per the bug document's §Reproduction. */
-const FRONTMATTER = "---\ndescription: d\nmode: prompt\n---\n\n";
+//
+// `LoadRow`, `registered` and `theta`/`msg`/`line`'s shared rendering are the
+// harness in `tests/helpers/load-row-harness.ts` (also used by
+// tests/b0272-enclosing-annotation-refusal-nested-head.test.ts); this file's
+// own `startPositions`/`expectCaptured`/`expectRows` below are unchanged.
 
 /** A `mode: prompt` theta whose body is `body` verbatim, parsed once. */
 function theta(label: string, body: string): LoadRow {
-  const doc = parseDoc(`${FRONTMATTER}${body}\n`, "b0273.theta");
-  return {
-    label,
-    codes: doc.diagnostics.map((d: Diagnostic) => d.code),
-    lines: doc.diagnostics.map((d: Diagnostic) => `${d.severity} ${d.code}: ${d.message}`),
-    declared: doc.body.statements
-      .filter((s) => s.kind === "schema" || s.kind === "enum")
-      .map((s) => (s as { name: string }).name),
-    statements: doc.body.statements.length,
-    doc,
-  };
-}
-
-/**
- * The composition root's registration gate, mirrored: `hasLoadParseError`
- * (`src/extension/production-composition.ts`) is
- * `diagnostics.some(d => d.severity === "error" && (d.code.startsWith("theta/load/") ||
- * d.code.startsWith("theta/parse/")))`, and a document carrying one is not
- * registered. Every diagnostic below is a `theta/parse/…` code, so the
- * code-prefix half of the real predicate always holds here.
- */
-function registered(row: LoadRow): boolean {
-  return !row.doc.diagnostics.some((d: Diagnostic) => d.severity === "error");
+  return loadRowFromBody(label, body, "b0273.theta");
 }
 
 /**

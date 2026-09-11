@@ -429,11 +429,20 @@ describe("bug 0030 fix — `thetaOwnedStderrLines` is the H8a spy filter", () =>
   });
 
   it("exports the three prefixes, the quiesce one re-exported from src rather than re-literalised", () => {
+    // Each side below is checked against a hand-typed literal independently —
+    // never against another import of the same binding — so a rename at the
+    // real emit site (`src/extension/stale-ctx.ts`) reds THIS test instead of
+    // both sides silently drifting together and comparing equal regardless.
+    expect(
+      SRC_STALE_QUIESCE_STDERR_PREFIX,
+      "byte-exact with the PIC-67 fail-loud-once latch's `console.error` call at " +
+        "`src/extension/stale-ctx.ts:66`",
+    ).toBe("theta hot-reload quiesced:");
     expect(
       STALE_QUIESCE_STDERR_PREFIX,
-      "re-literalising the quiesce prefix here would let a rename at " +
-        "`src/extension/stale-ctx.ts` leave both gates scoring dead text",
-    ).toBe(SRC_STALE_QUIESCE_STDERR_PREFIX);
+      "`tests/live/theta-stderr-prefixes.ts` re-exports the src constant rather than " +
+        "re-literalising it, so this must carry the identical text",
+    ).toBe("theta hot-reload quiesced:");
     expect(
       SYSTEM_NOTE_DELIVERY_FAILED_PREFIX,
       "byte-exact with the PIC-54 terminal sink at " +
@@ -446,9 +455,9 @@ describe("bug 0030 fix — `thetaOwnedStderrLines` is the H8a spy filter", () =>
     ).toBe("theta hot-reload rebuild rejected:");
     expect([...THETA_STDERR_LINE_PREFIXES].sort()).toStrictEqual(
       [
-        STALE_QUIESCE_STDERR_PREFIX,
-        SYSTEM_NOTE_DELIVERY_FAILED_PREFIX,
-        RELOAD_REBUILD_REJECTED_PREFIX,
+        "theta hot-reload quiesced:",
+        "system-note delivery failed:",
+        "theta hot-reload rebuild rejected:",
       ].sort(),
     );
   });

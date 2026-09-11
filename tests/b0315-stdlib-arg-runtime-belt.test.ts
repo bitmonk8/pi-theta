@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
 import type {
-  ExtensionAPI,
   ExtensionCommandContext,
   ModelRegistry,
 } from "@earendil-works/pi-coding-agent";
@@ -13,8 +12,7 @@ import type {
   ConversationBindInput,
   ThetaCompositionInput,
 } from "../src/extension/theta-composition-producer";
-import type { RuntimeRoot } from "../src/runtime-root";
-import type { Checkpoint } from "../src/seams/checkpoint";
+import { noopPi, rootDouble } from "./helpers/call-with-clause-harness";
 import { errors, parseDoc } from "./helpers/e2e-s1";
 
 // Bug 0315 — the RUNTIME belt witness (laundered receiver).
@@ -72,28 +70,11 @@ const BELT_BODY = 'fn f(x) { return x.replace("-") }\nlet y = f("a-b")\ny';
 // Harness.
 // ===========================================================================
 
-const NOOP_CHECKPOINT: Checkpoint = {
-  before(): Promise<void> {
-    return Promise.resolve();
-  },
-};
-
-function rootDouble(): RuntimeRoot {
-  return {
-    checkpoint: NOOP_CHECKPOINT,
-    idSource: { newInvocationId: () => "inv-1", newToolCallId: () => "tc-1" },
-  } as unknown as RuntimeRoot;
-}
-
 function producer(): ReturnType<typeof createProductionProducerDeps> {
+  // `noopPi` satisfies the theta-system-note channel and the active-tools
+  // snapshot/restore window. No provider, no model.
   return createProductionProducerDeps({
-    // `sendMessage` satisfies the theta-system-note channel; the active-tools
-    // pair satisfies the snapshot/restore window. No provider, no model.
-    pi: {
-      sendMessage: () => {},
-      getActiveTools: () => [],
-      setActiveTools: () => {},
-    } as unknown as ExtensionAPI,
+    pi: noopPi(),
     root: rootDouble(),
     modelRegistry: {} as unknown as ModelRegistry,
   });

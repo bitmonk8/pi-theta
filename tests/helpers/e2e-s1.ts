@@ -6,6 +6,7 @@
 // diagnostics / tokens without a model or session. No behaviour is stubbed:
 // the code paths under assertion are the shipped ones.
 
+import { expect } from "vitest";
 import { lexTheta, type LexResult, type ThetaSource } from "../../src/lexer/lexer";
 import {
   parseThetaDocument,
@@ -18,6 +19,7 @@ import type {
   SystemNoteSender,
 } from "../../src/extension/system-note-channel";
 import type { ModelReferenceMatcher } from "../../src/parser/frontmatter";
+import type { LoweredSchema } from "../../src/seams/schema-validator";
 
 /** An in-band, no-op system-note channel that discards emitted batches. */
 function inertSystemNote(): SystemNoteChannelDeps {
@@ -78,4 +80,52 @@ export function codes(diags: readonly Diagnostic[]): string[] {
 /** Error-severity diagnostics only. */
 export function errors(diags: readonly Diagnostic[]): Diagnostic[] {
   return diags.filter((d) => d.severity === "error");
+}
+
+/** Every diagnostic rendered `<severity> <code>: <message>`, in emission order. */
+export function diagLines(doc: ThetaDocument): string[] {
+  return doc.diagnostics.map((d) => `${d.severity} ${d.code}: ${d.message}`);
+}
+
+/** Every diagnostic rendered `<severity> <code>`, in emission order. */
+export function diagCodes(doc: ThetaDocument): string[] {
+  return doc.diagnostics.map((d) => `${d.severity} ${d.code}`);
+}
+
+/** A parsed, cleanly-lowered `params:` block. */
+export interface LoadedParams {
+  readonly defs: Record<string, unknown>;
+  readonly loweredSchema: LoweredSchema;
+}
+
+/**
+ * Parse a fixture that must LOAD cleanly, and read its lowered `params:`
+ * schema back. A non-empty diagnostic list, a `null` frontmatter, an absent
+ * `params`, or an absent `loweredSchema` all throw, with the diagnostics
+ * rendered, rather than let a caller read a field off an unloaded document.
+ */
+export function loadCleanly(label: string, source: string, path = "test.theta"): LoadedParams {
+  const doc = parseDoc(source, path);
+  expect(
+    diagLines(doc),
+    `${label}: this fixture must load with NO diagnostics; observed ${JSON.stringify(diagLines(doc))}`,
+  ).toEqual([]);
+  if (doc.frontmatter === null) {
+    throw new Error(
+      `${label}: the theta was REFUSED — frontmatter is null. Diagnostics: ${JSON.stringify(diagLines(doc))}`,
+    );
+  }
+  const params = doc.frontmatter.params;
+  if (params === undefined) {
+    throw new Error(
+      `${label}: the frontmatter carries no parsed params block. Diagnostics: ${JSON.stringify(diagLines(doc))}`,
+    );
+  }
+  const lowered = params.loweredSchema;
+  if (lowered === undefined) {
+    throw new Error(
+      `${label}: the params block lowered to NOTHING (loweredSchema absent), so there is no AJV-validatable document for the argument boundary. Diagnostics: ${JSON.stringify(diagLines(doc))}`,
+    );
+  }
+  return { defs: (lowered["$defs"] ?? {}) as Record<string, unknown>, loweredSchema: lowered };
 }
