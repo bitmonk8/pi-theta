@@ -184,7 +184,6 @@ function buildValidation(
   const state = { calls: 0 };
   const validation = buildTypedQueryValidation({
     lowered,
-    resolveShape: () => decls.find((s) => s.name === annotation),
     schemaValidator: ajv(),
     attempts: budget,
     maxRounds: 0,

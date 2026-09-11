@@ -324,7 +324,6 @@ const SEAM_NOOP_CHECKPOINT: Checkpoint = {
 };
 
 const SEAM_NOOP_SINK: ToolLoweringSink = {
-  runtimeEvent(): void {},
   diagnostic(): void {},
   systemNote(): void {},
 };

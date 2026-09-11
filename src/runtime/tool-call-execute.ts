@@ -14,7 +14,7 @@
 //   - `lowerResolvedToolEnvelope` — lower a cleanly-resolving `AgentToolResult`
 //     to `Ok(<filtered/joined text>)` (possibly `Ok("")` for `content: []` or a
 //     content array with no surviving text blocks). The discard of non-text
-//     blocks emits NO `RuntimeEvent`, `theta-system-note`, or diagnostic — the
+//     blocks emits NO `theta-system-note` or diagnostic — the
 //     `ToolLoweringSink` passed in is never touched on the discard path.
 //   - `truncateUtf8CodePointBoundary` — UTF-8-encode and truncate a string to at
 //     most `maxBytes` bytes on a Unicode code-point boundary: a code point that
@@ -64,7 +64,6 @@
 import type { Diagnostic } from "../diagnostics/diagnostic";
 import { coerceUnderlyingString } from "../diagnostics/placeholder";
 import type { Checkpoint, CheckpointSite } from "../seams/checkpoint";
-import type { RuntimeEvent } from "./runtime-event-channel";
 import type { CommittedSideEffect } from "./no-rollback";
 import type { CodeToolError } from "./query-error";
 import { makeErr, makeOk, type ThetaValue, type ResultValue } from "./value";
@@ -119,7 +118,6 @@ export interface AgentToolResultEnvelope {
  * test can witness that a compliant lowering never touches it.
  */
 export interface ToolLoweringSink {
-  runtimeEvent(event: RuntimeEvent): void;
   diagnostic(diag: Diagnostic): void;
   systemNote(message: string): void;
 }

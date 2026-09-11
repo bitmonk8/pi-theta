@@ -24,7 +24,6 @@
 
 import { describe, expect, it } from "vitest";
 import type { Diagnostic, SourceRange } from "../src/diagnostics/diagnostic";
-import type { RuntimeEvent } from "../src/runtime/runtime-event-channel";
 import type { CommittedSideEffect } from "../src/runtime/no-rollback";
 import type { Checkpoint, CheckpointKind, CheckpointSite } from "../src/seams/checkpoint";
 import {
@@ -66,12 +65,8 @@ const NOOP_CHECKPOINT: Checkpoint = {
 
 /** A `ToolLoweringSink` recording every normative side-channel emission. */
 class RecordingSink implements ToolLoweringSink {
-  readonly runtimeEvents: RuntimeEvent[] = [];
   readonly diagnostics: Diagnostic[] = [];
   readonly systemNotes: string[] = [];
-  runtimeEvent(event: RuntimeEvent): void {
-    this.runtimeEvents.push(event);
-  }
   diagnostic(diag: Diagnostic): void {
     this.diagnostics.push(diag);
   }
@@ -204,7 +199,6 @@ class RecordingMutator implements CommittedConversationMutator {
 }
 
 const NOOP_SINK: ToolLoweringSink = {
-  runtimeEvent(): void {},
   diagnostic(): void {},
   systemNote(): void {},
 };
@@ -438,7 +432,6 @@ describe("V14c live wiring (c) — post-cancel late settlement of the abandoned 
     await Promise.resolve();
     await Promise.resolve();
     expect(sink.diagnostics).toEqual([]);
-    expect(sink.runtimeEvents).toEqual([]);
     // `outcome` remains the single cancelled disposition (no rebind to "too late").
     expect(outcome.kind).toBe("cancelled");
   });

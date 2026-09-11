@@ -127,8 +127,6 @@ export interface FollowUpRespondOutcome {
 export interface TypedQueryValidationInput {
   /** The lowered declared response schema (QRY-22 / SUBS-1). */
   readonly lowered: LoweredSchema;
-  /** The declared schema's resolved shape, for the `resolveDeclaredSchema` step. */
-  readonly resolveShape: () => unknown;
   /** The runtime root's AJV `SchemaValidator` seam. */
   readonly schemaValidator: SchemaValidator;
   /** The theta's `respond_repair.attempts` budget (default 3). */
@@ -168,14 +166,14 @@ export interface TypedQueryValidationInput {
 }
 
 /**
- * Build the production `TypedQuerySchemaValidation` (QRY-22). The four steps wrap
- * the real collaborators: `resolveDeclaredSchema` resolves the declared schema
- * (a named decl via the injected `resolveShape`, previously uncalled), `lower`
- * returns the pre-lowered schema, `convey` is a no-op (the lowered shape
- * reaches the model through per-driver channels — see `convey` below),
- * `validate` compiles + validates via the root's `SchemaValidator`, and
- * `runRespondRepair` drives the `V13d` respond-repair loop over real follow-up
- * turns.
+ * Build the production `TypedQuerySchemaValidation` (QRY-22). The three steps
+ * wrap the real collaborators: `lower` returns the pre-lowered schema (the
+ * caller lowers once and shares the result with the respond-tool registration
+ * and the QRY-15 template — see `TypedQueryValidationInput.lowered`), `convey`
+ * is a no-op (the lowered shape reaches the model through per-driver channels
+ * — see `convey` below), `validate` compiles + validates via the root's
+ * `SchemaValidator`, and `runRespondRepair` drives the `V13d` respond-repair
+ * loop over real follow-up turns.
  */
 export function buildTypedQueryValidation(
   input: TypedQueryValidationInput,
@@ -206,10 +204,6 @@ class ProductionTypedQueryValidation implements TypedQuerySchemaValidation {
     this.#slug = respondSchemaSlug(input.lowered);
     this.#toolName = input.respondToolName ?? "__theta_respond_" + this.#slug;
     this.#wire = respondToolWireSchema(input.lowered);
-  }
-
-  resolveDeclaredSchema(): unknown {
-    return this.#input.resolveShape();
   }
 
   lower(): LoweredSchema {

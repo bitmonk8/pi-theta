@@ -1,4 +1,4 @@
-// RFC-0006 — parent-side subagent JSON driver (successor of subagent-rpc-driver).
+// RFC-0006 — parent-side subagent JSON driver.
 //
 // Under RFC 0006 the child owns its whole interpreter; the parent-side subagent
 // contract reduces to ENVELOPE CONSUMPTION (PIC-59): the parent launches the
@@ -16,9 +16,8 @@
 //     and routed through `theta/runtime/internal-error` without altering the
 //     result, and PIC-65 teardown's bounded-await → kill remains the backstop.
 //
-// The RFC-0005 RPC drive contract (`subagent-rpc-driver.ts`, the
-// prompt/`agent_end`/abort mapping) is RETIRED by this driver, not kept as a
-// fallback.
+// This driver is the parent-side contract's only implementation: no
+// prompt/`agent_end`/abort-mapping fallback exists.
 //
 // Spec: pi-integration-contract/subagent.md (PIC-59, PIC-66, PIC-65,
 // #subagent-error-fidelity), invocation.md (INV-5), cancellation.md.

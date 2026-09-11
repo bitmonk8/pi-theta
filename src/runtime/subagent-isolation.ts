@@ -13,13 +13,12 @@
 //     kill fallback; bounded by `SUBAGENT_DISPOSE_BUDGET_MS`.
 //   - PIC-22 parallel spawn conformance witness (`spawnSubagentsInParallel`).
 //
-// RETIRED with the RFC-0005 RPC drive (moved elsewhere): the PIC-62 pre-spawn
-// model guard (now the SINGLE-SOURCE-OF-TRUTH `guardResolvedModel` in
-// `subagent-model-guard.ts`; the dead RFC-0005 `preSpawnModelGuard` duplicate is
-// deleted), the child-side model pre-flight (now `confirmChildModel` in
+// This module does not own the PIC-62 pre-spawn model guard (the
+// SINGLE-SOURCE-OF-TRUTH `guardResolvedModel` in `subagent-model-guard.ts`),
+// the child-side model pre-flight (`confirmChildModel`, also in
 // `subagent-model-guard.ts`, reported through the envelope), abort forwarding
-// (now the kill in `subagent-json-driver.ts`, PIC-66), and
-// terminal-`agent_end` extraction (now the child's own prompt-mode driver).
+// (the kill in `subagent-json-driver.ts`, PIC-66), or terminal-`agent_end`
+// extraction (the child's own prompt-mode driver).
 //
 // Spec: pi-integration-contract/subagent.md (PIC-65, PIC-22, PIC-62);
 // cancellation.md.

@@ -5,7 +5,6 @@ import type {
   CheckpointKind,
   CheckpointSite,
 } from "../src/seams/checkpoint";
-import type { RuntimeEvent } from "../src/runtime/runtime-event-channel";
 import type {
   CommittedSideEffect,
   CompensatingTurn,
@@ -80,9 +79,6 @@ class RecordingCheckpoint implements Checkpoint {
  */
 class RecordingSink implements ToolLoweringSink {
   readonly emissions: string[] = [];
-  runtimeEvent(event: RuntimeEvent): void {
-    this.emissions.push(`runtime-event:${event.kind}`);
-  }
   diagnostic(diag: Diagnostic): void {
     this.emissions.push(`diagnostic:${diag.code}`);
   }
@@ -144,8 +140,8 @@ describe("V14g-T — execute() envelope content filter/join (host-interfaces-cor
 
 // ===========================================================================
 // (2) accepted-path lowering — Ok(<filtered/joined text>), including Ok("") for
-// an empty result, with NO diagnostic / RuntimeEvent / system-note on the
-// non-text discard path.
+// an empty result, with NO diagnostic / system-note on the non-text discard
+// path.
 // ===========================================================================
 
 describe("V14g-T — accepted-path envelope lowering to Ok (host-interfaces-core.md §Tool execution from theta code)", () => {
@@ -179,7 +175,7 @@ describe("V14g-T — accepted-path envelope lowering to Ok (host-interfaces-core
     }
   });
 
-  it("emits NO RuntimeEvent / theta-system-note / diagnostic on the non-text discard path", () => {
+  it("emits NO diagnostic / theta-system-note on the non-text discard path", () => {
     const sink = new RecordingSink();
     const result = lowerResolvedToolEnvelope(
       { content: [text("kept"), image(), text("also kept")] },

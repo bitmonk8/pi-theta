@@ -272,7 +272,6 @@ async function driveMissingKey(
   const state = { followUps: 0 };
   const validation: TypedQuerySchemaValidation = buildTypedQueryValidation({
     lowered,
-    resolveShape: () => decls.find((s) => s.name === "ReviewSummary"),
     schemaValidator: ajv(),
     attempts: 1,
     maxRounds: 0,

@@ -88,7 +88,7 @@ export interface QueryHostDispatch {
   readonly renderedText?: string;
   /**
    * V13e-T seam (QRY-22): the typed-query schema-validation collaborators the
-   * execution path orchestrates for a typed query (resolution → lowering →
+   * execution path orchestrates for a typed query (lowering →
    * `AjvSchemaValidator` → `runRespondRepairLoop`). Present only for a typed
    * query; the paired `V13e` implementation resolves it from the query
    * expression's declared schema against the driven conversation.

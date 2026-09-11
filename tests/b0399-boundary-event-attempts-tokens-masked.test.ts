@@ -435,7 +435,6 @@ function buildValidation(
   }
   const validation = buildTypedQueryValidation({
     lowered,
-    resolveShape: () => decls.find((s) => s.name === annotation),
     schemaValidator: ajv(),
     attempts,
     maxRounds: followUpMaxRounds,
@@ -456,7 +455,6 @@ const FOLLOWUP_INVALID = { a: "still wrong" };
 //     but resolves a TYPED query so `runTypedQueryLoop` fires) -----------------
 
 const NOOP_SINK: ToolLoweringSink = {
-  runtimeEvent(): void {},
   diagnostic(): void {},
   systemNote(): void {},
 };

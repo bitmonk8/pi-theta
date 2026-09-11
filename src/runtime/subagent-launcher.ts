@@ -525,7 +525,7 @@ export const SUBAGENT_CONTROL_PLANE_ENV_KEYS: readonly string[] = Object.freeze(
  * refuses fail-closed. Composition, not authentication, is the fix: the child's
  * control plane is built from THIS launch alone.
  */
-export const SUBAGENT_PER_LAUNCH_CONTROL_PLANE_ENV_KEYS: readonly string[] = Object.freeze(
+const SUBAGENT_PER_LAUNCH_CONTROL_PLANE_ENV_KEYS: readonly string[] = Object.freeze(
   SUBAGENT_CONTROL_PLANE_ENV_KEYS.filter((key) => key !== SUBAGENT_EXTENSION_PIN_ENV),
 );
 

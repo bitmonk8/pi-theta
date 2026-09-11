@@ -164,7 +164,6 @@ function recordingValidation(): {
   const received: ValidationFailure[] = [];
   let validateCalls = 0;
   const validation: TypedQuerySchemaValidation = {
-    resolveDeclaredSchema: (): unknown => "Verdict",
     lower: (): LoweredSchema => LOWERED,
     convey: (): void => {},
     validate: (): TypedQueryValidationResult => {

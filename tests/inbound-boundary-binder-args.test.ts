@@ -200,7 +200,6 @@ const NOOP_CHECKPOINT: Checkpoint = {
 };
 
 const NOOP_SINK: ToolLoweringSink = {
-  runtimeEvent(): void {},
   diagnostic(): void {},
   systemNote(): void {},
 };

@@ -290,7 +290,6 @@ describe("bug-0004 (iii) — typed-query `@<array<Item>>` through the production
     const lowered = lower("array<Item>", CORE);
     const validation = buildTypedQueryValidation({
       lowered,
-      resolveShape: () => schemas.find((s) => s.name === "Item"),
       schemaValidator: ajv(),
       attempts: 0,
       maxRounds: 0,

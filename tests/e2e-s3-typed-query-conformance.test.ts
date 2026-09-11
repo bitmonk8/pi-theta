@@ -145,7 +145,6 @@ function buildTriageValidation(followUps: readonly string[]): {
   const state = { calls: 0 };
   const validation = buildTypedQueryValidation({
     lowered,
-    resolveShape: () => schemas.find((s) => s.name === "Triage"),
     schemaValidator: ajv(),
     attempts: followUps.length,
     maxRounds: 0,

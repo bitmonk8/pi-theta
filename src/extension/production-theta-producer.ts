@@ -716,7 +716,6 @@ function signalGuard(signal: AbortSignal): { readonly cancellationSurfaced: bool
  */
 function noopSink(): ToolLoweringSink {
   return {
-    runtimeEvent(): void {},
     diagnostic(): void {},
     systemNote(): void {},
   };
@@ -3306,8 +3305,6 @@ class ProductionThetaProducer implements ThetaProducerDeps {
     const validation =
       lowered !== undefined
         ? this.#buildTypedValidation(
-            expr,
-            env,
             deps.theta,
             driveFollowUp,
             lowered,
@@ -3599,8 +3596,6 @@ class ProductionThetaProducer implements ThetaProducerDeps {
    * double lowering), threading the mode's follow-up turn drive.
    */
   #buildTypedValidation(
-    expr: QueryExpr,
-    env: LexicalEnvironment,
     theta: ConversationBindInput["theta"],
     driveFollowUp: (
       prompt: string,
@@ -3610,7 +3605,6 @@ class ProductionThetaProducer implements ThetaProducerDeps {
   ): TypedQuerySchemaValidation {
     return buildTypedQueryValidation({
       lowered,
-      resolveShape: resolveDeclaredShape(expr, env),
       schemaValidator: this.#input.root.schemaValidator,
       attempts: theta.frontmatter.respondRepair?.attempts ?? 3,
       maxRounds: theta.frontmatter.toolLoop?.maxRounds ?? 25,
@@ -6904,20 +6898,6 @@ export function mergedEnumDeclsOf(theta: {
     (decl) => !sameFileNames.has(decl.name),
   );
   return [...imported, ...sameFile];
-}
-
-/** An identifier-shaped `@<Schema>` annotation names a `schema` decl. */
-const SCHEMA_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
-
-/**
- * A `resolveDeclaredSchema` step (QRY-22): a named `@<Schema>` annotation
- * resolves whole-file via `env.resolveSchema` (previously uncalled); an inline
- * annotation resolves to its verbatim source.
- */
-function resolveDeclaredShape(expr: QueryExpr, env: LexicalEnvironment): () => unknown {
-  const annotation = (expr.schema ?? "").trim();
-  return () =>
-    SCHEMA_NAME.test(annotation) ? env.resolveSchema(annotation) : annotation;
 }
 
 /** Concatenate the text content of an assistant message (thinking / tool calls omitted). */

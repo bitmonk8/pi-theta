@@ -351,7 +351,6 @@ class RecordingMutator implements CommittedConversationMutator {
 }
 
 const NOOP_SINK: ToolLoweringSink = {
-  runtimeEvent(): void {},
   diagnostic(): void {},
   systemNote(): void {},
 };

@@ -496,7 +496,6 @@ function span2() {
 }
 
 const SEAM_NOOP_SINK: ToolLoweringSink = {
-  runtimeEvent(): void {},
   diagnostic(): void {},
   systemNote(): void {},
 };

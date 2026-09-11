@@ -658,7 +658,7 @@ function lowerOutbound(
   // restriction and may spell `__proto__` too.
   const result: { [k: string]: unknown } = Object.create(null) as { [k: string]: unknown };
   for (const [thetaKey, fieldValue] of Object.entries(value)) {
-    const wireKey = (pointer === "" ? thetaToWire.get(thetaKey) : undefined) ?? thetaKey;
+    const wireKey = thetaToWire.get(thetaKey) ?? thetaKey;
     const fieldPointer = `${pointer}/properties/${encodePointerSegment(wireKey)}`;
     result[wireKey] = lowerOutbound(fieldValue as ThetaValue, sidecar, fieldPointer, sidecars);
   }
