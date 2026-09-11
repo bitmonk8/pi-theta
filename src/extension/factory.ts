@@ -15,8 +15,9 @@
 // factory-body calls exposes a separate `Promise`-rejection arm.
 //
 // Factory-body calls (the synchronous-arm registrations): `pi.registerFlag`,
-// `pi.registerMessageRenderer`, and the three factory-time `pi.on`
-// subscriptions (`resources_discover`, `session_start`, `session_shutdown`).
+// `pi.registerMessageRenderer`, `pi.registerTool`, and the three factory-time
+// `pi.on` subscriptions (`resources_discover`, `session_start`,
+// `session_shutdown`).
 // `pi.registerCommand` is NOT a factory-body call — it fires later from the
 // `session_start` handler (the registration-timing split in
 // registration-steps.md). The capability-probe logic lives in
@@ -132,7 +133,8 @@ type FactorySubscription =
  * diagnostic can name (code-registry-load.md). The two whole-extension abort
  * surfaces (`pi.registerFlag`, `pi.on`) are owned by `V9k`; the three non-abort
  * surfaces (`pi.registerMessageRenderer`, `pi.registerCommand`,
- * `pi.getCommands`) are owned by `V9p`.
+ * `pi.getCommands`) are owned by `V9p`. `pi.registerTool` (RFC 0010 / EXST-13)
+ * is a fourth non-abort surface, registered directly in the factory body.
  */
 type BootstrapCapability =
   | "pi.registerFlag"

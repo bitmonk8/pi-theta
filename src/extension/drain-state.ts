@@ -70,17 +70,13 @@ export function shouldShortCircuitShutdown(snapshot: DrainStateSnapshot): boolea
  * throw the catch arm treats the read as the steady-state tuple
  * `(false, undefined)` — equivalently, as if the predicate had NOT fired — so
  * the handler proceeds into the full five-sub-step teardown rather than
- * stranding resources.
+ * stranding resources. The read may throw an arbitrary shape, so the catch is
+ * broad.
  *
  */
 export function evalShutdownShortCircuitWithReadFailover(
   read: () => DrainStateSnapshot,
 ): boolean {
-  // PIC-31 read-failure fail-safe: on a read-side throw treat the read as the
-  // steady-state tuple `(false, undefined)` — equivalently, as if the predicate
-  // had NOT fired — so the handler proceeds into the full five-sub-step teardown
-  // rather than short-circuiting and stranding every resource it must release.
-  // The read may throw an arbitrary shape, so the catch is broad.
   let snapshot: DrainStateSnapshot;
   try {
     snapshot = read();
@@ -113,9 +109,6 @@ export function resolveSlashDispatch(
   if (arm === "shutting-down") {
     return { kind: "note", content: shuttingDownNote(name) };
   }
-  // Arm (a) dispatch: look the slash name up in the registry entry table. A hit
-  // dispatches the theta; a miss (a dropped, superseded entry) returns the fixed
-  // superseded note — a sub-case of arm (a), not a third arm (PIC-30).
   const theta = registry.get(name);
   if (theta === undefined) {
     return { kind: "note", content: supersededNote(name) };

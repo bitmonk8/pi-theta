@@ -8,8 +8,8 @@
 // public extension API strips it — so the only no-upstream execution rung is
 // host-loop dispatch, establishable wherever a real host session with an agent
 // loop backs it: the subagent-root child AND the parent's live user session
-// (prompt mode). The (a)–(f) wiring below is identical in both; only the
-// backing session differs:
+// (prompt mode). The (a)–(f) wiring (PIC-64 #subagent-host-loop-dispatch) is
+// identical in both; only the backing session differs:
 //
 //   1. `registerProvider(request)` — register a theta-controlled provider whose
 //      two-state `streamSimple` AUTHORS the `tool_use` itself (code-supplied

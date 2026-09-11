@@ -1,6 +1,6 @@
 // RFC-0005 — production child-process host for the subagent drive.
 //
-// This module owns the two production collaborators the subagent launcher seam
+// This module owns the production collaborators the subagent launcher seam
 // (`src/runtime/subagent-launcher.ts`) consumes against the real OS: the
 // `ExecutableHost` snapshot the executable-resolution ladder reads
 // (pi-integration-contract/subagent.md #subagent-executable-resolution) and a
@@ -11,12 +11,6 @@
 // the strict-JSONL, LF-only-split `SubagentChildProcess` surface, and
 // process-tree-kills it on teardown (`taskkill /PID <pid> /T /F` on win32,
 // `SIGKILL` elsewhere — no POSIX signal on Windows).
-//
-// The ambient reads localised here (`process.execPath` / `process.argv` /
-// `process.platform`, `child_process.spawn`, `node:fs` existence) are NOT on the
-// banned-primitive list (`process.env` / `process.cwd` / timers / `Date` are);
-// the one `process.env` read (full-environment inheritance is the RFC-0005
-// credential mechanism) carries a same-line `allow-ambient` exemption.
 
 import { spawn as nodeSpawn } from "node:child_process";
 import {
