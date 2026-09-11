@@ -1481,21 +1481,29 @@ function attachSubagentSessionConfigs(
     if (stmt.kind !== "fn" || stmt.subagent !== true) {
       return stmt;
     }
-    return { ...stmt, sessionConfig: resolveSubagentSessionConfig(stmt, frontmatter) };
+    return { ...stmt, sessionConfig: resolveSubagentSessionConfigAt(stmt, frontmatter) };
   });
 }
 
 /**
- * Resolve a `subagent fn`'s spawned-session config: start from the enclosing
- * theta's inherited `model` / `tools` / `tool_loop` / `respond_repair` (FN-7
- * default), then overwrite each key named in the `with { … }` clause. All five
- * session-config keys take effect (FN-7): `model` / `tools` / `system` plus the
- * two loop budgets `tool_loop` / `respond_repair`. A `.thetalib` helper carries
- * a `null` frontmatter here, so it projects only its own `with`-clause overrides
- * — its inheritance resolves against the CALLING theta at dispatch (FN-9,
- * `resolveSubagentSessionConfigAt`).
+ * Resolve a `subagent fn`'s spawned-session config (RFC 0001 FN-7 / FN-9):
+ * start from the given enclosing frontmatter's inherited `model` / `tools` /
+ * `tool_loop` / `respond_repair`, then overwrite each key named in the
+ * `with { … }` clause. All five session-config keys take effect (FN-7):
+ * `model` / `tools` / `system` plus the two loop budgets `tool_loop` /
+ * `respond_repair`.
+ *
+ * Called from two seams: at parse time (`attachSubagentSessionConfigs`),
+ * against the `subagent fn`'s own enclosing theta — a `.thetalib` helper has
+ * no frontmatter of its own, so it passes `null` and projects only its
+ * `with`-clause overrides here; and, for a `.thetalib` helper dispatched from
+ * another theta, again at dispatch time (FN-9) against a DIFFERENT enclosing
+ * frontmatter — the CALLING theta's — so the spawned session inherits the
+ * caller's config with the same `with { … }` overrides re-applied on top. For
+ * an in-file `subagent fn`, the dispatch-time frontmatter is already the one
+ * used at parse time, so re-resolving reproduces the parse-time result.
  */
-function resolveSubagentSessionConfig(
+export function resolveSubagentSessionConfigAt(
   fn: FnDecl,
   frontmatter: ParsedFrontmatter | null,
 ): SubagentSessionConfig {
@@ -1546,22 +1554,6 @@ function resolveSubagentSessionConfig(
     }
   }
   return config;
-}
-
-/**
- * Re-resolve a `subagent fn`'s session config against a DIFFERENT enclosing
- * frontmatter than the one it was parsed under (RFC 0001 FN-9). A `.thetalib`
- * helper has no frontmatter of its own, so its `model` / `tools` /
- * `tool_loop` / `respond_repair` inheritance resolves against the CALLING
- * theta's frontmatter at dispatch time; its `with { … }` overrides still apply
- * on top. For an in-file `subagent fn` (parse-time frontmatter already the
- * enclosing theta's) this is identical to the parse-time resolution.
- */
-export function resolveSubagentSessionConfigAt(
-  fn: FnDecl,
-  callingFrontmatter: ParsedFrontmatter | null,
-): SubagentSessionConfig {
-  return resolveSubagentSessionConfig(fn, callingFrontmatter);
 }
 
 /**
