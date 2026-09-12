@@ -45,7 +45,11 @@
 //       print "key<TAB>manifest<TAB>count" per cluster. With --max present
 //       (bare flag = 12), a cluster larger than n is split into ordered parts
 //       <key>__p1, <key>__p2, … so one oversized surface cannot swallow a whole
-//       parallel fix wave. Without --max the grouping is unsplit.
+//       parallel fix wave. Parts are FILE-DISJOINT: issues citing a common file
+//       always share a part (they run as parallel lanes and are cherry-picked
+//       in order, so two parts editing one file would conflict at integration);
+//       a file-connected component larger than n stays one oversized part.
+//       Without --max the grouping is unsplit.
 //   open-count
 //       Print the number of status: open issues in quality/issues/ — the
 //       quality loop's convergence signal (0 = backlog empty).
@@ -245,6 +249,42 @@ function triageNote(file) {
   return lines.length > 0 ? lines[lines.length - 1] : "";
 }
 
+/**
+ * Group issue paths into connected components where two issues are connected
+ * when they cite at least one common file. Components keep the input's issue
+ * order (ordered by their first member), so the same backlog always splits the
+ * same way across waves.
+ */
+function fileDisjointComponents(paths, citedFiles) {
+  const parent = new Map(paths.map((p) => [p, p]));
+  const find = (x) => {
+    while (parent.get(x) !== x) {
+      parent.set(x, parent.get(parent.get(x)));
+      x = parent.get(x);
+    }
+    return x;
+  };
+  const union = (a, b) => {
+    const ra = find(a);
+    const rb = find(b);
+    if (ra !== rb) parent.set(rb, ra);
+  };
+  const owner = new Map(); // file -> first issue citing it
+  for (const p of paths) {
+    for (const file of citedFiles.get(p) ?? []) {
+      if (owner.has(file)) union(owner.get(file), p);
+      else owner.set(file, p);
+    }
+  }
+  const groups = new Map();
+  for (const p of paths) {
+    const root = find(p);
+    if (!groups.has(root)) groups.set(root, []);
+    groups.get(root).push(p);
+  }
+  return [...groups.values()];
+}
+
 function appendTriageLine(text, line) {
   const eol = text.includes("\r\n") ? "\r\n" : "\n";
   const body = text.endsWith(eol) ? text : text + eol;
@@ -376,6 +416,7 @@ switch (cmd) {
     if (!fs.existsSync(ISSUES)) break;
     const issues = fs.readdirSync(ISSUES).filter((f) => f.endsWith(".md")).sort();
     const clusters = new Map(); // key -> issue paths
+    const citedFiles = new Map(); // issue path -> every file its locations cite
     for (const f of issues) {
       const { fields, locations } = readFrontmatter(path.join(ISSUES, f));
       if ((fields.status ?? "open") !== "open") continue;
@@ -385,7 +426,9 @@ switch (cmd) {
       const segs = dir.split("/").filter((x) => x && x !== ".");
       const key = segs.length >= 2 ? `${segs[0]}/${segs[1]}` : segs[0] || "unclustered";
       if (!clusters.has(key)) clusters.set(key, []);
-      clusters.get(key).push(posix(path.join("quality", "issues", f)));
+      const issuePath = posix(path.join("quality", "issues", f));
+      clusters.get(key).push(issuePath);
+      citedFiles.set(issuePath, new Set(locations.map((l) => posix(l.split(":")[0])).filter(Boolean)));
     }
     if (clusters.size === 0) break;
     // Absent --max keeps the historical unsplit grouping; a bare --max means 12.
@@ -400,9 +443,23 @@ switch (cmd) {
       if (paths.length <= maxPer) {
         parts.push([key, paths]);
       } else {
-        for (let i = 0, n = 1; i < paths.length; i += maxPer, n++) {
-          parts.push([`${key}__p${n}`, paths.slice(i, i + maxPer)]);
+        // Parts run as PARALLEL worktree lanes and are cherry-picked in order,
+        // so two parts must never edit the same file: issues that cite a
+        // common file travel together (connected components over cited
+        // paths), and components are packed first-fit into parts of at most
+        // --max issues. A component larger than --max stays one oversized part
+        // rather than being split into lanes that would conflict at
+        // integration (wave qw20260912091742 lost a lane exactly that way).
+        const components = fileDisjointComponents(paths, citedFiles);
+        const packed = [];
+        for (const comp of components) {
+          const slot = packed.find((part) => part.length + comp.length <= maxPer);
+          if (slot) slot.push(...comp);
+          else packed.push([...comp]);
         }
+        // One oversized component packs into a single part: it keeps the bare key.
+        if (packed.length === 1) parts.push([key, packed[0]]);
+        else packed.forEach((partPaths, i) => parts.push([`${key}__p${i + 1}`, partPaths]));
       }
       for (const [partKey, partPaths] of parts) {
         const p = path.join(outDir, `${partKey.replaceAll("/", "__")}.txt`);

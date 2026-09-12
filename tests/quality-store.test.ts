@@ -41,6 +41,10 @@ function makeLines(n: number): string {
   return Array.from({ length: n }, () => "x").join("\n") + "\n";
 }
 
+function readFile(root: string, relPath: string): string {
+  return readFileSync(join(root, ...relPath.split("/")), "utf8");
+}
+
 function writeFile(root: string, relPath: string, content: string): void {
   const abs = join(root, ...relPath.split("/"));
   mkdirSync(join(abs, ".."), { recursive: true });
@@ -65,7 +69,7 @@ function writeSurfaces(root: string): void {
 function writeIssue(
   root: string,
   filename: string,
-  opts: { location: string; status?: string; id?: string },
+  opts: { location: string; status?: string; id?: string; more?: string[] },
 ): void {
   const status = opts.status ?? "open";
   const id = opts.id ?? filename.replace(/\.md$/, "");
@@ -81,6 +85,7 @@ function writeIssue(
       "verdict: confirmed",
       "locations:",
       `  - ${opts.location}`,
+      ...(opts.more ?? []).map((l) => `  - ${l}`),
       "sites: 1",
       "fix_scope: localized",
       "wave: w0",
@@ -289,6 +294,43 @@ describe("tools/quality/store.mjs (scratch fixture store via QUALITY_STORE_ROOT)
     const byKey = new Map(rows.map((c) => [c[0], Number(c[2])]));
     expect(byKey.get("tests/helpers__p1")).toBe(2);
     expect(byKey.get("tests/helpers__p2")).toBe(1);
+  });
+
+  it("cell 13: --max splitting keeps issues that cite a shared file in the SAME part (file-disjoint parts)", () => {
+    // Issue order would put a+b in p1 and c+d in p2; but a and c both cite
+    // shared.test.ts (c only as a secondary location), so they must travel
+    // together — two worktree lanes editing one file is a cherry-pick conflict.
+    writeIssue(root, "PTQ-0031-a.md", { location: "tests/shared.test.ts:1-2", id: "PTQ-0031" });
+    writeIssue(root, "PTQ-0032-b.md", { location: "tests/only-b.test.ts:1-2", id: "PTQ-0032" });
+    writeIssue(root, "PTQ-0033-c.md", { location: "tests/only-c.test.ts:1-2", id: "PTQ-0033", more: ["tests/shared.test.ts:9-10"] });
+    writeIssue(root, "PTQ-0034-d.md", { location: "tests/only-d.test.ts:1-2", id: "PTQ-0034" });
+
+    const r = runStore(root, ["clusters", "--max", "2"]);
+    expect(r.status).toBe(0);
+    const rows = r.stdout.trim().split("\n").filter(Boolean).map((l) => l.split("\t"));
+    const partOf = new Map<string, string>();
+    for (const [key, manifest] of rows) {
+      if (key === undefined || manifest === undefined) throw new Error(`malformed clusters row: ${JSON.stringify(rows)}`);
+      for (const line of readFile(root, manifest).split("\n").filter(Boolean)) partOf.set(line, key);
+    }
+    expect(partOf.get("quality/issues/PTQ-0031-a.md")).toBe(partOf.get("quality/issues/PTQ-0033-c.md"));
+    // Every part respects --max and no cited file appears in two parts.
+    for (const [, , count] of rows) expect(Number(count)).toBeLessThanOrEqual(2);
+    expect(rows.length).toBe(2);
+  });
+
+  it("cell 14: a file-connected component larger than --max stays one part (never split into conflicting lanes)", () => {
+    writeIssue(root, "PTQ-0041-a.md", { location: "tests/hub.test.ts:1-2", id: "PTQ-0041" });
+    writeIssue(root, "PTQ-0042-b.md", { location: "tests/hub.test.ts:3-4", id: "PTQ-0042" });
+    writeIssue(root, "PTQ-0043-c.md", { location: "tests/hub.test.ts:5-6", id: "PTQ-0043" });
+
+    const r = runStore(root, ["clusters", "--max", "2"]);
+    expect(r.status).toBe(0);
+    const rows = r.stdout.trim().split("\n").filter(Boolean).map((l) => l.split("\t"));
+    expect(rows.length).toBe(1);
+    const only = rows[0] ?? [];
+    expect(only[0]).toBe("tests");
+    expect(Number(only[2])).toBe(3);
   });
 
   it("cell 11: open-count counts only status: open issues", () => {
