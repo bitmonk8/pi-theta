@@ -5,10 +5,13 @@ import { describe, expect, it } from "vitest";
 import { parseRegistry } from "../tools/code-registry/index.js";
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
 import {
+  expectCaptured,
+  expectRows,
   loadRowFromBody,
   registered,
   registryLineOf,
   registryMessageOf,
+  startPositions,
   type LoadRow,
 } from "./helpers/load-row-harness";
 
@@ -166,68 +169,14 @@ function arityLine(actual: string): string {
 // The load harness.
 // ===========================================================================
 //
-// `LoadRow`, `registered` and `theta`/`msg`/`line`'s shared rendering are the
-// harness in `tests/helpers/load-row-harness.ts` (also used by
-// tests/b0272-enclosing-annotation-refusal-nested-head.test.ts); this file's
-// own `startPositions`/`expectCaptured`/`expectRows` below are unchanged.
+// `LoadRow`, `registered`, `startPositions`, `expectCaptured`, `expectRows` and
+// `theta`/`msg`/`line`'s shared rendering are the harness in
+// `tests/helpers/load-row-harness.ts` (also used by
+// tests/b0272-enclosing-annotation-refusal-nested-head.test.ts).
 
 /** A `mode: prompt` theta whose body is `body` verbatim, parsed once. */
 function theta(label: string, body: string): LoadRow {
   return loadRowFromBody(label, body, "b0273.theta");
-}
-
-/**
- * The 1-indexed `line:column` start of each diagnostic in a row. The captures
- * this bug separates — the `let` statement at column 1 and the query expression
- * further along the same source line — differ by column alone, so the column is
- * what reads WHICH capture spoke.
- */
-function startPositions(row: LoadRow): string[] {
-  return row.doc.diagnostics.map((d: Diagnostic) =>
-    d.range === undefined ? "unlocated" : `${d.range.start.line}:${d.range.start.column}`,
-  );
-}
-
-/**
- * Assert every row parsed to a body and captured exactly the declarations it
- * names, before any disposition is read off it. A dropped statement produces an
- * empty diagnostic list, which is indistinguishable from a clean load unless
- * the capture is asserted separately — this is the precondition, failing
- * loudly.
- */
-function expectCaptured(rows: readonly LoadRow[], names: readonly string[]): void {
-  const empty = rows.filter((r) => r.statements === 0).map((r) => r.label);
-  expect(
-    empty,
-    "precondition: every fixture must parse to at least one body statement; a row listed here lost its body upstream of the type walk, so its diagnostic list says nothing about this bug",
-  ).toEqual([]);
-  const mismatched = rows
-    .filter((r) => JSON.stringify(r.declared) !== JSON.stringify(names))
-    .map((r) => [r.label, r.declared]);
-  expect(
-    mismatched,
-    `precondition: every fixture must capture exactly the declarations ${JSON.stringify(names)}`,
-  ).toEqual([]);
-}
-
-/**
- * Assert the ordered code list, THEN the ordered rendered-message list. The
- * message side is a thunk so the registry read happens only after the code
- * assertion has passed: a missing emission must red as a missing diagnostic,
- * not as a registry lookup.
- */
-function expectRows(
-  rows: readonly LoadRow[],
-  expected: readonly (readonly string[])[],
-  expectedLines: () => readonly (readonly string[])[],
-): void {
-  expect(rows.map((r) => [r.label, r.codes])).toEqual(
-    rows.map((r, i) => [r.label, expected[i]]),
-  );
-  const wanted = expectedLines();
-  expect(rows.map((r) => [r.label, r.lines])).toEqual(
-    rows.map((r, i) => [r.label, wanted[i]]),
-  );
 }
 
 // ===========================================================================

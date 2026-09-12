@@ -92,6 +92,35 @@ export function diagCodes(doc: ThetaDocument): string[] {
   return doc.diagnostics.map((d) => `${d.severity} ${d.code}`);
 }
 
+/** One theta file: `---` fences over `<frontmatter>`, body `let x = 1`. */
+export function frontmatterOnlyDoc(frontmatter: string): ThetaDocument {
+  return parseDoc(`---\n${frontmatter}\n---\nlet x = 1\n`);
+}
+
+/** Assert a row is present at the given severity (default `error`) carrying the exact Message. */
+export function expectDiagnosticRow(
+  diags: readonly Diagnostic[],
+  code: string,
+  message: string,
+  severity: Diagnostic["severity"] = "error",
+): void {
+  const row = findCode(diags, code);
+  expect(
+    row,
+    `expected a ${code} row; got codes ${JSON.stringify(codes(diags))}`,
+  ).toBeDefined();
+  expect((row as Diagnostic).severity).toBe(severity);
+  expect((row as Diagnostic).message).toBe(message);
+}
+
+/** Assert NO row carries the given code. */
+export function expectNoDiagnosticRow(diags: readonly Diagnostic[], code: string): void {
+  expect(
+    findCode(diags, code),
+    `expected NO ${code} row; got codes ${JSON.stringify(codes(diags))}`,
+  ).toBeUndefined();
+}
+
 /** A parsed, cleanly-lowered `params:` block. */
 export interface LoadedParams {
   readonly defs: Record<string, unknown>;

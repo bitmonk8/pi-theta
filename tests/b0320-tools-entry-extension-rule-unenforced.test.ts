@@ -6,15 +6,16 @@ import { describe, expect, it } from "vitest";
 // @ts-expect-error — JS code-registry module, no type declarations.
 import { parseRegistry, registryMessage } from "../tools/code-registry/index.js";
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
-import { composeExtensionInstance } from "../src/extension/production-composition";
-import { RendererGate, SYSTEM_NOTE_CHANNEL } from "../src/extension/system-note-channel";
-import type { ParsedTheta } from "../src/extension/reload-wiring";
 import {
+  allDiagnostics,
+  describeNotes,
   finishWorkspace,
   makeHost,
   normalisePath,
+  requireDriven as requireDrivenCore,
+  runLoadPass,
   type ComposeWorkspace,
-  type RecordedNote,
+  type LoadPass,
 } from "./helpers/compose-workspace-harness";
 
 // Bug 0320 — the `tools:` half of `theta/parse/invoke-non-theta-extension` is
@@ -175,61 +176,10 @@ function plantWorkspace(files: Readonly<Record<string, string>>): ComposeWorkspa
 }
 
 // ── The load pass ─────────────────────────────────────────────────────────────
-
-interface LoadPass {
-  /** Every `theta-system-note` the pass put on the channel, in order. */
-  readonly notes: readonly RecordedNote[];
-  readonly offChannel: readonly RecordedNote[];
-  readonly notified: readonly (readonly [string, string])[];
-  /** Slash names the pass actually registered. */
-  readonly registered: readonly string[];
-  readonly thetas: readonly ParsedTheta[];
-}
-
-/**
- * Drive the SHIPPED composition root over the planted workspace with an
- * UNDEGRADED `RendererGate`, so every note takes the transcript
- * (`pi.sendMessage`) arm the author reads.
- */
-async function runLoadPass(workspace: ComposeWorkspace): Promise<LoadPass> {
-  const host = makeHost(workspace.cwd);
-  const wiring = await composeExtensionInstance(
-    host.pi,
-    host.ctx,
-    undefined,
-    new RendererGate(),
-  );
-  return {
-    notes: host.notes.filter((n) => n.customType === SYSTEM_NOTE_CHANNEL),
-    offChannel: host.notes.filter((n) => n.customType !== SYSTEM_NOTE_CHANNEL),
-    notified: host.notified,
-    registered: wiring.thetas.map((t) => t.slashName),
-    thetas: wiring.thetas,
-  };
-}
-
-// ── Observation helpers ───────────────────────────────────────────────────────
-
-function noteDiagnostics(note: RecordedNote): readonly Diagnostic[] {
-  const details = note.details as { diagnostics?: unknown } | undefined;
-  const diagnostics = details?.diagnostics;
-  if (!Array.isArray(diagnostics)) {
-    expect.fail(
-      `system note carries no details.diagnostics array: ${JSON.stringify(note.details)}`,
-    );
-  }
-  return diagnostics as readonly Diagnostic[];
-}
-
-function allDiagnostics(notes: readonly RecordedNote[]): readonly Diagnostic[] {
-  return notes.flatMap((note) => [...noteDiagnostics(note)]);
-}
-
-function describeNotes(notes: readonly RecordedNote[]): string {
-  return notes.length === 0
-    ? "[] (NO NOTE ON THE CHANNEL)"
-    : notes.map((n, i) => `[${i}] ${n.content}`).join("\n");
-}
+//
+// `LoadPass`, `runLoadPass`, `noteDiagnostics`, `allDiagnostics` and
+// `describeNotes` are the shared load-pass harness in
+// `tests/helpers/compose-workspace-harness.ts` (PTQ-0230).
 
 /** Error-severity codes the pass located at `file`, sorted and de-duplicated. */
 function errorCodesAt(pass: LoadPass, file: string): readonly string[] {
@@ -244,13 +194,7 @@ function errorCodesAt(pass: LoadPass, file: string): readonly string[] {
 
 /** The composition root must have been driven at all before any decision means anything. */
 function requireDriven(pass: LoadPass): void {
-  if (pass.notes.length === 0 && pass.registered.length === 0) {
-    throw new Error(
-      "harness: the composition root neither registered a theta nor put anything on the " +
-        "theta-system-note channel — the bug-0320 fixture no longer reaches the load pass, " +
-        "so nothing below is verified",
-    );
-  }
+  requireDrivenCore(pass, "0320");
 }
 
 /**

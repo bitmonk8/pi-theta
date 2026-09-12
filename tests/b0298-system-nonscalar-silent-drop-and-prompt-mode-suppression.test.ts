@@ -5,7 +5,13 @@ import { describe, expect, it } from "vitest";
 import { parseRegistry, registryMessage } from "../tools/code-registry/index.js";
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
 import type { ThetaDocument } from "../src/parser/theta-document";
-import { codes, findCode, parseDoc } from "./helpers/e2e-s1";
+import {
+  codes,
+  expectDiagnosticRow as expectRow,
+  findCode,
+  frontmatterOnlyDoc as doc,
+  parseDoc,
+} from "./helpers/e2e-s1";
 
 // Bug 0298 — a `system:` whose value is a YAML sequence or mapping is treated
 // as absent: a subagent-mode theta registers with zero diagnostics and would
@@ -124,23 +130,10 @@ function registryMsg(code: string): string {
 
 // --- Fixtures --------------------------------------------------------------
 
-/** One theta file: `---` fences over `<frontmatter>`, body `let x = 1`. */
-function doc(frontmatter: string): ThetaDocument {
-  return parseDoc(`---\n${frontmatter}\n---\nlet x = 1\n`);
-}
-
 /** A `system:` over a block SEQUENCE — the ordinary YAML reflex for multi-line text. */
 const SYSTEM_BLOCK_SEQUENCE = "system:\n  - You are a reviewer";
 /** A `system:` over a block MAPPING — the second non-scalar node kind. */
 const SYSTEM_BLOCK_MAPPING = "system:\n  text: You are a reviewer";
-
-/** Assert the refusal row is present at error severity with the settled Message. */
-function expectRow(diags: readonly Diagnostic[], code: string, message: string): void {
-  const row = findCode(diags, code);
-  expect(row, `expected a ${code} row; got codes ${JSON.stringify(codes(diags))}`).toBeDefined();
-  expect((row as Diagnostic).severity).toBe("error");
-  expect((row as Diagnostic).message).toBe(message);
-}
 
 // ===========================================================================
 

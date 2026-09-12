@@ -12,7 +12,13 @@ import {
   BINDER_MODEL_UNRESOLVED_MESSAGE,
   type BinderModelResolutionInput,
 } from "../src/binder/binder-model";
-import { codes, findCode, parseDoc } from "./helpers/e2e-s1";
+import {
+  codes,
+  expectDiagnosticRow as expectRow,
+  expectNoDiagnosticRow as expectNoRow,
+  findCode,
+  frontmatterOnlyDoc as doc,
+} from "./helpers/e2e-s1";
 
 // Bug 0297 — a `bind_context:` (and its sibling `bind_model:`) whose value is a
 // YAML sequence or mapping registers the theta SILENTLY with the field's
@@ -116,36 +122,6 @@ const UNKNOWN_BIND_CONTEXT_VALUE_TEMPLATE =
 // carry their scalar bytes.
 function unknownBindContextMessage(value: string): string {
   return `unknown 'bind_context:' value '${value}'; expected 'none' or 'session'`;
-}
-
-// --- Fixtures --------------------------------------------------------------
-
-/** One theta file: `---` fences over `<frontmatter>`, body `let x = 1`. */
-function doc(frontmatter: string): ThetaDocument {
-  return parseDoc(`---\n${frontmatter}\n---\nlet x = 1\n`);
-}
-
-/** Assert a refusal row is present at error severity with the given Message. */
-function expectRow(
-  diags: readonly Diagnostic[],
-  code: string,
-  message: string,
-): void {
-  const row = findCode(diags, code);
-  expect(
-    row,
-    `expected a ${code} row; got codes ${JSON.stringify(codes(diags))}`,
-  ).toBeDefined();
-  expect((row as Diagnostic).severity).toBe("error");
-  expect((row as Diagnostic).message).toBe(message);
-}
-
-/** Assert NO row carries the given code (the recognised value must stay clean). */
-function expectNoRow(diags: readonly Diagnostic[], code: string): void {
-  expect(
-    findCode(diags, code),
-    `expected NO ${code} row; got codes ${JSON.stringify(codes(diags))}`,
-  ).toBeUndefined();
 }
 
 // --- bind_model resolution harness -----------------------------------------

@@ -3,9 +3,13 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 // @ts-expect-error — JS code-registry module, no type declarations.
 import { parseRegistry, registryMessage } from "../tools/code-registry/index.js";
-import type { Diagnostic } from "../src/diagnostics/diagnostic";
-import type { ThetaDocument } from "../src/parser/theta-document";
-import { codes, findCode, parseDoc } from "./helpers/e2e-s1";
+import {
+  codes,
+  expectDiagnosticRow as expectRow,
+  expectNoDiagnosticRow as expectNoRow,
+  findCode,
+  frontmatterOnlyDoc as doc,
+} from "./helpers/e2e-s1";
 
 // Bug 0296 — a `mode:` whose value is a YAML sequence or mapping draws
 // `theta/load/missing-mode` ("frontmatter is missing required field 'mode:'")
@@ -96,36 +100,6 @@ function unknownModeMessage(value: string): string {
 }
 
 const MISSING_MODE_MESSAGE = "frontmatter is missing required field 'mode:'";
-
-// --- Fixtures --------------------------------------------------------------
-
-/** One theta file: `---` fences over `<frontmatter>`, body `let x = 1`. */
-function doc(frontmatter: string): ThetaDocument {
-  return parseDoc(`---\n${frontmatter}\n---\nlet x = 1\n`);
-}
-
-/** Assert a refusal row is present at error severity with the given Message. */
-function expectRow(
-  diags: readonly Diagnostic[],
-  code: string,
-  message: string,
-): void {
-  const row = findCode(diags, code);
-  expect(
-    row,
-    `expected a ${code} row; got codes ${JSON.stringify(codes(diags))}`,
-  ).toBeDefined();
-  expect((row as Diagnostic).severity).toBe("error");
-  expect((row as Diagnostic).message).toBe(message);
-}
-
-/** Assert NO row carries the given code (the collapse must not survive). */
-function expectNoRow(diags: readonly Diagnostic[], code: string): void {
-  expect(
-    findCode(diags, code),
-    `expected NO ${code} row; got codes ${JSON.stringify(codes(diags))}`,
-  ).toBeUndefined();
-}
 
 // ===========================================================================
 

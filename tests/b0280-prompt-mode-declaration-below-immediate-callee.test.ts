@@ -5,11 +5,19 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 // @ts-expect-error — JS code-registry module, no type declarations.
-import { parseRegistry, registryMessage } from "../tools/code-registry/index.js";
+import { parseRegistry } from "../tools/code-registry/index.js";
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
 import { composeExtensionInstance } from "../src/extension/production-composition";
 import { RendererGate, SYSTEM_NOTE_CHANNEL } from "../src/extension/system-note-channel";
 import type { ParsedTheta } from "../src/extension/reload-wiring";
+import {
+  allDiagnostics,
+  describeNotes,
+  errorFilesOf,
+  errorRowsAt,
+  normativeMessagePattern as normativeMessagePatternCore,
+  requireDriven as requireDrivenCore,
+} from "./helpers/compose-workspace-harness";
 
 // Bug 0280 — FILED SYMPTOM: a `tools:` entry naming a PROMPT-mode `.theta`
 // un-registers the file that declares it at every depth, but that verdict never
@@ -174,21 +182,11 @@ const REGISTRY = ["code-registry-parse.md", "code-registry-load.md"].flatMap((pa
 
 /**
  * The row's normative *Message* (DIAG-4) as a regex with the `<placeholder>`
- * slots opened up. Throws naming the registry pages when the row is absent, so
- * registry drift can never degrade a presence assertion into a comparison
- * against `undefined`.
+ * slots opened up — `tests/helpers/compose-workspace-harness.ts`'s shared
+ * builder (PTQ-0230), bound to this file's own two-page `REGISTRY`.
  */
 function normativeMessagePattern(code: string): RegExp {
-  const message = registryMessage(REGISTRY, code) as string | undefined;
-  if (typeof message !== "string" || message.length === 0) {
-    throw new Error(
-      "harness: the docs/spec_topics/diagnostics/ registry pages carry no Message row for " +
-        `${code} — the DIAG-4 column is this file's only message oracle, so a missing row ` +
-        "is a harness failure, never a skip",
-    );
-  }
-  const escaped = message.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  return new RegExp(escaped.replace(/<[a-z-]+>/g, ".+"));
+  return normativeMessagePatternCore(REGISTRY, code);
 }
 
 // ── Host doubles ────────────────────────────────────────────────────────────
@@ -316,52 +314,14 @@ async function runLoadPass(workspace: ComposeWorkspace): Promise<LoadPass> {
 }
 
 // ── Observation helpers ─────────────────────────────────────────────────────
-
-function noteDiagnostics(note: RecordedNote): readonly Diagnostic[] {
-  const details = note.details as { diagnostics?: unknown } | undefined;
-  const diagnostics = details?.diagnostics;
-  if (!Array.isArray(diagnostics)) {
-    expect.fail(
-      `system note carries no details.diagnostics array: ${JSON.stringify(note.details)}`,
-    );
-  }
-  return diagnostics as readonly Diagnostic[];
-}
-
-function allDiagnostics(notes: readonly RecordedNote[]): readonly Diagnostic[] {
-  return notes.flatMap((note) => [...noteDiagnostics(note)]);
-}
-
-function describeNotes(notes: readonly RecordedNote[]): string {
-  return notes.length === 0
-    ? "[] (NO NOTE ON THE CHANNEL)"
-    : notes.map((n, i) => `[${i}] ${n.content}`).join("\n");
-}
-
-/** Error-severity rows the pass located at `file`, in emission order. */
-function errorRowsAt(pass: LoadPass, file: string): readonly Diagnostic[] {
-  return allDiagnostics(pass.notes).filter(
-    (d) => d.severity === "error" && normalisePath(d.file ?? "") === file,
-  );
-}
-
-/** Files at which the pass located an error-severity row of `code`, sorted. */
-function errorFilesOf(pass: LoadPass, code: string): readonly string[] {
-  return allDiagnostics(pass.notes)
-    .filter((d) => d.severity === "error" && d.code === code)
-    .map((d) => normalisePath(d.file ?? "?"))
-    .sort();
-}
+//
+// `noteDiagnostics`, `allDiagnostics`, `describeNotes`, `errorRowsAt` and
+// `errorFilesOf` are the shared load-pass harness in
+// `tests/helpers/compose-workspace-harness.ts` (PTQ-0230).
 
 /** The host double must have been driven at all before any decision means anything. */
 function requireDriven(pass: LoadPass): void {
-  if (pass.notes.length === 0 && pass.registered.length === 0) {
-    throw new Error(
-      "harness: the composition root neither registered a theta nor put anything on the " +
-        "theta-system-note channel — the bug-0280 fixture no longer reaches the load pass, " +
-        "so nothing below is verified",
-    );
-  }
+  requireDrivenCore(pass, "0280");
 }
 
 /**

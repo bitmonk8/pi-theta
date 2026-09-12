@@ -827,6 +827,21 @@ function collectSystemNotes(entries: readonly unknown[]): readonly string[] {
   return notes;
 }
 
+/**
+ * One in-memory `SessionManager` message entry, shaped exactly as
+ * `isMessageEntryWithRole`/`collectUserTexts`/`collectAssistantTexts`/
+ * `trailingAssistantShape` walk it. `stopReason` is omitted (left `undefined`)
+ * for a fixture that does not need one.
+ */
+export function messageEntry(role: string, content: unknown, stopReason?: string): unknown {
+  return { type: "message", message: { role, content, stopReason } };
+}
+
+/** A `theta-system-note` custom entry, shaped as `collectSystemNotes` walks it. */
+export function systemNoteEntry(content: string): unknown {
+  return { customType: "theta-system-note", content };
+}
+
 async function driveSlash(
   session: AgentSession,
   slashInvocation: string,

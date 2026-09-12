@@ -3,9 +3,14 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 // @ts-expect-error — JS code-registry module, no type declarations.
 import { parseRegistry, registryMessage } from "../tools/code-registry/index.js";
-import type { Diagnostic } from "../src/diagnostics/diagnostic";
 import type { ThetaDocument } from "../src/parser/theta-document";
-import { codes, findCode, parseDoc } from "./helpers/e2e-s1";
+import {
+  codes,
+  expectDiagnosticRow as expectRow,
+  expectNoDiagnosticRow as expectNoRow,
+  findCode,
+  frontmatterOnlyDoc as doc,
+} from "./helpers/e2e-s1";
 
 // Bug 0301 — three recognised-field value shapes silently take the absent-field
 // default with ZERO diagnostics at any severity: a non-boolean `bind_echo:`
@@ -127,11 +132,6 @@ const MALFORMED_RESPOND_REPAIR_FIELD_TEMPLATE =
 
 // --- Fixtures & helpers ----------------------------------------------------
 
-/** One theta file: `---` fences over `<frontmatter>`, body `let x = 1`. */
-function doc(frontmatter: string): ThetaDocument {
-  return parseDoc(`---\n${frontmatter}\n---\nlet x = 1\n`);
-}
-
 interface FrontmatterShape {
   readonly bindEcho?: boolean;
   readonly toolLoop?: { readonly maxRounds: number };
@@ -141,30 +141,6 @@ interface FrontmatterShape {
 /** Read the parsed frontmatter as its structural shape, or `null` when refused. */
 function fm(d: ThetaDocument): FrontmatterShape | null {
   return d.frontmatter as FrontmatterShape | null;
-}
-
-/** Assert a row is present at the given severity carrying the exact Message. */
-function expectRow(
-  diags: readonly Diagnostic[],
-  code: string,
-  severity: Diagnostic["severity"],
-  message: string,
-): void {
-  const row = findCode(diags, code);
-  expect(
-    row,
-    `expected a ${code} row; got codes ${JSON.stringify(codes(diags))}`,
-  ).toBeDefined();
-  expect((row as Diagnostic).severity).toBe(severity);
-  expect((row as Diagnostic).message).toBe(message);
-}
-
-/** Assert NO row carries the given code. */
-function expectNoRow(diags: readonly Diagnostic[], code: string): void {
-  expect(
-    findCode(diags, code),
-    `expected NO ${code} row; got codes ${JSON.stringify(codes(diags))}`,
-  ).toBeUndefined();
 }
 
 // ===========================================================================
@@ -189,8 +165,8 @@ describe("bug 0301 face (a) — non-boolean bind_echo: silently leaves echo on",
       expectRow(
         d.diagnostics,
         UNKNOWN_BIND_ECHO_VALUE,
-        "error",
         `unknown 'bind_echo:' value '${rendered}'; expected true or false`,
+        "error",
       );
       expect(fm(d), "a refused theta does not register").toBeNull();
     });
@@ -209,8 +185,8 @@ describe("bug 0301 face (b) — non-mapping tool_loop:/respond_repair: silently 
     expectRow(
       d.diagnostics,
       MALFORMED_TOOL_LOOP_FIELD,
-      "error",
       "malformed 'tool_loop:' field; expected a mapping, got number",
+      "error",
     );
     expect(fm(d), "a refused theta does not register").toBeNull();
   });
@@ -222,8 +198,8 @@ describe("bug 0301 face (b) — non-mapping tool_loop:/respond_repair: silently 
     expectRow(
       d.diagnostics,
       MALFORMED_TOOL_LOOP_FIELD,
-      "error",
       "malformed 'tool_loop:' field; expected a mapping, got array",
+      "error",
     );
     expect(fm(d), "a refused theta does not register").toBeNull();
   });
@@ -237,8 +213,8 @@ describe("bug 0301 face (b) — non-mapping tool_loop:/respond_repair: silently 
     expectRow(
       d.diagnostics,
       MALFORMED_RESPOND_REPAIR_FIELD,
-      "error",
       "malformed 'respond_repair:' field; expected a mapping, got string",
+      "error",
     );
     expect(fm(d), "a refused theta does not register").toBeNull();
   });
@@ -258,8 +234,8 @@ describe("bug 0301 face (c) — typo'd nested sub-key drops without the unknown-
     expectRow(
       d.diagnostics,
       UNKNOWN_FRONTMATTER_FIELD,
-      "warning",
       "unknown frontmatter field 'tool_loop.max_round'",
+      "warning",
     );
     expect(fm(d), "a nested typo still registers the theta").not.toBeNull();
     expect(
@@ -278,8 +254,8 @@ describe("bug 0301 face (c) — typo'd nested sub-key drops without the unknown-
     expectRow(
       d.diagnostics,
       UNKNOWN_FRONTMATTER_FIELD,
-      "warning",
       "unknown frontmatter field 'respond_repair.methodolgy'",
+      "warning",
     );
     expect(fm(d), "a nested typo still registers the theta").not.toBeNull();
     expect(
@@ -342,8 +318,8 @@ describe("bug 0301 controls — the fix must not regress these", () => {
     expectRow(
       d.diagnostics,
       UNKNOWN_FRONTMATTER_FIELD,
-      "warning",
       "unknown frontmatter field 'methodolgy'",
+      "warning",
     );
     expect(fm(d), "a top-level unknown key still registers").not.toBeNull();
   });

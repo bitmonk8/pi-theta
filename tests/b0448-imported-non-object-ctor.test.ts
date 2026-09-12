@@ -1,8 +1,6 @@
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 // @ts-expect-error — JS code-registry module, no type declarations.
-import { parseRegistry, registryMessage } from "../tools/code-registry/index.js";
+import { registryMessage } from "../tools/code-registry/index.js";
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
 import { checkThetaImports } from "../src/extension/import-static-checks";
 import type { ThetaCompositionInput } from "../src/extension/theta-composition-producer";
@@ -10,6 +8,7 @@ import type { ParsedFrontmatter } from "../src/parser/frontmatter";
 import type { ThetaDocument } from "../src/parser/theta-document";
 import type { FileSystem } from "../src/seams/file-system";
 import { parseDeps, parseDoc } from "./helpers/e2e-s1";
+import { REGISTRY } from "./helpers/registry-oracle";
 
 // Bug 0448 — a constructor naming an imported NON-OBJECT declaration is judged
 // at no phase and mints a value at runtime. The same-file spelling of each is
@@ -78,16 +77,10 @@ const UNRESOLVED = "theta/parse/unresolved-named-type";
 // template reds by naming the registry, not by a bare string mismatch.
 // ===========================================================================
 
-interface RegistryRow {
-  readonly code: string;
-  readonly message: string;
-}
-
+// `REGISTRY` is the shared four-page diagnostics-registry read
+// (`tests/helpers/registry-oracle.ts`, PTQ-0215); `theta/parse/unresolved-named-type`
+// lives on the parse page that union already includes.
 const REGISTRY_PAGE = "docs/spec_topics/diagnostics/code-registry-parse.md";
-
-const REGISTRY = parseRegistry(
-  readFileSync(fileURLToPath(new URL(`../${REGISTRY_PAGE}`, import.meta.url)), "utf8"),
-) as RegistryRow[];
 
 /** `theta/parse/unresolved-named-type`'s normative *Message* with `<name>` filled. */
 function nameMsg(name: string): string {

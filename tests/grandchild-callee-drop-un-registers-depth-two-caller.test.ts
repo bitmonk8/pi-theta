@@ -5,11 +5,18 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 // @ts-expect-error — JS code-registry module, no type declarations.
-import { parseRegistry, registryMessage } from "../tools/code-registry/index.js";
+import { parseRegistry } from "../tools/code-registry/index.js";
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
 import { composeExtensionInstance } from "../src/extension/production-composition";
 import { RendererGate, SYSTEM_NOTE_CHANNEL } from "../src/extension/system-note-channel";
 import type { ParsedTheta } from "../src/extension/reload-wiring";
+import {
+  allDiagnostics,
+  describeNotes,
+  errorFilesOf,
+  normativeMessagePattern as normativeMessagePatternCore,
+  requireDriven as requireDrivenCore,
+} from "./helpers/compose-workspace-harness";
 
 // Bug 0271 — a prompt-mode GRANDPARENT whose `tools:` names a subagent CHILD
 // whose own `tools:` names a GRANDCHILD carrying a drop route: the grandchild
@@ -268,16 +275,7 @@ const REGISTRY = ["code-registry-parse.md", "code-registry-load.md"].flatMap((pa
  * against `undefined`.
  */
 function normativeMessagePattern(code: string): RegExp {
-  const message = registryMessage(REGISTRY, code) as string | undefined;
-  if (typeof message !== "string" || message.length === 0) {
-    throw new Error(
-      "harness: the docs/spec_topics/diagnostics/ registry pages carry no Message row for " +
-        `${code} — the DIAG-4 column is this file's only message oracle, so a missing row ` +
-        "is a harness failure, never a skip",
-    );
-  }
-  const escaped = message.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  return new RegExp(escaped.replace(/<[a-z-]+>/g, ".+"));
+  return normativeMessagePatternCore(REGISTRY, code);
 }
 
 // ── Host doubles ────────────────────────────────────────────────────────────
@@ -422,27 +420,10 @@ async function runLoadPass(workspace: ComposeWorkspace): Promise<LoadPass> {
 }
 
 // ── Observation helpers ─────────────────────────────────────────────────────
-
-function noteDiagnostics(note: RecordedNote): readonly Diagnostic[] {
-  const details = note.details as { diagnostics?: unknown } | undefined;
-  const diagnostics = details?.diagnostics;
-  if (!Array.isArray(diagnostics)) {
-    expect.fail(
-      `system note carries no details.diagnostics array: ${JSON.stringify(note.details)}`,
-    );
-  }
-  return diagnostics as readonly Diagnostic[];
-}
-
-function allDiagnostics(notes: readonly RecordedNote[]): readonly Diagnostic[] {
-  return notes.flatMap((note) => [...noteDiagnostics(note)]);
-}
-
-function describeNotes(notes: readonly RecordedNote[]): string {
-  return notes.length === 0
-    ? "[] (NO NOTE ON THE CHANNEL)"
-    : notes.map((n, i) => `[${i}] ${n.content}`).join("\n");
-}
+//
+// `noteDiagnostics`, `allDiagnostics`, `describeNotes` and `errorFilesOf` are
+// the shared load-pass harness in `tests/helpers/compose-workspace-harness.ts`
+// (PTQ-0230).
 
 /** Error-severity codes the pass located at `file`, sorted and de-duplicated. */
 function errorCodesAt(pass: LoadPass, file: string): readonly string[] {
@@ -455,23 +436,9 @@ function errorCodesAt(pass: LoadPass, file: string): readonly string[] {
   ].sort();
 }
 
-/** Files at which the pass located an error-severity row of `code`, sorted. */
-function errorFilesOf(pass: LoadPass, code: string): readonly string[] {
-  return allDiagnostics(pass.notes)
-    .filter((d) => d.severity === "error" && d.code === code)
-    .map((d) => normalisePath(d.file ?? "?"))
-    .sort();
-}
-
 /** The host double must have been driven at all before any decision means anything. */
 function requireDriven(pass: LoadPass): void {
-  if (pass.notes.length === 0 && pass.registered.length === 0) {
-    throw new Error(
-      "harness: the composition root neither registered a theta nor put anything on the " +
-        "theta-system-note channel — the bug-0271 fixture no longer reaches the load pass, " +
-        "so nothing below is verified",
-    );
-  }
+  requireDrivenCore(pass, "0271");
 }
 
 /**
