@@ -2,7 +2,7 @@
 id: PTQ-0221
 title: b0329 redeclares the ExtensionAPI/ExtensionContext composition-root recording double that tests/helpers/compose-workspace-harness.ts already exports as HostDouble/makeHost
 lens: D7                     # D2 | D7 — the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - tests/b0329-hash-mismatch-refuses-invocation.test.ts:85-126

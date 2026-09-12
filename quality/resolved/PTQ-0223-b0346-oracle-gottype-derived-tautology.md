@@ -2,7 +2,7 @@
 id: PTQ-0223
 title: b0346 cell (O) re-derives a value two preceding `toEqual` calls already pinned, so its own assertion cannot independently fail
 lens: D7                     # D2 | D7 — the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - tests/b0346-checker-side-lubs-literal-candidate-asymmetry.test.ts:85-96

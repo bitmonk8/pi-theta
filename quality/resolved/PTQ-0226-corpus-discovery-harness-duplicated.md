@@ -2,7 +2,7 @@
 id: PTQ-0226
 title: The GOV-15 committed-`.theta`/`.thetalib`-corpus discovery sequence (git ls-files, split/filter, loud-empty-check) is reimplemented independently in this file and 14 sibling test files
 lens: D7                     # D2 | D7 — the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - tests/annotation-nontype-text-refusal.test.ts:2601-2613

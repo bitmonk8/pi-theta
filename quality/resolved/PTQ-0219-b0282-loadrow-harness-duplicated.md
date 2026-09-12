@@ -2,7 +2,7 @@
 id: PTQ-0219
 title: b0282 reimplements the LoadRow/registry diagnostic-load harness that tests/helpers/load-row-harness.ts already centralises
 lens: D7                     # D2 | D7 — the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - tests/b0282-unknown-applied-generic-head-gate-at-nine-positions.test.ts:128-314

@@ -2,7 +2,7 @@
 id: PTQ-0220
 title: b0320 redeclares the makeHost/HostDouble/ComposeWorkspace composition-root harness that tests/helpers/compose-workspace-harness.ts already exports
 lens: D7                     # D2 | D7 — the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - tests/b0320-tools-entry-extension-rule-unenforced.test.ts:147-206

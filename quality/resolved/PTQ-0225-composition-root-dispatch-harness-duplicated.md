@@ -2,7 +2,7 @@
 id: PTQ-0225
 title: The discoverAndComposeFixtures dispatch/theta-system-note-channel harness (hostPi/loadCtx/dispatchCtx/noteContents/errNote) is redefined near-verbatim in three test files
 lens: D7                     # D2 | D7 — the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - tests/b0293-invoke-callee-cause-partition.test.ts:92-221

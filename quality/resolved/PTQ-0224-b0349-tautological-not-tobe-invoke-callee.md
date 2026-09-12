@@ -2,7 +2,7 @@
 id: PTQ-0224
 title: Two b0349 assertions check `err.kind` is not `invoke_callee` right after a `.toBe()` already pinned it to a different literal
 lens: D7                     # D2 | D7 — the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - tests/b0349-codecall-child-internal-cancel-wrap-arm.test.ts:435-440
