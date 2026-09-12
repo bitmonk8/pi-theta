@@ -15,17 +15,14 @@ import {
   type StrictCapableProbeResult,
   type LoadedTheta,
 } from "../src/binder/binder-model";
-import {
-  createModelReferenceMatcher,
-  type AvailableModel,
-  type ModelRegistrySurface,
-} from "../src/extension/reload-wiring";
+import { createModelReferenceMatcher } from "../src/extension/reload-wiring";
 import type {
   ModelReferenceMatcher,
   ParseFrontmatterOptions,
   FrontmatterParseResult,
 } from "../src/parser/frontmatter";
 import type { ThetaSettings } from "../src/discovery/settings";
+import { model, registryOf } from "./helpers/model-registry-fixture";
 
 // V11a-T — binder-model resolution and the strict-capability probe (tests).
 // Written against the seams the paired V11a implementation leaf fills in; every
@@ -37,16 +34,6 @@ import type { ThetaSettings } from "../src/discovery/settings";
 // #strict-capability-requirement, #binder-model-parse-rule,
 // #binder-model-hot-reload, BNDR-11), binder.md; model-registry surface
 // pi-integration-contract/host-interfaces-core.md#model-registry-pin.
-
-const model = (id: string, provider: string, api: string): AvailableModel => ({
-  id,
-  provider,
-  api,
-});
-
-const registryOf = (models: readonly AvailableModel[]): ModelRegistrySurface => ({
-  getAvailable: () => models,
-});
 
 /** A probe that never runs (the reference resolves to no model). */
 const noProbe = (): StrictCapableProbeResult | undefined => undefined;

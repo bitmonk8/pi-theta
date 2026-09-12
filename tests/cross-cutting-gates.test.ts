@@ -1,12 +1,12 @@
-import { readdirSync, readFileSync, statSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import path from "node:path";
 import { Linter } from "eslint";
 import { describe, expect, it } from "vitest";
 // @ts-expect-error — JS architectural-check module, no type declarations.
 import { findModuleLevelMutableBindings } from "../tools/arch-checks/no-module-level-mutable.js";
 // @ts-expect-error — JS flat-config module, no type declarations.
 import eslintConfig from "../eslint.config.js";
+import { tsFiles } from "./helpers/ts-files";
 
 // H2a — cross-cutting lint and architectural gates. These assertions ARE the
 // lint + architectural surface "wired into npm test": they run theta's
@@ -205,19 +205,6 @@ describe("H2a — module-level-mutable architectural test (Convention: No global
 
 describe("H2a — gates hold over the real production tree", () => {
   const srcRoot = fileURLToPath(new URL("../src", import.meta.url));
-
-  function tsFiles(dir: string): string[] {
-    const out: string[] = [];
-    for (const entry of readdirSync(dir)) {
-      const full = path.join(dir, entry);
-      if (statSync(full).isDirectory()) {
-        out.push(...tsFiles(full));
-      } else if (entry.endsWith(".ts") && !entry.endsWith(".test.ts")) {
-        out.push(full);
-      }
-    }
-    return out;
-  }
 
   it("no src/** production file declares a module-level mutable binding", () => {
     for (const file of tsFiles(srcRoot)) {

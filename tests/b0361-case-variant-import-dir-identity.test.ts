@@ -1,10 +1,4 @@
-import {
-  mkdtempSync,
-  mkdirSync,
-  rmSync,
-  writeFileSync,
-  promises as fsp,
-} from "node:fs";
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -35,6 +29,7 @@ import { type ThetaValue } from "../src/runtime/value";
 import type { RuntimeRoot } from "../src/runtime-root";
 import type { Checkpoint } from "../src/seams/checkpoint";
 import { PiFileSystem } from "../src/seams/pi-file-system";
+import { detectCaseInsensitiveHost } from "./helpers/case-insensitive-host-probe";
 import { parseDeps } from "./helpers/e2e-s1";
 
 // Bug 0361 — a case-variant DIRECTORY spelling in a `.thetalib` import path
@@ -260,28 +255,6 @@ function writeLayout(root: string): void {
   );
 }
 
-/**
- * Runtime host-case-sensitivity probe. After `<root>/libs/` exists, write a
- * probe entry and `readdir` the UPPERCASED directory (`<root>/LIBS`): a
- * resolution to the libs entries means the host is case-INSENSITIVE; an ENOENT
- * rejection means case-SENSITIVE. An unexpected error rejects (fails loudly),
- * never silently degrading the branch selection — the `.then(ok, err)`
- * rejection arm is the sanctioned pattern (mirrors `PiFileSystem.exists`), not
- * a broad `catch`.
- */
-async function detectCaseInsensitiveHost(root: string): Promise<boolean> {
-  writeFileSync(join(root, "libs", "probe.thetalib"), 'fn probe(): string { "p" }\n', "utf8");
-  return fsp.readdir(join(root, "LIBS")).then(
-    (entries) => entries.includes("probe.thetalib"),
-    (error: NodeJS.ErrnoException) => {
-      if (error.code === "ENOENT") {
-        return false;
-      }
-      throw error;
-    },
-  );
-}
-
 describe("bug 0361 — a case-variant import directory must not split one physical `.thetalib` into two declaring identities", () => {
   let root: string;
   let caseInsensitive: boolean;
@@ -289,7 +262,10 @@ describe("bug 0361 — a case-variant import directory must not split one physic
   beforeEach(async () => {
     root = mkdtempSync(join(tmpdir(), "b0361-"));
     writeLayout(root);
-    caseInsensitive = await detectCaseInsensitiveHost(root);
+    // A dedicated probe entry, written after the layout (the probe's own
+    // scratch file, decoupled from whatever `writeLayout` happens to plant).
+    writeFileSync(join(root, "libs", "probe.thetalib"), 'fn probe(): string { "p" }\n', "utf8");
+    caseInsensitive = await detectCaseInsensitiveHost(root, "LIBS", "probe.thetalib");
   });
 
   afterEach(() => {

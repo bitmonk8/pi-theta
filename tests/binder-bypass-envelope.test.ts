@@ -151,7 +151,10 @@ describe("V11c-T — envelope is a relaxed params copy with a maxLength:500 mode
       false,
     );
     const argProps = (args as { properties?: Record<string, unknown> } | undefined)?.properties;
-    expect(argProps?.["focus"]).toBeDefined();
+    // The relaxed copy carries the field's original type descriptor unchanged
+    // (the input declared `focus: { type: "string" }` above) — not merely a
+    // defined value at that key.
+    expect(argProps?.["focus"]).toEqual({ type: "string" });
   });
 
   it("relaxed copy: when every params field has a default, args.required is []", () => {

@@ -27,21 +27,15 @@
 // tests/b0440-cross-source-shadow-descriptor-form.test.ts). The
 // cross-format-collision code is NOT a carve-out and is located by its literal.
 
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import type {
-  ExtensionAPI,
-  ExtensionContext,
-} from "@earendil-works/pi-coding-agent";
 import {
-  createThetaExtension,
-  type ThetaExtensionDeps,
-} from "../src/extension/factory";
-import { composeExtensionInstance } from "../src/extension/production-composition";
-import { FakeClock } from "./helpers/fake-clock";
-import { FakeFileWatcher } from "./helpers/fake-file-watcher";
+  byCode,
+  byFragment,
+  makeHarness,
+  mintWorkspace,
+} from "./helpers/package-merge-e2e-harness";
 
 const CROSS_FORMAT_COLLISION = "theta/load/cross-format-collision";
 // The shadow diagnostic's message fragment — never its registry code literal
@@ -52,98 +46,6 @@ function promptTheta(description: string, body: string): string {
   return ["---", "mode: prompt", `description: ${description}`, "---", `@\`${body}\``, ""].join(
     "\n",
   );
-}
-
-interface CapturedNote {
-  readonly code: string;
-  readonly message: string;
-  readonly severity: string;
-}
-
-interface Harness {
-  readonly commands: Map<string, { description?: string }>;
-  readonly registrations: string[];
-  readonly notes: CapturedNote[];
-  fireSessionStart(): Promise<void>;
-}
-
-// The e2e-s6 harness shape, extended to capture the `theta-system-note`
-// channel's `pi.sendMessage` payloads (the e2e-s6 harness stubs it no-op).
-function makeHarness(cwd: string): Harness {
-  const commands = new Map<string, { description?: string }>();
-  const registrations: string[] = [];
-  const notes: CapturedNote[] = [];
-  const subscriptions = new Map<
-    string,
-    ((event: unknown, ctx: ExtensionContext) => unknown)[]
-  >();
-
-  const pi = {
-    registerFlag: (): void => {},
-    registerMessageRenderer: (): void => {},
-    registerCommand: (name: string, options: { description?: string }): void => {
-      commands.set(name, options);
-      registrations.push(name);
-    },
-    on: (
-      event: string,
-      handler: (e: unknown, c: ExtensionContext) => unknown,
-    ): void => {
-      const list = subscriptions.get(event) ?? [];
-      list.push(handler);
-      subscriptions.set(event, list);
-    },
-    getFlag: (): undefined => undefined,
-    getCommands: (): { name: string; source: string }[] =>
-      [...commands.keys()].map((name) => ({ name, source: "extension" })),
-    sendMessage: (message: {
-      customType?: string;
-      details?: { diagnostics?: readonly CapturedNote[] };
-    }): void => {
-      if (message?.customType !== "theta-system-note") return;
-      const diagnostics = message.details?.diagnostics;
-      if (!Array.isArray(diagnostics)) return;
-      for (const d of diagnostics) {
-        notes.push({ code: d.code, message: d.message, severity: d.severity });
-      }
-    },
-    sendUserMessage: (): void => {},
-  } as unknown as ExtensionAPI;
-
-  const ctx = {
-    cwd,
-    hasUI: false,
-    modelRegistry: { getAvailable: (): readonly unknown[] => [] },
-    ui: { notify: (): void => {} },
-  } as unknown as ExtensionContext;
-
-  const deps: ThetaExtensionDeps = {
-    fixtures: [],
-    composeInstance: (composePi, composeCtx) =>
-      composeExtensionInstance(composePi, composeCtx, {
-        fileWatcher: new FakeFileWatcher(),
-        clock: new FakeClock(),
-      }),
-  };
-  createThetaExtension(deps)(pi);
-
-  return {
-    commands,
-    registrations,
-    notes,
-    fireSessionStart: async () => {
-      for (const handler of subscriptions.get("session_start") ?? []) {
-        await handler({ type: "session_start" }, ctx);
-      }
-    },
-  };
-}
-
-function byCode(notes: readonly CapturedNote[], code: string): CapturedNote[] {
-  return notes.filter((n) => n.code === code);
-}
-function byFragment(notes: readonly CapturedNote[], fragment: string): CapturedNote[] {
-  return notes.filter((n) => n.message.includes(fragment));
 }
 
 /** Write a package's `package.json` + one theta under `<workspace>/node_modules/<pkg>/theta/`. */
@@ -165,28 +67,16 @@ function plantPackageTheta(
 
 describe("b0462 — composition-root package merge vs five-tier adjudication", () => {
   let workspace: string;
-  let savedHome: string | undefined;
-  let savedUserProfile: string | undefined;
-  let savedAgentDir: string | undefined;
+  let disposeWorkspace: () => void;
 
   beforeEach(() => {
-    workspace = mkdtempSync(join(tmpdir(), "theta-b0462-"));
-    savedHome = process.env.HOME;
-    savedUserProfile = process.env.USERPROFILE;
-    savedAgentDir = process.env.PI_CODING_AGENT_DIR;
-    process.env.HOME = workspace;
-    process.env.USERPROFILE = workspace;
-    process.env.PI_CODING_AGENT_DIR = join(workspace, ".pi", "agent");
+    const ws = mintWorkspace("theta-b0462-");
+    workspace = ws.cwd;
+    disposeWorkspace = ws.dispose;
   });
 
   afterEach(() => {
-    if (savedHome === undefined) delete process.env.HOME;
-    else process.env.HOME = savedHome;
-    if (savedUserProfile === undefined) delete process.env.USERPROFILE;
-    else process.env.USERPROFILE = savedUserProfile;
-    if (savedAgentDir === undefined) delete process.env.PI_CODING_AGENT_DIR;
-    else process.env.PI_CODING_AGENT_DIR = savedAgentDir;
-    rmSync(workspace, { recursive: true, force: true });
+    disposeWorkspace();
   });
 
   it("(i) a package theta wins over a same-named global theta and emits a cross-source-shadow note", async () => {

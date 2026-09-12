@@ -128,9 +128,11 @@ describe("RFC 0009 threading (A) — rows 2/5/8, V5/V6/V7/V8: a present clause r
     expect(outcome.spawns[0]!.cwd).toBe(resolvePath(CALLER_CWD, "sub/expr-dir"));
   });
 
-  it("row 8 note: this harness never runs a static-resolution pass, so a 'not statically resolvable' callee is not statically distinguishable here — the runtime-subagent cell (row 8) and the statically-resolvable cell (row 5) share this same evaluation+bind mechanism and are witnessed by the SAME assertion above; no separate cell is required at this level", () => {
-    expect(true).toBe(true);
-  });
+  // row 8 note: this harness never runs a static-resolution pass, so a "not
+  // statically resolvable" callee is not statically distinguishable here — the
+  // runtime-subagent cell (row 8) and the statically-resolvable cell (row 5)
+  // share this same evaluation+bind mechanism and are witnessed by the SAME
+  // assertion above (V5); no separate cell is required at this level.
 });
 
 // ===========================================================================

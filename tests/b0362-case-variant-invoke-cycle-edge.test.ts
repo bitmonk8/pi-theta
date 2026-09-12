@@ -1,4 +1,4 @@
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync, promises as fsp } from "node:fs";
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -13,6 +13,7 @@ import type { ThetaCompositionInput } from "../src/extension/theta-composition-p
 import type { ParsedFrontmatter } from "../src/parser/frontmatter";
 import { parseThetaDocument } from "../src/parser/theta-document";
 import { PiFileSystem } from "../src/seams/pi-file-system";
+import { detectCaseInsensitiveHost } from "./helpers/case-insensitive-host-probe";
 import { parseDeps } from "./helpers/e2e-s1";
 
 // Bug 0362 — `buildInvokeGraph` matched an `invoke` edge to a discovered theta
@@ -75,26 +76,6 @@ function writeLayout(root: string): void {
   for (const [name, source] of Object.entries(LAYOUT)) {
     writeFileSync(join(x2, name), source, "utf8");
   }
-}
-
-/**
- * Runtime host-case-sensitivity probe: after `<root>/x2/` exists, `readdir` the
- * UPPERCASED directory (`<root>/X2`). A resolution means case-INSENSITIVE; an
- * ENOENT rejection means case-SENSITIVE. Any other error rejects (fails
- * loudly), never silently degrading branch selection — the `.then(ok, err)`
- * rejection arm is the sanctioned pattern (mirrors `PiFileSystem.exists`), not
- * a broad `catch`.
- */
-async function detectCaseInsensitiveHost(root: string): Promise<boolean> {
-  return fsp.readdir(join(root, "X2")).then(
-    (entries) => entries.includes("a.theta"),
-    (error: NodeJS.ErrnoException) => {
-      if (error.code === "ENOENT") {
-        return false;
-      }
-      throw error;
-    },
-  );
 }
 
 /** Parse one on-disk theta into a `ThetaCompositionInput` (slash name = stem). */
@@ -178,7 +159,7 @@ describe("bug 0362 — a case-variant invoke directory spelling must not drop th
   beforeEach(async () => {
     root = mkdtempSync(join(tmpdir(), "b0362-"));
     writeLayout(root);
-    caseInsensitive = await detectCaseInsensitiveHost(root);
+    caseInsensitive = await detectCaseInsensitiveHost(root, "X2", "a.theta");
   });
 
   afterEach(() => {

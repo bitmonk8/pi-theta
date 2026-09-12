@@ -169,21 +169,13 @@ describe("V7b-T — the Message column is normative (DIAG-4)", () => {
   // DIAG-4 — every asserting test sources its expected string from the registry's
   // Message column, not from prose. registryMessage IS that single source of
   // truth; a test asserting a diagnostic's rendered message reads it from here.
-  it("DIAG-4: registryMessage returns the registry's normative Message string, and an asserting test sources its expected message from it", () => {
+  it("DIAG-4: registryMessage returns the registry's normative Message string", () => {
     const registry = parseRegistry(REGISTRY_TEXT) as RegistryRow[];
 
     // theta/parse/binding-case-mismatch — Message column (placeholder-free).
     expect(
       registryMessage(registry, "theta/parse/binding-case-mismatch"),
     ).toBe("binding name must start with a lowercase letter or _");
-
-    // The normative discipline: an asserting test's expected message string is
-    // the registry's, sourced via registryMessage rather than copy-pasted prose.
-    const emitted = {
-      code: "theta/parse/binding-case-mismatch",
-      message: "binding name must start with a lowercase letter or _",
-    };
-    expect(emitted.message).toBe(registryMessage(registry, emitted.code));
 
     // A code absent from the registry has no normative message.
     expect(registryMessage(registry, "theta/runtime/ghost")).toBeUndefined();

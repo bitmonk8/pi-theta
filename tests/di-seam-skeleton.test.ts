@@ -1,9 +1,9 @@
-import { readdirSync, readFileSync, statSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import path from "node:path";
 import { describe, expect, it } from "vitest";
 // @ts-expect-error — JS architectural-check module, no type declarations.
 import { findAmbientPrimitiveReferences } from "../tools/arch-checks/no-ambient-primitives.js";
+import { tsFiles } from "./helpers/ts-files";
 import { createRuntimeRoot, RuntimeRoot } from "../src/runtime-root";
 import type { RuntimeSeams } from "../src/runtime-root";
 import type {
@@ -225,19 +225,6 @@ describe("H3a — ambient-primitive scan (Convention: No globals, statics, singl
 
 describe("H3a — ambient-primitive scan holds over the real production tree", () => {
   const srcRoot = fileURLToPath(new URL("../src", import.meta.url));
-
-  function tsFiles(dir: string): string[] {
-    const out: string[] = [];
-    for (const entry of readdirSync(dir)) {
-      const full = path.join(dir, entry);
-      if (statSync(full).isDirectory()) {
-        out.push(...tsFiles(full));
-      } else if (entry.endsWith(".ts") && !entry.endsWith(".test.ts")) {
-        out.push(full);
-      }
-    }
-    return out;
-  }
 
   it("no src/** production file directly references a banned ambient primitive (no exempt site exists yet)", () => {
     for (const file of tsFiles(srcRoot)) {

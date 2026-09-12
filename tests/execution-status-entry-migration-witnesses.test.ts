@@ -16,12 +16,9 @@ import {
   computeBinderModelRecoveryNote,
   type BinderModelResolutionInput,
 } from "../src/binder/binder-model";
-import {
-  createModelReferenceMatcher,
-  type AvailableModel,
-  type ModelRegistrySurface,
-} from "../src/extension/reload-wiring";
+import { createModelReferenceMatcher } from "../src/extension/reload-wiring";
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
+import { model, registryOf } from "./helpers/model-registry-fixture";
 
 // RFC 0010 (execution-status.md EXST-8; runtime-event-channel.md PIC-71/72) —
 // bug 0469's fix witnesses, migrated per behaviour-matrix rows B52-B54/B64/B65
@@ -133,11 +130,6 @@ describe("T-ENT — B52: structural-change note delivers entry-first, byte-ident
     deliverOperatorNotePreferringEntry(STRUCTURAL_NOTE, deps);
     expect(sentMessages).toHaveLength(1);
   });
-});
-
-const model = (id: string, provider: string, api: string): AvailableModel => ({ id, provider, api });
-const registryOf = (models: readonly AvailableModel[]): ModelRegistrySurface => ({
-  getAvailable: () => models,
 });
 
 describe("T-ENT — B54: binder-model recovery note delivers entry-first, byte-identical vs. message realization", () => {

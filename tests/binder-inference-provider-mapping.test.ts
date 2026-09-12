@@ -21,6 +21,7 @@ import type {
   TransportError,
 } from "../src/runtime/query-error";
 import type { BinderEnvelopeSchema } from "../src/binder/binder-envelope";
+import { deepKeyOccurrences } from "./helpers/deep-key-occurrences";
 
 // Unit pins for the `V9j` "Binder inference call and provider-error mapping"
 // pair. Closes the code-keyed obligation areas `cka-34`
@@ -68,32 +69,6 @@ function classify(
     stopReason: "error",
     ...overrides,
   };
-}
-
-/**
- * Deep scan: every path at which the object key `key` occurs anywhere within
- * `value` (nested objects and arrays). `[]` means the key is entirely absent —
- * the bug-0011 live-round pin for `$ref` / `$defs` on the attachment copy.
- */
-function deepKeyOccurrences(value: unknown, key: string): string[] {
-  const hits: string[] = [];
-  const visit = (node: unknown, path: string): void => {
-    if (Array.isArray(node)) {
-      node.forEach((item, index) => visit(item, `${path}[${index}]`));
-      return;
-    }
-    if (node === null || typeof node !== "object") {
-      return;
-    }
-    for (const [k, child] of Object.entries(node as Record<string, unknown>)) {
-      if (k === key) {
-        hits.push(`${path}.${k}`);
-      }
-      visit(child, `${path}.${k}`);
-    }
-  };
-  visit(value, "$");
-  return hits;
 }
 
 // ============================================================================
