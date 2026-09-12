@@ -1,1 +1,8 @@
-{}
+{
+  "src/binder/binder-system-prompt.ts#normaliseParamLineBreaks": {
+    "date": "2026-09-12",
+    "finding": "quality/intake/qw20260912161041-d9-02-param-line-breaks-combined-scans.md",
+    "loc": 63,
+    "reason": "zone band (63 LOC); the two rules answer adjacent spec sentences and the file's own sibling rationale explains why they stay side by side; a split adds indirection and removes no duplication. Re-file only on ≥25% growth or a third distinct rule."
+  }
+}

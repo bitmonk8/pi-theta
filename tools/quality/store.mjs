@@ -236,6 +236,17 @@ function countLines(file) {
 
 // ---------------------------------------------------------------- frontmatter
 
+/**
+ * A scalar frontmatter value without its trailing YAML comment. TEMPLATE.md
+ * annotates every field (`lens: D2   # D2 | D7 | D9 ...`) and lens workers
+ * copy those annotations into their filings, so `lens`, `status`, `d9_host`
+ * and location entries all arrive comment-bearing; a comparison against the
+ * bare value must see the bare value.
+ */
+function stripYamlComment(value) {
+  return value.replace(/(^|\s)#.*$/, "").trim();
+}
+
 /** Naive single-level frontmatter reader for the fields this store owns. */
 function readFrontmatter(file) {
   const text = fs.readFileSync(file, "utf8");
@@ -247,13 +258,14 @@ function readFrontmatter(file) {
   for (const line of m[1].split("\n")) {
     const loc = line.match(/^\s+-\s+(.+?)\s*$/);
     if (inLocations && loc) {
-      locations.push(loc[1]);
+      const entry = stripYamlComment(loc[1]);
+      if (entry) locations.push(entry);
       continue;
     }
     inLocations = false;
     const kv = line.match(/^([A-Za-z_][A-Za-z0-9_]*):\s*(.*?)\s*$/);
     if (kv) {
-      fields[kv[1]] = kv[2];
+      fields[kv[1]] = stripYamlComment(kv[2]);
       if (kv[1] === "locations") inLocations = true;
     }
   }

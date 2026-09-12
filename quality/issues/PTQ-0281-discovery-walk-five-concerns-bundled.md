@@ -1,9 +1,9 @@
 ---
-id: pending                  # PTQ-NNNN minted at acceptance; never self-assigned
+id: PTQ-0281
 title: discovery-walk.ts bundles five separable discovery concerns in one 1596-LOC file
 lens: D9                     # D2 | D7 | D9 - the lens that filed this
-status: intake               # intake | open | fixed | rejected (store mechanics own transitions)
-verdict: pending              # pending | confirmed | questionable | false-positive | duplicate | out-of-scope | malformed
+status: open
+verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - src/discovery/discovery-walk.ts:1-1596
   - src/discovery/discovery-walk.ts:152-476
@@ -189,3 +189,4 @@ Unproven hypotheses; the human ratifies one.
 ## Triage
 <triage appends: verdict + one-line reason. Nothing above this line is edited.>
 verdict: questionable — re-ran `size-scan.mjs map`: 1596 LOC/band justify and every concern's member list/range/LOC (234/248/271/188/215, summing the tool's own per-declaration LOC) reproduce exactly, 0/0 importers confirmed for all 54 concern members (only `discoverThetas` at 1 src/16 tests), zero top-level `let`/`var` confirms the no-shared-state claim, and `git log --follow` confirms 22 commits, but two narrative errors don't refute this accounting: the Observation's "54 of 56 file-private" tally doesn't match the file's real total (69/75 by the same tool), and bug 0339 is misattributed to this file's history (its fix commit 381cb656 touched package-discovery.ts/production-composition.ts, never discovery-walk.ts) — per D9 policy a verified breakdown accounting caps at questionable (never confirmed) pending a human-ratified seam (triage: claude-opus-5)
+verdict: confirmed — RATIFIED (human, 2026-09-12): Seam A — move concern 1, the path/filesystem-shape classification (normalizePath … classifyUnresolvedTarget, :152-476, 234 LOC, all file-private) → new module src/discovery/discovery-path-classify.ts; discovery-walk.ts imports what it still uses (core remains — no barrel needed, 0 external importers of the moved members). Pure move by line range, declarations verbatim with their doc comments, new module gets a header stating its role, no logic edits, tsc first then the full gate. Seams B and C are NOT ratified in this ruling: the host stays over threshold and D9 re-files the next seam after this one lands.

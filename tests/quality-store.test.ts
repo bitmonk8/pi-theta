@@ -596,6 +596,56 @@ describe("tools/quality/store.mjs (scratch fixture store via QUALITY_STORE_ROOT)
     expect(row).not.toContain("could not reproduce");
   });
 
+  it("cell 22: frontmatter values keep TEMPLATE-style trailing '# comments' out of lens / status / d9_host / locations (a commented D9 issue still gets a D9 lane and a D9 exemption)", () => {
+    writeFile(root, "src/discovery/walk.ts", "export function walk() {\n  return 1;\n}\n");
+    writeFile(
+      root,
+      "quality/issues/PTQ-0091-commented.md",
+      [
+        "---",
+        "id: PTQ-0091                 # PTQ-NNNN minted at acceptance",
+        "title: commented",
+        "lens: D9                     # D2 | D7 | D9 - the lens that filed this",
+        "status: open                 # intake | open | fixed | rejected",
+        "verdict: confirmed",
+        "locations:                   # every cited site",
+        "  - src/discovery/walk.ts:1-3   # the host",
+        "sites: 1                     # count",
+        "d9_class: breakdown          # D9 only",
+        "d9_host: src/discovery/walk.ts # D9 breakdown only: the exemption key",
+        "d9_band: justify             # D9 breakdown only",
+        "---",
+        "",
+        "# commented",
+        "",
+        "## Triage",
+        "verdict: confirmed \u2014 ok (triage: x)",
+        "",
+      ].join("\n"),
+    );
+    const r = runStore(root, ["clusters", "--max", "12"]);
+    expect(r.status).toBe(0);
+    const keys = r.stdout.trim().split("\n").filter(Boolean).map((l) => l.split("\t")[0]);
+    expect(keys).toEqual(["d9/src__discovery__walk.ts"]);
+    expect(runStore(root, ["open-count"]).stdout.trim()).toBe("1");
+
+    // The same commented frontmatter through reject --verdict human-keep-whole.
+    writeFile(root, "quality/intake/w1-d9-01-commented.md", readFile(root, "quality/issues/PTQ-0091-commented.md"));
+    const r2 = runStore(root, ["reject", "--finding", "quality/intake/w1-d9-01-commented.md", "--verdict", "human-keep-whole", "--reason", "fine"]);
+    expect(r2.status).toBe(0);
+    expect(Object.keys(JSON.parse(readFile(root, "quality/exemptions.json")))).toEqual(["src/discovery/walk.ts"]);
+
+    // A '#fn' host keeps its '#': only a whitespace-preceded '#' starts a comment.
+    writeFile(
+      root,
+      "quality/intake/w1-d9-02-fn.md",
+      readFile(root, "quality/issues/PTQ-0091-commented.md").replace("d9_host: src/discovery/walk.ts # D9", "d9_host: src/discovery/walk.ts#walk   # D9"),
+    );
+    const r3 = runStore(root, ["reject", "--finding", "quality/intake/w1-d9-02-fn.md", "--verdict", "human-keep-whole", "--reason", "fine"]);
+    expect(r3.status).toBe(0);
+    expect(Object.keys(JSON.parse(readFile(root, "quality/exemptions.json"))).sort()).toEqual(["src/discovery/walk.ts", "src/discovery/walk.ts#walk"]);
+  });
+
   it("cell 12: default ROOT (env absent) resolves to the real repo and lists D2 + D7", () => {
     // Scrub any ambient override so the fallback itself is what runs.
     const env = { ...process.env };

@@ -1,9 +1,9 @@
 ---
-id: pending
+id: PTQ-0282
 title: walkSessionContext combines the BNDR-10 mode gate, turn grouping, and the cap-bounded truncation walk in one 82-LOC function
 lens: D9
-status: intake
-verdict: pending
+status: open
+verdict: confirmed
 locations:
   - src/binder/session-context-walk.ts:86-167
 sites: 1
@@ -91,3 +91,4 @@ Band: zone (82 LOC against FN_BANDS zone 60-99). Reasons-considered: closed-enum
 
 ## Triage
 verdict: questionable — accounting verified: `size-scan map` reproduces 82 LOC/zone band for `walkSessionContext` (file 167 LOC/exempt), the 4-row step inventory reproduces at the cited ranges with genuinely disjoint read/write sets (gate reads only bindContext/mode; grouping writes turns; the capped walk consumes turns+estimator; reflatten consumes only the walk's output), and no overlooked concrete/strong reason applies (no closed-enumeration table, no ≥6-local threading, no spec-cited atomicity invariant for this pure synchronous code, no exemption on record); per D9 rules an accurate breakdown accounting is never "confirmed", only human-ruled — minor overstatement noted: the compact-transcript.ts:290-296 loop is not literally byte-identical (`messages` vs `input.messages`), though the duplicated-algorithm point it supports still holds (triage: claude-opus-5)
+verdict: confirmed — RATIFIED (human, 2026-09-12): Seam A — extract the turn-grouping loop (session-context-walk.ts:110-117) into a shared helper groupMessagesIntoTurns in a new src/binder/turn-grouping.ts, and make compact-transcript.ts:290-296 (the near-identical loop; note it reads input.messages) call the same helper. Behaviour identical in both callers (same grouping, same order); the helper gets a doc comment; no other phase of walkSessionContext moves. Seam B is NOT ratified.
