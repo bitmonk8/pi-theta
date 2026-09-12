@@ -195,13 +195,42 @@ describe("V8a-T — ProductionCheckpoint correct yield kind at every cancel site
 
 describe("V8a-T — ProductionCheckpoint is per-invocation (PIC-10)", () => {
   it("PIC-10: two checkpoints from the same factory clock are independent instances, each functional", async () => {
-    const clock = new FakeClock();
-    const parent = new ProductionCheckpoint(clock);
-    const child = new ProductionCheckpoint(clock);
+    // `loop-iter` is the one CheckpointKind whose `before()` actually reads
+    // the injected Clock (the other four resolve via a bare `Promise.resolve()`
+    // and would pass this test unchanged even if the clock were never shared),
+    // so it is the kind that can observe "the same factory clock".
+    const recording = new RecordingClock(new FakeClock());
+    const parent = new ProductionCheckpoint(recording);
+    const child = new ProductionCheckpoint(recording);
     expect(parent).not.toBe(child);
 
-    // A child's microtask checkpoint resolves without disturbing the parent.
-    await child.before("query", SITE);
-    await parent.before("query", SITE);
+    let childResolved = false;
+    let parentResolved = false;
+    const childAwaited = child.before("loop-iter", SITE).then(() => {
+      childResolved = true;
+    });
+    const parentAwaited = parent.before("loop-iter", SITE).then(() => {
+      parentResolved = true;
+    });
+    // Both instances schedule their yield on the ONE shared clock.
+    expect(
+      recording.setTimeoutCalls,
+      "each instance schedules its own 0-ms timer on the shared factory clock",
+    ).toEqual([0, 0]);
+
+    // Neither settles from a microtask drain alone: both are genuinely
+    // macrotask-scheduled through the shared clock, not pre-resolved.
+    await flushMicrotasks();
+    expect(childResolved, "the child's checkpoint awaits the shared clock").toBe(false);
+    expect(parentResolved, "the parent's checkpoint awaits the shared clock").toBe(false);
+
+    // Advancing the ONE shared clock releases both pending checkpoints — a
+    // child's checkpoint resolving neither depends on nor disturbs the
+    // parent's, even though both route through the same Clock instance.
+    recording.advance(0);
+    await childAwaited;
+    await parentAwaited;
+    expect(childResolved).toBe(true);
+    expect(parentResolved).toBe(true);
   });
 });

@@ -37,11 +37,10 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { createThetaExtension, type ThetaExtensionDeps } from "../src/extension/factory";
-import { composeExtensionInstance } from "../src/extension/production-composition";
-import { FakeClock } from "./helpers/fake-clock";
-import { FakeFileWatcher } from "./helpers/fake-file-watcher";
+import {
+  makeHarness,
+  expectSoleCollisionNote,
+} from "./helpers/cross-format-collision-harness";
 
 // A minimal VALID `mode: prompt` theta: cell (i) needs it to parse and
 // register (the collision arm fires on the stem regardless of body validity,
@@ -52,88 +51,6 @@ const THETA_BODY = "---\nmode: prompt\n---\n\"ok\"\n";
 // by fragment (never by the namespaced registry code) to keep the corpus gate
 // intact.
 const COLLISION_FRAGMENT = "collides at the same priority";
-
-/** One `pi.getCommands()` entry — the fake's `SlashCommandInfo` shape, extended
- *  (per bug 0024's harness) with the optional host-populated `sourceInfo` whose
- *  `path` the pinned host carries for every prompt template. */
-interface FakeCommandInfo {
-  readonly name: string;
-  readonly source: string;
-  readonly sourceInfo?: { readonly path: string; readonly source: string; readonly scope: string; readonly origin: string };
-}
-
-interface Harness {
-  readonly pi: ExtensionAPI;
-  readonly notes: string[];
-  readonly registeredNames: () => string[];
-  fireSessionStart(): Promise<void>;
-}
-
-/** Factory + composeExtensionInstance seam over a real mkdtemp workspace,
- *  mirroring b0459 cell 4. `extra` plants the genuine Pi-owned entry under test;
- *  the extension's own registrations come back as `source: "extension"`, exactly
- *  as the host reports them. */
-function makeHarness(cwd: string, extra: readonly FakeCommandInfo[]): Harness {
-  const commands = new Map<string, unknown>();
-  const notes: string[] = [];
-  const subscriptions = new Map<string, ((e: unknown, c: ExtensionContext) => unknown)[]>();
-
-  const pi = {
-    registerFlag: (): void => {},
-    registerMessageRenderer: (): void => {},
-    registerCommand: (name: string, options: unknown): void => {
-      commands.set(name, options);
-    },
-    on: (event: string, handler: (e: unknown, c: ExtensionContext) => unknown): void => {
-      const list = subscriptions.get(event) ?? [];
-      list.push(handler);
-      subscriptions.set(event, list);
-    },
-    getFlag: (): undefined => undefined,
-    getCommands: (): readonly FakeCommandInfo[] => [
-      ...[...commands.keys()].map((name) => ({ name, source: "extension" })),
-      ...extra,
-    ],
-    sendMessage: (message: { content: string }): void => {
-      notes.push(message.content);
-    },
-    sendUserMessage: (): void => {},
-  } as unknown as ExtensionAPI;
-
-  const ctx = {
-    cwd,
-    hasUI: false,
-    modelRegistry: { getAvailable: (): readonly unknown[] => [] },
-    ui: { notify: (): void => {} },
-  } as unknown as ExtensionContext;
-
-  const fire = async (event: string): Promise<void> => {
-    for (const handler of subscriptions.get(event) ?? []) {
-      await handler({ type: event }, ctx);
-    }
-  };
-
-  const clock = new FakeClock();
-  const deps: ThetaExtensionDeps = {
-    fixtures: [],
-    composeInstance: async (pi2, ctx2, ownRegisteredNames) =>
-      composeExtensionInstance(
-        pi2,
-        ctx2,
-        { fileWatcher: new FakeFileWatcher(), clock },
-        undefined,
-        ownRegisteredNames,
-      ),
-  };
-  createThetaExtension(deps)(pi);
-
-  return {
-    pi,
-    notes,
-    registeredNames: () => [...commands.keys()],
-    fireSessionStart: () => fire("session_start"),
-  };
-}
 
 /** The collision notes carrying the fragment. */
 function collisionNotes(notes: readonly string[]): string[] {
@@ -228,16 +145,6 @@ describe("b0460 — the skill arm is vacuous at the pinned host (spec-side retir
 
     expect(harness.registeredNames()).not.toContain("foo");
     const collision = collisionNotes(harness.notes);
-    expect(
-      collision,
-      `expected exactly one collision note; got ${JSON.stringify(collision)}`,
-    ).toHaveLength(1);
-    const note = collision[0]!;
-    // (a) the `.md` sibling is named, forward-slash spelled.
-    expect(note).toContain(forwardMd);
-    // (b) no off-template survives-suffix.
-    expect(note).not.toContain("survives)");
-    // (c) forward-slash spelling: no backslash anywhere in the rendered paths.
-    expect(note).not.toMatch(/\\/);
+    expectSoleCollisionNote(collision, forwardMd);
   }, 15000);
 });

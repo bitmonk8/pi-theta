@@ -181,15 +181,18 @@ describe("bug 0380 — a non-identifier `params:` key is refused at load (Option
     expect(echo).not.toContain("\n");
   });
 
-  it("(I-break-carrying) the break-carrying key is unreachable-at-render because the refusal is the covering — RED at fork", () => {
-    // The refusal IS the covering. Because parseDoc(carrierBreak) raises an
-    // error-severity CODE, the theta does not register (the parseFrontmatter
-    // contract, src/parser/frontmatter.ts:1109 "The theta registers iff no
-    // error-severity diagnostic was raised"), so the break-carrying wireName
-    // never reaches renderBinderParamLine or renderArgumentEcho at all — the
-    // seams are unreachable-at-render, not normalised. RED at fork: no
-    // error-severity CODE is raised yet, so the theta DOES register and the
-    // break-carrying wireName reaches both seams (the 0380 defect).
+  it("(I-break-carrying) carrierBreak's parse raises CODE — the same refusal cell (J) restates as a registration outcome — RED at fork", () => {
+    // This cell recomputes the same CODE-presence check as cell (J) below, on
+    // the same carrierBreak input; it does NOT call renderBinderParamLine or
+    // renderArgumentEcho (contrast the preceding (I-break-free) cell, which
+    // does). The refusal IS the covering: because parseDoc(carrierBreak)
+    // raises an error-severity CODE, the theta does not register (the
+    // parseFrontmatter contract, src/parser/frontmatter.ts:1109 "The theta
+    // registers iff no error-severity diagnostic was raised"), so the
+    // break-carrying wireName never reaches either renderer in production — a
+    // consequence of the cited contract, not something this cell's own
+    // execution drives or observes. RED at fork: no error-severity CODE is
+    // raised yet, so the theta DOES register.
     const carrierErrors = errors(parseDoc(carrierBreak).diagnostics);
     expect(carrierErrors.map((d) => d.code)).toContain(CODE);
   });

@@ -104,6 +104,13 @@ describe("b0426 (A) QRY-18 gains a union row + value-driven row-selection note (
       text,
       "bug 0426 §Fix: the union row's translation clause must state the schema-brand arm pick (0425-(a)'s brand-first behaviour)",
     ).toContain("schema brand");
+    // Gates the ORDER itself (brand tried first, and only otherwise does the
+    // system: bare-path field-set match run) — not just that "schema brand" is
+    // mentioned somewhere.
+    expect(
+      text,
+      "bug 0426 §Fix: the clause must state the brand arm is tried FIRST, falling to the field-set match only otherwise",
+    ).toContain("when that brand names an arm; otherwise");
   });
 
   it("covers a value matching no arm or matching more than one, rendered untranslated", () => {
@@ -169,6 +176,10 @@ describe("b0426 (C) the docs/reference/ mirror carries the value-driven rule (RE
     // The mirror must carry BOTH cases the settled constraint names; a
     // no-match-only mirror lets a reference-only reader implement a first-arm
     // pick on ambiguity without contradicting the text (review F3).
+    expect(
+      text,
+      "bug 0426 §Fix: the reference mirror must state that a no-match value renders untranslated",
+    ).toContain("no arm");
     expect(
       text,
       "bug 0426 §Fix: the reference mirror must state that a value matching more than one arm also renders untranslated, not only a no-match value",

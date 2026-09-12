@@ -2,11 +2,15 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import {
-  buildBinderSystemPrompt,
-  type SystemPromptParamField,
-} from "../src/binder/binder-system-prompt";
+import { buildBinderSystemPrompt } from "../src/binder/binder-system-prompt";
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
+import {
+  ONE_INTEGER_FIELD,
+  RAW_ARGUMENTS,
+  THETA_NAME,
+  codesOf,
+  buildOneFieldPromptCell,
+} from "./helpers/binder-prompt-one-field-harness";
 import { parseDoc } from "./helpers/e2e-s1";
 import { committedThetaSources } from "./helpers/theta-corpus";
 
@@ -58,67 +62,12 @@ import { committedThetaSources } from "./helpers/theta-corpus";
 
 // --- fixture drivers ---------------------------------------------------------
 
-/**
- * The single `params:` field every row declares. One `integer` field is not the
- * single-string bypass (binder-bypass-and-envelope.md:11), so
- * `:13`'s "all other shapes go through the binder" puts each row on the path
- * that builds this prompt.
- */
-const ONE_INTEGER_FIELD: readonly SystemPromptParamField[] = [
-  { wireName: "p", type: "integer", requirement: { kind: "required" } },
-];
-
-/** The raw slash text item 5's line must carry, on every row. */
-const RAW_ARGUMENTS = "real args";
-
-/** The bare command name item 1's line must carry, on every row. */
-const THETA_NAME = "t";
-
-/**
- * A `.theta` source carrying the given frontmatter fragment (which supplies
- * `description:` and/or `argument-hint:`) above the one-field `params:` block.
- */
-function source(frontmatterFragment: string): string {
-  return `---\nmode: prompt\n${frontmatterFragment}params:\n  p: integer\n---\n\nlet x = 1\n`;
-}
-
-interface Row {
-  readonly prompt: string;
-  readonly description: string | undefined;
-  readonly argumentHint: string | undefined;
-  readonly diagnostics: readonly Diagnostic[];
-}
-
-/**
- * Parse one source through the real front end, then build the prompt exactly as
- * the sole production caller does — `fm.description` and `fm.argumentHint`
- * spread verbatim onto the builder input (the `buildBinderSystemPrompt` call in
- * `ProductionThetaProducer`, `src/extension/production-theta-producer.ts:820`).
- * Nothing between the parser and the builder is mocked, so the transform this
- * file asserts has to live inside the builder to satisfy it.
- */
-function row(frontmatterFragment: string): Row {
-  const doc = parseDoc(source(frontmatterFragment));
-  const fm = doc.frontmatter;
-  if (fm === null) {
-    throw new Error(
-      `the fixture's frontmatter did not parse, so the row scores nothing: ${JSON.stringify(codesOf(doc.diagnostics))}`,
-    );
-  }
-  const prompt = buildBinderSystemPrompt({
-    name: THETA_NAME,
-    ...(fm.description !== undefined ? { description: fm.description } : {}),
-    ...(fm.argumentHint !== undefined ? { argumentHint: fm.argumentHint } : {}),
-    params: [...ONE_INTEGER_FIELD],
-    rawArguments: RAW_ARGUMENTS,
-  });
-  return {
-    prompt,
-    description: fm.description,
-    argumentHint: fm.argumentHint,
-    diagnostics: doc.diagnostics,
-  };
-}
+// `ONE_INTEGER_FIELD` / `RAW_ARGUMENTS` / `THETA_NAME` / `source()` /
+// `codesOf` / `buildOneFieldPromptCell` (aliased `row` below) are the shared
+// one-field binder-prompt harness (tests/helpers/binder-prompt-one-field-harness.ts,
+// PTQ-0252), shared with the bug 0209 sibling witness
+// (`tests/binder-prompt-all-break-description-hint-empty-line.test.ts`).
+const row = buildOneFieldPromptCell;
 
 // --- observables -------------------------------------------------------------
 
@@ -140,9 +89,6 @@ function soleLineWithPrefix(prompt: string, prefix: string): string {
   }
   return found[0] as string;
 }
-
-const codesOf = (diagnostics: readonly Diagnostic[]): string[] =>
-  diagnostics.map((d) => d.code);
 
 const errorsOf = (diagnostics: readonly Diagnostic[]): Diagnostic[] =>
   diagnostics.filter((d) => d.severity === "error");

@@ -2,14 +2,14 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import {
-  discoverThetas,
-  type DiscoveredTheta,
-  type DiscoveryInput,
-} from "../src/discovery/discovery-walk";
-import type { ThetaSettings } from "../src/discovery/settings";
+import type { DiscoveredTheta } from "../src/discovery/discovery-walk";
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
-import { PiFileSystem } from "../src/seams/pi-file-system";
+import {
+  THETA_BODY,
+  json,
+  makeScratchOps,
+  posix,
+} from "./helpers/discovery-scratch-harness";
 
 // Bug 0363 — an explicit `.theta` file reference (CLI `--theta` component or a
 // settings `thetaPaths` literal/glob) has its slash name derived from the
@@ -60,33 +60,13 @@ import { PiFileSystem } from "../src/seams/pi-file-system";
 const INVALID_SLASH_NAME = "theta/load/invalid-slash-name";
 const MISSING_SOURCE = "theta/load/missing-source";
 
-/** A body that reads far enough to register — discovery validates the slash
- *  name and file readability only, never the mode block, so a prompt-mode body
- *  suffices to exercise the discovery name/diagnostic this file asserts on. */
-const THETA_BODY = "mode: prompt\n---\n";
-
 // ── Scratch workspace ─────────────────────────────────────────────────────────
 
 let scratchDir: string; // native (backslash on Windows) — for on-disk writes
 let scratchPosix: string; // forward-slash — for references and prefix compares
 let xNativeDir: string; // <scratch>/x on disk
 
-/** Forward-slash form for reference/compare (Node fs accepts `/` on Windows and
- *  the walk normalises to `/`; a drive-letter path stays absolute). */
-function posix(path: string): string {
-  return path.replace(/\\/g, "/");
-}
-
-/** A forward-slash absolute path under the scratch root. */
-function sp(...parts: string[]): string {
-  return [scratchPosix, ...parts].join("/");
-}
-
-/** True when `path` lies under the per-test scratch root (case-insensitive: the
- *  host may report the temp prefix in a different case than `tmpdir()` did). */
-function underScratch(path: string): boolean {
-  return posix(path).toLowerCase().startsWith(scratchPosix.toLowerCase());
-}
+const { sp, underScratch, runWalk } = makeScratchOps(() => scratchPosix);
 
 function namedUnderScratch(
   thetas: readonly DiscoveredTheta[],
@@ -97,28 +77,6 @@ function namedUnderScratch(
 
 function scratchDiags(diags: readonly Diagnostic[], code: string): Diagnostic[] {
   return diags.filter((d) => d.code === code && d.file !== undefined && underScratch(d.file));
-}
-
-const json = (value: unknown): string => JSON.stringify(value);
-
-/**
- * Drive `discoverThetas` over the real scratch root with the production
- * `PiFileSystem` whose cwd is the scratch root (so the project conventional
- * root is `<scratch>/.pi/theta`, absent → silent). Only the explicit references
- * this test passes reach the scratch files.
- */
-async function runWalk(extra: {
-  settings?: ThetaSettings;
-  cliPaths?: readonly string[];
-}): Promise<{ thetas: readonly DiscoveredTheta[]; diagnostics: readonly Diagnostic[] }> {
-  const fs = new PiFileSystem(scratchPosix);
-  const inputObj: DiscoveryInput = {
-    fs,
-    settings: extra.settings ?? {},
-    ...(extra.cliPaths !== undefined ? { cliPaths: extra.cliPaths } : {}),
-  };
-  const { thetas, diagnostics } = await discoverThetas(inputObj);
-  return { thetas, diagnostics };
 }
 
 /**
