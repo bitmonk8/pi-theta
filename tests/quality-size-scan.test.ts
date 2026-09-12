@@ -131,14 +131,14 @@ describe("tools/quality/size-scan.mjs (scratch fixture tree via QUALITY_STORE_RO
 
   // ---------------------------------------------------------------- exemption annotations
 
-  it("exemption annotation includes the growth percentage", () => {
+  it("exemption annotation includes the growth percentage (D9: prefixed key)", () => {
     writeFile(root, "src/big.ts", makeFileOfLines(700));
     const manifest = writeManifest(root, "manifest.txt", ["src/big.ts"]);
     writeFile(
       root,
       "quality/exemptions.json",
       JSON.stringify({
-        "src/big.ts": { loc: 500, reason: "spec-cited invariant, see BNDR-3", date: "2026-01-01", finding: "quality/issues/PTQ-0001-x.md" },
+        "D9:src/big.ts": { loc: 500, reason: "spec-cited invariant, see BNDR-3", date: "2026-01-01", finding: "quality/issues/PTQ-0001-x.md", class: "breakdown" },
       }) + "\n",
     );
     const r = runScan(root, ["map", "--files", manifest, "--exemptions", "quality/exemptions.json"]);
@@ -147,6 +147,22 @@ describe("tools/quality/size-scan.mjs (scratch fixture tree via QUALITY_STORE_RO
     expect(r.stdout).toContain(
       "EXEMPT (human-ruled 2026-01-01: spec-cited invariant, see BNDR-3; LOC then 500, now 700, growth 40%)",
     );
+  });
+
+  it("a D8: entry on the same host is NOT annotated — map --exemptions reads D9: entries only", () => {
+    writeFile(root, "src/big.ts", makeFileOfLines(700));
+    const manifest = writeManifest(root, "manifest.txt", ["src/big.ts"]);
+    writeFile(
+      root,
+      "quality/exemptions.json",
+      JSON.stringify({
+        "D8:src/big.ts": { loc: 500, reason: "overbuilt, ratified simpler shape declined", date: "2026-01-01", finding: "quality/issues/PTQ-0002-y.md", class: "overbuilt" },
+      }) + "\n",
+    );
+    const r = runScan(root, ["map", "--files", manifest, "--exemptions", "quality/exemptions.json"]);
+    expect(r.status).toBe(0);
+    expect(r.stdout).not.toContain("EXEMPT");
+    expect(r.stdout).toContain("breakdown: zone — no presumption");
   });
 
   // ---------------------------------------------------------------- importers

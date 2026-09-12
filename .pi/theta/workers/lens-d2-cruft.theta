@@ -37,10 +37,10 @@ You hunt for D2 smells inside that scope:
 - Vestigial parameters, flags, fields: every call site passes the same value, or
   the value is never read. Cite all call sites.
 - Leftover scaffolding and commented-out code; historical narration comments.
-- Speculative generality: an abstraction, indirection layer, or config knob with
-  exactly one instantiation/user and no second one in sight. Count the users.
-- Redundant pass-through layers: wrappers that add no behavior; re-export files
-  nothing imports through.
+- Redundant re-export files nothing imports through.
+
+Over-built but live mechanisms (single-use indirection, pass-through wrappers,
+speculative generality) are D8's — route in notes, do not file.
 
 Out of scope (do not file): bugs or behavior changes; naming quality; duplication
 between live copies; design or architecture opinions; anything about tests/ or

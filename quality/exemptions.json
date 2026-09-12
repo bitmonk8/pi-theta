@@ -1,5 +1,6 @@
 {
-  "src/binder/binder-system-prompt.ts#normaliseParamLineBreaks": {
+  "D9:src/binder/binder-system-prompt.ts#normaliseParamLineBreaks": {
+    "class": "breakdown",
     "date": "2026-09-12",
     "finding": "quality/intake/qw20260912161041-d9-02-param-line-breaks-combined-scans.md",
     "loc": 63,

@@ -1,10 +1,14 @@
 {
   "D2": {
-    "description": "simplicity & cruft: dead code, vestigial names/flags/params, leftover scaffolding, commented-out code, speculative generality, redundant abstraction layers — over the production TypeScript sources",
+    "description": "simplicity & cruft: dead code, vestigial names/flags/params, leftover scaffolding, commented-out code — over the production TypeScript sources",
     "include": ["src/"],
     "exclude": [],
     "ext": [".ts"],
     "shard_loc": 6000
+  },
+  "D4": {
+    "description": "duplication & drift: copy-paste blocks and renamed copies (token-normalised clone groups), copies that have diverged, and load-bearing parallel implementations that must not drift — over the production TypeScript sources; tests/ duplication is D7's",
+    "include": ["src/"], "exclude": [], "ext": [".ts"], "shard_loc": 6000
   },
   "D7": {
     "description": "test quality: silent skips, assertions that cannot fail, boilerplate duplication, copy-paste fixtures/doubles, misleading test names — over the committed test suite; never coverage, never suite composition",
@@ -12,6 +16,10 @@
     "exclude": ["tests/fixtures/"],
     "ext": [".ts"],
     "shard_loc": 3000
+  },
+  "D8": {
+    "description": "simplification: complexity disproportionate to the job — over-built mechanisms (speculative generality, pass-through layers, single-use indirection), hand-rolled reimplementations of node/TypeScript/package facilities, API use against the grain, algorithms heavier than their data — accounting and a hypothesised simpler shape, never the fix; the spec is the pin",
+    "include": ["src/"], "exclude": [], "ext": [".ts"], "shard_loc": 12000
   },
   "D9": {
     "description": "placement & breakdown: code in the wrong module (counted affinity), hollow post-refactor survivors (payload vs scaffolding), and hosts over the size thresholds (files ≥600 / functions ≥60 LOC; presumption of breakdown at ≥1000/≥100, strong at ≥2000/≥200) without a concrete reason to stay whole — accounting and seam hypotheses, never the split design; over the production TypeScript sources",

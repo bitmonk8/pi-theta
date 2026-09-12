@@ -15,6 +15,10 @@
 //   loc --host <path[#fn]>
 //       Print hostLoc(ROOT, host).
 //   map --files <manifest> [--exemptions <quality/exemptions.json>]
+//       quality/exemptions.json is per-lens since quality-loop-d4-d8-design.md
+//       §3 ("<LENS>:<host>" keys, D9 and D8 today); this map annotates D9:
+//       entries ONLY — a D8 keep-whole never silences D9's own breakdown
+//       accounting, so a D8: entry on the same host is not read here.
 //       Print the structural map (markdown) for every file listed in
 //       <manifest> (one repo-relative path per line, e.g. a store.mjs shard
 //       manifest): header, imports, declarations table, per-class members
@@ -85,8 +89,10 @@ export function bandForFn(loc) {
 // countLines: store.mjs executes its CLI switch unconditionally at import
 // time (no `if (isMain)` guard), so importing it here would run whatever
 // subcommand happened to be on process.argv as a side effect. store.mjs is
-// the source of truth for this one-line rule.
-function countLinesText(text) {
+// the source of truth for this one-line rule. Exported so clone-scan.mjs
+// (D4, quality-loop-d4-d8-design.md §1.5) reuses this counter instead of a
+// third copy.
+export function countLinesText(text) {
   if (text.length === 0) return 0;
   let n = 0;
   for (let i = 0; i < text.length; i++) if (text[i] === "\n") n++;
@@ -357,26 +363,32 @@ const IMPORT_CORPUS_DIRS = [
   { dir: "tools", exts: [".mjs", ".ts"] },
 ];
 
-function listImportCorpusFiles(root) {
+/**
+ * Every file under root/dir whose name ends in one of exts, excluding
+ * .d.ts, sorted directory-by-directory (deterministic — the map/importer
+ * counters and clone-scan.mjs's D4 pre-scan all need a stable file order).
+ * Exported so clone-scan.mjs (quality-loop-d4-d8-design.md §1.5) reuses this
+ * walker for its src/**\/*.ts corpus instead of a second copy.
+ */
+export function listTsFiles(root, dir, exts) {
   const out = [];
+  const base = path.join(root, dir);
+  if (!fs.existsSync(base)) return out;
   const walk = (d) => {
     const entries = [...fs.readdirSync(d, { withFileTypes: true })].sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
     for (const e of entries) {
       const p = path.join(d, e.name);
       if (e.isDirectory()) walk(p);
-      else out.push(p);
+      else if (exts.some((ext) => p.endsWith(ext)) && !p.endsWith(".d.ts")) out.push(p);
     }
   };
-  for (const { dir, exts } of IMPORT_CORPUS_DIRS) {
-    const base = path.join(root, dir);
-    if (!fs.existsSync(base)) continue;
-    const before = out.length;
-    walk(base);
-    // Filter this dir's newly-added files by its own extension set, dropping .d.ts.
-    const filtered = out.slice(before).filter((p) => exts.some((ext) => p.endsWith(ext)) && !p.endsWith(".d.ts"));
-    out.length = before;
-    out.push(...filtered);
-  }
+  walk(base);
+  return out;
+}
+
+function listImportCorpusFiles(root) {
+  const out = [];
+  for (const { dir, exts } of IMPORT_CORPUS_DIRS) out.push(...listTsFiles(root, dir, exts));
   return out;
 }
 
@@ -460,6 +472,17 @@ function importerCounts(records, targetRelPath, exportName) {
 }
 
 // ---------------------------------------------------------------- map
+
+// quality/exemptions.json keys are "<LENS>:<host>" (store.mjs owns the
+// format); this map only ever annotates D9's own breakdown accounting, so
+// strip to D9:-prefixed entries and drop the prefix back to a bare host key.
+function d9OnlyExemptions(exemptions) {
+  const out = {};
+  for (const [key, record] of Object.entries(exemptions)) {
+    if (key.startsWith("D9:")) out[key.slice("D9:".length)] = record;
+  }
+  return out;
+}
 
 function exemptAnnotation(record, currentLoc) {
   const then = record.loc;
@@ -567,7 +590,7 @@ function main() {
         let exemptions = {};
         if (flags.exemptions) {
           const p = path.resolve(ROOT, flags.exemptions);
-          if (fs.existsSync(p)) exemptions = JSON.parse(fs.readFileSync(p, "utf8"));
+          if (fs.existsSync(p)) exemptions = d9OnlyExemptions(JSON.parse(fs.readFileSync(p, "utf8")));
         }
         process.stdout.write(buildMap(ROOT, relFiles, exemptions));
         break;

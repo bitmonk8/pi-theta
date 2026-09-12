@@ -11,7 +11,10 @@
 //   quality/issues/         confirmed open issues (PTQ-NNNN-*.md)
 //   quality/resolved/       terminally-statused issues (moved here by `resolve`)
 //   quality/TRIAGE_LOG.md   append-only rejection ledger (re-file prevention)
-//   quality/exemptions.json D9 durable keep-whole rulings: "<d9_host>" -> { loc, reason, date, finding }
+//   quality/exemptions.json per-lens durable keep-whole rulings (D9, D8 today):
+//                            "<LENS>:<host>" -> { loc, reason, date, finding, class }
+//                            — one lens's ruling on a host never overwrites another
+//                            lens's ruling on the SAME host; the lens is part of the key.
 //   quality/tmp/            transient shard/cluster manifests (gitignored)
 //
 // Subcommands (line-oriented stdout; repo-relative forward-slash paths):
@@ -38,7 +41,12 @@
 //       the stacked questionable notes.
 //   reject --finding <intake .md> --verdict <v> [--reason <text>]
 //       Append a TRIAGE_LOG row (reason defaults to the finding's ## Triage
-//       note), delete the file.
+//       note), delete the file. --verdict human-keep-whole additionally
+//       records a durable exemption (quality-loop-d4-d8-design.md §3): the
+//       lens comes from the finding's `lens:` field, the host from
+//       `d9_host ?? d8_host`, the class from `d9_class ?? d8_class` — nothing
+//       is recorded when the finding names no lens or no host. Every other
+//       verdict records nothing.
 //   clusters [--wave <id>] [--max <n>]
 //       Group quality/issues/ by fix surface (first two DIRECTORY segments of
 //       the first cited location's dirname); write
@@ -51,24 +59,37 @@
 //       in order, so two parts editing one file would conflict at integration);
 //       a file-connected component larger than n stays one oversized part.
 //       Without --max the grouping is unsplit.
-//       D9 RULE: every open lens: D9 issue is grouped by its HOST FILE (the
-//       path part of its d9_host, else its first location's path) into its
-//       own part keyed "d9/<host path with / -> __>" (manifest
-//       "d9__<...>.txt") — never split by --max (a breakdown/misplacement
-//       ruling rewrites the whole file; splitting it into lanes would only
-//       conflict) and never merged with another lens's part. Two D9 issues on
-//       the SAME host share that one part, in issue-id order. Any other open
-//       issue (any lens) that cites a file a D9 part also cites is DEFERRED
-//       for the wave — not emitted as a row, one stderr line each: "deferred
-//       <issue>: file owned by D9 lane <key>".
-//   exempt --host <path[#fn]> --reason <r>
-//       Record a durable D9 keep-whole ruling in quality/exemptions.json at
-//       the host's CURRENT LOC (tools/quality/size-scan.mjs hostLoc); an
+//       HOST-LANE RULE (lens ∈ {D9, D8}, quality-loop-d4-d8-design.md §3):
+//       every open issue whose lens is D9 or D8 is grouped by its HOST FILE
+//       (the path part of its d9_host/d8_host, else its first location's
+//       path — a host-less issue dies loud) into its own part keyed
+//       "<lens lower>/<host path with / -> __>" (manifest
+//       "<lens>__<...>.txt") — never split by --max (a breakdown/
+//       misplacement/simplification ruling rewrites the whole file;
+//       splitting it into lanes would only conflict) and never merged with
+//       another lens's part. One host, one lane per wave: when D9 and D8 both
+//       hold issues on the same host, the D9 lane runs and the D8 issues are
+//       deferred (a breakdown rewrites the file the simplification would
+//       edit). Two issues of the SAME lens on the SAME host share that one
+//       part, in issue-id order. Any other open issue (any lens, including
+//       the other of {D9, D8}) that cites a file a D9/D8 part also cites is DEFERRED for
+//       the wave — not emitted as a row, one stderr line each: "deferred
+//       <issue>: file owned by <LENS> lane <key>". D4 issues are not host-
+//       laned: they cluster by dirname like D2/D7 (a dedupe cites every copy,
+//       so the file-disjoint splitting below keeps its lane whole).
+//   exempt --lens <D9|D8> --host <path[#fn]> --reason <r> [--class <c>]
+//       Record a durable per-lens keep-whole ruling in
+//       quality/exemptions.json at the host's CURRENT LOC
+//       (tools/quality/size-scan.mjs hostLoc), keyed "<lens>:<host>"; an
 //       unknown or ambiguous #fn host fails naming size-scan's candidates.
-//   unexempt --host <path[#fn]>
-//       Remove a recorded exemption; fails if none is recorded for the host.
-//   exemptions
-//       Print every recorded exemption, one per line: host<TAB>loc<TAB>date<TAB>reason.
+//       --class blank = any later filing on that host counts as a distinct
+//       class (never suppressed by this exemption).
+//   unexempt --lens <D9|D8> --host <path[#fn]>
+//       Remove a recorded exemption; fails if none is recorded for the
+//       lens+host pair.
+//   exemptions [--lens <D9|D8>]
+//       Print every recorded exemption (optionally filtered to one lens), one
+//       per line: lens<TAB>host<TAB>class<TAB>loc<TAB>date<TAB>reason.
 //   open-count
 //       Print the number of status: open issues in quality/issues/ — the
 //       quality loop's convergence signal (0 = backlog empty).
@@ -90,12 +111,16 @@
 //       lens) — the only place those notes persist; the orchestrator otherwise
 //       reads just the filed count.
 //
-// D9 durable exemptions (design .localpi/tmp/quality-loop-d9-design.md §3.2):
+// Per-lens durable exemptions (design .localpi/tmp/quality-loop-d9-design.md
+// §3.2, generalised to D9 + D8 by quality-loop-d4-d8-design.md §3):
 // `reject --finding <p> --verdict human-keep-whole --reason <r>` additionally
-// records the finding's d9_host (when present) into quality/exemptions.json
-// at the host's CURRENT LOC — any other verdict, or a finding with no
-// d9_host, records nothing. `size-scan.mjs map --exemptions` reads this file
-// and annotates growth against the recorded LOC baseline.
+// records the finding's lens (`lens:`) + host (`d9_host ?? d8_host`) +
+// class (`d9_class ?? d8_class`) into quality/exemptions.json, keyed
+// "<lens>:<host>", at the host's CURRENT LOC — any other verdict, or a
+// finding naming no lens or no host, records nothing. A ruling for one lens
+// never overwrites another lens's ruling on the same host (distinct keys).
+// `size-scan.mjs map --exemptions` reads this file but annotates D9: entries
+// only — a D8 keep-whole never silences D9's own breakdown accounting.
 
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
@@ -389,7 +414,7 @@ function today() {
   return new Date().toISOString().slice(0, 10);
 }
 
-// ---------------------------------------------------------------- D9 exemptions
+// ---------------------------------------------------------------- per-lens exemptions
 
 function readExemptions() {
   return fs.existsSync(EXEMPTIONS) ? readJson(EXEMPTIONS) : {};
@@ -397,6 +422,11 @@ function readExemptions() {
 
 function writeExemptions(obj) {
   writeJson(EXEMPTIONS, obj);
+}
+
+/** "<lens>:<host>" — the exemptions.json key (design §3: per-lens, never overwritten cross-lens). */
+function exemptionKey(lens, host) {
+  return `${lens}:${host}`;
 }
 
 /** hostLoc throws (naming size-scan's candidates) for an unknown/ambiguous #fn host. */
@@ -521,15 +551,21 @@ switch (cmd) {
     const src = path.join(ROOT, finding);
     if (!fs.existsSync(src)) die(`no such finding: ${finding}`);
     const reason = flags.reason ?? triageNote(src) ?? "";
-    // D9 durable exemption (design §3.2): only human-keep-whole records one,
-    // and only when the finding names a d9_host; every other verdict, or a
-    // finding with no d9_host, records nothing.
+    // Per-lens durable exemption (design .localpi/tmp/quality-loop-d4-d8-
+    // design.md §3, generalising d9-design.md §3.2 to D9 + D8): only
+    // human-keep-whole records one, and only when the finding names both a
+    // lens and a host (d9_host ?? d8_host) — every other verdict, or a
+    // finding missing either, records nothing. The key carries the lens, so
+    // a D9 ruling on a host never overwrites a D8 ruling on the same host.
     if (verdict === "human-keep-whole") {
       const { fields } = readFrontmatter(src);
-      if (fields.d9_host) {
-        const loc = hostLocOrDie(fields.d9_host);
+      const lens = fields.lens;
+      const host = fields.d9_host ?? fields.d8_host;
+      if (lens && host) {
+        const cls = fields.d9_class ?? fields.d8_class ?? "";
+        const loc = hostLocOrDie(host);
         const exemptions = readExemptions();
-        exemptions[fields.d9_host] = { loc, reason, date: today(), finding };
+        exemptions[exemptionKey(lens, host)] = { loc, reason, date: today(), finding, class: cls };
         writeExemptions(exemptions);
       }
     }
@@ -540,31 +576,41 @@ switch (cmd) {
   }
 
   case "exempt": {
+    const lens = flags.lens ?? die("--lens required");
     const host = flags.host ?? die("--host required");
     const reason = flags.reason ?? die("--reason required");
     const loc = hostLocOrDie(host);
     const exemptions = readExemptions();
-    exemptions[host] = { loc, reason, date: today(), finding: flags.finding ?? "" };
+    // Blank class = any later filing on this host counts as a distinct class
+    // (never suppressed by this exemption) — design §3.
+    exemptions[exemptionKey(lens, host)] = { loc, reason, date: today(), finding: flags.finding ?? "", class: flags.class ?? "" };
     writeExemptions(exemptions);
-    process.stdout.write(`exempted ${host} at ${loc} LOC\n`);
+    process.stdout.write(`exempted ${lens}:${host} at ${loc} LOC\n`);
     break;
   }
 
   case "unexempt": {
+    const lens = flags.lens ?? die("--lens required");
     const host = flags.host ?? die("--host required");
+    const key = exemptionKey(lens, host);
     const exemptions = readExemptions();
-    if (!(host in exemptions)) die(`no exemption recorded for '${host}'`);
-    delete exemptions[host];
+    if (!(key in exemptions)) die(`no exemption recorded for '${key}'`);
+    delete exemptions[key];
     writeExemptions(exemptions);
-    process.stdout.write(`unexempted ${host}\n`);
+    process.stdout.write(`unexempted ${key}\n`);
     break;
   }
 
   case "exemptions": {
     const exemptions = readExemptions();
-    for (const host of Object.keys(exemptions).sort()) {
-      const e = exemptions[host];
-      process.stdout.write(`${host}\t${e.loc}\t${e.date}\t${e.reason}\n`);
+    const keys = Object.keys(exemptions).sort();
+    for (const key of keys) {
+      const sep = key.indexOf(":");
+      const lens = sep === -1 ? key : key.slice(0, sep);
+      const host = sep === -1 ? "" : key.slice(sep + 1);
+      if (flags.lens && lens !== flags.lens) continue;
+      const e = exemptions[key];
+      process.stdout.write(`${lens}\t${host}\t${e.class ?? ""}\t${e.loc}\t${e.date}\t${e.reason}\n`);
     }
     break;
   }
@@ -587,41 +633,63 @@ switch (cmd) {
     const outDir = path.join(TMP, flags.wave ? `clusters-${flags.wave}` : "clusters");
     const rows = [];
 
-    // --- D9: one lane per host FILE (design §3.3). Never split by --max,
-    // never merged with any other lens's part. ---
-    const d9ByHost = new Map(); // host file path -> issue paths
-    for (const issue of openIssues) {
-      if (issue.fields.lens !== "D9") continue;
-      const d9Host = issue.fields.d9_host;
-      const hostFile = d9Host ? posix(d9Host.split("#")[0]) : posix((issue.locations[0] ?? "").split(":")[0]);
-      // A D9 issue that names no host could neither be laned nor deferred
-      // against: it would silently drop out of every wave. Fail loud instead.
-      if (!hostFile) die(`D9 issue ${issue.issuePath} has neither d9_host nor a cited location`);
-      if (!d9ByHost.has(hostFile)) d9ByHost.set(hostFile, []);
-      d9ByHost.get(hostFile).push(issue.issuePath);
+    // --- Host-laned lenses (design §3, generalising D9's own §3.3): D9 and
+    // D8 issues each get one lane per HOST FILE. Never split by --max, never
+    // merged with any other lens's part — INCLUDING the other of {D9, D8}: a
+    // D9 lane and a D8 lane on the same host coexist as two separate parts. ---
+    const HOST_LANE_LENSES = ["D9", "D8"];
+    const byHost = new Map(); // lane key ("<lens lower>/<host>") -> issue paths
+    const ownerByHostAndLens = new Map(); // "<lens>\u0000<host>" -> lane key (for the deferral message)
+    // HOST_LANE_LENSES is in precedence order: a later lens's lane on a host an
+    // earlier lens already owns is deferred for the wave (one host, one lane).
+    for (const lens of HOST_LANE_LENSES) {
+      const lensHostField = `${lens.toLowerCase()}_host`;
+      const perLens = new Map(); // host file path -> issue paths, this lens only
+      for (const issue of openIssues) {
+        if (issue.fields.lens !== lens) continue;
+        const host = issue.fields[lensHostField];
+        const hostFile = host ? posix(host.split("#")[0]) : posix((issue.locations[0] ?? "").split(":")[0]);
+        // A host-laned issue that names no host could neither be laned nor
+        // deferred against: it would silently drop out of every wave.
+        if (!hostFile) die(`${lens} issue ${issue.issuePath} has neither ${lensHostField} nor a cited location`);
+        if (!perLens.has(hostFile)) perLens.set(hostFile, []);
+        perLens.get(hostFile).push(issue.issuePath);
+      }
+      if (perLens.size > 0) fs.mkdirSync(outDir, { recursive: true });
+      for (const [hostFile, issuePaths] of [...perLens.entries()].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))) {
+        const priorOwner = HOST_LANE_LENSES.map((l) => ownerByHostAndLens.get(`${l}\u0000${hostFile}`)).find(Boolean);
+        if (priorOwner) {
+          for (const issuePath of [...issuePaths].sort()) {
+            process.stderr.write(`store.mjs: deferred ${issuePath}: file owned by ${priorOwner.split("/")[0].toUpperCase()} lane ${priorOwner}\n`);
+          }
+          continue;
+        }
+        const key = `${lens.toLowerCase()}/${hostFile.replaceAll("/", "__")}`;
+        ownerByHostAndLens.set(`${lens}\u0000${hostFile}`, key);
+        byHost.set(key, { hostFile, issuePaths });
+      }
     }
-    const d9OwnerOf = new Map(); // host file path -> D9 lane key (for the deferral message)
-    if (d9ByHost.size > 0) fs.mkdirSync(outDir, { recursive: true });
-    for (const [hostFile, issuePaths] of [...d9ByHost.entries()].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))) {
-      const key = `d9/${hostFile.replaceAll("/", "__")}`;
-      d9OwnerOf.set(hostFile, key);
+    // Deferral lookup: which host lane (if any) owns this file this wave.
+    const ownerKeyFor = (file) => HOST_LANE_LENSES.map((l) => ownerByHostAndLens.get(`${l}\u0000${file}`)).find(Boolean);
+    for (const [key, { issuePaths }] of [...byHost.entries()].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))) {
       const sorted = [...issuePaths].sort(); // PTQ-NNNN filenames sort in issue-id order
       const p = path.join(outDir, `${key.replaceAll("/", "__")}.txt`);
       fs.writeFileSync(p, sorted.join("\n") + "\n");
       rows.push([key, rel(p), sorted.length]);
     }
 
-    // --- Everything else: the pre-existing D2/D7 dirname grouping, except an
-    // issue citing any file a D9 lane owns is deferred, not clustered — a
-    // breakdown/misplacement ruling rewrites the whole file, so a sibling
-    // lane on it would only conflict at integration. ---
+    // --- Everything else: the pre-existing D2/D7/D4 dirname grouping, except
+    // an issue citing any file a D9/D8 lane owns is deferred, not clustered —
+    // a breakdown/misplacement/simplification ruling rewrites the whole file,
+    // so a sibling lane on it would only conflict at integration. ---
     const clusters = new Map(); // key -> issue paths
     const citedFiles = new Map(); // issue path -> every file its locations cite
     for (const issue of openIssues) {
-      if (issue.fields.lens === "D9") continue; // already laned above
-      const ownerKey = [...issue.cited].map((f) => d9OwnerOf.get(f)).find(Boolean);
+      if (HOST_LANE_LENSES.includes(issue.fields.lens)) continue; // already laned above
+      const ownerKey = [...issue.cited].map(ownerKeyFor).find(Boolean);
       if (ownerKey) {
-        process.stderr.write(`store.mjs: deferred ${issue.issuePath}: file owned by D9 lane ${ownerKey}\n`);
+        const ownerLens = ownerKey.split("/")[0].toUpperCase();
+        process.stderr.write(`store.mjs: deferred ${issue.issuePath}: file owned by ${ownerLens} lane ${ownerKey}\n`);
         continue;
       }
       const first = issue.locations[0] ?? "";

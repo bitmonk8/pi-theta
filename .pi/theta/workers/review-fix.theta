@@ -56,6 +56,15 @@ Judge, in order:
    seam's LOC (size-scan map before/after); for a misplacement/husk the
    declaration lives at the ratified home and nowhere else; no other host was
    touched. A behaviour edit smuggled into a move is must_fix.
+   For issues whose lens: is D4 the bar is: every cited copy is gone and calls
+   the one helper; the helper's body is one of the former copies verbatim (or
+   the ruled drift resolution); no call site changed behaviour; the helper's
+   module adds no cross-directory import edge that did not already exist in
+   src/ (grep both directions); nothing else moved.
+   For issues whose lens: is D8 the bar is: exactly the ratified shape landed;
+   no behaviour change beyond what the ruling names; every removed mechanism's
+   spec anchors are still satisfied by the new shape (read the cited clauses);
+   the replaced code is gone (no dual path left); tests changed only as ruled.
 3. Honesty. Do not take the diff's or any report's word for anything you can
    check directly.
 

@@ -88,6 +88,40 @@ Method — run every step:
    inventory, an overlooked reason, a barrel/facade → false-positive with the
    refuting evidence. Dead code → out-of-scope (D2); bugs, naming, duplication →
    out-of-scope.
+   lens: D4 — duplication & drift in src/ ONLY; d4_class selects the check.
+   clone/drift: open every cited copy and confirm the excerpts match at the
+   cited lines; re-run node tools/quality/clone-scan.mjs map --files <a
+   one-line manifest of the first copy's file> and confirm the group (or,
+   for a claimed clone the scanner does not list, diff the copies yourself);
+   confirm every copy is live (a dead copy is D2's → out-of-scope); a copy
+   that is a spec-normative vector table cited to its clause on both sides is
+   false-positive; incidental similarity with no stated breakage is
+   false-positive. clone, accurate → confirmed (the fix is a mechanical
+   dedupe). drift: additionally verify the filing's claim of WHICH copy is
+   right (the cited clause / pinning test / commit) — verified → confirmed;
+   absent or unverifiable → questionable — drift verified; which copy is
+   right needs a human ruling (the fixer never picks a behaviour).
+   parallel: verify the counted coverage claim (X has M cases, Y covers N)
+   against the current code; accurate → questionable — accounting verified;
+   the shared source of truth is a design decision for a human ruling (never
+   confirmed); inaccurate → false-positive with the corrected counts.
+   lens: D8 — simplification in src/ ONLY. Verify the ACCOUNTING, never the
+   simpler shape: re-count the named concepts/layers/states/special cases at
+   the cited ranges and the live call sites (size-scan map importer counts); for
+   reimplemented, open the named facility and confirm it covers every cited
+   need (a missed load-bearing need the filing did not account = false-positive);
+   for against-grain, confirm the documented intent quoted is real; for
+   heavier-than-scale, confirm the data size claim at the call sites. Then the
+   spec check: if the simpler shape (when named) would drop behaviour a
+   docs/spec_topics clause requires and the filing does not set challenges_spec
+   naming it → false-positive; with challenges_spec → still questionable, note
+   "challenges spec <anchor>". D2 precedents apply (spec-mirroring arms,
+   rationale-stated knobs → false-positive). Exempted host (quality/
+   exemptions.json, exemptions --lens D8 — each row carries the exempted
+   class) without a distinct d8_class or ≥ 25 % growth → false-positive.
+   Accurate → questionable — accounting verified; the simpler shape is a
+   design decision for a human ruling (NEVER confirmed). Dead code → D2;
+   size → D9; duplication → D4 (out-of-scope).
    Any other lens: value = out-of-scope (no triage rules exist for it).
 5. Dedupe. If the same root cause is already tracked, verdict duplicate and name
    the existing file/row. Existing issues and resolved issues:

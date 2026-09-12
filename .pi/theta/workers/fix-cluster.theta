@@ -85,6 +85,30 @@ Per-lens rules — apply per issue, by its lens: frontmatter:
   it proves every importer still resolves), then the full gate. Report in
   notes the before/after LOC of the host from node tools/quality/size-scan.mjs
   map.
+- lens: D4 (duplication in src/): clone/drift only (a parallel issue carries
+  a human ruling under ## Triage — implement exactly that, or skip with a
+  note if it names none). Extract ONE shared helper into the module the
+  issue names, else an existing helper module in the nearest common
+  ancestor directory, else a new sibling module there; replace EVERY cited
+  copy with a call; behaviour identical at every call site. Imports: the
+  helper's module must not introduce a cross-directory import edge that
+  does not already exist somewhere in src/ (there is no layer order to
+  lean on — parser, binder, runtime and extension import each other today;
+  check with grep -rn "from \"../<dir>/" src/<dir>/ before adding an edge)
+  — when the copies straddle directories, place the helper in a directory
+  both sides already import (diagnostics, seams, render, or the copies'
+  common dependency), else SKIP with a note. DRIFT: the issue's ## Triage
+  carries the ruling on which copy is right (the triager confirmed it or a
+  human ruled) — implement that copy; if the issue names none, SKIP with a
+  note — never pick a behaviour silently. Move doc comments with the code;
+  no other edits.
+- lens: D8 (simplification in src/): implement EXACTLY the ratified simpler
+  shape under ## Triage — nothing beyond it. Behaviour identical unless the
+  ruling names a behaviour change (then update the tests the ruling names,
+  and only those); every spec clause the code cites in comments stays
+  satisfied; delete the mechanism the ratified shape replaces (its tests
+  too, if they exercised only the mechanism — say so); no public-surface
+  change unless ratified. tsc first, then the full gate.
 
 Guidance from a previous rejected attempt — address it explicitly if present:
 ${extra}

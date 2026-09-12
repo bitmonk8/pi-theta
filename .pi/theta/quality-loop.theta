@@ -1,5 +1,5 @@
 ---
-description: "Ralph-style quality loop - review changed pi-theta sources lens-by-lens (roster in `lenses`; worker-backed today: D2, D7, D9), triage, fix confirmed findings in parallel git worktrees behind the offline gate, integrate, repeat until the open backlog is empty (state under quality/)"
+description: "Ralph-style quality loop - review changed pi-theta sources lens-by-lens (roster in `lenses`; worker-backed today: D2, D4, D7, D8, D9), triage, fix confirmed findings in parallel git worktrees behind the offline gate, integrate, repeat until the open backlog is empty (state under quality/)"
 argument-hint: "[max_cycles] [lenses] [shard_loc] [review_cap] [budget] [parallel] [push true/false]"
 mode: prompt
 bind_model: "anthropic/claude-sonnet-5"
@@ -7,7 +7,9 @@ tools:
   - bash
   - write
   - ./workers/lens-d2-cruft.theta
+  - ./workers/lens-d4-duplication.theta
   - ./workers/lens-d7-testquality.theta
+  - ./workers/lens-d8-simplification.theta
   - ./workers/lens-d9-placement.theta
   - ./workers/triage-finding.theta
   - ./workers/fix-cluster-tree.theta
@@ -120,7 +122,7 @@ ${dirty}`?
 
 // Lens-roster refusal: a config error refuses in seconds, before the
 // (expensive) baseline gate. A lens id must have BOTH a surfaces.json entry
-// AND a worker dispatch arm below (worker-backed today: D2, D7, D9).
+// AND a worker dispatch arm below (worker-backed today: D2, D4, D7, D8, D9).
 let mut lens_list: array<string> = []
 lens_list = lines(lenses.replace(",", "\n"))
 let lenses_out = bash({ command: "node tools/quality/store.mjs lenses" })?
@@ -128,7 +130,7 @@ let mut configured: array<string> = []
 configured = lines(lenses_out)
 let mut bad_lens = ""
 for l in lens_list {
-  let has_worker = l == "D2" || l == "D7" || l == "D9"
+  let has_worker = l == "D2" || l == "D4" || l == "D7" || l == "D8" || l == "D9"
   if !has_worker || !configured.includes(l) {
     bad_lens = l
   }
@@ -137,7 +139,7 @@ if lens_list.length == 0 {
   bad_lens = "(empty)"
 }
 if bad_lens != "" {
-  let _ = @`Tell the user: /quality-loop refused to start — lens "${bad_lens}" is not runnable. A lens id must have BOTH a quality/surfaces.json entry AND a worker dispatch arm in quality-loop.theta (worker-backed today: D2, D7, D9). surfaces.json configures:
+  let _ = @`Tell the user: /quality-loop refused to start — lens "${bad_lens}" is not runnable. A lens id must have BOTH a quality/surfaces.json entry AND a worker dispatch arm in quality-loop.theta (worker-backed today: D2, D4, D7, D8, D9). surfaces.json configures:
 ${lenses_out}`?
   return "refused: unknown lens " + bad_lens
 }
@@ -199,8 +201,12 @@ while cycle < max_cycles && !converged {
       let mut s = ReviewSummary { shard: cols[1], filed: -1, notes: "no worker dispatched for lens " + cols[0] }
       if cols[0] == "D2" {
         s = lens_d2_cruft(cols[1], wave, budget)?
+      } else if cols[0] == "D4" {
+        s = lens_d4_duplication(cols[1], wave, budget)?
       } else if cols[0] == "D7" {
         s = lens_d7_testquality(cols[1], wave, budget)?
+      } else if cols[0] == "D8" {
+        s = lens_d8_simplification(cols[1], wave, budget)?
       } else if cols[0] == "D9" {
         s = lens_d9_placement(cols[1], wave, budget)?
       }

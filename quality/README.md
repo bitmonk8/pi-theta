@@ -27,7 +27,8 @@ Arguments (bound by an LLM binder, so free-form text works):
 `max_cycles` (default 3), `lenses` (comma-separated lens roster, default
 `"D2,D7"`; start-up refuses an id lacking a surfaces.json entry or a worker),
 `shard_loc` (target lines per review shard, default `"0"` = each lens's
-surfaces.json `shard_loc` — D2 6000, D7 3000; non-zero overrides all lenses),
+surfaces.json `shard_loc` - D2 6000, D4 6000, D7 3000, D8 12000, D9 6000;
+non-zero overrides all lenses),
 `review_cap` (max shards reviewed per lens per wave, default `"0"` =
 unlimited), `budget` (max candidates per shard, default 10), `parallel`
 (fan-out width, default 4), `push` (default true), `gate_cmd` (offline
@@ -40,11 +41,14 @@ verification gate, default `npx tsc --noEmit && npm test`).
    (per-lens, per-file last-reviewed commit) against `git diff`: a file is due
    when never reviewed or changed since its recorded sha.
 3. **Shard** — due files split path-contiguously into ~`shard_loc`-line shards
-   (`quality/tmp/<wave>/<lens>/shard-NN.txt`).
+   (`quality/tmp/<wave>/<lens>/shard-NN.txt`) - for D8, a shard is a
+   path-contiguous APPROXIMATION of a subsystem, not a subsystem boundary.
 4. **Review** — one lens worker per shard in parallel (D2 cruft:
    `anthropic/claude-sonnet-5`, per the experiments' D2 pick at quarter-surface
-   scopes; D7 test quality: `anthropic/claude-sonnet-5`, per the x03
-   quarter-surface data). Candidates land in `intake/`, shaped by
+   scopes; D4 duplication & drift: `unity-completions/kimi-k2.7-code`; D7 test
+   quality: `anthropic/claude-sonnet-5`, per the x03 quarter-surface data; D8
+   simplification: `unity-completions/gemini-3.7-flash`; D9 placement &
+   breakdown: `anthropic/claude-fable-5`). Candidates land in `intake/`, shaped by
    `TEMPLATE.md`. Reviewed files are marked in `state.json` at the reviewed
    sha — fix commits re-dirty them, so the next cycle re-reviews exactly what
    changed. Each worker's closing notes (D9's KEEP-WHOLE dispositions, every
@@ -55,8 +59,11 @@ verification gate, default `npx tsc --noEmit && npm test`).
    (`anthropic/claude-fable-5`, the experiments' judge). `confirmed` → minted
    `PTQ-NNNN` in `issues/`; rejections → one `TRIAGE_LOG.md` row, file deleted;
    `questionable` stays in `intake/` as the human queue.
-6. **Fix** — open issues clustered by fix surface (D2/D7: first two path
-   segments; D9: the whole HOST FILE, §"D9 — placement & breakdown" below);
+6. **Fix** — open issues clustered by fix surface (D2/D7/D4: the first two
+   path segments of the first cited location, split file-disjoint over every
+   cited path; D9/D8: the whole HOST FILE — one host, one lane per wave, D9
+   before D8 — §"D9 — placement & breakdown" and §"D8 — simplification"
+   below);
    one fixer per cluster (`claude-sonnet-5`), each in its own detached git
    worktree, fanned out in parallel. Fixer edits code only, then runs the
    gate inside its tree.
@@ -161,15 +168,19 @@ ratified seam/move per issue, per wave — incremental, bounded lanes. If the
 host is still over threshold afterwards, D9 re-reviews it and can file the
 next seam.
 
-`reject --verdict human-keep-whole` records the finding's `d9_host` in
-`quality/exemptions.json` with the host's CURRENT LOC (any other verdict, or
-a finding without `d9_host`, records nothing there). `exemptions.json` is
-store-owned — it falls under the same single-writer rule as every other file
-under `quality/`: only `store.mjs` (via `accept`/`reject`/`exempt`/`unexempt`)
-writes it; nothing else under `.pi/theta/` or a lens worker touches it.
-An exempted host is annotated in `size-scan.mjs map` output and is re-filed
-only on growth of 25% or more since the ruling, or a newly named distinct
-concern.
+`reject --verdict human-keep-whole` records the finding's `d9_host ?? d8_host`
+in `quality/exemptions.json`, keyed `<lens>:<host>`, with the host's CURRENT
+LOC and its class (any other verdict, or a finding naming neither host field,
+records nothing there). An existing entry for ANOTHER lens on the same host is
+never overwritten — a D9 "do not break this down" ruling never silences D8 and
+vice versa. `exemptions.json` is store-owned — it falls under the same
+single-writer rule as every other file under `quality/`: only `store.mjs` (via
+`accept`/`reject`/`exempt`/`unexempt`) writes it; nothing else under
+`.pi/theta/` or a lens worker touches it.
+An exempted D9 host is annotated in `size-scan.mjs map` output (D9 entries
+only — a D8 exemption on the same host is never annotated there, since
+size-scan is D9's mechanical map) and is re-filed only on growth of 25% or
+more since the ruling, or a newly named distinct concern.
 
 **A D9 lane owns its host file**: open `lens: D9` issues are clustered by
 HOST FILE, not by the usual fix-surface path prefix — two ratified D9 issues
@@ -183,6 +194,86 @@ the exit report, which is the fix phase's PER-WAVE CAPACITY limit (a cluster
 picked but not fanned out because `parallel` was already full — it is
 reconsidered next wave, nothing about file ownership is implied).
 
+D2's brief was re-scoped when D4/D8 landed: speculative generality and
+pass-through wrappers that add no behaviour moved to D8 (they are over-built
+but live, not cruft); D2 keeps only redundant re-export files nothing imports
+through (deadness).
+
+## D4 — duplication & drift
+
+D4 (`lens-d4-duplication.theta`, `unity-completions/kimi-k2.7-code`) reviews
+every file under `src/` for three classes:
+
+- **clone** — a copy-paste block (type-1 exact or type-2 identifier/literal-
+  renamed) live in two or more places; `tests/` duplication is D7's.
+- **drift** — copies that were once identical and have since diverged: the
+  filing names the copy that is right, with evidence, or is capped at
+  `questionable` by triage (a human picks the behaviour, never the fixer).
+- **parallel** — load-bearing parallel truth that must not drift (a switch
+  over one discriminant set mirrored in two passes, a wire encoder/decoder),
+  filed only with the counted coverage claim named.
+
+A mechanical pre-scan, `tools/quality/clone-scan.mjs`, token-normalises every
+`src/**/*.ts` file and reports maximal clone groups (`map --files <manifest>`)
+as the authoritative clone/drift inventory; the model dispositions every group
+(FILE or INCIDENTAL, with reason) and hunts the `parallel` class by reading.
+
+**Dual fix contract**: `clone` and `drift` findings are autonomous —
+confirmed by triage, dedupe-fixed by the fix phase like D2/D7. `parallel`
+findings are capped at `questionable` and ratified by a human exactly like
+D9 (`accept --note "RATIFIED: <shared source of truth>"`).
+
+D4 clusters by dirname with file-disjoint parts, like D2/D7 (a dedupe cites
+every copy, so the split keeps its lane whole); two D4 lanes that both create
+the same NEW helper module are not co-laned — that is what the uncited-file
+rebase-and-retry (step 7b) exists for.
+
+## D8 — simplification
+
+D8 (`lens-d8-simplification.theta`, `unity-completions/gemini-3.7-flash`)
+reviews every file under `src/` for four classes, each an ACCOUNTING never a
+fix (a simpler shape may be named as an explicitly unproven hypothesis; "no
+simpler shape identified yet" is legal):
+
+- **overbuilt** — concepts / indirection layers / states / special cases
+  disproportionate to the job, counted against real call sites.
+- **reimplemented** — a facility `node:*`, the TypeScript API, or an already-
+  depended-on package provides, hand-rolled here.
+- **against-grain** — API usage fighting the documented intent.
+- **heavier-than-scale** — algorithm/data-structure shape vs the measured or
+  cited data size at the call sites.
+
+THE SPEC IS THE PIN: a simplification that would drop behaviour a
+`docs/spec_topics/` clause requires is a false positive unless the filing
+names the clause and argues against it (`challenges_spec: <anchor>`, then a
+human-ruling item). D2's precedents (spec-mirroring arms, rationale-stated
+knobs, MUST-NOT witness seams) carry over as not-findings. Boundaries: dead
+code → D2; host size/breakdown → D9 (a D8 claim on a D9-filed host must be a
+DISTINCT over-built claim, cross-referenced); duplication → D4.
+
+**Fix contract**: intake-ratified like D9 (verdict capped `questionable`).
+Ruling flow:
+
+```
+# ratify the simpler shape: this MINTS the issue (the accept --note IS the ruling)
+node tools/quality/store.mjs accept --finding quality/intake/<f> --note \
+  "RATIFIED: <the simpler shape>"
+
+# keep the host as-is for a recorded reason: writes a durable per-lens exemption
+node tools/quality/store.mjs reject --finding quality/intake/<f> \
+  --verdict human-keep-whole --reason "<the concrete reason>"
+
+# defer without recording anything: the host is not re-filed until it changes
+node tools/quality/store.mjs reject --finding quality/intake/<f> \
+  --verdict human-defer --reason "..."
+```
+
+A D8 lane owns its host file exactly like a D9 lane (clustered by `d8_host`'s
+path, falling back to the first location's path); a D9 keep-whole ruling on a
+host never silences D8 on that same host, and vice versa — both per-lens
+exemptions coexist (`exemptions --lens D8` filters to D8's own rulings). The
+human is expected to run D8 at `budget <= 5`.
+
 ## Extending to more lenses
 
 Add a lens = one surfaces.json entry (+ `shard_loc`) + one worker theta in
@@ -190,16 +281,20 @@ Add a lens = one surfaces.json entry (+ `shard_loc`) + one worker theta in
 files) + THREE literal touch points in `quality-loop.theta` (the `tools:`
 entry, the dispatch arm in the review `par for`, the `has_worker` roster
 predicate) + a triage step-4 scope block + a fix-brief rules block.
-Model picks: D7 test quality → claude-sonnet-5 (x03 quarter-surface data;
-supersedes the earlier kimi-k2.7-code note); D9 placement & breakdown →
-claude-fable-5 (precision/U100% on the D9 reference set; the mechanical
-pre-scan makes breakdown recall structural, so precision and reasoning
-quality decide); D4 duplication → kimi-k2.7-code or gemini-3.7-flash; D1/D6
-→ fable only.
+
+| lens | reviews | model | fix contract |
+|---|---|---|---|
+| D2 | cruft in `src/` | `anthropic/claude-sonnet-5` | autonomous |
+| D4 | duplication & drift in `src/` | `unity-completions/kimi-k2.7-code` | clone/drift autonomous; parallel intake-ratified |
+| D7 | test quality in `tests/` | `anthropic/claude-sonnet-5` | autonomous |
+| D8 | simplification in `src/` | `unity-completions/gemini-3.7-flash` | intake-ratified |
+| D9 | placement & breakdown in `src/` | `anthropic/claude-fable-5` | intake-ratified |
+
+D1/D6 → fable only, when added.
 
 ## Committing note
 
 The repo's parse gate (`tests/committed-fixture-parse-gate.test.ts`) pins exact
-counts of committed `.theta`/`.thetalib` files (currently 39/3, including the
+counts of committed `.theta`/`.thetalib` files (currently 41/3, including the
 `.pi/theta/` loop) — adding or removing a committed theta means bumping the
 counts in the same commit.
