@@ -2,7 +2,7 @@
 id: PTQ-0280
 title: division-result-type-number-invoke.test.ts's F1 (ii) names say the invoke-arg-mismatch code moves withheld → fires; the bodies prove it stays withheld or never check it
 lens: D7                     # D2 | D7 — the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - tests/division-result-type-number-invoke.test.ts:79-80

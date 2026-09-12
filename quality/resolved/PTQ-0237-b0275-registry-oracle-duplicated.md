@@ -2,7 +2,7 @@
 id: PTQ-0237
 title: b0275 rebuilds the diagnostics-registry oracle that tests/helpers/registry-oracle.ts already centralises, via a narrower two-page reimplementation
 lens: D7                     # D2 | D7 — the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - tests/b0275-escaping-tools-entry-below-immediate-callee.test.ts:192-205

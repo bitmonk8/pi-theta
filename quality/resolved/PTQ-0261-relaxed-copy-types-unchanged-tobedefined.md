@@ -2,7 +2,7 @@
 id: PTQ-0261
 title: binder-bypass-envelope.test.ts's "types unchanged" clause is checked only by toBeDefined(), which passes for any type
 lens: D7                     # D2 | D7 — the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - tests/binder-bypass-envelope.test.ts:133-155

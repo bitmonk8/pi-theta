@@ -2,7 +2,7 @@
 id: PTQ-0263
 title: call-with-clause-threading.test.ts's "row 8 note" test asserts expect(true).toBe(true)
 lens: D7                     # D2 | D7 — the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - tests/call-with-clause-threading.test.ts:131-133

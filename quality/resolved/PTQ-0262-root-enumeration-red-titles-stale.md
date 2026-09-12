@@ -2,7 +2,7 @@
 id: PTQ-0262
 title: Three test titles in discovery-root-enumeration-failure.test.ts still promise pre-bug-0461 descriptor content their bodies no longer check
 lens: D7                     # D2 | D7 — the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - tests/discovery-root-enumeration-failure.test.ts:461

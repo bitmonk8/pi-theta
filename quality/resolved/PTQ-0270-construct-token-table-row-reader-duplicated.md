@@ -2,7 +2,7 @@
 id: PTQ-0270
 title: construct-token-table-tails.test.ts copies category1-clause-oracle.ts's isTableRow/isSeparatorRow predicates verbatim instead of sharing them
 lens: D7                     # D2 | D7 — the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - tests/construct-token-table-tails.test.ts:294-300

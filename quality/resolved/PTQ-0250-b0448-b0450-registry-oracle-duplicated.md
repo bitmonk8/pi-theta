@@ -2,7 +2,7 @@
 id: PTQ-0250
 title: b0448 and b0450 rebuild the diagnostics-registry read that tests/helpers/registry-oracle.ts already centralises, unlike their same-commit sibling b0449
 lens: D7                     # D2 | D7 — the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - tests/b0448-imported-non-object-ctor.test.ts:81-90

@@ -2,7 +2,7 @@
 id: PTQ-0272
 title: A `model()`/`registryOf()` `AvailableModel`/`ModelRegistrySurface` fixture pair is independently reimplemented in four test files
 lens: D7
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - tests/binder-model-resolution.test.ts:41-49

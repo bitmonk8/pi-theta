@@ -2,7 +2,7 @@
 id: PTQ-0269
 title: detectCaseInsensitiveHost (the async host-case-sensitivity probe) and its beforeEach/afterEach wrapper are redefined near-verbatim in a sibling bug-witness file
 lens: D7                     # D2 | D7 — the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - tests/b0361-case-variant-import-dir-identity.test.ts:263-283

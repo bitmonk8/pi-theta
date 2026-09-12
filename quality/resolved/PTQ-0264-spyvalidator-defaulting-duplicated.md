@@ -2,7 +2,7 @@
 id: PTQ-0264
 title: spyValidator (a recording CompiledValidator double) is redefined near-identically in defaulting-revalidation.test.ts and defaulting-post-merge-classification.test.ts
 lens: D7                     # D2 | D7 — the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - tests/defaulting-revalidation.test.ts:26-44

@@ -2,7 +2,7 @@
 id: PTQ-0275
 title: construct-token-table-tails.test.ts rebuilds the four-page diagnostics-registry read that tests/helpers/registry-oracle.ts already centralises
 lens: D7                     # D2 | D7 — the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - tests/construct-token-table-tails.test.ts:65-84

@@ -2,7 +2,7 @@
 id: PTQ-0258
 title: b0462 (x2) and b0463 each redeclare the same CapturedNote/Harness/makeHarness composition-root e2e double and env-redirection scaffolding
 lens: D7                     # D2 | D7 — the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - tests/b0462-package-identity-dedup.test.ts:56-183

@@ -2,7 +2,7 @@
 id: PTQ-0260
 title: ctor-declaration-order.test.ts and ctor-field-type-check.test.ts each rebuild the diagnostics-registry read that tests/helpers/registry-oracle.ts already centralises
 lens: D7                     # D2 | D7 — the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - tests/ctor-declaration-order.test.ts:181-195

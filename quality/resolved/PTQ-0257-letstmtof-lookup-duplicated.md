@@ -2,7 +2,7 @@
 id: PTQ-0257
 title: letStmtOf (find the sole `let` statement by name, throw naming what is missing) is redefined near-verbatim in a sibling bug-witness file
 lens: D7                     # D2 | D7 — the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - tests/annotation-nontype-text-refusal.test.ts:373-386

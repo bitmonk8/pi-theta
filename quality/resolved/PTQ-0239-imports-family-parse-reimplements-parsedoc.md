@@ -2,7 +2,7 @@
 id: PTQ-0239
 title: b0303, b0304, b0305 and b0306 each redefine a local parse() reimplementing tests/helpers/e2e-s1.ts's parseDoc, despite already importing parseDeps from the same module
 lens: D7                     # D2 | D7 — the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - tests/b0303-imported-fn-body-declaring-scope.test.ts:25,81-89

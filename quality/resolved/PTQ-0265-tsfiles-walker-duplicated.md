@@ -2,7 +2,7 @@
 id: PTQ-0265
 title: The tsFiles() recursive src/**-tree .ts-file walker is redefined byte-for-byte across three test files
 lens: D7                     # D2 | D7 — the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - tests/clock-id-seams.test.ts:47-58

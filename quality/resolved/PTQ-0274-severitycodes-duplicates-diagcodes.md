@@ -2,7 +2,7 @@
 id: PTQ-0274
 title: ctor-declaration-order.test.ts's severityCodes reimplements tests/helpers/e2e-s1.ts's diagCodes under a different name
 lens: D7                     # D2 | D7 — the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - tests/ctor-declaration-order.test.ts:165-168

@@ -2,7 +2,7 @@
 id: PTQ-0256
 title: b0406 and b0408 each redefine an identical errorCodes helper already composable from e2e-s1.ts's errors() export
 lens: D7                     # D2 | D7 — the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - tests/b0406-object-typed-params-misclassified-string.test.ts:33-36

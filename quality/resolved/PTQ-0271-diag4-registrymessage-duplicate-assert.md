@@ -2,7 +2,7 @@
 id: PTQ-0271
 title: code-registry.test.ts's DIAG-4 test asserts the same registryMessage(...) comparison twice, the second time via a hand-typed duplicate
 lens: D7                     # D2 | D7 — the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - tests/code-registry.test.ts:172-190

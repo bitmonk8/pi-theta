@@ -2,7 +2,7 @@
 id: PTQ-0276
 title: The `deepKeyOccurrences` JSON deep-key-scan oracle is duplicated byte-for-byte across two binder envelope test files
 lens: D7
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - tests/binder-inference-provider-mapping.test.ts:73-97
