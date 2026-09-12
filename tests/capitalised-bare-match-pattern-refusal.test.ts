@@ -1,4 +1,3 @@
-import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
@@ -10,6 +9,7 @@ import type {
 // @ts-expect-error — JS code-registry module, no type declarations.
 import { parseRegistry, registryMessage } from "../tools/code-registry/index.js";
 import { parseDoc, parseDocBytes } from "./helpers/e2e-s1";
+import { committedThetaSources } from "./helpers/theta-corpus";
 import type { Diagnostic, SourceRange } from "../src/diagnostics/diagnostic";
 import type { ThetaDocument } from "../src/parser/theta-document";
 import type { ParsedFrontmatter } from "../src/parser/frontmatter";
@@ -910,23 +910,7 @@ describe("0141 (h) — nested pattern positions are refused by the same tail arm
 
 describe("0141 (f) — the committed corpus gains neither code", () => {
   it("f1: every tracked `.theta` / `.thetalib` parses without the two refusals", () => {
-    const listed = execFileSync("git", ["ls-files", "--", "*.theta", "*.thetalib"], {
-      cwd: fileURLToPath(new URL("..", import.meta.url)),
-      encoding: "utf8",
-    })
-      .split("\n")
-      .map((line) => line.trim())
-      .filter((line) => line.length > 0);
-
-    // Fail LOUDLY on an empty list (CLAUDE.md): a sweep over nothing reports
-    // success while verifying nothing, and this file's GOV-15 half is the whole
-    // reason the sweep exists. The gate
-    // tests/committed-fixture-parse-gate.test.ts cannot stand in for it — it
-    // filters `.theta` only (bug 0132).
-    expect(
-      listed.length,
-      "`git ls-files -- '*.theta' '*.thetalib'` must report the tracked corpus; an empty list means the sweep verified nothing",
-    ).toBeGreaterThan(0);
+    const listed = committedThetaSources();
 
     const offenders: string[] = [];
     for (const relative of listed) {

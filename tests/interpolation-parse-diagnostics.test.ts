@@ -1,5 +1,4 @@
 import { describe, expect, it } from "vitest";
-import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -24,6 +23,7 @@ import type { ThetaCompositionInput } from "../src/extension/theta-composition-p
 import type { RuntimeRoot } from "../src/runtime-root";
 import type { Checkpoint } from "../src/seams/checkpoint";
 import { parseDoc, parseDeps } from "./helpers/e2e-s1";
+import { committedThetaSources } from "./helpers/theta-corpus";
 
 // Bug 0122 — every parse-phase diagnostic raised for the expression inside a
 // `@`-query `${…}` interpolation is discarded.
@@ -1236,24 +1236,13 @@ const REJECTED_TOKEN_CLASSES = [
   ">>",
 ];
 
-function discoverShippedFixtures(): string[] {
-  const result = spawnSync("git", ["ls-files", "-z", "--", "*.theta", "*.thetalib"], {
-    cwd: REPO_ROOT,
-    encoding: "utf8",
-  });
-  if (result.error !== undefined || result.status !== 0) {
-    throw new Error(
-      "bug 0122's census corpus is the git index (`git ls-files '*.theta' '*.thetalib'`), " +
-        "not the working tree: the unmet precondition is a working `git` executable plus a " +
-        `repository checkout at the test root. status=${String(result.status)} ` +
-        `error=${result.error?.message ?? "none"} stderr=${result.stderr}`,
-    );
-  }
-  return result.stdout
-    .split("\0")
-    .filter((p) => p.length > 0)
-    .filter((p) => !p.startsWith(SEEDED_INVALID_DIR))
-    .sort();
+/**
+ * The shipped `.theta` / `.thetalib` corpus, less the seeded-invalid fixture
+ * directory: `tests/helpers/theta-corpus.ts`'s shared discovery step
+ * (PTQ-0226), with this file's own directory exclusion applied on top.
+ */
+function discoverShippedFixtures(): readonly string[] {
+  return committedThetaSources().filter((p) => !p.startsWith(SEEDED_INVALID_DIR));
 }
 
 const shippedFixtures = discoverShippedFixtures();

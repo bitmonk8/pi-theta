@@ -1,7 +1,7 @@
-import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { committedThetaSources as committedThetaCorpus } from "./helpers/theta-corpus";
 
 // Bug 0185 — a `params:` default whose `Enum.Variant` access resolves to
 // nothing loads with ZERO diagnostics and then aborts every invocation.
@@ -1808,32 +1808,11 @@ describe("bug 0197 (E) — a field that took no default renders UNTAGGED", () =>
 /** The repository root, resolved from this file's own URL rather than from `cwd`. */
 const REPO_ROOT_URL = new URL("../", import.meta.url);
 
-/**
- * Every committed `.theta` / `.thetalib`, read through `git ls-files` — the census
- * bug 0197 §Fix (d) requires be re-run over the index rather than inferred from
- * `tests/committed-fixture-parse-gate.test.ts`.
- *
- * NO SILENT SKIPPING: an unavailable `git` makes `execFileSync` THROW out of this
- * reader (it is deliberately uncaught, so the cell fails naming the unmet
- * precondition), and an empty listing throws naming the census — a census that
- * read nothing would report zero reach while measuring nothing.
- */
-function committedThetaCorpus(): readonly string[] {
-  const listed = execFileSync("git", ["ls-files", "--", "*.theta", "*.thetalib"], {
-    cwd: fileURLToPath(REPO_ROOT_URL),
-    encoding: "utf8",
-  });
-  const files = listed
-    .split("\n")
-    .map((line) => line.trim())
-    .filter((line) => line.length > 0);
-  if (files.length === 0) {
-    throw new Error(
-      "harness: `git ls-files -- '*.theta' '*.thetalib'` listed no file, so the GOV-15 corpus census measured nothing — a harness failure, never a skip",
-    );
-  }
-  return files;
-}
+// `committedThetaCorpus` (imported above, aliased from the shared
+// `committedThetaSources`) is `tests/helpers/theta-corpus.ts`'s discovery step
+// (PTQ-0226): every committed `.theta` / `.thetalib`, read through `git
+// ls-files` — the census bug 0197 §Fix (d) requires be re-run over the index
+// rather than inferred from `tests/committed-fixture-parse-gate.test.ts`.
 
 /**
  * A declared named `enum` at a line's start — the precondition for a shipped

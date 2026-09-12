@@ -1,8 +1,6 @@
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 // @ts-expect-error — JS code-registry module, no type declarations.
-import { parseRegistry, registryMessage } from "../tools/code-registry/index.js";
+import { registryMessage } from "../tools/code-registry/index.js";
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
 import { checkThetaImports } from "../src/extension/import-static-checks";
 import type { ThetaCompositionInput } from "../src/extension/theta-composition-producer";
@@ -10,6 +8,7 @@ import type { ParsedFrontmatter } from "../src/parser/frontmatter";
 import { parseThetaDocument, type ThetaDocument } from "../src/parser/theta-document";
 import type { FileSystem } from "../src/seams/file-system";
 import { parseDeps } from "./helpers/e2e-s1";
+import { REGISTRY } from "./helpers/registry-oracle";
 
 // Bug 0334 — a `.thetalib` hub that re-exports the SAME exported name from two
 // DIFFERENT declaring sources through its `export … from` closure carries NO
@@ -78,29 +77,9 @@ import { parseDeps } from "./helpers/e2e-s1";
 /** The reused code — withheld on the hub's multi-source re-export collision (C1/C1-reversed). */
 const IMPORT_NAME_COLLISION_CODE = "theta/parse/import-name-collision";
 
-interface RegistryRow {
-  readonly code: string;
-  readonly message: string;
-}
-
-// The live four-page sharded registry, read from the spec corpus and
-// concatenated — the same input tests/b0333-transitive-lib-reexport-edge.test.ts
+// The live four-page sharded registry (`tests/helpers/registry-oracle.ts`,
+// PTQ-0215) — the same input tests/b0333-transitive-lib-reexport-edge.test.ts
 // renders DIAG-4 messages from.
-const REGISTRY = parseRegistry(
-  [
-    "code-registry-parse.md",
-    "code-registry-load.md",
-    "code-registry-runtime.md",
-    "code-registry-host.md",
-  ]
-    .map((page) =>
-      readFileSync(
-        fileURLToPath(new URL(`../docs/spec_topics/diagnostics/${page}`, import.meta.url)),
-        "utf8",
-      ),
-    )
-    .join("\n"),
-) as RegistryRow[];
 
 /**
  * A registered code's normative *Message* template (DIAG-4), read from the

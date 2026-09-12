@@ -1,4 +1,3 @@
-import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -29,6 +28,7 @@ import type {
 import type { RuntimeRoot } from "../src/runtime-root";
 import type { Checkpoint } from "../src/seams/checkpoint";
 import { parseDoc } from "./helpers/e2e-s1";
+import { committedThetaSources } from "./helpers/theta-corpus";
 
 // Bug 0140 — `collectIdentRoots` (src/parser/theta-document.ts:4774) builds the
 // whole-file identifier root scope and folds `fn`, `schema` and `enum` names
@@ -1460,33 +1460,8 @@ const REPO_ROOT = fileURLToPath(new URL("..", import.meta.url));
  */
 const SEEDED_INVALID_DIR = "tests/fixtures/h7b-invalid/";
 
-/** Every committed theta source, or a LOUD failure naming the unmet precondition. */
-function committedThetaSources(): string[] {
-  const result = spawnSync("git", ["ls-files", "-z", "--", "*.theta", "*.thetalib"], {
-    cwd: REPO_ROOT,
-    encoding: "utf8",
-  });
-  if (result.error !== undefined || result.status !== 0) {
-    throw new Error(
-      "harness: the corpus is the git index (`git ls-files -- '*.theta' '*.thetalib'`), not the " +
-        "working tree; the unmet precondition is a working `git` executable plus a repository " +
-        `checkout at the test root. status=${String(result.status)} ` +
-        `error=${result.error?.message ?? "none"} stderr=${result.stderr}`,
-    );
-  }
-  const files = result.stdout
-    .split("\0")
-    .filter((p) => p.length > 0)
-    .sort();
-  if (files.length === 0) {
-    throw new Error(
-      "harness: `git ls-files -- '*.theta' '*.thetalib'` yielded NO files. A sweep over an " +
-        "empty corpus proves nothing and would green this row vacuously — 34 files at HEAD " +
-        "`9eb1290d`. This is a loud harness failure, never a skip",
-    );
-  }
-  return files;
-}
+// `committedThetaSources` (imported above) is `tests/helpers/theta-corpus.ts`'s
+// shared discovery step (PTQ-0226).
 
 describe("bug 0140 (f) — no committed theta source is affected (GOV-15 sweep)", () => {
   it("GREEN (f1): zero shipped files draw the new code, and none gains an unknown-identifier", () => {

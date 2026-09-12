@@ -1,4 +1,3 @@
-import { execFileSync, spawnSync } from "node:child_process";
 import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -8,6 +7,7 @@ import type { Expr, ThetaDocument } from "../src/parser/theta-document";
 import { StaticTypeInferencePass } from "../src/parser/static-type-inference";
 import { checkCompatible, displayType, type TypeEnv } from "../src/parser/type-compat";
 import { parseDoc } from "./helpers/e2e-s1";
+import { committedThetaSources } from "./helpers/theta-corpus";
 
 // Bug 0195 — four corpus sentences state that an unsunk empty array literal
 // (`for x in []`, `let xs = []`) is `theta/parse/array-no-common-type`, and the
@@ -417,27 +417,7 @@ describe("bug 0195 (C) — the V2a array-sink seam stays unwired", () => {
 
 describe("bug 0195 (D) — no committed theta carries an empty array literal", () => {
   it("D1: the census re-derives to 34 files and zero `[]`", () => {
-    const probe = spawnSync("git", ["rev-parse", "--is-inside-work-tree"], {
-      encoding: "utf8",
-      cwd: REPO_ROOT,
-    });
-    if (probe.status !== 0) {
-      throw new Error(
-        `harness: \`git rev-parse\` failed in ${REPO_ROOT} (${probe.stderr ?? ""}), so the committed-corpus census cannot be taken — a loud failure, never a vacuous pass`,
-      );
-    }
-    const files = execFileSync("git", ["ls-files", "--", "*.theta", "*.thetalib"], {
-      encoding: "utf8",
-      cwd: REPO_ROOT,
-    })
-      .split("\n")
-      .map((l) => l.trim())
-      .filter((l) => l.length > 0);
-    if (files.length === 0) {
-      throw new Error(
-        "harness: `git ls-files -- '*.theta' '*.thetalib'` listed nothing, so the census has no corpus to range over — a loud failure, never a vacuous pass",
-      );
-    }
+    const files = committedThetaSources();
     expect(
       files.length,
       `D1: the census is over ${files.length} committed files; sibling fixes land \`.theta\` files, so a changed count means the disposition below must be re-derived rather than trusted. Files: ${JSON.stringify(files)}`,

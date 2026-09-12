@@ -1,4 +1,3 @@
-import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
@@ -11,6 +10,7 @@ import * as typeLayerChecks from "../src/parser/type-layer-checks";
 import { annotationToCompatType } from "../src/parser/type-layer-checks";
 import { diagCodes, diagLines, parseDoc } from "./helpers/e2e-s1";
 import { REGISTRY, type RegistryRow } from "./helpers/registry-oracle";
+import { committedThetaSources } from "./helpers/theta-corpus";
 
 // Bug 0124 — the three `Type` positions OUTSIDE a schema (a `let` annotation, an
 // `fn` parameter type, an `fn` return type) capture their annotation as source
@@ -2598,19 +2598,7 @@ describe("bug 0124 (x) — the committed corpus declares no annotation in this c
     // committed fixture enters the class, which is what makes
     // `tests/committed-fixture-parse-gate.test.ts` a sufficient discharge for
     // the corpus-wide claim.
-    const files = execFileSync("git", ["ls-files", "*.theta", "*.thetalib"], {
-      encoding: "utf8",
-      cwd: fileURLToPath(new URL("..", import.meta.url)),
-    })
-      .split("\n")
-      .map((l) => l.trim())
-      .filter((l) => l.length > 0);
-    if (files.length === 0) {
-      throw new Error(
-        "harness: `git ls-files '*.theta' '*.thetalib'` listed nothing, so the census has no " +
-          "corpus to range over — a loud failure, never a vacuous pass",
-      );
-    }
+    const files = committedThetaSources();
     expect(
       [files.filter((f) => f.endsWith(".theta")).length, files.filter((f) => f.endsWith(".thetalib")).length],
       `x1: the census is over ${files.length} committed files; a change in the corpus size means ` +

@@ -437,7 +437,6 @@ describe("bug 0349 (C) — code-call envelope-after-abort race (signal aborted a
       err.kind,
       "the adjudicated race disposition is bare cancelled (caller's own signal fired first), never a source-keyed invoke_callee wrap",
     ).toBe("cancelled");
-    expect(err.kind).not.toBe("invoke_callee");
   });
 });
 
@@ -494,7 +493,6 @@ describe("bug 0349 (E) — code-call boundary-minted Err stays bare (not invoke_
       err.kind,
       "a boundary-minted infra Err stays bare (its own leaf kind), never wrapped as invoke_callee (bug 0294 provenance)",
     ).toBe("invoke_infra");
-    expect(err.kind).not.toBe("invoke_callee");
     expect(hops.length, "no SLSH-5 hop is recorded for a bare boundary-minted Err").toBe(0);
   });
 });

@@ -1,4 +1,3 @@
-import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
@@ -29,6 +28,7 @@ import type {
 import type { RuntimeRoot } from "../src/runtime-root";
 import type { Checkpoint } from "../src/seams/checkpoint";
 import { parseDoc } from "./helpers/e2e-s1";
+import { committedThetaSources } from "./helpers/theta-corpus";
 
 // Bug 0142 — `#typeBinary`'s arithmetic arm (src/parser/static-type-inference.ts)
 // reduces the two operands to their common type with no per-operator rule, so
@@ -1620,14 +1620,7 @@ describe("bug 0142 — the committed corpus", () => {
     // inherited that filter would report a clean `.thetalib` half it never
     // looked at — which is why the precondition below asserts each glob
     // contributed at least one file before the emptiness claim is read.
-    const repoRoot = fileURLToPath(new URL("..", import.meta.url));
-    const tracked = execFileSync("git", ["ls-files", "--", "*.theta", "*.thetalib"], {
-      cwd: repoRoot,
-      encoding: "utf8",
-    })
-      .split("\n")
-      .map((line) => line.trim())
-      .filter((line) => line.length > 0);
+    const tracked = committedThetaSources();
 
     expect(
       tracked.filter((p) => p.endsWith(".theta")).length,

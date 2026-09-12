@@ -57,11 +57,9 @@
 // existing arm over every resolved dependency `.thetalib`'s own specifiers,
 // turning R1–R4 → reporting, sited on `/proj/libA.thetalib`.
 
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 // @ts-expect-error — JS code-registry module, no type declarations.
-import { parseRegistry, registryMessage } from "../tools/code-registry/index.js";
+import { registryMessage } from "../tools/code-registry/index.js";
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
 import { checkThetaImports } from "../src/extension/import-static-checks";
 import type { ThetaCompositionInput } from "../src/extension/theta-composition-producer";
@@ -69,6 +67,7 @@ import type { ParsedFrontmatter } from "../src/parser/frontmatter";
 import { parseThetaDocument, type ThetaDocument } from "../src/parser/theta-document";
 import type { FileSystem } from "../src/seams/file-system";
 import { parseDeps } from "./helpers/e2e-s1";
+import { REGISTRY } from "./helpers/registry-oracle";
 
 // ===========================================================================
 // The reused code and its normative message (DIAG-4).
@@ -77,29 +76,9 @@ import { parseDeps } from "./helpers/e2e-s1";
 /** The reused code — withheld on the dependency-`.thetalib` own-collision path (R1–R4). */
 const IMPORT_NAME_COLLISION_CODE = "theta/parse/import-name-collision";
 
-interface RegistryRow {
-  readonly code: string;
-  readonly message: string;
-}
-
-// The live four-page sharded registry, read from the spec corpus and
-// concatenated — the same input tests/b0334-reexport-multisource-collision.test.ts
+// The live four-page sharded registry (`tests/helpers/registry-oracle.ts`,
+// PTQ-0215) — the same input tests/b0334-reexport-multisource-collision.test.ts
 // renders DIAG-4 messages from, so no expected string in this file is written twice.
-const REGISTRY = parseRegistry(
-  [
-    "code-registry-parse.md",
-    "code-registry-load.md",
-    "code-registry-runtime.md",
-    "code-registry-host.md",
-  ]
-    .map((page) =>
-      readFileSync(
-        fileURLToPath(new URL(`../docs/spec_topics/diagnostics/${page}`, import.meta.url)),
-        "utf8",
-      ),
-    )
-    .join("\n"),
-) as RegistryRow[];
 
 /**
  * A registered code's normative *Message* template (DIAG-4), read from the

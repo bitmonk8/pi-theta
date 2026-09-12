@@ -1,4 +1,3 @@
-import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
@@ -19,6 +18,7 @@ import {
 import { checkMatchArmTypes, type MatchResultSite } from "../src/parser/match-result";
 import { resolveReturnType } from "../src/parser/functions";
 import { parseDeps, parseDoc } from "./helpers/e2e-s1";
+import { committedThetaSources } from "./helpers/theta-corpus";
 
 // Bug 0158 — `#typeExpr`'s `case "match"` (src/parser/static-type-inference.ts:271)
 // routes the arm-body types through the union LUB `#commonType` (:493, which
@@ -770,23 +770,8 @@ describe("bug 0158 (D) — the *Trigger*s govern, and `src/` matches them", () =
 // Group (E) — GOV-15 corpus census, measured at THIS HEAD.
 // ===========================================================================
 
-/** Every committed theta source, as repo-relative POSIX paths (the git index). */
-function committedThetaSources(): string[] {
-  const result = spawnSync("git", ["ls-files", "-z", "--", "*.theta", "*.thetalib"], {
-    cwd: REPO_ROOT,
-    encoding: "utf8",
-  });
-  if (result.error !== undefined || result.status !== 0) {
-    throw new Error(
-      "harness: the census corpus is the git index (`git ls-files '*.theta' '*.thetalib'`), so the unmet precondition is a working `git` executable plus a repository checkout at the test root — never a skip. " +
-        `status=${String(result.status)} error=${result.error?.message ?? "none"} stderr=${result.stderr}`,
-    );
-  }
-  return result.stdout
-    .split("\0")
-    .filter((p) => p.length > 0)
-    .sort();
-}
+// `committedThetaSources` (imported above) is `tests/helpers/theta-corpus.ts`'s
+// shared discovery step (PTQ-0226).
 
 /** Load/parse diagnostic codes of one committed source, through the shipped pipeline. */
 function committedCodes(relPath: string): string[] {

@@ -1,8 +1,6 @@
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 // @ts-expect-error — JS code-registry module, no type declarations.
-import { parseRegistry, registryMessage } from "../tools/code-registry/index.js";
+import { registryMessage } from "../tools/code-registry/index.js";
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
 import { checkThetaImports } from "../src/extension/import-static-checks";
 import type { ThetaCompositionInput } from "../src/extension/theta-composition-producer";
@@ -10,6 +8,7 @@ import type { ParsedFrontmatter } from "../src/parser/frontmatter";
 import { parseThetaDocument, type ThetaDocument } from "../src/parser/theta-document";
 import type { FileSystem } from "../src/seams/file-system";
 import { parseDeps } from "./helpers/e2e-s1";
+import { REGISTRY } from "./helpers/registry-oracle";
 
 // Bug 0333 — a broken `export … from` edge inside a `.thetalib` reached ONLY
 // through transitive plain-`import` hops is discarded at load with zero
@@ -75,29 +74,9 @@ const UNRESOLVABLE_CODE = "theta/load/unresolvable-thetalib-path";
 /** The unknown-symbol code — withheld on the transitive absent-name edge (bug row T2). */
 const UNKNOWN_SYMBOL_CODE = "theta/parse/import-unknown-symbol";
 
-interface RegistryRow {
-  readonly code: string;
-  readonly message: string;
-}
-
-// The live four-page sharded registry, read from the spec corpus and
-// concatenated — the same input tests/reexport-chain-resolution.test.ts renders
+// The live four-page sharded registry (`tests/helpers/registry-oracle.ts`,
+// PTQ-0215) — the same input tests/reexport-chain-resolution.test.ts renders
 // DIAG-4 messages from.
-const REGISTRY = parseRegistry(
-  [
-    "code-registry-parse.md",
-    "code-registry-load.md",
-    "code-registry-runtime.md",
-    "code-registry-host.md",
-  ]
-    .map((page) =>
-      readFileSync(
-        fileURLToPath(new URL(`../docs/spec_topics/diagnostics/${page}`, import.meta.url)),
-        "utf8",
-      ),
-    )
-    .join("\n"),
-) as RegistryRow[];
 
 /**
  * A registered code's normative *Message* template (DIAG-4), read from the

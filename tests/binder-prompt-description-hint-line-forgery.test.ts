@@ -1,4 +1,3 @@
-import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -9,6 +8,7 @@ import {
 } from "../src/binder/binder-system-prompt";
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
 import { parseDoc } from "./helpers/e2e-s1";
+import { committedThetaSources } from "./helpers/theta-corpus";
 
 // The binder system prompt's `Description:` (item 2) and `Argument hint:`
 // (item 3) lines must each occupy exactly one physical line, whatever the
@@ -406,35 +406,15 @@ describe("bug 0103 (d): no structural line is forgeable from item 2's content", 
 // (tests/committed-fixture-parse-gate.test.ts:41).
 const REPO_ROOT = fileURLToPath(new URL("..", import.meta.url));
 
-/** The committed theta corpus: `git ls-files -z -- '*.theta' '*.thetalib'`. */
-function committedThetaSources(): string[] {
-  const result = spawnSync("git", ["ls-files", "-z", "--", "*.theta", "*.thetalib"], {
-    cwd: REPO_ROOT,
-    encoding: "utf8",
-  });
-  if (result.error !== undefined || result.status !== 0) {
-    throw new Error(
-      "the census corpus is the git index, so the unmet precondition is a " +
-        "working `git` executable plus a repository checkout at the test root. " +
-        `status=${String(result.status)} error=${result.error?.message ?? "none"} ` +
-        `stderr=${result.stderr}`,
-    );
-  }
-  return result.stdout
-    .split("\0")
-    .filter((p) => p.length > 0)
-    .sort();
-}
+// `committedThetaSources` (imported above) is `tests/helpers/theta-corpus.ts`'s
+// shared discovery step (PTQ-0226): `git ls-files -z -- '*.theta' '*.thetalib'`.
 
 describe("bug 0103 (e): every committed description / argument-hint is byte-stable", () => {
   it("renders each recorded value verbatim on one physical line", () => {
     const corpus = committedThetaSources();
-    // Guard against a vacuous pass: a census over zero files, or over a corpus
-    // recording neither field, asserts nothing.
-    expect(
-      corpus.length,
-      "no committed .theta / .thetalib sources found — the census would be vacuous",
-    ).toBeGreaterThan(0);
+    // Guard against a vacuous pass over a corpus recording neither field (the
+    // corpus itself being non-empty is already guaranteed loudly by the shared
+    // discovery step): see the `scored` assertion at the end of this cell.
 
     let scored = 0;
     for (const relPath of corpus) {

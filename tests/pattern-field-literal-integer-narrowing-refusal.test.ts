@@ -1,4 +1,3 @@
-import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
@@ -10,6 +9,7 @@ import type {
 // @ts-expect-error — JS code-registry module, no type declarations.
 import { parseRegistry, registryMessage } from "../tools/code-registry/index.js";
 import { parseDoc, parseDocBytes } from "./helpers/e2e-s1";
+import { committedThetaSources } from "./helpers/theta-corpus";
 import type { Diagnostic, SourceRange } from "../src/diagnostics/diagnostic";
 import type { ThetaDocument } from "../src/parser/theta-document";
 import type { ParsedFrontmatter } from "../src/parser/frontmatter";
@@ -966,21 +966,7 @@ describe("0234 (f) — the committed corpus gains no narrowing refusal — ", ()
     // corpus-wide parse claim, and per bug 0132 it filters `.theta` only — so
     // the `.thetalib` half of THIS sweep is a probe and cannot be delegated.
     const repoRoot = fileURLToPath(new URL("..", import.meta.url));
-    const listed = execFileSync("git", ["ls-files", "--", "*.theta", "*.thetalib"], {
-      cwd: repoRoot,
-      encoding: "utf8",
-    })
-      .split("\n")
-      .map((line) => line.trim())
-      .filter((line) => line.length > 0);
-
-    // Fail LOUDLY on an empty list (CLAUDE.md): a sweep over nothing reports
-    // success while verifying nothing, and the GOV-15 half is the whole reason
-    // this cell exists.
-    expect(
-      listed.length,
-      "bug-0234 precondition unmet: `git ls-files -- '*.theta' '*.thetalib'` reported NO tracked corpus files, so the GOV-15 sweep would verify nothing. Run it from the repository root of a real checkout.",
-    ).toBeGreaterThan(0);
+    const listed = committedThetaSources();
 
     // The arm regex admits the committed `})` shape — the arm's `}` followed by
     // `)` before the arrow, as in `Err(QueryError { kind: "…" }) =>` — which is

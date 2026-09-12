@@ -1,18 +1,21 @@
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import type {
-  ExtensionAPI,
-  ExtensionContext,
-} from "@earendil-works/pi-coding-agent";
 // @ts-expect-error — JS code-registry module, no type declarations.
 import { parseRegistry, registryMessage } from "../tools/code-registry/index.js";
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
 import { composeExtensionInstance } from "../src/extension/production-composition";
 import { RendererGate, SYSTEM_NOTE_CHANNEL } from "../src/extension/system-note-channel";
 import type { ParsedTheta } from "../src/extension/reload-wiring";
+import {
+  finishWorkspace,
+  makeHost,
+  normalisePath,
+  type ComposeWorkspace,
+  type RecordedNote,
+} from "./helpers/compose-workspace-harness";
 
 // Bug 0320 — the `tools:` half of `theta/parse/invoke-non-theta-extension` is
 // unenforced. The registry row's Trigger names two surfaces — "An `invoke(...)`
@@ -62,9 +65,11 @@ import type { ParsedTheta } from "../src/extension/reload-wiring";
 // provider, no child process, no live model. The seam is one classifier inside
 // the shipped composition root, and `composeExtensionInstance` over planted
 // files reaches it directly, so no integration or live tier is needed. The
-// harness (`makeHost` / `plantWorkspace` / `runLoadPass` and the observation
-// helpers) is modelled on, and DUPLICATED FROM rather than shared with,
-// `tests/callee-tools-missing-theta-path-un-registers-tools-caller.test.ts`
+// host-double/workspace half of the harness (`makeHost`, `ComposeWorkspace`,
+// `normalisePath`, `finishWorkspace`) is the shared
+// `tests/helpers/compose-workspace-harness.ts` module (PTQ-0213);
+// `plantWorkspace` / `runLoadPass` / the observation helpers remain local,
+// modelled on `tests/callee-tools-missing-theta-path-un-registers-tools-caller.test.ts`
 // (bug 0270's landed witness), which this file neither reads from nor mutates.
 //
 // PATH SEPARATORS: Win32 `\` and POSIX `/` spell the same file differently;
@@ -143,88 +148,22 @@ function normativeMessagePattern(code: string): RegExp {
 }
 
 // ── Host doubles ─────────────────────────────────────────────────────────────
-
-type PiHandler = (event: unknown, ctx: ExtensionContext) => unknown;
-
-interface RecordedNote {
-  readonly customType: string;
-  readonly content: string;
-  readonly details: unknown;
-}
-
-interface HostDouble {
-  readonly pi: ExtensionAPI;
-  readonly ctx: ExtensionContext;
-  readonly notes: RecordedNote[];
-  readonly notified: Array<readonly [string, string]>;
-}
-
-function makeHost(cwd: string): HostDouble {
-  const notes: RecordedNote[] = [];
-  const notified: Array<readonly [string, string]> = [];
-  const handlers = new Map<string, PiHandler>();
-
-  const pi = {
-    registerFlag: (): void => {},
-    getFlag: (): undefined => undefined,
-    getCommands: (): readonly { name: string; source: string }[] => [],
-    on: (event: string, handler: PiHandler): void => {
-      handlers.set(event, handler);
-    },
-    registerCommand: (): void => {},
-    sendUserMessage: (): void => {},
-    registerTool: (): void => {},
-    setActiveTools: (): void => {},
-    getActiveTools: (): readonly unknown[] => [],
-    getAllTools: (): readonly unknown[] => [],
-    registerMessageRenderer: (): void => {},
-    sendMessage: (message: {
-      customType: string;
-      content: string;
-      details: unknown;
-    }): void => {
-      notes.push({
-        customType: message.customType,
-        content: message.content,
-        details: message.details,
-      });
-    },
-  } as unknown as ExtensionAPI;
-
-  const ctx = {
-    cwd,
-    hasUI: false,
-    modelRegistry: { getAvailable: (): readonly unknown[] => [] },
-    ui: {
-      notify: (message: string, type: "error"): void => {
-        notified.push([message, type]);
-      },
-    },
-  } as unknown as ExtensionContext;
-
-  return { pi, ctx, notes, notified };
-}
+//
+// `RecordedNote` and `makeHost` are the shared recording-host harness in
+// `tests/helpers/compose-workspace-harness.ts` (PTQ-0213).
 
 // ── The workspace ─────────────────────────────────────────────────────────────
-
-interface ComposeWorkspace {
-  readonly cwd: string;
-  /** Absolute, separator-normalised path of a file planted on the project source. */
-  path: (name: string) => string;
-  readonly dispose: () => void;
-}
-
-/** Separator-normalise a path so Win32 `\` and POSIX `/` spellings compare. */
-function normalisePath(path: string): string {
-  return path.replace(/\\/g, "/");
-}
+//
+// `ComposeWorkspace` and `normalisePath` are the shared harness in
+// `tests/helpers/compose-workspace-harness.ts` (PTQ-0213).
 
 /**
  * Plant the named fixture files on the conventional project source
  * (`.pi/theta/`), exactly as bug 0320 §Reproduction does. One workspace per cell
- * keeps every decision attributable to that cell's file set. A minimal
- * `settings.json` pins the settings read to a known value (an absent file is
- * silent, so the plant is hermeticity, not noise suppression).
+ * keeps every decision attributable to that cell's file set. `finishWorkspace`
+ * writes the minimal `settings.json` that pins the settings read to a known
+ * value (an absent file is silent, so the plant is hermeticity, not noise
+ * suppression) and returns the handle.
  */
 function plantWorkspace(files: Readonly<Record<string, string>>): ComposeWorkspace {
   const cwd = mkdtempSync(join(tmpdir(), "theta-b0320-"));
@@ -232,12 +171,7 @@ function plantWorkspace(files: Readonly<Record<string, string>>): ComposeWorkspa
   for (const [name, body] of Object.entries(files)) {
     writeFileSync(join(cwd, ".pi", "theta", name), body, "utf8");
   }
-  writeFileSync(join(cwd, ".pi", "settings.json"), "{}", "utf8");
-  return {
-    cwd,
-    path: (name: string): string => normalisePath(join(cwd, ".pi", "theta", name)),
-    dispose: (): void => rmSync(cwd, { recursive: true, force: true }),
-  };
+  return finishWorkspace(cwd);
 }
 
 // ── The load pass ─────────────────────────────────────────────────────────────
