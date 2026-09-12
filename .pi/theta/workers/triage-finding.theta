@@ -62,6 +62,32 @@ Method — run every step:
    in-body comment documents the supersession — the class is about what the
    title asserts; and the same stale wording recurring across same-commit
    sibling tests is repeated drift, not a design choice (PTQ-0266, PTQ-0280).
+   lens: D9 — covers placement & breakdown in src/ ONLY; the candidate's
+   d9_class selects the check. Verify the ACCOUNTING, never the proposed seam or
+   home. breakdown: (a) re-run node tools/quality/size-scan.mjs map --files <a
+   one-line manifest of the host's file> and confirm LOC + band (bands from
+   size-scan bands; an exempt-band host = false-positive); (b) open the cited
+   ranges and confirm the inventory's rows are real distinct concerns (state
+   clusters / member groups that do not share locals or fields) — a row that is
+   one concern split by adjectives is a refuted inventory; (c) confirm the
+   reasons-considered list did not overlook an applicable concrete/strong reason
+   (closed-enumeration dispatch mirroring a spec table, single algorithm with
+   ≥ 6 shared locals, ≥ 80 % data/type LOC, one grammar production, generated
+   code; strong: spec-cited invariant, measured cost, reverted prior split,
+   existing exemption in quality/exemptions.json below the 25 % growth bar).
+   misplacement: re-count the affinity both ways at the cited declaration (own-
+   host members touched vs foreign-host members leaned on) or re-verify the
+   sibling pattern; a claim resting on taste alone is false-positive. husk:
+   re-count payload vs scaffolding LOC, confirm the remaining members have live
+   callers (none → out-of-scope, D2's deadness), and confirm the module is not a
+   deliberate re-export barrel / compatibility facade (header comment, importer
+   count). Verdicts: accurate accounting → questionable — accounting verified;
+   target shape needs a human ruling (NEVER confirmed: a D9 fix is a move or a
+   breakdown whose shape is a design decision; the human's accept --note is the
+   ratification). Refuted accounting, zone-band breakdown without a ≥ 2-concern
+   inventory, an overlooked reason, a barrel/facade → false-positive with the
+   refuting evidence. Dead code → out-of-scope (D2); bugs, naming, duplication →
+   out-of-scope.
    Any other lens: value = out-of-scope (no triage rules exist for it).
 5. Dedupe. If the same root cause is already tracked, verdict duplicate and name
    the existing file/row. Existing issues and resolved issues:

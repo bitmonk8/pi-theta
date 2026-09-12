@@ -11,6 +11,7 @@
 //   quality/issues/         confirmed open issues (PTQ-NNNN-*.md)
 //   quality/resolved/       terminally-statused issues (moved here by `resolve`)
 //   quality/TRIAGE_LOG.md   append-only rejection ledger (re-file prevention)
+//   quality/exemptions.json D9 durable keep-whole rulings: "<d9_host>" -> { loc, reason, date, finding }
 //   quality/tmp/            transient shard/cluster manifests (gitignored)
 //
 // Subcommands (line-oriented stdout; repo-relative forward-slash paths):
@@ -50,16 +51,42 @@
 //       in order, so two parts editing one file would conflict at integration);
 //       a file-connected component larger than n stays one oversized part.
 //       Without --max the grouping is unsplit.
+//       D9 RULE: every open lens: D9 issue is grouped by its HOST FILE (the
+//       path part of its d9_host, else its first location's path) into its
+//       own part keyed "d9/<host path with / -> __>" (manifest
+//       "d9__<...>.txt") — never split by --max (a breakdown/misplacement
+//       ruling rewrites the whole file; splitting it into lanes would only
+//       conflict) and never merged with another lens's part. Two D9 issues on
+//       the SAME host share that one part, in issue-id order. Any other open
+//       issue (any lens) that cites a file a D9 part also cites is DEFERRED
+//       for the wave — not emitted as a row, one stderr line each: "deferred
+//       <issue>: file owned by D9 lane <key>".
+//   exempt --host <path[#fn]> --reason <r>
+//       Record a durable D9 keep-whole ruling in quality/exemptions.json at
+//       the host's CURRENT LOC (tools/quality/size-scan.mjs hostLoc); an
+//       unknown or ambiguous #fn host fails naming size-scan's candidates.
+//   unexempt --host <path[#fn]>
+//       Remove a recorded exemption; fails if none is recorded for the host.
+//   exemptions
+//       Print every recorded exemption, one per line: host<TAB>loc<TAB>date<TAB>reason.
 //   open-count
 //       Print the number of status: open issues in quality/issues/ — the
 //       quality loop's convergence signal (0 = backlog empty).
 //   resolve --manifest <cluster manifest> --fixed <basename,basename,...>
 //       Mark the named issues status: fixed and move them to quality/resolved/.
+//
+// D9 durable exemptions (design .localpi/tmp/quality-loop-d9-design.md §3.2):
+// `reject --finding <p> --verdict human-keep-whole --reason <r>` additionally
+// records the finding's d9_host (when present) into quality/exemptions.json
+// at the host's CURRENT LOC — any other verdict, or a finding with no
+// d9_host, records nothing. `size-scan.mjs map --exemptions` reads this file
+// and annotates growth against the recorded LOC baseline.
 
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { hostLoc } from "./size-scan.mjs";
 
 // QUALITY_STORE_ROOT is a store-mechanics test seam only (tests/quality-store.test.ts),
 // deliberately NOT named PI_THETA_* - that prefix is the authenticated subagent
@@ -77,6 +104,7 @@ const INTAKE = path.join(Q, "intake");
 const ISSUES = path.join(Q, "issues");
 const RESOLVED = path.join(Q, "resolved");
 const TMP = path.join(Q, "tmp");
+const EXEMPTIONS = path.join(Q, "exemptions.json");
 
 function die(msg) {
   process.stderr.write(`store.mjs: ${msg}\n`);
@@ -301,6 +329,25 @@ function today() {
   return new Date().toISOString().slice(0, 10);
 }
 
+// ---------------------------------------------------------------- D9 exemptions
+
+function readExemptions() {
+  return fs.existsSync(EXEMPTIONS) ? readJson(EXEMPTIONS) : {};
+}
+
+function writeExemptions(obj) {
+  writeJson(EXEMPTIONS, obj);
+}
+
+/** hostLoc throws (naming size-scan's candidates) for an unknown/ambiguous #fn host. */
+function hostLocOrDie(host) {
+  try {
+    return hostLoc(ROOT, host);
+  } catch (err) {
+    return die(err.message);
+  }
+}
+
 // ---------------------------------------------------------------- subcommands
 
 const [, , cmd, ...rest] = process.argv;
@@ -406,67 +453,157 @@ switch (cmd) {
     const src = path.join(ROOT, finding);
     if (!fs.existsSync(src)) die(`no such finding: ${finding}`);
     const reason = flags.reason ?? triageNote(src) ?? "";
+    // D9 durable exemption (design §3.2): only human-keep-whole records one,
+    // and only when the finding names a d9_host; every other verdict, or a
+    // finding with no d9_host, records nothing.
+    if (verdict === "human-keep-whole") {
+      const { fields } = readFrontmatter(src);
+      if (fields.d9_host) {
+        const loc = hostLocOrDie(fields.d9_host);
+        const exemptions = readExemptions();
+        exemptions[fields.d9_host] = { loc, reason, date: today(), finding };
+        writeExemptions(exemptions);
+      }
+    }
     logRow([today(), path.basename(finding), verdict, reason || "(no triage note recorded)"]);
     fs.unlinkSync(src);
     process.stdout.write(`rejected ${path.basename(finding)} (${verdict})\n`);
     break;
   }
 
+  case "exempt": {
+    const host = flags.host ?? die("--host required");
+    const reason = flags.reason ?? die("--reason required");
+    const loc = hostLocOrDie(host);
+    const exemptions = readExemptions();
+    exemptions[host] = { loc, reason, date: today(), finding: flags.finding ?? "" };
+    writeExemptions(exemptions);
+    process.stdout.write(`exempted ${host} at ${loc} LOC\n`);
+    break;
+  }
+
+  case "unexempt": {
+    const host = flags.host ?? die("--host required");
+    const exemptions = readExemptions();
+    if (!(host in exemptions)) die(`no exemption recorded for '${host}'`);
+    delete exemptions[host];
+    writeExemptions(exemptions);
+    process.stdout.write(`unexempted ${host}\n`);
+    break;
+  }
+
+  case "exemptions": {
+    const exemptions = readExemptions();
+    for (const host of Object.keys(exemptions).sort()) {
+      const e = exemptions[host];
+      process.stdout.write(`${host}\t${e.loc}\t${e.date}\t${e.reason}\n`);
+    }
+    break;
+  }
+
   case "clusters": {
     if (!fs.existsSync(ISSUES)) break;
-    const issues = fs.readdirSync(ISSUES).filter((f) => f.endsWith(".md")).sort();
-    const clusters = new Map(); // key -> issue paths
-    const citedFiles = new Map(); // issue path -> every file its locations cite
-    for (const f of issues) {
+    const files = fs.readdirSync(ISSUES).filter((f) => f.endsWith(".md")).sort();
+    // One shared pass: every open issue with its cited-files set (used both
+    // for D9 host ownership and for the pre-existing file-disjoint splitting).
+    const openIssues = [];
+    for (const f of files) {
       const { fields, locations } = readFrontmatter(path.join(ISSUES, f));
       if ((fields.status ?? "open") !== "open") continue;
-      const first = locations[0] ?? "";
+      const issuePath = posix(path.join("quality", "issues", f));
+      const cited = new Set(locations.map((l) => posix(l.split(":")[0])).filter(Boolean));
+      openIssues.push({ fields, locations, issuePath, cited });
+    }
+    if (openIssues.length === 0) break;
+
+    const outDir = path.join(TMP, flags.wave ? `clusters-${flags.wave}` : "clusters");
+    const rows = [];
+
+    // --- D9: one lane per host FILE (design §3.3). Never split by --max,
+    // never merged with any other lens's part. ---
+    const d9ByHost = new Map(); // host file path -> issue paths
+    for (const issue of openIssues) {
+      if (issue.fields.lens !== "D9") continue;
+      const d9Host = issue.fields.d9_host;
+      const hostFile = d9Host ? posix(d9Host.split("#")[0]) : posix((issue.locations[0] ?? "").split(":")[0]);
+      // A D9 issue that names no host could neither be laned nor deferred
+      // against: it would silently drop out of every wave. Fail loud instead.
+      if (!hostFile) die(`D9 issue ${issue.issuePath} has neither d9_host nor a cited location`);
+      if (!d9ByHost.has(hostFile)) d9ByHost.set(hostFile, []);
+      d9ByHost.get(hostFile).push(issue.issuePath);
+    }
+    const d9OwnerOf = new Map(); // host file path -> D9 lane key (for the deferral message)
+    if (d9ByHost.size > 0) fs.mkdirSync(outDir, { recursive: true });
+    for (const [hostFile, issuePaths] of [...d9ByHost.entries()].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))) {
+      const key = `d9/${hostFile.replaceAll("/", "__")}`;
+      d9OwnerOf.set(hostFile, key);
+      const sorted = [...issuePaths].sort(); // PTQ-NNNN filenames sort in issue-id order
+      const p = path.join(outDir, `${key.replaceAll("/", "__")}.txt`);
+      fs.writeFileSync(p, sorted.join("\n") + "\n");
+      rows.push([key, rel(p), sorted.length]);
+    }
+
+    // --- Everything else: the pre-existing D2/D7 dirname grouping, except an
+    // issue citing any file a D9 lane owns is deferred, not clustered — a
+    // breakdown/misplacement ruling rewrites the whole file, so a sibling
+    // lane on it would only conflict at integration. ---
+    const clusters = new Map(); // key -> issue paths
+    const citedFiles = new Map(); // issue path -> every file its locations cite
+    for (const issue of openIssues) {
+      if (issue.fields.lens === "D9") continue; // already laned above
+      const ownerKey = [...issue.cited].map((f) => d9OwnerOf.get(f)).find(Boolean);
+      if (ownerKey) {
+        process.stderr.write(`store.mjs: deferred ${issue.issuePath}: file owned by D9 lane ${ownerKey}\n`);
+        continue;
+      }
+      const first = issue.locations[0] ?? "";
       const filePart = first.split(":")[0];
       const dir = posix(path.dirname(filePart));
       const segs = dir.split("/").filter((x) => x && x !== ".");
       const key = segs.length >= 2 ? `${segs[0]}/${segs[1]}` : segs[0] || "unclustered";
       if (!clusters.has(key)) clusters.set(key, []);
-      const issuePath = posix(path.join("quality", "issues", f));
-      clusters.get(key).push(issuePath);
-      citedFiles.set(issuePath, new Set(locations.map((l) => posix(l.split(":")[0])).filter(Boolean)));
+      clusters.get(key).push(issue.issuePath);
+      citedFiles.set(issue.issuePath, issue.cited);
     }
-    if (clusters.size === 0) break;
-    // Absent --max keeps the historical unsplit grouping; a bare --max means 12.
-    const maxPer = flags.max === undefined ? Infinity : flags.max === "true" ? 12 : Number(flags.max);
-    if (!(maxPer > 0)) die("--max must be a positive number");
-    const outDir = path.join(TMP, flags.wave ? `clusters-${flags.wave}` : "clusters");
-    fs.mkdirSync(outDir, { recursive: true });
-    for (const [key, paths] of [...clusters.entries()].sort()) {
-      // Parts inherit the parent cluster's already-sorted issue order, so the
-      // same backlog always splits the same way (stable across waves).
-      const parts = [];
-      if (paths.length <= maxPer) {
-        parts.push([key, paths]);
-      } else {
-        // Parts run as PARALLEL worktree lanes and are cherry-picked in order,
-        // so two parts must never edit the same file: issues that cite a
-        // common file travel together (connected components over cited
-        // paths), and components are packed first-fit into parts of at most
-        // --max issues. A component larger than --max stays one oversized part
-        // rather than being split into lanes that would conflict at
-        // integration (wave qw20260912091742 lost a lane exactly that way).
-        const components = fileDisjointComponents(paths, citedFiles);
-        const packed = [];
-        for (const comp of components) {
-          const slot = packed.find((part) => part.length + comp.length <= maxPer);
-          if (slot) slot.push(...comp);
-          else packed.push([...comp]);
+    if (clusters.size > 0) {
+      // Absent --max keeps the historical unsplit grouping; a bare --max means 12.
+      const maxPer = flags.max === undefined ? Infinity : flags.max === "true" ? 12 : Number(flags.max);
+      if (!(maxPer > 0)) die("--max must be a positive number");
+      fs.mkdirSync(outDir, { recursive: true });
+      for (const [key, paths] of [...clusters.entries()].sort()) {
+        // Parts inherit the parent cluster's already-sorted issue order, so the
+        // same backlog always splits the same way (stable across waves).
+        const parts = [];
+        if (paths.length <= maxPer) {
+          parts.push([key, paths]);
+        } else {
+          // Parts run as PARALLEL worktree lanes and are cherry-picked in order,
+          // so two parts must never edit the same file: issues that cite a
+          // common file travel together (connected components over cited
+          // paths), and components are packed first-fit into parts of at most
+          // --max issues. A component larger than --max stays one oversized part
+          // rather than being split into lanes that would conflict at
+          // integration (wave qw20260912091742 lost a lane exactly that way).
+          const components = fileDisjointComponents(paths, citedFiles);
+          const packed = [];
+          for (const comp of components) {
+            const slot = packed.find((part) => part.length + comp.length <= maxPer);
+            if (slot) slot.push(...comp);
+            else packed.push([...comp]);
+          }
+          // One oversized component packs into a single part: it keeps the bare key.
+          if (packed.length === 1) parts.push([key, packed[0]]);
+          else packed.forEach((partPaths, i) => parts.push([`${key}__p${i + 1}`, partPaths]));
         }
-        // One oversized component packs into a single part: it keeps the bare key.
-        if (packed.length === 1) parts.push([key, packed[0]]);
-        else packed.forEach((partPaths, i) => parts.push([`${key}__p${i + 1}`, partPaths]));
-      }
-      for (const [partKey, partPaths] of parts) {
-        const p = path.join(outDir, `${partKey.replaceAll("/", "__")}.txt`);
-        fs.writeFileSync(p, partPaths.join("\n") + "\n");
-        process.stdout.write(`${partKey}\t${rel(p)}\t${partPaths.length}\n`);
+        for (const [partKey, partPaths] of parts) {
+          const p = path.join(outDir, `${partKey.replaceAll("/", "__")}.txt`);
+          fs.writeFileSync(p, partPaths.join("\n") + "\n");
+          rows.push([partKey, rel(p), partPaths.length]);
+        }
       }
     }
+
+    for (const [key, m, count] of rows) process.stdout.write(`${key}\t${m}\t${count}\n`);
     break;
   }
 

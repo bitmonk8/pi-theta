@@ -45,6 +45,17 @@ Judge, in order:
    verifiably verified nothing and nothing cites it, helper dedupe kept every
    caller green, coverage-matrix.md / bug-doc citations still resolve, and no
    production src/ file changed for a D7 issue.
+   For issues whose lens: is D9 the bar is: the change is a PURE MOVE/EXTRACT of
+   exactly the ratified seam or home — run git diff --stat (the footprint)
+   and git diff --color=always --color-moved=zebra (the ANSI move markers are
+   the observable: moved blocks, not edited ones; fall back to reading both
+   sides when a block is unmarked); every symbol a touched
+   path exported still resolves for its importers (tsc green is the proof;
+   spot-check two importers); no logic, name, or order-of-effects change; a new
+   module has a header; for a breakdown the host's LOC decreased by about the
+   seam's LOC (size-scan map before/after); for a misplacement/husk the
+   declaration lives at the ratified home and nowhere else; no other host was
+   touched. A behaviour edit smuggled into a move is must_fix.
 3. Honesty. Do not take the diff's or any report's word for anything you can
    check directly.
 

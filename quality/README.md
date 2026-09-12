@@ -52,12 +52,20 @@ verification gate, default `npx tsc --noEmit && npm test`).
    (`anthropic/claude-fable-5`, the experiments' judge). `confirmed` → minted
    `PTQ-NNNN` in `issues/`; rejections → one `TRIAGE_LOG.md` row, file deleted;
    `questionable` stays in `intake/` as the human queue.
-6. **Fix** — open issues clustered by fix surface (first two path segments);
-   one fixer per cluster, sequentially (`claude-sonnet-5`). Fixer edits code
-   only, then runs the gate.
+6. **Fix** — open issues clustered by fix surface (D2/D7: first two path
+   segments; D9: the whole HOST FILE, §"D9 — placement & breakdown" below);
+   one fixer per cluster (`claude-sonnet-5`), each in its own detached git
+   worktree, fanned out in parallel. Fixer edits code only, then runs the
+   gate inside its tree.
 7. **Fix review** — `claude-fable-5` verifies each issue is actually resolved
-   and nothing else was damaged; gate + review must pass, else one guided retry,
-   else `git restore .` and the issues stay open.
+   and nothing else was damaged, in the tree; a green, reviewed lane's commit
+   is cherry-picked onto the integrated head sequentially, in cluster order.
+   A conflicting cherry-pick gets ONE rebase-and-retry in a fresh worktree at
+   the integrated head; a second conflict, or a red retry, drops the lane and
+   its issues stay open. After every lane of the wave is integrated (or
+   dropped), ONE batch gate run judges the whole integrated result; a red
+   batch gate drops the wave's cherry-picks last-to-first, re-gating after
+   each drop, until the gate is green again.
 8. **Commit/push** — one store commit per wave (`quality: <wave> review pass
    [<lenses with files due>]`, suffix omitted when no lens had files due) and
    one commit per fixed cluster (`quality: <wave> fix <key>`), plus one
@@ -87,6 +95,84 @@ every store/state mutation except the finding files the reviewer writes and the
 triage note appended to them — so ids, moves, and state stay consistent no
 matter what a model does.
 
+## D9 — placement & breakdown
+
+D9 (`lens-d9-placement.theta`, `anthropic/claude-fable-5`) reviews every file
+under `src/` for three classes at once:
+
+- **breakdown** — a file or function over the size thresholds without an
+  adequate reason to stay whole.
+- **misplacement** — correct code living in the wrong module or directory
+  (counted affinity to a foreign host, or a layer crossing).
+- **husk** — a module that survives a past move almost empty (payload vs
+  scaffolding ratio), as opposed to a deliberate re-export barrel/facade.
+
+Only the breakdown class is band-gated; misplacement and husk are reviewed
+for every file regardless of size. Bands (mechanical; from
+`node tools/quality/size-scan.mjs bands`, quoted into every D9 brief so the
+lens can never drift from the scanner):
+
+| band | file LOC | function LOC | breakdown posture |
+|---|---|---|---|
+| exempt | < 600 | < 60 | no breakdown finding may be filed (placement review still applies) |
+| zone | 600–999 | 60–99 | no presumption: needs a ≥ 2-concern inventory |
+| justify | 1000–1999 | 100–199 | presumption of breakdown: not filed only with a concrete reason to stay whole |
+| strong | ≥ 2000 | ≥ 200 | presumption of breakdown: not filed only with a **strong** concrete reason |
+
+Every over-threshold item the mechanical map (`size-scan.mjs map`) lists must
+be dispositioned exactly once: **FILE** (a breakdown finding), **KEEP-WHOLE**
+(a reason class + evidence, recorded in the filer's notes as `kept whole:
+<host> — <reason class>: <evidence>`), or **EXEMPT** (already human-ruled).
+
+D9 never proposes a fix design — only the accounting and (for breakdown) a
+set of unproven seam hypotheses. The target shape is a human decision, so a
+triage verdict on a D9 candidate is never `confirmed`: an accurate D9
+candidate triages to `questionable — accounting verified; target shape needs
+a human ruling` and sits in `intake/` until you rule on it:
+
+```
+# ratify a seam or a move: this MINTS the issue (the accept --note IS the ruling)
+node tools/quality/store.mjs accept --finding quality/intake/<f> --note \
+  "RATIFIED: <seam letter or free text> — move <what> → <new module path,
+  helper names, or rightful home>; <barrel|core-remains|dissolve>;
+  constraints: …"
+
+# keep the host whole for a recorded reason: writes a durable exemption
+node tools/quality/store.mjs reject --finding quality/intake/<f> \
+  --verdict human-keep-whole --reason "<the concrete/strong reason>"
+
+# defer without recording anything: the host is not re-filed until it changes
+node tools/quality/store.mjs reject --finding quality/intake/<f> \
+  --verdict human-defer --reason "..."
+```
+
+`accept --note "RATIFIED: …"` is picked up by the fix phase next wave: ONE
+ratified seam/move per issue, per wave — incremental, bounded lanes. If the
+host is still over threshold afterwards, D9 re-reviews it and can file the
+next seam.
+
+`reject --verdict human-keep-whole` records the finding's `d9_host` in
+`quality/exemptions.json` with the host's CURRENT LOC (any other verdict, or
+a finding without `d9_host`, records nothing there). `exemptions.json` is
+store-owned — it falls under the same single-writer rule as every other file
+under `quality/`: only `store.mjs` (via `accept`/`reject`/`exempt`/`unexempt`)
+writes it; nothing else under `.pi/theta/` or a lens worker touches it.
+An exempted host is annotated in `size-scan.mjs map` output and is re-filed
+only on growth of 25% or more since the ruling, or a newly named distinct
+concern.
+
+**A D9 lane owns its host file**: open `lens: D9` issues are clustered by
+HOST FILE, not by the usual fix-surface path prefix — two ratified D9 issues
+on the same host share one lane (one worktree, applied in issue-id order);
+no other lens's issue may share a D9 lane's cluster. Any OTHER open issue
+(any lens) that cites a file a D9 lane owns is **deferred** for the wave (one
+fixer would only conflict with a breakdown rewriting the whole file) —
+reported as one stderr line `deferred <issue>: file owned by D9 lane <key>`.
+This is a distinct meaning from the orchestrator's own "deferred" count in
+the exit report, which is the fix phase's PER-WAVE CAPACITY limit (a cluster
+picked but not fanned out because `parallel` was already full — it is
+reconsidered next wave, nothing about file ownership is implied).
+
 ## Extending to more lenses
 
 Add a lens = one surfaces.json entry (+ `shard_loc`) + one worker theta in
@@ -95,13 +181,15 @@ files) + THREE literal touch points in `quality-loop.theta` (the `tools:`
 entry, the dispatch arm in the review `par for`, the `has_worker` roster
 predicate) + a triage step-4 scope block + a fix-brief rules block.
 Model picks: D7 test quality → claude-sonnet-5 (x03 quarter-surface data;
-supersedes the earlier kimi-k2.7-code note); D4 duplication → kimi-k2.7-code
-or gemini-3.7-flash; D8/D9 → gemini-3.7-flash with fable arbiter; D1/D6 →
-fable only.
+supersedes the earlier kimi-k2.7-code note); D9 placement & breakdown →
+claude-fable-5 (precision/U100% on the D9 reference set; the mechanical
+pre-scan makes breakdown recall structural, so precision and reasoning
+quality decide); D4 duplication → kimi-k2.7-code or gemini-3.7-flash; D1/D6
+→ fable only.
 
 ## Committing note
 
 The repo's parse gate (`tests/committed-fixture-parse-gate.test.ts`) pins exact
-counts of committed `.theta`/`.thetalib` files (currently 38/3, including the
+counts of committed `.theta`/`.thetalib` files (currently 39/3, including the
 `.pi/theta/` loop) — adding or removing a committed theta means bumping the
 counts in the same commit.

@@ -797,7 +797,7 @@ describe("bug 0158 (E) — GOV-15: no committed source's diagnostic sequence can
         thetalib: files.filter((p) => p.endsWith(".thetalib")).length,
       },
       "E1 — the census must be the whole committed corpus of both extensions; a shrunken discovery would green the cell below over fewer files. Re-measure and re-pin in the same commit that adds or removes a committed theta source.",
-    ).toEqual({ theta: 39, thetalib: 3 });
+    ).toEqual({ theta: 40, thetalib: 3 });
     const withMatch = files.filter((p) =>
       readFileSync(REPO_ROOT + p, "utf8").includes("match "),
     );

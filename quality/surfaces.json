@@ -12,5 +12,12 @@
     "exclude": ["tests/fixtures/"],
     "ext": [".ts"],
     "shard_loc": 3000
+  },
+  "D9": {
+    "description": "placement & breakdown: code in the wrong module (counted affinity), hollow post-refactor survivors (payload vs scaffolding), and hosts over the size thresholds (files ≥600 / functions ≥60 LOC; presumption of breakdown at ≥1000/≥100, strong at ≥2000/≥200) without a concrete reason to stay whole — accounting and seam hypotheses, never the split design; over the production TypeScript sources",
+    "include": ["src/"],
+    "exclude": [],
+    "ext": [".ts"],
+    "shard_loc": 6000
   }
 }

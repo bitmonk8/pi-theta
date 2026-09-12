@@ -69,7 +69,14 @@ function writeSurfaces(root: string): void {
 function writeIssue(
   root: string,
   filename: string,
-  opts: { location: string; status?: string; id?: string; more?: string[] },
+  opts: {
+    location: string;
+    status?: string;
+    id?: string;
+    more?: string[];
+    lens?: string;
+    extra?: Record<string, string>;
+  },
 ): void {
   const status = opts.status ?? "open";
   const id = opts.id ?? filename.replace(/\.md$/, "");
@@ -80,7 +87,7 @@ function writeIssue(
       "---",
       `id: ${id}`,
       "title: scratch finding",
-      "lens: D2",
+      `lens: ${opts.lens ?? "D2"}`,
       `status: ${status}`,
       "verdict: confirmed",
       "locations:",
@@ -91,12 +98,45 @@ function writeIssue(
       "wave: w0",
       "reported_by: scratch (test)",
       "date: 2020-01-01",
+      ...Object.entries(opts.extra ?? {}).map(([k, v]) => `${k}: ${v}`),
       "---",
       "",
       "# scratch finding",
       "",
     ].join("\n"),
   );
+}
+
+function writeIntake(root: string, filename: string, opts: { extra?: Record<string, string>; triageNote?: string }): string {
+  const relPath = `quality/intake/${filename}`;
+  writeFile(
+    root,
+    relPath,
+    [
+      "---",
+      "id: pending",
+      "title: scratch finding",
+      "lens: D9",
+      "status: intake",
+      "verdict: pending",
+      "locations:",
+      "  - src/big.ts:1-700",
+      "sites: 1",
+      "fix_scope: module",
+      "wave: w0",
+      "reported_by: scratch (test)",
+      "date: 2020-01-01",
+      ...Object.entries(opts.extra ?? {}).map(([k, v]) => `${k}: ${v}`),
+      "---",
+      "",
+      "# scratch finding",
+      "",
+      "## Triage",
+      opts.triageNote ?? "",
+      "",
+    ].join("\n"),
+  );
+  return relPath;
 }
 
 describe("tools/quality/store.mjs (scratch fixture store via QUALITY_STORE_ROOT)", () => {
@@ -339,6 +379,99 @@ describe("tools/quality/store.mjs (scratch fixture store via QUALITY_STORE_ROOT)
     const r = runStore(root, ["open-count"]);
     expect(r.status).toBe(0);
     expect(r.stdout.trim()).toBe("1");
+  });
+
+  it("cell 15: reject --verdict human-keep-whole records a D9 exemption at the host's current LOC; other verdicts and hostless findings record nothing", () => {
+    writeFile(root, "src/big.ts", makeLines(700));
+    const f1 = writeIntake(root, "w0-d9-01-a.md", { extra: { d9_host: "src/big.ts", d9_class: "breakdown", d9_band: "zone" } });
+    const r1 = runStore(root, ["reject", "--finding", f1, "--verdict", "human-keep-whole", "--reason", "spec-cited invariant"]);
+    expect(r1.status).toBe(0);
+    const exemptions1 = JSON.parse(readFile(root, "quality/exemptions.json"));
+    expect(exemptions1["src/big.ts"]).toMatchObject({ loc: 700, reason: "spec-cited invariant", finding: f1 });
+
+    // A different verdict records nothing (still just the one entry above).
+    const f2 = writeIntake(root, "w0-d9-02-b.md", { extra: { d9_host: "src/big.ts", d9_class: "breakdown", d9_band: "zone" } });
+    const r2 = runStore(root, ["reject", "--finding", f2, "--verdict", "false-positive", "--reason", "refuted"]);
+    expect(r2.status).toBe(0);
+    expect(Object.keys(JSON.parse(readFile(root, "quality/exemptions.json")))).toEqual(["src/big.ts"]);
+
+    // A finding with no d9_host records nothing even on human-keep-whole.
+    const f3 = writeIntake(root, "w0-d9-03-c.md", { extra: {} });
+    const r3 = runStore(root, ["reject", "--finding", f3, "--verdict", "human-keep-whole", "--reason", "n/a"]);
+    expect(r3.status).toBe(0);
+    expect(Object.keys(JSON.parse(readFile(root, "quality/exemptions.json")))).toEqual(["src/big.ts"]);
+  });
+
+  it("cell 16: D9 issues cluster by host FILE, share a part on the same host, split by directory when basenames collide, and D9 ownership defers other lenses", () => {
+    writeIssue(root, "PTQ-0101-a.md", {
+      location: "src/big.ts:1-700",
+      id: "PTQ-0101",
+      lens: "D9",
+      extra: { d9_host: "src/big.ts", d9_class: "breakdown", d9_band: "zone" },
+    });
+    writeIssue(root, "PTQ-0102-b.md", {
+      location: "src/big.ts:1-700",
+      id: "PTQ-0102",
+      lens: "D9",
+      extra: { d9_host: "src/big.ts", d9_class: "misplacement", d9_band: "zone" },
+    });
+    writeIssue(root, "PTQ-0103-c.md", {
+      location: "src/sub/other.ts:1-50",
+      id: "PTQ-0103",
+      lens: "D9",
+      extra: { d9_host: "src/sub/other.ts" },
+    });
+    writeIssue(root, "PTQ-0104-d.md", {
+      location: "src/other2/other.ts:1-50",
+      id: "PTQ-0104",
+      lens: "D9",
+      extra: { d9_host: "src/other2/other.ts" },
+    });
+    // Cites the D9-owned host: deferred, never clustered.
+    writeIssue(root, "PTQ-0105-e.md", { location: "src/big.ts:5-6", id: "PTQ-0105", lens: "D2" });
+    // Cites an unrelated file: clustered as usual.
+    writeIssue(root, "PTQ-0106-f.md", { location: "src/runtime/unrelated.ts:1-2", id: "PTQ-0106", lens: "D2" });
+
+    const r = runStore(root, ["clusters"]);
+    expect(r.status).toBe(0);
+    expect(r.stderr).toContain("deferred quality/issues/PTQ-0105-e.md: file owned by D9 lane d9/src__big.ts");
+
+    const rows = r.stdout.trim().split("\n").filter(Boolean).map((l) => l.split("\t"));
+    const byKey = new Map(rows.map((c) => [c[0], c]));
+
+    expect(byKey.get("d9/src__big.ts")?.[2]).toBe("2");
+    expect(readFile(root, byKey.get("d9/src__big.ts")![1]!).trim().split("\n")).toEqual([
+      "quality/issues/PTQ-0101-a.md",
+      "quality/issues/PTQ-0102-b.md",
+    ]);
+    // Same basename, different directories -> two distinct parts.
+    expect(byKey.get("d9/src__sub__other.ts")?.[2]).toBe("1");
+    expect(byKey.get("d9/src__other2__other.ts")?.[2]).toBe("1");
+
+    const nonD9Keys = [...byKey.keys()].filter((k): k is string => typeof k === "string" && !k.startsWith("d9/"));
+    expect(nonD9Keys).toEqual(["src/runtime"]);
+  });
+
+  it("cell 17: exempt / exemptions / unexempt manage quality/exemptions.json directly; an unknown #fn host fails naming candidates", () => {
+    writeFile(root, "src/host.ts", "export function foo() {\n  return 1;\n}\n");
+
+    const r1 = runStore(root, ["exempt", "--host", "src/host.ts", "--reason", "data-only module"]);
+    expect(r1.status).toBe(0);
+
+    const r2 = runStore(root, ["exemptions"]);
+    expect(r2.status).toBe(0);
+    expect(r2.stdout.trim().split("\n").map((l) => l.split("\t"))).toEqual([
+      ["src/host.ts", "3", expect.any(String), "data-only module"],
+    ]);
+
+    const r3 = runStore(root, ["unexempt", "--host", "src/host.ts"]);
+    expect(r3.status).toBe(0);
+    expect(runStore(root, ["exemptions"]).stdout).toBe("");
+
+    const r4 = runStore(root, ["exempt", "--host", "src/host.ts#bar", "--reason", "x"]);
+    expect(r4.status).toBe(1);
+    expect(r4.stderr).toContain("unknown host");
+    expect(r4.stderr).toContain("foo");
   });
 
   it("cell 12: default ROOT (env absent) resolves to the real repo and lists D2 + D7", () => {

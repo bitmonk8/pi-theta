@@ -61,6 +61,30 @@ Per-lens rules — apply per issue, by its lens: frontmatter:
   before adding a new one. If a change renames or merges a test cited by
   coverage-matrix.md or a bug doc's witness list, re-point that citation in
   the same change. Never touch production src/ for a D7 issue.
+- lens: D9 (placement & breakdown in src/): implement EXACTLY the ratified
+  seam or move under the issue's "## Triage" ruling — nothing else moves.
+  MISPLACEMENT: move the cited declaration(s) verbatim to the ratified home,
+  re-export from the old path only if the ruling says "barrel" (otherwise
+  rewrite the importers the ruling names, and only those). HUSK: re-home the
+  remaining members to the ratified home or dissolve the module exactly as
+  ruled, rewriting its importers. FILE seam: create the new
+  sibling module(s) named in the ruling; move each declaration VERBATIM by
+  line range with bash (sed -n 'a,bp' >> new; then delete the range) — never
+  retype code; move each declaration's doc comment with it; give the new
+  module a header comment stating its role; in the original file add
+  export { ... } from "./<new>" (or export * from) so every existing
+  importer resolves unchanged (barrel), and import back into the original
+  anything it still uses; keep the original file's header and update its
+  role sentence. FUNCTION seam: extract the named phases into helpers in the
+  same module (or the module the ruling names), the original name remaining
+  the orchestrator; identical behaviour — same outputs, same diagnostics,
+  same order of effects; each helper gets a doc comment. Both: no logic
+  edits, no renames beyond the ruling, no formatting sweeps, no importer
+  edits unless tsc reports a runtime import cycle (then prefer moving the
+  offending declaration back; say so). Run npx tsc --noEmit FIRST (cheap;
+  it proves every importer still resolves), then the full gate. Report in
+  notes the before/after LOC of the host from node tools/quality/size-scan.mjs
+  map.
 
 Guidance from a previous rejected attempt — address it explicitly if present:
 ${extra}

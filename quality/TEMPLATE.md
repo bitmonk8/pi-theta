@@ -10,13 +10,16 @@ triage appends its note under that heading.
 ---
 id: pending                  # PTQ-NNNN minted at acceptance; never self-assigned
 title: <symptom as one sentence; names the code, not the fix>
-lens: D2                     # D2 | D7 — the lens that filed this
+lens: D2                     # D2 | D7 | D9 - the lens that filed this
 status: intake               # intake | open | fixed | rejected (store mechanics own transitions)
 verdict: pending             # pending | confirmed | questionable | false-positive | duplicate | out-of-scope | malformed
 locations:                   # every cited site, repo-relative path:line-range
   - src/example/file.ts:308-353
 sites: 1                     # count of occurrences cited in Evidence
-fix_scope: localized         # localized | module | cross-module — mechanical size proxy, NOT a priority
+fix_scope: localized         # localized | module | cross-module - mechanical size proxy, NOT a priority
+d9_class: breakdown          # D9 only: breakdown | misplacement | husk
+d9_host: src/example/file.ts # D9 breakdown only: the exemption key, <path> or <path>#<function>
+d9_band: justify             # D9 breakdown only: zone | justify | strong
 wave: <wave id>
 reported_by: <worker> (<model>)
 date: <YYYY-MM-DD>
@@ -30,7 +33,10 @@ date: <YYYY-MM-DD>
 ## Evidence
 <Per location: path:lines plus a verbatim excerpt (<= 15 lines each). Pattern
 claims cite every counted site, or state the exact search used and its hit
-count.>
+count. D9 breakdown: the distinct-concern inventory table (concern | members |
+line ranges | LOC, >= 2 rows) or the function's step inventory. D9
+misplacement: "touches M members of <foreign host>, N of its own", names
+listed. D9 husk: payload-vs-scaffolding LOC and the remaining-caller count.>
 
 ## Why this is a problem
 <Anchor to a named principle with mechanical evidence: dead code proven dead,
