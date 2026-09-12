@@ -1,9 +1,9 @@
 ---
-id: pending                  # PTQ-NNNN minted at acceptance; never self-assigned
+id: PTQ-0280
 title: division-result-type-number-invoke.test.ts's F1 (ii) names say the invoke-arg-mismatch code moves withheld → fires; the bodies prove it stays withheld or never check it
 lens: D7                     # D2 | D7 — the lens that filed this
-status: intake               # intake | open | fixed | rejected (store mechanics own transitions)
-verdict: pending              # pending | confirmed | questionable | false-positive | duplicate | out-of-scope | malformed
+status: open
+verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - tests/division-result-type-number-invoke.test.ts:79-80
   - tests/division-result-type-number-invoke.test.ts:345-355
@@ -164,3 +164,4 @@ own wording.
 ## Triage
 <triage appends: verdict + one-line reason. Nothing above this line is edited.>
 verdict: questionable — both `it()` titles already append a "bug 0332: refuses at PARSE instead" correction and sit under a comment (346-355) that fully documents the supersession, and the identical pattern (a "stays WITHHELD"-style title whose `allHits` assertion flips from `[]` to a live `ARITHMETIC_CODE` hit, left with zero title annotation) recurs in `division-result-type-number.test.ts`'s sibling `aStr`/`aStr (control)` cells from the same commit (6ed73f9b) — a repeated same-commit authorial choice across companion files, not an isolated defect, so a human should rule on whether/how to rename across the whole family (triage: claude-opus-5)
+verdict: confirmed — human-ruled 2026-09-12: same family as PTQ-0266 (sibling aStr cell, already renamed by lane tests__p2 in 11820751). A title that states the superseded pre-0332 claim and then appends '— bug 0332: refuses at PARSE instead' still asserts the stale claim; the describe name at :345 carries no correction at all. Direction: rename describe :345 and it :356/:373 to the post-0332 framing (as aStr now reads: the supersession is the subject, not a footnote), keep the '(control)' marker and the 346-355 comment, change no assertions. Bug 0332's citation is path + fixture lines, not these strings.

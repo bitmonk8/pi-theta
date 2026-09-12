@@ -56,6 +56,12 @@ Method — run every step:
    a proposal to merge/rename/delete a test cited by
    docs/reference/coverage-matrix.md or a bug doc's witness list that does not
    say so; tests/live/** failLoudly posture is correct skipping.
+   Human-ruled D7 precedents (rule this way; do not go questionable on them):
+   a misleading-name filing stands when the title states a superseded claim,
+   even if the title appends a "— bug NNNN: … instead" correction or an
+   in-body comment documents the supersession — the class is about what the
+   title asserts; and the same stale wording recurring across same-commit
+   sibling tests is repeated drift, not a design choice (PTQ-0266, PTQ-0280).
    Any other lens: value = out-of-scope (no triage rules exist for it).
 5. Dedupe. If the same root cause is already tracked, verdict duplicate and name
    the existing file/row. Existing issues and resolved issues:
