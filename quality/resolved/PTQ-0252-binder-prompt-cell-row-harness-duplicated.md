@@ -2,7 +2,7 @@
 id: PTQ-0252
 title: binder-prompt-all-break-description-hint-empty-line.test.ts redefines the ONE_INTEGER_FIELD/source()/Cell/cell() harness already written as Row/row() in binder-prompt-description-hint-line-forgery.test.ts
 lens: D7                     # D2 | D7 — the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - tests/binder-prompt-all-break-description-hint-empty-line.test.ts:73-129

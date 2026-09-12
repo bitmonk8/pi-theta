@@ -2,7 +2,7 @@
 id: PTQ-0229
 title: tests/b0287 and tests/b0289 each define their own copy of the same SessionManager message/note entry-fixture builders
 lens: D7                     # D2 | D7 — the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - tests/b0287-live-harness-assistant-text-reader.test.ts:34-42

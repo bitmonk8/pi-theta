@@ -2,7 +2,7 @@
 id: PTQ-0279
 title: The `binderParams`/`parametersBlockLines` binder-system-prompt rendering mirror is duplicated across two params-lowering test files
 lens: D7
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - tests/binder-param-line-newline-normalisation.test.ts:423-432

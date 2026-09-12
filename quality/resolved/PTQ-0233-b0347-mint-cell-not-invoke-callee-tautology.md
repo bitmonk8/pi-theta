@@ -2,7 +2,7 @@
 id: PTQ-0233
 title: b0347 child-mint cell asserts surfaced.kind is not "invoke_callee" after already binding it to the literal "invoke_infra", so the second assertion cannot independently fail
 lens: D7                     # D2 | D7 — the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - tests/b0347-subagent-leg-propagated-mintable-wrapped-unit.test.ts:470-482

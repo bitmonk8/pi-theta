@@ -2,7 +2,7 @@
 id: PTQ-0247
 title: b0417's RecordingRegistry duplicates b0397's invocation-recording double verbatim, but b0417 never reads the capture and structurally cannot
 lens: D7                     # D2 | D7 — the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - tests/b0417-responses-binder-toolchoice-gate.test.ts:163-176

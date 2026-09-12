@@ -2,7 +2,7 @@
 id: PTQ-0241
 title: b0295 cell (C) asserts err.kind is not "invoke_callee" after already binding it to the literal "cancelled", so the second assertion cannot independently fail
 lens: D7                     # D2 | D7 — the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - tests/b0295-child-internal-cancel-wrap-arm.test.ts:365-370

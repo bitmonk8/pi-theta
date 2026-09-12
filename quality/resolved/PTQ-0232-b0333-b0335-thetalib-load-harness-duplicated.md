@@ -2,7 +2,7 @@
 id: PTQ-0232
 title: b0333, b0334 and b0335 each redefine an identical fakeThetaLibFs/LoadResult/load-driver bundle for driving checkThetaImports
 lens: D7                     # D2 | D7 — the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - tests/b0333-transitive-lib-reexport-edge.test.ts:152-229

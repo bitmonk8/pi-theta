@@ -2,7 +2,7 @@
 id: PTQ-0238
 title: b0322's code-side tool-call harness (span/objArg/rootDouble/runBody/errOf/builtinEntry) duplicates tests/tool-arg-runtime-schema-validation.test.ts near-verbatim
 lens: D7                     # D2 | D7 — the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - tests/b0322-unknown-tool-dispatch-safety-net.test.ts:61-229

@@ -2,7 +2,7 @@
 id: PTQ-0251
 title: The b0459 cell-4 production-seam harness (FakeCommandInfo, makeHarness, and its closing assertion block) is redefined near-verbatim in b0460
 lens: D7                     # D2 | D7 — the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - tests/b0459-cross-format-collision-message-form.test.ts:242-300

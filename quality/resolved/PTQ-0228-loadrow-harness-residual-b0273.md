@@ -2,7 +2,7 @@
 id: PTQ-0228
 title: b0273 redeclares startPositions, expectCaptured, and expectRows verbatim from the load-row-harness module it already imports five other symbols from
 lens: D7                     # D2 | D7 — the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - tests/b0273-query-result-error-side-unresolved-name.test.ts:7-13

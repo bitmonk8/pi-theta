@@ -2,7 +2,7 @@
 id: PTQ-0248
 title: Two b0426 doc-gate cell names promise an order check and a both-cases check that their single toContain assertion does not perform
 lens: D7                     # D2 | D7 — the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - tests/b0426-qry18-no-union-of-scalars-row.test.ts:98-107

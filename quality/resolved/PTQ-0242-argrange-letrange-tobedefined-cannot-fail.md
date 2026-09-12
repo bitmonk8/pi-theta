@@ -2,7 +2,7 @@
 id: PTQ-0242
 title: Eight PRECONDITION `.toBeDefined()` checks wrap `argRange`/`letRange`/`objectFieldRange`/`letInitRange` calls that already throw-or-return-defined, so the wrap cannot fail
 lens: D7                     # D2 | D7 — the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - tests/division-result-type-number.test.ts:552-564

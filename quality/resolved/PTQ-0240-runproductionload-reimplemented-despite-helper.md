@@ -2,7 +2,7 @@
 id: PTQ-0240
 title: b0297-bind-model-nonscalar-production-load.test.ts reimplements the canonical runProductionLoad fake host instead of importing tests/helpers/production-load-harness.ts
 lens: D7                     # D2 | D7 — the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - tests/b0297-bind-model-nonscalar-production-load.test.ts:107-141

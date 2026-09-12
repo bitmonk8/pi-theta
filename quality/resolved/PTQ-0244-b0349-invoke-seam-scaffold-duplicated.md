@@ -2,7 +2,7 @@
 id: PTQ-0244
 title: b0349 redeclares the SEAM_NOOP_CHECKPOINT/SINK/MUTATOR + span() + seamDeps InvokeChild-double harness tests/b0294, tests/b0295 and tests/b0347 already established
 lens: D7                     # D2 | D7 — the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - tests/b0349-codecall-child-internal-cancel-wrap-arm.test.ts:140-264

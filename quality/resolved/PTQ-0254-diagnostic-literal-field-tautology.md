@@ -2,7 +2,7 @@
 id: PTQ-0254
 title: Three diagnostics-primitive.test.ts tests assert a hand-built Diagnostic literal's own fields against the exact values just assigned to them
 lens: D7                     # D2 | D7 — the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - tests/diagnostics-primitive.test.ts:30-38

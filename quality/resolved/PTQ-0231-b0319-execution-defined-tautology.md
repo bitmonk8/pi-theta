@@ -2,7 +2,7 @@
 id: PTQ-0231
 title: b0319's driveLiveTheta asserts `execution` is defined immediately after code that already guarantees it, so the check cannot fail
 lens: D7                     # D2 | D7 — the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - tests/b0319-prompt-bidirectional-ctx-abort-witness.test.ts:476-514

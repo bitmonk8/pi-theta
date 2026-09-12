@@ -2,7 +2,7 @@
 id: PTQ-0277
 title: composition-producer.test.ts asserts two ParsedTheta fields against the identical references it assigned them from two lines above
 lens: D7                     # D2 | D7 — the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - tests/composition-producer.test.ts:536-560

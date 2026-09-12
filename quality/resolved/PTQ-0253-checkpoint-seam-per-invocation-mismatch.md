@@ -2,7 +2,7 @@
 id: PTQ-0253
 title: checkpoint-seam.test.ts's "independent instances, each functional" test only calls the one CheckpointKind that never reads the shared clock
 lens: D7                     # D2 | D7 — the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - tests/checkpoint-seam.test.ts:196-206

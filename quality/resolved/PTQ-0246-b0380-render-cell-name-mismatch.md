@@ -2,7 +2,7 @@
 id: PTQ-0246
 title: b0380's "(I-break-carrying)" cell names render-seam unreachability but its body only repeats cell (J)'s diagnostic-code check
 lens: D7
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - tests/b0380-params-key-not-identifier.test.ts:184-195

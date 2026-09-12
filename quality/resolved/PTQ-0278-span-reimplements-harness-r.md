@@ -2,7 +2,7 @@
 id: PTQ-0278
 title: call-with-clause-failure-arms.test.ts reimplements call-with-clause-harness.ts's exported R() dummy source range three separate ways in one file
 lens: D7                     # D2 | D7 — the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - tests/call-with-clause-failure-arms.test.ts:74-76

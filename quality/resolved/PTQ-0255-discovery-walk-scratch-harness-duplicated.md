@@ -2,7 +2,7 @@
 id: PTQ-0255
 title: The discoverThetas-over-real-PiFileSystem scratch harness (THETA_BODY, posix/sp/underScratch, json, runWalk) is redefined near-verbatim in a sibling bug-witness file
 lens: D7                     # D2 | D7 — the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - tests/b0363-file-entry-stem-judged-on-entry-spelling.test.ts:63-89

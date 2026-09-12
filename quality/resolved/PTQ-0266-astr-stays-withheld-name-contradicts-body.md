@@ -2,7 +2,7 @@
 id: PTQ-0266
 title: Cell `aStr`'s test name says `g("a" / "b")` "stays WITHHELD" against `n: integer`; its body (post bug 0332) now asserts a diagnostic fires for both the division and its `-` control
 lens: D7                     # D2 | D7 — the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - tests/division-result-type-number.test.ts:79-82

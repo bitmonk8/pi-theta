@@ -2,7 +2,7 @@
 id: PTQ-0249
 title: b0437's B1 test title claims the overflow note bypasses the raw top-level pi, but the body never reads that double's recorder
 lens: D7                     # D2 | D7 — the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - tests/b0437-producer-note-raw-send-fallback.test.ts:511-520

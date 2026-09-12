@@ -2,7 +2,7 @@
 id: PTQ-0234
 title: b0293-invoke-callee-cause-partition.test.ts cell (C) asserts `count` equals 0 inside a branch its own `if` already required to equal 0
 lens: D7                     # D2 | D7 — the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - tests/b0293-invoke-callee-cause-partition.test.ts:245-263

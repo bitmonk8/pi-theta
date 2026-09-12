@@ -2,7 +2,7 @@
 id: PTQ-0227
 title: b0296, b0297, b0298, and b0301 each redefine the same doc()/expectRow/expectNoRow frontmatter-diagnostic fixture harness
 lens: D7                     # D2 | D7 — the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - tests/b0296-mode-nonscalar-value-collapse.test.ts:102-128

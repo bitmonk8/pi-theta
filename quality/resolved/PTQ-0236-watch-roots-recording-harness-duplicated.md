@@ -2,7 +2,7 @@
 id: PTQ-0236
 title: b0310 and b0339 redefine an identical roots-recording FileWatcher harness (RootsRecordingFileWatcher/norm/waitFor/armedRoots) rather than sharing it
 lens: D7                     # D2 | D7 — the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - tests/b0310-watch-roots-root-union.test.ts:46-145

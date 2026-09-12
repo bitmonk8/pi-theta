@@ -2,7 +2,7 @@
 id: PTQ-0259
 title: production-conformance.test.ts reimplements the canonical runProductionLoad load harness instead of importing tests/helpers/production-load-harness.ts
 lens: D7                     # D2 | D7 — the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - tests/conformance/production-conformance.test.ts:234-264

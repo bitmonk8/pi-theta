@@ -2,7 +2,7 @@
 id: PTQ-0245
 title: b0369's E6 test name and comment claim the belt fires "before worker scheduling," a placement guarantee its sole assertion cannot observe
 lens: D7                     # D2 | D7 — the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - tests/b0369-control-flow-kind-belts.test.ts:345-356

@@ -2,7 +2,7 @@
 id: PTQ-0273
 title: call-with-clause-failure-arms.test.ts's R2 host()/launchRequest() builders duplicate tests/subagent-child-launch.test.ts's byte-identical pair
 lens: D7                     # D2 | D7 — the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - tests/call-with-clause-failure-arms.test.ts:407-436

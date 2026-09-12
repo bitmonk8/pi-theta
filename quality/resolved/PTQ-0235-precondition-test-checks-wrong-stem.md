@@ -2,7 +2,7 @@
 id: PTQ-0235
 title: The "reached both bind_model stems" precondition test in b0297-bind-model-nonscalar-production-load.test.ts checks neither bind_model stem
 lens: D7                     # D2 | D7 — the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - tests/b0297-bind-model-nonscalar-production-load.test.ts:165-175

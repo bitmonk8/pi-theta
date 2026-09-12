@@ -2,7 +2,7 @@
 id: PTQ-0243
 title: b0329 cell (D) asserts its own if/else guard variable against the literal it just branched on, in both arms
 lens: D7                     # D2 | D7 — the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - tests/b0329-hash-mismatch-refuses-invocation.test.ts:380-382
