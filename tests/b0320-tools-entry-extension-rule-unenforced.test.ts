@@ -1,10 +1,9 @@
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 // @ts-expect-error — JS code-registry module, no type declarations.
-import { parseRegistry, registryMessage } from "../tools/code-registry/index.js";
+import { registryMessage } from "../tools/code-registry/index.js";
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
 import {
   allDiagnostics,
@@ -12,11 +11,13 @@ import {
   finishWorkspace,
   makeHost,
   normalisePath,
+  normativeMessagePattern as normativeMessagePatternCore,
   requireDriven as requireDrivenCore,
   runLoadPass,
   type ComposeWorkspace,
   type LoadPass,
 } from "./helpers/compose-workspace-harness";
+import { REGISTRY } from "./helpers/registry-oracle";
 
 // Bug 0320 — the `tools:` half of `theta/parse/invoke-non-theta-extension` is
 // unenforced. The registry row's Trigger names two surfaces — "An `invoke(...)`
@@ -110,42 +111,20 @@ const VALID_SUBAGENT_CALLEE_SOURCE =
   "---\nmode: subagent\ndescription: b0320 callee\n---\nlet a = 1\n";
 
 // ── Registry oracle (DIAG-4) ─────────────────────────────────────────────────
-
-interface RegistryRow {
-  code: string;
-  severity: string;
-  phase: string;
-  message: string;
-}
-
-// This code is a `theta/parse/*` code, so its Message lives on the PARSE page,
-// not the load page bug 0270's neighbour reads.
-const REGISTRY = parseRegistry(
-  readFileSync(
-    fileURLToPath(
-      new URL("../docs/spec_topics/diagnostics/code-registry-parse.md", import.meta.url),
-    ),
-    "utf8",
-  ),
-) as RegistryRow[];
+//
+// `REGISTRY` is the shared four-page diagnostics-registry read
+// (`tests/helpers/registry-oracle.ts`, PTQ-0215); this file's `theta/parse/*`
+// code lives on the parse page that union already includes. `registryMessage`
+// stays imported directly for the exact-substitution assertion below, which
+// reads the template rather than the pre-built pattern.
 
 /**
  * The row's normative Message (DIAG-4) as a regex with the `<placeholder>` slots
- * opened. Throws naming the registry page when the row is absent, so registry
- * drift can never degrade a presence assertion into a comparison against
- * `undefined`.
+ * opened — `tests/helpers/compose-workspace-harness.ts`'s shared builder
+ * (PTQ-0230), bound to the shared `REGISTRY`.
  */
 function normativeMessagePattern(code: string): RegExp {
-  const message = registryMessage(REGISTRY, code) as string | undefined;
-  if (typeof message !== "string" || message.length === 0) {
-    throw new Error(
-      "harness: docs/spec_topics/diagnostics/code-registry-parse.md carries no Message row for " +
-        `${code} — the DIAG-4 column is this file's only message oracle, so a missing row is a ` +
-        "harness failure, never a skip",
-    );
-  }
-  const escaped = message.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  return new RegExp(escaped.replace(/<[a-z-]+>/g, ".+"));
+  return normativeMessagePatternCore(REGISTRY, code);
 }
 
 // ── Host doubles ─────────────────────────────────────────────────────────────

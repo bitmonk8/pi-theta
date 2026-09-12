@@ -2,9 +2,11 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 // @ts-expect-error — JS code-registry module, no type declarations.
-import { parseRegistry, registryMessage } from "../tools/code-registry/index.js";
+import { registryMessage } from "../tools/code-registry/index.js";
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
 import { parseDoc } from "./helpers/e2e-s1";
+import { isSeparatorRow, isTableRow } from "./helpers/category1-clause-oracle";
+import { REGISTRY } from "./helpers/registry-oracle";
 
 // Bug 0063 — the closed `<construct>` token-name table of
 // docs/spec_topics/diagnostics/placeholder-rendering-a.md §3 has fifteen rows,
@@ -60,28 +62,10 @@ import { parseDoc } from "./helpers/e2e-s1";
 // The registry, read live. DIAG-4 makes the *Message* column normative and
 // fixes the direction of expected-message reads: no expectation below writes
 // out `unsupported syntactic feature: …` by hand.
+//
+// `REGISTRY` is the shared four-page diagnostics-registry read
+// (`tests/helpers/registry-oracle.ts`, PTQ-0215).
 // ===========================================================================
-
-interface RegistryRow {
-  readonly code: string;
-  readonly message: string;
-}
-
-const REGISTRY_PAGES = [
-  "code-registry-parse.md",
-  "code-registry-load.md",
-  "code-registry-runtime.md",
-  "code-registry-host.md",
-] as const;
-
-const REGISTRY = parseRegistry(
-  REGISTRY_PAGES.map((page) =>
-    readFileSync(
-      fileURLToPath(new URL(`../docs/spec_topics/diagnostics/${page}`, import.meta.url)),
-      "utf8",
-    ),
-  ).join("\n"),
-) as RegistryRow[];
 
 const CODE = "theta/parse/unsupported-feature";
 
@@ -289,14 +273,6 @@ function category3Lines(): string[] {
     }
   }
   return lines.slice(start, end);
-}
-
-function isTableRow(line: string): boolean {
-  return line.trim().startsWith("|");
-}
-
-function isSeparatorRow(line: string): boolean {
-  return isTableRow(line) && /^\|[\s:|-]+\|?\s*$/.test(line.trim());
 }
 
 /** A markdown row's cells, split on unescaped pipes, escapes undone. */

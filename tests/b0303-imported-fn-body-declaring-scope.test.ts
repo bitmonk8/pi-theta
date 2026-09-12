@@ -14,7 +14,7 @@ import type {
   ThetaCompositionInput,
 } from "../src/extension/theta-composition-producer";
 import type { ParsedFrontmatter } from "../src/parser/frontmatter";
-import { parseThetaDocument, type ThetaDocument } from "../src/parser/theta-document";
+import type { ThetaDocument } from "../src/parser/theta-document";
 import type { MaterializedImport } from "../src/runtime/lexical-environment";
 import { executeBody } from "../src/runtime/statement-executor";
 import type { AgentToolResultEnvelope } from "../src/runtime/tool-call-execute";
@@ -22,7 +22,7 @@ import { isEnumValue, schemaTagOf, type ThetaValue } from "../src/runtime/value"
 import type { RuntimeRoot } from "../src/runtime-root";
 import type { Checkpoint } from "../src/seams/checkpoint";
 import type { FileSystem } from "../src/seams/file-system";
-import { parseDeps } from "./helpers/e2e-s1";
+import { parseDeps, parseDoc } from "./helpers/e2e-s1";
 
 // Bug 0303 — an imported `.thetalib` `fn` body resolves its FREE names in the
 // DECLARING module's scope, not the calling theta's. `MaterializedImport`
@@ -80,12 +80,8 @@ import { parseDeps } from "./helpers/e2e-s1";
 /** The importing `.theta` frontmatter every fixture shares. */
 const APP_FRONTMATTER = ["---", 'model: "sonnet"', "mode: prompt", "---"].join("\n");
 
-function parse(source: string, path: string): ThetaDocument {
-  return parseThetaDocument({ path, bytes: new TextEncoder().encode(source) }, parseDeps());
-}
-
 function parseApp(body: string): ThetaDocument {
-  return parse(`${APP_FRONTMATTER}\n${body}`, "/proj/app.theta");
+  return parseDoc(`${APP_FRONTMATTER}\n${body}`, "/proj/app.theta");
 }
 
 function fakeThetaLibFs(files: Record<string, string>): FileSystem {

@@ -8,7 +8,7 @@ import type { FnDecl, LetStmt, Stmt, ThetaDocument } from "../src/parser/theta-d
 import { parseTypeExpression, type TypePosition } from "../src/parser/type-grammar";
 import * as typeLayerChecks from "../src/parser/type-layer-checks";
 import { annotationToCompatType } from "../src/parser/type-layer-checks";
-import { diagCodes, diagLines, parseDoc } from "./helpers/e2e-s1";
+import { diagCodes, diagLines, findLetStmt, isLoadParseError, parseDoc } from "./helpers/e2e-s1";
 import { REGISTRY, type RegistryRow } from "./helpers/registry-oracle";
 import { committedThetaSources } from "./helpers/theta-corpus";
 
@@ -372,9 +372,7 @@ function stmtKinds(doc: ThetaDocument): string[] {
 
 /** The sole `let` statement bound to `name`, loud when the body declares none. */
 function letStmtOf(label: string, doc: ThetaDocument, name: string): LetStmt {
-  const hit = doc.body.statements.find(
-    (s): s is LetStmt => s.kind === "let" && (s as LetStmt).name === name,
-  );
+  const hit = findLetStmt(doc, name);
   if (hit === undefined) {
     throw new Error(
       `${label}: the body declares no \`let ${name}\`, so no annotation reached the position ` +
@@ -509,11 +507,7 @@ function expectRefused(
  */
 function expectBlocksRegistration(label: string, diagnostics: readonly Diagnostic[]): void {
   expect(
-    diagnostics.filter(
-      (d) =>
-        d.severity === "error" &&
-        (d.code.startsWith("theta/load/") || d.code.startsWith("theta/parse/")),
-    ).length,
+    diagnostics.filter(isLoadParseError).length,
     `${label}: the drop gate reads error severity AND the \`theta/load/\` / \`theta/parse/\` ` +
       `namespaces; a warning-severity or differently-namespaced refusal would leave the theta ` +
       `registered with the annotation unenforced. Observed diagnostics: ` +

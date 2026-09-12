@@ -1,11 +1,8 @@
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
-// @ts-expect-error — JS code-registry module, no type declarations.
-import { parseRegistry } from "../tools/code-registry/index.js";
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
 import { composeExtensionInstance } from "../src/extension/production-composition";
 import { RendererGate, SYSTEM_NOTE_CHANNEL } from "../src/extension/system-note-channel";
@@ -17,6 +14,7 @@ import {
   normativeMessagePattern as normativeMessagePatternCore,
   requireDriven as requireDrivenCore,
 } from "./helpers/compose-workspace-harness";
+import { REGISTRY } from "./helpers/registry-oracle";
 
 // Bug 0271 — a prompt-mode GRANDPARENT whose `tools:` names a subagent CHILD
 // whose own `tools:` names a GRANDCHILD carrying a drop route: the grandchild
@@ -251,22 +249,10 @@ const CYC_B_BROKEN_SOURCE =
 const CYCLE_ELAPSED_CEILING_MS = 20_000;
 
 // ── Registry oracle (DIAG-4) ────────────────────────────────────────────────
-
-interface RegistryRow {
-  code: string;
-  severity: string;
-  phase: string;
-  message: string;
-}
-
-const REGISTRY = ["code-registry-parse.md", "code-registry-load.md"].flatMap((page) =>
-  parseRegistry(
-    readFileSync(
-      fileURLToPath(new URL(`../docs/spec_topics/diagnostics/${page}`, import.meta.url)),
-      "utf8",
-    ),
-  ) as RegistryRow[],
-);
+//
+// `REGISTRY` is the shared four-page diagnostics-registry read
+// (`tests/helpers/registry-oracle.ts`, PTQ-0215); both codes this file looks
+// up live on the load page that union already includes.
 
 /**
  * The row's normative *Message* (DIAG-4) as a regex with the `<placeholder>`

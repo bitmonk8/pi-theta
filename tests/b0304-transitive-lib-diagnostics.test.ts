@@ -7,9 +7,9 @@ import type { Diagnostic } from "../src/diagnostics/diagnostic";
 import { checkThetaImports } from "../src/extension/import-static-checks";
 import type { ThetaCompositionInput } from "../src/extension/theta-composition-producer";
 import type { ParsedFrontmatter } from "../src/parser/frontmatter";
-import { parseThetaDocument, type ThetaDocument } from "../src/parser/theta-document";
+import type { ThetaDocument } from "../src/parser/theta-document";
 import type { FileSystem } from "../src/seams/file-system";
-import { parseDeps } from "./helpers/e2e-s1";
+import { parseDeps, parseDoc } from "./helpers/e2e-s1";
 
 // Bug 0304 — every load-time fault inside a `.thetalib` reached through one
 // plain-`import` hop is discarded: a transitive lib's unresolvable import path
@@ -131,12 +131,8 @@ function unknownSymbolMessage(name: string, path: string): string {
 /** The importing `.theta` frontmatter every fixture shares (bug doc §Reproduction). */
 const APP_FRONTMATTER = ["---", 'model: "sonnet"', "mode: prompt", "---"].join("\n");
 
-function parse(source: string, path: string): ThetaDocument {
-  return parseThetaDocument({ path, bytes: new TextEncoder().encode(source) }, parseDeps());
-}
-
 function parseApp(body: string): ThetaDocument {
-  return parse(`${APP_FRONTMATTER}\n${body}`, "/proj/app.theta");
+  return parseDoc(`${APP_FRONTMATTER}\n${body}`, "/proj/app.theta");
 }
 
 function fakeThetaLibFs(files: Record<string, string>): FileSystem {

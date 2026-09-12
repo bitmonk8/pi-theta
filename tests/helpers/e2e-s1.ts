@@ -10,6 +10,7 @@ import { expect } from "vitest";
 import { lexTheta, type LexResult, type ThetaSource } from "../../src/lexer/lexer";
 import {
   parseThetaDocument,
+  type LetStmt,
   type ThetaDocument,
   type ParseThetaDocumentDeps,
 } from "../../src/parser/theta-document";
@@ -82,6 +83,18 @@ export function errors(diags: readonly Diagnostic[]): Diagnostic[] {
   return diags.filter((d) => d.severity === "error");
 }
 
+/**
+ * True iff `d` is the error-severity `theta/load/*` or `theta/parse/*` refusal
+ * that blocks registration (mirrors `hasLoadParseError`,
+ * src/extension/production-composition.ts).
+ */
+export function isLoadParseError(d: Diagnostic): boolean {
+  return (
+    d.severity === "error" &&
+    (d.code.startsWith("theta/load/") || d.code.startsWith("theta/parse/"))
+  );
+}
+
 /** Every diagnostic rendered `<severity> <code>: <message>`, in emission order. */
 export function diagLines(doc: ThetaDocument): string[] {
   return doc.diagnostics.map((d) => `${d.severity} ${d.code}: ${d.message}`);
@@ -90,6 +103,13 @@ export function diagLines(doc: ThetaDocument): string[] {
 /** Every diagnostic rendered `<severity> <code>`, in emission order. */
 export function diagCodes(doc: ThetaDocument): string[] {
   return doc.diagnostics.map((d) => `${d.severity} ${d.code}`);
+}
+
+/** The sole top-level `let` statement bound to `name`, if the body declares one. */
+export function findLetStmt(doc: ThetaDocument, name: string): LetStmt | undefined {
+  return doc.body.statements.find(
+    (s): s is LetStmt => s.kind === "let" && (s as LetStmt).name === name,
+  );
 }
 
 /** One theta file: `---` fences over `<frontmatter>`, body `let x = 1`. */

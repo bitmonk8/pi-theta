@@ -84,7 +84,7 @@ import { describe, expect, it } from "vitest";
 // @ts-expect-error — JS code-registry module, no type declarations.
 import { parseRegistry, registryMessage } from "../tools/code-registry/index.js";
 import type { LetStmt, ThetaDocument } from "../src/parser/theta-document";
-import { parseDoc } from "./helpers/e2e-s1";
+import { findLetStmt, parseDoc } from "./helpers/e2e-s1";
 
 // ===========================================================================
 // The two codes under assertion, and their normative messages (DIAG-2/DIAG-4).
@@ -249,9 +249,7 @@ function diags(label: string, src: string): string[] {
 
 /** The sole top-level `let` named `name`, loud when the body declares none. */
 function letStmtOf(label: string, doc: ThetaDocument, name: string): LetStmt {
-  const hit = doc.body.statements.find(
-    (s): s is LetStmt => s.kind === "let" && (s as LetStmt).name === name,
-  );
+  const hit = findLetStmt(doc, name);
   if (hit === undefined) {
     throw new Error(
       `${label}: the body declares no top-level \`let ${name}\`, so no annotation reached the ` +

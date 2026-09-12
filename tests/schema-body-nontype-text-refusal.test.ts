@@ -11,7 +11,7 @@ import type {
   ThetaDocument,
 } from "../src/parser/theta-document";
 import { lowerQueryResponseSchema } from "../src/runtime/query-schema-lowering";
-import { diagCodes, diagLines, parseDoc } from "./helpers/e2e-s1";
+import { diagCodes, diagLines, isLoadParseError, parseDoc } from "./helpers/e2e-s1";
 import { REGISTRY, type RegistryRow } from "./helpers/registry-oracle";
 
 // Bug 0061 — the two `Type` positions INSIDE a theta body capture their type as
@@ -398,11 +398,7 @@ function expectRefused(label: string, read: DeclRead, fragments: number, lowered
  */
 function expectBlocksRegistration(label: string, read: DeclRead): void {
   expect(
-    read.diagnostics.filter(
-      (d) =>
-        d.severity === "error" &&
-        (d.code.startsWith("theta/load/") || d.code.startsWith("theta/parse/")),
-    ).length,
+    read.diagnostics.filter(isLoadParseError).length,
     `${label}: the drop gate reads error severity AND the \`theta/load/\` / \`theta/parse/\` ` +
       `namespaces; a warning-severity or differently-namespaced refusal would leave the ` +
       `accept-anything declaration registered. Observed diagnostics: ` +

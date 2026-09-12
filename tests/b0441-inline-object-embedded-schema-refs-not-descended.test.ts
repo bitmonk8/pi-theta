@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseDoc } from "./helpers/e2e-s1";
+import { errors, parseDoc } from "./helpers/e2e-s1";
 import { renderSystemPrompt } from "../src/parser/system-interpolation";
 import type { ThetaValue } from "../src/runtime/value";
 
@@ -25,7 +25,7 @@ const INNER = `schema Inner { deep as "D": string }`;
 
 /** Error-severity diagnostic codes from a parsed doc, in source order. */
 function errorCodes(doc: ReturnType<typeof parseDoc>): string[] {
-  return doc.diagnostics.filter((d) => d.severity === "error").map((d) => d.code);
+  return errors(doc.diagnostics).map((d) => d.code);
 }
 
 describe("bug 0441 — inline-object-embedded schema refs not descended by the outbound-sidecar BFS", () => {
