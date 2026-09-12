@@ -197,19 +197,7 @@ describe("bug 0293 — the invoke callee intake cause partition through the ship
     // Observed offline: `okcallee`'s body value flows back and the untyped invoke
     // yields `Ok(null)`, so `oktop` succeeds and emits ZERO top-level Err notes.
     const count = errNoteCount("oktop");
-    if (count === 0) {
-      expect(count, "the readable+parseable callee's invoke did not fail").toBe(0);
-    } else {
-      // Defensive both-branch: were a note emitted, it must not carry any of the
-      // three intake-failure causes — a readable/parseable callee is none of them.
-      const note = errNote("oktop");
-      for (const cause of ["load_failure", "parse_failure", "internal_error"]) {
-        expect(
-          note,
-          `a readable+parseable callee must not render intake cause ${cause}`,
-        ).not.toContain(`failed (${cause})`);
-      }
-    }
+    expect(count, "the readable+parseable callee's invoke did not fail").toBe(0);
   });
 
   it("(G) the (A) and (B) causes DIFFER and each equals its own class — ", () => {

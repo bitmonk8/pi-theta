@@ -60,13 +60,7 @@
 import { describe, expect, it } from "vitest";
 // @ts-expect-error — JS code-registry module, no type declarations.
 import { registryMessage } from "../tools/code-registry/index.js";
-import type { Diagnostic } from "../src/diagnostics/diagnostic";
-import { checkThetaImports } from "../src/extension/import-static-checks";
-import type { ThetaCompositionInput } from "../src/extension/theta-composition-producer";
-import type { ParsedFrontmatter } from "../src/parser/frontmatter";
-import { parseThetaDocument, type ThetaDocument } from "../src/parser/theta-document";
-import type { FileSystem } from "../src/seams/file-system";
-import { parseDeps } from "./helpers/e2e-s1";
+import { loadThetaLibDiags as loadDiags } from "./helpers/thetalib-load-harness";
 import { REGISTRY } from "./helpers/registry-oracle";
 
 // ===========================================================================
@@ -108,97 +102,10 @@ function line(code: string, message: string): string {
 }
 
 // ===========================================================================
-// Parse drivers, the in-memory `.thetalib` filesystem double, and the load pass
-// (the b0302 / b0334 harness shape, reused verbatim).
+// Parse drivers, the in-memory `.thetalib` filesystem double, and the load
+// pass live in tests/helpers/thetalib-load-harness.ts (PTQ-0232) — the
+// b0302 / b0334 harness shape, shared with b0333/b0334.
 // ===========================================================================
-
-/** The importing `.theta` frontmatter every fixture shares (a real prompt-mode theta). */
-const APP_FRONTMATTER = ["---", 'model: "sonnet"', "mode: prompt", "---"].join("\n");
-
-function parseApp(body: string): ThetaDocument {
-  return parseThetaDocument(
-    { path: "/proj/app.theta", bytes: new TextEncoder().encode(`${APP_FRONTMATTER}\n${body}`) },
-    parseDeps(),
-  );
-}
-
-// Only `readdir` / `readBytes` are exercised; every other member rejects so an
-// unexpected call reds loudly rather than returning a silent default.
-function fakeThetaLibFs(files: Record<string, string>): FileSystem {
-  const dirs = new Map<string, string[]>();
-  for (const path of Object.keys(files)) {
-    const slash = path.lastIndexOf("/");
-    const parent = path.slice(0, slash);
-    const entries = dirs.get(parent) ?? [];
-    entries.push(path.slice(slash + 1));
-    dirs.set(parent, entries);
-  }
-  const reject = (): Promise<never> =>
-    Promise.reject(new Error("filesystem member not exercised by this test"));
-  return {
-    readText: reject,
-    writeText: reject,
-    exists: reject,
-    homedir: (): string => "/home",
-    cwd: (): string => "/proj",
-    configDirName: (): string => ".pi",
-    globalAgentDir: (): string => "/home/.pi/agent",
-    lstat: reject,
-    realpath: reject,
-    readdir: (path: string): Promise<readonly string[]> => {
-      const entries = dirs.get(path);
-      return entries === undefined
-        ? Promise.reject(new Error(`ENOENT: ${path}`))
-        : Promise.resolve(entries);
-    },
-    readBytes: (path: string): Promise<Uint8Array> => {
-      const content = files[path];
-      return content === undefined
-        ? Promise.reject(new Error(`ENOENT: ${path}`))
-        : Promise.resolve(new TextEncoder().encode(content));
-    },
-  } as FileSystem;
-}
-
-interface LoadResult {
-  readonly appParseCodes: string[];
-  readonly diagnostics: readonly Diagnostic[];
-  readonly diagLines: string[];
-}
-
-/**
- * Parse `/proj/app.theta` and run the real `checkThetaImports` over `libs`,
- * returning the load pass's diagnostics rendered as `severity code: message`
- * plus the raw diagnostics (so a cell can assert the collision's `file`).
- *
- * The importing theta's frontmatter is asserted to parse — if it did not the
- * load pass would read nothing and a later red would be a harness fault rather
- * than the missing diagnostic under witness.
- */
-async function loadDiags(appBody: string, libs: Record<string, string>): Promise<LoadResult> {
-  const app = parseApp(appBody);
-  expect(
-    app.frontmatter,
-    `the importing theta's frontmatter must parse or the load pass reads nothing; diagnostics: ${JSON.stringify(
-      app.diagnostics.map((d) => `${d.severity} ${d.code}: ${d.message}`),
-    )}`,
-  ).not.toBeNull();
-  const input: ThetaCompositionInput = {
-    slashName: "app",
-    sourcePath: "/proj/app.theta",
-    frontmatter: app.frontmatter as ParsedFrontmatter,
-    body: app.body,
-  };
-  const check = await checkThetaImports(input, {
-    fs: fakeThetaLibFs(libs),
-    parseDeps: parseDeps(),
-  });
-  return {
-    appParseCodes: app.diagnostics.map((d) => d.code),
-    diagnostics: check.diagnostics,
-    diagLines: check.diagnostics.map((d) => `${d.severity} ${d.code}: ${d.message}`),
-  };
-}
 
 /** The one library file the collision must be sited on post-fix. */
 const LIB_A = "/proj/libA.thetalib";

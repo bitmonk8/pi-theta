@@ -76,10 +76,9 @@ import { committedThetaSources } from "./helpers/theta-corpus";
 //   a4          the spec-correct `number` parameter keeps loading clean.
 //   a10–a12     `-`, `%`, `*` at the same sink stay silent.
 //   aPlus       `+` at the same sink stays silent.
-//   aStr        `g("a" / "b")` stays WITHHELD against an `n: integer` param
-//               that a wrongly-admitted proof would mismatch, with the guard
-//               that withholds it named, because that guard moves under this
-//               fix.
+//   aStr        `g("a" / "b")` and its `-` control now both draw bug 0332's
+//               ARITHMETIC_CODE parse refusal, superseding the WITHHELD
+//               measurement (against `n: integer`) this cell used to take.
 //   aRender     the `<actual>` rendering at a sink that fires in BOTH
 //               directions moves `integer` → `number`.
 //   b1, b7      the typed-`let` sink fires, ranged on the `let` statement.
@@ -1076,9 +1075,9 @@ describe("bug 0142 — the `fn`-argument sink judges a `/` argument", () => {
     const verdicts = rows.map(([cell, body]) => {
       const doc = parse(G_INT + body);
       expect(
-        argRange(doc, "g", 0),
+        () => argRange(doc, "g", 0),
         `PRECONDITION (${cell}): the argument node must be reachable, or the absence below measures nothing`,
-      ).toBeDefined();
+      ).not.toThrow();
       return `${cell} -> ${JSON.stringify(allHits(doc))}`;
     });
     expect(
@@ -1094,7 +1093,7 @@ describe("bug 0142 — the `fn`-argument sink judges a `/` argument", () => {
 // ===========================================================================
 
 describe("bug 0142 — the rows whose withholding must survive the fix", () => {
-  it("aStr: `g(\"a\" / \"b\")` stays WITHHELD against `n: integer`, and so does its `-` control", () => {
+  it("aStr: bug 0332 supersedes the withhold — `g(\"a\" / \"b\")` and its `-` control now both draw the ARITHMETIC_CODE parse refusal", () => {
     // The observable does not move; the GUARD that produces it does, which is
     // why the row needs a pin. `provableArgType`
     // (src/parser/type-layer-checks.ts) withholds this argument at its
@@ -1122,9 +1121,9 @@ describe("bug 0142 — the rows whose withholding must survive the fix", () => {
     const division = parse(G_INT + 'let r = g("a" / "b")\nr\n');
     expectDivisions(division, 1, "aStr");
     expect(
-      argRange(division, "g", 0),
+      () => argRange(division, "g", 0),
       "PRECONDITION (aStr): the argument node must be reachable, or the absence below measures nothing",
-    ).toBeDefined();
+    ).not.toThrow();
     expect(
       allHits(division),
       `aStr — bug 0332: a non-numeric \`/\` pair now refuses at parse, ahead of the withhold this cell used to measure. Diagnostics: ${render(division)}`,
@@ -1132,9 +1131,9 @@ describe("bug 0142 — the rows whose withholding must survive the fix", () => {
 
     const control = parse(G_INT + 'let r = g("a" - "b")\nr\n');
     expect(
-      argRange(control, "g", 0),
+      () => argRange(control, "g", 0),
       "PRECONDITION (aStr control): the argument node must be reachable",
-    ).toBeDefined();
+    ).not.toThrow();
     expect(
       allHits(control),
       `aStr (control) — bug 0332's gate covers \`-\` too, so the control is no longer inert against this operator; it now draws the identical refusal. Diagnostics: ${render(control)}`,
@@ -1245,9 +1244,9 @@ describe("bug 0142 — the typed-`let` sink judges a `/` initialiser", () => {
     const verdicts = rows.map(([cell, src]) => {
       const doc = parse(src);
       expect(
-        letRange(doc, "n"),
+        () => letRange(doc, "n"),
         `PRECONDITION (${cell}): the \`let n\` statement must be reachable, or the absence below measures nothing`,
-      ).toBeDefined();
+      ).not.toThrow();
       if (cell.startsWith("b3 ")) {
         // b3 is the one row in this block measuring a division's silence (the
         // spec-correct `number` annotation): the header's own claim — every
@@ -1507,9 +1506,9 @@ describe("bug 0142 F3 — a non-numeric `/` operand pair flips the direct sinks 
     // refusal `-`'s own spelling earns everywhere else in this fix.
     const control = parse('let s: string = "a" - "b"\ns\n');
     expect(
-      letRange(control, "s"),
+      () => letRange(control, "s"),
       "PRECONDITION (L1c): the `let s` statement must be reachable, or the absence below measures nothing",
-    ).toBeDefined();
+    ).not.toThrow();
     expect(
       allHits(control),
       `L1c (control) — bug 0332: \`-\` over a non-numeric pair now refuses at parse before \`checkLetRhsCompat\` is reached (the operands' \`literal string\` common type would still satisfy \`⊑ string\` if it were). Diagnostics: ${render(control)}`,
@@ -1532,9 +1531,9 @@ describe("bug 0142 F3 — a non-numeric `/` operand pair flips the direct sinks 
     // refuses the pair before that reduction is ever consulted.
     const control = parse("let b: boolean = true - false\nb\n");
     expect(
-      letRange(control, "b"),
+      () => letRange(control, "b"),
       "PRECONDITION (L2c): the `let b` statement must be reachable, or the absence below measures nothing",
-    ).toBeDefined();
+    ).not.toThrow();
     expect(
       allHits(control),
       `L2c (control) — bug 0332: \`-\` over a non-numeric pair now refuses at parse. Diagnostics: ${render(control)}`,
@@ -1559,9 +1558,9 @@ describe("bug 0142 F3 — a non-numeric `/` operand pair flips the direct sinks 
     // Bug 0332: same re-pin as L1c/L2c.
     const control = parse(S_STR + 'let o = S { s: "a" - "b" }\no\n');
     expect(
-      objectFieldRange(control, "s"),
+      () => objectFieldRange(control, "s"),
       "PRECONDITION (L3c): the constructor field 's' must be reachable, or the absence below measures nothing",
-    ).toBeDefined();
+    ).not.toThrow();
     expect(
       allHits(control),
       `L3c (control) — bug 0332: \`-\` over a non-numeric pair now refuses at parse. Diagnostics: ${render(control)}`,
@@ -1595,9 +1594,9 @@ describe("bug 0142 F3 — a non-numeric `/` operand pair flips the direct sinks 
     // Bug 0332: same re-pin as L1c/L2c/L3c.
     const control = parse('let xs: array<string> = ["a" - "b"]\nxs\n');
     expect(
-      letInitRange(control, "xs"),
+      () => letInitRange(control, "xs"),
       "PRECONDITION (L4c): the `let xs` initialiser must be reachable, or the absence below measures nothing",
-    ).toBeDefined();
+    ).not.toThrow();
     expect(
       allHits(control),
       `L4c (control) — bug 0332: \`-\` over a non-numeric pair now refuses at parse, anchored on the inner binary node. Diagnostics: ${render(control)}`,

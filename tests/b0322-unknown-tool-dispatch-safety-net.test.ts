@@ -1,28 +1,19 @@
 import { describe, expect, it } from "vitest";
-import type { ExtensionAPI, ExtensionCommandContext, ModelRegistry } from "@earendil-works/pi-coding-agent";
-import type {
-  ConversationBindInput,
-  ThetaCompositionInput,
-} from "../src/extension/theta-composition-producer";
-import type { Diagnostic } from "../src/diagnostics/diagnostic";
-import type { SourceRange } from "../src/diagnostics/diagnostic";
-import type { ParsedFrontmatter } from "../src/parser/frontmatter";
-import type { CallableSetSnapshot, ResolvedCallable } from "../src/parser/callable-set";
-import type { CallExpr, Expr, ObjectExpr, ThetaBody } from "../src/parser/theta-document";
-import { createProductionProducerDeps } from "../src/extension/production-theta-producer";
-import type {
-  DispatchLadderProbe,
-  EncodedToolRequest,
-  HostToolResult,
-} from "../src/runtime/host-loop-dispatch";
-import { executeBody } from "../src/runtime/statement-executor";
+import type { EncodedToolRequest, HostToolResult } from "../src/runtime/host-loop-dispatch";
 import { codeToolErrorCauses } from "../src/runtime/tool-call";
-import type { AgentToolResultEnvelope } from "../src/runtime/tool-call-execute";
-import type { ResultValue, ThetaValue } from "../src/runtime/value";
-import type { RuntimeRoot } from "../src/runtime-root";
-import type { RootRegime } from "../src/runtime/subagent-root-regime";
-import type { Checkpoint } from "../src/seams/checkpoint";
-import { AjvSchemaValidator, type LoweredSchema, type SchemaSlug } from "../src/seams/schema-validator";
+import type { ResultValue } from "../src/runtime/value";
+import {
+  builtinEntry,
+  callExpr,
+  errOf,
+  numExpr,
+  objArg,
+  producer,
+  runBody,
+  snapshot,
+  strExpr,
+  thetaWithSet,
+} from "./helpers/tool-call-dispatch-harness";
 
 // Bug 0322 — `CodeToolError.cause: "unknown_tool"` has no producer. The cause is
 // a declared member of the closed `CodeToolCause` enum
@@ -59,174 +50,9 @@ import { AjvSchemaValidator, type LoweredSchema, type SchemaSlug } from "../src/
 // Version placeholder for the fix release: 0.346.0.
 
 // ---------------------------------------------------------------------------
-// Harness — mirrors tests/tool-arg-runtime-schema-validation.test.ts.
+// Harness — shared with tests/tool-arg-runtime-schema-validation.test.ts via
+// tests/helpers/tool-call-dispatch-harness.ts (PTQ-0238).
 // ---------------------------------------------------------------------------
-
-function span(): SourceRange {
-  return { start: { line: 1, column: 1 }, end: { line: 1, column: 2 } };
-}
-
-function numExpr(n: number): Expr {
-  return { kind: "number", text: String(n), numericType: "integer", range: span() };
-}
-
-function strExpr(value: string): Expr {
-  return { kind: "string", value, range: span() };
-}
-
-/** The single bare object-literal argument a code-driven Pi-tool call takes. */
-function objArg(fields: Readonly<Record<string, Expr>>): ObjectExpr {
-  return {
-    kind: "object",
-    typeName: null,
-    fields: Object.entries(fields).map(([name, value]) => ({ name, value })),
-    range: span(),
-  };
-}
-
-function callExpr(callee: string, args: readonly Expr[] = []): CallExpr {
-  return { kind: "call", callee, args, range: span() };
-}
-
-function body(tail: Expr | null): ThetaBody {
-  return { statements: [], tail };
-}
-
-const NOOP_CHECKPOINT: Checkpoint = {
-  before(): Promise<void> {
-    return Promise.resolve();
-  },
-};
-
-/**
- * A `RuntimeRoot` double exposing the members the code-side tool-call path
- * reads. `schemaValidator` is the REAL AJV-backed seam so a snapshot entry that
- * DOES carry a schema (case B's control) validates through the production
- * validator rather than a fake's.
- */
-function rootDouble(): RuntimeRoot {
-  const slugOf = (schema: LoweredSchema): SchemaSlug => ({
-    slug: JSON.stringify(schema),
-    canonicalBytes: JSON.stringify(schema),
-  });
-  return {
-    checkpoint: NOOP_CHECKPOINT,
-    schemaValidator: new AjvSchemaValidator({ emit: (): void => {}, slugOf }),
-    idSource: {
-      newInvocationId: () => "inv-1",
-      newToolCallId: () => "tc-1",
-    },
-  } as unknown as RuntimeRoot;
-}
-
-function ctxDouble(): ExtensionCommandContext {
-  return {} as unknown as ExtensionCommandContext;
-}
-
-interface ProducerOpts {
-  readonly hostLoopDispatch?: (
-    request: EncodedToolRequest,
-    signal: AbortSignal,
-  ) => Promise<HostToolResult>;
-  readonly dispatchLadderProbe?: DispatchLadderProbe;
-  readonly emitDiagnostic?: (diagnostic: Diagnostic) => void;
-  readonly subagentRootRegime?: RootRegime;
-}
-
-function producer(opts: ProducerOpts) {
-  return createProductionProducerDeps({
-    pi: {} as unknown as ExtensionAPI,
-    root: rootDouble(),
-    modelRegistry: {} as unknown as ModelRegistry,
-    ...(opts.hostLoopDispatch !== undefined ? { hostLoopDispatch: opts.hostLoopDispatch } : {}),
-    ...(opts.dispatchLadderProbe !== undefined
-      ? { dispatchLadderProbe: opts.dispatchLadderProbe }
-      : {}),
-    ...(opts.emitDiagnostic !== undefined ? { emitDiagnostic: opts.emitDiagnostic } : {}),
-    ...(opts.subagentRootRegime !== undefined
-      ? { subagentRootRegime: opts.subagentRootRegime }
-      : {}),
-  });
-}
-
-/** A frozen callable-set snapshot from `{ callableName -> entry }` pairs. */
-function snapshot(entries: readonly (readonly [string, ResolvedCallable])[]): CallableSetSnapshot {
-  return Object.freeze({ entries: new Map(entries) });
-}
-
-/** A prompt-mode theta whose tail is the code-side tool call under test. */
-function thetaWithSet(tail: Expr, callableSet: CallableSetSnapshot): ThetaCompositionInput {
-  const frontmatter: ParsedFrontmatter = { mode: "prompt" };
-  return {
-    slashName: "demo",
-    sourcePath: "/theta/demo.theta",
-    frontmatter,
-    body: body(tail),
-    callableSet,
-  };
-}
-
-/**
- * Drive the theta body through the real prompt-mode binding and return the tail
- * expression's value. A failed tool call produces an `Err` VALUE, so the outer
- * execution result is `Ok(<tail value>)` on every path here.
- */
-async function runBody(
-  deps: ReturnType<typeof producer>,
-  input: ThetaCompositionInput,
-): Promise<ThetaValue> {
-  const bindInput: ConversationBindInput = { theta: input, args: "", ctx: ctxDouble() };
-  const binding = deps.bindPromptConversation(bindInput);
-  const execution = await executeBody(input.body, binding.executeDeps);
-  const outer = execution.result;
-  if (!outer.present || outer.value === undefined) {
-    throw new Error("body produced no final value");
-  }
-  return outer.value;
-}
-
-/** Read the `Err` carrier off a tail `ResultValue`, failing loudly when it is `Ok`. */
-function errOf(
-  value: ThetaValue,
-  why: string,
-): {
-  readonly kind?: string;
-  readonly cause?: string;
-  readonly message?: string;
-  readonly tool_name?: string;
-} {
-  const result = value as ResultValue;
-  expect(result.ok, why).toBe(false);
-  return (
-    value as unknown as {
-      readonly error: {
-        readonly kind?: string;
-        readonly cause?: string;
-        readonly message?: string;
-        readonly tool_name?: string;
-      };
-    }
-  ).error;
-}
-
-/** A recording built-in-shaped entry: `{ toolName, parameters, execute }`. */
-function builtinEntry(
-  toolName: string,
-  parameters: unknown,
-  record: { dispatched: boolean },
-): ResolvedCallable {
-  return {
-    kind: "pi-tool",
-    toolDefinition: {
-      toolName,
-      parameters,
-      execute: (): Promise<AgentToolResultEnvelope> => {
-        record.dispatched = true;
-        return Promise.resolve({ content: [{ type: "text", text: "TOOL-RAN" }] });
-      },
-    },
-  };
-}
 
 /**
  * The `read`-shaped input schema (one required string field), copied here rather

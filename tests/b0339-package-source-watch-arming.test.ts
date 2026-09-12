@@ -22,6 +22,7 @@ import type {
   Unsubscribe,
 } from "../src/seams/file-watcher";
 import { FakeClock } from "./helpers/fake-clock";
+import { RootsRecordingFileWatcher, armedRoots, norm, waitFor } from "./helpers/fake-file-watcher";
 
 // Bug 0339 — witness: the package-discovery source (the fifth active-root
 // source in discovery-sources.md) must be armed for watching when its
@@ -51,8 +52,10 @@ import { FakeClock } from "./helpers/fake-clock";
 // (lane placeholder).
 //
 // Cases A–G mirror the harness of `tests/b0310-watch-roots-root-union.test.ts`
-// EXACTLY (its `RootsRecordingFileWatcher`, `makeHarness`, `boot`, `norm`,
-// `waitFor`, `armedRoots`), booting the shipped composition through
+// EXACTLY (its `makeHarness`/`boot` shape, plus the shared
+// `RootsRecordingFileWatcher`/`norm`/`waitFor`/`armedRoots` quartet both files
+// import from `tests/helpers/fake-file-watcher.ts`, PTQ-0236), booting the
+// shipped composition through
 // `createThetaExtension` → `composeExtensionInstance` with the roots-recording
 // `FileWatcher` fake and a `FakeClock`. `PiFileSystem(ctx.cwd)` pins `fs.cwd()`
 // to the tmp workspace, so `<ws>/node_modules/<pkg>/` is a project package root
@@ -75,20 +78,6 @@ function packageJson(name: string, piTheta?: readonly string[]): string {
     manifest.pi = { theta: piTheta };
   }
   return `${JSON.stringify(manifest)}\n`;
-}
-
-/** FileWatcher seam fake whose only job is to record each `watch()` root list. */
-class RootsRecordingFileWatcher implements FileWatcher {
-  readonly watchCalls: readonly string[][] = [];
-
-  watch(
-    roots: readonly string[],
-    _handler: (event: FileWatchEvent) => void,
-    _onTerminate?: OnWatchTerminate,
-  ): Unsubscribe {
-    (this.watchCalls as string[][]).push([...roots]);
-    return () => {};
-  }
 }
 
 /**
@@ -196,21 +185,6 @@ function makeHarness(cwd: string): Harness {
   return { pi, fireSessionStart: () => fire("session_start") };
 }
 
-/** Normalise a path for the cross-platform contain check (this repo runs on Windows). */
-function norm(path: string): string {
-  return path.replace(/\\/g, "/").toLowerCase();
-}
-
-/** Poll a real-timer-bounded condition; throw loudly on timeout naming the unmet
- *  precondition (b0310's idiom — never an early return or skip). */
-async function waitFor(cond: () => boolean, label: string): Promise<void> {
-  for (let i = 0; i < 400; i++) {
-    if (cond()) return;
-    await new Promise((resolve) => setTimeout(resolve, 5));
-  }
-  throw new Error(`timeout waiting for ${label}`);
-}
-
 /** Best-effort bounded poll of the observable, then RETURN (never throw) so the
  *  following `expect` is the witness. Used in case H where the reload the fix
  *  would run is a no-op today: pre-fix the observable never moves and the poll
@@ -221,27 +195,6 @@ async function settle(cond: () => boolean): Promise<void> {
     if (cond()) return;
     await new Promise((resolve) => setTimeout(resolve, 5));
   }
-}
-
-/** The single root list the watcher was armed over, or a loud failure naming the unmet precondition. */
-function armedRoots(watcher: RootsRecordingFileWatcher): readonly string[] {
-  if (watcher.watchCalls.length === 0) {
-    throw new Error(
-      "precondition unmet: session_start armed no watcher (watch() was never called)",
-    );
-  }
-  if (watcher.watchCalls.length > 1) {
-    throw new Error(
-      `precondition unmet: expected exactly one watch() arming, saw ${watcher.watchCalls.length}`,
-    );
-  }
-  // Guarded above (length is exactly 1), but `noUncheckedIndexedAccess` widens
-  // the element type, so the loud fallback keeps the return non-optional.
-  const only = watcher.watchCalls[0];
-  if (only === undefined) {
-    throw new Error("precondition unmet: recorded watch() root list was undefined");
-  }
-  return only;
 }
 
 describe("Bug 0339 — the package source's present-but-empty contributing directory is armed for watching", () => {

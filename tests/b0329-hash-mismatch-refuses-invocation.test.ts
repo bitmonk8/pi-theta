@@ -399,9 +399,6 @@ describe("bug 0329 (D) — a stale hash drops the marked root and its referenced
 
       const outcome = await runCompose(workspaceDir);
 
-      // case-INSENSITIVE probe result asserted here so the branch is on the
-      // record when this runs.
-      expect(caseInsensitive, "case-insensitive filesystem branch").toBe(true);
       // The stale hash refuses the invocation: the root drops with
       // `theta/runtime/subagent-callable-hash-mismatch`.
       expect(
@@ -427,7 +424,6 @@ describe("bug 0329 (D) — a stale hash drops the marked root and its referenced
 
       const outcome = await runCompose(workspaceDir);
 
-      expect(caseInsensitive, "case-sensitive filesystem branch").toBe(false);
       // RED pre-fix (Option A absent): the root survives.
       expect(
         outcome.registered,

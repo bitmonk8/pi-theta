@@ -478,7 +478,6 @@ describe("bug 0347 (G) — INV-5 parity oracle: the subagent leg wraps a propaga
       surfaced.kind,
       "a boundary-minted leaf passes bare through the XMODE-1 gate — kind stays invoke_infra, no wrap",
     ).toBe("invoke_infra");
-    expect(surfaced.kind).not.toBe("invoke_callee");
   });
 });
 

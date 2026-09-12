@@ -14,13 +14,8 @@ import {
   composeExtensionInstance,
   type ExtensionInstanceWiring,
 } from "../src/extension/production-composition";
-import type {
-  FileWatcher,
-  FileWatchEvent,
-  OnWatchTerminate,
-  Unsubscribe,
-} from "../src/seams/file-watcher";
 import { FakeClock } from "./helpers/fake-clock";
+import { RootsRecordingFileWatcher, armedRoots, norm, waitFor } from "./helpers/fake-file-watcher";
 
 // Bug 0310 — witness: the armed watch set must be the resolved discovery-root
 // union over the walk's four sources (cli/settings/project/global; roots present
@@ -42,20 +37,6 @@ import { FakeClock } from "./helpers/fake-clock";
 // fake that records the `roots` argument to `watch()`.
 
 const HELLO_THETA = ["---", "mode: prompt", "---", "@`hi`", ""].join("\n");
-
-/** FileWatcher seam fake whose only job is to record each `watch()` root list. */
-class RootsRecordingFileWatcher implements FileWatcher {
-  readonly watchCalls: readonly string[][] = [];
-
-  watch(
-    roots: readonly string[],
-    _handler: (event: FileWatchEvent) => void,
-    _onTerminate?: OnWatchTerminate,
-  ): Unsubscribe {
-    (this.watchCalls as string[][]).push([...roots]);
-    return () => {};
-  }
-}
 
 interface Harness {
   readonly pi: ExtensionAPI;
@@ -107,41 +88,6 @@ function makeHarness(cwd: string, flags: Readonly<Record<string, string>>): Harn
   };
 
   return { pi, fireSessionStart: () => fire("session_start") };
-}
-
-/** Normalise a path for the cross-platform contain check (this repo runs on Windows). */
-function norm(path: string): string {
-  return path.replace(/\\/g, "/").toLowerCase();
-}
-
-/** Poll a real-timer-bounded condition (session_start arming settles synchronously through the fire, but the fs reads it awaits are genuinely async). */
-async function waitFor(cond: () => boolean, label: string): Promise<void> {
-  for (let i = 0; i < 400; i++) {
-    if (cond()) return;
-    await new Promise((resolve) => setTimeout(resolve, 5));
-  }
-  throw new Error(`timeout waiting for ${label}`);
-}
-
-/** The single root list the watcher was armed over, or a loud failure naming the unmet precondition. */
-function armedRoots(watcher: RootsRecordingFileWatcher): readonly string[] {
-  if (watcher.watchCalls.length === 0) {
-    throw new Error(
-      "precondition unmet: session_start armed no watcher (watch() was never called)",
-    );
-  }
-  if (watcher.watchCalls.length > 1) {
-    throw new Error(
-      `precondition unmet: expected exactly one watch() arming, saw ${watcher.watchCalls.length}`,
-    );
-  }
-  // Guarded above (length is exactly 1), but `noUncheckedIndexedAccess` widens
-  // the element type, so the loud fallback keeps the return non-optional.
-  const only = watcher.watchCalls[0];
-  if (only === undefined) {
-    throw new Error("precondition unmet: recorded watch() root list was undefined");
-  }
-  return only;
 }
 
 describe("Bug 0310 — armed watch set is the discovery-root union, not the found-file dirnames", () => {

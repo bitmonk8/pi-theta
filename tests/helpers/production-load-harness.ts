@@ -25,6 +25,11 @@ export interface LoadOutcome {
   readonly diagnosticLines: readonly string[];
 }
 
+export interface ProductionLoadOptions {
+  /** `ctx.modelRegistry.getAvailable()`'s report; default: no available models. */
+  readonly availableModels?: readonly unknown[];
+}
+
 /**
  * Run the shipped composition root's discovery/compose pass over `cwd`
  * through a fake, no-UI host: `pi.ui.notify` calls are recorded, and
@@ -32,7 +37,10 @@ export interface LoadOutcome {
  * load's no-UI diagnostic mirror. The handle is restored in a `.finally`, so
  * no assertion runs while the interposition is live.
  */
-export async function runProductionLoad(cwd: string): Promise<LoadOutcome> {
+export async function runProductionLoad(
+  cwd: string,
+  opts: ProductionLoadOptions = {},
+): Promise<LoadOutcome> {
   const notifications: string[] = [];
   const chunks: string[] = [];
   const pi = {
@@ -45,7 +53,7 @@ export async function runProductionLoad(cwd: string): Promise<LoadOutcome> {
   } as unknown as ExtensionAPI;
   const ctx = {
     cwd,
-    modelRegistry: { getAvailable: (): readonly unknown[] => [] },
+    modelRegistry: { getAvailable: (): readonly unknown[] => opts.availableModels ?? [] },
     ui: {
       notify: (message: string, _type: "error"): void => {
         notifications.push(message);

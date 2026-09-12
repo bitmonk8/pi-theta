@@ -367,7 +367,6 @@ describe("bug 0295 (C) — envelope-after-abort race (signal aborted at wrap tim
       err.kind,
       "the adjudicated race disposition is bare cancelled (parent's own signal fired first), never a source-keyed invoke_callee wrap",
     ).toBe("cancelled");
-    expect(err.kind).not.toBe("invoke_callee");
   });
 });
 

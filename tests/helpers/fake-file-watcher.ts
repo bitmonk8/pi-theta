@@ -70,3 +70,67 @@ export class FakeFileWatcher implements FileWatcher {
     this.#onTerminate?.(termination);
   }
 }
+
+// ---------------------------------------------------------------------------
+// Roots-recording FileWatcher fake (PTQ-0236).
+//
+// tests/b0310-watch-roots-root-union.test.ts and
+// tests/b0339-package-source-watch-arming.test.ts each independently
+// redeclared this exact quartet (a `FileWatcher` fake whose only job is to
+// record each `watch()` call's `roots` argument, plus the helpers that
+// normalise a path, poll a bounded condition, and read back the single
+// recorded arming). `FakeFileWatcher` above deliberately discards `roots`
+// (its job is event delivery, not roots-recording), so it does not already
+// cover this shape.
+// ---------------------------------------------------------------------------
+
+/** FileWatcher seam fake whose only job is to record each `watch()` root list. */
+export class RootsRecordingFileWatcher implements FileWatcher {
+  readonly watchCalls: readonly string[][] = [];
+
+  watch(
+    roots: readonly string[],
+    _handler: (event: FileWatchEvent) => void,
+    _onTerminate?: OnWatchTerminate,
+  ): Unsubscribe {
+    (this.watchCalls as string[][]).push([...roots]);
+    return () => {};
+  }
+}
+
+/** Normalise a path for the cross-platform contain check (this repo runs on Windows). */
+export function norm(path: string): string {
+  return path.replace(/\\/g, "/").toLowerCase();
+}
+
+/** Poll a real-timer-bounded condition; throw loudly on timeout naming the unmet
+ *  precondition (b0310's idiom — never an early return or skip). */
+export async function waitFor(cond: () => boolean, label: string): Promise<void> {
+  for (let i = 0; i < 400; i++) {
+    if (cond()) return;
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+  throw new Error(`timeout waiting for ${label}`);
+}
+
+/** The single root list a `RootsRecordingFileWatcher` was armed over, or a loud
+ *  failure naming the unmet precondition. */
+export function armedRoots(watcher: RootsRecordingFileWatcher): readonly string[] {
+  if (watcher.watchCalls.length === 0) {
+    throw new Error(
+      "precondition unmet: session_start armed no watcher (watch() was never called)",
+    );
+  }
+  if (watcher.watchCalls.length > 1) {
+    throw new Error(
+      `precondition unmet: expected exactly one watch() arming, saw ${watcher.watchCalls.length}`,
+    );
+  }
+  // Guarded above (length is exactly 1), but `noUncheckedIndexedAccess` widens
+  // the element type, so the loud fallback keeps the return non-optional.
+  const only = watcher.watchCalls[0];
+  if (only === undefined) {
+    throw new Error("precondition unmet: recorded watch() root list was undefined");
+  }
+  return only;
+}

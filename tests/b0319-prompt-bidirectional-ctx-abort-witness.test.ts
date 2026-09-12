@@ -510,7 +510,6 @@ async function driveLiveTheta(
       ? rejection
       : new Error(`executeBody rejected with a non-Error: ${JSON.stringify(rejection)}`);
   }
-  expect(execution, "executeBody must resolve a BodyExecution").toBeDefined();
   return { execution: execution!, settleQuantum: clock.quanta, session };
 }
 

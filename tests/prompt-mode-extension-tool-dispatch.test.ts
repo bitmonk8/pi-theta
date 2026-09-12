@@ -24,11 +24,7 @@
 // extension-tool leg; load-time-only resolution), tool-calls.md (`CodeToolError`).
 
 import { describe, expect, it } from "vitest";
-import type {
-  ExtensionAPI,
-  ExtensionCommandContext,
-  ModelRegistry,
-} from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ModelRegistry } from "@earendil-works/pi-coding-agent";
 import {
   createProductionProducerDeps,
   type PiToolDispatch,
@@ -39,63 +35,34 @@ import type {
 } from "../src/extension/theta-composition-producer";
 import { executeBody } from "../src/runtime/statement-executor";
 import type { RuntimeRoot } from "../src/runtime-root";
-import type { Checkpoint } from "../src/seams/checkpoint";
 import type { ThetaValue, ResultValue } from "../src/runtime/value";
-import type {
-  CallExpr,
-  Expr,
-  ThetaBody,
-  ObjectExpr,
-} from "../src/parser/theta-document";
-import type { ParsedFrontmatter } from "../src/parser/frontmatter";
 import type {
   CallableSetSnapshot,
   ResolvedCallable,
 } from "../src/parser/callable-set";
-import type { SourceRange } from "../src/diagnostics/diagnostic";
 import type {
   DispatchLadderProbe,
   EncodedToolRequest,
   HostToolResult,
 } from "../src/runtime/host-loop-dispatch";
+import {
+  body,
+  callExpr,
+  ctxDouble,
+  NOOP_CHECKPOINT,
+  numExpr,
+  objArg,
+  snapshot,
+  span,
+  strExpr,
+  thetaWithSet,
+} from "./helpers/tool-call-dispatch-harness";
 
 // --- AST + double helpers (mirrors callable-set-runtime-enforcement.test.ts) --
-
-function span(): SourceRange {
-  return { start: { line: 1, column: 1 }, end: { line: 1, column: 2 } };
-}
-
-function strExpr(value: string): Expr {
-  return { kind: "string", value, range: span() };
-}
-
-function numExpr(n: number): Expr {
-  return { kind: "number", text: String(n), numericType: "integer", range: span() };
-}
-
-/** A single object-literal argument `{ ... }` (the tool-call convention). */
-function objArg(fields: Readonly<Record<string, Expr>>): ObjectExpr {
-  return {
-    kind: "object",
-    typeName: null,
-    fields: Object.entries(fields).map(([name, value]) => ({ name, value })),
-    range: span(),
-  };
-}
-
-function callExpr(callee: string, args: readonly Expr[] = []): CallExpr {
-  return { kind: "call", callee, args, range: span() };
-}
-
-function body(tail: Expr | null): ThetaBody {
-  return { statements: [], tail };
-}
-
-const NOOP_CHECKPOINT: Checkpoint = {
-  before(): Promise<void> {
-    return Promise.resolve();
-  },
-};
+// span/strExpr/numExpr/objArg/callExpr/body/NOOP_CHECKPOINT/ctxDouble/snapshot/
+// thetaWithSet live in tests/helpers/tool-call-dispatch-harness.ts (PTQ-0238),
+// shared with tests/b0322-unknown-tool-dispatch-safety-net.test.ts and
+// tests/tool-arg-runtime-schema-validation.test.ts.
 
 function rootDouble(): RuntimeRoot {
   return {
@@ -107,10 +74,6 @@ function rootDouble(): RuntimeRoot {
   } as unknown as RuntimeRoot;
 }
 
-function ctxDouble(): ExtensionCommandContext {
-  return {} as unknown as ExtensionCommandContext;
-}
-
 /**
  * The spec-pinned PROMPT-mode extension-tool snapshot entry: the tool's
  * UNDERLYING name + registered `parameters` schema, and NO `execute` — the
@@ -120,25 +83,6 @@ function ctxDouble(): ExtensionCommandContext {
  */
 function extensionToolEntry(toolName: string, parameters: unknown): ResolvedCallable {
   return { kind: "pi-tool", toolDefinition: { toolName, parameters } };
-}
-
-/** A frozen callable-set snapshot from `{ callableName -> entry }` pairs. */
-function snapshot(
-  entries: readonly (readonly [string, ResolvedCallable])[],
-): CallableSetSnapshot {
-  return Object.freeze({ entries: new Map(entries) });
-}
-
-/** A prompt-mode theta carrying a resolved callable-set snapshot. */
-function thetaWithSet(tail: Expr, callableSet: CallableSetSnapshot): ThetaCompositionInput {
-  const frontmatter: ParsedFrontmatter = { mode: "prompt" };
-  return {
-    slashName: "demo",
-    sourcePath: "/theta/demo.theta",
-    frontmatter,
-    body: body(tail),
-    callableSet,
-  };
 }
 
 interface ProducerOpts {

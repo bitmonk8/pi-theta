@@ -2,12 +2,7 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import type {
-  ExtensionAPI,
-  ExtensionContext,
-} from "@earendil-works/pi-coding-agent";
-import type { ThetaFixture } from "../src/extension/factory";
-import { discoverAndComposeFixtures } from "../src/extension/production-composition";
+import { runProductionLoad, type LoadOutcome } from "./helpers/production-load-harness";
 
 // Bug 0297 face 2 — the PRODUCTION threading of a present non-scalar
 // `bind_model:` into binder-model resolution
@@ -104,41 +99,14 @@ const THETAS: readonly PlantedTheta[] = [
 
 // --- Fake host `pi` / `ctx` for the load path ------------------------------
 
-interface LoadOutcome {
-  /** Slash names the production compose helper returned (returned fixtures). */
-  readonly registered: readonly string[];
-}
-
 let outcome: LoadOutcome;
 let workspaceDir: string;
 
-async function runProductionLoad(cwd: string): Promise<LoadOutcome> {
-  const pi = {
-    getFlag: (): undefined => undefined,
-    getCommands: (): readonly unknown[] => [],
-    sendMessage: (): void => {},
-    sendUserMessage: (): void => {},
-    getActiveTools: (): readonly string[] => [],
-    setActiveTools: (): void => {},
-  } as unknown as ExtensionAPI;
-  const ctx = {
-    cwd,
-    // One available model with NO `strictCapable` field: with the indicator
-    // exposed on no available model, a resolved reference takes the probe's
-    // silent-admit branch (bug 0475) and still registers, so the
-    // settings-fallback path the offender would take pre-fix is an admitting
-    // path.
-    modelRegistry: {
-      getAvailable: (): readonly unknown[] => [{ provider: "test", id: "binder" }],
-    },
-    ui: {
-      notify: (): void => {},
-    },
-  } as unknown as ExtensionContext;
-
-  const fixtures: readonly ThetaFixture[] = await discoverAndComposeFixtures(pi, ctx);
-  return { registered: fixtures.map((f) => f.slashName) };
-}
+// One available model with NO `strictCapable` field: with the indicator
+// exposed on no available model, a resolved reference takes the probe's
+// silent-admit branch (bug 0475) and still registers, so the
+// settings-fallback path the offender would take pre-fix is an admitting path.
+const AVAILABLE_MODELS: readonly unknown[] = [{ provider: "test", id: "binder" }];
 
 beforeAll(async () => {
   workspaceDir = mkdtempSync(join(tmpdir(), "theta-b0297-"));
@@ -155,7 +123,7 @@ beforeAll(async () => {
     JSON.stringify({ theta: { binderModel: "test/binder" } }),
     "utf8",
   );
-  outcome = await runProductionLoad(workspaceDir);
+  outcome = await runProductionLoad(workspaceDir, { availableModels: AVAILABLE_MODELS });
 });
 
 afterAll(() => {
@@ -163,9 +131,14 @@ afterAll(() => {
 });
 
 describe("bug 0297 face 2 — non-scalar bind_model: threaded through the production compose pass", () => {
-  // Shared precondition guard: both stems reached the compose pass at all, so a
-  // registration red is a binder-model-resolution red, not an empty-walk red.
-  it("the discovery walk reached both bind_model stems (precondition)", () => {
+  // Shared precondition guard: the discovery walk is live at all (it registered
+  // its always-eligible bypass control), so a registration red below is a
+  // binder-model-resolution red, not an empty-walk / setup red. This checks the
+  // walk is live, not that either bind_model stem specifically was reached —
+  // the scalar-control cell below independently proves the walk reaches a
+  // bind_model-bearing fixture, since a non-bypass theta registers only by
+  // resolving one.
+  it("the .pi/theta/ discovery walk is live (precondition, via the always-registering bypass control)", () => {
     expect(
       outcome.registered,
       "the project `.pi/theta/` discovery walk did not register the clean bypass " +
