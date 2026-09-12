@@ -5,6 +5,7 @@ mode: prompt
 bind_model: "anthropic/claude-sonnet-5"
 tools:
   - bash
+  - write
   - ./workers/lens-d2-cruft.theta
   - ./workers/lens-d7-testquality.theta
   - ./workers/lens-d9-placement.theta
@@ -91,7 +92,8 @@ schema Green {
   manifest_rel: string,
   manifest_abs: string,
   sha: string,
-  fixed: string
+  fixed: string,
+  fixer_notes: string
 }
 
 /// A green lane whose commit conflicted at integration: re-run once on the
@@ -212,11 +214,21 @@ while cycle < max_cycles && !converged {
         Ok(s) => s.filed,
         Err(_) => -1,
       }
+      let notes = match reviews[i] {
+        Ok(s) => s.notes,
+        Err(_) => "",
+      }
       if filed >= 0 {
         // Reviewed at review_sha: later fix commits re-dirty these files, so
         // the next cycle re-reviews exactly what the fixes touched.
         let _ = bash({ command: "node tools/quality/store.mjs mark-reviewed --lens " + cols[0] + " --sha " + review_sha + " --manifest " + cols[1] })?
         total_filed += filed
+        // The worker's notes (D9 KEEP-WHOLE dispositions, every lens's routing
+        // notes) persist only through quality/REVIEW_LOG.md. Written via the
+        // write tool - model prose never passes through a shell string.
+        let notes_path = cols[1].replace(".txt", ".notes.txt")
+        let _ = write({ path: notes_path, content: notes })?
+        let _ = bash({ command: "node tools/quality/store.mjs log-review --wave " + wave + " --lens " + cols[0] + " --manifest " + cols[1] + " --notes-file " + notes_path })?
       } else {
         report = report + "wave " + wave + ": review shard failed (files stay due): " + review_rows[i] + "\n"
       }
@@ -310,10 +322,10 @@ while cycle < max_cycles && !converged {
     while gi < work.length {
       let rep = match reports[gi] {
         Ok(r) => r,
-        Err(e) => TreeFixReport { ok: false, sha: "", fixed_confirmed: [], notes: "tree worker failed: " + e.kind + " - " + e.message },
+        Err(e) => TreeFixReport { ok: false, sha: "", fixed_confirmed: [], notes: "tree worker failed: " + e.kind + " - " + e.message, fixer_notes: "" },
       }
       if rep.ok && rep.fixed_confirmed.length > 0 {
-        greens = greens.concat([Green { key: work[gi].key, manifest_rel: work[gi].manifest_rel, manifest_abs: work[gi].manifest_abs, sha: rep.sha, fixed: rep.fixed_confirmed.join(",") }])
+        greens = greens.concat([Green { key: work[gi].key, manifest_rel: work[gi].manifest_rel, manifest_abs: work[gi].manifest_abs, sha: rep.sha, fixed: rep.fixed_confirmed.join(","), fixer_notes: rep.fixer_notes }])
       } else {
         total_clusters_reverted += 1
         report = report + "wave " + wave + ": cluster " + work[gi].key + " not fixed in its worktree - " + rep.notes + "\n"
@@ -369,12 +381,12 @@ ${residue}`?
         let seed = "RETRY after an integration conflict: this cluster's previous fix (commit " + r.sha + ", now discarded) conflicted with sibling lanes' already-integrated changes on: " + r.conflicts + ". This tree is at the integrated head, so those siblings' changes - including any new tests/helpers/* exports - are ALREADY present: reuse them, do not re-add them, and re-apply this cluster's fixes on top."
         let rep = match invoke<TreeFixReport>("./workers/fix-cluster-tree.theta", r.manifest_abs, r.key, wave, tree_gate_cmd, seed) with { cwd: tree } {
           Ok(x) => x,
-          Err(e) => TreeFixReport { ok: false, sha: "", fixed_confirmed: [], notes: "tree worker failed: " + e.kind + " - " + e.message },
+          Err(e) => TreeFixReport { ok: false, sha: "", fixed_confirmed: [], notes: "tree worker failed: " + e.kind + " - " + e.message, fixer_notes: "" },
         }
         if rep.ok && rep.fixed_confirmed.length > 0 {
           let cp2 = bash({ command: cherry_pick_cmd(rep.sha) })?
           if !cp2.includes("CP_FAIL") {
-            applied = applied.concat([Green { key: r.key, manifest_rel: r.manifest_rel, manifest_abs: r.manifest_abs, sha: rep.sha, fixed: rep.fixed_confirmed.join(",") }])
+            applied = applied.concat([Green { key: r.key, manifest_rel: r.manifest_rel, manifest_abs: r.manifest_abs, sha: rep.sha, fixed: rep.fixed_confirmed.join(","), fixer_notes: rep.fixer_notes }])
           } else {
             total_clusters_reverted += 1
             report = report + "wave " + wave + ": cluster " + r.key + " conflicted again on retry (" + conflicted_paths(cp2) + ") - dropped, issues stay open\n"
@@ -421,9 +433,23 @@ ${residue}`?
     let mut si = 0
     while si < applied.length {
       if si < kept {
-        let _ = bash({ command: "node tools/quality/store.mjs resolve --manifest " + applied[si].manifest_rel + " --fixed " + applied[si].fixed })?
+        // Every manifest issue NOT in `fixed` came back from the lane unfixed:
+        // resolve records the skip (with the fixer's account) and parks the
+        // issue for a human ruling at the second skip, so nothing is re-laned
+        // wave after wave in silence. Its skipped/parked lines join the report.
+        let fix_notes_path = applied[si].manifest_rel.replace(".txt", ".fixnotes.txt")
+        let _ = write({ path: fix_notes_path, content: applied[si].fixer_notes })?
+        let resolved = bash({ command: "node tools/quality/store.mjs resolve --manifest " + applied[si].manifest_rel + " --fixed " + applied[si].fixed + " --wave " + wave + " --notes-file " + fix_notes_path })?
+        let mut out_lines: array<string> = []
+        out_lines = lines(resolved)
+        let mut skips: array<string> = []
+        for l in out_lines {
+          if l.startsWith("skipped ") || l.startsWith("parked ") {
+            skips = skips.concat([l])
+          }
+        }
         total_clusters_fixed += 1
-        report = report + "wave " + wave + ": cluster " + applied[si].key + " fixed in its worktree and integrated\n"
+        report = report + "wave " + wave + ": cluster " + applied[si].key + " fixed in its worktree and integrated" + (skips.length == 0 ? "" : " (" + skips.join("; ") + ")") + "\n"
       } else {
         total_clusters_reverted += 1
         report = report + "wave " + wave + ": cluster " + applied[si].key + " dropped by the batch gate - issues stay open\n"

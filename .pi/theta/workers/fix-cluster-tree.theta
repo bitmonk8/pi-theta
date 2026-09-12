@@ -46,7 +46,7 @@ let staged = match bash({ command: "mkdir -p quality/tmp && cp \"" + manifest_sr
   Err(_) => false,
 }
 if !staged {
-  return TreeFixReport { ok: false, sha: "", fixed_confirmed: [], notes: "could not stage the cluster manifest into the worktree: " + manifest_src }
+  return TreeFixReport { ok: false, sha: "", fixed_confirmed: [], notes: "could not stage the cluster manifest into the worktree: " + manifest_src, fixer_notes: "" }
 }
 
 // Bug 0474 belt. This wrapper runs INSIDE a subagent child, so its own process
@@ -72,6 +72,7 @@ let mut done = false
 let mut sha = ""
 let mut confirmed: array<string> = []
 let mut notes = ""
+let mut fixer_notes = ""
 let mut trail = ""
 
 while attempt < 2 && !done {
@@ -122,6 +123,9 @@ while attempt < 2 && !done {
       sha = committed.trim()
       confirmed = rv.fixed_confirmed
       done = true
+      // What the fixer said about every issue (fixed AND skipped) - the store
+      // files this under each unfixed issue's "## Fix attempts".
+      fixer_notes = fr.notes + (rv.must_fix == "" ? "" : " | review: " + rv.must_fix)
       notes = "gate green, review confirmed " + rv.fixed_confirmed.join(",") + " on attempt " + att
       let _ = theta_progress({ message: "committed " + key + " @ " + sha, scope: key, done: attempt, total: 2 })?
     }
@@ -162,8 +166,8 @@ while attempt < 2 && !done {
 // shape of the 2026-09-10 abort: Ok(null) crossing PIC-59, then `.ok` panics
 // in the orchestrator). Bind, then end on a bare expression tail like
 // fix-cluster.theta's `r`.
-let mut out = TreeFixReport { ok: false, sha: "", fixed_confirmed: [], notes: notes }
+let mut out = TreeFixReport { ok: false, sha: "", fixed_confirmed: [], notes: notes, fixer_notes: "" }
 if done {
-  out = TreeFixReport { ok: true, sha: sha, fixed_confirmed: confirmed, notes: notes }
+  out = TreeFixReport { ok: true, sha: sha, fixed_confirmed: confirmed, notes: notes, fixer_notes: fixer_notes }
 }
 out

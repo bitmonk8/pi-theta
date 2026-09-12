@@ -28,12 +28,16 @@ schema FixReport {
 /// its own git worktree; the orchestrator cherry-picks it into the main tree.
 /// `fixed_confirmed` carries the issue basenames the in-tree review verified —
 /// the orchestrator (the store's only writer) hands them to `store.mjs resolve`
-/// after integration, so no fixer ever writes the shared store.
+/// after integration, so no fixer ever writes the shared store. `fixer_notes`
+/// carries the fixer's own per-issue account (and the review's must_fix when
+/// any) so the store can record WHY an issue the lane was handed came back
+/// unfixed; the orchestrator writes it to a notes file for `resolve`.
 schema TreeFixReport {
   ok: boolean,
   sha: string,
   fixed_confirmed: array<string>,
-  notes: string
+  notes: string,
+  fixer_notes: string
 }
 
 /// Post-fix correctness review (fix-review worker final value).

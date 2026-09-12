@@ -11,7 +11,7 @@
 // regress.
 
 import { spawnSync, type SpawnSyncReturns } from "node:child_process";
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -472,6 +472,128 @@ describe("tools/quality/store.mjs (scratch fixture store via QUALITY_STORE_ROOT)
     expect(r4.status).toBe(1);
     expect(r4.stderr).toContain("unknown host");
     expect(r4.stderr).toContain("foo");
+  });
+
+  it("cell 18: log-review appends one flattened row per shard to quality/REVIEW_LOG.md, header once; a missing notes file dies", () => {
+    const manifest = "quality/tmp/w1/D9/shard-01.txt";
+    writeFile(root, manifest, "src/a.ts\nsrc/b.ts\nsrc/c.ts\n");
+    writeFile(root, "quality/tmp/w1/D9/shard-01.notes.txt", "kept whole: src/a.ts#f \u2014 closed-enumeration: 9 arms | longest 12 LOC\nrouting: hollow module src/c.ts \u2192 D2\n");
+
+    const r1 = runStore(root, ["log-review", "--wave", "w1", "--lens", "D9", "--manifest", manifest, "--notes-file", "quality/tmp/w1/D9/shard-01.notes.txt"]);
+    expect(r1.status).toBe(0);
+    const r2 = runStore(root, ["log-review", "--wave", "w1", "--lens", "D9", "--manifest", manifest, "--notes-file", "quality/tmp/w1/D9/shard-01.notes.txt", "--filed", "2"]);
+    expect(r2.status).toBe(0);
+
+    const log = readFile(root, "quality/REVIEW_LOG.md");
+    const rows = log.split("\n").filter((l) => l.startsWith("|") && !l.startsWith("|---"));
+    // Header + two data rows; the header is written exactly once.
+    expect(rows.length).toBe(3);
+    expect(rows[0]).toBe("| date | wave | lens | shard | filed | notes |");
+    expect(rows[1]).toContain("| w1 | D9 | shard-01 (3 files: src/a.ts \u2026 src/c.ts) | - | ");
+    // Newlines collapse to ' / ' and pipes are escaped so the table stays a table.
+    expect(rows[1]).toContain("9 arms \\| longest 12 LOC / routing: hollow module");
+    expect(rows[2]).toContain("| 2 | kept whole");
+
+    const r3 = runStore(root, ["log-review", "--wave", "w1", "--lens", "D9", "--manifest", manifest, "--notes-file", "quality/tmp/nope.txt"]);
+    expect(r3.status).toBe(1);
+    expect(r3.stderr).toContain("notes file");
+  });
+
+  it("cell 19: resolve records a skip on every listed-but-unfixed issue and parks it in intake at the second skip", () => {
+    writeIssue(root, "PTQ-0051-fixed.md", { location: "tests/a.test.ts:1-2", id: "PTQ-0051" });
+    writeIssue(root, "PTQ-0052-stuck.md", { location: "tests/b.test.ts:1-2", id: "PTQ-0052" });
+    const manifest = "quality/tmp/clusters/tests.txt";
+    writeFile(root, manifest, "quality/issues/PTQ-0051-fixed.md\nquality/issues/PTQ-0052-stuck.md\n");
+    writeFile(root, "quality/tmp/fix-notes.txt", "PTQ-0052: no longer reproduces at the cited lines | review: none\n");
+
+    const r1 = runStore(root, ["resolve", "--manifest", manifest, "--fixed", "PTQ-0051-fixed.md", "--wave", "w1", "--notes-file", "quality/tmp/fix-notes.txt"]);
+    expect(r1.status).toBe(0);
+    expect(r1.stdout).toContain("quality/resolved/PTQ-0051-fixed.md");
+    expect(r1.stdout).toContain("skipped PTQ-0052-stuck.md (fix_skips: 1)");
+    const afterOne = readFile(root, "quality/issues/PTQ-0052-stuck.md");
+    expect(afterOne).toMatch(/^fix_skips: 1$/m);
+    expect(afterOne).toMatch(/^status: open$/m);
+    expect(afterOne).toContain("## Fix attempts");
+    expect(afterOne).toContain("- w1: skipped \u2014 PTQ-0052: no longer reproduces");
+
+    // Second wave, same issue skipped again: parked for a human ruling.
+    writeIssue(root, "PTQ-0053-other.md", { location: "tests/c.test.ts:1-2", id: "PTQ-0053" });
+    writeFile(root, manifest, "quality/issues/PTQ-0052-stuck.md\nquality/issues/PTQ-0053-other.md\n");
+    const r2 = runStore(root, ["resolve", "--manifest", manifest, "--fixed", "PTQ-0053-other.md", "--wave", "w2", "--notes-file", "quality/tmp/fix-notes.txt"]);
+    expect(r2.status).toBe(0);
+    expect(r2.stdout).toContain("parked quality/intake/PTQ-0052-stuck.md (fix_skips: 2)");
+    expect(existsSync(join(root, "quality/issues/PTQ-0052-stuck.md"))).toBe(false);
+    const parked = readFile(root, "quality/intake/PTQ-0052-stuck.md");
+    expect(parked).toMatch(/^status: intake$/m);
+    expect(parked).toMatch(/^verdict: questionable$/m);
+    expect(parked).toMatch(/^fix_skips: 2$/m);
+    expect(parked).toContain("- w2: skipped");
+    expect(parked).toMatch(/verdict: questionable \u2014 parked by the store: skipped by the fixer in 2 waves/);
+    expect(readFile(root, "quality/TRIAGE_LOG.md")).toContain("| PTQ-0052-stuck.md | parked |");
+    // open-count no longer sees it.
+    expect(runStore(root, ["open-count"]).stdout.trim()).toBe("0");
+  });
+
+  it("cell 20: accept keeps an already-minted PTQ id (a parked issue re-accepted) and resets fix_skips", () => {
+    writeFile(
+      root,
+      "quality/intake/PTQ-0052-stuck.md",
+      [
+        "---",
+        "id: PTQ-0052",
+        "title: stuck",
+        "lens: D7",
+        "status: intake",
+        "verdict: questionable",
+        "locations:",
+        "  - tests/b.test.ts:1-2",
+        "fix_skips: 2",
+        "---",
+        "",
+        "# stuck",
+        "",
+        "## Triage",
+        "verdict: questionable \u2014 parked by the store",
+        "",
+      ].join("\n"),
+    );
+    writeIssue(root, "PTQ-0060-later.md", { location: "tests/z.test.ts:1-2", id: "PTQ-0060" });
+    const r = runStore(root, ["accept", "--finding", "quality/intake/PTQ-0052-stuck.md", "--note", "direction: extract the helper into tests/helpers/b.ts"]);
+    expect(r.status).toBe(0);
+    expect(r.stdout.trim()).toBe("quality/issues/PTQ-0052-stuck.md");
+    const text = readFile(root, "quality/issues/PTQ-0052-stuck.md");
+    expect(text).toMatch(/^id: PTQ-0052$/m);
+    expect(text).toMatch(/^status: open$/m);
+    expect(text).toMatch(/^fix_skips: 0$/m);
+    expect(text).toContain("verdict: confirmed \u2014 direction: extract the helper");
+
+    // A lens that self-assigned a PTQ id (no store-written fix_skips) is still minted fresh.
+    writeFile(
+      root,
+      "quality/intake/w9-d2-01-forged.md",
+      ["---", "id: PTQ-0001", "title: forged", "lens: D2", "status: intake", "verdict: pending", "locations:", "  - src/x.ts:1-2", "---", "", "# forged", "", "## Triage", "verdict: confirmed \u2014 ok (triage: x)", ""].join("\n"),
+    );
+    const r2 = runStore(root, ["accept", "--finding", "quality/intake/w9-d2-01-forged.md"]);
+    expect(r2.status).toBe(0);
+    expect(r2.stdout.trim()).toBe("quality/issues/PTQ-0061-forged.md");
+  });
+
+  it("cell 21: reject on a parked issue records the parked triage line, not a Fix-attempts bullet", () => {
+    writeFile(
+      root,
+      "quality/intake/PTQ-0070-parked.md",
+      [
+        "---", "id: PTQ-0070", "title: parked", "lens: D7", "status: intake", "verdict: questionable",
+        "locations:", "  - tests/p.test.ts:1-2", "fix_skips: 2", "---", "", "# parked", "",
+        "## Triage", "verdict: confirmed \u2014 real (triage: x)", "verdict: questionable \u2014 parked by the store: skipped by the fixer in 2 waves (store)", "",
+        "## Fix attempts", "- w1: skipped \u2014 could not reproduce", "- w2: skipped \u2014 could not reproduce", "",
+      ].join("\n"),
+    );
+    const r = runStore(root, ["reject", "--finding", "quality/intake/PTQ-0070-parked.md", "--verdict", "human-retire"]);
+    expect(r.status).toBe(0);
+    const row = readFile(root, "quality/TRIAGE_LOG.md").split("\n").find((l) => l.includes("PTQ-0070-parked.md"));
+    expect(row).toContain("| human-retire | verdict: questionable \u2014 parked by the store");
+    expect(row).not.toContain("could not reproduce");
   });
 
   it("cell 12: default ROOT (env absent) resolves to the real repo and lists D2 + D7", () => {

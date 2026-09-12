@@ -73,7 +73,22 @@
 //       Print the number of status: open issues in quality/issues/ — the
 //       quality loop's convergence signal (0 = backlog empty).
 //   resolve --manifest <cluster manifest> --fixed <basename,basename,...>
+//           [--wave <id>] [--notes-file <path>]
 //       Mark the named issues status: fixed and move them to quality/resolved/.
+//       Every other issue the manifest lists was handed to a fixer and came
+//       back unfixed: it gets fix_skips += 1 and a "## Fix attempts" line
+//       (wave + the fixer's notes from --notes-file). At the SECOND skip the
+//       issue is PARKED — moved to quality/intake/ as status: intake /
+//       verdict: questionable with a triage line saying so — so a human rules
+//       instead of the loop re-laning it every wave (PTQ-0230 sat in three
+//       consecutive lanes unfixed and unreported). `accept` on a parked issue
+//       keeps its PTQ id and resets fix_skips.
+//   log-review --wave <id> --lens <lens> --manifest <shard manifest>
+//           --notes-file <path> [--filed <n>]
+//       Append one row to quality/REVIEW_LOG.md: the lens worker's notes for
+//       that shard (KEEP-WHOLE dispositions for D9, routing notes for every
+//       lens) — the only place those notes persist; the orchestrator otherwise
+//       reads just the filed count.
 //
 // D9 durable exemptions (design .localpi/tmp/quality-loop-d9-design.md §3.2):
 // `reject --finding <p> --verdict human-keep-whole --reason <r>` additionally
@@ -105,6 +120,9 @@ const ISSUES = path.join(Q, "issues");
 const RESOLVED = path.join(Q, "resolved");
 const TMP = path.join(Q, "tmp");
 const EXEMPTIONS = path.join(Q, "exemptions.json");
+const REVIEW_LOG = path.join(Q, "REVIEW_LOG.md");
+// A fixer that skips the same issue in this many waves stops getting lanes.
+const PARK_AFTER_SKIPS = 2;
 
 function die(msg) {
   process.stderr.write(`store.mjs: ${msg}\n`);
@@ -273,7 +291,9 @@ function triageNote(file) {
   const text = fs.readFileSync(file, "utf8");
   const m = text.match(/^## Triage\s*$([\s\S]*)/m);
   if (!m) return "";
-  const lines = m[1].split("\n").map((l) => l.trim()).filter((l) => l && !l.startsWith("<"));
+  // Only the Triage SECTION: a parked issue carries "## Fix attempts" after it.
+  const section = m[1].split(/\r?\n##? /)[0];
+  const lines = section.split("\n").map((l) => l.trim()).filter((l) => l && !l.startsWith("<"));
   return lines.length > 0 ? lines[lines.length - 1] : "";
 }
 
@@ -313,11 +333,39 @@ function fileDisjointComponents(paths, citedFiles) {
   return [...groups.values()];
 }
 
-function appendTriageLine(text, line) {
+/** Notes text from a file the orchestrator wrote (arbitrary model prose). */
+function readNotesFile(relPath) {
+  const p = path.join(ROOT, relPath);
+  if (!fs.existsSync(p)) die(`notes file not found: ${relPath}`);
+  return fs.readFileSync(p, "utf8");
+}
+
+/** One line for a table cell or a list item: newlines become ' / '. */
+function flattenNotes(text) {
+  const flat = text.split(/\r?\n/).map((l) => l.trim()).filter(Boolean).join(" / ");
+  return flat === "" ? "(none)" : flat;
+}
+
+/** Append `line` under `heading` (created at the end when absent). */
+function appendSectionLine(text, heading, line) {
   const eol = text.includes("\r\n") ? "\r\n" : "\n";
   const body = text.endsWith(eol) ? text : text + eol;
-  if (!/^## Triage\s*$/m.test(body)) return body + eol + "## Triage" + eol + line + eol;
-  return body + line + eol;
+  const re = new RegExp(`^${heading.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\s*$`, "m");
+  const m = re.exec(body);
+  if (!m) return body + eol + heading + eol + line + eol;
+  // Insert after the heading's existing lines: find the next heading or EOF.
+  const after = body.slice(m.index + m[0].length);
+  const next = after.search(/\r?\n##? /);
+  const cut = m.index + m[0].length + (next === -1 ? after.length : next);
+  const head = body.slice(0, cut);
+  const tail = body.slice(cut);
+  return (head.endsWith(eol) ? head : head + eol) + line + eol + tail;
+}
+
+// Triage lines go at the END of the "## Triage" section, not of the file: a
+// parked issue also carries a "## Fix attempts" section after it.
+function appendTriageLine(text, line) {
+  return appendSectionLine(text, "## Triage", line);
 }
 
 function logRow(cols) {
@@ -430,17 +478,25 @@ switch (cmd) {
     const finding = flags.finding ?? die("--finding required");
     const src = path.join(ROOT, finding);
     if (!fs.existsSync(src)) die(`no such finding: ${finding}`);
-    const id = nextIssueId();
     let text = fs.readFileSync(src, "utf8");
+    // A parked issue (see resolve) comes back through intake already minted:
+    // keep its id and its history, and give the fixer a fresh skip budget.
+    const minted = readFrontmatter(src).fields.id;
+    // Only the store's own park path writes fix_skips, so its presence is the
+    // mechanical proof this is a parked issue and not a lens that self-assigned
+    // an id (TEMPLATE.md forbids that, but a guard beats an instruction).
+    const reMinted = typeof minted === "string" && /^PTQ-\d{4,}$/.test(minted) && /^fix_skips:/m.test(text);
+    const id = reMinted ? minted : nextIssueId();
     text = setFrontmatterField(text, "id", id);
     text = setFrontmatterField(text, "verdict", "confirmed");
     text = setFrontmatterField(text, "status", "open");
+    if (reMinted && /^fix_skips:/m.test(text)) text = setFrontmatterField(text, "fix_skips", "0");
     if (flags.note) text = appendTriageLine(text, `verdict: confirmed — ${flags.note}`);
     // Slug: strip the wave-lens-NN- prefix the reviewer used, keep the tail.
     const base = path.basename(finding, ".md");
     const slug = (base.replace(/^[a-z0-9]+-[a-z0-9]+-\d+-/, "") || base).slice(0, 60);
     fs.mkdirSync(ISSUES, { recursive: true });
-    const dest = path.join(ISSUES, `${id}-${slug}.md`);
+    const dest = path.join(ISSUES, reMinted && base.startsWith(id) ? `${base}.md` : `${id}-${slug}.md`);
     fs.writeFileSync(dest, text);
     fs.unlinkSync(src);
     process.stdout.write(rel(dest) + "\n");
@@ -627,25 +683,67 @@ switch (cmd) {
     if (fixed.length === 0) die("--fixed requires at least one issue basename");
     const listed = fs.readFileSync(path.join(ROOT, manifest), "utf8")
       .split("\n").map((l) => l.trim()).filter(Boolean);
-    fs.mkdirSync(RESOLVED, { recursive: true });
+    const isFixed = (entry) => fixed.some((name) => path.basename(entry) === name || path.basename(entry, ".md") === name);
     for (const name of fixed) {
-      const entry = listed.find((p) => path.basename(p) === name || path.basename(p, ".md") === name);
-      if (!entry) {
+      if (!listed.some((p) => path.basename(p) === name || path.basename(p, ".md") === name)) {
         process.stderr.write(`store.mjs: '${name}' is not in ${manifest}; skipped\n`);
-        continue;
       }
+    }
+    const wave = flags.wave ?? "(wave unknown)";
+    const fixerNotes = flags["notes-file"] ? flattenNotes(readNotesFile(flags["notes-file"])) : "(no fixer notes recorded)";
+    fs.mkdirSync(RESOLVED, { recursive: true });
+    for (const entry of [...new Set(listed)]) {
       const src = path.join(ROOT, entry);
       if (!fs.existsSync(src)) {
         process.stderr.write(`store.mjs: ${entry} missing on disk; skipped\n`);
         continue;
       }
       let text = fs.readFileSync(src, "utf8");
-      text = setFrontmatterField(text, "status", "fixed");
-      const dest = path.join(RESOLVED, path.basename(entry));
+      if (isFixed(entry)) {
+        text = setFrontmatterField(text, "status", "fixed");
+        const dest = path.join(RESOLVED, path.basename(entry));
+        fs.writeFileSync(dest, text);
+        fs.unlinkSync(src);
+        process.stdout.write(rel(dest) + "\n");
+        continue;
+      }
+      // Listed but not fixed: the fixer had it and came back without it.
+      const prev = Number(readFrontmatter(src).fields.fix_skips ?? 0);
+      const skips = (Number.isFinite(prev) && prev >= 0 ? prev : 0) + 1;
+      text = setFrontmatterField(text, "fix_skips", String(skips));
+      text = appendSectionLine(text, "## Fix attempts", `- ${wave}: skipped — ${fixerNotes}`);
+      if (skips < PARK_AFTER_SKIPS) {
+        fs.writeFileSync(src, text);
+        process.stdout.write(`skipped ${path.basename(entry)} (fix_skips: ${skips})\n`);
+        continue;
+      }
+      text = setFrontmatterField(text, "status", "intake");
+      text = setFrontmatterField(text, "verdict", "questionable");
+      text = appendTriageLine(text, `verdict: questionable — parked by the store: skipped by the fixer in ${skips} waves (see "## Fix attempts"); rule with accept --note <direction> or reject (store)`);
+      fs.mkdirSync(INTAKE, { recursive: true });
+      const dest = path.join(INTAKE, path.basename(entry));
       fs.writeFileSync(dest, text);
       fs.unlinkSync(src);
-      process.stdout.write(rel(dest) + "\n");
+      logRow([today(), path.basename(entry), "parked", `skipped by the fixer in ${skips} waves — ${fixerNotes}`]);
+      process.stdout.write(`parked ${rel(dest)} (fix_skips: ${skips})\n`);
     }
+    break;
+  }
+
+  case "log-review": {
+    const wave = flags.wave ?? die("--wave required");
+    const lens = flags.lens ?? die("--lens required");
+    const manifest = flags.manifest ?? die("--manifest required");
+    const notesFile = flags["notes-file"] ?? die("--notes-file required");
+    const files = fs.readFileSync(path.join(ROOT, manifest), "utf8").split("\n").map((l) => l.trim()).filter(Boolean);
+    const notes = flattenNotes(readNotesFile(notesFile));
+    const span = files.length === 0 ? "0 files" : files.length === 1 ? `1 file: ${files[0]}` : `${files.length} files: ${files[0]} … ${files[files.length - 1]}`;
+    const shard = `${path.basename(manifest, ".txt")} (${span})`;
+    if (!fs.existsSync(REVIEW_LOG)) {
+      fs.writeFileSync(REVIEW_LOG, "# Review log — lens worker notes per shard (written by store.mjs log-review)\n\n| date | wave | lens | shard | filed | notes |\n|---|---|---|---|---|---|\n");
+    }
+    const esc = (s) => String(s).replaceAll("|", "\\|").trim();
+    fs.appendFileSync(REVIEW_LOG, `| ${[today(), wave, lens, shard, flags.filed ?? "-", notes].map(esc).join(" | ")} |\n`);
     break;
   }
 

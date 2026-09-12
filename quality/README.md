@@ -47,7 +47,10 @@ verification gate, default `npx tsc --noEmit && npm test`).
    quarter-surface data). Candidates land in `intake/`, shaped by
    `TEMPLATE.md`. Reviewed files are marked in `state.json` at the reviewed
    sha — fix commits re-dirty them, so the next cycle re-reviews exactly what
-   changed.
+   changed. Each worker's closing notes (D9's KEEP-WHOLE dispositions, every
+   lens's routing notes — coverage gaps, suspected bugs, hollow modules) are
+   persisted as one `REVIEW_LOG.md` row per shard (`store.mjs log-review`);
+   the orchestrator otherwise reads only the filed count.
 5. **Triage** — every candidate independently re-verified
    (`anthropic/claude-fable-5`, the experiments' judge). `confirmed` → minted
    `PTQ-NNNN` in `issues/`; rejections → one `TRIAGE_LOG.md` row, file deleted;
@@ -65,7 +68,13 @@ verification gate, default `npx tsc --noEmit && npm test`).
    its issues stay open. After every lane of the wave is integrated (or
    dropped), ONE batch gate run judges the whole integrated result; a red
    batch gate drops the wave's cherry-picks last-to-first, re-gating after
-   each drop, until the gate is green again.
+   each drop, until the gate is green again. `store.mjs resolve` then moves
+   the review-confirmed issues to `resolved/`; every other issue the lane's
+   manifest listed came back unfixed and gets `fix_skips += 1` plus a
+   `## Fix attempts` line carrying the fixer's account. At the **second**
+   skip the issue is **parked**: moved to `intake/` as `questionable` for a
+   human ruling (`accept --note <direction>` keeps its PTQ id and resets the
+   skip budget; `reject` retires it) instead of being re-laned every wave.
 8. **Commit/push** — one store commit per wave (`quality: <wave> review pass
    [<lenses with files due>]`, suffix omitted when no lens had files due) and
    one commit per fixed cluster (`quality: <wave> fix <key>`), plus one
@@ -80,7 +89,8 @@ verification gate, default `npx tsc --noEmit && npm test`).
 | `surfaces.json` | lens → reviewable file set (include/exclude prefixes + extensions over git-tracked files) + per-lens `shard_loc` | yes |
 | `state.json` | lens → { file → commit sha last reviewed at } | yes |
 | `TEMPLATE.md` | finding file shape (one finding, one root cause, evidence-first) | yes |
-| `TRIAGE_LOG.md` | append-only rejection ledger (re-file prevention) | yes |
+| `TRIAGE_LOG.md` | append-only rejection ledger (re-file prevention; `parked` rows too) | yes |
+| `REVIEW_LOG.md` | append-only lens-worker notes, one row per reviewed shard (`store.mjs log-review`) | yes |
 | `intake/` | candidates awaiting triage / human ruling | yes (transient content) |
 | `issues/` | confirmed open issues `PTQ-NNNN-*.md` | yes |
 | `resolved/` | fixed issues (moved by `store.mjs resolve`) | yes |
