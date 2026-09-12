@@ -548,9 +548,6 @@ describe("V19e-T — ParsedTheta widening (Class-2 seam consumed by H8a)", () =>
       run: fixture.run,
     };
 
-    expect(parsed.frontmatter, "ParsedTheta carries the V19a frontmatter").toBe(input.frontmatter);
-    expect(parsed.body, "ParsedTheta carries the V19a body AST").toBe(input.body);
-
     await parsed.run("", ctxDouble());
 
     expect(

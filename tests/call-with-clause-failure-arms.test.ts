@@ -28,9 +28,10 @@ import { resolve as resolvePath } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   enoentSpawnError,
+  fakeSubagentLaunchRequest,
   makeFakeJsonChildLauncher,
 } from "./helpers/fake-json-child";
-import { launchSubagentChild, type SubagentLaunchRequest, type ExecutableHost } from "../src/runtime/subagent-launcher";
+import { launchSubagentChild } from "../src/runtime/subagent-launcher";
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
 import { NullMemberAccessPanic } from "../src/runtime/runtime-panics";
 import { InterpolatedResultPanic } from "../src/render/query-render";
@@ -41,6 +42,7 @@ import {
   driveCaller,
   driveCtx,
   memberOnNull,
+  R,
   strExpr,
   subagentCallee,
   tryErr,
@@ -71,15 +73,11 @@ import { FakeFileSystem } from "./helpers/fake-file-system";
 const CALLER_CWD = "/work/project";
 const CHILD_LITERAL = "./child.theta";
 
-function span() {
-  return { start: { line: 1, column: 1 }, end: { line: 1, column: 2 } };
-}
-
 const numberValue = {
   kind: "number",
   text: "1",
   numericType: "integer",
-  range: span(),
+  range: R(),
 } as unknown as Parameters<typeof withClause>[0];
 
 /**
@@ -96,7 +94,7 @@ function bodyWithBoundInvoke(path: string, clause: ReturnType<typeof withClause>
     path,
     returnSchema: null,
     args: [],
-    range: span(),
+    range: R(),
     withClause: clause,
   } as unknown as InvokeExpr;
   return {
@@ -107,10 +105,10 @@ function bodyWithBoundInvoke(path: string, clause: ReturnType<typeof withClause>
         mutable: false,
         annotation: null,
         init: invokeExpr,
-        range: span(),
+        range: R(),
       } as unknown as ThetaBody["statements"][number],
     ],
-    tail: { kind: "ident", name: "r", range: span() } as unknown as Expr,
+    tail: { kind: "ident", name: "r", range: R() } as unknown as Expr,
   };
 }
 
@@ -209,11 +207,11 @@ describe("RFC 0009 failure arms — V4: a statically-provable non-string clause 
       path: "./callee.theta",
       returnSchema: null,
       args: [],
-      range: span(),
+      range: R(),
       withClause: withClause(numberValue),
     } as unknown as InvokeExpr;
     const body: ThetaBody = {
-      statements: [{ kind: "invoke", invoke, range: span() } as unknown as ThetaBody["statements"][number]],
+      statements: [{ kind: "invoke", invoke, range: R() } as unknown as ThetaBody["statements"][number]],
       tail: null,
     };
     const input: ThetaCompositionInput = {
@@ -244,7 +242,7 @@ describe("RFC 0009 failure arms — V4: a statically-provable non-string clause 
       kind: "call",
       callee: "helper",
       args: [],
-      range: span(),
+      range: R(),
       withClause: withClause(numberValue),
     } as unknown as CallExpr;
     const letStmt = {
@@ -253,7 +251,7 @@ describe("RFC 0009 failure arms — V4: a statically-provable non-string clause 
       mutable: false,
       annotation: null,
       init: call,
-      range: span(),
+      range: R(),
     };
     const body: ThetaBody = {
       statements: [letStmt as unknown as ThetaBody["statements"][number]],
@@ -351,14 +349,14 @@ describe("RFC 0009 failure arms — row 7: a runtime-prompt-mode callee under a 
     const promptCallee = {
       sourcePath: "/thetadir/child.theta",
       frontmatter: { mode: "prompt" } as unknown as import("../src/parser/frontmatter").ParsedFrontmatter,
-      body: { statements: [], tail: { kind: "string", value: "hi", range: { start: { line: 1, column: 1 }, end: { line: 1, column: 2 } } } as unknown as import("../src/parser/theta-document").Expr },
+      body: { statements: [], tail: { kind: "string", value: "hi", range: R() } as unknown as import("../src/parser/theta-document").Expr },
     };
     const invokeExpr = {
       kind: "invoke",
       path: CHILD_LITERAL,
       returnSchema: null,
       args: [],
-      range: { start: { line: 1, column: 1 }, end: { line: 1, column: 2 } },
+      range: R(),
       withClause: withClause(strExpr("sub/dir")),
     } as unknown as InvokeExpr;
     const callerBody: ThetaBody = {
@@ -369,10 +367,10 @@ describe("RFC 0009 failure arms — row 7: a runtime-prompt-mode callee under a 
           mutable: false,
           annotation: null,
           init: invokeExpr,
-          range: { start: { line: 1, column: 1 }, end: { line: 1, column: 2 } },
+          range: R(),
         } as unknown as ThetaBody["statements"][number],
       ],
-      tail: { kind: "ident", name: "r", range: { start: { line: 1, column: 1 }, end: { line: 1, column: 2 } } } as unknown as Expr,
+      tail: { kind: "ident", name: "r", range: R() } as unknown as Expr,
     };
     const outcome = await driveCaller({
       callerBody,
@@ -404,43 +402,12 @@ describe("RFC 0009 failure arms — row 7: a runtime-prompt-mode callee under a 
 // R2 — spawn-ENOENT diagnostic enrichment (INV-7, par. 4.6).
 // ===========================================================================
 
-function host(overrides: Partial<ExecutableHost>): ExecutableHost {
-  return {
-    argv1: "/app/pi/dist/index.js",
-    execPath: "/usr/bin/node",
-    fileExists: (): boolean => true,
-    isGenericRuntime: (p): boolean => /(?:^|\/)(?:node|bun)$/.test(p),
-    ...overrides,
-  };
-}
-
-function launchRequest(overrides?: Partial<SubagentLaunchRequest>): SubagentLaunchRequest {
-  return {
-    argv: {
-      slug: "child",
-      thetaDirs: ["/work/project/.pi/theta"],
-      systemPrompt: "you are a subagent",
-      hostTools: [],
-      noHostTools: true,
-      provider: "anthropic",
-      model: "claude-sonnet",
-      projectTrust: false,
-    },
-    cwd: "/work/project/sub/dir",
-    parentEnv: { PATH: "/usr/bin" },
-    parentPid: 999,
-    invokeDepth: 0,
-    host: host({}),
-    ...overrides,
-  };
-}
-
 describe("RFC 0009 failure arms — R2: theta/runtime/subagent-spawn-failed names the offending cwd", () => {
   it("an ENOENT that does not name the cwd is enriched with '(cwd: <resolved>)' (RED — no enrichment at HEAD)", () => {
     const launcher = makeFakeJsonChildLauncher();
     launcher.failNextSpawn(enoentSpawnError("/usr/bin/node"));
     const emitted: Diagnostic[] = [];
-    const result = launchSubagentChild(launchRequest(), {
+    const result = launchSubagentChild(fakeSubagentLaunchRequest(), {
       spawn: launcher.spawn,
       emitDiagnostic: (d): void => {
         emitted.push(d);
@@ -462,7 +429,7 @@ describe("RFC 0009 failure arms — R2: theta/runtime/subagent-spawn-failed name
     err.code = "ENOENT";
     launcher.failNextSpawn(err);
     const emitted: Diagnostic[] = [];
-    launchSubagentChild(launchRequest({ cwd }), {
+    launchSubagentChild(fakeSubagentLaunchRequest({ cwd }), {
       spawn: launcher.spawn,
       emitDiagnostic: (d): void => {
         emitted.push(d);
@@ -491,10 +458,6 @@ describe("RFC 0009 failure arms — R2: theta/runtime/subagent-spawn-failed name
 // comment).
 // ===========================================================================
 
-function span2() {
-  return { start: { line: 1, column: 1 }, end: { line: 1, column: 2 } };
-}
-
 const SEAM_NOOP_SINK: ToolLoweringSink = {
   diagnostic(): void {},
   systemNote(): void {},
@@ -514,7 +477,7 @@ describe("RFC 0009 failure arms — row 11: the runtime Pi-tool belt refuses a c
       kind: "call",
       callee: "read",
       args: [],
-      range: span2(),
+      range: R(),
       withClause: withClause(strExpr("sub/dir")),
     } as unknown as CallExpr;
     const body: ThetaBody = { statements: [], tail: call as unknown as Expr };

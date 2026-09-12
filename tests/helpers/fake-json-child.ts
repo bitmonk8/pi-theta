@@ -21,6 +21,7 @@ import type {
   ExecutableHost,
   SpawnFn,
   SubagentChildProcess,
+  SubagentLaunchRequest,
 } from "../../src/runtime/subagent-launcher";
 import { driveSubagentChild } from "../../src/runtime/subagent-json-driver";
 import {
@@ -40,6 +41,48 @@ export function fakeExecutableHost(): ExecutableHost {
     execPath: "/usr/bin/node",
     fileExists: (): boolean => true,
     isGenericRuntime: (): boolean => false,
+  };
+}
+
+/**
+ * A fully overridable `ExecutableHost`, for tests that exercise the
+ * resolution ladder itself (rung 1 / rung 2 / both-rungs-fail) or an R2-style
+ * spawn-failure diagnostic and need to vary `argv1` / `fileExists` /
+ * `isGenericRuntime` per scenario. Distinct from `fakeExecutableHost()`
+ * above, whose fixed shape only needs to resolve successfully.
+ */
+export function overridableExecutableHost(overrides?: Partial<ExecutableHost>): ExecutableHost {
+  return {
+    argv1: "/app/pi/dist/index.js",
+    execPath: "/usr/bin/node",
+    fileExists: (): boolean => true,
+    isGenericRuntime: (p): boolean => /(?:^|\/)(?:node|bun)$/.test(p),
+    ...overrides,
+  };
+}
+
+/**
+ * A `SubagentLaunchRequest` fixture for `launchSubagentChild` call sites,
+ * fully overridable per field.
+ */
+export function fakeSubagentLaunchRequest(overrides?: Partial<SubagentLaunchRequest>): SubagentLaunchRequest {
+  return {
+    argv: {
+      slug: "child",
+      thetaDirs: ["/work/project/.pi/theta"],
+      systemPrompt: "you are a subagent",
+      hostTools: [],
+      noHostTools: true,
+      provider: "anthropic",
+      model: "claude-sonnet",
+      projectTrust: false,
+    },
+    cwd: "/work/project/sub/dir",
+    parentEnv: { PATH: "/usr/bin" },
+    parentPid: 999,
+    invokeDepth: 0,
+    host: overridableExecutableHost(),
+    ...overrides,
   };
 }
 
