@@ -12,6 +12,7 @@ params:
   key: string
   wave: string
   gate_cmd: string
+  retry_context: string
 ---
 // Runs with cwd == its own git worktree (the orchestrator dispatches it as
 // `fix_cluster_tree(...) with { cwd: tree }`), so every side effect of a fix
@@ -60,8 +61,13 @@ if !staged {
 // (AGENTS.md #subagent-child-pins).
 let env_scrub = "unset PI_THETA_SUBAGENT_ROOT PI_THETA_SUBAGENT_ROOT_WINNER PI_THETA_PARAMS PI_THETA_PARAMS_FILE PI_THETA_SUBAGENT_INVOKE_DEPTH PI_THETA_SUBAGENT_CALLABLE_HASHES PI_THETA_SUBAGENT_PARENT_PID; "
 
+// `retry_context` is "" on a lane's first run. On a rebase-and-retry (the
+// orchestrator re-runs a lane whose commit conflicted at integration, in a
+// fresh tree at the integrated head) it spells out what conflicted and what
+// the tree already contains, and seeds attempt 1's guidance exactly as a
+// rejected attempt would seed attempt 2's.
 let mut attempt = 0
-let mut guidance = ""
+let mut guidance = retry_context
 let mut done = false
 let mut sha = ""
 let mut confirmed: array<string> = []
@@ -121,7 +127,9 @@ while attempt < 2 && !done {
     }
   } else {
     trail = trail + "review ok=" + (rv.ok ? "true" : "false") + ", confirmed " + (rv.fixed_confirmed.length == 0 ? "none" : rv.fixed_confirmed.join(",")) + (rv.must_fix == "" ? "" : ", must_fix: " + rv.must_fix) + "; fixer: " + fr.notes + " | "
-    guidance = rv.must_fix + (gate.includes("GATE_PASS") ? "" : " ALSO: the offline gate is red after your changes - make it green. Gate failures (tail): " + gate_tail + " -- If a census/pin/inventory gate reds, its own failure message names the sanctioned same-commit re-derivation - follow it rather than avoiding the edit.")
+    // A retry's seed stays in front of the review's must_fix: attempt 2 must
+    // still know the tree already holds the siblings' changes.
+    guidance = (retry_context == "" ? "" : retry_context + " ") + rv.must_fix + (gate.includes("GATE_PASS") ? "" : " ALSO: the offline gate is red after your changes - make it green. Gate failures (tail): " + gate_tail + " -- If a census/pin/inventory gate reds, its own failure message names the sanctioned same-commit re-derivation - follow it rather than avoiding the edit.")
     if attempt >= 2 {
       // Same revert boundary as the single-tree loop had, now per tree: undo
       // the rejected attempt and report leftovers loudly rather than commit

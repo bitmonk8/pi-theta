@@ -1207,8 +1207,8 @@ const SEEDED_INVALID_DIR = "tests/fixtures/h7b-invalid/";
 const EXPECTED_SHIPPED_THETA = 38;
 const EXPECTED_SHIPPED_THETALIB = 3;
 /** Measured at the second-lens commit: 49 `@`-templates carrying 88 interpolations. */
-const EXPECTED_TEMPLATES = 49;
-const EXPECTED_INTERPOLATIONS = 88;
+const EXPECTED_TEMPLATES = 50;
+const EXPECTED_INTERPOLATIONS = 91;
 
 /**
  * The token classes expressions.md:25–40 refuses, as raw substrings. A committed

@@ -2631,7 +2631,7 @@ describe("bug 0124 (x) — the committed corpus declares no annotation in this c
       `x1: the inventory at the three positions this report owns. Observed lets ` +
         `${JSON.stringify([...lets].sort())}, params ${JSON.stringify([...params].sort())}, ` +
         `returns ${JSON.stringify([...returns].sort())}`,
-    ).toEqual([20, 6, 5]);
+    ).toEqual([22, 8, 7]);
     expect(
       offenders,
       `x1: ZERO offenders — no committed fixture changes disposition when the refusal lands, so ` +

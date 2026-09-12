@@ -62,12 +62,45 @@ schema Pick {
   tree: string
 }
 
+/// Cherry-pick one lane commit onto the integrated head. On conflict the
+/// unmerged paths are printed BEFORE the abort (they become the retry's seed
+/// guidance), then the CP_FAIL marker.
+fn cherry_pick_cmd(sha: string): string {
+  return "git cherry-pick " + sha + " >/dev/null 2>&1 && echo CP_OK || { git diff --name-only --diff-filter=U; git cherry-pick --abort >/dev/null 2>&1; echo CP_FAIL; }"
+}
+
+/// The unmerged paths a failed cherry_pick_cmd printed, comma-joined (every
+/// line but the CP_FAIL marker).
+fn conflicted_paths(cp: string): string {
+  let mut raw: array<string> = []
+  raw = lines(cp)
+  let mut paths: array<string> = []
+  for l in raw {
+    if !l.includes("CP_FAIL") {
+      paths = paths.concat([l])
+    }
+  }
+  return paths.length == 0 ? "(unmerged paths unavailable)" : paths.join(", ")
+}
+
 /// A cluster whose worktree went green: one commit to cherry-pick.
+/// `manifest_abs` is kept so a conflicted lane can be re-run in a fresh tree.
 schema Green {
   key: string,
   manifest_rel: string,
+  manifest_abs: string,
   sha: string,
   fixed: string
+}
+
+/// A green lane whose commit conflicted at integration: re-run once on the
+/// integrated head, with the unmerged paths spelled out.
+schema Retry {
+  key: string,
+  manifest_rel: string,
+  manifest_abs: string,
+  sha: string,
+  conflicts: string
 }
 
 // ---------------------------------------------------------------- preflight
@@ -266,7 +299,7 @@ while cycle < max_cycles && !converged {
     // (edits, gate runs, the commit), never its identity - the child still
     // loads THIS tree's worker code (RFC 0009 §4, identity/location).
     let reports = par for w in work max parallel {
-      invoke<TreeFixReport>("./workers/fix-cluster-tree.theta", w.manifest_abs, w.key, wave, tree_gate_cmd) with { cwd: w.tree }?
+      invoke<TreeFixReport>("./workers/fix-cluster-tree.theta", w.manifest_abs, w.key, wave, tree_gate_cmd, "") with { cwd: w.tree }?
     }
 
     let mut greens: array<Green> = []
@@ -277,7 +310,7 @@ while cycle < max_cycles && !converged {
         Err(e) => TreeFixReport { ok: false, sha: "", fixed_confirmed: [], notes: "tree worker failed: " + e.kind + " - " + e.message },
       }
       if rep.ok && rep.fixed_confirmed.length > 0 {
-        greens = greens.concat([Green { key: work[gi].key, manifest_rel: work[gi].manifest_rel, sha: rep.sha, fixed: rep.fixed_confirmed.join(",") }])
+        greens = greens.concat([Green { key: work[gi].key, manifest_rel: work[gi].manifest_rel, manifest_abs: work[gi].manifest_abs, sha: rep.sha, fixed: rep.fixed_confirmed.join(",") }])
       } else {
         total_clusters_reverted += 1
         report = report + "wave " + wave + ": cluster " + work[gi].key + " not fixed in its worktree - " + rep.notes + "\n"
@@ -287,13 +320,66 @@ while cycle < max_cycles && !converged {
 
     // ---- 7. integrate sequentially: cherry-pick, ONE batch gate, revert last-to-first ----
     let mut applied: array<Green> = []
+    let mut retries: array<Retry> = []
+    // The failure output carries repo paths, so discriminate on the failure
+    // marker (always present on that path), never on CP_OK (a path could
+    // contain it).
     for g in greens {
-      let cp = bash({ command: "git cherry-pick " + g.sha + " >/dev/null 2>&1 && echo CP_OK || { git cherry-pick --abort >/dev/null 2>&1; echo CP_FAIL; }" })?
-      if cp.includes("CP_OK") {
+      let cp = bash({ command: cherry_pick_cmd(g.sha) })?
+      if !cp.includes("CP_FAIL") {
         applied = applied.concat([g])
       } else {
+        // An abort that failed leaves the main tree mid-pick: every later
+        // pick would fail and the batch gate would measure a dirty tree.
+        // Halt at the boundary instead.
+        let residue_n = bash({ command: "git status --porcelain | wc -l" })?
+        if residue_n.trim() != "0" {
+          let residue = bash({ command: "git status --porcelain | head -20" })?
+          let _ = bash({ command: sweep_cmd(), timeout: 600 })?
+          let conflicted_key = g.key
+          let _ = @`Tell the user: /quality-loop halted at a safe boundary — cherry-picking cluster ${conflicted_key} (wave ${wave}) conflicted and the abort left the tree dirty. Manual cleanup needed:
+${residue}`?
+          return "halted: unclean cherry-pick abort"
+        }
+        retries = retries.concat([Retry { key: g.key, manifest_rel: g.manifest_rel, manifest_abs: g.manifest_abs, sha: g.sha, conflicts: conflicted_paths(cp) }])
+      }
+    }
+
+    // ---- 7b. rebase-and-retry ----
+    // Parts are file-disjoint over the paths their issues CITE, but two lanes
+    // can still both extend one shared module no issue cites (wave
+    // qw20260912112713: tests__p1 and tests__p4 each appended exports to
+    // tests/helpers/e2e-s1.ts). Such a lane is re-run ONCE, sequentially, in a
+    // fresh worktree at the integrated head - its siblings' changes are then
+    // already in place to build on - with the conflict as its seed guidance.
+    // A second conflict, or a red retry, drops the lane; its issues stay open.
+    for r in retries {
+      report = report + "wave " + wave + ": cluster " + r.key + " cherry-pick conflicted on " + r.conflicts + " - retrying on the integrated head\n"
+      let out = bash({ command: provision_cmd(wave, r.key.replace("/", "__") + "-retry"), timeout: 900 })?
+      let mut got: array<string> = []
+      got = lines(out)
+      let tree = got.length > 0 ? got[got.length - 1] : "PROVISION_FAIL"
+      if tree.includes("PROVISION_FAIL") {
         total_clusters_reverted += 1
-        report = report + "wave " + wave + ": cluster " + g.key + " cherry-pick conflicted - dropped, issues stay open\n"
+        report = report + "wave " + wave + ": cluster " + r.key + " retry skipped - worktree provisioning failed, issues stay open\n"
+      } else {
+        let seed = "RETRY after an integration conflict: this cluster's previous fix (commit " + r.sha + ", now discarded) conflicted with sibling lanes' already-integrated changes on: " + r.conflicts + ". This tree is at the integrated head, so those siblings' changes - including any new tests/helpers/* exports - are ALREADY present: reuse them, do not re-add them, and re-apply this cluster's fixes on top."
+        let rep = match invoke<TreeFixReport>("./workers/fix-cluster-tree.theta", r.manifest_abs, r.key, wave, tree_gate_cmd, seed) with { cwd: tree } {
+          Ok(x) => x,
+          Err(e) => TreeFixReport { ok: false, sha: "", fixed_confirmed: [], notes: "tree worker failed: " + e.kind + " - " + e.message },
+        }
+        if rep.ok && rep.fixed_confirmed.length > 0 {
+          let cp2 = bash({ command: cherry_pick_cmd(rep.sha) })?
+          if !cp2.includes("CP_FAIL") {
+            applied = applied.concat([Green { key: r.key, manifest_rel: r.manifest_rel, manifest_abs: r.manifest_abs, sha: rep.sha, fixed: rep.fixed_confirmed.join(",") }])
+          } else {
+            total_clusters_reverted += 1
+            report = report + "wave " + wave + ": cluster " + r.key + " conflicted again on retry (" + conflicted_paths(cp2) + ") - dropped, issues stay open\n"
+          }
+        } else {
+          total_clusters_reverted += 1
+          report = report + "wave " + wave + ": cluster " + r.key + " retry not fixed in its worktree - " + rep.notes + "\n"
+        }
       }
     }
 
@@ -302,9 +388,10 @@ while cycle < max_cycles && !converged {
       let batch = bash({ command: "{ " + gate_cmd + " ; } >/dev/null 2>&1 && echo GATE_PASS || echo GATE_FAIL", timeout: 3600 })?
       let mut batch_ok = batch.includes("GATE_PASS")
       while !batch_ok && kept > 0 {
-        // Every branch was gated alone in its own tree and clusters are
-        // directory-disjoint, so a red batch is rare; recover by dropping the
-        // cherry-picks last-to-first, re-gating after each drop.
+        // Every branch was gated alone in its own tree and parts are
+        // file-disjoint over cited paths (uncited shared files can still
+        // interact - see 7b), so a red batch is rare; recover by dropping
+        // the cherry-picks last-to-first, re-gating after each drop.
         kept -= 1
         let _ = bash({ command: "git reset --hard HEAD~1 >/dev/null 2>&1" })?
         let residue_n = bash({ command: "git status --porcelain | wc -l" })?
