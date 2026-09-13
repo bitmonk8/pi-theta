@@ -73,8 +73,11 @@
 //       edit). Two issues of the SAME lens on the SAME host share that one
 //       part, in issue-id order. Any other open issue (any lens, including
 //       the other of {D9, D8}) that cites a file a D9/D8 part also cites is DEFERRED for
-//       the wave — not emitted as a row, one stderr line each: "deferred
-//       <issue>: file owned by <LENS> lane <key>". D4 issues are not host-
+//       the wave — emitted as a STDOUT row "deferred<TAB><issue path><TAB>
+//       <owner lane key>" (three columns like every other row, first column
+//       the literal "deferred"; the orchestrator counts these — a stderr line
+//       would be merged into its row stream by the bash tool and crash the
+//       pick loop, which is exactly how wave qw20260912204251 aborted). D4 issues are not host-
 //       laned: they cluster by dirname like D2/D7 (a dedupe cites every copy,
 //       so the file-disjoint splitting below keeps its lane whole).
 //   exempt --lens <D9|D8> --host <path[#fn]> --reason <r> [--class <c>]
@@ -660,7 +663,7 @@ switch (cmd) {
         const priorOwner = HOST_LANE_LENSES.map((l) => ownerByHostAndLens.get(`${l}\u0000${hostFile}`)).find(Boolean);
         if (priorOwner) {
           for (const issuePath of [...issuePaths].sort()) {
-            process.stderr.write(`store.mjs: deferred ${issuePath}: file owned by ${priorOwner.split("/")[0].toUpperCase()} lane ${priorOwner}\n`);
+            process.stdout.write(`deferred\t${issuePath}\t${priorOwner}\n`);
           }
           continue;
         }
@@ -688,8 +691,7 @@ switch (cmd) {
       if (HOST_LANE_LENSES.includes(issue.fields.lens)) continue; // already laned above
       const ownerKey = [...issue.cited].map(ownerKeyFor).find(Boolean);
       if (ownerKey) {
-        const ownerLens = ownerKey.split("/")[0].toUpperCase();
-        process.stderr.write(`store.mjs: deferred ${issue.issuePath}: file owned by ${ownerLens} lane ${ownerKey}\n`);
+        process.stdout.write(`deferred\t${issue.issuePath}\t${ownerKey}\n`);
         continue;
       }
       const first = issue.locations[0] ?? "";

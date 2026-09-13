@@ -188,7 +188,14 @@ while cycle < max_cycles && !converged {
       let mut mans: array<string> = []
       mans = lines(bash({ command: "node tools/quality/store.mjs shard --lens " + l + " --wave " + wave + " --target-loc " + shard_loc + " --max-shards " + review_cap })?)
       for m in mans {
-        review_rows = review_rows.concat([l + "\t" + m])
+        // Only manifest paths are rows; anything else (a merged stderr line
+        // such as store.mjs's "skipping missing file") is reported, not
+        // dispatched as a shard.
+        if m.startsWith("quality/tmp/") {
+          review_rows = review_rows.concat([l + "\t" + m])
+        } else {
+          report = report + "wave " + wave + ": ignored non-manifest output from shard (" + l + "): " + m + "\n"
+        }
       }
     }
   }
@@ -289,17 +296,30 @@ while cycle < max_cycles && !converged {
 
     // Up to `parallel` manifests per wave; the rest wait for the next wave
     // (the loop re-clusters every wave, so nothing is lost).
+    // Every row is "key<TAB>manifest<TAB>count". Rows keyed "deferred" are
+    // issues a host lane (D9/D8) owns this wave — counted, never picked. Any
+    // other line without three columns is not a row (the bash tool merges
+    // stderr into its output, so a stray tool warning lands here): reported,
+    // never indexed — wave qw20260912204251 aborted on exactly that.
     let mut picked: array<Pick> = []
+    let mut host_deferred: array<string> = []
     let mut ri = 0
     while ri < rows.length {
       let mut cols: array<string> = []
       cols = rows[ri].split("\t")
-      if picked.length < parallel {
+      if cols.length < 3 {
+        report = report + "wave " + wave + ": ignored non-row output from clusters: " + rows[ri] + "\n"
+      } else if cols[0] == "deferred" {
+        host_deferred = host_deferred.concat([cols[1] + " (owned by " + cols[2] + ")"])
+      } else if picked.length < parallel {
         picked = picked.concat([Pick { key: cols[0], manifest_rel: cols[1], manifest_abs: repo_root + "/" + cols[1], tree: "" }])
       } else {
         total_deferred += 1
       }
       ri += 1
+    }
+    if host_deferred.length > 0 {
+      report = report + "wave " + wave + ": deferred behind a D9/D8 host lane (re-cluster next wave): " + host_deferred.join("; ") + "\n"
     }
 
     let mut work: array<Pick> = []

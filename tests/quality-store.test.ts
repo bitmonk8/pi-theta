@@ -438,7 +438,10 @@ describe("tools/quality/store.mjs (scratch fixture store via QUALITY_STORE_ROOT)
 
     const r = runStore(root, ["clusters"]);
     expect(r.status).toBe(0);
-    expect(r.stderr).toContain("deferred quality/issues/PTQ-0105-e.md: file owned by D9 lane d9/src__big.ts");
+    // A structured stdout row, never stderr prose: the orchestrator's bash
+    // tool merges stderr into the row stream it splits on tabs.
+    expect(r.stdout).toContain("deferred\tquality/issues/PTQ-0105-e.md\td9/src__big.ts");
+    expect(r.stderr).not.toContain("deferred");
 
     const rows = r.stdout.trim().split("\n").filter(Boolean).map((l) => l.split("\t"));
     const byKey = new Map(rows.map((c) => [c[0], c]));
@@ -452,7 +455,8 @@ describe("tools/quality/store.mjs (scratch fixture store via QUALITY_STORE_ROOT)
     expect(byKey.get("d9/src__sub__other.ts")?.[2]).toBe("1");
     expect(byKey.get("d9/src__other2__other.ts")?.[2]).toBe("1");
 
-    const nonD9Keys = [...byKey.keys()].filter((k): k is string => typeof k === "string" && !k.startsWith("d9/"));
+    // Lane rows only: the deferral rows carry the literal key "deferred".
+    const nonD9Keys = [...byKey.keys()].filter((k): k is string => typeof k === "string" && !k.startsWith("d9/") && k !== "deferred");
     expect(nonD9Keys).toEqual(["src/runtime"]);
   });
 
@@ -700,7 +704,7 @@ describe("tools/quality/store.mjs (scratch fixture store via QUALITY_STORE_ROOT)
 
     const r = runStore(root, ["clusters"]);
     expect(r.status).toBe(0);
-    expect(r.stderr).toContain("deferred quality/issues/PTQ-0112-b.md: file owned by D8 lane d8/src__mod8.ts");
+    expect(r.stdout).toContain("deferred\tquality/issues/PTQ-0112-b.md\td8/src__mod8.ts");
 
     const rows = r.stdout.trim().split("\n").filter(Boolean).map((l) => l.split("\t"));
     const byKey = new Map(rows.map((c) => [c[0], c]));
@@ -722,7 +726,7 @@ describe("tools/quality/store.mjs (scratch fixture store via QUALITY_STORE_ROOT)
     const keysSame = rSame.stdout.trim().split("\n").filter(Boolean).map((l) => l.split("\t")[0]);
     expect(keysSame).toContain("d9/src__mod8.ts");
     expect(keysSame).not.toContain("d8/src__mod8.ts");
-    expect(rSame.stderr).toContain("deferred quality/issues/PTQ-0111-a.md: file owned by D9 lane d9/src__mod8.ts");
+    expect(rSame.stdout).toContain("deferred\tquality/issues/PTQ-0111-a.md\td9/src__mod8.ts");
     rmSync(join(root, "quality/issues/PTQ-0115-d9.md"));
 
     // A D8 issue naming neither d8_host nor any location dies loud rather
