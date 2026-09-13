@@ -511,7 +511,7 @@ ${residue}`?
 let intake_n = bash({ command: "ls -1 quality/intake/*.md 2>/dev/null | wc -l" })?.trim()
 let open_left = bash({ command: "node tools/quality/store.mjs open-count" })?.trim()
 @`Report the quality-loop outcome to the user, concisely:
-- cycles run: ${cycle} of ${max_cycles}, converged (open backlog empty): ${converged}
+- cycles run: ${cycle} of ${max_cycles}; loop-stop condition met (open backlog empty after triage, BEFORE the fix phase — the fix phase may have drained it since; the truth is the open-issues line below): ${converged}
 - candidates filed: ${total_filed}, confirmed: ${total_confirmed}, questionable verdicts issued (cumulative; live queue is the intake count below): ${total_questionable}
 - clusters picked into worktrees: ${total_picked}, deferred to a later wave: ${total_deferred}
 - clusters fixed and integrated: ${total_clusters_fixed}, clusters not integrated (reverted, conflicted, or dropped): ${total_clusters_reverted}
