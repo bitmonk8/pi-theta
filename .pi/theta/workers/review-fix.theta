@@ -60,7 +60,12 @@ Judge, in order:
    the one helper; the helper's body is one of the former copies verbatim (or
    the ruled drift resolution); no call site changed behaviour; the helper's
    module adds no cross-directory import edge that did not already exist in
-   src/ (grep both directions); nothing else moved.
+   src/ (grep both directions); the helper's module is below the justify
+   band after the change (node tools/quality/size-scan.mjs loc --host
+   <module> reports under 1000 LOC) — must_fix otherwise, even when the
+   issue named that module; a new helper module has a header comment;
+   nothing else moved, except a runtime value the helper needs that moved
+   with it out of an over-band home (the old host imports it back).
    For issues whose lens: is D8 the bar is: exactly the ratified shape landed;
    no behaviour change beyond what the ruling names; every removed mechanism's
    spec anchors are still satisfied by the new shape (read the cited clauses);

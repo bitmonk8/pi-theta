@@ -223,6 +223,15 @@ confirmed by triage, dedupe-fixed by the fix phase like D2/D7. `parallel`
 findings are capped at `questionable` and ratified by a human exactly like
 D9 (`accept --note "RATIFIED: <shared source of truth>"`).
 
+**Home band**: the shared helper never lands in a module whose LOC after the
+helper lands would be at or above the justify band (`size-scan.mjs loc --host`
+>= 1000) — not even the module the issue names or one a copy lives in; the
+fixer creates a sibling module (with a header) in that directory, still subject
+to the import-edge rule, and the oversized module imports the helper like every
+other caller (the review bar re-measures the helper's module). D9 is taking such
+hosts apart; a dedupe must not grow one (qw20260913131304's `src/extension`
+lane put a shared walker into `src/parser/theta-document.ts`, 10.6k LOC).
+
 D4 clusters by dirname with file-disjoint parts, like D2/D7 (a dedupe cites
 every copy, so the split keeps its lane whole); two D4 lanes that both create
 the same NEW helper module are not co-laned — that is what the uncited-file

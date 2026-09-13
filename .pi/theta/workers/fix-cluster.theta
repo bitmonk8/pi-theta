@@ -90,7 +90,19 @@ Per-lens rules — apply per issue, by its lens: frontmatter:
   note if it names none). Extract ONE shared helper into the module the
   issue names, else an existing helper module in the nearest common
   ancestor directory, else a new sibling module there; replace EVERY cited
-  copy with a call; behaviour identical at every call site. Imports: the
+  copy with a call; behaviour identical at every call site. HOME BAND: run
+  node tools/quality/size-scan.mjs loc --host <candidate> before choosing
+  the home — a home whose LOC AFTER the helper lands would be at or above
+  the justify band (1000 LOC) is never the helper's home, not even when the
+  issue names it or a copy lives there (D9 is taking such hosts apart;
+  never grow one): create a new sibling module in that directory, named for
+  the helper's role, with a header comment stating its role, and have the
+  oversized module import the helper like every other caller. The sibling
+  may import types from the oversized module; a runtime value it needs
+  moves with the helper (the old host imports it back), else SKIP with a
+  note (a runtime import cycle is not an acceptable outcome). The sibling
+  is still subject to the Imports rule below, and a home the Imports rule
+  relocates is re-checked against HOME BAND. Imports: the
   helper's module must not introduce a cross-directory import edge that
   does not already exist somewhere in src/ (there is no layer order to
   lean on — parser, binder, runtime and extension import each other today;
