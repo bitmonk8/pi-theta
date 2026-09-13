@@ -25,7 +25,8 @@ Personal, uncommitted thetas go directly in `.localpi/` (see its README); a
 
 Arguments (bound by an LLM binder, so free-form text works):
 `max_cycles` (default 3), `lenses` (comma-separated lens roster, default
-`"D2,D7"`; start-up refuses an id lacking a surfaces.json entry or a worker),
+`"D2,D4,D7,D8,D9"` - the full roster since every lens passed its supervised
+wave; start-up refuses an id lacking a surfaces.json entry or a worker),
 `shard_loc` (target lines per review shard, default `"0"` = each lens's
 surfaces.json `shard_loc` - D2 6000, D4 6000, D7 3000, D8 12000, D9 6000;
 non-zero overrides all lenses),

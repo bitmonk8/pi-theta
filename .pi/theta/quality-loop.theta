@@ -15,7 +15,7 @@ tools:
   - ./workers/fix-cluster-tree.theta
 params:
   max_cycles: integer = 3
-  lenses: string = "D2,D7"
+  lenses: string = "D2,D4,D7,D8,D9"
   shard_loc: string = "0"
   review_cap: string = "0"
   budget: integer = 10
