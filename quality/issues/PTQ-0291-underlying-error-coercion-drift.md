@@ -1,9 +1,9 @@
 ---
-id: pending
+id: PTQ-0291
 title: Two private reimplementations of the §6 underlying-error coercion guard the `.message` read that the exported canonical version does not
 lens: D4
-status: intake
-verdict: pending
+status: open
+verdict: confirmed
 locations:
   - src/diagnostics/placeholder.ts:247-273
   - src/extension/capability-probe.ts:220-245
@@ -124,3 +124,4 @@ Re-read all three functions at the cited lines immediately before filing. Confir
 <triage appends: verdict + one-line reason. Nothing above this line is edited.>
 verdict: questionable — all three excerpts, the G034 renamed-only clone-scan match (91 tokens, capability-probe.ts/session-shutdown.ts), the §6 spec's plain 2-step text (placeholder-rendering-b.md:30-31), and the "Per-step isolation" paragraph's unrelated scope all reproduce exactly, and the behavioural divergence (uncaught throw vs. swallowed-and-fallback) is real; but capability-probe.md's own self-failure text independently requires guarding a throwing `.message` read to hold PIC-6 ("MUST NOT throw"), so whether the canonical `coerceUnderlyingString` should gain the guard or the private copies should shed it is unresolved — a behaviour choice the filing itself correctly defers to a human (triage: claude-opus-5)
 verdict: questionable — every excerpt, line range, and the G034 renamed-only clone-scan match (91 tokens, capability-probe.ts/session-shutdown.ts) reproduce exactly via clone-scan.mjs, both private copies are confirmed live and unimported from the canonical module, and the §6 spec text plus the Per-step-isolation paragraph confirm neither requires guarding the `.message` read — but capability-probe.md's own Self-failure clause ties a throwing `.message` access to escaping the probe and violating PIC-6, giving that copy's extra guard an independent normative basis, so which of the three shapes should become canonical is a human behaviour call, not a mechanical dedupe (triage: claude-opus-5)
+verdict: confirmed — RATIFIED (human, 2026-09-13): the GUARDED shape is right. coerceUnderlyingString in src/diagnostics/placeholder.ts gains the .message-access guard the two private copies carry (a throwing .message getter is treated as no .message and falls through to String(v); String(v) throwing still yields <unreadable>); amend docs/spec_topics/diagnostics/placeholder-rendering-b.md #underlying-error-coercion step 1 to state that a .message access that throws is treated as absent (step 2 unchanged); delete coerceCause (capability-probe.ts) and coerceUnderlyingError (session-shutdown.ts) and import coerceUnderlyingString at their call sites (the extension -> diagnostics/placeholder edge already exists); fold the PIC-6 / PIC-7 citations into the canonical function's doc comment so the hostile-getter requirement stays traceable. No other behaviour change; any spec-text gate that pins the old wording is re-derived per its own message.

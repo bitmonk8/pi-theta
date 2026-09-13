@@ -1,9 +1,9 @@
 ---
-id: pending
+id: PTQ-0292
 title: The `theta_progress` wire envelope's field set is written by a typed object spread in progress-tool.ts but re-declared by hand in child-tap.ts's decoder
 lens: D4
-status: intake
-verdict: pending
+status: open
+verdict: confirmed
 locations:
   - src/extension/execution-status/progress-tool.ts:249-278
   - src/extension/execution-status/child-tap.ts:98-178
@@ -86,3 +86,4 @@ Re-read both cited ranges immediately before filing. Confirmed `PROGRESS_WIRE_KE
 <triage appends: verdict + one-line reason. Nothing above this line is edited.>
 verdict: questionable — accounting verified: ProgressAuthorMessage (types.ts:88-94) declares exactly the 5 fields (message, scope, done, total, dropped) that the decoder's hand-cast `fields` type (child-tap.ts:130-136) names, both excerpts byte-match their cited ranges, and no other PTQ or clone-map entry covers this pair, but whether to anchor the decoder's cast to the shared type (vs. keep the untrusted-input parse independent) is a design decision for a human ruling, not a mechanical dedupe (triage: claude-opus-5)
 verdict: questionable — re-verified independently (progress-tool.ts:249-278 and child-tap.ts:98-178 byte-match; types.ts:88-94's ProgressAuthorMessage names exactly the 5 fields child-tap.ts:130-136's hand-cast names, full coverage today; clone-scan.mjs shows no clone group, confirming parallel over clone; no PTQ or REVIEW_LOG entry covers this pair): the D4 design brief itself caps parallel-class findings with accurate accounting at questionable, ratified by a human, never confirmed (triage: claude-opus-5)
+verdict: confirmed — RATIFIED (human, 2026-09-13): anchor the decoder to the shared type, do not merge encoder and decoder. In src/extension/execution-status/child-tap.ts type the inner cast as Partial<Record<keyof ProgressAuthorMessage, unknown>> (or an equivalent mapped type over keyof ProgressAuthorMessage) and add a compile-time handled-fields ledger (an object literal naming every field the decoder reads, declared `satisfies Record<keyof ProgressAuthorMessage, true>`) so a field added to ProgressAuthorMessage fails tsc in child-tap.ts until the decoder handles it. Validation logic, PIC-74 field-wise discard, the envelope cast (v / seq / invocation_id / event) and progress-tool.ts are unchanged; no behaviour change, no spec change.

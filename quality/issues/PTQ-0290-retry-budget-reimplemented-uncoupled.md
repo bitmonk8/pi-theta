@@ -1,9 +1,9 @@
 ---
-id: pending                  # PTQ-NNNN minted at acceptance; never self-assigned
+id: PTQ-0290
 title: The HC3 per-class retry-budget state machine is independently re-implemented in binder-cancellation.ts with no shared constant or test tying it to retry-taxonomy.ts's driver
 lens: D4                     # D2 | D4 | D7 | D8 | D9 - the lens that filed this
-status: intake               # intake | open | fixed | rejected (store mechanics own transitions)
-verdict: pending              # pending | confirmed | questionable | false-positive | duplicate | out-of-scope | malformed
+status: open
+verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - src/binder/binder-cancellation.ts:81-137
   - src/binder/retry-taxonomy.ts:270-297
@@ -189,3 +189,4 @@ cancellation.
 ## Triage
 verdict: questionable — reality reproduces exactly (excerpts match at cited lines, clone-scan map genuinely shows "(no clone groups)" for both files, MAX_BINDER_LLM_CALLS greps to one comment hit, production-cancellation-wiring.test.ts greps to zero transport/malformed/budget hits, and the counted parity claim — runBinderCallWithCancellation covers 2 of 2 retry-eligible kinds at budget-of-1, matching runBinderWithRetries — holds); d4_class: parallel is capped at questionable by design (a shared source of truth is a human ruling, never confirmed) (triage: claude-opus-5)
 verdict: questionable — independently re-verified from scratch: both excerpts match at the cited ranges, runBinderWithRetries has zero callers in src/extensions/tools (only tests/binder-retry-taxonomy.test.ts imports it, and its 5 tests pin HC3-a/b/d/e exactly as described), MAX_BINDER_LLM_CALLS greps to one comment-only hit in binder-cancellation.ts, both files' clone-scan maps report only "(no clone groups)" throughout, binder-call-cancellation.test.ts is exactly 3 abort-only tests and production-cancellation-wiring.test.ts greps to zero transport/malformed/budget hits, and BinderAttemptOutcome's 6 kinds confirm the counted parity (both drivers cover the same 2 of 2 retry-eligible kinds at budget-of-1); d4_class: parallel correctly caps this at questionable since a shared source of truth is a human design ruling, never a triage confirmation (triage: claude-opus-5)
+verdict: confirmed — RATIFIED (human, 2026-09-13): the production driver runBinderCallWithCancellation (src/binder/binder-cancellation.ts) is the ONE implementation of the HC3 per-class retry budget. Delete runBinderWithRetries from src/binder/retry-taxonomy.ts (and BinderRetryInput / BinderRetryResult if nothing else consumes them); re-point the five HC3-a..e witnesses in tests/binder-retry-taxonomy.test.ts to runBinderCallWithCancellation with a never-aborting signal (new AbortController().signal, any thetaName), asserting the scenario's own s.calls() count, result.kind === "completed" and result.outcome.kind (BinderCallResult carries no callCount); update retry-taxonomy.ts's module header export list; MAX_BINDER_LLM_CALLS stays exported and the HC3-d cell keeps asserting s.calls() === MAX_BINDER_LLM_CALLS. Naming the two budget literals as constants beside MAX_BINDER_LLM_CALLS is permitted, not required. No other behaviour change.
