@@ -1,18 +1,19 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
-import { composeExtensionInstance } from "../src/extension/production-composition";
-import { RendererGate, SYSTEM_NOTE_CHANNEL } from "../src/extension/system-note-channel";
-import type { ParsedTheta } from "../src/extension/reload-wiring";
 import {
   allDiagnostics,
   describeNotes,
   errorFilesOf,
+  finishWorkspace,
+  normalisePath,
   normativeMessagePattern as normativeMessagePatternCore,
   requireDriven as requireDrivenCore,
+  runLoadPass as runLoadPassCore,
+  type ComposeWorkspace,
+  type LoadPass as LoadPassCore,
 } from "./helpers/compose-workspace-harness";
 import { REGISTRY } from "./helpers/registry-oracle";
 
@@ -264,78 +265,10 @@ function normativeMessagePattern(code: string): RegExp {
   return normativeMessagePatternCore(REGISTRY, code);
 }
 
-// ── Host doubles ────────────────────────────────────────────────────────────
-
-type PiHandler = (event: unknown, ctx: ExtensionContext) => unknown;
-
-interface RecordedNote {
-  readonly customType: string;
-  readonly content: string;
-  readonly details: unknown;
-}
-
-interface HostDouble {
-  readonly pi: ExtensionAPI;
-  readonly ctx: ExtensionContext;
-  readonly notes: RecordedNote[];
-  readonly notified: Array<readonly [string, string]>;
-}
-
-function makeHost(cwd: string): HostDouble {
-  const notes: RecordedNote[] = [];
-  const notified: Array<readonly [string, string]> = [];
-  const handlers = new Map<string, PiHandler>();
-
-  const pi = {
-    registerFlag: (): void => {},
-    getFlag: (): undefined => undefined,
-    getCommands: (): readonly { name: string; source: string }[] => [],
-    on: (event: string, handler: PiHandler): void => {
-      handlers.set(event, handler);
-    },
-    registerCommand: (): void => {},
-    sendUserMessage: (): void => {},
-    registerTool: (): void => {},
-    setActiveTools: (): void => {},
-    getActiveTools: (): readonly unknown[] => [],
-    getAllTools: (): readonly unknown[] => [],
-    registerMessageRenderer: (): void => {},
-    sendMessage: (message: { customType: string; content: string; details: unknown }): void => {
-      notes.push({
-        customType: message.customType,
-        content: message.content,
-        details: message.details,
-      });
-    },
-  } as unknown as ExtensionAPI;
-
-  const ctx = {
-    cwd,
-    hasUI: false,
-    modelRegistry: { getAvailable: (): readonly unknown[] => [] },
-    ui: {
-      notify: (message: string, type: "error"): void => {
-        notified.push([message, type]);
-      },
-    },
-  } as unknown as ExtensionContext;
-
-  return { pi, ctx, notes, notified };
-}
-
 // ── The workspace ───────────────────────────────────────────────────────────
-
-interface ComposeWorkspace {
-  readonly cwd: string;
-  /** Absolute, separator-normalised path of a file planted on the project source. */
-  path: (name: string) => string;
-  readonly dispose: () => void;
-}
-
-/** Separator-normalise a path so Win32 `\` and POSIX `/` spellings compare. */
-function normalisePath(path: string): string {
-  return path.replace(/\\/g, "/");
-}
+//
+// `ComposeWorkspace` and `normalisePath` are the shared harness in
+// `tests/helpers/compose-workspace-harness.ts` (PTQ-0213).
 
 /**
  * Plant the named fixture files on the conventional project source
@@ -360,49 +293,24 @@ function plantWorkspace(
       writeFileSync(join(cwd, "outside", name), body, "utf8");
     }
   }
-  // A minimal valid settings file pins the fixture's settings read to a known
-  // value. An ABSENT settings file is silent (package-and-settings.md §Failure
-  // modes), so the plant is hermeticity, not noise suppression.
-  writeFileSync(join(cwd, ".pi", "settings.json"), "{}", "utf8");
-  return {
-    cwd,
-    path: (name: string): string => normalisePath(join(cwd, ".pi", "theta", name)),
-    dispose: (): void => rmSync(cwd, { recursive: true, force: true }),
-  };
+  return finishWorkspace(cwd);
 }
 
 // ── The load pass ───────────────────────────────────────────────────────────
+//
+// `runLoadPass` wraps the shared load-pass harness in
+// `tests/helpers/compose-workspace-harness.ts` (PTQ-0230), splicing on the
+// wall-clock `elapsedMs` field the termination cells (CYC1)/(CYC2) need.
 
-interface LoadPass {
-  /** Every `theta-system-note` the pass put on the channel, in order. */
-  readonly notes: readonly RecordedNote[];
-  readonly offChannel: readonly RecordedNote[];
-  readonly notified: readonly (readonly [string, string])[];
-  /** Slash names the pass actually registered. */
-  readonly registered: readonly string[];
-  readonly thetas: readonly ParsedTheta[];
+interface LoadPass extends LoadPassCore {
   /** Wall-clock milliseconds the whole pass took, for the termination cells. */
   readonly elapsedMs: number;
 }
 
-/**
- * Drive the SHIPPED composition root over the planted workspace with an
- * UNDEGRADED `RendererGate`, so every note takes the transcript
- * (`pi.sendMessage`) arm the author reads.
- */
 async function runLoadPass(workspace: ComposeWorkspace): Promise<LoadPass> {
-  const host = makeHost(workspace.cwd);
   const started = Date.now();
-  const wiring = await composeExtensionInstance(host.pi, host.ctx, undefined, new RendererGate());
-  const elapsedMs = Date.now() - started;
-  return {
-    notes: host.notes.filter((n) => n.customType === SYSTEM_NOTE_CHANNEL),
-    offChannel: host.notes.filter((n) => n.customType !== SYSTEM_NOTE_CHANNEL),
-    notified: host.notified,
-    registered: wiring.thetas.map((t) => t.slashName),
-    thetas: wiring.thetas,
-    elapsedMs,
-  };
+  const pass = await runLoadPassCore(workspace);
+  return { ...pass, elapsedMs: Date.now() - started };
 }
 
 // ── Observation helpers ─────────────────────────────────────────────────────
