@@ -24,6 +24,7 @@
 // binder/determinism-cancellation-failure.md#failure-mode-templates-normative.
 
 import type { LoweredSchema } from "../seams/schema-validator";
+import { renderFailureNote } from "./system-note";
 
 // --- envelope schema constants ---------------------------------------------
 
@@ -286,12 +287,19 @@ export function binderFailureRowPrefix(kind: "needs_info" | "ambiguous"): string
 
 /**
  * Render the full failure-mode template row for a terminating binder failure arm
- * (BNDR-3): `theta /<name>: <prefix> — <message>`.
+ * (BNDR-3): `theta /<name>: <prefix> — <message>`, through the shared
+ * System-note rendering discipline (binder/defaulting-system-note-echo.md
+ * #system-note-rendering rules 1/2: `message` collapses to one line and the
+ * rendered row is capped at 120 code points) via {@link renderFailureNote}.
  */
 export function renderBinderFailureRow(
   name: string,
   kind: "needs_info" | "ambiguous",
   message: string,
 ): string {
-  return `theta /${name}: ${binderFailureRowPrefix(kind)} \u2014 ${message}`;
+  return renderFailureNote({
+    thetaName: name,
+    fixedPhrase: binderFailureRowPrefix(kind),
+    suffix: message,
+  });
 }

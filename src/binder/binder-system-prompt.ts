@@ -63,78 +63,7 @@
 // by V11i (cka-39) — both are inputs to this builder, not its responsibility.
 
 import { trimSlashArgumentWhitespace } from "./binder-envelope";
-
-/**
- * Collapse the line breaks out of an interpolated frontmatter scalar before it
- * is folded into item 2's or item 3's line (Description / Argument-hint):
- * `description:` and `argument-hint:` are prose, not a `Type` and not a
- * `Literal` (docs/spec_topics/binder/binder-bypass-and-envelope.md
- * §"System-prompt structure (normative)" items 2, 3), so no
- * sublanguage escape denotes anything inside either value. Unlike *Type
- * display* / *Default-literal rendering* (item 4), there is therefore no
- * string-literal arm here: running one over prose would render an ordinary
- * apostrophe's adjacent break as a literal backslash-n the reader cannot tell
- * apart from the author's own text, defeating the value the line exists to
- * convey. Every maximal run of U+0020 SPACE, U+0009 TAB, U+000D CR and
- * U+000A LF that contains at least one CR or LF collapses, with the whole
- * run, to one U+0020; a run containing no break is preserved verbatim. This
- * collapse arm duplicates `normaliseParamLineBreaks`'s non-literal arm in
- * shape rather than calling it: the two answer different spec sentences —
- * item 4's `<type>` / `<literal>` tokens there, items 2 and 3's whole
- * interpolated value here — and may move independently under a future
- * adjudication, so no shared helper is factored out. The leading/trailing
- * trim (U+0020 only) discharges the item-2/item-3 sentences above for a YAML
- * block scalar's clip-retained trailing newline: without it, `description: |`
- * collapses that trailing break to a U+0020 and the rendered line still
- * carries trailing whitespace the item list does not authorise. U+00A0 is
- * never touched by either the collapse or the trim. Text carrying no CR and
- * no LF is returned unchanged (the fast path), which is what keeps every
- * break-free corpus value and the item-2/item-3 assertions in
- * `tests/binder-system-prompt.test.ts` byte-identical. A value made only of
- * U+0020 / U+0009 / U+000D / U+000A collapses and trims to `""`; the two
- * call sites test this function's result for emptiness (not the raw
- * argument) so that value omits the line exactly as an absent or already-
- * empty field does, per item 2's and item 3's omission clauses.
- */
-function normalisePromptTextLineBreaks(text: string): string {
-  if (!/[\r\n]/.test(text)) {
-    return text;
-  }
-  const n = text.length;
-  let out = "";
-  let i = 0;
-  while (i < n) {
-    const c = text[i] ?? "";
-    if (c === " " || c === "\t" || c === "\r" || c === "\n") {
-      let j = i;
-      let sawBreak = false;
-      while (j < n) {
-        const wc = text[j] ?? "";
-        if (wc !== " " && wc !== "\t" && wc !== "\r" && wc !== "\n") {
-          break;
-        }
-        if (wc === "\r" || wc === "\n") {
-          sawBreak = true;
-        }
-        j += 1;
-      }
-      out += sawBreak ? " " : text.slice(i, j);
-      i = j;
-      continue;
-    }
-    out += c;
-    i += 1;
-  }
-  let start = 0;
-  let end = out.length;
-  while (start < end && out[start] === " ") {
-    start += 1;
-  }
-  while (end > start && out[end - 1] === " ") {
-    end -= 1;
-  }
-  return out.slice(start, end);
-}
+import { normaliseLiteralValueLineBreaks } from "../diagnostics/diagnostic";
 
 // --- per-field descriptor ---------------------------------------------------
 
@@ -206,7 +135,7 @@ export interface BuildBinderSystemPromptInput {
   /**
    * The theta's frontmatter `description:`. The Description line (item 2) is
    * omitted entirely when this is absent, `""`, or non-empty but collapses to
-   * `""` under `normalisePromptTextLineBreaks` (a value made only of line
+   * `""` under `normaliseLiteralValueLineBreaks` (a value made only of line
    * breaks and horizontal whitespace) — "non-empty" for item 2's condition is
    * measured on the collapsed-and-trimmed value, not the raw scalar.
    */
@@ -397,9 +326,12 @@ export function buildBinderSystemPrompt(input: BuildBinderSystemPromptInput): st
   // on the collapsed-and-trimmed value, not the raw frontmatter scalar: a
   // value made only of line breaks and horizontal whitespace collapses to "",
   // and item 2's omission clause forbids a `Description:` token with an empty
-  // value, so that value must render exactly as an absent field does.
+  // value, so that value must render exactly as an absent field does. The
+  // collapse reuses the diagnostics channel's `normaliseLiteralValueLineBreaks`
+  // (bug 0103) rather than forking it, so the two channels cannot drift apart
+  // on the whitespace set or the trim rule.
   if (input.description !== undefined) {
-    const collapsedDescription = normalisePromptTextLineBreaks(input.description);
+    const collapsedDescription = normaliseLiteralValueLineBreaks(input.description);
     if (collapsedDescription !== "") {
       line(`Description: ${collapsedDescription}`);
     }
@@ -408,7 +340,7 @@ export function buildBinderSystemPrompt(input: BuildBinderSystemPromptInput): st
   // Item 3 — Argument-hint line. Same collapsed-value emptiness test as item 2,
   // for the same reason (item 3's omission clause).
   if (input.argumentHint !== undefined) {
-    const collapsedArgumentHint = normalisePromptTextLineBreaks(input.argumentHint);
+    const collapsedArgumentHint = normaliseLiteralValueLineBreaks(input.argumentHint);
     if (collapsedArgumentHint !== "") {
       line(`Argument hint: ${collapsedArgumentHint}`);
     }
