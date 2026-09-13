@@ -2,7 +2,7 @@
 id: PTQ-0283
 title: normalisePromptTextLineBreaks (binder-system-prompt.ts) and normaliseLiteralValueLineBreaks (diagnostic.ts) are byte-identical function bodies
 lens: D4                     # D2 | D4 | D7 | D8 | D9 - the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - src/binder/binder-system-prompt.ts:99-137

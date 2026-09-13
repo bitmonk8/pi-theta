@@ -2,7 +2,7 @@
 id: PTQ-0289
 title: bytesEqual and its path-normalisation helper are duplicated verbatim between the parse cache and the verdict memo
 lens: D4
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/extension/pass-parse-cache.ts:52-78

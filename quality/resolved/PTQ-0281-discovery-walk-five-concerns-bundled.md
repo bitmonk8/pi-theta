@@ -2,7 +2,7 @@
 id: PTQ-0281
 title: discovery-walk.ts bundles five separable discovery concerns in one 1596-LOC file
 lens: D9                     # D2 | D7 | D9 - the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - src/discovery/discovery-walk.ts:1-1596

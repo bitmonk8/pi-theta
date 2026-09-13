@@ -2,7 +2,7 @@
 id: PTQ-0285
 title: renderBinderFailureRow renders the needs_info/ambiguous failure rows without the rule-1/rule-2 discipline its sibling renderer applies
 lens: D4                     # D2 | D4 | D7 | D8 | D9 - the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - src/binder/binder-envelope.ts:283-297

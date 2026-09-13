@@ -2,7 +2,7 @@
 id: PTQ-0288
 title: The call-site AST walker (walkBlock/walkStmt/walkExpr) is copy-pasted across four modules instead of sharing one traversal
 lens: D4
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/extension/extension-tool-reachability.ts:67-196

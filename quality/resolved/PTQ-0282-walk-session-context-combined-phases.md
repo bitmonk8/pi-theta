@@ -2,7 +2,7 @@
 id: PTQ-0282
 title: walkSessionContext combines the BNDR-10 mode gate, turn grouping, and the cap-bounded truncation walk in one 82-LOC function
 lens: D9
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/binder/session-context-walk.ts:86-167

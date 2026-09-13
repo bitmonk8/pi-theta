@@ -2,7 +2,7 @@
 id: PTQ-0230
 title: b0275 redefines an 8-function load-pass/diagnostic-reading harness that recurs verbatim across up to 15 sibling composition-root test files
 lens: D7                     # D2 | D7 — the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - tests/b0275-escaping-tools-entry-below-immediate-callee.test.ts:214-225
