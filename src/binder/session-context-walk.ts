@@ -24,6 +24,7 @@
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { ThetaMode } from "../parser/frontmatter";
 import type { TokenEstimator } from "../seams/token-estimator";
+import { groupMessagesIntoTurns } from "./turn-grouping";
 
 /** The inclusive running-token-total cap of the truncation walk (8000 tokens). */
 const SESSION_CONTEXT_TOKEN_CAP = 8000;
@@ -100,21 +101,9 @@ export function walkSessionContext(
     };
   }
 
-  // Group into turns using the same turn boundary the V11b renderer uses: a turn
-  // is a `user` message plus all subsequent assistant / toolResult / custom
-  // messages up to (but not including) the next `user` message.
-  // `buildSessionContext(...).messages` is guaranteed to begin with a `user`
-  // message (leading-`user`-message precondition), so no leading run falls
-  // outside a turn; a message preceding any `user` (contra the precondition)
-  // still opens a turn so the walk stays total.
-  const turns: AgentMessage[][] = [];
-  for (const message of input.messages) {
-    if (message.role === "user" || turns.length === 0) {
-      turns.push([message]);
-    } else {
-      turns[turns.length - 1]?.push(message);
-    }
-  }
+  // Group into turns via the shared helper (same turn boundary the V11b
+  // renderer uses; see turn-grouping.ts for the boundary rule itself).
+  const turns: AgentMessage[][] = groupMessagesIntoTurns(input.messages);
 
   // Walk turns newest-to-oldest (the newest turn sits at the array tail).
   // Include a candidate turn iff, after inclusion, the running token total is

@@ -45,6 +45,7 @@ import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { Diagnostic } from "../diagnostics/diagnostic";
 import type { SystemPromptSessionContext } from "./binder-system-prompt";
 import { capSystemNote, sanitizeSystemNoteSubstring } from "./system-note";
+import { groupMessagesIntoTurns } from "./turn-grouping";
 
 /**
  * The runtime diagnostic code emitted when an included `CustomMessage`'s
@@ -281,20 +282,9 @@ export function renderCompactTranscript(
     }
   }
 
-  // Group into turns: a turn is a `user` message plus all subsequent
-  // assistant / toolResult / custom messages up to (but not including) the next
-  // `user` message. `buildSessionContext(...).messages` is guaranteed to begin
-  // with a `user` message (leading-`user`-message precondition), so no leading
-  // run falls outside a turn; a message preceding any `user` (contra the
-  // precondition) still opens a turn so the render stays total.
-  const turns: AgentMessage[][] = [];
-  for (const message of messages) {
-    if (message.role === "user" || turns.length === 0) {
-      turns.push([message]);
-    } else {
-      turns[turns.length - 1]?.push(message);
-    }
-  }
+  // Group into turns via the shared helper (same turn boundary the V11i walk
+  // uses; see turn-grouping.ts for the boundary rule itself).
+  const turns: AgentMessage[][] = groupMessagesIntoTurns(messages);
 
   // BNDR-7i void truncation: zero included turns ⇒ the whole Session-context
   // block is omitted (no header, no body, no terminating blank line).
