@@ -2,7 +2,7 @@
 id: PTQ-0286
 title: The POSIX path-join, slash-normalise, and stem/extension-split helpers are copy-pasted across all three discovery modules
 lens: D4
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/discovery/discovery-walk.ts:152-159

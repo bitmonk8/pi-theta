@@ -2,7 +2,7 @@
 id: PTQ-0284
 title: package-discovery.ts hand-mints the `<kind>:"<value>"` descriptor at three sites instead of calling discovery-walk.ts's shared renderer
 lens: D4
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/discovery/discovery-walk.ts:1373-1380

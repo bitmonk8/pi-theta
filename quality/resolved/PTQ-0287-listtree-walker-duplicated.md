@@ -2,7 +2,7 @@
 id: PTQ-0287
 title: The recursive glob-universe tree walker (`TreeEntry`/`TreeWalk`/`listTree`) is reimplemented near-identically in both discovery-walk.ts and package-discovery.ts
 lens: D4
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/discovery/discovery-walk.ts:798-860

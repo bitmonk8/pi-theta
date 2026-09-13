@@ -2,7 +2,7 @@
 id: PTQ-0290
 title: The HC3 per-class retry-budget state machine is independently re-implemented in binder-cancellation.ts with no shared constant or test tying it to retry-taxonomy.ts's driver
 lens: D4                     # D2 | D4 | D7 | D8 | D9 - the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - src/binder/binder-cancellation.ts:81-137

@@ -2,7 +2,7 @@
 id: PTQ-0291
 title: Two private reimplementations of the §6 underlying-error coercion guard the `.message` read that the exported canonical version does not
 lens: D4
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/diagnostics/placeholder.ts:247-273

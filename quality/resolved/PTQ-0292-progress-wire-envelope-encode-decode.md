@@ -2,7 +2,7 @@
 id: PTQ-0292
 title: The `theta_progress` wire envelope's field set is written by a typed object spread in progress-tool.ts but re-declared by hand in child-tap.ts's decoder
 lens: D4
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/extension/execution-status/progress-tool.ts:249-278
