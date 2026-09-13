@@ -51,6 +51,24 @@ export type ChildTapEvent =
   // recognised in the tap's OWN parse (EXST-5).
   | { readonly type: "theta_progress"; readonly payload: ProgressAuthorMessage };
 
+/**
+ * Compile-time field-set anchor for the `theta_progress` decoder below: every
+ * key of `ProgressAuthorMessage` (`types.ts`) this branch reads off the wire,
+ * named once. `satisfies` fails `tsc` in THIS file the moment a field is
+ * added to `ProgressAuthorMessage` and not added here — the read side's
+ * counterpart to the write side's own compiler-checked anchor (the typed
+ * `payload: ProgressAuthorMessage` `emitWireLine` serialises verbatim,
+ * `progress-tool.ts`). Pins the SET of fields read only; each field's own
+ * validation guard is unchanged below.
+ */
+const HANDLED_PROGRESS_FIELDS = {
+  message: true,
+  scope: true,
+  done: true,
+  total: true,
+  dropped: true,
+} satisfies Record<keyof ProgressAuthorMessage, true>;
+
 /** Attach the second stdout consumer beside the envelope scan (EXST-5).
  *  `child.onStdoutLine` is the makeLinePump fan-out Set
  *  (production-subagent-host.ts:328-360); the drive's own listener
@@ -127,13 +145,7 @@ export function attachChildActivityTap(
       if (typeof ev !== "object" || ev === null) {
         return;
       }
-      const fields = ev as {
-        readonly message?: unknown;
-        readonly scope?: unknown;
-        readonly done?: unknown;
-        readonly total?: unknown;
-        readonly dropped?: unknown;
-      };
+      const fields = ev as Partial<Record<keyof ProgressAuthorMessage, unknown>>;
       if (typeof fields.message !== "string") {
         return; // `message` is load-bearing: a bad type drops the whole LINE
       }
