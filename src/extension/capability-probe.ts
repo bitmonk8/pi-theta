@@ -23,7 +23,7 @@
 
 import semver from "semver";
 import type { Diagnostic } from "../diagnostics/diagnostic";
-import { renderHostIncompatible } from "../diagnostics/placeholder";
+import { coerceUnderlyingString, renderHostIncompatible } from "../diagnostics/placeholder";
 import {
   resolveSubagentExecutable,
   SUBAGENT_EXECUTABLE_UNRESOLVED_CODE,
@@ -217,33 +217,6 @@ function hasMember(holder: unknown, key: string): boolean {
   return key in holder;
 }
 
-/**
- * Coerce a caught thrown value to its underlying string per the diagnostics
- * underlying-error coercion (placeholder-rendering-b.md #underlying-error-
- * coercion): an object with a string `.message` yields that message; otherwise
- * `String(v)`, or the literal `<unreadable>` when either the `.message` access
- * or the `String(v)` coercion itself throws (PIC-6 — a hostile getter MUST NOT
- * escape the probe).
- */
-function coerceCause(v: unknown): string {
-  try {
-    if (typeof v === "object" && v !== null) {
-      const message = (v as Record<string, unknown>).message;
-      if (typeof message === "string") {
-        return message;
-      }
-    }
-  } catch (e: unknown) { // allow-broad-catch: PIC-6 — pi-integration-contract/capability-probe.md
-    void e;
-  }
-  try {
-    return String(v);
-  } catch (e: unknown) { // allow-broad-catch: PIC-6 — pi-integration-contract/capability-probe.md
-    void e;
-    return "<unreadable>";
-  }
-}
-
 /** Build the self-failure (`probe-failed`) outcome for a step that threw. */
 function probeFailed(step: ProbeStep, cause: string, pkg?: string): ProbeOutcome {
   return {
@@ -286,7 +259,7 @@ export function runCapabilityProbe(host: ProbeHost): ProbeOutcome {
       };
     }
   } catch (e: unknown) { // allow-broad-catch: PIC-6 — pi-integration-contract/capability-probe.md
-    return probeFailed("node-floor", coerceCause(e));
+    return probeFailed("node-floor", coerceUnderlyingString(e));
   }
 
   // ── (b) AbortSignal / AbortController shape ───────────────────────────────
@@ -325,7 +298,7 @@ export function runCapabilityProbe(host: ProbeHost): ProbeOutcome {
       }
     }
   } catch (e: unknown) { // allow-broad-catch: PIC-6 — pi-integration-contract/capability-probe.md
-    return probeFailed("abortsignal-shape", coerceCause(e));
+    return probeFailed("abortsignal-shape", coerceUnderlyingString(e));
   }
 
   // ── (c) Factory-probable SDK capabilities (eight function members) ────────
@@ -363,7 +336,7 @@ export function runCapabilityProbe(host: ProbeHost): ProbeOutcome {
       }
     }
   } catch (e: unknown) { // allow-broad-catch: PIC-6 — pi-integration-contract/capability-probe.md
-    return probeFailed("sdk-capability-missing", coerceCause(e));
+    return probeFailed("sdk-capability-missing", coerceUnderlyingString(e));
   }
 
   // ── (d) Peer-dep version (lock-step, four packages) ───────────────────────
@@ -374,7 +347,7 @@ export function runCapabilityProbe(host: ProbeHost): ProbeOutcome {
     } catch (e: unknown) { // allow-broad-catch: PIC-6 — pi-integration-contract/capability-probe.md
       // Any throw outside the four installation-observable conditions routes to
       // probe-failed with the offending package named (Step 0 "Self-failure").
-      return probeFailed("peer-dep-version", coerceCause(e), pkg);
+      return probeFailed("peer-dep-version", coerceUnderlyingString(e), pkg);
     }
     if (version === undefined) {
       // Conditions (1)–(3): no readable `version` string was obtained.
@@ -423,7 +396,7 @@ export function runCapabilityProbe(host: ProbeHost): ProbeOutcome {
       };
     }
   } catch (e: unknown) { // allow-broad-catch: PIC-6 — pi-integration-contract/capability-probe.md
-    return probeFailed("typebox-shape", coerceCause(e));
+    return probeFailed("typebox-shape", coerceUnderlyingString(e));
   }
 
   return { ok: true };
@@ -476,7 +449,7 @@ export function probeSubagentExecutable(host: ExecutableHost): SubagentExecutabl
     // (e.g. a hostile ExecutableHost whose fileExists throws EACCES) routes to
     // host-incompatible/probe-failed with details.step = "subagent-executable"
     // — NOT the clean subagent-executable-unresolved verdict, which is reserved
-    // for the both-rungs-fail case. Mirrors the (a)–(e) coerceCause shape.
+    // for the both-rungs-fail case. Mirrors the (a)–(e) coerceUnderlyingString shape.
     const step: ProbeStep = "subagent-executable";
     return {
       ok: false,
@@ -485,7 +458,7 @@ export function probeSubagentExecutable(host: ExecutableHost): SubagentExecutabl
         observed: "<unreadable>",
         required: "<unreadable>",
         step,
-        cause: coerceCause(e),
+        cause: coerceUnderlyingString(e),
       }),
     };
   }

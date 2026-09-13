@@ -248,14 +248,25 @@ export function renderUnderlyingError(caught: unknown): string {
  * Coerce a caught thrown value to its underlying string per the §6
  * underlying-error coercion: when `v` is an object whose `.message` is a
  * string, that `.message`; otherwise `String(v)`, or the literal `<unreadable>`
- * when the `String(v)` coercion itself throws.
+ * when the `String(v)` coercion itself throws. A `.message` access that
+ * itself throws is treated as `.message` being absent (falls through to the
+ * `String(v)` step): a hostile getter MUST NOT escape the coercion (PIC-6,
+ * pi-integration-contract/capability-probe.md "Self-failure"; PIC-7,
+ * pi-integration-contract/host-prerequisites.md "Session-binding contract").
  */
 export function coerceUnderlyingString(v: unknown): string {
-  if (typeof v === "object" && v !== null) {
-    const message = (v as { message?: unknown }).message;
-    if (typeof message === "string") {
-      return message;
+  try {
+    if (typeof v === "object" && v !== null) {
+      const message = (v as { message?: unknown }).message;
+      if (typeof message === "string") {
+        return message;
+      }
     }
+  } catch (e: unknown) { // allow-broad-catch: PIC-6 — pi-integration-contract/capability-probe.md
+    // A hostile `.message` getter MUST NOT escape the coercion (PIC-6
+    // "Self-failure"): the throw is swallowed and `.message` is treated as
+    // absent, falling through to the `String(v)` step below.
+    void e;
   }
   try {
     return String(v);

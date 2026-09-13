@@ -16,6 +16,7 @@
 // session-shutdown synthesised-reason facet), host-prerequisites.md (PIC-7).
 
 import type { Diagnostic } from "../diagnostics/diagnostic";
+import { coerceUnderlyingString } from "../diagnostics/placeholder";
 import type { Clock, TimerHandle } from "../seams/clock";
 import type { ActiveInvocationEntry, ActiveInvocationRegistry } from "../runtime/active-invocation-registry";
 import type { ThetaRegistry } from "./reload-wiring";
@@ -166,34 +167,6 @@ export function synthesiseSessionShutdownReason(): Error {
 }
 
 /**
- * Coerce a caught throw to its underlying string per the diagnostics
- * underlying-error coercion (placeholder-rendering-b.md #underlying-error-
- * coercion): an object with a string `.message` yields that message; otherwise
- * `String(error)`, falling back to the literal `"<unreadable>"` when either the
- * `.message` access or the `String(...)` coercion itself throws (the same
- * `"<unreadable>"` convention `session-shutdown-reason-unknown`'s
- * `details.observed` applies, per the **Per-step isolation** paragraph).
- */
-function coerceUnderlyingError(error: unknown): string {
-  try {
-    if (typeof error === "object" && error !== null) {
-      const message = (error as Record<string, unknown>).message;
-      if (typeof message === "string") {
-        return message;
-      }
-    }
-  } catch (messageError: unknown) { // allow-broad-catch: PIC-7 — pi-integration-contract/session-shutdown-semantics.md
-    void messageError;
-  }
-  try {
-    return String(error);
-  } catch (coerceError: unknown) { // allow-broad-catch: PIC-7 — pi-integration-contract/session-shutdown-semantics.md
-    void coerceError;
-    return "<unreadable>";
-  }
-}
-
-/**
  * Build the `theta/host/session-shutdown-teardown-step-failed` (W, runtime)
  * diagnostic for a caught per-step throw, carrying
  * `details: { step, call, error }` (session-shutdown-semantics.md
@@ -204,7 +177,7 @@ export function teardownStepFailedDiagnostic(
   call: string,
   error: unknown,
 ): Diagnostic {
-  const errorString = coerceUnderlyingError(error);
+  const errorString = coerceUnderlyingString(error);
   return {
     severity: "warning",
     code: TEARDOWN_STEP_FAILED_CODE,
