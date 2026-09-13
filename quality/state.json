@@ -202,7 +202,17 @@
     "src/extension/execution-status/footer-sink.ts": "507810dc14455593d9ddfa3be8e9bd61c536f9b5",
     "src/extension/execution-status/progress-tool.ts": "507810dc14455593d9ddfa3be8e9bd61c536f9b5",
     "src/extension/execution-status/status-command.ts": "507810dc14455593d9ddfa3be8e9bd61c536f9b5",
-    "src/extension/execution-status/types.ts": "507810dc14455593d9ddfa3be8e9bd61c536f9b5"
+    "src/extension/execution-status/types.ts": "507810dc14455593d9ddfa3be8e9bd61c536f9b5",
+    "src/extension/execution-status/widget-sink.ts": "391930fcae059468b997377aa4b93d58b324b1cc",
+    "src/extension/extension-tool-reachability.ts": "391930fcae059468b997377aa4b93d58b324b1cc",
+    "src/extension/factory.ts": "391930fcae059468b997377aa4b93d58b324b1cc",
+    "src/extension/hot-reload.ts": "391930fcae059468b997377aa4b93d58b324b1cc",
+    "src/extension/import-static-checks.ts": "391930fcae059468b997377aa4b93d58b324b1cc",
+    "src/extension/inventory-closure-audit.ts": "391930fcae059468b997377aa4b93d58b324b1cc",
+    "src/extension/invoke-static-checks.ts": "391930fcae059468b997377aa4b93d58b324b1cc",
+    "src/extension/load-pre-eval.ts": "391930fcae059468b997377aa4b93d58b324b1cc",
+    "src/extension/pass-parse-cache.ts": "391930fcae059468b997377aa4b93d58b324b1cc",
+    "src/extension/pass-verdict-memo.ts": "391930fcae059468b997377aa4b93d58b324b1cc"
   },
   "D7": {
     "tests/absent-member-presence-gate.test.ts": "2db0b02ccb297cf06b801bfe021b6881a37467d5",
