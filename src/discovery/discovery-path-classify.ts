@@ -444,3 +444,27 @@ function descriptorKindOf(source: DiscoverySource): string {
 export function renderSourceDescriptor(source: DiscoverySource, descriptorValue: string): string {
   return `${descriptorKindOf(source)}:"${descriptorValue}"`;
 }
+
+// --------------------------------------------------------------------------
+// Grouping.
+// --------------------------------------------------------------------------
+
+/** Group `items` into a `Map` bucketed by `keyOf(item)`, appending each item
+ *  to its key's existing bucket or starting a fresh one — the shared
+ *  declare-map/iterate/get-or-set-else-push idiom behind discovery-walk.ts's
+ *  `resolveBySource`, `resolveCaseCollisions`, and both `resolveSlashNames`
+ *  indices (PTQ-0298), unified here so a future change to the bucket-building
+ *  rule is made once. Each bucket preserves `items`' own iteration order. */
+export function groupBy<T, K>(items: readonly T[], keyOf: (item: T) => K): Map<K, T[]> {
+  const groups = new Map<K, T[]>();
+  for (const item of items) {
+    const key = keyOf(item);
+    const bucket = groups.get(key);
+    if (bucket === undefined) {
+      groups.set(key, [item]);
+    } else {
+      bucket.push(item);
+    }
+  }
+  return groups;
+}

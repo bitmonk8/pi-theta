@@ -32,6 +32,7 @@ import {
   classifyPath,
   dirnameOf,
   expandHome,
+  groupBy,
   hasOverridePrefix,
   isAbsolutePath,
   isGlobPattern,
@@ -429,16 +430,7 @@ function resolveCaseCollisions(
   candidates: readonly SourcedCandidate[],
   diagnostics: Diagnostic[],
 ): SourcedCandidate[] {
-  const groups = new Map<string, SourcedCandidate[]>();
-  for (const candidate of candidates) {
-    const key = normalizePath(candidate.path).toLowerCase();
-    const bucket = groups.get(key);
-    if (bucket === undefined) {
-      groups.set(key, [candidate]);
-    } else {
-      bucket.push(candidate);
-    }
-  }
+  const groups = groupBy(candidates, (candidate) => normalizePath(candidate.path).toLowerCase());
   const survivors: SourcedCandidate[] = [];
   for (const bucket of groups.values()) {
     const distinct = dedupeByPath(bucket);
@@ -1036,15 +1028,7 @@ function resolveBySource(
   candidates: readonly SourcedCandidate[],
   diagnostics: Diagnostic[],
 ): SourcedCandidate[] {
-  const bySource = new Map<DiscoverySource, SourcedCandidate[]>();
-  for (const candidate of candidates) {
-    const bucket = bySource.get(candidate.source);
-    if (bucket === undefined) {
-      bySource.set(candidate.source, [candidate]);
-    } else {
-      bucket.push(candidate);
-    }
-  }
+  const bySource = groupBy(candidates, (candidate) => candidate.source);
   const out: SourcedCandidate[] = [];
   for (const bucket of bySource.values()) {
     out.push(...resolveCaseCollisions(bucket, diagnostics));
@@ -1140,24 +1124,8 @@ async function resolveSlashNames(
   diagnostics: Diagnostic[],
   markedRoot?: { readonly slug: string; readonly winnerPath: string },
 ): Promise<DiscoveredTheta[]> {
-  const piOwnedByName = new Map<string, PiOwnedCommand[]>();
-  for (const command of piOwned) {
-    const bucket = piOwnedByName.get(command.name);
-    if (bucket === undefined) {
-      piOwnedByName.set(command.name, [command]);
-    } else {
-      bucket.push(command);
-    }
-  }
-  const byName = new Map<string, SourcedCandidate[]>();
-  for (const candidate of candidates) {
-    const bucket = byName.get(candidate.stem);
-    if (bucket === undefined) {
-      byName.set(candidate.stem, [candidate]);
-    } else {
-      bucket.push(candidate);
-    }
-  }
+  const piOwnedByName = groupBy(piOwned, (command) => command.name);
+  const byName = groupBy(candidates, (candidate) => candidate.stem);
 
   const thetas: DiscoveredTheta[] = [];
   for (const [name, rawGroup] of byName) {
