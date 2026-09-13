@@ -40,7 +40,9 @@ import {
   normalizePath,
   realpathOr,
   relativeToBase,
+  renderSourceDescriptor,
   splitExtension,
+  walkTree,
   type EnoentPolicy,
   type PathClass,
 } from "./discovery-path-classify";
@@ -514,41 +516,19 @@ interface TreeWalk {
  *  it — or to `lstat` an entry that walk enumerated, is a traversal failure
  *  inside a root that exists, an unreadable source and not silence
  *  (discovery-sources.md:69), so the rejection is classified by the :68
- *  clean-leaf rule and carried out rather than dropped. */
+ *  clean-leaf rule and carried out rather than dropped. Delegates to the
+ *  shared `walkTree` helper (PTQ-0287) with the `"ancestor-walk"` ENOENT
+ *  policy: this walk's root is a settings glob's static-prefix directory, not
+ *  pre-proven to exist, so a directory-level `ENOENT` needs the clean-leaf
+ *  check rather than being assumed clean. */
 async function listTree(fs: FileSystem, root: string): Promise<TreeWalk> {
-  const out: TreeEntry[] = [];
-  const unreadable: string[] = [];
-  const walk = async (dir: string): Promise<void> => {
-    const outcome = await fs.readdir(dir).then(
-      (n) => ({ ok: true as const, names: n }),
-      (error: unknown) => ({ ok: false as const, code: nodeErrorCode(error) }),
-    );
-    if (!outcome.ok) {
-      if (!(outcome.code === "ENOENT" && (await ancestorsClean(fs, dir)))) {
-        unreadable.push(dir);
-      }
-      return;
-    }
-    for (const name of outcome.names) {
-      const abs = joinPosix(dir, name);
-      const stat = await lstatOutcome(fs, abs);
-      if (!stat.ok) {
-        // A clean-leaf ENOENT here is the entry vanishing between the readdir
-        // that named it and this probe: a leaf under a parent already proven
-        // enterable, so the pattern resolves to no path there and
-        // package-and-settings.md:29 keeps it silent. Any other code is a
-        // traversal failure inside a root that exists (discovery-sources.md:69).
-        if (stat.code !== "ENOENT") unreadable.push(abs);
-        continue;
-      }
-      out.push({ abs, base: name, isDir: stat.isDir, isFile: stat.isFile });
-      if (stat.isDir) {
-        await walk(abs);
-      }
-    }
-  };
-  await walk(root);
-  return { entries: out, unreadable };
+  const walk = await walkTree(fs, root, "ancestor-walk", (abs, base, isDir, isFile) => ({
+    abs,
+    base,
+    isDir,
+    isFile,
+  }));
+  return walk;
 }
 
 /** Report each glob-universe traversal failure at the source's *Unreadable
@@ -1041,34 +1021,6 @@ function sourceLabelOf(source: DiscoverySource): string {
     case "global":
       return "global thetas directory";
   }
-}
-
-/** The closed descriptor-kind spelling for a discovery source
- *  (discovery-sources.md#descriptor-kinds): distinct from `sourceLabelOf`'s
- *  prose category labels — this is the `<kind>` half of the normative
- *  `<kind>:"<value>"` descriptor form (placeholder-rendering-b.md §5). */
-function descriptorKindOf(source: DiscoverySource): string {
-  switch (source) {
-    case "cli":
-      return "cli-flag";
-    case "settings":
-      return "settings";
-    case "project":
-      return "project";
-    case "package":
-      return "package";
-    case "global":
-      return "global";
-  }
-}
-
-/** Render a source kind + descriptor value as the normative
- *  `<kind>:"<value>"` descriptor (placeholder-rendering-b.md §5/§7) — the
- *  one rendering shared by every mint site that renders a discovery source
- *  as `<descriptor>`, so a source rejected by two different observers
- *  cannot render under two grammars for the same pass (bug 0461). */
-function renderSourceDescriptor(source: DiscoverySource, descriptorValue: string): string {
-  return `${descriptorKindOf(source)}:"${descriptorValue}"`;
 }
 
 /** Render one candidate as the normative `<kind>:"<value>"` descriptor

@@ -4,14 +4,18 @@
 // classification `classifyPath` drives. Split out of discovery-walk.ts
 // (whose own V10a/V10a-T header describes the walk this module's
 // classifications feed) — every member here was file-private before the
-// split (0 importers outside discovery-walk.ts) and stays so except where
-// discovery-walk.ts's own per-source enumeration
+// split (0 importers outside discovery-walk.ts). Most no longer are:
+// discovery-walk.ts imports back what its own per-source enumeration
 // (`resolveEntry`/`enumerateDirectory`) and settings `thetaPaths` resolution
-// (`resolveSettingsSource`) still call back into it.
+// (`resolveSettingsSource`) call, and package-discovery.ts and settings.ts
+// import the shared POSIX path helpers and `walkTree` directly (PTQ-0286,
+// PTQ-0287) — package-discovery.ts also imports the descriptor renderer
+// `renderSourceDescriptor` (PTQ-0284) — instead of keeping their own copies.
 //
 // Spec: discovery.md, discovery/discovery-sources.md (DISC-1, DISC-2).
 
 import type { FileSystem } from "../seams/file-system";
+import type { DiscoverySource } from "./discovery-walk";
 import { nodeErrorCode } from "./node-error-code";
 
 // --------------------------------------------------------------------------
@@ -23,6 +27,7 @@ export function normalizePath(path: string): string {
   return path.replace(/\\/g, "/");
 }
 
+/** POSIX-join a base directory with a relative tail (no trailing-slash dupes). */
 export function joinPosix(base: string, tail: string): string {
   const trimmed = base.endsWith("/") ? base.slice(0, -1) : base;
   return `${trimmed}/${tail}`;
@@ -343,4 +348,99 @@ async function classifyUnresolvedTarget(
     return { kind: "missing" };
   }
   return (await ancestorsClean(fs, path)) ? { kind: "missing" } : { kind: "unreadable" };
+}
+
+// --------------------------------------------------------------------------
+// Recursive tree walk.
+// --------------------------------------------------------------------------
+
+/**
+ * Recursively enumerate every file/dir under `root` (symlinks not followed),
+ * classifying each rejection via `nodeErrorCode`: a directory that cannot be
+ * `readdir`ed, or an entry `readdir` named whose own `lstat` rejects with a
+ * code other than `ENOENT`, is a traversal failure inside a root that
+ * exists — an unreadable source, not silence — so it is carried out in
+ * `unreadable` rather than dropped, for the caller to report against its own
+ * descriptor. Shared by the settings `thetaPaths` glob-universe walk and the
+ * package `pi.theta` glob-universe walk (PTQ-0287, a mechanical dedupe of two
+ * near-identical recursive walkers): `makeEntry` builds each caller's own
+ * entry shape from a successfully-`lstat`ed child — its absolute path,
+ * basename, dir/file flags, and the root-relative path accumulated so far (a
+ * caller with no use for the relative path simply ignores that argument).
+ *
+ * `enoentPolicy` governs a directory-level `readdir` `ENOENT` (root or any
+ * descendant): `"ancestor-walk"` runs the DISC-2 clean-leaf walk
+ * (`ancestorsClean`) to tell a clean-leaf `ENOENT` (silent) from a genuinely
+ * unreadable ancestor; `"missing"` treats every directory `ENOENT` as clean
+ * outright, for a caller whose every directory in the walk is already
+ * pre-proven enterable (reached only via an already-successful read), so the
+ * walk could only ever answer "clean". An entry-level `lstat` `ENOENT` is
+ * always the clean-leaf case regardless of policy: the entry vanished between
+ * the `readdir` that named it and this probe, a leaf under a parent already
+ * proven enterable.
+ */
+export async function walkTree<T>(
+  fs: FileSystem,
+  root: string,
+  enoentPolicy: EnoentPolicy,
+  makeEntry: (abs: string, base: string, isDir: boolean, isFile: boolean, rel: string) => T,
+): Promise<{ readonly entries: T[]; readonly unreadable: string[] }> {
+  const out: T[] = [];
+  const unreadable: string[] = [];
+  const walk = async (dir: string, rel: string): Promise<void> => {
+    const outcome = await fs.readdir(dir).then(
+      (names) => ({ ok: true as const, names }),
+      (error: unknown) => ({ ok: false as const, code: nodeErrorCode(error) }),
+    );
+    if (!outcome.ok) {
+      const clean =
+        outcome.code === "ENOENT" &&
+        (enoentPolicy === "missing" || (await ancestorsClean(fs, dir)));
+      if (!clean) unreadable.push(dir);
+      return;
+    }
+    for (const name of outcome.names) {
+      const abs = joinPosix(dir, name);
+      const childRel = rel === "" ? name : `${rel}/${name}`;
+      const stat = await lstatOutcome(fs, abs);
+      if (!stat.ok) {
+        if (stat.code !== "ENOENT") unreadable.push(abs);
+        continue;
+      }
+      out.push(makeEntry(abs, name, stat.isDir, stat.isFile, childRel));
+      if (stat.isDir) {
+        await walk(abs, childRel);
+      }
+    }
+  };
+  await walk(root, "");
+  return { entries: out, unreadable };
+}
+
+/** The closed descriptor-kind spelling for a discovery source
+ *  (discovery-sources.md#descriptor-kinds): distinct from `sourceLabelOf`'s
+ *  prose category labels — this is the `<kind>` half of the normative
+ *  `<kind>:"<value>"` descriptor form (placeholder-rendering-b.md §5). */
+function descriptorKindOf(source: DiscoverySource): string {
+  switch (source) {
+    case "cli":
+      return "cli-flag";
+    case "settings":
+      return "settings";
+    case "project":
+      return "project";
+    case "package":
+      return "package";
+    case "global":
+      return "global";
+  }
+}
+
+/** Render a source kind + descriptor value as the normative
+ *  `<kind>:"<value>"` descriptor (placeholder-rendering-b.md §5/§7) — the
+ *  one rendering shared by every mint site that renders a discovery source
+ *  as `<descriptor>`, so a source rejected by two different observers
+ *  cannot render under two grammars for the same pass (bug 0461). */
+export function renderSourceDescriptor(source: DiscoverySource, descriptorValue: string): string {
+  return `${descriptorKindOf(source)}:"${descriptorValue}"`;
 }
