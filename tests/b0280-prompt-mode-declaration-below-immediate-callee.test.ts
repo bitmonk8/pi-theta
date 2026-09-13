@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -8,6 +8,8 @@ import {
   describeNotes,
   errorFilesOf,
   errorRowsAt,
+  expectCallerRefusedWithCalleeHasErrors,
+  finishWorkspace,
   normalisePath,
   normativeMessagePattern as normativeMessagePatternCore,
   requireDriven as requireDrivenCore,
@@ -191,15 +193,7 @@ function plantWorkspace(files: Readonly<Record<string, string>>): ComposeWorkspa
   for (const [name, body] of Object.entries(files)) {
     writeFileSync(join(cwd, ".pi", "theta", name), body, "utf8");
   }
-  // A minimal valid settings file pins the fixture's settings read to a known
-  // value. An ABSENT settings file is silent (package-and-settings.md §Failure
-  // modes), so the plant is hermeticity, not noise suppression.
-  writeFileSync(join(cwd, ".pi", "settings.json"), "{}", "utf8");
-  return {
-    cwd,
-    path: (name: string): string => normalisePath(join(cwd, ".pi", "theta", name)),
-    dispose: (): void => rmSync(cwd, { recursive: true, force: true }),
-  };
+  return finishWorkspace(cwd);
 }
 
 // ── The load pass ───────────────────────────────────────────────────────────
@@ -242,36 +236,6 @@ function requireSingleModeRowAtNamer(pass: LoadPass, namerPath: string): void {
   );
   expect((rows[0] as Diagnostic).message, `${PROMPT_MODE_CODE} message`).toMatch(
     normativeMessagePattern(PROMPT_MODE_CODE),
-  );
-}
-
-/**
- * `docs/spec_topics/invocation.md` line 22 at each `tools:` edge above the
- * namer: the caller does not register, and EXACTLY ONE error-severity row is
- * located at its file — the V15f `theta/load/callee-has-errors` push carrying
- * the registry's Message. One entry names one callee, so one row; §Fix
- * constraint 2 forbids a second beside it.
- */
-function expectCallerRefusedWithCalleeHasErrors(
-  pass: LoadPass,
-  callerPath: string,
-  callerStem: string,
-): void {
-  expect(
-    pass.registered,
-    "the caller must not register over a callee this same pass un-registers\n" +
-      describeNotes(pass.notes),
-  ).not.toContain(callerStem);
-
-  const rows = errorRowsAt(pass, callerPath);
-  expect(
-    rows.map((d) => d.code),
-    `one prompt-mode entry below this caller is one condition, so exactly one error-severity ` +
-      `row belongs at ${callerPath}, and it is ${CALLEE_HAS_ERRORS_CODE}\n` +
-      describeNotes(pass.notes),
-  ).toEqual([CALLEE_HAS_ERRORS_CODE]);
-  expect((rows[0] as Diagnostic).message, `${CALLEE_HAS_ERRORS_CODE} message`).toMatch(
-    normativeMessagePattern(CALLEE_HAS_ERRORS_CODE),
   );
 }
 
@@ -347,7 +311,14 @@ describe("bug 0280 — a callee's declared prompt mode is never read below the i
           describeNotes(pass.notes),
       ).toEqual([PROMPT_MODE_CODE]);
 
-      expectCallerRefusedWithCalleeHasErrors(pass, workspace.path(ROOT_NAME), ROOT_STEM);
+      expectCallerRefusedWithCalleeHasErrors(
+        pass,
+        workspace.path(ROOT_NAME),
+        ROOT_STEM,
+        CALLEE_HAS_ERRORS_CODE,
+        normativeMessagePattern(CALLEE_HAS_ERRORS_CODE),
+        "prompt-mode entry",
+      );
       expect(
         [...errorFilesOf(pass, CALLEE_HAS_ERRORS_CODE)],
         `${CALLEE_HAS_ERRORS_CODE} composes to every caller above the namer\n` +
@@ -387,8 +358,22 @@ describe("bug 0280 — a callee's declared prompt mode is never read below the i
       requireDriven(pass);
       requireSingleModeRowAtNamer(pass, workspace.path(GC_NAME));
 
-      expectCallerRefusedWithCalleeHasErrors(pass, workspace.path(CHILD_NAME), CHILD_STEM);
-      expectCallerRefusedWithCalleeHasErrors(pass, workspace.path(ROOT_NAME), ROOT_STEM);
+      expectCallerRefusedWithCalleeHasErrors(
+        pass,
+        workspace.path(CHILD_NAME),
+        CHILD_STEM,
+        CALLEE_HAS_ERRORS_CODE,
+        normativeMessagePattern(CALLEE_HAS_ERRORS_CODE),
+        "prompt-mode entry",
+      );
+      expectCallerRefusedWithCalleeHasErrors(
+        pass,
+        workspace.path(ROOT_NAME),
+        ROOT_STEM,
+        CALLEE_HAS_ERRORS_CODE,
+        normativeMessagePattern(CALLEE_HAS_ERRORS_CODE),
+        "prompt-mode entry",
+      );
       expect(
         [...errorFilesOf(pass, CALLEE_HAS_ERRORS_CODE)],
         `${CALLEE_HAS_ERRORS_CODE} composes by induction to both callers above the namer\n` +
@@ -463,7 +448,14 @@ describe("bug 0280 — a callee's declared prompt mode is never read below the i
       requireDriven(pass);
       requireSingleModeRowAtNamer(pass, workspace.path(CHILD_NAME));
 
-      expectCallerRefusedWithCalleeHasErrors(pass, workspace.path(ROOT_NAME), ROOT_STEM);
+      expectCallerRefusedWithCalleeHasErrors(
+        pass,
+        workspace.path(ROOT_NAME),
+        ROOT_STEM,
+        CALLEE_HAS_ERRORS_CODE,
+        normativeMessagePattern(CALLEE_HAS_ERRORS_CODE),
+        "prompt-mode entry",
+      );
       expect(
         [...errorFilesOf(pass, CALLEE_HAS_ERRORS_CODE)],
         `${CALLEE_HAS_ERRORS_CODE} composes to every caller above the namer\n` +

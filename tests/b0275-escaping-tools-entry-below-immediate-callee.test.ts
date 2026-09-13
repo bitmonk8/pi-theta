@@ -2,12 +2,12 @@ import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import type { Diagnostic } from "../src/diagnostics/diagnostic";
 import {
   allDiagnostics,
   describeNotes,
   errorFilesOf,
   errorRowsAt,
+  expectCallerRefusedWithCalleeHasErrors,
   finishWorkspace,
   makeHost,
   normalisePath,
@@ -271,37 +271,6 @@ function requireEntryOwnerEscaped(pass: LoadPass, ownerPath: string): void {
   }
 }
 
-/**
- * Bug 0275 §Fix constraint 1 on the route `docs/spec_topics/invocation.md` line
- * 22 settles: a caller above the escaping entry's owner does not register, and
- * EXACTLY ONE error-severity row is located at its file — the V15f
- * `theta/load/callee-has-errors` push, carrying the registry's Message. One
- * entry names one callee, so one row; §Fix constraint 2 forbids a second beside
- * it.
- */
-function expectCallerRefusedWithCalleeHasErrors(
-  pass: LoadPass,
-  callerPath: string,
-  callerStem: string,
-): void {
-  expect(
-    pass.registered,
-    "the caller must not register over a callee this same pass un-registers\n" +
-      describeNotes(pass.notes),
-  ).not.toContain(callerStem);
-
-  const rows = errorRowsAt(pass, callerPath);
-  expect(
-    rows.map((d) => d.code),
-    `one escaping entry below this caller is one condition, so exactly one error-severity ` +
-      `row belongs at ${callerPath}, and it is ${CALLEE_HAS_ERRORS_CODE}\n` +
-      describeNotes(pass.notes),
-  ).toEqual([CALLEE_HAS_ERRORS_CODE]);
-  expect((rows[0] as Diagnostic).message, `${CALLEE_HAS_ERRORS_CODE} message`).toMatch(
-    normativeMessagePattern(CALLEE_HAS_ERRORS_CODE),
-  );
-}
-
 describe("bug 0275 — an escaping `tools:` entry below the immediate callee is silent at every caller above it", () => {
   // ── (A) the grandchild's own entry escapes, relative spelling ────────────
 
@@ -333,7 +302,14 @@ describe("bug 0275 — an escaping `tools:` entry below the immediate callee is 
       // that into the deep verdict `recursive.fails || recursive.ownEscapes`,
       // and the V15f `theta/load/callee-has-errors` push at the grandparent
       // gains its subject.
-      expectCallerRefusedWithCalleeHasErrors(pass, workspace.path(GP_NAME), GP_STEM);
+      expectCallerRefusedWithCalleeHasErrors(
+        pass,
+        workspace.path(GP_NAME),
+        GP_STEM,
+        CALLEE_HAS_ERRORS_CODE,
+        normativeMessagePattern(CALLEE_HAS_ERRORS_CODE),
+        "escaping entry",
+      );
       expect(pass.registered, describeNotes(pass.notes)).toEqual([]);
       expect([...pass.registered]).not.toContain(CHILD_STEM);
       expect([...pass.registered]).not.toContain(GC_STEM);
@@ -371,7 +347,14 @@ describe("bug 0275 — an escaping `tools:` entry below the immediate callee is 
           describeNotes(pass.notes),
       ).toEqual([workspace.path(CHILD_NAME), workspace.path(GC_NAME)].sort());
 
-      expectCallerRefusedWithCalleeHasErrors(pass, workspace.path(GP_NAME), GP_STEM);
+      expectCallerRefusedWithCalleeHasErrors(
+        pass,
+        workspace.path(GP_NAME),
+        GP_STEM,
+        CALLEE_HAS_ERRORS_CODE,
+        normativeMessagePattern(CALLEE_HAS_ERRORS_CODE),
+        "escaping entry",
+      );
       expect(pass.registered, describeNotes(pass.notes)).toEqual([]);
       expect([...pass.registered]).not.toContain(CHILD_STEM);
       expect([...pass.registered]).not.toContain(GC_STEM);
@@ -508,8 +491,22 @@ describe("bug 0275 — an escaping `tools:` entry below the immediate callee is 
           `carry ${CALLEE_HAS_ERRORS_CODE} instead\n${describeNotes(pass.notes)}`,
       ).toEqual([workspace.path(GC_NAME), workspace.path(GGC_NAME)].sort());
 
-      expectCallerRefusedWithCalleeHasErrors(pass, workspace.path(CHILD_NAME), CHILD_STEM);
-      expectCallerRefusedWithCalleeHasErrors(pass, workspace.path(GP_NAME), GP_STEM);
+      expectCallerRefusedWithCalleeHasErrors(
+        pass,
+        workspace.path(CHILD_NAME),
+        CHILD_STEM,
+        CALLEE_HAS_ERRORS_CODE,
+        normativeMessagePattern(CALLEE_HAS_ERRORS_CODE),
+        "escaping entry",
+      );
+      expectCallerRefusedWithCalleeHasErrors(
+        pass,
+        workspace.path(GP_NAME),
+        GP_STEM,
+        CALLEE_HAS_ERRORS_CODE,
+        normativeMessagePattern(CALLEE_HAS_ERRORS_CODE),
+        "escaping entry",
+      );
       expect(
         [...errorFilesOf(pass, CALLEE_HAS_ERRORS_CODE)],
         `${CALLEE_HAS_ERRORS_CODE} composes to every caller above the immediate one\n` +

@@ -21,6 +21,15 @@
 // redeclared byte-for-byte (or near so — an interpolated bug number, an
 // added timing field) rather than imported.
 //
+// `expectCallerRefusedWithCalleeHasErrors` (PTQ-0300) is this same family's
+// caller-refusal assertion: a caller above a callee that failed its own
+// structural checks must not register, and must carry exactly one
+// error-severity row of `code`, matching `messagePattern`. Two sibling files
+// redeclared it byte-for-byte apart from one interpolated noun naming the
+// condition below the caller (`entryNoun`); the code and its registry-backed
+// message pattern stay the caller's own, so the assertion takes both as
+// parameters instead of pinning one code.
+//
 // TIER: unit, offline, deterministic, provider-free — the same tier as every
 // file that imports this module.
 
@@ -223,4 +232,36 @@ export function normativeMessagePattern(
   }
   const escaped = message.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   return new RegExp(escaped.replace(/<[a-z-]+>/g, ".+"));
+}
+
+/**
+ * `docs/spec_topics/invocation.md` line 22 at a `tools:` edge above a callee
+ * that failed its own structural checks: the caller does not register, and
+ * EXACTLY ONE error-severity row is located at its file, `code`, matching
+ * `messagePattern` (DIAG-4). `entryNoun` names the condition below the caller
+ * in the failure message (e.g. `"escaping entry"`, `"prompt-mode entry"`),
+ * exactly as each importing bug file's own report phrases it (PTQ-0300).
+ */
+export function expectCallerRefusedWithCalleeHasErrors(
+  pass: LoadPass,
+  callerPath: string,
+  callerStem: string,
+  code: string,
+  messagePattern: RegExp,
+  entryNoun: string,
+): void {
+  expect(
+    pass.registered,
+    "the caller must not register over a callee this same pass un-registers\n" +
+      describeNotes(pass.notes),
+  ).not.toContain(callerStem);
+
+  const rows = errorRowsAt(pass, callerPath);
+  expect(
+    rows.map((d) => d.code),
+    `one ${entryNoun} below this caller is one condition, so exactly one error-severity ` +
+      `row belongs at ${callerPath}, and it is ${code}\n` +
+      describeNotes(pass.notes),
+  ).toEqual([code]);
+  expect((rows[0] as Diagnostic).message, `${code} message`).toMatch(messagePattern);
 }
