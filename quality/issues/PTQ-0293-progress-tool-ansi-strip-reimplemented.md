@@ -1,9 +1,9 @@
 ---
-id: pending                  # PTQ-NNNN minted at acceptance; never self-assigned
+id: PTQ-0293
 title: progress-tool.ts hand-rolls ANSI/control stripping that node:util already provides, and its regex misses OSC escape-sequence payloads the built-in strips
 lens: D8                     # D2 | D4 | D7 | D8 | D9 - the lens that filed this
-status: intake               # intake | open | fixed | rejected (store mechanics own transitions)
-verdict: pending              # pending | confirmed | questionable | false-positive | duplicate | out-of-scope | malformed
+status: open
+verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - src/extension/execution-status/progress-tool.ts:99-111
   - src/extension/execution-status/progress-tool.ts:114-117
@@ -86,3 +86,4 @@ Re-read progress-tool.ts:93-117 and re-ran both implementations against the quot
 ## Triage
 <triage appends: verdict + one-line reason. Nothing above this line is edited.>
 verdict: questionable — accounting verified: the OSC-strip gap reproduces byte-for-byte (hand-rolled leaves `]8;;http://example.comlink]8;;` while `util.stripVTControlCharacters` yields `link`), the facility is present since v16.11.0 within the package's >=22.19.0 floor, no D8 exemption is on record, and routing through it drops no EXST-14/PIC-74-required behaviour — but per the D8 rule the simpler shape is a human design call, never confirmed (triage: claude-opus-5)
+verdict: confirmed — RATIFIED (human, 2026-09-13): the simpler shape is the platform facility composed with the two spec-required steps it does not perform. In src/extension/execution-status/progress-tool.ts, stripControlAndAnsi(s) becomes: import { stripVTControlCharacters } from "node:util"; return stripVTControlCharacters(s).replace(/\t/g, " ").replace(CONTROL_PATTERN, ""); delete ANSI_PATTERN and its doc comment; keep CONTROL_PATTERN (the residual C0/C1/DEL sweep, newline included) and the tab-to-one-space step; keep the function's name, export, signature and its EXST-14 doc comment (reword the ANSI sentence to name the built-in). BEHAVIOUR CHANGE, accepted: OSC sequences (ESC ] ... BEL, e.g. an OSC-8 hyperlink) are now removed wholesale where the hand-rolled regex leaked their printable payload; a stray ESC followed by one byte in 0x40-0x7E is treated as a two-byte escape (Node's grammar) and that byte is dropped. TESTS: add one case to the clamp test in tests/execution-status-progress-tool.test.ts pinning an OSC-8 hyperlink input ("\u001B]8;;http://example.com\u0007link\u001B]8;;\u0007" -> "link"); the existing CSI/BEL/tab cases there and in tests/execution-status-progress-wire.test.ts stay byte-identical and unchanged. No spec change (EXST-14 / PIC-74 say 'ANSI escape sequences ... stripped' unqualified).

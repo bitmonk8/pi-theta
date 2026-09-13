@@ -1,9 +1,9 @@
 ---
-id: pending                  # PTQ-NNNN minted at acceptance; never self-assigned
+id: PTQ-0294
 title: pass-parse-cache.ts's bytesEqual hand-rolls a byte-by-byte Uint8Array loop that Buffer.compare already performs
 lens: D8                     # D2 | D4 | D7 | D8 | D9 - the lens that filed this
-status: intake               # intake | open | fixed | rejected (store mechanics own transitions)
-verdict: pending              # pending | confirmed | questionable | false-positive | duplicate | out-of-scope | malformed
+status: open
+verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - src/extension/pass-parse-cache.ts:60-73
   - src/extension/pass-parse-cache.ts:113
@@ -71,3 +71,4 @@ Re-read pass-parse-cache.ts:60-73 and pass-verdict-memo.ts:203, and re-ran the `
 ## Triage
 <triage appends: verdict + one-line reason. Nothing above this line is edited.>
 verdict: questionable — excerpts verified verbatim (bytesEqual at pass-parse-cache.ts:60-73, call sites at :113 and pass-verdict-memo.ts:203; size-scan map confirms 14 LOC and 1/0 src/test importers), Buffer.compare(a,b)===0 independently reproduced (0/-1/1) as behaviourally equivalent including subarray/byteOffset views, both call sites consume only the boolean, and no D8 exemption is on record for this host — accounting is accurate but per the D8 rule the simpler shape is a design decision for a human ruling, never confirmed (triage: claude-opus-5)
+verdict: confirmed — RATIFIED (human, 2026-09-13): bytesEqual in src/extension/pass-parse-cache.ts keeps its name, export and (a: Uint8Array, b: Uint8Array): boolean signature; its body becomes return Buffer.compare(a, b) === 0; (Node global, no import) and its doc comment states that the comparison is Node's native byte compare over the full content of both views (length difference is non-zero). Both call sites (pass-parse-cache.ts parse() and pass-verdict-memo.ts read()) are unchanged. Behaviour identical; no test change required beyond what the gate demands.
