@@ -499,6 +499,23 @@
     "tests/double-session-start-supersession.test.ts": "773df72eab913d2e4db8e15fd57d66ce187b50c0",
     "tests/drain-gated-dispatch-integration.test.ts": "773df72eab913d2e4db8e15fd57d66ce187b50c0"
   },
+  "D8": {
+    "src/binder/binder-cancellation.ts": "bed6e5b91dd44dc3f78b9c73fed8e439cdca0ec8",
+    "src/binder/binder-envelope.ts": "bed6e5b91dd44dc3f78b9c73fed8e439cdca0ec8",
+    "src/binder/binder-inference.ts": "bed6e5b91dd44dc3f78b9c73fed8e439cdca0ec8",
+    "src/binder/binder-model.ts": "bed6e5b91dd44dc3f78b9c73fed8e439cdca0ec8",
+    "src/binder/binder-seed.ts": "bed6e5b91dd44dc3f78b9c73fed8e439cdca0ec8",
+    "src/binder/binder-system-prompt.ts": "bed6e5b91dd44dc3f78b9c73fed8e439cdca0ec8",
+    "src/binder/binder-temperature.ts": "bed6e5b91dd44dc3f78b9c73fed8e439cdca0ec8",
+    "src/binder/compact-transcript.ts": "bed6e5b91dd44dc3f78b9c73fed8e439cdca0ec8",
+    "src/binder/defaulting.ts": "bed6e5b91dd44dc3f78b9c73fed8e439cdca0ec8",
+    "src/binder/forced-tool-choice.ts": "bed6e5b91dd44dc3f78b9c73fed8e439cdca0ec8",
+    "src/binder/provider-error-mapping.ts": "bed6e5b91dd44dc3f78b9c73fed8e439cdca0ec8",
+    "src/binder/retry-taxonomy.ts": "bed6e5b91dd44dc3f78b9c73fed8e439cdca0ec8",
+    "src/binder/session-context-walk.ts": "bed6e5b91dd44dc3f78b9c73fed8e439cdca0ec8",
+    "src/binder/system-note.ts": "bed6e5b91dd44dc3f78b9c73fed8e439cdca0ec8",
+    "src/binder/turn-grouping.ts": "bed6e5b91dd44dc3f78b9c73fed8e439cdca0ec8"
+  },
   "D9": {
     "src/binder/binder-cancellation.ts": "60809c21ef5cc88ec98ff2fda07e3595632e6c63",
     "src/binder/binder-envelope.ts": "60809c21ef5cc88ec98ff2fda07e3595632e6c63",
