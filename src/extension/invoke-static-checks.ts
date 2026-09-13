@@ -412,6 +412,16 @@ function resolveCalleeAbsolute(callerPath: string, literalPath: string): string 
  * undiscovered files is not detected until they are discovered (the spec's
  * leaf-termination rule).
  *
+ * The returned graph's `unresolvable` set is always empty here. `InvokeGraph`'s
+ * own doc (`../runtime/invoke-depth-cycle.ts`) treats a member as a LEAF
+ * because it produced `theta/load/callee-has-errors`, but that diagnostic
+ * (this file's `checkCalleeHasErrors` push on the `invoke` surface, in
+ * `checkInvokeStaticResolution` below) fires only for a callee whose
+ * realpath-based containment check rejected it — one this pass never
+ * discovered, so never a member of `inputs` and never one of the nodes `edges`
+ * covers above. This builder's own leaf-termination is the edge-drop just
+ * described, not this field.
+ *
  * Both the node keys and the resolved edge callees are minted through
  * `canonicalizePath` (`realpath`), so an `invoke(...)` literal whose directory
  * spelling differs only in case from the discovered path matches its node on a
@@ -575,7 +585,7 @@ function fieldSchemaType(fieldSchema: unknown): string | undefined {
 /**
  * The flat set of static types whose UNION covers every value `expr` can
  * evaluate to, or `undefined` when any value-contributing position is past the
- * parser's static view. Both type checks below reason over this SET rather than
+ * parser's static view. All type checks below reason over this SET rather than
  * over `StaticTypeInferencePass`'s single reduced type.
  *
  * `#commonType` (../parser/static-type-inference.ts) narrows a composite to ONE
@@ -589,7 +599,7 @@ function fieldSchemaType(fieldSchema: unknown): string | undefined {
  * rejects a program the runtime AJV check would accept"), and on the
  * `.theta`-callable arm it defeats bug 0072 §Fix's rule that only an explicit
  * incompatibility is a mismatch while `unknown` defers to the runtime net.
- * Keeping the whole value-type set in front of both consumers is what lets
+ * Keeping the whole value-type set in front of all consumers is what lets
  * `subsetKinds`' "an unrepresentable arm makes the whole union unprovable" rule
  * (../runtime/tool-call.ts) and the every-arm-incompatible test below decide
  * these expressions correctly. The RENDERING stays on `displayType`, the
@@ -742,7 +752,7 @@ function collectProvableArgTypes(
     case "method-call":
       // Each types as a `named` nominal reference past the parser's static view
       // — the shape `checkCompatible` answers `unknown` for and the runtime AJV
-      // net owns. `ident` included: both consumers below read types with an
+      // net owns. `ident` included: all consumers below read types with an
       // EMPTY bindings map, so even a `let`-bound name is nominal here.
       return undefined;
     case "index":
