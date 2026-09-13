@@ -49,8 +49,10 @@ import type { InvokeResultSource } from "../runtime/invoke-cancellation";
 import { createThetaAbort, forwardSlashCommandCancel } from "../runtime/cancellation-core";
 import type { ActiveInvocationTicket } from "../runtime/active-invocation-registry";
 import {
+  completePanicSite,
   HostFatal,
   isThetaPanic,
+  renderPanicSuffixLines,
   surfaceUnexpectedThrow,
 } from "../runtime/runtime-panics";
 import { ToolReturnShapeDefectError } from "../runtime/tool-call-off-surface";
@@ -656,17 +658,39 @@ function surfaceDispatchDefect(
   }
   const site = { file: theta.sourcePath ?? theta.slashName, range: ZERO_BODY_RANGE };
   if (isThetaPanic(thrown)) {
-    // ThetaPanic framing (error-model.md §"Runtime panics"): a bare panic carries
-    // no SourceRange, so synthesize the zero body range. The registered panic
-    // message rides both the diagnostic and the framing.
+    // Two-phase site completion (bug 0476 §Fix, BLOCKER A): the pure host
+    // evaluator (production-theta-producer.ts) knows the raising node's range
+    // but not the top-level body's on-disk file, so it records a PENDING range
+    // via `attachPanicRange`. THIS is the one place that knows the top-level
+    // file (the theta's own source path is the correct file for the
+    // top-level body — a `.thetalib` leaf frame already carries its own
+    // residence via `attachPanicSite`/`pushPanicFrame`'s explicit `file`), so
+    // complete the site BEFORE building the diagnostic/suffix below — every
+    // downstream read of `thrown.site` / `thrown.frames[*].file` must see the
+    // completed values.
+    completePanicSite(thrown, theta.sourcePath ?? theta.slashName);
+    // ThetaPanic framing (error-model.md §"Runtime panics"; §"Panic site
+    // suffix (normative)", bug 0476 §Fix; BLOCKER B): the diagnostic's
+    // `file`/`range` come from the panic's own SITE, attached at the
+    // innermost raise — the zero body range is now a defensive fallback for a
+    // panic that reached this catch with no site (no shipped construction
+    // seam leaves one unattached; see the bug 0476 tripwire witness).
+    // `renderPanicSuffixLines` renders NOTHING — no `hint`, no note suffix —
+    // when `thrown.site` is `undefined`, even if `thrown.frames` is
+    // non-empty: frames render only UNDER a site (BLOCKER B / option (a)), so
+    // a site-less panic's open frames are never surfaced.
+    const panicSite = thrown.site ?? site;
+    const suffixLines = renderPanicSuffixLines(thrown);
     const diagnostic: Diagnostic = {
       severity: "error",
       code: thrown.code,
-      file: site.file,
-      range: site.range,
+      file: panicSite.file,
+      range: panicSite.range,
       message: thrown.message,
+      ...(suffixLines.length > 0 ? { hint: suffixLines.join("\n") } : {}),
     };
-    deps.emitPanicNote(`theta /${theta.slashName} aborted: ${thrown.message}`, diagnostic);
+    const suffix = suffixLines.map((line) => `\n  ${line}`).join("");
+    deps.emitPanicNote(`theta /${theta.slashName} aborted: ${thrown.message}${suffix}`, diagnostic);
     return;
   }
   // internal-error framing: a `ToolReturnShapeDefectError` already carries a

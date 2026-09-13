@@ -4,6 +4,65 @@ All notable changes to `@bitmonk8/pi-theta` will be documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.472.0]
+
+### Fixed
+- Bug 0476: a runtime panic's diagnostic carried a synthesized zero body range
+  and no call-chain context, so `theta /<name> aborted: <message>` named
+  neither the panicking expression's location nor which call frame it fired
+  in. `ThetaPanic` (`src/runtime/runtime-panics.ts`) gains a `site?: PanicSite`
+  (set once, innermost raise wins — `attachPanicSite`) and a `frames:
+  PanicFrame[]` unwind stack (`pushPanicFrame`); the `index` / `member` /
+  `match` executor arms
+  (`src/runtime/statement-executor.ts`) attach the raising expression's own
+  range and the current lexical residence's file (the leaf `.thetalib` file
+  inside an imported fn body, per the existing leaf-location rule); the user
+  `fn` call boundary pushes a `{kind:"fn", name, file, range}` frame at the
+  CALL site as the panic unwinds through it; the `invoke`-depth-exceeded seam
+  attaches the would-be call expression as its site; the `par for` lane body
+  pushes a `{kind:"par-for", ...}` frame (per ERR-20 this frame never reaches a
+  top-level note today — the lane panic is always downgraded to that
+  element's `Err` first — but the plumbing is uniform across every unwind
+  boundary). `theta-composition-producer.ts`'s `surfaceDispatchDefect` now
+  reads the diagnostic's `file`/`range` from `panic.site` (the zero body range
+  is a defensive fallback for a site-less panic — no shipped construction seam
+  takes it) and renders the site+frame stack as `hint` and as a `content`
+  suffix (`renderPanicSuffixLines`).
+- Bug 0476 follow-up: an interpolation-origin panic (a `${…}` expression
+  inside an `@`-query template) was located at a coordinate LOCAL to the
+  re-parsed interpolation substring — line 1, column within the hole —
+  because `stringifyInterpolation` re-parses each `${…}` standalone
+  (`parseExpressionSource`). `renderQueryText`'s wrap around
+  `stringifyInterpolation` now retargets any panic it raises
+  (`retargetInterpolationPanic`, `src/runtime/runtime-panics.ts`) to the
+  enclosing query's own real file range, and appends a new `PanicFrame` kind
+  — `{ kind: "interpolation", source, file, range }`, rendered `in
+  interpolation ${<source>} (<file>:<line>:<col>)` — naming the hole's raw
+  text. Applies uniformly whether the panic raised directly inside the hole
+  or after unwinding through a `fn` call written inside it (only the
+  outermost, interpolation-local frame is retargeted; an inner frame belongs
+  to the callee's own document-AST body and is untouched); the same
+  `theta/parse/interpolated-result` runtime fallback (bug 0079/0422) is
+  covered by the same wrap.
+
+### Changed
+- Spec amendment (bug 0476, human-ruled 2026-09-12, content-side site suffix):
+  [error-model.md §"Panic message string
+  (normative)"](docs/spec_topics/errors-and-results/error-model.md#runtime-panics)
+  gains a new *Panic site suffix (normative)* paragraph
+  (`#panic-site-suffix`) and amends the slash-command routing bullet: the
+  `theta-system-note` `content` is now the unchanged `"theta /<name> aborted:
+  <message>"` framing (or the internal-error framing) followed by the site
+  and open-frame lines, each prefixed two spaces, in the SAME rendering the
+  diagnostic's `hint` carries; the `<message>` slice itself is unchanged.
+  [runtime-event-channel.md](docs/spec_topics/pi-integration-contract/runtime-event-channel.md)'s
+  per-variant table row for the panic case gains "+ site suffix lines"
+  citing the new anchor.
+  [docs/reference/errors-and-results.md](docs/reference/errors-and-results.md)
+  mirrors both amendments. `code-registry-runtime.md` is unchanged (no
+  location column; no message-template change — bug 0365's operand rendering
+  stays byte-identical, per witness 7).
+
 ## [0.471.0]
 
 ### Changed

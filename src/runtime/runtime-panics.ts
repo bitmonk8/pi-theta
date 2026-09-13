@@ -32,6 +32,7 @@
 // runtime-defect surface emits the registered codes.
 
 import type { Diagnostic, SourceRange } from "../diagnostics/diagnostic";
+import { toPosixFileSpelling } from "../diagnostics/diagnostic";
 import { renderInteger, renderSourceDerived } from "../diagnostics/placeholder";
 import { isEnumValue, isObjectValue, isResultValue, schemaTagOf, type ResultValue, type ThetaValue } from "./value";
 
@@ -57,13 +58,238 @@ export const NON_OBJECT_RECEIVER_CODE = "theta/runtime/non-object-receiver";
 export const INVOKE_DEPTH_CAP = 32;
 
 /**
+ * A runtime panic's SITE (bug 0476 §Fix; errors-and-results/error-model.md
+ * §"Panic message string (normative)"): the file and range of the expression
+ * that raised it. For a panic inside a `.thetalib`-imported fn body, `file` is
+ * the leaf source location (the declaring lib), not the importer — the
+ * existing normative leaf-location rule.
+ */
+export interface PanicSite {
+  readonly file: string;
+  readonly range: SourceRange;
+}
+
+/**
+ * One open frame on a panic's unwind path (bug 0476 §Fix), pushed innermost-
+ * first as the panic unwinds outward through {@link pushPanicFrame}:
+ *   - `kind: "fn"` — a user `fn` call boundary; `file`/`range` are the CALL
+ *     SITE (the caller's file and the call expression's own range), not the
+ *     callee's declaration;
+ *   - `kind: "par-for"` — a `par for` lane body; `file`/`range` are the
+ *     enclosing `par for` expression's own file/range.
+ */
+export type PanicFrame =
+  | { readonly kind: "fn"; readonly name: string; file: string | undefined; readonly range: SourceRange }
+  | { readonly kind: "par-for"; file: string | undefined; readonly range: SourceRange }
+  | {
+      /**
+       * A `${…}` interpolation boundary (bug 0476 follow-up): `source` is the
+       * raw hole text (e.g. `cols[1]`, without the `${` `}` delimiters);
+       * `file`/`range` are the enclosing `@`-query's own real file location,
+       * never the interpolation-local coordinate the re-parsed substring
+       * would otherwise carry — see {@link retargetInterpolationPanic}.
+       */
+      readonly kind: "interpolation";
+      readonly source: string;
+      file: string | undefined;
+      readonly range: SourceRange;
+    };
+
+/**
  * Base class for the closed theta 1.0 runtime panics this module owns. A panic
  * is a thrown JS exception, never a `Result` value, so `?` and `match` (which
  * operate on `Result` values) cannot intercept it — it bypasses them by
  * construction. Each subclass carries its registered `theta/runtime/*` code.
+ *
+ * `site` / `frames` (bug 0476 §Fix) are populated post-construction, at the
+ * executor arms/boundaries that hold the AST node the closed construction
+ * seams (`evaluateIndexAccess` et al.) do not see — see
+ * {@link attachPanicSite} / {@link pushPanicFrame}. A panic that never reaches
+ * an instrumented seam (defensive only — every shipped construction seam is
+ * instrumented) carries neither.
  */
 export abstract class ThetaPanic extends Error {
   abstract readonly code: string;
+  /** The panic's site (bug 0476 §Fix) — set once, by the innermost raise. */
+  site?: PanicSite;
+  /** Open frames the panic unwound through, innermost first (bug 0476 §Fix). */
+  readonly frames: PanicFrame[] = [];
+  /**
+   * A PENDING range attached by {@link attachPanicRange} (bug 0476 §Fix): the
+   * innermost raise's range, recorded before the FILE it belongs to is known.
+   * The pure host evaluator (production-theta-producer.ts) knows the raising
+   * node but not the top-level body's on-disk file — only
+   * `surfaceDispatchDefect` (theta-composition-producer.ts) does, so the range
+   * waits here until {@link completePanicSite} supplies the file. Cleared (left
+   * set but superseded) once `site` is set by either helper.
+   */
+  pendingRange?: SourceRange;
+}
+
+/**
+ * Attach `site` to `panic` iff it carries none yet (bug 0476 §Fix): the
+ * INNERMOST raise wins, so a later (outer) catch attaching a site is a no-op —
+ * the diagnostic's `file`/`range` names the leaf expression that actually
+ * panicked, never an enclosing one.
+ */
+export function attachPanicSite(panic: ThetaPanic, site: PanicSite): void {
+  if (panic.site === undefined) {
+    panic.site = site;
+  }
+}
+
+/**
+ * Attach a PENDING range to `panic` (bug 0476 §Fix, two-phase site) iff it
+ * carries no site yet — the INNERMOST raise wins, same discipline as
+ * {@link attachPanicSite}. Used by a raise site that knows the node's range
+ * but not (yet) the file it lives in — the pure host evaluator, which has no
+ * access to the top-level body's on-disk path. {@link completePanicSite}
+ * later supplies the file and turns this into a real `site`.
+ */
+export function attachPanicRange(panic: ThetaPanic, range: SourceRange): void {
+  if (panic.site === undefined && panic.pendingRange === undefined) {
+    panic.pendingRange = range;
+  }
+}
+
+/**
+ * Complete a two-phase panic site (bug 0476 §Fix): when `panic` carries a
+ * {@link ThetaPanic.pendingRange} but no `site` yet, combine it with `file`
+ * into the real site. Also back-fills `file` on every {@link PanicFrame} that
+ * was pushed with no file yet (the pure host's fn-call / depth-seam frames) —
+ * both the site and every pending frame share the SAME top-level file, because
+ * the pure host only ever raises/pushes frames within the one top-level body
+ * `surfaceDispatchDefect` is framing. A no-op when `panic` already carries a
+ * site (the executor's own instrumented arms already attached one) or no
+ * pending range (nothing to complete). Called FIRST, before
+ * `surfaceDispatchDefect` builds the diagnostic, so every downstream read of
+ * `panic.site` / `panic.frames[*].file` sees the completed values.
+ */
+export function completePanicSite(panic: ThetaPanic, file: string): void {
+  if (panic.site === undefined && panic.pendingRange !== undefined) {
+    panic.site = { file, range: panic.pendingRange };
+  }
+  for (const frame of panic.frames) {
+    if (frame.file === undefined) {
+      frame.file = file;
+    }
+  }
+}
+
+/**
+ * Push one open frame onto `panic` as it unwinds outward through a `fn` call
+ * boundary or a `par for` lane body (bug 0476 §Fix). Frames accumulate
+ * innermost-first: the first call (closest to the raise) lands at index 0.
+ */
+export function pushPanicFrame(panic: ThetaPanic, frame: PanicFrame): void {
+  panic.frames.push(frame);
+}
+
+/**
+ * Render `panic`'s site + open-frame stack as the ordered suffix lines (bug
+ * 0476 §Fix; errors-and-results/error-model.md §"Panic site suffix
+ * (normative)"): `at <file>:<line>:<col>` first, then one `in fn <name>
+ * (<file>:<line>:<col>)` / `in par for lane (<file>:<line>:<col>)` line per
+ * open frame, innermost first. `file` is spelled with the shared POSIX
+ * convention ({@link toPosixFileSpelling}) — the same one
+ * `renderDiagnosticLine` uses — so one path literal matches regardless of
+ * which platform raised it.
+ *
+ * Returns `[]` when `panic.site === undefined` (bug 0476 §Fix, BLOCKER B /
+ * option (a); errors-and-results/error-model.md §"Panic site suffix
+ * (normative)"): frames render only UNDER a site, so a site-less panic
+ * carries no suffix and no hint — the defensive case a panic reaches this
+ * render with no site at all (every shipped construction seam attaches one,
+ * per the bug 0476 tripwire witness).
+ */
+export function renderPanicSuffixLines(panic: ThetaPanic): string[] {
+  if (panic.site === undefined) {
+    return [];
+  }
+  const lines: string[] = [];
+  const { file, range } = panic.site;
+  lines.push(`at ${toPosixFileSpelling(file)}:${range.start.line}:${range.start.column}`);
+  for (const frame of panic.frames) {
+    const file = toPosixFileSpelling(frame.file ?? "");
+    const loc = `${file}:${frame.range.start.line}:${frame.range.start.column}`;
+    if (frame.kind === "fn") {
+      lines.push(`in fn ${frame.name} (${loc})`);
+    } else if (frame.kind === "par-for") {
+      lines.push(`in par for lane (${loc})`);
+    } else {
+      lines.push(`in interpolation \${${frame.source}} (${loc})`);
+    }
+  }
+  return lines;
+}
+
+/**
+ * Retarget an interpolation-local panic to its enclosing `@`-query's real
+ * file coordinates and name the hole it came from (bug 0476 follow-up).
+ *
+ * WHY: an `Expr` inside a `${…}` interpolation is RE-PARSED from the
+ * template substring (`stringifyInterpolation` → `parseExpressionSource`,
+ * production-theta-producer.ts), so every node range that parse yields is
+ * LOCAL to that substring — line 1, column within the `${…}` body — never a
+ * file coordinate. A pure `fn` body reached from the SAME pure host is, by
+ * contrast, part of the DOCUMENT AST evaluated in place
+ * (`evaluatePureBlock` over `fn.body`), so its own node ranges are already
+ * file-relative and need no retargeting. Nested template strings inside a
+ * `${…}` interpolation are disallowed (expressions.md §"Nested template
+ * strings inside a ${...} interpolation"), and a pure `fn` body carries no
+ * queries of its own (a query expression has no pure value — it yields the
+ * inert `null` safety net, so it can never nest a second interpolation
+ * inside a `fn` body reached from the first) — so the ONLY substring-local
+ * coordinate a panic emerging from `stringifyInterpolation` can carry is
+ * exhaustively one of:
+ *
+ *   (a) its OWN site/pending range — `panic.frames.length === 0` — when it
+ *       raised directly inside the interpolation with no intervening `fn`
+ *       call boundary; or
+ *   (b) the OUTERMOST (last-pushed) frame's range — the call expression
+ *       WRITTEN INSIDE the interpolation that opened a `fn` call boundary.
+ *       Every frame pushed BENEATH it belongs to a call made from inside
+ *       that callee's own body — document AST, already file-relative — and
+ *       is left untouched.
+ *
+ * Called exactly once, at the interpolation boundary
+ * (`renderQueryText`'s wrap around `stringifyInterpolation`) — the one place
+ * that knows both the local coordinate the pure host produced and the
+ * enclosing query's real file range. `source` is the raw hole text (e.g.
+ * `cols[1]`), carried onto the pushed `interpolation` frame so the rendered
+ * suffix names the hole, not just its location.
+ */
+export function retargetInterpolationPanic(
+  panic: ThetaPanic,
+  interpolation: { readonly source: string; readonly file: string | undefined; readonly range: SourceRange },
+): void {
+  const { source, file, range } = interpolation;
+  if (panic.frames.length === 0) {
+    // (a) — nothing unwound through a `fn` call boundary: whatever the panic
+    // carries (a completed site, or a pending range awaiting
+    // `completePanicSite`) is the interpolation-local coordinate itself.
+    // Discard it and install the enclosing query's real range instead.
+    if (file !== undefined) {
+      panic.site = { file, range };
+    } else {
+      panic.pendingRange = range;
+    }
+  } else {
+    // (b) — the OUTERMOST (last-pushed) frame is the call expression written
+    // inside the interpolation; its range is local the same way. Replace the
+    // whole frame object (its `range` field is readonly) rather than mutate
+    // it in place.
+    const outerIndex = panic.frames.length - 1;
+    const outer = panic.frames[outerIndex] as PanicFrame;
+    const retargetedFile = file !== undefined ? file : outer.file;
+    panic.frames[outerIndex] =
+      outer.kind === "fn"
+        ? { kind: "fn", name: outer.name, file: retargetedFile, range }
+        : outer.kind === "par-for"
+          ? { kind: "par-for", file: retargetedFile, range }
+          : { kind: "interpolation", source: outer.source, file: retargetedFile, range };
+  }
+  pushPanicFrame(panic, { kind: "interpolation", source, file, range });
 }
 
 /** `arr[i]` where `i` is not an integer in `0..arr.length` (`theta/runtime/index-out-of-bounds`). */

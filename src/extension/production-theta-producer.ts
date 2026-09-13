@@ -275,13 +275,17 @@ import {
   respondToolWireSchema,
 } from "../runtime/respond-tool-wire";
 import {
+  attachPanicRange,
+  attachPanicSite,
   evaluateIndexAccess,
   evaluateMemberAccess,
   evaluateQuestion,
   HostFatal,
   isThetaPanic,
   nonObjectReceiverRejection,
+  pushPanicFrame,
   QuestionOperandDefectError,
+  retargetInterpolationPanic,
 } from "../runtime/runtime-panics";
 import {
   createRegistrationCache,
@@ -2197,6 +2201,8 @@ class ProductionThetaProducer implements ThetaProducerDeps {
       mutator: new NoopConversationMutator(),
       mode: "prompt",
       file: theta.slashName,
+      // Bug 0476: a panic site in the top-level body names the on-disk file.
+      ...(theta.sourcePath !== undefined ? { sourcePath: theta.sourcePath } : {}),
       // Bug 0324: thread the real runtime-diagnostic channel so a non-number
       // `par for` `max` value's clamp-to-1 is not silent.
       emitDiagnostic: this.#input.emitDiagnostic ?? ((): void => {}),
@@ -7591,7 +7597,24 @@ function renderQueryText(expr: QueryExpr, env: LexicalEnvironment, chain?: Invok
       text += part.value;
       continue;
     }
-    text += stringifyInterpolation(part.exprSource, env, chain);
+    // Bug 0476 follow-up: `stringifyInterpolation` re-parses `part.exprSource`
+    // standalone (`parseExpressionSource`), so any panic it raises carries an
+    // interpolation-LOCAL coordinate (line 1, column within the `${…}` body),
+    // not a file coordinate. This is the one boundary that knows both that
+    // local coordinate and the enclosing query's own real range (`expr.range`)
+    // — retarget here, then re-throw.
+    try {
+      text += stringifyInterpolation(part.exprSource, env, chain);
+    } catch (thrown) { // allow-broad-catch: ThetaPanic-only, re-raised (bug 0476 follow-up)
+      if (isThetaPanic(thrown)) {
+        retargetInterpolationPanic(thrown, {
+          source: part.exprSource,
+          file: env.currentResidence(),
+          range: expr.range,
+        });
+      }
+      throw thrown;
+    }
   }
   return renderTemplateText(text);
 }
@@ -7897,7 +7920,30 @@ function evaluatePureExpression(
         }
       }
       // `.field` access — a `null` target raises `NullMemberAccessPanic` (V4b).
-      return evaluateMemberAccess(evaluatePureExpression(expr.target, env, chain), expr.field);
+      // Bug 0476 §Fix (BLOCKER A): the pure host raises on the shipped `@`
+      // interpolation route (`renderQueryText` → `stringifyInterpolation`),
+      // which is NOT absorbed, so this arm attaches the panic's SITE exactly
+      // as the executor's member arm does — except this host knows only the
+      // node's range, not the top-level body's on-disk file, so it attaches a
+      // full site when the current residence is known (a `.thetalib` leaf) and
+      // a PENDING range otherwise (`surfaceDispatchDefect`'s
+      // `completePanicSite` supplies the top-level file later).
+      {
+        const target = evaluatePureExpression(expr.target, env, chain);
+        try {
+          return evaluateMemberAccess(target, expr.field);
+        } catch (thrown) { // allow-broad-catch: ThetaPanic-only, re-raised (bug 0476 §Fix)
+          if (isThetaPanic(thrown)) {
+            const file = env.currentResidence();
+            if (file !== undefined) {
+              attachPanicSite(thrown, { file, range: expr.range });
+            } else {
+              attachPanicRange(thrown, expr.range);
+            }
+          }
+          throw thrown;
+        }
+      }
     }
     case "index": {
       // `[i]` access — a `null` target / out-of-bounds / missing key panics (V4b).
@@ -7912,7 +7958,21 @@ function evaluatePureExpression(
       if (typeof index !== "number" && typeof index !== "string") {
         throw new IndexKindDefectError(index);
       }
-      return evaluateIndexAccess(target, index);
+      // Bug 0476 §Fix (BLOCKER A): same two-phase site attachment as the
+      // member arm above — this is the shipped `@` interpolation route.
+      try {
+        return evaluateIndexAccess(target, index);
+      } catch (thrown) { // allow-broad-catch: ThetaPanic-only, re-raised (bug 0476 §Fix)
+        if (isThetaPanic(thrown)) {
+          const file = env.currentResidence();
+          if (file !== undefined) {
+            attachPanicSite(thrown, { file, range: expr.range });
+          } else {
+            attachPanicRange(thrown, expr.range);
+          }
+        }
+        throw thrown;
+      }
     }
     case "call": {
       // A `<name>(args)` call whose callee resolves to a user `fn` executes the
@@ -8066,10 +8126,49 @@ function evaluatePureFnCall(
       calleeResidence: bodyRoot.currentResidence() ?? "",
     });
     if (kind !== undefined) {
-      bodyChain = pushCountableFrame(chain, kind);
+      // Bug 0476 §Fix (BLOCKER A): the depth seam's caller — the pure-host
+      // twin of `evalUserFnCall`'s catch around `pushCountableFrame`
+      // (statement-executor.ts). The depth cap is breached BEFORE the frame
+      // opens (invocation.md §INV-4), so THIS call expression — the one that
+      // would have opened it — is the panic's SITE, not a frame: no body ever
+      // ran. Two-phase, like the member/index arms above: a full site when the
+      // residence is known, else a pending range for `completePanicSite`.
+      try {
+        bodyChain = pushCountableFrame(chain, kind);
+      } catch (thrown) { // allow-broad-catch: ThetaPanic-only, re-raised (bug 0476 §Fix)
+        if (isThetaPanic(thrown)) {
+          const file = env.currentResidence();
+          if (file !== undefined) {
+            attachPanicSite(thrown, { file, range: expr.range });
+          } else {
+            attachPanicRange(thrown, expr.range);
+          }
+        }
+        throw thrown;
+      }
     }
   }
-  return evaluatePureBlock(fn.body, scope, bodyChain).value;
+  // Bug 0476 §Fix (BLOCKER A): the pure fn-call boundary — the pure-host twin
+  // of `evalUserFnCall`'s catch around `executeBlock` (statement-executor.ts).
+  // As the panic unwinds through this call, push the CALL SITE frame — this
+  // caller's file (when known; else left pending for `completePanicSite` to
+  // back-fill alongside the site) and the call expression's own range — not
+  // the callee's declaration.
+  let outcome: PureBlockOutcome;
+  try {
+    outcome = evaluatePureBlock(fn.body, scope, bodyChain);
+  } catch (thrown) { // allow-broad-catch: ThetaPanic-only, re-raised (bug 0476 §Fix)
+    if (isThetaPanic(thrown)) {
+      pushPanicFrame(thrown, {
+        kind: "fn",
+        name: fn.name,
+        file: env.currentResidence(),
+        range: expr.range,
+      });
+    }
+    throw thrown;
+  }
+  return outcome.value;
 }
 
 /** The outcome of evaluating a pure block: a fallen-through value or an explicit `return`. */

@@ -118,11 +118,33 @@ formatted from its registered *Message template* (see [Diagnostics](./diagnostic
 | `theta/runtime/invoke-depth-exceeded` | `invoke chain depth exceeded: <depth> > 32` |
 
 There is exactly one message string per panic, unchanged across every routing
-surface. Panics surface to the caller as: **slash-command / prompt-mode** — one
-`theta-system-note` `"theta /<name> aborted: <message>"` (session not torn down);
-**`invoke` parent** — `Err(QueryError { kind: "invoke_infra", cause: "panic",
-message: <message>, ... })`. Panics are not values — they do not flow through `?`
-and cannot be caught by `match`.
+surface.
+
+**Panic site suffix (bug 0476 amendment).** The diagnostic's `hint`, and (for the
+slash-command / prompt-mode surface) the `theta-system-note` `content`, both
+carry the same rendered site-and-frame suffix, one line per entry, innermost
+first: `at <file>:<line>:<col>` (the panic site — the leaf `.thetalib` file per
+the leaf-location rule above), then one `in fn <name> (<file>:<line>:<col>)` line
+per open user-`fn` call boundary the panic unwound through (the CALL site, not
+the callee's declaration), then one `in par for lane (<file>:<line>:<col>)` line
+for a `par for` lane body it unwound through (reached only in principle — ERR-20
+below always downgrades a lane panic before it could surface this way), then one
+`in interpolation ${<source>} (<file>:<line>:<col>)` line for a panic that arose
+while evaluating a `${…}` interpolation inside an `@`-query template
+(`<source>` is the hole's raw text; `<file>`/`<line>`/`<col>` are the enclosing
+query's own location, never a coordinate local to the re-parsed interpolation
+substring — an expression evaluated inside a `${…}` interpolation is always
+located at its enclosing query's range with the hole text named). On
+`content`, each suffix line is prefixed `\n  ` and appended after the unchanged
+framing; the `<message>` slice of `content` stays byte-identical. A panic with no
+known site carries no suffix and no `hint` (defensive-only case — every closed
+panic source is instrumented).
+
+Panics surface to the caller as: **slash-command / prompt-mode** — one
+`theta-system-note` `"theta /<name> aborted: <message>"` plus the site-suffix
+lines above (session not torn down); **`invoke` parent** — `Err(QueryError {
+kind: "invoke_infra", cause: "panic", message: <message>, ... })`. Panics are not
+values — they do not flow through `?` and cannot be caught by `match`.
 
 <a id="err-20"></a> **ERR-20 (`par for` iteration boundary — panic downgrade).** The
 `par for` iteration boundary ([Control flow](../spec_topics/control-flow.md#par-for))
