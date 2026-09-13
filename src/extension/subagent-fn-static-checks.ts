@@ -24,15 +24,8 @@
 // (FN-6), invocation.md §"Cycle detection", diagnostics/code-registry-load.md.
 
 import type { Diagnostic } from "../diagnostics/diagnostic";
-import type {
-  Block,
-  CallExpr,
-  Expr,
-  FnDecl,
-  Stmt,
-  ThetaBody,
-} from "../parser/theta-document";
-import { callWithClauseValues } from "../parser/theta-document";
+import type { Block, FnDecl, ThetaBody } from "../parser/theta-document";
+import { walkCallSiteNodes } from "../parser/theta-document";
 import type { ModelReferenceMatcher } from "../parser/frontmatter";
 import { checkCalleeHasErrors } from "../parser/invoke-diagnostics";
 import {
@@ -55,132 +48,23 @@ export function collectSubagentFns(body: ThetaBody): FnDecl[] {
  * Collect every `<name>(args)` call callee reachable in a block, walking the
  * whole statement / expression tree (nested blocks, conditions, arms, arguments
  * included). Used to find the in-body calls a `subagent fn` makes to sibling
- * `subagent fn`s for the self-reference / mutual-cycle graph.
+ * `subagent fn`s for the self-reference / mutual-cycle graph. Shares its
+ * traversal (`walkCallSiteNodes`, `../parser/theta-document.ts`) with
+ * `collectCodeSideCallNames` (`extension-tool-reachability.ts`),
+ * `collectCallSites` (`invoke-static-checks.ts`) and
+ * `collectClauseBearingCalls` (the traversal's own module) — one walker so a
+ * spawn routed through a block expression still creates a graph edge (the
+ * FN-6 cycle would otherwise escape the load-time refusal), exactly as it
+ * does for every other consumer of the shared walk.
  */
 function collectCallCallees(block: Block): string[] {
   const out: string[] = [];
-  walkBlock(block, out);
+  walkCallSiteNodes(block, (node) => {
+    if (node.kind === "call") {
+      out.push(node.callee);
+    }
+  });
   return out;
-}
-
-function walkBlock(block: Block, out: string[]): void {
-  for (const stmt of block.statements) {
-    walkStmt(stmt, out);
-  }
-  if (block.tail !== null) {
-    walkExpr(block.tail, out);
-  }
-}
-
-function walkStmt(stmt: Stmt, out: string[]): void {
-  switch (stmt.kind) {
-    case "let":
-      if (stmt.init !== null) walkExpr(stmt.init, out);
-      return;
-    case "reassign":
-      walkExpr(stmt.value, out);
-      return;
-    case "if":
-      walkExpr(stmt.condition, out);
-      walkBlock(stmt.then, out);
-      if (stmt.otherwise !== null) {
-        if ("kind" in stmt.otherwise) walkStmt(stmt.otherwise, out);
-        else walkBlock(stmt.otherwise, out);
-      }
-      return;
-    case "while":
-      walkExpr(stmt.condition, out);
-      walkBlock(stmt.body, out);
-      return;
-    case "for":
-      walkExpr(stmt.iterand, out);
-      walkBlock(stmt.body, out);
-      return;
-    case "fn":
-      walkBlock(stmt.body, out);
-      return;
-    case "return":
-      if (stmt.operand !== null) walkExpr(stmt.operand, out);
-      return;
-    case "tool-call":
-      walkExpr(stmt.call, out);
-      return;
-    case "invoke":
-      walkExpr(stmt.invoke, out);
-      return;
-    case "expr":
-      walkExpr(stmt.expr, out);
-      return;
-    default:
-      return;
-  }
-}
-
-function walkExpr(expr: Expr, out: string[]): void {
-  switch (expr.kind) {
-    case "call":
-      out.push((expr as CallExpr).callee);
-      // RFC 0009: a call-site `with` clause value is an expression position with
-      // an argument's exact rules, so a call nested in one is reached too.
-      for (const arg of [
-        ...(expr as CallExpr).args,
-        ...callWithClauseValues(expr as CallExpr),
-      ])
-        walkExpr(arg, out);
-      return;
-    case "array":
-      for (const el of expr.elements) walkExpr(el, out);
-      return;
-    case "binary":
-      walkExpr(expr.left, out);
-      walkExpr(expr.right, out);
-      return;
-    case "ternary":
-      walkExpr(expr.condition, out);
-      walkExpr(expr.consequent, out);
-      walkExpr(expr.alternate, out);
-      return;
-    case "try":
-      walkExpr(expr.operand, out);
-      return;
-    case "invoke":
-      for (const arg of [...expr.args, ...callWithClauseValues(expr)]) walkExpr(arg, out);
-      return;
-    case "member":
-      walkExpr(expr.target, out);
-      return;
-    case "index":
-      walkExpr(expr.target, out);
-      walkExpr(expr.index, out);
-      return;
-    case "object":
-      for (const field of expr.fields) walkExpr(field.value, out);
-      return;
-    case "match":
-      walkExpr(expr.scrutinee, out);
-      for (const arm of expr.arms) walkExpr(arm.body, out);
-      return;
-    case "result-ctor":
-      walkExpr(expr.arg, out);
-      return;
-    case "method-call":
-      walkExpr(expr.target, out);
-      for (const arg of expr.args) walkExpr(arg, out);
-      return;
-    case "par-for":
-      walkExpr(expr.iterand, out);
-      if (expr.max !== null) walkExpr(expr.max, out);
-      walkBlock(expr.body, out);
-      return;
-    case "block":
-      // A spawn routed through a block expression is a spawn: without this arm
-      // the FN-6 graph loses the edge and a cycle through a block escapes the
-      // load-time refusal.
-      walkBlock(expr.body, out);
-      return;
-    default:
-      return;
-  }
 }
 
 /**

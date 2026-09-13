@@ -52,12 +52,12 @@ import {
 } from "../parser/theta-document";
 
 /** Separator-normalise an absolute path so a Win32 and a POSIX spelling key together. */
-function normaliseCacheKey(path: string): string {
+export function normaliseCacheKey(path: string): string {
   return path.replace(/\\/g, "/");
 }
 
 /** Byte-for-byte comparison — a cache HIT never serves a document for changed bytes. */
-function bytesEqual(a: Uint8Array, b: Uint8Array): boolean {
+export function bytesEqual(a: Uint8Array, b: Uint8Array): boolean {
   if (a === b) {
     return true;
   }

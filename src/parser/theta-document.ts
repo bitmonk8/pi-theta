@@ -1724,70 +1724,144 @@ function checkThetaLibCallWithClauses(block: Block, file: string): Diagnostic[] 
  */
 function collectClauseBearingCalls(block: Block): CallExpr[] {
   const out: CallExpr[] = [];
-  collectClauseBearingCallsInBlock(block, out);
+  walkCallSiteNodes(
+    block,
+    (node) => {
+      if (node.kind === "call" && node.withClause !== undefined) {
+        out.push(node);
+      }
+    },
+    { includeFnWithClauseValues: true },
+  );
   return out;
 }
 
-function collectClauseBearingCallsInBlock(block: Block, out: CallExpr[]): void {
+/**
+ * A node kind every call-site walk below visits: `walkCallSiteNodes` calls
+ * `visit` once, in source order, for each one it reaches, before descending
+ * into its children (a `CallExpr` / `InvokeExpr`'s argument list plus its
+ * call-site `with` clause values, RFC 0009; an `ObjectExpr`'s field values; a
+ * `MemberExpr`'s target). A `MethodCallExpr` (`target.method(args)`) is
+ * deliberately excluded: `method` names a stdlib member, never a
+ * callable-set name, so no consumer treats it as a call site — its target
+ * and args are still reached, just not visited.
+ */
+export type CallSiteNode = CallExpr | InvokeExpr | ObjectExpr | MemberExpr;
+
+/**
+ * Widens `walkCallSiteNodes` beyond its default reach. Only
+ * `collectClauseBearingCalls` above sets `includeFnWithClauseValues`; the
+ * `extension-tool-reachability.ts` / `invoke-static-checks.ts` /
+ * `subagent-fn-static-checks.ts` call-site walkers leave it unset.
+ */
+export interface CallSiteWalkOptions {
+  /**
+   * Also descend into a nested `fn` declaration's own `with { … }`
+   * session-config field values (RFC 0001 FN-7) — distinct from a call's own
+   * `with` clause, which every walk already reaches through
+   * `expressionChildExprs`'s `call` / `invoke` arm.
+   */
+  readonly includeFnWithClauseValues?: boolean;
+}
+
+/**
+ * Walk `block`'s whole statement / expression tree — every nested block
+ * (`if` / `else` / `while` / `for` / `fn` bodies, and the `par for` /
+ * block-expression bodies alike), condition, iterand, `par for` `max`
+ * operand, `match` arm and call argument — calling `visit` once for every
+ * `call` / `invoke` / `object` / `member` node reached. One traversal shared
+ * by `collectClauseBearingCalls` above, `checkExtensionToolReachability`'s
+ * code-side-call-name collector (`extension-tool-reachability.ts`),
+ * `checkInvokeStaticResolution`'s call-site collector
+ * (`invoke-static-checks.ts`), and `checkSubagentFnStaticResolution`'s
+ * `subagent fn` self-reference walk (`subagent-fn-static-checks.ts`): a
+ * second, independently written walker would drift out of sync as the
+ * `Stmt` / `Expr` node shapes evolve (bug 0071); each caller supplies its own
+ * `visit` to decide what a reached node contributes. A block-expression body
+ * is walked exactly like a statement-level block — a call site inside it is
+ * as reachable as one a brace-level up, so skipping it would open a blind
+ * spot in every check downstream of the walk. Totality rests on the explicit
+ * arms below, never on their `default` cases: a union member reaching a
+ * `default` is walked as a leaf and its sub-tree is not visited.
+ */
+export function walkCallSiteNodes(
+  block: Block,
+  visit: (node: CallSiteNode) => void,
+  options?: CallSiteWalkOptions,
+): void {
+  walkCallSiteNodesInBlock(block, visit, options ?? {});
+}
+
+function walkCallSiteNodesInBlock(
+  block: Block,
+  visit: (node: CallSiteNode) => void,
+  options: CallSiteWalkOptions,
+): void {
   for (const stmt of block.statements) {
-    collectClauseBearingCallsInStmt(stmt, out);
+    walkCallSiteNodesInStmt(stmt, visit, options);
   }
   if (block.tail !== null) {
-    collectClauseBearingCallsInExpr(block.tail, out);
+    walkCallSiteNodesInExpr(block.tail, visit, options);
   }
 }
 
-function collectClauseBearingCallsInStmt(stmt: Stmt, out: CallExpr[]): void {
+function walkCallSiteNodesInStmt(
+  stmt: Stmt,
+  visit: (node: CallSiteNode) => void,
+  options: CallSiteWalkOptions,
+): void {
   switch (stmt.kind) {
     case "let":
       if (stmt.init !== null) {
-        collectClauseBearingCallsInExpr(stmt.init, out);
+        walkCallSiteNodesInExpr(stmt.init, visit, options);
       }
       return;
     case "reassign":
-      collectClauseBearingCallsInExpr(stmt.value, out);
+      walkCallSiteNodesInExpr(stmt.value, visit, options);
       return;
     case "if":
-      collectClauseBearingCallsInExpr(stmt.condition, out);
-      collectClauseBearingCallsInBlock(stmt.then, out);
+      walkCallSiteNodesInExpr(stmt.condition, visit, options);
+      walkCallSiteNodesInBlock(stmt.then, visit, options);
       if (stmt.otherwise !== null) {
         if ("statements" in stmt.otherwise) {
-          collectClauseBearingCallsInBlock(stmt.otherwise, out);
+          walkCallSiteNodesInBlock(stmt.otherwise, visit, options);
         } else {
-          collectClauseBearingCallsInStmt(stmt.otherwise, out);
+          walkCallSiteNodesInStmt(stmt.otherwise, visit, options);
         }
       }
       return;
     case "while":
-      collectClauseBearingCallsInExpr(stmt.condition, out);
-      collectClauseBearingCallsInBlock(stmt.body, out);
+      walkCallSiteNodesInExpr(stmt.condition, visit, options);
+      walkCallSiteNodesInBlock(stmt.body, visit, options);
       return;
     case "for":
-      collectClauseBearingCallsInExpr(stmt.iterand, out);
-      collectClauseBearingCallsInBlock(stmt.body, out);
+      walkCallSiteNodesInExpr(stmt.iterand, visit, options);
+      walkCallSiteNodesInBlock(stmt.body, visit, options);
       return;
     case "fn":
-      collectClauseBearingCallsInBlock(stmt.body, out);
-      for (const field of stmt.withClause ?? []) {
-        collectClauseBearingCallsInExpr(field.value, out);
+      walkCallSiteNodesInBlock(stmt.body, visit, options);
+      if (options.includeFnWithClauseValues === true) {
+        for (const field of stmt.withClause ?? []) {
+          walkCallSiteNodesInExpr(field.value, visit, options);
+        }
       }
       return;
     case "return":
       if (stmt.operand !== null) {
-        collectClauseBearingCallsInExpr(stmt.operand, out);
+        walkCallSiteNodesInExpr(stmt.operand, visit, options);
       }
       return;
     case "query":
-      collectClauseBearingCallsInExpr(stmt.query, out);
+      walkCallSiteNodesInExpr(stmt.query, visit, options);
       return;
     case "tool-call":
-      collectClauseBearingCallsInExpr(stmt.call, out);
+      walkCallSiteNodesInExpr(stmt.call, visit, options);
       return;
     case "invoke":
-      collectClauseBearingCallsInExpr(stmt.invoke, out);
+      walkCallSiteNodesInExpr(stmt.invoke, visit, options);
       return;
     case "expr":
-      collectClauseBearingCallsInExpr(stmt.expr, out);
+      walkCallSiteNodesInExpr(stmt.expr, visit, options);
       return;
     default:
       // `break` / `continue` / `schema` / `enum` / `import` / `export` /
@@ -1796,24 +1870,28 @@ function collectClauseBearingCallsInStmt(stmt: Stmt, out: CallExpr[]): void {
   }
 }
 
-function collectClauseBearingCallsInExpr(e: Expr, out: CallExpr[]): void {
-  if (e.kind === "call" && e.withClause !== undefined) {
-    out.push(e);
+function walkCallSiteNodesInExpr(
+  e: Expr,
+  visit: (node: CallSiteNode) => void,
+  options: CallSiteWalkOptions,
+): void {
+  if (e.kind === "call" || e.kind === "invoke" || e.kind === "object" || e.kind === "member") {
+    visit(e);
   }
   switch (e.kind) {
     case "par-for":
-      collectClauseBearingCallsInExpr(e.iterand, out);
+      walkCallSiteNodesInExpr(e.iterand, visit, options);
       if (e.max !== null) {
-        collectClauseBearingCallsInExpr(e.max, out);
+        walkCallSiteNodesInExpr(e.max, visit, options);
       }
-      collectClauseBearingCallsInBlock(e.body, out);
+      walkCallSiteNodesInBlock(e.body, visit, options);
       return;
     case "block":
-      collectClauseBearingCallsInBlock(e.body, out);
+      walkCallSiteNodesInBlock(e.body, visit, options);
       return;
     default:
       for (const child of expressionChildExprs(e)) {
-        collectClauseBearingCallsInExpr(child, out);
+        walkCallSiteNodesInExpr(child, visit, options);
       }
       return;
   }

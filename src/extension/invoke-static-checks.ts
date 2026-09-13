@@ -77,7 +77,6 @@
 import { dirname, isAbsolute, resolve as resolvePath } from "node:path";
 import type { Diagnostic, SourceRange } from "../diagnostics/diagnostic";
 import type {
-  Block,
   CallExpr,
   Expr,
   FnDecl,
@@ -89,7 +88,7 @@ import type {
   ThetaBody,
   Stmt,
 } from "../parser/theta-document";
-import { callWithClauseValues } from "../parser/theta-document";
+import { walkCallSiteNodes } from "../parser/theta-document";
 import type { CallWithClause } from "../parser/theta-document";
 import type { ThetaMode } from "../parser/frontmatter";
 import { checkObjectLiteralFields } from "../parser/literal-sublanguage";
@@ -151,14 +150,18 @@ function normalizePath(path: string): string {
 }
 
 /**
- * The two call-shaped node kinds the shared walk collects in ONE traversal:
- * every `invoke(...)` expression, and every `CallExpr` — a `.theta`-callable-
- * call CANDIDATE whose callee is resolved against the caller's frozen
- * callable set by `resolveThetaCallableCallSites`, not by this walk. One walk
- * keeps the two call surfaces in lockstep: a second, independently written
- * walker would drift out of sync as the `Expr` / `Stmt` node shapes evolve
- * (bug 0071). `checkInvokeStaticResolution` therefore traverses a body once and
- * feeds every one of its check loops from that one result.
+ * The four call-shaped node kinds the shared walk (`walkCallSiteNodes`,
+ * `../parser/theta-document.ts`) visits in ONE traversal: every `invoke(...)`
+ * expression, every `CallExpr` — a `.theta`-callable-call CANDIDATE whose
+ * callee is resolved against the caller's frozen callable set by
+ * `resolveThetaCallableCallSites`, not by this walk — every `ObjectExpr`
+ * constructor site (bug 0429) and every `MemberExpr` (bug 0430). One walk
+ * keeps all four call surfaces in lockstep across this module,
+ * `extension-tool-reachability.ts`, `subagent-fn-static-checks.ts` and
+ * `collectClauseBearingCalls`: a second, independently written walker would
+ * drift out of sync as the `Expr` / `Stmt` node shapes evolve (bug 0071).
+ * `checkInvokeStaticResolution` therefore traverses a body once and feeds
+ * every one of its check loops from that one result.
  */
 interface CollectedCallSites {
   readonly invokeExprs: InvokeExpr[];
@@ -183,8 +186,8 @@ interface CollectedCallSites {
  * the whole statement / expression tree: every nested block (`if` / `else` /
  * `while` / `for` / `fn` bodies and the `par for` expression body alike),
  * conditions, iterands, `par for` `max` operands, `match` arms, and call
- * arguments. Totality over the `Stmt` / `Expr` unions rests on the explicit
- * arms of `walkStmt` / `walkExpr`, never on their `default` cases: a union
+ * arguments. Totality over the `Stmt` / `Expr` unions rests on
+ * `walkCallSiteNodes`'s explicit arms, never on its `default` cases: a union
  * member reaching a `default` is walked as a leaf and its sub-tree is not
  * collected.
  */
@@ -192,159 +195,44 @@ function collectInvokeExprs(body: ThetaBody): InvokeExpr[] {
   return collectCallSites(body).invokeExprs;
 }
 
-/** Run the shared call-site walk once (`CollectedCallSites`) over a theta body. */
+/**
+ * Run the shared call-site walk once (`CollectedCallSites`) over a theta
+ * body. A `par for` body is an ordinary call-site region (control-flow.md
+ * CTRL-4 admits `invoke(...)`, `.theta` callable calls, `subagent fn` calls
+ * and Pi-tool calls inside it) and so is a `let`-RHS / match-arm-body block
+ * (bug 0082 §Fix) — both must surface every one of INV-3 (arity, both call
+ * surfaces), INV-1 (`invoke(...)` path-escape, invocation.md §Resolution),
+ * `checkCalleeHasErrors`, and INV-4 (`buildInvokeGraph`'s cycle edges)
+ * exactly as a statement-level occurrence would; the shared walk reaches both
+ * without a per-check special case.
+ */
 function collectCallSites(body: ThetaBody): CollectedCallSites {
   const out: CollectedCallSites = { invokeExprs: [], callExprs: [], objectExprs: [], memberExprs: [] };
-  walkBlock({ statements: body.statements, tail: body.tail }, out);
+  // `target.method(args)` (a `MethodCallExpr`) is a method call, not a
+  // `.theta`-callable-call candidate — `method` names a stdlib member, never a
+  // `tools:` name — so it has no case below and joins none of the four arrays;
+  // `walkCallSiteNodes` still reaches its target and args, just uncollected.
+  walkCallSiteNodes(body, (node) => {
+    switch (node.kind) {
+      case "invoke":
+        out.invokeExprs.push(node);
+        return;
+      case "call":
+        out.callExprs.push(node);
+        return;
+      case "object":
+        // Bug 0429: the constructor NODE itself joins `objectExprs` (a bare
+        // `{ … }` included — filtered by `typeName` downstream).
+        out.objectExprs.push(node);
+        return;
+      case "member":
+        // Bug 0430: the member NODE itself joins `memberExprs` (mirroring the
+        // 0429 `object` arm's own-node-plus-descend shape).
+        out.memberExprs.push(node);
+        return;
+    }
+  });
   return out;
-}
-
-function walkBlock(block: Block, out: CollectedCallSites): void {
-  for (const stmt of block.statements) {
-    walkStmt(stmt, out);
-  }
-  if (block.tail !== null) {
-    walkExpr(block.tail, out);
-  }
-}
-
-function walkStmt(stmt: Stmt, out: CollectedCallSites): void {
-  switch (stmt.kind) {
-    case "let":
-      if (stmt.init !== null) walkExpr(stmt.init, out);
-      return;
-    case "reassign":
-      walkExpr(stmt.value, out);
-      return;
-    case "if":
-      walkExpr(stmt.condition, out);
-      walkBlock(stmt.then, out);
-      if (stmt.otherwise !== null) {
-        if ("kind" in stmt.otherwise) walkStmt(stmt.otherwise, out);
-        else walkBlock(stmt.otherwise, out);
-      }
-      return;
-    case "while":
-      walkExpr(stmt.condition, out);
-      walkBlock(stmt.body, out);
-      return;
-    case "for":
-      walkExpr(stmt.iterand, out);
-      walkBlock(stmt.body, out);
-      return;
-    case "fn":
-      walkBlock(stmt.body, out);
-      return;
-    case "return":
-      if (stmt.operand !== null) walkExpr(stmt.operand, out);
-      return;
-    case "tool-call":
-      walkExpr(stmt.call, out);
-      return;
-    case "invoke":
-      walkExpr(stmt.invoke, out);
-      return;
-    case "expr":
-      walkExpr(stmt.expr, out);
-      return;
-    // `query`, `break`, `continue`, `schema`, `enum`, `import`, `export`,
-    // `doc-comment` carry no nested `invoke(...)` / call sub-expression.
-    default:
-      return;
-  }
-}
-
-function walkExpr(expr: Expr, out: CollectedCallSites): void {
-  switch (expr.kind) {
-    case "invoke":
-      out.invokeExprs.push(expr);
-      // RFC 0009: a call-site `with` clause value is an expression position with
-      // an argument's exact rules, so nested call sites inside one are
-      // collected exactly as an argument's are.
-      for (const arg of [...expr.args, ...callWithClauseValues(expr)]) walkExpr(arg, out);
-      return;
-    case "array":
-      for (const el of expr.elements) walkExpr(el, out);
-      return;
-    case "binary":
-      walkExpr(expr.left, out);
-      walkExpr(expr.right, out);
-      return;
-    case "ternary":
-      walkExpr(expr.condition, out);
-      walkExpr(expr.consequent, out);
-      walkExpr(expr.alternate, out);
-      return;
-    case "try":
-      walkExpr(expr.operand, out);
-      return;
-    case "call":
-      out.callExprs.push(expr);
-      for (const arg of [...expr.args, ...callWithClauseValues(expr)]) walkExpr(arg, out);
-      return;
-    case "member":
-      // Bug 0430: the member NODE itself joins `memberExprs` (mirroring the
-      // 0429 `object` arm's own-node-plus-descend shape), in addition to the
-      // pre-existing descent into the target.
-      out.memberExprs.push(expr);
-      walkExpr(expr.target, out);
-      return;
-    case "index":
-      walkExpr(expr.target, out);
-      walkExpr(expr.index, out);
-      return;
-    case "object":
-      // Bug 0429: the constructor NODE itself joins `objectExprs` (a bare
-      // `{ … }` included — filtered by `typeName` downstream), in addition to
-      // the pre-existing descent into each field's value expression.
-      out.objectExprs.push(expr);
-      for (const field of expr.fields) walkExpr(field.value, out);
-      return;
-    case "match":
-      walkExpr(expr.scrutinee, out);
-      for (const arm of expr.arms) walkExpr(arm.body, out);
-      return;
-    case "result-ctor":
-      walkExpr(expr.arg, out);
-      return;
-    case "method-call":
-      // `target.method(args)` is a method call, not a `.theta`-callable-call
-      // candidate: `method` names a stdlib member, never a `tools:` name, so it
-      // does not join `callExprs`. Walk the target and args only.
-      walkExpr(expr.target, out);
-      for (const arg of expr.args) walkExpr(arg, out);
-      return;
-    case "par-for":
-      // A `par for` body is an ordinary call-site region: control-flow.md CTRL-4
-      // admits `invoke(...)`, `.theta` callable calls, `subagent fn` calls and
-      // Pi-tool calls inside it, so every rule this walk feeds must hold there
-      // too. Because the walk is shared, this one arm carries the whole set into
-      // `par for` bodies at once — INV-3 arity over both call surfaces, the `invoke(...)`
-      // surface's INV-1 (invocation.md §Resolution) path-escape and `checkCalleeHasErrors`
-      // checks, and `buildInvokeGraph`'s INV-4 cycle edges. That breadth is the
-      // single-walker invariant paying out rather than a second rule bolted on:
-      // one walker cannot drift against itself, so the reachable-node set is
-      // identical for every consumer, and a `.theta`-callable-only branch here
-      // would reintroduce exactly the per-surface divergence the shared walk
-      // exists to prevent (bug 0071).
-      walkExpr(expr.iterand, out);
-      if (expr.max !== null) walkExpr(expr.max, out);
-      walkBlock(expr.body, out);
-      return;
-    case "block":
-      // A `let`-RHS / match-arm-body block (bug 0082 §Fix) is an ordinary
-      // call-site region: an `invoke(...)` / `.theta`-callable call inside it
-      // must still be collected for INV-3 / INV-4 / INV-1.
-      walkBlock(expr.body, out);
-      return;
-    // The complete leaf set of the `Expr` union — `ident`, `number`, `string`,
-    // `bool`, `null`, `query` — carries no nested `invoke(...)` / call. Every
-    // other union member has an explicit arm above; one added without an arm
-    // lands here and its sub-tree goes uncollected, which is a silent hole in
-    // every check downstream of the walk.
-    default:
-      return;
-  }
 }
 
 /** One `.theta`-callable call site resolved against the caller's frozen callable set. */

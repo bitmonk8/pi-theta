@@ -90,31 +90,14 @@
 // taints a verdict against memoisation) governs `ownEscapes` exactly as it
 // already governs `fails`, with no separate case.
 
-import type { PassParseDeps } from "./pass-parse-cache";
+import {
+  bytesEqual,
+  normaliseCacheKey as normaliseVerdictKey,
+  type PassParseDeps,
+} from "./pass-parse-cache";
 
 /** A registry-snapshot accessor, keyed by IDENTITY only — its return shape is never read here. */
 export type RegistrySnapshotFn = () => unknown;
-
-/** Separator-normalise an absolute path so a Win32 and a POSIX spelling key together. */
-function normaliseVerdictKey(path: string): string {
-  return path.replace(/\\/g, "/");
-}
-
-/** Byte-for-byte comparison — a memo HIT never serves a verdict for changed bytes. */
-function bytesEqual(a: Uint8Array, b: Uint8Array): boolean {
-  if (a === b) {
-    return true;
-  }
-  if (a.length !== b.length) {
-    return false;
-  }
-  for (let i = 0; i < a.length; i += 1) {
-    if (a[i] !== b[i]) {
-      return false;
-    }
-  }
-  return true;
-}
 
 /**
  * One memoised verdict: the exact bytes it was computed from, plus the PAIR
