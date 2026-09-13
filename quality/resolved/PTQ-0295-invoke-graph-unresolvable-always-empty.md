@@ -2,7 +2,7 @@
 id: PTQ-0295
 title: buildInvokeGraph always returns an empty `unresolvable` set, so the shared cycle walk's leaf-termination branch never fires for the load-side graph it builds
 lens: D2
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/extension/invoke-static-checks.ts:407-413

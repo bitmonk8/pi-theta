@@ -2,7 +2,7 @@
 id: PTQ-0298
 title: discovery-walk.ts rebuilds the same Map bucket-grouping loop four times
 lens: D4                     # D2 | D4 | D7 | D8 | D9 - the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - src/discovery/discovery-walk.ts:1039-1048

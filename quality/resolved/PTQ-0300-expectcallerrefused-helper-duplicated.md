@@ -2,7 +2,7 @@
 id: PTQ-0300
 title: b0275 and b0280 each declare an identical expectCallerRefusedWithCalleeHasErrors assertion helper
 lens: D7                     # D2 | D4 | D7 | D8 | D9 - the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - tests/b0275-escaping-tools-entry-below-immediate-callee.test.ts:282-298

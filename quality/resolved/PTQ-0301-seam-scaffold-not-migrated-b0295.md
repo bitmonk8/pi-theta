@@ -2,7 +2,7 @@
 id: PTQ-0301
 title: b0295 redeclares the SEAM_NOOP/span/RecordedHop scaffold that tests/helpers/invoke-seam-scaffold.ts already exports
 lens: D7                     # D2 | D4 | D7 | D8 | D9 - the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - tests/b0295-child-internal-cancel-wrap-arm.test.ts:118-143

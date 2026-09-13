@@ -2,7 +2,7 @@
 id: PTQ-0293
 title: progress-tool.ts hand-rolls ANSI/control stripping that node:util already provides, and its regex misses OSC escape-sequence payloads the built-in strips
 lens: D8                     # D2 | D4 | D7 | D8 | D9 - the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - src/extension/execution-status/progress-tool.ts:99-111

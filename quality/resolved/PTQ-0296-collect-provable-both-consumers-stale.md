@@ -2,7 +2,7 @@
 id: PTQ-0296
 title: collectProvableArgTypes's doc comment still says "Both type checks" and "both consumers" consume its value-type set, though five call sites now do
 lens: D2
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/extension/invoke-static-checks.ts:576-579
