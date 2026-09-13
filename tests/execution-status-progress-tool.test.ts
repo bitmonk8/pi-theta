@@ -234,6 +234,17 @@ describe("T-PRG — L3-B10: message/scope clamp + strip", () => {
     expect(payload.message).not.toContain("\t");
     expect(payload.scope?.length).toBeLessThanOrEqual(64);
   });
+
+  it("an OSC-8 hyperlink (ESC ] ... BEL) strips to its printable payload only", async () => {
+    const message = "\u001B]8;;http://example.com\u0007link\u001B]8;;\u0007";
+    const { bus, authorMessageCalls } = fakeBus();
+    const { hostApi, calls } = fakeHostApi();
+    registerThetaProgressTool(hostApi, baseDeps({ bus: () => bus }));
+    await calls[0]!.execute("c1", { message }, undefined, undefined, {} as never);
+
+    expect(authorMessageCalls).toHaveLength(1);
+    expect(authorMessageCalls[0]!.payload.message).toBe("link");
+  });
 });
 
 describe("T-PRG — L3-B11: 200ms acceptance interval, counted-but-dropped carry", () => {

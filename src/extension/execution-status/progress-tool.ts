@@ -28,6 +28,7 @@
 // docs/spec_topics/pi-integration-contract/subagent.md PIC-74.
 
 import { writeSync } from "node:fs";
+import { stripVTControlCharacters } from "node:util";
 import { Type } from "typebox";
 import type { AgentToolResult, ToolDefinition } from "@earendil-works/pi-coding-agent"; // allow-pi-surface: PIC#64 — ToolDefinition/AgentToolResult are the shipped registerTool carriers, mirrored from production-theta-producer.ts's own respond-tool registration
 import type { ActiveInvocationRegistry } from "../../runtime/active-invocation-registry";
@@ -90,24 +91,18 @@ const OK_RESULT: AgentToolResult<unknown> = Object.freeze({
   isError: false,
 }) as unknown as AgentToolResult<unknown>;
 
-/**
- * ANSI/OSC-style escape sequences: CSI in both its 7-bit (`ESC [`) and 8-bit
- * (`CSI`, U+009B) spellings, plus the two-byte `ESC <Fe>` forms. Stripped
- * WHOLESALE before the residual control scan below, so a sequence's
- * printable tail (`31m`) never survives as text (EXST-14).
- */
-const ANSI_PATTERN = /\u001B\[[0-?]*[ -/]*[@-~]|\u009B[0-?]*[ -/]*[@-~]|\u001B[@-Z\-_]/g;
 /** Residual C0 + DEL + C1 after the ANSI pass. Tab is handled before this. */
 const CONTROL_PATTERN = /[\u0000-\u001F\u007F-\u009F]/g;
 
 /**
- * EXST-14's strip step: ANSI sequences removed wholesale, a horizontal tab
- * becomes ONE space, every residual control character (newline included — a
- * newline would split the PIC-74 wire line) removed. Ordered strip-then-clamp
- * so a strip can never un-clamp a field.
+ * EXST-14's strip step: ANSI sequences removed wholesale via node:util's
+ * `stripVTControlCharacters`, a horizontal tab becomes ONE space, every
+ * residual control character (newline included — a newline would split the
+ * PIC-74 wire line) removed. Ordered strip-then-clamp so a strip can never
+ * un-clamp a field.
  */
 export function stripControlAndAnsi(s: string): string {
-  return s.replace(ANSI_PATTERN, "").replace(/\t/g, " ").replace(CONTROL_PATTERN, "");
+  return stripVTControlCharacters(s).replace(/\t/g, " ").replace(CONTROL_PATTERN, "");
 }
 
 /** EXST-14: strip, then clamp to `max` code units (the `clampName` discipline). */
