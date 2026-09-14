@@ -4,6 +4,53 @@ All notable changes to `@bitmonk8/pi-theta` will be documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.474.0]
+
+### Fixed
+- **Bug 0478 — the binder's compact-transcript renderer assumed a four-arm
+  `AgentMessage` union, but pi-coding-agent augments it with
+  `compactionSummary` / `branchSummary` / `bashExecution` and
+  `buildSessionContext(...)` emits all three, so a `bind_context: session`
+  prompt-mode theta invoked after a `/compact` (or a branch return, or a
+  `!cmd`) threw `TypeError: content is not iterable` inside binding.**
+  `renderMessage`'s `default:` arm cast every non-`user`/`assistant`/
+  `toolResult` message to `custom` and iterated its (absent) `content`.
+  **Fix (option A — EXCLUDE, human-ruled):** the truncation walk
+  (`src/binder/session-context-walk.ts`) drops every message whose `role` is
+  outside the closed set {`user`, `assistant`, `toolResult`, `custom`} before
+  any turn is formed or any token counted, so the three host variants
+  contribute neither transcript bytes nor a token estimate (a compacted
+  session's leading `compactionSummary` no longer opens a turn of its own);
+  the renderer's input type is the new closed `TranscriptMessage` union
+  (`src/binder/compact-transcript.ts`), narrowed by `isTranscriptMessage` —
+  an exhaustive `switch` over the pinned `AgentMessage` union with a
+  `never`-typed `default:`, so an arm pi adds at a later pin fails `tsc` at
+  the guard instead of throwing at runtime, while an unpinned runtime role is
+  the closed-set drop — and `renderMessage` is exhaustive over that set with
+  its own `never` default; `groupMessagesIntoTurns` is generic so the
+  narrowing survives grouping. Every BNDR-7 rendering byte and the BNDR-9
+  pre-scan are unchanged; no new diagnostic code. Details:
+  [`docs/bugs/0478-compact-transcript-renderer-throws-on-augmented-agentmessage-variants.md`](./docs/bugs/0478-compact-transcript-renderer-throws-on-augmented-agentmessage-variants.md).
+
+### Changed
+- Spec amendment (bug 0478): [binder-model-and-context.md §Session-context
+  truncation](docs/spec_topics/binder/binder-model-and-context.md#session-context-closed-set-exclusion)
+  gains the anchored pre-walk exclusion sentence
+  (`#session-context-closed-set-exclusion`); the §Compact-transcript format
+  totality clause and rule 3 now state the renderer is total over that closed
+  set "and receives no other variant";
+  [host-interfaces-core.md §`SessionContext` shape](docs/spec_topics/pi-integration-contract/host-interfaces-core.md#sessioncontext-shape)
+  corrects the false premise (the pinned `AgentMessage` is the open
+  seven-arm union; the four listed arms are the subset the renderer reads)
+  and adds the excluded-arm set to the per-bump re-validation;
+  [host-prerequisites.md — leading-`user`-message guarantee](docs/spec_topics/pi-integration-contract/host-prerequisites.md#messages-leading-user-message-presupposition)
+  is read over the closed-set subsequence (a compacted session's raw list
+  leads with the `compactionSummary`);
+  [future-considerations/surface-extensions.md](docs/spec_topics/future-considerations/surface-extensions.md#render-compaction-branch-summaries)
+  records *Rendering Pi's compaction / branch summaries and `!`-command
+  executions in the binder transcript* as a deferred upgrade (sixth item of
+  the no-dedicated-seam sub-bucket; the 12-seam tally is unchanged).
+
 ## [0.473.0]
 
 ### Fixed

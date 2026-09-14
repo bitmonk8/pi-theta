@@ -3,9 +3,20 @@
 // system prompt's item-6 block).
 //
 // This module owns:
+//   - the closed transcript-message set (binder/binder-model-and-context.md
+//     §"Session-context truncation" `#session-context-closed-set-exclusion`,
+//     rule 3 of §"Compact-transcript format (normative)"): `TranscriptMessage`
+//     is the `user` / `assistant` / `toolResult` / `custom` subset of the host's
+//     OPEN `AgentMessage` union, and `isTranscriptMessage` is the membership
+//     guard the V11i walk applies before any turn is formed or token counted.
+//     pi-coding-agent augments the union with `compactionSummary`,
+//     `branchSummary`, and `bashExecution` (dist/core/messages.d.ts), all of
+//     which `buildSessionContext(...)` emits and none of which renders (bug
+//     0478); the guard is exhaustive over the pinned union, so an arm added at
+//     a later pin fails `tsc` at the guard rather than reaching the renderer.
 //   - BNDR-7 (binder/binder-model-and-context.md §"Compact-transcript format
-//     (normative)"): rendering the included-turn `AgentMessage[]` slice into the
-//     byte-exact transcript body of the *Recent session context* block
+//     (normative)"): rendering the included-turn `TranscriptMessage[]` slice
+//     into the byte-exact transcript body of the *Recent session context* block
 //     (reference renderings BNDR-7a … BNDR-7j), including the void-truncation
 //     whole-block omission (BNDR-7i: zero included turns ⇒ no block at all).
 //   - BNDR-8 (same page): assistant-body byte determinism (the merged
@@ -46,6 +57,69 @@ import type { Diagnostic } from "../diagnostics/diagnostic";
 import type { SystemPromptSessionContext } from "./binder-system-prompt";
 import { capSystemNote, sanitizeSystemNoteSubstring } from "./system-note";
 import { groupMessagesIntoTurns } from "./turn-grouping";
+
+/**
+ * The `custom` arm of the host's `AgentMessage` union — pi-coding-agent's
+ * `CustomMessage` (dist/core/messages.d.ts), reached through the
+ * `CustomAgentMessages` augmentation rather than re-declared here, so its field
+ * shape tracks the pin (host-interfaces-core.md#sessioncontext-shape).
+ */
+type CustomMessage = Extract<AgentMessage, { readonly role: "custom" }>;
+
+/**
+ * The CLOSED set of `AgentMessage` variants the compact transcript renders —
+ * the renderer's input type (binder-model-and-context.md
+ * `#session-context-closed-set-exclusion`, rule 3). Every other arm of the
+ * host's open union (`compactionSummary` / `branchSummary` / `bashExecution` at
+ * the pin) is dropped by the V11i walk through `isTranscriptMessage` before
+ * any turn is formed, so no value outside this union reaches
+ * `renderCompactTranscript`.
+ */
+export type TranscriptMessage =
+  | UserMessage
+  | AssistantMessage
+  | ToolResultMessage
+  | CustomMessage;
+
+/**
+ * Closed-set membership guard (bug 0478): `true` iff `message` is one of the
+ * four variants the compact transcript renders. The `switch` is exhaustive
+ * over the PINNED `AgentMessage` union — the three excluded arms are named, and
+ * the `default:` arm is typed `never` — so a variant pi adds at a later pin
+ * fails `tsc` here, forcing an explicit admit-or-exclude decision at the bump
+ * (host-interfaces-core.md#sessioncontext-shape) instead of throwing inside
+ * binding at runtime. At runtime the `default:` arm is the closed-set drop:
+ * anything the pinned type does not know is outside the set.
+ */
+export function isTranscriptMessage(message: AgentMessage): message is TranscriptMessage {
+  switch (message.role) {
+    case "user":
+    case "assistant":
+    case "toolResult":
+    case "custom":
+      return true;
+    case "bashExecution":
+    case "branchSummary":
+    case "compactionSummary":
+      // Emitted by `buildSessionContext(...)` at the pin (a `compaction` entry,
+      // a `branch_summary` entry, a `!`-command entry — `excludeFromContext` or
+      // not); none has a transcript rendering. Dropped before the walk so they
+      // count toward neither the transcript nor its token estimate.
+      return false;
+    default:
+      return excludeUnpinnedRole(message);
+  }
+}
+
+/**
+ * The `never`-typed `default:` arm of `isTranscriptMessage`: compiles only while
+ * every arm of the pinned `AgentMessage` union is named above. At runtime it is
+ * the closed-set drop for a role the pinned type does not know.
+ */
+function excludeUnpinnedRole(message: never): false {
+  void message;
+  return false;
+}
 
 /**
  * The runtime diagnostic code emitted when an included `CustomMessage`'s
@@ -225,41 +299,51 @@ function renderToolResult(message: ToolResultMessage): string {
   return `[tool]: ${body}\n`;
 }
 
-/** Render one `custom` message under its `[custom:<type>]` role tag (rule 4). */
-function renderCustom(message: {
-  readonly customType: string;
-  readonly content: string | readonly { readonly type: string }[];
-}): string {
+/**
+ * Render one `custom` message under its `[custom:<type>]` role tag (rule 4).
+ * Its `customType` was validated by the BNDR-9 pre-scan before this runs.
+ */
+function renderCustom(message: CustomMessage): string {
   return `[custom:${message.customType}]: ${textBody(message.content)}\n`;
 }
 
-/** Render a single message to its `\n`-terminated line block. */
-function renderMessage(message: AgentMessage): string {
+/**
+ * Render a single message to its `\n`-terminated line block. Exhaustive over
+ * the closed `TranscriptMessage` set with a `never`-typed `default:` — a
+ * variant added to that union without a rendering here is a compile error.
+ */
+function renderMessage(message: TranscriptMessage): string {
   switch (message.role) {
     case "user":
-      return renderUser(message as UserMessage);
+      return renderUser(message);
     case "assistant":
-      return renderAssistant(message as AssistantMessage);
+      return renderAssistant(message);
     case "toolResult":
-      return renderToolResult(message as ToolResultMessage);
+      return renderToolResult(message);
+    case "custom":
+      return renderCustom(message);
     default:
-      // The remaining variant is `custom` (the `AgentMessage` union is
-      // `Message | CustomMessage`); its `customType` was validated by the
-      // BNDR-9 pre-scan before this renderer runs.
-      return renderCustom(
-        message as unknown as {
-          readonly customType: string;
-          readonly content: string | readonly { readonly type: string }[];
-        },
-      );
+      return unreachableTranscriptRole(message);
   }
 }
 
 /**
- * BNDR-7 / BNDR-8 — render the included-turn `AgentMessage[]` slice (already
- * chronological oldest-to-newest, already truncated by the V11i walk) into the
- * binder's session-context body, or reject on a non-transcript-safe `customType`
- * (BNDR-9).
+ * The `never`-typed `default:` arm of `renderMessage`. Unreachable by
+ * construction — the V11i walk admits only `TranscriptMessage` values — so a
+ * value landing here is a defect in the caller, surfaced loudly.
+ */
+function unreachableTranscriptRole(message: never): never {
+  const role = (message as { readonly role?: unknown }).role;
+  throw new Error(
+    `compact-transcript: out-of-set role '${String(role)}' reached renderMessage (bug 0478)`,
+  );
+}
+
+/**
+ * BNDR-7 / BNDR-8 — render the included-turn `TranscriptMessage[]` slice
+ * (already chronological oldest-to-newest, already narrowed to the closed set
+ * and truncated by the V11i walk) into the binder's session-context body, or
+ * reject on a non-transcript-safe `customType` (BNDR-9).
  *
  * The included slice arrives chronological oldest-to-newest and already
  * truncated by the V11i walk; this renderer groups it into turns, renders each
@@ -267,24 +351,22 @@ function renderMessage(message: AgentMessage): string {
  * body — or rejects on the first included non-transcript-safe `customType`.
  */
 export function renderCompactTranscript(
-  messages: readonly AgentMessage[],
+  messages: readonly TranscriptMessage[],
 ): CompactTranscriptResult {
   // BNDR-9 pre-scan: reject before rendering if any included `custom` message
   // carries a non-transcript-safe `customType`. The invocation-level outcome is
   // failure (no proceed-and-drop branch): argument binding does not proceed.
   for (const message of messages) {
     if (message.role === "custom") {
-      const customType = (message as unknown as { readonly customType: string })
-        .customType;
-      if (!isTranscriptSafeCustomType(customType)) {
-        return { kind: "custom-type-unsafe", value: customType };
+      if (!isTranscriptSafeCustomType(message.customType)) {
+        return { kind: "custom-type-unsafe", value: message.customType };
       }
     }
   }
 
   // Group into turns via the shared helper (same turn boundary the V11i walk
   // uses; see turn-grouping.ts for the boundary rule itself).
-  const turns: AgentMessage[][] = groupMessagesIntoTurns(messages);
+  const turns: TranscriptMessage[][] = groupMessagesIntoTurns(messages);
 
   // BNDR-7i void truncation: zero included turns ⇒ the whole Session-context
   // block is omitted (no header, no body, no terminating blank line).

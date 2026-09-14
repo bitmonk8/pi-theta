@@ -8,13 +8,13 @@ import type {
   ToolResultMessage,
   UserMessage,
 } from "@earendil-works/pi-ai";
-import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import {
   CUSTOM_TYPE_UNSAFE_CODE,
   customTypeUnsafeDiagnostic,
   isTranscriptSafeCustomType,
   renderCompactTranscript,
   renderCustomTypeUnsafeNote,
+  type TranscriptMessage,
 } from "../src/binder/compact-transcript";
 import {
   parseFrontmatter,
@@ -46,7 +46,9 @@ import type { Diagnostic } from "../src/diagnostics/diagnostic";
 // discriminant, a wrong code / note, or an absent diagnostic) — not on a
 // compile error, a missing fixture, or a harness throw.
 
-// --- AgentMessage constructors ----------------------------------------------
+// --- TranscriptMessage constructors -----------------------------------------
+// (the closed renderer input set of bug 0478: user / assistant / toolResult /
+// custom — the out-of-set host arms are dropped by the walk before rendering)
 
 const USAGE = {
   input: 0,
@@ -99,7 +101,7 @@ function custom(
   customType: string,
   content: string | (TextContent | ImageContent)[],
   display = true,
-): AgentMessage {
+): TranscriptMessage {
   return { role: "custom", customType, content, display, timestamp: 0 };
 }
 
@@ -109,7 +111,7 @@ function opaqueBlock(shape: Record<string, unknown>): ImageContent {
 }
 
 /** The rendered `transcriptBody` for an `ok` result (unwraps the block). */
-function body(messages: readonly AgentMessage[]): string | undefined {
+function body(messages: readonly TranscriptMessage[]): string | undefined {
   const result = renderCompactTranscript(messages);
   if (result.kind !== "ok") {
     expect.unreachable(
@@ -131,7 +133,7 @@ describe("BNDR-7 — compact-transcript reference renderings (byte-exact)", () =
 
   it("BNDR-7b: user + assistant + tool-call + tool-result + assistant turn", () => {
     // binder-model-and-context.md#bndr-7b
-    const messages: AgentMessage[] = [
+    const messages: TranscriptMessage[] = [
       user("What's the weather?"),
       assistant([text("Let me check."), toolCall("get_weather", { city: "Paris" })]),
       toolResult([text("Sunny, 20\u00b0C")]),
@@ -149,7 +151,7 @@ describe("BNDR-7 — compact-transcript reference renderings (byte-exact)", () =
   it("BNDR-7c: turn containing a `theta-system-note` custom message; two turns separated by one blank line", () => {
     // binder-model-and-context.md#bndr-7c — the display:false custom message is
     // still surfaced (convertToLlm entry); the third message opens a new turn.
-    const messages: AgentMessage[] = [
+    const messages: TranscriptMessage[] = [
       user("/lookup foo"),
       custom("theta-system-note", "theta /lookup: argument binding cancelled", false),
       user("try again"),
@@ -172,7 +174,7 @@ describe("BNDR-7 — compact-transcript reference renderings (byte-exact)", () =
     // binder-model-and-context.md#bndr-7f — MUST NOT collapse to a bare
     // `[tool-call …]` line with no owning role; the `[assistant]: ` line keeps
     // its rule-3 trailing U+0020.
-    const messages: AgentMessage[] = [
+    const messages: TranscriptMessage[] = [
       user("Check weather."),
       assistant([toolCall("get_weather", { city: "Paris" })]),
     ];
@@ -186,7 +188,7 @@ describe("BNDR-7 — compact-transcript reference renderings (byte-exact)", () =
   it("BNDR-7g: `toolResult` with mixed text and non-text content blocks concatenates under one `[tool]` line", () => {
     // binder-model-and-context.md#bndr-7g — the non-text block serialises to
     // `{"chartId":7}` (canonical no-whitespace JSON) between the two text blocks.
-    const messages: AgentMessage[] = [
+    const messages: TranscriptMessage[] = [
       user("Run the report."),
       toolResult([text("Rows: "), opaqueBlock({ chartId: 7 }), text(" (rendered)")]),
     ];
@@ -198,7 +200,7 @@ describe("BNDR-7 — compact-transcript reference renderings (byte-exact)", () =
   it("BNDR-7h: `custom` message with a `(TextContent | ImageContent)[]` array body concatenates only the text blocks", () => {
     // binder-model-and-context.md#bndr-7h — the ImageContent block contributes
     // no transcript bytes.
-    const messages: AgentMessage[] = [
+    const messages: TranscriptMessage[] = [
       user("Look."),
       custom("extension-card", [
         text("See: "),
@@ -214,7 +216,7 @@ describe("BNDR-7 — compact-transcript reference renderings (byte-exact)", () =
   it("BNDR-7 (rule 4, assistant): `ThinkingContent` blocks are omitted from the assistant body", () => {
     // binder-model-and-context.md#compact-transcript-format-normative rule 4:
     // ThinkingContent is not part of the conversation the binder grounds against.
-    const messages: AgentMessage[] = [
+    const messages: TranscriptMessage[] = [
       user("Hi."),
       assistant([
         { type: "thinking", thinking: "SECRET-DELIBERATION" } as ThinkingContent,
@@ -249,7 +251,7 @@ describe("BNDR-8 — assistant-body ordering and canonical JSON serialisation", 
     // two tool-call lines follow in array order. Keys sort ascending
     // (`city` < `unit`; `days` < `region`; `lat` < `zone`); the `days` array
     // order [3,1,2] is preserved verbatim.
-    const messages: AgentMessage[] = [
+    const messages: TranscriptMessage[] = [
       user("Plan my trip."),
       assistant([
         toolCall("get_weather", { unit: "celsius", city: "Paris" }),
@@ -271,7 +273,7 @@ describe("BNDR-8 — assistant-body ordering and canonical JSON serialisation", 
   it("BNDR-8 / BNDR-7j: a `toolResult` non-text block emits its keys in ascending Unicode order (source insertion order not preserved)", () => {
     // binder-model-and-context.md#bndr-7j — insertion order chartId,caption but
     // canonical serialisation sorts caption before chartId.
-    const messages: AgentMessage[] = [
+    const messages: TranscriptMessage[] = [
       user("Run the report."),
       toolResult([
         text("Rows: "),
@@ -307,7 +309,7 @@ describe("BNDR-9 — transcript-safe `customType` precondition", () => {
   it("BNDR-9: a non-transcript-safe `customType` fires the diagnostic, fails the invocation, and renders the failure-mode note verbatim", () => {
     // The oracle asserts all three, not the diagnostic alone.
     const unsafe = "weird]type"; // contains `]` — unsafe, no whitespace to reshape
-    const messages: AgentMessage[] = [user("go"), custom(unsafe, "body")];
+    const messages: TranscriptMessage[] = [user("go"), custom(unsafe, "body")];
 
     // (2) The invocation fails: transcript construction aborts and argument
     // binding does not proceed (the renderer rejects rather than returning `ok`).

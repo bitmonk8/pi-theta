@@ -27,7 +27,6 @@
 
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import { describe, expect, it } from "vitest";
 import { loadExtension, type ResponseEvent } from "./harness/index";
 import {
@@ -39,6 +38,7 @@ import {
   CUSTOM_TYPE_UNSAFE_CODE,
   customTypeUnsafeDiagnostic,
   renderCompactTranscript,
+  type TranscriptMessage,
 } from "../src/binder/compact-transcript";
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
 // @ts-expect-error — JS code-registry module, no type declarations.
@@ -158,7 +158,9 @@ function driveComposedRun(): { transcript: ResponseEvent[]; slashRegistered: boo
  */
 function collectEmittedDiagnostics(): Diagnostic[] {
   const unsafeCustomType = "review-card\ntype";
-  const messages: AgentMessage[] = [
+  // The renderer's input is the closed `TranscriptMessage` set (bug 0478); a
+  // `user` + `custom` pair is in-set, so no cast is needed.
+  const messages: TranscriptMessage[] = [
     { role: "user", content: "Inspect the workspace.", timestamp: 0 },
     {
       role: "custom",
@@ -167,7 +169,7 @@ function collectEmittedDiagnostics(): Diagnostic[] {
       display: true,
       timestamp: 0,
     },
-  ] as unknown as AgentMessage[];
+  ];
 
   const diagnostics: Diagnostic[] = [];
   const result = renderCompactTranscript(messages);

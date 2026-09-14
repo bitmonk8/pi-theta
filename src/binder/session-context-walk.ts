@@ -4,9 +4,13 @@
 // This module owns:
 //   - the session-context truncation walk (binder/binder-model-and-context.md
 //     §"Session-context truncation (`bind_context: session`)"): source the
-//     message list from `buildSessionContext(...).messages`, count tokens per
-//     message through the injected `TokenEstimator` seam (PIC-16, V8e), group
-//     into turns (the same turn boundary the V11b renderer uses), and walk
+//     message list from `buildSessionContext(...).messages`, drop every element
+//     outside the closed transcript set (`#session-context-closed-set-exclusion`,
+//     bug 0478 — the host's `compactionSummary` / `branchSummary` /
+//     `bashExecution` arms contribute neither transcript bytes nor a token
+//     estimate), count tokens per message through the injected `TokenEstimator`
+//     seam (PIC-16, V8e), group into turns (the same turn boundary the V11b
+//     renderer uses), and walk
 //     newest-to-oldest including a candidate turn iff, after inclusion, the
 //     running token total is ≤ 8000 AND the running turn count is ≤ 20 — the
 //     first candidate that would violate either inequality is excluded entirely
@@ -24,6 +28,7 @@
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { ThetaMode } from "../parser/frontmatter";
 import type { TokenEstimator } from "../seams/token-estimator";
+import { isTranscriptMessage, type TranscriptMessage } from "./compact-transcript";
 import { groupMessagesIntoTurns } from "./turn-grouping";
 
 /** The inclusive running-token-total cap of the truncation walk (8000 tokens). */
@@ -38,9 +43,11 @@ export type BindContext = "none" | "session";
 /** Inputs to one session-context truncation walk. */
 export interface SessionContextWalkInput {
   /**
-   * The message list, chronological oldest-to-newest (the newest turn sits at
-   * the array tail), sourced from
+   * The RAW message list, chronological oldest-to-newest (the newest turn sits
+   * at the array tail), sourced from
    * `buildSessionContext(ctx.sessionManager.getEntries(), ctx.sessionManager.getLeafId()).messages`.
+   * Typed as the host's open `AgentMessage` union: the walk itself applies the
+   * closed-set exclusion, so callers hand the list over unfiltered.
    */
   readonly messages: readonly AgentMessage[];
   /** The injected per-message token-count seam (PIC-16). */
@@ -59,17 +66,17 @@ export interface SessionContextWalkInput {
  *     subagent-mode skip that treats session-on-subagent as `none`) and no
  *     *Recent session context* block is emitted; `includedMessages` is empty.
  *   - `includedMessages` — the included-turn slice, chronological
- *     oldest-to-newest, ready for the V11b compact-transcript renderer. Empty
- *     when `applies` is `false` or when zero turns survive the walk (the
- *     BNDR-7i void-truncation case, whose whole-block omission the V11b renderer
- *     owns).
+ *     oldest-to-newest and narrowed to the closed `TranscriptMessage` set,
+ *     ready for the V11b compact-transcript renderer. Empty when `applies` is
+ *     `false` or when zero turns survive the walk (the BNDR-7i void-truncation
+ *     case, whose whole-block omission the V11b renderer owns).
  *   - `includedTurnCount` — the number of whole turns included (0 when none).
  *   - `includedTokenTotal` — the running token total of the included turns
  *     (0 when none).
  */
 export interface SessionContextWalkResult {
   readonly applies: boolean;
-  readonly includedMessages: readonly AgentMessage[];
+  readonly includedMessages: readonly TranscriptMessage[];
   readonly includedTurnCount: number;
   readonly includedTokenTotal: number;
 }
@@ -101,9 +108,18 @@ export function walkSessionContext(
     };
   }
 
+  // Closed-set exclusion (binder-model-and-context.md
+  // #session-context-closed-set-exclusion): before any turn is formed or any
+  // token counted, drop every message whose role is outside
+  // {user, assistant, toolResult, custom}. At the pin these are the host's
+  // `compactionSummary` (a compaction entry's projection — the LEADING element
+  // of a compacted session's list), `branchSummary`, and `bashExecution` arms;
+  // none renders, so none may shift the included-turn boundary either.
+  const messages: TranscriptMessage[] = input.messages.filter(isTranscriptMessage);
+
   // Group into turns via the shared helper (same turn boundary the V11b
   // renderer uses; see turn-grouping.ts for the boundary rule itself).
-  const turns: AgentMessage[][] = groupMessagesIntoTurns(input.messages);
+  const turns: TranscriptMessage[][] = groupMessagesIntoTurns(messages);
 
   // Walk turns newest-to-oldest (the newest turn sits at the array tail).
   // Include a candidate turn iff, after inclusion, the running token total is
@@ -113,7 +129,7 @@ export function walkSessionContext(
   // boundaries are inclusive.
   let runningTokens = 0;
   let runningTurns = 0;
-  const includedNewestFirst: AgentMessage[][] = [];
+  const includedNewestFirst: TranscriptMessage[][] = [];
   for (let i = turns.length - 1; i >= 0; i -= 1) {
     const turn = turns[i];
     if (turn === undefined) {
@@ -139,7 +155,7 @@ export function walkSessionContext(
   // Emit the included turns chronological oldest-to-newest: the walk accumulated
   // them newest-to-oldest, so reverse the turn order and flatten each turn's
   // messages (already chronological within the turn).
-  const includedMessages: AgentMessage[] = [];
+  const includedMessages: TranscriptMessage[] = [];
   for (let i = includedNewestFirst.length - 1; i >= 0; i -= 1) {
     const turn = includedNewestFirst[i];
     if (turn !== undefined) {

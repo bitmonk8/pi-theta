@@ -1439,10 +1439,13 @@ class ProductionThetaProducer implements ThetaProducerDeps {
   /**
    * BNDR-10 (binder/binder-model-and-context.md §Binder context): build the
    * binder's *Recent session context* transcript body for a `bind_context:
-   * session` prompt-mode theta. Sources the chronological message list from the
-   * live session, runs the newest→oldest truncation walk (≤20 turns ∧ ≤8000
-   * tokens via the injected `TokenEstimator`), and renders the included slice as
-   * a compact transcript. Returns `none` when the feature is off (subagent-mode,
+   * session` prompt-mode theta. Sources the RAW chronological message list from
+   * the live session (the host's open `AgentMessage` union — a compacted
+   * session leads with a `compactionSummary`, and `branchSummary` /
+   * `bashExecution` arms may sit anywhere in it), runs the newest→oldest
+   * truncation walk (which first drops every out-of-set arm, bug 0478, then
+   * applies ≤20 turns ∧ ≤8000 tokens via the injected `TokenEstimator`), and
+   * renders the included closed-set slice as a compact transcript. Returns `none` when the feature is off (subagent-mode,
    * `bind_context: none`, or the walk produced zero turns — BNDR-7i void
    * truncation), `block` with the transcript body when ≥1 turn was included, or
    * `unsafe` when an included `custom` message's `customType` is not
