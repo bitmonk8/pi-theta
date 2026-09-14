@@ -28,7 +28,6 @@ import type {
   ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
 import { dirname, isAbsolute, resolve as resolvePath } from "node:path";
-import { parseDocument } from "yaml";
 // RFC-0005: `buildSessionContext` remains for the prompt-mode drive; the former
 // in-process subagent satellites (`createAgentSession` / `DefaultResourceLoader`
 // / `SessionManager` / `getAgentDir` / `defineTool`) are retired — the subagent
@@ -1552,19 +1551,18 @@ class ProductionThetaProducer implements ThetaProducerDeps {
    * The parser retains each default's literal source on the parsed `ParsedParams`
    * (`fields[].defaultSource`, feeding the binder system prompt's
    * `default=<literal>` line), but not its evaluated value, so the values are
-   * recovered here from the theta's own source: the `params:` field scalar is
-   * re-read via the `FileSystem` seam, its `= <literal>` default RHS is split
-   * off, and the literal is parsed + evaluated through the same pure evaluator
-   * the body uses. Recovery is best-effort — a theta with no on-disk `sourcePath`
-   * (an in-memory fixture), an unreadable file, a default that does not parse, or
-   * a default that parses and then panics while evaluating leaves that field
-   * unfilled, never throws. An unfilled field is ABSENT from the merged args, and
-   * a defaulted field is never in the lowered schema's `required` set
-   * (`parseParams`, `parser/params.ts`, writes `required.push(field.name)` only
-   * under `field.defaultSource === undefined`), so the post-default-merge AJV
-   * check below ADMITS that absence and the invocation binds without the field.
-   * All four best-effort cases therefore reach one end state, and what DID arrive
-   * is still validated at the `params` boundary.
+   * recovered here from the theta's own loaded frontmatter: each defaulted
+   * field's recorded `defaultSource` is parsed + evaluated through the same pure
+   * evaluator the body uses. Recovery is best-effort — a default that does not
+   * parse, or a default that parses and then panics while evaluating, leaves
+   * that field unfilled, never throws. An unfilled field is ABSENT from the
+   * merged args, and a defaulted field is never in the lowered schema's
+   * `required` set (`parseParams`, `parser/params.ts`, writes
+   * `required.push(field.name)` only under `field.defaultSource === undefined`),
+   * so the post-default-merge AJV check below ADMITS that absence and the
+   * invocation binds without the field. Both best-effort cases therefore reach
+   * one end state, and what DID arrive is still validated at the `params`
+   * boundary.
    */
   async #mergeDeclaredDefaults(
     theta: ConversationBindInput["theta"],
@@ -1578,10 +1576,10 @@ class ProductionThetaProducer implements ThetaProducerDeps {
       // fill step ran, so no wire name took a default.
       return { args: binderArgs, classification: { kind: "ok" }, defaultedWireNames: [] };
     }
-    // Recovery is best-effort and may yield nothing (an in-memory theta, an
-    // unreadable file, a default that does not re-parse, a default whose
-    // evaluation panics). That leaves the field unfilled — it does NOT excuse
-    // the boundary: what did arrive is still validated below.
+    // Recovery is best-effort and may yield nothing (a default that does not
+    // re-parse, a default whose evaluation panics). That leaves the field
+    // unfilled — it does NOT excuse the boundary: what did arrive is still
+    // validated below.
     const defaults =
       params.defaultedFields.length === 0
         ? []
@@ -1600,41 +1598,28 @@ class ProductionThetaProducer implements ThetaProducerDeps {
 
   /**
    * Recover the declared default's evaluated VALUE for each defaulted wire name
-   * from the theta's source file. The parsed `ParsedParams` retains each default's
-   * literal source (`fields[].defaultSource`, feeding the binder system prompt's
-   * `default=<literal>` line) but not its evaluated value, so this re-reads the
-   * `.theta`, extracts the frontmatter YAML, reads each `params:` field's
-   * scalar, splits its `= <literal>`
-   * default RHS, and parses + evaluates the literal with the body's pure evaluator
-   * (so an enum / schema-literal default resolves against the body's declarations),
-   * then projects the evaluated value to wire form for the post-default-merge AJV
-   * boundary it feeds (`fillDefaultsAndRevalidate`, `binder/defaulting.ts`). The
-   * declaring-enum tag / schema brand a wire-form default loses here is
-   * re-established downstream by the binder-`args` inbound boundary
-   * (`bindParamsInbound`, `runtime/inbound-boundary.ts`, reached from
-   * `paramBindingsFrom`, `theta-composition-producer.ts:103`, called at `:527`)
-   * that `runtime-value-model.md:34` already mandates over binder `args`.
+   * from the theta's own parsed frontmatter. The parsed `ParsedParams` already
+   * retains each default's literal source (`fields[].defaultSource`, feeding
+   * the binder system prompt's `default=<literal>` line) but not its evaluated
+   * value, so this looks each wire name up on `theta.frontmatter.params.fields`
+   * and parses + evaluates its recorded `defaultSource` with the body's pure
+   * evaluator (so an enum / schema-literal default resolves against the body's
+   * declarations), then projects the evaluated value to wire form for the
+   * post-default-merge AJV boundary it feeds (`fillDefaultsAndRevalidate`,
+   * `binder/defaulting.ts`). The declaring-enum tag / schema brand a wire-form
+   * default loses here is re-established downstream by the binder-`args`
+   * inbound boundary (`bindParamsInbound`, `runtime/inbound-boundary.ts`,
+   * reached from `paramBindingsFrom`, `theta-composition-producer.ts:103`,
+   * called at `:527`) that `runtime-value-model.md:34` already mandates over
+   * binder `args`.
    */
   async #recoverDeclaredDefaults(
     theta: ConversationBindInput["theta"],
     defaultedFields: readonly string[],
   ): Promise<readonly DefaultedField[]> {
-    const sourcePath = theta.sourcePath;
-    if (sourcePath === undefined) {
-      return [];
-    }
-    const bytes = await this.#input.root.fileSystem.readBytes(sourcePath).then(
-      (value) => value,
-      () => undefined,
+    const fieldsByWireName = new Map(
+      (theta.frontmatter.params?.fields ?? []).map((field) => [field.wireName, field] as const),
     );
-    if (bytes === undefined) {
-      return [];
-    }
-    const yamlText = extractFrontmatterYaml(new TextDecoder().decode(bytes));
-    if (yamlText === undefined) {
-      return [];
-    }
-    const doc = parseDocument(yamlText);
     const env = buildBoundEnvironment(
       theta.body,
       undefined,
@@ -1644,11 +1629,7 @@ class ProductionThetaProducer implements ThetaProducerDeps {
     );
     const defaults: DefaultedField[] = [];
     for (const wireName of defaultedFields) {
-      const raw = doc.getIn(["params", wireName]);
-      if (typeof raw !== "string") {
-        continue;
-      }
-      const defaultSource = splitParamDefaultSource(raw);
+      const defaultSource = fieldsByWireName.get(wireName)?.defaultSource;
       if (defaultSource === undefined) {
         continue;
       }
@@ -1674,8 +1655,9 @@ class ProductionThetaProducer implements ThetaProducerDeps {
       // schema's `required` set (`parseParams` guards the `required.push` on
       // `field.defaultSource === undefined`), so the post-default-merge AJV check
       // ADMITS that absence and the invocation binds without the field — the end
-      // state the three sibling best-effort cases already reach, with what DID
-      // arrive still validated there. Only the closed `ThetaPanic` set is absorbed
+      // state the two sibling best-effort cases above (an absent recorded default,
+      // a default that does not parse) already reach, with what DID arrive still
+      // validated there. Only the closed `ThetaPanic` set is absorbed
       // — any other throw is an interpreter defect and belongs to the
       // runtime-defect surface, so it propagates unchanged.
       let evaluated: ThetaValue;
@@ -7509,71 +7491,6 @@ function loweredSchemaKindIsInteger(property: unknown, value: number): boolean {
     }
   }
   return Number.isInteger(value);
-}
-
-/**
- * Extract the YAML frontmatter block (the text between the leading `---` fence
- * and the next `---` line) from a `.theta` source, or `undefined` when the file
- * carries no fenced frontmatter. Mirrors the parser's own block isolation so the
- * re-read reads the same YAML the loader parsed; the `\r` trim handles CRLF
- * files. Used only to recover declared `params:` default literals the parsed
- * frontmatter does not retain.
- */
-function extractFrontmatterYaml(source: string): string | undefined {
-  const lines = source.split("\n");
-  const isFence = (line: string | undefined): boolean =>
-    line !== undefined && line.replace(/\r$/, "") === "---";
-  if (!isFence(lines[0])) {
-    return undefined;
-  }
-  for (let i = 1; i < lines.length; i += 1) {
-    if (isFence(lines[i])) {
-      return lines.slice(1, i).join("\n");
-    }
-  }
-  return undefined;
-}
-
-/**
- * Split a `params:` field value scalar (`<type-expr>` optionally followed by
- * `= <literal>`) at the first top-level `=` — one not nested inside `<...>`
- * angles, `{...}` braces, `[...]` brackets, or a `"`/`'` string literal (so
- * `array<string> = []` and `Author = { name: "x" }` split correctly, and an
- * `==`/`>=` inside a default is not mistaken for the separator) — returning the
- * default RHS, or `undefined` when the field declared no default. Kept in step
- * with the parser's own `splitParamValue` so a recovered default matches the
- * literal the loader validated.
- */
-function splitParamDefaultSource(raw: string): string | undefined {
-  let depth = 0;
-  let quote: string | undefined;
-  for (let i = 0; i < raw.length; i += 1) {
-    const c = raw[i];
-    if (quote !== undefined) {
-      if (c === "\\" && i + 1 < raw.length) {
-        i += 1;
-      } else if (c === quote) {
-        quote = undefined;
-      }
-      continue;
-    }
-    if (c === '"' || c === "'") {
-      quote = c;
-      continue;
-    }
-    if (c === "<" || c === "{" || c === "[") {
-      depth += 1;
-      continue;
-    }
-    if (c === ">" || c === "}" || c === "]") {
-      depth -= 1;
-      continue;
-    }
-    if (depth === 0 && c === "=" && raw[i + 1] !== "=" && raw[i - 1] !== "=") {
-      return raw.slice(i + 1).trim();
-    }
-  }
-  return undefined;
 }
 
 /**
