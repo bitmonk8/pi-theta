@@ -2,7 +2,7 @@
 id: PTQ-0334
 title: checkThetaImports still bundles eight sequential import-subsystem phases after Seam B's extraction landed
 lens: D9                     # D2 | D4 | D7 | D8 | D9 - the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - src/extension/import-static-checks.ts:604-1727

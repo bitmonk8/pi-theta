@@ -2,7 +2,7 @@
 id: PTQ-0333
 title: discovery-walk.ts's cross-source collision resolution stays bundled with per-source enumeration and the settings sub-walk after Seam 0 landed
 lens: D9                     # D2 | D4 | D7 | D8 | D9 - the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - src/discovery/discovery-walk.ts:1-1125

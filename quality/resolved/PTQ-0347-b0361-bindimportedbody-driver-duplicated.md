@@ -2,7 +2,7 @@
 id: PTQ-0347
 title: b0361's run() re-derives bindImportedBody's parse/checkThetaImports/createProductionProducerDeps/bind driver sequence instead of importing tests/helpers/thetalib-load-harness.ts's canonical helper
 lens: D7                     # D2 | D4 | D7 | D8 | D9 - the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - tests/b0361-case-variant-import-dir-identity.test.ts:119-189

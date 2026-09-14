@@ -2,7 +2,7 @@
 id: PTQ-0332
 title: runCapabilityProbe's SDK-member check builds an array of name/closure tuples for a uniform access pattern its neighboring heterogeneous check does not need
 lens: D8                     # D2 | D4 | D7 | D8 | D9 - the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - src/extension/capability-probe.ts:294-303

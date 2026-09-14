@@ -2,7 +2,7 @@
 id: PTQ-0319
 title: The four checkImported* routes each re-walk a theta body invoke-static-checks.ts's own header calls "the one shared collection"
 lens: D8                     # D2 | D4 | D7 | D8 | D9 - the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - src/extension/invoke-static-checks.ts:51-59

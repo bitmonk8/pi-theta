@@ -2,7 +2,7 @@
 id: PTQ-0344
 title: b0347 hand-rolls the SEAM_NOOP_CHECKPOINT/SINK/MUTATOR + span() + RecordedHop scaffold that tests/helpers/invoke-seam-scaffold.ts already exports and its in-scope sibling b0349 already imports
 lens: D7                     # D2 | D4 | D7 | D8 | D9 - the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - tests/b0347-subagent-leg-propagated-mintable-wrapped-unit.test.ts:320-341

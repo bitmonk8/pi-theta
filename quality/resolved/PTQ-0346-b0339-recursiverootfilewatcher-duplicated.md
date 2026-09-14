@@ -2,7 +2,7 @@
 id: PTQ-0346
 title: b0339 redeclares b0312's RecursiveRootFileWatcher recursive-root-scoping FileWatcher double instead of sharing it through tests/helpers/fake-file-watcher.ts
 lens: D7                     # D2 | D4 | D7 | D8 | D9 - the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - tests/b0339-package-source-watch-arming.test.ts:83-137
