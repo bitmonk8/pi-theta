@@ -87,23 +87,23 @@ import {
   type QueryHostDispatch,
 } from "../src/runtime/effectful-statement-host";
 import { buildEnvironment } from "../src/runtime/lexical-environment";
-import type { Checkpoint } from "../src/seams/checkpoint";
-import type {
-  CommittedConversationMutator,
-  CommittedSurface,
-  DrivenConversationMode,
-} from "../src/runtime/terminal-outcomes";
+import type { DrivenConversationMode } from "../src/runtime/terminal-outcomes";
 import { makeErr, type ResultValue, type ThetaValue } from "../src/runtime/value";
 import type {
   DrivenInvokeResult,
   InvokeChild,
   InvokeResultSource,
 } from "../src/runtime/invoke-cancellation";
-import type { ToolLoweringSink } from "../src/runtime/tool-call-execute";
 import type { Expr, InvokeExpr, ThetaBody } from "../src/parser/theta-document";
-import type { SourceRange } from "../src/diagnostics/diagnostic";
 import type { InvokeCalleeError, QueryError } from "../src/runtime/query-error";
 import type { InvokeCallSite } from "../src/runtime/invoke-provenance";
+import {
+  SEAM_NOOP_CHECKPOINT,
+  SEAM_NOOP_SINK,
+  SEAM_NOOP_MUTATOR,
+  span,
+  type RecordedHop,
+} from "./helpers/invoke-seam-scaffold";
 
 // The two cause partitions of the closed `InvokeInfraCause` union, by whether a
 // child-side envelope writer exists (bug 0347 root cause; the writers are
@@ -317,29 +317,6 @@ describe("bug 0347 (F') — old-envelope and malformed-marker tolerance falls ba
 const WORKER = "./worker.theta"; // the parent's own callee (the wrapper's callee_path).
 const GRANDCHILD = "./deeper.theta"; // the propagated leaf's callee_path (the grandchild the parent never invoked).
 
-const SEAM_NOOP_CHECKPOINT: Checkpoint = {
-  before(): Promise<void> {
-    return Promise.resolve();
-  },
-};
-
-const SEAM_NOOP_SINK: ToolLoweringSink = {
-  diagnostic(): void {},
-  systemNote(): void {},
-};
-
-const SEAM_NOOP_MUTATOR: CommittedConversationMutator = {
-  truncate(): void {},
-  rewrite(): void {},
-  replace(): void {},
-  remove(): void {},
-  injectCompensatingTurn(_surface: CommittedSurface): void {},
-};
-
-function span(): SourceRange {
-  return { start: { line: 1, column: 1 }, end: { line: 1, column: 2 } };
-}
-
 function invokeExpr(path: string): InvokeExpr {
   return { kind: "invoke", path, returnSchema: null, args: [], range: span() };
 }
@@ -356,13 +333,6 @@ function propagatedLeaf(): QueryError {
     callee_path: GRANDCHILD,
     cause: "load_failure",
   } as unknown as QueryError;
-}
-
-/** One recorded SLSH-5 hop (`deps.recordInvokeHop` fires only when the seam wraps an `invoke_callee`). */
-interface RecordedHop {
-  readonly wrapper: InvokeCalleeError;
-  readonly calleePath: string;
-  readonly callSite: InvokeCallSite;
 }
 
 /**

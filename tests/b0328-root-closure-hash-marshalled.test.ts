@@ -76,6 +76,7 @@ import type { RuntimeRoot } from "../src/runtime-root";
 import type { ThetaBody } from "../src/parser/theta-document";
 import type { CallableSetSnapshot } from "../src/parser/callable-set";
 import type { ParsedFrontmatter } from "../src/parser/frontmatter";
+import { createEnvSandbox } from "./helpers/ambient-control-plane-scrub";
 
 /**
  * The shape the fix stamps onto `ParsedTheta` / the composition input. Read via
@@ -414,17 +415,7 @@ describe("bug 0328 (2) — the producer marshals rootClosureHash into PI_THETA_S
 // observes admit/drop off the settled fixtures + notifications.
 // =============================================================================
 
-const savedEnv: Record<string, string | undefined> = {};
-function setEnv(key: string, value: string | undefined): void {
-  if (!(key in savedEnv)) {
-    savedEnv[key] = process.env[key];
-  }
-  if (value === undefined) {
-    delete process.env[key];
-  } else {
-    process.env[key] = value;
-  }
-}
+const { setEnv, restoreEnv } = createEnvSandbox();
 
 /**
  * Drive the parent producer over a `tools:`-less subagent root carrying
@@ -455,14 +446,7 @@ const ROOT_MISMATCH_MSG =
 describe("bug 0328 (3) — child end-to-end: the marshalled root hash catches a load→spawn root edit", () => {
   afterEach(() => {
     vi.restoreAllMocks();
-    for (const [key, value] of Object.entries(savedEnv)) {
-      if (value === undefined) {
-        delete process.env[key];
-      } else {
-        process.env[key] = value;
-      }
-      delete savedEnv[key];
-    }
+    restoreEnv();
   });
 
   it("3a: a byte-identical root is ADMITTED with no mismatch notification (green anchor — the fix must never false-drop)", async () => {

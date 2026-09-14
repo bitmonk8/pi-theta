@@ -12,6 +12,7 @@ import { hashCallableClosure } from "../src/runtime/subagent-callable-hash";
 import { SUBAGENT_CALLABLE_HASHES_ENV } from "../src/runtime/subagent-callable-hash";
 import { SUBAGENT_PARENT_PID_ENV } from "../src/runtime/subagent-launcher";
 import { SUBAGENT_ROOT_ENV_MARKER } from "../src/runtime/subagent-root-regime";
+import { createEnvSandbox } from "./helpers/ambient-control-plane-scrub";
 
 
 // RFC-0005 — child-side `.theta` callable content-hash verification, wired into
@@ -30,12 +31,7 @@ interface LoadOutcome {
 }
 
 let workspaceDir: string;
-const savedEnv: Record<string, string | undefined> = {};
-
-function setEnv(key: string, value: string): void {
-  savedEnv[key] = process.env[key];
-  process.env[key] = value;
-}
+const { setEnv, restoreEnv } = createEnvSandbox();
 
 async function runChildLoad(cwd: string): Promise<LoadOutcome> {
   const notifications: string[] = [];
@@ -83,14 +79,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  for (const [key, value] of Object.entries(savedEnv)) {
-    if (value === undefined) {
-      delete process.env[key];
-    } else {
-      process.env[key] = value;
-    }
-    delete savedEnv[key];
-  }
+  restoreEnv();
   rmSync(workspaceDir, { recursive: true, force: true });
 });
 

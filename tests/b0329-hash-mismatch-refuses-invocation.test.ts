@@ -18,6 +18,7 @@ import {
 } from "../src/runtime/subagent-callable-hash";
 import { SUBAGENT_PARENT_PID_ENV } from "../src/runtime/subagent-launcher";
 import { SUBAGENT_ROOT_ENV_MARKER } from "../src/runtime/subagent-root-regime";
+import { createEnvSandbox } from "./helpers/ambient-control-plane-scrub";
 import { makeHost } from "./helpers/compose-workspace-harness";
 
 // Bug 0329 — a child-side callable-hash mismatch DETECTS but does not ENFORCE.
@@ -163,14 +164,7 @@ function loadFailureEnvelope(outcome: ComposeOutcome): EnvelopeErr {
 
 let workspaceDir: string;
 let thetaDir: string;
-const savedEnv: Record<string, string | undefined> = {};
-
-function setEnv(key: string, value: string): void {
-  if (!(key in savedEnv)) {
-    savedEnv[key] = process.env[key];
-  }
-  process.env[key] = value;
-}
+const { setEnv, restoreEnv } = createEnvSandbox();
 
 function plant(name: string, content: string): void {
   writeFileSync(join(thetaDir, name), content, "utf8");
@@ -199,14 +193,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  for (const [key, value] of Object.entries(savedEnv)) {
-    if (value === undefined) {
-      delete process.env[key];
-    } else {
-      process.env[key] = value;
-    }
-    delete savedEnv[key];
-  }
+  restoreEnv();
   rmSync(workspaceDir, { recursive: true, force: true });
 });
 

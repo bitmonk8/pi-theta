@@ -634,6 +634,16 @@ describe("bug 0319 — prompt-mode thetaAbort.abort() must tear down the user ru
     });
 
     hook.assertFired();
+    // The premise this cell's name promises: ctx.abort() must actually have been
+    // called (and thrown) for the drive's survival below to say anything about
+    // trapping that throw — without this, the cell would pass identically if
+    // the reverse listener did not exist at all.
+    expect(
+      ctxAbortCalls,
+      "bug 0319 (cancellation.md:15): the forwarding listener must actually call " +
+        "ctx.abort() — otherwise its throw never fires and this cell proves nothing " +
+        "about the trap",
+    ).toBeGreaterThanOrEqual(1);
     // The drive resolved (driveLiveTheta already re-throws any executeBody
     // rejection): a listener throw must not propagate out of the drive.
     expect(

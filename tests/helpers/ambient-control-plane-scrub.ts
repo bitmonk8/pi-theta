@@ -23,6 +23,13 @@
  * the scrub set — it is heritable by design (AGENTS.md `#subagent-child-pins`,
  * subagent.md `#subagent-extension-pin`), and a harness that pinned the top of
  * the chain must keep every nesting level loading that build.
+ *
+ * PTQ-0343: this module also centralises `createEnvSandbox`, the narrower
+ * per-key `setEnv`/restore-loop scaffold several of the same
+ * subagent-control-plane-simulation files hand-rolled beside their own use of
+ * the bulk scrub above — a lazy `process.env` snapshot keyed by the FIRST
+ * override of each key, restored (or deleted, if the key was absent before)
+ * in `afterEach`.
  */
 import { SUBAGENT_PER_LAUNCH_CONTROL_PLANE_ENV_KEYS } from "../../src/runtime/subagent-launcher";
 
@@ -52,4 +59,48 @@ export function restoreAmbientControlPlane(snapshot: AmbientControlPlaneSnapshot
       process.env[key] = value;
     }
   }
+}
+
+/** A per-test `process.env` sandbox handed back by `createEnvSandbox`. */
+export interface EnvSandbox {
+  /**
+   * Plant `value` at `process.env[key]` (or delete the key when `value` is
+   * `undefined`), saving the key's ORIGINAL (pre-sandbox) value the first time
+   * it is touched, so a later `setEnv` call for the same key (e.g. a loop that
+   * plants several values in turn) cannot overwrite the value `restoreEnv`
+   * must put back.
+   */
+  readonly setEnv: (key: string, value: string | undefined) => void;
+  /**
+   * Put every key `setEnv` touched back to its saved original value (deleting
+   * it if it was absent before the sandbox), then clear the sandbox so it can
+   * be reused by the next test.
+   */
+  readonly restoreEnv: () => void;
+}
+
+/** Create a fresh, empty `EnvSandbox` — one per test file's module scope. */
+export function createEnvSandbox(): EnvSandbox {
+  const savedEnv: Record<string, string | undefined> = {};
+  function setEnv(key: string, value: string | undefined): void {
+    if (!(key in savedEnv)) {
+      savedEnv[key] = process.env[key];
+    }
+    if (value === undefined) {
+      delete process.env[key];
+    } else {
+      process.env[key] = value;
+    }
+  }
+  function restoreEnv(): void {
+    for (const [key, value] of Object.entries(savedEnv)) {
+      if (value === undefined) {
+        delete process.env[key];
+      } else {
+        process.env[key] = value;
+      }
+      delete savedEnv[key];
+    }
+  }
+  return { setEnv, restoreEnv };
 }
