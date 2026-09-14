@@ -28,6 +28,14 @@
 // materialised the expected names" precondition shape those same three files
 // each declared their own near-identical wrapper for.
 //
+// tests/b0361-case-variant-import-dir-identity.test.ts independently
+// redeclared that same parse/check/bind sequence a fourth time because its
+// defect reproduces only over a REAL filesystem, which `bindImportedBody`'s
+// hardcoded in-memory `fakeThetaLibFs` cannot drive.
+// `bindImportedBodyOverFs` below generalises the sequence over a
+// caller-supplied `sourcePath` and `FileSystem`; `bindImportedBody` is now the
+// `fakeThetaLibFs`-at-`/proj/app.theta` specialisation of it (PTQ-0347).
+//
 // TIER: unit, offline, deterministic, provider-free — the same tier as every
 // file that imports this module.
 
@@ -174,17 +182,21 @@ export interface ImportedBodyBinding {
 }
 
 /**
- * Parse `/proj/app.theta`, run the real `checkThetaImports` over `libs`, then
- * bind the real `executeBody` deps through
+ * Parse the importing theta at `sourcePath` (its body only — the shared
+ * frontmatter above is prepended), run the real `checkThetaImports` over
+ * `fs`, then bind the real `executeBody` deps through
  * `createProductionProducerDeps(...).bindPromptConversation` with a frozen
  * empty callable set — the shared "materialise a `.thetalib` import, then
  * execute the importing body" driver that recurred byte-for-byte (or
  * near-identically) across tests/b0303-imported-fn-body-declaring-scope.test.ts,
  * tests/b0305-enum-alias-identity.test.ts and
- * tests/b0306-imported-enum-wire-values.test.ts (PTQ-0315). The caller drives
- * `executeBody(app.body, binding.executeDeps)` itself and shapes the settled
- * value — that shaping (and whether a thrown panic is captured as a value) is
- * where the three files' own needs diverge.
+ * tests/b0306-imported-enum-wire-values.test.ts (PTQ-0315), generalised over
+ * the filesystem the load pass is driven over so
+ * tests/b0361-case-variant-import-dir-identity.test.ts can drive it over a
+ * REAL `PiFileSystem` instead of the in-memory `fakeThetaLibFs` double
+ * (PTQ-0347). The caller drives `executeBody(app.body, binding.executeDeps)`
+ * itself and shapes the settled value — that shaping (and whether a thrown
+ * panic is captured as a value) is where callers' own needs diverge.
  *
  * The callable set is a frozen empty snapshot and `resolvePiTool` resolves any
  * name to an "AMBIENT" sentinel, so an ambient host-tool execution would
@@ -194,13 +206,14 @@ export interface ImportedBodyBinding {
  * a caller driving a `subagent fn` cell must populate it; a caller with no
  * such cell passes an empty stub (`{}` cast to `ModelRegistry`).
  */
-export async function bindImportedBody(
+export async function bindImportedBodyOverFs(
   appBody: string,
-  libs: Record<string, string>,
+  sourcePath: string,
+  fs: FileSystem,
   modelRegistry: ModelRegistry,
 ): Promise<ImportedBodyBinding> {
   const app = parseThetaDocument(
-    { path: "/proj/app.theta", bytes: new TextEncoder().encode(`${APP_FRONTMATTER}\n${appBody}`) },
+    { path: sourcePath, bytes: new TextEncoder().encode(`${APP_FRONTMATTER}\n${appBody}`) },
     parseDeps(),
   );
   expect(
@@ -212,12 +225,12 @@ export async function bindImportedBody(
   const frontmatter = app.frontmatter as ParsedFrontmatter;
   const input: ThetaCompositionInput = {
     slashName: "app",
-    sourcePath: "/proj/app.theta",
+    sourcePath,
     frontmatter,
     body: app.body,
   };
   const check = await checkThetaImports(input, {
-    fs: fakeThetaLibFs(libs),
+    fs,
     parseDeps: parseDeps(),
   });
   const imports: readonly MaterializedImport[] = check.imports;
@@ -236,7 +249,7 @@ export async function bindImportedBody(
   });
   const theta: ThetaCompositionInput = {
     slashName: "app",
-    sourcePath: "/proj/app.theta",
+    sourcePath,
     frontmatter,
     body: app.body,
     callableSet: Object.freeze({ entries: new Map() }),
@@ -249,6 +262,21 @@ export async function bindImportedBody(
   };
   const binding = deps.bindPromptConversation(bindInput);
   return { app, check, binding };
+}
+
+/**
+ * `bindImportedBodyOverFs` specialised over the in-memory `fakeThetaLibFs`
+ * double at the fixed `/proj/app.theta` source path — the shape
+ * tests/b0303-imported-fn-body-declaring-scope.test.ts,
+ * tests/b0305-enum-alias-identity.test.ts and
+ * tests/b0306-imported-enum-wire-values.test.ts share (PTQ-0315).
+ */
+export async function bindImportedBody(
+  appBody: string,
+  libs: Record<string, string>,
+  modelRegistry: ModelRegistry,
+): Promise<ImportedBodyBinding> {
+  return bindImportedBodyOverFs(appBody, "/proj/app.theta", fakeThetaLibFs(libs), modelRegistry);
 }
 
 /** The three-field shape `expectCleanImportLoad` checks: parse codes, load diagnostics, materialised imports. */

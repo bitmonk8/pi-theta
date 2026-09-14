@@ -15,14 +15,14 @@ import {
   type ExtensionInstanceWiring,
 } from "../src/extension/production-composition";
 import { RELOAD_DEBOUNCE_WINDOW_MS } from "../src/extension/reload-debounce";
-import type {
-  FileWatcher,
-  FileWatchEvent,
-  OnWatchTerminate,
-  Unsubscribe,
-} from "../src/seams/file-watcher";
 import { FakeClock } from "./helpers/fake-clock";
-import { RootsRecordingFileWatcher, armedRoots, norm, waitFor } from "./helpers/fake-file-watcher";
+import {
+  RecursiveRootFileWatcher,
+  RootsRecordingFileWatcher,
+  armedRoots,
+  norm,
+  waitFor,
+} from "./helpers/fake-file-watcher";
 
 // Bug 0339 — witness: the package-discovery source (the fifth active-root
 // source in discovery-sources.md) must be armed for watching when its
@@ -78,62 +78,6 @@ function packageJson(name: string, piTheta?: readonly string[]): string {
     manifest.pi = { theta: piTheta };
   }
   return `${JSON.stringify(manifest)}\n`;
-}
-
-/**
- * A `FileWatcher` seam double that models real chokidar recursive-root scoping
- * (the mechanism bug 0339's consequence chain rides): `emit(event)` reaches the
- * currently-armed handler ONLY IF `event.path` sits under a currently-armed
- * root, so an event under an UNARMED package directory is a genuine no-op. The
- * roots-recording fake above returns a no-op unsubscribe and cannot emit; the
- * shipped `FakeFileWatcher` delivers to its handler regardless of path — neither
- * models the scoping case H turns on. Mirrors b0312's `RecursiveRootFileWatcher`.
- */
-class RecursiveRootFileWatcher implements FileWatcher {
-  readonly watchCalls: string[][] = [];
-  #handler: ((event: FileWatchEvent) => void) | undefined;
-  #roots: readonly string[] = [];
-
-  watch(
-    roots: readonly string[],
-    handler: (event: FileWatchEvent) => void,
-    _onTerminate?: OnWatchTerminate,
-  ): Unsubscribe {
-    this.watchCalls.push([...roots]);
-    this.#handler = handler;
-    this.#roots = [...roots];
-    return () => {
-      // Relinquish only this arming (guarded on handler identity) so a re-arm
-      // that installs a fresh handler first is not cleared by a stale unsub.
-      if (this.#handler === handler) {
-        this.#handler = undefined;
-        this.#roots = [];
-      }
-    };
-  }
-
-  /** The roots the watcher is armed over right now (the last `watch()` call's roots). */
-  get currentRoots(): readonly string[] {
-    return this.#roots;
-  }
-
-  /** Deliver an event, honouring recursive-root scoping (an out-of-root path is dropped). */
-  emit(event: FileWatchEvent): void {
-    if (this.#handler === undefined) {
-      return;
-    }
-    if (this.#underArmedRoot(event.path)) {
-      this.#handler(event);
-    }
-  }
-
-  #underArmedRoot(path: string): boolean {
-    const p = norm(path);
-    return this.#roots.some((root) => {
-      const r = norm(root);
-      return p === r || p.startsWith(r.endsWith("/") ? r : `${r}/`);
-    });
-  }
 }
 
 interface Harness {

@@ -134,3 +134,71 @@ export function armedRoots(watcher: RootsRecordingFileWatcher): readonly string[
   }
   return only;
 }
+
+// ---------------------------------------------------------------------------
+// Recursive-root-scoping FileWatcher fake (PTQ-0346).
+//
+// tests/b0312-out-of-root-thetalib-watch-closure.test.ts and
+// tests/b0339-package-source-watch-arming.test.ts each independently
+// redeclared this exact scoping mechanism (a `FileWatcher` fake that models
+// real chokidar recursive-root scoping: `emit(event)` reaches the
+// currently-armed handler ONLY IF `event.path` sits under one of the
+// currently-armed roots, so an event under an unarmed root is a genuine
+// no-op). `RootsRecordingFileWatcher` above records roots but returns a no-op
+// unsubscribe and cannot emit, and `FakeFileWatcher` delivers regardless of
+// path — neither already covers this shape. b0312's own class additionally
+// carries bug-0312-specific members (`onTerminate` plumbing, a
+// `liveSubscriptions` count, `terminate()`) outside this shared shape, so it
+// keeps declaring its own, larger class locally.
+// ---------------------------------------------------------------------------
+
+/** FileWatcher seam fake that models real chokidar recursive-root scoping:
+ *  `emit(event)` reaches the currently-armed handler only if `event.path` sits
+ *  under one of the currently-armed roots (an out-of-root path is a genuine
+ *  no-op). */
+export class RecursiveRootFileWatcher implements FileWatcher {
+  readonly watchCalls: string[][] = [];
+  #handler: ((event: FileWatchEvent) => void) | undefined;
+  #roots: readonly string[] = [];
+
+  watch(
+    roots: readonly string[],
+    handler: (event: FileWatchEvent) => void,
+    _onTerminate?: OnWatchTerminate,
+  ): Unsubscribe {
+    this.watchCalls.push([...roots]);
+    this.#handler = handler;
+    this.#roots = [...roots];
+    return () => {
+      // Relinquish only this arming (guarded on handler identity) so a re-arm
+      // that installs a fresh handler first is not cleared by a stale unsub.
+      if (this.#handler === handler) {
+        this.#handler = undefined;
+        this.#roots = [];
+      }
+    };
+  }
+
+  /** The roots the watcher is armed over right now (the last `watch()` call's roots). */
+  get currentRoots(): readonly string[] {
+    return this.#roots;
+  }
+
+  /** Deliver an event, honouring recursive-root scoping (an out-of-root path is dropped). */
+  emit(event: FileWatchEvent): void {
+    if (this.#handler === undefined) {
+      return;
+    }
+    if (this.#underArmedRoot(event.path)) {
+      this.#handler(event);
+    }
+  }
+
+  #underArmedRoot(path: string): boolean {
+    const p = norm(path);
+    return this.#roots.some((root) => {
+      const r = norm(root);
+      return p === r || p.startsWith(r.endsWith("/") ? r : `${r}/`);
+    });
+  }
+}
