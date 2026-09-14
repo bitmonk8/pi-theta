@@ -31,7 +31,7 @@
 // `Object.freeze` keeps these module-level constants off the *No globals,
 // statics, singletons* mutable-binding scan (runtime-immutable lists).
 
-import { FACTORY_PROBABLE_CAPABILITIES } from "./capability-probe";
+import { FACTORY_PROBABLE_CAPABILITIES, FACTORY_PROBED_SDK_MEMBERS } from "./capability-probe";
 import type { CapabilityId } from "./capability-probe";
 
 /**
@@ -222,20 +222,20 @@ export const SDK_SURFACE_INVENTORY: readonly SurfaceInventoryEntry[] =
     // The eight factory-probable capability function members (Step 0 (c)).
     // RFC-0005 retired capability 3's `AgentSession.prototype.abort` member from
     // the probe loop (verified by Step 0 (f) instead).
-    { id: "pi.registerCommand", kind: "namespace-function" },
-    { id: "pi.sendUserMessage", kind: "namespace-function" },
-    { id: "pi.registerTool", kind: "namespace-function" },
-    { id: "pi.setActiveTools", kind: "namespace-function" },
-    { id: "pi.getActiveTools", kind: "namespace-function" },
+    //
     // Bug 0001 / PIC-64: `pi.getAllTools` is capability 4's fourth
     // factory-probable member (capability-inventory-items.md item 4) — the
     // registry-snapshot read behind mode-independent `tools:` admission, the
     // subagent-launch trust inference (sourceInfo.scope), and both
     // extension-tool reach paths. One row only; the former pi-member
     // trust-scope row is reconciled into this one, not duplicated.
-    { id: "pi.getAllTools", kind: "namespace-function" },
-    { id: "pi.registerMessageRenderer", kind: "namespace-function" },
-    { id: "pi.sendMessage", kind: "namespace-function" },
+    //
+    // Single source of truth: `FACTORY_PROBED_SDK_MEMBERS` (capability-probe.ts)
+    // — the same list the Step 0 (c) probe iterates over — rather than a
+    // second hand-kept eight-row copy.
+    ...FACTORY_PROBED_SDK_MEMBERS.map(
+      (id): SurfaceInventoryEntry => ({ id, kind: "namespace-function" }),
+    ),
     // RFC 0010 / PIC-73: the five OPTIONAL UI/entry surfaces
     // (`OPTIONAL_UI_CAPABILITIES`, above) as presence rows — records, never
     // gates: the two `pi.*` members carry the category-(1) `pi-member` kind

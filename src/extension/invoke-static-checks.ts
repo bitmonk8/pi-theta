@@ -707,9 +707,10 @@ function collectProvableArgTypes(
       // (../runtime/tool-call.ts) admits no `array<…>` kind, so that consumer
       // still proves nothing from an array member and stands down on its own
       // "an unrepresentable arm makes the whole union unprovable" rule whatever
-      // this arm answers. The invoke and `.theta`-callable arms compare
+      // this arm answers. The invoke arm, the `.theta`-callable arm, and the
+      // imported-`fn`-call route (`checkImportedFnCallArgs`, below) compare
       // `CompatType`s through `checkCompatible` instead, which decides
-      // `array<string> ⋢ string` — so for those two consumers an unconditional
+      // `array<string> ⋢ string` — so for those consumers an unconditional
       // bail withheld a decidable case, not an undecidable one.
       //
       // An EXACTNESS-TESTED mirror of `#typeExpr`'s own array arm

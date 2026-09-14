@@ -66,6 +66,35 @@ export const FACTORY_PROBABLE_CAPABILITIES: readonly CapabilityId[] =
   Object.freeze([1, 2, 4, 6]);
 
 /**
+ * The eight `pi.<member>` names the factory-probable capability subset
+ * (`FACTORY_PROBABLE_CAPABILITIES`, capabilities 1/2/4/6) requires
+ * (capability-probe.md Step 0 (c): "items 1, 2, 4, and 6 (four capabilities,
+ * eight function members)"), in the probe's own iteration order. The single
+ * declaration site the Step 0 (c) `typeof` loop below builds its per-member
+ * closures from, and `sdk-inventory.ts`'s `SDK_SURFACE_INVENTORY` builds its
+ * matching `namespace-function` rows from — so the runtime probe and the
+ * build-time inventory cannot drift apart on which `pi.<member>` names the
+ * factory-probable subset requires.
+ *
+ * `as const` keeps this module-level constant off the *No globals, statics,
+ * singletons* mutable-binding scan (a readonly-tuple runtime-immutable list).
+ */
+export const FACTORY_PROBED_SDK_MEMBERS = [
+  "pi.registerCommand",
+  "pi.sendUserMessage",
+  "pi.registerTool",
+  "pi.setActiveTools",
+  "pi.getActiveTools",
+  // Bug 0001 / PIC-64: the capability-4 registry-snapshot read behind
+  // mode-independent `tools:` admission and both extension-tool reach
+  // paths (capability-inventory-items.md item 4). Absence refuses
+  // fail-closed via the same sdk-capability-missing kind.
+  "pi.getAllTools",
+  "pi.registerMessageRenderer",
+  "pi.sendMessage",
+] as const;
+
+/**
  * Cancellation-runtime constant: the bounded wait (milliseconds) the
  * `session_shutdown` teardown awaits in-flight invocation drainage before
  * proceeding. The value is sourced from session-shutdown-semantics.md
@@ -307,20 +336,13 @@ export function runCapabilityProbe(host: ProbeHost): ProbeOutcome {
   // capability 3 is verified by the Step 0 (f) executable-resolution probe.
   try {
     const pi = host.pi;
-    const sdkMembers: ReadonlyArray<readonly [string, () => unknown]> = [
-      ["pi.registerCommand", () => readProp(pi, "registerCommand")],
-      ["pi.sendUserMessage", () => readProp(pi, "sendUserMessage")],
-      ["pi.registerTool", () => readProp(pi, "registerTool")],
-      ["pi.setActiveTools", () => readProp(pi, "setActiveTools")],
-      ["pi.getActiveTools", () => readProp(pi, "getActiveTools")],
-      // Bug 0001 / PIC-64: the capability-4 registry-snapshot read behind
-      // mode-independent `tools:` admission and both extension-tool reach
-      // paths (capability-inventory-items.md item 4). Absence refuses
-      // fail-closed via the same sdk-capability-missing kind.
-      ["pi.getAllTools", () => readProp(pi, "getAllTools")],
-      ["pi.registerMessageRenderer", () => readProp(pi, "registerMessageRenderer")],
-      ["pi.sendMessage", () => readProp(pi, "sendMessage")],
-    ];
+    const sdkMembers: ReadonlyArray<readonly [string, () => unknown]> =
+      FACTORY_PROBED_SDK_MEMBERS.map(
+        (name): readonly [string, () => unknown] => [
+          name,
+          () => readProp(pi, name.slice("pi.".length)),
+        ],
+      );
     for (const [member, get] of sdkMembers) {
       const observed = typeof get();
       if (observed !== "function") {
