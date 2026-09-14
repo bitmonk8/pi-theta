@@ -540,7 +540,7 @@ function producerWithChannel(pi: ExtensionAPI, channel: SystemNoteChannelDeps) {
 describe("bug 0437 — the SLSH-1 informational note routes through the channel with `details` absent", () => {
   it("B1 (routed + details-absent): the overflow note lands on the injected channel, not the raw top-level pi, and carries no `details`", async () => {
     const { channel, notes: channelLog } = recordingSystemNoteChannel();
-    const { pi } = recordingPi();
+    const { pi, notes: rawPiNotes } = recordingPi();
     const deps = producerWithChannel(pi, channel);
 
     const result = await deps.runBinder({
@@ -574,6 +574,14 @@ describe("bug 0437 — the SLSH-1 informational note routes through the channel 
       JSON.stringify(note),
       'the serialised routed note must not contain "details"',
     ).not.toContain("details");
+
+    // The raw top-level pi's OWN recorder saw ZERO writes — the overflow note
+    // is routed exclusively through the injected channel, never additionally
+    // reaching the raw top-level pi (the title's "not the raw top-level pi" claim).
+    expect(
+      rawPiNotes,
+      "the overflow note must not additionally reach the raw top-level pi.sendMessage",
+    ).toHaveLength(0);
   });
 
   it("B2 (containment under a throwing host): the routed send is CONTAINED and runBinder resolves, emitting the delivery-failed diagnostic", async () => {

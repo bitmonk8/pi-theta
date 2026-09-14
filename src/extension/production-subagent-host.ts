@@ -1,6 +1,6 @@
 // RFC-0005 — production child-process host for the subagent drive.
 //
-// This module owns the two production collaborators the subagent launcher seam
+// This module owns the production collaborators the subagent launcher seam
 // (`src/runtime/subagent-launcher.ts`) consumes against the real OS: the
 // `ExecutableHost` snapshot the executable-resolution ladder reads
 // (pi-integration-contract/subagent.md #subagent-executable-resolution) and a
@@ -11,12 +11,6 @@
 // the strict-JSONL, LF-only-split `SubagentChildProcess` surface, and
 // process-tree-kills it on teardown (`taskkill /PID <pid> /T /F` on win32,
 // `SIGKILL` elsewhere — no POSIX signal on Windows).
-//
-// The ambient reads localised here (`process.execPath` / `process.argv` /
-// `process.platform`, `child_process.spawn`, `node:fs` existence) are NOT on the
-// banned-primitive list (`process.env` / `process.cwd` / timers / `Date` are);
-// the one `process.env` read (full-environment inheritance is the RFC-0005
-// credential mechanism) carries a same-line `allow-ambient` exemption.
 
 import { spawn as nodeSpawn } from "node:child_process";
 import {
@@ -37,19 +31,10 @@ import type {
   SubagentChildProcess,
 } from "../runtime/subagent-launcher";
 import {
-  SUBAGENT_EXTENSION_PIN_ENV,
-  SUBAGENT_INVOKE_DEPTH_ENV,
+  SUBAGENT_CONTROL_PLANE_ENV_KEYS,
   SUBAGENT_PARENT_PID_ENV,
 } from "../runtime/subagent-launcher";
-import {
-  SUBAGENT_ROOT_ENV_MARKER,
-  SUBAGENT_ROOT_WINNER_ENV,
-} from "../runtime/subagent-root-regime";
-import { SUBAGENT_CALLABLE_HASHES_ENV } from "../runtime/subagent-callable-hash";
-import {
-  SUBAGENT_PARAMS_ENV,
-  SUBAGENT_PARAMS_FILE_ENV,
-} from "../runtime/subagent-params";
+import { SUBAGENT_PARAMS_TEMP_FILE_MODE } from "../runtime/subagent-params";
 
 /**
  * Matches a path that lives inside a compiled binary's OWN embedded filesystem —
@@ -131,35 +116,10 @@ export function createProductionExecutableHost(): ExecutableHost {
 }
 
 /**
- * The `PI_THETA_*` control-plane variables — the ones that steer THIS process's
- * behaviour rather than merely being passed along. Each is normally written by a
- * pi-theta parent at spawn and read by the child it spawned:
- *
- *   - the extension pin becomes `-e <path>`, i.e. "load this file as an extension";
- *   - the root marker puts the process into subagent-root regime (watcher
- *     suppression, in-process root drive, a machine envelope on fd 1);
- *   - the params carriers supply the callee's arguments and BYPASS the binder;
- *   - the invoke depth seeds the recursion ceiling;
- *   - the callable-hash map is the load-to-spawn tamper check;
- *   - the marked-root winner path (bug 0331) steers the child's collision
- *     resolution to the parent's own source-priority outcome, for the marked
- *     root's slug alone.
- */
-const CONTROL_PLANE_ENV_KEYS: readonly string[] = Object.freeze([
-  SUBAGENT_EXTENSION_PIN_ENV,
-  SUBAGENT_ROOT_ENV_MARKER,
-  SUBAGENT_ROOT_WINNER_ENV,
-  SUBAGENT_PARAMS_ENV,
-  SUBAGENT_PARAMS_FILE_ENV,
-  SUBAGENT_INVOKE_DEPTH_ENV,
-  SUBAGENT_CALLABLE_HASHES_ENV,
-  SUBAGENT_PARENT_PID_ENV,
-]);
-
-/**
  * The parent environment inherited by every subagent child (full inheritance is
  * the RFC-0005 credential mechanism — credentials are never marshalled), with the
- * control plane above ACCEPTED ONLY FROM A REAL PI-THETA PARENT.
+ * `PI_THETA_*` control plane (`SUBAGENT_CONTROL_PLANE_ENV_KEYS`, owned beside the
+ * launcher that writes it) ACCEPTED ONLY FROM A REAL PI-THETA PARENT.
  *
  * Those variables were designed on the assumption that only a pi-theta parent
  * writes them — the root marker is documented as "set ONLY by the parent launcher
@@ -179,8 +139,9 @@ const CONTROL_PLANE_ENV_KEYS: readonly string[] = Object.freeze([
  * state. On a mismatch (including the ordinary top-level case, where no launcher
  * wrote anything) the whole control plane is dropped and every value is re-derived
  * per launch, which is what the launcher already does: `buildSubagentChildEnv`
- * spreads its own markers LAST, so dropping an inherited value cannot disturb a
- * real spawn.
+ * SCRUBS the per-launch control plane out of the inherited environment and
+ * composes this launch's own values over it (bug 0474), so dropping an inherited
+ * value cannot disturb a real spawn.
  *
  * This narrows the channel rather than closing it: a `ppid` is a small integer, so
  * a writer able to observe the live process tree could still match it. What it
@@ -206,36 +167,38 @@ export function authenticateControlPlane(
     return env;
   }
   const authenticated: Record<string, string | undefined> = { ...env };
-  for (const key of CONTROL_PLANE_ENV_KEYS) {
+  for (const key of SUBAGENT_CONTROL_PLANE_ENV_KEYS) {
     delete authenticated[key];
   }
   return authenticated;
 }
 
-/** The parent process id carried to the child (orphan-prevention watchdog / depth counter). */
+/** The parent process id carried to the child (control-plane authentication key; also the reserved, unimplemented orphan-prevention watchdog input). */
 export function readParentPid(): number {
   return process.pid;
 }
 
 /**
  * RFC-0006 (PIC-60). The production params-channel filesystem seam. `writeTempFile`
- * writes the canonical params JSON to a fresh 0600 temp file (owner-only) in a
- * private temp directory and returns its path; `unlink` deletes it (the parent's
- * `finally` backstop); `readFile` is the child-side read of the marshalled path.
- * Windows-safe: `mkdtempSync` + `writeFileSync` with an explicit `mode`, no shell.
+ * writes the canonical params JSON to a fresh temp file at the pinned 0600 mode
+ * (owner-only, `SUBAGENT_PARAMS_TEMP_FILE_MODE`) in a private temp directory and
+ * returns its path; `unlink` deletes it (the parent's `finally` backstop);
+ * `readFile` is the child-side read of the marshalled path. Windows-safe:
+ * `mkdtempSync` + `writeFileSync` with an explicit `mode`, no shell.
  */
 export function createProductionParamsFs(): {
-  writeTempFile: (contents: string, mode: number) => string;
+  writeTempFile: (contents: string) => string;
   unlink: (path: string) => void;
   readFile: (path: string) => string;
 } {
   return {
-    writeTempFile: (contents: string, mode: number): string => {
+    writeTempFile: (contents: string): string => {
       // A per-invocation private directory avoids name collisions under `par for`
-      // fan-out; the 0600 file mode keeps the brief on-disk param exposure owner-only.
+      // fan-out; the 0600 file mode (pinned by contract, not caller-selected) keeps
+      // the brief on-disk param exposure owner-only.
       const dir = mkdtempSync(join(tmpdir(), "pi-theta-params-")); // allow-sync: RFC-0006 one-shot params temp-file write, not event-loop I/O
       const path = join(dir, "params.json");
-      writeFileSync(path, contents, { mode }); // allow-sync: RFC-0006 one-shot params temp-file write
+      writeFileSync(path, contents, { mode: SUBAGENT_PARAMS_TEMP_FILE_MODE }); // allow-sync: RFC-0006 one-shot params temp-file write
       return path;
     },
     unlink: (path: string): void => {
@@ -276,9 +239,7 @@ export function createProductionParamsFs(): {
 export function createProductionEnvelopeWriter(
   writeToFd: (line: string) => void = defaultStdoutFdWrite,
 ): (line: string) => void {
-  return (line: string): void => {
-    writeToFd(line);
-  };
+  return writeToFd;
 }
 
 /** The default fd-1 envelope write (see `createProductionEnvelopeWriter`'s WHY). */
@@ -317,45 +278,91 @@ interface NodeChildLike {
 }
 
 /**
+ * LF-only line buffers per stream (strict-JSONL framing; a trailing CR is left
+ * for the wire parser to trim).
+ */
+function makeLinePump(
+  source: { on(event: "data", listener: (chunk: unknown) => void): void } | null,
+): (listener: (line: string) => void) => () => void {
+  let buffer = "";
+  const listeners = new Set<(line: string) => void>();
+  source?.on("data", (chunk: unknown) => {
+    buffer += String(chunk);
+    let idx: number;
+    while ((idx = buffer.indexOf("\n")) >= 0) {
+      const line = buffer.slice(0, idx);
+      buffer = buffer.slice(idx + 1);
+      if (line.length === 0) {
+        continue;
+      }
+      // Snapshot: a listener may unsubscribe from within its own callback
+      // (a per-query reader detaches on settle), so iterate a copy.
+      for (const listener of [...listeners]) {
+        listener(line);
+      }
+    }
+  });
+  // Return an unsubscribe handle so consumers detach on settle (no O(queries)
+  // listener accumulation on a long-lived child).
+  return (listener: (line: string) => void): (() => void) => {
+    listeners.add(listener);
+    return (): void => {
+      listeners.delete(listener);
+    };
+  };
+}
+
+/**
+ * Platform-branched process-tree kill for `child`: `taskkill /PID <pid> /T
+ * /F` on Windows (no shell, no POSIX signal), `SIGKILL` elsewhere — always
+ * followed by destroying the stdio pipes so a `'close'` that would otherwise
+ * wait on a stdout EOF that never arrives still fires deterministically
+ * (PIC-65 teardown budget).
+ */
+function killChildTree(child: NodeChildLike): void {
+  const pid = child.pid;
+  // PIC-65 teardown-budget precedent: a killed child whose stdout never
+  // reaches EOF (e.g. a grandchild inherited the stdout pipe on POSIX) would
+  // keep the child `'close'` event from firing and hang the drive. Destroy
+  // our end of the stdio pipes on the kill path so they reach EOF and
+  // `'close'` fires deterministically — the bounded fallback that keeps a
+  // killed child from wedging the drive.
+  const destroyPipes = (): void => {
+    child.stdin?.destroy?.();
+    child.stdout?.destroy?.();
+    child.stderr?.destroy?.();
+  };
+  if (isWindows() && pid !== undefined) {
+    // Windows process-tree kill: `taskkill /PID <pid> /T /F` (no shell, no
+    // POSIX signal). Best-effort — a failure to spawn taskkill falls back to
+    // the direct kill below.
+    try {
+      const killer = nodeSpawn("taskkill", ["/PID", String(pid), "/T", "/F"], {
+        shell: false,
+      });
+      // An ASYNC spawn error (e.g. taskkill missing / EPERM) is emitted on
+      // the child process's `error` event AFTER `spawn` returns; without a
+      // handler Node re-raises it as an unhandled exception. Attach a
+      // swallowing handler — the direct-kill fallback below already covers
+      // the failure, and a teardown kill failure is advisory only (PIC-65).
+      killer.on("error", () => {});
+      destroyPipes();
+      return;
+    } catch (killError: unknown) { // allow-broad-catch: taskkill spawn failure falls back to direct kill — pi-integration-contract/subagent.md
+      void killError;
+    }
+  }
+  child.kill("SIGKILL");
+  destroyPipes();
+}
+
+/**
  * Adapt a Node `ChildProcess` to the `SubagentChildProcess` handle. Exported for
  * the ordering-contract test (`tests/subagent-json-driver.test.ts`) that pins
  * the `'close'`-not-`'exit'` terminal-signal rule against a fake node child;
  * production only reaches it via `createProductionSpawnFn`.
  */
 export function adaptChild(child: NodeChildLike): SubagentChildProcess {
-  // LF-only line buffers per stream (strict-JSONL framing; a trailing CR is left
-  // for the wire parser to trim).
-  const makeLinePump = (
-    source: { on(event: "data", listener: (chunk: unknown) => void): void } | null,
-  ): ((listener: (line: string) => void) => () => void) => {
-    let buffer = "";
-    const listeners = new Set<(line: string) => void>();
-    source?.on("data", (chunk: unknown) => {
-      buffer += String(chunk);
-      let idx: number;
-      while ((idx = buffer.indexOf("\n")) >= 0) {
-        const line = buffer.slice(0, idx);
-        buffer = buffer.slice(idx + 1);
-        if (line.length === 0) {
-          continue;
-        }
-        // Snapshot: a listener may unsubscribe from within its own callback
-        // (a per-query reader detaches on settle), so iterate a copy.
-        for (const listener of [...listeners]) {
-          listener(line);
-        }
-      }
-    });
-    // Return an unsubscribe handle so consumers detach on settle (no O(queries)
-    // listener accumulation on a long-lived child).
-    return (listener: (line: string) => void): (() => void) => {
-      listeners.add(listener);
-      return (): void => {
-        listeners.delete(listener);
-      };
-    };
-  };
-
   const onStdoutLine = makeLinePump(child.stdout);
   const onStderrLine = makeLinePump(child.stderr);
 
@@ -380,7 +387,6 @@ export function adaptChild(child: NodeChildLike): SubagentChildProcess {
   });
 
   return {
-    pid: child.pid,
     closeStdin: (): void => {
       // Under the production spawn config (stdin "ignore", bug 0002) `child.
       // stdin` is null, so this is a structural no-op; residual teardown-path
@@ -400,40 +406,7 @@ export function adaptChild(child: NodeChildLike): SubagentChildProcess {
       exitListeners.add(listener);
     },
     kill: (): void => {
-      const pid = child.pid;
-      // PIC-65 teardown-budget precedent: a killed child whose stdout never
-      // reaches EOF (e.g. a grandchild inherited the stdout pipe on POSIX) would
-      // keep the child `'close'` event from firing and hang the drive. Destroy
-      // our end of the stdio pipes on the kill path so they reach EOF and
-      // `'close'` fires deterministically — the bounded fallback that keeps a
-      // killed child from wedging the drive.
-      const destroyPipes = (): void => {
-        child.stdin?.destroy?.();
-        child.stdout?.destroy?.();
-        child.stderr?.destroy?.();
-      };
-      if (isWindows() && pid !== undefined) {
-        // Windows process-tree kill: `taskkill /PID <pid> /T /F` (no shell, no
-        // POSIX signal). Best-effort — a failure to spawn taskkill falls back to
-        // the direct kill below.
-        try {
-          const killer = nodeSpawn("taskkill", ["/PID", String(pid), "/T", "/F"], {
-            shell: false,
-          });
-          // An ASYNC spawn error (e.g. taskkill missing / EPERM) is emitted on
-          // the child process's `error` event AFTER `spawn` returns; without a
-          // handler Node re-raises it as an unhandled exception. Attach a
-          // swallowing handler — the direct-kill fallback below already covers
-          // the failure, and a teardown kill failure is advisory only (PIC-65).
-          killer.on("error", () => {});
-          destroyPipes();
-          return;
-        } catch (killError: unknown) { // allow-broad-catch: taskkill spawn failure falls back to direct kill — pi-integration-contract/subagent.md
-          void killError;
-        }
-      }
-      child.kill("SIGKILL");
-      destroyPipes();
+      killChildTree(child);
     },
   };
 }

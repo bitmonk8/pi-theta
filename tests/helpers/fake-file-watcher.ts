@@ -70,3 +70,135 @@ export class FakeFileWatcher implements FileWatcher {
     this.#onTerminate?.(termination);
   }
 }
+
+// ---------------------------------------------------------------------------
+// Roots-recording FileWatcher fake (PTQ-0236).
+//
+// tests/b0310-watch-roots-root-union.test.ts and
+// tests/b0339-package-source-watch-arming.test.ts each independently
+// redeclared this exact quartet (a `FileWatcher` fake whose only job is to
+// record each `watch()` call's `roots` argument, plus the helpers that
+// normalise a path, poll a bounded condition, and read back the single
+// recorded arming). `FakeFileWatcher` above deliberately discards `roots`
+// (its job is event delivery, not roots-recording), so it does not already
+// cover this shape.
+// ---------------------------------------------------------------------------
+
+/** FileWatcher seam fake whose only job is to record each `watch()` root list. */
+export class RootsRecordingFileWatcher implements FileWatcher {
+  readonly watchCalls: readonly string[][] = [];
+
+  watch(
+    roots: readonly string[],
+    _handler: (event: FileWatchEvent) => void,
+    _onTerminate?: OnWatchTerminate,
+  ): Unsubscribe {
+    (this.watchCalls as string[][]).push([...roots]);
+    return () => {};
+  }
+}
+
+/** Normalise a path for the cross-platform contain check (this repo runs on Windows). */
+export function norm(path: string): string {
+  return path.replace(/\\/g, "/").toLowerCase();
+}
+
+/** Poll a real-timer-bounded condition; throw loudly on timeout naming the unmet
+ *  precondition (b0310's idiom — never an early return or skip). */
+export async function waitFor(cond: () => boolean, label: string): Promise<void> {
+  for (let i = 0; i < 400; i++) {
+    if (cond()) return;
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+  throw new Error(`timeout waiting for ${label}`);
+}
+
+/** The single root list a `RootsRecordingFileWatcher` was armed over, or a loud
+ *  failure naming the unmet precondition. */
+export function armedRoots(watcher: RootsRecordingFileWatcher): readonly string[] {
+  if (watcher.watchCalls.length === 0) {
+    throw new Error(
+      "precondition unmet: session_start armed no watcher (watch() was never called)",
+    );
+  }
+  if (watcher.watchCalls.length > 1) {
+    throw new Error(
+      `precondition unmet: expected exactly one watch() arming, saw ${watcher.watchCalls.length}`,
+    );
+  }
+  // Guarded above (length is exactly 1), but `noUncheckedIndexedAccess` widens
+  // the element type, so the loud fallback keeps the return non-optional.
+  const only = watcher.watchCalls[0];
+  if (only === undefined) {
+    throw new Error("precondition unmet: recorded watch() root list was undefined");
+  }
+  return only;
+}
+
+// ---------------------------------------------------------------------------
+// Recursive-root-scoping FileWatcher fake (PTQ-0346).
+//
+// tests/b0312-out-of-root-thetalib-watch-closure.test.ts and
+// tests/b0339-package-source-watch-arming.test.ts each independently
+// redeclared this exact scoping mechanism (a `FileWatcher` fake that models
+// real chokidar recursive-root scoping: `emit(event)` reaches the
+// currently-armed handler ONLY IF `event.path` sits under one of the
+// currently-armed roots, so an event under an unarmed root is a genuine
+// no-op). `RootsRecordingFileWatcher` above records roots but returns a no-op
+// unsubscribe and cannot emit, and `FakeFileWatcher` delivers regardless of
+// path — neither already covers this shape. b0312's own class additionally
+// carries bug-0312-specific members (`onTerminate` plumbing, a
+// `liveSubscriptions` count, `terminate()`) outside this shared shape, so it
+// keeps declaring its own, larger class locally.
+// ---------------------------------------------------------------------------
+
+/** FileWatcher seam fake that models real chokidar recursive-root scoping:
+ *  `emit(event)` reaches the currently-armed handler only if `event.path` sits
+ *  under one of the currently-armed roots (an out-of-root path is a genuine
+ *  no-op). */
+export class RecursiveRootFileWatcher implements FileWatcher {
+  readonly watchCalls: string[][] = [];
+  #handler: ((event: FileWatchEvent) => void) | undefined;
+  #roots: readonly string[] = [];
+
+  watch(
+    roots: readonly string[],
+    handler: (event: FileWatchEvent) => void,
+    _onTerminate?: OnWatchTerminate,
+  ): Unsubscribe {
+    this.watchCalls.push([...roots]);
+    this.#handler = handler;
+    this.#roots = [...roots];
+    return () => {
+      // Relinquish only this arming (guarded on handler identity) so a re-arm
+      // that installs a fresh handler first is not cleared by a stale unsub.
+      if (this.#handler === handler) {
+        this.#handler = undefined;
+        this.#roots = [];
+      }
+    };
+  }
+
+  /** The roots the watcher is armed over right now (the last `watch()` call's roots). */
+  get currentRoots(): readonly string[] {
+    return this.#roots;
+  }
+
+  /** Deliver an event, honouring recursive-root scoping (an out-of-root path is dropped). */
+  emit(event: FileWatchEvent): void {
+    if (this.#handler === undefined) {
+      return;
+    }
+    if (this.#underArmedRoot(event.path)) {
+      this.#handler(event);
+    }
+  }
+
+  #underArmedRoot(path: string): boolean {
+    const p = norm(path);
+    return this.#roots.some((root) => {
+      const r = norm(root);
+      return p === r || p.startsWith(r.endsWith("/") ? r : `${r}/`);
+    });
+  }
+}

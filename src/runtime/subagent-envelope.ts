@@ -108,14 +108,6 @@ export interface EnvelopeErr {
   readonly err_provenance?: ErrProvenance;
 }
 
-/** The pinned `theta_result` payload — exactly one of the `ok` / `err` arms, plus the version field. */
-export type ThetaResultPayload = EnvelopeOk | EnvelopeErr;
-
-/** One full envelope line's parsed object shape (`{ theta_result: … }`). */
-export interface EnvelopeLine {
-  readonly theta_result: ThetaResultPayload;
-}
-
 // ---------------------------------------------------------------------------
 // Diagnostic codes (RFC 0006 marshalling codes).
 // ---------------------------------------------------------------------------

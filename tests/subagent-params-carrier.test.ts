@@ -36,6 +36,7 @@ import {
   readMarshalledParams,
   SUBAGENT_PARAMS_ENV,
   SUBAGENT_PARAMS_FILE_ENV,
+  SUBAGENT_PARAMS_TEMP_FILE_MODE,
   SUBAGENT_PARAMS_THRESHOLD_BYTES,
   type ParamsIntakeDeps,
   type ParamsMarshalDeps,
@@ -48,20 +49,20 @@ import {
 /** A fake parent-side fs seam recording temp-file writes and unlinks. */
 function fakeMarshalFs(): {
   readonly deps: ParamsMarshalDeps;
-  readonly writes: { path: string; contents: string; mode: number }[];
+  readonly writes: { path: string; contents: string }[];
   readonly unlinks: string[];
 } {
-  const writes: { path: string; contents: string; mode: number }[] = [];
+  const writes: { path: string; contents: string }[] = [];
   const unlinks: string[] = [];
   let counter = 0;
   return {
     writes,
     unlinks,
     deps: {
-      writeTempFile: (contents, mode): string => {
+      writeTempFile: (contents): string => {
         counter += 1;
         const path = `/tmp/pi-theta-params-${counter}.json`;
-        writes.push({ path, contents, mode });
+        writes.push({ path, contents });
         return path;
       },
       unlink: (path): void => {
@@ -302,8 +303,8 @@ describe("SPAWN-08 — marshal → read round-trip at both payload sizes", () =>
     tempDirs.push(dir);
     const path = join(dir, "params.json");
     const realMarshalFs: ParamsMarshalDeps = {
-      writeTempFile: (contents, mode): string => {
-        writeFileSync(path, contents, { mode });
+      writeTempFile: (contents): string => {
+        writeFileSync(path, contents, { mode: SUBAGENT_PARAMS_TEMP_FILE_MODE });
         return path;
       },
       unlink: (p): void => {

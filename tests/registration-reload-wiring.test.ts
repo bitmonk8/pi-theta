@@ -13,8 +13,6 @@ import {
   loadPassParse,
   REGISTRY_SWAP_FAILED_CODE,
   type ParsedTheta,
-  type AvailableModel,
-  type ModelRegistrySurface,
 } from "../src/extension/reload-wiring";
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
 import type {
@@ -22,6 +20,7 @@ import type {
   ParseFrontmatterOptions,
   FrontmatterParseResult,
 } from "../src/parser/frontmatter";
+import { model, registryOf } from "./helpers/model-registry-fixture";
 
 // V9b-T — registration steps and reload-wiring seams (tests). These tests are
 // written against the seams the paired V9b implementation leaf fills in; they
@@ -44,11 +43,6 @@ const theta = (slashName: string): ParsedTheta => ({
   body: { statements: [], tail: null },
   run: NOOP_RUN,
 });
-
-// A `ModelRegistrySurface` over a fixed available-model set.
-function registryOf(models: readonly AvailableModel[]): ModelRegistrySurface {
-  return { getAvailable: () => models };
-}
 
 // --- PIC-36 — registry swap atomicity ---
 
@@ -169,12 +163,6 @@ describe("V9b-T — structural-change watcher note (PIC-37 / PIC-38)", () => {
 // --- model-reference-matcher production wiring (host-interfaces-core.md#model-registry-pin) ---
 
 describe("V9b-T — model-reference-matcher production wiring (model-registry surface)", () => {
-  const model = (
-    id: string,
-    provider: string,
-    api: string,
-  ): AvailableModel => ({ id, provider, api });
-
   it("constructs an exact-match resolver over getAvailable() matching .id / .provider, never the api-shaped .api", () => {
     const registry = registryOf([
       model("claude-x", "anthropic", "anthropic-messages"),

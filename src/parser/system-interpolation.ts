@@ -25,13 +25,9 @@
 //     row of that table cannot arise here: `params:` types never include
 //     `Result`, so the `system:` surface never produces a `result`-typed slot.
 //
-// V6d-T (tests-task) declares these seam shapes — `SystemParamType`, the parsed
-// `SystemTemplate`, the parse-time `checkSystemInterpolation` and the
-// resolve-time `renderSystemPrompt` entry points, and the diagnostic code +
-// message anchors — and stubs the two behaviour-bearing functions inertly so
-// the failing tests compile and red on their own primary assertions (no
-// diagnostic fires, no template is produced, and rendering yields empty text).
-// The paired V6d implementation leaf fills these in.
+// The seam shapes are `SystemParamType`, the parsed `SystemTemplate`, the
+// parse-time `checkSystemInterpolation` and resolve-time `renderSystemPrompt`
+// entry points, and the diagnostic code + message anchors.
 //
 // Spec: frontmatter/frontmatter-fields-b-and-templates.md,
 // query/query-escapes-stringification.md.
@@ -253,11 +249,9 @@ export interface CheckSystemInterpolationResult {
  *   - `\${` resolved to a literal `${` text run (interpolation suppressed).
  *
  * Returns the parsed template iff no error-severity diagnostic was raised.
- *
- * V6d-T stubs this as an inert pass (no diagnostics, no template); the paired
- * V6d implementation leaf parses the template, applies the four parse checks,
- * the prompt-mode rejection, and the `\${` escape, and maps each validated
- * path's terminal static type to its `InterpolationType`.
+ * Parses the template, applies the four parse checks, the prompt-mode
+ * rejection, and the `\${` escape, and maps each validated path's terminal
+ * static type to its `InterpolationType`.
  */
 export function checkSystemInterpolation(
   input: CheckSystemInterpolationInput,
@@ -576,10 +570,8 @@ export type RenderSystemPromptResult =
  * each interpolation path against the validated `params` object and stringify
  * the resolved value through the **shared** canonical renderer
  * (`stringifyInterpolatedValue`, QRY-18), concatenating the literal text runs.
- *
- * V6d-T stubs this as an inert pass returning empty text; the paired V6d
- * implementation leaf resolves the path segments and feeds each resolved value
- * into `stringifyInterpolatedValue`.
+ * Resolves the path segments and feeds each resolved value into
+ * `stringifyInterpolatedValue`.
  */
 export function renderSystemPrompt(
   input: RenderSystemPromptInput,

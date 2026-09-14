@@ -23,7 +23,9 @@
 //
 // V2b implements the decision procedure: `checkCompatible` decides the
 // directed relation `T₁ ⊑ T₂` over the `CompatType` model (TYPE-1…TYPE-11) and
-// the three per-site checkers report the parse-time mismatch diagnostics
+// the per-site checkers (`checkLetRhsCompat`, `checkFnArgCompat`,
+// `checkObjectFieldCompat`, `checkCommonType`, `checkParamsDefaultCompat`,
+// `checkReassignRhsCompat`) report the parse-time mismatch diagnostics
 // (TYPE-9). An operand past the parser's static view (an unresolvable `named`
 // reference) yields `"unknown"`, at which point the per-site checkers emit no
 // diagnostic and the runtime AJV check is the safety net (type-system.md
@@ -126,18 +128,20 @@ export type TypeEnv = Readonly<Record<string, NamedDecl>>;
  * A name whose first character is not `A`–`Z` also resolves to nothing.
  * `lexical.md:15` requires PascalCase for a `schema`/`enum`/type-like
  * binding, and the lexer's refusal (`theta/parse/schema-case-mismatch`,
- * src/lexer/lexer.ts:842–849) is a contextual diagnostic, not a parse
- * refusal that drops the node: a refused `SchemaDecl` still reaches
- * `doc.body.statements` and `collectTypeEnv` still writes it into the
+ * `contextualDiagnostics` in src/lexer/lexer.ts) is a contextual diagnostic,
+ * not a parse refusal that drops the node: a refused `SchemaDecl` still
+ * reaches `doc.body.statements` and `collectTypeEnv` still writes it into the
  * `TypeEnv`. A name the case rule refuses therefore names no declared type,
  * and answering its own key here would let a refused declaration decide a
- * static check — type-system.md:48's unresolvable-operand deferral is the
- * correct disposition, and code-registry-parse.md:59's "where the RHS type
- * is statically resolvable" qualifier already excludes it. The predicate is
- * re-derived from the name's first character rather than shared, matching
- * the lexer's own type-position test (src/lexer/lexer.ts:833) and the other
- * local re-derivations in this tree (src/parser/frontmatter.ts:898,
- * src/parser/theta-document.ts:2559,3065, src/parser/type-grammar.ts:1087).
+ * static check — type-system.md §"Unresolvable operands" is the correct
+ * disposition, and the `theta/parse/let-rhs-type-mismatch` registry row's
+ * "where the RHS type is statically resolvable" qualifier
+ * (code-registry-parse.md) already excludes it. The predicate is re-derived
+ * from the name's first character rather than shared, matching the lexer's
+ * own type-position test (`contextualDiagnostics`, src/lexer/lexer.ts) and
+ * the other local re-derivations in this tree (`extractParsedParams`,
+ * src/parser/frontmatter.ts; `parseFn` and `parseSchemaObjectBody`,
+ * src/parser/theta-document.ts; `walkType`, src/parser/type-grammar.ts).
  * The fence sits at this read seam, not the write seam (`collectTypeEnv`):
  * bug 0038's witness requires a `schema __proto__` declaration to land as
  * an own key of the record (tests/typeenv-prototype-names.test.ts, cell
@@ -166,8 +170,10 @@ export function resolveNamed(env: TypeEnv, name: string): NamedDecl | undefined 
  * marked enum-variant reference stays unresolvable everywhere the unmarked
  * shadowing schema would otherwise answer: `unfoldAlias` and `decide`'s
  * TYPE-7 / TYPE-8 / TYPE-10 arms below, `classifyIndexReceiver` and
- * `isObjectBranch` in this module, and `classifyOperand` / `classifyReceiver`
- * / `isResultGenericType` in ./type-layer-checks.ts.
+ * `isObjectBranch` in this module, `classifyOperand` / `classifyReceiver`
+ * / `isResultGenericType` in ./type-layer-checks.ts, and
+ * `checkStdlibMethodCall`'s array-argument deferral in
+ * ./stdlib-arg-diagnostics.ts.
  */
 export function resolveNamedRef(
   env: TypeEnv,
@@ -187,10 +193,12 @@ export function resolveNamedRef(
  *                             `integer → number` widening is one-way (TYPE-2),
  *                             and the reverse is the `theta/parse/integer-narrowing`
  *                             case.
- *   - `"unknown"`           — the V2b-T stub sentinel. The paired V2b engine
- *                             never returns this; it exists only so every
- *                             relation test reds on its own primary assertion
- *                             (no expected outcome equals `"unknown"`).
+ *   - `"unknown"`           — an operand past the parser's static view (an
+ *                             unresolvable `named` reference on either side):
+ *                             no verdict, so the per-site checkers emit no
+ *                             diagnostic and the runtime AJV check is the
+ *                             safety net (type-system.md §"Unresolvable
+ *                             operands").
  */
 export type Compatibility =
   | "compatible"
@@ -202,10 +210,8 @@ export type Compatibility =
  * Decide the directed compatibility relation `sub ⊑ sup` over the resolved
  * `CompatType` model, per type-system.md §"Type compatibility" TYPE-1…TYPE-11.
  * `env` resolves `NamedType`s to their declarations (nominal object schema vs
- * transparent alias).
- *
- * V2b-T stubs this as an inert sentinel returning `"unknown"`; the paired V2b
- * implementation leaf computes the relation.
+ * transparent alias). Both sides are alias-unfolded first (`unfoldAlias`,
+ * TYPE-11); `decide` then walks the TYPE-1…TYPE-10 arms.
  */
 export function checkCompatible(
   sub: CompatType,
@@ -311,7 +317,7 @@ function decide(sub: CompatType, sup: CompatType, env: TypeEnv): Compatibility {
   // refusing direction. Hands the question to the runtime AJV net instead
   // (type-system.md §"Unresolvable operands"). A RESOLVABLE `named` sub (a
   // schema ctor) still falls through to the `sub.kind !== "object"` refusal
-  // below — TYPE-10's cross-form rule (type-system.md:52): an inline-object
+  // below — TYPE-10's cross-form rule (type-system.md #type-10): an inline-object
   // sup is never `⊑` structurally from a named schema, resolvable or not.
   if (sup.kind === "object") {
     if (sub.kind === "named" && resolveNamedRef(env, sub) === undefined) {
@@ -415,8 +421,10 @@ function decidePrimitive(sub: PrimitiveName, sup: PrimitiveName): Compatibility 
  * alias's right-hand side is the declaration's, not this value's, and TYPE-10
  * nominality must not be disturbed.
  *
- * The caller is the type layer's unannotated-`let` arm, which records what an
- * initialiser EXPRESSION types as. Recording the unwidened literal makes the
+ * The founding caller is the type layer's unannotated-`let` arm, which records
+ * what an initialiser EXPRESSION types as; the LUB-side callers (`commonType`
+ * below, functions.ts, match-result.ts, static-type-inference.ts) widen their
+ * candidates through the same seam. Recording the unwidened literal makes the
  * binding a target no primitive-typed value satisfies: `decide`'s literal
  * target arm relates a literal target only to a literal source, so `let mut a
  * = ""` refuses a `string` RHS and renders both sides `string` (bug 0341).
@@ -538,8 +546,6 @@ export function classifyIndexReceiver(
  * annotation `T` (both statically resolvable), or `theta/parse/integer-narrowing`
  * when the failure is specifically a `number` RHS under an `integer` annotation
  * (TYPE-2's one-way widening). Returns no diagnostic when the relation holds.
- *
- * V2b-T stubs this inert (no diagnostics); the paired V2b leaf fills it in.
  */
 export function checkLetRhsCompat(opts: {
   readonly name: string;
@@ -587,8 +593,6 @@ export function checkLetRhsCompat(opts: {
  * `theta/parse/fn-arg-type-mismatch` when the argument's static type is not `⊑`
  * the matched parameter's declared type (both statically resolvable). Returns
  * no diagnostic when the relation holds.
- *
- * V2b-T stubs this inert (no diagnostics); the paired V2b leaf fills it in.
  */
 export function checkFnArgCompat(opts: {
   readonly fnName: string;
@@ -690,8 +694,7 @@ export function checkObjectFieldCompat(opts: {
  *     branches share no common type that narrows them.
  *
  * Returns no diagnostic when the branches resolve against the sink (or share a
- * common type). V2b-T stubs this inert (no diagnostics); the paired V2b leaf
- * fills it in.
+ * common type).
  */
 export function checkCommonType(opts: {
   readonly branches: readonly CompatType[];
@@ -1096,8 +1099,9 @@ export function withheldBinderType(): CompatType {
  * `schema` spelled like the enum holds — `Color.Red` under
  * `enum Color { Red }` beside `schema Color { a: string }` types as this
  * mint, named `"Color"`, and every `⊑` consumer treats it exactly as it
- * treats an unresolvable `named "Color"` (deferred, `type-system.md:48`),
- * never as the shadowing schema's own nominal (§Fix constraint A).
+ * treats an unresolvable `named "Color"` (deferred, type-system.md
+ * §"Unresolvable operands"), never as the shadowing schema's own nominal
+ * (§Fix constraint A).
  *
  * `static-type-inference.ts`'s `#memberType` is the sole caller: it mints this
  * when the member access has the variant-access SHAPE — an ident target naming

@@ -1,9 +1,8 @@
-import { fileURLToPath } from "node:url";
-import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
 import { isThetaPanic } from "../src/runtime/runtime-panics";
 import { InterpolatedResultPanic } from "../src/render/query-render";
+import { linesOf, readCorpus as readCorpusFile } from "./helpers/corpus-reader";
 
 // b0265 — the panic-scoping remnant-surface oracle.
 //
@@ -77,31 +76,9 @@ import { InterpolatedResultPanic } from "../src/render/query-render";
 //     `InterpolatedResultPanic` (`src/render/query-render.ts`) — the predicate
 //     and the class cell D reads the observable off.
 
-const repoFile = (rel: string): string =>
-  fileURLToPath(new URL(`../${rel}`, import.meta.url));
-
-/**
- * Read a corpus file. A missing or empty file is a HARNESS failure that names
- * the unmet precondition and throws — never a skip, never an early return.
- */
-function readCorpus(rel: string): string {
-  let text: string;
-  try {
-    text = readFileSync(repoFile(rel), "utf8");
-  } catch (cause) {
-    throw new Error(
-      `harness precondition unmet: ${rel} is unreadable, and it is this oracle's only source for the bug 0265 surface it owns — a missing corpus file is a loud failure, never a skip (${String(cause)})`,
-    );
-  }
-  if (text.trim() === "") {
-    throw new Error(
-      `harness precondition unmet: ${rel} is empty; nothing to score`,
-    );
-  }
-  return text;
-}
-
-const linesOf = (text: string): readonly string[] => text.split(/\r?\n/);
+/** This file's own corpus reads: `rel` is this oracle's only source, so a miss is loud. */
+const readCorpus = (rel: string): string =>
+  readCorpusFile(rel, "this oracle's only source for the bug 0265 surface it owns");
 
 /** Line wrapping is editorial, so every prose match runs over a flattened run. */
 const flatten = (text: string): string => text.replace(/\s+/g, " ").trim();

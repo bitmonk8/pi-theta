@@ -1,4 +1,3 @@
-import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -34,6 +33,7 @@ import { discoverAndComposeFixtures } from "../src/extension/production-composit
 import type { RuntimeRoot } from "../src/runtime-root";
 import type { Checkpoint } from "../src/seams/checkpoint";
 import { parseDoc } from "./helpers/e2e-s1";
+import { committedThetaSources } from "./helpers/theta-corpus";
 
 // Bug 0152 — `#typeBinary` (src/parser/static-type-inference.ts:437) carries a
 // per-operator arm for `/` (:465) and none for `%`, so `1 % 0` falls to the
@@ -1562,14 +1562,7 @@ describe("bug 0152 — the committed corpus", () => {
     // a clean `.thetalib` half it never looked at — which is why the
     // precondition below asserts each glob contributed at least one file before
     // the emptiness claim is read.
-    const repoRoot = fileURLToPath(new URL("..", import.meta.url));
-    const tracked = execFileSync("git", ["ls-files", "--", "*.theta", "*.thetalib"], {
-      cwd: repoRoot,
-      encoding: "utf8",
-    })
-      .split("\n")
-      .map((line) => line.trim())
-      .filter((line) => line.length > 0);
+    const tracked = committedThetaSources();
 
     expect(
       tracked.filter((p) => p.endsWith(".theta")).length,

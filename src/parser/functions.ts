@@ -27,15 +27,6 @@
 //     function (`theta/parse/bare-return-in-non-void` elsewhere, including at the
 //     top level); code after a `return` in the same block warns
 //     `theta/parse/unreachable-code`.
-//
-// V3d-T (tests-task) declares these seam shapes and stubs the behaviour-bearing
-// functions inertly (placement / unreachable checks return no diagnostic;
-// `resolveFnCall` and `resolveReturnType` return the `"unchecked"` sentinel;
-// `buildFnDeclaration` does not preserve the doc; `lowerFnDescription` wrongly
-// carries it). Each obligation test reds on its own primary assertion (an
-// absent expected diagnostic, the sentinel, a missing AST doc, or a wrongly
-// lowered description), not on a compile error, a missing fixture, or a harness
-// throw. The paired V3d implementation leaf fills every check in.
 
 import { type Diagnostic, type SourceRange } from "../diagnostics/diagnostic";
 import {
@@ -68,8 +59,6 @@ export interface FnPlacement {
  * `theta/parse/nested-fn` when the declaration is nested inside another `fn`
  * body or a block. Returns `undefined` for a top-level `fn` (functions.md
  * FN-1).
- *
- * V3d-T stubs this inert (always `undefined`); the paired V3d leaf fills it in.
  */
 export function checkFnPlacement(
   placement: FnPlacement,
@@ -102,8 +91,6 @@ export interface FunctionReference {
  * Check a function-name reference (`parse` phase), returning
  * `theta/parse/function-as-value` when the name is used outside call position.
  * Returns `undefined` for a call-position reference (functions.md FN-1).
- *
- * V3d-T stubs this inert (always `undefined`); the paired V3d leaf fills it in.
  */
 export function checkFunctionReference(
   ref: FunctionReference,
@@ -127,11 +114,8 @@ export function checkFunctionReference(
  *
  *   - `"resolved"`   — the called name is a hoisted top-level `fn`.
  *   - `"unresolved"` — the called name is no known top-level `fn`.
- *   - `"unchecked"`  — the V3d-T stub sentinel. The paired V3d resolver never
- *     returns this; it exists only so the hoisted-mutual-recursion test reds on
- *     its own primary assertion (no expected outcome equals `"unchecked"`).
  */
-export type FnResolution = "resolved" | "unresolved" | "unchecked";
+export type FnResolution = "resolved" | "unresolved";
 
 /**
  * Resolve a `fn` call against the file's hoisted top-level `fn` names.
@@ -139,9 +123,6 @@ export type FnResolution = "resolved" | "unresolved" | "unchecked";
  * top-level `fn` (including the mutual-recursion case, where two top-level
  * `fn`s call each other) resolves regardless of declaration order
  * (functions.md FN-1). A name in no top-level `fn` set is `"unresolved"`.
- *
- * V3d-T stubs this as the inert `"unchecked"` sentinel; the paired V3d leaf
- * computes the resolution.
  */
 export function resolveFnCall(
   name: string,
@@ -167,10 +148,6 @@ export interface FnDeclaration {
  * Build a `fn` declaration AST node, preserving a leading `///` doc comment on
  * the node as documentation only (functions.md FN-2). A `fn` with no doc
  * comment leaves `doc` absent.
- *
- * V3d-T stubs this so it does NOT preserve the doc (the built node omits
- * `doc`), so the FN-2 AST-preservation test reds on its own primary assertion.
- * The paired V3d leaf preserves it.
  */
 export function buildFnDeclaration(opts: {
   readonly name: string;
@@ -190,10 +167,6 @@ export function buildFnDeclaration(opts: {
  * the fragment carries no `description` regardless of whether the node has a
  * doc (functions.md FN-2 — the description does not lower into provider
  * payloads).
- *
- * V3d-T stubs this so it WRONGLY carries the doc into the fragment when one is
- * present, so the FN-2 no-lowering test reds on its own primary assertion. The
- * paired V3d leaf returns the empty fragment.
  */
 export function lowerFnDescription(node: FnDeclaration): Record<string, unknown> {
   // FN-2 — functions have no JSON Schema, so a `fn`'s `///` doc comment lowers
@@ -238,15 +211,11 @@ export interface InferredReturnType {
  *   - `"checked"`                — an explicitly annotated body; `operandResults`
  *     is the per-contribution compatibility against the annotation, in
  *     contribution order (inference is bypassed).
- *   - `"unchecked"`              — the V3d-T stub sentinel. The paired V3d
- *     resolver never returns this; it exists only so every inference/check test
- *     reds on its own primary assertion.
  */
 export type ResolvedReturn =
   | { readonly kind: "inferred"; readonly inferred: InferredReturnType }
   | { readonly kind: "inference-no-common-type"; readonly diagnostic: Diagnostic }
-  | { readonly kind: "checked"; readonly operandResults: readonly Compatibility[] }
-  | { readonly kind: "unchecked" };
+  | { readonly kind: "checked"; readonly operandResults: readonly Compatibility[] };
 
 /**
  * Resolve a body's return type (functions.md FN-3 / FN-4, return.md RET-1).
@@ -261,9 +230,6 @@ export type ResolvedReturn =
  *   - With an `annotation`: type-check the tail and every `return` operand
  *     against the annotation instead of inferring; `operandResults` is the
  *     per-contribution `⊑` outcome.
- *
- * V3d-T stubs this as the inert `"unchecked"` sentinel; the paired V3d leaf
- * computes the inference / type-check.
  */
 export function resolveReturnType(opts: {
   readonly annotation?: CompatType;
@@ -385,8 +351,6 @@ export interface BareReturn {
  * `theta/parse/bare-return-in-non-void` when the enclosing scope is not a
  * `void`-annotated function (including a top-level theta). Returns `undefined`
  * inside a `void` function (return.md RET-2).
- *
- * V3d-T stubs this inert (always `undefined`); the paired V3d leaf fills it in.
  */
 export function checkBareReturn(
   bare: BareReturn,
@@ -417,8 +381,6 @@ export interface UnreachableCode {
  * Check for code after a `return` in the same block (`parse` phase), returning
  * the `theta/parse/unreachable-code` warning when a statement follows a `return`
  * in the same block. Returns `undefined` otherwise (return.md RET-3).
- *
- * V3d-T stubs this inert (always `undefined`); the paired V3d leaf fills it in.
  */
 export function checkUnreachableCode(
   unreachable: UnreachableCode,

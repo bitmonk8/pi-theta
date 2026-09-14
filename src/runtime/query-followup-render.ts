@@ -32,10 +32,8 @@
 //     property is a consequence of the renderer being handed only the current
 //     attempt's issues and rendering only those).
 //
-// V13h-T (this tests task) declares the seam shape and stubs `renderFollowUpTurn`
-// inert (it returns the empty string) so the failing tests compile and red on
-// their own primary byte-comparison assertions while the paired `V13h`
-// implementation is absent. The paired `V13h` leaf fills the renderer in.
+// V13h-T (tests-task) declared the seam shape; V13h (this leaf) supplies the
+// `renderFollowUpTurn` renderer.
 //
 // Bug 0010 (QRY-15): this module also owns `renderInitialRespondTurn` — the
 // typed query's INITIAL forced-respond-turn template (the trailing

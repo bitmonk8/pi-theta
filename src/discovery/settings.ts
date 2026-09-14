@@ -22,6 +22,7 @@
 import type { Diagnostic } from "../diagnostics/diagnostic";
 import type { FileSystem } from "../seams/file-system";
 import { renderCanonicalNumber } from "../render/canonical-number";
+import { joinPosix } from "./discovery-path-classify";
 import { nodeErrorCode } from "./node-error-code";
 
 /** A parsed JSON object (the on-disk shape of one settings file's root). */
@@ -170,12 +171,6 @@ function isScalarKeyValid(key: (typeof THETAS_SCALAR_KEYS)[number], value: unkno
       // every non-string is out of range (package-and-settings.md).
       return value === "off" || value === "counts" || value === "names";
   }
-}
-
-/** POSIX-join a base directory with a relative tail (no trailing-slash dupes). */
-function posixJoin(base: string, tail: string): string {
-  const trimmed = base.endsWith("/") ? base.slice(0, -1) : base;
-  return `${trimmed}/${tail}`;
 }
 
 /** The outcome of reading + parsing one settings file. */
@@ -371,9 +366,9 @@ export async function loadSettings(fs: FileSystem): Promise<SettingsLoadResult> 
   // `PI_CODING_AGENT_DIR` and Oh-My-Pi relocates via an active profile or
   // `PI_CONFIG_DIR`. Synthesising `<homedir>/<config-dir>/agent` would read a
   // file the host never writes and silently drop every global setting.
-  const projectPath = posixJoin(fs.cwd(), `${fs.configDirName()}/settings.json`);
+  const projectPath = joinPosix(fs.cwd(), `${fs.configDirName()}/settings.json`);
   const globalAgentDir = fs.globalAgentDir();
-  const globalPath = posixJoin(globalAgentDir, "settings.json");
+  const globalPath = joinPosix(globalAgentDir, "settings.json");
 
   // Read sequentially (Sequential by default): global then project.
   const global = await loadOneFile(fs, globalPath);
@@ -395,7 +390,7 @@ export async function loadSettings(fs: FileSystem): Promise<SettingsLoadResult> 
       project.cleaned,
       "thetaPaths",
     )
-      ? posixJoin(fs.cwd(), fs.configDirName())
+      ? joinPosix(fs.cwd(), fs.configDirName())
       : globalAgentDir;
   }
   if (isPlainObject(merged["theta"])) {

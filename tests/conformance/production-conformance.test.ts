@@ -1,15 +1,9 @@
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type {
   ExtensionAPI,
-  ExtensionContext,
   ExtensionCommandContext,
   ModelRegistry,
 } from "@earendil-works/pi-coding-agent";
-import type { ThetaFixture } from "../../src/extension/factory";
-import { discoverAndComposeFixtures } from "../../src/extension/production-composition";
 import {
   createProductionProducerDeps,
   type PiToolDispatch,
@@ -27,6 +21,12 @@ import {
 } from "../../src/runtime/value";
 import { discoverThetas } from "../../src/discovery/discovery-walk";
 import { FakeFileSystem } from "../helpers/fake-file-system";
+import {
+  disposeWorkspace,
+  plantThetaWorkspace,
+  runProductionLoad,
+  type LoadOutcome,
+} from "../helpers/production-load-harness";
 import type { ThetaSettings } from "../../src/discovery/settings";
 import type { RuntimeRoot } from "../../src/runtime-root";
 import type { Checkpoint } from "../../src/seams/checkpoint";
@@ -231,52 +231,16 @@ const LOAD_THETAS: readonly PlantedTheta[] = [
   { stem: "badparse", text: theta("---", "mode: prompt", "---", 'let x = "abc') },
 ];
 
-interface LoadOutcome {
-  readonly registered: readonly string[];
-  readonly notifications: readonly string[];
-}
-
 let loadOutcome: LoadOutcome;
 let workspaceDir: string;
 
-async function runProductionLoad(cwd: string): Promise<LoadOutcome> {
-  const notifications: string[] = [];
-  const pi = {
-    getFlag: (): undefined => undefined,
-    getCommands: (): readonly unknown[] => [],
-    sendMessage: (): void => {},
-    sendUserMessage: (): void => {},
-    getActiveTools: (): readonly string[] => [],
-    setActiveTools: (): void => {},
-  } as unknown as ExtensionAPI;
-  const ctx = {
-    cwd,
-    modelRegistry: { getAvailable: (): readonly unknown[] => [] },
-    ui: {
-      notify: (message: string, _type: "error"): void => {
-        notifications.push(message);
-      },
-    },
-  } as unknown as ExtensionContext;
-
-  const fixtures: readonly ThetaFixture[] = await discoverAndComposeFixtures(pi, ctx);
-  return { registered: fixtures.map((f) => f.slashName), notifications };
-}
-
 beforeAll(async () => {
-  workspaceDir = mkdtempSync(join(tmpdir(), "theta-v20g-"));
-  const projectThetaDir = join(workspaceDir, ".pi", "theta");
-  mkdirSync(projectThetaDir, { recursive: true });
-  for (const l of LOAD_THETAS) {
-    writeFileSync(join(projectThetaDir, `${l.stem}.theta`), l.text, "utf8");
-  }
+  workspaceDir = plantThetaWorkspace("theta-v20g-", LOAD_THETAS);
   loadOutcome = await runProductionLoad(workspaceDir);
 });
 
 afterAll(() => {
-  if (workspaceDir !== undefined) {
-    rmSync(workspaceDir, { recursive: true, force: true });
-  }
+  disposeWorkspace(workspaceDir);
 });
 
 describe("V20g-T conformance — load-time surface through the production compose helper", () => {

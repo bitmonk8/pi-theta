@@ -66,13 +66,12 @@ import { createProductionProducerDeps } from "../src/extension/production-theta-
 import type { ThetaCompositionInput, ConversationBindInput } from "../src/extension/theta-composition-producer";
 import type { CalleeParseOutcome } from "../src/extension/production-theta-producer";
 import { executeBody } from "../src/runtime/statement-executor";
-import type { RuntimeRoot } from "../src/runtime-root";
-import type { Checkpoint } from "../src/seams/checkpoint";
 import type { ThetaValue } from "../src/runtime/value";
 import type { InvokeExpr, ThetaBody } from "../src/parser/theta-document";
 import type { ParsedFrontmatter } from "../src/parser/frontmatter";
 import type { SourceRange } from "../src/diagnostics/diagnostic";
 import type { FileSystem } from "../src/seams/file-system";
+import { rootDouble } from "./helpers/call-with-clause-harness";
 import { FakeFileSystem } from "./helpers/fake-file-system";
 
 function span(): SourceRange {
@@ -84,19 +83,6 @@ function span(): SourceRange {
  *  `args.slice(1)` for the positional args — empty here. */
 function invokeExpr(calleePath: string): InvokeExpr {
   return { kind: "invoke", path: calleePath, returnSchema: null, args: [], range: span() };
-}
-
-const NOOP_CHECKPOINT: Checkpoint = {
-  before(): Promise<void> {
-    return Promise.resolve();
-  },
-};
-
-function rootDouble(): RuntimeRoot {
-  return {
-    checkpoint: NOOP_CHECKPOINT,
-    idSource: { newInvocationId: () => "inv-1", newToolCallId: () => "tc-1" },
-  } as unknown as RuntimeRoot;
 }
 
 function ctxDouble(): ExtensionCommandContext {

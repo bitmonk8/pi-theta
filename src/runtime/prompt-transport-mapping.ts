@@ -45,11 +45,10 @@
 // caller from V9j's provider-error-mapping surface (the resolved
 // `Model<Api>.api` value), matching the subagent-mode transport mapping.
 //
-// V9n-T (tests-task) declares this seam and stubs the two behaviour-bearing
-// helpers NON-COMPLIANTLY so the failing tests compile and red on their own
-// primary assertions; the paired V9n implementation leaf fills in the
-// cancellation short-circuit, the `stopReason: "error"` probe, the
-// `"provider transport failure"` fallback, and the coerced sync-throw mapping.
+// V9n-T (tests-task) declared this seam; V9n (this leaf) supplies the two
+// behaviour-bearing helpers: the cancellation short-circuit, the
+// `stopReason: "error"` probe, the `"provider transport failure"` fallback, and
+// the coerced sync-throw mapping.
 //
 // Spec: pi-integration-contract/conversation-drive.md (PIC-50, PIC-51);
 // errors-and-results/queryerror-variants.md (§TransportError.provider);

@@ -1,41 +1,17 @@
-import {
-  mkdtempSync,
-  mkdirSync,
-  rmSync,
-  writeFileSync,
-  promises as fsp,
-} from "node:fs";
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import type {
-  ExtensionAPI,
-  ExtensionCommandContext,
-  ModelRegistry,
-} from "@earendil-works/pi-coding-agent";
-import { checkThetaImports } from "../src/extension/import-static-checks";
+import type { ModelRegistry } from "@earendil-works/pi-coding-agent";
 import {
   IMPORT_NAME_COLLISION_CODE,
   UNRESOLVABLE_THETALIB_PATH_CODE,
 } from "../src/parser/imports";
-import {
-  createProductionProducerDeps,
-  type PiToolDispatch,
-} from "../src/extension/production-theta-producer";
-import type {
-  ConversationBindInput,
-  ThetaCompositionInput,
-} from "../src/extension/theta-composition-producer";
-import type { ParsedFrontmatter } from "../src/parser/frontmatter";
-import { parseThetaDocument, type ThetaDocument } from "../src/parser/theta-document";
-import type { MaterializedImport } from "../src/runtime/lexical-environment";
 import { executeBody } from "../src/runtime/statement-executor";
-import type { AgentToolResultEnvelope } from "../src/runtime/tool-call-execute";
 import { type ThetaValue } from "../src/runtime/value";
-import type { RuntimeRoot } from "../src/runtime-root";
-import type { Checkpoint } from "../src/seams/checkpoint";
 import { PiFileSystem } from "../src/seams/pi-file-system";
-import { parseDeps } from "./helpers/e2e-s1";
+import { detectCaseInsensitiveHost } from "./helpers/case-insensitive-host-probe";
+import { bindImportedBodyOverFs } from "./helpers/thetalib-load-harness";
 
 // Bug 0361 — a case-variant DIRECTORY spelling in a `.thetalib` import path
 // splits one physical file into two declaring identities on a case-insensitive
@@ -83,23 +59,6 @@ import { parseDeps } from "./helpers/e2e-s1";
 // is INSUFFICIENT — its case-sensitive `readdir` cannot reproduce the split
 // (see the mandatory-real-FS note above).
 
-/** The importing `.theta` frontmatter every fixture shares. */
-const APP_FRONTMATTER = ["---", 'model: "sonnet"', "mode: prompt", "---"].join("\n");
-
-function parse(source: string, path: string): ThetaDocument {
-  return parseThetaDocument({ path, bytes: new TextEncoder().encode(source) }, parseDeps());
-}
-
-function parseApp(body: string, sourcePath: string): ThetaDocument {
-  return parse(`${APP_FRONTMATTER}\n${body}`, sourcePath);
-}
-
-const NOOP_CHECKPOINT: Checkpoint = {
-  before(): Promise<void> {
-    return Promise.resolve();
-  },
-};
-
 /** One measured row: the load pass and the settled runtime value. */
 interface Ran {
   readonly appParseCodes: string[];
@@ -112,66 +71,23 @@ interface Ran {
 
 /**
  * Parse the app `.theta` at `sourcePath`, run the real `checkThetaImports` over
- * the REAL `PiFileSystem` rooted at `root`, then run the real `executeBody`
- * with whatever the load pass materialised — the bug-0305 harness shape with
- * the in-memory `FileSystem` double replaced by `PiFileSystem`.
- *
- * `resolvePiTool` resolves any name to an "AMBIENT" sentinel and the callable
- * set is a frozen empty snapshot, so an ambient host-tool execution would
- * surface rather than be mistaken for a resolved import — no row here consults
- * it (copied verbatim from the b0305 deps wiring).
+ * the REAL `PiFileSystem` rooted at `root`, and bind the real `executeBody`
+ * deps — via `bindImportedBodyOverFs`
+ * (tests/helpers/thetalib-load-harness.ts, PTQ-0347), the same
+ * parse/check/bind driver `bindImportedBody`'s callers share, generalised over
+ * the filesystem the load pass is driven over (the bug-0305 harness shape with
+ * the in-memory `FileSystem` double replaced by `PiFileSystem`). `run()` then
+ * runs the real `executeBody` itself with whatever the load pass materialised
+ * and shapes the settled outcome — that shaping (and whether a thrown panic is
+ * captured as a value) is this file's own.
  */
 async function run(appBody: string, sourcePath: string, root: string): Promise<Ran> {
-  const app = parseApp(appBody, sourcePath);
-  expect(
-    app.frontmatter,
-    `frontmatter must parse or the load pass reads nothing; parse diagnostics: ${JSON.stringify(
-      app.diagnostics.map((d) => `${d.severity} ${d.code}: ${d.message}`),
-    )}`,
-  ).not.toBeNull();
-  const frontmatter = app.frontmatter as ParsedFrontmatter;
-  const input: ThetaCompositionInput = {
-    slashName: "app",
+  const { app, check, binding } = await bindImportedBodyOverFs(
+    appBody,
     sourcePath,
-    frontmatter,
-    body: app.body,
-  };
-  const check = await checkThetaImports(input, {
-    fs: new PiFileSystem(root),
-    parseDeps: parseDeps(),
-  });
-  const imports: readonly MaterializedImport[] = check.imports;
-
-  const deps = createProductionProducerDeps({
-    pi: {} as unknown as ExtensionAPI,
-    root: {
-      checkpoint: NOOP_CHECKPOINT,
-      idSource: {
-        newInvocationId: (): string => "inv-1",
-        newToolCallId: (): string => "tc-1",
-      },
-    } as unknown as RuntimeRoot,
-    modelRegistry: {} as unknown as ModelRegistry,
-    resolvePiTool: (name: string): PiToolDispatch => ({
-      toolName: name,
-      execute: (): Promise<AgentToolResultEnvelope> =>
-        Promise.resolve({ content: [{ type: "text", text: "AMBIENT" }] }),
-    }),
-  });
-  const theta: ThetaCompositionInput = {
-    slashName: "app",
-    sourcePath,
-    frontmatter,
-    body: app.body,
-    callableSet: Object.freeze({ entries: new Map() }),
-    ...(imports.length > 0 ? { imports } : {}),
-  } as ThetaCompositionInput;
-  const bindInput: ConversationBindInput = {
-    theta,
-    args: "",
-    ctx: {} as unknown as ExtensionCommandContext,
-  };
-  const binding = deps.bindPromptConversation(bindInput);
+    new PiFileSystem(root),
+    {} as unknown as ModelRegistry,
+  );
   // Face (b)'s error-severity collision un-registers the theta and may leave
   // `who` unmaterialised, so `who()` can reject at runtime. That face's
   // observable is the load-pass diagnostic, NOT the settled value, so a runtime
@@ -260,28 +176,6 @@ function writeLayout(root: string): void {
   );
 }
 
-/**
- * Runtime host-case-sensitivity probe. After `<root>/libs/` exists, write a
- * probe entry and `readdir` the UPPERCASED directory (`<root>/LIBS`): a
- * resolution to the libs entries means the host is case-INSENSITIVE; an ENOENT
- * rejection means case-SENSITIVE. An unexpected error rejects (fails loudly),
- * never silently degrading the branch selection — the `.then(ok, err)`
- * rejection arm is the sanctioned pattern (mirrors `PiFileSystem.exists`), not
- * a broad `catch`.
- */
-async function detectCaseInsensitiveHost(root: string): Promise<boolean> {
-  writeFileSync(join(root, "libs", "probe.thetalib"), 'fn probe(): string { "p" }\n', "utf8");
-  return fsp.readdir(join(root, "LIBS")).then(
-    (entries) => entries.includes("probe.thetalib"),
-    (error: NodeJS.ErrnoException) => {
-      if (error.code === "ENOENT") {
-        return false;
-      }
-      throw error;
-    },
-  );
-}
-
 describe("bug 0361 — a case-variant import directory must not split one physical `.thetalib` into two declaring identities", () => {
   let root: string;
   let caseInsensitive: boolean;
@@ -289,7 +183,10 @@ describe("bug 0361 — a case-variant import directory must not split one physic
   beforeEach(async () => {
     root = mkdtempSync(join(tmpdir(), "b0361-"));
     writeLayout(root);
-    caseInsensitive = await detectCaseInsensitiveHost(root);
+    // A dedicated probe entry, written after the layout (the probe's own
+    // scratch file, decoupled from whatever `writeLayout` happens to plant).
+    writeFileSync(join(root, "libs", "probe.thetalib"), 'fn probe(): string { "p" }\n', "utf8");
+    caseInsensitive = await detectCaseInsensitiveHost(root, "LIBS", "probe.thetalib");
   });
 
   afterEach(() => {

@@ -1,28 +1,11 @@
 import { describe, expect, it } from "vitest";
-import type {
-  ExtensionAPI,
-  ExtensionCommandContext,
-  ModelRegistry,
-} from "@earendil-works/pi-coding-agent";
-import { checkThetaImports } from "../src/extension/import-static-checks";
-import {
-  createProductionProducerDeps,
-  type PiToolDispatch,
-} from "../src/extension/production-theta-producer";
-import type {
-  ConversationBindInput,
-  ThetaCompositionInput,
-} from "../src/extension/theta-composition-producer";
-import type { ParsedFrontmatter } from "../src/parser/frontmatter";
-import { parseThetaDocument, type ThetaDocument } from "../src/parser/theta-document";
-import type { MaterializedImport } from "../src/runtime/lexical-environment";
+import type { ModelRegistry } from "@earendil-works/pi-coding-agent";
 import { executeBody } from "../src/runtime/statement-executor";
-import type { AgentToolResultEnvelope } from "../src/runtime/tool-call-execute";
 import { type ThetaValue } from "../src/runtime/value";
-import type { RuntimeRoot } from "../src/runtime-root";
-import type { Checkpoint } from "../src/seams/checkpoint";
-import type { FileSystem } from "../src/seams/file-system";
-import { parseDeps } from "./helpers/e2e-s1";
+import {
+  bindImportedBody,
+  expectCleanImportLoad,
+} from "./helpers/thetalib-load-harness";
 
 // Enum value identity is the DECLARING declaration, not the resolution-site
 // local name. runtime-value-model.md:13 pins the interpreter-private tag as
@@ -56,59 +39,6 @@ import { parseDeps } from "./helpers/e2e-s1";
 // that compares tags are both reachable in-process, so an integration or live
 // tier would add a provider to a decision no model participates in.
 
-/** The importing `.theta` frontmatter every fixture shares. */
-const APP_FRONTMATTER = ["---", 'model: "sonnet"', "mode: prompt", "---"].join("\n");
-
-function parse(source: string, path: string): ThetaDocument {
-  return parseThetaDocument({ path, bytes: new TextEncoder().encode(source) }, parseDeps());
-}
-
-function parseApp(body: string): ThetaDocument {
-  return parse(`${APP_FRONTMATTER}\n${body}`, "/proj/app.theta");
-}
-
-function fakeThetaLibFs(files: Record<string, string>): FileSystem {
-  const dirs = new Map<string, string[]>();
-  for (const path of Object.keys(files)) {
-    const slash = path.lastIndexOf("/");
-    const parent = path.slice(0, slash);
-    const entries = dirs.get(parent) ?? [];
-    entries.push(path.slice(slash + 1));
-    dirs.set(parent, entries);
-  }
-  const reject = (): Promise<never> =>
-    Promise.reject(new Error("filesystem member not exercised by this test"));
-  return {
-    readText: reject,
-    writeText: reject,
-    exists: reject,
-    homedir: (): string => "/home",
-    cwd: (): string => "/proj",
-    configDirName: (): string => ".pi",
-    globalAgentDir: (): string => "/home/.pi/agent",
-    lstat: reject,
-    realpath: reject,
-    readdir: (path: string): Promise<readonly string[]> => {
-      const entries = dirs.get(path);
-      return entries === undefined
-        ? Promise.reject(new Error(`ENOENT: ${path}`))
-        : Promise.resolve(entries);
-    },
-    readBytes: (path: string): Promise<Uint8Array> => {
-      const content = files[path];
-      return content === undefined
-        ? Promise.reject(new Error(`ENOENT: ${path}`))
-        : Promise.resolve(new TextEncoder().encode(content));
-    },
-  } as FileSystem;
-}
-
-const NOOP_CHECKPOINT: Checkpoint = {
-  before(): Promise<void> {
-    return Promise.resolve();
-  },
-};
-
 /** One measured row: the load pass and the settled runtime value in both forms. */
 interface Ran {
   readonly appParseCodes: string[];
@@ -134,56 +64,7 @@ interface Ran {
  * consults it.
  */
 async function run(appBody: string, libs: Record<string, string>): Promise<Ran> {
-  const app = parseApp(appBody);
-  expect(
-    app.frontmatter,
-    `frontmatter must parse or the load pass reads nothing; parse diagnostics: ${JSON.stringify(
-      app.diagnostics.map((d) => `${d.severity} ${d.code}: ${d.message}`),
-    )}`,
-  ).not.toBeNull();
-  const frontmatter = app.frontmatter as ParsedFrontmatter;
-  const input: ThetaCompositionInput = {
-    slashName: "app",
-    sourcePath: "/proj/app.theta",
-    frontmatter,
-    body: app.body,
-  };
-  const check = await checkThetaImports(input, {
-    fs: fakeThetaLibFs(libs),
-    parseDeps: parseDeps(),
-  });
-  const imports: readonly MaterializedImport[] = check.imports;
-
-  const deps = createProductionProducerDeps({
-    pi: {} as unknown as ExtensionAPI,
-    root: {
-      checkpoint: NOOP_CHECKPOINT,
-      idSource: {
-        newInvocationId: (): string => "inv-1",
-        newToolCallId: (): string => "tc-1",
-      },
-    } as unknown as RuntimeRoot,
-    modelRegistry: {} as unknown as ModelRegistry,
-    resolvePiTool: (name: string): PiToolDispatch => ({
-      toolName: name,
-      execute: (): Promise<AgentToolResultEnvelope> =>
-        Promise.resolve({ content: [{ type: "text", text: "AMBIENT" }] }),
-    }),
-  });
-  const theta: ThetaCompositionInput = {
-    slashName: "app",
-    sourcePath: "/proj/app.theta",
-    frontmatter,
-    body: app.body,
-    callableSet: Object.freeze({ entries: new Map() }),
-    ...(imports.length > 0 ? { imports } : {}),
-  } as ThetaCompositionInput;
-  const bindInput: ConversationBindInput = {
-    theta,
-    args: "",
-    ctx: {} as unknown as ExtensionCommandContext,
-  };
-  const binding = deps.bindPromptConversation(bindInput);
+  const { app, check, binding } = await bindImportedBody(appBody, libs, {} as unknown as ModelRegistry);
   const execution = await executeBody(app.body, binding.executeDeps);
   const value = execution.result.value;
 
@@ -201,15 +82,13 @@ async function run(appBody: string, libs: Record<string, string>): Promise<Ran> 
 // precondition, not the symptom under test. Failing here loudly keeps a
 // resolution regression from masquerading as the identity defect.
 function expectCleanLoad(row: Ran, label: string, expectedMaterialised: string[]): void {
-  expect(row.appParseCodes, `${label}: the importing file parses clean`).toEqual([]);
-  expect(
-    row.diagLines,
-    `${label}: a well-formed enum import is legal at every gate; the load pass must report nothing`,
-  ).toEqual([]);
-  expect(
-    row.materialised,
-    `${label}: imports.md §Visibility exports the declaration, so each import must materialise under its local name`,
-  ).toEqual(expectedMaterialised);
+  expectCleanImportLoad(
+    row,
+    label,
+    "a well-formed enum import is legal at every gate; the load pass must report nothing",
+    "imports.md §Visibility exports the declaration, so each import must materialise under its local name",
+    expectedMaterialised,
+  );
 }
 
 describe("bug 0305 — enum value identity is the declaring declaration, not the access-site name", () => {

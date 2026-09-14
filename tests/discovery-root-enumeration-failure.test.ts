@@ -458,7 +458,7 @@ describe("bug 0076 — a discovery root whose readdir rejects reports its failur
     expect(diagnostics, "one root denied, one diagnostic").toHaveLength(1);
   });
 
-  it("RED 1: project `.pi/theta` denied EACCES on readdir (lstat ok) emits exactly one unreadable-source warning naming `project .pi/theta/`", async () => {
+  it("RED 1: project `.pi/theta` denied EACCES on readdir (lstat ok) emits exactly one unreadable-source warning naming `project:\"/project/.pi/theta\"`", async () => {
     const fs = new ReaddirDenied(
       build({
         dirs: { [PROJECT_ROOT]: ["a.theta"] },
@@ -496,7 +496,7 @@ describe("bug 0076 — a discovery root whose readdir rejects reports its failur
     ).toHaveLength(1);
   });
 
-  it("RED 2: global `~/.pi/agent/theta` denied EPERM on readdir emits an unreadable-source warning naming `global thetas directory`", async () => {
+  it("RED 2: global `~/.pi/agent/theta` denied EPERM on readdir emits an unreadable-source warning naming `global:\"/home/theta/.pi/agent/theta\"`", async () => {
     const fs = new ReaddirDenied(
       build({
         dirs: { [GLOBAL_ROOT]: ["g.theta"] },
@@ -903,7 +903,7 @@ describe("bug 0076 — a package directory whose readdir rejects reports its fai
     ).toHaveLength(0);
   });
 
-  it("RED 14: a directory contributed by a `pi.theta` entry, denied EACCES, emits an unreadable-source warning naming the package and its manifest key", async () => {
+  it("RED 14: a directory contributed by a `pi.theta` entry, denied EACCES, emits an unreadable-source warning naming the package", async () => {
     const denied = `${NM}/beta/cmds`;
     const fs = new ReaddirDenied(
       buildPackages({

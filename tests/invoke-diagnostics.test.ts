@@ -244,7 +244,6 @@ describe("theta/parse/invoke-non-theta-extension (invocation.md §Resolution)", 
   it("theta/parse/invoke-non-theta-extension: an invoke(...) .thetalib path fires", () => {
     const diags = checkInvokeExtension({
       literalPath: "./lib.thetalib",
-      surface: "invoke",
       site: SITE,
     });
     const d = withCode(diags, INVOKE_NON_THETA_EXTENSION_CODE);
@@ -256,7 +255,6 @@ describe("theta/parse/invoke-non-theta-extension (invocation.md §Resolution)", 
   it("theta/parse/invoke-non-theta-extension: a non-lowercase .THETA variant fires (byte-exact lowercase match)", () => {
     const diags = checkInvokeExtension({
       literalPath: "./mod.THETA",
-      surface: "invoke",
       site: SITE,
     });
     const d = withCode(diags, INVOKE_NON_THETA_EXTENSION_CODE);
@@ -267,7 +265,6 @@ describe("theta/parse/invoke-non-theta-extension (invocation.md §Resolution)", 
   it("theta/parse/invoke-non-theta-extension: the same code fires for a tools: entry whose path does not end in .theta", () => {
     const diags = checkInvokeExtension({
       literalPath: "./helper.THETA",
-      surface: "tools",
       site: SITE,
     });
     const d = withCode(diags, INVOKE_NON_THETA_EXTENSION_CODE);
@@ -278,7 +275,6 @@ describe("theta/parse/invoke-non-theta-extension (invocation.md §Resolution)", 
   it("theta/parse/invoke-non-theta-extension: a byte-exact-lowercase .theta path fires nothing", () => {
     const diags = checkInvokeExtension({
       literalPath: "./ok.theta",
-      surface: "invoke",
       site: SITE,
     });
     expect(diags).toHaveLength(0);

@@ -1,8 +1,6 @@
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 // @ts-expect-error — JS code-registry module, no type declarations.
-import { parseRegistry, registryMessage } from "../tools/code-registry/index.js";
+import { registryMessage } from "../tools/code-registry/index.js";
 import type {
   ExtensionAPI,
   ExtensionCommandContext,
@@ -28,6 +26,7 @@ import type { RuntimeRoot } from "../src/runtime-root";
 import type { Checkpoint } from "../src/seams/checkpoint";
 import type { FileSystem } from "../src/seams/file-system";
 import { parseDeps } from "./helpers/e2e-s1";
+import { REGISTRY } from "./helpers/registry-oracle";
 
 // Bug 0449 — an unknown variant on an enum reached through an `export … from`
 // RE-EXPORT CHAIN aborts the drive at runtime as `NullMemberAccessPanic: null
@@ -114,28 +113,6 @@ import { parseDeps } from "./helpers/e2e-s1";
  * direct-import spellings already draw at parse / load.
  */
 const UNKNOWN_VARIANT_CODE = "theta/parse/unknown-variant";
-
-interface RegistryRow {
-  readonly code: string;
-  readonly message: string;
-}
-
-/** The live four-page sharded registry — the input tests/code-registry.test.ts reconciles. */
-const REGISTRY = parseRegistry(
-  [
-    "code-registry-parse.md",
-    "code-registry-load.md",
-    "code-registry-runtime.md",
-    "code-registry-host.md",
-  ]
-    .map((page) =>
-      readFileSync(
-        fileURLToPath(new URL(`../docs/spec_topics/diagnostics/${page}`, import.meta.url)),
-        "utf8",
-      ),
-    )
-    .join("\n"),
-) as RegistryRow[];
 
 /**
  * A registry row's normative *Message* template (DIAG-4), read rather than

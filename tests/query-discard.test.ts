@@ -93,7 +93,6 @@ function emitInput(
 ): DiscardEmitInput {
   return {
     outcome,
-    form: "let-underscore",
     discardSite: { file: "a.theta", line: 12, column: 1 },
     theta: "/demo",
     invocationId: "00000000-0000-4000-8000-000000000000",
@@ -149,7 +148,7 @@ describe("V13g-T — QRY-20 discard observability", () => {
     const discardSite = { file: "a.theta", line: 12, column: 1 };
 
     emitDiscardObservability(
-      emitInput({ ok: false, error: err }, { form: "let-underscore", discardSite }),
+      emitInput({ ok: false, error: err }, { discardSite }),
       deps,
     );
 
@@ -171,10 +170,7 @@ describe("V13g-T — QRY-20 discard observability", () => {
     const tailSite = { file: "b.theta", line: 4, column: 5 };
 
     emitDiscardObservability(
-      emitInput(
-        { ok: false, error: transportErr() },
-        { form: "void-tail", discardSite: tailSite },
-      ),
+      emitInput({ ok: false, error: transportErr() }, { discardSite: tailSite }),
       deps,
     );
 
@@ -183,12 +179,10 @@ describe("V13g-T — QRY-20 discard observability", () => {
     expect(event.discard_site).toEqual(tailSite);
   });
 
-  it("QRY-20: a discarded Ok emits no event (nothing to observe), for either discard form", () => {
-    for (const form of ["let-underscore", "void-tail"] as const) {
-      const { deps, sent } = makeChannel();
-      emitDiscardObservability(emitInput({ ok: true }, { form }), deps);
-      expect(sent).toHaveLength(0);
-    }
+  it("QRY-20: a discarded Ok emits no event (nothing to observe)", () => {
+    const { deps, sent } = makeChannel();
+    emitDiscardObservability(emitInput({ ok: true }), deps);
+    expect(sent).toHaveLength(0);
   });
 
   it("QRY-20: buildDiscardEvent copies the discarded Err's kind/message and stamps discard_site", () => {

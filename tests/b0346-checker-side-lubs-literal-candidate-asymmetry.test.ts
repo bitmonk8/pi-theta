@@ -90,12 +90,6 @@ function arraySink(element: string): string {
   return `let binding 'ys' initialiser type mismatch: expected array<string>, got array<${element}>`;
 }
 
-/** The scalar primitive a sink message resolved, `array<X>` normalised to `X`. */
-function gotType(message: string): string {
-  const match = message.match(/got (?:array<)?([a-z]+)>?$/);
-  return match?.[1] ?? message;
-}
-
 // ── leastUpperBound (match arms) ───────────────────────────────────────────
 
 describe("bug 0346 M1 (WITNESS) — match arms {integer n, 1.5} reduce to `number`", () => {
@@ -219,9 +213,12 @@ describe("bug 0346 O (ORACLE) — the three LUB surfaces agree on `number`", () 
     ]);
     expect(matchSurface).toEqual([scalarSink("number")]);
 
-    // The invariant read as an oracle over the two OBSERVABLE binding-sink
-    // surfaces — array and match both render the same scalar `number` (the
-    // array surface as `array<number>`, normalised).
+    // The oracle's invariant — array and match both resolve the same scalar
+    // `number` — is already fully established by the two pins above: each
+    // `toEqual` fixes its surface's rendered message to a literal string built
+    // from `arraySink("number")` / `scalarSink("number")`, so a further
+    // derived comparison of those same two now-fixed strings could not
+    // independently fail (PTQ-0223).
     //
     // WHY the return surface is NOT read through a binding sink here: a call
     // never surfaces its return type through a downstream binding sink — the
@@ -230,10 +227,6 @@ describe("bug 0346 O (ORACLE) — the three LUB surfaces agree on `number`", () 
     // unobservable. `computeLub` returning `number` on {integer, number} is
     // discharged by R1/R3's ADMISSION alone (absence of
     // `return-no-common-type`), not by a binding sink.
-    expect([
-      gotType(arraySurface[0] ?? ""),
-      gotType(matchSurface[0] ?? ""),
-    ]).toEqual(["number", "number"]);
   });
 });
 

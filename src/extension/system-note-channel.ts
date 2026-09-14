@@ -147,9 +147,9 @@ export type SystemNoteDetails =
  *
  * `details` is OPTIONAL: an informational note (bug 0401) carries NO
  * `details` key on the wire — that details-ABSENT wire shape is normative,
- * so this chain type widens to match it. The closed 4-arm `SystemNoteDetails`
- * union below is unchanged; there is no "absent" arm because absence is
- * `undefined`/omission, not a fifth union member.
+ * so this chain type widens to match it. The closed `SystemNoteDetails` union
+ * above is unchanged; there is no "absent" arm because absence is
+ * `undefined`/omission, not a union member.
  */
 export interface SystemNote {
   readonly content: string;
@@ -272,10 +272,11 @@ export interface SystemNoteChannelDeps {
    * Bug 0453: the display-aware off-channel realization of the step-2
    * delivery-failed diagnostic. When present, `sendSystemNote` routes step 2
    * here with the originating note's `display`, so a `display: false` note's
-   * content is NOT toasted (runtime-event-channel.md:134-135) — it goes stderr-only
-   * (headless) / silent (UI), while the structured diagnostic is still carried
-   * (message = content, :135). Absent means the pre-0453 `emitDiagnostic` path
-   * (display-unaware); lightweight test doubles may omit it.
+   * content is NOT toasted (runtime-event-channel.md best-effort fallback steps
+   * 1–2) — it goes stderr-only (headless) / silent (UI), while the structured
+   * diagnostic is still carried (message = content, fallback step 2). Absent
+   * means the pre-0453 `emitDiagnostic` path (display-unaware); lightweight
+   * test doubles may omit it.
    */
   readonly emitDeliveryFailed?: (
     diagnostic: Diagnostic,
@@ -468,12 +469,13 @@ export function sendSystemNote(
         hint: throwMessage(sendError),
       };
       // Bug 0453: the off-channel realization must honour the originating note's
-      // display gate across the WHOLE fallback (runtime-event-channel.md:134-135) —
-      // a display:false note's gated content MUST NOT surface transiently on
-      // any arm, though the structured diagnostic is still carried (message=content,
-      // :135). A display-aware sink skips the toast for display:false and
-      // delegates to the toast/stderr router for display:true; doubles without
-      // it keep the pre-0453 display-unaware emitDiagnostic path.
+      // display gate across the WHOLE fallback (runtime-event-channel.md
+      // best-effort fallback steps 1–2) — a display:false note's gated content
+      // MUST NOT surface transiently on any arm, though the structured
+      // diagnostic is still carried (message=content, fallback step 2). A
+      // display-aware sink skips the toast for display:false and delegates to
+      // the toast/stderr router for display:true; doubles without it keep the
+      // pre-0453 display-unaware emitDiagnostic path.
       if (deps.emitDeliveryFailed !== undefined) {
         deps.emitDeliveryFailed(deliveryFailed, note.display);
       } else {

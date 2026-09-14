@@ -10,17 +10,15 @@ import {
   renderBinderParamLine,
   type SystemPromptParamField,
 } from "../src/binder/binder-system-prompt";
-import {
-  checkLiteralSublanguage,
-  type LiteralPosition,
-} from "../src/parser/literal-sublanguage";
+import { checkLiteralSublanguage } from "../src/parser/literal-sublanguage";
 import type { SourceRange } from "../src/diagnostics/diagnostic";
 import {
   parseExpressionSource,
   type Expr,
   type ThetaDocument,
 } from "../src/parser/theta-document";
-import { parseDoc } from "./helpers/e2e-s1";
+import { binderParams, parametersBlockLines } from "./helpers/binder-prompt-param-mirror";
+import { diagCodes, diagLines, parseDoc } from "./helpers/e2e-s1";
 
 // Bug 0060 — the binder `Parameters:` per-field line shape is violable by an
 // embedded newline: a recorded declared type or default source carrying a line
@@ -337,16 +335,6 @@ function bodySrc(body: string): string {
 // Reading a parsed document. Loud on every unexpected disposition.
 // ===========================================================================
 
-/** Every diagnostic rendered `<severity> <code>: <message>`, in emission order. */
-function diagLines(doc: ThetaDocument): string[] {
-  return doc.diagnostics.map((d) => `${d.severity} ${d.code}: ${d.message}`);
-}
-
-/** Every diagnostic rendered `<severity> <code>` — the count/code/severity triple. */
-function diagCodes(doc: ThetaDocument): string[] {
-  return doc.diagnostics.map((d) => `${d.severity} ${d.code}`);
-}
-
 /** The lowered `params:` document plus the recorded per-field records. */
 interface LoadedParams {
   readonly properties: Record<string, unknown>;
@@ -416,34 +404,6 @@ function fieldOf(loaded: LoadedParams, wireName: string): BypassParamsField {
 // The binder rendering, through the SHIPPED seams.
 // ===========================================================================
 
-/**
- * Map parsed fields to the system-prompt descriptors as the producer's
- * `binderPromptParamField` (src/extension/production-theta-producer.ts:679–688,
- * doc block :669–678) does: the requirement token from the retained default
- * RHS, and no `description` (the `params:` syntax carries none, so item 4's
- * ` — <description>` slot is unreachable from a `params:` block). That mapper
- * is module-private, so the mapping is mirrored here.
- *
- * ONE DELIBERATE DIVERGENCE: production PROJECTS the declared type through
- * `projectRenderedParamType` (src/parser/params.ts; bug 0251 §Fix) so the
- * rendered `Parameters:` line describes what the field's lowering encoded,
- * while this mirror passes `type` verbatim. Every fixture in this file
- * declares a well-formed type, on which that projection is identity, so the
- * newline-normalisation bytes under test are the same either way — and the
- * mirror keeps this file's subject the RENDERER's treatment of line breaks
- * rather than the projection's.
- */
-function binderParams(fields: readonly BypassParamsField[]): SystemPromptParamField[] {
-  return fields.map((f) => ({
-    wireName: f.wireName,
-    type: f.type,
-    requirement:
-      f.hasDefault && f.defaultSource !== undefined
-        ? { kind: "default" as const, literal: f.defaultSource }
-        : { kind: "required" as const },
-  }));
-}
-
 /** The full binder system prompt for a theta's parsed fields. */
 function promptOf(fields: readonly BypassParamsField[], rawArguments: string): string {
   return buildBinderSystemPrompt({
@@ -451,29 +411,6 @@ function promptOf(fields: readonly BypassParamsField[], rawArguments: string): s
     params: binderParams(fields),
     rawArguments,
   });
-}
-
-/**
- * The physical lines of the `Parameters:` block (between the header and its
- * terminating blank line) that `buildBinderSystemPrompt` emits for a theta's
- * parsed fields. Loud when the block is absent — a fixture reaching this helper
- * declares at least one field, so item 4 requires the block.
- */
-function parametersBlockLines(label: string, prompt: string): string[] {
-  const lines = prompt.split("\n");
-  const header = lines.indexOf("Parameters:");
-  if (header < 0) {
-    throw new Error(
-      `${label}: no \`Parameters:\` header in the built system prompt — item 4 requires the block for ≥1 declared field. Prompt: ${JSON.stringify(prompt)}`,
-    );
-  }
-  const end = lines.indexOf("", header);
-  if (end < 0) {
-    throw new Error(
-      `${label}: the \`Parameters:\` block never terminates with a blank line. Prompt: ${JSON.stringify(prompt)}`,
-    );
-  }
-  return lines.slice(header + 1, end);
 }
 
 /** The prompt's lines whose start is `prefix` — item 1's and item 5's tokens. */
@@ -611,7 +548,6 @@ function decodedStringOf(label: string, literalText: string): string {
 }
 
 /** The literal-sublanguage check's site; the range plays no part in the verdict. */
-const LITERAL_POSITION: LiteralPosition = "default";
 const LITERAL_SITE = {
   file: "bug0060.theta",
   range: { start: { line: 1, column: 1 }, end: { line: 1, column: 2 } } satisfies SourceRange,
@@ -855,7 +791,7 @@ describe("bug 0060 (d) — the rendered `<literal>` is one line and denotes the 
       // reads is the notation :142 names ("the same notation accepted on the
       // RHS of `params:` defaults").
       expect(
-        checkLiteralSublanguage(literal, LITERAL_POSITION, LITERAL_SITE).map((d) => d.code),
+        checkLiteralSublanguage(literal, LITERAL_SITE).map((d) => d.code),
         `${label}: the rendered literal must draw no diagnostic from the is-literal check \`parseParams\` runs at the same position (src/parser/params.ts)`,
       ).toEqual([]);
     });
@@ -907,7 +843,7 @@ describe("bug 0060 (d) — the rendered `<literal>` is one line and denotes the 
       // emits must still be a literal-sublanguage form, so the text the model
       // reads is the notation :142 names.
       expect(
-        checkLiteralSublanguage(literal, LITERAL_POSITION, LITERAL_SITE).map((d) => d.code),
+        checkLiteralSublanguage(literal, LITERAL_SITE).map((d) => d.code),
         `${label}: the rendered literal must draw no diagnostic from the is-literal check the same position runs (src/parser/params.ts, the per-field default loop)`,
       ).toEqual([]);
     });

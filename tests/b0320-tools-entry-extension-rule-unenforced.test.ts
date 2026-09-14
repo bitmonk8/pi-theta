@@ -1,18 +1,23 @@
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import type {
-  ExtensionAPI,
-  ExtensionContext,
-} from "@earendil-works/pi-coding-agent";
 // @ts-expect-error — JS code-registry module, no type declarations.
-import { parseRegistry, registryMessage } from "../tools/code-registry/index.js";
+import { registryMessage } from "../tools/code-registry/index.js";
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
-import { composeExtensionInstance } from "../src/extension/production-composition";
-import { RendererGate, SYSTEM_NOTE_CHANNEL } from "../src/extension/system-note-channel";
-import type { ParsedTheta } from "../src/extension/reload-wiring";
+import {
+  allDiagnostics,
+  describeNotes,
+  finishWorkspace,
+  makeHost,
+  normalisePath,
+  normativeMessagePattern as normativeMessagePatternCore,
+  requireDriven as requireDrivenCore,
+  runLoadPass,
+  type ComposeWorkspace,
+  type LoadPass,
+} from "./helpers/compose-workspace-harness";
+import { REGISTRY } from "./helpers/registry-oracle";
 
 // Bug 0320 — the `tools:` half of `theta/parse/invoke-non-theta-extension` is
 // unenforced. The registry row's Trigger names two surfaces — "An `invoke(...)`
@@ -62,9 +67,11 @@ import type { ParsedTheta } from "../src/extension/reload-wiring";
 // provider, no child process, no live model. The seam is one classifier inside
 // the shipped composition root, and `composeExtensionInstance` over planted
 // files reaches it directly, so no integration or live tier is needed. The
-// harness (`makeHost` / `plantWorkspace` / `runLoadPass` and the observation
-// helpers) is modelled on, and DUPLICATED FROM rather than shared with,
-// `tests/callee-tools-missing-theta-path-un-registers-tools-caller.test.ts`
+// host-double/workspace half of the harness (`makeHost`, `ComposeWorkspace`,
+// `normalisePath`, `finishWorkspace`) is the shared
+// `tests/helpers/compose-workspace-harness.ts` module (PTQ-0213);
+// `plantWorkspace` / `runLoadPass` / the observation helpers remain local,
+// modelled on `tests/callee-tools-missing-theta-path-un-registers-tools-caller.test.ts`
 // (bug 0270's landed witness), which this file neither reads from nor mutates.
 //
 // PATH SEPARATORS: Win32 `\` and POSIX `/` spell the same file differently;
@@ -104,127 +111,39 @@ const VALID_SUBAGENT_CALLEE_SOURCE =
   "---\nmode: subagent\ndescription: b0320 callee\n---\nlet a = 1\n";
 
 // ── Registry oracle (DIAG-4) ─────────────────────────────────────────────────
-
-interface RegistryRow {
-  code: string;
-  severity: string;
-  phase: string;
-  message: string;
-}
-
-// This code is a `theta/parse/*` code, so its Message lives on the PARSE page,
-// not the load page bug 0270's neighbour reads.
-const REGISTRY = parseRegistry(
-  readFileSync(
-    fileURLToPath(
-      new URL("../docs/spec_topics/diagnostics/code-registry-parse.md", import.meta.url),
-    ),
-    "utf8",
-  ),
-) as RegistryRow[];
+//
+// `REGISTRY` is the shared four-page diagnostics-registry read
+// (`tests/helpers/registry-oracle.ts`, PTQ-0215); this file's `theta/parse/*`
+// code lives on the parse page that union already includes. `registryMessage`
+// stays imported directly for the exact-substitution assertion below, which
+// reads the template rather than the pre-built pattern.
 
 /**
  * The row's normative Message (DIAG-4) as a regex with the `<placeholder>` slots
- * opened. Throws naming the registry page when the row is absent, so registry
- * drift can never degrade a presence assertion into a comparison against
- * `undefined`.
+ * opened — `tests/helpers/compose-workspace-harness.ts`'s shared builder
+ * (PTQ-0230), bound to the shared `REGISTRY`.
  */
 function normativeMessagePattern(code: string): RegExp {
-  const message = registryMessage(REGISTRY, code) as string | undefined;
-  if (typeof message !== "string" || message.length === 0) {
-    throw new Error(
-      "harness: docs/spec_topics/diagnostics/code-registry-parse.md carries no Message row for " +
-        `${code} — the DIAG-4 column is this file's only message oracle, so a missing row is a ` +
-        "harness failure, never a skip",
-    );
-  }
-  const escaped = message.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  return new RegExp(escaped.replace(/<[a-z-]+>/g, ".+"));
+  return normativeMessagePatternCore(REGISTRY, code);
 }
 
 // ── Host doubles ─────────────────────────────────────────────────────────────
-
-type PiHandler = (event: unknown, ctx: ExtensionContext) => unknown;
-
-interface RecordedNote {
-  readonly customType: string;
-  readonly content: string;
-  readonly details: unknown;
-}
-
-interface HostDouble {
-  readonly pi: ExtensionAPI;
-  readonly ctx: ExtensionContext;
-  readonly notes: RecordedNote[];
-  readonly notified: Array<readonly [string, string]>;
-}
-
-function makeHost(cwd: string): HostDouble {
-  const notes: RecordedNote[] = [];
-  const notified: Array<readonly [string, string]> = [];
-  const handlers = new Map<string, PiHandler>();
-
-  const pi = {
-    registerFlag: (): void => {},
-    getFlag: (): undefined => undefined,
-    getCommands: (): readonly { name: string; source: string }[] => [],
-    on: (event: string, handler: PiHandler): void => {
-      handlers.set(event, handler);
-    },
-    registerCommand: (): void => {},
-    sendUserMessage: (): void => {},
-    registerTool: (): void => {},
-    setActiveTools: (): void => {},
-    getActiveTools: (): readonly unknown[] => [],
-    getAllTools: (): readonly unknown[] => [],
-    registerMessageRenderer: (): void => {},
-    sendMessage: (message: {
-      customType: string;
-      content: string;
-      details: unknown;
-    }): void => {
-      notes.push({
-        customType: message.customType,
-        content: message.content,
-        details: message.details,
-      });
-    },
-  } as unknown as ExtensionAPI;
-
-  const ctx = {
-    cwd,
-    hasUI: false,
-    modelRegistry: { getAvailable: (): readonly unknown[] => [] },
-    ui: {
-      notify: (message: string, type: "error"): void => {
-        notified.push([message, type]);
-      },
-    },
-  } as unknown as ExtensionContext;
-
-  return { pi, ctx, notes, notified };
-}
+//
+// `RecordedNote` and `makeHost` are the shared recording-host harness in
+// `tests/helpers/compose-workspace-harness.ts` (PTQ-0213).
 
 // ── The workspace ─────────────────────────────────────────────────────────────
-
-interface ComposeWorkspace {
-  readonly cwd: string;
-  /** Absolute, separator-normalised path of a file planted on the project source. */
-  path: (name: string) => string;
-  readonly dispose: () => void;
-}
-
-/** Separator-normalise a path so Win32 `\` and POSIX `/` spellings compare. */
-function normalisePath(path: string): string {
-  return path.replace(/\\/g, "/");
-}
+//
+// `ComposeWorkspace` and `normalisePath` are the shared harness in
+// `tests/helpers/compose-workspace-harness.ts` (PTQ-0213).
 
 /**
  * Plant the named fixture files on the conventional project source
  * (`.pi/theta/`), exactly as bug 0320 §Reproduction does. One workspace per cell
- * keeps every decision attributable to that cell's file set. A minimal
- * `settings.json` pins the settings read to a known value (an absent file is
- * silent, so the plant is hermeticity, not noise suppression).
+ * keeps every decision attributable to that cell's file set. `finishWorkspace`
+ * writes the minimal `settings.json` that pins the settings read to a known
+ * value (an absent file is silent, so the plant is hermeticity, not noise
+ * suppression) and returns the handle.
  */
 function plantWorkspace(files: Readonly<Record<string, string>>): ComposeWorkspace {
   const cwd = mkdtempSync(join(tmpdir(), "theta-b0320-"));
@@ -232,70 +151,14 @@ function plantWorkspace(files: Readonly<Record<string, string>>): ComposeWorkspa
   for (const [name, body] of Object.entries(files)) {
     writeFileSync(join(cwd, ".pi", "theta", name), body, "utf8");
   }
-  writeFileSync(join(cwd, ".pi", "settings.json"), "{}", "utf8");
-  return {
-    cwd,
-    path: (name: string): string => normalisePath(join(cwd, ".pi", "theta", name)),
-    dispose: (): void => rmSync(cwd, { recursive: true, force: true }),
-  };
+  return finishWorkspace(cwd);
 }
 
 // ── The load pass ─────────────────────────────────────────────────────────────
-
-interface LoadPass {
-  /** Every `theta-system-note` the pass put on the channel, in order. */
-  readonly notes: readonly RecordedNote[];
-  readonly offChannel: readonly RecordedNote[];
-  readonly notified: readonly (readonly [string, string])[];
-  /** Slash names the pass actually registered. */
-  readonly registered: readonly string[];
-  readonly thetas: readonly ParsedTheta[];
-}
-
-/**
- * Drive the SHIPPED composition root over the planted workspace with an
- * UNDEGRADED `RendererGate`, so every note takes the transcript
- * (`pi.sendMessage`) arm the author reads.
- */
-async function runLoadPass(workspace: ComposeWorkspace): Promise<LoadPass> {
-  const host = makeHost(workspace.cwd);
-  const wiring = await composeExtensionInstance(
-    host.pi,
-    host.ctx,
-    undefined,
-    new RendererGate(),
-  );
-  return {
-    notes: host.notes.filter((n) => n.customType === SYSTEM_NOTE_CHANNEL),
-    offChannel: host.notes.filter((n) => n.customType !== SYSTEM_NOTE_CHANNEL),
-    notified: host.notified,
-    registered: wiring.thetas.map((t) => t.slashName),
-    thetas: wiring.thetas,
-  };
-}
-
-// ── Observation helpers ───────────────────────────────────────────────────────
-
-function noteDiagnostics(note: RecordedNote): readonly Diagnostic[] {
-  const details = note.details as { diagnostics?: unknown } | undefined;
-  const diagnostics = details?.diagnostics;
-  if (!Array.isArray(diagnostics)) {
-    expect.fail(
-      `system note carries no details.diagnostics array: ${JSON.stringify(note.details)}`,
-    );
-  }
-  return diagnostics as readonly Diagnostic[];
-}
-
-function allDiagnostics(notes: readonly RecordedNote[]): readonly Diagnostic[] {
-  return notes.flatMap((note) => [...noteDiagnostics(note)]);
-}
-
-function describeNotes(notes: readonly RecordedNote[]): string {
-  return notes.length === 0
-    ? "[] (NO NOTE ON THE CHANNEL)"
-    : notes.map((n, i) => `[${i}] ${n.content}`).join("\n");
-}
+//
+// `LoadPass`, `runLoadPass`, `noteDiagnostics`, `allDiagnostics` and
+// `describeNotes` are the shared load-pass harness in
+// `tests/helpers/compose-workspace-harness.ts` (PTQ-0230).
 
 /** Error-severity codes the pass located at `file`, sorted and de-duplicated. */
 function errorCodesAt(pass: LoadPass, file: string): readonly string[] {
@@ -310,13 +173,7 @@ function errorCodesAt(pass: LoadPass, file: string): readonly string[] {
 
 /** The composition root must have been driven at all before any decision means anything. */
 function requireDriven(pass: LoadPass): void {
-  if (pass.notes.length === 0 && pass.registered.length === 0) {
-    throw new Error(
-      "harness: the composition root neither registered a theta nor put anything on the " +
-        "theta-system-note channel — the bug-0320 fixture no longer reaches the load pass, " +
-        "so nothing below is verified",
-    );
-  }
+  requireDrivenCore(pass, "0320");
 }
 
 /**

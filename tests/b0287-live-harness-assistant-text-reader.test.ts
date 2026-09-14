@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { collectAssistantTexts, failLoudly } from "./live/harness";
+import {
+  collectAssistantTexts,
+  failLoudly,
+  messageEntry as message,
+  systemNoteEntry as note,
+} from "./live/harness";
 
 // Bug 0287 — the H8a harness's `driveSlash` (`tests/live/harness.ts`)
 // accumulates `text_delta` events for the WHOLE drive into one local `text`
@@ -30,16 +35,6 @@ import { collectAssistantTexts, failLoudly } from "./live/harness";
 // `./live/acceptance/harness`); this harness's module-scope subagent-child pins
 // (lines 62–74) are process-global but vitest isolates each test FILE in its own
 // worker, so they scope to this file and resolve no provider at load.
-
-/** One in-memory `SessionManager` message entry, shaped as the readers walk it. */
-function message(role: string, content: unknown): unknown {
-  return { type: "message", message: { role, content } };
-}
-
-/** A `theta-system-note` custom entry — a channel the assistant reader must not admit. */
-function note(content: string): unknown {
-  return { customType: "theta-system-note", content };
-}
 
 describe("bug 0287 — settled-transcript assistant-text reader", () => {
   it("exposes the reader §Fix item 1 adds beside collectUserTexts", () => {

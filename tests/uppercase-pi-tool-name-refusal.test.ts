@@ -506,7 +506,7 @@ function piTool(name: string): ResolvedPiTool {
 function thetaCallee(
   mode: "prompt" | "subagent",
 ): Omit<ResolvedThetaCallee, "calleePath"> {
-  return { kind: "theta", mode, callee: { mode } };
+  return { kind: "theta", mode };
 }
 
 /**

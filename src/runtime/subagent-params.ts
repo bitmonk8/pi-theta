@@ -112,8 +112,12 @@ export function chooseParamsChannel(canonicalJson: string): ParamsChannelPlan {
 
 /** Injected fs seam the parent-side marshalling drives (fake in tests; real fs at the composition root). */
 export interface ParamsMarshalDeps {
-  /** Write `contents` to a fresh temp file at `mode` and return its path (0600 channel). */
-  readonly writeTempFile: (contents: string, mode: number) => string;
+  /**
+   * Write `contents` to a fresh temp file and return its path (0600 channel).
+   * The mode is fixed by contract (`SUBAGENT_PARAMS_TEMP_FILE_MODE`, owner-only)
+   * — the implementation chooses it, not the caller.
+   */
+  readonly writeTempFile: (contents: string) => string;
   /** Delete the temp file (the parent-`finally` backstop). */
   readonly unlink: (path: string) => void;
 }
@@ -135,8 +139,6 @@ export interface MarshalledParams {
    * `readMarshalledParams`'s `!== undefined` test and fail closed on parse).
    */
   readonly env: Record<string, string | undefined>;
-  /** The temp-file path on the file channel (absent on the env channel). */
-  readonly tempFilePath?: string;
   /** The parent-`finally` backstop: delete the temp file (a no-op on the env channel). */
   readonly cleanup: () => void;
 }
@@ -189,13 +191,12 @@ export function marshalParams(
   // At/above-threshold: write the 0600 temp file and carry its path on the file
   // env var; the large payload does NOT also ride the env var (that would defeat
   // the cutover). The parent-`finally` backstop deletes the temp file.
-  const tempFilePath = deps.writeTempFile(plan.contents, SUBAGENT_PARAMS_TEMP_FILE_MODE);
+  const tempFilePath = deps.writeTempFile(plan.contents);
   return {
     env: {
       [SUBAGENT_PARAMS_ENV]: undefined,
       [SUBAGENT_PARAMS_FILE_ENV]: tempFilePath,
     },
-    tempFilePath,
     cleanup: (): void => {
       deps.unlink(tempFilePath);
     },
@@ -269,7 +270,7 @@ export interface ParamsSchemaValidator {
 
 /** The child-side intake outcome: bound params (binder bypassed) or a fail-closed refusal. */
 export type ChildParamsIntake =
-  | { readonly ok: true; readonly params: Record<string, unknown>; readonly binderBypassed: true }
+  | { readonly ok: true; readonly params: Record<string, unknown> }
   | { readonly ok: false; readonly error: InvokeInfraError; readonly diagnostic: Diagnostic };
 
 /**
@@ -297,7 +298,7 @@ export function intakeChildParams(
   }
   // PIC-60: the marshalled path never re-enters the binder — the validated params
   // are bound directly with the binder BYPASSED entirely.
-  return { ok: true, params: parsed as Record<string, unknown>, binderBypassed: true };
+  return { ok: true, params: parsed as Record<string, unknown> };
 }
 
 /** Build the fail-closed params refusal: pinned diagnostic + Err(invoke_infra validation). */

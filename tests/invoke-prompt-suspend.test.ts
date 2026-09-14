@@ -3,7 +3,6 @@ import {
   runPromptSuspendInvoke,
   type PromptSuspendPi,
 } from "../src/runtime/invoke-prompt-suspend";
-import type { CrossModeCell } from "../src/runtime/invoke-cross-mode";
 import { makeErr } from "../src/runtime/value";
 
 // V15d-T — failing tests for the paired `V15d` prompt→prompt parent-suspend and
@@ -22,9 +21,8 @@ import { makeErr } from "../src/runtime/value";
 //
 // Each test reds on its own primary assertion because the V15d behaviour is
 // absent: the stub runs the child body directly with NO snapshot / install /
-// restore and reports the window as NOT engaged. So the window-engaged and
-// snapshot-before-child assertions red (nothing installed), and the
-// restore-after-failure assertions red (the pre-invoke set is never restored
+// restore. So the snapshot-before-child assertions red (nothing installed), and
+// the restore-after-failure assertions red (the pre-invoke set is never restored
 // over a mid-window mutation). No test reds on a compile error, a missing
 // fixture, or a harness throw.
 
@@ -54,8 +52,6 @@ class RecordingActiveSetPi implements PromptSuspendPi {
     this.active = [...names];
   }
 }
-
-const PROMPT_TO_PROMPT: CrossModeCell = { callerMode: "prompt", calleeMode: "prompt" };
 
 // Bug 0372 §Fix: this window now restores through `withActiveSetGate`
 // (tool-registration.ts), so `runPromptSuspendInvoke` requires the compliant
@@ -100,7 +96,6 @@ describe("prompt→prompt suspend + snapshot before the child runs (invocation.m
     };
 
     const outcome = await runPromptSuspendInvoke({
-      cell: PROMPT_TO_PROMPT,
       childCallableSet: CHILD_CALLABLE_SET,
       pi,
       childBody,
@@ -108,8 +103,6 @@ describe("prompt→prompt suspend + snapshot before the child runs (invocation.m
     });
     events.push("parent-resumed");
 
-    // Primary: the prompt→prompt suspend + snapshot/restore window engaged.
-    expect(outcome.engaged).toBe(true);
     expect(outcome.result).toBe("child-value");
 
     // The step-1 snapshot precedes the step-2 install, and both happen before
@@ -134,8 +127,7 @@ describe("prompt→prompt suspend + snapshot before the child runs (invocation.m
       return null;
     };
 
-    const outcome = await runPromptSuspendInvoke({
-      cell: PROMPT_TO_PROMPT,
+    await runPromptSuspendInvoke({
       childCallableSet: CHILD_CALLABLE_SET,
       pi,
       childBody,
@@ -143,9 +135,7 @@ describe("prompt→prompt suspend + snapshot before the child runs (invocation.m
     });
     events.push("parent-resumed");
 
-    // Primary: the window engaged (the parent-suspend path ran, not a pass-through).
-    expect(outcome.engaged).toBe(true);
-    // The parent resumes strictly after the child has fully settled.
+    // Primary: the parent resumes strictly after the child has fully settled.
     expect(events).toEqual(["child-start", "child-end", "parent-resumed"]);
     // On success the ambient snapshot is restored once the child settles.
     expect(pi.getActiveTools()).toEqual([...AMBIENT_SNAPSHOT]);
@@ -173,7 +163,6 @@ describe("PIC-17 step-4 finally restore on inner failure, prompt→prompt invoke
     // The inner throw surfaces unmasked (not swallowed by the restore).
     await expect(
       runPromptSuspendInvoke({
-        cell: PROMPT_TO_PROMPT,
         childCallableSet: CHILD_CALLABLE_SET,
         pi,
         childBody,
@@ -198,7 +187,6 @@ describe("PIC-17 step-4 finally restore on inner failure, prompt→prompt invoke
     // The cancellation surfaces unmasked (not swallowed by the restore).
     await expect(
       runPromptSuspendInvoke({
-        cell: PROMPT_TO_PROMPT,
         childCallableSet: CHILD_CALLABLE_SET,
         pi,
         childBody,
@@ -222,7 +210,6 @@ describe("PIC-17 step-4 finally restore on inner failure, prompt→prompt invoke
     };
 
     const outcome = await runPromptSuspendInvoke({
-      cell: PROMPT_TO_PROMPT,
       childCallableSet: CHILD_CALLABLE_SET,
       pi,
       childBody,

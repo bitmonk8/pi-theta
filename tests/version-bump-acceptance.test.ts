@@ -122,9 +122,7 @@ describe("V18d runtime-evidence acceptance gate (cka-19, output (c))", () => {
       surfacesExercised: new Set<AcceptanceSurface>(ACCEPTANCE_SURFACES),
       allAssertionsPassed: true,
     };
-    expect(
-      runtimeEvidenceAcceptanceFailures(fullGreenRun, { green: true }),
-    ).toEqual([]);
+    expect(runtimeEvidenceAcceptanceFailures(fullGreenRun)).toEqual([]);
   });
 
   it("cka-19: a green surface-inventory run alone does NOT satisfy acceptance", () => {
@@ -138,9 +136,7 @@ describe("V18d runtime-evidence acceptance gate (cka-19, output (c))", () => {
       allAssertionsPassed: false,
     };
     expect(
-      runtimeEvidenceAcceptanceFailures(inventoryGreenNoHarnessRun, {
-        green: true,
-      }).length,
+      runtimeEvidenceAcceptanceFailures(inventoryGreenNoHarnessRun).length,
     ).toBeGreaterThan(0);
   });
 
@@ -155,9 +151,7 @@ describe("V18d runtime-evidence acceptance gate (cka-19, output (c))", () => {
       ),
       allAssertionsPassed: true,
     };
-    expect(
-      runtimeEvidenceAcceptanceFailures(missingSurface, { green: true }).length,
-    ).toBeGreaterThan(0);
+    expect(runtimeEvidenceAcceptanceFailures(missingSurface).length).toBeGreaterThan(0);
   });
 });
 

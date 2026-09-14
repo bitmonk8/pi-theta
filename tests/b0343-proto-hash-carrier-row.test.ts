@@ -69,6 +69,7 @@ import type { RuntimeRoot } from "../src/runtime-root";
 import type { ThetaBody } from "../src/parser/theta-document";
 import type { CallableSetSnapshot } from "../src/parser/callable-set";
 import type { ParsedFrontmatter } from "../src/parser/frontmatter";
+import { createEnvSandbox } from "./helpers/ambient-control-plane-scrub";
 
 // ── Shared discovery harness (mirrors b0328 / the e2e refusal harness) ──
 
@@ -268,7 +269,6 @@ describe("bug 0343 (B) — the tools:-entry write marshals a `__proto__` present
           kind: "theta" as const,
           mode: "subagent" as const,
           calleePath: "./child.theta",
-          callee: undefined,
           closureHash: "sha256:ENTRY",
         },
       ],
@@ -325,17 +325,7 @@ describe("bug 0343 (B) — the tools:-entry write marshals a `__proto__` present
 // parent produces the key — which pre-fix it never does.
 // =============================================================================
 
-const savedEnv: Record<string, string | undefined> = {};
-function setEnv(key: string, value: string | undefined): void {
-  if (!(key in savedEnv)) {
-    savedEnv[key] = process.env[key];
-  }
-  if (value === undefined) {
-    delete process.env[key];
-  } else {
-    process.env[key] = value;
-  }
-}
+const { setEnv, restoreEnv } = createEnvSandbox();
 
 const PROTO_CALLER =
   "---\nmode: subagent\ntools:\n  - ./proto-tool.theta as __proto__\n---\n@`hi`\n";
@@ -367,7 +357,6 @@ async function parentMarshalProtoEntryCarrier(toolPath: string): Promise<string 
         kind: "theta" as const,
         mode: "subagent" as const,
         calleePath: "./proto-tool.theta",
-        callee: undefined,
         closureHash: loadTimeHash,
       },
     ],
@@ -393,14 +382,7 @@ const PROTO_MISMATCH_MSG =
 describe("bug 0343 (C) — child end-to-end: the parent-marshalled __proto__ row catches a load→spawn edit", () => {
   afterEach(() => {
     vi.restoreAllMocks();
-    for (const [key, value] of Object.entries(savedEnv)) {
-      if (value === undefined) {
-        delete process.env[key];
-      } else {
-        process.env[key] = value;
-      }
-      delete savedEnv[key];
-    }
+    restoreEnv();
   });
 
   it("C-admit: a byte-identical __proto__ callee is ADMITTED with no mismatch note (green anchor)", async () => {

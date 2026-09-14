@@ -9,14 +9,17 @@
 //   - the `Set`-backed registry whose iteration is **insertion order** (the V8
 //     `Set` invariant the `session_shutdown` teardown handler relies on), with an
 //     entry-count probe seam so tests assert on observable side effects rather
-//     than the internal symbol (the registry name is internal).
+//     than the internal symbol (the registry name is internal);
+//   - the `ActiveInvocationTicket` handle a dispatch-site insertion hands down
+//     to the bind that continues the same invocation (settle / finish / the
+//     entry's ids), so the bind reuses the entry instead of double-inserting.
 //
 // The dispatch-site setup and the per-invocation `finally` are owned by the
 // producer's bind choke points (production-theta-producer.ts), which register
 // and remove entries directly and settle each entry's `disposeBarrier` inline —
 // subagent-mode teardown settles on observed child-process exit (RFC-0005), not
 // on an in-process `AgentSession.dispose()`. This module therefore exposes only
-// the entry shape and the registry container.
+// the entry shape, the ticket handle, and the registry container.
 //
 // Spec: pi-integration-contract/active-invocation-registry.md.
 

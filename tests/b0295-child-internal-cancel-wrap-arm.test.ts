@@ -84,21 +84,12 @@ import {
 import { buildEnvironment } from "../src/runtime/lexical-environment";
 import { parseThetaDocument } from "../src/parser/theta-document";
 import type { ThetaSource } from "../src/lexer/lexer";
-import type { SystemNoteChannelDeps } from "../src/extension/system-note-channel";
-import type { ModelReferenceMatcher } from "../src/parser/frontmatter";
-import type { Checkpoint } from "../src/seams/checkpoint";
-import type {
-  CommittedConversationMutator,
-  CommittedSurface,
-  DrivenConversationMode,
-} from "../src/runtime/terminal-outcomes";
+import type { DrivenConversationMode } from "../src/runtime/terminal-outcomes";
 import { makeErr, makeOk, type ResultValue, type ThetaValue } from "../src/runtime/value";
 import { makeCancelledError } from "../src/runtime/cancellation-core";
 import type { OperationResult } from "../src/runtime/cancellation-core";
 import type { DrivenInvokeResult, InvokeChild } from "../src/runtime/invoke-cancellation";
-import type { ToolLoweringSink } from "../src/runtime/tool-call-execute";
 import type { Expr, InvokeExpr, ThetaBody } from "../src/parser/theta-document";
-import type { SourceRange } from "../src/diagnostics/diagnostic";
 import type {
   CancelledError,
   CodeToolError,
@@ -107,6 +98,14 @@ import type {
 } from "../src/runtime/query-error";
 import type { InvokeCallSite } from "../src/runtime/invoke-provenance";
 import { renderTopLevelErrNote, type ChainHop } from "../src/runtime/err-note-render";
+import {
+  SEAM_NOOP_CHECKPOINT,
+  SEAM_NOOP_SINK,
+  SEAM_NOOP_MUTATOR,
+  span,
+  type RecordedHop,
+} from "./helpers/invoke-seam-scaffold";
+import { parseDeps } from "./helpers/e2e-s1";
 
 // The parent theta the seam drives; its slash name (filename stem) is `parent`.
 const PARENT_FILE = "parent.theta";
@@ -117,41 +116,13 @@ const WORKER = "./worker.theta";
 // ===========================================================================
 // Seam scaffolding — mirrors the bug-0294 fence template's inert seams, driven
 // by the real `executeBody` executor over an injected `InvokeChild` double.
+// `SEAM_NOOP_CHECKPOINT` / `SEAM_NOOP_SINK` / `SEAM_NOOP_MUTATOR` / `span` /
+// `RecordedHop` are the shared no-op scaffold
+// (tests/helpers/invoke-seam-scaffold.ts, PTQ-0244).
 // ===========================================================================
-
-const SEAM_NOOP_CHECKPOINT: Checkpoint = {
-  before(): Promise<void> {
-    return Promise.resolve();
-  },
-};
-
-const SEAM_NOOP_SINK: ToolLoweringSink = {
-  runtimeEvent(): void {},
-  diagnostic(): void {},
-  systemNote(): void {},
-};
-
-const SEAM_NOOP_MUTATOR: CommittedConversationMutator = {
-  truncate(): void {},
-  rewrite(): void {},
-  replace(): void {},
-  remove(): void {},
-  injectCompensatingTurn(_surface: CommittedSurface): void {},
-};
-
-function span(): SourceRange {
-  return { start: { line: 1, column: 1 }, end: { line: 1, column: 2 } };
-}
 
 function invokeExpr(path: string): InvokeExpr {
   return { kind: "invoke", path, returnSchema: null, args: [], range: span() };
-}
-
-/** One recorded SLSH-5 invoke hop (`deps.recordInvokeHop` fires only when the wrap builds an `invoke_callee`). */
-interface RecordedHop {
-  readonly wrapper: InvokeCalleeError;
-  readonly calleePath: string;
-  readonly callSite: InvokeCallSite;
 }
 
 /**
@@ -368,7 +339,6 @@ describe("bug 0295 (C) — envelope-after-abort race (signal aborted at wrap tim
       err.kind,
       "the adjudicated race disposition is bare cancelled (parent's own signal fired first), never a source-keyed invoke_callee wrap",
     ).toBe("cancelled");
-    expect(err.kind).not.toBe("invoke_callee");
   });
 });
 
@@ -509,16 +479,6 @@ describe("bug 0295 (F) — a non-cancelled callee-returned Err wraps invoke_call
 // Fork state: GREEN both sides.
 // ===========================================================================
 
-function parseDeps(): { systemNote: SystemNoteChannelDeps; modelMatcher: ModelReferenceMatcher } {
-  const systemNote: SystemNoteChannelDeps = {
-    pi: { sendMessage: (): void => {} },
-    ui: { notify: (): void => {} },
-    emitDiagnostic: (): void => {},
-  };
-  const modelMatcher: ModelReferenceMatcher = { resolve: (): "resolved" => "resolved" };
-  return { systemNote, modelMatcher };
-}
-
 /**
  * A `StatementEvalHost` that spawns a real (recorded) subagent-fn session and
  * returns a cancelled `OperationResult` for the body's single effect — the
@@ -537,9 +497,8 @@ class InProcessSubagentCancelHost implements StatementEvalHost {
   runEffect(): Promise<OperationResult> {
     return Promise.resolve({ ok: false, error: makeCancelledError() });
   }
-  spawnSubagentSession(): string {
+  spawnSubagentSession(): void {
     this.spawned += 1;
-    return "subagent-fn-1";
   }
   exitSubagentSession(): void {}
 }

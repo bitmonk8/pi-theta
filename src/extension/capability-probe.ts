@@ -23,7 +23,7 @@
 
 import semver from "semver";
 import type { Diagnostic } from "../diagnostics/diagnostic";
-import { renderHostIncompatible } from "../diagnostics/placeholder";
+import { coerceUnderlyingString, renderHostIncompatible } from "../diagnostics/placeholder";
 import {
   resolveSubagentExecutable,
   SUBAGENT_EXECUTABLE_UNRESOLVED_CODE,
@@ -56,7 +56,7 @@ export type CapabilityId = 1 | 2 | 3 | 4 | 5 | 6 | 7;
  * former in-process `createAgentSession` `typeof` pin is retired, and it is now
  * verified by the Step 0 (f) executable-resolution probe rather than by the
  * factory-probable `typeof` member loop. This is the importable symbol
- * `V18a`/`V18c` reconcile their factory-probed partition flags against (it is
+ * `V18a` reconciles its factory-probed partition flags against (it is
  * the partition target, not the probe's eight-member iteration target).
  *
  * `Object.freeze` keeps this module-level constant off the *No globals,
@@ -66,14 +66,42 @@ export const FACTORY_PROBABLE_CAPABILITIES: readonly CapabilityId[] =
   Object.freeze([1, 2, 4, 6]);
 
 /**
+ * The eight `pi.<member>` names the factory-probable capability subset
+ * (`FACTORY_PROBABLE_CAPABILITIES`, capabilities 1/2/4/6) requires
+ * (capability-probe.md Step 0 (c): "items 1, 2, 4, and 6 (four capabilities,
+ * eight function members)"), in the probe's own iteration order. The single
+ * declaration site the Step 0 (c) `typeof` loop below builds its per-member
+ * closures from, and `sdk-inventory.ts`'s `SDK_SURFACE_INVENTORY` builds its
+ * matching `namespace-function` rows from — so the runtime probe and the
+ * build-time inventory cannot drift apart on which `pi.<member>` names the
+ * factory-probable subset requires.
+ *
+ * `as const` keeps this module-level constant off the *No globals, statics,
+ * singletons* mutable-binding scan (a readonly-tuple runtime-immutable list).
+ */
+export const FACTORY_PROBED_SDK_MEMBERS = [
+  "pi.registerCommand",
+  "pi.sendUserMessage",
+  "pi.registerTool",
+  "pi.setActiveTools",
+  "pi.getActiveTools",
+  // Bug 0001 / PIC-64: the capability-4 registry-snapshot read behind
+  // mode-independent `tools:` admission and both extension-tool reach
+  // paths (capability-inventory-items.md item 4). Absence refuses
+  // fail-closed via the same sdk-capability-missing kind.
+  "pi.getAllTools",
+  "pi.registerMessageRenderer",
+  "pi.sendMessage",
+] as const;
+
+/**
  * Cancellation-runtime constant: the bounded wait (milliseconds) the
  * `session_shutdown` teardown awaits in-flight invocation drainage before
- * proceeding. Semantics are owned by `V17a`; the value is sourced from
- * session-shutdown-semantics.md §`session_shutdown` sub-step 3. `V9a` is the
- * single declaration site the shutdown-leg consumers `V9g` and `V17a` import
- * (rather than redeclare) and that `V18c`'s build-time literal-read assertion
- * reads. `V9i` no longer imports it: bug 0468 decoupled the per-invocation
- * subagent child-exit wait onto its own `SUBAGENT_DISPOSE_BUDGET_MS`.
+ * proceeding. The value is sourced from session-shutdown-semantics.md
+ * §`session_shutdown` sub-step 3. `V9a` is the single declaration site the
+ * shutdown-leg consumer `V9g` imports (rather than redeclare). `V9i` no
+ * longer imports it: bug 0468 decoupled the per-invocation subagent
+ * child-exit wait onto its own `SUBAGENT_DISPOSE_BUDGET_MS`.
  */
 export const SHUTDOWN_AWAIT_CAP_MS = 2000;
 
@@ -218,33 +246,6 @@ function hasMember(holder: unknown, key: string): boolean {
   return key in holder;
 }
 
-/**
- * Coerce a caught thrown value to its underlying string per the diagnostics
- * underlying-error coercion (placeholder-rendering-b.md #underlying-error-
- * coercion): an object with a string `.message` yields that message; otherwise
- * `String(v)`, or the literal `<unreadable>` when either the `.message` access
- * or the `String(v)` coercion itself throws (PIC-6 — a hostile getter MUST NOT
- * escape the probe).
- */
-function coerceCause(v: unknown): string {
-  try {
-    if (typeof v === "object" && v !== null) {
-      const message = (v as Record<string, unknown>).message;
-      if (typeof message === "string") {
-        return message;
-      }
-    }
-  } catch (e: unknown) { // allow-broad-catch: PIC-6 — pi-integration-contract/capability-probe.md
-    void e;
-  }
-  try {
-    return String(v);
-  } catch (e: unknown) { // allow-broad-catch: PIC-6 — pi-integration-contract/capability-probe.md
-    void e;
-    return "<unreadable>";
-  }
-}
-
 /** Build the self-failure (`probe-failed`) outcome for a step that threw. */
 function probeFailed(step: ProbeStep, cause: string, pkg?: string): ProbeOutcome {
   return {
@@ -287,7 +288,7 @@ export function runCapabilityProbe(host: ProbeHost): ProbeOutcome {
       };
     }
   } catch (e: unknown) { // allow-broad-catch: PIC-6 — pi-integration-contract/capability-probe.md
-    return probeFailed("node-floor", coerceCause(e));
+    return probeFailed("node-floor", coerceUnderlyingString(e));
   }
 
   // ── (b) AbortSignal / AbortController shape ───────────────────────────────
@@ -296,19 +297,16 @@ export function runCapabilityProbe(host: ProbeHost): ProbeOutcome {
     const abortSignal = host.abortSignal;
     // `typeof`-checked members, in the table's listed order (constructors,
     // prototype-methods, static-methods) — short-circuit at the first.
-    const typeofMembers: ReadonlyArray<readonly [string, () => unknown]> = [
-      ["AbortController", () => abortController],
-      ["AbortSignal", () => abortSignal],
-      ["AbortController.prototype.abort", () =>
-        readProp(readProp(abortController, "prototype"), "abort")],
-      ["AbortSignal.any", () => readProp(abortSignal, "any")],
-      ["AbortSignal.timeout", () => readProp(abortSignal, "timeout")],
-      ["AbortSignal.prototype.throwIfAborted", () =>
-        readProp(readProp(abortSignal, "prototype"), "throwIfAborted")],
-      ["AbortSignal.prototype.addEventListener", () =>
-        readProp(readProp(abortSignal, "prototype"), "addEventListener")],
+    const typeofMembers: ReadonlyArray<() => unknown> = [
+      () => abortController,
+      () => abortSignal,
+      () => readProp(readProp(abortController, "prototype"), "abort"),
+      () => readProp(abortSignal, "any"),
+      () => readProp(abortSignal, "timeout"),
+      () => readProp(readProp(abortSignal, "prototype"), "throwIfAborted"),
+      () => readProp(readProp(abortSignal, "prototype"), "addEventListener"),
     ];
-    for (const [, get] of typeofMembers) {
+    for (const get of typeofMembers) {
       const observed = typeof get();
       if (observed !== "function") {
         return {
@@ -329,7 +327,7 @@ export function runCapabilityProbe(host: ProbeHost): ProbeOutcome {
       }
     }
   } catch (e: unknown) { // allow-broad-catch: PIC-6 — pi-integration-contract/capability-probe.md
-    return probeFailed("abortsignal-shape", coerceCause(e));
+    return probeFailed("abortsignal-shape", coerceUnderlyingString(e));
   }
 
   // ── (c) Factory-probable SDK capabilities (eight function members) ────────
@@ -338,22 +336,8 @@ export function runCapabilityProbe(host: ProbeHost): ProbeOutcome {
   // capability 3 is verified by the Step 0 (f) executable-resolution probe.
   try {
     const pi = host.pi;
-    const sdkMembers: ReadonlyArray<readonly [string, () => unknown]> = [
-      ["pi.registerCommand", () => readProp(pi, "registerCommand")],
-      ["pi.sendUserMessage", () => readProp(pi, "sendUserMessage")],
-      ["pi.registerTool", () => readProp(pi, "registerTool")],
-      ["pi.setActiveTools", () => readProp(pi, "setActiveTools")],
-      ["pi.getActiveTools", () => readProp(pi, "getActiveTools")],
-      // Bug 0001 / PIC-64: the capability-4 registry-snapshot read behind
-      // mode-independent `tools:` admission and both extension-tool reach
-      // paths (capability-inventory-items.md item 4). Absence refuses
-      // fail-closed via the same sdk-capability-missing kind.
-      ["pi.getAllTools", () => readProp(pi, "getAllTools")],
-      ["pi.registerMessageRenderer", () => readProp(pi, "registerMessageRenderer")],
-      ["pi.sendMessage", () => readProp(pi, "sendMessage")],
-    ];
-    for (const [member, get] of sdkMembers) {
-      const observed = typeof get();
+    for (const name of FACTORY_PROBED_SDK_MEMBERS) {
+      const observed = typeof readProp(pi, name.slice("pi.".length));
       if (observed !== "function") {
         return {
           ok: false,
@@ -361,13 +345,13 @@ export function runCapabilityProbe(host: ProbeHost): ProbeOutcome {
             kind: "sdk-capability-missing",
             observed,
             required: "function",
-            member,
+            member: name,
           },
         };
       }
     }
   } catch (e: unknown) { // allow-broad-catch: PIC-6 — pi-integration-contract/capability-probe.md
-    return probeFailed("sdk-capability-missing", coerceCause(e));
+    return probeFailed("sdk-capability-missing", coerceUnderlyingString(e));
   }
 
   // ── (d) Peer-dep version (lock-step, four packages) ───────────────────────
@@ -378,7 +362,7 @@ export function runCapabilityProbe(host: ProbeHost): ProbeOutcome {
     } catch (e: unknown) { // allow-broad-catch: PIC-6 — pi-integration-contract/capability-probe.md
       // Any throw outside the four installation-observable conditions routes to
       // probe-failed with the offending package named (Step 0 "Self-failure").
-      return probeFailed("peer-dep-version", coerceCause(e), pkg);
+      return probeFailed("peer-dep-version", coerceUnderlyingString(e), pkg);
     }
     if (version === undefined) {
       // Conditions (1)–(3): no readable `version` string was obtained.
@@ -427,7 +411,7 @@ export function runCapabilityProbe(host: ProbeHost): ProbeOutcome {
       };
     }
   } catch (e: unknown) { // allow-broad-catch: PIC-6 — pi-integration-contract/capability-probe.md
-    return probeFailed("typebox-shape", coerceCause(e));
+    return probeFailed("typebox-shape", coerceUnderlyingString(e));
   }
 
   return { ok: true };
@@ -480,7 +464,7 @@ export function probeSubagentExecutable(host: ExecutableHost): SubagentExecutabl
     // (e.g. a hostile ExecutableHost whose fileExists throws EACCES) routes to
     // host-incompatible/probe-failed with details.step = "subagent-executable"
     // — NOT the clean subagent-executable-unresolved verdict, which is reserved
-    // for the both-rungs-fail case. Mirrors the (a)–(e) coerceCause shape.
+    // for the both-rungs-fail case. Mirrors the (a)–(e) coerceUnderlyingString shape.
     const step: ProbeStep = "subagent-executable";
     return {
       ok: false,
@@ -489,7 +473,7 @@ export function probeSubagentExecutable(host: ExecutableHost): SubagentExecutabl
         observed: "<unreadable>",
         required: "<unreadable>",
         step,
-        cause: coerceCause(e),
+        cause: coerceUnderlyingString(e),
       }),
     };
   }

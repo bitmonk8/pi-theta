@@ -8,10 +8,6 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import type {
-  ExtensionAPI,
-  ExtensionContext,
-} from "@earendil-works/pi-coding-agent";
 import {
   composeExtensionInstance,
 } from "../src/extension/production-composition";
@@ -22,6 +18,8 @@ import {
 } from "../src/runtime/subagent-callable-hash";
 import { SUBAGENT_PARENT_PID_ENV } from "../src/runtime/subagent-launcher";
 import { SUBAGENT_ROOT_ENV_MARKER } from "../src/runtime/subagent-root-regime";
+import { createEnvSandbox } from "./helpers/ambient-control-plane-scrub";
+import { makeHost } from "./helpers/compose-workspace-harness";
 
 // Bug 0329 — a child-side callable-hash mismatch DETECTS but does not ENFORCE.
 // subagent.md #subagent-theta-callable-hash: the child "verifies each hash after
@@ -82,48 +80,13 @@ const ZQX_MAIN =
 const ZQX_HELPER =
   "---\nmode: subagent\nparams:\n  q: string\n---\n@`helper ${q}`\n";
 
-// ── Compose host double (mirrors the callee-tools sibling's makeHost) ─────────
-
-interface ComposeHost {
-  readonly pi: ExtensionAPI;
-  readonly ctx: ExtensionContext;
-  /** Every `pi.sendMessage` note the pass delivered (the channel arm). */
-  readonly notes: string[];
-  /** Every `ctx.ui.notify` toast (the off-channel fallback arm). */
-  readonly notified: string[];
-}
-
-function makeComposeHost(cwd: string): ComposeHost {
-  const notes: string[] = [];
-  const notified: string[] = [];
-  const pi = {
-    registerFlag: (): void => {},
-    getFlag: (): undefined => undefined,
-    getCommands: (): readonly { name: string; source: string }[] => [],
-    on: (): void => {},
-    registerCommand: (): void => {},
-    sendMessage: (message: { content: string }): void => {
-      notes.push(message.content);
-    },
-    sendUserMessage: (): void => {},
-    registerTool: (): void => {},
-    setActiveTools: (): void => {},
-    getActiveTools: (): readonly unknown[] => [],
-    getAllTools: (): readonly unknown[] => [],
-    registerMessageRenderer: (): void => {},
-  } as unknown as ExtensionAPI;
-  const ctx = {
-    cwd,
-    hasUI: false,
-    modelRegistry: { getAvailable: (): readonly unknown[] => [] },
-    ui: {
-      notify: (message: string): void => {
-        notified.push(message);
-      },
-    },
-  } as unknown as ExtensionContext;
-  return { pi, ctx, notes, notified };
-}
+// ── Compose host double ───────────────────────────────────────────────────────
+//
+// `makeHost` (with its `HostDouble` recording double) is the shared
+// composition-root harness in `tests/helpers/compose-workspace-harness.ts`
+// (PTQ-0213); `runCompose` below flattens its structured `notes`/`notified`
+// recordings down to the plain message-content strings this file's cells
+// assert on.
 
 interface ComposeOutcome {
   readonly registered: readonly string[];
@@ -140,7 +103,7 @@ interface ComposeOutcome {
  * the captured envelope lines, and both note channels.
  */
 async function runCompose(cwd: string): Promise<ComposeOutcome> {
-  const host = makeComposeHost(cwd);
+  const host = makeHost(cwd);
   const envelopes: string[] = [];
   const wiring = await composeExtensionInstance(
     host.pi,
@@ -155,8 +118,8 @@ async function runCompose(cwd: string): Promise<ComposeOutcome> {
   return {
     registered: wiring.thetas.map((theta) => theta.slashName),
     envelopes,
-    notes: host.notes,
-    notified: host.notified,
+    notes: host.notes.map((note) => note.content),
+    notified: host.notified.map(([message]) => message),
   };
 }
 
@@ -201,14 +164,7 @@ function loadFailureEnvelope(outcome: ComposeOutcome): EnvelopeErr {
 
 let workspaceDir: string;
 let thetaDir: string;
-const savedEnv: Record<string, string | undefined> = {};
-
-function setEnv(key: string, value: string): void {
-  if (!(key in savedEnv)) {
-    savedEnv[key] = process.env[key];
-  }
-  process.env[key] = value;
-}
+const { setEnv, restoreEnv } = createEnvSandbox();
 
 function plant(name: string, content: string): void {
   writeFileSync(join(thetaDir, name), content, "utf8");
@@ -237,14 +193,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  for (const [key, value] of Object.entries(savedEnv)) {
-    if (value === undefined) {
-      delete process.env[key];
-    } else {
-      process.env[key] = value;
-    }
-    delete savedEnv[key];
-  }
+  restoreEnv();
   rmSync(workspaceDir, { recursive: true, force: true });
 });
 
@@ -437,9 +386,6 @@ describe("bug 0329 (D) — a stale hash drops the marked root and its referenced
 
       const outcome = await runCompose(workspaceDir);
 
-      // case-INSENSITIVE probe result asserted here so the branch is on the
-      // record when this runs.
-      expect(caseInsensitive, "case-insensitive filesystem branch").toBe(true);
       // The stale hash refuses the invocation: the root drops with
       // `theta/runtime/subagent-callable-hash-mismatch`.
       expect(
@@ -465,7 +411,6 @@ describe("bug 0329 (D) — a stale hash drops the marked root and its referenced
 
       const outcome = await runCompose(workspaceDir);
 
-      expect(caseInsensitive, "case-sensitive filesystem branch").toBe(false);
       // RED pre-fix (Option A absent): the root survives.
       expect(
         outcome.registered,

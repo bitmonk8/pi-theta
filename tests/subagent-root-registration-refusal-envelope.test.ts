@@ -98,6 +98,11 @@ import {
   THETA_ENVELOPE_VERSION,
   THETA_RESULT_KEY,
 } from "../src/runtime/subagent-envelope";
+import {
+  restoreAmbientControlPlane,
+  scrubAmbientControlPlane,
+  type AmbientControlPlaneSnapshot,
+} from "./helpers/ambient-control-plane-scrub";
 
 // ===========================================================================
 // Registry anchors (DIAG-4).
@@ -339,8 +344,16 @@ function capturedErrCarrier(captured: readonly string[]): Record<string, unknown
 // ===========================================================================
 
 let workspaceDir: string;
+/** Ambient control plane carried by the RUNNING process, parked for this file. */
+let ambientControlPlane: AmbientControlPlaneSnapshot | undefined;
 
 beforeAll(() => {
+  // Bug 0474 §Residual: `runLoad` simulates a subagent CHILD in-process by
+  // planting `PI_THETA_SUBAGENT_ROOT` + a real-ppid `PI_THETA_SUBAGENT_PARENT_PID`.
+  // An ambient control plane on `process.env` (a `npm test` run from inside a
+  // subagent child) authenticates by the same rule and preempts the planted
+  // one, so scrub it for the whole file and restore it afterwards.
+  ambientControlPlane = scrubAmbientControlPlane();
   workspaceDir = mkdtempSync(join(tmpdir(), "theta-bug0178-refusal-envelope-"));
   const dir = join(workspaceDir, ".pi", "theta");
   mkdirSync(dir, { recursive: true });
@@ -356,6 +369,10 @@ beforeAll(() => {
 
 afterAll(() => {
   rmSync(workspaceDir, { recursive: true, force: true });
+  if (ambientControlPlane !== undefined) {
+    restoreAmbientControlPlane(ambientControlPlane);
+    ambientControlPlane = undefined;
+  }
 });
 
 describe("bug 0178 element (b) — a child-side refusal of the MARKED ROOT theta reaches the parent as a PIC-59 envelope", () => {

@@ -1,20 +1,18 @@
 // V11f / V11f-T — Binder per-class retry budget and failure taxonomy (hard
 // ceiling #3).
 //
-// This module owns the runtime that drives the binder's per-slash-invocation
-// retry budget and renders the six failure-mode templates through the shared
-// V11e system-note discipline:
+// `runBinderCallWithCancellation` (binder-cancellation.ts) is the ONE
+// implementation of the HC3 per-class retry budget (PTQ-0290); this module
+// defines the `MAX_BINDER_LLM_CALLS` budget constant it enforces and renders
+// the six failure-mode templates through the shared V11e system-note
+// discipline:
 //
-//   - `runBinderWithRetries` — the per-class retry budget driver
+//   - `MAX_BINDER_LLM_CALLS` — the HC3-d hard ceiling
 //     (determinism-cancellation-failure.md §"Per-invocation retry budget",
-//     hard-ceilings/ceilings-3-and-4.md §HC3). Each binder attempt is classified
-//     independently (the provider-error classifier of V9j, combined with the
-//     post-classifier envelope / AJV checks); a transport-class or
-//     malformed-envelope-class failure is eligible for a single retry of its own
-//     class (HC3-a / HC3-b), an AJV-on-`args` failure is terminal (HC3-c), and
-//     the two budgets interleave so the runtime issues at most 3 binder LLM
-//     calls per slash invocation (HC3-d). When the chain ends with both budgets
-//     exhausted the surfaced note is the most-recent failure's row (HC3-e).
+//     hard-ceilings/ceilings-3-and-4.md §HC3): at most 3 binder LLM calls per
+//     slash invocation (1 initial attempt + at most 1 transport-class retry
+//     (HC3-a) + at most 1 malformed-envelope-class retry (HC3-b)), enforced by
+//     `runBinderCallWithCancellation`.
 //   - `renderBinderSystemNote` — the six verbatim failure-mode templates
 //     (determinism-cancellation-failure.md §"Failure-mode templates"), rendered
 //     through the V11e line discipline (`renderFailureNote` / `capSystemNote`).
@@ -214,7 +212,7 @@ export function classifyBinderArgs(
   return { kind: "ok" };
 }
 
-// --- the per-class retry budget driver --------------------------------------
+// --- the per-attempt outcome classification ---------------------------------
 
 /**
  * The classified outcome of a single binder attempt (determinism-cancellation-
@@ -230,68 +228,3 @@ export type BinderAttemptOutcome =
   | { readonly kind: "ajv_args"; readonly ajvSummary: string }
   | { readonly kind: "transport"; readonly provider: string; readonly message: string }
   | { readonly kind: "malformed" };
-
-/** Inputs to {@link runBinderWithRetries}. */
-export interface BinderRetryInput {
-  /**
-   * Issue one binder LLM call and return its classified outcome. `attemptIndex`
-   * is 0 for the initial attempt and increments per retry. The driver invokes
-   * this at most {@link MAX_BINDER_LLM_CALLS} times per slash invocation.
-   */
-  readonly attempt: (attemptIndex: number) => Promise<BinderAttemptOutcome>;
-}
-
-/** The result of the retry budget driver. */
-export interface BinderRetryResult {
-  /** The number of binder LLM calls issued (1 … {@link MAX_BINDER_LLM_CALLS}). */
-  readonly callCount: number;
-  /** The terminal (most-recent) outcome whose row surfaces per HC3-e. */
-  readonly outcome: BinderAttemptOutcome;
-}
-
-/**
- * Drive the binder's per-class retry budget (HC3-a … HC3-e). Each attempt is
- * classified independently; a transport-class failure consumes the single
- * transport budget on retry (HC3-a), a malformed-envelope failure the single
- * malformed budget (HC3-b), and the two interleave so at most
- * {@link MAX_BINDER_LLM_CALLS} calls are issued (HC3-d). AJV-on-`args` failures
- * are terminal (HC3-c). The returned `outcome` is the most-recent failure's row
- * (HC3-e).
- *
- * Each attempt is classified independently. A `transport` or `malformed`
- * failure consumes its own single per-invocation budget on retry; the two
- * budgets interleave (a transport failure observed on the retry of a malformed
- * envelope consumes the transport budget, and symmetrically), bounding the
- * issued calls at {@link MAX_BINDER_LLM_CALLS}. `ok` / `needs_info` /
- * `ambiguous` / `ajv_args` are terminal (HC3-c: AJV-on-`args` carries no retry
- * budget). The returned `outcome` is the most-recent attempt's outcome, so the
- * surfaced row matches the most recent failure (HC3-e).
- */
-export async function runBinderWithRetries(
-  input: BinderRetryInput,
-): Promise<BinderRetryResult> {
-  let transportBudget = 1;
-  let malformedBudget = 1;
-  let callCount = 0;
-
-  // The loop issues at most MAX_BINDER_LLM_CALLS attempts: it re-issues only
-  // while a retry-eligible class still has budget, and each retry consumes one
-  // of the two single budgets, so it terminates after at most 1 initial + 1
-  // transport + 1 malformed = 3 attempts.
-  for (;;) {
-    const outcome = await input.attempt(callCount);
-    callCount += 1;
-
-    if (outcome.kind === "transport" && transportBudget > 0) {
-      transportBudget -= 1;
-      continue;
-    }
-    if (outcome.kind === "malformed" && malformedBudget > 0) {
-      malformedBudget -= 1;
-      continue;
-    }
-    // Terminal (ok / needs_info / ambiguous / ajv_args) or a retry-eligible
-    // class whose budget is exhausted: surface the most-recent outcome.
-    return { callCount, outcome };
-  }
-}

@@ -318,28 +318,6 @@ export interface ParseFrontmatterOptions {
 }
 
 /**
- * The recognised theta 1.0 frontmatter field vocabulary (`frontmatter-fields-a.md`
- * §Field contract). A top-level key outside this set is tolerated and surfaces
- * as the `theta/load/unknown-frontmatter-field` forward-compat warning. `timeout`
- * is deliberately absent: it has a dedicated rejection code (the NOCEIL-1 seam),
- * not the generic unknown-key warning.
- */
-const THETA_1_0_FIELDS: ReadonlySet<string> = new Set([
-  "description",
-  "argument-hint",
-  "mode",
-  "model",
-  "bind_model",
-  "bind_context",
-  "bind_echo",
-  "tools",
-  "system",
-  "respond_repair",
-  "tool_loop",
-  "params",
-]);
-
-/**
  * Frontmatter field names reserved for deferred theta 1.0 features named in
  * Future Considerations (`frontmatter-fields-a.md` §Field contract; Deferred
  * appendix Cluster 2). A reserved key is not part of the theta 1.0 vocabulary but
@@ -349,7 +327,9 @@ const THETA_1_0_FIELDS: ReadonlySet<string> = new Set([
  * newer minor gets a reserved-feature signal. Both spellings of the deferred
  * binder-temperature knob are recognised (the authoritative frontmatter page
  * names it `binder_temperature`; Future Considerations spells it
- * `bind_temperature`). Membership is disjoint from `THETA_1_0_FIELDS`.
+ * `bind_temperature`). Membership is disjoint from the recognised theta 1.0
+ * field vocabulary (`frontmatter-fields-a.md` §Field contract), each member
+ * of which `parseFrontmatter`'s field loop claims with its own per-key arm.
  */
 const DEFERRED_FRONTMATTER_FIELDS: ReadonlySet<string> = new Set([
   "binder_temperature",
@@ -540,12 +520,6 @@ function paramValueCanCarryType(value: unknown): boolean {
  * enclosing source quoting renders unquoted regardless of identifier shape.
  */
 function renderScalarValue(value: unknown): string {
-  if (typeof value === "string") {
-    return value;
-  }
-  if (value === null) {
-    return "null";
-  }
   return String(value);
 }
 
@@ -557,14 +531,13 @@ function renderScalarValue(value: unknown): string {
  * shape without splicing unbounded source. A value-less explicit key (`? mode`)
  * carries a JS-null value node; the precedent renders null as `null`, so it maps
  * there too — keeping the two null spellings (`? mode` and bare `mode:`) on one
- * token. Any other non-scalar node (an alias) falls back to `object`: the field
- * contract pins no token for it, and the only observable is that the value is
- * present-but-neither-recognised-mode.
+ * token. Any other non-scalar node (a mapping or an alias) is `object`: the
+ * field contract pins no distinct token for an alias, and the only observable
+ * is that the value is present-but-neither-recognised-mode.
  */
 function renderNonScalarModeKind(node: unknown): string {
   if (node === null || node === undefined) return "null";
   if (isSeq(node)) return "array";
-  if (isMap(node)) return "object";
   return "object";
 }
 
@@ -575,14 +548,13 @@ function renderNonScalarModeKind(node: unknown): string {
  * `bind_context:` names its shape without splicing unbounded source, mirroring
  * the mode-arm kind token (placeholder-rendering-b.md). A value-less explicit
  * key carries a JS-null value node and renders `null`, keeping it on the same
- * token as bare `bind_context:`. Any other non-scalar node (an alias) falls
- * back to `object`: the field contract pins no token for it and the only
- * observable is that the value is present-but-neither-recognised.
+ * token as bare `bind_context:`. Any other non-scalar node (a mapping or an
+ * alias) is `object`: the field contract pins no distinct token for an alias
+ * and the only observable is that the value is present-but-neither-recognised.
  */
 function renderNonScalarBindContextKind(node: unknown): string {
   if (node === null || node === undefined) return "null";
   if (isSeq(node)) return "array";
-  if (isMap(node)) return "object";
   return "object";
 }
 
@@ -651,7 +623,7 @@ function extractToolsList(node: unknown, yamlSource: string): readonly string[] 
  * source spellings needs a null prototype and an own-key guard to be indexed
  * safely by author input, which a `Set.has` call needs neither of. Immutable
  * module-level data, not mutable cross-invocation state, matching
- * `THETA_1_0_FIELDS` above.
+ * `DEFERRED_FRONTMATTER_FIELDS` above.
  */
 const RESERVED_KEYWORDS: ReadonlySet<string> = reservedKeywords();
 
@@ -740,7 +712,7 @@ function unknownSubKeyDiagnostics(
   lineCounter: LineCounter,
   lineOffset: number,
 ): Diagnostic[] {
-  if (blockNode === null || blockNode === undefined || !isMap(blockNode)) return [];
+  if (!isMap(blockNode)) return [];
   const out: Diagnostic[] = [];
   for (const it of blockNode.items) {
     if (!isScalar(it.key)) continue;
@@ -777,7 +749,7 @@ function resolveNonNegIntBlock(
   lineCounter: LineCounter,
   lineOffset: number,
 ): { value: number } | { diagnostic: Diagnostic } {
-  if (blockNode === null || blockNode === undefined || !isMap(blockNode)) {
+  if (!isMap(blockNode)) {
     return { value: defaultValue };
   }
   const sub = blockNode.items.find(
@@ -824,7 +796,7 @@ function checkMethodology(
   lineCounter: LineCounter,
   lineOffset: number,
 ): Diagnostic | undefined {
-  if (blockNode === null || blockNode === undefined || !isMap(blockNode)) {
+  if (!isMap(blockNode)) {
     return undefined;
   }
   const sub = blockNode.items.find(
@@ -904,9 +876,9 @@ function namedSchemaOf(
  * as an `array<Schema>` element) — each schema-typed field's input carries its
  * `$ref` target (the referenced schema's name), so `translateOutbound`'s
  * `$ref` recursion (`wire-translation.ts`) can descend past depth 0.
- * `undefined` when `rootSchema` names no object body schema (an imported name,
- * an alias, or no root at all) — callers resolve an alias/`array<...>` source
- * through `namedSchemaOf` before reaching here.
+ * `rootSchema` names an object body schema: callers resolve an alias /
+ * `array<...>` source through `namedSchemaOf`, or test the body's presence
+ * inline, before reaching here.
  *
  * Lookup stays per-`$defs` (keyed by schema name), never one flat wire-key
  * namespace, so the round-1 F2 collision (two same-spelled wire names at
@@ -932,17 +904,11 @@ function namedSchemaOf(
  * for a legal recursive shape, mirroring `namedSchemaOf`'s alias `seen`).
  */
 function buildOutboundSidecars(
-  rootSchema: string | undefined,
+  rootSchema: string,
   bodyTypes: FrontmatterBodyTypes,
   reserved: Set<string> = new Set(),
   building: Set<string> = new Set(),
-): { readonly sidecars: ReadonlyMap<string, SchemaSidecar>; readonly rootDef: string } | undefined {
-  if (rootSchema === undefined || !bodyTypes.schemas.has(rootSchema)) {
-    return undefined;
-  }
-  if (bodyTypes.schemas.get(rootSchema) === undefined) {
-    return undefined;
-  }
+): { readonly sidecars: ReadonlyMap<string, SchemaSidecar>; readonly rootDef: string } {
   const sidecars = new Map<string, SchemaSidecar>();
   const seen = new Set<string>([rootSchema]);
   const queue: string[] = [rootSchema];
@@ -1018,9 +984,6 @@ function refTargetInto(
       return named;
     }
     const nested = buildOutboundSidecars(named, bodyTypes, reserved, building);
-    if (nested === undefined) {
-      return undefined;
-    }
     for (const [defName, sidecar] of nested.sidecars) {
       sidecars.set(defName, sidecar);
     }
@@ -1198,9 +1161,8 @@ function stringLiteralOf(typeSource: string): string | undefined {
  * alias chase here follows only a pure name→name single-arm chain and stops at
  * the first object schema, never entering an `array<...>` or multi-arm
  * (union-in-union) RHS. So an arm source that resolves to no object schema —
- * an `array<...>` element wrapper, an imported name, a scalar, a literal, a
- * multi-arm alias, or a schema `buildOutboundSidecars` cannot build a sidecar
- * map for — is
+ * an `array<...>` element wrapper, an imported name, a scalar, a literal, or a
+ * multi-arm alias — is
  * SKIPPED, not pushed as a degraded arm, so the render-time pick never
  * chooses a half-built arm; a value that would have matched a SHAPE-DISJOINT
  * skipped arm source (an `array<...>` element wrapper, a scalar, or a
@@ -1250,9 +1212,6 @@ function buildSystemUnionArms(
       continue;
     }
     const sc = buildOutboundSidecars(schemaName, bodyTypes);
-    if (sc === undefined) {
-      continue;
-    }
     const literals = new Map<string, string>();
     for (const f of fields) {
       const lit = stringLiteralOf(f.typeSource);
@@ -1371,9 +1330,7 @@ export function toSystemParamType(
         const named = namedSchemaOf(element, bodyTypes);
         if (named !== undefined) {
           const sc = buildOutboundSidecars(named, bodyTypes);
-          if (sc !== undefined) {
-            return { kind: "array", sidecars: sc.sidecars, rootDef: sc.rootDef };
-          }
+          return { kind: "array", sidecars: sc.sidecars, rootDef: sc.rootDef };
         } else if (isSingleEnclosingBraceGroup(element)) {
           const inline = buildInlineSidecars(element, bodyTypes, new Set(), new Set());
           return { kind: "array", sidecars: inline.sidecars, rootDef: inline.rootDef };
@@ -1452,10 +1409,12 @@ export function toSystemParamType(
       }
       const map = new Map<string, SystemParamType>();
       const sc = buildOutboundSidecars(s, bodyTypes);
-      const shell: SystemParamType =
-        sc !== undefined
-          ? { kind: "object", fields: map, sidecars: sc.sidecars, rootDef: sc.rootDef }
-          : { kind: "object", fields: map };
+      const shell: SystemParamType = {
+        kind: "object",
+        fields: map,
+        sidecars: sc.sidecars,
+        rootDef: sc.rootDef,
+      };
       resolving.set(s, shell);
       for (const f of fields) {
         // RESET the alias chain when descending into an object schema's own
@@ -1546,9 +1505,12 @@ function typeSourceIsNullable(typeSource: string): boolean {
  * `paramValueSource` (bug 0035), so that shape reaches `parseParams` instead of
  * being discarded as an empty type. A value node that cannot carry a type
  * expression (`paramValueCanCarryType`) draws the per-field
- * `theta/load/params-type-not-expression` in the returned diagnostics; the
+ * `theta/load/params-type-not-expression` in the returned `diagnostics`; the
  * field is still recorded so the `system:` interpolation seam and `parseParams`
- * see the same field set and the refusal stays one diagnostic (bug 0041).
+ * see the same field set and the refusal stays one diagnostic (bug 0041). The
+ * `parseParams` lowering runs once here; its diagnostics travel out separately
+ * (`loweringDiagnostics`) so the caller can order them behind the shape
+ * refusals.
  */
 function extractParsedParams(
   paramsNode: Node | null | undefined,
@@ -1561,9 +1523,10 @@ function extractParsedParams(
   params: ParsedParams | undefined;
   fieldInputs: readonly ParamFieldInput[];
   diagnostics: readonly Diagnostic[];
+  loweringDiagnostics: readonly Diagnostic[];
 } {
-  if (paramsNode === null || paramsNode === undefined || !isMap(paramsNode)) {
-    return { params: undefined, fieldInputs: [], diagnostics: [] };
+  if (!isMap(paramsNode)) {
+    return { params: undefined, fieldInputs: [], diagnostics: [], loweringDiagnostics: [] };
   }
   const fieldInputs: ParamFieldInput[] = [];
   const bypassFields: BypassParamsField[] = [];
@@ -1713,6 +1676,7 @@ function extractParsedParams(
     },
     fieldInputs,
     diagnostics,
+    loweringDiagnostics: lowered.diagnostics,
   };
 }
 
@@ -2022,8 +1986,10 @@ export function parseFrontmatter(
           ...(keyRange !== undefined ? { range: keyRange } : {}),
           message: `frontmatter field '${key}' is reserved for a deferred theta 1.0 feature`,
         });
-      } else if (!THETA_1_0_FIELDS.has(key)) {
-        // Forward-compat seam: an unrecognised key warns once and is tolerated.
+      } else {
+        // Forward-compat seam: a key no arm above recognised (the theta 1.0
+        // vocabulary, `frontmatter-fields-a.md` §Field contract) warns once and
+        // is tolerated.
         diagnostics.push({
           severity: "warning",
           code: "theta/load/unknown-frontmatter-field",
@@ -2271,6 +2237,7 @@ export function parseFrontmatter(
     params,
     fieldInputs,
     diagnostics: paramsShapeDiags,
+    loweringDiagnostics: paramsLoweringDiags,
   } = extractParsedParams(
     paramsNode,
     file,
@@ -2289,11 +2256,7 @@ export function parseFrontmatter(
   // and imported symbols supplied via `options.bodyTypes` resolve a forward
   // `NamedType` reference; only a genuinely-undeclared type fires
   // `theta/parse/unresolved-named-type`.
-  if (fieldInputs.length > 0) {
-    diagnostics.push(
-      ...parseParams(fieldInputs, bodyTypeDecls, { file }).diagnostics,
-    );
-  }
+  diagnostics.push(...paramsLoweringDiags);
 
   // An explicit `bind_echo: true` has no effect on either binder-bypass shape:
   // the bypass skips the binder call entirely, so no success echo is produced.
@@ -2384,10 +2347,10 @@ export function parseFrontmatter(
   // `respond_repair` value also unsets `registered`, so both results carry a
   // `value` here.
   const toolLoop: ParsedToolLoop = {
-    maxRounds: "value" in toolLoopResult ? toolLoopResult.value : 25,
+    maxRounds: (toolLoopResult as { value: number }).value,
   };
   const respondRepair: ParsedRespondRepair = {
-    attempts: "value" in respondRepairResult ? respondRepairResult.value : 3,
+    attempts: (respondRepairResult as { value: number }).value,
   };
   const frontmatter: ParsedFrontmatter = {
     mode: modeValue as ThetaMode,

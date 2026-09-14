@@ -1,4 +1,3 @@
-import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
@@ -10,6 +9,7 @@ import type {
 // @ts-expect-error — JS code-registry module, no type declarations.
 import { parseRegistry, registryMessage } from "../tools/code-registry/index.js";
 import { parseDoc, parseDocBytes } from "./helpers/e2e-s1";
+import { committedThetaSources } from "./helpers/theta-corpus";
 import type { Diagnostic, SourceRange } from "../src/diagnostics/diagnostic";
 import type { ThetaDocument } from "../src/parser/theta-document";
 import type { ParsedFrontmatter } from "../src/parser/frontmatter";
@@ -1218,24 +1218,7 @@ describe("0226 (f) — the committed corpus gains no refusal", () => {
     // *Residuals* 2 records the naive `\{[^}]*\} *=>` regex missing (the
     // precedent is bug 0221's cell `f1`,
     // tests/object-pattern-head-unresolved-refusal.test.ts:994).
-    const listed = execFileSync("git", ["ls-files", "--", "*.theta", "*.thetalib"], {
-      cwd: fileURLToPath(new URL("..", import.meta.url)),
-      encoding: "utf8",
-    })
-      .split("\n")
-      .map((line) => line.trim())
-      .filter((line) => line.length > 0);
-
-    // Fail LOUDLY on an empty list (CLAUDE.md): a sweep over nothing reports
-    // success while verifying nothing, and this file's GOV-15 half is the
-    // whole reason the sweep exists. tests/committed-fixture-parse-gate.test.ts
-    // is the gate that discharges a corpus-wide parse claim, and per bug 0132
-    // it filters `.theta` only — so the `.thetalib` half of THIS sweep is a
-    // probe and cannot be delegated to it.
-    expect(
-      listed.length,
-      "`git ls-files -- '*.theta' '*.thetalib'` must report the tracked corpus; an empty list means the sweep verified nothing",
-    ).toBeGreaterThan(0);
+    const listed = committedThetaSources();
 
     // The head is optional in the capture so a BARE `{ … } =>` arm is found
     // too: a headless arm has no declaration to judge (cell b5), but an

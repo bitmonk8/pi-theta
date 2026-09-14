@@ -53,7 +53,7 @@ import type { Diagnostic } from "../diagnostics/diagnostic";
 import { assembleDiagnostics } from "../diagnostics/diagnostic";
 import type { CancellableStatement, OperationResult } from "./cancellation-core";
 import { makeCancelledError, runCancellableSequence } from "./cancellation-core";
-import { HostFatal, isThetaPanic } from "./runtime-panics";
+import { HostFatal, isThetaPanic, attachPanicSite, pushPanicFrame } from "./runtime-panics";
 import type { InvokeChain } from "./invoke-depth-cycle";
 import { pushCountableFrame, thetalibFnFrameKind } from "./invoke-depth-cycle";
 import type { InvokeCalleeError, InvokeInfraError, QueryError } from "./query-error";
@@ -89,6 +89,16 @@ import {
   type ThetaValue,
   type ResultValue,
 } from "./value";
+
+/**
+ * The file a panic site or frame names (bug 0476): the current module
+ * residence for an imported `.thetalib` fn body (the leaf-location rule of
+ * error-model.md §Runtime panics), else the theta's on-disk path, else the
+ * slash-name stamp for in-memory fixtures.
+ */
+function panicSiteFile(env: LexicalEnvironment, deps: ExecuteBodyDeps): string {
+  return env.currentResidence() ?? deps.sourcePath ?? deps.file;
+}
 
 /**
  * The checkpoint a checkpointed effect sub-expression gates on (one of the five
@@ -163,15 +173,15 @@ export interface StatementEvalHost {
   /**
    * RFC 0001 (`subagent fn`) session-switch hook. Around a `subagent fn` CALL
    * the executor enters a fresh isolated subagent session for the body
-   * (`spawnSubagentSession`, returning its id) and discards it on return
-   * (`exitSubagentSession`), so the body's `@` queries / calls target the
-   * spawned session and the caller's conversation stays unpolluted (FN-6). The
+   * (`spawnSubagentSession`) and discards it on return (`exitSubagentSession`,
+   * positional — sessions nest LIFO), so the body's `@` queries / calls target
+   * the spawned session and the caller's conversation stays unpolluted (FN-6). The
    * spawned session's configuration (`system` / `model` / `tools`, FN-7) is
    * inherit-then-`with`-override resolved on the `subagent fn` node. Optional:
    * a host with no isolation substrate omits both, and a `subagent fn` body then
    * runs against the same host with no session switch.
    */
-  spawnSubagentSession?(config: SubagentSessionConfig, chain?: InvokeChain): string | Promise<string>;
+  spawnSubagentSession?(config: SubagentSessionConfig, chain?: InvokeChain): void | Promise<void>;
   exitSubagentSession?(): void | Promise<void>;
 }
 
@@ -198,6 +208,16 @@ export interface ExecuteBodyDeps {
    * same source file. Matches `EffectfulStatementHostDeps.file`.
    */
   readonly file: string;
+  /**
+   * The theta's on-disk source path, when it has one (bug 0476). A panic
+   * site or frame raised in the TOP-LEVEL body names this file — `file` above
+   * is the slash name the checkpoint and runtime-diagnostic stamps use, which
+   * is not a path a human can open. An imported `.thetalib` fn body names its
+   * own declaring file through `LexicalEnvironment.currentResidence()` (the
+   * leaf-location rule), so this is only the root body's residence. Absent for
+   * in-memory fixtures, which fall back to `file`.
+   */
+  readonly sourcePath?: string;
   /**
    * The runtime-diagnostic channel (bug 0324): `evalParFor`'s width resolve
    * calls this on a non-number `max` value (the clamp-to-1 disposition) so the
@@ -514,10 +534,36 @@ async function evalUserFnCall(
       calleeResidence: moduleEnv.currentResidence() ?? deps.file,
     });
     if (kind !== undefined) {
-      bodyDeps = { ...deps, invokeChain: pushCountableFrame(deps.invokeChain, kind) };
+      try {
+        bodyDeps = { ...deps, invokeChain: pushCountableFrame(deps.invokeChain, kind) };
+      } catch (thrown) { // allow-broad-catch: ThetaPanic-only, re-raised (bug 0476 §Fix)
+        // The depth cap is breached BEFORE the frame opens (invocation.md
+        // §INV-4), so this call expression — the one that WOULD have opened
+        // it — is the panic's SITE, not a frame: no body ever ran.
+        if (isThetaPanic(thrown)) {
+          attachPanicSite(thrown, { file: panicSiteFile(env, deps), range: expr.range });
+        }
+        throw thrown;
+      }
     }
   }
-  const flow = await executeBlock(fn.body, scope, bodyDeps);
+  let flow: Flow;
+  try {
+    flow = await executeBlock(fn.body, scope, bodyDeps);
+  } catch (thrown) { // allow-broad-catch: ThetaPanic-only, re-raised (bug 0476 §Fix)
+    // The fn-call boundary: as the panic unwinds through this call, push the
+    // CALL SITE (this caller's file, the call expression's own range) as a
+    // frame — not the callee's declaration.
+    if (isThetaPanic(thrown)) {
+      pushPanicFrame(thrown, {
+        kind: "fn",
+        name: fn.name,
+        file: panicSiteFile(env, deps),
+        range: expr.range,
+      });
+    }
+    throw thrown;
+  }
   switch (flow.kind) {
     case "return":
     case "normal":
@@ -1151,7 +1197,14 @@ async function evalExpr(
     if (typeof key !== "number" && typeof key !== "string") {
       throw new IndexKindDefectError(key);
     }
-    return { flow: "value", value: evaluateIndexAccess(target.value, key) };
+    try {
+      return { flow: "value", value: evaluateIndexAccess(target.value, key) };
+    } catch (thrown) { // allow-broad-catch: ThetaPanic-only, re-raised (bug 0476 §Fix)
+      if (isThetaPanic(thrown)) {
+        attachPanicSite(thrown, { file: panicSiteFile(env, deps), range: expr.range });
+      }
+      throw thrown;
+    }
   }
   if (expr.kind === "member") {
     // `Enum.Variant`: a member on a non-local ident naming a registered enum is a
@@ -1179,7 +1232,14 @@ async function evalExpr(
     if (target.flow !== "value") {
       return target;
     }
-    return { flow: "value", value: evaluateMemberAccess(target.value, expr.field) };
+    try {
+      return { flow: "value", value: evaluateMemberAccess(target.value, expr.field) };
+    } catch (thrown) { // allow-broad-catch: ThetaPanic-only, re-raised (bug 0476 §Fix)
+      if (isThetaPanic(thrown)) {
+        attachPanicSite(thrown, { file: panicSiteFile(env, deps), range: expr.range });
+      }
+      throw thrown;
+    }
   }
   if (expr.kind === "ternary") {
     const condition = await evalExpr(expr.condition, env, deps);
@@ -1693,7 +1753,14 @@ async function evalMatch(
   // Drives the `V4a` pattern dispatch + `MatchError` raise; the thunk above sets
   // `selection` for the first matching arm (a non-selected arm's body thunk is
   // never invoked).
-  evaluateMatch(scrutinee.value, arms);
+  try {
+    evaluateMatch(scrutinee.value, arms);
+  } catch (thrown) { // allow-broad-catch: ThetaPanic-only, re-raised (bug 0476 §Fix)
+    if (isThetaPanic(thrown)) {
+      attachPanicSite(thrown, { file: panicSiteFile(env, deps), range: expr.range });
+    }
+    throw thrown;
+  }
   // `evaluateMatch` returned normally, so a matching arm's thunk ran and set
   // `selection` (a non-exhaustive scrutinee would have thrown `MatchError`).
   const chosen = selection as { readonly index: number; readonly bindings: Bindings };
@@ -1838,6 +1905,19 @@ async function runParForIteration(
     // completion and the loop still yields a full array.
     if (thrown instanceof HostFatal) {
       throw thrown;
+    }
+    // The `par for` lane body boundary: push the lane frame before the ERR-20
+    // downgrade below neutralises the panic into this element's `Err` (bug
+    // 0476 §Fix). No shipped route re-surfaces it today — ERR-20 always
+    // downgrades a lane panic before it could reach a top-level note — but the
+    // frame rides the panic object for the same reason every other boundary
+    // attaches one: uniform plumbing, not a currently-observable effect here.
+    if (isThetaPanic(thrown)) {
+      pushPanicFrame(thrown, {
+        kind: "par-for",
+        file: panicSiteFile(env, deps),
+        range: expr.range,
+      });
     }
     return {
       kind: "result",

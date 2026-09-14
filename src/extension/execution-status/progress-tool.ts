@@ -28,6 +28,7 @@
 // docs/spec_topics/pi-integration-contract/subagent.md PIC-74.
 
 import { writeSync } from "node:fs";
+import { stripVTControlCharacters } from "node:util";
 import { Type } from "typebox";
 import type { AgentToolResult, ToolDefinition } from "@earendil-works/pi-coding-agent"; // allow-pi-surface: PIC#64 — ToolDefinition/AgentToolResult are the shipped registerTool carriers, mirrored from production-theta-producer.ts's own respond-tool registration
 import type { ActiveInvocationRegistry } from "../../runtime/active-invocation-registry";
@@ -99,24 +100,18 @@ const CODE_SIDE_OK: AgentToolResultEnvelope = Object.freeze({
   content: Object.freeze([Object.freeze({ type: "text", text: "ok" as const })]),
 });
 
-/**
- * ANSI/OSC-style escape sequences: CSI in both its 7-bit (`ESC [`) and 8-bit
- * (`CSI`, U+009B) spellings, plus the two-byte `ESC <Fe>` forms. Stripped
- * WHOLESALE before the residual control scan below, so a sequence's
- * printable tail (`31m`) never survives as text (EXST-14).
- */
-const ANSI_PATTERN = /\u001B\[[0-?]*[ -/]*[@-~]|\u009B[0-?]*[ -/]*[@-~]|\u001B[@-Z\-_]/g;
 /** Residual C0 + DEL + C1 after the ANSI pass. Tab is handled before this. */
 const CONTROL_PATTERN = /[\u0000-\u001F\u007F-\u009F]/g;
 
 /**
- * EXST-14's strip step: ANSI sequences removed wholesale, a horizontal tab
- * becomes ONE space, every residual control character (newline included — a
- * newline would split the PIC-74 wire line) removed. Ordered strip-then-clamp
- * so a strip can never un-clamp a field.
+ * EXST-14's strip step: ANSI sequences removed wholesale via node:util's
+ * `stripVTControlCharacters`, a horizontal tab becomes ONE space, every
+ * residual control character (newline included — a newline would split the
+ * PIC-74 wire line) removed. Ordered strip-then-clamp so a strip can never
+ * un-clamp a field.
  */
 export function stripControlAndAnsi(s: string): string {
-  return s.replace(ANSI_PATTERN, "").replace(/\t/g, " ").replace(CONTROL_PATTERN, "");
+  return stripVTControlCharacters(s).replace(/\t/g, " ").replace(CONTROL_PATTERN, "");
 }
 
 /** EXST-14: strip, then clamp to `max` code units (the `clampName` discipline). */
@@ -125,21 +120,62 @@ export function clampProgressField(s: string, max: number): string {
   return stripped.length <= max ? stripped : stripped.slice(0, max);
 }
 
+/**
+ * Compile-time field-set anchor for `clampAuthorMessage`, mirroring
+ * child-tap.ts's `HANDLED_PROGRESS_FIELDS`: every key of
+ * `ProgressAuthorMessage` this function assembles, named once. `satisfies`
+ * fails `tsc` in THIS file the moment a field is added to
+ * `ProgressAuthorMessage` and not added here.
+ */
+const HANDLED_PROGRESS_FIELDS = {
+  message: true,
+  scope: true,
+  done: true,
+  total: true,
+  dropped: true,
+} satisfies Record<keyof ProgressAuthorMessage, true>;
+
+/**
+ * The post-clamp class-2 payload (EXST-14): the single field-by-field
+ * rebuild of a `ProgressAuthorMessage`, shared by `clampProgressPayload`
+ * (a typed `ThetaProgressParams` source) and `bus.ts`'s fold-time re-clamp
+ * (an already-typed `ProgressAuthorMessage` source, its own "L3 defence in
+ * depth") so both stay anchored to the `HANDLED_PROGRESS_FIELDS` ledger
+ * above.
+ */
+export function clampAuthorMessage(fields: {
+  readonly message: string;
+  readonly scope?: unknown;
+  readonly done?: unknown;
+  readonly total?: unknown;
+  readonly dropped?: unknown;
+}): ProgressAuthorMessage {
+  return {
+    message: clampProgressField(fields.message, PROGRESS_MESSAGE_CLAMP_CHARS),
+    ...(typeof fields.scope === "string"
+      ? { scope: clampProgressField(fields.scope, PROGRESS_SCOPE_CLAMP_CHARS) }
+      : {}),
+    // `done`/`total` are schema-enforced integers; they render verbatim.
+    ...(typeof fields.done === "number" && Number.isInteger(fields.done)
+      ? { done: fields.done }
+      : {}),
+    ...(typeof fields.total === "number" && Number.isInteger(fields.total)
+      ? { total: fields.total }
+      : {}),
+    ...(typeof fields.dropped === "number" &&
+    Number.isInteger(fields.dropped) &&
+    fields.dropped > 0
+      ? { dropped: fields.dropped }
+      : {}),
+  };
+}
+
 /** The post-clamp class-2 payload (EXST-14): the single currency of both arms. */
 export function clampProgressPayload(
   params: ThetaProgressParams,
   dropped: number,
 ): ProgressAuthorMessage {
-  return {
-    message: clampProgressField(params.message, PROGRESS_MESSAGE_CLAMP_CHARS),
-    ...(typeof params.scope === "string"
-      ? { scope: clampProgressField(params.scope, PROGRESS_SCOPE_CLAMP_CHARS) }
-      : {}),
-    // `done`/`total` are schema-enforced integers; they render verbatim.
-    ...(Number.isInteger(params.done) ? { done: params.done } : {}),
-    ...(Number.isInteger(params.total) ? { total: params.total } : {}),
-    ...(dropped > 0 ? { dropped } : {}),
-  };
+  return clampAuthorMessage({ ...params, dropped });
 }
 
 /** Per-instance acceptance/emission state (EXST-14 / PIC-74). Closure-held. */

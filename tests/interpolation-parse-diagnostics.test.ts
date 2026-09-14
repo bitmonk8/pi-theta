@@ -1,5 +1,4 @@
 import { describe, expect, it } from "vitest";
-import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -24,6 +23,7 @@ import type { ThetaCompositionInput } from "../src/extension/theta-composition-p
 import type { RuntimeRoot } from "../src/runtime-root";
 import type { Checkpoint } from "../src/seams/checkpoint";
 import { parseDoc, parseDeps } from "./helpers/e2e-s1";
+import { committedThetaSources } from "./helpers/theta-corpus";
 
 // Bug 0122 — every parse-phase diagnostic raised for the expression inside a
 // `@`-query `${…}` interpolation is discarded.
@@ -1203,12 +1203,12 @@ describe("bug 0122 (f) — the rendered turn: a refused source renders nothing",
 const REPO_ROOT = fileURLToPath(new URL("..", import.meta.url));
 const SEEDED_INVALID_DIR = "tests/fixtures/h7b-invalid/";
 
-/** Measured at HEAD fdcb0835: bump in the SAME commit that adds/removes a file. */
-const EXPECTED_SHIPPED_THETA = 36;
+/** Templates measured at the D4/D8-lens commit; interpolations re-measured at the fixer gate_cmd plumbing (one ${gate_cmd} added to fix-cluster.theta's rule) (lens-d4-duplication.theta and lens-d8-simplification.theta added): bump in the SAME commit that adds/removes a file. */
+const EXPECTED_SHIPPED_THETA = 41;
 const EXPECTED_SHIPPED_THETALIB = 3;
-/** Measured at HEAD fdcb0835: 38 `@`-templates carrying 37 interpolations. */
-const EXPECTED_TEMPLATES = 46;
-const EXPECTED_INTERPOLATIONS = 70;
+/** Measured at the D4/D8-lens commit: the corpus's own count of `@`-templates and interpolations. */
+const EXPECTED_TEMPLATES = 53;
+const EXPECTED_INTERPOLATIONS = 125;
 
 /**
  * The token classes expressions.md:25–40 refuses, as raw substrings. A committed
@@ -1236,24 +1236,13 @@ const REJECTED_TOKEN_CLASSES = [
   ">>",
 ];
 
-function discoverShippedFixtures(): string[] {
-  const result = spawnSync("git", ["ls-files", "-z", "--", "*.theta", "*.thetalib"], {
-    cwd: REPO_ROOT,
-    encoding: "utf8",
-  });
-  if (result.error !== undefined || result.status !== 0) {
-    throw new Error(
-      "bug 0122's census corpus is the git index (`git ls-files '*.theta' '*.thetalib'`), " +
-        "not the working tree: the unmet precondition is a working `git` executable plus a " +
-        `repository checkout at the test root. status=${String(result.status)} ` +
-        `error=${result.error?.message ?? "none"} stderr=${result.stderr}`,
-    );
-  }
-  return result.stdout
-    .split("\0")
-    .filter((p) => p.length > 0)
-    .filter((p) => !p.startsWith(SEEDED_INVALID_DIR))
-    .sort();
+/**
+ * The shipped `.theta` / `.thetalib` corpus, less the seeded-invalid fixture
+ * directory: `tests/helpers/theta-corpus.ts`'s shared discovery step
+ * (PTQ-0226), with this file's own directory exclusion applied on top.
+ */
+function discoverShippedFixtures(): readonly string[] {
+  return committedThetaSources().filter((p) => !p.startsWith(SEEDED_INVALID_DIR));
 }
 
 const shippedFixtures = discoverShippedFixtures();

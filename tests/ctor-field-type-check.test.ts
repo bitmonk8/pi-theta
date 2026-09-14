@@ -1,5 +1,3 @@
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import type {
   ExtensionAPI,
@@ -7,7 +5,7 @@ import type {
   ModelRegistry,
 } from "@earendil-works/pi-coding-agent";
 // @ts-expect-error — JS code-registry module, no type declarations.
-import { parseRegistry, registryMessage } from "../tools/code-registry/index.js";
+import { registryMessage } from "../tools/code-registry/index.js";
 import type { ParsedFrontmatter } from "../src/parser/frontmatter";
 import type { ThetaDocument } from "../src/parser/theta-document";
 import { executeBody, type BodyExecution } from "../src/runtime/statement-executor";
@@ -20,6 +18,7 @@ import type {
 import type { RuntimeRoot } from "../src/runtime-root";
 import type { Checkpoint } from "../src/seams/checkpoint";
 import { codes, errors, parseDoc } from "./helpers/e2e-s1";
+import { REGISTRY } from "./helpers/registry-oracle";
 
 // Bug 0031 — a schema-constructor field value is never compared to the type the
 // schema declares for that field, so `Point { x: "not a number", y: true }`
@@ -187,31 +186,8 @@ const EXTRA_FIELD_CODE = "theta/parse/extra-object-field";
 const MISSING_FIELD_CODE = "theta/parse/missing-object-field";
 const RESULT_IN_SCHEMA_CODE = "theta/parse/result-in-schema-position";
 
-interface RegistryRow {
-  readonly code: string;
-  readonly namespace: string;
-  readonly severity: string;
-  readonly phase: string;
-  readonly trigger: string;
-  readonly message: string;
-}
-
-/** The live four-page sharded registry, read from the spec corpus (DIAG-4). */
-const REGISTRY = parseRegistry(
-  [
-    "code-registry-parse.md",
-    "code-registry-load.md",
-    "code-registry-runtime.md",
-    "code-registry-host.md",
-  ]
-    .map((page) =>
-      readFileSync(
-        fileURLToPath(new URL(`../docs/spec_topics/diagnostics/${page}`, import.meta.url)),
-        "utf8",
-      ),
-    )
-    .join("\n"),
-) as RegistryRow[];
+// `REGISTRY` is the shared four-page diagnostics-registry read, from the spec
+// corpus (DIAG-4) (`tests/helpers/registry-oracle.ts`, PTQ-0215).
 
 /**
  * A registered code's normative *Message* template. Fails LOUDLY naming the

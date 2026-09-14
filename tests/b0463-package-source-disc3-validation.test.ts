@@ -34,24 +34,13 @@
 // (tests/registry-closed-set-corpus-gate.test.ts), so each is located by its
 // registry-code literal — the house style of tests/discovery-walk.test.ts.
 
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import type {
-  ExtensionAPI,
-  ExtensionContext,
-} from "@earendil-works/pi-coding-agent";
-import {
-  createThetaExtension,
-  type ThetaExtensionDeps,
-} from "../src/extension/factory";
-import { composeExtensionInstance } from "../src/extension/production-composition";
 import { discoverThetas, type DiscoveryInput } from "../src/discovery/discovery-walk";
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
 import { FakeFileSystem } from "./helpers/fake-file-system";
-import { FakeClock } from "./helpers/fake-clock";
-import { FakeFileWatcher } from "./helpers/fake-file-watcher";
+import { makeHarness, mintWorkspace } from "./helpers/package-merge-e2e-harness";
 
 const INVALID_SLASH_NAME = "theta/load/invalid-slash-name";
 const CASE_COLLISION = "theta/load/case-collision";
@@ -65,101 +54,14 @@ const PACKAGE_PROMPT = (body: string): string =>
 // Face (1) — the e2e harness: package `Foo.theta` → invalid-slash-name.
 // --------------------------------------------------------------------------
 
-interface CapturedNote {
-  readonly code: string;
-  readonly message: string;
-  readonly severity: string;
-}
-
-interface Harness {
-  readonly commands: Map<string, { description?: string }>;
-  readonly notes: CapturedNote[];
-  fireSessionStart(): Promise<void>;
-}
-
-// The e2e-s6 harness shape, extended to capture the `theta-system-note`
-// channel's `pi.sendMessage` payloads (the e2e-s6 harness stubs it no-op).
-function makeHarness(cwd: string): Harness {
-  const commands = new Map<string, { description?: string }>();
-  const notes: CapturedNote[] = [];
-  const subscriptions = new Map<
-    string,
-    ((event: unknown, ctx: ExtensionContext) => unknown)[]
-  >();
-
-  const pi = {
-    registerFlag: (): void => {},
-    registerMessageRenderer: (): void => {},
-    registerCommand: (name: string, options: { description?: string }): void => {
-      commands.set(name, options);
-    },
-    on: (
-      event: string,
-      handler: (e: unknown, c: ExtensionContext) => unknown,
-    ): void => {
-      const list = subscriptions.get(event) ?? [];
-      list.push(handler);
-      subscriptions.set(event, list);
-    },
-    getFlag: (): undefined => undefined,
-    getCommands: (): { name: string; source: string }[] =>
-      [...commands.keys()].map((name) => ({ name, source: "extension" })),
-    sendMessage: (message: {
-      customType?: string;
-      details?: { diagnostics?: readonly CapturedNote[] };
-    }): void => {
-      if (message?.customType !== "theta-system-note") return;
-      const diagnostics = message.details?.diagnostics;
-      if (!Array.isArray(diagnostics)) return;
-      for (const d of diagnostics) {
-        notes.push({ code: d.code, message: d.message, severity: d.severity });
-      }
-    },
-    sendUserMessage: (): void => {},
-  } as unknown as ExtensionAPI;
-
-  const ctx = {
-    cwd,
-    hasUI: false,
-    modelRegistry: { getAvailable: (): readonly unknown[] => [] },
-    ui: { notify: (): void => {} },
-  } as unknown as ExtensionContext;
-
-  const deps: ThetaExtensionDeps = {
-    fixtures: [],
-    composeInstance: (composePi, composeCtx) =>
-      composeExtensionInstance(composePi, composeCtx, {
-        fileWatcher: new FakeFileWatcher(),
-        clock: new FakeClock(),
-      }),
-  };
-  createThetaExtension(deps)(pi);
-
-  return {
-    commands,
-    notes,
-    fireSessionStart: async () => {
-      for (const handler of subscriptions.get("session_start") ?? []) {
-        await handler({ type: "session_start" }, ctx);
-      }
-    },
-  };
-}
-
 describe("b0463 face (1) — package `Foo.theta` invalid slash name (e2e)", () => {
   let workspace: string;
-  let savedHome: string | undefined;
-  let savedUserProfile: string | undefined;
-  let savedAgentDir: string | undefined;
+  let disposeWorkspace: () => void;
 
   beforeEach(() => {
-    workspace = mkdtempSync(join(tmpdir(), "theta-b0463-"));
-    savedHome = process.env.HOME;
-    savedUserProfile = process.env.USERPROFILE;
-    savedAgentDir = process.env.PI_CODING_AGENT_DIR;
-    process.env.HOME = workspace;
-    process.env.USERPROFILE = workspace;
-    process.env.PI_CODING_AGENT_DIR = join(workspace, ".pi", "agent");
+    const ws = mintWorkspace("theta-b0463-");
+    workspace = ws.cwd;
+    disposeWorkspace = ws.dispose;
 
     const pkgThetas = join(workspace, "node_modules", "pkg-a", "theta");
     mkdirSync(pkgThetas, { recursive: true });
@@ -175,13 +77,7 @@ describe("b0463 face (1) — package `Foo.theta` invalid slash name (e2e)", () =
   });
 
   afterEach(() => {
-    if (savedHome === undefined) delete process.env.HOME;
-    else process.env.HOME = savedHome;
-    if (savedUserProfile === undefined) delete process.env.USERPROFILE;
-    else process.env.USERPROFILE = savedUserProfile;
-    if (savedAgentDir === undefined) delete process.env.PI_CODING_AGENT_DIR;
-    else process.env.PI_CODING_AGENT_DIR = savedAgentDir;
-    rmSync(workspace, { recursive: true, force: true });
+    disposeWorkspace();
   });
 
   it("refuses to register `/Foo` and emits an invalid-slash-name error", async () => {

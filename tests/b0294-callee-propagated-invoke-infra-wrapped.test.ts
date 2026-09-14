@@ -81,17 +81,22 @@
 // is rendered by `renderLeafKindNote`'s `invoke_infra` arm
 // (`err-note-render.ts`) and the SLSH-5 suffix by `renderTopLevelErrNote`.
 
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, realpathSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import type {
-  ExtensionAPI,
-  ExtensionCommandContext,
-  ExtensionContext,
-} from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { ThetaFixture } from "../src/extension/factory";
 import { discoverAndComposeFixtures } from "../src/extension/production-composition";
+import {
+  dispatchTopLevelFixtures,
+  disposeWorkspace,
+  errNote as sharedErrNote,
+  hostPi as sharedHostPi,
+  loadCtx,
+  noteContents as sharedNoteContents,
+  type RecordedMessage,
+} from "./helpers/fixture-dispatch-harness";
 
 /** A prompt-mode theta whose sole body statement invokes `./<stem>.theta` and
  *  `?`-propagates the callee's top-level `Result`. The `invoke(` token sits on
@@ -134,11 +139,6 @@ function snkiRow(thetaName: string, calleePath: string, cause: string): string {
  *  are callees (or absent), never dispatched. */
 const TOP_LEVEL_STEMS = ["infraleaf", "infratop", "infratopper", "panictop"] as const;
 
-interface RecordedMessage {
-  readonly customType?: string;
-  readonly content?: string;
-}
-
 let workspaceDir: string;
 let thetaDir: string;
 /** Every note the load pass and the dispatches emitted, in emission order. The
@@ -146,74 +146,34 @@ let thetaDir: string;
  *  (`theta /<name> …`), which keeps a read attributable to its dispatch. */
 const notes: RecordedMessage[] = [];
 
+// `loadCtx` (imported above) and `noteContents` / `errNote` below are the
+// shared discover-and-dispatch harness in
+// `tests/helpers/fixture-dispatch-harness.ts` (PTQ-0225, also used by
+// tests/b0293-invoke-callee-cause-partition.test.ts); `hostPi`, `noteContents`
+// and `errNote` here are thin local wrappers closing over this file's own
+// `notes` array.
+
 /** The host `pi`: `sendMessage` is the `theta-system-note` channel (this file's
  *  observable); `sendUserMessage` is the provider-turn surface and must never be
  *  reached — a throw there is a loud offline-violation, never a silent skip. */
 function hostPi(): ExtensionAPI {
-  return {
-    getFlag: (): undefined => undefined,
-    getCommands: (): readonly unknown[] => [],
-    getAllTools: (): readonly unknown[] => [],
-    getActiveTools: (): readonly string[] => [],
-    setActiveTools: (): void => {},
-    registerMessageRenderer: (): void => {},
-    sendUserMessage: (): void => {
-      throw new Error(
-        "a provider turn was issued: no callee runs an `@`-query, so this witness must stay " +
-          "fully offline",
-      );
-    },
-    sendMessage: (message: RecordedMessage): void => {
-      notes.push(message);
-    },
-  } as unknown as ExtensionAPI;
-}
-
-function loadCtx(cwd: string): ExtensionContext {
-  return {
-    cwd,
-    modelRegistry: { getAvailable: (): readonly unknown[] => [] },
-    ui: { notify: (): void => {} },
-  } as unknown as ExtensionContext;
-}
-
-function dispatchCtx(cwd: string): ExtensionCommandContext {
-  return {
-    cwd,
-    signal: undefined,
-    modelRegistry: { getAvailable: (): readonly unknown[] => [] },
-    ui: { notify: (): void => {} },
-    sessionManager: {
-      getEntries: (): readonly unknown[] => [],
-      getLeafId: (): undefined => undefined,
-    },
-    waitForIdle: (): Promise<void> => Promise.resolve(),
-    isIdle: (): boolean => true,
-    abort: (): void => {},
-  } as unknown as ExtensionCommandContext;
+  return sharedHostPi(
+    notes,
+    "a provider turn was issued: no callee runs an `@`-query, so this witness must stay " +
+      "fully offline",
+  );
 }
 
 /** Every `theta-system-note` content, in emission order. */
 function noteContents(): readonly string[] {
-  return notes
-    .filter((note) => note.customType === "theta-system-note")
-    .map((note) => String(note.content));
+  return sharedNoteContents(notes);
 }
 
 /** The single top-level `Err` note one dispatch produced. Zero — or more than
  *  one — fails loudly naming the whole channel, so a compile/fixture/harness
  *  fault can never masquerade as a missing suffix. */
 function errNote(slashName: string): string {
-  const rows = noteContents().filter((content) =>
-    content.startsWith(`theta /${slashName} returned Err:`),
-  );
-  if (rows.length !== 1) {
-    throw new Error(
-      `harness precondition unmet: /${slashName} produced ${String(rows.length)} top-level ` +
-        `Err notes, expected exactly 1 — channel: ${JSON.stringify(noteContents())}`,
-    );
-  }
-  return rows[0] as string;
+  return sharedErrNote(notes, slashName);
 }
 
 /** The note remainder after its own `theta /<name>` prefix — the byte range the
@@ -251,22 +211,11 @@ beforeAll(async () => {
     loadCtx(workspaceDir),
   );
 
-  for (const stem of TOP_LEVEL_STEMS) {
-    const fixture = fixtures.find((f) => f.slashName === stem);
-    if (fixture === undefined) {
-      throw new Error(
-        `harness precondition unmet: /${stem} did not register through the production ` +
-          `composition root — registered: ${JSON.stringify(fixtures.map((f) => f.slashName))}`,
-      );
-    }
-    await fixture.run("", dispatchCtx(workspaceDir));
-  }
+  await dispatchTopLevelFixtures(fixtures, workspaceDir, TOP_LEVEL_STEMS);
 }, 60_000);
 
 afterAll(() => {
-  if (workspaceDir !== undefined) {
-    rmSync(workspaceDir, { recursive: true, force: true });
-  }
+  disposeWorkspace(workspaceDir);
 });
 
 describe("bug 0294 — a callee-propagated invoke_infra Err is wrapped with an invoke_callee hop", () => {

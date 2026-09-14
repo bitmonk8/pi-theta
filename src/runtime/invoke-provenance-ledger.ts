@@ -1,8 +1,8 @@
 // Bug 0088 (slash-invocation.md SLSH-5) — the invoke-hop provenance ledger.
 // `recordInvocationProvenance` (`invoke-provenance.ts`) produces one
-// `InvocationRecord` per executed `invoke` hop; nothing retains the record
-// beside the `invoke_callee` wrapper it belongs to, so `emitTopLevelErrNote`'s
-// two call sites have no `ChainHop[]` to build.
+// `InvocationRecord` per executed `invoke` hop; this module retains it beside
+// the `invoke_callee` wrapper it belongs to, so `emitTopLevelErrNote`'s call
+// site has the `ChainHop[]` its SLSH-5 chain suffix needs.
 //
 // This module is the retention seam: an instance-scoped ledger, keyed on the
 // wrapper OBJECT ITSELF (a `WeakMap<InvokeCalleeError, ChainHop>`), so pairing a

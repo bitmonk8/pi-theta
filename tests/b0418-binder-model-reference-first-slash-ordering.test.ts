@@ -1,10 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { matchAvailableModel } from "../src/binder/binder-model";
-import {
-  createModelReferenceMatcher,
-  type AvailableModel,
-  type ModelRegistrySurface,
-} from "../src/extension/reload-wiring";
+import { createModelReferenceMatcher, type AvailableModel } from "../src/extension/reload-wiring";
+import { model, registryOf } from "./helpers/model-registry-fixture";
 
 // Bug 0418 — conformance pin of the SHIPPED first-slash split.
 //
@@ -35,16 +32,6 @@ import {
 //     `model:`.
 //
 // This is a pin of EXISTING behaviour: green at the fork by design.
-
-const model = (id: string, provider: string, api: string): AvailableModel => ({
-  id,
-  provider,
-  api,
-});
-
-const registryOf = (models: readonly AvailableModel[]): ModelRegistrySurface => ({
-  getAvailable: () => models,
-});
 
 // The collision: the string "anthropic/claude-sonnet-5" is BOTH the
 // provider/id reference for the anthropic model AND the exact bare id of the

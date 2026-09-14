@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 import * as liveHarness from "./live/harness";
-import { failLoudly } from "./live/harness";
+import {
+  failLoudly,
+  messageEntry as message,
+  systemNoteEntry as note,
+} from "./live/harness";
 
 // Bug 0289 — the H8a harness defines "the drive's last turn settled" as "some
 // assistant text after the last user entry is non-empty" (`lastTurnSettled` in
@@ -106,16 +110,6 @@ function requireCapture(): CaptureSettledTurn {
     );
   }
   return seam.captureSettledTurn;
-}
-
-/** One in-memory `SessionManager` message entry, shaped as the harness readers walk it. */
-function message(role: string, content: unknown, stopReason?: string): unknown {
-  return { type: "message", message: { role, content, stopReason } };
-}
-
-/** A `theta-system-note` custom entry — clause C's accept reason. */
-function note(content: string): unknown {
-  return { customType: "theta-system-note", content };
 }
 
 /** The witnessed shape: a normal `stop` boundary, a thinking part, an EMPTY text part. */

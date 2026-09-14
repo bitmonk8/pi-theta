@@ -102,10 +102,6 @@ export interface ThetaCallableAdapterResult {
  * exactly one `theta/runtime/internal-error` diagnostic (message carrying
  * `error.message`, hint carrying `error.stack` or `"<no stack available>"`) and
  * exactly one `theta-system-note` on `sink`.
- *
- * V14c-T stubs this to an inert non-error empty envelope that emits nothing, so
- * the `{ isError: true }` text, one-diagnostic, and one-system-note assertions
- * red on their own.
  */
 export function routeThetaCallableSetupThrow(
   thrown: unknown,
@@ -210,9 +206,6 @@ export class ToolReturnShapeDefectError extends Error {
  * `details.tool_name` and the closed `details.shape_check` token), emitted on
  * `sink`, and is **not** observable as a `CodeToolError`
  * (host-interfaces-core.md §"Tool execution from theta code").
- *
- * V14c-T stubs this to an inert `conforming` outcome that emits nothing, so the
- * `return-shape-defect` / `details.kind` / not-`CodeToolError` assertions red.
  */
 export function routeToolReturnShape(
   resolved: unknown,
@@ -321,10 +314,6 @@ export type ToolSettlementOutcome =
  * `{ kind: "cancelled", error: CodeToolError { cause: "cancelled", ... } }` —
  * emitting **no** `theta/runtime/internal-error` on `sink`. A settling Promise
  * yields `{ kind: "settled", envelope }`.
- *
- * V14c-T stubs this to an inert `settled` sentinel returned *without* awaiting
- * `dispatch` (so a never-settling dispatch cannot hang the test), so the
- * `cancelled`-path assertion reds on its own.
  */
 export function awaitToolSettlementOrAbort(
   dispatch: () => Promise<AgentToolResultEnvelope>,
@@ -435,11 +424,6 @@ export interface LateSettlementObserver {
  * `RuntimeEvent` (CNCL-3), and no diagnostic of any severity — a late rejection
  * whose `.message` would otherwise be diagnostic-worthy is still discarded, so
  * no `theta/runtime/internal-error`. The discarded value is not traversed.
- *
- * V14c-T stubs this to the *non-discarding* behaviour CNCL-1/2/3 forbid — it
- * forwards the late settlement to `observer` — so the no-rebind / no-second-`Err`
- * / no-second-`RuntimeEvent` / no-`internal-error` assertions red. The paired
- * V14c leaf makes this a total no-op.
  */
 export function discardPostCancelSettlement(
   late: LateSettlement,

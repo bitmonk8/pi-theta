@@ -1,8 +1,6 @@
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 // @ts-expect-error — JS code-registry module, no type declarations.
-import { parseRegistry, registryMessage } from "../tools/code-registry/index.js";
+import { registryMessage } from "../tools/code-registry/index.js";
 import { parseThetaDocument, type ThetaDocument } from "../src/parser/theta-document";
 import { checkThetaImports } from "../src/extension/import-static-checks";
 import type { ThetaCompositionInput } from "../src/extension/theta-composition-producer";
@@ -10,6 +8,7 @@ import type { ParsedFrontmatter } from "../src/parser/frontmatter";
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
 import type { FileSystem } from "../src/seams/file-system";
 import { parseDeps } from "./helpers/e2e-s1";
+import { REGISTRY } from "./helpers/registry-oracle";
 
 // Witness tests for bug 0450
 // (docs/bugs/0450-imported-enum-system-param-unjudged.md).
@@ -67,22 +66,9 @@ const LOAD_BAD_FIELD_CODE = "theta/load/system-interp-bad-field";
 /** The same-file parse-phase code whose message text the load code is byte-consistent with. */
 const PARSE_BAD_FIELD_CODE = "theta/parse/system-interp-bad-field";
 
-interface RegistryRow {
-  readonly code: string;
-  readonly message: string;
-}
-
-/** The live sharded registry — the parse + load pages this file oracles against. */
-const REGISTRY = parseRegistry(
-  ["code-registry-parse.md", "code-registry-load.md"]
-    .map((page) =>
-      readFileSync(
-        fileURLToPath(new URL(`../docs/spec_topics/diagnostics/${page}`, import.meta.url)),
-        "utf8",
-      ),
-    )
-    .join("\n"),
-) as RegistryRow[];
+// `REGISTRY` is the shared four-page diagnostics-registry read
+// (`tests/helpers/registry-oracle.ts`, PTQ-0215); both codes this file oracles
+// against live on the parse/load pages that union already includes.
 
 /**
  * A registry row's normative *Message* template (DIAG-4), read rather than

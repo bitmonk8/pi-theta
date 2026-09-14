@@ -1,16 +1,13 @@
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import type {
-  ExtensionAPI,
-  ExtensionContext,
-} from "@earendil-works/pi-coding-agent";
 // @ts-expect-error — JS code-registry module, no type declarations.
-import { parseRegistry, registryMessage } from "../tools/code-registry/index.js";
-import type { ThetaFixture } from "../src/extension/factory";
-import { discoverAndComposeFixtures } from "../src/extension/production-composition";
+import { registryMessage } from "../tools/code-registry/index.js";
+import {
+  disposeWorkspace,
+  plantThetaWorkspace,
+  runProductionLoad,
+  type LoadOutcome,
+} from "./helpers/production-load-harness";
+import { REGISTRY } from "./helpers/registry-oracle";
 
 // Bug 0147 — INTRA-SITE MULTIPLICITY for the argument-type-mismatch family.
 //
@@ -109,19 +106,8 @@ const INVOKE_ARITY_TOO_MANY = "theta/parse/invoke-arity-too-many";
 const FN_ARITY_TOO_FEW = "theta/parse/fn-arity-too-few";
 const FN_ARITY_TOO_MANY = "theta/parse/fn-arity-too-many";
 
-/** The registry page carrying all seven rows — the DIAG-4 oracle. */
+/** The registry page carrying all seven rows — named in the harness failure below. */
 const REGISTRY_PAGE = "docs/spec_topics/diagnostics/code-registry-parse.md";
-
-interface RegistryRow {
-  readonly code: string;
-  readonly severity: string;
-  readonly phase: string;
-  readonly message: string;
-}
-
-const REGISTRY = parseRegistry(
-  readFileSync(fileURLToPath(new URL(`../${REGISTRY_PAGE}`, import.meta.url)), "utf8"),
-) as RegistryRow[];
 
 /**
  * A registered code's normative *Message* template, or a throw naming the
@@ -662,63 +648,8 @@ function expectedCodes(surface: Surface, cell: Cell): readonly string[] {
 // The load, and the three channels it surfaces on.
 // ===========================================================================
 
-interface LoadOutcome {
-  readonly registered: readonly string[];
-  readonly notifications: readonly string[];
-  /** `theta: <file>:<line>:<col>: <code>: <message>`, one per diagnostic. */
-  readonly diagnosticLines: readonly string[];
-}
-
 let outcome: LoadOutcome;
 let workspaceDir: string;
-
-async function runProductionLoad(cwd: string): Promise<LoadOutcome> {
-  const notifications: string[] = [];
-  const chunks: string[] = [];
-  const pi = {
-    getFlag: (): undefined => undefined,
-    getCommands: (): readonly unknown[] => [],
-    sendMessage: (): void => {},
-    sendUserMessage: (): void => {},
-    getActiveTools: (): readonly string[] => [],
-    setActiveTools: (): void => {},
-  } as unknown as ExtensionAPI;
-  const ctx = {
-    cwd,
-    modelRegistry: { getAvailable: (): readonly unknown[] => [] },
-    ui: {
-      notify: (message: string, _type: "error"): void => {
-        notifications.push(message);
-      },
-    },
-  } as unknown as ExtensionContext;
-
-  // The stderr mirror is a real production channel (a `-p` / CI operator's only
-  // sight of a load diagnostic) written directly rather than through an
-  // injectable seam, so interposing on the handle is the only way to read it.
-  // The window is one awaited call and the handle is restored on both outcomes,
-  // so no assertion below runs while the interposition is live.
-  const write = process.stderr.write.bind(process.stderr);
-  process.stderr.write = ((chunk: unknown): boolean => {
-    chunks.push(String(chunk));
-    return true;
-  }) as typeof process.stderr.write;
-  const fixtures: readonly ThetaFixture[] = await discoverAndComposeFixtures(
-    pi,
-    ctx,
-  ).finally(() => {
-    process.stderr.write = write;
-  });
-
-  return {
-    registered: fixtures.map((f) => f.slashName),
-    notifications,
-    diagnosticLines: chunks
-      .join("")
-      .split(/\r?\n/)
-      .filter((line) => line.length > 0),
-  };
-}
 
 beforeAll(async () => {
   // No planted stem may be a suffix of another: the per-caller channel filter
@@ -740,20 +671,10 @@ beforeAll(async () => {
     ).toEqual([]);
   }
 
-  workspaceDir = mkdtempSync(join(tmpdir(), "theta-bug0147-"));
-  const projectThetaDir = join(workspaceDir, ".pi", "theta");
-  mkdirSync(projectThetaDir, { recursive: true });
-  for (const planted of PLANTED) {
-    writeFileSync(
-      join(projectThetaDir, `${planted.stem}.${planted.ext}`),
-      planted.text,
-      "utf8",
-    );
-  }
   // A minimal valid settings file pins the fixture's settings read to a known
   // value; an ABSENT settings file is silent, so this is hermeticity rather
   // than noise suppression.
-  writeFileSync(join(workspaceDir, ".pi", "settings.json"), "{}", "utf8");
+  workspaceDir = plantThetaWorkspace("theta-bug0147-", PLANTED, "{}");
   outcome = await runProductionLoad(workspaceDir);
   // The grid plants ~150 files (four surfaces × ten cells, each with its own
   // callees / library), and one composition-root pass parses and type-checks
@@ -763,7 +684,7 @@ beforeAll(async () => {
 }, 60000);
 
 afterAll(() => {
-  rmSync(workspaceDir, { recursive: true, force: true });
+  disposeWorkspace(workspaceDir);
 });
 
 /** The diagnostic lines this load attributed to one planted file. */

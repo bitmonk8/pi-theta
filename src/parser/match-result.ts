@@ -22,13 +22,6 @@
 //     `⊑` the chosen common type, narrowed by any sink in scope). A `match`
 //     whose arms share no common upper bound is `theta/parse/match-arm-type-mismatch`;
 //     a well-typed `match` resolves to the least upper bound of its arms.
-//
-// V4a-T (tests-task) declares these seam shapes and stubs the behaviour-bearing
-// functions inertly (each parse/type checker returns no diagnostic, and the
-// `match` arm checker computes no LUB), so the failing tests compile and red on
-// their own primary assertions (an absent expected diagnostic, or an absent
-// computed LUB), not on a compile error, a missing fixture, or a harness throw.
-// The paired V4a implementation leaf fills every check in.
 
 import { type Diagnostic, type SourceRange } from "../diagnostics/diagnostic";
 import {
@@ -104,8 +97,6 @@ export type QuestionOperandType =
  * operand `?` is applied to does not statically type as `Result<T, QueryError>`
  * for some `T` (e.g. `let x = 5?`, where `5` is `integer`). Returns `undefined`
  * for a `Result<T, QueryError>` operand (expressions.md ERR-18).
- *
- * V4a-T stubs this inert (always `undefined`); the paired V4a leaf fills it in.
  */
 export function checkQuestionOperand(
   operand: QuestionOperandType,
@@ -152,8 +143,6 @@ export type EnclosingReturnScope =
  * inferred to one. Returns `undefined` for an inferred scope, or an annotated
  * scope whose return type admits `Result<U, QueryError>` (expressions.md
  * §`?` operator).
- *
- * V4a-T stubs this inert (always `undefined`); the paired V4a leaf fills it in.
  */
 export function checkQuestionScope(
   scope: EnclosingReturnScope,
@@ -202,9 +191,6 @@ export interface MatchArmCheck {
  *     or when an arm is not `⊑` the `sink` (with a `sink`);
  *   - otherwise resolves the `match` to the least upper bound of its arms,
  *     returned as `lub`.
- *
- * V4a-T stubs this inert (no diagnostics, no computed LUB); the paired V4a leaf
- * fills it in.
  */
 export function checkMatchArmTypes(opts: {
   readonly armTypes: readonly CompatType[];

@@ -3,18 +3,18 @@
 //
 // These drive a typed `@`-query end-to-end through the REAL runtime execution
 // path (`runTypedQueryLoop` / `runQueryEffect`, NOT the isolated `V5d` / `V13c`
-// / `V13d` units) and assert that a query's declared schema — a named `schema`
-// decl AND an inline object/type annotation — is resolved (via `resolveSchema`
-// for a named decl), lowered to the validating JSON Schema (`V5d`/`SUBS-1`),
-// conveyed to the model on the forced-respond turn (the conveyance carries the
-// LOWERED shape, not the bare type name), and that the response is validated
-// against it with respond-repair (`QRY-11`) on non-conformance.
+// / `V13d` units) and assert that a query's declared response schema — a named
+// `schema` decl AND an inline object/type annotation alike — is lowered to the
+// validating JSON Schema (`V5d`/`SUBS-1`), conveyed to the model on the
+// forced-respond turn (the conveyance carries the LOWERED shape, not the bare
+// type name), and that the response is validated against it with
+// respond-repair (`QRY-11`) on non-conformance.
 //
 // The tests inject a `TypedQuerySchemaValidation` seam whose steps wrap the REAL
-// collaborators — a real `env.resolveSchema` read, a real lowered JSON Schema,
-// the real `AjvSchemaValidator`, and the real `runRespondRepairLoop` — and
-// record every invocation, so the "execution-path wiring" assertions witness
-// the path invoking the real pieces rather than the isolated units.
+// collaborators — a real lowered JSON Schema, the real `AjvSchemaValidator`,
+// and the real `runRespondRepairLoop` — and record every invocation, so the
+// "execution-path wiring" assertions witness the path invoking the real pieces
+// rather than the isolated units.
 //
 // They red for the intended reason: at `V13e-T` time the `V13c` `runTypedQueryLoop`
 // body performs only a depth walk and returns the raw forced-respond payload as
@@ -164,26 +164,19 @@ class ExhaustingRepairDriver implements RespondRepairDriver {
 /**
  * A `TypedQuerySchemaValidation` seam whose steps wrap the REAL collaborators
  * and record each invocation, so a test asserts the execution path drove the
- * real resolution / lowering / `AjvSchemaValidator` / `runRespondRepairLoop`.
+ * real lowering / `AjvSchemaValidator` / `runRespondRepairLoop`.
  */
 class SpyValidation implements TypedQuerySchemaValidation {
-  resolveCalls = 0;
   lowerCalls = 0;
   conveyCalls = 0;
   validateCalls = 0;
   respondRepairCalls = 0;
   conveyed: LoweredSchema | null = null;
-  resolvedShape: unknown = undefined;
 
   readonly #validator: AjvSchemaValidator;
   readonly #repairDriver: ExhaustingRepairDriver;
 
-  constructor(
-    /** For a named `schema` decl: the env + name the real `resolveSchema` reads. */
-    private readonly named: { readonly env: LexicalEnvironment; readonly name: string } | null,
-    /** For an inline object/type annotation: the pre-resolved inline shape. */
-    private readonly inlineShape: unknown,
-  ) {
+  constructor() {
     const slugOf = (schema: LoweredSchema): SchemaSlug => ({
       slug: "report-slug",
       canonicalBytes: JSON.stringify(schema),
@@ -192,17 +185,7 @@ class SpyValidation implements TypedQuerySchemaValidation {
     this.#repairDriver = new ExhaustingRepairDriver();
   }
 
-  resolveDeclaredSchema(): unknown {
-    this.resolveCalls += 1;
-    // A named decl resolves through the REAL `resolveSchema` (previously
-    // uncalled); an inline annotation resolves to its inline shape.
-    this.resolvedShape = this.named !== null
-      ? this.named.env.resolveSchema(this.named.name)
-      : this.inlineShape;
-    return this.resolvedShape;
-  }
-
-  lower(_shape: unknown): LoweredSchema {
+  lower(): LoweredSchema {
     this.lowerCalls += 1;
     return LOWERED;
   }
@@ -243,13 +226,12 @@ function envWithReportSchema(): LexicalEnvironment {
 }
 
 // ===========================================================================
-// QRY-22 — named-schema resolution, lowering, and conveyance.
+// QRY-22 — lowering and conveyance.
 // ===========================================================================
 
-describe("V13e-T — QRY-22 named-schema resolution + lowered-shape conveyance", () => {
-  it("QRY-22: a typed query annotated with a named `schema` decl resolves the name to its declared shape, lowers it (V5d/SUBS-1), and conveys the LOWERED shape on the forced-respond turn — not the bare type name", async () => {
-    const env = envWithReportSchema();
-    const validation = new SpyValidation({ env, name: "Report" }, undefined);
+describe("V13e-T — QRY-22 lowered-shape conveyance", () => {
+  it("QRY-22: a typed query's declared schema is lowered (V5d/SUBS-1) and the LOWERED shape is conveyed on the forced-respond turn — not the bare type name", async () => {
+    const validation = new SpyValidation();
 
     await runTypedQueryLoop(
       NOOP_CHECKPOINT,
@@ -259,15 +241,9 @@ describe("V13e-T — QRY-22 named-schema resolution + lowered-shape conveyance",
       validation,
     );
 
-    // The named schema is resolved through the real `resolveSchema` (previously
-    // 0-caller) and lowered (V5d/SUBS-1).
-    expect(
-      validation.resolveCalls,
-      "QRY-22: the execution path resolves the named `schema` decl via `resolveSchema`",
-    ).toBeGreaterThan(0);
     expect(
       validation.lowerCalls,
-      "QRY-22: the execution path lowers the resolved declared shape (V5d/SUBS-1)",
+      "QRY-22: the execution path lowers the declared shape (V5d/SUBS-1)",
     ).toBeGreaterThan(0);
     // The forced-respond conveyance carries the LOWERED shape, not the bare
     // type name `"Report"`.
@@ -288,8 +264,7 @@ describe("V13e-T — QRY-22 named-schema resolution + lowered-shape conveyance",
 
 describe("V13e-T — QRY-22 validation enforced via the execution path", () => {
   it("QRY-22: a non-conforming response is NOT bound as the query value — it routes through the QRY-11 respond-repair loop and terminal non-conformance surfaces Err(QueryError { kind: \"validation\", cause: \"schema_validation\" })", async () => {
-    const env = envWithReportSchema();
-    const validation = new SpyValidation({ env, name: "Report" }, undefined);
+    const validation = new SpyValidation();
 
     const outcome = await runTypedQueryLoop(
       NOOP_CHECKPOINT,
@@ -321,8 +296,7 @@ describe("V13e-T — QRY-22 validation enforced via the execution path", () => {
   });
 
   it("QRY-22: a conforming response validates against the lowered schema and binds as the typed query's value", async () => {
-    const env = envWithReportSchema();
-    const validation = new SpyValidation({ env, name: "Report" }, undefined);
+    const validation = new SpyValidation();
 
     const outcome = await runTypedQueryLoop(
       NOOP_CHECKPOINT,
@@ -350,12 +324,8 @@ describe("V13e-T — QRY-22 validation enforced via the execution path", () => {
 // ===========================================================================
 
 describe("V13e-T — QRY-22 inline object/type annotation integration", () => {
-  it("QRY-22: an inline object/type-annotated typed query resolves and lowers its inline shape, conveys the lowered shape, and validates the response against it", async () => {
-    // An inline annotation resolves to its inline shape directly (no named
-    // `resolveSchema` read); the lowered form is still what the conveyance and
-    // AJV consume.
-    const inlineShape = { object: { status: ["ok", "degraded"], summary: "string" } };
-    const validation = new SpyValidation(null, inlineShape);
+  it("QRY-22: an inline object/type-annotated typed query lowers its declared shape, conveys the lowered shape, and validates the response against it", async () => {
+    const validation = new SpyValidation();
 
     const outcome = await runTypedQueryLoop(
       NOOP_CHECKPOINT,
@@ -386,14 +356,13 @@ describe("V13e-T — QRY-22 inline object/type annotation integration", () => {
 
 // ===========================================================================
 // QRY-22 — execution-path wiring: driving runTypedQueryLoop / runQueryEffect
-// actually invokes resolution → lowering → AjvSchemaValidator →
-// runRespondRepairLoop (not the isolated units).
+// actually invokes lowering → AjvSchemaValidator → runRespondRepairLoop (not
+// the isolated units).
 // ===========================================================================
 
 describe("V13e-T — QRY-22 execution-path wiring (drives the path, not the units)", () => {
-  it("QRY-22: driving `runTypedQueryLoop` invokes schema resolution → lowering → AjvSchemaValidator → runRespondRepairLoop — an implementation that leaves them unwired fails", async () => {
-    const env = envWithReportSchema();
-    const validation = new SpyValidation({ env, name: "Report" }, undefined);
+  it("QRY-22: driving `runTypedQueryLoop` invokes lowering → AjvSchemaValidator → runRespondRepairLoop — an implementation that leaves them unwired fails", async () => {
+    const validation = new SpyValidation();
 
     await runTypedQueryLoop(
       NOOP_CHECKPOINT,
@@ -403,7 +372,6 @@ describe("V13e-T — QRY-22 execution-path wiring (drives the path, not the unit
       validation,
     );
 
-    expect(validation.resolveCalls, "QRY-22 wiring: schema resolution invoked").toBeGreaterThan(0);
     expect(validation.lowerCalls, "QRY-22 wiring: lowering invoked").toBeGreaterThan(0);
     expect(validation.validateCalls, "QRY-22 wiring: AjvSchemaValidator invoked").toBeGreaterThan(0);
     expect(
@@ -414,7 +382,7 @@ describe("V13e-T — QRY-22 execution-path wiring (drives the path, not the unit
 
   it("QRY-22: driving `runQueryEffect` (the effectful-statement-host execution path) validates the typed query and surfaces the schema_validation Err on non-conformance", async () => {
     const env = envWithReportSchema();
-    const validation = new SpyValidation({ env, name: "Report" }, undefined);
+    const validation = new SpyValidation();
     const model = new RespondingModel(NON_CONFORMING);
 
     const dispatch: QueryHostDispatch = {
@@ -425,7 +393,6 @@ describe("V13e-T — QRY-22 execution-path wiring (drives the path, not the unit
     };
 
     const sink: ToolLoweringSink = {
-      runtimeEvent(): void {},
       diagnostic(): void {},
       systemNote(): void {},
     };

@@ -113,10 +113,6 @@ export type InvokeChildOutcome =
  * together with the completed callee's `committed` side effects, which remain
  * final under any downstream terminal event (ERR-13; the runtime holds no
  * compensating path — see `handleNoRollbackTerminalEvent`).
- *
- * V15m-T stubs this inert: it fires no checkpoint, never drives the child, and
- * returns a cancelled outcome carrying no committed side effect. The paired V15m
- * leaf implements it.
  */
 export async function runInvokeChild(
   checkpoint: Checkpoint,

@@ -102,7 +102,6 @@ import {
   type ChildExitInfo,
   type ExecutableHost,
 } from "../src/runtime/subagent-launcher";
-import { WallClock } from "../src/seams/wall-clock";
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
 
 /** The repo's pinned pi CLI entry — the SAME executable resolution rung 1 uses in production. */
@@ -388,7 +387,6 @@ describe("bug 0180 — a typed invoke of a subagent-mode callee whose final valu
           thetaAbort: new AbortController(),
           calleePath: join(thetaDir, "top-nonfinite.theta"),
           emitDiagnostic,
-          clock: new WallClock(),
         });
         clearTimeout(watchdog);
 

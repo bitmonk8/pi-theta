@@ -1,9 +1,6 @@
 import { describe, expect, it } from "vitest";
-import {
-  fillDefaultsAndRevalidate,
-  type PostMergeValidation,
-} from "../src/binder/defaulting";
-import type { CompiledValidator } from "../src/seams/schema-validator";
+import { fillDefaultsAndRevalidate } from "../src/binder/defaulting";
+import { spyValidator } from "./helpers/spy-validator";
 
 // V11g-T — failing tests for the paired `V11g` "fill-if-absent defaulting and
 // post-merge AJV validation" implementation.
@@ -22,26 +19,6 @@ import type { CompiledValidator } from "../src/seams/schema-validator";
 // Each test reds on its own primary assertion (an absent default not filled, a
 // present value not preserved, the validator never invoked on the merged args)
 // — not on a compile error, missing fixture, or harness throw.
-
-/**
- * A spy `CompiledValidator`: records every value handed to `validate()` and
- * returns a fixed verdict. Lets a test witness that the post-default-merge
- * validation ran against the MERGED args (not the raw binder args) and that the
- * verdict is surfaced.
- */
-function spyValidator(result: PostMergeValidation): {
-  validator: CompiledValidator;
-  calls: unknown[];
-} {
-  const calls: unknown[] = [];
-  const validator: CompiledValidator = {
-    validate(value: unknown) {
-      calls.push(value);
-      return result;
-    },
-  };
-  return { validator, calls };
-}
 
 describe("V11g-T — fill-if-absent defaulting + post-default-merge AJV validation (cka-40)", () => {
   it("cka-40: an absent wire name takes its declared default in the merged args", () => {

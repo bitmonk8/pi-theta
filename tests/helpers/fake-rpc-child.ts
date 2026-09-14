@@ -64,8 +64,6 @@ export interface SpawnRecord {
   readonly child: FakeRpcChild;
 }
 
-let nextFakePid = 4000;
-
 /**
  * Options for one fake child. `exitOnStdinEof` defaults to `true` — the
  * RETIRED RFC-0005 RPC child's stdin-EOF exit convention, kept as a scripting
@@ -95,8 +93,6 @@ export interface FakeRpcChildOptions {
  * controlled with `crashWith` / `kill` / `closeStdin`.
  */
 export class FakeRpcChild implements SubagentChildProcess {
-  readonly pid: number | undefined;
-
   /** Parsed inbound commands the runtime wrote to stdin, in order. */
   readonly commands: InboundCommand[] = [];
   /** Raw inbound stdin lines (including any that fail to parse). */
@@ -117,7 +113,6 @@ export class FakeRpcChild implements SubagentChildProcess {
   readonly #suppressStateReply: boolean;
 
   constructor(options: FakeRpcChildOptions = {}) {
-    this.pid = nextFakePid++;
     this.#exitOnStdinEof = options.exitOnStdinEof ?? true;
     this.#resolvedModel = options.resolvedModel ?? "claude-test";
     this.#suppressStateReply = options.suppressStateReply ?? false;

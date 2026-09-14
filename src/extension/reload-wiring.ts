@@ -14,10 +14,6 @@
 //     exact-match resolver over `ctx.modelRegistry.getAvailable()`, injected
 //     into the V6a frontmatter parser seam.
 //
-// V9b-T (tests-task) declares the seam shapes and stubs the behaviour-bearing
-// functions so the failing tests compile and red on their own primary
-// assertions. The paired V9b implementation leaf fills these in.
-//
 // Spec: pi-integration-contract/registration-steps.md (PIC-36/37/38/39),
 // pi-integration-contract/host-interfaces-core.md (model-registry surface),
 // implementation-notes.md.
@@ -218,10 +214,8 @@ export class ThetaRegistry {
   // `drained` flag and the `drainStateTag` field — mediated through the closed
   // three-method call surface below; no third boolean drain-state field and no
   // fourth drain-state method are added (PIC-30, *Non-normative editorial
-  // convention*). V9m-T declares the surface and the two backing fields; the
-  // paired V9m implementation fills in the two writers. `readDrainState` is
-  // the single read API the slash handler and the `session_shutdown` handler
-  // consult.
+  // convention*). `readDrainState` is the single read API the slash handler
+  // and the `session_shutdown` handler consult.
 
   /** The drain flag, `false` at factory construction; flipped once by `drain()`. */
   #drained = false;
@@ -243,12 +237,7 @@ export class ThetaRegistry {
   /** The session-only reason that armed the tripwire, `undefined` while unarmed. */
   #sessionSwapReason: SessionOnlyReason | undefined = undefined;
 
-  /**
-   * `ThetaRegistry.drain(): void` — sets `drained = true` (PIC-32).
-   *
-   * V9m-T stub: a no-op leaving the field at its factory value, so the PIC-32
-   * test reds on its primary assertion (the paired V9m sets the flag).
-   */
+  /** `ThetaRegistry.drain(): void` — sets `drained = true` (PIC-32). */
   drain(): void {
     this.#drained = true;
   }
@@ -257,8 +246,6 @@ export class ThetaRegistry {
    * `ThetaRegistry.initDrainStateTag(): void` — sets `drainStateTag =
    * "shutting-down"` iff `drainStateTag === undefined` (a no-op once the tag is
    * set).
-   *
-   * V9m-T stub: a no-op (the paired V9m sets the tag).
    */
   initDrainStateTag(): void {
     if (this.#drainStateTag === undefined) {
@@ -310,7 +297,7 @@ export const REGISTRY_SWAP_FAILED_CODE = "theta/runtime/registry-swap-failed";
  * registry-swap arm's `theta/runtime/registry-swap-failed` — this is the
  * "re-parse / re-merge diagnostic" arm V4g distinguishes from the swap arm.
  */
-export const SETTINGS_REMERGE_FAILED_CODE = "theta/load/settings-invalid-json";
+const SETTINGS_REMERGE_FAILED_CODE = "theta/load/settings-invalid-json";
 
 /** Construction dependencies for the registry-swap and failure-injection seams. */
 export interface RegistrySwapDeps {

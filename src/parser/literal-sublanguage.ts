@@ -22,22 +22,9 @@
 //   - `theta/parse/missing-object-field` — a bare- or named-object literal omits
 //     a declared (required) field of its LHS / variant schema (partial defaults
 //     are not supported).
-//
-// V2a-T (tests-task) declares these seam shapes and stubs both checks as inert
-// no-ops (no diagnostic produced) so the failing tests compile and red on their
-// own primary assertions (the is-literal check and the full-field-requirement
-// check are absent). The paired V2a implementation leaf fills them in.
 
 import { type Diagnostic, type SourceRange } from "../diagnostics/diagnostic";
 import { type CompatType, type PrimitiveName } from "./type-compat";
-
-/**
- * Which literal position an expression occupies. RFC 0002 retired the Pi-tool
- * argument position, so `default` (a `params:` frontmatter default RHS →
- * `theta/parse/default-not-literal`) is the sole remaining literal-sublanguage
- * position.
- */
-export type LiteralPosition = "default";
 
 /** A located site at which a literal-sublanguage check is run. */
 export interface LiteralCheckSite {
@@ -46,14 +33,14 @@ export interface LiteralCheckSite {
 }
 
 /**
- * Run the is-literal check against an expression as written in source at a
- * literal position, returning every diagnostic raised. A form outside the
- * literal sublanguage fires `theta/parse/default-not-literal`; the diagnostic
- * names the offending sub-expression.
+ * Run the is-literal check against an expression as written in source at the
+ * `params:` default RHS — the sole literal-sublanguage position since RFC 0002
+ * retired the Pi-tool argument position — returning every diagnostic raised. A
+ * form outside the literal sublanguage fires `theta/parse/default-not-literal`;
+ * the diagnostic names the offending sub-expression.
  */
 export function checkLiteralSublanguage(
   source: string,
-  _position: LiteralPosition,
   site: LiteralCheckSite,
 ): Diagnostic[] {
   const tokens = tokeniseExpr(source);
@@ -243,24 +230,33 @@ function tokeniseExpr(source: string): ExprToken[] {
   return tokens;
 }
 
-/** Binary operator precedence (higher binds tighter); 0 = not a binary op. */
-const BINARY_PRECEDENCE: Readonly<Record<string, number>> = Object.freeze({
-  "||": 1,
-  "&&": 2,
-  "==": 3,
-  "!=": 3,
-  "<": 4,
-  "<=": 4,
-  ">": 4,
-  ">=": 4,
-  "+": 5,
-  "-": 5,
-  "*": 6,
-  "/": 6,
-  "%": 6,
-});
+/**
+ * Binary-operator tokens `parseBinary` recognises. The literal sublanguage
+ * forbids every operator other than the unary `-` numeric carve-out as one
+ * undifferentiated class (grammar.md §"Theta literal sublanguage"), so
+ * `parseBinary` needs only membership in this set, not relative precedence —
+ * a 6-tier precedence table this parser climbed but never exposed to a
+ * consumer (`binary`/`ternary` nodes carry no operand fields; the only
+ * reader, `firstNonLiteral`, does not discriminate on either kind) was
+ * proven redundant and removed (PTQ-0317).
+ */
+const BINARY_OPERATORS: ReadonlySet<string> = new Set([
+  "||",
+  "&&",
+  "==",
+  "!=",
+  "<",
+  "<=",
+  ">",
+  ">=",
+  "+",
+  "-",
+  "*",
+  "/",
+  "%",
+]);
 
-/** A tolerant recursive-descent / precedence-climbing expression parser. */
+/** A tolerant recursive-descent expression parser. */
 class ExprParser {
   private pos = 0;
   constructor(
@@ -303,7 +299,7 @@ class ExprParser {
   }
 
   private parseTernary(): ExprNode {
-    const cond = this.parseBinary(1);
+    const cond = this.parseBinary();
     const t = this.peek();
     if (t !== undefined && t.kind === "punct" && t.text === "?") {
       this.next();
@@ -318,19 +314,15 @@ class ExprParser {
     return cond;
   }
 
-  private parseBinary(minPrec: number): ExprNode {
+  private parseBinary(): ExprNode {
     let left = this.parseUnary();
     for (;;) {
       const t = this.peek();
-      if (t === undefined || t.kind !== "punct") {
-        break;
-      }
-      const prec = BINARY_PRECEDENCE[t.text];
-      if (prec === undefined || prec < minPrec) {
+      if (t === undefined || t.kind !== "punct" || !BINARY_OPERATORS.has(t.text)) {
         break;
       }
       this.next();
-      this.parseBinary(prec + 1);
+      this.parseUnary();
       left = { kind: "binary", start: left.start, end: this.spanFrom(left.start) };
     }
     return left;
@@ -593,9 +585,6 @@ export interface ObjectSchemaSpec {
  * fires `theta/parse/missing-object-field` (partial defaults are not supported);
  * field order is free. Returns one diagnostic per omitted field, in declared
  * order.
- *
- * V2a-T stubs this as an inert no-op (returns no diagnostics); the paired V2a
- * implementation leaf computes the omitted-field set.
  */
 export function checkObjectLiteralFields(
   schema: ObjectSchemaSpec,

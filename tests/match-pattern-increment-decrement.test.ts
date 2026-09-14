@@ -1,4 +1,3 @@
-import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
@@ -7,6 +6,7 @@ import { parseRegistry, registryMessage } from "../tools/code-registry/index.js"
 import type { Diagnostic, SourceRange } from "../src/diagnostics/diagnostic";
 import type { ThetaDocument } from "../src/parser/theta-document";
 import { parseDoc, parseDocBytes } from "./helpers/e2e-s1";
+import { committedThetaSources } from "./helpers/theta-corpus";
 
 // Bug 0123 — a `++` / `--` in `match` PATTERN position never draws the
 // registered `theta/parse/increment-decrement`
@@ -859,21 +859,7 @@ describe("bug 0123 (i) — a capitalised operand draws both this rejection and b
 
 describe("bug 0123 (j) — no committed theta source holds a `++` / `--` in a match pattern", () => {
   it("j1: the whole tracked `.theta` / `.thetalib` corpus draws no increment-decrement", () => {
-    const listed = execFileSync("git", ["ls-files", "--", "*.theta", "*.thetalib"], {
-      cwd: fileURLToPath(new URL("..", import.meta.url)),
-      encoding: "utf8",
-    })
-      .split("\n")
-      .map((line) => line.trim())
-      .filter((line) => line.length > 0);
-
-    // Fail LOUDLY on an empty list (CLAUDE.md): a sweep over nothing reports
-    // success while verifying nothing, and this cell is the GOV-15 half of the
-    // fix's licence.
-    expect(
-      listed.length,
-      "`git ls-files -- '*.theta' '*.thetalib'` must report the tracked corpus; an empty list means the sweep verified nothing",
-    ).toBeGreaterThan(0);
+    const listed = committedThetaSources();
 
     const offenders: string[] = [];
     for (const relative of listed) {

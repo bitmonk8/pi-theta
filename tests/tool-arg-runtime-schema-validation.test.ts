@@ -5,37 +5,30 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
   createReadToolDefinition,
   type ExtensionAPI,
-  type ExtensionCommandContext,
   type ExtensionContext,
-  type ModelRegistry,
 } from "@earendil-works/pi-coding-agent";
 import type { ThetaFixture } from "../src/extension/factory";
 import { discoverAndComposeFixtures } from "../src/extension/production-composition";
-import { createProductionProducerDeps } from "../src/extension/production-theta-producer";
-import type {
-  ConversationBindInput,
-  ThetaCompositionInput,
-} from "../src/extension/theta-composition-producer";
-import type { Diagnostic, SourceRange } from "../src/diagnostics/diagnostic";
-import type { ParsedFrontmatter } from "../src/parser/frontmatter";
+import type { Diagnostic } from "../src/diagnostics/diagnostic";
 import type { CallableSetSnapshot, ResolvedCallable } from "../src/parser/callable-set";
-import type { CallExpr, Expr, ObjectExpr, ThetaBody } from "../src/parser/theta-document";
+import type { Expr } from "../src/parser/theta-document";
 import { DEPTH_VIOLATION_MESSAGE } from "../src/runtime/depth-walk";
-import type {
-  DispatchLadderProbe,
-  EncodedToolRequest,
-  HostToolResult,
-} from "../src/runtime/host-loop-dispatch";
-import { executeBody } from "../src/runtime/statement-executor";
+import type { EncodedToolRequest, HostToolResult } from "../src/runtime/host-loop-dispatch";
 import type { AgentToolResultEnvelope } from "../src/runtime/tool-call-execute";
-import type { ResultValue, ThetaValue } from "../src/runtime/value";
-import type { RuntimeRoot } from "../src/runtime-root";
-import type { Checkpoint } from "../src/seams/checkpoint";
+import type { ResultValue } from "../src/runtime/value";
 import {
-  AjvSchemaValidator,
-  type LoweredSchema,
-  type SchemaSlug,
-} from "../src/seams/schema-validator";
+  builtinEntry,
+  callExpr,
+  errOf,
+  numExpr,
+  objArg,
+  producer,
+  runBody,
+  snapshot,
+  span,
+  strExpr,
+  thetaWithSet,
+} from "./helpers/tool-call-dispatch-harness";
 
 // Bug 0072 — the RUNTIME half: there is no theta-side input-schema check before
 // a code-side Pi-tool dispatch, so a wrong-typed or unknown-field argument is
@@ -224,27 +217,8 @@ describe("bug 0072 (a) — the built-in tool's registered `parameters` reaches t
 // (b) + (c) Pre-dispatch enforcement at the real `#resolveToolCall`.
 // ===========================================================================
 
-function span(): SourceRange {
-  return { start: { line: 1, column: 1 }, end: { line: 1, column: 2 } };
-}
-
-function numExpr(n: number): Expr {
-  return { kind: "number", text: String(n), numericType: "integer", range: span() };
-}
-
-function strExpr(value: string): Expr {
-  return { kind: "string", value, range: span() };
-}
-
-/** The single bare object-literal argument a code-driven Pi-tool call takes. */
-function objArg(fields: Readonly<Record<string, Expr>>): ObjectExpr {
-  return {
-    kind: "object",
-    typeName: null,
-    fields: Object.entries(fields).map(([name, value]) => ({ name, value })),
-    range: span(),
-  };
-}
+// span/numExpr/strExpr/objArg live in tests/helpers/tool-call-dispatch-harness.ts
+// (PTQ-0238), shared with tests/b0322-unknown-tool-dispatch-safety-net.test.ts.
 
 /** `depth` nested `[...]` around a `1` leaf — JSON-document depth `depth+1`. */
 function nestedArray(depth: number): Expr {
@@ -255,104 +229,9 @@ function nestedArray(depth: number): Expr {
   return e;
 }
 
-function callExpr(callee: string, args: readonly Expr[] = []): CallExpr {
-  return { kind: "call", callee, args, range: span() };
-}
-
-function body(tail: Expr | null): ThetaBody {
-  return { statements: [], tail };
-}
-
-const NOOP_CHECKPOINT: Checkpoint = {
-  before(): Promise<void> {
-    return Promise.resolve();
-  },
-};
-
-/**
- * A `RuntimeRoot` double exposing the members the code-side tool-call path
- * reads. `schemaValidator` is the REAL AJV-backed seam (`AjvSchemaValidator`),
- * so the pre-dispatch check's accept/reject verdicts are the production
- * validator's, not a fake's.
- */
-function rootDouble(): RuntimeRoot {
-  const slugOf = (schema: LoweredSchema): SchemaSlug => ({
-    slug: JSON.stringify(schema),
-    canonicalBytes: JSON.stringify(schema),
-  });
-  return {
-    checkpoint: NOOP_CHECKPOINT,
-    schemaValidator: new AjvSchemaValidator({ emit: (): void => {}, slugOf }),
-    idSource: {
-      newInvocationId: () => "inv-1",
-      newToolCallId: () => "tc-1",
-    },
-  } as unknown as RuntimeRoot;
-}
-
-function ctxDouble(): ExtensionCommandContext {
-  return {} as unknown as ExtensionCommandContext;
-}
-
-interface ProducerOpts {
-  readonly hostLoopDispatch?: (
-    request: EncodedToolRequest,
-    signal: AbortSignal,
-  ) => Promise<HostToolResult>;
-  readonly dispatchLadderProbe?: DispatchLadderProbe;
-  readonly emitDiagnostic?: (diagnostic: Diagnostic) => void;
-}
-
-function producer(opts: ProducerOpts) {
-  return createProductionProducerDeps({
-    pi: {} as unknown as ExtensionAPI,
-    root: rootDouble(),
-    modelRegistry: {} as unknown as ModelRegistry,
-    ...(opts.hostLoopDispatch !== undefined ? { hostLoopDispatch: opts.hostLoopDispatch } : {}),
-    ...(opts.dispatchLadderProbe !== undefined
-      ? { dispatchLadderProbe: opts.dispatchLadderProbe }
-      : {}),
-    ...(opts.emitDiagnostic !== undefined ? { emitDiagnostic: opts.emitDiagnostic } : {}),
-  });
-}
-
-/** A frozen callable-set snapshot from `{ callableName -> entry }` pairs. */
-function snapshot(
-  entries: readonly (readonly [string, ResolvedCallable])[],
-): CallableSetSnapshot {
-  return Object.freeze({ entries: new Map(entries) });
-}
-
-/** A prompt-mode theta whose tail is the code-side tool call under test. */
-function thetaWithSet(tail: Expr, callableSet: CallableSetSnapshot): ThetaCompositionInput {
-  const frontmatter: ParsedFrontmatter = { mode: "prompt" };
-  return {
-    slashName: "demo",
-    sourcePath: "/theta/demo.theta",
-    frontmatter,
-    body: body(tail),
-    callableSet,
-  };
-}
-
-/**
- * Drive the theta body through the real prompt-mode binding and return the tail
- * expression's value. A failed tool call produces an `Err` VALUE, so the outer
- * execution result is `Ok(<tail value>)` on every path here.
- */
-async function runBody(
-  deps: ReturnType<typeof producer>,
-  input: ThetaCompositionInput,
-): Promise<ThetaValue> {
-  const bindInput: ConversationBindInput = { theta: input, args: "", ctx: ctxDouble() };
-  const binding = deps.bindPromptConversation(bindInput);
-  const execution = await executeBody(input.body, binding.executeDeps);
-  const outer = execution.result;
-  if (!outer.present || outer.value === undefined) {
-    throw new Error("body produced no final value");
-  }
-  return outer.value;
-}
+// callExpr/body/NOOP_CHECKPOINT/rootDouble/ctxDouble/ProducerOpts/producer/
+// snapshot/thetaWithSet/runBody live in tests/helpers/tool-call-dispatch-harness.ts
+// (PTQ-0238) too.
 
 /**
  * The `read` built-in's registered input schema, as probed from the pinned SDK
@@ -372,43 +251,7 @@ const READ_SCHEMA = {
   },
 } as const;
 
-/** A recording built-in-shaped entry: `{ toolName, parameters, execute }`. */
-function builtinEntry(
-  toolName: string,
-  parameters: unknown,
-  record: { dispatched: boolean },
-): ResolvedCallable {
-  return {
-    kind: "pi-tool",
-    toolDefinition: {
-      toolName,
-      parameters,
-      execute: (): Promise<AgentToolResultEnvelope> => {
-        record.dispatched = true;
-        return Promise.resolve({ content: [{ type: "text", text: "TOOL-RAN" }] });
-      },
-    },
-  };
-}
-
-/** Read the `Err` carrier off a tail `ResultValue`, failing loudly when it is `Ok`. */
-function errOf(
-  value: ThetaValue,
-  why: string,
-): { readonly kind?: string; readonly cause?: string; readonly message?: string; readonly tool_name?: string } {
-  const result = value as ResultValue;
-  expect(result.ok, why).toBe(false);
-  return (
-    value as unknown as {
-      readonly error: {
-        readonly kind?: string;
-        readonly cause?: string;
-        readonly message?: string;
-        readonly tool_name?: string;
-      };
-    }
-  ).error;
-}
+// builtinEntry/errOf live in tests/helpers/tool-call-dispatch-harness.ts (PTQ-0238) too.
 
 describe("bug 0072 (b) — schema-violating code-side tool args surface Err(CodeToolError{cause:'validation'}) and never dispatch", () => {
   it("E1: a WRONG-TYPED field surfaces the validation Err and the tool's execute() is never called", async () => {

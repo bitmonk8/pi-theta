@@ -42,10 +42,9 @@
 //     issue>], ... })`. On a multi-attempt sequence only the *last* attempt's
 //     issue appears in `validation_errors`.
 //
-// V13d-T (this tests task) declares the seam shapes and stubs
-// `runRespondRepairLoop` inert (it issues no follow-up and returns an inert
-// `value` outcome) so the failing tests compile and red on their own primary
-// assertions while the paired `V13d` implementation is absent.
+// V13d-T (tests-task) declared the seam shapes; V13d (this leaf) supplies the
+// `runRespondRepairLoop` attempt loop and its `value` / `validation` /
+// `propagated` outcomes.
 //
 // Spec: query/query-failure-and-repair.md (QRY-11 respond-repair loop,
 // non-validation propagation, context-overflow short-circuit),
@@ -213,7 +212,7 @@ export const SCHEMA_VALIDATION_TERMINAL_MESSAGE =
   "typed query response failed schema validation";
 
 // ---------------------------------------------------------------------------
-// The loop (V13d-T stub; the paired V13d fills it in).
+// The loop (V13d-T declared it; V13d implements it).
 // ---------------------------------------------------------------------------
 
 /**

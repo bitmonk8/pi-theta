@@ -55,7 +55,6 @@ import {
   type ChildExitInfo,
   type ExecutableHost,
 } from "../src/runtime/subagent-launcher";
-import { WallClock } from "../src/seams/wall-clock";
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
 
 /** The repo's pinned pi CLI entry — the SAME executable resolution rung 1 uses in production. */
@@ -247,7 +246,6 @@ describe("bug 0067 — subagent invoke return: inbound named-enum tag reattachme
           thetaAbort: new AbortController(),
           calleePath: join(thetaDir, "top-typed.theta"),
           emitDiagnostic,
-          clock: new WallClock(),
         });
         clearTimeout(watchdog);
 

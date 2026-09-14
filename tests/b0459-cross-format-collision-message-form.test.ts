@@ -44,14 +44,10 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { discoverThetas, type DiscoveryInput, type PiOwnedCommand } from "../src/discovery/discovery-walk";
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
-import { createThetaExtension, type ThetaExtensionDeps } from "../src/extension/factory";
-import { composeExtensionInstance } from "../src/extension/production-composition";
-import { FakeClock } from "./helpers/fake-clock";
-import { FakeFileWatcher } from "./helpers/fake-file-watcher";
 import { FakeFileSystem } from "./helpers/fake-file-system";
+import { makeHarness, expectSoleCollisionNote } from "./helpers/cross-format-collision-harness";
 
 const HOME = "/home/theta";
 const CWD = "/project";
@@ -239,66 +235,6 @@ describe("b0459 cell 3 — path-less extension-source sibling renders the comman
 // (theta path mixed Win32-root+POSIX-tail spelling; no `.md` sibling; suffix present.)
 // --------------------------------------------------------------------------
 
-/** One `pi.getCommands()` entry — the fake's `SlashCommandInfo` shape, extended
- *  (per bug 0024's harness) with the optional host-populated `sourceInfo` whose
- *  `path` the pinned host carries for every prompt template. */
-interface FakeCommandInfo {
-  readonly name: string;
-  readonly source: string;
-  readonly sourceInfo?: { readonly path: string; readonly source: string; readonly scope: string; readonly origin: string };
-}
-
-interface Cell4Harness {
-  readonly pi: ExtensionAPI;
-  readonly notes: string[];
-  fireSessionStart(): Promise<void>;
-}
-
-function makeCell4Harness(cwd: string, extra: readonly FakeCommandInfo[]): Cell4Harness {
-  const commands = new Map<string, unknown>();
-  const notes: string[] = [];
-  const subscriptions = new Map<string, ((e: unknown, c: ExtensionContext) => unknown)[]>();
-
-  const pi = {
-    registerFlag: (): void => {},
-    registerMessageRenderer: (): void => {},
-    registerCommand: (name: string, options: unknown): void => {
-      commands.set(name, options);
-    },
-    on: (event: string, handler: (e: unknown, c: ExtensionContext) => unknown): void => {
-      const list = subscriptions.get(event) ?? [];
-      list.push(handler);
-      subscriptions.set(event, list);
-    },
-    getFlag: (): undefined => undefined,
-    // Faithful to the host: an extension's own registrations come back as
-    // `source: "extension"`; `extra` plants the genuine Pi-owned prompt entry.
-    getCommands: (): readonly FakeCommandInfo[] => [
-      ...[...commands.keys()].map((name) => ({ name, source: "extension" })),
-      ...extra,
-    ],
-    sendMessage: (message: { content: string }): void => {
-      notes.push(message.content);
-    },
-    sendUserMessage: (): void => {},
-  } as unknown as ExtensionAPI;
-
-  const ctx = {
-    cwd,
-    hasUI: false,
-    modelRegistry: { getAvailable: (): readonly unknown[] => [] },
-    ui: { notify: (): void => {} },
-  } as unknown as ExtensionContext;
-
-  const fire = async (event: string): Promise<void> => {
-    for (const handler of subscriptions.get(event) ?? []) {
-      await handler({ type: event }, ctx);
-    }
-  };
-
-  return { pi, notes, fireSessionStart: () => fire("session_start") };
-}
-
 describe("b0459 cell 4 — production seam renders the forward-slash .md sibling and drops the suffix", () => {
   let workspace: string;
 
@@ -315,7 +251,7 @@ describe("b0459 cell 4 — production seam renders the forward-slash .md sibling
   it("the collision note names the .md sibling forward-slashed with no survives-suffix", async () => {
     const mdPath = join(workspace, ".pi", "prompts", "promptdup2.md");
     const forwardMd = mdPath.replace(/\\/g, "/");
-    const harness = makeCell4Harness(workspace, [
+    const harness = makeHarness(workspace, [
       {
         name: "promptdup2",
         source: "prompt",
@@ -323,33 +259,9 @@ describe("b0459 cell 4 — production seam renders the forward-slash .md sibling
       },
     ]);
 
-    const clock = new FakeClock();
-    const deps: ThetaExtensionDeps = {
-      fixtures: [],
-      composeInstance: async (pi, ctx, ownRegisteredNames) =>
-        composeExtensionInstance(
-          pi,
-          ctx,
-          { fileWatcher: new FakeFileWatcher(), clock },
-          undefined,
-          ownRegisteredNames,
-        ),
-    };
-    createThetaExtension(deps)(harness.pi);
-
     await harness.fireSessionStart();
 
     const collision = harness.notes.filter((n) => n.includes(COLLISION_FRAGMENT));
-    expect(
-      collision,
-      `expected exactly one collision note; got ${JSON.stringify(collision)}`,
-    ).toHaveLength(1);
-    const note = collision[0]!;
-    // (a) the `.md` sibling is named, forward-slash spelled.
-    expect(note).toContain(forwardMd);
-    // (b) no off-template survives-suffix.
-    expect(note).not.toContain("survives)");
-    // (c) forward-slash spelling: no backslash anywhere in the rendered paths.
-    expect(note).not.toMatch(/\\/);
+    expectSoleCollisionNote(collision, forwardMd);
   }, 15000);
 });

@@ -63,6 +63,7 @@ import {
   composeThetaFixture,
   type BinderRunInput,
   type BinderRunResult,
+  type BodyExecutingConversationBinding,
   type ConversationBinding,
   type ConversationBindInput,
   type ThetaCompositionInput,
@@ -95,7 +96,6 @@ import {
   type ExecutableHost,
 } from "../src/runtime/subagent-launcher";
 import { SUBAGENT_PARAMS_ENV, SUBAGENT_PARAMS_FILE_ENV } from "../src/runtime/subagent-params";
-import { WallClock } from "../src/seams/wall-clock";
 import {
   AjvSchemaValidator,
   type LoweredSchema,
@@ -1116,7 +1116,6 @@ const NOOP_CHECKPOINT: Checkpoint = {
 };
 
 const NOOP_SINK: ToolLoweringSink = {
-  runtimeEvent(): void {},
   diagnostic(): void {},
   systemNote(): void {},
 };
@@ -1223,7 +1222,7 @@ async function driveBinderAndCapture(args: Record<string, unknown>): Promise<Bin
       capture.postMergeOk = merged.validation.ok;
       return Promise.resolve({ bound: true, args: merged.args });
     },
-    bindPromptConversation(input: ConversationBindInput): ConversationBinding {
+    bindPromptConversation(input: ConversationBindInput): BodyExecutingConversationBinding {
       capture.paramBindings = input.paramBindings;
       return {
         drivenAgainst: "prompt-user-session",
@@ -1445,6 +1444,12 @@ async function driveRootChild(input: {
       parentEnv: {
         ...process.env,
         [SUBAGENT_EXTENSION_PIN_ENV]: EXTENSION_ENTRY,
+      },
+      // THIS launch's params ride the per-launch control-plane channel (bug
+      // 0474): the launcher scrubs every inherited per-launch carrier out of
+      // `parentEnv`, so a carrier this process itself holds cannot reach the
+      // child; both carriers are named so the channel choice is authoritative.
+      controlPlaneEnv: {
         [SUBAGENT_PARAMS_ENV]: input.params,
         [SUBAGENT_PARAMS_FILE_ENV]: undefined,
       },
@@ -1486,7 +1491,6 @@ async function driveRootChild(input: {
       thetaAbort: new AbortController(),
       calleePath: join(input.thetaDir, `${input.slug}.theta`),
       emitDiagnostic,
-      clock: new WallClock(),
     });
     clearTimeout(watchdog);
   } finally {

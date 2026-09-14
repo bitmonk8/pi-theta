@@ -48,6 +48,24 @@
 //     (bug 0071's one-walker lesson), `collectProvableArgTypes` and
 //     `dedupeArgType` below, plus the parser's unchanged `checkFnCallArity` /
 //     `checkFnArgCompat` emitters.
+//   - bugs 0429 / 0430 / 0448 — `checkImportedSchemaCtorFields`,
+//     `checkImportedEnumVariantAccess` and `checkImportedNonCtorTypeNames`,
+//     wired from the same `checkThetaImports` site as bug 0138's check: an
+//     imported-`.thetalib` constructor site's field set against the imported
+//     `schema`'s declared fields, an imported `enum`'s member access against
+//     its variant list, and a constructor whose imported head is not
+//     brace-constructible (an `enum`, a `fn`, or an alias-form `schema`) —
+//     each reusing an existing parse-time diagnostic row and walking the
+//     importing theta's body through the one shared collection.
+//   - RFC 0009 (invocation.md INV-6 / INV-8) — the call-site `with` clause
+//     checks inside `checkInvokeStaticResolution`: `checkClauseCwdType` judges
+//     the clause's `cwd` value as an ordinary `string` argument slot on both
+//     call surfaces (the surface's own arg-type row, no new code); the mode gate
+//     refuses a clause on a statically-resolvable PROMPT-mode callee
+//     (`theta/parse/with-clause-prompt-mode-callee`); and the Erratum A′
+//     default-reject loop convicts a clause on any bare-ident callee the frozen
+//     callable set does not classify `theta` (`theta/parse/with-clause-pi-tool`
+//     / `theta/parse/with-clause-in-process-callee`).
 //
 // The invoke-graph is keyed by discovered slash name (unique per registration),
 // so the cycle message renders `invocation cycle: A → B → A` per the spec prose.
@@ -59,7 +77,6 @@
 import { dirname, isAbsolute, resolve as resolvePath } from "node:path";
 import type { Diagnostic, SourceRange } from "../diagnostics/diagnostic";
 import type {
-  Block,
   CallExpr,
   Expr,
   FnDecl,
@@ -71,7 +88,7 @@ import type {
   ThetaBody,
   Stmt,
 } from "../parser/theta-document";
-import { callWithClauseValues } from "../parser/theta-document";
+import { walkCallSiteNodes } from "../parser/theta-document";
 import type { CallWithClause } from "../parser/theta-document";
 import type { ThetaMode } from "../parser/frontmatter";
 import { checkObjectLiteralFields } from "../parser/literal-sublanguage";
@@ -115,7 +132,6 @@ import {
   annotationSourceIsNotTypeExpression,
   annotationToCompatType,
   collectEnumNames,
-  collectLocalBinderNames,
   collectTypeEnv,
   fnParamNamesAreIdentifiers,
 } from "../parser/type-layer-checks";
@@ -133,16 +149,20 @@ function normalizePath(path: string): string {
 }
 
 /**
- * The two call-shaped node kinds the shared walk collects in ONE traversal:
- * every `invoke(...)` expression, and every `CallExpr` — a `.theta`-callable-
- * call CANDIDATE whose callee is resolved against the caller's frozen
- * callable set by `resolveThetaCallableCallSites`, not by this walk. One walk
- * keeps the two call surfaces in lockstep: a second, independently written
- * walker would drift out of sync as the `Expr` / `Stmt` node shapes evolve
- * (bug 0071). `checkInvokeStaticResolution` therefore traverses a body once and
- * feeds both of its check loops from that one result.
+ * The four call-shaped node kinds the shared walk (`walkCallSiteNodes`,
+ * `../parser/theta-document.ts`) visits in ONE traversal: every `invoke(...)`
+ * expression, every `CallExpr` — a `.theta`-callable-call CANDIDATE whose
+ * callee is resolved against the caller's frozen callable set by
+ * `resolveThetaCallableCallSites`, not by this walk — every `ObjectExpr`
+ * constructor site (bug 0429) and every `MemberExpr` (bug 0430). One walk
+ * keeps all four call surfaces in lockstep across this module,
+ * `extension-tool-reachability.ts`, `subagent-fn-static-checks.ts` and
+ * `collectClauseBearingCalls`: a second, independently written walker would
+ * drift out of sync as the `Expr` / `Stmt` node shapes evolve (bug 0071).
+ * `checkInvokeStaticResolution` therefore traverses a body once and feeds
+ * every one of its check loops from that one result.
  */
-interface CollectedCallSites {
+export interface CollectedCallSites {
   readonly invokeExprs: InvokeExpr[];
   readonly callExprs: CallExpr[];
   /**
@@ -165,168 +185,53 @@ interface CollectedCallSites {
  * the whole statement / expression tree: every nested block (`if` / `else` /
  * `while` / `for` / `fn` bodies and the `par for` expression body alike),
  * conditions, iterands, `par for` `max` operands, `match` arms, and call
- * arguments. Totality over the `Stmt` / `Expr` unions rests on the explicit
- * arms of `walkStmt` / `walkExpr`, never on their `default` cases: a union
+ * arguments. Totality over the `Stmt` / `Expr` unions rests on
+ * `walkCallSiteNodes`'s explicit arms, never on its `default` cases: a union
  * member reaching a `default` is walked as a leaf and its sub-tree is not
  * collected.
  */
-export function collectInvokeExprs(body: ThetaBody): InvokeExpr[] {
+function collectInvokeExprs(body: ThetaBody): InvokeExpr[] {
   return collectCallSites(body).invokeExprs;
 }
 
-/** Run the shared call-site walk once (`CollectedCallSites`) over a theta body. */
-function collectCallSites(body: ThetaBody): CollectedCallSites {
+/**
+ * Run the shared call-site walk once (`CollectedCallSites`) over a theta
+ * body. A `par for` body is an ordinary call-site region (control-flow.md
+ * CTRL-4 admits `invoke(...)`, `.theta` callable calls, `subagent fn` calls
+ * and Pi-tool calls inside it) and so is a `let`-RHS / match-arm-body block
+ * (bug 0082 §Fix) — both must surface every one of INV-3 (arity, both call
+ * surfaces), INV-1 (`invoke(...)` path-escape, invocation.md §Resolution),
+ * `checkCalleeHasErrors`, and INV-4 (`buildInvokeGraph`'s cycle edges)
+ * exactly as a statement-level occurrence would; the shared walk reaches both
+ * without a per-check special case.
+ */
+export function collectCallSites(body: ThetaBody): CollectedCallSites {
   const out: CollectedCallSites = { invokeExprs: [], callExprs: [], objectExprs: [], memberExprs: [] };
-  walkBlock({ statements: body.statements, tail: body.tail }, out);
+  // `target.method(args)` (a `MethodCallExpr`) is a method call, not a
+  // `.theta`-callable-call candidate — `method` names a stdlib member, never a
+  // `tools:` name — so it has no case below and joins none of the four arrays;
+  // `walkCallSiteNodes` still reaches its target and args, just uncollected.
+  walkCallSiteNodes(body, (node) => {
+    switch (node.kind) {
+      case "invoke":
+        out.invokeExprs.push(node);
+        return;
+      case "call":
+        out.callExprs.push(node);
+        return;
+      case "object":
+        // Bug 0429: the constructor NODE itself joins `objectExprs` (a bare
+        // `{ … }` included — filtered by `typeName` downstream).
+        out.objectExprs.push(node);
+        return;
+      case "member":
+        // Bug 0430: the member NODE itself joins `memberExprs` (mirroring the
+        // 0429 `object` arm's own-node-plus-descend shape).
+        out.memberExprs.push(node);
+        return;
+    }
+  });
   return out;
-}
-
-function walkBlock(block: Block, out: CollectedCallSites): void {
-  for (const stmt of block.statements) {
-    walkStmt(stmt, out);
-  }
-  if (block.tail !== null) {
-    walkExpr(block.tail, out);
-  }
-}
-
-function walkStmt(stmt: Stmt, out: CollectedCallSites): void {
-  switch (stmt.kind) {
-    case "let":
-      if (stmt.init !== null) walkExpr(stmt.init, out);
-      return;
-    case "reassign":
-      walkExpr(stmt.value, out);
-      return;
-    case "if":
-      walkExpr(stmt.condition, out);
-      walkBlock(stmt.then, out);
-      if (stmt.otherwise !== null) {
-        if ("kind" in stmt.otherwise) walkStmt(stmt.otherwise, out);
-        else walkBlock(stmt.otherwise, out);
-      }
-      return;
-    case "while":
-      walkExpr(stmt.condition, out);
-      walkBlock(stmt.body, out);
-      return;
-    case "for":
-      walkExpr(stmt.iterand, out);
-      walkBlock(stmt.body, out);
-      return;
-    case "fn":
-      walkBlock(stmt.body, out);
-      return;
-    case "return":
-      if (stmt.operand !== null) walkExpr(stmt.operand, out);
-      return;
-    case "tool-call":
-      walkExpr(stmt.call, out);
-      return;
-    case "invoke":
-      walkExpr(stmt.invoke, out);
-      return;
-    case "expr":
-      walkExpr(stmt.expr, out);
-      return;
-    // `query`, `break`, `continue`, `schema`, `enum`, `import`, `export`,
-    // `doc-comment` carry no nested `invoke(...)` / call sub-expression.
-    default:
-      return;
-  }
-}
-
-function walkExpr(expr: Expr, out: CollectedCallSites): void {
-  switch (expr.kind) {
-    case "invoke":
-      out.invokeExprs.push(expr);
-      // RFC 0009: a call-site `with` clause value is an expression position with
-      // an argument's exact rules, so nested call sites inside one are
-      // collected exactly as an argument's are.
-      for (const arg of [...expr.args, ...callWithClauseValues(expr)]) walkExpr(arg, out);
-      return;
-    case "array":
-      for (const el of expr.elements) walkExpr(el, out);
-      return;
-    case "binary":
-      walkExpr(expr.left, out);
-      walkExpr(expr.right, out);
-      return;
-    case "ternary":
-      walkExpr(expr.condition, out);
-      walkExpr(expr.consequent, out);
-      walkExpr(expr.alternate, out);
-      return;
-    case "try":
-      walkExpr(expr.operand, out);
-      return;
-    case "call":
-      out.callExprs.push(expr);
-      for (const arg of [...expr.args, ...callWithClauseValues(expr)]) walkExpr(arg, out);
-      return;
-    case "member":
-      // Bug 0430: the member NODE itself joins `memberExprs` (mirroring the
-      // 0429 `object` arm's own-node-plus-descend shape), in addition to the
-      // pre-existing descent into the target.
-      out.memberExprs.push(expr);
-      walkExpr(expr.target, out);
-      return;
-    case "index":
-      walkExpr(expr.target, out);
-      walkExpr(expr.index, out);
-      return;
-    case "object":
-      // Bug 0429: the constructor NODE itself joins `objectExprs` (a bare
-      // `{ … }` included — filtered by `typeName` downstream), in addition to
-      // the pre-existing descent into each field's value expression.
-      out.objectExprs.push(expr);
-      for (const field of expr.fields) walkExpr(field.value, out);
-      return;
-    case "match":
-      walkExpr(expr.scrutinee, out);
-      for (const arm of expr.arms) walkExpr(arm.body, out);
-      return;
-    case "result-ctor":
-      walkExpr(expr.arg, out);
-      return;
-    case "method-call":
-      // `target.method(args)` is a method call, not a `.theta`-callable-call
-      // candidate: `method` names a stdlib member, never a `tools:` name, so it
-      // does not join `callExprs`. Walk the target and args only.
-      walkExpr(expr.target, out);
-      for (const arg of expr.args) walkExpr(arg, out);
-      return;
-    case "par-for":
-      // A `par for` body is an ordinary call-site region: control-flow.md CTRL-4
-      // admits `invoke(...)`, `.theta` callable calls, `subagent fn` calls and
-      // Pi-tool calls inside it, so every rule this walk feeds must hold there
-      // too. Because the walk is shared, this one arm carries the whole set into
-      // `par for` bodies at once — INV-3 arity over both call surfaces, the `invoke(...)`
-      // surface's INV-1 (invocation.md §Resolution) path-escape and `checkCalleeHasErrors`
-      // checks, and `buildInvokeGraph`'s INV-4 cycle edges. That breadth is the
-      // single-walker invariant paying out rather than a second rule bolted on:
-      // one walker cannot drift against itself, so the reachable-node set is
-      // identical for every consumer, and a `.theta`-callable-only branch here
-      // would reintroduce exactly the per-surface divergence the shared walk
-      // exists to prevent (bug 0071).
-      walkExpr(expr.iterand, out);
-      if (expr.max !== null) walkExpr(expr.max, out);
-      walkBlock(expr.body, out);
-      return;
-    case "block":
-      // A `let`-RHS / match-arm-body block (bug 0082 §Fix) is an ordinary
-      // call-site region: an `invoke(...)` / `.theta`-callable call inside it
-      // must still be collected for INV-3 / INV-4 / INV-1.
-      walkBlock(expr.body, out);
-      return;
-    // The complete leaf set of the `Expr` union — `ident`, `number`, `string`,
-    // `bool`, `null`, `query` — carries no nested `invoke(...)` / call. Every
-    // other union member has an explicit arm above; one added without an arm
-    // lands here and its sub-tree goes uncollected, which is a silent hole in
-    // every check downstream of the walk.
-    default:
-      return;
-  }
 }
 
 /** One `.theta`-callable call site resolved against the caller's frozen callable set. */
@@ -506,6 +411,16 @@ function resolveCalleeAbsolute(callerPath: string, literalPath: string): string 
  * undiscovered files is not detected until they are discovered (the spec's
  * leaf-termination rule).
  *
+ * The returned graph's `unresolvable` set is always empty here. `InvokeGraph`'s
+ * own doc (`../runtime/invoke-depth-cycle.ts`) treats a member as a LEAF
+ * because it produced `theta/load/callee-has-errors`, but that diagnostic
+ * (this file's `checkCalleeHasErrors` push on the `invoke` surface, in
+ * `checkInvokeStaticResolution` below) fires only for a callee whose
+ * realpath-based containment check rejected it — one this pass never
+ * discovered, so never a member of `inputs` and never one of the nodes `edges`
+ * covers above. This builder's own leaf-termination is the edge-drop just
+ * described, not this field.
+ *
  * Both the node keys and the resolved edge callees are minted through
  * `canonicalizePath` (`realpath`), so an `invoke(...)` literal whose directory
  * spelling differs only in case from the discovered path matches its node on a
@@ -669,7 +584,7 @@ function fieldSchemaType(fieldSchema: unknown): string | undefined {
 /**
  * The flat set of static types whose UNION covers every value `expr` can
  * evaluate to, or `undefined` when any value-contributing position is past the
- * parser's static view. Both type checks below reason over this SET rather than
+ * parser's static view. All type checks below reason over this SET rather than
  * over `StaticTypeInferencePass`'s single reduced type.
  *
  * `#commonType` (../parser/static-type-inference.ts) narrows a composite to ONE
@@ -683,7 +598,7 @@ function fieldSchemaType(fieldSchema: unknown): string | undefined {
  * rejects a program the runtime AJV check would accept"), and on the
  * `.theta`-callable arm it defeats bug 0072 §Fix's rule that only an explicit
  * incompatibility is a mismatch while `unknown` defers to the runtime net.
- * Keeping the whole value-type set in front of both consumers is what lets
+ * Keeping the whole value-type set in front of all consumers is what lets
  * `subsetKinds`' "an unrepresentable arm makes the whole union unprovable" rule
  * (../runtime/tool-call.ts) and the every-arm-incompatible test below decide
  * these expressions correctly. The RENDERING stays on `displayType`, the
@@ -791,9 +706,10 @@ function collectProvableArgTypes(
       // (../runtime/tool-call.ts) admits no `array<…>` kind, so that consumer
       // still proves nothing from an array member and stands down on its own
       // "an unrepresentable arm makes the whole union unprovable" rule whatever
-      // this arm answers. The invoke and `.theta`-callable arms compare
+      // this arm answers. The invoke arm, the `.theta`-callable arm, and the
+      // imported-`fn`-call route (`checkImportedFnCallArgs`, below) compare
       // `CompatType`s through `checkCompatible` instead, which decides
-      // `array<string> ⋢ string` — so for those two consumers an unconditional
+      // `array<string> ⋢ string` — so for those consumers an unconditional
       // bail withheld a decidable case, not an undecidable one.
       //
       // An EXACTNESS-TESTED mirror of `#typeExpr`'s own array arm
@@ -836,7 +752,7 @@ function collectProvableArgTypes(
     case "method-call":
       // Each types as a `named` nominal reference past the parser's static view
       // — the shape `checkCompatible` answers `unknown` for and the runtime AJV
-      // net owns. `ident` included: both consumers below read types with an
+      // net owns. `ident` included: all consumers below read types with an
       // EMPTY bindings map, so even a `let`-bound name is nominal here.
       return undefined;
     case "index":
@@ -987,6 +903,192 @@ function dedupeArgType(types: readonly CompatType[]): CompatType {
 }
 
 /**
+ * INV-3 over the `.theta`-callable call surface (tool-calls.md §"Argument
+ * shape"; bug 0071): reached only for a `tools:` entry that already
+ * resolved cleanly — an unresolvable path or an erroring callee un-registers
+ * the parent in `resolveThetaToolsAtLoad` before the compose loop reaches
+ * this pass at all, so `deps.callableSet` never carries a rejected entry
+ * here, and no `.theta`-callable call attracts a second, derived diagnostic
+ * on top of that entry's own rejection.
+ */
+async function checkThetaCallableCallSurface(
+  callExprs: readonly CallExpr[],
+  callerPath: string,
+  typeEnv: TypeEnv,
+  typePass: StaticTypeInferencePass,
+  deps: {
+    readonly callableSet: CallableSetSnapshot | undefined;
+    readonly resolveCalleeArity: (calleeAbsolutePath: string) => Promise<CalleeArity | undefined>;
+  },
+): Promise<Diagnostic[]> {
+  const diagnostics: Diagnostic[] = [];
+  for (const site of resolveThetaCallableCallSites(
+    callExprs,
+    deps.callableSet,
+  )) {
+    const resolvedPath = resolveCalleeAbsolute(callerPath, site.calleePath);
+    // Unlike `invoke(...)`, a `.theta`-callable call carries no leading
+    // path-literal argument (the callee is named by the `tools:` entry, not
+    // by the call's own first argument), so every positional argument is a
+    // real argument slot.
+    const providedCount = site.call.args.length;
+    const arity = await deps.resolveCalleeArity(resolvedPath);
+    if (arity === undefined) {
+      continue;
+    }
+    // RFC 0009 (invocation.md INV-8 static mode gate), the `.theta`-callable
+    // half of the invoke arm's gate above. PRODUCTION-UNREACHABLE: a
+    // prompt-mode `.theta` in `tools:` already un-registers the theta at load
+    // (`theta/load/prompt-mode-callable`, tool-calls.md), so no registered
+    // caller can hold this site — the arm exists so the gate is uniform
+    // across both clause-bearing surfaces (and for harness inputs). `<callee>`
+    // is the PRESENTED callable name here, not the callee path
+    // (placeholder-rendering-b.md §7), as this surface's other rows render it.
+    let clauseRefused = false;
+    if (site.call.withClause !== undefined && arity.mode === "prompt") {
+      diagnostics.push({
+        severity: "error",
+        code: WITH_CLAUSE_PROMPT_MODE_CALLEE_CODE,
+        file: callerPath,
+        range: site.call.range,
+        message: withClausePromptModeCalleeMessage(site.name),
+        hint: WITH_CLAUSE_PROMPT_MODE_CALLEE_HINT,
+      });
+      clauseRefused = true;
+    }
+    if (!clauseRefused) {
+      diagnostics.push(
+        ...checkClauseCwdType({
+          ...(site.call.withClause !== undefined ? { clause: site.call.withClause } : {}),
+          surface: { kind: "theta-callable", name: site.name },
+          file: callerPath,
+          fallbackRange: site.call.range,
+          typeEnv,
+          typePass,
+        }),
+      );
+    }
+    const arityDiags = checkInvokeArity({
+      // The `invoke(...)` arm above renders `<callee>` as the verbatim path
+      // literal because that IS the text at its diagnostic range. Here the
+      // range is the call site instead, and the callee path appears
+      // nowhere on that line — only the presented callable name does — so
+      // `<callee>` renders the presented name (placeholder-rendering-b.md
+      // §7).
+      callee: site.name,
+      // invocation.md §Static resolution defines a statically-resolvable
+      // callee as one "referenced by a literal `invoke(...)` or by a
+      // `.theta` entry in `tools:`" (quoted in tool-calls.md §"Argument
+      // shape") — a `.theta`-callable call site is statically resolvable BY
+      // DEFINITION, not by inference from reaching this loop.
+      staticallyResolvable: true,
+      requiredCount: arity.requiredCount,
+      totalCount: arity.totalCount,
+      providedCount,
+      site: { file: callerPath, range: site.call.range },
+    });
+    diagnostics.push(...arityDiags);
+    if (arityDiags.length > 0) {
+      // invocation.md §"Argument arity": arity is checked before type — a
+      // site the arity check already rejected draws no additional
+      // type-mismatch diagnostic (bug 0071 §Fix constraint 5).
+      continue;
+    }
+    // Bug 0072 — per-argument type mismatch (tool-calls.md §"Argument
+    // shape": "an argument that does not type-check against the callee's
+    // `params:` surfaces as `theta/parse/tool-arg-type-mismatch` when the
+    // callee is statically resolvable"), positional slot `i` against the
+    // callee's `i`-th `params:` field. `arity.fields` is the
+    // callee's WHOLE `params:` list in declaration order, and the arity
+    // check above already bounds `providedCount` within
+    // `[requiredCount, totalCount]`, so every provided slot has a
+    // corresponding field.
+    //
+    // The EXPECTED side is the callee's own annotation text, so it must not
+    // resolve through the caller's declarations: `annotationToCompatType`
+    // maps every non-primitive annotation to a `named` reference, and
+    // resolving that name in the caller's `typeEnv` lets a caller-local
+    // homonym decide a verdict about the callee's contract. tool-calls.md
+    // §"Argument shape" puts the judgement in the callee's namespace — the
+    // mismatch is "against the callee's `params:`", and the runtime check it
+    // front-runs validates the argument against the callee's own lowered
+    // `params:` schema. Under an EMPTY environment a `named` expected type is
+    // unresolvable, so `checkCompatible` answers `"unknown"` and the site
+    // defers to that validation. Primitive and literal decisions consult no
+    // environment at all, so a `params: x: string` slot still rejects an
+    // integer argument, and a structurally-decidable slot such as
+    // `array<Named>` still rejects a non-array argument without this pass
+    // needing to know what `Named` denotes — which is why the expected side
+    // is emptied rather than withheld whenever it mentions a name.
+    // Null-prototype for the same reason `collectTypeEnv`
+    // (../parser/type-layer-checks.ts) builds one: an annotation may spell an
+    // `Object.prototype` own property verbatim, and that name must be
+    // unresolvable here too.
+    const emptyCalleeAnnotationEnv: TypeEnv = Object.create(null) as TypeEnv;
+    for (const [i, argExpr] of site.call.args.entries()) {
+      const field = arity.fields[i];
+      if (field === undefined) {
+        continue;
+      }
+      const expectedType = annotationToCompatType(field.typeSource);
+      if (expectedType === undefined) {
+        continue;
+      }
+      const argTypes = collectProvableArgTypes(argExpr, typeEnv, typePass);
+      if (argTypes === undefined) {
+        // A value-contributing position past the parser's static view: the
+        // argument can take a value of unknown type, which defers to the
+        // callee's own runtime AJV load — see `collectProvableArgTypes`.
+        continue;
+      }
+      if (
+        !argTypes.every(
+          (argType) =>
+            checkCompatible(argType, expectedType, emptyCalleeAnnotationEnv) ===
+            "incompatible",
+        )
+      ) {
+        // Only an explicit incompatibility on EVERY value the argument can
+        // take is provable. One arm the `params:` field accepts — or answers
+        // `"unknown"` / `"integer-narrowing"` for — means a runtime value may
+        // well type-check, so the site defers to the runtime AJV net.
+        continue;
+      }
+      diagnostics.push(
+        ...checkToolCallArguments({
+          toolName: site.name,
+          calleeKind: "theta-callable",
+          // Neutralises `checkToolCallArguments`'s shared arity arm
+          // (`positionalCount > 1`, which fires for ANY `calleeKind` —
+          // pinned by the "arity is checked before type" unit test in
+          // tests/tool-calls.test.ts): this call site's real arity was
+          // already checked and passed above, via `checkInvokeArity`, the
+          // dedicated emitter for this surface.
+          positionalCount: 1,
+          file: callerPath,
+          range: site.call.range,
+          staticResolution: {
+            resolvable: true,
+            matches: false,
+            expected: displayType(expectedType),
+            actual: renderCollectedTypes(argTypes),
+          },
+        }),
+      );
+      // First mismatch only: this row's *Message* names neither the slot
+      // index nor the parameter, and its range is the whole call
+      // expression, so a second emission at this site would render
+      // byte-identical to the first — the per-site cap the adjudicated rule
+      // assigns this row (diagnostic-shape.md
+      // #argument-mismatch-multiplicity), distinct from the per-slot rule
+      // the invoke and `fn` rows draw.
+      break;
+    }
+  }
+  return diagnostics;
+}
+
+/**
  * Run the load-time invoke static checks for one discovered theta, returning
  * every diagnostic (error-severity entries un-register the theta):
  *
@@ -1000,10 +1102,18 @@ function dedupeArgType(types: readonly CompatType[]): CompatType {
  *     or one reached by an `invoke(...)` literal, whose own nested entries that judgement
  *     does not reach — the defence is the runtime open-time re-check (`#driveCallee` →
  *     `#recheckCalleeContainment`), which fails the call closed instead;
+ *   - `theta/load/callee-has-errors` (WARNING, via `checkCalleeHasErrors` with
+ *     `surface: "invoke"`) for a literal `invoke(...)` callee that is unreadable
+ *     or absent on disk (discovery-cli.md §Static resolution): the parent still
+ *     registers and the remaining static checks for that site are skipped;
  *   - INV-3 arity (`theta/parse/invoke-arity-too-{many,few}`) against the
  *     statically-resolved callee's `params:` counts, over BOTH the
  *     `invoke(...)` call surface and the `.theta`-callable call surface
  *     (tool-calls.md §"Argument shape" binds the two by name);
+ *   - bug 0137 `theta/parse/invoke-arg-type-mismatch` over the `invoke(...)`
+ *     call surface (via `checkInvokeCall`), immediately AFTER its arity check
+ *     and only when arity raised no diagnostic: a positional argument whose
+ *     static type does not match the callee's corresponding `params:` field;
  *   - bug 0072 `theta/parse/tool-arg-type-mismatch` over the `.theta`-callable
  *     call surface, immediately AFTER its arity check and only when arity
  *     raised no diagnostic (arity before type, invocation.md §Argument
@@ -1015,10 +1125,20 @@ function dedupeArgType(types: readonly CompatType[]): CompatType {
  *     that field (RFC 0002's provable-disjointness front-run of the runtime
  *     AJV check);
  *
- *     Both type checks judge an expression by the SET of types it can evaluate
- *     to (`collectProvableArgTypes`), never by the single type a composite
- *     narrows to, which is what keeps them off values the runtime AJV check
- *     accepts — see that function's own comment.
+ *     All three type checks judge an expression by the SET of types it can
+ *     evaluate to (`collectProvableArgTypes`), never by the single type a
+ *     composite narrows to, which is what keeps them off values the runtime
+ *     AJV check accepts — see that function's own comment.
+ *   - RFC 0009 INV-8 `theta/parse/with-clause-prompt-mode-callee` on both call
+ *     surfaces: a call-site `with` clause on a statically-resolvable
+ *     PROMPT-mode callee, refused before that site's arity/type block;
+ *   - RFC 0009 INV-6 (`checkClauseCwdType`, both surfaces): the clause's `cwd`
+ *     value judged as an ordinary `string` argument slot, drawing the surface's
+ *     own arg-type row above (no dedicated code);
+ *   - RFC 0009 Erratum A′ `theta/parse/with-clause-pi-tool` /
+ *     `theta/parse/with-clause-in-process-callee`: the default-reject loop over
+ *     the bare-ident call surface for a clause on any callee the frozen
+ *     callable set does not classify `theta`;
  *   - INV-4 invocation cycle (`theta/load/invocation-cycle`) via the graph walk.
  *
  * The extension-matching and forward-slash path-literal checks (lexical.md
@@ -1046,7 +1166,7 @@ export async function checkInvokeStaticResolution(
   const callerPath = input.sourcePath;
 
   if (callerPath !== undefined) {
-    // One traversal feeds both check loops below (`CollectedCallSites`): the two
+    // One traversal feeds every check loop below (`CollectedCallSites`): the two
     // call surfaces are checked against the same reachable-node set by
     // construction, so neither can be reached by a walk the other misses.
     const callSites = collectCallSites(input.body);
@@ -1213,176 +1333,15 @@ export async function checkInvokeStaticResolution(
       }
     }
 
-    // INV-3 over the `.theta`-callable call surface (tool-calls.md §"Argument
-    // shape"; bug 0071): reached only for a `tools:` entry that already
-    // resolved cleanly — an unresolvable path or an erroring callee un-registers
-    // the parent in `resolveThetaToolsAtLoad` before the compose loop reaches
-    // this pass at all, so `deps.callableSet` never carries a rejected entry
-    // here, and no `.theta`-callable call attracts a second, derived diagnostic
-    // on top of that entry's own rejection.
-    for (const site of resolveThetaCallableCallSites(
-      callSites.callExprs,
-      deps.callableSet,
-    )) {
-      const resolvedPath = resolveCalleeAbsolute(callerPath, site.calleePath);
-      // Unlike `invoke(...)`, a `.theta`-callable call carries no leading
-      // path-literal argument (the callee is named by the `tools:` entry, not
-      // by the call's own first argument), so every positional argument is a
-      // real argument slot.
-      const providedCount = site.call.args.length;
-      const arity = await deps.resolveCalleeArity(resolvedPath);
-      if (arity === undefined) {
-        continue;
-      }
-      // RFC 0009 (invocation.md INV-8 static mode gate), the `.theta`-callable
-      // half of the invoke arm's gate above. PRODUCTION-UNREACHABLE: a
-      // prompt-mode `.theta` in `tools:` already un-registers the theta at load
-      // (`theta/load/prompt-mode-callable`, tool-calls.md), so no registered
-      // caller can hold this site — the arm exists so the gate is uniform
-      // across both clause-bearing surfaces (and for harness inputs). `<callee>`
-      // is the PRESENTED callable name here, not the callee path
-      // (placeholder-rendering-b.md §7), as this surface's other rows render it.
-      let clauseRefused = false;
-      if (site.call.withClause !== undefined && arity.mode === "prompt") {
-        diagnostics.push({
-          severity: "error",
-          code: WITH_CLAUSE_PROMPT_MODE_CALLEE_CODE,
-          file: callerPath,
-          range: site.call.range,
-          message: withClausePromptModeCalleeMessage(site.name),
-          hint: WITH_CLAUSE_PROMPT_MODE_CALLEE_HINT,
-        });
-        clauseRefused = true;
-      }
-      if (!clauseRefused) {
-        diagnostics.push(
-          ...checkClauseCwdType({
-            ...(site.call.withClause !== undefined ? { clause: site.call.withClause } : {}),
-            surface: { kind: "theta-callable", name: site.name },
-            file: callerPath,
-            fallbackRange: site.call.range,
-            typeEnv,
-            typePass,
-          }),
-        );
-      }
-      const arityDiags = checkInvokeArity({
-        // The `invoke(...)` arm above renders `<callee>` as the verbatim path
-        // literal because that IS the text at its diagnostic range. Here the
-        // range is the call site instead, and the callee path appears
-        // nowhere on that line — only the presented callable name does — so
-        // `<callee>` renders the presented name (placeholder-rendering-b.md
-        // §7).
-        callee: site.name,
-        // invocation.md §Static resolution defines a statically-resolvable
-        // callee as one "referenced by a literal `invoke(...)` or by a
-        // `.theta` entry in `tools:`" (quoted in tool-calls.md §"Argument
-        // shape") — a `.theta`-callable call site is statically resolvable BY
-        // DEFINITION, not by inference from reaching this loop.
-        staticallyResolvable: true,
-        requiredCount: arity.requiredCount,
-        totalCount: arity.totalCount,
-        providedCount,
-        site: { file: callerPath, range: site.call.range },
-      });
-      diagnostics.push(...arityDiags);
-      if (arityDiags.length > 0) {
-        // invocation.md §"Argument arity": arity is checked before type — a
-        // site the arity check already rejected draws no additional
-        // type-mismatch diagnostic (bug 0071 §Fix constraint 5).
-        continue;
-      }
-      // Bug 0072 — per-argument type mismatch (tool-calls.md §"Argument
-      // shape": "an argument that does not type-check against the callee's
-      // `params:` surfaces as `theta/parse/tool-arg-type-mismatch` when the
-      // callee is statically resolvable"), positional slot `i` against the
-      // callee's `i`-th `params:` field. `arity.fields` is the
-      // callee's WHOLE `params:` list in declaration order, and the arity
-      // check above already bounds `providedCount` within
-      // `[requiredCount, totalCount]`, so every provided slot has a
-      // corresponding field.
-      //
-      // The EXPECTED side is the callee's own annotation text, so it must not
-      // resolve through the caller's declarations: `annotationToCompatType`
-      // maps every non-primitive annotation to a `named` reference, and
-      // resolving that name in the caller's `typeEnv` lets a caller-local
-      // homonym decide a verdict about the callee's contract. tool-calls.md
-      // §"Argument shape" puts the judgement in the callee's namespace — the
-      // mismatch is "against the callee's `params:`", and the runtime check it
-      // front-runs validates the argument against the callee's own lowered
-      // `params:` schema. Under an EMPTY environment a `named` expected type is
-      // unresolvable, so `checkCompatible` answers `"unknown"` and the site
-      // defers to that validation. Primitive and literal decisions consult no
-      // environment at all, so a `params: x: string` slot still rejects an
-      // integer argument, and a structurally-decidable slot such as
-      // `array<Named>` still rejects a non-array argument without this pass
-      // needing to know what `Named` denotes — which is why the expected side
-      // is emptied rather than withheld whenever it mentions a name.
-      // Null-prototype for the same reason `collectTypeEnv`
-      // (../parser/type-layer-checks.ts) builds one: an annotation may spell an
-      // `Object.prototype` own property verbatim, and that name must be
-      // unresolvable here too.
-      const emptyCalleeAnnotationEnv: TypeEnv = Object.create(null) as TypeEnv;
-      for (const [i, argExpr] of site.call.args.entries()) {
-        const field = arity.fields[i];
-        if (field === undefined) {
-          continue;
-        }
-        const expectedType = annotationToCompatType(field.typeSource);
-        if (expectedType === undefined) {
-          continue;
-        }
-        const argTypes = collectProvableArgTypes(argExpr, typeEnv, typePass);
-        if (argTypes === undefined) {
-          // A value-contributing position past the parser's static view: the
-          // argument can take a value of unknown type, which defers to the
-          // callee's own runtime AJV load — see `collectProvableArgTypes`.
-          continue;
-        }
-        if (
-          !argTypes.every(
-            (argType) =>
-              checkCompatible(argType, expectedType, emptyCalleeAnnotationEnv) ===
-              "incompatible",
-          )
-        ) {
-          // Only an explicit incompatibility on EVERY value the argument can
-          // take is provable. One arm the `params:` field accepts — or answers
-          // `"unknown"` / `"integer-narrowing"` for — means a runtime value may
-          // well type-check, so the site defers to the runtime AJV net.
-          continue;
-        }
-        diagnostics.push(
-          ...checkToolCallArguments({
-            toolName: site.name,
-            calleeKind: "theta-callable",
-            // Neutralises `checkToolCallArguments`'s shared arity arm
-            // (`positionalCount > 1`, which fires for ANY `calleeKind` —
-            // pinned by the "arity is checked before type" unit test in
-            // tests/tool-calls.test.ts): this call site's real arity was
-            // already checked and passed above, via `checkInvokeArity`, the
-            // dedicated emitter for this surface.
-            positionalCount: 1,
-            file: callerPath,
-            range: site.call.range,
-            staticResolution: {
-              resolvable: true,
-              matches: false,
-              expected: displayType(expectedType),
-              actual: renderCollectedTypes(argTypes),
-            },
-          }),
-        );
-        // First mismatch only: this row's *Message* names neither the slot
-        // index nor the parameter, and its range is the whole call
-        // expression, so a second emission at this site would render
-        // byte-identical to the first — the per-site cap the adjudicated rule
-        // assigns this row (diagnostic-shape.md
-        // #argument-mismatch-multiplicity), distinct from the per-slot rule
-        // the invoke and `fn` rows draw.
-        break;
-      }
-    }
+    diagnostics.push(
+      ...(await checkThetaCallableCallSurface(
+        callSites.callExprs,
+        callerPath,
+        typeEnv,
+        typePass,
+        { callableSet: deps.callableSet, resolveCalleeArity: deps.resolveCalleeArity },
+      )),
+    );
 
     // RFC 0009 Erratum A′ (invocation.md INV-8) — the call-site clause's
     // DEFAULT-REJECT callee classification: ONE loop, TWO codes, a three-way
@@ -1621,15 +1580,15 @@ export interface ImportedFnCallee {
 export function checkImportedFnCallArgs(
   importingBody: ThetaBody,
   importingFile: string,
-  paramsFieldNames: readonly string[],
+  shadowedNames: ReadonlySet<string>,
+  callSites: CollectedCallSites,
   importedFns: ReadonlyMap<string, ImportedFnCallee>,
 ): Diagnostic[] {
   if (importedFns.size === 0) {
     return [];
   }
   const diagnostics: Diagnostic[] = [];
-  const shadowedNames = collectLocalBinderNames(importingBody, paramsFieldNames);
-  const { callExprs } = collectCallSites(importingBody);
+  const { callExprs } = callSites;
   const importerEnv = collectTypeEnv(importingBody.statements);
   const importerPass = new StaticTypeInferencePass({
     checkCompatible,
@@ -1779,22 +1738,21 @@ export function checkImportedFnCallArgs(
  * placeholders").
  *
  * DEFERRED, by construction: an `ObjectExpr` INSIDE a `.thetalib` body is
- * never reached, because this function walks the IMPORTING THETA's own body
- * only, never a library body — the same fence `checkImportedFnCallArgs`
+ * never reached, because `callSites` is collected from the IMPORTING THETA's
+ * own body only, never a library body — the same fence `checkImportedFnCallArgs`
  * states for call sites.
  */
 export function checkImportedSchemaCtorFields(
-  importingBody: ThetaBody,
   importingFile: string,
-  paramsFieldNames: readonly string[],
+  shadowedNames: ReadonlySet<string>,
+  callSites: CollectedCallSites,
   importedSchemas: ReadonlyMap<string, readonly SchemaFieldSource[]>,
 ): Diagnostic[] {
   if (importedSchemas.size === 0) {
     return [];
   }
   const diagnostics: Diagnostic[] = [];
-  const shadowedNames = collectLocalBinderNames(importingBody, paramsFieldNames);
-  const { objectExprs } = collectCallSites(importingBody);
+  const { objectExprs } = callSites;
   for (const ctor of objectExprs) {
     if (ctor.typeName === null) {
       // A bare `{ … }` object literal names no schema at all; this route
@@ -1878,22 +1836,21 @@ export function checkImportedSchemaCtorFields(
  * placeholders").
  *
  * DEFERRED, by construction: a `MemberExpr` INSIDE a `.thetalib` body is
- * never reached, because this function walks the IMPORTING THETA's own body
- * only, never a library body — the same fence `checkImportedSchemaCtorFields`
+ * never reached, because `callSites` is collected from the IMPORTING THETA's
+ * own body only, never a library body — the same fence `checkImportedSchemaCtorFields`
  * states for constructor sites.
  */
 export function checkImportedEnumVariantAccess(
-  importingBody: ThetaBody,
   importingFile: string,
-  paramsFieldNames: readonly string[],
+  shadowedNames: ReadonlySet<string>,
+  callSites: CollectedCallSites,
   importedEnums: ReadonlyMap<string, readonly string[]>,
 ): Diagnostic[] {
   if (importedEnums.size === 0) {
     return [];
   }
   const diagnostics: Diagnostic[] = [];
-  const shadowedNames = collectLocalBinderNames(importingBody, paramsFieldNames);
-  const { memberExprs } = collectCallSites(importingBody);
+  const { memberExprs } = callSites;
   for (const access of memberExprs) {
     if (access.target.kind !== "ident") {
       // Only a bare `Ident.field` denotes a possible imported-enum variant
@@ -1928,20 +1885,6 @@ export function checkImportedEnumVariantAccess(
 }
 
 /**
- * The KIND of one imported binding's DIRECT declaration, for exactly the
- * three shapes bug 0448 §Fix judges: `"enum"`, `"fn"`, and `"schema-alias"`
- * (a `schema` declared without an object body — the alias/head-only form).
- * None of the three is brace-constructible (expressions.md §"Object
- * construction"; `code-registry-parse.md`'s `theta/parse/unresolved-named-
- * type` row, the object-constructor clause) — a fields-BEARING object-form
- * `schema` is the disjoint, already-judged class `importedSchemas` /
- * `checkImportedSchemaCtorFields` own.
- */
-export interface ImportedNonCtorKind {
-  readonly kind: "enum" | "fn" | "schema-alias";
-}
-
-/**
  * Bug 0448 §Fix Option 1 — judge an imported-`.thetalib` constructor site
  * whose head resolves to a NON-brace-constructible declaration at the COMPOSE
  * layer, mirroring `checkImportedSchemaCtorFields` above exactly. Parse
@@ -1959,14 +1902,22 @@ export interface ImportedNonCtorKind {
  * `imports`, `enums`, or `bodySchemas`), with the byte-identical message
  * template (`unresolved named type '<name>'`).
  *
- * `importedNonCtorKinds` keys by the CONSTRUCTOR-SITE local binding name (the
+ * `importedNonCtorNames` holds the CONSTRUCTOR-SITE local binding names (the
  * `as`-alias where written, else the source name) — the same key
- * `importedSchemas` / `importedEnums` above use — and its value is the
- * directly-resolved library's own declaration KIND. A DIRECT top-level
- * declaration only (bug 0138's `ImportedFnCallee` restriction, mirrored): a
- * declaration reached only through a re-export chain is absent from the map,
- * so this route withholds a verdict for it rather than duplicating
- * `materializeChain`'s own chain-follow at a second call site.
+ * `importedSchemas` / `importedEnums` above use — of every imported binding
+ * whose directly-resolved library declaration is one of exactly the three
+ * shapes bug 0448 §Fix judges: an `enum`, a `fn`, or an alias/head-only
+ * `schema` (declared without an object body). None of the three is
+ * brace-constructible (expressions.md §"Object construction";
+ * `code-registry-parse.md`'s `theta/parse/unresolved-named-type` row, the
+ * object-constructor clause), and all three draw the same diagnostic, so
+ * membership alone decides the verdict — a fields-BEARING object-form
+ * `schema` is the disjoint, already-judged class `importedSchemas` /
+ * `checkImportedSchemaCtorFields` own. A DIRECT top-level declaration only
+ * (bug 0138's `ImportedFnCallee` restriction, mirrored): a declaration reached
+ * only through a re-export chain is absent from the set, so this route
+ * withholds a verdict for it rather than duplicating `materializeChain`'s own
+ * chain-follow at a second call site.
  *
  * Shadowing outranks import resolution (expressions.md §"Identifier
  * resolution" arm (1) over arm (3)): a constructor name bound anywhere in the
@@ -1982,25 +1933,24 @@ export interface ImportedNonCtorKind {
  * placeholders").
  *
  * DEFERRED, by construction: an `ObjectExpr` INSIDE a `.thetalib` body is
- * never reached, because this function walks the IMPORTING THETA's own body
- * only, never a library body — the same fence `checkImportedSchemaCtorFields`
+ * never reached, because `callSites` is collected from the IMPORTING THETA's
+ * own body only, never a library body — the same fence `checkImportedSchemaCtorFields`
  * states for its own constructor sites. A fields-BEARING object-form
  * `schema` constructor stays silent here too — it is not in
- * `importedNonCtorKinds` at all (bug 0429's already-judged class, disjoint
+ * `importedNonCtorNames` at all (bug 0429's already-judged class, disjoint
  * from this one).
  */
 export function checkImportedNonCtorTypeNames(
-  importingBody: ThetaBody,
   importingFile: string,
-  paramsFieldNames: readonly string[],
-  importedNonCtorKinds: ReadonlyMap<string, ImportedNonCtorKind>,
+  shadowedNames: ReadonlySet<string>,
+  callSites: CollectedCallSites,
+  importedNonCtorNames: ReadonlySet<string>,
 ): Diagnostic[] {
-  if (importedNonCtorKinds.size === 0) {
+  if (importedNonCtorNames.size === 0) {
     return [];
   }
   const diagnostics: Diagnostic[] = [];
-  const shadowedNames = collectLocalBinderNames(importingBody, paramsFieldNames);
-  const { objectExprs } = collectCallSites(importingBody);
+  const { objectExprs } = callSites;
   for (const ctor of objectExprs) {
     if (ctor.typeName === null) {
       // A bare `{ … }` object literal names no schema at all; this route
@@ -2015,10 +1965,10 @@ export function checkImportedNonCtorTypeNames(
       // applies to its own constructor sites.
       continue;
     }
-    if (!importedNonCtorKinds.has(typeName)) {
+    if (!importedNonCtorNames.has(typeName)) {
       // Not a non-brace-constructible imported binding this route reaches: a
       // same-file declaration, an imported OBJECT-form schema (0429's class),
-      // an unresolved name, or a re-export-chain declaration this map's own
+      // an unresolved name, or a re-export-chain declaration this set's own
       // doc comment (above) defers on.
       continue;
     }

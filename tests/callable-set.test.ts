@@ -43,7 +43,7 @@ function piTool(name: string): ResolvedPiTool {
  * (mirroring production: `resolveEntry` overwrites it from the entry `spec`).
  */
 function thetaCallee(mode: "prompt" | "subagent"): Omit<ResolvedThetaCallee, "calleePath"> {
-  return { kind: "theta", mode, callee: { mode } };
+  return { kind: "theta", mode };
 }
 
 /**

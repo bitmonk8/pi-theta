@@ -239,7 +239,6 @@ class RecordingInvokeChild implements InvokeChild {
 }
 
 const NOOP_SINK: ToolLoweringSink = {
-  runtimeEvent(): void {},
   diagnostic(): void {},
   systemNote(): void {},
 };

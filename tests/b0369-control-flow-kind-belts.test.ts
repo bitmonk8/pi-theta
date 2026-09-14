@@ -343,11 +343,14 @@ describe("bug 0369 E1–E4, E6 — laundered non-array iterands throw loudly at 
   }
 
   // E6: `par for` over a laundered string fabricates the empty fan-out `[]`
-  // (JSON "[]") as the loop value, outcome success. Post-fix the belt fires
-  // BEFORE worker scheduling (a placement guarantee — CTRL-5 must never observe
-  // a fabricated empty fan-out); the observable here is that loud throw
-  // replacing the value=[] success.
-  it('RED (E6): `par for i in x` over f("abc") throws before worker scheduling (at HEAD value [] — the fabricated empty fan-out)', async () => {
+  // (JSON "[]") as the loop value, outcome success. Post-fix the belt throws
+  // loudly instead of returning that fabricated fan-out. The implementation
+  // places this belt BEFORE CTRL-2 width resolution and worker scheduling
+  // (statement-executor.ts:1922-1927 — a placement guarantee: CTRL-5 must
+  // never observe a fabricated empty fan-out), but the assertion below only
+  // observes throw-vs-value and error framing (`assertLoudThrow`), not
+  // scheduling order — this cell pins the throw, not the placement.
+  it('RED (E6): `par for i in x` over f("abc") throws loudly instead of returning the fabricated empty fan-out (at HEAD value [])', async () => {
     assertLoudThrow(
       await probeSource('fn f(x) { par for i in x { 1 } }\nf("abc")'),
       "at HEAD value [] (JSON \"[]\") — the empty fan-out fabricated before any worker ran",

@@ -1,7 +1,5 @@
 // V10a / V10a-T — the five-source discovery walk, source priority, per-source
-// failure modes, `~/` home expansion, slash-name validity, and the
-// cross-source-shadow / cross-format-collision resolution (the theta always
-// loses, asymmetrically).
+// failure modes, and `~/` home expansion.
 //
 // This module owns the discovery union over the CLI, Settings, Project,
 // Packages, and Global sources, mapping each discovered `*.theta` file to its
@@ -12,6 +10,27 @@
 // leaf supplies `discoverThetas`, and V10b extended `DiscoveryInput` with the
 // package-source plumbing it owns.
 //
+// The path/filesystem-shape classification this walk relies on — POSIX path
+// helpers, the DISC-2 clean-leaf-ENOENT ancestor walk, and the per-candidate
+// `lstat`/`realpath` outcome classification `classifyPath` drives — lives in
+// `discovery-path-classify.ts` and is imported back in below.
+//
+// The slash-name-validity gate and the cross-source-shadow /
+// cross-format-collision resolution (the theta always loses, asymmetrically)
+// — `sourceLabelOf`, `resolveBySource`, `validateAndRead`, `resolveSlashNames`
+// — live in `discovery-collision-resolve.ts` (PTQ-0333, pre-announced by
+// PTQ-0305's Seam 0 as "concern 5") and are imported back in below.
+//
+// The discovery-wide types (`DiscoverySource`, `PiOwnedCommand`,
+// `DiscoveryInput`, `DiscoveredTheta`, `DiscoveryResult`), the `theta/load/*`
+// diagnostic codes, the priority / failure-mode / slash-name tables, and the
+// per-source `SourcedCandidate` shape this walk implements against —
+// `PRIORITY`, `FailureModes`, `CONVENTIONAL_MODES`, `SETTINGS_MODES`,
+// `CLI_MODES`, `SLASH_NAME`, `SourcedCandidate` — live in `discovery-model.ts`
+// (PTQ-0305's Seam 0, the leaf every concern here depends on) and are
+// imported back in below; every name this file exported before that split is
+// still exported from here.
+//
 // Spec: discovery.md, discovery/discovery-sources.md (DISC-1…DISC-4), with the
 // `theta/load/*` diagnostic codes/messages sourced from
 // diagnostics/code-registry-load.md.
@@ -21,459 +40,55 @@ import type { Diagnostic, Severity } from "../diagnostics/diagnostic";
 import type { FileSystem } from "../seams/file-system";
 import type { ThetaSettings } from "./settings";
 import { nodeErrorCode } from "./node-error-code";
-
-/** The five discovery sources, in priority order high→low. */
-export type DiscoverySource = "cli" | "settings" | "project" | "package" | "global";
-
-/**
- * A Pi-owned slash command already registered when the discovery walk runs.
- * Used by the cross-format collision check: a `.theta` deriving the same slash
- * name as one of these drops (the theta loses asymmetrically), the Pi-owned
- * entry survives.
- */
-export interface PiOwnedCommand {
-  readonly name: string;
-  /** The host-populated `SlashCommandInfo.sourceInfo.path`, rendered as the
-   *  `.md`-sibling tail of the `theta/load/cross-format-collision` message
-   *  (placeholder-rendering-b.md:57). Absent for a foreign extension command
-   *  whose entry carries no host path — the Pi-owned mint then falls back to
-   *  the command name. */
-  readonly path?: string;
-}
-
-/**
- * Inputs to one discovery pass. `cliPaths` is the already-split `--theta` flag
- * (the factory splits the raw flag on `path.delimiter` before calling, so the
- * walk is platform-independent). The merged `settings` carries `thetaPaths`
- * from V10c.
- */
-export interface DiscoveryInput {
-  readonly fs: FileSystem;
-  readonly settings: ThetaSettings;
-  readonly cliPaths?: readonly string[];
-  readonly piOwnedNames?: readonly PiOwnedCommand[];
-  /**
-   * V10b: package candidates the composition's own bounded package-discovery
-   * walk already resolved (clock/bounds live outside this walk). Pushed into
-   * `candidates` as ordinary `package`-source `SourcedCandidate`s so the
-   * existing `resolveBySource` → `validateAndRead` → `resolveSlashNames`
-   * chain adjudicates them with the other four sources — no new logic.
-   */
-  readonly packageCandidates?: readonly {
-    readonly path: string;
-    readonly stem: string;
-    readonly descriptorValue: string;
-  }[];
-  /**
-   * Bug 0331: the marked root's winning source path, as the parent resolved
-   * it, threaded from the AUTHENTICATED control plane
-   * (`detectMarkedRootWinner`). `undefined` outside the subagent-root regime
-   * or when the carrier is absent/malformed — the walk then applies today's
-   * collision resolution unconditionally. Scoped to `slug` alone: a genuine
-   * collision or shadow under any OTHER name is unaffected.
-   */
-  readonly markedRoot?: { readonly slug: string; readonly winnerPath: string } | undefined;
-}
-
-/** One discovered, registrable theta: its slash name, absolute path, and source. */
-export interface DiscoveredTheta {
-  readonly name: string;
-  readonly path: string;
-  readonly source: DiscoverySource;
-}
-
-/** The outcome of one discovery pass. */
-export interface DiscoveryResult {
-  readonly thetas: readonly DiscoveredTheta[];
-  readonly diagnostics: readonly Diagnostic[];
-  /** The resolved discovery-root union over the walk's own four sources
-   *  (cli/settings/project/global): directories that exist at
-   *  scan time, regardless of whether they
-   *  currently hold a `.theta`. Distinct from `thetas`' dirnames, which drop
-   *  any present-but-empty root. */
-  readonly roots: readonly string[];
-}
-
-// --------------------------------------------------------------------------
-// Diagnostic codes (sourced from diagnostics/code-registry-load.md).
-// --------------------------------------------------------------------------
-
-const MISSING_SOURCE = "theta/load/missing-source";
-const UNREADABLE_SOURCE = "theta/load/unreadable-source";
-const WRONG_TYPE_SOURCE = "theta/load/wrong-type-source";
-const UNREADABLE_FILE = "theta/load/unreadable";
-const CASE_COLLISION = "theta/load/case-collision";
-const NON_CANONICAL_EXTENSION = "theta/load/non-canonical-extension";
-const INVALID_SLASH_NAME = "theta/load/invalid-slash-name";
-const CROSS_SOURCE_SHADOW = "theta/load/cross-source-shadow";
-const CROSS_FORMAT_COLLISION = "theta/load/cross-format-collision";
-const INVALID_EXTENSION = "theta/load/invalid-extension";
-
-/** Accepted slash-name (filename stem) shape, per DISC-3 Filename validity. */
-const SLASH_NAME = /^[a-z0-9][a-z0-9_-]*$/;
-
-/** Source priority high→low; smaller number wins. Package (4) is V10b's. */
-const PRIORITY: Record<DiscoverySource, number> = {
-  cli: 1,
-  settings: 2,
-  project: 3,
-  package: 4,
-  global: 5,
-} as const;
-
-/** Per-source failure-mode severities (DISC-2 table). `null` = silent. */
-interface FailureModes {
-  readonly missing: Severity | null;
-  readonly unreadable: Severity;
-  readonly wrongType: Severity;
-}
-
-const CONVENTIONAL_MODES: FailureModes = {
-  missing: null,
-  unreadable: "warning",
-  wrongType: "warning",
-} as const;
-const SETTINGS_MODES: FailureModes = {
-  missing: "error",
-  unreadable: "warning",
-  wrongType: "error",
-} as const;
-const CLI_MODES: FailureModes = {
-  missing: "error",
-  unreadable: "error",
-  wrongType: "error",
-} as const;
-
-// --------------------------------------------------------------------------
-// Path helpers — POSIX forward-slash form (the normalised comparison form per
-// Lexical §"Path literals"; the `FileSystem` seam reports forward-slash paths).
-// --------------------------------------------------------------------------
-
-function normalizePath(path: string): string {
-  return path.replace(/\\/g, "/");
-}
-
-function joinPosix(base: string, tail: string): string {
-  const trimmed = base.endsWith("/") ? base.slice(0, -1) : base;
-  return `${trimmed}/${tail}`;
-}
-
-function basename(path: string): string {
-  const norm = normalizePath(path);
-  const idx = norm.lastIndexOf("/");
-  return idx === -1 ? norm : norm.slice(idx + 1);
-}
-
-/** Split a filename into `{ stem, ext }`; a leading-dot or extension-less name
- *  yields an empty `ext`. The split is on the final `.`. */
-function splitExtension(name: string): { readonly stem: string; readonly ext: string } {
-  const idx = name.lastIndexOf(".");
-  if (idx <= 0) {
-    return { stem: name, ext: "" };
-  }
-  return { stem: name.slice(0, idx), ext: name.slice(idx + 1) };
-}
-
-/** Proper-ancestor directory paths of `path`, root-first (excludes the leaf).
- *  The chain climbs from the path's real root so the clean-leaf-ENOENT walk
- *  (DISC-2) probes ancestors that actually exist on the host: a Windows
- *  drive-letter absolute path (`C:/Users/…`) climbs from the drive root `C:/`,
- *  a POSIX absolute path (`/home/…`) from `/`, and a relative path from its
- *  first segment. Reconstructing a POSIX `/C:` chain for a Windows path (the
- *  pre-fix behaviour) named ancestors that never exist, so `ancestorsClean`
- *  returned false and a genuine clean-leaf ENOENT was mis-classified as
- *  `unreadable` (warning) instead of `missing` (error) — DISC-2 mandates the
- *  same result on POSIX and Windows with no platform branch, and this keys off
- *  the path's own shape rather than the host. */
-function properAncestors(path: string): readonly string[] {
-  const segs = normalizePath(path)
-    .split("/")
-    .filter((s) => s.length > 0);
-  const out: string[] = [];
-  if (/^[A-Za-z]:$/.test(segs[0] ?? "")) {
-    // Windows drive-letter absolute: the chain climbs from the drive root
-    // `C:/`, then `C:/Users`, … (never the bogus POSIX-rooted `/C:`).
-    out.push(`${segs[0]}/`);
-    let cur = segs[0] ?? "";
-    for (let i = 1; i < segs.length - 1; i++) {
-      cur = `${cur}/${segs[i]}`;
-      out.push(cur);
-    }
-  } else if (normalizePath(path).startsWith("/")) {
-    // POSIX absolute: the chain climbs from `/` (unchanged behaviour).
-    out.push("/");
-    let cur = "";
-    for (let i = 0; i < segs.length - 1; i++) {
-      cur += `/${segs[i]}`;
-      out.push(cur);
-    }
-  } else {
-    // Relative: no synthetic root; ancestors are the relative path prefixes.
-    let cur = "";
-    for (let i = 0; i < segs.length - 1; i++) {
-      cur = cur === "" ? (segs[i] ?? "") : `${cur}/${segs[i]}`;
-      out.push(cur);
-    }
-  }
-  return out;
-}
-
-/** Expand a leading bare `~` (alone or `~/…`) via the FileSystem.homedir()
- *  seam only — DISC-1: no `~user`, env, or platform branch. */
-function expandHome(path: string, fs: FileSystem): string {
-  if (path === "~") {
-    return fs.homedir();
-  }
-  if (path.startsWith("~/")) {
-    return joinPosix(fs.homedir(), path.slice(2));
-  }
-  return path;
-}
-
-/** True when a path is absolute (POSIX root or a Windows drive prefix). */
-function isAbsolutePath(path: string): boolean {
-  return path.startsWith("/") || /^[A-Za-z]:/.test(path);
-}
-
-/** POSIX dirname (`/` for a root-level leaf). */
-function dirnameOf(path: string): string {
-  const norm = normalizePath(path);
-  const idx = norm.lastIndexOf("/");
-  return idx <= 0 ? "/" : norm.slice(0, idx);
-}
-
-/** The `baseDir`-relative POSIX path of `abs`, or `undefined` when `baseDir` is
- *  absent or `abs` does not lie under it. A candidate outside the base dir has
- *  no root-relative comparison string to offer the DISC-5 matcher — the
- *  package walker's root-relative string is unconditional only because its
- *  universe is rooted at the package root itself, a guarantee this
- *  independently-resolved settings base dir does not carry. Byte-exact
- *  comparison: DISC-5 pins `nocase: false`. */
-function relativeToBase(baseDir: string | undefined, abs: string): string | undefined {
-  if (baseDir === undefined) {
-    return undefined;
-  }
-  const norm = normalizePath(baseDir);
-  const root = norm.endsWith("/") ? norm.slice(0, -1) : norm;
-  const prefix = root === "" ? "/" : `${root}/`;
-  const normAbs = normalizePath(abs);
-  return normAbs.startsWith(prefix) ? normAbs.slice(prefix.length) : undefined;
-}
-
-/** True when an operand carries a minimatch glob metacharacter. The `!`/`+`/`-`
- *  override prefix is stripped by the caller before this test. */
-function isGlobPattern(operand: string): boolean {
-  return /[*?[\]{}]/.test(operand);
-}
-
-/** True when an operand's first character is a DISC-5 override prefix
- *  (`!`/`+`/`-`). DISC-5 is the settings source's grammar; a source that does
- *  not implement it (the CLI source) sees such a character as ordinary path
- *  text, not as a signal to strip before classifying. */
-function hasOverridePrefix(operand: string): boolean {
-  const first = operand[0];
-  return first === "!" || first === "+" || first === "-";
-}
-
-type LstatOutcome =
-  | { readonly ok: true; readonly isDir: boolean; readonly isFile: boolean; readonly isSymlink: boolean }
-  | { readonly ok: false; readonly code: string | undefined };
-
-async function lstatOutcome(fs: FileSystem, path: string): Promise<LstatOutcome> {
-  return fs.lstat(path).then(
-    (stat) => ({
-      ok: true as const,
-      isDir: stat.isDirectory(),
-      isFile: stat.isFile(),
-      isSymlink: stat.isSymbolicLink(),
-    }),
-    (error: unknown) => ({ ok: false as const, code: nodeErrorCode(error) }),
-  );
-}
-
-/** True when an `ENOENT` candidate is a *clean leaf*: every proper ancestor
- *  `lstat`s ok as a directory, OR `lstat`s ok as a link whose resolved target
- *  is a directory (DISC-2 clean-leaf-ENOENT walk). The link arm mirrors
- *  `classifyResolvedTarget`'s candidate treatment: a healthy directory
- *  junction/symlink is an ordinary enterable ancestor, while a broken one's
- *  `realpath` rejects and the chain stays unclean — `lstat` remains the
- *  probe the spec pins, the resolve only disambiguates the link case. */
-async function ancestorsClean(fs: FileSystem, path: string): Promise<boolean> {
-  for (const ancestor of properAncestors(path)) {
-    const outcome = await lstatOutcome(fs, ancestor);
-    if (!outcome.ok) {
-      return false;
-    }
-    if (outcome.isDir) {
-      continue;
-    }
-    // A healthy directory junction / symlinked directory `lstat`s ok but
-    // reports isDirectory()=false / isSymbolicLink()=true — the same shape
-    // `classifyResolvedTarget` resolves for a link CANDIDATE. Probe it via
-    // its resolved target: a directory target means the chain is enterable
-    // (DISC-2 *missing*), anything else unclean. A BROKEN link's `realpath`
-    // rejects → unclean, so `lstat` stays the discriminator the spec pins.
-    if (outcome.isSymlink && (await resolvedAncestorIsDir(fs, ancestor))) {
-      continue;
-    }
-    return false;
-  }
-  return true;
-}
-
-/** Best-effort `realpath`; `undefined` when resolution rejects. */
-async function realpathOr(fs: FileSystem, path: string): Promise<string | undefined> {
-  return fs.realpath(path).then(
-    (resolved) => normalizePath(resolved),
-    () => undefined,
-  );
-}
-
-type RealpathOutcome =
-  | { readonly ok: true; readonly path: string }
-  | { readonly ok: false; readonly code: string | undefined };
-
-/** `realpath` outcome carrying the rejection's Node-style `.code`, for a
- *  caller (`classifyPath`'s resolved-target step below) that must tell a
- *  dangling target (`ENOENT`) apart from a denied one — a distinction
- *  `realpathOr`'s existing callers collapse and do not need. */
-async function realpathOutcome(fs: FileSystem, path: string): Promise<RealpathOutcome> {
-  return fs.realpath(path).then(
-    (resolved) => ({ ok: true as const, path: normalizePath(resolved) }),
-    (error: unknown) => ({ ok: false as const, code: nodeErrorCode(error) }),
-  );
-}
-
-/** `ancestorsClean`'s link-arm probe: resolve a healthy-`lstat` link ancestor
- *  to its target and ask whether THAT is a directory, so a junction/symlinked
- *  directory on the chain counts as enterable the way a real directory does. */
-async function resolvedAncestorIsDir(fs: FileSystem, ancestor: string): Promise<boolean> {
-  const target = await realpathOutcome(fs, ancestor);
-  if (!target.ok) {
-    return false;
-  }
-  const outcome = await lstatOutcome(fs, target.path);
-  return outcome.ok && outcome.isDir;
-}
-
-// --------------------------------------------------------------------------
-// Source resolution.
-// --------------------------------------------------------------------------
-
-type PathClass =
-  | { readonly kind: "dir" }
-  | { readonly kind: "file" }
-  | { readonly kind: "missing" }
-  | { readonly kind: "unreadable" }
-  | { readonly kind: "wrong-type" }
-  | { readonly kind: "invalid-extension" };
-
-/** Governs how `classifyPath` resolves an `ENOENT` candidate. `"ancestor-walk"`
- *  runs DISC-2's clean-leaf walk, which asks whether every directory segment
- *  the operand names along the way is itself enterable. `"missing"` skips that
- *  walk and classifies `ENOENT` outright: for an operand whose leading
- *  character is a DISC-5 override prefix but whose source honours no DISC-5
- *  grammar, the walk's relative-looking prefix segments (`!`, `!/opt`) are
- *  path text the operator never typed as directories, so asking whether they
- *  are enterable answers a question about the wrong thing. */
-type EnoentPolicy = "ancestor-walk" | "missing";
-
-async function classifyPath(
-  fs: FileSystem,
-  path: string,
-  enoentPolicy: EnoentPolicy,
-): Promise<PathClass> {
-  // DISC-2's implementation note assigns the candidate probe to `readdir` or
-  // `stat` — both of which follow links — and reserves `lstat` for the
-  // ancestor chain (`ancestorsClean` above). A successful `readdir` both
-  // resolves any link in the path and proves the target a directory
-  // ("successful enumeration short-circuits", discovery-sources.md DISC-2).
-  const enumerable = await fs.readdir(path).then(
-    () => true,
-    () => false,
-  );
-  if (enumerable) {
-    return { kind: "dir" };
-  }
-  const outcome = await lstatOutcome(fs, path);
-  if (!outcome.ok) {
-    if (outcome.code === "ENOENT") {
-      if (enoentPolicy === "missing") {
-        return { kind: "missing" };
-      }
-      return (await ancestorsClean(fs, path))
-        ? { kind: "missing" }
-        : { kind: "unreadable" };
-    }
-    return { kind: "unreadable" };
-  }
-  if (outcome.isDir) {
-    return { kind: "dir" };
-  }
-  if (outcome.isFile) {
-    return { kind: "file" };
-  }
-  // `lstat` on the candidate itself reports neither a directory nor a regular
-  // file: a symlink/junction whose target `stat` would still resolve, or a
-  // genuine non-regular entry that resolves to itself. `readdir` already
-  // rejected (a symlinked file, or a non-directory entry, both reject
-  // `ENOTDIR`), so resolve the target the way the host's `stat` would and
-  // classify by what it finds there.
-  return classifyResolvedTarget(fs, path, enoentPolicy);
-}
-
-/** The DISC-2 candidate probe's link-resolution step: `realpath` then `lstat`
- *  the resolved path, so a link (or a chain of them) classifies by its
- *  target's own type rather than by the link's. A dangling target routes
- *  through the SAME `ENOENT`/`ancestorsClean` branch `classifyPath` uses for
- *  its own direct `ENOENT`, keyed off the ORIGINAL candidate path — the
- *  operand's own ancestor chain is what DISC-2's clean-leaf rule asks about,
- *  not the unreachable target's. */
-async function classifyResolvedTarget(
-  fs: FileSystem,
-  path: string,
-  enoentPolicy: EnoentPolicy,
-): Promise<PathClass> {
-  const target = await realpathOutcome(fs, path);
-  if (!target.ok) {
-    return classifyUnresolvedTarget(fs, path, target.code, enoentPolicy);
-  }
-  const outcome = await lstatOutcome(fs, target.path);
-  if (!outcome.ok) {
-    return classifyUnresolvedTarget(fs, path, outcome.code, enoentPolicy);
-  }
-  if (outcome.isDir) {
-    return { kind: "dir" };
-  }
-  if (outcome.isFile) {
-    return { kind: "file" };
-  }
-  // Resolution reached an entry that is itself neither a directory nor a
-  // regular file (fifo, socket, device) — the residue DISC-2's wrong-type
-  // column, titled "Path is wrong type (file vs dir)", still admits once
-  // links resolve to their target's own type.
-  return { kind: "wrong-type" };
-}
-
-/** Shared rejection handling for both steps of `classifyResolvedTarget`
- *  (the `realpath` call and the resolved-path `lstat`): `ENOENT` is a
- *  DANGLING link, classified through the candidate's own ancestor walk
- *  exactly as a direct `ENOENT` on the candidate is; any other code is a
- *  real read failure on an existing path. */
-async function classifyUnresolvedTarget(
-  fs: FileSystem,
-  path: string,
-  code: string | undefined,
-  enoentPolicy: EnoentPolicy,
-): Promise<PathClass> {
-  if (code !== "ENOENT") {
-    return { kind: "unreadable" };
-  }
-  if (enoentPolicy === "missing") {
-    return { kind: "missing" };
-  }
-  return (await ancestorsClean(fs, path)) ? { kind: "missing" } : { kind: "unreadable" };
-}
+import {
+  ancestorsClean,
+  basename,
+  classifyPath,
+  dirnameOf,
+  expandHome,
+  hasOverridePrefix,
+  isAbsolutePath,
+  isGlobPattern,
+  joinPosix,
+  lstatOutcome,
+  normalizePath,
+  realpathOr,
+  relativeToBase,
+  renderSourceDescriptor,
+  splitExtension,
+  walkTree,
+  type EnoentPolicy,
+  type PathClass,
+} from "./discovery-path-classify";
+import {
+  CLI_MODES,
+  CONVENTIONAL_MODES,
+  INVALID_EXTENSION,
+  MISSING_SOURCE,
+  NON_CANONICAL_EXTENSION,
+  SETTINGS_MODES,
+  SLASH_NAME,
+  UNREADABLE_SOURCE,
+  WRONG_TYPE_SOURCE,
+  type DiscoveryInput,
+  type DiscoveryResult,
+  type DiscoverySource,
+  type FailureModes,
+  type SourcedCandidate,
+} from "./discovery-model";
+import {
+  resolveBySource,
+  resolveSlashNames,
+  sourceLabelOf,
+  validateAndRead,
+} from "./discovery-collision-resolve";
+export type {
+  DiscoveredTheta,
+  DiscoveryInput,
+  DiscoveryResult,
+  DiscoverySource,
+  PiOwnedCommand,
+} from "./discovery-model";
 
 /** A `*.theta` file found under a source, before validity/collision resolution. */
 interface RawCandidate {
@@ -502,9 +117,9 @@ async function enumerateDirectory(
   );
   if (!entries.ok) {
     if (entries.code === "ENOENT" && (await ancestorsClean(fs, dir))) {
-      emitSourceFailure(modes.missing, MISSING_SOURCE, source, descriptorValue, dir, diagnostics, "missing");
+      emitSourceFailure(modes.missing, source, descriptorValue, dir, diagnostics, "missing");
     } else {
-      emitSourceFailure(modes.unreadable, UNREADABLE_SOURCE, source, descriptorValue, dir, diagnostics, "unreadable");
+      emitSourceFailure(modes.unreadable, source, descriptorValue, dir, diagnostics, "unreadable");
     }
     return [];
   }
@@ -628,12 +243,11 @@ async function resolveEntry(
   source: DiscoverySource,
   descriptorValue: string,
   modes: FailureModes,
-  explicitFile: boolean,
   enoentPolicy: EnoentPolicy,
   diagnostics: Diagnostic[],
   roots: Set<string>,
 ): Promise<RawCandidate[]> {
-  const resolved = classifyForSource(await classifyPath(fs, path, enoentPolicy), path, explicitFile);
+  const resolved = classifyForSource(await classifyPath(fs, path, enoentPolicy), path, descriptor !== undefined);
   switch (resolved.kind) {
     case "dir":
       roots.add(normalizePath(path));
@@ -660,13 +274,13 @@ async function resolveEntry(
       });
       return [];
     case "missing":
-      emitSourceFailure(modes.missing, MISSING_SOURCE, source, descriptorValue, path, diagnostics, "missing");
+      emitSourceFailure(modes.missing, source, descriptorValue, path, diagnostics, "missing");
       return [];
     case "unreadable":
-      emitSourceFailure(modes.unreadable, UNREADABLE_SOURCE, source, descriptorValue, path, diagnostics, "unreadable");
+      emitSourceFailure(modes.unreadable, source, descriptorValue, path, diagnostics, "unreadable");
       return [];
     case "wrong-type":
-      emitSourceFailure(modes.wrongType, WRONG_TYPE_SOURCE, source, descriptorValue, path, diagnostics, "wrong-type");
+      emitSourceFailure(modes.wrongType, source, descriptorValue, path, diagnostics, "wrong-type");
       return [];
   }
 }
@@ -694,7 +308,6 @@ function classifyForSource(
 // note) never renders under two grammars for the same pass (bug 0461).
 function emitSourceFailure(
   severity: Severity | null,
-  code: string,
   source: DiscoverySource,
   descriptorValue: string,
   path: string,
@@ -705,6 +318,9 @@ function emitSourceFailure(
     return; // conventional silent-on-missing
   }
   const descriptor = renderSourceDescriptor(source, descriptorValue);
+  // `code` is a fixed 1:1 function of `kind` (code-registry-load.md), the
+  // same three-way split `message` below already branches on.
+  const code = kind === "missing" ? MISSING_SOURCE : kind === "unreadable" ? UNREADABLE_SOURCE : WRONG_TYPE_SOURCE;
   const message =
     kind === "missing"
       ? `discovery source path does not exist: ${descriptor}`
@@ -714,74 +330,8 @@ function emitSourceFailure(
   diagnostics.push({ severity, code, file: normalizePath(path), message });
 }
 
-/** A raw candidate together with its owning source (for case-collision and
- *  cross-source/format collision resolution). */
-interface SourcedCandidate extends RawCandidate {
-  readonly source: DiscoverySource;
-  readonly sourceLabel: string;
-  /** The descriptor VALUE per placeholder-rendering-b.md §5: the source's own
-   *  configuration text verbatim (the `--theta` operand, the settings entry,
-   *  the package name) or, for the two conventional-root sources with no
-   *  operator-typed text, the root's resolved directory path (0268
-   *  forward-slashed). Rendered at the cross-source-shadow/collision mint
-   *  sites via `renderDescriptor`, never read for candidate identity or
-   *  ordering. */
-  readonly descriptorValue: string;
-}
-
-/** Resolve intra-source case-collisions (DISC-3): two `*.theta` paths differing
- *  only in case collide; the byte-first path wins, the rest drop. */
-function resolveCaseCollisions(
-  candidates: readonly SourcedCandidate[],
-  diagnostics: Diagnostic[],
-): SourcedCandidate[] {
-  const groups = new Map<string, SourcedCandidate[]>();
-  for (const candidate of candidates) {
-    const key = normalizePath(candidate.path).toLowerCase();
-    const bucket = groups.get(key);
-    if (bucket === undefined) {
-      groups.set(key, [candidate]);
-    } else {
-      bucket.push(candidate);
-    }
-  }
-  const survivors: SourcedCandidate[] = [];
-  for (const bucket of groups.values()) {
-    const distinct = dedupeByPath(bucket);
-    if (distinct.length === 1) {
-      survivors.push(distinct[0]!);
-      continue;
-    }
-    const sorted = [...distinct].sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
-    const winner = sorted[0]!;
-    diagnostics.push({
-      severity: "warning",
-      code: CASE_COLLISION,
-      file: winner.path,
-      message: `case-insensitive filename collision in ${winner.sourceLabel}: '${sorted[0]!.path}' and '${sorted[1]!.path}'`,
-    });
-    survivors.push(winner);
-  }
-  return survivors;
-}
-
-/** Drop entries resolving to the same byte-exact path (a source reaching one
- *  directory through two entries dedupes silently before collision detection). */
-function dedupeByPath(candidates: readonly SourcedCandidate[]): SourcedCandidate[] {
-  const seen = new Set<string>();
-  const out: SourcedCandidate[] = [];
-  for (const candidate of candidates) {
-    const key = normalizePath(candidate.path);
-    if (!seen.has(key)) {
-      seen.add(key);
-      out.push(candidate);
-    }
-  }
-  return out;
-}
-
 // --------------------------------------------------------------------------
-// Settings `thetaPaths` resolution (DISC-7 `thetaPaths` entry schema).
+// Settings `thetaPaths` resolution (package-and-settings.md §"`thetaPaths` entry schema").
 //
 // Unlike the CLI / conventional sources (whose entries are single directory
 // roots or explicit `.theta` files), settings entries resolve relative to the
@@ -822,41 +372,19 @@ interface TreeWalk {
  *  it — or to `lstat` an entry that walk enumerated, is a traversal failure
  *  inside a root that exists, an unreadable source and not silence
  *  (discovery-sources.md:69), so the rejection is classified by the :68
- *  clean-leaf rule and carried out rather than dropped. */
+ *  clean-leaf rule and carried out rather than dropped. Delegates to the
+ *  shared `walkTree` helper (PTQ-0287) with the `"ancestor-walk"` ENOENT
+ *  policy: this walk's root is a settings glob's static-prefix directory, not
+ *  pre-proven to exist, so a directory-level `ENOENT` needs the clean-leaf
+ *  check rather than being assumed clean. */
 async function listTree(fs: FileSystem, root: string): Promise<TreeWalk> {
-  const out: TreeEntry[] = [];
-  const unreadable: string[] = [];
-  const walk = async (dir: string): Promise<void> => {
-    const outcome = await fs.readdir(dir).then(
-      (n) => ({ ok: true as const, names: n }),
-      (error: unknown) => ({ ok: false as const, code: nodeErrorCode(error) }),
-    );
-    if (!outcome.ok) {
-      if (!(outcome.code === "ENOENT" && (await ancestorsClean(fs, dir)))) {
-        unreadable.push(dir);
-      }
-      return;
-    }
-    for (const name of outcome.names) {
-      const abs = joinPosix(dir, name);
-      const stat = await lstatOutcome(fs, abs);
-      if (!stat.ok) {
-        // A clean-leaf ENOENT here is the entry vanishing between the readdir
-        // that named it and this probe: a leaf under a parent already proven
-        // enterable, so the pattern resolves to no path there and
-        // package-and-settings.md:29 keeps it silent. Any other code is a
-        // traversal failure inside a root that exists (discovery-sources.md:69).
-        if (stat.code !== "ENOENT") unreadable.push(abs);
-        continue;
-      }
-      out.push({ abs, base: name, isDir: stat.isDir, isFile: stat.isFile });
-      if (stat.isDir) {
-        await walk(abs);
-      }
-    }
-  };
-  await walk(root);
-  return { entries: out, unreadable };
+  const walk = await walkTree(fs, root, "ancestor-walk", (abs, base, isDir, isFile) => ({
+    abs,
+    base,
+    isDir,
+    isFile,
+  }));
+  return walk;
 }
 
 /** Report each glob-universe traversal failure at the source's *Unreadable
@@ -879,7 +407,7 @@ function emitUniverseFailures(
         (diagnostic.code === UNREADABLE_SOURCE || diagnostic.code === MISSING_SOURCE),
     );
     if (alreadyReported) continue;
-    emitSourceFailure(severity, UNREADABLE_SOURCE, "settings", descriptorValue, path, diagnostics, "unreadable");
+    emitSourceFailure(severity, "settings", descriptorValue, path, diagnostics, "unreadable");
   }
 }
 
@@ -975,7 +503,7 @@ function resolveSettingsOperand(
 
 /**
  * Resolve the Settings source's `thetaPaths` into raw `.theta` candidates,
- * applying the DISC-5 override order and the DISC-7 `thetaPaths` schema. Returns
+ * applying the DISC-5 override order and the `thetaPaths` entry schema. Returns
  * candidates deduplicated by resolved absolute path; per-entry failures are
  * non-fatal.
  */
@@ -1073,13 +601,13 @@ async function resolveSettingsSource(
         await addFile(entry.abs, entry.index, entry.raw);
         return;
       case "missing":
-        emitSourceFailure(SETTINGS_MODES.missing, MISSING_SOURCE, "settings", entry.raw, entry.abs, diagnostics, "missing");
+        emitSourceFailure(SETTINGS_MODES.missing, "settings", entry.raw, entry.abs, diagnostics, "missing");
         return;
       case "unreadable":
-        emitSourceFailure(SETTINGS_MODES.unreadable, UNREADABLE_SOURCE, "settings", entry.raw, entry.abs, diagnostics, "unreadable");
+        emitSourceFailure(SETTINGS_MODES.unreadable, "settings", entry.raw, entry.abs, diagnostics, "unreadable");
         return;
       case "wrong-type":
-        emitSourceFailure(SETTINGS_MODES.wrongType, WRONG_TYPE_SOURCE, "settings", entry.raw, entry.abs, diagnostics, "wrong-type");
+        emitSourceFailure(SETTINGS_MODES.wrongType, "settings", entry.raw, entry.abs, diagnostics, "wrong-type");
         return;
     }
   };
@@ -1169,13 +697,12 @@ export async function discoverThetas(input: DiscoveryInput): Promise<DiscoveryRe
     })),
     "cli",
     CLI_MODES,
-    true,
     candidates,
     diagnostics,
     roots,
   );
 
-  // Settings (priority 2) — explicit references resolved per the DISC-7
+  // Settings (priority 2) — explicit references resolved per the
   // `thetaPaths` entry schema: relative to the settings-file dir, with globs and
   // the `!`/`+`/`-` override grammar; missing/wrong-type are errors.
   const settingsSourceLabel = sourceLabelOf("settings");
@@ -1257,7 +784,6 @@ export async function discoverThetas(input: DiscoveryInput): Promise<DiscoveryRe
       ],
       root.source,
       CONVENTIONAL_MODES,
-      false,
       candidates,
       diagnostics,
       roots,
@@ -1305,7 +831,6 @@ async function collectFromEntries(
   }[],
   source: DiscoverySource,
   modes: FailureModes,
-  explicitFile: boolean,
   out: SourcedCandidate[],
   diagnostics: Diagnostic[],
   roots: Set<string>,
@@ -1319,7 +844,6 @@ async function collectFromEntries(
       source,
       entry.descriptorValue,
       modes,
-      explicitFile,
       entry.enoentPolicy,
       diagnostics,
       roots,
@@ -1328,269 +852,4 @@ async function collectFromEntries(
       out.push({ ...candidate, source, sourceLabel, descriptorValue: entry.descriptorValue });
     }
   }
-}
-
-function sourceLabelOf(source: DiscoverySource): string {
-  switch (source) {
-    case "cli":
-      return "--theta flag";
-    case "settings":
-      return "settings thetaPaths";
-    case "project":
-      // The host config-dir name is unavailable at this pure-label seam, so the
-      // Pi spelling stands in for the source CATEGORY here. This label is what
-      // the case-collision message above (`case-insensitive filename collision
-      // in ${sourceLabel}`) names — the path-bearing project diagnostics render
-      // the normative `<kind>:"<value>"` descriptor form instead, so this
-      // prose spelling never has to stand in for a real directory there.
-      return "project .pi/theta/";
-    case "package":
-      return "package theta/ directory";
-    case "global":
-      return "global thetas directory";
-  }
-}
-
-/** The closed descriptor-kind spelling for a discovery source
- *  (discovery-sources.md#descriptor-kinds): distinct from `sourceLabelOf`'s
- *  prose category labels — this is the `<kind>` half of the normative
- *  `<kind>:"<value>"` descriptor form (placeholder-rendering-b.md §5). */
-function descriptorKindOf(source: DiscoverySource): string {
-  switch (source) {
-    case "cli":
-      return "cli-flag";
-    case "settings":
-      return "settings";
-    case "project":
-      return "project";
-    case "package":
-      return "package";
-    case "global":
-      return "global";
-  }
-}
-
-/** Render a source kind + descriptor value as the normative
- *  `<kind>:"<value>"` descriptor (placeholder-rendering-b.md §5/§7) — the
- *  one rendering shared by every mint site that renders a discovery source
- *  as `<descriptor>`, so a source rejected by two different observers
- *  cannot render under two grammars for the same pass (bug 0461). */
-function renderSourceDescriptor(source: DiscoverySource, descriptorValue: string): string {
-  return `${descriptorKindOf(source)}:"${descriptorValue}"`;
-}
-
-/** Render one candidate as the normative `<kind>:"<value>"` descriptor
- *  (placeholder-rendering-b.md §5/§7) — the mint site for the
- *  cross-source-shadow `<higher>`/`<lower>` placeholders must render this
- *  form, not a bare candidate path. */
-function renderDescriptor(candidate: SourcedCandidate): string {
-  return renderSourceDescriptor(candidate.source, candidate.descriptorValue);
-}
-
-/** Apply case-collision resolution independently within each source. */
-function resolveBySource(
-  candidates: readonly SourcedCandidate[],
-  diagnostics: Diagnostic[],
-): SourcedCandidate[] {
-  const bySource = new Map<DiscoverySource, SourcedCandidate[]>();
-  for (const candidate of candidates) {
-    const bucket = bySource.get(candidate.source);
-    if (bucket === undefined) {
-      bySource.set(candidate.source, [candidate]);
-    } else {
-      bucket.push(candidate);
-    }
-  }
-  const out: SourcedCandidate[] = [];
-  for (const bucket of bySource.values()) {
-    out.push(...resolveCaseCollisions(bucket, diagnostics));
-  }
-  return out;
-}
-
-/** Validate each surviving candidate's slash name, then confirm readability of
- *  the underlying `.theta` file (DISC-2 rule 1 / DISC-3 Filename validity). */
-async function validateAndRead(
-  fs: FileSystem,
-  candidates: readonly SourcedCandidate[],
-  diagnostics: Diagnostic[],
-): Promise<SourcedCandidate[]> {
-  const out: SourcedCandidate[] = [];
-  for (const candidate of candidates) {
-    if (!SLASH_NAME.test(candidate.stem)) {
-      diagnostics.push({
-        severity: "error",
-        code: INVALID_SLASH_NAME,
-        file: candidate.path,
-        message:
-          "slash names must be lowercase kebab/snake; rename the file (e.g. `code-review.theta`)",
-        hint: "Slash names must be lowercase kebab/snake; rename the file (e.g. `code-review.theta`).",
-      });
-      continue;
-    }
-    const readable = await fs.readBytes(candidate.path).then(
-      () => true,
-      () => false,
-    );
-    if (!readable) {
-      diagnostics.push({
-        severity: "warning",
-        code: UNREADABLE_FILE,
-        file: candidate.path,
-        message: `.theta file is unreadable: '${candidate.path}'`,
-      });
-      continue;
-    }
-    out.push(candidate);
-  }
-  return out;
-}
-
-/** Bug 0331: within one name group, collapse candidates whose
- *  separator-normalized path is identical down to ONE candidate, keeping the
- *  HIGHEST-priority (lowest `PRIORITY` number) tier — one physical file is one
- *  candidate, regardless of how many discovery sources reach it. Regime-
- *  independent (runs for every group, not just a marked root): a source
- *  reaching the SAME file via a different separator spelling is not a
- *  distinct copy, so it must not draw its own cross-source-shadow warning.
- *  Genuinely-distinct files (different normalized paths) are untouched —
- *  separator normalization alone decides identity here, deliberately short of
- *  `fs.realpath` (parent-side symlink/`..` semantics for distinct files stay
- *  exactly as today). Map iteration preserves each surviving key's first-seen
- *  position, so diagnostic message ordering for the untouched groups is
- *  unaffected. */
-function dedupeByIdentity(group: readonly SourcedCandidate[]): SourcedCandidate[] {
-  const byPath = new Map<string, SourcedCandidate>();
-  for (const candidate of group) {
-    const key = normalizePath(candidate.path);
-    const existing = byPath.get(key);
-    if (existing === undefined || PRIORITY[candidate.source] < PRIORITY[existing.source]) {
-      byPath.set(key, candidate);
-    }
-  }
-  return [...byPath.values()];
-}
-
-/** Shared `<paths>` ordering for both `theta/load/cross-format-collision`
- *  arms (placeholder-rendering-b.md:57): discovery-source PRIORITY first,
- *  then byte-wise normalised (forward-slash) absolute path — a single
- *  comparator so the same-format and Pi-owned mints cannot drift apart
- *  again (0459 §Fix Residual 2). */
-function collisionPathOrder(a: SourcedCandidate, b: SourcedCandidate): number {
-  if (PRIORITY[a.source] !== PRIORITY[b.source]) return PRIORITY[a.source] - PRIORITY[b.source];
-  const na = normalizePath(a.path);
-  const nb = normalizePath(b.path);
-  return na < nb ? -1 : na > nb ? 1 : 0;
-}
-
-/** Resolve cross-source-shadow (different priority → higher wins) and
- *  cross-format-collision (same priority theta-vs-theta, or theta-vs-Pi-owned;
- *  the theta always loses asymmetrically) over the validated candidates.
- *  Bug 0331: identity-dedup runs first (regime-independent); then, past the
- *  Pi-owned guard (a Pi-owned collision is decided first), a marked-root
- *  pre-emption scoped to `markedRoot?.slug` (regime-gated) may register that
- *  group's winner alone before the tier adjudication runs. */
-async function resolveSlashNames(
-  candidates: readonly SourcedCandidate[],
-  piOwned: readonly PiOwnedCommand[],
-  diagnostics: Diagnostic[],
-  markedRoot?: { readonly slug: string; readonly winnerPath: string },
-): Promise<DiscoveredTheta[]> {
-  const piOwnedByName = new Map<string, PiOwnedCommand[]>();
-  for (const command of piOwned) {
-    const bucket = piOwnedByName.get(command.name);
-    if (bucket === undefined) {
-      piOwnedByName.set(command.name, [command]);
-    } else {
-      bucket.push(command);
-    }
-  }
-  const byName = new Map<string, SourcedCandidate[]>();
-  for (const candidate of candidates) {
-    const bucket = byName.get(candidate.stem);
-    if (bucket === undefined) {
-      byName.set(candidate.stem, [candidate]);
-    } else {
-      bucket.push(candidate);
-    }
-  }
-
-  const thetas: DiscoveredTheta[] = [];
-  for (const [name, rawGroup] of byName) {
-    const group = dedupeByIdentity(rawGroup);
-
-    // Theta-vs-Pi-owned: the theta always loses; the Pi-owned entry survives.
-    // `<paths>` is the registered theta candidate(s) first (priority-then-path
-    // ordered), then the colliding `.md`-sibling tail (placeholder-rendering-b.md:57);
-    // a foreign extension command carrying no host path falls back to its
-    // registered name (0459 §Fix adjudication rider) — no survives-suffix.
-    if (piOwnedByName.has(name)) {
-      const thetaPaths = [...group]
-        .sort(collisionPathOrder)
-        .map((candidate) => normalizePath(candidate.path));
-      const siblingPaths = (piOwnedByName.get(name) ?? [])
-        .map((command) => (command.path !== undefined && command.path !== "" ? normalizePath(command.path) : command.name))
-        .sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
-      diagnostics.push({
-        severity: "error",
-        code: CROSS_FORMAT_COLLISION,
-        message: `slash name '${name}' collides at the same priority: ${[...thetaPaths, ...siblingPaths].join(", ")}`,
-      });
-      continue;
-    }
-
-    // Bug 0331: marked-root pre-emption, scoped to `markedRoot.slug` alone,
-    // adjudicated AFTER the Pi-owned guard above because a Pi-owned collision
-    // is decided FIRST. The parent's carrier resolved this slug across theta
-    // TIERS, not against Pi-ownedness, so a name a foreign extension owns in
-    // the child (but not the parent) takes the Pi-owned arm and drops the
-    // theta — the theta never pre-empts a non-theta registration
-    // (discovery-sources.md#disc-4), matching the parent. Past that guard,
-    // when the parent-named winner survives dedup here it registers ALONE —
-    // no cross-format-collision / cross-source-shadow diagnostic — and every
-    // sibling for THIS slug drops silently. A winner that names no surviving
-    // candidate (absent carrier, hostile value, stale path) falls through to
-    // today's tier adjudication below — the safe fallback the trust boundary
-    // and the skew fence both rely on.
-    if (markedRoot !== undefined && name === markedRoot.slug) {
-      const winnerKey = normalizePath(markedRoot.winnerPath);
-      const winner = group.find((candidate) => normalizePath(candidate.path) === winnerKey);
-      if (winner !== undefined) {
-        thetas.push({ name, path: winner.path, source: winner.source });
-        continue;
-      }
-    }
-
-    const minPriority = Math.min(...group.map((candidate) => PRIORITY[candidate.source]));
-    const topTier = group.filter((candidate) => PRIORITY[candidate.source] === minPriority);
-    const lowerTier = group.filter((candidate) => PRIORITY[candidate.source] !== minPriority);
-
-    if (topTier.length > 1) {
-      // Same-priority theta-vs-theta: every colliding theta drops. `<paths>`
-      // is priority-then-absolute-path ordered (placeholder-rendering-b.md:57),
-      // not collection/insertion order.
-      diagnostics.push({
-        severity: "error",
-        code: CROSS_FORMAT_COLLISION,
-        message: `slash name '${name}' collides at the same priority: ${[...topTier]
-          .sort(collisionPathOrder)
-          .map((candidate) => normalizePath(candidate.path))
-          .join(", ")}`,
-      });
-      continue;
-    }
-
-    const winner = topTier[0]!;
-    for (const shadowed of lowerTier) {
-      // Different priority: the higher-priority source wins; the rest shadow.
-      diagnostics.push({
-        severity: "warning",
-        code: CROSS_SOURCE_SHADOW,
-        message: `slash name '${name}' shadowed across discovery sources: '${renderDescriptor(winner)}' wins over '${renderDescriptor(shadowed)}'`,
-      });
-    }
-    thetas.push({ name, path: winner.path, source: winner.source });
-  }
-
-  return thetas;
 }

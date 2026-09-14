@@ -23,21 +23,10 @@
 //     array-literal common-type rule computes (`integer ⊔ number = number`;
 //     disjoint element types union to `T | U`).
 //
-// V3f-T (tests-task) declares the seam — the `evaluateStringMember` runtime
-// dispatcher and the `concatElementType` LUB computation — and stubs the
-// behaviour-bearing functions inertly so the failing tests compile and red on
-// their own primary assertions:
-//
-//   - `evaluateStringMember` returns the inert `null` sentinel without
-//     evaluating any member, so every result-value assertion reds (a `length`
-//     count, a transform string, a `boolean` membership result, a `split`
-//     array, or a `replace` reference vector);
-//   - `concatElementType` returns the inert `null`-primitive sentinel without
-//     computing the LUB, so every result-type assertion reds.
-//
-// No test reds on a compile error, a missing fixture, or a harness throw. The
-// paired V3f implementation leaf fills these in (and wires member-access /
-// method-call parsing into the V3a evaluator).
+// V3f-T (tests-task) declared the seam — the `evaluateStringMember` runtime
+// dispatcher and the `concatElementType` LUB computation; V3f (this leaf)
+// supplies the behaviour (and wired member-access / method-call parsing into
+// the V3a evaluator).
 
 import { checkCompatible } from "../parser/type-compat";
 import type { CompatType, TypeEnv } from "../parser/type-compat";
@@ -113,14 +102,6 @@ export function assertStdlibArgumentKinds(
 }
 
 /**
- * Evaluate a `string` standard-library member on `receiver`: the `length`
- * property (called with `args === []`) or one of the method calls
- * (`toLowerCase` / `toUpperCase` / `trim` / `startsWith` / `endsWith` /
- * `includes` / `split` / `replace`), with the arguments already evaluated by
- * the V3a interpreter. Returns the member's theta value per the expressions.md
- * stdlib table and the normative `replace` reference vectors.
- */
-/**
  * The `string` standard-library member surface (expressions.md §"Built-in
  * methods and properties"): the allow-list the `type`-phase
  * `theta/parse/unknown-method` check consumes. Kept in lockstep with the
@@ -164,6 +145,14 @@ export const STRING_MEMBER_SIGNATURES: ReadonlyMap<string, StdlibMemberSignature
   ["replace", { min: 2, max: 2, params: ["string", "string"] }],
 ]);
 
+/**
+ * Evaluate a `string` standard-library member on `receiver`: the `length`
+ * property (called with `args === []`) or one of the method calls
+ * (`toLowerCase` / `toUpperCase` / `trim` / `startsWith` / `endsWith` /
+ * `includes` / `split` / `replace`), with the arguments already evaluated by
+ * the V3a interpreter. Returns the member's theta value per the expressions.md
+ * stdlib table and the normative `replace` reference vectors.
+ */
 export function evaluateStringMember(
   receiver: string,
   member: string,

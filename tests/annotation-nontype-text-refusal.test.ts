@@ -1,15 +1,16 @@
-import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 // @ts-expect-error — JS code-registry module, no type declarations.
-import { parseRegistry, registryMessage } from "../tools/code-registry/index.js";
+import { registryMessage } from "../tools/code-registry/index.js";
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
 import type { FnDecl, LetStmt, Stmt, ThetaDocument } from "../src/parser/theta-document";
 import { parseTypeExpression, type TypePosition } from "../src/parser/type-grammar";
 import * as typeLayerChecks from "../src/parser/type-layer-checks";
 import { annotationToCompatType } from "../src/parser/type-layer-checks";
-import { parseDoc } from "./helpers/e2e-s1";
+import { diagCodes, diagLines, findLetStmt, isLoadParseError, parseDoc } from "./helpers/e2e-s1";
+import { REGISTRY, type RegistryRow } from "./helpers/registry-oracle";
+import { committedThetaSources } from "./helpers/theta-corpus";
 
 // Bug 0124 — the three `Type` positions OUTSIDE a schema (a `let` annotation, an
 // `fn` parameter type, an `fn` return type) capture their annotation as source
@@ -220,32 +221,6 @@ import { parseDoc } from "./helpers/e2e-s1";
  */
 const CODE = "theta/parse/annotation-type-not-expression";
 
-interface RegistryRow {
-  readonly code: string;
-  readonly namespace: string;
-  readonly severity: string;
-  readonly phase: string;
-  readonly trigger: string;
-  readonly message: string;
-}
-
-/** The live four-page sharded registry — the input tests/code-registry.test.ts reconciles. */
-const REGISTRY = parseRegistry(
-  [
-    "code-registry-parse.md",
-    "code-registry-load.md",
-    "code-registry-runtime.md",
-    "code-registry-host.md",
-  ]
-    .map((page) =>
-      readFileSync(
-        fileURLToPath(new URL(`../docs/spec_topics/diagnostics/${page}`, import.meta.url)),
-        "utf8",
-      ),
-    )
-    .join("\n"),
-) as RegistryRow[];
-
 /**
  * A registry row's normative *Message* template (DIAG-4), read rather than
  * restated. THROWS, naming the missing row and the page it belongs on, so a
@@ -390,22 +365,6 @@ function srcAt(position: Position, typeSource: string, rhsOrBody?: string): stri
   }
 }
 
-/** Every diagnostic rendered `<severity> <code>: <message>`, in emission order. */
-function diagLines(doc: ThetaDocument): string[] {
-  return doc.diagnostics.map((d) => `${d.severity} ${d.code}: ${d.message}`);
-}
-
-/**
- * Every diagnostic rendered `<severity> <code>`, in emission order — the
- * REGISTRY-FREE half of a refusal expectation. Asserted BEFORE the rendered
- * message on every refusal cell so the red at HEAD names the symptom the bug
- * reports (an annotation that draws nothing at all) rather than the absent
- * registry row, which is a separate, separately-titled red.
- */
-function diagCodes(doc: ThetaDocument): string[] {
-  return doc.diagnostics.map((d) => `${d.severity} ${d.code}`);
-}
-
 /** The statement kinds a parse produced — failure-message payload. */
 function stmtKinds(doc: ThetaDocument): string[] {
   return doc.body.statements.map((s) => s.kind);
@@ -413,9 +372,7 @@ function stmtKinds(doc: ThetaDocument): string[] {
 
 /** The sole `let` statement bound to `name`, loud when the body declares none. */
 function letStmtOf(label: string, doc: ThetaDocument, name: string): LetStmt {
-  const hit = doc.body.statements.find(
-    (s): s is LetStmt => s.kind === "let" && (s as LetStmt).name === name,
-  );
+  const hit = findLetStmt(doc, name);
   if (hit === undefined) {
     throw new Error(
       `${label}: the body declares no \`let ${name}\`, so no annotation reached the position ` +
@@ -550,11 +507,7 @@ function expectRefused(
  */
 function expectBlocksRegistration(label: string, diagnostics: readonly Diagnostic[]): void {
   expect(
-    diagnostics.filter(
-      (d) =>
-        d.severity === "error" &&
-        (d.code.startsWith("theta/load/") || d.code.startsWith("theta/parse/")),
-    ).length,
+    diagnostics.filter(isLoadParseError).length,
     `${label}: the drop gate reads error severity AND the \`theta/load/\` / \`theta/parse/\` ` +
       `namespaces; a warning-severity or differently-namespaced refusal would leave the theta ` +
       `registered with the annotation unenforced. Observed diagnostics: ` +
@@ -2639,25 +2592,13 @@ describe("bug 0124 (x) — the committed corpus declares no annotation in this c
     // committed fixture enters the class, which is what makes
     // `tests/committed-fixture-parse-gate.test.ts` a sufficient discharge for
     // the corpus-wide claim.
-    const files = execFileSync("git", ["ls-files", "*.theta", "*.thetalib"], {
-      encoding: "utf8",
-      cwd: fileURLToPath(new URL("..", import.meta.url)),
-    })
-      .split("\n")
-      .map((l) => l.trim())
-      .filter((l) => l.length > 0);
-    if (files.length === 0) {
-      throw new Error(
-        "harness: `git ls-files '*.theta' '*.thetalib'` listed nothing, so the census has no " +
-          "corpus to range over — a loud failure, never a vacuous pass",
-      );
-    }
+    const files = committedThetaSources();
     expect(
       [files.filter((f) => f.endsWith(".theta")).length, files.filter((f) => f.endsWith(".thetalib")).length],
       `x1: the census is over ${files.length} committed files; a change in the corpus size means ` +
         `the inventory below must be re-derived rather than trusted. Files: ` +
         `${JSON.stringify(files)}`,
-    ).toEqual([37, 3]);
+    ).toEqual([42, 3]);
 
     const lets: string[] = [];
     const params: string[] = [];
@@ -2684,7 +2625,7 @@ describe("bug 0124 (x) — the committed corpus declares no annotation in this c
       `x1: the inventory at the three positions this report owns. Observed lets ` +
         `${JSON.stringify([...lets].sort())}, params ${JSON.stringify([...params].sort())}, ` +
         `returns ${JSON.stringify([...returns].sort())}`,
-    ).toEqual([16, 4, 3]);
+    ).toEqual([25, 8, 7]);
     expect(
       offenders,
       `x1: ZERO offenders — no committed fixture changes disposition when the refusal lands, so ` +

@@ -4,7 +4,174 @@ All notable changes to `@bitmonk8/pi-theta` will be documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.472.0]
+
+### Fixed
+- Bug 0476: a runtime panic's diagnostic carried a synthesized zero body range
+  and no call-chain context, so `theta /<name> aborted: <message>` named
+  neither the panicking expression's location nor which call frame it fired
+  in. `ThetaPanic` (`src/runtime/runtime-panics.ts`) gains a `site?: PanicSite`
+  (set once, innermost raise wins — `attachPanicSite`) and a `frames:
+  PanicFrame[]` unwind stack (`pushPanicFrame`); the `index` / `member` /
+  `match` executor arms
+  (`src/runtime/statement-executor.ts`) attach the raising expression's own
+  range and the current lexical residence's file (the leaf `.thetalib` file
+  inside an imported fn body, per the existing leaf-location rule); the user
+  `fn` call boundary pushes a `{kind:"fn", name, file, range}` frame at the
+  CALL site as the panic unwinds through it; the `invoke`-depth-exceeded seam
+  attaches the would-be call expression as its site; the `par for` lane body
+  pushes a `{kind:"par-for", ...}` frame (per ERR-20 this frame never reaches a
+  top-level note today — the lane panic is always downgraded to that
+  element's `Err` first — but the plumbing is uniform across every unwind
+  boundary). `theta-composition-producer.ts`'s `surfaceDispatchDefect` now
+  reads the diagnostic's `file`/`range` from `panic.site` (the zero body range
+  is a defensive fallback for a site-less panic — no shipped construction seam
+  takes it) and renders the site+frame stack as `hint` and as a `content`
+  suffix (`renderPanicSuffixLines`).
+- Bug 0476 follow-up: an interpolation-origin panic (a `${…}` expression
+  inside an `@`-query template) was located at a coordinate LOCAL to the
+  re-parsed interpolation substring — line 1, column within the hole —
+  because `stringifyInterpolation` re-parses each `${…}` standalone
+  (`parseExpressionSource`). `renderQueryText`'s wrap around
+  `stringifyInterpolation` now retargets any panic it raises
+  (`retargetInterpolationPanic`, `src/runtime/runtime-panics.ts`) to the
+  enclosing query's own real file range, and appends a new `PanicFrame` kind
+  — `{ kind: "interpolation", source, file, range }`, rendered `in
+  interpolation ${<source>} (<file>:<line>:<col>)` — naming the hole's raw
+  text. Applies uniformly whether the panic raised directly inside the hole
+  or after unwinding through a `fn` call written inside it (only the
+  outermost, interpolation-local frame is retargeted; an inner frame belongs
+  to the callee's own document-AST body and is untouched); the same
+  `theta/parse/interpolated-result` runtime fallback (bug 0079/0422) is
+  covered by the same wrap.
+
+### Changed
+- Spec amendment (bug 0476, human-ruled 2026-09-12, content-side site suffix):
+  [error-model.md §"Panic message string
+  (normative)"](docs/spec_topics/errors-and-results/error-model.md#runtime-panics)
+  gains a new *Panic site suffix (normative)* paragraph
+  (`#panic-site-suffix`) and amends the slash-command routing bullet: the
+  `theta-system-note` `content` is now the unchanged `"theta /<name> aborted:
+  <message>"` framing (or the internal-error framing) followed by the site
+  and open-frame lines, each prefixed two spaces, in the SAME rendering the
+  diagnostic's `hint` carries; the `<message>` slice itself is unchanged.
+  [runtime-event-channel.md](docs/spec_topics/pi-integration-contract/runtime-event-channel.md)'s
+  per-variant table row for the panic case gains "+ site suffix lines"
+  citing the new anchor.
+  [docs/reference/errors-and-results.md](docs/reference/errors-and-results.md)
+  mirrors both amendments. `code-registry-runtime.md` is unchanged (no
+  location column; no message-template change — bug 0365's operand rendering
+  stays byte-identical, per witness 7).
+
+## [0.471.0]
+
+### Changed
+- Spec amendment (quality issue PTQ-0201, human-ruled 2026-09-11, delete-plus-spec-correct): the
+  corpus described a staged / evicted / watcher-invalidated AJV compiled-validator
+  cache that never existed and, given content addressing, has no job. The
+  validator cache is keyed by the schema slug (canonical-form hash) with
+  byte-equality verified on every hit, so a changed schema compiles under a new
+  slug and a stale entry can never be served. Amended sites: PIC's registration
+  steps (hot-reload paragraph, [PIC-36](docs/spec_topics/pi-integration-contract/registration-steps.md#pic-36),
+  [PIC-49](docs/spec_topics/pi-integration-contract/registration-steps.md#pic-49),
+  [PIC-37](docs/spec_topics/pi-integration-contract/registration-steps.md#pic-37)
+  and the *Structural changes* paragraph) no longer stage, publish, evict or
+  serialize a validator cache; [PIC-11](docs/spec_topics/pi-integration-contract/host-interfaces-services.md#pic-11)'s
+  architectural constraints state that no invalidation path exists or is needed
+  (the one-instance-per-runtime, never-module-global constraint stays) and its
+  non-normative TS illustration drops `invalidate(schemaSlug)`; Implementation
+  Notes, Tool Calls, Frontmatter templates, Discovery settings and the
+  `registry-swap-failed` registry row are made consistent. The `ThetaRegistry`
+  and prompt-mode registration-cache staging / single-synchronous-publish
+  atomicity claims are unchanged — those are real. A non-normative Future
+  Considerations item records that unreferenced slugs stay cached for the
+  session (growth bounded by distinct schema texts seen) and that eviction at
+  publish is a possible future refinement.
+- Removed the `SchemaValidator.invalidate(schemaSlug)` seam member and its
+  `AjvSchemaValidator` implementation (PTQ-0201: zero callers in `src/`,
+  `extensions/`, `tools/`, `tests/` since introduction; freshness is structural,
+  not event-driven), plus the two conformance-only test-double members it forced.
+
+## [0.470.0]
+
+### Changed
+- Spec amendment (bug 0475, human-ruled 2026-09-11): the binder strict-capability
+  probe ([binder-model-and-context.md
+  #strict-capability-requirement](docs/spec_topics/binder/binder-model-and-context.md#strict-capability-requirement))
+  is now a FOUR-way check — its `undefined` arm is bifurcated on whether the
+  host exposes the indicator at all. With `strictCapable` exposed on NO
+  available `Model<Api>` (the theta 1.0 Pi-SDK-pin condition, gated at
+  [PIC #strict-capability-absence-pin](docs/spec_topics/pi-integration-contract/audit-target-categories.md#strict-capability-absence-pin))
+  the probe admits the resolved model SILENTLY, so
+  `theta/load/binder-model-strict-capability-unknown` no longer fires for every
+  non-bypass theta on every load and reload; with the indicator exposed on some
+  available model and the resolved one lacking it, the W fires exactly as
+  before — then it is per-model information. Under the pin neither
+  strict-capability code fires, symmetric with the
+  `theta/load/binder-model-not-strict-capable` sibling row. The code, severity
+  and Message template stay in the closed registry (DIAG-2/DIAG-4 untouched),
+  as does the SDK-inventory absence-under-the-probed-name audit arm.
+
+### Fixed
+- Bug 0475: `resolveBinderModel` emitted the W unconditionally on an absent
+  indicator because `probeStrictCapable` reported only the resolved model's
+  field, never the host-wide condition — a warning whose message and hint were
+  identical for every model choice, restating a constant the spec already
+  documents once. The probe result now carries `hostExposesIndicator`, computed
+  ONCE per load pass from the existing `ctx.modelRegistry.getAvailable()`
+  snapshot; renderer-side dedup was NOT the fix and remains spec-forbidden
+  (bug 0470, diagnostic-shape.md §Re-scan deduplication). Witnesses:
+  `tests/binder-model-resolution.test.ts` (cells a / a′ / b),
+  `tests/load-warning-delivery.test.ts` (A3 re-pointed, A3b added),
+  `tests/live/live-production-acceptance.test.ts` (absence through the real
+  host); both directions red-proven.
+
+## [0.469.0]
+
+### Fixed
+- Bug 0474: the subagent launcher composed the child `PI_THETA_*` control plane
+  by inheriting the parent environment wholesale and re-deriving only three of
+  its eight carriers, so a launching process holding a control plane of its own
+  (a nested subagent child, a quality-loop worker session) leaked a FOREIGN
+  invocation's callable-hash map, params carrier and marked-root winner into
+  every child — authenticated, because the launcher wrote the true parent pid
+  beside them, and therefore refused fail-closed by the child (14 test files /
+  19 tests red under the field environment, green with the vars unset).
+  `buildSubagentChildEnv` now scrubs the per-launch control plane out of the
+  inherited environment (the extension pin stays heritable by contract) and
+  this launch's carriers arrive on their own `controlPlaneEnv` channel;
+  subagent.md #subagent-launch-contract pins the rule. Witness:
+  `tests/subagent-child-env-scrub.test.ts`.
+
+## [0.468.0]
+
+### Added
+
+- Execution-status age liveness ([RFC 0010](docs/rfcs/0010-live-execution-visibility.md)
+  erratum F; [EXST-6](docs/spec_topics/execution-status.md#exst-6) clarifying
+  append): while any invocation, lane, or child is running, the passage of a
+  render interval itself constitutes dirt, so footer/widget ages advance at the
+  coalescing cadence even when a child emits no tap events (observed: a
+  code-only wrapper child froze the footer at `0s` for minutes); an idle bus
+  still schedules nothing. Witnessed in `tests/execution-status-bus.test.ts`
+  (red-proven: reschedule disabled ⇒ single render, frozen age).
+
+### Fixed
+
+- Bug 0473 filed and witnessed (open): the spec's cross-file static
+  `invoke<Schema>` return-type check (invocation.md "Typed return" + "Static
+  resolution") is unimplemented — a statically-resolvable literal-path callee
+  with an empty-tail (`null`) final value loads clean and fails only at the
+  runtime AJV net as `Err(return_validation)`.
+  `tests/quality-loop-empty-tail-return-validation.test.ts` pins today's
+  behaviour (tripwire cell A flips when the check lands) and the runtime net
+  (cells C–E).
+
+### Tooling (not part of the package surface)
+
+- `/quality-loop` worktree-parallel fix phase (RFC 0009 Phase 8), the
+  `Ok(null)` abort fix (expression tail + typed `invoke<TreeFixReport>` call
+  site), and per-lane `theta_progress` self-reports in the tree wrapper.
 
 ## [0.468.0]
 

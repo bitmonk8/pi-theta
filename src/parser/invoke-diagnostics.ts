@@ -29,21 +29,20 @@
 //     positional argument count differs from the callee's declared parameter
 //     count. A `fn` parameter carries no default, so required equals total —
 //     both arms are always parse-time, with no runtime AJV net.
-//
-// V15f-T (tests-task) declares the seam shapes and the registry-anchored message
-// builders (real, pure) and stubs the five behaviour-bearing checkers so the
-// failing tests compile and red on their own primary assertions: each checker
-// returns a single inert stub diagnostic (code `stub/v15f-unimplemented`), so a
-// test expecting a specific diagnostic reds (wrong code) and a test expecting no
-// diagnostic reds (unexpected length). The paired V15f implementation leaf
-// replaces these bodies with the real checks. No test reds on a compile error,
-// a missing fixture, or a harness throw.
+//   - `theta/parse/with-clause-prompt-mode-callee` /
+//     `theta/parse/with-clause-pi-tool` /
+//     `theta/parse/with-clause-in-process-callee` — a call-site `with { cwd }`
+//     clause (RFC 0009) on a callee that spawns no child process: a
+//     prompt-mode `.theta` callee, a Pi tool, or an in-process callee (a
+//     same-file or imported `fn`). This module owns the codes, hints, and
+//     message builders; the checks themselves run in
+//     `src/extension/invoke-static-checks.ts` and `theta-document.ts`.
 //
 // Spec: invocation.md (§Argument binding, §Typed return, §Argument arity,
-// §Resolution, §Static resolution), implementation-notes.md
-// ("Static-resolution load pass"), diagnostics/code-registry-parse.md,
-// diagnostics/code-registry-load.md, diagnostics/placeholder-rendering-a.md,
-// diagnostics/placeholder-rendering-b.md.
+// §Resolution, §Static resolution, #options-surface / INV-8), RFC 0009,
+// implementation-notes.md ("Static-resolution load pass"),
+// diagnostics/code-registry-parse.md, diagnostics/code-registry-load.md,
+// diagnostics/placeholder-rendering-a.md, diagnostics/placeholder-rendering-b.md.
 
 import {
   type Diagnostic,
@@ -339,7 +338,6 @@ export interface InvokeReturnTypeInput {
  * Animal`) is accepted; an incompatible one fires
  * `theta/parse/invoke-return-type-mismatch`. When either side is not statically
  * resolvable no parse error fires (runtime AJV net).
- *
  */
 export function checkInvokeReturnType(input: InvokeReturnTypeInput): Diagnostic[] {
   const { callee, calleeResolvable, schema, calleeReturn, env, site } = input;
@@ -437,7 +435,6 @@ export interface InvokeArityInput {
  *     have no destination and no runtime net is possible).
  *   - `providedCount < requiredCount` → `theta/parse/invoke-arity-too-few` when
  *     statically resolvable; otherwise no parse error (runtime AJV net).
- *
  */
 export function checkInvokeArity(input: InvokeArityInput): Diagnostic[] {
   const { callee, staticallyResolvable, requiredCount, totalCount, providedCount, site } =
@@ -564,7 +561,6 @@ export interface InvokeCallInput {
  * both mis-arities and mis-types reports the arity error rather than a confusing
  * per-argument type error on the first extra slot. When arity fails the
  * per-argument type check does not run.
- *
  */
 export function checkInvokeCall(input: InvokeCallInput): Diagnostic[] {
   const { callee, staticallyResolvable, requiredCount, totalCount, args, env, site } =
@@ -589,15 +585,16 @@ export function checkInvokeCall(input: InvokeCallInput): Diagnostic[] {
 // Non-theta extension — theta/parse/invoke-non-theta-extension
 // --------------------------------------------------------------------------
 
-/** Which surface referenced the path (governs only the diagnostic prose framing). */
+/**
+ * Which surface referenced the path: an `invoke(...)` literal or a `tools:`
+ * `.theta` entry. Governs `checkCalleeHasErrors`'s severity split.
+ */
 export type InvokePathSurface = "invoke" | "tools";
 
 /** Inputs to the extension check. */
 export interface InvokeExtensionInput {
   /** The path literal exactly as written (no realpath normalisation). */
   readonly literalPath: string;
-  /** The referencing surface: an `invoke(...)` literal or a `tools:` `.theta` entry. */
-  readonly surface: InvokePathSurface;
   /**
    * The located referencing site the diagnostic attaches to. `range` is
    * optional because the `tools:` seam has no per-entry source range (it is
@@ -611,8 +608,7 @@ export interface InvokeExtensionInput {
  * Fire `theta/parse/invoke-non-theta-extension` when the path literal does not end
  * byte-exact-lowercase `.theta` — a `.thetalib` path or any non-lowercase variant
  * such as `.THETA` (invocation.md §Resolution, lexical.md §Extension matching).
- * The same code fires for both surfaces.
- *
+ * The same code fires for both surfaces, so the input carries no surface.
  */
 export function checkInvokeExtension(input: InvokeExtensionInput): Diagnostic[] {
   const { literalPath, site } = input;
@@ -665,7 +661,6 @@ export interface CalleeHasErrorsInput {
  * `invoke(...)` callee (the parent registers, static checks against that callee
  * are skipped, and the runtime AJV check is the net). The underlying sites are
  * listed via `related`.
- *
  */
 export function checkCalleeHasErrors(input: CalleeHasErrorsInput): Diagnostic[] {
   const { calleePath, surface, hasErrors, relatedSites, site } = input;
@@ -690,9 +685,3 @@ export function checkCalleeHasErrors(input: CalleeHasErrorsInput): Diagnostic[] 
     },
   ];
 }
-
-// Re-export the compatibility helpers the checkers compose with, so consumers
-// (and the V15f-T tests) reference one import site. Kept as type-only for the
-// model types and value for the relation helpers.
-export { checkCompatible, displayType };
-export type { CompatType, TypeEnv, CompatSite };

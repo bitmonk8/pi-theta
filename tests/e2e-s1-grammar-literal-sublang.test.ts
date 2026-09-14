@@ -1,8 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-  checkLiteralSublanguage,
-  type LiteralPosition,
-} from "../src/parser/literal-sublanguage";
+import { checkLiteralSublanguage } from "../src/parser/literal-sublanguage";
 import type { Diagnostic, SourceRange } from "../src/diagnostics/diagnostic";
 import { parseDoc, codes, hasCode, errors } from "./helpers/e2e-s1";
 
@@ -21,10 +18,8 @@ const span: SourceRange = {
 const site = { file: "test.theta", range: span };
 
 describe("REQ-GRAM-2 — the literal sublanguage admits unary-minus numerics and Enum.Variant", () => {
-  const pos: LiteralPosition = "default";
-
   it("`-5` (unary minus on a numeric literal) is a literal (no default-not-literal)", () => {
-    const diags = checkLiteralSublanguage("-5", pos, site);
+    const diags = checkLiteralSublanguage("-5", site);
     expect(
       hasCode(diags, "theta/parse/default-not-literal"),
       `codes: ${codes(diags).join(",")}`,
@@ -32,7 +27,7 @@ describe("REQ-GRAM-2 — the literal sublanguage admits unary-minus numerics and
   });
 
   it("`Enum.Variant` member access is a literal (no default-not-literal)", () => {
-    const diags = checkLiteralSublanguage("Severity.High", pos, site);
+    const diags = checkLiteralSublanguage("Severity.High", site);
     expect(
       hasCode(diags, "theta/parse/default-not-literal"),
       `codes: ${codes(diags).join(",")}`,
@@ -41,7 +36,7 @@ describe("REQ-GRAM-2 — the literal sublanguage admits unary-minus numerics and
 
   it("a deeper member access (not Enum.Variant) is still rejected", () => {
     // `a.b.c` is more than one `.` hop — outside the NamedValueLit carve-out.
-    const diags = checkLiteralSublanguage("a.b.c", pos, site);
+    const diags = checkLiteralSublanguage("a.b.c", site);
     expect(
       hasCode(diags, "theta/parse/default-not-literal"),
       `codes: ${codes(diags).join(",")}`,

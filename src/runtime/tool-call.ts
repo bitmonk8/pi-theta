@@ -36,21 +36,11 @@
 // tool-call checkpoint facet, and the `ERR-13` completed-callee-finality
 // witness are owned by the paired `V14g` leaf and are out of scope here.
 //
-// V14a-T (tests-task) declares these seam shapes and stubs every
-// behaviour-bearing function inertly:
-//   - `checkToolCallArguments` returns no diagnostics (so the arity, not-literal,
-//     type-mismatch, and arity-before-type assertions all red),
-//   - `codeToolErrorCauses` returns the empty set and `codeToolErrorKind` /
-//     `modelToolErrorKind` return `""` (so the closed-enum and distinctness
-//     assertions red),
-//   - `lowerAcceptedPiToolReturn` / `lowerAcceptedThetaCallableReturn` return an
-//     inert `Err(null)` (so both accepted-path `Ok` assertions red),
-//   - `surfaceThetaCallableInputValidationFailure` /
-//     `surfaceThetaCallableCalleeFailure` return inert `kind: ""` values (so the
-//     `Invoke*Error` surfacing assertions red).
-// Each paired V14a-T test reds on its own primary assertion, not on a compile
-// error, a missing fixture, or a harness throw. The paired V14a implementation
-// leaf fills these in.
+// V14a-T (tests-task) declared these seam shapes; V14a (this leaf) supplies the
+// behaviour: the `checkToolCallArguments` arity / literal / type checks, the
+// closed `codeToolErrorCauses` set and the two distinct error kinds, the
+// accepted-path `lowerAcceptedPiToolReturn` / `lowerAcceptedThetaCallableReturn`
+// lowerings, and the `surfaceThetaCallable*Failure` `Invoke*Error` surfacings.
 //
 // Spec: tool-calls.md, pi-integration-contract/host-interfaces-core.md
 // (§"Tool execution from theta code"), errors-and-results/queryerror-variants.md.
@@ -181,10 +171,6 @@ export interface ToolCallArgCheckInput {
  * not-literal, then type-mismatch — and **arity is checked before type**: a
  * call that both over-supplies positional arguments and type-mismatches fires
  * only `theta/parse/tool-arg-arity`, not `theta/parse/tool-arg-type-mismatch`.
- *
- * V14a-T stubs this as an inert no-op (returns no diagnostics), so every
- * argument-check assertion reds on its own primary assertion. The paired V14a
- * implementation leaf fills in the three checks and their ordering.
  */
 export function checkToolCallArguments(
   input: ToolCallArgCheckInput,
@@ -338,8 +324,10 @@ function resolveSchemaConflict(
 type SubsetKindSet = ReadonlySet<string> | undefined;
 
 /**
- * The seven subset scalar/structural kinds a rendered type maps onto
- * (schema-subset.md §"The subset"). `integer` widens into `number` for the
+ * The five scalar subset kinds a rendered type maps onto (schema-subset.md
+ * §"The subset"); the subset's structural `object` / `array` types are
+ * deliberately outside this set (`subsetKinds` returns `undefined` for them,
+ * deferring to the runtime AJV boundary). `integer` widens into `number` for the
  * accepted-value intersection (an integer value is a valid `number`), so both
  * are retained and reconciled in `kindsDisjoint`.
  */
@@ -493,8 +481,6 @@ export class ShadowedCalleeDispatchDefectError extends Error {
  * (queryerror-variants.md): `validation` / `execution` / `cancelled` /
  * `unknown_tool`. This is the contract surface for theta authors — it is **not**
  * widened to cover every observable `execute()` disposition.
- *
- * V14a-T stubs this to the empty set so the closed-enum assertion reds.
  */
 export function codeToolErrorCauses(): readonly CodeToolCause[] {
   return ["validation", "execution", "cancelled", "unknown_tool"];
@@ -502,8 +488,6 @@ export function codeToolErrorCauses(): readonly CodeToolCause[] {
 
 /**
  * The `kind` wire discriminator of `CodeToolError` (`"code_tool"`).
- *
- * V14a-T stubs this to `""` so the distinctness assertion reds.
  */
 export function codeToolErrorKind(): string {
   return "code_tool";
@@ -514,8 +498,6 @@ export function codeToolErrorKind(): string {
  * *distinct* variant from `CodeToolError`: a code-side call carries a structured
  * `cause` enum and no `tool_call_id` / `raw_response`, whereas `ModelToolError` —
  * the reserved model-loop adapter-failure variant — carries both and no `cause`.
- *
- * V14a-T stubs this to `""` so the distinctness assertion reds.
  */
 export function modelToolErrorKind(): string {
   return "model_tool";
@@ -531,9 +513,6 @@ export function modelToolErrorKind(): string {
  * single `string` (tool-calls.md §"Return type", Pi-tool row). The
  * content-block filtering / joining that *produces* `finalOutput` from the
  * `AgentToolResult` envelope is owned by the paired `V14g` leaf.
- *
- * V14a-T stubs this to an inert `Err(null)` so the accepted-path `Ok(string)`
- * assertion reds.
  */
 export function lowerAcceptedPiToolReturn(finalOutput: string): ResultValue {
   return makeOk(finalOutput);
@@ -544,9 +523,6 @@ export function lowerAcceptedPiToolReturn(finalOutput: string): ResultValue {
  * `Result<T, QueryError>` accepted value: `Ok(<payload>)`, carrying the
  * callee's inferred (statically resolved) or AJV-enforced return payload
  * (tool-calls.md §"Return type", registered-theta row).
- *
- * V14a-T stubs this to an inert `Err(null)` so the accepted-path `Ok(T)`
- * assertion reds.
  */
 export function lowerAcceptedThetaCallableReturn(payload: ThetaValue): ResultValue {
   return makeOk(payload);
@@ -802,10 +778,6 @@ export function enforceModelToolArgDepth(
  * `Err(InvokeInfraError { cause: "validation", ... })` — the same `invoke`-shaped
  * arm `invoke(...)` uses for input validation, and **distinct** from a
  * `CodeToolError` (tool-calls.md §"Failures").
- *
- * V14a-T stubs this to an inert value whose `kind` is `""` and whose `cause` is
- * `"load_failure"`, so the `InvokeInfraError { cause: "validation" }` assertion
- * reds.
  */
 export function surfaceThetaCallableInputValidationFailure(
   calleePath: string,
@@ -826,9 +798,6 @@ export function surfaceThetaCallableInputValidationFailure(
  * carrying the callee's original `QueryError` as `inner` (tool-calls.md
  * §"Failures"). `CodeToolError` arises for a `.theta` callable only in the
  * `"unknown_tool"` safety-net case.
- *
- * V14a-T stubs this to an inert value whose `kind` is `""`, so the
- * `InvokeCalleeError` surfacing assertion reds.
  */
 export function surfaceThetaCallableCalleeFailure(
   calleePath: string,

@@ -739,7 +739,6 @@ describe("bug 0176 (E) — the honest payload burns the whole repair budget", ()
     const prompts: string[] = [];
     const validation = buildTypedQueryValidation({
       lowered: L1_FRAGMENT as unknown as LoweredSchema,
-      resolveShape: () => undefined,
       schemaValidator: ajv().validator,
       // The declared default budget (frontmatter-fields-a.md:17, :45).
       attempts: 3,

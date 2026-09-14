@@ -42,11 +42,6 @@ export function supersededNote(name: string): string {
  * `(false|true, "shutting-down")` and `(true, undefined)` → (b)
  * `"shutting-down"`. The arms are mutually exclusive and exhaust the tuple
  * state space; no third arm (PIC-30).
- *
- * The mapping keys on the tuple per PIC-29's closed two-arm map: arm (b)
- * `"shutting-down"` fires on the tag `"shutting-down"` or on
- * `(true, undefined)`; arm (a) `"dispatch"` is the steady-state residue
- * `(false, undefined)`. There is no third arm (PIC-30).
  */
 export function routeDrainStateArm(snapshot: DrainStateSnapshot): DispatchArm {
   if (snapshot.tag === "shutting-down" || snapshot.drained) {
@@ -75,17 +70,13 @@ export function shouldShortCircuitShutdown(snapshot: DrainStateSnapshot): boolea
  * throw the catch arm treats the read as the steady-state tuple
  * `(false, undefined)` — equivalently, as if the predicate had NOT fired — so
  * the handler proceeds into the full five-sub-step teardown rather than
- * stranding resources.
+ * stranding resources. The read may throw an arbitrary shape, so the catch is
+ * broad.
  *
  */
 export function evalShutdownShortCircuitWithReadFailover(
   read: () => DrainStateSnapshot,
 ): boolean {
-  // PIC-31 read-failure fail-safe: on a read-side throw treat the read as the
-  // steady-state tuple `(false, undefined)` — equivalently, as if the predicate
-  // had NOT fired — so the handler proceeds into the full five-sub-step teardown
-  // rather than short-circuiting and stranding every resource it must release.
-  // The read may throw an arbitrary shape, so the catch is broad.
   let snapshot: DrainStateSnapshot;
   try {
     snapshot = read();
@@ -118,9 +109,6 @@ export function resolveSlashDispatch(
   if (arm === "shutting-down") {
     return { kind: "note", content: shuttingDownNote(name) };
   }
-  // Arm (a) dispatch: look the slash name up in the registry entry table. A hit
-  // dispatches the theta; a miss (a dropped, superseded entry) returns the fixed
-  // superseded note — a sub-case of arm (a), not a third arm (PIC-30).
   const theta = registry.get(name);
   if (theta === undefined) {
     return { kind: "note", content: supersededNote(name) };

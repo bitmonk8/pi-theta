@@ -93,11 +93,13 @@ function rowCells(line: string): string[] {
   return trimmed.slice(1, trimmed.endsWith("|") ? -1 : undefined).split("|");
 }
 
-function isTableRow(line: string): boolean {
+/** A markdown table row: any line whose trimmed text opens with `|`. Table-shape-independent, so it is shared (PTQ-0270) rather than redeclared per reader. */
+export function isTableRow(line: string): boolean {
   return line.trim().startsWith("|");
 }
 
-function isSeparatorRow(line: string): boolean {
+/** A markdown table's separator row (the `|---|---|`-shaped line under the header). Table-shape-independent, so it is shared (PTQ-0270) rather than redeclared per reader. */
+export function isSeparatorRow(line: string): boolean {
   return isTableRow(line) && /^\|[\s:|-]+\|?\s*$/.test(line.trim());
 }
 

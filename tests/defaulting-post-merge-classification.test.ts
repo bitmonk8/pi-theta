@@ -12,6 +12,7 @@ import {
   type LoweredSchema,
   type SchemaSlug,
 } from "../src/seams/schema-validator";
+import { spyValidator } from "./helpers/spy-validator";
 
 // Bug 0066 — the post-default-merge AJV validation hook
 // (`fillDefaultsAndRevalidate`, src/binder/defaulting.ts) runs NO depth walk:
@@ -115,25 +116,6 @@ function classificationOf(result: FillDefaultsResult): BinderArgsClassification 
     );
   }
   return classification;
-}
-
-/**
- * A spy `CompiledValidator`: records every value handed to `validate()` and
- * returns a fixed verdict. `calls.length === 0` is the CIO-3 observable — AJV
- * did not run because the depth walk short-circuited ahead of it.
- */
-function spyValidator(result: PostMergeValidation): {
-  readonly validator: CompiledValidator;
-  readonly calls: unknown[];
-} {
-  const calls: unknown[] = [];
-  const validator: CompiledValidator = {
-    validate(value: unknown) {
-      calls.push(value);
-      return result;
-    },
-  };
-  return { validator, calls };
 }
 
 /**

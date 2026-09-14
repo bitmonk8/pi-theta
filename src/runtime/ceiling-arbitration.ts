@@ -11,10 +11,12 @@
 // co-fire decision for a single ceiling-candidate; it runs no breach check,
 // receives no events, and owns no per-ceiling surface. Each ceiling's own
 // bound/breach detection stays distributed across its feature leaf
-// (`V5e`, `V11f`, `V13c`, `V15b`), whose first-enforcement point CONSULTS this
-// seam to obtain the surfacing precedence and to populate the surface's
-// `masked` field; the load-time `V4e` slash-load `params` cross-route consults
-// it at slash-load per CIO-1.
+// (`V5e`, `V11f`, `V13c`, `V15b`). No production leaf calls `arbitrate`: the
+// CIO order and the `masked` co-fire are witnessed at this seam by its tests,
+// while production populates the surface's `masked` field through the `V9d`
+// `computeMasked` predicate (`runtime-event-channel.ts`). The `V4e` slash-load
+// `params` cross-route that once consulted it was deleted as unreachable
+// (bug 0066).
 //
 // Each hard ceiling is checked at a distinct point in single-threaded
 // interpreter execution (ceilings-3-and-4.md §"Interaction between ceilings"):
@@ -54,13 +56,6 @@ export type CheckSite =
   | "round-boundary"
   | "slash-load-binder"
   | "ajv-boundary";
-
-export const CHECK_SITES: readonly CheckSite[] = [
-  "invoke-entry",
-  "round-boundary",
-  "slash-load-binder",
-  "ajv-boundary",
-] as const;
 
 /**
  * A ceiling-candidate: the ceiling class(es) whose precondition is satisfied at

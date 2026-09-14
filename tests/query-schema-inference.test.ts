@@ -94,7 +94,7 @@ describe("V13b-T — inference walk: crossed/stopped rules (query-forms.md §Sch
     // further out (the walk never reaches it).
     const frames: readonly SchemaSinkFrame[] = [
       { kind: "propagate" },
-      { kind: "stop", label: "+" },
+      { kind: "stop" },
       { kind: "let", annotation: reviewScore },
     ];
     expect(inferQuerySchema({ frames })).toBeUndefined();
@@ -103,7 +103,7 @@ describe("V13b-T — inference walk: crossed/stopped rules (query-forms.md §Sch
   it("QRY-2: the match scrutinee is opaque — a bare query there is untyped", () => {
     // `match @`...` { … }` — the `match` scrutinee is opaque; the query is
     // untyped unless an explicit `@<Schema>` ascription is added.
-    const frames: readonly SchemaSinkFrame[] = [{ kind: "stop", label: "match-scrutinee" }];
+    const frames: readonly SchemaSinkFrame[] = [{ kind: "stop" }];
     expect(inferQuerySchema({ frames })).toBeUndefined();
   });
 
@@ -143,7 +143,7 @@ describe("V13b-T — explicit `@<Schema>` override (query-forms.md QRY-3)", () =
     // the scrutinee of `match`: the explicit `@<Schema>` overrides the walk even
     // though the scrutinee is a stop.
     const explicit: InferredSchema = { kind: "named", name: "ReviewScore" };
-    const frames: readonly SchemaSinkFrame[] = [{ kind: "stop", label: "match-scrutinee" }];
+    const frames: readonly SchemaSinkFrame[] = [{ kind: "stop" }];
     expect(inferQuerySchema({ frames, explicit })).toEqual(explicit);
   });
 });

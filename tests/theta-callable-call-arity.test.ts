@@ -922,7 +922,7 @@ describe("bug 0071 cells B11-B15 — the walk reaches calls in a `par for` body,
 
 /** A `.theta` snapshot entry (`ResolvedThetaCallee`) carrying `calleePath`. */
 function thetaEntry(calleePath: string): ResolvedCallable {
-  return { kind: "theta", mode: "subagent", calleePath, callee: null };
+  return { kind: "theta", mode: "subagent", calleePath };
 }
 
 /**

@@ -691,7 +691,8 @@ describe("bug 0082 — `par for` body restrictions reach inside a block expressi
 // ===========================================================================
 // (j) — PIC-64 rung 3: a code-side extension-tool call reachable only inside a
 // block expression is visible to the load-time reachability check
-// (`walkExpr`, src/extension/extension-tool-reachability.ts).
+// (`collectCodeSideCallNames`, src/extension/extension-tool-reachability.ts,
+// via the shared `walkCallSiteNodes` walk in src/parser/theta-document.ts).
 // ===========================================================================
 
 describe("bug 0082 — extension-tool reachability sees a call inside a block", () => {
@@ -734,8 +735,8 @@ describe("bug 0082 — extension-tool reachability sees a call inside a block", 
 // ===========================================================================
 // (k) — FN-6: a `subagent fn` → `subagent fn` spawn routed through a block
 // expression contributes its edge, so a cycle through a block is refused at
-// load (`walkExpr` in `collectCallCallees`,
-// src/extension/subagent-fn-static-checks.ts).
+// load (`collectCallCallees`, src/extension/subagent-fn-static-checks.ts,
+// via the shared `walkCallSiteNodes` walk in src/parser/theta-document.ts).
 // ===========================================================================
 
 describe("bug 0082 — the FN-6 spawn graph sees a call inside a block", () => {

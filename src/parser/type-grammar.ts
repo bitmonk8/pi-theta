@@ -84,21 +84,17 @@
 //     position reuses the object-schema `Field` form, so lexical.md's
 //     lowercase-first rule reaches it exactly as it reaches an object-schema
 //     body's own field name. Excludes a spelling that is a member of the
-//     lexer's own `reservedKeywords()` (Disposition A — the reserved-keyword
-//     class at this slot stays with its own open report). Shares the empty
+//     lexer's own `reservedKeywords()` (Disposition A — a reserved-keyword
+//     spelling at this slot draws `theta/parse/reserved-keyword-as-identifier`
+//     instead, bug 0249). Shares the empty
 //     rule's closing-brace gate, the same gate the two raw-key rules above
-//     share: all six rules at this arm answer alike regardless of nesting
+//     share: every rule at this arm answers alike regardless of nesting
 //     depth beneath a generic type argument, so a nested `array<{ Ys: string }>`
 //     fires exactly as a nested `array<{ a b: string }>` does. Emits before
 //     the two raw-key rules above.
 //
-// A caller may select a narrower rule SET than all eight checks
+// A caller may select a narrower rule SET than the full walk
 // (`parseTypeExpression`'s `rules` parameter; see `TypeCheckRules` below).
-//
-// V2a-T (tests-task) declares these seam shapes and stubs the two checks as
-// inert no-ops (no diagnostic produced) so the failing tests compile and red on
-// their own primary assertions (the type-expression parser and sink-resolution
-// engine are absent). The paired V2a implementation leaf fills them in.
 
 // The rendered message's field-name interpolation is collapsed through
 // `normaliseLiteralValueLineBreaks` so an author-controlled name carrying a
@@ -192,11 +188,13 @@ export interface TypeCheckSite {
  *     type's own arm independent of position and of the other three
  *     `"all"`-only checks: `theta/parse/empty-schema-body`'s
  *     empty-brace-interior rule, `theta/parse/binding-case-mismatch`'s
- *     lowercase-first identifier rule over the field name (bug 0154),
- *     `theta/parse/duplicate-inline-field-name`'s repeated-name rule,
- *     `theta/parse/quoted-inline-field-name`'s non-identifier-key rule, and
- *     `theta/parse/renamed-inline-field-name`'s (bug 0160) rename-clause
- *     refusal. The walk still DESCENDS generic arguments, object field types and union
+ *     lowercase-first identifier rule over the field name (bug 0154) and
+ *     `theta/parse/reserved-keyword-as-identifier`'s keyword-spelling refusal
+ *     beside it (bug 0249), `theta/parse/duplicate-inline-field-name`'s
+ *     repeated-name rule, `theta/parse/quoted-inline-field-name`'s
+ *     quote-led-key rule, `theta/parse/renamed-inline-field-name`'s (bug 0160)
+ *     rename-clause refusal, and `theta/parse/inline-field-name-not-identifier`'s
+ *     (bug 0228) non-identifier-key rule. The walk still DESCENDS generic arguments, object field types and union
  *     arms under this selection — a nested `{}`, a nested ill-cased name, a
  *     nested repeated name, or a nested quoted name is found at any depth —
  *     but withholds `void-in-non-return-position`, `generic-arity-mismatch`
@@ -246,8 +244,12 @@ export function parseTypeExpression(
 
 /** A type-expression AST node (only what the position checks need to walk). */
 type TypeNode =
-  | { readonly kind: "prim"; readonly name: string }
-  | { readonly kind: "named"; readonly name: string }
+  /**
+   * A primitive or declared-name head (`string`, `integer`, `Cat`, …) standing
+   * alone: an opaque leaf carrying no payload, since no position check reads
+   * the spelling — it falls to `walkType`'s `default` arm like `literal`.
+   */
+  | { readonly kind: "named" }
   | { readonly kind: "void" }
   | { readonly kind: "literal" }
   /**
@@ -475,7 +477,6 @@ function tokeniseType(source: string): TypeToken[] {
   return tokens;
 }
 
-const PRIMITIVE_TYPES = new Set(["string", "number", "integer", "boolean", "null"]);
 /**
  * The closed `GenericType` set (grammar.md:99–:100, :107 — "No other
  * identifier is parameterisable"). Exported for `lowerTypeExpr`
@@ -771,19 +772,14 @@ class TypeParser {
     if (name === "true" || name === "false") {
       return { kind: "literal" };
     }
-    if (name in GENERIC_ARITY && this.peek()?.text === "<") {
-      return this.parseGeneric(name);
-    }
-    // A generic head used without `<...>`, or any non-generic head with a
-    // following `<`, is still parsed as an application so the arity check
-    // fires (e.g. `array` arity computed from however many args appear).
+    // Any head with a following `<` — a closed-set generic constructor or not
+    // — is parsed as an application so the arity check fires (e.g. `array`
+    // arity computed from however many args appear); `walkType` reads
+    // `GENERIC_ARITY` to decide which heads it judges.
     if (this.peek()?.text === "<") {
       return this.parseGeneric(name);
     }
-    if (PRIMITIVE_TYPES.has(name)) {
-      return { kind: "prim", name };
-    }
-    return { kind: "named", name };
+    return { kind: "named" };
   }
 
   private parseGeneric(ctor: string): TypeNode {
@@ -865,16 +861,17 @@ class TypeParser {
     let entryRefused = false;
     const pending: Diagnostic[] = [];
     // Bug 0257 (operator adjudication) — SL2/SL3/SL4/SL5's own state, additive
-    // to bug 0244's above and cleared on the same events. `pendingSlotIndex` is
-    // the `pending` index of the most recently opened empty entry slot's own
-    // buffered line, valid only until the IMMEDIATELY following entry has been
-    // judged (cleared once a `Field` derives, once a genuine entry separator is
+    // to bug 0244's above and cleared on the same events. `pendingSlotOpen`
+    // records that the most recently opened empty entry slot's own buffered
+    // line is the tail of `pending` (so SL5's collapse below `pop()`s it),
+    // valid only until the IMMEDIATELY following entry has been judged
+    // (cleared once a `Field` derives, once a genuine entry separator is
     // crossed, or once that judgement has run) — the window SL5's adjacency
     // collapse is scoped to. `emptySlotBodyPushed` guards SL3's per-interior
     // cap: `theta/parse/empty-schema-body` reads "'{}' has no fields", which
     // cannot be true twice of one interior, so a second comma-only slot before
     // any `Field` derives buffers nothing further.
-    let pendingSlotIndex: number | undefined;
+    let pendingSlotOpen = false;
     let emptySlotBodyPushed = false;
     // Open across the whole field loop, so `parsePrimary` declines exactly the
     // entry-separating `,` this loop is still going to read.
@@ -920,14 +917,14 @@ class TypeParser {
               // so `{a: integer,}` / `{a: integer, }` never reach here.
               if (fieldTypes.length > 0) {
                 pending.push(this.discardedEntryRefusal());
-                pendingSlotIndex = pending.length - 1;
+                pendingSlotOpen = true;
               } else if (!emptySlotBodyPushed) {
                 pending.push(emptySchemaBodyDiagnostic("{}", this.site));
                 emptySlotBodyPushed = true;
-                pendingSlotIndex = pending.length - 1;
+                pendingSlotOpen = true;
               }
             } else {
-              pendingSlotIndex = undefined;
+              pendingSlotOpen = false;
             }
             // The taint lifts (the entry behind this comma is one the author
             // did write) and the refusal latch resets so that entry can draw
@@ -939,11 +936,11 @@ class TypeParser {
             // Bug 0257 SL5 — adjacency collapse: the entry immediately behind
             // an empty slot is itself keyless, so ITS refusal replaces the
             // slot's buffered line rather than adding a second
-            // (code-registry-parse.md:104's count law; §Reproduction (c)
-            // c1–c3 stay at one line).
-            if (pendingSlotIndex !== undefined) {
+            // (`theta/parse/malformed-schema-field`'s registry row states the
+            // replacement; §Reproduction (c) c1–c3 stay at one line).
+            if (pendingSlotOpen) {
               pending.pop();
-              pendingSlotIndex = undefined;
+              pendingSlotOpen = false;
             }
             pending.push(this.discardedEntryRefusal());
             entryRefused = true;
@@ -952,7 +949,7 @@ class TypeParser {
             // 0244's refusal (a colon-present entry, or a stray-close-
             // carrying keyless entry) — the adjacency window for any pending
             // slot has passed with nothing to collapse into.
-            pendingSlotIndex = undefined;
+            pendingSlotOpen = false;
           }
           entryTainted = fieldName?.text !== ",";
           this.next();
@@ -967,18 +964,19 @@ class TypeParser {
             // arm's, for the ident-with-no-colon shape (`{,void}`, `{a:
             // integer,,zs}`): this entry's own refusal replaces an
             // immediately preceding empty slot's buffered line.
-            if (pendingSlotIndex !== undefined) {
+            if (pendingSlotOpen) {
               pending.pop();
-              pendingSlotIndex = undefined;
+              pendingSlotOpen = false;
             }
             pending.push(this.discardedEntryRefusal());
             entryRefused = true;
           } else {
-            pendingSlotIndex = undefined;
+            pendingSlotOpen = false;
           }
-          // A malformed entry accounts for itself and for nothing else
-          // (code-registry-parse.md:101's count-consequence sentence, scoped to
-          // "that field"): resynchronise at this interior's next depth-0 `,`
+          // A malformed entry accounts for itself and for nothing else (bug
+          // 0129's count-consequence law, stated in
+          // `theta/parse/inline-field-name-not-identifier`'s registry row and
+          // scoped to "that field"): resynchronise at this interior's next depth-0 `,`
           // instead of ending the loop, so every entry behind this one still
           // reaches `fieldNames` / `fieldTypes` and every check those arrays
           // feed. `entryTainted` is cleared because the skip already consumed
@@ -991,7 +989,7 @@ class TypeParser {
             entryRefused = false;
             // Bug 0257: a genuine entry separator was crossed, so whatever
             // slot preceded this point is no longer adjacent to anything.
-            pendingSlotIndex = undefined;
+            pendingSlotOpen = false;
           }
           entryTainted = false;
           continue;
@@ -1015,7 +1013,7 @@ class TypeParser {
           // Bug 0257: a `Field` derived, so any earlier empty slot is no
           // longer the immediately adjacent one — nothing left to collapse
           // into this field.
-          pendingSlotIndex = undefined;
+          pendingSlotOpen = false;
         }
         // Optional `as "WireName"` rename — skip if present.
         if (this.peek()?.kind === "ident" && this.peek()?.text === "as") {
@@ -1055,7 +1053,7 @@ class TypeParser {
           entryTainted = false;
           entryStart = this.pos;
           entryRefused = false;
-          pendingSlotIndex = undefined;
+          pendingSlotOpen = false;
           continue;
         }
         entryTainted = false;
@@ -1063,7 +1061,7 @@ class TypeParser {
         entryRefused = false;
         // Bug 0257: the loop's own genuine `,` was consumed, so any earlier
         // empty slot is no longer adjacent to what follows.
-        pendingSlotIndex = undefined;
+        pendingSlotOpen = false;
       }
     } finally {
       this.openCommaReadingConstructs -= 1;
@@ -1357,7 +1355,7 @@ function inlineObjectFieldKeys(interiorSource: string): string[] {
  *   - `theta/parse/empty-schema-body` — an inline object type whose brace
  *     interior carries no token AND whose closing `}` was consumed
  *     (`TypeNode.interiorHasTokens` false, `TypeNode.braceClosed` true). Runs
- *     under EVERY `rules` value — one of the five checks `"inline-object-shape"`
+ *     under EVERY `rules` value — one of the checks `"inline-object-shape"`
  *     admits — and is unqualified by `position`, by `isRoot`, or by nesting
  *     depth beneath a generic argument: an empty `array<{}>` argument still
  *     fires. An
@@ -1368,8 +1366,9 @@ function inlineObjectFieldKeys(interiorSource: string): string[] {
  *     `TypeNode.fieldNames`, the theta-side IDENTIFIER retention, whose first
  *     character is neither `_` nor a lowercase letter, excluding a spelling
  *     that is a member of the lexer's own `reservedKeywords()` (Disposition A:
- *     a keyword-shaped inline field name stays with the reserved-keyword
- *     class's own open report, not this one). `fieldNames` is NOT the same key
+ *     a keyword-shaped inline field name draws
+ *     `theta/parse/reserved-keyword-as-identifier` at this same arm instead of
+ *     this rule — bug 0249). `fieldNames` is NOT the same key
  *     `duplicate-inline-field-name` / `quoted-inline-field-name` below read —
  *     those key on `TypeNode.interiorSource`'s raw, unnormalised entry text,
  *     deliberately not an identifier, while this rule needs identifier TOKENS.
@@ -1404,7 +1403,7 @@ function inlineObjectFieldKeys(interiorSource: string): string[] {
  *     second occurrence, in source order — `seen` tracks a key's first
  *     occurrence and `reported` its emission, both `Set`s, so a third
  *     occurrence draws no second line. Runs under EVERY `rules` value — one
- *     of the five checks `"inline-object-shape"` admits — and is
+ *     of the checks `"inline-object-shape"` admits — and is
  *     unqualified by `position`, by `isRoot`, or by nesting depth beneath a
  *     generic type argument: a generic argument's interior is never divided
  *     into fields at the LOWERING, so no duplicate `required` is ever minted
@@ -1430,7 +1429,7 @@ function inlineObjectFieldKeys(interiorSource: string): string[] {
  *     alone: this rule fires only for a key occurring exactly once, so
  *     `{"a": string, "a": integer}` draws one `duplicate-inline-field-name`
  *     line and no second line from this rule. Runs under EVERY `rules`
- *     value — one of the five checks `"inline-object-shape"` admits.
+ *     value — one of the checks `"inline-object-shape"` admits.
  *   - `theta/parse/renamed-inline-field-name` (bug 0160) — a non-repeating,
  *     non-quote-led entry of the same `inlineObjectFieldKeys` split whose raw
  *     text matches `Ident "as" (String)` — an inline `as "WireName"` rename
@@ -1467,14 +1466,14 @@ function inlineObjectFieldKeys(interiorSource: string): string[] {
  *     depth beneath a generic type argument for the same reason its
  *     neighbours do: the LOWERING never divides that interior into fields,
  *     which bounds what a rename would reach on the wire, not whether the
- *     source rename clause is judged. Runs under EVERY `rules` value — the
- *     fifth check `"inline-object-shape"` admits.
+ *     source rename clause is judged. Runs under EVERY `rules` value — one
+ *     of the checks `"inline-object-shape"` admits.
  *
  * Every `rules` value still descends generic arguments, object field types
  * and union arms, so a nested empty inline object, a nested ill-cased name, a
  * nested repeated field name, a nested quoted field name, or a nested
  * rename-bearing field name is found at any depth regardless of which of the
- * three `"all"`-only checks are withheld. The six rules at the `object` arm
+ * three `"all"`-only checks are withheld. The rules at the `object` arm
  * below judge the SOURCE key at every depth and through every generic
  * argument alike — the LOWERING never dividing a generic argument's interior
  * into fields (`params.ts`'s `lowerTypeExpr`) bounds the WIRE consequence a
@@ -1533,7 +1532,7 @@ function walkType(
       }
       // A generic type argument's interior is one more `ObjectType`
       // interior: nothing narrows `rules` or `position` for it, so it draws
-      // the same six object-arm rules as any other subtree.
+      // the same object-arm rules as any other subtree.
       for (const arg of node.args) {
         walkType(arg, false, position, rules, site, out);
       }
@@ -1544,7 +1543,7 @@ function walkType(
         // Nothing to descend — a token-free interior leaves `fieldTypes` empty
         // whether or not the brace closed. The closing brace is the second
         // half of the key (see `TypeNode`); the check itself runs regardless of
-        // `rules`, being one of the five checks `"inline-object-shape"` admits.
+        // `rules`, being one of the checks `"inline-object-shape"` admits.
         if (node.braceClosed) {
           out.push(emptySchemaBodyDiagnostic("{}", site));
         }

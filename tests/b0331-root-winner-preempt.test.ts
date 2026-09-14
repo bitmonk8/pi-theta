@@ -27,8 +27,8 @@
 // post-fix, the child honours it and registers the parent's winner (GREEN).
 //
 // Harness mirrors tests/subagent-child-hash-refusal-e2e.test.ts (the
-// setEnv/savedEnv control-plane save-restore, the regime marker +
-// parent-pid authentication, `discoverAndComposeFixtures` driving the REAL
+// setEnv/restoreEnv control-plane sandbox (tests/helpers/ambient-control-plane-scrub.ts),
+// the regime marker + parent-pid authentication, `discoverAndComposeFixtures` driving the REAL
 // child load pass, registered slugs via `fixtures.map(f => f.slashName)`) and
 // tests/subagent-theta-roots-forwarding.test.ts case (D) (a
 // `pi.getFlag('theta')` returning the marshalled roots joined with
@@ -45,6 +45,12 @@ import type {
 import type { ThetaFixture } from "../src/extension/factory";
 import { discoverAndComposeFixtures } from "../src/extension/production-composition";
 import { SUBAGENT_PARENT_PID_ENV } from "../src/runtime/subagent-launcher";
+import {
+  createEnvSandbox,
+  restoreAmbientControlPlane,
+  scrubAmbientControlPlane,
+  type AmbientControlPlaneSnapshot,
+} from "./helpers/ambient-control-plane-scrub";
 import { SUBAGENT_ROOT_ENV_MARKER } from "../src/runtime/subagent-root-regime";
 
 // The not-yet-existent control-plane carrier, referenced by literal so the file
@@ -69,16 +75,14 @@ interface LoadOutcome {
 }
 
 let workspaceDir: string;
-const savedEnv: Record<string, string | undefined> = {};
+/** Ambient control plane carried by the RUNNING process, parked for the test. */
+let ambientControlPlane: AmbientControlPlaneSnapshot | undefined;
 
-function setEnv(key: string, value: string): void {
-  if (!(key in savedEnv)) {
-    // Save the ORIGINAL (pre-test) value once so a second set for the same key
-    // (e.g. the malformed-carrier loop) cannot overwrite it with a planted one.
-    savedEnv[key] = process.env[key];
-  }
-  process.env[key] = value;
-}
+// Save-before-first-override / restore-in-afterEach sandbox (the ORIGINAL
+// (pre-test) value of a key is saved once, so a second `setEnv` for the same
+// key — e.g. the malformed-carrier loop — cannot overwrite it with a planted
+// one).
+const { setEnv, restoreEnv } = createEnvSandbox();
 
 /** Forward-slash-normalized carrier value, matching the fix's marshalling. */
 function fwd(path: string): string {
@@ -179,17 +183,21 @@ async function runLoad(
 }
 
 beforeEach(() => {
+  // Bug 0474 §Residual: this file simulates a subagent CHILD in-process, so an
+  // ambient control plane on `process.env` (a `npm test` run from inside a
+  // subagent child) authenticates just as legitimately as the plane the test
+  // plants and preempts it. Scrub BEFORE any `setEnv`, so the sandbox records
+  // the post-scrub (absent) value and the ambient restore below is the last
+  // word.
+  ambientControlPlane = scrubAmbientControlPlane();
   workspaceDir = mkdtempSync(join(tmpdir(), "theta-b0331-"));
 });
 
 afterEach(() => {
-  for (const [key, value] of Object.entries(savedEnv)) {
-    if (value === undefined) {
-      delete process.env[key];
-    } else {
-      process.env[key] = value;
-    }
-    delete savedEnv[key];
+  restoreEnv();
+  if (ambientControlPlane !== undefined) {
+    restoreAmbientControlPlane(ambientControlPlane);
+    ambientControlPlane = undefined;
   }
   rmSync(workspaceDir, { recursive: true, force: true });
 });

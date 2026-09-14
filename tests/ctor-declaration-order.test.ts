@@ -1,5 +1,3 @@
-import { fileURLToPath } from "node:url";
-import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import type {
   ExtensionAPI,
@@ -7,7 +5,7 @@ import type {
   ModelRegistry,
 } from "@earendil-works/pi-coding-agent";
 // @ts-expect-error — JS code-registry module, no type declarations.
-import { parseRegistry, registryMessage } from "../tools/code-registry/index.js";
+import { registryMessage } from "../tools/code-registry/index.js";
 import type { ThetaSource } from "../src/lexer/lexer";
 import type { SystemNoteChannelDeps } from "../src/extension/system-note-channel";
 import type { ModelReferenceMatcher, ParsedFrontmatter } from "../src/parser/frontmatter";
@@ -29,6 +27,8 @@ import type { ThetaCompositionInput } from "../src/extension/theta-composition-p
 import type { RuntimeRoot } from "../src/runtime-root";
 import type { Checkpoint } from "../src/seams/checkpoint";
 import type { AgentToolResultEnvelope } from "../src/runtime/tool-call-execute";
+import { diagCodes } from "./helpers/e2e-s1";
+import { REGISTRY } from "./helpers/registry-oracle";
 
 // Bug 0080 — `keys()` / `values()` on a named-schema value, and the QRY-18
 // outbound JSON built from the same record, follow the CONSTRUCTOR's field order
@@ -162,11 +162,6 @@ function parseOnly(src: string): ThetaDocument {
   return parseThetaDocument(source, parseDeps());
 }
 
-/** `severity code` for every diagnostic the parse aggregated, in emission order. */
-function severityCodes(doc: ThetaDocument): string[] {
-  return doc.diagnostics.map((d) => `${d.severity} ${d.code}`);
-}
-
 const FM = "---\nmode: prompt\n---\n";
 
 /** Frontmatter for row N, whose bare object literal is a Pi-tool argument. */
@@ -176,23 +171,10 @@ const FM_GREP_TOOL = "---\nmode: prompt\ntools:\n  - grep\n---\n";
 // The DIAG-4 oracle. Rows J and K assert diagnostic CODES, and read the registry
 // to prove each asserted code is a registered one — a renamed or invented code
 // must not pass by matching a string this file made up.
+//
+// `REGISTRY` is the shared four-page diagnostics-registry read
+// (`tests/helpers/registry-oracle.ts`, PTQ-0215).
 // ===========================================================================
-
-const REGISTRY = parseRegistry(
-  [
-    "code-registry-parse.md",
-    "code-registry-load.md",
-    "code-registry-runtime.md",
-    "code-registry-host.md",
-  ]
-    .map((page) =>
-      readFileSync(
-        fileURLToPath(new URL(`../docs/spec_topics/diagnostics/${page}`, import.meta.url)),
-        "utf8",
-      ),
-    )
-    .join("\n"),
-) as readonly { readonly code: string; readonly message: string }[];
 
 /**
  * Assert `code` has a row in the DIAG-2 registry. A missing row fails LOUDLY:
@@ -748,7 +730,7 @@ describe("bug 0080 (J, K) — the rejected constructors the fallback is defensiv
     assertRegistered("theta/parse/extra-object-field");
     const doc = parseOnly(FM + SCHEMA_P + 'let p = P { a: "x", b: 1, c: 3 }\n' + "p\n");
     expect(
-      severityCodes(doc),
+      diagCodes(doc),
       "CONTROL (bug 0080, row J): an extra constructor field is `theta/parse/extra-object-field` (expressions.md §\"Object construction\"), so the declaration-order walk never meets a name the schema does not declare",
     ).toEqual(["error theta/parse/extra-object-field"]);
   });
@@ -761,7 +743,7 @@ describe("bug 0080 (J, K) — the rejected constructors the fallback is defensiv
     assertRegistered("theta/parse/unresolved-named-type");
     const doc = parseOnly(FM + 'let p = NoSuchSchema { a: "x", b: 1 }\n' + "p\n");
     expect(
-      severityCodes(doc),
+      diagCodes(doc),
       "CONTROL (bug 0080, row K): an unresolved constructor name is `theta/parse/unresolved-named-type` (bug 0025, fixed 0.37.0), so the reorder's `resolveSchema` gate has nothing to fall through for",
     ).toEqual(["error theta/parse/unresolved-named-type"]);
   });
@@ -1157,7 +1139,7 @@ describe("bug 0121 — the QRY-18 wire record's key order: declaration order, ex
       'let p = P { a: "x", b: 1 }\n' +
       "@`J${p}`\n";
     expect(
-      severityCodes(parseOnly(plain)),
+      diagCodes(parseOnly(plain)),
       'PRIMARY (bug 0121, row R9 — the input class is ADMITTED): lexical.md:16 says the wire name "may be any string via the `as "WireName"` rename clause", and the only wire-name checks in the tree are collision and redundancy (src/parser/schema-declarations.ts), so `b as "0"` must load with ZERO diagnostics. Route (c) narrows nothing; a route that started rejecting this input reds here and owes a DIAG-2 registry row plus the lexical.md / grammar.md edits',
     ).toEqual([]);
     expect(
@@ -1168,7 +1150,7 @@ describe("bug 0121 — the QRY-18 wire record's key order: declaration order, ex
       ["b", "0"],
     ]);
     expect(
-      severityCodes(parseOnly(escaped)),
+      diagCodes(parseOnly(escaped)),
       'PRIMARY (bug 0121, row E1 — the ESCAPE spelling is the same input): schemas.md:43 admits "escape sequences as in any other string literal", so `b as "\\u{30}"` is theta\'s escape form for the same wire name and must also load with ZERO diagnostics',
     ).toEqual([]);
     expect(

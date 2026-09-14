@@ -15,12 +15,15 @@
 // assertions. It is test-support code (Pi never loads it), so it lives under
 // `tests/` outside the `src/**` mechanical gates.
 
+import type { Diagnostic } from "../../src/diagnostics/diagnostic";
 import type {
   ChildExitInfo,
   ExecutableHost,
   SpawnFn,
   SubagentChildProcess,
+  SubagentLaunchRequest,
 } from "../../src/runtime/subagent-launcher";
+import { driveSubagentChild } from "../../src/runtime/subagent-json-driver";
 import {
   serializeErrEnvelope,
   serializeOkEnvelope,
@@ -41,6 +44,48 @@ export function fakeExecutableHost(): ExecutableHost {
   };
 }
 
+/**
+ * A fully overridable `ExecutableHost`, for tests that exercise the
+ * resolution ladder itself (rung 1 / rung 2 / both-rungs-fail) or an R2-style
+ * spawn-failure diagnostic and need to vary `argv1` / `fileExists` /
+ * `isGenericRuntime` per scenario. Distinct from `fakeExecutableHost()`
+ * above, whose fixed shape only needs to resolve successfully.
+ */
+export function overridableExecutableHost(overrides?: Partial<ExecutableHost>): ExecutableHost {
+  return {
+    argv1: "/app/pi/dist/index.js",
+    execPath: "/usr/bin/node",
+    fileExists: (): boolean => true,
+    isGenericRuntime: (p): boolean => /(?:^|\/)(?:node|bun)$/.test(p),
+    ...overrides,
+  };
+}
+
+/**
+ * A `SubagentLaunchRequest` fixture for `launchSubagentChild` call sites,
+ * fully overridable per field.
+ */
+export function fakeSubagentLaunchRequest(overrides?: Partial<SubagentLaunchRequest>): SubagentLaunchRequest {
+  return {
+    argv: {
+      slug: "child",
+      thetaDirs: ["/work/project/.pi/theta"],
+      systemPrompt: "you are a subagent",
+      hostTools: [],
+      noHostTools: true,
+      provider: "anthropic",
+      model: "claude-sonnet",
+      projectTrust: false,
+    },
+    cwd: "/work/project/sub/dir",
+    parentEnv: { PATH: "/usr/bin" },
+    parentPid: 999,
+    invokeDepth: 0,
+    host: overridableExecutableHost(),
+    ...overrides,
+  };
+}
+
 /** The record one `makeFakeJsonChildLauncher` spawn captures. */
 export interface SpawnRecord {
   readonly execPath: string;
@@ -49,8 +94,6 @@ export interface SpawnRecord {
   readonly env: Record<string, string | undefined>;
   readonly child: FakeJsonChild;
 }
-
-let nextFakePid = 5000;
 
 /** Options for one fake json child. */
 export interface FakeJsonChildOptions {
@@ -72,8 +115,6 @@ export interface FakeJsonChildOptions {
  * is controlled with `crashWith` / `kill` / `closeStdin`.
  */
 export class FakeJsonChild implements SubagentChildProcess {
-  readonly pid: number | undefined;
-
   #stdoutListeners: ((line: string) => void)[] = [];
   #stderrListeners: ((line: string) => void)[] = [];
   #exitListeners: ((info: ChildExitInfo) => void)[] = [];
@@ -85,7 +126,6 @@ export class FakeJsonChild implements SubagentChildProcess {
   readonly #exitOnStdinEof: boolean;
 
   constructor(options: FakeJsonChildOptions = {}) {
-    this.pid = nextFakePid++;
     this.#exitOnStdinEof = options.exitOnStdinEof ?? true;
   }
 
@@ -264,4 +304,23 @@ export function emfileSpawnError(): Error {
   const err = new Error("spawn EMFILE") as Error & { code?: string };
   err.code = "EMFILE";
   return err;
+}
+
+/**
+ * Drive a `FakeJsonChild` through the real `driveSubagentChild`, recording every
+ * diagnostic it emits into `emitted`. The small wrapper several `subagent-*`
+ * test files (this repo's `driveOver` fake-child harness) declared verbatim.
+ */
+export function driveOver(
+  child: FakeJsonChild,
+  thetaAbort: AbortController,
+  emitted: Diagnostic[],
+  calleePath: string,
+): ReturnType<typeof driveSubagentChild> {
+  return driveSubagentChild({
+    child,
+    thetaAbort,
+    calleePath,
+    emitDiagnostic: (d) => emitted.push(d),
+  });
 }

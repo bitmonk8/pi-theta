@@ -22,19 +22,15 @@
 //     invocation record — this leaf renders from that record, it does not
 //     derive source positions here.
 //
-// V12b-T (tests-task) declares this seam and stubs the two render entries
-// inertly / non-compliantly (they return a fixed sentinel, ignoring the SLSH-4
-// templates and the SLSH-5 chain suffix), so the failing V12b-T tests red on
-// their own primary string-equality assertions rather than on a compile error,
-// a missing fixture, or a harness throw. The paired V12b implementation fills
-// in the per-kind templates and the leaf-first chain walk.
+// V12b-T (tests-task) declared this seam; V12b (this leaf) supplies the two
+// render entries: the SLSH-4 per-kind templates and the leaf-first SLSH-5
+// chain walk.
 //
 // Spec: slash-invocation.md (SLSH-3, SLSH-4, SNK-a…SNK-k, SLSH-5),
 // errors-and-results/queryerror-variants.md (the nine-variant union).
 
 import type {
   CodeToolError,
-  ContextOverflowError,
   InvokeCalleeError,
   InvokeInfraError,
   ModelToolError,
@@ -115,8 +111,6 @@ export interface ErrNoteInput {
  * SLSH-4 per-kind leaf rendering: render the single-line per-`kind` note for a
  * leaf (non-`invoke_callee`) `QueryError`, verbatim per the SNK-a … SNK-k rows,
  * total over any unlisted `kind` via the SNK-k catch-all. No chain suffix.
- *
- * The V12b-T stub returns the sentinel so the per-kind string assertions red.
  */
 export function renderLeafKindNote(thetaName: string, leaf: QueryError): string {
   const prefix = `theta /${thetaName}`;
@@ -148,7 +142,6 @@ export function renderLeafKindNote(thetaName: string, leaf: QueryError): string 
     }
     case "context_overflow": {
       // SNK-e
-      void (leaf as ContextOverflowError);
       return `${prefix} returned Err: context overflow`;
     }
     case "cancelled": {
@@ -192,9 +185,6 @@ export function renderLeafKindNote(thetaName: string, leaf: QueryError): string 
  * string for a top-level `Err` at the slash-dispatch boundary. Recurses through
  * any `invoke_callee` wrapper to the leaf variant (which drives the per-kind
  * row), then appends the SLSH-5 chain suffix leaf-first.
- *
- * The V12b-T stub returns the sentinel so the SLSH-3/SLSH-4/SLSH-5 string
- * assertions red on their own primary comparison.
  */
 export function renderTopLevelErrNote(input: ErrNoteInput): string {
   // Walk `inner` through any `invoke_callee` wrapper(s) to the leaf variant;

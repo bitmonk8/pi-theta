@@ -14,6 +14,7 @@ import {
   composeThetaFixture,
   type BinderRunInput,
   type BinderRunResult,
+  type BodyExecutingConversationBinding,
   type ConversationBinding,
   type ConversationBindInput,
   type ThetaCompositionInput,
@@ -199,7 +200,6 @@ const NOOP_CHECKPOINT: Checkpoint = {
 };
 
 const NOOP_SINK: ToolLoweringSink = {
-  runtimeEvent(): void {},
   diagnostic(): void {},
   systemNote(): void {},
 };
@@ -285,7 +285,7 @@ async function driveAndCapture(args: Record<string, unknown>): Promise<Capture> 
       capture.postMergeOk = merged.validation.ok;
       return Promise.resolve({ bound: true, args: merged.args });
     },
-    bindPromptConversation(input: ConversationBindInput): ConversationBinding {
+    bindPromptConversation(input: ConversationBindInput): BodyExecutingConversationBinding {
       capture.paramBindings = input.paramBindings;
       return {
         drivenAgainst: "prompt-user-session",

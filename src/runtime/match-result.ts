@@ -8,19 +8,15 @@
 // arms (errors-and-results/error-model.md §"Runtime panics"; theta 1.0 does not
 // statically check exhaustiveness, per expressions.md §"Exhaustiveness").
 //
-// V4a-T (tests-task) declares the seam — the `Pattern` model, the `MatchArm`
+// V4a-T (tests-task) declared the seam — the `Pattern` model, the `MatchArm`
 // shape, the `MatchError` panic class, and the `evaluateMatch` entry point —
 // and asserts only the raise-versus-bind exhaustion behaviour: a scrutinee
 // matching one of the six pattern forms binds and evaluates the selected arm,
 // while a scrutinee matching none raises `MatchError`. The panic's `?`/`match`
 // bypass and its registered `theta/runtime/match-error` message template are
 // deferred to and closed by V4b-T, so V4a-T does not assert the message string.
-//
-// `evaluateMatch` is stubbed inert (it matches no arm and raises no panic), so
-// the raise-versus-bind tests red on their own primary assertions (no thrown
-// `MatchError`, and a sentinel return value rather than the selected arm's
-// value), not on a compile error, a missing fixture, or a harness throw. The
-// paired V4a implementation leaf fills it in.
+// V4a (this leaf) supplies the behaviour: pattern dispatch, binding, and the
+// `MatchError` raise.
 
 import { type ThetaValue, defineRecordField, isObjectValue, isResultValue, valuesEqual } from "./value";
 import { ThetaPanic } from "./runtime-panics";
@@ -136,10 +132,6 @@ export interface MatchArm {
  * raise `MatchError` (`theta/runtime/match-error`) — theta 1.0 performs no static
  * exhaustiveness check, so non-exhaustion surfaces at runtime
  * (expressions.md §"Exhaustiveness").
- *
- * V4a-T stubs this inert: it matches no arm and raises no panic, returning a
- * sentinel. The paired V4a leaf implements pattern dispatch, binding, and the
- * `MatchError` raise.
  */
 export function evaluateMatch(
   scrutinee: ThetaValue,

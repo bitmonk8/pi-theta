@@ -36,9 +36,10 @@
 //     compensating turn injected.
 //
 // At its ceiling-#2 first-enforcement point (the round boundary) this leaf
-// consults `V16a`'s cross-ceiling arbitration seam for the cross-ceiling
-// surfacing precedence and the `masked` enumeration, and the `V9d` `computeMasked`
-// V1-reachable predicate that populates `details.event.masked`.
+// populates `details.event.masked` through the `V9d` `computeMasked`
+// V1-reachable predicate; the cross-ceiling surfacing precedence itself is
+// witnessed at `V16a`'s arbitration seam by that seam's tests, not consulted
+// from here.
 //
 // V13c (this implementation leaf) drives both surfaces: `runUntypedQueryLoop`
 // fires the pre-dispatch `query` cancellation checkpoint, advances the free
@@ -275,21 +276,17 @@ export type TypedQueryOutcome =
 //
 // This seam is the collaborator the runtime execution path (`runTypedQueryLoop`
 // / `runQueryEffect`) MUST orchestrate for a typed query so a query's declared
-// schema — a named `schema` decl (resolved via `resolveSchema`) or an inline
-// object/type annotation — is resolved, lowered to the validating JSON Schema
-// (`V5d`/`SUBS-1`), conveyed to the model on the forced-respond turn (the
-// conveyance carries the *lowered shape*, not the bare type name), and the
-// response validated against it with respond-repair (`QRY-11`) on
-// non-conformance. It bundles the four steps QRY-22 pins as separately
-// observable invocations: schema resolution → lowering → `AjvSchemaValidator`
-// → `runRespondRepairLoop`.
+// response schema is lowered to the validating JSON Schema (`V5d`/`SUBS-1`),
+// conveyed to the model on the forced-respond turn (the conveyance carries the
+// *lowered shape*, not the bare type name), and the response validated against
+// it with respond-repair (`QRY-11`) on non-conformance. It bundles the three
+// steps QRY-22 pins as separately observable invocations: lowering →
+// `AjvSchemaValidator` → `runRespondRepairLoop`.
 //
-// V13e-T declares this seam and adds it as an OPTIONAL, ignored parameter to
-// `runTypedQueryLoop` (the paired `V13e` implementation wires the loop to
-// orchestrate it). The `V13c` loop body added no orchestration, so a test that
-// injects this seam and drives the loop reds: none of the seam's steps are
-// invoked and a non-conforming response is bound as the query value instead of
-// routing through respond-repair.
+// V13e-T declared this seam as an optional parameter of `runTypedQueryLoop`;
+// V13e wired the loop to orchestrate it (lower → convey → validate, then
+// respond-repair on non-conformance), so a non-conforming response is never
+// bound as the query value.
 //
 // Spec: query/query-failure-and-repair.md (QRY-22 typed-query schema-validation
 // integration; QRY-11 respond-repair), schema-subset.md (SUBS-1 lowering),
@@ -313,20 +310,14 @@ export type TypedQueryValidationResult =
 /**
  * The typed-query schema-validation collaborators the execution path
  * orchestrates for a typed `@`-query (QRY-22). Held by dependency injection so
- * the live path threads the real resolution / lowering / `AjvSchemaValidator` /
+ * the live path threads the real lowering / `AjvSchemaValidator` /
  * `runRespondRepairLoop`, and a test injects spies over those same real pieces
  * and asserts the path invokes them (rather than exercising the isolated
  * `V5d` / `V13c` / `V13d` units).
  */
 export interface TypedQuerySchemaValidation {
-  /**
-   * Resolve the typed query's declared schema annotation to its declared shape:
-   * a named `schema` decl (resolved via `resolveSchema`) or an inline
-   * object/type annotation.
-   */
-  resolveDeclaredSchema(): unknown;
-  /** Lower a resolved declared shape to the validating JSON Schema (`SUBS-1`). */
-  lower(shape: unknown): LoweredSchema;
+  /** Lower the declared response schema to the validating JSON Schema (`SUBS-1`). */
+  lower(): LoweredSchema;
   /**
    * Convey the lowered shape to the model on the forced-respond turn — the
    * forced-respond tool / structured-output instruction carries the lowered
@@ -346,7 +337,7 @@ export interface TypedQuerySchemaValidation {
 }
 
 // ---------------------------------------------------------------------------
-// The two drivers (V13c-T stubs; the paired V13c fills them in).
+// The two drivers (V13c-T declared them; V13c implements them).
 // ---------------------------------------------------------------------------
 
 /**
@@ -357,11 +348,6 @@ export interface TypedQuerySchemaValidation {
  * terminating plain-text turn the loop returns `text`; on reaching `max_rounds`
  * without a terminating turn it returns the `tool_loop_exhausted` outcome, its
  * `masked` field omitted (never `[]`).
- *
- * V13c-T stubs this inert: it fires no checkpoint, runs no tool-call round, and
- * returns an inert terminating text outcome with no committed side effects — so
- * the exhaustion, checkpoint, and ERR-13 assertions red on their own primary
- * expectation. The paired V13c leaf implements the loop.
  */
 export async function runUntypedQueryLoop(
   checkpoint: Checkpoint,
@@ -475,12 +461,8 @@ export async function runUntypedQueryLoop(
  * before AJV (CIO-3): a depth-6 payload surfaces as `Err(ValidationError {
  * cause: "schema_validation", schema_keyword: "maxDepth" })` and enumerates the
  * co-satisfied ceiling #2 on the operator-facing `RuntimeEvent`'s
- * `details.event.masked` (`["ceiling#2"]`), consulting `V16a`/`V9d`.
- *
- * V13c-T stubs this inert: it fires no checkpoint, dispatches no forced respond
- * turn, and returns an inert `value` outcome with `forcedRespond` unset — so the
- * CIO-4 slot-accounting, `max_rounds: 0`, and depth-6 co-fire assertions red on
- * their own primary expectation. The paired V13c leaf implements the loop.
+ * `details.event.masked` (`["ceiling#2"]`) through the `V9d` `computeMasked`
+ * predicate.
  */
 export async function runTypedQueryLoop(
   checkpoint: Checkpoint,
@@ -489,8 +471,8 @@ export async function runTypedQueryLoop(
   config: QueryToolLoopConfig,
   // V13e seam (QRY-22): the schema-validation integration collaborators the
   // execution path orchestrates for a typed query. When present the loop
-  // resolves → lowers → conveys the declared schema before the forced-respond
-  // turn, validates the response against the lowered shape, and routes a
+  // lowers → conveys the declared schema before the forced-respond turn,
+  // validates the response against the lowered shape, and routes a
   // non-conforming response through respond-repair. Optional so a query with no
   // declared schema (or the isolated `V13c` slot-accounting tests) drives the
   // bare loop.
@@ -567,16 +549,14 @@ export async function runTypedQueryLoop(
     return { kind: "cancelled", committed };
   }
 
-  // V13e (QRY-22): resolve the typed query's declared schema — a named `schema`
-  // decl (via `resolveSchema`, previously uncalled) or an inline object/type
-  // annotation — lower it to the validating JSON Schema (`V5d`/`SUBS-1`), and
-  // convey the LOWERED shape on the forced-respond turn (the conveyance carries
-  // the lowered shape, not the bare type name). Done before the forced respond
-  // turn is dispatched so the model sees the lowered shape.
+  // V13e (QRY-22): lower the typed query's declared response schema to the
+  // validating JSON Schema (`V5d`/`SUBS-1`) and convey the LOWERED shape on the
+  // forced-respond turn (the conveyance carries the lowered shape, not the bare
+  // type name). Done before the forced respond turn is dispatched so the model
+  // sees the lowered shape.
   let lowered: LoweredSchema | undefined;
   if (schemaValidation !== undefined) {
-    const shape = schemaValidation.resolveDeclaredSchema();
-    lowered = schemaValidation.lower(shape);
+    lowered = schemaValidation.lower();
     schemaValidation.convey(lowered);
   }
 

@@ -31,6 +31,7 @@ import type { Diagnostic, Severity } from "../diagnostics/diagnostic";
 import type { FileSystem } from "../seams/file-system";
 import type { Clock, TimerHandle } from "../seams/clock";
 import type { ThetaSettings } from "./settings";
+import { joinPosix, normalizePath, renderSourceDescriptor, splitExtension, walkTree } from "./discovery-path-classify";
 import { nodeErrorCode } from "./node-error-code";
 
 /**
@@ -86,31 +87,13 @@ const UNREADABLE_SOURCE = "theta/load/unreadable-source";
 
 // --------------------------------------------------------------------------
 // Path helpers — POSIX forward-slash form (the `FileSystem` seam reports
-// forward-slash paths; see discovery-walk.ts for the shared conventions).
+// forward-slash paths); `joinPosix`/`normalizePath`/`splitExtension` are
+// imported from the shared discovery-path-classify.ts (PTQ-0286).
 // --------------------------------------------------------------------------
-
-function normalizeSlashes(path: string): string {
-  return path.replace(/\\/g, "/");
-}
-
-function joinPosix(base: string, tail: string): string {
-  const trimmed = base.endsWith("/") ? base.slice(0, -1) : base;
-  return `${trimmed}/${tail}`;
-}
-
-/** Split a filename into `{ stem, ext }` on the final `.` (leading-dot names
- *  yield an empty `ext`), mirroring discovery-walk.ts. */
-function splitExtension(name: string): { readonly stem: string; readonly ext: string } {
-  const idx = name.lastIndexOf(".");
-  if (idx <= 0) {
-    return { stem: name, ext: "" };
-  }
-  return { stem: name.slice(0, idx), ext: name.slice(idx + 1) };
-}
 
 /** Collapse `.`/`..` segments in a POSIX path (used for the escape check). */
 function normalizePosix(path: string): string {
-  const norm = normalizeSlashes(path);
+  const norm = normalizePath(path);
   const isAbsolute = norm.startsWith("/") || /^[A-Za-z]:/.test(norm);
   const drive = /^[A-Za-z]:/.test(norm) ? norm.slice(0, 2) : "";
   const rest = drive ? norm.slice(2) : norm;
@@ -323,57 +306,24 @@ interface TreeWalk {
 }
 
 /** Recursively enumerate every file/dir under the package root (the universe
- *  the `pi.theta` patterns are matched against). Symlinks are not followed. A
- *  failure to enumerate any directory in that walk, or to `lstat` an entry
- *  that walk enumerated, is a traversal failure inside a root that exists —
- *  an unreadable source, not silence (discovery-sources.md:69) — so the
- *  rejection is carried out to `resolvePiThetas`, which owns the `pi.theta`
- *  descriptor.
- *
- *  An `ENOENT` needs no discovery-sources.md:68 ancestor walk here, for the
- *  reason `thetasInDirectory` states: this walk's every ancestor is already
- *  proven enterable (the package root's `package.json` was read successfully,
- *  and a subtree's parent was just `readdir`ed), so the walk could only ever
- *  answer "clean" — *missing*, which leaves the pattern resolving to no path
- *  there and stays silent per package-and-settings.md:29. */
+ *  the `pi.theta` patterns are matched against); the rejection carried out in
+ *  `unreadable` is left for `resolvePiThetas`, which owns the `pi.theta`
+ *  descriptor. Delegates to the shared `walkTree` helper (PTQ-0287) with the
+ *  `"missing"` ENOENT policy: this walk's every ancestor is already proven
+ *  enterable (the package root's `package.json` was read successfully, and a
+ *  subtree's parent was just `readdir`ed), so a directory-level `ENOENT`
+ *  could only ever answer "clean" — *missing*, which leaves the pattern
+ *  resolving to no path there and stays silent per
+ *  package-and-settings.md:29. */
 async function listTree(fs: FileSystem, root: string): Promise<TreeWalk> {
-  const out: TreeEntry[] = [];
-  const unreadable: string[] = [];
-  const walk = async (dir: string, relBase: string): Promise<void> => {
-    const outcome = await fs.readdir(dir).then(
-      (names) => ({ ok: true as const, names }),
-      (error: unknown) => ({ ok: false as const, code: nodeErrorCode(error) }),
-    );
-    if (!outcome.ok) {
-      if (outcome.code !== "ENOENT") {
-        unreadable.push(dir);
-      }
-      return;
-    }
-    for (const name of outcome.names) {
-      const abs = joinPosix(dir, name);
-      const rel = relBase === "" ? name : `${relBase}/${name}`;
-      const stat = await fs.lstat(abs).then(
-        (s) => ({ ok: true as const, isDir: s.isDirectory(), isFile: s.isFile() }),
-        (error: unknown) => ({ ok: false as const, code: nodeErrorCode(error) }),
-      );
-      if (!stat.ok) {
-        // This walk's ancestors are pre-proven enterable (package.json was read
-        // and the parent was just readdir'ed), so an ENOENT here is always the
-        // clean-leaf case: the pattern resolves to no path there, which
-        // package-and-settings.md:29 keeps silent. Any other code is a
-        // traversal failure inside a root that exists (discovery-sources.md:69).
-        if (stat.code !== "ENOENT") unreadable.push(abs);
-        continue;
-      }
-      out.push({ abs, rel, base: name, isDir: stat.isDir, isFile: stat.isFile });
-      if (stat.isDir) {
-        await walk(abs, rel);
-      }
-    }
-  };
-  await walk(root, "");
-  return { entries: out, unreadable };
+  const walk = await walkTree(fs, root, "missing", (abs, base, isDir, isFile, rel) => ({
+    abs,
+    rel,
+    base,
+    isDir,
+    isFile,
+  }));
+  return walk;
 }
 
 /** Match one glob against an entry's package-root-relative path, its basename,
@@ -508,7 +458,7 @@ async function resolvePiThetas(
       severity: "warning",
       code: UNREADABLE_SOURCE,
       file: dir,
-      message: `discovery source is unreadable: package:"${pkgName}"`,
+      message: `discovery source is unreadable: ${renderSourceDescriptor("package", pkgName)}`,
     });
   }
   return thetas;
@@ -553,7 +503,7 @@ async function thetasInDirectory(
           severity: missing,
           code: MISSING_SOURCE,
           file: dir,
-          message: `discovery source path does not exist: package:"${descriptorValue}"`,
+          message: `discovery source path does not exist: ${renderSourceDescriptor("package", descriptorValue)}`,
         });
       }
     } else {
@@ -561,7 +511,7 @@ async function thetasInDirectory(
         severity: "warning",
         code: UNREADABLE_SOURCE,
         file: dir,
-        message: `discovery source is unreadable: package:"${descriptorValue}"`,
+        message: `discovery source is unreadable: ${renderSourceDescriptor("package", descriptorValue)}`,
       });
     }
     return out;

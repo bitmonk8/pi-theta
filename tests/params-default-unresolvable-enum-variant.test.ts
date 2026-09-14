@@ -1,7 +1,7 @@
-import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { committedThetaSources as committedThetaCorpus } from "./helpers/theta-corpus";
 
 // Bug 0185 — a `params:` default whose `Enum.Variant` access resolves to
 // nothing loads with ZERO diagnostics and then aborts every invocation.
@@ -253,6 +253,7 @@ import {
   composeThetaFixture,
   type BinderRunInput,
   type BinderRunResult,
+  type BodyExecutingConversationBinding,
   type ConversationBinding,
   type ConversationBindInput,
   type ThetaCompositionInput,
@@ -565,19 +566,20 @@ const CELLS = {
    */
   f3: { field: `sev: 'Color = Color.a'`, body: SHADOW_BODY, envelope: OMITTED },
   /**
-   * (E) `s1`'s fixture, byte for byte, driven as an IN-MEMORY theta (no
-   * `sourcePath`). Its default resolves, so the only reason its field goes
-   * unfilled is the recovery's first best-effort exit
-   * (`#recoverDeclaredDefaults`, `production-theta-producer.ts:1305–1308`) — the
-   * one unfilled-field vehicle a load refusal on the reported spelling does not
-   * remove from the invocation path.
+   * (E) `s1`'s fixture, byte for byte, driven WITH its `sourcePath`. Its
+   * default resolves, so the only reason its field goes unfilled is
+   * overriding the loaded `sev` field's recorded `defaultSource` to the empty
+   * string, landing on `#recoverDeclaredDefaults`'s
+   * `parseExpressionSource(...) === null` skip arm — the one unfilled-field
+   * vehicle a load refusal on the reported spelling does not remove from the
+   * invocation path.
    */
   e1: { field: `sev: 'Sev = Sev.High'`, body: ENUM_BODY, envelope: OMITTED },
 } as const satisfies Record<string, Cell>;
 
 type CellName = keyof typeof CELLS;
 
-/** The composition-input `sourcePath` a cell's bytes are re-read from. */
+/** The composition-input `sourcePath` for a cell. */
 function sourcePathOf(name: CellName): string {
   return `/theta/${name}.theta`;
 }
@@ -588,13 +590,12 @@ function parsePathOf(name: CellName): string {
 }
 
 /**
- * The fixture sources by `sourcePath`, backing the root double's in-memory
- * `fileSystem.readBytes` so `#recoverDeclaredDefaults`
- * (`src/extension/production-theta-producer.ts:1293`) re-reads the same bytes
- * the parser saw. An unregistered path REJECTS loudly: a silent empty read
- * would take the recovery's no-bytes best-effort exit and make a defaults
- * failure look like a clean merge, which is the one way group C could pass
- * while witnessing nothing.
+ * The fixture sources by `sourcePath`. PTQ-0303 retargeted
+ * `#recoverDeclaredDefaults` to read the theta's own loaded
+ * `frontmatter.params.fields` rather than re-reading `sourcePath` off disk, so
+ * the root double's `fileSystem.readBytes` is no longer read by anything this
+ * file's tests drive; it stays wired (and still REJECTS an unregistered path
+ * loudly) only for shape parity with the `RuntimeRoot` seam.
  */
 const FIXTURE_SOURCES: ReadonlyMap<string, string> = new Map(
   (Object.keys(CELLS) as CellName[]).map((name) => [
@@ -762,7 +763,6 @@ const NOOP_CHECKPOINT: Checkpoint = {
 };
 
 const NOOP_SINK: ToolLoweringSink = {
-  runtimeEvent(): void {},
   diagnostic(): void {},
   systemNote(): void {},
 };
@@ -847,13 +847,15 @@ function scriptToolCallEnvelope(envelope: unknown): void {
  */
 interface DriveOptions {
   /**
-   * Drive the cell as an in-memory theta with NO `sourcePath`, so
-   * `#recoverDeclaredDefaults` returns `[]` without reading anything and the
-   * declared default is never applied — one of the recovery's three
-   * already-documented best-effort arms
-   * (`src/extension/production-theta-producer.ts:1246–1256`).
+   * Override one field's LOADED `defaultSource` before driving, so
+   * `#recoverDeclaredDefaults` finds a value it cannot parse
+   * (`parseExpressionSource(...) === null`) and the declared default is never
+   * applied — the one best-effort arm PTQ-0303 leaves reachable for a theta
+   * that otherwise registers and binds cleanly (recovery now reads the
+   * theta's own loaded `frontmatter.params.fields` rather than re-reading
+   * `sourcePath`, so an absent `sourcePath` no longer changes what recovers).
    */
-  readonly withoutSourcePath?: true;
+  readonly overrideDefaultSource?: { readonly wireName: string; readonly defaultSource: string };
 }
 
 /** One `emitPanicNote` delivery, captured verbatim. */
@@ -893,17 +895,29 @@ interface DispatchCapture {
  */
 async function driveSlash(name: CellName, options?: DriveOptions): Promise<DispatchCapture> {
   const doc = parseDrivenCell(name);
+  const override = options?.overrideDefaultSource;
+  // `#recoverDeclaredDefaults` reads the theta's own loaded
+  // `frontmatter.params.fields` (PTQ-0303), so group E's vehicle for an
+  // unfilled field is overriding the LOADED field's recorded `defaultSource`
+  // to a literal that does not re-parse, rather than withholding `sourcePath`.
+  const frontmatter =
+    override === undefined
+      ? doc.frontmatter!
+      : {
+          ...doc.frontmatter!,
+          params: {
+            ...doc.frontmatter!.params!,
+            fields: doc.frontmatter!.params!.fields.map((field) =>
+              field.wireName === override.wireName
+                ? { ...field, defaultSource: override.defaultSource }
+                : field,
+            ),
+          },
+        };
   const theta: ThetaCompositionInput = {
     slashName: name,
-    // `sourcePath` is the byte source `#recoverDeclaredDefaults` re-reads the
-    // declared defaults from. Omitting it selects the recovery's FIRST
-    // best-effort exit (`production-theta-producer.ts:1305–1308`, "a theta with
-    // no on-disk `sourcePath` (an in-memory fixture)"), which is group E's
-    // vehicle for an unfilled field. Spread rather than assigned `undefined`
-    // because `sourcePath` is an OPTIONAL property and the repo compiles under
-    // `exactOptionalPropertyTypes`.
-    ...(options?.withoutSourcePath === true ? {} : { sourcePath: sourcePathOf(name) }),
-    frontmatter: doc.frontmatter!,
+    sourcePath: sourcePathOf(name),
+    frontmatter,
     body: doc.body,
     binderModel: "binder-model",
   };
@@ -942,7 +956,7 @@ async function driveSlash(name: CellName, options?: DriveOptions): Promise<Dispa
       binder = result;
       return result;
     },
-    bindPromptConversation: (input: ConversationBindInput): ConversationBinding => {
+    bindPromptConversation: (input: ConversationBindInput): BodyExecutingConversationBinding => {
       paramBindings = input.paramBindings;
       return {
         drivenAgainst: "prompt-user-session",
@@ -1741,30 +1755,36 @@ describe("bug 0197 (G) — every fixture of the class is denied registration", (
 // (`:964`).
 //
 // THE VEHICLE, and why it is this one: a load refusal removes the reported
-// spelling from the invocation path entirely, so the unfilled-field rendering has
-// to be reached through one of the recovery's three pre-existing best-effort arms
-// (`#mergeDeclaredDefaults`'s doc-comment,
-// `production-theta-producer.ts:1246–1256`). This cell takes the FIRST — a theta
-// with no `sourcePath`, which returns `[]` without reading anything (`:1305–1308`).
-// The other two would have to defeat the fixture fs on purpose: it REJECTS an
-// unregistered path loudly by design, and `FIXTURE_SOURCES` registers every cell
-// in the table.
+// spelling from the invocation path entirely, so the unfilled-field rendering
+// has to be reached through one of the recovery's best-effort arms
+// (`#mergeDeclaredDefaults`'s doc-comment). PTQ-0303 retargeted
+// `#recoverDeclaredDefaults` to read the theta's own loaded
+// `frontmatter.params.fields` instead of re-reading `sourcePath`, so "no
+// on-disk `sourcePath`" no longer excuses a field from recovery — this cell
+// instead overrides the LOADED `sev` field's recorded `defaultSource` to the
+// empty string, landing on the same `parseExpressionSource(...) === null`
+// skip arm an actually-unspellable default would (bug 0165 refuses that
+// spelling at load, so it can only be reached this way, post-parse). Every
+// other input stays `s1`'s, driven WITH its `sourcePath` exactly like every
+// other cell in this file.
 //
 // The other direction is group B's, not duplicated here: `s1` — this cell's
-// fixture, byte for byte, driven WITH its `sourcePath` — and `s14` pin that a
-// field which genuinely takes its declared default keeps its tag. The two cells
-// differ in exactly one input, so the tag's presence tracks the fill and nothing
-// else.
+// fixture, byte for byte, with its recorded default left untouched — and `s14`
+// pin that a field which genuinely takes its declared default keeps its tag.
+// The two cells differ in exactly one input, so the tag's presence tracks the
+// fill and nothing else.
 // ===========================================================================
 
 describe("bug 0197 (E) — a field that took no default renders UNTAGGED", () => {
-  it("RED (E): an in-memory theta fills nothing, and its echo must not claim the fill", async () => {
+  it("RED (E): a default recovery cannot complete, and its echo must not claim the fill", async () => {
     expect(
       CELLS.e1.field,
-      "premise: this cell's fixture text is `s1`'s, so the only difference between the tagged fence and this untagged row is whether the theta has an on-disk `sourcePath`",
+      "premise: this cell's fixture text is `s1`'s, so the only difference between the tagged fence and this untagged row is whether `sev`'s loaded `defaultSource` is overridden below",
     ).toBe(CELLS.s1.field);
 
-    const capture = await driveSlash("e1", { withoutSourcePath: true });
+    const capture = await driveSlash("e1", {
+      overrideDefaultSource: { wireName: "sev", defaultSource: "" },
+    });
 
     // THE PRIMARY ASSERTION, first so the red names the symptom the bug reports.
     expect(
@@ -1774,7 +1794,7 @@ describe("bug 0197 (E) — a field that took no default renders UNTAGGED", () =>
 
     expect(
       capture.panics,
-      "the first best-effort arm reads nothing and evaluates nothing, so no panic is reachable on it",
+      "the overridden field fails to PARSE, so evaluation never runs and no panic is reachable on it",
     ).toEqual([]);
     expect(
       capture.errNotes,
@@ -1808,32 +1828,11 @@ describe("bug 0197 (E) — a field that took no default renders UNTAGGED", () =>
 /** The repository root, resolved from this file's own URL rather than from `cwd`. */
 const REPO_ROOT_URL = new URL("../", import.meta.url);
 
-/**
- * Every committed `.theta` / `.thetalib`, read through `git ls-files` — the census
- * bug 0197 §Fix (d) requires be re-run over the index rather than inferred from
- * `tests/committed-fixture-parse-gate.test.ts`.
- *
- * NO SILENT SKIPPING: an unavailable `git` makes `execFileSync` THROW out of this
- * reader (it is deliberately uncaught, so the cell fails naming the unmet
- * precondition), and an empty listing throws naming the census — a census that
- * read nothing would report zero reach while measuring nothing.
- */
-function committedThetaCorpus(): readonly string[] {
-  const listed = execFileSync("git", ["ls-files", "--", "*.theta", "*.thetalib"], {
-    cwd: fileURLToPath(REPO_ROOT_URL),
-    encoding: "utf8",
-  });
-  const files = listed
-    .split("\n")
-    .map((line) => line.trim())
-    .filter((line) => line.length > 0);
-  if (files.length === 0) {
-    throw new Error(
-      "harness: `git ls-files -- '*.theta' '*.thetalib'` listed no file, so the GOV-15 corpus census measured nothing — a harness failure, never a skip",
-    );
-  }
-  return files;
-}
+// `committedThetaCorpus` (imported above, aliased from the shared
+// `committedThetaSources`) is `tests/helpers/theta-corpus.ts`'s discovery step
+// (PTQ-0226): every committed `.theta` / `.thetalib`, read through `git
+// ls-files` — the census bug 0197 §Fix (d) requires be re-run over the index
+// rather than inferred from `tests/committed-fixture-parse-gate.test.ts`.
 
 /**
  * A declared named `enum` at a line's start — the precondition for a shipped

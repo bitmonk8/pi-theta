@@ -8,6 +8,7 @@ tool_loop:
 params:
   manifest: string
   guidance: string
+  gate_cmd: string
 system: "You are a careful, surgical fixer of confirmed code-quality issues. You make the minimal change each issue calls for, you keep behavior identical, and you keep the offline verification gate green. You never touch the quality store, never run git write commands, and never expand scope beyond the issues you were handed."
 ---
 let issue_files = read({ path: manifest })?
@@ -15,13 +16,14 @@ let extra = guidance == "" ? "(none)" : guidance
 
 import { FixReport } from "./quality.thetalib"
 
-let r: FixReport = @`FIX TASK — resolve this cluster of confirmed code-quality issues (lens D2, cruft).
+let r: FixReport = @`FIX TASK — resolve this cluster of confirmed code-quality issues.
 
 Issue files, one per line — read each fully; they carry the evidence and a
 non-binding direction:
 ${issue_files}
 
 Rules:
+- Each issue's lens: frontmatter selects the per-lens rules below.
 - Re-verify each issue against the CURRENT code before touching anything (code
   may have moved since filing). If it no longer reproduces, skip it and say why.
 - A fix is the minimal change that removes the crufted code or vestige. Preserve
@@ -32,14 +34,113 @@ Rules:
   Never weaken or delete an assertion that guards live behavior.
 - Never edit anything under quality/. Never run git commands that change state
   (add, commit, restore, checkout, stash) — the orchestrator owns git and the
-  store. Reading git history is fine.
-- Verification, after all edits: run "npx tsc --noEmit" and then "npm test"
-  (use a generous bash timeout, e.g. 2400 seconds — the suite is large). Both
+  store. Reading git history is fine. Sole exception: the shed revert below
+  may run git checkout -- <path> on paths only the shed issue touched.
+
+- Verification, after all edits: run, as ONE bash command, exactly
+  "unset PI_THETA_SUBAGENT_ROOT PI_THETA_SUBAGENT_ROOT_WINNER PI_THETA_PARAMS PI_THETA_PARAMS_FILE PI_THETA_SUBAGENT_INVOKE_DEPTH PI_THETA_SUBAGENT_CALLABLE_HASHES PI_THETA_SUBAGENT_PARENT_PID; ${gate_cmd}"
+  (use a generous bash timeout, e.g. 2400 seconds — the suite is large). Run
+  it VERBATIM — its test-runner width is capped on purpose: every sibling
+  fixer of the wave gates concurrently on one machine, and an uncapped
+  npm test in each drove the load average past 90 on 32 cores and turned
+  sibling gates red with timeouts (wave qw20260914130212, eight lanes). The
+  unset prefix is required because you run inside a subagent whose environment
+  carries the wrapper's control plane, and the suite spawns real child pi
+  processes that would otherwise inherit and legitimately re-authenticate that
+  foreign plane, turning unrelated tests fail-closed red (bug 0474). Both
   must pass. If red, repair your own change, or back the offending edit out by
   editing the code back to its original text, and mark that issue skipped.
 
+Per-lens rules — apply per issue, by its lens: frontmatter:
+- lens: D2 (cruft in src/): as today — minimal removal of the crufted code or
+  vestige, behavior preserved. Deleting production code may orphan tests that
+  existed only to exercise the deleted cruft: delete those tests with it and
+  say so in your notes, per issue. Never weaken or delete an assertion that
+  guards live behavior.
+- lens: D7 (test quality in tests/): remove the smell WITHOUT weakening the
+  suite. A vacuous assertion is replaced by a real observable (system notes,
+  userTexts/toolCalls, recorded double state — never a bare
+  resolves.toBeDefined and never a stochastic-text sentinel); a test is
+  deleted only if it verifies nothing AND nothing cites it (grep
+  docs/reference/coverage-matrix.md, docs/bugs/, and test files for its name
+  first). Dedupe boilerplate into tests/helpers/ — extend an existing helper
+  before adding a new one. If a change renames or merges a test cited by
+  coverage-matrix.md or a bug doc's witness list, re-point that citation in
+  the same change. Never touch production src/ for a D7 issue.
+- lens: D9 (placement & breakdown in src/): implement EXACTLY the ratified
+  seam or move under the issue's "## Triage" ruling — nothing else moves.
+  MISPLACEMENT: move the cited declaration(s) verbatim to the ratified home,
+  re-export from the old path only if the ruling says "barrel" (otherwise
+  rewrite the importers the ruling names, and only those). HUSK: re-home the
+  remaining members to the ratified home or dissolve the module exactly as
+  ruled, rewriting its importers. FILE seam: create the new
+  sibling module(s) named in the ruling; move each declaration VERBATIM by
+  line range with bash (sed -n 'a,bp' >> new; then delete the range) — never
+  retype code; move each declaration's doc comment with it; give the new
+  module a header comment stating its role; in the original file add
+  export { ... } from "./<new>" (or export * from) so every existing
+  importer resolves unchanged (barrel), and import back into the original
+  anything it still uses; keep the original file's header and update its
+  role sentence. FUNCTION seam: extract the named phases into helpers in the
+  same module (or the module the ruling names), the original name remaining
+  the orchestrator; identical behaviour — same outputs, same diagnostics,
+  same order of effects; each helper gets a doc comment. Both: no logic
+  edits, no renames beyond the ruling, no formatting sweeps, no importer
+  edits unless tsc reports a runtime import cycle (then prefer moving the
+  offending declaration back; say so). Run npx tsc --noEmit FIRST (cheap;
+  it proves every importer still resolves), then the full gate. Report in
+  notes the before/after LOC of the host from node tools/quality/size-scan.mjs
+  map.
+- lens: D4 (duplication in src/): clone/drift only (a parallel issue carries
+  a human ruling under ## Triage — implement exactly that, or skip with a
+  note if it names none). Extract ONE shared helper into the module the
+  issue names, else an existing helper module in the nearest common
+  ancestor directory, else a new sibling module there; replace EVERY cited
+  copy with a call; behaviour identical at every call site. HOME BAND: run
+  node tools/quality/size-scan.mjs loc --host <candidate> before choosing
+  the home — a home whose LOC AFTER the helper lands would be at or above
+  the justify band (1000 LOC) is never the helper's home, not even when the
+  issue names it or a copy lives there (D9 is taking such hosts apart;
+  never grow one): create a new sibling module in that directory, named for
+  the helper's role, with a header comment stating its role, and have the
+  oversized module import the helper like every other caller. The sibling
+  may import types from the oversized module; a runtime value it needs
+  moves with the helper (the old host imports it back), else SKIP with a
+  note (a runtime import cycle is not an acceptable outcome). The sibling
+  is still subject to the Imports rule below, and a home the Imports rule
+  relocates is re-checked against HOME BAND. Imports: the
+  helper's module must not introduce a cross-directory import edge that
+  does not already exist somewhere in src/ (there is no layer order to
+  lean on — parser, binder, runtime and extension import each other today;
+  check with grep -rn "from \"../<dir>/" src/<dir>/ before adding an edge)
+  — when the copies straddle directories, place the helper in a directory
+  both sides already import (diagnostics, seams, render, or the copies'
+  common dependency), else SKIP with a note. DRIFT: the issue's ## Triage
+  carries the ruling on which copy is right (the triager confirmed it or a
+  human ruled) — implement that copy; if the issue names none, SKIP with a
+  note — never pick a behaviour silently. Move doc comments with the code;
+  no other edits.
+- lens: D8 (simplification in src/): implement EXACTLY the ratified simpler
+  shape under ## Triage — nothing beyond it. Behaviour identical unless the
+  ruling names a behaviour change (then update the tests the ruling names,
+  and only those); every spec clause the code cites in comments stays
+  satisfied; delete the mechanism the ratified shape replaces (its tests
+  too, if they exercised only the mechanism — say so); no public-surface
+  change unless ratified. tsc first, then the full gate.
+
 Guidance from a previous rejected attempt — address it explicitly if present:
 ${extra}
+
+When the guidance opens with "ATTEMPT 2 (LAST):" this is the lane's last
+attempt: a second rejection reverts EVERY change in the tree, including the
+sibling fixes the reviewer already confirmed. So shed, do not sink: for each
+must_fix item you cannot satisfy to the bar in this attempt, revert that
+issue's edits COMPLETELY — git checkout -- the files only it touched, edit
+the hunks back to their original text where a file is shared with a sibling
+fix, delete outright any file that fix created, then re-run the gate — and
+list the issue under skipped with the reason. Never leave a partial change
+in the tree. A lane must not fail on one issue. (A guidance that is only a
+RETRY seed after an integration conflict is attempt 1: fix normally.)
 
 When done, reply with the requested schema:
 - fixed: issue file BASENAMES (e.g. PTQ-0007-some-slug.md) fully fixed with the

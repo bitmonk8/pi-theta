@@ -24,15 +24,13 @@
 
 import type { SubagentChildProcess } from "../../runtime/subagent-launcher";
 import {
-  PROGRESS_MESSAGE_CLAMP_CHARS,
   PROGRESS_MIN_INTERVAL_MS,
-  PROGRESS_SCOPE_CLAMP_CHARS,
   PROGRESS_WIRE_KEY,
   PROGRESS_WIRE_VERSION,
   TAP_LINE_MAX_BYTES,
 } from "./types";
 import type { ProgressAuthorMessage } from "./types";
-import { clampProgressField } from "./progress-tool";
+import { clampAuthorMessage } from "./progress-tool";
 import type { Clock } from "../../seams/clock";
 
 /** F-L3-6: the optional per-child rate-gate clock (absent → no rate gate;
@@ -50,6 +48,24 @@ export type ChildTapEvent =
   // L3 (EXST-5/EXST-15; PIC-74) — the reserved-key `theta_progress` wire line,
   // recognised in the tap's OWN parse (EXST-5).
   | { readonly type: "theta_progress"; readonly payload: ProgressAuthorMessage };
+
+/**
+ * Compile-time field-set anchor for the `theta_progress` decoder below: every
+ * key of `ProgressAuthorMessage` (`types.ts`) this branch reads off the wire,
+ * named once. `satisfies` fails `tsc` in THIS file the moment a field is
+ * added to `ProgressAuthorMessage` and not added here — the read side's
+ * counterpart to the write side's own compiler-checked anchor (the typed
+ * `payload: ProgressAuthorMessage` `emitWireLine` serialises verbatim,
+ * `progress-tool.ts`). Pins the SET of fields read only; each field's own
+ * validation guard is unchanged below.
+ */
+const HANDLED_PROGRESS_FIELDS = {
+  message: true,
+  scope: true,
+  done: true,
+  total: true,
+  dropped: true,
+} satisfies Record<keyof ProgressAuthorMessage, true>;
 
 /** Attach the second stdout consumer beside the envelope scan (EXST-5).
  *  `child.onStdoutLine` is the makeLinePump fan-out Set
@@ -127,13 +143,7 @@ export function attachChildActivityTap(
       if (typeof ev !== "object" || ev === null) {
         return;
       }
-      const fields = ev as {
-        readonly message?: unknown;
-        readonly scope?: unknown;
-        readonly done?: unknown;
-        readonly total?: unknown;
-        readonly dropped?: unknown;
-      };
+      const fields = ev as Partial<Record<keyof ProgressAuthorMessage, unknown>>;
       if (typeof fields.message !== "string") {
         return; // `message` is load-bearing: a bad type drops the whole LINE
       }
@@ -157,22 +167,18 @@ export function attachChildActivityTap(
           : 0;
       const carried = wireDropped + tapDropped;
       tapDropped = 0;
-      const payload: ProgressAuthorMessage = {
-        // Defensive re-clamp + strip: the emitter clamped, but the wire is not
-        // trusted to have done so (EXST-5's re-clamp obligation).
-        message: clampProgressField(fields.message, PROGRESS_MESSAGE_CLAMP_CHARS),
-        ...(typeof fields.scope === "string"
-          ? { scope: clampProgressField(fields.scope, PROGRESS_SCOPE_CLAMP_CHARS) }
-          : {}),
-        // Non-conforming optional fields are discarded FIELD-WISE (PIC-74).
-        ...(typeof fields.done === "number" && Number.isInteger(fields.done)
-          ? { done: fields.done }
-          : {}),
-        ...(typeof fields.total === "number" && Number.isInteger(fields.total)
-          ? { total: fields.total }
-          : {}),
-        ...(carried > 0 ? { dropped: carried } : {}),
-      };
+      // Defensive re-clamp + strip: the emitter clamped, but the wire is not
+      // trusted to have done so (EXST-5's re-clamp obligation). Routed through
+      // the shared `clampAuthorMessage` (progress-tool.ts) so this decoder's
+      // rebuild stays anchored to the same `HANDLED_PROGRESS_FIELDS` ledger as
+      // the parent-regime paths.
+      const payload = clampAuthorMessage({
+        message: fields.message,
+        scope: fields.scope,
+        done: fields.done,
+        total: fields.total,
+        dropped: carried,
+      });
       publish({ type: "theta_progress", payload });
       return;
     }

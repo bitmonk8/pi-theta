@@ -16,12 +16,9 @@ import {
   computeBinderModelRecoveryNote,
   type BinderModelResolutionInput,
 } from "../src/binder/binder-model";
-import {
-  createModelReferenceMatcher,
-  type AvailableModel,
-  type ModelRegistrySurface,
-} from "../src/extension/reload-wiring";
+import { createModelReferenceMatcher } from "../src/extension/reload-wiring";
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
+import { model, registryOf } from "./helpers/model-registry-fixture";
 
 // RFC 0010 (execution-status.md EXST-8; runtime-event-channel.md PIC-71/72) —
 // bug 0469's fix witnesses, migrated per behaviour-matrix rows B52-B54/B64/B65
@@ -135,11 +132,6 @@ describe("T-ENT — B52: structural-change note delivers entry-first, byte-ident
   });
 });
 
-const model = (id: string, provider: string, api: string): AvailableModel => ({ id, provider, api });
-const registryOf = (models: readonly AvailableModel[]): ModelRegistrySurface => ({
-  getAvailable: () => models,
-});
-
 describe("T-ENT — B54: binder-model recovery note delivers entry-first, byte-identical vs. message realization", () => {
   const matcher = createModelReferenceMatcher(
     registryOf([model("claude-sonnet-5", "anthropic", "anthropic-messages")]),
@@ -149,7 +141,7 @@ describe("T-ENT — B54: binder-model recovery note delivers entry-first, byte-i
     settingsBinderModel: "claude-sonnet-5",
     bypassEligible: false,
     matcher,
-    probeStrictCapable: () => ({ strictCapable: true }),
+    probeStrictCapable: () => ({ strictCapable: true, hostExposesIndicator: true }),
   };
   const recoveryNote = computeBinderModelRecoveryNote([
     { slashName: "fix-cluster", resolution },

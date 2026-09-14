@@ -35,7 +35,6 @@ describe("V7a-T — diagnostics primitive", () => {
       message: "unterminated string literal",
     };
 
-    expect(diagnostic.code).toBe("theta/parse/unterminated-string");
     expect(renderDiagnosticLine(diagnostic)).toBe(
       "entry.theta:3:5: theta/parse/unterminated-string: unterminated string literal",
     );
@@ -94,8 +93,6 @@ describe("V7a-T — diagnostics primitive", () => {
       message: "discovery source path does not exist: pi.theta[0]",
     };
 
-    expect(diagnostic.file).toBeUndefined();
-    expect(diagnostic.range).toBeUndefined();
     expect(renderDiagnosticLine(diagnostic)).toBe(
       "theta/load/missing-source: discovery source path does not exist: pi.theta[0]",
     );
@@ -112,7 +109,6 @@ describe("V7a-T — diagnostics primitive", () => {
       message: "invalid UTF-8 encoding at byte offset 12",
     };
 
-    expect(diagnostic.range).toBeUndefined();
     expect(renderDiagnosticLine(diagnostic)).toBe(
       "broken.theta: theta/load/invalid-encoding: invalid UTF-8 encoding at byte offset 12",
     );

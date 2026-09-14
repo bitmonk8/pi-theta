@@ -52,24 +52,18 @@ import {
 } from "../parser/theta-document";
 
 /** Separator-normalise an absolute path so a Win32 and a POSIX spelling key together. */
-function normaliseCacheKey(path: string): string {
+export function normaliseCacheKey(path: string): string {
   return path.replace(/\\/g, "/");
 }
 
-/** Byte-for-byte comparison — a cache HIT never serves a document for changed bytes. */
-function bytesEqual(a: Uint8Array, b: Uint8Array): boolean {
-  if (a === b) {
-    return true;
-  }
-  if (a.length !== b.length) {
-    return false;
-  }
-  for (let i = 0; i < a.length; i += 1) {
-    if (a[i] !== b[i]) {
-      return false;
-    }
-  }
-  return true;
+/**
+ * Byte-for-byte comparison — a cache HIT never serves a document for changed
+ * bytes. `Buffer.compare` (Node global, no import) is the native byte
+ * compare over the full content of both views; a length difference is
+ * non-zero.
+ */
+export function bytesEqual(a: Uint8Array, b: Uint8Array): boolean {
+  return Buffer.compare(a, b) === 0;
 }
 
 /** One pass's memoised parse: the exact bytes it was parsed from, plus the result. */
@@ -136,7 +130,7 @@ export function createPassParseCache(): PassParseCache {
 /**
  * `ParseThetaDocumentDeps` widened with the optional pass-cache field, so the
  * cache rides the same `parseDeps` object already threaded to every relevant
- * walk instead of a new parameter on six call sites. Absent (every
+ * walk instead of a new parameter on every call site. Absent (every
  * non-production / inert-channel caller): {@link parseViaPassCache} parses
  * directly, byte-identical to calling `parseThetaDocument` itself.
  */

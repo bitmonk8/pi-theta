@@ -79,10 +79,7 @@ import {
   composeThetaFixture,
   type ThetaCompositionInput,
 } from "../src/extension/theta-composition-producer";
-import {
-  ActiveInvocationRegistry,
-  type ActiveInvocationEntry,
-} from "../src/runtime/active-invocation-registry";
+import { ActiveInvocationRegistry } from "../src/runtime/active-invocation-registry";
 import {
   parseThetaDocument,
   type ParseThetaDocumentDeps,
@@ -165,14 +162,6 @@ interface CapturedNote {
   readonly content: string;
   readonly display?: boolean;
   readonly details?: { readonly event?: Record<string, unknown> };
-}
-
-class RecordingRegistry extends ActiveInvocationRegistry {
-  readonly addedIds: string[] = [];
-  override add(entry: ActiveInvocationEntry): void {
-    this.addedIds.push(entry.invocationId);
-    super.add(entry);
-  }
 }
 
 function parseDeps(): ParseThetaDocumentDeps {
@@ -267,7 +256,7 @@ async function driveDispatch(binderApi: string): Promise<DriveOutcome> {
     getAvailable: (): readonly unknown[] => [model],
     getApiKeyAndHeaders: async (): Promise<{ ok: boolean }> => ({ ok: true }),
   } as unknown as ModelRegistry;
-  const registry = new RecordingRegistry();
+  const registry = new ActiveInvocationRegistry();
   const deps = createProductionProducerDeps({
     pi,
     root: rootDouble(),

@@ -49,7 +49,6 @@ import {
   type ChildExitInfo,
   type ExecutableHost,
 } from "../src/runtime/subagent-launcher";
-import { WallClock } from "../src/seams/wall-clock";
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
 
 // ---------------------------------------------------------------------------
@@ -357,7 +356,6 @@ describe("bug 0008 — real subagent child with TWO discovery roots (production 
           thetaAbort: new AbortController(),
           calleePath: join(dirA, "bug8a.theta"),
           emitDiagnostic,
-          clock: new WallClock(),
         });
         clearTimeout(watchdog);
 

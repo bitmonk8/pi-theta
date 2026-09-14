@@ -342,7 +342,7 @@ describe("bug 0142 F1 (i) — a `/` argument's rendering moves `integer` → `nu
 // Class (ii) — a non-numeric `/` argument moves from withheld to firing.
 // ===========================================================================
 
-describe("bug 0142 F1 (ii) — a non-numeric `/` argument at a param matching the operands' own type moves withheld → fires", () => {
+describe("bug 0142 F1 (ii) — bug 0332 supersedes the withheld → fires transition: a non-numeric `/` argument (and its `-` control) now refuse at PARSE, before either reaches the invoke-arg sink this class used to measure", () => {
   // Bug 0332 SUPERSEDES this class at both cells: `"a" / "b"` and `"a" - "b"`
   // now refuse at PARSE (`theta/parse/non-numeric-arithmetic-operands`) before
   // either planted caller ever reaches `checkInvokeStaticResolution` and the
@@ -353,7 +353,7 @@ describe("bug 0142 F1 (ii) — a non-numeric `/` argument at a param matching th
   // is superseded by 'does this caller load at all', which is what these two
   // cells now pin: both callers flip from loading clean to a LOAD refusal
   // carrying the new code, and neither registers.
-  it('divstr: `invoke("./cstr.theta", "a" / "b")` at a `string` param now fires — bug 0332: refuses at PARSE instead', () => {
+  it('divstr: bug 0332 supersedes the withheld → fires transition — `invoke("./cstr.theta", "a" / "b")` at a `string` param now refuses at PARSE, never reaching the invoke-arg sink', () => {
     expect(
       linesForCode("divstr", ARITHMETIC_CODE).some((line) =>
         line.includes(arithmeticMessage("/", "string", "string")),
@@ -370,7 +370,7 @@ describe("bug 0142 F1 (ii) — a non-numeric `/` argument at a param matching th
     ).not.toContain("divstr");
   });
 
-  it('substr (control): `invoke("./cstr.theta", "a" - "b")` at the same param stays withheld — bug 0332: refuses at PARSE instead', () => {
+  it('substr (control): bug 0332 supersedes the stays-withheld control — `invoke("./cstr.theta", "a" - "b")` at the same param now refuses at PARSE too', () => {
     expect(
       linesForCode("substr", ARITHMETIC_CODE).some((line) =>
         line.includes(arithmeticMessage("-", "string", "string")),

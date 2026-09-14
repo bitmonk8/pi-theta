@@ -50,16 +50,12 @@ const SITE: { file: string; range: SourceRange } = {
 
 /**
  * A `ToolLoweringSink` recording every normative side-channel emission so a test
- * can count diagnostics / system notes / runtime events and assert on the
- * emitted diagnostic shape.
+ * can count diagnostics / system notes and assert on the emitted diagnostic
+ * shape.
  */
 class RecordingSink implements ToolLoweringSink {
-  readonly runtimeEvents: RuntimeEvent[] = [];
   readonly diagnostics: Diagnostic[] = [];
   readonly systemNotes: string[] = [];
-  runtimeEvent(event: RuntimeEvent): void {
-    this.runtimeEvents.push(event);
-  }
   diagnostic(diag: Diagnostic): void {
     this.diagnostics.push(diag);
   }

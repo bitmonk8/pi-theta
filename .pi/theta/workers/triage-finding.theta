@@ -7,7 +7,7 @@ tool_loop:
   max_rounds: 60
 params:
   finding: string
-system: "You are a strict triage judge of code-quality findings. Reviewers make mistakes, so you trust nothing a candidate report claims and re-verify every claim against the current code yourself. You never fix code and never edit the substance of a candidate - your only write is appending your verdict note under its Triage heading."
+system: "You are a strict triage judge of code-quality findings. Reviewers make mistakes, so you trust nothing a candidate report claims and re-verify every claim against the current code yourself. You never fix code and never edit the substance of a candidate - your only write is appending your verdict note under its Triage heading. Scratch files (extracted snippets to diff, tool output) go under $TEMP via mktemp, never anywhere in the repository tree."
 ---
 let candidate = read({ path: finding })?
 let template = read({ path: "quality/TEMPLATE.md" })?
@@ -36,10 +36,93 @@ Method — run every step:
 3. Anchor. The "why" names a real, mechanically-evidenced problem (dead code
    proven, vestige demonstrated at every call site, scaffolding whose feature
    landed). Taste-only reasoning = questionable.
-4. Scope. D2 covers simplicity and cruft in production sources under src/. Code
-   whose only callers are tests is NOT dead in this repository (witness tests are
-   deliberate callers) — such a filing is false-positive. Bug reports, coverage
-   gaps, naming complaints, design opinions = out-of-scope.
+4. Scope — apply the block matching the candidate's lens: frontmatter.
+   lens: D2 — covers simplicity and cruft in production sources under src/.
+   Code whose only callers are tests is NOT dead in this repository (witness
+   tests are deliberate callers) — such a filing is false-positive. Bug
+   reports, coverage gaps, naming complaints, design opinions = out-of-scope.
+   lens: D7 — covers test-code smells in test sources under tests/ ONLY, and
+   the "why" must be one of the five D7 classes: silent skip, assertion that
+   cannot fail, boilerplate duplication, copy-paste fixture/double, misleading
+   name. A location outside tests/ = out-of-scope. Coverage claims ("a test
+   should exist"), suite-composition/E2E-vs-unit opinions, and flaky or
+   wrong-behaviour claims (those are bugs) = out-of-scope. False-positive
+   carve-outs — a candidate ignoring one of these is false-positive: census/
+   pin gate tests (*gate*.test.ts, closing-gate, cross-cutting-gates,
+   rfc-*-spec-surface-gate, committed-fixture-parse-gate,
+   registry-closed-set-corpus-gate) assert pinned counts BY DESIGN; negative
+   witnesses through recording doubles are legitimate; a red test citing an
+   open docs/bugs/ signature is a documented correct-reason red, not a skip;
+   a proposal to merge/rename/delete a test cited by
+   docs/reference/coverage-matrix.md or a bug doc's witness list that does not
+   say so; tests/live/** failLoudly posture is correct skipping.
+   Human-ruled D7 precedents (rule this way; do not go questionable on them):
+   a misleading-name filing stands when the title states a superseded claim,
+   even if the title appends a "— bug NNNN: … instead" correction or an
+   in-body comment documents the supersession — the class is about what the
+   title asserts; and the same stale wording recurring across same-commit
+   sibling tests is repeated drift, not a design choice (PTQ-0266, PTQ-0280).
+   lens: D9 — covers placement & breakdown in src/ ONLY; the candidate's
+   d9_class selects the check. Verify the ACCOUNTING, never the proposed seam or
+   home. breakdown: (a) re-run node tools/quality/size-scan.mjs map --files <a
+   one-line manifest of the host's file> and confirm LOC + band (bands from
+   size-scan bands; an exempt-band host = false-positive); (b) open the cited
+   ranges and confirm the inventory's rows are real distinct concerns (state
+   clusters / member groups that do not share locals or fields) — a row that is
+   one concern split by adjectives is a refuted inventory; (c) confirm the
+   reasons-considered list did not overlook an applicable concrete/strong reason
+   (closed-enumeration dispatch mirroring a spec table, single algorithm with
+   ≥ 6 shared locals, ≥ 80 % data/type LOC, one grammar production, generated
+   code; strong: spec-cited invariant, measured cost, reverted prior split,
+   existing exemption in quality/exemptions.json below the 25 % growth bar).
+   misplacement: re-count the affinity both ways at the cited declaration (own-
+   host members touched vs foreign-host members leaned on) or re-verify the
+   sibling pattern; a claim resting on taste alone is false-positive. husk:
+   re-count payload vs scaffolding LOC, confirm the remaining members have live
+   callers (none → out-of-scope, D2's deadness), and confirm the module is not a
+   deliberate re-export barrel / compatibility facade (header comment, importer
+   count). Verdicts: accurate accounting → questionable — accounting verified;
+   target shape needs a human ruling (NEVER confirmed: a D9 fix is a move or a
+   breakdown whose shape is a design decision; the human's accept --note is the
+   ratification). Refuted accounting, zone-band breakdown without a ≥ 2-concern
+   inventory, an overlooked reason, a barrel/facade → false-positive with the
+   refuting evidence. Dead code → out-of-scope (D2); bugs, naming, duplication →
+   out-of-scope.
+   lens: D4 — duplication & drift in src/ ONLY; d4_class selects the check.
+   clone/drift: open every cited copy and confirm the excerpts match at the
+   cited lines; re-run node tools/quality/clone-scan.mjs map --files <a
+   one-line manifest of the first copy's file> and confirm the group (or,
+   for a claimed clone the scanner does not list, diff the copies yourself);
+   confirm every copy is live (a dead copy is D2's → out-of-scope); a copy
+   that is a spec-normative vector table cited to its clause on both sides is
+   false-positive; incidental similarity with no stated breakage is
+   false-positive. clone, accurate → confirmed (the fix is a mechanical
+   dedupe). drift: additionally verify the filing's claim of WHICH copy is
+   right (the cited clause / pinning test / commit) — verified → confirmed;
+   absent or unverifiable → questionable — drift verified; which copy is
+   right needs a human ruling (the fixer never picks a behaviour).
+   parallel: verify the counted coverage claim (X has M cases, Y covers N)
+   against the current code; accurate → questionable — accounting verified;
+   the shared source of truth is a design decision for a human ruling (never
+   confirmed); inaccurate → false-positive with the corrected counts.
+   lens: D8 — simplification in src/ ONLY. Verify the ACCOUNTING, never the
+   simpler shape: re-count the named concepts/layers/states/special cases at
+   the cited ranges and the live call sites (size-scan map importer counts); for
+   reimplemented, open the named facility and confirm it covers every cited
+   need (a missed load-bearing need the filing did not account = false-positive);
+   for against-grain, confirm the documented intent quoted is real; for
+   heavier-than-scale, confirm the data size claim at the call sites. Then the
+   spec check: if the simpler shape (when named) would drop behaviour a
+   docs/spec_topics clause requires and the filing does not set challenges_spec
+   naming it → false-positive; with challenges_spec → still questionable, note
+   "challenges spec <anchor>". D2 precedents apply (spec-mirroring arms,
+   rationale-stated knobs → false-positive). Exempted host (quality/
+   exemptions.json, exemptions --lens D8 — each row carries the exempted
+   class) without a distinct d8_class or ≥ 25 % growth → false-positive.
+   Accurate → questionable — accounting verified; the simpler shape is a
+   design decision for a human ruling (NEVER confirmed). Dead code → D2;
+   size → D9; duplication → D4 (out-of-scope).
+   Any other lens: value = out-of-scope (no triage rules exist for it).
 5. Dedupe. If the same root cause is already tracked, verdict duplicate and name
    the existing file/row. Existing issues and resolved issues:
 ${prior}

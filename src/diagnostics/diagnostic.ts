@@ -145,11 +145,10 @@ export function assembleDiagnostics(
  * single-line summary (diagnostic-shape.md "Internal diagnostic shape") and
  * must not forge the serialised content format's `hint` / related-site /
  * blank-line-block shapes (diagnostic-shape.md "Serialised content format")
- * — so the transform lives once here rather than once per call site. This is
- * unlike bug 0103's binder-prompt collapse, which is deliberately NOT shared
- * with this one: that collapse answers the system prompt's own per-field
- * line-shape sentence, a different contract, so it stays local to
- * `binder-system-prompt.ts` rather than calling this function.
+ * — so the transform lives once here rather than once per call site.
+ * `binder-system-prompt.ts`'s Description / Argument-hint lines (bug 0103)
+ * call this same function rather than reimplementing the collapse locally, so
+ * the two channels cannot drift apart on the whitespace set or the trim rule.
  *
  * A `tools:` entry and a YAML scalar are not theta string literals, so bug
  * 0060's string-literal `\n`-escape arm has no subject here: every break

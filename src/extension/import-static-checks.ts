@@ -89,17 +89,10 @@ import {
   type ThetaDocument,
 } from "../parser/theta-document";
 import { collectUnresolvedNamedTypes } from "../parser/body-type-lowering";
+import { collectLocalBinderNames } from "../parser/type-layer-checks";
 import { parseViaPassCache, type PassParseDeps } from "./pass-parse-cache";
 import { toSystemParamType, type ParsedFrontmatter } from "../parser/frontmatter";
-import { encodePointerSegment } from "../parser/schema-lowering";
-import {
-  LOAD_SYSTEM_INTERP_BAD_FIELD_CODE,
-  systemInterpBadFieldMessage,
-  toInterpolationType,
-  type SystemParamType,
-  type SystemTemplate,
-  type SystemTemplatePart,
-} from "../parser/system-interpolation";
+import type { SystemParamType, SystemTemplate } from "../parser/system-interpolation";
 import {
   enumDeclaringKey,
   type EnumRegistration,
@@ -117,31 +110,14 @@ import {
   checkImportedFnCallArgs,
   checkImportedNonCtorTypeNames,
   checkImportedSchemaCtorFields,
+  collectCallSites,
   type ImportedFnCallee,
-  type ImportedNonCtorKind,
 } from "./invoke-static-checks";
+import { patchSystemTemplateForImports } from "./import-system-template-patch";
 
 /** Forward-slash-normalise a host path so the posix-based resolver joins cleanly. */
 function normalizePath(path: string): string {
   return path.replace(/\\/g, "/");
-}
-
-/**
- * Whether a directly-imported schema's OWN root object carries at least one
- * wire rename (bug 0445): the load-phase static-container patch fires only
- * then — the SAME root-def-only condition the bug-0423 bare-root patch uses, so
- * the bare, `array<Import>`, and import-typed-body-field positions agree (a
- * rename-free or transitive-only-renamed import stays theta-side at every
- * position — byte-identity by absence, never a bare-vs-container split).
- */
-function importedRootHasWireRename(
-  shape: SystemParamType,
-): shape is Extract<SystemParamType, { kind: "object" }> {
-  return (
-    shape.kind === "object" &&
-    shape.rootDef !== undefined &&
-    (shape.sidecars?.get(shape.rootDef)?.wireNames.length ?? 0) > 0
-  );
 }
 
 /**
@@ -281,7 +257,6 @@ function collectImportedTypeDecls(
   const schemas = new Map<string, SchemaDecl>();
   const enums = new Map<string, EnumDecl>();
   const visitedSchemas = new Set<string>();
-  const visitedEnums = new Set<string>();
 
   const typeSourcesOf = (decl: SchemaDecl): readonly string[] =>
     decl.fields !== undefined
@@ -338,10 +313,6 @@ function collectImportedTypeDecls(
         enums.set(asName, { ...decl, name: asName });
       }
     }
-    if (visitedEnums.has(sourceName)) {
-      return;
-    }
-    visitedEnums.add(sourceName);
   };
 
   if (entrySchema !== undefined) {
@@ -459,33 +430,6 @@ function materializeSymbol(
     }
   }
   return undefined;
-}
-
-/**
- * Build the bug 0422 route (a) load-phase refusal for a walked-off imported
- * field: same message text as the parse-phase sibling
- * (`systemInterpBadFieldMessage`, DIAG-4 — the two codes name the same
- * authoring mistake at two phases, so sharing the message-string producer is
- * an implementation reuse, not a registry violation; each code still carries
- * its own *Message* cell in its own registry row), Located (file + range) when
- * `input.frontmatter.systemRange` was threaded through from the parse pass,
- * file-only otherwise (the range genuinely being unavailable never happens for
- * a theta whose `system:` produced a template, but the fallback keeps this
- * total rather than assuming the invariant).
- */
-function loadSystemInterpBadFieldDiagnostic(
-  sourceFile: string,
-  range: SourceRange | undefined,
-  field: string,
-  path: string,
-): Diagnostic {
-  return {
-    severity: "error",
-    code: LOAD_SYSTEM_INTERP_BAD_FIELD_CODE,
-    file: sourceFile,
-    ...(range !== undefined ? { range } : {}),
-    message: systemInterpBadFieldMessage(field, path),
-  };
 }
 
 /** Only error-severity parse/load diagnostics block registration (warnings still register). */
@@ -650,163 +594,31 @@ export interface ThetaImportCheck {
 }
 
 /**
- * Run the load-time `.thetalib` import checks for one discovered theta, returning
- * every diagnostic (error-severity entries un-register the theta) and the
- * resolved imported symbols to materialise into its runtime environment.
- *
- * A theta with no top-level `import` (or an in-memory theta with no source path)
- * resolves nothing and yields an empty result — the passing valid-import control
- * is preserved: a resolvable `.thetalib` whose exports satisfy every specifier
- * produces no diagnostic and registers cleanly.
+ * The re-export chain fixpoint (imports.md §Re-exports), split out of
+ * `checkThetaImports` into its own top-level function so the module header's
+ * three ordered phases share one home instead of the caller's:
+ * `closeOverReExports` collects the `export … from` closure of every
+ * `.thetalib` `walked` reaches, `fixReExportedNames` settles the least
+ * fixpoint of the collected file set, and `diagnoseReExports` /
+ * `diagnoseReExportCollisions` diagnose an unresolvable re-exported name and a
+ * same-name collision resolving to two different declaring sites over that
+ * settled result. Takes as explicit parameters exactly what those phases read
+ * from `checkThetaImports`'s scope before this split; this phase's own
+ * fixpoint state (`libDeclaredNames` / `reExportEdges`) stays internal to it,
+ * since nothing outside this phase reads it. Returns the diagnostics the
+ * phases push, in the SAME order they pushed before this split (walk every
+ * `walked` path first, settle the fixpoint, THEN diagnose unresolved
+ * re-exports, THEN diagnose collisions) — the caller appends them to its own
+ * set unchanged.
  */
-export async function checkThetaImports(
-  input: ThetaCompositionInput,
-  deps: {
-    readonly fs: FileSystem;
-    readonly parseDeps: PassParseDeps;
-    /**
-     * Bug 0267: whether this call may claim its rows against the pass-scoped
-     * delivered-set (bug 0264's dedup). DEFAULT true — every existing call
-     * site (the discovered-theta compose loop) keeps claiming, byte-equivalent
-     * to before this parameter existed. Pass `false` for an OBSERVING walk
-     * that must not consume the callee's own delivery budget — a `tools:`
-     * caller probing whether a callee it has not yet discovered would fail
-     * this check. Consuming the budget from that probe would starve the
-     * callee's own later `runComposePass` iteration of its rows (the note the
-     * author actually reads), while `undelivered` here is never read by the
-     * probe — it discards `ThetaImportCheck` down to a boolean
-     * (`calleeFailsOwnStructuralChecks`). `tests/thetalib-reparse-walk-single-delivery.test.ts`
-     * is bug 0264's single-delivery witness; this parameter exists so this
-     * bug's fix cannot move its counts.
-     */
-    readonly claimDelivery?: boolean;
-  },
-): Promise<ThetaImportCheck> {
+async function resolveReExportClosure(
+  walked: Set<string>,
+  parseThetaLib: (resolvedPath: string) => Promise<ParsedThetaLib | undefined>,
+  probe: CachingThetaLibProbe,
+  resolver: Resolver,
+  unreadablePaths: Set<string>,
+): Promise<Diagnostic[]> {
   const diagnostics: Diagnostic[] = [];
-  const imports: MaterializedImport[] = [];
-  const importDecls = collectImports(input.body);
-  if (importDecls.length === 0 || input.sourcePath === undefined) {
-    return {
-      diagnostics,
-      imports,
-      undelivered: diagnostics,
-      resolvedLibs: [],
-      importedTypeDecls: { schemas: [], enums: [] },
-    };
-  }
-
-  const fromFile = normalizePath(input.sourcePath);
-  const probe = new CachingThetaLibProbe(deps.fs);
-  const resolver: Resolver = new RelativeThetaLibResolver(probe);
-  const parseCache = new Map<string, ParsedThetaLib | undefined>();
-  // Bug 0428: resolved paths whose `readBytes` rejected, distinguished from the
-  // pipeline's only other `parseThetaLib` outcome (a document, however
-  // unparseable its content) so the three read-failure arms below can push
-  // IMP-1 exactly once per site without conflating "unreadable" with the
-  // already-handled "parses to an illegal `.thetalib`" case. `parseCache`
-  // itself stays `ParsedThetaLib | undefined` (unchanged shape, so every
-  // existing `parsed === undefined` consumer keeps its current behaviour) —
-  // this is an ADDITIONAL fact recorded beside it, not a replacement.
-  const unreadablePaths = new Set<string>();
-
-  const parseThetaLib = async (resolvedPath: string): Promise<ParsedThetaLib | undefined> => {
-    if (parseCache.has(resolvedPath)) {
-      return parseCache.get(resolvedPath);
-    }
-    // A `readBytes` rejection settles to `undefined` (recorded in
-    // `unreadablePaths` first, bug 0428) and is treated as no forms/exports for
-    // every consumer that does not itself check that set. The `.then(ok, err)`
-    // rejection arm is the pipeline's sanctioned I/O-boundary pattern, not a
-    // broad `try`/`catch`.
-    const parsed: ParsedThetaLib | undefined = await deps.fs
-      .readBytes(resolvedPath)
-      .then(
-        (bytes) => ({
-          // Bug 0264: this `.thetalib` may already be parsed this pass — by an
-          // earlier importer's own `parseThetaLib` cache miss, the discovery
-          // walk, or a closure walk — so route through the pass-scoped cache
-          // instead of parsing unconditionally.
-          document: parseViaPassCache({ path: resolvedPath, bytes }, deps.parseDeps),
-        }),
-        () => {
-          unreadablePaths.add(resolvedPath);
-          return undefined;
-        },
-      );
-    parseCache.set(resolvedPath, parsed);
-    return parsed;
-  };
-
-  // Build the static `.thetalib` import graph transitively from this theta's direct
-  // imports (imports.md §Cycles). Nodes are RESOLVED PATHS, not basename stems
-  // (bug 0302): two files sharing a basename in different directories are
-  // distinct files, and imports.md §Cycles walks the FILE graph, so collapsing
-  // them into one node both draws false self-loop cycles and overwrites real
-  // edges. An edge `A → B` exists when `A.thetalib` has a resolvable
-  // `import … from "./B.thetalib"` OR a resolvable `export … from "./B.thetalib"`
-  // re-export: imports.md §Cycles walks the `.thetalib` graph over both edge
-  // kinds, which is also what `collectCallableClosureSources` already does.
-  const graphEdges = new Map<string, string[]>();
-  const walked = new Set<string>();
-  const walkThetaLib = async (resolvedPath: string): Promise<void> => {
-    if (walked.has(resolvedPath)) {
-      return;
-    }
-    walked.add(resolvedPath);
-    const parsed = await parseThetaLib(resolvedPath);
-    const targets: string[] = [];
-    if (parsed !== undefined) {
-      // One edge per STATEMENT (an `export` statement's N specifiers name one
-      // path, so they are one edge), mirroring the `import` side. `kind` is
-      // carried through so the failure arm below pushes `load.diagnostics` for
-      // `.thetalib` `import` edges only (bug 0304 fix 1). A non-`.thetalib`
-      // `import` edge is skipped for the same reason the direct decl loop skips
-      // it: the parser already emitted
-      // `theta/parse/import-non-thetalib-extension` for that spelling and the
-      // resolver can never resolve it, so pushing IMP-1 here would double-report
-      // the identical wrong-extension fault (two codes for one statement).
-      //
-      // An `export … from` edge is not pushed here. `closeOverReExports` is now
-      // seeded from every lib this walk reaches (bug 0333's fix), so it already
-      // pushes IMP-1 once for a failed source of ANY reached lib's re-export —
-      // pushing here too would double-report the same fault on the same
-      // statement. The closure stays the sole reporter of `export`-edge faults;
-      // this guard is what keeps that division of labour instead of splitting
-      // one fault across two pushes.
-      const edges: Array<{ path: string; range: SourceRange; kind: "import" | "export" }> = [];
-      for (const stmt of parsed.document.body.statements) {
-        if (stmt.kind === "import" || (stmt.kind === "export" && stmt.path.endsWith(".thetalib"))) {
-          edges.push({ path: stmt.path, range: stmt.range, kind: stmt.kind });
-        }
-      }
-      for (const edge of edges) {
-        await probe.precache(edge.path, normalizePath(resolvedPath));
-        const load = loadThetaLibImport(resolver, edge.path, normalizePath(resolvedPath), {
-          file: resolvedPath,
-          range: edge.range,
-        });
-        if (load.registered && load.resolvedPath !== undefined) {
-          targets.push(load.resolvedPath);
-          await walkThetaLib(load.resolvedPath);
-          // Bug 0428: the edge RESOLVED (a byte-exact, listed entry) but the
-          // target's bytes could not be read — IMP-1's "likewise unresolvable"
-          // clause at TRANSITIVE depth. Sited on this edge (the importing lib's
-          // statement), matching the resolution-failure arm's siting below.
-          // `export`-kind edges are excluded: `closeOverReExports` is the sole
-          // reporter for a re-export source's read failure (mirrors the existing
-          // resolution-failure division of labour in the comment above).
-          if (edge.kind === "import" && unreadablePaths.has(load.resolvedPath)) {
-            diagnostics.push(
-              unreadableThetaLibDiagnostic({ file: resolvedPath, range: edge.range }, edge.path),
-            );
-          }
-        } else if (edge.kind === "import" && edge.path.endsWith(".thetalib")) {
-          diagnostics.push(...load.diagnostics);
-        }
-      }
-    }
-    graphEdges.set(resolvedPath, targets);
-  };
 
   /**
    * One `export { source as exported } from "<specPath>"` specifier, with both
@@ -1071,6 +883,174 @@ export async function checkThetaImports(
     }
   };
 
+  for (const resolvedPath of walked) {
+    await closeOverReExports(resolvedPath);
+  }
+  diagnoseReExports(fixReExportedNames());
+  diagnoseReExportCollisions();
+
+  return diagnostics;
+}
+
+/**
+ * Run the load-time `.thetalib` import checks for one discovered theta, returning
+ * every diagnostic (error-severity entries un-register the theta) and the
+ * resolved imported symbols to materialise into its runtime environment.
+ *
+ * A theta with no top-level `import` (or an in-memory theta with no source path)
+ * resolves nothing and yields an empty result — the passing valid-import control
+ * is preserved: a resolvable `.thetalib` whose exports satisfy every specifier
+ * produces no diagnostic and registers cleanly.
+ */
+export async function checkThetaImports(
+  input: ThetaCompositionInput,
+  deps: {
+    readonly fs: FileSystem;
+    readonly parseDeps: PassParseDeps;
+    /**
+     * Bug 0267: whether this call may claim its rows against the pass-scoped
+     * delivered-set (bug 0264's dedup). DEFAULT true — every existing call
+     * site (the discovered-theta compose loop) keeps claiming, byte-equivalent
+     * to before this parameter existed. Pass `false` for an OBSERVING walk
+     * that must not consume the callee's own delivery budget — a `tools:`
+     * caller probing whether a callee it has not yet discovered would fail
+     * this check. Consuming the budget from that probe would starve the
+     * callee's own later `runComposePass` iteration of its rows (the note the
+     * author actually reads), while `undelivered` here is never read by the
+     * probe — it discards `ThetaImportCheck` down to a boolean
+     * (`calleeFailsOwnStructuralChecks`). `tests/thetalib-reparse-walk-single-delivery.test.ts`
+     * is bug 0264's single-delivery witness; this parameter exists so this
+     * bug's fix cannot move its counts.
+     */
+    readonly claimDelivery?: boolean;
+  },
+): Promise<ThetaImportCheck> {
+  const diagnostics: Diagnostic[] = [];
+  const imports: MaterializedImport[] = [];
+  const importDecls = collectImports(input.body);
+  if (importDecls.length === 0 || input.sourcePath === undefined) {
+    return {
+      diagnostics,
+      imports,
+      undelivered: diagnostics,
+      resolvedLibs: [],
+      importedTypeDecls: { schemas: [], enums: [] },
+    };
+  }
+
+  const fromFile = normalizePath(input.sourcePath);
+  const probe = new CachingThetaLibProbe(deps.fs);
+  const resolver: Resolver = new RelativeThetaLibResolver(probe);
+  const parseCache = new Map<string, ParsedThetaLib | undefined>();
+  // Bug 0428: resolved paths whose `readBytes` rejected, distinguished from the
+  // pipeline's only other `parseThetaLib` outcome (a document, however
+  // unparseable its content) so the three read-failure arms below can push
+  // IMP-1 exactly once per site without conflating "unreadable" with the
+  // already-handled "parses to an illegal `.thetalib`" case. `parseCache`
+  // itself stays `ParsedThetaLib | undefined` (unchanged shape, so every
+  // existing `parsed === undefined` consumer keeps its current behaviour) —
+  // this is an ADDITIONAL fact recorded beside it, not a replacement.
+  const unreadablePaths = new Set<string>();
+
+  const parseThetaLib = async (resolvedPath: string): Promise<ParsedThetaLib | undefined> => {
+    if (parseCache.has(resolvedPath)) {
+      return parseCache.get(resolvedPath);
+    }
+    // A `readBytes` rejection settles to `undefined` (recorded in
+    // `unreadablePaths` first, bug 0428) and is treated as no forms/exports for
+    // every consumer that does not itself check that set. The `.then(ok, err)`
+    // rejection arm is the pipeline's sanctioned I/O-boundary pattern, not a
+    // broad `try`/`catch`.
+    const parsed: ParsedThetaLib | undefined = await deps.fs
+      .readBytes(resolvedPath)
+      .then(
+        (bytes) => ({
+          // Bug 0264: this `.thetalib` may already be parsed this pass — by an
+          // earlier importer's own `parseThetaLib` cache miss, the discovery
+          // walk, or a closure walk — so route through the pass-scoped cache
+          // instead of parsing unconditionally.
+          document: parseViaPassCache({ path: resolvedPath, bytes }, deps.parseDeps),
+        }),
+        () => {
+          unreadablePaths.add(resolvedPath);
+          return undefined;
+        },
+      );
+    parseCache.set(resolvedPath, parsed);
+    return parsed;
+  };
+
+  // Build the static `.thetalib` import graph transitively from this theta's direct
+  // imports (imports.md §Cycles). Nodes are RESOLVED PATHS, not basename stems
+  // (bug 0302): two files sharing a basename in different directories are
+  // distinct files, and imports.md §Cycles walks the FILE graph, so collapsing
+  // them into one node both draws false self-loop cycles and overwrites real
+  // edges. An edge `A → B` exists when `A.thetalib` has a resolvable
+  // `import … from "./B.thetalib"` OR a resolvable `export … from "./B.thetalib"`
+  // re-export: imports.md §Cycles walks the `.thetalib` graph over both edge
+  // kinds, which is also what `collectCallableClosureSources` already does.
+  const graphEdges = new Map<string, string[]>();
+  const walked = new Set<string>();
+  const walkThetaLib = async (resolvedPath: string): Promise<void> => {
+    if (walked.has(resolvedPath)) {
+      return;
+    }
+    walked.add(resolvedPath);
+    const parsed = await parseThetaLib(resolvedPath);
+    const targets: string[] = [];
+    if (parsed !== undefined) {
+      // One edge per STATEMENT (an `export` statement's N specifiers name one
+      // path, so they are one edge), mirroring the `import` side. `kind` is
+      // carried through so the failure arm below pushes `load.diagnostics` for
+      // `.thetalib` `import` edges only (bug 0304 fix 1). A non-`.thetalib`
+      // `import` edge is skipped for the same reason the direct decl loop skips
+      // it: the parser already emitted
+      // `theta/parse/import-non-thetalib-extension` for that spelling and the
+      // resolver can never resolve it, so pushing IMP-1 here would double-report
+      // the identical wrong-extension fault (two codes for one statement).
+      //
+      // An `export … from` edge is not pushed here. `closeOverReExports` is now
+      // seeded from every lib this walk reaches (bug 0333's fix), so it already
+      // pushes IMP-1 once for a failed source of ANY reached lib's re-export —
+      // pushing here too would double-report the same fault on the same
+      // statement. The closure stays the sole reporter of `export`-edge faults;
+      // this guard is what keeps that division of labour instead of splitting
+      // one fault across two pushes.
+      const edges: Array<{ path: string; range: SourceRange; kind: "import" | "export" }> = [];
+      for (const stmt of parsed.document.body.statements) {
+        if (stmt.kind === "import" || (stmt.kind === "export" && stmt.path.endsWith(".thetalib"))) {
+          edges.push({ path: stmt.path, range: stmt.range, kind: stmt.kind });
+        }
+      }
+      for (const edge of edges) {
+        await probe.precache(edge.path, normalizePath(resolvedPath));
+        const load = loadThetaLibImport(resolver, edge.path, normalizePath(resolvedPath), {
+          file: resolvedPath,
+          range: edge.range,
+        });
+        if (load.registered && load.resolvedPath !== undefined) {
+          targets.push(load.resolvedPath);
+          await walkThetaLib(load.resolvedPath);
+          // Bug 0428: the edge RESOLVED (a byte-exact, listed entry) but the
+          // target's bytes could not be read — IMP-1's "likewise unresolvable"
+          // clause at TRANSITIVE depth. Sited on this edge (the importing lib's
+          // statement), matching the resolution-failure arm's siting below.
+          // `export`-kind edges are excluded: `closeOverReExports` is the sole
+          // reporter for a re-export source's read failure (mirrors the existing
+          // resolution-failure division of labour in the comment above).
+          if (edge.kind === "import" && unreadablePaths.has(load.resolvedPath)) {
+            diagnostics.push(
+              unreadableThetaLibDiagnostic({ file: resolvedPath, range: edge.range }, edge.path),
+            );
+          }
+        } else if (edge.kind === "import" && edge.path.endsWith(".thetalib")) {
+          diagnostics.push(...load.diagnostics);
+        }
+      }
+    }
+    graphEdges.set(resolvedPath, targets);
+  };
+
   // Bug 0303: the DECLARING module's own environment for an imported `fn`,
   // built from the lib's own body plus its own materialised imports
   // (recursively — a lib-to-lib import) and its own enum registrations.
@@ -1239,13 +1219,14 @@ export async function checkThetaImports(
   // variant list for `checkImportedEnumVariantAccess` to judge each
   // `MemberExpr` access site against.
   const importedEnums = new Map<string, readonly string[]>();
-  // Bug 0448 route — the KIND sibling of the `importedSchemas` /
+  // Bug 0448 route — the non-constructible sibling of the `importedSchemas` /
   // `importedEnums` lookups above, keyed the same way (specifier LOCAL name)
   // and populated in the SAME per-decl loop: every imported binding whose
   // DIRECT declaration is not brace-constructible (an `enum`, a `fn`, or a
   // fields-less/alias-form `schema`), for `checkImportedNonCtorTypeNames` to
-  // judge each `ObjectExpr` constructor site against.
-  const importedNonCtorKinds = new Map<string, ImportedNonCtorKind>();
+  // judge each `ObjectExpr` constructor site against. Membership alone decides
+  // that verdict (all three shapes draw one diagnostic), so this is a name set.
+  const importedNonCtorNames = new Set<string>();
   // Bug 0465 route — the QUERY/INVOKE-LOWERING sibling of `importedSchemas` /
   // `importedEnums` above: the two producer call sites that lower a typed
   // `@<Schema>` / `invoke<Schema>` annotation (query-schema-lowering.ts) need
@@ -1383,7 +1364,7 @@ export async function checkThetaImports(
       // name classification) because it is not brace-constructible under any
       // reading. This LOAD route judges FIELD SETS only (`importedSchemas`) —
       // a fields-less decl carries none to judge against — so bug 0448 records
-      // the KIND instead, in `importedNonCtorKinds`, for
+      // the NAME instead, in `importedNonCtorNames`, for
       // `checkImportedNonCtorTypeNames` to judge the constructor-head question
       // the field-set walk cannot reach (a sibling of bug 0430's enum-variant
       // class).
@@ -1398,14 +1379,14 @@ export async function checkThetaImports(
       // precedence: a specifier whose direct decl carries such a schema is
       // constructible, so it enters `importedSchemas` (bug 0429's field-set
       // walk) and NONE of the non-ctor arms below record it. Every
-      // `importedNonCtorKinds` arm is gated on `!hasCtorSchema`, keeping the
-      // map's meaning — non-brace-constructible imported bindings — honest.
+      // `importedNonCtorNames` arm is gated on `!hasCtorSchema`, keeping the
+      // set's meaning — non-brace-constructible imported bindings — honest.
       const hasCtorSchema = schemaDecl !== undefined && schemaDecl.fields !== undefined;
       if (schemaDecl !== undefined && schemaDecl.fields !== undefined) {
         importedSchemas.set(specifier.local, schemaDecl.fields);
       }
       if (schemaDecl !== undefined && !hasCtorSchema) {
-        importedNonCtorKinds.set(specifier.local, { kind: "schema-alias" });
+        importedNonCtorNames.add(specifier.local);
       }
       const fnDecl = parsed.document.body.statements.find(
         (stmt): stmt is FnDecl => stmt.kind === "fn" && stmt.name === specifier.source,
@@ -1426,7 +1407,7 @@ export async function checkThetaImports(
         // `checkImportedNonCtorTypeNames` can judge the constructor question
         // this loop otherwise drops.
         if (!hasCtorSchema) {
-          importedNonCtorKinds.set(specifier.local, { kind: "fn" });
+          importedNonCtorNames.add(specifier.local);
         }
       }
       // Bug 0430 — the `enum` sibling of the `schema` lookup above, same
@@ -1450,7 +1431,7 @@ export async function checkThetaImports(
         // brace-constructibility one) — recorded on any direct top-level
         // `enum` match unless a fields-bearing schema of the same name outranks
         // it (`hasCtorSchema`, above), mirroring same-file precedence.
-        importedNonCtorKinds.set(specifier.local, { kind: "enum" });
+        importedNonCtorNames.add(specifier.local);
       }
       // Bug 0465: feed the QUERY/INVOKE lowering seam the SAME direct-decl
       // finds (`schemaDecl` / `enumDecl`) already made above, plus their
@@ -1483,18 +1464,15 @@ export async function checkThetaImports(
       if (materialized !== undefined) {
         imports.push(materialized);
       }
-      // Bug 0422 route (a): a direct schema match (the same body this
-      // specifier's own decl loop already parsed, `parsed.document.body`)
-      // builds the real object shell for the load-phase template
-      // revalidation below. `collectBodyTypes` over the LIB's own body gives
-      // `toSystemParamType` the lib's own named-type set (nested fields
-      // referencing another schema/enum IN THE SAME LIB resolve; a nested
-      // import stays `opaque-object`, admitting further — unchanged from the
-      // parse-time disposition for that deeper case).
-      const directSchema = parsed.document.body.statements.find(
-        (stmt): stmt is SchemaDecl => stmt.kind === "schema" && stmt.name === specifier.source,
-      );
-      if (directSchema !== undefined) {
+      // Bug 0422 route (a): a direct schema match (`schemaDecl`, the find this
+      // specifier's own decl loop already made above over
+      // `parsed.document.body`) builds the real object shell for the
+      // load-phase template revalidation below. `collectBodyTypes` over the
+      // LIB's own body gives `toSystemParamType` the lib's own named-type set
+      // (nested fields referencing another schema/enum IN THE SAME LIB
+      // resolve; a nested import stays `opaque-object`, admitting further —
+      // unchanged from the parse-time disposition for that deeper case).
+      if (schemaDecl !== undefined) {
         const { bodyTypes: libBodyTypes } = collectBodyTypes(
           parsed.document.body.statements,
           resolvedPath,
@@ -1510,305 +1488,43 @@ export async function checkThetaImports(
     await walkThetaLib(resolvedPath);
   }
 
-  // Bug 0422 route (a) — LOAD-phase `system:` template revalidation, joined by
-  // bug 0423 route (a) — LOAD-phase sidecar carry (same pass, same walk: 0423
-  // needs the identical head resolution 0422 already performs to find a bare
-  // param's imported-schema shape). The PARSE-phase `system:` check
-  // (system-interpolation.ts) admits any `.Ident` step off an imported schema
-  // opaquely, because the sync parser cannot see the `.thetalib`'s fields;
-  // `importedSchemaShapes` above now holds the real field set — fields AND
-  // wire-rename sidecars/rootDef (`toSystemParamType`'s schema arm already
-  // attaches them via `buildOutboundSidecars`) — for every directly-imported
-  // schema this theta's `params:` names. Re-walk each already-parsed template
-  // PATH part whose head resolves to one of those schemas — not a re-parse, a
-  // re-walk of the SAME segments `checkSystemInterpolation` already validated
-  // — and refuse a step that names no real field with the newly-minted
-  // load-phase sibling code (0422). A BARE `${author}` (no further segments)
-  // has nothing to re-walk for 0422's refusal, but IS exactly 0423's scope:
-  // its terminal shape's `sidecars`/`rootDef` are converted to a real
-  // `InterpolationType` and written into a PATCHED COPY of this part
-  // (`patchedParts`, built lazily so a theta with no patchable part returns
-  // `patchedSystemTemplate: undefined` — byte-identical to before this fix).
-  // A `discriminated-union` terminal is also `valueDriven: true` but its
-  // head's `typeSource` never matches an entry in `importedSchemaShapes`
-  // (only a schema-kind import populates it), so it is left untouched here —
-  // out of this fix's scope (bug 0425's ground).
-  // Bug 0450: a theta importing ONLY an enum (no imported schema) has an
-  // EMPTY `importedSchemaShapes`, so the guard below must also open on
-  // `importedEnums` or the enum-head arm just past the typeSource lookup
-  // never runs and the class stays unjudged (the defect this fix closes).
-  let patchedParts: SystemTemplatePart[] | undefined;
-  if (
-    input.frontmatter?.system !== undefined &&
-    (importedSchemaShapes.size > 0 || importedEnums.size > 0)
-  ) {
-    const systemSourceFile = input.sourcePath;
-    const systemRange = input.frontmatter.systemRange;
-    const paramTypeSourceByName = new Map(
-      (input.frontmatter.params?.fields ?? []).map((field) => [field.wireName, field.type]),
-    );
-    const originalParts = input.frontmatter.system.parts;
-    for (let partIndex = 0; partIndex < originalParts.length; partIndex++) {
-      const part = originalParts[partIndex] as SystemTemplatePart;
-      if (part.kind !== "path" || part.valueDriven !== true) {
-        continue;
-      }
-      const head = part.segments[0] as string;
-      const typeSource = paramTypeSourceByName.get(head);
-      if (typeSource === undefined) {
-        continue;
-      }
-      // Bug 0450: a directly-imported ENUM terminates the path the same way
-      // its same-file twin does (frontmatter-fields-b-and-templates.md:42 —
-      // an enum is not an object schema, so EVERY `.Ident` step refuses, valid
-      // variant names included). `importedEnums` never enters
-      // `importedSchemaShapes` (that map is schema-kind only), so this arm
-      // must run BEFORE the schema-shape lookup below or the enum head is
-      // silently skipped exactly as before this fix. Direct declarations
-      // only, mirroring the schema class's chain withhold (bug 0422/0430): a
-      // re-export-chain enum never reaches `importedEnums`.
-      if (importedEnums.has(typeSource.trim())) {
-        if (part.segments.length > 1) {
-          diagnostics.push(
-            loadSystemInterpBadFieldDiagnostic(
-              systemSourceFile,
-              systemRange,
-              part.segments[1] as string,
-              part.segments[0] as string,
-            ),
-          );
-        }
-        // A bare `${sev}` (no further segments) has no `.Ident` step to
-        // refuse — bare `${param}` is always allowed
-        // (frontmatter-fields-b-and-templates.md:42, §Non-goal).
-        continue;
-      }
-      const shape = importedSchemaShapes.get(typeSource.trim());
-      if (shape === undefined) {
-        continue;
-      }
-      // Bug 0422 F2: a non-object head shape is an imported alias-of-object /
-      // head-only schema, whose `.field` steps this load re-walk cannot judge
-      // (its true field set is not built here). Leave the head admitted — its
-      // pre-fix load behaviour — and defer its classification to bug 0427's
-      // arm dispatch in the shared `toSystemParamType`, which propagates here
-      // automatically once it lands. Only a genuinely-known object schema
-      // whose fields are in hand enters the walk (or 0423's patch, below).
-      if (shape.kind !== "object") {
-        continue;
-      }
-      // Bug 0423 route (a): a BARE param (no further segments) is the root
-      // object terminal — the only case this fix patches (nested renames are
-      // bug 0424's ground). Its rename map is already in `shape` (the direct
-      // schema match built above), so converting it to an `InterpolationType`
-      // and dropping `valueDriven` is enough to route the render through the
-      // canonical object row's wire-name translation instead of the
-      // sidecar-less value-driven row.
-      if (part.segments.length === 1) {
-        // Bug 0423 F3/F4: patch ONLY a schema carrying at least one ACTUAL
-        // wire rename — its outbound sidecar records a `wireNames` entry, and
-        // `buildSidecar` records one per field whose wire name differs from
-        // its theta name (a rename-free schema's sidecar `wireNames` is
-        // empty). A rename-free imported schema is left value-driven, so its
-        // bare `${param}` renders byte-identically for EVERY value kind:
-        // both a conforming object AND an out-of-schema non-object value
-        // (a bound `"hello"`, an array element) keep today's bytes, because
-        // the wire-name-translating object row would otherwise re-serialise
-        // an out-of-schema value through the schema's static shape. So
-        // byte-identity for the rename-free class holds by ABSENCE: the part
-        // is not patched at all, and `patchedSystemTemplate` stays absent
-        // when no renamed-schema bare param exists.
-        const rootDef = shape.rootDef;
-        const hasWireRename =
-          rootDef !== undefined && (shape.sidecars?.get(rootDef)?.wireNames.length ?? 0) > 0;
-        if (!hasWireRename) {
-          continue;
-        }
-        patchedParts = patchedParts ?? [...originalParts];
-        patchedParts[partIndex] = {
-          kind: "path",
-          segments: part.segments,
-          type: toInterpolationType(shape),
-        };
-        continue; // nothing further to walk on a bare param (0422's own loop below is a no-op here too).
-      }
-      let current: SystemParamType = shape;
-      for (let s = 1; s < part.segments.length; s++) {
-        const field = part.segments[s] as string;
-        if (current.kind === "opaque-object") {
-          // Bug 0422 F1: the walk reached an intermediate whose fields the
-          // shape builder did not resolve (a lib schema field typed by the
-          // LIB's own import stays `opaque-object`). Mirror the parse-phase
-          // sibling's `opaque-object` arm (system-interpolation.ts, which
-          // `continue`s): STOP judging and admit the remainder — the nested
-          // lib's fields are not in hand, so a deeper step cannot be refused.
-          break;
-        }
-        if (current.kind !== "object") {
-          // A real declared scalar / array / union field followed by a further
-          // `.step` is a genuine walked-off path (bug doc Summary consequence
-          // 2) — refuse it, matching the parse-phase sibling's non-object arm.
-          diagnostics.push(
-            loadSystemInterpBadFieldDiagnostic(
-              systemSourceFile,
-              systemRange,
-              field,
-              part.segments.slice(0, s).join("."),
-            ),
-          );
-          break;
-        }
-        const next = current.fields.get(field);
-        if (next === undefined) {
-          diagnostics.push(
-            loadSystemInterpBadFieldDiagnostic(
-              systemSourceFile,
-              systemRange,
-              field,
-              part.segments.slice(0, s).join("."),
-            ),
-          );
-          break;
-        }
-        current = next;
-      }
-    }
+  // Bug 0422/0423/0450 — LOAD-phase `system:` template revalidation and
+  // sidecar carry for directly-imported schemas/enums (import-system-template-patch.ts).
+  const patchedParts = patchSystemTemplateForImports(
+    input,
+    importedSchemaShapes,
+    importedEnums,
+    diagnostics,
+  );
 
-    // Bug 0445 route (a): the STATIC container positions the bug-0423 bare-root
-    // valueDriven patch above excludes — an `array<Import>` param (static array
-    // row, no sidecars at parse because imports are name-only) and a BODY schema
-    // whose field is typed by an import (the imported field drops its `refTarget`
-    // at parse). The LIB-BUILT sidecar fragment for each direct import already
-    // sits in `importedSchemaShapes`, built over the LIB's OWN namespace — so its
-    // internal `$ref`s resolve to the lib's schemas and are immune to an app
-    // schema of the same name (re-deriving in the app namespace would render a
-    // WRONG wire name). Carry that fragment: the array element takes the import's
-    // own root sidecar (the bug-0407 `array<Schema>` element shape), and a body
-    // schema's import-typed field gains a `refTarget` to the import's def plus the
-    // import's fragment merged into the enclosing map under its own def name (the
-    // per-`$defs` merge is collision-safe, bug 0424 F2 discipline). A rename-free
-    // import contributes no wire name, so its part is left unpatched — byte-
-    // identity by absence (the bug-0423 F3/F4 gate, one position over).
-    const appBodyTypes = collectBodyTypes(input.body.statements, input.sourcePath).bodyTypes;
-    for (let partIndex = 0; partIndex < originalParts.length; partIndex++) {
-      const part = originalParts[partIndex] as SystemTemplatePart;
-      if (part.kind !== "path" || part.valueDriven === true || part.segments.length !== 1) {
-        continue;
-      }
-      const typeSource = paramTypeSourceByName.get(part.segments[0] as string)?.trim();
-      if (typeSource === undefined) {
-        continue;
-      }
-      // Array face: `array<Import>` — carry the import's own sidecars/rootDef as
-      // the array element shape (bug 0407's `array<Schema>` element carriage).
-      if (part.type.kind === "array") {
-        const element = /^array<(.+)>$/.exec(typeSource)?.[1]?.trim();
-        const imp = element !== undefined ? importedSchemaShapes.get(element) : undefined;
-        if (imp !== undefined && importedRootHasWireRename(imp) && imp.rootDef !== undefined) {
-          patchedParts = patchedParts ?? [...originalParts];
-          patchedParts[partIndex] = {
-            kind: "path",
-            segments: part.segments,
-            type: {
-              kind: "array",
-              ...(imp.sidecars !== undefined ? { sidecars: imp.sidecars } : {}),
-              rootDef: imp.rootDef,
-            },
-          };
-        }
-        continue;
-      }
-      // Nested face: a body schema wrapping an import. Merge each import-typed
-      // field's LIB-BUILT fragment into the enclosing sidecar map and add the
-      // missing `refTarget`, across every body-schema def the parse-time map
-      // already carries (so a body chain reaching the imported field is covered).
-      if (
-        part.type.kind !== "object" ||
-        part.type.sidecars === undefined ||
-        part.type.rootDef === undefined
-      ) {
-        continue;
-      }
-      const merged = new Map(part.type.sidecars);
-      let patchedAnyField = false;
-      for (const [defName, sidecar] of part.type.sidecars) {
-        const fields = appBodyTypes.schemas.get(defName);
-        if (fields === undefined) {
-          continue;
-        }
-        const refTargets = sidecar.refTargets !== undefined ? [...sidecar.refTargets] : [];
-        let defPatched = false;
-        for (const field of fields) {
-          const imp = importedSchemaShapes.get(field.typeSource.trim());
-          if (
-            imp === undefined ||
-            imp.kind !== "object" ||
-            imp.rootDef === undefined ||
-            imp.sidecars === undefined ||
-            !importedRootHasWireRename(imp)
-          ) {
-            continue;
-          }
-          const pointer = `/properties/${encodePointerSegment(field.wireName ?? field.name)}`;
-          if (refTargets.some((rt) => rt.pointer === pointer)) {
-            continue;
-          }
-          // A flat per-`$defs` map cannot host two namespaces: if any def name in
-          // this import's fragment already names a DIFFERENT fragment in the map
-          // (an app body schema, or another import's same-named internal helper),
-          // merging would make this import's internal `$ref` resolve into the
-          // other namespace and render a WRONG wire name. Decline to translate
-          // this field then — it renders theta-side (never a wrong wire name; the
-          // collision case is a recorded residual). Reference identity holds for
-          // the same import's own fragment reused across two fields, so that is
-          // not a collision.
-          let collides = false;
-          for (const [impDef, impSidecar] of imp.sidecars) {
-            const existing = merged.get(impDef);
-            if (existing !== undefined && existing !== impSidecar) {
-              collides = true;
-              break;
-            }
-          }
-          if (collides) {
-            continue;
-          }
-          refTargets.push({ pointer, defName: imp.rootDef });
-          for (const [impDef, impSidecar] of imp.sidecars) {
-            if (!merged.has(impDef)) {
-              merged.set(impDef, impSidecar);
-            }
-          }
-          defPatched = true;
-          patchedAnyField = true;
-        }
-        if (defPatched) {
-          merged.set(defName, { ...sidecar, refTargets });
-        }
-      }
-      if (patchedAnyField) {
-        patchedParts = patchedParts ?? [...originalParts];
-        patchedParts[partIndex] = {
-          kind: "path",
-          segments: part.segments,
-          type: { kind: "object", sidecars: merged, rootDef: part.type.rootDef },
-        };
-      }
-    }
-  }
+  // The params-field wire-name list the four imported-symbol-usage checks
+  // below share as their shadow set: `input.frontmatter?.params?.fields ?? []`
+  // mapped to `wireName` is the same NAME-KEYING ADJUDICATION
+  // `parseThetaDocument`'s `checkTypeLayer` call site uses
+  // (../parser/theta-document.ts) — the body-visible identifier a `params:`
+  // field binds, cited rather than re-derived. Computed once here so the four
+  // checks below cannot silently diverge on it.
+  const paramsFieldNames = (input.frontmatter?.params?.fields ?? []).map((f) => f.wireName);
+
+  // PTQ-0319 / PTQ-0330: the shadow set and the call-site walk are each a
+  // whole-body traversal (`collectLocalBinderNames`,
+  // `../parser/type-layer-checks.ts`; `collectCallSites`,
+  // `./invoke-static-checks.ts`) that all four `checkImported*` routes below
+  // need identically — computed ONCE here, over the same `input.body` /
+  // `paramsFieldNames` every route would otherwise re-derive, and passed in
+  // rather than re-walked per route.
+  const shadowedNames = collectLocalBinderNames(input.body, paramsFieldNames);
+  const callSites = collectCallSites(input.body);
 
   // Bug 0138 route 2: judge every imported-`fn` call site's argument COUNT and
   // TYPE, ONCE over the importing theta's own body, now that the per-decl loop
-  // above holds the whole `importedFns` map. `input.frontmatter?.params?.fields
-  // ?? []` mapped to `wireName` is the same NAME-KEYING ADJUDICATION
-  // `parseThetaDocument`'s `checkTypeLayer` call site uses
-  // (../parser/theta-document.ts) — the body-visible identifier a `params:`
-  // field binds, cited rather than re-derived.
+  // above holds the whole `importedFns` map.
   diagnostics.push(
     ...checkImportedFnCallArgs(
       input.body,
       input.sourcePath,
-      (input.frontmatter?.params?.fields ?? []).map((f) => f.wireName),
+      shadowedNames,
+      callSites,
       importedFns,
     ),
   );
@@ -1819,9 +1535,9 @@ export async function checkThetaImports(
   // the `checkImportedFnCallArgs` push immediately above.
   diagnostics.push(
     ...checkImportedSchemaCtorFields(
-      input.body,
       input.sourcePath,
-      (input.frontmatter?.params?.fields ?? []).map((f) => f.wireName),
+      shadowedNames,
+      callSites,
       importedSchemas,
     ),
   );
@@ -1832,9 +1548,9 @@ export async function checkThetaImports(
   // `checkImportedSchemaCtorFields` push immediately above.
   diagnostics.push(
     ...checkImportedEnumVariantAccess(
-      input.body,
       input.sourcePath,
-      (input.frontmatter?.params?.fields ?? []).map((f) => f.wireName),
+      shadowedNames,
+      callSites,
       importedEnums,
     ),
   );
@@ -1842,14 +1558,14 @@ export async function checkThetaImports(
   // Bug 0448: judge every imported constructor site whose head resolves to a
   // NON-brace-constructible declaration (an `enum`, a `fn`, or a fields-less
   // `schema`), ONCE over the importing theta's own body, now that the
-  // per-decl loop above holds the whole `importedNonCtorKinds` map — the same
+  // per-decl loop above holds the whole `importedNonCtorNames` set — the same
   // wiring shape as the two pushes immediately above.
   diagnostics.push(
     ...checkImportedNonCtorTypeNames(
-      input.body,
       input.sourcePath,
-      (input.frontmatter?.params?.fields ?? []).map((f) => f.wireName),
-      importedNonCtorKinds,
+      shadowedNames,
+      callSites,
+      importedNonCtorNames,
     ),
   );
 
@@ -1864,11 +1580,9 @@ export async function checkThetaImports(
   // un-registers the importing theta through the registration-error arm rather
   // than by a second diagnostic sited on the importer's own specifier, whose
   // admission stays on the SYNTACTIC set (`computeThetaLibExports`) above.
-  for (const resolvedPath of walked) {
-    await closeOverReExports(resolvedPath);
-  }
-  diagnoseReExports(fixReExportedNames());
-  diagnoseReExportCollisions();
+  diagnostics.push(
+    ...(await resolveReExportClosure(walked, parseThetaLib, probe, resolver, unreadablePaths)),
+  );
 
   // Bug 0304 fixes 2 and 3: every lib the walks above reached — direct AND
   // transitively-walked, over both `import` and `export … from` edges — sits in

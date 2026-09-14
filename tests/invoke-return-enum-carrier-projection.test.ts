@@ -240,10 +240,6 @@ class RecordingSchemaValidator implements SchemaValidator {
       },
     };
   }
-
-  invalidate(schemaSlug: string): void {
-    this.#inner.invalidate(schemaSlug);
-  }
 }
 
 function rootDouble(schemaValidator: SchemaValidator): RuntimeRoot {

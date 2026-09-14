@@ -5,42 +5,142 @@
 // store invariants hold regardless of what any model does.
 //
 // Store layout (all version-controlled except quality/tmp/):
-//   quality/surfaces.json   lens -> { include[], exclude[], ext[] } over git-tracked files
+//   quality/surfaces.json   lens -> { include[], exclude[], ext[], shard_loc } over git-tracked files
 //   quality/state.json      lens -> { "<repo path>": "<commit sha last reviewed at>" }
 //   quality/intake/         candidate findings awaiting triage (one .md each)
 //   quality/issues/         confirmed open issues (PTQ-NNNN-*.md)
 //   quality/resolved/       terminally-statused issues (moved here by `resolve`)
 //   quality/TRIAGE_LOG.md   append-only rejection ledger (re-file prevention)
+//   quality/exemptions.json per-lens durable keep-whole rulings (D9, D8 today):
+//                            "<LENS>:<host>" -> { loc, reason, date, finding, class }
+//                            — one lens's ruling on a host never overwrites another
+//                            lens's ruling on the SAME host; the lens is part of the key.
 //   quality/tmp/            transient shard/cluster manifests (gitignored)
 //
 // Subcommands (line-oriented stdout; repo-relative forward-slash paths):
+//   lenses
+//       Print every configured lens id, sorted, one per line - the loop's
+//       start-up roster check.
 //   needs-review --lens D2
 //       Print every surface file needing review: absent from state, or changed
 //       since its recorded sha (per-sha batched `git diff --name-only`).
-//   shard --lens D2 --wave <id> [--target-loc 6000] [--max-files 15]
+//   shard --lens D2 --wave <id> [--target-loc 6000] [--max-files 15] [--max-shards N]
 //       Partition the needs-review set path-contiguously, loc-balanced; write
-//       quality/tmp/<wave>/shard-NN.txt manifests; print manifest paths.
+//       quality/tmp/<wave>/<lens>/shard-NN.txt manifests; print manifest paths.
+//       --target-loc absent or 0 resolves to the lens's own surfaces.json
+//       shard_loc (falling back to 6000). --max-shards > 0 emits only that
+//       many shards (the path-contiguous prefix); the rest stay unwritten and
+//       due. --max-shards absent or 0 = unlimited.
 //   mark-reviewed --lens D2 --sha <sha> --manifest <file>
 //       Record every manifest path as reviewed at <sha>.
-//   accept --finding <intake .md>
+//   accept --finding <intake .md> [--note <text>]
 //       Mint the next PTQ-NNNN, stamp frontmatter (id, verdict: confirmed,
-//       status: open), move to quality/issues/; print the new path.
+//       status: open), move to quality/issues/; print the new path. --note
+//       appends "verdict: confirmed — <text>" under ## Triage so a human
+//       ruling (and its agreed fix direction) reaches the fix worker after
+//       the stacked questionable notes.
 //   reject --finding <intake .md> --verdict <v> [--reason <text>]
 //       Append a TRIAGE_LOG row (reason defaults to the finding's ## Triage
-//       note), delete the file.
-//   clusters [--wave <id>]
-//       Group quality/issues/ by fix surface (first two path segments of the
-//       first cited location); write quality/tmp/clusters[-<wave>]/<key>.txt;
-//       print "key<TAB>manifest<TAB>count" per cluster.
+//       note), delete the file. --verdict human-keep-whole additionally
+//       records a durable exemption (quality-loop-d4-d8-design.md §3): the
+//       lens comes from the finding's `lens:` field, the host from
+//       `d9_host ?? d8_host`, the class from `d9_class ?? d8_class` — nothing
+//       is recorded when the finding names no lens or no host. Every other
+//       verdict records nothing.
+//   clusters [--wave <id>] [--max <n>]
+//       Group quality/issues/ by fix surface (first two DIRECTORY segments of
+//       the first cited location's dirname); write
+//       quality/tmp/clusters[-<wave>]/<key>.txt;
+//       print "key<TAB>manifest<TAB>count" per cluster. With --max present
+//       (bare flag = 12), a cluster larger than n is split into ordered parts
+//       <key>__p1, <key>__p2, … so one oversized surface cannot swallow a whole
+//       parallel fix wave. Parts are FILE-DISJOINT: issues citing a common file
+//       always share a part (they run as parallel lanes and are cherry-picked
+//       in order, so two parts editing one file would conflict at integration);
+//       a file-connected component larger than n stays one oversized part.
+//       Without --max the grouping is unsplit.
+//       HOST-LANE RULE (lens ∈ {D9, D8}, quality-loop-d4-d8-design.md §3):
+//       every open issue whose lens is D9 or D8 is grouped by its HOST FILE
+//       (the path part of its d9_host/d8_host, else its first location's
+//       path — a host-less issue dies loud) into its own part keyed
+//       "<lens lower>/<host path with / -> __>" (manifest
+//       "<lens>__<...>.txt") — never split by --max (a breakdown/
+//       misplacement/simplification ruling rewrites the whole file;
+//       splitting it into lanes would only conflict) and never merged with
+//       another lens's part. One host, one lane per wave: when D9 and D8 both
+//       hold issues on the same host, the D9 lane runs and the D8 issues are
+//       deferred (a breakdown rewrites the file the simplification would
+//       edit). Two issues of the SAME lens on the SAME host share that one
+//       part, in issue-id order. Any other open issue whose FIX SURFACE a
+//       D9/D8 part owns — every cited copy for D4, the FIRST location only for
+//       D2/D7 (their later locations are evidence the fix never edits), and
+//       the host file for the other of {D9, D8} — is DEFERRED for
+//       the wave — emitted as a STDOUT row "deferred<TAB><issue path><TAB>
+//       <owner lane key>" (three columns like every other row, first column
+//       the literal "deferred"; the orchestrator counts these — a stderr line
+//       would be merged into its row stream by the bash tool and crash the
+//       pick loop, which is exactly how wave qw20260912204251 aborted). D4 issues are not host-
+//       laned: they cluster by dirname like D2/D7 (a dedupe cites every copy,
+//       so the file-disjoint splitting below keeps its lane whole).
+//   exempt --lens <D9|D8> --host <path[#fn]> --reason <r> [--class <c>]
+//       Record a durable per-lens keep-whole ruling in
+//       quality/exemptions.json at the host's CURRENT LOC
+//       (tools/quality/size-scan.mjs hostLoc), keyed "<lens>:<host>"; an
+//       unknown or ambiguous #fn host fails naming size-scan's candidates.
+//       --class blank = any later filing on that host counts as a distinct
+//       class (never suppressed by this exemption).
+//   unexempt --lens <D9|D8> --host <path[#fn]>
+//       Remove a recorded exemption; fails if none is recorded for the
+//       lens+host pair.
+//   exemptions [--lens <D9|D8>]
+//       Print every recorded exemption (optionally filtered to one lens), one
+//       per line: lens<TAB>host<TAB>class<TAB>loc<TAB>date<TAB>reason.
+//   open-count
+//       Print the number of status: open issues in quality/issues/ — the
+//       quality loop's convergence signal (0 = backlog empty).
 //   resolve --manifest <cluster manifest> --fixed <basename,basename,...>
+//           [--wave <id>] [--notes-file <path>]
 //       Mark the named issues status: fixed and move them to quality/resolved/.
+//       Every other issue the manifest lists was handed to a fixer and came
+//       back unfixed: it gets fix_skips += 1 and a "## Fix attempts" line
+//       (wave + the fixer's notes from --notes-file). At the SECOND skip the
+//       issue is PARKED — moved to quality/intake/ as status: intake /
+//       verdict: questionable with a triage line saying so — so a human rules
+//       instead of the loop re-laning it every wave (PTQ-0230 sat in three
+//       consecutive lanes unfixed and unreported). `accept` on a parked issue
+//       keeps its PTQ id and resets fix_skips.
+//   log-review --wave <id> --lens <lens> --manifest <shard manifest>
+//           --notes-file <path> [--filed <n>]
+//       Append one row to quality/REVIEW_LOG.md: the lens worker's notes for
+//       that shard (KEEP-WHOLE dispositions for D9, routing notes for every
+//       lens) — the only place those notes persist; the orchestrator otherwise
+//       reads just the filed count.
+//
+// Per-lens durable exemptions (design .localpi/tmp/quality-loop-d9-design.md
+// §3.2, generalised to D9 + D8 by quality-loop-d4-d8-design.md §3):
+// `reject --finding <p> --verdict human-keep-whole --reason <r>` additionally
+// records the finding's lens (`lens:`) + host (`d9_host ?? d8_host`) +
+// class (`d9_class ?? d8_class`) into quality/exemptions.json, keyed
+// "<lens>:<host>", at the host's CURRENT LOC — any other verdict, or a
+// finding naming no lens or no host, records nothing. A ruling for one lens
+// never overwrites another lens's ruling on the same host (distinct keys).
+// `size-scan.mjs map --exemptions` reads this file but annotates D9: entries
+// only — a D8 keep-whole never silences D9's own breakdown accounting.
 
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { hostLoc } from "./size-scan.mjs";
 
-const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
+// QUALITY_STORE_ROOT is a store-mechanics test seam only (tests/quality-store.test.ts),
+// deliberately NOT named PI_THETA_* - that prefix is the authenticated subagent
+// control plane (subagent.md #subagent-control-plane-authentication) and a
+// store-mechanics knob must not read as one. Production behaviour (var absent)
+// is byte-identical to before.
+const ROOT = process.env.QUALITY_STORE_ROOT
+  ? path.resolve(process.env.QUALITY_STORE_ROOT)
+  : path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 const Q = path.join(ROOT, "quality");
 const STATE = path.join(Q, "state.json");
 const SURFACES = path.join(Q, "surfaces.json");
@@ -49,6 +149,10 @@ const INTAKE = path.join(Q, "intake");
 const ISSUES = path.join(Q, "issues");
 const RESOLVED = path.join(Q, "resolved");
 const TMP = path.join(Q, "tmp");
+const EXEMPTIONS = path.join(Q, "exemptions.json");
+const REVIEW_LOG = path.join(Q, "REVIEW_LOG.md");
+// A fixer that skips the same issue in this many waves stops getting lanes.
+const PARK_AFTER_SKIPS = 2;
 
 function die(msg) {
   process.stderr.write(`store.mjs: ${msg}\n`);
@@ -162,6 +266,17 @@ function countLines(file) {
 
 // ---------------------------------------------------------------- frontmatter
 
+/**
+ * A scalar frontmatter value without its trailing YAML comment. TEMPLATE.md
+ * annotates every field (`lens: D2   # D2 | D7 | D9 ...`) and lens workers
+ * copy those annotations into their filings, so `lens`, `status`, `d9_host`
+ * and location entries all arrive comment-bearing; a comparison against the
+ * bare value must see the bare value.
+ */
+function stripYamlComment(value) {
+  return value.replace(/(^|\s)#.*$/, "").trim();
+}
+
 /** Naive single-level frontmatter reader for the fields this store owns. */
 function readFrontmatter(file) {
   const text = fs.readFileSync(file, "utf8");
@@ -173,13 +288,14 @@ function readFrontmatter(file) {
   for (const line of m[1].split("\n")) {
     const loc = line.match(/^\s+-\s+(.+?)\s*$/);
     if (inLocations && loc) {
-      locations.push(loc[1]);
+      const entry = stripYamlComment(loc[1]);
+      if (entry) locations.push(entry);
       continue;
     }
     inLocations = false;
     const kv = line.match(/^([A-Za-z_][A-Za-z0-9_]*):\s*(.*?)\s*$/);
     if (kv) {
-      fields[kv[1]] = kv[2];
+      fields[kv[1]] = stripYamlComment(kv[2]);
       if (kv[1] === "locations") inLocations = true;
     }
   }
@@ -217,8 +333,81 @@ function triageNote(file) {
   const text = fs.readFileSync(file, "utf8");
   const m = text.match(/^## Triage\s*$([\s\S]*)/m);
   if (!m) return "";
-  const lines = m[1].split("\n").map((l) => l.trim()).filter((l) => l && !l.startsWith("<"));
+  // Only the Triage SECTION: a parked issue carries "## Fix attempts" after it.
+  const section = m[1].split(/\r?\n##? /)[0];
+  const lines = section.split("\n").map((l) => l.trim()).filter((l) => l && !l.startsWith("<"));
   return lines.length > 0 ? lines[lines.length - 1] : "";
+}
+
+/**
+ * Group issue paths into connected components where two issues are connected
+ * when they cite at least one common file. Components keep the input's issue
+ * order (ordered by their first member), so the same backlog always splits the
+ * same way across waves.
+ */
+function fileDisjointComponents(paths, citedFiles) {
+  const parent = new Map(paths.map((p) => [p, p]));
+  const find = (x) => {
+    while (parent.get(x) !== x) {
+      parent.set(x, parent.get(parent.get(x)));
+      x = parent.get(x);
+    }
+    return x;
+  };
+  const union = (a, b) => {
+    const ra = find(a);
+    const rb = find(b);
+    if (ra !== rb) parent.set(rb, ra);
+  };
+  const owner = new Map(); // file -> first issue citing it
+  for (const p of paths) {
+    for (const file of citedFiles.get(p) ?? []) {
+      if (owner.has(file)) union(owner.get(file), p);
+      else owner.set(file, p);
+    }
+  }
+  const groups = new Map();
+  for (const p of paths) {
+    const root = find(p);
+    if (!groups.has(root)) groups.set(root, []);
+    groups.get(root).push(p);
+  }
+  return [...groups.values()];
+}
+
+/** Notes text from a file the orchestrator wrote (arbitrary model prose). */
+function readNotesFile(relPath) {
+  const p = path.join(ROOT, relPath);
+  if (!fs.existsSync(p)) die(`notes file not found: ${relPath}`);
+  return fs.readFileSync(p, "utf8");
+}
+
+/** One line for a table cell or a list item: newlines become ' / '. */
+function flattenNotes(text) {
+  const flat = text.split(/\r?\n/).map((l) => l.trim()).filter(Boolean).join(" / ");
+  return flat === "" ? "(none)" : flat;
+}
+
+/** Append `line` under `heading` (created at the end when absent). */
+function appendSectionLine(text, heading, line) {
+  const eol = text.includes("\r\n") ? "\r\n" : "\n";
+  const body = text.endsWith(eol) ? text : text + eol;
+  const re = new RegExp(`^${heading.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\s*$`, "m");
+  const m = re.exec(body);
+  if (!m) return body + eol + heading + eol + line + eol;
+  // Insert after the heading's existing lines: find the next heading or EOF.
+  const after = body.slice(m.index + m[0].length);
+  const next = after.search(/\r?\n##? /);
+  const cut = m.index + m[0].length + (next === -1 ? after.length : next);
+  const head = body.slice(0, cut);
+  const tail = body.slice(cut);
+  return (head.endsWith(eol) ? head : head + eol) + line + eol + tail;
+}
+
+// Triage lines go at the END of the "## Triage" section, not of the file: a
+// parked issue also carries a "## Fix attempts" section after it.
+function appendTriageLine(text, line) {
+  return appendSectionLine(text, "## Triage", line);
 }
 
 function logRow(cols) {
@@ -230,12 +419,42 @@ function today() {
   return new Date().toISOString().slice(0, 10);
 }
 
+// ---------------------------------------------------------------- per-lens exemptions
+
+function readExemptions() {
+  return fs.existsSync(EXEMPTIONS) ? readJson(EXEMPTIONS) : {};
+}
+
+function writeExemptions(obj) {
+  writeJson(EXEMPTIONS, obj);
+}
+
+/** "<lens>:<host>" — the exemptions.json key (design §3: per-lens, never overwritten cross-lens). */
+function exemptionKey(lens, host) {
+  return `${lens}:${host}`;
+}
+
+/** hostLoc throws (naming size-scan's candidates) for an unknown/ambiguous #fn host. */
+function hostLocOrDie(host) {
+  try {
+    return hostLoc(ROOT, host);
+  } catch (err) {
+    return die(err.message);
+  }
+}
+
 // ---------------------------------------------------------------- subcommands
 
 const [, , cmd, ...rest] = process.argv;
 const flags = parseFlags(rest);
 
 switch (cmd) {
+  case "lenses": {
+    // Configured lens ids, one per line - the loop's start-up roster check.
+    for (const k of Object.keys(readJson(SURFACES)).sort()) process.stdout.write(k + "\n");
+    break;
+  }
+
   case "needs-review": {
     const lens = flags.lens ?? die("--lens required");
     for (const f of needsReview(lens)) process.stdout.write(f + "\n");
@@ -245,16 +464,22 @@ switch (cmd) {
   case "shard": {
     const lens = flags.lens ?? die("--lens required");
     const wave = flags.wave ?? die("--wave required");
-    const targetLoc = Number(flags["target-loc"] ?? 6000);
+    const s = surfaceFor(lens);
+    const flagLoc = Number(flags["target-loc"] ?? 0);
+    const targetLoc = flagLoc > 0 ? flagLoc : Number(s.shard_loc ?? 6000);
     const maxFiles = Number(flags["max-files"] ?? 15);
-    if (!Number.isFinite(targetLoc) || targetLoc < 500) die("--target-loc must be a number >= 500");
+    const maxShards = Number(flags["max-shards"] ?? 0);
+    if (!Number.isFinite(targetLoc) || targetLoc < 500) die("--target-loc must be a number >= 500, or 0 = the lens's surfaces.json shard_loc");
+    if (!Number.isFinite(maxShards) || maxShards < 0) die("--max-shards must be a non-negative number (0 = unlimited)");
     const files = needsReview(lens).filter((f) => {
       if (fs.existsSync(path.join(ROOT, f))) return true;
       process.stderr.write(`store.mjs: skipping missing file ${f}\n`);
       return false;
     });
     if (files.length === 0) break;
-    const outDir = path.join(TMP, wave);
+    // Per-lens subdirectory: two lenses sharding into the same wave must not
+    // overwrite each other's manifests before the par-for reads them.
+    const outDir = path.join(TMP, wave, lens);
     fs.mkdirSync(outDir, { recursive: true });
     const shards = [];
     let current = [];
@@ -270,7 +495,11 @@ switch (cmd) {
       loc += n;
     }
     if (current.length > 0) shards.push(current);
-    shards.forEach((shard, i) => {
+    // Files are pre-sorted (needsReview sorts) and packing is sequential, so an
+    // un-emitted remainder is the path-contiguous TAIL: it lands in no
+    // manifest, is never mark-reviewed, and stays due.
+    const emit = maxShards > 0 ? shards.slice(0, maxShards) : shards;
+    emit.forEach((shard, i) => {
       const p = path.join(outDir, `shard-${String(i + 1).padStart(2, "0")}.txt`);
       fs.writeFileSync(p, shard.join("\n") + "\n");
       process.stdout.write(rel(p) + "\n");
@@ -296,16 +525,25 @@ switch (cmd) {
     const finding = flags.finding ?? die("--finding required");
     const src = path.join(ROOT, finding);
     if (!fs.existsSync(src)) die(`no such finding: ${finding}`);
-    const id = nextIssueId();
     let text = fs.readFileSync(src, "utf8");
+    // A parked issue (see resolve) comes back through intake already minted:
+    // keep its id and its history, and give the fixer a fresh skip budget.
+    const minted = readFrontmatter(src).fields.id;
+    // Only the store's own park path writes fix_skips, so its presence is the
+    // mechanical proof this is a parked issue and not a lens that self-assigned
+    // an id (TEMPLATE.md forbids that, but a guard beats an instruction).
+    const reMinted = typeof minted === "string" && /^PTQ-\d{4,}$/.test(minted) && /^fix_skips:/m.test(text);
+    const id = reMinted ? minted : nextIssueId();
     text = setFrontmatterField(text, "id", id);
     text = setFrontmatterField(text, "verdict", "confirmed");
     text = setFrontmatterField(text, "status", "open");
+    if (reMinted && /^fix_skips:/m.test(text)) text = setFrontmatterField(text, "fix_skips", "0");
+    if (flags.note) text = appendTriageLine(text, `verdict: confirmed — ${flags.note}`);
     // Slug: strip the wave-lens-NN- prefix the reviewer used, keep the tail.
     const base = path.basename(finding, ".md");
     const slug = (base.replace(/^[a-z0-9]+-[a-z0-9]+-\d+-/, "") || base).slice(0, 60);
     fs.mkdirSync(ISSUES, { recursive: true });
-    const dest = path.join(ISSUES, `${id}-${slug}.md`);
+    const dest = path.join(ISSUES, reMinted && base.startsWith(id) ? `${base}.md` : `${id}-${slug}.md`);
     fs.writeFileSync(dest, text);
     fs.unlinkSync(src);
     process.stdout.write(rel(dest) + "\n");
@@ -318,34 +556,214 @@ switch (cmd) {
     const src = path.join(ROOT, finding);
     if (!fs.existsSync(src)) die(`no such finding: ${finding}`);
     const reason = flags.reason ?? triageNote(src) ?? "";
+    // Per-lens durable exemption (design .localpi/tmp/quality-loop-d4-d8-
+    // design.md §3, generalising d9-design.md §3.2 to D9 + D8): only
+    // human-keep-whole records one, and only when the finding names both a
+    // lens and a host (d9_host ?? d8_host) — every other verdict, or a
+    // finding missing either, records nothing. The key carries the lens, so
+    // a D9 ruling on a host never overwrites a D8 ruling on the same host.
+    if (verdict === "human-keep-whole") {
+      const { fields } = readFrontmatter(src);
+      const lens = fields.lens;
+      const host = fields.d9_host ?? fields.d8_host;
+      if (lens && host) {
+        const cls = fields.d9_class ?? fields.d8_class ?? "";
+        const loc = hostLocOrDie(host);
+        const exemptions = readExemptions();
+        exemptions[exemptionKey(lens, host)] = { loc, reason, date: today(), finding, class: cls };
+        writeExemptions(exemptions);
+      }
+    }
     logRow([today(), path.basename(finding), verdict, reason || "(no triage note recorded)"]);
     fs.unlinkSync(src);
     process.stdout.write(`rejected ${path.basename(finding)} (${verdict})\n`);
     break;
   }
 
+  case "exempt": {
+    const lens = flags.lens ?? die("--lens required");
+    const host = flags.host ?? die("--host required");
+    const reason = flags.reason ?? die("--reason required");
+    const loc = hostLocOrDie(host);
+    const exemptions = readExemptions();
+    // Blank class = any later filing on this host counts as a distinct class
+    // (never suppressed by this exemption) — design §3.
+    exemptions[exemptionKey(lens, host)] = { loc, reason, date: today(), finding: flags.finding ?? "", class: flags.class ?? "" };
+    writeExemptions(exemptions);
+    process.stdout.write(`exempted ${lens}:${host} at ${loc} LOC\n`);
+    break;
+  }
+
+  case "unexempt": {
+    const lens = flags.lens ?? die("--lens required");
+    const host = flags.host ?? die("--host required");
+    const key = exemptionKey(lens, host);
+    const exemptions = readExemptions();
+    if (!(key in exemptions)) die(`no exemption recorded for '${key}'`);
+    delete exemptions[key];
+    writeExemptions(exemptions);
+    process.stdout.write(`unexempted ${key}\n`);
+    break;
+  }
+
+  case "exemptions": {
+    const exemptions = readExemptions();
+    const keys = Object.keys(exemptions).sort();
+    for (const key of keys) {
+      const sep = key.indexOf(":");
+      const lens = sep === -1 ? key : key.slice(0, sep);
+      const host = sep === -1 ? "" : key.slice(sep + 1);
+      if (flags.lens && lens !== flags.lens) continue;
+      const e = exemptions[key];
+      process.stdout.write(`${lens}\t${host}\t${e.class ?? ""}\t${e.loc}\t${e.date}\t${e.reason}\n`);
+    }
+    break;
+  }
+
   case "clusters": {
     if (!fs.existsSync(ISSUES)) break;
-    const issues = fs.readdirSync(ISSUES).filter((f) => f.endsWith(".md")).sort();
-    const clusters = new Map(); // key -> issue paths
-    for (const f of issues) {
+    const files = fs.readdirSync(ISSUES).filter((f) => f.endsWith(".md")).sort();
+    // One shared pass: every open issue with its cited-files set (used both
+    // for D9 host ownership and for the pre-existing file-disjoint splitting).
+    const openIssues = [];
+    for (const f of files) {
       const { fields, locations } = readFrontmatter(path.join(ISSUES, f));
       if ((fields.status ?? "open") !== "open") continue;
-      const first = locations[0] ?? "";
+      const issuePath = posix(path.join("quality", "issues", f));
+      const cited = new Set(locations.map((l) => posix(l.split(":")[0])).filter(Boolean));
+      openIssues.push({ fields, locations, issuePath, cited });
+    }
+    if (openIssues.length === 0) break;
+
+    const outDir = path.join(TMP, flags.wave ? `clusters-${flags.wave}` : "clusters");
+    const rows = [];
+
+    // --- Host-laned lenses (design §3, generalising D9's own §3.3): D9 and
+    // D8 issues each get one lane per HOST FILE. Never split by --max, never
+    // merged with any other lens's part — INCLUDING the other of {D9, D8}: a
+    // D9 lane and a D8 lane on the same host coexist as two separate parts. ---
+    const HOST_LANE_LENSES = ["D9", "D8"];
+    const byHost = new Map(); // lane key ("<lens lower>/<host>") -> issue paths
+    const ownerByHostAndLens = new Map(); // "<lens>\u0000<host>" -> lane key (for the deferral message)
+    // HOST_LANE_LENSES is in precedence order: a later lens's lane on a host an
+    // earlier lens already owns is deferred for the wave (one host, one lane).
+    for (const lens of HOST_LANE_LENSES) {
+      const lensHostField = `${lens.toLowerCase()}_host`;
+      const perLens = new Map(); // host file path -> issue paths, this lens only
+      for (const issue of openIssues) {
+        if (issue.fields.lens !== lens) continue;
+        const host = issue.fields[lensHostField];
+        const hostFile = host ? posix(host.split("#")[0]) : posix((issue.locations[0] ?? "").split(":")[0]);
+        // A host-laned issue that names no host could neither be laned nor
+        // deferred against: it would silently drop out of every wave.
+        if (!hostFile) die(`${lens} issue ${issue.issuePath} has neither ${lensHostField} nor a cited location`);
+        if (!perLens.has(hostFile)) perLens.set(hostFile, []);
+        perLens.get(hostFile).push(issue.issuePath);
+      }
+      if (perLens.size > 0) fs.mkdirSync(outDir, { recursive: true });
+      for (const [hostFile, issuePaths] of [...perLens.entries()].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))) {
+        const priorOwner = HOST_LANE_LENSES.map((l) => ownerByHostAndLens.get(`${l}\u0000${hostFile}`)).find(Boolean);
+        if (priorOwner) {
+          for (const issuePath of [...issuePaths].sort()) {
+            process.stdout.write(`deferred\t${issuePath}\t${priorOwner}\n`);
+          }
+          continue;
+        }
+        const key = `${lens.toLowerCase()}/${hostFile.replaceAll("/", "__")}`;
+        ownerByHostAndLens.set(`${lens}\u0000${hostFile}`, key);
+        byHost.set(key, { hostFile, issuePaths });
+      }
+    }
+    // Deferral lookup: which host lane (if any) owns this file this wave.
+    const ownerKeyFor = (file) => HOST_LANE_LENSES.map((l) => ownerByHostAndLens.get(`${l}\u0000${file}`)).find(Boolean);
+    for (const [key, { issuePaths }] of [...byHost.entries()].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))) {
+      const sorted = [...issuePaths].sort(); // PTQ-NNNN filenames sort in issue-id order
+      const p = path.join(outDir, `${key.replaceAll("/", "__")}.txt`);
+      fs.writeFileSync(p, sorted.join("\n") + "\n");
+      rows.push([key, rel(p), sorted.length]);
+    }
+
+    // --- Everything else: the pre-existing D2/D7/D4 dirname grouping, except
+    // an issue whose FIX SURFACE a D9/D8 lane owns is deferred, not clustered —
+    // a breakdown/misplacement/simplification ruling rewrites the whole file,
+    // so a sibling lane on it would only conflict at integration. The fix
+    // surface is every cited copy for D4 (a dedupe replaces each one) but only
+    // the FIRST location for D2/D7: their later locations are evidence (call
+    // sites, importers) the fix never edits, and keying on them starved
+    // one-line comment fixes behind three successive host lanes (PTQ-0297). ---
+    const clusters = new Map(); // key -> issue paths
+    const citedFiles = new Map(); // issue path -> every file its locations cite
+    for (const issue of openIssues) {
+      if (HOST_LANE_LENSES.includes(issue.fields.lens)) continue; // already laned above
+      const fixSurface =
+        issue.fields.lens === "D4" ? [...issue.cited] : [posix((issue.locations[0] ?? "").split(":")[0])];
+      const ownerKey = fixSurface.map(ownerKeyFor).find(Boolean);
+      if (ownerKey) {
+        process.stdout.write(`deferred\t${issue.issuePath}\t${ownerKey}\n`);
+        continue;
+      }
+      const first = issue.locations[0] ?? "";
       const filePart = first.split(":")[0];
-      const segs = filePart.split("/").filter(Boolean);
+      const dir = posix(path.dirname(filePart));
+      const segs = dir.split("/").filter((x) => x && x !== ".");
       const key = segs.length >= 2 ? `${segs[0]}/${segs[1]}` : segs[0] || "unclustered";
       if (!clusters.has(key)) clusters.set(key, []);
-      clusters.get(key).push(posix(path.join("quality", "issues", f)));
+      clusters.get(key).push(issue.issuePath);
+      citedFiles.set(issue.issuePath, issue.cited);
     }
-    if (clusters.size === 0) break;
-    const outDir = path.join(TMP, flags.wave ? `clusters-${flags.wave}` : "clusters");
-    fs.mkdirSync(outDir, { recursive: true });
-    for (const [key, paths] of [...clusters.entries()].sort()) {
-      const p = path.join(outDir, `${key.replaceAll("/", "__")}.txt`);
-      fs.writeFileSync(p, paths.join("\n") + "\n");
-      process.stdout.write(`${key}\t${rel(p)}\t${paths.length}\n`);
+    if (clusters.size > 0) {
+      // Absent --max keeps the historical unsplit grouping; a bare --max means 12.
+      const maxPer = flags.max === undefined ? Infinity : flags.max === "true" ? 12 : Number(flags.max);
+      if (!(maxPer > 0)) die("--max must be a positive number");
+      fs.mkdirSync(outDir, { recursive: true });
+      for (const [key, paths] of [...clusters.entries()].sort()) {
+        // Parts inherit the parent cluster's already-sorted issue order, so the
+        // same backlog always splits the same way (stable across waves).
+        const parts = [];
+        if (paths.length <= maxPer) {
+          parts.push([key, paths]);
+        } else {
+          // Parts run as PARALLEL worktree lanes and are cherry-picked in order,
+          // so two parts must never edit the same file: issues that cite a
+          // common file travel together (connected components over cited
+          // paths), and components are packed first-fit into parts of at most
+          // --max issues. A component larger than --max stays one oversized part
+          // rather than being split into lanes that would conflict at
+          // integration (wave qw20260912091742 lost a lane exactly that way).
+          const components = fileDisjointComponents(paths, citedFiles);
+          const packed = [];
+          for (const comp of components) {
+            const slot = packed.find((part) => part.length + comp.length <= maxPer);
+            if (slot) slot.push(...comp);
+            else packed.push([...comp]);
+          }
+          // One oversized component packs into a single part: it keeps the bare key.
+          if (packed.length === 1) parts.push([key, packed[0]]);
+          else packed.forEach((partPaths, i) => parts.push([`${key}__p${i + 1}`, partPaths]));
+        }
+        for (const [partKey, partPaths] of parts) {
+          const p = path.join(outDir, `${partKey.replaceAll("/", "__")}.txt`);
+          fs.writeFileSync(p, partPaths.join("\n") + "\n");
+          rows.push([partKey, rel(p), partPaths.length]);
+        }
+      }
     }
+
+    for (const [key, m, count] of rows) process.stdout.write(`${key}\t${m}\t${count}\n`);
+    break;
+  }
+
+  case "open-count": {
+    // Cheap convergence probe: no manifests written, no git calls — the loop
+    // runs it every wave between triage and the fix phase.
+    let open = 0;
+    if (fs.existsSync(ISSUES)) {
+      for (const f of fs.readdirSync(ISSUES).filter((x) => x.endsWith(".md"))) {
+        const { fields } = readFrontmatter(path.join(ISSUES, f));
+        if ((fields.status ?? "open") === "open") open++;
+      }
+    }
+    process.stdout.write(`${open}\n`);
     break;
   }
 
@@ -355,25 +773,67 @@ switch (cmd) {
     if (fixed.length === 0) die("--fixed requires at least one issue basename");
     const listed = fs.readFileSync(path.join(ROOT, manifest), "utf8")
       .split("\n").map((l) => l.trim()).filter(Boolean);
-    fs.mkdirSync(RESOLVED, { recursive: true });
+    const isFixed = (entry) => fixed.some((name) => path.basename(entry) === name || path.basename(entry, ".md") === name);
     for (const name of fixed) {
-      const entry = listed.find((p) => path.basename(p) === name || path.basename(p, ".md") === name);
-      if (!entry) {
+      if (!listed.some((p) => path.basename(p) === name || path.basename(p, ".md") === name)) {
         process.stderr.write(`store.mjs: '${name}' is not in ${manifest}; skipped\n`);
-        continue;
       }
+    }
+    const wave = flags.wave ?? "(wave unknown)";
+    const fixerNotes = flags["notes-file"] ? flattenNotes(readNotesFile(flags["notes-file"])) : "(no fixer notes recorded)";
+    fs.mkdirSync(RESOLVED, { recursive: true });
+    for (const entry of [...new Set(listed)]) {
       const src = path.join(ROOT, entry);
       if (!fs.existsSync(src)) {
         process.stderr.write(`store.mjs: ${entry} missing on disk; skipped\n`);
         continue;
       }
       let text = fs.readFileSync(src, "utf8");
-      text = setFrontmatterField(text, "status", "fixed");
-      const dest = path.join(RESOLVED, path.basename(entry));
+      if (isFixed(entry)) {
+        text = setFrontmatterField(text, "status", "fixed");
+        const dest = path.join(RESOLVED, path.basename(entry));
+        fs.writeFileSync(dest, text);
+        fs.unlinkSync(src);
+        process.stdout.write(rel(dest) + "\n");
+        continue;
+      }
+      // Listed but not fixed: the fixer had it and came back without it.
+      const prev = Number(readFrontmatter(src).fields.fix_skips ?? 0);
+      const skips = (Number.isFinite(prev) && prev >= 0 ? prev : 0) + 1;
+      text = setFrontmatterField(text, "fix_skips", String(skips));
+      text = appendSectionLine(text, "## Fix attempts", `- ${wave}: skipped — ${fixerNotes}`);
+      if (skips < PARK_AFTER_SKIPS) {
+        fs.writeFileSync(src, text);
+        process.stdout.write(`skipped ${path.basename(entry)} (fix_skips: ${skips})\n`);
+        continue;
+      }
+      text = setFrontmatterField(text, "status", "intake");
+      text = setFrontmatterField(text, "verdict", "questionable");
+      text = appendTriageLine(text, `verdict: questionable — parked by the store: skipped by the fixer in ${skips} waves (see "## Fix attempts"); rule with accept --note <direction> or reject (store)`);
+      fs.mkdirSync(INTAKE, { recursive: true });
+      const dest = path.join(INTAKE, path.basename(entry));
       fs.writeFileSync(dest, text);
       fs.unlinkSync(src);
-      process.stdout.write(rel(dest) + "\n");
+      logRow([today(), path.basename(entry), "parked", `skipped by the fixer in ${skips} waves — ${fixerNotes}`]);
+      process.stdout.write(`parked ${rel(dest)} (fix_skips: ${skips})\n`);
     }
+    break;
+  }
+
+  case "log-review": {
+    const wave = flags.wave ?? die("--wave required");
+    const lens = flags.lens ?? die("--lens required");
+    const manifest = flags.manifest ?? die("--manifest required");
+    const notesFile = flags["notes-file"] ?? die("--notes-file required");
+    const files = fs.readFileSync(path.join(ROOT, manifest), "utf8").split("\n").map((l) => l.trim()).filter(Boolean);
+    const notes = flattenNotes(readNotesFile(notesFile));
+    const span = files.length === 0 ? "0 files" : files.length === 1 ? `1 file: ${files[0]}` : `${files.length} files: ${files[0]} … ${files[files.length - 1]}`;
+    const shard = `${path.basename(manifest, ".txt")} (${span})`;
+    if (!fs.existsSync(REVIEW_LOG)) {
+      fs.writeFileSync(REVIEW_LOG, "# Review log — lens worker notes per shard (written by store.mjs log-review)\n\n| date | wave | lens | shard | filed | notes |\n|---|---|---|---|---|---|\n");
+    }
+    const esc = (s) => String(s).replaceAll("|", "\\|").trim();
+    fs.appendFileSync(REVIEW_LOG, `| ${[today(), wave, lens, shard, flags.filed ?? "-", notes].map(esc).join(" | ")} |\n`);
     break;
   }
 

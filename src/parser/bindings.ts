@@ -179,7 +179,7 @@ export interface IncrementDecrementOp {
 export function checkIncrementDecrement(
   op: IncrementDecrementOp,
   site: BindingSite,
-): Diagnostic | undefined {
+): Diagnostic {
   return {
     severity: "error",
     code: "theta/parse/increment-decrement",

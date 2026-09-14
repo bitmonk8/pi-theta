@@ -24,18 +24,8 @@
 // the decision (invocation.md §Cross-mode semantics: "The caller's mode is
 // irrelevant to that decision").
 //
-// V15l-T (tests-task) declares the seam shapes and stubs the behaviour-bearing
-// functions inertly so the failing tests compile and red on their own primary
-// assertions:
-//   - `selectCalleeContext` returns the INVERTED mapping (subagent → "attach",
-//     prompt → "fresh"), so every cell's context assertion reds.
-//   - `composeCalleeSession` returns a composition wrong on every observable:
-//     the inverted context, the caller's prior messages regardless of context
-//     (a fresh callee must start empty), and the PARENT's inference config
-//     (every callee must use the child's).
-// No test reds on a compile error, a missing fixture, or a harness throw.
-//
-// V15l (implementation) fills in the behaviour V15l-T's tests pin:
+// V15l-T (tests-task) declared the seam shapes; V15l (this leaf) supplies the
+// behaviour V15l-T's tests pin:
 //   - `selectCalleeContext(calleeMode)` → "fresh" for subagent, "attach" for prompt.
 //   - `composeCalleeSession(input)` → a fresh-context callee starts with no prior
 //     conversation messages; an attach-context callee carries the caller's

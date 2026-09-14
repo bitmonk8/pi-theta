@@ -45,7 +45,6 @@ vi.mock("@earendil-works/pi-ai/compat", async (importOriginal) => {
   };
 });
 
-import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -56,6 +55,7 @@ import {
 import type { BypassParamsField } from "../src/binder/binder-envelope";
 import type { ThetaDocument } from "../src/parser/theta-document";
 import { parseDoc } from "./helpers/e2e-s1";
+import { committedThetaSources } from "./helpers/theta-corpus";
 import { projectRenderedParamType } from "../src/parser/params";
 import type {
   ExtensionAPI,
@@ -478,26 +478,12 @@ describe("bug 0251 — *Type display* reference renderings stay byte-exact", () 
 // Cell 6 — the committed corpus renders unchanged
 // ============================================================================
 
-/** Every committed theta source, as repo-relative POSIX paths from the index. */
-function committedThetaSources(): readonly string[] {
-  const result = spawnSync("git", ["ls-files", "-z", "--", "*.theta", "*.thetalib"], {
-    cwd: REPO_ROOT,
-    encoding: "utf8",
-  });
-  if (result.error !== undefined || result.status !== 0) {
-    throw new Error(
-      "unmet precondition: the corpus sweep needs a working `git` executable " +
-        `and a checkout at ${REPO_ROOT}; status=${String(result.status)} ` +
-        `error=${result.error?.message ?? "none"} stderr=${result.stderr}`,
-    );
-  }
-  return result.stdout.split("\0").filter((p) => p.length > 0).sort();
-}
+// `committedThetaSources` (imported above) is `tests/helpers/theta-corpus.ts`'s
+// shared discovery step (PTQ-0226).
 
 describe("bug 0251 — every committed `params:` type renders unchanged", () => {
   it("no committed field's rendered type differs from its declared text", () => {
     const paths = committedThetaSources();
-    expect(paths.length).toBeGreaterThan(0);
     let swept = 0;
     for (const path of paths) {
       const bytes = readFileSync(join(REPO_ROOT, path));

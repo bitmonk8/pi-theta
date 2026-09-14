@@ -35,11 +35,44 @@ Judge, in order:
 1. Resolution. For each issue file: read it, then verify in the CURRENT working
    tree that the described problem is gone — the cited code removed or corrected
    AND every reference to it cleaned up (grep for the deleted identifiers).
-   Collect the issue basenames you verified resolved.
+   Collect the issue basenames you verified resolved. An issue with no
+   working-tree change attributable to it was skipped or shed by the fixer —
+   legitimate: omit it from fixed_confirmed; by itself it is never grounds
+   for ok: false.
 2. Collateral. Any change NOT required by an issue in this cluster? Any new
    cruft introduced? Any weakened or deleted test that guarded live behavior (a
    test deleted together with the cruft it exercised is fine when an issue's fix
    implies it)? Untracked leftover files in git status?
+   For issues whose lens: is D7 the bar is: the smell is gone AND the suite is
+   not weakened — a replaced assertion observes something real, a deleted test
+   verifiably verified nothing and nothing cites it, helper dedupe kept every
+   caller green, coverage-matrix.md / bug-doc citations still resolve, and no
+   production src/ file changed for a D7 issue.
+   For issues whose lens: is D9 the bar is: the change is a PURE MOVE/EXTRACT of
+   exactly the ratified seam or home — run git diff --stat (the footprint)
+   and git diff --color=always --color-moved=zebra (the ANSI move markers are
+   the observable: moved blocks, not edited ones; fall back to reading both
+   sides when a block is unmarked); every symbol a touched
+   path exported still resolves for its importers (tsc green is the proof;
+   spot-check two importers); no logic, name, or order-of-effects change; a new
+   module has a header; for a breakdown the host's LOC decreased by about the
+   seam's LOC (size-scan map before/after); for a misplacement/husk the
+   declaration lives at the ratified home and nowhere else; no other host was
+   touched. A behaviour edit smuggled into a move is must_fix.
+   For issues whose lens: is D4 the bar is: every cited copy is gone and calls
+   the one helper; the helper's body is one of the former copies verbatim (or
+   the ruled drift resolution); no call site changed behaviour; the helper's
+   module adds no cross-directory import edge that did not already exist in
+   src/ (grep both directions); the helper's module is below the justify
+   band after the change (node tools/quality/size-scan.mjs loc --host
+   <module> reports under 1000 LOC) — must_fix otherwise, even when the
+   issue named that module; a new helper module has a header comment;
+   nothing else moved, except a runtime value the helper needs that moved
+   with it out of an over-band home (the old host imports it back).
+   For issues whose lens: is D8 the bar is: exactly the ratified shape landed;
+   no behaviour change beyond what the ruling names; every removed mechanism's
+   spec anchors are still satisfied by the new shape (read the cited clauses);
+   the replaced code is gone (no dual path left); tests changed only as ruled.
 3. Honesty. Do not take the diff's or any report's word for anything you can
    check directly.
 
@@ -48,5 +81,10 @@ Reply with the requested schema:
   collateral damage
 - fixed_confirmed: the issue file BASENAMES you verified resolved
 - must_fix: "" when ok; otherwise one concrete paragraph telling the fixer
-  exactly what to correct.`?
+  exactly what to correct.
+- unconfirmed: one clause per manifest issue you did NOT list in
+  fixed_confirmed — its basename and why it is not resolved (untouched; shed by
+  the fixer; partial: what still remains). This is what a human reads on the
+  issue when it comes back unfixed, so name the remaining copies / sites
+  concretely. "" when every manifest issue is confirmed.`?
 rv

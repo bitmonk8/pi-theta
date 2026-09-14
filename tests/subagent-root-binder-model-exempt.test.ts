@@ -138,7 +138,6 @@ import {
   SUBAGENT_PARAMS_ENV,
   SUBAGENT_PARAMS_FILE_ENV,
 } from "../src/runtime/subagent-params";
-import { WallClock } from "../src/seams/wall-clock";
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
 
 /** The repo's pinned pi CLI entry — the SAME executable resolution rung 1 uses in production. */
@@ -378,11 +377,16 @@ async function driveDirect(input: {
       cwd: input.scratchDir,
       // The extension pin rides `parentEnv` and inherits down to any grandchild
       // the root theta's calls spawn; `parentPid` is what authenticates it at
-      // each level. Both params carriers and the callable-hash carrier are named
-      // so no carrier inherited from THIS process survives into the child.
+      // each level. THIS launch's params ride the per-launch control-plane
+      // channel (bug 0474): the launcher scrubs every inherited per-launch
+      // carrier out of `parentEnv`, so no carrier held by THIS process survives
+      // into the child, and both params carriers are named so the channel choice
+      // is authoritative.
       parentEnv: {
         ...process.env,
         [SUBAGENT_EXTENSION_PIN_ENV]: EXTENSION_ENTRY,
+      },
+      controlPlaneEnv: {
         [SUBAGENT_PARAMS_ENV]: input.params,
         [SUBAGENT_PARAMS_FILE_ENV]: undefined,
         [SUBAGENT_CALLABLE_HASHES_ENV]: undefined,
@@ -441,7 +445,6 @@ async function driveDirect(input: {
       thetaAbort: new AbortController(),
       calleePath: join(input.thetaDir, `${input.slug}.theta`),
       emitDiagnostic,
-      clock: new WallClock(),
     });
     clearTimeout(watchdog);
   } finally {

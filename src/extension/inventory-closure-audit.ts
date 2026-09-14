@@ -32,36 +32,20 @@
 // the inventory, and the two typebox allow-lists — so file-system walking,
 // symlink/encoding handling, and the fail-closed infrastructure wrapper the
 // spec assigns to the audit's disk driver stay outside this pure core and off
-// the *Sequential by default* blocking-runtime surface. The V18b implementation
-// fills `runInventoryClosureAudit` in (and wires a thin disk-walk + `npm test`
-// driver around it); this tests-task ships the seam + a non-compliant stub so
-// the paired failing tests red on their own primary assertions.
+// the *Sequential by default* blocking-runtime surface. `runInventoryClosureAudit`
+// is that core; the thin disk-walk + `npm test` driver around it is
+// tests/inventory-closure-audit-gate.test.ts.
 
 import ts from "typescript";
+import { PEER_DEP_PACKAGES } from "./capability-probe";
 import type { SurfaceInventoryEntry } from "./sdk-inventory";
 
 /** The literal five-character `<n/a>` sentinel (audit-wire-and-canary.md). */
 const NA = "<n/a>";
 
-/** The four `@earendil-works/*` peer packages the audit's category (2) covers. */
-const PEER_PACKAGES = [
-  "@earendil-works/pi-coding-agent",
-  "@earendil-works/pi-agent-core",
-  "@earendil-works/pi-ai",
-  "@earendil-works/pi-tui",
-] as const;
-
 /** The canonical carrier-type literals (audit-target-categories.md (1)/(3)). */
 const CTX_TYPES: ReadonlySet<string> = new Set(["ExtensionContext", "ExtensionCommandContext"]);
 const PI_TYPE = "ExtensionAPI";
-
-/**
- * The three-class partition every emitted record's discriminator carries in its
- * `<class>` segment (audit-failures.md §"Three-class partition"): the five
- * inventory-closure-audit violation families, infrastructure failures, and the
- * non-empty-scan canary.
- */
-export type AuditClass = "violation" | "infra" | "canary";
 
 /**
  * One emitted audit record (audit-failures.md §"Failure-surface contract" +
@@ -139,7 +123,7 @@ function leftmostSegment(id: string): string {
 
 /** True iff `spec` names one of the four peer packages (bare or sub-path). */
 function isPeerPackage(spec: string): boolean {
-  return PEER_PACKAGES.some((p) => spec === p || spec.startsWith(`${p}/`));
+  return PEER_DEP_PACKAGES.some((p) => spec === p || spec.startsWith(`${p}/`));
 }
 
 /** True iff `spec` names the typebox package (bare or sub-path). */
@@ -411,9 +395,12 @@ export function runInventoryClosureAudit(input: AuditInput): AuditResult {
     // Lines carrying a non-exemptible family-(4) shape (clause-(h) + no-authorise).
     const familyFourLines = new Set<number>();
 
+    // Every record this core builds through `push` is a `violation`-class
+    // record (audit-failures.md §"Three-class partition"): the `canary` record
+    // is constructed directly at the end of the walk, and `infra`-class
+    // records belong to the disk driver outside this pure core.
     const push = (
       pos: number,
-      cls: AuditClass,
       family: string,
       symptom: string,
       line: string,
@@ -422,7 +409,7 @@ export function runInventoryClosureAudit(input: AuditInput): AuditResult {
     ): void => {
       ordered.push({
         record: {
-          discriminator: `audit/${cls}/${family}/${symptom}`,
+          discriminator: `audit/violation/${family}/${symptom}`,
           path,
           line,
           symbol,
@@ -439,7 +426,6 @@ export function runInventoryClosureAudit(input: AuditInput): AuditResult {
       recognised += 1;
       push(
         pos,
-        "violation",
         "out-of-scope-shape",
         symptom,
         String(ln),
@@ -822,7 +808,7 @@ export function runInventoryClosureAudit(input: AuditInput): AuditResult {
       }
     }
     const emitFamilyFive = (pos: number, ln: number, symptom: string, resolution: string): void => {
-      push(pos, "violation", "stale-or-malformed-marker", symptom, String(ln), NA, resolution);
+      push(pos, "stale-or-malformed-marker", symptom, String(ln), NA, resolution);
     };
     const STALE = "see bump-step-2b-stale-rewrite";
     for (const [ln, commentText] of commentByLine) {
@@ -864,7 +850,7 @@ export function runInventoryClosureAudit(input: AuditInput): AuditResult {
     for (const r of refs) {
       if (r.resolved) continue;
       if (r.authLines.some((ln) => authorisedLines.has(ln))) continue;
-      push(r.pos, "violation", r.family, "off-inventory", String(r.line), r.symbol, r.proposedResolution);
+      push(r.pos, r.family, "off-inventory", String(r.line), r.symbol, r.proposedResolution);
     }
   });
 

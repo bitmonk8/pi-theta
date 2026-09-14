@@ -55,10 +55,11 @@ export interface ObjectSchemaDecl {
  * The `theta/parse/empty-schema-body` diagnostic (schemas.md §Object schema;
  * grammar.md §"Inline object types"), naming `subject` as whatever has no
  * fields. The SOLE construction point for this code: `checkObjectSchema`'s
- * zero-field arm below passes the declaration's name, and `walkType`
- * (type-grammar.ts) passes the literal two bytes `{}` for an inline object
- * whose brace interior carries no token. A second construction site would let
- * the two positions' messages drift apart.
+ * zero-field arm below passes the declaration's name, and type-grammar.ts
+ * passes the literal two bytes `{}` at its two inline-object positions —
+ * `walkType` for an interior that carries no token, and `TypeParser.parseObject`
+ * for an empty entry slot met before any field derives (bug 0257). A second
+ * construction site would let the positions' messages drift apart.
  */
 export function emptySchemaBodyDiagnostic(
   subject: string,
@@ -342,6 +343,8 @@ export function checkVariantAccess(
 //   - `theta/parse/duplicate-discriminator-value`— two variants share a value.
 //   - `theta/parse/nested-discriminator`         — the discriminator field's
 //     value is a nested object, not a top-level literal.
+//   - `theta/parse/absent-discriminator-field`   — an explicit `by` field that
+//     at least one variant does not declare.
 //   - `theta/parse/non-literal-discriminator`    — an explicit `by` field
 //     resolves in every variant but its type is not a single string literal.
 //   - `theta/parse/by-on-object-schema`          — a `by` clause on an object
@@ -394,7 +397,8 @@ export interface DiscriminatedUnionDecl {
  * Check a discriminated-union declaration, returning every diagnostic raised in
  * source order (`theta/parse/non-string-discriminator`, `theta/parse/ambiguous-discriminator`,
  * `theta/parse/missing-discriminator`, `theta/parse/duplicate-discriminator-value`,
- * `theta/parse/nested-discriminator`, `theta/parse/non-literal-discriminator`).
+ * `theta/parse/nested-discriminator`, `theta/parse/absent-discriminator-field`,
+ * `theta/parse/non-literal-discriminator`).
  */
 export function checkDiscriminatedUnion(
   decl: DiscriminatedUnionDecl,
@@ -473,7 +477,6 @@ interface FieldEvaluation {
   readonly allLiteral: boolean;
   readonly allString: boolean;
   readonly firstNonStringKind?: EnumValueKind | undefined;
-  readonly literalTexts: readonly string[];
   readonly uniqueValues: boolean;
   readonly firstDuplicateValue?: string | undefined;
 }
@@ -538,7 +541,6 @@ function evaluateOccurrences(
     allLiteral,
     allString,
     firstNonStringKind,
-    literalTexts,
     uniqueValues,
     firstDuplicateValue,
   };
@@ -644,10 +646,11 @@ function checkExplicitDiscriminator(
   }
 
   // A field at least one variant does not declare (bug 0046, settled route,
-  // §Fix constraint 2 answered "absent from ANY variant"): every occurrence
-  // downstream is conjoined with `presentInAll`, so an absent field would
-  // otherwise vacate every remaining gate and silence the four rejections a
-  // misspelled or unresolved field name would draw without the clause.
+  // §Fix constraint 2 answered "absent from ANY variant"): every gate
+  // downstream presupposes a field present in every variant (`allLiteral`
+  // folds `presentInAll` in), so an absent field is refused here rather than
+  // left to fall through them and silence the four rejections a misspelled or
+  // unresolved field name would draw without the clause.
   // Ordered AFTER `anyNested` — a nested occurrence is more specific and keeps
   // its own code (fixtures A6/A10) — and BEFORE the empty-object withhold
   // below, so an absent field wins over a sibling occurrence's refused `{}`
@@ -678,22 +681,18 @@ function checkExplicitDiscriminator(
   // (bug 0128). Checked after `anyNested` — a nested occurrence is more
   // specific and keeps its own code — and before the non-string gate, which
   // presupposes a literal this evaluation does not have.
-  if (evaluation.presentInAll && !evaluation.allLiteral) {
+  if (!evaluation.allLiteral) {
     return [nonLiteralDiagnostic(decl.name, field, site)];
   }
 
   // The string-literal constraint applies equally to the explicit form
   // (schemas.md §Discriminated unions).
-  if (evaluation.allLiteral && !evaluation.allString && evaluation.firstNonStringKind !== undefined) {
+  if (!evaluation.allString && evaluation.firstNonStringKind !== undefined) {
     return [nonStringDiagnostic(decl.name, field, evaluation.firstNonStringKind, site)];
   }
 
   // A chosen discriminator whose value is not unique across the variants.
-  if (
-    evaluation.allLiteral &&
-    evaluation.allString &&
-    evaluation.firstDuplicateValue !== undefined
-  ) {
+  if (evaluation.firstDuplicateValue !== undefined) {
     return [duplicateValueDiagnostic(decl.name, evaluation.firstDuplicateValue, site)];
   }
 

@@ -8,19 +8,12 @@
 // cancellation, the streamed prefix is retained and the `theta-system-note` is
 // appended AFTER the prefix, never interleaved).
 //
-// V12a-T (tests-task) declares the seam shapes and stubs every behaviour-bearing
-// function inertly / non-compliantly, so the failing V12a-T tests red on their
-// own primary assertions:
-//   - `renderNoParamsOverflowNote` returns a sentinel, not the SLSH-1 template;
-//   - `dispatchNoParamsTheta` emits the overflow note UNCONDITIONALLY (ignoring
-//     the trim-to-empty rule and the slash-path-only rule);
-//   - `rendersTranscriptCard` reports EVERY turn kind as card-rendering,
-//     including the off-session forced-respond turn (SLSH-2);
-//   - `driveSlashPromptTurn` appends the failure/cancellation note WITHOUT
-//     streaming the turn or awaiting `ctx.waitForIdle()` — the
-//     buffer-then-append / note-before-prefix anti-pattern SLSH-2 forbids.
-// The paired V12a implementation fills these in. No test reds on a compile
-// error, a missing fixture, or a harness throw.
+// V12a-T (tests-task) declared the seam shapes; V12a (this leaf) supplies the
+// behaviour: `renderNoParamsOverflowNote` renders the SLSH-1 template,
+// `dispatchNoParamsTheta` emits the note only on the slash path with a
+// non-empty trimmed remainder, `rendersTranscriptCard` reports only the
+// `user_visible` turn kind, and `driveSlashPromptTurn` streams the turn and
+// awaits `ctx.waitForIdle()` before appending any failure/cancellation note.
 
 import {
   SYSTEM_NOTE_CHANNEL,
@@ -35,8 +28,7 @@ import { trimSlashArgumentWhitespace } from "../binder/binder-envelope";
 /**
  * SLSH-1 no-params overflow note (slash-invocation.md#slsh-1): the exact
  * template `theta /<name>: ignoring extra arguments — this theta takes no
- * parameters`, with `<name>` interpolated. The V12a-T stub returns a sentinel
- * so the exact-string assertion reds.
+ * parameters`, with `<name>` interpolated.
  */
 export function renderNoParamsOverflowNote(name: string): string {
   // SLSH-1 normative template (slash-invocation.md#slsh-1), em-dash (U+2014)

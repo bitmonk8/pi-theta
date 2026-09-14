@@ -1,10 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
-  buildBinderSystemPrompt,
-  type SystemPromptParamField,
-} from "../src/binder/binder-system-prompt";
-import type { Diagnostic } from "../src/diagnostics/diagnostic";
-import { parseDoc } from "./helpers/e2e-s1";
+  codesOf,
+  buildOneFieldPromptCell,
+} from "./helpers/binder-prompt-one-field-harness";
 
 // A `description:` or `argument-hint:` whose whole value is line breaks and
 // horizontal whitespace must render as an absent field renders: no labelled
@@ -65,68 +63,14 @@ import { parseDoc } from "./helpers/e2e-s1";
  */
 const BS = String.fromCharCode(92);
 
-/**
- * The single `params:` field every cell declares. One `integer` field is not
- * the single-string bypass (binder-bypass-and-envelope.md:11), so every cell
- * is on the binder path that builds this prompt.
- */
-const ONE_INTEGER_FIELD: readonly SystemPromptParamField[] = [
-  { wireName: "p", type: "integer", requirement: { kind: "required" } },
-];
-
-/** The raw slash text item 5's line carries, on every cell. */
-const RAW_ARGUMENTS = "real args";
-
-/** The bare command name item 1's line carries, on every cell. */
-const THETA_NAME = "t";
-
-/** A `.theta` source carrying the given frontmatter fragment. */
-function source(frontmatterFragment: string): string {
-  return `---\nmode: prompt\n${frontmatterFragment}params:\n  p: integer\n---\n\nlet x = 1\n`;
-}
-
-interface Cell {
-  readonly prompt: string;
-  readonly description: string | undefined;
-  readonly argumentHint: string | undefined;
-  readonly diagnostics: readonly Diagnostic[];
-}
-
-const codesOf = (diagnostics: readonly Diagnostic[]): string[] =>
-  diagnostics.map((d) => d.code);
-
-/**
- * Parse one source through the real front end, then build the prompt exactly
- * as the sole production caller does — `fm.description` and `fm.argumentHint`
- * spread verbatim onto the builder input. Nothing between the parser and the
- * builder is mocked, so the rendering this file asserts has to hold inside the
- * builder to satisfy it. Mirrors the bug 0103 witness's harness
- * (`tests/binder-prompt-description-hint-line-forgery.test.ts:100`).
- */
-function cell(frontmatterFragment: string): Cell {
-  const doc = parseDoc(source(frontmatterFragment));
-  const fm = doc.frontmatter;
-  if (fm === null) {
-    throw new Error(
-      "unmet precondition: the fixture's frontmatter did not parse, so the " +
-        "cell scores nothing about item 2 / item 3 rendering. Diagnostics: " +
-        JSON.stringify(codesOf(doc.diagnostics)),
-    );
-  }
-  const prompt = buildBinderSystemPrompt({
-    name: THETA_NAME,
-    ...(fm.description !== undefined ? { description: fm.description } : {}),
-    ...(fm.argumentHint !== undefined ? { argumentHint: fm.argumentHint } : {}),
-    params: [...ONE_INTEGER_FIELD],
-    rawArguments: RAW_ARGUMENTS,
-  });
-  return {
-    prompt,
-    description: fm.description,
-    argumentHint: fm.argumentHint,
-    diagnostics: doc.diagnostics,
-  };
-}
+// `buildOneFieldPromptCell` (aliased `cell` below, returning an
+// `OneFieldPromptCell` built from the shared `ONE_INTEGER_FIELD` /
+// `RAW_ARGUMENTS` / `THETA_NAME` / `source()`) is the shared one-field
+// binder-prompt harness (tests/helpers/binder-prompt-one-field-harness.ts,
+// PTQ-0252) — mirrors the bug 0103 witness's harness
+// (`tests/binder-prompt-description-hint-line-forgery.test.ts`), which shares
+// the same module.
+const cell = buildOneFieldPromptCell;
 
 // --- observables -------------------------------------------------------------
 

@@ -5,7 +5,8 @@
 // (`Symbol.toPrimitive`, then `toString`, then `valueOf`): a plain-prototype
 // record finds `Object.prototype.toString` and yields the uninformative
 // `[object Object]`; a null-prototype record (the shape
-// `rebuildInbound` mints since bug 0173, `wire-translation.ts:370`) finds none
+// `rebuildInbound`'s `Object.create(null)` record arm mints since bug 0173,
+// `wire-translation.ts`) finds none
 // of the three and raises `TypeError: Cannot convert object to primitive
 // value`. Both are the same defect under two different masks — the renderer
 // has no stringification rule and JavaScript's default supplies a different
@@ -22,17 +23,18 @@
 //      `String(value)` (`null` -> `null`);
 //   3. an enum value (a boxed `String`) renders as its bare wire string;
 //   4. any other object or array renders as compact `JSON.stringify`
-//      (`summariseScrutinee`, `src/runtime/match-result.ts:88-89`);
+//      (`summariseScrutinee`'s schema-typed-object arm, `src/runtime/match-result.ts`);
 //   5. except that when (4) cannot produce a bounded finite string —
 //      `JSON.stringify` throws (a cycle) or returns `undefined`, or the
 //      output exceeds a 200-character cap — the value renders as
 //      `summariseNonResultOperand`'s capped descriptor instead
-//      (`src/runtime/runtime-panics.ts:440`).
+//      (`src/runtime/runtime-panics.ts`).
 //
 // Rule 5 reuses `summariseNonResultOperand` rather than duplicating its
-// own-key-list logic — one descriptor implementation, two call sites that
-// both need a bounded, non-throwing fallback for a value outside the
-// contract the surrounding code was written against. The cycle half of rule
+// own-key-list logic — one descriptor implementation shared by the runtime
+// defect belts and this rule-5 fallback, each needing a bounded, non-throwing
+// fallback for a value outside the contract the surrounding code was written
+// against. The cycle half of rule
 // 5 is detected by an explicit ancestor-stack walk (`hasCycle`, below)
 // rather than by catching `JSON.stringify`'s `TypeError` — see that
 // function's doc-comment for why.
@@ -87,8 +89,8 @@ function hasCycle(value: unknown, seen: Set<unknown>): boolean {
  * a nested bigint reaching rule 4's `JSON.stringify` (which throws "Do not
  * know how to serialize a BigInt") or a throwing getter/trap reaching the
  * key walk are both outside what this function is asked to render — the
- * same fails-loud posture `summariseNonResultOperand` documents for its own
- * proxy case (`src/runtime/runtime-panics.ts:435-439`).
+ * same fails-loud posture `summariseNonResultOperand`'s own doc-comment states
+ * for its proxy case (`src/runtime/runtime-panics.ts`).
  */
 export function summariseErrorField(value: unknown): string {
   if (typeof value === "string") {

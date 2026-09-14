@@ -5,11 +5,9 @@ import { describe, expect, it } from "vitest";
 // @ts-expect-error — JS code-registry module, no type declarations.
 import { parseRegistry, registryMessage } from "../tools/code-registry/index.js";
 import type { BypassParamsField } from "../src/binder/binder-envelope";
-import {
-  buildBinderSystemPrompt,
-  type SystemPromptParamField,
-} from "../src/binder/binder-system-prompt";
+import { buildBinderSystemPrompt } from "../src/binder/binder-system-prompt";
 import type { ThetaDocument } from "../src/parser/theta-document";
+import { binderParams, parametersBlockLines } from "./helpers/binder-prompt-param-mirror";
 import { parseDoc } from "./helpers/e2e-s1";
 
 // Bug 0041 — a `params:` right-hand side written as a YAML block mapping is not
@@ -456,57 +454,6 @@ function expectParamsTypeRefused(label: string, doc: ThetaDocument, param: strin
 }
 
 // ===========================================================================
-// The binder `Parameters:` block, through the SHIPPED builder.
-// ===========================================================================
-
-/**
- * Map parsed fields to the system-prompt descriptors exactly as the producer's
- * `binderPromptParamField` (src/extension/production-theta-producer.ts) does:
- * the surface type verbatim, the requirement token from the retained default.
- * That mapper is module-private, so the mapping is mirrored here; it adds
- * nothing to `type`, which is the byte under test — a divergence would show as
- * a byte mismatch in group (c)'s exact-line assertions.
- */
-function binderParams(fields: readonly BypassParamsField[]): SystemPromptParamField[] {
-  return fields.map((f) => ({
-    wireName: f.wireName,
-    type: f.type,
-    requirement:
-      f.hasDefault && f.defaultSource !== undefined
-        ? { kind: "default" as const, literal: f.defaultSource }
-        : { kind: "required" as const },
-  }));
-}
-
-/**
- * The physical lines of the `Parameters:` block (between the header and its
- * terminating blank line) that `buildBinderSystemPrompt` emits for a theta's
- * parsed fields. Loud when the block is absent — a fixture reaching this helper
- * declares at least one field, so item 4 requires the block.
- */
-function parametersBlockLines(label: string, fields: readonly BypassParamsField[]): string[] {
-  const prompt = buildBinderSystemPrompt({
-    name: "t",
-    params: binderParams(fields),
-    rawArguments: "",
-  });
-  const lines = prompt.split("\n");
-  const header = lines.indexOf("Parameters:");
-  if (header < 0) {
-    throw new Error(
-      `${label}: no \`Parameters:\` header in the built system prompt — item 4 requires the block for ≥1 declared field. Prompt: ${JSON.stringify(prompt)}`,
-    );
-  }
-  const end = lines.indexOf("", header);
-  if (end < 0) {
-    throw new Error(
-      `${label}: the \`Parameters:\` block never terminates with a blank line. Prompt: ${JSON.stringify(prompt)}`,
-    );
-  }
-  return lines.slice(header + 1, end);
-}
-
-// ===========================================================================
 // (a) THE DIAG-4 REGISTRY ANCHOR.
 // RED at HEAD: the row does not exist, so the red names the registry page.
 // ===========================================================================
@@ -714,7 +661,10 @@ describe("bug 0041 (c) — the `Parameters:` line-shape MUSTs and the predicate'
         fieldOf(loaded, "p").type.includes("\n"),
         `${label}: a line break in the recorded declared type is what breaks item 4's one-physical-line shape — these registering controls must never gain one`,
       ).toBe(false);
-      const lines = parametersBlockLines(label, loaded.fields);
+      const lines = parametersBlockLines(
+        label,
+        buildBinderSystemPrompt({ name: "t", params: binderParams(loaded.fields), rawArguments: "" }),
+      );
       expect(
         lines,
         `${label}: item 4 (:117) — "one per-field line per declared field", indented with exactly two U+0020 and no other leading whitespace; byte-exact per the normative template`,

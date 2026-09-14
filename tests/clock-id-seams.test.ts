@@ -1,4 +1,4 @@
-import { readdirSync, readFileSync, statSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
@@ -8,6 +8,7 @@ import { WallClock } from "../src/seams/wall-clock";
 import { CryptoIdSource } from "../src/seams/crypto-id-source";
 import { FakeClock } from "./helpers/fake-clock";
 import { FakeIdSource } from "./helpers/fake-id-source";
+import { tsFiles } from "./helpers/ts-files";
 
 // V8d-T — failing tests for the paired `V8d` `Clock` / `IdSource` seam
 // implementations: the `WallClock` and `CryptoIdSource` production adapters and
@@ -43,19 +44,6 @@ function stripAllowAmbient(source: string): string {
 }
 
 const srcRoot = fileURLToPath(new URL("../src", import.meta.url));
-
-function tsFiles(dir: string): string[] {
-  const out: string[] = [];
-  for (const entry of readdirSync(dir)) {
-    const full = path.join(dir, entry);
-    if (statSync(full).isDirectory()) {
-      out.push(...tsFiles(full));
-    } else if (entry.endsWith(".ts") && !entry.endsWith(".test.ts")) {
-      out.push(full);
-    }
-  }
-  return out;
-}
 
 function primitivesOf(refs: { primitive: string }[]): string[] {
   return refs.map((r) => r.primitive);

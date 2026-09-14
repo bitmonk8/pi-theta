@@ -226,8 +226,7 @@ function jsonTypeOf(value: unknown): string {
   if (Array.isArray(value)) {
     return "array";
   }
-  const t = typeof value;
-  return t === "object" ? "object" : t === "number" ? "number" : t;
+  return typeof value;
 }
 
 /**

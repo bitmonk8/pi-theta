@@ -6,9 +6,11 @@
 // diagnostics / tokens without a model or session. No behaviour is stubbed:
 // the code paths under assertion are the shipped ones.
 
+import { expect } from "vitest";
 import { lexTheta, type LexResult, type ThetaSource } from "../../src/lexer/lexer";
 import {
   parseThetaDocument,
+  type LetStmt,
   type ThetaDocument,
   type ParseThetaDocumentDeps,
 } from "../../src/parser/theta-document";
@@ -18,6 +20,7 @@ import type {
   SystemNoteSender,
 } from "../../src/extension/system-note-channel";
 import type { ModelReferenceMatcher } from "../../src/parser/frontmatter";
+import type { LoweredSchema } from "../../src/seams/schema-validator";
 
 /** An in-band, no-op system-note channel that discards emitted batches. */
 function inertSystemNote(): SystemNoteChannelDeps {
@@ -78,4 +81,100 @@ export function codes(diags: readonly Diagnostic[]): string[] {
 /** Error-severity diagnostics only. */
 export function errors(diags: readonly Diagnostic[]): Diagnostic[] {
   return diags.filter((d) => d.severity === "error");
+}
+
+/**
+ * True iff `d` is the error-severity `theta/load/*` or `theta/parse/*` refusal
+ * that blocks registration (mirrors `hasLoadParseError`,
+ * src/extension/production-composition.ts).
+ */
+export function isLoadParseError(d: Diagnostic): boolean {
+  return (
+    d.severity === "error" &&
+    (d.code.startsWith("theta/load/") || d.code.startsWith("theta/parse/"))
+  );
+}
+
+/** Every diagnostic rendered `<severity> <code>: <message>`, in emission order. */
+export function diagLines(doc: ThetaDocument): string[] {
+  return doc.diagnostics.map((d) => `${d.severity} ${d.code}: ${d.message}`);
+}
+
+/** Every diagnostic rendered `<severity> <code>`, in emission order. */
+export function diagCodes(doc: ThetaDocument): string[] {
+  return doc.diagnostics.map((d) => `${d.severity} ${d.code}`);
+}
+
+/** The sole top-level `let` statement bound to `name`, if the body declares one. */
+export function findLetStmt(doc: ThetaDocument, name: string): LetStmt | undefined {
+  return doc.body.statements.find(
+    (s): s is LetStmt => s.kind === "let" && (s as LetStmt).name === name,
+  );
+}
+
+/** One theta file: `---` fences over `<frontmatter>`, body `let x = 1`. */
+export function frontmatterOnlyDoc(frontmatter: string): ThetaDocument {
+  return parseDoc(`---\n${frontmatter}\n---\nlet x = 1\n`);
+}
+
+/** Assert a row is present at the given severity (default `error`) carrying the exact Message. */
+export function expectDiagnosticRow(
+  diags: readonly Diagnostic[],
+  code: string,
+  message: string,
+  severity: Diagnostic["severity"] = "error",
+): void {
+  const row = findCode(diags, code);
+  expect(
+    row,
+    `expected a ${code} row; got codes ${JSON.stringify(codes(diags))}`,
+  ).toBeDefined();
+  expect((row as Diagnostic).severity).toBe(severity);
+  expect((row as Diagnostic).message).toBe(message);
+}
+
+/** Assert NO row carries the given code. */
+export function expectNoDiagnosticRow(diags: readonly Diagnostic[], code: string): void {
+  expect(
+    findCode(diags, code),
+    `expected NO ${code} row; got codes ${JSON.stringify(codes(diags))}`,
+  ).toBeUndefined();
+}
+
+/** A parsed, cleanly-lowered `params:` block. */
+export interface LoadedParams {
+  readonly defs: Record<string, unknown>;
+  readonly loweredSchema: LoweredSchema;
+}
+
+/**
+ * Parse a fixture that must LOAD cleanly, and read its lowered `params:`
+ * schema back. A non-empty diagnostic list, a `null` frontmatter, an absent
+ * `params`, or an absent `loweredSchema` all throw, with the diagnostics
+ * rendered, rather than let a caller read a field off an unloaded document.
+ */
+export function loadCleanly(label: string, source: string, path = "test.theta"): LoadedParams {
+  const doc = parseDoc(source, path);
+  expect(
+    diagLines(doc),
+    `${label}: this fixture must load with NO diagnostics; observed ${JSON.stringify(diagLines(doc))}`,
+  ).toEqual([]);
+  if (doc.frontmatter === null) {
+    throw new Error(
+      `${label}: the theta was REFUSED — frontmatter is null. Diagnostics: ${JSON.stringify(diagLines(doc))}`,
+    );
+  }
+  const params = doc.frontmatter.params;
+  if (params === undefined) {
+    throw new Error(
+      `${label}: the frontmatter carries no parsed params block. Diagnostics: ${JSON.stringify(diagLines(doc))}`,
+    );
+  }
+  const lowered = params.loweredSchema;
+  if (lowered === undefined) {
+    throw new Error(
+      `${label}: the params block lowered to NOTHING (loweredSchema absent), so there is no AJV-validatable document for the argument boundary. Diagnostics: ${JSON.stringify(diagLines(doc))}`,
+    );
+  }
+  return { defs: (lowered["$defs"] ?? {}) as Record<string, unknown>, loweredSchema: lowered };
 }

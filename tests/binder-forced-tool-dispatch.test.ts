@@ -155,6 +155,7 @@ import {
   type LoweredSchema,
   type SchemaSlug,
 } from "../src/seams/schema-validator";
+import { deepKeyOccurrences } from "./helpers/deep-key-occurrences";
 
 const SYSTEM_NOTE_CHANNEL = "theta-system-note";
 
@@ -379,32 +380,6 @@ function defaultedTheta(): ThetaCompositionInput {
 
 function enumParamTheta(): ThetaCompositionInput {
   return thetaInput(ENUM_PARAM_THETA, ENUM_PARAM_SOURCE_PATH);
-}
-
-/**
- * Deep scan: every path at which the object key `key` occurs anywhere within
- * `value` (nested objects and arrays). `[]` means the key is entirely absent —
- * the bug-0011 live-round pin for `$ref` / `$defs` on the attached parameters.
- */
-function deepKeyOccurrences(value: unknown, key: string): string[] {
-  const hits: string[] = [];
-  const visit = (node: unknown, path: string): void => {
-    if (Array.isArray(node)) {
-      node.forEach((item, index) => visit(item, `${path}[${index}]`));
-      return;
-    }
-    if (node === null || typeof node !== "object") {
-      return;
-    }
-    for (const [k, child] of Object.entries(node as Record<string, unknown>)) {
-      if (k === key) {
-        hits.push(`${path}.${k}`);
-      }
-      visit(child, `${path}.${k}`);
-    }
-  };
-  visit(value, "$");
-  return hits;
 }
 
 function noteChannelEntries(notes: readonly CapturedNote[]): CapturedNote[] {

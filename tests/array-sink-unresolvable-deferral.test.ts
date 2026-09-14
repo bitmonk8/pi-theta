@@ -2,20 +2,13 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import type {
-  ExtensionAPI,
   ExtensionCommandContext,
   ModelRegistry,
 } from "@earendil-works/pi-coding-agent";
 // @ts-expect-error — JS code-registry module, no type declarations.
 import { parseRegistry, registryMessage } from "../tools/code-registry/index.js";
-import type { ThetaSource } from "../src/lexer/lexer";
-import type { SystemNoteChannelDeps } from "../src/extension/system-note-channel";
-import type { ModelReferenceMatcher, ParsedFrontmatter } from "../src/parser/frontmatter";
-import {
-  parseThetaDocument,
-  type ParseThetaDocumentDeps,
-  type ThetaDocument,
-} from "../src/parser/theta-document";
+import type { ParsedFrontmatter } from "../src/parser/frontmatter";
+import type { ThetaDocument } from "../src/parser/theta-document";
 import { executeBody, type BodyExecution } from "../src/runtime/statement-executor";
 import type { ThetaValue } from "../src/runtime/value";
 import { createProductionProducerDeps } from "../src/extension/production-theta-producer";
@@ -23,8 +16,8 @@ import type {
   ConversationBindInput,
   ThetaCompositionInput,
 } from "../src/extension/theta-composition-producer";
-import type { RuntimeRoot } from "../src/runtime-root";
-import type { Checkpoint } from "../src/seams/checkpoint";
+import { noopPi, rootDouble } from "./helpers/call-with-clause-harness";
+import { parseDoc } from "./helpers/e2e-s1";
 
 // Bug 0179 — `decide`'s TYPE-7 array arm (src/parser/type-compat.ts:218–226)
 // answers `"incompatible"` for every sub whose kind is not `array`
@@ -246,21 +239,9 @@ function arrayElementMismatch(index: number, expected: string, actual: string): 
 }
 
 // ===========================================================================
-// Shared parse + production-executor harness (the
-// tests/absent-member-presence-gate.test.ts:219–325 pattern).
+// Shared parse + production-executor harness (`tests/helpers/e2e-s1.ts` and
+// `tests/helpers/call-with-clause-harness.ts`).
 // ===========================================================================
-
-function parseDeps(): ParseThetaDocumentDeps {
-  const systemNote: SystemNoteChannelDeps = {
-    pi: { sendMessage: (): void => {} },
-    ui: { notify: (): void => {} },
-    emitDiagnostic: (): void => {},
-  };
-  const modelMatcher: ModelReferenceMatcher = {
-    resolve: (): "resolved" => "resolved",
-  };
-  return { systemNote, modelMatcher };
-}
 
 /** Every fixture is a whole theta in prompt mode (§Reproduction). */
 const FM = "---\nmode: prompt\n---\n";
@@ -269,11 +250,7 @@ const FM = "---\nmode: prompt\n---\n";
 const P = 'schema P { a: string, b: string }\nlet p = P { a: "x", b: "y" }\n';
 
 function parse(body: string): ThetaDocument {
-  const source: ThetaSource = {
-    path: "bug0179.theta",
-    bytes: new TextEncoder().encode(FM + body),
-  };
-  return parseThetaDocument(source, parseDeps());
+  return parseDoc(FM + body, "bug0179.theta");
 }
 
 /** `code: message` for every ERROR-severity diagnostic, in emission order. */
@@ -288,28 +265,11 @@ function render(doc: ThetaDocument): string {
   return JSON.stringify(doc.diagnostics.map((d) => `${d.severity} ${d.code}: ${d.message}`));
 }
 
-const NOOP_CHECKPOINT: Checkpoint = {
-  before(): Promise<void> {
-    return Promise.resolve();
-  },
-};
-
-function rootDouble(): RuntimeRoot {
-  return {
-    checkpoint: NOOP_CHECKPOINT,
-    idSource: { newInvocationId: () => "inv-1", newToolCallId: () => "tc-1" },
-  } as unknown as RuntimeRoot;
-}
-
 function producer(): ReturnType<typeof createProductionProducerDeps> {
+  // `noopPi` satisfies the theta-system-note channel and the PIC-17
+  // active-tools snapshot/restore window. No provider, no model.
   return createProductionProducerDeps({
-    // `sendMessage` satisfies the theta-system-note channel; the active-tools
-    // pair satisfies the PIC-17 snapshot/restore window. No provider, no model.
-    pi: {
-      sendMessage: () => {},
-      getActiveTools: () => [],
-      setActiveTools: () => {},
-    } as unknown as ExtensionAPI,
+    pi: noopPi(),
     root: rootDouble(),
     modelRegistry: {} as unknown as ModelRegistry,
   });

@@ -27,7 +27,7 @@
 <a id="underlying-error-coercion"></a>
 **Underlying-error coercion.** `<error.message>` and `<teardown error first line>` bind a *caught thrown value*, which JavaScript does not guarantee to be `Error`-shaped (`throw <any value>` is legal, and only `Error`-derived values carry a string-valued `.message`). Before the first-line truncation rule below applies — and likewise wherever a producer site populates an error-message field from a caught thrown value (a diagnostic `details.error` or `details.cause`, a `hint` or `message` that carries a caught throw's message, or `CodeToolError.message`) — the caught value `v` is coerced to the underlying string by:
 
-1. when `v` is an object whose `.message` is a string, the underlying string is that `.message`;
+1. when `v` is an object whose `.message` is a string, the underlying string is that `.message`; a `.message` access that itself throws is treated as `.message` being absent, so the coercion falls through to step 2;
 2. otherwise the underlying string is `String(v)`, or the literal text `<unreadable>` when the `String(v)` coercion itself throws.
 
 The truncation rule below then operates on this guaranteed string, so a non-Error throw never yields `undefined`, a non-string value that defeats the truncation rule, or a synchronous `TypeError`. (`<original content first line>` binds a string by construction and skips this coercion.)

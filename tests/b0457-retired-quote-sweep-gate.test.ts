@@ -33,7 +33,7 @@ import { describe, expect, it } from "vitest";
 // SCOPE DISCIPLINE (bug 0457 §Affected / §Non-goals — intentional NON-instances
 // that MUST NOT be scored):
 //   - The bare word "laundered-receiver" is legitimate elsewhere (b0315/b0393
-//     scenario references, runtime-panics.ts:478's DIFFERENT bug-0315 tail
+//     scenario references, runtime-panics.ts:702's DIFFERENT bug-0315 tail
 //     "did not reject this site — a laundered-receiver gate gap",
 //     stdlib-array/object comments) — Cell A bans ONLY the exact retired phrase.
 //   - The FnParam era-narrations tests/fn-param-annotation-optional.test.ts:10
@@ -176,7 +176,7 @@ const GRAMMAR_FNPARAM_LINE = 145; // the current optional-form production line
 const GRAMMAR_FNPARAM_OPTIONAL = 'FnParam      ::= Ident (":" Type)?';
 
 const RUNTIME_PANICS = "src/runtime/runtime-panics.ts";
-const RUNTIME_PANICS_BELT_LINE = 509; // the current wrong-kind belt template
+const RUNTIME_PANICS_BELT_LINE = 733; // the current wrong-kind belt template (bug 0476 follow-up: line shifted again by the interpolation-frame kind + retargetInterpolationPanic plumbing added above it)
 const RUNTIME_PANICS_CURRENT_TAIL = "reached the runtime belt unjudged (bugs 0394/0402)";
 
 describe("bug 0457 — six committed surfaces quote retired normative text as current", () => {
@@ -230,7 +230,7 @@ describe("bug 0457 — six committed surfaces quote retired normative text as cu
   // Cell C — GREEN control. Pins the spec truth the sweep aligns to. Passes at
   // the fork and after the fix; guards the targets so a spec drift reds here.
   // =========================================================================
-  it("cell C (GREEN control) — grammar.md:145 carries the optional FnParam form and runtime-panics.ts:509 carries the current belt tail", () => {
+  it("cell C (GREEN control) — grammar.md:145 carries the optional FnParam form and runtime-panics.ts:733 carries the current belt tail", () => {
     const grammarLines = linesOf(readCorpus(GRAMMAR));
     expect(
       grammarLines.length,

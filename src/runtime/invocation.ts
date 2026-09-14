@@ -17,19 +17,12 @@
 //     file exactly once into the cache (implementation-notes.md
 //     "Static-resolution load pass", invocation.md §Static resolution).
 //
-// V15a-T (tests-task) declares the seam shapes and stubs the behaviour-bearing
-// functions inertly so the failing tests compile and red on their own primary
-// assertions:
-//   - `checkInvokePathContainment` returns an inert `""` canonical path and
-//     `within: false`, so both the within-root and the byte-exact-`realpath`
-//     assertions red.
-//   - `checkInvokePathAtLoad` / `recheckInvokePathAtRuntime` return an inert
-//     `"within"` verdict with a `""` canonical path and emit neither the
-//     escape diagnostic nor the `InvokeInfraError`, so both channels red.
-//   - `runStaticResolutionPass` returns an empty cache and never calls
-//     `parseAndLower`, so the "each visited file parsed exactly once" and the
-//     transitive-reachability assertions red.
-// No test reds on a compile error, a missing fixture, or a harness throw.
+// V15a-T (tests-task) declared the seam shapes; V15a (this leaf) supplies the
+// behaviour: `checkInvokePathContainment` computes the canonical path and the
+// containment verdict, `checkInvokePathAtLoad` / `recheckInvokePathAtRuntime`
+// route an escape to the diagnostic and `InvokeInfraError` channels, and
+// `runStaticResolutionPass` walks the transitive closure parsing each visited
+// file exactly once.
 //
 // Spec: invocation.md (INV-1, §Static resolution), discovery/discovery-sources.md
 // (§Discovery roots), return.md, implementation-notes.md.
@@ -314,7 +307,7 @@ export async function runStaticResolutionPass(
   const cache = new Map<string, ParsedCallee>();
   // Frontier of canonical paths still to visit; the entry is canonicalised so
   // the cache is keyed uniformly on `realpath` output.
-  const frontier: string[] = [normalizePath(await deps.fs.realpath(entryPath))];
+  const frontier: string[] = [await canonicalizePath(deps.fs, entryPath)];
 
   while (frontier.length > 0) {
     const canonicalPath = frontier.shift() as string;
@@ -330,7 +323,7 @@ export async function runStaticResolutionPass(
     // Walk transitively across literal `invoke` paths and `.theta` `tools:`
     // entries, canonicalising each edge before enqueueing it.
     for (const edge of [...parsed.invokePaths, ...parsed.toolThetaPaths]) {
-      const canonicalEdge = normalizePath(await deps.fs.realpath(edge));
+      const canonicalEdge = await canonicalizePath(deps.fs, edge);
       if (!cache.has(canonicalEdge)) {
         frontier.push(canonicalEdge);
       }

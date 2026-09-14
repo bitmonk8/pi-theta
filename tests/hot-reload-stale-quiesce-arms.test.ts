@@ -114,7 +114,6 @@ describe("bug 0018 (PIC-67) — mid-flight stale escape from the rediscover pass
       channel,
       rediscover,
       reRegister,
-      initialNames: ["greet"],
       probeRuntime,
     });
 

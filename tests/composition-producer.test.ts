@@ -3,6 +3,7 @@ import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import type { AssistantMessage, Message, UserMessage } from "@earendil-works/pi-ai";
 import {
   composeThetaFixture,
+  type BodyExecutingConversationBinding,
   type ConversationBinding,
   type ConversationBindInput,
   type BinderRunInput,
@@ -128,7 +129,6 @@ const NOOP_CHECKPOINT: Checkpoint = {
 };
 
 const NOOP_SINK: ToolLoweringSink = {
-  runtimeEvent(): void {},
   diagnostic(): void {},
   systemNote(): void {},
 };
@@ -320,7 +320,7 @@ function makeHarness(opts: { bound?: boolean; surfaceErr?: QueryError } = {}): H
     session: RecordingSession,
     mode: DrivenConversationMode,
     drivenAgainst: DrivenConversation,
-  ): ConversationBinding {
+  ): BodyExecutingConversationBinding {
     const messages: Message[] = [];
     const executeDeps = boundExecuteDeps(session, messages, mode, () => order.push("stmt:query"));
     state.drivenAgainst = drivenAgainst;
@@ -344,7 +344,7 @@ function makeHarness(opts: { bound?: boolean; surfaceErr?: QueryError } = {}): H
       order.push("bind");
       return Promise.resolve({ bound: opts.bound ?? true });
     },
-    bindPromptConversation(_input: ConversationBindInput): ConversationBinding {
+    bindPromptConversation(_input: ConversationBindInput): BodyExecutingConversationBinding {
       state.promptBound = true;
       return bindingOver(userSession, "prompt", "prompt-user-session");
     },
@@ -547,9 +547,6 @@ describe("V19e-T — ParsedTheta widening (Class-2 seam consumed by H8a)", () =>
       body: input.body,
       run: fixture.run,
     };
-
-    expect(parsed.frontmatter, "ParsedTheta carries the V19a frontmatter").toBe(input.frontmatter);
-    expect(parsed.body, "ParsedTheta carries the V19a body AST").toBe(input.body);
 
     await parsed.run("", ctxDouble());
 

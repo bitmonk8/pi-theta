@@ -1,11 +1,16 @@
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 // @ts-expect-error — JS code-registry module, no type declarations.
-import { parseRegistry, registryMessage } from "../tools/code-registry/index.js";
+import { registryMessage } from "../tools/code-registry/index.js";
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
 import type { ThetaDocument } from "../src/parser/theta-document";
-import { codes, findCode, parseDoc } from "./helpers/e2e-s1";
+import {
+  codes,
+  expectDiagnosticRow as expectRow,
+  findCode,
+  frontmatterOnlyDoc as doc,
+  parseDoc,
+} from "./helpers/e2e-s1";
+import { REGISTRY, type RegistryRow } from "./helpers/registry-oracle";
 
 // Bug 0298 — a `system:` whose value is a YAML sequence or mapping is treated
 // as absent: a subagent-mode theta registers with zero diagnostics and would
@@ -71,30 +76,11 @@ import { codes, findCode, parseDoc } from "./helpers/e2e-s1";
 
 // --- Registry Message anchoring (DIAG-4) -----------------------------------
 
-interface RegistryRow {
-  readonly code: string;
-  readonly message: string;
-  readonly severity: string;
-  readonly phase: string;
-}
-
+// The pages this file's registered codes normally live on — named in DIAG-4
+// anchor failure messages only; the rows themselves are sourced from the
+// shared four-page `REGISTRY` (tests/helpers/registry-oracle.ts).
 const REGISTRY_PARSE_PATH = "docs/spec_topics/diagnostics/code-registry-parse.md";
-
-const REGISTRY_PARSE = parseRegistry(
-  readFileSync(
-    fileURLToPath(new URL(`../${REGISTRY_PARSE_PATH}`, import.meta.url)),
-    "utf8",
-  ),
-) as RegistryRow[];
-
 const REGISTRY_LOAD_PATH = "docs/spec_topics/diagnostics/code-registry-load.md";
-
-const REGISTRY_LOAD = parseRegistry(
-  readFileSync(
-    fileURLToPath(new URL(`../${REGISTRY_LOAD_PATH}`, import.meta.url)),
-    "utf8",
-  ),
-) as RegistryRow[];
 
 const SYSTEM_ON_PROMPT_MODE = "theta/parse/system-on-prompt-mode";
 
@@ -114,7 +100,7 @@ const MALFORMED_SYSTEM_FIELD_MESSAGE =
  * message prose for an already-registered code is written out in this file.
  */
 function registryMsg(code: string): string {
-  const template = registryMessage(REGISTRY_PARSE, code) as string | undefined;
+  const template = registryMessage(REGISTRY, code) as string | undefined;
   expect(
     template,
     `DIAG-4 anchor: ${REGISTRY_PARSE_PATH} must carry the Message row for ${code}`,
@@ -124,23 +110,10 @@ function registryMsg(code: string): string {
 
 // --- Fixtures --------------------------------------------------------------
 
-/** One theta file: `---` fences over `<frontmatter>`, body `let x = 1`. */
-function doc(frontmatter: string): ThetaDocument {
-  return parseDoc(`---\n${frontmatter}\n---\nlet x = 1\n`);
-}
-
 /** A `system:` over a block SEQUENCE — the ordinary YAML reflex for multi-line text. */
 const SYSTEM_BLOCK_SEQUENCE = "system:\n  - You are a reviewer";
 /** A `system:` over a block MAPPING — the second non-scalar node kind. */
 const SYSTEM_BLOCK_MAPPING = "system:\n  text: You are a reviewer";
-
-/** Assert the refusal row is present at error severity with the settled Message. */
-function expectRow(diags: readonly Diagnostic[], code: string, message: string): void {
-  const row = findCode(diags, code);
-  expect(row, `expected a ${code} row; got codes ${JSON.stringify(codes(diags))}`).toBeDefined();
-  expect((row as Diagnostic).severity).toBe("error");
-  expect((row as Diagnostic).message).toBe(message);
-}
 
 // ===========================================================================
 
@@ -213,7 +186,7 @@ describe("bug 0298 — non-scalar system: refusal + prompt-mode suppression", ()
   // byte-compared against the pinned literal, and the row carries severity E /
   // phase load. A moved or absent row reds by naming the registry page.
   it(`DIAG-4: code-registry-load.md carries ${MALFORMED_SYSTEM_FIELD} with the normative Message, severity E, phase load`, () => {
-    const message = registryMessage(REGISTRY_LOAD, MALFORMED_SYSTEM_FIELD) as
+    const message = registryMessage(REGISTRY, MALFORMED_SYSTEM_FIELD) as
       | string
       | undefined;
     expect(
@@ -225,7 +198,7 @@ describe("bug 0298 — non-scalar system: refusal + prompt-mode suppression", ()
       "DIAG-4 — the Message column is normative character-for-character; the " +
         "refusal names the field's shape, so it carries no placeholder",
     ).toBe(MALFORMED_SYSTEM_FIELD_MESSAGE);
-    const row = REGISTRY_LOAD.find((r) => r.code === MALFORMED_SYSTEM_FIELD);
+    const row = REGISTRY.find((r) => r.code === MALFORMED_SYSTEM_FIELD);
     expect(
       row,
       `the parsed registry must hold a structured row for ${MALFORMED_SYSTEM_FIELD}`,

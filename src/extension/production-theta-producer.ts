@@ -28,7 +28,6 @@ import type {
   ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
 import { dirname, isAbsolute, resolve as resolvePath } from "node:path";
-import { parseDocument } from "yaml";
 // RFC-0005: `buildSessionContext` remains for the prompt-mode drive; the former
 // in-process subagent satellites (`createAgentSession` / `DefaultResourceLoader`
 // / `SessionManager` / `getAgentDir` / `defineTool`) are retired — the subagent
@@ -116,6 +115,7 @@ import { isStaleCtxError } from "./stale-ctx";
 import type {
   BinderRunInput,
   BinderRunResult,
+  BodyExecutingConversationBinding,
   ConversationBinding,
   ConversationBindInput,
   ThetaCompositionInput,
@@ -275,13 +275,17 @@ import {
   respondToolWireSchema,
 } from "../runtime/respond-tool-wire";
 import {
+  attachPanicRange,
+  attachPanicSite,
   evaluateIndexAccess,
   evaluateMemberAccess,
   evaluateQuestion,
   HostFatal,
   isThetaPanic,
   nonObjectReceiverRejection,
+  pushPanicFrame,
   QuestionOperandDefectError,
+  retargetInterpolationPanic,
 } from "../runtime/runtime-panics";
 import {
   createRegistrationCache,
@@ -483,7 +487,7 @@ export interface ProductionProducerInput {
    * env-channel params never touch it, so it is only needed for ≥8 KB payloads).
    */
   readonly subagentParamsFs?: {
-    readonly writeTempFile: (contents: string, mode: number) => string;
+    readonly writeTempFile: (contents: string) => string;
     readonly unlink: (path: string) => void;
     readonly readFile: (path: string) => string;
   };
@@ -729,7 +733,6 @@ function signalGuard(signal: AbortSignal): { readonly cancellationSurfaced: bool
  */
 function noopSink(): ToolLoweringSink {
   return {
-    runtimeEvent(): void {},
     diagnostic(): void {},
     systemNote(): void {},
   };
@@ -1562,19 +1565,18 @@ class ProductionThetaProducer implements ThetaProducerDeps {
    * The parser retains each default's literal source on the parsed `ParsedParams`
    * (`fields[].defaultSource`, feeding the binder system prompt's
    * `default=<literal>` line), but not its evaluated value, so the values are
-   * recovered here from the theta's own source: the `params:` field scalar is
-   * re-read via the `FileSystem` seam, its `= <literal>` default RHS is split
-   * off, and the literal is parsed + evaluated through the same pure evaluator
-   * the body uses. Recovery is best-effort — a theta with no on-disk `sourcePath`
-   * (an in-memory fixture), an unreadable file, a default that does not parse, or
-   * a default that parses and then panics while evaluating leaves that field
-   * unfilled, never throws. An unfilled field is ABSENT from the merged args, and
-   * a defaulted field is never in the lowered schema's `required` set
-   * (`parseParams`, `parser/params.ts`, writes `required.push(field.name)` only
-   * under `field.defaultSource === undefined`), so the post-default-merge AJV
-   * check below ADMITS that absence and the invocation binds without the field.
-   * All four best-effort cases therefore reach one end state, and what DID arrive
-   * is still validated at the `params` boundary.
+   * recovered here from the theta's own loaded frontmatter: each defaulted
+   * field's recorded `defaultSource` is parsed + evaluated through the same pure
+   * evaluator the body uses. Recovery is best-effort — a default that does not
+   * parse, or a default that parses and then panics while evaluating, leaves
+   * that field unfilled, never throws. An unfilled field is ABSENT from the
+   * merged args, and a defaulted field is never in the lowered schema's
+   * `required` set (`parseParams`, `parser/params.ts`, writes
+   * `required.push(field.name)` only under `field.defaultSource === undefined`),
+   * so the post-default-merge AJV check below ADMITS that absence and the
+   * invocation binds without the field. Both best-effort cases therefore reach
+   * one end state, and what DID arrive is still validated at the `params`
+   * boundary.
    */
   async #mergeDeclaredDefaults(
     theta: ConversationBindInput["theta"],
@@ -1588,10 +1590,10 @@ class ProductionThetaProducer implements ThetaProducerDeps {
       // fill step ran, so no wire name took a default.
       return { args: binderArgs, classification: { kind: "ok" }, defaultedWireNames: [] };
     }
-    // Recovery is best-effort and may yield nothing (an in-memory theta, an
-    // unreadable file, a default that does not re-parse, a default whose
-    // evaluation panics). That leaves the field unfilled — it does NOT excuse
-    // the boundary: what did arrive is still validated below.
+    // Recovery is best-effort and may yield nothing (a default that does not
+    // re-parse, a default whose evaluation panics). That leaves the field
+    // unfilled — it does NOT excuse the boundary: what did arrive is still
+    // validated below.
     const defaults =
       params.defaultedFields.length === 0
         ? []
@@ -1610,41 +1612,28 @@ class ProductionThetaProducer implements ThetaProducerDeps {
 
   /**
    * Recover the declared default's evaluated VALUE for each defaulted wire name
-   * from the theta's source file. The parsed `ParsedParams` retains each default's
-   * literal source (`fields[].defaultSource`, feeding the binder system prompt's
-   * `default=<literal>` line) but not its evaluated value, so this re-reads the
-   * `.theta`, extracts the frontmatter YAML, reads each `params:` field's
-   * scalar, splits its `= <literal>`
-   * default RHS, and parses + evaluates the literal with the body's pure evaluator
-   * (so an enum / schema-literal default resolves against the body's declarations),
-   * then projects the evaluated value to wire form for the post-default-merge AJV
-   * boundary it feeds (`fillDefaultsAndRevalidate`, `binder/defaulting.ts`). The
-   * declaring-enum tag / schema brand a wire-form default loses here is
-   * re-established downstream by the binder-`args` inbound boundary
-   * (`bindParamsInbound`, `runtime/inbound-boundary.ts`, reached from
-   * `paramBindingsFrom`, `theta-composition-producer.ts:103`, called at `:527`)
-   * that `runtime-value-model.md:34` already mandates over binder `args`.
+   * from the theta's own parsed frontmatter. The parsed `ParsedParams` already
+   * retains each default's literal source (`fields[].defaultSource`, feeding
+   * the binder system prompt's `default=<literal>` line) but not its evaluated
+   * value, so this looks each wire name up on `theta.frontmatter.params.fields`
+   * and parses + evaluates its recorded `defaultSource` with the body's pure
+   * evaluator (so an enum / schema-literal default resolves against the body's
+   * declarations), then projects the evaluated value to wire form for the
+   * post-default-merge AJV boundary it feeds (`fillDefaultsAndRevalidate`,
+   * `binder/defaulting.ts`). The declaring-enum tag / schema brand a wire-form
+   * default loses here is re-established downstream by the binder-`args`
+   * inbound boundary (`bindParamsInbound`, `runtime/inbound-boundary.ts`,
+   * reached from `paramBindingsFrom`, `theta-composition-producer.ts:103`,
+   * called at `:527`) that `runtime-value-model.md:34` already mandates over
+   * binder `args`.
    */
   async #recoverDeclaredDefaults(
     theta: ConversationBindInput["theta"],
     defaultedFields: readonly string[],
   ): Promise<readonly DefaultedField[]> {
-    const sourcePath = theta.sourcePath;
-    if (sourcePath === undefined) {
-      return [];
-    }
-    const bytes = await this.#input.root.fileSystem.readBytes(sourcePath).then(
-      (value) => value,
-      () => undefined,
+    const fieldsByWireName = new Map(
+      (theta.frontmatter.params?.fields ?? []).map((field) => [field.wireName, field] as const),
     );
-    if (bytes === undefined) {
-      return [];
-    }
-    const yamlText = extractFrontmatterYaml(new TextDecoder().decode(bytes));
-    if (yamlText === undefined) {
-      return [];
-    }
-    const doc = parseDocument(yamlText);
     const env = buildBoundEnvironment(
       theta.body,
       undefined,
@@ -1654,11 +1643,7 @@ class ProductionThetaProducer implements ThetaProducerDeps {
     );
     const defaults: DefaultedField[] = [];
     for (const wireName of defaultedFields) {
-      const raw = doc.getIn(["params", wireName]);
-      if (typeof raw !== "string") {
-        continue;
-      }
-      const defaultSource = splitParamDefaultSource(raw);
+      const defaultSource = fieldsByWireName.get(wireName)?.defaultSource;
       if (defaultSource === undefined) {
         continue;
       }
@@ -1684,8 +1669,9 @@ class ProductionThetaProducer implements ThetaProducerDeps {
       // schema's `required` set (`parseParams` guards the `required.push` on
       // `field.defaultSource === undefined`), so the post-default-merge AJV check
       // ADMITS that absence and the invocation binds without the field — the end
-      // state the three sibling best-effort cases already reach, with what DID
-      // arrive still validated there. Only the closed `ThetaPanic` set is absorbed
+      // state the two sibling best-effort cases above (an absent recorded default,
+      // a default that does not parse) already reach, with what DID arrive still
+      // validated there. Only the closed `ThetaPanic` set is absorbed
       // — any other throw is an interpreter defect and belongs to the
       // runtime-defect surface, so it propagates unchanged.
       let evaluated: ThetaValue;
@@ -2042,7 +2028,7 @@ class ProductionThetaProducer implements ThetaProducerDeps {
     };
   }
 
-  bindPromptConversation(bindInput: ConversationBindInput): ConversationBinding {
+  bindPromptConversation(bindInput: ConversationBindInput): BodyExecutingConversationBinding {
     const { pi, root } = this.#input;
     const { theta, ctx } = bindInput;
     // INV-4 / ceiling #1: a top-level dispatch starts a fresh chain, seeded at
@@ -2211,6 +2197,8 @@ class ProductionThetaProducer implements ThetaProducerDeps {
       mutator: new NoopConversationMutator(),
       mode: "prompt",
       file: theta.slashName,
+      // Bug 0476: a panic site in the top-level body names the on-disk file.
+      ...(theta.sourcePath !== undefined ? { sourcePath: theta.sourcePath } : {}),
       // Bug 0324: thread the real runtime-diagnostic channel so a non-number
       // `par for` `max` value's clamp-to-1 is not silent.
       emitDiagnostic: this.#input.emitDiagnostic ?? ((): void => {}),
@@ -2463,22 +2451,17 @@ class ProductionThetaProducer implements ThetaProducerDeps {
     // envelope failures). Absent on non-production harnesses (a no-op).
     const emitDiagnostic = this.#input.emitDiagnostic ?? ((): void => {});
 
-    // ---- IN-PROCESS host backing `executeDeps.host` ----
-    // Queries resolve via `#resolvePromptQuery(..., userVisible: false)` — a
-    // private `complete()` conversation, never the caller's. The file-callee
-    // path (below) uses `drive()` and never runs the body in-process.
-    const signal = thetaAbort.signal;
     // Decision 6 / Increment B1: the invocation's registry entry, opened before
-    // the lazy child launch below so the entry SPANS the real in-flight window;
+    // the child launch below so the entry SPANS the real in-flight window;
     // removal is deferred to `finishInvocation`. The slash dispatch entry
     // point's pre-binder ticket is REUSED when present (`bindInput.invocationTicket`),
     // so the entry also spans the binder window and no second entry is added.
     //
-    // RFC 0010 (EXST-4): hoisted above the host/execute deps so this
-    // invocation's id is in scope for the telemetry `Checkpoint` decorator, the
-    // lane hooks, and the child tap below. The hoist stays inside the same
-    // all-synchronous prologue, so the registry's `size()` transition points
-    // are unchanged.
+    // RFC 0010 (EXST-4): opened inside the same all-synchronous prologue as the
+    // bus notification and the child tap below, so the registry's `size()`
+    // transition points are unchanged. The body never runs in-process on this
+    // binding — it runs in the spawned child, and `drive()` (below) resolves
+    // the `Result` — so no executor host or deps are built here.
     const ticket =
       bindInput.invocationTicket ?? this.#openInvocationTicket(theta.slashName, thetaAbort);
     const statusBus = this.#input.statusBus;
@@ -2488,70 +2471,6 @@ class ProductionThetaProducer implements ThetaProducerDeps {
         ? { parentInvocationId: bindInput.parentInvocationId }
         : {}),
     });
-    const checkpoint = decorateCheckpoint(root.checkpoint, statusBus, ticket.invocationId);
-    const statusLanes: ParForLaneHooks | undefined =
-      statusBus === undefined
-        ? undefined
-        : { open: (total, width) => statusBus.openLaneSet(ticket.invocationId, total, width) };
-    const hostDeps: EffectfulStatementHostDeps = {
-      checkpoint,
-      signal,
-      sink: noopSink(),
-      file: theta.slashName,
-      evaluatePure: (expr, env, overrideChain) => evaluatePureExpression(expr, env, overrideChain ?? chain),
-      // Bug 0388: `overrideChain` (present only for a dispatch nested inside a
-      // cross-file `.thetalib` fn body) takes priority over the bind-level
-      // `chain` seed; absent, this is byte-identical to the pre-fix dispatch.
-      resolveQuery: (expr, env, overrideChain) =>
-        this.#resolvePromptQuery(expr, env, {
-          pi: this.#input.pi,
-          ctx,
-          theta,
-          signal,
-          thetaAbort,
-          readMessages: () => [],
-          userVisible: false,
-          chain: overrideChain ?? chain,
-        }),
-      resolveToolCall: (expr, env, evaluatedToolArgs) =>
-        this.#resolveToolCall(theta, expr, env, signal, evaluatedToolArgs),
-      resolveInvoke: (expr, env, overrideChain) =>
-        this.#resolveInvoke(theta, expr, env, ctx, overrideChain ?? chain, signal, "subagent", ticket.invocationId),
-      // Bug 0088: pair the wrapper `runInvokeEffect` builds for a failed hop
-      // with its provenance record.
-      recordInvokeHop: (wrapper, calleePath, callSite) =>
-        this.#recordInvokeHop(theta, wrapper, calleePath, callSite),
-      classifyCall: (expr) => this.#classifyCall(theta, expr),
-      resolveCallAsInvoke: (expr, env, overrideChain) =>
-        this.#resolveCallAsInvoke(theta, expr, env, ctx, overrideChain ?? chain, signal, "subagent", ticket.invocationId),
-      spawnSubagentFnSession: (config, overrideChain) =>
-        this.#spawnSubagentFnSession(theta, config, ctx, overrideChain ?? chain, signal),
-    };
-
-    const executeDeps: ExecuteBodyDeps = {
-      env: buildBoundEnvironment(
-        theta.body,
-        bindInput.paramBindings,
-        theta.imports,
-        presentedCallableNames(theta),
-        theta.sourcePath,
-      ),
-      host: createEffectfulStatementHost(hostDeps),
-      checkpoint,
-      signal,
-      mutator: new NoopConversationMutator(),
-      mode: "subagent",
-      file: theta.slashName,
-      // Bug 0324: thread the real runtime-diagnostic channel so a non-number
-      // `par for` `max` value's clamp-to-1 is not silent.
-      emitDiagnostic: this.#input.emitDiagnostic ?? ((): void => {}),
-      // Bug 0354, INV-4: seed the cross-file `.thetalib` fn accounting with
-      // THIS invocation's own chain, so a `subagent fn` body's fn frames share
-      // the same per-chain counter its invoke frames increment.
-      invokeChain: chain,
-      // RFC 0010 (EXST-3(c)): absent unless a bus is wired.
-      ...(statusLanes !== undefined ? { statusLanes } : {}),
-    };
 
     const detachForwarding = this.#trackForwardingSources(forwardingSources);
     let finished = false;
@@ -2583,28 +2502,30 @@ class ProductionThetaProducer implements ThetaProducerDeps {
     const marshalled = marshalParams(paramValues, this.#paramsMarshalDeps());
     const paramsCleanup = marshalled.cleanup;
 
-    const baseParentEnv = this.#input.subagentParentEnv ?? {};
-    // The hash carrier is named on EVERY launch — cleared (`undefined`, absent
-    // in the child) when this launch marshals none — for the same layering
-    // reason `marshalParams` names both params carriers (SPAWN-08): this env is
-    // spread over the launching process's own inherited environment, and that
-    // process is itself frequently a subagent child still carrying the hash map
-    // of the invocation that launched IT. A conditional spread cannot clear the
-    // inherited map, and the grandchild's hash verification would then check the
-    // CALLER's callable names against its own discovery — a spurious
-    // `subagent-callable-hash-mismatch` drop for a file edited between the two
-    // launches (subagent.md #subagent-theta-callable-hash).
-    // The winner-path carrier is likewise named on EVERY launch, cleared to
-    // `undefined` when this launch marshals none, for the same layering reason
-    // as the hash carrier above: this theta IS the marked root of the child it
-    // spawns (its slug is `theta.slashName`), and an inherited grandparent
-    // value must not leak into a child marked for a different slug
-    // (subagent.md #subagent-control-plane-authentication). Forward-slash
-    // normalized defensively — discovery already normalizes `sourcePath`, but
-    // the carrier is the child's collision-resolution comparison key, so this
-    // guards against a future upstream change to that invariant.
-    const parentEnv: Record<string, string | undefined> = {
-      ...baseParentEnv,
+    const parentEnv = this.#input.subagentParentEnv ?? {};
+    // THIS launch's control-plane carriage, handed to the launcher on its own
+    // channel rather than layered into `parentEnv`: the launcher scrubs the
+    // per-launch control plane out of the inherited environment (bug 0474,
+    // subagent.md #subagent-launch-contract), so a value spread into `parentEnv`
+    // would be indistinguishable from a stale inherited one.
+    //
+    // Every carrier is named on EVERY launch — cleared (`undefined`, absent in
+    // the child) when this launch marshals none — for the same reason
+    // `marshalParams` names both params carriers (SPAWN-08): naming the key
+    // makes THIS launch's channel choice authoritative for the child rather
+    // than a question about what the composition happened to leave behind. For
+    // the hash map that matters because a grandchild's hash verification would
+    // otherwise check the CALLER's callable names against its own discovery — a
+    // spurious `subagent-callable-hash-mismatch` drop for a file edited between
+    // the two launches (subagent.md #subagent-theta-callable-hash).
+    // The winner path names the marked root of the child this launch spawns
+    // (its slug is `theta.slashName`), so a value marked for a different slug
+    // must never stand in for it (subagent.md
+    // #subagent-control-plane-authentication). Forward-slash normalized
+    // defensively — discovery already normalizes `sourcePath`, but the carrier
+    // is the child's collision-resolution comparison key, so this guards
+    // against a future upstream change to that invariant.
+    const controlPlaneEnv: Record<string, string | undefined> = {
       ...marshalled.env,
       [SUBAGENT_CALLABLE_HASHES_ENV]:
         Object.keys(callableHashes).length > 0
@@ -2647,6 +2568,7 @@ class ProductionThetaProducer implements ThetaProducerDeps {
         // relocates the callee's side effects, never its identity.
         cwd: bindInput.resolvedCwd ?? ctx.cwd,
         parentEnv,
+        controlPlaneEnv,
         parentPid: this.#input.subagentParentPid ?? 0,
         // INV-4: marshal the CURRENT per-chain depth so the child continues the
         // depth-32 ceiling across the process hop (wire-level carriage).
@@ -2723,7 +2645,6 @@ class ProductionThetaProducer implements ThetaProducerDeps {
         thetaAbort,
         calleePath: theta.sourcePath ?? theta.slashName,
         emitDiagnostic,
-        clock: root.clock,
       });
       if (result.ok) {
         forwardedEnumTagsHolder = result.enumTags;
@@ -2763,23 +2684,16 @@ class ProductionThetaProducer implements ThetaProducerDeps {
 
     return {
       drivenAgainst: "subagent-private-session",
-      executeDeps,
       drive,
       // Bug 0342 §Fix: hands the subagent leg's per-position declaring-enum
       // tags (captured by `drive()`, above) to `#validateInvokeReturn`'s
-      // invoke-return retag. Undefined on the in-process `subagent fn` path,
-      // which never calls `drive()`.
+      // invoke-return retag. Undefined until `drive()` has settled an `Ok`
+      // whose envelope carried the sidecar.
       forwardedEnumTags: (): readonly EnumTagEntry[] | undefined => forwardedEnumTagsHolder,
       // Bug 0294: exposes `lastDriveSource` (set by `drive()`, above) so
       // `#driveCallee` can source-tag the subagent leg's body outcome for the
       // XMODE-1 wrap without re-deriving it from the settled `Result`'s `kind`.
       driveSource: (): InvokeResultSource => lastDriveSource,
-      // FN-5: on the in-process `subagent fn` path the caller's executor runs the
-      // inline body against the spawned session's own host deps, then surfaces the
-      // body's terminal final value the same way the file-callee `drive()` maps
-      // its envelope.
-      surface: (execution: BodyExecution): ResultValue =>
-        surfaceCalleeFinalValue(execution),
       teardown,
       finishInvocation,
     };
@@ -2793,13 +2707,13 @@ class ProductionThetaProducer implements ThetaProducerDeps {
   #paramsMarshalDeps(): ParamsMarshalDeps {
     const fs = this.#input.subagentParamsFs;
     return {
-      writeTempFile: (contents: string, mode: number): string => {
+      writeTempFile: (contents: string): string => {
         if (fs === undefined) {
           throw new SubagentSpawnFailedError(
             "subagent params temp-file channel unavailable: no params-fs seam wired",
           );
         }
-        return fs.writeTempFile(contents, mode);
+        return fs.writeTempFile(contents);
       },
       unlink: (path: string): void => {
         fs?.unlink(path);
@@ -3393,8 +3307,6 @@ class ProductionThetaProducer implements ThetaProducerDeps {
     const validation =
       lowered !== undefined
         ? this.#buildTypedValidation(
-            expr,
-            env,
             deps.theta,
             driveFollowUp,
             lowered,
@@ -3686,8 +3598,6 @@ class ProductionThetaProducer implements ThetaProducerDeps {
    * double lowering), threading the mode's follow-up turn drive.
    */
   #buildTypedValidation(
-    expr: QueryExpr,
-    env: LexicalEnvironment,
     theta: ConversationBindInput["theta"],
     driveFollowUp: (
       prompt: string,
@@ -3697,7 +3607,6 @@ class ProductionThetaProducer implements ThetaProducerDeps {
   ): TypedQuerySchemaValidation {
     return buildTypedQueryValidation({
       lowered,
-      resolveShape: resolveDeclaredShape(expr, env),
       schemaValidator: this.#input.root.schemaValidator,
       attempts: theta.frontmatter.respondRepair?.attempts ?? 3,
       maxRounds: theta.frontmatter.toolLoop?.maxRounds ?? 25,
@@ -4417,7 +4326,6 @@ class ProductionThetaProducer implements ThetaProducerDeps {
       // entry SPANS the nested callee's real in-flight window.
       try {
         const outcome = await runPromptSuspendInvoke<ResultValue>({
-          cell: { callerMode: "prompt", calleeMode: "prompt" },
           childCallableSet: callableSetPiToolNames(callee),
           pi: this.#input.pi,
           // Bug 0372 §Fix: the compliant `ActiveSetGateDeps` the cross-mode
@@ -4870,9 +4778,9 @@ export interface LoweredThetaCallableResult {
  * resolver recorded it from the `tools:` `spec`, so renamed / hyphenated callees
  * carry their real path). Mirrors `callableSetPiToolNames`; the callee schema /
  * param order / description are resolved asynchronously at spawn time via
- * `parseCallee` (production freezes each entry with `callee: undefined`, so the
- * parsed callee itself is not held on the snapshot). A theta with no snapshot
- * yields `[]`.
+ * `parseCallee` (the frozen entry carries the callee's `mode` and `calleePath`
+ * only; the parsed callee itself is not held on the snapshot). A theta with no
+ * snapshot yields `[]`.
  */
 function callableSetThetaEntries(
   theta: ConversationBindInput["theta"],
@@ -7009,20 +6917,6 @@ export function mergedEnumDeclsOf(theta: {
   return [...imported, ...sameFile];
 }
 
-/** An identifier-shaped `@<Schema>` annotation names a `schema` decl. */
-const SCHEMA_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
-
-/**
- * A `resolveDeclaredSchema` step (QRY-22): a named `@<Schema>` annotation
- * resolves whole-file via `env.resolveSchema` (previously uncalled); an inline
- * annotation resolves to its verbatim source.
- */
-function resolveDeclaredShape(expr: QueryExpr, env: LexicalEnvironment): () => unknown {
-  const annotation = (expr.schema ?? "").trim();
-  return () =>
-    SCHEMA_NAME.test(annotation) ? env.resolveSchema(annotation) : annotation;
-}
-
 /** Concatenate the text content of an assistant message (thinking / tool calls omitted). */
 function assistantText(message: AssistantMessage): string {
   return message.content
@@ -7629,71 +7523,6 @@ function loweredSchemaKindIsInteger(property: unknown, value: number): boolean {
 }
 
 /**
- * Extract the YAML frontmatter block (the text between the leading `---` fence
- * and the next `---` line) from a `.theta` source, or `undefined` when the file
- * carries no fenced frontmatter. Mirrors the parser's own block isolation so the
- * re-read reads the same YAML the loader parsed; the `\r` trim handles CRLF
- * files. Used only to recover declared `params:` default literals the parsed
- * frontmatter does not retain.
- */
-function extractFrontmatterYaml(source: string): string | undefined {
-  const lines = source.split("\n");
-  const isFence = (line: string | undefined): boolean =>
-    line !== undefined && line.replace(/\r$/, "") === "---";
-  if (!isFence(lines[0])) {
-    return undefined;
-  }
-  for (let i = 1; i < lines.length; i += 1) {
-    if (isFence(lines[i])) {
-      return lines.slice(1, i).join("\n");
-    }
-  }
-  return undefined;
-}
-
-/**
- * Split a `params:` field value scalar (`<type-expr>` optionally followed by
- * `= <literal>`) at the first top-level `=` — one not nested inside `<...>`
- * angles, `{...}` braces, `[...]` brackets, or a `"`/`'` string literal (so
- * `array<string> = []` and `Author = { name: "x" }` split correctly, and an
- * `==`/`>=` inside a default is not mistaken for the separator) — returning the
- * default RHS, or `undefined` when the field declared no default. Kept in step
- * with the parser's own `splitParamValue` so a recovered default matches the
- * literal the loader validated.
- */
-function splitParamDefaultSource(raw: string): string | undefined {
-  let depth = 0;
-  let quote: string | undefined;
-  for (let i = 0; i < raw.length; i += 1) {
-    const c = raw[i];
-    if (quote !== undefined) {
-      if (c === "\\" && i + 1 < raw.length) {
-        i += 1;
-      } else if (c === quote) {
-        quote = undefined;
-      }
-      continue;
-    }
-    if (c === '"' || c === "'") {
-      quote = c;
-      continue;
-    }
-    if (c === "<" || c === "{" || c === "[") {
-      depth += 1;
-      continue;
-    }
-    if (c === ">" || c === "}" || c === "]") {
-      depth -= 1;
-      continue;
-    }
-    if (depth === 0 && c === "=" && raw[i + 1] !== "=" && raw[i - 1] !== "=") {
-      return raw.slice(i + 1).trim();
-    }
-  }
-  return undefined;
-}
-
-/**
  * Render one `@`-query template to its wire text against the lexical
  * environment: lex the template into literal / `${…}` interpolation parts,
  * evaluate each interpolation as a full expression (expressions.md
@@ -7714,7 +7543,24 @@ function renderQueryText(expr: QueryExpr, env: LexicalEnvironment, chain?: Invok
       text += part.value;
       continue;
     }
-    text += stringifyInterpolation(part.exprSource, env, chain);
+    // Bug 0476 follow-up: `stringifyInterpolation` re-parses `part.exprSource`
+    // standalone (`parseExpressionSource`), so any panic it raises carries an
+    // interpolation-LOCAL coordinate (line 1, column within the `${…}` body),
+    // not a file coordinate. This is the one boundary that knows both that
+    // local coordinate and the enclosing query's own real range (`expr.range`)
+    // — retarget here, then re-throw.
+    try {
+      text += stringifyInterpolation(part.exprSource, env, chain);
+    } catch (thrown) { // allow-broad-catch: ThetaPanic-only, re-raised (bug 0476 follow-up)
+      if (isThetaPanic(thrown)) {
+        retargetInterpolationPanic(thrown, {
+          source: part.exprSource,
+          file: env.currentResidence(),
+          range: expr.range,
+        });
+      }
+      throw thrown;
+    }
   }
   return renderTemplateText(text);
 }
@@ -8020,7 +7866,30 @@ function evaluatePureExpression(
         }
       }
       // `.field` access — a `null` target raises `NullMemberAccessPanic` (V4b).
-      return evaluateMemberAccess(evaluatePureExpression(expr.target, env, chain), expr.field);
+      // Bug 0476 §Fix (BLOCKER A): the pure host raises on the shipped `@`
+      // interpolation route (`renderQueryText` → `stringifyInterpolation`),
+      // which is NOT absorbed, so this arm attaches the panic's SITE exactly
+      // as the executor's member arm does — except this host knows only the
+      // node's range, not the top-level body's on-disk file, so it attaches a
+      // full site when the current residence is known (a `.thetalib` leaf) and
+      // a PENDING range otherwise (`surfaceDispatchDefect`'s
+      // `completePanicSite` supplies the top-level file later).
+      {
+        const target = evaluatePureExpression(expr.target, env, chain);
+        try {
+          return evaluateMemberAccess(target, expr.field);
+        } catch (thrown) { // allow-broad-catch: ThetaPanic-only, re-raised (bug 0476 §Fix)
+          if (isThetaPanic(thrown)) {
+            const file = env.currentResidence();
+            if (file !== undefined) {
+              attachPanicSite(thrown, { file, range: expr.range });
+            } else {
+              attachPanicRange(thrown, expr.range);
+            }
+          }
+          throw thrown;
+        }
+      }
     }
     case "index": {
       // `[i]` access — a `null` target / out-of-bounds / missing key panics (V4b).
@@ -8035,7 +7904,21 @@ function evaluatePureExpression(
       if (typeof index !== "number" && typeof index !== "string") {
         throw new IndexKindDefectError(index);
       }
-      return evaluateIndexAccess(target, index);
+      // Bug 0476 §Fix (BLOCKER A): same two-phase site attachment as the
+      // member arm above — this is the shipped `@` interpolation route.
+      try {
+        return evaluateIndexAccess(target, index);
+      } catch (thrown) { // allow-broad-catch: ThetaPanic-only, re-raised (bug 0476 §Fix)
+        if (isThetaPanic(thrown)) {
+          const file = env.currentResidence();
+          if (file !== undefined) {
+            attachPanicSite(thrown, { file, range: expr.range });
+          } else {
+            attachPanicRange(thrown, expr.range);
+          }
+        }
+        throw thrown;
+      }
     }
     case "call": {
       // A `<name>(args)` call whose callee resolves to a user `fn` executes the
@@ -8189,10 +8072,49 @@ function evaluatePureFnCall(
       calleeResidence: bodyRoot.currentResidence() ?? "",
     });
     if (kind !== undefined) {
-      bodyChain = pushCountableFrame(chain, kind);
+      // Bug 0476 §Fix (BLOCKER A): the depth seam's caller — the pure-host
+      // twin of `evalUserFnCall`'s catch around `pushCountableFrame`
+      // (statement-executor.ts). The depth cap is breached BEFORE the frame
+      // opens (invocation.md §INV-4), so THIS call expression — the one that
+      // would have opened it — is the panic's SITE, not a frame: no body ever
+      // ran. Two-phase, like the member/index arms above: a full site when the
+      // residence is known, else a pending range for `completePanicSite`.
+      try {
+        bodyChain = pushCountableFrame(chain, kind);
+      } catch (thrown) { // allow-broad-catch: ThetaPanic-only, re-raised (bug 0476 §Fix)
+        if (isThetaPanic(thrown)) {
+          const file = env.currentResidence();
+          if (file !== undefined) {
+            attachPanicSite(thrown, { file, range: expr.range });
+          } else {
+            attachPanicRange(thrown, expr.range);
+          }
+        }
+        throw thrown;
+      }
     }
   }
-  return evaluatePureBlock(fn.body, scope, bodyChain).value;
+  // Bug 0476 §Fix (BLOCKER A): the pure fn-call boundary — the pure-host twin
+  // of `evalUserFnCall`'s catch around `executeBlock` (statement-executor.ts).
+  // As the panic unwinds through this call, push the CALL SITE frame — this
+  // caller's file (when known; else left pending for `completePanicSite` to
+  // back-fill alongside the site) and the call expression's own range — not
+  // the callee's declaration.
+  let outcome: PureBlockOutcome;
+  try {
+    outcome = evaluatePureBlock(fn.body, scope, bodyChain);
+  } catch (thrown) { // allow-broad-catch: ThetaPanic-only, re-raised (bug 0476 §Fix)
+    if (isThetaPanic(thrown)) {
+      pushPanicFrame(thrown, {
+        kind: "fn",
+        name: fn.name,
+        file: env.currentResidence(),
+        range: expr.range,
+      });
+    }
+    throw thrown;
+  }
+  return outcome.value;
 }
 
 /** The outcome of evaluating a pure block: a fallen-through value or an explicit `return`. */

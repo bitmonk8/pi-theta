@@ -6,8 +6,10 @@ The call-site `with { cwd: <expr> }` clause (theta 1.3) lets a `par for` fan a
 subagent-mode callee out across separate git worktrees — one child `pi`
 process per tree, each editing and testing in its own directory. This is the
 worked example [RFC 0009](../rfcs/0009-per-call-subagent-cwd.md) validates its
-payoff against; reworking `/quality-loop`'s fix phase into this shape is the
-RFC 0009 plan's Phase 8 (not yet landed at this writing).
+payoff against, and `/quality-loop`'s fix phase is built in this shape
+(RFC 0009 plan Phase 8): `.pi/theta/quality-loop.theta` provisions the trees
+and integrates, `.pi/theta/workers/fix-cluster-tree.theta` is the wrapper
+worker.
 
 ## Shape
 
@@ -60,6 +62,15 @@ schema WorktreeRow {
   tree: string
 }
 
+// The worker's return schema — in a real setup both thetas import it from a
+// shared .thetalib so the `invoke<TreeReport>` annotation below and the
+// worker's constructor stay one definition.
+schema TreeReport {
+  ok: boolean,
+  sha: string,
+  fixed_confirmed: boolean
+}
+
 let provisioned = bash({ command: "node tools/worktrees.mjs provision --clusters " + clusters })?
 let rows: array<string> = provisioned.split("\n")
 
@@ -75,8 +86,13 @@ for row in rows {
 // directory for this one call only — everything else about the launch
 // (discovery roots, tools allowlist, trust flags) is unchanged (RFC 0009
 // §4, the identity/location principle — see "Safety notes" below).
+// The postfix `?` matters: it unwraps the CALL's own Result inside the lane,
+// so a failed worker surfaces as the lane's Err and a green one hands the
+// integration loop a bare TreeReport. Without it every lane is Ok(<inner
+// Result>) for normal lanes and the `rep.ok` reads below panic on a Result
+// receiver (`theta/runtime/non-object-receiver`).
 let reports = par for w in work max 4 {
-  fix_cluster_in_tree(w.manifest, w.guidance) with { cwd: w.tree }
+  invoke<TreeReport>("./fix-cluster-in-tree.theta", w.manifest, w.guidance) with { cwd: w.tree }?
 }
 ```
 
@@ -92,7 +108,7 @@ never writes to the shared store (see [Store writes](#store-writes-stay-orchestr
 
 ```theta
 ---
-description: Fix one cluster inside its own worktree; gate, review, and commit once green
+description: "Fix one cluster inside its own worktree; gate, review, and commit once green"
 mode: subagent
 params:
   manifest: string
@@ -123,19 +139,23 @@ while attempt < 2 && !gate_ok {
   }
 }
 
-if !gate_ok {
-  TreeReport { ok: false, sha: "", fixed_confirmed: false }
-} else {
+// An `if` is a STATEMENT in theta: a trailing if/else's branch values go
+// nowhere, the callee's final value becomes null, and the orchestrator's
+// member reads panic on it at runtime. Bind into a `let mut`, end on a bare
+// expression tail — and have the caller use `invoke<TreeReport>` (below) so
+// a null return is refused as `return_validation` instead of crossing as
+// `Ok(null)`.
+let mut out = TreeReport { ok: false, sha: "", fixed_confirmed: false }
+if gate_ok {
   let verdict: ReviewVerdict = @`Review the diff in this worktree against the guidance: ${guidance}.
 Report whether the cluster is genuinely fixed.`?
-  if !verdict.confirmed {
-    TreeReport { ok: false, sha: "", fixed_confirmed: false }
-  } else {
+  if verdict.confirmed {
     bash({ command: "git add -A && git commit -m \"fix: " + manifest + "\"" })?
     let sha = bash({ command: "git rev-parse HEAD" })?.trim()
-    TreeReport { ok: true, sha: sha, fixed_confirmed: true }
+    out = TreeReport { ok: true, sha: sha, fixed_confirmed: true }
   }
 }
+out
 ```
 
 A tree that never goes green (2 failed attempts, or a review that does not

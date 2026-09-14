@@ -83,32 +83,16 @@ import {
   PROMPT_MODE_SETTLE_PHASE_EXPIRY_MESSAGE,
   PROMPT_MODE_PRE_SEND_GATE_EXPIRY_MESSAGE,
 } from "../src/runtime/prompt-transport-mapping";
-import {
-  AjvSchemaValidator,
-  type LoweredSchema,
-  type SchemaSlug,
-} from "../src/seams/schema-validator";
 import type { RuntimeRoot } from "../src/runtime-root";
 import {
-  parseThetaDocument,
-  type ParseThetaDocumentDeps,
-  type ThetaDocument,
-} from "../src/parser/theta-document";
-import type { ThetaSource } from "../src/lexer/lexer";
-import type { ModelReferenceMatcher } from "../src/parser/frontmatter";
-import type { SystemNoteChannelDeps } from "../src/extension/system-note-channel";
-
-// --- The user session's selected model ---------------------------------------
-// Distinct `.api` / `.provider` strings (the bug-0009 fixture discipline) so a
-// synthesised `TransportError.provider` is checked against the API-shaped
-// value the PIC-50 derivation pins.
-
-const ANTHROPIC_MODEL = {
-  id: "m1",
-  api: "anthropic-messages",
-  provider: "anthropic",
-  strictCapable: true,
-};
+  ajv,
+  ANTHROPIC_MODEL,
+  appendAssistantEntry,
+  appendUserEntry,
+  parse,
+  type SessionEntryDouble,
+  type TurnState,
+} from "./helpers/scripted-live-session-harness";
 
 /**
  * Phase-naming demands on the §Fix's minted per-phase messages. The alternation
@@ -188,20 +172,6 @@ interface SendObservation {
   readonly transcriptAtSend: readonly string[];
 }
 
-/** A `SessionManager` message entry (the `buildSessionContext` read shape). */
-interface SessionEntryDouble {
-  readonly type: "message";
-  readonly id: string;
-  readonly parentId: string | undefined;
-  readonly message: Record<string, unknown>;
-}
-
-/** An in-flight scripted turn: its script plus polls elapsed since the milestone. */
-interface TurnState {
-  readonly script: TurnScript;
-  polls: number;
-}
-
 /**
  * The live user-session double, driven by a per-turn lifecycle script instead
  * of the sibling harnesses' "settle on the first tick" shortcut — the whole
@@ -218,8 +188,8 @@ class ScriptedLiveSession {
   rejectedSends = 0;
 
   readonly #scripts: TurnScript[];
-  #pending: TurnState | undefined = undefined;
-  #active: TurnState | undefined = undefined;
+  #pending: TurnState<TurnScript> | undefined = undefined;
+  #active: TurnState<TurnScript> | undefined = undefined;
   /**
    * A run this drive did not issue that is in flight for the whole cell. The
    * faithful shape of a slash dispatch that reaches the theta from INSIDE
@@ -294,9 +264,9 @@ class ScriptedLiveSession {
       effective: true,
       transcriptAtSend,
     });
-    this.#appendUser(text);
+    appendUserEntry(this.entries, text);
     if (script.instantSettle === true) {
-      this.#appendAssistant(script.reply);
+      appendAssistantEntry(this.entries, script.reply);
       return;
     }
     this.#pending = { script, polls: 0 };
@@ -316,7 +286,7 @@ class ScriptedLiveSession {
     if (active !== undefined) {
       active.polls += 1;
       if (active.polls === active.script.replyAfterPolls) {
-        this.#appendAssistant(active.script.reply);
+        appendAssistantEntry(this.entries, active.script.reply);
       }
       if (active.polls >= active.script.endsAfterPolls) {
         this.#active = undefined;
@@ -363,63 +333,9 @@ class ScriptedLiveSession {
       .map((part) => part.text)
       .join("");
   }
-
-  #appendUser(text: string): void {
-    this.#append({ role: "user", content: [{ type: "text", text }], timestamp: 0 });
-  }
-
-  #appendAssistant(text: string | undefined): void {
-    this.#append({
-      role: "assistant",
-      content: text !== undefined ? [{ type: "text", text }] : [],
-      api: "anthropic-messages",
-      provider: "anthropic",
-      model: "m1",
-      stopReason: "stop",
-      timestamp: 0,
-    });
-  }
-
-  #append(message: Record<string, unknown>): void {
-    const id = `e${this.entries.length + 1}`;
-    const parentId = this.entries.length === 0 ? undefined : `e${this.entries.length}`;
-    this.entries.push({ type: "message", id, parentId, message });
-  }
 }
 
 // --- Harness ------------------------------------------------------------------
-
-function parseDeps(): ParseThetaDocumentDeps {
-  const systemNote: SystemNoteChannelDeps = {
-    pi: { sendMessage: (): void => {} },
-    ui: { notify: (): void => {} },
-    emitDiagnostic: (): void => {},
-  };
-  const modelMatcher: ModelReferenceMatcher = { resolve: (): "resolved" => "resolved" };
-  return { systemNote, modelMatcher };
-}
-
-/** Parse `.theta` source through the production whole-file parser (must be clean). */
-function parse(src: string): ThetaDocument {
-  const source: ThetaSource = {
-    path: "probe.theta",
-    bytes: new TextEncoder().encode(src),
-  };
-  const doc = parseThetaDocument(source, parseDeps());
-  const errors = doc.diagnostics.filter((d) => d.severity === "error").map((d) => d.code);
-  expect(errors, "the fixture theta must parse cleanly before it is driven").toEqual([]);
-  expect(doc.frontmatter, "the fixture theta must carry parseable frontmatter").not.toBeNull();
-  return doc;
-}
-
-/** The production AJV validator (matches the sibling live-seam harnesses). */
-function ajv(): AjvSchemaValidator {
-  const slugOf = (schema: LoweredSchema): SchemaSlug => ({
-    slug: JSON.stringify(schema),
-    canonicalBytes: JSON.stringify(schema),
-  });
-  return new AjvSchemaValidator({ emit: () => {}, slugOf });
-}
 
 /**
  * The runtime root for the live drive. `clock.setTimeout` advances the session

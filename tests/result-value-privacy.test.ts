@@ -425,7 +425,7 @@ describe("bug 0017 (c) — a callee final value carrying `ok: boolean` crosses t
     const entries = new Map([
       [
         "callee",
-        { kind: "theta" as const, mode: "prompt" as const, calleePath: "./callee.theta", callee: undefined },
+        { kind: "theta" as const, mode: "prompt" as const, calleePath: "./callee.theta" },
       ],
     ]);
     const theta = {

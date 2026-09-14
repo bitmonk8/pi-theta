@@ -5,9 +5,9 @@ import {
   renderAjvSummary,
   renderBinderSystemNote,
   renderDepthWalkAjvSummary,
-  runBinderWithRetries,
   type BinderAttemptOutcome,
 } from "../src/binder/retry-taxonomy";
+import { runBinderCallWithCancellation } from "../src/binder/binder-cancellation";
 import {
   DEPTH_VIOLATION_MESSAGE,
   DEPTH_VIOLATION_SCHEMA_KEYWORD,
@@ -22,13 +22,19 @@ import type { ValidationIssue } from "../src/runtime/query-error";
 // verbatim rendering and the CIO-1/CIO-3 depth-walk-fast-fail cross-ceiling
 // sub-case (binder/determinism-cancellation-failure.md).
 //
-// Each test reds on its own primary assertion because the V11f runtime is
-// absent: `runBinderWithRetries` returns a zero-call sentinel WITHOUT issuing
-// any attempt (so every budget test reds on `callCount`/`outcome`);
-// `renderBinderSystemNote` / `renderAjvSummary` / `renderDepthWalkAjvSummary`
-// return the `UNIMPLEMENTED` sentinel (so every template test reds on its
-// equality assertion); and `classifyBinderArgs` always reports `ok`. No test
-// reds on a compile error, a missing fixture, or a harness throw.
+// The HC3-a…HC3-e budget witnesses below drive the retry budget through
+// `runBinderCallWithCancellation` (binder-cancellation.ts) — the ONE
+// implementation of the HC3 per-class retry budget (PTQ-0290) — with a
+// never-aborting signal, so they pin the same interleave the production path
+// runs; `tests/binder-call-cancellation.test.ts` covers its
+// cancellation-interaction arms. Each test reds on its own primary assertion
+// because the V11f runtime is absent: `runBinderCallWithCancellation` returns
+// a zero-call sentinel WITHOUT issuing any attempt (so every budget test reds
+// on `s.calls()`/`result.outcome`); `renderBinderSystemNote` /
+// `renderAjvSummary` / `renderDepthWalkAjvSummary` return the `UNIMPLEMENTED`
+// sentinel (so every template test reds on its equality assertion); and
+// `classifyBinderArgs` always reports `ok`. No test reds on a compile error, a
+// missing fixture, or a harness throw.
 //
 // Spec: binder/determinism-cancellation-failure.md (§"Failure-class taxonomy",
 // §"Failure-mode templates", §"Per-invocation retry budget"),
@@ -37,9 +43,11 @@ import type { ValidationIssue } from "../src/runtime/query-error";
 // A retry-budget scenario: a fixed per-attempt outcome script and a call
 // counter. `attempt(i)` returns `script[i]` (or the last element for any index
 // past the script end, so an over-budget call is still classified rather than
-// throwing) and increments `calls`.
+// throwing) and increments `calls`. The second `attempt` parameter is the
+// cancellation signal `runBinderCallWithCancellation` forwards; these
+// scenarios never abort, so it is accepted and unused.
 function scenario(script: readonly BinderAttemptOutcome[]): {
-  attempt: (index: number) => Promise<BinderAttemptOutcome>;
+  attempt: (index: number, signal: AbortSignal) => Promise<BinderAttemptOutcome>;
   calls: () => number;
 } {
   let calls = 0;
@@ -50,7 +58,7 @@ function scenario(script: readonly BinderAttemptOutcome[]): {
     expect.unreachable("scenario() requires a non-empty attempt script");
   }
   return {
-    attempt: async (index: number) => {
+    attempt: async (index: number, _signal: AbortSignal) => {
       calls += 1;
       return script[index] ?? last;
     },
@@ -65,6 +73,10 @@ const TRANSPORT: BinderAttemptOutcome = {
 };
 const MALFORMED: BinderAttemptOutcome = { kind: "malformed" };
 
+// A never-aborting signal for the budget-interleaving scenarios below, which
+// exercise the HC3 budget only.
+const NO_ABORT = new AbortController().signal;
+
 // ============================================================================
 // HC3-a … HC3-e — the per-class retry budget (hard-ceilings/ceilings-3-and-4.md
 // §HC3; determinism-cancellation-failure.md §"Per-invocation retry budget")
@@ -76,8 +88,15 @@ describe("V11f-T — binder per-class retry budget (ceilings-3-and-4.md §HC3)",
     // transport-class retry, then surfaces the transport row — 2 LLM calls, no
     // second transport retry (HC3-a).
     const s = scenario([TRANSPORT, TRANSPORT, TRANSPORT]);
-    const result = await runBinderWithRetries({ attempt: s.attempt });
-    expect(result.callCount).toBe(2);
+    const result = await runBinderCallWithCancellation({
+      thetaName: "code-review",
+      signal: NO_ABORT,
+      attempt: s.attempt,
+    });
+    expect(result.kind).toBe("completed");
+    if (result.kind !== "completed") {
+      expect.unreachable("expected a completed binder-call result");
+    }
     expect(s.calls()).toBe(2);
     expect(result.outcome.kind).toBe("transport");
   });
@@ -87,8 +106,15 @@ describe("V11f-T — binder per-class retry budget (ceilings-3-and-4.md §HC3)",
     // malformed-class retry, then surfaces the malformed row — 2 LLM calls, no
     // second malformed retry (HC3-b).
     const s = scenario([MALFORMED, MALFORMED, MALFORMED]);
-    const result = await runBinderWithRetries({ attempt: s.attempt });
-    expect(result.callCount).toBe(2);
+    const result = await runBinderCallWithCancellation({
+      thetaName: "code-review",
+      signal: NO_ABORT,
+      attempt: s.attempt,
+    });
+    expect(result.kind).toBe("completed");
+    if (result.kind !== "completed") {
+      expect.unreachable("expected a completed binder-call result");
+    }
     expect(s.calls()).toBe(2);
     expect(result.outcome.kind).toBe("malformed");
   });
@@ -99,8 +125,15 @@ describe("V11f-T — binder per-class retry budget (ceilings-3-and-4.md §HC3)",
     const s = scenario([
       { kind: "ajv_args", ajvSummary: "/language must be string" },
     ]);
-    const result = await runBinderWithRetries({ attempt: s.attempt });
-    expect(result.callCount).toBe(1);
+    const result = await runBinderCallWithCancellation({
+      thetaName: "code-review",
+      signal: NO_ABORT,
+      attempt: s.attempt,
+    });
+    expect(result.kind).toBe("completed");
+    if (result.kind !== "completed") {
+      expect.unreachable("expected a completed binder-call result");
+    }
     expect(s.calls()).toBe(1);
     expect(result.outcome.kind).toBe("ajv_args");
   });
@@ -111,9 +144,13 @@ describe("V11f-T — binder per-class retry budget (ceilings-3-and-4.md §HC3)",
     // transport → malformed → transport exhausts BOTH budgets: 1 initial + 1
     // transport retry + 1 malformed retry = exactly 3 LLM calls, then surface.
     const s = scenario([TRANSPORT, MALFORMED, TRANSPORT]);
-    const result = await runBinderWithRetries({ attempt: s.attempt });
-    expect(result.callCount).toBe(MAX_BINDER_LLM_CALLS);
-    expect(result.callCount).toBe(3);
+    const result = await runBinderCallWithCancellation({
+      thetaName: "code-review",
+      signal: NO_ABORT,
+      attempt: s.attempt,
+    });
+    expect(result.kind).toBe("completed");
+    expect(s.calls()).toBe(MAX_BINDER_LLM_CALLS);
     // No fourth attempt is ever issued (both budgets exhausted).
     expect(s.calls()).toBe(3);
   });
@@ -124,8 +161,16 @@ describe("V11f-T — binder per-class retry budget (ceilings-3-and-4.md §HC3)",
     // malformed (consume malformed budget) → transport (consume transport
     // budget) → malformed (both budgets exhausted → surface the MOST RECENT).
     const s = scenario([MALFORMED, TRANSPORT, MALFORMED]);
-    const result = await runBinderWithRetries({ attempt: s.attempt });
-    expect(result.callCount).toBe(3);
+    const result = await runBinderCallWithCancellation({
+      thetaName: "code-review",
+      signal: NO_ABORT,
+      attempt: s.attempt,
+    });
+    expect(s.calls()).toBe(3);
+    expect(result.kind).toBe("completed");
+    if (result.kind !== "completed") {
+      expect.unreachable("expected a completed binder-call result");
+    }
     expect(result.outcome.kind).toBe("malformed");
     // The surfaced system note is the malformed-envelope row (most recent), not
     // the transport row that fired earlier.

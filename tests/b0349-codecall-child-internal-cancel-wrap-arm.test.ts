@@ -97,21 +97,14 @@ import {
   type ExecuteBodyDeps,
 } from "../src/runtime/statement-executor";
 import { buildEnvironment } from "../src/runtime/lexical-environment";
-import type { Checkpoint } from "../src/seams/checkpoint";
-import type {
-  CommittedConversationMutator,
-  CommittedSurface,
-  DrivenConversationMode,
-} from "../src/runtime/terminal-outcomes";
+import type { DrivenConversationMode } from "../src/runtime/terminal-outcomes";
 import { makeErr, makeOk, type ResultValue, type ThetaValue } from "../src/runtime/value";
 import type {
   DrivenInvokeResult,
   InvokeChild,
   InvokeResultSource,
 } from "../src/runtime/invoke-cancellation";
-import type { ToolLoweringSink } from "../src/runtime/tool-call-execute";
 import type { CallExpr, ThetaBody } from "../src/parser/theta-document";
-import type { SourceRange } from "../src/diagnostics/diagnostic";
 import type {
   CancelledError,
   CodeToolError,
@@ -120,6 +113,13 @@ import type {
   QueryError,
 } from "../src/runtime/query-error";
 import type { InvokeCallSite } from "../src/runtime/invoke-provenance";
+import {
+  SEAM_NOOP_CHECKPOINT,
+  SEAM_NOOP_SINK,
+  SEAM_NOOP_MUTATOR,
+  span,
+  type RecordedHop,
+} from "./helpers/invoke-seam-scaffold";
 
 // The parent theta the seam drives. Its body tail is a bare-identifier call
 // `worker()` resolved to a `.theta`-callable.
@@ -135,42 +135,14 @@ const WORKER = "./worker.theta";
 // Seam scaffolding — the bug-0295 sibling harness, re-routed through the
 // code-call leg (`classifyCall` + `resolveCallAsInvoke`) with a `call` expr
 // tail, driven by the real `executeBody` over an injected `InvokeChild` double.
+// `SEAM_NOOP_CHECKPOINT` / `SEAM_NOOP_SINK` / `SEAM_NOOP_MUTATOR` / `span` /
+// `RecordedHop` are the shared no-op scaffold
+// (tests/helpers/invoke-seam-scaffold.ts, PTQ-0244).
 // ===========================================================================
-
-const SEAM_NOOP_CHECKPOINT: Checkpoint = {
-  before(): Promise<void> {
-    return Promise.resolve();
-  },
-};
-
-const SEAM_NOOP_SINK: ToolLoweringSink = {
-  runtimeEvent(): void {},
-  diagnostic(): void {},
-  systemNote(): void {},
-};
-
-const SEAM_NOOP_MUTATOR: CommittedConversationMutator = {
-  truncate(): void {},
-  rewrite(): void {},
-  replace(): void {},
-  remove(): void {},
-  injectCompensatingTurn(_surface: CommittedSurface): void {},
-};
-
-function span(): SourceRange {
-  return { start: { line: 1, column: 1 }, end: { line: 1, column: 2 } };
-}
 
 /** The body-tail `worker()` code-call the theta-callable leg drives (tool-calls.md:38). */
 function callExpr(callee: string): CallExpr {
   return { kind: "call", callee, args: [], range: span() };
-}
-
-/** One recorded SLSH-5 hop (`deps.recordInvokeHop` fires only when the fix wraps an `invoke_callee`). */
-interface RecordedHop {
-  readonly wrapper: InvokeCalleeError;
-  readonly calleePath: string;
-  readonly callSite: InvokeCallSite;
 }
 
 /**
@@ -438,7 +410,6 @@ describe("bug 0349 (C) — code-call envelope-after-abort race (signal aborted a
       err.kind,
       "the adjudicated race disposition is bare cancelled (caller's own signal fired first), never a source-keyed invoke_callee wrap",
     ).toBe("cancelled");
-    expect(err.kind).not.toBe("invoke_callee");
   });
 });
 
@@ -495,7 +466,6 @@ describe("bug 0349 (E) — code-call boundary-minted Err stays bare (not invoke_
       err.kind,
       "a boundary-minted infra Err stays bare (its own leaf kind), never wrapped as invoke_callee (bug 0294 provenance)",
     ).toBe("invoke_infra");
-    expect(err.kind).not.toBe("invoke_callee");
     expect(hops.length, "no SLSH-5 hop is recorded for a bare boundary-minted Err").toBe(0);
   });
 });

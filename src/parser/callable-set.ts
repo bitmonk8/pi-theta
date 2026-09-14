@@ -62,9 +62,11 @@ export interface ResolvedPiTool {
 }
 
 /**
- * A `.theta` callee resolved against the per-load-pass parse cache — the
- * resolution snapshot holds a strong reference to the parsed callee plus its
- * lowered tool spec. `mode` gates the `theta/load/prompt-mode-callable` check.
+ * A `.theta` callee resolved against the per-load-pass parse cache. The
+ * snapshot entry holds the callee's declared `mode` and its path literal
+ * (`calleePath`), not the parsed callee itself: the runtime re-parses the callee
+ * from `calleePath` at spawn time. `mode` gates the
+ * `theta/load/prompt-mode-callable` check.
  */
 export interface ResolvedThetaCallee {
   readonly kind: "theta";
@@ -91,8 +93,6 @@ export interface ResolvedThetaCallee {
    * case-sensitive-neutral (entry basename and on-disk basename cannot diverge).
    */
   readonly onDiskName?: string;
-  /** Strong reference to the parsed callee + lowered tool spec (opaque here). */
-  readonly callee: unknown;
   /**
    * RFC-0005 #subagent-theta-callable-hash: the transitive-closure content hash
    * (root `.theta` + its `.thetalib` imports) captured at LOAD time, from the
@@ -113,7 +113,8 @@ export type ResolvedCallable = ResolvedPiTool | ResolvedThetaCallee;
  * The frozen per-theta resolution snapshot: a `{ post-rename name → resolved
  * callable }` table (frontmatter-fields-b-and-templates.md §Resolution
  * snapshot). Frozen so no ambient inheritance or post-load mutation can widen
- * the callable set; subsequent calls dispatch through the held references.
+ * the callable set; subsequent calls dispatch through the frozen entries (a
+ * Pi tool's held `toolDefinition`, a `.theta` callee's `calleePath`).
  */
 export interface CallableSetSnapshot {
   readonly entries: ReadonlyMap<string, ResolvedCallable>;
@@ -229,7 +230,7 @@ export function resolveCallableSet(
 
     // Resolve the entry's underlying callable and compute its default name.
     const resolution = resolveEntry(parsed.spec, deps, file);
-    if (resolution.diagnostic !== undefined) {
+    if ("diagnostic" in resolution) {
       diagnostics.push(resolution.diagnostic);
       continue;
     }
@@ -327,15 +328,16 @@ export type ToolsEntryParse =
   | { readonly kind: "ok"; readonly spec: string; readonly rename?: string }
   | { readonly kind: "malformed" };
 
-/** The outcome of resolving one entry's underlying callable. */
-interface EntryResolution {
-  /** The resolved callable, present iff `diagnostic` is absent. */
-  readonly callable: ResolvedCallable;
-  /** The default (pre-rename) name for the entry. */
-  readonly defaultName: string;
-  /** The rejection diagnostic, present iff resolution failed. */
-  readonly diagnostic?: Diagnostic;
-}
+/**
+ * The outcome of resolving one entry's underlying callable: the resolved
+ * callable with its default (pre-rename) name, or the rejection diagnostic.
+ */
+type EntryResolution =
+  | {
+      readonly callable: ResolvedCallable;
+      readonly defaultName: string;
+    }
+  | { readonly diagnostic: Diagnostic };
 
 /**
  * Split a `tools:` value into per-entry strings. Both YAML spellings reduce to
@@ -399,8 +401,6 @@ function resolveEntry(
     const resolved = deps.resolvePiTool(spec);
     if (resolved === undefined) {
       return {
-        callable: { kind: "pi-tool", toolDefinition: undefined },
-        defaultName: spec,
         diagnostic: {
           severity: "error",
           code: "theta/load/unknown-tool",
@@ -422,22 +422,15 @@ function resolveEntry(
   // byte-mismatches the entry's basename.
   const [extensionDiagnostic] = checkInvokeExtension({
     literalPath: spec,
-    surface: "tools",
     site: { file },
   });
   if (extensionDiagnostic !== undefined) {
-    return {
-      callable: { kind: "theta", mode: "subagent", callee: undefined, calleePath: spec },
-      defaultName: thetaDefaultName(spec),
-      diagnostic: extensionDiagnostic,
-    };
+    return { diagnostic: extensionDiagnostic };
   }
   const resolved = deps.resolveThetaCallee(spec);
   const defaultName = thetaDefaultName(spec);
   if (resolved === undefined) {
     return {
-      callable: { kind: "theta", mode: "subagent", callee: undefined, calleePath: spec },
-      defaultName,
       diagnostic: {
         severity: "error",
         code: "theta/load/unresolvable-theta-path",
@@ -469,8 +462,6 @@ function resolveEntry(
     entryBasename(spec) !== resolved.onDiskName
   ) {
     return {
-      callable: { kind: "theta", mode: "subagent", callee: undefined, calleePath: spec },
-      defaultName,
       diagnostic: {
         severity: "error",
         code: "theta/load/unresolvable-theta-path",
@@ -479,15 +470,8 @@ function resolveEntry(
       },
     };
   }
-  // Carry the authoritative callee path literal (the entry's `spec`, as written)
-  // onto the snapshot entry. The deps lookup is keyed by that same literal, so
-  // this is the single source of truth for how the runtime later reopens the
-  // callee — independent of the presented name's hyphen/rename rewrites.
-  const withPath: ResolvedThetaCallee = { ...resolved, calleePath: spec };
   if (resolved.mode === "prompt") {
     return {
-      callable: withPath,
-      defaultName,
       diagnostic: {
         severity: "error",
         code: "theta/load/prompt-mode-callable",
@@ -496,6 +480,11 @@ function resolveEntry(
       },
     };
   }
+  // Carry the authoritative callee path literal (the entry's `spec`, as written)
+  // onto the snapshot entry. The deps lookup is keyed by that same literal, so
+  // this is the single source of truth for how the runtime later reopens the
+  // callee — independent of the presented name's hyphen/rename rewrites.
+  const withPath: ResolvedThetaCallee = { ...resolved, calleePath: spec };
   return { callable: withPath, defaultName };
 }
 

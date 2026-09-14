@@ -1,22 +1,26 @@
 // V17c / V17c-T — the cancellation-checkpoint granularity surface (cka-47).
 //
-// This module owns the two cycle-free per-site checkpoint wirings V17c is
+// This module holds the two cycle-free per-site checkpoint wirings V17c is
 // responsible for, both observable through the V8a `Checkpoint` seam (PIC-10)
 // alone, independent of the V17a forwarding contract:
 //
 //   - `runCheckpointedForLoop` — the `for`/`while` loop-iteration site (the loop
-//     construct V3c introduces). The interpreter awaits
-//     `checkpoint.before("loop-iter", site)` immediately before each iteration
-//     of the body, then reads `signal.aborted` and stops iterating once the
-//     signal has fired. Because the `loop-iter` checkpoint yields one macrotask
-//     turn (per PIC-10 production wiring), a Pi-dispatched abort (a macrotask)
-//     flipped during a compute-bound body with no genuine `await` is observed
-//     before the next iteration (cancellation.md §Granularity, `loop-iter`).
+//     construct V3c introduces): await `checkpoint.before("loop-iter", site)`
+//     immediately before each iteration of the body, then read `signal.aborted`
+//     and stop iterating once the signal has fired. Because the `loop-iter`
+//     checkpoint yields one macrotask turn (per PIC-10 production wiring), a
+//     Pi-dispatched abort (a macrotask) flipped during a compute-bound body with
+//     no genuine `await` is observed before the next iteration (cancellation.md
+//     §Granularity, `loop-iter`). This is the seam's test-witnessed form; the
+//     production interpreter fires the same `loop-iter` checkpoint through its
+//     own private `loopIterCheckpoint` helper (`statement-executor.ts`) and does
+//     not route through this function.
 //   - `runCheckpointedBinderCall` — the slash-command argument binder's LLM-call
-//     site (the binder-inference call V9j introduces). The interpreter awaits
+//     site (the binder-inference call V9j introduces). The producer awaits
 //     `checkpoint.before("binder-call", site)` immediately before dispatching
 //     the binder's LLM call, then reads `signal.aborted`; an abort observed at
-//     that checkpoint skips the call.
+//     that checkpoint skips the call (production-wired from
+//     `production-theta-producer.ts`).
 //
 // The checkpoint fires at these two sites and no other node kinds: no checkpoint
 // inside a primitive operation (arithmetic, comparison, field/index access) and

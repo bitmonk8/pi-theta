@@ -24,10 +24,6 @@
 //     §Schema-slug collision posture byte-equality check: byte-identical
 //     fragments sharing a slug dedup silently; a slug match whose fragments are
 //     not byte-identical raises the load-time `theta/load/schema-slug-collision`.
-//
-// V5f-T (tests-task) declares these seam shapes and stubs every behaviour-
-// bearing function so the failing tests compile and red on their own primary
-// assertions. The paired V5f implementation leaf fills these in.
 
 import { createHash } from "node:crypto";
 import { type Diagnostic, type SourceRange } from "../diagnostics/diagnostic";

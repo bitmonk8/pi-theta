@@ -740,3 +740,21 @@ run is mandatory per `AGENTS.md`):
   still run and passed separately (L0–L2: the Phase 4–6 offline/live gates;
   L3: the citing gates + the H9a json-mode wire cells in both directions).
   L4 remains unscheduled, per the layer table.
+- **Erratum F — a running row's age is dirt of its own** (post-0.467.0 field
+  observation). EXST-6's "no render when nothing is dirty" was implemented as
+  "no render without a producer publication", which freezes the surface for any
+  invocation that publishes nothing for a while. Observed: the quality loop's
+  `fix-cluster-tree.theta` wrapper is code-only — it drives two worker
+  invocations and a bounded gate and takes no turn of its own — so its child
+  produced no tap events for minutes at a time, and the footer's per-lane ages
+  sat frozen at `0s` for the whole run, indistinguishable from a hung or dead
+  lane. But a rendered age is a function of the CURRENT time, not of the last
+  publication, so while anything is running the passage of a render interval is
+  itself dirt. EXST-6 now says so, and the bus schedules the next tick after any
+  render that drew a running node, lane, or child — at the same interval, with
+  the drop-and-reschedule discipline unchanged. The idle direction is unchanged
+  and normative: with nothing running and no linger outstanding, no tick is
+  scheduled, so an idle session stays render-free rather than paying a
+  perpetual heartbeat. (The L3 `theta_progress` self-reports added to that same
+  wrapper are the complementary half — narration when there is news; the
+  keepalive is liveness when there is none.)
