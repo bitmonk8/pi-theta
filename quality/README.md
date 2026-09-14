@@ -83,7 +83,9 @@ worktree, default `"6"`; `parallel × tree_workers` stays inside the cores).
    each drop, until the gate is green again. `store.mjs resolve` then moves
    the review-confirmed issues to `resolved/`; every other issue the lane's
    manifest listed came back unfixed and gets `fix_skips += 1` plus a
-   `## Fix attempts` line carrying the fixer's account. At the **second**
+   `## Fix attempts` line carrying the fixer's account and, when the reviewer
+   declined to confirm it, the reviewer's own reason (`review unconfirmed:`
+   — untouched / shed / partial, naming what remains). At the **second**
    skip the issue is **parked**: moved to `intake/` as `questionable` for a
    human ruling (`accept --note <direction>` keeps its PTQ id and resets the
    skip budget; `reject` retires it) instead of being re-laned every wave.
@@ -194,9 +196,14 @@ more since the ruling, or a newly named distinct concern.
 HOST FILE, not by the usual fix-surface path prefix — two ratified D9 issues
 on the same host share one lane (one worktree, applied in issue-id order);
 no other lens's issue may share a D9 lane's cluster. Any OTHER open issue
-(any lens) that cites a file a D9 lane owns is **deferred** for the wave (one
-fixer would only conflict with a breakdown rewriting the whole file) —
-reported as one stderr line `deferred <issue>: file owned by D9 lane <key>`.
+whose FIX SURFACE a D9 (or D8) lane owns is **deferred** for the wave (one
+fixer would only conflict with a breakdown rewriting the whole file). The fix
+surface is every cited copy for D4 (a dedupe replaces each) but only the
+FIRST location for D2/D7 — later locations are evidence the fix never edits,
+and keying on them starved one-line fixes behind three successive host lanes
+(PTQ-0297). Reported as a structured stdout row
+`deferred<TAB><issue path><TAB><owner lane key>`, listed by name in the exit
+report.
 This is a distinct meaning from the orchestrator's own "deferred" count in
 the exit report, which is the fix phase's PER-WAVE CAPACITY limit (a cluster
 picked but not fanned out because `parallel` was already full — it is

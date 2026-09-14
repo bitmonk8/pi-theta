@@ -71,8 +71,10 @@
 //       hold issues on the same host, the D9 lane runs and the D8 issues are
 //       deferred (a breakdown rewrites the file the simplification would
 //       edit). Two issues of the SAME lens on the SAME host share that one
-//       part, in issue-id order. Any other open issue (any lens, including
-//       the other of {D9, D8}) that cites a file a D9/D8 part also cites is DEFERRED for
+//       part, in issue-id order. Any other open issue whose FIX SURFACE a
+//       D9/D8 part owns — every cited copy for D4, the FIRST location only for
+//       D2/D7 (their later locations are evidence the fix never edits), and
+//       the host file for the other of {D9, D8} — is DEFERRED for
 //       the wave — emitted as a STDOUT row "deferred<TAB><issue path><TAB>
 //       <owner lane key>" (three columns like every other row, first column
 //       the literal "deferred"; the orchestrator counts these — a stderr line
@@ -682,14 +684,20 @@ switch (cmd) {
     }
 
     // --- Everything else: the pre-existing D2/D7/D4 dirname grouping, except
-    // an issue citing any file a D9/D8 lane owns is deferred, not clustered —
+    // an issue whose FIX SURFACE a D9/D8 lane owns is deferred, not clustered —
     // a breakdown/misplacement/simplification ruling rewrites the whole file,
-    // so a sibling lane on it would only conflict at integration. ---
+    // so a sibling lane on it would only conflict at integration. The fix
+    // surface is every cited copy for D4 (a dedupe replaces each one) but only
+    // the FIRST location for D2/D7: their later locations are evidence (call
+    // sites, importers) the fix never edits, and keying on them starved
+    // one-line comment fixes behind three successive host lanes (PTQ-0297). ---
     const clusters = new Map(); // key -> issue paths
     const citedFiles = new Map(); // issue path -> every file its locations cite
     for (const issue of openIssues) {
       if (HOST_LANE_LENSES.includes(issue.fields.lens)) continue; // already laned above
-      const ownerKey = [...issue.cited].map(ownerKeyFor).find(Boolean);
+      const fixSurface =
+        issue.fields.lens === "D4" ? [...issue.cited] : [posix((issue.locations[0] ?? "").split(":")[0])];
+      const ownerKey = fixSurface.map(ownerKeyFor).find(Boolean);
       if (ownerKey) {
         process.stdout.write(`deferred\t${issue.issuePath}\t${ownerKey}\n`);
         continue;

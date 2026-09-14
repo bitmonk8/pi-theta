@@ -685,14 +685,14 @@ describe("tools/quality/store.mjs (scratch fixture store via QUALITY_STORE_ROOT)
     expect(exemptions2["D8:src/host8b.ts"]).toMatchObject({ class: "overbuilt", loc: 3 });
   });
 
-  it("cell 24: a D8 issue clusters into its own host lane; a D2 issue citing that host is deferred; a D4 issue clusters by dirname; a D8 issue with neither d8_host nor a location dies loud", () => {
+  it("cell 24: a D8 issue clusters into its own host lane; a D2 issue whose fix surface is that host is deferred; a D4 issue clusters by dirname; a D8 issue with neither d8_host nor a location dies loud", () => {
     writeIssue(root, "PTQ-0111-a.md", {
       location: "src/mod8.ts:1-50",
       id: "PTQ-0111",
       lens: "D8",
       extra: { d8_host: "src/mod8.ts", d8_class: "overbuilt" },
     });
-    // Cites the D8-owned host: deferred, never clustered.
+    // Its fix surface (first location) IS the D8-owned host: deferred, never clustered.
     writeIssue(root, "PTQ-0112-b.md", { location: "src/mod8.ts:5-6", id: "PTQ-0112", lens: "D2" });
     // D4 clusters by dirname like D2/D7 (not host-laned).
     writeIssue(root, "PTQ-0113-c.md", {
@@ -753,6 +753,59 @@ describe("tools/quality/store.mjs (scratch fixture store via QUALITY_STORE_ROOT)
     const r2 = runStore(root, ["clusters"]);
     expect(r2.status).toBe(1);
     expect(r2.stderr).toContain("D8 issue quality/issues/PTQ-0114-hostless.md has neither d8_host nor a cited location");
+  });
+  it("cell 25: deferral against a host lane keys on the FIX SURFACE — a D2/D7 issue's first location — while a D4 issue (every copy edited) is deferred on any cited copy", () => {
+    writeIssue(root, "PTQ-0121-host.md", {
+      location: "src/big/host.ts:1-900",
+      id: "PTQ-0121",
+      lens: "D9",
+      extra: { d9_host: "src/big/host.ts", d9_class: "breakdown", d9_band: "justify" },
+    });
+    // D2: the stale comment lives in helper.ts (first location); the host is
+    // cited only as EVIDENCE (call sites). Its fix never edits the host, so it
+    // clusters as usual instead of starving behind the host lane wave after
+    // wave (PTQ-0297 sat three waves behind three different host lanes).
+    writeIssue(root, "PTQ-0122-d2.md", {
+      location: "src/util/helper.ts:10-12",
+      id: "PTQ-0122",
+      lens: "D2",
+      more: ["src/big/host.ts:400", "src/big/host.ts:812"],
+    });
+    // D7 likewise keys on its first location.
+    writeIssue(root, "PTQ-0123-d7.md", {
+      location: "tests/some.test.ts:1-5",
+      id: "PTQ-0123",
+      lens: "D7",
+      more: ["src/big/host.ts:20"],
+    });
+    // D4: a dedupe replaces EVERY cited copy, so a copy inside the owned host
+    // still defers the whole issue.
+    writeIssue(root, "PTQ-0124-d4.md", {
+      location: "src/util/copy-a.ts:1-20",
+      id: "PTQ-0124",
+      lens: "D4",
+      more: ["src/big/host.ts:600-620"],
+      extra: { d4_class: "clone" },
+    });
+    // D2 whose FIRST location is the host: still deferred.
+    writeIssue(root, "PTQ-0125-d2-on-host.md", {
+      location: "src/big/host.ts:30-31",
+      id: "PTQ-0125",
+      lens: "D2",
+    });
+
+    const r = runStore(root, ["clusters"]);
+    expect(r.status).toBe(0);
+    const rows = r.stdout.trim().split("\n").filter(Boolean).map((l) => l.split("\t"));
+    const deferred = rows.filter((c) => c[0] === "deferred").map((c) => c[1]);
+    expect(deferred).toEqual([
+      "quality/issues/PTQ-0124-d4.md",
+      "quality/issues/PTQ-0125-d2-on-host.md",
+    ]);
+    const byKey = new Map(rows.filter((c) => c[0] !== "deferred").map((c) => [c[0], c]));
+    expect(readFile(root, byKey.get("src/util")![1]!).trim()).toBe("quality/issues/PTQ-0122-d2.md");
+    expect(readFile(root, byKey.get("tests")![1]!).trim()).toBe("quality/issues/PTQ-0123-d7.md");
+    expect(byKey.get("d9/src__big__host.ts")?.[2]).toBe("1");
   });
 
   it("cell 12: default ROOT (env absent) resolves to the real repo and lists D2 + D7", () => {

@@ -44,7 +44,8 @@ schema TreeFixReport {
 schema FixReview {
   ok: boolean,
   fixed_confirmed: array<string>,
-  must_fix: string
+  must_fix: string,
+  unconfirmed: string
 }
 
 /// Split tool output into trimmed, non-empty lines.

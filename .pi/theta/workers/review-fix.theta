@@ -81,5 +81,10 @@ Reply with the requested schema:
   collateral damage
 - fixed_confirmed: the issue file BASENAMES you verified resolved
 - must_fix: "" when ok; otherwise one concrete paragraph telling the fixer
-  exactly what to correct.`?
+  exactly what to correct.
+- unconfirmed: one clause per manifest issue you did NOT list in
+  fixed_confirmed — its basename and why it is not resolved (untouched; shed by
+  the fixer; partial: what still remains). This is what a human reads on the
+  issue when it comes back unfixed, so name the remaining copies / sites
+  concretely. "" when every manifest issue is confirmed.`?
 rv

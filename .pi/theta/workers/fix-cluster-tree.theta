@@ -109,7 +109,7 @@ while attempt < 2 && !done {
   trail = trail + "attempt " + att + ": gate " + gate_state + "; "
   let rv = match review_fix(man) {
     Ok(r) => r,
-    Err(e) => FixReview { ok: false, fixed_confirmed: [], must_fix: "fix-review worker failed: " + e.kind + " - fixer notes were: " + fr.notes },
+    Err(e) => FixReview { ok: false, fixed_confirmed: [], must_fix: "fix-review worker failed: " + e.kind + " - fixer notes were: " + fr.notes, unconfirmed: "" },
   }
   let _ = theta_progress({ message: "review " + (rv.ok ? "confirmed" : "rejected") + ": " + key, scope: key, done: attempt, total: 2 })?
   if gate.includes("GATE_PASS") && rv.ok && rv.fixed_confirmed.length > 0 {
@@ -125,7 +125,7 @@ while attempt < 2 && !done {
       done = true
       // What the fixer said about every issue (fixed AND skipped) - the store
       // files this under each unfixed issue's "## Fix attempts".
-      fixer_notes = fr.notes + (rv.must_fix == "" ? "" : " | review: " + rv.must_fix)
+      fixer_notes = fr.notes + (rv.must_fix == "" ? "" : " | review: " + rv.must_fix) + (rv.unconfirmed == "" ? "" : " | review unconfirmed: " + rv.unconfirmed)
       notes = "gate green, review confirmed " + rv.fixed_confirmed.join(",") + " on attempt " + att
       let _ = theta_progress({ message: "committed " + key + " @ " + sha, scope: key, done: attempt, total: 2 })?
     }
