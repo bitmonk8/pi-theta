@@ -384,7 +384,7 @@ function dedupeByPath(candidates: readonly SourcedCandidate[]): SourcedCandidate
 }
 
 // --------------------------------------------------------------------------
-// Settings `thetaPaths` resolution (DISC-7 `thetaPaths` entry schema).
+// Settings `thetaPaths` resolution (package-and-settings.md §"`thetaPaths` entry schema").
 //
 // Unlike the CLI / conventional sources (whose entries are single directory
 // roots or explicit `.theta` files), settings entries resolve relative to the
@@ -556,7 +556,7 @@ function resolveSettingsOperand(
 
 /**
  * Resolve the Settings source's `thetaPaths` into raw `.theta` candidates,
- * applying the DISC-5 override order and the DISC-7 `thetaPaths` schema. Returns
+ * applying the DISC-5 override order and the `thetaPaths` entry schema. Returns
  * candidates deduplicated by resolved absolute path; per-entry failures are
  * non-fatal.
  */
@@ -756,7 +756,7 @@ export async function discoverThetas(input: DiscoveryInput): Promise<DiscoveryRe
     roots,
   );
 
-  // Settings (priority 2) — explicit references resolved per the DISC-7
+  // Settings (priority 2) — explicit references resolved per the
   // `thetaPaths` entry schema: relative to the settings-file dir, with globs and
   // the `!`/`+`/`-` override grammar; missing/wrong-type are errors.
   const settingsSourceLabel = sourceLabelOf("settings");

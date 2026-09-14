@@ -2,7 +2,7 @@
 id: PTQ-0308
 title: discovery-walk.ts labels its settings-thetaPaths entry-schema section "DISC-7", the spec rule for Merge semantics implemented in settings.ts, not here
 lens: D2                     # D2 | D4 | D7 | D8 | D9 - the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - src/discovery/discovery-walk.ts:470

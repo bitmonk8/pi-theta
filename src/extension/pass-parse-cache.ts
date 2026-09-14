@@ -130,7 +130,7 @@ export function createPassParseCache(): PassParseCache {
 /**
  * `ParseThetaDocumentDeps` widened with the optional pass-cache field, so the
  * cache rides the same `parseDeps` object already threaded to every relevant
- * walk instead of a new parameter on six call sites. Absent (every
+ * walk instead of a new parameter on every call site. Absent (every
  * non-production / inert-channel caller): {@link parseViaPassCache} parses
  * directly, byte-identical to calling `parseThetaDocument` itself.
  */

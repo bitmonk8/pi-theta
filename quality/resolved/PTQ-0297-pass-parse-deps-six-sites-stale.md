@@ -2,7 +2,7 @@
 id: PTQ-0297
 title: PassParseDeps's doc comment says its cache field avoids a new parameter on six call sites, but parseViaPassCache now has seven
 lens: D2
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/extension/pass-parse-cache.ts:136-145
