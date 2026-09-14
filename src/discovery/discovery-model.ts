@@ -1,19 +1,23 @@
 // Discovery-wide types, diagnostic codes, and the priority / failure-mode /
 // slash-name tables shared by discovery-walk.ts's own concerns (per-source
-// enumeration, the settings `thetaPaths` sub-walk, the five-source driver,
-// and cross-source/format collision resolution — all still in
-// discovery-walk.ts). Split out of discovery-walk.ts as PTQ-0305's Seam 0 —
-// the leaf every one of those concerns depends on at runtime (collision
+// enumeration, the settings `thetaPaths` sub-walk, the five-source driver)
+// and by discovery-collision-resolve.ts's cross-source/format collision
+// resolution (PTQ-0333). Split out of discovery-walk.ts as PTQ-0305's Seam 0
+// — the leaf every one of those concerns depends on at runtime (collision
 // resolution alone reads `PRIORITY` eleven times plus four of the codes
 // below), so it had to move first: moving any of the others out first would
 // have created a host<->module runtime import cycle. This module imports
-// nothing from discovery-walk.ts.
+// nothing from discovery-walk.ts or discovery-collision-resolve.ts.
 //
 // `DiscoverySource`, `PiOwnedCommand`, `DiscoveryInput`, `DiscoveredTheta`,
 // and `DiscoveryResult` were already public before the split (re-exported by
 // discovery-walk.ts, unchanged, for its existing src/test importers). Every
-// other member here was file-private in discovery-walk.ts and is exported
-// only because discovery-walk.ts imports it back.
+// other member here — including `SourcedCandidate` (PTQ-0333: moved here
+// rather than left file-private in discovery-walk.ts, so
+// discovery-collision-resolve.ts can depend on it without importing from
+// discovery-walk.ts, the cycle guard) — was file-private in discovery-walk.ts
+// and is exported only because discovery-walk.ts or
+// discovery-collision-resolve.ts imports it back.
 //
 // Spec: discovery.md, discovery/discovery-sources.md (DISC-1…DISC-4), with
 // the `theta/load/*` diagnostic codes/messages sourced from
@@ -93,6 +97,23 @@ export interface DiscoveryResult {
    *  currently hold a `.theta`. Distinct from `thetas`' dirnames, which drop
    *  any present-but-empty root. */
   readonly roots: readonly string[];
+}
+
+/** A raw candidate together with its owning source (for case-collision and
+ *  cross-source/format collision resolution). */
+export interface SourcedCandidate {
+  readonly path: string;
+  readonly stem: string;
+  readonly source: DiscoverySource;
+  readonly sourceLabel: string;
+  /** The descriptor VALUE per placeholder-rendering-b.md §5: the source's own
+   *  configuration text verbatim (the `--theta` operand, the settings entry,
+   *  the package name) or, for the two conventional-root sources with no
+   *  operator-typed text, the root's resolved directory path (0268
+   *  forward-slashed). Rendered at the cross-source-shadow/collision mint
+   *  sites via `renderDescriptor`, never read for candidate identity or
+   *  ordering. */
+  readonly descriptorValue: string;
 }
 
 // --------------------------------------------------------------------------

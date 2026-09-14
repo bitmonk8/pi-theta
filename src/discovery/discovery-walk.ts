@@ -1,7 +1,5 @@
 // V10a / V10a-T — the five-source discovery walk, source priority, per-source
-// failure modes, `~/` home expansion, slash-name validity, and the
-// cross-source-shadow / cross-format-collision resolution (the theta always
-// loses, asymmetrically).
+// failure modes, and `~/` home expansion.
 //
 // This module owns the discovery union over the CLI, Settings, Project,
 // Packages, and Global sources, mapping each discovered `*.theta` file to its
@@ -17,11 +15,18 @@
 // `lstat`/`realpath` outcome classification `classifyPath` drives — lives in
 // `discovery-path-classify.ts` and is imported back in below.
 //
+// The slash-name-validity gate and the cross-source-shadow /
+// cross-format-collision resolution (the theta always loses, asymmetrically)
+// — `sourceLabelOf`, `resolveBySource`, `validateAndRead`, `resolveSlashNames`
+// — live in `discovery-collision-resolve.ts` (PTQ-0333, pre-announced by
+// PTQ-0305's Seam 0 as "concern 5") and are imported back in below.
+//
 // The discovery-wide types (`DiscoverySource`, `PiOwnedCommand`,
 // `DiscoveryInput`, `DiscoveredTheta`, `DiscoveryResult`), the `theta/load/*`
-// diagnostic codes, and the priority / failure-mode / slash-name tables this
-// walk implements against — `PRIORITY`, `FailureModes`, `CONVENTIONAL_MODES`,
-// `SETTINGS_MODES`, `CLI_MODES`, `SLASH_NAME` — live in `discovery-model.ts`
+// diagnostic codes, the priority / failure-mode / slash-name tables, and the
+// per-source `SourcedCandidate` shape this walk implements against —
+// `PRIORITY`, `FailureModes`, `CONVENTIONAL_MODES`, `SETTINGS_MODES`,
+// `CLI_MODES`, `SLASH_NAME`, `SourcedCandidate` — live in `discovery-model.ts`
 // (PTQ-0305's Seam 0, the leaf every concern here depends on) and are
 // imported back in below; every name this file exported before that split is
 // still exported from here.
@@ -56,28 +61,27 @@ import {
   type PathClass,
 } from "./discovery-path-classify";
 import {
-  CASE_COLLISION,
   CLI_MODES,
   CONVENTIONAL_MODES,
-  CROSS_FORMAT_COLLISION,
-  CROSS_SOURCE_SHADOW,
   INVALID_EXTENSION,
-  INVALID_SLASH_NAME,
   MISSING_SOURCE,
   NON_CANONICAL_EXTENSION,
-  PRIORITY,
   SETTINGS_MODES,
   SLASH_NAME,
-  UNREADABLE_FILE,
   UNREADABLE_SOURCE,
   WRONG_TYPE_SOURCE,
-  type DiscoveredTheta,
   type DiscoveryInput,
   type DiscoveryResult,
   type DiscoverySource,
   type FailureModes,
-  type PiOwnedCommand,
+  type SourcedCandidate,
 } from "./discovery-model";
+import {
+  resolveBySource,
+  resolveSlashNames,
+  sourceLabelOf,
+  validateAndRead,
+} from "./discovery-collision-resolve";
 export type {
   DiscoveredTheta,
   DiscoveryInput,
@@ -324,63 +328,6 @@ function emitSourceFailure(
         ? `discovery source is unreadable: ${descriptor}`
         : `discovery source ${descriptor} is neither a .theta file nor a directory of them`;
   diagnostics.push({ severity, code, file: normalizePath(path), message });
-}
-
-/** A raw candidate together with its owning source (for case-collision and
- *  cross-source/format collision resolution). */
-interface SourcedCandidate extends RawCandidate {
-  readonly source: DiscoverySource;
-  readonly sourceLabel: string;
-  /** The descriptor VALUE per placeholder-rendering-b.md §5: the source's own
-   *  configuration text verbatim (the `--theta` operand, the settings entry,
-   *  the package name) or, for the two conventional-root sources with no
-   *  operator-typed text, the root's resolved directory path (0268
-   *  forward-slashed). Rendered at the cross-source-shadow/collision mint
-   *  sites via `renderDescriptor`, never read for candidate identity or
-   *  ordering. */
-  readonly descriptorValue: string;
-}
-
-/** Resolve intra-source case-collisions (DISC-3): two `*.theta` paths differing
- *  only in case collide; the byte-first path wins, the rest drop. */
-function resolveCaseCollisions(
-  candidates: readonly SourcedCandidate[],
-  diagnostics: Diagnostic[],
-): SourcedCandidate[] {
-  const groups = Map.groupBy(candidates, (candidate) => normalizePath(candidate.path).toLowerCase());
-  const survivors: SourcedCandidate[] = [];
-  for (const bucket of groups.values()) {
-    const distinct = dedupeByPath(bucket);
-    if (distinct.length === 1) {
-      survivors.push(distinct[0]!);
-      continue;
-    }
-    const sorted = [...distinct].sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
-    const winner = sorted[0]!;
-    diagnostics.push({
-      severity: "warning",
-      code: CASE_COLLISION,
-      file: winner.path,
-      message: `case-insensitive filename collision in ${winner.sourceLabel}: '${sorted[0]!.path}' and '${sorted[1]!.path}'`,
-    });
-    survivors.push(winner);
-  }
-  return survivors;
-}
-
-/** Drop entries resolving to the same byte-exact path (a source reaching one
- *  directory through two entries dedupes silently before collision detection). */
-function dedupeByPath(candidates: readonly SourcedCandidate[]): SourcedCandidate[] {
-  const seen = new Set<string>();
-  const out: SourcedCandidate[] = [];
-  for (const candidate of candidates) {
-    const key = normalizePath(candidate.path);
-    if (!seen.has(key)) {
-      seen.add(key);
-      out.push(candidate);
-    }
-  }
-  return out;
 }
 
 // --------------------------------------------------------------------------
@@ -905,217 +852,4 @@ async function collectFromEntries(
       out.push({ ...candidate, source, sourceLabel, descriptorValue: entry.descriptorValue });
     }
   }
-}
-
-function sourceLabelOf(source: DiscoverySource): string {
-  switch (source) {
-    case "cli":
-      return "--theta flag";
-    case "settings":
-      return "settings thetaPaths";
-    case "project":
-      // The host config-dir name is unavailable at this pure-label seam, so the
-      // Pi spelling stands in for the source CATEGORY here. This label is what
-      // the case-collision message above (`case-insensitive filename collision
-      // in ${sourceLabel}`) names — the path-bearing project diagnostics render
-      // the normative `<kind>:"<value>"` descriptor form instead, so this
-      // prose spelling never has to stand in for a real directory there.
-      return "project .pi/theta/";
-    case "package":
-      return "package theta/ directory";
-    case "global":
-      return "global thetas directory";
-  }
-}
-
-/** Render one candidate as the normative `<kind>:"<value>"` descriptor
- *  (placeholder-rendering-b.md §5/§7) — the mint site for the
- *  cross-source-shadow `<higher>`/`<lower>` placeholders must render this
- *  form, not a bare candidate path. */
-function renderDescriptor(candidate: SourcedCandidate): string {
-  return renderSourceDescriptor(candidate.source, candidate.descriptorValue);
-}
-
-/** Apply case-collision resolution independently within each source. */
-function resolveBySource(
-  candidates: readonly SourcedCandidate[],
-  diagnostics: Diagnostic[],
-): SourcedCandidate[] {
-  const bySource = Map.groupBy(candidates, (candidate) => candidate.source);
-  const out: SourcedCandidate[] = [];
-  for (const bucket of bySource.values()) {
-    out.push(...resolveCaseCollisions(bucket, diagnostics));
-  }
-  return out;
-}
-
-/** Validate each surviving candidate's slash name, then confirm readability of
- *  the underlying `.theta` file (DISC-2 rule 1 / DISC-3 Filename validity). */
-async function validateAndRead(
-  fs: FileSystem,
-  candidates: readonly SourcedCandidate[],
-  diagnostics: Diagnostic[],
-): Promise<SourcedCandidate[]> {
-  const out: SourcedCandidate[] = [];
-  for (const candidate of candidates) {
-    if (!SLASH_NAME.test(candidate.stem)) {
-      diagnostics.push({
-        severity: "error",
-        code: INVALID_SLASH_NAME,
-        file: candidate.path,
-        message:
-          "slash names must be lowercase kebab/snake; rename the file (e.g. `code-review.theta`)",
-        hint: "Slash names must be lowercase kebab/snake; rename the file (e.g. `code-review.theta`).",
-      });
-      continue;
-    }
-    const readable = await fs.readBytes(candidate.path).then(
-      () => true,
-      () => false,
-    );
-    if (!readable) {
-      diagnostics.push({
-        severity: "warning",
-        code: UNREADABLE_FILE,
-        file: candidate.path,
-        message: `.theta file is unreadable: '${candidate.path}'`,
-      });
-      continue;
-    }
-    out.push(candidate);
-  }
-  return out;
-}
-
-/** Bug 0331: within one name group, collapse candidates whose
- *  separator-normalized path is identical down to ONE candidate, keeping the
- *  HIGHEST-priority (lowest `PRIORITY` number) tier — one physical file is one
- *  candidate, regardless of how many discovery sources reach it. Regime-
- *  independent (runs for every group, not just a marked root): a source
- *  reaching the SAME file via a different separator spelling is not a
- *  distinct copy, so it must not draw its own cross-source-shadow warning.
- *  Genuinely-distinct files (different normalized paths) are untouched —
- *  separator normalization alone decides identity here, deliberately short of
- *  `fs.realpath` (parent-side symlink/`..` semantics for distinct files stay
- *  exactly as today). Map iteration preserves each surviving key's first-seen
- *  position, so diagnostic message ordering for the untouched groups is
- *  unaffected. */
-function dedupeByIdentity(group: readonly SourcedCandidate[]): SourcedCandidate[] {
-  const byPath = new Map<string, SourcedCandidate>();
-  for (const candidate of group) {
-    const key = normalizePath(candidate.path);
-    const existing = byPath.get(key);
-    if (existing === undefined || PRIORITY[candidate.source] < PRIORITY[existing.source]) {
-      byPath.set(key, candidate);
-    }
-  }
-  return [...byPath.values()];
-}
-
-/** Shared `<paths>` ordering for both `theta/load/cross-format-collision`
- *  arms (placeholder-rendering-b.md:57): discovery-source PRIORITY first,
- *  then byte-wise normalised (forward-slash) absolute path — a single
- *  comparator so the same-format and Pi-owned mints cannot drift apart
- *  again (0459 §Fix Residual 2). */
-function collisionPathOrder(a: SourcedCandidate, b: SourcedCandidate): number {
-  if (PRIORITY[a.source] !== PRIORITY[b.source]) return PRIORITY[a.source] - PRIORITY[b.source];
-  const na = normalizePath(a.path);
-  const nb = normalizePath(b.path);
-  return na < nb ? -1 : na > nb ? 1 : 0;
-}
-
-/** Resolve cross-source-shadow (different priority → higher wins) and
- *  cross-format-collision (same priority theta-vs-theta, or theta-vs-Pi-owned;
- *  the theta always loses asymmetrically) over the validated candidates.
- *  Bug 0331: identity-dedup runs first (regime-independent); then, past the
- *  Pi-owned guard (a Pi-owned collision is decided first), a marked-root
- *  pre-emption scoped to `markedRoot?.slug` (regime-gated) may register that
- *  group's winner alone before the tier adjudication runs. */
-async function resolveSlashNames(
-  candidates: readonly SourcedCandidate[],
-  piOwned: readonly PiOwnedCommand[],
-  diagnostics: Diagnostic[],
-  markedRoot?: { readonly slug: string; readonly winnerPath: string },
-): Promise<DiscoveredTheta[]> {
-  const piOwnedByName = Map.groupBy(piOwned, (command) => command.name);
-  const byName = Map.groupBy(candidates, (candidate) => candidate.stem);
-
-  const thetas: DiscoveredTheta[] = [];
-  for (const [name, rawGroup] of byName) {
-    const group = dedupeByIdentity(rawGroup);
-
-    // Theta-vs-Pi-owned: the theta always loses; the Pi-owned entry survives.
-    // `<paths>` is the registered theta candidate(s) first (priority-then-path
-    // ordered), then the colliding `.md`-sibling tail (placeholder-rendering-b.md:57);
-    // a foreign extension command carrying no host path falls back to its
-    // registered name (0459 §Fix adjudication rider) — no survives-suffix.
-    if (piOwnedByName.has(name)) {
-      const thetaPaths = [...group]
-        .sort(collisionPathOrder)
-        .map((candidate) => normalizePath(candidate.path));
-      const siblingPaths = (piOwnedByName.get(name) ?? [])
-        .map((command) => (command.path !== undefined && command.path !== "" ? normalizePath(command.path) : command.name))
-        .sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
-      diagnostics.push({
-        severity: "error",
-        code: CROSS_FORMAT_COLLISION,
-        message: `slash name '${name}' collides at the same priority: ${[...thetaPaths, ...siblingPaths].join(", ")}`,
-      });
-      continue;
-    }
-
-    // Bug 0331: marked-root pre-emption, scoped to `markedRoot.slug` alone,
-    // adjudicated AFTER the Pi-owned guard above because a Pi-owned collision
-    // is decided FIRST. The parent's carrier resolved this slug across theta
-    // TIERS, not against Pi-ownedness, so a name a foreign extension owns in
-    // the child (but not the parent) takes the Pi-owned arm and drops the
-    // theta — the theta never pre-empts a non-theta registration
-    // (discovery-sources.md#disc-4), matching the parent. Past that guard,
-    // when the parent-named winner survives dedup here it registers ALONE —
-    // no cross-format-collision / cross-source-shadow diagnostic — and every
-    // sibling for THIS slug drops silently. A winner that names no surviving
-    // candidate (absent carrier, hostile value, stale path) falls through to
-    // today's tier adjudication below — the safe fallback the trust boundary
-    // and the skew fence both rely on.
-    if (markedRoot !== undefined && name === markedRoot.slug) {
-      const winnerKey = normalizePath(markedRoot.winnerPath);
-      const winner = group.find((candidate) => normalizePath(candidate.path) === winnerKey);
-      if (winner !== undefined) {
-        thetas.push({ name, path: winner.path, source: winner.source });
-        continue;
-      }
-    }
-
-    const minPriority = Math.min(...group.map((candidate) => PRIORITY[candidate.source]));
-    const topTier = group.filter((candidate) => PRIORITY[candidate.source] === minPriority);
-    const lowerTier = group.filter((candidate) => PRIORITY[candidate.source] !== minPriority);
-
-    if (topTier.length > 1) {
-      // Same-priority theta-vs-theta: every colliding theta drops. `<paths>`
-      // is priority-then-absolute-path ordered (placeholder-rendering-b.md:57),
-      // not collection/insertion order.
-      diagnostics.push({
-        severity: "error",
-        code: CROSS_FORMAT_COLLISION,
-        message: `slash name '${name}' collides at the same priority: ${[...topTier]
-          .sort(collisionPathOrder)
-          .map((candidate) => normalizePath(candidate.path))
-          .join(", ")}`,
-      });
-      continue;
-    }
-
-    const winner = topTier[0]!;
-    for (const shadowed of lowerTier) {
-      // Different priority: the higher-priority source wins; the rest shadow.
-      diagnostics.push({
-        severity: "warning",
-        code: CROSS_SOURCE_SHADOW,
-        message: `slash name '${name}' shadowed across discovery sources: '${renderDescriptor(winner)}' wins over '${renderDescriptor(shadowed)}'`,
-      });
-    }
-    thetas.push({ name, path: winner.path, source: winner.source });
-  }
-
-  return thetas;
 }
