@@ -1,9 +1,9 @@
 ---
-id: pending                  # PTQ-NNNN minted at acceptance; never self-assigned
+id: PTQ-0332
 title: runCapabilityProbe's SDK-member check builds an array of name/closure tuples for a uniform access pattern its neighboring heterogeneous check does not need
 lens: D8                     # D2 | D4 | D7 | D8 | D9 - the lens that filed this
-status: intake               # intake | open | fixed | rejected (store mechanics own transitions)
-verdict: pending              # pending | confirmed | questionable | false-positive | duplicate | out-of-scope | malformed
+status: open
+verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - src/extension/capability-probe.ts:294-303
   - src/extension/capability-probe.ts:337-361
@@ -134,3 +134,4 @@ step (c) closure-array's disproportion to its own uniform job.
 ## Triage
 <triage appends: verdict + one-line reason. Nothing above this line is edited.>
 verdict: questionable — accounting verified independently at capability-probe.ts:294-308/337-361 (step (c)'s tuple-type + `.map()` + per-item closure genuinely add nothing over an inline `readProp(pi, name.slice(...))` loop, unlike step (b)'s seven closures which read seven differently-shaped expressions); capability-probe.md Step 0 (c) mandates only ordered `typeof <path>` checks, not a tuple/closure shape, so no spec conflict; host is not in quality/exemptions.json; PTQ-0302's ratified fix sourced this array from `FACTORY_PROBED_SDK_MEMBERS` but only ruled on deduplication, never on whether the closures themselves are needed — so the simpler shape remains an open design decision for a human, capped at questionable per the D8 rubric (triage: claude-opus-5)
+verdict: confirmed — RATIFIED (human, 2026-09-14): inline the loop. In runCapabilityProbe step (c) (capability-probe.ts), replace the sdkMembers tuple array, its type and its .map with a direct for...of over FACTORY_PROBED_SDK_MEMBERS that computes observed = typeof readProp(pi, name.slice("pi.".length)) inline and keeps the identical short-circuit refusal ({ kind: "sdk-capability-missing", observed, required: "function", member: name }) inside the same PIC-6 try/catch. Step (b)'s heterogeneous closures are untouched. Behaviour identical; tests unchanged.

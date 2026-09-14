@@ -1,9 +1,9 @@
 ---
-id: pending                  # PTQ-NNNN minted at acceptance; never self-assigned
+id: PTQ-0335
 title: patchSystemTemplateForImports bundles the value-driven validity walk with the static-container sidecar carry in one 303-line function
 lens: D9                     # D2 | D4 | D7 | D8 | D9 - the lens that filed this
-status: intake               # intake | open | fixed | rejected (store mechanics own transitions)
-verdict: pending              # pending | confirmed | questionable | false-positive | duplicate | out-of-scope | malformed
+status: open
+verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - src/extension/import-system-template-patch.ts:72-374
   - src/extension/import-system-template-patch.ts:124-249
@@ -127,3 +127,4 @@ separately at or over the 200-LOC function threshold in its own right).
 ## Triage
 <triage appends: verdict + one-line reason. Nothing above this line is edited.>
 verdict: questionable — accounting reproduces (size-scan confirms the file at 374 LOC/exempt and patchSystemTemplateForImports at 72-374/303 LOC/strong, 1 src/0 test importers; both cited loop excerpts match verbatim at 124-128/265-269; the loops are genuinely guard-partitioned on `part.valueDriven` over immutable `originalParts` with no ordering dependency; git log shows the single creation commit, no quality/exemptions.json entry, no generated-code marker, and the PTQ-0304 "no logic edits" quote is accurate) but the load-bearing "8 shared bindings, over the 6 or more bar" claim is wrong — only 4 (originalParts, paramTypeSourceByName, importedSchemaShapes, patchedParts) are actually referenced by both loops; systemSourceFile/systemRange/importedEnums/diagnostics are used exclusively inside the first loop (124-247, grep-confirmed absent from 250-370), putting the true count under the design doc's own ≥6-shared-locals bar for even a "concrete" reason — correcting this only weakens the keep-whole case further, so it doesn't refute the filing; D9 breakdown caps at questionable regardless, target shape is a human ruling (triage: claude-opus-5)
+verdict: confirmed — RATIFIED (human, 2026-09-14): Seam A - a FUNCTION seam inside import-system-template-patch.ts. Split patchSystemTemplateForImports at the existing loop boundary into two module-local functions, patchValueDrivenParts (the bug 0422/0423 route, :124-249) and patchStaticContainerParts (the bug 0445 route, :250-370), each taking the shared setup bindings it reads (systemSourceFile, systemRange, paramTypeSourceByName, originalParts, importedSchemaShapes, importedEnums, diagnostics, and the patched-parts array) as explicit parameters and returning the possibly-still-undefined patched-parts array; patchSystemTemplateForImports keeps the setup and the return and calls the two in today's order. Bodies moved verbatim with comments; doc comment on each; identical behaviour; tsc first; report before/after LOC.

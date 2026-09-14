@@ -1,9 +1,9 @@
 ---
-id: pending                  # PTQ-NNNN minted at acceptance; never self-assigned
+id: PTQ-0334
 title: checkThetaImports still bundles eight sequential import-subsystem phases after Seam B's extraction landed
 lens: D9                     # D2 | D4 | D7 | D8 | D9 - the lens that filed this
-status: intake               # intake | open | fixed | rejected (store mechanics own transitions)
-verdict: pending              # pending | confirmed | questionable | false-positive | duplicate | out-of-scope | malformed
+status: open
+verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - src/extension/import-static-checks.ts:604-1727
   - src/extension/import-static-checks.ts:784-1026
@@ -139,3 +139,4 @@ than reproducing the prior filing's now-stale accounting.
 ## Triage
 <triage appends: verdict + one-line reason. Nothing above this line is edited.>
 verdict: questionable — size-scan reproduces the file (1727 LOC/justify) and checkThetaImports (604-1727/1124 LOC/strong, 1/38 importers) exactly, all eight row boundaries and quoted excerpts match the source byte-for-byte, the git-log/exemptions checks hold, and this is the explicitly-invited re-filing of PTQ-0304's own deferred Seams A/C after Seam B landed at 6a68f58c — D9 breakdown accounting caps at questionable, never confirmed; target shape is a human ruling (triage: claude-opus-5)
+verdict: confirmed — RATIFIED (human, 2026-09-14): Seam A only - a FUNCTION seam inside import-static-checks.ts. Lift the re-export chain fixpoint - the closures closeOverReExports, fixReExportedNames, diagnoseReExports, diagnoseReExportCollisions (checkThetaImports :784-1026, 243 LOC) - out of checkThetaImports into a module-local top-level function (hypothesis name resolveReExportClosure) taking the collaborators they close over today (walked, parseThetaLib, and whatever else the bodies read) as explicit parameters and returning what row 6 consumes (the settled export map + collision diagnostics, or the same closures bundled as a record if the call pattern needs staged invocation - keep row 6's call order identical). Bodies moved verbatim with their comments; doc comment on the helper; no logic, diagnostic or order-of-effects change; tsc first; report before/after LOC of checkThetaImports. Seam C (per-specifier loop) is NOT ratified this wave.

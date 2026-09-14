@@ -1,4 +1,18 @@
 {
+  "D8:src/discovery/discovery-walk.ts#enumerateDirectory": {
+    "class": "heavier-than-scale",
+    "date": "2026-09-14",
+    "finding": "quality/intake/qw20260914091051-d8-01-enumerate-directory-redundant-readdir.md",
+    "loc": 57,
+    "reason": "human 2026-09-14: keep. One additional fs.readdir per directory candidate at discovery/reload time is not a cost worth a mechanism: carrying names inside PathClass and giving enumerateDirectory an optional pre-fetched-names parameter adds surface and removes the independent accepted-then-unreadable classification (the two functions' distinct failure duties the filing itself names). Heavier-than-scale cuts the other way here. Re-file only with a measured discovery-time cost."
+  },
+  "D8:src/extension/production-theta-producer.ts#firstAdmittingArmProperties": {
+    "class": "reimplemented",
+    "date": "2026-09-14",
+    "finding": "quality/intake/qw20260914091051-d8-01-echo-arm-matching-reimplements-ajv.md",
+    "loc": 34,
+    "reason": "human 2026-09-14: keep. echoTypeFromValue and its helpers are, by their own stated rationale, a pure value -> descriptor approximation for the binder echo note (a cosmetic system note), not a validation boundary; bug 0381 scoped the remaining gap as exotic / non-normative. Compiling and running per-arm AJV validators on every successful bind to name a type in a note is heavier than the note warrants, and would put the validator on a pure render path. Re-file only if the echo note's type descriptor becomes normative or the descriptor is observed wrong on a real theta."
+  },
   "D9:src/binder/binder-system-prompt.ts#normaliseParamLineBreaks": {
     "class": "breakdown",
     "date": "2026-09-12",

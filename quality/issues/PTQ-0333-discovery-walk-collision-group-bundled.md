@@ -1,9 +1,9 @@
 ---
-id: pending                  # PTQ-NNNN minted at acceptance; never self-assigned
+id: PTQ-0333
 title: discovery-walk.ts's cross-source collision resolution stays bundled with per-source enumeration and the settings sub-walk after Seam 0 landed
 lens: D9                     # D2 | D4 | D7 | D8 | D9 - the lens that filed this
-status: intake               # intake | open | fixed | rejected (store mechanics own transitions)
-verdict: pending              # pending | confirmed | questionable | false-positive | duplicate | out-of-scope | malformed
+status: open
+verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - src/discovery/discovery-walk.ts:1-1125
   - src/discovery/discovery-walk.ts:91-384
@@ -144,3 +144,4 @@ Continuing PTQ-0305's own pre-announcement; the human ratifies one.
 ## Triage
 <triage appends: verdict + one-line reason. Nothing above this line is edited.>
 verdict: questionable — re-ran size-scan.mjs map: 1125 LOC/band justify reproduces, all four concern rows' line-ranges/members/LOC match exactly (91-384/239, 401-716/245, 724-912/188, 914-1125/174, summing to the claimed 846), every row-1/2/4 member is 0/0 importers (independently confirmed by grepping RawCandidate/TreeEntry/resolveSlashNames etc. across src/ and tests/ — only discoverThetas and the discovery-model.ts re-exported types are ever imported) while discoverThetas is 1/16, resolveSettingsSource's 7-locals/5-closures shape holds, exemptions.json carries no discovery-walk.ts entry, the generated-marker and git-log revert/split/extract greps both reproduce zero hits, and PTQ-0305's ratification is quoted verbatim ("concern 5 ... -> discovery-collision-resolve.ts next wave"); per D9 policy an accurate breakdown accounting caps at questionable — the seam choice among the three proposed is a human ruling, never confirmed (triage: claude-opus-5)
+verdict: confirmed — RATIFIED (human, 2026-09-14): the pre-announced collision seam, with two cycle guards. (1) Move the SourcedCandidate interface (discovery-walk.ts ~:331, file-private) into src/discovery/discovery-model.ts and export it; discovery-walk.ts imports it from there. (2) Move row 4 - sourceLabelOf (:910), renderDescriptor, resolveBySource, validateAndRead, dedupeByIdentity, collisionPathOrder, resolveSlashNames (:914-1125) - TOGETHER WITH resolveCaseCollisions (:346-369) and dedupeByPath (:373-384), which are intra-source case-collision resolution called only from resolveBySource, verbatim into a new module src/discovery/discovery-collision-resolve.ts. The new module imports only from discovery-model.ts, discovery-path-classify.ts and other leaves - NOTHING from discovery-walk.ts (that is the cycle guard); it exports what discovery-walk.ts still calls (sourceLabelOf, renderDescriptor, resolveBySource, resolveSlashNames, validateAndRead) and discovery-walk.ts imports them back. Pure move by line range with doc comments; header comment on the new module; no logic edits; tsc first; report before/after LOC of discovery-walk.ts. Rows 1 and 2 (enumeration; settings sub-walk) are NOT ratified - D9 re-files after this lands.

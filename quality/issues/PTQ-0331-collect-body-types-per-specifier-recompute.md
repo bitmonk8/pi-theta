@@ -1,9 +1,9 @@
 ---
-id: pending                  # PTQ-NNNN minted at acceptance; never self-assigned
+id: PTQ-0331
 title: checkThetaImports recomputes collectBodyTypes over the same resolved library once per schema-importing specifier in one import statement
 lens: D8                     # D2 | D4 | D7 | D8 | D9 - the lens that filed this
-status: intake               # intake | open | fixed | rejected (store mechanics own transitions)
-verdict: pending              # pending | confirmed | questionable | false-positive | duplicate | out-of-scope | malformed
+status: open
+verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - src/extension/import-static-checks.ts:1228
   - src/extension/import-static-checks.ts:1246-1247
@@ -142,3 +142,4 @@ shared — so no `challenges_spec` applies.
 ## Triage
 <triage appends: verdict + one-line reason. Nothing above this line is edited.>
 verdict: questionable — accounting verified: resolvedPath/parsed are const per decl (1246/1255) and never reassigned across the inner specifier loop (1312-1447); the sole collectBodyTypes call site in this file (1438-1441, grep-confirmed unique) fires once per schema-matching specifier on byte-identical (parsed.document.body.statements, resolvedPath) args, with no wrapping cache (parseCache/moduleScopeCache here, and invoke-static-checks.ts's libraryEnvCache memoizes a different function); imports.md's grammar (`("," ImportSpec)*`) makes N>1 schema specifiers per decl an ordinary, spec-legal form, not a contrived edge case; the PTQ-0304 cross-reference checks out (Seam B ratified/landed as import-system-template-patch.ts, Seams A/C — including this per-specifier loop — explicitly deferred, so this is a distinct claim); no D8 exemption on this host and no docs/spec_topics clause pins the per-specifier repeat — D8 caps an accurate accounting at questionable, hoisting/memoizing collectBodyTypes per decl is a human design call (triage: claude-opus-5)
+verdict: confirmed — RATIFIED (human, 2026-09-14): compute once per resolved library. Inside checkThetaImports' per-specifier loop (import-static-checks.ts, the per-decl loop over one import statement's specifiers), collectBodyTypes for a resolved library is computed the first time a schema-importing specifier of that statement needs it and reused for the statement's remaining specifiers (a local Map keyed by the resolved library path, scoped to the import statement - no module-level cache, no cross-statement sharing). Output identical; tests unchanged. Runs after the D9 lane on import-static-checks.ts (host-lane rule); if PTQ (Seam A of checkThetaImports) has moved the loop into a helper by then, apply the same change inside the helper.

@@ -1,9 +1,9 @@
 ---
-id: pending                  # PTQ-NNNN minted at acceptance; never self-assigned
+id: PTQ-0330
 title: invoke-static-checks.ts's four checkImported* routes each independently re-run the whole-file collectLocalBinderNames walk over the same importing body
 lens: D8                     # D2 | D4 | D7 | D8 | D9 - the lens that filed this
-status: intake               # intake | open | fixed | rejected (store mechanics own transitions)
-verdict: pending              # pending | confirmed | questionable | false-positive | duplicate | out-of-scope | malformed
+status: open
+verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - src/extension/invoke-static-checks.ts:1566
   - src/extension/invoke-static-checks.ts:1731
@@ -176,3 +176,4 @@ names neither function's size, only the repeated computation.
 ## Triage
 <triage appends: verdict + one-line reason. Nothing above this line is edited.>
 verdict: questionable — all citations verified verbatim (four independent `collectLocalBinderNames(importingBody, paramsFieldNames)` calls at invoke-static-checks.ts:1566/1731/1830/1931, each function's sole caller `checkThetaImports` passing the identical `input.body`/wireName expression at import-static-checks.ts:1470-1473/1483-1486/1496-1499/1510-1513, and the whole-file recursive-walk doc comment at type-layer-checks.ts:606-627, with no cache anywhere in the path); distinct root cause from PTQ-0319 (ratified fix covers only `collectCallSites`, silent on this function) and from PTQ-0321 (a different function's size claim); no D8 exemption or spec_topics clause covers this host/behaviour; accounting holds but D8 caps at questionable — sharing the walk is a human design decision (triage: claude-opus-5)
+verdict: confirmed — RATIFIED (human, 2026-09-14): compute once, same shape as PTQ-0319 (collectCallSites once) and implemented in the SAME lane with it. checkThetaImports (import-static-checks.ts, the dispatch that calls the four checkImported* routes for one body) runs collectLocalBinderNames over the importing body ONCE and passes the result into checkImportedFnCallArgs, checkImportedSchemaCtorFields, checkImportedEnumVariantAccess and checkImportedNonCtorTypeNames as a parameter (export whatever type/collector that needs from invoke-static-checks.ts); each route drops its own collectLocalBinderNames call. The walk is pure; output identical; tests unchanged.
