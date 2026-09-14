@@ -230,24 +230,33 @@ function tokeniseExpr(source: string): ExprToken[] {
   return tokens;
 }
 
-/** Binary operator precedence (higher binds tighter); 0 = not a binary op. */
-const BINARY_PRECEDENCE: Readonly<Record<string, number>> = Object.freeze({
-  "||": 1,
-  "&&": 2,
-  "==": 3,
-  "!=": 3,
-  "<": 4,
-  "<=": 4,
-  ">": 4,
-  ">=": 4,
-  "+": 5,
-  "-": 5,
-  "*": 6,
-  "/": 6,
-  "%": 6,
-});
+/**
+ * Binary-operator tokens `parseBinary` recognises. The literal sublanguage
+ * forbids every operator other than the unary `-` numeric carve-out as one
+ * undifferentiated class (grammar.md §"Theta literal sublanguage"), so
+ * `parseBinary` needs only membership in this set, not relative precedence —
+ * a 6-tier precedence table this parser climbed but never exposed to a
+ * consumer (`binary`/`ternary` nodes carry no operand fields; the only
+ * reader, `firstNonLiteral`, does not discriminate on either kind) was
+ * proven redundant and removed (PTQ-0317).
+ */
+const BINARY_OPERATORS: ReadonlySet<string> = new Set([
+  "||",
+  "&&",
+  "==",
+  "!=",
+  "<",
+  "<=",
+  ">",
+  ">=",
+  "+",
+  "-",
+  "*",
+  "/",
+  "%",
+]);
 
-/** A tolerant recursive-descent / precedence-climbing expression parser. */
+/** A tolerant recursive-descent expression parser. */
 class ExprParser {
   private pos = 0;
   constructor(
@@ -290,7 +299,7 @@ class ExprParser {
   }
 
   private parseTernary(): ExprNode {
-    const cond = this.parseBinary(1);
+    const cond = this.parseBinary();
     const t = this.peek();
     if (t !== undefined && t.kind === "punct" && t.text === "?") {
       this.next();
@@ -305,19 +314,15 @@ class ExprParser {
     return cond;
   }
 
-  private parseBinary(minPrec: number): ExprNode {
+  private parseBinary(): ExprNode {
     let left = this.parseUnary();
     for (;;) {
       const t = this.peek();
-      if (t === undefined || t.kind !== "punct") {
-        break;
-      }
-      const prec = BINARY_PRECEDENCE[t.text];
-      if (prec === undefined || prec < minPrec) {
+      if (t === undefined || t.kind !== "punct" || !BINARY_OPERATORS.has(t.text)) {
         break;
       }
       this.next();
-      this.parseBinary(prec + 1);
+      this.parseUnary();
       left = { kind: "binary", start: left.start, end: this.spanFrom(left.start) };
     }
     return left;
