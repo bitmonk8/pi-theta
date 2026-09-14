@@ -84,8 +84,6 @@ import {
 import { buildEnvironment } from "../src/runtime/lexical-environment";
 import { parseThetaDocument } from "../src/parser/theta-document";
 import type { ThetaSource } from "../src/lexer/lexer";
-import type { SystemNoteChannelDeps } from "../src/extension/system-note-channel";
-import type { ModelReferenceMatcher } from "../src/parser/frontmatter";
 import type { DrivenConversationMode } from "../src/runtime/terminal-outcomes";
 import { makeErr, makeOk, type ResultValue, type ThetaValue } from "../src/runtime/value";
 import { makeCancelledError } from "../src/runtime/cancellation-core";
@@ -107,6 +105,7 @@ import {
   span,
   type RecordedHop,
 } from "./helpers/invoke-seam-scaffold";
+import { parseDeps } from "./helpers/e2e-s1";
 
 // The parent theta the seam drives; its slash name (filename stem) is `parent`.
 const PARENT_FILE = "parent.theta";
@@ -479,16 +478,6 @@ describe("bug 0295 (F) — a non-cancelled callee-returned Err wraps invoke_call
 // cancellation) and the RFC-0001 runtime suite `tests/subagent-fn.test.ts`.
 // Fork state: GREEN both sides.
 // ===========================================================================
-
-function parseDeps(): { systemNote: SystemNoteChannelDeps; modelMatcher: ModelReferenceMatcher } {
-  const systemNote: SystemNoteChannelDeps = {
-    pi: { sendMessage: (): void => {} },
-    ui: { notify: (): void => {} },
-    emitDiagnostic: (): void => {},
-  };
-  const modelMatcher: ModelReferenceMatcher = { resolve: (): "resolved" => "resolved" };
-  return { systemNote, modelMatcher };
-}
 
 /**
  * A `StatementEvalHost` that spawns a real (recorded) subagent-fn session and

@@ -1,11 +1,14 @@
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 // @ts-expect-error — JS code-registry module, no type declarations.
 import { parseRegistry, registryMessage } from "../tools/code-registry/index.js";
-import { runProductionLoad, type LoadOutcome } from "./helpers/production-load-harness";
+import {
+  disposeWorkspace,
+  plantThetaWorkspace,
+  runProductionLoad,
+  type LoadOutcome,
+} from "./helpers/production-load-harness";
 
 // Bug 0147 — INTRA-SITE MULTIPLICITY for the argument-type-mismatch family.
 //
@@ -680,20 +683,10 @@ beforeAll(async () => {
     ).toEqual([]);
   }
 
-  workspaceDir = mkdtempSync(join(tmpdir(), "theta-bug0147-"));
-  const projectThetaDir = join(workspaceDir, ".pi", "theta");
-  mkdirSync(projectThetaDir, { recursive: true });
-  for (const planted of PLANTED) {
-    writeFileSync(
-      join(projectThetaDir, `${planted.stem}.${planted.ext}`),
-      planted.text,
-      "utf8",
-    );
-  }
   // A minimal valid settings file pins the fixture's settings read to a known
   // value; an ABSENT settings file is silent, so this is hermeticity rather
   // than noise suppression.
-  writeFileSync(join(workspaceDir, ".pi", "settings.json"), "{}", "utf8");
+  workspaceDir = plantThetaWorkspace("theta-bug0147-", PLANTED, "{}");
   outcome = await runProductionLoad(workspaceDir);
   // The grid plants ~150 files (four surfaces × ten cells, each with its own
   // callees / library), and one composition-root pass parses and type-checks
@@ -703,7 +696,7 @@ beforeAll(async () => {
 }, 60000);
 
 afterAll(() => {
-  rmSync(workspaceDir, { recursive: true, force: true });
+  disposeWorkspace(workspaceDir);
 });
 
 /** The diagnostic lines this load attributed to one planted file. */

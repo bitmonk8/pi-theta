@@ -1,8 +1,10 @@
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { runProductionLoad, type LoadOutcome } from "./helpers/production-load-harness";
+import {
+  disposeWorkspace,
+  plantThetaWorkspace,
+  runProductionLoad,
+  type LoadOutcome,
+} from "./helpers/production-load-harness";
 
 // Bug 0297 face 2 — the PRODUCTION threading of a present non-scalar
 // `bind_model:` into binder-model resolution
@@ -109,25 +111,19 @@ let workspaceDir: string;
 const AVAILABLE_MODELS: readonly unknown[] = [{ provider: "test", id: "binder" }];
 
 beforeAll(async () => {
-  workspaceDir = mkdtempSync(join(tmpdir(), "theta-b0297-"));
-  const projectThetaDir = join(workspaceDir, ".pi", "theta");
-  mkdirSync(projectThetaDir, { recursive: true });
-  for (const l of THETAS) {
-    writeFileSync(join(projectThetaDir, `${l.stem}.theta`), l.text, "utf8");
-  }
   // `theta.binderModel` is the chain-step-2 settings fallback the fix must NOT
   // reach for a non-scalar `bind_model:`; it resolves against the available
   // model above, so pre-fix the offender rides it into registration.
-  writeFileSync(
-    join(workspaceDir, ".pi", "settings.json"),
+  workspaceDir = plantThetaWorkspace(
+    "theta-b0297-",
+    THETAS,
     JSON.stringify({ theta: { binderModel: "test/binder" } }),
-    "utf8",
   );
   outcome = await runProductionLoad(workspaceDir, { availableModels: AVAILABLE_MODELS });
 });
 
 afterAll(() => {
-  rmSync(workspaceDir, { recursive: true, force: true });
+  disposeWorkspace(workspaceDir);
 });
 
 describe("bug 0297 face 2 — non-scalar bind_model: threaded through the production compose pass", () => {

@@ -1,6 +1,3 @@
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type {
   ExtensionAPI,
@@ -24,7 +21,12 @@ import {
 } from "../../src/runtime/value";
 import { discoverThetas } from "../../src/discovery/discovery-walk";
 import { FakeFileSystem } from "../helpers/fake-file-system";
-import { runProductionLoad, type LoadOutcome } from "../helpers/production-load-harness";
+import {
+  disposeWorkspace,
+  plantThetaWorkspace,
+  runProductionLoad,
+  type LoadOutcome,
+} from "../helpers/production-load-harness";
 import type { ThetaSettings } from "../../src/discovery/settings";
 import type { RuntimeRoot } from "../../src/runtime-root";
 import type { Checkpoint } from "../../src/seams/checkpoint";
@@ -233,19 +235,12 @@ let loadOutcome: LoadOutcome;
 let workspaceDir: string;
 
 beforeAll(async () => {
-  workspaceDir = mkdtempSync(join(tmpdir(), "theta-v20g-"));
-  const projectThetaDir = join(workspaceDir, ".pi", "theta");
-  mkdirSync(projectThetaDir, { recursive: true });
-  for (const l of LOAD_THETAS) {
-    writeFileSync(join(projectThetaDir, `${l.stem}.theta`), l.text, "utf8");
-  }
+  workspaceDir = plantThetaWorkspace("theta-v20g-", LOAD_THETAS);
   loadOutcome = await runProductionLoad(workspaceDir);
 });
 
 afterAll(() => {
-  if (workspaceDir !== undefined) {
-    rmSync(workspaceDir, { recursive: true, force: true });
-  }
+  disposeWorkspace(workspaceDir);
 });
 
 describe("V20g-T conformance — load-time surface through the production compose helper", () => {
