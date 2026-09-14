@@ -85,6 +85,7 @@ import {
   runCapabilityProbe,
   SUPERSESSION_QUIESCE_CAP_MS,
 } from "./capability-probe";
+import { raceAgainstCapTimer } from "./cap-race";
 import { SUBAGENT_ROOT_ENV_MARKER } from "../runtime/subagent-root-regime";
 import { readParentEnv } from "./production-subagent-host";
 import { SDK_SURFACE_INVENTORY } from "./sdk-inventory";
@@ -262,11 +263,10 @@ function supersessionDetachFailedDiagnostic(
 /**
  * Bug 0034 (registration-steps.md#repeat-start-supersession, PIC-57) — race an
  * already-in-flight superseded-generation rebuild's `whenIdle()` against a cap
- * timer armed on the OUTGOING generation's own `Clock`, mirroring
- * `quiesceDebouncer` (session-shutdown.ts): `clock.setTimeout` arms a
- * `resolveCap`, `Promise.race` resolves on the earlier of the two, and the cap
- * timer is cleared in a `finally` so a settled quiesce never leaks a timer.
- * Unlike the teardown's quiesce, this path owns its OWN deadline
+ * timer armed on the OUTGOING generation's own `Clock`, via the shared
+ * `raceAgainstCapTimer` helper (`cap-race.ts`), also used by
+ * `quiesceDebouncer` (session-shutdown.ts). Unlike the teardown's quiesce,
+ * this path owns its OWN deadline
  * (`SUPERSESSION_QUIESCE_CAP_MS`, captured at this call rather than at
  * `session_shutdown` handler entry — no such deadline exists on this path).
  * `whenIdle` is optional on `HotReloadHandle`, so a `detach()`-only handle
@@ -281,19 +281,11 @@ async function quiesceOutgoingRebuild(
   outgoingHandle: HotReloadHandle,
   outgoingClock: Clock,
 ): Promise<void> {
-  let resolveCap: () => void = (): void => {};
-  const capRace = new Promise<void>((resolve) => {
-    resolveCap = resolve;
-  });
-  const capHandle = outgoingClock.setTimeout(
-    () => resolveCap(),
+  await raceAgainstCapTimer(
+    () => outgoingHandle.whenIdle?.() ?? Promise.resolve(),
     SUPERSESSION_QUIESCE_CAP_MS,
+    outgoingClock,
   );
-  try {
-    await Promise.race([outgoingHandle.whenIdle?.() ?? Promise.resolve(), capRace]); // allow: PIC-57 — pi-integration-contract/session-shutdown-semantics.md
-  } finally {
-    outgoingClock.clearTimeout(capHandle);
-  }
 }
 
 /**

@@ -24,6 +24,7 @@ import { SHUTDOWN_AWAIT_CAP_MS } from "./capability-probe";
 import { armSessionSwapTripwireForReason } from "./session-swap-tripwire";
 import { sendSystemNote, type SystemNoteChannelDeps } from "./system-note-channel";
 import { classifyShutdownReason, type PinnedConstantSnapshotSource } from "./unknown-reason-rule";
+import { raceAgainstCapTimer } from "./cap-race";
 
 // The bounded-await cap for sub-step 3 (session-shutdown-semantics.md sub-step 3
 // / `cka-31`) is owned by the single `SHUTDOWN_AWAIT_CAP_MS` declaration site
@@ -712,8 +713,9 @@ async function runBoundedDisposeAwait(
  * NOT a fresh budget. A rebuild still in flight at the shared deadline is
  * abandoned safely under the torn-down flag with NO new diagnostic code; only a
  * *throw* out of this await surfaces (caught by the caller as one
- * teardown-step-failed). The bounding timer is always cleared so a resolved
- * quiesce does not leak a timer onto the about-to-be-invalidated runtime.
+ * teardown-step-failed). The race/cap-timer mechanism itself is the shared
+ * `raceAgainstCapTimer` helper (`cap-race.ts`), also used by
+ * `quiesceOutgoingRebuild` (factory.ts).
  */
 async function quiesceDebouncer(
   debouncer: TeardownAwareDebouncer,
@@ -721,14 +723,5 @@ async function quiesceDebouncer(
   clock: Clock,
 ): Promise<void> {
   const remaining = deadline - clock.now();
-  let resolveCap: () => void = (): void => {};
-  const capRace = new Promise<void>((resolve) => {
-    resolveCap = resolve;
-  });
-  const capHandle = clock.setTimeout(() => resolveCap(), Math.max(0, remaining));
-  try {
-    await Promise.race([debouncer.whenIdle(), capRace]); // allow: PIC-57 — pi-integration-contract/session-shutdown-semantics.md
-  } finally {
-    clock.clearTimeout(capHandle);
-  }
+  await raceAgainstCapTimer(() => debouncer.whenIdle(), Math.max(0, remaining), clock);
 }

@@ -24,15 +24,13 @@
 
 import type { SubagentChildProcess } from "../../runtime/subagent-launcher";
 import {
-  PROGRESS_MESSAGE_CLAMP_CHARS,
   PROGRESS_MIN_INTERVAL_MS,
-  PROGRESS_SCOPE_CLAMP_CHARS,
   PROGRESS_WIRE_KEY,
   PROGRESS_WIRE_VERSION,
   TAP_LINE_MAX_BYTES,
 } from "./types";
 import type { ProgressAuthorMessage } from "./types";
-import { clampProgressField } from "./progress-tool";
+import { clampAuthorMessage } from "./progress-tool";
 import type { Clock } from "../../seams/clock";
 
 /** F-L3-6: the optional per-child rate-gate clock (absent → no rate gate;
@@ -169,22 +167,18 @@ export function attachChildActivityTap(
           : 0;
       const carried = wireDropped + tapDropped;
       tapDropped = 0;
-      const payload: ProgressAuthorMessage = {
-        // Defensive re-clamp + strip: the emitter clamped, but the wire is not
-        // trusted to have done so (EXST-5's re-clamp obligation).
-        message: clampProgressField(fields.message, PROGRESS_MESSAGE_CLAMP_CHARS),
-        ...(typeof fields.scope === "string"
-          ? { scope: clampProgressField(fields.scope, PROGRESS_SCOPE_CLAMP_CHARS) }
-          : {}),
-        // Non-conforming optional fields are discarded FIELD-WISE (PIC-74).
-        ...(typeof fields.done === "number" && Number.isInteger(fields.done)
-          ? { done: fields.done }
-          : {}),
-        ...(typeof fields.total === "number" && Number.isInteger(fields.total)
-          ? { total: fields.total }
-          : {}),
-        ...(carried > 0 ? { dropped: carried } : {}),
-      };
+      // Defensive re-clamp + strip: the emitter clamped, but the wire is not
+      // trusted to have done so (EXST-5's re-clamp obligation). Routed through
+      // the shared `clampAuthorMessage` (progress-tool.ts) so this decoder's
+      // rebuild stays anchored to the same `HANDLED_PROGRESS_FIELDS` ledger as
+      // the parent-regime paths.
+      const payload = clampAuthorMessage({
+        message: fields.message,
+        scope: fields.scope,
+        done: fields.done,
+        total: fields.total,
+        dropped: carried,
+      });
       publish({ type: "theta_progress", payload });
       return;
     }
