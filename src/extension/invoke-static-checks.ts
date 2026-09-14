@@ -132,7 +132,6 @@ import {
   annotationSourceIsNotTypeExpression,
   annotationToCompatType,
   collectEnumNames,
-  collectLocalBinderNames,
   collectTypeEnv,
   fnParamNamesAreIdentifiers,
 } from "../parser/type-layer-checks";
@@ -163,7 +162,7 @@ function normalizePath(path: string): string {
  * `checkInvokeStaticResolution` therefore traverses a body once and feeds
  * every one of its check loops from that one result.
  */
-interface CollectedCallSites {
+export interface CollectedCallSites {
   readonly invokeExprs: InvokeExpr[];
   readonly callExprs: CallExpr[];
   /**
@@ -206,7 +205,7 @@ function collectInvokeExprs(body: ThetaBody): InvokeExpr[] {
  * exactly as a statement-level occurrence would; the shared walk reaches both
  * without a per-check special case.
  */
-function collectCallSites(body: ThetaBody): CollectedCallSites {
+export function collectCallSites(body: ThetaBody): CollectedCallSites {
   const out: CollectedCallSites = { invokeExprs: [], callExprs: [], objectExprs: [], memberExprs: [] };
   // `target.method(args)` (a `MethodCallExpr`) is a method call, not a
   // `.theta`-callable-call candidate — `method` names a stdlib member, never a
@@ -1581,15 +1580,15 @@ export interface ImportedFnCallee {
 export function checkImportedFnCallArgs(
   importingBody: ThetaBody,
   importingFile: string,
-  paramsFieldNames: readonly string[],
+  shadowedNames: ReadonlySet<string>,
+  callSites: CollectedCallSites,
   importedFns: ReadonlyMap<string, ImportedFnCallee>,
 ): Diagnostic[] {
   if (importedFns.size === 0) {
     return [];
   }
   const diagnostics: Diagnostic[] = [];
-  const shadowedNames = collectLocalBinderNames(importingBody, paramsFieldNames);
-  const { callExprs } = collectCallSites(importingBody);
+  const { callExprs } = callSites;
   const importerEnv = collectTypeEnv(importingBody.statements);
   const importerPass = new StaticTypeInferencePass({
     checkCompatible,
@@ -1739,22 +1738,21 @@ export function checkImportedFnCallArgs(
  * placeholders").
  *
  * DEFERRED, by construction: an `ObjectExpr` INSIDE a `.thetalib` body is
- * never reached, because this function walks the IMPORTING THETA's own body
- * only, never a library body — the same fence `checkImportedFnCallArgs`
+ * never reached, because `callSites` is collected from the IMPORTING THETA's
+ * own body only, never a library body — the same fence `checkImportedFnCallArgs`
  * states for call sites.
  */
 export function checkImportedSchemaCtorFields(
-  importingBody: ThetaBody,
   importingFile: string,
-  paramsFieldNames: readonly string[],
+  shadowedNames: ReadonlySet<string>,
+  callSites: CollectedCallSites,
   importedSchemas: ReadonlyMap<string, readonly SchemaFieldSource[]>,
 ): Diagnostic[] {
   if (importedSchemas.size === 0) {
     return [];
   }
   const diagnostics: Diagnostic[] = [];
-  const shadowedNames = collectLocalBinderNames(importingBody, paramsFieldNames);
-  const { objectExprs } = collectCallSites(importingBody);
+  const { objectExprs } = callSites;
   for (const ctor of objectExprs) {
     if (ctor.typeName === null) {
       // A bare `{ … }` object literal names no schema at all; this route
@@ -1838,22 +1836,21 @@ export function checkImportedSchemaCtorFields(
  * placeholders").
  *
  * DEFERRED, by construction: a `MemberExpr` INSIDE a `.thetalib` body is
- * never reached, because this function walks the IMPORTING THETA's own body
- * only, never a library body — the same fence `checkImportedSchemaCtorFields`
+ * never reached, because `callSites` is collected from the IMPORTING THETA's
+ * own body only, never a library body — the same fence `checkImportedSchemaCtorFields`
  * states for constructor sites.
  */
 export function checkImportedEnumVariantAccess(
-  importingBody: ThetaBody,
   importingFile: string,
-  paramsFieldNames: readonly string[],
+  shadowedNames: ReadonlySet<string>,
+  callSites: CollectedCallSites,
   importedEnums: ReadonlyMap<string, readonly string[]>,
 ): Diagnostic[] {
   if (importedEnums.size === 0) {
     return [];
   }
   const diagnostics: Diagnostic[] = [];
-  const shadowedNames = collectLocalBinderNames(importingBody, paramsFieldNames);
-  const { memberExprs } = collectCallSites(importingBody);
+  const { memberExprs } = callSites;
   for (const access of memberExprs) {
     if (access.target.kind !== "ident") {
       // Only a bare `Ident.field` denotes a possible imported-enum variant
@@ -1936,25 +1933,24 @@ export function checkImportedEnumVariantAccess(
  * placeholders").
  *
  * DEFERRED, by construction: an `ObjectExpr` INSIDE a `.thetalib` body is
- * never reached, because this function walks the IMPORTING THETA's own body
- * only, never a library body — the same fence `checkImportedSchemaCtorFields`
+ * never reached, because `callSites` is collected from the IMPORTING THETA's
+ * own body only, never a library body — the same fence `checkImportedSchemaCtorFields`
  * states for its own constructor sites. A fields-BEARING object-form
  * `schema` constructor stays silent here too — it is not in
  * `importedNonCtorNames` at all (bug 0429's already-judged class, disjoint
  * from this one).
  */
 export function checkImportedNonCtorTypeNames(
-  importingBody: ThetaBody,
   importingFile: string,
-  paramsFieldNames: readonly string[],
+  shadowedNames: ReadonlySet<string>,
+  callSites: CollectedCallSites,
   importedNonCtorNames: ReadonlySet<string>,
 ): Diagnostic[] {
   if (importedNonCtorNames.size === 0) {
     return [];
   }
   const diagnostics: Diagnostic[] = [];
-  const shadowedNames = collectLocalBinderNames(importingBody, paramsFieldNames);
-  const { objectExprs } = collectCallSites(importingBody);
+  const { objectExprs } = callSites;
   for (const ctor of objectExprs) {
     if (ctor.typeName === null) {
       // A bare `{ … }` object literal names no schema at all; this route

@@ -89,6 +89,7 @@ import {
   type ThetaDocument,
 } from "../parser/theta-document";
 import { collectUnresolvedNamedTypes } from "../parser/body-type-lowering";
+import { collectLocalBinderNames } from "../parser/type-layer-checks";
 import { parseViaPassCache, type PassParseDeps } from "./pass-parse-cache";
 import { toSystemParamType, type ParsedFrontmatter } from "../parser/frontmatter";
 import type { SystemParamType, SystemTemplate } from "../parser/system-interpolation";
@@ -109,6 +110,7 @@ import {
   checkImportedFnCallArgs,
   checkImportedNonCtorTypeNames,
   checkImportedSchemaCtorFields,
+  collectCallSites,
   type ImportedFnCallee,
 } from "./invoke-static-checks";
 import { patchSystemTemplateForImports } from "./import-system-template-patch";
@@ -1468,6 +1470,16 @@ export async function checkThetaImports(
   // checks below cannot silently diverge on it.
   const paramsFieldNames = (input.frontmatter?.params?.fields ?? []).map((f) => f.wireName);
 
+  // PTQ-0319 / PTQ-0330: the shadow set and the call-site walk are each a
+  // whole-body traversal (`collectLocalBinderNames`,
+  // `../parser/type-layer-checks.ts`; `collectCallSites`,
+  // `./invoke-static-checks.ts`) that all four `checkImported*` routes below
+  // need identically — computed ONCE here, over the same `input.body` /
+  // `paramsFieldNames` every route would otherwise re-derive, and passed in
+  // rather than re-walked per route.
+  const shadowedNames = collectLocalBinderNames(input.body, paramsFieldNames);
+  const callSites = collectCallSites(input.body);
+
   // Bug 0138 route 2: judge every imported-`fn` call site's argument COUNT and
   // TYPE, ONCE over the importing theta's own body, now that the per-decl loop
   // above holds the whole `importedFns` map.
@@ -1475,7 +1487,8 @@ export async function checkThetaImports(
     ...checkImportedFnCallArgs(
       input.body,
       input.sourcePath,
-      paramsFieldNames,
+      shadowedNames,
+      callSites,
       importedFns,
     ),
   );
@@ -1486,9 +1499,9 @@ export async function checkThetaImports(
   // the `checkImportedFnCallArgs` push immediately above.
   diagnostics.push(
     ...checkImportedSchemaCtorFields(
-      input.body,
       input.sourcePath,
-      paramsFieldNames,
+      shadowedNames,
+      callSites,
       importedSchemas,
     ),
   );
@@ -1499,9 +1512,9 @@ export async function checkThetaImports(
   // `checkImportedSchemaCtorFields` push immediately above.
   diagnostics.push(
     ...checkImportedEnumVariantAccess(
-      input.body,
       input.sourcePath,
-      paramsFieldNames,
+      shadowedNames,
+      callSites,
       importedEnums,
     ),
   );
@@ -1513,9 +1526,9 @@ export async function checkThetaImports(
   // wiring shape as the two pushes immediately above.
   diagnostics.push(
     ...checkImportedNonCtorTypeNames(
-      input.body,
       input.sourcePath,
-      paramsFieldNames,
+      shadowedNames,
+      callSites,
       importedNonCtorNames,
     ),
   );
