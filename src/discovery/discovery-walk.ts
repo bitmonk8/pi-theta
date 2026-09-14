@@ -113,9 +113,9 @@ async function enumerateDirectory(
   );
   if (!entries.ok) {
     if (entries.code === "ENOENT" && (await ancestorsClean(fs, dir))) {
-      emitSourceFailure(modes.missing, MISSING_SOURCE, source, descriptorValue, dir, diagnostics, "missing");
+      emitSourceFailure(modes.missing, source, descriptorValue, dir, diagnostics, "missing");
     } else {
-      emitSourceFailure(modes.unreadable, UNREADABLE_SOURCE, source, descriptorValue, dir, diagnostics, "unreadable");
+      emitSourceFailure(modes.unreadable, source, descriptorValue, dir, diagnostics, "unreadable");
     }
     return [];
   }
@@ -239,12 +239,11 @@ async function resolveEntry(
   source: DiscoverySource,
   descriptorValue: string,
   modes: FailureModes,
-  explicitFile: boolean,
   enoentPolicy: EnoentPolicy,
   diagnostics: Diagnostic[],
   roots: Set<string>,
 ): Promise<RawCandidate[]> {
-  const resolved = classifyForSource(await classifyPath(fs, path, enoentPolicy), path, explicitFile);
+  const resolved = classifyForSource(await classifyPath(fs, path, enoentPolicy), path, descriptor !== undefined);
   switch (resolved.kind) {
     case "dir":
       roots.add(normalizePath(path));
@@ -271,13 +270,13 @@ async function resolveEntry(
       });
       return [];
     case "missing":
-      emitSourceFailure(modes.missing, MISSING_SOURCE, source, descriptorValue, path, diagnostics, "missing");
+      emitSourceFailure(modes.missing, source, descriptorValue, path, diagnostics, "missing");
       return [];
     case "unreadable":
-      emitSourceFailure(modes.unreadable, UNREADABLE_SOURCE, source, descriptorValue, path, diagnostics, "unreadable");
+      emitSourceFailure(modes.unreadable, source, descriptorValue, path, diagnostics, "unreadable");
       return [];
     case "wrong-type":
-      emitSourceFailure(modes.wrongType, WRONG_TYPE_SOURCE, source, descriptorValue, path, diagnostics, "wrong-type");
+      emitSourceFailure(modes.wrongType, source, descriptorValue, path, diagnostics, "wrong-type");
       return [];
   }
 }
@@ -305,7 +304,6 @@ function classifyForSource(
 // note) never renders under two grammars for the same pass (bug 0461).
 function emitSourceFailure(
   severity: Severity | null,
-  code: string,
   source: DiscoverySource,
   descriptorValue: string,
   path: string,
@@ -316,6 +314,9 @@ function emitSourceFailure(
     return; // conventional silent-on-missing
   }
   const descriptor = renderSourceDescriptor(source, descriptorValue);
+  // `code` is a fixed 1:1 function of `kind` (code-registry-load.md), the
+  // same three-way split `message` below already branches on.
+  const code = kind === "missing" ? MISSING_SOURCE : kind === "unreadable" ? UNREADABLE_SOURCE : WRONG_TYPE_SOURCE;
   const message =
     kind === "missing"
       ? `discovery source path does not exist: ${descriptor}`
@@ -459,7 +460,7 @@ function emitUniverseFailures(
         (diagnostic.code === UNREADABLE_SOURCE || diagnostic.code === MISSING_SOURCE),
     );
     if (alreadyReported) continue;
-    emitSourceFailure(severity, UNREADABLE_SOURCE, "settings", descriptorValue, path, diagnostics, "unreadable");
+    emitSourceFailure(severity, "settings", descriptorValue, path, diagnostics, "unreadable");
   }
 }
 
@@ -653,13 +654,13 @@ async function resolveSettingsSource(
         await addFile(entry.abs, entry.index, entry.raw);
         return;
       case "missing":
-        emitSourceFailure(SETTINGS_MODES.missing, MISSING_SOURCE, "settings", entry.raw, entry.abs, diagnostics, "missing");
+        emitSourceFailure(SETTINGS_MODES.missing, "settings", entry.raw, entry.abs, diagnostics, "missing");
         return;
       case "unreadable":
-        emitSourceFailure(SETTINGS_MODES.unreadable, UNREADABLE_SOURCE, "settings", entry.raw, entry.abs, diagnostics, "unreadable");
+        emitSourceFailure(SETTINGS_MODES.unreadable, "settings", entry.raw, entry.abs, diagnostics, "unreadable");
         return;
       case "wrong-type":
-        emitSourceFailure(SETTINGS_MODES.wrongType, WRONG_TYPE_SOURCE, "settings", entry.raw, entry.abs, diagnostics, "wrong-type");
+        emitSourceFailure(SETTINGS_MODES.wrongType, "settings", entry.raw, entry.abs, diagnostics, "wrong-type");
         return;
     }
   };
@@ -749,7 +750,6 @@ export async function discoverThetas(input: DiscoveryInput): Promise<DiscoveryRe
     })),
     "cli",
     CLI_MODES,
-    true,
     candidates,
     diagnostics,
     roots,
@@ -837,7 +837,6 @@ export async function discoverThetas(input: DiscoveryInput): Promise<DiscoveryRe
       ],
       root.source,
       CONVENTIONAL_MODES,
-      false,
       candidates,
       diagnostics,
       roots,
@@ -885,7 +884,6 @@ async function collectFromEntries(
   }[],
   source: DiscoverySource,
   modes: FailureModes,
-  explicitFile: boolean,
   out: SourcedCandidate[],
   diagnostics: Diagnostic[],
   roots: Set<string>,
@@ -899,7 +897,6 @@ async function collectFromEntries(
       source,
       entry.descriptorValue,
       modes,
-      explicitFile,
       entry.enoentPolicy,
       diagnostics,
       roots,
