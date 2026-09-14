@@ -8,8 +8,8 @@
 // discovery-walk.ts imports back what its own per-source enumeration
 // (`resolveEntry`/`enumerateDirectory`) and settings `thetaPaths` resolution
 // (`resolveSettingsSource`) call, and package-discovery.ts and settings.ts
-// import the shared POSIX path helpers and `walkTree` directly (PTQ-0286,
-// PTQ-0287) — package-discovery.ts also imports the descriptor renderer
+// import the shared POSIX path helpers directly (PTQ-0286, PTQ-0287) —
+// package-discovery.ts also imports `walkTree` and the descriptor renderer
 // `renderSourceDescriptor` (PTQ-0284) — instead of keeping their own copies.
 //
 // Spec: discovery.md, discovery/discovery-sources.md (DISC-1, DISC-2).
