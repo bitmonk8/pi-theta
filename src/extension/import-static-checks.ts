@@ -1459,18 +1459,23 @@ export async function checkThetaImports(
     diagnostics,
   );
 
-  // Bug 0138 route 2: judge every imported-`fn` call site's argument COUNT and
-  // TYPE, ONCE over the importing theta's own body, now that the per-decl loop
-  // above holds the whole `importedFns` map. `input.frontmatter?.params?.fields
-  // ?? []` mapped to `wireName` is the same NAME-KEYING ADJUDICATION
+  // The params-field wire-name list the four imported-symbol-usage checks
+  // below share as their shadow set: `input.frontmatter?.params?.fields ?? []`
+  // mapped to `wireName` is the same NAME-KEYING ADJUDICATION
   // `parseThetaDocument`'s `checkTypeLayer` call site uses
   // (../parser/theta-document.ts) — the body-visible identifier a `params:`
-  // field binds, cited rather than re-derived.
+  // field binds, cited rather than re-derived. Computed once here so the four
+  // checks below cannot silently diverge on it.
+  const paramsFieldNames = (input.frontmatter?.params?.fields ?? []).map((f) => f.wireName);
+
+  // Bug 0138 route 2: judge every imported-`fn` call site's argument COUNT and
+  // TYPE, ONCE over the importing theta's own body, now that the per-decl loop
+  // above holds the whole `importedFns` map.
   diagnostics.push(
     ...checkImportedFnCallArgs(
       input.body,
       input.sourcePath,
-      (input.frontmatter?.params?.fields ?? []).map((f) => f.wireName),
+      paramsFieldNames,
       importedFns,
     ),
   );
@@ -1483,7 +1488,7 @@ export async function checkThetaImports(
     ...checkImportedSchemaCtorFields(
       input.body,
       input.sourcePath,
-      (input.frontmatter?.params?.fields ?? []).map((f) => f.wireName),
+      paramsFieldNames,
       importedSchemas,
     ),
   );
@@ -1496,7 +1501,7 @@ export async function checkThetaImports(
     ...checkImportedEnumVariantAccess(
       input.body,
       input.sourcePath,
-      (input.frontmatter?.params?.fields ?? []).map((f) => f.wireName),
+      paramsFieldNames,
       importedEnums,
     ),
   );
@@ -1510,7 +1515,7 @@ export async function checkThetaImports(
     ...checkImportedNonCtorTypeNames(
       input.body,
       input.sourcePath,
-      (input.frontmatter?.params?.fields ?? []).map((f) => f.wireName),
+      paramsFieldNames,
       importedNonCtorNames,
     ),
   );

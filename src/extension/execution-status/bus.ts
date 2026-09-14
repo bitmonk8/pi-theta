@@ -35,11 +35,9 @@ import {
   MAX_RUNNING_LANES_TRACKED,
   MAX_TRACKED_INVOCATIONS,
   NAME_CLAMP_CHARS,
-  PROGRESS_MESSAGE_CLAMP_CHARS,
-  PROGRESS_SCOPE_CLAMP_CHARS,
   STATUS_TICK_MS,
 } from "./types";
-import { clampProgressField } from "./progress-tool";
+import { clampAuthorMessage } from "./progress-tool";
 import type { Clock, TimerHandle } from "../../seams/clock";
 import type { CheckpointKind, CheckpointSite } from "../../seams/checkpoint";
 import type { ChildTapEvent } from "./child-tap";
@@ -97,15 +95,7 @@ function clampName(name: string): string {
  * its job.
  */
 function clampFoldedAuthorMessage(p: ProgressAuthorMessage): ProgressAuthorMessage {
-  return {
-    message: clampProgressField(p.message, PROGRESS_MESSAGE_CLAMP_CHARS),
-    ...(typeof p.scope === "string"
-      ? { scope: clampProgressField(p.scope, PROGRESS_SCOPE_CLAMP_CHARS) }
-      : {}),
-    ...(Number.isInteger(p.done) ? { done: p.done } : {}),
-    ...(Number.isInteger(p.total) ? { total: p.total } : {}),
-    ...(Number.isInteger(p.dropped) && (p.dropped ?? 0) > 0 ? { dropped: p.dropped } : {}),
-  };
+  return clampAuthorMessage(p);
 }
 
 class ExecutionStatusBusImpl implements ExecutionStatusBus {

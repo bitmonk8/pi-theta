@@ -49,6 +49,7 @@ import { registerThetaProgressTool } from "./execution-status/progress-tool";
 import {
   RendererGate,
   SystemNoteChannelHealth,
+  SYSTEM_NOTE_CHANNEL,
   sendSystemNote,
   type SystemNoteChannelDeps,
 } from "./system-note-channel";
@@ -113,8 +114,6 @@ export const EXTENSION_COMPOSE_FAILED_CODE =
 
 /** The CLI flag the extension registers for `.theta` discovery roots. */
 const THETA_FLAG = "theta";
-/** The theta-internal system-note renderer channel. */
-const SYSTEM_NOTE_CHANNEL = "theta-system-note";
 
 /**
  * The closed set of factory-time `pi.on` subscriptions a bootstrap failure can

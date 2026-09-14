@@ -111,21 +111,62 @@ export function clampProgressField(s: string, max: number): string {
   return stripped.length <= max ? stripped : stripped.slice(0, max);
 }
 
+/**
+ * Compile-time field-set anchor for `clampAuthorMessage`, mirroring
+ * child-tap.ts's `HANDLED_PROGRESS_FIELDS`: every key of
+ * `ProgressAuthorMessage` this function assembles, named once. `satisfies`
+ * fails `tsc` in THIS file the moment a field is added to
+ * `ProgressAuthorMessage` and not added here.
+ */
+const HANDLED_PROGRESS_FIELDS = {
+  message: true,
+  scope: true,
+  done: true,
+  total: true,
+  dropped: true,
+} satisfies Record<keyof ProgressAuthorMessage, true>;
+
+/**
+ * The post-clamp class-2 payload (EXST-14): the single field-by-field
+ * rebuild of a `ProgressAuthorMessage`, shared by `clampProgressPayload`
+ * (a typed `ThetaProgressParams` source) and `bus.ts`'s fold-time re-clamp
+ * (an already-typed `ProgressAuthorMessage` source, its own "L3 defence in
+ * depth") so both stay anchored to the `HANDLED_PROGRESS_FIELDS` ledger
+ * above.
+ */
+export function clampAuthorMessage(fields: {
+  readonly message: string;
+  readonly scope?: unknown;
+  readonly done?: unknown;
+  readonly total?: unknown;
+  readonly dropped?: unknown;
+}): ProgressAuthorMessage {
+  return {
+    message: clampProgressField(fields.message, PROGRESS_MESSAGE_CLAMP_CHARS),
+    ...(typeof fields.scope === "string"
+      ? { scope: clampProgressField(fields.scope, PROGRESS_SCOPE_CLAMP_CHARS) }
+      : {}),
+    // `done`/`total` are schema-enforced integers; they render verbatim.
+    ...(typeof fields.done === "number" && Number.isInteger(fields.done)
+      ? { done: fields.done }
+      : {}),
+    ...(typeof fields.total === "number" && Number.isInteger(fields.total)
+      ? { total: fields.total }
+      : {}),
+    ...(typeof fields.dropped === "number" &&
+    Number.isInteger(fields.dropped) &&
+    fields.dropped > 0
+      ? { dropped: fields.dropped }
+      : {}),
+  };
+}
+
 /** The post-clamp class-2 payload (EXST-14): the single currency of both arms. */
 export function clampProgressPayload(
   params: ThetaProgressParams,
   dropped: number,
 ): ProgressAuthorMessage {
-  return {
-    message: clampProgressField(params.message, PROGRESS_MESSAGE_CLAMP_CHARS),
-    ...(typeof params.scope === "string"
-      ? { scope: clampProgressField(params.scope, PROGRESS_SCOPE_CLAMP_CHARS) }
-      : {}),
-    // `done`/`total` are schema-enforced integers; they render verbatim.
-    ...(Number.isInteger(params.done) ? { done: params.done } : {}),
-    ...(Number.isInteger(params.total) ? { total: params.total } : {}),
-    ...(dropped > 0 ? { dropped } : {}),
-  };
+  return clampAuthorMessage({ ...params, dropped });
 }
 
 /** Per-instance acceptance/emission state (EXST-14 / PIC-74). Closure-held. */

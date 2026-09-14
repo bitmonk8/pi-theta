@@ -46,6 +46,7 @@
 //     `SDK_SURFACE_INVENTORY` (version-bump-triggers.md step 7,
 //     inventory-audit-intro.md #strict-capability-absence-under-probed-name).
 
+import { PEER_DEP_PACKAGES } from "./capability-probe";
 import { SDK_SURFACE_INVENTORY } from "./sdk-inventory";
 
 // --- pinned data constants (real; V18c-owned) -------------------------------
@@ -190,14 +191,8 @@ export function peerDependencyPinFailures(
   peerDependencies: Readonly<Record<string, string>>,
   pinLiteral: string,
 ): readonly string[] {
-  const pinnedPackages: readonly string[] = [
-    "@earendil-works/pi-coding-agent",
-    "@earendil-works/pi-agent-core",
-    "@earendil-works/pi-ai",
-    "@earendil-works/pi-tui",
-  ];
   const failures: string[] = [];
-  for (const pkg of pinnedPackages) {
+  for (const pkg of PEER_DEP_PACKAGES) {
     if (peerDependencies[pkg] !== pinLiteral) {
       failures.push(
         `peerDependencies['${pkg}'] is '${String(peerDependencies[pkg])}', expected the Pi-SDK pin '${pinLiteral}'`,

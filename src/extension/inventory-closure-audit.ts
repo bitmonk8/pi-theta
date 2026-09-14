@@ -37,18 +37,11 @@
 // tests/inventory-closure-audit-gate.test.ts.
 
 import ts from "typescript";
+import { PEER_DEP_PACKAGES } from "./capability-probe";
 import type { SurfaceInventoryEntry } from "./sdk-inventory";
 
 /** The literal five-character `<n/a>` sentinel (audit-wire-and-canary.md). */
 const NA = "<n/a>";
-
-/** The four `@earendil-works/*` peer packages the audit's category (2) covers. */
-const PEER_PACKAGES = [
-  "@earendil-works/pi-coding-agent",
-  "@earendil-works/pi-agent-core",
-  "@earendil-works/pi-ai",
-  "@earendil-works/pi-tui",
-] as const;
 
 /** The canonical carrier-type literals (audit-target-categories.md (1)/(3)). */
 const CTX_TYPES: ReadonlySet<string> = new Set(["ExtensionContext", "ExtensionCommandContext"]);
@@ -130,7 +123,7 @@ function leftmostSegment(id: string): string {
 
 /** True iff `spec` names one of the four peer packages (bare or sub-path). */
 function isPeerPackage(spec: string): boolean {
-  return PEER_PACKAGES.some((p) => spec === p || spec.startsWith(`${p}/`));
+  return PEER_DEP_PACKAGES.some((p) => spec === p || spec.startsWith(`${p}/`));
 }
 
 /** True iff `spec` names the typebox package (bare or sub-path). */
