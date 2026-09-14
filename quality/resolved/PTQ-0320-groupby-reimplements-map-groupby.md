@@ -2,7 +2,7 @@
 id: PTQ-0320
 title: groupBy hand-rolls the Map-bucketing loop Map.groupBy already provides at this package's own Node floor
 lens: D8                     # D2 | D4 | D7 | D8 | D9 - the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - src/discovery/discovery-path-classify.ts:458-470

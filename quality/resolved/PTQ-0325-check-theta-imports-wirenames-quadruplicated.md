@@ -2,7 +2,7 @@
 id: PTQ-0325
 title: checkThetaImports recomputes the identical params-field wireName-list expression four times instead of once, for four sibling shadowing checks
 lens: D4                     # D2 | D4 | D7 | D8 | D9 - the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - src/extension/import-static-checks.ts:1469-1476

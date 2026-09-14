@@ -2,7 +2,7 @@
 id: PTQ-0323
 title: adaptChild bundles stdio line-pump framing, exit-lifecycle tracking, and platform-branched process-tree kill in one 114-line function
 lens: D9
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/extension/production-subagent-host.ts:286-399

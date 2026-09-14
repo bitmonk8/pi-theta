@@ -2,7 +2,7 @@
 id: PTQ-0322
 title: production-composition.ts bundles nine independent load-time subsystems in one 4376-line file
 lens: D9
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/extension/production-composition.ts:1-4376

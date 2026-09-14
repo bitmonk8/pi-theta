@@ -2,7 +2,7 @@
 id: PTQ-0324
 title: The four-package peer-dependency lock-step list is hardcoded independently in three src/extension modules instead of importing capability-probe.ts's exported copy
 lens: D4                     # D2 | D4 | D7 | D8 | D9 - the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - src/extension/capability-probe.ts:152-157

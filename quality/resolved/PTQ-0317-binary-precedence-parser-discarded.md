@@ -2,7 +2,7 @@
 id: PTQ-0317
 title: ExprParser's 6-tier binary-operator precedence table is discarded by its only consumer, firstNonLiteral
 lens: D8                     # D2 | D4 | D7 | D8 | D9 - the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - src/parser/literal-sublanguage.ts:93-108

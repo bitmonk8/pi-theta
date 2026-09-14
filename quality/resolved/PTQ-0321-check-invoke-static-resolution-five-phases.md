@@ -2,7 +2,7 @@
 id: PTQ-0321
 title: checkInvokeStaticResolution bundles five sequential invoke/tool-call-check phases into one 509-line function
 lens: D9                     # D2 | D4 | D7 | D8 | D9 - the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - src/extension/invoke-static-checks.ts:963-1471

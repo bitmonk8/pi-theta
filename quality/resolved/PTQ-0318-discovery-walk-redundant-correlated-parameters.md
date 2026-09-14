@@ -2,7 +2,7 @@
 id: PTQ-0318
 title: emitSourceFailure and resolveEntry each carry a parameter whose value is fully determined by a sibling parameter at every call site
 lens: D8                     # D2 | D4 | D7 | D8 | D9 - the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - src/discovery/discovery-walk.ts:390-410

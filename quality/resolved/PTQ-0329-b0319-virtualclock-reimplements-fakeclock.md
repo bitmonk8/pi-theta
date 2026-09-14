@@ -2,7 +2,7 @@
 id: PTQ-0329
 title: tests/b0319 hand-rolls a due-time VirtualClock instead of the canonical FakeClock double in tests/helpers/fake-clock.ts
 lens: D7                     # D2 | D4 | D7 | D8 | D9 - the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - tests/b0319-prompt-bidirectional-ctx-abort-witness.test.ts:285-296

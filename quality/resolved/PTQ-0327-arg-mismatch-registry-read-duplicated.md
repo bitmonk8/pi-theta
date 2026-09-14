@@ -2,7 +2,7 @@
 id: PTQ-0327
 title: arg-mismatch-diagnostic-count-by-surface.test.ts rebuilds the code-registry read tests/helpers/registry-oracle.ts already centralises
 lens: D7                     # D2 | D4 | D7 | D8 | D9 - the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - tests/arg-mismatch-diagnostic-count-by-surface.test.ts:1-11
