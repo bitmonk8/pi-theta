@@ -75,29 +75,16 @@ import type {
 import { createProductionProducerDeps } from "../src/extension/production-theta-producer";
 import type { ThetaCompositionInput } from "../src/extension/theta-composition-producer";
 import { executeBody, type BodyExecution } from "../src/runtime/statement-executor";
-import {
-  AjvSchemaValidator,
-  type LoweredSchema,
-  type SchemaSlug,
-} from "../src/seams/schema-validator";
 import type { RuntimeRoot } from "../src/runtime-root";
 import {
-  parseThetaDocument,
-  type ParseThetaDocumentDeps,
-  type ThetaDocument,
-} from "../src/parser/theta-document";
-import type { ThetaSource } from "../src/lexer/lexer";
-import type { ModelReferenceMatcher } from "../src/parser/frontmatter";
-import type { SystemNoteChannelDeps } from "../src/extension/system-note-channel";
-
-// --- The user session's selected model (the bug-0288/0319 fixture model) -----
-
-const ANTHROPIC_MODEL = {
-  id: "m1",
-  api: "anthropic-messages",
-  provider: "anthropic",
-  strictCapable: true,
-};
+  ajv,
+  ANTHROPIC_MODEL,
+  appendAssistantEntry,
+  appendUserEntry,
+  parse,
+  type SessionEntryDouble,
+  type TurnState,
+} from "./helpers/scripted-live-session-harness";
 
 /**
  * The tick at which the ambient run ends AND (in the witness cell) `ctrl.abort()`
@@ -125,20 +112,6 @@ interface TurnScript {
   readonly endsAfterPolls: number;
   /** The committed assistant text (absent = the turn commits no assistant message). */
   readonly reply?: string;
-}
-
-/** A `SessionManager` message entry (the `buildSessionContext` read shape). */
-interface SessionEntryDouble {
-  readonly type: "message";
-  readonly id: string;
-  readonly parentId: string | undefined;
-  readonly message: Record<string, unknown>;
-}
-
-/** An in-flight scripted turn: its script plus polls elapsed since the milestone. */
-interface TurnState {
-  readonly script: TurnScript;
-  polls: number;
 }
 
 /** Construction options for the ambient-busy session double. */
@@ -176,8 +149,8 @@ class ScriptedLiveSession {
   readonly #onAmbientEnd: (() => void) | undefined;
 
   readonly #scripts: TurnScript[];
-  #pending: TurnState | undefined = undefined;
-  #active: TurnState | undefined = undefined;
+  #pending: TurnState<TurnScript> | undefined = undefined;
+  #active: TurnState<TurnScript> | undefined = undefined;
 
   constructor(scripts: readonly TurnScript[], options: ScriptedSessionOptions) {
     this.#scripts = [...scripts];
@@ -204,7 +177,7 @@ class ScriptedLiveSession {
         `b0414 scripted live session: send #${this.sends.length} ('${text}') had NO scripted turn`,
       );
     }
-    this.#appendUser(text);
+    appendUserEntry(this.entries, text);
     this.#pending = { script, polls: 0 };
   }
 
@@ -226,7 +199,7 @@ class ScriptedLiveSession {
     if (active !== undefined) {
       active.polls += 1;
       if (active.polls === active.script.replyAfterPolls) {
-        this.#appendAssistant(active.script.reply);
+        appendAssistantEntry(this.entries, active.script.reply);
       }
       if (active.polls >= active.script.endsAfterPolls) {
         this.#active = undefined;
@@ -242,58 +215,9 @@ class ScriptedLiveSession {
       }
     }
   }
-
-  #appendUser(text: string): void {
-    this.#append({ role: "user", content: [{ type: "text", text }], timestamp: 0 });
-  }
-
-  #appendAssistant(text: string | undefined): void {
-    this.#append({
-      role: "assistant",
-      content: text !== undefined ? [{ type: "text", text }] : [],
-      api: "anthropic-messages",
-      provider: "anthropic",
-      model: "m1",
-      stopReason: "stop",
-      timestamp: 0,
-    });
-  }
-
-  #append(message: Record<string, unknown>): void {
-    const id = `e${this.entries.length + 1}`;
-    const parentId = this.entries.length === 0 ? undefined : `e${this.entries.length}`;
-    this.entries.push({ type: "message", id, parentId, message });
-  }
 }
 
 // --- Harness (bug-0288/0319 shape) -------------------------------------------
-
-function parseDeps(): ParseThetaDocumentDeps {
-  const systemNote: SystemNoteChannelDeps = {
-    pi: { sendMessage: (): void => {} },
-    ui: { notify: (): void => {} },
-    emitDiagnostic: (): void => {},
-  };
-  const modelMatcher: ModelReferenceMatcher = { resolve: (): "resolved" => "resolved" };
-  return { systemNote, modelMatcher };
-}
-
-function parse(src: string): ThetaDocument {
-  const source: ThetaSource = { path: "probe.theta", bytes: new TextEncoder().encode(src) };
-  const doc = parseThetaDocument(source, parseDeps());
-  const errors = doc.diagnostics.filter((d) => d.severity === "error").map((d) => d.code);
-  expect(errors, "the fixture theta must parse cleanly before it is driven").toEqual([]);
-  expect(doc.frontmatter, "the fixture theta must carry parseable frontmatter").not.toBeNull();
-  return doc;
-}
-
-function ajv(): AjvSchemaValidator {
-  const slugOf = (schema: LoweredSchema): SchemaSlug => ({
-    slug: JSON.stringify(schema),
-    canonicalBytes: JSON.stringify(schema),
-  });
-  return new AjvSchemaValidator({ emit: () => {}, slugOf });
-}
 
 /**
  * The runtime root. The immediate-fire clock (the bug-0288 shape) advances the

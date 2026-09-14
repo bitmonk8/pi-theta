@@ -1,14 +1,13 @@
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 // @ts-expect-error — JS code-registry module, no type declarations.
-import { parseRegistry, registryMessage } from "../tools/code-registry/index.js";
+import { registryMessage } from "../tools/code-registry/index.js";
 import {
   disposeWorkspace,
   plantThetaWorkspace,
   runProductionLoad,
   type LoadOutcome,
 } from "./helpers/production-load-harness";
+import { REGISTRY } from "./helpers/registry-oracle";
 
 // Bug 0147 — INTRA-SITE MULTIPLICITY for the argument-type-mismatch family.
 //
@@ -107,19 +106,8 @@ const INVOKE_ARITY_TOO_MANY = "theta/parse/invoke-arity-too-many";
 const FN_ARITY_TOO_FEW = "theta/parse/fn-arity-too-few";
 const FN_ARITY_TOO_MANY = "theta/parse/fn-arity-too-many";
 
-/** The registry page carrying all seven rows — the DIAG-4 oracle. */
+/** The registry page carrying all seven rows — named in the harness failure below. */
 const REGISTRY_PAGE = "docs/spec_topics/diagnostics/code-registry-parse.md";
-
-interface RegistryRow {
-  readonly code: string;
-  readonly severity: string;
-  readonly phase: string;
-  readonly message: string;
-}
-
-const REGISTRY = parseRegistry(
-  readFileSync(fileURLToPath(new URL(`../${REGISTRY_PAGE}`, import.meta.url)), "utf8"),
-) as RegistryRow[];
 
 /**
  * A registered code's normative *Message* template, or a throw naming the

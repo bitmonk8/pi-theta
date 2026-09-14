@@ -101,29 +101,17 @@ import type {
 import { createProductionProducerDeps } from "../src/extension/production-theta-producer";
 import type { ThetaCompositionInput } from "../src/extension/theta-composition-producer";
 import { executeBody, type BodyExecution } from "../src/runtime/statement-executor";
-import {
-  AjvSchemaValidator,
-  type LoweredSchema,
-  type SchemaSlug,
-} from "../src/seams/schema-validator";
 import type { RuntimeRoot } from "../src/runtime-root";
 import {
-  parseThetaDocument,
-  type ParseThetaDocumentDeps,
-  type ThetaDocument,
-} from "../src/parser/theta-document";
-import type { ThetaSource } from "../src/lexer/lexer";
-import type { ModelReferenceMatcher } from "../src/parser/frontmatter";
-import type { SystemNoteChannelDeps } from "../src/extension/system-note-channel";
-
-// --- The user session's selected model (the bug-0288 fixture model) ----------
-
-const ANTHROPIC_MODEL = {
-  id: "m1",
-  api: "anthropic-messages",
-  provider: "anthropic",
-  strictCapable: true,
-};
+  ajv,
+  ANTHROPIC_MODEL,
+  appendAssistantEntry,
+  appendUserEntry,
+  parse,
+  type SessionEntryDouble,
+  type TurnState,
+} from "./helpers/scripted-live-session-harness";
+import { FakeClock } from "./helpers/fake-clock";
 
 /** The injected-Clock poll cadence the drive uses (production-theta-producer.ts:5314). */
 const POLL_INTERVAL_MS = 10;
@@ -165,20 +153,6 @@ interface TurnScript {
   readonly instantSettle?: boolean;
 }
 
-/** A `SessionManager` message entry (the `buildSessionContext` read shape). */
-interface SessionEntryDouble {
-  readonly type: "message";
-  readonly id: string;
-  readonly parentId: string | undefined;
-  readonly message: Record<string, unknown>;
-}
-
-/** An in-flight scripted turn: its script plus polls elapsed since the milestone. */
-interface TurnState {
-  readonly script: TurnScript;
-  polls: number;
-}
-
 /**
  * The live user-session double, driven by a per-turn lifecycle script. Copied
  * from `tests/b0288-prompt-turn-completion-witness.test.ts`'s
@@ -192,8 +166,8 @@ class ScriptedLiveSession {
   readonly sends: string[] = [];
 
   readonly #scripts: TurnScript[];
-  #pending: TurnState | undefined = undefined;
-  #active: TurnState | undefined = undefined;
+  #pending: TurnState<TurnScript> | undefined = undefined;
+  #active: TurnState<TurnScript> | undefined = undefined;
 
   constructor(scripts: readonly TurnScript[]) {
     this.#scripts = [...scripts];
@@ -216,9 +190,9 @@ class ScriptedLiveSession {
         `b0319 scripted live session: send #${this.sends.length} ('${text}') had NO scripted turn`,
       );
     }
-    this.#appendUser(text);
+    appendUserEntry(this.entries, text);
     if (script.instantSettle === true) {
-      this.#appendAssistant(script.reply);
+      appendAssistantEntry(this.entries, script.reply);
       return;
     }
     this.#pending = { script, polls: 0 };
@@ -234,7 +208,7 @@ class ScriptedLiveSession {
     if (active !== undefined) {
       active.polls += 1;
       if (active.polls === active.script.replyAfterPolls) {
-        this.#appendAssistant(active.script.reply);
+        appendAssistantEntry(this.entries, active.script.reply);
       }
       if (active.polls >= active.script.endsAfterPolls) {
         this.#active = undefined;
@@ -250,28 +224,6 @@ class ScriptedLiveSession {
       }
     }
   }
-
-  #appendUser(text: string): void {
-    this.#append({ role: "user", content: [{ type: "text", text }], timestamp: 0 });
-  }
-
-  #appendAssistant(text: string | undefined): void {
-    this.#append({
-      role: "assistant",
-      content: text !== undefined ? [{ type: "text", text }] : [],
-      api: "anthropic-messages",
-      provider: "anthropic",
-      model: "m1",
-      stopReason: "stop",
-      timestamp: 0,
-    });
-  }
-
-  #append(message: Record<string, unknown>): void {
-    const id = `e${this.entries.length + 1}`;
-    const parentId = this.entries.length === 0 ? undefined : `e${this.entries.length}`;
-    this.entries.push({ type: "message", id, parentId, message });
-  }
 }
 
 // --- The virtual-time clock (bug 0319's departure from 0288's immediate-fire) -
@@ -279,54 +231,11 @@ class ScriptedLiveSession {
 // Why not 0288's `setTimeout(fn) => { session.tick(); fn() }`: that fires every
 // timer in a single tick, so the settle-phase idleBound (a lone
 // `setTimeout(resolve, 2000)`) resolves in ONE tick regardless of the abort —
-// making cell (D)'s ≈200-tick sit-out unobservable. Here every timer carries a
-// virtual due-time and only fires once the pump's virtual `now` reaches it.
-
-interface PendingTimer {
-  readonly due: number;
-  readonly fn: () => void;
-  readonly seq: number;
-}
-
-class VirtualClock {
-  now = 0;
-  /** Quanta advanced == poll intervals elapsed == `session.tick()` calls. */
-  quanta = 0;
-  #seq = 0;
-  readonly #timers = new Map<number, PendingTimer>();
-
-  /**
-   * Schedule a timer at `now + ms`. `ms` defaults to `POLL_INTERVAL_MS` (a
-   * `macrotask` poll), so a poll fires on the next quantum and the 2000 ms
-   * idleBound fires ≈200 quanta out — the fork sit-out cell (D) witnesses.
-   */
-  setTimeout(fn: () => void, ms: number = POLL_INTERVAL_MS): number {
-    const seq = (this.#seq += 1);
-    this.#timers.set(seq, { due: this.now + ms, fn, seq });
-    return seq;
-  }
-
-  clearTimeout(id: number): void {
-    this.#timers.delete(id);
-  }
-
-  /** Advance virtual time by one poll interval (one quantum). */
-  advance(): void {
-    this.now += POLL_INTERVAL_MS;
-    this.quanta += 1;
-  }
-
-  /** Fire every timer whose due time has arrived, in due order (ties by seq). */
-  fireDue(): void {
-    const due = [...this.#timers.values()]
-      .filter((t) => t.due <= this.now)
-      .sort((a, b) => a.due - b.due || a.seq - b.seq);
-    for (const timer of due) {
-      this.#timers.delete(timer.seq);
-      timer.fn();
-    }
-  }
-}
+// making cell (D)'s ≈200-tick sit-out unobservable. `tests/helpers/fake-clock.ts`'s
+// `FakeClock` already carries a virtual due-time per timer and only fires once
+// the pump's virtual time reaches it, so the pump below drives it one
+// `POLL_INTERVAL_MS` quantum at a time instead of hand-rolling the same
+// scheduler.
 
 /** Drain the entire real microtask queue so the drive can react to a fired timer. */
 function drainMicrotasks(): Promise<void> {
@@ -335,43 +244,11 @@ function drainMicrotasks(): Promise<void> {
 
 // --- Harness (bug-0288 shape) ------------------------------------------------
 
-function parseDeps(): ParseThetaDocumentDeps {
-  const systemNote: SystemNoteChannelDeps = {
-    pi: { sendMessage: (): void => {} },
-    ui: { notify: (): void => {} },
-    emitDiagnostic: (): void => {},
-  };
-  const modelMatcher: ModelReferenceMatcher = { resolve: (): "resolved" => "resolved" };
-  return { systemNote, modelMatcher };
-}
-
-function parse(src: string): ThetaDocument {
-  const source: ThetaSource = { path: "probe.theta", bytes: new TextEncoder().encode(src) };
-  const doc = parseThetaDocument(source, parseDeps());
-  const errors = doc.diagnostics.filter((d) => d.severity === "error").map((d) => d.code);
-  expect(errors, "the fixture theta must parse cleanly before it is driven").toEqual([]);
-  expect(doc.frontmatter, "the fixture theta must carry parseable frontmatter").not.toBeNull();
-  return doc;
-}
-
-function ajv(): AjvSchemaValidator {
-  const slugOf = (schema: LoweredSchema): SchemaSlug => ({
-    slug: JSON.stringify(schema),
-    canonicalBytes: JSON.stringify(schema),
-  });
-  return new AjvSchemaValidator({ emit: () => {}, slugOf });
-}
-
-function rootDouble(clock: VirtualClock): RuntimeRoot {
+function rootDouble(clock: FakeClock): RuntimeRoot {
   return {
     checkpoint: { before: (): Promise<void> => Promise.resolve() },
     idSource: { newInvocationId: (): string => "inv-1", newToolCallId: (): string => "tc-1" },
-    clock: {
-      now: (): number => clock.now,
-      wallNow: (): number => clock.now,
-      setTimeout: (fn: () => void, ms?: number): unknown => clock.setTimeout(fn, ms),
-      clearTimeout: (id: unknown): void => clock.clearTimeout(id as number),
-    },
+    clock,
     schemaValidator: ajv(),
   } as unknown as RuntimeRoot;
 }
@@ -431,9 +308,10 @@ interface DriveOutput {
  * virtual clock one quantum at a time until `executeBody` settles.
  *
  * `onQuantum(q, session)` runs each quantum AFTER `session.tick()` and BEFORE
- * `clock.fireDue()`, so an abort fired from it is visible to the drive's poll
- * condition on the very timer this quantum releases (the drive's next
- * `#pollWhile` iteration observes `thetaAbort.signal.aborted`).
+ * `clock.advance(POLL_INTERVAL_MS)` fires that quantum's due timer(s), so an
+ * abort fired from it is visible to the drive's poll condition on the very
+ * timer this quantum releases (the drive's next `#pollWhile` iteration
+ * observes `thetaAbort.signal.aborted`).
  */
 async function driveLiveTheta(
   source: string,
@@ -452,7 +330,7 @@ async function driveLiveTheta(
     body: doc.body,
   };
   const session = new ScriptedLiveSession(scripts);
-  const clock = new VirtualClock();
+  const clock = new FakeClock();
   const deps = createProductionProducerDeps({
     pi: piDouble(session),
     root: rootDouble(clock),
@@ -487,18 +365,22 @@ async function driveLiveTheta(
     },
   );
 
+  let quanta = 0;
   while (!settled) {
-    if (clock.quanta >= MAX_PUMP_QUANTA) {
+    if (quanta >= MAX_PUMP_QUANTA) {
       throw new Error(
         `b0319 pump exceeded ${MAX_PUMP_QUANTA} quanta without the drive settling — ` +
           "the harness never reached a terminal state (unmet precondition: the scripted " +
           "drive must settle on the injected Clock)",
       );
     }
-    clock.advance();
+    quanta += 1;
     session.tick();
-    opts.onQuantum?.(clock.quanta, session);
-    clock.fireDue();
+    opts.onQuantum?.(quanta, session);
+    // `advance` both moves virtual time forward and fires every timer now due
+    // (tests/helpers/fake-clock.ts), so calling it AFTER `session.tick()` /
+    // `onQuantum` keeps the ordering this drive depends on.
+    clock.advance(POLL_INTERVAL_MS);
     await drainMicrotasks();
   }
   await done;
@@ -510,7 +392,7 @@ async function driveLiveTheta(
       ? rejection
       : new Error(`executeBody rejected with a non-Error: ${JSON.stringify(rejection)}`);
   }
-  return { execution: execution!, settleQuantum: clock.quanta, session };
+  return { execution: execution!, settleQuantum: quanta, session };
 }
 
 // --- The driven thetas -------------------------------------------------------
