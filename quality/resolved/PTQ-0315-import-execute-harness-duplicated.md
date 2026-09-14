@@ -2,7 +2,7 @@
 id: PTQ-0315
 title: b0303, b0305 and b0306 each redeclare an identical import-materialise-then-execute harness with no tests/helpers/ home
 lens: D7                     # D2 | D4 | D7 | D8 | D9 - the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - tests/b0303-imported-fn-body-declaring-scope.test.ts:170-251

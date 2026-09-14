@@ -2,7 +2,7 @@
 id: PTQ-0302
 title: capability-probe.ts's runtime SDK-member probe list and sdk-inventory.ts's build-time inventory duplicate the same eight pi.<member> names
 lens: D4                     # D2 | D4 | D7 | D8 | D9 - the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - src/extension/capability-probe.ts:310-322

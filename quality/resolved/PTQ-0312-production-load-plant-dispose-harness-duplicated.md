@@ -2,7 +2,7 @@
 id: PTQ-0312
 title: b0297-bind-model-nonscalar-production-load's plant-workspace/runProductionLoad/dispose sequence is redeclared, near-identically, in two sibling production-load-harness callers
 lens: D7                     # D2 | D4 | D7 | D8 | D9 - the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - tests/b0297-bind-model-nonscalar-production-load.test.ts:111-131

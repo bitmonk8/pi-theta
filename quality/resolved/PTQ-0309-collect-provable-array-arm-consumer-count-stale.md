@@ -2,7 +2,7 @@
 id: PTQ-0309
 title: collectProvableArgTypes's array-arm comment says its exactness guarantee matters to two checkCompatible consumers, but a third was added by a later commit
 lens: D2                     # D2 | D4 | D7 | D8 | D9 - the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - src/extension/invoke-static-checks.ts:705-713

@@ -2,7 +2,7 @@
 id: PTQ-0303
 title: "#recoverDeclaredDefaults re-reads the source file and re-parses its frontmatter YAML to recover a default literal already sitting on the parsed field"
 lens: D8                     # D2 | D4 | D7 | D8 | D9 - the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - src/extension/production-theta-producer.ts:1601-1696

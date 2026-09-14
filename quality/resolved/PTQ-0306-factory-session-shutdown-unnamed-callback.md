@@ -2,7 +2,7 @@
 id: PTQ-0306
 title: createThetaExtension's session_shutdown teardown stays a 159-line anonymous callback while its session_start sibling was named and extracted
 lens: D9                     # D2 | D4 | D7 | D8 | D9 - the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - src/extension/factory.ts:445-1335

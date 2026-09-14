@@ -2,7 +2,7 @@
 id: PTQ-0304
 title: checkThetaImports bundles nine sequential import-subsystem phases into one 1402-line function
 lens: D9                     # D2 | D4 | D7 | D8 | D9 - the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - src/extension/import-static-checks.ts:656-2057

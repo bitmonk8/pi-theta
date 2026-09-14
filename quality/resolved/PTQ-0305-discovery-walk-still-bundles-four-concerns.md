@@ -2,7 +2,7 @@
 id: PTQ-0305
 title: discovery-walk.ts still bundles four separable discovery concerns after Seam A's extraction landed
 lens: D9                     # D2 | D4 | D7 | D8 | D9 - the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - src/discovery/discovery-walk.ts:1-1240

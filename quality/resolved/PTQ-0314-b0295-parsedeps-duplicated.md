@@ -2,7 +2,7 @@
 id: PTQ-0314
 title: b0295 redeclares an inert parseDeps() fixture that tests/helpers/e2e-s1.ts already exports under the identical name
 lens: D7                     # D2 | D4 | D7 | D8 | D9 - the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - tests/b0295-child-internal-cancel-wrap-arm.test.ts:483-491

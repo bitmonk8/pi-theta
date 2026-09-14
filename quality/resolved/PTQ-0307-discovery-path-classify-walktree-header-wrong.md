@@ -2,7 +2,7 @@
 id: PTQ-0307
 title: discovery-path-classify.ts's header says settings.ts imports `walkTree` directly, but settings.ts imports only `joinPosix`
 lens: D2                     # D2 | D4 | D7 | D8 | D9 - the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - src/discovery/discovery-path-classify.ts:8-13

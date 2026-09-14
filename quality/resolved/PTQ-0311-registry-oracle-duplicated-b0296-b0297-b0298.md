@@ -2,7 +2,7 @@
 id: PTQ-0311
 title: b0296, b0297-bind-context-bind-model-nonscalar, and b0298 each rebuild the registry-page read and DIAG-4 anchor test that tests/helpers/registry-oracle.ts already centralises
 lens: D7                     # D2 | D4 | D7 | D8 | D9 - the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - tests/b0296-mode-nonscalar-value-collapse.test.ts:70-84
