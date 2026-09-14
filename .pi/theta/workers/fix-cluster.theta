@@ -8,6 +8,7 @@ tool_loop:
 params:
   manifest: string
   guidance: string
+  gate_cmd: string
 system: "You are a careful, surgical fixer of confirmed code-quality issues. You make the minimal change each issue calls for, you keep behavior identical, and you keep the offline verification gate green. You never touch the quality store, never run git write commands, and never expand scope beyond the issues you were handed."
 ---
 let issue_files = read({ path: manifest })?
@@ -37,8 +38,12 @@ Rules:
   may run git checkout -- <path> on paths only the shed issue touched.
 
 - Verification, after all edits: run, as ONE bash command, exactly
-  "unset PI_THETA_SUBAGENT_ROOT PI_THETA_SUBAGENT_ROOT_WINNER PI_THETA_PARAMS PI_THETA_PARAMS_FILE PI_THETA_SUBAGENT_INVOKE_DEPTH PI_THETA_SUBAGENT_CALLABLE_HASHES PI_THETA_SUBAGENT_PARENT_PID; npx tsc --noEmit && npm test"
-  (use a generous bash timeout, e.g. 2400 seconds — the suite is large). The
+  "unset PI_THETA_SUBAGENT_ROOT PI_THETA_SUBAGENT_ROOT_WINNER PI_THETA_PARAMS PI_THETA_PARAMS_FILE PI_THETA_SUBAGENT_INVOKE_DEPTH PI_THETA_SUBAGENT_CALLABLE_HASHES PI_THETA_SUBAGENT_PARENT_PID; ${gate_cmd}"
+  (use a generous bash timeout, e.g. 2400 seconds — the suite is large). Run
+  it VERBATIM — its test-runner width is capped on purpose: every sibling
+  fixer of the wave gates concurrently on one machine, and an uncapped
+  npm test in each drove the load average past 90 on 32 cores and turned
+  sibling gates red with timeouts (wave qw20260914130212, eight lanes). The
   unset prefix is required because you run inside a subagent whose environment
   carries the wrapper's control plane, and the suite spawns real child pi
   processes that would otherwise inherit and legitimately re-authenticate that

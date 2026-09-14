@@ -81,7 +81,7 @@ while attempt < 2 && !done {
   // is bounded at 2, so a ternary spells it (the same idiom the notes below use).
   let att = attempt == 1 ? "1" : "2"
   let _ = theta_progress({ message: "attempt " + att + ": fixing " + key, scope: key, done: attempt, total: 2 })?
-  let fr = match fix_cluster(man, guidance) {
+  let fr = match fix_cluster(man, guidance, gate_cmd) {
     Ok(f) => f,
     Err(e) => FixReport { fixed: [], skipped: [], notes: "fix worker failed: " + e.kind },
   }

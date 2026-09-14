@@ -71,7 +71,11 @@ worktree, default `"6"`; `parallel × tree_workers` stays inside the cores).
    below);
    one fixer per cluster (`claude-sonnet-5`), each in its own detached git
    worktree, fanned out in parallel. Fixer edits code only, then runs the
-   gate inside its tree.
+   gate inside its tree — the same runner-width-capped command the wrapper
+   re-runs afterwards (`npm test -- --minWorkers=1 --maxWorkers=<tree_workers>`):
+   an uncapped fixer gate in eight concurrent lanes drove the load average
+   past 90 on 32 cores and turned sibling gates red with timeouts
+   (wave qw20260914130212 dropped a correct, twice-confirmed D9 lane that way).
 7. **Fix review** — `claude-fable-5` verifies each issue is actually resolved
    and nothing else was damaged, in the tree; a green, reviewed lane's commit
    is cherry-picked onto the integrated head sequentially, in cluster order.
