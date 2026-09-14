@@ -336,15 +336,8 @@ export function runCapabilityProbe(host: ProbeHost): ProbeOutcome {
   // capability 3 is verified by the Step 0 (f) executable-resolution probe.
   try {
     const pi = host.pi;
-    const sdkMembers: ReadonlyArray<readonly [string, () => unknown]> =
-      FACTORY_PROBED_SDK_MEMBERS.map(
-        (name): readonly [string, () => unknown] => [
-          name,
-          () => readProp(pi, name.slice("pi.".length)),
-        ],
-      );
-    for (const [member, get] of sdkMembers) {
-      const observed = typeof get();
+    for (const name of FACTORY_PROBED_SDK_MEMBERS) {
+      const observed = typeof readProp(pi, name.slice("pi.".length));
       if (observed !== "function") {
         return {
           ok: false,
@@ -352,7 +345,7 @@ export function runCapabilityProbe(host: ProbeHost): ProbeOutcome {
             kind: "sdk-capability-missing",
             observed,
             required: "function",
-            member,
+            member: name,
           },
         };
       }
