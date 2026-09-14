@@ -1,9 +1,9 @@
 ---
-id: pending                  # PTQ-NNNN minted at acceptance; never self-assigned
+id: PTQ-0306
 title: createThetaExtension's session_shutdown teardown stays a 159-line anonymous callback while its session_start sibling was named and extracted
 lens: D9                     # D2 | D4 | D7 | D8 | D9 - the lens that filed this
-status: intake               # intake | open | fixed | rejected (store mechanics own transitions)
-verdict: pending              # pending | confirmed | questionable | false-positive | duplicate | out-of-scope | malformed
+status: open
+verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - src/extension/factory.ts:445-1335
 sites: 1                     # count of occurrences cited in Evidence
@@ -77,3 +77,4 @@ Band: strong (function LOC 891, threshold 200). Reasons-considered: listed above
 ## Triage
 <triage appends: verdict + one-line reason. Nothing above this line is edited.>
 verdict: questionable — accounting verified: size-scan map confirms createThetaExtension at 891 LOC/strong with registerFixtures (64 LOC/zone) and runComposeInstanceRegistration (291 LOC/strong) already named exactly as claimed; the ~17 shared locals, the three pi.on arm sizes (7/59/159 LOC), and all three verbatim excerpts (445-448, 746-749, 1174-1181) reproduce at the cited lines; PIC-67/PIC-68/PIC-57 verifiably anchor runComposeInstanceRegistration's own one-await-one-recheck discipline specifically (corroborated by this same wave's shard notes, which keep that function whole for exactly that reason while filing this one), not the whole closure; exemptions.json has no entry for this host, the file carries no generated-code marker, and git log (35 commits, none matching revert|split|extract) shows no reverted split — but per the D9 rule the target shape is a human ratification, never a triage confirm (triage: claude-opus-5)
+verdict: confirmed — RATIFIED (human, 2026-09-13): Seam A only - a FUNCTION seam inside factory.ts. Name the session_shutdown handler body (factory.ts:1174-1332, ~159 LOC) as a nested function handleSessionShutdown beside its named siblings registerFixtures and runComposeInstanceRegistration, in the same closure scope, and pass it to pi.on("session_shutdown", ...) exactly where the anonymous callback sits today; closure semantics unchanged (it keeps reading and writing the same instance-state locals); body moved verbatim, doc comment above the new function stating its role; no other edits. Seam B (hoisting to a sibling module with the instance state threaded as a parameter object) is NOT ratified: the handler mutates closed-over state, so that is a refactor, not a move.

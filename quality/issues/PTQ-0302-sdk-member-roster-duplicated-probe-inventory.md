@@ -1,9 +1,9 @@
 ---
-id: pending                  # PTQ-NNNN minted at acceptance; never self-assigned
+id: PTQ-0302
 title: capability-probe.ts's runtime SDK-member probe list and sdk-inventory.ts's build-time inventory duplicate the same eight pi.<member> names
 lens: D4                     # D2 | D4 | D7 | D8 | D9 - the lens that filed this
-status: intake               # intake | open | fixed | rejected (store mechanics own transitions)
-verdict: pending              # pending | confirmed | questionable | false-positive | duplicate | out-of-scope | malformed
+status: open
+verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - src/extension/capability-probe.ts:310-322
   - src/extension/sdk-inventory.ts:225-238
@@ -150,3 +150,4 @@ probe iterates, instead of a hand-kept second copy.
 
 ## Triage
 verdict: questionable — reality reproduces exactly (both eight-member lists byte-match at the cited lines in identical order, capability-probe.ts:310's `sdkMembers` is confirmed function-local and unexported so no shared declaration exists, FACTORY_PROBABLE_CAPABILITIES is confirmed exported/imported as the adjacent counter-example, clone-scan.mjs reports "(no clone groups)" for both files, and grepping both test files finds no cross-check between the two lists); d4_class: parallel caps accurate accounting at questionable by design — a shared source of truth is a human ruling, never a triage confirmation (triage: claude-opus-5)
+verdict: confirmed — RATIFIED (human, 2026-09-13): capability-probe.ts is the shared home. Export a readonly tuple of the eight pi.<member> names (FACTORY_PROBED_SDK_MEMBERS, e.g. as const of "pi.registerCommand" ... "pi.sendMessage" in today's order) beside FACTORY_PROBABLE_CAPABILITIES; runCapabilityProbe builds its [name, () => readProp(pi, <member>)] tuples from that list (member = the name after the pi. prefix); SDK_SURFACE_INVENTORY's eight namespace-function rows are produced from the same list (spread of a map to { id, kind: "namespace-function" }) in place of the eight hand-written rows, keeping their position and the Bug 0001 / PIC-64 comment. No new import edge (sdk-inventory.ts already imports from capability-probe.ts). Behaviour identical; both existing test files stay green unchanged.

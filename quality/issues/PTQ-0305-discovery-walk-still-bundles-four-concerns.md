@@ -1,9 +1,9 @@
 ---
-id: pending                  # PTQ-NNNN minted at acceptance; never self-assigned
+id: PTQ-0305
 title: discovery-walk.ts still bundles four separable discovery concerns after Seam A's extraction landed
 lens: D9                     # D2 | D4 | D7 | D8 | D9 - the lens that filed this
-status: intake               # intake | open | fixed | rejected (store mechanics own transitions)
-verdict: pending              # pending | confirmed | questionable | false-positive | duplicate | out-of-scope | malformed
+status: open
+verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - src/discovery/discovery-walk.ts:1-1240
   - src/discovery/discovery-walk.ts:51-170
@@ -209,3 +209,4 @@ ratifies one.
 ## Triage
 <triage appends: verdict + one-line reason. Nothing above this line is edited.>
 verdict: questionable — re-ran size-scan.mjs map: 1240 LOC/band justify reproduces, every concern's LOC (90/248/245/188/198, summing to the cited 969) and member/range list match exactly, the three over-threshold functions (resolveSettingsSource 154, discoverThetas 151, resolveSlashNames 104) and resolveSettingsSource's 7-locals/5-closures shape are verified, concerns 2/3/5 (the ones actually proposed to move) are confirmed 0/0 unexported, exemptions.json's single unrelated entry is confirmed, and PTQ-0281's quoted ratification ("Seams B and C are NOT ratified...") plus Seam A's landing (commit 846fd992, 234 LOC) both check out — but "the file's sole export remains discoverThetas … every other declaration below is 0/0 (file-private)" is false: concern 1 alone carries 5 more exported declarations (DiscoverySource 1/0, PiOwnedCommand 1/2, DiscoveryInput 0/15, DiscoveredTheta 1/12, DiscoveryResult 0/0 importers), a narrative overstatement that never reaches concerns 2/3/5; per D9 policy a verified breakdown accounting caps at questionable (never confirmed) pending a human-ratified seam (triage: claude-opus-5)
+verdict: confirmed — RATIFIED (human, 2026-09-13): Seam 0 (the leaf), not the filing's A/B/C. Move concern 1 - the discovery-wide types (DiscoverySource, PiOwnedCommand, DiscoveryInput, DiscoveredTheta, DiscoveryResult), the ten theta/load/* code consts, SLASH_NAME, PRIORITY, FailureModes, CONVENTIONAL_MODES, SETTINGS_MODES, CLI_MODES (discovery-walk.ts:51-170, 90 LOC) - verbatim into a new module src/discovery/discovery-model.ts; discovery-walk.ts imports what it uses and re-exports every name that is exported today (export { ... } from "./discovery-model" - BARREL) so its src and test importers resolve unchanged; the new module imports nothing from discovery-walk.ts (it is the leaf). Reason: every seam the filing proposes (concerns 2/3/5) references concern 1 at runtime (concern 5 alone reads PRIORITY 11 times plus four code consts), so moving any of them first would create a host <-> module runtime import cycle; with the model module in place they move cycle-free. Pre-announced, NOT ratified: concern 5 (sourceLabelOf ... resolveSlashNames) -> discovery-collision-resolve.ts next wave. No logic edits; header comment on the new module; tsc first; report before/after LOC.

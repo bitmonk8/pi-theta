@@ -1,9 +1,9 @@
 ---
-id: pending                  # PTQ-NNNN minted at acceptance; never self-assigned
+id: PTQ-0303
 title: "#recoverDeclaredDefaults re-reads the source file and re-parses its frontmatter YAML to recover a default literal already sitting on the parsed field"
 lens: D8                     # D2 | D4 | D7 | D8 | D9 - the lens that filed this
-status: intake               # intake | open | fixed | rejected (store mechanics own transitions)
-verdict: pending              # pending | confirmed | questionable | false-positive | duplicate | out-of-scope | malformed
+status: open
+verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - src/extension/production-theta-producer.ts:1601-1696
   - src/extension/production-theta-producer.ts:7522-7535
@@ -255,3 +255,4 @@ question a fix stage, not this filing, would need to settle.
 
 ## Triage
 verdict: questionable — accounting verified: all 5 excerpts reproduce at the cited lines; `field.defaultSource` is confirmed reachable in-memory on the same `theta`/`callee` argument (`ConversationBindInput["theta"]` → `ThetaCompositionInput` → `ParsedTheta.frontmatter.params.fields[].defaultSource`, `BypassParamsField` at binder-envelope.ts:172); `splitParamDefaultSource`/`extractFrontmatterYaml` duplicate `frontmatter.ts`'s own `splitParamValue`/fence-scan logic; `ProductionThetaProducer` has no cache keyed by sourcePath (all 5 private fields checked, none match) and `readBytes` is a raw `fs.readFile` with no caching; docs/bugs 0066:553-556 and 0102:781-784 independently confirm the re-read as a known, still-unfiled smell — per the D8 protocol an accurate heavier-than-scale accounting rests at questionable, never confirmed, since adopting the simpler in-memory-lookup shape is a human design call (it drops the re-read's incidental pickup of a same-session file edit, a behaviour no spec clause mandates but that the fix stage would need to rule on) (triage: claude-opus-5)
+verdict: confirmed — RATIFIED (human, 2026-09-13): the simpler shape is the in-memory lookup. #recoverDeclaredDefaults finds each omitted wire name's field on the theta's / callee's own frontmatter.params.fields and takes field.defaultSource as the default's literal text; the disk read (fileSystem.readBytes of the source), extractFrontmatterYaml, the yaml parseDocument call and splitParamDefaultSource are deleted from production-theta-producer.ts (remove this file's yaml import if it has no other use; the package dependency stays, frontmatter.ts uses it). The parse -> evaluatePureExpression -> projectForValidation steps and the body-scoped environment they need are unchanged. ACCEPTED BEHAVIOUR CHANGE: a source file edited between load and dispatch no longer influences the bound default - the loaded theta's default binds (the one the binder is dispatching; hot-reload re-parses on change). Any test that pinned the disk re-read (a fixture edited after load) is re-pointed to the loaded default, and only such tests; report them. docs/bugs/0066 and 0102 are historical records - leave them.

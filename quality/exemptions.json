@@ -5,5 +5,12 @@
     "finding": "quality/intake/qw20260912161041-d9-02-param-line-breaks-combined-scans.md",
     "loc": 63,
     "reason": "zone band (63 LOC); the two rules answer adjacent spec sentences and the file's own sibling rationale explains why they stay side by side; a split adds indirection and removes no duplication. Re-file only on ≥25% growth or a third distinct rule."
+  },
+  "D9:src/discovery/package-discovery.ts": {
+    "class": "breakdown",
+    "date": "2026-09-14",
+    "finding": "quality/intake/qw20260913183958-d9-02-package-discovery-six-concerns-bundled.md",
+    "loc": 710,
+    "reason": "human 2026-09-13: zone band (710 LOC, no presumption of breakdown) and one cohesive feature (package discovery); the six concerns are 28/27/55/69/209/137 LOC, so a split yields 30-70-LOC modules for no band change. Keep whole. The function-level resolvePiThetas (105 LOC, justify) stays separately fileable under its own #host key."
   }
 }

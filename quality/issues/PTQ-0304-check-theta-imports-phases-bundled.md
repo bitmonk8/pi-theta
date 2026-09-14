@@ -1,9 +1,9 @@
 ---
-id: pending                  # PTQ-NNNN minted at acceptance; never self-assigned
+id: PTQ-0304
 title: checkThetaImports bundles nine sequential import-subsystem phases into one 1402-line function
 lens: D9                     # D2 | D4 | D7 | D8 | D9 - the lens that filed this
-status: intake               # intake | open | fixed | rejected (store mechanics own transitions)
-verdict: pending              # pending | confirmed | questionable | false-positive | duplicate | out-of-scope | malformed
+status: open
+verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - src/extension/import-static-checks.ts:656-2057
 sites: 1                     # count of occurrences cited in Evidence
@@ -92,3 +92,4 @@ Band: strong (function LOC 1402, threshold 200). Reasons-considered: listed abov
 
 ## Triage
 verdict: questionable — accounting reproduces: size-scan confirms import-static-checks.ts at 2057 LOC/strong and checkThetaImports at 656-2057/1402 LOC/strong exactly, the 9-row concern inventory's boundaries match the source almost line-for-line, the invoke-static-checks.ts 20-function comparator grep reproduces exactly, and every reasons-considered check (no PIC/BNDR/EXST citation, no generated marker, no reverted-split commit, no exemptions.json entry) holds; two supporting citations are inaccurate (checkInvokeStaticResolution actually ends at 953-1461/509 LOC, not 953-1545/593, and the 1848-1852 excerpt's code is really at 1859-1863) but neither changes the conclusion — D9 breakdown accounting caps at questionable, never confirmed; target shape is a human ruling (triage: claude-opus-5)
+verdict: confirmed — RATIFIED (human, 2026-09-13): Seam B only. Move the system: template load-phase wire-rename patch - the patchedParts loop at import-static-checks.ts:1506-1791 (bug 0422/0423/0450), 286 LOC - into a new sibling module src/extension/import-system-template-patch.ts as one exported function (hypothesis name patchSystemTemplateForImports) that receives what the block closes over today (input, importedSchemaShapes, importedEnums, diagnostics) and returns what the block produces (patchedParts / patchedSystemTemplate, or pushes into the passed arrays exactly as today); the two file-private helpers it alone uses, importedRootHasWireRename (:136) and loadSystemInterpBadFieldDiagnostic (:470), move with it verbatim (they have no other caller in the file or in src/), so the new module imports nothing from import-static-checks.ts and no runtime cycle arises; checkThetaImports calls the helper at the same point in its sequence. Code moved verbatim by line range with its comments; the new module gets a header stating its role; no logic edits; tsc first, then the full gate; report before/after LOC of the file and of checkThetaImports from size-scan map. Seams A and C are NOT ratified - D9 re-files the next seam after this lands.
