@@ -594,163 +594,31 @@ export interface ThetaImportCheck {
 }
 
 /**
- * Run the load-time `.thetalib` import checks for one discovered theta, returning
- * every diagnostic (error-severity entries un-register the theta) and the
- * resolved imported symbols to materialise into its runtime environment.
- *
- * A theta with no top-level `import` (or an in-memory theta with no source path)
- * resolves nothing and yields an empty result — the passing valid-import control
- * is preserved: a resolvable `.thetalib` whose exports satisfy every specifier
- * produces no diagnostic and registers cleanly.
+ * The re-export chain fixpoint (imports.md §Re-exports), split out of
+ * `checkThetaImports` into its own top-level function so the module header's
+ * three ordered phases share one home instead of the caller's:
+ * `closeOverReExports` collects the `export … from` closure of every
+ * `.thetalib` `walked` reaches, `fixReExportedNames` settles the least
+ * fixpoint of the collected file set, and `diagnoseReExports` /
+ * `diagnoseReExportCollisions` diagnose an unresolvable re-exported name and a
+ * same-name collision resolving to two different declaring sites over that
+ * settled result. Takes as explicit parameters exactly what those phases read
+ * from `checkThetaImports`'s scope before this split; this phase's own
+ * fixpoint state (`libDeclaredNames` / `reExportEdges`) stays internal to it,
+ * since nothing outside this phase reads it. Returns the diagnostics the
+ * phases push, in the SAME order they pushed before this split (walk every
+ * `walked` path first, settle the fixpoint, THEN diagnose unresolved
+ * re-exports, THEN diagnose collisions) — the caller appends them to its own
+ * set unchanged.
  */
-export async function checkThetaImports(
-  input: ThetaCompositionInput,
-  deps: {
-    readonly fs: FileSystem;
-    readonly parseDeps: PassParseDeps;
-    /**
-     * Bug 0267: whether this call may claim its rows against the pass-scoped
-     * delivered-set (bug 0264's dedup). DEFAULT true — every existing call
-     * site (the discovered-theta compose loop) keeps claiming, byte-equivalent
-     * to before this parameter existed. Pass `false` for an OBSERVING walk
-     * that must not consume the callee's own delivery budget — a `tools:`
-     * caller probing whether a callee it has not yet discovered would fail
-     * this check. Consuming the budget from that probe would starve the
-     * callee's own later `runComposePass` iteration of its rows (the note the
-     * author actually reads), while `undelivered` here is never read by the
-     * probe — it discards `ThetaImportCheck` down to a boolean
-     * (`calleeFailsOwnStructuralChecks`). `tests/thetalib-reparse-walk-single-delivery.test.ts`
-     * is bug 0264's single-delivery witness; this parameter exists so this
-     * bug's fix cannot move its counts.
-     */
-    readonly claimDelivery?: boolean;
-  },
-): Promise<ThetaImportCheck> {
+async function resolveReExportClosure(
+  walked: Set<string>,
+  parseThetaLib: (resolvedPath: string) => Promise<ParsedThetaLib | undefined>,
+  probe: CachingThetaLibProbe,
+  resolver: Resolver,
+  unreadablePaths: Set<string>,
+): Promise<Diagnostic[]> {
   const diagnostics: Diagnostic[] = [];
-  const imports: MaterializedImport[] = [];
-  const importDecls = collectImports(input.body);
-  if (importDecls.length === 0 || input.sourcePath === undefined) {
-    return {
-      diagnostics,
-      imports,
-      undelivered: diagnostics,
-      resolvedLibs: [],
-      importedTypeDecls: { schemas: [], enums: [] },
-    };
-  }
-
-  const fromFile = normalizePath(input.sourcePath);
-  const probe = new CachingThetaLibProbe(deps.fs);
-  const resolver: Resolver = new RelativeThetaLibResolver(probe);
-  const parseCache = new Map<string, ParsedThetaLib | undefined>();
-  // Bug 0428: resolved paths whose `readBytes` rejected, distinguished from the
-  // pipeline's only other `parseThetaLib` outcome (a document, however
-  // unparseable its content) so the three read-failure arms below can push
-  // IMP-1 exactly once per site without conflating "unreadable" with the
-  // already-handled "parses to an illegal `.thetalib`" case. `parseCache`
-  // itself stays `ParsedThetaLib | undefined` (unchanged shape, so every
-  // existing `parsed === undefined` consumer keeps its current behaviour) —
-  // this is an ADDITIONAL fact recorded beside it, not a replacement.
-  const unreadablePaths = new Set<string>();
-
-  const parseThetaLib = async (resolvedPath: string): Promise<ParsedThetaLib | undefined> => {
-    if (parseCache.has(resolvedPath)) {
-      return parseCache.get(resolvedPath);
-    }
-    // A `readBytes` rejection settles to `undefined` (recorded in
-    // `unreadablePaths` first, bug 0428) and is treated as no forms/exports for
-    // every consumer that does not itself check that set. The `.then(ok, err)`
-    // rejection arm is the pipeline's sanctioned I/O-boundary pattern, not a
-    // broad `try`/`catch`.
-    const parsed: ParsedThetaLib | undefined = await deps.fs
-      .readBytes(resolvedPath)
-      .then(
-        (bytes) => ({
-          // Bug 0264: this `.thetalib` may already be parsed this pass — by an
-          // earlier importer's own `parseThetaLib` cache miss, the discovery
-          // walk, or a closure walk — so route through the pass-scoped cache
-          // instead of parsing unconditionally.
-          document: parseViaPassCache({ path: resolvedPath, bytes }, deps.parseDeps),
-        }),
-        () => {
-          unreadablePaths.add(resolvedPath);
-          return undefined;
-        },
-      );
-    parseCache.set(resolvedPath, parsed);
-    return parsed;
-  };
-
-  // Build the static `.thetalib` import graph transitively from this theta's direct
-  // imports (imports.md §Cycles). Nodes are RESOLVED PATHS, not basename stems
-  // (bug 0302): two files sharing a basename in different directories are
-  // distinct files, and imports.md §Cycles walks the FILE graph, so collapsing
-  // them into one node both draws false self-loop cycles and overwrites real
-  // edges. An edge `A → B` exists when `A.thetalib` has a resolvable
-  // `import … from "./B.thetalib"` OR a resolvable `export … from "./B.thetalib"`
-  // re-export: imports.md §Cycles walks the `.thetalib` graph over both edge
-  // kinds, which is also what `collectCallableClosureSources` already does.
-  const graphEdges = new Map<string, string[]>();
-  const walked = new Set<string>();
-  const walkThetaLib = async (resolvedPath: string): Promise<void> => {
-    if (walked.has(resolvedPath)) {
-      return;
-    }
-    walked.add(resolvedPath);
-    const parsed = await parseThetaLib(resolvedPath);
-    const targets: string[] = [];
-    if (parsed !== undefined) {
-      // One edge per STATEMENT (an `export` statement's N specifiers name one
-      // path, so they are one edge), mirroring the `import` side. `kind` is
-      // carried through so the failure arm below pushes `load.diagnostics` for
-      // `.thetalib` `import` edges only (bug 0304 fix 1). A non-`.thetalib`
-      // `import` edge is skipped for the same reason the direct decl loop skips
-      // it: the parser already emitted
-      // `theta/parse/import-non-thetalib-extension` for that spelling and the
-      // resolver can never resolve it, so pushing IMP-1 here would double-report
-      // the identical wrong-extension fault (two codes for one statement).
-      //
-      // An `export … from` edge is not pushed here. `closeOverReExports` is now
-      // seeded from every lib this walk reaches (bug 0333's fix), so it already
-      // pushes IMP-1 once for a failed source of ANY reached lib's re-export —
-      // pushing here too would double-report the same fault on the same
-      // statement. The closure stays the sole reporter of `export`-edge faults;
-      // this guard is what keeps that division of labour instead of splitting
-      // one fault across two pushes.
-      const edges: Array<{ path: string; range: SourceRange; kind: "import" | "export" }> = [];
-      for (const stmt of parsed.document.body.statements) {
-        if (stmt.kind === "import" || (stmt.kind === "export" && stmt.path.endsWith(".thetalib"))) {
-          edges.push({ path: stmt.path, range: stmt.range, kind: stmt.kind });
-        }
-      }
-      for (const edge of edges) {
-        await probe.precache(edge.path, normalizePath(resolvedPath));
-        const load = loadThetaLibImport(resolver, edge.path, normalizePath(resolvedPath), {
-          file: resolvedPath,
-          range: edge.range,
-        });
-        if (load.registered && load.resolvedPath !== undefined) {
-          targets.push(load.resolvedPath);
-          await walkThetaLib(load.resolvedPath);
-          // Bug 0428: the edge RESOLVED (a byte-exact, listed entry) but the
-          // target's bytes could not be read — IMP-1's "likewise unresolvable"
-          // clause at TRANSITIVE depth. Sited on this edge (the importing lib's
-          // statement), matching the resolution-failure arm's siting below.
-          // `export`-kind edges are excluded: `closeOverReExports` is the sole
-          // reporter for a re-export source's read failure (mirrors the existing
-          // resolution-failure division of labour in the comment above).
-          if (edge.kind === "import" && unreadablePaths.has(load.resolvedPath)) {
-            diagnostics.push(
-              unreadableThetaLibDiagnostic({ file: resolvedPath, range: edge.range }, edge.path),
-            );
-          }
-        } else if (edge.kind === "import" && edge.path.endsWith(".thetalib")) {
-          diagnostics.push(...load.diagnostics);
-        }
-      }
-    }
-    graphEdges.set(resolvedPath, targets);
-  };
 
   /**
    * One `export { source as exported } from "<specPath>"` specifier, with both
@@ -1013,6 +881,174 @@ export async function checkThetaImports(
         }
       }
     }
+  };
+
+  for (const resolvedPath of walked) {
+    await closeOverReExports(resolvedPath);
+  }
+  diagnoseReExports(fixReExportedNames());
+  diagnoseReExportCollisions();
+
+  return diagnostics;
+}
+
+/**
+ * Run the load-time `.thetalib` import checks for one discovered theta, returning
+ * every diagnostic (error-severity entries un-register the theta) and the
+ * resolved imported symbols to materialise into its runtime environment.
+ *
+ * A theta with no top-level `import` (or an in-memory theta with no source path)
+ * resolves nothing and yields an empty result — the passing valid-import control
+ * is preserved: a resolvable `.thetalib` whose exports satisfy every specifier
+ * produces no diagnostic and registers cleanly.
+ */
+export async function checkThetaImports(
+  input: ThetaCompositionInput,
+  deps: {
+    readonly fs: FileSystem;
+    readonly parseDeps: PassParseDeps;
+    /**
+     * Bug 0267: whether this call may claim its rows against the pass-scoped
+     * delivered-set (bug 0264's dedup). DEFAULT true — every existing call
+     * site (the discovered-theta compose loop) keeps claiming, byte-equivalent
+     * to before this parameter existed. Pass `false` for an OBSERVING walk
+     * that must not consume the callee's own delivery budget — a `tools:`
+     * caller probing whether a callee it has not yet discovered would fail
+     * this check. Consuming the budget from that probe would starve the
+     * callee's own later `runComposePass` iteration of its rows (the note the
+     * author actually reads), while `undelivered` here is never read by the
+     * probe — it discards `ThetaImportCheck` down to a boolean
+     * (`calleeFailsOwnStructuralChecks`). `tests/thetalib-reparse-walk-single-delivery.test.ts`
+     * is bug 0264's single-delivery witness; this parameter exists so this
+     * bug's fix cannot move its counts.
+     */
+    readonly claimDelivery?: boolean;
+  },
+): Promise<ThetaImportCheck> {
+  const diagnostics: Diagnostic[] = [];
+  const imports: MaterializedImport[] = [];
+  const importDecls = collectImports(input.body);
+  if (importDecls.length === 0 || input.sourcePath === undefined) {
+    return {
+      diagnostics,
+      imports,
+      undelivered: diagnostics,
+      resolvedLibs: [],
+      importedTypeDecls: { schemas: [], enums: [] },
+    };
+  }
+
+  const fromFile = normalizePath(input.sourcePath);
+  const probe = new CachingThetaLibProbe(deps.fs);
+  const resolver: Resolver = new RelativeThetaLibResolver(probe);
+  const parseCache = new Map<string, ParsedThetaLib | undefined>();
+  // Bug 0428: resolved paths whose `readBytes` rejected, distinguished from the
+  // pipeline's only other `parseThetaLib` outcome (a document, however
+  // unparseable its content) so the three read-failure arms below can push
+  // IMP-1 exactly once per site without conflating "unreadable" with the
+  // already-handled "parses to an illegal `.thetalib`" case. `parseCache`
+  // itself stays `ParsedThetaLib | undefined` (unchanged shape, so every
+  // existing `parsed === undefined` consumer keeps its current behaviour) —
+  // this is an ADDITIONAL fact recorded beside it, not a replacement.
+  const unreadablePaths = new Set<string>();
+
+  const parseThetaLib = async (resolvedPath: string): Promise<ParsedThetaLib | undefined> => {
+    if (parseCache.has(resolvedPath)) {
+      return parseCache.get(resolvedPath);
+    }
+    // A `readBytes` rejection settles to `undefined` (recorded in
+    // `unreadablePaths` first, bug 0428) and is treated as no forms/exports for
+    // every consumer that does not itself check that set. The `.then(ok, err)`
+    // rejection arm is the pipeline's sanctioned I/O-boundary pattern, not a
+    // broad `try`/`catch`.
+    const parsed: ParsedThetaLib | undefined = await deps.fs
+      .readBytes(resolvedPath)
+      .then(
+        (bytes) => ({
+          // Bug 0264: this `.thetalib` may already be parsed this pass — by an
+          // earlier importer's own `parseThetaLib` cache miss, the discovery
+          // walk, or a closure walk — so route through the pass-scoped cache
+          // instead of parsing unconditionally.
+          document: parseViaPassCache({ path: resolvedPath, bytes }, deps.parseDeps),
+        }),
+        () => {
+          unreadablePaths.add(resolvedPath);
+          return undefined;
+        },
+      );
+    parseCache.set(resolvedPath, parsed);
+    return parsed;
+  };
+
+  // Build the static `.thetalib` import graph transitively from this theta's direct
+  // imports (imports.md §Cycles). Nodes are RESOLVED PATHS, not basename stems
+  // (bug 0302): two files sharing a basename in different directories are
+  // distinct files, and imports.md §Cycles walks the FILE graph, so collapsing
+  // them into one node both draws false self-loop cycles and overwrites real
+  // edges. An edge `A → B` exists when `A.thetalib` has a resolvable
+  // `import … from "./B.thetalib"` OR a resolvable `export … from "./B.thetalib"`
+  // re-export: imports.md §Cycles walks the `.thetalib` graph over both edge
+  // kinds, which is also what `collectCallableClosureSources` already does.
+  const graphEdges = new Map<string, string[]>();
+  const walked = new Set<string>();
+  const walkThetaLib = async (resolvedPath: string): Promise<void> => {
+    if (walked.has(resolvedPath)) {
+      return;
+    }
+    walked.add(resolvedPath);
+    const parsed = await parseThetaLib(resolvedPath);
+    const targets: string[] = [];
+    if (parsed !== undefined) {
+      // One edge per STATEMENT (an `export` statement's N specifiers name one
+      // path, so they are one edge), mirroring the `import` side. `kind` is
+      // carried through so the failure arm below pushes `load.diagnostics` for
+      // `.thetalib` `import` edges only (bug 0304 fix 1). A non-`.thetalib`
+      // `import` edge is skipped for the same reason the direct decl loop skips
+      // it: the parser already emitted
+      // `theta/parse/import-non-thetalib-extension` for that spelling and the
+      // resolver can never resolve it, so pushing IMP-1 here would double-report
+      // the identical wrong-extension fault (two codes for one statement).
+      //
+      // An `export … from` edge is not pushed here. `closeOverReExports` is now
+      // seeded from every lib this walk reaches (bug 0333's fix), so it already
+      // pushes IMP-1 once for a failed source of ANY reached lib's re-export —
+      // pushing here too would double-report the same fault on the same
+      // statement. The closure stays the sole reporter of `export`-edge faults;
+      // this guard is what keeps that division of labour instead of splitting
+      // one fault across two pushes.
+      const edges: Array<{ path: string; range: SourceRange; kind: "import" | "export" }> = [];
+      for (const stmt of parsed.document.body.statements) {
+        if (stmt.kind === "import" || (stmt.kind === "export" && stmt.path.endsWith(".thetalib"))) {
+          edges.push({ path: stmt.path, range: stmt.range, kind: stmt.kind });
+        }
+      }
+      for (const edge of edges) {
+        await probe.precache(edge.path, normalizePath(resolvedPath));
+        const load = loadThetaLibImport(resolver, edge.path, normalizePath(resolvedPath), {
+          file: resolvedPath,
+          range: edge.range,
+        });
+        if (load.registered && load.resolvedPath !== undefined) {
+          targets.push(load.resolvedPath);
+          await walkThetaLib(load.resolvedPath);
+          // Bug 0428: the edge RESOLVED (a byte-exact, listed entry) but the
+          // target's bytes could not be read — IMP-1's "likewise unresolvable"
+          // clause at TRANSITIVE depth. Sited on this edge (the importing lib's
+          // statement), matching the resolution-failure arm's siting below.
+          // `export`-kind edges are excluded: `closeOverReExports` is the sole
+          // reporter for a re-export source's read failure (mirrors the existing
+          // resolution-failure division of labour in the comment above).
+          if (edge.kind === "import" && unreadablePaths.has(load.resolvedPath)) {
+            diagnostics.push(
+              unreadableThetaLibDiagnostic({ file: resolvedPath, range: edge.range }, edge.path),
+            );
+          }
+        } else if (edge.kind === "import" && edge.path.endsWith(".thetalib")) {
+          diagnostics.push(...load.diagnostics);
+        }
+      }
+    }
+    graphEdges.set(resolvedPath, targets);
   };
 
   // Bug 0303: the DECLARING module's own environment for an imported `fn`,
@@ -1544,11 +1580,9 @@ export async function checkThetaImports(
   // un-registers the importing theta through the registration-error arm rather
   // than by a second diagnostic sited on the importer's own specifier, whose
   // admission stays on the SYNTACTIC set (`computeThetaLibExports`) above.
-  for (const resolvedPath of walked) {
-    await closeOverReExports(resolvedPath);
-  }
-  diagnoseReExports(fixReExportedNames());
-  diagnoseReExportCollisions();
+  diagnostics.push(
+    ...(await resolveReExportClosure(walked, parseThetaLib, probe, resolver, unreadablePaths)),
+  );
 
   // Bug 0304 fixes 2 and 3: every lib the walks above reached — direct AND
   // transitively-walked, over both `import` and `export … from` edges — sits in
