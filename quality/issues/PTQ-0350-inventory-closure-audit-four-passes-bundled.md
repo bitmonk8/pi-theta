@@ -1,9 +1,9 @@
 ---
-id: pending                  # PTQ-NNNN minted at acceptance; never self-assigned
+id: PTQ-0350
 title: runInventoryClosureAudit bundles four sequential audit passes (shape recognition, reference collection, marker classification, violation emission) into one 522-line function
 lens: D9                     # D2 | D4 | D7 | D8 | D9 - the lens that filed this
-status: intake               # intake | open | fixed | rejected (store mechanics own transitions)
-verdict: pending             # pending | confirmed | questionable | false-positive | duplicate | out-of-scope | malformed
+status: open
+verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - src/extension/inventory-closure-audit.ts:357-878
 sites: 1                     # count of occurrences cited in Evidence
@@ -241,3 +241,4 @@ own carrier-detection helpers have no foreign host to be misplaced from.
 ## Triage
 <triage appends: verdict + one-line reason. Nothing above this line is edited.>
 verdict: questionable — accounting reproduces exactly: size-scan confirms the file at 925 LOC/zone, runInventoryClosureAudit at 357-878/522 LOC/strong with 0 src/2 test importers, and the two flagged nested functions visitShapes (438-617/180 LOC/justify) and visitRefs (678-765/88 LOC/zone) all match the filing's own numbers verbatim; the 5-row concern inventory is real, grounded in the code's own numbered Pass-1..4 comments each citing a distinct spec document; the shared-locals reason is correctly defeated (cat1Members/cat3Members/cat2Names/typeboxNamed/typeboxMembers are read only inside Pass 3, never by Pass 1/2/4, so no ≥6-local set spans every pass, unlike the cited PTQ-0321 precedent's shape); git log (6 hand-authored commits, no revert/split hits) and quality/exemptions.json (no entry) both confirmed; minor imprecisions found (a couple of 1-2-line excerpt-boundary drifts, and typeboxTypeIsImported is really intra-Pass-3 state rather than one of the claimed "six inter-pass" pieces) don't refute the core accounting; D9 breakdown caps at questionable since the split's shape is a human ruling, never confirmed (triage: claude-opus-5)
+verdict: confirmed — RATIFIED (human, 2026-09-14): Seam A only - a FUNCTION seam inside src/extension/inventory-closure-audit.ts. Hoist Pass 1, the nested visitShapes (runInventoryClosureAudit :438-617, 180 LOC), to a module-private top-level function of the same name taking what it closes over today (n: ts.Node, sf: ts.SourceFile, emitFamilyFour: (pos, symptom, symbol) => void, plus anything else grep shows the body reads) and call it from the same point in runInventoryClosureAudit; the module-private helpers it calls (isInScopeSpecifier, paramTypeText, bareCarrierLiteral, wrappedCarrierAnnotation, subtypeCreationCarrier, declHeadText, inPiCarrier, inCtxCarrier) stay where they are. Body moved verbatim with comments; doc comment on the hoisted function; identical behaviour and output order; tsc first; report before/after LOC of runInventoryClosureAudit. Seams B/C (visitRefs; marker classification) are NOT ratified - D9 re-files after this lands.

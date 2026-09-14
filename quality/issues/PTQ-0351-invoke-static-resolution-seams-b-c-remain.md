@@ -1,9 +1,9 @@
 ---
-id: pending                  # PTQ-NNNN minted at acceptance; never self-assigned
+id: PTQ-0351
 title: checkInvokeStaticResolution's with-clause default-reject and Pi-tool-disjointness phases remain bundled at 348 LOC now that Seam A has landed
 lens: D9                     # D2 | D4 | D7 | D8 | D9 - the lens that filed this
-status: intake               # intake | open | fixed | rejected (store mechanics own transitions)
-verdict: pending             # pending | confirmed | questionable | false-positive | duplicate | out-of-scope | malformed
+status: open
+verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - src/extension/invoke-static-checks.ts:1150-1497
 sites: 1                     # count of occurrences cited in Evidence
@@ -220,3 +220,4 @@ over from PTQ-0321.
 ## Triage
 <triage appends: verdict + one-line reason. Nothing above this line is edited.>
 verdict: questionable — accounting reproduces exactly: size-scan confirms checkInvokeStaticResolution at 1150-1497/348 LOC/strong with 1 src/4 test importers, Seam A's checkThetaCallableCallSurface (915-1090/176 LOC) is confirmed landed and delegated-to at 1337-1345, the six-row phase inventory sums to 348 LOC with real distinct concerns (own diagnostic codes, own locals) verified verbatim at every cited range, and all five concrete + four strong keep-whole reasons are correctly ruled out (INV-1/3/6/8/4 anchors verified at lines 14/44/59/63/95, correcting PTQ-0321's own INV-8 mis-citation; no exemption; no reverted split; git log confirms 4a31825f as the sole/most-recent commit); this is the human-sanctioned re-file of PTQ-0321's explicitly deferred Seams B/C, not a duplicate of it or of the unrelated open checkImported* relocation items on this file — but D9 breakdown target shape is never confirmed, only a human ruling (triage: claude-opus-5)
+verdict: confirmed — RATIFIED (human, 2026-09-14): Seams B AND C as one FUNCTION-seam lane (two independent leaf phases, no cross-reference between them). In src/extension/invoke-static-checks.ts extract from checkInvokeStaticResolution (a) the Pi-tool provable-disjointness check (:1410-1487, 78 LOC) into module-private checkPiToolArgDisjointness taking callerPath, callSites.callExprs, deps.callableSet, typeEnv, typePass, and (b) the with-clause default-reject classification (:1347-1408, 62 LOC) into module-private checkWithClauseDefaultReject taking callerPath, callSites.callExprs, deps.callableSet; checkInvokeStaticResolution calls each at the same point in its sequence and spreads the results exactly as today. The module-private helpers they call (toolParameterProperties, fieldSchemaType, collectProvableArgTypes, renderCollectedTypes) stay. Bodies verbatim with comments; doc comment on each helper; identical diagnostics and order; tsc first; report before/after LOC of the function.

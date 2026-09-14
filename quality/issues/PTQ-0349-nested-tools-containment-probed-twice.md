@@ -1,9 +1,9 @@
 ---
-id: pending                  # PTQ-NNNN minted at acceptance; never self-assigned
+id: PTQ-0349
 title: parseCalleeForTools runs the fs.realpath-based containment probe twice per nested `.theta` tools: entry
 lens: D8                     # D2 | D4 | D7 | D8 | D9 - the lens that filed this
-status: intake               # intake | open | fixed | rejected (store mechanics own transitions)
-verdict: pending              # pending | confirmed | questionable | false-positive | duplicate | out-of-scope | malformed
+status: open
+verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - src/extension/production-composition.ts:2654-2666
   - src/extension/production-composition.ts:3418-3429
@@ -129,3 +129,4 @@ Re-read both loops side by side (production-composition.ts:3373-3439 and the per
 
 ## Triage
 verdict: questionable — all 5 excerpts verified verbatim at the cited lines; checkNestedToolsContainment (production-composition.ts:3373-3439, sole call site parseCalleeForTools:2654) and calleeFailsOwnStructuralChecksBody's loop (2960-3240, via calleeFailsOwnStructuralChecksWithTaint) are independently confirmed to share the same document.frontmatter.tools array and activeRoots reference, resolve identical nestedAbsolute off identical calleeDir, and call checkInvokePathAtLoad with byte-identical resolvedPath/literalPath/activeRoots, each costing 1+activeRoots.length fs.realpath calls (activeRoots = the discovered-theta directory union, confirmed non-trivial at its construction site, line 821); checkNestedToolsContainment has no memo of its own (grep confirms its one call site) unlike the sibling pass-verdict-memo.ts that skips calleeFailsOwnStructuralChecksBody's copy on a hit, so the doubling is real on every memo-miss and compounds across sibling callers of a shared nested tool; the WITHHOLD-(a) doc-comments (bugs 0111/0275/0276) justify only why the two verdicts stay separate, never why the probe execution must be duplicated; no exemptions.json entry, no spec-required behaviour dropped by the suggested consolidation — accounting verified, but per the D8 rule the consolidation shape is a design decision for a human ruling, matching the accepted PTQ-0319/0330/0331 precedent for this same repeated-computation D8 class. (triage: claude-opus-5)
+verdict: confirmed — RATIFIED (human, 2026-09-14): probe once. parseCalleeForTools computes the per-entry containment verdict (escape-or-not plus its diagnostic, from checkInvokePathAtLoad over the identical nestedAbsolute / literalPath / activeRoots) ONCE per nested tools: entry and hands the computed results to both consumers — checkNestedToolsContainment (which projects the escaping subset into diagnostics) and calleeFailsOwnStructuralChecksBody's loop (which folds the escape verdict into withhold (a)) — instead of each calling the probe. The two consumers' separately documented decisions (bug 0111 / bug 0275) are unchanged; the memo in pass-verdict-memo.ts is unchanged. Identical diagnostics, identical verdicts, half the fs.realpath calls; tests unchanged unless one counts realpath calls (re-pin and say so). Same host-lane note as the sibling ruling (after the D9 lane; follow the functions if Seam A+C moved them).
