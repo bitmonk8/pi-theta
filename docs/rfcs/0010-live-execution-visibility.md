@@ -758,3 +758,34 @@ run is mandatory per `AGENTS.md`):
   perpetual heartbeat. (The L3 `theta_progress` self-reports added to that same
   wrapper are the complementary half — narration when there is news; the
   keepalive is liveness when there is none.)
+- **Erratum G — pi-theta's own extension tools short-circuit PIC-64's ladder**
+  (bug 0477, 2026-09-14). §Author surface and
+  [PIC-64](../spec_topics/pi-integration-contract/subagent.md#pic-64)'s
+  "the resolution is the same in every context" / "extension tools —
+  host-loop dispatch" read as if every code-side extension-tool call —
+  `theta_progress` included — resolves against the fail-closed rung ladder
+  (rung 1 upstream `getToolDefinition`, rung 2 host-loop bridge, rung 3
+  refusal). A code-side `theta_progress(...)` call in fact never reaches that
+  ladder: the tool's handler is pi-theta's OWN in-process `execute`
+  (`registerThetaProgressTool`), held live in the registering process rather
+  than obtained from any host registry, so routing it through the host-loop
+  bridge served no purpose the direct handler does not already serve — and on
+  a host whose `registerProvider` reserves the bridge's built-in-shaped `api`
+  tag, or whose fabricated-turn settle the bridge's `agent_settled` wait
+  assumes, the ladder failed or hung outright (bug 0477). The factory now
+  captures the extension's own registered tool's in-process handler at
+  registration and threads it through the composition root as a per-process
+  `inProcessToolExecutors` map, keyed by underlying tool name; the dispatch
+  site prefers a map hit over rung 2 for any execute-less callable-set entry
+  — running the SAME handler the model-facing `tool_use` would run, in-process,
+  with no fabricated turn, no transcript pollution, and no session-model
+  switch. Rung 1's eventual upstream landing would deliver this same
+  no-fabricated-turn property for every third-party extension tool; the
+  in-process map delivers it today for pi-theta's own tool because that
+  handler already lives in the registering process. A third-party extension
+  tool (absent from the map) is unaffected and still resolves via the ladder
+  unchanged. The bridge's `api` tag is separately hardened
+  (`BRIDGE_API = "theta-host-loop-bridge"`, replacing the reserved
+  `openai-completions`) so rung 2 itself registers on a host that reserves
+  built-in API names — independent of, and still needed alongside, this
+  carve-out.

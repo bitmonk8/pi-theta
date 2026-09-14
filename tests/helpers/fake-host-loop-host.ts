@@ -93,7 +93,7 @@ export class FakeHostLoopHost {
   readonly op: string[] = [];
   readonly sends: { content: string; modelAtSend: string; activeAtSend: string[] }[] = [];
   readonly unregistered: string[] = [];
-  /** The `api` tag every registered provider config carried (bug 0473: must be a bespoke, non-reserved name). */
+  /** The `api` tag every registered provider config carried (bug 0477: must be a bespoke, non-reserved name). */
   readonly registeredApis: unknown[] = [];
   readonly entries: { type: string; message?: Record<string, unknown> }[] = [];
   /** Every tool execution the fabricated turn ran (name + verbatim decoded args). */

@@ -111,7 +111,7 @@ describe("T-WIRE — L3-B19: monotonic seq, one invocation_id per stream", () =>
   });
 });
 
-describe("T-WIRE — code-side executor: registration's codeSideExecute emits the child-regime wire line, sharing the seq stream with the model-facing execute (bug 0473)", () => {
+describe("T-WIRE — code-side executor: registration's codeSideExecute emits the child-regime wire line, sharing the seq stream with the model-facing execute (bug 0477)", () => {
   it("a child-regime codeSideExecute call writes exactly one wire line (seq 1) and returns the fixed ok envelope", async () => {
     const { deps, writtenLines } = childDeps();
     const { hostApi } = fakeHostApi();

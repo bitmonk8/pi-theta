@@ -486,7 +486,7 @@ describe("Resolution snapshot — load-time-only resolution: invocation does NOT
   });
 });
 
-describe("RFC 0010 EXST-13 — a code-side call to an in-process tool dispatches its handler directly, never the host-loop bridge (bug 0473)", () => {
+describe("RFC 0010 EXST-13 — a code-side call to an in-process tool dispatches its handler directly, never the host-loop bridge (bug 0477)", () => {
   it("prefers the in-process executor over an AVAILABLE host-loop rung, runs it with verbatim args, and lowers its result to Ok(text)", async () => {
     const hostLoop = recordingHostLoop();
     const seen: unknown[] = [];

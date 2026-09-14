@@ -3762,7 +3762,7 @@ class ProductionThetaProducer implements ThetaProducerDeps {
           // directly — same CANCEL-3 swallowing-handler attachment as a
           // built-in's `execute` below — so a code-side `theta_progress(...)`
           // call never fabricates a host turn (the PIC-64 bridge a host without
-          // the fabricated-turn settle semantics cannot drive; bug 0473).
+          // the fabricated-turn settle semantics cannot drive; bug 0477).
           const inProcess = this.#input.inProcessToolExecutors?.[tool.toolName];
           if (inProcess !== undefined) {
             return guardToolExecutePromise(

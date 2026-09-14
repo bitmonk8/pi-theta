@@ -69,7 +69,7 @@ export const BRIDGE_MODEL_ID = "host-loop-bridge";
  *  built-in one (`openai-completions`, `anthropic-messages`, …): a host that
  *  reserves built-in API names for its own registry (Oh-My-Pi's `api-registry`)
  *  rejects `registerProvider` for a custom provider that reuses one, which broke
- *  ALL code-side extension-tool dispatch there (bug 0473). The bridge's own
+ *  ALL code-side extension-tool dispatch there (bug 0477). The bridge's own
  *  `streamSimple` authors the turn (provider-composer dispatches it whenever
  *  `model.api === provider.api`), so no real API adapter is ever consulted. */
 const BRIDGE_API = "theta-host-loop-bridge";

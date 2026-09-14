@@ -1,6 +1,10 @@
-# Bug 0473 — author-written `theta_progress(...)` is unreachable from theta code on Oh-My-Pi: pi-theta's OWN in-process tool is dispatched through the host-loop bridge, whose provider registration a host reserving built-in API names rejects and whose fabricated-turn settle that host does not drive
+# Bug 0477 — author-written `theta_progress(...)` is unreachable from theta code on Oh-My-Pi: pi-theta's OWN in-process tool is dispatched through the host-loop bridge, whose provider registration a host reserving built-in API names rejects and whose fabricated-turn settle that host does not drive
 
-- **Status:** fixed (0.468.0).
+- **Status:** fixed (0.473.0).
+- **Numbering note:** filed as bug 0473 on the originating branch; renumbered to
+  0477 at merge time (2026-09-14) — main independently filed an unrelated bug
+  0473 (`0473-cross-file-invoke-return-type-check-unimplemented.md`) while this
+  fix's branch was in flight. No content beyond the number changed.
 - **Sev/Diff estimate:** S2/D2 — S2: RFC 0010's L3 author surface is a
   documented, shipped API (`docs/how-to/report-progress-from-a-theta.md`) that
   is completely non-functional from theta *code* on Oh-My-Pi — a code-side
@@ -84,7 +88,7 @@ through the PIC-64 host-loop bridge, which (a) registers a provider under a
 reserved API name and (b) fabricates a host turn the second host does not drive
 to settlement — so the author-facing L3 surface is unusable from theta code.
 
-## Fix (shipped 0.468.0)
+## Fix (shipped 0.473.0)
 
 Two independent changes, both in this PR:
 

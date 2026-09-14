@@ -86,7 +86,7 @@ describe("PIC-64 rung 2 — production host-loop dispatch collaborators", () => 
     expect(host.pi.getActiveTools()).toEqual(["ambient-a", "ambient-b"]);
   });
 
-  it("registers the bridge provider under a BESPOKE api tag, never a reserved built-in name (bug 0473 — a host that reserves built-in API names rejects reuse, breaking ALL code-side dispatch)", async () => {
+  it("registers the bridge provider under a BESPOKE api tag, never a reserved built-in name (bug 0477 — a host that reserves built-in API names rejects reuse, breaking ALL code-side dispatch)", async () => {
     const host = new FakeChildHost(OK_EXECUTOR);
     const dispatch = createProductionHostLoopDispatch(host.host());
 

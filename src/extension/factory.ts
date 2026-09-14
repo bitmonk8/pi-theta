@@ -627,7 +627,7 @@ export function createThetaExtension(
     // modelled.
     // RFC 0010 (EXST-13): the in-process tool handlers this instance threads to
     // every compose pass, so a code-side `theta_progress(...)` call dispatches
-    // directly instead of through the host-loop bridge (bug 0473). Empty on a
+    // directly instead of through the host-loop bridge (bug 0477). Empty on a
     // host without `registerTool` (the tool never registers there anyway).
     let inProcessTools: Readonly<Record<string, InProcessToolExecute>> | undefined;
     if (typeof pi.registerTool === "function") {
