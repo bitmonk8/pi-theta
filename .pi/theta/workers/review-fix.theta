@@ -35,7 +35,10 @@ Judge, in order:
 1. Resolution. For each issue file: read it, then verify in the CURRENT working
    tree that the described problem is gone — the cited code removed or corrected
    AND every reference to it cleaned up (grep for the deleted identifiers).
-   Collect the issue basenames you verified resolved.
+   Collect the issue basenames you verified resolved. An issue with no
+   working-tree change attributable to it was skipped or shed by the fixer —
+   legitimate: omit it from fixed_confirmed; by itself it is never grounds
+   for ok: false.
 2. Collateral. Any change NOT required by an issue in this cluster? Any new
    cruft introduced? Any weakened or deleted test that guarded live behavior (a
    test deleted together with the cruft it exercised is fine when an issue's fix

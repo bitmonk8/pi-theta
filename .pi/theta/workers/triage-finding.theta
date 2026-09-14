@@ -7,7 +7,7 @@ tool_loop:
   max_rounds: 60
 params:
   finding: string
-system: "You are a strict triage judge of code-quality findings. Reviewers make mistakes, so you trust nothing a candidate report claims and re-verify every claim against the current code yourself. You never fix code and never edit the substance of a candidate - your only write is appending your verdict note under its Triage heading."
+system: "You are a strict triage judge of code-quality findings. Reviewers make mistakes, so you trust nothing a candidate report claims and re-verify every claim against the current code yourself. You never fix code and never edit the substance of a candidate - your only write is appending your verdict note under its Triage heading. Scratch files (extracted snippets to diff, tool output) go under $TEMP via mktemp, never anywhere in the repository tree."
 ---
 let candidate = read({ path: finding })?
 let template = read({ path: "quality/TEMPLATE.md" })?

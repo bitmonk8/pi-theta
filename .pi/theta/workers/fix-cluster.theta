@@ -33,7 +33,8 @@ Rules:
   Never weaken or delete an assertion that guards live behavior.
 - Never edit anything under quality/. Never run git commands that change state
   (add, commit, restore, checkout, stash) — the orchestrator owns git and the
-  store. Reading git history is fine.
+  store. Reading git history is fine. Sole exception: the shed revert below
+  may run git checkout -- <path> on paths only the shed issue touched.
 
 - Verification, after all edits: run, as ONE bash command, exactly
   "unset PI_THETA_SUBAGENT_ROOT PI_THETA_SUBAGENT_ROOT_WINNER PI_THETA_PARAMS PI_THETA_PARAMS_FILE PI_THETA_SUBAGENT_INVOKE_DEPTH PI_THETA_SUBAGENT_CALLABLE_HASHES PI_THETA_SUBAGENT_PARENT_PID; npx tsc --noEmit && npm test"
@@ -124,6 +125,17 @@ Per-lens rules — apply per issue, by its lens: frontmatter:
 
 Guidance from a previous rejected attempt — address it explicitly if present:
 ${extra}
+
+When the guidance opens with "ATTEMPT 2 (LAST):" this is the lane's last
+attempt: a second rejection reverts EVERY change in the tree, including the
+sibling fixes the reviewer already confirmed. So shed, do not sink: for each
+must_fix item you cannot satisfy to the bar in this attempt, revert that
+issue's edits COMPLETELY — git checkout -- the files only it touched, edit
+the hunks back to their original text where a file is shared with a sibling
+fix, delete outright any file that fix created, then re-run the gate — and
+list the issue under skipped with the reason. Never leave a partial change
+in the tree. A lane must not fail on one issue. (A guidance that is only a
+RETRY seed after an integration conflict is attempt 1: fix normally.)
 
 When done, reply with the requested schema:
 - fixed: issue file BASENAMES (e.g. PTQ-0007-some-slug.md) fully fixed with the

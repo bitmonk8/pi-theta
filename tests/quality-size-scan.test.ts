@@ -303,7 +303,7 @@ describe("tools/quality/size-scan.mjs (scratch fixture tree via QUALITY_STORE_RO
     // The overload's two signatures have no body and are not measured: only
     // the implementation counts, and it is not ambiguous (exactly one span).
     expect(mod.hostLoc(root, "src/kinds.ts#calcOverload")).toBe(n + 3); // + the "return a;" line
-  });
+  }, 30_000); // TypeScript-API import + program build; flaked at the 5 s default under full-suite load
 
   it("hostLoc for a whole file returns its LOC (no #fn)", () => {
     writeFile(root, "src/plain.ts", makeFileOfLines(123));

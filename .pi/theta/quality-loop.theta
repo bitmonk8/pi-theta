@@ -22,12 +22,14 @@ params:
   parallel: integer = 4
   push: boolean = true
   gate_cmd: string = "npx tsc --noEmit && npm test"
-  cluster_max: string = "12"
+  cluster_max: string = "4"
   tree_workers: string = "6"
 ---
 // cluster_max and tree_workers are string-typed because they are spliced into
 // shell commands: cluster_max caps one manifest's issue count (an oversized
-// cluster splits into <key>__p1, __p2, ...), tree_workers caps ONE worktree's
+// cluster splits into file-disjoint <key>__p1, __p2, ...; small so that one
+// hard issue cannot sink a lane of siblings under the 2-attempt review
+// budget), tree_workers caps ONE worktree's
 // vitest width so parallel x tree_workers stays inside the core budget
 // (default 4 x 6 = 24 on a 32-core host).
 import { ReviewSummary, TriageVerdict, TreeFixReport, lines } from "./workers/quality.thetalib"

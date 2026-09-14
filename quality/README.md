@@ -33,7 +33,11 @@ non-zero overrides all lenses),
 `review_cap` (max shards reviewed per lens per wave, default `"0"` =
 unlimited), `budget` (max candidates per shard, default 10), `parallel`
 (fan-out width, default 4), `push` (default true), `gate_cmd` (offline
-verification gate, default `npx tsc --noEmit && npm test`).
+verification gate, default `npx tsc --noEmit && npm test`), `cluster_max`
+(issues per fix lane before a cluster splits into file-disjoint parts, default
+`"4"` — small on purpose: the lane is the unit of review, and a second
+rejection reverts the whole lane), `tree_workers` (vitest width inside one
+worktree, default `"6"`; `parallel × tree_workers` stays inside the cores).
 
 ## The loop (one cycle)
 
@@ -83,6 +87,9 @@ verification gate, default `npx tsc --noEmit && npm test`).
    skip the issue is **parked**: moved to `intake/` as `questionable` for a
    human ruling (`accept --note <direction>` keeps its PTQ id and resets the
    skip budget; `reject` retires it) instead of being re-laned every wave.
+   Attempt 2 is a lane's last: the fixer **sheds** any issue whose must_fix it
+   cannot satisfy (reverting that issue's edits completely and listing it as
+   skipped) so the siblings still land; a lane never fails on one issue.
 8. **Commit/push** — one store commit per wave (`quality: <wave> review pass
    [<lenses with files due>]`, suffix omitted when no lens had files due) and
    one commit per fixed cluster (`quality: <wave> fix <key>`), plus one

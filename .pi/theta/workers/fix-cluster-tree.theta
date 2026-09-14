@@ -133,7 +133,7 @@ while attempt < 2 && !done {
     trail = trail + "review ok=" + (rv.ok ? "true" : "false") + ", confirmed " + (rv.fixed_confirmed.length == 0 ? "none" : rv.fixed_confirmed.join(",")) + (rv.must_fix == "" ? "" : ", must_fix: " + rv.must_fix) + "; fixer: " + fr.notes + " | "
     // A retry's seed stays in front of the review's must_fix: attempt 2 must
     // still know the tree already holds the siblings' changes.
-    guidance = (retry_context == "" ? "" : retry_context + " ") + rv.must_fix + (gate.includes("GATE_PASS") ? "" : " ALSO: the offline gate is red after your changes - make it green. Gate failures (tail): " + gate_tail + " -- If a census/pin/inventory gate reds, its own failure message names the sanctioned same-commit re-derivation - follow it rather than avoiding the edit.")
+    guidance = "ATTEMPT 2 (LAST): " + (retry_context == "" ? "" : retry_context + " ") + rv.must_fix + (gate.includes("GATE_PASS") ? "" : " ALSO: the offline gate is red after your changes - make it green. Gate failures (tail): " + gate_tail + " -- If a census/pin/inventory gate reds, its own failure message names the sanctioned same-commit re-derivation - follow it rather than avoiding the edit.")
     if attempt >= 2 {
       // Same revert boundary as the single-tree loop had, now per tree: undo
       // the rejected attempt and report leftovers loudly rather than commit
