@@ -1,8 +1,6 @@
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 // @ts-expect-error — JS code-registry module, no type declarations.
-import { parseRegistry, registryMessage } from "../tools/code-registry/index.js";
+import { registryMessage } from "../tools/code-registry/index.js";
 import type { ThetaDocument } from "../src/parser/theta-document";
 import {
   codes,
@@ -11,6 +9,7 @@ import {
   findCode,
   frontmatterOnlyDoc as doc,
 } from "./helpers/e2e-s1";
+import { REGISTRY, type RegistryRow } from "./helpers/registry-oracle";
 
 // Bug 0301 — three recognised-field value shapes silently take the absent-field
 // default with ZERO diagnostics at any severity: a non-boolean `bind_echo:`
@@ -94,21 +93,10 @@ import {
 
 // --- Registry Message anchoring (DIAG-4) -----------------------------------
 
-interface RegistryRow {
-  readonly code: string;
-  readonly message: string;
-  readonly severity: string;
-  readonly phase: string;
-}
-
+// The page this file's new registered codes normally live on — named in
+// DIAG-4 anchor failure messages only; the rows themselves are sourced from
+// the shared four-page `REGISTRY` (tests/helpers/registry-oracle.ts).
 const REGISTRY_LOAD_PATH = "docs/spec_topics/diagnostics/code-registry-load.md";
-
-const REGISTRY_LOAD = parseRegistry(
-  readFileSync(
-    fileURLToPath(new URL(`../${REGISTRY_LOAD_PATH}`, import.meta.url)),
-    "utf8",
-  ),
-) as RegistryRow[];
 
 const UNKNOWN_BIND_ECHO_VALUE = "theta/load/unknown-bind-echo-value";
 const MALFORMED_TOOL_LOOP_FIELD = "theta/load/malformed-tool-loop-field";
@@ -371,7 +359,7 @@ describe("bug 0301 DIAG-4 — code-registry-load.md carries the three new rows",
   ];
   for (const [code, template] of anchors) {
     it(`DIAG-4: ${REGISTRY_LOAD_PATH} carries ${code} with the normative Message, severity E, phase load`, () => {
-      const message = registryMessage(REGISTRY_LOAD, code) as string | undefined;
+      const message = registryMessage(REGISTRY, code) as string | undefined;
       expect(
         message,
         `DIAG-4 anchor: ${REGISTRY_LOAD_PATH} must carry the Message row for ${code}`,
@@ -380,7 +368,7 @@ describe("bug 0301 DIAG-4 — code-registry-load.md carries the three new rows",
         message,
         "DIAG-4 — the Message column is normative character-for-character",
       ).toBe(template);
-      const row = REGISTRY_LOAD.find((r) => r.code === code);
+      const row = REGISTRY.find((r) => r.code === code);
       expect(
         row,
         `the parsed registry must hold a structured row for ${code}`,

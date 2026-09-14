@@ -1,15 +1,14 @@
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 // @ts-expect-error — JS code-registry module, no type declarations.
-import { parseRegistry, registryMessage } from "../tools/code-registry/index.js";
+import { registryMessage } from "../tools/code-registry/index.js";
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
 import { checkThetaImports } from "../src/extension/import-static-checks";
 import type { ThetaCompositionInput } from "../src/extension/theta-composition-producer";
 import type { ParsedFrontmatter } from "../src/parser/frontmatter";
 import type { ThetaDocument } from "../src/parser/theta-document";
-import type { FileSystem } from "../src/seams/file-system";
 import { parseDeps, parseDoc } from "./helpers/e2e-s1";
+import { REGISTRY } from "./helpers/registry-oracle";
+import { fakeThetaLibFs } from "./helpers/thetalib-load-harness";
 
 // Bug 0304 — every load-time fault inside a `.thetalib` reached through one
 // plain-`import` hop is discarded: a transitive lib's unresolvable import path
@@ -63,29 +62,6 @@ const TOP_LEVEL_CODE = "theta/parse/thetalib-top-level-statement";
 /** C3 / depth-2 unknown-symbol: a transitive lib's own import naming an absent symbol. */
 const UNKNOWN_SYMBOL_CODE = "theta/parse/import-unknown-symbol";
 
-interface RegistryRow {
-  readonly code: string;
-  readonly message: string;
-}
-
-// The sharded registry, read from the spec corpus and concatenated — the same
-// input tests/code-registry.test.ts reconciles.
-const REGISTRY = parseRegistry(
-  [
-    "code-registry-parse.md",
-    "code-registry-load.md",
-    "code-registry-runtime.md",
-    "code-registry-host.md",
-  ]
-    .map((page) =>
-      readFileSync(
-        fileURLToPath(new URL(`../docs/spec_topics/diagnostics/${page}`, import.meta.url)),
-        "utf8",
-      ),
-    )
-    .join("\n"),
-) as RegistryRow[];
-
 /**
  * A registered code's normative *Message* template (DIAG-4), read from the
  * registry so no expected string in this file is written twice.
@@ -133,42 +109,6 @@ const APP_FRONTMATTER = ["---", 'model: "sonnet"', "mode: prompt", "---"].join("
 
 function parseApp(body: string): ThetaDocument {
   return parseDoc(`${APP_FRONTMATTER}\n${body}`, "/proj/app.theta");
-}
-
-function fakeThetaLibFs(files: Record<string, string>): FileSystem {
-  const dirs = new Map<string, string[]>();
-  for (const path of Object.keys(files)) {
-    const slash = path.lastIndexOf("/");
-    const parent = path.slice(0, slash);
-    const entries = dirs.get(parent) ?? [];
-    entries.push(path.slice(slash + 1));
-    dirs.set(parent, entries);
-  }
-  const reject = (): Promise<never> =>
-    Promise.reject(new Error("filesystem member not exercised by this test"));
-  return {
-    readText: reject,
-    writeText: reject,
-    exists: reject,
-    homedir: (): string => "/home",
-    cwd: (): string => "/proj",
-    configDirName: (): string => ".pi",
-    globalAgentDir: (): string => "/home/.pi/agent",
-    lstat: reject,
-    realpath: reject,
-    readdir: (path: string): Promise<readonly string[]> => {
-      const entries = dirs.get(path);
-      return entries === undefined
-        ? Promise.reject(new Error(`ENOENT: ${path}`))
-        : Promise.resolve(entries);
-    },
-    readBytes: (path: string): Promise<Uint8Array> => {
-      const content = files[path];
-      return content === undefined
-        ? Promise.reject(new Error(`ENOENT: ${path}`))
-        : Promise.resolve(new TextEncoder().encode(content));
-    },
-  } as FileSystem;
 }
 
 /**

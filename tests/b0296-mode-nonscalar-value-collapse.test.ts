@@ -1,8 +1,6 @@
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 // @ts-expect-error — JS code-registry module, no type declarations.
-import { parseRegistry, registryMessage } from "../tools/code-registry/index.js";
+import { registryMessage } from "../tools/code-registry/index.js";
 import {
   codes,
   expectDiagnosticRow as expectRow,
@@ -10,6 +8,7 @@ import {
   findCode,
   frontmatterOnlyDoc as doc,
 } from "./helpers/e2e-s1";
+import { REGISTRY, type RegistryRow } from "./helpers/registry-oracle";
 
 // Bug 0296 — a `mode:` whose value is a YAML sequence or mapping draws
 // `theta/load/missing-mode` ("frontmatter is missing required field 'mode:'")
@@ -67,21 +66,10 @@ import {
 
 // --- Registry Message anchoring (DIAG-4) -----------------------------------
 
-interface RegistryRow {
-  readonly code: string;
-  readonly message: string;
-  readonly severity: string;
-  readonly phase: string;
-}
-
+// The page this file's registered codes normally live on — named in DIAG-4
+// anchor failure messages only; the rows themselves are sourced from the
+// shared four-page `REGISTRY` (tests/helpers/registry-oracle.ts).
 const REGISTRY_LOAD_PATH = "docs/spec_topics/diagnostics/code-registry-load.md";
-
-const REGISTRY_LOAD = parseRegistry(
-  readFileSync(
-    fileURLToPath(new URL(`../${REGISTRY_LOAD_PATH}`, import.meta.url)),
-    "utf8",
-  ),
-) as RegistryRow[];
 
 const UNKNOWN_MODE_VALUE = "theta/load/unknown-mode-value";
 const MISSING_MODE = "theta/load/missing-mode";
@@ -191,7 +179,7 @@ describe("bug 0296 — non-scalar mode: value collapses to missing-mode", () => 
   // template byte-for-byte, at severity E, phase load. A moved or absent row
   // reds by naming the registry page — it does not skip.
   it(`DIAG-4: code-registry-load.md carries ${UNKNOWN_MODE_VALUE} with the normative Message, severity E, phase load`, () => {
-    const message = registryMessage(REGISTRY_LOAD, UNKNOWN_MODE_VALUE) as
+    const message = registryMessage(REGISTRY, UNKNOWN_MODE_VALUE) as
       | string
       | undefined;
     expect(
@@ -203,7 +191,7 @@ describe("bug 0296 — non-scalar mode: value collapses to missing-mode", () => 
       "DIAG-4 — the Message column is normative character-for-character; route 1 " +
         "reuses this code unchanged, so its template stays the interpolated form",
     ).toBe(UNKNOWN_MODE_VALUE_TEMPLATE);
-    const row = REGISTRY_LOAD.find((r) => r.code === UNKNOWN_MODE_VALUE);
+    const row = REGISTRY.find((r) => r.code === UNKNOWN_MODE_VALUE);
     expect(
       row,
       `the parsed registry must hold a structured row for ${UNKNOWN_MODE_VALUE}`,
