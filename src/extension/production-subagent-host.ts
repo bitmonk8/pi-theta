@@ -278,45 +278,91 @@ interface NodeChildLike {
 }
 
 /**
+ * LF-only line buffers per stream (strict-JSONL framing; a trailing CR is left
+ * for the wire parser to trim).
+ */
+function makeLinePump(
+  source: { on(event: "data", listener: (chunk: unknown) => void): void } | null,
+): (listener: (line: string) => void) => () => void {
+  let buffer = "";
+  const listeners = new Set<(line: string) => void>();
+  source?.on("data", (chunk: unknown) => {
+    buffer += String(chunk);
+    let idx: number;
+    while ((idx = buffer.indexOf("\n")) >= 0) {
+      const line = buffer.slice(0, idx);
+      buffer = buffer.slice(idx + 1);
+      if (line.length === 0) {
+        continue;
+      }
+      // Snapshot: a listener may unsubscribe from within its own callback
+      // (a per-query reader detaches on settle), so iterate a copy.
+      for (const listener of [...listeners]) {
+        listener(line);
+      }
+    }
+  });
+  // Return an unsubscribe handle so consumers detach on settle (no O(queries)
+  // listener accumulation on a long-lived child).
+  return (listener: (line: string) => void): (() => void) => {
+    listeners.add(listener);
+    return (): void => {
+      listeners.delete(listener);
+    };
+  };
+}
+
+/**
+ * Platform-branched process-tree kill for `child`: `taskkill /PID <pid> /T
+ * /F` on Windows (no shell, no POSIX signal), `SIGKILL` elsewhere — always
+ * followed by destroying the stdio pipes so a `'close'` that would otherwise
+ * wait on a stdout EOF that never arrives still fires deterministically
+ * (PIC-65 teardown budget).
+ */
+function killChildTree(child: NodeChildLike): void {
+  const pid = child.pid;
+  // PIC-65 teardown-budget precedent: a killed child whose stdout never
+  // reaches EOF (e.g. a grandchild inherited the stdout pipe on POSIX) would
+  // keep the child `'close'` event from firing and hang the drive. Destroy
+  // our end of the stdio pipes on the kill path so they reach EOF and
+  // `'close'` fires deterministically — the bounded fallback that keeps a
+  // killed child from wedging the drive.
+  const destroyPipes = (): void => {
+    child.stdin?.destroy?.();
+    child.stdout?.destroy?.();
+    child.stderr?.destroy?.();
+  };
+  if (isWindows() && pid !== undefined) {
+    // Windows process-tree kill: `taskkill /PID <pid> /T /F` (no shell, no
+    // POSIX signal). Best-effort — a failure to spawn taskkill falls back to
+    // the direct kill below.
+    try {
+      const killer = nodeSpawn("taskkill", ["/PID", String(pid), "/T", "/F"], {
+        shell: false,
+      });
+      // An ASYNC spawn error (e.g. taskkill missing / EPERM) is emitted on
+      // the child process's `error` event AFTER `spawn` returns; without a
+      // handler Node re-raises it as an unhandled exception. Attach a
+      // swallowing handler — the direct-kill fallback below already covers
+      // the failure, and a teardown kill failure is advisory only (PIC-65).
+      killer.on("error", () => {});
+      destroyPipes();
+      return;
+    } catch (killError: unknown) { // allow-broad-catch: taskkill spawn failure falls back to direct kill — pi-integration-contract/subagent.md
+      void killError;
+    }
+  }
+  child.kill("SIGKILL");
+  destroyPipes();
+}
+
+/**
  * Adapt a Node `ChildProcess` to the `SubagentChildProcess` handle. Exported for
  * the ordering-contract test (`tests/subagent-json-driver.test.ts`) that pins
  * the `'close'`-not-`'exit'` terminal-signal rule against a fake node child;
  * production only reaches it via `createProductionSpawnFn`.
  */
 export function adaptChild(child: NodeChildLike): SubagentChildProcess {
-  // LF-only line buffers per stream (strict-JSONL framing; a trailing CR is left
-  // for the wire parser to trim).
-  const makeLinePump = (
-    source: { on(event: "data", listener: (chunk: unknown) => void): void } | null,
-  ): ((listener: (line: string) => void) => () => void) => {
-    let buffer = "";
-    const listeners = new Set<(line: string) => void>();
-    source?.on("data", (chunk: unknown) => {
-      buffer += String(chunk);
-      let idx: number;
-      while ((idx = buffer.indexOf("\n")) >= 0) {
-        const line = buffer.slice(0, idx);
-        buffer = buffer.slice(idx + 1);
-        if (line.length === 0) {
-          continue;
-        }
-        // Snapshot: a listener may unsubscribe from within its own callback
-        // (a per-query reader detaches on settle), so iterate a copy.
-        for (const listener of [...listeners]) {
-          listener(line);
-        }
-      }
-    });
-    // Return an unsubscribe handle so consumers detach on settle (no O(queries)
-    // listener accumulation on a long-lived child).
-    return (listener: (line: string) => void): (() => void) => {
-      listeners.add(listener);
-      return (): void => {
-        listeners.delete(listener);
-      };
-    };
-  };
-
   const onStdoutLine = makeLinePump(child.stdout);
   const onStderrLine = makeLinePump(child.stderr);
 
@@ -360,40 +406,7 @@ export function adaptChild(child: NodeChildLike): SubagentChildProcess {
       exitListeners.add(listener);
     },
     kill: (): void => {
-      const pid = child.pid;
-      // PIC-65 teardown-budget precedent: a killed child whose stdout never
-      // reaches EOF (e.g. a grandchild inherited the stdout pipe on POSIX) would
-      // keep the child `'close'` event from firing and hang the drive. Destroy
-      // our end of the stdio pipes on the kill path so they reach EOF and
-      // `'close'` fires deterministically — the bounded fallback that keeps a
-      // killed child from wedging the drive.
-      const destroyPipes = (): void => {
-        child.stdin?.destroy?.();
-        child.stdout?.destroy?.();
-        child.stderr?.destroy?.();
-      };
-      if (isWindows() && pid !== undefined) {
-        // Windows process-tree kill: `taskkill /PID <pid> /T /F` (no shell, no
-        // POSIX signal). Best-effort — a failure to spawn taskkill falls back to
-        // the direct kill below.
-        try {
-          const killer = nodeSpawn("taskkill", ["/PID", String(pid), "/T", "/F"], {
-            shell: false,
-          });
-          // An ASYNC spawn error (e.g. taskkill missing / EPERM) is emitted on
-          // the child process's `error` event AFTER `spawn` returns; without a
-          // handler Node re-raises it as an unhandled exception. Attach a
-          // swallowing handler — the direct-kill fallback below already covers
-          // the failure, and a teardown kill failure is advisory only (PIC-65).
-          killer.on("error", () => {});
-          destroyPipes();
-          return;
-        } catch (killError: unknown) { // allow-broad-catch: taskkill spawn failure falls back to direct kill — pi-integration-contract/subagent.md
-          void killError;
-        }
-      }
-      child.kill("SIGKILL");
-      destroyPipes();
+      killChildTree(child);
     },
   };
 }
