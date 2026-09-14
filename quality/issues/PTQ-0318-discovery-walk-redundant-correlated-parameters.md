@@ -1,9 +1,9 @@
 ---
-id: pending                  # PTQ-NNNN minted at acceptance; never self-assigned
+id: PTQ-0318
 title: emitSourceFailure and resolveEntry each carry a parameter whose value is fully determined by a sibling parameter at every call site
 lens: D8                     # D2 | D4 | D7 | D8 | D9 - the lens that filed this
-status: intake               # intake | open | fixed | rejected (store mechanics own transitions)
-verdict: pending              # pending | confirmed | questionable | false-positive | duplicate | out-of-scope | malformed
+status: open
+verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - src/discovery/discovery-walk.ts:390-410
   - src/discovery/discovery-walk.ts:200-203
@@ -163,3 +163,4 @@ those name this redundant-parameter shape.
 ## Triage
 <triage appends: verdict + one-line reason. Nothing above this line is edited.>
 verdict: questionable — accounting independently re-verified: emitSourceFailure's code/kind pairing holds 9-for-9 at every call site (200,202,358,361,364,546,740,743,746, each of MISSING_SOURCE/UNREADABLE_SOURCE/WRONG_TYPE_SOURCE pairing only with its own kind), and code-registry-load.md pins that same kind↔code mapping permanently, so deriving code from kind drops no spec-required behaviour; resolveEntry's descriptor/explicitFile holds 2-for-2 (CLI :825/:836 sets descriptor+true, conventional roots :919/:924 omit descriptor+false), both functions confirmed module-private (0 importers outside this file), and the only comment on either parameter states the correlation rather than a rationale for keeping them independent (no rationale-stated-knob carve-out applies, no docs/spec_topics clause is dropped); per the D8 protocol an accurate accounting caps at questionable — never confirmed — since adopting either simpler shape is a human design call (triage: claude-opus-5)
+verdict: confirmed — RATIFIED (human, 2026-09-14): both simplifications. In src/discovery/discovery-walk.ts emitSourceFailure derives code from kind through the same three-way mapping it already uses for message (MISSING_SOURCE / UNREADABLE_SOURCE / WRONG_TYPE_SOURCE, as code-registry-load.md pins) and loses its code parameter at all nine call sites; resolveEntry loses explicitFile and tests `descriptor !== undefined` where it read explicitFile (both call-site pairs are correlated 2-for-2). Both functions are module-private; behaviour identical; no spec change. This D8 lane runs only when no D9 lane owns discovery-walk.ts that wave (host-lane rule).

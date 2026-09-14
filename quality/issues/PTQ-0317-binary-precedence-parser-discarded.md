@@ -1,9 +1,9 @@
 ---
-id: pending                  # PTQ-NNNN minted at acceptance; never self-assigned
+id: PTQ-0317
 title: ExprParser's 6-tier binary-operator precedence table is discarded by its only consumer, firstNonLiteral
 lens: D8                     # D2 | D4 | D7 | D8 | D9 - the lens that filed this
-status: intake               # intake | open | fixed | rejected (store mechanics own transitions)
-verdict: pending              # pending | confirmed | questionable | false-positive | duplicate | out-of-scope | malformed
+status: open
+verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - src/parser/literal-sublanguage.ts:93-108
   - src/parser/literal-sublanguage.ts:234-248
@@ -183,3 +183,4 @@ parser reports; that would need verifying before treating the simpler shape as s
 
 ## Triage
 verdict: questionable — accounting independently verified: all 4 excerpts match verbatim at their exact cited lines, importer counts (1 src/6 test, 1/2, 1/3) confirmed by re-grepping actual import statements, and re-running parseBinary (ported + transpiled, unmodified logic) under 3 differing precedence tables against 19 expressions gave byte-identical kind/span output every time, matching grammar.md's single undifferentiated "operators other than unary `-`" forbidden clause (no six-tier spec enumeration, no exemption, no rationale comment on the table); per the D8 protocol an accurate simplification accounting caps at questionable — the simpler shape is a human ruling, never confirmed (triage: claude-opus-5)
+verdict: confirmed — RATIFIED (human, 2026-09-14): the simpler shape is a flat binary loop. In src/parser/literal-sublanguage.ts ExprParser.parseBinary parses a unary operand, then while the next token is any recognised binary operator consumes it and parses the next unary operand, producing one binary node spanning the first operand's start to the last operand's end - no precedence tiers, no minPrec threading; delete BINARY_PRECEDENCE and its comment; the ternary layer above and every other production stay as they are. Contract: kind and span output byte-identical for every input (triage's 19-expression check); all six test importers stay green unchanged - a differing test means the flattening is wrong, not the test. The spec (grammar.md: operators other than unary minus are forbidden in the literal sublanguage, undifferentiated) needs no change.

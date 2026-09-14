@@ -1,9 +1,9 @@
 ---
-id: pending
+id: PTQ-0322
 title: production-composition.ts bundles nine independent load-time subsystems in one 4376-line file
 lens: D9
-status: intake
-verdict: pending
+status: open
+verdict: confirmed
 locations:
   - src/extension/production-composition.ts:1-4376
 sites: 1
@@ -78,3 +78,4 @@ Band: strong (4376 LOC, file top-line in the structural map). Reasons-considered
 
 ## Triage
 verdict: questionable — accounting verified: size-scan confirms 4376 LOC/strong band and all 65 declarations partition exactly into the 9 tabulated concerns (per-row LOC sums reproduce exactly, totaling 3258/4376); each concern independently cites a distinct spec (RFC-0005, capability-probe.md Step 0(d), bug-0023, PIC-11, bug-0010) and call-graph checks show orchestrator-calls-service edges only, no cross-concern shared locals; bug-0276's D8 "measured data" KEEP note guards only intra-function memoization soundness, not a file-split cost, so no reasons-considered item was overlooked; target shape is a human design call, never confirmed for D9 breakdown (triage: claude-opus-5)
+verdict: confirmed — RATIFIED (human, 2026-09-14): Seam 0 (the leaf), not the filing's A/B/C. Move concern 6 MINUS buildSystemNoteDeps - hasLoadParseError, thetaBasename, ParsedDiscoveredTheta, parseDiscoveredTheta, readThetaFlagPaths, readPiOwnedCommands (production-composition.ts :3799-4030 less the buildSystemNoteDeps declaration, ~140 LOC, all file-private today, 0 external importers) - verbatim into a new module src/extension/production-discovered-theta.ts that EXPORTS them and imports NOTHING from production-composition.ts; production-composition.ts imports them back (no barrel needed - nothing outside the file imported them). buildSystemNoteDeps stays in the host because it reads makeDeliveryFailedEmit (concern 1) - moving it would create the cycle this seam exists to avoid. Reason for the order: Seam A (tools verification, 1240 LOC) reads hasLoadParseError / thetaBasename and Seam C's deriveCallableName at runtime while the host calls eight of A's members, so A first is a host <-> module import cycle; Seam B reads makeLoadEmit and buildSystemNoteDeps while the host uses productionSchemaSlugOf - a cycle as filed. PRE-ANNOUNCED, not ratified: next wave Seams A+C together -> theta-callee-tools-verification.ts (cycle-free after this seam), then B' (probe host + peer ladder + bootstrap sink, WITHOUT productionSchemaSlugOf) -> production-bootstrap.ts with factory.ts re-pointed. Header comment on the new module; no logic edits; tsc first; report before/after LOC.

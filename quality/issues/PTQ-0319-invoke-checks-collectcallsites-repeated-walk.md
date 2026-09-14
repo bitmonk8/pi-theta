@@ -1,9 +1,9 @@
 ---
-id: pending                  # PTQ-NNNN minted at acceptance; never self-assigned
+id: PTQ-0319
 title: The four checkImported* routes each re-walk a theta body invoke-static-checks.ts's own header calls "the one shared collection"
 lens: D8                     # D2 | D4 | D7 | D8 | D9 - the lens that filed this
-status: intake               # intake | open | fixed | rejected (store mechanics own transitions)
-verdict: pending              # pending | confirmed | questionable | false-positive | duplicate | out-of-scope | malformed
+status: open
+verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - src/extension/invoke-static-checks.ts:51-59
   - src/extension/invoke-static-checks.ts:152-164
@@ -160,3 +160,4 @@ adopted architecture, which is the documented intent this filing cites.
 ## Triage
 <triage appends: verdict + one-line reason. Nothing above this line is edited.>
 verdict: questionable — every citation verified verbatim (header 51-59, CollectedCallSites doc 152-164, collectCallSites 209-236, four independent calls at 1566/1731/1830/1931), each of the four checkImported* functions confirmed to take no CollectedCallSites/shared parameter and to build its own via a fresh collectCallSites(importingBody) call, and import-static-checks.ts:1792-1847 (read despite the filing's own disclaimer) shows checkThetaImports invokes all four unconditionally on the same input.body every pass, so the redundant full-body walk is real whenever a theta's imports exercise more than one route; no D8 exemption recorded for this host and no docs/spec_topics clause requires four independent walks — accounting holds but D8 caps at questionable, a human rules whether to share the collection (triage: claude-opus-5)
+verdict: confirmed — RATIFIED (human, 2026-09-14): collect once. checkThetaImports (import-static-checks.ts, the dispatch at ~:1470-1510 that calls all four routes for the same body) runs the shared call-site walk ONCE and passes the CollectedCallSites (export the type and either collectCallSites itself or a thin exported collector from invoke-static-checks.ts) into checkImportedFnCallArgs, checkImportedSchemaCtorFields, checkImportedEnumVariantAccess and checkImportedNonCtorTypeNames, which each take it as a parameter and drop their own collectCallSites(importingBody) call; no route walks the body itself. The walk is pure, so output is identical; tests unchanged. Runs after the D9 lane on invoke-static-checks.ts (host-lane rule).

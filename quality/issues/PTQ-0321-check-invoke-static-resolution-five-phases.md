@@ -1,9 +1,9 @@
 ---
-id: pending                  # PTQ-NNNN minted at acceptance; never self-assigned
+id: PTQ-0321
 title: checkInvokeStaticResolution bundles five sequential invoke/tool-call-check phases into one 509-line function
 lens: D9                     # D2 | D4 | D7 | D8 | D9 - the lens that filed this
-status: intake               # intake | open | fixed | rejected (store mechanics own transitions)
-verdict: pending              # pending | confirmed | questionable | false-positive | duplicate | out-of-scope | malformed
+status: open
+verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - src/extension/invoke-static-checks.ts:963-1471
 sites: 1                     # count of occurrences cited in Evidence
@@ -218,3 +218,4 @@ shared-local-state keep-whole case matching this project's own precedent for
 ## Triage
 <triage appends: verdict + one-line reason. Nothing above this line is edited.>
 verdict: questionable — accounting reproduces: size-scan confirms invoke-static-checks.ts at 1962 LOC/justify and checkInvokeStaticResolution at 963-1471/509 LOC/strong with 1 src/4 test importers exactly, all five phase-boundary excerpts and the setup's five shared locals match the source verbatim, and the five-concern inventory is real (five distinct invocation.md/tool-calls.md citations, not one dispatch split by adjectives) with reasons-considered correctly applying the design doc's own ≥6-shared-locals bar (5 found, no rescue); but two supporting citations are wrong — invocation.md's INV-8 anchor is at line 63, not the cited line 57 (unrelated intro prose), and PTQ-0304's Seam C is mischaracterized as "already ratified" when its own record says "Seams A and C are NOT ratified" (only Seam B was) — neither error refutes the core accounting, so D9 breakdown caps here at questionable, never confirmed; target shape is a human ruling (triage: claude-opus-5)
+verdict: confirmed — RATIFIED (human, 2026-09-14): Seam A only - a FUNCTION seam inside src/extension/invoke-static-checks.ts. Extract phase 2, the .theta-callable call-surface loop (checkInvokeStaticResolution :1157-1319, 163 LOC: arity, mode gate, cwd type, per-slot type - INV-3/INV-6/INV-8, bug 0072), into a module-local helper (hypothesis name checkThetaCallableCallSurface) taking callerPath, typeEnv, typePass and the deps it reads (callableSet / resolveCalleeArity) and returning Diagnostic[]; checkInvokeStaticResolution calls it at the same point in its sequence and spreads the result exactly as today. Body moved verbatim with its comments; doc comment on the helper; no logic, order-of-effects or diagnostic change; tsc first, then the gate; report before/after LOC of the function from size-scan map. Seams B and C are NOT ratified - D9 re-files after this lands.

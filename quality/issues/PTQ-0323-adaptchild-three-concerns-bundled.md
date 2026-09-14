@@ -1,9 +1,9 @@
 ---
-id: pending
+id: PTQ-0323
 title: adaptChild bundles stdio line-pump framing, exit-lifecycle tracking, and platform-branched process-tree kill in one 114-line function
 lens: D9
-status: intake
-verdict: pending
+status: open
+verdict: confirmed
 locations:
   - src/extension/production-subagent-host.ts:286-399
 sites: 1
@@ -92,3 +92,4 @@ Band: justify (114 LOC, function line in the structural map; containing file is 
 ## Triage
 <triage appends: verdict + one-line reason. Nothing above this line is edited.>
 verdict: questionable — re-ran size-scan.mjs map: file 429 LOC/exempt and adaptChild 286-399/114 LOC/justify band with 0 src/1 test importer all reproduce exactly; read the full function body and confirmed the three named concerns (line-pump, exit-lifecycle capture+replay, platform-branched kill) share no locals beyond the single `child` parameter, excerpts match verbatim at the cited lines, and no defeating reason is on record (exemptions.json has no entry for this host, PIC-59/PIC-65 govern individual behaviours not one-function bundling, no reverted-split history); per D9 breakdown policy a verified accounting caps at questionable (never confirmed) — the split's shape is a human ruling (triage: claude-opus-5)
+verdict: confirmed — RATIFIED (human, 2026-09-14): the two LEAF phases as one FUNCTION seam inside src/extension/production-subagent-host.ts. (1) Hoist makeLinePump to module scope as a module-private function (it closes over nothing but its source parameter) and call it from adaptChild exactly as today; (2) extract the platform-branched process-tree kill (adaptChild :362-397, 36 LOC, including its isWindows() branch and destroyPipes use) into a module-private helper killChildTree(child) (hypothesis name) that adaptChild's returned kill delegates to. The exit-lifecycle capture and onExit replay (exitInfo / exitListeners, synchronous same-stack delivery) stay inline in adaptChild - NOT extracted. Bodies moved verbatim with their comments; doc comment on each helper; identical behaviour; tsc first; report before/after LOC of adaptChild.

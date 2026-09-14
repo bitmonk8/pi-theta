@@ -1,9 +1,9 @@
 ---
-id: pending                  # PTQ-NNNN minted at acceptance; never self-assigned
+id: PTQ-0320
 title: groupBy hand-rolls the Map-bucketing loop Map.groupBy already provides at this package's own Node floor
 lens: D8                     # D2 | D4 | D7 | D8 | D9 - the lens that filed this
-status: intake               # intake | open | fixed | rejected (store mechanics own transitions)
-verdict: pending              # pending | confirmed | questionable | false-positive | duplicate | out-of-scope | malformed
+status: open
+verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - src/discovery/discovery-path-classify.ts:458-470
   - src/discovery/discovery-walk.ts:433
@@ -135,3 +135,4 @@ enumeration or formula), so no `challenges_spec` applies.
 ## Triage
 <triage appends: verdict + one-line reason. Nothing above this line is edited.>
 verdict: questionable — all 5 locations verified verbatim (groupBy at discovery-path-classify.ts:458-470, all 4 call sites, package.json:44's >=22.19.0 floor); Map.groupBy independently reproduced byte-identical to the hand-rolled loop on installed Node v24.16.0 across empty/singleton/multi-bucket/object-key/NaN-key inputs, same insertion order; size-scan map confirms groupBy is 13 LOC with 1/0 src/test importers reached from production discoverThetas (not dead, not test-only); the filing's own flagged tsconfig gap independently reproduced via tsc (TS2550, "lib" pinned to ES2022 predates Map.groupBy's ES2024 types, fixed by adding ES2024.Collection) and git history shows that pin is scaffold-era inertia, not a rationale-stated knob; not a duplicate of PTQ-0298 (that fixed the pre-existing 4-site loop duplication by creating this very function; this is a distinct claim against the unified function itself); no D8 exemption on record and no spec_topics clause governs this shape — accounting is accurate but per the D8 rule the simpler shape is a design decision for a human ruling, never confirmed (triage: claude-opus-5)
+verdict: confirmed — RATIFIED (human, 2026-09-14): use the platform facility, and admit it to the compiler. tsconfig.json lib is ["ES2022"], which does not declare Map.groupBy (it is es2024.collection; the runtime floor Node >= 22.19 has it; TypeScript 5.9.3 ships lib.es2024.collection.d.ts) - add "ES2024.Collection" to lib (keep ES2022 as the base; no target change), then replace the four groupBy call sites (discovery-walk.ts :350 :948 :1044 :1045) with Map.groupBy(items, keyOf) and delete groupBy from discovery-path-classify.ts. Return shape Map<K, T[]> and insertion order are identical (triage reproduced it on Node 24). If tsc surfaces anything else from the wider lib, report it rather than fixing it in this lane. Triage precedent recorded: a reimplemented claim must verify the facility is admitted by tsconfig lib/target, not only by the Node floor.

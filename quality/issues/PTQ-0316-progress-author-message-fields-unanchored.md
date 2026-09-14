@@ -1,9 +1,9 @@
 ---
-id: pending                  # PTQ-NNNN minted at acceptance; never self-assigned
+id: PTQ-0316
 title: clampFoldedAuthorMessage and clampProgressPayload rebuild ProgressAuthorMessage's fields with no completeness anchor
 lens: D4                     # D2 | D4 | D7 | D8 | D9 - the lens that filed this
-status: intake               # intake | open | fixed | rejected (store mechanics own transitions)
-verdict: pending              # pending | confirmed | questionable | false-positive | duplicate | out-of-scope | malformed
+status: open
+verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - src/extension/execution-status/bus.ts:99-107
   - src/extension/execution-status/progress-tool.ts:115-127
@@ -102,3 +102,4 @@ Re-read all four cited ranges (bus.ts:99-107, progress-tool.ts:115-127, child-ta
 ## Triage
 <triage appends: verdict + one-line reason. Nothing above this line is edited.>
 verdict: questionable — accounting verified: types.ts:88-94 confirms ProgressAuthorMessage's 5 fields, clone-scan.mjs reproduces G024 exactly (bus.ts:99-107 / progress-tool.ts:118-127, renamed-only(8), both live callers confirmed), child-tap.ts:64-70's ledger is the only `satisfies Record` hit keyed to ProgressAuthorMessage (grep confirms 1-of-3 sites anchored, 2-of-3 not), and PTQ-0292's ratified fix text confirms it never touched bus.ts or progress-tool.ts — but per the D4 brief's own parallel-class rule this caps at questionable, since whether to extend the ledger pattern to the remaining two sites is a design decision for a human ruling, not a mechanical dedupe (triage: claude-opus-5)
+verdict: confirmed — RATIFIED (human, 2026-09-14): ONE shared helper. In src/extension/execution-status/progress-tool.ts add clampAuthorMessage(fields: { message: string; scope?: unknown; done?: unknown; total?: unknown; dropped?: unknown }): ProgressAuthorMessage that performs today's field-by-field rebuild (message clamp; scope clamp when a string; done/total when Number.isInteger; dropped when Number.isInteger and > 0) and carries a compile-time ledger declared `satisfies Record<keyof ProgressAuthorMessage, true>` exactly like child-tap.ts's HANDLED_PROGRESS_FIELDS; clampProgressPayload(params, dropped) becomes a call to it (spreading params and dropped), and bus.ts's clampFoldedAuthorMessage(p) becomes a call to it (bus.ts already imports clampProgressField from progress-tool.ts, so no new edge). Behaviour identical at both call sites (the tool's dropped is always an integer count, so the unified guard changes nothing). No other edits.
