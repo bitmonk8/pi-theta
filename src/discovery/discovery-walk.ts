@@ -41,7 +41,6 @@ import {
   classifyPath,
   dirnameOf,
   expandHome,
-  groupBy,
   hasOverridePrefix,
   isAbsolutePath,
   isGlobPattern,
@@ -347,7 +346,7 @@ function resolveCaseCollisions(
   candidates: readonly SourcedCandidate[],
   diagnostics: Diagnostic[],
 ): SourcedCandidate[] {
-  const groups = groupBy(candidates, (candidate) => normalizePath(candidate.path).toLowerCase());
+  const groups = Map.groupBy(candidates, (candidate) => normalizePath(candidate.path).toLowerCase());
   const survivors: SourcedCandidate[] = [];
   for (const bucket of groups.values()) {
     const distinct = dedupeByPath(bucket);
@@ -945,7 +944,7 @@ function resolveBySource(
   candidates: readonly SourcedCandidate[],
   diagnostics: Diagnostic[],
 ): SourcedCandidate[] {
-  const bySource = groupBy(candidates, (candidate) => candidate.source);
+  const bySource = Map.groupBy(candidates, (candidate) => candidate.source);
   const out: SourcedCandidate[] = [];
   for (const bucket of bySource.values()) {
     out.push(...resolveCaseCollisions(bucket, diagnostics));
@@ -1041,8 +1040,8 @@ async function resolveSlashNames(
   diagnostics: Diagnostic[],
   markedRoot?: { readonly slug: string; readonly winnerPath: string },
 ): Promise<DiscoveredTheta[]> {
-  const piOwnedByName = groupBy(piOwned, (command) => command.name);
-  const byName = groupBy(candidates, (candidate) => candidate.stem);
+  const piOwnedByName = Map.groupBy(piOwned, (command) => command.name);
+  const byName = Map.groupBy(candidates, (candidate) => candidate.stem);
 
   const thetas: DiscoveredTheta[] = [];
   for (const [name, rawGroup] of byName) {
