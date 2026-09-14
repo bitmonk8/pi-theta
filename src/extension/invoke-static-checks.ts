@@ -904,6 +904,192 @@ function dedupeArgType(types: readonly CompatType[]): CompatType {
 }
 
 /**
+ * INV-3 over the `.theta`-callable call surface (tool-calls.md §"Argument
+ * shape"; bug 0071): reached only for a `tools:` entry that already
+ * resolved cleanly — an unresolvable path or an erroring callee un-registers
+ * the parent in `resolveThetaToolsAtLoad` before the compose loop reaches
+ * this pass at all, so `deps.callableSet` never carries a rejected entry
+ * here, and no `.theta`-callable call attracts a second, derived diagnostic
+ * on top of that entry's own rejection.
+ */
+async function checkThetaCallableCallSurface(
+  callExprs: readonly CallExpr[],
+  callerPath: string,
+  typeEnv: TypeEnv,
+  typePass: StaticTypeInferencePass,
+  deps: {
+    readonly callableSet: CallableSetSnapshot | undefined;
+    readonly resolveCalleeArity: (calleeAbsolutePath: string) => Promise<CalleeArity | undefined>;
+  },
+): Promise<Diagnostic[]> {
+  const diagnostics: Diagnostic[] = [];
+  for (const site of resolveThetaCallableCallSites(
+    callExprs,
+    deps.callableSet,
+  )) {
+    const resolvedPath = resolveCalleeAbsolute(callerPath, site.calleePath);
+    // Unlike `invoke(...)`, a `.theta`-callable call carries no leading
+    // path-literal argument (the callee is named by the `tools:` entry, not
+    // by the call's own first argument), so every positional argument is a
+    // real argument slot.
+    const providedCount = site.call.args.length;
+    const arity = await deps.resolveCalleeArity(resolvedPath);
+    if (arity === undefined) {
+      continue;
+    }
+    // RFC 0009 (invocation.md INV-8 static mode gate), the `.theta`-callable
+    // half of the invoke arm's gate above. PRODUCTION-UNREACHABLE: a
+    // prompt-mode `.theta` in `tools:` already un-registers the theta at load
+    // (`theta/load/prompt-mode-callable`, tool-calls.md), so no registered
+    // caller can hold this site — the arm exists so the gate is uniform
+    // across both clause-bearing surfaces (and for harness inputs). `<callee>`
+    // is the PRESENTED callable name here, not the callee path
+    // (placeholder-rendering-b.md §7), as this surface's other rows render it.
+    let clauseRefused = false;
+    if (site.call.withClause !== undefined && arity.mode === "prompt") {
+      diagnostics.push({
+        severity: "error",
+        code: WITH_CLAUSE_PROMPT_MODE_CALLEE_CODE,
+        file: callerPath,
+        range: site.call.range,
+        message: withClausePromptModeCalleeMessage(site.name),
+        hint: WITH_CLAUSE_PROMPT_MODE_CALLEE_HINT,
+      });
+      clauseRefused = true;
+    }
+    if (!clauseRefused) {
+      diagnostics.push(
+        ...checkClauseCwdType({
+          ...(site.call.withClause !== undefined ? { clause: site.call.withClause } : {}),
+          surface: { kind: "theta-callable", name: site.name },
+          file: callerPath,
+          fallbackRange: site.call.range,
+          typeEnv,
+          typePass,
+        }),
+      );
+    }
+    const arityDiags = checkInvokeArity({
+      // The `invoke(...)` arm above renders `<callee>` as the verbatim path
+      // literal because that IS the text at its diagnostic range. Here the
+      // range is the call site instead, and the callee path appears
+      // nowhere on that line — only the presented callable name does — so
+      // `<callee>` renders the presented name (placeholder-rendering-b.md
+      // §7).
+      callee: site.name,
+      // invocation.md §Static resolution defines a statically-resolvable
+      // callee as one "referenced by a literal `invoke(...)` or by a
+      // `.theta` entry in `tools:`" (quoted in tool-calls.md §"Argument
+      // shape") — a `.theta`-callable call site is statically resolvable BY
+      // DEFINITION, not by inference from reaching this loop.
+      staticallyResolvable: true,
+      requiredCount: arity.requiredCount,
+      totalCount: arity.totalCount,
+      providedCount,
+      site: { file: callerPath, range: site.call.range },
+    });
+    diagnostics.push(...arityDiags);
+    if (arityDiags.length > 0) {
+      // invocation.md §"Argument arity": arity is checked before type — a
+      // site the arity check already rejected draws no additional
+      // type-mismatch diagnostic (bug 0071 §Fix constraint 5).
+      continue;
+    }
+    // Bug 0072 — per-argument type mismatch (tool-calls.md §"Argument
+    // shape": "an argument that does not type-check against the callee's
+    // `params:` surfaces as `theta/parse/tool-arg-type-mismatch` when the
+    // callee is statically resolvable"), positional slot `i` against the
+    // callee's `i`-th `params:` field. `arity.fields` is the
+    // callee's WHOLE `params:` list in declaration order, and the arity
+    // check above already bounds `providedCount` within
+    // `[requiredCount, totalCount]`, so every provided slot has a
+    // corresponding field.
+    //
+    // The EXPECTED side is the callee's own annotation text, so it must not
+    // resolve through the caller's declarations: `annotationToCompatType`
+    // maps every non-primitive annotation to a `named` reference, and
+    // resolving that name in the caller's `typeEnv` lets a caller-local
+    // homonym decide a verdict about the callee's contract. tool-calls.md
+    // §"Argument shape" puts the judgement in the callee's namespace — the
+    // mismatch is "against the callee's `params:`", and the runtime check it
+    // front-runs validates the argument against the callee's own lowered
+    // `params:` schema. Under an EMPTY environment a `named` expected type is
+    // unresolvable, so `checkCompatible` answers `"unknown"` and the site
+    // defers to that validation. Primitive and literal decisions consult no
+    // environment at all, so a `params: x: string` slot still rejects an
+    // integer argument, and a structurally-decidable slot such as
+    // `array<Named>` still rejects a non-array argument without this pass
+    // needing to know what `Named` denotes — which is why the expected side
+    // is emptied rather than withheld whenever it mentions a name.
+    // Null-prototype for the same reason `collectTypeEnv`
+    // (../parser/type-layer-checks.ts) builds one: an annotation may spell an
+    // `Object.prototype` own property verbatim, and that name must be
+    // unresolvable here too.
+    const emptyCalleeAnnotationEnv: TypeEnv = Object.create(null) as TypeEnv;
+    for (const [i, argExpr] of site.call.args.entries()) {
+      const field = arity.fields[i];
+      if (field === undefined) {
+        continue;
+      }
+      const expectedType = annotationToCompatType(field.typeSource);
+      if (expectedType === undefined) {
+        continue;
+      }
+      const argTypes = collectProvableArgTypes(argExpr, typeEnv, typePass);
+      if (argTypes === undefined) {
+        // A value-contributing position past the parser's static view: the
+        // argument can take a value of unknown type, which defers to the
+        // callee's own runtime AJV load — see `collectProvableArgTypes`.
+        continue;
+      }
+      if (
+        !argTypes.every(
+          (argType) =>
+            checkCompatible(argType, expectedType, emptyCalleeAnnotationEnv) ===
+            "incompatible",
+        )
+      ) {
+        // Only an explicit incompatibility on EVERY value the argument can
+        // take is provable. One arm the `params:` field accepts — or answers
+        // `"unknown"` / `"integer-narrowing"` for — means a runtime value may
+        // well type-check, so the site defers to the runtime AJV net.
+        continue;
+      }
+      diagnostics.push(
+        ...checkToolCallArguments({
+          toolName: site.name,
+          calleeKind: "theta-callable",
+          // Neutralises `checkToolCallArguments`'s shared arity arm
+          // (`positionalCount > 1`, which fires for ANY `calleeKind` —
+          // pinned by the "arity is checked before type" unit test in
+          // tests/tool-calls.test.ts): this call site's real arity was
+          // already checked and passed above, via `checkInvokeArity`, the
+          // dedicated emitter for this surface.
+          positionalCount: 1,
+          file: callerPath,
+          range: site.call.range,
+          staticResolution: {
+            resolvable: true,
+            matches: false,
+            expected: displayType(expectedType),
+            actual: renderCollectedTypes(argTypes),
+          },
+        }),
+      );
+      // First mismatch only: this row's *Message* names neither the slot
+      // index nor the parameter, and its range is the whole call
+      // expression, so a second emission at this site would render
+      // byte-identical to the first — the per-site cap the adjudicated rule
+      // assigns this row (diagnostic-shape.md
+      // #argument-mismatch-multiplicity), distinct from the per-slot rule
+      // the invoke and `fn` rows draw.
+      break;
+    }
+  }
+  return diagnostics;
+}
+
+/**
  * Run the load-time invoke static checks for one discovered theta, returning
  * every diagnostic (error-severity entries un-register the theta):
  *
@@ -1148,176 +1334,15 @@ export async function checkInvokeStaticResolution(
       }
     }
 
-    // INV-3 over the `.theta`-callable call surface (tool-calls.md §"Argument
-    // shape"; bug 0071): reached only for a `tools:` entry that already
-    // resolved cleanly — an unresolvable path or an erroring callee un-registers
-    // the parent in `resolveThetaToolsAtLoad` before the compose loop reaches
-    // this pass at all, so `deps.callableSet` never carries a rejected entry
-    // here, and no `.theta`-callable call attracts a second, derived diagnostic
-    // on top of that entry's own rejection.
-    for (const site of resolveThetaCallableCallSites(
-      callSites.callExprs,
-      deps.callableSet,
-    )) {
-      const resolvedPath = resolveCalleeAbsolute(callerPath, site.calleePath);
-      // Unlike `invoke(...)`, a `.theta`-callable call carries no leading
-      // path-literal argument (the callee is named by the `tools:` entry, not
-      // by the call's own first argument), so every positional argument is a
-      // real argument slot.
-      const providedCount = site.call.args.length;
-      const arity = await deps.resolveCalleeArity(resolvedPath);
-      if (arity === undefined) {
-        continue;
-      }
-      // RFC 0009 (invocation.md INV-8 static mode gate), the `.theta`-callable
-      // half of the invoke arm's gate above. PRODUCTION-UNREACHABLE: a
-      // prompt-mode `.theta` in `tools:` already un-registers the theta at load
-      // (`theta/load/prompt-mode-callable`, tool-calls.md), so no registered
-      // caller can hold this site — the arm exists so the gate is uniform
-      // across both clause-bearing surfaces (and for harness inputs). `<callee>`
-      // is the PRESENTED callable name here, not the callee path
-      // (placeholder-rendering-b.md §7), as this surface's other rows render it.
-      let clauseRefused = false;
-      if (site.call.withClause !== undefined && arity.mode === "prompt") {
-        diagnostics.push({
-          severity: "error",
-          code: WITH_CLAUSE_PROMPT_MODE_CALLEE_CODE,
-          file: callerPath,
-          range: site.call.range,
-          message: withClausePromptModeCalleeMessage(site.name),
-          hint: WITH_CLAUSE_PROMPT_MODE_CALLEE_HINT,
-        });
-        clauseRefused = true;
-      }
-      if (!clauseRefused) {
-        diagnostics.push(
-          ...checkClauseCwdType({
-            ...(site.call.withClause !== undefined ? { clause: site.call.withClause } : {}),
-            surface: { kind: "theta-callable", name: site.name },
-            file: callerPath,
-            fallbackRange: site.call.range,
-            typeEnv,
-            typePass,
-          }),
-        );
-      }
-      const arityDiags = checkInvokeArity({
-        // The `invoke(...)` arm above renders `<callee>` as the verbatim path
-        // literal because that IS the text at its diagnostic range. Here the
-        // range is the call site instead, and the callee path appears
-        // nowhere on that line — only the presented callable name does — so
-        // `<callee>` renders the presented name (placeholder-rendering-b.md
-        // §7).
-        callee: site.name,
-        // invocation.md §Static resolution defines a statically-resolvable
-        // callee as one "referenced by a literal `invoke(...)` or by a
-        // `.theta` entry in `tools:`" (quoted in tool-calls.md §"Argument
-        // shape") — a `.theta`-callable call site is statically resolvable BY
-        // DEFINITION, not by inference from reaching this loop.
-        staticallyResolvable: true,
-        requiredCount: arity.requiredCount,
-        totalCount: arity.totalCount,
-        providedCount,
-        site: { file: callerPath, range: site.call.range },
-      });
-      diagnostics.push(...arityDiags);
-      if (arityDiags.length > 0) {
-        // invocation.md §"Argument arity": arity is checked before type — a
-        // site the arity check already rejected draws no additional
-        // type-mismatch diagnostic (bug 0071 §Fix constraint 5).
-        continue;
-      }
-      // Bug 0072 — per-argument type mismatch (tool-calls.md §"Argument
-      // shape": "an argument that does not type-check against the callee's
-      // `params:` surfaces as `theta/parse/tool-arg-type-mismatch` when the
-      // callee is statically resolvable"), positional slot `i` against the
-      // callee's `i`-th `params:` field. `arity.fields` is the
-      // callee's WHOLE `params:` list in declaration order, and the arity
-      // check above already bounds `providedCount` within
-      // `[requiredCount, totalCount]`, so every provided slot has a
-      // corresponding field.
-      //
-      // The EXPECTED side is the callee's own annotation text, so it must not
-      // resolve through the caller's declarations: `annotationToCompatType`
-      // maps every non-primitive annotation to a `named` reference, and
-      // resolving that name in the caller's `typeEnv` lets a caller-local
-      // homonym decide a verdict about the callee's contract. tool-calls.md
-      // §"Argument shape" puts the judgement in the callee's namespace — the
-      // mismatch is "against the callee's `params:`", and the runtime check it
-      // front-runs validates the argument against the callee's own lowered
-      // `params:` schema. Under an EMPTY environment a `named` expected type is
-      // unresolvable, so `checkCompatible` answers `"unknown"` and the site
-      // defers to that validation. Primitive and literal decisions consult no
-      // environment at all, so a `params: x: string` slot still rejects an
-      // integer argument, and a structurally-decidable slot such as
-      // `array<Named>` still rejects a non-array argument without this pass
-      // needing to know what `Named` denotes — which is why the expected side
-      // is emptied rather than withheld whenever it mentions a name.
-      // Null-prototype for the same reason `collectTypeEnv`
-      // (../parser/type-layer-checks.ts) builds one: an annotation may spell an
-      // `Object.prototype` own property verbatim, and that name must be
-      // unresolvable here too.
-      const emptyCalleeAnnotationEnv: TypeEnv = Object.create(null) as TypeEnv;
-      for (const [i, argExpr] of site.call.args.entries()) {
-        const field = arity.fields[i];
-        if (field === undefined) {
-          continue;
-        }
-        const expectedType = annotationToCompatType(field.typeSource);
-        if (expectedType === undefined) {
-          continue;
-        }
-        const argTypes = collectProvableArgTypes(argExpr, typeEnv, typePass);
-        if (argTypes === undefined) {
-          // A value-contributing position past the parser's static view: the
-          // argument can take a value of unknown type, which defers to the
-          // callee's own runtime AJV load — see `collectProvableArgTypes`.
-          continue;
-        }
-        if (
-          !argTypes.every(
-            (argType) =>
-              checkCompatible(argType, expectedType, emptyCalleeAnnotationEnv) ===
-              "incompatible",
-          )
-        ) {
-          // Only an explicit incompatibility on EVERY value the argument can
-          // take is provable. One arm the `params:` field accepts — or answers
-          // `"unknown"` / `"integer-narrowing"` for — means a runtime value may
-          // well type-check, so the site defers to the runtime AJV net.
-          continue;
-        }
-        diagnostics.push(
-          ...checkToolCallArguments({
-            toolName: site.name,
-            calleeKind: "theta-callable",
-            // Neutralises `checkToolCallArguments`'s shared arity arm
-            // (`positionalCount > 1`, which fires for ANY `calleeKind` —
-            // pinned by the "arity is checked before type" unit test in
-            // tests/tool-calls.test.ts): this call site's real arity was
-            // already checked and passed above, via `checkInvokeArity`, the
-            // dedicated emitter for this surface.
-            positionalCount: 1,
-            file: callerPath,
-            range: site.call.range,
-            staticResolution: {
-              resolvable: true,
-              matches: false,
-              expected: displayType(expectedType),
-              actual: renderCollectedTypes(argTypes),
-            },
-          }),
-        );
-        // First mismatch only: this row's *Message* names neither the slot
-        // index nor the parameter, and its range is the whole call
-        // expression, so a second emission at this site would render
-        // byte-identical to the first — the per-site cap the adjudicated rule
-        // assigns this row (diagnostic-shape.md
-        // #argument-mismatch-multiplicity), distinct from the per-slot rule
-        // the invoke and `fn` rows draw.
-        break;
-      }
-    }
+    diagnostics.push(
+      ...(await checkThetaCallableCallSurface(
+        callSites.callExprs,
+        callerPath,
+        typeEnv,
+        typePass,
+        { callableSet: deps.callableSet, resolveCalleeArity: deps.resolveCalleeArity },
+      )),
+    );
 
     // RFC 0009 Erratum A′ (invocation.md INV-8) — the call-site clause's
     // DEFAULT-REJECT callee classification: ONE loop, TWO codes, a three-way
