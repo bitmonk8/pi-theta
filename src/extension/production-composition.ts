@@ -23,7 +23,8 @@
 // in below.
 //
 // Spec (narrative): pi-integration-contract/extension-bootstrap-and-per-theta.md,
-// pi-integration-contract/registration-steps.md, discovery.md.
+// pi-integration-contract/registration-steps.md, discovery.md,
+// capability-probe.md #session-control-load-probe (RFC 0011 §3.3 host-member probe).
 
 import { readFileSync } from "node:fs";
 import {
@@ -167,6 +168,7 @@ import {
   type CallableSetDeps,
   type CallableSetSnapshot,
 } from "../parser/callable-set";
+import { RUNTIME_TOOL_SIGNATURES, type RuntimeToolName } from "../parser/runtime-tools";
 import { checkCalleeHasErrors, checkInvokeExtension } from "../parser/invoke-diagnostics";
 import { canonicalForm, schemaSlug, toLoweredJsonValue } from "../parser/schema-lowering";
 import {
@@ -1346,6 +1348,17 @@ async function runComposePass(
       continue;
     }
 
+    // RFC 0011 §3.3: a declared runtime tool whose host member is absent refuses
+    // ONLY the declaring theta, fail-closed, one diagnostic per unavailable
+    // declared tool, then `continue` (the un-registration mechanism).
+    if (toolResult.callableSet !== undefined) {
+      const sessionToolDiags = checkSessionToolAvailability(
+        toolResult.callableSet, { ctx, pi }, input.sourcePath ?? input.slashName,
+      );
+      sink.emitGroup(sessionToolDiags);
+      if (sessionToolDiags.length > 0) { continue; }
+    }
+
     // PIC-64 rung 3 (LOAD-time): a theta whose CODE calls a callable-set
     // EXTENSION tool refuses to register when no code-side dispatch rung is
     // available (fail-closed). This is the load-time realisation of rung 3
@@ -2500,6 +2513,54 @@ interface ThetaToolsResolution {
    * ONLY on the subagent-launch path.
    */
   readonly rootClosureHash?: { readonly name: string; readonly hash: string };
+}
+
+// ---------------------------------------------------------------------------
+// RFC 0011 §3.3 — load-time host-member probe for session-control runtime
+// tools. One diagnostic per unavailable DECLARED tool, deduplicated by
+// canonical name; the probe order within a tool follows the signature's
+// `hostMembers` array (capability-probe.md #session-control-load-probe).
+// ---------------------------------------------------------------------------
+
+/**
+ * Probe the composition-scope host handles for every runtime-tool entry in the
+ * callable set. Returns one `theta/load/session-tool-unavailable` E diagnostic
+ * per unavailable DECLARED tool (deduplicated by canonical name across renames).
+ * An empty return means all declared runtime tools are available.
+ */
+export function checkSessionToolAvailability(
+  callableSet: CallableSetSnapshot,
+  hosts: {
+    readonly ctx: Partial<Pick<ExtensionContext, "compact" | "getContextUsage">>;
+    readonly pi: Partial<Pick<ExtensionAPI, "setSessionName" | "getSessionName">>;
+  },
+  file: string,
+): Diagnostic[] {
+  const diagnostics: Diagnostic[] = [];
+  const seen = new Set<RuntimeToolName>();
+  for (const entry of callableSet.entries.values()) {
+    if (entry.kind !== "runtime-tool") continue;
+    if (seen.has(entry.name)) continue;
+    seen.add(entry.name);
+    const sig = RUNTIME_TOOL_SIGNATURES.get(entry.name);
+    if (sig === undefined) continue;
+    for (const member of sig.hostMembers) {
+      // Resolve the member against the correct handle: "ctx.*" -> hosts.ctx,
+      // "pi.*" -> hosts.pi.
+      const [prefix, suffix] = member.split(".") as [string, string];
+      const handle = prefix === "ctx" ? hosts.ctx : hosts.pi;
+      if (typeof (handle as Record<string, unknown>)?.[suffix] !== "function") {
+        diagnostics.push({
+          severity: "error",
+          code: "theta/load/session-tool-unavailable",
+          file,
+          message: `runtime tool '${entry.name}' is unavailable on this host: '${member}' is not a function`,
+        });
+        break; // first missing member per tool
+      }
+    }
+  }
+  return diagnostics;
 }
 
 /** The empty frozen callable set for a theta that declares no `tools:`. */

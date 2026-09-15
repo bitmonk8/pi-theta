@@ -240,6 +240,7 @@ trigger.
 | `theta/load/invalid-tool-rename` | E | load | `'as <name>' rename target must be lowercase-first; got '<name>'` |
 | `theta/load/invalid-derived-tool-name` | E | load | `'tools:' entry '<path>' derives the default name '<value>', which must be lowercase-first; rename the file or add an 'as' clause` |
 | `theta/load/invalid-pi-tool-name` | E | load | `'tools:' entry '<name>' names a Pi tool whose registry name is not lowercase-first; add an 'as' clause` |
+| `theta/load/session-tool-unavailable` | E | load | `runtime tool '<name>' is unavailable on this host: '<member>' is not a function` |
 | `theta/load/invocation-cycle` | E | load | `invocation cycle: <A> → <B> → <A>` |
 | `theta/load/invoke-path-escape` | E | load, runtime | `invoke path '<path>' resolves outside every active discovery root` |
 | `theta/load/binder-model-unresolved` | E | load | `binder model unresolved: set 'bind_model:' in frontmatter or 'theta.binderModel' in settings` |

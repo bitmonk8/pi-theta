@@ -30,11 +30,13 @@
 //
 // Spec: frontmatter/frontmatter-fields-a.md (§`tools`, FRNT-2, FRNT-3),
 // frontmatter/frontmatter-fields-b-and-templates.md (§Resolution snapshot),
-// lexical.md (§Extension matching, §Path literals).
+// lexical.md (§Extension matching, §Path literals),
+// tool-calls.md #session-control-runtime-tools (RFC 0011 §3.1 resolution arm).
 
 import { normaliseLiteralValueLineBreaks, type Diagnostic } from "../diagnostics/diagnostic";
 import { checkInvokeExtension } from "./invoke-diagnostics";
 import type { ThetaMode } from "./frontmatter";
+import { RUNTIME_TOOL_NAMES, type RuntimeToolName } from "./runtime-tools";
 
 /**
  * The raw `tools:` frontmatter value in either accepted YAML spelling
@@ -106,8 +108,20 @@ export interface ResolvedThetaCallee {
   readonly closureHash?: string;
 }
 
+/**
+ * A session-control runtime tool resolved from the closed three-name set
+ * (RFC 0011; frontmatter-fields-a.md #tools). The entry is host-independent
+ * at resolution time — the load-time host-member probe runs later in the
+ * compose loop, not inside `resolveEntry`.
+ */
+export interface ResolvedRuntimeTool {
+  readonly kind: "runtime-tool";
+  /** Canonical tool name (pre-rename); the presented name is the entries-map key. */
+  readonly name: RuntimeToolName;
+}
+
 /** One resolved callable in the snapshot. */
-export type ResolvedCallable = ResolvedPiTool | ResolvedThetaCallee;
+export type ResolvedCallable = ResolvedPiTool | ResolvedThetaCallee | ResolvedRuntimeTool;
 
 /**
  * The frozen per-theta resolution snapshot: a `{ post-rename name → resolved
@@ -398,6 +412,13 @@ function resolveEntry(
   file: string,
 ): EntryResolution {
   if (isBareIdentifier(spec)) {
+    // RFC 0011 §3.1: a bare identifier matching the closed runtime-tool name
+    // set resolves as a runtime tool BEFORE `deps.resolvePiTool` is consulted,
+    // so a runtime-tool name takes precedence over any extension tool
+    // registered under the same spelling (frontmatter-fields-a.md #tools).
+    if ((RUNTIME_TOOL_NAMES as readonly string[]).includes(spec)) {
+      return { callable: { kind: "runtime-tool", name: spec as RuntimeToolName }, defaultName: spec };
+    }
     const resolved = deps.resolvePiTool(spec);
     if (resolved === undefined) {
       return {
@@ -520,7 +541,7 @@ export function thetaDefaultName(thetaPath: string): string {
  * extension — the shape that marks a `tools:` entry as a Pi-tool name rather
  * than a `.theta` path literal.
  */
-function isBareIdentifier(spec: string): boolean {
+export function isBareIdentifier(spec: string): boolean {
   return /^[A-Za-z_][A-Za-z0-9_]*$/.test(spec);
 }
 

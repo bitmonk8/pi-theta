@@ -282,6 +282,12 @@ export const SDK_SURFACE_INVENTORY: readonly SurfaceInventoryEntry[] =
     // A presence RECORD, never a gate — it joins neither `CAPABILITY_OBLIGATIONS`
     // nor the Step 0 (c) probe loop.
     { id: "pi.events", kind: "pi-member" },
+    // RFC 0011: session-control dispatch + load probe — the four host members
+    // the runtime-tool adapters bind and the load probe tests.
+    { id: "ctx.compact", kind: "ctx-member" },
+    { id: "ctx.getContextUsage", kind: "ctx-member" },
+    { id: "pi.setSessionName", kind: "pi-member" },
+    { id: "pi.getSessionName", kind: "pi-member" },
     // The category-(3) canonical-`ctx` member-access surfaces the runtime
     // touches (`V18b`, audit-target-categories.md category (3)), derived from
     // the `ExtensionContext` / `ExtensionCommandContext` `.d.ts` declarations.
