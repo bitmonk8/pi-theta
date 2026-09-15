@@ -2010,3 +2010,225 @@ describe("bug 0012 — live UNTYPED query: Esc during the streamed turn is the C
     ).toBe(1);
   });
 });
+
+// ===========================================================================
+// Bug 0182 / bug 0291 — the FORCED RESPOND seat's classifier input: the status
+// `dispatchForcedRespondTurn` captured through `options.onResponse` (or the
+// no-firing `null` class), never a fabricated 200.
+//
+// Re-hosted here from the retired tests/off-session-transport-classification
+// suite (RFC 0012 D4 removed the in-process `subagent fn` drive that suite
+// rode; its untyped free-phase seat no longer exists — an untyped `@`-query
+// in a `subagent fn` body is now the child's ON-SESSION turn, classified by
+// PIC-51). The forced respond `complete()` is the one off-session dispatch the
+// live prompt driver still issues, so the census's respond-seat witnesses (the
+// retired suite's W2 / W4 / W6 / W7) keep their home on this harness, beside
+// cell (g)'s transport sibling. Each queue factory receives the recorded call
+// triple, so a cell fires `options.onResponse` itself to script a captured
+// status — the adapter property `tests/live/provider-error-revalidation-gate`
+// measures live (anthropic: zero firings on a 400).
+//
+// Spec: pi-integration-contract/provider-error-mapping.md (§Classifier input
+// surface, §Overflow signatures, §Stop-reason classification),
+// errors-and-results/queryerror-variants.md (§ContextOverflowError counts,
+// §TransportError http_status/retryable), query/query-failure-and-repair.md
+// (QRY-10: a non-validation failure terminates repair, no attempts debit).
+// ===========================================================================
+
+describe("bug 0182 (respond seat) — the forced respond dispatch classifies through the CAPTURED status, not a fabricated 200", () => {
+  /**
+   * The verbatim live anthropic overflow `errorMessage` (bug 0065's recorded
+   * run: `ONRESPONSE FIRINGS: []`, `STOPREASON: error`). Whole-string numeric
+   * runs are seven, so the two counts asserted below can only come from
+   * `extractOverflowTokens`'s provider-message window
+   * (`prompt is too long: 220044 tokens > 200000 maximum`).
+   */
+  const LIVE_ANTHROPIC_OVERFLOW_ERROR_MESSAGE =
+    `400 {"type":"error","error":{"type":"invalid_request_error","message":"prompt is too long: 220044 tokens > 200000 maximum"},"request_id":"req_011Ce67AeKSksfCvdLP3Q6Ha"}`;
+
+  /** An `openai-completions` overflow body (its row's gate admits only a captured status). */
+  const OPENAI_OVERFLOW_MESSAGE =
+    "This model's maximum context length is 128000 tokens. However, your messages resulted in 130000 tokens.";
+
+  /** A non-overflow anthropic error body for the status-threading cell. */
+  const AUTH_ERROR_MESSAGE =
+    "No auth available for anthropic. Set ANTHROPIC_OAUTH_TOKEN or ANTHROPIC_API_KEY.";
+
+  /** Fire the recorded call's `options.onResponse` with a status, then return the reply. */
+  function replyWithCapturedStatus(
+    status: number,
+    reply: Record<string, unknown>,
+  ): (call: { model: unknown; context: unknown; options: unknown }) => unknown {
+    return (call) => {
+      const onResponse = (call.options as { readonly onResponse?: unknown }).onResponse;
+      expect(
+        typeof onResponse,
+        "the forced respond dispatch threads an `onResponse` capture into every complete() (bug 0182)",
+      ).toBe("function");
+      (onResponse as (response: { readonly status: number }) => void)({ status });
+      return reply;
+    };
+  }
+
+  it("(W2) the live anthropic overflow with NO captured status is Err(context_overflow) carrying 220044/200000 — never Err(transport)", async () => {
+    // The measured anthropic error-response shape: zero `onResponse` firings,
+    // so the seam's real classifier input is the no-HTTP-response `null`
+    // class — the value the anthropic gate admits beside HTTP 400. A
+    // `transport` verdict here is the pre-fix signature: a fabricated 200
+    // vetoing the signature match on a status no firing produced.
+    const harness = makeHarness({
+      source: TYPED_LIVE_THETA,
+      sessionReplies: [{ stopReason: "stop", text: "free ok" }],
+    });
+    scripted.queue = [
+      () =>
+        assistantReply({
+          stopReason: "error",
+          errorMessage: LIVE_ANTHROPIC_OVERFLOW_ERROR_MESSAGE,
+        }),
+    ];
+
+    const execution = await drive(harness);
+
+    const err = expectErrOfKind(execution, "context_overflow");
+    expect(
+      err,
+      "bug 0182: a genuine `prompt is too long` refusal on the respond dispatch reaches " +
+        "the author as ContextOverflowError carrying the two integers the provider stated " +
+        `(QRY-10). observed: ${JSON.stringify(err)}`,
+    ).toEqual({
+      kind: "context_overflow",
+      message: LIVE_ANTHROPIC_OVERFLOW_ERROR_MESSAGE,
+      tokens_used: 220044,
+      tokens_limit: 200000,
+      raw_response: null,
+    });
+    expect(
+      scripted.calls.length,
+      "exactly ONE complete() — the overflow terminates the typed query at the respond turn, no repair re-drive",
+    ).toBe(1);
+    expect(harness.session.sendUserMessageCalls, "one on-session free-phase turn").toBe(1);
+  });
+
+  it("(W4) the captured status is THREADED: the same openai overflow bytes are context_overflow under a captured 200 and transport with no firing", async () => {
+    // Two drives differing in NOTHING but the adapter's `onResponse` firing.
+    // `openai-completions`'s gate is `400 || (200 && stopReason "error")`, so a
+    // captured 200 admits the match and no captured status refuses it. An
+    // identical verdict would mean the fold never reads the capture.
+    const first = makeHarness({
+      source: TYPED_LIVE_THETA_MODEL_OAI,
+      availableModels: [ANTHROPIC_MODEL, OPENAI_MODEL],
+      sessionReplies: [{ stopReason: "stop", text: "free ok" }],
+    });
+    scripted.queue = [
+      replyWithCapturedStatus(
+        200,
+        assistantReply({ stopReason: "error", errorMessage: OPENAI_OVERFLOW_MESSAGE }),
+      ),
+    ];
+    const captured = expectErrOfKind(await drive(first), "context_overflow");
+    expect(
+      (captured as { readonly tokens_limit?: unknown }).tokens_limit,
+      "openai's body-envelope overflow arm lifts the stated window",
+    ).toBe(128000);
+    expect(scripted.calls.length, "one complete() per drive").toBe(1);
+
+    scripted.queue = [
+      () => assistantReply({ stopReason: "error", errorMessage: OPENAI_OVERFLOW_MESSAGE }),
+    ];
+    scripted.calls = [];
+    const second = makeHarness({
+      source: TYPED_LIVE_THETA_MODEL_OAI,
+      availableModels: [ANTHROPIC_MODEL, OPENAI_MODEL],
+      sessionReplies: [{ stopReason: "stop", text: "free ok" }],
+    });
+    const uncaptured = expectErrOfKind(await drive(second), "transport");
+    expect(
+      uncaptured,
+      "no captured status is the network-level class, which openai's gate refuses; " +
+        "the fold threads the classifier's own verdict (bug 0291): http_status null, " +
+        `retryable true. observed: ${JSON.stringify(uncaptured)}`,
+    ).toEqual({
+      kind: "transport",
+      message: OPENAI_OVERFLOW_MESSAGE,
+      http_status: null,
+      provider: "openai-completions",
+      retryable: true,
+    });
+    expect(scripted.calls.length, "one complete() per drive").toBe(1);
+  });
+
+  it("(W6) a captured 500 threads to http_status 500 / retryable true; a no-capture error-stop stays http_status null / retryable true", async () => {
+    // bug 0291: the fold publishes the classifier's OWN verdict instead of
+    // overwriting it, so a captured 500 and a no-firing response diverge on
+    // `http_status` while agreeing on `retryable`.
+    const first = makeHarness({
+      source: TYPED_LIVE_THETA,
+      sessionReplies: [{ stopReason: "stop", text: "free ok" }],
+    });
+    scripted.queue = [
+      replyWithCapturedStatus(
+        500,
+        assistantReply({ stopReason: "error", errorMessage: AUTH_ERROR_MESSAGE }),
+      ),
+    ];
+    const withCapture = expectErrOfKind(await drive(first), "transport");
+    expect(
+      withCapture,
+      `the threaded transport surface. observed: ${JSON.stringify(withCapture)}`,
+    ).toEqual({
+      kind: "transport",
+      message: AUTH_ERROR_MESSAGE,
+      http_status: 500,
+      provider: "anthropic-messages",
+      retryable: true,
+    });
+
+    scripted.queue = [
+      () => assistantReply({ stopReason: "error", errorMessage: AUTH_ERROR_MESSAGE }),
+    ];
+    scripted.calls = [];
+    const second = makeHarness({
+      source: TYPED_LIVE_THETA,
+      sessionReplies: [{ stopReason: "stop", text: "free ok" }],
+    });
+    const withoutCapture = expectErrOfKind(await drive(second), "transport");
+    expect(
+      withoutCapture.http_status,
+      "no captured status is the no-HTTP-response class",
+    ).toBeNull();
+    expect(
+      withoutCapture.retryable,
+      "the no-HTTP-response class routes retryable: true",
+    ).toBe(true);
+  });
+
+  it("(W7 control) the `length` stop-reason arm is status-blind: a captured 400 leaves it context_overflow with null counts and the partial text", async () => {
+    // `classifyProviderResponse`'s `length` arm reads no status, so threading
+    // the captured value must not move it — counts null, `raw_response`
+    // carrying the partial text.
+    const harness = makeHarness({
+      source: TYPED_LIVE_THETA,
+      sessionReplies: [{ stopReason: "stop", text: "free ok" }],
+    });
+    scripted.queue = [
+      replyWithCapturedStatus(
+        400,
+        assistantReply({ stopReason: "length", text: "partial answer" }),
+      ),
+    ];
+
+    const err = expectErrOfKind(await drive(harness), "context_overflow");
+    expect(
+      err,
+      `the output-boundary terminator classifies on the stop reason alone. observed: ${JSON.stringify(err)}`,
+    ).toEqual({
+      kind: "context_overflow",
+      message: "",
+      tokens_used: null,
+      tokens_limit: null,
+      raw_response: "partial answer",
+    });
+    expect(scripted.calls.length, "one complete()").toBe(1);
+  });
+});

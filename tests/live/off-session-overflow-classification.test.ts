@@ -1,16 +1,16 @@
 // H8a (live) — bug 0182: a REAL provider context overflow on the OFF-SESSION
-// `@`-query path reaches the theta author as `ContextOverflowError` carrying the
-// provider's own token counts.
+// forced respond dispatch reaches the theta author as `ContextOverflowError`
+// carrying the provider's own token counts.
 //
 // WHY LIVE, AND WHY THIS SHAPE. Bug 0182's fix removed a fabricated
 // `httpStatus: 200` from `classifyOffSessionReply`'s classifier input and
 // replaced it with the status each off-session `complete()` call actually
 // captured through `options.onResponse`. Everything downstream of that input is
-// covered offline and deterministically by
-// `tests/off-session-transport-classification.test.ts`. What no offline fixture
-// can score is the input itself: whether a real `anthropic-messages` overflow
-// arrives at this seam with NO captured status, which is the only value bug
-// 0065's widened gate (`src/binder/provider-error-mapping.ts`
+// covered offline and deterministically by the respond-seat cells of
+// `tests/typed-two-phase-live.test.ts` (W2 / W4 / W6 / W7). What no offline
+// fixture can score is the input itself: whether a real `anthropic-messages`
+// overflow arrives at this seam with NO captured status, which is the only
+// value bug 0065's widened gate (`src/binder/provider-error-mapping.ts`
 // `overflowStatusGateSatisfied`) admits besides HTTP 400. A fixture asserting
 // that would only replay the assumption. `provider-error-mapping.md`
 // §Classifier input surface says so explicitly: "Whether a given provider's
@@ -19,14 +19,32 @@
 //
 // `tests/live/provider-error-revalidation-gate.test.ts` (bug 0065) measures that
 // adapter property directly, against a raw `complete()`. THIS file is the other
-// half: the same real refusal driven END TO END through the production
-// off-session query driver, scored on the value a theta AUTHOR observes. The two
-// are complementary — the gate cell proves the status is absent, this file proves
+// half: the same real refusal driven END TO END through the production forced
+// respond dispatch, scored on the value a theta AUTHOR observes. The two are
+// complementary — the gate cell proves the status is absent, this file proves
 // the runtime's classification of that absence reaches the author's `match` arm.
 //
+// THE SEAT (RFC 0012 D4). The off-session `complete()` this file drives is the
+// typed query's FORCED RESPOND dispatch (`dispatchForcedRespondTurn` in
+// `src/extension/production-theta-producer.ts`) — under `tool_loop:
+// max_rounds: 0` it is the ONLY turn a typed query issues (QRY-14), carrying
+// the rendered query as its single user message plus the QRY-15 template. This
+// file previously rode the untyped `@`-query of an in-process `subagent fn`
+// body; RFC 0012 §10 moved every `subagent fn` body into a spawned child of the
+// calling theta, where an untyped query is the child's ON-SESSION turn and a
+// `stopReason: "error"` is PIC-51's `transport` by specification — that seat
+// no longer exists. The forced respond dispatch is the one off-session
+// `complete()` the live prompt driver still issues, so the census's live
+// witness lives here now: the `subagent fn` keeps its place as the body that
+// issues the query, its FN-7 `with { tool_loop: { max_rounds: 0 } }` confines
+// the zero-round cap to the CHILD's session (the calling theta keeps its
+// default cap for the on-session render turn below), and the typed
+// `@<Sum>` scrutinee makes the forced respond dispatch the child's only turn.
+// The verdict string crosses the FN-6 boundary as the fn's return.
+//
 // THE OBSERVABLE IS THE AUTHOR'S `match` ARM, NOT A FIELD THIS FILE READS. The
-// planted theta matches the query's `Result` itself and renders exactly one
-// deterministic token per verdict, then sends that token in its own final
+// planted theta matches the typed query's `Result` itself and renders exactly
+// one deterministic token per verdict, then sends that token in its own final
 // `@`-query. `DrivenTurn.userTexts` is the settled-transcript OUTBOUND-render
 // channel (AGENTS.md §"Assert on real observables"): it carries the text the
 // theta CODE computed, independent of anything the model replies. So the pass
@@ -35,20 +53,19 @@
 // signature (bug 0182 §Reproduction (d)) and `OVF_NO_COUNTS` is the variant
 // matched with the counts dropped.
 //
-// NO CHILD PROCESS, SO NO CHILD PINS. A `subagent fn` is an INLINE body with no
-// `.theta` file or slug to launch, so — unlike an `invoke`d subagent-mode callee
-// — it spawns no child `pi` process: its body runs in-process against an
-// isolated OFF-SESSION conversation (`#spawnSubagentFnSession`'s doc-comment in
-// `src/extension/production-theta-producer.ts`, and the `userVisible: false`
-// host deps it consumes). That in-process off-session conversation IS the seam
-// under test. AGENTS.md §"In-process harnesses that spawn real subagent
-// children need the child pins" therefore does not apply; the module-scope pins
-// of `./harness` come along inertly with the import.
+// A CHILD PROCESS, SO THE CHILD PINS APPLY. A `subagent fn` call launches a
+// child `pi` of the calling theta (RFC 0012 §10; PIC-58 fn entry), so this
+// file depends on AGENTS.md §"In-process harnesses that spawn real subagent
+// children need the child pins" — the module-scope pins of `./harness`
+// (executable, extension identity, parent-pid carriage) are load-bearing here,
+// not inert. The child's forced respond dispatch is an in-process `complete()`
+// of the CHILD against the theta-resolved respond model; the final render turn
+// is an on-session turn of the harness session.
 //
 // TOKEN COST. Both cells are bounded by construction. The overflow request is
 // refused at the provider edge BEFORE inference, so no output tokens are billed
-// for it; the control's query and each cell's final render turn are one-word
-// turns. This is the same posture bug 0065's cell (c) shipped under.
+// for it; the control's respond dispatch and each cell's final render turn are
+// one-word turns. This is the same posture bug 0065's cell (c) shipped under.
 //
 // NO SILENT SKIPPING. `claude-haiku-4-5` and its measured 200 000-token context
 // window are PRECONDITIONS, not preferences — the window is the integer the
@@ -78,7 +95,11 @@ const CELL_TIMEOUT_MS = 300_000;
 /** The api the overflow row under test is keyed on. */
 const ANTHROPIC_API = "anthropic-messages";
 
-/** The exact off-session query model both cells pin through frontmatter `model:`. */
+/**
+ * The exact respond model both cells pin through frontmatter `model:` — the
+ * theta-resolved `model:` is the forced respond dispatch's model (bug 0010;
+ * conversation-drive.md §Provider compatibility).
+ */
 const OVERFLOW_MODEL_ID = "claude-haiku-4-5";
 
 /**
@@ -98,14 +119,21 @@ const MODEL_CONTEXT_WINDOW = 200_000;
 const OVERLENGTH_WORD_COUNT = 220_000;
 
 /**
- * The theta both cells plant, parameterised only by the off-session query text.
+ * The theta both cells plant, parameterised only by the query text.
  *
- * The `subagent fn` body is where the `@`-query runs OFF-SESSION, and the body
- * matches the query's own `Result` — the arm dispatch is the whole observable.
- * The arms are ordered most-specific-first so `OVF_LIMIT_200000` is reachable
- * only when the variant AND the provider-supplied limit are both right; the
- * `context_overflow`-without-counts arm below it is what the `length`-stop route
- * renders, and `TRANSPORT` is the pre-fix signature.
+ * The `subagent fn` body runs in a spawned child of this theta (RFC 0012
+ * §10); its FN-7 `with { tool_loop: { max_rounds: 0 } }` makes the typed
+ * query's forced respond dispatch the child's ONLY provider call (QRY-14) — no
+ * on-session free-phase turn carries the query text, so the over-length body
+ * reaches the provider on the off-session `complete()` seam and nowhere else.
+ * The `match` over the query's own `Result` is the whole observable; the
+ * verdict string is the fn's return and the calling theta renders it on its
+ * own session under its default cap. The arms are ordered most-specific-first
+ * so `OVF_LIMIT_200000` is reachable only when the variant AND the
+ * provider-supplied limit are both right; the `context_overflow`-without-counts
+ * arm below it is what the `length`-stop route renders, and `TRANSPORT` is the
+ * pre-fix signature — and, since RFC 0012, also what an on-session
+ * `stopReason: "error"` would render had the query left the respond seat.
  */
 function matchArmTheta(queryText: string): string {
   return [
@@ -114,8 +142,11 @@ function matchArmTheta(queryText: string): string {
     "mode: prompt",
     `model: ${OVERFLOW_MODEL_ID}`,
     "---",
-    "subagent fn probe() {",
-    `  let verdict = match @\`${queryText}\` {`,
+    "schema Sum {",
+    "  answer: integer",
+    "}",
+    "subagent fn probe() with { tool_loop: { max_rounds: 0 } } {",
+    `  let verdict = match @<Sum>\`${queryText}\` {`,
     '    Ok(_) => "UNEXPECTED_OK",',
     `    Err(QueryError { kind: "context_overflow", tokens_limit: ${MODEL_CONTEXT_WINDOW} }) => "OVF_LIMIT_${MODEL_CONTEXT_WINDOW}",`,
     '    Err(QueryError { kind: "context_overflow" }) => "OVF_NO_COUNTS",',
@@ -131,9 +162,9 @@ function matchArmTheta(queryText: string): string {
 }
 
 /**
- * Assert the exact off-session query model is available and still carries the
- * window the arm pattern names. Both are preconditions of what is measured, so an
- * absent id or a moved window fails loudly and lists what the registry offered.
+ * Assert the exact respond model is available and still carries the window the
+ * arm pattern names. Both are preconditions of what is measured, so an absent id
+ * or a moved window fails loudly and lists what the registry offered.
  */
 function requireOverflowModel(provider: LiveProvider): Model<Api> {
   const available = provider.modelRegistry.getAvailable();
@@ -146,7 +177,7 @@ function requireOverflowModel(provider: LiveProvider): Model<Api> {
       .map((candidate) => candidate.id);
     failLoudly(
       `live precondition unmet: no available \`${ANTHROPIC_API}\` model with id ` +
-        `\`${OVERFLOW_MODEL_ID}\` (the off-session query model both cells pin). ` +
+        `\`${OVERFLOW_MODEL_ID}\` (the respond model both cells pin). ` +
         `Available ${ANTHROPIC_API} ids: ${JSON.stringify(offered)}`,
     );
   }
@@ -213,14 +244,16 @@ describe("bug 0182 (live) — a real off-session overflow reaches the author's c
   }, CELL_TIMEOUT_MS);
 
   it(
-    "(a) control: a small off-session `@`-query in the same theta resolves Ok, so the arms below are live",
+    "(a) control: a small typed query in the same fn body resolves Ok through the child's forced respond dispatch, so the arms below are live",
     async () => {
       // Without this control the overflow cell is unfalsifiable: a theta that
-      // never reached its `@`-query, or whose fn body failed for an unrelated
-      // reason, would look the same as one whose overflow arm did not fire. A
-      // rendered `UNEXPECTED_OK` proves the off-session query ran, succeeded,
-      // and that the `match` dispatched — on the identical code path the
-      // overflow cell drives.
+      // never reached its typed query, whose child never launched, or whose
+      // dispatch failed for an unrelated reason, would look the same as one
+      // whose overflow arm did not fire. A rendered `UNEXPECTED_OK` proves the
+      // child launched, its forced respond dispatch ran against the pinned
+      // model, the payload validated, the `match` dispatched and the verdict
+      // crossed the FN-6 boundary — on the identical code path the overflow
+      // cell drives.
       //
       // Drive discriminators are ANSWERS to task questions over the theta's own
       // computed text -- deterministic content a degraded plain-prompt run
@@ -235,7 +268,7 @@ describe("bug 0182 (live) — a real off-session overflow reaches the author's c
 
       expect(
         verdictOf(driven.userTexts),
-        "the control's off-session query must SUCCEED — a failing control makes " +
+        "the control's typed query must SUCCEED — a failing control makes " +
           "the overflow cell's verdict meaningless. observed userTexts: " +
           JSON.stringify(driven.userTexts) +
           "; systemNotes: " +
@@ -252,7 +285,7 @@ describe("bug 0182 (live) — a real off-session overflow reaches the author's c
   );
 
   it(
-    "(b) a REAL over-length off-session `@`-query dispatches the author's ContextOverflowError arm with the provider's own limit",
+    "(b) a REAL over-length forced respond dispatch in the child dispatches the author's ContextOverflowError arm with the provider's own limit",
     async () => {
       // THE WHOLE BUG, END TO END. Pre-fix this rendered `TRANSPORT`: the fold
       // handed the classifier a fabricated `httpStatus: 200`, and 200 is neither
@@ -271,8 +304,8 @@ describe("bug 0182 (live) — a real off-session overflow reaches the author's c
 
       expect(
         verdictOf(driven.userTexts),
-        "bug 0182: a genuine `prompt is too long` refusal on the off-session " +
-          "`@`-query path must dispatch the author's " +
+        "bug 0182: a genuine `prompt is too long` refusal on the forced respond " +
+          "dispatch must dispatch the author's " +
           `\`Err(QueryError { kind: "context_overflow", tokens_limit: ${MODEL_CONTEXT_WINDOW} })\` ` +
           "arm. `TRANSPORT` is the pre-fix signature — the fabricated 200 vetoing " +
           "the overflow signature. `OVF_NO_COUNTS` means the variant matched but " +
