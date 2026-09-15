@@ -30,6 +30,7 @@ shipped behaviour until specified and implemented.
 - [0008 — Type match pattern bindings from the scrutinee](./0008-match-binding-type-inference.md) — draft
 - [0009 — Per-call working directory for subagent-mode dispatch](./0009-per-call-subagent-cwd.md) — accepted
 - [0010 — Live execution visibility for running thetas](./0010-live-execution-visibility.md) — accepted
+- [0011 — Session-control tools: `compact`, `context_usage`, `session_name`](./0011-session-control-tools.md) — draft
 
 Reclassified out of the RFC series:
 
