@@ -139,7 +139,11 @@ import {
 } from "../parser/callable-set";
 import { checkCalleeHasErrors, checkInvokeExtension } from "../parser/invoke-diagnostics";
 import { canonicalForm, schemaSlug, toLoweredJsonValue } from "../parser/schema-lowering";
-import { canonicalizePath, checkInvokePathAtLoad } from "../runtime/invocation";
+import {
+  canonicalizePath,
+  checkInvokePathAtLoad,
+  type LoadTimeInvokePathResult,
+} from "../runtime/invocation";
 import {
   buildInvokeGraph,
   checkInvokeStaticResolution,
@@ -529,6 +533,35 @@ async function dedupeWatchRootsByIdentity(
 }
 
 /**
+ * `PassVerdictDeps` widened with two `.theta` callable transitive-closure
+ * caches (PTQ-0348), so a root already walked earlier in scope is neither
+ * re-read nor re-hashed:
+ *   - `closureSourcesCache` (root path → sources) lets
+ *     `collectCallableClosureSources` (below) return a prior walk's sources
+ *     without touching disk again — consulted there for every one of its
+ *     callers, including `refuseDivergedChildCallables`, which never reaches
+ *     the second cache below.
+ *   - `closureHashCache` (root path → finished digest) lets
+ *     `resolveCallableClosureHash` (below) return a prior digest without
+ *     even calling `collectCallableClosureSources`, so the two callers that
+ *     matter most for cost (`captureRootClosureHash`,
+ *     `attachLoadTimeClosureHashes` — both reached once per discovered
+ *     theta, or once per dispatch, from `resolveThetaToolsAtLoad`) pay
+ *     neither the read nor the `hashCallableClosure` SHA-256 pass on a hit.
+ * Given TWO different scopes, never a third: `runComposePass` carries one
+ * pass-scoped pair on `parseDeps` itself, consulted directly by the per-file
+ * discovery loop and by `refuseDivergedChildCallables` (both run
+ * synchronously inside that one pass); `parseCalleeTheta`'s dispatch gate
+ * does NOT reuse that pair — it builds a fresh, empty pair scoped to that
+ * ONE dispatch instead (see that function's own `dispatchDeps` doc-comment
+ * for why). Module-private — no other module reads either field.
+ */
+interface PassClosureDeps extends PassVerdictDeps {
+  readonly closureSourcesCache?: Map<string, readonly ClosureSource[]>;
+  readonly closureHashCache?: Map<string, string>;
+}
+
+/**
  * One discovery + compose pass against an already-constructed runtime root.
  * Factored out of `discoverAndComposeFixtures` so `composeExtensionInstance`
  * can re-run it on every hot-reload (the "hot-reload re-runs the computation"
@@ -791,7 +824,7 @@ async function runComposePass(
   // reached by more than one walk in THIS pass is parsed once and its lex rows
   // delivered once by construction; a later `composeExtensionInstance` pass
   // (a watcher-triggered reload) gets a fresh cache and re-delivers.
-  const parseDeps: PassVerdictDeps = {
+  const parseDeps: PassClosureDeps = {
     systemNote,
     modelMatcher,
     passParseCache: createPassParseCache(),
@@ -802,6 +835,16 @@ async function runComposePass(
     // reaches it (see `pass-verdict-memo.ts` for the key and the
     // cycle-free-verdict soundness argument).
     passVerdictMemo: createPassVerdictMemo(),
+    // PTQ-0348: one pass-scoped pair of closure caches, created here beside
+    // their two siblings above and carried on the same `parseDeps` object,
+    // so a `.theta` callable's transitive-closure sources — read, decoded
+    // and hashed once per REFERENCING caller today, even when two or more
+    // discovered thetas name the same shared `.theta` callee via `tools:` —
+    // are each read once per pass, and hashed once per pass, instead. Never
+    // shared across passes: a reload gets a fresh, empty pair exactly like
+    // `passParseCache` / `passVerdictMemo`.
+    closureSourcesCache: new Map<string, readonly ClosureSource[]>(),
+    closureHashCache: new Map<string, string>(),
   };
   // Bug 0276 §Fix constraint 3: ONE registry-snapshot closure for the LOAD
   // pass, shared by every discovered theta's own walk in the per-file loop
@@ -2667,11 +2710,25 @@ async function parseCalleeForTools(
     // resolves to no file (unresolvable-theta-path).
     return { fileExists: true, mode: "subagent", hasErrors: true, onDiskName };
   }
+  // PTQ-0349: compute every nested `tools:` entry's INV-1 containment verdict
+  // ONCE here, ahead of both consumers below — `checkNestedToolsContainment`
+  // (diagnostics) and `calleeFailsOwnStructuralChecks` (withhold (a), one
+  // frame in) used to each call `checkInvokePathAtLoad` independently over
+  // the identical `(nestedAbsolute, literalPath, activeRoots)` triple,
+  // doubling that probe's `1 + activeRoots.length` `fs.realpath` calls per
+  // entry.
+  const nestedContainment = await probeNestedToolsContainment(
+    fs,
+    absolute,
+    document.frontmatter.tools,
+    activeRoots,
+  );
   const nestedToolsEscapes = await checkNestedToolsContainment(
     fs,
     absolute,
     document.frontmatter.tools,
     activeRoots,
+    nestedContainment,
   );
   // Bug 0267: the callee's own parse document alone is not its registration
   // verdict — `checkThetaImports` and the callee's own `tools:` resolution
@@ -2690,6 +2747,7 @@ async function parseCalleeForTools(
     activeRoots,
     new Set([absolute]),
     bytes,
+    nestedContainment,
   );
   return {
     fileExists: true,
@@ -2983,6 +3041,12 @@ async function calleeFailsOwnStructuralChecksBody(
   getAllTools: GetAllToolsSnapshot | undefined,
   activeRoots: readonly string[] | undefined,
   visited: ReadonlySet<string>,
+  // PTQ-0349: the per-entry containment verdict `parseCalleeForTools`
+  // precomputed for THIS frame's own `tools:` list (`undefined` at every
+  // deeper recursion level and at `parseCalleeTheta`'s dispatch gate, neither
+  // of which has one to hand in) — consulted below in place of a fresh
+  // `checkInvokePathAtLoad` call when it names this entry's spec.
+  nestedContainment: ReadonlyMap<string, LoadTimeInvokePathResult> | undefined,
 ): Promise<{
   fails: boolean;
   ownEscapes: boolean;
@@ -3123,15 +3187,22 @@ async function calleeFailsOwnStructuralChecksBody(
     // containment judgement runs there, at this depth or any deeper one —
     // exactly the depth-1 disposition already documented at that call site.
     if (activeRoots !== undefined) {
-      const containment = await checkInvokePathAtLoad({
-        deps: { fs },
-        resolvedPath: nestedAbsolute,
-        literalPath: spec,
-        activeRoots,
-      }).then(
-        (value) => value,
-        () => undefined,
-      );
+      // PTQ-0349: `nestedContainment` already carries this entry's verdict
+      // when `parseCalleeForTools` precomputed it for THIS frame (depth 0);
+      // every deeper frame (no precomputed map — see this parameter's
+      // doc-comment on this function's signature) falls back to probing
+      // fresh, exactly as every frame did before this fix.
+      const containment =
+        nestedContainment?.get(spec) ??
+        (await checkInvokePathAtLoad({
+          deps: { fs },
+          resolvedPath: nestedAbsolute,
+          literalPath: spec,
+          activeRoots,
+        }).then(
+          (value) => value,
+          () => undefined,
+        ));
       if (containment?.kind === "escape") {
         // Bug 0275 §Fix constraint 1: an escaping entry's bytes are still
         // never parsed — the `continue` is unchanged — but this frame's own
@@ -3177,6 +3248,11 @@ async function calleeFailsOwnStructuralChecksBody(
       activeRoots,
       new Set([...visited, nestedAbsolute]),
       bytes,
+      // PTQ-0349: no precomputed containment map at this depth — the
+      // grandchild's own `tools:` entries were never scanned by
+      // `parseCalleeForTools` (which only ever probes its IMMEDIATE callee's
+      // list); this recursive frame probes fresh, exactly as before this fix.
+      undefined,
     );
     // Bug 0275 §Fix: the DEEP verdict — a grandchild whose OWN `tools:`
     // entry escapes fails its own structural checks as seen by THIS frame,
@@ -3278,6 +3354,10 @@ async function calleeFailsOwnStructuralChecksWithTaint(
   activeRoots: readonly string[] | undefined,
   visited: ReadonlySet<string>,
   bytes: Uint8Array,
+  // PTQ-0349: forwarded to {@link calleeFailsOwnStructuralChecksBody} on a
+  // MISS — a memo HIT (below) needs it not at all, since a hit runs the
+  // body's own `tools:` loop for neither this frame nor any deeper one.
+  nestedContainment: ReadonlyMap<string, LoadTimeInvokePathResult> | undefined,
 ): Promise<{
   fails: boolean;
   ownEscapes: boolean;
@@ -3311,6 +3391,7 @@ async function calleeFailsOwnStructuralChecksWithTaint(
     getAllTools,
     activeRoots,
     visited,
+    nestedContainment,
   );
   if (memo !== undefined && !result.consultedVisited) {
     memo.write(getAllTools, activeRoots, calleeAbsolutePath, bytes, {
@@ -3351,6 +3432,10 @@ async function calleeFailsOwnStructuralChecks(
   activeRoots: readonly string[] | undefined,
   visited: ReadonlySet<string>,
   bytes: Uint8Array,
+  // PTQ-0349: forwarded to {@link calleeFailsOwnStructuralChecksWithTaint};
+  // `parseCalleeForTools` (this function's sole caller) is the only site with
+  // a precomputed map to hand in.
+  nestedContainment: ReadonlyMap<string, LoadTimeInvokePathResult> | undefined,
 ): Promise<boolean> {
   const { fails } = await calleeFailsOwnStructuralChecksWithTaint(
     fs,
@@ -3363,8 +3448,63 @@ async function calleeFailsOwnStructuralChecks(
     activeRoots,
     visited,
     bytes,
+    nestedContainment,
   );
   return fails;
+}
+
+/**
+ * PTQ-0349: the per-entry INV-1 containment verdict for every syntactically
+ * valid, deduped `.theta` spec named in a callee's own `tools:` list —
+ * probed ONCE against `activeRoots` via `checkInvokePathAtLoad`, keyed by the
+ * spec AS WRITTEN, so {@link checkNestedToolsContainment} (diagnostic
+ * projection) and `calleeFailsOwnStructuralChecksBody`'s loop (withhold (a)
+ * fold, one frame in) can both consult this one result instead of each
+ * independently probing the identical `(nestedAbsolute, literalPath,
+ * activeRoots)` triple — a probe that alone costs `1 + activeRoots.length`
+ * `fs.realpath` calls (`checkInvokePathContainment`), doubled per entry
+ * before this fix. Probed unconditionally, ahead of either consumer's own
+ * readability gate: an entry neither consumer's gate lets through never has
+ * this map's verdict read for it, so probing an unreadable spec here costs
+ * one rejected `realpath` call (never the `activeRoots` walk) and changes no
+ * diagnostic either consumer produces. `undefined` when the callee declares
+ * no `tools:`, or `activeRoots` is `undefined` (the nested-callee dispatch
+ * parse never computes a containment dimension at all).
+ */
+async function probeNestedToolsContainment(
+  fs: FileSystem,
+  calleeAbsolutePath: string,
+  calleeTools: readonly string[] | undefined,
+  activeRoots: readonly string[] | undefined,
+): Promise<ReadonlyMap<string, LoadTimeInvokePathResult> | undefined> {
+  if (activeRoots === undefined || calleeTools === undefined || calleeTools.length === 0) {
+    return undefined;
+  }
+  const calleeDir = dirname(calleeAbsolutePath);
+  const results = new Map<string, LoadTimeInvokePathResult>();
+  for (const entry of calleeTools) {
+    if (parseToolsEntry(entry.trim()).kind !== "ok") {
+      continue;
+    }
+    const spec = toolsEntrySpec(entry);
+    if (spec.length === 0 || isBareToolName(spec) || results.has(spec)) {
+      continue;
+    }
+    const nestedAbsolute = isAbsolute(spec) ? spec : resolvePath(calleeDir, spec);
+    const containment = await checkInvokePathAtLoad({
+      deps: { fs },
+      resolvedPath: nestedAbsolute,
+      literalPath: spec,
+      activeRoots,
+    }).then(
+      (value) => value,
+      () => undefined,
+    );
+    if (containment !== undefined) {
+      results.set(spec, containment);
+    }
+  }
+  return results;
 }
 
 /**
@@ -3385,12 +3525,19 @@ async function calleeFailsOwnStructuralChecks(
  * §Fix constraint 6). `undefined` when the callee declares no `tools:`, or
  * `activeRoots` is `undefined` (the nested-callee dispatch parse), or none of
  * its entries escape.
+ *
+ * PTQ-0349: `nestedContainment` (precomputed by `parseCalleeForTools`,
+ * {@link probeNestedToolsContainment}) replaces this function's own probe —
+ * this loop keeps its own gate (entry validity, dedup, readability) and
+ * projects the escaping subset of an already-computed verdict into
+ * diagnostics instead of calling `checkInvokePathAtLoad` itself.
  */
 async function checkNestedToolsContainment(
   fs: FileSystem,
   calleeAbsolutePath: string,
   calleeTools: readonly string[] | undefined,
   activeRoots: readonly string[] | undefined,
+  nestedContainment: ReadonlyMap<string, LoadTimeInvokePathResult> | undefined,
 ): Promise<readonly Diagnostic[] | undefined> {
   if (activeRoots === undefined || calleeTools === undefined || calleeTools.length === 0) {
     return undefined;
@@ -3438,15 +3585,10 @@ async function checkNestedToolsContainment(
     if (nestedBytes === undefined) {
       continue;
     }
-    const containment = await checkInvokePathAtLoad({
-      deps: { fs },
-      resolvedPath: nestedAbsolute,
-      literalPath: spec,
-      activeRoots,
-    }).then(
-      (value) => value,
-      () => undefined,
-    );
+    // PTQ-0349: projected from the precomputed verdict rather than probed
+    // fresh — see this function's doc-comment and
+    // {@link probeNestedToolsContainment}.
+    const containment = nestedContainment?.get(spec);
     if (containment?.kind === "escape") {
       escapes.push(containment.diagnostic);
     }
@@ -3666,6 +3808,11 @@ async function parseCalleeTheta(
     undefined,
     new Set([absolute]),
     bytes,
+    // PTQ-0349: no precomputed containment map at this dispatch gate — it
+    // never computes a containment dimension at all (`activeRoots` is
+    // `undefined` on every call this gate makes; see the withhold (a)
+    // doc-comment on `calleeFailsOwnStructuralChecksBody`).
+    undefined,
   );
   if (structural.fails) {
     return { kind: "unreadable" };
@@ -3714,7 +3861,24 @@ async function parseCalleeTheta(
   // its own `activeRoots === undefined` early return) is the containment
   // backstop — an omitted union, not an empty one, is what turns the load-time
   // check off here.
-  const toolResult = await resolveThetaToolsAtLoad(input, fs, ctx, deps, getAllTools);
+  // PTQ-0348: a FRESH, empty pair of closure caches scoped to this ONE
+  // dispatch — deliberately NOT `deps.closureSourcesCache` /
+  // `deps.closureHashCache` (the load PASS's own long-lived pair,
+  // `runComposePass`), because a dispatch through this gate can run long
+  // after that pass finished walking and neither cache carries a
+  // byte-identity guard of its own (unlike the sibling parse cache / verdict
+  // memo): the digest is captured "NOW, at load, from the on-disk bytes read
+  // this pass" (`attachLoadTimeClosureHashes`'s own doc-comment, above), and
+  // "this pass" for a dispatch-gate call is this ONE dispatch, never an
+  // earlier or later one. Scoped exactly like the registry-snapshot closure
+  // `producerDeps.parseCallee` builds fresh per dispatch, for the same
+  // reason (see that closure's own doc-comment in `runComposePass`).
+  const dispatchDeps: PassClosureDeps = {
+    ...deps,
+    closureSourcesCache: new Map<string, readonly ClosureSource[]>(),
+    closureHashCache: new Map<string, string>(),
+  };
+  const toolResult = await resolveThetaToolsAtLoad(input, fs, ctx, dispatchDeps, getAllTools);
   return {
     kind: "ok",
     input: {
@@ -3740,16 +3904,37 @@ async function parseCalleeTheta(
  * closure member's exact on-disk content, and delegates to `hashCallableClosure`
  * (order-independent, content-only). Returns `undefined` when the root file
  * cannot be read (the caller then marshals no hash for it).
+ *
+ * PTQ-0348: `deps.closureHashCache`, when present, is consulted first
+ * (keyed by the resolved root path forward-slash-normalised) and populated
+ * last, so a root already walked THIS scope is neither re-read —
+ * {@link collectCallableClosureSources} is not even called on a hit — nor
+ * re-hashed: `hashCallableClosure`'s SHA-256 pass over the full closure
+ * content runs at most once per root per scope. Sound for the same reason
+ * `collectCallableClosureSources`'s own source cache is: the digest is a
+ * pure function of the resolved root path alone.
  */
 async function resolveCallableClosureHash(
   fs: FileSystem,
   ctx: ExtensionContext,
-  deps: Parameters<typeof parseThetaDocument>[1],
+  deps: PassClosureDeps,
   callerPath: string | undefined,
   calleePath: string,
 ): Promise<string | undefined> {
+  const baseDir = callerPath !== undefined ? dirname(callerPath) : ctx.cwd;
+  const rootAbs = isAbsolute(calleePath) ? calleePath : resolvePath(baseDir, calleePath);
+  const cacheKey = rootAbs.replace(/\\/g, "/");
+  const cachedHash = deps.closureHashCache?.get(cacheKey);
+  if (cachedHash !== undefined) {
+    return cachedHash;
+  }
   const sources = await collectCallableClosureSources(fs, ctx, deps, callerPath, calleePath);
-  return sources.length === 0 ? undefined : hashCallableClosure(sources);
+  if (sources.length === 0) {
+    return undefined;
+  }
+  const hash = hashCallableClosure(sources);
+  deps.closureHashCache?.set(cacheKey, hash);
+  return hash;
 }
 
 /**
@@ -3759,16 +3944,31 @@ async function resolveCallableClosureHash(
  * The parent hashes these at load (`resolveCallableClosureHash`); the child
  * recomputes them from its OWN discovery for the content-hash verification
  * (`verifyChildCallableHashes`). Returns `[]` when the root file cannot be read.
+ *
+ * PTQ-0348: `deps.closureSourcesCache`, when present, is consulted first and
+ * populated last, keyed by the resolved root path forward-slash-normalised —
+ * a root already walked earlier in this scope (see `PassClosureDeps`'s
+ * doc-comment for the two scopes either cache is ever given) is served from
+ * cache rather than re-read and re-decoded member-by-member. Sound because
+ * the result is a pure function of `rootAbs` alone: `visit` below resolves
+ * every further import off each member's OWN directory, never off
+ * `callerPath`, so two different callers naming the same root always
+ * compute (and would always have computed) the identical source set.
  */
 async function collectCallableClosureSources(
   fs: FileSystem,
   ctx: ExtensionContext,
-  deps: PassParseDeps,
+  deps: PassClosureDeps,
   callerPath: string | undefined,
   calleePath: string,
 ): Promise<readonly ClosureSource[]> {
   const baseDir = callerPath !== undefined ? dirname(callerPath) : ctx.cwd;
   const rootAbs = isAbsolute(calleePath) ? calleePath : resolvePath(baseDir, calleePath);
+  const cacheKey = rootAbs.replace(/\\/g, "/");
+  const cached = deps.closureSourcesCache?.get(cacheKey);
+  if (cached !== undefined) {
+    return cached;
+  }
   const sources: ClosureSource[] = [];
   const seen = new Set<string>();
   const decoder = new TextDecoder();
@@ -3814,6 +4014,7 @@ async function collectCallableClosureSources(
     }
   };
   await visit(rootAbs);
+  deps.closureSourcesCache?.set(cacheKey, sources);
   return sources;
 }
 
