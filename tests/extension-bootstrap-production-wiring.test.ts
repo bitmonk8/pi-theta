@@ -63,10 +63,12 @@ const COMPOSE_THROW_MESSAGE = "ctx.cwd read failed during the discovery walk";
 
 /**
  * The canonical factory-time host-binding call order once step 0 passes:
- * `registerFlag` (step 1), the renderer, then the three `pi.on` subscriptions
+ * `registerFlag` twice (step 1: `--theta`, then its RFC 0012 §2 sibling
+ * `--theta-launch`), the renderer, then the three `pi.on` subscriptions
  * (steps 1/3/4 of registration-steps.md).
  */
 const FULL_BOOTSTRAP_CALLS = [
+  "registerFlag",
   "registerFlag",
   "registerMessageRenderer",
   "on:resources_discover",
@@ -322,6 +324,7 @@ describe("bug 0023 element 1 — the production emitDiagnostic sink (theta/load/
 
     // Fatal: the `session_shutdown` subscription is never attempted.
     expect(host.calls).toEqual([
+      "registerFlag",
       "registerFlag",
       "registerMessageRenderer",
       "on:resources_discover",

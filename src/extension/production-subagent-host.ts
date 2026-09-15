@@ -14,9 +14,12 @@
 
 import { spawn as nodeSpawn } from "node:child_process";
 import {
+  chmodSync,
   existsSync,
   mkdtempSync,
   readFileSync,
+  rmdirSync,
+  statSync,
   unlinkSync,
   writeFileSync,
   writeSync,
@@ -35,6 +38,12 @@ import {
   SUBAGENT_PARENT_PID_ENV,
 } from "../runtime/subagent-launcher";
 import { SUBAGENT_PARAMS_TEMP_FILE_MODE } from "../runtime/subagent-params";
+import {
+  findLaunchFlagOnArgv,
+  readChildControlPlane,
+  type LaunchFileFs,
+  type SubagentChildControlPlane,
+} from "../runtime/subagent-launch-file";
 
 /**
  * Matches a path that lives inside a compiled binary's OWN embedded filesystem —
@@ -176,6 +185,59 @@ export function authenticateControlPlane(
 /** The parent process id carried to the child (control-plane authentication key; also the reserved, unimplemented orphan-prevention watchdog input). */
 export function readParentPid(): number {
   return process.pid;
+}
+
+/**
+ * RFC-0012 §2. The production launch-file filesystem seam: a fresh 0700 temp
+ * directory per launch, a 0600 file, read / unlink / rmdir, and POSIX
+ * ownership where the host has it. `mkdtempSync` creates the directory at
+ * 0700 already; the explicit `chmodSync` pins it on hosts whose umask policy
+ * differs. Windows reports every file as uid 0 and has no `process.getuid`, so
+ * both uid reads answer `undefined` there and the ownership check is skipped
+ * (the private directory is the protection).
+ */
+export function createProductionLaunchFileFs(): LaunchFileFs {
+  return {
+    mkdtemp: (prefix: string, mode: number): string => {
+      const dir = mkdtempSync(join(tmpdir(), prefix)); // allow-sync: RFC-0012 one-shot launch-file directory creation, not event-loop I/O
+      if (process.platform !== "win32") {
+        chmodSync(dir, mode); // allow-sync: RFC-0012 one-shot launch-file directory mode pin
+      }
+      return dir;
+    },
+    writeFile: (path: string, contents: string, mode: number): void => {
+      writeFileSync(path, contents, { mode }); // allow-sync: RFC-0012 one-shot launch-file write
+    },
+    readFile: (path: string): string => readFileSync(path, "utf8"), // allow-sync: RFC-0012 one-shot launch-file read at factory entry
+    unlink: (path: string): void => {
+      unlinkSync(path); // allow-sync: RFC-0012 one-shot launch-file delete
+    },
+    rmdir: (path: string): void => {
+      rmdirSync(path); // allow-sync: RFC-0012 one-shot launch-file directory delete
+    },
+    ownerUid: (path: string): number | undefined =>
+      process.platform === "win32" ? undefined : statSync(path).uid, // allow-sync: RFC-0012 one-shot launch-file ownership check
+    currentUid: (): number | undefined =>
+      typeof process.getuid === "function" ? process.getuid() : undefined,
+  };
+}
+
+/**
+ * RFC-0012 §2. The child process's control-plane view, computed ONCE at factory
+ * entry from the authenticated env (`readParentEnv`) and the `--theta-launch`
+ * flag on the raw `process.argv`. The flag is read off argv rather than via
+ * `pi.getFlag` because Pi applies extension-flag values only AFTER the
+ * extension factories have run (`applyExtensionFlagValues`), and the regime
+ * gates factory-body decisions (watcher suppression, the `theta_progress`
+ * child arm). `process.argv` is not a banned ambient primitive; it is read at
+ * this composition root like `process.argv[1]` is for the executable ladder.
+ */
+export function readProductionChildControlPlane(): SubagentChildControlPlane {
+  return readChildControlPlane({
+    authenticatedEnv: readParentEnv(),
+    launchFilePath: findLaunchFlagOnArgv(process.argv),
+    launchFs: createProductionLaunchFileFs(),
+  });
 }
 
 /**

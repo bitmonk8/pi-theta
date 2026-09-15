@@ -47,6 +47,7 @@ import {
   placementIsVisible,
   type SubagentPlacementBackend,
 } from "../runtime/subagent-placement";
+import type { SubagentChildControlPlane } from "../runtime/subagent-launch-file";
 import type { HostToolSnapshotEntry } from "../seams/host-tool-snapshot";
 import {
   attachSubagentCancellation,
@@ -502,6 +503,15 @@ export interface ProductionProducerInput {
   readonly subagentExecutableHost?: import("../runtime/subagent-launcher").ExecutableHost;
   readonly subagentParentEnv?: Readonly<Record<string, string | undefined>>;
   readonly subagentParentPid?: number;
+  /**
+   * RFC-0012 §2/§10: THIS process's child control-plane view — the launch
+   * entry it runs as its root invocation (`theta` or a named `subagent fn`)
+   * and, for a child a non-`pipe` placement spawned, the launch-file facts
+   * with no env equivalent (result-channel coordinates, presentation, nonce).
+   * `subagentParentEnv` above is this view's `env`. Absent on a harness ⇒
+   * the theta entry, no channel, headless.
+   */
+  readonly subagentControlPlane?: SubagentChildControlPlane;
   /**
    * INV-4 (invocation.md §INV-4): the inbound per-chain invoke depth this
    * process was launched at. Non-zero only when THIS process is a subagent

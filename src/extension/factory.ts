@@ -88,7 +88,8 @@ import {
 } from "./capability-probe";
 import { raceAgainstCapTimer } from "./cap-race";
 import { SUBAGENT_ROOT_ENV_MARKER } from "../runtime/subagent-root-regime";
-import { readParentEnv } from "./production-subagent-host";
+import { readProductionChildControlPlane } from "./production-subagent-host";
+import { SUBAGENT_LAUNCH_FLAG } from "../runtime/subagent-launcher";
 import { SDK_SURFACE_INVENTORY } from "./sdk-inventory";
 
 /**
@@ -579,6 +580,17 @@ export function createThetaExtension(
       pi.registerFlag(THETA_FLAG, {
         type: "string",
         description: "Path(s) to .theta discovery roots.",
+      });
+      // RFC-0012 §2: the `--theta` flag's sibling, naming a subagent child's
+      // launch file. Registered so both hosts ACCEPT the flag on a child argv
+      // (Oh-My-Pi rejects an unregistered flag outright); its value is read at
+      // factory entry off the raw argv (`readProductionChildControlPlane`),
+      // not through `pi.getFlag`, because Pi applies extension-flag values
+      // only after the factories have run. Written by the parent launcher,
+      // never by an operator.
+      pi.registerFlag(SUBAGENT_LAUNCH_FLAG, {
+        type: "string",
+        description: "Internal: launch file of a pi-theta subagent child (written by the parent launcher).",
       });
     } catch (e: unknown) { // allow-broad-catch: pi-sdk-boundary — conventions.md Specific exception types only
       deps.emitDiagnostic?.(bootstrapFailedDiagnostic("pi.registerFlag", e));
@@ -1380,7 +1392,8 @@ export default function thetaExtension(pi: ExtensionAPI): void {
   }
 
   // RFC-0006 (PIC-58): read the subagent-root regime marker ONCE at factory
-  // entry, through the AUTHENTICATED control-plane view (`readParentEnv`) so a
+  // entry, through the AUTHENTICATED control-plane view
+  // (`readProductionChildControlPlane`) so a
   // marker planted in the ambient environment (a repository `.env` a host loads,
   // never a real launcher) cannot suppress the parent session's file watcher —
   // the same gate every other control-plane reader applies
@@ -1388,7 +1401,11 @@ export default function thetaExtension(pi: ExtensionAPI): void {
   // identifies a spawned subagent child and gates the step-5 watcher suppression
   // so the child does not install a recursive file watcher. It subsumes
   // RFC-0005's boolean `PI_THETA_SUBAGENT_CHILD` marker.
-  const isSubagentChild = readParentEnv()[SUBAGENT_ROOT_ENV_MARKER] !== undefined;
+  // RFC-0012 §2: the launch file (a non-`pipe` placement's control-plane
+  // carriage) is consumed on this ONE read and its view threaded to every
+  // compose pass, so the marker below and the composition root agree.
+  const childControlPlane = readProductionChildControlPlane();
+  const isSubagentChild = childControlPlane.env[SUBAGENT_ROOT_ENV_MARKER] !== undefined;
   createThetaExtension({
     fixtures: [],
     emitDiagnostic: sink.emit,
@@ -1414,7 +1431,7 @@ export default function thetaExtension(pi: ExtensionAPI): void {
       composeExtensionInstance(
         pi,
         ctx,
-        undefined,
+        { subagentControlPlane: childControlPlane },
         rendererGate,
         ownRegisteredNames,
         entryChannel,

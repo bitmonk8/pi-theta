@@ -461,8 +461,11 @@ describe("V9p extension bootstrap — the shipped default export (bug 0023)", ()
     expect(errorSpy.mock.calls).toEqual([[`theta: ${expectedLine}`]]);
     expect(stderrSpy.mock.calls).toEqual([]);
 
-    // Non-abort: the factory still completes the remaining steps.
+    // Non-abort: the factory still completes the remaining steps (two
+    // `registerFlag` calls: `--theta` and its RFC 0012 §2 sibling
+    // `--theta-launch`).
     expect(host.calls).toEqual([
+      "registerFlag",
       "registerFlag",
       "registerMessageRenderer",
       "on:resources_discover",

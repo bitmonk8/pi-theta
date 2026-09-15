@@ -65,9 +65,10 @@ import {
   createProductionExecutableHost,
   createProductionParamsFs,
   createProductionSpawnFn,
-  readParentEnv,
   readParentPid,
+  readProductionChildControlPlane,
 } from "./production-subagent-host";
+import type { SubagentChildControlPlane } from "../runtime/subagent-launch-file";
 import {
   createPipePlacementBackend,
   type SubagentPlacementBackend,
@@ -233,6 +234,15 @@ export interface ComposeSeamOverrides {
    * spawned child process.
    */
   readonly emitResultEnvelope?: (line: string) => void;
+  /**
+   * RFC-0012 §2: the child process's control-plane view — the ppid-
+   * authenticated env, or the launch file's carriage projected over it —
+   * computed ONCE at factory entry (`readProductionChildControlPlane`) and
+   * threaded to every compose pass of the instance, because a launch file is
+   * consumed on first read and a reload pass must see the same view. Absent
+   * (a harness) ⇒ computed once per `composeExtensionInstance` call.
+   */
+  readonly subagentControlPlane?: SubagentChildControlPlane;
 }
 
 /**
@@ -647,10 +657,15 @@ async function runComposePass(
   // every composed theta's producer so a code-side call dispatches directly.
   // Absent on harness paths and on a host without `registerTool`.
   inProcessTools?: Readonly<Record<string, InProcessToolExecute>>,
+  // RFC-0012 §2: the child control-plane view (see `ComposeSeamOverrides`).
+  // Every former `readParentEnv()` read in this pass goes through it.
+  passControlPlane?: SubagentChildControlPlane,
 ): Promise<ComposePassResult> {
   const fileSystem = root.fileSystem;
   const clock = root.clock;
   const subagentExecutableHost = passExecutableHost ?? createProductionExecutableHost();
+  const controlPlane = passControlPlane ?? readProductionChildControlPlane();
+  const controlPlaneEnv = controlPlane.env;
 
   // Bug 0178 element (b): a marked-root registration refusal must name the
   // diagnostic that caused it, and the registration loop below is the only
@@ -715,16 +730,16 @@ async function runComposePass(
   // threads INTO the walk rather than only being consulted after it. Active
   // ONLY inside a spawned subagent child; drives the child-side in-process
   // root drive.
-  const subagentRootRegime = detectSubagentRootRegime(readParentEnv());
+  const subagentRootRegime = detectSubagentRootRegime(controlPlaneEnv);
   // Bug 0331: the marked root's winning source path, from the SAME
   // authenticated control-plane channel the callable-hash map rides
   // (subagent.md #subagent-control-plane-authentication). Constraint: this
-  // reads `readParentEnv()` (authenticated) rather than raw `process.env`, so a
-  // parent's own top-level prompt-mode registration (regime inactive) never
-  // consults the carrier — the regime gate alone enforces that. `undefined`
-  // when the regime is inactive or the carrier is absent/malformed, in which
-  // case `discoverThetas` falls back to today's collision resolution.
-  const markedRoot = detectMarkedRootWinner(readParentEnv(), subagentRootRegime);
+  // reads the authenticated control-plane view rather than raw `process.env`,
+  // so a parent's own top-level prompt-mode registration (regime inactive)
+  // never consults the carrier — the regime gate alone enforces that.
+  // `undefined` when the regime is inactive or the carrier is absent/malformed,
+  // in which case `discoverThetas` falls back to today's collision resolution.
+  const markedRoot = detectMarkedRootWinner(controlPlaneEnv, subagentRootRegime);
 
   // Discovery walk. CLI `--theta` roots are split on the platform path
   // delimiter (the walk is platform-independent over already-split paths).
@@ -1016,8 +1031,12 @@ async function runComposePass(
     // parent PID carried on the env marker.
     subagentPlacement: (): SubagentPlacementBackend => pipePlacement,
     subagentExecutableHost,
-    subagentParentEnv: readParentEnv(),
+    subagentParentEnv: controlPlaneEnv,
     subagentParentPid: readParentPid(),
+    // RFC-0012 §2/§10: the launch-file facts with no env equivalent — the
+    // entry this process runs, and (a non-`pipe` child) the channel + the
+    // presentation the child-side regime honours.
+    subagentControlPlane: controlPlane,
     // RFC-0006 (PIC-60): the params-channel filesystem seam (0600 temp file for
     // the at/above-threshold channel + the parent `finally` backstop unlink).
     subagentParamsFs: createProductionParamsFs(),
@@ -1053,7 +1072,7 @@ async function runComposePass(
     // ceiling continues across the process hop. A malformed / absent carriage
     // seeds a fresh chain at depth 0 (INV-4 pins no fail-closed rule).
     subagentInboundInvokeDepth: parseInboundInvokeDepth(
-      readParentEnv()[SUBAGENT_INVOKE_DEPTH_ENV],
+      controlPlaneEnv[SUBAGENT_INVOKE_DEPTH_ENV],
     ),
     // #subagent-isolation-and-trust: `pi.getAllTools()` (name + `sourceInfo.scope`)
     // for the project-local trust inference (`--approve` / `--no-approve`).
@@ -1455,6 +1474,7 @@ async function runComposePass(
     parseDeps,
     sink.emit,
     subagentRootRegime,
+    controlPlaneEnv,
   );
   // Bug 0178 element (b): AFTER `refuseDivergedChildCallables`, not before —
   // the callable-hash verification above can drop the marked root too, so
@@ -1534,15 +1554,16 @@ async function refuseDivergedChildCallables(
   parseDeps: Parameters<typeof parseThetaDocument>[1],
   emitDiagnostic: (diagnostic: Diagnostic) => void,
   regime: RootRegime,
-): Promise<ParsedTheta[]> {
   // The child env carrier, read through the AUTHENTICATED control-plane view
-  // (`readParentEnv`) — the same gate the factory's `PI_THETA_SUBAGENT_ROOT`
-  // marker read applies — so a hash map planted in the ambient environment (a
-  // repository `.env` a host loads, never a real launcher) can neither throw a
-  // parse failure out of the compose pass nor drop discovered callables
-  // (subagent.md #subagent-control-plane-authentication). A real child always
-  // authenticates: its launcher wrote the parent-pid carriage beside the map.
-  const env = readParentEnv();
+  // (the same view the factory's `PI_THETA_SUBAGENT_ROOT` marker read applies)
+  // — so a hash map planted in the ambient environment (a repository `.env` a
+  // host loads, never a real launcher) can neither throw a parse failure out
+  // of the compose pass nor drop discovered callables (subagent.md
+  // #subagent-control-plane-authentication). A real child always
+  // authenticates: its launcher wrote the parent-pid carriage beside the map,
+  // or the launch file carried it (RFC 0012 §2).
+  env: Readonly<Record<string, string | undefined>>,
+): Promise<ParsedTheta[]> {
   const marshalled = readMarshalledCallableHashes(env);
   if (marshalled === undefined) {
     return [...thetas];
@@ -1936,6 +1957,11 @@ export async function composeExtensionInstance(
   // re-scan re-emits with no dedup (diagnostic-shape.md re-scan rule).
   const emitErr7 = loadSink;
 
+  // RFC-0012 §2: ONE control-plane view for the instance's whole lifetime —
+  // the factory's (computed at entry, launch file consumed once) when it
+  // threaded one, else computed once here so a reload pass never re-reads.
+  const instanceControlPlane =
+    overrides?.subagentControlPlane ?? readProductionChildControlPlane();
   const initial = await runComposePass(
     pi,
     ctx,
@@ -1950,6 +1976,7 @@ export async function composeExtensionInstance(
     entryChannel,
     statusBus,
     inProcessTools,
+    instanceControlPlane,
   );
 
   // The watched set: `watchRoots` (the file-derived active-root union unioned
@@ -2023,6 +2050,7 @@ export async function composeExtensionInstance(
             entryChannel,
             statusBus,
             inProcessTools,
+            instanceControlPlane,
           );
           // Bug 0312: record this pass's watch set (its resolved `.thetalib`
           // closure dirs already unioned in by `runComposePass`), plus the two
