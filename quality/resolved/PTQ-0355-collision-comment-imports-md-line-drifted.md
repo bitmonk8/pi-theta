@@ -2,7 +2,7 @@
 id: PTQ-0355
 title: import-static-checks.ts's bug-0335 comment cites imports.md:124 for its name-collision quote, which now lives at line 137
 lens: D2                     # D2 | D4 | D7 | D8 | D9 - the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - src/extension/import-static-checks.ts:1644-1652

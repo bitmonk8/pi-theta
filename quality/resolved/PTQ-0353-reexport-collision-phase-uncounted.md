@@ -2,7 +2,7 @@
 id: PTQ-0353
 title: import-static-checks.ts's re-export-resolution comments still say "three ordered phases" / "phases 1-3" after bug 0334 added a fourth, collision-diagnosing phase
 lens: D2                     # D2 | D4 | D7 | D8 | D9 - the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - src/extension/import-static-checks.ts:23-34
