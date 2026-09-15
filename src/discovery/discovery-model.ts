@@ -4,7 +4,7 @@
 // and by discovery-collision-resolve.ts's cross-source/format collision
 // resolution (PTQ-0333). Split out of discovery-walk.ts as PTQ-0305's Seam 0
 // — the leaf every one of those concerns depends on at runtime (collision
-// resolution alone reads `PRIORITY` eleven times plus four of the codes
+// resolution alone reads `PRIORITY` nine times plus five of the codes
 // below), so it had to move first: moving any of the others out first would
 // have created a host<->module runtime import cycle. This module imports
 // nothing from discovery-walk.ts or discovery-collision-resolve.ts.

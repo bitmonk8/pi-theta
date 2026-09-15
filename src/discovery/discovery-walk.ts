@@ -23,9 +23,9 @@
 //
 // The discovery-wide types (`DiscoverySource`, `PiOwnedCommand`,
 // `DiscoveryInput`, `DiscoveredTheta`, `DiscoveryResult`), the `theta/load/*`
-// diagnostic codes, the priority / failure-mode / slash-name tables, and the
+// diagnostic codes, the failure-mode / slash-name tables, and the
 // per-source `SourcedCandidate` shape this walk implements against —
-// `PRIORITY`, `FailureModes`, `CONVENTIONAL_MODES`, `SETTINGS_MODES`,
+// `FailureModes`, `CONVENTIONAL_MODES`, `SETTINGS_MODES`,
 // `CLI_MODES`, `SLASH_NAME`, `SourcedCandidate` — live in `discovery-model.ts`
 // (PTQ-0305's Seam 0, the leaf every concern here depends on) and are
 // imported back in below; every name this file exported before that split is
@@ -100,7 +100,7 @@ interface RawCandidate {
  *  per-directory `non-canonical-extension` warnings (DISC-3). A root
  *  `classifyPath` already accepted as a directory whose enumeration then
  *  fails is an unreadable (or, on a clean `ENOENT` ancestor chain, missing)
- *  source, not silence (discovery-sources.md:66-67) — the calling source's
+ *  source, not silence (discovery-sources.md:73) — the calling source's
  *  descriptor and severities are threaded through so the failure emits from
  *  the one place the rejection is observed. */
 async function enumerateDirectory(
@@ -356,7 +356,7 @@ interface TreeEntry {
  *  enumeration failed reportably. A shrunken universe is a well-formed value,
  *  so the failures travel out with it — the walk observes the rejection but
  *  only the caller knows which `thetaPaths` entry's universe it shrank
- *  (discovery-sources.md:63 wants that entry's descriptor). */
+ *  (discovery-sources.md:73 wants that entry's descriptor). */
 interface TreeWalk {
   readonly entries: TreeEntry[];
   /** Directories that exist and could not be enumerated, plus any entry a
@@ -371,7 +371,7 @@ interface TreeWalk {
  *  directory in that walk — the static-prefix root itself or a subtree below
  *  it — or to `lstat` an entry that walk enumerated, is a traversal failure
  *  inside a root that exists, an unreadable source and not silence
- *  (discovery-sources.md:69), so the rejection is classified by the :68
+ *  (discovery-sources.md:73), so the rejection is classified by the :72
  *  clean-leaf rule and carried out rather than dropped. Delegates to the
  *  shared `walkTree` helper (PTQ-0287) with the `"ancestor-walk"` ENOENT
  *  policy: this walk's root is a settings glob's static-prefix directory, not
@@ -389,8 +389,8 @@ async function listTree(fs: FileSystem, root: string): Promise<TreeWalk> {
 
 /** Report each glob-universe traversal failure at the source's *Unreadable
  *  path* severity, once the pass's per-match reports are in. A path a
- *  per-match enumeration already reported is left to that report: rule 2
- *  (discovery-sources.md:63) pairs one offending path with one descriptor, and
+ *  per-match enumeration already reported is left to that report:
+ *  discovery-sources.md:73 pairs one offending path with one descriptor, and
  *  the universe walk is the coarser observer of the same rejection — with
  *  pattern `g/*` both walks cross the denied directory, and the author is owed
  *  one diagnostic for it, not two. */
