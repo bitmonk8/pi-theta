@@ -1089,6 +1089,169 @@ async function checkThetaCallableCallSurface(
 }
 
 /**
+ * RFC 0009 Erratum A′ (invocation.md INV-8) — the call-site clause's
+ * DEFAULT-REJECT callee classification: ONE loop, TWO codes, a three-way
+ * verdict against the frozen callable set. The clause is legal on exactly
+ * two surfaces, so this loop convicts everything else on the bare-ident
+ * call surface: a callee the set classifies `theta` is the legal surface
+ * (the mode gate above owns it), a callee it classifies `pi-tool` draws
+ * `theta/parse/with-clause-pi-tool`, and EVERY other callee — `subagent
+ * fn`, plain `fn`, imported `fn` including re-export chains, locals,
+ * builtins, anything the set does not bind — draws
+ * `theta/parse/with-clause-in-process-callee`. The verdict is the
+ * callable-set classification ALONE: no fn-kind resolution and no chain
+ * walk, which is exactly what closes the re-export-chain case on the same
+ * stroke (a chain-reached callee convicts as a set MISS). `ResolvedCallable`
+ * is the closed two-kind union, so the three arms are total.
+ *
+ * PRECEDENCE: this loop runs only for a parse-clean theta —
+ * `parseDiscoveredTheta` (production-composition.ts) drops any
+ * error-severity parse diagnostic before the compose pass calls this
+ * function — so an input that drew `theta/parse/unknown-identifier`,
+ * `theta/parse/shadowed-callable-call` or
+ * `theta/parse/with-clause-unknown-key` never reaches it, and those keep
+ * their refusal ALONE on a `.theta` host. Driven directly at the unit
+ * level the loop still emits for such inputs; the pipeline-level
+ * precedence is a composition-level property, not this loop's own.
+ */
+function checkWithClauseDefaultReject(
+  callerPath: string,
+  callExprs: readonly CallExpr[],
+  callableSet: CallableSetSnapshot | undefined,
+): Diagnostic[] {
+  const diagnostics: Diagnostic[] = [];
+  if (callableSet !== undefined) {
+    for (const call of callExprs) {
+      if (call.withClause === undefined) {
+        continue;
+      }
+      // Bug 0071 §Fix constraint 2 / the 0031-0038 hazard rule: `Map.get`
+      // plus an explicit `!== undefined` test — a callee name is
+      // author-controlled source text.
+      const entry = callableSet.entries.get(call.callee);
+      if (entry !== undefined && entry.kind === "theta") {
+        continue;
+      }
+      if (entry !== undefined && entry.kind === "pi-tool") {
+        diagnostics.push({
+          severity: "error",
+          code: WITH_CLAUSE_PI_TOOL_CODE,
+          file: callerPath,
+          // The Pi-tool arm ranges over the CALL: a Pi tool is never a
+          // clause-bearing surface at all, so the whole call site is the
+          // fault, not just the clause.
+          range: call.range,
+          message: withClausePiToolMessage(call.callee),
+          hint: WITH_CLAUSE_PI_TOOL_HINT,
+        });
+        continue;
+      }
+      diagnostics.push({
+        severity: "error",
+        code: WITH_CLAUSE_IN_PROCESS_CALLEE_CODE,
+        file: callerPath,
+        // The default arm ranges over the CLAUSE: the callee is fine (it is a
+        // legal in-process call), the clause is what cannot apply to it.
+        range: call.withClause.range,
+        message: withClauseInProcessCalleeMessage(call.callee),
+        hint: WITH_CLAUSE_IN_PROCESS_CALLEE_HINT,
+      });
+    }
+  }
+  return diagnostics;
+}
+
+/**
+ * Bug 0072 — the Pi-tool provable-disjointness check (tool-calls.md
+ * §"Provable-disjointness check (parse time)"), a THIRD loop over the SAME
+ * `callSites.callExprs` (no new walk; bug 0071 §Fix constraint 3: reuse the
+ * shared collection, never fork the walk).
+ */
+function checkPiToolArgDisjointness(
+  callerPath: string,
+  callExprs: readonly CallExpr[],
+  callableSet: CallableSetSnapshot | undefined,
+  typeEnv: TypeEnv,
+  typePass: StaticTypeInferencePass,
+): Diagnostic[] {
+  const diagnostics: Diagnostic[] = [];
+  if (callableSet !== undefined) {
+    for (const call of callExprs) {
+      // Bug 0071 §Fix constraint 2: the snapshot is read through `Map.get`
+      // plus an explicit `!== undefined` test — a callable name is
+      // author-controlled source text (the 0031/0038 hazard class).
+      const entry = callableSet.entries.get(call.callee);
+      if (entry === undefined || entry.kind !== "pi-tool") {
+        continue;
+      }
+      // The arity/shape rules own every site whose sole argument is not a
+      // bare object literal, and every multi-argument site: both are
+      // error-severity PARSE diagnostics, which drop the theta before this
+      // compose pass ever runs (bug 0072 §Fix, parse half). This arm only
+      // ever sees the accepted single-bare-object-argument shape.
+      const sole = call.args.length === 1 ? call.args[0] : undefined;
+      if (sole === undefined || sole.kind !== "object" || sole.typeName !== null) {
+        continue;
+      }
+      const parameters = (
+        entry.toolDefinition as { readonly parameters?: unknown } | undefined
+      )?.parameters;
+      const properties = toolParameterProperties(parameters);
+      if (properties === undefined) {
+        continue;
+      }
+      const schemaFieldStaticTypes: {
+        readonly field: string;
+        readonly exprType: string;
+        readonly schemaType: string;
+      }[] = [];
+      for (const objField of sole.fields) {
+        const schemaType = fieldSchemaType(properties.get(objField.name));
+        if (schemaType === undefined) {
+          // No schema type to be disjoint from: an unknown field name (the
+          // runtime half's case — bug 0072 §Fix) or a refined / typeless
+          // field schema (unprovable). Either way, out of this arm's reach.
+          continue;
+        }
+        const fieldTypes = collectProvableArgTypes(objField.value, typeEnv, typePass);
+        if (fieldTypes === undefined) {
+          // Unprovable by construction: a value-contributing position past the
+          // parser's static view — see `collectProvableArgTypes`. The value
+          // falls through to the runtime AJV net, which is where
+          // tool-calls.md §"Provable-disjointness check (parse time)" puts
+          // everything the subset cannot decide.
+          continue;
+        }
+        schemaFieldStaticTypes.push({
+          field: objField.name,
+          // The whole union of what the field can evaluate to, which is what
+          // `subsetKinds` needs to apply its "an unrepresentable arm makes the
+          // whole union unprovable" rule: `integer | string` against a
+          // `string` schema field intersects and stands down, while a
+          // single-kind `integer` still fires.
+          exprType: renderCollectedTypes(fieldTypes),
+          schemaType,
+        });
+      }
+      if (schemaFieldStaticTypes.length === 0) {
+        continue;
+      }
+      diagnostics.push(
+        ...checkToolCallArguments({
+          toolName: call.callee,
+          calleeKind: "pi-tool",
+          positionalCount: 1,
+          file: callerPath,
+          range: call.range,
+          schemaFieldStaticTypes,
+        }),
+      );
+    }
+  }
+  return diagnostics;
+}
+
+/**
  * Run the load-time invoke static checks for one discovered theta, returning
  * every diagnostic (error-severity entries un-register the theta):
  *
@@ -1343,146 +1506,19 @@ export async function checkInvokeStaticResolution(
       )),
     );
 
-    // RFC 0009 Erratum A′ (invocation.md INV-8) — the call-site clause's
-    // DEFAULT-REJECT callee classification: ONE loop, TWO codes, a three-way
-    // verdict against the frozen callable set. The clause is legal on exactly
-    // two surfaces, so this loop convicts everything else on the bare-ident
-    // call surface: a callee the set classifies `theta` is the legal surface
-    // (the mode gate above owns it), a callee it classifies `pi-tool` draws
-    // `theta/parse/with-clause-pi-tool`, and EVERY other callee — `subagent
-    // fn`, plain `fn`, imported `fn` including re-export chains, locals,
-    // builtins, anything the set does not bind — draws
-    // `theta/parse/with-clause-in-process-callee`. The verdict is the
-    // callable-set classification ALONE: no fn-kind resolution and no chain
-    // walk, which is exactly what closes the re-export-chain case on the same
-    // stroke (a chain-reached callee convicts as a set MISS). `ResolvedCallable`
-    // is the closed two-kind union, so the three arms are total.
-    //
-    // PRECEDENCE: this loop runs only for a parse-clean theta —
-    // `parseDiscoveredTheta` (production-composition.ts) drops any
-    // error-severity parse diagnostic before the compose pass calls this
-    // function — so an input that drew `theta/parse/unknown-identifier`,
-    // `theta/parse/shadowed-callable-call` or
-    // `theta/parse/with-clause-unknown-key` never reaches it, and those keep
-    // their refusal ALONE on a `.theta` host. Driven directly at the unit
-    // level the loop still emits for such inputs; the pipeline-level
-    // precedence is a composition-level property, not this loop's own.
-    if (deps.callableSet !== undefined) {
-      for (const call of callSites.callExprs) {
-        if (call.withClause === undefined) {
-          continue;
-        }
-        // Bug 0071 §Fix constraint 2 / the 0031-0038 hazard rule: `Map.get`
-        // plus an explicit `!== undefined` test — a callee name is
-        // author-controlled source text.
-        const entry = deps.callableSet.entries.get(call.callee);
-        if (entry !== undefined && entry.kind === "theta") {
-          continue;
-        }
-        if (entry !== undefined && entry.kind === "pi-tool") {
-          diagnostics.push({
-            severity: "error",
-            code: WITH_CLAUSE_PI_TOOL_CODE,
-            file: callerPath,
-            // The Pi-tool arm ranges over the CALL: a Pi tool is never a
-            // clause-bearing surface at all, so the whole call site is the
-            // fault, not just the clause.
-            range: call.range,
-            message: withClausePiToolMessage(call.callee),
-            hint: WITH_CLAUSE_PI_TOOL_HINT,
-          });
-          continue;
-        }
-        diagnostics.push({
-          severity: "error",
-          code: WITH_CLAUSE_IN_PROCESS_CALLEE_CODE,
-          file: callerPath,
-          // The default arm ranges over the CLAUSE: the callee is fine (it is a
-          // legal in-process call), the clause is what cannot apply to it.
-          range: call.withClause.range,
-          message: withClauseInProcessCalleeMessage(call.callee),
-          hint: WITH_CLAUSE_IN_PROCESS_CALLEE_HINT,
-        });
-      }
-    }
+    diagnostics.push(
+      ...checkWithClauseDefaultReject(callerPath, callSites.callExprs, deps.callableSet),
+    );
 
-    // Bug 0072 — the Pi-tool provable-disjointness check (tool-calls.md
-    // §"Provable-disjointness check (parse time)"), a THIRD loop over the SAME
-    // `callSites.callExprs` (no new walk; bug 0071 §Fix constraint 3: reuse the
-    // shared collection, never fork the walk).
-    if (deps.callableSet !== undefined) {
-      for (const call of callSites.callExprs) {
-        // Bug 0071 §Fix constraint 2: the snapshot is read through `Map.get`
-        // plus an explicit `!== undefined` test — a callable name is
-        // author-controlled source text (the 0031/0038 hazard class).
-        const entry = deps.callableSet.entries.get(call.callee);
-        if (entry === undefined || entry.kind !== "pi-tool") {
-          continue;
-        }
-        // The arity/shape rules own every site whose sole argument is not a
-        // bare object literal, and every multi-argument site: both are
-        // error-severity PARSE diagnostics, which drop the theta before this
-        // compose pass ever runs (bug 0072 §Fix, parse half). This arm only
-        // ever sees the accepted single-bare-object-argument shape.
-        const sole = call.args.length === 1 ? call.args[0] : undefined;
-        if (sole === undefined || sole.kind !== "object" || sole.typeName !== null) {
-          continue;
-        }
-        const parameters = (
-          entry.toolDefinition as { readonly parameters?: unknown } | undefined
-        )?.parameters;
-        const properties = toolParameterProperties(parameters);
-        if (properties === undefined) {
-          continue;
-        }
-        const schemaFieldStaticTypes: {
-          readonly field: string;
-          readonly exprType: string;
-          readonly schemaType: string;
-        }[] = [];
-        for (const objField of sole.fields) {
-          const schemaType = fieldSchemaType(properties.get(objField.name));
-          if (schemaType === undefined) {
-            // No schema type to be disjoint from: an unknown field name (the
-            // runtime half's case — bug 0072 §Fix) or a refined / typeless
-            // field schema (unprovable). Either way, out of this arm's reach.
-            continue;
-          }
-          const fieldTypes = collectProvableArgTypes(objField.value, typeEnv, typePass);
-          if (fieldTypes === undefined) {
-            // Unprovable by construction: a value-contributing position past the
-            // parser's static view — see `collectProvableArgTypes`. The value
-            // falls through to the runtime AJV net, which is where
-            // tool-calls.md §"Provable-disjointness check (parse time)" puts
-            // everything the subset cannot decide.
-            continue;
-          }
-          schemaFieldStaticTypes.push({
-            field: objField.name,
-            // The whole union of what the field can evaluate to, which is what
-            // `subsetKinds` needs to apply its "an unrepresentable arm makes the
-            // whole union unprovable" rule: `integer | string` against a
-            // `string` schema field intersects and stands down, while a
-            // single-kind `integer` still fires.
-            exprType: renderCollectedTypes(fieldTypes),
-            schemaType,
-          });
-        }
-        if (schemaFieldStaticTypes.length === 0) {
-          continue;
-        }
-        diagnostics.push(
-          ...checkToolCallArguments({
-            toolName: call.callee,
-            calleeKind: "pi-tool",
-            positionalCount: 1,
-            file: callerPath,
-            range: call.range,
-            schemaFieldStaticTypes,
-          }),
-        );
-      }
-    }
+    diagnostics.push(
+      ...checkPiToolArgDisjointness(
+        callerPath,
+        callSites.callExprs,
+        deps.callableSet,
+        typeEnv,
+        typePass,
+      ),
+    );
   }
 
   // INV-4 (invocation.md §Cycle detection): walk the static-resolution graph
