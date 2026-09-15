@@ -26,6 +26,7 @@
 //     not byte-identical raises the load-time `theta/load/schema-slug-collision`.
 
 import { createHash } from "node:crypto";
+import { compareCodePoint } from "../code-point-order";
 import { type Diagnostic, type SourceRange } from "../diagnostics/diagnostic";
 import { renderCanonicalNumber } from "../render/canonical-number";
 
@@ -93,26 +94,6 @@ export function canonicalForm(value: LoweredJsonValue): string {
       return `{${body}}`;
     }
   }
-}
-
-/**
- * Compare two strings by Unicode code-point (lexical) order, as the canonical
- * form's key sort requires. The default `<` on strings compares UTF-16 code
- * units, which diverges from code-point order only across the surrogate range;
- * iterating code points keeps astral keys ordered as the spec mandates.
- */
-function compareCodePoint(a: string, b: string): number {
-  const aPoints = [...a];
-  const bPoints = [...b];
-  const len = Math.min(aPoints.length, bPoints.length);
-  for (let i = 0; i < len; i += 1) {
-    const ap = aPoints[i]?.codePointAt(0) ?? 0;
-    const bp = bPoints[i]?.codePointAt(0) ?? 0;
-    if (ap !== bp) {
-      return ap - bp;
-    }
-  }
-  return aPoints.length - bPoints.length;
 }
 
 /**

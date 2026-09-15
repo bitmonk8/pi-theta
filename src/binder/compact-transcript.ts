@@ -53,6 +53,7 @@ import type {
   UserMessage,
 } from "@earendil-works/pi-ai";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
+import { compareCodePoint } from "../code-point-order";
 import type { Diagnostic } from "../diagnostics/diagnostic";
 import type { SystemPromptSessionContext } from "./binder-system-prompt";
 import { capSystemNote, sanitizeSystemNoteSubstring } from "./system-note";
@@ -212,26 +213,6 @@ function canonicalJson(value: unknown): string {
   // No other JSON-representable runtime type remains (bigint / symbol / function
   // are not part of the `ToolCall.arguments` / tool-result value domain).
   return JSON.stringify(value) ?? "null";
-}
-
-/**
- * Compare two strings by Unicode code-point (lexical) order, as BNDR-8's
- * key sort requires. The default `<` on strings compares UTF-16 code units,
- * diverging from code-point order across the surrogate range; iterating code
- * points keeps astral keys ordered as the rule mandates.
- */
-function compareCodePoint(a: string, b: string): number {
-  const aPoints = [...a];
-  const bPoints = [...b];
-  const len = Math.min(aPoints.length, bPoints.length);
-  for (let i = 0; i < len; i += 1) {
-    const ap = aPoints[i]?.codePointAt(0) ?? 0;
-    const bp = bPoints[i]?.codePointAt(0) ?? 0;
-    if (ap !== bp) {
-      return ap - bp;
-    }
-  }
-  return aPoints.length - bPoints.length;
 }
 
 /**
