@@ -362,6 +362,36 @@ describe("RFC-0012 §3 — synthesised settlement", () => {
 // The adapter: the drive consumes a channel-backed child unchanged.
 // ---------------------------------------------------------------------------
 
+describe("RFC-0012 §7 — heartbeat frames surface as liveness", () => {
+  it("onHeartbeat fires once per accepted heartbeat frame, never before the hello, and unsubscribes; the adapter exposes it as the child's onHeartbeat", async () => {
+    const { channel, server } = await open();
+    let direct = 0;
+    let adapted = 0;
+    const unsubscribe = channel.onHeartbeat(() => {
+      direct += 1;
+    });
+    const child = adaptChannelToChildProcess(placedWithoutExit(), channel);
+    child.onHeartbeat?.(() => {
+      adapted += 1;
+    });
+    const peer = server.dial();
+    // A heartbeat ahead of the hello is not a hello: the dialer is dropped.
+    const stranger = server.dial();
+    stranger.push(heartbeat());
+    expect(direct).toBe(0);
+    peer.push(hello());
+    peer.push(heartbeat());
+    peer.push(stderrFrame("noise"));
+    peer.push(heartbeat());
+    expect(direct).toBe(2);
+    expect(adapted).toBe(2);
+    unsubscribe();
+    peer.push(heartbeat());
+    expect(direct).toBe(2);
+    expect(adapted).toBe(3);
+  });
+});
+
 describe("RFC-0012 §3 — adaptChannelToChildProcess feeds driveSubagentChild unchanged", () => {
   it("an envelope over the channel is the drive's Ok — the same parse the stdout pipe gets", async () => {
     const { channel, server } = await open();

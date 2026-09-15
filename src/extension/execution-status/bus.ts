@@ -80,6 +80,8 @@ interface NodeState {
   childSeen: boolean;
   /** L3 (EXST-14): the NEWEST class-2 payload on this node; replaced, never queued. */
   authorMessage: ProgressAuthorMessage | undefined;
+  /** RFC 0012 §7: the rendered `live in <backend> <handle>` reference, clamped at ingest. */
+  placement: string | undefined;
   endedAtMs: number | undefined;
 }
 
@@ -163,6 +165,7 @@ class ExecutionStatusBusImpl implements ExecutionStatusBus {
         childLastEventAtMs: 0,
         childSeen: false,
         authorMessage: undefined,
+        placement: undefined,
         endedAtMs: undefined,
       });
       this.#markDirty();
@@ -182,6 +185,23 @@ class ExecutionStatusBusImpl implements ExecutionStatusBus {
       }
       node.mode = info.mode;
       node.parentInvocationId = info.parentInvocationId;
+      this.#markDirty();
+    } catch { // allow-broad-catch: EXST-9 — execution-status.md#exst-9
+    }
+  }
+
+  invocationPlaced(
+    invocationId: string,
+    placement: { readonly backend: string; readonly handle: string },
+  ): void {
+    try {
+      const node = this.#nodes.get(invocationId);
+      if (this.#disposed || node === undefined || node.endedAtMs !== undefined) {
+        return;
+      }
+      // Both halves are backend-supplied display strings (a pane id, a window
+      // title): clamped like every other ingested identifier (EXST-7).
+      node.placement = `live in ${clampName(placement.backend)} ${clampName(placement.handle)}`;
       this.#markDirty();
     } catch { // allow-broad-catch: EXST-9 — execution-status.md#exst-9
     }
@@ -610,6 +630,7 @@ function snapshotOfNode(node: NodeState): InvocationNodeSnapshot {
     ...(lanes !== undefined ? { lanes: snapshotOfLaneSet(lanes) } : {}),
     ...(childActivity !== undefined ? { childActivity } : {}),
     ...(node.authorMessage !== undefined ? { authorMessage: node.authorMessage } : {}),
+    ...(node.placement !== undefined ? { placement: node.placement } : {}),
     ...(node.endedAtMs !== undefined ? { endedAtMs: node.endedAtMs } : {}),
   };
 }

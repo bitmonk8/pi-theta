@@ -193,6 +193,7 @@ describe("T-WIRE — L3-B21: verbosity off -> zero lines", () => {
       invocationStarted: (): void => {},
       invocationBound: (): void => {},
       invocationEnded: (): void => {},
+      invocationPlaced: (): void => {},
       checkpointBefore: (): void => {},
       openLaneSet: () => ({ claim: (): void => {}, settle: (): void => {}, close: (): void => {} }),
       childEvent: (): void => {},

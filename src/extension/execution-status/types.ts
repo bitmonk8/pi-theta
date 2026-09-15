@@ -124,6 +124,12 @@ export interface InvocationNodeSnapshot {
   readonly lanes?: LaneSetSnapshot; // deepest open tracked lane set
   readonly childActivity?: ChildActivity; // present on subagent nodes with a tapped child
   readonly authorMessage?: ProgressAuthorMessage; // L3: newest class-2 payload on this node
+  /**
+   * RFC 0012 §7 (EXST-5 degradation): where a non-`pipe` placement put the
+   * child — the compact-reference rendering `live in <backend> <handle>`,
+   * clamped at ingest. Absent on `pipe` children and on prompt-mode nodes.
+   */
+  readonly placement?: string;
   readonly endedAtMs?: number; // set => lingering until eviction
 }
 
@@ -173,6 +179,15 @@ export interface ExecutionStatusBus {
     info: { readonly mode: InvocationMode; readonly parentInvocationId?: string },
   ): void;
   invocationEnded(invocationId: string): void;
+  /**
+   * RFC 0012 §7: the child was placed by a non-`pipe` backend; records the
+   * `live in <backend> <handle>` reference on the node. Published once per
+   * launch, after `invocationBound`.
+   */
+  invocationPlaced(
+    invocationId: string,
+    placement: { readonly backend: string; readonly handle: string },
+  ): void;
   checkpointBefore(invocationId: string, kind: CheckpointKind, site: CheckpointSite): void;
   openLaneSet(invocationId: string, total: number, width: number): ParForLaneSetHandle;
   childEvent(invocationId: string, event: ChildTapEvent): void;

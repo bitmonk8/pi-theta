@@ -44,6 +44,7 @@ import {
 } from "../runtime/subagent-launcher";
 import {
   createPipePlacementBackend,
+  isPipePlacement,
   placementIsVisible,
 } from "../runtime/subagent-placement";
 import type { PlacementLease } from "../runtime/subagent-placement-selection";
@@ -2627,6 +2628,10 @@ class ProductionThetaProducer implements ThetaProducerDeps {
           projectTrust,
           presentation,
           label: theta.slashName,
+          // RFC 0012 §7: `--no-session` unless the backend declares
+          // `persistSession` — the operator then gets a resumable session
+          // file; the parent never reads it, so theta semantics are unchanged.
+          persistSession: placement.capabilities?.persistSession === true,
         },
         label: theta.slashName,
         // RFC 0009 (invocation.md INV-8; subagent.md #subagent-launch-contract):
@@ -2671,6 +2676,16 @@ class ProductionThetaProducer implements ThetaProducerDeps {
       throw new SubagentSpawnFailedError(reason);
     }
     const child = launch.child;
+    // RFC 0012 §7 (EXST-5 degradation): a non-`pipe` child's `--mode json`
+    // stream is a TTY the parent never sees, so the execution-status node
+    // records WHERE the child lives instead — `live in <backend> <handle>` —
+    // and its liveness rides the channel heartbeat the tap below folds.
+    if (!isPipePlacement(placement)) {
+      statusBus?.invocationPlaced(ticket.invocationId, {
+        backend: placement.name,
+        handle: launch.placed.handle,
+      });
+    }
     // RFC 0010 (EXST-5): the depth-1 child-activity tap — a SECOND listener on
     // the child's existing stdout line pump, beside the envelope scan. It never
     // consumes, detaches, or reorders the drive listener's lines (PIC-59's
@@ -3038,6 +3053,7 @@ class ProductionThetaProducer implements ThetaProducerDeps {
               collectForwardedEnumTags(terminal.value as ThetaValue),
             ),
           );
+          this.#requestVisibleChildShutdown(ctx);
         }
       } else {
         // Bug 0347 §Fix: this is the callee's OWN returned Err — whether its
@@ -3066,6 +3082,27 @@ class ProductionThetaProducer implements ThetaProducerDeps {
     } finally {
       await binding.teardown?.();
       binding.finishInvocation?.();
+    }
+  }
+
+  /**
+   * RFC-0012 §7: a VISIBLE child (the interactive TUI in a multiplexer pane)
+   * has no `-p` exit to end its process, so after an `Ok` envelope it asks the
+   * host to shut down — `ctx.shutdown()` defers until the session is idle, the
+   * process exits and the pane closes. Called on the `Ok` path ONLY: an `Err`
+   * child lingers by design so a human can read or continue the live session
+   * (settled, not overdue — §8). A headless child (`pipe`, or a non-visible
+   * backend) never reaches this: its `-p` run ends the process. `shutdown` is
+   * presence-probed `typeof`-only (sdk-inventory.ts `ctx.shutdown`); an absent
+   * member leaves the pane open, the `Err` behaviour, with no diagnostic.
+   */
+  #requestVisibleChildShutdown(ctx: ExtensionCommandContext): void {
+    if (this.#input.subagentControlPlane?.launch?.presentation !== "visible") {
+      return;
+    }
+    const shutdown = (ctx as { readonly shutdown?: unknown }).shutdown;
+    if (typeof shutdown === "function") {
+      (shutdown as () => void).call(ctx);
     }
   }
 

@@ -715,6 +715,14 @@ export interface SubagentChildProcess {
   onExit(listener: (info: ChildExitInfo) => void): void;
   /** Kill the child: process-tree kill (taskkill) on win32; direct `SIGKILL` elsewhere. */
   kill(): void;
+  /**
+   * RFC-0012 §7: liveness frames a result-channel child sends while its
+   * invocation is live (`adaptChannelToChildProcess`). Present ONLY on a
+   * channel-adapted child — a `pipe` child's liveness is its `--mode json`
+   * stream, which the execution-status tap already reads. Returns the
+   * unsubscribe handle.
+   */
+  onHeartbeat?(listener: () => void): () => void;
 }
 
 /** The spawn function the launcher drives (injected; fake in tests). */

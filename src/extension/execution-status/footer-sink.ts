@@ -96,12 +96,17 @@ export function renderNodeHeader(node: InvocationNodeSnapshot, nowMs: number): s
     return `θ /${node.theta} done`;
   }
   const head = `θ /${node.theta} ${formatDuration(nowMs - node.startedAtMs)}`;
+  // RFC 0012 §7: a non-`pipe` child's compact placement reference. It renders
+  // in the head segment because a visible child's `--mode json` stream is a
+  // TTY, so the effect / activity segments this line would otherwise carry
+  // never arrive for it.
+  const placed = node.placement !== undefined ? `${head} · ${node.placement}` : head;
   const effect = node.currentEffect;
   if (effect === undefined) {
-    return head;
+    return placed;
   }
   const site = `${baseFileName(effect.site.file)}:${effect.site.line}`;
-  return `${head} · ${effect.kind} ${site} (${formatDuration(nowMs - effect.sinceMs)})`;
+  return `${placed} · ${effect.kind} ${site} (${formatDuration(nowMs - effect.sinceMs)})`;
 }
 
 /** The lane / children segment of the footer grammar (`kids`). */

@@ -136,6 +136,12 @@ export interface ResultChannel {
   onLine(listener: (line: string) => void): () => void;
   /** Mirrored stderr lines. */
   onStderrLine(listener: (line: string) => void): () => void;
+  /**
+   * Accepted `heartbeat` frames (RFC 0012 §7): the liveness the execution-
+   * status child tap folds when the child's `--mode json` stream is a TTY.
+   * Carries no payload; the frame is otherwise dropped.
+   */
+  onHeartbeat(listener: () => void): () => void;
   /** Synthesised settlement (see module header); replays to a late subscriber. */
   onSettled(listener: (info: ChildExitInfo) => void): void;
   /** Whether the child's hello has been accepted. */
@@ -177,6 +183,7 @@ export interface OpenResultChannelDeps {
 export async function openResultChannel(deps: OpenResultChannelDeps): Promise<ResultChannel> {
   const lineListeners = new Set<(line: string) => void>();
   const stderrListeners = new Set<(line: string) => void>();
+  const heartbeatListeners = new Set<() => void>();
   const settledListeners = new Set<(info: ChildExitInfo) => void>();
   let settled: ChildExitInfo | undefined;
   let accepted: ChannelConnection | undefined;
@@ -291,6 +298,10 @@ export async function openResultChannel(deps: OpenResultChannelDeps): Promise<Re
             }
             break;
           case "heartbeat":
+            for (const listener of [...heartbeatListeners]) {
+              listener();
+            }
+            break;
           case "hello":
           case "ignored":
             break;
@@ -327,6 +338,12 @@ export async function openResultChannel(deps: OpenResultChannelDeps): Promise<Re
         stderrListeners.delete(listener);
       };
     },
+    onHeartbeat: (listener): (() => void) => {
+      heartbeatListeners.add(listener);
+      return (): void => {
+        heartbeatListeners.delete(listener);
+      };
+    },
     onSettled: (listener): void => {
       if (settled !== undefined) {
         const info = settled;
@@ -361,6 +378,7 @@ export function adaptChannelToChildProcess(
     closeStdin: (): void => {},
     onStdoutLine: (listener): (() => void) => channel.onLine(listener),
     onStderrLine: (listener): (() => void) => channel.onStderrLine(listener),
+    onHeartbeat: (listener): (() => void) => channel.onHeartbeat(listener),
     onExit: (listener): void => {
       if (!placed.capabilities.observesExit) {
         channel.onSettled(listener);

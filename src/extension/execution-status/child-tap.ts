@@ -47,7 +47,12 @@ export type ChildTapEvent =
   | { readonly type: "agent_end" }
   // L3 (EXST-5/EXST-15; PIC-74) — the reserved-key `theta_progress` wire line,
   // recognised in the tap's OWN parse (EXST-5).
-  | { readonly type: "theta_progress"; readonly payload: ProgressAuthorMessage };
+  | { readonly type: "theta_progress"; readonly payload: ProgressAuthorMessage }
+  // RFC 0012 §7: a result-channel `heartbeat` frame — liveness only. Under a
+  // visible placement the child's `--mode json` stream is a TTY, so the four
+  // event kinds above never arrive; the heartbeat is what keeps the node's
+  // `lastEventAtMs` moving.
+  | { readonly type: "heartbeat" };
 
 /**
  * Compile-time field-set anchor for the `theta_progress` decoder below: every
@@ -72,6 +77,24 @@ const HANDLED_PROGRESS_FIELDS = {
  *  (production-subagent-host.ts:284-313); the drive's own listener
  *  (subagent-json-driver.ts:162) is untouched. Returns the detach handle. */
 export function attachChildActivityTap(
+  child: Pick<SubagentChildProcess, "onStdoutLine" | "onHeartbeat">,
+  publish: (event: ChildTapEvent) => void,
+  opts?: ChildTapOptions,
+): () => void {
+  // RFC 0012 §7: a channel-adapted child exposes its heartbeat frames; a
+  // `pipe` child has no such surface and this stays `undefined`.
+  const detachHeartbeat = child.onHeartbeat?.((): void => {
+    publish({ type: "heartbeat" });
+  });
+  const detachLines = attachStdoutTap(child, publish, opts);
+  return (): void => {
+    detachLines();
+    detachHeartbeat?.();
+  };
+}
+
+/** The stdout-line half of the tap (see `attachChildActivityTap`). */
+function attachStdoutTap(
   child: Pick<SubagentChildProcess, "onStdoutLine">,
   publish: (event: ChildTapEvent) => void,
   opts?: ChildTapOptions,
