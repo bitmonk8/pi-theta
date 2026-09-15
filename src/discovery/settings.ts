@@ -22,13 +22,18 @@
 import type { Diagnostic } from "../diagnostics/diagnostic";
 import type { FileSystem } from "../seams/file-system";
 import { renderCanonicalNumber } from "../render/canonical-number";
+import {
+  parseExecPlacementTemplate,
+  type ExecPlacementTemplate,
+} from "../runtime/subagent-exec-placement";
+import { PLACEMENT_NAME_PATTERN } from "../runtime/subagent-placement";
 import { joinPosix } from "./discovery-path-classify";
 import { nodeErrorCode } from "./node-error-code";
 
 /** A parsed JSON object (the on-disk shape of one settings file's root). */
 export type JsonObject = Record<string, unknown>;
 
-/** The five recognised `theta.*` scalar keys (post-validation, cleaned view). */
+/** The recognised `theta.*` keys (post-validation, cleaned view). */
 export interface ThetasSettings {
   /** `theta.binderModel` — a non-empty model identifier; no built-in default. */
   readonly binderModel?: string;
@@ -45,6 +50,26 @@ export interface ThetasSettings {
    * treated-absent convention.
    */
   readonly progress?: "off" | "counts" | "names";
+  /**
+   * `theta.subagentPlacement` (RFC 0012 §6) — `auto` / `pipe` / `exec` / a
+   * registered backend name (`^[a-z][a-z0-9-]{0,31}$`); either scope. No
+   * defaulting here: the `auto` default is applied at the read site.
+   */
+  readonly subagentPlacement?: string;
+  /**
+   * `theta.subagentPlacementMaxVisible` (RFC 0012 §6) — integer ≥ 0, the
+   * number of visible children live at once before further launches use
+   * `pipe`. The `8` default is applied at the read site.
+   */
+  readonly subagentPlacementMaxVisible?: number;
+  /**
+   * `theta.subagentPlacementExec` (RFC 0012 §4) — the validated `exec`
+   * template. Honoured from the GLOBAL settings file only (§4 *Trust*): a
+   * project-local value is dropped with `theta/load/settings-invalid-entry`,
+   * because a checked-out repository must not be able to make a theta run an
+   * arbitrary command on the first subagent launch.
+   */
+  readonly subagentPlacementExec?: ExecPlacementTemplate;
 }
 
 /**
@@ -147,14 +172,25 @@ const SETTINGS_INVALID_ENTRY = "theta/load/settings-invalid-entry";
 const SETTINGS_INVALID_JSON = "theta/load/settings-invalid-json";
 const SETTINGS_UNREADABLE = "theta/load/settings-unreadable";
 
-/** The five recognised `thetas.*` scalar keys, in their fixed inspection order. */
+/** The recognised `thetas.*` scalar keys, in their fixed inspection order. */
 const THETAS_SCALAR_KEYS = [
   "binderModel",
   "scanPackages",
   "scanPackagesMaxFiles",
   "scanPackagesTimeoutMs",
   "progress",
+  "subagentPlacement",
+  "subagentPlacementMaxVisible",
 ] as const;
+
+/**
+ * RFC 0012 §4: the one object-valued `thetas.*` key, validated by the `exec`
+ * template parser and honoured from the global file only.
+ */
+const THETAS_EXEC_TEMPLATE_KEY = "subagentPlacementExec";
+
+/** Which settings file a clean pass is reading (§4 *Trust* is scope-sensitive). */
+export type SettingsScope = "global" | "project";
 
 /** Validate one `thetas.*` scalar value against its declared type/range. */
 function isScalarKeyValid(key: (typeof THETAS_SCALAR_KEYS)[number], value: unknown): boolean {
@@ -170,6 +206,11 @@ function isScalarKeyValid(key: (typeof THETAS_SCALAR_KEYS)[number], value: unkno
       // EXST-10: the closed literal set, case-sensitive — any other string and
       // every non-string is out of range (package-and-settings.md).
       return value === "off" || value === "counts" || value === "names";
+    case "subagentPlacement":
+      // RFC 0012 §6: the backend-name grammar covers `auto` / `pipe` / `exec`.
+      return typeof value === "string" && PLACEMENT_NAME_PATTERN.test(value);
+    case "subagentPlacementMaxVisible":
+      return typeof value === "number" && Number.isInteger(value) && value >= 0;
   }
 }
 
@@ -226,7 +267,11 @@ async function readSettingsFile(fs: FileSystem, path: string): Promise<FileReadO
  * recognised keys survive) plus the per-file diagnostics. Each malformed key /
  * entry is treated as absent and contributes exactly one diagnostic per file.
  */
-function cleanSettingsFile(root: unknown, path: string): {
+function cleanSettingsFile(
+  root: unknown,
+  path: string,
+  scope: SettingsScope,
+): {
   readonly cleaned: JsonObject;
   readonly diagnostics: Diagnostic[];
 } {
@@ -296,6 +341,35 @@ function cleanSettingsFile(root: unknown, path: string): {
           });
         }
       }
+      // RFC 0012 §4: the `exec` template. Project scope: dropped with the
+      // settings-invalid-entry code (the position-specific template below is
+      // documented in that row's Trigger, DIAG-4); global scope: validated by
+      // the template parser, a malformed value out of range with the parser's
+      // reason on `details.reason`.
+      if (Object.prototype.hasOwnProperty.call(value, THETAS_EXEC_TEMPLATE_KEY)) {
+        const raw = value[THETAS_EXEC_TEMPLATE_KEY];
+        if (scope === "project") {
+          diagnostics.push({
+            severity: "error",
+            code: SETTINGS_INVALID_ENTRY,
+            file: path,
+            message: `settings 'theta.${THETAS_EXEC_TEMPLATE_KEY}' is honoured from the global settings file only; ignored in project settings`,
+          });
+        } else {
+          const parsed = parseExecPlacementTemplate(raw);
+          if (parsed.ok) {
+            cleanedThetas[THETAS_EXEC_TEMPLATE_KEY] = parsed.template;
+          } else {
+            diagnostics.push({
+              severity: "error",
+              code: SETTINGS_VALUE_OUT_OF_RANGE,
+              file: path,
+              message: `settings key thetas.${THETAS_EXEC_TEMPLATE_KEY} value is out of range; got ${renderObserved(raw)}`,
+              details: { reason: parsed.reason },
+            });
+          }
+        }
+      }
       // Unknown `thetas.*` keys are ignored without diagnostic (forward-compat).
       cleaned["theta"] = cleanedThetas;
     } else {
@@ -315,6 +389,7 @@ function cleanSettingsFile(root: unknown, path: string): {
 async function loadOneFile(
   fs: FileSystem,
   path: string,
+  scope: SettingsScope,
 ): Promise<{ readonly cleaned: JsonObject; readonly diagnostics: Diagnostic[] }> {
   const outcome = await readSettingsFile(fs, path);
   if (outcome.kind === "absent") {
@@ -347,7 +422,7 @@ async function loadOneFile(
       ],
     };
   }
-  return cleanSettingsFile(outcome.root, path);
+  return cleanSettingsFile(outcome.root, path, scope);
 }
 
 /**
@@ -371,8 +446,8 @@ export async function loadSettings(fs: FileSystem): Promise<SettingsLoadResult> 
   const globalPath = joinPosix(globalAgentDir, "settings.json");
 
   // Read sequentially (Sequential by default): global then project.
-  const global = await loadOneFile(fs, globalPath);
-  const project = await loadOneFile(fs, projectPath);
+  const global = await loadOneFile(fs, globalPath, "global");
+  const project = await loadOneFile(fs, projectPath, "project");
 
   const merged = mergeSettings(global.cleaned, project.cleaned);
 

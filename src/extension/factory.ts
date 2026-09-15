@@ -91,6 +91,11 @@ import { SUBAGENT_ROOT_ENV_MARKER } from "../runtime/subagent-root-regime";
 import { readProductionChildControlPlane } from "./production-subagent-host";
 import { SUBAGENT_LAUNCH_FLAG } from "../runtime/subagent-launcher";
 import type { ResultChannelClient } from "../runtime/subagent-result-channel";
+import {
+  bindPlacementRegistration,
+  PlacementRegistry,
+} from "../runtime/subagent-placement-registry";
+import type { PlacementRegistrationHandle } from "./production-composition";
 import { SDK_SURFACE_INVENTORY } from "./sdk-inventory";
 
 /**
@@ -413,6 +418,9 @@ export interface ThetaExtensionDeps {
     // this same process (a repeat `session_start`), so the pass reuses the one
     // connection the parent accepts instead of dialling a second one.
     resultChannel?: ResultChannelClient,
+    // RFC-0012 §5: the factory-owned registered-backend set + discover trigger
+    // (the offer subscription lives in the factory body beside it).
+    placementRegistration?: PlacementRegistrationHandle,
   ) => Promise<ExtensionInstanceWiring>;
 
   /**
@@ -576,6 +584,28 @@ export function createThetaExtension(
     // into a repeat compose, and closed at `session_shutdown`. Undefined under
     // `pipe` and in every parent process.
     let liveResultChannel: ResultChannelClient | undefined;
+    // RFC-0012 §5: the registered placement backends of THIS extension
+    // instance and the `pi.events` binding that fills it. Created in the
+    // factory body — the offer subscription must exist before another
+    // extension's factory or `session_start` handler emits its offer — and
+    // released at `session_shutdown` (the bus is per process; a stale handler
+    // from a removed package must not survive `/reload`). `pi.events` is an
+    // OPTIONAL capability: presence-probed `typeof`-only, absent ⇒ built-ins.
+    const placementRegistry = new PlacementRegistry();
+    const placementEvents =
+      typeof (pi as { readonly events?: unknown }).events === "object" &&
+      pi.events !== null &&
+      typeof pi.events.on === "function" &&
+      typeof pi.events.emit === "function"
+        ? pi.events
+        : undefined;
+    const placementBinding = bindPlacementRegistration(placementEvents, placementRegistry, (diagnostic) => {
+      deps.emitDiagnostic?.(diagnostic);
+    });
+    const placementRegistration: PlacementRegistrationHandle = {
+      registry: placementRegistry,
+      discover: placementBinding.discover,
+    };
     // RFC 0010 (EXST-11): `/theta-status` registers exactly once per extension
     // instance (not once per `registerFixtures` pass — the composed path can
     // re-run `registerFixtures` across a supersession/rebind), so this latch
@@ -1011,6 +1041,7 @@ export function createThetaExtension(
           },
           inProcessTools,
           liveResultChannel,
+          placementRegistration,
         );
       } catch (e: unknown) { // allow-broad-catch: pi-sdk-boundary — conventions.md Specific exception types only
         if (composeTailSuperseded()) {
@@ -1356,6 +1387,11 @@ export function createThetaExtension(
         // the socket ends. Consumed here so a re-delivery finds nothing.
         const resultChannel = liveResultChannel;
         liveResultChannel = undefined;
+        // RFC-0012 §5: release the offer subscription and forget the
+        // registered backends — a repeat `session_start` re-discovers into a
+        // fresh set, and no handler of this instance outlives it on the bus.
+        placementBinding.unsubscribe();
+        placementRegistry.clear();
 
         // The classifier reads `event.reason` in its own `try` (PIC-47), so
         // this call must not pre-read the property: a throwing getter has to
@@ -1457,6 +1493,7 @@ export default function thetaExtension(pi: ExtensionAPI): void {
       latchStatusBus,
       inProcessTools,
       resultChannel,
+      placementRegistration,
     ) =>
       composeExtensionInstance(
         pi,
@@ -1465,6 +1502,10 @@ export default function thetaExtension(pi: ExtensionAPI): void {
           subagentControlPlane: childControlPlane,
           // RFC-0012 §3: a repeat compose reuses the live connection.
           ...(resultChannel !== undefined ? { subagentResultChannel: resultChannel } : {}),
+          // RFC-0012 §5: the factory's registered-backend set.
+          ...(placementRegistration !== undefined
+            ? { subagentPlacementRegistration: placementRegistration }
+            : {}),
         },
         rendererGate,
         ownRegisteredNames,

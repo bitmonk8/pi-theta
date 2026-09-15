@@ -274,6 +274,14 @@ export const SDK_SURFACE_INVENTORY: readonly SurfaceInventoryEntry[] =
     { id: "pi.registerProvider", kind: "pi-member" },
     { id: "pi.unregisterProvider", kind: "pi-member" },
     { id: "pi.setModel", kind: "pi-member" },
+    // RFC-0012 §5: the shared inter-extension event bus the placement-backend
+    // registration protocol rides (`pi-theta:subagent-placement:discover:v1` /
+    // `:offer:v1`). OPTIONAL-capability class (capability-probe.md): presence-
+    // probed `typeof`-only in the factory body; absent ⇒ only the built-in
+    // `pipe` / `exec` placements are selectable, nothing refuses, no diagnostic.
+    // A presence RECORD, never a gate — it joins neither `CAPABILITY_OBLIGATIONS`
+    // nor the Step 0 (c) probe loop.
+    { id: "pi.events", kind: "pi-member" },
     // The category-(3) canonical-`ctx` member-access surfaces the runtime
     // touches (`V18b`, audit-target-categories.md category (3)), derived from
     // the `ExtensionContext` / `ExtensionCommandContext` `.d.ts` declarations.
@@ -289,6 +297,14 @@ export const SDK_SURFACE_INVENTORY: readonly SurfaceInventoryEntry[] =
     // stderr — FMC-1 / DISCLI-2 / IMPORTS-3).
     { id: "ctx.cwd", kind: "ctx-member" },
     { id: "ctx.modelRegistry", kind: "ctx-member" },
+    // RFC-0012 §6 (D6): the credential guard reads the resolved model's
+    // provider credential SOURCE (`AuthStatus.source`, one of `stored | runtime
+    // | environment | fallback | models_json_key | models_json_command` at the
+    // pin) before a non-env-inheriting placement. Presence-probed `typeof`-only;
+    // absent (or a `source`-less `AuthStatus`) leaves the guard inert — the
+    // documented caveat, no diagnostic. Re-audited per Pi bump
+    // (host-interfaces-core.md #model-registry-pin).
+    { id: "ctx.modelRegistry.getProviderAuthStatus", kind: "ctx-member" },
     { id: "ctx.ui", kind: "ctx-member" },
     { id: "ctx.hasUI", kind: "ctx-member" },
     // The H8a per-theta run-drive resolves a chained (non-first) query off-session

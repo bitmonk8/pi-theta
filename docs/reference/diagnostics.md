@@ -233,6 +233,8 @@ trigger.
 | `theta/load/unresolvable-theta-path` | E | load | `cannot resolve .theta path '<path>'` |
 | `theta/load/prompt-mode-callable` | E | load | `'tools:' entry '<path>' points at a prompt-mode theta; only subagent-mode thetas are permitted` |
 | `theta/load/subagent-executable-unresolved` | E | load | `subagent child executable unresolved: no runnable 'pi' entry point (entry-script and compiled-binary rungs both failed; no PATH fallback)` |
+| `theta/load/subagent-placement-unavailable` | E | load | `subagent placement '<name>' is unavailable: <reason>` |
+| `theta/load/subagent-placement-invalid` | W | load | `ignoring subagent placement registration '<name>': <reason>` |
 | `theta/load/extension-tool-unreachable` | E | load | `extension tool '<name>' is unreachable from theta code: no code-side dispatch rung available` |
 | `theta/load/tool-name-collision` | E | load | `tool name '<name>' collides with another 'tools:' entry, top-level fn, or import` |
 | `theta/load/invalid-tool-rename` | E | load | `'as <name>' rename target must be lowercase-first; got '<name>'` |

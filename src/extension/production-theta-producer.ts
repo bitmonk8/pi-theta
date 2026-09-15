@@ -45,8 +45,8 @@ import {
 import {
   createPipePlacementBackend,
   placementIsVisible,
-  type SubagentPlacementBackend,
 } from "../runtime/subagent-placement";
+import type { PlacementLease } from "../runtime/subagent-placement-selection";
 import type { SubagentChildControlPlane } from "../runtime/subagent-launch-file";
 import type { HostToolSnapshotEntry } from "../seams/host-tool-snapshot";
 import {
@@ -396,7 +396,7 @@ export interface SubagentPlacementResolver {
     readonly provider: string;
     /** The callee rendering for the guard's system note (`/<slug>` or `/<slug>#<fn>`). */
     readonly callee: string;
-  }): SubagentPlacementBackend;
+  }): PlacementLease;
 }
 
 export interface PiToolDispatch {
@@ -2602,10 +2602,13 @@ class ProductionThetaProducer implements ThetaProducerDeps {
         "subagent child launch is unavailable: no placement seam / executable host wired",
       );
     }
-    const placement = placementResolver({
+    // RFC 0012 §6: the lease holds this launch's visible slot (the cap) until
+    // teardown releases it; a failed launch releases it at once.
+    const placementLease = placementResolver({
       provider: String(model.provider),
       callee: `/${theta.slashName}`,
     });
+    const placement = placementLease.backend;
     // RFC 0012 §6 *Presentation*: the argv form follows the SELECTED backend's
     // `visible` capability — a visible backend gets the interactive TUI form
     // (§7), everything else the headless print form. Derived here, never
@@ -2655,6 +2658,7 @@ class ProductionThetaProducer implements ThetaProducerDeps {
       // operator-triage diagnostic; dually route the failure as an unanticipated
       // SDK reject (theta/runtime/internal-error). No child → nothing to tear
       // down; clean up params + drop the registry entry the bind just added.
+      placementLease.release();
       paramsCleanup();
       finishInvocation();
       const reason =
@@ -2741,6 +2745,8 @@ class ProductionThetaProducer implements ThetaProducerDeps {
       // EXST-5: detach the activity tap before the child teardown runs
       // (idempotent — a Set delete after close is a no-op).
       detachChildTap?.();
+      // RFC 0012 §6: free this launch's visible slot for the next launch.
+      placementLease.release();
       // PIC-60 backstop: delete the params temp file regardless of launch outcome.
       try {
         paramsCleanup();
@@ -2789,7 +2795,8 @@ class ProductionThetaProducer implements ThetaProducerDeps {
       return undefined;
     }
     const pipe = createPipePlacementBackend(spawn);
-    return (): SubagentPlacementBackend => pipe;
+    const lease: PlacementLease = { backend: pipe, release: (): void => {} };
+    return (): PlacementLease => lease;
   }
 
   /**

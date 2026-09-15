@@ -80,6 +80,20 @@ import {
   connectResultChannel,
   type ResultChannelClient,
 } from "../runtime/subagent-result-channel";
+import { createExecPlacementBackend } from "../runtime/subagent-exec-placement";
+import type { PlacementRegistry } from "../runtime/subagent-placement-registry";
+import {
+  createPlacementPolicy,
+  DEFAULT_SUBAGENT_PLACEMENT_MAX_VISIBLE,
+  placementUnavailableDiagnostic,
+  resolvePlacementSelector,
+  selectPlacement,
+  SUBAGENT_PLACEMENT_ENV,
+  thetaLaunchesChildren,
+  type PlacementSelection,
+} from "../runtime/subagent-placement-selection";
+import { createProductionExecCommandRunner } from "./production-subagent-host";
+import { sendSystemNote } from "./system-note-channel";
 import {
   createPipePlacementBackend,
   type SubagentPlacementBackend,
@@ -263,6 +277,22 @@ export interface ComposeSeamOverrides {
    * launch file named a channel, else no channel (fd 1 is the wire).
    */
   readonly subagentResultChannel?: ResultChannelClient;
+  /**
+   * RFC-0012 §5: the factory-owned registered-backend set and its discover
+   * trigger. The factory creates the registry beside its `pi.events` offer
+   * subscription (so an offer emitted before `session_start` is caught) and
+   * threads it here; each compose pass emits the discover event and then
+   * selects over the snapshot. Absent (a harness, or a host without
+   * `pi.events`) ⇒ built-ins only, no diagnostic.
+   */
+  readonly subagentPlacementRegistration?: PlacementRegistrationHandle;
+}
+
+/** RFC-0012 §5: what the factory hands each compose pass (see `ComposeSeamOverrides`). */
+export interface PlacementRegistrationHandle {
+  readonly registry: PlacementRegistry;
+  /** Emit `pi-theta:subagent-placement:discover:v1` (at `session_start` and after each reload). */
+  discover(): void;
 }
 
 /**
@@ -683,6 +713,8 @@ async function runComposePass(
   // RFC-0012 §3: THIS child's connected result channel, when the launch file
   // named one. The envelope writer below targets it INSTEAD of fd 1.
   passResultChannel?: ResultChannelClient,
+  // RFC-0012 §5: the registered-backend set (see `ComposeSeamOverrides`).
+  passPlacementRegistration?: PlacementRegistrationHandle,
 ): Promise<ComposePassResult> {
   const fileSystem = root.fileSystem;
   const clock = root.clock;
@@ -747,6 +779,20 @@ async function runComposePass(
   // pass re-runs this, so a settings edit takes effect at the next reload
   // without reconstructing the bus.
   statusBus?.setVerbosity(settings.theta?.progress ?? "names");
+
+  // RFC-0012 §5/§6: placement. Discover registered backends (order-
+  // independent with the factory-body offer subscription), build the `exec`
+  // backend when the GLOBAL settings file carries a template, and resolve the
+  // operator's selector (the one-run env override wins over settings). The
+  // load-time verdict below gates registration of every theta that launches
+  // children (fail-closed on an explicit unavailable choice; `auto` never
+  // refuses); the per-launch policy re-selects at each launch so a backend
+  // registered after this pass is honoured without a reload.
+  passPlacementRegistration?.discover();
+  const placementSelector = resolvePlacementSelector(
+    settings.theta?.subagentPlacement,
+    controlPlaneEnv[SUBAGENT_PLACEMENT_ENV],
+  );
 
   // RFC-0006 (PIC-58): the subagent-root regime detected once from the process
   // env, hoisted ahead of the discovery walk so bug 0331's marked-root winner
@@ -983,6 +1029,49 @@ async function runComposePass(
   // RFC-0012 §1: the built-in `pipe` placement — today's launch, verbatim —
   // constructed once per compose pass over the production spawn function.
   const pipePlacement = createPipePlacementBackend(createProductionSpawnFn());
+  // RFC-0012 §4: the `exec` backend over the operator's global template (the
+  // settings reader already dropped a project-scope value). Its `when` gate
+  // reads the same env view the selector does.
+  const execTemplate = settings.theta?.subagentPlacementExec;
+  const execPlacement =
+    execTemplate !== undefined
+      ? createExecPlacementBackend(execTemplate, {
+          runner: createProductionExecCommandRunner(),
+          env: controlPlaneEnv,
+          clock,
+        })
+      : undefined;
+  const selectPlacementNow = (): PlacementSelection =>
+    selectPlacement({
+      selector: placementSelector,
+      registered: passPlacementRegistration?.registry.snapshot() ?? [],
+      exec: execPlacement,
+      pipe: pipePlacement,
+    });
+  // The load-time verdict, once per pass (`detect()` is env-marker based and
+  // the registered set was just discovered).
+  const placementAtLoad = selectPlacementNow();
+  // RFC-0012 §6 (+ D6): the per-launch resolver — selection, the visible cap,
+  // the credential guard. `getProviderAuthStatus` is presence-probed
+  // (`typeof`, never called at probe time): a host without it, or an
+  // `AuthStatus` without `source`, leaves the guard inert (documented caveat).
+  const providerAuthStatus =
+    typeof (ctx.modelRegistry as { readonly getProviderAuthStatus?: unknown }).getProviderAuthStatus ===
+    "function"
+      ? (provider: string): { readonly source?: string } | undefined =>
+          ctx.modelRegistry.getProviderAuthStatus(provider)
+      : undefined;
+  const placementPolicy = createPlacementPolicy({
+    select: selectPlacementNow,
+    pipe: pipePlacement,
+    maxVisible: settings.theta?.subagentPlacementMaxVisible ?? DEFAULT_SUBAGENT_PLACEMENT_MAX_VISIBLE,
+    ...(providerAuthStatus !== undefined ? { providerAuthStatus } : {}),
+    // The credential-guard note is informational (no `details`, bug 0401's
+    // wire shape) on this instance's own `theta-system-note` channel.
+    emitSystemNote: (content: string): void => {
+      sendSystemNote({ content, display: true }, systemNote);
+    },
+  });
   // RFC-0012 §2/§3: the wire a non-`pipe` placement opens before `place()` —
   // the loopback result channel plus the launch file carrying its coordinates.
   const subagentOpenWire = createProductionSubagentWire({
@@ -1071,7 +1160,7 @@ async function runComposePass(
     // the executable-resolution host snapshot, the inherited parent
     // environment (full inheritance is the credential mechanism), and the
     // parent PID carried on the env marker.
-    subagentPlacement: (): SubagentPlacementBackend => pipePlacement,
+    subagentPlacement: placementPolicy,
     subagentOpenWire,
     subagentExecutableHost,
     subagentParentEnv: controlPlaneEnv,
@@ -1214,6 +1303,15 @@ async function runComposePass(
     // spawn, emitting the pinned diagnostic once per refused theta.
     if (input.frontmatter.mode === "subagent" && !subagentExecutableProbe.ok) {
       sink.emit(subagentExecutableProbe.diagnostic);
+      continue;
+    }
+    // RFC-0012 §6: an EXPLICIT placement selection that is not selectable
+    // refuses every theta that launches children — `mode: subagent`, or one
+    // declaring a `subagent fn` — fail-closed with
+    // `theta/load/subagent-placement-unavailable`, once per refused theta.
+    // Other prompt-mode thetas are unaffected; `auto` never reaches here.
+    if (!placementAtLoad.ok && thetaLaunchesChildren(input)) {
+      sink.emit(placementUnavailableDiagnostic(placementAtLoad, input.sourcePath ?? input.slashName));
       continue;
     }
     // V20a — resolve the `tools:` callable set against the shipped Pi tool
@@ -2055,6 +2153,7 @@ export async function composeExtensionInstance(
     inProcessTools,
     instanceControlPlane,
     resultChannel,
+    overrides?.subagentPlacementRegistration,
   );
 
   // The watched set: `watchRoots` (the file-derived active-root union unioned
@@ -2131,6 +2230,7 @@ export async function composeExtensionInstance(
             inProcessTools,
             instanceControlPlane,
             resultChannel,
+            overrides?.subagentPlacementRegistration,
           );
           // Bug 0312: record this pass's watch set (its resolved `.thetalib`
           // closure dirs already unioned in by `runComposePass`), plus the two
