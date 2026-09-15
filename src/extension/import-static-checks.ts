@@ -91,7 +91,11 @@ import {
 import { collectUnresolvedNamedTypes } from "../parser/body-type-lowering";
 import { collectLocalBinderNames } from "../parser/type-layer-checks";
 import { parseViaPassCache, type PassParseDeps } from "./pass-parse-cache";
-import { toSystemParamType, type ParsedFrontmatter } from "../parser/frontmatter";
+import {
+  toSystemParamType,
+  type FrontmatterBodyTypes,
+  type ParsedFrontmatter,
+} from "../parser/frontmatter";
 import type { SystemParamType, SystemTemplate } from "../parser/system-interpolation";
 import {
   enumDeclaringKey,
@@ -1347,6 +1351,16 @@ export async function checkThetaImports(
     // declaration is found by its source name, following the re-export chain
     // when the resolved lib's own body carries no matching declaration, and
     // bound under its local (`as`) name.
+    //
+    // PTQ-0331: `collectBodyTypes` over this decl's resolved library (below,
+    // bug 0422 route (a)) is a pure function of `(parsed.document.body.statements,
+    // resolvedPath)` alone, and neither varies across this specifier loop — so
+    // it is computed the first time a schema-importing specifier of THIS
+    // statement needs it and reused for the statement's remaining specifiers,
+    // in this Map keyed by resolved library path. Declared fresh per decl (not
+    // hoisted beside `parseCache`/`moduleScopeCache` above): no cross-statement
+    // sharing.
+    const libBodyTypesByPath = new Map<string, FrontmatterBodyTypes>();
     for (const specifier of specifiers) {
       // Bug 0138 route 2 / bug 0429 / bug 0430 / bug 0448: resolve the
       // specifier's SOURCE name against the directly-resolved library's own
@@ -1473,10 +1487,11 @@ export async function checkThetaImports(
       // resolve; a nested import stays `opaque-object`, admitting further —
       // unchanged from the parse-time disposition for that deeper case).
       if (schemaDecl !== undefined) {
-        const { bodyTypes: libBodyTypes } = collectBodyTypes(
-          parsed.document.body.statements,
-          resolvedPath,
-        );
+        let libBodyTypes = libBodyTypesByPath.get(resolvedPath);
+        if (libBodyTypes === undefined) {
+          libBodyTypes = collectBodyTypes(parsed.document.body.statements, resolvedPath).bodyTypes;
+          libBodyTypesByPath.set(resolvedPath, libBodyTypes);
+        }
         importedSchemaShapes.set(
           specifier.local,
           toSystemParamType(specifier.source, libBodyTypes, new Map()),
