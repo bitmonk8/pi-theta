@@ -69,7 +69,7 @@ const HANDLED_PROGRESS_FIELDS = {
 
 /** Attach the second stdout consumer beside the envelope scan (EXST-5).
  *  `child.onStdoutLine` is the makeLinePump fan-out Set
- *  (production-subagent-host.ts:328-360); the drive's own listener
+ *  (production-subagent-host.ts:284-313); the drive's own listener
  *  (subagent-json-driver.ts:162) is untouched. Returns the detach handle. */
 export function attachChildActivityTap(
   child: Pick<SubagentChildProcess, "onStdoutLine">,
