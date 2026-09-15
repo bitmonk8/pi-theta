@@ -44,6 +44,7 @@ import {
   type LaunchFileFs,
   type SubagentChildControlPlane,
 } from "../runtime/subagent-launch-file";
+import type { ExecCommandResult, ExecCommandRunner } from "../runtime/subagent-exec-placement";
 
 /**
  * Matches a path that lives inside a compiled binary's OWN embedded filesystem —
@@ -470,6 +471,59 @@ export function adaptChild(child: NodeChildLike): SubagentChildProcess {
     kill: (): void => {
       killChildTree(child);
     },
+  };
+}
+
+/**
+ * RFC-0012 §4. The production command runner the `exec` placement backend
+ * drives its `spawn` / `kill` templates through: `child_process.spawn` with
+ * `shell: false` (the template is an argv, never a shell string — the whole
+ * point of the `{argv}` element form), stdin closed, stdout/stderr collected
+ * whole, settled on `'close'`. An abort kills the launcher process (the
+ * backend's command bound elapsed) and the run rejects; a spawn `error`
+ * (launcher executable missing) rejects with the OS error.
+ */
+export function createProductionExecCommandRunner(): ExecCommandRunner {
+  return {
+    run: (argv, options): Promise<ExecCommandResult> =>
+      new Promise((resolve, reject) => {
+        const [command, ...args] = argv;
+        if (command === undefined) {
+          reject(new Error("exec placement template expanded to an empty argv"));
+          return;
+        }
+        const child = nodeSpawn(command, args, {
+          cwd: options.cwd,
+          env: { ...options.env },
+          shell: false,
+          stdio: ["ignore", "pipe", "pipe"],
+        });
+        let stdout = "";
+        let stderr = "";
+        child.stdout?.on("data", (chunk: unknown) => {
+          stdout += String(chunk);
+        });
+        child.stderr?.on("data", (chunk: unknown) => {
+          stderr += String(chunk);
+        });
+        const onAbort = (): void => {
+          killChildTree(child as unknown as NodeChildLike);
+          reject(new Error(`exec placement command aborted: ${command}`));
+        };
+        if (options.signal.aborted) {
+          onAbort();
+          return;
+        }
+        options.signal.addEventListener("abort", onAbort, { once: true });
+        child.on("error", (error: Error) => {
+          options.signal.removeEventListener("abort", onAbort);
+          reject(error);
+        });
+        child.on("close", (code, signal) => {
+          options.signal.removeEventListener("abort", onAbort);
+          resolve({ code, signal, stdout, stderr });
+        });
+      }),
   };
 }
 
