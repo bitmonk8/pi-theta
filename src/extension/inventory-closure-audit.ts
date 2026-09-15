@@ -344,6 +344,205 @@ function skipOuterWrappers(node: ts.Expression): ts.Expression {
 }
 
 /**
+ * Pass 1 (audit-recognised-shapes.md family (4)): recognise every
+ * non-exemptible out-of-scope shape reachable from `n` — import/export/
+ * dynamic-import shapes on an in-scope specifier, off-canonical parameter
+ * carriers, a destructured/wrapped/aliased carrier annotation, type-parameter
+ * constraint laundering, subtype creation, a non-parameter carrier binding,
+ * computed access, namespace destructuring, captured rebinding, an
+ * `Object.assign` spread, `keyof typeof`, and CJS `require`/`createRequire`
+ * reach — recursing via `ts.forEachChild`. `sf` is `n`'s source file (position
+ * / text lookups); `emitFamilyFour` is the per-file violation-emission
+ * callback `runInventoryClosureAudit` binds around
+ * `push`/`familyFourLines`/`recognised`. Invoked once per audited file, at
+ * that file's source-file root.
+ */
+function visitShapes(
+  n: ts.Node,
+  sf: ts.SourceFile,
+  emitFamilyFour: (pos: number, symptom: string, symbol: string) => void,
+): void {
+  if (ts.isImportDeclaration(n) && ts.isStringLiteral(n.moduleSpecifier)) {
+    const spec = n.moduleSpecifier.text;
+    if (isInScopeSpecifier(spec)) {
+      const ic = n.importClause;
+      if (!ic) {
+        emitFamilyFour(n.getStart(sf), "side-effect-import", n.getText(sf));
+      } else {
+        if (ic.name) emitFamilyFour(n.getStart(sf), "default-import", n.getText(sf));
+        if (ic.namedBindings && ts.isNamespaceImport(ic.namedBindings)) {
+          emitFamilyFour(n.getStart(sf), "namespace-import", n.getText(sf));
+        }
+        if (ic.namedBindings && ts.isNamedImports(ic.namedBindings)) {
+          for (const el of ic.namedBindings.elements) {
+            if (el.propertyName) {
+              emitFamilyFour(n.getStart(sf), "aliased-import", n.getText(sf));
+            }
+          }
+        }
+      }
+    }
+  }
+  if (ts.isExportDeclaration(n) && n.moduleSpecifier && ts.isStringLiteral(n.moduleSpecifier)) {
+    const spec = n.moduleSpecifier.text;
+    if (isInScopeSpecifier(spec)) {
+      if (!n.exportClause) {
+        emitFamilyFour(n.getStart(sf), "export-star", n.getText(sf));
+      } else if (ts.isNamespaceExport(n.exportClause)) {
+        emitFamilyFour(n.getStart(sf), "export-star", n.getText(sf));
+      } else if (ts.isNamedExports(n.exportClause)) {
+        for (const el of n.exportClause.elements) {
+          if (el.propertyName) {
+            emitFamilyFour(n.getStart(sf), "aliased-export", n.getText(sf));
+          }
+        }
+      }
+    }
+  }
+  // Dynamic import() of an in-scope package.
+  if (
+    ts.isCallExpression(n) &&
+    n.expression.kind === ts.SyntaxKind.ImportKeyword &&
+    n.arguments.length === 1
+  ) {
+    const arg = n.arguments[0];
+    if (arg && ts.isStringLiteral(arg) && isInScopeSpecifier(arg.text)) {
+      emitFamilyFour(n.getStart(sf), "dynamic-import", n.getText(sf));
+    }
+  }
+  // Off-canonical parameter carriers.
+  if (ts.isParameter(n) && ts.isIdentifier(n.name)) {
+    const name = n.name.text;
+    const ty = paramTypeText(n, sf);
+    if (name === "ctx" && (ty === null || !CTX_TYPES.has(ty))) {
+      emitFamilyFour(n.getStart(sf), "off-canonical-annotation-ctx", n.getText(sf));
+    } else if (name !== "ctx" && ty !== null && CTX_TYPES.has(ty)) {
+      emitFamilyFour(n.getStart(sf), "off-canonical-name-ctx", n.getText(sf));
+    }
+    if (name === "pi" && ty !== null && ty !== PI_TYPE) {
+      emitFamilyFour(n.getStart(sf), "off-canonical-annotation-pi", n.getText(sf));
+    } else if (name !== "pi" && ty === PI_TYPE) {
+      emitFamilyFour(n.getStart(sf), "off-canonical-name-pi", n.getText(sf));
+    }
+  }
+  // Destructured carrier parameter: `function f({ ui }: ExtensionContext)`.
+  if (ts.isParameter(n) && !ts.isIdentifier(n.name) && bareCarrierLiteral(n.type, sf) !== null) {
+    emitFamilyFour(n.getStart(sf), "destructured-carrier", n.getText(sf));
+  }
+  // Wrapped / intersected / union / generic-applied carrier annotation on a
+  // non-canonical-named parameter (canonical `pi`/`ctx` names route to the
+  // off-canonical-annotation arms above).
+  if (ts.isParameter(n) && ts.isIdentifier(n.name) && n.type !== undefined) {
+    const pname = n.name.text;
+    if (pname !== "pi" && pname !== "ctx" && bareCarrierLiteral(n.type, sf) === null) {
+      const wrapped = wrappedCarrierAnnotation(n.type, sf);
+      if (wrapped !== null) emitFamilyFour(n.getStart(sf), "wrapped-annotation", n.getText(sf));
+    }
+  }
+  // Type-parameter constraint laundering: `function wrap<C extends ExtensionContext>(c: C)`.
+  if (ts.isTypeParameterDeclaration(n) && bareCarrierLiteral(n.constraint, sf) !== null) {
+    emitFamilyFour(n.getStart(sf), "type-parameter-constraint", n.getText(sf));
+  }
+  // Subtype creation in extends / implements / & position, and pure carrier aliases.
+  if (subtypeCreationCarrier(n, sf) !== null) {
+    emitFamilyFour(n.getStart(sf), "subtype-creation", declHeadText(n, sf));
+  }
+  // Non-parameter carrier binding: a class field or `const`/`let`/`var`
+  // whose explicit annotation is the bare carrier literal (interface /
+  // object-type PROPERTY SIGNATURES are not `PropertyDeclaration`s and are
+  // out of this clause). `deps.pi` object-type carriage is unaffected.
+  if (
+    (ts.isPropertyDeclaration(n) || ts.isVariableDeclaration(n)) &&
+    bareCarrierLiteral(n.type, sf) !== null
+  ) {
+    emitFamilyFour(n.getStart(sf), "non-parameter-binding", n.getText(sf));
+  }
+  // Computed access `pi[..]` / `ctx[..]` on a canonical carrier identifier.
+  if (ts.isElementAccessExpression(n) && ts.isIdentifier(n.expression)) {
+    const recv = n.expression.text;
+    if ((recv === "pi" && inPiCarrier(n)) || (recv === "ctx" && inCtxCarrier(n))) {
+      emitFamilyFour(n.getStart(sf), "computed-access", n.getText(sf));
+    }
+  }
+  // Namespace destructuring `const { ui } = ctx` and whole-carrier value-binding
+  // aliases `const c = ctx` / `const api = pi` (initialiser is the bare carrier).
+  if (ts.isVariableDeclaration(n) && n.initializer !== undefined) {
+    const init = skipOuterWrappers(n.initializer);
+    const recv = ts.isIdentifier(init) ? init.text : "";
+    const inCarrier =
+      (recv === "pi" && inPiCarrier(init)) || (recv === "ctx" && inCtxCarrier(init));
+    if (inCarrier) {
+      if (ts.isObjectBindingPattern(n.name) || ts.isArrayBindingPattern(n.name)) {
+        emitFamilyFour(n.getStart(sf), "namespace-destructuring", n.getText(sf));
+      } else {
+        emitFamilyFour(n.getStart(sf), "captured-rebinding", n.getText(sf));
+      }
+    }
+  }
+  // Captured rebinding via `=` assignment of the bare carrier: `this.pi = pi`.
+  if (ts.isBinaryExpression(n) && n.operatorToken.kind === ts.SyntaxKind.EqualsToken) {
+    const rhs = skipOuterWrappers(n.right);
+    const recv = ts.isIdentifier(rhs) ? rhs.text : "";
+    if ((recv === "pi" && inPiCarrier(rhs)) || (recv === "ctx" && inCtxCarrier(rhs))) {
+      emitFamilyFour(n.getStart(sf), "captured-rebinding", n.getText(sf));
+    }
+  }
+  // `Object.assign(..., pi)` spread of a canonical carrier.
+  if (
+    ts.isCallExpression(n) &&
+    ts.isPropertyAccessExpression(n.expression) &&
+    ts.isIdentifier(n.expression.expression) &&
+    n.expression.expression.text === "Object" &&
+    n.expression.name.text === "assign"
+  ) {
+    for (const arg of n.arguments) {
+      if (
+        ts.isIdentifier(arg) &&
+        ((arg.text === "pi" && inPiCarrier(arg)) || (arg.text === "ctx" && inCtxCarrier(arg)))
+      ) {
+        emitFamilyFour(n.getStart(sf), "object-assign", n.getText(sf));
+        break;
+      }
+    }
+  }
+  // `keyof typeof pi` / `keyof typeof ctx` in a canonical carrier scope.
+  if (
+    ts.isTypeOperatorNode(n) &&
+    n.operator === ts.SyntaxKind.KeyOfKeyword &&
+    ts.isTypeQueryNode(n.type) &&
+    ts.isIdentifier(n.type.exprName)
+  ) {
+    const recv = n.type.exprName.text;
+    if ((recv === "pi" && inPiCarrier(n)) || (recv === "ctx" && inCtxCarrier(n))) {
+      emitFamilyFour(n.getStart(sf), "keyof-typeof", n.getText(sf));
+    }
+  }
+  // CJS reach: `require("<in-scope>")` and `createRequire(...)("<in-scope>")`.
+  // The `createRequire(...).resolve("<spec>")` path-read is carved out (its
+  // callee is a `.resolve` property access, matched by neither arm).
+  if (ts.isCallExpression(n)) {
+    const arg0 = n.arguments[0];
+    if (arg0 !== undefined && ts.isStringLiteral(arg0) && isInScopeSpecifier(arg0.text)) {
+      const bareRequire = ts.isIdentifier(n.expression) && n.expression.text === "require";
+      // `createRequire(...)("<spec>")` and `M.createRequire(...)("<spec>")` —
+      // the callee is a call whose OWN callee names `createRequire` (bare or
+      // via a `module` namespace import). Aliased-binding indirection needs
+      // data-flow and is the spec's type-aware MAY, out of this static arm.
+      const createRequireCall =
+        ts.isCallExpression(n.expression) &&
+        ((ts.isIdentifier(n.expression.expression) &&
+          n.expression.expression.text === "createRequire") ||
+          (ts.isPropertyAccessExpression(n.expression.expression) &&
+            n.expression.expression.name.text === "createRequire"));
+      if (bareRequire || createRequireCall) {
+        emitFamilyFour(n.getStart(sf), "cjs-require", n.getText(sf));
+      }
+    }
+  }
+  ts.forEachChild(n, (c) => visitShapes(c, sf, emitFamilyFour));
+}
+
+/**
  * Run the inventory-closure audit over an in-memory audited source tree.
  *
  * A static-AST walker (no TypeScript program load): each file is parsed with
@@ -435,187 +634,7 @@ export function runInventoryClosureAudit(input: AuditInput): AuditResult {
     };
 
     // ---- Pass 1: family-(4) shapes (import/export/param shapes). ----
-    const visitShapes = (n: ts.Node): void => {
-      if (ts.isImportDeclaration(n) && ts.isStringLiteral(n.moduleSpecifier)) {
-        const spec = n.moduleSpecifier.text;
-        if (isInScopeSpecifier(spec)) {
-          const ic = n.importClause;
-          if (!ic) {
-            emitFamilyFour(n.getStart(sf), "side-effect-import", n.getText(sf));
-          } else {
-            if (ic.name) emitFamilyFour(n.getStart(sf), "default-import", n.getText(sf));
-            if (ic.namedBindings && ts.isNamespaceImport(ic.namedBindings)) {
-              emitFamilyFour(n.getStart(sf), "namespace-import", n.getText(sf));
-            }
-            if (ic.namedBindings && ts.isNamedImports(ic.namedBindings)) {
-              for (const el of ic.namedBindings.elements) {
-                if (el.propertyName) {
-                  emitFamilyFour(n.getStart(sf), "aliased-import", n.getText(sf));
-                }
-              }
-            }
-          }
-        }
-      }
-      if (ts.isExportDeclaration(n) && n.moduleSpecifier && ts.isStringLiteral(n.moduleSpecifier)) {
-        const spec = n.moduleSpecifier.text;
-        if (isInScopeSpecifier(spec)) {
-          if (!n.exportClause) {
-            emitFamilyFour(n.getStart(sf), "export-star", n.getText(sf));
-          } else if (ts.isNamespaceExport(n.exportClause)) {
-            emitFamilyFour(n.getStart(sf), "export-star", n.getText(sf));
-          } else if (ts.isNamedExports(n.exportClause)) {
-            for (const el of n.exportClause.elements) {
-              if (el.propertyName) {
-                emitFamilyFour(n.getStart(sf), "aliased-export", n.getText(sf));
-              }
-            }
-          }
-        }
-      }
-      // Dynamic import() of an in-scope package.
-      if (
-        ts.isCallExpression(n) &&
-        n.expression.kind === ts.SyntaxKind.ImportKeyword &&
-        n.arguments.length === 1
-      ) {
-        const arg = n.arguments[0];
-        if (arg && ts.isStringLiteral(arg) && isInScopeSpecifier(arg.text)) {
-          emitFamilyFour(n.getStart(sf), "dynamic-import", n.getText(sf));
-        }
-      }
-      // Off-canonical parameter carriers.
-      if (ts.isParameter(n) && ts.isIdentifier(n.name)) {
-        const name = n.name.text;
-        const ty = paramTypeText(n, sf);
-        if (name === "ctx" && (ty === null || !CTX_TYPES.has(ty))) {
-          emitFamilyFour(n.getStart(sf), "off-canonical-annotation-ctx", n.getText(sf));
-        } else if (name !== "ctx" && ty !== null && CTX_TYPES.has(ty)) {
-          emitFamilyFour(n.getStart(sf), "off-canonical-name-ctx", n.getText(sf));
-        }
-        if (name === "pi" && ty !== null && ty !== PI_TYPE) {
-          emitFamilyFour(n.getStart(sf), "off-canonical-annotation-pi", n.getText(sf));
-        } else if (name !== "pi" && ty === PI_TYPE) {
-          emitFamilyFour(n.getStart(sf), "off-canonical-name-pi", n.getText(sf));
-        }
-      }
-      // Destructured carrier parameter: `function f({ ui }: ExtensionContext)`.
-      if (ts.isParameter(n) && !ts.isIdentifier(n.name) && bareCarrierLiteral(n.type, sf) !== null) {
-        emitFamilyFour(n.getStart(sf), "destructured-carrier", n.getText(sf));
-      }
-      // Wrapped / intersected / union / generic-applied carrier annotation on a
-      // non-canonical-named parameter (canonical `pi`/`ctx` names route to the
-      // off-canonical-annotation arms above).
-      if (ts.isParameter(n) && ts.isIdentifier(n.name) && n.type !== undefined) {
-        const pname = n.name.text;
-        if (pname !== "pi" && pname !== "ctx" && bareCarrierLiteral(n.type, sf) === null) {
-          const wrapped = wrappedCarrierAnnotation(n.type, sf);
-          if (wrapped !== null) emitFamilyFour(n.getStart(sf), "wrapped-annotation", n.getText(sf));
-        }
-      }
-      // Type-parameter constraint laundering: `function wrap<C extends ExtensionContext>(c: C)`.
-      if (ts.isTypeParameterDeclaration(n) && bareCarrierLiteral(n.constraint, sf) !== null) {
-        emitFamilyFour(n.getStart(sf), "type-parameter-constraint", n.getText(sf));
-      }
-      // Subtype creation in extends / implements / & position, and pure carrier aliases.
-      if (subtypeCreationCarrier(n, sf) !== null) {
-        emitFamilyFour(n.getStart(sf), "subtype-creation", declHeadText(n, sf));
-      }
-      // Non-parameter carrier binding: a class field or `const`/`let`/`var`
-      // whose explicit annotation is the bare carrier literal (interface /
-      // object-type PROPERTY SIGNATURES are not `PropertyDeclaration`s and are
-      // out of this clause). `deps.pi` object-type carriage is unaffected.
-      if (
-        (ts.isPropertyDeclaration(n) || ts.isVariableDeclaration(n)) &&
-        bareCarrierLiteral(n.type, sf) !== null
-      ) {
-        emitFamilyFour(n.getStart(sf), "non-parameter-binding", n.getText(sf));
-      }
-      // Computed access `pi[..]` / `ctx[..]` on a canonical carrier identifier.
-      if (ts.isElementAccessExpression(n) && ts.isIdentifier(n.expression)) {
-        const recv = n.expression.text;
-        if ((recv === "pi" && inPiCarrier(n)) || (recv === "ctx" && inCtxCarrier(n))) {
-          emitFamilyFour(n.getStart(sf), "computed-access", n.getText(sf));
-        }
-      }
-      // Namespace destructuring `const { ui } = ctx` and whole-carrier value-binding
-      // aliases `const c = ctx` / `const api = pi` (initialiser is the bare carrier).
-      if (ts.isVariableDeclaration(n) && n.initializer !== undefined) {
-        const init = skipOuterWrappers(n.initializer);
-        const recv = ts.isIdentifier(init) ? init.text : "";
-        const inCarrier =
-          (recv === "pi" && inPiCarrier(init)) || (recv === "ctx" && inCtxCarrier(init));
-        if (inCarrier) {
-          if (ts.isObjectBindingPattern(n.name) || ts.isArrayBindingPattern(n.name)) {
-            emitFamilyFour(n.getStart(sf), "namespace-destructuring", n.getText(sf));
-          } else {
-            emitFamilyFour(n.getStart(sf), "captured-rebinding", n.getText(sf));
-          }
-        }
-      }
-      // Captured rebinding via `=` assignment of the bare carrier: `this.pi = pi`.
-      if (ts.isBinaryExpression(n) && n.operatorToken.kind === ts.SyntaxKind.EqualsToken) {
-        const rhs = skipOuterWrappers(n.right);
-        const recv = ts.isIdentifier(rhs) ? rhs.text : "";
-        if ((recv === "pi" && inPiCarrier(rhs)) || (recv === "ctx" && inCtxCarrier(rhs))) {
-          emitFamilyFour(n.getStart(sf), "captured-rebinding", n.getText(sf));
-        }
-      }
-      // `Object.assign(..., pi)` spread of a canonical carrier.
-      if (
-        ts.isCallExpression(n) &&
-        ts.isPropertyAccessExpression(n.expression) &&
-        ts.isIdentifier(n.expression.expression) &&
-        n.expression.expression.text === "Object" &&
-        n.expression.name.text === "assign"
-      ) {
-        for (const arg of n.arguments) {
-          if (
-            ts.isIdentifier(arg) &&
-            ((arg.text === "pi" && inPiCarrier(arg)) || (arg.text === "ctx" && inCtxCarrier(arg)))
-          ) {
-            emitFamilyFour(n.getStart(sf), "object-assign", n.getText(sf));
-            break;
-          }
-        }
-      }
-      // `keyof typeof pi` / `keyof typeof ctx` in a canonical carrier scope.
-      if (
-        ts.isTypeOperatorNode(n) &&
-        n.operator === ts.SyntaxKind.KeyOfKeyword &&
-        ts.isTypeQueryNode(n.type) &&
-        ts.isIdentifier(n.type.exprName)
-      ) {
-        const recv = n.type.exprName.text;
-        if ((recv === "pi" && inPiCarrier(n)) || (recv === "ctx" && inCtxCarrier(n))) {
-          emitFamilyFour(n.getStart(sf), "keyof-typeof", n.getText(sf));
-        }
-      }
-      // CJS reach: `require("<in-scope>")` and `createRequire(...)("<in-scope>")`.
-      // The `createRequire(...).resolve("<spec>")` path-read is carved out (its
-      // callee is a `.resolve` property access, matched by neither arm).
-      if (ts.isCallExpression(n)) {
-        const arg0 = n.arguments[0];
-        if (arg0 !== undefined && ts.isStringLiteral(arg0) && isInScopeSpecifier(arg0.text)) {
-          const bareRequire = ts.isIdentifier(n.expression) && n.expression.text === "require";
-          // `createRequire(...)("<spec>")` and `M.createRequire(...)("<spec>")` —
-          // the callee is a call whose OWN callee names `createRequire` (bare or
-          // via a `module` namespace import). Aliased-binding indirection needs
-          // data-flow and is the spec's type-aware MAY, out of this static arm.
-          const createRequireCall =
-            ts.isCallExpression(n.expression) &&
-            ((ts.isIdentifier(n.expression.expression) &&
-              n.expression.expression.text === "createRequire") ||
-              (ts.isPropertyAccessExpression(n.expression.expression) &&
-                n.expression.expression.name.text === "createRequire"));
-          if (bareRequire || createRequireCall) {
-            emitFamilyFour(n.getStart(sf), "cjs-require", n.getText(sf));
-          }
-        }
-      }
-      ts.forEachChild(n, visitShapes);
-    };
-    visitShapes(sf);
+    visitShapes(sf, sf, emitFamilyFour);
 
     // ---- Pass 3: collect category-(1)/(2)/(3) references (emitted in pass 4). ----
     interface Ref {
