@@ -4,6 +4,15 @@
 - **Scope:** theta 1.x language surface (governed by
   `../spec_topics/governance/release-version-naming.md`)
 - **Affects:** grammar, type system, runtime dispatch, diagnostics
+- **Amended by:** [RFC 0012 §10](./0012-configurable-subagent-placement.md)
+  — the body no longer runs in-process against an off-session conversation;
+  each call spawns a child `pi` process of the calling theta under a *fn
+  entry* of the subagent launch contract. The observable semantics below
+  (isolation, by-value arguments, typed `Result` return, query targeting,
+  depth accounting, `prompt → subagent` callability) are unchanged; "the
+  evaluator's current session switches on entry and restores on return" is
+  superseded by the child launch, and the call-site `with { cwd }` clause is
+  admitted on a `subagent fn` call (RFC 0009 Erratum B).
 
 ## Summary
 

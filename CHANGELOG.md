@@ -4,6 +4,74 @@ All notable changes to `@bitmonk8/pi-theta` will be documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.475.0]
+
+### Added
+- **Configurable subagent placement** ([RFC 0012](./docs/rfcs/0012-configurable-subagent-placement.md),
+  accepted). A **placement-backend seam** separates where a subagent child
+  runs from what it receives and returns: `SubagentPlacementBackend`,
+  `PlacedChild`, `SubagentPlacementRequest`
+  (`src/runtime/subagent-placement.ts`; companion import path
+  `@bitmonk8/pi-theta/src/runtime/subagent-placement`). Two built-in
+  backends: `pipe` (default, byte-identical to the previous launch) and
+  `exec` (`src/runtime/subagent-exec-placement.ts`), an operator-supplied
+  argv template honoured from the global settings file only. Extensions
+  register further backends over `pi.events`
+  (`pi-theta:subagent-placement:discover:v1` /
+  `pi-theta:subagent-placement:offer:v1`,
+  `src/runtime/subagent-placement-registry.ts`). Selection via the settings
+  keys `theta.subagentPlacement` / `theta.subagentPlacementMaxVisible` /
+  `theta.subagentPlacementExec` (global-only) and the one-run env override
+  `PI_THETA_SUBAGENT_PLACEMENT`. A non-`pipe` placement carries its control
+  plane on a parent-private **launch file** (`--theta-launch <path>`,
+  `src/runtime/subagent-launch-file.ts`) and its result on a loopback
+  channel with a hello-token gate, heartbeat and stderr frames
+  (`src/runtime/subagent-result-channel.ts`,
+  `src/extension/production-result-channel.ts`). A visible child launches as
+  an interactive TUI (`--name <label> [--no-session] "/<slug>"`), calls
+  `ctx.shutdown()` after an `Ok` envelope, and lingers on `Err`. The
+  execution-status bus gains a `placement` field and heartbeat-only liveness
+  under a visible placement. A credential guard (D6) falls back a
+  child with `inheritsEnv: false` to `pipe` when the resolved provider's
+  credential lives only in the parent's environment, emitting one
+  `theta-system-note`. Two new load diagnostics:
+  `theta/load/subagent-placement-unavailable` (E),
+  `theta/load/subagent-placement-invalid` (W). The return envelope gains the
+  optional `fn_tail` sidecar for fn-entry calls.
+
+### Changed
+- `subagent fn` bodies (FN-6/FN-7/FN-9; PIC-58/59/60/64 amended) now run in a
+  spawned child of the calling theta under a *fn entry* —
+  `PI_THETA_SUBAGENT_ENTRY` under `pipe`, the launch file under every other
+  placement — rather than in-process. A `subagent fn`'s arguments are
+  AJV-checked per typed parameter at child intake and its return validated
+  against `): T` at the boundary. FN-7 `system` is honoured and rendered
+  against the calling invocation's params.
+- **RFC 0009 Erratum B** — call-site `with { cwd }` is now admitted on a
+  `subagent fn` call, the third clause-bearing surface:
+  `checkImportedWithClauseCallees` runs after import materialisation, and a
+  `.thetalib` parse admits a library's own top-level `subagent fn`s.
+  `theta/parse/with-clause-in-process-callee`'s Trigger is edited
+  accordingly.
+- PIC-64's accepted prompt-mode dispatch cost no longer reaches a
+  `subagent fn` body — its code-side calls dispatch inside its own spawned
+  child's private session.
+- Spec pages amended: `subagent.md`, `functions.md`, `invocation.md`,
+  `grammar.md`, `capability-probe.md`, `registration-steps.md`,
+  `capability-inventory-items.md`, `package-and-settings.md`,
+  `execution-status.md`, `implementation-notes.md`,
+  `runtime-event-channel.md`, `host-interfaces-core.md`,
+  `code-registry-parse.md`, `code-registry-load.md`, plus their reference
+  mirrors and the new how-to,
+  [`place-subagents-in-a-multiplexer.md`](./docs/how-to/place-subagents-in-a-multiplexer.md).
+
+### Removed
+- The in-process `subagent fn` drive: `OffSessionQueryModel`,
+  `#spawnSubagentFnSession`, and their off-session forced-respond siblings
+  (RFC 0012 §D4, no fallback). The four `off-session-*` / b0291 / b0327
+  offline suites are retired; their surviving contracts are witnessed on the
+  live prompt driver's own suites.
+
 ## [0.474.0]
 
 ### Fixed

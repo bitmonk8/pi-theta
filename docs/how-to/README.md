@@ -38,6 +38,13 @@ mental model read the [Guide](../guide.md); for the first end-to-end run, the
   `par for` with the per-call `with { cwd }` clause to run fixers in disjoint
   git worktrees, then integrate the results sequentially.
 
+## Operating subagents
+
+- [Place subagents in a multiplexer](./place-subagents-in-a-multiplexer.md) —
+  configure `theta.subagentPlacement` to run children in tmux/Zellij panes or
+  a backend package instead of headless, and know the visible cap and
+  credential caveat.
+
 ## Watching and reporting live progress
 
 - [Watch a running theta](./watch-a-running-theta.md) — read the footer

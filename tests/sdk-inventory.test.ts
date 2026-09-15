@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { FACTORY_PROBABLE_CAPABILITIES } from "../src/extension/capability-probe";
 import {
   CAPABILITY_OBLIGATIONS,
+  OPTIONAL_UI_CAPABILITIES,
   SDK_SURFACE_INVENTORY,
   type SurfaceEntryKind,
 } from "../src/extension/sdk-inventory";
@@ -126,5 +127,43 @@ describe("SDK surface inventory — pi.getAllTools as a factory-probable namespa
     // does not move.
     expect(CAPABILITY_OBLIGATIONS.length).toBe(7);
     expect([...FACTORY_PROBABLE_CAPABILITIES]).toEqual([1, 2, 4, 6]);
+  });
+});
+
+// ===========================================================================
+// RFC 0012 — the placement feature's optional-class presence rows and the
+// `--theta-launch` flag's readers. Spec: capability-probe.md PIC-73 (the three
+// RFC-0012 members carry the degrade-silent semantics WITHOUT joining
+// `OPTIONAL_UI_CAPABILITIES`, which stays the five-member UI/entry list);
+// host-interfaces-core.md #model-registry-pin (`getProviderAuthStatus` is a
+// consumption posture, not a gate); subagent.md #subagent-host-cli-dialect
+// (`ctx.shutdown` after `Ok` in a visible child); registration-steps.md step 1
+// (`--theta-launch` beside `--theta`, read with `pi.getFlag`).
+// ===========================================================================
+
+describe("SDK surface inventory — RFC 0012 presence rows (pi.events / getProviderAuthStatus / ctx.shutdown) and the flag readers", () => {
+  it("pi.events is ONE pi-member presence row — a record, never a gate: it joins neither CAPABILITY_OBLIGATIONS nor OPTIONAL_UI_CAPABILITIES", () => {
+    const rows = SDK_SURFACE_INVENTORY.filter((entry) => entry.id === "pi.events");
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.kind).toBe("pi-member");
+    expect(CAPABILITY_OBLIGATIONS.length).toBe(7);
+    expect(OPTIONAL_UI_CAPABILITIES).toHaveLength(5);
+    expect(OPTIONAL_UI_CAPABILITIES).not.toContain("pi.events");
+  });
+
+  it("ctx.modelRegistry.getProviderAuthStatus and ctx.shutdown are ctx-member presence rows, outside the five-member OPTIONAL_UI_CAPABILITIES list", () => {
+    const byId = new Map(SDK_SURFACE_INVENTORY.map((e) => [e.id, e]));
+    for (const id of ["ctx.modelRegistry.getProviderAuthStatus", "ctx.shutdown"]) {
+      expect(byId.get(id)?.kind, id).toBe("ctx-member");
+      expect(OPTIONAL_UI_CAPABILITIES, id).not.toContain(id);
+    }
+  });
+
+  it("pi.registerFlag / pi.getFlag stay the two namespace-function readers the `--theta-launch` sibling flag rides — no new flag surface is minted", () => {
+    const byId = new Map(SDK_SURFACE_INVENTORY.map((e) => [e.id, e]));
+    expect(byId.get("pi.registerFlag")?.kind).toBe("namespace-function");
+    expect(byId.get("pi.getFlag")?.kind).toBe("namespace-function");
+    // The flag itself is pi-theta's, not a Pi surface: no inventory row names it.
+    expect(SDK_SURFACE_INVENTORY.some((entry) => /theta-launch/.test(entry.id))).toBe(false);
   });
 });

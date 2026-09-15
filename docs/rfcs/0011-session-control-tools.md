@@ -9,10 +9,14 @@
   touched-member inventory, load/parse diagnostics (two new codes), the
   post-compaction transcript readers, docs
 - **Depends on:** [RFC 0012](./0012-configurable-subagent-placement.md),
-  which lands first (Decision log, D2). After it every subagent body — a
-  `.theta` callee *and* an inline `subagent fn` body — runs as the root
-  invocation of its own child process with its own session, which is what
-  lets the tools be admitted inside `subagent fn` bodies (§6).
+  which landed first (Decision log, D2; accepted, `0.475.0`). After it every
+  subagent body — a `.theta` callee *and* an inline `subagent fn` body —
+  runs as the root invocation of its own child process with its own session,
+  which is what lets the tools be admitted inside `subagent fn` bodies (§6).
+  The precondition is discharged: `driveSubagentRootRegime`'s fn entry
+  (`#driveSubagentFnEntry`, `src/extension/production-theta-producer.ts`)
+  binds the body's own session, so the isolated-body rejection this RFC mints
+  covers `par for` bodies only.
 
 ## Summary
 

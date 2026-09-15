@@ -224,9 +224,13 @@ live host session in prompt mode — running deterministically with the
 code-supplied arguments and zero model tokens. In prompt mode each code-side
 call appends a fabricated user message plus tool-call and tool-result cards to
 the user's own transcript and switches the session model twice — the
-documented, accepted cost of the zero-token code channel; a code-side call
-inside a `subagent fn` inline body carries the same cost (the body's isolation
-covers its own conversation, not the dispatch channel); see [How to use an
+documented, accepted cost of the zero-token code channel. A `subagent fn`
+inline body (Functions — FN-6) is not a third context that shares the parent's
+session: each call runs in its own spawned child `pi` process of the calling
+theta, so a code-side call inside that body dispatches inside the child's own
+private, discarded session — the prompt-mode transcript cost above does NOT
+reach the parent's live session, whatever the mode of the theta that declares
+the `subagent fn`; see [How to use an
 extension tool from prompt mode](../how-to/use-an-extension-tool-from-prompt-mode.md).
 An `as` rename on a Pi-tool entry is presentation-side only: it renames the
 theta-side callable (the name theta code calls and the snapshot key), while the

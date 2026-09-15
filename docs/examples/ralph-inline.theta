@@ -12,9 +12,11 @@ schema Progress {
   summary: string
 }
 
-// The per-round worker, inline. `subagent fn` makes each call spawn a fresh,
-// isolated session — the `@` query below targets that spawned session, not this
-// theta's conversation, so every round starts clean. The `with { … }` clause
+// The per-round worker, inline. Each call spawns a fresh child `pi` process of
+// this theta — the body runs there, never in this process — so every round
+// starts clean and each round pays a process-startup cost (order of seconds)
+// on top of its model time. The `@` query below targets that spawned session,
+// not this theta's conversation. The `with { … }` clause
 // overrides two session-config keys for the spawned session: it narrows the tools
 // and sets a private system prompt. Keys omitted from `with` (model, tool_loop,
 // respond_repair) still inherit from this theta's frontmatter.

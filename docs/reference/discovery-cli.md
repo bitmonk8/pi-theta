@@ -22,7 +22,11 @@ Discovery is **non-recursive** and matches only `*.theta` (byte-exact lowercase:
 `Plan.THETA` never matches on any platform). `.thetalib` library files are never
 discovered as slash commands — reached only via `import`. The `.theta`/`.thetalib`
 extensions, the `pi.theta` manifest key, the `thetaPaths` settings array, and the
-`--theta` flag are all coined by this extension, not by Pi.
+`--theta` flag are all coined by this extension, not by Pi. `--theta-launch <path>`
+is also coined by this extension — **INTERNAL**: written by the parent launcher
+for a non-`pipe` [placement](../spec_topics/pi-integration-contract/subagent.md#subagent-placement)
+only, never by an operator; read child-side once, then deleted. Provenance:
+`subagent.md` `#subagent-control-plane-authentication`.
 
 **Home-directory expansion (DISC-1).** A leading `~/` is expanded via the
 `FileSystem` seam's `homedir()`; the `~user` form is not honoured.
@@ -136,8 +140,8 @@ files are optional); present but unreadable → `theta/load/settings-unreadable`
 `theta/load/settings-invalid-json`; valid JSON whose root is not an object →
 `theta/load/settings-value-out-of-range` (once, root rendered `(root)`).
 
-Keys read (six): `thetaPaths` (top-level `string[]`), and five scalars under
-`theta`:
+Keys read (nine): `thetaPaths` (top-level `string[]`), and seven scalars plus one
+object under `theta`:
 
 - `theta.binderModel` — non-empty string; binder fallback when `bind_model:` is
   omitted. Required when any non-bypass theta is in scope (else
@@ -156,12 +160,42 @@ Keys read (six): `thetaPaths` (top-level `string[]`), and five scalars under
   written by the runtime; the session-scoped `/theta-status
   off|min|tree` command adjusts the live view shape only and never persists.
   Provenance: `execution-status.md` EXST-10/EXST-11, EXST-13…EXST-15 (RFC 0010).
+- `theta.subagentPlacement` — string, default `"auto"`; one of `auto | pipe |
+  exec | <registered name>`. Selects where a subagent child runs (see
+  [Subagent — Placement](../spec_topics/pi-integration-contract/subagent.md#subagent-placement)).
+  `PI_THETA_SUBAGENT_PLACEMENT` in the parent's environment overrides the
+  setting for one run. An explicit value that is not selectable — not a
+  registered backend name, a registered backend whose `detect()` is false or
+  throws, `exec` with no global template, or a name outside the placement-name
+  grammar — refuses every `mode: subagent` theta and every theta declaring a
+  top-level `subagent fn` at load with `theta/load/subagent-placement-unavailable`;
+  `auto` never refuses.
+- `theta.subagentPlacementMaxVisible` — integer ≥ 0, default `8`. The visible
+  cap: while that many placed children are live, further launches use `pipe`
+  regardless of selection.
+- `theta.subagentPlacementExec` — object, the `exec` placement template
+  `{ spawn: string[], kill?: string[], when?: { env: string }, env?: "inherit"
+  | "none" }`. **Global settings file only** — a value in the project-local
+  file is ignored with `theta/load/settings-invalid-entry` (a checked-out
+  repository must not be able to make a theta run an arbitrary command). A
+  malformed global template is `theta/load/settings-value-out-of-range` with
+  `details.reason` naming the fault, and treated as absent.
 
 Unknown `thetas.*` keys are ignored without diagnostic. A recognised scalar whose
 value fails its type/range is treated as absent and logged
 `theta/load/settings-value-out-of-range` (error, non-fatal, per key per file);
 `null` is out of range for every key; integer-ness is judged on the parsed value
 (`2000.0` accepted, `25.5` not).
+
+**Scalar-key validation (additions).** `theta.subagentPlacement` — a string
+matching `^[a-z][a-z0-9-]{0,31}$` (which covers `auto`, `pipe`, `exec`);
+whether the named placement is selectable is a load-time question, not a
+settings-shape one. `theta.subagentPlacementMaxVisible` — an integer ≥ 0.
+`theta.subagentPlacementExec` — an object with a non-empty `spawn` string
+array containing exactly one `{argv}` element, an optional non-empty `kill`
+string array, an optional `when` object whose `env` is a non-empty string, an
+optional `env` of `"inherit"` or `"none"`, and no other key (a project-local
+value is `theta/load/settings-invalid-entry`, not out of range).
 
 **`thetaPaths` entry schema.** `string[]`; each entry a file or directory path
 (non-string → `theta/load/settings-invalid-entry`, error, per entry). Paths in

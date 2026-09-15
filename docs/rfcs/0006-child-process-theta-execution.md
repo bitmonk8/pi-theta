@@ -1,6 +1,13 @@
 # RFC 0006 — Child-process theta execution (remote theta)
 
 - **Status:** accepted
+- **Extended by:** [RFC 0012](./0012-configurable-subagent-placement.md) —
+  the child launch this RFC designs gains a placement-backend seam (where the
+  child runs: the parent's process tree, an operator command, a multiplexer
+  pane), a launch file and loopback result channel for placements that
+  inherit neither env nor stdout, and a *fn entry* so that `subagent fn`
+  bodies (RFC 0001) also run as children of this architecture. The contract
+  this RFC pins is unchanged under the default `pipe` placement.
 - **Depends on:** [RFC 0005 — Child-process subagent sessions](./0005-child-process-subagent-sessions.md)
   (process-launch, teardown, probe, and diagnostics machinery; this RFC
   reuses all of it and retires only the RPC drive contract — see

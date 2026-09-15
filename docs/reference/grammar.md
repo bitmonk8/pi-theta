@@ -512,11 +512,11 @@ CallWithField  ::= CallWithKey ":" Expr
 CallWithKey    ::= "cwd"                                                   // closed set in theta 1.3
 ```
 
-A postfix clause on the two clause-bearing call surfaces — a `.theta`-callable
-call through `tools:`, and `invoke(path, args…)` / `invoke<T>(path, args…)`.
-Every other callee rejects the clause at parse time (a Pi-tool call draws
-`theta/parse/with-clause-pi-tool`; any other callee — a `subagent fn`, a plain
-or imported `fn`, a `.thetalib`-body call — draws
+A postfix clause on the three clause-bearing call surfaces — a `.theta`-callable
+call through `tools:`, `invoke(path, args…)` / `invoke<T>(path, args…)`, and a
+`subagent fn` call ([Functions — FN-6](../spec_topics/functions.md#fn-6); RFC
+0009 Erratum B, theta 1.4). Every other callee rejects the clause at parse
+time (a Pi-tool call draws `theta/parse/with-clause-pi-tool`; a plain or imported non-`subagent` `fn` call, or a `.thetalib`-body call on anything other than the library's own top-level `subagent fn`s draws
 `theta/parse/with-clause-in-process-callee`: the callee runs in-process and
 spawns no child process). Attaches immediately after the call's closing `)`, before any other
 postfix operator (`.`, `[`, method-call, `?`): in `f(a) with { cwd: t }?` the

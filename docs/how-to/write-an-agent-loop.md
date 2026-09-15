@@ -43,7 +43,9 @@ a single file's `@` queries all append to one growing conversation; see
 [`docs/examples/ralph-inline.theta`](../examples/ralph-inline.theta) is the whole
 loop in one file. The `subagent fn step` is the per-round worker: each call spawns
 a fresh isolated session, does one task toward the objective, and returns a typed
-`Progress`. State lives on disk (the files it edits, the commits it makes), not in
+`Progress`. Each round is a child process (RFC 0012 §10) — the per-round
+startup cost is the price of a clean context and of one execution model. State
+lives on disk (the files it edits, the commits it makes), not in
 any conversation. The `with { … }` clause overrides two session-config keys for
 the spawned session — it narrows the tools and sets a private system prompt —
 while the keys it omits (`model`, `tool_loop`, `respond_repair`) still inherit

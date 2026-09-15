@@ -10,6 +10,13 @@
   subagent stdout wire (L3), the settings key set, SLSH-2's privacy pin, docs
 - **Sibling:** [RFC 0007](./0007-print-mode-observability.md) covers the
   headless *failure* surface; this RFC covers *live progress* in the TUI.
+- **Amended by:** [RFC 0012 §7](./0012-configurable-subagent-placement.md) —
+  under a non-`pipe` placement the L2 child tap reads the result channel's
+  frame stream instead of the child's stdout, and under a *visible* placement
+  (the child's stdout is a TTY) it degrades to heartbeat liveness plus a
+  `placement` field on the invocation node (`live in <backend> <handle>`);
+  the L3 `theta_progress` line rides the channel there. A `subagent fn` call
+  is tapped as its own child.
 - **Sequencing:** after the 0469/0470/0471 regression pass (bug 0471 shipped
   0.465.0; bug 0469 stays open with its principled fix carried by this RFC's
   L1) and after [RFC 0009](./0009-per-call-subagent-cwd.md) (parallel fan-out
