@@ -9,7 +9,8 @@
 //     `theta/load/unresolvable-thetalib-path` and the importing theta does NOT
 //     register.
 //   - IMP-3 — `computeThetaLibExports` over the resolved `.thetalib`'s top-level forms,
-//     then `checkImportedSymbols` against the importing specifiers
+//     then `checkImportUnknownSymbols` / `checkImportNameCollisions` against the
+//     importing specifiers
 //     (`theta/parse/import-unknown-symbol` / `theta/parse/import-name-collision`).
 //   - IMP-4 — the resolved `.thetalib` is parsed through `parseThetaDocument`, whose
 //     `.thetalib`-keyed top-level check emits `theta/parse/thetalib-top-level-statement`;
@@ -33,7 +34,10 @@
 //     edge whose `source` is absent from that settled set draws one
 //     `theta/parse/import-unknown-symbol` over the SPECIFIER (that code names one
 //     symbol), sited on the re-exporting lib and reaching the importing theta
-//     through the same registration-error arm as IMP-4. Diagnosing only after
+//     through the same registration-error arm as IMP-4; in the same diagnose
+//     phase, a re-exported name whose chains resolve to two different declaring
+//     sites draws `theta/parse/import-name-collision` (bug 0334,
+//     `diagnoseReExportCollisions`). Diagnosing only after
 //     the fixpoint settles is what makes the answer a function of the
 //     `.thetalib` file set alone — never of the entry lib or the order an
 //     importing file names its imports — which is the guarantee imports.md
@@ -544,7 +548,7 @@ export interface ThetaImportCheck {
    * walk reached (`walked` below) — the SAME closure IMP-5's cycle check and
    * the re-export fixpoint already traverse, surfaced so a caller can widen a
    * watch set to cover a `.thetalib` that resolves outside every discovery
-   * root (`../lib/x.thetalib`, imports.md:19's blessed form). Empty for a
+   * root (`../lib/x.thetalib`, the imports.md §"Path resolution" form). Empty for a
    * theta with no top-level `import` or no source path, matching `imports`
    * and `diagnostics` in that case.
    */
@@ -600,7 +604,8 @@ export interface ThetaImportCheck {
 /**
  * The re-export chain fixpoint (imports.md §Re-exports), split out of
  * `checkThetaImports` into its own top-level function so the module header's
- * three ordered phases share one home instead of the caller's:
+ * three ordered phases (collect, settle, diagnose — the last in two steps)
+ * share one home instead of the caller's:
  * `closeOverReExports` collects the `export … from` closure of every
  * `.thetalib` `walked` reaches, `fixReExportedNames` settles the least
  * fixpoint of the collected file set, and `diagnoseReExports` /
@@ -1135,8 +1140,8 @@ export async function checkThetaImports(
   // `exported` equals that source name, at its resolved source lib, binding
   // under the IMPORTING specifier's LOCAL name throughout. Bounded by a
   // visited-path set (fresh per top-level specifier) so a re-export cycle
-  // terminates by contributing no binding, matching `resolveLibExports`'
-  // in-progress bound.
+  // terminates by contributing no binding, matching `buildModuleScope`'s
+  // `moduleScopeInProgress` bound.
   const materializeChain = async (
     source: string,
     local: string,
@@ -1588,7 +1593,8 @@ export async function checkThetaImports(
   // `export … from` closure of every `.thetalib` the import walk reached (`walked`,
   // not only the entry libs — bug 0333's fix — so a re-export fault inside a lib
   // reached only through plain-`import` hops is covered too), settle the fixpoint
-  // over the whole collected file set, and only then diagnose. Running it over the
+  // over the whole collected file set, and only then diagnose — unknown re-exported
+  // names, then same-name collisions across declaring sites (bug 0334). Running it over the
   // union of the whole reached set rather than per lib is what the spec sentence
   // requires — the resolved export set and the errors reported for it are a
   // function of the `.thetalib` file set alone — and a re-export that fails it
@@ -1656,7 +1662,7 @@ export async function checkThetaImports(
       );
     }
 
-    // Bug 0335: `imports.md:124` refuses "an imported symbol whose name
+    // Bug 0335: imports.md §"Name collisions" refuses "an imported symbol whose name
     // collides with a top-level declaration in the same file" without
     // exempting `.thetalib` files, but until now the collision arm only ever
     // ran over the COMPOSING theta's own specifiers (below) — never over a
