@@ -139,6 +139,29 @@ contributions, `theta/parse/return-no-common-type`, where an array literal or a
 ternary would union under rule 2 above (see
 [Grammar](./grammar.md) and [Errors and results — final value](./errors-and-results.md)).
 
+## Runtime-tool call typing (theta 1.5, RFC 0011)
+
+A session-control runtime-tool call (`compact`, `context_usage`, `session_name`;
+declared through `tools:` — see [Frontmatter](./frontmatter.md)) carries a
+fixed, runtime-owned return type:
+
+| Tool | Return type |
+|---|---|
+| `compact(instructions: string = "")` | `Result<{ summary: string, tokens_before: integer, tokens_after: integer }, QueryError>` |
+| `context_usage()` | `Result<{ tokens: integer, context_window: integer, percent: number }, QueryError>` |
+| `session_name(name: string)` | `Result<string, QueryError>` |
+
+The type flows statically through the `?` arm: `let usage = context_usage()?`
+types `usage` as the success payload, and member access on it is typed
+structurally (`usage.percent` is `number`); the bare un-`?`'d call is the
+nominal `Result<T, QueryError>`, whose direct member access defers; `match`-arm
+bindings stay withheld (RFC 0008, draft) as for every other callee kind.
+Arity and argument typing are judged statically against the fixed signature
+(`theta/parse/invoke-arity-too-few` / `-too-many`,
+`theta/parse/tool-arg-type-mismatch`); the types are runtime-owned and never
+lower to schemas. (`docs/spec_topics/tool-calls.md` §Session-control runtime
+tools and §Return type.)
+
 ## Runtime value model
 
 Theta values are native JavaScript values, tagged where type recovery is needed:
@@ -244,5 +267,7 @@ reads) are not theta-language effects.
 - Compatibility relation and TYPE-1…TYPE-11 (table transcribed): 
   `docs/spec_topics/type-system.md#type-compatibility`.
 - Common-type rules: `docs/spec_topics/expressions.md#object-construction-array-construction-and-operator-rules`.
+- Runtime-tool call typing (RFC 0011): `docs/spec_topics/tool-calls.md`
+  §Session-control runtime tools, §Return type.
 - Runtime value model table, equality, wire-name translation, engine assumptions,
   effects: `docs/spec_topics/runtime-value-model.md`.

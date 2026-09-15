@@ -312,7 +312,10 @@ A theta-extension-registered Pi tool named `theta_progress` (item 3):
   means a worker's *model* may also call it. That is a feature (self-reported
   progress from inside otherwise-private workers) and is content-bearing, so
   it renders under the author-message class (§Privacy, class 2), rate- and
-  length-clamped.
+  length-clamped. Cross-note: `theta_progress` is the model-facing-by-design
+  counterpart of [RFC 0011](./0011-session-control-tools.md)'s code-only
+  session-control runtime tools, whose reach the same unified declaration
+  deliberately withholds from every model-facing vector.
 
 ### Cross-process wire (L3) and relay (L4)
 

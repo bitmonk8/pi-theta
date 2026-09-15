@@ -333,6 +333,33 @@ schema CodeToolError {
 }
 ```
 
+**Runtime-tool arms (theta 1.5, RFC 0011).** A session-control runtime-tool call
+(`compact`, `context_usage`, `session_name`) fails through the same variant with
+pinned arms (`docs/spec_topics/tool-calls.md` §Failures is the owner):
+
+- `compact` — every host rejection is `cause: "execution"` carrying the host
+  message verbatim (`Nothing to compact (session too small)`, `Already
+  compacted`, the no-model message, a `session_before_compact` cancel, a
+  provider failure of the summary call); a completed compaction with no host
+  token estimate is `cause: "execution"`, message `compaction completed but the
+  host reported no token estimate`; a theta abort mid-compaction is
+  `cause: "cancelled"` via the tool-call checkpoint with no host abort
+  invoked — the background compaction's late settlement (`onComplete` or
+  `onError`) is discarded (CNCL-1..3), and a compaction entry may land on
+  the session after the cancelled report.
+- `context_usage` — `cause: "execution"` with message `context usage
+  unavailable: no model selected or unknown context window` (host gauge
+  `undefined`) or `context usage unknown until the next assistant response`
+  (post-compaction null-field gauge).
+- `session_name` — an empty or whitespace-only name is `cause: "validation"`,
+  message `session name must not be empty or whitespace-only`; the setter is
+  not called.
+- All three — a runtime-typed non-string argument is `cause: "validation"`,
+  message `argument '<param>' must be a string` (pre-dispatch, no host call);
+  a plain `fn` called from a `par for` body is refused by the runtime backstop
+  with `cause: "execution"`, message `session-control tool '<name>' is not
+  available inside a par for body`.
+
 ### `InvokeInfraError`
 
 Covers everything *around* the callee body.
@@ -405,6 +432,8 @@ envelope.
 - `par for` iteration-boundary panic downgrade (ERR-20):
   `docs/rfcs/0003-parallel-fanout.md` (accepted; Specification impact — Errors and results).
 - Final value (FN-5): `docs/spec_topics/functions.md#final-value-language-definition`.
+- Runtime-tool `CodeToolError` arms (RFC 0011): `docs/spec_topics/tool-calls.md`
+  §Failures and §Session-control runtime tools.
 - Errors hub: `docs/spec_topics/errors-and-results.md`.
 - Query forms / empty-template short-circuit / typed-query loop:
   `docs/spec_topics/query/query-forms.md`, `docs/spec_topics/query/query-tool-loop.md`.

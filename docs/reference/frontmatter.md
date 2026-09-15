@@ -159,7 +159,7 @@ is a null scalar that keeps `theta/load/unknown-tool` instead.
 - **FRNT-3** (`.theta`-callable terminology): use `.theta callable`; avoid
   `registered theta`, `theta callee`. Terminology only; no code/format impact.
 
-Two entry kinds:
+Three entry kinds:
 
 - **Pi tool names** (`read`, `bash`, `grep`, ...) — resolve against Pi's tool
   registry at load time (the `pi.getAllTools()` snapshot, in both modes); entry
@@ -181,6 +181,21 @@ Two entry kinds:
   (target must be lowercase-first, else `theta/load/invalid-tool-rename`). Two
   entries resolving to the same name, or a collision with a top-level `fn` or
   import, is `theta/load/tool-name-collision`.
+- **Runtime-tool names** (theta 1.5, RFC 0011) — the closed three-name set
+  `compact`, `context_usage`, `session_name`, the session-control tools the
+  runtime itself owns. A runtime-tool name resolves ahead of the
+  `pi.getAllTools()` registry snapshot, exactly as a host built-in name does,
+  so an extension tool registered under one of the three names is unreachable
+  from `tools:` under that spelling. `as` renames, `theta/load/tool-name-collision`,
+  and the lowercase-first rule apply unchanged. Code-only: the name never
+  enters `pi.setActiveTools` or a child `--tools` allowlist, and no model can
+  call it. At load, a declared runtime tool whose host member (`ctx.compact`,
+  `ctx.getContextUsage`, `pi.setSessionName` / `pi.getSessionName`) is absent
+  refuses only the declaring theta with `theta/load/session-tool-unavailable` —
+  one diagnostic per unavailable declared tool, deduplicated by canonical name;
+  inert on Pi at or above the SDK floor.
+  (`docs/spec_topics/frontmatter/frontmatter-fields-a.md` §`tools`;
+  `docs/spec_topics/tool-calls.md` §Session-control runtime tools.)
 - A callee that fails to parse/lower during the parent's load pass is
   `theta/load/callee-has-errors` (severity `error` for `tools:` entries).
 - The per-entry grammar is closed: exactly a spec (Pi tool name or `.theta`
@@ -283,7 +298,10 @@ strong reference to the resolved `ToolDefinition`; an extension-supplied Pi-tool
 entry holds the tool's name and `parameters` schema (the public extension API
 strips `execute`), its code-side dispatch routing through host-loop dispatch
 (PIC-64); each `.theta`-path entry holds a strong reference to the parsed callee
-plus its lowered tool spec. Calls dispatch through the held reference (or, for
+plus its lowered tool spec; a runtime-tool entry (RFC 0011) holds its
+`kind: "runtime-tool"` classification plus the canonical name — dispatch runs
+through the runtime-owned execute table against retained host handles, never
+host-loop dispatch, and the entry has no model-driven leg. Calls dispatch through the held reference (or, for
 an extension tool, against the pinned name); the runtime never re-queries Pi's
 tool registry by name during execution. The file-watcher reload path is
 intercepted at load, not at dispatch: a rebuild that drops a previously-resolved
@@ -386,7 +404,7 @@ a container's own static type is never `Result<T, E>`.
 - Naming convention, binder-model root-word convention, `params:` type/defaults,
   `tools:` (FRNT-2, FRNT-3): `docs/spec_topics/frontmatter/frontmatter-fields-a.md`.
 - `tools:` YAML shape, resolution snapshot (built-in vs. extension-supplied
-  entry shape), `system:` interpolation, `respond_repair:`, `tool_loop:`
+  vs. runtime-tool entry shape), `system:` interpolation, `respond_repair:`, `tool_loop:`
   (FRNT-1), template interpolation:
   `docs/spec_topics/frontmatter/frontmatter-fields-b-and-templates.md`.
 - Extension-tool reach (mode-independent admission, PIC-17 query-window active
