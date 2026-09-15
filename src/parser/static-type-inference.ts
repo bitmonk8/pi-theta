@@ -96,6 +96,15 @@ export interface StaticTypeInferenceDeps {
    * variant.
    */
   readonly enumNames: ReadonlySet<string>;
+  /**
+   * RFC 0011 (tool-calls.md #session-control-runtime-tools, seam sheet §0 C6):
+   * SUCCESS-payload structural types for declared runtime tools, keyed by
+   * PRESENTED (post-rename) name. When a `call` node's callee is mapped,
+   * `case "call"` answers the `Result<success, QueryError>` nominal and
+   * `case "try"` unwraps to the mapped structural type. GOV-15 inert: the
+   * map is empty for every 1.0.0-clean file (none declares the three names).
+   */
+  readonly runtimeToolSuccessTypes?: ReadonlyMap<string, CompatType>;
 }
 
 /**
@@ -105,10 +114,12 @@ export interface StaticTypeInferenceDeps {
 export class StaticTypeInferencePass {
   readonly #checkCompatible: CheckCompatible;
   readonly #enumNames: ReadonlySet<string>;
+  readonly #runtimeToolSuccessTypes: ReadonlyMap<string, CompatType>;
 
   constructor(deps: StaticTypeInferenceDeps) {
     this.#checkCompatible = deps.checkCompatible;
     this.#enumNames = deps.enumNames;
+    this.#runtimeToolSuccessTypes = deps.runtimeToolSuccessTypes ?? new Map();
   }
 
   /**
@@ -294,9 +305,22 @@ export class StaticTypeInferencePass {
           ],
           env,
         );
-      case "try":
+      case "try": {
         // `operand?` propagates the operand's success type statically.
+        // RFC 0011 (seam sheet §0 C6): when the operand is a `call` whose
+        // callee maps to a runtime-tool success type, the `?` unwrap
+        // resolves to that structural type — so `let u = context_usage()?`
+        // types `u` structurally, enabling member-type checks downstream.
+        // GOV-15 inert: the map is empty for every 1.0.0-clean file.
+        const operand = node.operand;
+        if (operand.kind === "call") {
+          const successType = this.#runtimeToolSuccessTypes.get(operand.callee);
+          if (successType !== undefined) {
+            return successType;
+          }
+        }
         return this.#typeExpr(node.operand, env, bindings);
+      }
       case "match":
         // bug 0145 §Fix (a) route 1: an arm body executes under its OWN
         // pattern's binders (`evalMatch` installs them into a child
@@ -322,8 +346,18 @@ export class StaticTypeInferencePass {
         const target = unfoldAlias(this.#typeExpr(node.target, env, bindings), env);
         return target.kind === "array" ? target.element : { kind: "named", name: "index" };
       }
-      case "call":
+      case "call": {
+        // RFC 0011 (seam sheet §0 C6): a call whose callee maps to a runtime
+        // tool answers a `Result<success, QueryError>` nominal — display-
+        // faithful, unresolvable on direct member access (no false structural
+        // claim on the un-`?`'d Result), mirroring the `par-for` arm's
+        // `Result<…>` nominal rendering above. GOV-15 inert.
+        const successType = this.#runtimeToolSuccessTypes.get(node.callee);
+        if (successType !== undefined) {
+          return { kind: "named", name: `Result<${displayType(successType)}, QueryError>` };
+        }
         return { kind: "named", name: node.callee };
+      }
       case "invoke":
         return { kind: "named", name: node.path };
       case "query":
@@ -523,6 +557,18 @@ export class StaticTypeInferencePass {
       const fields = decl.kind === "object-schema" ? decl.fields : undefined;
       if (fields !== undefined && Object.hasOwn(fields, node.field)) {
         return { type: unfoldAlias(fields[node.field] as CompatType, env), declared: true };
+      }
+    }
+    // RFC 0011 (seam sheet §0 C6): a structural `object` receiver (from
+    // `letAnnotationToCompatType` via `runtimeToolSuccessTypes`) resolves its
+    // fields directly — `usage.percent` on a try-unwrapped `context_usage()?`
+    // must type `percent` as `number`, not defer as an unresolvable nominal.
+    // GOV-15 inert: only reachable when a binding carries a structural
+    // `object` type, which requires a declared runtime tool.
+    if (receiver.kind === "object") {
+      const field = receiver.fields.find((f) => f.name === node.field);
+      if (field !== undefined) {
+        return { type: unfoldAlias(field.type, env), declared: true };
       }
     }
     return { type: { kind: "named", name: node.field }, declared: false };

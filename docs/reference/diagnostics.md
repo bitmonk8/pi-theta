@@ -127,6 +127,7 @@ trigger.
 | `theta/parse/par-shared-mutation` | E | parse | `cannot assign to outer binding '<name>' from inside a 'par for' body` |
 | `theta/parse/par-break-continue` | E | parse | `'<keyword>' is not permitted inside a 'par for' body` |
 | `theta/parse/par-return-in-body` | E | parse | `'return' is not permitted inside a 'par for' body` |
+| `theta/parse/session-tool-in-isolated-body` | E | parse | `'<name>' addresses the enclosing conversation and is not available inside a par for body` |
 | `theta/parse/illegal-template-escape` | E | lex | `` illegal escape sequence in @`...` template: \<char> `` |
 | `theta/parse/unterminated-template` | E | lex | `` unterminated @`...` query template `` |
 | `theta/parse/discarded-query-result` | E | parse | `query result discarded; use ? to propagate failure or 'let _ = ...' to discard explicitly` |

@@ -71,8 +71,10 @@ import type { ValidationError } from "../seams/schema-validator";
 // Parse-time argument checks (arity → not-literal → type; arity before type)
 // --------------------------------------------------------------------------
 
-/** Which callee kind a code-side `<name>(args)` call resolves to. */
-export type ToolCallCalleeKind = "pi-tool" | "theta-callable";
+/** Which callee kind a code-side `<name>(args)` call resolves to.
+ *  RFC 0011: `"runtime-tool"` widened for the fixed-signature arity/type checks
+ *  (tool-calls.md #session-control-runtime-tools). */
+export type ToolCallCalleeKind = "pi-tool" | "theta-callable" | "runtime-tool";
 
 /**
  * The static-resolution facts a `.theta`-callable argument type-mismatch check
@@ -233,7 +235,7 @@ export function checkToolCallArguments(
   // disjointness front-run in step (4).
   const resolution = input.staticResolution;
   if (
-    input.calleeKind === "theta-callable" &&
+    (input.calleeKind === "theta-callable" || input.calleeKind === "runtime-tool") &&
     resolution !== undefined &&
     resolution.resolvable &&
     !resolution.matches

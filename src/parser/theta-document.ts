@@ -83,7 +83,7 @@ import {
 } from "./schema-declarations";
 import { parseTypeExpression } from "./type-grammar";
 import { checkObjectLiteralFields } from "./literal-sublanguage";
-import { annotationSourceIsNotTypeExpression, checkTypeLayer } from "./type-layer-checks";
+import { annotationSourceIsNotTypeExpression, checkTypeLayer, letAnnotationToCompatType } from "./type-layer-checks";
 import {
   resolveQuerySchemas,
   type PropagationCapture,
@@ -132,6 +132,8 @@ import {
   WITH_CLAUSE_IN_PROCESS_CALLEE_HINT,
   withClauseInProcessCalleeMessage,
 } from "./invoke-diagnostics";
+import { runtimeToolPresentedNames, RUNTIME_TOOL_SIGNATURES, type RuntimeToolName } from "./runtime-tools";
+import type { CompatType } from "./type-compat";
 
 // --------------------------------------------------------------------------
 // Expression AST (the `Expr` node family; grammar.md §Expression sublanguage)
@@ -1393,10 +1395,20 @@ export function parseThetaDocument(
   // `null` when the frontmatter does not register — reading it instead would
   // silently widen bug 0050's shadowing set for a document with no registered
   // frontmatter, a behaviour change this report does not claim.
+  // RFC 0011 (seam sheet §0 C6): derive the runtime-tool success-type map
+  // from `frontmatter.tools` so the type layer can structurally type
+  // `let u = context_usage()?` et al. GOV-15 inert: the map is empty for
+  // every 1.0.0-clean file (none declares the three names). The second
+  // sanctioned `letAnnotationToCompatType` call site (bug 0130 flag F-3;
+  // the first is the `let`-annotation arm in type-layer-checks.ts).
+  const runtimeToolSuccessTypes = buildRuntimeToolSuccessTypes(
+    frontmatter?.tools,
+  );
   const typeLayerDiags = checkTypeLayer(
     { statements, tail: resolvedTail },
     file,
     (frontmatter?.params?.fields ?? []).map((f) => ({ name: f.wireName, typeSource: f.type })),
+    runtimeToolSuccessTypes,
   );
 
   // imports.md §"`.thetalib` file rules": a `.thetalib` top level may contain only
@@ -8068,6 +8080,35 @@ function shadowedCallableCallDiagnostic(
 }
 
 /**
+ * RFC 0011 (seam sheet §0 C6): build the runtime-tool success-type map
+ * (`presented name → CompatType`) from the frontmatter `tools:` list.
+ * Each declared runtime tool's `successTypeSource` (from `RUNTIME_TOOL_SIGNATURES`)
+ * is converted once through `letAnnotationToCompatType` — the second sanctioned
+ * TYPE-8 object-arm mint site (bug 0130 flag F-3). GOV-15 inert: the returned
+ * map is empty when the `tools:` list declares no runtime tool.
+ */
+function buildRuntimeToolSuccessTypes(
+  tools: readonly string[] | undefined,
+): ReadonlyMap<string, CompatType> {
+  const presented = runtimeToolPresentedNames(tools);
+  if (presented.size === 0) {
+    return presented as unknown as ReadonlyMap<string, CompatType>;
+  }
+  const out = new Map<string, CompatType>();
+  for (const [name, canonical] of presented) {
+    const sig = RUNTIME_TOOL_SIGNATURES.get(canonical);
+    if (sig === undefined) {
+      continue;
+    }
+    const type = letAnnotationToCompatType(sig.successTypeSource);
+    if (type !== undefined) {
+      out.set(name, type);
+    }
+  }
+  return out;
+}
+
+/**
  * The per-file invariants of the lexical call-site walk, threaded explicitly
  * through the walkers (no module state) alongside the per-scope `locals` map.
  */
@@ -8097,6 +8138,15 @@ interface CallSiteWalkContext {
   readonly piTools: ReadonlySet<string>;
   /** EVERY callable-set name — Pi tools AND `.theta` callables — post-rename. */
   readonly callables: ReadonlySet<string>;
+  /**
+   * RFC 0011 (seam sheet §5.1 / §0 C4): declared runtime tools, keyed by
+   * PRESENTED (post-rename) name, valued by canonical name. Drives (a) the
+   * lexical exemption from the Pi-tool object-literal shape rule (positional
+   * typed arguments are the admitted spelling for runtime tools), and (b) the
+   * `insideParFor`-gated `theta/parse/session-tool-in-isolated-body` check.
+   * GOV-15 inert: empty for every 1.0.0-clean file.
+   */
+  readonly runtimeTools: ReadonlyMap<string, RuntimeToolName>;
   readonly file: string;
   readonly out: Diagnostic[];
 }
@@ -8217,34 +8267,42 @@ function checkLexicalCallSites(
     rootLocals.set(f.wireName, { kind: "params-field" });
   }
 
+  // RFC 0011 (seam sheet §5.1): derive the presented-name → canonical-name
+  // map for runtime tools, so the walk can (a) exempt them from the Pi-tool
+  // object-literal shape check and (b) emit the isolated-body diagnostic.
+  const runtimeTools = runtimeToolPresentedNames(frontmatter?.tools);
+
   const walkCtx: CallSiteWalkContext = {
     rootLocals,
     fnImportDecls,
     piTools,
     callables,
+    runtimeTools,
     file,
     out: [],
   };
-  walkCallSiteBlock(body, new Map(rootLocals), walkCtx);
+  walkCallSiteBlock(body, new Map(rootLocals), false, walkCtx);
   return walkCtx.out;
 }
 
 function walkCallSiteBlock(
   block: Block,
   locals: Map<string, LocalBinder>,
+  insideParFor: boolean,
   walkCtx: CallSiteWalkContext,
 ): void {
   for (const s of block.statements) {
-    walkCallSiteStmt(s, locals, walkCtx);
+    walkCallSiteStmt(s, locals, insideParFor, walkCtx);
   }
   if (block.tail !== null) {
-    walkCallSiteExpr(block.tail, locals, walkCtx);
+    walkCallSiteExpr(block.tail, locals, insideParFor, walkCtx);
   }
 }
 
 function walkCallSiteStmt(
   s: Stmt,
   locals: Map<string, LocalBinder>,
+  insideParFor: boolean,
   walkCtx: CallSiteWalkContext,
 ): void {
   switch (s.kind) {
@@ -8252,36 +8310,36 @@ function walkCallSiteStmt(
       // The initialiser is evaluated BEFORE the name binds, so a tool call in
       // it still resolves to the tool; the binding shadows from here onward.
       if (s.init !== null) {
-        walkCallSiteExpr(s.init, locals, walkCtx);
+        walkCallSiteExpr(s.init, locals, insideParFor, walkCtx);
       }
       if (s.name !== "_") {
         locals.set(s.name, { kind: "let", line: s.range.start.line });
       }
       return;
     case "reassign":
-      walkCallSiteExpr(s.value, locals, walkCtx);
+      walkCallSiteExpr(s.value, locals, insideParFor, walkCtx);
       return;
     case "if": {
-      walkCallSiteExpr(s.condition, locals, walkCtx);
-      walkCallSiteBlock(s.then, new Map(locals), walkCtx);
+      walkCallSiteExpr(s.condition, locals, insideParFor, walkCtx);
+      walkCallSiteBlock(s.then, new Map(locals), insideParFor, walkCtx);
       if (s.otherwise !== null) {
         if ("statements" in s.otherwise) {
-          walkCallSiteBlock(s.otherwise, new Map(locals), walkCtx);
+          walkCallSiteBlock(s.otherwise, new Map(locals), insideParFor, walkCtx);
         } else {
-          walkCallSiteStmt(s.otherwise, new Map(locals), walkCtx);
+          walkCallSiteStmt(s.otherwise, new Map(locals), insideParFor, walkCtx);
         }
       }
       return;
     }
     case "while":
-      walkCallSiteExpr(s.condition, locals, walkCtx);
-      walkCallSiteBlock(s.body, new Map(locals), walkCtx);
+      walkCallSiteExpr(s.condition, locals, insideParFor, walkCtx);
+      walkCallSiteBlock(s.body, new Map(locals), insideParFor, walkCtx);
       return;
     case "for": {
-      walkCallSiteExpr(s.iterand, locals, walkCtx);
+      walkCallSiteExpr(s.iterand, locals, insideParFor, walkCtx);
       const inner = new Map(locals);
       inner.set(s.variable, { kind: "for", line: s.range.start.line });
-      walkCallSiteBlock(s.body, inner, walkCtx);
+      walkCallSiteBlock(s.body, inner, insideParFor, walkCtx);
       return;
     }
     case "fn": {
@@ -8291,29 +8349,33 @@ function walkCallSiteStmt(
       // fires — while `fn f(read) { read(x) }` is parameter-shadowed. A
       // `FnParam` carries no range of its own; the declaration's start line
       // locates the parameter list.
+      // RFC 0011 (seam sheet §0 C4): an `fn` body resets `insideParFor` to
+      // false — a plain `fn` called from outside the body is admitted, and
+      // `fn` nested inside a `par for` body is `theta/parse/nested-fn` (FN-1)
+      // so the reset is parse-error tolerance only.
       const fnLocals = new Map(walkCtx.rootLocals);
       for (const p of s.params) {
         fnLocals.set(p.name, { kind: "fn-param", line: s.range.start.line });
       }
-      walkCallSiteBlock(s.body, fnLocals, walkCtx);
+      walkCallSiteBlock(s.body, fnLocals, false, walkCtx);
       return;
     }
     case "return":
       if (s.operand !== null) {
-        walkCallSiteExpr(s.operand, locals, walkCtx);
+        walkCallSiteExpr(s.operand, locals, insideParFor, walkCtx);
       }
       return;
     case "query":
-      walkCallSiteExpr(s.query, locals, walkCtx);
+      walkCallSiteExpr(s.query, locals, insideParFor, walkCtx);
       return;
     case "tool-call":
-      walkCallSiteExpr(s.call, locals, walkCtx);
+      walkCallSiteExpr(s.call, locals, insideParFor, walkCtx);
       return;
     case "invoke":
-      walkCallSiteExpr(s.invoke, locals, walkCtx);
+      walkCallSiteExpr(s.invoke, locals, insideParFor, walkCtx);
       return;
     case "expr":
-      walkCallSiteExpr(s.expr, locals, walkCtx);
+      walkCallSiteExpr(s.expr, locals, insideParFor, walkCtx);
       return;
     default:
       // schema / enum / import / export / break / continue / doc-comment carry
@@ -8326,6 +8388,7 @@ function walkCallSiteStmt(
 function walkCallSiteExpr(
   e: Expr,
   locals: Map<string, LocalBinder>,
+  insideParFor: boolean,
   walkCtx: CallSiteWalkContext,
 ): void {
   switch (e.kind) {
@@ -8339,10 +8402,35 @@ function walkCallSiteExpr(
           shadowedCallableCallDiagnostic(e.callee, localBinder, e.range, walkCtx.file),
         );
       }
+      // RFC 0011 (seam sheet §5.1): the callee resolves to a runtime tool iff
+      // the presented name is in the map AND no higher-precedence arm captures
+      // it (local / fn / import wins; a shadowed name keeps `shadowed-callable-call`
+      // ALONE — never the isolated-body code).
+      const resolvesToRuntimeTool =
+        walkCtx.runtimeTools.has(e.callee) &&
+        localBinder === undefined &&
+        !walkCtx.fnImportDecls.has(e.callee);
+      // RFC 0011 §5.3 / §0 C4: a runtime tool called inside a `par for` body
+      // addresses the enclosing conversation and is not available there.
+      // Emitted AFTER the shadow check (a shadowed name keeps its own verdict)
+      // and only when the callee resolves to a runtime tool.
+      if (resolvesToRuntimeTool && insideParFor) {
+        walkCtx.out.push({
+          severity: "error",
+          code: "theta/parse/session-tool-in-isolated-body",
+          file: walkCtx.file,
+          range: e.range,
+          // DIAG-4: exact Message template from the registry row.
+          message: `'${e.callee}' addresses the enclosing conversation and is not available inside a par for body`,
+        });
+      }
       // The callee is lexically the Pi tool iff no higher-precedence arm
-      // (local / fn / import) captures the name.
+      // (local / fn / import) captures the name AND it is NOT a runtime tool
+      // (RFC 0011: runtime tools admit positional typed arguments, so the
+      // Pi-tool object-literal shape rule does not apply to them).
       const resolvesToPiTool =
         walkCtx.piTools.has(e.callee) &&
+        !resolvesToRuntimeTool &&
         localBinder === undefined &&
         !walkCtx.fnImportDecls.has(e.callee);
       if (resolvesToPiTool) {
@@ -8376,7 +8464,7 @@ function walkCallSiteExpr(
             walkCtx.out.push(toolArgShapeDiagnostic(e.callee, first.range, walkCtx.file));
           }
         }
-      } else {
+      } else if (!resolvesToRuntimeTool) {
         // (4) Bug 0016 part B; bug 0072: the §Object construction carve-out
         // admits a bare-object argument ONLY under a
         // (lexically) Pi-tool callee, at EVERY direct argument position — a
@@ -8395,38 +8483,38 @@ function walkCallSiteExpr(
       // bare-object carve-out above is about the ARGUMENT list only — a clause
       // value holds no `ToolArg` position).
       for (const arg of [...e.args, ...callWithClauseValues(e)]) {
-        walkCallSiteExpr(arg, locals, walkCtx);
+        walkCallSiteExpr(arg, locals, insideParFor, walkCtx);
       }
       return;
     }
     case "binary":
-      walkCallSiteExpr(e.left, locals, walkCtx);
-      walkCallSiteExpr(e.right, locals, walkCtx);
+      walkCallSiteExpr(e.left, locals, insideParFor, walkCtx);
+      walkCallSiteExpr(e.right, locals, insideParFor, walkCtx);
       return;
     case "ternary":
-      walkCallSiteExpr(e.condition, locals, walkCtx);
-      walkCallSiteExpr(e.consequent, locals, walkCtx);
-      walkCallSiteExpr(e.alternate, locals, walkCtx);
+      walkCallSiteExpr(e.condition, locals, insideParFor, walkCtx);
+      walkCallSiteExpr(e.consequent, locals, insideParFor, walkCtx);
+      walkCallSiteExpr(e.alternate, locals, insideParFor, walkCtx);
       return;
     case "try":
-      walkCallSiteExpr(e.operand, locals, walkCtx);
+      walkCallSiteExpr(e.operand, locals, insideParFor, walkCtx);
       return;
     case "invoke":
       for (const arg of [...e.args, ...callWithClauseValues(e)]) {
-        walkCallSiteExpr(arg, locals, walkCtx);
+        walkCallSiteExpr(arg, locals, insideParFor, walkCtx);
       }
       return;
     case "member":
-      walkCallSiteExpr(e.target, locals, walkCtx);
+      walkCallSiteExpr(e.target, locals, insideParFor, walkCtx);
       return;
     case "index":
-      walkCallSiteExpr(e.target, locals, walkCtx);
-      walkCallSiteExpr(e.index, locals, walkCtx);
+      walkCallSiteExpr(e.target, locals, insideParFor, walkCtx);
+      walkCallSiteExpr(e.index, locals, insideParFor, walkCtx);
       return;
     case "method-call":
-      walkCallSiteExpr(e.target, locals, walkCtx);
+      walkCallSiteExpr(e.target, locals, insideParFor, walkCtx);
       for (const arg of e.args) {
-        walkCallSiteExpr(arg, locals, walkCtx);
+        walkCallSiteExpr(arg, locals, insideParFor, walkCtx);
       }
       return;
     case "object":
@@ -8434,19 +8522,19 @@ function walkCallSiteExpr(
       // legal `{ ... }` argument is itself checked. Bare-object legality in
       // non-call-argument positions stays the structural walk's concern.
       for (const field of e.fields) {
-        walkCallSiteExpr(field.value, locals, walkCtx);
+        walkCallSiteExpr(field.value, locals, insideParFor, walkCtx);
       }
       return;
     case "array":
       for (const el of e.elements) {
-        walkCallSiteExpr(el, locals, walkCtx);
+        walkCallSiteExpr(el, locals, insideParFor, walkCtx);
       }
       return;
     case "result-ctor":
-      walkCallSiteExpr(e.arg, locals, walkCtx);
+      walkCallSiteExpr(e.arg, locals, insideParFor, walkCtx);
       return;
     case "match":
-      walkCallSiteExpr(e.scrutinee, locals, walkCtx);
+      walkCallSiteExpr(e.scrutinee, locals, insideParFor, walkCtx);
       for (const arm of e.arms) {
         // A pattern node carries no range; the arm's BODY starts on the arm's
         // own line, so its start line locates the binding for the message.
@@ -8456,20 +8544,22 @@ function walkCallSiteExpr(
         for (const name of bound) {
           armLocals.set(name, { kind: "match", line: arm.body.range.start.line });
         }
-        walkCallSiteExpr(arm.body, armLocals, walkCtx);
+        walkCallSiteExpr(arm.body, armLocals, insideParFor, walkCtx);
       }
       return;
     case "par-for": {
       // Reached explicitly (unlike the ident walk, which predates RFC 0003):
       // a `par for` body is a call-site-bearing block and its per-iteration
       // variable shadows.
-      walkCallSiteExpr(e.iterand, locals, walkCtx);
+      // RFC 0011 (seam sheet §0 C4): the body descends with `insideParFor`
+      // true; the iterand and max stay under the caller's flag.
+      walkCallSiteExpr(e.iterand, locals, insideParFor, walkCtx);
       if (e.max !== null) {
-        walkCallSiteExpr(e.max, locals, walkCtx);
+        walkCallSiteExpr(e.max, locals, insideParFor, walkCtx);
       }
       const inner = new Map(locals);
       inner.set(e.variable, { kind: "par-for", line: e.range.start.line });
-      walkCallSiteBlock(e.body, inner, walkCtx);
+      walkCallSiteBlock(e.body, inner, true, walkCtx);
       return;
     }
     case "block":
@@ -8477,7 +8567,7 @@ function walkCallSiteExpr(
       // call site inside the block still resolves against the enclosing
       // locals, but a name the block's own `let`s bind must not survive past
       // it.
-      walkCallSiteBlock(e.body, new Map(locals), walkCtx);
+      walkCallSiteBlock(e.body, new Map(locals), insideParFor, walkCtx);
       return;
     default:
       // number / string / bool / null / ident / query — no call sites (a

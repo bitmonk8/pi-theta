@@ -135,7 +135,9 @@ import {
   collectEnumNames,
   collectTypeEnv,
   fnParamNamesAreIdentifiers,
+  letAnnotationToCompatType,
 } from "../parser/type-layer-checks";
+import { RUNTIME_TOOL_SIGNATURES, type RuntimeToolName } from "../parser/runtime-tools";
 import {
   checkCompatible,
   checkFnArgCompat,
@@ -147,6 +149,36 @@ import {
 /** Forward-slash-normalise a host path for byte-stable node identity. */
 function normalizePath(path: string): string {
   return path.replace(/\\/g, "/");
+}
+
+/**
+ * RFC 0011 §0 C6: build the runtime-tool success-type map for a compose-pass
+ * `StaticTypeInferencePass` from the callable set's `"runtime-tool"` entries.
+ * GOV-15 inert: returns `undefined` when the set holds no such entry.
+ */
+function buildComposePassSuccessTypes(
+  callableSet: CallableSetSnapshot | undefined,
+): ReadonlyMap<string, CompatType> | undefined {
+  if (callableSet === undefined) {
+    return undefined;
+  }
+  let out: Map<string, CompatType> | undefined;
+  for (const [presented, entry] of callableSet.entries) {
+    if (entry.kind !== "runtime-tool") {
+      continue;
+    }
+    const canonical: RuntimeToolName = (entry as { name: RuntimeToolName }).name;
+    const sig = RUNTIME_TOOL_SIGNATURES.get(canonical);
+    if (sig === undefined) {
+      continue;
+    }
+    const type = letAnnotationToCompatType(sig.successTypeSource);
+    if (type !== undefined) {
+      out ??= new Map();
+      out.set(presented, type);
+    }
+  }
+  return out;
 }
 
 /**
@@ -1090,6 +1122,100 @@ async function checkThetaCallableCallSurface(
 }
 
 /**
+ * RFC 0011 §5.2 (tool-calls.md #session-control-runtime-tools): fixed-signature
+ * arity/type checks for call sites whose frozen callable-set entry is
+ * `kind: "runtime-tool"`. Mirrors `checkThetaCallableCallSurface`'s structure:
+ * per call site, arity via `checkInvokeArity`, type via `checkToolCallArguments`
+ * with `calleeKind: "runtime-tool"` and `positionalCount: 1`, first-mismatch-only.
+ * GOV-15 inert: the loop body is unreachable when the callable set holds no
+ * runtime-tool entry (every 1.0.0-clean file).
+ */
+function checkRuntimeToolCallSurface(
+  callExprs: readonly CallExpr[],
+  callerPath: string,
+  typeEnv: TypeEnv,
+  typePass: StaticTypeInferencePass,
+  callableSet: CallableSetSnapshot | undefined,
+): Diagnostic[] {
+  if (callableSet === undefined) {
+    return [];
+  }
+  const diagnostics: Diagnostic[] = [];
+  for (const call of callExprs) {
+    const entry = callableSet.entries.get(call.callee);
+    if (entry === undefined || entry.kind !== "runtime-tool") {
+      continue;
+    }
+    const canonical: RuntimeToolName = (entry as { name: RuntimeToolName }).name;
+    const sig = RUNTIME_TOOL_SIGNATURES.get(canonical);
+    if (sig === undefined) {
+      continue;
+    }
+    const presentedName = call.callee;
+    const providedCount = call.args.length;
+    const arityDiags = checkInvokeArity({
+      callee: presentedName,
+      staticallyResolvable: true,
+      requiredCount: sig.requiredCount,
+      totalCount: sig.totalCount,
+      providedCount,
+      site: { file: callerPath, range: call.range },
+    });
+    diagnostics.push(...arityDiags);
+    if (arityDiags.length > 0) {
+      // Arity before type (invocation.md §"Argument arity").
+      continue;
+    }
+    // Per-argument type mismatch, first-mismatch-only, reusing the
+    // `.theta`-callable arm's `checkToolCallArguments` emitter with
+    // `calleeKind: "runtime-tool"`. Expected side from the signature's
+    // `typeSource`; provable-only (`collectProvableArgTypes`).
+    const emptyCalleeAnnotationEnv: TypeEnv = Object.create(null) as TypeEnv;
+    for (const [i, argExpr] of call.args.entries()) {
+      const param = sig.params[i];
+      if (param === undefined) {
+        continue;
+      }
+      const expectedType = annotationToCompatType(param.typeSource);
+      if (expectedType === undefined) {
+        continue;
+      }
+      const argTypes = collectProvableArgTypes(argExpr, typeEnv, typePass);
+      if (argTypes === undefined) {
+        continue;
+      }
+      if (
+        !argTypes.every(
+          (argType) =>
+            checkCompatible(argType, expectedType, emptyCalleeAnnotationEnv) ===
+            "incompatible",
+        )
+      ) {
+        continue;
+      }
+      diagnostics.push(
+        ...checkToolCallArguments({
+          toolName: presentedName,
+          calleeKind: "runtime-tool",
+          positionalCount: 1, // neutralise the shared arity arm
+          file: callerPath,
+          range: call.range,
+          staticResolution: {
+            resolvable: true,
+            matches: false,
+            expected: displayType(expectedType),
+            actual: renderCollectedTypes(argTypes),
+          },
+        }),
+      );
+      // First mismatch only (same cap as the `.theta`-callable arm).
+      break;
+    }
+  }
+  return diagnostics;
+}
+
+/**
  * RFC 0009 Erratum A′ + Erratum B (invocation.md INV-8) — the call-site
  * clause's DEFAULT-REJECT callee classification: ONE loop, TWO codes, a
  * four-way verdict against the frozen callable set plus the file's own
@@ -1106,7 +1232,9 @@ async function checkThetaCallableCallSurface(
  * followed by materialisation, and only then is its fn kind known); and EVERY
  * other callee — plain `fn`, locals, builtins, anything the set does not bind —
  * draws `theta/parse/with-clause-in-process-callee`. `ResolvedCallable` is
- * the closed two-kind union, so the arms are total.
+ * a closed union (`"pi-tool" | "theta" | "runtime-tool"`), so the arms are
+ * total: `"runtime-tool"` falls through to the default
+ * `with-clause-in-process-callee` arm (RFC 0011 §3.2 row 1).
  *
  * PRECEDENCE: this loop runs only for a parse-clean theta —
  * `parseDiscoveredTheta` (production-composition.ts) drops any
@@ -1429,9 +1557,15 @@ export async function checkInvokeStaticResolution(
     // `StaticTypeInferencePass` instance and whole-file `TypeEnv`, derived once
     // per theta from `input.body` — never per call site.
     const typeEnv = collectTypeEnv(input.body.statements);
+    // RFC 0011 §0 C6: thread the runtime-tool success-type map so the
+    // compose-pass type inference can resolve member accesses on
+    // try-unwrapped runtime-tool results. GOV-15 inert: empty when the
+    // callable set holds no runtime-tool entry.
+    const runtimeToolSuccessTypes = buildComposePassSuccessTypes(deps.callableSet);
     const typePass = new StaticTypeInferencePass({
       checkCompatible,
       enumNames: collectEnumNames(input.body.statements),
+      ...(runtimeToolSuccessTypes !== undefined ? { runtimeToolSuccessTypes } : {}),
     });
 
     for (const invoke of callSites.invokeExprs) {
@@ -1593,6 +1727,19 @@ export async function checkInvokeStaticResolution(
         typePass,
         { callableSet: deps.callableSet, resolveCalleeArity: deps.resolveCalleeArity },
       )),
+    );
+
+    // RFC 0011 §5.2: fixed-signature arity/type checks for runtime-tool call
+    // sites. GOV-15 inert: the loop body is unreachable when no `tools:` entry
+    // resolves to a `"runtime-tool"` kind (every 1.0.0-clean file).
+    diagnostics.push(
+      ...checkRuntimeToolCallSurface(
+        callSites.callExprs,
+        callerPath,
+        typeEnv,
+        typePass,
+        deps.callableSet,
+      ),
     );
 
     diagnostics.push(

@@ -337,10 +337,14 @@ export function checkTypeLayer(
   body: ThetaBody,
   file: string,
   paramsFields: readonly ParamsFieldSource[],
+  // RFC 0011 (seam sheet §0 C6): structural return-type flow for declared
+  // runtime tools. GOV-15 inert: absent / empty for every 1.0.0-clean file.
+  runtimeToolSuccessTypes?: ReadonlyMap<string, CompatType>,
 ): Diagnostic[] {
   const pass = new StaticTypeInferencePass({
     checkCompatible,
     enumNames: collectEnumNames(body.statements),
+    ...(runtimeToolSuccessTypes !== undefined ? { runtimeToolSuccessTypes } : {}),
   });
   const env = collectTypeEnv(body.statements);
   const fnReturns = collectFnReturnAnnotations(body.statements);
