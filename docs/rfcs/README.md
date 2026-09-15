@@ -31,7 +31,7 @@ shipped behaviour until specified and implemented.
 - [0009 — Per-call working directory for subagent-mode dispatch](./0009-per-call-subagent-cwd.md) — accepted
 - [0010 — Live execution visibility for running thetas](./0010-live-execution-visibility.md) — accepted
 - [0011 — Session-control tools: `compact`, `context_usage`, `session_name`](./0011-session-control-tools.md) — draft
-- [0012 — Configurable subagent placement (multiplexer tabs and other launch surfaces)](./0012-configurable-subagent-placement.md) — draft
+- [0012 — Configurable subagent placement (multiplexer tabs and other launch surfaces)](./0012-configurable-subagent-placement.md) — accepted
 
 Reclassified out of the RFC series:
 

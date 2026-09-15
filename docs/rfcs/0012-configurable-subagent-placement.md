@@ -1,6 +1,7 @@
 # RFC 0012 — Configurable subagent placement (multiplexer tabs and other launch surfaces)
 
-- **Status:** draft
+- **Status:** accepted (implemented 2026-09-15, shipped in 0.475.0; see
+  §Implementation record)
 - **Scope:** Pi-integration contract and runtime architecture, plus one small
   theta 1.x language-surface widening that falls out of it (the call-site
   `with { cwd }` clause becomes admissible on `subagent fn` calls once those
@@ -383,9 +384,9 @@ user, or fails to parse is treated exactly as a failed ppid check is today:
 the control plane is dropped, the process runs as an ordinary top-level pi,
 and the parent observes exit-without-envelope. No new code is minted for it.
 
-Under `pipe` the launch file carries only the **entry** (§10) when the entry is
-a fn — the env carriage stays as it is for everything else (§Resolved
-questions, item 4).
+Under `pipe` no launch file exists: the env carriage stays as it is, and a fn
+entry (§10) rides it as one more authenticated control-plane key,
+`PI_THETA_SUBAGENT_ENTRY` (§Resolved questions, item 4).
 
 ### 3. Result channel — off stdout for non-`pipe` placements
 
@@ -702,6 +703,20 @@ motivated this RFC) need a `pi install`-able artefact, and pi-config is one
 person's configuration. The same reasoning applies to a future
 `pi-theta-wezterm` or `pi-theta-zellij`; `exec` is the no-package path.
 
+*Import path for a companion.* The seam's types are exported from
+`@bitmonk8/pi-theta/src/runtime/subagent-placement` — `SubagentPlacementBackend`,
+`PlacedChild`, `SubagentPlacementRequest`, `PlacedChildCapabilities`,
+`SubagentPlacementPresentation`, `SubagentLaunchEntry`, plus the
+`validatePlacementBackend` structural check and the `PLACEMENT_NAME_PATTERN` /
+`RESERVED_PLACEMENT_NAMES` constants a backend can pre-validate against. The
+registration protocol's constants live in
+`@bitmonk8/pi-theta/src/runtime/subagent-placement-registry` —
+`PLACEMENT_DISCOVER_CHANNEL` (`pi-theta:subagent-placement:discover:v1`),
+`PLACEMENT_OFFER_CHANNEL` (`pi-theta:subagent-placement:offer:v1`),
+`PLACEMENT_REGISTRATION_API_VERSION` (`1`). A companion subscribes to the
+discover channel in its own factory body and answers each discover event with
+one `{ apiVersion, backend }` offer (§5).
+
 ## Alternatives considered
 
 - **Ship Herdr (and tmux, WezTerm, …) backends inside pi-theta.** Rejected
@@ -847,8 +862,11 @@ envelope's internal-error arm. One existing parse row's Trigger is edited
 | `theta/load/subagent-placement-unavailable` | E | load | `theta.subagentPlacement` (or `PI_THETA_SUBAGENT_PLACEMENT`) names a placement that is not selectable: not a registered backend name, a registered backend whose `detect()` is false, or `exec` with no global `subagentPlacementExec` template. Every `mode: subagent` theta and every theta declaring a `subagent fn` refuses to register; other prompt-mode thetas are unaffected. `auto` never fires this. | [Subagent — launch contract](../spec_topics/pi-integration-contract/subagent.md#subagent-launch-contract) (placement paragraph) | Set `theta.subagentPlacement` to `auto`, `pipe`, or a backend that is loaded and detected; for `exec`, add the template to the global settings file. | `subagent placement '<name>' is unavailable: <reason>` |
 | `theta/load/subagent-placement-invalid` | W | load | A backend offered over `pi.events` fails structural validation (name outside `^[a-z][a-z0-9-]{0,31}$` or reserved, non-finite `priority`, `detect`/`place` not functions) or duplicates a registered name. The registration is dropped; other backends stand. | same | Fix the registering extension; the offer payload shape is `{ apiVersion: 1, backend }`. | `ignoring subagent placement registration '<name>': <reason>` |
 
-Edited row: `theta/parse/with-clause-in-process-callee` — Trigger no longer
-lists a `subagent fn` call (now a child-spawning surface); message unchanged.
+Edited row: `theta/parse/with-clause-in-process-callee` — Trigger now names
+the three legal clause-bearing surfaces (a `.theta`-callable call through
+`tools:`, `invoke(...)` / `invoke<T>(...)`, a `subagent fn` call) and keeps the
+plain / imported non-`subagent` `fn` and the `.thetalib`-body arms; message
+unchanged.
 
 ## Specification impact
 
@@ -887,8 +905,9 @@ Offline (default gate, provider-free):
   backend output byte-identical to today's `SpawnFn` path for a theta entry
   (the existing `tests/subagent-child-launch.test.ts` fake-launcher suite
   stays green unmodified).
-- **Launch file:** written `0600` in a `0700` dir for non-`pipe`; for `pipe`
-  only when the entry is a fn; child-side read-once-and-delete;
+- **Launch file:** written `0600` in a `0700` dir for non-`pipe`; never for
+  `pipe` (a fn entry rides `PI_THETA_SUBAGENT_ENTRY` on the env control plane
+  there); child-side read-once-and-delete;
   missing/unowned/unparseable → control plane dropped (same verdict shape as
   a failed ppid check); nonce reuse refused.
 - **Channel:** hello-token gate (wrong token → dropped), second connection
@@ -971,6 +990,77 @@ Herdr itself is exercised in the companion package's suite, not here.
 - theta's own bump: `package.json` + `CHANGELOG.md`, middle digit. The
   companion package versions independently against the `apiVersion` of the
   registration protocol.
+
+## Implementation record
+
+Landed as steps 0–10 (`951fe7be`…, one commit per step; 0.475.0). Where the
+implementation settled a point the text above left open or worded
+differently, the spec pages named under §Specification impact are
+authoritative and this list records the delta:
+
+1. **No launch file under `pipe`.** A fn entry rides `PI_THETA_SUBAGENT_ENTRY`
+   on the authenticated env control plane (`subagent-launcher.ts`
+   `SUBAGENT_LAUNCH_ENTRY_ENV`; `subagent-launch-file.ts`
+   `readLaunchEntryFromEnv`); the launch file exists for non-`pipe`
+   placements only. §2 and §Testing above are corrected to match.
+2. **Envelope under a channel goes to the channel only.** When the launch file
+   names a channel the child's envelope replaces fd 1 rather than mirroring it
+   (PIC-59 / PIC-74, `subagent.md`).
+3. **Credential guard note once per `(backend, provider)` per compose pass**
+   (`subagent-placement-selection.ts` `createPlacementPolicy`), informational,
+   `display: true`, no `details`.
+4. **Load-gate reach.** The fail-closed refusal covers `mode: subagent` thetas
+   and thetas declaring a top-level `subagent fn`
+   (`subagent-placement-selection.ts` `thetaLaunchesChildren`); an imported
+   `subagent fn` helper or an `invoke()` callee reached from a prompt-mode
+   theta fails at launch as `theta/runtime/subagent-spawn-failed`.
+5. **`exec` priority is not load-bearing**; the built-in `auto` order is
+   positional (`orderForAuto`).
+6. **`theta/load/settings-invalid-entry` for a project-local `exec` template**
+   carries its position-specific message in the row's Trigger prose (DIAG-4),
+   not a new row.
+7. **Backends subscribe to the discover channel in their factory body**
+   (`subagent-placement-registry.ts` `bindPlacementRegistration` emits once per
+   compose pass).
+8. **`fn_tail` envelope sidecar.** An additive, skew-tolerant `fn_tail:
+   "ok" | "err"` on the return envelope preserves FN-6's in-process call values
+   (`Ok(x)` / `Err(e)` tails versus bare values) across the wire
+   (`subagent-envelope.ts` `FnTail`; PIC-59 `#subagent-fn-tail-sidecar`).
+9. **Boundary validation of a `subagent fn`.** Arguments are AJV-checked per
+   typed parameter at child intake (`production-theta-producer.ts`
+   `#driveSubagentFnEntry`); the return is validated and decoded against
+   `): T` or the FN-3-inferred type (`#resolveSubagentFnReturnSite`,
+   `#validateInvokeReturn`) — a fail-closed arm the in-process drive had no
+   need of.
+10. **FN-7 `system` is honoured** and rendered against the calling
+    invocation's params (`systemParams` on the launch).
+11. **Executor hook shape.** `StatementEvalHost.runSubagentFnChild` /
+    `EffectfulStatementHostDeps.resolveSubagentFnChild` drive a
+    `SubagentFnInvokeChild` through `runInvokeChild` — the pre-spawn invoke
+    checkpoint applies at the call site — rather than swapping a
+    `SubagentFnSession` dependency.
+12. **Lib-side `with { cwd }` on an imported name stays refused** at the
+    `.thetalib` parse (`theta-document.ts` `checkThetaLibCallWithClauses`); the
+    importing theta's call sites are judged after materialisation
+    (`invoke-static-checks.ts` `checkImportedWithClauseCallees`).
+13. **PIC-64 e2e dispatch legs for `subagent fn` bodies retired offline**
+    (live-exercised now); the two load obligations of
+    `tests/subagent-fn-extension-tool-dispatch-e2e.test.ts` stay.
+14. **Explicit-selection refusal** also covers an invalid name arriving on
+    `PI_THETA_SUBAGENT_PLACEMENT` (the env override is not shape-validated by
+    the settings reader) and a registered backend whose `detect()` throws
+    (`selectPlacement`).
+15. **`OPTIONAL_UI_CAPABILITIES` stays five members**; `pi.events`,
+    `ctx.modelRegistry.getProviderAuthStatus` and `ctx.shutdown` are presence
+    rows with the same degrade-silent semantics outside the constant
+    (`sdk-inventory.ts`; PIC-73).
+16. **Untyped in-body query failures classify on-session.** A `subagent fn`
+    body's untyped `@`-query is the child's on-session turn, so a
+    `stopReason: "error"` is PIC-51's `transport`; the former in-process
+    drive's `classifyOffSessionReply` classification of that arm (bug 0182's
+    untyped seat) is gone with D4. The forced respond dispatch keeps it, and
+    bug 0182's live witness rides that seat
+    (`tests/live/off-session-overflow-classification.test.ts`).
 
 ## Prior art in this repository
 
