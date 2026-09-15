@@ -69,6 +69,10 @@ import {
   readParentPid,
 } from "./production-subagent-host";
 import {
+  createPipePlacementBackend,
+  type SubagentPlacementBackend,
+} from "../runtime/subagent-placement";
+import {
   detectMarkedRootWinner,
   detectSubagentRootRegime,
   markedRootRegistrationRefusal,
@@ -927,6 +931,10 @@ async function runComposePass(
   // writers onto it.
   const emitResultEnvelope = passEnvelopeWriter ?? createProductionEnvelopeWriter();
 
+  // RFC-0012 §1: the built-in `pipe` placement — today's launch, verbatim —
+  // constructed once per compose pass over the production spawn function.
+  const pipePlacement = createPipePlacementBackend(createProductionSpawnFn());
+
   // PIC-64: the code-side extension-tool dispatch-ladder probe — MODE- and
   // regime-independent (the retired PIC-61 child-only availability invariant is
   // inverted). The probe records a rung available only when it is EXECUTABLE
@@ -1001,10 +1009,12 @@ async function runComposePass(
     // live host `cwd` / `ctx`.
     resolvePiTool: (name: string) => resolvePiTool(name, ctx),
     // RFC-0005 subagent launch seams (subagent.md #subagent-launch-contract): the
-    // Windows-safe child-`pi`-process spawn function, the executable-resolution
-    // host snapshot, the inherited parent environment (full inheritance is the
-    // credential mechanism), and the parent PID carried on the env marker.
-    subagentSpawn: createProductionSpawnFn(),
+    // placement backend that puts each child somewhere (RFC 0012 §1 — the
+    // `pipe` backend over the Windows-safe child-`pi`-process spawn function),
+    // the executable-resolution host snapshot, the inherited parent
+    // environment (full inheritance is the credential mechanism), and the
+    // parent PID carried on the env marker.
+    subagentPlacement: (): SubagentPlacementBackend => pipePlacement,
     subagentExecutableHost,
     subagentParentEnv: readParentEnv(),
     subagentParentPid: readParentPid(),

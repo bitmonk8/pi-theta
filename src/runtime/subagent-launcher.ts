@@ -28,6 +28,16 @@ import type { InvokeInfraError } from "./query-error";
 import { INTERNAL_ERROR_CODE, surfaceUnexpectedThrow } from "./runtime-panics";
 import { SUBAGENT_CALLABLE_HASHES_ENV } from "./subagent-callable-hash";
 import { SUBAGENT_PARAMS_ENV, SUBAGENT_PARAMS_FILE_ENV } from "./subagent-params";
+import {
+  createPipePlacementBackend,
+  PIPE_PLACEMENT_NAME,
+  THETA_LAUNCH_ENTRY,
+  type PlacedChild,
+  type SubagentLaunchEntry,
+  type SubagentPlacementBackend,
+  type SubagentPlacementPresentation,
+  type SubagentPlacementRequest,
+} from "./subagent-placement";
 import { SUBAGENT_ROOT_ENV_MARKER, SUBAGENT_ROOT_WINNER_ENV } from "./subagent-root-regime";
 
 // ---------------------------------------------------------------------------
@@ -97,6 +107,26 @@ export const SUBAGENT_EXTENSION_PIN_ENV = "PI_THETA_SUBAGENT_EXTENSION_PIN";
  * in `invoke-depth-cycle.ts`).
  */
 export const SUBAGENT_INVOKE_DEPTH_ENV = "PI_THETA_SUBAGENT_INVOKE_DEPTH";
+
+/**
+ * RFC-0012 §10: the env var carrying the launch ENTRY under `pipe` placement —
+ * the JSON form of a `SubagentLaunchEntry` (`{"kind":"fn","name":"<fn>"}`).
+ * Written ONLY for a fn entry (a theta entry is the absent default, so a
+ * `.theta` callee's env is byte-identical to the pre-RFC launch); read by the
+ * child's regime detection beside the root marker and authenticated by the
+ * same ppid gate. Under a non-`pipe` placement the entry rides the launch file
+ * instead (`subagent-launch-file.ts`).
+ */
+export const SUBAGENT_LAUNCH_ENTRY_ENV = "PI_THETA_SUBAGENT_ENTRY";
+
+/**
+ * RFC-0012 §2: the registered CLI flag (`--theta-launch <path>`, the `--theta`
+ * flag's sibling; `pi.registerFlag` in the factory body, `pi.getFlag` in the
+ * child) that names the parent-private launch file to a child a non-`pipe`
+ * placement spawned. Written by the parent launcher only, never by an
+ * operator.
+ */
+export const SUBAGENT_LAUNCH_FLAG = "theta-launch";
 
 // ---------------------------------------------------------------------------
 // Executable resolution ladder (#subagent-executable-resolution).
@@ -375,6 +405,28 @@ export interface SubagentArgvInput {
    * shared word is what invites conflating the two.
    */
   readonly projectTrust: boolean;
+  /**
+   * RFC-0012 §7: the presentation the argv is assembled for. `"headless"`
+   * (the default, and the only form under `pipe`) is the `--mode json -p
+   * "/<slug>" --no-session` print form; `"visible"` is the interactive TUI
+   * form `--name <label> [--no-session] "/<slug>"` — the slug as a bare
+   * trailing positional (the pin's `parseArgs` has no `--` separator arm).
+   */
+  readonly presentation?: SubagentPlacementPresentation;
+  /** The session display name for the visible form (`--name`). Required when `presentation` is `"visible"`. */
+  readonly label?: string;
+  /**
+   * RFC-0012 §7: omit `--no-session` so the operator can `/resume` the visible
+   * child afterwards (the backend's `persistSession` capability). Ignored
+   * under the headless form, which always carries `--no-session`.
+   */
+  readonly persistSession?: boolean;
+  /**
+   * RFC-0012 §2: the parent-private launch file path → `--theta-launch <path>`
+   * (the `--theta` flag's sibling). Present on every non-`pipe` launch, absent
+   * under `pipe`.
+   */
+  readonly launchFile?: string;
 }
 
 /**
@@ -427,6 +479,13 @@ export function assembleSubagentArgv(
   if (input.thetaDirs.length > 0) {
     argv.push("--theta", input.thetaDirs.join(PATH_DELIMITER));
   }
+  // RFC-0012 §2: the launch file's path travels on argv as a registered flag
+  // (`--theta-launch`, read child-side with `pi.getFlag`), because a child a
+  // multiplexer spawns is not this process's child and may not inherit its
+  // environment — argv is the one channel that reliably crosses.
+  if (input.launchFile !== undefined) {
+    argv.push(`--${SUBAGENT_LAUNCH_FLAG}`, input.launchFile);
+  }
   // The system prompt is emitted so that it is read as TEXT, never as a path.
   //
   // Both hosts path-coerce this argument: one calls `existsSync` on the value and
@@ -447,15 +506,29 @@ export function assembleSubagentArgv(
   // CLI system prompt" and fall back to their built-in default, which is what a
   // theta declaring no `system:` wants; prefixing would make it truthy and install
   // a one-blank-line prompt instead, silently discarding that default.
-  argv.push(
-    "--mode",
-    "json",
-    "-p",
-    `/${input.slug}`,
-    "--no-session",
-    "--system-prompt",
-    input.systemPrompt === "" ? "" : `\n${input.systemPrompt}`,
-  );
+  if (input.presentation === "visible") {
+    // RFC-0012 §7 visible form: the interactive TUI with the slash command as
+    // the initial message (`InteractiveMode.run` → `AgentSession.prompt` →
+    // `_tryExecuteExtensionCommand`, verified at the pin). `--name` titles the
+    // session; `--no-session` stays unless the backend asked to persist the
+    // session for a later `/resume`. The slug is pushed LAST as a bare
+    // positional — see `assembleVisibleTail` for why it must trail.
+    argv.push("--name", input.label ?? input.slug);
+    if (input.persistSession !== true) {
+      argv.push("--no-session");
+    }
+    argv.push("--system-prompt", input.systemPrompt === "" ? "" : `\n${input.systemPrompt}`);
+  } else {
+    argv.push(
+      "--mode",
+      "json",
+      "-p",
+      `/${input.slug}`,
+      "--no-session",
+      "--system-prompt",
+      input.systemPrompt === "" ? "" : `\n${input.systemPrompt}`,
+    );
+  }
   // `--no-tools` when the callable set holds no HOST tool (empty ≠ omission —
   // omission would re-enable the host's default built-ins); otherwise the
   // comma-joined host-registry allowlist. A `.theta` callable never appears here:
@@ -469,7 +542,25 @@ export function assembleSubagentArgv(
   argv.push("--provider", input.provider, "--model", input.model);
   argv.push(...dialect.ambientIsolation);
   argv.push(...(input.projectTrust ? dialect.projectTrust : dialect.noProjectTrust));
+  if (input.presentation === "visible") {
+    argv.push(...assembleVisibleTail(input.slug));
+  }
   return argv;
+}
+
+/**
+ * The visible form's trailing positional: the slash command the interactive
+ * child dispatches as its initial message. It MUST be the LAST argv element:
+ * the host's `parseArgs` reads a positional that follows a value-less unknown
+ * flag as THAT flag's value, and the ambient-isolation / trust groups the
+ * argv ends with are exactly such flags on a host that does not know them
+ * (Pi absorbs unrecognised flags into its extension-flag map). Trailing after
+ * `--system-prompt <text>` … `--no-approve` keeps every known flag's value
+ * pairing intact and lands the slug in `parsed.messages`. No `--` separator:
+ * the pin's parser has no arm for it (RFC 0012 §7).
+ */
+function assembleVisibleTail(slug: string): readonly string[] {
+  return [`/${slug}`];
 }
 
 // ---------------------------------------------------------------------------
@@ -490,6 +581,8 @@ export function assembleSubagentArgv(
  *   - the params carriers supply the callee's arguments and BYPASS the binder;
  *   - the invoke depth seeds the recursion ceiling;
  *   - the callable-hash map is the load-to-spawn tamper check;
+ *   - the launch entry (RFC 0012 §10) names the `subagent fn` the child runs
+ *     instead of the root theta's body;
  *   - the parent-pid carriage authenticates all of the above
  *     (`authenticateControlPlane`, `production-subagent-host.ts`).
  *
@@ -507,6 +600,9 @@ export const SUBAGENT_CONTROL_PLANE_ENV_KEYS: readonly string[] = Object.freeze(
   SUBAGENT_INVOKE_DEPTH_ENV,
   SUBAGENT_CALLABLE_HASHES_ENV,
   SUBAGENT_PARENT_PID_ENV,
+  // RFC-0012 §10: the fn entry under `pipe` — per-launch, scrubbed and
+  // authenticated like the params carriers it travels beside.
+  SUBAGENT_LAUNCH_ENTRY_ENV,
 ]);
 
 /**
@@ -645,35 +741,77 @@ export interface SubagentLaunchRequest {
   /** The parent's CURRENT per-chain invoke depth, marshalled to the child (INV-4). */
   readonly invokeDepth: number;
   readonly host: ExecutableHost;
+  /**
+   * RFC-0012 §10: what the child runs as its process-root invocation — the
+   * root theta's body (the default) or a named `subagent fn` of it. A fn entry
+   * rides `SUBAGENT_LAUNCH_ENTRY_ENV` under `pipe` and the launch file under
+   * every other placement.
+   */
+  readonly entry?: SubagentLaunchEntry;
+  /**
+   * RFC-0012 §1: the display label a backend titles the child with
+   * (`"<slug>"` or `"<slug>#<fn>"` plus a short invocation id). Defaults to
+   * the slug.
+   */
+  readonly label?: string;
+  /** RFC-0012 §1: whether this launch is one of a `par for` fan-out (backend grouping hint only). */
+  readonly parallel?: boolean;
 }
 
-/** The launcher's collaborators. */
-export interface SubagentLaunchDeps {
-  readonly spawn: SpawnFn;
-  readonly emitDiagnostic: (diagnostic: Diagnostic) => void;
-}
+/**
+ * The launcher's collaborators. Exactly one of the two launch seams is
+ * supplied: `placement` — a placement backend (RFC 0012 §1), the general
+ * form — or `spawn`, the shorthand for `pipe` placement over that spawn
+ * function (`createPipePlacementBackend(spawn)`), which is what every launch
+ * was before the seam existed.
+ */
+export type SubagentLaunchDeps =
+  | {
+      readonly placement: SubagentPlacementBackend;
+      readonly spawn?: undefined;
+      readonly emitDiagnostic: (diagnostic: Diagnostic) => void;
+    }
+  | {
+      readonly spawn: SpawnFn;
+      readonly placement?: undefined;
+      readonly emitDiagnostic: (diagnostic: Diagnostic) => void;
+    };
 
 /** The launch outcome. */
 export type SubagentLaunchResult =
-  | { readonly ok: true; readonly child: SubagentChildProcess }
+  | { readonly ok: true; readonly child: SubagentChildProcess; readonly placed: PlacedChild }
   | { readonly ok: false; readonly reason: "unresolved" | "spawn-failed" };
 
 /**
- * Launch one child `pi` process for a subagent-mode invocation: resolve the
- * executable, assemble argv (honouring the opt-in extension pin,
- * #subagent-extension-pin), build the marked child env, and spawn with the
- * forwarded `cwd`. On a spawn throw (ENOENT/EPERM/immediate exit) emit
- * `theta/runtime/subagent-spawn-failed` and return the `spawn-failed` reason
- * (the caller additionally routes it through `theta/runtime/internal-error`).
+ * The assembled launch, before placement: everything `placeSubagentChild`
+ * hands a backend except the launch file (which the caller writes between
+ * preparation and placement, because its contents include result-channel
+ * coordinates only the caller holds).
  */
-export function launchSubagentChild(
-  request: SubagentLaunchRequest,
-  deps: SubagentLaunchDeps,
-): SubagentLaunchResult {
+export type PreparedSubagentLaunch =
+  | {
+      readonly ok: true;
+      readonly execPath: string;
+      readonly args: readonly string[];
+      readonly cwd: string;
+      readonly env: Record<string, string | undefined>;
+      readonly label: string;
+      readonly presentation: SubagentPlacementPresentation;
+      readonly entry: SubagentLaunchEntry;
+    }
+  | { readonly ok: false; readonly reason: "unresolved" };
+
+/**
+ * Resolve the executable, assemble argv (honouring the opt-in extension pin,
+ * #subagent-extension-pin, and the presentation / launch-file inputs on
+ * `request.argv`), and build the marked child env. Pure and synchronous — the
+ * half of a launch that is identical for every placement. Returns the
+ * `unresolved` verdict when both executable rungs fail (load-time probing
+ * normally catches this before registration).
+ */
+export function prepareSubagentLaunch(request: SubagentLaunchRequest): PreparedSubagentLaunch {
   const resolution = resolveSubagentExecutable(request.host);
   if (!resolution.ok) {
-    // Both rungs failed at launch time. Load-time probing (capability-probe.ts
-    // Step 0 (f)) normally catches this fail-closed before registration.
     return { ok: false, reason: "unresolved" };
   }
   // #subagent-extension-pin: an explicit argv-input pin wins; otherwise the
@@ -691,6 +829,14 @@ export function launchSubagentChild(
   // renamed host binary cannot mislead it, and no env var can override it.
   const dialect = resolveHostCliDialect(request.host.configDirName);
   const argv = [...resolution.scriptArgs, ...assembleSubagentArgv(argvInput, dialect)];
+  const entry = request.entry ?? THETA_LAUNCH_ENTRY;
+  // RFC-0012 §10: a fn entry rides the env control plane under `pipe` (the
+  // one new key inside the scrubbed per-launch set); a theta entry writes
+  // nothing, so a `.theta` callee's env is byte-identical to the pre-RFC form.
+  // A non-`pipe` placement additionally carries the entry on the launch file
+  // (the child's read prefers the file when argv names one).
+  const entryEnv: Record<string, string | undefined> =
+    entry.kind === "fn" ? { [SUBAGENT_LAUNCH_ENTRY_ENV]: JSON.stringify(entry) } : {};
   // PIC-58: the root-regime marker carries the callee slug, subsuming the old
   // child marker (watcher suppression + no-recursion + regime selection).
   const env = buildSubagentChildEnv(
@@ -698,34 +844,198 @@ export function launchSubagentChild(
     request.parentPid,
     request.invokeDepth,
     request.argv.slug,
-    request.controlPlaneEnv,
+    { ...(request.controlPlaneEnv ?? {}), ...entryEnv },
   );
+  return {
+    ok: true,
+    execPath: resolution.execPath,
+    args: argv,
+    cwd: request.cwd,
+    env,
+    label: request.label ?? request.argv.slug,
+    presentation: request.argv.presentation ?? "headless",
+    entry,
+  };
+}
+
+/**
+ * Render the `theta/runtime/subagent-spawn-failed` diagnostic for a throw at
+ * placement time (ENOENT / EPERM / immediate exit / a backend's own refusal).
+ * Shared by the synchronous `pipe` launcher and the async placement path so
+ * both emit one row shape.
+ */
+function spawnFailedDiagnostic(
+  spawnError: unknown,
+  request: SubagentLaunchRequest,
+  execPath: string,
+): Diagnostic {
+  const raw = spawnError instanceof Error ? spawnError.message : String(spawnError);
+  // INV-7 (invocation.md): a spawn failure MUST be diagnosable naming the
+  // offending working directory — the per-call `with { cwd }` clause makes a
+  // bad cwd a first-class authoring mistake, and Node's ENOENT names the
+  // EXECUTABLE, not the cwd. Enrich the `<error.message>` slot when the OS
+  // error does not already carry the directory: slot CONTENT, not a template
+  // change, so DIAG-4's pinned `subagent child spawn failed: <error.message>`
+  // Message holds and the hint stays the attempted executable. Unconditional
+  // on clause presence — the launcher cannot know, and a default-cwd failure
+  // gains the same diagnosability. Existence is never pre-checked (INV-7):
+  // the OS error at spawn is the authoritative verdict.
+  const attemptedCwd = resolvePath(request.cwd);
+  const message = raw.includes(request.cwd) ? raw : `${raw} (cwd: ${attemptedCwd})`;
+  return {
+    severity: "error",
+    code: SUBAGENT_SPAWN_FAILED_CODE,
+    message: `subagent child spawn failed: ${message}`,
+    hint: execPath,
+  };
+}
+
+/**
+ * Launch one child `pi` process for a subagent-mode invocation under `pipe`
+ * placement, synchronously: resolve the executable, assemble argv, build the
+ * marked child env, and spawn with the forwarded `cwd`. On a spawn throw
+ * (ENOENT/EPERM/immediate exit) emit `theta/runtime/subagent-spawn-failed` and
+ * return the `spawn-failed` reason (the caller additionally routes it through
+ * `theta/runtime/internal-error`).
+ *
+ * This is the `pipe` specialisation of `placeSubagentChild`: byte-identical
+ * spawn arguments, no launch file, no result channel. It stays synchronous
+ * because `SpawnFn` is, and the PIC-22 / teardown / wire tests drive it
+ * directly. `deps.placement` is accepted for symmetry but MUST be a
+ * synchronous pipe-shaped backend (one whose `place` returns a `process`);
+ * any other backend belongs to `placeSubagentChild`.
+ */
+export function launchSubagentChild(
+  request: SubagentLaunchRequest,
+  deps: SubagentLaunchDeps,
+): SubagentLaunchResult {
+  const prepared = prepareSubagentLaunch(request);
+  if (!prepared.ok) {
+    // Both rungs failed at launch time. Load-time probing (capability-probe.ts
+    // Step 0 (f)) normally catches this fail-closed before registration.
+    return { ok: false, reason: "unresolved" };
+  }
+  const backend =
+    deps.placement !== undefined ? deps.placement : createPipePlacementBackend(deps.spawn);
   try {
-    const child = deps.spawn(resolution.execPath, argv, { cwd: request.cwd, env });
-    return { ok: true, child };
+    const placed = backend.place(toPlacementRequest(prepared, request, undefined));
+    if (placed instanceof Promise || placed.process === undefined) {
+      throw new Error(
+        `placement '${backend.name}' is not a synchronous pipe-shaped backend; use placeSubagentChild`,
+      );
+    }
+    return { ok: true, child: placed.process, placed };
   } catch (spawnError: unknown) { // allow-broad-catch: theta/runtime/subagent-spawn-failed — pi-integration-contract/subagent.md
     // A spawn throw (ENOENT/EPERM/immediate exit) records the operator-triage
     // diagnostic here; the caller additionally routes it through the
     // runtime-defect surface via `routeSubagentSpawnFailure`.
-    const raw = spawnError instanceof Error ? spawnError.message : String(spawnError);
-    // INV-7 (invocation.md): a spawn failure MUST be diagnosable naming the
-    // offending working directory — the per-call `with { cwd }` clause makes a
-    // bad cwd a first-class authoring mistake, and Node's ENOENT names the
-    // EXECUTABLE, not the cwd. Enrich the `<error.message>` slot when the OS
-    // error does not already carry the directory: slot CONTENT, not a template
-    // change, so DIAG-4's pinned `subagent child spawn failed: <error.message>`
-    // Message holds and the hint stays the attempted executable. Unconditional
-    // on clause presence — the launcher cannot know, and a default-cwd failure
-    // gains the same diagnosability. Existence is never pre-checked (INV-7):
-    // the OS error at spawn is the authoritative verdict.
-    const attemptedCwd = resolvePath(request.cwd);
-    const message = raw.includes(request.cwd) ? raw : `${raw} (cwd: ${attemptedCwd})`;
-    deps.emitDiagnostic({
-      severity: "error",
-      code: SUBAGENT_SPAWN_FAILED_CODE,
-      message: `subagent child spawn failed: ${message}`,
-      hint: resolution.execPath,
+    deps.emitDiagnostic(spawnFailedDiagnostic(spawnError, request, prepared.execPath));
+    return { ok: false, reason: "spawn-failed" };
+  }
+}
+
+/** Project a prepared launch onto the backend-facing request shape. */
+export function toPlacementRequest(
+  prepared: Extract<PreparedSubagentLaunch, { ok: true }>,
+  request: SubagentLaunchRequest,
+  launchFile: string | undefined,
+): SubagentPlacementRequest {
+  return {
+    execPath: prepared.execPath,
+    args: prepared.args,
+    cwd: prepared.cwd,
+    env: prepared.env,
+    label: prepared.label,
+    presentation: prepared.presentation,
+    launchFile,
+    context: { invokeDepth: request.invokeDepth, parallel: request.parallel === true },
+  };
+}
+
+/**
+ * The wire a non-`pipe` placement runs over: the launch file the argv names
+ * and the adapter that turns the backend's `PlacedChild` (no process handle —
+ * the child's stdout is a TTY) into the `SubagentChildProcess` line source the
+ * drive consumes. Opened BEFORE `place()` because the launch file carries the
+ * channel's coordinates. Supplied by the result channel
+ * (`subagent-result-channel.ts`); injected so the launcher stays free of
+ * sockets and files.
+ */
+export interface OpenedSubagentWire {
+  readonly launchFile: string;
+  readonly adapt: (placed: PlacedChild) => SubagentChildProcess;
+  /** Release the channel and delete the launch file when placement never happens. */
+  readonly abandon: () => void;
+}
+
+/** The collaborators the general (async) placement path consumes. */
+export interface SubagentPlacementDeps {
+  readonly placement: SubagentPlacementBackend;
+  readonly emitDiagnostic: (diagnostic: Diagnostic) => void;
+  /**
+   * Open the wire for a non-`pipe` backend. `undefined` (not wired) makes a
+   * non-`pipe` placement a `spawn-failed` launch with a diagnostic naming the
+   * missing wiring — never a silent `pipe` fallback.
+   */
+  readonly openWire?: (
+    prepared: Extract<PreparedSubagentLaunch, { ok: true }>,
+    request: SubagentLaunchRequest,
+  ) => Promise<OpenedSubagentWire>;
+}
+
+/**
+ * Place one child for a subagent-mode invocation through a placement backend
+ * (RFC 0012 §1): prepare the launch, open the wire for a non-`pipe` backend,
+ * call `place()`, and adapt the result to the `SubagentChildProcess` line
+ * source `driveSubagentChild` consumes. Under the `pipe` backend this is
+ * `launchSubagentChild` with an `await` in front — same argv, same env, same
+ * cwd, no launch file. A placement throw or rejection is a spawn failure
+ * (`theta/runtime/subagent-spawn-failed`, existing code).
+ */
+export async function placeSubagentChild(
+  request: SubagentLaunchRequest,
+  deps: SubagentPlacementDeps,
+): Promise<SubagentLaunchResult> {
+  const backend = deps.placement;
+  // `pipe` places synchronously and needs no wire: keep the two paths one.
+  if (backend.name === PIPE_PLACEMENT_NAME) {
+    return launchSubagentChild(request, {
+      placement: backend,
+      emitDiagnostic: deps.emitDiagnostic,
     });
+  }
+  const prepared = prepareSubagentLaunch(request);
+  if (!prepared.ok) {
+    return { ok: false, reason: "unresolved" };
+  }
+  if (deps.openWire === undefined) {
+    deps.emitDiagnostic(
+      spawnFailedDiagnostic(
+        new Error(`placement '${backend.name}' needs the result channel, which is not wired`),
+        request,
+        prepared.execPath,
+      ),
+    );
+    return { ok: false, reason: "spawn-failed" };
+  }
+  let wire: OpenedSubagentWire | undefined;
+  try {
+    wire = await deps.openWire(prepared, request);
+    // The launch file path is on argv: re-prepare with it so the argv the
+    // backend receives carries `--theta-launch <path>`.
+    const withFile = prepareSubagentLaunch({
+      ...request,
+      argv: { ...request.argv, launchFile: wire.launchFile },
+    });
+    if (!withFile.ok) {
+      wire.abandon();
+      return { ok: false, reason: "unresolved" };
+    }
+    const placed = await backend.place(toPlacementRequest(withFile, request, wire.launchFile));
+    return { ok: true, child: wire.adapt(placed), placed };
+  } catch (spawnError: unknown) { // allow-broad-catch: theta/runtime/subagent-spawn-failed — pi-integration-contract/subagent.md
+    wire?.abandon();
+    deps.emitDiagnostic(spawnFailedDiagnostic(spawnError, request, prepared.execPath));
     return { ok: false, reason: "spawn-failed" };
   }
 }

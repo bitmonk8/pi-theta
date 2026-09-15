@@ -36,9 +36,17 @@ import { buildSessionContext } from "@earendil-works/pi-coding-agent";
 import { runSubagentChildTeardown } from "../runtime/subagent-isolation";
 import {
   inferChildTrust,
-  launchSubagentChild,
+  placeSubagentChild,
   routeSubagentSpawnFailure,
+  type OpenedSubagentWire,
+  type PreparedSubagentLaunch,
+  type SubagentLaunchRequest,
 } from "../runtime/subagent-launcher";
+import {
+  createPipePlacementBackend,
+  placementIsVisible,
+  type SubagentPlacementBackend,
+} from "../runtime/subagent-placement";
 import type { HostToolSnapshotEntry } from "../seams/host-tool-snapshot";
 import {
   attachSubagentCancellation,
@@ -375,6 +383,21 @@ import {
  * (`runCodeSideToolCall`) turns a clean resolve into `Ok(text)` and a throw into
  * `Err(CodeToolError{cause:"execution"})`.
  */
+/**
+ * RFC-0012 §6: per-launch placement resolution. The composition root supplies
+ * it over the registered-backend set, the operator's selection and the two
+ * per-launch policies (visible cap, credential guard); the producer calls it
+ * once per child launch with the facts those policies need.
+ */
+export interface SubagentPlacementResolver {
+  (context: {
+    /** The resolved model's provider (the credential guard's lookup key). */
+    readonly provider: string;
+    /** The callee rendering for the guard's system note (`/<slug>` or `/<slug>#<fn>`). */
+    readonly callee: string;
+  }): SubagentPlacementBackend;
+}
+
 export interface PiToolDispatch {
   readonly toolName: string;
   /**
@@ -459,6 +482,23 @@ export interface ProductionProducerInput {
    * (where a subagent bind fails with an internal error rather than launching).
    */
   readonly subagentSpawn?: import("../runtime/subagent-launcher").SpawnFn;
+  /**
+   * RFC-0012 §1/§6: the placement resolver — returns the backend that places
+   * THIS launch (the operator's selection, the visible cap and the credential
+   * guard applied per launch by the composition root). Wins over
+   * `subagentSpawn` when both are supplied; absent, `subagentSpawn` is the
+   * `pipe` backend over that spawn function (the pre-RFC launch, verbatim).
+   */
+  readonly subagentPlacement?: SubagentPlacementResolver;
+  /**
+   * RFC-0012 §2/§3: opens the launch file + result channel for a non-`pipe`
+   * placement (`placeSubagentChild`'s `openWire`). Absent ⇒ a non-`pipe`
+   * placement is a spawn failure naming the missing wiring.
+   */
+  readonly subagentOpenWire?: (
+    prepared: Extract<PreparedSubagentLaunch, { ok: true }>,
+    request: SubagentLaunchRequest,
+  ) => Promise<OpenedSubagentWire>;
   readonly subagentExecutableHost?: import("../runtime/subagent-launcher").ExecutableHost;
   readonly subagentParentEnv?: Readonly<Record<string, string | undefined>>;
   readonly subagentParentPid?: number;
@@ -2538,19 +2578,30 @@ class ProductionThetaProducer implements ThetaProducerDeps {
         theta.sourcePath !== undefined ? theta.sourcePath.replace(/\\/g, "/") : undefined,
     };
 
-    // PIC-65 launch. The spawn seam + executable host are wired at the composition
-    // root; their absence on a non-production harness is a configuration defect
-    // surfaced as an internal error (never a modelless / childless drive).
-    const spawn = this.#input.subagentSpawn;
+    // PIC-65 launch. The placement seam (RFC 0012 §1) + executable host are
+    // wired at the composition root; their absence on a non-production harness
+    // is a configuration defect surfaced as an internal error (never a
+    // modelless / childless drive). `subagentSpawn` alone is the `pipe`
+    // shorthand — the pre-RFC launch, verbatim.
     const executableHost = this.#input.subagentExecutableHost;
-    if (spawn === undefined || executableHost === undefined) {
+    const placementResolver = this.#placementResolver();
+    if (placementResolver === undefined || executableHost === undefined) {
       paramsCleanup();
       finishInvocation();
       throw new SubagentSpawnFailedError(
-        "subagent child launch is unavailable: no spawn seam / executable host wired",
+        "subagent child launch is unavailable: no placement seam / executable host wired",
       );
     }
-    const launch = launchSubagentChild(
+    const placement = placementResolver({
+      provider: String(model.provider),
+      callee: `/${theta.slashName}`,
+    });
+    // RFC 0012 §6 *Presentation*: the argv form follows the SELECTED backend's
+    // `visible` capability — a visible backend gets the interactive TUI form
+    // (§7), everything else the headless print form. Derived here, never
+    // author-selected.
+    const presentation = placementIsVisible(placement) ? ("visible" as const) : ("headless" as const);
+    const launch = await placeSubagentChild(
       {
         argv: {
           slug: theta.slashName,
@@ -2561,7 +2612,10 @@ class ProductionThetaProducer implements ThetaProducerDeps {
           provider: String(model.provider),
           model: model.id,
           projectTrust,
+          presentation,
+          label: theta.slashName,
         },
+        label: theta.slashName,
         // RFC 0009 (invocation.md INV-8; subagent.md #subagent-launch-contract):
         // the child working directory is the call site's validated, resolved
         // `cwd` when the dispatching call carried a `with { cwd }` clause,
@@ -2578,10 +2632,16 @@ class ProductionThetaProducer implements ThetaProducerDeps {
         invokeDepth: chain.depth,
         host: executableHost,
       },
-      { spawn, emitDiagnostic },
+      {
+        placement,
+        emitDiagnostic,
+        ...(this.#input.subagentOpenWire !== undefined
+          ? { openWire: this.#input.subagentOpenWire }
+          : {}),
+      },
     );
     if (!launch.ok) {
-      // PIC-65 spawn-failure rule: `launchSubagentChild` already emitted the
+      // PIC-65 spawn-failure rule: `placeSubagentChild` already emitted the
       // operator-triage diagnostic; dually route the failure as an unanticipated
       // SDK reject (theta/runtime/internal-error). No child → nothing to tear
       // down; clean up params + drop the registry entry the bind just added.
@@ -2700,6 +2760,26 @@ class ProductionThetaProducer implements ThetaProducerDeps {
       teardown,
       finishInvocation,
     };
+  }
+
+  /**
+   * RFC-0012 §1: the per-launch placement resolver. The composition root's
+   * `subagentPlacement` (selection + visible cap + credential guard applied
+   * per launch) wins; a bare `subagentSpawn` is the `pipe` backend over that
+   * spawn function — the pre-RFC launch, byte for byte. `undefined` when
+   * neither is wired (a non-production harness).
+   */
+  #placementResolver(): SubagentPlacementResolver | undefined {
+    const resolver = this.#input.subagentPlacement;
+    if (resolver !== undefined) {
+      return resolver;
+    }
+    const spawn = this.#input.subagentSpawn;
+    if (spawn === undefined) {
+      return undefined;
+    }
+    const pipe = createPipePlacementBackend(spawn);
+    return (): SubagentPlacementBackend => pipe;
   }
 
   /**
