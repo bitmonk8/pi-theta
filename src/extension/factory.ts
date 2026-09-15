@@ -90,6 +90,7 @@ import { raceAgainstCapTimer } from "./cap-race";
 import { SUBAGENT_ROOT_ENV_MARKER } from "../runtime/subagent-root-regime";
 import { readProductionChildControlPlane } from "./production-subagent-host";
 import { SUBAGENT_LAUNCH_FLAG } from "../runtime/subagent-launcher";
+import type { ResultChannelClient } from "../runtime/subagent-result-channel";
 import { SDK_SURFACE_INVENTORY } from "./sdk-inventory";
 
 /**
@@ -408,6 +409,10 @@ export interface ThetaExtensionDeps {
     // `theta_progress`'s shared-state code-side executor), so a code-side call
     // dispatches in-process instead of through the host-loop bridge.
     inProcessTools?: Readonly<Record<string, InProcessToolExecute>>,
+    // RFC-0012 §3: the child's LIVE result channel from an earlier compose of
+    // this same process (a repeat `session_start`), so the pass reuses the one
+    // connection the parent accepts instead of dialling a second one.
+    resultChannel?: ResultChannelClient,
   ) => Promise<ExtensionInstanceWiring>;
 
   /**
@@ -565,6 +570,12 @@ export function createThetaExtension(
     // `/theta-status` handler. Factory-scoped closure state like every other
     // binding here — no globals, no statics.
     let liveStatusBus: ExecutionStatusBus | undefined;
+    // RFC-0012 §3: the LIVE child-side result channel of a non-`pipe` child,
+    // latched from the compose wiring. Read lazily by the `theta_progress`
+    // child arm (the wire line goes to the channel, never fd 1), handed back
+    // into a repeat compose, and closed at `session_shutdown`. Undefined under
+    // `pipe` and in every parent process.
+    let liveResultChannel: ResultChannelClient | undefined;
     // RFC 0010 (EXST-11): `/theta-status` registers exactly once per extension
     // instance (not once per `registerFixtures` pass — the composed path can
     // re-run `registerFixtures` across a supersession/rebind), so this latch
@@ -650,6 +661,9 @@ export function createThetaExtension(
           invocations: () => liveActiveInvocations,
           clock: () => liveClock,
           entryChannel,
+          // RFC-0012 §3: under a non-`pipe` placement the PIC-74 wire line
+          // rides the result channel; absent (pipe), the fd-1 default stands.
+          wireSink: () => liveResultChannel,
         });
         inProcessTools = { [THETA_PROGRESS_TOOL_NAME]: progress.codeSideExecute };
       } catch (e: unknown) { // allow-broad-catch: pi-sdk-boundary — conventions.md Specific exception types only
@@ -996,6 +1010,7 @@ export function createThetaExtension(
             liveStatusBus = bus;
           },
           inProcessTools,
+          liveResultChannel,
         );
       } catch (e: unknown) { // allow-broad-catch: pi-sdk-boundary — conventions.md Specific exception types only
         if (composeTailSuperseded()) {
@@ -1139,6 +1154,12 @@ export function createThetaExtension(
       // Publish the live resources for the lazy `session_shutdown` teardown read.
       liveRegistry = wiring.registry;
       liveClock = wiring.clock;
+      // RFC-0012 §3: latch the child's result channel (connected by this
+      // compose, or the one handed back in above) for the progress-tool arm
+      // and the shutdown close.
+      if (wiring.resultChannel !== undefined) {
+        liveResultChannel = wiring.resultChannel;
+      }
       // Decision 6 / Increment B1: publish the shared registry the producer's
       // bind choke points register in-flight invocations into, so the teardown's
       // sub-steps 2/3 operate on REAL entries.
@@ -1329,6 +1350,12 @@ export function createThetaExtension(
         liveStatusBus?.dispose();
         liveStatusBus = undefined;
         supersededGenerations.length = 0;
+        // RFC-0012 §3: the child's result channel closes AFTER the five
+        // sub-steps have run — sub-step 3 awaits the in-flight invocation
+        // whose envelope rides it — so the last frame is on the wire before
+        // the socket ends. Consumed here so a re-delivery finds nothing.
+        const resultChannel = liveResultChannel;
+        liveResultChannel = undefined;
 
         // The classifier reads `event.reason` in its own `try` (PIC-47), so
         // this call must not pre-read the property: a throwing getter has to
@@ -1336,7 +1363,9 @@ export function createThetaExtension(
         // `extension-bootstrap-failed`. `event` (a `SessionShutdownEvent`)
         // satisfies `SessionShutdownEventLike` structurally, so it is passed
         // through unread.
-        return runSessionShutdown(event, shutdownDeps);
+        return runSessionShutdown(event, shutdownDeps).finally(() => {
+          resultChannel?.close();
+        });
       } catch (e: unknown) { // allow-broad-catch: pi-sdk-boundary — conventions.md Specific exception types only
         deps.emitDiagnostic?.(
           bootstrapFailedDiagnostic("pi.on", e, { event: "session_shutdown" }),
@@ -1427,11 +1456,16 @@ export default function thetaExtension(pi: ExtensionAPI): void {
       entryChannel,
       latchStatusBus,
       inProcessTools,
+      resultChannel,
     ) =>
       composeExtensionInstance(
         pi,
         ctx,
-        { subagentControlPlane: childControlPlane },
+        {
+          subagentControlPlane: childControlPlane,
+          // RFC-0012 §3: a repeat compose reuses the live connection.
+          ...(resultChannel !== undefined ? { subagentResultChannel: resultChannel } : {}),
+        },
         rendererGate,
         ownRegisteredNames,
         entryChannel,

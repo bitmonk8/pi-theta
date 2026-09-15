@@ -91,6 +91,33 @@ describe("T-WIRE — L3-B18: one wire line per accepted call, no bus/entry/UI tr
   });
 });
 
+describe("T-WIRE — RFC 0012 §3: under a non-`pipe` placement the wire line rides the result channel, not fd 1", () => {
+  it("a live wireSink receives the line and the fd-1 writer is bypassed; an absent sink falls back to writeWireLine", async () => {
+    const channelLines: string[] = [];
+    let live: { writeLine(line: string): void } | undefined = {
+      writeLine: (line: string): void => {
+        channelLines.push(line);
+      },
+    };
+    const { deps, writtenLines } = childDeps({ wireSink: () => live });
+    const { hostApi, calls } = fakeHostApi();
+    registerThetaProgressTool(hostApi, deps);
+    const clock = deps.clock() as unknown as FakeClock;
+    await calls[0]!.execute("c1", ARGS, undefined, undefined, {} as never);
+    expect(channelLines).toHaveLength(1);
+    expect(writtenLines).toEqual([]);
+    expect(JSON.parse(channelLines[0]!.trimEnd()).theta_progress.seq).toBe(1);
+    // The latch is read per call: once the channel is gone the fd-1 arm stands,
+    // and the seq stream is one stream across both sinks.
+    live = undefined;
+    clock.advance(200);
+    await calls[0]!.execute("c2", ARGS, undefined, undefined, {} as never);
+    expect(channelLines).toHaveLength(1);
+    expect(writtenLines).toHaveLength(1);
+    expect(JSON.parse(writtenLines[0]!.trimEnd()).theta_progress.seq).toBe(2);
+  });
+});
+
 describe("T-WIRE — L3-B19: monotonic seq, one invocation_id per stream", () => {
   it("three accepted calls carry seq 1,2,3 and the same invocation_id", async () => {
     const { deps, writtenLines } = childDeps();

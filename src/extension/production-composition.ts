@@ -63,12 +63,23 @@ import {
 import {
   createProductionEnvelopeWriter,
   createProductionExecutableHost,
+  createProductionLaunchFileFs,
   createProductionParamsFs,
   createProductionSpawnFn,
   readParentPid,
   readProductionChildControlPlane,
 } from "./production-subagent-host";
+import {
+  createProductionChannelClient,
+  createProductionChannelServer,
+  createProductionSecretMint,
+  createProductionSubagentWire,
+} from "./production-result-channel";
 import type { SubagentChildControlPlane } from "../runtime/subagent-launch-file";
+import {
+  connectResultChannel,
+  type ResultChannelClient,
+} from "../runtime/subagent-result-channel";
 import {
   createPipePlacementBackend,
   type SubagentPlacementBackend,
@@ -243,6 +254,15 @@ export interface ComposeSeamOverrides {
    * (a harness) ⇒ computed once per `composeExtensionInstance` call.
    */
   readonly subagentControlPlane?: SubagentChildControlPlane;
+  /**
+   * RFC-0012 §3: an ALREADY-CONNECTED child-side result channel — the
+   * factory's live client on a repeat `session_start` compose (one process,
+   * one connection: the parent drops a second dialer, so a re-compose must
+   * reuse the first), or a test fake standing in for the socket. Absent ⇒
+   * connected here from the control plane's channel coordinates when the
+   * launch file named a channel, else no channel (fd 1 is the wire).
+   */
+  readonly subagentResultChannel?: ResultChannelClient;
 }
 
 /**
@@ -660,6 +680,9 @@ async function runComposePass(
   // RFC-0012 §2: the child control-plane view (see `ComposeSeamOverrides`).
   // Every former `readParentEnv()` read in this pass goes through it.
   passControlPlane?: SubagentChildControlPlane,
+  // RFC-0012 §3: THIS child's connected result channel, when the launch file
+  // named one. The envelope writer below targets it INSTEAD of fd 1.
+  passResultChannel?: ResultChannelClient,
 ): Promise<ComposePassResult> {
   const fileSystem = root.fileSystem;
   const clock = root.clock;
@@ -944,11 +967,30 @@ async function runComposePass(
   // (emitted after the registration loop) — a child process has exactly one
   // reserved-key stdout channel (PIC-59) and must never open two independent
   // writers onto it.
-  const emitResultEnvelope = passEnvelopeWriter ?? createProductionEnvelopeWriter();
+  // RFC-0012 §3: under a non-`pipe` placement the launch file names a result
+  // channel and the envelope goes THERE, not to fd 1 — a visible child's fd 1
+  // is the interactive TUI's terminal, and a JSON line on it would corrupt the
+  // display without reaching any reader. Under `pipe` (no channel) fd 1 is the
+  // wire exactly as before.
+  const emitResultEnvelope =
+    passEnvelopeWriter ??
+    (passResultChannel !== undefined
+      ? (line: string): void => {
+          passResultChannel.writeLine(line);
+        }
+      : createProductionEnvelopeWriter());
 
   // RFC-0012 §1: the built-in `pipe` placement — today's launch, verbatim —
   // constructed once per compose pass over the production spawn function.
   const pipePlacement = createPipePlacementBackend(createProductionSpawnFn());
+  // RFC-0012 §2/§3: the wire a non-`pipe` placement opens before `place()` —
+  // the loopback result channel plus the launch file carrying its coordinates.
+  const subagentOpenWire = createProductionSubagentWire({
+    clock,
+    launchFs: createProductionLaunchFileFs(),
+    server: createProductionChannelServer(),
+    mintSecret: createProductionSecretMint(),
+  });
 
   // PIC-64: the code-side extension-tool dispatch-ladder probe — MODE- and
   // regime-independent (the retired PIC-61 child-only availability invariant is
@@ -1030,6 +1072,7 @@ async function runComposePass(
     // environment (full inheritance is the credential mechanism), and the
     // parent PID carried on the env marker.
     subagentPlacement: (): SubagentPlacementBackend => pipePlacement,
+    subagentOpenWire,
     subagentExecutableHost,
     subagentParentEnv: controlPlaneEnv,
     subagentParentPid: readParentPid(),
@@ -1755,6 +1798,14 @@ export interface ExtensionInstanceWiring {
    */
   readonly statusBus?: ExecutionStatusBus;
   /**
+   * RFC-0012 §3: THIS child's connected result channel, when its launch file
+   * named one — exposed so the factory latches it for the `theta_progress`
+   * child arm (the wire line goes to the channel, not fd 1), reuses it on a
+   * repeat `session_start` compose, and closes it at `session_shutdown`.
+   * Absent under `pipe` and on every parent / harness path.
+   */
+  readonly resultChannel?: ResultChannelClient;
+  /**
    * The live `Clock` seam the composition root built once and the step-5
    * watcher / 250 ms debounce measure against. Threaded so the factory's
    * `session_shutdown` teardown reads the SAME clock instance the watcher used
@@ -1845,11 +1896,20 @@ export async function composeExtensionInstance(
   // note is best-effort and never aborts `session_start` (the theta is
   // dropped, not the session).
   const preEvalRouter = createLoadFailurePreEvalRouter({ channel });
+  // RFC-0012 §3: the child's connected result channel (assigned below, once
+  // the runtime root's clock exists; read at call time by the mirror here).
+  let resultChannel: ResultChannelClient | undefined;
   const emitLoadNoteGroup = (diagnostics: readonly Diagnostic[]): void => {
     for (const diagnostic of diagnostics) {
       if (diagnostic.severity !== "error") {
         continue;
       }
+      // RFC-0012 §3 `stderr` frame: under a non-`pipe` placement the child's
+      // stderr is a terminal the parent cannot read, so the crash detail that
+      // used to arrive on the stderr pipe — this extension's own error-
+      // severity diagnostics — is mirrored onto the channel, one bounded line
+      // each, for the parent's `subagent-child-crashed` hint.
+      resultChannel?.stderr(`${diagnostic.code}: ${diagnostic.message}`);
       preEvalRouter.routePreEvalFailure({
         content: renderDiagnosticBatch([diagnostic]),
         display: true,
@@ -1962,6 +2022,23 @@ export async function composeExtensionInstance(
   // threaded one, else computed once here so a reload pass never re-reads.
   const instanceControlPlane =
     overrides?.subagentControlPlane ?? readProductionChildControlPlane();
+  // RFC-0012 §3: dial the parent's result channel when the launch file named
+  // one — ONCE per process (the factory hands the live client back in on a
+  // repeat compose; the parent drops a second connection). The hello carries
+  // the token and the consumed launch nonce; the heartbeat runs on the same
+  // `Clock` the rest of the instance measures against.
+  const launch = instanceControlPlane.launch;
+  resultChannel =
+    overrides?.subagentResultChannel ??
+    (launch?.channel !== undefined
+      ? connectResultChannel({
+          client: createProductionChannelClient(),
+          clock: root.clock,
+          port: launch.channel.port,
+          token: launch.channel.token,
+          nonce: launch.nonce,
+        })
+      : undefined);
   const initial = await runComposePass(
     pi,
     ctx,
@@ -1977,6 +2054,7 @@ export async function composeExtensionInstance(
     statusBus,
     inProcessTools,
     instanceControlPlane,
+    resultChannel,
   );
 
   // The watched set: `watchRoots` (the file-derived active-root union unioned
@@ -2016,6 +2094,7 @@ export async function composeExtensionInstance(
     activeRoots: initial.activeRoots,
     clock: root.clock,
     statusBus,
+    ...(resultChannel !== undefined ? { resultChannel } : {}),
     installHotReload(reRegister): HotReloadHandle {
       return installHotReload({
         watcher: root.fileWatcher,
@@ -2051,6 +2130,7 @@ export async function composeExtensionInstance(
             statusBus,
             inProcessTools,
             instanceControlPlane,
+            resultChannel,
           );
           // Bug 0312: record this pass's watch set (its resolved `.thetalib`
           // closure dirs already unioned in by `runComposePass`), plus the two

@@ -10,7 +10,8 @@
 //   - PARENT regime (EXST-14): exactly two effects per ACCEPTED call — one
 //     class-2 bus publication and one durable `theta-progress-entry`
 //     milestone. Never `pi.sendMessage` (EXST-1), never a wire line.
-//   - CHILD regime (EXST-15 / PIC-74): exactly one fd-1 stdout wire line and
+//   - CHILD regime (EXST-15 / PIC-74): exactly one fd-1 stdout wire line (or,
+//     under a non-`pipe` placement, one result-channel frame — RFC 0012 §3) and
 //     nothing else — no UI, no bus, no entry (the child's `--no-session`
 //     transcript is ephemeral, so the line is the call's entire effect).
 //
@@ -84,6 +85,13 @@ export interface ProgressToolDeps {
   readonly entryChannel: EntryChannelHandle | undefined;
   /** Default (production): the PIC-59 fd-1 `writeSync` discipline. Overridable for tests. */
   readonly writeWireLine?: (line: string) => void;
+  /**
+   * RFC-0012 §3: the factory's live result-channel latch. When it answers a
+   * sink, the child-regime wire line goes THERE — a non-`pipe` child's fd 1 is
+   * a terminal, not the parent's pipe. `undefined` (pipe placement, or no
+   * latch) keeps the fd-1 discipline.
+   */
+  readonly wireSink?: () => { writeLine(line: string): void } | undefined;
 }
 
 const OK_RESULT: AgentToolResult<unknown> = Object.freeze({
@@ -319,6 +327,11 @@ function emitWireLine(
     return;
   }
   state.wireSeq = seq;
+  const channel = deps.wireSink?.();
+  if (channel !== undefined) {
+    channel.writeLine(line);
+    return;
+  }
   (deps.writeWireLine ?? defaultWireFdWrite)(line);
 }
 
