@@ -2,7 +2,7 @@
 id: PTQ-0335
 title: patchSystemTemplateForImports bundles the value-driven validity walk with the static-container sidecar carry in one 303-line function
 lens: D9                     # D2 | D4 | D7 | D8 | D9 - the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - src/extension/import-system-template-patch.ts:72-374

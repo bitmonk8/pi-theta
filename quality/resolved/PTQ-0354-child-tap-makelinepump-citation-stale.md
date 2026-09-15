@@ -2,7 +2,7 @@
 id: PTQ-0354
 title: child-tap.ts cites production-subagent-host.ts:328-360 for the makeLinePump fan-out Set, but that range now lands entirely inside the unrelated killChildTree function
 lens: D2                     # D2 | D4 | D7 | D8 | D9 - the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - src/extension/execution-status/child-tap.ts:70-73

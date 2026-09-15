@@ -2,7 +2,7 @@
 id: PTQ-0348
 title: collectCallableClosureSources re-walks and re-hashes a shared `.theta` callee's transitive closure once per referencing caller, uncached
 lens: D8                     # D2 | D4 | D7 | D8 | D9 - the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - src/extension/production-composition.ts:2461-2472

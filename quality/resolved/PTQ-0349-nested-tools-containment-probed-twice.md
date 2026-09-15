@@ -2,7 +2,7 @@
 id: PTQ-0349
 title: parseCalleeForTools runs the fs.realpath-based containment probe twice per nested `.theta` tools: entry
 lens: D8                     # D2 | D4 | D7 | D8 | D9 - the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - src/extension/production-composition.ts:2654-2666

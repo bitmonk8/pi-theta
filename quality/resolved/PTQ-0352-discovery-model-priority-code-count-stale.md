@@ -2,7 +2,7 @@
 id: PTQ-0352
 title: discovery-model.ts's split-rationale header claims eleven PRIORITY reads and four diagnostic codes in discovery-collision-resolve.ts; actual counts are nine and five
 lens: D2                     # D2 | D4 | D7 | D8 | D9 - the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - src/discovery/discovery-model.ts:1-10

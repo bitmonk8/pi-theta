@@ -2,7 +2,7 @@
 id: PTQ-0351
 title: checkInvokeStaticResolution's with-clause default-reject and Pi-tool-disjointness phases remain bundled at 348 LOC now that Seam A has landed
 lens: D9                     # D2 | D4 | D7 | D8 | D9 - the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - src/extension/invoke-static-checks.ts:1150-1497
