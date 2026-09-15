@@ -1,9 +1,9 @@
 ---
-id: pending                  # PTQ-NNNN minted at acceptance; never self-assigned
+id: PTQ-0365
 title: The .thetalib top-level declarable-kind set (schema/fn/enum) is independently re-enumerated in four places in import-static-checks.ts
 lens: D4                     # D2 | D4 | D7 | D8 | D9 - the lens that filed this
-status: intake               # intake | open | fixed | rejected (store mechanics own transitions)
-verdict: pending              # pending | confirmed | questionable | false-positive | duplicate | out-of-scope | malformed
+status: open
+verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - src/extension/import-static-checks.ts:188-195
   - src/extension/import-static-checks.ts:335-341
@@ -104,3 +104,4 @@ A shared source of truth (hypothesis): a single named constant or helper enumera
 ## Triage
 <triage appends: verdict + one-line reason. Nothing above this line is edited.>
 verdict: questionable — all 4 sites (188-195/335-341/395-421/1371-1435) reproduce verbatim with no shared constant/exhaustive switch (grep confirms), the `collectProvableArgTypes` exhaustiveness quote is exact, PTQ-0081/0334/0319/0325 are correctly distinguished as different root causes, and clone-scan finds no group (consistent with the filing's own claim); D4 parallel accounting verified caps at questionable, not confirmed — the shared source of truth is a human design ruling (triage: claude-opus-5)
+verdict: confirmed — RATIFIED (human, 2026-09-15): one named source of truth for the .thetalib declarable-kind set. imports.md #permitted-top-level-forms names the permitted top-level forms (import, export, schema, enum, fn); the declarable/exportable subset is {schema, enum, fn}. Add, module-private in import-static-checks.ts (all four sites live there; do not add an import edge for this), a union type ThetaLibDeclaration = SchemaDecl | FnDecl | EnumDecl and a type guard isThetaLibDeclaration(stmt): stmt is ThetaLibDeclaration whose doc comment cites the spec anchor. Sites 1 and 2 (collectTopLevelNames, extractThetaLibForms) call the guard instead of the three-way OR. Sites 3 and 4 (materializeSymbol; the per-specifier loop — after Seam C it lives inside collectImportedSpecifierFacts, follow it there) keep their control flow (their per-kind lookups are the behaviour) but are tied to the union at the type level — e.g. a satisfies Record<ThetaLibDeclaration['kind'], …> ledger in the PTQ-0292 style — so a fourth declarable kind fails tsc at all four sites. Identical behaviour and diagnostics; tests unchanged. Fix surface is import-static-checks.ts — runs after its D9 lane.

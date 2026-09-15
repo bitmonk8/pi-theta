@@ -1,9 +1,9 @@
 ---
-id: pending                  # PTQ-NNNN minted at acceptance; never self-assigned
+id: PTQ-0368
 title: checkThetaImports still bundles six sequential import-subsystem concerns at 875 LOC after Seam A's extraction landed
 lens: D9                     # D2 | D4 | D7 | D8 | D9 - the lens that filed this
-status: intake               # intake | open | fixed | rejected (store mechanics own transitions)
-verdict: pending              # pending | confirmed | questionable | false-positive | duplicate | out-of-scope | malformed
+status: open
+verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - src/extension/import-static-checks.ts:905-1779
 sites: 1                     # count of occurrences cited in Evidence
@@ -198,3 +198,4 @@ concern, unrelated to this function's phase bundling).
 ## Triage
 <triage appends: verdict + one-line reason. Nothing above this line is edited.>
 verdict: questionable — size-scan reproduces the file (1779 LOC/justify), Seam A's landed resolveReExportClosure (614-893/280 LOC) and checkThetaImports (905-1779/875 LOC/strong, 1/37 importers) exactly; all six row boundaries, the signature, and every quoted excerpt match the source verbatim, sum to 875 LOC, and are real distinct concerns; exemptions/generated-code/git-log checks hold and this is not a duplicate of resolved PTQ-0304/PTQ-0334 (each closed by its own already-landed seam) or PTQ-0325 (D4, unrelated) — D9 breakdown accounting caps at questionable, never confirmed; target shape is a human ruling (triage: claude-opus-5)
+verdict: confirmed — RATIFIED (human, 2026-09-15): Seam C — PTQ-0334's own pre-announced seam — a FUNCTION seam inside import-static-checks.ts. Extract the per-specifier resolution and type-fact loop (:1195-1492 at filing, 298 LOC; re-locate by content, this wave's D8 lane PTQ-0331 shifted the file) into a module-private collectImportedSpecifierFacts taking what the block reads today (grep: the parseThetaLib/walkThetaLib closures and their caches, the entries, deps, and the diagnostics sink if the block pushes interleaved with later rows) and returning one record: the seven maps (importedFns, importedSchemas, importedEnums, importedNonCtorNames, importedTypeSchemas, importedTypeEnums, importedSchemaShapes) plus entryResolvedPaths, allSpecifiers, registrationFilteredPaths. checkThetaImports calls it at the same point and destructures the record so the four downstream rows (system: template patch, the checkImported* pushes, the transitive lib-level checks, IMP-5 cycle detection) read exactly what they read today. Bodies verbatim with comments; doc comment on the helper; identical diagnostics and push order; tsc first; report before/after LOC of checkThetaImports. Seam D (resolution and cycle-graph plumbing) is NOT ratified — D9 re-files after.

@@ -1,9 +1,9 @@
 ---
-id: pending                  # PTQ-NNNN minted at acceptance; never self-assigned
+id: PTQ-0366
 title: enumerateDirectory, resolveEntry, and collectFromEntries each carry a FailureModes parameter whose value is fully determined by the DiscoverySource parameter already passed
 lens: D8                     # D2 | D4 | D7 | D8 | D9 - the lens that filed this
-status: intake               # intake | open | fixed | rejected (store mechanics own transitions)
-verdict: pending              # pending | confirmed | questionable | false-positive | duplicate | out-of-scope | malformed
+status: open
+verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - src/discovery/discovery-walk.ts:106-113
   - src/discovery/discovery-walk.ts:239-249
@@ -188,3 +188,4 @@ Grepped every call of `enumerateDirectory(`, `resolveEntry(`, and `collectFromEn
 ## Triage
 <triage appends: verdict + one-line reason. Nothing above this line is edited.>
 verdict: questionable — accounting independently re-verified (source→modes correlates 1:1 at all 3 fresh construction sites: cli/CLI_MODES :685-699, {project,global}/CONVENTIONAL_MODES :773-790, settings/SETTINGS_MODES :561-564; the 2 forwarding call sites :254/:840 preserve it; all three functions confirmed module-private, 0 external importers), distinct from PTQ-0318 (its code/kind and descriptor/explicitFile pairs are confirmed already fixed in current code) and not covered by the enumerateDirectory heavier-than-scale exemption (differing d8_class); per D8 protocol an accurate redundant-parameter accounting caps at questionable — adopting the simpler Record<DiscoverySource,FailureModes> shape is a human design call (triage: claude-opus-5)
+verdict: confirmed — RATIFIED (human, 2026-09-15): drop the redundant parameter. Add beside PRIORITY in discovery-model.ts a per-source failure-mode lookup mirroring the DISC-2 table (hypothesis MODES_BY_SOURCE): cli -> CLI_MODES, settings -> SETTINGS_MODES, project and global -> CONVENTIONAL_MODES. Do NOT invent a row for package (it never reaches these functions): type the lookup Record<Exclude<DiscoverySource, 'package'>, FailureModes> and narrow the three functions' source parameter to the same key type, so a package call fails tsc. enumerateDirectory / resolveEntry / collectFromEntries derive modes from source internally and lose the modes parameter; the three constants stay (the lookup references them; resolveSettingsSource's inline SETTINGS_MODES read is unchanged). Identical severities at every call site; tests unchanged. Host-lane: runs after the D9 lane on discovery-walk.ts — if Seam B has moved enumerateDirectory/resolveEntry into discovery-source-enumerate.ts by then, apply the change there (follow the functions; the d8_host key is stale in that case).

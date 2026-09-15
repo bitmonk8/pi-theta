@@ -1,9 +1,9 @@
 ---
-id: pending                  # PTQ-NNNN minted at acceptance; never self-assigned
+id: PTQ-0367
 title: discovery-walk.ts still bundles per-source enumeration and the settings thetaPaths sub-walk after the collision-resolve split landed
 lens: D9                     # D2 | D4 | D7 | D8 | D9 - the lens that filed this
-status: intake               # intake | open | fixed | rejected (store mechanics own transitions)
-verdict: pending              # pending | confirmed | questionable | false-positive | duplicate | out-of-scope | malformed
+status: open
+verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - src/discovery/discovery-walk.ts:1-855
   - src/discovery/discovery-walk.ts:94-331
@@ -174,3 +174,4 @@ Continuing `PTQ-0333`'s own pre-announcement; the human ratifies one.
 ## Triage
 <triage appends: verdict + one-line reason. Nothing above this line is edited.>
 verdict: questionable — re-ran size-scan.mjs map: 855 LOC/band zone reproduces, all three concern rows' line-ranges/members/LOC match exactly (94-331/192, 348-663/245, 671-855/184), discoverThetas confirmed 1/16 while every concern-1/2 member is 0/0 (independently grepped every identifier across src/tests/extensions/tools — the few outside hits are prose/comment mentions or coincidentally-same-named unrelated declarations in package-discovery.ts, never a real import), discovery-model.ts's header quote and PTQ-0305/PTQ-0333's verbatim ratification text ("Rows 1 and 2 ... are NOT ratified - D9 re-files after this lands") both reproduce against the resolved files, and exemptions.json's 4 entries are confirmed non-applicable; minor narrative imprecision in the Observation (SourcedCandidate actually landed in discovery-model.ts, not discovery-collision-resolve.ts as the sentence implies) and a 3-line misattribution in the bonus discoverThetas block-boundary discussion don't touch the load-bearing concern-1/2 accounting; per D9 policy an accurate zone-band breakdown accounting caps at questionable — the seam choice is a human ruling, never confirmed (triage: claude-opus-5)
+verdict: confirmed — RATIFIED (human, 2026-09-15): Seam B first — the leaf. Move concern 1 whole (RawCandidate, enumerateDirectory, isCanonicalDuplicate, onDiskFileCandidate, resolveEntry, classifyForSource, emitSourceFailure; :94-331 at filing, 192 LOC) to a new sibling src/discovery/discovery-source-enumerate.ts with a header comment stating its role (per-source candidate enumeration and classification). Export exactly the members the host still uses — this session's trace: RawCandidate, emitSourceFailure, enumerateDirectory, onDiskFileCandidate, resolveEntry (re-trace before moving); the rest stay module-private in the new file. Cycle check done here: the block references no module-level declaration of discovery-walk.ts (its dependencies are discovery-model / discovery-path-classify imports), so the new module never imports the host; discovery-walk.ts imports the members back and its header's sources list gains the new module (the PTQ-0338 pattern). Zone band: ratified on PTQ-0333's pre-announcement, not on size. Seam A (the DISC-5 settings sub-walk -> discovery-settings-source.ts) is NOT ratified this wave — it calls concern 1, so it must land after Seam B or it imports back from the host (a cycle); D9 re-files it after, expect ratification then. Bodies verbatim with comments; identical behaviour and diagnostics; tests unchanged (0 external importers of any moved member); tsc first; report before/after LOC of discovery-walk.ts.

@@ -1,9 +1,9 @@
 ---
-id: pending                  # PTQ-NNNN minted at acceptance; never self-assigned
+id: PTQ-0369
 title: attachChildActivityTap bundles ordinary child-event classification with the reserved-key theta_progress acceptance state machine
 lens: D9                     # D2 | D4 | D7 | D8 | D9 - the lens that filed this
-status: intake               # intake | open | fixed | rejected (store mechanics own transitions)
-verdict: pending              # pending | confirmed | questionable | false-positive | duplicate | out-of-scope | malformed
+status: open
+verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - src/extension/execution-status/child-tap.ts:74-210
   - src/extension/execution-status/child-tap.ts:89-106
@@ -131,3 +131,4 @@ direction).
 ## Triage
 <triage appends: verdict + one-line reason. Nothing above this line is edited.>
 verdict: questionable — accounting verified: size-scan.mjs reproduces 137 LOC/justify band for attachChildActivityTap (file itself exempt at 210 LOC), the 3-row inventory (89-106/107-184/185-208) matches direct read, and the ordinary-event tail is confirmed locals-disjoint from the 4 acceptance-state locals + clock (grep of 185-208 finds none); reasons-considered (dispatch, <6 shared locals, data-only, grammar, generated, spec-invariant) are each correctly defeated — but per D9 policy the split shape is a human design decision, never confirmed (triage: claude-opus-5)
+verdict: confirmed — RATIFIED (human, 2026-09-15): Seam A — a FUNCTION seam inside child-tap.ts. Extract the reserved-key theta_progress envelope decode + PIC-74 acceptance state (:107-184, 78 LOC) into a module-private closure factory (hypothesis createProgressEnvelopeDecoder, mirroring attachChildActivityTap's own shape) that owns the four acceptance-state locals (lastSeq, latchedInvocationId, lastAcceptedAtMs, tapDropped) and the clock, and returns the per-record decoder; attachChildActivityTap creates ONE instance per attachment (the comment's own contract: a second child never inherits the first's guards — keep it) and calls it from the same point in onStdoutLine, ahead of the type switch. Every guard (version / seq / invocation-id / message-type, rate gate, clamp+carry) verbatim; the PIC-74 / EXST-5 / EXST-15 comments move with the code; identical published events and drop counts — tests/execution-status-child-tap.test.ts and tests/execution-status-progress-wire.test.ts pin it and stay unchanged; tsc first; report before/after LOC of attachChildActivityTap.

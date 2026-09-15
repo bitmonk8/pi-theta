@@ -1,9 +1,9 @@
 ---
-id: pending                  # PTQ-NNNN minted at acceptance; never self-assigned
+id: PTQ-0370
 title: invoke-static-checks.ts's four checkImported* functions have zero in-file callers; their sole affinity is checkThetaImports in import-static-checks.ts
 lens: D9                     # D2 | D4 | D7 | D8 | D9 - the lens that filed this
-status: intake               # intake | open | fixed | rejected (store mechanics own transitions)
-verdict: pending              # pending | confirmed | questionable | false-positive | duplicate | out-of-scope | malformed
+status: open
+verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - src/extension/invoke-static-checks.ts:1515-1518
   - src/extension/invoke-static-checks.ts:1580-1703
@@ -166,3 +166,4 @@ the map); this is a placement claim, not a D2 deadness claim.
 ## Triage
 <triage appends: verdict + one-line reason. Nothing above this line is edited.>
 verdict: questionable — affinity re-verified exactly (5 foreign-host touches: 4 calls + 1 ImportedFnCallee instantiation, all inside checkThetaImports at import-static-checks.ts:1209/1522-1570; vs 3 own-host touches, 2 of which only from checkImportedFnCallArgs), sibling pattern confirmed (the file's other four import-boundary checks live in and are called from ../parser/imports.ts; these five declarations are the only ones reaching a cross-extension/-sibling-file boundary), size-scan map and repo-wide grep reproduce every cited line/LOC/importer count verbatim (269 LOC total, 1 src/0 test importers each), and the cited human-deferred prior wave plus its since-landed blockers (PTQ-0319, PTQ-0330) check out in git history/TRIAGE_LOG.md — but D9 misplacement accounting caps at questionable, never confirmed; the move is a human ruling (triage: claude-opus-5)
+verdict: confirmed — RATIFIED (human, 2026-09-15): Seam A as pre-announced in the qw20260914091051-d9-01 deferral; its blockers PTQ-0319/0330 have landed. Move ImportedFnCallee, checkImportedFnCallArgs, checkImportedSchemaCtorFields, checkImportedEnumVariantAccess, checkImportedNonCtorTypeNames (269 LOC) from invoke-static-checks.ts to a new sibling src/extension/invoke-imported-checks.ts with a header comment stating its role (the imported-symbol usage checks checkThetaImports runs over a theta's body: bugs 0138/0429/0430/0448). Cycle-free by construction: invoke-static-checks.ts never calls the four; it EXPORTS what the new module needs (collectProvableArgTypes, dedupeArgType; CollectedCallSites via import type) — export, never duplicate; import-static-checks.ts re-points its import; no other importer exists (map: 1 src / 0 tests). Bodies verbatim with comments; identical diagnostics; tests unchanged; tsc first; report before/after LOC of invoke-static-checks.ts.

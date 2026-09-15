@@ -1,9 +1,9 @@
 ---
-id: pending                  # PTQ-NNNN minted at acceptance; never self-assigned
+id: PTQ-0364
 title: RFC 0009's prompt-mode with-clause gate is hand-duplicated across the invoke(...) and .theta-callable call surfaces
 lens: D4                     # D2 | D4 | D7 | D8 | D9 - the lens that filed this
-status: intake               # intake | open | fixed | rejected (store mechanics own transitions)
-verdict: pending              # pending | confirmed | questionable | false-positive | duplicate | out-of-scope | malformed
+status: open
+verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - src/extension/invoke-static-checks.ts:939-958
   - src/extension/invoke-static-checks.ts:1241-1259
@@ -95,3 +95,4 @@ A shared source of truth (hypothesis): extend `checkClauseCwdType`'s existing `s
 ## Triage
 <triage appends: verdict + one-line reason. Nothing above this line is edited.>
 verdict: questionable — reality reproduces exactly (both excerpts byte-match at 939-958/1241-1259, the arity-narrowing structural difference is real, checkClauseCwdType is confirmed as the existing shared INV-6 pattern both surfaces already call, clone-scan.mjs independently re-run shows no group covering this pair, both copies confirmed live via call sites at :1337 and production-composition.ts:1167, and the test-coverage asymmetry is accurate — grep reproduces 2 files/5 hits with Row 6 exercising only the invoke(...) surface); d4_class: parallel caps accurate accounting at questionable by design — the shared source of truth is a human ruling, never a triage confirmation (triage: claude-opus-5)
+verdict: confirmed — RATIFIED (human, 2026-09-15): one shared source of truth for the INV-8 static mode gate, the shape checkClauseCwdType already proves for INV-6 one function away. Add a module-private helper beside it (hypothesis withClausePromptModeRefusal) taking { clause?: CallWithClause; mode: <the statically-resolved callee mode> | undefined; file; range; presented: string } and returning the one Diagnostic or undefined; both surfaces call it — the invoke(...) loop passing arity?.mode and invoke.path (so the arity === undefined narrowing is preserved by the undefined mode), checkThetaCallableCallSurface passing arity.mode and site.name — and set clauseRefused from the result. Diagnostics byte-identical (code, message, hint, file, range); the theta-callable site's PRODUCTION-UNREACHABLE comment stays at its call site. No behaviour change; tests unchanged. Fix surface is invoke-static-checks.ts — runs after its D9 lane (the checkImported* move) lands.
