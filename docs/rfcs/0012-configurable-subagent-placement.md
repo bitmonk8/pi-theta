@@ -515,6 +515,22 @@ launches follow the operator's choice.
 - **Presentation.** `request.presentation` is `"visible"` when the selected
   backend declares `visible: true`, else `"headless"`. A per-theta or
   per-call author knob is deferred (§Open questions, item 1).
+- **Credential guard** (Decision log, D6). A child placed by a backend with
+  `inheritsEnv: false` runs with the mux server's environment, so a provider
+  credential that exists only in the parent's environment never reaches it
+  and the child fails its first model call seconds later with an indirect
+  provider error. Before `place()`, the launcher reads
+  `ctx.modelRegistry.getProviderAuthStatus(<resolved model's provider>)`
+  (`AuthStatus.source`, one of `stored | runtime | environment | fallback |
+  models_json_key | models_json_command` at the pin); when `source ===
+  "environment"` and the selected backend declares `inheritsEnv: false`, the
+  launch **uses `pipe` for that child** and emits one `theta-system-note`:
+  `theta: placement '<name>' does not carry environment credentials for
+  <provider>; running /<callee> headless`. Fail-safe, not fail-closed: the
+  theta runs, the operator learns why no tab appeared. Disk-sourced
+  credentials (`stored`, OAuth) place normally. If the build pin's
+  `AuthStatus` lacks `source`, the guard degrades to the documented caveat
+  and the field is recorded as an upstream ask.
 
 ### 7. Child-side visible regime
 
@@ -652,11 +668,15 @@ warm child pool is the mitigation if it ever matters (§Open questions, item
 
 ## Packaging — where the Herdr backend lives
 
-*Decision:* a **companion package**, `@bitmonk8/pi-theta-herdr`, built from
-pi-config's verified transport code (`herdrEnv`, `herdrRequest`,
-`firstPaneId`, the `layout.apply` / `pane.close` / `pane.rename` calls) and
-depending on nothing but `node:net`. pi-config depends on it (or keeps
-registering its own backend from the same code — either satisfies §5).
+*Decision (D5):* a **companion package**, `@bitmonk8/pi-theta-herdr`, that
+owns the Herdr client factored out of pi-config's verified transport code
+(`herdrEnv`, `herdrRequest`, `firstPaneId`, the `layout.apply` /
+`pane.close` / `pane.rename` calls), depends on nothing but `node:net`, and
+registers the theta placement backend over §5. pi-config **imports that
+client back** for its own model-facing subagent tool, so one Herdr client
+serves both consumers and the version quirks are fixed in one place. The
+package versions independently against the registration protocol's
+`apiVersion`.
 
 Why not inside pi-theta: (a) Herdr is a moving target with version-specific
 quirks (pi-herdr branches on four Herdr versions; Windows is an upstream
@@ -734,12 +754,22 @@ person's configuration. The same reasoning applies to a future
 7. **Visible cap default 8.** *Decision:* matches pi-config's async cap;
    configurable.
 8. **`subagent fn` moves into the child architecture in this RFC, and the
-   in-process path is removed.** *Decision:* §10; the operator's call.
-9. **`with { cwd }` admitted on `subagent fn` calls.** *Decision:* §10 —
-   the rejection's stated reason no longer holds, and inline workers are the
-   worktree fan-out's natural unit. Recorded against RFC 0009 as Erratum B.
-10. **Companion package rather than pi-config-internal.** *Decision:*
-    §Packaging.
+   in-process path is removed — not kept as a fallback.** *Decision (D4):*
+   §10. One execution model per construct; a fallback would reintroduce the
+   prompt-mode pollution path the move closes.
+9. **`with { cwd }` admitted on `subagent fn` calls.** *Decision (D3):* §10
+   — the rejection's stated reason no longer holds, and inline workers are
+   the worktree fan-out's natural unit. Recorded against RFC 0009 as Erratum
+   B.
+10. **Companion package, with pi-config importing its Herdr client.**
+    *Decision (D5):* §Packaging; name `@bitmonk8/pi-theta-herdr` confirmed.
+11. **Credentials under `inheritsEnv: false`.** *Decision (D6):* fall back to
+    `pipe` for the affected child with one system note, keyed on
+    `getProviderAuthStatus(...).source === "environment"` (§6 *Credential
+    guard*); document-only if the pin cannot report the source.
+12. **Sequencing with RFC 0011.** *Decision (D2, recorded there):* this RFC
+    lands first; RFC 0011 then admits its session-control tools inside
+    `subagent fn` bodies, because §10 gives each body its own child session.
 
 ## Open questions
 
@@ -764,13 +794,31 @@ person's configuration. The same reasoning applies to a future
    puts Herdr-specific code inside pi-theta, contra Resolved question 2 —
    the alternative is the companion backend polling the channel's heartbeat
    and reporting on the child's behalf.
-6. **Credentials under `inheritsEnv: false`.** Env-only API keys do not reach
-   a WezTerm-placed child. Document only, or refuse visible placement when
-   the selected provider's auth is env-sourced
-   (`ctx.modelRegistry.getProviderAuth` can tell)?
-7. **Warm child pool.** If per-call spawn latency for `subagent fn` bodies
+6. **Warm child pool.** If per-call spawn latency for `subagent fn` bodies
    proves material, a pre-spawned idle child that waits for a launch file
    would amortise startup. Not proposed; recorded as the mitigation.
+
+Items 1–5 are open in the sense that implementation proceeds on the stated
+default (no author knob; no `alive` template; kill as the sole cancellation;
+env carriage under `pipe`; backend-side Herdr reporting) and the question is
+revisited on evidence. None needs a decision before implementation starts.
+
+## Decision log
+
+Operator decisions taken 2026-09-15 on the questions this draft left open or
+had resolved provisionally; each is folded into the section it names.
+
+- **D2 — Sequencing: this RFC first.** RFC 0011 follows and admits its tools
+  inside `subagent fn` bodies (Resolved question 12).
+- **D3 — Erratum B confirmed.** `with { cwd }` admitted on `subagent fn`
+  calls (Resolved question 9).
+- **D4 — Remove the in-process `subagent fn` path; no fallback** (Resolved
+  question 8).
+- **D5 — Packaging: companion `@bitmonk8/pi-theta-herdr`; pi-config imports
+  its Herdr client** (Resolved question 10, §Packaging).
+- **D6 — Credential guard: fall back to `pipe` with a system note** when the
+  backend does not inherit env and the provider's credential is env-sourced
+  (Resolved question 11, §6; the former Open question 6).
 
 ## New diagnostics
 
@@ -813,8 +861,10 @@ lists a `subagent fn` call (now a child-spawning surface); message unchanged.
 | `docs/reference/discovery-cli.md`, `docs/reference/frontmatter.md`, `docs/reference/grammar.md` | settings; CLI flags; `with` clause | Mirror the keys, the `--theta-launch` flag (marked internal: written by the parent, never by an operator), and the widened clause surface. |
 | `docs/how-to/place-subagents-in-a-multiplexer.md` (+ `README.md`) | new page | The §Operator view recipes, the visible cap, the credentials caveat. |
 | `docs/examples/ralph-inline.theta` and its how-to | — | Comment update: each round is a child process; latency note. |
-| `docs/rfcs/0001-subagent-fn.md`, `0009-per-call-subagent-cwd.md` (Erratum B), `0006-…`, `0010-…` | — | Cross-notes. |
-| pi-config `docs/reference/herdr-mux-transport.md` | Phase 2 | The companion-package registration as the next phase (outside this repository). |
+| `docs/spec_topics/pi-integration-contract/runtime-event-channel.md` | system-note templates | One new `theta-system-note` template for the credential-guard fallback (§6); existing channel, no new diagnostic code. |
+| `docs/spec_topics/pi-integration-contract/host-interfaces-core.md` | [model-registry surface](../spec_topics/pi-integration-contract/host-interfaces-core.md#model-registry-pin) | `getProviderAuthStatus(provider): AuthStatus` joins the consumed `ModelRegistry` members; `AuthStatus.source` pinned as a consumption posture (re-audited per Pi bump). |
+| `docs/rfcs/0001-subagent-fn.md`, `0009-per-call-subagent-cwd.md` (Erratum B), `0006-…`, `0010-…`, `0011-session-control-tools.md` (sequencing, D2) | — | Cross-notes. |
+| pi-config `docs/reference/herdr-mux-transport.md`, `extensions/subagent/` | Phase 2 | The Herdr client moves to `@bitmonk8/pi-theta-herdr` and pi-config imports it (D5; outside this repository). |
 
 ## Testing strategy
 
@@ -854,7 +904,14 @@ Offline (default gate, provider-free):
   unknown fn name → internal-error envelope arm; INV-4 frame and depth
   carriage unchanged; the `OffSessionQueryModel` suites are retired with the
   path.
-- **SDK inventory:** `pi.events`, `pi.registerFlag`, `pi.getFlag` rows.
+- **Credential guard (D6):** with a fake registry — `source: "environment"`
+  + backend `inheritsEnv: false` → the child is placed by `pipe` and exactly
+  one `theta-system-note` with the pinned template is emitted; `source:
+  "stored"` → placed by the selected backend, no note; `inheritsEnv: true` →
+  placed regardless of `source`; `AuthStatus` without `source` → placed, no
+  note (the documented-caveat degradation).
+- **SDK inventory:** `pi.events`, `pi.registerFlag`, `pi.getFlag`,
+  `ctx.modelRegistry.getProviderAuthStatus` rows.
 
 Live (`npm run test:live`; the launch path is live-exercised, so mandatory):
 

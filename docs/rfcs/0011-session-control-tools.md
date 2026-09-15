@@ -8,6 +8,11 @@
   typing, prompt- and subagent-mode tool visibility, the `ExtensionContext`
   touched-member inventory, load/parse diagnostics (two new codes), the
   post-compaction transcript readers, docs
+- **Depends on:** [RFC 0012](./0012-configurable-subagent-placement.md),
+  which lands first (Decision log, D2). After it every subagent body — a
+  `.theta` callee *and* an inline `subagent fn` body — runs as the root
+  invocation of its own child process with its own session, which is what
+  lets the tools be admitted inside `subagent fn` bodies (§6).
 
 ## Summary
 
@@ -360,39 +365,46 @@ never a silent no-op, on a host that lacks the surface (an Oh-My-Pi-style
 host). On Pi at or above the floor the members are present and the check is
 inert.
 
-### 6. Isolated bodies — `subagent fn` and `par for`
+### 6. Isolated bodies — `par for` rejected, `subagent fn` admitted
 
-A runtime tool addresses the **enclosing conversation**. Two body kinds have no
-link to it:
+A runtime tool addresses the **conversation the calling code owns**. Two body
+kinds needed a ruling:
 
-- a `subagent fn` body runs off-session against its own private conversation
-  ([Functions — FN-6](../spec_topics/functions.md#fn-6)); compacting or
-  reading "the session" from inside it would act on the *enclosing* theta's
-  session — the user's, in prompt mode — while appearing to act on the body's
-  own. RFC 0009's Erratum A refused the analogous silent half-semantic.
 - a `par for` body severs its link to the enclosing conversation by design
   (`theta/parse/par-query-in-body`: "a conversation is a linear transcript;
   concurrent `@` queries against it have no defined interleaving"). A
   `compact()` racing a sibling iteration's work — or a second `compact()`
   whose `await this.abort()` cancels the first — is the same class of
-  undefined interleaving.
+  undefined interleaving. **Rejected.**
+- a `subagent fn` body, after RFC 0012 §10, is the root invocation of its
+  **own child process** with its own host session
+  ([Functions — FN-6](../spec_topics/functions.md#fn-6) as amended there).
+  Inside it the three tools address that session — `compact()` compacts the
+  body's conversation, exactly as it does for a `.theta` callee. **Admitted.**
+  (Before RFC 0012 the body ran in-process against a private `complete()`
+  conversation with no session to compact, and acting on "the session" would
+  have hit the enclosing theta's — the reason this RFC is sequenced after
+  0012; Decision log, D2.)
 
-Rule: a code-side call to a runtime tool anywhere inside a `subagent fn` body
-or a `par for` body is the parse error
-`theta/parse/session-tool-in-isolated-body`, judged at the same static pass
-that classifies callees against the frozen callable set (the RFC 0009
-`with`-clause classification), so a renamed entry (`compact as c`) is caught
-by resolution, not by spelling. All three tools are covered — `context_usage`
-and `session_name` have no interleaving hazard, but "isolated bodies have no
-enclosing session to address" is one rule, and admitting the read alone would
-make the body's semantics differ from the enclosing theta's for the same
-spelling. A plain `fn` body is not isolated (it runs in the enclosing process
-against the enclosing session) and is admitted. The runtime keeps a fail-closed
-backstop for the path the static walk cannot see — a plain `fn` that calls a
-runtime tool and is itself called from an isolated body: the dispatch refuses
-with `Err(CodeToolError { cause: "execution", message: "session-control tool
-'<name>' is not available inside an isolated body" })`, mirroring
+Rule: a code-side call to a runtime tool anywhere inside a `par for` body is
+the parse error `theta/parse/session-tool-in-isolated-body`, judged at the
+same static pass that classifies callees against the frozen callable set (the
+RFC 0009 `with`-clause classification), so a renamed entry (`compact as c`)
+is caught by resolution, not by spelling. All three tools are covered —
+`context_usage` and `session_name` have no interleaving hazard, but "a `par
+for` body has no enclosing conversation to address" is one rule, and admitting
+the read alone would make the body's semantics differ from the enclosing
+theta's for the same spelling. A plain `fn` body is not isolated (it runs in
+the enclosing process against the enclosing session) and is admitted, as is a
+`subagent fn` body. The runtime keeps a fail-closed backstop for the path the
+static walk cannot see — a plain `fn` that calls a runtime tool and is itself
+called from a `par for` body: the dispatch refuses with
+`Err(CodeToolError { cause: "execution", message: "session-control tool
+'<name>' is not available inside a par for body" })`, mirroring
 `checkExtensionToolReachability`'s static-check-plus-runtime-floor pattern.
+Inside a `subagent fn` body the calls run in the body's child process, where
+no `par for` context of the *parent* is visible; a `par for` written inside
+the body is judged by the same rule within that child.
 
 ### 7. Cancellation and concurrency
 
@@ -463,8 +475,8 @@ routine one.
   `theta_progress` and collision-proof against extension registries; set aside
   because the collision disposition already exists for host built-ins
   (precedence, §1) and the unprefixed names read as the built-ins they are.
-  Authors who want the prefix write `compact as theta_compact`. Recorded as
-  an open question rather than closed.
+  Authors who want the prefix write `compact as theta_compact`. Closed by
+  Decision log D1 (bare names).
 - **String returns for all three (the Pi-tool `Result<string, …>` shape).**
   Rejected for `context_usage`: theta has no JSON parsing, so a stringified
   gauge is unusable in a condition. Given one typed return, all three take
@@ -521,10 +533,17 @@ routine one.
 6. **`session_name` in a `--no-session` child.** *Decision:* admitted, in-memory
    effect. A mode gate would make the same spelling load in one mode and not
    the other for no safety gain.
-7. **All three tools rejected in isolated bodies, or only `compact`?**
-   *Decision:* all three (§6). One rule; the read-only tools lose nothing an
-   isolated body could legitimately want, because the body has no enclosing
-   session of its own to read.
+7. **All three tools rejected in `par for` bodies, or only `compact`?**
+   *Decision:* all three (§6). One rule; the read-only tools lose nothing a
+   `par for` body could legitimately want, because the body has no enclosing
+   conversation of its own to read.
+8. **Bare or prefixed names?** *Decision (D1):* bare — `compact`,
+   `context_usage`, `session_name` — with the host-built-in precedence rule
+   over the registry snapshot (§1). The prefixed alternative and the
+   loud-collision alternative are recorded under §Alternatives.
+9. **`subagent fn` bodies.** *Decision (D2):* admitted, because this RFC is
+   sequenced after RFC 0012, whose §10 gives every `subagent fn` body its own
+   child session. `context_usage()` inside a body reads that session.
 
 ## Open questions
 
@@ -535,21 +554,29 @@ routine one.
    (`prepareCompaction` is not exported from the package root and depends on
    the settings manager's `keepRecentTokens`). Decide after §Upstream asks are
    answered or refused.
-2. **Prefixed canonical names.** `theta_compact` / `theta_context_usage` /
-   `theta_session_name` versus the unprefixed draft (§Alternatives).
-3. **Script-authored compaction.** A `compact_with(summary: string)` variant
+2. **Script-authored compaction.** A `compact_with(summary: string)` variant
    that registers a one-shot `session_before_compact` handler returning
    `{ summary, firstKeptEntryId: preparation.firstKeptEntryId, tokensBefore }`
    — zero model tokens, deterministic. Also whether to expose the cut point
    (`firstKeptEntryId` = latest entry → a clean-slate compaction). Same
    plumbing as this RFC; separate RFC recommended.
-4. **`context_usage` inside `subagent fn` bodies against the body's own
-   conversation.** Only if a future revision gives inline bodies an
-   `AgentSession`-backed conversation; today there is nothing to read.
-5. **A `session_name()` getter.** Not proposed; `ctx.sessionManager.getSessionName()`
+3. **A `session_name()` getter.** Not proposed; `ctx.sessionManager.getSessionName()`
    is available to the runtime but no author use case has surfaced. Arity
    overloading is not a theta convention, so a getter would be a separate
    name.
+
+## Decision log
+
+Operator decisions taken 2026-09-15 on the questions this draft left open;
+each is folded into the section it names.
+
+- **D1 — Names: bare.** `compact`, `context_usage`, `session_name`; host
+  built-in precedence over the registry snapshot. (Resolved question 8; the
+  former Open question 2.)
+- **D2 — Sequencing: RFC 0012 first; `subagent fn` bodies admitted.** The
+  isolated-body rule covers `par for` bodies only (§6, §New diagnostics,
+  §Testing). (Resolved question 9; the former Open question 4 is closed by
+  the same decision.)
 
 ## New diagnostics
 
@@ -562,7 +589,7 @@ Phase cells and Message templates become normative when the rows land
 | Code | Sev | Phase | Trigger | Spec rule | Hint | Message |
 |---|---|---|---|---|---|---|
 | `theta/load/session-tool-unavailable` | E | load | A `tools:` entry names a runtime tool (`compact`, `context_usage`, `session_name`, before any `as` rename) whose host member is absent on this host: `ctx.compact`, `ctx.getContextUsage`, or `pi.setSessionName` / `pi.getSessionName` is not a function. Present on Pi at or above the SDK floor; fires on hosts that lack the member. The theta does not register. | [Parameters and Frontmatter — `tools`](../spec_topics/frontmatter/frontmatter-fields-a.md#tools); [Host interfaces core — `ExtensionContext`](../spec_topics/pi-integration-contract/host-interfaces-core.md#extensioncontext-interface) | Remove the entry, or run under a Pi host that exposes the member. | `runtime tool '<name>' is unavailable on this host: '<member>' is not a function` |
-| `theta/parse/session-tool-in-isolated-body` | E | parse | A bare-identifier call whose callee the frozen callable set classifies as a runtime tool (post-`as` name resolved to `compact` / `context_usage` / `session_name`) written anywhere inside a `subagent fn` body or a `par for` body, directly or in a nested block. A plain `fn` body is not isolated and is admitted. A callee resolving to no binding keeps `theta/parse/unknown-identifier` alone. | [Tool Calls](../spec_topics/tool-calls.md) (runtime-tool paragraph); [Functions — FN-6](../spec_topics/functions.md#fn-6); [Control flow — `par for`](../spec_topics/control-flow.md) | Move the call to the enclosing theta body, after the fan-out joins or outside the `subagent fn`. | `'<name>' addresses the enclosing conversation and is not available inside a <subagent fn \| par for> body` |
+| `theta/parse/session-tool-in-isolated-body` | E | parse | A bare-identifier call whose callee the frozen callable set classifies as a runtime tool (post-`as` name resolved to `compact` / `context_usage` / `session_name`) written anywhere inside a `par for` body, directly or in a nested block. A plain `fn` body and a `subagent fn` body are not isolated in this sense (the former runs against the enclosing session, the latter against its own child session after RFC 0012) and are admitted. A callee resolving to no binding keeps `theta/parse/unknown-identifier` alone. | [Tool Calls](../spec_topics/tool-calls.md) (runtime-tool paragraph); [Control flow — `par for`](../spec_topics/control-flow.md) | Move the call to the enclosing theta body, after the fan-out joins. | `'<name>' addresses the enclosing conversation and is not available inside a par for body` |
 
 Reused, not minted: `theta/parse/invoke-arity-too-few` /
 `theta/parse/invoke-arity-too-many` and `theta/parse/tool-arg-type-mismatch`
@@ -587,7 +614,8 @@ runtime failure is an existing `CodeToolError` arm.
 | `docs/spec_topics/pi-integration-contract/host-prerequisites.md` | [leading-`user`-message guarantee](../spec_topics/pi-integration-contract/host-prerequisites.md#messages-leading-user-message-presupposition) | Widened to admit a leading compaction / branch summary message (§8). |
 | `docs/spec_topics/pi-integration-contract/capability-probe.md`, `capability-inventory-items.md` | Step 0; optional-capability class | The three host members join the inventory as load-time-probed, per-declaring-theta capabilities (not Step 0 gating): absence refuses only thetas that declare the tool. |
 | `docs/spec_topics/binder/binder-model-and-context.md` | [Compact-transcript format](../spec_topics/binder/binder-model-and-context.md#compact-transcript-format-normative) | Explicit `[compaction]` / `[branch-summary]` arms; turn-opener rule (§8). |
-| `docs/spec_topics/functions.md`, `docs/spec_topics/control-flow.md` | FN-6; `par for` body rules | Cross-reference the isolated-body rejection. |
+| `docs/spec_topics/control-flow.md` | `par for` body rules | Cross-reference the isolated-body rejection. |
+| `docs/spec_topics/functions.md` | FN-6 (as amended by RFC 0012) | One sentence: the runtime tools inside a `subagent fn` body address the body's own child session; no rejection. |
 | `docs/spec_topics/query/query-failure-and-repair.md` | `context_overflow` short-circuit rationale | The "conversation only grows" premise gains "unless the theta compacts" — the short-circuit itself is unchanged. |
 | `docs/spec_topics/diagnostics/code-registry-load.md`, `code-registry-parse.md` | tables | Two new rows (§New diagnostics). |
 | `docs/spec_topics/future-considerations/surface-extensions.md` | seam list | New deferred item: script-authored compaction (§Open questions 3). [GOV-31](../spec_topics/governance/req-id-prefix-table-active-b.md#gov-31): the seam count moves by one, so the aggregator literal on spec.md moves in the same edit. |
@@ -614,10 +642,10 @@ Offline (default gate, provider-free):
 - **Parser / checker:** arity and type cells for each signature
   (`compact()`, `compact("x")`, `compact(1)`, `compact("a", "b")`,
   `context_usage("x")`, `session_name()`), return-type flow into `let` and
-  member access (`usage.percent` typed `number | null`), the isolated-body
-  rejection for `subagent fn` and `par for` bodies including a renamed entry
-  and a nested block, a plain `fn` body admitted, a call-site `with` clause
-  → `theta/parse/with-clause-in-process-callee`.
+  member access (`usage.percent` typed `number`), the isolated-body
+  rejection for `par for` bodies including a renamed entry and a nested
+  block, a plain `fn` body and a `subagent fn` body admitted, a call-site
+  `with` clause → `theta/parse/with-clause-in-process-callee`.
 - **Execute adapters** with a fake `ctx` / `pi`: `compact` → `onComplete`
   maps to the `Ok` record; `onError` maps to `Err(cause: "execution")`
   carrying the message; abort mid-flight → `Err(cause: "cancelled")` and a
@@ -664,6 +692,9 @@ run is mandatory per `AGENTS.md`):
 
 ## Compatibility and versioning
 
+- **Sequenced after RFC 0012** (D2). Implemented earlier, `compact()` inside
+  a `subagent fn` body would compact the enclosing session; the admission in
+  §6 is correct only once fn bodies own a child session.
 - **Additive under GOV-15.** A file that loads cleanly under theta 1.0.0
   declares none of the three names in `tools:` (each would have been
   `theta/load/unknown-tool`, severity E) and is therefore outside the change's
@@ -717,7 +748,8 @@ Filed as suggestions against `pi-mono`; none blocks this RFC.
   `validation` disposition, reused for `session_name("")`.
 - RFC 0003 — `par for`'s isolation-only body and `theta/parse/par-query-in-body`,
   the sibling of `theta/parse/session-tool-in-isolated-body`.
-- RFC 0001 — `subagent fn` (FN-6), the other isolated body.
+- RFC 0001 — `subagent fn` (FN-6), whose bodies own a child session once RFC
+  0012 lands and therefore admit the tools (§6).
 - Bug 0001 / PIC-64 — the code-side dispatch ladder and its permission model,
   whose "declared in frontmatter, readable by any operator" rationale this
   RFC adopts for opting in.
