@@ -303,8 +303,8 @@ function inspectReturnShape(resolved: unknown): ToolReturnShapeCheck | null {
  *     timeout attempt); `error` is the `CodeToolError { cause: "cancelled" }`
  *     surfaced through the existing cancelled path, with no `internal-error`.
  */
-export type ToolSettlementOutcome =
-  | { readonly kind: "settled"; readonly envelope: AgentToolResultEnvelope }
+export type ToolSettlementOutcome<T = AgentToolResultEnvelope> =
+  | { readonly kind: "settled"; readonly envelope: T }
   | { readonly kind: "cancelled"; readonly error: CodeToolError };
 
 /**
@@ -315,12 +315,12 @@ export type ToolSettlementOutcome =
  * emitting **no** `theta/runtime/internal-error` on `sink`. A settling Promise
  * yields `{ kind: "settled", envelope }`.
  */
-export function awaitToolSettlementOrAbort(
-  dispatch: () => Promise<AgentToolResultEnvelope>,
+export function awaitToolSettlementOrAbort<T = AgentToolResultEnvelope>(
+  dispatch: () => Promise<T>,
   signal: AbortSignal,
   toolName: string,
   sink: ToolLoweringSink,
-): Promise<ToolSettlementOutcome> {
+): Promise<ToolSettlementOutcome<T>> {
   // theta 1.0 makes no internal timeout attempt (NOCEIL-1); the cancelled path
   // emits NOTHING on `sink` (no `theta/runtime/internal-error`) — cancellation
   // surfaces through the existing `cause: "cancelled"` path.
@@ -334,7 +334,7 @@ export function awaitToolSettlementOrAbort(
   // semantics — swallowing-handler attachment").
   const execPromise = dispatch();
 
-  return new Promise<ToolSettlementOutcome>((resolve, reject) => {
+  return new Promise<ToolSettlementOutcome<T>>((resolve, reject) => {
     let settled = false;
 
     const onAbort = (): void => {
@@ -363,13 +363,13 @@ export function awaitToolSettlementOrAbort(
     }
 
     execPromise.then(
-      (envelope) => {
+      (value) => {
         signal.removeEventListener("abort", onAbort);
         if (settled) {
           return;
         }
         settled = true;
-        resolve({ kind: "settled", envelope });
+        resolve({ kind: "settled", envelope: value });
       },
       (reason: unknown) => {
         signal.removeEventListener("abort", onAbort);

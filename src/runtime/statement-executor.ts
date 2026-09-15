@@ -158,7 +158,7 @@ export interface StatementEvalHost {
    * Absent ⇒ the call is treated as a Pi tool (the `V19d`-double behaviour,
    * where every checkpointed call is a code tool).
    */
-  classifyCall?(expr: CallExpr, env: LexicalEnvironment): "pi-tool" | "theta-callable";
+  classifyCall?(expr: CallExpr, env: LexicalEnvironment): "pi-tool" | "theta-callable" | "runtime-tool";
   /**
    * RFC 0003 (`par for`) child-diagnostic drain sink. At a `par for` join —
    * after all iterations settle — the executor calls this once per input index
@@ -2000,6 +2000,31 @@ async function runParForIteration(
     evaluatePure: (e, en, chain) => baseHost.evaluatePure(e, en, chain),
     checkpointFor: (e) => baseHost.checkpointFor(e),
     runEffect: async (e, en, args, chain) => {
+      // RFC 0011 §6.4: runtime `par for` backstop — a runtime tool called from
+      // a `par for` body (including through a plain `fn` the body calls)
+      // surfaces the execution-Err immediately, never reaching the adapter.
+      // The static walk (§5.3) covers direct calls; this covers the fn-hop
+      // path the walk cannot see. Inert for child-process dispatch (those
+      // classify `"theta-callable"`, not `"runtime-tool"`).
+      if (
+        e.kind === "call" &&
+        baseHost.classifyCall?.(e as CallExpr, en) === "runtime-tool"
+      ) {
+        // Return as a failed operation (ok: false) so the executor routes it
+        // through the fail/value disposition (atTerminal-dependent), mirroring
+        // how `runCodeSideToolCall`’s execution-error arm surfaces
+        // CodeToolError. This avoids the double-wrap that `ok: true` with an
+        // Err value would cause at the par-for element boundary.
+        return {
+          ok: false,
+          error: {
+            kind: "code_tool",
+            message: `session-control tool '${(e as CallExpr).callee}' is not available inside a par for body`,
+            tool_name: (e as CallExpr).callee,
+            cause: "execution",
+          } as unknown as QueryError,
+        };
+      }
       const result = await baseHost.runEffect(e, en, args, chain);
       const childDiagnostics = (
         result as { readonly childDiagnostics?: readonly Diagnostic[] }

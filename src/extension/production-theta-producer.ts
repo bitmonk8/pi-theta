@@ -136,9 +136,17 @@ import type {
 import type {
   EffectfulStatementHostDeps,
   QueryHostDispatch,
+  RuntimeToolCall,
   SubagentFnInvokeChild,
 } from "../runtime/effectful-statement-host";
 import { createEffectfulStatementHost } from "../runtime/effectful-statement-host";
+import {
+  executeCompactTool,
+  executeContextUsageTool,
+  executeSessionNameTool,
+  type SessionControlCtx,
+  type SessionControlPi,
+} from "../runtime/session-control-tools";
 import {
   buildEnvironment,
   enumDeclaringKey,
@@ -271,6 +279,7 @@ import { projectForValidation } from "../runtime/wire-translation";
 import { inferCalleeReturnAnnotation } from "../parser/functions";
 import type { CompiledValidator, LoweredSchema, SchemaValidator } from "../seams/schema-validator";
 import { parseToolsEntry, thetaDefaultName, type ResolvedCallable } from "../parser/callable-set";
+import { RUNTIME_TOOL_SIGNATURES, type RuntimeToolName } from "../parser/runtime-tools";
 import { canonicalForm, toLoweredJsonValue } from "../parser/schema-lowering";
 import type { TypedQuerySchemaValidation } from "../runtime/query-tool-loop";
 import {
@@ -684,6 +693,18 @@ export interface ProductionProducerInput {
    * this one.
    */
   readonly systemNoteChannel?: SystemNoteChannelDeps;
+  /**
+   * RFC 0011 §0 C1: composition-scope session-control handles, `Pick`-narrowed.
+   * Threaded from the composition root’s `ctx` / `pi` captures. When present,
+   * `#resolveRuntimeToolCall` wires the runtime-tool dispatch adapters; absent
+   * → the executor arm is skipped and the call falls through to the
+   * `unknown_tool` carrier (fail-closed). In production, the load probe
+   * (§3.3) already verified the members exist.
+   */
+  readonly sessionControlHosts?: {
+    readonly ctx: SessionControlCtx;
+    readonly piHandle: SessionControlPi;
+  };
 }
 
 /**
@@ -2224,6 +2245,14 @@ class ProductionThetaProducer implements ThetaProducerDeps {
       recordInvokeHop: (wrapper, calleePath, callSite) =>
         this.#recordInvokeHop(theta, wrapper, calleePath, callSite),
       classifyCall: (expr) => this.#classifyCall(theta, expr),
+      // RFC 0011 §6.3: wired only when the composition-scope session-control
+      // hosts are available; absent → the executor arm is skipped.
+      ...(this.#input.sessionControlHosts !== undefined
+        ? {
+            resolveRuntimeToolCall: (expr: CallExpr, env: LexicalEnvironment) =>
+              this.#resolveRuntimeToolCall(theta, expr, env, signal),
+          }
+        : {}),
       resolveCallAsInvoke: (expr, env, overrideChain) =>
         this.#resolveCallAsInvoke(theta, expr, env, ctx, overrideChain ?? chain, signal, "prompt", ticket.invocationId),
       // RFC 0001 (`subagent fn`, FN-8) / RFC 0012 §10: a prompt-mode theta may
@@ -4083,15 +4112,125 @@ class ProductionThetaProducer implements ThetaProducerDeps {
   /**
    * H8b call-kind routing. A `<name>(args)` call whose callee resolves to a
    * `.theta`-callable in the theta's callable set (frontmatter `tools:`) is
-   * semantically an invoke; every other call is a Pi tool. The resolution is
-   * against the callable set alone — a name bound to a `./x.theta` entry routes
-   * to the invoke spawn-and-drive path, all else to the tool-`execute` path.
+   * semantically an invoke; a callee bound to a `kind: "runtime-tool"` entry
+   * is a session-control runtime tool (RFC 0011, tool-calls.md
+   * #session-control-runtime-tools); every other call is a Pi tool. The
+   * resolution is against the callable set alone — snapshot-absent
+   * (harness-only) never answers `"runtime-tool"` because only production
+   * carries a snapshot.
    */
   #classifyCall(
     theta: ConversationBindInput["theta"],
     expr: CallExpr,
-  ): "pi-tool" | "theta-callable" {
+  ): "pi-tool" | "theta-callable" | "runtime-tool" {
+    // RFC 0011 §6.1: the frozen entry’s kind decides. The runtime-tool check
+    // precedes `thetaCalleePath` because the two name sets are disjoint (a
+    // runtime tool is never a `.theta` callee), but the guard order keeps the
+    // invariant explicit.
+    const entry = theta.callableSet?.entries.get(expr.callee);
+    if (entry?.kind === "runtime-tool") {
+      return "runtime-tool";
+    }
     return thetaCalleePath(theta, expr.callee) !== undefined ? "theta-callable" : "pi-tool";
+  }
+
+  /**
+   * RFC 0011 §6.3: resolve a runtime-tool call to a dispatchable record.
+   * Positional args are evaluated left-to-right (the same
+   * `evaluatePureExpression` path the `.theta`-callable arm uses); the runtime
+   * argument net (§5.4) validates each bound value before dispatch.
+   *
+   * tool-calls.md #session-control-runtime-tools; cancellation.md #cncl-1.
+   */
+  #resolveRuntimeToolCall(
+    theta: ConversationBindInput["theta"],
+    expr: CallExpr,
+    env: LexicalEnvironment,
+    signal: AbortSignal,
+  ): RuntimeToolCall {
+    const presentedName = expr.callee;
+    const entry = theta.callableSet?.entries.get(presentedName);
+    const canonicalName: RuntimeToolName =
+      entry !== undefined && entry.kind === "runtime-tool" ? entry.name : "compact";
+    const sig = RUNTIME_TOOL_SIGNATURES.get(canonicalName)!;
+
+    // Evaluate positional args left-to-right (the `.theta`-callable path’s
+    // `evaluatePureExpression` map, production-theta-producer.ts:3965).
+    const argValues: ThetaValue[] = expr.args.map((a) =>
+      evaluatePureExpression(a, env),
+    );
+
+    // Default binding: an absent optional arg binds the signature’s default.
+    // compact’s single param has `hasDefault: true` → default "".
+    const boundArgs: ThetaValue[] = [];
+    for (let i = 0; i < sig.params.length; i++) {
+      if (i < argValues.length) {
+        boundArgs.push(argValues[i] as ThetaValue);
+      } else if (sig.params[i]!.hasDefault) {
+        boundArgs.push("" as ThetaValue);
+      }
+    }
+
+    // §5.4 runtime argument net: every bound arg must be a string (the one
+    // theta 1.x param type). A non-string bound value → the pinned validation
+    // Err, pre-dispatch, no host call.
+    for (let i = 0; i < boundArgs.length; i++) {
+      if (typeof boundArgs[i] !== "string") {
+        const argViolation = makeErr({
+          kind: "code_tool",
+          message: `argument '${sig.params[i]!.name}' must be a string`,
+          tool_name: presentedName,
+          cause: "validation",
+        } as unknown as ThetaValue);
+        const toolCallId = `theta-direct:${this.#input.root.idSource.newInvocationId()}`;
+        void toolCallId;
+        return {
+          toolName: presentedName,
+          argViolation,
+          dispatch: () => Promise.resolve(argViolation),
+        };
+      }
+    }
+
+    const toolCallId = `theta-direct:${this.#input.root.idSource.newInvocationId()}`;
+    void toolCallId;
+    const hosts = this.#input.sessionControlHosts!;
+
+    // Build the dispatch closure per canonical name. The adapter Promise is
+    // wrapped at construction by `guardToolExecutePromise` (CANCEL-3) so a
+    // late settlement after a theta abort is discarded (CNCL-1..3).
+    let dispatchFn: () => Promise<ThetaValue>;
+    switch (canonicalName) {
+      case "compact":
+        dispatchFn = () =>
+          guardToolExecutePromise(
+            executeCompactTool(hosts.ctx, presentedName, boundArgs[0] as string ?? ""),
+            signalGuard(signal),
+            noopSwallowChannels(),
+          );
+        break;
+      case "context_usage":
+        dispatchFn = () =>
+          guardToolExecutePromise(
+            executeContextUsageTool(hosts.ctx, presentedName),
+            signalGuard(signal),
+            noopSwallowChannels(),
+          );
+        break;
+      case "session_name":
+        dispatchFn = () =>
+          guardToolExecutePromise(
+            executeSessionNameTool(hosts.piHandle, presentedName, boundArgs[0] as string),
+            signalGuard(signal),
+            noopSwallowChannels(),
+          );
+        break;
+    }
+
+    return {
+      toolName: presentedName,
+      dispatch: dispatchFn,
+    };
   }
 
   /**

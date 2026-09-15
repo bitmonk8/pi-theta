@@ -73,6 +73,19 @@ import { surfaceThetaCallableCalleeFailure } from "./tool-call";
 import type { InvokeCalleeError, QueryError } from "./query-error";
 import { summariseErrorField } from "./err-field-summary";
 import type { InvokeCallSite } from "./invoke-provenance";
+import { awaitToolSettlementOrAbort } from "./tool-call-off-surface";
+
+/**
+ * RFC 0011 §6.3: a resolved runtime-tool call, ready for dispatch. The adapter
+ * Promise is wrapped at construction by `guardToolExecutePromise` (CANCEL-3);
+ * `argViolation` carries the §5.4 runtime argument net’s pre-dispatch
+ * validation `Err` (never reaches the adapter).
+ */
+export interface RuntimeToolCall {
+  readonly toolName: string;
+  readonly argViolation?: ThetaValue;
+  dispatch(): Promise<ThetaValue>;
+}
 
 /**
  * How to drive one `@`-query through the real two-phase query loop: whether the
@@ -179,7 +192,17 @@ export interface EffectfulStatementHostDeps {
    * (`resolveCallAsInvoke`). Absent ⇒ every `<name>(args)` call is treated as a
    * Pi tool, preserving the `V19d`-double runner behaviour.
    */
-  classifyCall?(expr: CallExpr, env: LexicalEnvironment): "pi-tool" | "theta-callable";
+  classifyCall?(expr: CallExpr, env: LexicalEnvironment): "pi-tool" | "theta-callable" | "runtime-tool";
+  /**
+   * RFC 0011 §6.3: resolve a runtime-tool call to a dispatchable record. Wired
+   * only when the composition-scope session-control hosts are available;
+   * absent → the executor arm is skipped and the call falls through to the
+   * `unknown_tool` carrier (fail-closed, seam sheet §6.3 absent-dep rule).
+   */
+  resolveRuntimeToolCall?(
+    expr: CallExpr,
+    env: LexicalEnvironment,
+  ): RuntimeToolCall;
   /**
    * H8b live-resolver. Resolve a `<name>(args)` call bound to a `.theta`-callable
    * to its invoke child — the same `InvokeChild` boundary `resolveInvoke`
@@ -410,6 +433,44 @@ async function runToolCallEffect(
       } as unknown as ThetaValue),
     };
   }
+  // RFC 0011 §6.3: a call classified `"runtime-tool"` dispatches through the
+  // session-control adapter table, never through the Pi-tool `execute()` path.
+  // The arm fires only when `resolveRuntimeToolCall` is wired (the composition-
+  // scope hosts are available); absent → fall through to `#resolveToolCall` →
+  // `unknown_tool` carrier (fail-closed, §6.3 absent-dep rule).
+  if (
+    deps.classifyCall?.(expr, env) === "runtime-tool" &&
+    deps.resolveRuntimeToolCall !== undefined
+  ) {
+    const rtCall = deps.resolveRuntimeToolCall(expr, env);
+    // Checkpoint-first discipline: the tool-call checkpoint fires before
+    // dispatch, same as every other code-side tool-call kind.
+    await deps.checkpoint.before("tool-call", siteOf(expr, deps.file));
+    if (deps.signal.aborted) {
+      return { ok: false, error: makeCancelledError() };
+    }
+    // §5.4 runtime argument net: a non-string bound value → the pinned
+    // validation Err, pre-dispatch, no host call.
+    if (rtCall.argViolation !== undefined) {
+      return { ok: true, value: rtCall.argViolation };
+    }
+    // Option A cancellation (C2(d)): race the adapter Promise against the
+    // theta abort signal. NO host abort is invoked — a cancelled outcome
+    // abandons the adapter Promise and its late settlement is discarded by the
+    // construction-time `guardToolExecutePromise` guard (CNCL-1..3).
+    const settlement = await awaitToolSettlementOrAbort(
+      () => rtCall.dispatch(),
+      deps.signal,
+      rtCall.toolName,
+      deps.sink,
+    );
+    if (settlement.kind === "cancelled") {
+      return { ok: false, error: makeCancelledError() };
+    }
+    // The adapter output IS the Result value — never through
+    // `lowerResolvedToolEnvelope`'s text join.
+    return { ok: true, value: settlement.envelope };
+  }
   const call = deps.resolveToolCall(expr, env, evaluatedToolArgs);
   const outcome = await runCodeSideToolCall(
     deps.checkpoint,
@@ -576,7 +637,7 @@ export function createEffectfulStatementHost(baseDeps: EffectfulStatementHostDep
     // executor then treats every call as a Pi tool (the double behaviour).
     ...(baseDeps.classifyCall !== undefined
       ? {
-          classifyCall(expr: CallExpr, env: LexicalEnvironment): "pi-tool" | "theta-callable" {
+          classifyCall(expr: CallExpr, env: LexicalEnvironment): "pi-tool" | "theta-callable" | "runtime-tool" {
             return baseDeps.classifyCall!(expr, env);
           },
         }

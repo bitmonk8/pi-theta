@@ -1157,6 +1157,9 @@ async function runComposePass(
     // H8b: resolve a code-side Pi-tool name to its `execute` dispatch over the
     // live host `cwd` / `ctx`.
     resolvePiTool: (name: string) => resolvePiTool(name, ctx),
+    // RFC 0011 §0 C1: composition-scope session-control handles, `Pick`-narrowed.
+    // The same `ctx` / `pi` captures `resolvePiTool` closes over.
+    sessionControlHosts: { ctx, piHandle: pi },
     // RFC-0005 subagent launch seams (subagent.md #subagent-launch-contract): the
     // placement backend that puts each child somewhere (RFC 0012 §1 — the
     // `pipe` backend over the Windows-safe child-`pi`-process spawn function),
