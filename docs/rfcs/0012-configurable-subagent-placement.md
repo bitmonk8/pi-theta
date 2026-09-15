@@ -539,8 +539,16 @@ interactive TUI with the slash command as the initial message:
 
 ```
 headless:  … --mode json -p "/<slug>" --no-session …
-visible:   … --name "<label>" [--no-session] -- "/<slug>"
+visible:   … --name "<label>" [--no-session] "/<slug>"
 ```
+
+The slug is a bare trailing positional, not preceded by `--`: at the build
+pin (`@earendil-works/pi-coding-agent` 0.80.10) `parseArgs` has no `--`
+separator arm — `--` is read as an unknown flag and swallows the next
+argument as its value — while a positional that starts with neither `-` nor
+`@` lands in `parsed.messages` on every version (0.85.1 adds the separator
+but does not need it). A slug always starts with `/`, so the bare form is
+unambiguous.
 
 The child runtime, on the visible presentation from the launch file:
 
@@ -555,12 +563,16 @@ The child runtime, on the visible presentation from the launch file:
   never reads the child's session, so theta semantics are unchanged either
   way.
 
-Verification item before implementation: that an initial-message slash
-command is dispatched as an extension command in interactive mode (the print
-path is `AgentSession.prompt` → `_tryExecuteExtensionCommand`; the TUI's
-initial-message path must reach the same dispatch). Fallback if it does not:
-visible children run `--mode json -p` inside the pane (functional, unfriendly
-to watch) until an upstream fix.
+Verification (done at implementation time, against the pin): an
+initial-message slash command IS dispatched as an extension command in
+interactive mode. `InteractiveMode.run` (`dist/modes/interactive/interactive-mode.js`)
+delivers `initialMessage` through `this.session.prompt(...)`, the same
+`AgentSession.prompt` the print path uses, whose first branch is
+`_tryExecuteExtensionCommand(text)` for `/`-prefixed text. `ctx.shutdown()`
+sets `shutdownRequested` and shuts down once the session is idle
+(`checkShutdownRequested`). The fallback recorded before verification —
+running visible children under `--mode json -p` inside the pane — is not
+needed and is not implemented.
 
 The RFC 0010 child tap loses its `--mode json` stream under a visible
 placement (stdout is the TTY). It degrades to the heartbeat frames plus a
