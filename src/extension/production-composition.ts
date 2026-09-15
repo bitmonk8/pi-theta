@@ -176,6 +176,7 @@ import {
 } from "../runtime/invocation";
 import {
   buildInvokeGraph,
+  checkImportedWithClauseCallees,
   checkInvokeStaticResolution,
   type CalleeArity,
 } from "./invoke-static-checks";
@@ -1460,6 +1461,23 @@ async function runComposePass(
       continue;
     }
 
+    // RFC 0009 Erratum B (RFC 0012 §10): the deferred half of the call-site
+    // clause classification — a clause on an IMPORTED callee is legal only when
+    // the materialised import is a `subagent fn` (a child-spawning surface);
+    // an imported plain `fn` draws `theta/parse/with-clause-in-process-callee`.
+    // Judged here because only the materialised imports (re-export chains
+    // followed) carry the declaring library's fn kind.
+    const importedClauseDiagnostics = checkImportedWithClauseCallees(
+      input.sourcePath ?? input.slashName,
+      input.body,
+      importCheck.imports,
+      toolResult.callableSet,
+    );
+    sink.emitGroup(importedClauseDiagnostics);
+    if (importedClauseDiagnostics.some((diagnostic) => diagnostic.severity === "error")) {
+      continue;
+    }
+
     // Binder-model resolution (binder-model-and-context.md §"Binder model"): a
     // NON-bypass theta's binder model resolves at LOAD time from the two-step
     // chain (`bind_model:` → `theta.binderModel`) over the SAME shared
@@ -1491,10 +1509,13 @@ async function runComposePass(
     // `resolveBinderModel`), which is the regime carve-out's own requirement,
     // not an accident: otherwise `theta/load/binder-model-not-strict-capable`
     // becomes the next refusal on the very same path.
+    // RFC 0012 §10: a `fn` entry marks the root for one of its `subagent fn`s;
+    // the root itself may be prompt-mode (FN-8), so the mode gate belongs to
+    // the theta entry alone — the same predicate `isSubagentRootFor` applies.
     const isMarkedRootTheta =
       subagentRootRegime.active &&
       subagentRootRegime.slug === input.slashName &&
-      input.frontmatter.mode === "subagent";
+      (input.frontmatter.mode === "subagent" || controlPlane.entry.kind === "fn");
     const binderModelResolution: BinderModelResolution = isMarkedRootTheta
       ? { resolved: true, diagnostics: [] }
       : resolveBinderModel({

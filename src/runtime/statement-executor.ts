@@ -56,6 +56,8 @@ import { makeCancelledError, runCancellableSequence } from "./cancellation-core"
 import { HostFatal, isThetaPanic, attachPanicSite, pushPanicFrame } from "./runtime-panics";
 import type { InvokeChain } from "./invoke-depth-cycle";
 import { pushCountableFrame, thetalibFnFrameKind } from "./invoke-depth-cycle";
+import type { InvokeResultSource } from "./invoke-cancellation";
+import type { FnTail } from "./subagent-envelope";
 import type { InvokeCalleeError, InvokeInfraError, QueryError } from "./query-error";
 import type { RuntimeEvent } from "./runtime-event-channel";
 import { evaluateForLoop, type ForLoopHost } from "./control-flow";
@@ -171,19 +173,62 @@ export interface StatementEvalHost {
     diagnostics: readonly Diagnostic[],
   ): void;
   /**
-   * RFC 0001 (`subagent fn`) session-switch hook. Around a `subagent fn` CALL
-   * the executor enters a fresh isolated subagent session for the body
+   * RFC 0012 §10 — the PRODUCTION `subagent fn` call: the body runs in a
+   * spawned child `pi` process (the calling theta's slug re-discovered and
+   * re-parsed there; the fn resolved by name; the arguments marshalled on the
+   * PIC-60 params channel), and the call evaluates to the outcome the child's
+   * envelope carried — the same `runInvokeChild` trampoline a `.theta` callable
+   * call drives through. When present the in-memory session-switch hooks below
+   * are NEVER consulted for a `subagent fn` call; the body does not run in this
+   * process at all (D4: no in-process fallback in production).
+   */
+  runSubagentFnChild?(request: SubagentFnChildRequest, chain?: InvokeChain): Promise<SubagentFnChildOutcome>;
+  /**
+   * RFC 0001 (`subagent fn`) in-memory session-switch hooks — the test-double
+   * posture for hosts with no child-process substrate. Around a `subagent fn`
+   * CALL the executor enters a fresh isolated subagent session for the body
    * (`spawnSubagentSession`) and discards it on return (`exitSubagentSession`,
    * positional — sessions nest LIFO), so the body's `@` queries / calls target
    * the spawned session and the caller's conversation stays unpolluted (FN-6). The
    * spawned session's configuration (`system` / `model` / `tools`, FN-7) is
    * inherit-then-`with`-override resolved on the `subagent fn` node. Optional:
    * a host with no isolation substrate omits both, and a `subagent fn` body then
-   * runs against the same host with no session switch.
+   * runs against the same host with no session switch. Production supplies
+   * `runSubagentFnChild` instead and never these.
    */
   spawnSubagentSession?(config: SubagentSessionConfig, chain?: InvokeChain): void | Promise<void>;
   exitSubagentSession?(): void | Promise<void>;
 }
+
+/**
+ * RFC 0012 §10 — what the executor hands the production host for one
+ * `subagent fn` call: the resolved declaration, the caller-evaluated positional
+ * arguments (by value, FN-6), the call expression (its `with { cwd }` clause,
+ * RFC 0009 Erratum B, is the host's to evaluate against `env`), and the
+ * checkpoint site the invoke trampoline gates on.
+ */
+export interface SubagentFnChildRequest {
+  readonly fn: FnDecl;
+  readonly args: readonly ThetaValue[];
+  readonly call: CallExpr;
+  readonly env: LexicalEnvironment;
+  readonly site: CheckpointSite;
+}
+
+/**
+ * RFC 0012 §10 — the child's outcome as the trampoline surfaces it: the
+ * envelope's `Result` with its provenance (`InvokeResultSource`, bug 0294) and
+ * the `fn_tail` marker (`subagent-envelope.ts`) naming a `Result`-valued body
+ * tail; or a pre-spawn cancellation observed at the invoke checkpoint.
+ */
+export type SubagentFnChildOutcome =
+  | {
+      readonly kind: "value";
+      readonly result: ResultValue;
+      readonly source: InvokeResultSource;
+      readonly fnTail?: FnTail;
+    }
+  | { readonly kind: "cancelled" };
 
 /**
  * The collaborators the executor walks the body against. `env` is `V19b`'s
@@ -648,12 +693,44 @@ async function evalSubagentFnCall(
   // resolve against the lib that declared it; a same-file `subagent fn` passes
   // no `moduleEnv` and isolates against the caller's root unchanged.
   const scope = (moduleEnv ?? env).spawnIsolatedScope();
+  const argValues: ThetaValue[] = [];
   for (let i = 0; i < fn.params.length; i += 1) {
     const arg = await evalExpr(expr.args[i] as Expr, env, deps);
     if (arg.flow !== "value") {
       return arg;
     }
+    argValues.push(arg.value);
     scope.defineLocal((fn.params[i] as FnDecl["params"][number]).name, arg.value, false);
+  }
+
+  // RFC 0012 §10 — production: the body runs in a spawned child process; this
+  // process never executes it. The host pushes the countable `subagent-fn`
+  // frame (INV-4) and marshals the depth to the child; a ceiling breach on that
+  // push throws out of the hook and is downgraded here, at the same boundary,
+  // to the caller's `Err(InvokeInfraError{cause:"panic"})`.
+  if (deps.host.runSubagentFnChild !== undefined) {
+    let outcome: SubagentFnChildOutcome;
+    try {
+      outcome = await deps.host.runSubagentFnChild(
+        {
+          fn,
+          args: argValues,
+          call: expr,
+          env,
+          site: { file: panicSiteFile(env, deps), line: expr.range.start.line, column: expr.range.start.column },
+        },
+        deps.invokeChain,
+      );
+    } catch (thrown) { // allow-broad-catch: FN-6 subagent boundary — invocation.md §Failures
+      if (thrown instanceof HostFatal) {
+        throw thrown;
+      }
+      return {
+        flow: "value",
+        value: makeErr(subagentInfraError(thrown, fn.name) as unknown as ThetaValue),
+      };
+    }
+    return mapSubagentFnChildOutcome(outcome, fn.name, deps.signal);
   }
 
   // Enter the fresh isolated session and run the body inside the SAME try, so a
@@ -726,6 +803,52 @@ async function evalSubagentFnCall(
     case "cancel":
       return { flow: "cancel" };
   }
+}
+
+/**
+ * RFC 0012 §10 — project the child's envelope outcome onto the value the
+ * in-process drive returned for the same body, so a `subagent fn` call's
+ * observable is unchanged by where the body ran (FN-6; GOV-15):
+ *
+ *   - a bare tail `x` → `x`; an `Ok(x)` tail (`fn_tail: "ok"`) → `Ok(x)`; an
+ *     `Err(e)` tail (`fn_tail: "err"`) → the bare `Err(e)` — exactly the three
+ *     values `executeBlock`'s `normal` / `return` flow yielded;
+ *   - a `?`-propagated / effect-failure `Err` the body itself surfaced
+ *     (`callee-returned`, no tail marker) → `Err(InvokeCalleeError{inner})`, the
+ *     `propagate` / `fail` arm's wrap;
+ *   - a boundary-minted `Err` (the child's internal-error / validation /
+ *     return-validation arms, a spawn or envelope failure) → bare, as the
+ *     in-process panic arm was (`invoke_infra`, never wrapped);
+ *   - a cancellation the CALLER's own signal explains → the `cancel` flow (the
+ *     in-process `cancel` arm); a child-internal cancel wraps like any other
+ *     callee-returned failure (bug 0295's two-arm rule).
+ */
+function mapSubagentFnChildOutcome(
+  outcome: SubagentFnChildOutcome,
+  fnName: string,
+  signal: AbortSignal,
+): EvalResult {
+  if (outcome.kind === "cancelled") {
+    return { flow: "cancel" };
+  }
+  const { result } = outcome;
+  if (result.ok) {
+    return { flow: "value", value: outcome.fnTail === "ok" ? result : result.value };
+  }
+  if (outcome.fnTail === "err") {
+    return { flow: "value", value: result };
+  }
+  const innerKind = (result.error as { readonly kind?: unknown } | null)?.kind;
+  if (innerKind === "cancelled" && signal.aborted) {
+    return { flow: "cancel" };
+  }
+  if (outcome.source === "boundary-minted") {
+    return { flow: "value", value: result };
+  }
+  return {
+    flow: "value",
+    value: makeErr(subagentCalleeError(result.error, fnName) as unknown as ThetaValue),
+  };
 }
 
 /**

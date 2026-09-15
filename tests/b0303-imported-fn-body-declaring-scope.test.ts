@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
-import type { ModelRegistry } from "@earendil-works/pi-coding-agent";
+import type { ExtensionCommandContext, ModelRegistry } from "@earendil-works/pi-coding-agent";
+import type { ThetaCompositionInput } from "../src/extension/theta-composition-producer";
+import type { ParsedFrontmatter } from "../src/parser/frontmatter";
 import { executeBody } from "../src/runtime/statement-executor";
 import { isEnumValue, schemaTagOf, type ThetaValue } from "../src/runtime/value";
+import { driveSubagentFnEntry } from "./helpers/subagent-fn-child-regime";
 import {
   bindImportedBody,
   expectCleanImportLoad,
@@ -51,8 +54,9 @@ import {
 // computed theta-side). The one live-exercised surface — a `subagent fn` body
 // carrying a resolved sibling into a real drive — is covered by
 // tests/live/b0303live-imported-fn-private-sibling-live-cell.test.ts; the
-// subagent-fn cell here witnesses the same sibling-resolution seam offline
-// through the in-process session switch (see its own note).
+// subagent-fn cell here witnesses the same sibling-resolution seam offline by
+// driving the CHILD regime the body runs under (RFC 0012 §10 — see its own
+// note).
 //
 // NO SILENT SKIPPING: every cell fails loudly on its own runtime observable;
 // none early-returns, and the load-pass precondition (a clean, well-formed
@@ -93,13 +97,8 @@ interface Measured {
  * consults it.
  *
  * `modelRegistry.getAvailable` returns one fixture model. The `.theta`/`.thetalib`
- * rows never touch it; the subagent-fn cell does — `evalSubagentFnCall`'s
- * in-process session switch (`spawnSubagentSession`) reads the available models
- * to resolve the spawned session's model ref, so a bare `{}` registry would
- * abort the spawn at `getAvailable is not a function` (a harness limitation)
- * BEFORE the body's sibling call runs and masks the scope defect under test.
- * The stub lets the body run in-process so the sibling-resolution observable is
- * the deciding factor rather than the harness.
+ * rows never touch it; it is the same registry the subagent-fn cell's child
+ * drive (`driveSubagentFnEntry`) confirms the launched model against.
  */
 async function measure(appBody: string, libs: Record<string, string>): Promise<Measured> {
   const { app, check, binding } = await bindImportedBody(appBody, libs, {
@@ -341,20 +340,21 @@ describe("bug 0303 — an imported `.thetalib` `fn` body resolves free names in 
   it("subagent-fn RED (want value 12): an imported `subagent fn` body reaches its private sibling in the declaring module", async () => {
     // §Fix constraint 1 pins the `subagent fn` variant: its body resolves free
     // names in its DECLARING module too (the fix threads the module env through
-    // `evalSubagentFnCall`'s `spawnIsolatedScope`, §Fix design point 10).
+    // the body's `spawnIsolatedScope`, §Fix design point 10).
     //
-    // WHY OFFLINE-DRIVABLE HERE: a `subagent fn` call is an IN-PROCESS isolated
-    // session switch (RFC 0001), not an RFC-0006 child-process spawn — so with
-    // the `measure()` harness's `modelRegistry.getAvailable` stub the spawn runs
-    // the body in-process and the sibling call is the deciding factor. At this
-    // fork the sibling `helper` is unbound in the caller's env, the call dies in
-    // bug 0003's belt, and the subagent boundary downgrades that panic to a
-    // caller-visible `Err(InvokeInfraError)` (the runtime value below is that
-    // Err at this fork). Post-fix the sibling resolves in the declaring module,
-    // the body computes `x + 7`, and the subagent boundary crosses the final
-    // value: `compute(5)` = `helper(5)` = 12. The observable is the RESOLVED
-    // sibling's arithmetic, not model output — no live model participates.
-    const row = await measure(
+    // WHY THE CHILD REGIME: under RFC 0012 §10 a `subagent fn` call is an
+    // RFC-0006 child-process spawn of the CALLING theta — the parent never runs
+    // the body (D4). The body's scope is therefore decided in the CHILD, which
+    // re-discovers `app.theta`, materialises its imports through the same load
+    // pass, resolves `compute` by name off the `fn` launch entry and runs the
+    // body. `driveSubagentFnEntry` composes the producer as that child over
+    // the SAME `checkThetaImports` output this file's other rows bind, so the
+    // deciding factor is the sibling resolution and nothing else: `helper` is
+    // unbound in the caller's env and bound in the declaring module, so the
+    // envelope carries `helper(5)` = 12, never the InvokeInfraError a
+    // bug-0003 belt panic over an unresolved `helper` would mint. No live model
+    // participates — the observable is the RESOLVED sibling's arithmetic.
+    const { app, check } = await bindImportedBody(
       'import { compute } from "./sublib.thetalib"\nlet r = compute(5)\nr\n',
       {
         "/proj/sublib.thetalib": [
@@ -367,12 +367,51 @@ describe("bug 0303 — an imported `.thetalib` `fn` body resolves free names in 
           "",
         ].join("\n"),
       },
+      {
+        getAvailable: (): unknown[] => [
+          { id: "claude-sonnet-5", provider: "anthropic", displayName: "sonnet" },
+        ],
+      } as unknown as ModelRegistry,
     );
-    expectCleanLoad(row, "subagent-fn", ["fn compute"]);
+    expectCleanLoad(
+      {
+        appParseCodes: app.diagnostics.map((d) => d.code),
+        diagLines: check.diagnostics.map((d) => `${d.severity} ${d.code}: ${d.message}`),
+        materialised: check.imports.map((m) => `${m.kind} ${m.name}`),
+        runtime: { outcome: "value", value: null },
+      },
+      "subagent-fn",
+      ["fn compute"],
+    );
+    const theta: ThetaCompositionInput = {
+      slashName: "app",
+      sourcePath: "/proj/app.theta",
+      frontmatter: app.frontmatter as ParsedFrontmatter,
+      body: app.body,
+      callableSet: Object.freeze({ entries: new Map() }),
+      imports: check.imports,
+    } as ThetaCompositionInput;
+    const { envelope } = await driveSubagentFnEntry({
+      theta,
+      slug: "app",
+      fnName: "compute",
+      params: { x: 5 },
+      ctx: {
+        model: { id: "claude-sonnet-5", provider: "anthropic", displayName: "sonnet" },
+        cwd: "/proj",
+        signal: undefined,
+        sessionManager: { getEntries: () => [], getLeafId: () => undefined },
+      } as unknown as ExtensionCommandContext,
+      modelRegistry: {
+        getAvailable: (): unknown[] => [
+          { id: "claude-sonnet-5", provider: "anthropic", displayName: "sonnet" },
+        ],
+      } as unknown as ModelRegistry,
+    });
     expect(
-      row.runtime,
-      "the imported `subagent fn`'s body resolves its private sibling `helper` in the DECLARING module; `compute(5)` crosses the subagent boundary as `helper(5)` = 12, never an InvokeInfraError over an unresolved `helper`",
-    ).toEqual({ outcome: "value", value: 12 });
+      envelope,
+      "the imported `subagent fn`'s body resolves its private sibling `helper` in the DECLARING module; the child's envelope carries `helper(5)` = 12, never an InvokeInfraError over an unresolved `helper`",
+    ).toEqual({ kind: "ok", value: 12 });
   });
 
   it("enum-identity RED (want equal): a lib-body enum value equals the caller-side import of the SAME declaration under an alias", async () => {

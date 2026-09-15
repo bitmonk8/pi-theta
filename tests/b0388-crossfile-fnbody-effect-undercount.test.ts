@@ -22,12 +22,15 @@ import {
 } from "../src/runtime/invoke-depth-cycle";
 import type { MaterializedImport } from "../src/runtime/lexical-environment";
 import { executeBody } from "../src/runtime/statement-executor";
+import { SUBAGENT_INVOKE_DEPTH_ENV, type SpawnFn } from "../src/runtime/subagent-launcher";
 import type { AgentToolResultEnvelope } from "../src/runtime/tool-call-execute";
 import { isEnumValue, schemaTagOf, type ThetaValue } from "../src/runtime/value";
 import type { RuntimeRoot } from "../src/runtime-root";
 import type { Checkpoint } from "../src/seams/checkpoint";
 import type { FileSystem } from "../src/seams/file-system";
 import { parseDeps } from "./helpers/e2e-s1";
+import { fakeExecutableHost, makeFakeJsonChildLauncher, type FakeJsonChild, type SpawnRecord } from "./helpers/fake-json-child";
+import { childRegimeRootDouble, driveSubagentFnEntry } from "./helpers/subagent-fn-child-regime";
 
 // Bug 0388 — an effect (a `@`-query render, an `invoke`, a `subagent fn` call)
 // dispatched from INSIDE a cross-file `.thetalib` `fn` body counts against the
@@ -74,12 +77,24 @@ import { parseDeps } from "./helpers/e2e-s1";
 //     panics. This proves the 33-frame arithmetic and the harness are sound —
 //     the ONLY difference from R1 is the ROUTE to the 33rd frame.
 //
-// TIER: **unit**, offline, deterministic, provider-free. Both cells settle
+// R2 — the `subagent fn` direction. Under RFC 0012 §10 a `subagent fn` body
+// runs in a CHILD process of the calling theta, so the one active chain
+// crosses a process hop: the parent pushes the countable `subagent-fn` frame
+// at the call and marshals the pushed depth (`PI_THETA_SUBAGENT_INVOKE_DEPTH`);
+// the child seeds its root chain at that depth and the body's render pushes
+// the cross-file `vf` from there. R2 is therefore two cells over the same
+// 33 > 32 arithmetic: the parent half (a fake spawn records the launch env;
+// at cap, the push itself breaches at the call and FN-6 downgrades it) and
+// the child half (`driveSubagentFnEntry` seeded at the marshalled 32; the
+// render's `vf` push breaches and the envelope carries the minted panic).
+//
+// TIER: **unit**, offline, deterministic, provider-free. Every cell settles
 // inside one `parseThetaDocument` over a string, one real `checkThetaImports`
 // over an in-memory `FileSystem` double, and one `executeBody` bound through
 // `createProductionProducerDeps(...).bindPromptConversation` — the committed
-// tests/b0354-crossfile-fn-depth-uncounted.test.ts `measure()` harness
-// VERBATIM, with the chain seeded via `subagentInboundInvokeDepth`. The
+// tests/b0354-crossfile-fn-depth-uncounted.test.ts `measure()` harness, with
+// the chain seeded via `subagentInboundInvokeDepth` (R2's parent half adds a
+// fake `SpawnFn`; its child half composes the producer as the child). The
 // counting the bug omits happens theta-side, at frame-push time (or its
 // absence), BEFORE any model participates: R1's render breach — post-fix —
 // fires DURING `renderQueryText`, before the query drive. An integration or
@@ -166,6 +181,31 @@ interface Measured {
   readonly diagLines: string[];
   readonly materialised: string[];
   readonly runtime: RuntimeOutcome;
+  /** R2 only: every `subagent fn` child launch the parent made (RFC 0012 §10). */
+  readonly spawns: readonly SpawnRecord[];
+}
+
+/**
+ * R2's parent-side substrate: a `subagent fn` call is a CHILD launch of the
+ * calling theta (RFC 0012 §10), so the row composes the producer over a fake
+ * spawn whose child answers every launch with the `Ok(7)` envelope the body
+ * would have produced, and records the launch env. The clock the launcher's
+ * teardown reads comes from the child-regime root double.
+ */
+interface LaunchSubstrate {
+  readonly spawn: SpawnFn;
+  readonly spawns: SpawnRecord[];
+}
+
+function launchSubstrate(): LaunchSubstrate {
+  const launcher = makeFakeJsonChildLauncher();
+  const spawn: SpawnFn = (execPath, args, options) => {
+    const child = launcher.spawn(execPath, args, options) as FakeJsonChild;
+    // A macrotask, so the reply lands after the drive has subscribed.
+    setTimeout(() => child.emitOkEnvelope(7), 0);
+    return child;
+  };
+  return { spawn, spawns: launcher.spawns };
 }
 
 /**
@@ -187,6 +227,7 @@ async function measure(
   appBody: string,
   libs: Record<string, string>,
   subagentInboundInvokeDepth?: number,
+  launch?: LaunchSubstrate,
 ): Promise<Measured> {
   const app = parseApp(appBody);
   expect(
@@ -210,13 +251,16 @@ async function measure(
 
   const deps = createProductionProducerDeps({
     pi: {} as unknown as ExtensionAPI,
-    root: {
-      checkpoint: NOOP_CHECKPOINT,
-      idSource: {
-        newInvocationId: (): string => "inv-1",
-        newToolCallId: (): string => "tc-1",
-      },
-    } as unknown as RuntimeRoot,
+    root:
+      launch !== undefined
+        ? childRegimeRootDouble()
+        : ({
+            checkpoint: NOOP_CHECKPOINT,
+            idSource: {
+              newInvocationId: (): string => "inv-1",
+              newToolCallId: (): string => "tc-1",
+            },
+          } as unknown as RuntimeRoot),
     modelRegistry: {
       getAvailable: (): unknown[] => [
         { id: "claude-sonnet-5", provider: "anthropic", displayName: "sonnet" },
@@ -230,6 +274,14 @@ async function measure(
     // Seed the top-level chain at this depth so a short cross-file `fn` chain
     // reaches the cap. Absent → the producer seeds at 0.
     ...(subagentInboundInvokeDepth !== undefined ? { subagentInboundInvokeDepth } : {}),
+    ...(launch !== undefined
+      ? {
+          subagentSpawn: launch.spawn,
+          subagentExecutableHost: fakeExecutableHost(),
+          subagentParentEnv: {},
+          subagentParentPid: 4242,
+        }
+      : {}),
   });
   const theta: ThetaCompositionInput = {
     slashName: "app",
@@ -242,7 +294,15 @@ async function measure(
   const bindInput: ConversationBindInput = {
     theta,
     args: "",
-    ctx: {} as unknown as ExtensionCommandContext,
+    ctx:
+      launch !== undefined
+        ? ({
+            model: { id: "claude-sonnet-5", provider: "anthropic", displayName: "sonnet" },
+            cwd: "/proj",
+            signal: undefined,
+            sessionManager: { getEntries: () => [], getLeafId: () => undefined },
+          } as unknown as ExtensionCommandContext)
+        : ({} as unknown as ExtensionCommandContext),
   };
   const binding = deps.bindPromptConversation(bindInput);
   // The `.then(ok, err)` rejection arm — not a broad `catch` — turns a runtime
@@ -270,6 +330,7 @@ async function measure(
     diagLines: check.diagnostics.map((d) => `${d.severity} ${d.code}: ${d.message}`),
     materialised: check.imports.map((m) => `${m.kind} ${m.name}`),
     runtime,
+    spawns: launch?.spawns ?? [],
   };
 }
 
@@ -287,17 +348,16 @@ const BREACH_THROW: RuntimeOutcome = {
 };
 
 /**
- * The SAME 33 > 32 breach, but reached from INSIDE a `subagent fn` body. FN-6
- * (invocation.md §Failures / ERR-20 boundary) downgrades a body panic — a
- * depth-ceiling breach included — to the caller's
+ * The SAME 33 > 32 breach, but at a `subagent fn` CALL. FN-6 (invocation.md
+ * §Failures / ERR-20 boundary) downgrades a breach at the subagent boundary —
+ * the push of the `subagent-fn` frame itself — to the caller's
  * `Err(InvokeInfraError{cause:"panic"})` rather than crashing the caller, so the
  * breach surfaces as a settled Err VALUE carrying the `invoke chain depth
- * exceeded: 33 > 32` message, not as a top-level throw
- * (`evalSubagentFnCall`'s boundary `try` in statement-executor.ts). The Err is
- * neither schema-tagged nor enum-branded, so the harness records only
- * `outcome`/`value`. This is the sanctioned surfacing of a subagent-fn body
- * breach; a top-level `InvokeDepthExceededPanic` throw is unreachable for any
- * subagent-fn path because the boundary catches it.
+ * exceeded: 33 > 32` message, not as a top-level throw (the nested
+ * `surfaceDepthOverflow` arm of the parent's `subagent fn` child, RFC 0012
+ * §10). The Err is neither schema-tagged nor enum-branded, so the harness
+ * records only `outcome`/`value`. A top-level `InvokeDepthExceededPanic` throw
+ * is unreachable for any subagent-fn path because the boundary catches it.
  */
 const BREACH_DOWNGRADED_ERR: RuntimeOutcome = {
   outcome: "value",
@@ -446,64 +506,135 @@ describe("bug 0388 — an effect dispatched from inside a cross-file `fn` body u
   // ===================================================================
   // R2 — the subagent-fn-body direction: a render inside a `subagent fn`
   // body must count the subagent-fn frame on the ACTIVE chain, not drop it.
+  //
+  // Under RFC 0012 §10 the body runs in a CHILD process of the calling theta,
+  // so the one active chain is split across the process hop: the PARENT pushes
+  // the countable `subagent-fn` frame at the call (D → D+1) and marshals D+1
+  // as `PI_THETA_SUBAGENT_INVOKE_DEPTH`; the CHILD seeds its root chain at D+1
+  // and the body's render pushes the cross-file `vf` from there. The two cells
+  // below witness each half against the same 33 > 32 arithmetic.
   // ===================================================================
 
-  it("R2 subagent-fn-body render RED (want panic 33 > 32): a `@`-query render inside a `subagent fn` body counts the subagent-fn frame + cross-file `vf` on the active chain", async () => {
-    // Seed 31 + `subagent fn s` (frame 32, at cap, legal) + the render's
-    // cross-file `app→vf` (frame 33 on the ACTIVE chain) → an INV-4 breach
-    // `invoke chain depth exceeded: 33 > 32` DURING the body's interpolation
-    // render.
-    //
-    // The executor spawns the session (the producer pushes the countable
-    // `subagent-fn` frame into the spawned session's `childChain` = D+1), then
-    // runs the body. The body's render dispatches through the spawned session's
-    // `resolveQuery`, which reads `overrideChain ?? childChain`. The executor
-    // must advance its OWN live chain by the `subagent-fn` frame so the override
-    // it threads carries depth D+1 — parallel to the producer's `childChain`;
-    // the render then pushes `vf` from D+1 to D+2 = 33 and breaches. Because the
-    // breach fires INSIDE the `subagent fn` body, FN-6's boundary downgrades the
-    // panic to the caller's `Err(InvokeInfraError{cause:"panic"})`
-    // (`BREACH_DOWNGRADED_ERR`), carrying the `33 > 32` message — that Err IS the
-    // counted-direction observable, not a top-level throw. If the executor
-    // instead threaded the STALE caller chain (D) as the override, the spawned
-    // session's `overrideChain ?? childChain` would read the SHORTER override
-    // (D), dropping the subagent-fn frame: `vf` would push from D=32 (no
-    // breach), the render would complete UNCOUNTED, and execution would fall
-    // into the query-drive machinery — the exact bug 0388 undercount, one seam
-    // over. `vf` is imported into `app` (materialised `fn vf`), so calling it
-    // from the subagent-fn body is a CROSS-FILE frame.
-    const row = await measure(
-      [
-        'import { vf } from "./vlib.thetalib"',
-        // No `): integer` return annotation: a `let q = @`...`` query followed
-        // by a `7` tail infers the subagent fn's Ok payload as `null` (a
-        // static-inference quirk of a query-then-tail body), which the
-        // `subagent fn` return-annotation check (reusing the `invoke<Schema>`
-        // typed-return machinery) flags as `invoke-return-type-mismatch`.
-        // Omitting the annotation loads clean and leaves the countable frames
-        // — the subagent-fn frame and the render's cross-file `vf` — unchanged.
-        "subagent fn s() {",
-        "  let q = @`value ${vf(0)}`",
-        "  7",
-        "}",
-        "let r = s()",
-        "r",
-        "",
-      ].join("\n"),
-      {
-        "/proj/vlib.thetalib": [
-          "fn vf(x: integer): integer {",
-          "  x + 1",
-          "}",
-          "",
-        ].join("\n"),
-      },
-      31,
-    );
-    expectCleanLoad(row, "R2", ["fn vf"]);
+  /** The R2 app body: `s`'s render calls the cross-file `vf`, then `s` returns 7. */
+  const R2_APP = [
+    'import { vf } from "./vlib.thetalib"',
+    // No `): integer` return annotation: a `let q = @`...`` query followed
+    // by a `7` tail infers the subagent fn's Ok payload as `null` (a
+    // static-inference quirk of a query-then-tail body), which the
+    // `subagent fn` return-annotation check (reusing the `invoke<Schema>`
+    // typed-return machinery) flags as `invoke-return-type-mismatch`.
+    // Omitting the annotation loads clean and leaves the countable frames
+    // — the subagent-fn frame and the render's cross-file `vf` — unchanged.
+    "subagent fn s() {",
+    "  let q = @`value ${vf(0)}`",
+    "  7",
+    "}",
+    "let r = s()",
+    "r",
+    "",
+  ].join("\n");
+  const R2_LIBS = {
+    "/proj/vlib.thetalib": [
+      "fn vf(x: integer): integer {",
+      "  x + 1",
+      "}",
+      "",
+    ].join("\n"),
+  };
+
+  it("R2 parent half (want depth 32 marshalled; want panic 33 > 32 at cap): the `subagent fn` call pushes its frame on the ACTIVE chain and hands the pushed depth to the child", async () => {
+    // Seed 31: the call pushes `subagent-fn` (frame 32, at cap, legal) and the
+    // child launch carries 32 — the depth the child's own chain seeds at, so
+    // the body's cross-file `vf` push there is frame 33 (the child half below).
+    // Had the parent marshalled the STALE seed (31), the child would push `vf`
+    // to 32 and the render would complete UNCOUNTED — the bug 0388 undercount,
+    // one process hop over.
+    const launched = launchSubstrate();
+    const row = await measure(R2_APP, R2_LIBS, 31, launched);
+    expectCleanLoad(row, "R2 parent (seed 31)", ["fn vf"]);
+    expect(row.spawns, "the `subagent fn` call launches exactly one child of the calling theta").toHaveLength(1);
     expect(
-      row.runtime,
-      "INV-4: a subagent-fn body's render counts the subagent-fn frame plus the cross-file `vf` frame on the active chain, so the `vf` push reaches depth 33 and breaches; the FN-6 boundary downgrades it to Err(InvokeInfraError{cause:'panic'})",
+      row.spawns[0]!.env[SUBAGENT_INVOKE_DEPTH_ENV],
+      "INV-4 across the hop: the child seeds at the seed + the pushed `subagent-fn` frame = 32",
+    ).toBe("32");
+    expect(row.runtime, "the child's `Ok(7)` envelope is the call's value").toEqual({ outcome: "value", value: 7 });
+
+    // Seed 32 (at cap): the `subagent-fn` push itself would be frame 33, so the
+    // breach fires at the CALL, before any launch; FN-6's boundary downgrades
+    // it to the caller's `Err(InvokeInfraError{cause:"panic"})` naming `s`.
+    const atCap = launchSubstrate();
+    const capRow = await measure(R2_APP, R2_LIBS, 32, atCap);
+    expectCleanLoad(capRow, "R2 parent (seed 32)", ["fn vf"]);
+    expect(capRow.spawns, "a breach at the push launches no child").toHaveLength(0);
+    expect(
+      capRow.runtime,
+      "INV-4: the `subagent-fn` push from 32 reaches 33 and breaches at the call; the FN-6 boundary downgrades it to Err(InvokeInfraError{cause:'panic'})",
     ).toEqual(BREACH_DOWNGRADED_ERR);
+  });
+
+  it("R2 child half (want panic 33 > 32): seeded at the marshalled 32, the body's `@`-query render pushes the cross-file `vf` to 33 and the child's envelope carries the breach", async () => {
+    // The child re-composes `app.theta` (imports materialised through the same
+    // load pass), resolves `s` off the `fn` launch entry and runs the body
+    // against a root chain seeded at the marshalled 32. The render's
+    // cross-file `vf` push is frame 33 → `invoke chain depth exceeded: 33 > 32`
+    // DURING interpolation render, before any drive. Inside the child the
+    // breach is a `ThetaPanic` out of `executeBody`, which the fn-entry drive
+    // routes as the envelope's minted `invoke_infra{cause:"panic"}` — the
+    // parent then surfaces it bare (a boundary mint), the same Err shape the
+    // at-cap parent half produces. Had the child seeded at the stale 31, `vf`
+    // would push to 32, the render would complete UNCOUNTED and execution would
+    // fall into the query-drive machinery and trip this harness's stubbed `pi`
+    // seam (`pi.on is not a function`) — a different-value red.
+    const app = parseApp(R2_APP);
+    expect(app.frontmatter, "the importing theta's frontmatter must parse").not.toBeNull();
+    const frontmatter = app.frontmatter as ParsedFrontmatter;
+    const check = await checkThetaImports(
+      { slashName: "app", sourcePath: "/proj/app.theta", frontmatter, body: app.body },
+      { fs: fakeThetaLibFs(R2_LIBS), parseDeps: parseDeps() },
+    );
+    expect(app.diagnostics.map((d) => d.code), "R2 child: the importing file parses clean").toEqual([]);
+    expect(check.diagnostics, "R2 child: the load pass reports nothing").toEqual([]);
+    expect(check.imports.map((m) => `${m.kind} ${m.name}`), "R2 child: `vf` materialised").toEqual(["fn vf"]);
+    const theta: ThetaCompositionInput = {
+      slashName: "app",
+      sourcePath: "/proj/app.theta",
+      frontmatter,
+      body: app.body,
+      callableSet: Object.freeze({ entries: new Map() }),
+      imports: check.imports,
+    } as ThetaCompositionInput;
+    const { envelope } = await driveSubagentFnEntry({
+      theta,
+      slug: "app",
+      fnName: "s",
+      params: {},
+      inboundDepth: 32,
+      // PIC-58 model pre-flight: the child confirms the launched model against
+      // its registry; the ctx model and the registry entry are the same row.
+      ctx: {
+        model: { id: "claude-sonnet-5", provider: "anthropic", displayName: "sonnet" },
+        cwd: "/proj",
+        signal: undefined,
+        sessionManager: { getEntries: () => [], getLeafId: () => undefined },
+      } as unknown as ExtensionCommandContext,
+      modelRegistry: {
+        getAvailable: (): unknown[] => [
+          { id: "claude-sonnet-5", provider: "anthropic", displayName: "sonnet" },
+        ],
+      } as unknown as ModelRegistry,
+    });
+    expect(
+      envelope,
+      "INV-4: the child's active chain (32 marshalled + the render's cross-file `vf`) reaches 33 during render; the fn-entry drive mints the breach as invoke_infra{cause:'panic'}",
+    ).toEqual({
+      kind: "err",
+      provenance: "mint",
+      error: {
+        kind: "invoke_infra",
+        message: "invoke chain depth exceeded: 33 > 32",
+        callee_path: "/proj/app.theta",
+        cause: "panic",
+      },
+    });
   });
 });

@@ -118,6 +118,7 @@ import {
 } from "../runtime/invoke-depth-cycle";
 import { canonicalizePath, checkInvokePathAtLoad } from "../runtime/invocation";
 import type { FileSystem } from "../seams/file-system";
+import type { MaterializedImport } from "../runtime/lexical-environment";
 import type { ThetaCompositionInput } from "./theta-composition-producer";
 // Bug 0072: the two static tool-argument TYPE checks reuse the existing `V20b`
 // static-type-inference substrate and `V2b` compatibility engine rather than
@@ -1089,20 +1090,23 @@ async function checkThetaCallableCallSurface(
 }
 
 /**
- * RFC 0009 Erratum A′ (invocation.md INV-8) — the call-site clause's
- * DEFAULT-REJECT callee classification: ONE loop, TWO codes, a three-way
- * verdict against the frozen callable set. The clause is legal on exactly
- * two surfaces, so this loop convicts everything else on the bare-ident
- * call surface: a callee the set classifies `theta` is the legal surface
- * (the mode gate above owns it), a callee it classifies `pi-tool` draws
- * `theta/parse/with-clause-pi-tool`, and EVERY other callee — `subagent
- * fn`, plain `fn`, imported `fn` including re-export chains, locals,
- * builtins, anything the set does not bind — draws
- * `theta/parse/with-clause-in-process-callee`. The verdict is the
- * callable-set classification ALONE: no fn-kind resolution and no chain
- * walk, which is exactly what closes the re-export-chain case on the same
- * stroke (a chain-reached callee convicts as a set MISS). `ResolvedCallable`
- * is the closed two-kind union, so the three arms are total.
+ * RFC 0009 Erratum A′ + Erratum B (invocation.md INV-8) — the call-site
+ * clause's DEFAULT-REJECT callee classification: ONE loop, TWO codes, a
+ * four-way verdict against the frozen callable set plus the file's own
+ * `subagent fn` declarations. The clause is legal on the three
+ * child-spawning surfaces, so this loop convicts everything else on the
+ * bare-ident call surface: a callee the set classifies `theta` is a legal
+ * surface (the mode gate above owns it); a callee naming one of THIS file's
+ * top-level `subagent fn`s is a legal surface (Erratum B, RFC 0012 §10 — the
+ * body is a child process, so the clause has a working directory to address;
+ * the `subagent` modifier is a declaration-site fact this pass already has);
+ * a callee the set classifies `pi-tool` draws `theta/parse/with-clause-pi-tool`;
+ * a callee that is an IMPORTED name is DEFERRED to `checkImportedWithClauseCallees`
+ * (the declaring library resolves later in the compose pass, re-export chains
+ * followed by materialisation, and only then is its fn kind known); and EVERY
+ * other callee — plain `fn`, locals, builtins, anything the set does not bind —
+ * draws `theta/parse/with-clause-in-process-callee`. `ResolvedCallable` is
+ * the closed two-kind union, so the arms are total.
  *
  * PRECEDENCE: this loop runs only for a parse-clean theta —
  * `parseDiscoveredTheta` (production-composition.ts) drops any
@@ -1118,9 +1122,12 @@ function checkWithClauseDefaultReject(
   callerPath: string,
   callExprs: readonly CallExpr[],
   callableSet: CallableSetSnapshot | undefined,
+  statements: readonly Stmt[],
 ): Diagnostic[] {
   const diagnostics: Diagnostic[] = [];
   if (callableSet !== undefined) {
+    const subagentFns = topLevelSubagentFnNames(statements);
+    const imported = importedLocalNames(statements);
     for (const call of callExprs) {
       if (call.withClause === undefined) {
         continue;
@@ -1130,6 +1137,17 @@ function checkWithClauseDefaultReject(
       // author-controlled source text.
       const entry = callableSet.entries.get(call.callee);
       if (entry !== undefined && entry.kind === "theta") {
+        continue;
+      }
+      // Erratum B: a same-file `subagent fn` is a child-spawning surface.
+      // expressions.md §"Identifier resolution" ranks `fn` above `callable`,
+      // so a name the set ALSO binds resolves to the declaration first.
+      if (entry === undefined && subagentFns.has(call.callee)) {
+        continue;
+      }
+      // An imported name's fn kind is the declaring library's fact; judged
+      // once the import materialises (`checkImportedWithClauseCallees`).
+      if (entry === undefined && imported.has(call.callee)) {
         continue;
       }
       if (entry !== undefined && entry.kind === "pi-tool") {
@@ -1157,6 +1175,74 @@ function checkWithClauseDefaultReject(
         hint: WITH_CLAUSE_IN_PROCESS_CALLEE_HINT,
       });
     }
+  }
+  return diagnostics;
+}
+
+/** The names of every top-level `subagent fn` declared in `statements` (a declaration-site fact). */
+function topLevelSubagentFnNames(statements: readonly Stmt[]): ReadonlySet<string> {
+  const names = new Set<string>();
+  for (const stmt of statements) {
+    if (stmt.kind === "fn" && stmt.subagent === true) {
+      names.add(stmt.name);
+    }
+  }
+  return names;
+}
+
+/** The LOCAL binding names of every `import` declaration (`ImportDecl.symbols`: the alias where written, else the source name). */
+function importedLocalNames(statements: readonly Stmt[]): ReadonlySet<string> {
+  const names = new Set<string>();
+  for (const stmt of statements) {
+    if (stmt.kind === "import") {
+      for (const symbol of stmt.symbols) {
+        names.add(symbol);
+      }
+    }
+  }
+  return names;
+}
+
+/**
+ * RFC 0009 Erratum B (RFC 0012 §10) — the DEFERRED half of the call-site
+ * clause's default-reject classification, judged once the caller's imports
+ * have materialised (re-export chains followed): a clause on a call whose
+ * callee is an IMPORTED name is admitted when the materialised import is a
+ * `subagent fn` (a child-spawning surface, FN-9) and draws
+ * `theta/parse/with-clause-in-process-callee` otherwise — an imported plain
+ * `fn`, or an imported `schema` / `enum` name used as a callee. A callee the
+ * frozen callable set binds is not an imported name here (the load pass's own
+ * loop owned it). An import that failed to materialise at all already drew its
+ * own IMP-* refusal and un-registered the theta before this runs.
+ */
+export function checkImportedWithClauseCallees(
+  callerPath: string,
+  body: ThetaBody,
+  imports: readonly MaterializedImport[],
+  callableSet: CallableSetSnapshot | undefined,
+): Diagnostic[] {
+  const diagnostics: Diagnostic[] = [];
+  const importedNames = importedLocalNames(body.statements);
+  const byName = new Map(imports.map((entry) => [entry.name, entry] as const));
+  for (const call of collectCallSites(body).callExprs) {
+    if (call.withClause === undefined || !importedNames.has(call.callee)) {
+      continue;
+    }
+    if (callableSet?.entries.get(call.callee) !== undefined) {
+      continue;
+    }
+    const materialised = byName.get(call.callee);
+    if (materialised?.kind === "fn" && materialised.fn?.subagent === true) {
+      continue;
+    }
+    diagnostics.push({
+      severity: "error",
+      code: WITH_CLAUSE_IN_PROCESS_CALLEE_CODE,
+      file: callerPath,
+      range: call.withClause.range,
+      message: withClauseInProcessCalleeMessage(call.callee),
+      hint: WITH_CLAUSE_IN_PROCESS_CALLEE_HINT,
+    });
   }
   return diagnostics;
 }
@@ -1298,10 +1384,13 @@ function checkPiToolArgDisjointness(
  *   - RFC 0009 INV-6 (`checkClauseCwdType`, both surfaces): the clause's `cwd`
  *     value judged as an ordinary `string` argument slot, drawing the surface's
  *     own arg-type row above (no dedicated code);
- *   - RFC 0009 Erratum A′ `theta/parse/with-clause-pi-tool` /
+ *   - RFC 0009 Erratum A′ / Erratum B `theta/parse/with-clause-pi-tool` /
  *     `theta/parse/with-clause-in-process-callee`: the default-reject loop over
  *     the bare-ident call surface for a clause on any callee the frozen
- *     callable set does not classify `theta`;
+ *     callable set does not classify `theta` and that is not one of the
+ *     file's own `subagent fn`s (RFC 0012 §10); an imported callee's verdict
+ *     is deferred to `checkImportedWithClauseCallees` after import
+ *     materialisation;
  *   - INV-4 invocation cycle (`theta/load/invocation-cycle`) via the graph walk.
  *
  * The extension-matching and forward-slash path-literal checks (lexical.md
@@ -1507,7 +1596,12 @@ export async function checkInvokeStaticResolution(
     );
 
     diagnostics.push(
-      ...checkWithClauseDefaultReject(callerPath, callSites.callExprs, deps.callableSet),
+      ...checkWithClauseDefaultReject(
+        callerPath,
+        callSites.callExprs,
+        deps.callableSet,
+        input.body.statements,
+      ),
     );
 
     diagnostics.push(

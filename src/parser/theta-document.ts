@@ -1678,24 +1678,39 @@ function checkThetaLibTopLevel(block: Block, file: string): Diagnostic[] {
 /**
  * Reject every clause-bearing bare-identifier call in a `.thetalib` body with
  * `theta/parse/with-clause-in-process-callee` (invocation.md INV-8's
- * default-reject arm; code-registry-parse.md row 4).
+ * default-reject arm; code-registry-parse.md row 4) — except a call of one of
+ * the library's OWN top-level `subagent fn`s (RFC 0009 Erratum B, RFC 0012
+ * §10: a `subagent fn` body is a child process, the clause's third legal
+ * surface, and the `subagent` modifier is a declaration-site fact this parse
+ * has).
  *
  * A `.thetalib` carries no frontmatter and can therefore never hold a callable
  * set, so the classification INV-8 states over the caller's frozen callable set
- * is VACUOUS here: every bare-identifier callee is a set MISS by construction
- * and draws the default arm, with no set to consult and no `fn`-kind resolution
- * anywhere. That is why the lib half is decided at the library's OWN parse
- * rather than in the load pass's classifying loop (which walks the importing
- * theta's body only). `invoke(...)` inside a lib `fn` body is an `InvokeExpr`,
- * never a `CallExpr`, so it stays clause-legal — the second of the clause's two
- * legal surfaces — and its mode gate rides the load pass or the runtime arm.
+ * is VACUOUS here: every OTHER bare-identifier callee is a set MISS by
+ * construction and draws the default arm — an imported name included: the lib
+ * parse cannot see the declaring library's fn kind, and the load pass's
+ * deferred import check walks the importing theta's body only, so a lib-side
+ * clause on an imported `subagent fn` stays refused (recorded posture). That
+ * is why the lib half is decided at the library's OWN parse rather than in the
+ * load pass's classifying loop. `invoke(...)` inside a lib `fn` body is an
+ * `InvokeExpr`, never a `CallExpr`, so it stays clause-legal and its mode gate
+ * rides the load pass or the runtime arm.
  *
  * Keyed off the same byte-exact lowercase `.thetalib` discriminator
  * `checkThetaLibTopLevel` above uses, over the same statement tree.
  */
 function checkThetaLibCallWithClauses(block: Block, file: string): Diagnostic[] {
   const out: Diagnostic[] = [];
+  const subagentFns = new Set<string>();
+  for (const stmt of block.statements) {
+    if (stmt.kind === "fn" && stmt.subagent === true) {
+      subagentFns.add(stmt.name);
+    }
+  }
   for (const call of collectClauseBearingCalls(block)) {
+    if (subagentFns.has(call.callee)) {
+      continue;
+    }
     // `call.withClause` is what `collectClauseBearingCalls` filters on.
     const clause = call.withClause as CallWithClause;
     out.push({

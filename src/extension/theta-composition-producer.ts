@@ -44,8 +44,9 @@ import { bindParamsInbound } from "../runtime/inbound-boundary";
 import type { InvokeChain } from "../runtime/invoke-depth-cycle";
 import type { QueryError } from "../runtime/query-error";
 import type { RuntimeEvent } from "../runtime/runtime-event-channel";
-import type { EnumTagEntry } from "../runtime/subagent-envelope";
+import type { EnumTagEntry, FnTail } from "../runtime/subagent-envelope";
 import type { InvokeResultSource } from "../runtime/invoke-cancellation";
+import type { SubagentLaunchEntry } from "../runtime/subagent-placement";
 import { createThetaAbort, forwardSlashCommandCancel } from "../runtime/cancellation-core";
 import type { ActiveInvocationTicket } from "../runtime/active-invocation-registry";
 import {
@@ -233,6 +234,29 @@ export interface ConversationBindInput {
    * absent for a top-level slash dispatch (a parentless root node).
    */
   readonly parentInvocationId?: string;
+  /**
+   * RFC 0012 §10: what the launched child runs — the theta's own body (the
+   * default, `{ kind: "theta" }`) or one of its `subagent fn`s by presented
+   * name (`{ kind: "fn", name }`). Read by the SUBAGENT launch bind only: it
+   * selects the launch entry (env carriage under `pipe`, the launch file
+   * otherwise), the execution-status mode (`subagent` / `subagent-fn`) and
+   * the display label.
+   */
+  readonly entry?: SubagentLaunchEntry;
+  /**
+   * RFC 0012 §1: the display label a placement backend titles the child with
+   * (`--name` under the visible presentation). Defaults to the theta's slug;
+   * a `subagent fn` launch names `<slug>#<fn>`.
+   */
+  readonly label?: string;
+  /**
+   * RFC 0012 §10 (FN-7 inheritance): the values the enclosing theta's
+   * `system:` template interpolates for a `fn`-entry launch — the CALLING
+   * invocation's own bound `params:`, not the fn's arguments (which
+   * `paramBindings` carries for the PIC-60 channel). Absent ⇒ the `system:`
+   * render reads `paramBindings`, the `.theta` callee behaviour.
+   */
+  readonly systemParams?: ReadonlyMap<string, ThetaValue>;
 }
 
 /**
@@ -263,6 +287,14 @@ interface ConversationBindingCommon {
    * XMODE-1 wrap. Absent on non-subagent bindings, which never call `drive()`.
    */
   readonly driveSource?: () => InvokeResultSource;
+  /**
+   * RFC 0012 §10: the `fn_tail` marker `drive()`'s most recently settled
+   * envelope carried (`subagent-envelope.ts`) — a `subagent fn` child naming
+   * its body's `Result`-valued tail so the caller rebuilds the exact value the
+   * in-process drive returned. `undefined` on a bare tail, on every `.theta`
+   * callee envelope, and before `drive()` settled.
+   */
+  readonly driveFnTail?: () => FnTail | undefined;
   /**
    * Decision 6 / Increment B1 (active-invocation-registry.md §"Active
    * invocation registry"): settles the invocation's `disposeBarrier` and

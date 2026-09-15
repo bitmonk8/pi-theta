@@ -31,11 +31,13 @@
 //
 // Tier: unit / offline / deterministic. The pure-function cells drive
 // `src/runtime/respond-tool-wire.ts` directly; the PRODUCTION cells drive the
-// shipped producer (`createProductionProducerDeps` → the real two-phase
-// off-session drive) with only pi-ai's `complete()` replaced by a recording
-// script, and additionally invoke the REGISTERED `ToolDefinition` the way
-// pi-agent-core does — `prepareArguments` on the off-session cells, and
-// `execute` against an ARMED capture mid-turn in section (4), which is the only
+// shipped producer (`createProductionProducerDeps` → the real prompt-mode
+// drive at `tool_loop: max_rounds: 0`, whose one provider call is the
+// off-session forced respond dispatch) with only pi-ai's `complete()` replaced
+// by a recording script, and additionally invoke the REGISTERED
+// `ToolDefinition` the way pi-agent-core does — `prepareArguments` on the
+// forced-dispatch cells, and `prepareArguments` + `execute` against an ARMED
+// capture mid-turn in section (4) and the FREEPHASE cell, which is the only
 // window in which the producer's capture slot exists — so the live on-session
 // boundary is exercised without a provider. The live twins
 // (tests/live/typed-query-wire-shapes.test.ts) prove the same two shapes
@@ -391,21 +393,27 @@ describe("bug 0028 wire contract — JSON-encoded nested params are parsed befor
 // two-phase drive, both offline.
 // ===========================================================================
 
-/** A `mode: prompt` theta whose `subagent fn` runs the off-session two-phase drive. */
-function fnTheta(body: string): string {
+/**
+ * A `mode: prompt` theta whose TOP-LEVEL typed query runs under `tool_loop:
+ * max_rounds: 0` (the QRY-14 step-2 boundary): no on-session free-phase turn
+ * is issued, so the drive's ONE provider call is the forced respond dispatch
+ * `dispatchForcedRespondTurn` issues OFF-SESSION through the scripted pi-ai
+ * `complete()`. (An earlier revision hosted the query in a `subagent fn` body;
+ * under RFC 0012 §10 that body runs in a spawned child process and never
+ * reaches this process's dispatch builder.)
+ */
+function forcedOnlyTheta(body: string): string {
   return [
     "---",
     "mode: prompt",
+    "tool_loop:",
+    "  max_rounds: 0",
     "respond_repair:",
     "  attempts: 0",
     "---",
     body,
-    "subagent fn helper(a: string) {",
-    "  let v = @<Shape>`Ping`?",
-    "  v",
-    "}",
-    'let out = helper("x")',
-    "out",
+    "let v = @<Shape>`Ping`?",
+    "v",
     "",
   ].join("\n");
 }
@@ -482,8 +490,8 @@ async function drive(source: string): Promise<{
 }
 
 /**
- * Assert the drive bound `expected` as the typed query's value. The FN-5 value
- * of the `subagent fn` is the bound query result, so this is the end-to-end
+ * Assert the drive bound `expected` as the typed query's value. The body's
+ * final value is the bound query result, so this is the end-to-end
  * observable: a failed unwrap or an uncoerced param cannot reach it.
  */
 function expectBound(
@@ -498,8 +506,7 @@ function expectBound(
   ).toBe("success");
   expect(
     result.execution.result.value,
-    `${why} — the bound value is the FN-5 result of the \`subagent fn\` whose body ` +
-      `is the typed query`,
+    `${why} — the bound value is the body's final value, the typed query's own bind`,
   ).toEqual(expected);
   expect(
     result.notes.filter((note) => /returned Err|aborted|cancelled/.test(note)),
@@ -557,9 +564,8 @@ describe("bug 0028 wire contract — the shipped respond-tool boundary (offline)
     scripted.queue = [];
   });
 
-  it("PROD-ENVELOPE: an enveloped enum-root call binds through the real off-session drive, and QRY-15 conveys the schema the tool ACCEPTS", async () => {
+  it("PROD-ENVELOPE: an enveloped enum-root call binds through the real forced respond dispatch, and QRY-15 conveys the schema the tool ACCEPTS", async () => {
     scripted.queue = [
-      () => assistantReply({ stopReason: "stop", text: "thinking" }),
       (call) => {
         const name = contextToolsOf(call)?.[0]?.["name"];
         expect(typeof name, "the forced dispatch must present the respond tool").toBe(
@@ -571,12 +577,12 @@ describe("bug 0028 wire contract — the shipped respond-tool boundary (offline)
         });
       },
     ];
-    const result = await drive(fnTheta('enum Shape { Low = "low", High = "high" }'));
+    const result = await drive(forcedOnlyTheta('enum Shape { Low = "low", High = "high" }'));
     expect(
       scripted.calls.length,
-      "the two-phase drive issues exactly TWO complete() calls — a repair spin " +
-        "would issue more (or, live, never terminate)",
-    ).toBe(2);
+      "the `max_rounds: 0` drive issues exactly ONE complete() call (the forced respond " +
+        "dispatch) — a repair spin would issue more (or, live, never terminate)",
+    ).toBe(1);
     // Bug 0172 §Fix (e)(1): the typed-query boundary now performs the inbound
     // translation pass, so the enveloped call's unwrapped payload binds a
     // TAGGED `Shape.Low` variant, not a bare string. This is a STRENGTHENING of
@@ -621,9 +627,8 @@ describe("bug 0028 wire contract — the shipped respond-tool boundary (offline)
     ).toContain('"low"');
   });
 
-  it("PROD-COERCE: a nested named-schema param delivered as a JSON string binds through the real off-session drive", async () => {
+  it("PROD-COERCE: a nested named-schema param delivered as a JSON string binds through the real forced respond dispatch", async () => {
     scripted.queue = [
-      () => assistantReply({ stopReason: "stop", text: "thinking" }),
       (call) => {
         const name = contextToolsOf(call)?.[0]?.["name"];
         return assistantReply({
@@ -640,7 +645,7 @@ describe("bug 0028 wire contract — the shipped respond-tool boundary (offline)
       },
     ];
     const result = await drive(
-      fnTheta(
+      forcedOnlyTheta(
         ["schema Shape { owner_name: string, pet: Pet }", "schema Pet { species: string }"].join(
           "\n",
         ),
@@ -648,48 +653,64 @@ describe("bug 0028 wire contract — the shipped respond-tool boundary (offline)
     );
     expect(
       scripted.calls.length,
-      "exactly TWO complete() calls — pre-fix the `pet: must be object` verdict " +
-        "drove repair rounds until the invocation was torn down",
-    ).toBe(2);
+      "exactly ONE complete() call (the forced respond dispatch) — pre-fix the `pet: must be " +
+        "object` verdict drove repair rounds until the invocation was torn down",
+    ).toBe(1);
     expectBound(result, { owner_name: "ann", pet: { species: "dog" } },
       "the JSON-encoded nested object must be parsed at the boundary, so the payload " +
         "validates and binds instead of failing `pet: must be object` forever",
     );
   });
 
-  it("PROD-COERCE-FREEPHASE: a JSON-encoded nested param on a FREE-PHASE respond call is coerced by the driver that services it", async () => {
-    // The early-respond arm (QRY-14): the model calls the respond tool mid-loop,
-    // so the off-session driver validates and captures the call itself — a
-    // second boundary with no host validation and no `prepareArguments` hook.
-    scripted.queue = [
-      (call) => {
-        const name = contextToolsOf(call)?.[0]?.["name"];
-        return assistantReply({
-          stopReason: "toolUse",
-          toolCalls: [
-            {
-              id: "tc1",
-              name: name as string,
-              arguments: { owner_name: "ann", pet: '{"species": "dog"}' },
-            },
-          ],
-        });
+  it("PROD-COERCE-FREEPHASE: a JSON-encoded nested param on a FREE-PHASE respond call is coerced by the pipeline that services it", async () => {
+    // The early-respond arm (QRY-14): the model calls the respond tool
+    // mid-loop during the ON-SESSION free phase, so pi-agent-core services the
+    // call through the REGISTERED definition — `prepareArguments` (the sole
+    // pre-validation hook), then host validation against `parameters`, then
+    // `execute` against the producer's armed capture. This cell composes the
+    // two registered legs in the host's order over the JSON-encoded wire shape
+    // and reads the bound value; the scripted queue stays EMPTY, so a forced
+    // dispatch would throw loudly (a captured early respond skips it).
+    const result = await driveOnSession(
+      [
+        "---",
+        "mode: prompt",
+        "respond_repair:",
+        "  attempts: 0",
+        "---",
+        "schema Shape { owner_name: string, pet: Pet }",
+        "schema Pet { species: string }",
+        "let v = @<Shape>`Ping`?",
+        "v",
+        "",
+      ].join("\n"),
+      (definition) => {
+        expect(
+          typeof definition.prepareArguments,
+          "the pre-validation shim must be present on the registered definition",
+        ).toBe("function");
+        const prepared = definition.prepareArguments!({ owner_name: "ann", pet: '{"species": "dog"}' });
+        return (
+          definition.execute as unknown as (
+            id: string,
+            params: unknown,
+            signal: AbortSignal | undefined,
+          ) => Promise<unknown>
+        )("tc-early", prepared, new AbortController().signal);
       },
-    ];
-    const result = await drive(
-      fnTheta(
-        ["schema Shape { owner_name: string, pet: Pet }", "schema Pet { species: string }"].join(
-          "\n",
-        ),
-      ),
     );
     expect(
+      (result.executeResult as { readonly isError?: unknown }).isError,
+      `the coerced call is VALID, so \`execute\` must not report an error; ` +
+        `observed: ${JSON.stringify(result.executeResult)}`,
+    ).toBeFalsy();
+    expect(
       scripted.calls.length,
-      "an early respond TERMINATES the free phase — exactly ONE complete() call, no " +
-        "forced dispatch",
-    ).toBe(1);
+      "an early respond TERMINATES the free phase — ZERO complete() calls, no forced dispatch",
+    ).toBe(0);
+    expect(result.sessionTurns, "exactly ONE on-session free-phase turn carried the call").toBe(1);
     expectBound(result, { owner_name: "ann", pet: { species: "dog" } },
-      "the free-phase servicing path must coerce and capture the payload; pre-fix its " +
+      "the free-phase servicing pipeline must coerce and capture the payload; pre-fix its " +
         "AJV verdict was `pet: must be object` and the call was fed back as an error",
     );
   });
@@ -701,7 +722,6 @@ describe("bug 0028 wire contract — the shipped respond-tool boundary (offline)
     // validation). The third leg — `execute` against an armed capture — needs a
     // live turn and is section (4)'s PROD-EXECUTE-ENVELOPE cell.
     scripted.queue = [
-      () => assistantReply({ stopReason: "stop", text: "thinking" }),
       (call) => {
         const name = contextToolsOf(call)?.[0]?.["name"];
         return assistantReply({
@@ -710,7 +730,7 @@ describe("bug 0028 wire contract — the shipped respond-tool boundary (offline)
         });
       },
     ];
-    const { tools } = await drive(fnTheta('enum Shape { Low = "low", High = "high" }'));
+    const { tools } = await drive(forcedOnlyTheta('enum Shape { Low = "low", High = "high" }'));
     expect(
       tools.length,
       `exactly one respond tool is registered for the query's lowered schema ` +
@@ -740,7 +760,6 @@ describe("bug 0028 wire contract — the shipped respond-tool boundary (offline)
 
   it("PROD-TOOLDEF-COERCE: the registered shim parses a JSON-encoded nested param before the host validates", async () => {
     scripted.queue = [
-      () => assistantReply({ stopReason: "stop", text: "thinking" }),
       (call) => {
         const name = contextToolsOf(call)?.[0]?.["name"];
         return assistantReply({
@@ -752,7 +771,7 @@ describe("bug 0028 wire contract — the shipped respond-tool boundary (offline)
       },
     ];
     const { tools } = await drive(
-      fnTheta(
+      forcedOnlyTheta(
         ["schema Shape { owner_name: string, pet: Pet }", "schema Pet { species: string }"].join(
           "\n",
         ),

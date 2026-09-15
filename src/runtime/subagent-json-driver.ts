@@ -35,6 +35,7 @@ import {
   mapWireParseFailure,
   parseEnvelopeLine,
   type EnumTagEntry,
+  type FnTail,
 } from "./subagent-envelope";
 
 /**
@@ -104,8 +105,20 @@ const PROPAGATED_INVOKE_INFRA_CAUSES: ReadonlySet<string> = new Set([
  * envelope-version predating the sidecar.
  */
 export type SubagentInvocationResult =
-  | { readonly ok: true; readonly value: unknown; readonly enumTags?: readonly EnumTagEntry[] }
-  | { readonly ok: false; readonly error: QueryError; readonly source: InvokeResultSource };
+  | {
+      readonly ok: true;
+      readonly value: unknown;
+      readonly enumTags?: readonly EnumTagEntry[];
+      /** RFC 0012 §10: a `subagent fn` child's `Ok(x)` tail marker (`fn_tail`). */
+      readonly fnTail?: FnTail;
+    }
+  | {
+      readonly ok: false;
+      readonly error: QueryError;
+      readonly source: InvokeResultSource;
+      /** RFC 0012 §10: a `subagent fn` child's `Err(e)` tail marker (`fn_tail`). */
+      readonly fnTail?: FnTail;
+    };
 
 /** The collaborators the parent-side drive consumes (all injected; fake child in tests). */
 export interface SubagentDriveDeps {
@@ -196,6 +209,7 @@ export function driveSubagentChild(deps: SubagentDriveDeps): Promise<SubagentInv
             ok: true,
             value: parse.value,
             ...(parse.enumTags !== undefined ? { enumTags: parse.enumTags } : {}),
+            ...(parse.fnTail !== undefined ? { fnTail: parse.fnTail } : {}),
           });
           return;
         case "err": {
@@ -259,7 +273,12 @@ export function driveSubagentChild(deps: SubagentDriveDeps): Promise<SubagentInv
                 : err.kind === "invoke_infra" && !PROPAGATED_INVOKE_INFRA_CAUSES.has(err.cause as string)
                   ? "boundary-minted"
                   : "callee-returned";
-          settle({ ok: false, error: parse.error, source });
+          settle({
+            ok: false,
+            error: parse.error,
+            source,
+            ...(parse.fnTail !== undefined ? { fnTail: parse.fnTail } : {}),
+          });
           return;
         }
         case "parse-failed": {

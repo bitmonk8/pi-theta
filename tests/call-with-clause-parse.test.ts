@@ -235,7 +235,7 @@ describe("RFC 0009 parse — finding-6: `with` clause attachment vs. postfix `?`
 // The `.thetalib` parse-time arm (par. 3.6(b)) + its V1 co-fire.
 // ===========================================================================
 
-describe("RFC 0009 parse — .thetalib parse-time arm: every clause-bearing bare-ident call in a lib fn body draws with-clause-in-process-callee at the library's OWN parse", () => {
+describe("RFC 0009 parse — .thetalib parse-time arm: every clause-bearing bare-ident call in a lib fn body other than one naming the lib's OWN top-level `subagent fn` (Erratum B) draws with-clause-in-process-callee at the library's OWN parse", () => {
   it("a clause-bearing call inside a .thetalib `fn` body draws the code (RED — no such code exists yet)", () => {
     const doc = parse('fn helper(a) {\n  let x = other(1) with { cwd: "a" }\n  x\n}\n', "lib.thetalib");
     expect(

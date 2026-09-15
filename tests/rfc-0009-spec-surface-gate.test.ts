@@ -60,8 +60,10 @@ const CODES: ReadonlyArray<readonly [code: string, message: string]> = [
   ],
   ["theta/parse/with-clause-pi-tool", "with clause is not applicable to Pi tool '<name>'"],
   // Errata A/A′ (2026-09-09): default-reject — the clause is legal only on the
-  // two child-spawning surfaces; every other callee (subagent fn, plain or
-  // imported fn, .thetalib-body call) rejects with this code.
+  // child-spawning surfaces; every other callee (plain or imported fn,
+  // .thetalib-body call) rejects with this code. Erratum B (RFC 0012 §10)
+  // returned `subagent fn` calls to the legal surfaces — the body runs in a
+  // spawned child — without changing the Message template.
   [
     "theta/parse/with-clause-in-process-callee",
     "with clause is not applicable to '<callee>': the callee runs in-process and spawns no child process",

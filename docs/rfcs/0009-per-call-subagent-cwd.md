@@ -376,6 +376,36 @@ launcher API does not change shape (`SubagentLaunchRequest` already carries
   replaced; the unknown-key and prompt-mode-callee Triggers reworded), and
   RFC 0001's cross-note.
 
+- **Erratum B — `subagent fn` calls rejoin the clause-bearing surfaces**
+  (operator decision D3 on RFC 0012, 2026-09-15; landed with RFC 0012 §10).
+  Errata A / A′ rested on the ground truth that a `subagent fn` body "runs
+  in-process … no child process exists". RFC 0012 §10 changes that ground
+  truth: a `subagent fn` call now launches a child `pi` process of the calling
+  theta with a `fn` entry, so a per-call working directory has a process to
+  address. The clause is therefore **admitted** on `subagent fn` calls — the
+  legal surfaces become the three child-spawning surfaces (a callable-set
+  `.theta` entry, `invoke(...)`, a `subagent fn` call), with RFC 0009's `cwd`
+  semantics unchanged (`step(objective) with { cwd: tree }` gives inline
+  workers per-iteration worktrees). The default-reject classification consults
+  the declaration-site `subagent` modifier for this one case: a same-file
+  `subagent fn` is admitted in the load pass's classifying loop; an imported
+  `subagent fn` (re-export chains included) is admitted by a deferred check
+  once the import has materialised, so the re-export case is decided by
+  materialisation rather than by a chain walk of this pass's own; an imported
+  plain `fn` still draws `theta/parse/with-clause-in-process-callee`. In a
+  `.thetalib` body the library's own top-level `subagent fn`s are admitted at
+  the library's parse; a lib-side clause on an imported name stays refused
+  there (the lib parse cannot see the declaring library's fn kind — a recorded
+  posture, not a semantics claim). Widening a rejection is GOV-15-safe: the
+  admitted programs were not clean loads before. Amended in the landed spec:
+  [Grammar Appendix — Call-site `with`
+  clause](../spec_topics/grammar.md#call-site-with-clause), [Invocation —
+  Options surface / INV-8](../spec_topics/invocation.md#options-surface), the
+  [`theta/parse/*` registry](../spec_topics/diagnostics/code-registry-parse.md)
+  (the `with-clause-in-process-callee` Trigger drops the `subagent fn` arm;
+  the unknown-key and prompt-mode-callee Triggers count three surfaces), and
+  RFC 0012's §10.
+
 ## New diagnostics
 
 Four new `theta/parse/*` codes — the fourth minted by Erratum A and

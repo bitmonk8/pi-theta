@@ -117,13 +117,20 @@ describe("RFC 0009 static checks — row 9: with-clause-pi-tool", () => {
 // Rows 12a/12b/12d, 13a-13c — the DEFAULT-REJECT classification arm.
 // ===========================================================================
 
-describe("RFC 0009 static checks — rows 12a-13c: every non-.theta-callable bare-ident callee under a clause draws with-clause-in-process-callee", () => {
-  it("12a: same-file callee (a subagent fn / plain fn — indistinguishable to the callable-set MISS) draws the code (RED)", async () => {
+describe("RFC 0009 static checks — rows 12a-13c: every non-.theta-callable bare-ident callee under a clause draws with-clause-in-process-callee (Erratum B carves out `subagent fn`; tests/call-with-clause-erratum-b.test.ts)", () => {
+  it("12a: a same-file callee the body declares as neither a `subagent fn` nor an import (a plain fn / an undeclared name) draws the code (RED)", async () => {
+    // Erratum B (RFC 0012 §10): a same-file TOP-LEVEL `subagent fn` is now a
+    // clause-bearing surface and is admitted; this hand-built body declares
+    // nothing, so `step` is the default-reject arm's callee.
     const codes = await checkBody(bodyOf(letCall("x", "step", withClause(strExpr("a")))), mixedCallableSet());
     expect(codes).toContain(WITH_CLAUSE_IN_PROCESS_CALLEE_CODE);
   });
 
-  it("12b/13b: an imported .thetalib fn callee (declared directly OR reached through a re-export chain) draws the code — no fn-kind or chain resolution (RED)", async () => {
+  it("12b/13b: a bare-ident callee the body does NOT declare as an import draws the code here; an `import`-declared name is deferred to the post-materialisation check (Erratum B)", async () => {
+    // This hand-built body carries no `import` statement, so `lib_fn` is not
+    // an imported local name and the load pass judges it at once. A name an
+    // `import { … }` binds is judged by `checkImportedWithClauseCallees` once
+    // the declaring library's fn kind is known.
     const codes = await checkBody(bodyOf(letCall("x", "lib_fn", withClause(strExpr("a")))), mixedCallableSet());
     expect(codes).toContain(WITH_CLAUSE_IN_PROCESS_CALLEE_CODE);
   });

@@ -141,6 +141,7 @@ import type {
   ExtensionCommandContext,
   ExtensionContext,
   ModelRegistry,
+  ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
 // @ts-expect-error — JS code-registry module, no type declarations.
 import { parseRegistry, registryMessage } from "../tools/code-registry/index.js";
@@ -798,25 +799,28 @@ const ANTHROPIC_MODEL = {
 };
 
 /**
- * A prompt-mode theta whose `subagent fn` body issues a typed `@<Severity>`
- * query over a top-level declared enum — the tests/off-session-two-phase.test.ts
- * fixture shape, so the drive resolves through the in-process subagent-fn host
- * → the off-session driver → the scripted `complete()`. `respond_repair.attempts:
- * 0` bounds the drive to exactly two dispatches (free phase + forced respond).
+ * A prompt-mode theta whose TOP-LEVEL typed `@<Severity>` query is over a
+ * declared enum, under `tool_loop: max_rounds: 0` (the QRY-14 step-2
+ * boundary): no on-session free-phase turn is issued, so the respond tool is
+ * presented on exactly two surfaces — the REGISTERED `ToolDefinition` (what
+ * the on-session free phase would install, PIC-44) and the forced respond
+ * dispatch `dispatchForcedRespondTurn` issues OFF-SESSION through the scripted
+ * `complete()`. `respond_repair.attempts: 0` bounds the drive to that one
+ * dispatch. (An earlier revision hosted the query in a `subagent fn` body;
+ * under RFC 0012 §10 that body runs in a spawned child process and never
+ * reaches this process's registration.)
  */
-const ENUM_FN_THETA = [
+const ENUM_ROOT_THETA = [
   "---",
   "mode: prompt",
+  "tool_loop:",
+  "  max_rounds: 0",
   "respond_repair:",
   "  attempts: 0",
   "---",
   "enum Severity { Low, High }",
-  "subagent fn helper(a: string) {",
-  "  let v = @<Severity>`Ping`?",
-  "  v",
-  "}",
-  'let out = helper("x")',
-  "out",
+  "let v = @<Severity>`Ping`?",
+  "v",
   "",
 ].join("\n");
 
@@ -860,8 +864,8 @@ function contextToolsOf(call: { readonly context: unknown }):
 }
 
 describe("bug 0028 (b) enum root — a declared `enum` annotation reaches the respond-tool registration as its lowered non-object root", () => {
-  it("RED RESPOND: the presented respond tool's parameters carry {\"type\":\"string\",\"enum\":[\"Low\",\"High\"]} under the wire envelope on BOTH the free-phase and forced-respond dispatches", async () => {
-    const doc = parseDoc(ENUM_FN_THETA, "enumroot.theta");
+  it("RED RESPOND: the presented respond tool's parameters carry {\"type\":\"string\",\"enum\":[\"Low\",\"High\"]} under the wire envelope on BOTH the registered definition and the forced-respond dispatch", async () => {
+    const doc = parseDoc(ENUM_ROOT_THETA, "enumroot.theta");
     expect(
       doc.diagnostics,
       `fixture guard: the enum-root theta must parse cleanly before it is driven; ` +
@@ -873,12 +877,10 @@ describe("bug 0028 (b) enum root — a declared `enum` annotation reaches the re
     ).not.toBeNull();
 
     scripted.queue = [
-      // complete() #1 — the free-phase round-0 turn terminates in plain text.
-      () => assistantReply({ stopReason: "stop", text: "thinking" }),
-      // complete() #2 — the forced respond turn. The tool name is read off what
-      // the production code actually presented: the slug is content-addressed
-      // over the lowered schema, so it CHANGES with the fix and must never be
-      // hardcoded here.
+      // complete() #1 — the forced respond turn (no free-phase turn at
+      // `max_rounds: 0`). The tool name is read off what the production code
+      // actually presented: the slug is content-addressed over the lowered
+      // schema, so it CHANGES with the fix and must never be hardcoded here.
       (call) => {
         const tools = contextToolsOf(call);
         const name = tools?.[0]?.["name"];
@@ -904,12 +906,15 @@ describe("bug 0028 (b) enum root — a declared `enum` annotation reaches the re
       body: doc.body,
     };
     const notes: string[] = [];
+    const registered: ToolDefinition[] = [];
     const deps = createProductionProducerDeps({
       pi: {
         sendMessage: (message: { readonly content?: unknown }): void => {
           notes.push(String(message.content ?? ""));
         },
-        registerTool: (): void => {},
+        registerTool: (definition: ToolDefinition): void => {
+          registered.push(definition);
+        },
         getActiveTools: (): string[] => [],
         setActiveTools: (): void => {},
         on: (): void => {},
@@ -941,23 +946,29 @@ describe("bug 0028 (b) enum root — a declared `enum` annotation reaches the re
     });
     await executeBody(theta.body, binding.executeDeps);
 
-    // The drive must actually have reached the registration, or the assertions
-    // below would pass over an empty list.
+    // The drive must actually have reached the registration and the forced
+    // dispatch, or the assertions below would pass over an empty list.
     expect(
       scripted.calls.length,
-      "the two-phase drive issues exactly TWO complete() calls — the free-phase " +
-        "turn and the forced respond turn (QRY-14); without them the respond tool " +
-        "was never presented and this cell would assert nothing",
-    ).toBe(2);
+      "the `max_rounds: 0` drive issues exactly ONE complete() call — the forced " +
+        "respond turn (QRY-14 step 2); without it the respond tool was never " +
+        "presented off-session and this cell would assert nothing",
+    ).toBe(1);
+    expect(
+      registered.length,
+      `exactly one respond tool is REGISTERED for the query's lowered schema (PIC-44) — ` +
+        `the presentation an on-session free phase installs; observed ` +
+        `${JSON.stringify(registered.map((t) => t.name))}`,
+    ).toBe(1);
 
-    for (const [index, label] of [
-      [0, "free-phase"],
-      [1, "forced-respond"],
-    ] as const) {
-      const tools = contextToolsOf(scripted.calls[index]!);
+    const presented: ReadonlyArray<readonly [string, readonly Record<string, unknown>[] | undefined]> = [
+      ["registered-definition", registered.map((t) => ({ name: t.name, parameters: t.parameters }))],
+      ["forced-respond", contextToolsOf(scripted.calls[0]!)],
+    ];
+    for (const [label, tools] of presented) {
       expect(
         Array.isArray(tools) && tools!.length === 1,
-        `the ${label} dispatch presents exactly the respond tool (the theta's ` +
+        `the ${label} surface presents exactly the respond tool (the theta's ` +
           `callable set is empty); observed ${JSON.stringify(tools)}`,
       ).toBe(true);
       const parameters = JSON.parse(JSON.stringify(tools![0]!["parameters"])) as {

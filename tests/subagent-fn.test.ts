@@ -22,7 +22,6 @@ import { checkThetaImports } from "../src/extension/import-static-checks";
 import {
   createEffectfulStatementHost,
   type EffectfulStatementHostDeps,
-  type SubagentFnSession,
 } from "../src/runtime/effectful-statement-host";
 import type { ToolLoweringSink } from "../src/runtime/tool-call-execute";
 import type { FileSystem } from "../src/seams/file-system";
@@ -54,7 +53,7 @@ import type {
   CommittedConversationMutator,
   CommittedSurface,
 } from "../src/runtime/terminal-outcomes";
-import { isResultValue, type ThetaValue } from "../src/runtime/value";
+import { isResultValue, makeOk, type ThetaValue } from "../src/runtime/value";
 import type { QueryError } from "../src/runtime/query-error";
 import { HostFatal, IndexOutOfBoundsPanic } from "../src/runtime/runtime-panics";
 // Reused load/ceiling seams — the same surfaces the existing `invoke` depth /
@@ -1466,102 +1465,152 @@ describe("RFC-0001 subagent-fn — load-time static checks (FN-6, composition se
 });
 
 // ===========================================================================
-// RUNTIME — nested subagent-fn depth ACCUMULATES and trips at the 33rd frame
+// RUNTIME — RFC 0012 §10: the production `subagent fn` call is a CHILD launch
 // ===========================================================================
 //
-// Regression witness for the INV-4 / FN-6 runtime backstop against unbounded
-// `subagent fn` recursion. The bug this pins: `createEffectfulStatementHost`'s
-// `spawnSubagentSession` used to call a FIXED `baseDeps.spawnSubagentFnSession`
-// closure bound to the ORIGINAL chain, so every nested spawn pushed onto that
-// one chain → constant depth 1, never climbing, and the depth-32 ceiling was
-// unreachable. The fix routes each nested spawn through `active()` — the
-// currently-deepest session's seam — whose `spawnSubagentFnSession` is bound to
-// that session's chain-advanced `childChain` (production-theta-producer.ts
-// `#spawnSubagentFnSession` → `spawnSubagentConversation({ chain: childChain })`).
-//
-// This drives the REAL `createEffectfulStatementHost` (not the hand-rolled
-// `SubagentFnHost` above) against a chain-threading double that FAITHFULLY
-// models `#spawnSubagentFnSession`'s child-chain advance: each spawn pushes a
-// countable `subagent-fn` frame via the production `pushCountableFrame` and
-// returns a session whose `deps.spawnSubagentFnSession` is bound to the ADVANCED
-// child chain. The accumulation is therefore NOT faked — it is the same
-// primitive the producer uses; a breach at the cap raises the production
-// `InvokeDepthExceededPanic`. With the pre-fix fixed-closure the loop below would
-// never trip (every push stays at depth 1), so this test reds without the fix.
+// `createEffectfulStatementHost` exposes `runSubagentFnChild` only when the
+// producer supplied `resolveSubagentFnChild` — the body then never runs in this
+// process. The hook drives the resolved child through the SAME `runInvokeChild`
+// trampoline a `.theta` callable call uses: the pre-spawn `invoke` checkpoint
+// fires at the call site, an abort observed there skips the spawn (the
+// `cancelled` outcome), and a settled drive surfaces the envelope's `Result`,
+// its provenance and the `fn_tail` marker verbatim. The INV-4 `subagent-fn`
+// frame is the producer's to push inside the resolved child's `drive()` (the
+// depth is marshalled to the child; `tests/subagent-fn-child-launch.test.ts`
+// witnesses it on the launch request), so the host itself pushes nothing.
 
-/**
- * A chain-threading `EffectfulStatementHostDeps` double faithfully modelling the
- * production `#spawnSubagentFnSession` child-chain advance. Effect resolvers are
- * unexercised (the test drives only `spawnSubagentSession`); the spawn seam
- * pushes a real countable `subagent-fn` frame and hands back a session bound to
- * the advanced child chain, so a nested spawn (routed through `active()`) climbs.
- */
-function chainThreadingDeps(chain: InvokeChain): EffectfulStatementHostDeps {
+function childHostDeps(
+  resolve: NonNullable<EffectfulStatementHostDeps["resolveSubagentFnChild"]>,
+  signal: AbortSignal,
+  checkpoint: Checkpoint,
+): EffectfulStatementHostDeps {
   const unused = (): never => {
-    throw new Error("effect resolver not exercised by the depth-accumulation test");
+    throw new Error("effect resolver not exercised by the child-launch host test");
   };
   return {
-    checkpoint: NOOP_CHECKPOINT,
-    signal: new AbortController().signal,
+    checkpoint,
+    signal,
     sink: { emit: (): void => {} } as unknown as ToolLoweringSink,
     file: "test.theta",
     evaluatePure: (): ThetaValue => null,
     resolveQuery: unused,
     resolveToolCall: unused,
     resolveInvoke: unused,
-    spawnSubagentFnSession: (): SubagentFnSession => {
-      // Faithful model: push a countable `subagent-fn` frame on THIS session's
-      // chain (raises InvokeDepthExceededPanic at the cap exactly as the
-      // producer does), and bind the child session's own spawn seam to the
-      // advanced chain so recursion climbs.
-      const childChain = pushCountableFrame(chain, "subagent-fn");
-      return { deps: chainThreadingDeps(childChain), dispose: (): void => {} };
-    },
+    resolveSubagentFnChild: resolve,
   };
 }
 
-describe("RFC-0001 subagent-fn — nested depth ACCUMULATES and trips at the 33rd frame (INV-4/FN-6)", () => {
-  it("a nested subagent-fn spawn climbs the shared chain and the 33rd push trips invoke-depth-exceeded, downgraded to InvokeInfraError{panic}", async () => {
-    const host = createEffectfulStatementHost(chainThreadingDeps(newInvokeChain()));
-    const spawn = (
-      host as unknown as { spawnSubagentSession(config: SessionConfig): Promise<void> }
-    ).spawnSubagentSession.bind(host);
+const STEP_FN: FnDecl = {
+  kind: "fn",
+  name: "step",
+  params: [],
+  returnType: null,
+  body: { statements: [], tail: null },
+  subagent: true,
+  range: { start: { line: 1, column: 1 }, end: { line: 1, column: 1 } },
+} as unknown as FnDecl;
 
-    // INVOKE_DEPTH_CAP (32) nested spawns succeed — each routes through the
-    // deepest session's chain-advanced seam, so depth climbs 1 … 32. A fixed
-    // base-chain closure (the bug) would pin every push at depth 1 and never
-    // reach here.
-    for (let i = 1; i <= INVOKE_DEPTH_CAP; i += 1) {
-      await spawn({});
-    }
+function childRequest(): import("../src/runtime/statement-executor").SubagentFnChildRequest {
+  return {
+    fn: STEP_FN,
+    args: [],
+    call: { kind: "call", callee: "step", args: [], range: STEP_FN.range } as unknown as import("../src/parser/theta-document").CallExpr,
+    env: buildEnvironment({ body: { statements: [], tail: null } }),
+    site: { file: "test.theta", line: 3, column: 5 },
+  };
+}
 
-    let raised: unknown;
-    try {
-      await spawn({});
-    } catch (error) {
-      raised = error;
-    }
-    expect(
-      raised,
-      "INV-4/FN-6: the 33rd nested subagent-fn spawn trips the depth ceiling (proves depth CLIMBED across nested sessions)",
-    ).toBeInstanceOf(InvokeDepthExceededPanic);
-    expect((raised as InvokeDepthExceededPanic).code).toBe(INVOKE_DEPTH_EXCEEDED_CODE);
+describe("RFC-0012 §10 — createEffectfulStatementHost routes a subagent fn call through runInvokeChild as a child launch", () => {
+  it("absent the producer seam the host exposes NO runSubagentFnChild (the in-memory session-switch posture stands)", () => {
+    const deps = childHostDeps(() => {
+      throw new Error("unreachable");
+    }, new AbortController().signal, NOOP_CHECKPOINT);
+    const { resolveSubagentFnChild: _dropped, ...withoutSeam } = deps;
+    void _dropped;
+    const host = createEffectfulStatementHost(withoutSeam);
+    expect(host.runSubagentFnChild).toBeUndefined();
+  });
 
-    // The executor's subagent boundary downgrades that panic to the caller's
-    // `Err(InvokeInfraError{cause:"panic"})` — the runtime backstop surface.
-    const surface = surfaceDepthOverflow(raised as InvokeDepthExceededPanic, {
-      topLevel: false,
-      calleePath: "subagent-fn",
-    });
-    if (surface.mode !== "nested") {
-      throw new Error("a nested overflow must surface the nested InvokeInfraError arm");
-    }
-    expect(surface.error.kind, "nested overflow → invoke_infra").toBe("invoke_infra");
-    expect(surface.error.cause, "the backstop downgrades the depth panic with cause 'panic'").toBe(
-      "panic",
+  it("the invoke checkpoint fires at the CALL SITE before the child drives; the envelope's Result, provenance and fn_tail pass through verbatim", async () => {
+    const sites: string[] = [];
+    const checkpoint: Checkpoint = {
+      before: (kind, site): Promise<void> => {
+        sites.push(`${kind}@${site.file}:${site.line}:${site.column}`);
+        return Promise.resolve();
+      },
+    };
+    let driven = 0;
+    const host = createEffectfulStatementHost(
+      childHostDeps(
+        (request) => ({
+          calleePath: request.fn.name,
+          committed: [],
+          fnTail: () => (driven > 0 ? "ok" : undefined),
+          drive: (): Promise<import("../src/runtime/invoke-cancellation").DrivenInvokeResult> => {
+            driven += 1;
+            return Promise.resolve({ source: "callee-returned", result: makeOk(7) });
+          },
+        }),
+        new AbortController().signal,
+        checkpoint,
+      ),
     );
+    const outcome = await host.runSubagentFnChild!(childRequest(), newInvokeChain());
+    expect(sites).toEqual(["invoke@test.theta:3:5"]);
+    expect(driven).toBe(1);
+    expect(outcome).toEqual({ kind: "value", result: makeOk(7), source: "callee-returned", fnTail: "ok" });
+  });
+
+  it("an abort observed at the checkpoint skips the spawn: `cancelled`, the child never drives", async () => {
+    const controller = new AbortController();
+    controller.abort();
+    let driven = 0;
+    const host = createEffectfulStatementHost(
+      childHostDeps(
+        (request) => ({
+          calleePath: request.fn.name,
+          committed: [],
+          fnTail: () => undefined,
+          drive: (): Promise<import("../src/runtime/invoke-cancellation").DrivenInvokeResult> => {
+            driven += 1;
+            return Promise.resolve({ source: "callee-returned", result: makeOk(null) });
+          },
+        }),
+        controller.signal,
+        NOOP_CHECKPOINT,
+      ),
+    );
+    const outcome = await host.runSubagentFnChild!(childRequest(), newInvokeChain());
+    expect(outcome).toEqual({ kind: "cancelled" });
+    expect(driven).toBe(0);
+  });
+
+  it("a drive() throw is the trampoline's boundary-minted invoke_infra Err — never an escaped throw", async () => {
+    const host = createEffectfulStatementHost(
+      childHostDeps(
+        (request) => ({
+          calleePath: request.fn.name,
+          committed: [],
+          fnTail: () => undefined,
+          drive: (): Promise<import("../src/runtime/invoke-cancellation").DrivenInvokeResult> =>
+            Promise.reject(new IndexOutOfBoundsPanic("index 3 out of bounds")),
+        }),
+        new AbortController().signal,
+        NOOP_CHECKPOINT,
+      ),
+    );
+    const outcome = await host.runSubagentFnChild!(childRequest(), newInvokeChain());
+    expect(outcome.kind).toBe("value");
+    if (outcome.kind === "value") {
+      expect(outcome.source).toBe("boundary-minted");
+      expect(outcome.result.ok).toBe(false);
+      const error = (outcome.result as unknown as { error: { kind: string; cause: string } }).error;
+      expect(error.kind).toBe("invoke_infra");
+      expect(error.cause).toBe("panic");
+    }
   });
 });
+
 
 // ===========================================================================
 // LOAD — a `.thetalib` self-recursive subagent fn is cycle-checked at import

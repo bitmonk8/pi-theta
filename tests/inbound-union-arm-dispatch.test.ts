@@ -857,23 +857,26 @@ describe("bug 0172 face 2 — the anonymous-union rule is untouched", () => {
  * The typed-query fixture: a root annotation that is a UNION, so the respond
  * tool registers the single-property envelope (`src/runtime/respond-tool-wire.ts`
  * — an `anyOf` root is not argument-object-satisfiable) and the loop unwraps
- * `.value` before its verdict. The query sits in a `subagent fn` so the
- * two-phase drive runs OFF-SESSION over a held conversation, and FN-5 makes the
- * function's final value the query's own bound value.
+ * `.value` before its verdict. The query sits at the prompt-mode TOP LEVEL
+ * under `tool_loop: max_rounds: 0` (the QRY-14 step-2 boundary): no
+ * on-session free-phase turn is issued, so the drive's ONE provider call is
+ * the forced respond dispatch `dispatchForcedRespondTurn` issues OFF-SESSION
+ * through the scripted pi-ai `complete()`. (An earlier revision hosted the
+ * query in a `subagent fn` body; under RFC 0012 §10 that body runs in a
+ * spawned child process and never reaches this process's dispatch builder.)
+ * `?` makes the executed body's final value the query's own bound value.
  */
 const QUERY_SOURCE = [
   "---",
   "mode: prompt",
+  "tool_loop:",
+  "  max_rounds: 0",
   "respond_repair:",
   "  attempts: 0",
   "---",
   'enum Sev { High = "high", Low = "low" }',
-  "subagent fn classify(hint: string) {",
-  "  let sev = @<Sev | null>`classify this`?",
-  "  sev",
-  "}",
-  'let out = classify("h")',
-  "out",
+  "let sev = @<Sev | null>`classify this`?",
+  "sev",
   "",
 ].join("\n");
 
@@ -914,13 +917,11 @@ function contextToolsOf(call: { readonly context: unknown }):
 }
 
 /**
- * Script the two-phase off-session drive: a free-phase turn calling no tool,
- * then a forced respond dispatch whose respond-tool call carries `payload`
- * (QRY-14).
+ * Script the `max_rounds: 0` drive: the forced respond dispatch alone, whose
+ * respond-tool call carries `payload` (QRY-14 step 2).
  */
 function scriptRespondWith(payload: unknown): void {
   scripted.queue = [
-    () => assistantReply({ stopReason: "stop", text: "thinking" }),
     (call) => {
       const name = contextToolsOf(call)?.[0]?.["name"];
       if (typeof name !== "string") {
@@ -1075,7 +1076,7 @@ describe("bug 0172 face 2 — the typed-query boundary over a union annotation",
     ).toBe('"high"');
   });
 
-  it("CONTROL (typed-query-premises): the union root is enveloped, admitted by AJV, and bound in two turns", async () => {
+  it("CONTROL (typed-query-premises): the union root is enveloped, admitted by AJV, and bound by the one forced dispatch", async () => {
     // GREEN AT HEAD AND AFTER. The premises the cell above rests on: the
     // annotation really lowers to a union root, and the payload is admitted
     // BEFORE the pass runs — the ordering runtime-value-model.md:34 fixes.
@@ -1097,8 +1098,8 @@ describe("bug 0172 face 2 — the typed-query boundary over a union annotation",
 
     expect(
       scripted.calls.length,
-      "the two-phase drive issues exactly TWO complete() calls — a repair spin would issue more",
-    ).toBe(2);
+      "the `max_rounds: 0` drive issues exactly ONE complete() call (the forced respond dispatch) — a repair spin would issue more",
+    ).toBe(1);
     expect(
       result.execution.outcome,
       `a conforming payload binds a value rather than surfacing an Err; ` +

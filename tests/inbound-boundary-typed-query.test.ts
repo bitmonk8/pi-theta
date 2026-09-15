@@ -19,12 +19,16 @@
 // populator itself — the half that can silently stop populating — would stay
 // unwitnessed.
 //
-// The query sits in a `subagent fn` body so the two-phase drive runs
-// OFF-SESSION over a held conversation (bug 0010 increment D), which needs no
-// user session and no turn-lifecycle double; the free-phase turn and the forced
-// respond dispatch are the two scripted `complete()` calls. FN-5 makes the
-// function's final value the query's bound value, so the executed body's result
-// IS what theta code would see at the bind.
+// The query sits at the prompt-mode TOP LEVEL under `tool_loop: max_rounds: 0`
+// (the QRY-14 step-2 boundary): no on-session free-phase turn is issued, so
+// the drive needs no user session and no turn-lifecycle double, and the ONE
+// provider call is the forced respond dispatch `dispatchForcedRespondTurn`
+// issues OFF-SESSION through pi-ai `complete()` — the scripted call. (An
+// earlier revision placed the query in a `subagent fn` body; under RFC 0012
+// §10 that body runs in a spawned child process, so a body-hosted query no
+// longer reaches this process's dispatch builder at all.) `?` makes the
+// executed body's final value the query's own bound value, so the result IS
+// what theta code would see at the bind.
 //
 // THE ASSERTED END STATE is the one bug 0172 §Reproduction (b) measures on the
 // boundary the bug 0067 fix wired, over the identical lowered document and the
@@ -119,23 +123,22 @@ function realAjv(): AjvSchemaValidator {
  * The theta whose typed query this file drives. `Box` declares `sev` before
  * `who`; the scripted payload below carries them the other way round, so the
  * model's order and the declaration's order are distinguishable at the bind.
- * The query sits in a `subagent fn` so it drives OFF-SESSION, and `?` plus
- * FN-5 make the executed body's final value the query's own bound value.
+ * `tool_loop: max_rounds: 0` skips the on-session free phase so the typed
+ * query's only provider call is the off-session forced respond dispatch, and
+ * `?` makes the executed body's final value the query's own bound value.
  */
 const SOURCE = [
   "---",
   "mode: prompt",
+  "tool_loop:",
+  "  max_rounds: 0",
   "respond_repair:",
   "  attempts: 0",
   "---",
   'enum Sev { High = "high", Low = "low" }',
   "schema Box { sev: Sev, who: string }",
-  "subagent fn classify(hint: string) {",
-  "  let box = @<Box>`classify this`?",
-  "  box",
-  "}",
-  'let out = classify("h")',
-  "out",
+  "let box = @<Box>`classify this`?",
+  "box",
   "",
 ].join("\n");
 
@@ -191,13 +194,11 @@ function contextToolsOf(call: { readonly context: unknown }):
 }
 
 /**
- * Script the two-phase off-session drive: a free-phase turn that calls no tool,
- * then a forced respond dispatch whose respond-tool call carries `payload`
- * (QRY-14).
+ * Script the `max_rounds: 0` drive: the forced respond dispatch alone, whose
+ * respond-tool call carries `payload` (QRY-14 step 2).
  */
 function scriptRespondWith(payload: unknown): void {
   scripted.queue = [
-    () => assistantReply({ stopReason: "stop", text: "thinking" }),
     (call) => {
       const name = contextToolsOf(call)?.[0]?.["name"];
       if (typeof name !== "string") {
@@ -405,8 +406,8 @@ describe("bug 0172 — typed query results perform the inbound translation pass 
     const result = await driveTypedQuery(modelOrderedPayload());
     expect(
       scripted.calls.length,
-      "the two-phase drive issues exactly TWO complete() calls — a repair spin would issue more",
-    ).toBe(2);
+      "the `max_rounds: 0` drive issues exactly ONE complete() call (the forced respond dispatch) — a repair spin would issue more",
+    ).toBe(1);
     expect(
       result.execution.outcome,
       `a conforming payload binds a value rather than surfacing an Err; ` +

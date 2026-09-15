@@ -88,7 +88,24 @@ export interface EnvelopeOk {
   readonly v: number;
   readonly ok: unknown;
   readonly enum_tags?: readonly EnumTagEntry[];
+  readonly fn_tail?: FnTail;
 }
+
+/**
+ * RFC 0012 §10 — the OPTIONAL `fn_tail` sidecar a `subagent fn` child stamps
+ * when the fn body's FINAL VALUE was itself a `Result` (a sibling of `ok` /
+ * `err`, the `enum_tags` / `err_provenance` precedent). FN-6 fixes the call's
+ * value as the body's final value, bare: a `"done"` tail is the string,
+ * an `Ok(x)` tail is the `Result` `Ok(x)`, an `Err(e)` tail is the `Result`
+ * `Err(e)` un-wrapped — while a `?`-propagated `Err` crosses wrapped in
+ * `InvokeCalleeError`. The envelope's `ok` / `err` arms alone cannot tell an
+ * `Ok(x)` tail from a bare `x` tail, nor an `Err(e)` tail from a
+ * `?`-propagated `e`, so the child names the tail's constructor here and the
+ * parent rebuilds the `Result` the in-process drive used to return. Absent
+ * on a bare tail and on every `.theta` callee envelope (whose FN-5 projection
+ * conflates the two by design); ignored when malformed (skew-tolerant).
+ */
+export type FnTail = "ok" | "err";
 
 /**
  * The `err` arm's OPTIONAL provenance sidecar (bug 0347 §Fix, a SIBLING of
@@ -106,6 +123,7 @@ export interface EnvelopeErr {
   readonly v: number;
   readonly err: QueryError;
   readonly err_provenance?: ErrProvenance;
+  readonly fn_tail?: FnTail;
 }
 
 // ---------------------------------------------------------------------------
@@ -154,7 +172,11 @@ export const SUBAGENT_RETURN_VALUE_NOT_REPRESENTABLE_CODE = "theta/runtime/subag
  * otherwise by any `replacer` or `toJSON` hook (measured): the hole bug 0188
  * §Fix (a) closes is in the writer, not in the wire format.
  */
-export function serializeOkEnvelope(value: unknown, enumTags?: readonly EnumTagEntry[]): string {
+export function serializeOkEnvelope(
+  value: unknown,
+  enumTags?: readonly EnumTagEntry[],
+  fnTail?: FnTail,
+): string {
   const payload: EnvelopeOk = {
     v: THETA_ENVELOPE_VERSION,
     ok: value,
@@ -162,6 +184,8 @@ export function serializeOkEnvelope(value: unknown, enumTags?: readonly EnumTagE
     // unchanged (bug 0342 §Fix: additive sidecar, not a widened envelope
     // shape).
     ...(enumTags !== undefined && enumTags.length > 0 ? { enum_tags: enumTags } : {}),
+    // RFC 0012 §10: a `subagent fn` child's `Ok(x)` tail; absent otherwise.
+    ...(fnTail !== undefined ? { fn_tail: fnTail } : {}),
   };
   return `${stringifyPreservingNegativeZero({ [THETA_RESULT_KEY]: payload })}\n`;
 }
@@ -251,7 +275,11 @@ function stringifyPreservingNegativeZero(document: unknown): string {
  * (`{"theta_result":{"v":<version>,"err":…}}\n`). Every `Err` variant an
  * in-process subagent could surface is representable (PIC-59).
  */
-export function serializeErrEnvelope(error: QueryError, provenance?: ErrProvenance): string {
+export function serializeErrEnvelope(
+  error: QueryError,
+  provenance?: ErrProvenance,
+  fnTail?: FnTail,
+): string {
   const payload: EnvelopeErr = {
     v: THETA_ENVELOPE_VERSION,
     err: error,
@@ -259,6 +287,8 @@ export function serializeErrEnvelope(error: QueryError, provenance?: ErrProvenan
     // (an old call site, or one that has not yet been taught the provenance)
     // stays byte-identical on the wire (bug 0347 §Fix, additive sidecar).
     ...(provenance !== undefined ? { err_provenance: provenance } : {}),
+    // RFC 0012 §10: a `subagent fn` child's `Err(e)` tail; absent otherwise.
+    ...(fnTail !== undefined ? { fn_tail: fnTail } : {}),
   };
   return `${JSON.stringify({ [THETA_RESULT_KEY]: payload })}\n`;
 }
@@ -269,8 +299,18 @@ export function serializeErrEnvelope(error: QueryError, provenance?: ErrProvenan
 
 /** The parse verdict for one candidate envelope line (a line carrying the reserved key). */
 export type EnvelopeParse =
-  | { readonly kind: "ok"; readonly value: unknown; readonly enumTags?: readonly EnumTagEntry[] }
-  | { readonly kind: "err"; readonly error: QueryError; readonly provenance?: ErrProvenance }
+  | {
+      readonly kind: "ok";
+      readonly value: unknown;
+      readonly enumTags?: readonly EnumTagEntry[];
+      readonly fnTail?: FnTail;
+    }
+  | {
+      readonly kind: "err";
+      readonly error: QueryError;
+      readonly provenance?: ErrProvenance;
+      readonly fnTail?: FnTail;
+    }
   | { readonly kind: "schema-skew"; readonly observed: number; readonly required: number }
   | { readonly kind: "parse-failed"; readonly line: string };
 
@@ -369,6 +409,11 @@ function parseErrProvenance(candidate: unknown): ErrProvenance | undefined {
   return candidate === "mint" || candidate === "propagated" ? candidate : undefined;
 }
 
+/** Validate an untrusted `fn_tail` field (RFC 0012 §10): the two literals, else ignored. */
+function parseFnTail(candidate: unknown): FnTail | undefined {
+  return candidate === "ok" || candidate === "err" ? candidate : undefined;
+}
+
 /**
  * Parse one reserved-key envelope line against the pinned schema. A version the
  * parent does not recognise yields `schema-skew` (detected, not tolerated); a
@@ -400,13 +445,24 @@ export function parseEnvelopeLine(line: string): EnvelopeParse {
   if (observed !== THETA_ENVELOPE_VERSION) {
     return { kind: "schema-skew", observed, required: THETA_ENVELOPE_VERSION };
   }
+  const fnTail = parseFnTail(record.fn_tail);
   if (Object.prototype.hasOwnProperty.call(record, "ok")) {
     const validTags = parseEnumTagsSidecar(record.enum_tags);
-    return { kind: "ok", value: record.ok, ...(validTags !== undefined ? { enumTags: validTags } : {}) };
+    return {
+      kind: "ok",
+      value: record.ok,
+      ...(validTags !== undefined ? { enumTags: validTags } : {}),
+      ...(fnTail !== undefined ? { fnTail } : {}),
+    };
   }
   if (Object.prototype.hasOwnProperty.call(record, "err")) {
     const provenance = parseErrProvenance(record.err_provenance);
-    return { kind: "err", error: record.err as QueryError, ...(provenance !== undefined ? { provenance } : {}) };
+    return {
+      kind: "err",
+      error: record.err as QueryError,
+      ...(provenance !== undefined ? { provenance } : {}),
+      ...(fnTail !== undefined ? { fnTail } : {}),
+    };
   }
   // A reserved-key line carrying neither arm fails the pinned schema.
   return { kind: "parse-failed", line };
