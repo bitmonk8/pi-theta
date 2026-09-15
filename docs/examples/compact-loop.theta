@@ -1,0 +1,33 @@
+---
+description: Apply a fix plan wave by wave, compacting between waves
+mode: prompt
+params:
+  plan_path: string
+tools: read, compact, context_usage, session_name, theta_progress
+---
+// `session_name` and `compact` address THIS invocation's own conversation —
+// the driven user session in prompt mode. Naming the session up front makes
+// it identifiable in `/theta-status` and the footer while the loop runs.
+session_name("fix-loop " + plan_path)?
+
+let plan = read({ path: plan_path })?
+let waves: array<string> = plan.split("\n")
+for wave in waves {
+  @`Apply this step of the plan and report what changed: ${wave}`?
+
+  // Gauge discipline: read `context_usage()` AFTER a query, never right after
+  // `compact()`. The post-compaction gauge is `Err` until the next assistant
+  // response carries usage — reading it here, immediately after the wave's
+  // query, is the one point in the loop where the gauge is populated.
+  let usage = context_usage()?
+  if usage.percent > 60 {
+    // `Err` here is not a failure: both benign refusals (session already too
+    // small to compact, or already compacted) are the postcondition already
+    // holding, surfaced as `Err(cause: "execution")` because the host reports
+    // them as unstructured messages, not a classified outcome.
+    match compact("Keep the per-wave change list and any failing test names.") {
+      Ok(c)  => theta_progress({ message: "compacted (tokens after / before)", done: c.tokens_after, total: c.tokens_before }),
+      Err(_) => theta_progress({ message: "no compaction this wave" }),
+    }
+  }
+}

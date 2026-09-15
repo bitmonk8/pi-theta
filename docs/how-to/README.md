@@ -25,6 +25,9 @@ mental model read the [Guide](../guide.md); for the first end-to-end run, the
 - [Use an extension tool in a subagent](./use-an-extension-tool-in-a-subagent.md)
   — let a subagent theta's model and code call a Pi tool that an installed
   extension registers, confined to the child's private session.
+- [Compact a long-running theta](./compact-a-long-running-theta.md) — read the
+  context gauge and compact the invocation's own conversation from code with
+  the `compact`, `context_usage` and `session_name` runtime tools.
 
 ## Composing thetas
 

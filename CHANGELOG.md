@@ -4,6 +4,70 @@ All notable changes to `@bitmonk8/pi-theta` will be documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.476.0]
+
+### Added
+- **Session-control tools** ([RFC 0011](./docs/rfcs/0011-session-control-tools.md),
+  accepted). Three **runtime-owned, code-only tools** declared through
+  `tools:` and called with the `.theta`-callable positional convention
+  against a fixed signature: `compact(instructions: string = "") ->
+  Result<{ summary: string, tokens_before: integer, tokens_after: integer },
+  QueryError>` (awaits the host's `ctx.compact` to `onComplete` / `onError`),
+  `context_usage() -> Result<{ tokens: integer, context_window: integer,
+  percent: number }, QueryError>` (`ctx.getContextUsage()`; both unavailable
+  host arms are `Err`, never a fabricated zero) and `session_name(name:
+  string) -> Result<string, QueryError>` (`pi.setSessionName` then the
+  read-back). A new callable-set entry kind `"runtime-tool"`
+  (`src/parser/runtime-tools.ts`, `src/parser/callable-set.ts`) resolves
+  ahead of the `pi.getAllTools()` registry snapshot with host-built-in
+  precedence; `as` renames and `theta/load/tool-name-collision` apply
+  unchanged. The tools are never model-facing: they enter no
+  `pi.setActiveTools` install vector and no child `--tools` allowlist (an
+  all-runtime-tool set maps to `--no-tools`), and no `@`-query tool loop can
+  call them. Dispatch is a direct `execute` against the composition-scope
+  host handles (`src/runtime/session-control-tools.ts`), never PIC-64
+  host-loop dispatch. Two new diagnostics:
+  `theta/load/session-tool-unavailable` (E — a declared tool's host member
+  is not a function; refuses only the declaring theta) and
+  `theta/parse/session-tool-in-isolated-body` (E — a runtime-tool call
+  inside a `par for` body; plain `fn` and `subagent fn` bodies are
+  admitted; a fail-closed runtime backstop covers a plain `fn` called from
+  the body). The return type flows into the call site: `let usage =
+  context_usage()?` types `usage.percent` as `number`. New how-to:
+  [`compact-a-long-running-theta.md`](./docs/how-to/compact-a-long-running-theta.md)
+  with the committed example `docs/examples/compact-loop.theta`. The SDK
+  surface inventory gains `ctx.compact`, `ctx.getContextUsage`,
+  `pi.setSessionName`, `pi.getSessionName`.
+- Minimum version: a theta declaring any of the three names loads only on
+  0.476.0 or later; older extension versions refuse the declaration with
+  `theta/load/unknown-tool`.
+
+### Changed
+- `tool-calls.md` gains the session-control runtime-tools paragraph, a third
+  return-type row and the per-tool `CodeToolError` arms; FRNT-2 records the
+  code-only carve-out beside the `theta_progress` self-report paragraph;
+  `host-interfaces-core.md`'s `compact` / `getContextUsage` rows flip to
+  consumed and `pi.setSessionName` / `pi.getSessionName` join the touched
+  `ExtensionAPI` surface; `capability-probe.md` gains the per-declaring-theta
+  load probe (`FACTORY_PROBED_SDK_MEMBERS` unchanged); PIC-17, PIC-64,
+  `subagent.md`'s `--tools` paragraph, `control-flow.md`, `functions.md`
+  FN-6 and `query-failure-and-repair.md` are amended; the GOV-31 seam count
+  moves 12 → 13 with the deferred script-authored-compaction seam; the
+  feature is marked `theta 1.5`.
+- The `context_overflow` respond-repair short-circuit is unchanged; an
+  author recovers by compacting after the `Err` and issuing a fresh query.
+
+### Notes
+- Pins corrected against the Pi 0.80.10 build pin while implementing: no
+  per-mode `ExtensionContext` override table exists (the adapters bind
+  composition-scope `Pick`-narrowed carriers); RFC 0011 paragraph 8 is
+  discharged by the bug 0478 exclusion (no binder byte or role-tag change,
+  no host-prerequisites widening); and — operator decision D3 — a theta
+  abort during an in-flight `compact()` surfaces `cause: "cancelled"` at
+  once while the host compaction completes in the background (Pi 0.80.10
+  exposes no extension-API path to abort a manual compaction; the TUI's
+  Escape still does), its late settlement discarded per CNCL-1..3.
+
 ## [0.475.0]
 
 ### Added

@@ -421,7 +421,7 @@ describe("bug 0195 (D) — no committed theta carries an empty array literal", (
     expect(
       files.length,
       `D1: the census is over ${files.length} committed files; sibling fixes land \`.theta\` files, so a changed count means the disposition below must be re-derived rather than trusted. Files: ${JSON.stringify(files)}`,
-    ).toBe(45);
+    ).toBe(46);
     const offenders = files.filter((f) =>
       readFileSync(path.join(REPO_ROOT, f), "utf8").includes("[]"),
     );
@@ -432,6 +432,11 @@ describe("bug 0195 (D) — no committed theta carries an empty array literal", (
     // iterand. Route (a)'s input shape is a `for`-iterand `[]`, so the GOV-15
     // disposition — route (a) moves no committed theta's diagnostic sequence —
     // still holds; the H7b parse gate keeps these files diagnostic-free.
+    //
+    // Re-derived again (docs/examples/compact-loop.theta joined the corpus; its
+    // one `let waves: array<string> = plan.split("\n")` has no bare `[]`
+    // literal at all, so the offender set is unchanged): 45 → 46 committed
+    // files, same three offenders.
     expect(
       offenders.sort(),
       "D1: the committed `[]` occurrences live in exactly these type-sunk, non-iterand sites; a new offender means the disposition must be re-derived rather than trusted",
