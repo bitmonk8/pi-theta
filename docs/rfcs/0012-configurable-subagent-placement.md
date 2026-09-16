@@ -2,8 +2,9 @@
 
 - **Status:** accepted (implemented 2026-09-15, shipped in 0.475.0; Phase 2 —
   the `@bitmonk8/pi-theta-herdr` companion and the pi-config rewire — landed
-  2026-09-16, and 0.477.0 carries the F1/F4 corrections; see §Implementation
-  record)
+  2026-09-16, and 0.477.0 carries the F1/F4 corrections; the §Open questions
+  item 5 close-out — pi-theta 0.478.0's child outcome event plus companion
+  0.2.0/0.3.0 — landed 2026-09-16 as well; see §Implementation record)
 - **Scope:** Pi-integration contract and runtime architecture, plus one small
   theta 1.x language-surface widening that falls out of it (the call-site
   `with { cwd }` clause becomes admissible on `subagent fn` calls once those
@@ -98,10 +99,11 @@ equivalent on Oh-My-Pi) and the project-local `<project>/.pi/settings.json`
    `mode: subagent` slash command, an `invoke(...)`, a `.theta` callable, a
    `par for` iteration, a `subagent fn` call — opens a tab labelled with the
    callee's slug plus a per-launch `#<id>` suffix in the current workspace
-   and closes itself on success; a failed child's tab stays open but is not
-   retitled (companion v0.1.0; the retitle is deferred with §Open questions
-   item 5). Outside Herdr the same setup runs headless (`pipe`); no error, no
-   configuration change.
+   and closes itself on success; a failed child's tab stays open, tracked in
+   Herdr's agents list (companion ≥ 0.2.0) and retitled `FAILED <label>` on
+   the child outcome event (pi-theta ≥ 0.478.0 with companion ≥ 0.3.0; §Open
+   questions item 5, resolved). Outside Herdr the same setup runs headless
+   (`pipe`); no error, no configuration change.
 4. Optional pinning, `~/.pi/agent/settings.json`:
 
    ```json
@@ -497,7 +499,8 @@ same class as the RFC 0010 UI sinks): absent, the discover/offer channels do
 not exist and only `pipe`/`exec` are selectable; nothing refuses to load.
 
 **The Herdr backend** (non-normative sketch; §Packaging for where it lives;
-shipped 2026-09-16 — §Implementation record item 17): `detect()` = the four
+shipped 2026-09-16 — §Implementation record item 17; child-side reporting and
+the outcome consumer are items 24 and 26): `detect()` = the four
 `HERDR_*` variables present (pi-config's `herdrEnv`); `place()` = one
 `herdrRequest("layout.apply", { workspace_id, tab_label: label,
 focus: false, root: { type: "pane", command: [execPath, ...args], cwd, env }
@@ -507,12 +510,17 @@ Capabilities `{ observesExit: false, inheritsEnv: true, visible: true }` —
 to the 30 s dispose budget and then kills (`runSubagentChildTeardown`,
 `src/runtime/subagent-isolation.ts`), so a backend reporting real pane exits
 would have a lingering `Err` pane killed 30 s after its envelope. The
-`pane.report_metadata { display_agent: label }` and on-`Err`
-`pane.rename "FAILED <label>"` cosmetics are unreachable from the seam — the
-backend sees `place()` and `kill()`, never the outcome — and are deferred
-with §Open questions item 5, which needs an additive outcome hook. The result
-channel and launch file are pi-theta's; pi-config's own TCP scaffolding and
-embedded child are not involved.
+`pane.report_metadata { display_agent: label }` naming is reachable from the
+seam — `place()` knows the label and the handle, and companion 0.2.0 issues
+one there after `layout.apply` — while the on-`Err`
+`pane.rename "FAILED <label>"` retitle is not: the backend sees `place()`
+and `kill()`, never the outcome. The additive outcome hook the retitle was
+deferred against (§Open questions item 5) ships in 0.478.0 as the child-side
+outcome event (§7): channel `pi-theta:subagent-child:outcome:v1`, payload
+`{ apiVersion: 1, outcome: "ok" | "err", slug }`, emitted on the child's own
+`pi.events` bus and consumed by companion ≥ 0.3.0 inside the child process.
+The result channel and launch file are pi-theta's; pi-config's own TCP
+scaffolding and embedded child are not involved.
 
 ### 6. Selection and policy
 
@@ -580,8 +588,9 @@ The child runtime, on the visible presentation from the launch file:
   `ctx.shutdown()` (documented: interactive mode defers shutdown until idle),
   so the process exits and the pane closes;
 - on `Err` writes the envelope and **does not** shut down — the pane lingers
-  with the live session for a human to read or continue (a backend retitle
-  needs the outcome hook deferred with §Open questions item 5);
+  with the live session for a human to read or continue (a companion loaded
+  in the child retitles it on the child outcome event below — 0.478.0; the
+  placement backend itself never sees the outcome);
 - keeps `--no-session` unless the backend declares `persistSession: true`,
   which omits it and gives the operator a resumable session file. The parent
   never reads the child's session, so theta semantics are unchanged either
@@ -603,6 +612,21 @@ placement (stdout is the TTY). It degrades to the heartbeat frames plus a
 `placement` field on the execution-status entry — `live in <backend>
 <handle>` — the compact-reference rendering pi-config adopted rather than
 re-streaming a transcript the operator can already see.
+
+**Child outcome event (0.478.0).** On both terminal arms — under every
+presentation, `pipe` included — the child regime mirrors the envelope arm
+onto its own process-local `pi.events` bus:
+`pi-theta:subagent-child:outcome:v1`, payload `{ apiVersion: 1, outcome:
+"ok" | "err", slug }`, exactly once per drive, after the envelope write and
+(on `Ok`) before the `ctx.shutdown()` request. `outcome` follows the
+envelope one-to-one, so a cancelled or panicking child reports `"err"` — the
+arms on which the pane lingers. A subscriber's throw is contained and mints
+nothing; an absent bus emits nothing; a killed child emits nothing (process
+death is the signal). Consumed by the companion's child role (≥ 0.3.0) to
+settle the pane on `ok` (it reports `idle`, never `done` — Herdr derives and
+renders `done` itself) and to retitle it `FAILED <label>` on `err`; no Herdr
+code enters pi-theta (Resolved question 2). Normative text:
+[`#subagent-child-outcome-event`](../spec_topics/pi-integration-contract/subagent.md#subagent-child-outcome-event).
 
 ### 8. Cancellation, exit, teardown
 
@@ -853,14 +877,40 @@ type closure to a leaf module is a recorded pi-theta follow-up.
    puts Herdr-specific code inside pi-theta, contra Resolved question 2 —
    the alternative is the companion backend polling the channel's heartbeat
    and reporting on the child's behalf.
+
+   *Resolved (2026-09-16).* Neither listed option shipped; a third path did.
+   The companion is a Pi extension the child process itself loads
+   (pi-config's `pi.extensions` entry), so from 0.2.0 it reports the child's
+   lifecycle from inside the pane under its own source `pi-theta-herdr` — no
+   Herdr code in pi-theta (Resolved question 2 intact), no heartbeat
+   polling. The observed Herdr behaviour that forced the own-source shape
+   (behaviour, not mechanism): on Herdr 0.8.0, reports from Herdr's own
+   `herdr:pi` integration issued inside a theta child were acknowledged but
+   not applied (`agent: null`, `agent_status: unknown`), while custom-source
+   reports on the same class of node-rooted pane are applied — a herdr-CLI
+   control report under `--source herdr:pi` on such a pane was ignored and
+   the identical report under `--source probe:cli` applied. That closed the
+   lifecycle half. The retitle half is closed by pi-theta 0.478.0 plus
+   companion 0.3.0: the child regime emits the outcome event (§7) and the
+   companion consumes it inside the child — `ok` → `idle` (Herdr renders
+   `done`), `err` → `pane.rename "FAILED <label>"` then `idle` with
+   `message: "theta returned Err"` — under a bounded 20 s hold so an older
+   pi-theta degrades to 0.2.0 behaviour (companion decision D34; Decision
+   log D9). Remaining, recorded: a load-refused visible child emits no
+   outcome event (the marked-root registration-refusal envelope is a
+   load-pass write, not a drive terminal) and stays un-retitled; emitting
+   from the load pass is a candidate additive follow-up (§Implementation
+   record item 26).
 6. **Warm child pool.** If per-call spawn latency for `subagent fn` bodies
    proves material, a pre-spawned idle child that waits for a launch file
    would amortise startup. Not proposed; recorded as the mitigation.
 
-Items 1–5 are open in the sense that implementation proceeds on the stated
-default (no author knob; no `alive` template; kill as the sole cancellation;
-env carriage under `pipe`; backend-side Herdr reporting) and the question is
-revisited on evidence. None needs a decision before implementation starts.
+Items 1–4 remain open in the sense that implementation proceeds on the
+stated default (no author knob; no `alive` template; kill as the sole
+cancellation; env carriage under `pipe`) and the question is revisited on
+evidence; none needed a decision before implementation started. Item 5 —
+whose stated default was backend-side Herdr reporting — is resolved above
+(2026-09-16) by a path neither of its listed options named.
 
 ## Decision log
 
@@ -878,6 +928,25 @@ had resolved provisionally; each is folded into the section it names.
 - **D6 — Credential guard: fall back to `pipe` with a system note** when the
   backend does not inherit env and the provider's credential is env-sourced
   (Resolved question 11, §6; the former Open question 6).
+
+Operator decisions taken 2026-09-16 on the §Open questions item 5 close-out;
+folded into §5, §7, §Open questions item 5 and §Implementation record items
+24–26.
+
+- **D7 — Mimic pi-config's child-side reporting.** The companion reports the
+  child's lifecycle from inside the pane under its own source, the shape
+  pi-config's `subagent-pi.mjs` embedded child already used — not Herdr code
+  in pi-theta, not backend-side heartbeat polling (§Open questions item 5).
+- **D8 — Ship the lifecycle half first, then the hook and its consumer.**
+  Companion 0.2.0 (child-side reporting) shipped before any pi-theta change;
+  the outcome event (0.478.0) and its consumer (companion 0.3.0) followed the
+  same day (§Implementation record items 24–26).
+- **D9 — Bounded hold, not a capability signal.** The companion suppresses
+  the between-turn `idle` for at most `HOLD_TIMEOUT_MS` = 20 s per settle, so
+  companion 0.3.0 over a pi-theta older than 0.478.0 degrades to 0.2.0
+  behaviour instead of a stuck `working` badge; pi-theta's version is
+  undetectable from the child, so no positive capability signal exists to
+  gate on (companion decision D34).
 
 ## New diagnostics
 
@@ -1149,6 +1218,9 @@ authoritative and this list records the delta:
     pane. The recorded options are an additive outcome hook on the seam that
     lets the companion report on the child's behalf, or the child issuing
     `pane.report_agent` itself. §Open questions item 5 remains open.
+    *(Superseded 2026-09-16: items 24–26 close it — the child-side reports
+    ship in the companion loaded inside the child, and the outcome hook
+    ships as the §7 bus event.)*
 21. **Registry idempotence (0.477.0, 2026-09-16).** Re-registering the
     identical backend object under its name is a silent no-op; a different
     object keeps the W, reworded `a different backend is already registered
@@ -1167,6 +1239,68 @@ authoritative and this list records the delta:
 23. **Scope drift, recorded.** The implementation kickstart narrowed scope to
     pi-theta and did not schedule the companion, which left Phase 2 open from
     0.475.0 (2026-09-15) until 2026-09-16.
+24. **Phase 2 — companion 0.2.0: child-side lifecycle reporting (2026-09-16,
+    `ec6085d`; pi-config `1906ec3`).** The companion gains a child role:
+    loaded inside a theta child — detected by `--theta-launch` on
+    `process.argv` plus the Herdr pane env plus `mode: "tui"` — it reports
+    the child's lifecycle to Herdr from inside the pane under its own source
+    `pi-theta-herdr`: `pane.report_metadata { display_agent }` (no `agent`
+    field — observed on Herdr 0.8.0: metadata carrying `agent: "pi"` on a
+    pane Herdr does not recognise as pi was acknowledged and not applied),
+    `pane.report_agent_session`, and `pane.report_agent` `working` / `idle`
+    per turn. Parent-side, `place()` follows `layout.apply` with one
+    unawaited `pane.report_metadata { display_agent }` naming the tab
+    (superseding item 17's one-request `place()`). Motivation (observed
+    behaviour, not mechanism): reports from Herdr's own `herdr:pi`
+    integration issued inside a theta child were acknowledged but not
+    applied (`agent: null`, `agent_status: unknown`), while custom-source
+    reports on the same class of node-rooted pane are applied — a herdr-CLI
+    control report under `--source herdr:pi` on such a pane was ignored and
+    the same report under `--source probe:cli` applied. Closes the lifecycle
+    half of §Open questions item 5.
+25. **Child outcome event (pi-theta 0.478.0, 2026-09-16, `079ddb67`;
+    pi-config `46f2eae`).** The child-side subagent-root regime mirrors its
+    terminal envelope arm onto the process-local `pi.events` bus: channel
+    `pi-theta:subagent-child:outcome:v1`, payload `{ apiVersion: 1, outcome:
+    "ok" | "err", slug }`, after every terminal envelope — `Ok` before the
+    visible-child shutdown request; cancellation and panic framings report
+    `err` — exactly once per drive, for theta and fn entries alike and under
+    every presentation (`pipe` included); no bus ⇒ no emit, no diagnostic; a
+    killed child emits nothing; the parent never emits; the marked-root
+    load-refusal envelope carries no event (item 26's recorded gap). Exports
+    `SUBAGENT_CHILD_OUTCOME_CHANNEL` / `SUBAGENT_CHILD_OUTCOME_API_VERSION` /
+    `SubagentChildOutcomePayload`
+    (`src/runtime/subagent-placement-registry.ts`); emission latched once
+    per drive in `driveSubagentRootRegime` with the `Err` arm folded into
+    the `emitErr` choke point
+    (`src/extension/production-theta-producer.ts`); wired emit-only from a
+    compose-pass `typeof` probe of `pi.events.emit`
+    (`src/extension/production-composition.ts`). Spec: the
+    `#subagent-child-outcome-event` bullet plus the visible-presentation and
+    PIC-73 sentence edits; zero new diagnostic codes. Live gate 2026-09-16:
+    152 files / 279 tests, 275 green — the three known correct-reason reds
+    (bugs 0079(b), 0114, 0116) plus one transient STL-2 timeout that passed
+    in isolation. The pi-theta half of the retitle close-out; the consumer
+    is item 26.
+26. **Phase 2 — companion 0.3.0: outcome consumer and the `FAILED` retitle
+    (2026-09-16, `538bc10`; pi-config `79bee4b`).** The child role consumes
+    the outcome event: while a drive is live it holds — the between-turn
+    `idle` report is suppressed; on `ok` it reports `idle` (never `done` —
+    the companion's `HerdrAgentState` excludes it; Herdr derives and renders
+    `done` itself); on `err` it issues `pane.rename "FAILED <label>"` then
+    `pane.report_agent { idle, message: "theta returned Err" }` — exactly
+    one terminal report per session. Bounded hold (companion decision D34;
+    Decision log D9): an idle settle while holding arms `HOLD_TIMEOUT_MS` =
+    20 s, so companion 0.3.0 over a pi-theta older than 0.478.0 degrades to
+    0.2.0 behaviour — the held `idle` fires late, nothing is retitled.
+    Real-Herdr smoke: the `Err` child's tab read
+    `FAILED herdr-smoke-failing-worker#0061de67` with status `done`; `Ok`
+    children showed `working`, then their tabs closed. Closes the retitle
+    half of §Open questions item 5 — with item 24, the whole item. Recorded
+    gap: a load-refused visible child emits no outcome event and stays
+    un-retitled — indistinguishable to the companion from a healthy
+    pre-turn child; emitting from the load pass is a candidate additive
+    pi-theta follow-up.
 
 Follow-ups observed 2026-09-16 in a subagent child, recorded here and not
 resolved:
