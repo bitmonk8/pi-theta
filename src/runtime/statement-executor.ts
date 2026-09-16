@@ -451,10 +451,17 @@ async function preEvaluateToolArgs(
   // `evaluatedToolArgs`. A `.theta`-callable call dispatches through the invoke
   // trampoline (`runToolCallEffect`'s `resolveCallAsInvoke` path), which ignores
   // `evaluatedToolArgs` and re-lowers its argument — pre-evaluating here would
-  // dispatch effectful field values twice. Skip it (args left to the invoke
-  // path). An absent classifier treats the call as a Pi tool, preserving the
+  // dispatch effectful field values twice. A runtime-tool call
+  // (tool-calls.md#session-control-runtime-tools) uses the `.theta`-callable
+  // POSITIONAL convention — `compact("text")`, not `compact({ instructions:
+  // "text" })` — and its dispatch arm (`resolveRuntimeToolCall`) evaluates
+  // positional arguments itself; pre-evaluating here would either throw the
+  // Pi-tool shape defect (non-object first arg) or double-evaluate through the
+  // object-literal field path. Skip both (args left to their own dispatch).
+  // An absent classifier treats the call as a Pi tool, preserving the
   // executor-double behaviour.
-  if (deps.host.classifyCall?.(expr, env) === "theta-callable") {
+  const callKind = deps.host.classifyCall?.(expr, env);
+  if (callKind === "theta-callable" || callKind === "runtime-tool") {
     return { ok: true, args: undefined };
   }
   const first = expr.args[0];

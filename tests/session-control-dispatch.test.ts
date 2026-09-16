@@ -1,6 +1,6 @@
 // RFC 0011 (V24a-T) — failing tests for the dispatch surface (the paired
 // `V24a` implementation leaf), seam sheet §6.1 / §6.3 / §6.4 / §6.5 cells
-// D12-D15.
+// D11-D15.
 //
 // Spec: docs/rfcs/0011-session-control-tools.md §2 (Detailed design);
 // `.localpi/tmp/rfc-0011-seam-sheet.md` §6.1 (classification), §6.3 (producer
@@ -117,11 +117,16 @@ type FakeSessionControlHosts = NonNullable<
 // Sheet §6.5 D14 drives dispatch "with fake hosts": a compact host whose
 // fire-and-forget call completes synchronously through `onComplete`, and a
 // pi handle with the two session-name members. D15 deliberately omits them
-// to pin the absent-dep fallback.
-function fakeSessionControlHosts(): FakeSessionControlHosts {
+// to pin the absent-dep fallback. `calls`, when supplied, counts `compact`
+// invocations (D11: the net's refusal must leave that count at zero) without
+// altering D14's own no-arg call shape.
+function fakeSessionControlHosts(calls?: { compact: number }): FakeSessionControlHosts {
   return {
     ctx: {
       compact: (options) => {
+        if (calls !== undefined) {
+          calls.compact += 1;
+        }
         options?.onComplete?.({
           summary: "fake summary",
           firstKeptEntryId: "entry-1",
@@ -183,12 +188,73 @@ function asResult(value: ThetaValue): ResultValue {
 }
 
 // ===========================================================================
+// D11 — the resolver's runtime argument net (§5.4, `#resolveRuntimeToolCall`
+// in `src/extension/production-theta-producer.ts`): a runtime-tool argument
+// the static pass CANNOT prove must still be judged at dispatch, and a
+// non-string bound value draws the pinned validation `Err` — the host adapter
+// is never reached.
+//
+// The laundering construct is the seam sheet's own §5.5 row P6:
+// `compact({ instructions: "x" })`. The single argument is a bare object
+// literal, so `#resolveRuntimeToolCall`'s positional `expr.args.map(a =>
+// evaluatePureExpression(a, env))` binds the WHOLE object as the sole
+// argument value, never decomposing it into named fields — the presence of a
+// same-spelled string field inside does not make the bound value a string.
+// Statically, `collectProvableArgTypes`'s `"object"` arm
+// (`src/extension/invoke-static-checks.ts`) answers `undefined` (an object
+// literal is withheld from `checkRuntimeToolCallSurface`'s type-mismatch
+// check exactly as an `ident` or bare `call` is), so no
+// `theta/parse/tool-arg-type-mismatch` fires — the mismatch surfaces only at
+// the runtime net, which is this cell's subject.
+// ===========================================================================
+
+describe("session-control-dispatch (V24a-T) — runtime argument net (D11)", () => {
+  it("D11: compact({ instructions: \"x\" }) launders a non-string bound value past statics; the net refuses it before the host is reached", async () => {
+    const src = [
+      "---",
+      "mode: prompt",
+      "tools: compact",
+      "---",
+      'compact({ instructions: "x" })',
+    ].join("\n");
+
+    const checkpoint = new RecordingCheckpoint();
+    const calls = { compact: 0 };
+    const callableSet = snapshotOf([["compact", runtimeToolEntry("compact")]]);
+    const value = await runSource(src, callableSet, checkpoint, fakeSessionControlHosts(calls));
+    const result = asResult(value);
+
+    expect(
+      checkpoint.kinds.length > 0 && checkpoint.kinds.every((k) => k === "tool-call"),
+      "D11: a tool-call checkpoint still fires ahead of the net's refusal",
+    ).toBe(true);
+
+    expect(
+      result.ok,
+      "D11 primary: the runtime argument net refuses a non-string bound value",
+    ).toBe(false);
+    if (!result.ok) {
+      const error = result.error as { cause: string; tool_name: string; message: string };
+      expect(error.cause).toBe("validation");
+      expect(error.tool_name).toBe("compact");
+      expect(error.message).toBe("argument 'instructions' must be a string");
+    }
+
+    expect(
+      calls.compact,
+      "D11: the fake host's compact() was never invoked — the net stands ahead of dispatch",
+    ).toBe(0);
+  });
+});
+
+// ===========================================================================
 // D12 / D13 — the runtime `par for` backstop (§6.4): a plain `fn` calling a
 // declared runtime tool, invoked from a `par for` body, must yield
 // `Err(cause "execution", "session-control tool '<name>' is not available
 // inside a par for body")` for that element WITHOUT the fake host ever being
 // reached — never fall through to the ordinary (mis-targeted) dispatch ladder.
 // ===========================================================================
+
 
 describe("session-control-dispatch (V24a-T) — runtime par-for backstop (D12/D13)", () => {
   it("D12: fn h() { compact() } called from `par for` yields the pinned backstop Err for that element", async () => {

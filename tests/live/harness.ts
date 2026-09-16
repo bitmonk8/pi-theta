@@ -22,6 +22,7 @@ import {
   ModelRegistry,
   ModelRuntime,
   SessionManager,
+  SettingsManager,
   createAgentSession,
   getAgentDir,
 } from "@earendil-works/pi-coding-agent";
@@ -217,6 +218,17 @@ export async function bootShippedExtension(options: {
    * no shipped theta tool can publish (bug 0108's live leg).
    */
   readonly extraExtensionPaths?: readonly string[];
+  /**
+   * A `SettingsManager` to pass through to `createAgentSession` in place of
+   * the SDK's on-disk default (`SettingsManager.create(cwd, agentDir)`).
+   * Optional and additive: absent leaves the call byte-identical to every
+   * existing caller (the `extraExtensionPaths` precedent above). Its one use
+   * is RFC 0011's `compact` live cell, which needs
+   * `SettingsManager.inMemory({ compaction: { keepRecentTokens: 1 } })` to
+   * force a live compaction to have something to summarise (seam sheet §0
+   * C2(g), §9 "Harness change (exact)").
+   */
+  readonly settingsManager?: SettingsManager;
 }): Promise<LiveExtensionHandle> {
   const { workspace, provider } = options;
   const extraExtensionPaths = options.extraExtensionPaths ?? [];
@@ -245,6 +257,7 @@ export async function bootShippedExtension(options: {
     model: provider.model,
     resourceLoader,
     sessionManager,
+    ...(options.settingsManager !== undefined ? { settingsManager: options.settingsManager } : {}),
   });
 
   const runner = session.extensionRunner;
