@@ -99,14 +99,10 @@ function attachStdoutTap(
   publish: (event: ChildTapEvent) => void,
   opts?: ChildTapOptions,
 ): () => void {
-  // PIC-74 per-child acceptance state: one stream identity, one monotonic
-  // `seq` ladder, one rate window. Closure-scoped per attachment, so a second
-  // child never inherits the first's guards.
-  const clock = opts?.clock;
-  let lastSeq = 0;
-  let latchedInvocationId: string | undefined;
-  let lastAcceptedAtMs: number | undefined;
-  let tapDropped = 0;
+  // PIC-74 per-child acceptance state lives in the decoder below
+  // (`createProgressEnvelopeDecoder`); one instance per attachment, so a
+  // second child never inherits the first's guards.
+  const decodeProgressEnvelope = createProgressEnvelopeDecoder(opts);
 
   return child.onStdoutLine((line: string): void => {
     // 1. Size gate before any parse — a pathological line costs one length read.
@@ -135,74 +131,10 @@ function attachStdoutTap(
     // envelope never escapes this frame (only the five event fields are read
     // — EXST-12's class-3 posture).
     if (Object.prototype.hasOwnProperty.call(record as Record<string, unknown>, PROGRESS_WIRE_KEY)) {
-      const envelope = (record as Record<string, unknown>)[PROGRESS_WIRE_KEY];
-      if (typeof envelope !== "object" || envelope === null) {
-        return;
+      const event = decodeProgressEnvelope(record as Record<string, unknown>);
+      if (event !== undefined) {
+        publish(event);
       }
-      const env = envelope as {
-        readonly v?: unknown;
-        readonly seq?: unknown;
-        readonly invocation_id?: unknown;
-        readonly event?: unknown;
-      };
-      // Wrong version drops SILENTLY — PIC-74's deliberate asymmetry with the
-      // `theta_result` envelope's named skew refusal: a result is a value,
-      // progress is best-effort telemetry.
-      if (env.v !== PROGRESS_WIRE_VERSION) {
-        return;
-      }
-      if (typeof env.seq !== "number" || !Number.isInteger(env.seq) || env.seq <= lastSeq) {
-        return; // strictly-increasing `seq` per child (replay/regression guard)
-      }
-      if (typeof env.invocation_id !== "string") {
-        return;
-      }
-      if (latchedInvocationId === undefined) {
-        latchedInvocationId = env.invocation_id;
-      } else if (env.invocation_id !== latchedInvocationId) {
-        return; // one child, one stream identity
-      }
-      const ev = env.event;
-      if (typeof ev !== "object" || ev === null) {
-        return;
-      }
-      const fields = ev as Partial<Record<keyof ProgressAuthorMessage, unknown>>;
-      if (typeof fields.message !== "string") {
-        return; // `message` is load-bearing: a bad type drops the whole LINE
-      }
-      if (clock !== undefined) {
-        // PIC-74: the parent enforces the 200 ms bound DEFENSIVELY — a hostile
-        // or clock-skewed child must not outrun it. Excess lines are
-        // counted-but-dropped and ride the next accepted payload's `dropped`.
-        const now = clock.now();
-        if (lastAcceptedAtMs !== undefined && now - lastAcceptedAtMs < PROGRESS_MIN_INTERVAL_MS) {
-          tapDropped += 1;
-          return;
-        }
-        lastAcceptedAtMs = now;
-      }
-      lastSeq = env.seq;
-      const wireDropped =
-        typeof fields.dropped === "number" &&
-        Number.isInteger(fields.dropped) &&
-        fields.dropped > 0
-          ? fields.dropped
-          : 0;
-      const carried = wireDropped + tapDropped;
-      tapDropped = 0;
-      // Defensive re-clamp + strip: the emitter clamped, but the wire is not
-      // trusted to have done so (EXST-5's re-clamp obligation). Routed through
-      // the shared `clampAuthorMessage` (progress-tool.ts) so this decoder's
-      // rebuild stays anchored to the same `HANDLED_PROGRESS_FIELDS` ledger as
-      // the parent-regime paths.
-      const payload = clampAuthorMessage({
-        message: fields.message,
-        scope: fields.scope,
-        done: fields.done,
-        total: fields.total,
-        dropped: carried,
-      });
-      publish({ type: "theta_progress", payload });
       return;
     }
     // 4. Switch on `type` — the only universally-read field. Everything else
@@ -230,4 +162,99 @@ function attachStdoutTap(
         return;
     }
   });
+}
+
+/**
+ * PIC-74 per-child acceptance state + the reserved-key `theta_progress`
+ * envelope decode (EXST-5/EXST-15), factored out of `attachStdoutTap`: one
+ * stream identity, one monotonic `seq` ladder, one rate window. Closure-
+ * scoped PER ATTACHMENT — `attachStdoutTap` creates exactly one instance per
+ * `onStdoutLine` attach, so a second child never inherits the first's
+ * guards (mirrors `attachChildActivityTap`'s own per-attachment shape).
+ * Returns the per-record decoder: the caller has already confirmed `record`
+ * carries `PROGRESS_WIRE_KEY` (the recognition stays in `attachStdoutTap`,
+ * ahead of its `type` switch). Every guard below is a silent drop (returns
+ * `undefined`), never a diagnostic; the envelope never escapes this frame —
+ * only the five `ProgressAuthorMessage` fields (`HANDLED_PROGRESS_FIELDS`)
+ * are read (EXST-12's class-3 posture).
+ */
+function createProgressEnvelopeDecoder(
+  opts?: ChildTapOptions,
+): (record: Record<string, unknown>) => ChildTapEvent | undefined {
+  const clock = opts?.clock;
+  let lastSeq = 0;
+  let latchedInvocationId: string | undefined;
+  let lastAcceptedAtMs: number | undefined;
+  let tapDropped = 0;
+
+  return (record: Record<string, unknown>): ChildTapEvent | undefined => {
+    const envelope = record[PROGRESS_WIRE_KEY];
+    if (typeof envelope !== "object" || envelope === null) {
+      return undefined;
+    }
+    const env = envelope as {
+      readonly v?: unknown;
+      readonly seq?: unknown;
+      readonly invocation_id?: unknown;
+      readonly event?: unknown;
+    };
+    // Wrong version drops SILENTLY — PIC-74's deliberate asymmetry with the
+    // `theta_result` envelope's named skew refusal: a result is a value,
+    // progress is best-effort telemetry.
+    if (env.v !== PROGRESS_WIRE_VERSION) {
+      return undefined;
+    }
+    if (typeof env.seq !== "number" || !Number.isInteger(env.seq) || env.seq <= lastSeq) {
+      return undefined; // strictly-increasing `seq` per child (replay/regression guard)
+    }
+    if (typeof env.invocation_id !== "string") {
+      return undefined;
+    }
+    if (latchedInvocationId === undefined) {
+      latchedInvocationId = env.invocation_id;
+    } else if (env.invocation_id !== latchedInvocationId) {
+      return undefined; // one child, one stream identity
+    }
+    const ev = env.event;
+    if (typeof ev !== "object" || ev === null) {
+      return undefined;
+    }
+    const fields = ev as Partial<Record<keyof ProgressAuthorMessage, unknown>>;
+    if (typeof fields.message !== "string") {
+      return undefined; // `message` is load-bearing: a bad type drops the whole LINE
+    }
+    if (clock !== undefined) {
+      // PIC-74: the parent enforces the 200 ms bound DEFENSIVELY — a hostile
+      // or clock-skewed child must not outrun it. Excess lines are
+      // counted-but-dropped and ride the next accepted payload's `dropped`.
+      const now = clock.now();
+      if (lastAcceptedAtMs !== undefined && now - lastAcceptedAtMs < PROGRESS_MIN_INTERVAL_MS) {
+        tapDropped += 1;
+        return undefined;
+      }
+      lastAcceptedAtMs = now;
+    }
+    lastSeq = env.seq;
+    const wireDropped =
+      typeof fields.dropped === "number" &&
+      Number.isInteger(fields.dropped) &&
+      fields.dropped > 0
+        ? fields.dropped
+        : 0;
+    const carried = wireDropped + tapDropped;
+    tapDropped = 0;
+    // Defensive re-clamp + strip: the emitter clamped, but the wire is not
+    // trusted to have done so (EXST-5's re-clamp obligation). Routed through
+    // the shared `clampAuthorMessage` (progress-tool.ts) so this decoder's
+    // rebuild stays anchored to the same `HANDLED_PROGRESS_FIELDS` ledger as
+    // the parent-regime paths.
+    const payload = clampAuthorMessage({
+      message: fields.message,
+      scope: fields.scope,
+      done: fields.done,
+      total: fields.total,
+      dropped: carried,
+    });
+    return { type: "theta_progress", payload };
+  };
 }
