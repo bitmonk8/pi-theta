@@ -64,8 +64,6 @@ import {
   type EnoentPolicy,
 } from "./discovery-path-classify";
 import {
-  CLI_MODES,
-  CONVENTIONAL_MODES,
   INVALID_EXTENSION,
   MISSING_SOURCE,
   SETTINGS_MODES,
@@ -73,7 +71,6 @@ import {
   type DiscoveryInput,
   type DiscoveryResult,
   type DiscoverySource,
-  type FailureModes,
   type SourcedCandidate,
 } from "./discovery-model";
 import {
@@ -327,7 +324,7 @@ async function resolveSettingsSource(
 
   const addDir = async (dir: string, descriptorValue: string): Promise<void> => {
     roots.add(normalizePath(dir));
-    for (const cand of await enumerateDirectory(fs, dir, "settings", descriptorValue, SETTINGS_MODES, diagnostics)) {
+    for (const cand of await enumerateDirectory(fs, dir, "settings", descriptorValue, diagnostics)) {
       selected.set(cand.path, { ...cand, descriptorValue });
     }
   };
@@ -463,7 +460,6 @@ export async function discoverThetas(input: DiscoveryInput): Promise<DiscoveryRe
       descriptorValue: `--theta ${raw}`,
     })),
     "cli",
-    CLI_MODES,
     candidates,
     diagnostics,
     roots,
@@ -492,7 +488,7 @@ export async function discoverThetas(input: DiscoveryInput): Promise<DiscoveryRe
   // every global theta would vanish with no diagnostic at all.
   const configDir = fs.configDirName();
   const conventionalRoots: readonly {
-    readonly source: DiscoverySource;
+    readonly source: Exclude<DiscoverySource, "package">;
     readonly path: string;
   }[] = [
     {
@@ -550,7 +546,6 @@ export async function discoverThetas(input: DiscoveryInput): Promise<DiscoveryRe
         },
       ],
       root.source,
-      CONVENTIONAL_MODES,
       candidates,
       diagnostics,
       roots,
@@ -596,8 +591,7 @@ async function collectFromEntries(
     readonly enoentPolicy: EnoentPolicy;
     readonly descriptorValue: string;
   }[],
-  source: DiscoverySource,
-  modes: FailureModes,
+  source: Exclude<DiscoverySource, "package">,
   out: SourcedCandidate[],
   diagnostics: Diagnostic[],
   roots: Set<string>,
@@ -610,7 +604,6 @@ async function collectFromEntries(
       entry.descriptor,
       source,
       entry.descriptorValue,
-      modes,
       entry.enoentPolicy,
       diagnostics,
       roots,

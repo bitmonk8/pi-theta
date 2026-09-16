@@ -39,12 +39,12 @@ import {
 import {
   INVALID_EXTENSION,
   MISSING_SOURCE,
+  MODES_BY_SOURCE,
   NON_CANONICAL_EXTENSION,
   SLASH_NAME,
   UNREADABLE_SOURCE,
   WRONG_TYPE_SOURCE,
   type DiscoverySource,
-  type FailureModes,
 } from "./discovery-model";
 
 /** A `*.theta` file found under a source, before validity/collision resolution. */
@@ -58,16 +58,17 @@ export interface RawCandidate {
  *  `classifyPath` already accepted as a directory whose enumeration then
  *  fails is an unreadable (or, on a clean `ENOENT` ancestor chain, missing)
  *  source, not silence (discovery-sources.md:73) — the calling source's
- *  descriptor and severities are threaded through so the failure emits from
- *  the one place the rejection is observed. */
+ *  descriptor is threaded through, and its failure severities looked up from
+ *  `source` (`MODES_BY_SOURCE`, PTQ-0366), so the failure emits from the one
+ *  place the rejection is observed. */
 export async function enumerateDirectory(
   fs: FileSystem,
   dir: string,
-  source: DiscoverySource,
+  source: Exclude<DiscoverySource, "package">,
   descriptorValue: string,
-  modes: FailureModes,
   diagnostics: Diagnostic[],
 ): Promise<RawCandidate[]> {
+  const modes = MODES_BY_SOURCE[source];
   const entries = await fs.readdir(dir).then(
     (names) => ({ ok: true as const, names }),
     (error: unknown) => ({ ok: false as const, code: nodeErrorCode(error) }),
@@ -197,18 +198,18 @@ export async function resolveEntry(
   fs: FileSystem,
   path: string,
   descriptor: string | undefined,
-  source: DiscoverySource,
+  source: Exclude<DiscoverySource, "package">,
   descriptorValue: string,
-  modes: FailureModes,
   enoentPolicy: EnoentPolicy,
   diagnostics: Diagnostic[],
   roots: Set<string>,
 ): Promise<RawCandidate[]> {
+  const modes = MODES_BY_SOURCE[source];
   const resolved = classifyForSource(await classifyPath(fs, path, enoentPolicy), path, descriptor !== undefined);
   switch (resolved.kind) {
     case "dir":
       roots.add(normalizePath(path));
-      return enumerateDirectory(fs, path, source, descriptorValue, modes, diagnostics);
+      return enumerateDirectory(fs, path, source, descriptorValue, diagnostics);
     case "file":
       // A single `.theta` file entry contributes itself directly. Bug 0363: the
       // slash name and candidate path come from the ON-DISK directory entry,

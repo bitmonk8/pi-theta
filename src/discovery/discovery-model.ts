@@ -165,3 +165,18 @@ export const CLI_MODES: FailureModes = {
   unreadable: "error",
   wrongType: "error",
 } as const;
+
+/** Per-source failure-mode severities, keyed directly off `DiscoverySource`
+ *  the same way `PRIORITY` already is. `enumerateDirectory` / `resolveEntry`
+ *  / `collectFromEntries` derive `modes` from `source` through this lookup
+ *  instead of threading it alongside `source` as a second, independently
+ *  suppliable parameter — the two never varied independently at any call
+ *  site (PTQ-0366). `package` is excluded from the key type: its candidates
+ *  are pushed directly as `SourcedCandidate`s and never reach those three
+ *  functions, so there is no row to give it. */
+export const MODES_BY_SOURCE: Record<Exclude<DiscoverySource, "package">, FailureModes> = {
+  cli: CLI_MODES,
+  settings: SETTINGS_MODES,
+  project: CONVENTIONAL_MODES,
+  global: CONVENTIONAL_MODES,
+} as const;
