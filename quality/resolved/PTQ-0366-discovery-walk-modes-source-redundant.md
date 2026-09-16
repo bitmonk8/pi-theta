@@ -2,7 +2,7 @@
 id: PTQ-0366
 title: enumerateDirectory, resolveEntry, and collectFromEntries each carry a FailureModes parameter whose value is fully determined by the DiscoverySource parameter already passed
 lens: D8                     # D2 | D4 | D7 | D8 | D9 - the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - src/discovery/discovery-walk.ts:106-113

@@ -2,7 +2,7 @@
 id: PTQ-0388
 title: b0339's settle poll helper duplicates b0312's byte-identical never-throw poll loop
 lens: D7                     # D2 | D4 | D7 | D8 | D9 - the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - tests/b0339-package-source-watch-arming.test.ts:81-91

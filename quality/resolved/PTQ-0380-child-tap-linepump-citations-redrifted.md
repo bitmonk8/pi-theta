@@ -2,7 +2,7 @@
 id: PTQ-0380
 title: child-tap.ts's makeLinePump/onStdoutLine line citations, corrected once by PTQ-0354, now point at different wrong lines after later unrelated edits
 lens: D2                     # D2 | D4 | D7 | D8 | D9 - the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - src/extension/execution-status/child-tap.ts:75-78

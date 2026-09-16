@@ -2,7 +2,7 @@
 id: PTQ-0383
 title: b0369's F6 test name claims "the first `if c` throws," a claim its shared throw-framing helpers cannot verify
 lens: D7                     # D2 | D4 | D7 | D8 | D9 - the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - tests/b0369-control-flow-kind-belts.test.ts:382-391

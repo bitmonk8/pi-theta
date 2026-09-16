@@ -2,7 +2,7 @@
 id: PTQ-0373
 title: invoke-static-checks.ts's four checkImported* functions each hand-duplicate the shadowedNames arm-1-outranks-arm-3 guard
 lens: D4                     # D2 | D4 | D7 | D8 | D9 - the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - src/extension/invoke-static-checks.ts:1890-1896

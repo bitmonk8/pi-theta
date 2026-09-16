@@ -2,7 +2,7 @@
 id: PTQ-0386
 title: b0369 and b0417 each hand-roll a byte-identical parseDeps() that tests/helpers/e2e-s1.ts already exports
 lens: D7                     # D2 | D4 | D7 | D8 | D9 - the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - tests/b0369-control-flow-kind-belts.test.ts:162-170

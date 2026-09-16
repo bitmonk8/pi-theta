@@ -2,7 +2,7 @@
 id: PTQ-0382
 title: production-composition.ts's tools: entry admission gate (parseToolsEntry + toolsEntrySpec + bare-name/dedup skip) is hand-copied across four functions
 lens: D4                     # D2 | D4 | D7 | D8 | D9 - the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - src/extension/production-composition.ts:2656-2669

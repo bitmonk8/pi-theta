@@ -2,7 +2,7 @@
 id: PTQ-0365
 title: The .thetalib top-level declarable-kind set (schema/fn/enum) is independently re-enumerated in four places in import-static-checks.ts
 lens: D4                     # D2 | D4 | D7 | D8 | D9 - the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - src/extension/import-static-checks.ts:188-195

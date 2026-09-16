@@ -2,7 +2,7 @@
 id: PTQ-0378
 title: Four invoke-static-checks.ts comments still say the sibling call-surface function's code is above/below after Seam A reordered the two functions
 lens: D2                     # D2 | D4 | D7 | D8 | D9 - the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - src/extension/invoke-static-checks.ts:958-964
