@@ -14,7 +14,7 @@
 // The types here are the published contract a companion backend package
 // (`@bitmonk8/pi-theta-herdr`) imports — `@bitmonk8/pi-theta` ships `src/`, so
 // the import path is `@bitmonk8/pi-theta/src/runtime/subagent-placement`. The
-// registration protocol's `apiVersion` (`subagent-placement-registration.ts`)
+// registration protocol's `apiVersion` (`subagent-placement-registry.ts`)
 // gates shape changes to these types.
 
 import type { ChildExitInfo, SpawnFn, SubagentChildProcess } from "./subagent-launcher";
@@ -146,7 +146,7 @@ export interface PlacedChild {
 /**
  * A placement backend. Built-ins (`pipe`, `exec`) are constructed in-process;
  * every other backend registers over `pi.events`
- * (`subagent-placement-registration.ts`).
+ * (`subagent-placement-registry.ts`).
  */
 export interface SubagentPlacementBackend {
   /** `PLACEMENT_NAME_PATTERN`; the `RESERVED_PLACEMENT_NAMES` are refused on registration. */

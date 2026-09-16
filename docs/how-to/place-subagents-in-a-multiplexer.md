@@ -64,8 +64,10 @@ operator's own global settings can define what `exec` runs.
 A companion package — e.g. `@bitmonk8/pi-theta-herdr` (outside this
 repository) — registers a placement backend over `pi.events` at compose time.
 
-1. `pi install npm:@bitmonk8/pi-theta-herdr` (or the git/name your backend
-   ships under).
+1. `pi install git:github.com/bitmonk8/pi-theta-herdr` (the companion is
+   git-distributed, not published to npm; substitute whatever source your
+   backend ships under). An operator running pi-config gets the companion as
+   a dependency and installs nothing.
 2. Nothing else. `auto` (the default) selects the highest-`priority`
    registered backend whose `detect()` is true; outside that backend's
    environment `auto` falls through to `exec` (if configured) or `pipe` — no
@@ -97,9 +99,10 @@ covers any multiplexer with a CLI the same way it does on Pi.
 ## What a visible child looks like
 
 Under a placement whose backend declares `visible: true`, the child launches
-as an interactive TUI titled `<slug>` (or `<slug>#<fn>` for a `subagent fn`
-call) and runs the slash command as its initial message — the same callee,
-the same regime, just a different presentation. `--no-session` applies unless
+as an interactive TUI titled `<slug>#<id>` (`<slug>#<fn>#<id>` for a
+`subagent fn` call; `<id>` = the invocation id's first eight hex characters)
+and runs the slash command as its initial message — the same callee,
+the same regime, a different presentation. `--no-session` applies unless
 the backend declares `persistSession: true`. After an `Ok` envelope the child
 calls `ctx.shutdown()` and its pane closes; after an `Err` envelope it does
 not — the pane lingers with the live session so a human can read or continue

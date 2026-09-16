@@ -1,7 +1,9 @@
 # RFC 0012 — Configurable subagent placement (multiplexer tabs and other launch surfaces)
 
-- **Status:** accepted (implemented 2026-09-15, shipped in 0.475.0; see
-  §Implementation record)
+- **Status:** accepted (implemented 2026-09-15, shipped in 0.475.0; Phase 2 —
+  the `@bitmonk8/pi-theta-herdr` companion and the pi-config rewire — landed
+  2026-09-16, and 0.477.0 carries the F1/F4 corrections; see §Implementation
+  record)
 - **Scope:** Pi-integration contract and runtime architecture, plus one small
   theta 1.x language-surface widening that falls out of it (the call-site
   `with { cwd }` clause becomes admissible on `subagent fn` calls once those
@@ -86,17 +88,20 @@ equivalent on Oh-My-Pi) and the project-local `<project>/.pi/settings.json`
 
 **Herdr user.**
 
-1. `pi install npm:@bitmonk8/pi-theta-herdr` (the companion package,
-   §Packaging; an operator running pi-config gets it as a dependency).
+1. `pi install git:github.com/bitmonk8/pi-theta-herdr` (the companion
+   package, §Packaging — git-distributed, not published to npm; an operator
+   running pi-config gets it as a dependency).
 2. Start `herdr`, open a pane, run `pi` in it.
 3. Nothing else. Inside a Herdr pane the environment carries `HERDR_ENV=1`,
    `HERDR_SOCKET_PATH`, `HERDR_PANE_ID`, `HERDR_WORKSPACE_ID`; the backend's
    `detect()` sees them and `auto` selects it. Every subagent invocation — a
    `mode: subagent` slash command, an `invoke(...)`, a `.theta` callable, a
    `par for` iteration, a `subagent fn` call — opens a tab labelled with the
-   callee's slug in the current workspace, closes itself on success, and
-   stays open retitled on failure. Outside Herdr the same setup runs headless
-   (`pipe`); no error, no configuration change.
+   callee's slug plus a per-launch `#<id>` suffix in the current workspace
+   and closes itself on success; a failed child's tab stays open but is not
+   retitled (companion v0.1.0; the retitle is deferred with §Open questions
+   item 5). Outside Herdr the same setup runs headless (`pipe`); no error, no
+   configuration change.
 4. Optional pinning, `~/.pi/agent/settings.json`:
 
    ```json
@@ -327,7 +332,7 @@ interface SubagentPlacementRequest {
   readonly args: readonly string[];   // assembled by assembleSubagentArgv, unchanged (+ --theta-launch, §2)
   readonly cwd: string;
   readonly env: Readonly<Record<string, string | undefined>>; // the composed child env (§2: control plane also in the launch file)
-  readonly label: string;             // "<slug>" or "<slug>#<fn>" (+ short invocation id) for tab titles / --name
+  readonly label: string;             // "<slug>#<id>" or "<slug>#<fn>#<id>" (<id> = the invocation id's first eight hex chars) for tab titles / --name
   readonly presentation: "headless" | "visible"; // §6; drives argv shape (§7)
   readonly launchFile: string;        // parent-private launch file path (§2)
   readonly context: { readonly invokeDepth: number; readonly parallel: boolean };
@@ -459,20 +464,31 @@ A backend shipped by another extension registers through Pi's shared event
 bus under a versioned protocol — the shape pi-herdr-agents already uses for
 role packs (`pi-herdr-subagents:roles:discover:v1`):
 
-- **Discover (pi-theta → backends).** At `session_start` and after each
-  reload pi-theta emits `pi-theta:subagent-placement:discover:v1` with payload
+- **Discover (pi-theta → backends).** At every compose pass — `session_start`
+  and each hot-reload re-compose — pi-theta emits
+  `pi-theta:subagent-placement:discover:v1` with payload
   `{ apiVersion: 1, register(backend: SubagentPlacementBackend): void }`.
-  Listeners call `register` synchronously.
-- **Offer (backend → pi-theta).** A backend that loads after pi-theta emits
-  `pi-theta:subagent-placement:offer:v1` with `{ apiVersion: 1, backend }`;
-  pi-theta subscribes in its factory body. Both directions make registration
-  order-independent.
-- Every subscription is released on `session_shutdown` (the bus is per
-  process; a stale handler from a removed package must not survive `/reload`).
+  Listeners call `register` synchronously; a listener's throw is logged by
+  Pi's bus (which wraps handlers) and is never seen by pi-theta's compose
+  pass on Pi ≥ 0.80.
+- **Offer (backend → pi-theta).** A backend that comes into existence after
+  a compose pass emits `pi-theta:subagent-placement:offer:v1` with
+  `{ apiVersion: 1, backend }`; pi-theta subscribes in its factory body. Both
+  directions make registration order-independent. The companion registers by
+  calling `register(backend)` on each discover event and does not use the
+  offer direction (the offer channel remains for backends that need it).
+- Every subscription is released on `session_shutdown`: the bus belongs to
+  the resource loader — new on `/new`/`/resume`/`/fork`, reused across
+  `/reload` — so a stale handler from a removed package would survive
+  `/reload` if it were not released.
 - pi-theta validates the object structurally (name pattern, `priority` a
-  finite number, `detect`/`place` functions); a malformed or duplicate
-  registration is dropped with `theta/load/subagent-placement-invalid` (W)
-  and the remaining backends stand.
+  finite number, `detect`/`place` functions). Re-registering the identical
+  backend object under its already-registered name is a silent no-op
+  (0.477.0), so a listener that answers every compose pass's discover with
+  the same object is conformant; a malformed registration, or a different
+  object under a registered name, is dropped with
+  `theta/load/subagent-placement-invalid` (W) and the remaining backends
+  stand.
 - Types are published from the package (`@bitmonk8/pi-theta` ships `src/`);
   the `apiVersion` gates shape changes.
 
@@ -480,16 +496,23 @@ role packs (`pi-herdr-subagents:roles:discover:v1`):
 same class as the RFC 0010 UI sinks): absent, the discover/offer channels do
 not exist and only `pipe`/`exec` are selectable; nothing refuses to load.
 
-**The Herdr backend** (non-normative sketch; §Packaging for where it lives):
-`detect()` = the four `HERDR_*` variables present (pi-config's `herdrEnv`);
-`place()` = `herdrRequest("layout.apply", { workspace_id, tab_label: label,
+**The Herdr backend** (non-normative sketch; §Packaging for where it lives;
+shipped 2026-09-16 — §Implementation record item 17): `detect()` = the four
+`HERDR_*` variables present (pi-config's `herdrEnv`); `place()` = one
+`herdrRequest("layout.apply", { workspace_id, tab_label: label,
 focus: false, root: { type: "pane", command: [execPath, ...args], cwd, env }
-})`, handle = `firstPaneId(result.layout.root)`; `kill()` = `pane.close`;
-optionally `pane.report_metadata { display_agent: label }` and, on `Err`,
-`pane.rename "FAILED <label>"`. Capabilities `{ observesExit: false,
-inheritsEnv: true, visible: true }`. The result channel and launch file are
-pi-theta's; pi-config's own TCP scaffolding and embedded child are not
-involved.
+})`, handle = `firstPaneId(result.layout.root)`; `kill()` = `pane.close`.
+Capabilities `{ observesExit: false, inheritsEnv: true, visible: true }` —
+`observesExit: false` is required, not cosmetic: teardown awaits `onExit` up
+to the 30 s dispose budget and then kills (`runSubagentChildTeardown`,
+`src/runtime/subagent-isolation.ts`), so a backend reporting real pane exits
+would have a lingering `Err` pane killed 30 s after its envelope. The
+`pane.report_metadata { display_agent: label }` and on-`Err`
+`pane.rename "FAILED <label>"` cosmetics are unreachable from the seam — the
+backend sees `place()` and `kill()`, never the outcome — and are deferred
+with §Open questions item 5, which needs an additive outcome hook. The result
+channel and launch file are pi-theta's; pi-config's own TCP scaffolding and
+embedded child are not involved.
 
 ### 6. Selection and policy
 
@@ -557,8 +580,8 @@ The child runtime, on the visible presentation from the launch file:
   `ctx.shutdown()` (documented: interactive mode defers shutdown until idle),
   so the process exits and the pane closes;
 - on `Err` writes the envelope and **does not** shut down — the pane lingers
-  with the live session for a human to read or continue (the backend may
-  retitle it);
+  with the live session for a human to read or continue (a backend retitle
+  needs the outcome hook deferred with §Open questions item 5);
 - keeps `--no-session` unless the backend declares `persistSession: true`,
   which omits it and gives the operator a resumable session file. The parent
   never reads the child's session, so theta semantics are unchanged either
@@ -684,12 +707,14 @@ warm child pool is the mitigation if it ever matters (§Open questions, item
 *Decision (D5):* a **companion package**, `@bitmonk8/pi-theta-herdr`, that
 owns the Herdr client factored out of pi-config's verified transport code
 (`herdrEnv`, `herdrRequest`, `firstPaneId`, the `layout.apply` /
-`pane.close` / `pane.rename` calls), depends on nothing but `node:net`, and
-registers the theta placement backend over §5. pi-config **imports that
-client back** for its own model-facing subagent tool, so one Herdr client
-serves both consumers and the version quirks are fixed in one place. The
-package versions independently against the registration protocol's
-`apiVersion`.
+`pane.close` / `pane.rename` calls), depends on nothing but Node built-ins
+(`node:net`, `node:crypto`), and registers the theta placement backend over
+§5. pi-config **imports that client back** for its own model-facing subagent
+tool, so one Herdr client serves both consumers and the version quirks are
+fixed in one place. The package versions independently against the
+registration protocol's `apiVersion`. Shipped 2026-09-16 as v0.1.0,
+git-distributed (`pi install git:github.com/bitmonk8/pi-theta-herdr`; not
+published to npm) — §Implementation record items 17–18.
 
 Why not inside pi-theta: (a) Herdr is a moving target with version-specific
 quirks (pi-herdr branches on four Herdr versions; Windows is an upstream
@@ -714,8 +739,15 @@ registration protocol's constants live in
 `PLACEMENT_DISCOVER_CHANNEL` (`pi-theta:subagent-placement:discover:v1`),
 `PLACEMENT_OFFER_CHANNEL` (`pi-theta:subagent-placement:offer:v1`),
 `PLACEMENT_REGISTRATION_API_VERSION` (`1`). A companion subscribes to the
-discover channel in its own factory body and answers each discover event with
-one `{ apiVersion, backend }` offer (§5).
+discover channel in its own factory body; the companion registers by calling
+`register(backend)` on each discover event and does not use the offer
+direction (the offer channel remains for backends that need it — §5).
+Importing the seam types type-checks pi-theta's TypeScript source closure,
+including its Pi SDK imports (the hops are `import type`, so the runtime
+closure stays small): a companion's `tsc` run needs pi-theta's SDK peers
+resolvable at pi-theta's own pin — the shipped companion carries them as
+devDependencies and imports no pi-theta value at runtime. Narrowing that
+type closure to a leaf module is a recorded pi-theta follow-up.
 
 ## Alternatives considered
 
@@ -894,7 +926,7 @@ unchanged.
 | `docs/spec_topics/pi-integration-contract/runtime-event-channel.md` | system-note templates | One new `theta-system-note` template for the credential-guard fallback (§6); existing channel, no new diagnostic code. |
 | `docs/spec_topics/pi-integration-contract/host-interfaces-core.md` | [model-registry surface](../spec_topics/pi-integration-contract/host-interfaces-core.md#model-registry-pin) | `getProviderAuthStatus(provider): AuthStatus` joins the consumed `ModelRegistry` members; `AuthStatus.source` pinned as a consumption posture (re-audited per Pi bump). |
 | `docs/rfcs/0001-subagent-fn.md`, `0009-per-call-subagent-cwd.md` (Erratum B), `0006-…`, `0010-…`, `0011-session-control-tools.md` (sequencing, D2) | — | Cross-notes. |
-| pi-config `docs/reference/herdr-mux-transport.md`, `extensions/subagent/` | Phase 2 | The Herdr client moves to `@bitmonk8/pi-theta-herdr` and pi-config imports it (D5; outside this repository). |
+| pi-config `docs/reference/herdr-mux-transport.md`, `extensions/subagent/` | Phase 2 — landed 2026-09-16 | The Herdr client lives in `@bitmonk8/pi-theta-herdr` (`src/herdr-client.ts`) and pi-config imports `herdrEnv` / `herdrRequest` / `firstPaneId` back (D5; outside this repository; pi-config commits `def1eca`, `2d6ffb0`, `e3a8aa7` — §Implementation record items 17–18). |
 
 ## Testing strategy
 
@@ -1061,6 +1093,99 @@ authoritative and this list records the delta:
     untyped seat) is gone with D4. The forced respond dispatch keeps it, and
     bug 0182's live witness rides that seat
     (`tests/live/off-session-overflow-classification.test.ts`).
+17. **Phase 2 — companion shipped (2026-09-16).** `@bitmonk8/pi-theta-herdr`
+    v0.1.0: GitHub `bitmonk8/pi-theta-herdr`, public, licensed Apache-2.0 OR
+    MIT with the licence files copied from pi-theta; commits `72f9268`
+    (scaffold) → `b18de11` (red suite) → `4fd5ee3` (implementation) →
+    `84bca80` (real-Herdr verification + live rows) → `006502b` (review
+    fixes). Offline suite 90 tests across 8 files green, `npm run typecheck`
+    clean; the opt-in `npm run test:herdr` suite (6 rows) is green inside a
+    Herdr pane and throws loudly at module level outside one. As shipped:
+    runtime dependencies `node:net` + `node:crypto` only — pi-theta is
+    imported `import type`-only and the protocol literals
+    (`pi-theta:subagent-placement:discover:v1`,
+    `pi-theta:subagent-placement:offer:v1`, apiVersion 1) are carried
+    locally, pinned equal to pi-theta's exports by a conformance test;
+    backend `name: "herdr"`, `priority: 50`; `detect()` = the four `HERDR_*`
+    variables; `place()` = one `layout.apply` `{ workspace_id, tab_label:
+    label, focus: false, root: { type: "pane", command: [execPath, ...args],
+    cwd, env } }` with `env` = the full string-valued `request.env` minus
+    `HERDR_*` (operator decision D4 — `inheritsEnv: true` by construction);
+    handle = `firstPaneId(layout.root)`; `kill()` = `pane.close` with errors
+    swallowed; capabilities `{ observesExit: false, inheritsEnv: true,
+    visible: true }`, `observesExit: false` being required by teardown (§5).
+    Registration is discover-only with a once-per-session latch reset at
+    `session_shutdown` and no offer emission (companion decision D8): before
+    item 21, a listener re-registering on every compose pass's discover drew
+    the duplicate W, because the registry clears only at `session_shutdown`.
+    One operator-accepted client delta (companion decision D2): a valid-JSON
+    non-object first line rejects as `unparseable` instead of throwing out of
+    the socket listener.
+18. **Phase 2 — pi-config rewire (2026-09-16).** pi-config commits `def1eca`
+    (pi-theta 0.474.0 → 0.476.0), `2d6ffb0` (the companion added as a
+    dependency plus the `pi.extensions` entry
+    `node_modules/@bitmonk8/pi-theta-herdr/extensions`) and `e3a8aa7`
+    (`extensions/subagent/index.ts` imports `herdrEnv` / `herdrRequest` /
+    `firstPaneId` from `@bitmonk8/pi-theta-herdr/src/herdr-client.ts`, the
+    local copies removed, zero call-site changes; pi-config
+    `docs/reference/herdr-mux-transport.md` records the move). The
+    model-facing subagent tool was re-verified opening and closing a Herdr
+    tab afterwards.
+19. **Phase 2 — real-Herdr smoke (2026-09-16; Herdr 0.8.0, API protocol 20,
+    pi 0.85.1, Windows named pipe).** With `auto` and no settings, `par for`
+    children appeared as tabs ≈4 s after launch (window title `π - <label> -
+    <project>`; tab label = the callee's slug on the then-current 0.476.0 —
+    item 22 adds the id suffix); `Ok` tabs closed by themselves ≈8 s later
+    (the child's `ctx.shutdown()`); the `Err` tab lingered with the live TUI
+    past the parent's exit and the 30 s budget; the env overlay reached the
+    child. `PI_THETA_SUBAGENT_PLACEMENT=pipe` opened no tabs. Pinned `herdr`
+    outside Herdr refused with `theta/load/subagent-placement-unavailable` —
+    reason `the backend is not detected in this environment` with the
+    companion loaded, `no registered backend has this name` without — and
+    callable launches failed as `Err invoke_infra`.
+20. **OQ5 disposition (2026-09-16): deferred.** Herdr's own agent tracking
+    did not detect the theta children during the smoke (`agent: null`), and
+    companion v0.1.0 reports nothing to Herdr and does not retitle a failed
+    pane. The recorded options are an additive outcome hook on the seam that
+    lets the companion report on the child's behalf, or the child issuing
+    `pane.report_agent` itself. §Open questions item 5 remains open.
+21. **Registry idempotence (0.477.0, 2026-09-16).** Re-registering the
+    identical backend object under its name is a silent no-op; a different
+    object keeps the W, reworded `a different backend is already registered
+    under this name` (`PlacementRegistry.register`,
+    `src/runtime/subagent-placement-registry.ts`). Resolves the companion
+    review's P1/F1: discover fires per compose pass while the registry clears
+    only at `session_shutdown`, so a conformant answer-every-discover
+    listener drew the W on every hot-reload. The companion's once-per-session
+    latch (item 17) is now redundant but harmless.
+22. **Label invocation-id suffix (0.477.0, 2026-09-16).** §1's "short
+    invocation id" is implemented: the label is `<slug>#<id8>` /
+    `<slug>#<fn>#<id8>`, `<id8>` = the first eight hex characters of the
+    PIC-20 invocation id, appended at the bind choke point
+    (`src/extension/production-theta-producer.ts`). Resolves the companion
+    review's F4 (fan-out siblings shared one tab title).
+23. **Scope drift, recorded.** The implementation kickstart narrowed scope to
+    pi-theta and did not schedule the companion, which left Phase 2 open from
+    0.475.0 (2026-09-15) until 2026-09-16.
+
+Follow-ups observed 2026-09-16 in a subagent child, recorded here and not
+resolved:
+
+- Inside a subagent child process, a prompt-mode theta listing
+  `theta_progress` in `tools:` draws `theta/load/unknown-tool: unknown Pi
+  tool 'theta_progress'` at load. Defect — a bug report is owed: the
+  registration is regime-independent (`registerThetaProgressTool`, called
+  from the factory body whenever `pi.registerTool` exists — `factory.ts`),
+  but the child host, launched with the PIC-58 defence-in-depth `--tools`
+  allowlist derived from the callee's callable set, filters
+  extension-registered tools through that allowlist (`_refreshToolRegistry`,
+  Pi `dist/core/agent-session.js`), so the name is absent from the child's
+  `pi.getAllTools()` admission snapshot — contradicting EXST-13's premise
+  that the snapshot already carries the name.
+- `theta/load/binder-model-unresolved` for a typed-query theta with no
+  `bind_model:` while `theta.binderModel` is unset is the registry's designed
+  load refusal (`docs/spec_topics/diagnostics/code-registry-load.md`);
+  expected behaviour, recorded only.
 
 ## Prior art in this repository
 
