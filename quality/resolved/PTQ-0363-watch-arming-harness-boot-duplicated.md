@@ -2,7 +2,7 @@
 id: PTQ-0363
 title: b0339's Harness/makeHarness/boot session_start-firing trio redeclares b0310's, a piece PTQ-0236's shared-helper extraction left unshared
 lens: D7                     # D2 | D4 | D7 | D8 | D9 - the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - tests/b0339-package-source-watch-arming.test.ts:83-130

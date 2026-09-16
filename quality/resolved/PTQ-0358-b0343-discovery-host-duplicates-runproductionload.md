@@ -2,7 +2,7 @@
 id: PTQ-0358
 title: b0343's makeDiscoveryHost/runDiscovery reimplements the canonical runProductionLoad fake host instead of importing tests/helpers/production-load-harness.ts
 lens: D7                     # D2 | D4 | D7 | D8 | D9 - the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - tests/b0343-proto-hash-carrier-row.test.ts:74-112

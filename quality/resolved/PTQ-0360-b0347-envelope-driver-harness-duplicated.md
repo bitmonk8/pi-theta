@@ -2,7 +2,7 @@
 id: PTQ-0360
 title: b0347 redeclares the envelopeLine/tick/driveDeps subagent-driver harness trio that b0294 and subagent-json-driver.test.ts already carry, byte-identical apart from one comment
 lens: D7                     # D2 | D4 | D7 | D8 | D9 - the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - tests/b0347-subagent-leg-propagated-mintable-wrapped-unit.test.ts:120-146

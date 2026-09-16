@@ -2,7 +2,7 @@
 id: PTQ-0377
 title: b0380's cell (K) is titled CONTROL though the file's own overview and the bug doc classify it as a RED witness alongside A/B/C/J
 lens: D7                     # D2 | D4 | D7 | D8 | D9 - the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - tests/b0380-params-key-not-identifier.test.ts:16-20

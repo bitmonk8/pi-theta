@@ -2,7 +2,7 @@
 id: PTQ-0369
 title: attachChildActivityTap bundles ordinary child-event classification with the reserved-key theta_progress acceptance state machine
 lens: D9                     # D2 | D4 | D7 | D8 | D9 - the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - src/extension/execution-status/child-tap.ts:74-210

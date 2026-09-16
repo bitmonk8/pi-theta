@@ -2,7 +2,7 @@
 id: PTQ-0368
 title: checkThetaImports still bundles six sequential import-subsystem concerns at 875 LOC after Seam A's extraction landed
 lens: D9                     # D2 | D4 | D7 | D8 | D9 - the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - src/extension/import-static-checks.ts:905-1779

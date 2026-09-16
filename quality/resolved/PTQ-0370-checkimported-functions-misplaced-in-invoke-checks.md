@@ -2,7 +2,7 @@
 id: PTQ-0370
 title: invoke-static-checks.ts's four checkImported* functions have zero in-file callers; their sole affinity is checkThetaImports in import-static-checks.ts
 lens: D9                     # D2 | D4 | D7 | D8 | D9 - the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - src/extension/invoke-static-checks.ts:1515-1518

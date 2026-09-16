@@ -2,7 +2,7 @@
 id: PTQ-0361
 title: b0328 and b0329 hand-roll the identical mkdtemp/mkdir/settings-write workspace beforeEach that compose-workspace-harness.ts's finishWorkspace already centralises
 lens: D7                     # D2 | D4 | D7 | D8 | D9 - the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - tests/b0328-root-closure-hash-marshalled.test.ts:149-161
