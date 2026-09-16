@@ -163,11 +163,11 @@ import {
 import { createPassVerdictMemo, type PassVerdictDeps } from "./pass-verdict-memo";
 import { checkTypedQueryProviderSupport } from "../binder/provider-error-mapping";
 import {
-  parseToolsEntry,
   resolveCallableSet,
   type CallableSetDeps,
   type CallableSetSnapshot,
 } from "../parser/callable-set";
+import { admissibleToolsSpec } from "./tools-entry-gate";
 import { RUNTIME_TOOL_SIGNATURES, type RuntimeToolName } from "../parser/runtime-tools";
 import { checkCalleeHasErrors, checkInvokeExtension } from "../parser/invoke-diagnostics";
 import { canonicalForm, schemaSlug, toLoweredJsonValue } from "../parser/schema-lowering";
@@ -2655,14 +2655,9 @@ async function resolveThetaToolsAtLoad(
   // rule has already condemned is not this loop's subject either.
   const calleeCache = new Map<string, CalleeParse>();
   for (const entry of toolsList) {
-    if (parseToolsEntry(entry.trim()).kind !== "ok") {
-      continue;
-    }
-    const spec = toolsEntrySpec(entry);
+    const spec = admissibleToolsSpec(entry, calleeCache);
     if (
-      spec.length > 0 &&
-      !isBareToolName(spec) &&
-      !calleeCache.has(spec) &&
+      spec !== undefined &&
       checkInvokeExtension({ literalPath: spec, site: { file: parsed.sourcePath } })
         .length === 0
     ) {
@@ -2897,32 +2892,6 @@ async function attachLoadTimeClosureHashes(
     }
   }
   return mutated ? Object.freeze({ entries }) : snapshot;
-}
-
-/**
- * Extract one `tools:` entry's callable spec (the token before an optional
- * `as <name>` rename). A PURE first-token projection — it applies no grammar
- * decision itself and returns `parts[0]` for any token count, malformed input
- * included. Grammar-free by design: EVERY caller gates on `parseToolsEntry`
- * before calling this function (bug 0248 §Fix (a)/(b)), so a malformed token
- * sequence never reaches this projection at either depth — the pre-parse
- * callee-cache loop in `resolveThetaToolsAtLoad` (above) and
- * `checkNestedToolsContainment` (below) share the one gate. A reader must not
- * take this function's tolerance for a lock-step gap; the gate, not this
- * projection, decides what a malformed entry means.
- */
-function toolsEntrySpec(entry: string): string {
-  const parts = entry.trim().split(/\s+/).filter((p) => p.length > 0);
-  return parts[0] ?? "";
-}
-
-/**
- * Whether a `tools:` spec is a bare Pi-tool name (identifier-shaped, no path
- * separator or `.theta` extension) rather than a `.theta` path literal — the same
- * routing `resolveCallableSet` applies internally.
- */
-function isBareToolName(spec: string): boolean {
-  return /^[A-Za-z_][A-Za-z0-9_]*$/.test(spec);
 }
 
 /**
@@ -3450,11 +3419,8 @@ async function calleeFailsOwnStructuralChecksBody(
   // fold below, so every caller above that immediate one sees it.
   let ownEscapes = false;
   for (const entry of toolsList) {
-    if (parseToolsEntry(entry.trim()).kind !== "ok") {
-      continue;
-    }
-    const spec = toolsEntrySpec(entry);
-    if (spec.length === 0 || isBareToolName(spec) || readable.has(spec)) {
+    const spec = admissibleToolsSpec(entry, readable);
+    if (spec === undefined) {
       continue;
     }
     const nestedAbsolute = isAbsolute(spec) ? spec : resolvePath(calleeDir, spec);
@@ -3786,11 +3752,8 @@ async function probeNestedToolsContainment(
   const calleeDir = dirname(calleeAbsolutePath);
   const results = new Map<string, LoadTimeInvokePathResult>();
   for (const entry of calleeTools) {
-    if (parseToolsEntry(entry.trim()).kind !== "ok") {
-      continue;
-    }
-    const spec = toolsEntrySpec(entry);
-    if (spec.length === 0 || isBareToolName(spec) || results.has(spec)) {
+    const spec = admissibleToolsSpec(entry, results);
+    if (spec === undefined) {
       continue;
     }
     const nestedAbsolute = isAbsolute(spec) ? spec : resolvePath(calleeDir, spec);
@@ -3849,9 +3812,9 @@ async function checkNestedToolsContainment(
   const escapes: Diagnostic[] = [];
   const judged = new Set<string>();
   for (const entry of calleeTools) {
-    // Bug 0248 §Fix (a): gate on `parseToolsEntry` BEFORE `toolsEntrySpec`,
-    // the same three lines in the same position as the depth-0 cache loop in
-    // `resolveThetaToolsAtLoad` above. `theta/load/invoke-path-escape`'s
+    // Bug 0248 §Fix (a) / PTQ-0382: gate via the shared `admissibleToolsSpec`
+    // (`tools-entry-gate.ts`) — the same gate the depth-0 cache loop in
+    // `resolveThetaToolsAtLoad` above calls. `theta/load/invoke-path-escape`'s
     // *Trigger* (code-registry-load.md:35) names "a `tools:` `.theta` entry"
     // as its admitted subject, and a malformed token sequence is not an entry
     // of either admitted kind (frontmatter-fields-a.md:88) at either depth —
@@ -3861,11 +3824,8 @@ async function checkNestedToolsContainment(
     // file when it is discovered in its own right, so no input loses its
     // refusal — this gate only stops the caller from ALSO refusing it under
     // the wrong *Trigger*.
-    if (parseToolsEntry(entry.trim()).kind !== "ok") {
-      continue;
-    }
-    const spec = toolsEntrySpec(entry);
-    if (spec.length === 0 || isBareToolName(spec) || judged.has(spec)) {
+    const spec = admissibleToolsSpec(entry, judged);
+    if (spec === undefined) {
       continue;
     }
     judged.add(spec);

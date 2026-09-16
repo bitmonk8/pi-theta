@@ -90,12 +90,14 @@ import {
   type ImportDecl,
   type SchemaDecl,
   type SchemaFieldSource,
+  type Stmt,
   type ThetaBody,
   type ThetaDocument,
 } from "../parser/theta-document";
 import { collectUnresolvedNamedTypes } from "../parser/body-type-lowering";
 import { collectLocalBinderNames } from "../parser/type-layer-checks";
 import { parseViaPassCache, type PassParseDeps } from "./pass-parse-cache";
+import { resolveAndParseThetaLibReference } from "./thetalib-load-parse";
 import {
   toSystemParamType,
   type FrontmatterBodyTypes,
@@ -188,11 +190,28 @@ function enumsOf(body: ThetaBody, resolvedPath: string): EnumRegistration[] {
   return out;
 }
 
+/**
+ * The three `.thetalib` top-level statement kinds imports.md's permitted-forms
+ * list (§"`.thetalib` file rules") admits as declarable/exportable — `schema`,
+ * `enum`, `fn` (the list's other two admitted forms, `import` and `export`,
+ * never declare a symbol). The one place in this file that spells out the
+ * three-kind test; every other site below that needs to recognise one of
+ * these three kinds reads through this type or its guard,
+ * `isThetaLibDeclarationStmt`, instead of re-testing `stmt.kind` against the
+ * three literals itself.
+ */
+type ThetaLibDeclarationStmt = SchemaDecl | FnDecl | EnumDecl;
+
+/** Type guard for {@link ThetaLibDeclarationStmt}. */
+function isThetaLibDeclarationStmt(stmt: Stmt): stmt is ThetaLibDeclarationStmt {
+  return stmt.kind === "schema" || stmt.kind === "fn" || stmt.kind === "enum";
+}
+
 /** The importing file's top-level declaration names (the collision-check arm). */
 function collectTopLevelNames(body: ThetaBody): string[] {
   const names: string[] = [];
   for (const stmt of body.statements) {
-    if (stmt.kind === "schema" || stmt.kind === "enum" || stmt.kind === "fn") {
+    if (isThetaLibDeclarationStmt(stmt)) {
       names.push(stmt.name);
     }
   }
@@ -341,7 +360,7 @@ function extractThetaLibForms(body: ThetaBody): ThetaLibModuleForms {
   const reExports: ReExportSpecifier[] = [];
   const plainImports: ImportSpecifier[] = [];
   for (const stmt of body.statements) {
-    if (stmt.kind === "schema" || stmt.kind === "enum" || stmt.kind === "fn") {
+    if (isThetaLibDeclarationStmt(stmt)) {
       declarations.push({ kind: stmt.kind, name: stmt.name });
     } else if (stmt.kind === "export") {
       for (const specifier of stmt.specifiers) {
@@ -375,6 +394,19 @@ function extractThetaLibForms(body: ThetaBody): ThetaLibModuleForms {
   }
   return { declarations, reExports, plainImports };
 }
+
+/**
+ * Completeness ledger for `materializeSymbol`'s per-kind `if`-chain below:
+ * each key names one kind that chain's own return-shape logic handles by
+ * hand (its per-kind result shape is the behaviour, so it does not switch
+ * through {@link isThetaLibDeclarationStmt}). `satisfies` fails `tsc` the
+ * moment {@link ThetaLibDeclarationStmt} gains a kind not also listed here.
+ */
+const MATERIALIZE_SYMBOL_DECLARATION_KINDS = {
+  fn: true,
+  schema: true,
+  enum: true,
+} satisfies Record<ThetaLibDeclarationStmt["kind"], true>;
 
 /**
  * Materialise one imported symbol from the resolved `.thetalib`'s body into a
@@ -451,7 +483,7 @@ function isRegistrationError(diagnostic: Diagnostic): boolean {
  * (via `precache`) before each `resolve` call — the byte-for-byte enumeration
  * IMP-1 requires, without a synchronous filesystem call.
  */
-class CachingThetaLibProbe implements ThetaLibDirectoryProbe {
+export class CachingThetaLibProbe implements ThetaLibDirectoryProbe {
   /** Parent dir (forward-slash) → its byte-exact entry names, or `null` when unreadable. */
   private readonly entriesCache = new Map<string, readonly string[] | null>();
   /** `${dir}\u0000${name}` → whether the byte-exact entry is readable. */
@@ -529,7 +561,7 @@ class CachingThetaLibProbe implements ThetaLibDirectoryProbe {
 }
 
 /** A parsed `.thetalib` module, cached per resolved path across the load pass. */
-interface ParsedThetaLib {
+export interface ParsedThetaLib {
   readonly document: ThetaDocument;
 }
 
@@ -896,6 +928,20 @@ async function resolveReExportClosure(
 
   return diagnostics;
 }
+
+/**
+ * Completeness ledger for the per-kind `.find()` lookups inside
+ * `collectImportedSpecifierFacts`'s per-specifier loop below (`schemaDecl` /
+ * `fnDecl` / `enumDecl`): each key names one of those three lookups, whose
+ * own result shape is the behaviour (so it does not switch through
+ * {@link isThetaLibDeclarationStmt}). `satisfies` fails `tsc` the moment
+ * {@link ThetaLibDeclarationStmt} gains a kind not also listed here.
+ */
+const IMPORTED_SPECIFIER_DECLARATION_KINDS = {
+  schema: true,
+  fn: true,
+  enum: true,
+} satisfies Record<ThetaLibDeclarationStmt["kind"], true>;
 
 /**
  * Bug 0138 route 2 / bug 0429 / bug 0430 / bug 0448 / bug 0465 route (PTQ-0334's
@@ -1460,24 +1506,23 @@ export async function checkThetaImports(
       if (stmt.kind !== "import" || !stmt.path.endsWith(".thetalib")) {
         continue;
       }
-      await probe.precache(stmt.path, resolvedPath);
-      const load = loadThetaLibImport(resolver, stmt.path, resolvedPath, {
-        file: resolvedPath,
-        range: stmt.range,
-      });
-      if (!load.registered || load.resolvedPath === undefined) {
-        continue;
-      }
-      const sourceParsed = await parseThetaLib(load.resolvedPath);
-      if (sourceParsed === undefined) {
+      const resolved = await resolveAndParseThetaLibReference(
+        stmt.path,
+        stmt.range,
+        resolvedPath,
+        probe,
+        resolver,
+        parseThetaLib,
+      );
+      if (resolved === undefined) {
         continue;
       }
       for (const specifier of stmt.specifiers) {
         const materialized = await materializeChain(
           specifier.source,
           specifier.local,
-          load.resolvedPath,
-          sourceParsed.document.body,
+          resolved.resolvedPath,
+          resolved.parsed.document.body,
           callingFrontmatter,
           new Set<string>(),
         );
@@ -1542,23 +1587,22 @@ export async function checkThetaImports(
       if (reExport.exported !== source || !reExport.fromPath.endsWith(".thetalib")) {
         continue;
       }
-      await probe.precache(reExport.fromPath, resolvedPath);
-      const load = loadThetaLibImport(resolver, reExport.fromPath, resolvedPath, {
-        file: resolvedPath,
-        range: reExport.range,
-      });
-      if (!load.registered || load.resolvedPath === undefined) {
-        continue;
-      }
-      const sourceParsed = await parseThetaLib(load.resolvedPath);
-      if (sourceParsed === undefined) {
+      const resolved = await resolveAndParseThetaLibReference(
+        reExport.fromPath,
+        reExport.range,
+        resolvedPath,
+        probe,
+        resolver,
+        parseThetaLib,
+      );
+      if (resolved === undefined) {
         continue;
       }
       const materialized = await materializeChain(
         reExport.source,
         local,
-        load.resolvedPath,
-        sourceParsed.document.body,
+        resolved.resolvedPath,
+        resolved.parsed.document.body,
         callingFrontmatter,
         visited,
       );
@@ -1732,16 +1776,15 @@ export async function checkThetaImports(
       if (stmt.kind !== "import" || !stmt.path.endsWith(".thetalib")) {
         continue;
       }
-      await probe.precache(stmt.path, libResolvedPath);
-      const load = loadThetaLibImport(resolver, stmt.path, libResolvedPath, {
-        file: libResolvedPath,
-        range: stmt.range,
-      });
-      if (!load.registered || load.resolvedPath === undefined) {
-        continue;
-      }
-      const sourceParsed = await parseThetaLib(load.resolvedPath);
-      if (sourceParsed === undefined) {
+      const resolved = await resolveAndParseThetaLibReference(
+        stmt.path,
+        stmt.range,
+        libResolvedPath,
+        probe,
+        resolver,
+        parseThetaLib,
+      );
+      if (resolved === undefined) {
         continue;
       }
       diagnostics.push(
@@ -1749,7 +1792,7 @@ export async function checkThetaImports(
           libResolvedPath,
           stmt.path,
           stmt.specifiers,
-          computeThetaLibExports(extractThetaLibForms(sourceParsed.document.body)),
+          computeThetaLibExports(extractThetaLibForms(resolved.parsed.document.body)),
         ),
       );
     }
