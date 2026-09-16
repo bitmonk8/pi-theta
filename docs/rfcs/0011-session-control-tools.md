@@ -1,6 +1,7 @@
 # RFC 0011 — Session-control tools: `compact`, `context_usage`, `session_name`
 
-- **Status:** draft
+- **Status:** accepted (implemented 2026-09-16, shipped in 0.476.0; see
+  §Implementation record)
 - **Scope:** theta 1.x language surface (governed by
   [`../spec_topics/governance/release-version-naming.md`](../spec_topics/governance/release-version-naming.md));
   callable-set surface only — no grammar change, no new reserved keyword
@@ -50,7 +51,8 @@ tools: read, compact, context_usage, session_name, theta_progress
 ```theta
 session_name("fix-loop " + plan_path)
 let plan = read({ path: plan_path })?
-for wave in plan.split("\n") {
+let waves: array<string> = plan.split("\n")
+for wave in waves {
   @`Apply this step of the plan and report what changed: ${wave}`?
   let usage = context_usage()?
   if usage.percent > 60 {
@@ -101,8 +103,10 @@ read after each wave's query, never immediately after `compact` — see §3.)
 
 ## Raw material (verified pins)
 
-Verified against the installed `@earendil-works/pi-coding-agent` 0.85.1 and
-this tree; the theta build pin is `~0.80.10`
+Drafted against the installed `@earendil-works/pi-coding-agent` 0.85.1;
+re-verified against the build pin `~0.80.10` during Phase 2A, with the
+corrections folded in below and recorded in §Implementation record. The theta
+build pin is `~0.80.10`
 ([Host prerequisites — Pi SDK pin](../spec_topics/pi-integration-contract/host-prerequisites.md#pi-sdk-pin)).
 
 - **`/compact` and `ctx.compact` are one method.** The TUI's `/compact`
@@ -121,11 +125,19 @@ this tree; the theta build pin is `~0.80.10`
   string to the model as a user prompt.
 - **`AgentSession.compact` semantics.** (a) It begins with
   `await this.abort()` — a no-op when idle, a kill of any in-flight run
-  otherwise. (b) While it runs, `isIdle` is false and `prompt()` throws
-  `Cannot submit a prompt while compaction is in progress`. (c) It throws
+  otherwise. (b) At the build pin `prompt()` gates on `isStreaming`, not on compaction
+  (the literal `Cannot submit a prompt while compaction is in progress` does
+  not exist at `~0.80.10`), and `isIdle` stays TRUE during a manual
+  compaction — compaction is not an agent run; AUTO-compaction runs inside
+  the agent run (`_checkCompaction` before `_emitAgentSettled`), so the
+  settle phase's `isIdle` wait covers it. (c) It throws
   `Nothing to compact (session too small)` when the whole branch fits inside
   `keepRecentTokens` (default 20 000) and `Already compacted` when the last
-  entry is a compaction (`prepareCompaction`, `dist/core/compaction/compaction.js`).
+  entry is a compaction (`prepareCompaction`, `dist/core/compaction/compaction.js`), and
+  `Compaction cancelled` on an extension's `session_before_compact` cancel and
+  on the post-summary abort check — arms reachable only on paths that abort
+  the compaction (the user's Escape, an extension cancel), never from a theta
+  abort (§7, Decision log D3).
   (d) It needs a selected model with auth. (e) It runs other extensions'
   `session_before_compact` handlers. (f) Its only per-call knob is
   `customInstructions`. (g) It is **not a reset**: it summarises everything
@@ -183,9 +195,12 @@ this tree; the theta build pin is `~0.80.10`
   ([Parameters and Frontmatter — `tools`](../spec_topics/frontmatter/frontmatter-fields-a.md#frnt-2))
   pins that a `tools:` entry is "one unified declaration serving theta code
   and the model alike".
-- **Corpus scan.** 43 `.theta` + 3 `.thetalib` in this repository and 26 in
-  the operator's pi-config contain no identifier `compact`, `context_usage`,
-  or `session_name` (two hits, both inside comments).
+- **Corpus scan.** 43 `.theta` + 3 `.thetalib` in this repository (tree-wide;
+  the committed-fixture gate's SHIPPED subset — git-indexed, less the
+  seeded-invalid directory — is `EXPECTED_SHIPPED_THETA = 41` at the same
+  commit, a different scope, not a contradiction) and 26 in the operator's
+  pi-config contain no identifier `compact`, `context_usage`, or
+  `session_name` (two hits, both inside comments).
 
 ## Proposal
 
@@ -242,7 +257,13 @@ existing rules with no new machinery:
 - The **return type flows into the call site** statically, the way an
   inferred `.theta`-callee return type does; `let usage = context_usage()?`
   types `usage` as the inline object type in the Summary table, and
-  `usage.percent` is `number`.
+  `usage.percent` is `number`. Realised as a structural flow through the
+  `try` arm (`StaticTypeInferenceDeps.runtimeToolSuccessTypes`,
+  `src/parser/static-type-inference.ts`): `let x = <tool>()?` types `x` as the
+  fixed success payload with structural member access; the bare un-`?`'d call
+  is the nominal `Result<T, QueryError>` and defers direct member access; and
+  `match`-arm bindings stay withheld while [RFC 0008](./0008-match-binding-type-inference.md)
+  is draft.
 - A call-site `with { cwd: … }` clause on a runtime tool is rejected by RFC
   0009's default-reject classification with
   `theta/parse/with-clause-in-process-callee` — the tool runs in-process and
@@ -265,7 +286,13 @@ and the theta does not resume until the session is idle again. An empty or
 whitespace-only `instructions` value maps to an absent `customInstructions`
 (the TUI passes `undefined` for a bare `/compact`; this is the same mapping,
 stated). `Ok` carries `{ summary, tokens_before, tokens_after }` from Pi's
-`CompactionResult` (`summary`, `tokensBefore`, `estimatedTokensAfter`). Every
+`CompactionResult` (`summary`, `tokensBefore`, `estimatedTokensAfter`).
+`estimatedTokensAfter` is optional at the type level; a completed compaction
+whose result carries no estimate is `Err(CodeToolError { cause: "execution",
+tool_name: "compact", message: "compaction completed but the host reported no
+token estimate" })` — the `Ok` record never fabricates a field (unreachable
+live at the build pin, whose manual path always computes the estimate; the
+offline adapter cell drives it with a fake host). Every
 host rejection — `Nothing to compact (session too small)`, `Already compacted`,
 no model, an extension's `session_before_compact` cancel, a provider failure of
 the summary call — is `Err(CodeToolError { cause: "execution", tool_name:
@@ -338,12 +365,18 @@ code-side dispatch, never through PIC-64 host-loop dispatch:
 - `#classifyCall` (`src/extension/production-theta-producer.ts`) gains a
   third verdict, `"runtime-tool"`, routing to a runtime-owned `execute` table
   keyed by the three names.
-- The `execute` receives the same synthesised `ExtensionContext` every
-  code-side call receives — the live host context with `signal`,
-  `sessionManager` and `abort` overridden per the per-mode override table;
-  `compact` and `getContextUsage` are among the members that table already
-  forwards unchanged. `session_name` additionally reads the factory-captured
-  `pi` for `setSessionName` / `getSessionName`.
+- The adapters bind the **composition-scope** `ExtensionContext` and the
+  **factory-captured** `ExtensionAPI` on `Pick`-narrowed structural carriers
+  (`SessionControlCtx` / `SessionControlPi`,
+  `src/runtime/session-control-tools.ts`), threaded as producer input from the
+  composition root (`createProductionProducerDeps`,
+  `src/extension/production-composition.ts`) — the same capture discipline the
+  built-in arm (`resolvePiTool`) and `createProductionHostLoopDispatch` already
+  use, and never a stored bare `ExtensionAPI` non-parameter carrier. No
+  per-mode override object exists in the runtime; the spec's override table is
+  member-forwarding prose, and cancellation rides the dispatch race against
+  `thetaAbort.signal`, not a substituted `ctx.signal`. `session_name` reads the
+  `pi` carrier for `setSessionName` / `getSessionName`.
 - **Both modes, one path.** In prompt mode the retained handle is the user
   session's slash-handler context, so the tools address the user's live
   conversation — which *is* the theta's conversation in prompt mode. In a
@@ -353,11 +386,13 @@ code-side dispatch, never through PIC-64 host-loop dispatch:
   the child's extra `compaction_start` / `compaction_end` JSON events
   ([Subagent — PIC-59](../spec_topics/pi-integration-contract/subagent.md#pic-59)
   ignores every non-reserved-key line).
-- The existing per-call machinery applies unchanged: the `theta-direct:`
-  tool-call id, the swallowing handler attached at construction
-  (`guardToolExecutePromise`, `src/runtime/tool-call-swallowing-handler.ts`),
-  and the late-settlement discard rules
-  ([Cancellation — CNCL-1..3](../spec_topics/cancellation.md#cncl-1)).
+- The existing per-call machinery applies unchanged: the swallowing handler
+  attached at construction (`guardToolExecutePromise`,
+  `src/runtime/tool-call-swallowing-handler.ts`) and the late-settlement
+  discard rules
+  ([Cancellation — CNCL-1..3](../spec_topics/cancellation.md#cncl-1)). No
+  `theta-direct:` tool-call id is minted: the host members take none
+  (Implementation record).
 
 **Load-time host check.** At theta load, a declared runtime tool whose host
 member is absent — `typeof ctx.compact !== "function"`,
@@ -391,10 +426,16 @@ kinds needed a ruling:
   0012; Decision log, D2.)
 
 Rule: a code-side call to a runtime tool anywhere inside a `par for` body is
-the parse error `theta/parse/session-tool-in-isolated-body`, judged at the
-same static pass that classifies callees against the frozen callable set (the
-RFC 0009 `with`-clause classification), so a renamed entry (`compact as c`)
-is caught by resolution, not by spelling. All three tools are covered —
+the parse error `theta/parse/session-tool-in-isolated-body`, judged at parse by the
+shadowing-aware lexical call-site walk (`checkLexicalCallSites`,
+`src/parser/theta-document.ts`) against the frontmatter-derived runtime-tool
+map — extensionally identical to the frozen callable set's `runtime-tool`
+entries for every registered theta — so a renamed entry (`compact as c`) is
+caught by resolution, not by spelling, and the committed-fixture parse gate
+exercises the check. (The RFC 0009 `with`-clause pass iterates a flat
+pre-collected call list that carries no `par for` context and descends into
+`fn` bodies, so it can host neither the body scoping nor the plain-`fn`
+exemption.) All three tools are covered —
 `context_usage` and `session_name` have no interleaving hazard, but "a `par
 for` body has no enclosing conversation to address" is one rule, and admitting
 the read alone would make the body's semantics differ from the enclosing
@@ -412,15 +453,25 @@ the body is judged by the same rule within that child.
 
 ### 7. Cancellation and concurrency
 
-- **Cancellation.** In prompt mode `thetaAbort.abort()` already reaches the
-  raw handler `ctx.abort()`, and `AgentSession.abort` calls
-  `abortCompaction()`: an in-flight theta-triggered compaction is torn down by
-  the chain that exists, and the awaiting `compact` call surfaces
-  `Err(CodeToolError { cause: "cancelled" })` per the tool-call checkpoint
-  rule. In a subagent-root child the parent's cancellation kills the child
-  process ([Subagent — PIC-66](../spec_topics/pi-integration-contract/subagent.md#pic-66));
-  the compaction dies with it. A settlement arriving after the checkpoint
-  surfaced `cancelled` is discarded (CNCL-1..3).
+- **Cancellation (Operator decision 2026-09-16 — Decision log, D3).** A theta
+  abort mid-`compact()` surfaces `Err(CodeToolError { cause: "cancelled" })`
+  at the tool-call checkpoint at once — the dispatch races the adapter
+  Promise against `thetaAbort.signal` — and invokes NO host abort: at the
+  build pin no extension-API path aborts a manual compaction
+  (`AgentSession.abort()` does not call `abortCompaction()`;
+  `abortCompaction` is not an `ExtensionContext` member; `CompactOptions`
+  carries no signal), and theta's raw `ctx.abort()` teardown listener is
+  attached only during a driven query turn, which `compact()` never
+  overlaps. The host compaction is NOT torn down: it completes
+  (`onComplete`) or fails (`onError`) in the background, and that late
+  settlement — of either kind — is discarded (CNCL-1..3). A compaction
+  entry MAY therefore land on the driven session after the theta reported
+  cancelled: a documented cancellation cost, user-visible in the TUI, where
+  the user's Escape still aborts the running compaction. In a subagent-root
+  child the parent's cancellation kills the child process
+  ([Subagent — PIC-66](../spec_topics/pi-integration-contract/subagent.md#pic-66));
+  the compaction dies with it. (§Upstream asks item 4 records the missing
+  host surface.)
 - **Concurrency.** With isolated bodies rejected (§6), the remaining in-process
   concurrency sources cannot reach a runtime tool: prompt-mode bodies are
   sequential ([Conversation drive — PIC-2](../spec_topics/pi-integration-contract/conversation-drive.md#pic-2)),
@@ -432,28 +483,30 @@ the body is judged by the same rule within that child.
   either compacts or observes `Already compacted`. Disabling auto-compaction
   for a phase is not available on the extension API (§Upstream asks).
 
-### 8. Mandatory co-change — the post-compaction transcript readers
+### 8. Co-change discharged by exclusion (bug 0478)
 
-Shipping `compact` requires the `AgentMessage[]` consumers to be total over the
-`compactionSummary` and `branchSummary` roles, which today fall into a `custom`
-fallthrough or violate the leading-`user`-message presupposition:
-
-- `renderMessage` (`src/binder/compact-transcript.ts`) gains explicit arms —
-  proposed rendering `[compaction]: <summary>` and `[branch-summary]:
-  <summary>` — and the turn grouping treats either as a turn opener (it is
-  what the model receives in `user` position).
-- The session-context walk (`src/binder/session-context-walk.ts`) and the
-  prompt-mode trailing-turn extraction (`src/runtime/conversation-drive.ts`,
-  `src/runtime/prompt-transport-mapping.ts`) are audited for the same arm;
-  the extraction anchors on the last `user` message and is unaffected by a
-  leading summary, but the audit is recorded, not assumed.
-- [Host prerequisites — leading-`user`-message guarantee](../spec_topics/pi-integration-contract/host-prerequisites.md#messages-leading-user-message-presupposition)
-  is amended: a non-empty array begins with a `user` message **or** a
-  compaction / branch summary message.
-
-This is a correctness fix independent of the RFC (auto-compaction reaches it
-today) and is listed as mandatory because `compact` turns a rare path into a
-routine one.
+Shipping `compact` makes the compacted-session message shape routine, and the
+`AgentMessage[]` consumers are already total over it: the binder's closed-set
+exclusion (bug 0478, fixed 0.474.0, human-ruled EXCLUDE) drops
+`compactionSummary` / `branchSummary` / `bashExecution` before the truncation
+walk with the closed role-tag set and every BNDR-7 rendering byte unchanged
+(`isTranscriptMessage`, `src/binder/compact-transcript.ts`, applied pre-grouping
+by `src/binder/session-context-walk.ts`); the prompt-mode trailing-turn
+extraction (`extractTrailingTurnText`, `src/runtime/conversation-drive.ts`)
+anchors on the last `user` message and is total over a summary-led list; the
+per-turn settle probe (`turnSliceSince`,
+`src/extension/production-theta-producer.ts`) reads a `turnStart` index left
+above the list length by a mid-flight compaction as un-opened, expiring loudly
+per PIC-70; and the leading-`user`-message presupposition text
+([Host prerequisites](../spec_topics/pi-integration-contract/host-prerequisites.md#messages-leading-user-message-presupposition))
+already records the compacted shape and why the exclusion preserves the
+biconditional. Rendering the summaries in the compact transcript stays the
+deferred upgrade recorded at Future Considerations — Surface extensions. This
+RFC adds witnesses, not arms: exclusion-is-total cells over a compaction-led
+message list (binder walk, trailing-turn extraction, per-turn settle probe),
+plus one recorded-audit sentence on host-prerequisites.md and one
+handled-by-exclusion sentence on binder-model-and-context.md — no normative
+change on either page.
 
 ## Alternatives considered
 
@@ -502,11 +555,15 @@ routine one.
    (§Alternatives, first bullet) and operator readability decide it; the call
    sites read identically either way.
 2. **Awaited or fire-and-forget?** *Decision:* awaited to `onComplete` /
-   `onError`. `prompt()` throws while compaction is in flight, and a
-   compaction landing mid-query would shift the message-list index the
-   prompt-mode driver records before each send
-   ([Conversation drive — PIC-70](../spec_topics/pi-integration-contract/conversation-drive.md#pic-70)).
-   Awaiting also makes the tool's outcome a value the author can branch on.
+   `onError`. At the build pin `prompt()` does not gate on compaction (it gates
+   on `isStreaming`), so the decision stands on the message-list-index reason
+   alone: the prompt-mode driver records the turn-start index immediately
+   before each send and requires the turn's own `user` entry at or after it
+   ([Conversation drive — PIC-70](../spec_topics/pi-integration-contract/conversation-drive.md#pic-70));
+   a compaction landing between record and settle shrinks the list below that
+   index and the settle phase expires loudly. Awaiting `compact()` to
+   completion is what keeps a theta-triggered compaction strictly between
+   turns — and makes the tool's outcome a value the author can branch on.
 3. **Mode gate on `compact`?** *Decision:* none. In prompt mode the driven
    user session is the theta's conversation; the TUI renders the compaction
    (status indicator, rebuilt transcript with the summary block) exactly as
@@ -571,8 +628,9 @@ routine one.
 
 ## Decision log
 
-Operator decisions taken 2026-09-15 on the questions this draft left open;
-each is folded into the section it names.
+Operator decisions on the questions this draft and its review left open
+(D1, D2: 2026-09-15; D3: 2026-09-16, at the Phase 2A review gate); each is
+folded into the section it names.
 
 - **D1 — Names: bare.** `compact`, `context_usage`, `session_name`; host
   built-in precedence over the registry snapshot. (Resolved question 8; the
@@ -581,6 +639,16 @@ each is folded into the section it names.
   isolated-body rule covers `par for` bodies only (§6, §New diagnostics,
   §Testing). (Resolved question 9; the former Open question 4 is closed by
   the same decision.)
+- **D3 — Compaction cancellation: prompt cancel; the host compaction
+  completes in the background (2026-09-16).** A theta abort mid-`compact()`
+  reports `cause: "cancelled"` at the tool-call checkpoint immediately and
+  aborts nothing host-side; the background settlement of either kind is
+  discarded per CNCL-1..3, and a compaction entry may land on the driven
+  session after the cancelled report (§7). Chosen over tearing the
+  compaction down, which no extension-API path can do at the build pin:
+  `AgentSession.abort()` does not call `abortCompaction()`, `abortCompaction`
+  is not an `ExtensionContext` member, and `CompactOptions` carries no
+  signal (§Upstream asks item 4).
 
 ## New diagnostics
 
@@ -615,9 +683,9 @@ runtime failure is an existing `CodeToolError` arm.
 | `docs/spec_topics/pi-integration-contract/host-interfaces-core.md` | [`#extensioncontext-interface`](../spec_topics/pi-integration-contract/host-interfaces-core.md#extensioncontext-interface) | `compact` and `getContextUsage` rows flip from "not invoked by theta" to consumed, with the `onComplete` / `onError` Promise wrap pinned; `pi.setSessionName` / `pi.getSessionName` join the touched `ExtensionAPI` surface. The subagent-mode column's `getContextUsage` wording is corrected: the child reads its own handler context. |
 | `docs/spec_topics/pi-integration-contract/tool-registration-lifetime.md` | step 2 install vector; [PIC-17](../spec_topics/pi-integration-contract/tool-registration-lifetime.md#pic-17) | `thetaCallableSetNames` excludes runtime-tool entries; fixture obligation asserts the exclusion. |
 | `docs/spec_topics/pi-integration-contract/subagent.md` | `--tools` allowlist paragraph; [PIC-64](../spec_topics/pi-integration-contract/subagent.md#pic-64) resolution list | Runtime-tool names never enter `--tools` (beside the `.theta`-names rule); PIC-64's resolution list gains a "runtime tools — direct `execute`, never host-loop" bullet. |
-| `docs/spec_topics/pi-integration-contract/host-prerequisites.md` | [leading-`user`-message guarantee](../spec_topics/pi-integration-contract/host-prerequisites.md#messages-leading-user-message-presupposition) | Widened to admit a leading compaction / branch summary message (§8). |
+| `docs/spec_topics/pi-integration-contract/host-prerequisites.md` | [leading-`user`-message guarantee](../spec_topics/pi-integration-contract/host-prerequisites.md#messages-leading-user-message-presupposition) | NOT widened (§8): the presupposition text already records the compacted-session shape. One recorded-audit sentence added — the exclusion runs before the walk, and `extractTrailingTurnText` / `turnSliceSince` are total over a summary-led list. |
 | `docs/spec_topics/pi-integration-contract/capability-probe.md`, `capability-inventory-items.md` | Step 0; optional-capability class | The three host members join the inventory as load-time-probed, per-declaring-theta capabilities (not Step 0 gating): absence refuses only thetas that declare the tool. |
-| `docs/spec_topics/binder/binder-model-and-context.md` | [Compact-transcript format](../spec_topics/binder/binder-model-and-context.md#compact-transcript-format-normative) | Explicit `[compaction]` / `[branch-summary]` arms; turn-opener rule (§8). |
+| `docs/spec_topics/binder/binder-model-and-context.md` | [Compact-transcript format](../spec_topics/binder/binder-model-and-context.md#compact-transcript-format-normative) | Witness-only (§8 discharged by exclusion): one sentence recording that a compaction-led list is handled by the bug 0478 pre-walk exclusion. No arm change; no BNDR-7 rendering byte and no closed role-tag set member moves. |
 | `docs/spec_topics/control-flow.md` | `par for` body rules | Cross-reference the isolated-body rejection. |
 | `docs/spec_topics/functions.md` | FN-6 (as amended by RFC 0012) | One sentence: the runtime tools inside a `subagent fn` body address the body's own child session; no rejection. |
 | `docs/spec_topics/query/query-failure-and-repair.md` | `context_overflow` short-circuit rationale | The "conversation only grows" premise gains "unless the theta compacts" — the short-circuit itself is unchanged. |
@@ -628,29 +696,244 @@ runtime failure is an existing `CodeToolError` arm.
 | `docs/how-to/compact-a-long-running-theta.md` (+ `docs/how-to/README.md`) | new page | The Summary example, worked; the `null`-gauge idiom; when to prefer a fresh session instead. |
 | `docs/rfcs/0010-live-execution-visibility.md` | — | Cross-note: `theta_progress` is the model-facing-by-design counterpart of this RFC's code-only tools. Not a rewrite. |
 
+## Implementation record
+
+- C1 — §5's "synthesised `ExtensionContext` / per-mode override table" wording
+  corrected: the adapters bind composition-scope handles on `Pick`-narrowed
+  carriers (`SessionControlCtx` / `SessionControlPi`,
+  `src/runtime/session-control-tools.ts`), threaded through
+  `createProductionProducerDeps` (`src/extension/production-composition.ts`);
+  no override object exists.
+- C2 — §Raw material re-pinned to the build pin `~0.80.10`: `prompt()` gates on
+  `isStreaming` (no compaction gate); `isIdle` TRUE during manual compaction,
+  auto-compaction in-run; `CompactionResult.estimatedTokensAfter` optional →
+  the pinned absent-estimate execution-`Err`; the host's `Compaction
+  cancelled` throw arms are reachable only on paths that abort the compaction
+  (the user's Escape, an extension `session_before_compact` cancel) — never
+  from a theta abort (Option A, D3).
+- C3 — corpus counts reconciled: RFC's 43 is tree-wide; the shipped gate
+  constant `EXPECTED_SHIPPED_THETA` moves 41 → 42 with
+  `docs/examples/compact-loop.theta`.
+- C4 — the isolated-body check lives in `checkLexicalCallSites`
+  (`src/parser/theta-document.ts`), not the RFC 0009 `with`-clause pass;
+  renamed entries judged by resolution; plain-`fn` exemption is parse-error
+  tolerance (nested `fn` is `theta/parse/nested-fn`); runtime backstop at the
+  `par for` iteration host wrapper (`runParForIteration`,
+  `src/runtime/statement-executor.ts`).
+- C5 — live cells land in `tests/live/live-session-control.test.ts` (new H8a
+  file); `tests/live/hardening/recent-rfc-live-drives.test.ts` untouched.
+- C6 — return-type flow realised structurally through the `try` arm
+  (`StaticTypeInferenceDeps.runtimeToolSuccessTypes`,
+  `src/parser/static-type-inference.ts`; success types minted once through
+  `letAnnotationToCompatType`, its second sanctioned TYPE-8 object-arm site);
+  the bare call stays a nominal `Result<T, QueryError>`.
+- D3 (Option A, operator decision 2026-09-16) — the §7 cancellation contract
+  corrected from teardown to prompt-cancel: a theta abort mid-`compact()`
+  invokes no host abort (no extension-API path aborts a manual compaction at
+  the build pin), the background compaction's late settlement of either kind
+  is discarded per CNCL-1..3, and a compaction entry may land after the
+  cancelled report; tool-calls.md §Failures and the errors-and-results.md
+  mirror carry the same correction; §Upstream asks item 4 filed
+  (`abortCompaction` on `ExtensionContext` / `AbortSignal` on
+  `CompactOptions`).
+- L1 re-sequenced (review finding 2): the second `compact("")` follows the
+  first with no intervening query — `Already compacted` fires only when the
+  branch's LAST entry is a compaction (`prepareCompaction`,
+  `dist/core/compaction/compaction.js`).
+- L1 discriminator corrected (review finding 3): the stochastic shrink
+  inequality `tokens_after < tokens_before` dropped from the live cell;
+  deterministic observables only — the compaction entry, the theta-side
+  positive-integer check interpolated as a `true` marker, the gauge
+  `Err`/`Ok` arms, and `Already compacted`.
+- §8 — discharged by exclusion (bug 0478, human-ruled EXCLUDE): no
+  `[compaction]` / `[branch-summary]` arms, no BNDR-7 byte moves, no
+  host-prerequisites widening; witnesses in
+  `tests/session-control-transcript-readers.test.ts`, an audit sentence on
+  host-prerequisites.md, a handled-by-exclusion sentence on
+  binder-model-and-context.md.
+- Spec amendments (slice 1) landed on: frontmatter-fields-a.md (third entry
+  kind, precedence, probe, FRNT-2 code-only carve-out),
+  frontmatter-fields-b-and-templates.md (runtime-tool snapshot entry),
+  tool-calls.md (session-control section, return-type row, failure arms,
+  script-authored-compaction seam blockquote), host-interfaces-core.md
+  (consumed `compact` / `getContextUsage` rows, session-control carriers,
+  subagent-mode `getContextUsage` correction), tool-registration-lifetime.md
+  (PIC-17 step-2 exclusion + fixture obligation (c)), subagent.md (`--tools`
+  runtime-tool exclusion, PIC-64 runtime-tools bullet),
+  host-prerequisites.md (audit sentence), capability-probe.md +
+  capability-inventory-items.md (session-control load-time probe class;
+  `FACTORY_PROBED_SDK_MEMBERS` and `OPTIONAL_UI_CAPABILITIES` unchanged),
+  control-flow.md (CTRL-4 cross-reference), functions.md (FN-6 admission
+  sentence), query-failure-and-repair.md (premise qualification),
+  binder-model-and-context.md (exclusion sentence), surface-extensions.md
+  (script-authored-compaction item) + the GOV-31 seam literal 12 → 13
+  (overview-and-orientation.md, GOV-31's own enumeration, the
+  surface-extensions mirrors), reference mirrors (frontmatter.md,
+  errors-and-results.md, type-system.md, coverage-matrix.md), plan
+  coverage-matrix `cka-66` → `V24a`, RFC 0010 cross-note.
+- Registry rows for `theta/load/session-tool-unavailable` and
+  `theta/parse/session-tool-in-isolated-body` (+ reference/diagnostics.md
+  mirrors) landed in the same commits as the tests asserting the codes
+  and the implementation emitting them — the DIAG-2 corpus gate
+  (`tests/registry-closed-set-corpus-gate.test.ts`) reconciles both
+  directions, so neither could land alone.
+- Fixed signatures ship as frozen data: every signature record and params
+  list is `Object.freeze`d and `RUNTIME_TOOL_SIGNATURES` is a `ReadonlyMap`
+  (`src/parser/runtime-tools.ts`) — the H2a module-level-mutable
+  architectural gate (`tests/cross-cutting-gates.test.ts`) admits no mutable
+  module-level binding; `isBareIdentifier` is exported from
+  `src/parser/callable-set.ts` for reuse.
+- Runtime-tool resolution lives inside `resolveEntry`
+  (`src/parser/callable-set.ts`), ahead of `deps.resolvePiTool` — precedence
+  by arm order, not a separate resolver; the load probe is
+  `checkSessionToolAvailability` (`src/extension/production-composition.ts`)
+  with `continue`-based un-registration; `callableSetPiToolNames` and
+  `computeActiveSetInstall` needed no change — their guards are
+  `kind === "pi-tool"`, so the §4 exclusions hold by construction, witnessed
+  by cells X1–X4 (`tests/session-control-callable-set.test.ts`).
+- Seam sheet §5.1 ("lexical layer unchanged") was wrong: `checkLexicalCallSites`
+  (`src/parser/theta-document.ts`) now exempts resolved runtime tools from
+  the Pi-tool bare-object-literal shape check — positional arguments are the
+  admitted spelling — and the isolated-body check rides the same walk on an
+  `insideParFor` flag that an `fn` body resets.
+- `ToolCallCalleeKind` widened with `"runtime-tool"`
+  (`src/runtime/tool-call.ts`): `checkToolCallArguments` step 3 fires for it,
+  steps 2/4 stay pi-tool-scoped; the compose-pass checks are
+  `checkRuntimeToolCallSurface` (`src/extension/invoke-static-checks.ts`);
+  `#memberType` (`src/parser/static-type-inference.ts`) gained an
+  object-receiver arm so `usage.percent` resolves after the try-arm unwrap.
+- Dispatch: `sessionControlHosts { ctx, piHandle }` rides
+  `ProductionProducerInput` (`src/extension/production-theta-producer.ts`),
+  threaded from `createProductionProducerDeps`
+  (`src/extension/production-composition.ts`); `#resolveRuntimeToolCall`
+  evaluates arguments positionally, binds the `instructions` default, applies
+  the runtime argument net (`Err(cause: "validation")`, message
+  `argument '<param>' must be a string`), and dispatches the adapters under
+  `guardToolExecutePromise` — without a `theta-direct:` tool-call id, which
+  the draft's §5 listed and which nothing consumes (the host members take
+  none; review round 3 removed the dead mints); the executor arm
+  (`src/runtime/effectful-statement-host.ts`) races the adapter Promise with
+  `awaitToolSettlementOrAbort` on the theta abort signal (Option A — no host
+  abort), and `awaitToolSettlementOrAbort`
+  (`src/runtime/tool-call-off-surface.ts`) is generalised over its settlement
+  type; `resolveRuntimeToolCall` is conditionally wired — absent hosts fall
+  through to the fail-closed `unknown_tool` carrier (cell D15); the par-for
+  backstop lives in `runParForIteration`'s iteration-host `runEffect` wrapper
+  (`src/runtime/statement-executor.ts`) and yields a flat `Err` element; the
+  adapter parameter is named `piHandle`, because a bare `pi` parameter not
+  typed `ExtensionAPI` is an `off-canonical-annotation-pi` shape under the
+  inventory-closure audit (`src/extension/inventory-closure-audit.ts`).
+- The draft Summary example iterated `plan.split("\n")` directly, which does
+  not parse: the static pass's `method-call` arm
+  (`src/parser/static-type-inference.ts`) mints an unresolvable nominal (no
+  stdlib method return-type table exists), so `checkForIterand`
+  (`src/parser/control-flow.ts`) emits `theta/parse/non-array-iterand`. The
+  example above now binds `let waves: array<string> = plan.split("\n")` and
+  iterates `waves`, matching the shipped `docs/examples/compact-loop.theta`;
+  a stdlib method return-type table is a pre-existing static-layer gap, out
+  of scope here.
+- Cell fixtures corrected during implementation: parse cell I3 uses a
+  `let`-initialiser block site because a bare `{ … }` in statement position
+  is an object literal (bug 0082; `tests/session-control-parse.test.ts`);
+  dispatch cell D14 supplies fake `sessionControlHosts` per the sheet
+  (`tests/session-control-dispatch.test.ts`).
+- Committed-corpus census pins moved with the new example:
+  `EXPECTED_SHIPPED_THETA` 41 → 42
+  (`tests/committed-fixture-parse-gate.test.ts`), and the bug 0122 / 0124 /
+  0158 / 0195 census literals re-derived over the 46-file corpus — the
+  fixture draws none of the gated codes.
+- `package-lock.json` carries a stale `0.461.0` version literal predating
+  this RFC; untouched.
+- The live harness (`tests/live/harness.ts`) gained an additive
+  `settingsManager` option (L1 boots `SettingsManager.inMemory` with a low
+  `keepRecentTokens`); the live cells are L1–L3 in
+  `tests/live/live-session-control.test.ts` (C5).
+- The first live run of L1/L3 surfaced a runtime gap no offline cell had
+  reached: `preEvaluateToolArgs` (`src/runtime/statement-executor.ts`)
+  skipped the Pi-tool object-literal shape gate only for a
+  `"theta-callable"` verdict, so `compact("…")` / `session_name("…")` —
+  the positional spelling §2 pins — threw `PiToolArgShapeDefectError`
+  (`src/runtime/tool-call.ts`) and the theta aborted; a zero-argument
+  `compact()` (L2) never reached the gate. Fixed by widening the skip to the
+  `"runtime-tool"` verdict, whose dispatch arm evaluates its own positional
+  arguments; L1/L3 keep the positional spelling as the standing witness.
+- Cell D11 (runtime argument net) launders the non-string value through the
+  §2 object-literal spelling `compact({ instructions: "x" })` — the static
+  pass withholds a type for an object literal (`collectProvableArgTypes`,
+  `src/extension/invoke-static-checks.ts`), so the bound value reaches
+  `#resolveRuntimeToolCall` and draws `Err(cause: "validation",
+  "argument 'instructions' must be a string")` without the host being
+  called.
+- Live verification (claude-sonnet-5): L1 (compaction entry lands;
+  immediate second `compact("")` → `Already compacted`; `context_usage()`
+  `Err` until the next assistant response, then `Ok`), L2 (`Nothing to
+  compact (session too small)` round-trips a spawned child's envelope), L3
+  (`session_name` on the settled `SessionManager`) green; red-direction
+  proofs: a no-op host call reds L1's compaction-entry assertion, a disabled
+  isolated-body emission reds parse cells I1–I4.
+- Review round 3 caught a GOV-15 break in the first realisation of the
+  return-type flow: `#memberType`'s object-receiver arm
+  (`src/parser/static-type-inference.ts`) resolved members on ANY structural
+  object type — including the one `letAnnotationToCompatType` mints for an
+  annotated inline-object `let` in a file declaring no runtime tool — so
+  `let x: { a: integer } = f()` followed by `x.a > "s"` gained a new
+  `theta/parse/non-orderable-operands`. The arm is now gated on a non-empty
+  runtime-tool success-type map (an identity set against the map's values
+  was infeasible: the type-layer `let` arm copies the inferred type), and
+  two cells in `tests/session-control-static-checks.test.ts` pin the
+  runtime-tool-free fixture as diagnostic-stable and the declaring twin as
+  drawing the diagnostic. Residual, accepted: in a file that DOES declare a
+  runtime tool, an unrelated annotated inline-object `let` also resolves its
+  members structurally and can draw the same truthful diagnostics — such a
+  file is outside GOV-15's input set, and the resolution follows the
+  member-access rule of [Expressions](../spec_topics/expressions.md).
+- Round 3 also removed the unconsumed `theta-direct:` id mints from
+  `#resolveRuntimeToolCall`, replaced its silent `compact` default with the
+  fail-closed `unknown_tool` carrier, made `executeCompactTool` forward
+  non-blank `instructions` verbatim (only blank / whitespace maps to an
+  absent `customInstructions`; cell D1b), and added the sheet's V6 witness:
+  a `subagent fn … with { tools: "compact" }` override launches its child
+  with `--no-tools`.
+- Final gates on the shipped tree (`c4fa4369`): tsc and lint clean; offline
+  680 files / 11471 tests green; full live suite (claude-sonnet-5) 152 files
+  / 279 tests, 275 green — the three reds in
+  `tests/live/live-production-acceptance.test.ts` (bug 0079(b) / 0114 / 0116
+  cells) predate this RFC (their fixtures expect the pre-bug-0476 bare
+  `theta/parse/interpolated-result` framing) and one H9a `pi -p` spawn
+  timed out under full-suite load and passed in isolation.
+
 ## Testing strategy
 
 Offline (default gate, provider-free):
 
-- **Callable-set resolution** (`tests/` beside the existing callable-set
-  suites): each name resolves to `kind: "runtime-tool"`; `as` renames apply;
+- **Callable-set resolution** (`tests/session-control-callable-set.test.ts`):
+  each name resolves to `kind: "runtime-tool"`; `as` renames apply;
   a same-name `fn` / import draws `theta/load/tool-name-collision`; a registry
   tool registered under `compact` is shadowed (precedence); the host-member
   probe absent → `theta/load/session-tool-unavailable` and the theta does not
   register; a theta that declares none of the three is byte-identical in
   diagnostics and snapshot to today.
-- **Vectors:** `computeActiveSetInstall` output and `callableSetPiToolNames`
-  output exclude runtime-tool entries; an all-runtime-tool callable set maps
+- **Vectors** (cells X1–X4, `tests/session-control-callable-set.test.ts`):
+  `computeActiveSetInstall` output and `callableSetPiToolNames` output
+  exclude runtime-tool entries; an all-runtime-tool callable set maps
   to `--no-tools` in the launcher argv (`tests/subagent-child-launch.test.ts`
   fake-launcher pattern); `inferChildTrust` input unchanged.
-- **Parser / checker:** arity and type cells for each signature
+- **SDK inventory** (`tests/session-control-sdk-inventory.test.ts`): the four
+  new `SDK_SURFACE_INVENTORY` rows (`ctx.compact`, `ctx.getContextUsage`,
+  `pi.setSessionName`, `pi.getSessionName`); `FACTORY_PROBED_SDK_MEMBERS` and
+  the capability-count pins unchanged.
+- **Parser / checker** (`tests/session-control-parse.test.ts`,
+  `tests/session-control-static-checks.test.ts`): arity and type cells for
+  each signature
   (`compact()`, `compact("x")`, `compact(1)`, `compact("a", "b")`,
   `context_usage("x")`, `session_name()`), return-type flow into `let` and
   member access (`usage.percent` typed `number`), the isolated-body
   rejection for `par for` bodies including a renamed entry and a nested
   block, a plain `fn` body and a `subagent fn` body admitted, a call-site
   `with` clause → `theta/parse/with-clause-in-process-callee`.
-- **Execute adapters** with a fake `ctx` / `pi`: `compact` → `onComplete`
+- **Execute adapters** (`tests/session-control-adapters.test.ts`; dispatch
+  cells in `tests/session-control-dispatch.test.ts`) with a fake `ctx` /
+  `pi`: `compact` → `onComplete`
   maps to the `Ok` record; `onError` maps to `Err(cause: "execution")`
   carrying the message; abort mid-flight → `Err(cause: "cancelled")` and a
   late `onComplete` discarded without an `unhandledRejection`; whitespace
@@ -660,13 +943,19 @@ Offline (default gate, provider-free):
   renames and all three fields non-null. `session_name` → `setSessionName` called once, `Ok` is the
   read-back, `""` → `Err(cause: "validation")`. Runtime isolated-body
   backstop → `Err(cause: "execution")` with the pinned message.
-- **Transcript readers (§8):** `renderCompactTranscript` over a message list
-  led by a `compactionSummary` message renders the `[compaction]` arm and
-  groups it as a turn opener; the session-context walk and trailing-turn
-  extraction are green over the same input.
+- **Transcript readers (§8, witnesses):** exclusion-is-total cells over a
+  compaction-led message list (`tests/session-control-transcript-readers.test.ts`,
+  green at birth, stated in its header): `extractTrailingTurnText` anchors on
+  the last `user` message and yields `""` on a summary-only list;
+  `turnSliceSince` reads a list shorter than its `fromIndex` as un-opened (the
+  PIC-70 loud-expiry input); the binder walk plus `renderCompactTranscript`
+  are byte-identical with and without the leading summary (the bug 0478 cells
+  re-pinned, cited not duplicated).
 - **Committed-fixture gate:** the how-to example ships as a committed
-  `.theta`; `EXPECTED_SHIPPED_THETA` in
-  `tests/committed-fixture-parse-gate.test.ts` moves in the same change.
+  `.theta` (`docs/examples/compact-loop.theta`); `EXPECTED_SHIPPED_THETA` in
+  `tests/committed-fixture-parse-gate.test.ts` moves 41 → 42 in the same
+  commit, and the gate is parse-only, so the example must be clean under the
+  new parse checks too.
 - **GOV-15 witness:** every committed `.theta` / `.thetalib` parses to the
   same diagnostic sequence before and after (the corpus declares none of the
   three).
@@ -674,14 +963,22 @@ Offline (default gate, provider-free):
 Live (`npm run test:live` — the tools touch live-exercised surfaces, so the
 run is mandatory per `AGENTS.md`):
 
-- **H8a, prompt mode:** a theta issues enough fixed-pair arithmetic queries
-  to exceed `keepRecentTokens` (or the harness lowers `keepRecentTokens` in
-  the test settings), then `compact()`. Observables off the settled in-memory
-  `SessionManager`: a `compaction` entry exists; the theta's return value
-  carries `tokens_after < tokens_before`; a `context_usage()` issued
-  immediately after returns the post-compaction `Err`, and one issued after
-  the next query returns `Ok`; no `theta-system-note` err framing. A second `compact()` in the same drive returns `Err` whose message
-  is `Already compacted`.
+- **H8a, prompt mode:** a theta issues fixed-pair arithmetic queries under a
+  harness-lowered `keepRecentTokens`, then `compact(...)`, then a second
+  `compact("")` immediately after — no intervening query, so the branch's
+  last entry is still the compaction entry and the host refuses
+  `Already compacted` (`prepareCompaction` keys the refusal on the last
+  entry alone) — then reads `context_usage()` (the post-compaction `Err`),
+  then one marker query, then `context_usage()` again (`Ok`). Observables,
+  all deterministic: a `compaction` entry exists on the settled in-memory
+  `SessionManager`; `tokens_before` and `tokens_after` are positive
+  integers, checked theta-side and interpolated into the marker query text
+  as a `true` marker (the shrink inequality `tokens_after < tokens_before`
+  is NOT asserted — with a tiny `keepRecentTokens` the summary routinely
+  outweighs the dropped turns, so shrink is stochastic); the
+  `Already compacted` message and both gauge arms ride the same
+  interpolated markers; no `theta-system-note` err framing; no
+  verbatim-echo demands (task-framed arithmetic only).
 - **H8a, subagent mode:** a short subagent child calls `compact()` and
   returns the `Err` message through the typed envelope; assert the
   `Nothing to compact (session too small)` text round-trips and the child
@@ -740,6 +1037,12 @@ Filed as suggestions against `pi-mono`; none blocks this RFC.
 3. `pi.getToolDefinition` — PIC-64 rung 1 — is unaffected by this RFC but
    remains the request that would retire host-loop dispatch for extension
    tools generally.
+4. `abortCompaction` on `ExtensionContext`, or an `AbortSignal` on
+   `CompactOptions`, so an extension can end a manual compaction it started.
+   Today only `AgentSession.dispose()` and the interactive TUI's Escape
+   handler reach `abortCompaction()`, so a theta abort mid-`compact()`
+   cannot tear the host compaction down and instead discards its late
+   settlement (§7, Decision log D3).
 
 ## Prior art in this repository
 
