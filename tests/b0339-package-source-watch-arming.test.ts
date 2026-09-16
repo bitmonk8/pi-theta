@@ -17,6 +17,7 @@ import {
   RootsRecordingFileWatcher,
   armedRoots,
   norm,
+  settle,
   waitFor,
 } from "./helpers/fake-file-watcher";
 import { bootWatchArming, makeHarness } from "./helpers/watch-arming-harness";
@@ -76,18 +77,6 @@ function packageJson(name: string, piTheta?: readonly string[]): string {
     manifest.pi = { theta: piTheta };
   }
   return `${JSON.stringify(manifest)}\n`;
-}
-
-/** Best-effort bounded poll of the observable, then RETURN (never throw) so the
- *  following `expect` is the witness. Used in case H where the reload the fix
- *  would run is a no-op today: pre-fix the observable never moves and the poll
- *  runs to its bound, so the `expect` reds; post-fix the poll exits as soon as
- *  the reload lands. Event-driven, not a bare sleep. */
-async function settle(cond: () => boolean): Promise<void> {
-  for (let i = 0; i < 200; i++) {
-    if (cond()) return;
-    await new Promise((resolve) => setTimeout(resolve, 5));
-  }
 }
 
 describe("Bug 0339 — the package source's present-but-empty contributing directory is armed for watching", () => {

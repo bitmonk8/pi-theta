@@ -113,6 +113,16 @@ export async function waitFor(cond: () => boolean, label: string): Promise<void>
   throw new Error(`timeout waiting for ${label}`);
 }
 
+/** Best-effort bounded poll of a condition, then RETURN (never throw) once the
+ *  bound is exhausted, so the caller's own immediately-following `expect` is
+ *  the witness rather than a thrown timeout — unlike `waitFor` above. */
+export async function settle(cond: () => boolean): Promise<void> {
+  for (let i = 0; i < 200; i++) {
+    if (cond()) return;
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+}
+
 /** The single root list a `RootsRecordingFileWatcher` was armed over, or a loud
  *  failure naming the unmet precondition. */
 export function armedRoots(watcher: RootsRecordingFileWatcher): readonly string[] {

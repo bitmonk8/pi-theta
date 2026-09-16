@@ -80,15 +80,11 @@ import {
   type ThetaCompositionInput,
 } from "../src/extension/theta-composition-producer";
 import { ActiveInvocationRegistry } from "../src/runtime/active-invocation-registry";
-import {
-  parseThetaDocument,
-  type ParseThetaDocumentDeps,
-} from "../src/parser/theta-document";
+import { parseThetaDocument } from "../src/parser/theta-document";
 import type { ThetaSource } from "../src/lexer/lexer";
 import type { RuntimeRoot } from "../src/runtime-root";
-import type { ModelReferenceMatcher } from "../src/parser/frontmatter";
-import type { SystemNoteChannelDeps } from "../src/extension/system-note-channel";
 import type { BinderEnvelopeSchema } from "../src/binder/binder-envelope";
+import { parseDeps } from "./helpers/e2e-s1";
 import {
   AjvSchemaValidator,
   type LoweredSchema,
@@ -162,16 +158,6 @@ interface CapturedNote {
   readonly content: string;
   readonly display?: boolean;
   readonly details?: { readonly event?: Record<string, unknown> };
-}
-
-function parseDeps(): ParseThetaDocumentDeps {
-  const systemNote: SystemNoteChannelDeps = {
-    pi: { sendMessage: (): void => {} },
-    ui: { notify: (): void => {} },
-    emitDiagnostic: (): void => {},
-  };
-  const modelMatcher: ModelReferenceMatcher = { resolve: (): "resolved" => "resolved" };
-  return { systemNote, modelMatcher };
 }
 
 function realAjv(): AjvSchemaValidator {

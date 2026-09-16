@@ -118,11 +118,9 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import type { ThetaSource } from "../src/lexer/lexer";
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
-import type { SystemNoteChannelDeps } from "../src/extension/system-note-channel";
-import type { ModelReferenceMatcher, ParsedFrontmatter } from "../src/parser/frontmatter";
+import type { ParsedFrontmatter } from "../src/parser/frontmatter";
 import {
   parseThetaDocument,
-  type ParseThetaDocumentDeps,
   type ThetaDocument,
 } from "../src/parser/theta-document";
 import { executeBody, type BodyExecution } from "../src/runtime/statement-executor";
@@ -141,6 +139,7 @@ import type {
   ThetaCompositionInput,
 } from "../src/extension/theta-composition-producer";
 import type { RuntimeRoot } from "../src/runtime-root";
+import { parseDeps } from "./helpers/e2e-s1";
 
 const FM = "---\nmode: prompt\n---\n";
 
@@ -158,16 +157,6 @@ const SITE = {
 // createProductionProducerDeps → bindPromptConversation → executeBody. Offline,
 // provider-free, deterministic.
 // ===========================================================================
-
-function parseDeps(): ParseThetaDocumentDeps {
-  const systemNote: SystemNoteChannelDeps = {
-    pi: { sendMessage: (): void => {} },
-    ui: { notify: (): void => {} },
-    emitDiagnostic: (): void => {},
-  };
-  const modelMatcher: ModelReferenceMatcher = { resolve: (): "resolved" => "resolved" };
-  return { systemNote, modelMatcher };
-}
 
 function parseOnly(src: string): ThetaDocument {
   const source: ThetaSource = { path: "b0369.theta", bytes: new TextEncoder().encode(FM + src) };
@@ -381,8 +370,15 @@ describe("bug 0369 F1, F2, F5, F4, F3, OR — laundered non-boolean conditions/o
 
   // F6: for c = "x", the `if c` fallback AND the `if !c` fallback BOTH read
   // false, so neither branch runs and r stays "" — the two fallbacks contradict
-  // each other observably. Post-fix the FIRST condition `if c` throws loudly.
-  it('RED (F6): `if c` then `if !c` over f("x") — at HEAD value "" (BOTH c and !c behaved false); post-fix the first `if c` throws', async () => {
+  // each other observably. Post-fix, this body throws loudly: `if c`'s condition
+  // is guarded by executeIf's own `requireBoolean` call (statement-executor.ts:2504)
+  // while `if !c`'s condition is guarded by the unary `!` arm's own call
+  // (statement-executor.ts:1518) — two distinct call sites, so a regression
+  // disabling only one would still throw from the other with identical framing.
+  // The assertion below observes only throw-vs-value and error framing
+  // (`assertLoudThrow`), not which statement produced the throw — this cell
+  // pins the throw, not the statement.
+  it('RED (F6): `if c` then `if !c` over f("x") — at HEAD value "" (BOTH c and !c behaved false); post-fix throws loudly', async () => {
     assertLoudThrow(
       await probeSource('fn f(c) { let mut r = ""\nif c { r = "a" }\nif !c { r = "b" }\nr }\nf("x")'),
       'at HEAD value "" — both `if c` and `if !c` fabricated false, so neither branch ran',
