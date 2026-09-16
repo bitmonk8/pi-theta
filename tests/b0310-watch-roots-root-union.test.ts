@@ -2,20 +2,9 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import type {
-  ExtensionAPI,
-  ExtensionContext,
-} from "@earendil-works/pi-coding-agent";
-import {
-  createThetaExtension,
-  type ThetaExtensionDeps,
-} from "../src/extension/factory";
-import {
-  composeExtensionInstance,
-  type ExtensionInstanceWiring,
-} from "../src/extension/production-composition";
-import { FakeClock } from "./helpers/fake-clock";
-import { RootsRecordingFileWatcher, armedRoots, norm, waitFor } from "./helpers/fake-file-watcher";
+import type { ExtensionInstanceWiring } from "../src/extension/production-composition";
+import { RootsRecordingFileWatcher, armedRoots, norm } from "./helpers/fake-file-watcher";
+import { bootWatchArming } from "./helpers/watch-arming-harness";
 
 // Bug 0310 — witness: the armed watch set must be the resolved discovery-root
 // union over the walk's four sources (cli/settings/project/global; roots present
@@ -38,58 +27,6 @@ import { RootsRecordingFileWatcher, armedRoots, norm, waitFor } from "./helpers/
 
 const HELLO_THETA = ["---", "mode: prompt", "---", "@`hi`", ""].join("\n");
 
-interface Harness {
-  readonly pi: ExtensionAPI;
-  fireSessionStart(): Promise<void>;
-}
-
-/**
- * `flags` parameterises `pi.getFlag`: the `--theta` root reaches discovery only
- * through `getFlag('theta')` (`readThetaFlagPaths`, production-composition.ts),
- * so Case A must return its contributed directory here — the existing
- * integration-test helper hardcodes `undefined` and cannot express it.
- */
-function makeHarness(cwd: string, flags: Readonly<Record<string, string>>): Harness {
-  const commands = new Map<string, unknown>();
-  const subscriptions = new Map<
-    string,
-    ((event: unknown, ctx: ExtensionContext) => unknown)[]
-  >();
-
-  const pi = {
-    registerFlag: (): void => {},
-    registerMessageRenderer: (): void => {},
-    registerCommand: (name: string, options: unknown): void => {
-      commands.set(name, options);
-    },
-    on: (event: string, handler: (e: unknown, c: ExtensionContext) => unknown): void => {
-      const list = subscriptions.get(event) ?? [];
-      list.push(handler);
-      subscriptions.set(event, list);
-    },
-    getFlag: (name: string): string | undefined => flags[name],
-    getCommands: (): { name: string; source: string }[] =>
-      [...commands.keys()].map((name) => ({ name, source: "extension" })),
-    sendMessage: (): void => {},
-    sendUserMessage: (): void => {},
-  } as unknown as ExtensionAPI;
-
-  const ctx = {
-    cwd,
-    hasUI: false,
-    modelRegistry: { getAvailable: (): readonly unknown[] => [] },
-    ui: { notify: (): void => {} },
-  } as unknown as ExtensionContext;
-
-  const fire = async (event: string): Promise<void> => {
-    for (const handler of subscriptions.get(event) ?? []) {
-      await handler({ type: event }, ctx);
-    }
-  };
-
-  return { pi, fireSessionStart: () => fire("session_start") };
-}
-
 describe("Bug 0310 — armed watch set is the discovery-root union, not the found-file dirnames", () => {
   let workspace: string;
   let fakeWatcher: RootsRecordingFileWatcher;
@@ -101,22 +38,9 @@ describe("Bug 0310 — armed watch set is the discovery-root union, not the foun
 
   /** Boot the shipped composition with the roots-recording watcher and the given flags. */
   async function boot(flags: Readonly<Record<string, string>>): Promise<void> {
-    fakeWatcher = new RootsRecordingFileWatcher();
-    wiring = undefined;
-    const harness = makeHarness(workspace, flags);
-    const deps: ThetaExtensionDeps = {
-      fixtures: [],
-      composeInstance: async (pi, ctx) => {
-        wiring = await composeExtensionInstance(pi, ctx, {
-          fileWatcher: fakeWatcher,
-          clock: new FakeClock(),
-        });
-        return wiring;
-      },
-    };
-    createThetaExtension(deps)(harness.pi);
-    await harness.fireSessionStart();
-    await waitFor(() => fakeWatcher.watchCalls.length > 0, "watcher to arm");
+    const result = await bootWatchArming(workspace, flags);
+    fakeWatcher = result.fakeWatcher;
+    wiring = result.wiring;
   }
 
   it("Case A: an EMPTY <ws>/.pi/theta is armed even when the only theta comes via --theta", async () => {

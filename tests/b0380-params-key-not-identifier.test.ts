@@ -210,7 +210,7 @@ describe("bug 0380 — a non-identifier `params:` key is refused at load (Option
     expect(identErr.length).toBe(0);
   });
 
-  it("(K) CONTROL escape-form `\"a\\nb\"` (backslash-n escape): a non-identifier key the fix refuses — RED at fork (loads with `[]`)", () => {
+  it("(K) escape-form `\"a\\nb\"` (backslash-n escape): a non-identifier key the fix refuses — RED at fork (loads with `[]`)", () => {
     // WHY: documents the doc-Reproduction imprecision. The doc claims this
     // double-quoted ESCAPE yields `theta/load/malformed-frontmatter-yaml`;
     // VERIFIED FALSE — at this fork it loads clean with the non-identifier

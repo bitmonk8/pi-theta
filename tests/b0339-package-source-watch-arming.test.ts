@@ -2,10 +2,6 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import type {
-  ExtensionAPI,
-  ExtensionContext,
-} from "@earendil-works/pi-coding-agent";
 import {
   createThetaExtension,
   type ThetaExtensionDeps,
@@ -23,6 +19,7 @@ import {
   norm,
   waitFor,
 } from "./helpers/fake-file-watcher";
+import { bootWatchArming, makeHarness } from "./helpers/watch-arming-harness";
 
 // Bug 0339 — witness: the package-discovery source (the fifth active-root
 // source in discovery-sources.md) must be armed for watching when its
@@ -52,10 +49,11 @@ import {
 // (lane placeholder).
 //
 // Cases A–G mirror the harness of `tests/b0310-watch-roots-root-union.test.ts`
-// EXACTLY (its `makeHarness`/`boot` shape, plus the shared
-// `RootsRecordingFileWatcher`/`norm`/`waitFor`/`armedRoots` quartet both files
-// import from `tests/helpers/fake-file-watcher.ts`, PTQ-0236), booting the
-// shipped composition through
+// EXACTLY: both files import the shared `Harness`/`makeHarness`/
+// `bootWatchArming` trio from `tests/helpers/watch-arming-harness.ts`
+// (PTQ-0363), plus the `RootsRecordingFileWatcher`/`norm`/`waitFor`/
+// `armedRoots` quartet both import from `tests/helpers/fake-file-watcher.ts`
+// (PTQ-0236), booting the shipped composition through
 // `createThetaExtension` → `composeExtensionInstance` with the roots-recording
 // `FileWatcher` fake and a `FakeClock`. `PiFileSystem(ctx.cwd)` pins `fs.cwd()`
 // to the tmp workspace, so `<ws>/node_modules/<pkg>/` is a project package root
@@ -78,55 +76,6 @@ function packageJson(name: string, piTheta?: readonly string[]): string {
     manifest.pi = { theta: piTheta };
   }
   return `${JSON.stringify(manifest)}\n`;
-}
-
-interface Harness {
-  readonly pi: ExtensionAPI;
-  fireSessionStart(): Promise<void>;
-}
-
-/** Mirrors b0310's `makeHarness`: a minimal `ExtensionAPI` recording commands
- *  and event subscriptions; no `--theta` flag is needed here (package roots reach
- *  discovery through `fs.cwd()`, not a flag), so `getFlag` answers `undefined`. */
-function makeHarness(cwd: string): Harness {
-  const commands = new Map<string, unknown>();
-  const subscriptions = new Map<
-    string,
-    ((event: unknown, ctx: ExtensionContext) => unknown)[]
-  >();
-
-  const pi = {
-    registerFlag: (): void => {},
-    registerMessageRenderer: (): void => {},
-    registerCommand: (name: string, options: unknown): void => {
-      commands.set(name, options);
-    },
-    on: (event: string, handler: (e: unknown, c: ExtensionContext) => unknown): void => {
-      const list = subscriptions.get(event) ?? [];
-      list.push(handler);
-      subscriptions.set(event, list);
-    },
-    getFlag: (): string | undefined => undefined,
-    getCommands: (): { name: string; source: string }[] =>
-      [...commands.keys()].map((name) => ({ name, source: "extension" })),
-    sendMessage: (): void => {},
-    sendUserMessage: (): void => {},
-  } as unknown as ExtensionAPI;
-
-  const ctx = {
-    cwd,
-    hasUI: false,
-    modelRegistry: { getAvailable: (): readonly unknown[] => [] },
-    ui: { notify: (): void => {} },
-  } as unknown as ExtensionContext;
-
-  const fire = async (event: string): Promise<void> => {
-    for (const handler of subscriptions.get(event) ?? []) {
-      await handler({ type: event }, ctx);
-    }
-  };
-
-  return { pi, fireSessionStart: () => fire("session_start") };
 }
 
 /** Best-effort bounded poll of the observable, then RETURN (never throw) so the
@@ -152,22 +101,9 @@ describe("Bug 0339 — the package source's present-but-empty contributing direc
 
   /** Boot the shipped composition with the roots-recording watcher + fake clock. */
   async function boot(): Promise<void> {
-    fakeWatcher = new RootsRecordingFileWatcher();
-    wiring = undefined;
-    const harness = makeHarness(workspace);
-    const deps: ThetaExtensionDeps = {
-      fixtures: [],
-      composeInstance: async (pi, ctx) => {
-        wiring = await composeExtensionInstance(pi, ctx, {
-          fileWatcher: fakeWatcher,
-          clock: new FakeClock(),
-        });
-        return wiring;
-      },
-    };
-    createThetaExtension(deps)(harness.pi);
-    await harness.fireSessionStart();
-    await waitFor(() => fakeWatcher.watchCalls.length > 0, "watcher to arm");
+    const result = await bootWatchArming(workspace);
+    fakeWatcher = result.fakeWatcher;
+    wiring = result.wiring;
   }
 
   it("Case A: a present-but-EMPTY conventional package theta/ directory is armed", async () => {

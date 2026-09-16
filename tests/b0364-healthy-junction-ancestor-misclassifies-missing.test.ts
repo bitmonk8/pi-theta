@@ -116,6 +116,45 @@ function createDirectoryLink(nativeTargetPath: string, nativeLinkPath: string): 
   }
 }
 
+/**
+ * Create `<scratch>/broken` as a directory link whose target has already been
+ * removed, and verify — loudly — that it is genuinely broken: `lstat` must
+ * still report a symlink/junction (removing the target does not touch the
+ * link entry itself) AND `realpath` must REJECT ENOENT-class (proving the
+ * link is broken, not merely unusual). Shared by cells (6) and (7), the only
+ * two cells in this file that exercise a broken-link ancestor. An unmet
+ * precondition fails loudly by name, never a skip. Returns the native
+ * `<scratch>/broken` path.
+ */
+async function plantBrokenLink(): Promise<string> {
+  const goneTargetNative = join(scratchDir, "gone-target");
+  const brokenLinkNative = join(scratchDir, "broken");
+  mkdirSync(goneTargetNative, { recursive: true });
+  createDirectoryLink(goneTargetNative, brokenLinkNative);
+  rmSync(goneTargetNative, { recursive: true, force: true });
+
+  const brokenLinkStat = lstatSync(brokenLinkNative);
+  expect(
+    brokenLinkStat.isSymbolicLink(),
+    "precondition: <scratch>/broken must remain a symlink/junction after its target is removed — else this cell is not exercising a broken link",
+  ).toBe(true);
+  await realpathAsync(brokenLinkNative).then(
+    (resolved) => {
+      throw new Error(
+        `precondition: <scratch>/broken must have a rejecting realpath (a broken link) — it resolved to ${resolved} instead`,
+      );
+    },
+    (err: NodeJS.ErrnoException) => {
+      expect(
+        err.code,
+        `precondition: <scratch>/broken's realpath must reject ENOENT-class — got code=${json(err.code)}`,
+      ).toBe("ENOENT");
+    },
+  );
+
+  return brokenLinkNative;
+}
+
 beforeEach(() => {
   scratchDir = mkdtempSync(join(tmpdir(), "b0364-"));
   scratchPosix = posix(scratchDir);
@@ -306,35 +345,7 @@ describe("bug 0364 (5) — CLI real-spelled twin: missing-source error (control,
 
 describe("bug 0364 (6) — settings broken-link-ancestor: unreadable-source warning (negative guard, green pre+post)", () => {
   it("emits WARNING theta/load/unreadable-source at the broken-link-spelled path, nothing else under scratch", async () => {
-    const goneTargetNative = join(scratchDir, "gone-target");
-    const brokenLinkNative = join(scratchDir, "broken");
-    mkdirSync(goneTargetNative, { recursive: true });
-    createDirectoryLink(goneTargetNative, brokenLinkNative);
-    rmSync(goneTargetNative, { recursive: true, force: true });
-
-    // Loud precondition: the link must still `lstat` as a symlink (its target's
-    // removal does not touch the link entry itself) AND `realpath` must REJECT
-    // (proving the link is genuinely broken, not merely unusual). Asserted via
-    // a .then(ok, err) rejection arm, matching this file's no-catch(...) style;
-    // an unmet precondition fails loudly by name, never a skip.
-    const brokenLinkStat = lstatSync(brokenLinkNative);
-    expect(
-      brokenLinkStat.isSymbolicLink(),
-      "precondition: <scratch>/broken must remain a symlink/junction after its target is removed — else this cell is not exercising a broken link",
-    ).toBe(true);
-    await realpathAsync(brokenLinkNative).then(
-      (resolved) => {
-        throw new Error(
-          `precondition: <scratch>/broken must have a rejecting realpath (a broken link) — it resolved to ${resolved} instead`,
-        );
-      },
-      (err: NodeJS.ErrnoException) => {
-        expect(
-          err.code,
-          `precondition: <scratch>/broken's realpath must reject ENOENT-class — got code=${json(err.code)}`,
-        ).toBe("ENOENT");
-      },
-    );
+    await plantBrokenLink();
 
     const missingUnderBroken = sp("broken", "thetas", "nope");
     const { thetas, diagnostics } = await runWalk({
@@ -373,32 +384,8 @@ describe("bug 0364 (6) — settings broken-link-ancestor: unreadable-source warn
 
 describe("bug 0364 (7) — settings immediate broken-link-ancestor: unreadable-source warning (resolve-step discriminator)", () => {
   it("emits WARNING theta/load/unreadable-source for a leaf directly under a broken link, nothing else under scratch", async () => {
-    const goneTargetNative = join(scratchDir, "gone-target");
-    const brokenLinkNative = join(scratchDir, "broken");
-    mkdirSync(goneTargetNative, { recursive: true });
-    createDirectoryLink(goneTargetNative, brokenLinkNative);
-    rmSync(goneTargetNative, { recursive: true, force: true });
-
-    // Same loud broken-link precondition as cell 6: the link `lstat`s as a
-    // symlink but `realpath` rejects. An unmet precondition fails loudly.
-    const brokenLinkStat = lstatSync(brokenLinkNative);
-    expect(
-      brokenLinkStat.isSymbolicLink(),
-      "precondition: <scratch>/broken must remain a symlink/junction after its target is removed",
-    ).toBe(true);
-    await realpathAsync(brokenLinkNative).then(
-      (resolved) => {
-        throw new Error(
-          `precondition: <scratch>/broken must have a rejecting realpath (a broken link) — it resolved to ${resolved} instead`,
-        );
-      },
-      (err: NodeJS.ErrnoException) => {
-        expect(
-          err.code,
-          `precondition: <scratch>/broken's realpath must reject ENOENT-class — got code=${json(err.code)}`,
-        ).toBe("ENOENT");
-      },
-    );
+    // Same loud broken-link precondition as cell 6 (both share `plantBrokenLink`).
+    await plantBrokenLink();
 
     // Leaf DIRECTLY under the broken link: `<scratch>/broken` is the final
     // ancestor, so its resolve-step verdict alone decides the walk.

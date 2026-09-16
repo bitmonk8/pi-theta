@@ -296,24 +296,10 @@ function assertLoudThrow(probe: Probe, leakDescription: string, what: string): v
     ).toBe("runtime loud throw");
     return;
   }
-  expect(
-    isThetaPanic(probe.thrown),
-    `${what}: the loud throw is a plain Error, NOT a ThetaPanic (the six-source panic list is closed). Thrown: ${String(probe.thrown)}`,
-  ).toBe(false);
-  const diagnostic = surfaceUnexpectedThrow(probe.thrown, SITE);
-  expect(
-    diagnostic,
-    `${what}: surfaceUnexpectedThrow returns a Diagnostic for a non-panic throw`,
-  ).toBeDefined();
-  const diag = diagnostic as Diagnostic;
-  expect(
-    diag.code,
-    `${what}: the loud throw routes to the existing permitted internal-error surface`,
-  ).toBe(INTERNAL_ERROR_CODE);
-  expect(
-    diag.message,
-    `${what}: the internal-error template prefix (tail wording is the implementer's)`,
-  ).toMatch(/^internal error: /);
+  // Same four-assertion throw-framing check `assertFramesToInternalError` runs
+  // for the PURE-HOST-lane rows below (function declarations are hoisted, so
+  // this forward reference is valid) — delegate instead of re-deriving it.
+  assertFramesToInternalError(probe.thrown, what);
 }
 
 // ===========================================================================
