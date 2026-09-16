@@ -563,9 +563,19 @@ export class StaticTypeInferencePass {
     // `letAnnotationToCompatType` via `runtimeToolSuccessTypes`) resolves its
     // fields directly — `usage.percent` on a try-unwrapped `context_usage()?`
     // must type `percent` as `number`, not defer as an unresolvable nominal.
-    // GOV-15 inert: only reachable when a binding carries a structural
-    // `object` type, which requires a declared runtime tool.
-    if (receiver.kind === "object") {
+    // GOV-15: gated on `#runtimeToolSuccessTypes` being NON-EMPTY — the arm
+    // is unreachable for every file declaring none of the three runtime-tool
+    // names (the map is empty). An identity gate against the map's value
+    // objects would be the narrower discipline, but the type-layer walk's
+    // `let`-arm copies the type (`{ ...inferred }`) for its own
+    // `unprovableBindings` tracking, so a `bindings.get(name)` read in
+    // `#typeExpr`'s `ident` arm returns the COPY, which would fail any
+    // reference-equality test against the original map values. The map-size
+    // gate is correct: a file that declares runtime tools and also has a
+    // `let x: { a: integer }` annotation gets truthful structural member
+    // resolution on `x.a` (the annotation IS the author's claim about the
+    // field type), so no false diagnostic is produced.
+    if (receiver.kind === "object" && this.#runtimeToolSuccessTypes.size > 0) {
       const field = receiver.fields.find((f) => f.name === node.field);
       if (field !== undefined) {
         return { type: unfoldAlias(field.type, env), declared: true };

@@ -8,15 +8,7 @@
 // tests need no Pi.
 //
 // Spec: docs/rfcs/0011-session-control-tools.md §2 (Detailed design);
-// docs/reference/tool-calls.md #session-control-runtime-tools.
-//
-// V24a-T (tests-task) declared this stub surface — the exact exported carrier
-// types (`SessionControlCtx`, `SessionControlPi`) and adapter signatures
-// (`executeCompactTool`, `executeContextUsageTool`, `executeSessionNameTool`)
-// per seam sheet §6.2 — each body `throw`ing `"RFC 0011 V24a: unimplemented"`.
-// V24a (the paired implementation leaf) supplies the behaviour: the
-// fire-and-forget `compact()` Promise wrap, the `getContextUsage()` gauge
-// lowering, and the `setSessionName`/`getSessionName` set-then-read-back pair.
+// docs/spec_topics/tool-calls.md #session-control-runtime-tools.
 //
 // No ambient primitives (no `process.env` / `Date.now` / global timers); no
 // Pi value import — the two carrier types are type-only imports.
@@ -46,12 +38,14 @@ export function executeCompactTool(
   presentedName: string,
   instructions: string,
 ): Promise<ThetaValue> {
-  const trimmed = instructions.trim();
   // exactOptionalPropertyTypes: when the field is absent the host omits the
   // property entirely — `customInstructions: undefined` is not the same as
-  // absent for the flag. Spread-conditional keeps the option absent when blank.
+  // absent for the flag. Spread-conditional keeps the option absent when
+  // blank/whitespace; a non-blank value reaches the host VERBATIM (no trim)
+  // so the author controls the exact instructions string.
+  const isBlank = instructions.trim().length === 0;
   const compactOptions = {
-    ...(trimmed.length > 0 ? { customInstructions: trimmed } : {}),
+    ...(!isBlank ? { customInstructions: instructions } : {}),
   };
   return new Promise<ThetaValue>((resolve) => {
     host.compact({

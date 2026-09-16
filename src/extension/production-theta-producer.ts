@@ -4150,8 +4150,23 @@ class ProductionThetaProducer implements ThetaProducerDeps {
   ): RuntimeToolCall {
     const presentedName = expr.callee;
     const entry = theta.callableSet?.entries.get(presentedName);
-    const canonicalName: RuntimeToolName =
-      entry !== undefined && entry.kind === "runtime-tool" ? entry.name : "compact";
+    // Fail-closed: `#classifyCall` gates entry to this method on
+    // `entry?.kind === "runtime-tool"`, so the else arm is unreachable from
+    // any registered theta. A silent default would mask a wiring defect.
+    if (entry === undefined || entry.kind !== "runtime-tool") {
+      return {
+        toolName: presentedName,
+        dispatch: () => Promise.resolve(
+          makeErr({
+            kind: "code_tool",
+            message: `internal error: '${presentedName}' is not a runtime tool`,
+            tool_name: presentedName,
+            cause: "unknown_tool",
+          } as unknown as ThetaValue),
+        ),
+      };
+    }
+    const canonicalName: RuntimeToolName = entry.name;
     const sig = RUNTIME_TOOL_SIGNATURES.get(canonicalName)!;
 
     // Evaluate positional args left-to-right (the `.theta`-callable path’s
@@ -4182,8 +4197,6 @@ class ProductionThetaProducer implements ThetaProducerDeps {
           tool_name: presentedName,
           cause: "validation",
         } as unknown as ThetaValue);
-        const toolCallId = `theta-direct:${this.#input.root.idSource.newInvocationId()}`;
-        void toolCallId;
         return {
           toolName: presentedName,
           argViolation,
@@ -4192,8 +4205,6 @@ class ProductionThetaProducer implements ThetaProducerDeps {
       }
     }
 
-    const toolCallId = `theta-direct:${this.#input.root.idSource.newInvocationId()}`;
-    void toolCallId;
     const hosts = this.#input.sessionControlHosts!;
 
     // Build the dispatch closure per canonical name. The adapter Promise is

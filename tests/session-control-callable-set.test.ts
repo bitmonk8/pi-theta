@@ -511,6 +511,118 @@ describe("RFC 0011 §4 — X3: an all-runtime-tool set maps to --no-tools (fake-
   });
 });
 
+// ===========================================================================
+// §4 / seam-sheet V6 — a `subagent fn` body with `tools: "compact"` override.
+// The runtime-tool entry survives `subagentFnCallableSet` by presented name
+// (the `underlying = undefined` arm), but `callableSetPiToolNames` over the
+// derived set stays `[]` → the child argv carries `--no-tools`.
+// Driven through the real producer with a fake spawn so the cell asserts
+// the recorded child argv.
+// ===========================================================================
+
+import type { ThetaSource } from "../src/lexer/lexer";
+import type { ModelReferenceMatcher } from "../src/parser/frontmatter";
+import { parseThetaDocument, type ParseThetaDocumentDeps, type ThetaDocument } from "../src/parser/theta-document";
+import type { SystemNoteChannelDeps } from "../src/extension/system-note-channel";
+import type { ThetaCompositionInput, ConversationBindInput } from "../src/extension/theta-composition-producer";
+import { createProductionProducerDeps } from "../src/extension/production-theta-producer";
+import { executeBody } from "../src/runtime/statement-executor";
+import { serializeOkEnvelope } from "../src/runtime/subagent-envelope";
+import type { SpawnFn } from "../src/runtime/subagent-launcher";
+import { fakeExecutableHost, makeFakeJsonChildLauncher, type FakeJsonChild, type SpawnRecord } from "./helpers/fake-json-child";
+import { childRegimeRootDouble } from "./helpers/subagent-fn-child-regime";
+import type { ModelRegistry } from "@earendil-works/pi-coding-agent";
+
+function v6ParseDeps(): ParseThetaDocumentDeps {
+  const systemNote: SystemNoteChannelDeps = {
+    pi: { sendMessage: (): void => {} },
+    ui: { notify: (): void => {} },
+    emitDiagnostic: (): void => {},
+  };
+  const modelMatcher: ModelReferenceMatcher = { resolve: (): "resolved" => "resolved" };
+  return { systemNote, modelMatcher };
+}
+
+function v6Parse(src: string): ThetaDocument {
+  const source: ThetaSource = { path: "/thetadir/caller.theta", bytes: new TextEncoder().encode(src) };
+  return parseThetaDocument(source, v6ParseDeps());
+}
+
+const V6_MODELS = [
+  { id: "claude-test", provider: "anthropic", api: "anthropic-messages" },
+];
+
+describe("RFC 0011 §4 V6 — subagent fn with tools: \"compact\" override → child argv carries --no-tools", () => {
+  it("V6: a `subagent fn step() with { tools: \"compact\" }` body → the child is launched with --no-tools (the runtime-tool entry has no pi-tool underlying)", async () => {
+    const src = [
+      "subagent fn step() with { tools: \"compact\" } {",
+      '  "done"',
+      "}",
+      "step()",
+    ].join("\n");
+    const doc = v6Parse(src);
+    const errors = doc.diagnostics.filter((d) => d.severity === "error");
+    expect(errors, `fixture must parse clean: ${errors.map((d) => d.code).join(", ")}`).toHaveLength(0);
+
+    // Build a calling theta whose callable set carries `compact` as a
+    // runtime-tool entry — the same shape `discoverAndComposeFixtures`
+    // produces for `tools: compact` in the frontmatter.
+    const compactEntry = { kind: "runtime-tool" as const, name: "compact" as const };
+    const callableSet = Object.freeze({
+      entries: new Map<string, typeof compactEntry>([["compact", compactEntry]]),
+    });
+    const theta = {
+      slashName: "caller",
+      sourcePath: "/thetadir/caller.theta",
+      frontmatter: { ...(doc.frontmatter ?? {}), mode: "prompt" },
+      body: doc.body,
+      callableSet,
+    } as unknown as ThetaCompositionInput;
+
+    const launcher = makeFakeJsonChildLauncher();
+    const spawn: SpawnFn = (execPath, args, options) => {
+      const child = launcher.spawn(execPath, args, options) as FakeJsonChild;
+      setTimeout(() => {
+        child.emitRawLine(serializeOkEnvelope("done").replace(/\n$/, ""));
+        child.crashWith(0, null);
+      }, 0);
+      return child;
+    };
+    const deps = createProductionProducerDeps({
+      pi: { sendMessage: (): void => {}, getAllTools: () => [] } as unknown as ExtensionAPI,
+      root: childRegimeRootDouble(),
+      modelRegistry: { getAvailable: () => V6_MODELS } as unknown as ModelRegistry,
+      subagentSpawn: spawn,
+      subagentExecutableHost: fakeExecutableHost(),
+      subagentParentEnv: {},
+      subagentParentPid: 4242,
+    });
+    const bindInput: ConversationBindInput = {
+      theta,
+      args: "",
+      ctx: {
+        model: V6_MODELS[0],
+        cwd: "/work/project",
+        signal: undefined,
+        sessionManager: { getEntries: () => [], getLeafId: () => undefined },
+      } as unknown as import("@earendil-works/pi-coding-agent").ExtensionCommandContext,
+    };
+    const binding = deps.bindPromptConversation(bindInput);
+    await executeBody(theta.body, binding.executeDeps);
+
+    expect(launcher.spawns).toHaveLength(1);
+    const spawnRecord = launcher.spawns[0]!;
+    expect(
+      spawnRecord.args,
+      `V6: the child argv must carry --no-tools because the runtime-tool entry has no pi-tool underlying. Got: ${JSON.stringify(spawnRecord.args)}`,
+    ).toContain("--no-tools");
+    expect(
+      spawnRecord.args,
+      "V6: --tools must NOT appear (no pi-tool to install)",
+    ).not.toContain("--tools");
+  });
+});
+
 describe("RFC 0011 §4 — X4: inferChildTrust inputs are unchanged (green control)", () => {
   it("X4: a mixed set's derived pi-tool names still grant project-local trust exactly as an ordinary set would", () => {
     return runLoad({

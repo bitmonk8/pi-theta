@@ -247,3 +247,45 @@ describe("RFC 0011 §0 C6 / §5.5 — P9: session_name's try-unwrap flows the `s
     ).toContain(NON_ORDERABLE_OPERANDS_CODE);
   });
 });
+
+// ===========================================================================
+// Part C — GOV-15 regression: a theta declaring NO runtime tools must NOT
+// gain structural member resolution on an inline-object-annotated `let`.
+// Finding 1 (round-3 review): `#memberType`'s object-receiver arm was NOT
+// identity-gated, so `letAnnotationToCompatType`'s `kind: "object"` mint for
+// ANY annotated inline-object `let` triggered structural member reads. The
+// differential probe: a theta with NO `tools:` field — `schema S { a: integer }`
+// / `fn f() { S { a: 1 } }` / `let x: { a: integer } = f()` / `let b = x.a > "s"`
+// — must be diagnostic-clean (the member read is unresolvable past the
+// parser's static view and defers to the runtime safety net).
+// ===========================================================================
+
+/** Parse a theta body with NO frontmatter `tools:` field. */
+function noToolsParse(bodyLines: string[]): string[] {
+  const src = ["---", "mode: subagent", "---", "", ...bodyLines, ""].join("\n");
+  return parseSrc(src).diagnostics.map((d) => d.code);
+}
+
+describe("RFC 0011 GOV-15 regression — no-runtime-tool theta is diagnostic-stable on inline-object let", () => {
+  it("a theta with NO tools: field — `let x: { a: integer } = f()` then `x.a > \"s\"` — draws NO non-orderable-operands (deferred)", () => {
+    const codes = noToolsParse([
+      "schema S { a: integer }",
+      "fn f(): S { S { a: 1 } }",
+      'let x: { a: integer } = f()',
+      'x.a > "s"',
+    ]);
+    expect(
+      codes,
+      `GOV-15 regression: a runtime-tool-free theta must not gain structural member resolution. Got ${JSON.stringify(codes)}`,
+    ).not.toContain(NON_ORDERABLE_OPERANDS_CODE);
+  });
+
+  it("positive twin: `let usage = context_usage()?` + `usage.percent > \"s\"` DOES draw non-orderable-operands (the intended flow)", () => {
+    const src = fm("context_usage") + ['let usage = context_usage()?', 'usage.percent > "s"', ""].join("\n");
+    const codes = parseSrc(src).diagnostics.map((d) => d.code);
+    expect(
+      codes,
+      `the intended flow: a runtime tool's try-unwrapped member IS structurally typed. Got ${JSON.stringify(codes)}`,
+    ).toContain(NON_ORDERABLE_OPERANDS_CODE);
+  });
+});

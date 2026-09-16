@@ -446,6 +446,34 @@ describe("session-control-adapters (V24a-T) — executeSessionNameTool (D9/D9b/D
   });
 });
 
+// ===========================================================================
+// D1b — non-blank instructions reach the host VERBATIM (no trim).
+// Finding 5 (round-3 review): the spec pins blank/whitespace → absent
+// `customInstructions`; a non-blank value must reach the host unchanged.
+// ===========================================================================
+
+describe("session-control-adapters — executeCompactTool non-blank instructions verbatim (D1b)", () => {
+  it("D1b: `\"  keep  \"` reaches the host as `\"  keep  \"` (no trim)", async () => {
+    const captured: CompactOptions[] = [];
+    const host: SessionControlCtx = {
+      compact: (options?: CompactOptions): void => {
+        captured.push(options ?? {});
+        options?.onComplete?.({
+          summary: "s",
+          tokensBefore: 100,
+          estimatedTokensAfter: 40,
+          firstKeptEntryId: "x",
+        });
+      },
+      getContextUsage: (): ContextUsage | undefined => undefined,
+    };
+
+    await executeCompactTool(host, "compact", "  keep  ");
+
+    expect(captured[0]?.customInstructions, "D1b: non-blank instructions must reach the host verbatim").toBe("  keep  ");
+  });
+});
+
 // D11 (the resolver's runtime argument net, §5.4) is owned by the resolver /
 // executor arm (§6.3) — a non-string bound value never reaches this module's
 // adapters at all (they are dispatched only after the net clears). It is

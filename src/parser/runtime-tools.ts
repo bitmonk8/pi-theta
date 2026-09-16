@@ -11,7 +11,7 @@
 // dispatch table (§6) — one table, one derivation, so no consumer can drift
 // from another on the closed name set or a signature's arity/type facts.
 //
-// Spec: docs/reference/tool-calls.md #session-control-runtime-tools;
+// Spec: docs/spec_topics/tool-calls.md #session-control-runtime-tools;
 // docs/rfcs/0011-session-control-tools.md §1 (Summary), §2 (Detailed design).
 //
 // No Pi value import (type-only imports admitted); no ambient primitives —
