@@ -244,9 +244,11 @@ export interface ConversationBindInput {
    */
   readonly entry?: SubagentLaunchEntry;
   /**
-   * RFC 0012 §1: the display label a placement backend titles the child with
-   * (`--name` under the visible presentation). Defaults to the theta's slug;
-   * a `subagent fn` launch names `<slug>#<fn>`.
+   * RFC 0012 §1: the BASE display label for the launch. Defaults to the
+   * theta's slug; a `subagent fn` launch supplies `<slug>#<fn>`. The subagent
+   * bind appends `#<id>` — the first eight hex characters of the invocation
+   * id — before the launch, so the placement request's label is
+   * `<slug>#<id>` or `<slug>#<fn>#<id>` (0.477.0).
    */
   readonly label?: string;
   /**

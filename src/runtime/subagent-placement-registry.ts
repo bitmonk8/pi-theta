@@ -13,8 +13,11 @@
 //     pi-theta subscribes in its factory body.
 //
 // Every candidate is validated structurally (`validatePlacementBackend`) —
-// nothing is invoked at registration; `detect()` runs at selection time. A
-// malformed or duplicate registration is dropped with
+// nothing is invoked at registration; `detect()` runs at selection time.
+// Re-registering the IDENTICAL backend object under its name is a silent
+// no-op (the expected shape of a listener answering every compose pass's
+// discover); a malformed registration, or a DIFFERENT object under an
+// already-registered name, is dropped with
 // `theta/load/subagent-placement-invalid` (W) and the remaining backends
 // stand. The bus is per process, so every subscription is released on
 // `session_shutdown` (a stale handler from a removed package must not survive
@@ -60,18 +63,22 @@ export interface PlacementEventBus {
 }
 
 /**
- * The per-instance set of registered backends. Names are unique; the first
- * registration under a name stands and a later duplicate is dropped with the
- * invalid-registration diagnostic (an extension re-offering itself after a
- * reload is the expected duplicate, and it is harmless: the registry is
- * cleared at `session_shutdown`, and a repeat `session_start` within one
- * process re-discovers into a fresh set).
+ * The per-instance set of registered backends. Names are unique. The first
+ * registration under a name stands; re-registering the IDENTICAL object
+ * (`===`) under that name is a silent no-op, because discover fires on every
+ * compose pass (initial and each hot-reload re-compose) while the registry
+ * clears only at `session_shutdown`, so a listener that answers every
+ * discover with its one backend object is the conformant shape, not a fault
+ * (0.477.0). A DIFFERENT object under a registered name is dropped with the
+ * invalid-registration diagnostic.
  */
 export class PlacementRegistry {
   readonly #backends = new Map<string, SubagentPlacementBackend>();
 
   /**
-   * Register one candidate. Returns the `theta/load/subagent-placement-invalid`
+   * Register one candidate. Re-registering the identical backend object
+   * under its already-registered name is a no-op (the first stands, no
+   * diagnostic). Returns the `theta/load/subagent-placement-invalid`
    * diagnostic when the candidate is dropped, else `undefined`.
    */
   register(candidate: unknown): Diagnostic | undefined {
@@ -79,8 +86,14 @@ export class PlacementRegistry {
     if (!verdict.ok) {
       return invalidRegistration(verdict.name, verdict.reason);
     }
-    if (this.#backends.has(verdict.backend.name)) {
-      return invalidRegistration(verdict.backend.name, "a backend with this name is already registered");
+    const existing = this.#backends.get(verdict.backend.name);
+    if (existing !== undefined) {
+      return existing === verdict.backend
+        ? undefined
+        : invalidRegistration(
+            verdict.backend.name,
+            "a different backend is already registered under this name",
+          );
     }
     this.#backends.set(verdict.backend.name, verdict.backend);
     return undefined;

@@ -2562,7 +2562,13 @@ class ProductionThetaProducer implements ThetaProducerDeps {
     // `subagent fn`s. It selects the execution-status binding (`subagent-fn`
     // keeps its pre-RFC mode), the display label, and the entry carriage.
     const entry = bindInput.entry ?? THETA_LAUNCH_ENTRY;
-    const label = bindInput.label ?? theta.slashName;
+    // RFC 0012 §1 (0.477.0): the label carries a short invocation id so a
+    // `par for` fan-out's visible children get distinguishable tab titles.
+    // The id is the first eight hex characters of this invocation's PIC-20
+    // id — no new randomness source, unique per launch within a session,
+    // stable for the child's lifetime, and it correlates a pane title with
+    // the invocation's /theta-status node.
+    const label = `${bindInput.label ?? theta.slashName}#${ticket.invocationId.slice(0, 8)}`;
     statusBus?.invocationBound(ticket.invocationId, {
       mode: entry.kind === "fn" ? "subagent-fn" : "subagent",
       ...(bindInput.parentInvocationId !== undefined

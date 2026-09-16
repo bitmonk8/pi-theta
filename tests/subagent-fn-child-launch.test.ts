@@ -6,7 +6,7 @@
 // (`PI_THETA_SUBAGENT_ENTRY`), the arguments marshalled by declared parameter
 // name on the PIC-60 channel, the FN-7 `with { model }` on `--provider` /
 // `--model`, the INV-4 frame pushed and its depth marshalled, the
-// execution-status `subagent-fn` binding, the label `<slug>#<fn>`, the call-site
+// execution-status `subagent-fn` binding, the base label `<slug>#<fn>` (the bind appends `#<id8>`), the call-site
 // `with { cwd }` (Erratum B) as the child cwd — and the call evaluates to the
 // value the in-process drive returned for the same envelope: a bare tail bare,
 // an `Ok(x)` tail (`fn_tail: "ok"`) as `Ok(x)`, an `Err(e)` tail (`fn_tail:

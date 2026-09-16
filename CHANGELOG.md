@@ -4,6 +4,35 @@ All notable changes to `@bitmonk8/pi-theta` will be documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.477.0]
+
+### Fixed
+- **Idempotent placement re-registration**
+  ([RFC 0012](./docs/rfcs/0012-configurable-subagent-placement.md) §5,
+  §Implementation record item 17). `PlacementRegistry.register` treats
+  re-registration of the identical backend object under its
+  already-registered name as a silent no-op — the first registration stands,
+  no diagnostic. The spec instructs listeners to answer the discover event at
+  every compose pass while the registry clears only at `session_shutdown`, so
+  a conformant backend previously drew `theta/load/subagent-placement-invalid`
+  (W) on every hot-reload re-compose. A different object under a registered
+  name keeps the W, reworded `a different backend is already registered under
+  this name`; the registry row's Trigger narrows accordingly
+  (`docs/spec_topics/diagnostics/code-registry-load.md`), message template
+  unchanged.
+
+### Changed
+- **Per-invocation placement label**
+  ([RFC 0012](./docs/rfcs/0012-configurable-subagent-placement.md) §1/§7,
+  §Implementation record item 18). The launch label — the visible-regime
+  `--name` value, the `exec` `{label}` substitution, the `pipe` handle,
+  `SubagentPlacementRequest.label` — is now `<slug>#<id>`
+  (`<slug>#<fn>#<id>` for a `subagent fn` entry), `<id>` being the first
+  eight hex characters of the launch's PIC-20 invocation id: unique per
+  launch within a session, stable for the child's lifetime. A `par for`
+  fan-out's visible children no longer share one tab title, and a pane title
+  correlates with its `/theta-status` node.
+
 ## [0.476.0]
 
 ### Added

@@ -80,7 +80,7 @@ export interface SubagentPlacementRequest {
    * plane then travels on the launch file alone.
    */
   readonly env: Readonly<Record<string, string | undefined>>;
-  /** `"<slug>"` or `"<slug>#<fn>"` plus a short invocation id — tab titles / `--name`. */
+  /** `"<slug>#<id>"`, or `"<slug>#<fn>#<id>"` for a fn entry (`<id>` = first eight hex chars of the invocation id) — tab titles / `--name`. */
   readonly label: string;
   /** The presentation the argv was assembled for (§6 / §7). */
   readonly presentation: SubagentPlacementPresentation;

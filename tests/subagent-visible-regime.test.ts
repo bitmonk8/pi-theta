@@ -23,8 +23,14 @@ import type { ParsedFrontmatter } from "../src/parser/frontmatter";
 import { parseExpressionSource } from "../src/parser/theta-document";
 import { parseEnvelopeLine } from "../src/runtime/subagent-envelope";
 import type { SubagentChildControlPlane } from "../src/runtime/subagent-launch-file";
-import type { PlacedChild, SubagentPlacementBackend, SubagentPlacementRequest } from "../src/runtime/subagent-placement";
-import type { ExecutableHost, OpenedSubagentWire, SubagentChildProcess } from "../src/runtime/subagent-launcher";
+import {
+  createPipePlacementBackend,
+  type PlacedChild,
+  type SubagentLaunchEntry,
+  type SubagentPlacementBackend,
+  type SubagentPlacementRequest,
+} from "../src/runtime/subagent-placement";
+import type { ExecutableHost, OpenedSubagentWire, SpawnFn, SubagentChildProcess } from "../src/runtime/subagent-launcher";
 import type { PlacementLease } from "../src/runtime/subagent-placement-selection";
 import type { ExecutionStatusBus } from "../src/extension/execution-status/types";
 
@@ -50,6 +56,31 @@ function rootDouble(): RuntimeRoot {
 
 function noopPi(): ExtensionAPI {
   return { sendMessage: (): void => {}, getAllTools: () => [] } as unknown as ExtensionAPI;
+}
+
+/**
+ * A `RuntimeRoot` double whose `idSource.newInvocationId` returns fixed,
+ * hex-prefixed UUID-shaped strings from `ids` (one per call, the last value
+ * repeats past the end) — F4 (0.477.0): the label suffix is the first eight
+ * hex characters of the invocation id, so the id fixture must itself be hex
+ * there to make the regex-shape assertions meaningful.
+ */
+function hexInvocationRoot(ids: readonly string[]): RuntimeRoot {
+  let i = 0;
+  return {
+    checkpoint: new NoopCheckpoint(),
+    idSource: {
+      newInvocationId: (): string => ids[Math.min(i++, ids.length - 1)]!,
+      newToolCallId: (): string => "tc-1",
+    },
+    clock: {
+      now: () => 0,
+      wallNow: () => 0,
+      setTimeout: (fn: () => void, ms: number) => setTimeout(fn, ms),
+      clearTimeout: (h: unknown) => clearTimeout(h as ReturnType<typeof setTimeout>),
+    },
+    schemaValidator: { compile: () => ({ validate: () => ({ ok: true as const }) }) },
+  } as unknown as RuntimeRoot;
 }
 
 function subagentTheta(tail: string): ThetaCompositionInput {
@@ -255,7 +286,14 @@ function recordingBus(): { bus: ExecutionStatusBus; placed: { id: string; backen
   return { bus, placed };
 }
 
-async function launchThrough(backend: SubagentPlacementBackend): Promise<{
+async function launchThrough(
+  backend: SubagentPlacementBackend,
+  opts?: {
+    readonly entry?: SubagentLaunchEntry;
+    readonly label?: string;
+    readonly root?: RuntimeRoot;
+  },
+): Promise<{
   requests: SubagentPlacementRequest[];
   placed: { id: string; backend: string; handle: string }[];
 }> {
@@ -265,7 +303,7 @@ async function launchThrough(backend: SubagentPlacementBackend): Promise<{
   const { bus, placed } = recordingBus();
   const deps = createProductionProducerDeps({
     pi: noopPi(),
-    root: rootDouble(),
+    root: opts?.root ?? rootDouble(),
     modelRegistry: { getAvailable: () => [{ id: "claude-test", provider: "anthropic" }] } as unknown as ModelRegistry,
     subagentParentEnv: {},
     subagentParentPid: 1,
@@ -279,10 +317,50 @@ async function launchThrough(backend: SubagentPlacementBackend): Promise<{
     args: "",
     ctx: childCtx(undefined),
     thetaAbort: new AbortController(),
+    ...(opts?.entry !== undefined ? { entry: opts.entry } : {}),
+    ...(opts?.label !== undefined ? { label: opts.label } : {}),
   });
   await binding.teardown?.();
   binding.finishInvocation?.();
   return { requests, placed };
+}
+
+/**
+ * L3: two `spawnSubagentConversation` calls through ONE producer instance —
+ * the `par for` fan-out surrogate — sharing one `PlacementRegistry`-free
+ * lease and one recorded-requests array, so both launches' labels can be
+ * compared for a shared base and distinct 8-hex suffixes.
+ */
+async function launchTwiceThrough(
+  backend: SubagentPlacementBackend,
+  root: RuntimeRoot,
+): Promise<{ requests: SubagentPlacementRequest[] }> {
+  const requests: SubagentPlacementRequest[] = [];
+  const bound = { ...backend, place: (r: SubagentPlacementRequest): PlacedChild | Promise<PlacedChild> => (requests.push(r), backend.place(r)) };
+  const lease: PlacementLease = { backend: bound, release: (): void => {} };
+  const { bus } = recordingBus();
+  const deps = createProductionProducerDeps({
+    pi: noopPi(),
+    root,
+    modelRegistry: { getAvailable: () => [{ id: "claude-test", provider: "anthropic" }] } as unknown as ModelRegistry,
+    subagentParentEnv: {},
+    subagentParentPid: 1,
+    subagentExecutableHost: resolvingHost(),
+    subagentPlacement: (): PlacementLease => lease,
+    subagentOpenWire: openWire,
+    statusBus: bus,
+  });
+  for (let i = 0; i < 2; i += 1) {
+    const binding = await deps.spawnSubagentConversation({
+      theta: subagentTheta('"x"'),
+      args: "",
+      ctx: childCtx(undefined),
+      thetaAbort: new AbortController(),
+    });
+    await binding.teardown?.();
+    binding.finishInvocation?.();
+  }
+  return { requests };
 }
 
 describe("RFC-0012 §7 — parent side: `--no-session` unless persistSession; the placement publication", () => {
@@ -311,5 +389,92 @@ describe("RFC-0012 §7 — parent side: `--no-session` unless persistSession; th
     expect(requests[0]!.args).toContain("--no-session");
     expect(requests[0]!.args).toContain("--mode");
     expect(placed).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// F4 (0.477.0) — the per-invocation label suffix (RFC 0012 §1/§7).
+// ---------------------------------------------------------------------------
+
+describe("F4 (0.477.0) — the launch label carries the invocation id's first eight hex chars", () => {
+  it("L1: the recorded placement request's label is <slug>#<id8>, <id8> read off the execution-status placed node", async () => {
+    const root = hexInvocationRoot(["3f9c2a1b-0000-4000-8000-000000000000"]);
+    const { requests, placed } = await launchThrough(visibleBackend([], { visible: true, inheritsEnv: true }), { root });
+    expect(requests).toHaveLength(1);
+    expect(requests[0]!.label).toMatch(/^worker#[0-9a-f]{8}$/);
+    expect(placed).toHaveLength(1);
+    // Equality against the invocation id the execution-status bus recorded
+    // (`invocationPlaced(ticket.invocationId, ...)`), beyond the regex shape.
+    expect(requests[0]!.label).toBe(`worker#${placed[0]!.id.slice(0, 8)}`);
+  });
+
+  it("L2: the visible argv's --name element equals request.label byte-for-byte; the trailing positional stays /worker", async () => {
+    const root = hexInvocationRoot(["7ae04d22-0000-4000-8000-000000000000"]);
+    const { requests } = await launchThrough(visibleBackend([], { visible: true, inheritsEnv: true }), { root });
+    const args = requests[0]!.args;
+    const nameIndex = args.indexOf("--name");
+    expect(nameIndex).toBeGreaterThanOrEqual(0);
+    expect(args[nameIndex + 1]).toBe(requests[0]!.label);
+    expect(args[args.length - 1]).toBe("/worker");
+  });
+
+  it("L3: two launches through ONE producer (a `par for` fan-out surrogate) share the base and differ in the 8-hex suffix", async () => {
+    const root = hexInvocationRoot([
+      "3f9c2a1b-0000-4000-8000-000000000000",
+      "7ae04d22-0000-4000-8000-000000000000",
+    ]);
+    const { requests } = await launchTwiceThrough(visibleBackend([], { visible: true, inheritsEnv: true }), root);
+    expect(requests).toHaveLength(2);
+    for (const request of requests) {
+      expect(request.label).toMatch(/^worker#[0-9a-f]{8}$/);
+    }
+    const [first, second] = requests.map((r) => r.label);
+    expect(first).toBe(`worker#${"3f9c2a1b"}`);
+    expect(second).toBe(`worker#${"7ae04d22"}`);
+    expect(first).not.toBe(second);
+  });
+
+  it("L4: a fn-entry launch's label is <slug>#<fn>#<id8> — the fn base label with the id appended at the shared choke point", async () => {
+    const root = hexInvocationRoot(["c0ffee12-0000-4000-8000-000000000000"]);
+    // The fn-launch call site (production-theta-producer.ts, P-E) supplies
+    // `bindInput.label` as `<slug>#<fn>` before this generic bind's choke
+    // point appends `#<id8>`; driven directly here per
+    // `ConversationBindInput.entry`/`.label`'s own doc-comments.
+    const { requests, placed } = await launchThrough(visibleBackend([], { visible: true, inheritsEnv: true }), {
+      root,
+      entry: { kind: "fn", name: "step" },
+      label: "worker#step",
+    });
+    expect(requests).toHaveLength(1);
+    expect(requests[0]!.label).toMatch(/^worker#step#[0-9a-f]{8}$/);
+    expect(placed).toHaveLength(1);
+    expect(requests[0]!.label).toBe(`worker#step#${placed[0]!.id.slice(0, 8)}`);
+  });
+
+  it("L5: a `pipe` launch's argv has no --name; the request still carries the suffixed label", async () => {
+    const root = hexInvocationRoot(["decade11-0000-4000-8000-000000000000"]);
+    const { requests, placed } = await launchThrough(pipeLikeBackend([]), { root });
+    expect(requests).toHaveLength(1);
+    expect(requests[0]!.args).not.toContain("--name");
+    expect(requests[0]!.label).toMatch(/^worker#[0-9a-f]{8}$/);
+    // Unchanged (EXST-5 guard): a `pipe` launch still publishes no placement.
+    expect(placed).toEqual([]);
+  });
+
+  it("L6: createPipePlacementBackend's PlacedChild.handle stands in for the (already-suffixed) label", () => {
+    const spawn: SpawnFn = (): SubagentChildProcess => fakeChild();
+    const pipe = createPipePlacementBackend(spawn);
+    const request: SubagentPlacementRequest = {
+      execPath: "/usr/bin/node",
+      args: ["--mode", "json"],
+      cwd: "/tmp",
+      env: {},
+      label: "worker#3f9c2a1b",
+      presentation: "headless",
+      launchFile: undefined,
+      context: { invokeDepth: 0, parallel: false },
+    };
+    const placed = pipe.place(request) as PlacedChild;
+    expect(placed.handle).toBe("worker#3f9c2a1b");
   });
 });

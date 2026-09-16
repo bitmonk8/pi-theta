@@ -757,9 +757,11 @@ export interface SubagentLaunchRequest {
    */
   readonly entry?: SubagentLaunchEntry;
   /**
-   * RFC-0012 §1: the display label a backend titles the child with
-   * (`"<slug>"` or `"<slug>#<fn>"` plus a short invocation id). Defaults to
-   * the slug.
+   * RFC-0012 §1: the display label a backend titles the child with. The
+   * production producer supplies `"<slug>#<id>"` (or `"<slug>#<fn>#<id>"`
+   * for a fn entry), `<id>` being the first eight hex characters of the
+   * invocation id. Defaults to the bare slug when a direct caller passes
+   * none.
    */
   readonly label?: string;
   /** RFC-0012 §1: whether this launch is one of a `par for` fan-out (backend grouping hint only). */
