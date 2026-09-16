@@ -113,14 +113,14 @@ import {
   checkSubagentFnStaticResolution,
   collectSubagentFns,
 } from "./subagent-fn-static-checks";
+import { collectCallSites } from "./invoke-static-checks";
 import {
   checkImportedEnumVariantAccess,
   checkImportedFnCallArgs,
   checkImportedNonCtorTypeNames,
   checkImportedSchemaCtorFields,
-  collectCallSites,
   type ImportedFnCallee,
-} from "./invoke-static-checks";
+} from "./invoke-imported-checks";
 import { patchSystemTemplateForImports } from "./import-system-template-patch";
 
 /** Forward-slash-normalise a host path so the posix-based resolver joins cleanly. */
@@ -1121,7 +1121,7 @@ async function collectImportedSpecifierFacts(
       // Bug 0138 route 2 / bug 0429 / bug 0430 / bug 0448: resolve the
       // specifier's SOURCE name against the directly-resolved library's own
       // top-level body ONLY — no re-export chain follow-through here
-      // (`ImportedFnCallee`'s own doc comment, ../extension/invoke-static-checks.ts,
+      // (`ImportedFnCallee`'s own doc comment, ../extension/invoke-imported-checks.ts,
       // states the deferral this restriction records: a symbol reached only
       // through a re-export chain stays silent under this route, a withhold
       // rather than a duplicated chain-walk of `materializeChain`'s own logic
