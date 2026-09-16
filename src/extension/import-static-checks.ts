@@ -60,6 +60,7 @@ import { posix } from "node:path";
 import type { Diagnostic, SourceRange } from "../diagnostics/diagnostic";
 import type { FileSystem } from "../seams/file-system";
 import { canonicalizePath } from "../runtime/invocation";
+import { normalizePath } from "../normalize-path";
 import {
   IMPORT_NAME_COLLISION_CODE,
   IMPORT_NAME_COLLISION_HINT,
@@ -122,11 +123,6 @@ import {
   type ImportedFnCallee,
 } from "./invoke-imported-checks";
 import { patchSystemTemplateForImports } from "./import-system-template-patch";
-
-/** Forward-slash-normalise a host path so the posix-based resolver joins cleanly. */
-function normalizePath(path: string): string {
-  return path.replace(/\\/g, "/");
-}
 
 /**
  * `theta/load/unresolvable-thetalib-path` for a spec that RESOLVED (a byte-exact,

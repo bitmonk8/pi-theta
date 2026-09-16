@@ -105,6 +105,7 @@ import {
   type InvokeGraph,
 } from "../runtime/invoke-depth-cycle";
 import { canonicalizePath, checkInvokePathAtLoad } from "../runtime/invocation";
+import { normalizePath } from "../normalize-path";
 import type { FileSystem } from "../seams/file-system";
 import type { MaterializedImport } from "../runtime/lexical-environment";
 import type { ThetaCompositionInput } from "./theta-composition-producer";
@@ -130,11 +131,6 @@ import {
   type CompatType,
   type TypeEnv,
 } from "../parser/type-compat";
-
-/** Forward-slash-normalise a host path for byte-stable node identity. */
-function normalizePath(path: string): string {
-  return path.replace(/\\/g, "/");
-}
 
 /**
  * RFC 0011 §0 C6: build the runtime-tool success-type map for a compose-pass

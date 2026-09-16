@@ -17,15 +17,16 @@
 import type { FileSystem } from "../seams/file-system";
 import type { DiscoverySource } from "./discovery-walk";
 import { nodeErrorCode } from "./node-error-code";
+import { normalizePath } from "../normalize-path";
 
 // --------------------------------------------------------------------------
 // Path helpers — POSIX forward-slash form (the normalised comparison form per
 // Lexical §"Path literals"; the `FileSystem` seam reports forward-slash paths).
 // --------------------------------------------------------------------------
 
-export function normalizePath(path: string): string {
-  return path.replace(/\\/g, "/");
-}
+/** Imported from the shared `../normalize-path` (PTQ-0342) and re-exported so
+ *  this module's own existing importers are unaffected. */
+export { normalizePath };
 
 /** POSIX-join a base directory with a relative tail (no trailing-slash dupes). */
 export function joinPosix(base: string, tail: string): string {

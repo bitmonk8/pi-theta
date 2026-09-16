@@ -30,6 +30,7 @@
 import type { FileSystem } from "../seams/file-system";
 import type { Diagnostic } from "../diagnostics/diagnostic";
 import type { InvokeInfraError } from "./query-error";
+import { normalizePath } from "../normalize-path";
 
 // --------------------------------------------------------------------------
 // INV-1 — invoke-path discovery-root containment (load-time + runtime re-check)
@@ -116,11 +117,6 @@ export async function checkInvokePathContainment(
   }
 
   return { canonicalPath, within: false };
-}
-
-/** Forward-slash-normalise a host path (per the Lexical "Path literals" rule). */
-function normalizePath(path: string): string {
-  return path.replace(/\\/g, "/");
 }
 
 /**
