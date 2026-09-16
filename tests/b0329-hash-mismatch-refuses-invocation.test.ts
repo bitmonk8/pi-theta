@@ -19,7 +19,7 @@ import {
 import { SUBAGENT_PARENT_PID_ENV } from "../src/runtime/subagent-launcher";
 import { SUBAGENT_ROOT_ENV_MARKER } from "../src/runtime/subagent-root-regime";
 import { createEnvSandbox } from "./helpers/ambient-control-plane-scrub";
-import { makeHost } from "./helpers/compose-workspace-harness";
+import { finishWorkspace, makeHost, type ComposeWorkspace } from "./helpers/compose-workspace-harness";
 
 // Bug 0329 — a child-side callable-hash mismatch DETECTS but does not ENFORCE.
 // subagent.md #subagent-theta-callable-hash: the child "verifies each hash after
@@ -164,6 +164,7 @@ function loadFailureEnvelope(outcome: ComposeOutcome): EnvelopeErr {
 
 let workspaceDir: string;
 let thetaDir: string;
+let composeWorkspace: ComposeWorkspace;
 const { setEnv, restoreEnv } = createEnvSandbox();
 
 function plant(name: string, content: string): void {
@@ -189,12 +190,12 @@ beforeEach(() => {
   // A minimal valid settings file pins the settings read (an ABSENT file is
   // silent per package-and-settings.md §Failure modes) — hermeticity, not noise
   // suppression, matching the sibling harnesses.
-  writeFileSync(join(workspaceDir, ".pi", "settings.json"), "{}", "utf8");
+  composeWorkspace = finishWorkspace(workspaceDir);
 });
 
 afterEach(() => {
   restoreEnv();
-  rmSync(workspaceDir, { recursive: true, force: true });
+  composeWorkspace.dispose();
 });
 
 // =============================================================================

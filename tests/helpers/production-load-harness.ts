@@ -33,11 +33,17 @@ export interface LoadOutcome {
   readonly notifications: readonly string[];
   /** `theta: <file>:<line>:<col>: <code>: <message>`, one per diagnostic. */
   readonly diagnosticLines: readonly string[];
+  /** The composed fixtures the pass produced (discovery order), for callers that need more than `registered`. */
+  readonly fixtures: readonly ThetaFixture[];
 }
 
 export interface ProductionLoadOptions {
   /** `ctx.modelRegistry.getAvailable()`'s report; default: no available models. */
   readonly availableModels?: readonly unknown[];
+  /** `pi.getFlag("theta")`'s report; default: no CLI `--theta` flag. */
+  readonly thetaFlag?: string;
+  /** `pi.getCommands()`'s report; default: no Pi-owned commands. */
+  readonly piOwnedCommands?: readonly { readonly name: string; readonly source: string }[];
 }
 
 /**
@@ -54,8 +60,8 @@ export async function runProductionLoad(
   const notifications: string[] = [];
   const chunks: string[] = [];
   const pi = {
-    getFlag: (): undefined => undefined,
-    getCommands: (): readonly unknown[] => [],
+    getFlag: (name: string): string | undefined => (name === "theta" ? opts.thetaFlag : undefined),
+    getCommands: (): readonly { name: string; source: string }[] => opts.piOwnedCommands ?? [],
     sendMessage: (): void => {},
     sendUserMessage: (): void => {},
     getActiveTools: (): readonly string[] => [],
@@ -95,6 +101,7 @@ export async function runProductionLoad(
       .join("")
       .split(/\r?\n/)
       .filter((line) => line.length > 0),
+    fixtures,
   };
 }
 

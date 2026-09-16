@@ -44,11 +44,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type {
   ExtensionAPI,
   ExtensionCommandContext,
-  ExtensionContext,
   ModelRegistry,
 } from "@earendil-works/pi-coding-agent";
-import type { ThetaFixture } from "../src/extension/factory";
-import { discoverAndComposeFixtures } from "../src/extension/production-composition";
 import {
   hashCallableClosure,
   SUBAGENT_CALLABLE_HASHES_ENV,
@@ -70,46 +67,7 @@ import type { ThetaBody } from "../src/parser/theta-document";
 import type { CallableSetSnapshot } from "../src/parser/callable-set";
 import type { ParsedFrontmatter } from "../src/parser/frontmatter";
 import { createEnvSandbox } from "./helpers/ambient-control-plane-scrub";
-
-// ── Shared discovery harness (mirrors b0328 / the e2e refusal harness) ──
-
-interface LoadOutcome {
-  readonly registered: readonly string[];
-  readonly notifications: readonly string[];
-}
-
-function makeDiscoveryHost(cwd: string): {
-  readonly pi: ExtensionAPI;
-  readonly ctx: ExtensionContext;
-  readonly notifications: string[];
-} {
-  const notifications: string[] = [];
-  const pi = {
-    getFlag: (): undefined => undefined,
-    getCommands: (): readonly unknown[] => [],
-    sendMessage: (): void => {},
-    sendUserMessage: (): void => {},
-    getActiveTools: (): readonly string[] => [],
-    setActiveTools: (): void => {},
-    getAllTools: (): readonly unknown[] => [],
-  } as unknown as ExtensionAPI;
-  const ctx = {
-    cwd,
-    modelRegistry: { getAvailable: (): readonly unknown[] => [] },
-    ui: {
-      notify: (message: string): void => {
-        notifications.push(message);
-      },
-    },
-  } as unknown as ExtensionContext;
-  return { pi, ctx, notifications };
-}
-
-async function runDiscovery(cwd: string): Promise<LoadOutcome> {
-  const host = makeDiscoveryHost(cwd);
-  const fixtures: readonly ThetaFixture[] = await discoverAndComposeFixtures(host.pi, host.ctx);
-  return { registered: fixtures.map((f) => f.slashName), notifications: host.notifications };
-}
+import { runProductionLoad } from "./helpers/production-load-harness";
 
 /** The exact on-disk content a closure hash is computed over (UTF-8, no BOM). */
 function readText(path: string): string {
@@ -396,7 +354,7 @@ describe("bug 0343 (C) — child end-to-end: the parent-marshalled __proto__ row
     setEnv(SUBAGENT_ROOT_ENV_MARKER, "proto-caller");
     setEnv(SUBAGENT_CALLABLE_HASHES_ENV, carrier);
 
-    const outcome = await runDiscovery(workspaceDir);
+    const outcome = await runProductionLoad(workspaceDir);
 
     // Green in BOTH tree states: pre-fix no carrier so nothing verifies; post-fix
     // the recomputed hash matches. Either way the callee is admitted with no note
@@ -427,7 +385,7 @@ describe("bug 0343 (C) — child end-to-end: the parent-marshalled __proto__ row
     setEnv(SUBAGENT_ROOT_ENV_MARKER, "proto-caller");
     setEnv(SUBAGENT_CALLABLE_HASHES_ENV, carrier);
 
-    const outcome = await runDiscovery(workspaceDir);
+    const outcome = await runProductionLoad(workspaceDir);
 
     // RED pre-fix: the parent's __proto__ write no-ops, so it marshals NO row
     // (carrier undefined), the child verifies nothing, and the edited callee

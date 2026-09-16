@@ -37,13 +37,7 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { delimiter, dirname, join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type {
-  ExtensionAPI,
-  ExtensionContext,
-} from "@earendil-works/pi-coding-agent";
-import type { ThetaFixture } from "../src/extension/factory";
-import { discoverAndComposeFixtures } from "../src/extension/production-composition";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { SUBAGENT_PARENT_PID_ENV } from "../src/runtime/subagent-launcher";
 import {
   createEnvSandbox,
@@ -52,6 +46,7 @@ import {
   type AmbientControlPlaneSnapshot,
 } from "./helpers/ambient-control-plane-scrub";
 import { SUBAGENT_ROOT_ENV_MARKER } from "../src/runtime/subagent-root-regime";
+import { runProductionLoad } from "./helpers/production-load-harness";
 
 // The not-yet-existent control-plane carrier, referenced by literal so the file
 // compiles against the current tree (see header). The implementer's Phase-2
@@ -126,60 +121,31 @@ function reproWinnerPath(): string {
 }
 
 /**
- * Drive the REAL child load pass. `thetaFlag` is what `pi.getFlag('theta')`
- * returns (the marshalled `--theta` value, or `undefined` for a parent pass).
- * `hasUI: false` routes cross-source-shadow WARNINGS to the headless stderr
- * mirror (the only surface they reach — `makeLoadEmit` toasts errors only),
- * captured under a scoped spy for hermeticity.
+ * Drive the REAL child load pass over the shared fake-host harness
+ * (`tests/helpers/production-load-harness.ts`). `thetaFlag` is what
+ * `pi.getFlag('theta')` returns (the marshalled `--theta` value, or
+ * `undefined` for a parent pass); the harness's `ctx.hasUI` is already falsy
+ * (unset), so — exactly like an explicit `hasUI: false` — every
+ * cross-source-shadow WARNING routes to the headless stderr mirror (the only
+ * surface it reaches, `makeLoadEmit` toasts errors only), captured by the
+ * harness's own scoped interposition.
  */
 async function runLoad(
   cwd: string,
   thetaFlag: string | undefined,
   piOwnedCommands: readonly { name: string; source: string }[] = [],
 ): Promise<LoadOutcome> {
-  const notifications: string[] = [];
-  const stderrChunks: string[] = [];
-  const pi = {
-    getFlag: (name: string): string | undefined => (name === "theta" ? thetaFlag : undefined),
-    getCommands: (): readonly unknown[] => piOwnedCommands,
-    sendMessage: (): void => {},
-    sendUserMessage: (): void => {},
-    registerCommand: (): void => {},
-    registerMessageRenderer: (): void => {},
-    registerFlag: (): void => {},
-    on: (): void => {},
-    getActiveTools: (): readonly string[] => [],
-    setActiveTools: (): void => {},
-    getAllTools: (): readonly unknown[] => [],
-  } as unknown as ExtensionAPI;
-  const ctx = {
-    cwd,
-    hasUI: false,
-    modelRegistry: { getAvailable: (): readonly unknown[] => [] },
-    ui: {
-      notify: (message: string): void => {
-        notifications.push(message);
-      },
-    },
-  } as unknown as ExtensionContext;
-  const stderrSpy = vi
-    .spyOn(process.stderr, "write")
-    .mockImplementation((chunk: unknown): boolean => {
-      stderrChunks.push(String(chunk));
-      return true;
-    });
-  try {
-    const fixtures: readonly ThetaFixture[] = await discoverAndComposeFixtures(pi, ctx);
-    return {
-      registered: fixtures.map((f) => f.slashName),
-      descriptionOf: (slug: string): string | undefined =>
-        fixtures.find((f) => f.slashName === slug)?.description,
-      notifications,
-      stderr: stderrChunks.join(""),
-    };
-  } finally {
-    stderrSpy.mockRestore();
-  }
+  const outcome = await runProductionLoad(cwd, {
+    ...(thetaFlag !== undefined ? { thetaFlag } : {}),
+    piOwnedCommands,
+  });
+  return {
+    registered: outcome.registered,
+    descriptionOf: (slug: string): string | undefined =>
+      outcome.fixtures.find((f) => f.slashName === slug)?.description,
+    notifications: outcome.notifications,
+    stderr: outcome.diagnosticLines.join("\n"),
+  };
 }
 
 beforeEach(() => {

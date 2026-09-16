@@ -45,18 +45,16 @@
 // `Object.prototype` member, e.g. `constructor`, still marshals its row instead
 // of being silently dropped).
 
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, dirname, resolve as resolvePath } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type {
   ExtensionAPI,
   ExtensionCommandContext,
-  ExtensionContext,
   ModelRegistry,
 } from "@earendil-works/pi-coding-agent";
 import type { ThetaFixture } from "../src/extension/factory";
-import { discoverAndComposeFixtures } from "../src/extension/production-composition";
 import {
   hashCallableClosure,
   SUBAGENT_CALLABLE_HASHES_ENV,
@@ -77,6 +75,8 @@ import type { ThetaBody } from "../src/parser/theta-document";
 import type { CallableSetSnapshot } from "../src/parser/callable-set";
 import type { ParsedFrontmatter } from "../src/parser/frontmatter";
 import { createEnvSandbox } from "./helpers/ambient-control-plane-scrub";
+import { runProductionLoad } from "./helpers/production-load-harness";
+import { finishWorkspace, type ComposeWorkspace } from "./helpers/compose-workspace-harness";
 
 /**
  * The shape the fix stamps onto `ParsedTheta` / the composition input. Read via
@@ -86,51 +86,6 @@ import { createEnvSandbox } from "./helpers/ambient-control-plane-scrub";
 interface RootClosureHash {
   readonly name: string;
   readonly hash: string;
-}
-
-// ── Shared discovery harness (mirrors tests/subagent-child-hash-refusal-e2e.ts) ──
-
-interface LoadOutcome {
-  readonly fixtures: readonly ThetaFixture[];
-  readonly registered: readonly string[];
-  readonly notifications: readonly string[];
-}
-
-function makeDiscoveryHost(cwd: string): {
-  readonly pi: ExtensionAPI;
-  readonly ctx: ExtensionContext;
-  readonly notifications: string[];
-} {
-  const notifications: string[] = [];
-  const pi = {
-    getFlag: (): undefined => undefined,
-    getCommands: (): readonly unknown[] => [],
-    sendMessage: (): void => {},
-    sendUserMessage: (): void => {},
-    getActiveTools: (): readonly string[] => [],
-    setActiveTools: (): void => {},
-    getAllTools: (): readonly unknown[] => [],
-  } as unknown as ExtensionAPI;
-  const ctx = {
-    cwd,
-    modelRegistry: { getAvailable: (): readonly unknown[] => [] },
-    ui: {
-      notify: (message: string): void => {
-        notifications.push(message);
-      },
-    },
-  } as unknown as ExtensionContext;
-  return { pi, ctx, notifications };
-}
-
-async function runDiscovery(cwd: string): Promise<LoadOutcome> {
-  const host = makeDiscoveryHost(cwd);
-  const fixtures = await discoverAndComposeFixtures(host.pi, host.ctx);
-  return {
-    fixtures,
-    registered: fixtures.map((f) => f.slashName),
-    notifications: host.notifications,
-  };
 }
 
 /** The `rootClosureHash` the fix stamps on the composed fixture (undefined pre-fix). */
@@ -145,6 +100,7 @@ function readText(path: string): string {
 
 let workspaceDir: string;
 let thetaDir: string;
+let composeWorkspace: ComposeWorkspace;
 
 beforeEach(() => {
   workspaceDir = mkdtempSync(join(tmpdir(), "b0328-"));
@@ -153,11 +109,11 @@ beforeEach(() => {
   // A minimal valid settings file pins the settings read (an ABSENT file is
   // silent per package-and-settings.md §Failure modes) — hermeticity, not noise
   // suppression, matching the e2e harness.
-  writeFileSync(join(workspaceDir, ".pi", "settings.json"), "{}", "utf8");
+  composeWorkspace = finishWorkspace(workspaceDir);
 });
 
 afterEach(() => {
-  rmSync(workspaceDir, { recursive: true, force: true });
+  composeWorkspace.dispose();
 });
 
 // =============================================================================
@@ -171,7 +127,7 @@ describe("bug 0328 (1) — LOAD records the root callee's own transitive-closure
     const rootPath = join(thetaDir, "zqx-root.theta");
     writeFileSync(rootPath, "---\nmode: subagent\n---\n@`hi`\n", "utf8");
 
-    const outcome = await runDiscovery(workspaceDir);
+    const outcome = await runProductionLoad(workspaceDir);
     const fixture = outcome.fixtures.find((f) => f.slashName === "zqx-root");
     // Fail loudly if the precondition (a registered root) is not met.
     expect(fixture, "zqx-root must register so its rootClosureHash is observable").toBeDefined();
@@ -198,7 +154,7 @@ describe("bug 0328 (1) — LOAD records the root callee's own transitive-closure
       "utf8",
     );
 
-    const outcome = await runDiscovery(workspaceDir);
+    const outcome = await runProductionLoad(workspaceDir);
     const fixture = outcome.fixtures.find((f) => f.slashName === "zqx2-root");
     expect(fixture, "zqx2-root must register so its rootClosureHash is observable").toBeDefined();
 
@@ -230,7 +186,7 @@ describe("bug 0328 (1) — LOAD records the root callee's own transitive-closure
     const rootPath = join(thetaDir, "zqxp-root.theta");
     writeFileSync(rootPath, "---\nmode: prompt\n---\n@`hi`\n", "utf8");
 
-    const outcome = await runDiscovery(workspaceDir);
+    const outcome = await runProductionLoad(workspaceDir);
     const fixture = outcome.fixtures.find((f) => f.slashName === "zqxp-root");
     expect(fixture, "zqxp-root must register so its rootClosureHash is observable").toBeDefined();
 
@@ -462,7 +418,7 @@ describe("bug 0328 (3) — child end-to-end: the marshalled root hash catches a 
     setEnv(SUBAGENT_CALLABLE_HASHES_ENV, carrier);
 
     // No on-disk edit: the child recomputes the identical hash.
-    const outcome = await runDiscovery(workspaceDir);
+    const outcome = await runProductionLoad(workspaceDir);
 
     // Green in BOTH tree states: pre-fix there is no carrier so nothing verifies;
     // post-fix the recomputed hash matches. Either way the root is admitted with
@@ -486,7 +442,7 @@ describe("bug 0328 (3) — child end-to-end: the marshalled root hash catches a 
     setEnv(SUBAGENT_ROOT_ENV_MARKER, "zqx-root");
     setEnv(SUBAGENT_CALLABLE_HASHES_ENV, carrier);
 
-    const outcome = await runDiscovery(workspaceDir);
+    const outcome = await runProductionLoad(workspaceDir);
 
     // RED pre-fix: the parent marshalled NO root key (carrier `undefined`), so
     // the child never verifies the root — it registers the edited bytes silently

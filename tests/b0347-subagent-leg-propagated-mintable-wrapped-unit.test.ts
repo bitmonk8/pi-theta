@@ -69,13 +69,9 @@
 import { describe, expect, it } from "vitest";
 
 import { driveSubagentChild } from "../src/runtime/subagent-json-driver";
-import {
-  THETA_ENVELOPE_VERSION,
-  THETA_RESULT_KEY,
-} from "../src/runtime/subagent-envelope";
-import type { SubagentChildProcess } from "../src/runtime/subagent-launcher";
-import type { Diagnostic } from "../src/diagnostics/diagnostic";
+import { THETA_ENVELOPE_VERSION } from "../src/runtime/subagent-envelope";
 import { FakeRpcChild } from "./helpers/fake-rpc-child";
+import { envelopeLine, tick, driveDeps } from "./helpers/subagent-json-driver-harness";
 
 import {
   executeBody,
@@ -119,31 +115,9 @@ const NO_WRITER_CAUSES = ["parse_failure", "panic", "subagent_model_unresolved"]
 
 // ===========================================================================
 // (F) Subagent-leg driver harness — hand-built envelope line, mirroring b0294.
+// `envelopeLine` / `tick` / `driveDeps` live in
+// `tests/helpers/subagent-json-driver-harness.ts`, imported above.
 // ===========================================================================
-
-/** One hand-built `theta_result` envelope line (the child emits this on stdout). */
-function envelopeLine(payload: Record<string, unknown>): string {
-  return JSON.stringify({ [THETA_RESULT_KEY]: payload });
-}
-
-/** A macrotask flush so the drive reaches its stdout-read await before the line lands. */
-function tick(): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, 0));
-}
-
-function driveDeps(child: SubagentChildProcess, thetaAbort: AbortController): {
-  child: SubagentChildProcess;
-  thetaAbort: AbortController;
-  calleePath: string;
-  emitDiagnostic: (d: Diagnostic) => void;
-} {
-  return {
-    child,
-    thetaAbort,
-    calleePath: "./worker.theta",
-    emitDiagnostic: (): void => {},
-  };
-}
 
 /** A minimal `invoke_infra` err body carrying the given cause (the driver reads `kind`/`cause`). */
 function invokeInfraErr(cause: string): Record<string, unknown> {
