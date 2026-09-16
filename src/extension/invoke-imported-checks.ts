@@ -81,6 +81,22 @@ export interface ImportedFnCallee {
 }
 
 /**
+ * expressions.md §"Identifier resolution": arm (1) outranks arm (3), so a
+ * name bound anywhere in the importing body as a `let`, loop variable,
+ * match-arm pattern, `fn` parameter, or frontmatter `params:` field
+ * (`collectLocalBinderNames`, ../parser/type-layer-checks.ts) is never an
+ * imported-symbol reference at that site, whatever declaration kind the
+ * import would otherwise resolve to (an imported `fn` call, or a `schema` /
+ * `enum` constructor or member-access target). Each of the four checks below
+ * tests its own candidate name against the caller-supplied `shadowedNames`
+ * set before judging anything else about the site — one predicate for the
+ * one rule, in place of four hand-written copies of the same test.
+ */
+function isShadowedImportName(name: string, shadowedNames: ReadonlySet<string>): boolean {
+  return shadowedNames.has(name);
+}
+
+/**
  * Bug 0138 route 2 — judge an imported-`.thetalib` `fn` call's ARGUMENTS
  * (count and per-slot type) at the COMPOSE layer, where the resolved library
  * already exists as a parsed `ThetaDocument`. No new diagnostic code: the
@@ -174,10 +190,7 @@ export function checkImportedFnCallArgs(
   };
 
   for (const call of callExprs) {
-    if (shadowedNames.has(call.callee)) {
-      // expressions.md §"Identifier resolution": arm (1) outranks arm (3), so
-      // a call of a locally-bound name is never an imported-`fn` call at this
-      // site — the same test `checkFnCallArgs`'s `shadowedNames` arm applies.
+    if (isShadowedImportName(call.callee, shadowedNames)) {
       continue;
     }
     const callee = importedFns.get(call.callee);
@@ -323,11 +336,7 @@ export function checkImportedSchemaCtorFields(
       continue;
     }
     const typeName = ctor.typeName;
-    if (shadowedNames.has(typeName)) {
-      // expressions.md §"Identifier resolution": arm (1) outranks arm (3), so
-      // a constructor of a locally-bound name never denotes the imported
-      // schema at this site — the same test `checkImportedFnCallArgs`
-      // applies to its call sites.
+    if (isShadowedImportName(typeName, shadowedNames)) {
       continue;
     }
     const declaredFields = importedSchemas.get(typeName);
@@ -422,11 +431,7 @@ export function checkImportedEnumVariantAccess(
       continue;
     }
     const enumName = access.target.name;
-    if (shadowedNames.has(enumName)) {
-      // expressions.md §"Identifier resolution": arm (1) outranks arm (3), so
-      // a member access of a locally-bound name never denotes the imported
-      // enum at this site — the same test `checkImportedSchemaCtorFields`
-      // applies to its constructor sites.
+    if (isShadowedImportName(enumName, shadowedNames)) {
       continue;
     }
     const knownVariants = importedEnums.get(enumName);
@@ -521,11 +526,7 @@ export function checkImportedNonCtorTypeNames(
       continue;
     }
     const typeName = ctor.typeName;
-    if (shadowedNames.has(typeName)) {
-      // expressions.md §"Identifier resolution": arm (1) outranks arm (3), so
-      // a constructor of a locally-bound name never denotes the imported
-      // binding at this site — the same test `checkImportedSchemaCtorFields`
-      // applies to its own constructor sites.
+    if (isShadowedImportName(typeName, shadowedNames)) {
       continue;
     }
     if (!importedNonCtorNames.has(typeName)) {

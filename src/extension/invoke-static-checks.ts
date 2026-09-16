@@ -28,6 +28,14 @@
 //     SAME call-site collection: a Pi-tool call's sole bare-object-argument
 //     field whose static type is provably disjoint (RFC 0002) from the tool's
 //     registered input-schema type for that field.
+//   - RFC 0011 §5.2 (tool-calls.md #session-control-runtime-tools) —
+//     `checkRuntimeToolCallSurface`, a THIRD `checkInvokeArity` call surface
+//     (a `tools:` entry of kind `"runtime-tool"`): the same arity codes as
+//     the other two surfaces, then, only when arity raised no diagnostic,
+//     `theta/parse/tool-arg-type-mismatch` via `checkToolCallArguments` with
+//     `calleeKind: "runtime-tool"` — mirroring the `.theta`-callable call
+//     surface's own two checks above. GOV-15 inert: unreachable while the
+//     callable set holds no `"runtime-tool"` entry (every 1.0.0-clean file).
 //   - INV-4 — `detectInvocationCycle` over the per-load-pass static-resolution
 //     graph (`theta/load/invocation-cycle`); a self-cycle or an A→B→A cycle
 //     un-registers the entry theta, which is what keeps a self-referential theta
@@ -56,10 +64,13 @@
 //     the clause's `cwd` value as an ordinary `string` argument slot on both
 //     call surfaces (the surface's own arg-type row, no new code); the mode gate
 //     refuses a clause on a statically-resolvable PROMPT-mode callee
-//     (`theta/parse/with-clause-prompt-mode-callee`); and the Erratum A′
-//     default-reject loop convicts a clause on any bare-ident callee the frozen
-//     callable set does not classify `theta` (`theta/parse/with-clause-pi-tool`
-//     / `theta/parse/with-clause-in-process-callee`).
+//     (`theta/parse/with-clause-prompt-mode-callee`); and the Erratum A′ /
+//     Erratum B default-reject loop convicts a clause on any bare-ident
+//     callee the frozen callable set does not classify `theta` and that is
+//     not one of the file's own `subagent fn`s (RFC 0012 §10)
+//     (`theta/parse/with-clause-pi-tool` / `theta/parse/with-clause-in-process-callee`),
+//     deferring an imported callee's verdict to `checkImportedWithClauseCallees`
+//     after import materialisation.
 //
 // The invoke-graph is keyed by discovered slash name (unique per registration),
 // so the cycle message renders `invocation cycle: A → B → A` per the spec prose.
@@ -405,6 +416,42 @@ function checkClauseCwdType(input: {
     );
   }
   return out;
+}
+
+/**
+ * RFC 0009 (invocation.md INV-8 static mode gate): refuse a call-site `with`
+ * clause on a statically-resolvable PROMPT-mode callee, before that site's
+ * arity/type block — the one shared decision both clause-bearing surfaces
+ * apply, mirroring `checkClauseCwdType`'s own surface-spanning shape for the
+ * sibling INV-6 rule above. `mode: undefined` means the callee is not
+ * statically resolvable (the `invoke(...)` surface's own possibility; the
+ * `.theta`-callable surface's callee is always statically resolvable by the
+ * time its caller reaches this gate) and then no diagnostic fires — the
+ * runtime validation arm owns that case (registry row Trigger). `presented`
+ * renders as `<callee>`: the `invoke(...)` surface passes the verbatim path
+ * literal (that IS the text at its own diagnostic range) and the
+ * `.theta`-callable surface passes the presented callable name
+ * (placeholder-rendering-b.md §7) — each caller's own existing rendering
+ * rule, unchanged by this extraction.
+ */
+function withClausePromptModeRefusal(input: {
+  readonly clause?: CallWithClause;
+  readonly mode: ThetaMode | undefined;
+  readonly file: string;
+  readonly range: SourceRange;
+  readonly presented: string;
+}): Diagnostic | undefined {
+  if (input.clause === undefined || input.mode !== "prompt") {
+    return undefined;
+  }
+  return {
+    severity: "error",
+    code: WITH_CLAUSE_PROMPT_MODE_CALLEE_CODE,
+    file: input.file,
+    range: input.range,
+    message: withClausePromptModeCalleeMessage(input.presented),
+    hint: WITH_CLAUSE_PROMPT_MODE_CALLEE_HINT,
+  };
 }
 
 /** Resolve an `invoke` path literal to a forward-slash-normalised absolute path. */
@@ -951,24 +998,26 @@ async function checkThetaCallableCallSurface(
     if (arity === undefined) {
       continue;
     }
-    // RFC 0009 (invocation.md INV-8 static mode gate), the `.theta`-callable
-    // half of the invoke arm's gate above. PRODUCTION-UNREACHABLE: a
-    // prompt-mode `.theta` in `tools:` already un-registers the theta at load
-    // (`theta/load/prompt-mode-callable`, tool-calls.md), so no registered
-    // caller can hold this site — the arm exists so the gate is uniform
-    // across both clause-bearing surfaces (and for harness inputs). `<callee>`
-    // is the PRESENTED callable name here, not the callee path
-    // (placeholder-rendering-b.md §7), as this surface's other rows render it.
+    // RFC 0009 (invocation.md INV-8 static mode gate) via the shared
+    // `withClausePromptModeRefusal` helper — the `.theta`-callable half of
+    // the invoke arm's own call to it inside `checkInvokeStaticResolution`.
+    // PRODUCTION-UNREACHABLE: a prompt-mode `.theta` in `tools:` already
+    // un-registers the theta at load (`theta/load/prompt-mode-callable`,
+    // tool-calls.md), so no registered caller can hold this site — the arm
+    // exists so the gate is uniform across both clause-bearing surfaces (and
+    // for harness inputs). `<callee>` is the PRESENTED callable name here,
+    // not the callee path (placeholder-rendering-b.md §7), as this surface's
+    // other rows render it.
+    const clauseRefusal = withClausePromptModeRefusal({
+      ...(site.call.withClause !== undefined ? { clause: site.call.withClause } : {}),
+      mode: arity.mode,
+      file: callerPath,
+      range: site.call.range,
+      presented: site.name,
+    });
     let clauseRefused = false;
-    if (site.call.withClause !== undefined && arity.mode === "prompt") {
-      diagnostics.push({
-        severity: "error",
-        code: WITH_CLAUSE_PROMPT_MODE_CALLEE_CODE,
-        file: callerPath,
-        range: site.call.range,
-        message: withClausePromptModeCalleeMessage(site.name),
-        hint: WITH_CLAUSE_PROMPT_MODE_CALLEE_HINT,
-      });
+    if (clauseRefusal !== undefined) {
+      diagnostics.push(clauseRefusal);
       clauseRefused = true;
     }
     if (!clauseRefused) {
@@ -984,7 +1033,7 @@ async function checkThetaCallableCallSurface(
       );
     }
     const arityDiags = checkInvokeArity({
-      // The `invoke(...)` arm above renders `<callee>` as the verbatim path
+      // The `invoke(...)` arm below renders `<callee>` as the verbatim path
       // literal because that IS the text at its diagnostic range. Here the
       // range is the call site instead, and the callee path appears
       // nowhere on that line — only the presented callable name does — so
@@ -1488,6 +1537,14 @@ function checkPiToolArgDisjointness(
  *     evaluate to (`collectProvableArgTypes`), never by the single type a
  *     composite narrows to, which is what keeps them off values the runtime
  *     AJV check accepts — see that function's own comment.
+ *   - RFC 0011 §5.2 (tool-calls.md #session-control-runtime-tools)
+ *     `theta/parse/tool-arg-type-mismatch` over the runtime-tool call
+ *     surface (`checkRuntimeToolCallSurface`): arity via `checkInvokeArity`
+ *     against the tool's fixed signature, then, only when arity raised no
+ *     diagnostic, per-slot type via `checkToolCallArguments` with
+ *     `calleeKind: "runtime-tool"` — mirroring the `.theta`-callable
+ *     surface's own two checks above. GOV-15 inert: unreachable while the
+ *     callable set holds no `"runtime-tool"` entry (every 1.0.0-clean file);
  *   - RFC 0009 INV-8 `theta/parse/with-clause-prompt-mode-callee` on both call
  *     surfaces: a call-site `with` clause on a statically-resolvable
  *     PROMPT-mode callee, refused before that site's arity/type block;
@@ -1606,23 +1663,26 @@ export async function checkInvokeStaticResolution(
       // excludes the leading path-literal argument.
       const providedCount = Math.max(0, invoke.args.length - 1);
       const arity = await deps.resolveCalleeArity(resolvedPath);
-      // RFC 0009 (invocation.md INV-8 static mode gate): a call-site `with`
-      // clause addresses the spawned child process, so a statically-resolvable
-      // PROMPT-mode callee under a clause is refused here, before the
-      // arity/type block. `arity === undefined` means the callee is not
-      // statically resolvable, and then NO parse code fires — the runtime
-      // validation arm owns that case (registry row Trigger). `<callee>`
-      // renders the verbatim path literal, this arm's existing rendering rule.
+      // RFC 0009 (invocation.md INV-8 static mode gate) via the shared
+      // `withClausePromptModeRefusal` helper (also called by the
+      // `.theta`-callable surface's own arm, `checkThetaCallableCallSurface`):
+      // a call-site `with` clause addresses the spawned child process, so a
+      // statically-resolvable PROMPT-mode callee under a clause is refused
+      // here, before the arity/type block. `arity === undefined` means the
+      // callee is not statically resolvable, and then NO parse code fires —
+      // the runtime validation arm owns that case (registry row Trigger);
+      // passing `arity?.mode` preserves that narrowing. `<callee>` renders
+      // the verbatim path literal, this arm's existing rendering rule.
+      const clauseRefusal = withClausePromptModeRefusal({
+        ...(invoke.withClause !== undefined ? { clause: invoke.withClause } : {}),
+        mode: arity?.mode,
+        file: site.file,
+        range: site.range,
+        presented: invoke.path,
+      });
       let clauseRefused = false;
-      if (invoke.withClause !== undefined && arity !== undefined && arity.mode === "prompt") {
-        diagnostics.push({
-          severity: "error",
-          code: WITH_CLAUSE_PROMPT_MODE_CALLEE_CODE,
-          file: site.file,
-          range: site.range,
-          message: withClausePromptModeCalleeMessage(invoke.path),
-          hint: WITH_CLAUSE_PROMPT_MODE_CALLEE_HINT,
-        });
+      if (clauseRefusal !== undefined) {
+        diagnostics.push(clauseRefusal);
         clauseRefused = true;
       }
       // INV-6: the clause's `cwd` value is judged exactly as an argument slot —
@@ -1654,7 +1714,7 @@ export async function checkInvokeStaticResolution(
         // behaviour as before.
         //
         // This arm's OWN empty callee-annotation env, judged separately from
-        // the `.theta`-callable arm's `emptyCalleeAnnotationEnv` below (same
+        // the `.theta`-callable arm's `emptyCalleeAnnotationEnv` above (same
         // rationale — see that arm's own comment for why the EXPECTED side
         // must be judged in the callee's namespace, not the caller's).
         const emptyCalleeAnnotationEnv: TypeEnv = Object.create(null) as TypeEnv;
@@ -1678,7 +1738,7 @@ export async function checkInvokeStaticResolution(
         // emits one diagnostic per mismatched slot, with no `break`: this
         // row's *Message* names the slot (`<i>`/`<param>`), so per-slot
         // emission is the adjudicated rule for it (diagnostic-shape.md
-        // #argument-mismatch-multiplicity). The `.theta`-callable arm below
+        // #argument-mismatch-multiplicity). The `.theta`-callable arm above
         // caps at one emission per call site instead — not because it shares
         // this loop's shape, but because its own emitter is called once per
         // slot from inside a loop that `break`s after the first mismatch; see
