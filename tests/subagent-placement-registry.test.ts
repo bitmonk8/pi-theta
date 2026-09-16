@@ -16,9 +16,12 @@ import {
   PLACEMENT_OFFER_CHANNEL,
   PLACEMENT_REGISTRATION_API_VERSION,
   PlacementRegistry,
+  SUBAGENT_CHILD_OUTCOME_API_VERSION,
+  SUBAGENT_CHILD_OUTCOME_CHANNEL,
   SUBAGENT_PLACEMENT_INVALID_CODE,
   type PlacementDiscoverPayload,
   type PlacementEventBus,
+  type SubagentChildOutcomePayload,
 } from "../src/runtime/subagent-placement-registry";
 import type { PlacedChild, SubagentPlacementBackend } from "../src/runtime/subagent-placement";
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
@@ -270,6 +273,23 @@ describe("RFC-0012 §5 — bindPlacementRegistration over pi.events", () => {
     expect(bus.subscriberCount(PLACEMENT_OFFER_CHANNEL)).toBe(0);
     bus.emit(PLACEMENT_OFFER_CHANNEL, { apiVersion: 1, backend: backend("late") });
     expect(registry.snapshot()).toEqual([]);
+  });
+
+  it("M17: SUBAGENT_CHILD_OUTCOME_CHANNEL / SUBAGENT_CHILD_OUTCOME_API_VERSION are pinned byte-for-byte; the payload type is closed at three fields", () => {
+    // RFC 0012 §7 (0.478.0) — the channel literal + payload shape the companion
+    // (`@bitmonk8/pi-theta-herdr` ≥ 0.3.0) pins in its own conformance suite
+    // (companion sheet D1), placed beside the discover/offer literal pins.
+    expect(SUBAGENT_CHILD_OUTCOME_CHANNEL).toBe("pi-theta:subagent-child:outcome:v1");
+    expect(SUBAGENT_CHILD_OUTCOME_API_VERSION).toBe(1);
+    const payload: SubagentChildOutcomePayload = {
+      apiVersion: SUBAGENT_CHILD_OUTCOME_API_VERSION,
+      outcome: "ok",
+      slug: "worker",
+    };
+    // CLOSED at exactly these three fields — a wider object literal assigned to
+    // the type would be a TS excess-property error at the implementation leaf;
+    // here the pin is the field set itself.
+    expect(Object.keys(payload).sort()).toEqual(["apiVersion", "outcome", "slug"]);
   });
 
   it("no pi.events ⇒ no-op discover / unsubscribe, built-ins only, no diagnostic", () => {

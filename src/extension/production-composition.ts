@@ -1128,6 +1128,18 @@ async function runComposePass(
     ? createProductionHostLoopDispatch({ pi, ctx, clock })
     : undefined;
 
+  // RFC 0012 §7 (0.478.0): the child-outcome bus — the SAME `pi.events` member
+  // the factory probes for placement registration, re-probed here emit-only
+  // (the producer never subscribes). Presence-probed `typeof`, degrade-silent
+  // (PIC-73 class): absent ⇒ the child regime emits no outcome event and
+  // nothing refuses or mints a diagnostic.
+  const subagentOutcomeEvents =
+    typeof (pi as { readonly events?: unknown }).events === "object" &&
+    pi.events !== null &&
+    typeof pi.events.emit === "function"
+      ? pi.events
+      : undefined;
+
   const producerDeps = createProductionProducerDeps({
     pi,
     root,
@@ -1187,6 +1199,9 @@ async function runComposePass(
     // envelope and the load pass's marked-root registration-refusal envelope
     // share one writer.
     emitResultEnvelope,
+    // RFC 0012 §7 (0.478.0): the child-outcome bus, emit-only. Omitted when
+    // `pi.events` is absent (per exactOptionalPropertyTypes).
+    ...(subagentOutcomeEvents !== undefined ? { subagentOutcomeEvents } : {}),
     // PIC-64: the code-side extension-tool dispatch ladder probe. Rung 1 is
     // derived above as the upstream surface probe AND a wired rung-1 dispatcher
     // (none exists at the pin, so it reads false and registration cannot outrun

@@ -41,6 +41,32 @@ export const PLACEMENT_OFFER_CHANNEL = "pi-theta:subagent-placement:offer:v1";
 /** `theta/load/subagent-placement-invalid` (W) — a malformed or duplicate registration, dropped. */
 export const SUBAGENT_PLACEMENT_INVALID_CODE = "theta/load/subagent-placement-invalid";
 
+/** The child outcome protocol version; consumers ignore a payload naming another. */
+export const SUBAGENT_CHILD_OUTCOME_API_VERSION = 1;
+/**
+ * RFC 0012 §7 (0.478.0) — child → same-process subscribers: the terminal
+ * PIC-59 envelope arm, mirrored onto the bus. Emitted once per child-side
+ * subagent-root drive (`driveSubagentRootRegime`,
+ * `src/extension/production-theta-producer.ts`); never emitted by a parent.
+ */
+export const SUBAGENT_CHILD_OUTCOME_CHANNEL = "pi-theta:subagent-child:outcome:v1";
+
+/** The two outcome values — the PIC-59 envelope arms, one-to-one. */
+export type SubagentChildOutcome = "ok" | "err";
+
+/**
+ * The payload emitted on the outcome channel. CLOSED at exactly these three
+ * fields: widening is a new channel version (`:v2`), never an in-place edit —
+ * consumers pin this shape byte-for-byte. No `label` field: the child knows
+ * its own `--name`, and a subscriber in the child process can read it there.
+ */
+export interface SubagentChildOutcomePayload {
+  readonly apiVersion: typeof SUBAGENT_CHILD_OUTCOME_API_VERSION;
+  readonly outcome: SubagentChildOutcome;
+  /** The marked root's slug (`theta.slashName`, no leading `/`). */
+  readonly slug: string;
+}
+
 /** The payload pi-theta emits on the discover channel. */
 export interface PlacementDiscoverPayload {
   readonly apiVersion: typeof PLACEMENT_REGISTRATION_API_VERSION;

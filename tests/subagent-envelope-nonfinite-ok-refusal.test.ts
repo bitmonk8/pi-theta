@@ -104,6 +104,7 @@ import {
   THETA_ENVELOPE_VERSION,
 } from "../src/runtime/subagent-envelope";
 import { createProductionProducerDeps } from "../src/extension/production-theta-producer";
+import { SUBAGENT_CHILD_OUTCOME_CHANNEL } from "../src/runtime/subagent-placement-registry";
 import type {
   ConversationBindInput,
   ThetaCompositionInput,
@@ -472,6 +473,8 @@ function promptOutcome(result: ResultValue): string {
 interface ChildDrive {
   readonly lines: readonly string[];
   readonly diagnostics: readonly Diagnostic[];
+  /** RFC 0012 §7 (0.478.0): every `[channel, data]` pair recorded on the injected outcome-events fake. */
+  readonly outcomeEmitted: readonly { readonly channel: string; readonly data: unknown }[];
 }
 
 /**
@@ -492,6 +495,7 @@ async function driveChildRoot(body: string): Promise<ChildDrive> {
   const doc = parseTheta("worker.theta", SUBAGENT_FM + body);
   const lines: string[] = [];
   const diagnostics: Diagnostic[] = [];
+  const outcomeEmitted: { channel: string; data: unknown }[] = [];
   const deps = createProductionProducerDeps({
     pi: { sendMessage: (): void => {}, getAllTools: () => [] } as unknown as ExtensionAPI,
     root: rootDouble(realAjvValidator()),
@@ -505,6 +509,11 @@ async function driveChildRoot(body: string): Promise<ChildDrive> {
     },
     emitDiagnostic: (diagnostic: Diagnostic): void => {
       diagnostics.push(diagnostic);
+    },
+    subagentOutcomeEvents: {
+      emit: (channel: string, data: unknown): void => {
+        outcomeEmitted.push({ channel, data });
+      },
     },
   });
   const theta = {
@@ -525,7 +534,7 @@ async function driveChildRoot(body: string): Promise<ChildDrive> {
     } as unknown as ExtensionCommandContext,
     thetaAbort: new AbortController(),
   } as ConversationBindInput);
-  return { lines, diagnostics };
+  return { lines, diagnostics, outcomeEmitted };
 }
 
 /** The single envelope line the drive wrote, or a loud failure naming what it wrote instead. */
@@ -1009,6 +1018,12 @@ describe("bug 0180 (CHILD) — the real child-side envelope writer over a non-fi
       drive.diagnostics[0]?.message,
       "and its message is the registry's normative string (DIAG-4)",
     ).toBe(expectedRefusalMessage("", Infinity));
+
+    // M5: the 0180 non-representable-Ok refusal (mint arm) emits one "err"
+    // outcome event.
+    expect(drive.outcomeEmitted, `M5: exactly one outcome emission` + driveDetail(drive)).toHaveLength(1);
+    expect(drive.outcomeEmitted[0]?.channel).toBe(SUBAGENT_CHILD_OUTCOME_CHANNEL);
+    expect(drive.outcomeEmitted[0]?.data).toEqual({ apiVersion: 1, outcome: "err", slug: "worker" });
   });
 
   it("RED (CHILD-ROOT-NEG-NAN): -1 / 0 and 0 / 0 refuse the same way, rendered -Infinity and NaN", async () => {

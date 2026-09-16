@@ -23,6 +23,12 @@ import type { ParsedFrontmatter } from "../src/parser/frontmatter";
 import { parseExpressionSource } from "../src/parser/theta-document";
 import { parseEnvelopeLine } from "../src/runtime/subagent-envelope";
 import type { SubagentChildControlPlane } from "../src/runtime/subagent-launch-file";
+import { HostFatal } from "../src/runtime/runtime-panics";
+import type { HostToolResult } from "../src/runtime/host-loop-dispatch";
+import {
+  SUBAGENT_CHILD_OUTCOME_CHANNEL,
+  type SubagentChildOutcomePayload,
+} from "../src/runtime/subagent-placement-registry";
 import {
   createPipePlacementBackend,
   type PlacedChild,
@@ -40,9 +46,17 @@ class NoopCheckpoint implements Checkpoint {
   }
 }
 
-function rootDouble(): RuntimeRoot {
+/** M7: a checkpoint whose `before()` rejects with a fixed value — a `for` loop's `loop-iter` checkpoint site is the injection point. */
+class ThrowingCheckpoint implements Checkpoint {
+  constructor(private readonly thrown: unknown) {}
+  before(_kind: CheckpointKind, _site: CheckpointSite): Promise<void> {
+    return Promise.reject(this.thrown);
+  }
+}
+
+function rootDouble(checkpoint?: Checkpoint): RuntimeRoot {
   return {
-    checkpoint: new NoopCheckpoint(),
+    checkpoint: checkpoint ?? new NoopCheckpoint(),
     idSource: { newInvocationId: () => "inv-1", newToolCallId: () => "tc-1" },
     clock: {
       now: () => 0,
@@ -111,31 +125,74 @@ function controlPlane(presentation: "visible" | "headless"): SubagentChildContro
   };
 }
 
+/** RFC 0012 §7 (0.478.0): a fake `pi.events`-shaped bus recording `[channel, data]` pairs. */
+class RecordingBus {
+  readonly emitted: { channel: string; data: unknown }[] = [];
+  emit(channel: string, data: unknown): void {
+    this.emitted.push({ channel, data });
+  }
+}
+
 async function driveChild(input: {
   readonly tail: string;
   readonly controlPlane: SubagentChildControlPlane | undefined;
   readonly shutdown: (() => void) | undefined;
   /** Receives the envelope-line list so a `shutdown` fake can read its length at call time. */
   readonly observeLines?: (lines: string[]) => void;
+  /** RFC 0012 §7 (0.478.0): a fake bus; present ⇒ the child regime mirrors its terminal envelope arm onto it. */
+  readonly outcomeEvents?: { emit(channel: string, data: unknown): void };
+  /** A shared order recorder across the envelope write, the outcome emit, and the shutdown request (M1/M12). */
+  readonly order?: string[];
+  /** M6/M7: an injected host-loop-dispatch rung, so a body's code-side extension-tool call can be scripted to throw. */
+  readonly hostLoopDispatch?: (request: unknown) => Promise<HostToolResult>;
+  /** M8: pre-abort the drive's own `thetaAbort` before running the body (CTRL-5 whole-theta cancellation at loop entry). */
+  readonly preAbort?: boolean;
+  /** M7: a value the injected checkpoint's `before()` rejects with, reaching `executeBody` UNCAUGHT by the code-tool lowering (which only wraps `execute()`/`dispatch()` throws). */
+  readonly checkpointThrows?: unknown;
 }): Promise<string[]> {
   const lines: string[] = [];
   input.observeLines?.(lines);
+  const wrappedOutcomeEvents =
+    input.outcomeEvents !== undefined
+      ? {
+          emit: (channel: string, data: unknown): void => {
+            input.order?.push("emit");
+            input.outcomeEvents!.emit(channel, data);
+          },
+        }
+      : undefined;
+  const wrappedShutdown =
+    input.shutdown !== undefined
+      ? (): void => {
+          input.order?.push("shutdown");
+          input.shutdown!();
+        }
+      : undefined;
   const deps = createProductionProducerDeps({
     pi: noopPi(),
-    root: rootDouble(),
+    root: rootDouble(input.checkpointThrows !== undefined ? new ThrowingCheckpoint(input.checkpointThrows) : undefined),
     modelRegistry: {
       getAvailable: () => [{ id: "claude-test", provider: "anthropic" }],
     } as unknown as ModelRegistry,
     subagentParentEnv: {},
     subagentRootRegime: { active: true, slug: "worker" },
     ...(input.controlPlane !== undefined ? { subagentControlPlane: input.controlPlane } : {}),
-    emitResultEnvelope: (line: string) => lines.push(line),
+    ...(wrappedOutcomeEvents !== undefined ? { subagentOutcomeEvents: wrappedOutcomeEvents } : {}),
+    ...(input.hostLoopDispatch !== undefined ? { hostLoopDispatch: input.hostLoopDispatch } : {}),
+    emitResultEnvelope: (line: string) => {
+      input.order?.push("envelope");
+      lines.push(line);
+    },
   });
+  const thetaAbort = new AbortController();
+  if (input.preAbort === true) {
+    thetaAbort.abort();
+  }
   await deps.driveSubagentRootRegime!({
     theta: subagentTheta(input.tail),
     args: "",
-    ctx: childCtx(input.shutdown),
-    thetaAbort: new AbortController(),
+    ctx: childCtx(wrappedShutdown),
+    thetaAbort,
   });
   return lines;
 }
@@ -188,6 +245,154 @@ describe("RFC-0012 §7 — child side: shutdown after Ok, linger on Err", () => 
     const lines = await driveChild({ tail: '"DONE"', controlPlane: controlPlane("visible"), shutdown: undefined });
     expect(lines).toHaveLength(1);
     expect(parseEnvelopeLine(lines[0]!.trimEnd()).kind).toBe("ok");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// RFC 0012 §7 (0.478.0) — the subagent-child outcome event (child side).
+// ---------------------------------------------------------------------------
+
+describe("RFC-0012 §7 (0.478.0) — the subagent-child outcome event", () => {
+  it('M1: visible + Ok + bus — one emit "ok", ordered: envelope THEN emit THEN ctx.shutdown()', async () => {
+    const bus = new RecordingBus();
+    const order: string[] = [];
+    const lines = await driveChild({
+      tail: '"DONE"',
+      controlPlane: controlPlane("visible"),
+      outcomeEvents: bus,
+      order,
+      shutdown: (): void => {},
+    });
+    expect(lines).toHaveLength(1);
+    expect(order).toEqual(["envelope", "emit", "shutdown"]);
+    expect(bus.emitted).toHaveLength(1);
+    expect(bus.emitted[0]!.channel).toBe(SUBAGENT_CHILD_OUTCOME_CHANNEL);
+    expect(bus.emitted[0]!.data).toEqual({
+      apiVersion: 1,
+      outcome: "ok",
+      slug: "worker",
+    } satisfies SubagentChildOutcomePayload);
+  });
+
+  it('M2: visible + Err + bus — one emit "err" after the err envelope; ctx.shutdown() still NOT called', async () => {
+    const bus = new RecordingBus();
+    let shutdowns = 0;
+    const lines = await driveChild({
+      tail: 'Err("nope")',
+      controlPlane: controlPlane("visible"),
+      outcomeEvents: bus,
+      shutdown: (): void => {
+        shutdowns += 1;
+      },
+    });
+    expect(lines).toHaveLength(1);
+    expect(shutdowns).toBe(0);
+    expect(bus.emitted).toHaveLength(1);
+    expect(bus.emitted[0]!.data).toEqual({ apiVersion: 1, outcome: "err", slug: "worker" });
+  });
+
+  it('M6: a body throw (panic → internal-error envelope) emits one "err"', async () => {
+    const bus = new RecordingBus();
+    const lines = await driveChild({
+      tail: 'extTool({ op: "write" })?',
+      controlPlane: controlPlane("visible"),
+      outcomeEvents: bus,
+      shutdown: (): void => {},
+      hostLoopDispatch: (): Promise<HostToolResult> => Promise.reject(new Error("boom")),
+    });
+    expect(lines).toHaveLength(1);
+    expect(parseEnvelopeLine(lines[0]!.trimEnd()).kind).toBe("err");
+    expect(bus.emitted).toHaveLength(1);
+    expect(bus.emitted[0]!.data).toEqual({ apiVersion: 1, outcome: "err", slug: "worker" });
+  });
+
+  it("M7: a HostFatal throw rethrows — NO envelope, NO emit (red-direction proof for the exactly-once latch)", async () => {
+    const bus = new RecordingBus();
+    const fatal = new HostFatal("heap OOM");
+    let observedLines: string[] = [];
+    // `runCodeSideToolCall` (tool-call-execute.ts) awaits
+    // `checkpoint.before("tool-call", site)` OUTSIDE its own try/catch — only
+    // the `dispatch()` call itself is wrapped by the code-tool throw lowering
+    // — so a checkpoint that rejects with a HostFatal reaches
+    // `driveSubagentRootRegime`'s own catch directly, unrelated to the
+    // hostLoopDispatch seam.
+    await expect(
+      driveChild({
+        tail: 'extTool({ op: "write" })?',
+        controlPlane: controlPlane("visible"),
+        outcomeEvents: bus,
+        shutdown: (): void => {},
+        checkpointThrows: fatal,
+        observeLines: (l): void => {
+          observedLines = l;
+        },
+      }),
+    ).rejects.toBe(fatal);
+    expect(observedLines).toHaveLength(0);
+    expect(bus.emitted).toHaveLength(0);
+  });
+
+  it('M8: cancellation (whole-theta cancel, CTRL-5) emits one "err" — no third outcome value', async () => {
+    const bus = new RecordingBus();
+    const lines = await driveChild({
+      tail: "par for x in [1] { x }",
+      controlPlane: controlPlane("visible"),
+      outcomeEvents: bus,
+      preAbort: true,
+      shutdown: (): void => {},
+    });
+    expect(lines).toHaveLength(1);
+    expect(parseEnvelopeLine(lines[0]!.trimEnd()).kind).toBe("err");
+    expect(bus.emitted).toHaveLength(1);
+    expect(bus.emitted[0]!.data).toEqual({ apiVersion: 1, outcome: "err", slug: "worker" });
+  });
+
+  it("M11: no bus wired ⇒ zero emissions and nothing throws; envelope + shutdown behaviour unchanged", async () => {
+    let shutdowns = 0;
+    const lines = await driveChild({
+      tail: '"DONE"',
+      controlPlane: controlPlane("visible"),
+      shutdown: (): void => {
+        shutdowns += 1;
+      },
+    });
+    expect(lines).toHaveLength(1);
+    expect(shutdowns).toBe(1);
+  });
+
+  it("M12: bus.emit THROWS on the Ok arm — the throw is contained: envelope already written, ctx.shutdown() STILL requested, drive resolves", async () => {
+    const throwingBus = {
+      emit: (): void => {
+        throw new Error("subscriber exploded");
+      },
+    };
+    let shutdowns = 0;
+    const lines = await driveChild({
+      tail: '"DONE"',
+      controlPlane: controlPlane("visible"),
+      outcomeEvents: throwingBus,
+      shutdown: (): void => {
+        shutdowns += 1;
+      },
+    });
+    expect(lines).toHaveLength(1);
+    expect(shutdowns).toBe(1);
+  });
+
+  it('M13: headless + Ok + bus — one emit "ok"; ctx.shutdown() NOT called (presentation gate unchanged; decision 7)', async () => {
+    const bus = new RecordingBus();
+    let shutdowns = 0;
+    await driveChild({
+      tail: '"DONE"',
+      controlPlane: controlPlane("headless"),
+      outcomeEvents: bus,
+      shutdown: (): void => {
+        shutdowns += 1;
+      },
+    });
+    expect(shutdowns).toBe(0);
+    expect(bus.emitted).toHaveLength(1);
+    expect(bus.emitted[0]!.data).toEqual({ apiVersion: 1, outcome: "ok", slug: "worker" });
   });
 });
 
@@ -292,6 +497,8 @@ async function launchThrough(
     readonly entry?: SubagentLaunchEntry;
     readonly label?: string;
     readonly root?: RuntimeRoot;
+    /** M14: a fake bus wired into the PARENT-side producer deps — the parent process never emits on it. */
+    readonly outcomeEvents?: { emit(channel: string, data: unknown): void };
   },
 ): Promise<{
   requests: SubagentPlacementRequest[];
@@ -311,6 +518,7 @@ async function launchThrough(
     subagentPlacement: (): PlacementLease => lease,
     subagentOpenWire: openWire,
     statusBus: bus,
+    ...(opts?.outcomeEvents !== undefined ? { subagentOutcomeEvents: opts.outcomeEvents } : {}),
   });
   const binding = await deps.spawnSubagentConversation({
     theta: subagentTheta('"x"'),
@@ -389,6 +597,12 @@ describe("RFC-0012 §7 — parent side: `--no-session` unless persistSession; th
     expect(requests[0]!.args).toContain("--no-session");
     expect(requests[0]!.args).toContain("--mode");
     expect(placed).toEqual([]);
+  });
+
+  it("M14: the parent process never emits on the outcome channel, even with a bus wired through a full launch + teardown", async () => {
+    const bus = new RecordingBus();
+    await launchThrough(visibleBackend([], { visible: true, inheritsEnv: true }), { outcomeEvents: bus });
+    expect(bus.emitted).toEqual([]);
   });
 });
 

@@ -49,6 +49,13 @@ import {
   THETA_LAUNCH_ENTRY,
 } from "../runtime/subagent-placement";
 import type { PlacementLease } from "../runtime/subagent-placement-selection";
+import type { PlacementEventBus } from "../runtime/subagent-placement-registry";
+import {
+  SUBAGENT_CHILD_OUTCOME_CHANNEL,
+  SUBAGENT_CHILD_OUTCOME_API_VERSION,
+  type SubagentChildOutcome,
+  type SubagentChildOutcomePayload,
+} from "../runtime/subagent-placement-registry";
 import type { SubagentChildControlPlane } from "../runtime/subagent-launch-file";
 import type { HostToolSnapshotEntry } from "../seams/host-tool-snapshot";
 import {
@@ -569,6 +576,16 @@ export interface ProductionProducerInput {
    * there).
    */
   readonly emitResultEnvelope?: (line: string) => void;
+  /**
+   * RFC 0012 §7 (0.478.0): the process-local `pi.events` bus the child-side
+   * regime mirrors its terminal envelope arm onto
+   * (`SUBAGENT_CHILD_OUTCOME_CHANNEL`). Emit-only — the producer never
+   * subscribes. Wired at the production composition root from a `typeof`
+   * presence probe of `pi.events.emit`; absent (a host without `pi.events`,
+   * or a harness) ⇒ the emission is a structural no-op. Consumed only inside
+   * `driveSubagentRootRegime`; the parent-side spawn path never reads it.
+   */
+  readonly subagentOutcomeEvents?: Pick<PlacementEventBus, "emit">;
   /**
    * PIC-64: the code-side extension-tool dispatch ladder probe — which rungs
    * are EXECUTABLE in THIS process, mode-independently. The probe contract is
@@ -2977,8 +2994,35 @@ class ProductionThetaProducer implements ThetaProducerDeps {
     const calleePath = theta.sourcePath ?? theta.slashName;
     const emitEnvelope =
       this.#input.emitResultEnvelope ?? ((): void => {});
+    // RFC 0012 §7 (0.478.0): mirror the terminal envelope arm onto the
+    // process-local bus, exactly once per drive (the latch makes the
+    // exactly-once claim structural). Envelope first, event second: the
+    // parent-facing PIC-59 contract precedes the advisory bus event. A
+    // subscriber's throw is contained here — it must not skip the Ok arm's
+    // shutdown request or re-enter the regime catch (which would write a
+    // second envelope, violating PIC-59's single-envelope rule) — and mints
+    // no diagnostic (DIAG-2: no registry row exists for it).
+    const outcomeEvents = this.#input.subagentOutcomeEvents;
+    let outcomeEmitted = false;
+    const emitOutcome = (outcome: SubagentChildOutcome): void => {
+      if (outcomeEmitted || outcomeEvents === undefined) {
+        return;
+      }
+      outcomeEmitted = true;
+      const payload: SubagentChildOutcomePayload = {
+        apiVersion: SUBAGENT_CHILD_OUTCOME_API_VERSION,
+        outcome,
+        slug: theta.slashName,
+      };
+      try {
+        outcomeEvents.emit(SUBAGENT_CHILD_OUTCOME_CHANNEL, payload);
+      } catch { // allow-broad-catch: RFC 0012 §7 — a foreign outcome subscriber's throw is contained, never alters the child's terminal path — pi-integration-contract/subagent.md
+        // Swallowed: advisory event; no registry row (DIAG-2).
+      }
+    };
     const emitErr = (error: QueryError, provenance?: ErrProvenance, fnTail?: FnTail): void => {
       emitEnvelope(serializeErrEnvelope(error, provenance, fnTail));
+      emitOutcome("err");
     };
 
     // PIC-62 obligation 2 (child-side model confirmation): re-resolve the
@@ -3028,7 +3072,7 @@ class ProductionThetaProducer implements ThetaProducerDeps {
     // process-root invocation instead of the theta body.
     const entry = this.#input.subagentControlPlane?.entry ?? THETA_LAUNCH_ENTRY;
     if (entry.kind === "fn") {
-      await this.#driveSubagentFnEntry(bindInput, entry.name, calleePath, emitEnvelope, emitErr);
+      await this.#driveSubagentFnEntry(bindInput, entry.name, calleePath, emitEnvelope, emitErr, emitOutcome);
       return;
     }
 
@@ -3123,6 +3167,10 @@ class ProductionThetaProducer implements ThetaProducerDeps {
               collectForwardedEnumTags(terminal.value as ThetaValue),
             ),
           );
+          // RFC 0012 §7: outcome BEFORE the shutdown request, so a
+          // subscriber can enqueue its last report before the host begins
+          // deferring toward shutdown.
+          emitOutcome("ok");
           this.#requestVisibleChildShutdown(ctx);
         }
       } else {
@@ -3187,6 +3235,7 @@ class ProductionThetaProducer implements ThetaProducerDeps {
     calleePath: string,
     emitEnvelope: (line: string) => void,
     emitErr: (error: QueryError, provenance?: ErrProvenance, fnTail?: FnTail) => void,
+    emitOutcome: (outcome: SubagentChildOutcome) => void,
   ): Promise<void> {
     const { theta, ctx } = bindInput;
     const emitDiagnostic = this.#input.emitDiagnostic ?? ((): void => {});
@@ -3355,6 +3404,7 @@ class ProductionThetaProducer implements ThetaProducerDeps {
         emitEnvelope(
           serializeOkEnvelope(payload as unknown, collectForwardedEnumTags(payload as ThetaValue), tail),
         );
+        emitOutcome("ok");
         this.#requestVisibleChildShutdown(ctx);
       }
     } catch (thrown: unknown) { // allow-broad-catch: PIC-59 panic→envelope arm — pi-integration-contract/subagent.md

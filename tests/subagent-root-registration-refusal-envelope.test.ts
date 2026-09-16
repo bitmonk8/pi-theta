@@ -98,6 +98,7 @@ import {
   THETA_ENVELOPE_VERSION,
   THETA_RESULT_KEY,
 } from "../src/runtime/subagent-envelope";
+import { SUBAGENT_CHILD_OUTCOME_CHANNEL } from "../src/runtime/subagent-placement-registry";
 import {
   restoreAmbientControlPlane,
   scrubAmbientControlPlane,
@@ -208,6 +209,8 @@ interface LoadOutcome {
   readonly captured: readonly string[];
   /** The regime the compose pass detected — every cell's own premise probe. */
   readonly regimeActive: boolean;
+  /** M15: every `[channel, data]` pair the load pass emitted on the fake `pi.events` bus. */
+  readonly outcomeEmitted: readonly { readonly channel: string; readonly data: unknown }[];
 }
 
 async function runLoad(
@@ -219,6 +222,7 @@ async function runLoad(
 ): Promise<LoadOutcome> {
   const noteContent: string[] = [];
   const captured: string[] = [];
+  const outcomeEmitted: { channel: string; data: unknown }[] = [];
   const pi = {
     getFlag: (): undefined => undefined,
     getCommands: (): readonly unknown[] => [],
@@ -238,6 +242,15 @@ async function runLoad(
     unregisterProvider: (): void => {},
     setModel: (): Promise<boolean> => Promise.resolve(true),
     on: (): void => {},
+    // M15: a minimal `pi.events` bus — the load-pass registration-refusal
+    // envelope writer (bug 0178 element (b)) is a LOAD-pass write outside
+    // `driveSubagentRootRegime` and owes no outcome event in 0.478.0 (decision 2).
+    events: {
+      emit: (channel: string, data: unknown): void => {
+        outcomeEmitted.push({ channel, data });
+      },
+      on: (): (() => void) => (): void => {},
+    },
   } as unknown as ExtensionAPI;
   const ctx = {
     cwd,
@@ -275,6 +288,7 @@ async function runLoad(
       noteContent,
       captured,
       regimeActive,
+      outcomeEmitted,
     };
   } finally {
     if (priorMarker === undefined) {
@@ -446,6 +460,22 @@ describe("bug 0178 element (b) — a child-side refusal of the MARKED ROOT theta
           JSON.stringify(err),
       )
       .toContain(normativeMessage(UNRESOLVABLE_PATH_CODE).replace("<path>", MISSING_CALLEE_ENTRY));
+  });
+
+  it("M15: the marked-root load-refusal envelope carries no outcome event on the pi.events channel (decision 2)", async () => {
+    const outcome = await runLoad(workspaceDir, { rootSlug: "refused" });
+    expect(outcome.regimeActive).toBe(true);
+    expect(outcome.registered).not.toContain("refused");
+    // Premise: the load pass genuinely wrote the refusal envelope this file's
+    // primary cell (1) pins — otherwise a zero-emission verdict here would be
+    // vacuous (nothing ran at all).
+    expect(outcome.captured.length).toBeGreaterThan(0);
+    expect(
+      outcome.outcomeEmitted,
+      `the load-pass write is not driveSubagentRootRegime's terminal arm, so it owes the ` +
+        `${SUBAGENT_CHILD_OUTCOME_CHANNEL} channel nothing — emitted: ` +
+        JSON.stringify(outcome.outcomeEmitted),
+    ).toEqual([]);
   });
 
   it("(2) CONTROL — a marked root that registers cleanly produces no envelope from the load pass", async () => {

@@ -27,6 +27,16 @@ import type { ParsedFrontmatter } from "../src/parser/frontmatter";
 import { parseExpressionSource } from "../src/parser/theta-document";
 import { parseEnvelopeLine } from "../src/runtime/subagent-envelope";
 import type { EncodedToolRequest, HostToolResult } from "../src/runtime/host-loop-dispatch";
+import { SUBAGENT_PARAMS_ENV } from "../src/runtime/subagent-params";
+import { SUBAGENT_CHILD_OUTCOME_CHANNEL } from "../src/runtime/subagent-placement-registry";
+
+/** RFC 0012 §7 (0.478.0): a fake `pi.events`-shaped bus recording `[channel, data]` pairs. */
+class RecordingBus {
+  readonly emitted: { channel: string; data: unknown }[] = [];
+  emit(channel: string, data: unknown): void {
+    this.emitted.push({ channel, data });
+  }
+}
 
 class RecordingCheckpoint implements Checkpoint {
   before(_kind: CheckpointKind, _site: CheckpointSite): Promise<void> {
@@ -221,6 +231,7 @@ describe("RFC-0006 — child-side subagent-root drive wiring", () => {
     // pre-flight — it must NOT be masked by confirming the reference against
     // itself. The failure surfaces through the return envelope.
     const lines: string[] = [];
+    const bus = new RecordingBus();
     const deps = createProductionProducerDeps({
       pi: noopPi(),
       root: rootDouble(),
@@ -230,6 +241,7 @@ describe("RFC-0006 — child-side subagent-root drive wiring", () => {
       subagentParentEnv: {},
       subagentRootRegime: { active: true, slug: "worker" },
       emitResultEnvelope: (line: string) => lines.push(line),
+      subagentOutcomeEvents: bus,
     });
 
     await deps.driveSubagentRootRegime!({
@@ -252,6 +264,44 @@ describe("RFC-0006 — child-side subagent-root drive wiring", () => {
       expect((parsed.error as { message?: string }).message).toContain("claude-test");
       expect((parsed.error as { message?: string }).message).toContain("unresolved");
     }
+    // M3: the PIC-62 model-confirmation mint arm still emits exactly one "err"
+    // outcome event on the same terminal Err envelope.
+    expect(bus.emitted).toHaveLength(1);
+    expect(bus.emitted[0]!.channel).toBe(SUBAGENT_CHILD_OUTCOME_CHANNEL);
+    expect(bus.emitted[0]!.data).toEqual({ apiVersion: 1, outcome: "err", slug: "worker" });
+  });
+
+  it("M4: a PIC-60 params-intake refusal (malformed marshalled JSON) emits one \"err\" outcome event", async () => {
+    const lines: string[] = [];
+    const bus = new RecordingBus();
+    const deps = createProductionProducerDeps({
+      pi: noopPi(),
+      root: rootDouble(),
+      modelRegistry: {
+        getAvailable: () => [{ id: "claude-test", provider: "anthropic" }],
+      } as unknown as ModelRegistry,
+      // Malformed JSON on the inline params channel — the child-side intake
+      // (`#intakeSubagentRootParams`) fails to parse it and refuses fail-closed
+      // (mint arm) before the callee's body ever runs.
+      subagentParentEnv: { [SUBAGENT_PARAMS_ENV]: "not-json" },
+      subagentRootRegime: { active: true, slug: "worker" },
+      emitResultEnvelope: (line: string) => lines.push(line),
+      subagentOutcomeEvents: bus,
+    });
+
+    await deps.driveSubagentRootRegime!({
+      theta: subagentTheta('"CHILD-FINAL"'),
+      args: "",
+      ctx: childCtx(),
+      thetaAbort: new AbortController(),
+    });
+
+    expect(lines).toHaveLength(1);
+    const parsed = parseEnvelopeLine(lines[0]!.trimEnd());
+    expect(parsed.kind).toBe("err");
+    expect(bus.emitted).toHaveLength(1);
+    expect(bus.emitted[0]!.channel).toBe(SUBAGENT_CHILD_OUTCOME_CHANNEL);
+    expect(bus.emitted[0]!.data).toEqual({ apiVersion: 1, outcome: "err", slug: "worker" });
   });
 
   it("PIC-62 obligation 2: a registry serving the SAME id through TWO providers passes the pre-flight — the child matches the fully-qualified reference", async () => {

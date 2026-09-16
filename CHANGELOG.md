@@ -4,6 +4,27 @@ All notable changes to `@bitmonk8/pi-theta` will be documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.478.0]
+
+### Added
+- **Subagent-child outcome event**
+  ([RFC 0012](./docs/rfcs/0012-configurable-subagent-placement.md) §5/§7,
+  §Open questions item 5 close-out; consumed by `@bitmonk8/pi-theta-herdr`
+  ≥ 0.3.0). On every terminal envelope the child-side subagent-root drive
+  emits `pi-theta:subagent-child:outcome:v1` on its own process-local
+  `pi.events` bus — payload `{ apiVersion: 1, outcome: "ok" | "err", slug }`,
+  `outcome` mirroring the PIC-59 envelope arm one-to-one (cancellation and
+  panic framings report `"err"`) — after the envelope write and, on `Ok`,
+  before the visible-regime `ctx.shutdown()` request. Exactly once per
+  drive; presentation-independent (`pipe` children emit too); `pi.events`
+  absent ⇒ no event, no diagnostic; a parent process never emits; a killed
+  child emits nothing. New exports `SUBAGENT_CHILD_OUTCOME_CHANNEL`,
+  `SUBAGENT_CHILD_OUTCOME_API_VERSION`, `SubagentChildOutcome`,
+  `SubagentChildOutcomePayload` (`src/runtime/subagent-placement-registry.ts`);
+  new spec anchor
+  `pi-integration-contract/subagent.md#subagent-child-outcome-event`. Zero
+  new diagnostic codes.
+
 ## [0.477.0]
 
 ### Fixed

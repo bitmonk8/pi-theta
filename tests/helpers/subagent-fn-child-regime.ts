@@ -61,6 +61,8 @@ export interface DriveFnEntryInput {
   readonly ctx?: ExtensionCommandContext;
   readonly modelRegistry?: ModelRegistry;
   readonly pi?: ExtensionAPI;
+  /** RFC 0012 §7 (0.478.0): a fake `pi.events`-shaped bus; present ⇒ the child regime mirrors its terminal envelope arm onto it. */
+  readonly outcomeEvents?: { emit(channel: string, data: unknown): void };
 }
 
 export interface DriveFnEntryOutcome {
@@ -68,6 +70,8 @@ export interface DriveFnEntryOutcome {
   readonly lines: readonly string[];
   /** The parsed first envelope line. */
   readonly envelope: EnvelopeParse;
+  /** RFC 0012 §7 (0.478.0): every `[channel, data]` pair recorded on the injected `outcomeEvents` fake, empty when none was injected. */
+  readonly outcomeEmissions: readonly { readonly channel: string; readonly data: unknown }[];
 }
 
 const DEFAULT_MODELS = [{ id: "claude-test", provider: "anthropic", api: "anthropic-messages" }];
@@ -90,6 +94,7 @@ function defaultCtx(): ExtensionCommandContext {
  */
 export async function driveSubagentFnEntry(input: DriveFnEntryInput): Promise<DriveFnEntryOutcome> {
   const lines: string[] = [];
+  const outcomeEmissions: { channel: string; data: unknown }[] = [];
   const depth = input.inboundDepth ?? 1;
   const deps = createProductionProducerDeps({
     pi: input.pi ?? ({ sendMessage: (): void => {}, getAllTools: () => [] } as unknown as ExtensionAPI),
@@ -100,6 +105,16 @@ export async function driveSubagentFnEntry(input: DriveFnEntryInput): Promise<Dr
     subagentControlPlane: { env: {}, entry: { kind: "fn", name: input.fnName } },
     subagentInboundInvokeDepth: depth,
     emitResultEnvelope: (line: string) => lines.push(line),
+    ...(input.outcomeEvents !== undefined
+      ? {
+          subagentOutcomeEvents: {
+            emit: (channel: string, data: unknown): void => {
+              outcomeEmissions.push({ channel, data });
+              input.outcomeEvents!.emit(channel, data);
+            },
+          },
+        }
+      : {}),
   });
   expect(deps.isSubagentRootFor?.(input.theta), "a fn entry marks the launched theta a subagent root (FN-8)").toBe(true);
   await deps.driveSubagentRootRegime!({
@@ -110,5 +125,5 @@ export async function driveSubagentFnEntry(input: DriveFnEntryInput): Promise<Dr
     chain: newInvokeChainAtDepth(depth),
   });
   expect(lines, "a fn-entry drive writes exactly one envelope line").toHaveLength(1);
-  return { lines, envelope: parseEnvelopeLine(lines[0]!.trimEnd()) };
+  return { lines, envelope: parseEnvelopeLine(lines[0]!.trimEnd()), outcomeEmissions };
 }

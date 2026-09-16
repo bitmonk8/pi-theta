@@ -176,6 +176,7 @@ import type {
 import { parseRegistry, registryMessage } from "../tools/code-registry/index.js";
 import { createProductionSpawnFn } from "../src/extension/production-subagent-host";
 import { createProductionProducerDeps } from "../src/extension/production-theta-producer";
+import { SUBAGENT_CHILD_OUTCOME_CHANNEL } from "../src/runtime/subagent-placement-registry";
 import type {
   ConversationBindInput,
   ThetaCompositionInput,
@@ -791,6 +792,8 @@ const SUBAGENT_FM = "---\nmode: subagent\n---\n";
 interface ChildDrive {
   readonly lines: readonly string[];
   readonly diagnostics: readonly Diagnostic[];
+  /** RFC 0012 §7 (0.478.0): every `[channel, data]` pair recorded on the injected outcome-events fake. */
+  readonly outcomeEmitted: readonly { readonly channel: string; readonly data: unknown }[];
 }
 
 /** Drive the SHIPPED writer over a callee whose whole body is `body`. */
@@ -798,6 +801,7 @@ async function driveChildRoot(body: string): Promise<ChildDrive> {
   const doc = parseTheta("worker.theta", SUBAGENT_FM + body);
   const lines: string[] = [];
   const diagnostics: Diagnostic[] = [];
+  const outcomeEmitted: { channel: string; data: unknown }[] = [];
   const deps = createProductionProducerDeps({
     pi: { sendMessage: (): void => {}, getAllTools: () => [] } as unknown as ExtensionAPI,
     root: rootDouble(realAjvValidator()),
@@ -811,6 +815,11 @@ async function driveChildRoot(body: string): Promise<ChildDrive> {
     },
     emitDiagnostic: (diagnostic: Diagnostic): void => {
       diagnostics.push(diagnostic);
+    },
+    subagentOutcomeEvents: {
+      emit: (channel: string, data: unknown): void => {
+        outcomeEmitted.push({ channel, data });
+      },
     },
   });
   const theta = {
@@ -831,7 +840,7 @@ async function driveChildRoot(body: string): Promise<ChildDrive> {
     } as unknown as ExtensionCommandContext,
     thetaAbort: new AbortController(),
   } as ConversationBindInput);
-  return { lines, diagnostics };
+  return { lines, diagnostics, outcomeEmitted };
 }
 
 /** The single envelope line the drive wrote, or a loud failure naming what it wrote instead. */
@@ -910,6 +919,12 @@ describe("bug 0187 (ORDER) — the depth refusal is the first sub-check in the w
       `the depth refusal carries no registered code, and 0180's code does not ride it` +
         driveDetail(drive),
     ).toEqual([]);
+
+    // M5: the depth refusal (Ok payload refused, mint arm) emits one "err"
+    // outcome event — never "ok".
+    expect.soft(drive.outcomeEmitted, `M5: exactly one outcome emission` + driveDetail(drive)).toHaveLength(1);
+    expect.soft(drive.outcomeEmitted[0]?.channel).toBe(SUBAGENT_CHILD_OUTCOME_CHANNEL);
+    expect.soft(drive.outcomeEmitted[0]?.data).toEqual({ apiVersion: 1, outcome: "err", slug: "worker" });
   });
 
   it("RED (ORDER-DEPTH-ONLY): a FINITE payload past the cap refuses instead of writing an ok arm", async () => {
@@ -933,6 +948,9 @@ describe("bug 0187 (ORDER) — the depth refusal is the first sub-check in the w
       drive.diagnostics,
       `no diagnostic accompanies the depth refusal` + driveDetail(drive),
     ).toEqual([]);
+    // M5: same class, one "err" outcome emission.
+    expect.soft(drive.outcomeEmitted, `M5: exactly one outcome emission` + driveDetail(drive)).toHaveLength(1);
+    expect.soft(drive.outcomeEmitted[0]?.data).toEqual({ apiVersion: 1, outcome: "err", slug: "worker" });
   });
 
   it("CONTROL (ORDER-WITHIN-CAP): 0180's named refusal still wins inside the cap, code and all (green now, green after)", async () => {

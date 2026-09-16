@@ -42,6 +42,15 @@ import { SUBAGENT_PARAMS_ENV } from "../src/runtime/subagent-params";
 import { SUBAGENT_ROOT_ENV_MARKER } from "../src/runtime/subagent-root-regime";
 import { fakeExecutableHost, makeFakeJsonChildLauncher, type FakeJsonChild, type SpawnRecord } from "./helpers/fake-json-child";
 import { childRegimeRootDouble, driveSubagentFnEntry } from "./helpers/subagent-fn-child-regime";
+import { SUBAGENT_CHILD_OUTCOME_CHANNEL } from "../src/runtime/subagent-placement-registry";
+
+/** RFC 0012 §7 (0.478.0): a fake `pi.events`-shaped bus recording `[channel, data]` pairs. */
+class RecordingBus {
+  readonly emitted: { channel: string; data: unknown }[] = [];
+  emit(channel: string, data: unknown): void {
+    this.emitted.push({ channel, data });
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Parsing
@@ -356,6 +365,73 @@ describe("RFC-0012 §10 — child side: the fn entry runs the named subagent fn 
         expect((parsed.error as unknown as { cause: string }).cause).toBe("validation");
       }
     }
+  });
+
+  it('M9: a bare-tail fn entry emits one "ok" outcome event before the shutdown request is reachable; the envelope still carries fn_tail as today', async () => {
+    const bus = new RecordingBus();
+    const outcome = await driveSubagentFnEntry({
+      theta: callerTheta(STEP_SRC, "prompt"),
+      slug: "caller",
+      fnName: "step",
+      params: { x: "hello", n: 2 },
+      ctx: ctxOf(),
+      modelRegistry: { getAvailable: () => MODELS } as unknown as ModelRegistry,
+      pi: noopPi(),
+      outcomeEvents: bus,
+    });
+    expect(outcome.envelope).toEqual({ kind: "ok", value: "hello" });
+    expect(outcome.outcomeEmissions).toHaveLength(1);
+    expect(outcome.outcomeEmissions[0]!.channel).toBe(SUBAGENT_CHILD_OUTCOME_CHANNEL);
+    expect(outcome.outcomeEmissions[0]!.data).toEqual({ apiVersion: 1, outcome: "ok", slug: "caller" });
+  });
+
+  it('M10: an Err(e)-tail fn entry, a `?`-propagated Err, and an unknown fn name each emit exactly one "err" outcome event', async () => {
+    const errSrc = ["subagent fn step(n: integer) {", '  Err("nope")', "}", "step(1)"].join("\n");
+    const busErrTail = new RecordingBus();
+    const errTailOutcome = await driveSubagentFnEntry({
+      theta: callerTheta(errSrc, "prompt"),
+      slug: "caller",
+      fnName: "step",
+      params: { n: 5 },
+      ctx: ctxOf(),
+      modelRegistry: { getAvailable: () => MODELS } as unknown as ModelRegistry,
+      pi: noopPi(),
+      outcomeEvents: busErrTail,
+    });
+    expect(errTailOutcome.envelope.kind).toBe("err");
+    expect(busErrTail.emitted).toHaveLength(1);
+    expect(busErrTail.emitted[0]!.data).toEqual({ apiVersion: 1, outcome: "err", slug: "caller" });
+
+    const propagatedSrc = ["subagent fn step(n: integer) {", '  let v = Err("inner")?', "  v", "}", "step(1)"].join("\n");
+    const busPropagated = new RecordingBus();
+    const propagatedOutcome = await driveSubagentFnEntry({
+      theta: callerTheta(propagatedSrc, "prompt"),
+      slug: "caller",
+      fnName: "step",
+      params: { n: 1 },
+      ctx: ctxOf(),
+      modelRegistry: { getAvailable: () => MODELS } as unknown as ModelRegistry,
+      pi: noopPi(),
+      outcomeEvents: busPropagated,
+    });
+    expect(propagatedOutcome.envelope.kind).toBe("err");
+    expect(busPropagated.emitted).toHaveLength(1);
+    expect(busPropagated.emitted[0]!.data).toEqual({ apiVersion: 1, outcome: "err", slug: "caller" });
+
+    const busUnknown = new RecordingBus();
+    const unknownOutcome = await driveSubagentFnEntry({
+      theta: callerTheta(STEP_SRC, "prompt"),
+      slug: "caller",
+      fnName: "ghost",
+      params: { x: "a", n: 1 },
+      ctx: ctxOf(),
+      modelRegistry: { getAvailable: () => MODELS } as unknown as ModelRegistry,
+      pi: noopPi(),
+      outcomeEvents: busUnknown,
+    });
+    expect(unknownOutcome.envelope.kind).toBe("err");
+    expect(busUnknown.emitted).toHaveLength(1);
+    expect(busUnknown.emitted[0]!.data).toEqual({ apiVersion: 1, outcome: "err", slug: "caller" });
   });
 
   it("FN-9: an imported .thetalib subagent fn resolves through the theta's materialised imports and runs against the declaring module", async () => {
