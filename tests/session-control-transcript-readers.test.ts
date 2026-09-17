@@ -50,36 +50,7 @@ import {
 } from "../src/binder/compact-transcript";
 import { walkSessionContext } from "../src/binder/session-context-walk";
 import { FakeTokenEstimator } from "./helpers/fake-token-estimator";
-
-// --- AgentMessage / Message constructors (mirrors b0478's) ------------------
-
-function user(text: string): Message & AgentMessage {
-  return { role: "user", content: text, timestamp: 0 } as Message & AgentMessage;
-}
-
-function assistant(text: string): Message & AgentMessage {
-  return {
-    role: "assistant",
-    content: [{ type: "text", text }],
-    api: "anthropic-messages",
-    provider: "anthropic",
-    model: "test-model",
-    usage: {
-      input: 0,
-      output: 0,
-      cacheRead: 0,
-      cacheWrite: 0,
-      totalTokens: 0,
-      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
-    },
-    stopReason: "stop",
-    timestamp: 0,
-  } as unknown as Message & AgentMessage;
-}
-
-function compactionSummary(summary: string): AgentMessage {
-  return { role: "compactionSummary", summary, tokensBefore: 1234, timestamp: 0 } as AgentMessage;
-}
+import { user, assistant, compactionSummary } from "./helpers/agent-message-fixtures";
 
 // ===========================================================================
 // T1 / T2 — extractTrailingTurnText totality over a compaction-led list.

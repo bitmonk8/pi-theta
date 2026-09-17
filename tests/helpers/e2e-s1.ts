@@ -64,6 +64,11 @@ export function parseTheta(path: string, src: string): ThetaDocument {
   return doc;
 }
 
+/** Diagnostic codes from a production parse, in emission order with duplicates retained. */
+export function codesOf(src: string, path = "test.theta"): string[] {
+  return parseDoc(src, path).diagnostics.map((d: Diagnostic) => d.code);
+}
+
 /** Parse a source given as raw bytes (for encoding-intake tests). */
 export function parseDocBytes(bytes: Uint8Array, path = "test.theta"): ThetaDocument {
   return parseThetaDocument({ path, bytes }, parseDeps());

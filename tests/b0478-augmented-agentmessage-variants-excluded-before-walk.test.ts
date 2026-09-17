@@ -52,11 +52,7 @@ vi.mock("@earendil-works/pi-ai/compat", async (importOriginal) => {
   };
 });
 
-import type {
-  AssistantMessage,
-  TextContent,
-  UserMessage,
-} from "@earendil-works/pi-ai";
+import { user, assistant, compactionSummary } from "./helpers/agent-message-fixtures";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type {
   ExtensionAPI,
@@ -76,60 +72,18 @@ import type { TokenEstimator } from "../src/seams/token-estimator";
 import { FakeTokenEstimator } from "./helpers/fake-token-estimator";
 import { createProductionProducerDeps } from "../src/extension/production-theta-producer";
 import type { ThetaCompositionInput } from "../src/extension/theta-composition-producer";
-import {
-  parseThetaDocument,
-  type ParseThetaDocumentDeps,
-} from "../src/parser/theta-document";
-import type { ThetaSource } from "../src/lexer/lexer";
 import type { RuntimeRoot } from "../src/runtime-root";
-import type { ModelReferenceMatcher } from "../src/parser/frontmatter";
-import type { SystemNoteChannelDeps } from "../src/extension/system-note-channel";
-import {
-  AjvSchemaValidator,
-  type LoweredSchema,
-  type SchemaSlug,
-} from "../src/seams/schema-validator";
+import { parse, rootDouble as ajvRootDouble } from "./helpers/scripted-live-session-harness";
 
 // --- AgentMessage constructors ----------------------------------------------
-
-const USAGE = {
-  input: 0,
-  output: 0,
-  cacheRead: 0,
-  cacheWrite: 0,
-  totalTokens: 0,
-  cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
-} as const;
-
-function user(text: string): UserMessage {
-  return { role: "user", content: text, timestamp: 0 };
-}
-
-function assistant(text: string): AssistantMessage {
-  const content: TextContent[] = [{ type: "text", text }];
-  return {
-    role: "assistant",
-    content,
-    api: "anthropic-messages",
-    provider: "anthropic",
-    model: "test-model",
-    usage: USAGE,
-    stopReason: "stop",
-    timestamp: 0,
-  };
-}
 
 function custom(customType: string, content: string): AgentMessage {
   return { role: "custom", customType, content, display: true, timestamp: 0 };
 }
 
-// The three pi-coding-agent augmentations that reach the renderer. Each is a
-// real `AgentMessage` arm at the pin (dist/core/messages.d.ts), typed as such so
-// a pin that drops one fails `tsc` here rather than silently vacating a cell.
-function compactionSummary(summary: string): AgentMessage {
-  return { role: "compactionSummary", summary, tokensBefore: 1234, timestamp: 0 };
-}
-
+// The other two pi-coding-agent augmentations (beside the shared compactionSummary).
+// Each is a real `AgentMessage` arm at the pin (dist/core/messages.d.ts), typed
+// as such so a pin that drops one fails `tsc` rather than silently vacating a cell.
 function branchSummary(summary: string): AgentMessage {
   return { role: "branchSummary", summary, fromId: "branch-1", timestamp: 0 };
 }
@@ -430,47 +384,16 @@ function scriptOk(args: Record<string, unknown>): void {
   };
 }
 
-function parseDeps(): ParseThetaDocumentDeps {
-  const systemNote: SystemNoteChannelDeps = {
-    pi: { sendMessage: (): void => {} },
-    ui: { notify: (): void => {} },
-    emitDiagnostic: (): void => {},
-  };
-  const modelMatcher: ModelReferenceMatcher = { resolve: (): "resolved" => "resolved" };
-  return { systemNote, modelMatcher };
-}
-
-function parse(src: string) {
-  const source: ThetaSource = {
-    path: "code-review.theta",
-    bytes: new TextEncoder().encode(src),
-  };
-  const doc = parseThetaDocument(source, parseDeps());
-  const errors = doc.diagnostics.filter((d) => d.severity === "error").map((d) => d.code);
-  expect(errors, "the binder theta must parse cleanly before it is driven").toEqual([]);
-  expect(doc.frontmatter, "the binder theta must carry parseable frontmatter").not.toBeNull();
-  return doc;
-}
-
 /**
  * A runtime-root double sufficient for a `bind_context: session` binder pass:
  * a flat 1-token-per-message estimator (the walk consumes `root.tokenEstimator`)
  * and the real AJV validator (the forced-tool routing validates the envelope).
  */
 function rootDouble(): RuntimeRoot {
-  return {
-    checkpoint: { before: (): Promise<void> => Promise.resolve() },
-    idSource: { newInvocationId: (): string => "inv-1", newToolCallId: (): string => "tc-1" },
+  return ajvRootDouble({
     clock: { wallNow: (): number => 0 },
     tokenEstimator: { estimate: (_message: unknown): number => 1 },
-    schemaValidator: new AjvSchemaValidator({
-      emit: (): void => {},
-      slugOf: (schema: LoweredSchema): SchemaSlug => {
-        const canonicalBytes = JSON.stringify(schema);
-        return { slug: canonicalBytes, canonicalBytes };
-      },
-    }),
-  } as unknown as RuntimeRoot;
+  });
 }
 
 const BINDER_MODEL = {
@@ -515,7 +438,7 @@ const SESSION_BINDER_THETA = [
 ].join("\n");
 
 function sessionBinderTheta(): ThetaCompositionInput {
-  const doc = parse(SESSION_BINDER_THETA);
+  const doc = parse(SESSION_BINDER_THETA, "code-review.theta", "binder");
   return {
     slashName: SLASH_NAME,
     sourcePath: "/theta/code-review.theta",

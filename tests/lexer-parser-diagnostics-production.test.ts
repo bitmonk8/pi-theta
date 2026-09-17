@@ -1,13 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { Diagnostic } from "../src/diagnostics/diagnostic";
-import type { ThetaSource } from "../src/lexer/lexer";
-import type { SystemNoteChannelDeps } from "../src/extension/system-note-channel";
-import type { ModelReferenceMatcher } from "../src/parser/frontmatter";
-import {
-  parseThetaDocument,
-  type ThetaDocument,
-  type ParseThetaDocumentDeps,
-} from "../src/parser/theta-document";
+import { codesOf } from "./helpers/e2e-s1";
 
 // V20d-T — failing tests for the paired `V20d` "unimplemented lexer/parser
 // diagnostics" wiring.
@@ -34,32 +26,6 @@ import {
 // the malformed body and each `toContain(<code>)` assertion reds on its own
 // primary assertion — not on a compile error, a missing fixture, or a harness
 // throw (`parseThetaDocument` aggregates diagnostics and does not throw).
-
-// --- production parse harness ---------------------------------------------
-
-/** A trivially-wired diagnostic sink + resolving `model:` matcher for the parse. */
-function makeDeps(): ParseThetaDocumentDeps {
-  const systemNote: SystemNoteChannelDeps = {
-    pi: { sendMessage: (): void => {} },
-    ui: { notify: (): void => {} },
-    emitDiagnostic: (): void => {},
-  };
-  const modelMatcher: ModelReferenceMatcher = {
-    resolve: (): "resolved" => "resolved",
-  };
-  return { systemNote, modelMatcher };
-}
-
-/** Parse a UTF-8 `.theta` source string through the production whole-file parser. */
-function parse(src: string, path = "test.theta"): ThetaDocument {
-  const source: ThetaSource = { path, bytes: new TextEncoder().encode(src) };
-  return parseThetaDocument(source, makeDeps());
-}
-
-/** The set of diagnostic codes the production parse aggregated for `src`. */
-function codesOf(src: string): string[] {
-  return parse(src).diagnostics.map((d: Diagnostic) => d.code);
-}
 
 // ===========================================================================
 // theta/parse/unterminated-string — `cka-1` lexical (owned V1b), integration

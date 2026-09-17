@@ -19,6 +19,8 @@
 // file that imports this module.
 import { type Diagnostic } from "../../src/diagnostics/diagnostic";
 import { expect } from "vitest";
+import type { RuntimeRoot } from "../../src/runtime-root";
+import { rootDouble as fixedClockRoot } from "./runtime-belt-probe-harness";
 import {
   parseThetaDocument,
   type ParseThetaDocumentDeps,
@@ -103,12 +105,12 @@ export function parseDeps(): ParseThetaDocumentDeps {
 }
 
 /** Parse `.theta` source through the production whole-file parser (must be clean). */
-export function parse(src: string): ThetaDocument {
-  const source: ThetaSource = { path: "probe.theta", bytes: new TextEncoder().encode(src) };
+export function parse(src: string, path = "probe.theta", fixture = "fixture"): ThetaDocument {
+  const source: ThetaSource = { path, bytes: new TextEncoder().encode(src) };
   const doc = parseThetaDocument(source, parseDeps());
   const errors = doc.diagnostics.filter((d) => d.severity === "error").map((d) => d.code);
-  expect(errors, "the fixture theta must parse cleanly before it is driven").toEqual([]);
-  expect(doc.frontmatter, "the fixture theta must carry parseable frontmatter").not.toBeNull();
+  expect(errors, `the ${fixture} theta must parse cleanly before it is driven`).toEqual([]);
+  expect(doc.frontmatter, `the ${fixture} theta must carry parseable frontmatter`).not.toBeNull();
   return doc;
 }
 
@@ -119,6 +121,14 @@ export function ajv(): AjvSchemaValidator {
     canonicalBytes: JSON.stringify(schema),
   });
   return new AjvSchemaValidator({ emit: () => {}, slugOf });
+}
+
+/** AJV-backed root; `clock.setTimeout` fires synchronously for instant-settle turns. */
+export function rootDouble(overrides: {
+  readonly clock?: Partial<RuntimeRoot["clock"]>;
+  readonly tokenEstimator?: RuntimeRoot["tokenEstimator"];
+} = {}): RuntimeRoot {
+  return { ...fixedClockRoot(), schemaValidator: ajv(), ...overrides } as RuntimeRoot;
 }
 
 /** A real AJV validator together with its emitted diagnostics. */

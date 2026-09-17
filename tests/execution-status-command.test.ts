@@ -118,6 +118,7 @@ describe("T-CMD — B60: /theta-status tree under verbosity off still renders no
     const { ctx } = recordingNotify();
     await getHandler()("tree", ctx);
     expect(bus.viewShape()).toBe("tree");
+    expect(bus.verbosity()).toBe("off");
   });
 });
 

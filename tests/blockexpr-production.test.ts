@@ -5,15 +5,11 @@ import type {
   ModelRegistry,
 } from "@earendil-works/pi-coding-agent";
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
-import type { ThetaSource } from "../src/lexer/lexer";
-import type { SystemNoteChannelDeps } from "../src/extension/system-note-channel";
-import type { ModelReferenceMatcher, ParsedFrontmatter } from "../src/parser/frontmatter";
+import type { ParsedFrontmatter } from "../src/parser/frontmatter";
 import {
-  parseThetaDocument,
   type Expr,
   type LetStmt,
   type MatchExpr,
-  type ParseThetaDocumentDeps,
   type QueryExpr,
   type Stmt,
   type ThetaDocument,
@@ -32,6 +28,7 @@ import type { RuntimeRoot } from "../src/runtime-root";
 import type { Checkpoint } from "../src/seams/checkpoint";
 import type { ThetaValue } from "../src/runtime/value";
 import { buildEnvironment } from "../src/runtime/lexical-environment";
+import { parseDoc, codesOf as parseCodesOf } from "./helpers/e2e-s1";
 
 // Bug 0082 — the `BlockExpr` production has no AST node, so a `{ … }` block
 // expression in `match`-arm-body or `let`-RHS position is parsed as a bare
@@ -99,30 +96,15 @@ import { buildEnvironment } from "../src/runtime/lexical-environment";
 // skipping (CLAUDE.md: no silent test skipping).
 
 // --- production parse harness ----------------------------------------------
-// Modelled on tests/lexer-parser-diagnostics-production.test.ts:38–56.
 
-/** A trivially-wired diagnostic sink + resolving `model:` matcher for the parse. */
-function makeDeps(): ParseThetaDocumentDeps {
-  const systemNote: SystemNoteChannelDeps = {
-    pi: { sendMessage: (): void => {} },
-    ui: { notify: (): void => {} },
-    emitDiagnostic: (): void => {},
-  };
-  const modelMatcher: ModelReferenceMatcher = {
-    resolve: (): "resolved" => "resolved",
-  };
-  return { systemNote, modelMatcher };
-}
-
-/** Parse a UTF-8 `.theta` source string through the production whole-file parser. */
+/** Parse through the shared production harness with this bug's fixture path. */
 function parse(src: string, path = "bug0082.theta"): ThetaDocument {
-  const source: ThetaSource = { path, bytes: new TextEncoder().encode(src) };
-  return parseThetaDocument(source, makeDeps());
+  return parseDoc(src, path);
 }
 
-/** The set of diagnostic codes the production parse aggregated for `src`. */
+/** Diagnostic codes for this bug's fixture path, in emission order. */
 function codesOf(src: string): string[] {
-  return parse(src).diagnostics.map((d: Diagnostic) => d.code);
+  return parseCodesOf(src, "bug0082.theta");
 }
 
 /** The `{code, severity, message}` triples the production parse aggregated. */

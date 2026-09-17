@@ -34,19 +34,7 @@ import type { ParsedFrontmatter } from "../src/parser/frontmatter";
 import { createProductionProducerDeps } from "../src/extension/production-theta-producer";
 import type { ThetaCompositionInput } from "../src/extension/theta-composition-producer";
 import { executeBody, type BodyExecution } from "../src/runtime/statement-executor";
-import {
-  AjvSchemaValidator,
-  type LoweredSchema,
-  type SchemaSlug,
-} from "../src/seams/schema-validator";
-import type { RuntimeRoot } from "../src/runtime-root";
-import {
-  parseThetaDocument,
-  type ParseThetaDocumentDeps,
-  type ThetaDocument,
-} from "../src/parser/theta-document";
-import type { ThetaSource } from "../src/lexer/lexer";
-import type { ModelReferenceMatcher } from "../src/parser/frontmatter";
+import { parse, rootDouble } from "./helpers/scripted-live-session-harness";
 import {
   SYSTEM_NOTE_CHANNEL,
   type SystemNoteChannelDeps,
@@ -289,52 +277,6 @@ class InstantSettleSession {
     const parentId = this.entries.length === 0 ? undefined : `e${this.entries.length}`;
     this.entries.push({ type: "message", id, parentId, message });
   }
-}
-
-function parseDeps(): ParseThetaDocumentDeps {
-  return {
-    systemNote: {
-      pi: { sendMessage: (): void => {} },
-      ui: { notify: (): void => {} },
-      emitDiagnostic: (): void => {},
-    },
-    modelMatcher: { resolve: (): "resolved" => "resolved" } as ModelReferenceMatcher,
-  };
-}
-
-function parse(src: string): ThetaDocument {
-  const source: ThetaSource = { path: "probe.theta", bytes: new TextEncoder().encode(src) };
-  const doc = parseThetaDocument(source, parseDeps());
-  const errors = doc.diagnostics.filter((d) => d.severity === "error").map((d) => d.code);
-  expect(errors, "the fixture theta must parse cleanly before it is driven").toEqual([]);
-  expect(doc.frontmatter, "the fixture theta must carry parseable frontmatter").not.toBeNull();
-  return doc;
-}
-
-function ajv(): AjvSchemaValidator {
-  const slugOf = (schema: LoweredSchema): SchemaSlug => ({
-    slug: JSON.stringify(schema),
-    canonicalBytes: JSON.stringify(schema),
-  });
-  return new AjvSchemaValidator({ emit: () => {}, slugOf });
-}
-
-/** `clock.setTimeout` fires synchronously: the instant-settle turn is already settled at the send. */
-function rootDouble(): RuntimeRoot {
-  return {
-    checkpoint: { before: (): Promise<void> => Promise.resolve() },
-    idSource: { newInvocationId: (): string => "inv-1", newToolCallId: (): string => "tc-1" },
-    clock: {
-      now: (): number => 0,
-      wallNow: (): number => 0,
-      setTimeout: (fn: () => void): unknown => {
-        fn();
-        return 0;
-      },
-      clearTimeout: (): void => {},
-    },
-    schemaValidator: ajv(),
-  } as unknown as RuntimeRoot;
 }
 
 function piDouble(session: InstantSettleSession): ExtensionAPI {
