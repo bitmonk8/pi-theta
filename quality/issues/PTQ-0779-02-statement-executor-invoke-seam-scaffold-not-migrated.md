@@ -1,9 +1,9 @@
 ---
-id: pending
+id: PTQ-0779
 title: statement-executor.test.ts redeclares invoke-seam-scaffold's span()/no-op checkpoint instead of importing them
 lens: D7
-status: intake
-verdict: pending
+status: open
+verdict: confirmed
 locations:
   - tests/statement-executor.test.ts:67-69
   - tests/statement-executor.test.ts:165-169
@@ -115,3 +115,4 @@ the change.
 ## Triage
 <!-- triage appends its note here -->
 verdict: questionable — observation reproduces (span()/NOOP_CHECKPOINT at :67-69/:165-169 byte-identical to invoke-seam-scaffold.ts:31-35/:54-56, 0 scaffold imports, file drives the real executeBody 28×, 28/28 vitest pass, no *gate*/witness-list carve-out — the 3 docs/bugs hits for the test file (0226/0307/0351) pin STL-6 and a call site, not these declarations; candidate's stated greps misreport: docs/bugs `statement-executor` = 91 hits not 0, coverage-matrix = 0 hits not "hits exist", both immaterial) but the anchor is contestable rather than mechanical: the two cited pieces are exactly the two suite-wide single-ingredient idioms (identical `function span(): SourceRange` in 42 tests/ files, identical no-op Checkpoint literal in 88), this file (886feda4, 2026-07-02) predates the helper (f593d10e, 2026-09-12) and is not in its header roster of invoke/code-call bug-witness files around an InvokeChild double, and resolved PTQ-0244's own ratified text names this very file's span()/NOOP_CHECKPOINT pair as the wider convention distinct from the bundle it deduped (its triage: "NOOP_CHECKPOINT alone, generic AST span()" = false-positive shape when claimed alone) — whether invoke-seam-scaffold becomes the suite-wide no-op ExecuteBodyDeps home needs a human ruling, the same disposition as same-wave sibling d7-140-01 static-type-inference (triage: claude-fable-5-1)
+verdict: confirmed — re-triaged independently: span() at tests/statement-executor.test.ts:67-69 and NOOP_CHECKPOINT at :165-169 sed-extracted and diffed byte-identical (modulo `export`/name) to tests/helpers/invoke-seam-scaffold.ts:54-56 and :31-35, the file has 0 scaffold imports while both locals are live (30 span() uses; NOOP_CHECKPOINT threaded into the executeBody deps) and drive the real executeBody 28× with 28/28 vitest passing; D7 copy-paste-fixture class in tests/ only, not a *gate* file, inert stand-ins not recording doubles, and the candidate's misreported greps (docs/bugs `statement-executor` = 91 files not 0; coverage-matrix = 0 not "hits exist") are immaterial because the three bug docs naming the file (0226/0307/0351) pin STL-6 lines and a `range: span()` call site, never these declarations; the earlier questionable note's "predates the helper / wider convention" reservation is superseded by ratified precedent — the human has accepted PTQ-0594 (effectful-statement-host, same 2026-07-02 vintage, span+NOOP_CHECKPOINT+SINK), PTQ-0603 (NOOP_CHECKPOINT alone), PTQ-0545/0613/0650/0655/0705/0720 as confirmed, every one a pre-helper file outside its header roster, so per-file un-migrated scaffold no-ops are an accepted D7 class; no existing PTQ cites this file's span/NOOP_CHECKPOINT pair (PTQ-0575 ScriptedCheckpoint and PTQ-0701 RecordingMutator cover disjoint declarations) (triage: claude-fable-5-1)
