@@ -262,6 +262,129 @@ async function readSettingsFile(fs: FileSystem, path: string): Promise<FileReadO
 }
 
 /**
+ * RFC 0012 §4: the `exec` template. Project scope: dropped with the
+ * settings-invalid-entry code (the position-specific template below is
+ * documented in that row's Trigger, DIAG-4); global scope: validated by
+ * the template parser, a malformed value out of range with the parser's
+ * reason on `details.reason`.
+ */
+function cleanExecTemplateKey(
+  value: JsonObject,
+  path: string,
+  scope: SettingsScope,
+  cleanedThetas: JsonObject,
+  diagnostics: Diagnostic[],
+): void {
+  if (Object.prototype.hasOwnProperty.call(value, THETAS_EXEC_TEMPLATE_KEY)) {
+    const raw = value[THETAS_EXEC_TEMPLATE_KEY];
+    if (scope === "project") {
+      diagnostics.push({
+        severity: "error",
+        code: SETTINGS_INVALID_ENTRY,
+        file: path,
+        message: `settings 'theta.${THETAS_EXEC_TEMPLATE_KEY}' is honoured from the global settings file only; ignored in project settings`,
+      });
+    } else {
+      const parsed = parseExecPlacementTemplate(raw);
+      if (parsed.ok) {
+        cleanedThetas[THETAS_EXEC_TEMPLATE_KEY] = parsed.template;
+      } else {
+        diagnostics.push({
+          severity: "error",
+          code: SETTINGS_VALUE_OUT_OF_RANGE,
+          file: path,
+          message: `settings key thetas.${THETAS_EXEC_TEMPLATE_KEY} value is out of range; got ${renderObserved(raw)}`,
+          details: { reason: parsed.reason },
+        });
+      }
+    }
+  }
+}
+
+/**
+ * Top-level `theta` — must be a JSON object; a malformed `theta` logs once and
+ * suppresses the nested cascade.
+ */
+function cleanThetaObject(
+  root: JsonObject,
+  path: string,
+  scope: SettingsScope,
+  cleaned: JsonObject,
+  diagnostics: Diagnostic[],
+): void {
+  if (Object.prototype.hasOwnProperty.call(root, "theta")) {
+    const value = root["theta"];
+    if (isPlainObject(value)) {
+      const cleanedThetas: JsonObject = {};
+      for (const key of THETAS_SCALAR_KEYS) {
+        if (!Object.prototype.hasOwnProperty.call(value, key)) {
+          continue;
+        }
+        const scalar = value[key];
+        if (isScalarKeyValid(key, scalar)) {
+          cleanedThetas[key] = scalar;
+        } else {
+          diagnostics.push({
+            severity: "error",
+            code: SETTINGS_VALUE_OUT_OF_RANGE,
+            file: path,
+            message: `settings key thetas.${key} value is out of range; got ${renderObserved(scalar)}`,
+          });
+        }
+      }
+      cleanExecTemplateKey(value, path, scope, cleanedThetas, diagnostics);
+      // Unknown `thetas.*` keys are ignored without diagnostic (forward-compat).
+      cleaned["theta"] = cleanedThetas;
+    } else {
+      diagnostics.push({
+        severity: "error",
+        code: SETTINGS_VALUE_OUT_OF_RANGE,
+        file: path,
+        message: `settings key thetas value is out of range; got ${renderObserved(value)}`,
+      });
+    }
+  }
+}
+
+/**
+ * Top-level `thetaPaths` — must be a JSON array; non-string entries rejected
+ * per-entry.
+ */
+function cleanThetaPathsKey(
+  root: JsonObject,
+  path: string,
+  cleaned: JsonObject,
+  diagnostics: Diagnostic[],
+): void {
+  if (Object.prototype.hasOwnProperty.call(root, "thetaPaths")) {
+    const value = root["thetaPaths"];
+    if (Array.isArray(value)) {
+      const kept: string[] = [];
+      value.forEach((entry, index) => {
+        if (typeof entry === "string") {
+          kept.push(entry);
+        } else {
+          diagnostics.push({
+            severity: "error",
+            code: SETTINGS_INVALID_ENTRY,
+            file: path,
+            message: `settings 'thetaPaths[${index}]' must be a string path; got ${jsonKind(entry)}`,
+          });
+        }
+      });
+      cleaned["thetaPaths"] = kept;
+    } else {
+      diagnostics.push({
+        severity: "error",
+        code: SETTINGS_VALUE_OUT_OF_RANGE,
+        file: path,
+        message: `settings key thetaPaths value is out of range; got ${renderObserved(value)}`,
+      });
+    }
+  }
+}
+
+/**
  * Validate and clean one parsed settings file: top-level shape, `thetaPaths`
  * entries, and `thetas.*` scalar keys. Returns the cleaned object (only valid
  * recognised keys survive) plus the per-file diagnostics. Each malformed key /
@@ -290,97 +413,9 @@ function cleanSettingsFile(
     return { cleaned, diagnostics };
   }
 
-  // Top-level `thetaPaths` — must be a JSON array; non-string entries rejected
-  // per-entry.
-  if (Object.prototype.hasOwnProperty.call(root, "thetaPaths")) {
-    const value = root["thetaPaths"];
-    if (Array.isArray(value)) {
-      const kept: string[] = [];
-      value.forEach((entry, index) => {
-        if (typeof entry === "string") {
-          kept.push(entry);
-        } else {
-          diagnostics.push({
-            severity: "error",
-            code: SETTINGS_INVALID_ENTRY,
-            file: path,
-            message: `settings 'thetaPaths[${index}]' must be a string path; got ${jsonKind(entry)}`,
-          });
-        }
-      });
-      cleaned["thetaPaths"] = kept;
-    } else {
-      diagnostics.push({
-        severity: "error",
-        code: SETTINGS_VALUE_OUT_OF_RANGE,
-        file: path,
-        message: `settings key thetaPaths value is out of range; got ${renderObserved(value)}`,
-      });
-    }
-  }
+  cleanThetaPathsKey(root, path, cleaned, diagnostics);
 
-  // Top-level `theta` — must be a JSON object; a malformed `theta` logs once and
-  // suppresses the nested cascade.
-  if (Object.prototype.hasOwnProperty.call(root, "theta")) {
-    const value = root["theta"];
-    if (isPlainObject(value)) {
-      const cleanedThetas: JsonObject = {};
-      for (const key of THETAS_SCALAR_KEYS) {
-        if (!Object.prototype.hasOwnProperty.call(value, key)) {
-          continue;
-        }
-        const scalar = value[key];
-        if (isScalarKeyValid(key, scalar)) {
-          cleanedThetas[key] = scalar;
-        } else {
-          diagnostics.push({
-            severity: "error",
-            code: SETTINGS_VALUE_OUT_OF_RANGE,
-            file: path,
-            message: `settings key thetas.${key} value is out of range; got ${renderObserved(scalar)}`,
-          });
-        }
-      }
-      // RFC 0012 §4: the `exec` template. Project scope: dropped with the
-      // settings-invalid-entry code (the position-specific template below is
-      // documented in that row's Trigger, DIAG-4); global scope: validated by
-      // the template parser, a malformed value out of range with the parser's
-      // reason on `details.reason`.
-      if (Object.prototype.hasOwnProperty.call(value, THETAS_EXEC_TEMPLATE_KEY)) {
-        const raw = value[THETAS_EXEC_TEMPLATE_KEY];
-        if (scope === "project") {
-          diagnostics.push({
-            severity: "error",
-            code: SETTINGS_INVALID_ENTRY,
-            file: path,
-            message: `settings 'theta.${THETAS_EXEC_TEMPLATE_KEY}' is honoured from the global settings file only; ignored in project settings`,
-          });
-        } else {
-          const parsed = parseExecPlacementTemplate(raw);
-          if (parsed.ok) {
-            cleanedThetas[THETAS_EXEC_TEMPLATE_KEY] = parsed.template;
-          } else {
-            diagnostics.push({
-              severity: "error",
-              code: SETTINGS_VALUE_OUT_OF_RANGE,
-              file: path,
-              message: `settings key thetas.${THETAS_EXEC_TEMPLATE_KEY} value is out of range; got ${renderObserved(raw)}`,
-              details: { reason: parsed.reason },
-            });
-          }
-        }
-      }
-      // Unknown `thetas.*` keys are ignored without diagnostic (forward-compat).
-      cleaned["theta"] = cleanedThetas;
-    } else {
-      diagnostics.push({
-        severity: "error",
-        code: SETTINGS_VALUE_OUT_OF_RANGE,
-        file: path,
-        message: `settings key thetas value is out of range; got ${renderObserved(value)}`,
-      });
-    }
-  }
+  cleanThetaObject(root, path, scope, cleaned, diagnostics);
 
   return { cleaned, diagnostics };
 }
