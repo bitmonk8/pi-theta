@@ -366,7 +366,7 @@ export interface ThetaExtensionDeps {
    * The extension-instance `theta-system-note` channel the two factory-scope
    * lifecycle notes (drain-state dispatch-refusal; repeat-`session_start`
    * supersession) ride, so a host `pi.sendMessage` throw on either walks the
-   * channel's best-effort fallback chain (runtime-event-channel.md:132) instead
+   * channel's best-effort fallback chain (runtime-event-channel.md:140) instead
    * of aborting the slash handler or vanishing. The production default export
    * supplies the bootstrap sink's latched channel (the same non-re-entering
    * off-channel sink every instance-level note uses); absent on the H4a /
@@ -892,10 +892,10 @@ export function createThetaExtension(
           );
           if (outcome.kind === "note") {
             // Bug 0451: route the drain-state refusal note through the channel's
-            // best-effort fallback chain (runtime-event-channel.md:132) — a
+            // best-effort fallback chain (runtime-event-channel.md:140) — a
             // non-stale host throw walks ctx.ui.notify → delivery-failed
             // diagnostic → terminal line and never aborts this slash handler
-            // (:137); only a stale-ctx throw rethrows (bug 0018, mark-dead +
+            // (:145); only a stale-ctx throw rethrows (bug 0018, mark-dead +
             // quiesce). Informational note: `details` is omitted on the wire.
             const channel = resolveNoteChannel();
             if (channel !== undefined) {

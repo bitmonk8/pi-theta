@@ -19,8 +19,8 @@ export const STATUS_TICK_MS = 200;
  *  invoke depth at 32, so one full-depth chain always fits; concurrent top-level
  *  dispatches are humanly few. Overflow: counted, untracked. */
 export const MAX_TRACKED_INVOCATIONS = 32;
-/** Per-lane-set tracked RUNNING lanes. Rationale: PAR_FOR_THROTTLE = 64
- *  (statement-executor.ts:1731) hard-bounds concurrency, so this is structural;
+/** Per-lane-set tracked RUNNING lanes. Rationale: `PAR_FOR_THROTTLE` = 64
+ *  (`src/runtime/statement-executor.ts`) hard-bounds concurrency, so this is structural;
  *  the constant is a defensive clamp against a defective claim storm. */
 export const MAX_RUNNING_LANES_TRACKED = 64;
 /** Open-lane-set stack depth per invocation (nested par-for). Deeper sets
@@ -64,7 +64,6 @@ export const PROGRESS_WIRE_MAX_LINE_BYTES = 4096;
 export type ProgressVerbosity = "off" | "counts" | "names"; // EXST-10
 export type ViewShape = "off" | "min" | "tree"; // EXST-11
 export type InvocationMode = "prompt" | "subagent" | "subagent-fn";
-export type LaneState = "queued" | "running" | "done" | "err"; // EXST-3(c) closed set
 
 export interface EffectRef {
   readonly kind: CheckpointKind; // src/seams/checkpoint.ts:8-14 (five kinds)
