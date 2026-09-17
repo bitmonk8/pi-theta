@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { BINDER_ENVELOPE_KINDS } from "../src/binder/binder-envelope";
 import {
   buildBinderSystemPrompt,
   renderBinderParamLine,
@@ -340,6 +341,13 @@ describe("V11d-T — Envelope-kinds enumeration (cka-45 item 7)", () => {
     expect(prompt).toContain("ok");
     expect(prompt).toContain("needs_info");
     expect(prompt).toContain("ambiguous");
+  });
+
+  it("cka-45 item 7: lists every BINDER_ENVELOPE_KINDS token as an envelope kind", () => {
+    const prompt = buildBinderSystemPrompt(baseInput());
+    for (const kind of BINDER_ENVELOPE_KINDS) {
+      expect(prompt).toContain(`"kind": "${kind}"`);
+    }
   });
 });
 
