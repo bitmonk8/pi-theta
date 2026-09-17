@@ -27,19 +27,23 @@ export interface RegistryRow {
   readonly message: string;
 }
 
+/** Read only the requested shards, preserving page-specific registry oracles. */
+export function readRegistry(
+  shards: readonly ("parse" | "load" | "runtime" | "host")[],
+): readonly RegistryRow[] {
+  return parseRegistry(
+    shards
+      .map((shard) =>
+        readFileSync(
+          fileURLToPath(
+            new URL(`../../docs/spec_topics/diagnostics/code-registry-${shard}.md`, import.meta.url),
+          ),
+          "utf8",
+        ),
+      )
+      .join("\n"),
+  ) as RegistryRow[];
+}
+
 /** The live four-page sharded registry — the input tests/code-registry.test.ts reconciles. */
-export const REGISTRY: readonly RegistryRow[] = parseRegistry(
-  [
-    "code-registry-parse.md",
-    "code-registry-load.md",
-    "code-registry-runtime.md",
-    "code-registry-host.md",
-  ]
-    .map((page) =>
-      readFileSync(
-        fileURLToPath(new URL(`../../docs/spec_topics/diagnostics/${page}`, import.meta.url)),
-        "utf8",
-      ),
-    )
-    .join("\n"),
-) as RegistryRow[];
+export const REGISTRY: readonly RegistryRow[] = readRegistry(["parse", "load", "runtime", "host"]);

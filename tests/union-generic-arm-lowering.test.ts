@@ -1,9 +1,8 @@
 import { createHash } from "node:crypto";
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 // @ts-expect-error — JS code-registry module, no type declarations.
-import { parseRegistry, registryMessage } from "../tools/code-registry/index.js";
+import { registryMessage } from "../tools/code-registry/index.js";
+import { REGISTRY } from "./helpers/registry-oracle";
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
 import type { EnumDecl, SchemaDecl, ThetaDocument } from "../src/parser/theta-document";
 import { lowerQueryResponseSchema } from "../src/runtime/query-schema-lowering";
@@ -14,6 +13,7 @@ import {
   type SchemaSlug,
 } from "../src/seams/schema-validator";
 import { parseDoc } from "./helpers/e2e-s1";
+import { compareCodePoint } from "./helpers/canonical-slug-oracle";
 
 // Bug 0043 — `lowerTypeExpr` (src/parser/params.ts) tests for a generic
 // application BEFORE it splits a union, so any union whose source text ends in
@@ -150,27 +150,6 @@ import { parseDoc } from "./helpers/e2e-s1";
 const UNRESOLVED = "theta/parse/unresolved-named-type";
 const RESULT_IN_SCHEMA = "theta/parse/result-in-schema-position";
 const EMPTY_SCHEMA_BODY = "theta/parse/empty-schema-body";
-
-interface RegistryRow {
-  readonly code: string;
-  readonly message: string;
-}
-
-const REGISTRY = parseRegistry(
-  [
-    "code-registry-parse.md",
-    "code-registry-load.md",
-    "code-registry-runtime.md",
-    "code-registry-host.md",
-  ]
-    .map((page) =>
-      readFileSync(
-        fileURLToPath(new URL(`../docs/spec_topics/diagnostics/${page}`, import.meta.url)),
-        "utf8",
-      ),
-    )
-    .join("\n"),
-) as RegistryRow[];
 
 /**
  * The registry row's normative *Message* template with its single `<name>`
@@ -912,25 +891,6 @@ describe("bug 0043 (f) — an affected annotation stops colliding on the permiss
   const MIS_SLICED_ARRAY_SLUG = "5483e69d7515873a";
 
   /**
-   * Compare by Unicode CODE POINT, as schema-subset.md:100 pins — `<` compares
-   * UTF-16 code units, which diverges from code-point order across the
-   * surrogate range. Implemented locally, not imported, so this stays an oracle
-   * independent of the implementation it checks.
-   */
-  function compareCodePointLocal(a: string, b: string): number {
-    const ap = [...a];
-    const bp = [...b];
-    for (let i = 0; i < Math.min(ap.length, bp.length); i += 1) {
-      const x = ap[i]?.codePointAt(0) ?? 0;
-      const y = bp[i]?.codePointAt(0) ?? 0;
-      if (x !== y) {
-        return x - y;
-      }
-    }
-    return ap.length - bp.length;
-  }
-
-  /**
    * A local keys-sorted, whitespace-free serialiser over the plain-object
    * domain these fragments inhabit (schema-subset.md:99–:105's non-numeric
    * clauses; no fragment here carries a numeric `const`/`enum`). Written here
@@ -943,7 +903,7 @@ describe("bug 0043 (f) — an affected annotation stops colliding on the permiss
     }
     if (typeof value === "object" && value !== null) {
       const entries = Object.entries(value as Record<string, unknown>).sort(([a], [b]) =>
-        compareCodePointLocal(a, b),
+        compareCodePoint(a, b),
       );
       return `{${entries
         .map(([key, entryValue]) => `${JSON.stringify(key)}:${canonicalSerialise(entryValue)}`)

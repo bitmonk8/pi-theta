@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
@@ -23,6 +22,7 @@ import {
   type SchemaSlug,
 } from "../src/seams/schema-validator";
 import { parseDoc } from "./helpers/e2e-s1";
+import { assertKeysSorted, compareCodePoint, slugOfCanonicalForm } from "./helpers/canonical-slug-oracle";
 
 // Bug 0099 — one canonical schema hash, three sites that do not compute it.
 // docs/bugs/0099-schema-slug-hashes-stringify-not-canonical-form.md, ROUTE A
@@ -131,20 +131,6 @@ const OBJINT_CANONICAL =
 // hand-written canonical byte strings above.
 // ===========================================================================
 
-/** Compare two strings by Unicode code point, as step 2 (`:100`) requires. */
-function compareCodePoint(a: string, b: string): number {
-  const ap = [...a];
-  const bp = [...b];
-  for (let i = 0; i < Math.min(ap.length, bp.length); i += 1) {
-    const x = ap[i]?.codePointAt(0) ?? 0;
-    const y = bp[i]?.codePointAt(0) ?? 0;
-    if (x !== y) {
-      return x - y;
-    }
-  }
-  return ap.length - bp.length;
-}
-
 /**
  * A local keys-sorted, whitespace-free serialiser over the plain-object domain
  * these fragments inhabit — step 2 (`:99`–`:105`) minus the numeric clause,
@@ -171,31 +157,6 @@ function sortedSerialise(value: unknown): string {
     );
   }
   return JSON.stringify(value);
-}
-
-/** SHA-256 of the canonical-form bytes, first 16 lowercase hex (`:106`, `:107`). */
-function slugOfCanonicalForm(canonical: string): string {
-  return createHash("sha256").update(canonical, "utf8").digest("hex").slice(0, 16);
-}
-
-/** Every object key in a parsed canonical form is code-point sorted (`:100`). */
-function assertKeysSorted(label: string, value: unknown, path = "$"): void {
-  if (Array.isArray(value)) {
-    value.forEach((item, i) => assertKeysSorted(label, item, `${path}[${i}]`));
-    return;
-  }
-  if (typeof value !== "object" || value === null) {
-    return;
-  }
-  const keys = Object.keys(value as Record<string, unknown>);
-  expect(
-    keys,
-    `${label}: schema-subset.md:100 sorts object keys by Unicode code point; the keys at ` +
-      `${path} read ${JSON.stringify(keys)}`,
-  ).toEqual([...keys].sort(compareCodePoint));
-  for (const key of keys) {
-    assertKeysSorted(label, (value as Record<string, unknown>)[key], `${path}.${key}`);
-  }
 }
 
 /** The fragment / canonical-form pairs every later group hashes. */

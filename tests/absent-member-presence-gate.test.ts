@@ -1,21 +1,14 @@
-import { fileURLToPath } from "node:url";
-import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import type {
   ExtensionCommandContext,
   ModelRegistry,
 } from "@earendil-works/pi-coding-agent";
 // @ts-expect-error — JS code-registry module, no type declarations.
-import { parseRegistry, registryMessage } from "../tools/code-registry/index.js";
-import type { ThetaSource } from "../src/lexer/lexer";
+import { registryMessage } from "../tools/code-registry/index.js";
+import { REGISTRY } from "./helpers/registry-oracle";
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
-import type { SystemNoteChannelDeps } from "../src/extension/system-note-channel";
-import type { ModelReferenceMatcher, ParsedFrontmatter } from "../src/parser/frontmatter";
-import {
-  parseThetaDocument,
-  type ParseThetaDocumentDeps,
-  type ThetaDocument,
-} from "../src/parser/theta-document";
+import type { ParsedFrontmatter } from "../src/parser/frontmatter";
+import type { ThetaDocument } from "../src/parser/theta-document";
 import { executeBody, type BodyExecution } from "../src/runtime/statement-executor";
 import {
   isThetaPanic,
@@ -33,6 +26,7 @@ import type {
   ThetaCompositionInput,
 } from "../src/extension/theta-composition-producer";
 import { noopPi, rootDouble } from "./helpers/call-with-clause-harness";
+import { parseDoc } from "./helpers/e2e-s1";
 
 // Bug 0032 — member access on a name an object value does not carry reads the
 // JS property unfiltered (`evaluateMemberAccess`,
@@ -176,23 +170,6 @@ import { noopPi, rootDouble } from "./helpers/call-with-clause-harness";
  */
 const REGISTERED_TEMPLATE = "missing object key: <key>";
 
-/** The live registry, read from the spec corpus — the DIAG-4 source of truth. */
-const REGISTRY = parseRegistry(
-  [
-    "code-registry-parse.md",
-    "code-registry-load.md",
-    "code-registry-runtime.md",
-    "code-registry-host.md",
-  ]
-    .map((page) =>
-      readFileSync(
-        fileURLToPath(new URL(`../docs/spec_topics/diagnostics/${page}`, import.meta.url)),
-        "utf8",
-      ),
-    )
-    .join("\n"),
-) as readonly { readonly code: string; readonly message: string }[];
-
 /**
  * The registered template with `<key>` filled by `key`. Every key this file
  * probes is identifier-shaped (`^[A-Za-z_][A-Za-z0-9_]*$`), so its category-5
@@ -214,33 +191,16 @@ function missingKeyMessage(key: string): string {
 // group-(e) pattern).
 // ===========================================================================
 
-function parseDeps(): ParseThetaDocumentDeps {
-  const systemNote: SystemNoteChannelDeps = {
-    pi: { sendMessage: (): void => {} },
-    ui: { notify: (): void => {} },
-    emitDiagnostic: (): void => {},
-  };
-  const modelMatcher: ModelReferenceMatcher = {
-    resolve: (): "resolved" => "resolved",
-  };
-  return { systemNote, modelMatcher };
-}
-
-function parseOnly(path: string, src: string): ThetaDocument {
-  const source: ThetaSource = { path, bytes: new TextEncoder().encode(src) };
-  return parseThetaDocument(source, parseDeps());
-}
-
 /**
  * Parse a fixture and fail LOUDLY on any error-severity diagnostic. Every probe
  * in this file is parse-clean at HEAD (the bug's §Reproduction; `checkMemberAccess`
  * returns early for `"object"` and `"unknown"` receivers alike, so no absent
  * field name is rejected statically), so a rejection here is a harness defect —
  * never a silent skip. The one deliberate parse rejection (control C5) uses
- * {@link parseOnly} instead.
+ * {@link parseDoc} instead.
  */
 function parseTheta(path: string, src: string): ThetaDocument {
-  const doc = parseOnly(path, src);
+  const doc = parseDoc(src, path);
   const errors = doc.diagnostics.filter((d) => d.severity === "error");
   if (errors.length > 0) {
     throw new Error(
@@ -812,7 +772,7 @@ describe("bug 0032 (e) — controls: the other read surfaces, and the three beha
     // C5 bounds the reachable input class: the only route to an absent name is
     // a name that was never declared (a typo, a rename, or a laundered
     // receiver), never a declared field left unset.
-    const doc = parseOnly("bug0032-c5.theta", FM + "schema F { x: integer }\nlet m = F { }\nm");
+    const doc = parseDoc(FM + "schema F { x: integer }\nlet m = F { }\nm", "bug0032-c5.theta");
     const errors = doc.diagnostics.filter((d) => d.severity === "error");
     expect(
       errors.map((d) => d.code),
@@ -847,7 +807,7 @@ describe("bug 0032 (e) — controls: the other read surfaces, and the three beha
     ).toBe(true);
     // The unknown-variant disposition is a PARSE rejection, so the gate is not
     // the enum surface's answer for a bad variant name either.
-    const doc = parseOnly("bug0032-e6.theta", FM + ENUM_FIXTURE + "Sev.Nope");
+    const doc = parseDoc(FM + ENUM_FIXTURE + "Sev.Nope", "bug0032-e6.theta");
     expect(
       doc.diagnostics.filter((d) => d.severity === "error").map((d) => d.code),
       "an unknown variant is rejected statically; the runtime presence gate must not become its disposition",

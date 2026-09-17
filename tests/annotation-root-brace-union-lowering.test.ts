@@ -1,9 +1,7 @@
-import { createHash } from "node:crypto";
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 // @ts-expect-error — JS code-registry module, no type declarations.
-import { parseRegistry, registryMessage } from "../tools/code-registry/index.js";
+import { registryMessage } from "../tools/code-registry/index.js";
+import { REGISTRY } from "./helpers/registry-oracle";
 import { collectUnresolvedNamedTypes } from "../src/parser/body-type-lowering";
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
 import type { SchemaDecl, ThetaDocument } from "../src/parser/theta-document";
@@ -16,6 +14,7 @@ import {
   type SchemaSlug,
 } from "../src/seams/schema-validator";
 import { loadCleanly as loadCleanlyShared, parseDoc, type LoadedParams } from "./helpers/e2e-s1";
+import { assertKeysSorted, inlineDefName, slugOfCanonicalForm } from "./helpers/canonical-slug-oracle";
 
 // Bug 0053 — `lowerQueryResponseSchema`'s ROOT brace dispatch is a
 // prefix/suffix test, so a top-level union of object arms is read as ONE inline
@@ -166,27 +165,6 @@ import { loadCleanly as loadCleanlyShared, parseDoc, type LoadedParams } from ".
 
 const CODE = "theta/parse/unresolved-named-type";
 
-interface RegistryRow {
-  readonly code: string;
-  readonly message: string;
-}
-
-const REGISTRY = parseRegistry(
-  [
-    "code-registry-parse.md",
-    "code-registry-load.md",
-    "code-registry-runtime.md",
-    "code-registry-host.md",
-  ]
-    .map((page) =>
-      readFileSync(
-        fileURLToPath(new URL(`../docs/spec_topics/diagnostics/${page}`, import.meta.url)),
-        "utf8",
-      ),
-    )
-    .join("\n"),
-) as RegistryRow[];
-
 /**
  * The registry row's normative *Message* template with its single `<name>`
  * placeholder filled. Definedness is asserted first so a missing row reds by
@@ -208,20 +186,6 @@ function unresolvedMessage(name: string): string {
  */
 function unresolvedLine(name: string): string {
   return `error ${CODE}: ${unresolvedMessage(name)}`;
-}
-
-// ===========================================================================
-// The independent slug oracle (§Canonical schema hash steps 3–4).
-// ===========================================================================
-
-/** SHA-256 of the canonical-form bytes, first 16 lowercase hex characters. */
-function slugOfCanonicalForm(canonical: string): string {
-  return createHash("sha256").update(canonical, "utf8").digest("hex").slice(0, 16);
-}
-
-/** The synthesised `$defs` key for a fragment given its canonical form (:73). */
-function inlineDefName(canonical: string): string {
-  return `__inline_${slugOfCanonicalForm(canonical)}`;
 }
 
 // ===========================================================================
@@ -563,39 +527,6 @@ function expectRefsClosed(label: string, document: LoweredSchema): void {
 // (0) THE ORACLE ITSELF — green now and after. `schemaSlug` is not imported, so
 // these checks are what keeps the hand-written canonical forms honest.
 // ===========================================================================
-
-/** Compare two strings by Unicode code point, as the canonical key sort requires. */
-function compareCodePoint(a: string, b: string): number {
-  const ap = [...a];
-  const bp = [...b];
-  for (let i = 0; i < Math.min(ap.length, bp.length); i += 1) {
-    const x = ap[i]?.codePointAt(0) ?? 0;
-    const y = bp[i]?.codePointAt(0) ?? 0;
-    if (x !== y) {
-      return x - y;
-    }
-  }
-  return ap.length - bp.length;
-}
-
-/** Assert every object key in a parsed canonical form is code-point sorted. */
-function assertKeysSorted(label: string, value: unknown, path = "$"): void {
-  if (Array.isArray(value)) {
-    value.forEach((item, i) => assertKeysSorted(label, item, `${path}[${i}]`));
-    return;
-  }
-  if (typeof value !== "object" || value === null) {
-    return;
-  }
-  const keys = Object.keys(value as Record<string, unknown>);
-  expect(
-    keys,
-    `${label}: §Canonical schema hash step 2 (:100) sorts object keys by Unicode code point; keys at ${path} are ${JSON.stringify(keys)}`,
-  ).toEqual([...keys].sort(compareCodePoint));
-  for (const key of keys) {
-    assertKeysSorted(label, (value as Record<string, unknown>)[key], `${path}.${key}`);
-  }
-}
 
 describe("bug 0053 (0) — the independent slug oracle", () => {
   const cases: ReadonlyArray<readonly [string, string, unknown]> = [

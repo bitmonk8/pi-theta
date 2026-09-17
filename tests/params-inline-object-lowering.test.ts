@@ -1,9 +1,7 @@
-import { createHash } from "node:crypto";
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 // @ts-expect-error — JS code-registry module, no type declarations.
-import { parseRegistry, registryMessage } from "../tools/code-registry/index.js";
+import { registryMessage } from "../tools/code-registry/index.js";
+import { REGISTRY } from "./helpers/registry-oracle";
 import type { BypassParamsField } from "../src/binder/binder-envelope";
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
 import { lowerParamsFieldType, type LowerCtx } from "../src/parser/params";
@@ -14,6 +12,7 @@ import {
   type SchemaSlug,
 } from "../src/seams/schema-validator";
 import { parseDoc } from "./helpers/e2e-s1";
+import { assertKeysSorted, inlineDefName, slugOfCanonicalForm } from "./helpers/canonical-slug-oracle";
 
 // Bug 0035 — an inline object type on the `params:` right-hand side is
 // discarded before it is lowered: `p: {a: Tirage, b: integer}` loads clean,
@@ -138,27 +137,6 @@ import { parseDoc } from "./helpers/e2e-s1";
 // ===========================================================================
 
 const CODE = "theta/parse/unresolved-named-type";
-
-interface RegistryRow {
-  readonly code: string;
-  readonly message: string;
-}
-
-const REGISTRY = parseRegistry(
-  [
-    "code-registry-parse.md",
-    "code-registry-load.md",
-    "code-registry-runtime.md",
-    "code-registry-host.md",
-  ]
-    .map((page) =>
-      readFileSync(
-        fileURLToPath(new URL(`../docs/spec_topics/diagnostics/${page}`, import.meta.url)),
-        "utf8",
-      ),
-    )
-    .join("\n"),
-) as RegistryRow[];
 
 /**
  * The registry row's normative *Message* template with its single `<name>`
@@ -318,16 +296,6 @@ const NESTED_INNER_CANONICAL =
 // ===========================================================================
 // The independent slug oracle (§Canonical schema hash steps 3–4).
 // ===========================================================================
-
-/** SHA-256 of the canonical-form bytes, first 16 lowercase hex characters. */
-function slugOfCanonicalForm(canonical: string): string {
-  return createHash("sha256").update(canonical, "utf8").digest("hex").slice(0, 16);
-}
-
-/** The synthesised `$defs` key for a fragment given its canonical form (:73). */
-function inlineDefName(canonical: string): string {
-  return `__inline_${slugOfCanonicalForm(canonical)}`;
-}
 
 const B_INLINE = inlineDefName(B_CANONICAL);
 const C_INLINE = inlineDefName(C_CANONICAL);
@@ -490,39 +458,6 @@ function ajv(): { readonly validator: AjvSchemaValidator; readonly emitted: Diag
 // (0) THE ORACLE ITSELF — green now and after. `schemaSlug` is not imported, so
 // these checks are what keeps the hand-written canonical forms honest.
 // ===========================================================================
-
-/** Compare two strings by Unicode code point, as the canonical key sort requires. */
-function compareCodePoint(a: string, b: string): number {
-  const ap = [...a];
-  const bp = [...b];
-  for (let i = 0; i < Math.min(ap.length, bp.length); i += 1) {
-    const x = ap[i]?.codePointAt(0) ?? 0;
-    const y = bp[i]?.codePointAt(0) ?? 0;
-    if (x !== y) {
-      return x - y;
-    }
-  }
-  return ap.length - bp.length;
-}
-
-/** Assert every object key in a parsed canonical form is code-point sorted. */
-function assertKeysSorted(label: string, value: unknown, path = "$"): void {
-  if (Array.isArray(value)) {
-    value.forEach((item, i) => assertKeysSorted(label, item, `${path}[${i}]`));
-    return;
-  }
-  if (typeof value !== "object" || value === null) {
-    return;
-  }
-  const keys = Object.keys(value as Record<string, unknown>);
-  expect(
-    keys,
-    `${label}: §Canonical schema hash step 2 (:100) sorts object keys by Unicode code point; keys at ${path} are not sorted`,
-  ).toEqual([...keys].sort(compareCodePoint));
-  for (const key of keys) {
-    assertKeysSorted(label, (value as Record<string, unknown>)[key], `${path}.${key}`);
-  }
-}
 
 describe("bug 0035 (0) — the independent slug oracle", () => {
   const cases: ReadonlyArray<readonly [string, string, unknown]> = [

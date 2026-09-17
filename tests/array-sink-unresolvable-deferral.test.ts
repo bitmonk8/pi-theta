@@ -1,12 +1,11 @@
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import type {
   ExtensionCommandContext,
   ModelRegistry,
 } from "@earendil-works/pi-coding-agent";
 // @ts-expect-error — JS code-registry module, no type declarations.
-import { parseRegistry, registryMessage } from "../tools/code-registry/index.js";
+import { registryMessage } from "../tools/code-registry/index.js";
+import { REGISTRY } from "./helpers/registry-oracle";
 import type { ParsedFrontmatter } from "../src/parser/frontmatter";
 import type { ThetaDocument } from "../src/parser/theta-document";
 import { executeBody, type BodyExecution } from "../src/runtime/statement-executor";
@@ -151,28 +150,6 @@ import { parseDoc } from "./helpers/e2e-s1";
 const OBJECT_FIELD_CODE = "theta/parse/object-field-type-mismatch";
 const LET_RHS_CODE = "theta/parse/let-rhs-type-mismatch";
 const ARRAY_ELEMENT_CODE = "theta/parse/array-element-type-mismatch";
-
-interface RegistryRow {
-  readonly code: string;
-  readonly message: string;
-}
-
-/** The live four-page sharded registry, read from the spec corpus. */
-const REGISTRY = parseRegistry(
-  [
-    "code-registry-parse.md",
-    "code-registry-load.md",
-    "code-registry-runtime.md",
-    "code-registry-host.md",
-  ]
-    .map((page) =>
-      readFileSync(
-        fileURLToPath(new URL(`../docs/spec_topics/diagnostics/${page}`, import.meta.url)),
-        "utf8",
-      ),
-    )
-    .join("\n"),
-) as RegistryRow[];
 
 /**
  * A registered code's normative *Message* template. Fails LOUDLY naming the

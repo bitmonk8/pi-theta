@@ -70,11 +70,10 @@
 // this belongs in the default `npm test` (vitest.config.ts) and never in
 // `tests/live/**`.
 
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 // @ts-expect-error — JS code-registry module, no type declarations.
-import { parseRegistry, registryMessage } from "../tools/code-registry/index.js";
+import { registryMessage } from "../tools/code-registry/index.js";
+import { readRegistry } from "./helpers/registry-oracle";
 import { STALE_QUIESCE_STDERR_PREFIX as SRC_STALE_QUIESCE_STDERR_PREFIX } from "../src/extension/stale-ctx";
 import {
   ACCEPTANCE_STDERR_ALLOWLIST,
@@ -487,29 +486,12 @@ describe("bug 0030 fix — `thetaOwnedStderrLines` is the H8a spy filter", () =>
 // gate alone, which is why the stderr gate above cannot substitute for it.
 // ---------------------------------------------------------------------------
 
-/** One parsed row of the sharded diagnostics registry (`tools/code-registry`). */
-interface HostRegistryRow {
-  readonly code: string;
-  readonly namespace: string;
-  readonly severity: string;
-  readonly phase: string;
-  readonly trigger: string;
-  readonly message: string;
-}
-
 /**
  * The live `theta/host/*` registry shard, read from the spec corpus. Only the
- * host shard is read: both codes below live there, and a row that moved off the
- * page SHOULD red here rather than be silently found elsewhere.
+ * host shard supplies this oracle: both codes below live there, and a row that
+ * moved off the page SHOULD red here rather than be silently found elsewhere.
  */
-const HOST_REGISTRY = parseRegistry(
-  readFileSync(
-    fileURLToPath(
-      new URL("../docs/spec_topics/diagnostics/code-registry-host.md", import.meta.url),
-    ),
-    "utf8",
-  ),
-) as HostRegistryRow[];
+const HOST_REGISTRY = readRegistry(["host"]);
 
 /**
  * DIAG-4: the *Message* column is normative, so the synthetic note text is

@@ -1,8 +1,7 @@
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 // @ts-expect-error — JS code-registry module, no type declarations.
-import { parseRegistry, registryMessage } from "../tools/code-registry/index.js";
+import { registryMessage } from "../tools/code-registry/index.js";
+import { readRegistry } from "./helpers/registry-oracle";
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
 import { findCode, parseDoc } from "./helpers/e2e-s1";
 
@@ -127,19 +126,7 @@ const UNRESOLVED_NAMED = "theta/parse/unresolved-named-type";
 // The diagnostic oracle — the registry's *Message* column (DIAG-4).
 // ===========================================================================
 
-interface RegistryRow {
-  readonly code: string;
-  readonly message: string;
-}
-
-const REGISTRY = parseRegistry(
-  readFileSync(
-    fileURLToPath(
-      new URL("../docs/spec_topics/diagnostics/code-registry-parse.md", import.meta.url),
-    ),
-    "utf8",
-  ),
-) as RegistryRow[];
+const REGISTRY = readRegistry(["parse"]);
 
 /**
  * The registry row's normative *Message* template with its named placeholders
