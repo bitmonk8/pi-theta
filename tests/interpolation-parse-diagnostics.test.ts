@@ -1212,7 +1212,7 @@ const EXPECTED_SHIPPED_THETA = 42;
 const EXPECTED_SHIPPED_THETALIB = 3;
 /** Measured at the D4/D8-lens commit: the corpus's own count of `@`-templates and interpolations. */
 const EXPECTED_TEMPLATES = 54;
-const EXPECTED_INTERPOLATIONS = 126;
+const EXPECTED_INTERPOLATIONS = 127;
 
 /**
  * The token classes expressions.md:25–40 refuses, as raw substrings. A committed
