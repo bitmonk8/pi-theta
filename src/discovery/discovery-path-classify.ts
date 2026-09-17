@@ -10,8 +10,8 @@
 // imports back what its own settings `thetaPaths` resolution
 // (`resolveSettingsSource`) calls, and package-discovery.ts and settings.ts
 // import the shared POSIX path helpers directly (PTQ-0286, PTQ-0287) —
-// package-discovery.ts also imports `walkTree` and the descriptor renderer
-// `renderSourceDescriptor` (PTQ-0284) — instead of keeping their own copies.
+// package-discovery.ts also imports `walkTree` (PTQ-0287) — instead of keeping
+// their own copies.
 //
 // Spec: discovery.md, discovery/discovery-sources.md (DISC-1, DISC-2).
 

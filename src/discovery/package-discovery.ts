@@ -31,7 +31,9 @@ import type { Diagnostic, Severity } from "../diagnostics/diagnostic";
 import type { FileSystem } from "../seams/file-system";
 import type { Clock, TimerHandle } from "../seams/clock";
 import type { ThetaSettings } from "./settings";
-import { joinPosix, normalizePath, renderSourceDescriptor, splitExtension, walkTree } from "./discovery-path-classify";
+import { joinPosix, normalizePath, splitExtension, walkTree } from "./discovery-path-classify";
+import { MISSING_SOURCE, UNREADABLE_SOURCE } from "./discovery-model";
+import { emitSourceFailure } from "./discovery-source-enumerate";
 import { nodeErrorCode } from "./node-error-code";
 
 /**
@@ -82,8 +84,6 @@ const MANIFEST_INVALID = "theta/load/manifest-invalid";
 const MANIFEST_ESCAPES_PACKAGE = "theta/load/manifest-escapes-package";
 const DISCOVERY_SLOW = "theta/load/discovery-slow";
 const PACKAGE_READ_TIMEOUT = "theta/load/package-read-timeout";
-const MISSING_SOURCE = "theta/load/missing-source";
-const UNREADABLE_SOURCE = "theta/load/unreadable-source";
 
 // --------------------------------------------------------------------------
 // Path helpers — POSIX forward-slash form (the `FileSystem` seam reports
@@ -454,12 +454,7 @@ async function resolvePiThetas(
         (diagnostic.code === UNREADABLE_SOURCE || diagnostic.code === MISSING_SOURCE),
     );
     if (alreadyReported) continue;
-    diagnostics.push({
-      severity: "warning",
-      code: UNREADABLE_SOURCE,
-      file: dir,
-      message: `discovery source is unreadable: ${renderSourceDescriptor("package", pkgName)}`,
-    });
+    emitSourceFailure("warning", "package", pkgName, dir, diagnostics, "unreadable");
   }
   return thetas;
 }
@@ -498,21 +493,9 @@ async function thetasInDirectory(
   );
   if (!entries.ok) {
     if (entries.code === "ENOENT") {
-      if (missing !== null) {
-        diagnostics.push({
-          severity: missing,
-          code: MISSING_SOURCE,
-          file: dir,
-          message: `discovery source path does not exist: ${renderSourceDescriptor("package", descriptorValue)}`,
-        });
-      }
+      emitSourceFailure(missing, "package", descriptorValue, dir, diagnostics, "missing");
     } else {
-      diagnostics.push({
-        severity: "warning",
-        code: UNREADABLE_SOURCE,
-        file: dir,
-        message: `discovery source is unreadable: ${renderSourceDescriptor("package", descriptorValue)}`,
-      });
+      emitSourceFailure("warning", "package", descriptorValue, dir, diagnostics, "unreadable");
     }
     return out;
   }

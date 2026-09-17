@@ -1,4 +1,4 @@
-// The shared Node-style `.code` reader the three discovery modules classify
+// The shared Node-style `.code` reader the discovery modules classify
 // filesystem rejections with.
 //
 // Each of them must tell one rejection apart from another — `ENOENT` (the path

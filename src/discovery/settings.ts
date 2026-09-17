@@ -1,7 +1,7 @@
 // V10c / V10c-T — Settings-source reads, validation, and merge.
 //
 // The theta extension owns its own `settings.json` keys (`thetaPaths` plus the
-// four `thetas.*` scalars); Pi does not surface them. The extension reads the
+// `theta` namespace); Pi does not surface them. The extension reads the
 // same two files Pi uses for its own settings, through the injected
 // `FileSystem` seam, and merges them with Pi's precedence rule (project over
 // global; deep-merge objects, replace arrays/scalars — DISC-7).

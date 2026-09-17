@@ -19,8 +19,8 @@
 // directory's `*.theta` candidates, resolving one source entry (a directory
 // root or an explicit `.theta` file) into raw candidates, and the bug 0363
 // on-disk-entry lookup an explicit file reference needs — `RawCandidate`,
-// `enumerateDirectory`, `isCanonicalDuplicate`, `onDiskFileCandidate`,
-// `resolveEntry`, `classifyForSource`, `emitSourceFailure` — live in
+// `enumerateDirectory`, `onDiskFileCandidate`, `resolveEntry`,
+// `emitSourceFailure` — live in
 // `discovery-source-enumerate.ts` (PTQ-0367, pre-announced by PTQ-0333 as
 // "concern 1") and are imported back in below.
 //
