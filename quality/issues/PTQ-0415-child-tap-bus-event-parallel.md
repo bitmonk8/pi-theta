@@ -1,9 +1,9 @@
 ---
-id: pending
+id: PTQ-0415
 title: Child-activity tap emits six event kinds but the bus fold switch explicitly handles three
 lens: D4
-status: intake
-verdict: pending
+status: open
+verdict: confirmed
 locations:
   - src/extension/execution-status/child-tap.ts:43-60
   - src/extension/execution-status/child-tap.ts:86-96
@@ -121,3 +121,4 @@ A neutral classifier in `src/extension/execution-status/` (for example, a predic
 
 ## Triage
 verdict: questionable — accounting verified: ChildTapEvent union has 6 kinds (child-tap.ts:43-55), bus.ts childEvent switch (283-315) names 3 and defaults 3 to the liveness path; sole consumer switch (grep src/tools/tests), no clone group; note EXST-5 pins heartbeat as liveness-only and two prior D4 shards (REVIEW_LOG L74/L84) ruled this pair incidental — a shared classifier is a design decision for a human ruling (triage: claude-fable-5-1)
+verdict: confirmed — RATIFIED (human, 2026-09-17) with direction OVERRIDE - do NOT build the filed neutral classifier (speculative machinery): make the bus childEvent switch exhaustive over ChildTapEvent["type"] instead - explicit case arms for the three liveness-only kinds falling through to the existing liveness block, plus a never-typed exhaustiveness check - so a future kind is a compile error, not a silent default absorption. Keep the EXST-5/EXST-12 intent comment. Sequencing: defers behind the ChildTapEvent move (same host lane).

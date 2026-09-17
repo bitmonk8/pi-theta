@@ -1,9 +1,9 @@
 ---
-id: pending
+id: PTQ-0422
 title: Binder envelope kind tokens are enumerated separately in schema and system prompt
 lens: D4
-status: intake
-verdict: pending
+status: open
+verdict: confirmed
 locations:
   - src/binder/binder-envelope.ts:31-33
   - src/binder/binder-system-prompt.ts:376-380
@@ -68,3 +68,4 @@ enumeration from it, or a unit test could assert that every token in
 ## Triage
 verdict: questionable — accounting verified: BINDER_ENVELOPE_KINDS (binder-envelope.ts:32) has 3 tokens and prompt item 7 (binder-system-prompt.ts:376-380) lists the same 3, uncoupled; but the filing's "constant drives schema construction" is false (buildBinderEnvelopeSchema hardcodes const "ok"/"needs_info"/"ambiguous" at :88/:97/:106; the constant's only reader is tests/binder-bypass-envelope.test.ts:95), and both enumerations are spec-pinned to their own clause (BNDR-1; structure item 7 "the three kind-name tokens are normative") with a pinning test each (binder-bypass-envelope.test.ts:95, binder-system-prompt.test.ts:338) — whether a spec-closed 3-set across two clauses warrants a shared source of truth is a human ruling (triage: claude-fable-5-1)
 verdict: questionable — accounting re-verified: BINDER_ENVELOPE_KINDS (binder-envelope.ts:32) = 3 tokens, prompt item 7 (binder-system-prompt.ts:376-380) hardcodes the same 3, no import between them and clone-scan lists no group; filing overstates coupling ("constant drives schema construction" is false — buildBinderEnvelopeSchema hardcodes const "ok"/"needs_info"/"ambiguous" at :88/:97/:106, so there are actually three uncoupled enumerations and the constant's sole reader is tests/binder-bypass-envelope.test.ts:9,95), and each side is spec-pinned (BNDR-1 at binder-bypass-and-envelope.md:27; structure item 7 at :126 "the three kind-name tokens are normative") with its own pinning test (binder-bypass-envelope.test.ts:95, binder-system-prompt.test.ts:338) — whether a spec-closed 3-set needs a shared source of truth is a human ruling; not a dup of PTQ-0063 (type unreferenced) or PTQ-0089 (header count) (triage: claude-fable-5-1)
+verdict: confirmed — RATIFIED (human, 2026-09-17) with direction: do NOT generate prompt item 7 from the constant (the V11d prompt structure is normative, byte-pinned bytes; the kind set is spec-closed). Add the drift witness instead: a unit test asserting every BINDER_ENVELOPE_KINDS token appears in the rendered binder system prompt. Test-only change.

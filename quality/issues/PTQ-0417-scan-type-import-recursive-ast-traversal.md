@@ -1,9 +1,9 @@
 ---
-id: pending
+id: PTQ-0417
 title: scanTypeImport runs a full-AST recursive traversal via ts.forEachChild to inspect top-level ES import declarations
 lens: D8
-status: intake
-verdict: pending
+status: open
+verdict: confirmed
 locations:
   - src/extension/inventory-closure-audit.ts:674-688
   - src/extension/inventory-closure-audit.ts:697-711
@@ -81,3 +81,4 @@ Inspect `sf.statements` directly (or record `typeboxTypeIsImported` during `visi
 
 ## Triage
 verdict: questionable — accounting verified: both excerpts match verbatim at inventory-closure-audit.ts:674-693 and :697-711; scanTypeImport is a genuinely separate fourth per-file recursive pass (forEachChild at :542 visitShapes, :692 scanTypeImport, :783 visitRefs, plus getChildren collectComments at :807) whose only targets, ImportDeclaration nodes, sit in sf.statements for the audited src/**/*.ts set (grep: zero `declare module` blocks / nested imports in src/), and visitShapes (:365) and visitRefs (:698) already inspect every ImportDeclaration; the flag is live at :773 (sole read), size-scan puts the file at 944 LOC/zone with 0 src / 2 tests importers, quality/exemptions.json carries no row for this host (the two D8 rows are other hosts), and audit-target-categories.md §Target surface categories pins only detection semantics (carrier = the imported `Type` binding), not the traversal shape, so no spec clause is challenged; not a duplicate of PTQ-0350 / qw...-d9-02 (those are D9 pass-bundling breakdowns, different root cause). No measured cost is filed (cf. the enumerateDirectory exemption's re-file bar), and one direction caveat for the human: folding the flag into pre-order visitRefs would be order-sensitive if an import textually follows a `Type.<member>` use, whereas an sf.statements pre-scan is not — the simpler shape is a design decision for a human ruling (triage: claude-fable-5-1)
+verdict: confirmed — RATIFIED (human, 2026-09-17): replace scanTypeImport's recursive full-AST ts.forEachChild walk with a direct iteration over sf.statements (import declarations are top-level only), or record typebox-Type-imported during the existing visitShapes/visitRefs pass - whichever reads cleaner after the Seam B/C extraction lands. Sequencing: same host as the D9 lane; the store defers this a wave.

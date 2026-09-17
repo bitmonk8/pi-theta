@@ -1,9 +1,9 @@
 ---
-id: pending
+id: PTQ-0423
 title: Drain-state arm mapping is expressed twice in one file
 lens: D4
-status: intake
-verdict: pending
+status: open
+verdict: confirmed
 locations:
   - src/extension/drain-state.ts:46-51
   - src/extension/drain-state.ts:62-63
@@ -54,3 +54,4 @@ Verified both functions are live: `routeDrainStateArm` is called from `resolveSl
 ## Triage
 verdict: questionable — accounting verified: excerpts match verbatim at drain-state.ts:46-51/:62-63, both live (:108, :87), and with DrainStateTag = "shutting-down" (reload-wiring.ts:146) and drained: boolean both functions partition the same 4-tuple space identically; the shared source of truth is a design decision for a human ruling, noting PIC-29 (drain-state-contract.md:15) states both phrasings separately and :9 pins tuple consumption "rather than via any derived single-value collapse" (triage: claude-fable-5-1)
 verdict: questionable — accounting re-verified: both excerpts verbatim at drain-state.ts:46-51/:62-63, both live (:108 via resolveSlashDispatch, :87 via evalShutdownShortCircuitWithReadFailover), DrainStateTag is the single literal "shutting-down" (reload-wiring.ts:146) so both predicates partition the 4-tuple space identically ((false,undefined) vs the other three); not a dup of PTQ-0105/PTQ-0204 (doc-comment duplicates); the shared normalizer is a design decision for a human ruling, and drain-state-contract.md's Fields para pins tuple consumption "rather than via any derived single-value collapse" while PIC-29 states both phrasings separately, so the fixer must not pick a shape (triage: claude-fable-5-1)
+verdict: confirmed — RATIFIED (human, 2026-09-17): derive shouldShortCircuitShutdown from routeDrainStateArm (body becomes routeDrainStateArm(...) !== "dispatch" or equivalent) so the (drained, tag) state rule is encoded once. Keep both exports and their doc comments.

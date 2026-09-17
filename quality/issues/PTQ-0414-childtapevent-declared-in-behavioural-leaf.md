@@ -1,9 +1,9 @@
 ---
-id: pending                  # PTQ-NNNN minted at acceptance; never self-assigned
+id: PTQ-0414
 title: ChildTapEvent is declared in the behavioural leaf child-tap.ts, forcing the shared type surface types.ts to import backwards from a module its own header names as downstream
 lens: D9                     # D2 | D4 | D7 | D8 | D9 - the lens that filed this
-status: intake               # intake | open | fixed | rejected (store mechanics own transitions)
-verdict: pending             # pending | confirmed | questionable | false-positive | duplicate | out-of-scope | malformed
+status: open
+verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - src/extension/execution-status/child-tap.ts:43-55
   - src/extension/execution-status/types.ts:10
@@ -126,3 +126,4 @@ the human ratifies the move.
 ## Triage
 <triage appends: verdict + one-line reason. Nothing above this line is edited.>
 verdict: questionable — accounting verified: ChildTapEvent declared at child-tap.ts:43-55 leans on exactly 1 types.ts member (ProgressAuthorMessage, :50); foreign src consumers reproduce at types.ts:10/193 and bus.ts:43/283 with 5 own-host type-position uses (43/82/100/184/191) and 3 test files, nothing in tools/ or extensions/; types.ts:1-4 header names child-tap.ts a behavioural leaf yet :10 imports it back (type-level cycle, child-tap.ts:26-32 imports types.ts); all 8 sibling bus-method payload types re-read at types.ts:69-140, checkpoint-decorator.ts exports only a class + function; exemptions.json has no entry for either file; prior filing purged in 53f815de with no TRIAGE_LOG/issues/resolved record (PTQ-0369 is a fixed breakdown, same-wave d4-01 is a parallel-coverage root cause) — but per D9 policy the move is a design decision for a human ruling, never confirmed (triage: claude-fable-5-1)
+verdict: confirmed — RATIFIED (human, 2026-09-17): move the ChildTapEvent union (and its per-kind member types) from child-tap.ts into execution-status/types.ts per that file's own header contract; child-tap.ts imports it back like every other leaf. Purely mechanical; no behaviour change.

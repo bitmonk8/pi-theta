@@ -1,9 +1,9 @@
 ---
-id: pending
+id: PTQ-0418
 title: checkThetaImports still bundles the resolution/cycle-graph plumbing (its four nested closures) with six downstream check phases at 608 LOC after Seam C landed
 lens: D9
-status: intake
-verdict: pending
+status: open
+verdict: confirmed
 locations:
   - src/extension/import-static-checks.ts:1328-1935
 sites: 1
@@ -57,3 +57,4 @@ Band: strong (608 ≥ 200) from the authoritative map, not recounted. Reasons-co
 
 ## Triage
 verdict: questionable — accounting verified: size-scan map re-run confirms checkThetaImports :1328-1935 at 608 LOC / strong band with no exemptions.json entry; all nine inventory rows and the :1741 / :1620-1632 excerpts match the current code; the four closures share <6 locals (probe/resolver/parseThetaLib/unreadablePaths) and no concrete/strong keep-whole reason was overlooked; PTQ-0304/0334/0368 are all fixed in resolved/ and 0368's ratification verbatim invites this Seam D re-file (not a duplicate); the target shape (D1 kit / D2 lib pass) needs a human ruling (triage: claude-fable-5-1)
+verdict: confirmed — RATIFIED (human, 2026-09-17): Seam D1 - bundle the four nested resolution closures + their caches (:1351-1614) into module-private createImportResolutionKit returning { parseThetaLib, walkThetaLib, materializeChain, buildModuleScope, parseCache, walked, graphEdges, unreadablePaths }. Seam D2 - extract the transitive lib-level check pass (:1763-1837) as module-private checkTransitiveLibDeclarations taking its reads as parameters. The pre-announced PTQ-0368 continuation.

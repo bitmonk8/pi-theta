@@ -1,9 +1,9 @@
 ---
-id: pending
+id: PTQ-0416
 title: runInventoryClosureAudit still bundles the nested visitRefs collector and the Pass-2 marker-classification loop at 342 LOC after Seam A's visitShapes hoist landed
 lens: D9
-status: intake
-verdict: pending
+status: open
+verdict: confirmed
 locations:
   - src/extension/inventory-closure-audit.ts:556-897
 sites: 1
@@ -60,3 +60,4 @@ Band: strong (342 ≥ 200) from the authoritative map. Reasons-considered list a
 
 ## Triage
 verdict: questionable — accounting verified independently from the live tree: size-scan map confirms runInventoryClosureAudit at 556-897 / 342 LOC / band strong / 0 src + 2 test importers, visitShapes hoisted to a top-level 3-param function at 360-543 (commit 9d5a0f17's diff is exactly that hoist: `-const visitShapes = (n)` / `+function visitShapes(n, sf, emitFamilyFour)`), visitRefs still nested at 697-784 / 88 LOC; every inventory row's range and the :814-821 excerpt match the source verbatim; the reason-(a) defeat holds on my own grep (cat1Members/cat3Members/cat2Names/typeboxNamed/typeboxMembers are read only at 713/722/750/768/777, all inside visitRefs; typeboxTypeIsImported is intra-Pass-3 at 678-773; the true inter-pass locals are familyFourLines/refs/clauseELines/commentByLine/authorisedLines = 5, under the ≥6 bar); no inventory-closure-audit key in quality/exemptions.json, no revert in the file's 7-commit history, no generator marker, and the pass comments cite resolution rules not a closed enumeration; not a duplicate — the prior same-root-cause filing (qw20260916045442-d9-01-runinventoryclosureaudit-passes-remain-bundled, triaged questionable ×3) was purged by the 53f815de store reset without a PTQ being minted, and PTQ-0350's ratification explicitly deferred Seams B/C to this re-file; D9 breakdown never confirms — the Seam B/C shape (visitRefs hoist would carry ~11 closed-over params vs Seam A's 3) is a human ruling (triage: claude-fable-5-1)
+verdict: confirmed — RATIFIED (human, 2026-09-17): Seam B - hoist visitRefs (:697-784) to a module-private top-level function exactly on the ratified visitShapes precedent (parameters = what it closes over; the module-private predicates stay). Seam C - extract the Pass-2 marker-classification loop as module-private classifyAndEmitMarkers returning authorisedLines. Both zero-export moves.

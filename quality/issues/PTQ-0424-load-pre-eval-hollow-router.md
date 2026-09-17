@@ -1,9 +1,9 @@
 ---
-id: pending
+id: PTQ-0424
 title: load-pre-eval.ts survives two removals as a 106-LOC module whose sole behaviour is one delegation statement to deliverOperatorNotePreferringEntry for one caller
 lens: D9
-status: intake
-verdict: pending
+status: open
+verdict: confirmed
 locations:
   - src/extension/load-pre-eval.ts:1-106
 sites: 1
@@ -53,3 +53,4 @@ Barrel/facade check: the module re-exports nothing (`grep "export .* from"` — 
 
 ## Triage
 verdict: questionable — accounting verified: 106 LOC / 4 declarations (40 LOC) / 1 executable statement delegating to deliverOperatorNotePreferringEntry, 1 src caller (production-composition.ts) that already builds `channel` and imports system-note-channel, history f419ff13→94e81974(-80/+7)→35df0ce3 reproduces, not a re-export barrel and not exempted; whether to dissolve or keep the V4e seam name is a design ruling for a human (triage: claude-fable-5-1)
+verdict: confirmed — RATIFIED (human, 2026-09-17): dissolve load-pre-eval.ts - inline the single deliverOperatorNotePreferringEntry call at the production-composition.ts call site (it already imports ./system-note-channel and builds the deps), re-home PreEvalFailureCause beside its only producer/consumer preEvalCauseOf in production-composition.ts, and delete the module with its two one-member interfaces. Keep the V4e spec citation as a comment at the inlined site; re-point (never weaken) the two tests that name the router.
