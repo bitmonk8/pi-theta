@@ -867,7 +867,7 @@ export function runInventoryClosureAudit(input: AuditInput): AuditResult {
     // Is `Type` imported from typebox anywhere in this file (carrier for the
     // typebox member-access carve-out)?
     let typeboxTypeIsImported = false;
-    const scanTypeImport = (n: ts.Node): void => {
+    for (const n of sf.statements) {
       if (
         ts.isImportDeclaration(n) &&
         ts.isStringLiteral(n.moduleSpecifier) &&
@@ -880,9 +880,7 @@ export function runInventoryClosureAudit(input: AuditInput): AuditResult {
           }
         }
       }
-      ts.forEachChild(n, scanTypeImport);
-    };
-    scanTypeImport(sf);
+    }
 
     visitRefs(
       sf, sf, resolveRef, emitFamilyFour, clauseELines, lineOfPos, typeboxTypeIsImported,
