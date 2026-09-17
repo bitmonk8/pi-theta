@@ -24,27 +24,14 @@
 // Spec: pi-integration-contract/subagent.md PIC-65 (child-process lifecycle);
 // docs/rfcs/0005-child-process-subagent-sessions.md.
 
+import { executorHook, resetExecutorHook } from "./helpers/parked-statement-executor";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 
 // --- DRIVE seam: mock the module-level executeBody the drive calls ----------
-const executorHook = vi.hoisted(() => ({
-  impl: undefined as
-    | ((...args: readonly unknown[]) => Promise<unknown>)
-    | undefined,
-}));
 vi.mock("../src/runtime/statement-executor", async (importOriginal) => {
-  const actual =
-    await importOriginal<typeof import("../src/runtime/statement-executor")>();
-  return {
-    ...actual,
-    executeBody: (...args: readonly unknown[]): Promise<unknown> => {
-      if (executorHook.impl === undefined) {
-        throw new Error("executorHook.impl not set by the test");
-      }
-      return executorHook.impl(...args);
-    },
-  };
+  const { mockStatementExecutor } = await import("./helpers/parked-statement-executor");
+  return mockStatementExecutor(importOriginal);
 });
 
 import { composeThetaFixture } from "../src/extension/theta-composition-producer";
@@ -176,9 +163,7 @@ function driveCtx(): ExtensionCommandContext {
  *  `ThetaPanic` unwinding the body past `surface`. */
 class InjectedBodyDefect extends Error {}
 
-afterEach(() => {
-  executorHook.impl = undefined;
-});
+afterEach(resetExecutorHook);
 
 describe("RFC-0005 PIC-65 — the DRIVE seam runs the subagent teardown on every exit", () => {
   it("(throw path) executeBody THROWS -> teardown runs once BEFORE finish, surface is skipped, and the defect is framed as ONE internal-error panic-note", async () => {

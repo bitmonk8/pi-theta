@@ -22,6 +22,7 @@
 // Only `runBinder` is replaced — through a `Proxy`, because the producer is a
 // class instance whose remaining methods must keep their original `this`.
 
+import { shutdownDeps } from "./helpers/session-shutdown-harness";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ModelRegistry } from "@earendil-works/pi-coding-agent";
 
@@ -56,11 +57,7 @@ import { ActiveInvocationRegistry } from "../src/runtime/active-invocation-regis
 import {
   runSessionShutdown,
   SHUTDOWN_AWAIT_CAP_MS,
-  type EmissionSink,
-  type SessionShutdownDeps,
 } from "../src/extension/session-shutdown";
-import { ThetaRegistry } from "../src/extension/reload-wiring";
-import { SESSION_SHUTDOWN_REASON_SNAPSHOT } from "../src/extension/version-bump-gates";
 import { FakeClock } from "./helpers/fake-clock";
 import {
   PassthroughCheckpoint,
@@ -142,39 +139,6 @@ async function dispatchParkedInBinder(): Promise<ParkedDispatch> {
     thetaAbortSeen: () => thetaAbortSeen,
     releaseBinder,
     bodyCalls: () => executorHook.calls,
-  };
-}
-
-// --- teardown-side scaffolding (mirrors session-shutdown) --------------------
-
-function sink(): EmissionSink {
-  return {
-    emit: (): void => {},
-    serialise: (diagnostic): string => JSON.stringify(diagnostic),
-  };
-}
-
-/** Real `runSessionShutdown` deps over the SAME registry the producer holds. */
-function shutdownDeps(
-  activeInvocations: ActiveInvocationRegistry,
-  clock: FakeClock,
-): SessionShutdownDeps {
-  return {
-    registry: new ThetaRegistry(),
-    activeInvocations,
-    clock,
-    discoveryWatcher: { close: (): void => {} },
-    settingsWatcher: { close: (): void => {} },
-    debounceHandle: undefined,
-    forwardingSignals: [],
-    inventory: [
-      {
-        kind: "type-union-snapshot",
-        path: "SessionShutdownEvent.reason",
-        literals: [...SESSION_SHUTDOWN_REASON_SNAPSHOT.literals],
-      },
-    ],
-    sink: sink(),
   };
 }
 

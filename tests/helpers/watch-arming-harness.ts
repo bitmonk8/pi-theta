@@ -1,5 +1,5 @@
 // Shared session_start-firing extension harness for the watch-arming test
-// pair (PTQ-0363).
+// pair (PTQ-0363), plus session_shutdown factory wiring tests.
 //
 // WHY THIS FILE EXISTS. tests/b0310-watch-roots-root-union.test.ts and
 // tests/b0339-package-source-watch-arming.test.ts each independently
@@ -21,6 +21,7 @@
 import type {
   ExtensionAPI,
   ExtensionContext,
+  SessionShutdownEvent,
 } from "@earendil-works/pi-coding-agent";
 import {
   createThetaExtension,
@@ -30,12 +31,18 @@ import {
   composeExtensionInstance,
   type ExtensionInstanceWiring,
 } from "../../src/extension/production-composition";
+import type { ParsedTheta } from "../../src/extension/reload-wiring";
 import { FakeClock } from "./fake-clock";
 import { RootsRecordingFileWatcher, waitFor } from "./fake-file-watcher";
 
 export interface Harness {
   readonly pi: ExtensionAPI;
+  readonly subscriptions: Map<
+    string,
+    ((event: unknown, ctx: ExtensionContext) => unknown)[]
+  >;
   fireSessionStart(): Promise<void>;
+  fireSessionShutdown(reason: SessionShutdownEvent["reason"]): Promise<void>;
 }
 
 /**
@@ -46,11 +53,13 @@ export interface Harness {
  * production-composition.ts), so a caller whose scenario needs a `--theta`
  * flag supplies it; a caller with no such need (e.g. package-root discovery,
  * which reaches through `fs.cwd()` instead) omits it and every `getFlag`
- * answers `undefined`.
+ * answers `undefined`. `sendUserMessage: false` preserves the smaller
+ * factory-wiring double that has no provider-turn member.
  */
 export function makeHarness(
-  cwd: string,
+  cwd = "/does/not/matter",
   flags: Readonly<Record<string, string>> = {},
+  options: { sendUserMessage?: boolean } = {},
 ): Harness {
   const commands = new Map<string, unknown>();
   const subscriptions = new Map<
@@ -73,7 +82,7 @@ export function makeHarness(
     getCommands: (): { name: string; source: string }[] =>
       [...commands.keys()].map((name) => ({ name, source: "extension" })),
     sendMessage: (): void => {},
-    sendUserMessage: (): void => {},
+    ...(options.sendUserMessage === false ? {} : { sendUserMessage: (): void => {} }),
   } as unknown as ExtensionAPI;
 
   const ctx = {
@@ -83,13 +92,19 @@ export function makeHarness(
     ui: { notify: (): void => {} },
   } as unknown as ExtensionContext;
 
-  const fire = async (event: string): Promise<void> => {
+  const fire = async (event: string, payload: unknown): Promise<void> => {
     for (const handler of subscriptions.get(event) ?? []) {
-      await handler({ type: event }, ctx);
+      await handler(payload, ctx);
     }
   };
 
-  return { pi, fireSessionStart: () => fire("session_start") };
+  return {
+    pi,
+    subscriptions,
+    fireSessionStart: () => fire("session_start", { type: "session_start" }),
+    fireSessionShutdown: (reason) =>
+      fire("session_shutdown", { type: "session_shutdown", reason }),
+  };
 }
 
 /** The result of `bootWatchArming`: the composed wiring (`undefined` only if
@@ -134,4 +149,14 @@ export async function bootWatchArming(
   await harness.fireSessionStart();
   await waitFor(() => fakeWatcher.watchCalls.length > 0, options.waitLabel ?? "watcher to arm");
   return { wiring, fakeWatcher };
+}
+
+/** A minimal `ParsedTheta` for factory wiring without executing a body. */
+export function makeTheta(slashName: string): ParsedTheta {
+  return {
+    slashName,
+    frontmatter: { mode: "prompt" } as unknown as ParsedTheta["frontmatter"],
+    body: { statements: [] } as unknown as ParsedTheta["body"],
+    run: async (): Promise<void> => {},
+  };
 }

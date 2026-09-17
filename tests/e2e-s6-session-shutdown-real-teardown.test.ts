@@ -1,15 +1,12 @@
+import { makeHarness, type Harness, makeTheta } from "./helpers/watch-arming-harness";
+import { signalSpy } from "./helpers/session-shutdown-harness";
 import { describe, expect, it, vi } from "vitest";
-import type {
-  ExtensionAPI,
-  ExtensionContext,
-  SessionShutdownEvent,
-} from "@earendil-works/pi-coding-agent";
 import {
   createThetaExtension,
   type ThetaExtensionDeps,
 } from "../src/extension/factory";
 import type { ExtensionInstanceWiring } from "../src/extension/production-composition";
-import { ThetaRegistry, type ParsedTheta } from "../src/extension/reload-wiring";
+import { ThetaRegistry } from "../src/extension/reload-wiring";
 import {
   ActiveInvocationRegistry,
   type ActiveInvocationEntry,
@@ -39,75 +36,6 @@ import { FakeClock } from "./helpers/fake-clock";
 // listeners); REQ-PIC-35/76/78/81, REQ-SESS-3/SESS-4. No filesystem, no live
 // model, no real watcher.
 
-interface Harness {
-  readonly pi: ExtensionAPI;
-  readonly subscriptions: Map<
-    string,
-    ((event: unknown, ctx: ExtensionContext) => unknown)[]
-  >;
-  fireSessionStart(): Promise<void>;
-  fireSessionShutdown(reason: SessionShutdownEvent["reason"]): Promise<void>;
-}
-
-function makeHarness(): Harness {
-  const commands = new Map<string, unknown>();
-  const subscriptions = new Map<
-    string,
-    ((event: unknown, ctx: ExtensionContext) => unknown)[]
-  >();
-
-  const pi = {
-    registerFlag: (): void => {},
-    registerMessageRenderer: (): void => {},
-    registerCommand: (name: string, options: unknown): void => {
-      commands.set(name, options);
-    },
-    on: (
-      event: string,
-      handler: (e: unknown, c: ExtensionContext) => unknown,
-    ): void => {
-      const list = subscriptions.get(event) ?? [];
-      list.push(handler);
-      subscriptions.set(event, list);
-    },
-    getFlag: (): undefined => undefined,
-    getCommands: (): { name: string; source: string }[] =>
-      [...commands.keys()].map((name) => ({ name, source: "extension" })),
-    sendMessage: (): void => {},
-    sendUserMessage: (): void => {},
-  } as unknown as ExtensionAPI;
-
-  const ctx = {
-    cwd: "/does/not/matter",
-    hasUI: false,
-    modelRegistry: { getAvailable: (): readonly unknown[] => [] },
-    ui: { notify: (): void => {} },
-  } as unknown as ExtensionContext;
-
-  const fire = async (event: string, payload: unknown): Promise<void> => {
-    for (const handler of subscriptions.get(event) ?? []) {
-      await handler(payload, ctx);
-    }
-  };
-
-  return {
-    pi,
-    subscriptions,
-    fireSessionStart: () => fire("session_start", { type: "session_start" }),
-    fireSessionShutdown: (reason) =>
-      fire("session_shutdown", { type: "session_shutdown", reason }),
-  };
-}
-
-function makeTheta(slashName: string): ParsedTheta {
-  return {
-    slashName,
-    frontmatter: { mode: "prompt" } as unknown as ParsedTheta["frontmatter"],
-    body: { statements: [] } as unknown as ParsedTheta["body"],
-    run: async (): Promise<void> => {},
-  };
-}
-
 /** A single in-flight entry whose `disposeBarrier` is already settled so
  * sub-step 3's bounded await completes immediately. */
 function seededEntry(theta: string, invocationId: string): ActiveInvocationEntry {
@@ -118,12 +46,6 @@ function seededEntry(theta: string, invocationId: string): ActiveInvocationEntry
     theta,
     invocationId,
   };
-}
-
-function signalSpy(
-  label: ForwardingSignalSource["label"],
-): ForwardingSignalSource & { removeEventListener: ReturnType<typeof vi.fn> } {
-  return { label, removeEventListener: vi.fn() };
 }
 
 interface Booted {

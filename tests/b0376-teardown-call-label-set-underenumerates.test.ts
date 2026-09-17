@@ -21,60 +21,30 @@
 // PIC-57 sub-step-4 case), so the drive that produces the emitted diagnostic is
 // the same one the existing suite already exercises green.
 
+import {
+  watcherSpy,
+  signalSpy,
+  sinkSpy,
+  shutdownDeps,
+  eventWith,
+} from "./helpers/session-shutdown-harness";
 import { describe, expect, it, vi } from "vitest";
-import { FakeClock } from "./helpers/fake-clock";
+import { FakeClock, flush } from "./helpers/fake-clock";
 import {
   runSessionShutdown,
   SHUTDOWN_AWAIT_CAP_MS,
   TEARDOWN_STEP_CALL_LABELS,
   TEARDOWN_STEP_FAILED_CODE,
-  type ClosableWatcher,
-  type EmissionSink,
-  type ForwardingSignalSource,
   type SessionShutdownDeps,
-  type SessionShutdownEventLike,
   type TeardownAwareDebouncer,
 } from "../src/extension/session-shutdown";
 import { ActiveInvocationRegistry } from "../src/runtime/active-invocation-registry";
-import { ThetaRegistry } from "../src/extension/reload-wiring";
-import type { Diagnostic } from "../src/diagnostics/diagnostic";
 
 // The spec literal under test: PIC-57's quiesce-await label, which the spec's
 // closed set carries and the emitter emits, but the constant omits.
 const QUIESCE_LABEL = "debouncer.whenIdle(awaitCap)";
 
 // --- teardown harness (mirrors tests/reload-teardown-quiesce.test.ts) --------
-
-/** Flush the microtask queue so the handler's in-flight promises settle. */
-async function flush(times = 8): Promise<void> {
-  for (let i = 0; i < times; i++) {
-    await Promise.resolve();
-  }
-}
-
-function watcherSpy(): ClosableWatcher & { close: ReturnType<typeof vi.fn> } {
-  return { close: vi.fn() };
-}
-
-function signalSpy(
-  label: ForwardingSignalSource["label"],
-): ForwardingSignalSource & { removeEventListener: ReturnType<typeof vi.fn> } {
-  return { label, removeEventListener: vi.fn() };
-}
-
-// The sink serialises via JSON.stringify, so each `emit` call carries the single
-// serialised diagnostic line — parseable back to its `details` shape below.
-function sinkSpy(): EmissionSink & {
-  emit: ReturnType<typeof vi.fn>;
-  serialise: ReturnType<typeof vi.fn>;
-} {
-  return {
-    emit: vi.fn((line: unknown) => {
-      void line;
-    }),
-    serialise: vi.fn((diagnostic: Diagnostic) => JSON.stringify(diagnostic)),
-  };
-}
 
 interface Harness {
   readonly deps: SessionShutdownDeps;
@@ -85,10 +55,7 @@ interface Harness {
 function makeHarness(): Harness {
   const clock = new FakeClock();
   const sink = sinkSpy();
-  const deps: SessionShutdownDeps = {
-    registry: new ThetaRegistry(),
-    activeInvocations: new ActiveInvocationRegistry(),
-    clock,
+  const deps = shutdownDeps(new ActiveInvocationRegistry(), clock, {
     discoveryWatcher: watcherSpy(),
     settingsWatcher: watcherSpy(),
     debounceHandle: clock.setTimeout(() => {}, 250),
@@ -99,11 +66,9 @@ function makeHarness(): Harness {
     ],
     inventory: undefined,
     sink,
-  };
+  });
   return { deps, clock, sink };
 }
-
-const eventWith = (reason: unknown): SessionShutdownEventLike => ({ reason });
 
 // A debouncer whose `whenIdle` rejects, so sub-step 4's quiesce catch emits the
 // `details.call: "debouncer.whenIdle(awaitCap)"` diagnostic under test.

@@ -89,3 +89,10 @@ export class FakeClock implements Clock {
     this.#now = target;
   }
 }
+
+/** Flush the microtask queue so in-flight promises settle. */
+export async function flush(times = 8): Promise<void> {
+  for (let i = 0; i < times; i++) {
+    await Promise.resolve();
+  }
+}

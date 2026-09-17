@@ -28,6 +28,7 @@ import type { ThetaFixture } from "../../src/extension/factory";
 import type { ThetaCompositionInput } from "../../src/extension/theta-composition-producer";
 import type { ParsedFrontmatter } from "../../src/parser/frontmatter";
 import type { ThetaBody } from "../../src/parser/theta-document";
+import type { Clock } from "../../src/seams/clock";
 import type { RuntimeRoot } from "../../src/runtime-root";
 import type { Checkpoint, CheckpointKind, CheckpointSite } from "../../src/seams/checkpoint";
 
@@ -35,6 +36,8 @@ import type { Checkpoint, CheckpointKind, CheckpointSite } from "../../src/seams
 export interface RecordedMessage {
   readonly customType?: string;
   readonly content?: string;
+  readonly display?: boolean;
+  readonly details?: Record<string, unknown>;
 }
 
 /**
@@ -148,10 +151,15 @@ export class PassthroughCheckpoint implements Checkpoint {
   }
 }
 
-export function rootWith(checkpoint: Checkpoint): RuntimeRoot {
+export function rootWith(
+  checkpoint: Checkpoint,
+  invocationId = "inv-1",
+  clock?: Clock,
+): RuntimeRoot {
   return {
     checkpoint,
-    idSource: { newInvocationId: () => "inv-1", newToolCallId: () => "tc-1" },
+    idSource: { newInvocationId: () => invocationId, newToolCallId: () => "tc-1" },
+    ...(clock === undefined ? {} : { clock }),
   } as unknown as RuntimeRoot;
 }
 
@@ -180,3 +188,12 @@ export function driveCtx(): ExtensionCommandContext {
  *  body await before the registry is sampled. */
 export const tick = (): Promise<void> =>
   new Promise<void>((resolve) => setTimeout(resolve, 0));
+
+/** Record every `pi.sendMessage` payload without a provider-turn surface. */
+export function recordingPi(log: RecordedMessage[]): ExtensionAPI {
+  return {
+    sendMessage: (message: RecordedMessage): void => {
+      log.push(message);
+    },
+  } as unknown as ExtensionAPI;
+}

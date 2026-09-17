@@ -32,11 +32,18 @@
 // stubs are inert), per the per-phase TDD ritual's "fail red for the intended
 // reason".
 
+import {
+  watcherSpy,
+  makeEntry,
+  healthyInventory,
+  type ControllableEntry,
+  shutdownDeps,
+  eventWith,
+} from "./helpers/session-shutdown-harness";
 import { assert, describe, expect, it, vi } from "vitest";
 import { FakeClock } from "./helpers/fake-clock";
 import {
   ActiveInvocationRegistry,
-  type ActiveInvocationEntry,
 } from "../src/runtime/active-invocation-registry";
 import { ThetaRegistry } from "../src/extension/reload-wiring";
 import { SESSION_SHUTDOWN_REASON_SNAPSHOT } from "../src/extension/version-bump-gates";
@@ -51,7 +58,6 @@ import {
   synthesiseSessionShutdownReason,
   teardownStepFailedDiagnostic,
   TEARDOWN_STEP_CALL_LABELS,
-  type ClosableWatcher,
   type EmissionSink,
   type ForwardingSignalSource,
   type NestedShapeEmission,
@@ -74,39 +80,6 @@ const cancelledMessage = (name: string, reason: string): string =>
   `theta /${name} cancelled by session shutdown (${reason})`;
 
 // --- helpers ----------------------------------------------------------------
-
-/** A registry entry whose `disposeBarrier` is externally settleable. */
-interface ControllableEntry {
-  readonly entry: ActiveInvocationEntry;
-  settle(): void;
-}
-
-function makeEntry(
-  theta: string,
-  invocationId: string,
-  options: { settleable?: boolean } = {},
-): ControllableEntry {
-  let settle: () => void = (): void => {};
-  const disposeBarrier =
-    options.settleable === true
-      ? new Promise<void>((resolve) => {
-          settle = resolve;
-        })
-      : // A never-settling barrier so sub-step 3's bounded await is exercised.
-        new Promise<void>(() => {});
-  const entry: ActiveInvocationEntry = {
-    thetaAbort: new AbortController(),
-    disposeBarrier,
-    shutdownReason: undefined,
-    theta,
-    invocationId,
-  };
-  return { entry, settle };
-}
-
-function watcherSpy(): ClosableWatcher & { close: ReturnType<typeof vi.fn> } {
-  return { close: vi.fn() };
-}
 
 function signalSpy(label: ForwardingSignalSource["label"]): ForwardingSignalSource & {
   removeEventListener: ReturnType<typeof vi.fn>;
@@ -134,17 +107,6 @@ function sinkSpy(
       return JSON.stringify(diagnostic);
     }),
   };
-}
-
-/** The healthy pinned-constant inventory the handler reads the reason union from. */
-function healthyInventory(): SessionShutdownDeps["inventory"] {
-  return [
-    {
-      kind: "type-union-snapshot",
-      path: "SessionShutdownEvent.reason",
-      literals: [...SESSION_SHUTDOWN_REASON_SNAPSHOT.literals],
-    },
-  ];
 }
 
 interface HarnessOverrides {
@@ -184,17 +146,15 @@ function makeHarness(overrides: HarnessOverrides = {}): Harness {
     signalSpy("parentInvokeSignal.removeEventListener"),
   ];
   const sink = overrides.sink ?? sinkSpy();
-  const deps: SessionShutdownDeps = {
+  const deps = shutdownDeps(activeInvocations, clock, {
     registry,
-    activeInvocations,
-    clock,
     discoveryWatcher,
     settingsWatcher,
     debounceHandle: clock.setTimeout(() => {}, 250),
     forwardingSignals,
     inventory: overrides.inventory ?? healthyInventory(),
     sink,
-  };
+  });
   return {
     deps,
     registry,
@@ -206,8 +166,6 @@ function makeHarness(overrides: HarnessOverrides = {}): Harness {
     sink,
   };
 }
-
-const eventWith = (reason: unknown): SessionShutdownEventLike => ({ reason });
 
 /** Drive a teardown that must complete even when sub-step 3 never settles. */
 async function driveShutdown(

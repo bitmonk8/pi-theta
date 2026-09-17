@@ -31,6 +31,7 @@
 // builder is a sentinel; the arming decision is a no-op; the guard is inverted;
 // the guarded-handler wrapper does not guard).
 
+import { sinkSpy, shutdownDeps, eventWith } from "./helpers/session-shutdown-harness";
 import { describe, expect, it, vi } from "vitest";
 import { FakeClock } from "./helpers/fake-clock";
 import {
@@ -38,11 +39,9 @@ import {
   type ActiveInvocationEntry,
 } from "../src/runtime/active-invocation-registry";
 import { ThetaRegistry } from "../src/extension/reload-wiring";
-import { SESSION_SHUTDOWN_REASON_SNAPSHOT } from "../src/extension/version-bump-gates";
 import {
   runSessionShutdown,
   RUNTIME_DEGRADED_CODE,
-  type EmissionSink,
   type SessionShutdownDeps,
   type SessionShutdownEventLike,
 } from "../src/extension/session-shutdown";
@@ -57,7 +56,6 @@ import {
   type FailFastTerminator,
   type TripwireGuardDeps,
 } from "../src/extension/session-swap-tripwire";
-import type { Diagnostic } from "../src/diagnostics/diagnostic";
 
 // --- registry *Message* column template (with `<reason>` filled) ------------
 
@@ -65,19 +63,6 @@ const survivedMessage = (reason: string): string =>
   `extension instance survived a session-only session_shutdown (reason: ${reason}); Pi lifecycle contract violated \u2014 terminating`;
 
 // --- shared harness helpers -------------------------------------------------
-
-/** An injected `console.error` sink spy (serialise-then-emit, per V9g). */
-function sinkSpy(): EmissionSink & {
-  emit: ReturnType<typeof vi.fn>;
-  serialise: ReturnType<typeof vi.fn>;
-} {
-  return {
-    emit: vi.fn((line: unknown) => {
-      void line;
-    }),
-    serialise: vi.fn((diagnostic: Diagnostic) => JSON.stringify(diagnostic)),
-  };
-}
 
 /**
  * A fail-fast terminator fake: records the call and throws a sentinel so control
@@ -135,27 +120,15 @@ function makeShutdownHarness(): ShutdownHarness {
   const activeInvocations = new ActiveInvocationRegistry();
   const clock = new FakeClock();
   const sink = sinkSpy();
-  const deps: SessionShutdownDeps = {
+  const deps = shutdownDeps(activeInvocations, clock, {
     registry,
-    activeInvocations,
-    clock,
     discoveryWatcher: { close: vi.fn() },
     settingsWatcher: { close: vi.fn() },
     debounceHandle: clock.setTimeout(() => {}, 250),
-    forwardingSignals: [],
-    inventory: [
-      {
-        kind: "type-union-snapshot",
-        path: "SessionShutdownEvent.reason",
-        literals: [...SESSION_SHUTDOWN_REASON_SNAPSHOT.literals],
-      },
-    ],
     sink,
-  };
+  });
   return { deps, registry, clock, sink };
 }
-
-const eventWith = (reason: unknown): SessionShutdownEventLike => ({ reason });
 
 /** Drive a teardown to completion even when sub-step 3 never settles. */
 async function driveShutdown(

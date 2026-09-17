@@ -27,12 +27,15 @@
 // registry the factory reads — the same substrate `session-shutdown.test.ts`
 // pins at the handler level, here wired through the production factory.
 
+import { executorHook, resetExecutorHook } from "./helpers/parked-statement-executor";
+import {
+  makeHarness as makeFactoryHarness,
+  type Harness as FactoryHarness,
+  makeTheta,
+} from "./helpers/watch-arming-harness";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type {
-  ExtensionAPI,
-  ExtensionContext,
   ModelRegistry,
-  SessionShutdownEvent,
 } from "@earendil-works/pi-coding-agent";
 
 // SPAN staging: replace the module-level `executeBody` the DRIVE seam
@@ -42,23 +45,9 @@ import type {
 // the body is parked on a deferred. Everything else in the executor module is
 // preserved. This proves the entry SPANS the in-flight window — it is NOT faked
 // at the bind level (the bug being fixed).
-const executorHook = vi.hoisted(() => ({
-  impl: undefined as
-    | ((...args: readonly unknown[]) => Promise<unknown>)
-    | undefined,
-}));
 vi.mock("../src/runtime/statement-executor", async (importOriginal) => {
-  const actual =
-    await importOriginal<typeof import("../src/runtime/statement-executor")>();
-  return {
-    ...actual,
-    executeBody: (...args: readonly unknown[]): Promise<unknown> => {
-      if (executorHook.impl === undefined) {
-        throw new Error("executorHook.impl not set by the test");
-      }
-      return executorHook.impl(...args);
-    },
-  };
+  const { mockStatementExecutor } = await import("./helpers/parked-statement-executor");
+  return mockStatementExecutor(importOriginal);
 });
 
 import {
@@ -73,7 +62,7 @@ import {
   type ThetaExtensionDeps,
 } from "../src/extension/factory";
 import type { ExtensionInstanceWiring } from "../src/extension/production-composition";
-import { ThetaRegistry, type ParsedTheta } from "../src/extension/reload-wiring";
+import { ThetaRegistry } from "../src/extension/reload-wiring";
 import {
   ActiveInvocationRegistry,
   type ActiveInvocationEntry,
@@ -94,9 +83,7 @@ import {
   tick,
 } from "./helpers/fixture-dispatch-harness";
 
-afterEach(() => {
-  executorHook.impl = undefined;
-});
+afterEach(resetExecutorHook);
 
 describe("Increment B1 — the registry entry SPANS the in-flight body via the DRIVE seam", () => {
   it("(spans the body) a REAL producer bind driven through composeThetaFixture.run keeps size()===1 WHILE the parked body runs, then 0 after it settles", async () => {
@@ -191,64 +178,6 @@ describe("Increment B1 — the registry entry SPANS the in-flight body via the D
 
 // --- factory-level scaffolding (mirrors session-shutdown-wiring) -------------
 
-interface FactoryHarness {
-  readonly pi: ExtensionAPI;
-  fireSessionStart(): Promise<void>;
-  fireSessionShutdown(reason: SessionShutdownEvent["reason"]): Promise<void>;
-}
-
-function makeFactoryHarness(): FactoryHarness {
-  const commands = new Map<string, unknown>();
-  const subscriptions = new Map<
-    string,
-    ((event: unknown, ctx: ExtensionContext) => unknown)[]
-  >();
-  const pi = {
-    registerFlag: (): void => {},
-    registerMessageRenderer: (): void => {},
-    registerCommand: (name: string, options: unknown): void => {
-      commands.set(name, options);
-    },
-    on: (event: string, handler: (e: unknown, c: ExtensionContext) => unknown): void => {
-      const list = subscriptions.get(event) ?? [];
-      list.push(handler);
-      subscriptions.set(event, list);
-    },
-    getFlag: (): undefined => undefined,
-    getCommands: (): { name: string; source: string }[] =>
-      [...commands.keys()].map((name) => ({ name, source: "extension" })),
-    sendMessage: (): void => {},
-  } as unknown as ExtensionAPI;
-
-  const ctx = {
-    cwd: "/does/not/matter",
-    hasUI: false,
-    modelRegistry: { getAvailable: (): readonly unknown[] => [] },
-    ui: { notify: (): void => {} },
-  } as unknown as ExtensionContext;
-
-  const fire = async (event: string, payload: unknown): Promise<void> => {
-    for (const handler of subscriptions.get(event) ?? []) {
-      await handler(payload, ctx);
-    }
-  };
-  return {
-    pi,
-    fireSessionStart: () => fire("session_start", { type: "session_start" }),
-    fireSessionShutdown: (reason) =>
-      fire("session_shutdown", { type: "session_shutdown", reason }),
-  };
-}
-
-function makeTheta(slashName: string): ParsedTheta {
-  return {
-    slashName,
-    frontmatter: { mode: "prompt" } as unknown as ParsedTheta["frontmatter"],
-    body: { statements: [] } as unknown as ParsedTheta["body"],
-    run: async (): Promise<void> => {},
-  };
-}
-
 interface FactoryBoot {
   readonly harness: FactoryHarness;
   readonly registry: ThetaRegistry;
@@ -262,7 +191,7 @@ async function bootFactory(
   activeInvocations: ActiveInvocationRegistry,
   clock: Clock,
 ): Promise<FactoryBoot> {
-  const harness = makeFactoryHarness();
+  const harness = makeFactoryHarness("/does/not/matter", {}, { sendUserMessage: false });
   const registry = new ThetaRegistry([["foo", makeTheta("foo")]]);
   const deps: ThetaExtensionDeps = {
     fixtures: [],

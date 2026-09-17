@@ -33,8 +33,18 @@
 // COLLECTS; the reds land on the guarded-existence assertions or on the
 // behavioural assertions, never on `tsc`.
 
+import { controllableRebuild } from "./helpers/controllable-rebuild";
+import {
+  watcherSpy,
+  signalSpy,
+  sinkSpy,
+  makeEntry,
+  type ControllableEntry,
+  shutdownDeps,
+  eventWith,
+} from "./helpers/session-shutdown-harness";
 import { describe, expect, it, vi } from "vitest";
-import { FakeClock } from "./helpers/fake-clock";
+import { FakeClock, flush } from "./helpers/fake-clock";
 import {
   ReloadDebouncer,
   RELOAD_DEBOUNCE_WINDOW_MS,
@@ -44,61 +54,16 @@ import {
   runSessionShutdown,
   SHUTDOWN_AWAIT_CAP_MS,
   TEARDOWN_STEP_FAILED_CODE,
-  type ClosableWatcher,
-  type EmissionSink,
-  type ForwardingSignalSource,
   type SessionShutdownDeps,
-  type SessionShutdownEventLike,
 } from "../src/extension/session-shutdown";
 import {
   ActiveInvocationRegistry,
-  type ActiveInvocationEntry,
 } from "../src/runtime/active-invocation-registry";
 import { ThetaRegistry } from "../src/extension/reload-wiring";
-import type { Diagnostic } from "../src/diagnostics/diagnostic";
 
 // ---------------------------------------------------------------------------
 // Shared helpers (mirrors reload-debounce.test.ts / session-shutdown.test.ts)
 // ---------------------------------------------------------------------------
-
-/** Flush the microtask queue so in-flight promises settle. */
-async function flush(times = 8): Promise<void> {
-  for (let i = 0; i < times; i++) {
-    await Promise.resolve();
-  }
-}
-
-/**
- * A `rebuild` whose completion is caller-controlled (the V10d-T pattern): each
- * call parks a resolver so a rebuild can be held "in flight" and released
- * deterministically.
- */
-function controllableRebuild(): {
-  rebuild: ReturnType<typeof vi.fn>;
-  settle: (outcome: RebuildOutcome) => void;
-} {
-  const resolvers: Array<(o: RebuildOutcome) => void> = [];
-  let settled = 0;
-  const rebuild = vi.fn(
-    () =>
-      new Promise<RebuildOutcome>((resolve) => {
-        resolvers.push((o) => {
-          settled++;
-          resolve(o);
-        });
-      }),
-  );
-  return {
-    rebuild,
-    settle: (outcome) => {
-      const next = resolvers[settled];
-      if (next === undefined) {
-        throw new Error("no in-flight rebuild to settle");
-      }
-      next(outcome);
-    },
-  };
-}
 
 // --- guarded / typed-optional accessors for the not-yet-implemented surface --
 
@@ -282,55 +247,6 @@ interface DebouncerQuiesceDeps extends SessionShutdownDeps {
   readonly debouncer?: TeardownAwareDebouncerDep;
 }
 
-interface ControllableEntry {
-  readonly entry: ActiveInvocationEntry;
-  settle(): void;
-}
-
-function makeEntry(
-  theta: string,
-  invocationId: string,
-  options: { settleable?: boolean } = {},
-): ControllableEntry {
-  let settle: () => void = (): void => {};
-  const disposeBarrier =
-    options.settleable === true
-      ? new Promise<void>((resolve) => {
-          settle = resolve;
-        })
-      : new Promise<void>(() => {}); // never settles → sub-step 3 bounded await
-  const entry: ActiveInvocationEntry = {
-    thetaAbort: new AbortController(),
-    disposeBarrier,
-    shutdownReason: undefined,
-    theta,
-    invocationId,
-  };
-  return { entry, settle };
-}
-
-function watcherSpy(): ClosableWatcher & { close: ReturnType<typeof vi.fn> } {
-  return { close: vi.fn() };
-}
-
-function signalSpy(
-  label: ForwardingSignalSource["label"],
-): ForwardingSignalSource & { removeEventListener: ReturnType<typeof vi.fn> } {
-  return { label, removeEventListener: vi.fn() };
-}
-
-function sinkSpy(): EmissionSink & {
-  emit: ReturnType<typeof vi.fn>;
-  serialise: ReturnType<typeof vi.fn>;
-} {
-  return {
-    emit: vi.fn((line: unknown) => {
-      void line;
-    }),
-    serialise: vi.fn((diagnostic: Diagnostic) => JSON.stringify(diagnostic)),
-  };
-}
-
 interface Harness {
   readonly deps: SessionShutdownDeps;
   readonly clock: FakeClock;
@@ -353,21 +269,17 @@ function makeHarness(
     signalSpy("parentInvokeSignal.removeEventListener"),
   ];
   const sink = sinkSpy();
-  const deps: SessionShutdownDeps = {
+  const deps = shutdownDeps(activeInvocations, clock, {
     registry,
-    activeInvocations,
-    clock,
     discoveryWatcher: watcherSpy(),
     settingsWatcher: watcherSpy(),
     debounceHandle: clock.setTimeout(() => {}, 250),
     forwardingSignals,
     inventory: undefined,
     sink,
-  };
+  });
   return { deps, clock, forwardingSignals, sink };
 }
-
-const eventWith = (reason: unknown): SessionShutdownEventLike => ({ reason });
 
 function fakeDebouncerDep(
   whenIdleImpl: () => Promise<void>,

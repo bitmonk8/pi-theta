@@ -51,10 +51,19 @@
 // bounded await, i.e. on the clean-cancel arm the rule scopes to. Offline: no
 // provider, no filesystem, no watcher.
 
+import {
+  PassthroughCheckpoint,
+  rootWith,
+  recordingPi,
+  promptTheta,
+  driveCtx,
+  tick,
+  type RecordedMessage,
+} from "./helpers/fixture-dispatch-harness";
+import { executorHook, resetExecutorHook } from "./helpers/parked-statement-executor";
+import { shutdownDeps } from "./helpers/session-shutdown-harness";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type {
-  ExtensionAPI,
-  ExtensionCommandContext,
   ModelRegistry,
 } from "@earendil-works/pi-coding-agent";
 
@@ -62,23 +71,9 @@ import type {
 // seam's body call so the invocation is genuinely in flight when the shutdown
 // fires. A `cancel` outcome is the terminal the CANCEL path frames as the SLSH-4
 // note, which is the row cell (a) must NOT be satisfied by.
-const executorHook = vi.hoisted(() => ({
-  impl: undefined as
-    | ((...args: readonly unknown[]) => Promise<unknown>)
-    | undefined,
-}));
 vi.mock("../src/runtime/statement-executor", async (importOriginal) => {
-  const actual =
-    await importOriginal<typeof import("../src/runtime/statement-executor")>();
-  return {
-    ...actual,
-    executeBody: (...args: readonly unknown[]): Promise<unknown> => {
-      if (executorHook.impl === undefined) {
-        throw new Error("executorHook.impl not set by the test");
-      }
-      return executorHook.impl(...args);
-    },
-  };
+  const { mockStatementExecutor } = await import("./helpers/parked-statement-executor");
+  return mockStatementExecutor(importOriginal);
 });
 
 import {
@@ -87,7 +82,6 @@ import {
 } from "../src/extension/production-theta-producer";
 import { composeThetaFixture } from "../src/extension/theta-composition-producer";
 import type {
-  ThetaCompositionInput,
   ThetaProducerDeps,
 } from "../src/extension/theta-composition-producer";
 import {
@@ -99,17 +93,10 @@ import {
   runSessionShutdown,
   CANCELLED_BY_SESSION_SHUTDOWN_CODE,
   type EmissionSink,
-  type SessionShutdownDeps,
 } from "../src/extension/session-shutdown";
 import type { SystemNoteChannelDeps } from "../src/extension/system-note-channel";
-import { ThetaRegistry } from "../src/extension/reload-wiring";
-import { SESSION_SHUTDOWN_REASON_SNAPSHOT } from "../src/extension/version-bump-gates";
 import { FakeClock } from "./helpers/fake-clock";
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
-import type { RuntimeRoot } from "../src/runtime-root";
-import type { Checkpoint, CheckpointKind, CheckpointSite } from "../src/seams/checkpoint";
-import type { ThetaBody } from "../src/parser/theta-document";
-import type { ParsedFrontmatter } from "../src/parser/frontmatter";
 
 /** The canonical lowercase 8-4-4-4-12 `invocationId` the entry carries verbatim
  *  into `details.event.invocation_id` (placeholder-rendering-b.md §7). */
@@ -126,94 +113,6 @@ const SLSH4_CANCEL_NOTE = `theta /${THETA_NAME} cancelled`;
 const CLEAN_CANCEL_NOTE = `theta /${THETA_NAME} cancelled by session shutdown (${SHUTDOWN_REASON})`;
 
 // --- scaffolding ------------------------------------------------------------
-
-class PassthroughCheckpoint implements Checkpoint {
-  before(_kind: CheckpointKind, _site: CheckpointSite): Promise<void> {
-    return Promise.resolve();
-  }
-}
-
-function rootWithIds(): RuntimeRoot {
-  return {
-    checkpoint: new PassthroughCheckpoint(),
-    idSource: {
-      newInvocationId: () => INVOCATION_ID,
-      newToolCallId: () => "tc-1",
-    },
-    // Bug 0383: the SLSH-4 boundary now builds a `RuntimeEvent` (stamping
-    // `occurred_at` via `root.clock.wallNow()`) whenever cell (b)'s Esc-style
-    // abort surfaces the SNK-f cancelled note, so the double needs a `clock`
-    // seam or that construction throws before `pi.sendMessage` is reached.
-    clock: new FakeClock(),
-  } as unknown as RuntimeRoot;
-}
-
-/** One recorded `pi.sendMessage` payload. */
-interface RecordedMessage {
-  readonly customType?: string;
-  readonly content?: string;
-  readonly display?: boolean;
-  readonly details?: Record<string, unknown>;
-}
-
-function recordingPi(log: RecordedMessage[]): ExtensionAPI {
-  return {
-    sendMessage: (message: RecordedMessage): void => {
-      log.push(message);
-    },
-  } as unknown as ExtensionAPI;
-}
-
-function promptTheta(): ThetaCompositionInput {
-  const frontmatter: ParsedFrontmatter = { mode: "prompt" } as ParsedFrontmatter;
-  return {
-    slashName: THETA_NAME,
-    sourcePath: "/theta/demo.theta",
-    frontmatter,
-    body: { statements: [], tail: null } as unknown as ThetaBody,
-  };
-}
-
-/** The dispatch ctx the DRIVE seam threads: `signal: undefined` is the
- *  documented idle-entry the cancel-forwarding tolerates. */
-function driveCtx(): ExtensionCommandContext {
-  return { signal: undefined, cwd: "/tmp" } as unknown as ExtensionCommandContext;
-}
-
-/** Flush pending microtasks/macrotasks so `run` reaches the parked body. */
-const tick = (): Promise<void> =>
-  new Promise<void>((resolve) => setTimeout(resolve, 0));
-
-function teardownSink(): EmissionSink {
-  return {
-    emit: (): void => {},
-    serialise: (diagnostic): string => JSON.stringify(diagnostic),
-  };
-}
-
-/** Real `runSessionShutdown` deps over the SAME registry the producer holds. */
-function shutdownDeps(
-  activeInvocations: ActiveInvocationRegistry,
-  clock: FakeClock,
-): SessionShutdownDeps {
-  return {
-    registry: new ThetaRegistry(),
-    activeInvocations,
-    clock,
-    discoveryWatcher: { close: (): void => {} },
-    settingsWatcher: { close: (): void => {} },
-    debounceHandle: undefined,
-    forwardingSignals: [],
-    inventory: [
-      {
-        kind: "type-union-snapshot",
-        path: "SessionShutdownEvent.reason",
-        literals: [...SESSION_SHUTDOWN_REASON_SNAPSHOT.literals],
-      },
-    ],
-    sink: teardownSink(),
-  };
-}
 
 interface ParkedDispatch {
   readonly registry: ActiveInvocationRegistry;
@@ -242,7 +141,11 @@ async function dispatchParkedInBody(
   const notes: RecordedMessage[] = [];
   const input = {
     pi: recordingPi(notes),
-    root: rootWithIds(),
+    // Bug 0383: the SLSH-4 boundary now builds a `RuntimeEvent` (stamping
+    // `occurred_at` via `root.clock.wallNow()`) whenever cell (b)'s Esc-style
+    // abort surfaces the SNK-f cancelled note, so the double needs a `clock`
+    // seam or that construction throws before `pi.sendMessage` is reached.
+    root: rootWith(new PassthroughCheckpoint(), INVOCATION_ID, new FakeClock()),
     modelRegistry: {} as unknown as ModelRegistry,
     activeInvocations: registry,
     ...extraInput,
@@ -381,9 +284,7 @@ function wireSummary(notes: readonly RecordedMessage[]): string {
     .join(", ");
 }
 
-afterEach(() => {
-  executorHook.impl = undefined;
-});
+afterEach(resetExecutorHook);
 
 describe("bug 0073 — the per-invocation cancelled-by-session-shutdown note", () => {
   it("(a) a clean-cancelled slash dispatch emits exactly one byte-exact display:false note carrying details.shutdown", async () => {

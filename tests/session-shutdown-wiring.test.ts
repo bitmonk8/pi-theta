@@ -1,8 +1,7 @@
+import { makeHarness, type Harness, makeTheta } from "./helpers/watch-arming-harness";
 import { assert, describe, expect, it, vi } from "vitest";
 import type {
-  ExtensionAPI,
   ExtensionContext,
-  SessionShutdownEvent,
 } from "@earendil-works/pi-coding-agent";
 import {
   createThetaExtension,
@@ -11,7 +10,6 @@ import {
 import type { ExtensionInstanceWiring } from "../src/extension/production-composition";
 import {
   ThetaRegistry,
-  type ParsedTheta,
 } from "../src/extension/reload-wiring";
 import { FakeClock } from "./helpers/fake-clock";
 import { ActiveInvocationRegistry } from "../src/runtime/active-invocation-registry";
@@ -39,76 +37,6 @@ import type { Diagnostic } from "../src/diagnostics/diagnostic";
 // `installHotReload().detach`, and a `fireSessionShutdown(reason)` that invokes
 // the registered handler and awaits its returned promise. NO filesystem, NO
 // real watcher, NO live model.
-
-interface Harness {
-  readonly pi: ExtensionAPI;
-  readonly subscriptions: Map<
-    string,
-    ((event: unknown, ctx: ExtensionContext) => unknown)[]
-  >;
-  fireSessionStart(): Promise<void>;
-  fireSessionShutdown(reason: SessionShutdownEvent["reason"]): Promise<void>;
-}
-
-function makeHarness(): Harness {
-  const commands = new Map<string, unknown>();
-  const subscriptions = new Map<
-    string,
-    ((event: unknown, ctx: ExtensionContext) => unknown)[]
-  >();
-
-  const pi = {
-    registerFlag: (): void => {},
-    registerMessageRenderer: (): void => {},
-    registerCommand: (name: string, options: unknown): void => {
-      commands.set(name, options);
-    },
-    on: (
-      event: string,
-      handler: (e: unknown, c: ExtensionContext) => unknown,
-    ): void => {
-      const list = subscriptions.get(event) ?? [];
-      list.push(handler);
-      subscriptions.set(event, list);
-    },
-    getFlag: (): undefined => undefined,
-    getCommands: (): { name: string; source: string }[] =>
-      [...commands.keys()].map((name) => ({ name, source: "extension" })),
-    sendMessage: (): void => {},
-    sendUserMessage: (): void => {},
-  } as unknown as ExtensionAPI;
-
-  const ctx = {
-    cwd: "/does/not/matter",
-    hasUI: false,
-    modelRegistry: { getAvailable: (): readonly unknown[] => [] },
-    ui: { notify: (): void => {} },
-  } as unknown as ExtensionContext;
-
-  const fire = async (event: string, payload: unknown): Promise<void> => {
-    for (const handler of subscriptions.get(event) ?? []) {
-      await handler(payload, ctx);
-    }
-  };
-
-  return {
-    pi,
-    subscriptions,
-    fireSessionStart: () => fire("session_start", { type: "session_start" }),
-    fireSessionShutdown: (reason) =>
-      fire("session_shutdown", { type: "session_shutdown", reason }),
-  };
-}
-
-/** A minimal `ParsedTheta` (only `slashName` + `run` are ever read here). */
-function makeTheta(slashName: string): ParsedTheta {
-  return {
-    slashName,
-    frontmatter: { mode: "prompt" } as unknown as ParsedTheta["frontmatter"],
-    body: { statements: [] } as unknown as ParsedTheta["body"],
-    run: async (): Promise<void> => {},
-  };
-}
 
 interface Booted {
   readonly harness: Harness;

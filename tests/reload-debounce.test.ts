@@ -1,3 +1,4 @@
+import { controllableRebuild } from "./helpers/controllable-rebuild";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   ReloadDebouncer,
@@ -109,38 +110,6 @@ describe("V10d-T — reload debounce (cka-36, package-and-settings.md §Caching 
 // ---------------------------------------------------------------------------
 
 describe("V10d-T — cross-window rebuild serialization (PIC-49)", () => {
-  // A `rebuild` whose completion is caller-controlled: each call parks a
-  // resolver so the test can hold the rebuild "in flight" across a later
-  // debounce window and then release it deterministically.
-  function controllableRebuild(): {
-    rebuild: ReturnType<typeof vi.fn>;
-    settle: (outcome: RebuildOutcome) => void;
-    inFlightCount: () => number;
-  } {
-    const resolvers: Array<(o: RebuildOutcome) => void> = [];
-    let settled = 0;
-    const rebuild = vi.fn(
-      () =>
-        new Promise<RebuildOutcome>((resolve) => {
-          resolvers.push((o) => {
-            settled++;
-            resolve(o);
-          });
-        }),
-    );
-    return {
-      rebuild,
-      settle: (outcome) => {
-        const next = resolvers[settled];
-        if (next === undefined) {
-          throw new Error("no in-flight rebuild to settle");
-        }
-        next(outcome);
-      },
-      inFlightCount: () => rebuild.mock.calls.length - settled,
-    };
-  }
-
   it("PIC-49: a debounce timer firing while a prior rebuild is in flight defers rather than starting a concurrent rebuild; the guard releases on the in-flight rebuild's synchronous publish", async () => {
     const clock = new FakeClock();
     const { rebuild, settle } = controllableRebuild();
