@@ -36,7 +36,9 @@ values too;
 non-zero overrides all lenses),
 `review_cap` (max shards reviewed per lens per wave, default `"0"` =
 unlimited), `budget` (max candidates per shard, default 10), `parallel`
-(fan-out width, default 4), `push` (default true), `gate_cmd` (offline
+(fan-out width, default 4; review shards run in batches of this size with
+reviewed-state marked after each batch, so an interrupted wave loses at most
+one batch of review work), `push` (default true), `gate_cmd` (offline
 verification gate, default `npx tsc --noEmit && npm test`), `cluster_max`
 (issues per fix lane before a cluster splits into file-disjoint parts, default
 `"4"` — small on purpose: the lane is the unit of review, and a second
