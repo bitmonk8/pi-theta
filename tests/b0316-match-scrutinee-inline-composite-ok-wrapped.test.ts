@@ -1,27 +1,11 @@
 import { describe, expect, it } from "vitest";
-import type {
-  ExtensionAPI,
-  ExtensionCommandContext,
-  ModelRegistry,
-} from "@earendil-works/pi-coding-agent";
-import type { ThetaSource } from "../src/lexer/lexer";
-import type { SystemNoteChannelDeps } from "../src/extension/system-note-channel";
-import type { ModelReferenceMatcher, ParsedFrontmatter } from "../src/parser/frontmatter";
-import {
-  parseThetaDocument,
-  type ParseThetaDocumentDeps,
-  type ThetaDocument,
-} from "../src/parser/theta-document";
+import { FM, runValue as runPromptValue } from "./helpers/prompt-value-harness";
+import { parseTheta } from "./helpers/e2e-s1";
+import { SEAM_NOOP_CHECKPOINT as NOOP_CHECKPOINT } from "./helpers/invoke-seam-scaffold";
 import { executeBody, type ExecuteBodyDeps } from "../src/runtime/statement-executor";
 import type { ThetaValue } from "../src/runtime/value";
 import { makeOk } from "../src/runtime/value";
-import { createProductionProducerDeps } from "../src/extension/production-theta-producer";
-import type {
-  ConversationBindInput,
-  ThetaCompositionInput,
-} from "../src/extension/theta-composition-producer";
-import type { RuntimeRoot } from "../src/runtime-root";
-import type { Checkpoint, CheckpointSite } from "../src/seams/checkpoint";
+import type { CheckpointSite } from "../src/seams/checkpoint";
 import {
   createEffectfulStatementHost,
   type EffectfulStatementHostDeps,
@@ -99,91 +83,7 @@ import type { Expr } from "../src/parser/theta-document";
 // against HEAD; W3 / W4 / W5 / W8 and the EFFECT control are GREEN against HEAD
 // and must stay green.
 
-// ===========================================================================
-// Shared parse + production-executor harness (the b0314 pattern, verbatim in
-// shape): parseThetaDocument -> createProductionProducerDeps ->
-// bindPromptConversation -> executeBody. Offline, provider-free, deterministic.
-// ===========================================================================
-
-function parseDeps(): ParseThetaDocumentDeps {
-  const systemNote: SystemNoteChannelDeps = {
-    pi: { sendMessage: (): void => {} },
-    ui: { notify: (): void => {} },
-    emitDiagnostic: (): void => {},
-  };
-  const modelMatcher: ModelReferenceMatcher = {
-    resolve: (): "resolved" => "resolved",
-  };
-  return { systemNote, modelMatcher };
-}
-
-function parseOnly(path: string, src: string): ThetaDocument {
-  const source: ThetaSource = { path, bytes: new TextEncoder().encode(src) };
-  return parseThetaDocument(source, parseDeps());
-}
-
-/**
- * Parse a fixture and fail LOUDLY on any error-severity diagnostic. Every row
- * is parse-clean at HEAD by the bug's §Reproduction (diagnostics `[]`), so a
- * rejection here is a harness precondition breach, never a silent skip.
- */
-function parseTheta(path: string, src: string): ThetaDocument {
-  const doc = parseOnly(path, src);
-  const errors = doc.diagnostics.filter((d) => d.severity === "error");
-  if (errors.length > 0) {
-    throw new Error(
-      `fixture ${path} failed to parse: ${errors.map((d) => `${d.code}: ${d.message}`).join("; ")}`,
-    );
-  }
-  return doc;
-}
-
-const NOOP_CHECKPOINT: Checkpoint = {
-  before(): Promise<void> {
-    return Promise.resolve();
-  },
-};
-
-function rootDouble(): RuntimeRoot {
-  return {
-    checkpoint: NOOP_CHECKPOINT,
-    idSource: { newInvocationId: () => "inv-1", newToolCallId: () => "tc-1" },
-  } as unknown as RuntimeRoot;
-}
-
-function producer() {
-  return createProductionProducerDeps({
-    pi: {
-      sendMessage: () => {},
-      getActiveTools: () => [],
-      setActiveTools: () => {},
-    } as unknown as ExtensionAPI,
-    root: rootDouble(),
-    modelRegistry: {} as unknown as ModelRegistry,
-  });
-}
-
-const FM = "---\nmode: prompt\n---\n";
-
-/** Parse + run a self-contained query-free prompt-mode body and return its final value. */
-async function runValue(src: string): Promise<ThetaValue | undefined> {
-  const doc = parseTheta("b0316.theta", FM + src);
-  const theta: ThetaCompositionInput = {
-    slashName: "b0316",
-    sourcePath: "/proj/b0316.theta",
-    frontmatter: doc.frontmatter as ParsedFrontmatter,
-    body: doc.body,
-  };
-  const bindInput: ConversationBindInput = {
-    theta,
-    args: "",
-    ctx: {} as unknown as ExtensionCommandContext,
-  };
-  const binding = producer().bindPromptConversation(bindInput);
-  const execution = await executeBody(theta.body, binding.executeDeps);
-  expect(execution.outcome, "the body must succeed").toBe("success");
-  return execution.result.value;
-}
+const runValue = (src: string) => runPromptValue(src, "b0316");
 
 // ===========================================================================
 // W1 — WITNESS. `match [1, 2] { [a, b] => a, _ => -1 }` dispatches over the raw

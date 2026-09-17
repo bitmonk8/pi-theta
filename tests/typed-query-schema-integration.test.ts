@@ -31,12 +31,14 @@
 
 import { describe, expect, it } from "vitest";
 import {
+  NOOP_CHECKPOINT,
+  liveSignal,
+  forcedRespondConfig,
+  RespondingModel,
+} from "./helpers/typed-query-harness";
+import {
   runTypedQueryLoop,
-  type ForcedRespondTurn,
-  type FreePhaseTurn,
-  type QueryModelDriver,
   type QueryToolLoopConfig,
-  type ToolCallRequest,
   type TypedQuerySchemaValidation,
   type TypedQueryValidationResult,
 } from "../src/runtime/query-tool-loop";
@@ -59,7 +61,7 @@ import {
   buildEnvironment,
   type LexicalEnvironment,
 } from "../src/runtime/lexical-environment";
-import type { Checkpoint, CheckpointSite } from "../src/seams/checkpoint";
+import type { CheckpointSite } from "../src/seams/checkpoint";
 import {
   createEffectfulStatementHost,
   type EffectfulStatementHostDeps,
@@ -85,42 +87,12 @@ function span(): SourceRange {
 const QUERY_SITE: CheckpointSite = { file: "report.theta", line: 3, column: 5 };
 
 function config(): QueryToolLoopConfig {
-  // A typed query dispatches only the forced-respond terminator (no free-phase
-  // provider call), so `max_rounds: 0` fires the `max_rounds`-final branch at
-  // typed-query start and the forced respond turn is the only turn.
-  return {
-    maxRounds: 0,
+  return forcedRespondConfig({
     querySite: QUERY_SITE,
     thetaSlashName: "/report",
     invocationId: "00000000-0000-4000-8000-000000000000",
     occurredAt: 1_700_000_000_000,
-  };
-}
-
-function liveSignal(): AbortSignal {
-  return new AbortController().signal;
-}
-
-const NOOP_CHECKPOINT: Checkpoint = {
-  before(): Promise<void> {
-    return Promise.resolve();
-  },
-};
-
-/** A scripted `QueryModelDriver` whose forced respond turn carries `payload`. */
-class RespondingModel implements QueryModelDriver {
-  constructor(private readonly payload: unknown) {}
-  nextFreePhaseTurn(): Promise<FreePhaseTurn> {
-    // A `max_rounds: 0` typed query never reads a free-phase turn; fail loudly
-    // rather than hang if a broken loop ever reaches here.
-    throw new Error("no free-phase turn on a max_rounds:0 typed query");
-  }
-  runToolBatch(_batch: readonly ToolCallRequest[]): Promise<readonly never[]> {
-    throw new Error("no tool batch on a max_rounds:0 typed query");
-  }
-  forcedRespondTurn(): Promise<ForcedRespondTurn> {
-    return Promise.resolve({ kind: "respond", payload: this.payload });
-  }
+  });
 }
 
 // The lowered response schema `V5d` produces for the declared shape

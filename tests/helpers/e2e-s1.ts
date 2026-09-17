@@ -48,6 +48,22 @@ export function parseDoc(src: string, path = "test.theta"): ThetaDocument {
   return parseThetaDocument(source, parseDeps());
 }
 
+/**
+ * Parse a fixture and fail LOUDLY on any error-severity diagnostic. The caller's
+ * fixture must be parse-clean; rejection is a harness precondition breach,
+ * never a silent skip.
+ */
+export function parseTheta(path: string, src: string): ThetaDocument {
+  const doc = parseDoc(src, path);
+  const errors = doc.diagnostics.filter((d) => d.severity === "error");
+  if (errors.length > 0) {
+    throw new Error(
+      `fixture ${path} failed to parse: ${errors.map((d) => `${d.code}: ${d.message}`).join("; ")}`,
+    );
+  }
+  return doc;
+}
+
 /** Parse a source given as raw bytes (for encoding-intake tests). */
 export function parseDocBytes(bytes: Uint8Array, path = "test.theta"): ThetaDocument {
   return parseThetaDocument({ path, bytes }, parseDeps());

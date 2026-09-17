@@ -26,78 +26,31 @@
 
 import { describe, expect, it } from "vitest";
 import {
+  NOOP_CHECKPOINT,
+  liveSignal,
+  forcedRespondConfig,
+  RespondingModel,
+  schemaDeclsOf,
+  ajv,
+} from "./helpers/typed-query-harness";
+import {
   runTypedQueryLoop,
-  type ForcedRespondTurn,
-  type FreePhaseTurn,
-  type QueryModelDriver,
   type QueryToolLoopConfig,
   type TypedQuerySchemaValidation,
 } from "../src/runtime/query-tool-loop";
 import { buildTypedQueryValidation } from "../src/runtime/typed-query-validation";
 import { lowerQueryResponseSchema } from "../src/runtime/query-schema-lowering";
-import {
-  AjvSchemaValidator,
-  type LoweredSchema,
-  type SchemaSlug,
-} from "../src/seams/schema-validator";
-import {
-  parseThetaDocument,
-  type ParseThetaDocumentDeps,
-  type SchemaDecl,
-} from "../src/parser/theta-document";
-import type { ThetaSource } from "../src/lexer/lexer";
-import type { Checkpoint } from "../src/seams/checkpoint";
+import type { LoweredSchema } from "../src/seams/schema-validator";
 
 // --- Substrate -------------------------------------------------------------
 
-const NOOP_CHECKPOINT: Checkpoint = {
-  before(): Promise<void> {
-    return Promise.resolve();
-  },
-};
-
-function liveSignal(): AbortSignal {
-  return new AbortController().signal;
-}
-
 function config(): QueryToolLoopConfig {
-  // A typed query dispatches only the forced-respond terminator (max_rounds: 0).
-  return {
-    maxRounds: 0,
+  return forcedRespondConfig({
     querySite: { file: "triage.theta", line: 1, column: 1 },
     thetaSlashName: "/triage",
     invocationId: "inv-1",
     occurredAt: 0,
-  };
-}
-
-/** A scripted model whose forced-respond turn carries `payload`. */
-class RespondingModel implements QueryModelDriver {
-  constructor(private readonly payload: unknown) {}
-  nextFreePhaseTurn(): Promise<FreePhaseTurn> {
-    throw new Error("no free-phase turn on a max_rounds:0 typed query");
-  }
-  runToolBatch(): Promise<readonly never[]> {
-    throw new Error("no tool batch on a max_rounds:0 typed query");
-  }
-  forcedRespondTurn(): Promise<ForcedRespondTurn> {
-    return Promise.resolve({ kind: "respond", payload: this.payload });
-  }
-}
-
-/** Parse a `.theta` source and return its body's `schema` declarations. */
-function schemaDeclsOf(src: string): readonly SchemaDecl[] {
-  const deps = {
-    systemNote: {
-      pi: { sendMessage: () => Promise.resolve() },
-      ui: { notify: () => {} },
-      emitDiagnostic: () => {},
-    },
-    modelMatcher: { resolve: () => "resolved" as const },
-  } as unknown as ParseThetaDocumentDeps;
-  const source: ThetaSource = { path: "triage.theta", bytes: new TextEncoder().encode(src) };
-  const doc = parseThetaDocument(source, deps);
-  return doc.body.statements.filter((s): s is SchemaDecl => s.kind === "schema");
+  });
 }
 
 /** The shipped-shape triage schema (mirrors docs/examples/handle-error.theta). */
@@ -108,14 +61,6 @@ const TRIAGE_SOURCE = [
   "}",
 ].join("\n");
 
-function ajv(): AjvSchemaValidator {
-  const slugOf = (schema: LoweredSchema): SchemaSlug => ({
-    slug: "triage",
-    canonicalBytes: JSON.stringify(schema),
-  });
-  return new AjvSchemaValidator({ emit: () => {}, slugOf });
-}
-
 /**
  * Build the production `TypedQuerySchemaValidation` for `@<Triage>` exactly as
  * the fixed producer composes it, over a scripted respond-repair follow-up.
@@ -123,7 +68,7 @@ function ajv(): AjvSchemaValidator {
 function buildTriageValidation(
   followUps: readonly string[],
 ): { readonly validation: TypedQuerySchemaValidation; readonly lowered: LoweredSchema; followUpCalls: number } {
-  const schemas = schemaDeclsOf(TRIAGE_SOURCE);
+  const schemas = schemaDeclsOf(TRIAGE_SOURCE, "triage.theta");
   const lowered = lowerQueryResponseSchema("Triage", schemas);
   if (lowered === undefined) {
     throw new Error("Triage schema failed to lower — parser did not retain the schema body");
@@ -131,7 +76,7 @@ function buildTriageValidation(
   const state = { followUpCalls: 0 };
   const validation = buildTypedQueryValidation({
     lowered,
-    schemaValidator: ajv(),
+    schemaValidator: ajv("triage"),
     attempts: followUps.length,
     maxRounds: 0,
     driveFollowUp: () => {
@@ -239,7 +184,7 @@ describe("V13e (Defect B) — production typed-query schema validation (QRY-22)"
   });
 
   it("the lowered Triage schema is the declared shape (conveyed to the model), not the bare type name", () => {
-    const lowered = lowerQueryResponseSchema("Triage", schemaDeclsOf(TRIAGE_SOURCE));
+    const lowered = lowerQueryResponseSchema("Triage", schemaDeclsOf(TRIAGE_SOURCE, "triage.theta"));
     expect(lowered, "QRY-22: parser retains the schema body so it lowers").toBeDefined();
     expect(lowered).toMatchObject({
       type: "object",
