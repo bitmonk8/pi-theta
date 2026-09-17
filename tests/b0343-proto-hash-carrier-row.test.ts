@@ -37,37 +37,30 @@
 // fails the surrounding assertion loudly with a message naming it; there is no
 // early return or skip.
 
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type {
-  ExtensionAPI,
-  ExtensionCommandContext,
-  ModelRegistry,
-} from "@earendil-works/pi-coding-agent";
 import {
   hashCallableClosure,
   SUBAGENT_CALLABLE_HASHES_ENV,
 } from "../src/runtime/subagent-callable-hash";
 import { SUBAGENT_PARENT_PID_ENV } from "../src/runtime/subagent-launcher";
 import { SUBAGENT_ROOT_ENV_MARKER } from "../src/runtime/subagent-root-regime";
-import {
-  fakeExecutableHost,
-  makeFakeJsonChildLauncher,
-} from "./helpers/fake-json-child";
-import { createProductionProducerDeps } from "../src/extension/production-theta-producer";
 import { defineRecordField } from "../src/runtime/value";
-import type {
-  ConversationBindInput,
-  ThetaCompositionInput,
-} from "../src/extension/theta-composition-producer";
-import type { RuntimeRoot } from "../src/runtime-root";
-import type { ThetaBody } from "../src/parser/theta-document";
+import type { ThetaCompositionInput } from "../src/extension/theta-composition-producer";
 import type { CallableSetSnapshot } from "../src/parser/callable-set";
 import type { ParsedFrontmatter } from "../src/parser/frontmatter";
 import { createEnvSandbox } from "./helpers/ambient-control-plane-scrub";
 import { runProductionLoad } from "./helpers/production-load-harness";
+import {
+  carrierRaw,
+  makeParentDeps,
+  marshalledHashes,
+  parentBindInput,
+  queryBody,
+} from "./helpers/parent-producer-harness";
+import { finishWorkspace, type ComposeWorkspace } from "./helpers/compose-workspace-harness";
 
 /** The exact on-disk content a closure hash is computed over (UTF-8, no BOM). */
 function readText(path: string): string {
@@ -76,6 +69,7 @@ function readText(path: string): string {
 
 let workspaceDir: string;
 let thetaDir: string;
+let composeWorkspace: ComposeWorkspace;
 
 beforeEach(() => {
   workspaceDir = mkdtempSync(join(tmpdir(), "b0343-"));
@@ -84,84 +78,12 @@ beforeEach(() => {
   // A minimal valid settings file pins the settings read for hermeticity (an
   // ABSENT file is silent per package-and-settings.md §Failure modes), matching
   // the b0328 and e2e harnesses.
-  writeFileSync(join(workspaceDir, ".pi", "settings.json"), "{}", "utf8");
+  composeWorkspace = finishWorkspace(workspaceDir);
 });
 
 afterEach(() => {
-  rmSync(workspaceDir, { recursive: true, force: true });
+  composeWorkspace.dispose();
 });
-
-// ── Parent-producer harness (mirrors b0328 cell 2: real
-//    spawnSubagentConversation over a fake JSON child launcher) ──
-
-function rootDouble(): RuntimeRoot {
-  return {
-    checkpoint: { before: () => Promise.resolve() },
-    idSource: { newInvocationId: () => "inv-1", newToolCallId: () => "tc-1" },
-    clock: {
-      wallNow: () => 0,
-      setTimeout: (fn: () => void, ms: number) => setTimeout(fn, ms),
-      clearTimeout: (handle: unknown) => clearTimeout(handle as ReturnType<typeof setTimeout>),
-    },
-  } as unknown as RuntimeRoot;
-}
-
-function noopPi(): ExtensionAPI {
-  return { sendMessage: (): void => {} } as unknown as ExtensionAPI;
-}
-
-function queryBody(): ThetaBody {
-  return {
-    statements: [],
-    tail: {
-      kind: "query",
-      schema: null,
-      template: "do the thing",
-      range: { start: { line: 1, column: 1 }, end: { line: 1, column: 12 } },
-    },
-  } as unknown as ThetaBody;
-}
-
-function makeParentDeps(): {
-  readonly deps: ReturnType<typeof createProductionProducerDeps>;
-  readonly launcher: ReturnType<typeof makeFakeJsonChildLauncher>;
-} {
-  const launcher = makeFakeJsonChildLauncher();
-  const deps = createProductionProducerDeps({
-    pi: noopPi(),
-    root: rootDouble(),
-    modelRegistry: {
-      getApiKeyAndHeaders: () => Promise.resolve({ ok: false }),
-    } as unknown as ModelRegistry,
-    // Bug 0293: the seam returns the `CalleeParseOutcome` verdict, not a bare
-    // `ThetaCompositionInput`.
-    parseCallee: (_caller: string | undefined, _calleePath: string) =>
-      Promise.resolve({ kind: "ok" as const, input: {} as unknown as ThetaCompositionInput }),
-    subagentSpawn: launcher.spawn,
-    subagentExecutableHost: fakeExecutableHost(),
-    subagentParentEnv: {},
-    subagentParentPid: 4242,
-  });
-  return { deps, launcher };
-}
-
-function parentBindInput(theta: ThetaCompositionInput): ConversationBindInput {
-  const ctx = {
-    model: { id: "claude-test", provider: "anthropic" },
-    cwd: "/tmp",
-    signal: undefined,
-  } as unknown as ExtensionCommandContext;
-  return { theta, args: "", ctx, thetaAbort: new AbortController() };
-}
-
-function carrierRaw(env: Record<string, string | undefined>): string | undefined {
-  return env[SUBAGENT_CALLABLE_HASHES_ENV];
-}
-
-function marshalledHashes(env: Record<string, string | undefined>): Record<string, string> {
-  const raw = carrierRaw(env);
-  return raw === undefined ? {} : (JSON.parse(raw) as Record<string, string>);
-}
 
 // =============================================================================
 // Cell A — ROOT path: a root whose derived name is `__proto__` marshals its row.

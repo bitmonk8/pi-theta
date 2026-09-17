@@ -2,7 +2,6 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
-  rmSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -20,6 +19,7 @@ import { SUBAGENT_PARENT_PID_ENV } from "../src/runtime/subagent-launcher";
 import { SUBAGENT_ROOT_ENV_MARKER } from "../src/runtime/subagent-root-regime";
 import { createEnvSandbox } from "./helpers/ambient-control-plane-scrub";
 import { finishWorkspace, makeHost, type ComposeWorkspace } from "./helpers/compose-workspace-harness";
+import { filesystemIsCaseInsensitive } from "./helpers/case-insensitive-host-probe";
 
 // Bug 0329 — a child-side callable-hash mismatch DETECTS but does not ENFORCE.
 // subagent.md #subagent-theta-callable-hash: the child "verifies each hash after
@@ -338,30 +338,6 @@ describe("bug 0329 (C) — a matching closure hash admits the root and callee (c
 //         callee-absent arm is GREEN pre-fix (the exact compare already locates
 //         it), so that half of this cell is green-after-only there.
 // =============================================================================
-
-/**
- * Whether the workspace filesystem is case-insensitive: write a lowercase file,
- * attempt the uppercase read. A successful read ⇒ case-insensitive. Only ENOENT
- * is the case-sensitive signal; any other error is a real fault and rethrows
- * (no swallow — CLAUDE.md/AGENTS.md "let crash"). The probe file lives in the
- * per-test tmp workspace and is removed with it.
- */
-function filesystemIsCaseInsensitive(dir: string): boolean {
-  const lower = join(dir, "b0329-case-probe-aa");
-  writeFileSync(lower, "x", "utf8");
-  try {
-    readFileSync(join(dir, "b0329-case-probe-AA"), "utf8");
-    return true;
-  } catch (probeError: unknown) {
-    const code = (probeError as NodeJS.ErrnoException).code;
-    if (code !== "ENOENT") {
-      throw probeError;
-    }
-    return false;
-  } finally {
-    rmSync(lower, { force: true });
-  }
-}
 
 describe("bug 0329 (D) — a stale hash drops the marked root and its referenced callee (probed on both filesystem branches)", () => {
   it("drops the root and the callee on the branch this filesystem exercises (both branches assert loudly)", async () => {

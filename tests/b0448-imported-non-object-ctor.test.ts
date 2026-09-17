@@ -6,9 +6,9 @@ import { checkThetaImports } from "../src/extension/import-static-checks";
 import type { ThetaCompositionInput } from "../src/extension/theta-composition-producer";
 import type { ParsedFrontmatter } from "../src/parser/frontmatter";
 import type { ThetaDocument } from "../src/parser/theta-document";
-import type { FileSystem } from "../src/seams/file-system";
 import { parseDeps, parseDoc } from "./helpers/e2e-s1";
 import { REGISTRY } from "./helpers/registry-oracle";
+import { fakeThetaLibFs } from "./helpers/thetalib-load-harness";
 
 // Bug 0448 — a constructor naming an imported NON-OBJECT declaration is judged
 // at no phase and mints a value at runtime. The same-file spelling of each is
@@ -130,50 +130,6 @@ const OBJECT_DECL = "schema Author { name: string }";
  * guard.
  */
 const DUALKIND_DECL = "schema X { a: string }\nenum X { A }";
-
-// ===========================================================================
-// The in-memory `.thetalib` filesystem double. Only `readdir` / `readBytes` are
-// exercised by `checkThetaImports`; every other member REJECTS, so an
-// unexpected call reds instead of silently returning a stand-in value.
-// ===========================================================================
-
-function fakeThetaLibFs(files: Record<string, string>): FileSystem {
-  const dirs = new Map<string, string[]>();
-  for (const path of Object.keys(files)) {
-    const slash = path.lastIndexOf("/");
-    const parent = path.slice(0, slash);
-    const entries = dirs.get(parent) ?? [];
-    entries.push(path.slice(slash + 1));
-    dirs.set(parent, entries);
-  }
-  const reject = (): Promise<never> =>
-    Promise.reject(new Error("filesystem member not exercised by this test"));
-  return {
-    readText: reject,
-    writeText: reject,
-    exists: reject,
-    homedir: (): string => "/home",
-    cwd: (): string => "/proj",
-    configDirName: (): string => ".pi",
-    globalAgentDir: (): string => "/home/.pi/agent",
-    lstat: reject,
-    realpath: reject,
-    readdir: (path: string): Promise<readonly string[]> => {
-      const entries = dirs.get(path);
-      return entries === undefined
-        ? Promise.reject(new Error(`ENOENT: ${path}`))
-        : Promise.resolve(entries);
-    },
-    readBytes: (path: string): Promise<Uint8Array> => {
-      const content = Object.prototype.hasOwnProperty.call(files, path)
-        ? files[path]
-        : undefined;
-      return content === undefined
-        ? Promise.reject(new Error(`ENOENT: ${path}`))
-        : Promise.resolve(new TextEncoder().encode(content));
-    },
-  } as FileSystem;
-}
 
 interface ComposeResult {
   readonly diagnostics: readonly Diagnostic[];

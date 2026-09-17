@@ -36,6 +36,11 @@
 // caller-supplied `sourcePath` and `FileSystem`; `bindImportedBody` is now the
 // `fakeThetaLibFs`-at-`/proj/app.theta` specialisation of it (PTQ-0347).
 //
+// tests/b0448-imported-non-object-ctor.test.ts and
+// tests/b0450-imported-enum-system-param.test.ts each independently redeclared
+// just the `fakeThetaLibFs` double itself (PTQ-0393); both now import the
+// export below instead.
+//
 // TIER: unit, offline, deterministic, provider-free — the same tier as every
 // file that imports this module.
 

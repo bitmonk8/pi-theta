@@ -1,5 +1,4 @@
-// A runtime host-case-sensitivity probe for the b0361/b0362 case-variant
-// bug-witness files (PTQ-0269).
+// Runtime host-case-sensitivity probes for bug-witness test files.
 //
 // WHY THIS FILE EXISTS. tests/b0361-case-variant-import-dir-identity.test.ts
 // and tests/b0362-case-variant-invoke-cycle-edge.test.ts each independently
@@ -9,13 +8,20 @@
 // bug's fixture layout happens to probe. This module centralises that shared
 // control flow, parameterised on the probe directory and entry; each file's
 // own fixture layout (and any extra file it plants before probing) stays
-// local.
+// local (PTQ-0269).
+//
+// `filesystemIsCaseInsensitive` (PTQ-0387) centralises a second,
+// differently-shaped probe tests/b0329-hash-mismatch-refuses-invocation.test.ts
+// declared: synchronous and self-contained, driven by writing a lowercase
+// throwaway file and attempting the uppercase read, rather than `readdir`ing
+// an already-populated directory/entry pair — not a drop-in for
+// `detectCaseInsensitiveHost` above.
 //
 // TIER: unit, offline, deterministic, provider-free — the same tier as every
-// file that imports this module. `detectCaseInsensitiveHost` reads the real
-// filesystem (`fsp.readdir`); it is not a fake or double.
+// file that imports this module. Both probes read the real filesystem; neither
+// is a fake or double.
 
-import { promises as fsp } from "node:fs";
+import { promises as fsp, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 /**
@@ -41,4 +47,28 @@ export async function detectCaseInsensitiveHost(
       throw error;
     },
   );
+}
+
+/**
+ * Whether `dir`'s filesystem is case-insensitive: write a lowercase file,
+ * attempt the uppercase read. A successful read ⇒ case-insensitive. Only ENOENT
+ * is the case-sensitive signal; any other error is a real fault and rethrows
+ * (no swallow — CLAUDE.md/AGENTS.md "let crash"). The probe file lives in
+ * `dir` and is removed before this returns.
+ */
+export function filesystemIsCaseInsensitive(dir: string): boolean {
+  const lower = join(dir, "b0329-case-probe-aa");
+  writeFileSync(lower, "x", "utf8");
+  try {
+    readFileSync(join(dir, "b0329-case-probe-AA"), "utf8");
+    return true;
+  } catch (probeError: unknown) {
+    const code = (probeError as NodeJS.ErrnoException).code;
+    if (code !== "ENOENT") {
+      throw probeError;
+    }
+    return false;
+  } finally {
+    rmSync(lower, { force: true });
+  }
 }

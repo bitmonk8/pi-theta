@@ -49,11 +49,6 @@ import { mkdtempSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, dirname, resolve as resolvePath } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type {
-  ExtensionAPI,
-  ExtensionCommandContext,
-  ModelRegistry,
-} from "@earendil-works/pi-coding-agent";
 import type { ThetaFixture } from "../src/extension/factory";
 import {
   hashCallableClosure,
@@ -61,22 +56,19 @@ import {
 } from "../src/runtime/subagent-callable-hash";
 import { SUBAGENT_PARENT_PID_ENV } from "../src/runtime/subagent-launcher";
 import { SUBAGENT_ROOT_ENV_MARKER } from "../src/runtime/subagent-root-regime";
-import {
-  fakeExecutableHost,
-  makeFakeJsonChildLauncher,
-} from "./helpers/fake-json-child";
-import { createProductionProducerDeps } from "../src/extension/production-theta-producer";
-import type {
-  ConversationBindInput,
-  ThetaCompositionInput,
-} from "../src/extension/theta-composition-producer";
-import type { RuntimeRoot } from "../src/runtime-root";
-import type { ThetaBody } from "../src/parser/theta-document";
+import type { ThetaCompositionInput } from "../src/extension/theta-composition-producer";
 import type { CallableSetSnapshot } from "../src/parser/callable-set";
 import type { ParsedFrontmatter } from "../src/parser/frontmatter";
 import { createEnvSandbox } from "./helpers/ambient-control-plane-scrub";
 import { runProductionLoad } from "./helpers/production-load-harness";
 import { finishWorkspace, type ComposeWorkspace } from "./helpers/compose-workspace-harness";
+import {
+  carrierRaw,
+  makeParentDeps,
+  marshalledHashes,
+  parentBindInput,
+  queryBody,
+} from "./helpers/parent-producer-harness";
 
 /**
  * The shape the fix stamps onto `ParsedTheta` / the composition input. Read via
@@ -204,79 +196,6 @@ describe("bug 0328 (1) — LOAD records the root callee's own transitive-closure
 // Mirrors the (B) harness in tests/subagent-model-theta-tool.test.ts (real
 // spawnSubagentConversation over a fake JSON child launcher).
 // =============================================================================
-
-function rootDouble(): RuntimeRoot {
-  return {
-    checkpoint: { before: () => Promise.resolve() },
-    idSource: { newInvocationId: () => "inv-1", newToolCallId: () => "tc-1" },
-    // The model pre-flight + child teardown measure on the injected Clock; wire
-    // the ambient timers so the seams resolve.
-    clock: {
-      wallNow: () => 0,
-      setTimeout: (fn: () => void, ms: number) => setTimeout(fn, ms),
-      clearTimeout: (handle: unknown) => clearTimeout(handle as ReturnType<typeof setTimeout>),
-    },
-  } as unknown as RuntimeRoot;
-}
-
-function noopPi(): ExtensionAPI {
-  return { sendMessage: (): void => {} } as unknown as ExtensionAPI;
-}
-
-function queryBody(): ThetaBody {
-  return {
-    statements: [],
-    tail: {
-      kind: "query",
-      schema: null,
-      template: "do the thing",
-      range: { start: { line: 1, column: 1 }, end: { line: 1, column: 12 } },
-    },
-  } as unknown as ThetaBody;
-}
-
-function makeParentDeps(): {
-  readonly deps: ReturnType<typeof createProductionProducerDeps>;
-  readonly launcher: ReturnType<typeof makeFakeJsonChildLauncher>;
-} {
-  const launcher = makeFakeJsonChildLauncher();
-  const deps = createProductionProducerDeps({
-    pi: noopPi(),
-    root: rootDouble(),
-    modelRegistry: {
-      getApiKeyAndHeaders: () => Promise.resolve({ ok: false }),
-    } as unknown as ModelRegistry,
-    // A `.theta` callable entry resolves its callee via parseCallee; the tests
-    // below use only the frozen entry's `closureHash`, so a stub callee suffices.
-    // Bug 0293: the seam returns the `CalleeParseOutcome` verdict, not a bare
-    // `ThetaCompositionInput`.
-    parseCallee: (_caller: string | undefined, _calleePath: string) =>
-      Promise.resolve({ kind: "ok" as const, input: {} as unknown as ThetaCompositionInput }),
-    subagentSpawn: launcher.spawn,
-    subagentExecutableHost: fakeExecutableHost(),
-    subagentParentEnv: {},
-    subagentParentPid: 4242,
-  });
-  return { deps, launcher };
-}
-
-function parentBindInput(theta: ThetaCompositionInput): ConversationBindInput {
-  const ctx = {
-    model: { id: "claude-test", provider: "anthropic" },
-    cwd: "/tmp",
-    signal: undefined,
-  } as unknown as ExtensionCommandContext;
-  return { theta, args: "", ctx, thetaAbort: new AbortController() };
-}
-
-function carrierRaw(env: Record<string, string | undefined>): string | undefined {
-  return env[SUBAGENT_CALLABLE_HASHES_ENV];
-}
-
-function marshalledHashes(env: Record<string, string | undefined>): Record<string, string> {
-  const raw = carrierRaw(env);
-  return raw === undefined ? {} : (JSON.parse(raw) as Record<string, string>);
-}
 
 describe("bug 0328 (2) — the producer marshals rootClosureHash into PI_THETA_SUBAGENT_CALLABLE_HASHES", () => {
   afterEach(() => {
