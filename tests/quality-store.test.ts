@@ -857,6 +857,60 @@ describe("tools/quality/store.mjs (scratch fixture store via QUALITY_STORE_ROOT)
     expect(runStore(root, ["reset-review", "--lens", "D9"]).status).toBe(1);
   });
 
+  it("cell 27: context_tokens caps the effective shard size at floor(tokens/3/12) LOC — binding both the surfaces.json default and an explicit --target-loc; absent = uncapped", () => {
+    // Wave qw20260917095931: a 4985-LOC D4 shard overflowed the pinned
+    // model's 128k window mid-turn. Fixture surface: x(100) + one(400) +
+    // two(400) LOC, path-contiguous in that order.
+    // CONTROL (no context_tokens): shard_loc 3000 packs all three into ONE.
+    const surfaces = JSON.parse(readFile(root, "quality/surfaces.json"));
+    surfaces.D7.shard_loc = 3000;
+    writeFile(root, "quality/surfaces.json", JSON.stringify(surfaces, null, 2) + "\n");
+    const uncapped = runStore(root, ["shard", "--lens", "D7", "--wave", "w27a"]).stdout
+      .trim()
+      .split("\n")
+      .filter(Boolean);
+    expect(uncapped, "absent context_tokens leaves shard_loc uncapped").toHaveLength(1);
+    // 20000 tokens → cap floor(20000/36) = 555 LOC: [x+one]=500 fits, +two
+    // overflows → 2 shards, though shard_loc says 3000.
+    surfaces.D7.context_tokens = 20000;
+    writeFile(root, "quality/surfaces.json", JSON.stringify(surfaces, null, 2) + "\n");
+    const manifests = runStore(root, ["shard", "--lens", "D7", "--wave", "w27"]).stdout
+      .trim()
+      .split("\n")
+      .filter(Boolean);
+    expect(manifests, "the cap binds the surfaces.json shard_loc default").toHaveLength(2);
+    // An explicit --target-loc above the cap is capped too (a shard the model
+    // cannot hold is a failed shard whatever the caller asked for).
+    const explicit = runStore(root, ["shard", "--lens", "D7", "--wave", "w27b", "--target-loc", "5000"]).stdout
+      .trim()
+      .split("\n")
+      .filter(Boolean);
+    expect(explicit, "the cap binds an explicit --target-loc").toHaveLength(2);
+    // A cap below the 500-LOC floor dies loud instead of sharding uselessly.
+    surfaces.D7.context_tokens = 10000; // floor(10000/36) = 277 < 500
+    writeFile(root, "quality/surfaces.json", JSON.stringify(surfaces, null, 2) + "\n");
+    const tooSmall = runStore(root, ["shard", "--lens", "D7", "--wave", "w27c"]);
+    expect(tooSmall.status).toBe(1);
+    expect(tooSmall.stderr).toContain("below the 500-LOC floor");
+  });
+
+  it("cell 28: note appends one dated line under ## Triage — no frontmatter change, no TRIAGE_LOG row; a missing finding or heading dies loud", () => {
+    const rel = writeIntake(root, "w28-cand.md", { lens: "D7" });
+    const before = readFile(root, rel);
+    const r = runStore(root, ["note", "--finding", rel, "--text", "triage worker failed (verdict not applied; re-triaged next wave)"]);
+    expect(r.status, r.stderr).toBe(0);
+    expect(r.stdout).toBe(`noted\t${rel}\n`);
+    const after = readFile(root, rel);
+    expect(after.startsWith(before.trimEnd())).toBe(true);
+    expect(after).toMatch(/triage worker failed \(verdict not applied; re-triaged next wave\) \(loop, \d{4}-\d{2}-\d{2}\)\n$/);
+    // Not a ruling: frontmatter untouched, no TRIAGE_LOG.
+    expect(after).toContain("verdict: pending");
+    expect(existsSync(join(root, "quality/TRIAGE_LOG.md"))).toBe(false);
+    expect(runStore(root, ["note", "--finding", "quality/intake/nope.md", "--text", "x"]).status).toBe(1);
+    writeFile(root, "quality/intake/headless.md", "---\nid: pending\n---\nno heading\n");
+    expect(runStore(root, ["note", "--finding", "quality/intake/headless.md", "--text", "x"]).status).toBe(1);
+  });
+
   it("cell 12: default ROOT (env absent) resolves to the real repo and lists D2 + D7", () => {
     // Scrub any ambient override so the fallback itself is what runs.
     const env = { ...process.env };

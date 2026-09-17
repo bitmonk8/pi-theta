@@ -163,6 +163,7 @@ let mut report = ""
 let mut total_filed = 0
 let mut total_confirmed = 0
 let mut total_questionable = 0
+let mut total_triage_failures = 0
 let mut total_clusters_fixed = 0
 let mut total_clusters_reverted = 0
 let mut total_picked = 0
@@ -261,20 +262,35 @@ while cycle < max_cycles && !converged {
     }
     let mut j = 0
     while j < cands.length {
-      let v = match verdicts[j] {
-        Ok(t) => t,
-        Err(e) => TriageVerdict { verdict: "questionable", reason: "triage worker failed: " + e.kind },
+      // A failed triage INVOKE is not a verdict (bug 0481 hid 20 of them as
+      // "questionable" with the reason discarded): report the leaf error
+      // verbatim, mark the candidate itself (store note - durable beside the
+      // finding), count it separately, and leave the file in intake for the
+      // next wave's re-triage.
+      let failure = match verdicts[j] {
+        Ok(t) => "",
+        Err(e) => e.kind == "transport" ? "transport - " + e.message : e.kind,
       }
-      if v.verdict == "confirmed" {
-        let _ = bash({ command: "node tools/quality/store.mjs accept --finding " + cands[j] })?
-        total_confirmed += 1
-      } else if v.verdict == "questionable" {
-        // Stays in intake/ as the owner queue; re-triaged next cycle. Never a
-        // convergence signal - a questionable is a human's call, not the
-        // loop's work item.
-        total_questionable += 1
+      if failure != "" {
+        report = report + "wave " + wave + ": triage worker FAILED on " + cands[j] + ": " + failure + "\n"
+        let _ = bash({ command: "node tools/quality/store.mjs note --finding " + cands[j] + " --text \"triage worker failed (verdict not applied; re-triaged next wave)\"" })?
+        total_triage_failures += 1
       } else {
-        let _ = bash({ command: "node tools/quality/store.mjs reject --finding " + cands[j] + " --verdict " + v.verdict })?
+        let v = match verdicts[j] {
+          Ok(t) => t,
+          Err(e) => TriageVerdict { verdict: "questionable", reason: "unreachable: failure handled above" },
+        }
+        if v.verdict == "confirmed" {
+          let _ = bash({ command: "node tools/quality/store.mjs accept --finding " + cands[j] })?
+          total_confirmed += 1
+        } else if v.verdict == "questionable" {
+          // Stays in intake/ as the owner queue; re-triaged next cycle. Never a
+          // convergence signal - a questionable is a human's call, not the
+          // loop's work item.
+          total_questionable += 1
+        } else {
+          let _ = bash({ command: "node tools/quality/store.mjs reject --finding " + cands[j] + " --verdict " + v.verdict })?
+        }
       }
       j += 1
     }
@@ -515,6 +531,7 @@ let open_left = bash({ command: "node tools/quality/store.mjs open-count" })?.tr
 @`Report the quality-loop outcome to the user, concisely:
 - cycles run: ${cycle} of ${max_cycles}; loop-stop condition met (open backlog empty after triage, BEFORE the fix phase — the fix phase may have drained it since; the truth is the open-issues line below): ${converged}
 - candidates filed: ${total_filed}, confirmed: ${total_confirmed}, questionable verdicts issued (cumulative; live queue is the intake count below): ${total_questionable}
+- triage worker FAILURES (no verdict applied; candidates left in intake, failure noted on each file and in the log above): ${total_triage_failures}
 - clusters picked into worktrees: ${total_picked}, deferred to a later wave: ${total_deferred}
 - clusters fixed and integrated: ${total_clusters_fixed}, clusters not integrated (reverted, conflicted, or dropped): ${total_clusters_reverted}
 - open issues remaining: ${open_left}

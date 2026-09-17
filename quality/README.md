@@ -28,7 +28,11 @@ Arguments (bound by an LLM binder, so free-form text works):
 `"D2,D4,D7,D8,D9"` - the full roster since every lens passed its supervised
 wave; start-up refuses an id lacking a surfaces.json entry or a worker),
 `shard_loc` (target lines per review shard, default `"0"` = each lens's
-surfaces.json `shard_loc` - D2 6000, D4 6000, D7 3000, D8 12000, D9 6000;
+surfaces.json `shard_loc` - D2 6000, D4 6000, D7 3000, D8 12000, D9 6000 -
+each capped at floor(`context_tokens`/3/12) LOC when the lens declares its
+pinned model's window (D4: 128000 -> 3555, after a 4985-LOC shard overflowed
+kimi mid-turn in wave qw20260917095931); the cap binds explicit shard_loc
+values too;
 non-zero overrides all lenses),
 `review_cap` (max shards reviewed per lens per wave, default `"0"` =
 unlimited), `budget` (max candidates per shard, default 10), `parallel`
@@ -107,7 +111,7 @@ worktree, default `"6"`; `parallel × tree_workers` stays inside the cores).
 
 | Path | What | Versioned |
 |---|---|---|
-| `surfaces.json` | lens → reviewable file set (include/exclude prefixes + extensions over git-tracked files) + per-lens `shard_loc` | yes |
+| `surfaces.json` | lens → reviewable file set (include/exclude prefixes + extensions over git-tracked files) + per-lens `shard_loc` and optional `context_tokens` (pinned model window; caps shards at ~⅓ window / 12 t/LOC) | yes |
 | `state.json` | lens → { file → commit sha last reviewed at } | yes |
 | `TEMPLATE.md` | finding file shape (one finding, one root cause, evidence-first) | yes |
 | `TRIAGE_LOG.md` | append-only rejection ledger (re-file prevention; `parked` rows too) | yes |

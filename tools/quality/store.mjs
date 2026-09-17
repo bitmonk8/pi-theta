@@ -5,7 +5,18 @@
 // store invariants hold regardless of what any model does.
 //
 // Store layout (all version-controlled except quality/tmp/):
-//   quality/surfaces.json   lens -> { include[], exclude[], ext[], shard_loc } over git-tracked files
+//   quality/surfaces.json   lens -> { include[], exclude[], ext[], shard_loc,
+//                           context_tokens? } over git-tracked files.
+//                           context_tokens = the PINNED worker model's context
+//                           window; when present it caps the effective shard
+//                           size at floor(context_tokens / 3 / 12) LOC (~⅓ of
+//                           the window at ~12 tokens/LOC, leaving the rest for
+//                           the worker's own greps/reads/notes) — wave
+//                           qw20260917095931: a 4985-LOC D4 shard overflowed
+//                           kimi-k2.7-code's 128k window mid-turn and pi's
+//                           auto-compaction defeated the child's settle
+//                           detection. The cap binds BOTH the surfaces.json
+//                           shard_loc default AND an explicit --target-loc.
 //   quality/state.json      lens -> { "<repo path>": "<commit sha last reviewed at>" }
 //   quality/intake/         candidate findings awaiting triage (one .md each)
 //   quality/issues/         confirmed open issues (PTQ-NNNN-*.md)
@@ -115,6 +126,14 @@
 //       that shard (KEEP-WHOLE dispositions for D9, routing notes for every
 //       lens) — the only place those notes persist; the orchestrator otherwise
 //       reads just the filed count.
+//   note --finding <intake path> --text <one line>
+//       Append one line under the finding's "## Triage" heading (store-owned
+//       write; the single-writer rule). Not a ruling: frontmatter and status
+//       are untouched and no TRIAGE_LOG row is written. The orchestrator uses
+//       it to make a triage WORKER failure durable on the candidate itself
+//       ("triage worker failed: <kind>"), so a failed triage is never a
+//       silent leftover — the candidate stays in intake and the next wave
+//       re-triages it.
 //   reset-review (--lens <L> | --all-lenses) [--purge-intake]
 //       Forget every reviewed-at sha for the lens(es), so every surface file
 //       is due again (the review pass re-runs from scratch). With
@@ -480,10 +499,17 @@ switch (cmd) {
     const wave = flags.wave ?? die("--wave required");
     const s = surfaceFor(lens);
     const flagLoc = Number(flags["target-loc"] ?? 0);
-    const targetLoc = flagLoc > 0 ? flagLoc : Number(s.shard_loc ?? 6000);
+    const requestedLoc = flagLoc > 0 ? flagLoc : Number(s.shard_loc ?? 6000);
+    // Context cap (see the surfaces.json header comment): a shard the pinned
+    // model cannot hold alongside its own tool output is a failed shard, so
+    // the cap silently binds even an explicit --target-loc.
+    const contextTokens = Number(s.context_tokens ?? 0);
+    const contextCapLoc = contextTokens > 0 ? Math.floor(contextTokens / 3 / 12) : Infinity;
+    const targetLoc = Math.min(requestedLoc, contextCapLoc);
     const maxFiles = Number(flags["max-files"] ?? 15);
     const maxShards = Number(flags["max-shards"] ?? 0);
-    if (!Number.isFinite(targetLoc) || targetLoc < 500) die("--target-loc must be a number >= 500, or 0 = the lens's surfaces.json shard_loc");
+    if (!Number.isFinite(requestedLoc) || requestedLoc < 500) die("--target-loc must be a number >= 500, or 0 = the lens's surfaces.json shard_loc");
+    if (targetLoc < 500) die(`context_tokens ${contextTokens} caps the shard at ${contextCapLoc} LOC — below the 500-LOC floor; fix quality/surfaces.json`);
     if (!Number.isFinite(maxShards) || maxShards < 0) die("--max-shards must be a non-negative number (0 = unlimited)");
     const files = needsReview(lens).filter((f) => {
       if (fs.existsSync(path.join(ROOT, f))) return true;
@@ -848,6 +874,18 @@ switch (cmd) {
     }
     const esc = (s) => String(s).replaceAll("|", "\\|").trim();
     fs.appendFileSync(REVIEW_LOG, `| ${[today(), wave, lens, shard, flags.filed ?? "-", notes].map(esc).join(" | ")} |\n`);
+    break;
+  }
+
+  case "note": {
+    const finding = flags.finding ?? die("--finding required");
+    const text = flags.text ?? die("--text required");
+    const file = path.join(ROOT, finding);
+    if (!fs.existsSync(file)) die(`no such finding: ${finding}`);
+    const body = fs.readFileSync(file, "utf8");
+    if (!body.includes("## Triage")) die(`${finding} has no \"## Triage\" heading`);
+    fs.appendFileSync(file, `${body.endsWith("\n") ? "" : "\n"}${text.trim()} (loop, ${today()})\n`);
+    process.stdout.write(`noted\t${finding}\n`);
     break;
   }
 
