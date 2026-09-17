@@ -29,7 +29,7 @@ import {
   PROGRESS_WIRE_VERSION,
   TAP_LINE_MAX_BYTES,
 } from "./types";
-import type { ProgressAuthorMessage } from "./types";
+import type { ChildTapEvent, ProgressAuthorMessage } from "./types";
 import { clampAuthorMessage } from "./progress-tool";
 import type { Clock } from "../../seams/clock";
 
@@ -39,20 +39,6 @@ import type { Clock } from "../../seams/clock";
 export interface ChildTapOptions {
   readonly clock?: Clock;
 }
-
-export type ChildTapEvent =
-  | { readonly type: "turn_start" }
-  | { readonly type: "tool_execution_start"; readonly toolName: string }
-  | { readonly type: "tool_execution_end" }
-  | { readonly type: "agent_end" }
-  // L3 (EXST-5/EXST-15; PIC-74) — the reserved-key `theta_progress` wire line,
-  // recognised in the tap's OWN parse (EXST-5).
-  | { readonly type: "theta_progress"; readonly payload: ProgressAuthorMessage }
-  // RFC 0012 §7: a result-channel `heartbeat` frame — liveness only. Under a
-  // visible placement the child's `--mode json` stream is a TTY, so the four
-  // event kinds above never arrive; the heartbeat is what keeps the node's
-  // `lastEventAtMs` moving.
-  | { readonly type: "heartbeat" };
 
 /**
  * Compile-time field-set anchor for the `theta_progress` decoder below: every

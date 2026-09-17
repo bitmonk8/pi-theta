@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { attachChildActivityTap, type ChildTapEvent } from "../src/extension/execution-status/child-tap";
-import { TAP_LINE_MAX_BYTES } from "../src/extension/execution-status/types";
+import { attachChildActivityTap } from "../src/extension/execution-status/child-tap";
+import { TAP_LINE_MAX_BYTES, type ChildTapEvent } from "../src/extension/execution-status/types";
 import { FakeRpcChild } from "./helpers/fake-rpc-child";
 
 // RFC 0010 (execution-status.md EXST-5) — `tests/execution-status-child-tap.test.ts`

@@ -16,6 +16,7 @@
 
 import type {
   ChildActivity,
+  ChildTapEvent,
   ExecutionStatusBus,
   ExecutionStatusBusDeps,
   ExecutionStatusSnapshot,
@@ -40,7 +41,6 @@ import {
 import { clampAuthorMessage } from "./progress-tool";
 import type { Clock, TimerHandle } from "../../seams/clock";
 import type { CheckpointKind, CheckpointSite } from "../../seams/checkpoint";
-import type { ChildTapEvent } from "./child-tap";
 
 /** A no-op handle: returned when the owning node is untracked (EXST-7). */
 const NOOP_LANE_SET_HANDLE: ParForLaneSetHandle = Object.freeze({

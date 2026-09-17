@@ -7,7 +7,6 @@
 
 import type { CheckpointKind, CheckpointSite } from "../../seams/checkpoint";
 import type { Clock } from "../../seams/clock";
-import type { ChildTapEvent } from "./child-tap";
 
 // ---------------------------------------------------------------------------
 // Caps constants (frozen; EXST-7).
@@ -91,6 +90,20 @@ export interface ProgressAuthorMessage {
   readonly total?: number;
   readonly dropped?: number; // counted-but-dropped carry; omitted/absent when 0
 }
+
+export type ChildTapEvent =
+  | { readonly type: "turn_start" }
+  | { readonly type: "tool_execution_start"; readonly toolName: string }
+  | { readonly type: "tool_execution_end" }
+  | { readonly type: "agent_end" }
+  // L3 (EXST-5/EXST-15; PIC-74) — the reserved-key `theta_progress` wire line,
+  // recognised in the tap's OWN parse (EXST-5).
+  | { readonly type: "theta_progress"; readonly payload: ProgressAuthorMessage }
+  // RFC 0012 §7: a result-channel `heartbeat` frame — liveness only. Under a
+  // visible placement the child's `--mode json` stream is a TTY, so the four
+  // event kinds above never arrive; the heartbeat is what keeps the node's
+  // `lastEventAtMs` moving.
+  | { readonly type: "heartbeat" };
 
 /** PIC-71 milestone entry payload: `{ milestone: ProgressMilestone }`. */
 export interface ProgressMilestone extends ProgressAuthorMessage {

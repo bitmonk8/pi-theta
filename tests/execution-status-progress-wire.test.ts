@@ -6,8 +6,8 @@ import {
   type ProgressToolDeps,
   type ThetaProgressParams,
 } from "../src/extension/execution-status/progress-tool";
-import { PROGRESS_WIRE_MAX_LINE_BYTES } from "../src/extension/execution-status/types";
-import { attachChildActivityTap, type ChildTapEvent } from "../src/extension/execution-status/child-tap";
+import { PROGRESS_WIRE_MAX_LINE_BYTES, type ChildTapEvent } from "../src/extension/execution-status/types";
+import { attachChildActivityTap } from "../src/extension/execution-status/child-tap";
 import { ActiveInvocationRegistry, type ActiveInvocationEntry } from "../src/runtime/active-invocation-registry";
 import { FakeClock } from "./helpers/fake-clock";
 import { FakeRpcChild } from "./helpers/fake-rpc-child";

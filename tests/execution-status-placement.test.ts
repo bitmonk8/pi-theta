@@ -7,9 +7,9 @@
 
 import { describe, expect, it } from "vitest";
 import { createExecutionStatusBus } from "../src/extension/execution-status/bus";
-import { attachChildActivityTap, type ChildTapEvent } from "../src/extension/execution-status/child-tap";
+import { attachChildActivityTap } from "../src/extension/execution-status/child-tap";
 import { renderNodeHeader } from "../src/extension/execution-status/footer-sink";
-import { NAME_CLAMP_CHARS } from "../src/extension/execution-status/types";
+import { NAME_CLAMP_CHARS, type ChildTapEvent } from "../src/extension/execution-status/types";
 import type { SubagentChildProcess } from "../src/runtime/subagent-launcher";
 import { FakeClock } from "./helpers/fake-clock";
 
