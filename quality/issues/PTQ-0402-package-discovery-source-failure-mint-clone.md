@@ -1,9 +1,9 @@
 ---
-id: pending
+id: PTQ-0402
 title: Package discovery reimplements source-failure diagnostic minting
 lens: D4
-status: intake
-verdict: pending
+status: open
+verdict: confirmed
 locations:
   - src/discovery/discovery-source-enumerate.ts:267-289
   - src/discovery/package-discovery.ts:85-86
@@ -105,3 +105,4 @@ Verified `emitSourceFailure` is exported and is imported only by `discovery-walk
 
 ## Triage
 verdict: confirmed — all four excerpts verified verbatim at the cited lines; clone-scan reports no group for package-discovery.ts (each push block is under the token floor) so the copies were diffed by hand: message templates, code strings and renderSourceDescriptor call are byte-identical to emitSourceFailure's missing/unreadable arms (renamed-only), and the helper's normalizePath(path) is idempotent on the joinPosix-built dirs so a call would be behaviour-preserving; MISSING_SOURCE/UNREADABLE_SOURCE confirmed exported from discovery-model.ts:124-125 and redeclared locally with no import; all three package copies live via thetasInDirectory (:431, :580) under exported discoverPackageThetas; no stated non-sharing rationale in either header and no cycle risk (package-discovery.ts imported only by production-composition.ts); not a spec vector table (code-registry-load.md:55-56 authors each message once); distinct from resolved PTQ-0284, which covered only the descriptor grammar and left these push blocks inline (triage: claude-fable-5-1)
+verdict: confirmed — re-verified independently: all four excerpts match at the cited lines (helper at :266-289, two-line drift); clone-scan map on package-discovery.ts lists no group (under token floor) so copies were hand-diffed — missing/unreadable message templates, code strings and renderSourceDescriptor("package", …) call are identical to emitSourceFailure's two arms; MISSING_SOURCE/UNREADABLE_SOURCE exported at discovery-model.ts:124-126 yet redeclared at :85-86 with no import; both copies live (thetasInDirectory :431/:580, resolvePiThetas :598 → exported discoverPackageThetas, sole importer production-composition.ts:151); no cycle (neither source-enumerate nor model imports package-discovery); helper's normalizePath is a backslash→slash no-op on the seam's joinPosix-built dirs and matches enumerateDirectory's handling, so a call is behaviour-preserving; not a spec vector (code-registry-load.md:55-56 authors each message once); distinct from resolved PTQ-0284, whose fix imported only the descriptor renderer and left these push blocks inline (triage: claude-fable-5-1)

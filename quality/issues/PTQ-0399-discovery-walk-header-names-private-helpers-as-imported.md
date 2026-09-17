@@ -1,9 +1,9 @@
 ---
-id: pending                  # PTQ-NNNN minted at acceptance; never self-assigned
+id: PTQ-0399
 title: discovery-walk.ts's header claims isCanonicalDuplicate and classifyForSource are imported back from discovery-source-enumerate.ts, though both stay module-private there
 lens: D2                     # D2 | D4 | D7 | D8 | D9 - the lens that filed this
-status: intake               # intake | open | fixed | rejected (store mechanics own transitions)
-verdict: pending              # pending | confirmed | questionable | false-positive | duplicate | out-of-scope | malformed
+status: open
+verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - src/discovery/discovery-walk.ts:18-25
   - src/discovery/discovery-walk.ts:71-77
@@ -69,3 +69,4 @@ Drop `isCanonicalDuplicate` and `classifyForSource` from the header's roster at 
 ## Triage
 <triage appends: verdict + one-line reason. Nothing above this line is edited.>
 verdict: confirmed — header roster at discovery-walk.ts:18-25 names isCanonicalDuplicate/classifyForSource as "imported back in below", but the only import from discovery-source-enumerate (now :81-87) omits both, both are non-exported `function` declarations there (:124, :251) matching that module's own header and PTQ-0367's ratified "rest stay module-private"; repo-wide grep finds no other reference; distinct paragraph/names from resolved PTQ-0356/0389 (triage: claude-fable-5-1)
+verdict: confirmed — re-verified: discovery-walk.ts:18-25 header lists isCanonicalDuplicate/classifyForSource as "imported back in below" but the sole import from ./discovery-source-enumerate (now :81-87) names neither; both are non-exported `function` declarations (enumerate.ts:124, :251) called only intra-file (:108, :208), matching that module's header (:14) and PTQ-0367's ratified "rest stay module-private"; grep across src/extensions/tools/tests finds no other live reference; not a duplicate of resolved PTQ-0356/0389/0390/0391 (different names/paragraphs/files) (triage: claude-fable-5-1)

@@ -1,9 +1,9 @@
 ---
-id: pending                  # PTQ-NNNN minted at acceptance; never self-assigned
+id: PTQ-0403
 title: Dispatch-side scaffolding (checkpoint double, root/pi/theta/ctx builders, tick) is redeclared near-identically in two sibling test files
 lens: D7
-status: intake               # intake | open | fixed | rejected (store mechanics own transitions)
-verdict: pending              # pending | confirmed | questionable | false-positive | duplicate | out-of-scope | malformed
+status: open
+verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - tests/active-invocation-binder-window.test.ts:77-104
   - tests/active-invocation-binder-window.test.ts:107-114
@@ -130,3 +130,4 @@ A shared dispatch-scaffolding helper under `tests/helpers/` parameterised by the
 
 ## Triage
 verdict: confirmed — all four excerpts match at the cited lines; rootWith/noopPi/driveCtx/tick byte-identical modulo whitespace and the Checkpoint/promptTheta pair renamed-only across the two tests/ files; grep reproduces one declaration per name per file; tests/helpers/call-with-clause-harness.ts:158-179 confirms the exporting-helper precedent; docs/bugs 0073/0074/0208/0468 cite file names only and coverage-matrix has no hit, so no carve-out applies; not tracked by PTQ-0209 (different NOOP_CHECKPOINT/rootDouble/producer trio, zero mentions of either file) — note tests/forwarding-detach-wiring.test.ts:90-122 carries a third uncounted copy (triage: claude-fable-5-1)
+verdict: confirmed — re-verified independently: all four excerpts match byte-for-byte at the cited lines, the stated grep reproduces (5 names × 2 files), rootWith/noopPi/driveCtx/tick identical modulo whitespace and Checkpoint/promptTheta renamed-only, tests/helpers/call-with-clause-harness.ts:158-179 exports the rootDouble/noopPi/driveCtx precedent, both locations in tests/ with no gate/recording-double/coverage-matrix/bug-witness carve-out (bugs 0073/0074/0208/0468 pin file names only, coverage-matrix has no hit), and no issues/resolved PTQ names either file (PTQ-0209 covered the zero-arg NOOP_CHECKPOINT/rootDouble trio, not this checkpoint-parameterised block); sites:2 undercounts — tests/forwarding-detach-wiring.test.ts:84-122 is an identical third copy and production-cancellation-wiring.test.ts:119 a fourth rootWith (triage: claude-fable-5-1)

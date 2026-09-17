@@ -1,9 +1,9 @@
 ---
-id: pending                  # PTQ-NNNN minted at acceptance; never self-assigned
+id: PTQ-0404
 title: Three in-scope test files re-parse the code-registry corpus locally instead of importing tests/helpers/registry-oracle.ts
 lens: D7
-status: intake               # intake | open | fixed | rejected (store mechanics own transitions)
-verdict: pending              # pending | confirmed | questionable | false-positive | duplicate | out-of-scope | malformed
+status: open
+verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - tests/absent-member-presence-gate.test.ts:179-193
   - tests/acceptance-stderr-gate.test.ts:490-513
@@ -127,3 +127,4 @@ Each of the three files could import `REGISTRY` (and `RegistryRow` where its own
 
 ## Triage
 verdict: confirmed — all three local parseRegistry reads reproduce at the cited lines (absent-member-presence-gate:180 four-page join line-for-line identical to registry-oracle.ts:31-45 bar path depth/row type; acceptance-stderr-gate:491-512 six-field HostRegistryRow + host-page read; alias-sink-array-element-check:130-137 two-field row + parse-page read), none of the three imports tests/helpers/registry-oracle (21 other test files do), every looked-up code verified on a page the shared four-page REGISTRY already joins (2 host, 5 parse, 1 runtime), coverage-matrix has 0 citations, bug 0047 does not mandate a host-shard-only read, and no existing PTQ cites these files — same D7 copy-paste-fixture class as confirmed PTQ-0222/0237/0250/0260/0275/0311/0313/0327 (single-page narrow reads included per PTQ-0313); fixer note: acceptance-stderr-gate:500-503 states a row-stays-on-host-page intent, preservable via the shared rows' namespace field rather than a separate parse; minor: the filing's docs/bugs grep actually returns 1 unrelated prose hit (bug 0123), non-blocking (triage: claude-fable-5-1)
+verdict: confirmed — re-verified independently: all three local parseRegistry reads reproduce at the cited lines (absent-member-presence-gate:180 four-page join identical to registry-oracle.ts:31-45 bar `../` depth and row type; acceptance-stderr-gate:491-512 six-field HostRegistryRow + host-page read; alias-sink-array-element-check:130-137 two-field row + parse-page read), 0 `helpers/registry-oracle` imports in the three files vs 21 elsewhere in tests/, every code each file looks up (2 theta/host, 5 theta/parse, theta/runtime/missing-object-key) confirmed on a page the shared four-page REGISTRY joins, coverage-matrix 0 citations, gate carve-out inapplicable (constants back message lookups, not pinned counts), not a duplicate (PTQ-0209/0216 cite other constructs in these files; sibling d7-03 cites disjoint parseDoc lines) — same confirmed D7 copy-paste-fixture class as PTQ-0313/0327 which already cover single-page narrow reads; note acceptance-stderr-gate:500-503's row-stays-on-host-page intent is preservable via the shared rows' namespace field; filing's docs/bugs grep actually returns 1 unrelated prose hit (bug 0123:1000), non-blocking (triage: claude-fable-5-1)

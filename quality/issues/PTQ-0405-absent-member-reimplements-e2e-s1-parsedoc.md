@@ -1,9 +1,9 @@
 ---
-id: pending                  # PTQ-NNNN minted at acceptance; never self-assigned
+id: PTQ-0405
 title: absent-member-presence-gate.test.ts re-implements tests/helpers/e2e-s1.ts's parseDeps/parseDoc instead of importing them
 lens: D7
-status: intake               # intake | open | fixed | rejected (store mechanics own transitions)
-verdict: pending              # pending | confirmed | questionable | false-positive | duplicate | out-of-scope | malformed
+status: open
+verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - tests/absent-member-presence-gate.test.ts:217-231
   - tests/helpers/e2e-s1.ts:26-40
@@ -88,3 +88,4 @@ import { findCode, parseDoc } from "./helpers/e2e-s1";
 
 ## Triage
 verdict: confirmed — both excerpts verified verbatim at e2e-s1.ts:26-40 and absent-member-presence-gate.test.ts:217-231 (field-for-field identical deps, parseOnly differs from parseDoc only in arg order; 3 local call sites at :243/:815/:850), e2e-s1.ts (2026-07-13) predates the test file (2026-07-31), alias-sink-array-element-check.test.ts:7 imports parseDoc, bug 0032 is fixed and the file is 34/34 green at HEAD (bug 0150's "red" rows are a projected route outcome, not a current red), coverage-matrix has 0 hits, and no PTQ dedupes it (PTQ-0214/0239/0314/0386 are the same class at other files, PTQ-0209 cites this file for the unrelated rootDouble/producer block at :255-278); the candidate's "docs/bugs/ returned no hits" claim is inaccurate (e2e-s1 is mentioned in many bug docs) but that peripheral check does not affect the anchor (triage: claude-fable-5-1)
+verdict: confirmed — re-verified independently: excerpts match verbatim at e2e-s1.ts:26-40 and absent-member-presence-gate.test.ts:217-231 (identical deps, parseOnly = parseDoc with args swapped; callers :243/:815/:850), alias-sink-array-element-check.test.ts:7 imports parseDoc, helper commit 2026-07-13 predates test 2026-07-31, *gate* carve-out is about pinned counts not fixture clones, bug 0032 fixed and file 34/34 green (bug 0150 "red" row is a projected route-1 table), coverage-matrix 0 hits, no PTQ covers this block (PTQ-0209 cites :255-278 only; 0214/0239/0314/0386 are other files); candidate's docs/bugs/ no-hits claim is false (163 files mention e2e-s1) but does not touch the anchor (triage: claude-fable-5-1)

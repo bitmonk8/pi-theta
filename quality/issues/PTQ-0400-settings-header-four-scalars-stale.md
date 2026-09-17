@@ -1,9 +1,9 @@
 ---
-id: pending                  # PTQ-NNNN minted at acceptance; never self-assigned
+id: PTQ-0400
 title: settings.ts's header says the extension owns "the four thetas.* scalars", but seven scalar keys (plus one object-valued key) are now recognised
 lens: D2                     # D2 | D4 | D7 | D8 | D9 - the lens that filed this
-status: intake               # intake | open | fixed | rejected (store mechanics own transitions)
-verdict: pending              # pending | confirmed | questionable | false-positive | duplicate | out-of-scope | malformed
+status: open
+verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - src/discovery/settings.ts:1-4
   - src/discovery/settings.ts:176-184
@@ -67,3 +67,4 @@ Either drop the specific count from the header ("the `thetas.*` scalars" with no
 
 ## Triage
 verdict: confirmed — header at settings.ts:3-4 still says "four `thetas.*` scalars" while THETAS_SCALAR_KEYS (:176-184) lists seven and THETAS_EXEC_TEMPLATE_KEY (:190) adds an eighth, object-valued key validated in its own cleanSettingsFile branch (:349-370); phrase predates commits 1dad42ac/4ec891b9 that added the keys; no prior PTQ on this line (triage: claude-fable-5-1)
+verdict: confirmed — re-verified: settings.ts:3-4 still reads "four `thetas.*` scalars" (only "four" in the file) while THETAS_SCALAR_KEYS (:176-184) lists seven literals and THETAS_EXEC_TEMPLATE_KEY (:190) is an eighth, object-valued key validated in its own cleanSettingsFile scope-dispatch branch (:348-370); git -S confirms `progress` landed in 1dad42ac (RFC 0010) and subagentPlacement* in 4ec891b9 (RFC 0012) after the header was written; PTQ-0062 touched this header's :13-16 stub narration only, not the key count — no duplicate (triage: claude-fable-5-1)

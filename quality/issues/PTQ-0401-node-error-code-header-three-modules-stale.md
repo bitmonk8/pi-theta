@@ -1,9 +1,9 @@
 ---
-id: pending                  # PTQ-NNNN minted at acceptance; never self-assigned
+id: PTQ-0401
 title: node-error-code.ts's header says "the three discovery modules" use nodeErrorCode, but four other modules now call it
 lens: D2                     # D2 | D4 | D7 | D8 | D9 - the lens that filed this
-status: intake               # intake | open | fixed | rejected (store mechanics own transitions)
-verdict: pending              # pending | confirmed | questionable | false-positive | duplicate | out-of-scope | malformed
+status: open
+verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - src/discovery/node-error-code.ts:1-2
   - src/discovery/discovery-path-classify.ts:167,220,395
@@ -67,3 +67,4 @@ Update the header's count (or drop the specific number) to match the current fou
 
 ## Triage
 verdict: confirmed — header lines 1-2 and all six call-site excerpts reproduce verbatim; grep across src/extensions/tools/tests confirms exactly four importing modules (discovery-path-classify, discovery-source-enumerate, package-discovery, settings), each with a live call; git shows "three" was accurate at creation (7f360d20: discovery-walk/package-discovery/settings) and went stale when the D9 splits 846fd992/46a063e0 moved discovery-walk's calls into two new modules — the filing's attribution of the fourth to settings.ts is wrong on cause but the stale count is real; no existing PTQ tracks this line (PTQ-0286 only quotes it) (triage: claude-fable-5-1)
+verdict: confirmed — header lines 1-2, all six call sites and four import lines reproduce verbatim at the cited lines; repo-wide grep finds exactly four importing modules, each with a live rejection-handler call; git grep at creation commit 7f360d20 shows three consumers (discovery-walk/package-discovery/settings), so the count went stale when D9 splits 846fd992/46a063e0 spread discovery-walk's calls over discovery-path-classify and discovery-source-enumerate (the filing's settings.ts-as-fourth attribution is wrong on cause, the stale count is real); PTQ-0286/0342 only quote the phrase, different root causes (triage: claude-fable-5-1)
