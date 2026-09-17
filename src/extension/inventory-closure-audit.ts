@@ -105,6 +105,18 @@ interface OrderedRecord {
   readonly pos: number;
 }
 
+/** A recognised surface reference and its inventory/allow-list resolution. */
+interface Ref {
+  readonly pos: number;
+  readonly line: number;
+  /** Bug 0374 §Fix: the line(s) a marker may trail to authorise this ref (the per-shape originating-line map). */
+  readonly authLines: readonly number[];
+  readonly family: string;
+  readonly resolved: boolean;
+  readonly symbol: string;
+  readonly proposedResolution: string;
+}
+
 /** Collapse every run of whitespace (incl. newlines) to a single ASCII space. */
 function singleLine(text: string): string {
   return text.replace(/\s+/g, " ").trim();
@@ -543,6 +555,195 @@ function visitShapes(
 }
 
 /**
+ * Pass 3: collect category-(1)/(2)/(3) references through `resolveRef` and
+ * report captured member bindings through `emitFamilyFour`, recursing from `n`.
+ */
+function visitRefs(
+  n: ts.Node,
+  sf: ts.SourceFile,
+  resolveRef: (
+    pos: number,
+    family: string,
+    resolvedByInventoryOrAllowList: boolean,
+    symbol: string,
+    proposedResolution: string,
+    authLines?: readonly number[],
+  ) => void,
+  emitFamilyFour: (pos: number, symptom: string, symbol: string) => void,
+  clauseELines: Set<number>,
+  lineOfPos: (pos: number) => number,
+  typeboxTypeIsImported: boolean,
+  cat1Members: ReadonlySet<string>,
+  cat3Members: ReadonlySet<string>,
+  cat2Names: ReadonlySet<string>,
+  typeboxNamed: ReadonlySet<string>,
+  typeboxMembers: ReadonlySet<string>,
+): void {
+  // Category (2): named imports from the four peers + typebox.
+  if (ts.isImportDeclaration(n) && ts.isStringLiteral(n.moduleSpecifier)) {
+    const spec = n.moduleSpecifier.text;
+    const ic = n.importClause;
+    if (ic && ic.namedBindings && ts.isNamedImports(ic.namedBindings)) {
+      // Bug 0374 §Fix rule (ii)/(iv): a named import is authorised by a marker
+      // on EITHER the specifier's own line OR the `import`-keyword line.
+      const importKwLine = lineOfPos(n.getStart(sf));
+      for (const el of ic.namedBindings.elements) {
+        if (el.propertyName) continue; // aliased → family (4), handled in pass 1
+        const nm = el.name.text;
+        const authLines = [lineOfPos(el.getStart(sf)), importKwLine];
+        if (isTypebox(spec)) {
+          resolveRef(
+            el.getStart(sf),
+            "peer-import",
+            typeboxNamed.has(nm),
+            `typebox#${nm}`,
+            "promote-to-typebox-named-allow-list-or-add-allow-pi-surface-marker",
+            authLines,
+          );
+        } else if (isPeerPackage(spec)) {
+          resolveRef(
+            el.getStart(sf),
+            "peer-import",
+            cat2Names.has(nm),
+            `${spec}#${nm}`,
+            "promote-to-inventory-or-add-allow-pi-surface-marker (see bump-step-2b-promote)",
+            authLines,
+          );
+        }
+      }
+    }
+  }
+  // Member access on the canonical `pi` / `ctx` carriers, and typebox `Type`.
+  if (ts.isPropertyAccessExpression(n) && ts.isIdentifier(n.expression)) {
+    const recv = n.expression.text;
+    const member = n.name.text;
+    if (recv === "pi" && inPiCarrier(n)) {
+      if (isCapturedRebinding(n)) {
+        // The member is captured into a binding rather than reached in place
+        // (bug 0373 §Fix): family (4), not a category-(1) reference.
+        emitFamilyFour(n.getStart(sf), "captured-rebinding", n.getText(sf));
+      } else {
+        // Bug 0374 §Fix rule (i): a `pi.<member>` split across lines
+        // originates on the property line; a marker on the `pi` line is
+        // off-originating-line (clause (e)).
+        const memberLine = lineOfPos(n.name.getStart(sf));
+        const carrierLine = lineOfPos(n.expression.getStart(sf));
+        if (carrierLine !== memberLine) clauseELines.add(carrierLine);
+        resolveRef(
+          n.name.getStart(sf),
+          "pi-member",
+          cat1Members.has(member),
+          member,
+          "promote-to-inventory-or-add-allow-pi-surface-marker (see bump-step-2b-promote)",
+        );
+      }
+    } else if (recv === "ctx" && inCtxCarrier(n)) {
+      if (isCapturedRebinding(n)) {
+        emitFamilyFour(n.getStart(sf), "captured-rebinding", n.getText(sf));
+      } else {
+        // Bug 0374 §Fix rule (iii): a `ctx`-rooted chain originates on the
+        // `ctx` identifier line (deliberately asymmetric with rule (i)); a
+        // marker on any property line of the chain is off-originating-line.
+        const ctxLine = lineOfPos(n.expression.getStart(sf));
+        const memberLine = lineOfPos(n.name.getStart(sf));
+        if (memberLine !== ctxLine) clauseELines.add(memberLine);
+        resolveRef(
+          n.expression.getStart(sf),
+          "ctx-member",
+          cat3Members.has(member),
+          member,
+          "promote-to-inventory-or-add-allow-pi-surface-marker (see bump-step-2b-promote)",
+        );
+      }
+    } else if (recv === "Type" && typeboxTypeIsImported) {
+      resolveRef(
+        n.name.getStart(sf),
+        "peer-import",
+        typeboxMembers.has(member),
+        `typebox#Type.${member}`,
+        "promote-to-typebox-member-allow-list-or-add-allow-pi-surface-marker",
+      );
+    }
+  }
+  ts.forEachChild(n, (c) => visitRefs(
+    c, sf, resolveRef, emitFamilyFour, clauseELines, lineOfPos, typeboxTypeIsImported,
+    cat1Members, cat3Members, cat2Names, typeboxNamed, typeboxMembers,
+  ));
+}
+
+/** Classify comment markers, emit family-(5) violations, and return authorised lines. */
+function classifyAndEmitMarkers(
+  sf: ts.SourceFile,
+  commentByLine: ReadonlyMap<number, string>,
+  refs: readonly Ref[],
+  familyFourLines: ReadonlySet<number>,
+  clauseELines: ReadonlySet<number>,
+  push: (
+    pos: number,
+    family: string,
+    symptom: string,
+    line: string,
+    symbol: string,
+    proposedResolution: string,
+  ) => void,
+): Set<number> {
+  // ---- Pass 2: markers over every real comment line (bug 0374 §Fix). A well-formed
+  // marker authorises the UNRESOLVED in-scope references whose originating line
+  // it trails (inventory-first resolution short-circuits before the marker, so
+  // an all-resolved line is (s2)); malformed grammar (a)-(g), off-originating-
+  // line placement (e), family-(4)-line placement (h), and the two stale
+  // sub-kinds (s1)/(s2) each route to family (5) under their own token. ----
+  const authorisedLines = new Set<number>();
+  const refsByAuthLine = new Map<number, Ref[]>();
+  for (const r of refs) {
+    for (const ln of r.authLines) {
+      const bucket = refsByAuthLine.get(ln);
+      if (bucket === undefined) refsByAuthLine.set(ln, [r]);
+      else bucket.push(r);
+    }
+  }
+  const emitFamilyFive = (pos: number, ln: number, symptom: string, resolution: string): void => {
+    push(pos, "stale-or-malformed-marker", symptom, String(ln), NA, resolution);
+  };
+  const STALE = "see bump-step-2b-stale-rewrite";
+  for (const [ln, commentText] of commentByLine) {
+    const verdict = classifyMarker(commentText);
+    if (verdict.kind === "none") continue;
+    const pos = sf.getPositionOfLineAndCharacter(ln - 1, 0);
+    if (verdict.kind === "malformed") {
+      emitFamilyFive(pos, ln, MALFORMED_CLAUSE_TOKEN[verdict.clause], `rewrite-marker-grammar (${STALE})`);
+      continue;
+    }
+    // Clause (h): a marker on a non-exemptible family-(4) line; the family-(4)
+    // record fires independently in pass 1 (dual emission).
+    if (familyFourLines.has(ln)) {
+      emitFamilyFive(pos, ln, "marker-on-non-exemptible-family-4-line", `delete-marker-and-rewrite-shape (${STALE})`);
+      continue;
+    }
+    const attributed = refsByAuthLine.get(ln) ?? [];
+    if (attributed.length > 0) {
+      if (attributed.every((r) => r.resolved)) {
+        // (s2) all-in-inventory: every reference this line authorises already
+        // resolves upstream, so the marker authorises nothing.
+        emitFamilyFive(pos, ln, "all-in-inventory", `delete-stale-marker-surface-now-in-inventory (${STALE})`);
+      } else {
+        authorisedLines.add(ln);
+      }
+      continue;
+    }
+    // Clause (e): a marker on a non-originating line of a multi-line surface.
+    if (clauseELines.has(ln)) {
+      emitFamilyFive(pos, ln, "off-originating-line", `move-marker-to-originating-line (${STALE})`);
+      continue;
+    }
+    // (s1) no-surface-on-line: a well-formed marker on a line carrying zero
+    // recognised in-scope references (placement error or all-removed leftover).
+    emitFamilyFive(pos, ln, "no-surface-on-line", `delete-stale-marker-no-surface-on-line (${STALE})`);
+  }
+  return authorisedLines;
+}
+
+/**
  * Run the inventory-closure audit over an in-memory audited source tree.
  *
  * A static-AST walker (no TypeScript program load): each file is parsed with
@@ -637,16 +838,6 @@ export function runInventoryClosureAudit(input: AuditInput): AuditResult {
     visitShapes(sf, sf, emitFamilyFour);
 
     // ---- Pass 3: collect category-(1)/(2)/(3) references (emitted in pass 4). ----
-    interface Ref {
-      readonly pos: number;
-      readonly line: number;
-      /** Bug 0374 §Fix: the line(s) a marker may trail to authorise this ref (the per-shape originating-line map). */
-      readonly authLines: readonly number[];
-      readonly family: string;
-      readonly resolved: boolean;
-      readonly symbol: string;
-      readonly proposedResolution: string;
-    }
     const refs: Ref[] = [];
     // Bug 0374 §Fix: physical lines that are a NON-originating line of a
     // recognised multi-line member-access surface span — a well-formed marker
@@ -693,97 +884,10 @@ export function runInventoryClosureAudit(input: AuditInput): AuditResult {
     };
     scanTypeImport(sf);
 
-    // Category (2): named imports from the four peers + typebox.
-    const visitRefs = (n: ts.Node): void => {
-      if (ts.isImportDeclaration(n) && ts.isStringLiteral(n.moduleSpecifier)) {
-        const spec = n.moduleSpecifier.text;
-        const ic = n.importClause;
-        if (ic && ic.namedBindings && ts.isNamedImports(ic.namedBindings)) {
-          // Bug 0374 §Fix rule (ii)/(iv): a named import is authorised by a marker
-          // on EITHER the specifier's own line OR the `import`-keyword line.
-          const importKwLine = lineOfPos(n.getStart(sf));
-          for (const el of ic.namedBindings.elements) {
-            if (el.propertyName) continue; // aliased → family (4), handled in pass 1
-            const nm = el.name.text;
-            const authLines = [lineOfPos(el.getStart(sf)), importKwLine];
-            if (isTypebox(spec)) {
-              resolveRef(
-                el.getStart(sf),
-                "peer-import",
-                typeboxNamed.has(nm),
-                `typebox#${nm}`,
-                "promote-to-typebox-named-allow-list-or-add-allow-pi-surface-marker",
-                authLines,
-              );
-            } else if (isPeerPackage(spec)) {
-              resolveRef(
-                el.getStart(sf),
-                "peer-import",
-                cat2Names.has(nm),
-                `${spec}#${nm}`,
-                "promote-to-inventory-or-add-allow-pi-surface-marker (see bump-step-2b-promote)",
-                authLines,
-              );
-            }
-          }
-        }
-      }
-      // Member access on the canonical `pi` / `ctx` carriers, and typebox `Type`.
-      if (ts.isPropertyAccessExpression(n) && ts.isIdentifier(n.expression)) {
-        const recv = n.expression.text;
-        const member = n.name.text;
-        if (recv === "pi" && inPiCarrier(n)) {
-          if (isCapturedRebinding(n)) {
-            // The member is captured into a binding rather than reached in place
-            // (bug 0373 §Fix): family (4), not a category-(1) reference.
-            emitFamilyFour(n.getStart(sf), "captured-rebinding", n.getText(sf));
-          } else {
-            // Bug 0374 §Fix rule (i): a `pi.<member>` split across lines
-            // originates on the property line; a marker on the `pi` line is
-            // off-originating-line (clause (e)).
-            const memberLine = lineOfPos(n.name.getStart(sf));
-            const carrierLine = lineOfPos(n.expression.getStart(sf));
-            if (carrierLine !== memberLine) clauseELines.add(carrierLine);
-            resolveRef(
-              n.name.getStart(sf),
-              "pi-member",
-              cat1Members.has(member),
-              member,
-              "promote-to-inventory-or-add-allow-pi-surface-marker (see bump-step-2b-promote)",
-            );
-          }
-        } else if (recv === "ctx" && inCtxCarrier(n)) {
-          if (isCapturedRebinding(n)) {
-            emitFamilyFour(n.getStart(sf), "captured-rebinding", n.getText(sf));
-          } else {
-            // Bug 0374 §Fix rule (iii): a `ctx`-rooted chain originates on the
-            // `ctx` identifier line (deliberately asymmetric with rule (i)); a
-            // marker on any property line of the chain is off-originating-line.
-            const ctxLine = lineOfPos(n.expression.getStart(sf));
-            const memberLine = lineOfPos(n.name.getStart(sf));
-            if (memberLine !== ctxLine) clauseELines.add(memberLine);
-            resolveRef(
-              n.expression.getStart(sf),
-              "ctx-member",
-              cat3Members.has(member),
-              member,
-              "promote-to-inventory-or-add-allow-pi-surface-marker (see bump-step-2b-promote)",
-            );
-          }
-        } else if (recv === "Type" && typeboxTypeIsImported) {
-          resolveRef(
-            n.name.getStart(sf),
-            "peer-import",
-            typeboxMembers.has(member),
-            `typebox#Type.${member}`,
-            "promote-to-typebox-member-allow-list-or-add-allow-pi-surface-marker",
-          );
-        }
-      }
-      ts.forEachChild(n, visitRefs);
-    };
-
-    visitRefs(sf);
+    visitRefs(
+      sf, sf, resolveRef, emitFamilyFour, clauseELines, lineOfPos, typeboxTypeIsImported,
+      cat1Members, cat3Members, cat2Names, typeboxNamed, typeboxMembers,
+    );
 
     // Bug 0374 §Fix: the REAL comment trivia by line. Comment RANGES (leading /
     // trailing trivia between tokens) treat a whole `/** ... */` block as one
@@ -811,59 +915,9 @@ export function runInventoryClosureAudit(input: AuditInput): AuditResult {
     };
     collectComments(sf);
 
-    // ---- Pass 2: markers over every real comment line (bug 0374 §Fix). A well-formed
-    // marker authorises the UNRESOLVED in-scope references whose originating line
-    // it trails (inventory-first resolution short-circuits before the marker, so
-    // an all-resolved line is (s2)); malformed grammar (a)-(g), off-originating-
-    // line placement (e), family-(4)-line placement (h), and the two stale
-    // sub-kinds (s1)/(s2) each route to family (5) under their own token. ----
-    const authorisedLines = new Set<number>();
-    const refsByAuthLine = new Map<number, Ref[]>();
-    for (const r of refs) {
-      for (const ln of r.authLines) {
-        const bucket = refsByAuthLine.get(ln);
-        if (bucket === undefined) refsByAuthLine.set(ln, [r]);
-        else bucket.push(r);
-      }
-    }
-    const emitFamilyFive = (pos: number, ln: number, symptom: string, resolution: string): void => {
-      push(pos, "stale-or-malformed-marker", symptom, String(ln), NA, resolution);
-    };
-    const STALE = "see bump-step-2b-stale-rewrite";
-    for (const [ln, commentText] of commentByLine) {
-      const verdict = classifyMarker(commentText);
-      if (verdict.kind === "none") continue;
-      const pos = sf.getPositionOfLineAndCharacter(ln - 1, 0);
-      if (verdict.kind === "malformed") {
-        emitFamilyFive(pos, ln, MALFORMED_CLAUSE_TOKEN[verdict.clause], `rewrite-marker-grammar (${STALE})`);
-        continue;
-      }
-      // Clause (h): a marker on a non-exemptible family-(4) line; the family-(4)
-      // record fires independently in pass 1 (dual emission).
-      if (familyFourLines.has(ln)) {
-        emitFamilyFive(pos, ln, "marker-on-non-exemptible-family-4-line", `delete-marker-and-rewrite-shape (${STALE})`);
-        continue;
-      }
-      const attributed = refsByAuthLine.get(ln) ?? [];
-      if (attributed.length > 0) {
-        if (attributed.every((r) => r.resolved)) {
-          // (s2) all-in-inventory: every reference this line authorises already
-          // resolves upstream, so the marker authorises nothing.
-          emitFamilyFive(pos, ln, "all-in-inventory", `delete-stale-marker-surface-now-in-inventory (${STALE})`);
-        } else {
-          authorisedLines.add(ln);
-        }
-        continue;
-      }
-      // Clause (e): a marker on a non-originating line of a multi-line surface.
-      if (clauseELines.has(ln)) {
-        emitFamilyFive(pos, ln, "off-originating-line", `move-marker-to-originating-line (${STALE})`);
-        continue;
-      }
-      // (s1) no-surface-on-line: a well-formed marker on a line carrying zero
-      // recognised in-scope references (placement error or all-removed leftover).
-      emitFamilyFive(pos, ln, "no-surface-on-line", `delete-stale-marker-no-surface-on-line (${STALE})`);
-    }
+    const authorisedLines = classifyAndEmitMarkers(
+      sf, commentByLine, refs, familyFourLines, clauseELines, push,
+    );
 
     // ---- Pass 4: emit reference violations (skip resolved / marker-authorised). ----
     for (const r of refs) {
