@@ -367,11 +367,11 @@ import {
   type BinderAttemptOutcome,
   type BinderFailureSurface,
 } from "../binder/retry-taxonomy";
+import { classifyProviderResponse } from "../binder/provider-error-mapping";
 import {
-  classifyProviderResponse,
   synthesizeUnsupportedProviderTransportError,
   TYPED_QUERY_SUPPORTED_PROVIDER_APIS,
-} from "../binder/provider-error-mapping";
+} from "../runtime/typed-query-provider-gate";
 import { walkSessionContext } from "../binder/session-context-walk";
 import {
   customTypeUnsafeDiagnostic,

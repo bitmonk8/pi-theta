@@ -153,7 +153,7 @@ import {
   TYPED_QUERY_SUPPORTED_PROVIDER_APIS,
   TYPED_QUERY_UNSUPPORTED_PROVIDER_CODE,
   typedQueryUnsupportedProviderMessage,
-} from "../src/binder/provider-error-mapping";
+} from "../src/runtime/typed-query-provider-gate";
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
 
 // --- The resolved models ------------------------------------------------------

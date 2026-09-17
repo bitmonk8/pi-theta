@@ -12,8 +12,10 @@ import { deriveBinderSeed } from "../src/binder/binder-seed";
 import {
   TYPED_QUERY_UNSUPPORTED_PROVIDER_CODE,
   checkTypedQueryProviderSupport,
-  classifyProviderResponse,
   synthesizeUnsupportedProviderTransportError,
+} from "../src/runtime/typed-query-provider-gate";
+import {
+  classifyProviderResponse,
   type ProviderClassifierInput,
 } from "../src/binder/provider-error-mapping";
 import type {

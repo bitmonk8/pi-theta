@@ -58,7 +58,7 @@ import {
 import {
   TYPED_QUERY_SUPPORTED_PROVIDER_APIS,
   checkTypedQueryProviderSupport,
-} from "../../src/binder/provider-error-mapping";
+} from "../../src/runtime/typed-query-provider-gate";
 
 const X_VALUE = 263;
 const Y_VALUE = 514;

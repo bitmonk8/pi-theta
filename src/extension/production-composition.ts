@@ -161,7 +161,7 @@ import {
   type PassParseDeps,
 } from "./pass-parse-cache";
 import { createPassVerdictMemo, type PassVerdictDeps } from "./pass-verdict-memo";
-import { checkTypedQueryProviderSupport } from "../binder/provider-error-mapping";
+import { checkTypedQueryProviderSupport } from "../runtime/typed-query-provider-gate";
 import {
   resolveCallableSet,
   type CallableSetDeps,
