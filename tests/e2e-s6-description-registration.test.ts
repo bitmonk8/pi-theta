@@ -6,16 +6,8 @@ import type {
   ExtensionAPI,
   ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
-import {
-  createThetaExtension,
-  type ThetaExtensionDeps,
-} from "../src/extension/factory";
-import {
-  composeExtensionInstance,
-  discoverAndComposeFixtures,
-} from "../src/extension/production-composition";
-import { FakeClock } from "./helpers/fake-clock";
-import { FakeFileWatcher } from "./helpers/fake-file-watcher";
+import { discoverAndComposeFixtures } from "../src/extension/production-composition";
+import { makeHarness } from "./helpers/package-merge-e2e-harness";
 
 // S6 (PIC) — WITNESS for FIND-S6-1 (theta-defect, FIXED): the theta `description:`
 // frontmatter (and `///` doc-comment lowering into it — DESC area) is threaded to
@@ -106,50 +98,8 @@ describe("S6 FIND-S6-1 — description drop reaches pi.registerCommand on the co
   afterEach(() => rmSync(workspace, { recursive: true, force: true }));
 
   it("registers the slash command WITH the description option (autocomplete entry texted)", async () => {
-    const commands = new Map<string, { description?: string }>();
-    const subscriptions = new Map<
-      string,
-      ((event: unknown, ctx: ExtensionContext) => unknown)[]
-    >();
-    const pi = {
-      registerFlag: (): void => {},
-      registerMessageRenderer: (): void => {},
-      registerCommand: (name: string, options: { description?: string }): void => {
-        commands.set(name, options);
-      },
-      on: (
-        event: string,
-        handler: (e: unknown, c: ExtensionContext) => unknown,
-      ): void => {
-        const list = subscriptions.get(event) ?? [];
-        list.push(handler);
-        subscriptions.set(event, list);
-      },
-      getFlag: (): undefined => undefined,
-      getCommands: (): { name: string; source: string }[] =>
-        [...commands.keys()].map((name) => ({ name, source: "extension" })),
-      sendMessage: (): void => {},
-      sendUserMessage: (): void => {},
-    } as unknown as ExtensionAPI;
-    const ctx = {
-      cwd: workspace,
-      hasUI: false,
-      modelRegistry: { getAvailable: (): readonly unknown[] => [] },
-      ui: { notify: (): void => {} },
-    } as unknown as ExtensionContext;
-
-    const deps: ThetaExtensionDeps = {
-      fixtures: [],
-      composeInstance: (composePi, composeCtx) =>
-        composeExtensionInstance(composePi, composeCtx, {
-          fileWatcher: new FakeFileWatcher(),
-          clock: new FakeClock(),
-        }),
-    };
-    createThetaExtension(deps)(pi);
-    for (const handler of subscriptions.get("session_start") ?? []) {
-      await handler({ type: "session_start" }, ctx);
-    }
+    const { commands, fireSessionStart } = makeHarness(workspace);
+    await fireSessionStart();
 
     expect(commands.has("hi")).toBe(true);
     // FIND-S6-1 (fixed): REQ-PIC-31 requires `{description,handler}`; the

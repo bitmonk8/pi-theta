@@ -102,16 +102,22 @@ export interface WatchArmingBoot {
 /**
  * Boot the shipped composition (`createThetaExtension` →
  * `composeExtensionInstance`) at `workspace` with a fresh
- * `RootsRecordingFileWatcher` and `FakeClock`, over the harness `makeHarness`
- * builds (passing `flags` through), fire `session_start`, and wait for the
- * watcher to arm. Mirrors both b0310's and b0339's own `boot` bodies
- * (PTQ-0363).
+ * `RootsRecordingFileWatcher` and `FakeClock` unless supplied in `options`,
+ * over the harness `makeHarness` builds (passing `flags` through), fire
+ * `session_start`, and wait for the watcher to arm. An event-capable watcher
+ * with the same `watchCalls` shape can be supplied for reload witnesses,
+ * along with the clock they advance (b0339 Case H, PTQ-0438).
  */
 export async function bootWatchArming(
   workspace: string,
   flags: Readonly<Record<string, string>> = {},
+  options: {
+    readonly fileWatcher?: RootsRecordingFileWatcher;
+    readonly clock?: FakeClock;
+    readonly waitLabel?: string;
+  } = {},
 ): Promise<WatchArmingBoot> {
-  const fakeWatcher = new RootsRecordingFileWatcher();
+  const fakeWatcher = options.fileWatcher ?? new RootsRecordingFileWatcher();
   const harness = makeHarness(workspace, flags);
   let wiring: ExtensionInstanceWiring | undefined;
   const deps: ThetaExtensionDeps = {
@@ -119,13 +125,13 @@ export async function bootWatchArming(
     composeInstance: async (pi, ctx) => {
       wiring = await composeExtensionInstance(pi, ctx, {
         fileWatcher: fakeWatcher,
-        clock: new FakeClock(),
+        clock: options.clock ?? new FakeClock(),
       });
       return wiring;
     },
   };
   createThetaExtension(deps)(harness.pi);
   await harness.fireSessionStart();
-  await waitFor(() => fakeWatcher.watchCalls.length > 0, "watcher to arm");
+  await waitFor(() => fakeWatcher.watchCalls.length > 0, options.waitLabel ?? "watcher to arm");
   return { wiring, fakeWatcher };
 }

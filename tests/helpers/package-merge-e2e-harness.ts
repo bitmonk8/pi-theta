@@ -13,10 +13,9 @@
 // identical across those three files; each file's own fixture planting (and
 // its own `mkdtemp` prefix) stays local.
 //
-// (tests/b0458-package-theta-pi-owned-collision.test.ts carries a fourth,
-// structurally similar copy that also takes a second `ownedCommands`
-// parameter and folds it into `getCommands()`; that shape is out of scope
-// here and is left as-is.)
+// The b0458 collision witness and the e2e-s6 package-merge and description
+// registration witnesses also use `makeHarness`. b0458 supplies `ownedCommands`
+// to seed `getCommands()` (PTQ-0450/PTQ-0617).
 //
 // tests/b0462-package-identity-dedup.test.ts and
 // tests/b0462-package-merge-priority-adjudication.test.ts also independently
@@ -56,9 +55,14 @@ export interface Harness {
 /**
  * The e2e-s6 harness shape: factory + `composeExtensionInstance` over a real
  * temp workspace, recording every `registerCommand` call and every
- * `theta-system-note` diagnostic `pi.sendMessage` carries.
+ * `theta-system-note` diagnostic `pi.sendMessage` carries. `ownedCommands`
+ * seeds Pi-owned entries (e.g. `{ name, source: "prompt" }` for a template)
+ * and is read at discovery time, so callers can add entries between sessions.
  */
-export function makeHarness(cwd: string): Harness {
+export function makeHarness(
+  cwd: string,
+  ownedCommands: readonly { name: string; source: string }[] = [],
+): Harness {
   const commands = new Map<string, { description?: string }>();
   const registrations: string[] = [];
   const notes: CapturedNote[] = [];
@@ -77,8 +81,13 @@ export function makeHarness(cwd: string): Harness {
       subscriptions.set(event, list);
     },
     getFlag: (): undefined => undefined,
-    getCommands: (): { name: string; source: string }[] =>
-      [...commands.keys()].map((name) => ({ name, source: "extension" })),
+    // The seeded Pi-owned entries plus this instance's own registered commands
+    // (reported as `source: "extension"`, as the host does). `readPiOwnedCommands`
+    // reads this at discovery time to build `piOwnedNames`.
+    getCommands: (): { name: string; source: string }[] => [
+      ...ownedCommands,
+      ...[...commands.keys()].map((name) => ({ name, source: "extension" })),
+    ],
     sendMessage: (message: {
       customType?: string;
       details?: { diagnostics?: readonly CapturedNote[] };

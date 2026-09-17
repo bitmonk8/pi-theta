@@ -2,17 +2,7 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import type {
-  ExtensionAPI,
-  ExtensionContext,
-} from "@earendil-works/pi-coding-agent";
-import {
-  createThetaExtension,
-  type ThetaExtensionDeps,
-} from "../src/extension/factory";
-import { composeExtensionInstance } from "../src/extension/production-composition";
-import { FakeClock } from "./helpers/fake-clock";
-import { FakeFileWatcher } from "./helpers/fake-file-watcher";
+import { makeHarness } from "./helpers/package-merge-e2e-harness";
 
 // S6 (PIC / DISC seam at the composition root) — the package-source
 // walk-routed adjudication.
@@ -41,70 +31,6 @@ const PACKAGE_DUP = ["---", "mode: prompt", "---", "@`package`", ""].join("\n");
 const PACKAGE_UNIQUE = ["---", "mode: prompt", "---", "@`package`", ""].join(
   "\n",
 );
-
-interface Harness {
-  readonly commands: Map<string, { description?: string }>;
-  readonly registrations: string[];
-  fireSessionStart(): Promise<void>;
-}
-
-function makeHarness(cwd: string): Harness {
-  const commands = new Map<string, { description?: string }>();
-  const registrations: string[] = [];
-  const subscriptions = new Map<
-    string,
-    ((event: unknown, ctx: ExtensionContext) => unknown)[]
-  >();
-
-  const pi = {
-    registerFlag: (): void => {},
-    registerMessageRenderer: (): void => {},
-    registerCommand: (name: string, options: { description?: string }): void => {
-      commands.set(name, options);
-      registrations.push(name);
-    },
-    on: (
-      event: string,
-      handler: (e: unknown, c: ExtensionContext) => unknown,
-    ): void => {
-      const list = subscriptions.get(event) ?? [];
-      list.push(handler);
-      subscriptions.set(event, list);
-    },
-    getFlag: (): undefined => undefined,
-    getCommands: (): { name: string; source: string }[] =>
-      [...commands.keys()].map((name) => ({ name, source: "extension" })),
-    sendMessage: (): void => {},
-    sendUserMessage: (): void => {},
-  } as unknown as ExtensionAPI;
-
-  const ctx = {
-    cwd,
-    hasUI: false,
-    modelRegistry: { getAvailable: (): readonly unknown[] => [] },
-    ui: { notify: (): void => {} },
-  } as unknown as ExtensionContext;
-
-  const deps: ThetaExtensionDeps = {
-    fixtures: [],
-    composeInstance: (composePi, composeCtx) =>
-      composeExtensionInstance(composePi, composeCtx, {
-        fileWatcher: new FakeFileWatcher(),
-        clock: new FakeClock(),
-      }),
-  };
-  createThetaExtension(deps)(pi);
-
-  return {
-    commands,
-    registrations,
-    fireSessionStart: async () => {
-      for (const handler of subscriptions.get("session_start") ?? []) {
-        await handler({ type: "session_start" }, ctx);
-      }
-    },
-  };
-}
 
 describe("S6 — composition-root package two-stage merge", () => {
   let workspace: string;

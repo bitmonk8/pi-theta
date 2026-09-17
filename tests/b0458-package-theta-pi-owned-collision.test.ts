@@ -30,17 +30,7 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import type {
-  ExtensionAPI,
-  ExtensionContext,
-} from "@earendil-works/pi-coding-agent";
-import {
-  createThetaExtension,
-  type ThetaExtensionDeps,
-} from "../src/extension/factory";
-import { composeExtensionInstance } from "../src/extension/production-composition";
-import { FakeClock } from "./helpers/fake-clock";
-import { FakeFileWatcher } from "./helpers/fake-file-watcher";
+import { makeHarness, type CapturedNote } from "./helpers/package-merge-e2e-harness";
 
 const CROSS_FORMAT_COLLISION = "theta/load/cross-format-collision";
 
@@ -50,105 +40,6 @@ const PACKAGE_PROMPTDUP = ["---", "mode: prompt", "---", "@`promptdup`", ""].joi
 // The control: a package theta whose name NO Pi-owned entry claims — it must
 // still register (the healthy unopposed-package direction the merge keeps).
 const PACKAGE_SOLO = ["---", "mode: prompt", "---", "@`solo`", ""].join("\n");
-
-interface CapturedNote {
-  readonly code: string;
-  readonly message: string;
-  readonly severity: string;
-}
-
-interface Harness {
-  readonly commands: Map<string, { description?: string }>;
-  readonly registrations: string[];
-  readonly notes: CapturedNote[];
-  fireSessionStart(): Promise<void>;
-}
-
-/**
- * The e2e-s6 harness shape (factory + `composeExtensionInstance` over a real
- * temp workspace), extended to (a) seed Pi-OWNED commands the way the pinned
- * host reports a `.pi/prompts/<name>.md` template — `pi.getCommands()` returns
- * `{ name, source: "prompt" }` — and (b) capture the `theta-system-note`
- * channel's `pi.sendMessage` payloads so the load diagnostics are observable
- * (the e2e-s6 harness stubs `sendMessage` as a no-op, capturing nothing).
- */
-function makeHarness(
-  cwd: string,
-  ownedCommands: readonly { name: string; source: string }[],
-): Harness {
-  const commands = new Map<string, { description?: string }>();
-  const registrations: string[] = [];
-  const notes: CapturedNote[] = [];
-  const subscriptions = new Map<
-    string,
-    ((event: unknown, ctx: ExtensionContext) => unknown)[]
-  >();
-
-  const pi = {
-    registerFlag: (): void => {},
-    registerMessageRenderer: (): void => {},
-    registerCommand: (name: string, options: { description?: string }): void => {
-      commands.set(name, options);
-      registrations.push(name);
-    },
-    on: (
-      event: string,
-      handler: (e: unknown, c: ExtensionContext) => unknown,
-    ): void => {
-      const list = subscriptions.get(event) ?? [];
-      list.push(handler);
-      subscriptions.set(event, list);
-    },
-    getFlag: (): undefined => undefined,
-    // The seeded Pi-owned entries plus this instance's own registered commands
-    // (reported as `source: "extension"`, as the host does). `readPiOwnedCommands`
-    // reads this at discovery time to build `piOwnedNames`.
-    getCommands: (): { name: string; source: string }[] => [
-      ...ownedCommands,
-      ...[...commands.keys()].map((name) => ({ name, source: "extension" })),
-    ],
-    sendMessage: (message: {
-      customType?: string;
-      details?: { diagnostics?: readonly CapturedNote[] };
-    }): void => {
-      if (message?.customType !== "theta-system-note") return;
-      const diagnostics = message.details?.diagnostics;
-      if (!Array.isArray(diagnostics)) return;
-      for (const d of diagnostics) {
-        notes.push({ code: d.code, message: d.message, severity: d.severity });
-      }
-    },
-    sendUserMessage: (): void => {},
-  } as unknown as ExtensionAPI;
-
-  const ctx = {
-    cwd,
-    hasUI: false,
-    modelRegistry: { getAvailable: (): readonly unknown[] => [] },
-    ui: { notify: (): void => {} },
-  } as unknown as ExtensionContext;
-
-  const deps: ThetaExtensionDeps = {
-    fixtures: [],
-    composeInstance: (composePi, composeCtx) =>
-      composeExtensionInstance(composePi, composeCtx, {
-        fileWatcher: new FakeFileWatcher(),
-        clock: new FakeClock(),
-      }),
-  };
-  createThetaExtension(deps)(pi);
-
-  return {
-    commands,
-    registrations,
-    notes,
-    fireSessionStart: async () => {
-      for (const handler of subscriptions.get("session_start") ?? []) {
-        await handler({ type: "session_start" }, ctx);
-      }
-    },
-  };
-}
 
 function byCode(notes: readonly CapturedNote[], code: string): CapturedNote[] {
   return notes.filter((n) => n.code === code);

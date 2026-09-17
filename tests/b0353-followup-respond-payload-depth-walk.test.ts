@@ -37,166 +37,19 @@
 // query/query-failure-and-repair.md (QRY-11/QRY-22).
 
 import { describe, expect, it } from "vitest";
+import { runTypedQueryLoop } from "../src/runtime/query-tool-loop";
 import {
-  runTypedQueryLoop,
-  type ForcedRespondTurn,
-  type FreePhaseTurn,
-  type QueryModelDriver,
-  type QueryToolLoopConfig,
-  type TypedQueryOutcome,
-  type TypedQuerySchemaValidation,
-} from "../src/runtime/query-tool-loop";
-import {
-  buildTypedQueryValidation,
-  type FollowUpRespondOutcome,
-} from "../src/runtime/typed-query-validation";
-import { lowerQueryResponseSchema } from "../src/runtime/query-schema-lowering";
-import {
-  DEPTH_VIOLATION_MESSAGE,
-  DEPTH_VIOLATION_SCHEMA_KEYWORD,
-} from "../src/runtime/depth-walk";
-import {
-  AjvSchemaValidator,
-  type LoweredSchema,
-  type SchemaSlug,
-} from "../src/seams/schema-validator";
-import {
-  parseThetaDocument,
-  type ParseThetaDocumentDeps,
-  type SchemaDecl,
-} from "../src/parser/theta-document";
-import type { ValidationIssue } from "../src/runtime/query-error";
-import type { ThetaSource } from "../src/lexer/lexer";
-import type { Checkpoint } from "../src/seams/checkpoint";
-
-// --- Substrate (mirrors the e2e-s3 harness) --------------------------------
-
-const NOOP_CHECKPOINT: Checkpoint = {
-  before(): Promise<void> {
-    return Promise.resolve();
-  },
-};
-
-function liveSignal(): AbortSignal {
-  return new AbortController().signal;
-}
-
-function config(): QueryToolLoopConfig {
-  // A typed query at `max_rounds: 0` fires the forced-respond terminator as its
-  // only turn (QRY-14) — the scripted model supplies only that turn, and the
-  // follow-up rides the injected `driveFollowUp`.
-  return {
-    maxRounds: 0,
-    querySite: { file: "probe.theta", line: 1, column: 1 },
-    thetaSlashName: "/probe",
-    invocationId: "inv-0353",
-    occurredAt: 0,
-  };
-}
-
-/**
- * A scripted model whose SINGLE forced-respond turn is whatever opener a cell
- * needs — a `respond` payload (opens repair when AJV-invalid) or an ERR-17
- * `noncompliance` report (opens repair under a permissive root that AJV would
- * never reject).
- */
-class OpeningModel implements QueryModelDriver {
-  constructor(private readonly opener: ForcedRespondTurn) {}
-  nextFreePhaseTurn(): Promise<FreePhaseTurn> {
-    throw new Error("no free-phase turn on a max_rounds:0 typed query");
-  }
-  runToolBatch(): Promise<readonly never[]> {
-    throw new Error("no tool batch on a max_rounds:0 typed query");
-  }
-  forcedRespondTurn(): Promise<ForcedRespondTurn> {
-    return Promise.resolve(this.opener);
-  }
-}
-
-/** Parse `.theta` source and return its body's `schema` declarations. */
-function schemaDeclsOf(src: string): readonly SchemaDecl[] {
-  const deps = {
-    systemNote: {
-      pi: { sendMessage: () => Promise.resolve() },
-      ui: { notify: () => {} },
-      emitDiagnostic: () => {},
-    },
-    modelMatcher: { resolve: () => "resolved" as const },
-  } as unknown as ParseThetaDocumentDeps;
-  const source: ThetaSource = {
-    path: "probe.theta",
-    bytes: new TextEncoder().encode(src),
-  };
-  const doc = parseThetaDocument(source, deps);
-  return doc.body.statements.filter((s): s is SchemaDecl => s.kind === "schema");
-}
-
-/** The real production AJV validator (byte-identical to the sibling suites). */
-function ajv(): AjvSchemaValidator {
-  const slugOf = (schema: LoweredSchema): SchemaSlug => ({
-    slug: "probe",
-    canonicalBytes: JSON.stringify(schema),
-  });
-  return new AjvSchemaValidator({ emit: () => {}, slugOf });
-}
-
-/** A `FollowUpRespondOutcome` delivering `payload` through the shipped payload arm. */
-function payloadFollowUp(payload: unknown): FollowUpRespondOutcome {
-  return { kind: "respond_outcome", turn: { kind: "payload", payload } };
-}
-
-/**
- * Build the production `TypedQuerySchemaValidation` for `annotation` against
- * `decls`, driving exactly ONE respond-repair follow-up that returns `follow`
- * through the two-phase-restart payload arm. `budget` counts follow-up slots.
- */
-function buildValidation(
-  annotation: string,
-  decls: readonly SchemaDecl[],
-  follow: FollowUpRespondOutcome,
-  budget: number,
-): { readonly validation: TypedQuerySchemaValidation; readonly lowered: LoweredSchema; followUpCalls(): number } {
-  const lowered = lowerQueryResponseSchema(annotation, decls);
-  if (lowered === undefined) {
-    // No silent skipping: a fixture whose annotation does not lower cannot
-    // witness anything — fail loudly naming the unmet precondition.
-    throw new Error(
-      `precondition unmet: annotation \`${annotation}\` failed to lower (parser/lowerer drift)`,
-    );
-  }
-  const state = { calls: 0 };
-  const validation = buildTypedQueryValidation({
-    lowered,
-    schemaValidator: ajv(),
-    attempts: budget,
-    maxRounds: 0,
-    driveFollowUp: () => {
-      state.calls += 1;
-      return Promise.resolve(follow);
-    },
-  });
-  return { validation, lowered, followUpCalls: () => state.calls };
-}
-
-/** Human-readable outcome digest for a red witness's failure message. */
-function describeOutcome(outcome: TypedQueryOutcome): string {
-  if (outcome.kind === "value") {
-    return `kind=value value=${JSON.stringify(outcome.value)}`;
-  }
-  if (outcome.kind === "validation") {
-    return `kind=validation validation_errors=${JSON.stringify(outcome.error.validation_errors)}`;
-  }
-  return `kind=${outcome.kind}`;
-}
-
-/** The canonical depth-violation issue's constants (depth-walk.ts). */
-function isDepthIssue(issue: ValidationIssue | undefined): boolean {
-  return (
-    issue !== undefined &&
-    issue.message === DEPTH_VIOLATION_MESSAGE &&
-    issue.schema_keyword === DEPTH_VIOLATION_SCHEMA_KEYWORD
-  );
-}
+  NOOP_CHECKPOINT,
+  liveSignal,
+  config,
+  OpeningModel,
+  schemaDeclsOf,
+  ajv,
+  payloadFollowUp,
+  buildValidation,
+  describeOutcome,
+  isDepthIssue,
+} from "./helpers/scripted-typed-query-harness";
 
 // The depth-7 follow-up payload (bug doc §Symptom B1/B2): object nesting seven
 // levels deep; `firstTooDeep` fast-fails at `/a/b/c/d/e` (level 6 > 5).
@@ -233,14 +86,14 @@ describe("bug 0353 (B1) — permissive `{}` root: a depth-7 respond-repair follo
       // ERR-17 plain-text noncompliance opens repair (a payload would bind
       // against `{}` and never reach a follow-up).
       new OpeningModel({ kind: "noncompliance", branch: { kind: "plain_text" }, raw_response: null }),
-      config(),
+      config("inv-0353"),
       built.validation,
     );
 
     // The defect witness: at HEAD the depth-7 document binds as the value.
     expect(
       outcome.kind,
-      `schema-subset.md:59: a depth-7 follow-up payload is walked and must NOT bind; observed ${describeOutcome(outcome)}`,
+      `schema-subset.md:59: a depth-7 follow-up payload is walked and must NOT bind; observed ${describeOutcome(outcome, false)}`,
     ).not.toBe("value");
     // Post-fix end state (bug doc §Fix sketch): the breach is a schema_validation
     // failure whose issue is the canonical depth issue.
@@ -283,14 +136,14 @@ describe("bug 0353 (B3) — closed nested-array root: a depth-6 respond-repair f
       NOOP_CHECKPOINT,
       liveSignal(),
       new OpeningModel({ kind: "respond", payload: { a: 42 } }),
-      config(),
+      config("inv-0353"),
       built.validation,
     );
 
     // The defect witness: at HEAD the depth-6 document binds as the value.
     expect(
       outcome.kind,
-      `schema-subset.md:59: a depth-6 follow-up payload is walked and must NOT bind; observed ${describeOutcome(outcome)}`,
+      `schema-subset.md:59: a depth-6 follow-up payload is walked and must NOT bind; observed ${describeOutcome(outcome, false)}`,
     ).not.toBe("value");
     expect(outcome.kind).toBe("validation");
     if (outcome.kind !== "validation") return;
@@ -324,11 +177,11 @@ describe("bug 0353 (B2) — rejecting closed root: the follow-up breach must LEA
       NOOP_CHECKPOINT,
       liveSignal(),
       new OpeningModel({ kind: "respond", payload: { deeply: 42 } }),
-      config(),
+      config("inv-0353"),
       built.validation,
     );
 
-    expect(outcome.kind, `observed ${describeOutcome(outcome)}`).toBe("validation");
+    expect(outcome.kind, `observed ${describeOutcome(outcome, false)}`).toBe("validation");
     if (outcome.kind !== "validation") return;
     expect(outcome.error.attempts, "one follow-up slot debited").toBe(1);
     // Walk-before-AJV: the LEADING issue is the canonical depth breach — at
@@ -367,13 +220,13 @@ describe("bug 0353 (C1 control) — a depth-5 respond-repair follow-up still bin
       NOOP_CHECKPOINT,
       liveSignal(),
       new OpeningModel({ kind: "respond", payload: { a: 42 } }),
-      config(),
+      config("inv-0353"),
       built.validation,
     );
 
     expect(
       outcome.kind,
-      `a depth-5 (at-cap) follow-up must bind; observed ${describeOutcome(outcome)}`,
+      `a depth-5 (at-cap) follow-up must bind; observed ${describeOutcome(outcome, false)}`,
     ).toBe("value");
     if (outcome.kind === "value") {
       expect(outcome.value).toEqual(DEPTH5);
@@ -407,11 +260,11 @@ describe("bug 0353 (C2 control) — CIO-3 ordering: a depth-6 follow-up under an
       NOOP_CHECKPOINT,
       liveSignal(),
       new OpeningModel({ kind: "respond", payload: { deeply: 42 } }),
-      config(),
+      config("inv-0353"),
       built.validation,
     );
 
-    expect(outcome.kind, `observed ${describeOutcome(outcome)}`).toBe("validation");
+    expect(outcome.kind, `observed ${describeOutcome(outcome, false)}`).toBe("validation");
     if (outcome.kind !== "validation") return;
     // Walk-before-AJV, single-issue form: the walk fast-fails and AJV never
     // runs on the depth-6 document, so exactly ONE issue — the maxDepth breach —

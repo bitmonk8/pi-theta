@@ -2,14 +2,7 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import {
-  createThetaExtension,
-  type ThetaExtensionDeps,
-} from "../src/extension/factory";
-import {
-  composeExtensionInstance,
-  type ExtensionInstanceWiring,
-} from "../src/extension/production-composition";
+import type { ExtensionInstanceWiring } from "../src/extension/production-composition";
 import { RELOAD_DEBOUNCE_WINDOW_MS } from "../src/extension/reload-debounce";
 import { FakeClock } from "./helpers/fake-clock";
 import {
@@ -18,9 +11,8 @@ import {
   armedRoots,
   norm,
   settle,
-  waitFor,
 } from "./helpers/fake-file-watcher";
-import { bootWatchArming, makeHarness } from "./helpers/watch-arming-harness";
+import { bootWatchArming } from "./helpers/watch-arming-harness";
 
 // Bug 0339 — witness: the package-discovery source (the fifth active-root
 // source in discovery-sources.md) must be armed for watching when its
@@ -316,20 +308,12 @@ describe("Bug 0339 — end-to-end: the first .theta in an armed empty package di
     fakeWatcher = new RecursiveRootFileWatcher();
     fakeClock = new FakeClock();
     wiring = undefined;
-    const harness = makeHarness(workspace);
-    const deps: ThetaExtensionDeps = {
-      fixtures: [],
-      composeInstance: async (pi, ctx) => {
-        wiring = await composeExtensionInstance(pi, ctx, {
-          fileWatcher: fakeWatcher,
-          clock: fakeClock,
-        });
-        return wiring;
-      },
-    };
-    createThetaExtension(deps)(harness.pi);
-    await harness.fireSessionStart();
-    await waitFor(() => fakeWatcher.watchCalls.length > 0, "session_start to arm the watcher");
+    const result = await bootWatchArming(workspace, {}, {
+      fileWatcher: fakeWatcher,
+      clock: fakeClock,
+      waitLabel: "session_start to arm the watcher",
+    });
+    wiring = result.wiring;
   }
 
   it("Case H: a .theta created in a present-but-empty package dir fires a reload and registers", async () => {
