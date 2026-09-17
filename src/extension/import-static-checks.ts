@@ -1316,54 +1316,16 @@ async function collectImportedSpecifierFacts(
 }
 
 /**
- * Run the load-time `.thetalib` import checks for one discovered theta, returning
- * every diagnostic (error-severity entries un-register the theta) and the
- * resolved imported symbols to materialise into its runtime environment.
- *
- * A theta with no top-level `import` (or an in-memory theta with no source path)
- * resolves nothing and yields an empty result — the passing valid-import control
- * is preserved: a resolvable `.thetalib` whose exports satisfy every specifier
- * produces no diagnostic and registers cleanly.
+ * Create the per-theta parse, import-graph, module-scope and re-export
+ * materialisation closures with their shared caches. Graph-walk diagnostics
+ * append to the caller's sink in traversal order.
  */
-export async function checkThetaImports(
-  input: ThetaCompositionInput,
-  deps: {
-    readonly fs: FileSystem;
-    readonly parseDeps: PassParseDeps;
-    /**
-     * Bug 0267: whether this call may claim its rows against the pass-scoped
-     * delivered-set (bug 0264's dedup). DEFAULT true — every existing call
-     * site (the discovered-theta compose loop) keeps claiming, byte-equivalent
-     * to before this parameter existed. Pass `false` for an OBSERVING walk
-     * that must not consume the callee's own delivery budget — a `tools:`
-     * caller probing whether a callee it has not yet discovered would fail
-     * this check. Consuming the budget from that probe would starve the
-     * callee's own later `runComposePass` iteration of its rows (the note the
-     * author actually reads), while `undelivered` here is never read by the
-     * probe — it discards `ThetaImportCheck` down to a boolean
-     * (`calleeFailsOwnStructuralChecks`). `tests/thetalib-reparse-walk-single-delivery.test.ts`
-     * is bug 0264's single-delivery witness; this parameter exists so this
-     * bug's fix cannot move its counts.
-     */
-    readonly claimDelivery?: boolean;
-  },
-): Promise<ThetaImportCheck> {
-  const diagnostics: Diagnostic[] = [];
-  const imports: MaterializedImport[] = [];
-  const importDecls = collectImports(input.body);
-  if (importDecls.length === 0 || input.sourcePath === undefined) {
-    return {
-      diagnostics,
-      imports,
-      undelivered: diagnostics,
-      resolvedLibs: [],
-      importedTypeDecls: { schemas: [], enums: [] },
-    };
-  }
-
-  const fromFile = normalizePath(input.sourcePath);
-  const probe = new CachingThetaLibProbe(deps.fs);
-  const resolver: Resolver = new RelativeThetaLibResolver(probe);
+function createImportResolutionKit(
+  deps: { readonly fs: FileSystem; readonly parseDeps: PassParseDeps },
+  probe: CachingThetaLibProbe,
+  resolver: Resolver,
+  diagnostics: Diagnostic[],
+) {
   const parseCache = new Map<string, ParsedThetaLib | undefined>();
   // Bug 0428: resolved paths whose `readBytes` rejected, distinguished from the
   // pipeline's only other `parseThetaLib` outcome (a document, however
@@ -1613,6 +1575,188 @@ export async function checkThetaImports(
     return undefined;
   };
 
+  return {
+    parseThetaLib,
+    walkThetaLib,
+    materializeChain,
+    buildModuleScope,
+    parseCache,
+    walked,
+    graphEdges,
+    unreadablePaths,
+  };
+}
+
+/**
+ * Check registration errors and import declarations across the reached libs,
+ * then the importing theta's union of specifiers for name collisions. Retain
+ * the parse-cache snapshot and append diagnostics in the original pass order.
+ */
+async function checkTransitiveLibDeclarations(
+  parseCache: Map<string, ParsedThetaLib | undefined>,
+  registrationFilteredPaths: Set<string>,
+  probe: CachingThetaLibProbe,
+  resolver: Resolver,
+  parseThetaLib: (resolvedPath: string) => Promise<ParsedThetaLib | undefined>,
+  sourcePath: string,
+  allSpecifiers: readonly ImportSpecifier[],
+  localTopLevelNames: readonly string[],
+  diagnostics: Diagnostic[],
+): Promise<void> {
+  // Bug 0304 fixes 2 and 3: every lib the walks above reached — direct AND
+  // transitively-walked, over both `import` and `export … from` edges — sits in
+  // `parseCache` by now, keyed by resolved path, so one pass over a snapshot of
+  // it (`[...parseCache]`; the loop mutates nothing here, but the snapshot
+  // keeps this pass independent of any future entry the loop body might add)
+  // covers both:
+  //   (2) the registration-error filter (imports.md :111's transitive half of
+  //       the batch) for every entry the decl loop above did NOT already
+  //       filter inline (`registrationFilteredPaths`) — i.e. every
+  //       transitively-walked lib, so it is filtered exactly once overall
+  //       without disturbing the direct-decl IMP-4-then-IMP-3 emission order;
+  //   (3) the unknown-symbol check IMP-3 already runs for the importing
+  //       THETA's own specifiers, now also run for each lib's OWN `import`
+  //       specifiers against its resolved source's export set — no call site
+  //       did this before, which is candidate C3's drop. An unresolvable
+  //       source is skipped: `walkThetaLib`'s edge loop (fix 1) already pushes
+  //       IMP-1 for it, so checking symbols against a source that does not
+  //       exist would double-report the same missing-file fault as an
+  //       unrelated unknown-symbol one.
+  for (const [libResolvedPath, parsedLib] of [...parseCache]) {
+    if (parsedLib === undefined) {
+      continue;
+    }
+    if (!registrationFilteredPaths.has(libResolvedPath)) {
+      registrationFilteredPaths.add(libResolvedPath);
+      for (const diagnostic of parsedLib.document.diagnostics) {
+        if (isRegistrationError(diagnostic)) {
+          diagnostics.push(diagnostic);
+        }
+      }
+    }
+    for (const stmt of parsedLib.document.body.statements) {
+      if (stmt.kind !== "import" || !stmt.path.endsWith(".thetalib")) {
+        continue;
+      }
+      const resolved = await resolveAndParseThetaLibReference(
+        stmt.path,
+        stmt.range,
+        libResolvedPath,
+        probe,
+        resolver,
+        parseThetaLib,
+      );
+      if (resolved === undefined) {
+        continue;
+      }
+      diagnostics.push(
+        ...checkImportUnknownSymbols(
+          libResolvedPath,
+          stmt.path,
+          stmt.specifiers,
+          computeThetaLibExports(extractThetaLibForms(resolved.parsed.document.body)),
+        ),
+      );
+    }
+
+    // Bug 0335: imports.md §"Name collisions" refuses "an imported symbol whose name
+    // collides with a top-level declaration in the same file" without
+    // exempting `.thetalib` files, but until now the collision arm only ever
+    // ran over the COMPOSING theta's own specifiers (below) — never over a
+    // resolved dependency `.thetalib`'s own `import … from` specifiers against
+    // its own top-level `fn`/`enum`/`schema` names. That let a library import
+    // `X` and declare its own `X` load clean, then resolve inconsistently at
+    // runtime depending on declaration kind and read site. This reuses the
+    // existing `theta/parse/import-name-collision` code (no new registry row)
+    // over the union of the library's OWN import specifiers and its OWN
+    // top-level names, sited on the library file itself — the same arm the
+    // theta-side oracle already fires for the identical collision.
+    const libOwnSpecifiers: ImportSpecifier[] = [];
+    for (const libImportDecl of collectImports(parsedLib.document.body)) {
+      libOwnSpecifiers.push(...libImportDecl.specifiers);
+    }
+    diagnostics.push(
+      ...checkImportNameCollisions(
+        libResolvedPath,
+        libOwnSpecifiers,
+        collectTopLevelNames(parsedLib.document.body),
+      ),
+    );
+  }
+
+  // IMP-3 (name collisions): check the union of every resolved decl's specifiers
+  // once, so two imports binding the same local name — across two separate
+  // `import` statements, whether from different `.thetalib` files or the same file
+  // twice — fire `theta/parse/import-name-collision` (imports.md §"Name
+  // collisions"), mirroring the import-vs-local-declaration arm.
+  diagnostics.push(
+    ...checkImportNameCollisions(
+      sourcePath,
+      allSpecifiers,
+      localTopLevelNames,
+    ),
+  );
+}
+
+/**
+ * Run the load-time `.thetalib` import checks for one discovered theta, returning
+ * every diagnostic (error-severity entries un-register the theta) and the
+ * resolved imported symbols to materialise into its runtime environment.
+ *
+ * A theta with no top-level `import` (or an in-memory theta with no source path)
+ * resolves nothing and yields an empty result — the passing valid-import control
+ * is preserved: a resolvable `.thetalib` whose exports satisfy every specifier
+ * produces no diagnostic and registers cleanly.
+ */
+export async function checkThetaImports(
+  input: ThetaCompositionInput,
+  deps: {
+    readonly fs: FileSystem;
+    readonly parseDeps: PassParseDeps;
+    /**
+     * Bug 0267: whether this call may claim its rows against the pass-scoped
+     * delivered-set (bug 0264's dedup). DEFAULT true — every existing call
+     * site (the discovered-theta compose loop) keeps claiming, byte-equivalent
+     * to before this parameter existed. Pass `false` for an OBSERVING walk
+     * that must not consume the callee's own delivery budget — a `tools:`
+     * caller probing whether a callee it has not yet discovered would fail
+     * this check. Consuming the budget from that probe would starve the
+     * callee's own later `runComposePass` iteration of its rows (the note the
+     * author actually reads), while `undelivered` here is never read by the
+     * probe — it discards `ThetaImportCheck` down to a boolean
+     * (`calleeFailsOwnStructuralChecks`). `tests/thetalib-reparse-walk-single-delivery.test.ts`
+     * is bug 0264's single-delivery witness; this parameter exists so this
+     * bug's fix cannot move its counts.
+     */
+    readonly claimDelivery?: boolean;
+  },
+): Promise<ThetaImportCheck> {
+  const diagnostics: Diagnostic[] = [];
+  const imports: MaterializedImport[] = [];
+  const importDecls = collectImports(input.body);
+  if (importDecls.length === 0 || input.sourcePath === undefined) {
+    return {
+      diagnostics,
+      imports,
+      undelivered: diagnostics,
+      resolvedLibs: [],
+      importedTypeDecls: { schemas: [], enums: [] },
+    };
+  }
+
+  const fromFile = normalizePath(input.sourcePath);
+  const probe = new CachingThetaLibProbe(deps.fs);
+  const resolver: Resolver = new RelativeThetaLibResolver(probe);
+  const {
+    parseThetaLib,
+    walkThetaLib,
+    materializeChain,
+    parseCache,
+    walked,
+    graphEdges,
+    unreadablePaths,
+  } = createImportResolutionKit(deps, probe, resolver, diagnostics);
+
   const localTopLevelNames = collectTopLevelNames(input.body);
   // Bug 0138/0429/0430/0448/0465, PTQ-0368 Seam C: resolve every direct
   // `import` declaration's specifiers against its resolved `.thetalib`'s own
@@ -1741,98 +1885,16 @@ export async function checkThetaImports(
     ...(await resolveReExportClosure(walked, parseThetaLib, probe, resolver, unreadablePaths)),
   );
 
-  // Bug 0304 fixes 2 and 3: every lib the walks above reached — direct AND
-  // transitively-walked, over both `import` and `export … from` edges — sits in
-  // `parseCache` by now, keyed by resolved path, so one pass over a snapshot of
-  // it (`[...parseCache]`; the loop mutates nothing here, but the snapshot
-  // keeps this pass independent of any future entry the loop body might add)
-  // covers both:
-  //   (2) the registration-error filter (imports.md :111's transitive half of
-  //       the batch) for every entry the decl loop above did NOT already
-  //       filter inline (`registrationFilteredPaths`) — i.e. every
-  //       transitively-walked lib, so it is filtered exactly once overall
-  //       without disturbing the direct-decl IMP-4-then-IMP-3 emission order;
-  //   (3) the unknown-symbol check IMP-3 already runs for the importing
-  //       THETA's own specifiers, now also run for each lib's OWN `import`
-  //       specifiers against its resolved source's export set — no call site
-  //       did this before, which is candidate C3's drop. An unresolvable
-  //       source is skipped: `walkThetaLib`'s edge loop (fix 1) already pushes
-  //       IMP-1 for it, so checking symbols against a source that does not
-  //       exist would double-report the same missing-file fault as an
-  //       unrelated unknown-symbol one.
-  for (const [libResolvedPath, parsedLib] of [...parseCache]) {
-    if (parsedLib === undefined) {
-      continue;
-    }
-    if (!registrationFilteredPaths.has(libResolvedPath)) {
-      registrationFilteredPaths.add(libResolvedPath);
-      for (const diagnostic of parsedLib.document.diagnostics) {
-        if (isRegistrationError(diagnostic)) {
-          diagnostics.push(diagnostic);
-        }
-      }
-    }
-    for (const stmt of parsedLib.document.body.statements) {
-      if (stmt.kind !== "import" || !stmt.path.endsWith(".thetalib")) {
-        continue;
-      }
-      const resolved = await resolveAndParseThetaLibReference(
-        stmt.path,
-        stmt.range,
-        libResolvedPath,
-        probe,
-        resolver,
-        parseThetaLib,
-      );
-      if (resolved === undefined) {
-        continue;
-      }
-      diagnostics.push(
-        ...checkImportUnknownSymbols(
-          libResolvedPath,
-          stmt.path,
-          stmt.specifiers,
-          computeThetaLibExports(extractThetaLibForms(resolved.parsed.document.body)),
-        ),
-      );
-    }
-
-    // Bug 0335: imports.md §"Name collisions" refuses "an imported symbol whose name
-    // collides with a top-level declaration in the same file" without
-    // exempting `.thetalib` files, but until now the collision arm only ever
-    // ran over the COMPOSING theta's own specifiers (below) — never over a
-    // resolved dependency `.thetalib`'s own `import … from` specifiers against
-    // its own top-level `fn`/`enum`/`schema` names. That let a library import
-    // `X` and declare its own `X` load clean, then resolve inconsistently at
-    // runtime depending on declaration kind and read site. This reuses the
-    // existing `theta/parse/import-name-collision` code (no new registry row)
-    // over the union of the library's OWN import specifiers and its OWN
-    // top-level names, sited on the library file itself — the same arm the
-    // theta-side oracle already fires for the identical collision.
-    const libOwnSpecifiers: ImportSpecifier[] = [];
-    for (const libImportDecl of collectImports(parsedLib.document.body)) {
-      libOwnSpecifiers.push(...libImportDecl.specifiers);
-    }
-    diagnostics.push(
-      ...checkImportNameCollisions(
-        libResolvedPath,
-        libOwnSpecifiers,
-        collectTopLevelNames(parsedLib.document.body),
-      ),
-    );
-  }
-
-  // IMP-3 (name collisions): check the union of every resolved decl's specifiers
-  // once, so two imports binding the same local name — across two separate
-  // `import` statements, whether from different `.thetalib` files or the same file
-  // twice — fire `theta/parse/import-name-collision` (imports.md §"Name
-  // collisions"), mirroring the import-vs-local-declaration arm.
-  diagnostics.push(
-    ...checkImportNameCollisions(
-      input.sourcePath,
-      allSpecifiers,
-      localTopLevelNames,
-    ),
+  await checkTransitiveLibDeclarations(
+    parseCache,
+    registrationFilteredPaths,
+    probe,
+    resolver,
+    parseThetaLib,
+    input.sourcePath,
+    allSpecifiers,
+    localTopLevelNames,
+    diagnostics,
   );
 
   // RFC 0001 FN-6 across the import boundary: an imported `.thetalib` `subagent
