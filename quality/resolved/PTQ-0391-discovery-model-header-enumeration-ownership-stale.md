@@ -2,7 +2,7 @@
 id: PTQ-0391
 title: discovery-model.ts's header lists per-source enumeration as one of discovery-walk.ts's own concerns, though that code now lives in discovery-source-enumerate.ts
 lens: D2                     # D2 | D4 | D7 | D8 | D9 - the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - src/discovery/discovery-model.ts:1-4

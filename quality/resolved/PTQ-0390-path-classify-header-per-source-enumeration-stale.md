@@ -2,7 +2,7 @@
 id: PTQ-0390
 title: discovery-path-classify.ts's header still attributes resolveEntry/enumerateDirectory to discovery-walk.ts, though both moved to discovery-source-enumerate.ts
 lens: D2                     # D2 | D4 | D7 | D8 | D9 - the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - src/discovery/discovery-path-classify.ts:7-13

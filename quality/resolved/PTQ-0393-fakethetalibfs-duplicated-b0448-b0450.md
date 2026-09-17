@@ -2,7 +2,7 @@
 id: PTQ-0393
 title: b0448 and b0450 each redeclare the fakeThetaLibFs double that tests/helpers/thetalib-load-harness.ts already exports
 lens: D7                     # D2 | D4 | D7 | D8 | D9 - the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - tests/b0448-imported-non-object-ctor.test.ts:140-176

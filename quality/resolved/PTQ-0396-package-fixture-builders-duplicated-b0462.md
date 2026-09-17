@@ -2,7 +2,7 @@
 id: PTQ-0396
 title: b0462-package-identity-dedup and b0462-package-merge-priority-adjudication each redeclare the same promptTheta/plant-package-theta fixture builders
 lens: D7                     # D2 | D4 | D7 | D8 | D9 - the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - tests/b0462-package-identity-dedup.test.ts:44-65

@@ -2,7 +2,7 @@
 id: PTQ-0384
 title: b0328 and b0343 redeclare an identical seven-function spawnSubagentConversation producer harness
 lens: D7                     # D2 | D4 | D7 | D8 | D9 - the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - tests/b0328-root-closure-hash-marshalled.test.ts:208-279

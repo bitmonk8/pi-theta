@@ -2,7 +2,7 @@
 id: PTQ-0364
 title: RFC 0009's prompt-mode with-clause gate is hand-duplicated across the invoke(...) and .theta-callable call surfaces
 lens: D4                     # D2 | D4 | D7 | D8 | D9 - the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - src/extension/invoke-static-checks.ts:939-958

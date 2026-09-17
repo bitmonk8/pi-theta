@@ -2,7 +2,7 @@
 id: PTQ-0389
 title: discovery-walk.ts's header claims FailureModes, CONVENTIONAL_MODES, and CLI_MODES are imported back from discovery-model.ts, though the import statement omits all three
 lens: D2                     # D2 | D4 | D7 | D8 | D9 - the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - src/discovery/discovery-walk.ts:33-40

@@ -2,7 +2,7 @@
 id: PTQ-0379
 title: discovery-walk.ts's Spec line omits package-and-settings.md, the document defining DISC-5 which resolveSettingsSource implements and cites eight times
 lens: D2                     # D2 | D4 | D7 | D8 | D9 - the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - src/discovery/discovery-walk.ts:42-44

@@ -2,7 +2,7 @@
 id: PTQ-0397
 title: b0369 redeclares b0368's entire offline producer/pure-host harness verbatim across seven functions
 lens: D7                     # D2 | D4 | D7 | D8 | D9 - the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - tests/b0369-control-flow-kind-belts.test.ts:185-202
