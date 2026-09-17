@@ -92,6 +92,34 @@ const STAMP_ERROR_MESSAGE = "clock refused (non-stale)";
 // throws at the fork.
 const KNOWN_WALL_NOW = 1720000000000;
 
+/**
+ * The `SystemNoteChannelDeps` tail every local channel double in this file
+ * shares: a fresh recording `diagnostics` array behind `emitDiagnostic`, a
+ * fresh `RendererGate` (available, so `sendSystemNote` stays on its
+ * steady-state `pi.sendMessage`-first path, not the degraded ui-only arm),
+ * and a fresh `SystemNoteChannelHealth` (so a throw is treated as non-stale,
+ * never the PIC-67 stale-dead arm). Each caller supplies only the two fields
+ * that vary per scenario — `pi.sendMessage` (throw vs. record) and
+ * `ui.notify` (record vs. no-op) — and gets back the built `channel`
+ * alongside the `diagnostics` array it records onto.
+ */
+function channelWith(
+  sendMessage: SystemNoteChannelDeps["pi"]["sendMessage"],
+  notify: SystemNoteChannelDeps["ui"]["notify"],
+): { readonly channel: SystemNoteChannelDeps; readonly diagnostics: Diagnostic[] } {
+  const diagnostics: Diagnostic[] = [];
+  const channel: SystemNoteChannelDeps = {
+    pi: { sendMessage },
+    ui: { notify },
+    emitDiagnostic: (diagnostic: Diagnostic): void => {
+      diagnostics.push(diagnostic);
+    },
+    rendererGate: new RendererGate(),
+    health: new SystemNoteChannelHealth(),
+  };
+  return { channel, diagnostics };
+}
+
 // ===========================================================================
 // PART A — the two PUBLIC emitters (verbatim witness).
 // ===========================================================================
@@ -154,24 +182,14 @@ interface RecordingChannel {
  */
 function recordingChannel(): RecordingChannel {
   const notifyCalls: NotifyCall[] = [];
-  const diagnostics: Diagnostic[] = [];
-  const channel: SystemNoteChannelDeps = {
-    pi: {
-      sendMessage: (): void => {
-        throw new Error(HOST_ERROR_MESSAGE);
-      },
+  const { channel, diagnostics } = channelWith(
+    (): void => {
+      throw new Error(HOST_ERROR_MESSAGE);
     },
-    ui: {
-      notify: (message: string, type: "error"): void => {
-        notifyCalls.push({ message, type });
-      },
+    (message: string, type: "error"): void => {
+      notifyCalls.push({ message, type });
     },
-    emitDiagnostic: (diagnostic: Diagnostic): void => {
-      diagnostics.push(diagnostic);
-    },
-    rendererGate: new RendererGate(),
-    health: new SystemNoteChannelHealth(),
-  };
+  );
   return { channel, notifyCalls, diagnostics };
 }
 
@@ -213,24 +231,14 @@ interface StampGuardRecording {
 function stampGuardChannel(): StampGuardRecording {
   const sends: unknown[] = [];
   const notifyCalls: NotifyCall[] = [];
-  const diagnostics: Diagnostic[] = [];
-  const channel: SystemNoteChannelDeps = {
-    pi: {
-      sendMessage: (message): void => {
-        sends.push(message);
-      },
+  const { channel, diagnostics } = channelWith(
+    (message): void => {
+      sends.push(message);
     },
-    ui: {
-      notify: (message: string, type: "error"): void => {
-        notifyCalls.push({ message, type });
-      },
+    (message: string, type: "error"): void => {
+      notifyCalls.push({ message, type });
     },
-    emitDiagnostic: (diagnostic: Diagnostic): void => {
-      diagnostics.push(diagnostic);
-    },
-    rendererGate: new RendererGate(),
-    health: new SystemNoteChannelHealth(),
-  };
+  );
   return { channel, sends, notifyCalls, diagnostics };
 }
 
@@ -467,20 +475,12 @@ function recordingSystemNoteChannel(): {
   readonly diagnostics: Diagnostic[];
 } {
   const notes: CapturedNote[] = [];
-  const diagnostics: Diagnostic[] = [];
-  const channel: SystemNoteChannelDeps = {
-    pi: {
-      sendMessage: (message): void => {
-        notes.push(message as CapturedNote);
-      },
+  const { channel, diagnostics } = channelWith(
+    (message): void => {
+      notes.push(message as CapturedNote);
     },
-    ui: { notify: (): void => {} },
-    emitDiagnostic: (diagnostic: Diagnostic): void => {
-      diagnostics.push(diagnostic);
-    },
-    rendererGate: new RendererGate(),
-    health: new SystemNoteChannelHealth(),
-  };
+    (): void => {},
+  );
   return { channel, notes, diagnostics };
 }
 
@@ -491,21 +491,12 @@ function throwingSystemNoteChannel(): {
   readonly channel: SystemNoteChannelDeps;
   readonly diagnostics: Diagnostic[];
 } {
-  const diagnostics: Diagnostic[] = [];
-  const channel: SystemNoteChannelDeps = {
-    pi: {
-      sendMessage: (): void => {
-        throw new Error(HOST_ERROR_MESSAGE);
-      },
+  return channelWith(
+    (): void => {
+      throw new Error(HOST_ERROR_MESSAGE);
     },
-    ui: { notify: (): void => {} },
-    emitDiagnostic: (diagnostic: Diagnostic): void => {
-      diagnostics.push(diagnostic);
-    },
-    rendererGate: new RendererGate(),
-    health: new SystemNoteChannelHealth(),
-  };
-  return { channel, diagnostics };
+    (): void => {},
+  );
 }
 
 /** A recording top-level `pi` — the seam the RAW send lands on today. */
