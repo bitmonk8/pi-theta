@@ -101,14 +101,11 @@ import {
   invokeArgTypeMismatchMessage,
   withClauseInProcessCalleeMessage,
   withClausePiToolMessage,
-  withClausePromptModeCalleeMessage,
   INVOKE_ARG_TYPE_MISMATCH_CODE,
   WITH_CLAUSE_IN_PROCESS_CALLEE_CODE,
   WITH_CLAUSE_IN_PROCESS_CALLEE_HINT,
   WITH_CLAUSE_PI_TOOL_CODE,
   WITH_CLAUSE_PI_TOOL_HINT,
-  WITH_CLAUSE_PROMPT_MODE_CALLEE_CODE,
-  WITH_CLAUSE_PROMPT_MODE_CALLEE_HINT,
   type InvokeArgSlot,
 } from "../parser/invoke-diagnostics";
 import {
@@ -120,6 +117,7 @@ import { normalizePath } from "../normalize-path";
 import type { FileSystem } from "../seams/file-system";
 import type { MaterializedImport } from "../runtime/lexical-environment";
 import type { ThetaCompositionInput } from "./theta-composition-producer";
+import { withClausePromptModeRefusal } from "./with-clause-prompt-mode-gate";
 // Bug 0072: the two static tool-argument TYPE checks reuse the existing `V20b`
 // static-type-inference substrate and `V2b` compatibility engine rather than
 // re-deriving a parallel type model for this pass.
@@ -416,42 +414,6 @@ function checkClauseCwdType(input: {
     );
   }
   return out;
-}
-
-/**
- * RFC 0009 (invocation.md INV-8 static mode gate): refuse a call-site `with`
- * clause on a statically-resolvable PROMPT-mode callee, before that site's
- * arity/type block — the one shared decision both clause-bearing surfaces
- * apply, mirroring `checkClauseCwdType`'s own surface-spanning shape for the
- * sibling INV-6 rule above. `mode: undefined` means the callee is not
- * statically resolvable (the `invoke(...)` surface's own possibility; the
- * `.theta`-callable surface's callee is always statically resolvable by the
- * time its caller reaches this gate) and then no diagnostic fires — the
- * runtime validation arm owns that case (registry row Trigger). `presented`
- * renders as `<callee>`: the `invoke(...)` surface passes the verbatim path
- * literal (that IS the text at its own diagnostic range) and the
- * `.theta`-callable surface passes the presented callable name
- * (placeholder-rendering-b.md §7) — each caller's own existing rendering
- * rule, unchanged by this extraction.
- */
-function withClausePromptModeRefusal(input: {
-  readonly clause?: CallWithClause;
-  readonly mode: ThetaMode | undefined;
-  readonly file: string;
-  readonly range: SourceRange;
-  readonly presented: string;
-}): Diagnostic | undefined {
-  if (input.clause === undefined || input.mode !== "prompt") {
-    return undefined;
-  }
-  return {
-    severity: "error",
-    code: WITH_CLAUSE_PROMPT_MODE_CALLEE_CODE,
-    file: input.file,
-    range: input.range,
-    message: withClausePromptModeCalleeMessage(input.presented),
-    hint: WITH_CLAUSE_PROMPT_MODE_CALLEE_HINT,
-  };
 }
 
 /** Resolve an `invoke` path literal to a forward-slash-normalised absolute path. */
