@@ -921,8 +921,8 @@ describe("H8a-T — bug 0071: a .theta-callable call at wrong arity (Convention:
 // `theta-system-note` channel (AGENTS.md §"Assert on real observables"): the
 // shipped path's `loadSink` (`composeExtensionInstance`,
 // `production-composition.ts`) routes every error-severity load-phase
-// diagnostic onto that channel (`preEvalRouter.routePreEvalFailure` →
-// `sendSystemNote`), so the containment diagnostic is directly observable off
+// diagnostic onto that channel (`deliverOperatorNotePreferringEntry` in `emitLoadNoteGroup`
+// in `src/extension/production-composition.ts` → `sendSystemNote`), so the containment diagnostic is directly observable off
 // the settled `SessionManager` — the same channel the subagent-mode cell
 // above already reads through `driveSlashCaptureTurn`, confirming the channel
 // is live (not degraded) in this exact harness. This cell reads it directly
@@ -2044,9 +2044,9 @@ describe("H8a-T — bug 0080: constructor field order follows the schema's DECLA
 // cell): `preEvalCauseOf` maps every `theta/parse/*` code to the
 // "lex-parse-type" cause and `parseDiscoveredTheta`'s drop path
 // (`{ dropped: [...document.diagnostics, …] }`) forwards through the SAME
-// `sink.emitGroup` → `preEvalRouter.routePreEvalFailure` delivery surface
-// bug 0110's `theta/load/*` diagnostic uses — the router shares one delivery
-// surface across every cause. The diagnostic fires at LOAD time, inside
+// `sink.emitGroup` → `deliverOperatorNotePreferringEntry` inside `emitLoadNoteGroup`
+// in `src/extension/production-composition.ts` — the same delivery surface bug 0110's
+// `theta/load/*` diagnostic uses, shared by every cause. The diagnostic fires at LOAD time, inside
 // `bootShippedExtension`'s `session.bindExtensions({})`, before any slash is
 // driven, so the full entry list — not a per-drive slice — is the delta.
 // Registration-only: no slash command is invoked, so no model turn runs and

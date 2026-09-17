@@ -1,10 +1,9 @@
-// V4e-T — load-time pre-evaluation failure routing (tests). These tests are
-// written against the seam the paired V4e implementation leaf fills in; they
-// MUST fail red for the intended reason (the pre-eval routing is absent),
-// citing ERR-1…ERR-6 and ERR-16 inline. Each cause's assembled
-// `theta-system-note` is handed to the router; the router MUST route it onto the
-// `theta-system-note` channel with `triggerTurn:false`, never firing a turn and
-// never becoming an evaluation outcome.
+// V4e-T — load-time pre-evaluation failure routing (tests). These tests exercise
+// `deliverOperatorNotePreferringEntry`, used by production composition for
+// pre-eval delivery, citing ERR-1…ERR-6 and ERR-16 inline. Each cause's assembled
+// `theta-system-note` MUST route onto the `theta-system-note` fallback channel
+// with `triggerTurn:false`, never firing a turn and never becoming an
+// evaluation outcome.
 //
 // Spec: errors-and-results/error-model.md (ERR-1…ERR-6, ERR-16),
 // hard-ceilings/ceilings-3-and-4.md (CIO-1 ceiling-#4 slash-load `params`
@@ -13,17 +12,17 @@
 
 import { describe, expect, it, vi } from "vitest";
 import {
-  createLoadFailurePreEvalRouter,
-  type PreEvalFailureCause,
-} from "../src/extension/load-pre-eval";
-import {
+  deliverOperatorNotePreferringEntry,
   SYSTEM_NOTE_CHANNEL,
   type SystemNote,
   type SystemNoteChannelDeps,
   type SystemNoteDetails,
   type SystemNoteSender,
 } from "../src/extension/system-note-channel";
-import { preEvalCauseOf } from "../src/extension/production-composition";
+import {
+  preEvalCauseOf,
+  type PreEvalFailureCause,
+} from "../src/extension/production-composition";
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
 
 // A recording `theta-system-note` channel. `pi.sendMessage` is the only surface
@@ -83,9 +82,8 @@ describe("V4e-T — load-time pre-evaluation failure routing", () => {
     // surfaces `theta/load/host-incompatible`; it MUST route pre-eval, never
     // firing a turn.
     const { channel, sendMessage } = recordingChannel();
-    const router = createLoadFailurePreEvalRouter({ channel });
 
-    router.routePreEvalFailure(diagNote("theta/load/host-incompatible"));
+    deliverOperatorNotePreferringEntry(diagNote("theta/load/host-incompatible"), channel);
 
     const note = onlyNote(sendMessage);
     expect(note.customType).toBe(SYSTEM_NOTE_CHANNEL);
@@ -97,9 +95,8 @@ describe("V4e-T — load-time pre-evaluation failure routing", () => {
   it("ERR-2: a lex/parse/type failure routes pre-eval with triggerTurn:false", () => {
     // ERR-2: lex / parse / type batches route pre-eval.
     const { channel, sendMessage } = recordingChannel();
-    const router = createLoadFailurePreEvalRouter({ channel });
 
-    router.routePreEvalFailure(diagNote("theta/parse/unterminated-template"));
+    deliverOperatorNotePreferringEntry(diagNote("theta/parse/unterminated-template"), channel);
 
     const note = onlyNote(sendMessage);
     expect(note.customType).toBe(SYSTEM_NOTE_CHANNEL);
@@ -109,9 +106,8 @@ describe("V4e-T — load-time pre-evaluation failure routing", () => {
   it("ERR-3: a frontmatter failure routes pre-eval with triggerTurn:false", () => {
     // ERR-3: frontmatter rejection (V6a) surfaces e.g. `theta/load/missing-mode`.
     const { channel, sendMessage } = recordingChannel();
-    const router = createLoadFailurePreEvalRouter({ channel });
 
-    router.routePreEvalFailure(diagNote("theta/load/missing-mode"));
+    deliverOperatorNotePreferringEntry(diagNote("theta/load/missing-mode"), channel);
 
     const note = onlyNote(sendMessage);
     expect(note.customType).toBe(SYSTEM_NOTE_CHANNEL);
@@ -122,9 +118,8 @@ describe("V4e-T — load-time pre-evaluation failure routing", () => {
     // ERR-4: binder-model resolution failure (V11a) surfaces
     // `theta/load/binder-model-unresolved`.
     const { channel, sendMessage } = recordingChannel();
-    const router = createLoadFailurePreEvalRouter({ channel });
 
-    router.routePreEvalFailure(diagNote("theta/load/binder-model-unresolved"));
+    deliverOperatorNotePreferringEntry(diagNote("theta/load/binder-model-unresolved"), channel);
 
     const note = onlyNote(sendMessage);
     expect(note.customType).toBe(SYSTEM_NOTE_CHANNEL);
@@ -136,14 +131,13 @@ describe("V4e-T — load-time pre-evaluation failure routing", () => {
     // rendered binder system-note; it routes pre-eval, never an evaluation
     // outcome (excluded from the success/fail/cancelled trichotomy).
     const { channel, sendMessage } = recordingChannel();
-    const router = createLoadFailurePreEvalRouter({ channel });
 
     const note: SystemNote = {
       content: "theta /demo: argument binding failed — could not parse arguments",
       display: true,
       details: { event: { kind: "ceiling", surfaced: "ceiling#3" } },
     };
-    router.routePreEvalFailure(note);
+    deliverOperatorNotePreferringEntry(note, channel);
 
     const routed = onlyNote(sendMessage);
     expect(routed.customType).toBe(SYSTEM_NOTE_CHANNEL);
@@ -154,9 +148,8 @@ describe("V4e-T — load-time pre-evaluation failure routing", () => {
     // ERR-6: `tools:` resolution failure (V10a/V6a) surfaces e.g.
     // `theta/load/unknown-tool`.
     const { channel, sendMessage } = recordingChannel();
-    const router = createLoadFailurePreEvalRouter({ channel });
 
-    router.routePreEvalFailure(diagNote("theta/load/unknown-tool"));
+    deliverOperatorNotePreferringEntry(diagNote("theta/load/unknown-tool"), channel);
 
     const note = onlyNote(sendMessage);
     expect(note.customType).toBe(SYSTEM_NOTE_CHANNEL);
@@ -171,7 +164,6 @@ describe("V4e-T — load-time pre-evaluation failure routing", () => {
     // renders the row below — and the assembled note routes pre-eval here,
     // never becoming an evaluation outcome.
     const { channel, sendMessage } = recordingChannel();
-    const router = createLoadFailurePreEvalRouter({ channel });
 
     const crossRoute: SystemNote = {
       content:
@@ -182,7 +174,7 @@ describe("V4e-T — load-time pre-evaluation failure routing", () => {
       // `<ajv-summary>`, so the cross-route surfaces ceiling #3 alone.
       details: { event: { kind: "ceiling", surfaced: "ceiling#3" } },
     };
-    router.routePreEvalFailure(crossRoute);
+    deliverOperatorNotePreferringEntry(crossRoute, channel);
 
     // Primary assertion — the cross-route note routes pre-eval onto the
     // theta-system-note channel with `triggerTurn:false`, never firing a turn.
@@ -212,9 +204,8 @@ describe("V4e-T — load-time pre-evaluation failure routing", () => {
     ];
     for (const code of codes) {
       const { channel, sendMessage } = recordingChannel();
-      const router = createLoadFailurePreEvalRouter({ channel });
 
-      router.routePreEvalFailure(diagNote(code));
+      deliverOperatorNotePreferringEntry(diagNote(code), channel);
 
       const note = onlyNote(sendMessage);
       expect(note.customType).toBe(SYSTEM_NOTE_CHANNEL);
@@ -263,8 +254,8 @@ describe("V4e-T — load-time pre-evaluation failure routing", () => {
   // open bug 0107's axis, outside bug 0109's settled §Fix.
   //
   // WHY A DIRECT-CALL CELL: the mapping has no routable observable.
-  // `routePreEvalFailure` (`src/extension/load-pre-eval.ts`) takes no cause
-  // argument and delivers every cause over the one `theta-system-note` surface
+  // `deliverOperatorNotePreferringEntry` (`src/extension/system-note-channel.ts`)
+  // takes no cause argument and delivers every cause over the same surface
   // with the same fixed options, so a `tools:` code misclassified as ERR-3
   // `frontmatter` produces a byte-identical note. The cell therefore asserts
   // `preEvalCauseOf` itself; the function is pure and total on `string`, so

@@ -206,15 +206,12 @@ import {
 import {
   SYSTEM_NOTE_CHANNEL,
   SystemNoteChannelHealth,
+  deliverOperatorNotePreferringEntry,
   emitDiagnosticBatch,
   type RendererGate,
   type SystemNoteChannelDeps,
 } from "./system-note-channel";
 import { isStaleCtxError } from "./stale-ctx";
-import {
-  createLoadFailurePreEvalRouter,
-  type PreEvalFailureCause,
-} from "./load-pre-eval";
 import { installHotReload, type HotReloadHandle } from "./hot-reload";
 import {
   composeThetaFixture,
@@ -419,9 +416,24 @@ function sinkOverPerDiagnosticEmit(
 }
 
 /**
+ * The seven load-time pre-evaluation failure causes (errors-and-results/
+ * error-model.md pre-evaluation failure list, items 1–6 and 8). The
+ * watcher-time reload-integration cause (ERR-7) is split out to `V4g` and is
+ * not a member here.
+ */
+export type PreEvalFailureCause =
+  | "capability-probe" // ERR-1
+  | "lex-parse-type" // ERR-2
+  | "frontmatter" // ERR-3
+  | "binder-model" // ERR-4
+  | "binder-arg-binding" // ERR-5 (ceiling #3)
+  | "tools-resolution" // ERR-6
+  | "slash-load-params"; // ERR-16 (ceiling #4 → ceiling #3 cross-route)
+
+/**
  * Map a load-phase diagnostic's registry code to its pre-evaluation failure
  * cause discriminant (errors-and-results/error-model.md ERR-1…ERR-6/ERR-16).
- * The V4e router shares ONE delivery surface across all seven causes and takes
+ * V4e delivery shares ONE surface across all seven causes and takes
  * no discriminant, so this mapping drives no routing: it is the honest,
  * test-pinned record (tests/pre-evaluation-failures.test.ts, bugs 0109 / 0260)
  * of which pre-eval cause each shipped load-path diagnostic realises. ERR-5
@@ -2026,7 +2038,7 @@ export async function composeExtensionInstance(
   // below reads live state instead of a permanently-absent gate.
   const channel = buildSystemNoteDeps(pi, ctx, emitToast, rendererGate, entryChannel);
 
-  // V4e — the load-time pre-evaluation failure router. Each error-severity
+  // V4e — load-time pre-evaluation failure routing. Each error-severity
   // load-phase diagnostic routes onto the `theta-system-note` channel with the
   // fixed `triggerTurn:false` option, so the shipped LOAD path surfaces load
   // failures on the SAME channel the wired RELOAD path uses (hot-reload.ts),
@@ -2035,8 +2047,8 @@ export async function composeExtensionInstance(
   // "surfaces per Diagnostics on the theta-system-note channel, does not fire a
   // new turn (triggerTurn:false)". Severity split (bug 0013): the eight
   // pre-eval FAILURES are all error-severity, so ERRORS route per-diagnostic
-  // through the pre-eval router; a load-phase WARNING is not a pre-eval
-  // failure (the V4e router's cause mapping is error-shaped), but
+  // through the pre-eval delivery path; a load-phase WARNING is not a pre-eval
+  // failure, but
   // diagnostic-shape.md's persistent-diagnostics default carries no severity
   // carve-out, so a group's warnings deliver DIRECTLY onto the same
   // `theta-system-note` channel as ONE `emitDiagnosticBatch` note per emitted
@@ -2045,7 +2057,6 @@ export async function composeExtensionInstance(
   // warning (the multi-error one-`sendMessage`-per-`.theta` rule). A routed
   // note is best-effort and never aborts `session_start` (the theta is
   // dropped, not the session).
-  const preEvalRouter = createLoadFailurePreEvalRouter({ channel });
   // RFC-0012 §3: the child's connected result channel (assigned below, once
   // the runtime root's clock exists; read at call time by the mirror here).
   let resultChannel: ResultChannelClient | undefined;
@@ -2060,11 +2071,17 @@ export async function composeExtensionInstance(
       // severity diagnostics — is mirrored onto the channel, one bounded line
       // each, for the parent's `subagent-child-crashed` hint.
       resultChannel?.stderr(`${diagnostic.code}: ${diagnostic.message}`);
-      preEvalRouter.routePreEvalFailure({
-        content: renderDiagnosticBatch([diagnostic]),
-        display: true,
-        details: { diagnostics: [diagnostic] },
-      });
+      // V4e — errors-and-results/error-model.md (ERR-1…ERR-6, ERR-16):
+      // pre-eval failures never fire a turn or become evaluation outcomes.
+      // PIC-72: prefer the entry channel, else send with triggerTurn:false.
+      deliverOperatorNotePreferringEntry(
+        {
+          content: renderDiagnosticBatch([diagnostic]),
+          display: true,
+          details: { diagnostics: [diagnostic] },
+        },
+        channel,
+      );
     }
     // Re-scan deduplication (diagnostics/diagnostic-shape.md#re-scan-deduplication)
     // is a normative theta 1.0 contract: a watcher-triggered reload RE-EMITS the

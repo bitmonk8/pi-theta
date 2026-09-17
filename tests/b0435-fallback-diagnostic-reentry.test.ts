@@ -31,8 +31,8 @@ import {
 //   - At the fork, `runComposePass` builds the parse/producer channel's
 //     `emitDiagnostic = sink.emit`. In the `composeExtensionInstance` wiring
 //     `sink.emit`'s error arm routes each diagnostic as a single-element note
-//     through `preEvalRouter.routePreEvalFailure` → `sendSystemNote(note,
-//     deps.channel)` (`src/extension/load-pre-eval.ts:108`) → `pi.sendMessage`.
+//     through the load-error delivery path (now `deliverOperatorNotePreferringEntry`
+//     in `src/extension/production-composition.ts`) → `sendSystemNote` → `pi.sendMessage`.
 //     So step 2 is a re-entrant send on a sibling channel.
 //   - The conformant sibling one function up builds its own channel with an
 //     OFF-channel fallback, `emitToast`, carrying the WHY comment that it

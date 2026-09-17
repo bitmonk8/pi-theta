@@ -53,7 +53,7 @@
 //      diagnostic-free depth-1 composed caller is present, and the clean
 //      control is present, in the same boot.
 //   2. The `theta-system-note` CHANNEL — the shipped sink routes every
-//      error-severity load diagnostic through `routePreEvalFailure` with
+//      error-severity load diagnostic through `deliverOperatorNotePreferringEntry` with
 //      `content: renderDiagnosticBatch([diagnostic])` (`emitLoadNoteGroup`,
 //      src/extension/production-composition.ts), and `renderDiagnosticLine`
 //      (src/diagnostics/diagnostic.ts) puts the registry CODE and the file path

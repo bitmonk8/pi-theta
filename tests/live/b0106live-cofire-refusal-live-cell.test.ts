@@ -35,7 +35,7 @@
 //      §Fix constraint 1's invariant: every malformed spelling un-registers,
 //      with or without the co-fire.
 //   2. The `theta-system-note` CHANNEL — the shipped sink routes every
-//      error-severity load diagnostic through `routePreEvalFailure` with
+//      error-severity load diagnostic through `deliverOperatorNotePreferringEntry` with
 //      `content: renderDiagnosticBatch([diagnostic])`
 //      (`emitLoadNoteGroup`, src/extension/production-composition.ts), and
 //      `renderDiagnosticLine` (src/diagnostics/diagnostic.ts) puts the
