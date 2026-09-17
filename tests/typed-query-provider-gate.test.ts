@@ -839,16 +839,17 @@ describe("bug 0010 increment C (regression pins) — the supported set carries t
   it("TYPED_QUERY_SUPPORTED_PROVIDER_APIS carries the four documented provider names PLUS mistral-conversations and bedrock-converse-stream", () => {
     // The seam note pins ONE named constant as the single source of truth for
     // every consumer (load emitter + runtime guard), so the set is pinned on
-    // the constant itself. conversation-drive.md §Provider compatibility now
-    // names exactly these six `api`-shaped members (the bug-0010 spec
-    // clarification): the two KnownApi spellings are the pin-observed values
+    // the constant itself. conversation-drive.md §Provider compatibility named
+    // exactly these six `api`-shaped members at the bug-0010 spec clarification
+    // (bug 0480 later added `openai-responses` — the cell below; this pin stays a
+    // superset check): the two KnownApi spellings are the pin-observed values
     // the FORCED_TOOL_CHOICE_BY_API rows map a working named-tool toolChoice
     // for — a gate refusing them would refuse providers the dispatch
     // demonstrably supports (cell (g3)).
     expect(
       [...TYPED_QUERY_SUPPORTED_PROVIDER_APIS],
-      "the supported set = the six api-shaped members conversation-drive.md " +
-        "§Provider compatibility pins (bug 0010 increment C)",
+      "the supported set carries the six api-shaped members bug 0010 increment C pinned " +
+        "(conversation-drive.md §Provider compatibility; seven since bug 0480)",
     ).toEqual(
       expect.arrayContaining([
         "anthropic-messages",
@@ -869,8 +870,28 @@ describe("bug 0010 increment C (regression pins) — the supported set carries t
         api: "mistral-conversations",
         modelReference: "m-mst",
       }),
-      "mistral-conversations is inside the six-member supported set — no load " +
+      "mistral-conversations is inside the seven-member supported set — no load " +
         "warning (pre-fix the four-element constant warned on it)",
+    ).toBeNull();
+  });
+
+  it("bug 0480: openai-responses is inside the supported set — no load warning, no runtime gate (the flat forced-tool spelling is live-measured on the respond turn)", () => {
+    // Bug 0417 measured the flat `{type:"function",name}` spelling on the
+    // binder call and admitted `openai-responses` to the BINDER bound only;
+    // bug 0480 measures the forced respond turn itself
+    // (tests/live/b0480live-responses-typed-query-live-cell.test.ts) and
+    // widens this set so the two gates agree. `openai-codex-responses` stays
+    // out until measured.
+    expect([...TYPED_QUERY_SUPPORTED_PROVIDER_APIS]).toContain("openai-responses");
+    expect([...TYPED_QUERY_SUPPORTED_PROVIDER_APIS]).not.toContain("openai-codex-responses");
+    expect(
+      checkTypedQueryProviderSupport({
+        file: "probe.theta",
+        hasTypedQuery: true,
+        api: "openai-responses",
+        modelReference: "unity-responses/gpt-6-astra",
+      }),
+      "openai-responses is inside the supported set — no load warning",
     ).toBeNull();
   });
 });

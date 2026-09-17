@@ -43,16 +43,21 @@ import type {
  * values for which pi-ai exposes a named-tool `toolChoice` mapping. Exposed as a
  * single named constant so the set has one source of truth to widen.
  *
- * WHY six members (bug 0010 increment C): the four documented provider names
- * PLUS the pin-observed KnownApi spellings at the theta-1.0 pi-ai pin —
+ * WHY seven members: the four documented provider names PLUS the pin-observed
+ * KnownApi spellings at the theta-1.0 pi-ai pin (bug 0010 increment C) —
  * pi-ai's types.d.ts `KnownApi` spells the Mistral and Bedrock adapters
  * `mistral-conversations` / `bedrock-converse-stream`, and those adapters map
  * a working named-tool toolChoice (the FORCED_TOOL_CHOICE_BY_API rows), so a
  * gate refusing them would refuse providers the dispatch demonstrably
- * supports. The names `mistral` / `amazon-bedrock` are retained for the
- * documented provider set. Spec: conversation-drive.md §"Provider
- * compatibility for typed queries" pins exactly this six-member `api`-shaped
- * set (the bug-0010 fix's spec clarification).
+ * supports; the names `mistral` / `amazon-bedrock` are retained for the
+ * documented provider set — PLUS `openai-responses` (bug 0480): its flat
+ * forced-tool spelling was live-measured on the binder call by bug 0417 (which
+ * admitted it to the binder bound only) and on the forced respond turn itself
+ * by bug 0480's live cell, so the two gates agree. `openai-codex-responses`
+ * carries a code-read spelling row but stays outside both gates until it is
+ * measured (the measurement law). Spec: conversation-drive.md §"Provider
+ * compatibility for typed queries" pins exactly this seven-member `api`-shaped
+ * set.
  */
 export const TYPED_QUERY_SUPPORTED_PROVIDER_APIS = [
   "anthropic-messages",
@@ -61,6 +66,7 @@ export const TYPED_QUERY_SUPPORTED_PROVIDER_APIS = [
   "amazon-bedrock",
   "mistral-conversations",
   "bedrock-converse-stream",
+  "openai-responses",
 ] as const;
 
 /** The load-phase warning code for a typed query against an unsupported provider. */

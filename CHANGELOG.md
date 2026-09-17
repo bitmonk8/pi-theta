@@ -4,6 +4,24 @@ All notable changes to `@bitmonk8/pi-theta` will be documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.480.0]
+
+### Fixed
+- **Bug 0480 — the typed-query provider gate refused `openai-responses`
+  although its forced-tool spelling was live-measured**
+  ([docs/bugs/0480](./docs/bugs/0480-typed-query-gate-excludes-measured-openai-responses.md)).
+  Bug 0417 measured the Responses family's flat `{type:"function",name}`
+  spelling on the binder call and admitted the api to the binder gate only;
+  `TYPED_QUERY_SUPPORTED_PROVIDER_APIS` stayed at bug 0010's six, so a typed
+  `@` query on any `unity-responses/*` model warned
+  `theta/load/typed-query-unsupported-provider` and returned
+  `Err(transport: "openai-responses does not support forced tool-use")`. The
+  set is now seven (`conversation-drive.md` §Provider compatibility, with the
+  bug-0480 pin clarification); the forced respond turn is live-measured
+  through the adapter (`tests/live/b0480live-responses-typed-query-live-cell.test.ts`).
+  `openai-codex-responses` stays outside both gates until measured. No new
+  diagnostic code.
+
 ## [0.479.0]
 
 ### Fixed
