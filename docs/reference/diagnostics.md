@@ -313,6 +313,7 @@ is delivered via `console.error` (not the persistent channel).
 | `theta/runtime/registration-cache-collision` | E | runtime | `tool-registration cache collision on slug <slug>: <name1> vs <name2>`. |
 | `theta/runtime/validator-cache-collision` | E | runtime | `validator-cache collision on slug <slug>: two distinct schema documents hash alike`. |
 | `theta/runtime/active-set-restore-failed` | E | runtime | `failed to restore tool active-set after /<name>: <error>`. |
+| `theta/runtime/model-restore-failed` | E | runtime | `failed to restore session model after /<name>: <error>`. |
 | `theta/runtime/cancelled-by-session-shutdown` | E | runtime | `theta /<name> cancelled by session shutdown (<reason>)`. |
 | `theta/runtime/reload-teardown-timeout` | E | runtime | `reload teardown timed out after <ms>ms; <N> invocation(s) still in flight: <list>`. |
 | `theta/runtime/custom-type-unsafe` | E | runtime | `custom-message type is not transcript-safe: '<value>'`. |

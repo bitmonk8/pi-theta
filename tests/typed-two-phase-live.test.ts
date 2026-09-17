@@ -556,6 +556,8 @@ class RecordingPi {
   readonly registeredTools: ToolDefinition[] = [];
   readonly setActiveToolsCalls: string[][] = [];
   getActiveToolsCalls = 0;
+  /** Bug 0479: every PIC-17 model-window `setModel` (swap-in, then restore) in order. */
+  readonly setModelCalls: string[] = [];
   readonly onEvents: string[] = [];
   readonly handlers = new Map<string, Array<(...args: unknown[]) => unknown>>();
   readonly api: ExtensionAPI;
@@ -570,6 +572,13 @@ class RecordingPi {
       },
       setActiveTools: (names: string[]): void => {
         record.setActiveToolsCalls.push([...names]);
+      },
+      // Bug 0479 (PIC-17 model window): a theta whose `model:` resolves to a
+      // model other than ctx.model is swapped in for its free-phase turn and
+      // the session model restored after it. The double accepts every switch.
+      setModel: (model: { provider: string; id: string }): Promise<boolean> => {
+        record.setModelCalls.push(`${model.provider}/${model.id}`);
+        return Promise.resolve(true);
       },
       registerTool: (tool: ToolDefinition): void => {
         record.registeredTools.push(tool);

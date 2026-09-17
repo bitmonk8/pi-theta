@@ -4,6 +4,45 @@ All notable changes to `@bitmonk8/pi-theta` will be documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.479.0]
+
+### Fixed
+- **Bug 0479 — a present frontmatter `model:` was validated at load and then
+  ignored at every dispatch** ([docs/bugs/0479](./docs/bugs/0479-frontmatter-model-ignored-session-model-drives-every-turn.md)).
+  Since RFC 0005 the subagent launch marshalled the parent's *session* model
+  (`ctx.model`) as the child's `--provider/--model`, and a prompt-mode theta's
+  free-phase `@` turns — `pi.sendUserMessage` into the shared session — ran on
+  the session model too; only the off-session forced respond turn honoured the
+  pin. Every theta with a `model:` ran on whatever the invoking session had
+  selected, silently. Fixed on both surfaces:
+  - the subagent launch marshals the theta-resolved model (PIC-62 as written:
+    frontmatter `model:` matched by the exact-match rule the load pass used,
+    else `ctx.model`; present-but-unresolvable at dispatch is the existing
+    `theta/runtime/subagent-model-unresolved` refusal, never a substitution),
+    and the child's obligation-2 confirmation now checks the marshalled model
+    against the theta's pin, so a stale parent is refused with
+    `theta/runtime/subagent-model-preflight-mismatch`;
+  - every prompt-mode free-phase turn runs under the new **PIC-17 model
+    window** (`withModelWindow`, `src/runtime/tool-registration.ts`;
+    `tool-registration-lifetime.md#pic-17-model-window`): when the theta's
+    resolved model differs from the session's, `pi.setModel(theta)` before the
+    send and `pi.setModel(snapshot)` in `finally`; a declined swap-in (`false`)
+    refuses the query before any turn with a transport `Err`; a failed restore
+    gets one re-attempt, then the new `theta/runtime/model-restore-failed` (E)
+    plus a `display: true` note (`#pic-8-model`). Inert (no `setModel` call)
+    when `model:` is absent or equals the session model — which is every
+    subagent root, whose session already runs the marshalled theta model.
+    Prompt-mode driven-turn `provider` derivation follows the model the turn
+    ran under (`queryerror-variants.md`).
+  - FN-7 kept whole: a `subagent fn`'s `with { model }` override now REPLACES
+    the frontmatter `model:` on the configured theta (`#applySubagentFnConfig`),
+    so an enclosing pin no longer shadows it on any surface; the child's
+    obligation-2 expected reference for a `fn` entry is the override, else the
+    pin.
+  Witnesses: `tests/b0479-frontmatter-model-drives-every-turn.test.ts` (A1–A3
+  launch, B1–B7 window) and the pin/override collision + stale-parent cells in
+  `tests/subagent-fn-child-launch.test.ts`. One new diagnostic code.
+
 ## [0.478.0]
 
 ### Added

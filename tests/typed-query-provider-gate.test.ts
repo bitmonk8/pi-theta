@@ -426,6 +426,9 @@ class RecordingPi {
       setActiveTools: (names: string[]): void => {
         record.setActiveToolsCalls.push([...names]);
       },
+      // Bug 0479 (PIC-17 model window): the theta's `model:` is swapped in for
+      // its free-phase turn and the session model restored; the double accepts.
+      setModel: (): Promise<boolean> => Promise.resolve(true),
       registerTool: (tool: ToolDefinition): void => {
         record.registeredTools.push(tool);
       },

@@ -110,7 +110,10 @@ import { childRegimeRootDouble, driveSubagentFnEntry } from "./helpers/subagent-
 // version.
 
 /** The importing `.theta` frontmatter every fixture shares. */
-const APP_FRONTMATTER = ["---", 'model: "sonnet"', "mode: prompt", "---"].join("\n");
+// Bug 0479: the pin names the registry double's qualified `provider/id` (equal
+// to `ctx.model`), not its display name — the dispatch-time exact-match rule
+// reads the id, so a display-name pin would refuse the turn and the spawn.
+const APP_FRONTMATTER = ["---", 'model: "anthropic/claude-sonnet-5"', "mode: prompt", "---"].join("\n");
 
 function parse(source: string, path: string): ThetaDocument {
   return parseThetaDocument({ path, bytes: new TextEncoder().encode(source) }, parseDeps());

@@ -15,7 +15,12 @@
 // gating window every production caller threads its computed `installVector`
 // into (bug 0372 §Fix) — the shipped snapshot/restore windows (the producer
 // query turn and the prompt→prompt cross-mode `invoke` hop) all call it rather
-// than restoring bare. `deriveToolLabel` derives the materialised `ToolDefinition.label`;
+// than restoring bare. `withModelWindow` is its sibling for the theta's `model:`
+// (PIC-17 model window / PIC-8-model, bug 0479): a prompt-mode turn is a turn
+// of the shared user session, so the theta-resolved model is swapped in with
+// `pi.setModel` for exactly the turn and the session's own model restored after
+// it, under the same single-re-attempt restore protocol with its own code.
+// `deriveToolLabel` derives the materialised `ToolDefinition.label`;
 // `registerToolInCache` implements the PIC-44 registration cache.
 
 import type { Diagnostic } from "../diagnostics/diagnostic";
@@ -24,6 +29,8 @@ import { renderUnderlyingError } from "../diagnostics/placeholder";
 // Runtime diagnostics-registry codes this module emits
 // (diagnostics/code-registry-runtime.md).
 const ACTIVE_SET_RESTORE_FAILED = "theta/runtime/active-set-restore-failed";
+/** PIC-8-model (b): the model window's restore re-attempt also failed (bug 0479). */
+export const MODEL_RESTORE_FAILED_CODE = "theta/runtime/model-restore-failed";
 const REGISTRATION_CACHE_COLLISION = "theta/runtime/registration-cache-collision";
 
 /** Coerce a caught (post-probe SDK-shape-drift) throw to an `Error`. */
@@ -196,6 +203,147 @@ function restoreActiveSet(deps: ActiveSetGateDeps, snapshot: string[]): void {
       display: true,
     });
   }
+}
+
+// --- Model window (PIC-17 model window / PIC-8-model, bug 0479) --------------
+
+/**
+ * The registry-model subset the model window reads and hands back to the host:
+ * the identity halves (`provider` + `id`) decide whether a swap is needed at all
+ * and render the restore hint; the whole object is what `pi.setModel` takes.
+ */
+export interface ModelWindowModel {
+  readonly id: string;
+  readonly provider: string;
+}
+
+/** The narrow `pi` subset the model window touches. */
+export interface ModelWindowPi<M extends ModelWindowModel> {
+  /**
+   * The host's session-model switch. Resolves `false` when the host declines
+   * (authentication is not configured for the model's provider); the change is
+   * recorded in the session's history by the host.
+   */
+  setModel(model: M): Promise<boolean>;
+}
+
+/** Construction dependencies for one model window (one query turn). */
+export interface ModelWindowDeps<M extends ModelWindowModel> {
+  readonly pi: ModelWindowPi<M>;
+  /** The bare theta name substituted into `/<name>` in the PIC-8-model note template. */
+  readonly thetaName: string;
+  /** Step 1a: the session's model at window entry (`ctx.model`); `undefined` when the session has none. */
+  readonly ambient: M | undefined;
+  /**
+   * The theta-resolved `model:`; `undefined` when frontmatter omits `model:`
+   * (inherit — the window is inert and makes no `pi.setModel` call).
+   */
+  readonly target: M | undefined;
+  /** Submit a constructed `Diagnostic` through the standard diagnostics channel. */
+  readonly emitDiagnostic: (diagnostic: Diagnostic) => void;
+  /** Deliver a `theta-system-note` (the PIC-8-model (c) `display: true` advisory). */
+  readonly emitSystemNote: (note: ActiveSetAdvisoryNote) => void;
+}
+
+/**
+ * The window's verdict: `ran` carries the body's value; `refused` means the
+ * host declined the swap-in (`pi.setModel` resolved `false`) and the body was
+ * NOT run — the caller surfaces the query's transport `Err` (no turn issued).
+ */
+export type ModelWindowOutcome<T> =
+  | { readonly kind: "ran"; readonly value: T }
+  | { readonly kind: "refused"; readonly target: ModelWindowModel };
+
+/** Same registry identity: `provider` and `id` both equal. */
+export function sameModelIdentity(a: ModelWindowModel, b: ModelWindowModel): boolean {
+  return a.provider === b.provider && a.id === b.id;
+}
+
+function renderModelReference(model: ModelWindowModel): string {
+  return `${model.provider}/${model.id}`;
+}
+
+/**
+ * PIC-17 model window (tool-registration-lifetime.md #pic-17-model-window):
+ * when `target` is present and differs from `ambient`, swap the session model
+ * to `target` (step 2a), run `body` (step 3), and restore `ambient` in
+ * `finally` (step 4a) under the PIC-8-model single-re-attempt protocol. A
+ * swap-in `false` refuses the body (`refused`); a swap-in throw is a setup-side
+ * failure and propagates (PIC-19's posture — no restore is owed, nothing was
+ * switched). With `target` absent or identical to `ambient` the window is inert:
+ * the body runs and `pi.setModel` is never called.
+ */
+export async function withModelWindow<T, M extends ModelWindowModel>(
+  deps: ModelWindowDeps<M>,
+  body: () => Promise<T>,
+): Promise<ModelWindowOutcome<T>> {
+  const { target, ambient } = deps;
+  if (target === undefined || (ambient !== undefined && sameModelIdentity(target, ambient))) {
+    return { kind: "ran", value: await body() };
+  }
+  // Step 2a — swap in. A throw here has switched nothing (the host commits the
+  // change only on a `true` resolution), so no restore is owed; it propagates
+  // to the caller's internal-error owner like a PIC-19 setup-side throw.
+  const swapped = await deps.pi.setModel(target);
+  if (!swapped) {
+    return { kind: "refused", target };
+  }
+  // Step 3 — the turn. Step 4a restore runs in `finally` so cancellation,
+  // panic, and provider exceptions all preserve the invariant; the restore
+  // never masks the inner outcome the `finally` protects (PIC-8(d)).
+  try {
+    return { kind: "ran", value: await body() };
+  } finally {
+    if (ambient !== undefined) {
+      await restoreSessionModel(deps, ambient);
+    }
+  }
+}
+
+/**
+ * Step-4a restore with the PIC-8-model single-re-attempt protocol: restore the
+ * snapshot; on a throw, rejection, or `false`, re-attempt exactly once with the
+ * same snapshot; on a second failure, emit `theta/runtime/model-restore-failed`
+ * (E) plus a `display: true` advisory note. The failure is swallowed here so
+ * the outcome the `finally` protects propagates unmasked.
+ */
+async function restoreSessionModel<M extends ModelWindowModel>(
+  deps: ModelWindowDeps<M>,
+  snapshot: M,
+): Promise<void> {
+  const attempt = async (): Promise<{ readonly ok: true } | { readonly ok: false; readonly reason: string }> => {
+    try {
+      const restored = await deps.pi.setModel(snapshot);
+      return restored ? { ok: true } : { ok: false, reason: "pi.setModel returned false" };
+    } catch (thrown: unknown) { // allow-broad-catch: pi-sdk-boundary — conventions.md Specific exception types only
+      return { ok: false, reason: renderUnderlyingError(thrown) };
+    }
+  };
+  if ((await attempt()).ok) {
+    return;
+  }
+  // PIC-8-model (a): re-attempt the restore exactly once with the same
+  // snapshot. The retry MUST NOT chain back into `pi.setModel` beyond this try.
+  const second = await attempt();
+  if (second.ok) {
+    return;
+  }
+  // PIC-8-model (b): `theta/runtime/model-restore-failed` (E). `message`
+  // carries the underlying failure; `hint` the snapshot reference so an
+  // operator can restore it via `/model`.
+  deps.emitDiagnostic({
+    severity: "error",
+    code: MODEL_RESTORE_FAILED_CODE,
+    message: `failed to restore session model after /${deps.thetaName}: ${second.reason}`,
+    hint: renderModelReference(snapshot),
+  });
+  // PIC-8-model (c): the verbatim `display: true` template — only `<name>` is
+  // substituted. Informational: no `details` (the structured half travelled on
+  // the `emitDiagnostic` call above).
+  deps.emitSystemNote({
+    content: `theta: failed to restore the session model after /${deps.thetaName}; the user session may have an unexpected model active. Use /model to reset.`,
+    display: true,
+  });
 }
 
 // --- Prompt-mode registration cache (PIC-44) -------------------------------

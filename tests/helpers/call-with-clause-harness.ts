@@ -197,6 +197,12 @@ export interface DriveCallerInput {
   readonly callees: ReadonlyMap<string, Pick<ThetaCompositionInput, "sourcePath" | "frontmatter" | "body">>;
   /** Override the auto-respond value (default `Ok(42)`); set to make a callee spawn fail instead. */
   readonly onSpawn?: SpawnFn;
+  /**
+   * Bug 0479: the model registry the producer resolves a callee's frontmatter
+   * `model:` against (PIC-62). Default: an empty stub — sufficient for callees
+   * that carry no `model:` (the marshalled model is then the caller's `ctx.model`).
+   */
+  readonly modelRegistry?: ModelRegistry;
 }
 
 /**
@@ -244,7 +250,7 @@ export async function driveCaller(input: DriveCallerInput): Promise<DriveOutcome
   const deps = createProductionProducerDeps({
     pi: noopPi(),
     root: rootDouble(),
-    modelRegistry: {} as unknown as ModelRegistry,
+    modelRegistry: input.modelRegistry ?? ({} as unknown as ModelRegistry),
     parseCallee,
     subagentSpawn: input.onSpawn ?? autoRespondSpawn,
     subagentExecutableHost: fakeExecutableHost(),

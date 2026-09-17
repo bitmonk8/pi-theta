@@ -71,7 +71,10 @@ import type { FileSystem } from "../../src/seams/file-system";
 import { parseDeps } from "./e2e-s1";
 
 /** The importing `.theta` frontmatter every fixture in this family shares. */
-const APP_FRONTMATTER = ["---", 'model: "sonnet"', "mode: prompt", "---"].join("\n");
+// Bug 0479: the pin names the registry double's qualified `provider/id` (equal
+// to every caller's `ctx.model`), not its display name — the dispatch-time
+// exact-match rule reads the id, so a display-name pin would refuse the turn.
+const APP_FRONTMATTER = ["---", 'model: "anthropic/claude-sonnet-5"', "mode: prompt", "---"].join("\n");
 
 /**
  * An in-memory `.thetalib` filesystem double: `readdir` / `readBytes` answer

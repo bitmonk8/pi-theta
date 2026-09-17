@@ -321,7 +321,9 @@ import {
   deriveToolLabel,
   registerToolInCache,
   withActiveSetGate,
+  withModelWindow,
   type ActiveSetGateDeps,
+  type ModelWindowDeps,
 } from "../runtime/tool-registration";
 import {
   InterpolatedResultPanic,
@@ -2388,8 +2390,13 @@ class ProductionThetaProducer implements ThetaProducerDeps {
     const chain = bindInput.chain ?? newInvokeChainAtDepth(this.#input.subagentInboundInvokeDepth ?? 0);
 
     // PIC-62 obligation 1 (pre-spawn model guard): the subagent's resolved model
-    // is the theta's frontmatter `model:` resolved into the inherited session
-    // model — here the inherited `ctx.model`. Refuse the spawn when it is
+    // is the THETA's — its frontmatter `model:` matched against the registry by
+    // the exact-match rule the load pass used, else the inherited session model
+    // `ctx.model` (bug 0479: this site marshalled `ctx.model` unconditionally, so
+    // every pinned subagent theta ran on whatever the invoking session had
+    // selected). A present reference that no longer resolves at dispatch is
+    // `undefined` here — a refusal through the guard below, never a silent
+    // session-model substitution. Refuse the spawn when the resolved model is
     // `undefined` rather than launching a modelless child, emitting the pinned
     // `theta/runtime/subagent-model-unresolved` diagnostic and surfacing the
     // precise `invoke_infra` cause `subagent_model_unresolved` to an `invoke`
@@ -2397,7 +2404,7 @@ class ProductionThetaProducer implements ThetaProducerDeps {
     // PIC-62 single source of truth: the parent-side pre-spawn guard is the
     // `guardResolvedModel` leaf (`subagent-model-guard.ts`); the retired RFC-0005
     // `preSpawnModelGuard` duplicate is deleted.
-    const model = ctx.model;
+    const model = this.#resolveThetaModel(theta.frontmatter.model, ctx.model);
     const modelGuard = guardResolvedModel(model?.id);
     if (!modelGuard.ok || model === undefined) {
       if (!modelGuard.ok) {
@@ -3027,8 +3034,17 @@ class ProductionThetaProducer implements ThetaProducerDeps {
 
     // PIC-62 obligation 2 (child-side model confirmation): re-resolve the
     // marshalled `--provider`/`--model` reference against the child's own model
-    // registry and confirm it matches the intended model; on mismatch fail the
+    // registry and confirm it matches the INTENDED model; on mismatch fail the
     // invocation and report it through the envelope (never over any RPC surface).
+    // The intended model is the root theta's own frontmatter `model:` when
+    // present (bug 0479) — for a `fn` entry, the launched `subagent fn`'s own
+    // `with { model }` override first (FN-7: a key named in the clause replaces
+    // the inherited value): a parent that marshalled a different model — the
+    // pre-fix parent marshalled its session model — is refused here instead of
+    // being confirmed against the very value it marshalled.
+    // RFC 0012 §10: a `fn` entry runs one of this theta's `subagent fn`s as the
+    // process-root invocation instead of the theta body (dispatched below).
+    const entry = this.#input.subagentControlPlane?.entry ?? THETA_LAUNCH_ENTRY;
     const model = ctx.model;
     if (model !== undefined) {
       const available = this.#input.modelRegistry.getAvailable();
@@ -3054,7 +3070,14 @@ class ProductionThetaProducer implements ThetaProducerDeps {
         resolved === undefined
           ? "(unresolved: no matching model)"
           : `${resolved.provider}/${resolved.id}`;
-      const confirmation = confirmChildModel(qualified, resolvedRef);
+      // The expected reference: the intended pin in its qualified form when it
+      // resolves in this registry, the bare authored reference when it does not
+      // (so the mismatch names what the author wrote), else the marshalled one.
+      const pinRef = this.#subagentRootIntendedModelRef(theta, entry);
+      const pinned = pinRef !== undefined ? matchAvailableModel(pinRef, available) : undefined;
+      const expectedRef =
+        pinRef === undefined ? qualified : pinned === undefined ? pinRef : `${pinned.provider}/${pinned.id}`;
+      const confirmation = confirmChildModel(expectedRef, resolvedRef);
       if (!confirmation.ok) {
         (this.#input.emitDiagnostic ?? ((): void => {}))(confirmation.diagnostic);
         emitErr(
@@ -3068,9 +3091,6 @@ class ProductionThetaProducer implements ThetaProducerDeps {
       }
     }
 
-    // RFC 0012 §10: a `fn` entry runs one of this theta's `subagent fn`s as the
-    // process-root invocation instead of the theta body.
-    const entry = this.#input.subagentControlPlane?.entry ?? THETA_LAUNCH_ENTRY;
     if (entry.kind === "fn") {
       await this.#driveSubagentFnEntry(bindInput, entry.name, calleePath, emitEnvelope, emitErr, emitOutcome);
       return;
@@ -3245,20 +3265,7 @@ class ProductionThetaProducer implements ThetaProducerDeps {
         "mint",
       );
     };
-    // Resolve the declaration in the theta's own environment — the same
-    // resolution the executor's call site performs (`resolveUserFn`).
-    const lookupEnv = buildBoundEnvironment(
-      theta.body,
-      undefined,
-      theta.imports,
-      presentedCallableNames(theta),
-      theta.sourcePath,
-    );
-    const resolution = lookupEnv.resolve(fnName);
-    const fn =
-      (resolution.arm === "fn" || resolution.arm === "import") && resolution.fn?.subagent === true
-        ? resolution.fn
-        : undefined;
+    const { lookupEnv, fn } = this.#resolveSubagentFnDecl(theta, fnName);
     if (fn === undefined) {
       mintInfra(
         `internal error: subagent fn '${fnName}' is not declared by '${theta.slashName}' (parent/child parse divergence)`,
@@ -3443,12 +3450,65 @@ class ProductionThetaProducer implements ThetaProducerDeps {
   }
 
   /**
+   * Resolve a `subagent fn` declaration in the theta's own environment — the
+   * same resolution the executor's call site performs (`resolveUserFn`).
+   * `fn` is `undefined` when the name resolves to anything but a `subagent fn`
+   * (a parent/child parse divergence the caller reports). The environment is
+   * returned alongside for the caller's declaring-module lookups.
+   */
+  #resolveSubagentFnDecl(
+    theta: ConversationBindInput["theta"],
+    fnName: string,
+  ): { readonly lookupEnv: LexicalEnvironment; readonly fn: FnDecl | undefined } {
+    const lookupEnv = buildBoundEnvironment(
+      theta.body,
+      undefined,
+      theta.imports,
+      presentedCallableNames(theta),
+      theta.sourcePath,
+    );
+    const resolution = lookupEnv.resolve(fnName);
+    const fn =
+      (resolution.arm === "fn" || resolution.arm === "import") && resolution.fn?.subagent === true
+        ? resolution.fn
+        : undefined;
+    return { lookupEnv, fn };
+  }
+
+  /**
+   * PIC-62 obligation 2 (bug 0479): the authored model reference the child
+   * root's marshalled model must match — for a `fn` entry the launched
+   * `subagent fn`'s own `with { model }` override when it declares one (FN-7:
+   * a key named in the clause replaces the inherited value), else the theta's
+   * frontmatter `model:`; `undefined` when neither pins a model (the child then
+   * confirms the marshalled reference against itself). An unresolvable fn name
+   * falls back to the frontmatter pin — `#driveSubagentFnEntry` reports the
+   * divergence itself.
+   */
+  #subagentRootIntendedModelRef(
+    theta: ConversationBindInput["theta"],
+    entry: { readonly kind: string; readonly name?: string },
+  ): string | undefined {
+    if (entry.kind === "fn" && entry.name !== undefined) {
+      const { fn } = this.#resolveSubagentFnDecl(theta, entry.name);
+      const override = fn?.sessionConfig?.model;
+      if (override !== undefined) {
+        return override;
+      }
+    }
+    return theta.frontmatter.model;
+  }
+
+  /**
    * RFC 0001 FN-7 / FN-9 — apply a `subagent fn`'s resolved session
    * configuration to the enclosing theta: `system` replaces the frontmatter
    * template (legitimate even from a prompt-mode theta), `tool_loop` /
    * `respond_repair` override the loop budgets, a `with { tools }` override
    * narrows the callable set to the named subset of the CALLING theta's set
-   * (FN-9), and `model` overrides the inherited session model. Deterministic
+   * (FN-9), and `model` overrides the inherited session model — it REPLACES the
+   * frontmatter `model:` on the configured theta (bug 0479: every dispatch
+   * surface resolves the theta's model from `frontmatter.model`, so an override
+   * carried only on `ctx.model` would be shadowed by an enclosing pin). Deterministic
    * over literal-shaped inputs, so the PARENT (assembling the launch: the
    * `--system-prompt`, the `--tools` allowlist, `--provider`/`--model`) and
    * the CHILD (`#driveSubagentFnEntry`, binding the body's own session) compute
@@ -3468,6 +3528,7 @@ class ProductionThetaProducer implements ThetaProducerDeps {
       ...(config.system !== undefined
         ? { system: { parts: [{ kind: "text" as const, value: config.system }] } }
         : {}),
+      ...(config.model !== undefined ? { model: config.model } : {}),
       ...(config.toolLoop !== undefined ? { toolLoop: config.toolLoop } : {}),
       ...(config.respondRepair !== undefined
         ? { respondRepair: config.respondRepair }
@@ -3803,6 +3864,11 @@ class ProductionThetaProducer implements ThetaProducerDeps {
     // `driveFollowUp` closure must capture the constructed model. The model
     // construction itself no longer needs `validation` (the AB increment
     // removed the lowered-schema conveyance from `queryText`).
+    // Bug 0479: the theta-resolved `model:` the free-phase turn runs under
+    // (PIC-17 model window). `queryModelRef` travels alongside so a present
+    // reference that no longer resolves is refused by name, not inherited.
+    const queryModelRef = deps.theta.frontmatter.model;
+    const queryModel = this.#resolveThetaModel(queryModelRef, deps.ctx.model);
     const liveModel = new LivePromptQueryModel({
           pi: deps.pi,
           ctx: deps.ctx,
@@ -3814,11 +3880,15 @@ class ProductionThetaProducer implements ThetaProducerDeps {
           governor: this.#promptToolLoopGovernor,
           maxRounds,
           // PIC-50/51 (queryerror-variants.md §provider derivation): the api-shaped
-          // `.api` of the USER session's selected model (`ctx.model` — not the theta's
-          // resolved `model:`, not the short ProviderId); "unknown" when undefined.
-          // The RESPOND dispatch derives its own provider from the RESOLVED
-          // RESPOND MODEL's `.api` inside `dispatchForcedRespondTurn` (bug 0010).
-          provider: String(deps.ctx.model?.api ?? "unknown"),
+          // `.api` of the model the turn is driven under — the theta-resolved
+          // `model:` inside a model window, else the USER session's selected model
+          // (`ctx.model`; never the short ProviderId); "unknown" when neither is
+          // defined. The RESPOND dispatch derives its own provider from the
+          // RESOLVED RESPOND MODEL's `.api` inside `dispatchForcedRespondTurn`
+          // (bug 0010).
+          provider: String((queryModel ?? deps.ctx.model)?.api ?? "unknown"),
+          ...(queryModel !== undefined ? { queryModel } : {}),
+          ...(queryModelRef !== undefined ? { queryModelRef } : {}),
           ...(respond !== undefined ? { respond } : {}),
           thetaName: deps.theta.slashName,
           emitDiagnostic: this.#input.emitDiagnostic ?? ((): void => {}),
@@ -3926,6 +3996,20 @@ class ProductionThetaProducer implements ThetaProducerDeps {
   }
 
   /**
+   * The theta-resolved model every dispatch surface shares (frontmatter
+   * `model`, frontmatter-fields-a.md; bug 0479): a present `model:` reference is
+   * matched against the registry's available set by the same exact-match rule
+   * the load pass used — present-but-unresolvable is `undefined` (a refusal on
+   * the dispatching surface, never a silent session-model substitution) — and an
+   * absent `model:` inherits the invocation-pinned session model.
+   */
+  #resolveThetaModel(modelRef: string | undefined, sessionModel: Model<Api> | undefined): Model<Api> | undefined {
+    return modelRef !== undefined
+      ? matchAvailableModel(modelRef, this.#input.modelRegistry.getAvailable())
+      : sessionModel;
+  }
+
+  /**
    * Bug 0010 (QRY-14 step 2): assemble the typed query's `RespondTurnContext`
    * — register (or cache-hit) the synthesised respond tool, resolve the
    * respond model, and close over auth / AJV / the early-respond capture
@@ -3947,21 +4031,16 @@ class ProductionThetaProducer implements ThetaProducerDeps {
     // compatibility; bug 0010): the theta-resolved `model:` — matched against
     // the registry's available set by the same exact-match rule the
     // binder-model resolution uses — falling back to the invocation-pinned
-    // session model (`ctx.model`) when frontmatter omits `model:` or the
-    // reference does not resolve.
-    const modelRef = deps.theta.frontmatter.model;
+    // session model (`ctx.model`) ONLY when frontmatter omits `model:`.
     // WHY no `?? deps.ctx.model` on the resolved arm (bug 0010, fix round 1):
     // a PRESENT frontmatter `model:` that matches no available model is a
     // refusal, mirroring the binder's unresolved-reference posture — silently
     // substituting the session model would dispatch the respond turn against a
     // model the author explicitly steered away from. The respond context's
     // model stays `undefined` so `dispatchForcedRespondTurn` surfaces the
-    // existing model-unavailable transport `Err`. `ctx.model` is the fallback
-    // ONLY when frontmatter omits `model:` entirely.
-    const respondModel =
-      modelRef !== undefined
-        ? matchAvailableModel(modelRef, modelRegistry.getAvailable())
-        : deps.ctx.model;
+    // existing model-unavailable transport `Err`. The same resolution drives
+    // the free-phase model window and the subagent launch (bug 0479).
+    const respondModel = this.#resolveThetaModel(deps.theta.frontmatter.model, deps.ctx.model);
     // Bug 0010 increment C (conversation-drive.md §"Provider compatibility for
     // typed queries"): the RUNTIME provider gate. A typed dispatch whose
     // resolved respond model's api is outside the supported set must refuse
@@ -5781,10 +5860,15 @@ function respondToolExecuteResult(text: string, isError: boolean): RespondToolEx
  */
 type LivePromptQueryPi = Pick<
   ExtensionAPI,
-  "sendMessage" | "sendUserMessage" | "getActiveTools" | "setActiveTools"
+  "sendMessage" | "sendUserMessage" | "getActiveTools" | "setActiveTools" | "setModel"
 >;
-/** Bug 0373 §Fix: the narrow ExtensionCommandContext subset the model stores (see `LivePromptQueryPi`). */
-type LivePromptQueryCtx = Pick<ExtensionCommandContext, "abort" | "isIdle" | "signal" | "waitForIdle">;
+/**
+ * Bug 0373 §Fix: the narrow ExtensionCommandContext subset the model stores (see
+ * `LivePromptQueryPi`). `model` is the PIC-17 model window's step-1a snapshot
+ * source (bug 0479), read at each turn so the swap compares against the
+ * session's CURRENT model.
+ */
+type LivePromptQueryCtx = Pick<ExtensionCommandContext, "abort" | "isIdle" | "model" | "signal" | "waitForIdle">;
 
 /**
  * The live prompt-mode `QueryModelDriver` (`V12a`/`V9c`): it drives real
@@ -5822,6 +5906,15 @@ class LivePromptQueryModel implements QueryModelDriver {
   readonly #emitDiagnostic: (diagnostic: Diagnostic) => void;
   /** Bug 0437 §Fix: the extension-instance `theta-system-note` channel; `undefined` on a bare-`pi` harness (resolved to a `pi`-built fallback at each use site). */
   readonly #systemNoteChannel: SystemNoteChannelDeps | undefined;
+  /**
+   * Bug 0479 (PIC-17 model window): the theta-resolved `model:` the free-phase
+   * turn must run under — `undefined` when frontmatter omits `model:` (inherit;
+   * the window is inert) AND when a present reference no longer resolves (then
+   * `#queryModelRef` is set and the turn is refused before any send).
+   */
+  readonly #queryModel: Model<Api> | undefined;
+  /** The authored `model:` reference, for the unresolvable-at-dispatch refusal message. */
+  readonly #queryModelRef: string | undefined;
   /** The exhaustion snapshot captured after the bounded free-phase turn settled. */
   #exhaustion: PromptToolLoopExhaustion | undefined = undefined;
   /** PIC-50: a `TransportError` synthesised from a `sendUserMessage` sync-throw. */
@@ -5873,7 +5966,13 @@ class LivePromptQueryModel implements QueryModelDriver {
     readonly emitDiagnostic: (diagnostic: Diagnostic) => void;
     /** Bug 0437 §Fix: the extension-instance `theta-system-note` channel, threaded from `#input.systemNoteChannel`. */
     readonly systemNoteChannel?: SystemNoteChannelDeps;
+    /** Bug 0479: the theta-resolved `model:` (absent = inherit the session model, no window). */
+    readonly queryModel?: Model<Api>;
+    /** Bug 0479: the authored `model:` reference (present iff frontmatter carries one). */
+    readonly queryModelRef?: string;
   }) {
+    this.#queryModel = deps.queryModel;
+    this.#queryModelRef = deps.queryModelRef;
     this.#pi = deps.pi;
     this.#ctx = deps.ctx;
     this.#clock = deps.clock;
@@ -6362,6 +6461,23 @@ class LivePromptQueryModel implements QueryModelDriver {
       this.#recordLifecycleExpiry("pre-send-gate", PRE_SEND_GATE_POLL_BOUND * POLL_INTERVAL_MS);
       return;
     }
+    // Bug 0479 (frontmatter `model`): a PRESENT `model:` that no longer resolves
+    // in the registry at dispatch is a refusal before any turn — the load pass
+    // admitted the reference, so this is a registry change since — never a
+    // silent run on the session model. Same posture as the respond dispatch's
+    // model-unavailable `Err`.
+    if (this.#queryModelRef !== undefined && this.#queryModel === undefined) {
+      // The fixed sentinel provider: no model drove (or could drive) the turn,
+      // exactly the respond dispatch's model-unavailable posture.
+      this.#transportFromThrow = {
+        kind: "transport",
+        message: `no resolved model for the query turn: theta 'model:' value '${this.#queryModelRef}' resolves to no available model`,
+        http_status: null,
+        provider: "unknown",
+        retryable: false,
+      };
+      return;
+    }
     // STAGE B: when `bound`, arm the governor around the native turn so pi's
     // internal agentic tool loop is capped at `tool_loop.max_rounds`. The bound
     // is armed IMMEDIATELY before `sendUserMessage` and disarmed right after the
@@ -6439,8 +6555,27 @@ class LivePromptQueryModel implements QueryModelDriver {
       // hook stays a no-op so the defect is routed exactly once, never twice.
       routeInternalError: (): void => {},
     };
+    // PIC-17 model window (tool-registration-lifetime.md #pic-17-model-window,
+    // bug 0479): a prompt-mode turn is a turn of the shared user session, whose
+    // model drives it — so a present `model:` is swapped in for exactly this
+    // turn and the session's own model restored in the window's `finally`
+    // (PIC-8-model single re-attempt, then `theta/runtime/model-restore-failed`
+    // + the display note). Inert (no `pi.setModel` call) when `model:` is absent
+    // or equals the session model — which is every subagent child, whose session
+    // already runs the marshalled theta model. The step-1a snapshot reads the
+    // session's CURRENT model at each turn.
+    const modelWindowDeps: ModelWindowDeps<Model<Api>> = {
+      pi: this.#pi,
+      thetaName: this.#thetaName,
+      ambient: this.#ctx.model,
+      target: this.#queryModel,
+      emitDiagnostic: this.#emitDiagnostic,
+      emitSystemNote: (note): void => {
+        sendSystemNote(note, this.#resolveSystemNoteChannel());
+      },
+    };
     try {
-      await withActiveSetGate(activeSetGateDeps, async () => {
+      const window = await withActiveSetGate(activeSetGateDeps, () => withModelWindow(modelWindowDeps, async () => {
         // Bug 0010 (QRY-14 early respond): arm the producer's one-shot capture
         // slot for the duration of the driven turn, so a mid-turn respond-tool
         // call validates and captures against THIS query's lowered schema. The
@@ -6602,7 +6737,20 @@ class LivePromptQueryModel implements QueryModelDriver {
             }
           }
         }
-      });
+      }));
+      // The host declined the swap-in (`pi.setModel` resolved `false`:
+      // authentication is not configured for the pinned model's provider): no
+      // turn was issued, so the query is a transport `Err` naming the model —
+      // never a run on the session model the author steered away from.
+      if (window.kind === "refused") {
+        this.#transportFromThrow = {
+          kind: "transport",
+          message: `theta 'model:' value '${window.target.provider}/${window.target.id}' could not be selected for the query turn: the host declined pi.setModel (authentication not configured for provider '${window.target.provider}'); the turn was not issued`,
+          http_status: null,
+          provider: this.#provider,
+          retryable: false,
+        };
+      }
     } finally {
       // Bug 0319: detach first so every exit path -- including the throws the
       // gating callback body can raise -- leaves no listener attached beyond

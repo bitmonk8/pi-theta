@@ -90,6 +90,9 @@ function callerTheta(src: string, mode: "prompt" | "subagent" = "prompt"): Theta
 const MODELS = [
   { id: "claude-test", provider: "anthropic", api: "anthropic-messages" },
   { id: "sonnet", provider: "anthropic", api: "anthropic-messages" },
+  // Bug 0479: a third identity so an enclosing-theta `model:` pin, a fn-level
+  // `with { model }` override and the session model are pairwise distinct.
+  { id: "claude-pinned", provider: "anthropic", api: "anthropic-messages" },
 ];
 
 function ctxOf(cwd = "/work/project"): ExtensionCommandContext {
@@ -214,6 +217,33 @@ describe("RFC-0012 §10 — parent side: a subagent fn call is a child launch of
     expect(spawn.cwd).toBe("/work/project");
   });
 
+  it("bug 0479 / FN-7 collision: an enclosing `model:` pin AND a declaration-site `with { model }` override — the OVERRIDE rides --model (the clause replaces the inherited value)", async () => {
+    const src = [
+      "---",
+      'model: "anthropic/claude-pinned"',
+      "mode: prompt",
+      "---",
+      'subagent fn step(x: string) with { model: "sonnet" } {',
+      "  x",
+      "}",
+      'step("a")',
+    ].join("\n");
+    const outcome = await driveCaller({ src, reply: okLine("a"), cwd: "/work/project" });
+    const spawn = outcome.spawns[0]!;
+    const modelFlag = spawn.args[spawn.args.indexOf("--model") + 1];
+    expect(modelFlag, `argv: ${JSON.stringify(spawn.args)}`).toBe("sonnet");
+    expect(spawn.args).not.toContain("claude-pinned");
+    expect(spawn.args).not.toContain("claude-test");
+  });
+
+  it("bug 0479: an enclosing `model:` pin with NO fn override rides --model — the theta's model, never the session's", async () => {
+    const src = ["---", 'model: "anthropic/claude-pinned"', "mode: prompt", "---", "subagent fn step(x: string) {", "  x", "}", 'step("a")'].join("\n");
+    const outcome = await driveCaller({ src, reply: okLine("a"), cwd: "/work/project" });
+    const spawn = outcome.spawns[0]!;
+    expect(spawn.args[spawn.args.indexOf("--model") + 1]).toBe("claude-pinned");
+    expect(spawn.args).not.toContain("claude-test");
+  });
+
   it("RFC 0009 Erratum B: a call-site `with { cwd }` on a subagent fn call is the child's working directory, resolved against ctx.cwd", async () => {
     const src = ["subagent fn step(x: string) {", "  x", "}", 'step("a") with { cwd: "sub/tree" }'].join("\n");
     const outcome = await driveCaller({ src, reply: okLine("a"), cwd: "/work/project" });
@@ -302,6 +332,56 @@ async function driveChild(input: {
   });
   return [...outcome.lines];
 }
+
+describe("bug 0479 — child side: PIC-62 obligation 2 confirms the marshalled model against the INTENDED pin", () => {
+  const PINNED_WITH_OVERRIDE = [
+    "---",
+    'model: "anthropic/claude-pinned"',
+    "mode: prompt",
+    "---",
+    'subagent fn step(x: string) with { model: "sonnet" } {',
+    "  x",
+    "}",
+    'step("a")',
+  ].join("\n");
+  const PINNED_NO_OVERRIDE = ["---", 'model: "anthropic/claude-pinned"', "mode: prompt", "---", "subagent fn step(x: string) {", "  x", "}", 'step("a")'].join("\n");
+
+  async function driveChildOnModel(src: string, model: (typeof MODELS)[number]): Promise<ReturnType<typeof parseEnvelopeLine>> {
+    const outcome = await driveSubagentFnEntry({
+      theta: callerTheta(src, "prompt"),
+      slug: "caller",
+      fnName: "step",
+      params: { x: "a" },
+      // The marshalled model IS the child's `ctx.model` (`--provider/--model`).
+      ctx: { ...ctxOf(), model } as unknown as ExtensionCommandContext,
+      modelRegistry: { getAvailable: () => MODELS } as unknown as ModelRegistry,
+      pi: noopPi(),
+    });
+    return outcome.envelope;
+  }
+
+  it("a fn `with { model }` override marshalled by a compliant parent is confirmed (the intended model is the OVERRIDE, not the enclosing pin)", async () => {
+    const envelope = await driveChildOnModel(PINNED_WITH_OVERRIDE, MODELS[1]!);
+    expect(envelope).toEqual({ kind: "ok", value: "a" });
+  });
+
+  it("the enclosing pin marshalled by a compliant parent is confirmed", async () => {
+    const envelope = await driveChildOnModel(PINNED_NO_OVERRIDE, MODELS[2]!);
+    expect(envelope).toEqual({ kind: "ok", value: "a" });
+  });
+
+  it("a STALE parent that marshalled its session model for a pinned theta is refused with subagent-model-preflight-mismatch naming the pin", async () => {
+    const envelope = await driveChildOnModel(PINNED_NO_OVERRIDE, MODELS[0]!);
+    expect(envelope.kind).toBe("err");
+    if (envelope.kind === "err") {
+      const error = envelope.error as { kind: string; cause?: string; message?: string };
+      expect(error.kind).toBe("invoke_infra");
+      expect(error.cause).toBe("subagent_model_preflight_mismatch");
+      expect(error.message ?? "").toContain("anthropic/claude-pinned");
+      expect(error.message ?? "").toContain("anthropic/claude-test");
+    }
+  });
+});
 
 describe("RFC-0012 §10 — child side: the fn entry runs the named subagent fn as the process-root invocation", () => {
   it("resolves the same-file fn, binds the marshalled args by name, runs the body and emits the bare final value", async () => {
