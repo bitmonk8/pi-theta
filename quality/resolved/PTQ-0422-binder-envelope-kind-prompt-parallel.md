@@ -2,7 +2,7 @@
 id: PTQ-0422
 title: Binder envelope kind tokens are enumerated separately in schema and system prompt
 lens: D4
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/binder/binder-envelope.ts:31-33

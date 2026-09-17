@@ -2,7 +2,7 @@
 id: PTQ-0420
 title: cleanSettingsFile bundles root-shape, thetaPaths, theta-scalar, and exec-template validation phases in one 117-LOC function
 lens: D9
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/discovery/settings.ts:270-386

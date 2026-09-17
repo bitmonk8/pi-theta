@@ -2,7 +2,7 @@
 id: PTQ-0424
 title: load-pre-eval.ts survives two removals as a 106-LOC module whose sole behaviour is one delegation statement to deliverOperatorNotePreferringEntry for one caller
 lens: D9
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/extension/load-pre-eval.ts:1-106

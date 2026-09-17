@@ -2,7 +2,7 @@
 id: PTQ-0414
 title: ChildTapEvent is declared in the behavioural leaf child-tap.ts, forcing the shared type surface types.ts to import backwards from a module its own header names as downstream
 lens: D9                     # D2 | D4 | D7 | D8 | D9 - the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - src/extension/execution-status/child-tap.ts:43-55

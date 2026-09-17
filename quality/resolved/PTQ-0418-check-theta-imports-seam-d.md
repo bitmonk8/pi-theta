@@ -2,7 +2,7 @@
 id: PTQ-0418
 title: checkThetaImports still bundles the resolution/cycle-graph plumbing (its four nested closures) with six downstream check phases at 608 LOC after Seam C landed
 lens: D9
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/extension/import-static-checks.ts:1328-1935

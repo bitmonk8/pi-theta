@@ -2,7 +2,7 @@
 id: PTQ-0413
 title: checkInvokeStaticResolution keeps the 153-LOC invoke-expression call-surface loop inline at 248 LOC while every sibling surface is already a delegated helper
 lens: D9
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/extension/invoke-static-checks.ts:1530-1777

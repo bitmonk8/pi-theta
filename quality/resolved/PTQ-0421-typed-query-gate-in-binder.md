@@ -2,7 +2,7 @@
 id: PTQ-0421
 title: The typed-query provider-support gate (six declarations) lives in src/binder/provider-error-mapping.ts with zero binder-side consumers
 lens: D9
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/binder/provider-error-mapping.ts:62-147

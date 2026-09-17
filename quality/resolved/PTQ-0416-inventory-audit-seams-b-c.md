@@ -2,7 +2,7 @@
 id: PTQ-0416
 title: runInventoryClosureAudit still bundles the nested visitRefs collector and the Pass-2 marker-classification loop at 342 LOC after Seam A's visitShapes hoist landed
 lens: D9
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/extension/inventory-closure-audit.ts:556-897
