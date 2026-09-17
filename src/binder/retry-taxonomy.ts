@@ -9,10 +9,13 @@
 //
 //   - `MAX_BINDER_LLM_CALLS` — the HC3-d hard ceiling
 //     (determinism-cancellation-failure.md §"Per-invocation retry budget",
-//     hard-ceilings/ceilings-3-and-4.md §HC3): at most 3 binder LLM calls per
-//     slash invocation (1 initial attempt + at most 1 transport-class retry
-//     (HC3-a) + at most 1 malformed-envelope-class retry (HC3-b)), enforced by
-//     `runBinderCallWithCancellation`.
+//     hard-ceilings/ceilings-3-and-4.md §HC3): at most 3 budgeted binder
+//     ATTEMPTS per slash invocation (1 initial + at most 1 transport-class
+//     retry (HC3-a) + at most 1 malformed-envelope-class retry (HC3-b)),
+//     enforced by `runBinderCallWithCancellation`. Each attempt issues at
+//     most 2 provider calls — the forced dispatch plus its one bug-0481
+//     degraded re-dispatch on the model-level forced-tool rejection — so the
+//     provider-call worst case is 6.
 //   - `renderBinderSystemNote` — the six verbatim failure-mode templates
 //     (determinism-cancellation-failure.md §"Failure-mode templates"), rendered
 //     through the V11e line discipline (`renderFailureNote` / `capSystemNote`).
@@ -37,9 +40,13 @@ import type { DepthViolationIssue, DepthWalkResult } from "../runtime/depth-walk
 import { capSystemNote, renderFailureNote } from "./system-note";
 
 /**
- * The worst-case binder LLM-call budget per slash invocation
- * (HC3-d): 1 initial attempt + at most 1 transport-class retry + at most 1
- * malformed-envelope-class retry.
+ * The worst-case budgeted binder ATTEMPT count per slash invocation
+ * (HC3-d): 1 initial + at most 1 transport-class retry + at most 1
+ * malformed-envelope-class retry. An attempt issues at most 2 provider calls
+ * (the bug-0481 degraded re-dispatch rides inside the attempt that triggered
+ * it), so the provider-call worst case is 6. The name keeps its pre-0481
+ * spelling: it is the HC3-d ceiling constant, and every consumer counts
+ * attempts through it.
  */
 export const MAX_BINDER_LLM_CALLS = 3;
 

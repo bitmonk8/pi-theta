@@ -502,7 +502,9 @@ export function composeThetaFixture(
       // a `try`/`catch` that routes a setup throw through the runtime-defect
       // surface. The insertion sits here, ahead of the awaited binder step below,
       // so a `session_shutdown` delivered while the binder's LLM call is in
-      // flight (up to three round trips under HC3-d) still finds the entry and
+      // flight (up to six provider round trips under HC3-d: three budgeted
+      // attempts, each at most two calls under the bug-0481 degradation) still
+      // finds the entry and
       // aborts it; inserting only inside the bind (which runs after the binder
       // resolves) would leave that whole window invisible to the teardown
       // handler.

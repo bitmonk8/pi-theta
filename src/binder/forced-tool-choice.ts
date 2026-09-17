@@ -166,3 +166,34 @@ export function forcedToolChoiceForApi(api: string, name: string): ForcedToolCho
   }
   return { type: "tool", name };
 }
+
+/**
+ * Bug 0481 — the MODEL-level forced-tool-choice rejection signature. A model
+ * inside a measured api can still refuse forcing at runtime (live-measured
+ * 2026-09-17: `anthropic/claude-fable-5-1` rejects every forced dispatch with
+ * `400 invalid_request_error — "tool_choice: type \"tool\" and \"any\" are not
+ * supported for this model."` while `claude-fable-5` / `claude-sonnet-5` and
+ * the openai-family roster models accept it). Both forced-dispatch sites (the
+ * typed-query respond turn and the binder inference call) consult this
+ * predicate over the RAW resolved-failure `errorMessage` — before the
+ * provider-error classifier, which would summarise the text — and, on a match,
+ * re-issue the SAME request ONCE with `options.toolChoice` omitted (provider
+ * default `auto`; the context still carries exactly one tool and the trailing
+ * template already instructs the model to call it).
+ *
+ * The match is deliberately narrow — the option name plus "not supported"
+ * wording — so a generic invalid-request 400, an overflow, or a rate-limit
+ * never triggers a degraded re-dispatch (those classes stay terminal /
+ * retryable exactly as before). Case-insensitive: provider error prose is not
+ * a stable-case surface.
+ */
+export function isForcedToolChoiceRejection(errorMessage: string | undefined): boolean {
+  if (errorMessage === undefined) {
+    return false;
+  }
+  const text = errorMessage.toLowerCase();
+  // `not.?supported` admits the space/underscore/hyphen/fused spellings of
+  // "not supported" alongside "unsupported"; the mandatory `tool_choice`
+  // conjunct keeps overflow / rate-limit / generic invalid-request prose out.
+  return text.includes("tool_choice") && /not.?supported|unsupported/.test(text);
+}

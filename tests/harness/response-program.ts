@@ -180,9 +180,11 @@ export type ResponseEvent =
     };
 
 /**
- * The runtime MUST issue at most 3 binder LLM calls per slash invocation
- * (1 initial + 1 transport-class retry + 1 malformed-envelope-class retry),
- * per determinism-cancellation-failure.md §"per-invocation retry budget".
+ * The runtime MUST issue at most 3 budgeted binder ATTEMPTS per slash
+ * invocation (1 initial + 1 transport-class retry + 1 malformed-envelope-class
+ * retry), per determinism-cancellation-failure.md §"per-invocation retry
+ * budget" (HC3-d; the bug-0481 degraded re-dispatch lives below this seam, so
+ * this harness counts attempts).
  */
 const MAX_BINDER_CALLS = 3;
 

@@ -356,6 +356,7 @@ import {
   binderSupportsApi,
   binderUnsupportedApiMessage,
   forcedToolChoiceForApi,
+  isForcedToolChoiceRejection,
 } from "../binder/forced-tool-choice";
 import { fillDefaultsAndRevalidate, type DefaultedField } from "../binder/defaulting";
 import { matchAvailableModel } from "../binder/binder-model";
@@ -1393,6 +1394,14 @@ class ProductionThetaProducer implements ThetaProducerDeps {
     signal: AbortSignal,
   ): Promise<{ readonly outcome: BinderAttemptOutcome; readonly okArgs?: Record<string, unknown> }> {
     const provider = String(dispatch.model.api);
+    // Bug 0481: at most TWO dispatches inside this ONE budgeted attempt — the
+    // forced one, plus ONE degraded re-issue (toolChoice omitted) when the
+    // provider rejects forcing at the MODEL level. The downgrade is a protocol
+    // adaptation, not a transport flake, so it never debits the per-class
+    // retry budget (determinism-cancellation-failure.md §Per-invocation retry
+    // budget); a failure of the degraded dispatch feeds the normal taxonomy.
+    let degraded = false;
+    for (;;) {
     // The per-attempt provider-response capture (binder-inference.md
     // `options.onResponse`): the last firing before resolution wins; when it
     // never fires the classifier's HTTP-status input is the network-level
@@ -1403,14 +1412,23 @@ class ProductionThetaProducer implements ThetaProducerDeps {
     };
     let reply: AssistantMessage;
     try {
-      reply = await this.#completeBinderReply(dispatch, signal, onResponse);
+      reply = await this.#completeBinderReply(dispatch, signal, onResponse, degraded);
     } catch (thrown: unknown) { // allow-broad-catch: pi-sdk-boundary — a provider transport throw → HC3-a transport class
       // A cancellation abort is surfaced by the caller's before/after-attempt
       // signal checks, not misclassified as a retryable transport failure.
       if (signal.aborted) {
         return { outcome: { kind: "transport", provider, message: "cancelled" } };
       }
-      return { outcome: { kind: "transport", provider, message: coerceUnderlyingString(thrown) } };
+      const thrownMessage = coerceUnderlyingString(thrown);
+      // Bug 0481 (throw arm): the anthropic adapter's `result()` THROWS the
+      // error-terminated stream's message, so the model-level forcing
+      // rejection arrives here on that adapter. Same one-shot degradation as
+      // the resolved arm below.
+      if (!degraded && isForcedToolChoiceRejection(thrownMessage)) {
+        degraded = true;
+        continue;
+      }
+      return { outcome: { kind: "transport", provider, message: thrownMessage } };
     }
     // EXTRACTION FIRST (binder-inference.md): a matching ToolCall wins over
     // any stopReason / errorMessage / HTTP-status failure classification.
@@ -1462,6 +1480,12 @@ class ProductionThetaProducer implements ThetaProducerDeps {
       (typeof errorMessage === "string" && errorMessage !== "") ||
       (captured !== undefined && captured.status !== 200)
     ) {
+      // Bug 0481: the MODEL-level forcing rejection — checked on the RAW
+      // errorMessage BEFORE the classifier. One shot per attempt.
+      if (!degraded && isForcedToolChoiceRejection(errorMessage)) {
+        degraded = true;
+        continue;
+      }
       const classified = classifyProviderResponse({
         api: provider,
         httpStatus: captured?.status ?? null,
@@ -1486,6 +1510,7 @@ class ProductionThetaProducer implements ThetaProducerDeps {
     // or a ToolCall with a different name — is the malformed-envelope
     // condition (binder-inference.md extraction rule).
     return { outcome: { kind: "malformed" } };
+    }
   }
 
   /**
@@ -1504,6 +1529,7 @@ class ProductionThetaProducer implements ThetaProducerDeps {
     dispatch: BinderForcedToolDispatch,
     signal: AbortSignal,
     onResponse: (response: ProviderResponse, model: Model<Api>) => void,
+    omitToolChoice: boolean,
   ): Promise<AssistantMessage> {
     const call = buildBinderCompleteCall({
       model: dispatch.model,
@@ -1516,6 +1542,13 @@ class ProductionThetaProducer implements ThetaProducerDeps {
     });
     const auth = await this.#input.modelRegistry.getApiKeyAndHeaders(dispatch.model);
     const options = call.options as Record<string, unknown>;
+    if (omitToolChoice) {
+      // Bug 0481 degraded re-dispatch: strip the constructor's forced choice
+      // AFTER the pinned builder ran, so the builder's own contract (and its
+      // tests) stay byte-identical; the single binder tool + system prompt
+      // already instruct the model, `auto` is the strongest admitted request.
+      delete options["toolChoice"];
+    }
     if (auth.ok) {
       if (auth.apiKey !== undefined) {
         options["apiKey"] = auth.apiKey;
@@ -7212,10 +7245,14 @@ function assistantText(message: AssistantMessage): string {
  * The classified resolution of one off-session `complete()` dispatch (bug
  * 0007): the reply's assistant text on a normal terminator, or the classified
  * provider failure. A resolved discriminated value — never throw-based control
- * flow: pi-ai's `complete()` RESOLVES its provider failures (the per-API
- * adapter converts every caught throw into a reply carrying `stopReason:
- * "error"`), so classification is a probe over the resolved reply, not a
- * `catch`.
+ * flow: pi-ai's `complete()` RESOLVES its provider failures on most adapters
+ * (the per-API adapter converts a caught throw into a reply carrying
+ * `stopReason: "error"`), so classification is a probe over the resolved
+ * reply, not a `catch`. Bug 0481 observation: the `anthropic-messages`
+ * adapter's `result()` instead THROWS the error-terminated stream's message,
+ * so on that adapter a provider failure arrives at the call site's own catch
+ * arm and never reaches this classifier — both dispatch sites handle both
+ * arms.
  */
 type OffSessionCompletion =
   | { readonly kind: "text"; readonly text: string }
@@ -7238,10 +7275,11 @@ const OFF_SESSION_NORMAL_STOP_REASONS: ReadonlySet<string> = new Set([
 
 /**
  * Bug 0007: probe the resolved off-session reply's `stopReason` before any
- * text extraction. pi-ai's `complete()` never rejects on a provider failure —
- * the per-API adapter resolves it as a reply carrying `stopReason: "error"`
- * (+ optional `errorMessage`) — so this probe is the only failure surface of
- * the off-session call. A normal terminator passes through to the text
+ * text extraction. On most adapters pi-ai's `complete()` resolves a provider
+ * failure as a reply carrying `stopReason: "error"` (+ optional
+ * `errorMessage`), making this probe that failure surface; the
+ * `anthropic-messages` adapter instead REJECTS (bug 0481: its `result()`
+ * throws the error text), which the call sites' catch arms own. A normal terminator passes through to the text
  * extraction; EVERY other string `stopReason` (`"error"`, `"length"`,
  * `"aborted"`, `"content_filter"`, any unrecognised) routes through the
  * existing `classifyProviderResponse` table with the status THIS call
@@ -7348,9 +7386,13 @@ function respondToolEntry(respond: RespondTurnContext): Tool {
  *     `wrong_tool` when any ToolCall is present (first block's name), else
  *     `plain_text`; `raw_response` = the assistant text, or null when empty.
  *
- * A REJECTED `complete()` promise (pi-ai resolves provider failures, so a
- * rejection is abort/defect-shaped) maps to the transport arm: "cancelled"
- * when the theta signal aborted, else the coerced throw message.
+ * A REJECTED `complete()` promise maps to the transport arm: "cancelled"
+ * when the theta signal aborted, else the coerced throw message. On most
+ * adapters a rejection is abort/defect-shaped (provider failures resolve as
+ * `stopReason: "error"` replies); the `anthropic-messages` adapter also
+ * rejects on PROVIDER failures (bug 0481: its `result()` throws the error
+ * text), so the catch arm consults the bug-0481 rejection predicate before
+ * mapping to transport.
  */
 async function dispatchForcedRespondTurn(
   respond: RespondTurnContext,
@@ -7395,6 +7437,13 @@ async function dispatchForcedRespondTurn(
   const provider = String(model.api);
   const tool: Tool = respondToolEntry(respond);
   const auth = await respond.auth();
+  // Bug 0481: at most TWO dispatches — the forced one, plus ONE degraded
+  // re-issue (toolChoice omitted) when the provider rejects forcing at the
+  // MODEL level (`isForcedToolChoiceRejection` over the raw resolved-failure
+  // errorMessage). Stateless across dispatches: a repair restart re-forces
+  // first, exactly like a fresh query.
+  let degraded = false;
+  for (;;) {
   // Bug 0182: a per-dispatch capture, mirroring `#classifyBinderAttempt`'s —
   // each forced respond call (a fresh attempt, or a repair restart) is its
   // own invocation, so a module-level slot would carry one dispatch's status
@@ -7408,8 +7457,11 @@ async function dispatchForcedRespondTurn(
     // (`pi.sendUserMessage` exposes no toolChoice; `complete()` is the channel)
     // — spelled per the resolved respond model's api (bug 0010 fix round 1;
     // see FORCED_TOOL_CHOICE_BY_API in binder/forced-tool-choice.ts, shared
-    // with the binder inference call since bug 0011).
-    toolChoice: forcedToolChoiceForApi(provider, respond.toolName),
+    // with the binder inference call since bug 0011). OMITTED on the bug-0481
+    // degraded re-dispatch: the context still carries exactly one tool and the
+    // trailing template instructs the model to call it, so `auto` is the
+    // strongest request a forcing-rejecting model admits.
+    ...(degraded ? {} : { toolChoice: forcedToolChoiceForApi(provider, respond.toolName) }),
     // CANCEL-4-style in-flight forwarding: the theta signal threads into the
     // provider invocation so an abort during the call propagates.
     signal: respond.signal,
@@ -7435,11 +7487,22 @@ async function dispatchForcedRespondTurn(
         },
       };
     }
+    const thrownMessage = coerceUnderlyingString(thrown);
+    // Bug 0481 (throw arm): the anthropic adapter's `result()` converts an
+    // error-terminated stream into a THROW (`throw new Error(errorMessage)`,
+    // pi-ai dist/api/anthropic-messages.js), so the model-level forcing
+    // rejection arrives HERE on that adapter — not as a resolved
+    // `stopReason: "error"` reply. Same one-shot degradation as the resolved
+    // arm below.
+    if (!degraded && isForcedToolChoiceRejection(thrownMessage)) {
+      degraded = true;
+      continue;
+    }
     return {
       kind: "transport",
       error: {
         kind: "transport",
-        message: coerceUnderlyingString(thrown),
+        message: thrownMessage,
         http_status: null,
         provider,
         retryable: false,
@@ -7485,6 +7548,18 @@ async function dispatchForcedRespondTurn(
   // table (provider = the resolved RESPOND model's `.api`).
   const classified = classifyOffSessionReply(model, reply, captured);
   if (classified.kind === "failure") {
+    // Bug 0481: the MODEL-level forcing rejection — consulted only on a
+    // classified FAILURE (mirroring the binder site's failure-block placement)
+    // and on the RAW errorMessage, which the classifier would summarise away.
+    // One shot: the degraded pass re-enters this identical interpretation
+    // pipeline, where a repeat rejection no longer matches this arm.
+    if (
+      !degraded &&
+      isForcedToolChoiceRejection((reply as { readonly errorMessage?: string }).errorMessage)
+    ) {
+      degraded = true;
+      continue;
+    }
     return { kind: "transport", error: classified.error };
   }
   // ERR-17: a normal terminator with no matching respond call is
@@ -7500,6 +7575,7 @@ async function dispatchForcedRespondTurn(
       : { kind: "plain_text" };
   const raw = assistantText(reply);
   return { kind: "noncompliance", branch, raw_response: raw !== "" ? raw : null };
+  }
 }
 
 /**

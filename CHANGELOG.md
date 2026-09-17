@@ -4,6 +4,31 @@ All notable changes to `@bitmonk8/pi-theta` will be documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.481.0]
+
+### Fixed
+- **Bug 0481 — a model-level forced-`tool_choice` rejection killed every typed
+  query routed to it (and burned the binder retry budget)**
+  ([docs/bugs/0481](./docs/bugs/0481-typed-query-dies-on-model-level-forced-tool-choice-rejection.md)).
+  `anthropic/claude-fable-5-1` rejects `toolChoice {type:"tool"|"any"}` with a
+  400 (live-measured; unconditional for the model), so a typed `@` query whose
+  model does not volunteer the respond call died `Err(transport)` after its
+  free phase completed — all twenty triage children of quality-loop wave
+  qw20260917095931 failed this way with their verdicts already written. Both
+  forced-dispatch sites (typed-query forced respond turn, binder inference
+  call) now recognise the rejection signature (`isForcedToolChoiceRejection`,
+  raw provider text, both the resolved `stopReason:"error"` arm and the
+  rejected-promise arm — the anthropic adapter THROWS provider failures) and
+  re-issue the dispatch ONCE with `toolChoice` omitted; the degraded reply
+  flows through the unchanged interpretation pipeline (ERR-17/repair, binder
+  attempt taxonomy), non-matching failures never degrade, and the binder
+  downgrade consumes no retry budget. Spec: conversation-drive.md
+  §forced-tool presupposition pin clarification; query-tool-loop.md;
+  determinism-cancellation-failure.md §retry budget. Live cell
+  `tests/live/b0481live-fable51-typed-query-degraded-live-cell.test.ts` is a
+  documented correct-reason red at the pinned pi (`claude_code_version_too_old`
+  gates fable-5-1 off the 0.80.10 host); activates on the next pi bump.
+
 ## [0.480.0]
 
 ### Fixed

@@ -50,8 +50,11 @@ class. Not an evaluation outcome. Sub-obligations:
 - **HC3-a.** At most one transport-class retry per slash invocation.
 - **HC3-b.** At most one malformed-envelope-class retry per slash invocation.
 - **HC3-c.** AJV-on-`args` failures are not retried.
-- **HC3-d.** Worst-case sum: 3 binder LLM calls per slash invocation (1 initial +
-  1 transport-class retry + 1 malformed-envelope-class retry).
+- **HC3-d.** Worst-case sum: 3 budgeted binder attempts per slash invocation
+  (1 initial + 1 transport-class retry + 1 malformed-envelope-class retry),
+  each at most 2 provider calls (the forced dispatch plus its one bug-0481
+  degraded re-dispatch on the model-level forced-tool rejection) — at most 6
+  provider calls.
 - **HC3-e.** When both budgets are exhausted, the surfaced note is the row matching
   the *most recent* failure observed.
 

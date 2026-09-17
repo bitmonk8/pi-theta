@@ -138,11 +138,11 @@ describe("V11f-T — binder per-class retry budget (ceilings-3-and-4.md §HC3)",
     expect(result.outcome.kind).toBe("ajv_args");
   });
 
-  it("HC3-d: at most three LLM calls per invocation (interleaving consumes class budget)", async () => {
+  it("HC3-d: at most three budgeted binder attempts per invocation (interleaving consumes class budget)", async () => {
     // A transport failure observed on the retry of a malformed envelope consumes
     // the transport budget (symmetrically for malformed). An interleaved chain
     // transport → malformed → transport exhausts BOTH budgets: 1 initial + 1
-    // transport retry + 1 malformed retry = exactly 3 LLM calls, then surface.
+    // transport retry + 1 malformed retry = exactly 3 budgeted attempts, then surface.
     const s = scenario([TRANSPORT, MALFORMED, TRANSPORT]);
     const result = await runBinderCallWithCancellation({
       thetaName: "code-review",
