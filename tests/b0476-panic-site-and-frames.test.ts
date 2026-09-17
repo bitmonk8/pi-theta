@@ -98,7 +98,7 @@ import { INTERPOLATED_RESULT_CODE } from "../src/render/query-render";
 import type { LetStmt as LetStmtType, ParForExpr } from "../src/parser/theta-document";
 import { rootDouble } from "./helpers/call-with-clause-harness";
 import { fakeThetaLibFs } from "./helpers/thetalib-load-harness";
-import { parseDeps } from "./helpers/e2e-s1";
+import { findFnDecl, parseDeps } from "./helpers/e2e-s1";
 
 // --- mockable `executeBody` (witness 8 only; every other witness runs the ---
 // --- REAL executor). Defaults to the actual implementation. -----------------
@@ -179,9 +179,7 @@ function lastExprOf(block: Block): Expr {
 
 /** The sole top-level `fn` declaration named `name`. */
 function fnDecl(doc: ThetaDocument, name: string): FnDecl {
-  const found = doc.body.statements.find(
-    (s): s is FnDecl => s.kind === "fn" && (s as FnDecl).name === name,
-  );
+  const found = findFnDecl(doc, name);
   if (found === undefined) {
     throw new Error(`harness: no top-level fn ${name} in the parsed body`);
   }

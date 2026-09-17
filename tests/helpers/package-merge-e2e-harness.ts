@@ -18,13 +18,20 @@
 // parameter and folds it into `getCommands()`; that shape is out of scope
 // here and is left as-is.)
 //
+// tests/b0462-package-identity-dedup.test.ts and
+// tests/b0462-package-merge-priority-adjudication.test.ts also independently
+// redeclared the same `promptTheta` fixture-string builder and the same
+// plant-a-package-theta-on-disk sequence (PTQ-0396); `promptTheta` and the
+// more general `plantPackageThetaAt` (parameterised on the package's parent
+// root) are centralised here too.
+//
 // TIER: unit, offline, deterministic, provider-free — the same tier as every
 // file that imports this module. `makeHarness` wires the real, shipped
 // `createThetaExtension`/`composeExtensionInstance`
 // (`src/extension/factory.ts`/`src/extension/production-composition.ts`);
 // nothing about the seam itself is stubbed.
 
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
@@ -158,4 +165,28 @@ export function mintWorkspace(prefix: string): PackageMergeWorkspace {
       rmSync(cwd, { recursive: true, force: true });
     },
   };
+}
+
+/** A minimal `mode: prompt` theta fixture body. */
+export function promptTheta(description: string, body: string): string {
+  return ["---", "mode: prompt", `description: ${description}`, "---", `@\`${body}\``, ""].join(
+    "\n",
+  );
+}
+
+/** Write a package's `package.json` + one theta under `<root>/<pkg>/theta/`. */
+export function plantPackageThetaAt(
+  packageRoot: string,
+  pkg: string,
+  stem: string,
+  contents: string,
+): void {
+  const dir = join(packageRoot, pkg, "theta");
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(
+    join(packageRoot, pkg, "package.json"),
+    JSON.stringify({ name: pkg, version: "1.0.0" }),
+    "utf8",
+  );
+  writeFileSync(join(dir, `${stem}.theta`), contents, "utf8");
 }

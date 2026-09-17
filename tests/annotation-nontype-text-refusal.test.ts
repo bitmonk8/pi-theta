@@ -8,7 +8,14 @@ import type { FnDecl, LetStmt, Stmt, ThetaDocument } from "../src/parser/theta-d
 import { parseTypeExpression, type TypePosition } from "../src/parser/type-grammar";
 import * as typeLayerChecks from "../src/parser/type-layer-checks";
 import { annotationToCompatType } from "../src/parser/type-layer-checks";
-import { diagCodes, diagLines, findLetStmt, isLoadParseError, parseDoc } from "./helpers/e2e-s1";
+import {
+  diagCodes,
+  diagLines,
+  findFnDecl,
+  findLetStmt,
+  isLoadParseError,
+  parseDoc,
+} from "./helpers/e2e-s1";
 import { REGISTRY, type RegistryRow } from "./helpers/registry-oracle";
 import { committedThetaSources } from "./helpers/theta-corpus";
 
@@ -385,9 +392,7 @@ function letStmtOf(label: string, doc: ThetaDocument, name: string): LetStmt {
 
 /** The sole `fn` declaration named `name`, loud when the body declares none. */
 function fnDeclOf(label: string, doc: ThetaDocument, name: string): FnDecl {
-  const hit = doc.body.statements.find(
-    (s): s is FnDecl => s.kind === "fn" && (s as FnDecl).name === name,
-  );
+  const hit = findFnDecl(doc, name);
   if (hit === undefined) {
     throw new Error(
       `${label}: the body declares no \`fn ${name}\`, so no annotation reached the position ` +

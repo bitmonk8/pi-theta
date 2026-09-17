@@ -35,18 +35,14 @@ import {
   byFragment,
   makeHarness,
   mintWorkspace,
+  plantPackageThetaAt,
+  promptTheta,
 } from "./helpers/package-merge-e2e-harness";
 
 const CROSS_FORMAT_COLLISION = "theta/load/cross-format-collision";
 // The shadow diagnostic's message fragment — never its registry code literal
 // (closed-set carve-out; see the header).
 const SHADOW_FRAGMENT = "shadowed across discovery sources";
-
-function promptTheta(description: string, body: string): string {
-  return ["---", "mode: prompt", `description: ${description}`, "---", `@\`${body}\``, ""].join(
-    "\n",
-  );
-}
 
 /** Write a package's `package.json` + one theta under `<workspace>/node_modules/<pkg>/theta/`. */
 function plantPackageTheta(
@@ -55,14 +51,7 @@ function plantPackageTheta(
   stem: string,
   contents: string,
 ): void {
-  const dir = join(workspace, "node_modules", pkg, "theta");
-  mkdirSync(dir, { recursive: true });
-  writeFileSync(
-    join(workspace, "node_modules", pkg, "package.json"),
-    JSON.stringify({ name: pkg, version: "1.0.0" }),
-    "utf8",
-  );
-  writeFileSync(join(dir, `${stem}.theta`), contents, "utf8");
+  plantPackageThetaAt(join(workspace, "node_modules"), pkg, stem, contents);
 }
 
 describe("b0462 — composition-root package merge vs five-tier adjudication", () => {

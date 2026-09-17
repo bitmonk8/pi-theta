@@ -10,6 +10,7 @@ import { expect } from "vitest";
 import { lexTheta, type LexResult, type ThetaSource } from "../../src/lexer/lexer";
 import {
   parseThetaDocument,
+  type FnDecl,
   type LetStmt,
   type ThetaDocument,
   type ParseThetaDocumentDeps,
@@ -109,6 +110,13 @@ export function diagCodes(doc: ThetaDocument): string[] {
 export function findLetStmt(doc: ThetaDocument, name: string): LetStmt | undefined {
   return doc.body.statements.find(
     (s): s is LetStmt => s.kind === "let" && (s as LetStmt).name === name,
+  );
+}
+
+/** The sole top-level `fn` declaration named `name`, if the body declares one. */
+export function findFnDecl(doc: ThetaDocument, name: string): FnDecl | undefined {
+  return doc.body.statements.find(
+    (s): s is FnDecl => s.kind === "fn" && (s as FnDecl).name === name,
   );
 }
 

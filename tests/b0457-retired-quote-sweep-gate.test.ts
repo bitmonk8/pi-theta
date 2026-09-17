@@ -1,6 +1,6 @@
-import { fileURLToPath } from "node:url";
-import { readdirSync, readFileSync, type Dirent } from "node:fs";
+import { readdirSync, type Dirent } from "node:fs";
 import { describe, expect, it } from "vitest";
+import { linesOf, readCorpus as readCorpusFile, repoFile } from "./helpers/corpus-reader";
 
 // b0457 — the retired-normative-text quote sweep gate.
 //
@@ -42,32 +42,9 @@ import { describe, expect, it } from "vitest";
 //     docs/bugs/** are history. Cell B pins EXACTLY the five enforced-scope
 //     files and never scans those.
 
-const repoFile = (rel: string): string =>
-  fileURLToPath(new URL(`../${rel}`, import.meta.url));
-
-/**
- * Read a corpus file. A missing or empty file is a HARNESS failure that names
- * the unmet precondition and throws — never a skip, never an early return, so an
- * absent source cannot let a cell pass vacuously (the bug-0421 readCorpus
- * pattern this file mirrors).
- */
-function readCorpus(rel: string): string {
-  let text: string;
-  try {
-    text = readFileSync(repoFile(rel), "utf8");
-  } catch (cause) {
-    throw new Error(
-      `harness precondition unmet: ${rel} is unreadable, and it is a source this gate scores for the bug 0457 quote sweep — a missing corpus file is a loud failure, never a skip (${String(cause)})`,
-    );
-  }
-  if (text.trim() === "") {
-    throw new Error(`harness precondition unmet: ${rel} is empty; nothing to score`);
-  }
-  return text;
-}
-
-/** Line splitting tolerates a CRLF terminator. */
-const linesOf = (text: string): readonly string[] => text.split(/\r?\n/);
+/** This file's own corpus reads: `rel` is a source this gate scores for the bug 0457 quote sweep. */
+const readCorpus = (rel: string): string =>
+  readCorpusFile(rel, "a source this gate scores for the bug 0457 quote sweep");
 
 /** The 1-based line numbers of `needle` in `text` (a file:line locator for messages). */
 function lineHits(text: string, needle: string): readonly number[] {

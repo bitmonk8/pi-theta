@@ -28,7 +28,6 @@
 // never its registry-code literal. The cross-format-collision code is not a
 // carve-out and is located by its literal.
 
-import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
@@ -36,33 +35,12 @@ import {
   byFragment,
   makeHarness,
   mintWorkspace,
+  plantPackageThetaAt,
+  promptTheta,
 } from "./helpers/package-merge-e2e-harness";
 
 const CROSS_FORMAT_COLLISION = "theta/load/cross-format-collision";
 const SHADOW_FRAGMENT = "shadowed across discovery sources";
-
-function promptTheta(description: string, body: string): string {
-  return ["---", "mode: prompt", `description: ${description}`, "---", `@\`${body}\``, ""].join(
-    "\n",
-  );
-}
-
-/** Write a package's `package.json` + one theta under `<root>/<pkg>/theta/`. */
-function plantPackageThetaAt(
-  packageRoot: string,
-  pkg: string,
-  stem: string,
-  contents: string,
-): void {
-  const dir = join(packageRoot, pkg, "theta");
-  mkdirSync(dir, { recursive: true });
-  writeFileSync(
-    join(packageRoot, pkg, "package.json"),
-    JSON.stringify({ name: pkg, version: "1.0.0" }),
-    "utf8",
-  );
-  writeFileSync(join(dir, `${stem}.theta`), contents, "utf8");
-}
 
 describe("b0462 (F1) — package-identity dedup inside the package walker", () => {
   let workspace: string;

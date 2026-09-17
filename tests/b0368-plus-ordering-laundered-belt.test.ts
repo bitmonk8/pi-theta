@@ -89,36 +89,23 @@
 //            (or perturbed bug 0332's `-` belt, D8).
 
 import { describe, expect, it } from "vitest";
-import type {
-  ExtensionAPI,
-  ExtensionCommandContext,
-  ModelRegistry,
-} from "@earendil-works/pi-coding-agent";
 import type { ThetaSource } from "../src/lexer/lexer";
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
 import type { SystemNoteChannelDeps } from "../src/extension/system-note-channel";
-import type { ModelReferenceMatcher, ParsedFrontmatter } from "../src/parser/frontmatter";
+import type { ModelReferenceMatcher } from "../src/parser/frontmatter";
 import {
   parseThetaDocument,
   type ParseThetaDocumentDeps,
   type ThetaDocument,
 } from "../src/parser/theta-document";
-import { executeBody, type BodyExecution } from "../src/runtime/statement-executor";
+import { type BodyExecution } from "../src/runtime/statement-executor";
 import {
   isThetaPanic,
   surfaceUnexpectedThrow,
   INTERNAL_ERROR_CODE,
 } from "../src/runtime/runtime-panics";
 import type { ThetaValue } from "../src/runtime/value";
-import {
-  createProductionProducerDeps,
-  type CalleeParseOutcome,
-} from "../src/extension/production-theta-producer";
-import type {
-  ConversationBindInput,
-  ThetaCompositionInput,
-} from "../src/extension/theta-composition-producer";
-import type { RuntimeRoot } from "../src/runtime-root";
+import { assertValue, makeBeltProbes } from "./helpers/runtime-belt-probe-harness";
 
 const FM = "---\nmode: prompt\n---\n";
 
@@ -171,92 +158,25 @@ function parseTheta(src: string): ThetaDocument {
   return doc;
 }
 
-function rootDouble(): RuntimeRoot {
-  return {
-    checkpoint: { before: (): Promise<void> => Promise.resolve() },
-    idSource: { newInvocationId: (): string => "inv-1", newToolCallId: (): string => "tc-1" },
-    // The prompt-mode drive's only wait primitive is `Clock.setTimeout`; fire the
-    // callback synchronously so an instant-settle turn completes deterministically
-    // with no real timers (the b0338 harness contract).
-    clock: {
-      now: (): number => 0,
-      wallNow: (): number => 0,
-      setTimeout: (fn: () => void): unknown => {
-        fn();
-        return 0;
-      },
-      clearTimeout: (): void => {},
-    },
-  } as unknown as RuntimeRoot;
-}
-
 function render(value: ThetaValue | undefined): string {
   return value === undefined ? "undefined" : JSON.stringify(value);
 }
 
 // ===========================================================================
-// EXECUTOR harness (b0332 shape, verbatim). A raw non-panic throw propagates out
-// of `executeBody` uncaught (the framing that reclassifies it lives one layer
-// up, theta-composition-producer.ts), so both dispositions are observable here.
+// EXECUTOR harness. `rootDouble`/`producer`/`probeSource`/`assertValue` (and
+// the PURE-HOST `InstantSettleSession`/`driveInterp`/`driveInvoke` below) are
+// shared with the b0369 sibling file (tests/helpers/runtime-belt-probe-harness.ts,
+// PTQ-0397); `Probe` stays local — `assertLoudThrow` below still needs it. A
+// raw non-panic throw propagates out of `executeBody` uncaught (the framing
+// that reclassifies it lives one layer up, theta-composition-producer.ts), so
+// both dispositions are observable here.
 // ===========================================================================
 
 type Probe =
   | { readonly kind: "value"; readonly execution: BodyExecution }
   | { readonly kind: "threw"; readonly thrown: unknown };
 
-function producer() {
-  return createProductionProducerDeps({
-    pi: {
-      sendMessage: () => {},
-      getActiveTools: () => [],
-      setActiveTools: () => {},
-    } as unknown as ExtensionAPI,
-    root: rootDouble(),
-    modelRegistry: {} as unknown as ModelRegistry,
-  });
-}
-
-/** Parse + run a self-contained query-free prompt-mode source, capturing a throw. */
-async function probeSource(src: string): Promise<Probe> {
-  const doc = parseTheta(src);
-  const theta: ThetaCompositionInput = {
-    slashName: "b0368",
-    sourcePath: "/proj/b0368.theta",
-    frontmatter: doc.frontmatter as ParsedFrontmatter,
-    body: doc.body,
-  };
-  const bindInput: ConversationBindInput = {
-    theta,
-    args: "",
-    ctx: {} as unknown as ExtensionCommandContext,
-  };
-  const binding = producer().bindPromptConversation(bindInput);
-  try {
-    return { kind: "value", execution: await executeBody(theta.body, binding.executeDeps) };
-  } catch (thrown) {
-    return { kind: "threw", thrown };
-  }
-}
-
-/**
- * Assert a value row: the body succeeded and its final value equals `expected`.
- * When the runtime threw instead, the first `expect` reds cleanly naming the
- * throw, rather than letting an uncaught throw escape the test.
- */
-function assertValue(probe: Probe, expected: ThetaValue, what: string): void {
-  if (probe.kind === "threw") {
-    expect(
-      `threw ${String(probe.thrown)}`,
-      `${what}: the witness table says success value ${render(expected)}, but the runtime threw`,
-    ).toBe(`success value ${render(expected)}`);
-    return;
-  }
-  expect(probe.execution.outcome, `${what}: the body must succeed`).toBe("success");
-  expect(
-    probe.execution.result.value,
-    `${what}: the control value (byte-identical guard)`,
-  ).toEqual(expected);
-}
+const { probeSource, driveInterp, driveInvoke } = makeBeltProbes(parseTheta, "b0368");
 
 /**
  * Assert a runtime-loud-throw row (every FLIP + the D8 asymmetry control): the
@@ -398,153 +318,6 @@ describe("bug 0368 NaN/Infinity controls — non-finite numbers stay admitted (b
     ).toBe(true);
   });
 });
-
-// ===========================================================================
-// PURE-HOST harness (b0338 shape, verbatim) — proves the SECOND sink,
-// `evaluateBinaryExpression`. INTERPOLATION drive (instant-settle session
-// double): captures every prompt text handed to `pi.sendUserMessage`. A render
-// throw (the belt) escapes `executeBody` before the send, so it is caught here
-// and the sent-text log is empty.
-// ===========================================================================
-
-class InstantSettleSession {
-  readonly entries: Array<Record<string, unknown>> = [];
-  readonly sent: string[] = [];
-
-  sendUserMessage(text: string): void {
-    this.sent.push(text);
-    this.entries.push({
-      type: "message",
-      id: `u${this.entries.length + 1}`,
-      parentId: undefined,
-      message: { role: "user", content: [{ type: "text", text }] },
-    });
-    this.entries.push({
-      type: "message",
-      id: `a${this.entries.length + 1}`,
-      parentId: `u${this.entries.length}`,
-      message: {
-        role: "assistant",
-        content: [{ type: "text", text: "settled-reply" }],
-        api: "anthropic-messages",
-        provider: "anthropic",
-        model: "m1",
-        stopReason: "stop",
-      },
-    });
-  }
-
-  isIdle(): boolean {
-    return true;
-  }
-}
-
-type InterpProbe =
-  | { readonly kind: "rendered"; readonly sent: readonly string[]; readonly outcome: string; readonly value: ThetaValue | undefined }
-  | { readonly kind: "threw"; readonly sent: readonly string[]; readonly thrown: unknown };
-
-async function driveInterp(src: string): Promise<InterpProbe> {
-  const doc = parseTheta(src);
-  const session = new InstantSettleSession();
-  const pi = {
-    sendUserMessage: (content: string): void => session.sendUserMessage(content),
-    getActiveTools: (): string[] => [],
-    setActiveTools: (): void => {},
-    registerTool: (): void => {},
-    on: (): void => {},
-    sendMessage: (): void => {},
-  } as unknown as ExtensionAPI;
-  const deps = createProductionProducerDeps({
-    pi,
-    root: rootDouble(),
-    modelRegistry: {} as unknown as ModelRegistry,
-  });
-  const ctx = {
-    model: { id: "m1", api: "anthropic-messages", provider: "anthropic", strictCapable: true },
-    signal: undefined,
-    isIdle: (): boolean => session.isIdle(),
-    waitForIdle: (): Promise<void> => Promise.resolve(),
-    sessionManager: {
-      getEntries: (): readonly unknown[] => [...session.entries],
-      getLeafId: (): undefined => undefined,
-    },
-  } as unknown as ExtensionCommandContext;
-  const theta: ThetaCompositionInput = {
-    slashName: "b0368",
-    sourcePath: "/proj/b0368.theta",
-    frontmatter: doc.frontmatter as ParsedFrontmatter,
-    body: doc.body,
-  };
-  const binding = deps.bindPromptConversation({ theta, args: "", ctx });
-  try {
-    const execution = await executeBody(theta.body, binding.executeDeps);
-    return {
-      kind: "rendered",
-      sent: session.sent,
-      outcome: execution.outcome,
-      value: execution.result.value,
-    };
-  } catch (thrown) {
-    return { kind: "threw", sent: session.sent, thrown };
-  }
-}
-
-// ===========================================================================
-// INVOKE drive (b0338 shape). A recording `parseCallee` is the pre-spawn seam:
-// `#driveCallee` loads the callee through it BEFORE spawning the child, and it
-// runs only after `#resolveInvoke` has already bound the positional args. So
-// `parseCallee` reached ⇒ the arg binding produced a value and the invoke
-// advanced to callee load; `parseCallee` unreached ⇒ the arg binding threw
-// before any callee load or child spawn.
-// ===========================================================================
-
-type InvokeProbe =
-  | { readonly kind: "value"; readonly parseCalleeCalls: number; readonly outcome: string }
-  | { readonly kind: "threw"; readonly parseCalleeCalls: number; readonly thrown: unknown };
-
-async function driveInvoke(src: string): Promise<InvokeProbe> {
-  const doc = parseTheta(src);
-  let parseCalleeCalls = 0;
-  const pi = {
-    sendMessage: (): void => {},
-    getActiveTools: (): string[] => [],
-    setActiveTools: (): void => {},
-  } as unknown as ExtensionAPI;
-  const deps = createProductionProducerDeps({
-    pi,
-    root: rootDouble(),
-    modelRegistry: {} as unknown as ModelRegistry,
-    // Bug 0293: `undefined` still yields Err(load_failure) as a VALUE (the
-    // seam-absent default) — enough to record that the invoke reached callee
-    // load carrying the bound arg; the child is never spawned.
-    parseCallee: (_caller: string | undefined, _path: string): Promise<CalleeParseOutcome | undefined> => {
-      parseCalleeCalls += 1;
-      return Promise.resolve(undefined);
-    },
-  });
-  const ctx = {
-    model: { id: "m1", provider: "anthropic" },
-    signal: undefined,
-  } as unknown as ExtensionCommandContext;
-  const theta: ThetaCompositionInput = {
-    slashName: "b0368",
-    sourcePath: "/proj/b0368.theta",
-    frontmatter: doc.frontmatter as ParsedFrontmatter,
-    body: doc.body,
-  };
-  const binding = deps.bindPromptConversation({
-    theta,
-    args: "",
-    ctx,
-    thetaAbort: new AbortController(),
-  });
-  try {
-    const execution = await executeBody(theta.body, binding.executeDeps);
-    return { kind: "value", parseCalleeCalls, outcome: execution.outcome };
-  } catch (thrown) {
-    return { kind: "threw", parseCalleeCalls, thrown };
-  }
-}
 
 /**
  * Shared framing assertion: a caught throw must be the belt's plain `Error` (NOT
