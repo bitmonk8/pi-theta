@@ -15,6 +15,7 @@ d4_class: parallel
 wave: qw20260917154546
 reported_by: lens-d7-testquality (anthropic/claude-sonnet-5)
 date: 2026-09-17
+fix_skips: 1
 ---
 
 # ParForHost/execDeps/makeDeps/tick harness block is re-typed near-verbatim across four par-for test files
@@ -130,3 +131,6 @@ Gate-pin check: none of the four files match `*gate*.test.ts` or the named gate 
 
 ## Triage
 verdict: confirmed — independently re-verified: grep reproduces the eleven-symbol hit set at the cited lines; diff shows ParForHost byte-identical b0324:128-165↔b0326:150-187, b0325's RecordingParForHost = rename + `started` counter only, execDeps/DiagnosticSpyDeps byte-identical across all three bug files and makeDeps/parse/bodyOf/NOOP_CHECKPOINT/NoopMutator/tick/ok byte-identical b0324↔b0325 (b0326 adds codesOf only); par-for.test.ts shares the six scaffold helpers verbatim but its ParForHost/execDeps are diverged supersets (so the fourth site is an ancestor, not a clone); NOOP_CHECKPOINT/NoopMutator additionally re-type tests/helpers/invoke-seam-scaffold.ts's exported SEAM_NOOP_CHECKPOINT/SEAM_NOOP_MUTATOR; no gate file, no coverage-matrix pin (grep b0324|b0325|b0326 → 0 hits), no tracked PTQ on this harness — minor observation drift only (b0326:142-143 names b0324 as its model, not par-for.test.ts; stray d4_class field on a D7 filing) (triage: claude-fable-5-1)
+
+## Fix attempts
+- (wave unknown): skipped — (no fixer notes recorded)

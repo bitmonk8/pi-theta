@@ -12,6 +12,7 @@ fix_scope: localized          # localized | module | cross-module - mechanical s
 wave: qw20260917154546
 reported_by: lens-d7-testquality (anthropic/claude-sonnet-5)
 date: 2026-09-17
+fix_skips: 1
 ---
 
 # registers() in inline-object-malformed-entry-resync.test.ts re-derives the predicate tests/helpers/e2e-s1.ts already exports as isLoadParseError
@@ -144,3 +145,6 @@ predicate `registers` computes today.
 ## Triage
 <!-- pending -->
 verdict: confirmed — independently re-verified: both excerpts reproduce verbatim at tests/inline-object-malformed-entry-resync.test.ts:312-332 and tests/helpers/e2e-s1.ts:87-97; the file imports only `parseDoc` from ./helpers/e2e-s1 (line 9) while `isLoadParseError` (added there in f0333c15, PTQ-0268's fix, after this test's 2026-08-22 authorship) is the clause-identical single-diagnostic predicate, so `registers` is exactly `!doc.diagnostics.some(isLoadParseError)`; `grep "^function registers" tests/*.test.ts` reproduces the stated 10 files; one live call site (line 725, cell d1); not a gate file, 0 coverage-matrix hits, bug doc 0231 cites cells not the predicate; PTQ-0268 and same-wave siblings d7-02/d7-157-02 each name a different file's function, so this is a new site of the class, not a duplicate (triage: claude-fable-5-1)
+
+## Fix attempts
+- (wave unknown): skipped — (no fixer notes recorded)

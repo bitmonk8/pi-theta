@@ -12,6 +12,7 @@ fix_scope: cross-module       # localized | module | cross-module - mechanical s
 wave: qw20260917154546
 reported_by: lens-d7-testquality (anthropic/claude-sonnet-5)
 date: 2026-09-17
+fix_skips: 1
 ---
 
 # the nine-position `Position`/`POSITIONS`/`cells`/`expectMatrix` fixture-and-assertion table is duplicated byte-for-byte between b0281 and b0282
@@ -149,3 +150,6 @@ could join it or a sibling module the same family already relies on.
 ## Triage
 <triage appends: verdict + one-line reason. Nothing above this line is edited.>
 verdict: confirmed — independently re-verified: `diff` of b0281:328-383 vs b0282:244-299 is empty (56-line POSITIONS table byte-identical), and the full 312-426 vs 227-342 ranges differ only in two doc-comment wordings, one `cells` head ternary, and the trailing section marker; `expectMatrix` is byte-identical; the nine-position table (`query-T-head`…`params-field`) greps to exactly these two files and no tests/helpers/ module exports a Position/POSITIONS/cells/expectMatrix bundle; not a duplicate (PTQ-0206/0207/0219/0228/0409 cover the LoadRow/registered/expectRows layer, none names this table); carve-outs cleared — both bugs fixed (0.277.0 / 0.280.0), 25/25 green, 0 coverage-matrix hits, and bug 0282's witness list cites b0281 `it()` blocks that a module-scope fixture hoist neither merges, renames nor deletes; gate filename is incidental since no pinned count is challenged (triage: claude-fable-5-1)
+
+## Fix attempts
+- (wave unknown): skipped — (no fixer notes recorded)

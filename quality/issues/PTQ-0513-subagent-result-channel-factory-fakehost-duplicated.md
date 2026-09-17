@@ -14,6 +14,7 @@ d4_class: clone
 wave: qw20260917154546
 reported_by: lens-d7-testquality (anthropic/claude-sonnet-5)
 date: 2026-09-17
+fix_skips: 1
 ---
 
 # subagent-result-channel-factory.test.ts's makeHarness pi/ctx object and AVAILABLE_MODEL constant duplicate production-result-channel.test.ts's fakeHost/ctx and AVAILABLE_MODEL near-verbatim
@@ -140,3 +141,6 @@ design for one.
 ## Triage
 <triage appends: verdict + one-line reason. Nothing above this line is edited.>
 verdict: confirmed — independently re-verified: both excerpts reproduce byte-for-byte at the cited lines (factory:21, 64-84; production:323, 346-374), the `model`/`isIdle`/`modelRegistry{getAvailable,find}`/`sessionManager`/`ui` ctx block and the AVAILABLE_MODEL literal are identical, both copies are live same-commit siblings (97e4ef27), and no shared home exists — tests/helpers/model-registry-fixture.ts exports only `model()`/`registryOf()` (a `ModelRegistrySurface` without `find`, no ctx) and compose-workspace-harness.ts's `makeHost` ctx carries no `model`/`isIdle`/`sessionManager`; D7 copy-paste-fixture class, no gate/recording-double/coverage-matrix/bug-doc carve-out applies, no tracked PTQ names these files or this fixture; note for the fixer: the identical `const AVAILABLE_MODEL` + `getAvailable: () => [AVAILABLE_MODEL]` ctx recurs in 4 files not 2 — also tests/subagent-placement-load-refusal.test.ts:25,~52-70 and tests/subagent-root-registration-refusal-envelope.test.ts:162,~255-265 (triage: claude-fable-5-1)
+
+## Fix attempts
+- (wave unknown): skipped — (no fixer notes recorded)

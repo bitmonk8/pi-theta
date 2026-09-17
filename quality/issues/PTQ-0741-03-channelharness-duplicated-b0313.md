@@ -13,6 +13,7 @@ d4_class: clone
 wave: qw20260917154546
 reported_by: lens-d7-testquality (anthropic/claude-sonnet-5)
 date: 2026-09-17
+fix_skips: 1
 ---
 
 # watcher-terminated-recovery.test.ts's channelHarness/SentMessage duplicates b0313-terminal-note-burst-latch.test.ts's byte-for-byte
@@ -121,3 +122,6 @@ from.
 
 ## Triage
 verdict: confirmed — independently re-verified: both excerpts reproduce at the cited lines (watcher-terminated-recovery.test.ts:92-121, b0313-terminal-note-burst-latch.test.ts:35-62); a scratch diff of the two ranges shows `SentMessage` byte-identical and `channelHarness` identical except doc-comment wording and the b0313 copy's return type/object omitting the `emitDiagnostic` field it still constructs (so the title's "byte-for-byte" slightly overstates, but the body discloses exactly that delta); `grep channelHarness|interface SentMessage tests/` finds only these two copies (tests/harness/session-double.ts:37 is a different `SentMessage` for a different double) and no tests/helpers/ export supplies the pair; both copies are live (called at :130/:174 and :71) and both suites pass at HEAD (8/8); docs/bugs/ and coverage-matrix greps re-run at 0 hits; both locations under tests/, class = copy-paste double construction, recording-double USE not challenged; no tracked PTQ cites either file for this pair (PTQ-0398 covers b0437's channel tail, PTQ-0150 is D2 on watcher-recovery.ts exports) — a mechanical extraction to a shared tests/helpers/ module with the superset return shape (triage: claude-fable-5-1)
+
+## Fix attempts
+- (wave unknown): skipped — (no fixer notes recorded)

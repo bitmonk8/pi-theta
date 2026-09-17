@@ -20,6 +20,7 @@ fix_scope: cross-module       # localized | module | cross-module - mechanical s
 wave: qw20260917154546
 reported_by: lens-d7-testquality (anthropic/claude-sonnet-5)
 date: 2026-09-17
+fix_skips: 1
 ---
 
 # binder-forced-tool-dispatch.test.ts redeclares the parseDeps/parse/ctxDouble/noteChannelEntries/CapturedNote/TWO_PARAM_THETA sextet tests/e2e-s5-binder-echo-emission.test.ts already carries
@@ -145,3 +146,6 @@ A shared `tests/helpers/` module exporting the binder-parse scaffolding (`parseD
 
 ## Triage
 verdict: confirmed — independently re-verified: awk-extracted + diffed all six blocks (CapturedNote, parseDeps, parse, ctxDouble, noteChannelEntries, TWO_PARAM_THETA) between tests/binder-forced-tool-dispatch.test.ts and tests/e2e-s5-binder-echo-emission.test.ts → 0 diff lines each at the cited ranges; the "copied from the e2e-s5 pattern" header is real (line 270); both files live (24+4 it(), no skips); no gate/negative-witness/bug-doc carve-out applies and no open/resolved PTQ tracks this sextet (PTQ-0276 covered only deepKeyOccurrences in this file, already fixed); one correction for the fixer — the candidate's "tests/helpers/ exports none of these" is wrong: scripted-live-session-harness.ts:92-114 exports byte-identical parseDeps + near-identical parse, tool-call-dispatch-harness.ts:108 exports byte-identical ctxDouble, e2e-s1.ts:38 exports an equivalent parseDeps, so canonical homes already exist (triage: claude-fable-5-1)
+
+## Fix attempts
+- (wave unknown): skipped — (no fixer notes recorded)

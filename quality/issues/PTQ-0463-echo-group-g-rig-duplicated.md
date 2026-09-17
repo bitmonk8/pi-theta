@@ -13,6 +13,7 @@ fix_scope: cross-module      # localized | module | cross-module - mechanical si
 wave: qw20260917154546
 reported_by: lens-d7-testquality (anthropic/claude-sonnet-5)
 date: 2026-09-17
+fix_skips: 1
 ---
 
 # echo-array-per-element-descriptor.test.ts redeclares the group-G production-binder rig it names as echo-value-rule1-sanitisation.test.ts's own
@@ -226,3 +227,6 @@ the observation that a shared base is missing, not a design for one.
 
 ## Triage
 verdict: confirmed — independently re-verified: `CapturedNote`/`scriptEnvelope`/`parseDeps`/`BINDER_MODEL`/`ctxDouble` diff byte-identical (diff exit 0) between echo-array:224-319 and echo-value:449-532, `producerWithCapture` differs only by the `source` param + `rootDouble(source)` (2 lines), the 7-declaration grep reproduces in all three files at the cited lines, both header cross-references are real (echo-array:110,218 "group-G rig of …"; echo-value:85-86 "same M2 harness e2e-s5 … uses"), no file imports from ./helpers, docs/bugs/0087 and 0092 are Status fixed with both files green (37/37), coverage-matrix.md has 0 hits, and no accepted PTQ names any of the three files (PTQ-0209/0384/0397/0214/0314/0386 cover disjoint files) — in-scope D7 boilerplate/copy-paste-fixture, no carve-out applies; two notes for the fixer: tests/helpers/e2e-s1.ts already exports an equivalent `parseDeps()` (the direction paragraph's "no helpers module hosts this rig" is true only of the rig as a whole), and the rig is wider than three sites (14 tests/ files declare `producerWithCapture`/`scriptEnvelope`), with same-wave sibling qw20260917154546-d7-02-b0381-ajv-producer-harness-duplicated citing echo-value:475-529 + e2e-s5 against b0381 — the store's per-file-pair convention keeps this pair distinct, but the fix should land one shared helper (triage: claude-fable-5-1)
+
+## Fix attempts
+- (wave unknown): skipped — (no fixer notes recorded)

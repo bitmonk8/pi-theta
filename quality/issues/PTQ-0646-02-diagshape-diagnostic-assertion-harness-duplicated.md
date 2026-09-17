@@ -24,6 +24,7 @@ fix_scope: cross-module
 wave: qw20260917154546
 reported_by: lens-d7-testquality (anthropic/claude-sonnet-5)
 date: 2026-09-17
+fix_skips: 1
 ---
 
 # The DiagShape/shapes/render/readRepoFile diagnostic-assertion harness is redeclared byte-identical across six pattern-refusal test files
@@ -96,3 +97,6 @@ The same "reduce a diagnostic to its normative shape, render a diagnostic list, 
 
 ## Triage
 verdict: confirmed — independently re-verified by extracting each declaration and md5-diffing: DiagShape/shapes/render/readRepoFile/range/deniesRegistration are byte-identical across five of the six files (field-set, unresolved, capitalised-bare, pattern-field-literal, reserved-keyword) and match-pattern-increment-decrement differs only by an added `hint` field/`[hint=…]` suffix; every cited excerpt sits at the cited lines, no tests/helpers module exports any of the names (e2e-s1.ts has diagLines/codes but no five-field reducer), the :468/:294 doc comments really cite reserved-keyword…:228's deniesRegistration by name, coverage-matrix 0 hits, docs/bugs 0 hits for DiagShape/deniesRegistration, none of the files is a gate/recording-double/failLoudly case, and no PTQ (0205/0215/0226 family included) tracks this scaffold — genuine D7 boilerplate/copy-paste-fixture duplication; filing inaccuracies, non-blocking: the stated grep is not "exactly 30 matches" (`^function render` hits ~100 other test files and REGISTRY_PARSE_PAGE/readRepoFile also recur in b0315-stdlib-arg-surface.test.ts) and the Observation's "three of the six" carry range/deniesRegistration is actually five (its own Evidence count of 10 is right); fixer note: the readRepoFile/REGISTRY_PARSE_PAGE→parseRegistry slice is the registry-oracle family (PTQ-0215/0313/0404) and overlaps confirmed sibling intakes d7-105-01 (match-pattern-increment-decrement:94-110) and d7-01-registry-oracle-read-reimplemented-in-scope-trio (pattern-field-literal…:143-158), so route it through tests/helpers/registry-oracle.ts readRegistry(["parse"]) rather than a new helper, keeping a raw page read where files scan raw text (Hint column, line lookups at unresolved:366, reserved-keyword:304/319/341, capitalised:387); deniesRegistration in reserved-keyword…:228 is also claimed by sibling d7-130-01 (triage: claude-fable-5-1)
+
+## Fix attempts
+- (wave unknown): skipped — (no fixer notes recorded)

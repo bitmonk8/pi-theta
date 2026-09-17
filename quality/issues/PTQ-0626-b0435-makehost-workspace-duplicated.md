@@ -16,6 +16,7 @@ fix_scope: localized          # localized | module | cross-module - mechanical s
 wave: qw20260917154546
 reported_by: lens-d7-testquality (anthropic/claude-sonnet-5)
 date: 2026-09-17
+fix_skips: 1
 ---
 
 # b0435 re-derives compose-workspace-harness.ts's ExtensionAPI/ExtensionContext host double and settings-file plant instead of importing them
@@ -200,3 +201,6 @@ callers.
 ## Triage
 <triage appends: verdict + one-line reason. Nothing above this line is edited.>
 verdict: confirmed — all six excerpts reproduce verbatim at the cited lines; b0435 (single commit 70106e13, never imported tests/helpers/compose-workspace-harness.ts — grep 0 hits) redeclares 9 byte-identical no-op `pi` methods (+ `getCommands` differing only in return-type annotation, so "ten byte-identical" is off by one, non-disturbing), the identical `cwd`/`hasUI`/`modelRegistry` ctx fields and the byte-identical `{}` settings write of `finishWorkspace`, diverging only in the throw-injecting `sendMessage`/`ui.notify` the fix stage can add as an option; the helper's own header names ending this redeclaration as its purpose and docs/bugs/0435 line 108 prescribes the "b0268-style host double" as a build step, not a rationale against sharing; test green 2/2, bug fixed (0.419.0), coverage-matrix 0 hits, not a gate/negative-witness carve-out; resolved PTQ-0220 names b0435 only in its pattern-wide grep with a site list of b0320 alone, and no wave sibling (b0268, lex-drop, shared-subtree, 152-01) lists b0435, so per the store's per-occurrence convention this is a distinct unremediated occurrence, not a duplicate (triage: claude-fable-5-1)
+
+## Fix attempts
+- (wave unknown): skipped — (no fixer notes recorded)

@@ -14,6 +14,7 @@ fix_scope: cross-module
 wave: qw20260917154546
 reported_by: lens-d7-testquality (anthropic/claude-sonnet-5)
 date: 2026-09-17
+fix_skips: 1
 ---
 
 # The TRIAGE_DEF closed-lowering constant and BODY fixture source are byte-identical across eight and four sibling test files respectively
@@ -111,3 +112,6 @@ four (`BODY`) byte-identical declarations point at.
 ## Triage
 <triage appends: verdict + one-line reason. Nothing above this line is edited.>
 verdict: confirmed — independently re-verified: all four excerpts match at the cited lines; `grep "^const TRIAGE_DEF = {" tests/*.ts` → exactly the 8 named files and md5 over the extracted blocks shows the 5-line object body byte-identical in all 8 (7 also share the doc comment; generic-argument-literal-lowering.test.ts:155 words it differently — immaterial); `grep '^const BODY = "schema Triage' tests/*.ts` → exactly the 4 named lines, byte-identical; no Triage fixture exists in tests/helpers/; D7 copy-paste-fixture class, all sites under tests/, no gate tests, 0 coverage-matrix and 0 docs/bugs citations; not tracked in issues/resolved (PTQ-0410 covers the slug oracle, not this fixture) — note partial overlap with same-wave intake qw20260917154546-d7-119-03-decls-triagedef-yamlquoted-duplicated.md, which cites TRIAGE_DEF in a 2-file subset bundled with DECLS/yamlQuoted; consolidate at acceptance (triage: claude-fable-5-1)
+
+## Fix attempts
+- (wave unknown): skipped — (no fixer notes recorded)

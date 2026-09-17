@@ -14,6 +14,7 @@ d4_class: clone
 wave: qw20260917154546
 reported_by: lens-d7-testquality (anthropic/claude-sonnet-5)
 date: 2026-09-17
+fix_skips: 1
 ---
 
 # Both generic-argument-* files redeclare the Cell/expectGroup whole-map diagnostic-comparison harness found in eleven further sibling files
@@ -152,3 +153,6 @@ beside `tests/helpers/e2e-s1.ts`'s existing `diagLines`/`diagCodes` exports.
 ## Triage
 <triage appends: verdict + one-line reason. Nothing above this line is edited.>
 verdict: confirmed — independently re-verified: all three excerpts match at the cited lines (bracket-group:373-395, inline-field-key-rules:333-356, brace-and-angle:319-328), `diff` of the two in-scope expectGroup bodies is empty, `grep -l "function expectGroup" tests/*.test.ts` → exactly the 13 files named, every copy is the same two-Record-then-`expect(actual, why).toEqual(expected)` shape (variants only in key spelling and `lines()` arity), no tests/helpers/* exports Cell/expectGroup (e2e-s1.ts stops at diagLines/diagCodes/expectDiagnosticRow), both suites 19/19 green; carve-outs hold (no gate file, no recording double, coverage-matrix 0 hits, `expectGroup` absent from docs/bugs/); not tracked by any PTQ (0205 is the diagLines/diagCodes half, since fixed), and the same-wave sibling d7-02-inline-object-empty-parse-harness was ruled duplicate deferring to this filing as the carrier — D7 boilerplate-duplication class; note for the fixer that each copy also depends on a per-file local `Exp`/`renderAll` (e.g. bracket-group:272/340) which a shared harness must take as a parameter or move alongside (triage: claude-fable-5-1)
+
+## Fix attempts
+- (wave unknown): skipped — (no fixer notes recorded)

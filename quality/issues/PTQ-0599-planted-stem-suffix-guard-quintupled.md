@@ -15,6 +15,7 @@ fix_scope: cross-module       # localized | module | cross-module - mechanical s
 wave: qw20260917154546
 reported_by: lens-d7-testquality (anthropic/claude-sonnet-5)
 date: 2026-09-17
+fix_skips: 1
 ---
 
 # the planted-stem suffix-collision guard loop is duplicated byte-for-byte across five production-load test files, uncentralised by PTQ-0210's harness extraction
@@ -128,3 +129,6 @@ purpose of centralising the shared parts of this exact harness family.
 ## Triage
 <triage appends: verdict + one-line reason. Nothing above this line is edited.>
 verdict: confirmed — independently re-verified: all five excerpts sit at the cited lines and `diff` of the extracted ranges shows a/c/d byte-identical and b/e byte-identical (a↔b differ only in the `+`-wrapped vs single-line message), `grep -rl "other.endsWith(stem)"` across src/extensions/tools/tests hits exactly these five files and no tests/helpers module hosts the guard; D7 boilerplate-duplication in tests/ only, no gate-name/recording-double/docs-bugs (0 hits)/coverage-matrix (0 hits) carve-out applies, and not a duplicate — PTQ-0210's root cause was the runProductionLoad body (its fix migrated only arg-mismatch, so the candidate's "five files that harness now imports from" is inaccurate: 4/5 still inline runProductionLoad, and plant/dispose came from PTQ-0312 not PTQ-0210), PTQ-0312 explicitly set this guard aside as "unrelated", and the sibling intake d7-106-01 covers modulo-zero's harness/lifecycle, not the guard; the narrative slip does not touch the root cause, evidence, or anchor (triage: claude-fable-5-1)
+
+## Fix attempts
+- (wave unknown): skipped — (no fixer notes recorded)

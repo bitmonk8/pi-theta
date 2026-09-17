@@ -16,6 +16,7 @@ fix_scope: localized          # localized | module | cross-module - mechanical s
 wave: qw20260917154546
 reported_by: lens-d7-testquality (anthropic/claude-sonnet-5)
 date: 2026-09-17
+fix_skips: 1
 ---
 
 # b0449's measure() reimplements bindImportedBodyOverFs/bindImportedBody (and their fakeThetaLibFs) instead of importing them
@@ -178,3 +179,6 @@ of reimplementing.
 
 ## Triage
 verdict: confirmed — independently re-diffed every cited range (b0449:165-199 fakeThetaLibFs vs harness:85-113 differ only in a hasOwnProperty guard on readBytes; NOOP_CHECKPOINT byte-identical; measure():223-260 vs bindImportedBodyOverFs:217-256 differ only in the hardcoded /proj/app.theta path, inlined `{}` modelRegistry and inlined AMBIENT resolvePiTool, all of which bindImportedBody's specialisation already supplies), confirmed the frontmatter `model:` divergence is not load-bearing (frontmatter.model is read at bind time only in spawnSubagentConversation :2413, no b0449 cell spawns; b0305/b0306 drive the helper with the same `{}` registry/ctx), vitest 4/4 green, b0449 absent from the harness's 11 importers, same class/helper as human-confirmed PTQ-0347 (b0361) at a different site so not a duplicate; two corrections on record: bindImportedBody landed 2026-09-14 after b0449 (2026-09-05) so the copy predates the helper rather than "grows" past it, and docs/bugs/0449:257 DOES cite this file as its witness (the FP-check's "no hit" is wrong) — but no merge/rename/delete is proposed so no disclosure is owed (triage: claude-fable-5-1)
+
+## Fix attempts
+- (wave unknown): skipped — (no fixer notes recorded)

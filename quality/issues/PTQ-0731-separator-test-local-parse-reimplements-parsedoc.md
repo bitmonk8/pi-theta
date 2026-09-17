@@ -12,6 +12,7 @@ fix_scope: localized          # localized | module | cross-module - mechanical s
 wave: qw20260917154546
 reported_by: lens-d7-testquality (anthropic/claude-sonnet-5)
 date: 2026-09-17
+fix_skips: 1
 ---
 
 # import-specifier-separator-production-required.test.ts redefines a local parse() reimplementing tests/helpers/e2e-s1.ts's exported parseDoc
@@ -113,3 +114,6 @@ addressed, and 18 further files, already take for the identical helper.
 ## Triage
 <triage appends: verdict + one-line reason. Nothing above this line is edited.>
 verdict: confirmed — re-verified independently: excerpts match verbatim (import at :12 is `parseDeps` only; local `parse` at :233-235 is body-equivalent to e2e-s1.ts:43-45's exported `parseDoc`), its only two callers (:243 parseLib, :254 parseApp) pass an explicit path so `parseDoc` is a drop-in; file is not a *gate*, not a recording double, bug 0211 is fixed (0.150.0) and the file is 68/68 green at HEAD, bug-doc :155 mentions `parseDeps` only for scratch probes (no rationale for a local wrapper), coverage-matrix 0 hits and no it()/describe() change is proposed; not a duplicate — resolved PTQ-0239's `locations` cover only b0303-b0306 (this file appeared solely in its evidence grep and still matches today), PTQ-0214/0314/0386/0405 are the same class at other files, and sibling intake d7-15 is the unrelated fakeThetaLibFs clone (triage: claude-fable-5-1)
+
+## Fix attempts
+- (wave unknown): skipped — (no fixer notes recorded)

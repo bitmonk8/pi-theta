@@ -14,6 +14,7 @@ fix_scope: module            # localized | module | cross-module - mechanical si
 wave: qw20260917154546
 reported_by: lens-d7-testquality (anthropic/claude-sonnet-5)
 date: 2026-09-17
+fix_skips: 1
 ---
 
 # The span()/site()/withCode() seam-call harness for src/parser/schema-declarations.ts is redeclared byte-identically in the V5a and V5b test files
@@ -140,3 +141,6 @@ the change.
 ## Triage
 <!-- appended by triage; do not edit above this line -->
 verdict: confirmed — independently re-verified: all four excerpts match verbatim at the cited lines (grep of ^function span|site|withCode hits exactly 34/39/44, 34/39/44, 503/508, 675) and diff of disc-unions-recursion.test.ts:34-46 vs schema-declarations.test.ts:34-46 is empty; the two other copies drop withCode / inline the range under "bug0128.theta"; no tests/helpers/ module exports site() or withCode (tests/helpers/invoke-seam-scaffold.ts:54 and tool-call-dispatch-harness.ts:51 do already export an identical span(), which the filing understates but which only reinforces the boilerplate-duplication class); no gate/recording-double/coverage-matrix carve-out applies and no it() merge is proposed; PTQ-0238/0244/0278/0301/0344 cover other span-harness families, not these four files (triage: claude-fable-5-1)
+
+## Fix attempts
+- (wave unknown): skipped — (no fixer notes recorded)

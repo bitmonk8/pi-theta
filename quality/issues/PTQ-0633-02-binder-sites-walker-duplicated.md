@@ -17,6 +17,7 @@ d4_class: clone
 wave: qw20260917154546
 reported_by: lens-d7-testquality (anthropic/claude-sonnet-5)
 date: 2026-09-17
+fix_skips: 1
 ---
 
 # loop-element-withhold-binding-scoped.test.ts redeclares plain-for-loop-variable-element-type.test.ts's at/render/binderSites AST-walking trio byte-for-byte
@@ -159,3 +160,6 @@ own acknowledged sibling relationship already points at.
 
 ## Triage
 verdict: confirmed — independently re-verified: `at` (361-363 / 281-283) and `render` (366-373 / 286-293) extract with zero `diff`; `binderSites` (388-494 / 306-412, 110 lines each) differs only at line 105 (the `throw` message wording), exactly as claimed; both copies are live (3 and 2 call sites), no tests/helpers module exports any of the trio, neither file is gate-kin or cited by docs/reference/coverage-matrix.md, and bug docs 0126/0194 state no rationale for per-file walkers; the same-wave intake files touching these tests concern the registry-oracle read (different root cause), not a duplicate. Fixer note: `sites: 2` is an undercount — tests/let-arm-withhold-binding-scoped.test.ts:262-283/290-412 carries byte-identical `at`/`render` and a DIVERGED `binderSites` (adds `arg` recording under `call` plus `tool-call`/`invoke` statement arms), so a shared home must either accommodate that variant or leave it (triage: claude-fable-5-1)
+
+## Fix attempts
+- (wave unknown): skipped — (no fixer notes recorded)

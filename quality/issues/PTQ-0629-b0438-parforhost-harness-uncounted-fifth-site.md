@@ -15,6 +15,7 @@ d4_class: parallel
 wave: qw20260917154546
 reported_by: lens-d7-testquality (anthropic/claude-sonnet-5)
 date: 2026-09-17
+fix_skips: 1
 ---
 
 # b0438 reproduces the makeDeps/parse/bodyOf/ParForHost/execDeps harness already flagged as duplicated across three sibling par-for bug files, as an uncounted fifth site
@@ -145,3 +146,6 @@ each file's own rationale comment staying local).
 ## Triage
 <triage appends: verdict + one-line reason. Nothing above this line is edited.>
 verdict: confirmed — independently re-verified: all three excerpts match at the cited lines; diff shows ParForHost b0438:169-229 ↔ b0326:150-210 and execDeps b0438:231-248 ↔ b0326:212-229 byte-identical, and re-running the stated comment-stripped span diff yields 16 differing lines (not 18), every one a range-offset artefact (b0326's three code/message constants at the top of its range, b0438's countCode at the bottom — which b0326 also carries at 229-232), so the whole makeDeps/parse/bodyOf/codesOf/NOOP_CHECKPOINT/NoopMutator/tick/ok/ParForHost/DiagnosticSpyDeps/execDeps/okCount block is a byte-identical fifth copy and b0438:161-162 names b0326 as its model; not a gate file, no coverage-matrix pin (grep 0438 → 0 hits), docs/bugs/0438 lists the file as witness but the filing proposes no it() merge/rename/delete; not a duplicate of confirmed sibling qw20260917154546-d7-01 (its site list is b0324/b0325/b0326/par-for.test.ts, b0438 absent) — store precedent PTQ-0228 (after PTQ-0206/0207) and PTQ-0393 (after PTQ-0310) accepts an uncounted extra site of an already-filed harness as its own filing; minor: stray d4_class field on a D7 filing (triage: claude-fable-5-1)
+
+## Fix attempts
+- (wave unknown): skipped — (no fixer notes recorded)

@@ -12,6 +12,7 @@ fix_scope: cross-module       # localized | module | cross-module - mechanical s
 wave: qw20260917154546
 reported_by: lens-d7-testquality (anthropic/claude-sonnet-5)
 date: 2026-09-17
+fix_skips: 1
 ---
 
 # b0401 redeclares the parseDeps/rootDouble/BINDER_MODEL/producerWithCapture/ctxDouble producer harness tests/e2e-s5-binder-echo-emission.test.ts already carries
@@ -178,3 +179,6 @@ b0401's own header comment ("Harnesses mirror the existing house patterns: `test
 
 ## Triage
 verdict: confirmed — independently re-verified: both excerpts reproduce at b0401:161-227 and e2e-s5:102-177; the stated 5-name grep yields exactly 10 hits (one per name per file); after stripping comments/whitespace the parseDeps/rootDouble/BINDER_MODEL/producerWithCapture/ctxDouble quintet diffs to a single trailing comma in rootDouble's idSource literal (formatting-only — "byte-identical" is a hair overstated, not refuted) and parse differs only by path literal vs parameter; b0401's header (line 37) really names e2e-s5 as the mirrored pattern and e2e-s5 (d23c22be 2026-07-13) predates b0401 (ca8da37c 2026-09-03) so the origin was importable; no tests/helpers module exports the clock+AJV-backed producerWithCapture set (tool-call-dispatch-harness rootDouble lacks clock, call-with-clause-harness lacks AJV; e2e-s1 exports an equivalent parseDeps the fixer should reuse); docs/bugs/0401 is Status fixed and both files pass at HEAD (14/14), coverage-matrix has 0 hits, no merge/rename/delete proposed, notes recorder is a positive witness — no carve-out applies; no open/resolved PTQ names either file (PTQ-0209/0384/0397/0214/0314/0386 are disjoint harnesses/files) and same-wave sibling d7-01-b0401 covers a different block (288-322); siblings d7-01-binder-post-merge, d7-02-b0381, d7-02-b0397-9, d7-08 cite the same e2e-s5 origin against other files — per-copy-site convention keeps this distinct, but the fix should be one shared binder-producer-capture helper (triage: claude-fable-5-1)
+
+## Fix attempts
+- (wave unknown): skipped — (no fixer notes recorded)

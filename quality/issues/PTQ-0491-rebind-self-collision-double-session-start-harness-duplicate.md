@@ -15,6 +15,7 @@ d4_class: clone
 wave: qw20260917154546
 reported_by: lens-d7-testquality (anthropic/claude-sonnet-5)
 date: 2026-09-17
+fix_skips: 1
 ---
 
 # rebind-self-collision-reownership.test.ts redeclares double-session-start-supersession.test.ts's whole compose harness (CountingFakeFileWatcher/makeHarness/makeBoot/watcherAt/wiringAt/waitFor/dispatchRegistered) instead of importing it
@@ -219,3 +220,6 @@ observation about the existing convention, not a design proposal.
 
 ## Triage
 verdict: confirmed — independently re-verified by symbol-extract diff: watcherAt/wiringAt/waitFor/dispatchRegistered/RecordedNote/RegisteredCommand (plus repeatStartNotes/greetShuttingDownNotes, uncounted) are 0-diff-line identical between rebind:335-387 and double-session-start:310-366, CountingFakeFileWatcher (154-171 vs 119-138) differs only by one comment, makeHarness/makeBoot diverge only in the per-bug seam (extraCommands vs gateComposes/releaseCompose) as stated; the rebind header really names double-session-start as its source; both files import only FakeClock/FakeFileWatcher from tests/helpers/ while tests/helpers/fake-file-watcher.ts:108 already exports a byte-identical waitFor neither uses; both suites live (10/10 pass); not a gate/census file, targets harness code not a recording-double witness, no coverage-matrix hit; no tracked PTQ cites either file (PTQ-0236/0363/0388 are b0310/b0339/b0312 only) and same-wave siblings d7-150-01 (0029/0034 pair) and d7-01-b0401 (makeHarness fake-pi only) are different copy sites — note the same CountingFakeFileWatcher/watcherAt/dispatchRegistered names also recur in tests/supersession-detach-throw-containment.test.ts and tests/supersession-inflight-rebuild-quiesce.test.ts, so the fix should be one shared extraction for the family (triage: claude-fable-5-1)
+
+## Fix attempts
+- (wave unknown): skipped — (no fixer notes recorded)

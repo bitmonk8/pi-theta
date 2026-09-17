@@ -13,6 +13,7 @@ fix_scope: cross-module
 wave: qw20260917154546
 reported_by: lens-d7-testquality (anthropic/claude-sonnet-5)
 date: 2026-09-17
+fix_skips: 1
 ---
 
 # binder-param-type-projection.test.ts's dispatchRoot() retypes the e2e-s5 checkpoint/idSource/clock/AJV RuntimeRoot double
@@ -158,3 +159,6 @@ declaration being repeated across three files.
 
 ## Triage
 verdict: confirmed — independently re-verified: all three excerpts match byte-for-byte at the cited lines (checkpoint/idSource/clock fields and the JSON.stringify content-addressed AJV slugOf body identical; e2e-s5 has no fileSystem arm as stated); the stated grep reproduces (one `new AjvSchemaValidator({` per file, three total); no tests/helpers module exports a checkpoint+idSource+clock+AJV(+fs) RuntimeRoot double (tool-call-dispatch-harness.rootDouble has AJV but no clock/fs, call-with-clause-harness.rootDouble has clock but no AJV, parent-producer-harness.rootDouble is unexported and AJV-less); the host's own cell-8 comment (line 543) names the lineage ("the e2e-s5 pattern of tests/binder-forced-tool-dispatch.test.ts") and git confirms e2e-s5 as origin (d23c22be 2026-07-13, post-merge copy 94e81974, this file 501f5a58 2026-08-23); all three files pass at HEAD (40/40); no gate/recording-double/witness-list carve-out applies (bugs 0251/0256 cite the file as a whole, coverage-matrix has no hit, nothing merged/renamed/deleted); no open/resolved PTQ tracks this lineage (PTQ-0226 cites this file at 481-495 for the corpus reader, a different root cause; PTQ-0209/0384/0397/0403 are other harness families) — form nit: `sites: 2` against three cited excerpts; note this is the third copy of the same-wave intake sibling d7-01 (binder-post-merge/e2e-s5, confirmed) and should be consolidated into that one helper at fix time (triage: claude-fable-5-1)
+
+## Fix attempts
+- (wave unknown): skipped — (no fixer notes recorded)

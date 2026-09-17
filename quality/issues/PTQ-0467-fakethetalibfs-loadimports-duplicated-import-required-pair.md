@@ -15,6 +15,7 @@ fix_scope: module
 wave: qw20260917154546
 reported_by: lens-d7-testquality (anthropic/claude-sonnet-5)
 date: 2026-09-17
+fix_skips: 1
 ---
 
 # fakeThetaLibFs and loadImports are byte-identical redeclarations in both import-*-required test files, bypassing the canonical tests/helpers/thetalib-load-harness.ts
@@ -174,3 +175,6 @@ only relocating the two duplicated helper declarations.
 ## Triage
 <!-- appended by triage -->
 verdict: confirmed — independently re-verified: `sed`-extracted lines 247-306 of import-export-from-clause-required and 333-392 of import-specifier-list-production-required diff IDENTICAL (fakeThetaLibFs + loadImports both byte-for-byte), and the local fakeThetaLibFs differs from the harness export at tests/helpers/thetalib-load-harness.ts:85-113 only by the `export` keyword, an inlined `name` temp and the trailing `as FileSystem` cast; `function fakeThetaLibFs` greps to 18 tests/*.test.ts including both files, neither imports ./helpers/thetalib-load-harness (only ./helpers/e2e-s1), and the harness header itself names PTQ-0232/0315/0347/0393 as the same double centralised there; D7 copy-paste-fixture/double class, all locations under tests/, no carve-out applies (not a gate file, stateless stub not a recording double, coverage-matrix cites 0, bug-doc witness pins untouched since no merge/rename/delete is proposed); dedupe clean — PTQ-0239 is a disjoint `parse()` helper in disjoint files, resolved PTQ-0232/0310/0393 and the same-wave siblings (d7-15 separator+args, d7-02 live trios, reexport-chain, b0388/b0422/b0429/b0445/b0465) all cite disjoint file sets. Two non-blocking inaccuracies for the record: the `:238-239` header-comment citation actually sits at line 144, and the FP-check's "RED-at-HEAD" claim is wrong — docs/bugs/0058 and 0100 both read fixed (0.60.0/0.134.0) and both suites pass 56/56 at HEAD, which if anything simplifies the dedupe; fixer note: `loadThetaLibDiags` does not return `materialised`, and the harness APP_FRONTMATTER pins a different model string, so the driver relocation needs a small harness extension rather than a drop-in swap (triage: claude-fable-5-1)
+
+## Fix attempts
+- (wave unknown): skipped — (no fixer notes recorded)

@@ -14,6 +14,7 @@ fix_scope: localized          # localized | module | cross-module - mechanical s
 wave: qw20260917154546
 reported_by: lens-d7-testquality (anthropic/claude-sonnet-5)
 date: 2026-09-17
+fix_skips: 1
 ---
 
 # production-tools-load-resolution.test.ts redeclares LoadOutcome/runProductionLoad and the plant/dispose workspace lifecycle tests/helpers/production-load-harness.ts already exports
@@ -223,3 +224,6 @@ own `outcome`) name the existing home this file's local trio duplicates.
 ## Triage
 <triage appends: verdict + one-line reason. Nothing above this line is edited.>
 verdict: confirmed — re-verified independently: all four excerpts reproduce verbatim at the cited lines (test.ts:809-861; harness.ts:1-20, 56-95, 106-137); the file imports no helper (grep 0 hits), never touches stderr/diagnosticLines/fixtures, and its local `PlantedTheta {stem,text}` is structurally assignable to the helper's `PlantedThetaFile`, so `plantThetaWorkspace("theta-v20a-", THETAS, "{}")` / `disposeWorkspace` / `runProductionLoad(cwd)` are drop-ins for the inline trio; the file was created 2026-07-04 (333351d0) before the helper (2026-09-11, 2594cd44) and its PTQ-0312 plant/dispose exports (2026-09-14, 4c0cd0dc) and its harness block was last touched 2026-08-20 — never migrated; none of resolved PTQ-0210/0240/0259/0312/0358/0359/0361 cite this file and sibling intake d7-02 (confirmed) is the same class at a different file, not a duplicate; the FP-check's "docs/bugs → 0 hits" is false (≈20 bug docs name the file, incl. fixed 0207 citing comment prose at :810/:839 and 0070-0072 recording historical additive-only fix accounting), but none pins the harness plumbing as a witness and no it()/describe() is renamed, merged or deleted — coverage-matrix 0 hits confirmed; in-scope D7 copy-paste-fixture class (triage: claude-fable-5-1)
+
+## Fix attempts
+- (wave unknown): skipped — (no fixer notes recorded)

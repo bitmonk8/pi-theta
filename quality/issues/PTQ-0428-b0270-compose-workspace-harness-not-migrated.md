@@ -19,6 +19,7 @@ fix_scope: module
 wave: qw20260917154546
 reported_by: lens-d7-testquality (anthropic/claude-sonnet-5)
 date: 2026-09-17
+fix_skips: 1
 ---
 
 # callee-tools-missing-theta-path test redeclares the compose-workspace harness byte-for-byte instead of importing tests/helpers/compose-workspace-harness.ts
@@ -171,3 +172,6 @@ the module they duplicate.
 ## Triage
 <!-- triage appends its note here -->
 verdict: confirmed — independently re-verified: neither file imports tests/helpers/compose-workspace-harness (the 7-file importer grep reproduces exactly, these two absent); diff of makeHost b0270:259-302 vs b0267:278-321 is byte-identical, and diff -w of makeHost/ComposeWorkspace/normalisePath/LoadPass/runLoadPass/noteDiagnostics/allDiagnostics/describeNotes against the helper's exports differs only in `export` and line-wrapping, with requireDriven/normativeMessagePattern differing only by the interpolated bug id and registry argument the helper already parameterises (a minor "identical signature" overclaim that does not disturb the core claim); both bug docs are fixed (0267→0.264.0, 0270→0.268.0) and both files pass 17/17 so this is not a documented red; not a duplicate — PTQ-0213 named both files only in its 10-file grep count and its fix migrated b0275 alone, PTQ-0220/0221 each took one further file under the store's per-occurrence convention and PTQ-0221 explicitly recorded the b0270 copy as "still-unmigrated", and no open/resolved row cites either file as a location; 0 hits in coverage-matrix so no citation constraint (triage: claude-fable-5-1)
+
+## Fix attempts
+- (wave unknown): skipped — (no fixer notes recorded)

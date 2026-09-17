@@ -13,6 +13,7 @@ fix_scope: localized         # localized | module | cross-module - mechanical si
 wave: qw20260917154546
 reported_by: lens-d7-testquality (anthropic/claude-sonnet-5)
 date: 2026-09-17
+fix_skips: 1
 ---
 
 # b0342-forwarded-enum-attach-control.test.ts re-derives e2e-s1's parseDeps/parseDoc and call-with-clause-harness's NOOP_CHECKPOINT/rootDouble instead of importing them
@@ -130,3 +131,6 @@ Importing `parseDeps` from `tests/helpers/e2e-s1.ts` and `NOOP_CHECKPOINT`/`root
 ## Triage
 <triage appends: verdict + one-line reason. Nothing above this line is edited.>
 verdict: confirmed — all excerpts reproduce verbatim at the cited lines (NOOP_CHECKPOINT :69-73, parseDepsLocal :75-83, parseTheta :86-97, rootDouble :110-116; e2e-s1.ts:27-46; call-with-clause-harness.ts:152-168); parseDepsLocal is value-for-value identical to e2e-s1's exported parseDeps, parseTheta is parseDoc plus a loud-fail, NOOP_CHECKPOINT is byte-identical and rootDouble matches the exported call-with-clause-harness.ts:158 on every shared field (schemaValidator is an additive spread); the file imports nothing from tests/helpers/ while PTQ-0209's four cited files now all import rootDouble/noopPi from call-with-clause-harness and parseDoc from e2e-s1 with zero local copies, so the migration precedent is real and skipped this file; bug 0342 is Status fixed, 2/2 green at HEAD, not a *gate* file, coverage-matrix 0 hits, no PTQ or intake sibling targets this file (per-file convention of PTQ-0214/0239/0314/0386/0405). Two peripheral evidentiary claims are wrong but do not touch the anchor: NOOP_CHECKPOINT is NOT exported from call-with-clause-harness.ts (only rootDouble is; the exported const is tool-call-dispatch-harness.ts:81), and call-with-clause-harness.ts (2026-09-09, 96303cc3) postdates this file (2026-08-31, bc5eb11d), so this is a not-migrated case rather than an authored bypass — e2e-s1's parseDeps (2026-07-13) did predate it (triage: claude-fable-5-1)
+
+## Fix attempts
+- (wave unknown): skipped — (no fixer notes recorded)

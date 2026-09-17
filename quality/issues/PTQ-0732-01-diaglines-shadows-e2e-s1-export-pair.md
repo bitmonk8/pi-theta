@@ -13,6 +13,7 @@ fix_scope: localized          # localized | module | cross-module - mechanical s
 wave: qw20260917154546
 reported_by: lens-d7-testquality (anthropic/claude-sonnet-5)
 date: 2026-09-17
+fix_skips: 1
 ---
 
 # typeenv-prototype-names.test.ts and union-arm-literal-const-lowering.test.ts each redefine diagLines(doc) though both already import parseDoc from tests/helpers/e2e-s1, which exports the identical function
@@ -105,3 +106,6 @@ local declaration is the route each file's own code already points at.
 
 ## Triage
 verdict: confirmed — independently re-verified: both local declarations (typeenv-prototype-names.test.ts:300-302, union-arm-literal-const-lowering.test.ts:259-261) are byte-identical in signature and body to the exported `diagLines` at tests/helpers/e2e-s1.ts:100-102, each file's sole e2e-s1 import (:22 / :20) names only `parseDoc`, the stated grep reproduces exactly (1 import + 1 declaration per file), and docs/bugs/, coverage-matrix and exemptions searches all return 0 hits; not a duplicate — PTQ-0205's fix commit 2594cd44 migrated only its 3 cited test files and touched neither of these (the 68-file count was pattern evidence, not cited sites), matching the repo's accepted residual-site convention (PTQ-0228, PTQ-0240, PTQ-0301, PTQ-0405), and no peer intake candidate in this wave cites either file (triage: claude-fable-5-1)
+
+## Fix attempts
+- (wave unknown): skipped — (no fixer notes recorded)

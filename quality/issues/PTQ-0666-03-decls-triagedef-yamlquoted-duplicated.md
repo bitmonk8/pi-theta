@@ -12,6 +12,7 @@ fix_scope: localized          # localized | module | cross-module - mechanical s
 wave: qw20260917154546
 reported_by: lens-d7-testquality (anthropic/claude-sonnet-5)
 date: 2026-09-17
+fix_skips: 1
 ---
 
 # DECLS, TRIAGE_DEF and yamlQuoted are declared byte-identically in both in-scope files
@@ -105,3 +106,6 @@ scaffolding for this file family.
 
 ## Triage
 verdict: confirmed — independently re-verified: both excerpts reproduce verbatim at :284-310 and :255-282 and DECLS/TRIAGE_DEF/yamlQuoted are byte-identical between the two files; D7 copy-paste-fixture class, both sites under tests/, no gate test, 0 coverage-matrix hits, docs/bugs grep hits only bug 0203's unrelated `schema Cat` DECLS; count correction: `grep -rn "function yamlQuoted" tests` → 5 files (adds generic-argument-literal-lowering :176, union-arm-literal-const-lowering :255, union-generic-arm-lowering :245), md5-identical bodies in all 5 and tracked nowhere in issues/resolved — that helper is what keeps this filing live; the DECLS/TRIAGE_DEF portion is a 2-file subset of same-wave confirmed intake qw20260917154546-d7-113-03-triage-fixture-pair-octuplicated.md (8 TRIAGE_DEF sites) and should fold into it at acceptance (triage: claude-fable-5-1)
+
+## Fix attempts
+- (wave unknown): skipped — (no fixer notes recorded)

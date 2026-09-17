@@ -13,6 +13,7 @@ fix_scope: module            # localized | module | cross-module - mechanical si
 wave: qw20260917154546
 reported_by: lens-d7-testquality (anthropic/claude-sonnet-5)
 date: 2026-09-17
+fix_skips: 1
 ---
 
 # tool-arg-runtime-schema-validation.test.ts redeclares tests/helpers/production-load-harness.ts's runProductionLoad and workspace plant/dispose lifecycle
@@ -188,3 +189,6 @@ untested path is made.
 ## Triage
 <triage appends: verdict + one-line reason. Nothing above this line is edited.>
 verdict: confirmed — all four excerpts reproduce byte-exact at the cited lines (pi/ctx doubles identical to the helper's bar the options-object indirection and stderr mirror; beforeAll/afterAll is the helper's plantThetaWorkspace/disposeWorkspace sequence with one fixture + "{}" settings), the file imports nothing from tests/helpers/production-load-harness.ts, git dates confirm it (2026-08-04, 80fef716) predates the PTQ-0210 helper (2026-09-11, 2594cd44) and was never migrated, no resolved PTQ cites this file's load harness (PTQ-0210/0240/0259/0312/0358 name other files; PTQ-0238 covered this file's separate runtime-half dispatch harness at 227-411; sibling intake d7-149-04 covers callableSetOf), the test is green 9/9, and the FP-check's "no docs/bugs hits" claim is wrong (bugs 0072/0111/0187/0207 cite the file) but every cited doc is fixed and cites the header comment, callableSetOf or a runtime cell — none pins the load harness — so in-scope D7 copy-paste-double duplication with no carve-out applying (triage: claude-fable-5-1)
+
+## Fix attempts
+- (wave unknown): skipped — (no fixer notes recorded)

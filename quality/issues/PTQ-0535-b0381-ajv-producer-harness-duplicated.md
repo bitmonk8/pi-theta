@@ -13,6 +13,7 @@ fix_scope: cross-module
 wave: qw20260917154546
 reported_by: lens-d7-testquality (anthropic/claude-sonnet-5)
 date: 2026-09-17
+fix_skips: 1
 ---
 
 # b0381's AJV-backed rootDouble/producerWithCapture/parseDeps/BINDER_MODEL/ctxDouble quintet is byte-identical to tests/e2e-s5-binder-echo-emission.test.ts and tests/echo-value-rule1-sanitisation.test.ts
@@ -232,3 +233,6 @@ is the home all three files' identical copies already point at.
 
 ## Triage
 verdict: confirmed — independently re-verified: parseDeps/rootDouble/BINDER_MODEL/producerWithCapture/ctxDouble hash byte-identical (md5 over awk-extracted bodies) across b0381:124-189, e2e-s5:102-177 and echo-value:475-532 exactly at the cited lines, none imports from tests/helpers, b0381's header names the e2e-s5 rig, all three files green at HEAD (35/35), coverage-matrix.md 0 hits, no gate/recording-double/witness-list carve-out applies, and no open/resolved PTQ tracks this AJV+clock producerWithCapture family (PTQ-0209/0384/0397 are different harness shapes) — three evidentiary slips, none refuting: the "7 files" census is actually 13 files declaring both rootDouble and producerWithCapture (the exact-three cluster and the disjoint b0398/b0478 pair still reproduce; params-default and binder-forced/post-merge pairs are further clusters), tests/helpers/e2e-s1.ts already exports an equivalent parseDeps and tool-call-dispatch-harness.ts an AJV-backed rootDouble/ctxDouble (strengthens the case), and docs/bugs/0381 is Status fixed (0.369.0), not open; same-wave siblings d7-01 echo-group-g and d7-01 binder-post-merge (both confirmed) cite the same e2e-s5 origin against other hosts — per-host-file convention keeps this distinct, but the fix should land one shared helper (triage: claude-fable-5-1)
+
+## Fix attempts
+- (wave unknown): skipped — (no fixer notes recorded)

@@ -18,6 +18,7 @@ fix_scope: module            # localized | module | cross-module - mechanical si
 wave: qw20260917154546
 reported_by: lens-d7-testquality (anthropic/claude-sonnet-5)
 date: 2026-09-17
+fix_skips: 1
 ---
 
 # thetalib-reparse-walk-single-delivery.test.ts redeclares the whole tests/helpers/compose-workspace-harness.ts bundle instead of importing it
@@ -190,3 +191,6 @@ code that exists being declared twice.
 ## Triage
 <triage appends: verdict + one-line reason. Nothing above this line is edited.>
 verdict: confirmed — re-verified: every excerpt reproduces at the cited lines and the file never imports tests/helpers/compose-workspace-harness.ts (7 siblings do); function-level diff -w shows makeHost/noteDiagnostics/allDiagnostics/describeNotes/normalisePath and the PiHandler/RecordedNote/HostDouble/ComposeWorkspace declarations byte-identical modulo line-wrap and doc comments, runLoadPass/LoadPass identical except the helper's extra `thetas` field (superset, import-compatible), and plantWorkspace's tail = finishWorkspace — the D7 boilerplate-duplication class with a canonical tests/helpers/ home already built for it (PTQ-0213/0230); two candidate inaccuracies do not disturb the core claim: the local requireDriven is a diverged variant (guard `notes.length === 0` vs the helper's `notes.length === 0 && registered.length === 0`, not merely a hard-coded bugId — the fixer should keep or consciously widen it, noting soleRow still fails loudly), and the "no docs/bugs hits" check is wrong (bugs 0264/0267/0268 cite this file as a witness) but no merge/rename/delete is proposed so the witness-list carve-out is not engaged, and bug 0268 documents normalisePath's retention for the fixture literal only, which an import preserves; not a duplicate — resolved PTQ-0213/0220/0221 name this file only in their pattern-wide rosters and their fixes migrated b0275/b0320/b0329 (PTQ-0220's triage ruled roster mention ≠ coverage), and same-wave d7-01 covers lex-drop-single-delivery.test.ts, a different file (triage: claude-fable-5-1)
+
+## Fix attempts
+- (wave unknown): skipped — (no fixer notes recorded)

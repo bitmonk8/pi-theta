@@ -12,6 +12,7 @@ fix_scope: localized          # localized | module | cross-module - mechanical s
 wave: qw20260917154546
 reported_by: lens-d7-testquality (anthropic/claude-sonnet-5)
 date: 2026-09-17
+fix_skips: 1
 ---
 
 # e2e-s5-package-discovery-composition-root.test.ts redeclares a same-named runProductionLoad instead of importing tests/helpers/production-load-harness.ts
@@ -139,3 +140,6 @@ counterpart reason to duplicate.
 
 ## Triage
 verdict: confirmed — independently re-verified: both excerpts reproduce verbatim (test :46-62, harness :26-54); the local double is the same six `pi` members in the same order plus the same `ctx` shape, and its return equals `LoadOutcome.registered` under the helper's defaults (`getFlag`→undefined, `getCommands`→[], `getAvailable`→[]), so `runProductionLoad(cwd).registered` is a drop-in; coverage-matrix 0 hits, bugs 0076/0183/0207 name the file only for stale-comment findings and 0207's non-goals do not sanction the local redeclaration; not a gate test; no existing PTQ cites this file (PTQ-0210/0240/0259/0312/0358 each target other files, per-file precedent) (triage: claude-fable-5-1)
+
+## Fix attempts
+- (wave unknown): skipped — (no fixer notes recorded)

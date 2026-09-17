@@ -13,6 +13,7 @@ d4_class: parallel
 wave: qw20260917154546
 reported_by: lens-d7-testquality (anthropic/claude-sonnet-5)
 date: 2026-09-17
+fix_skips: 1
 ---
 
 # Two let-annotation test files re-parse the sharded diagnostics registry from disk instead of importing tests/helpers/registry-oracle.ts
@@ -133,3 +134,6 @@ anticipates.
 
 ## Triage
 verdict: confirmed — independently re-verified: both REGISTRY blocks sit at the cited lines (compat :127-141 four-shard, double-emission :71-78 single-shard) and reproduce the readFileSync+fileURLToPath(new URL)+join("\n")+parseRegistry sequence tests/helpers/registry-oracle.ts:31-45 centralises (readRegistry(["parse"]) is a one-element join over the same page, result-identical; the helper's RegistryRow is a superset of both local {code; message} casts so registryMessage/templateOf still work); `grep -rln helpers/registry-oracle tests/` → 30 importers; no carve-out binds (neither file is a gate; bug docs 0093/0130 cite the files as whole witnesses and their "byte-identical" remarks are git-hash-object verification notes at fix time, not pins on the REGISTRY lines; no rename/merge/delete proposed); not a duplicate — all twelve open/resolved registry-oracle rows (PTQ-0215/0222/0237/0250/0260/0275/0311/0313/0327/0404/0411/0412) cite disjoint file sets, same-wave d7-01 covers tests/live/** and d7-70 the FM/TAIL/body triad in this pair (triage: claude-fable-5-1)
+
+## Fix attempts
+- (wave unknown): skipped — (no fixer notes recorded)

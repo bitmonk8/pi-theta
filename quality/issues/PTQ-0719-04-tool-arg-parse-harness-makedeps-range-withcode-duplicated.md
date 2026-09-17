@@ -17,6 +17,7 @@ fix_scope: module            # localized | module | cross-module - mechanical si
 wave: qw20260917154546
 reported_by: lens-d7-testquality (anthropic/claude-sonnet-5)
 date: 2026-09-17
+fix_skips: 1
 ---
 
 # tool-arg-parse-checks.test.ts and tool-arg-shape-enforcement.test.ts redeclare an identical makeDeps/range/withCode parse harness, and makeDeps duplicates tests/helpers/e2e-s1.ts's parseDeps
@@ -124,3 +125,6 @@ citation pins either copy against consolidation. No coverage claim is made.
 ## Triage
 <triage appends: verdict + one-line reason. Nothing above this line is edited.>
 verdict: confirmed — independently re-verified: all six excerpts match verbatim at the cited lines (makeDeps 150-158/136-146, withCode 165-167/153-155, range 185-195/166-176, identical modulo the modelMatcher line-wrap), and e2e-s1.ts:38-40 parseDeps() builds the same { systemNote, modelMatcher } from inertSystemNote()'s three no-ops and the same "resolved" matcher (199 tests/ files already import from ./helpers/e2e-s1); tests/helpers exports only zero-arg fixed R()/span() ranges, so the 4-arg range/withCode pair indeed has no exported home; both files are under tests/, neither is a gate test, no recording double, bug docs 0003/0072 cite the files only as witnesses (no test is merged/deleted), and no open/resolved PTQ names either file (PTQ-0214/0314/0386/0405 are the same class against other files) (triage: claude-fable-5-1)
+
+## Fix attempts
+- (wave unknown): skipped — (no fixer notes recorded)

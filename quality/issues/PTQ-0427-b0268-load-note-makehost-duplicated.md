@@ -16,6 +16,7 @@ fix_scope: localized         # localized | module | cross-module - mechanical si
 wave: qw20260917154546
 reported_by: lens-d7-testquality (anthropic/claude-sonnet-5)
 date: 2026-09-17
+fix_skips: 1
 ---
 
 # b0268-load-note-path-spelling-single-convention.test.ts re-derives compose-workspace-harness.ts's makeHost/runLoadPass/requireDriven instead of importing them
@@ -245,3 +246,6 @@ reason to stay separate from `finishWorkspace`.
 ## Triage
 <triage appends: verdict + one-line reason. Nothing above this line is edited.>
 verdict: confirmed — re-verified independently: all six excerpts reproduce at the cited lines (makeHost byte-identical modulo one line wrap; runLoadPass/requireDriven/noteDiagnostics/allDiagnostics/describeNotes are the "near so" variants the helper header names — bugId inlined as "0268", LoadPass minus registered/thetas, helpers taking pass vs pass.notes), the 10-local-decl / 10-export / 0-import greps reproduce, test green 2/2 against a fixed bug doc (correction: docs/bugs/0268-load-notes-render-same-file-with-mixed-path-separators.md, fixed (0.265.0) — the candidate's filename/version are wrong — which cites only the file and its posixPath helper, no it()/harness function), coverage-matrix 0 hits; not a duplicate — the candidate's "0 hits in quality/resolved" claim is also wrong (PTQ-0213/0220/0221 list b0268 in their pattern-wide makeHost greps) but only as an unmigrated file, never a cited location or remediated site, and PTQ-0220/0221 are precedent that each unmigrated file is its own confirmed finding; fixer note: canonical requireDriven adds a `registered.length === 0` conjunct and canonical noteDiagnostics expect.fails on a missing diagnostics array — both mechanical adaptations (triage: claude-fable-5-1)
+
+## Fix attempts
+- (wave unknown): skipped — (no fixer notes recorded)

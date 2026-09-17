@@ -12,6 +12,7 @@ fix_scope: cross-module      # localized | module | cross-module - mechanical si
 wave: qw20260917154546
 reported_by: lens-d7-testquality (anthropic/claude-sonnet-5)
 date: 2026-09-17
+fix_skips: 1
 ---
 
 # b0371's fake-pi harness (makeHarness/makeTheta/invoke/thetaNotes) is byte-identical to drain-gated-dispatch-integration.test.ts's, not imported
@@ -81,3 +82,6 @@ A `tests/helpers/` module exporting this `Harness`/`makeHarness`/`makeTheta`/`in
 ## Triage
 <triage appends: verdict + one-line reason. Nothing above this line is edited.>
 verdict: confirmed — independently re-verified: all five stated diffs reproduce (makeHarness b0371:94-152 vs drain-gated:67-125, makeTheta, invoke, thetaNotes byte-identical; interface span differs only by b0371's 8-line copy-chain doc comment), neither file imports the other (each imports only ./helpers/fake-clock), the three tests/helpers modules exporting a makeHarness (watch-arming: Harness exposes only pi+fireSessionStart with no notes/commands capture; package-merge-e2e and cross-format-collision take cwd and wire real composition) do not cover this composeInstance-stub fake-pi bundle, `grep "^function makeHarness(): Harness {" tests/*.test.ts` → 6 hits as stated, coverage-matrix grep → 0 hits, and no tracked PTQ cites either file (PTQ-0363 is scoped to b0310/b0339) — a D7 copy-paste double whose fix is a mechanical extraction (triage: claude-fable-5-1)
+
+## Fix attempts
+- (wave unknown): skipped — (no fixer notes recorded)

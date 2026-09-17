@@ -16,6 +16,7 @@ fix_scope: module
 wave: qw20260917154546
 reported_by: lens-d7-testquality (anthropic/claude-sonnet-5)
 date: 2026-09-17
+fix_skips: 1
 ---
 
 # typed-repair-two-phase.test.ts redeclares the tests/typed-two-phase-live.test.ts harness (LiveSessionDouble, RecordingPi, parseDeps, parse, ajv, rootDouble, registryDouble, ctxDouble, drive, respondToolNameOf, messageText, contextMessagesOf, expectErrOfKind, expectValue, runGovernorRoundProbe)
@@ -196,3 +197,6 @@ already point at.
 ## Triage
 <!-- appended by triage -->
 verdict: confirmed — independently re-verified by per-declaration extract+diff: 12 of the named pieces (parseDeps, parse, ajv, rootDouble, registryDouble, ctxDouble, respondToolNameOf, messageText, contextMessagesOf, expectErrOfKind, expectValue, runGovernorRoundProbe) are byte-identical between tests/typed-repair-two-phase.test.ts (396-816) and tests/typed-two-phase-live.test.ts (472-880), drive differs by one thetaAbort spread line, and LiveSessionDouble/RecordingPi/makeHarness diverge only by the increment-C per-turn hook map and the bug-0479 setModel surface; the repair file's own header (line 62-63) states it is the live harness "DUPLICATED per the increment-C rules"; all 12 declaration names grep one-to-one in both files; both suites green at HEAD (9+25 cells), neither is a gate/census file, no coverage-matrix citation, docs/bugs/0010:124-125 lists both only as regression surface; no tracked PTQ covers the repair↔live fork (same-wave intake siblings d7-159-01/159-02/161-02 cite different copy pairs or the 77-109 vi.hoisted scaffold) — D7 copy-paste fixture/double, same class as resolved PTQ-0328 (triage: claude-fable-5-1)
+
+## Fix attempts
+- (wave unknown): skipped — (no fixer notes recorded)

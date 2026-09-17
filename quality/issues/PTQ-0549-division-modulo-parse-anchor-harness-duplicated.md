@@ -26,6 +26,7 @@ fix_scope: module             # localized | module | cross-module - mechanical s
 wave: qw20260917154546
 reported_by: lens-d7-testquality (anthropic/claude-sonnet-5)
 date: 2026-09-17
+fix_skips: 1
 ---
 
 # division-result-type-number.test.ts's parse/message/anchor/runtime harness is redeclared near-verbatim in modulo-zero-result-type-number.test.ts
@@ -176,3 +177,6 @@ The same ~600-line, seven-part harness — template filling, message builders, p
 ## Triage
 <triage appends: verdict + one-line reason. Nothing above this line is edited.>
 verdict: confirmed — independently re-verified by extracting and diffing each layer (registered/fill/message builders :208-330 vs :231-372; parse/at/render/allHits/hit :334-372 vs :373-411; Anchors/anchorsOf/arithmeticOpRange :373-542 vs :412-587; argRange…parForMaxRange :551-617 vs :596-662; RawRead/typeOfTail/reading/NOOP_CHECKPOINT/producer :618-691 vs :663-738; RunOutcome/runFixture/G_*/S_* :692-750 vs :739-801): every body is byte-identical except the FILE/slashName bug slug, the tracked operator (`divisions`/`/` vs `modulos`+`moduloDivisors`/`%`), one added `moduloCount` parameter, one extra builder (`invokeArgMessage`) and doc-comment wording — with drift already visible (letRange's `type-compat.ts` vs `type-compat.ts:429` citation); both files were authored in separate commits (4d072c83 bug-0142, 35b718cc bug-0152), import only parseDoc/committedThetaSources from tests/helpers (grep `helpers/` → 2 imports each), no helper exports anchorsOf/runFixture/typeOfTail/fill (grep tests/helpers → 0), `npx vitest run` both files 86/86 green (not a documented red), neither is a gate, no recording double, no it()-cell merge/rename/delete, coverage-matrix 0 hits, and bug 0152's "harness shape tests/division-result-type-number.test.ts establishes" (docs/bugs/0152:309) documents the copy, not a rationale for keeping it file-local (same class as confirmed PTQ-0210/0240/0259/0312); not a duplicate of any PTQ (0242 = cannot-fail class on argRange/letRange, 0226 = corpus discovery, 0266/0280 = the -invoke sibling) — fixer should coordinate with same-wave intake d7-01-argrange-letrange-precondition-pair-triplicated (confirmed; its argRange/letRange sites are a subset of this harness) and d7-01-division-modulo-registry-read-not-migrated (:188-223, disjoint from the ranges cited here) (triage: claude-fable-5-1)
+
+## Fix attempts
+- (wave unknown): skipped — (no fixer notes recorded)

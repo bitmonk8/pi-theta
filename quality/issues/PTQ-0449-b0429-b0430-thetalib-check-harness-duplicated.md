@@ -16,6 +16,7 @@ fix_scope: module
 wave: qw20260917154546
 reported_by: lens-d7-testquality (anthropic/claude-sonnet-5)
 date: 2026-09-17
+fix_skips: 1
 ---
 
 # b0429 and b0430 each hand-roll an identical checkThetaImports load harness a canonical tests/helpers/ version already covers
@@ -126,3 +127,6 @@ Gate-pin check: neither file matches `*gate*.test.ts` or the named gate-kin patt
 
 ## Triage
 verdict: confirmed — independently re-verified: `fakeThetaLibFs` at b0429:133-169 and b0430:141-176 diff byte-identical, and the `ComposeResult`/`render`/`parseApp`/`compose`/`expectMaterialised` block (b0429:171-225, b0430:179-233) differs only in one doc comment and one failure-message string; both files landed in the same commit fae6d6a4 (repeated drift, not design); tests/helpers/thetalib-load-harness.ts already exports `fakeThetaLibFs` (now at :85-117, differing only by `export` and a hasOwnProperty guard) and `loadThetaLibDiags` (:137-170) performing the same parse→precondition→`checkThetaImports` sequence — helper line citations drifted but content matches; no coverage-matrix pin (docs/ grep re-run: only the two bug docs' own gate lines), no gate/recording-double carve-out, and no issue/resolved ticket names b0429/b0430 (PTQ-0232/0310/0393 cover other b0 files; sibling intake d7-02 is the distinct registry-oracle block) (triage: claude-fable-5-1)
+
+## Fix attempts
+- (wave unknown): skipped — (no fixer notes recorded)

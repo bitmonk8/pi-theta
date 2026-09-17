@@ -14,6 +14,7 @@ d4_class: clone
 wave: qw20260917154546
 reported_by: lens-d7-testquality (anthropic/claude-sonnet-5)
 date: 2026-09-17
+fix_skips: 1
 ---
 
 # watcher-terminated-recovery.test.ts reimplements tests/helpers/registry-oracle.ts's four-shard registry read locally instead of importing it
@@ -112,3 +113,6 @@ holds the parsed rows this file re-derives locally; the local `REGISTRY_TEXT`
 
 ## Triage
 verdict: confirmed — independently re-verified: tests/watcher-terminated-recovery.test.ts:63-82 rebuilds the four-shard readFileSync+join+parseRegistry read byte-for-byte against tests/helpers/registry-oracle.ts:28-46 (the PTQ-0215 helper whose header exists to end this redeclaration), imports parseRegistry directly and never imports the helper (30 other test files do); the local REGISTRY is live (line 189-190, registryMessage which only does registry.find(row.code).message, so the helper's exported REGISTRY covers the need); not a gate test, no merge/rename/delete, no coverage-matrix citation; no existing PTQ names this file (PTQ-0404/0411/0412/0327 are per-file siblings of the same pattern for other files; PTQ-0150 is D2 on src/extension/watcher-recovery.ts) (triage: claude-fable-5-1)
+
+## Fix attempts
+- (wave unknown): skipped — (no fixer notes recorded)

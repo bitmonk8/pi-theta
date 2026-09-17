@@ -12,6 +12,7 @@ fix_scope: module             # localized | module | cross-module - mechanical s
 wave: qw20260917154546
 reported_by: lens-d7-testquality (anthropic/claude-sonnet-5)
 date: 2026-09-17
+fix_skips: 1
 ---
 
 # unresolvable-operand-structural-target-adjudication.test.ts's NOOP_CHECKPOINT/rootDouble/producer trio is a self-acknowledged copy of non-object-receiver-gate.test.ts's block
@@ -142,3 +143,6 @@ the shape it drew from.
 ## Triage
 <!-- appended by triage; do not edit above this line -->
 verdict: confirmed — independently re-verified: NOOP_CHECKPOINT/rootDouble at unresolvable-operand-structural-target-adjudication.test.ts:422-433 and non-object-receiver-gate.test.ts:223-234 diff byte-identical and producer (:435-445 vs :236-246) differs only by the return-type annotation and one comment, the section header at :417-419 names "tests/non-object-receiver-gate.test.ts:221–292" as the source, the definition grep reproduces exactly once per piece per file, neither file imports from tests/helpers/, bugs 0144 (fixed 0.185.0) and 0027 (fixed 0.39.0) are green at HEAD (66/66), coverage-matrix has 0 hits, no merge/rename/delete is proposed so bug 0144's by-name witness citations are untouched, and the `gate` filename names bug 0027's receiver gate with no pinned count on the cited lines, so no carve-out binds; not a duplicate — PTQ-0209 (fixed in 2594cd44) migrated only its four cited files, the source-side block is tracked by confirmed same-wave d7-106-02 (:185-246) and d7-01 (:229-246) but no tracked PTQ or candidate names the reviewed file's copy, and the ledger treats per-file residual instances as distinct (d7-106-02, PTQ-0228/0240, PTQ-0314/0386/0384/0397); two evidentiary claims must be corrected at ticketing — `grep -rl "NOOP_CHECKPOINT\|rootDouble" docs/bugs/*.md` returns 1 hit (0172:1255, narrative only, no local-harness rationale), not 0, and non-object-receiver-gate.test.ts:457-462 is a `rootLive(session)` function with a clock, not an inline rootDouble-shaped literal; and the suggested direction overlooks that tests/helpers/call-with-clause-harness.ts:158-178 already exports rootDouble()/noopPi() (11 importers, the destination PTQ-0209's fix used) and tool-call-dispatch-harness.ts exports NOOP_CHECKPOINT/rootDouble, which strengthens the import-instead-of-copy case since a working helper is being bypassed (triage: claude-fable-5-1)
+
+## Fix attempts
+- (wave unknown): skipped — (no fixer notes recorded)

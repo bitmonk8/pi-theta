@@ -17,6 +17,7 @@ d4_class: clone
 wave: qw20260917154546
 reported_by: lens-d7-testquality (anthropic/claude-sonnet-5)
 date: 2026-09-17
+fix_skips: 1
 ---
 
 # load-warning-delivery.test.ts redeclares load-phase-pre-eval-routing.test.ts's RecordedNote/pi-double/ctx-double harness and GOOD_THETA/BAD_THETA fixtures
@@ -203,3 +204,6 @@ home this pair currently has no counterpart in.
 
 ## Triage
 verdict: confirmed — independently re-verified: all six excerpts match at the cited lines; awk-extracted makeHarness vs makeShippedHarness bodies diff only in the signature (added availableModels param), the modelRegistry line ([] vs [...availableModels]), one reworded comment and the omitted `pi` return field, and md5 over the literal `pi` double (routing:75-110 vs warning-delivery:312-347) is identical; GOOD_THETA/BAD_THETA string values are byte-identical and RecordedNote differs only by `| undefined` on details; both harnesses are live (2 and 6 call sites) and back display/triggerTurn/notifications assertions; no tests/helpers/ module is a substitute — compose-workspace-harness makeHost has no fireSessionStart, a no-op registerCommand and no display/triggerTurn capture, package-merge-e2e-harness makeHarness flattens notes to {code,message,severity} and has a no-op ui.notify, watch-arming-harness records no notes and no toasts; not a duplicate — PTQ-0258's triage explicitly ruled load-phase-pre-eval-routing's shape distinct from its CapturedNote quad without comparing these two files to each other, and sibling intake d7-01 covers the disjoint RegistryRow/REGISTRY reader; coverage-matrix has 0 hits and the four docs/bugs/ citations (0013/0076/0113/0475 — the filing's "only its own subject bug doc" undercounted) are cell witnesses, none contesting a harness import; D7 boilerplate-duplication class, tests/ only (triage: claude-fable-5-1)
+
+## Fix attempts
+- (wave unknown): skipped — (no fixer notes recorded)

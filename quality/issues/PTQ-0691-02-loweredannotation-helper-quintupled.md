@@ -16,6 +16,7 @@ d4_class: parallel
 wave: qw20260917154546
 reported_by: lens-d7-testquality (anthropic/claude-sonnet-5)
 date: 2026-09-17
+fix_skips: 1
 ---
 
 # A `loweredAnnotation` helper ("the lowered response schema for an annotation, or a loud failure") is independently redeclared in five test files, including the in-scope schema-slug-canonical-form-mints.test.ts
@@ -194,3 +195,6 @@ decision for the fix stage.
 ## Triage
 <!-- appended by triage -->
 verdict: confirmed — independently re-verified: `grep "function loweredAnnotation" tests/` → exactly the five cited declarations (lines 450/529/452/225/1391, within the cited ranges), 0 hits in tests/helpers/, src/, extensions/, tools/ and no `lowerQueryResponseSchema` wrapper anywhere under tests/helpers/; mechanical diff shows the three TRIAGE_DECLS copies differ only by one doc-comment word ("inline"), the throw-message tail, and one optional `decls = TRIAGE_DECLS` default param, while the two parse-then-lower copies share a byte-identical filter-schemas/filter-enums/lower/throw-on-undefined/return tail and diverge only in fixture composition (annotation embedded + `expectedCodes` vs `DECLS` fixture + `[]`) and message wording — same-shape boilerplate the fixer must parameterise, not a clean clone; all five copies live (18/16/5/4/4 call sites); all locations under tests/, none gate-named, coverage-matrix 0 hits, docs/bugs 0 hits for the helper, no merge/rename/delete proposed; not a duplicate — PTQ-0410 is the canonical-slug oracle quadruplet in the same files and same-wave sibling d7-02 is the adjacent `schemaDeclsOf` harness whose triage note defers this helper to this filing; stray `d4_class` field on a D7 filing is extraneous but non-blocking (triage: claude-fable-5-1)
+
+## Fix attempts
+- (wave unknown): skipped — (no fixer notes recorded)

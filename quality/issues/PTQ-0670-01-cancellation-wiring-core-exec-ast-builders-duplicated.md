@@ -13,6 +13,7 @@ d4_class: clone
 wave: qw20260917154546
 reported_by: lens-d7-testquality (anthropic/claude-sonnet-5)
 date: 2026-09-17
+fix_skips: 1
 ---
 
 # production-cancellation-wiring.test.ts and production-core-exec.test.ts redeclare the same eight AST-node-builder functions verbatim
@@ -136,3 +137,6 @@ declarations already point toward.
 ## Triage
 <!-- appended by triage -->
 verdict: confirmed — re-verified independently: both excerpts match at the cited lines (cancellation-wiring:65-88; core-exec:38-54/66-85), the stated grep reproduces exactly 16 hits (8 names × 2 files), and a per-function sed-extract + diff shows all eight bodies byte-identical; tests/helpers/invoke-seam-scaffold.ts:54 and tool-call-dispatch-harness.ts:51/73/77 export the span/callExpr/body precedent as claimed (no existing helper exports the full eight, so nothing is bypassed); both locations in tests/, neither a gate test, builders are plain value constructors not recording doubles, docs/bugs 0012/0293/0319 name the files only as witnesses with no merge/rename/delete proposed, coverage-matrix has no hits, both files 17/17 green; not a duplicate — no open/resolved PTQ cites either file for this (PTQ-0278 was call-with-clause R(), PTQ-0403 the dispatch doubles, PTQ-0290 the retry budget), and same-wave intake sibling d7-107-03 is the distinct core-exec↔nested-control pair whose triage explicitly deferred this pair here; note sites:2 undercounts — tests/nested-control-in-pure-position.test.ts:40-143 carries an identical 8/8 third copy and tests/pure-async-unification.test.ts a 6/8 copy, so the fixer should land one shared helper serving both filings (triage: claude-fable-5-1)
+
+## Fix attempts
+- (wave unknown): skipped — (no fixer notes recorded)

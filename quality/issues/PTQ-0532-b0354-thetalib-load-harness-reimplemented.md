@@ -17,6 +17,7 @@ fix_scope: localized          # localized | module | cross-module - mechanical s
 wave: qw20260917154546
 reported_by: lens-d7-testquality (anthropic/claude-sonnet-5)
 date: 2026-09-17
+fix_skips: 1
 ---
 
 # b0354 reimplements the fakeThetaLibFs double, the bindImportedBodyOverFs bind driver, and the expectCleanImportLoad precondition already centralised in tests/helpers/thetalib-load-harness.ts
@@ -234,3 +235,6 @@ sibling caller's one extra need, is the existing home this file's local
 ## Triage
 <triage appends: verdict + one-line reason. Nothing above this line is edited.>
 verdict: confirmed — independently re-verified: all seven excerpts match at the cited lines; b0354's local `fakeThetaLibFs` (tests/b0354:104-132) is byte-identical to the export at thetalib-load-harness.ts:85-113, its `NOOP_CHECKPOINT`/`measure()` parse→checkThetaImports→createProductionProducerDeps→bindPromptConversation sequence (192-254) matches `bindImportedBodyOverFs` (217-262) apart from the one `subagentInboundInvokeDepth` spread, and `expectCleanLoad` (330-340) is `expectCleanImportLoad` (306-316) with the two messages inlined; b0354 (committed c5adf2fe, 2026-09-03) predates the harness (first landed 11820751, 2026-09-12) and was simply never migrated — its own header calls itself the b0303 `measure()` "verbatim", yet b0303 now imports `bindImportedBody`, leaving b0354 the stranded copy; no gate/recording-double/coverage-matrix carve-out applies (0 matrix hits; docs/bugs/0354-crossfile-thetalib-fn-frames-uncounted.md pins nothing about the harness bodies); not a duplicate — PTQ-0310/0393/0347/0315 name other files and PTQ-0239 lists b0354 only for its separate `parse()`-vs-`parseDoc` root cause. Fixer notes: adoption needs the same one-need helper extension PTQ-0347 ratified (an optional `subagentInboundInvokeDepth` passthrough on `bindImportedBodyOverFs`), and the helper's `APP_FRONTMATTER` pins `anthropic/claude-sonnet-5` (bug 0479) where b0354 pins `sonnet` — no b0354 cell issues a model turn, so this is not load-bearing (triage: claude-fable-5-1)
+
+## Fix attempts
+- (wave unknown): skipped — (no fixer notes recorded)

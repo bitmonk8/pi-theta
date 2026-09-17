@@ -14,6 +14,7 @@ fix_scope: module
 wave: qw20260917154546
 reported_by: lens-d7-testquality (anthropic/claude-sonnet-5)
 date: 2026-09-17
+fix_skips: 1
 ---
 
 # slsh5-invoke-cascade-chain-suffix.test.ts and subagent-child-hash-refusal-e2e.test.ts hand-roll the mkdtemp/mkdir/settings-write/rmSync workspace lifecycle that production-load-harness.ts's plantThetaWorkspace/disposeWorkspace already centralise
@@ -190,3 +191,6 @@ surface, not a design for the change.
 ## Triage
 <!-- triage appends its note here -->
 verdict: confirmed — independently re-verified: all four excerpts reproduce verbatim at the cited lines (slsh5:236-249/268-271, hash-refusal:60-83, helper:117-144); grep of production-load-harness|plantThetaWorkspace|disposeWorkspace in both reviewed files → 0 hits while the helper is live (100+ importers) and its header names this exact mkdtemp/mkdir/write-loop/settings/rmSync lifecycle as the half PTQ-0312 centralised; slsh5's THETAS is already {stem,text}[] (structurally PlantedThetaFile[]) and its realpathSync wrap composes over the helper's return, so nothing load-bearing is lost; no gate/recording-double/correct-reason-red carve-out applies and no test is merged/renamed/deleted; dedupe holds — PTQ-0312 covers b0297/conformance/arg-mismatch only, PTQ-0361 names hash-refusal solely as out-of-scope pattern context for the different finishWorkspace helper and never names slsh5, PTQ-0225/0343 cover different scaffold pieces (triage: claude-fable-5-1)
+
+## Fix attempts
+- (wave unknown): skipped — (no fixer notes recorded)

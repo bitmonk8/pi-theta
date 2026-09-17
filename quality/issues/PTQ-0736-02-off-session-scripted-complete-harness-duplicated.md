@@ -21,6 +21,7 @@ fix_scope: cross-module      # localized | module | cross-module - mechanical si
 wave: qw20260917154546
 reported_by: lens-d7-testquality (anthropic/claude-sonnet-5)
 date: 2026-09-17
+fix_skips: 1
 ---
 
 # The off-session scripted complete() mock scaffold, reply builder and tool reader are hand-copied across eight test files with no tests/helpers/ home
@@ -246,3 +247,6 @@ each file's own scripted reply content and drive sequence local.
 ## Triage
 <triage appends: verdict + one-line reason. Nothing above this line is edited.>
 verdict: confirmed — independently re-verified D7 copy-paste double: `grep -l 'queue: \[\] as Array' tests/*.test.ts` and `grep -l "function assistantReply"` each return exactly the 8 named files and all 8 `vi.hoisted`/`vi.mock("@earendil-works/pi-ai/compat")` excerpts match at the cited lines with identical control flow, error template and `Math.min` sticky-last expression (comments only differ); `contextToolsOf` is byte-identical in the 4 cited files; local `ANTHROPIC_MODEL` is byte-identical to the exported `tests/helpers/scripted-live-session-harness.ts:42-47` fixture (small drift from the cited 35-40) and the in-scope file imports only `./helpers/e2e-s1`; no `tests/helpers/` module holds any of the scaffold/builder/reader (0 hits); the candidate's "none matches *gate*.test.ts" claim is wrong for `typed-query-provider-gate.test.ts`, but that is a bug-0010 behavioural provider-gate suite, not a census/pin gate, and no assertion is proposed for change, so the carve-out is inapplicable; docs/bugs and coverage-matrix greps → 0 hits; sibling intake d7-157-01 overlaps only on the gate file's `ANTHROPIC_MODEL` under a different root cause (LiveSessionDouble harness not migrated to PTQ-0328's helper) and no PTQ cites this `pi-ai/compat` scripted-`complete()` scaffold (triage: claude-fable-5-1)
+
+## Fix attempts
+- (wave unknown): skipped — (no fixer notes recorded)

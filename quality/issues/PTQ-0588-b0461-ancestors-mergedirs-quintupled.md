@@ -18,6 +18,7 @@ fix_scope: cross-module      # localized | module | cross-module - mechanical si
 wave: qw20260917154546
 reported_by: lens-d7-testquality (anthropic/claude-sonnet-5)
 date: 2026-09-17
+fix_skips: 1
 ---
 
 # b0461's ancestors/mergeDirs/ReaddirDenied fake-fs scaffolding is a byte-identical copy repeated across five test files
@@ -174,3 +175,6 @@ different pair of files.
 ## Triage
 <!-- appended by triage; do not edit above this line -->
 verdict: confirmed — independently re-verified: `ancestors`/`mergeDirs` at b0440:61/74, b0459:66/79, b0461:89/102, discovery-glob:250/263, discovery-root:226/239 hash cd3f430f…/c728b022… in all five (byte-identical), b0461:85 and :165-169 carry the quoted "Copied from" attributions, `ReaddirDenied` (b0461:171, glob:332, root:303) diffs only by glob's `#lstatDenied` field/`lstat()` arm and root's inlined error construction, and no tests/helpers/ module exports any of the three shapes (grep of tests/helpers/ and src/ returns only production `ancestorsClean`); all copies live (51 tests pass across the five files), none is a gate/pin file, none is cited in coverage-matrix.md, bugs 0440/0459/0461/0113 all Status fixed, and no it()/describe() merge/rename/delete is proposed — D7 boilerplate-duplication class, mechanical dedupe. Not a duplicate: PTQ-0286/0287 are src/ path/walker clones; same-wave sibling -d7-110-03 overlaps only on the `ReaddirDenied` decorator idiom (its root cause is the FileSystem pass-through shape incl. InstrumentedFileSystem/LstatDenied), so coordinate rather than merge. Fixer notes: the count is understated — `ancestors` is byte-identical in 12 test files and `mergeDirs` in 11 (discovery-invalid-extension.test.ts:40 is a one-line reformat; discovery-cli-entry-override-prefix.test.ts:151 has mergeDirs only), and shards 42/43/46/139 deferred discovery-invalid-extension, discovery-symlinked-root-classification, discovery-walk, discovery-tree-walk-lstat-failure, e2e-s5-disc-cli-settings, host-config-dir and settings-glob-disc5-matcher to this finding; docs/bugs/0113 witness-cites discovery-root-enumeration-failure.test.ts's `ReaddirDenied` by location (:300-344, now :303-353), so keep that class in place or update the citation (triage: claude-fable-5-1)
+
+## Fix attempts
+- (wave unknown): skipped — (no fixer notes recorded)

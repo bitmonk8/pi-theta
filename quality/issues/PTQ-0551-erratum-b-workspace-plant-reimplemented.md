@@ -13,6 +13,7 @@ fix_scope: localized          # localized | module | cross-module - mechanical s
 wave: qw20260917154546
 reported_by: lens-d7-testquality (anthropic/claude-sonnet-5)
 date: 2026-09-17
+fix_skips: 1
 ---
 
 # call-with-clause-erratum-b.test.ts hand-rolls the temp-workspace-plus-settings.json plant that tests/helpers/compose-workspace-harness.ts's finishWorkspace already provides
@@ -107,3 +108,6 @@ This is setup/teardown harness — planting a temp directory with a `.pi/theta` 
 ## Triage
 <triage appends: verdict + one-line reason. Nothing above this line is edited.>
 verdict: confirmed — independently re-verified: all three excerpts reproduce verbatim at the cited lines (erratum-b:230-270 mkdtemp/mkdir(.pi/theta)/writeFileSync(settings.json,"{}")/rmSync afterEach; compose-workspace-harness.ts:99-121 finishWorkspace writes the identical settings.json and returns the identical rmSync dispose; b0275:230-242 is the canonical mkdtemp→mkdir→finishWorkspace shape), the file imports nothing from compose-workspace-harness (grep: only discoverAndComposeFixtures from production-composition), finishWorkspace has 8 test importers and 0 docs/bugs hits, coverage-matrix has 0 hits for this file, 12/12 tests green at HEAD, and the only prior finding naming the file (PTQ-0372) is an unrelated header-comment D2; not a duplicate — PTQ-0299/0361/0385 cover b0280/b0328+b0329/b0343 respectively and never cite this file, but they are the human-confirmed precedent for exactly this settings-write+dispose hand-roll (triage: claude-fable-5-1)
+
+## Fix attempts
+- (wave unknown): skipped — (no fixer notes recorded)

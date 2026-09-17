@@ -12,6 +12,7 @@ fix_scope: module
 wave: qw20260917154546
 reported_by: lens-d7-testquality (anthropic/claude-sonnet-5)
 date: 2026-09-17
+fix_skips: 1
 ---
 
 # wire-translation-inbound-retag.test.ts redeclares makeDeps()/parse() byte-for-byte instead of importing tests/helpers/e2e-s1.ts's parseDeps()/parseDoc()
@@ -117,3 +118,6 @@ local `makeDeps`/`parse` pair already converges on in shape; the
 ## Triage
 <!-- appended by triage -->
 verdict: confirmed — re-verified independently: both excerpts match verbatim (retag.test.ts:47-61, e2e-s1.ts:26-40) and the deps are field-for-field/value-for-value identical to parseDeps() with parse() equal to parseDoc() save the default path literal, which is inert (makeDeps has one caller, parse has 3 call sites :171/:212/:572 none passing a path, "retag.theta" is asserted nowhere); grep confirms 205 e2e-s1 importers with this file absent, both withheld-sentinel siblings import it, e2e-s1.ts (d23c22be 2026-07-13) predates the test file (e18b30e5 2026-08-14) so the helper was available, file is 17/17 green at HEAD, coverage-matrix 0 hits, same-wave d7-03 cites different blocks in different files, and PTQ-0214/0239/0314/0386/0405 are the same class at other files (per-file instances ruled distinct); title's "byte-for-byte" is slightly overstated (inline vs helper-factored) but does not touch the anchor (triage: claude-fable-5-1)
+
+## Fix attempts
+- (wave unknown): skipped — (no fixer notes recorded)

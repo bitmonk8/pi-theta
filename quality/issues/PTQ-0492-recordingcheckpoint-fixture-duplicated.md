@@ -18,6 +18,7 @@ d4_class: clone
 wave: qw20260917154546
 reported_by: lens-d7-testquality (anthropic/claude-sonnet-5)
 date: 2026-09-17
+fix_skips: 1
 ---
 
 # A RecordingCheckpoint `Checkpoint` double recording fired kinds/sites is redeclared near-identically across seven test files
@@ -121,3 +122,6 @@ A `tests/helpers/` module exporting a `RecordingCheckpoint` (parameterised over 
 ## Triage
 <!-- appended by triage -->
 verdict: confirmed — re-verified independently: all seven excerpts match byte-for-byte at the cited lines (four copies identical modulo field order / `before:` vs `checkpoint:` log prefix, three reduced copies dropping log and/or sites, same class name and `before`-pushes-kind body in all); tests/helpers/ exports only no-op/passthrough Checkpoint doubles (NOOP_CHECKPOINT ×3, SEAM_NOOP_CHECKPOINT, PassthroughCheckpoint), no recording one; all locations in tests/, no gate/coverage-matrix/docs-bugs carve-out applies (RecordingCheckpoint absent from docs/bugs/, none of the seven files in coverage-matrix.md), and PTQ-0403 covers the no-op dispatch-scaffold double, not this kinds/sites recorder; the stated grep count is wrong — it returns 12 files, not 7, but the five uncited are four no-op doubles (production-subagent-query-model:42, subagent-model-theta-tool:215, subagent-root-drive-wiring:41, tool-return-shape-one-note-production-wired:65 — PTQ-0403's class) plus tests/execution-status-checkpoint-decorator.test.ts:40-47, an eighth recording copy shaped as a `calls: {kind,site}[]` array, so sites:7 undercounts rather than refutes (triage: claude-fable-5-1)
+
+## Fix attempts
+- (wave unknown): skipped — (no fixer notes recorded)

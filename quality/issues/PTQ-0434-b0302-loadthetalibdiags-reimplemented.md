@@ -12,6 +12,7 @@ fix_scope: localized         # localized | module | cross-module - mechanical si
 wave: qw20260917154546
 reported_by: lens-d7-testquality (anthropic/claude-sonnet-5)
 date: 2026-09-17
+fix_skips: 1
 ---
 
 # b0302 reimplements tests/helpers/thetalib-load-harness.ts's loadThetaLibDiags parse+check+render sequence instead of importing it
@@ -164,3 +165,6 @@ helper. Confirmed the claim stays inside test code that exists (the local
 
 ## Triage
 verdict: confirmed — independently re-verified: b0302's `fakeThetaLibFs` (tests/b0302-stem-keyed-cycle-graph.test.ts:87-121) and `diagLines` (:128-147) are body-identical to the harness's exported `fakeThetaLibFs` (tests/helpers/thetalib-load-harness.ts:85-119) and `loadThetaLibDiags` (:137-166; candidate's harness line cites are drifted ~30-60 lines but the excerpts match verbatim), b0302 imports nothing from the harness, and the sole difference (`model: "sonnet"`) is unread by `checkThetaImports`, whose deps are only `{fs, parseDeps, …}` with no `.model` access in import-static-checks.ts; D7 copy-paste-double class inside tests/, not a gate file, not a recording double, and the bug-doc witness listing (docs/bugs/0302-stem-keyed-cycle-graph.md:222 — the candidate's "no hits" claim is wrong) is irrelevant because no merge/rename/delete is proposed; no existing row cites b0302 (PTQ-0232/0310/0393 and sibling d7-70 cite other files) (triage: claude-fable-5-1)
+
+## Fix attempts
+- (wave unknown): skipped — (no fixer notes recorded)

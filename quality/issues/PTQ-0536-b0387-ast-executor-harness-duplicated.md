@@ -12,6 +12,7 @@ fix_scope: cross-module      # localized | module | cross-module - mechanical si
 wave: qw20260917154546
 reported_by: lens-d7-testquality (anthropic/claude-sonnet-5)
 date: 2026-09-17
+fix_skips: 1
 ---
 
 # b0387 redeclares the same nine-piece AST/executor harness already duplicated between the two b0307 files
@@ -224,3 +225,6 @@ duplicate already sits, not a design for the extraction.
 
 ## Triage
 verdict: confirmed — independently re-verified: all excerpts match at the cited lines with zero drift; extracting the nine builders by exact range (b0307:62-101 vs b0387:77-92,104-107,114-131, i.e. minus the interleaved objectExpr/callExpr/tryExpr) diffs to nothing but two blank separator lines, and `diff <(sed -n 112,146p …err-binds) <(sed -n 154,188p …b0387)` (realEnv/SITE/NOOP_CHECKPOINT/RecordingMutator incl. doc comments) is empty; in-scope D7 boilerplate/copy-paste-fixture class under tests/. Three FP-check inaccuracies corrected on record without changing the verdict: (1) the literal command `sed -n '78,114p'` as written yields 36 diff lines because it spans the interleaved builders — only the parenthetically-described exclusion reproduces zero; (2) the `.calls` grep returns 5 hits, not 0 — all are the class's own `this.calls.push` lines and no assertion reads `.calls`, so the boilerplate (not negative-witness) classification stands; (3) docs/bugs/0387-…md:174,182 and docs/bugs/0421-…md:93 DO cite the b0387 file (candidate said 0 hits outside own doc), but the carve-out protects only merge/rename/delete and helper extraction proposes neither. Anchor strengthened: tests/helpers/tool-call-dispatch-harness.ts:51,59,81 and invoke-seam-scaffold.ts:54 already export byte-identical `span()`/`strExpr`/`NOOP_CHECKPOINT`. Title's "nine-piece" vs the body's 13 enumerated declarations is a miscount, non-blocking. Not a duplicate: same-wave sibling d7-02-b0307 (confirmed) covers only the two b0307 files and its triage named this filing as the disjoint b0387 continuation (precedent PTQ-0219/PTQ-0228 accept per-file harness continuations); d7-140-04 is a narrower RecordingMutator-class-only filing still in intake; PTQ-0278/PTQ-0257 cite other files (triage: claude-fable-5-1)
+
+## Fix attempts
+- (wave unknown): skipped — (no fixer notes recorded)

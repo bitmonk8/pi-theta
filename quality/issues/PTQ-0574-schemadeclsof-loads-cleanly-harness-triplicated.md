@@ -13,6 +13,7 @@ fix_scope: cross-module       # localized | module | cross-module - mechanical s
 wave: qw20260917154546
 reported_by: lens-d7-testquality (anthropic/claude-sonnet-5)
 date: 2026-09-17
+fix_skips: 1
 ---
 
 # schemaDeclsOf loads-cleanly-then-filter harness is a renamed-only clone across three lowering test files
@@ -136,3 +137,6 @@ natural home the byte-identical remainder of the three declarations points to.
 ## Triage
 <triage appends: verdict + one-line reason. Nothing above this line is edited.>
 verdict: confirmed — independently re-verified: all three excerpts match verbatim at the cited lines and a mechanical diff of the 9-line bodies shows exactly one differing line per pair (the `parseDoc` fixture-name literal; the third copy inlines the byte-identical `` `---\nmode: prompt\n---\n${body}` `` template that `bodySrc` returns at files 1/2), all three copies are live (4/2/2 refs), `grep -rn schemaDeclsOf tests/helpers/` → 0 hits; the `^function schemaDeclsOf` grep actually hits 20 files not 19, but the only other `(body: string): readonly SchemaDecl[]` copy (tests/unresolved-annotation-lowering.test.ts:281) lacks the load-diagnostics throw and calls a different `parse`, so the three-copy count stands; none of the files is a gate, coverage-matrix has 0 hits, docs/bugs 0039/0053/0097 cite the files as behaviour witnesses only and no merge/rename/delete is proposed; D7 boilerplate-duplication class, and no PTQ row or same-wave sibling covers this trio (PTQ-0212 is `loadCleanly`, d7-03 is the `(doc: ThetaDocument)` inbound variant, d7-137-02 is the adjacent `loweredAnnotation` helper) (triage: claude-fable-5-1)
+
+## Fix attempts
+- (wave unknown): skipped — (no fixer notes recorded)

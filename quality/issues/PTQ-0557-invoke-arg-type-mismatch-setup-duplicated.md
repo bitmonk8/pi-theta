@@ -12,6 +12,7 @@ fix_scope: module
 wave: qw20260917154546
 reported_by: lens-d7-testquality (anthropic/claude-sonnet-5)
 date: 2026-09-17
+fix_skips: 1
 ---
 
 # Two RFC 0009 static-checks tests rebuild the identical invoke-node + checkInvokeStaticResolution deps block across two files
@@ -111,3 +112,6 @@ A small helper (e.g. one function building the `invoke`/`body`/`input` triple fr
 ## Triage
 <triage appends: verdict + one-line reason. Nothing above this line is edited.>
 verdict: confirmed — independently re-verified: both excerpts match verbatim at failure-arms:204-233 and static-checks:160-191, the RESOLVED_CALLEE/RESOLVED_THETA_ROOT pair is re-derived at :192-193 / :43-44, and `grep -rn 'RESOLVED_CALLEE\]: "theta"' tests/` hits exactly these two sites; the anchor is stronger than filed — tests/helpers/call-with-clause-harness.ts:127-142 already exports `invokeStmtWithClause`/`bodyWithInvoke` producing exactly the hand-cast invoke + one-statement body both cells rebuild, and failure-arms already imports `bodyWithInvoke` (V9/V10), so the invoke/body half reimplements an imported helper and the FakeFileSystem+activeRoots deps half is a same-commit (96303cc3) sibling clone; coverage-matrix grep → 0 hits, no gate/recording-double/red-signature carve-out applies, and no resolved or intake finding names this pair (PTQ-0273/0278 cover other failure-arms blocks, PTQ-0364 is the src-side gate, sibling d7-140-04 covers the checkBody/EMPTY_GRAPH quartet at :52-78) (triage: claude-fable-5-1)
+
+## Fix attempts
+- (wave unknown): skipped — (no fixer notes recorded)

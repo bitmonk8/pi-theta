@@ -14,6 +14,7 @@ fix_scope: module            # localized | module | cross-module - mechanical si
 wave: qw20260917154546
 reported_by: lens-d7-testquality (anthropic/claude-sonnet-5)
 date: 2026-09-17
+fix_skips: 1
 ---
 
 # typed-query-provider-gate.test.ts redeclares tests/typed-two-phase-live.test.ts's rootDouble/registryDouble/ctxDouble/drive/respondToolNameOf/expectErrOfKind/expectValue harness byte-for-byte
@@ -160,3 +161,6 @@ A shared `tests/helpers/` module carrying the "drive a typed-query theta through
 
 ## Triage
 verdict: confirmed — independently re-verified by extract+diff: rootDouble (gate 475-491 ↔ live 658-674), registryDouble+ctxDouble (494-512 ↔ 684-703) and expectErrOfKind+expectValue (574-599 ↔ 809-834) are byte-identical, drive/respondToolNameOf differ only by the GateHarness/TwoPhaseHarness type name, and the stated declaration grep reproduces one-to-one (correction: `qry15Body` is declared only in the live file, and docs/bugs/0013+0480 also name the gate file — both as regression/pin surface, not a documented red); the gate file's own LiveSessionDouble doc comment (337-344) states it is "duplicated from tests/typed-two-phase-live.test.ts"; both suites green at HEAD (19+25 cells), the cited lines are harness scaffolding not a pinned-count assertion so the *gate* carve-out does not apply, no coverage-matrix citation, and no tracked PTQ covers the gate↔live fork (PTQ-0209 is the offline producer rootDouble family, PTQ-0328's helper carries none of the seven cited functions; same-wave intake sibling d7-01 covers the repair↔live pair — a fixer should fold both into one shared harness) — D7 copy-paste fixture/double (triage: claude-fable-5-1)
+
+## Fix attempts
+- (wave unknown): skipped — (no fixer notes recorded)

@@ -12,6 +12,7 @@ fix_scope: module
 wave: qw20260917154546
 reported_by: lens-d7-testquality (anthropic/claude-sonnet-5)
 date: 2026-09-17
+fix_skips: 1
 ---
 
 # The parse-to-executeBody production runtime harness (NOOP_CHECKPOINT/rootDouble/producer/execute/expectValue) is redeclared byte-identical in both object-pattern-head refusal test files
@@ -94,3 +95,6 @@ The same ~50-line "no-op checkpoint, fixed-id `RuntimeRoot` double, `createProdu
 
 ## Triage
 verdict: confirmed — independently re-verified: all three excerpts match byte-exact at the cited lines, the stated grep returns exactly 10 hits, and my own diff of the two 53-line spans (487-539 vs 448-500) shows only the bug0226/bug0221 slashName+sourcePath literals differ; both files green at HEAD (75/75), 0 coverage-matrix hits, no NOOP_CHECKPOINT/rootDouble mention in bug docs 0221/0226, rootDouble is an inert double (no recording carve-out), neither file is a gate; not a duplicate of resolved PTQ-0209 — its fix (2594cd44) migrated only its four cited files to tests/helpers/call-with-clause-harness.ts's exported rootDouble/noopPi and cited neither of these, so per the residual-copy precedents (PTQ-0228/0240/0301) this un-migrated pair is a distinct in-scope D7 boilerplate-duplication finding, and no open issue or other intake row cites this pair for this root cause (d7-110-02 is the separate DiagShape scaffold); two evidentiary nits for the fixer, neither refuting: the headers do not "name each other" — field-set names unresolved, while unresolved names tests/reserved-keyword-object-pattern-head-refusal.test.ts:735-787, a third copy of the same quintet that my diff shows identical apart from the bug0219 tag; and a canonical rootDouble/noopPi export already exists in tests/helpers/call-with-clause-harness.ts that both files bypass (triage: claude-fable-5-1)
+
+## Fix attempts
+- (wave unknown): skipped — (no fixer notes recorded)

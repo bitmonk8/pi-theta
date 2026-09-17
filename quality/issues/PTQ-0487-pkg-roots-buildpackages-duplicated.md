@@ -14,6 +14,7 @@ fix_scope: localized          # localized | module | cross-module - mechanical s
 wave: qw20260917154546
 reported_by: lens-d7-testquality (anthropic/claude-sonnet-5)
 date: 2026-09-17
+fix_skips: 1
 ---
 
 # PKG_ROOTS and buildPackages are redeclared byte-identically in discovery-root-enumeration-failure.test.ts and discovery-tree-walk-lstat-failure.test.ts
@@ -152,3 +153,6 @@ would be the natural home for these two pieces, as a hypothesis only.
 ## Triage
 <triage appends: verdict + one-line reason. Nothing above this line is edited.>
 verdict: confirmed — independently re-verified: `PKG_ROOTS` (discovery-root-enumeration-failure.test.ts:262-268 / discovery-tree-walk-lstat-failure.test.ts:203-209) and `buildPackages` (:288-295 / :225-232) are byte-identical module-scope copies whose only divergence is the doc comment's drifted `packageRoots` citation (`232-242` vs `226-246`; the production function now sits at src/discovery/package-discovery.ts:214-234, so both are stale); `grep -rn "const PKG_ROOTS" tests` and `"^function buildPackages" tests` each return the same 5 files including these two; both copies are live (each file's tests call `buildPackages`), neither file is a gate/pin test, neither is in coverage-matrix.md, no merge/rename/delete of any cell is proposed so bug-doc witness lists are unaffected; not a duplicate — same-wave sibling qw20260917154546-d7-03-b0461-ancestors-mergedirs-quintupled.md cites only ancestors/mergeDirs/ReaddirDenied at disjoint ranges (226-249, 303-336) and resolved PTQ-0255/PTQ-0396 cover different helpers in different files; D7 copy-paste-fixture class, mechanical dedupe (triage: claude-fable-5-1)
+
+## Fix attempts
+- (wave unknown): skipped — (no fixer notes recorded)

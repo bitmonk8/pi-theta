@@ -15,6 +15,7 @@ fix_scope: localized          # localized | module | cross-module - mechanical s
 wave: qw20260917154546
 reported_by: lens-d7-testquality (anthropic/claude-sonnet-5)
 date: 2026-09-17
+fix_skips: 1
 ---
 
 # Both in-scope files reimplement e2e-s1's exported diagLines under a local declaration instead of importing it
@@ -110,3 +111,6 @@ separate local declaration.
 ## Triage
 <!-- appended by triage; do not edit above this line -->
 verdict: confirmed — independently re-verified: all five excerpts match byte-for-byte at the cited lines (e2e-s1.ts:99-102 exports diagLines(doc); union-generic-arm-lowering.test.ts:15 and unresolvable-operand-structural-target-adjudication.test.ts:26 each import only parseDoc from that module, and :235 / :390 declare a local diagLines / lines with a body identical to the export, live at 8 and 3 call sites), the stated decl grep returns exactly those two declarations, docs/bugs/ has no diagLines hits and coverage-matrix.md has 0 hits for either file, neither file is a gate test, and no tracked issue covers this pair — resolved PTQ-0205 names 22 files by path but not these two and its fix commit 2594cd44 touched neither, while intake d7-90 cites four tests/live/ files with a different (text, path) signature; genuine D7 boilerplate duplication against an already-imported helper, mechanical dedupe (triage: claude-fable-5-1)
+
+## Fix attempts
+- (wave unknown): skipped — (no fixer notes recorded)

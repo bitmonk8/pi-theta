@@ -13,6 +13,7 @@ fix_scope: localized          # localized | module | cross-module - mechanical s
 wave: qw20260917154546
 reported_by: lens-d7-testquality (anthropic/claude-sonnet-5)
 date: 2026-09-17
+fix_skips: 1
 ---
 
 # querySchemas' generic query.schema tree-walk is redeclared byte-identical in qry4-refused-annotation-withhold.test.ts and let-annotation-query-double-emission.test.ts
@@ -160,3 +161,6 @@ wider `queryFacts` shape as the parameterisation the two narrower
 ## Triage
 <triage appends: verdict + one-line reason. Nothing above this line is edited.>
 verdict: confirmed — independently re-verified: all three excerpts match at the cited lines; `diff` of qry4-refused-annotation-withhold.test.ts:266-282 vs let-annotation-query-double-emission.test.ts:173-189 differs on exactly one line (the `"bug0222.theta"`/`"bug0093.theta"` parseDoc label), and fn-return-void-query-sink.test.ts:225-247's queryFacts carries the same seen-set/Object.values walk widened to three fields; `record.kind === "query"` and `seen.add(node as object)` grep to exactly these three files with nothing in tests/helpers/ (e2e-s1.ts has 17 exports, not the 7 the candidate listed, but none walks the body), all copies are live (5/6/15 querySchemas call sites), no gate/recording-double/coverage-matrix carve-out applies (0 matrix hits; docs/bugs/0220:228's `querySchemas` is a scratch repro script, not a keep-private ruling), and no store row tracks this walk (PTQ-0257/PTQ-0394 cover letStmtOf/fnDecl in the same files; sibling wave candidates cover the registry oracle, systemNoteContents and FM fixture) — D7 boilerplate-duplication, mechanical dedupe (triage: claude-fable-5-1)
+
+## Fix attempts
+- (wave unknown): skipped — (no fixer notes recorded)

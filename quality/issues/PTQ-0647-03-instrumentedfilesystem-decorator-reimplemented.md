@@ -15,6 +15,7 @@ fix_scope: cross-module
 wave: qw20260917154546
 reported_by: lens-d7-testquality (anthropic/claude-sonnet-5)
 date: 2026-09-17
+fix_skips: 1
 ---
 
 # package-discovery.test.ts hand-rolls a full 15-method FileSystem pass-through decorator, the same idiom four sibling test files already hand-roll as ReaddirDenied/LstatDenied
@@ -127,3 +128,6 @@ A single `tests/helpers/fake-file-system.ts` export — a generic "wrap a `FakeF
 
 ## Triage
 verdict: confirmed — independently re-verified: all five `implements FileSystem` classes exist at the cited lines with matching excerpts (package-discovery:60-119, root-enumeration:303-353, b0461:171-219, glob-universe:332-390, tree-walk-lstat:249-296), each retyping 9-10 one-line delegates to an inner FakeFileSystem around one or two intercepted members; two copies self-declare the copy-paste in their own doc comments (b0461:168 "Copied from tests/discovery-glob-universe-enumeration-failure.test.ts", glob-universe:329 "Mirrors tests/discovery-root-enumeration-failure.test.ts:298-353"); tests/helpers/fake-file-system.ts exports only FakeFileSystemOptions + FakeFileSystem (no wrapper); no coverage-matrix hits; docs/bugs/0113 cites the root-enumeration ReaddirDenied as a witness but the direction keeps every class name/file/intercept in place (no merge/rename/delete), so the carve-out is not triggered; no existing PTQ names these classes. One inaccuracy noted for the fixer, not blocking: the title's "15-method" is a miscount — src/seams/file-system.ts#FileSystem has 11 members, as the Observation body itself correctly states (triage: claude-fable-5-1)
+
+## Fix attempts
+- (wave unknown): skipped — (no fixer notes recorded)

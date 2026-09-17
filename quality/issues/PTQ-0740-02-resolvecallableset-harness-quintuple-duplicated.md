@@ -14,6 +14,7 @@ d4_class: clone
 wave: qw20260917154546
 reported_by: lens-d7-testquality (anthropic/claude-sonnet-5)
 date: 2026-09-17
+fix_skips: 1
 ---
 
 # uppercase-pi-tool-name-refusal.test.ts redeclares the withCode/piTool/thetaCallee/deps/resolveList resolveCallableSet harness byte-for-byte instead of importing it
@@ -95,3 +96,6 @@ it identically are the natural set to draw a shared export from.
 
 ## Triage
 verdict: confirmed — independently re-verified: all three excerpts reproduce at the cited lines; the 47-line helper block at tools-derived-name-shape.test.ts:479-525 and uppercase-pi-tool-name-refusal.test.ts:492-538 is byte-identical (`diff` empty) and callable-set.test.ts:31-81 differs only by the `thetaCallee` parameter line-wrap and its extra `resolveScalar`; `deps` body diffs a==b and a==c are empty; the `^function piTool(name: string): ResolvedPiTool` grep returns exactly the 3 cited hits; no tests/helpers/ module mentions CallableSetDeps/ResolvedPiTool; all 3 files pass at HEAD (59/59), none is a gate, recording double, or skip; bug 0108 names the two witness files but pins cells (C6)/(C6a) at :656-691, outside the helper block, and the filing proposes no test merge/rename/delete; store grep finds no PTQ tracking this harness — but pending sibling intake qw20260917154546-d7-140-03 (confirmed) cites the same `deps(opts?)` body in session-control-callable-set.test.ts:103-124 vs callable-set.test.ts:54-76, so the two are one root cause with four live copies: fold at acceptance into a single PTQ, taking this file's five-function inventory as the base (triage: claude-fable-5-1)
+
+## Fix attempts
+- (wave unknown): skipped — (no fixer notes recorded)

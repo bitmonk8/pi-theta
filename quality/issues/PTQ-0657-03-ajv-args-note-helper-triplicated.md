@@ -13,6 +13,7 @@ fix_scope: cross-module       # localized | module | cross-module - mechanical s
 wave: qw20260917154546
 reported_by: lens-d7-testquality (anthropic/claude-sonnet-5)
 date: 2026-09-17
+fix_skips: 1
 ---
 
 # The EM_DASH/AJV_SUMMARY_SEPARATOR/AJV_ARGS_PHRASE constants and ajvArgsNote() are redeclared byte-for-byte in three binder/params test files
@@ -130,3 +131,6 @@ design.
 
 ## Triage
 verdict: confirmed — independently re-verified: all three excerpts reproduce at the cited lines (EM_DASH at 194/169/298, ajvArgsNote at 206/178/304) and a diff of the extracted ranges shows the copies byte-identical apart from the two deltas the filing itself declares (ELLIPSIS only in enum-access-merge; AJV_SUMMARY_SEPARATOR absent from unresolvable-enum-variant); `const AJV_ARGS_PHRASE = "argument binding produced invalid args"` greps to exactly these 3 files repo-wide, `function ajvArgsNote` once each, no tests/helpers/ file names any of the four identifiers, every copy is live (ajvArgsNote called 2/5/2 times), none is a gate/recording-double/bug-doc-cited test, and no intake/resolved finding names these identifiers (PTQ-0285 and PTQ-0326 are src/-side and distinct) — in-scope D7 copy-paste duplication whose fix is a mechanical hoist (triage: claude-fable-5-1)
+
+## Fix attempts
+- (wave unknown): skipped — (no fixer notes recorded)

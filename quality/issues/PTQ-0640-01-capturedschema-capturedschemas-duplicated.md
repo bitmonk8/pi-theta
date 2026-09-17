@@ -12,6 +12,7 @@ fix_scope: module            # localized | module | cross-module - mechanical si
 wave: qw20260917154546
 reported_by: lens-d7-testquality (anthropic/claude-sonnet-5)
 date: 2026-09-17
+fix_skips: 1
 ---
 
 # CapturedSchema interface and capturedSchemas() are byte-identical between non-literal-by-field-refusal.test.ts and discriminator-field-classifier-brace-group.test.ts, with loadRow() a near-identical third copy
@@ -167,3 +168,6 @@ not a design for the change.
 ## Triage
 <!-- triage appends here -->
 verdict: confirmed — independently re-verified: both excerpts reproduce at the cited lines and a diff of the two capturedSchemas bodies (non-literal-by-field-refusal.test.ts:204-211 vs discriminator-field-classifier-brace-group.test.ts:604-611) is byte-identical, as is the CapturedSchema interface; grep of function/interface definitions across src/ tests/ tools/ extensions/ returns exactly these two files and tests/helpers/ exports neither name; both locations are tests/ and the class is D7 boilerplate duplication with no gate/recording-double carve-out; no resolved or open PTQ names either file (sibling intake d7-02 covers the disjoint span/site/withCode block), and the same load-harness redeclaration class was confirmed and fixed in PTQ-0206/0207/0409. Two non-load-bearing inaccuracies noted: the docs/bugs search actually returns 1 hit (docs/bugs/0129…:1042 cites the brace-group copy at drifted lines :556–563 as evidence for a FIXED bug — a line citation, not a stated reason the copies must diverge, and no test merge/rename/delete is proposed), and only non-literal…:731 names the sibling, not both ways (triage: claude-fable-5-1)
+
+## Fix attempts
+- (wave unknown): skipped — (no fixer notes recorded)

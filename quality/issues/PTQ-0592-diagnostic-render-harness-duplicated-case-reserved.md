@@ -12,6 +12,7 @@ fix_scope: cross-module       # localized | module | cross-module - mechanical s
 wave: qw20260917154546
 reported_by: lens-d7-testquality (anthropic/claude-sonnet-5)
 date: 2026-09-17
+fix_skips: 1
 ---
 
 # The theta()/codesOf()/render()/range()/messageFor()/soleRange() diagnostic-rendering harness is redeclared byte-identical between fn-param-name-case.test.ts and fn-param-name-reserved-keyword.test.ts
@@ -135,3 +136,6 @@ files already import `parseDoc` beside; a `codesOf`/`render`/`range`/
 ## Triage
 <triage appends: verdict + one-line reason. Nothing above this line is edited.>
 verdict: confirmed — independently re-verified: sed-extracted `theta`/`codesOf`/`render`/`range`/`messageFor`/`soleRange` bodies (3/3/12/11/3/18 lines) diff byte-identical between tests/fn-param-name-case.test.ts:169-236 and tests/fn-param-name-reserved-keyword.test.ts:272-344 with identical `FM` literals at :169/:272, `^function soleRange` greps to exactly these 2 files, and neither file nor helper is named by any existing PTQ (the same-wave sibling d7-02-registry-load-and-msg covers the separate REGISTRY/msg block at :115-151/:214-255); D7 boilerplate-duplication class, no carve-out applies (not gate tests, no recording double, no test rename/merge, 0 coverage-matrix hits) — two nits noted for the record, neither refuting: the reserved file's cited range interposes a file-unique `severityFor` (:317-319) before `soleRange`, and the docs/bugs signature grep hits 1 file not 0 (docs/bugs/0153:596 row e14 lists the helper NAMES its assertion goes through, not this duplication; importing the same names leaves it intact) (triage: claude-fable-5-1)
+
+## Fix attempts
+- (wave unknown): skipped — (no fixer notes recorded)

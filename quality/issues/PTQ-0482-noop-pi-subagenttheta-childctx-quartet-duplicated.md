@@ -18,6 +18,7 @@ fix_scope: cross-module      # localized | module | cross-module - mechanical si
 wave: qw20260917154546
 reported_by: lens-d7-testquality (anthropic/claude-sonnet-5)
 date: 2026-09-17
+fix_skips: 1
 ---
 
 # subagent-root-drive-wiring.test.ts redeclares subagent-visible-regime.test.ts's noopPi/subagentTheta/childCtx/rootDouble harness quartet
@@ -183,3 +184,6 @@ natural home the two files' shared quartet already points toward.
 
 ## Triage
 verdict: confirmed — independently re-verified: all eight excerpts match at the cited lines; `noopPi` (60-62 vs 71-73) and `subagentTheta` (64-72 vs 100-108) are byte-identical, `childCtx`/`rootDouble` differ only by the `shutdown` param / optional `checkpoint` + `now` field, and git lineage (root-drive-wiring added 4866d4d2 2026-07-24, visible-regime added ef706748 2026-09-15) shows a copy-paste fixture in D7's class; neither file is a gate, in docs/reference/coverage-matrix.md, or in docs/bugs/, both suites pass (29/29), and no PTQ row cites either file — the same-wave sibling qw20260917154546-d7-149-03-visible-regime-producer-deps-harness-duplicated.md names the same root cause but was filed 3 min later (20:15 vs 20:12), so this is the earlier filing; note two FP-check inaccuracies that undercount rather than refute: tests/helpers/ does declare `noopPi` in call-with-clause-harness.ts:170, fixture-dispatch-harness.ts:158, parent-producer-harness.ts:58 (all differently shaped, none with `getAllTools`), and production-subagent-query-model.test.ts:64 and subagent-fn-child-launch.test.ts:107 carry byte-identical `noopPi` copies the filing called "differently-shaped" (triage: claude-fable-5-1)
+
+## Fix attempts
+- (wave unknown): skipped — (no fixer notes recorded)

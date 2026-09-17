@@ -12,6 +12,7 @@ fix_scope: localized          # localized | module | cross-module - mechanical s
 wave: qw20260917154546
 reported_by: lens-d7-testquality (anthropic/claude-sonnet-5)
 date: 2026-09-17
+fix_skips: 1
 ---
 
 # The range-formatting and whole-diagnostic-render helpers are near-identically repeated between two arity/annotation test files
@@ -74,3 +75,6 @@ Gate-pin: neither file matches `*gate*.test.ts` or the named gate-kin patterns. 
 
 ## Triage
 verdict: confirmed — independently re-verified: both excerpts match verbatim at the cited lines and the `at` bodies share the identical `l:c-l:c` format string (differing only in where the `undefined` arm lives), a D7 boilerplate duplication of the PTQ-0205 diagLines shape with no e2e-s1 export carrying the range; corrections on record: (a) the `render` pair does NOT "differ only in inlining" — arity emits `"sev code @range: msg"` strings, annotation emits `{severity,code,at,message}` objects, so the shared root cause is the `at` formatter both compose; (b) `sites: 2` undercounts — the same formatter recurs in ~37 tests/*.test.ts (31 declaring a local `at()`); (c) the FP-check's "no docs/bugs hits" claim is false (0131/0150/0138/0144/0233 name both files as witnesses) but the direction is helper extraction, not merge/rename/delete, so no carve-out triggers; not tracked by PTQ-0205/0228/0278 or this wave's sibling intakes (triage: claude-fable-5-1)
+
+## Fix attempts
+- (wave unknown): skipped — (no fixer notes recorded)

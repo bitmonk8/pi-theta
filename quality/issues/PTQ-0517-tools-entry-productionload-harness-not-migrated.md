@@ -14,6 +14,7 @@ fix_scope: module            # localized | module | cross-module - mechanical si
 wave: qw20260917154546
 reported_by: lens-d7-testquality (anthropic/claude-sonnet-5)
 date: 2026-09-17
+fix_skips: 1
 ---
 
 # tools-derived-name-shape/tools-entry-closed-grammar/tools-entry-containment each re-declare production-load-harness.ts's runProductionLoad and workspace plant/dispose
@@ -164,3 +165,6 @@ The three in-scope files each carry their own copy of a fake-host/discovery-work
 ## Triage
 <!-- triage appends: verdict + one-line reason. Nothing above this line is edited. -->
 verdict: confirmed — independently re-verified: the LoadOutcome/runProductionLoad blocks reproduce at tools-derived-name-shape:298-330 and tools-entry-closed-grammar:286-318 (diff of the two ranges is empty) and at tools-entry-containment:190-231 (same function body, interleaved lets), each beforeAll/afterAll repeats the mkdtemp→mkdir .pi/theta→write-loop→settings.json→rmSync lifecycle plantThetaWorkspace/disposeWorkspace export; grep confirms none of the three imports tests/helpers/production-load-harness (6 importers, none of them), the tests read only outcome.registered/outcome.notifications which the helper's LoadOutcome supplies with identical default pi/ctx behaviour, docs/reference/coverage-matrix.md has 0 hits and bug docs 0069/0070/0110 describe the temp-workspace witness shape (which the helper preserves) without pinning the local scaffolding; not a duplicate — PTQ-0210/0240/0259/0312/0358 and intake sibling d7-155-01 each cite different files for this copy-paste-fixture class (triage: claude-fable-5-1)
+
+## Fix attempts
+- (wave unknown): skipped — (no fixer notes recorded)

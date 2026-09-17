@@ -17,6 +17,7 @@ fix_scope: module
 wave: qw20260917154546
 reported_by: lens-d7-testquality (anthropic/claude-sonnet-5)
 date: 2026-09-17
+fix_skips: 1
 ---
 
 # tools-entry-grammar-derivations-lockstep and tools-entry-message-line-break each reimplement the plant/dispose/runProductionLoad harness tests/helpers/production-load-harness.ts already exports
@@ -189,3 +190,6 @@ helper's exported functions.
 
 ## Triage
 verdict: confirmed — independently re-verified: both runProductionLoad bodies reproduce at lockstep:503-524 and line-break:398-416 with the six-method pi literal byte-identical to each other and to tests/helpers/production-load-harness.ts:64-71, both beforeAll/afterAll pairs repeat the mkdtemp→mkdir .pi/theta→write-loop→settings.json "{}"→rmSync lifecycle that plantThetaWorkspace/disposeWorkspace export, and neither file imports the helper (grep: 6 importers, neither of these); git dates confirm both tests (2026-08-23, 77592027/99bcfa9f) predate the PTQ-0210 helper (2026-09-11, 2594cd44) and were never migrated; both green (30/30, 32/32) so no documented-red carve-out, not a gate file, docs/bugs 0105/0106/0107/0248/0250/0253/0267/0268/0271/0275 cite it()-cells and behavioural reds, never the local scaffolding, coverage-matrix 0 hits; one overstatement noted — the lockstep file's LoadOutcome ({registered sorted, codes, lines, raw}) is a post-processed shape over the stderr mirror, not "shaped exactly like" the helper's, so its fix keeps a thin local MIRRORED-parse wrapper over the helper's diagnosticLines rather than a pure import swap (the direction paragraph already allows for this); not a duplicate — PTQ-0210/0240/0259/0312/0358 and same-wave intake d7-01-tools-entry/d7-152-02/d7-156-01/d7-163-01 each cite different files for this copy-paste-fixture class (triage: claude-fable-5-1)
+
+## Fix attempts
+- (wave unknown): skipped — (no fixer notes recorded)

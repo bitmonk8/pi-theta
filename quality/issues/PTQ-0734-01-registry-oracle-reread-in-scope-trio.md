@@ -13,6 +13,7 @@ fix_scope: cross-module      # localized | module | cross-module - mechanical si
 wave: qw20260917154546
 reported_by: lens-d7-testquality (anthropic/claude-sonnet-5)
 date: 2026-09-17
+fix_skips: 1
 ---
 
 # All three in-scope files redeclare the RegistryRow/REGISTRY diagnostics-registry read that tests/helpers/registry-oracle.ts already exports
@@ -193,3 +194,6 @@ single-shard case) from `tests/helpers/registry-oracle.ts` and drop its local
 ## Triage
 <triage appends: verdict + one-line reason. Nothing above this line is edited.>
 verdict: confirmed — re-verified independently: all three RegistryRow/parseRegistry blocks reproduce verbatim at the cited lines (unresolved-annotation-lowering:172-201 and unterminated-literal-params-type-refusal:132-153 are the same four-shard readFileSync+join the helper's REGISTRY performs at registry-oracle.ts:31-49 bar `../` depth; unterminated-template-lexer-emission:72-87 is the parse-shard-only read readRegistry(["parse"]) covers), 0 `helpers/registry-oracle` imports in the three files vs 30 elsewhere in tests/, every code each file looks up (13 total, all on code-registry-parse.md, one also on load) is on a page the shared rows join and each local RegistryRow is a subset of the helper's, the helper header's "redeclared byte-for-byte … in several test files" rationale is real, docs/bugs 0028/0232/0246 and coverage-matrix greps return 0 as stated, no gate/recording-double carve-out applies (constants back registryMessage/.find lookups), and no existing PTQ (0215/0222/0237/0250/0260/0275/0311/0313/0327/0404/0411/0412 cite other file sets) or sibling intake (d7-161-02 cites the scripted complete() mock at :106-133; d7-03 an expectGroup harness) tracks these three files — same confirmed D7 copy-paste-fixture class as PTQ-0404/PTQ-0412 (triage: claude-fable-5-1)
+
+## Fix attempts
+- (wave unknown): skipped — (no fixer notes recorded)

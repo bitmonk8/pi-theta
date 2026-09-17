@@ -14,6 +14,7 @@ d4_class: clone
 wave: qw20260917154546
 reported_by: lens-d7-testquality (anthropic/claude-sonnet-5)
 date: 2026-09-17
+fix_skips: 1
 ---
 
 # params-default fixture-builder and diagnostic-reader quartet (src/paramsDoc/diagLines/diagCodes) re-declared identically across three test files
@@ -120,3 +121,6 @@ A shared `tests/helpers/params-default-fixture.ts` parameterised by the fixture'
 ## Triage
 <triage appends: verdict + one-line reason. Nothing above this line is edited.>
 verdict: confirmed — re-verified independently: all three excerpts reproduce verbatim at the cited lines (src/paramsDoc byte-identical bar the bug0175/0066/0166 filename literal; recordedDefault/loweredP byte-identical in trailing-residue :430-440 and unary-minus :301-311), the `^function paramsDoc(rhs: string)` shape is exactly these 3 files (sibling params-default-empty-literal/scalar-nontype declare differently-shaped paramsDoc/recordedDefault, so the 3-site count is accurate), all three files already import parseDoc from tests/helpers/e2e-s1 (:202/:7/:170), none is a gate/kin file, coverage-matrix.md has 0 hits and the bug docs (0066/0163/0165/0166/0175 among 14 hits, more than the candidate's 4) cite cells by label which a helper move leaves intact, vitest reproduces 3 files/210 passed green; no PTQ tracks the src/paramsDoc/recordedDefault/loweredP fixture block (PTQ-0227/0279 are other harnesses) — genuine D7 copy-paste fixture. Caveat for the fixer: the diagLines/diagCodes pair is a PTQ-0205 residual (tests/helpers/e2e-s1.ts:100-108 has exported both since 2594cd44) so those two are fixed by importing, not by a new module as the direction paragraph implies (triage: claude-fable-5-1)
+
+## Fix attempts
+- (wave unknown): skipped — (no fixer notes recorded)

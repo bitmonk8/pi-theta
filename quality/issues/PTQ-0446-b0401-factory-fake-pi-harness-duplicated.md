@@ -13,6 +13,7 @@ fix_scope: cross-module       # localized | module | cross-module - mechanical s
 wave: qw20260917154546
 reported_by: lens-d7-testquality (anthropic/claude-sonnet-5)
 date: 2026-09-17
+fix_skips: 1
 ---
 
 # b0401's makeFactoryHarness redeclares the fake-pi/subscription/fireSessionStart harness watcher-hot-reload-integration.test.ts and drain-gated-dispatch-integration.test.ts already carry
@@ -134,3 +135,6 @@ The `registerFlag`/`registerMessageRenderer`/`registerCommand`/`on`/`getFlag`/`g
 
 ## Triage
 verdict: confirmed — independently re-verified: b0401:288-322 and drain-gated:69-109 reproduce with the six-member fake-pi stub, ctx object and fire loop byte-identical (only sendMessage's recording shape differs), drain-gated's header (27-32, 62-66) really states it is "copied verbatim from tests/watcher-hot-reload-integration.test.ts … (its helpers are not exported)", and double-session-start:169-215 is near-identical (candidate slightly overstates it: its fire also takes a payload arg and its sendMessage drops details — still a copy); the only shared export, tests/helpers/watch-arming-harness.ts#makeHarness (PTQ-0363's extraction), returns just {pi, fireSessionStart} with a no-op sendMessage so cannot serve b0401's commands/notes capture; pattern is wider than filed (registerMessageRenderer stub → 54 tests/ files), coverage-matrix grep → 0 hits, docs/bugs grep actually hits 7 docs (not 0 as implied) but none is a left-red — all 3 files pass 18/18; no tracked PTQ cites any of the three files (PTQ-0363 is b0310/b0339 only); same-wave sibling d7-01-b0371-fake-pi-harness-duplicated (confirmed) also names drain-gated's copy, so the fix should be one shared extraction with it, not a duplicate under this store's per-copy-site convention (triage: claude-fable-5-1)
+
+## Fix attempts
+- (wave unknown): skipped — (no fixer notes recorded)

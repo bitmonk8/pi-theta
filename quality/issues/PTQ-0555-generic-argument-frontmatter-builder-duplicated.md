@@ -14,6 +14,7 @@ d4_class: clone
 wave: qw20260917154546
 reported_by: lens-d7-testquality (anthropic/claude-sonnet-5)
 date: 2026-09-17
+fix_skips: 1
 ---
 
 # Both generic-argument-* files redeclare the FM/theta()/paramsSrc() frontmatter-fixture builder found verbatim in six sibling files
@@ -123,3 +124,6 @@ natural home for `theta()`/`paramsSrc()` beside it.
 ## Triage
 <triage appends: verdict + one-line reason. Nothing above this line is edited.>
 verdict: confirmed — independently re-verified: `diff` of bracket-group-truncation:352-361 vs inline-field-key-rules:307-316 is empty (FM/theta()/paramsSrc() byte-identical); fixed-string grep finds the FM constant in 8 tests/*.test.ts and `function theta(stmt: string)` in the same 8 (7 with the identical `${FM}${stmt}\n` body, stray-close inlines the same fence), `^function paramsSrc(` in 24 files with the in-scope `mode: subagent … ${block} … 1` body exact in 4; no tests/helpers export theta/paramsSrc/FM (e2e-s1.ts:124 frontmatterOnlyDoc is the nearest sibling) and all three cited files already import parseDoc from e2e-s1; neither in-scope file is a gate, coverage-matrix 0 hits, only one bug-doc line pin below the harness block (0282 → bracket-group:877), both suites 19/19 green; minor over-claim noted (site-3 paramsSrc wraps `p: '${type}'`, not merely a renamed parameter) does not touch the root cause; not tracked by any PTQ (0205/0227/0214/0239/0405 cite other helpers), and same-wave intake siblings d7-02-inline-object-empty (Cell/expectGroup bundle, other files), d7-03 (theta(...lines) planted-fixture builder) and d7-70 (FM/TAIL/body, let-annotation pair) are distinct root causes — same confirmed D7 copy-paste-fixture class as PTQ-0205 (triage: claude-fable-5-1)
+
+## Fix attempts
+- (wave unknown): skipped — (no fixer notes recorded)

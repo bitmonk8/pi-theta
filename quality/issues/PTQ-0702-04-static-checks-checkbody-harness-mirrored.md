@@ -12,6 +12,7 @@ fix_scope: module
 wave: qw20260917154546
 reported_by: lens-d7-testquality (anthropic/claude-sonnet-5)
 date: 2026-09-17
+fix_skips: 1
 ---
 
 # session-control-static-checks.test.ts's EMPTY_GRAPH/noArityResolution/checkBody/bodyOf quartet is a byte-for-byte, self-declared mirror of call-with-clause-static-checks.test.ts's
@@ -129,3 +130,6 @@ names the file such a shared export would be lifted from.
 
 ## Triage
 verdict: confirmed — independently re-verified: all four declarations reproduce at session-control-static-checks:61-63/75-76/93-106 and call-with-clause-static-checks:57-59/61/63/65-81 (small drift past the cited 78), the declaration grep returns exactly one hit per name per file, and a whitespace-normalised scratch diff of the two checkBody bodies plus EMPTY_GRAPH/noArityResolution/bodyOf is empty apart from the parameter-list wrapping; both copies are live (checkBody called 10× / 8×), the newer file (27c267ed 2026-09-16) postdates the older (96303cc3 2026-09-09), and no tests/helpers/ module exports any of the four names (grep exit 1); no carve-out applies — neither is a *gate* file, checkBody is an inert driver not a recording double, both files' RED signatures sit in production code not this harness, coverage-matrix grep → 0 hits and no docs/bugs file names either test; not a duplicate — sibling intake d7-02 covers a different block (:160-191) and its triage note explicitly defers this quartet here, PTQ-0278/0364/0371/0372 cover other surfaces; two peripheral inaccuracies do not touch the anchor: the stated docs/bugs grep actually hits 12 files (all on the generic name checkInvokeStaticResolution, none naming these tests), and the header's "mirroring" credit is attached to mixedCallableSet() rather than the checkBody quartet; note for the fixer that the same deps literal (FakeFileSystem /home/u+/theta, activeRoots, two-key graph, noArityResolution) also recurs inline in call-with-clause-erratum-b.test.ts:77,89-93 and call-with-clause-failure-arms.test.ts:231,272-275, and bodyOf's ReturnType<typeof letCall> binds to a per-file letCall so a shared export needs a widened statement type (triage: claude-fable-5-1)
+
+## Fix attempts
+- (wave unknown): skipped — (no fixer notes recorded)

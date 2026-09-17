@@ -13,6 +13,7 @@ d4_class: parallel
 wave: qw20260917154546
 reported_by: lens-d7-testquality (anthropic/claude-sonnet-5)
 date: 2026-09-17
+fix_skips: 1
 ---
 
 # execution-status-parfor-lanes reproduces the makeDeps/parse/bodyOf/NOOP_CHECKPOINT/NoopMutator/ok par-for harness already flagged as duplicated, as an uncounted sixth site
@@ -77,3 +78,6 @@ Gate-pin check: `tests/execution-status-parfor-lanes.test.ts` does not match `*g
 ## Triage
 <triage appends: verdict + one-line reason. Nothing above this line is edited.>
 verdict: confirmed — independently re-verified: excerpt matches execution-status-parfor-lanes.test.ts:41-76 verbatim; whitespace/doc-comment-normalised diff against b0325's six declarations (actually 113-164 — the cited 113-148 sed range is short because b0325 interposes `tick` and doc lines, a range artefact not a content difference) differs only in two trailing commas, so makeDeps/parse/bodyOf/NOOP_CHECKPOINT/NoopMutator/ok is a byte-identical sixth copy; RecordingParForHost shares name and byte-identical checkpointFor, its #eval carries number/ident/array only (b0325 adds string/bool/null) and drops started/inFlight/peakInFlight/gate exactly as stated; header comment 31-38 names b0325 as its model; NOOP_CHECKPOINT/NoopMutator also re-type tests/helpers/invoke-seam-scaffold.ts:31,44's exported SEAM_NOOP_CHECKPOINT/SEAM_NOOP_MUTATOR; not a gate file, grep of the file name across docs/bugs and docs/reference/coverage-matrix.md → 0 hits, no it() merge/rename/delete proposed, recording double is a positive observable; not a duplicate of confirmed siblings d7-01 (b0324/b0325/b0326/par-for) or d7-09 (b0438) — this file is in neither site list and store precedent PTQ-0228/PTQ-0393 accepts an uncounted extra site of an already-filed harness as its own filing; no tracked PTQ on this harness; minor: stray d4_class field on a D7 filing (triage: claude-fable-5-1)
+
+## Fix attempts
+- (wave unknown): skipped — (no fixer notes recorded)

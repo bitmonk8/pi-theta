@@ -16,6 +16,7 @@ d4_class: clone
 wave: qw20260917154546
 reported_by: lens-d7-testquality (anthropic/claude-sonnet-5)
 date: 2026-09-17
+fix_skips: 1
 ---
 
 # Three fn/param/void-sink test files locally re-parse code-registry-parse.md instead of using tests/helpers/load-row-harness.ts's PARSE_REGISTRY / registryMessageOf
@@ -185,3 +186,6 @@ code, not to test coverage or to any cited assertion.
 
 ## Triage
 verdict: confirmed — independently re-verified: all three excerpts reproduce at the cited lines; `diff` of fn-param-not-identifier:203-239 vs fn-param-sink-array-literal:140-175 differs only in two doc-comment lines and the `fills = []` default, and the `readFileSync(fileURLToPath(new URL("../docs/spec_topics/diagnostics/code-registry-parse.md")))` read block is byte-identical across all three (fn-return-void-query-sink:112-119 differs only in the inline cast); `msg()`/`REGISTRY` are live in every file (calls at :318, 19 sites, :123); tests/helpers/load-row-harness.ts (added 2594cd44, 2026-09-11, 6 importers) exports PARSE_REGISTRY + registryMessageOf with the identical lookup-assert-fill body and its header names PTQ-0206/0207 as the redeclaration it centralises — all three test files (a63be7f5/5c700194/dc0b6911, 2026-08-21..22) predate it, so "two of three predate" understates; no `*gate*` match, no docs/bugs or coverage-matrix citation pins the REGISTRY/msg internals; none of these three files is cited by resolved PTQ-0215/0222/0237/0250/0260/0275/0311/0313/0404/0411 or any pending registry-oracle intake file, so not a duplicate (triage: claude-fable-5-1)
+
+## Fix attempts
+- (wave unknown): skipped — (no fixer notes recorded)

@@ -13,6 +13,7 @@ fix_scope: cross-module
 wave: qw20260917154546
 reported_by: lens-d7-testquality (anthropic/claude-sonnet-5)
 date: 2026-09-17
+fix_skips: 1
 ---
 
 # subagent-tool-admission.test.ts retypes the callableSetOf frozen-snapshot reader that two sibling production-load test files already carry
@@ -137,3 +138,6 @@ precondition-message wording is the part that would stay local.
 ## Triage
 <triage appends: verdict + one-line reason. Nothing above this line is edited.>
 verdict: confirmed — independently re-verified: all three excerpts reproduce verbatim at the cited lines and `grep -rn "function callableSetOf" tests/` yields exactly those three module-scope definitions (same find-by-slashName → `{ callableSet?: CallableSetSnapshot }` cast → two toBeDefined preconditions → return shape, differing only in the outcome local and message wording), each live (10/5/1 call sites); no tests/helpers/ module exports a snapshot reader (tool-call-dispatch-harness.ts only mentions CallableSetSnapshot as the `thetaWithSet` builder's parameter, so the candidate's "0 hits" is off by one but its conclusion stands); all locations in tests/, none a gate test or recording double, coverage-matrix cites none of the three files, and PTQ-0237/PTQ-0238 cover other sections of these files (registry oracle, span/objArg harness), not this reader — D7 boilerplate-duplication class, mechanical dedupe into a `callableSetOf(outcome, name)` helper (triage: claude-fable-5-1)
+
+## Fix attempts
+- (wave unknown): skipped — (no fixer notes recorded)

@@ -13,6 +13,7 @@ fix_scope: localized
 wave: qw20260917154546
 reported_by: lens-d7-testquality (anthropic/claude-sonnet-5)
 date: 2026-09-17
+fix_skips: 1
 ---
 
 # The fixture-builder and diagnostic-assertion harness is duplicated verbatim between the two inline-object test files
@@ -133,3 +134,6 @@ A `tests/helpers/` module exporting this shared `.theta`-fixture-and-diagnostic-
 ## Triage
 <!-- pending -->
 verdict: confirmed — independently re-verified: all three excerpts match at the cited lines; sed-extracted blocks diff shows every function/const body byte-identical (FM/TAIL/body/paramsSrc/annotSrc/invokeSrc/diagLines/lines/expectList/emptyCtx) with only the `lines()` default path, the `invokeSrc` doc-comment tail and the expectList "group (g)/(c)" doc letter differing (a minor over-claim on "identical doc comments" that does not touch the root cause); repo-wide grep undercounts rather than refutes — `^function paramsSrc(` in 12 tests/*.test.ts, `^function annotSrc(` in 9, `^function emptyCtx(): LowerCtx` and the FM/TAIL pair in 3 (+reserved-keyword-type-position); no tests/helpers export for lines/expectList/emptyCtx/annotSrc/invokeSrc/paramsSrc/FM/TAIL, both files already import parseDoc from e2e-s1; one accounting correction: `diagLines` IS now exported at tests/helpers/e2e-s1.ts:100 by PTQ-0205's fix, which cited these two files by line (249/332) yet 51 test files including both still redeclare it — that piece is a PTQ-0205 residual folded into this broader harness, not a separate root cause; neither file is a gate, coverage-matrix 0 hits, no docs/bugs line pin falls inside 221-266/282-284/301-353, both suites 95/95 green; same-wave sibling d7-70 (FM/TAIL/body triad over the let-annotation pair) overlaps on three declarations but names disjoint files and a narrower set — the fixer should route both to one shared home; same D7 copy-paste-fixture class as PTQ-0205/0227 (triage: claude-fable-5-1)
+
+## Fix attempts
+- (wave unknown): skipped — (no fixer notes recorded)

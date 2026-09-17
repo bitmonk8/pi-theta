@@ -12,6 +12,7 @@ fix_scope: localized
 wave: qw20260917154546
 reported_by: lens-d7-testquality (anthropic/claude-sonnet-5)
 date: 2026-09-17
+fix_skips: 1
 ---
 
 # nested-control-in-pure-position.test.ts's AST-builder-plus-producer harness is a byte-identical copy of production-core-exec.test.ts's, acknowledged as a mirror rather than a shared import
@@ -144,3 +145,6 @@ The natural home for the shared `span`/AST-node-builder set, the `NOOP_CHECKPOIN
 
 ## Triage
 verdict: confirmed — independently re-extracted and diffed all 19 named declarations across the two files: 17 are byte-identical (span through ctxDouble, promptTheta, runBody) and ProducerOpts/producer differ only by production-core-exec.test.ts's extra `parseCallee` field plus comments, exactly as the body states (the title's blanket "byte-identical" slightly overstates those two); the "mirroring tests/production-core-exec.test.ts" acknowledgement reproduces at line 33-34; the claim that tests/helpers/tool-call-dispatch-harness.ts is a distinct variant holds (its ProducerOpts takes hostLoopDispatch/dispatchLadderProbe/emitDiagnostic/subagentRootRegime, `body(tail)` only, AJV-backed rootDouble, `pi: {}`, runBody returns bare ThetaValue), so no existing helper is bypassed; both files 40/40 green, neither is a gate test, docs/bugs/0199+0293 name them as witnesses but no merge/rename/delete is proposed, coverage-matrix has no hits; not a duplicate — PTQ-0209/0238/0384/0397 consolidated disjoint file sets and the same-wave sibling d7-121-01 is a different pair (production-cancellation-wiring, AST-builder subset only), though a fixer should fold the two into one shared helper (triage: claude-fable-5-1)
+
+## Fix attempts
+- (wave unknown): skipped — (no fixer notes recorded)

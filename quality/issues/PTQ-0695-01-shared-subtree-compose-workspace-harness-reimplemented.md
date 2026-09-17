@@ -12,6 +12,7 @@ fix_scope: localized          # localized | module | cross-module - mechanical s
 wave: qw20260917154546
 reported_by: lens-d7-testquality (anthropic/claude-sonnet-5)
 date: 2026-09-17
+fix_skips: 1
 ---
 
 # tests/shared-subtree-judged-once-per-pass-not-once-per-path.test.ts re-declares tests/helpers/compose-workspace-harness.ts's makeHost/ComposeWorkspace/runLoadPass/noteDiagnostics family instead of importing it
@@ -192,3 +193,6 @@ already has a home in that module.
 ## Triage
 <!-- appended by triage; do not edit above this line -->
 verdict: confirmed — independently re-verified: zero imports of compose-workspace-harness in the file (grep exit 1) while 7 siblings incl. grandchild-callee-drop (runLoadPass as runLoadPassCore, lines 14-17) import it; export-stripped diff shows PiHandler/RecordedNote/HostDouble/makeHost identical apart from the snapshotReads/frozen-snapshot getAllTools counter, ComposeWorkspace/normalisePath and noteDiagnostics/allDiagnostics/describeNotes byte-identical, LoadPass/runLoadPass identical apart from elapsedMs/judgements, requireDriven differing only by the hardcoded "0276" the helper already parametrises as bugId, and normativeMessagePattern differing only by the REGISTRY argument the helper already takes; one correction — errorFilesOf is NOT identical (this file's copy de-duplicates via new Set with a stated multiplicity rationale at 547-562, so it stays a local variant), which trims the family but not the finding; coverage-matrix 0 hits and bug 0276 Status fixed reproduce; not a duplicate — PTQ-0213/0220/0221 name this file only inside their pattern-search enumerations, never as a cited location, and PTQ-0220's triage ruled such residuals distinct per-occurrence filings; sibling intake d7-108-02 is the disjoint registry-oracle REGISTRY read (triage: claude-fable-5-1)
+
+## Fix attempts
+- (wave unknown): skipped — (no fixer notes recorded)

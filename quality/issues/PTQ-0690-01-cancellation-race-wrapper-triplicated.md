@@ -14,6 +14,7 @@ d4_class: parallel
 wave: qw20260917154546
 reported_by: lens-d7-testquality (anthropic/claude-sonnet-5)
 date: 2026-09-17
+fix_skips: 1
 ---
 
 # The abort-race Promise wrapper (AbortController + guardToolExecutePromise + settledCount) is redeclared near-verbatim three times in session-control-adapters.test.ts
@@ -149,3 +150,6 @@ belongs in this file or in `tests/helpers/` is a decision for the fix stage.
 ## Triage
 <!-- appended by triage -->
 verdict: confirmed — independently re-verified: all three excerpts match tests/session-control-adapters.test.ts at exactly 222-241/257-276/300-319; scratch diff of 257-276 vs 300-319 is empty (byte-identical, 20 lines) and 222-241 differs only in the `.then` body and Promise generic; `new AbortController()` and `guardToolExecutePromise(` each grep to 3 hits in the file, one per it(); the other three guardToolExecutePromise-using tests (production-cancellation-wiring, tool-calls-off-surface-live-wiring, tool-calls-swallowing-handler) never wrap it in the resolve-on-either-event Promise race and no tests/helpers/ file touches cancellationSurfaced, so scope is truly intra-file; not a gate file, no docs/bugs or coverage-matrix citation, assertions themselves untouched (recording-double carve-out not implicated); sibling intake d7-01 targets the unhandledRejection trap at 192-202 — distinct root cause, no duplicate in the store. Boilerplate-duplication class, mechanical dedupe; stray `d4_class: parallel` field is extraneous on a D7 filing but non-blocking (triage: claude-fable-5-1)
+
+## Fix attempts
+- (wave unknown): skipped — (no fixer notes recorded)

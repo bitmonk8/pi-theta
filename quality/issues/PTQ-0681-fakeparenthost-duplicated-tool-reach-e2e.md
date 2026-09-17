@@ -12,6 +12,7 @@ fix_scope: cross-module       # localized | module | cross-module - mechanical s
 wave: qw20260917154546
 reported_by: lens-d7-testquality (anthropic/claude-sonnet-5)
 date: 2026-09-17
+fix_skips: 1
 ---
 
 # prompt-mode-extension-tool-reach-e2e.test.ts's FakeParentHost class is a near-byte-identical copy of subagent-fn-extension-tool-dispatch-e2e.test.ts's FakeParentHost
@@ -111,3 +112,6 @@ A shared `tests/helpers/` module exporting a `FakeParentHost`-shaped adapter aro
 
 ## Triage
 verdict: confirmed — independently re-verified: sed-extracted 113-line class bodies (tests/prompt-mode-extension-tool-reach-e2e.test.ts:83-195 vs tests/subagent-fn-extension-tool-dispatch-e2e.test.ts:87-193; the second range overshoots the class by 6 suite-prelude lines) diff to exactly the doc-comment line, the `getAllToolsCalls = 0` field and the counting wrapper around the same `getAllTools` literal — constructor, `pi` (12 members), `ctx`, `runCtx()` byte-identical; `FakeParentHost` greps to only these two files, the second's own section header says "mirrors prompt-mode-extension-tool-reach-e2e", both suites pass at HEAD (6/6), neither is a gate file, coverage-matrix has 0 hits, the docs/bugs hits (0183/0207/0215) cite header comments not the class, and no quality/issues or resolved PTQ tracks this pair (wave sibling d7-02 is the distinct resolvingHost double) — D7 copy-paste fixture/double, tests/-only, mechanical dedupe (triage: claude-fable-5-1)
+
+## Fix attempts
+- (wave unknown): skipped — (no fixer notes recorded)

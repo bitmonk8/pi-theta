@@ -14,6 +14,7 @@ fix_scope: cross-module       # localized | module | cross-module - mechanical s
 wave: qw20260917154546
 reported_by: lens-d7-testquality (anthropic/claude-sonnet-5)
 date: 2026-09-17
+fix_skips: 1
 ---
 
 # prompt-transport-mapping.test.ts's userMessage/assistantMessage pi-ai builders are redeclared byte-for-byte in tests/b0413-pic51b-non-error-terminators-witness.test.ts, which names the mirrored file in its own comment
@@ -126,3 +127,6 @@ A shared `tests/helpers/` module exporting `userMessage` (the byte-identical 3-l
 
 ## Triage
 verdict: confirmed — independently re-verified: all four excerpts reproduce (b0413's assistantMessage closes at :560 not :556, tolerated drift); `^function userMessage` greps to exactly the 4 cited files and no tests/helpers/ module exports a pi-ai Message builder; the prompt-transport-mapping:32-66 ↔ b0413:533-560 pair is token-identical after whitespace normalisation (the only raw diff is b0413 dropping the doc comment and joining the final ternary onto one line, so "byte-for-byte" is a slight overstatement, not a refutation), b0413's own header comment names the mirrored file, and the copy is live (5 call sites, :590-642) with both files green at HEAD (16/16); no gate/recording-double/bug-doc-red/coverage-matrix carve-out applies and no accepted PTQ tracks these builders (same-wave intake sibling d7-04 overlaps only on the 3-line userMessage in composition-producer/conversation-drive, a distinct primary root cause) — D7 copy-paste fixture, fix is a mechanical extract-and-import (triage: claude-fable-5-1)
+
+## Fix attempts
+- (wave unknown): skipped — (no fixer notes recorded)

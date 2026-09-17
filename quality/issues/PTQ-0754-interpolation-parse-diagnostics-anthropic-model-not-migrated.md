@@ -12,6 +12,7 @@ fix_scope: localized          # localized | module | cross-module - mechanical s
 wave: qw20260917154546
 reported_by: lens-d7-testquality (anthropic/claude-sonnet-5)
 date: 2026-09-17
+fix_skips: 1
 ---
 
 # interpolation-parse-diagnostics.test.ts redeclares the ANTHROPIC_MODEL fixture object instead of importing tests/helpers/scripted-live-session-harness.ts
@@ -111,3 +112,6 @@ existing, purpose-built home for this exact fixture object.
 ## Triage
 <triage appends: verdict + one-line reason. Nothing above this line is edited.>
 verdict: confirmed — independently reproduced: the local `ANTHROPIC_MODEL` at tests/interpolation-parse-diagnostics.test.ts:1018-1023 is field-for-field identical to the export at tests/helpers/scripted-live-session-harness.ts:42-47, the file imports nothing from that helper (only ./helpers/e2e-s1 and ./helpers/theta-corpus), its two use sites (registryDouble getAvailable at :1075, ctxLive model at :1082) are both `as unknown as` casts so the import is a drop-in, the file passes today (41/41), and the helper's header + git log (feefe7ca, PTQ-0328) confirm the migration covered only b0288/b0319/b0414, leaving this copy a genuine residual (the PTQ-0301 precedent); no D7 carve-out applies (not a gate test, plain data fixture not a recording double, no docs/bugs or coverage-matrix pin on the cited lines, no merge/rename proposed) and no existing/resolved row or same-wave sibling cites this file as a location (PTQ-0272 is a different model()/registryOf() pair) (triage: claude-fable-5-1)
+
+## Fix attempts
+- (wave unknown): skipped — (no fixer notes recorded)

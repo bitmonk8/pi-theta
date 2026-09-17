@@ -15,6 +15,7 @@ d4_class: clone
 wave: qw20260917154546
 reported_by: lens-d7-testquality (anthropic/claude-sonnet-5)
 date: 2026-09-17
+fix_skips: 1
 ---
 
 # uppercase-pi-tool-name-refusal.test.ts reimplements the shared production-load workspace plant/dispose + host double instead of importing tests/helpers/production-load-harness.ts
@@ -141,3 +142,6 @@ scenario needs.
 
 ## Triage
 verdict: confirmed — independently re-verified: all four excerpts reproduce at the cited lines; tests/uppercase-pi-tool-name-refusal.test.ts imports node:fs/discoverAndComposeFixtures directly and nothing from tests/helpers/production-load-harness (grep → 0 hits); the local `pi`/`ctx` double matches the helper's six members field-for-field with only `getAllTools` added (helper has no such option, 0 hits, so the dedupe is a mechanical ProductionLoadOptions widening the filing discloses), and the beforeAll/afterAll plant/dispose differs from plantThetaWorkspace/disposeWorkspace only by the hard-coded "{}" settings argument; not a gate file, positive (toContain) witness not a MUST-NOT double, bug-doc 0108 and coverage-matrix greps → 0 hits; PTQ-0210/0240/0259/0312/0358 each cite other files, none this one (triage: claude-fable-5-1)
+
+## Fix attempts
+- (wave unknown): skipped — (no fixer notes recorded)

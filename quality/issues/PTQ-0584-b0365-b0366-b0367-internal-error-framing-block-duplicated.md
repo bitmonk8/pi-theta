@@ -14,6 +14,7 @@ fix_scope: cross-module       # localized | module | cross-module - mechanical s
 wave: qw20260917154546
 reported_by: lens-d7-testquality (anthropic/claude-sonnet-5)
 date: 2026-09-17
+fix_skips: 1
 ---
 
 # The five-assertion "loud throw frames to internal-error" block is duplicated four times across b0365 (inline twice) and as byte-identical assertLoudThrow functions in b0366/b0367
@@ -97,3 +98,6 @@ The five-step "assert non-panic, frame through surfaceUnexpectedThrow, assert co
 
 ## Triage
 verdict: confirmed — all four excerpts reproduce verbatim at the cited lines; diff of b0366:269-295 vs b0367:285-311 yields exactly one differing line (the leak-description literal) and b0365's H3/PH3 blocks differ only by tag; tests/helpers/runtime-belt-probe-harness.ts exports only Probe/InterpProbe/InvokeProbe/assertValue/makeBeltProbes with zero INTERNAL_ERROR_CODE/surfaceUnexpectedThrow hits anywhere under tests/helpers/, so no shared framing helper exists; bugs 0365/0366/0367 fixed, 49/49 green, 0 coverage-matrix hits, no merge/rename/delete proposed; resolved PTQ-0376 (intra-b0369 delegation only) and PTQ-0397 (b0368/b0369 harness, explicitly excluding assertLoudThrow) and same-wave siblings d7-01/d7-02 (harness bundle, parseDeps) do not cite these sites — real, in-scope D7 boilerplate duplication (triage: claude-fable-5-1)
+
+## Fix attempts
+- (wave unknown): skipped — (no fixer notes recorded)

@@ -12,6 +12,7 @@ fix_scope: module            # localized | module | cross-module - mechanical si
 wave: qw20260917154546
 reported_by: lens-d7-testquality (anthropic/claude-sonnet-5)
 date: 2026-09-17
+fix_skips: 1
 ---
 
 # theta-callable-call-arity.test.ts re-derives runProductionLoad and the plant/dispose workspace lifecycle instead of importing tests/helpers/production-load-harness.ts
@@ -166,3 +167,6 @@ module's own header already points at for this sequence.
 ## Triage
 <!-- appended by triage; do not edit above this line -->
 verdict: confirmed — independently re-verified: both excerpts reproduce verbatim (tests/theta-callable-call-arity.test.ts:419-469; tests/helpers/production-load-harness.ts:27-100) and `grep production-load-harness` in the test file → 0 hits; the local block is the exact fake-host + mkdtemp/mkdir/write-loop/settings-write/rmSync sequence the helper's header names as its reason to exist, the helper covers every need the file reads (only `outcome.registered` ×34 and `outcome.notifications` ×27 are consumed, both in the helper's `LoadOutcome`; local `PlantedTheta {stem,text}` is assignable to `PlantedThetaFile`; the `"theta-bug0071-"` prefix and `"{}"` settings map to `plantThetaWorkspace`'s `dirPrefix`/`settingsJson`), the test file predates the helper (f8364db1 2026-08-03 vs 2594cd44 2026-09-11) so it is an un-migrated redeclaration not a design choice, no D7 carve-out applies (not a gate test, no it()/describe() touched, absent from coverage-matrix, bug 0071 doc gives no file-local rationale), and no existing PTQ (0210/0240/0259/0312/0358 each cite disjoint files) or sibling intake candidate names this file for this root cause — mechanical dedupe with the same shape already ratified in PTQ-0240/0259/0358 (triage: claude-fable-5-1)
+
+## Fix attempts
+- (wave unknown): skipped — (no fixer notes recorded)

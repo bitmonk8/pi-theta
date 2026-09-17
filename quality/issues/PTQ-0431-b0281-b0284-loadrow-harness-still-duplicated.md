@@ -13,6 +13,7 @@ fix_scope: cross-module       # localized | module | cross-module - mechanical s
 wave: qw20260917154546
 reported_by: lens-d7-testquality (anthropic/claude-sonnet-5)
 date: 2026-09-17
+fix_skips: 1
 ---
 
 # b0281 and b0284 each redeclare the RegistryRow/msg/line/LoadRow/registered/expectCaptured harness that tests/helpers/load-row-harness.ts already exports
@@ -297,3 +298,6 @@ of the identical local declarations these two files still carry.
 ## Triage
 <triage appends: verdict + one-line reason. Nothing above this line is edited.>
 verdict: confirmed — independently re-verified: LoadRow/registered/startPositions/expectCaptured/expectRows/paramsTheta are byte-identical between b0281 (~199-330) and b0284 (~208-322) and match tests/helpers/load-row-harness.ts:99-191 modulo `export`/param name/expectDeclared delegation; `row` differs from `loadRow` only in the fixture-path literal the helper parameterises, b0281's `msg` is `registryMessageOf` with REGISTRY/REGISTRY_PATH closed over, and b0284's two-page `msg` is exactly the per-file registry/path case the harness header says its arguments exist for; neither file imports the harness (6 importers: b0046/b0272/b0273/b0274/b0277/b0282); the expectCaptured grep returns 4 files not 3 (b0278 also unclaimed) but that does not touch the claim; 31/31 pass, coverage-matrix 0 hits, bug 0282's witness cites `it()` blocks by name and no test is merged/renamed/deleted, both bug docs fixed; not a duplicate — PTQ-0206/0219/0228/0409 name b0281/b0284 only in pattern-wide searches and fixed b0274/b0277, b0282, b0273, b0046 respectively, leaving these two unmigrated (triage: claude-fable-5-1)
+
+## Fix attempts
+- (wave unknown): skipped — (no fixer notes recorded)

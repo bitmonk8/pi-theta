@@ -13,6 +13,7 @@ fix_scope: cross-module      # localized | module | cross-module - mechanical si
 wave: qw20260917154546
 reported_by: lens-d7-testquality (anthropic/claude-sonnet-5)
 date: 2026-09-17
+fix_skips: 1
 ---
 
 # b0451 redeclares the fake-pi makeHarness/makeTheta harness that drain-gated-dispatch-integration.test.ts already declares
@@ -153,3 +154,6 @@ redeclare.
 
 ## Triage
 verdict: confirmed — independently re-verified: b0451:113-201 and drain-gated:67-141 reproduce, makeTheta diffs empty (byte-identical) and the six-member pi stub head (registerFlag…getCommands) diffs empty, drain-gated's header (27-32, 62-66) really states "copied verbatim from tests/watcher-hot-reload-integration.test.ts … (its helpers are not exported)" and b0451's header + both doc comments really state "copied from tests/drain-gated-dispatch-integration.test.ts"; watcher-hot-reload:72-104 is the diverged origin (cwd param, getCommandsThrows toggle, fireSessionShutdown — range under-cites, function runs to ~137, tolerated); no file imports another (each imports only ./helpers/fake-clock); candidate's "shared base is missing" is imprecise — tests/helpers/watch-arming-harness.ts#makeHarness (PTQ-0363) carries the same skeleton but returns only {pi, fireSessionStart} with a no-op sendMessage over real composition, so it cannot serve b0451's commands/noteAttempts/notified/diagnostics capture and the gap is real; no gate files, bug 0451 is fixed (0.449.0) and all 3 files pass 13/13 (no left-red), coverage-matrix grep → 0, bug docs cite the files as witnesses but no merge/rename/delete is proposed; not a duplicate — PTQ-0363 is b0310/b0339 only and same-wave siblings d7-01-b0371/d7-01-b0401 (confirmed) cite drain-gated's copy but not b0451 or watcher-hot-reload, so under the per-copy-site convention this filing owns those sites (fixer should share one extraction with them); form note: the two makeHarness excerpts run 22-25 lines (>15), tolerated (triage: claude-fable-5-1)
+
+## Fix attempts
+- (wave unknown): skipped — (no fixer notes recorded)

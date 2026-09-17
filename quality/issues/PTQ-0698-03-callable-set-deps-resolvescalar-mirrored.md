@@ -12,6 +12,7 @@ fix_scope: module
 wave: qw20260917154546
 reported_by: lens-d7-testquality (anthropic/claude-sonnet-5)
 date: 2026-09-17
+fix_skips: 1
 ---
 
 # session-control-callable-set.test.ts's deps()/resolveScalar() are a byte-for-byte, self-declared mirror of tests/callable-set.test.ts's, not imported
@@ -112,3 +113,6 @@ names the file such a shared export would be lifted from.
 
 ## Triage
 verdict: confirmed — independently re-verified: both excerpts reproduce at the cited lines (session-control-callable-set.test.ts:103-124, callable-set.test.ts:54-76); resolveScalar is byte-identical and deps() differs only by the inline `{ kind: "pi-tool", toolDefinition: { name } }` vs `piTool(name)` line the body already concedes; neither file imports the pair, no tests/helpers/ module exports it, coverage-matrix grep returns no hits, neither is a gate/recording-double/correct-reason red (both pass at HEAD, 40/40); one stated search is inaccurate — the docs/bugs grep does return 3 files (0072/0107/0270), but all are fixed bugs naming the CallableSetDeps type, not this harness, so the conclusion stands; sites undercounts the family: the same deps(opts?) body is byte-identical in tests/tools-derived-name-shape.test.ts:504-520 and tests/uppercase-pi-tool-name-refusal.test.ts:517-533, which pending sibling intake qw20260917154546-d7-163-02 cites without session-control — fold the two at acceptance (triage: claude-fable-5-1)
+
+## Fix attempts
+- (wave unknown): skipped — (no fixer notes recorded)

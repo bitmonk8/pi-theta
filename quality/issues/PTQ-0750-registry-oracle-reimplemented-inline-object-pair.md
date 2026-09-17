@@ -13,6 +13,7 @@ fix_scope: localized
 wave: qw20260917154546
 reported_by: lens-d7-testquality (anthropic/claude-sonnet-5)
 date: 2026-09-17
+fix_skips: 1
 ---
 
 # Both inline-object test files re-declare the four-page registry read instead of importing tests/helpers/registry-oracle.ts
@@ -102,3 +103,6 @@ The two files in scope duplicate, verbatim, a 20-line block that a canonical hel
 ## Triage
 <!-- pending -->
 verdict: confirmed — independently re-verified: both excerpts reproduce byte-for-byte at tests/inline-empty-object-type.test.ts:121-140 and tests/inline-object-duplicate-field-name.test.ts:151-170 (identical `interface RegistryRow {code,message}` + four-page `parseRegistry(...readFileSync...).join("\n")` read); tests/helpers/registry-oracle.ts:20-46 exports the same read as `REGISTRY`/`readRegistry` with a header naming this exact redeclaration as its reason for existing; `grep -l 'from "./helpers/registry-oracle"' tests/*.test.ts` = 30 and neither in-scope file imports it (grep -n registry-oracle on both = 0 hits); D7 copy-paste-fixture class, both locations under tests/, no gate file, no docs/bugs or coverage-matrix citation of lines 121-140/151-170; not a duplicate — no open/resolved PTQ names either file for this root cause (PTQ-0205 cites :249/:332, the local message-rendering helper the oracle header deliberately leaves local; PTQ-0404/0411/0412 cover other file sets and were accepted as distinct per-file-set rows), and sibling candidate d7-66 covers the fixture builder at :221-266/:301-353 only (triage: claude-fable-5-1)
+
+## Fix attempts
+- (wave unknown): skipped — (no fixer notes recorded)

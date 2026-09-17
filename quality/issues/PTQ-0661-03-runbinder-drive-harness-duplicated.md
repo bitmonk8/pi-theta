@@ -13,6 +13,7 @@ d4_class: clone
 wave: qw20260917154546
 reported_by: lens-d7-testquality (anthropic/claude-sonnet-5)
 date: 2026-09-17
+fix_skips: 1
 ---
 
 # Runtime-tier runBinder drive harness (rootDouble/producerWithCapture/driveIfRegistered) re-declared near-verbatim across two test files
@@ -131,3 +132,6 @@ A shared helper (e.g. alongside `tests/helpers/production-load-harness.ts`, whic
 ## Triage
 <triage appends: verdict + one-line reason. Nothing above this line is edited.>
 verdict: confirmed — independently re-verified: a line-range diff of tests/params-default-trailing-residue-refusal.test.ts:856-1073 (218 lines) against tests/params-default-unary-minus-non-numeric-refusal.test.ts:814-1030 (217 lines) shows every harness function (parseDepsForDrive, realAjvValidator, rootDouble, producerWithCapture, scriptOkEnvelopeOmittingDefault, driveIfRegistered, CapturedNote/DriveOutcome) byte-identical except the per-file DRIVE_BODY/BOUND_ROWS/NUMERIC_FENCE data, four comment lines and the one `JSON.stringify` vs `String` render call; `function driveIfRegistered` / `scriptOkEnvelopeOmittingDefault` grep to exactly these two files and no tests/helpers/ module exports them; both files pass at HEAD (174/174) so no correct-reason-red carve-out, neither is a gate test, the recording doubles are used for positive assertions and are not what is challenged, and docs/bugs/0066·0165·0166·0175·0239 cite these files by cell label only (no merge/rename/delete proposed); in-scope D7 boilerplate-duplication, distinct root cause from resolved PTQ-0209 (minimal NOOP_CHECKPOINT/rootDouble/producer trio), PTQ-0384 and PTQ-0397 (other file pairs) — the stray `d4_class: clone` field is harmless template noise (triage: claude-fable-5-1)
+
+## Fix attempts
+- (wave unknown): skipped — (no fixer notes recorded)

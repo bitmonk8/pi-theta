@@ -13,6 +13,7 @@ fix_scope: cross-module
 wave: qw20260917154546
 reported_by: lens-d7-testquality (anthropic/claude-sonnet-5)
 date: 2026-09-17
+fix_skips: 1
 ---
 
 # A SpyCompensator RollbackCompensator recording double is redeclared byte-for-byte across three test files
@@ -94,3 +95,6 @@ A `tests/helpers/` module exporting a `SpyCompensator` (or extending the existin
 ## Triage
 <!-- appended by triage -->
 verdict: confirmed — independently re-verified: all three `class SpyCompensator implements RollbackCompensator` declarations reproduce at the cited lines (query-tool-loop's closing brace is at 155, one-line drift), `diff` of the extracted bodies shows copy 1 ≡ copy 3 byte-for-byte and copy 2 identical modulo blank lines, `grep` over tests/ yields exactly these 3 class sites (no-rollback.test.ts:99 is an inline literal), every copy is live (`new SpyCompensator()` in each file), no tests/helpers/ module (40 present) exports a compensator double, none of the files is a gate/live test or cited by docs/bugs or coverage-matrix.md, and `SpyCompensator` appears in no resolved/open PTQ — the in-wave RecordingCheckpoint sibling cites a distinct double; a clean copy-paste-double D7 filing whose fix is a mechanical extraction (triage: claude-fable-5-1)
+
+## Fix attempts
+- (wave unknown): skipped — (no fixer notes recorded)

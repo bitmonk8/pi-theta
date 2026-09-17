@@ -15,6 +15,7 @@ fix_scope: cross-module
 wave: qw20260917154546
 reported_by: lens-d7-testquality (anthropic/claude-sonnet-5)
 date: 2026-09-17
+fix_skips: 1
 ---
 
 # invoke-return-enum-carrier-projection.test.ts re-derives e2e-s1's parseDeps and call-with-clause-harness's NOOP_CHECKPOINT/rootDouble instead of importing them
@@ -177,3 +178,6 @@ established for the rest of the suite.
 ## Triage
 <!-- appended by triage -->
 verdict: confirmed — all five excerpts verified verbatim at the cited lines (parseDeps :153-163, NOOP_CHECKPOINT :183-187, rootDouble :245-251; e2e-s1.ts :37-46 with inertSystemNote :27-30 / resolvingMatcher :33-35; call-with-clause-harness.ts :152-168); the local parseDeps is field-for-field identical to e2e-s1's export (helper 2026-07-13 predates the test 2026-08-16), the NOOP_CHECKPOINT is byte-identical and rootDouble matches over checkpoint/idSource, the file imports nothing from tests/helpers/, and call-with-clause-harness.ts is the ratified home — PTQ-0209's fix (2594cd44) migrated array-sink-unresolvable-deferral.test.ts to exactly the `rootDouble`/`parseDoc` imports proposed here; in-scope D7 copy-paste-fixture class confined to tests/, not a gate test, not a recording double, bug 0174 fixed with 16/16 green at HEAD, coverage-matrix 0 hits, and no dedupe (PTQ-0209/0214/0314/0386/0405 cite other files under the established per-file convention; same-wave siblings d7-01-b0314, d7-02-b0342 and d7-01-wire-form-metric target other files, the last citing this file only as context). Peripheral inaccuracies that do not touch the anchor: call-with-clause-harness.ts's NOOP_CHECKPOINT is module-private (tests/helpers/tool-call-dispatch-harness.ts:81 exports one, and its :93 rootDouble already carries a real-AJV schemaValidator); docs/bugs/ mentions this file in 12 docs not 1; the intake-overlap grep does hit the wire-form-metric sibling (triage: claude-fable-5-1)
+
+## Fix attempts
+- (wave unknown): skipped — (no fixer notes recorded)

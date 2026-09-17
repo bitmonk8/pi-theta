@@ -13,6 +13,7 @@ fix_scope: cross-module       # localized | module | cross-module - mechanical s
 wave: qw20260917154546
 reported_by: lens-d7-testquality (anthropic/claude-sonnet-5)
 date: 2026-09-17
+fix_skips: 1
 ---
 
 # settings-merge.test.ts's HOME/CWD/PROJECT_PATH/GLOBAL_PATH/FileSpec/build/byCode harness is mirrored (per its own sibling's comment) rather than shared
@@ -161,3 +162,6 @@ harness is missing, not a design for one.
 ## Triage
 <!-- appended by triage; do not edit above this line -->
 verdict: confirmed — independently re-verified: all three excerpts reproduce verbatim at the cited lines, the "Mirrors … exactly" self-attribution is real at execution-status-settings-progress.test.ts:8-9, `PROJECT_PATH = "/project/.pi/settings.json"` greps to exactly these 3 files, no tests/helpers/ module exports the settings-path constants / a FileSpec-over-FakeFileSystem builder / a Diagnostic-typed byCode (package-merge-e2e-harness.ts's export is typed over CapturedNote), none of the three is a gate test or cited by coverage-matrix.md or docs/bugs/, and no tracked PTQ covers the loadSettings FakeFileSystem harness (0206/0219/0228/0409 are loadRow, 0310/0393 are FakeThetaLibFs, intake d7-02 is b0463's byCode vs a different helper); two corrections for the fixer: the stated byCode search actually returns 10 tests/*.test.ts files (byCode is a repo-wide generic, not harness-specific — sharing it here fixes 3 of 10), and tests/e2e-s5-disc-cli-settings.test.ts:29-34 carries a fourth copy of the same HOME/CWD/resolved-path pair under the names PROJECT_SETTINGS/GLOBAL_SETTINGS that the name-anchored grep missed (triage: claude-fable-5-1)
+
+## Fix attempts
+- (wave unknown): skipped — (no fixer notes recorded)

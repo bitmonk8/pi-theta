@@ -12,6 +12,7 @@ fix_scope: module             # localized | module | cross-module - mechanical s
 wave: qw20260917154546
 reported_by: lens-d7-testquality (anthropic/claude-sonnet-5)
 date: 2026-09-17
+fix_skips: 1
 ---
 
 # missing-object-key-rendering.test.ts's parseDeps/parseTheta/NOOP_CHECKPOINT/rootDouble/producer harness is a verbatim, self-acknowledged copy of non-object-receiver-gate.test.ts's block
@@ -194,3 +195,6 @@ from which the first was drawn.
 ## Triage
 <triage appends: verdict + one-line reason. Nothing above this line is edited.>
 verdict: confirmed — independently re-verified: parseDeps (:170-180 vs :188-198) and the NOOP_CHECKPOINT/rootDouble/producer block (:201-225 vs :222-246) diff byte-identical, parseTheta differs only by the inlined parseOnly call, the stated definition grep reproduces exactly once per piece in each file, neither file imports from the other or from tests/helpers/, bugs 0036/0027 are both fixed with 44/44 green at HEAD, coverage-matrix has 0 hits, and non-object-receiver-gate.test.ts's `gate` filename names bug 0027's receiver gate (no pinned count on the cited lines; same-wave d7-01/d7-02 against that file already confirmed) so no carve-out binds; not a duplicate — PTQ-0209 (fixed) cites four other files, and same-wave d7-01 (:229-246 → runtime-belt-probe-harness) / d7-02 (:188-198 → scripted-live-session-harness) cover only the non-object-receiver-gate side, never missing-object-key-rendering.test.ts, and the ledger treats per-file instances as distinct (PTQ-0314/0386/0384/0397); two evidentiary claims are false and should be corrected at ticketing — tests/helpers/e2e-s1.ts:38 (and scripted-live-session-harness.ts:92) already exports a value-for-value identical parseDeps and tool-call-dispatch-harness.ts:81-93 exports NOOP_CHECKPOINT/rootDouble, contradicting "no tests/helpers/ module exports this", and `grep -rl "parseDeps\|rootDouble" docs/bugs/*.md` returns 22 hits, not 0 (none in 0036/0027, none mandating a local harness) — both strengthen rather than defeat the import-instead-of-copy case; fixer note: docs/bugs/0037 cites missing-object-key-rendering.test.ts:322/:334-348/:418 by line, so the dedupe shifts cited lines (harmless, as in prior PTQ-0209 fixes) (triage: claude-fable-5-1)
+
+## Fix attempts
+- (wave unknown): skipped — (no fixer notes recorded)

@@ -20,6 +20,7 @@ fix_scope: cross-module
 wave: qw20260917154546
 reported_by: lens-d7-testquality (anthropic/claude-sonnet-5)
 date: 2026-09-17
+fix_skips: 1
 ---
 
 # binder-post-merge-ajv-enforcement.test.ts retypes the e2e-s5-binder-echo-emission CapturedNote/parseDeps/parse/rootDouble/producerWithCapture/ctxDouble/noteChannelEntries sextet
@@ -267,3 +268,6 @@ repeated.
 
 ## Triage
 verdict: confirmed — independently re-verified: all ten excerpts match byte-for-byte at the cited lines; the stated grep reproduces (14 hits, one declaration per name per file); e2e-s5 is the origin (added d23c22be 2026-07-13, binder-post-merge copy 94e81974 2026-08-08) and the host's own section header names it ("Harness (the bug-0011 / e2e-s5 production-producer pattern)"); parseDeps/ctxDouble/noteChannelEntries byte-identical, rootDouble/producerWithCapture/CapturedNote identical-plus-one-field, parse differs only in path literal/assertion phrasing; no tests/helpers module exports the AJV+clock-backed producerWithCapture/CapturedNote/noteChannelEntries set (same-named e2e-s1 parseDeps and tool-call-dispatch rootDouble/ctxDouble exist with different bodies — strengthens, not refutes); both files pass at HEAD (10/10); no gate/recording-double/witness-list carve-out applies (no merge/rename/delete proposed); no open/resolved PTQ tracks this lineage (PTQ-0209/0384/0397 are different harness families) — note same-wave intake siblings d7-02 b0381/b0397-9/b0401, d7-08 binder-forced-tool-dispatch and d7-116-03 cite the same e2e-s5 origin against other files and should be consolidated into one helper at fix time (triage: claude-fable-5-1)
+
+## Fix attempts
+- (wave unknown): skipped — (no fixer notes recorded)

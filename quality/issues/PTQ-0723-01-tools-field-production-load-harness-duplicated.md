@@ -13,6 +13,7 @@ fix_scope: module            # localized | module | cross-module - mechanical si
 wave: qw20260917154546
 reported_by: lens-d7-testquality (anthropic/claude-sonnet-5)
 date: 2026-09-17
+fix_skips: 1
 ---
 
 # tools-field-shape-refusal and tools-field-zero-entry-scalar-refusal reimplement the canonical production-load harness instead of importing it
@@ -185,3 +186,6 @@ helper's own header already points at.
 
 ## Triage
 verdict: confirmed — independently re-verified: both files declare a private `LoadOutcome` (666-671 / 654-659) and a byte-identical `runProductionLoad` (705-726 / 680-701) plus the same inline mkdtemp/mkdir/writeFileSync/settings.json/rmSync plant-dispose loop (729-748 / 703-723), differing only in the `theta-bug0104-`/`theta-bug0206-` prefix and comment text; neither imports tests/helpers/production-load-harness.ts (grep: 0 hits), whose exported `LoadOutcome` is a strict superset of the only two fields the tests read (`registered` ×12, `notifications` ×13) and whose `plantThetaWorkspace`/`disposeWorkspace` cover the inline lifecycle; both files were added 2026-08-20/21 and were never migrated by the PTQ-0210/0240/0259/0312/0358 consolidations, none of which cite either file (not a duplicate); neither is a gate test, neither appears in docs/reference/coverage-matrix.md, and bugs 0104/0206 are both `Status: fixed` — D7 copy-paste-double class with a mechanical dedupe (triage: claude-fable-5-1)
+
+## Fix attempts
+- (wave unknown): skipped — (no fixer notes recorded)

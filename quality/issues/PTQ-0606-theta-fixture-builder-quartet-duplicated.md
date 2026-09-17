@@ -14,6 +14,7 @@ fix_scope: cross-module
 wave: qw20260917154546
 reported_by: lens-d7-testquality (anthropic/claude-sonnet-5)
 date: 2026-09-17
+fix_skips: 1
 ---
 
 # The theta()/invokeCaller()/callableCaller() planted-fixture builder trio is redeclared byte-for-byte across four production-load test files
@@ -87,3 +88,6 @@ A shared `theta(...lines)` / `invokeCaller(...body)` / `callableCaller(entry, ..
 ## Triage
 <!-- appended by triage -->
 verdict: confirmed — independently re-verified: all four excerpts match at the cited lines; sed-extracted `theta`+`invokeCaller` bodies diff byte-identical across all four files and `callableCaller` byte-identical across the two in-scope files (arg-mismatch-diagnostic-count-by-surface's array-taking variant correctly excluded as diverged); `grep -rl "^function invokeCaller" tests/*.test.ts` → exactly these 4; no `tests/helpers/` module exports any of the three builders (production-load-harness.ts exports only runProductionLoad/plantThetaWorkspace/disposeWorkspace); all four import discoverAndComposeFixtures/ThetaFixture as claimed; none is a *gate* test, none is cited by docs/reference/coverage-matrix.md or docs/bugs/; no prior PTQ row cites these builders (PTQ-0207's `theta(label, body)` is a different LoadRow-parsing shape; PTQ-0210/0240/0259/0312 and in-wave d7-106-01 cite the disjoint runProductionLoad/plant-dispose blocks) — a mechanical D7 boilerplate-duplication dedupe (triage: claude-fable-5-1)
+
+## Fix attempts
+- (wave unknown): skipped — (no fixer notes recorded)

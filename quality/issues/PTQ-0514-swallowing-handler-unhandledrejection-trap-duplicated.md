@@ -16,6 +16,7 @@ fix_scope: cross-module
 wave: qw20260917154546
 reported_by: lens-d7-testquality (anthropic/claude-sonnet-5)
 date: 2026-09-17
+fix_skips: 1
 ---
 
 # The unhandledRejection-trap-plus-settleAndObserve harness is redeclared byte-for-byte in five swallowing-handler/cancellation test files, including the in-scope invoke-swallowing-handler.test.ts
@@ -213,3 +214,6 @@ natural home six independent copies already point toward.
 ## Triage
 <!-- appended by triage -->
 verdict: confirmed — independently re-verified: all six excerpts reproduce at the cited lines (invoke-swallowing-handler:67-95, query-swallowing-handler:71-99 and tool-calls-swallowing-handler:71-99 byte-identical incl. both doc comments; cancellation-core:332-359 and production-cancellation-wiring:279-299 identical modulo comments; session-control-adapters:192-202 the trap-only four-piece subset), `grep -rln 'process.on("unhandledRejection"' tests/` → exactly these 6 files and `grep -rl settleAndObserve tests/` → the 5 minus session-control-adapters, no tests/helpers/ module exports either piece (nearest is fixture-dispatch-harness.ts:181 `tick`, a single setTimeout(0) with different shape); D7 boilerplate-duplication class, all locations under tests/, no gate file, the recording double itself is not challenged, bug docs 0012/0319 name two files as witness suites but no merge/rename/delete is proposed, coverage-matrix 0 hits; not tracked elsewhere (PTQ-0388 is the b0312/b0339 `settle(cond)` poll loop; the four sibling intake candidates in this wave cite different harnesses) — fix is a mechanical hoist to a tests/helpers module (triage: claude-fable-5-1)
+
+## Fix attempts
+- (wave unknown): skipped — (no fixer notes recorded)

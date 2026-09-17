@@ -13,6 +13,7 @@ fix_scope: localized           # localized | module | cross-module - mechanical 
 wave: qw20260917154546
 reported_by: lens-d7-testquality (anthropic/claude-sonnet-5)
 date: 2026-09-17
+fix_skips: 1
 ---
 
 # modulo-zero-result-type-number.test.ts hand-rolls runProductionLoad plus the plant/dispose workspace lifecycle instead of importing tests/helpers/production-load-harness.ts
@@ -204,3 +205,6 @@ existing helper module already points at.
 ## Triage
 <triage appends: verdict + one-line reason. Nothing above this line is edited.>
 verdict: confirmed — independently re-verified: all excerpts reproduce verbatim at the cited lines (test.ts:1793-1843, 1858-1870; harness.ts:26-137); `grep production-load-harness\|runProductionLoad` in the file yields only the local decl (:1802) and its one call (:1865); sed-extracted local body diffs against the helper only in the opts parameterisation (getFlag/getCommands/getAvailable, whose `undefined`/`[]`/`[]` defaults equal the local hardcodes) plus the helper's extra `fixtures` field, so it is a strict subset with a mechanical import-swap fix; plant/dispose block matches plantThetaWorkspace/disposeWorkspace shape exactly; not a gate test, 0 hits in coverage-matrix.md, docs/bugs hits (0183/0207) are fixed docstring items, 42/42 vitest green; NOT a duplicate: resolved PTQ-0210 rostered this file as site 5 but its fix commit 2594cd44 touched only arg-mismatch-diagnostic-count-by-surface (git show --stat), the sole quality commit since on this file (9ba6d1c3) was the theta-corpus swap, and PTQ-0312's claim that PTQ-0210 migrated all five is refuted at HEAD — nothing open tracks this residual, matching the confirmed PTQ-0240/0259/0358 pattern for un-migrated runProductionLoad copies; in-wave d7-03 siblings cite disjoint blocks (:1850-1856 suffix guard, :1750-1762 builders) (triage: claude-fable-5-1)
+
+## Fix attempts
+- (wave unknown): skipped — (no fixer notes recorded)

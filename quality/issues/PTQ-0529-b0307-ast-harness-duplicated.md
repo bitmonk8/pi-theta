@@ -12,6 +12,7 @@ fix_scope: module            # localized | module | cross-module - mechanical si
 wave: qw20260917154546
 reported_by: lens-d7-testquality (anthropic/claude-sonnet-5)
 date: 2026-09-17
+fix_skips: 1
 ---
 
 # b0307-empty-template-parity and b0307-value-position-query-err-binds redeclare the same nine AST/executor-harness helpers byte-identically
@@ -211,3 +212,6 @@ named files; noted for a routing follow-up, not filed as coverage.
 
 ## Triage
 verdict: confirmed — independently re-verified: all excerpts match at the cited lines with zero drift; `diff <(sed -n 110,127p …parity) <(sed -n 129,146p …err-binds)` is empty and the 98-127 vs 115-146 block differs only by two doc-comment lines, the six AST builders (span/stringExpr/identExpr/matchExpr/letStmt/body) are byte-identical bodies, and the 10-declaration grep returns 10/10 per file (title's "nine" is a miscount — 10 are enumerated; non-blocking); in-scope D7 boilerplate/copy-paste-fixture class under tests/, `.calls` is never read so no negative-witness carve-out applies. Two FP-check claims corrected on record without changing the verdict: docs/bugs/0307-…md:181,186 DOES name both files in its witness list (candidate said no hits) but the carve-out protects only merge/rename/delete and helper extraction proposes neither; and tests/helpers/tool-call-dispatch-harness.ts:51-58,81-85 already exports a byte-identical `span()`, `NOOP_CHECKPOINT` and `strExpr` (candidate's `ls | grep ast|expr|stmt` was too narrow), which strengthens the duplication anchor. Not a duplicate: no accepted PTQ cites these two files (PTQ-0278/PTQ-0257 are other files); same-wave intake siblings d7-02-b0387 and d7-140-04 add disjoint sites and reference this filing as the base (triage: claude-fable-5-1)
+
+## Fix attempts
+- (wave unknown): skipped — (no fixer notes recorded)

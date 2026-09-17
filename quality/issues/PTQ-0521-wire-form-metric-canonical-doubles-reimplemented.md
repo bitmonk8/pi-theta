@@ -13,6 +13,7 @@ fix_scope: cross-module      # localized | module | cross-module - mechanical si
 wave: qw20260917154546
 reported_by: lens-d7-testquality (anthropic/claude-sonnet-5)
 date: 2026-09-17
+fix_skips: 1
 ---
 
 # invoke-depth-wire-form-metric.test.ts re-derives parseDeps/parseTheta/NOOP_CHECKPOINT/realAjvValidator/rootDouble/ctxDouble instead of importing the canonical helpers
@@ -153,3 +154,6 @@ Importing `parseDeps`/`parseDoc` from `tests/helpers/e2e-s1.ts` and `NOOP_CHECKP
 ## Triage
 <triage appends: verdict + one-line reason. Nothing above this line is edited.>
 verdict: confirmed — all three excerpts reproduce verbatim at the cited lines (parseDeps :209-219, parseTheta :228-239, sextet :241-273; e2e-s1.ts:38-46; call-with-clause-harness.ts:152-168); the local parseDeps is value-for-value identical to e2e-s1.ts's exported parseDeps (same three no-ops + always-"resolved" matcher), parseTheta is parseDoc plus a loud-fail over what e2e-s1 already exports as errors()/diagLines(), NOOP_CHECKPOINT is byte-identical to call-with-clause-harness.ts's and to the exported one at tool-call-dispatch-harness.ts:81, rootDouble matches the exported call-with-clause-harness.ts:158 on every shared field; the file imports nothing from tests/helpers/ although e2e-s1.ts (2026-07-13) and call-with-clause-harness.ts (2026-08-19) both predate it (2026-09-09); bug 0202 is Status fixed and the file is 22/22 green at HEAD, not a *gate* file, coverage-matrix 0 hits, and no PTQ or intake sibling covers this file (d7-02-invoke-return-enum-projection targets the other file — the established per-file convention of PTQ-0214/0239/0314/0386/0405). Three peripheral evidentiary claims are wrong but do not touch the anchor: the stated searches return 68 test files for `^function parseDeps(): ParseThetaDocumentDeps` and ~85 for `^const NOOP_CHECKPOINT: Checkpoint` (not 2 and 3 — the counts were shard-scoped); NOOP_CHECKPOINT is NOT exported from call-with-clause-harness.ts (only rootDouble is; the exported const lives in tool-call-dispatch-harness.ts); and the sibling's rootDouble takes a `schemaValidator` parameter where this file's hardwires realAjvValidator(), so five of the six items are byte-identical, not six (triage: claude-fable-5-1)
+
+## Fix attempts
+- (wave unknown): skipped — (no fixer notes recorded)

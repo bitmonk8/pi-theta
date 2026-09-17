@@ -14,6 +14,7 @@ fix_scope: module            # localized | module | cross-module - mechanical si
 wave: qw20260917154546
 reported_by: lens-d7-testquality (anthropic/claude-sonnet-5)
 date: 2026-09-17
+fix_skips: 1
 ---
 
 # b0278 and b0279 redefine the LoadRow/msg/line/registered/expectCaptured/expectRows harness that tests/helpers/load-row-harness.ts already centralises, and a sibling in the same review scope (b0277) already imports instead
@@ -191,3 +192,6 @@ itself needed re-deriving.
 
 ## Triage
 verdict: confirmed — independently re-verified: every excerpt matches at the cited lines (b0278:129-155/197-296, b0279:166-186/234-337, load-row-harness.ts:34-193); RegistryRow/REGISTRY_PATH/REGISTRY/msg/line/LoadRow/FRONTMATTER/registered are logic-identical to the helper's exports, b0278's theta = loadRowFromBody + ALL_ROWS.push (and its startPositions is byte-identical too), b0279's expectCaptured/expectRows are the helper's base plus an exact statements count, an extents stage and a registered===false stage (the helper already exports expectDeclared for such wrapping); neither file imports ./helpers/load-row-harness while 6 siblings do; vitest 35/35 green across b0277/b0278/b0279, coverage-matrix grep 0 hits, no gate/recording-double carve-out; not a duplicate — PTQ-0206 listed b0278 only in its pattern grep and cited b0274/b0277 as targets, b0279 was never listed, and PTQ-0219/0228/0409 ratify per-file residual filings (triage: claude-fable-5-1)
+
+## Fix attempts
+- (wave unknown): skipped — (no fixer notes recorded)

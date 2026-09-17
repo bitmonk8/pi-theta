@@ -12,6 +12,7 @@ fix_scope: cross-module       # localized | module | cross-module - mechanical s
 wave: qw20260917154546
 reported_by: lens-d7-testquality (anthropic/claude-sonnet-5)
 date: 2026-09-17
+fix_skips: 1
 ---
 
 # shadowed-callable-call.test.ts's rootDouble/ctxDouble/producer/recordingPiTool/snapshot/thetaWithSet/bind block is a near-byte-identical copy of tool-arg-shape-enforcement.test.ts's
@@ -167,3 +168,6 @@ observation that one is missing, not a design for it.
 ## Triage
 <!-- appended by triage; do not edit above this line -->
 verdict: confirmed — independently diffed shadowed-callable-call.test.ts:471-545 against tool-arg-shape-enforcement.test.ts:397-401+557-616: byte-identical except the bug0016/bug0003 slug pair and bind's optional paramBindings; bug 0016 doc line 129 carries the quoted "producer-level pattern" admission; both bug docs fixed, coverage-matrix 0 hits, neither file a gate, no tracked PTQ names either file and repo precedent (PTQ-0238/0384/0397) treats a pair-specific multi-function harness as distinct from PTQ-0209's bare trio — in-scope D7 copy-paste fixture; two evidentiary claims must be corrected before ticketing: the "returns these two files only" search is false (only recordingPiTool and bind are unique; rootDouble/ctxDouble/producer/snapshot/thetaWithSet/NOOP_CHECKPOINT recur in ~90 test files), and "no tests/helpers/ module exports this family" is false — tests/helpers/tool-call-dispatch-harness.ts (PTQ-0238's fix, commit 11820751, imported by 4 sibling files) already exports NOOP_CHECKPOINT/rootDouble/ctxDouble/producer/snapshot/thetaWithSet plus a recording builtinEntry, which strengthens the consolidation case since a working helper is being bypassed (triage: claude-fable-5-1)
+
+## Fix attempts
+- (wave unknown): skipped — (no fixer notes recorded)
