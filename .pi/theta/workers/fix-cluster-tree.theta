@@ -81,9 +81,27 @@ while attempt < 2 && !done {
   // is bounded at 2, so a ternary spells it (the same idiom the notes below use).
   let att = attempt == 1 ? "1" : "2"
   let _ = theta_progress({ message: "attempt " + att + ": fixing " + key, scope: key, done: attempt, total: 2 })?
-  let fr = match fix_cluster(man, guidance, gate_cmd) {
+  let fr_result = fix_cluster(man, guidance, gate_cmd)
+  // A failed fixer INVOKE aborts the whole lane — no gate, no review, no second
+  // attempt. The Err says nothing about the tree: a heartbeat-silence /
+  // channel-close settle abandons a child that is often STILL RUNNING (observed
+  // live 2026-09-17: the reviewer watched "code changing under its feet" while
+  // an orphaned fixer kept editing; a second orphan ground for an hour in a
+  // discarded tree). Gating a moving tree measures nothing and a review over it
+  // can confirm a state the orphan immediately invalidates. The lane sheds; the
+  // issues stay open; the next wave retries in a fresh tree. Parent-side kill
+  // semantics are bug 0484.
+  let fixer_err = match fr_result {
+    Ok(f) => "",
+    Err(e) => e.kind,
+  }
+  if fixer_err != "" {
+    let _ = theta_progress({ message: "fixer invoke FAILED (" + fixer_err + ") - lane aborted: " + key, scope: key, done: attempt, total: 2 })?
+    return TreeFixReport { ok: false, sha: "", fixed_confirmed: [], notes: "fixer invoke failed (" + fixer_err + ") on attempt " + att + "; lane aborted without gate or review - the tree state is unknown and the abandoned fixer child may still be editing it (orphan; bug 0484). Trail: " + trail, fixer_notes: "" }
+  }
+  let fr = match fr_result {
     Ok(f) => f,
-    Err(e) => FixReport { fixed: [], skipped: [], notes: "fix worker failed: " + e.kind },
+    Err(e) => FixReport { fixed: [], skipped: [], notes: "unreachable: fixer_err aborted above" },
   }
   let _ = theta_progress({ message: "gating " + key, scope: key, done: attempt, total: 2 })?
   // The gate is bounded (the orchestrator passes a test-runner-width-capped
