@@ -12,6 +12,9 @@
 // message string) across those files; each file's own fixture-planting body,
 // its top-level stem list, and its own `notes` array stay local.
 //
+// Also provides the session-free `composeThetaFixture` dispatch scaffold for
+// active-invocation and cancellation wiring tests (PTQ-0403).
+//
 // TIER: unit, offline, deterministic, provider-free — the same tier as every
 // file that imports this module.
 
@@ -22,6 +25,11 @@ import type {
   ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
 import type { ThetaFixture } from "../../src/extension/factory";
+import type { ThetaCompositionInput } from "../../src/extension/theta-composition-producer";
+import type { ParsedFrontmatter } from "../../src/parser/frontmatter";
+import type { ThetaBody } from "../../src/parser/theta-document";
+import type { RuntimeRoot } from "../../src/runtime-root";
+import type { Checkpoint, CheckpointKind, CheckpointSite } from "../../src/seams/checkpoint";
 
 /** One recorded `pi.sendMessage` batch — a `theta-system-note` entry, or off-channel. */
 export interface RecordedMessage {
@@ -133,3 +141,42 @@ export function disposeWorkspace(dir: string | undefined): void {
     rmSync(dir, { recursive: true, force: true });
   }
 }
+
+export class PassthroughCheckpoint implements Checkpoint {
+  before(_kind: CheckpointKind, _site: CheckpointSite): Promise<void> {
+    return Promise.resolve();
+  }
+}
+
+export function rootWith(checkpoint: Checkpoint): RuntimeRoot {
+  return {
+    checkpoint,
+    idSource: { newInvocationId: () => "inv-1", newToolCallId: () => "tc-1" },
+  } as unknown as RuntimeRoot;
+}
+
+export function noopPi(): ExtensionAPI {
+  return { sendMessage: (): void => {} } as unknown as ExtensionAPI;
+}
+
+export function promptTheta(): ThetaCompositionInput {
+  const frontmatter: ParsedFrontmatter = { mode: "prompt" } as ParsedFrontmatter;
+  return {
+    slashName: "demo",
+    sourcePath: "/theta/demo.theta",
+    frontmatter,
+    body: { statements: [], tail: null } as unknown as ThetaBody,
+  };
+}
+
+/** The dispatch ctx the drive seam threads: `signal: undefined` is the
+ *  documented idle-entry the cancel-forwarding tolerates, and the `fail`-outcome
+ *  surface never touches `sessionManager`. */
+export function driveCtx(): ExtensionCommandContext {
+  return { signal: undefined, cwd: "/tmp" } as unknown as ExtensionCommandContext;
+}
+
+/** Flush pending microtasks/macrotasks so `run` reaches the parked binder or
+ *  body await before the registry is sampled. */
+export const tick = (): Promise<void> =>
+  new Promise<void>((resolve) => setTimeout(resolve, 0));

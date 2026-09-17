@@ -2,11 +2,17 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 // @ts-expect-error — JS code-registry module, no type declarations.
-import { parseRegistry, registryMessage } from "../tools/code-registry/index.js";
+import { parseRegistry } from "../tools/code-registry/index.js";
 import { checkDiscriminatedUnion, type UnionVariantSchema } from "../src/parser/schema-declarations";
 import type { Diagnostic, SourceRange } from "../src/diagnostics/diagnostic";
-import type { ThetaDocument } from "../src/parser/theta-document";
-import { parseDoc } from "./helpers/e2e-s1";
+import {
+  loadRow,
+  registered,
+  expectDeclared as expectDeclaredRows,
+  expectRows,
+  registryMessageOf,
+  type LoadRow,
+} from "./helpers/load-row-harness";
 
 // Bug 0046 — two reachable `by <field>` inputs load with ZERO diagnostics
 // (docs/bugs/0046-by-clause-undecided-inputs-load-silently.md):
@@ -147,20 +153,7 @@ const UNRESOLVED = "theta/parse/unresolved-named-type";
  * registry page rather than by a bare `undefined` comparison downstream.
  */
 function msg(code: string, fills: ReadonlyArray<readonly [string, string]> = []): string {
-  const template = registryMessage(REGISTRY, code) as string | undefined;
-  expect(
-    template,
-    `DIAG-4 anchor: ${REGISTRY_PATH} must carry the Message row for ${code}`,
-  ).toBeDefined();
-  let out = template as string;
-  for (const [placeholder, value] of fills) {
-    expect(
-      out,
-      `DIAG-4: the ${code} Message template must carry the ${placeholder} placeholder; template=${JSON.stringify(template)}`,
-    ).toContain(placeholder);
-    out = out.replace(placeholder, value);
-  }
-  return out;
+  return registryMessageOf(REGISTRY, REGISTRY_PATH, code, fills);
 }
 
 /** One rendered diagnostic line, `<severity> <code>: <message>` — the bug document's own rendering. */
@@ -185,50 +178,17 @@ function byOnObjectLine(): string {
 // The load harness.
 // ===========================================================================
 
-/** One parsed row: its codes, its rendered lines, and the declarations it captured. */
-interface LoadRow {
-  readonly label: string;
-  readonly codes: readonly string[];
-  readonly lines: readonly string[];
-  readonly declared: readonly string[];
-  readonly doc: ThetaDocument;
-}
-
-function rowOf(label: string, doc: ThetaDocument): LoadRow {
-  return {
-    label,
-    codes: doc.diagnostics.map((d: Diagnostic) => d.code),
-    lines: doc.diagnostics.map((d: Diagnostic) => `${d.severity} ${d.code}: ${d.message}`),
-    declared: doc.body.statements
-      .filter((s) => s.kind === "schema" || s.kind === "enum")
-      .map((s) => (s as { name: string }).name),
-    doc,
-  };
-}
-
 /**
  * A `mode: prompt` theta whose body is `decls` followed by the tail the bug
  * document's §Reproduction uses, so no row leaks a residue statement.
  */
 function theta(label: string, decls: string): LoadRow {
-  return rowOf(label, parseDoc(`---\nmode: prompt\n---\n${decls}\nlet a = 1\na\n`, "b0046.theta"));
+  return loadRow(label, `---\nmode: prompt\n---\n${decls}\nlet a = 1\na\n`, "b0046.theta");
 }
 
 /** The `.thetalib` spelling: declarations alone, no frontmatter and no trailing `let`. */
 function thetalib(label: string, decls: string): LoadRow {
-  return rowOf(label, parseDoc(`${decls}\n`, "b0046.thetalib"));
-}
-
-/**
- * The composition root's registration gate, mirrored: `hasLoadParseError`
- * (`src/extension/production-composition.ts`) is
- * `diagnostics.some(d => d.severity === "error" && (d.code.startsWith("theta/load/") ||
- * d.code.startsWith("theta/parse/")))`, and a document carrying one is not
- * registered. Every fixture's refusal code below is `theta/parse/…`, so the
- * code-prefix half of the real predicate is always satisfied here.
- */
-function registered(row: LoadRow): boolean {
-  return !row.doc.diagnostics.some((d: Diagnostic) => d.severity === "error");
+  return loadRow(label, `${decls}\n`, "b0046.thetalib");
 }
 
 /**
@@ -238,32 +198,10 @@ function registered(row: LoadRow): boolean {
  * capture is asserted separately — this is the precondition, failing loudly.
  */
 function expectDeclared(rows: readonly LoadRow[], names: readonly string[]): void {
-  const mismatched = rows
-    .filter((r) => JSON.stringify(r.declared) !== JSON.stringify(names))
-    .map((r) => [r.label, r.declared]);
-  expect(
-    mismatched,
+  expectDeclaredRows(
+    rows,
+    names,
     `precondition: every fixture must capture exactly the declarations ${JSON.stringify(names)}; a row listed here lost a declaration upstream of the by-clause checkers, so its diagnostic list says nothing about this bug`,
-  ).toEqual([]);
-}
-
-/**
- * Assert the ordered code list, THEN the ordered rendered-message list. The
- * message side is a thunk so the registry read happens only after the code
- * assertion has passed: a missing emission must red as a missing diagnostic,
- * not as the absent registry row (which group (R) owns).
- */
-function expectRows(
-  rows: readonly LoadRow[],
-  expected: readonly (readonly string[])[],
-  expectedLines: () => readonly (readonly string[])[],
-): void {
-  expect(rows.map((r) => [r.label, r.codes])).toEqual(
-    rows.map((r, i) => [r.label, expected[i]]),
-  );
-  const wanted = expectedLines();
-  expect(rows.map((r) => [r.label, r.lines])).toEqual(
-    rows.map((r, i) => [r.label, wanted[i]]),
   );
 }
 

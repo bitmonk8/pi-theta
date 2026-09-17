@@ -23,11 +23,7 @@
 // class instance whose remaining methods must keep their original `this`.
 
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type {
-  ExtensionAPI,
-  ExtensionCommandContext,
-  ModelRegistry,
-} from "@earendil-works/pi-coding-agent";
+import type { ModelRegistry } from "@earendil-works/pi-coding-agent";
 
 // The DRIVE seam's body call is the "did the theta run?" observable; parking it
 // is not needed here (the binder is the parked step), but it must be observable
@@ -54,7 +50,6 @@ import { composeThetaFixture } from "../src/extension/theta-composition-producer
 import type {
   BinderRunInput,
   BinderRunResult,
-  ThetaCompositionInput,
   ThetaProducerDeps,
 } from "../src/extension/theta-composition-producer";
 import { ActiveInvocationRegistry } from "../src/runtime/active-invocation-registry";
@@ -67,51 +62,14 @@ import {
 import { ThetaRegistry } from "../src/extension/reload-wiring";
 import { SESSION_SHUTDOWN_REASON_SNAPSHOT } from "../src/extension/version-bump-gates";
 import { FakeClock } from "./helpers/fake-clock";
-import type { RuntimeRoot } from "../src/runtime-root";
-import type { Checkpoint, CheckpointKind, CheckpointSite } from "../src/seams/checkpoint";
-import type { ThetaBody } from "../src/parser/theta-document";
-import type { ParsedFrontmatter } from "../src/parser/frontmatter";
-
-// --- dispatch-side scaffolding (mirrors active-invocation-wiring) ------------
-
-class PassthroughCheckpoint implements Checkpoint {
-  before(_kind: CheckpointKind, _site: CheckpointSite): Promise<void> {
-    return Promise.resolve();
-  }
-}
-
-function rootWith(checkpoint: Checkpoint): RuntimeRoot {
-  return {
-    checkpoint,
-    idSource: { newInvocationId: () => "inv-1", newToolCallId: () => "tc-1" },
-  } as unknown as RuntimeRoot;
-}
-
-function noopPi(): ExtensionAPI {
-  return { sendMessage: (): void => {} } as unknown as ExtensionAPI;
-}
-
-function promptTheta(): ThetaCompositionInput {
-  const frontmatter: ParsedFrontmatter = { mode: "prompt" } as ParsedFrontmatter;
-  return {
-    slashName: "demo",
-    sourcePath: "/theta/demo.theta",
-    frontmatter,
-    body: { statements: [], tail: null } as unknown as ThetaBody,
-  };
-}
-
-/** The dispatch ctx the drive seam threads: `signal: undefined` is the
- *  documented idle-entry the cancel-forwarding tolerates, and the `fail`-outcome
- *  surface never touches `sessionManager`. */
-function driveCtx(): ExtensionCommandContext {
-  return { signal: undefined, cwd: "/tmp" } as unknown as ExtensionCommandContext;
-}
-
-/** Flush pending microtasks/macrotasks so `run` reaches the parked binder await
- *  before the registry is sampled. */
-const tick = (): Promise<void> =>
-  new Promise<void>((resolve) => setTimeout(resolve, 0));
+import {
+  PassthroughCheckpoint,
+  rootWith,
+  noopPi,
+  promptTheta,
+  driveCtx,
+  tick,
+} from "./helpers/fixture-dispatch-harness";
 
 interface ParkedDispatch {
   readonly registry: ActiveInvocationRegistry;

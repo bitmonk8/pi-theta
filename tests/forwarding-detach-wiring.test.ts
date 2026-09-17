@@ -24,7 +24,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type {
   ExtensionAPI,
-  ExtensionCommandContext,
   ExtensionContext,
   ModelRegistry,
   SessionShutdownEvent,
@@ -55,7 +54,6 @@ vi.mock("../src/runtime/statement-executor", async (importOriginal) => {
 
 import { createProductionProducerDeps } from "../src/extension/production-theta-producer";
 import { composeThetaFixture } from "../src/extension/theta-composition-producer";
-import type { ThetaCompositionInput } from "../src/extension/theta-composition-producer";
 import type { BodyExecution } from "../src/runtime/statement-executor";
 import {
   createThetaExtension,
@@ -74,53 +72,14 @@ import {
 } from "../src/runtime/cancellation-core";
 import { FakeClock } from "./helpers/fake-clock";
 import type { Clock } from "../src/seams/clock";
-import type { RuntimeRoot } from "../src/runtime-root";
-import type { Checkpoint, CheckpointKind, CheckpointSite } from "../src/seams/checkpoint";
-import type { ThetaBody } from "../src/parser/theta-document";
-import type { ParsedFrontmatter } from "../src/parser/frontmatter";
-
-// --- producer-level scaffolding (mirrors active-invocation-wiring) -----------
-
-class RecordingCheckpoint implements Checkpoint {
-  before(_kind: CheckpointKind, _site: CheckpointSite): Promise<void> {
-    return Promise.resolve();
-  }
-}
-
-function rootWith(checkpoint: Checkpoint): RuntimeRoot {
-  return {
-    checkpoint,
-    idSource: { newInvocationId: () => "inv-1", newToolCallId: () => "tc-1" },
-  } as unknown as RuntimeRoot;
-}
-
-function noopPi(): ExtensionAPI {
-  return { sendMessage: (): void => {} } as unknown as ExtensionAPI;
-}
-
-function emptyBody(): ThetaBody {
-  return { statements: [], tail: null } as unknown as ThetaBody;
-}
-
-function promptTheta(): ThetaCompositionInput {
-  const frontmatter: ParsedFrontmatter = { mode: "prompt" } as ParsedFrontmatter;
-  return {
-    slashName: "demo",
-    sourcePath: "/theta/demo.theta",
-    frontmatter,
-    body: emptyBody(),
-  };
-}
-
-/** A prompt dispatch ctx the DRIVE seam threads. `signal: undefined` is the
- *  documented idle-entry the cancel-forwarding tolerates (the bind still pushes
- *  its invocation-scoped `ctx.signal` source, with a no-op detach). */
-function driveCtx(): ExtensionCommandContext {
-  return { signal: undefined, cwd: "/tmp" } as unknown as ExtensionCommandContext;
-}
-
-const tick = (): Promise<void> =>
-  new Promise<void>((resolve) => setTimeout(resolve, 0));
+import {
+  PassthroughCheckpoint,
+  rootWith,
+  noopPi,
+  promptTheta,
+  driveCtx,
+  tick,
+} from "./helpers/fixture-dispatch-harness";
 
 afterEach(() => {
   executorHook.impl = undefined;
@@ -285,7 +244,7 @@ describe("Increment B2 — a normal settle removes the sources (no accumulation)
     const forwardingSignals: ForwardingSignalSource[] = [];
     const deps = createProductionProducerDeps({
       pi: noopPi(),
-      root: rootWith(new RecordingCheckpoint()),
+      root: rootWith(new PassthroughCheckpoint()),
       modelRegistry: {} as unknown as ModelRegistry,
       activeInvocations: new ActiveInvocationRegistry(),
       forwardingSignals,

@@ -161,13 +161,19 @@ export function expectCaptured(rows: readonly LoadRow[], names: readonly string[
     empty,
     "precondition: every fixture must parse to at least one body statement; a row listed here lost its body upstream of the type walk, so its diagnostic list says nothing about this bug",
   ).toEqual([]);
+  expectDeclared(rows, names);
+}
+
+/** Assert the exact declaration names, retaining a caller's failure context. */
+export function expectDeclared(
+  rows: readonly LoadRow[],
+  names: readonly string[],
+  message = `precondition: every fixture must capture exactly the declarations ${JSON.stringify(names)}`,
+): void {
   const mismatched = rows
     .filter((r) => JSON.stringify(r.declared) !== JSON.stringify(names))
     .map((r) => [r.label, r.declared]);
-  expect(
-    mismatched,
-    `precondition: every fixture must capture exactly the declarations ${JSON.stringify(names)}`,
-  ).toEqual([]);
+  expect(mismatched, message).toEqual([]);
 }
 
 /**

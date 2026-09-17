@@ -30,7 +30,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type {
   ExtensionAPI,
-  ExtensionCommandContext,
   ExtensionContext,
   ModelRegistry,
   SessionShutdownEvent,
@@ -68,10 +67,6 @@ import {
 import {
   composeThetaFixture,
 } from "../src/extension/theta-composition-producer";
-import type {
-  ConversationBindInput,
-  ThetaCompositionInput,
-} from "../src/extension/theta-composition-producer";
 import type { BodyExecution } from "../src/runtime/statement-executor";
 import {
   createThetaExtension,
@@ -90,58 +85,14 @@ import {
 import { SHUTDOWN_AWAIT_CAP_MS } from "../src/extension/capability-probe";
 import { FakeClock } from "./helpers/fake-clock";
 import type { Clock } from "../src/seams/clock";
-import type { RuntimeRoot } from "../src/runtime-root";
-import type { Checkpoint, CheckpointKind, CheckpointSite } from "../src/seams/checkpoint";
-import type { ThetaBody } from "../src/parser/theta-document";
-import type { ParsedFrontmatter } from "../src/parser/frontmatter";
-
-// --- producer-level scaffolding (mirrors production-cancellation-wiring) -----
-
-class RecordingCheckpoint implements Checkpoint {
-  before(_kind: CheckpointKind, _site: CheckpointSite): Promise<void> {
-    return Promise.resolve();
-  }
-}
-
-function rootWith(checkpoint: Checkpoint): RuntimeRoot {
-  return {
-    checkpoint,
-    idSource: { newInvocationId: () => "inv-1", newToolCallId: () => "tc-1" },
-  } as unknown as RuntimeRoot;
-}
-
-function noopPi(): ExtensionAPI {
-  return { sendMessage: (): void => {} } as unknown as ExtensionAPI;
-}
-
-function emptyBody(): ThetaBody {
-  return { statements: [], tail: null } as unknown as ThetaBody;
-}
-
-function promptTheta(): ThetaCompositionInput {
-  const frontmatter: ParsedFrontmatter = { mode: "prompt" } as ParsedFrontmatter;
-  return {
-    slashName: "demo",
-    sourcePath: "/theta/demo.theta",
-    frontmatter,
-    body: emptyBody(),
-  };
-}
-
-/** A prompt dispatch ctx the DRIVE seam threads: the `fail`-outcome surface
- *  never touches `sessionManager`, and `signal: undefined` is the documented
- *  idle-entry the cancel-forwarding tolerates. */
-function driveCtx(): ExtensionCommandContext {
-  return {
-    signal: undefined,
-    cwd: "/tmp",
-  } as unknown as ExtensionCommandContext;
-}
-
-/** Flush pending microtasks/macrotasks so the async run() reaches the parked
- *  `executeBody` await before the assertion samples the registry size. */
-const tick = (): Promise<void> =>
-  new Promise<void>((resolve) => setTimeout(resolve, 0));
+import {
+  PassthroughCheckpoint,
+  rootWith,
+  noopPi,
+  promptTheta,
+  driveCtx,
+  tick,
+} from "./helpers/fixture-dispatch-harness";
 
 afterEach(() => {
   executorHook.impl = undefined;
@@ -161,7 +112,7 @@ describe("Increment B1 — the registry entry SPANS the in-flight body via the D
 
     const deps = createProductionProducerDeps({
       pi: noopPi(),
-      root: rootWith(new RecordingCheckpoint()),
+      root: rootWith(new PassthroughCheckpoint()),
       modelRegistry: {} as unknown as ModelRegistry,
       activeInvocations: registry,
     });
@@ -212,7 +163,7 @@ describe("Increment B1 — the registry entry SPANS the in-flight body via the D
     const registry = new ActiveInvocationRegistry();
     const deps = createProductionProducerDeps({
       pi: noopPi(),
-      root: rootWith(new RecordingCheckpoint()),
+      root: rootWith(new PassthroughCheckpoint()),
       modelRegistry: {} as unknown as ModelRegistry,
       activeInvocations: registry,
     });

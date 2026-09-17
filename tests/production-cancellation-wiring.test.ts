@@ -46,7 +46,7 @@ import type {
 } from "../src/extension/theta-composition-producer";
 import { abortForAgentEnd } from "../src/runtime/cancellation-core";
 import { executeBody } from "../src/runtime/statement-executor";
-import type { RuntimeRoot } from "../src/runtime-root";
+import { rootWith } from "./helpers/fixture-dispatch-harness";
 import type { Checkpoint, CheckpointKind, CheckpointSite } from "../src/seams/checkpoint";
 import type { AgentToolResultEnvelope } from "../src/runtime/tool-call-execute";
 import type {
@@ -114,13 +114,6 @@ function sentNotes(): { readonly notes: SentNote[]; readonly pi: ExtensionAPI } 
     },
   } as unknown as ExtensionAPI;
   return { notes, pi };
-}
-
-function rootWith(checkpoint: Checkpoint): RuntimeRoot {
-  return {
-    checkpoint,
-    idSource: { newInvocationId: () => "inv-1", newToolCallId: () => "tc-1" },
-  } as unknown as RuntimeRoot;
 }
 
 function ctxWithSignal(signal: AbortSignal | undefined): ExtensionCommandContext {
