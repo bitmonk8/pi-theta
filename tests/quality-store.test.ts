@@ -808,6 +808,55 @@ describe("tools/quality/store.mjs (scratch fixture store via QUALITY_STORE_ROOT)
     expect(byKey.get("d9/src__big__host.ts")?.[2]).toBe("1");
   });
 
+  it("cell 26: reset-review forgets a lens's reviewed-at shas (every surface file due again), purges only that lens's still-pending candidates, keeps parked issues and other lenses, and writes no TRIAGE_LOG row", () => {
+    // Bug 0479: a pass whose workers ran on the wrong model is untrusted — its
+    // review bookkeeping and its unruled candidates go; rulings (TRIAGE_LOG
+    // rows, exemptions), landed fixes and parked issues stay.
+    const head = git(root, "rev-parse", "HEAD").trim();
+    for (const lens of ["D2", "D7"]) {
+      for (const m of runStore(root, ["shard", "--lens", lens, "--wave", "w26"]).stdout.trim().split("\n").filter(Boolean)) {
+        runStore(root, ["mark-reviewed", "--lens", lens, "--sha", head, "--manifest", m]);
+      }
+    }
+    expect(runStore(root, ["needs-review", "--lens", "D7"]).stdout).toBe("");
+    expect(runStore(root, ["needs-review", "--lens", "D2"]).stdout).toBe("");
+    // Two pending D7 candidates, one pending D2 candidate, one PARKED D7 issue
+    // (a minted id back in intake at its skip cap).
+    writeIntake(root, "w26-d7-01-a.md", { lens: "D7" });
+    writeIntake(root, "w26-d7-02-b.md", { lens: "D7" });
+    writeIntake(root, "w26-d2-01-c.md", { lens: "D2" });
+    writeIntake(root, "PTQ-0126-parked.md", { lens: "D7", extra: { id: "PTQ-0126" } });
+    const logBefore = existsSync(join(root, "quality/TRIAGE_LOG.md")) ? readFile(root, "quality/TRIAGE_LOG.md") : "";
+
+    const r = runStore(root, ["reset-review", "--lens", "D7", "--purge-intake"]);
+    expect(r.status, r.stderr).toBe(0);
+    const rows = r.stdout.trim().split("\n").map((l) => l.split("\t"));
+    expect(rows).toContainEqual(["reset", "D7", "3"]);
+    expect(rows).toContainEqual(["purged", "quality/intake/w26-d7-01-a.md", "D7"]);
+    expect(rows).toContainEqual(["purged", "quality/intake/w26-d7-02-b.md", "D7"]);
+    expect(rows.filter((c) => c[0] === "purged")).toHaveLength(2);
+    // D7 is due again in full; D2's bookkeeping is untouched.
+    expect(runStore(root, ["needs-review", "--lens", "D7"]).stdout.trim().split("\n").sort()).toEqual([
+      "tests/live/x.test.ts",
+      "tests/one.test.ts",
+      "tests/two.test.ts",
+    ]);
+    expect(runStore(root, ["needs-review", "--lens", "D2"]).stdout).toBe("");
+    const state = JSON.parse(readFile(root, "quality/state.json"));
+    expect(state.D7).toBeUndefined();
+    expect(Object.keys(state.D2).sort()).toEqual(["src/extension/b.ts", "src/runtime/a.ts"]);
+    // The parked issue and the other lens's candidate survive; no log row.
+    expect(existsSync(join(root, "quality/intake/PTQ-0126-parked.md"))).toBe(true);
+    expect(existsSync(join(root, "quality/intake/w26-d2-01-c.md"))).toBe(true);
+    const logAfter = existsSync(join(root, "quality/TRIAGE_LOG.md")) ? readFile(root, "quality/TRIAGE_LOG.md") : "";
+    expect(logAfter).toBe(logBefore);
+    // --all-lenses sweeps the rest; an unknown lens dies loud.
+    const all = runStore(root, ["reset-review", "--all-lenses"]);
+    expect(all.status).toBe(0);
+    expect(JSON.parse(readFile(root, "quality/state.json"))).toEqual({});
+    expect(runStore(root, ["reset-review", "--lens", "D9"]).status).toBe(1);
+  });
+
   it("cell 12: default ROOT (env absent) resolves to the real repo and lists D2 + D7", () => {
     // Scrub any ambient override so the fallback itself is what runs.
     const env = { ...process.env };

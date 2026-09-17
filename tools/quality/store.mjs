@@ -115,6 +115,20 @@
 //       that shard (KEEP-WHOLE dispositions for D9, routing notes for every
 //       lens) — the only place those notes persist; the orchestrator otherwise
 //       reads just the filed count.
+//   reset-review (--lens <L> | --all-lenses) [--purge-intake]
+//       Forget every reviewed-at sha for the lens(es), so every surface file
+//       is due again (the review pass re-runs from scratch). With
+//       --purge-intake, also delete the CANDIDATES those lenses filed that
+//       still await triage or a human ruling (intake files whose `lens:` is a
+//       reset lens and whose `id:` is still `pending`); a PARKED issue (a
+//       minted PTQ id, back in intake at its skip cap) is kept — it is an
+//       issue with history awaiting a ruling, not a candidate. A reset writes
+//       NO TRIAGE_LOG row: it is not a ruling, and the lenses read the log's
+//       tail for re-file prevention, so a row would suppress the re-run lens
+//       from filing the same observation. Use when the pass that produced the
+//       state is untrusted (bug 0479: every pre-0.479.0 wave ran its workers
+//       on the invoking session's model, not their pins). Prints
+//       "reset<TAB><lens><TAB><forgotten count>" and "purged<TAB><path><TAB><lens>" rows.
 //
 // Per-lens durable exemptions (design .localpi/tmp/quality-loop-d9-design.md
 // §3.2, generalised to D9 + D8 by quality-loop-d4-d8-design.md §3):
@@ -834,6 +848,35 @@ switch (cmd) {
     }
     const esc = (s) => String(s).replaceAll("|", "\\|").trim();
     fs.appendFileSync(REVIEW_LOG, `| ${[today(), wave, lens, shard, flags.filed ?? "-", notes].map(esc).join(" | ")} |\n`);
+    break;
+  }
+
+  case "reset-review": {
+    const state = loadState();
+    const configured = Object.keys(readJson(SURFACES)).sort();
+    const lenses = flags["all-lenses"] !== undefined
+      ? configured
+      : [flags.lens ?? die("--lens <L> or --all-lenses required")];
+    for (const lens of lenses) {
+      if (!configured.includes(lens)) die(`unknown lens '${lens}' (configured: ${configured.join(", ")})`);
+    }
+    for (const lens of lenses) {
+      const forgotten = Object.keys(state[lens] ?? {}).length;
+      delete state[lens];
+      process.stdout.write(`reset\t${lens}\t${forgotten}\n`);
+    }
+    writeJson(STATE, state);
+    if (flags["purge-intake"] !== undefined && fs.existsSync(INTAKE)) {
+      for (const name of fs.readdirSync(INTAKE).filter((n) => n.endsWith(".md")).sort()) {
+        const file = path.join(INTAKE, name);
+        const { fields } = readFrontmatter(file);
+        // A minted id marks a parked ISSUE (resolve's skip cap) — kept; only a
+        // still-pending candidate of a reset lens is a product of the untrusted pass.
+        if (!lenses.includes(fields.lens) || (fields.id !== undefined && fields.id !== "pending")) continue;
+        fs.unlinkSync(file);
+        process.stdout.write(`purged\t${rel(file)}\t${fields.lens}\n`);
+      }
+    }
     break;
   }
 

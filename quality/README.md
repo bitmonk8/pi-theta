@@ -69,7 +69,7 @@ worktree, default `"6"`; `parallel × tree_workers` stays inside the cores).
    cited path; D9/D8: the whole HOST FILE — one host, one lane per wave, D9
    before D8 — §"D9 — placement & breakdown" and §"D8 — simplification"
    below);
-   one fixer per cluster (`unity-completions/gpt-6-astra`), each in its own detached git
+   one fixer per cluster (`unity-responses/gpt-6-astra`), each in its own detached git
    worktree, fanned out in parallel. Fixer edits code only, then runs the
    gate inside its tree — the same runner-width-capped command the wrapper
    re-runs afterwards (`npm test -- --minWorkers=1 --maxWorkers=<tree_workers>`):
@@ -320,12 +320,17 @@ predicate) + a triage step-4 scope block + a fix-brief rules block.
 
 D1/D6 → fable only, when added.
 
-Workers: triage `anthropic/claude-fable-5-1`, fixer `unity-completions/gpt-6-astra`
-(the `openai-completions` route — `unity-responses` is the `openai-responses` API,
-outside the typed-query supported set), fix review `anthropic/claude-fable-5`.
+Workers: triage `anthropic/claude-fable-5-1`, fixer `unity-responses/gpt-6-astra`
+(the `openai-responses` API — admitted to the typed-query gate by bug 0480,
+pi-theta ≥ 0.480.0), fix review `anthropic/claude-fable-5`.
 Every pin here and in the lens table is honoured only on pi-theta ≥ 0.479.0
 (bug 0479): before it the subagent launch marshalled the invoking session's
-model, so every worker of every earlier wave ran on that session model.
+model, so every worker of every earlier wave ran on that session model. The
+review bookkeeping those waves produced was reset on 2026-09-17
+(`store.mjs reset-review --all-lenses --purge-intake`: every surface file due
+again, the 17 unruled candidates of the untrusted passes purged without a
+TRIAGE_LOG row); human rulings, exemptions, landed fixes and the two parked
+issues were kept.
 
 ## Committing note
 
