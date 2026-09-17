@@ -61,7 +61,7 @@ worktree, default `"6"`; `parallel × tree_workers` stays inside the cores).
    persisted as one `REVIEW_LOG.md` row per shard (`store.mjs log-review`);
    the orchestrator otherwise reads only the filed count.
 5. **Triage** — every candidate independently re-verified
-   (`anthropic/claude-fable-5`, the experiments' judge). `confirmed` → minted
+   (`anthropic/claude-fable-5-1`). `confirmed` → minted
    `PTQ-NNNN` in `issues/`; rejections → one `TRIAGE_LOG.md` row, file deleted;
    `questionable` stays in `intake/` as the human queue.
 6. **Fix** — open issues clustered by fix surface (D2/D7/D4: the first two
@@ -69,14 +69,14 @@ worktree, default `"6"`; `parallel × tree_workers` stays inside the cores).
    cited path; D9/D8: the whole HOST FILE — one host, one lane per wave, D9
    before D8 — §"D9 — placement & breakdown" and §"D8 — simplification"
    below);
-   one fixer per cluster (`claude-sonnet-5`), each in its own detached git
+   one fixer per cluster (`unity-completions/gpt-6-astra`), each in its own detached git
    worktree, fanned out in parallel. Fixer edits code only, then runs the
    gate inside its tree — the same runner-width-capped command the wrapper
    re-runs afterwards (`npm test -- --minWorkers=1 --maxWorkers=<tree_workers>`):
    an uncapped fixer gate in eight concurrent lanes drove the load average
    past 90 on 32 cores and turned sibling gates red with timeouts
    (wave qw20260914130212 dropped a correct, twice-confirmed D9 lane that way).
-7. **Fix review** — `claude-fable-5` verifies each issue is actually resolved
+7. **Fix review** — `anthropic/claude-fable-5` verifies each issue is actually resolved
    and nothing else was damaged, in the tree; a green, reviewed lane's commit
    is cherry-picked onto the integrated head sequentially, in cluster order.
    A conflicting cherry-pick gets ONE rebase-and-retry in a fresh worktree at
@@ -319,6 +319,13 @@ predicate) + a triage step-4 scope block + a fix-brief rules block.
 | D9 | placement & breakdown in `src/` | `anthropic/claude-fable-5` | intake-ratified |
 
 D1/D6 → fable only, when added.
+
+Workers: triage `anthropic/claude-fable-5-1`, fixer `unity-completions/gpt-6-astra`
+(the `openai-completions` route — `unity-responses` is the `openai-responses` API,
+outside the typed-query supported set), fix review `anthropic/claude-fable-5`.
+Every pin here and in the lens table is honoured only on pi-theta ≥ 0.479.0
+(bug 0479): before it the subagent launch marshalled the invoking session's
+model, so every worker of every earlier wave ran on that session model.
 
 ## Committing note
 

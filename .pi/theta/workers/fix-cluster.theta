@@ -1,7 +1,7 @@
 ---
 description: "Fix one cluster of confirmed quality issues, keep the offline gate green, report per-issue outcomes"
 mode: subagent
-model: "anthropic/claude-sonnet-5"
+model: "unity-completions/gpt-6-astra"
 tools: read, grep, bash, edit, write
 tool_loop:
   max_rounds: 150
