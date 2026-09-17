@@ -136,6 +136,7 @@ import {
   type TypeEnv,
 } from "../parser/type-compat";
 import {
+  checkCallableArgumentTypes,
   checkInvokeExprCallSurface,
   collectProvableArgTypes,
   renderCollectedTypes,
@@ -806,87 +807,17 @@ async function checkThetaCallableCallSurface(
     // check above already bounds `providedCount` within
     // `[requiredCount, totalCount]`, so every provided slot has a
     // corresponding field.
-    //
-    // The EXPECTED side is the callee's own annotation text, so it must not
-    // resolve through the caller's declarations: `annotationToCompatType`
-    // maps every non-primitive annotation to a `named` reference, and
-    // resolving that name in the caller's `typeEnv` lets a caller-local
-    // homonym decide a verdict about the callee's contract. tool-calls.md
-    // §"Argument shape" puts the judgement in the callee's namespace — the
-    // mismatch is "against the callee's `params:`", and the runtime check it
-    // front-runs validates the argument against the callee's own lowered
-    // `params:` schema. Under an EMPTY environment a `named` expected type is
-    // unresolvable, so `checkCompatible` answers `"unknown"` and the site
-    // defers to that validation. Primitive and literal decisions consult no
-    // environment at all, so a `params: x: string` slot still rejects an
-    // integer argument, and a structurally-decidable slot such as
-    // `array<Named>` still rejects a non-array argument without this pass
-    // needing to know what `Named` denotes — which is why the expected side
-    // is emptied rather than withheld whenever it mentions a name.
-    // Null-prototype for the same reason `collectTypeEnv`
-    // (../parser/type-layer-checks.ts) builds one: an annotation may spell an
-    // `Object.prototype` own property verbatim, and that name must be
-    // unresolvable here too.
-    const emptyCalleeAnnotationEnv: TypeEnv = Object.create(null) as TypeEnv;
-    for (const [i, argExpr] of site.call.args.entries()) {
-      const field = arity.fields[i];
-      if (field === undefined) {
-        continue;
-      }
-      const expectedType = annotationToCompatType(field.typeSource);
-      if (expectedType === undefined) {
-        continue;
-      }
-      const argTypes = collectProvableArgTypes(argExpr, typeEnv, typePass);
-      if (argTypes === undefined) {
-        // A value-contributing position past the parser's static view: the
-        // argument can take a value of unknown type, which defers to the
-        // callee's own runtime AJV load — see `collectProvableArgTypes`.
-        continue;
-      }
-      if (
-        !argTypes.every(
-          (argType) =>
-            checkCompatible(argType, expectedType, emptyCalleeAnnotationEnv) ===
-            "incompatible",
-        )
-      ) {
-        // Only an explicit incompatibility on EVERY value the argument can
-        // take is provable. One arm the `params:` field accepts — or answers
-        // `"unknown"` / `"integer-narrowing"` for — means a runtime value may
-        // well type-check, so the site defers to the runtime AJV net.
-        continue;
-      }
-      diagnostics.push(
-        ...checkToolCallArguments({
-          toolName: site.name,
-          calleeKind: "theta-callable",
-          // Neutralises `checkToolCallArguments`'s shared arity arm
-          // (`positionalCount > 1`, which fires for ANY `calleeKind` —
-          // pinned by the "arity is checked before type" unit test in
-          // tests/tool-calls.test.ts): this call site's real arity was
-          // already checked and passed above, via `checkInvokeArity`, the
-          // dedicated emitter for this surface.
-          positionalCount: 1,
-          file: callerPath,
-          range: site.call.range,
-          staticResolution: {
-            resolvable: true,
-            matches: false,
-            expected: displayType(expectedType),
-            actual: renderCollectedTypes(argTypes),
-          },
-        }),
-      );
-      // First mismatch only: this row's *Message* names neither the slot
-      // index nor the parameter, and its range is the whole call
-      // expression, so a second emission at this site would render
-      // byte-identical to the first — the per-site cap the adjudicated rule
-      // assigns this row (diagnostic-shape.md
-      // #argument-mismatch-multiplicity), distinct from the per-slot rule
-      // the invoke and `fn` rows draw.
-      break;
-    }
+    diagnostics.push(
+      ...checkCallableArgumentTypes({
+        call: site.call,
+        fields: arity.fields,
+        calleeKind: "theta-callable",
+        toolName: site.name,
+        file: callerPath,
+        typeEnv,
+        typePass,
+      }),
+    );
   }
   return diagnostics;
 }
@@ -940,47 +871,17 @@ function checkRuntimeToolCallSurface(
     // `.theta`-callable arm's `checkToolCallArguments` emitter with
     // `calleeKind: "runtime-tool"`. Expected side from the signature's
     // `typeSource`; provable-only (`collectProvableArgTypes`).
-    const emptyCalleeAnnotationEnv: TypeEnv = Object.create(null) as TypeEnv;
-    for (const [i, argExpr] of call.args.entries()) {
-      const param = sig.params[i];
-      if (param === undefined) {
-        continue;
-      }
-      const expectedType = annotationToCompatType(param.typeSource);
-      if (expectedType === undefined) {
-        continue;
-      }
-      const argTypes = collectProvableArgTypes(argExpr, typeEnv, typePass);
-      if (argTypes === undefined) {
-        continue;
-      }
-      if (
-        !argTypes.every(
-          (argType) =>
-            checkCompatible(argType, expectedType, emptyCalleeAnnotationEnv) ===
-            "incompatible",
-        )
-      ) {
-        continue;
-      }
-      diagnostics.push(
-        ...checkToolCallArguments({
-          toolName: presentedName,
-          calleeKind: "runtime-tool",
-          positionalCount: 1, // neutralise the shared arity arm
-          file: callerPath,
-          range: call.range,
-          staticResolution: {
-            resolvable: true,
-            matches: false,
-            expected: displayType(expectedType),
-            actual: renderCollectedTypes(argTypes),
-          },
-        }),
-      );
-      // First mismatch only (same cap as the `.theta`-callable arm).
-      break;
-    }
+    diagnostics.push(
+      ...checkCallableArgumentTypes({
+        call,
+        fields: sig.params,
+        calleeKind: "runtime-tool",
+        toolName: presentedName,
+        file: callerPath,
+        typeEnv,
+        typePass,
+      }),
+    );
   }
   return diagnostics;
 }

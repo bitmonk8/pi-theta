@@ -1,8 +1,8 @@
-// Load-time invoke-expression call-surface checks and shared provable argument
-// type collection/rendering for the compose-pass call surfaces.
+// Load-time invoke-expression call-surface checks and shared callable argument
+// type checking/collection/rendering for the compose-pass call surfaces.
 
 import type { Diagnostic, SourceRange } from "../diagnostics/diagnostic";
-import type { CallWithClause, Expr, InvokeExpr } from "../parser/theta-document";
+import type { CallExpr, CallWithClause, Expr, InvokeExpr } from "../parser/theta-document";
 import {
   checkCalleeHasErrors,
   checkInvokeCall,
@@ -13,7 +13,9 @@ import {
   isStaticZeroIntegerDivisor,
   type StaticTypeInferencePass,
 } from "../parser/static-type-inference";
-import { displayType, type CompatType, type TypeEnv } from "../parser/type-compat";
+import { checkCompatible, displayType, type CompatType, type TypeEnv } from "../parser/type-compat";
+import { annotationToCompatType } from "../parser/type-layer-checks";
+import { checkToolCallArguments } from "../runtime/tool-call";
 import { checkInvokePathAtLoad } from "../runtime/invocation";
 import type { FileSystem } from "../seams/file-system";
 import type { CalleeArity, CalleeArityField } from "./invoke-static-checks";
@@ -241,6 +243,104 @@ function collectArmUnion(
  */
 export function renderCollectedTypes(types: readonly CompatType[]): string {
   return [...new Set(types.map((type) => displayType(type)))].join(" | ");
+}
+
+/**
+ * Check the first provable argument type mismatch for a `.theta` callable or
+ * fixed-signature runtime tool after its arity check passes (bug 0072).
+ */
+export function checkCallableArgumentTypes(input: {
+  readonly call: CallExpr;
+  readonly fields: readonly CalleeArityField[];
+  readonly calleeKind: "theta-callable" | "runtime-tool";
+  readonly toolName: string;
+  readonly file: string;
+  readonly typeEnv: TypeEnv;
+  readonly typePass: StaticTypeInferencePass;
+}): Diagnostic[] {
+  const { call, fields, calleeKind, toolName, file, typeEnv, typePass } = input;
+  const diagnostics: Diagnostic[] = [];
+  // The EXPECTED side is the callee's own annotation text, so it must not
+  // resolve through the caller's declarations: `annotationToCompatType`
+  // maps every non-primitive annotation to a `named` reference, and
+  // resolving that name in the caller's `typeEnv` lets a caller-local
+  // homonym decide a verdict about the callee's contract. tool-calls.md
+  // §"Argument shape" puts the judgement in the callee's namespace — the
+  // mismatch is "against the callee's `params:`", and the runtime check it
+  // front-runs validates the argument against the callee's own lowered
+  // `params:` schema. Under an EMPTY environment a `named` expected type is
+  // unresolvable, so `checkCompatible` answers `"unknown"` and the site
+  // defers to that validation. Primitive and literal decisions consult no
+  // environment at all, so a `params: x: string` slot still rejects an
+  // integer argument, and a structurally-decidable slot such as
+  // `array<Named>` still rejects a non-array argument without this pass
+  // needing to know what `Named` denotes — which is why the expected side
+  // is emptied rather than withheld whenever it mentions a name.
+  // Null-prototype for the same reason `collectTypeEnv`
+  // (../parser/type-layer-checks.ts) builds one: an annotation may spell an
+  // `Object.prototype` own property verbatim, and that name must be
+  // unresolvable here too.
+  const emptyCalleeAnnotationEnv: TypeEnv = Object.create(null) as TypeEnv;
+  for (const [i, argExpr] of call.args.entries()) {
+    const field = fields[i];
+    if (field === undefined) {
+      continue;
+    }
+    const expectedType = annotationToCompatType(field.typeSource);
+    if (expectedType === undefined) {
+      continue;
+    }
+    const argTypes = collectProvableArgTypes(argExpr, typeEnv, typePass);
+    if (argTypes === undefined) {
+      // A value-contributing position past the parser's static view: the
+      // argument can take a value of unknown type, which defers to the
+      // callee's own runtime AJV load — see `collectProvableArgTypes`.
+      continue;
+    }
+    if (
+      !argTypes.every(
+        (argType) =>
+          checkCompatible(argType, expectedType, emptyCalleeAnnotationEnv) ===
+          "incompatible",
+      )
+    ) {
+      // Only an explicit incompatibility on EVERY value the argument can
+      // take is provable. One arm the `params:` field accepts — or answers
+      // `"unknown"` / `"integer-narrowing"` for — means a runtime value may
+      // well type-check, so the site defers to the runtime AJV net.
+      continue;
+    }
+    diagnostics.push(
+      ...checkToolCallArguments({
+        toolName,
+        calleeKind,
+        // Neutralises `checkToolCallArguments`'s shared arity arm
+        // (`positionalCount > 1`, which fires for ANY `calleeKind` —
+        // pinned by the "arity is checked before type" unit test in
+        // tests/tool-calls.test.ts): this call site's real arity was
+        // already checked and passed at the call site via `checkInvokeArity`,
+        // the dedicated emitter for this surface.
+        positionalCount: 1,
+        file,
+        range: call.range,
+        staticResolution: {
+          resolvable: true,
+          matches: false,
+          expected: displayType(expectedType),
+          actual: renderCollectedTypes(argTypes),
+        },
+      }),
+    );
+    // First mismatch only: this row's *Message* names neither the slot
+    // index nor the parameter, and its range is the whole call
+    // expression, so a second emission at this site would render
+    // byte-identical to the first — the per-site cap the adjudicated rule
+    // assigns this row (diagnostic-shape.md
+    // #argument-mismatch-multiplicity), distinct from the per-slot rule
+    // the invoke and `fn` rows draw.
+    break;
+  }
+  return diagnostics;
 }
 
 /**

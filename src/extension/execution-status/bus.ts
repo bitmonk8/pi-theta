@@ -303,8 +303,16 @@ class ExecutionStatusBusImpl implements ExecutionStatusBus {
           // wire data stays off the durable transcript).
           node.authorMessage = clampFoldedAuthorMessage(event.payload);
           break;
-        default:
+        case "tool_execution_end":
+        case "agent_end":
+        case "heartbeat":
+          // Liveness only; the common block below records the event.
           break;
+        default: {
+          const exhaustive: never = event;
+          void exhaustive;
+          break;
+        }
       }
       node.childSeen = true;
       node.childLastEventAtMs = this.#clock.now();

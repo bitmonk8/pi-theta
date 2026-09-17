@@ -60,7 +60,7 @@ export function routeDrainStateArm(snapshot: DrainStateSnapshot): DispatchArm {
  *
  */
 export function shouldShortCircuitShutdown(snapshot: DrainStateSnapshot): boolean {
-  return snapshot.drained === true || snapshot.tag !== undefined;
+  return routeDrainStateArm(snapshot) !== "dispatch";
 }
 
 /**
