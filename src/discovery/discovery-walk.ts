@@ -33,15 +33,14 @@
 // The discovery-wide types (`DiscoverySource`, `PiOwnedCommand`,
 // `DiscoveryInput`, `DiscoveredTheta`, `DiscoveryResult`), the `theta/load/*`
 // diagnostic codes, the failure-mode tables, and the per-source
-// `SourcedCandidate` shape this walk implements against — `FailureModes`,
-// `CONVENTIONAL_MODES`, `SETTINGS_MODES`, `CLI_MODES`, `SourcedCandidate` —
-// live in `discovery-model.ts` (PTQ-0305's Seam 0, the leaf every concern
-// here depends on) and are imported back in below; every name this file
-// exported before that split is still exported from here.
+// `SourcedCandidate` shape this walk implements against — `SETTINGS_MODES`,
+// `SourcedCandidate` — live in `discovery-model.ts` (PTQ-0305's Seam 0, the
+// leaf every concern here depends on) and are imported back in below; every
+// name this file exported before that split is still exported from here.
 //
-// Spec: discovery.md, discovery/discovery-sources.md (DISC-1…DISC-4), with the
-// `theta/load/*` diagnostic codes/messages sourced from
-// diagnostics/code-registry-load.md.
+// Spec: discovery.md, discovery/discovery-sources.md (DISC-1…DISC-4),
+// discovery/package-and-settings.md (DISC-5), with the `theta/load/*`
+// diagnostic codes/messages sourced from diagnostics/code-registry-load.md.
 
 import { minimatch } from "minimatch";
 import type { Diagnostic, Severity } from "../diagnostics/diagnostic";

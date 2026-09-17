@@ -1,8 +1,9 @@
 // Discovery-wide types, diagnostic codes, and the priority / failure-mode /
-// slash-name tables shared by discovery-walk.ts's own concerns (per-source
-// enumeration, the settings `thetaPaths` sub-walk, the five-source driver)
-// and by discovery-collision-resolve.ts's cross-source/format collision
-// resolution (PTQ-0333). Split out of discovery-walk.ts as PTQ-0305's Seam 0
+// slash-name tables shared by discovery-walk.ts's own concerns (the settings
+// `thetaPaths` sub-walk, the five-source driver),
+// discovery-source-enumerate.ts's per-source enumeration, and
+// discovery-collision-resolve.ts's cross-source/format collision resolution
+// (PTQ-0333). Split out of discovery-walk.ts as PTQ-0305's Seam 0
 // — the leaf every one of those concerns depends on at runtime (collision
 // resolution alone reads `PRIORITY` nine times plus five of the codes
 // below), so it had to move first: moving any of the others out first would
@@ -168,12 +169,13 @@ export const CLI_MODES: FailureModes = {
 
 /** Per-source failure-mode severities, keyed directly off `DiscoverySource`
  *  the same way `PRIORITY` already is. `enumerateDirectory` / `resolveEntry`
- *  / `collectFromEntries` derive `modes` from `source` through this lookup
- *  instead of threading it alongside `source` as a second, independently
- *  suppliable parameter — the two never varied independently at any call
- *  site (PTQ-0366). `package` is excluded from the key type: its candidates
- *  are pushed directly as `SourcedCandidate`s and never reach those three
- *  functions, so there is no row to give it. */
+ *  derive `modes` from `source` through this lookup instead of threading it
+ *  alongside `source` as a second, independently suppliable parameter — the
+ *  two never varied independently at any call site (PTQ-0366).
+ *  `collectFromEntries` forwards `source` straight through to `resolveEntry`
+ *  and no longer touches `modes` in any form. `package` is excluded from the
+ *  key type: its candidates are pushed directly as `SourcedCandidate`s and
+ *  never reach any of those three functions, so there is no row to give it. */
 export const MODES_BY_SOURCE: Record<Exclude<DiscoverySource, "package">, FailureModes> = {
   cli: CLI_MODES,
   settings: SETTINGS_MODES,

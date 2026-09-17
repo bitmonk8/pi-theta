@@ -5,9 +5,10 @@
 // (whose own V10a/V10a-T header describes the walk this module's
 // classifications feed) — every member here was file-private before the
 // split (0 importers outside discovery-walk.ts). Most no longer are:
-// discovery-walk.ts imports back what its own per-source enumeration
-// (`resolveEntry`/`enumerateDirectory`) and settings `thetaPaths` resolution
-// (`resolveSettingsSource`) call, and package-discovery.ts and settings.ts
+// discovery-source-enumerate.ts imports back what its own per-source
+// enumeration (`resolveEntry`/`enumerateDirectory`) calls, discovery-walk.ts
+// imports back what its own settings `thetaPaths` resolution
+// (`resolveSettingsSource`) calls, and package-discovery.ts and settings.ts
 // import the shared POSIX path helpers directly (PTQ-0286, PTQ-0287) —
 // package-discovery.ts also imports `walkTree` and the descriptor renderer
 // `renderSourceDescriptor` (PTQ-0284) — instead of keeping their own copies.
