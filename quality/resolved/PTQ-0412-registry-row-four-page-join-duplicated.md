@@ -2,7 +2,7 @@
 id: PTQ-0412
 title: annotation-root-brace-union-lowering.test.ts rebuilds the local RegistryRow/four-page REGISTRY join tests/helpers/registry-oracle.ts already centralises
 lens: D7                     # D2 | D4 | D7 | D8 | D9 - the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - tests/annotation-root-brace-union-lowering.test.ts:169-187

@@ -2,7 +2,7 @@
 id: PTQ-0410
 title: annotation-root-brace-union-lowering.test.ts redeclares a four-function canonical-slug oracle byte-identical in four sibling test files
 lens: D7                     # D2 | D4 | D7 | D8 | D9 - the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - tests/annotation-root-brace-union-lowering.test.ts:218-224

@@ -2,7 +2,7 @@
 id: PTQ-0402
 title: Package discovery reimplements source-failure diagnostic minting
 lens: D4
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/discovery/discovery-source-enumerate.ts:267-289

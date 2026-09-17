@@ -2,7 +2,7 @@
 id: PTQ-0411
 title: array-sink-unresolvable-deferral test file re-reads the four-page diagnostics registry that tests/helpers/registry-oracle.ts already exports
 lens: D7
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - tests/array-sink-unresolvable-deferral.test.ts:108-120

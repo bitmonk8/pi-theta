@@ -2,7 +2,7 @@
 id: PTQ-0406
 title: LaneState type export in execution-status/types.ts has no reader anywhere
 lens: D2                     # D2 | D4 | D7 | D8 | D9 - the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - src/extension/execution-status/types.ts:67

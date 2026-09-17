@@ -2,7 +2,7 @@
 id: PTQ-0405
 title: absent-member-presence-gate.test.ts re-implements tests/helpers/e2e-s1.ts's parseDeps/parseDoc instead of importing them
 lens: D7
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - tests/absent-member-presence-gate.test.ts:217-231

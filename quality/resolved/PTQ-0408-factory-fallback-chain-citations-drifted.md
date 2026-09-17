@@ -2,7 +2,7 @@
 id: PTQ-0408
 title: factory.ts's two runtime-event-channel.md line citations for the sendMessage fallback chain point at the wrong lines
 lens: D2                     # D2 | D4 | D7 | D8 | D9 - the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - src/extension/factory.ts:369

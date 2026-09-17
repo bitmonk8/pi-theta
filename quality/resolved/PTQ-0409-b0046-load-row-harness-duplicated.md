@@ -2,7 +2,7 @@
 id: PTQ-0409
 title: b0046 test file redeclares LoadRow, registered, expectRows and the registry-message renderer that tests/helpers/load-row-harness.ts already exports
 lens: D7
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - tests/b0046-by-clause-undecided-inputs.test.ts:189-196

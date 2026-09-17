@@ -2,7 +2,7 @@
 id: PTQ-0399
 title: discovery-walk.ts's header claims isCanonicalDuplicate and classifyForSource are imported back from discovery-source-enumerate.ts, though both stay module-private there
 lens: D2                     # D2 | D4 | D7 | D8 | D9 - the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - src/discovery/discovery-walk.ts:18-25

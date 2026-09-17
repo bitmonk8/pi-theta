@@ -2,7 +2,7 @@
 id: PTQ-0403
 title: Dispatch-side scaffolding (checkpoint double, root/pi/theta/ctx builders, tick) is redeclared near-identically in two sibling test files
 lens: D7
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - tests/active-invocation-binder-window.test.ts:77-104

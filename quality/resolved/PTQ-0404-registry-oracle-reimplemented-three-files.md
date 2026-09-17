@@ -2,7 +2,7 @@
 id: PTQ-0404
 title: Three in-scope test files re-parse the code-registry corpus locally instead of importing tests/helpers/registry-oracle.ts
 lens: D7
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - tests/absent-member-presence-gate.test.ts:179-193
