@@ -19,7 +19,7 @@ import {
 import { collectTypeEnv } from "../src/parser/type-layer-checks";
 import { discoverAndComposeFixtures } from "../src/extension/production-composition";
 import type { ThetaFixture } from "../src/extension/factory";
-import { parseDoc } from "./helpers/e2e-s1";
+import { parseDoc, diagLines } from "./helpers/e2e-s1";
 
 // Bug 0038 — `collectTypeEnv` builds the `TypeEnv` as a plain `{}`, so every
 // consumer that resolves a `NamedType` by reading `env[name]` gets a JS value
@@ -294,11 +294,6 @@ const FM = "---\nmode: prompt\n---\n";
 
 function parse(body: string): ThetaDocument {
   return parseDoc(FM + body, "bug0038.theta");
-}
-
-/** The whole diagnostic list, order-preserving, as comparable strings. */
-function diagLines(doc: ThetaDocument): string[] {
-  return doc.diagnostics.map((d) => `${d.severity} ${d.code}: ${d.message}`);
 }
 
 /**

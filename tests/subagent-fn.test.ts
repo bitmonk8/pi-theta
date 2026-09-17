@@ -1,16 +1,15 @@
+import { fakeThetaLibFs } from "./helpers/thetalib-load-harness";
+import { SEAM_NOOP_CHECKPOINT as NOOP_CHECKPOINT, SEAM_NOOP_MUTATOR } from "./helpers/invoke-seam-scaffold";
+import { parseDeps as makeDeps, parseDoc, type KindedNode, collectByKind } from "./helpers/e2e-s1";
 import { describe, expect, it } from "vitest";
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
-import type { ThetaSource } from "../src/lexer/lexer";
-import type { SystemNoteChannelDeps } from "../src/extension/system-note-channel";
 import type { ModelReferenceMatcher } from "../src/parser/frontmatter";
 import {
-  parseThetaDocument,
   resolveSubagentSessionConfigAt,
   type ThetaDocument,
   type ThetaBody,
   type Expr,
   type FnDecl,
-  type ParseThetaDocumentDeps,
   type SubagentSessionConfig,
 } from "../src/parser/theta-document";
 import {
@@ -24,7 +23,6 @@ import {
   type EffectfulStatementHostDeps,
 } from "../src/runtime/effectful-statement-host";
 import type { ToolLoweringSink } from "../src/runtime/tool-call-execute";
-import type { FileSystem } from "../src/seams/file-system";
 import type { ThetaCompositionInput } from "../src/extension/theta-composition-producer";
 import type { ParsedFrontmatter } from "../src/parser/frontmatter";
 import {
@@ -49,10 +47,6 @@ import {
 } from "../src/runtime/lexical-environment";
 import type { Checkpoint } from "../src/seams/checkpoint";
 import type { OperationResult } from "../src/runtime/cancellation-core";
-import type {
-  CommittedConversationMutator,
-  CommittedSurface,
-} from "../src/runtime/terminal-outcomes";
 import { isResultValue, makeOk, type ThetaValue } from "../src/runtime/value";
 import type { QueryError } from "../src/runtime/query-error";
 import { HostFatal, IndexOutOfBoundsPanic } from "../src/runtime/runtime-panics";
@@ -165,23 +159,8 @@ import {
 
 // --- parse harness ---------------------------------------------------------
 
-/** A trivially-wired diagnostic sink + resolving `model:` matcher for the parse. */
-function makeDeps(): ParseThetaDocumentDeps {
-  const systemNote: SystemNoteChannelDeps = {
-    pi: { sendMessage: (): void => {} },
-    ui: { notify: (): void => {} },
-    emitDiagnostic: (): void => {},
-  };
-  const modelMatcher: ModelReferenceMatcher = {
-    resolve: (): "resolved" => "resolved",
-  };
-  return { systemNote, modelMatcher };
-}
-
-/** Parse a UTF-8 `.theta` (or `.thetalib`) source string through the production parser. */
 function parse(src: string, path = "test.theta"): ThetaDocument {
-  const source: ThetaSource = { path, bytes: new TextEncoder().encode(src) };
-  return parseThetaDocument(source, makeDeps());
+  return parseDoc(src, path);
 }
 
 /** The set of diagnostic codes the production parse aggregated for `src`. */
@@ -190,41 +169,6 @@ function codesOf(src: string, path = "test.theta"): string[] {
 }
 
 // --- generic AST search ----------------------------------------------------
-
-interface KindedNode {
-  readonly kind: string;
-  readonly [key: string]: unknown;
-}
-
-/** Collect every AST object of the given `kind` anywhere under `root`. */
-function collectByKind(root: unknown, kind: string): KindedNode[] {
-  const out: KindedNode[] = [];
-  const seen = new Set<unknown>();
-  const visit = (node: unknown): void => {
-    if (node === null || typeof node !== "object") {
-      return;
-    }
-    if (seen.has(node)) {
-      return;
-    }
-    seen.add(node);
-    if (Array.isArray(node)) {
-      for (const item of node) {
-        visit(item);
-      }
-      return;
-    }
-    const obj = node as Record<string, unknown>;
-    if (typeof obj.kind === "string" && obj.kind === kind) {
-      out.push(obj as KindedNode);
-    }
-    for (const key of Object.keys(obj)) {
-      visit(obj[key]);
-    }
-  };
-  visit(root);
-  return out;
-}
 
 /** All `fn` declaration nodes in a parsed body. */
 function fnNodes(body: ThetaBody): KindedNode[] {
@@ -736,20 +680,6 @@ describe("RFC-0001 subagent-fn — countable under the depth-32 invoke ceiling (
 // session id. It stays inert (all effects tagged with the root "caller" session,
 // zero spawns) until the executor routes subagent fn bodies through it.
 
-const NOOP_CHECKPOINT: Checkpoint = {
-  before(): Promise<void> {
-    return Promise.resolve();
-  },
-};
-
-class NoopMutator implements CommittedConversationMutator {
-  truncate(): void {}
-  rewrite(): void {}
-  replace(): void {}
-  remove(): void {}
-  injectCompensatingTurn(_surface: CommittedSurface): void {}
-}
-
 /** An `Ok(value)` operation result. */
 function ok(value: ThetaValue): OperationResult {
   return { ok: true, value };
@@ -891,7 +821,7 @@ function execDeps(body: ThetaBody, host: StatementEvalHost): ExecuteBodyDeps {
     host,
     checkpoint: NOOP_CHECKPOINT,
     signal: new AbortController().signal,
-    mutator: new NoopMutator(),
+    mutator: SEAM_NOOP_MUTATOR,
     mode: "prompt",
     file: "test.theta",
   };
@@ -1621,47 +1551,6 @@ describe("RFC-0012 §10 — createEffectfulStatementHost routes a subagent fn ca
 // self-recursive `subagent fn` declared in an imported `.thetalib` escaped the
 // cycle check and would recurse without bound at runtime. `checkThetaImports`
 // now runs the same check over every parsed `.thetalib` body.
-
-/**
- * A minimal in-memory `FileSystem` exposing only the `readdir` / `readBytes`
- * members `checkThetaImports` reads; every other member rejects (unexercised).
- */
-function fakeThetaLibFs(files: Record<string, string>): FileSystem {
-  const dirs = new Map<string, string[]>();
-  for (const path of Object.keys(files)) {
-    const slash = path.lastIndexOf("/");
-    const parent = path.slice(0, slash);
-    const name = path.slice(slash + 1);
-    const entries = dirs.get(parent) ?? [];
-    entries.push(name);
-    dirs.set(parent, entries);
-  }
-  const reject = (): Promise<never> =>
-    Promise.reject(new Error("filesystem member not exercised by this test"));
-  return {
-    readText: reject,
-    writeText: reject,
-    exists: reject,
-    homedir: (): string => "/home",
-    cwd: (): string => "/proj",
-    configDirName: (): string => ".pi",
-    globalAgentDir: (): string => "/home/.pi/agent",
-    lstat: reject,
-    realpath: reject,
-    readdir: (path: string): Promise<readonly string[]> => {
-      const entries = dirs.get(path);
-      return entries === undefined
-        ? Promise.reject(new Error(`ENOENT: ${path}`))
-        : Promise.resolve(entries);
-    },
-    readBytes: (path: string): Promise<Uint8Array> => {
-      const content = files[path];
-      return content === undefined
-        ? Promise.reject(new Error(`ENOENT: ${path}`))
-        : Promise.resolve(new TextEncoder().encode(content));
-    },
-  };
-}
 
 describe("RFC-0001 subagent-fn — `.thetalib` self/mutual recursion is load-rejected (FN-6, import boundary)", () => {
   it("theta/load/invocation-cycle: a self-recursive `subagent fn` defined in an imported `.thetalib` un-registers the importing theta", async () => {

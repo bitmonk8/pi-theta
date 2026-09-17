@@ -1,12 +1,11 @@
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
+import { readRegistry } from "./helpers/registry-oracle";
 import { describe, expect, it } from "vitest";
 // @ts-expect-error — JS code-registry module, no type declarations.
-import { parseRegistry, registryMessage } from "../tools/code-registry/index.js";
+import { registryMessage } from "../tools/code-registry/index.js";
 import { buildBodyTypeSchemas } from "../src/parser/body-type-lowering";
 import type { Diagnostic, SourceRange } from "../src/diagnostics/diagnostic";
 import type { EnumDecl, SchemaDecl, ThetaDocument } from "../src/parser/theta-document";
-import { parseDoc } from "./helpers/e2e-s1";
+import { parseDoc, topKinds } from "./helpers/e2e-s1";
 
 // Bug 0245 — a `schema` object body that reaches end of input with at least one
 // field captured draws ZERO diagnostics, registers, and lowers
@@ -147,19 +146,7 @@ import { parseDoc } from "./helpers/e2e-s1";
 // The diagnostic oracle — the registry's *Message* column (DIAG-4).
 // ===========================================================================
 
-interface RegistryRow {
-  readonly code: string;
-  readonly message: string;
-}
-
-const REGISTRY = parseRegistry(
-  readFileSync(
-    fileURLToPath(
-      new URL("../docs/spec_topics/diagnostics/code-registry-parse.md", import.meta.url),
-    ),
-    "utf8",
-  ),
-) as RegistryRow[];
+const REGISTRY = readRegistry(["parse"]);
 
 /**
  * The registry row's normative *Message* template with its named placeholders
@@ -287,11 +274,6 @@ function q(
 /** Every diagnostic rendered for a failure payload. */
 function render(doc: ThetaDocument): string {
   return JSON.stringify(quads(doc));
-}
-
-/** The top-level statement kinds, in source order. */
-function topKinds(doc: ThetaDocument): string[] {
-  return doc.body.statements.map((s) => s.kind);
 }
 
 /**

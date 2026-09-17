@@ -1,13 +1,7 @@
+import { ajv as realAjv } from "./helpers/scripted-live-session-harness";
+import { parseDeps as makeDeps, schemaDeclsOf, enumDeclsOf } from "./helpers/e2e-s1";
 import { describe, expect, it } from "vitest";
-import {
-  parseThetaDocument,
-  type EnumDecl,
-  type ParseThetaDocumentDeps,
-  type SchemaDecl,
-  type ThetaDocument,
-} from "../src/parser/theta-document";
-import type { SystemNoteChannelDeps } from "../src/extension/system-note-channel";
-import type { ModelReferenceMatcher } from "../src/parser/frontmatter";
+import { parseThetaDocument, type ThetaDocument } from "../src/parser/theta-document";
 import type { ThetaSource } from "../src/lexer/lexer";
 import { lowerQueryResponseSchema } from "../src/runtime/query-schema-lowering";
 import {
@@ -17,11 +11,7 @@ import {
 } from "../src/parser/schema-lowering";
 import { translateInbound } from "../src/runtime/wire-translation";
 import { evaluateObjectMember } from "../src/runtime/stdlib-object";
-import {
-  AjvSchemaValidator,
-  type LoweredSchema,
-  type SchemaSlug,
-} from "../src/seams/schema-validator";
+import { type LoweredSchema } from "../src/seams/schema-validator";
 import {
   buildObjectSchemaValue,
   makeEnumValue,
@@ -78,16 +68,6 @@ import {
 // inbound bullet — the rebuild this file orders); schema-subset.md:87
 // (Lowering Algorithm step 5, the per-`$defs` sidecar the carrier belongs to).
 
-function makeDeps(): ParseThetaDocumentDeps {
-  const systemNote: SystemNoteChannelDeps = {
-    pi: { sendMessage: (): void => {} },
-    ui: { notify: (): void => {} },
-    emitDiagnostic: (): void => {},
-  };
-  const modelMatcher: ModelReferenceMatcher = { resolve: (): "resolved" => "resolved" };
-  return { systemNote, modelMatcher };
-}
-
 function parse(src: string, path = "order.theta"): ThetaDocument {
   const source: ThetaSource = { path, bytes: new TextEncoder().encode(src) };
   const doc = parseThetaDocument(source, makeDeps());
@@ -99,25 +79,6 @@ function parse(src: string, path = "order.theta"): ThetaDocument {
     );
   }
   return doc;
-}
-
-function schemaDeclsOf(doc: ThetaDocument): readonly SchemaDecl[] {
-  return doc.body.statements.filter((s): s is SchemaDecl => s.kind === "schema");
-}
-
-function enumDeclsOf(doc: ThetaDocument): readonly EnumDecl[] {
-  return doc.body.statements.filter((s): s is EnumDecl => s.kind === "enum");
-}
-
-/** The production content-addressing of `src/extension/production-composition.ts:3789`. */
-function realAjv(): AjvSchemaValidator {
-  return new AjvSchemaValidator({
-    emit: (): void => {},
-    slugOf: (schema: LoweredSchema): SchemaSlug => {
-      const canonicalBytes = JSON.stringify(schema);
-      return { slug: canonicalBytes, canonicalBytes };
-    },
-  });
 }
 
 /**

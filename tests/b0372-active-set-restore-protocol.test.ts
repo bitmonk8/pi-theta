@@ -58,7 +58,7 @@
 //     (production-theta-producer.ts:6772) is byte-identical in shape to the
 //     other two windows; the fix converts it in the same commit. Called out
 //     here rather than skipped silently.
-
+import { rootDouble as beltRootDouble } from "./helpers/runtime-belt-probe-harness";
 import { describe, expect, it } from "vitest";
 import type {
   ExtensionAPI,
@@ -419,27 +419,8 @@ function ajv(): AjvSchemaValidator {
   return new AjvSchemaValidator({ emit: () => {}, slugOf });
 }
 
-/**
- * `clock.setTimeout` fires the callback synchronously with no lifecycle to
- * advance — the instant-settle turn is already settled at the send, so every
- * `#pollWhile` observes its clearing condition on entry. Deterministic, no real
- * timers.
- */
 function rootDouble(): RuntimeRoot {
-  return {
-    checkpoint: { before: (): Promise<void> => Promise.resolve() },
-    idSource: { newInvocationId: (): string => "inv-1", newToolCallId: (): string => "tc-1" },
-    clock: {
-      now: (): number => 0,
-      wallNow: (): number => 0,
-      setTimeout: (fn: () => void): unknown => {
-        fn();
-        return 0;
-      },
-      clearTimeout: (): void => {},
-    },
-    schemaValidator: ajv(),
-  } as unknown as RuntimeRoot;
+  return { ...beltRootDouble(), schemaValidator: ajv() };
 }
 
 function piDouble(session: InstantSettleSession, gate: RecordingActiveSet): ExtensionAPI {

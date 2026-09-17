@@ -1,13 +1,14 @@
+import { registryMessageOf } from "./helpers/load-row-harness";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 // @ts-expect-error — JS code-registry module, no type declarations.
-import { parseRegistry, registryMessage } from "../tools/code-registry/index.js";
+import { parseRegistry } from "../tools/code-registry/index.js";
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
 import { reservedKeywords } from "../src/lexer/lexer";
 import { EXPORT_IN_THETA_CODE } from "../src/parser/imports";
 import type { ThetaDocument } from "../src/parser/theta-document";
-import { parseDoc } from "./helpers/e2e-s1";
+import { parseDoc, isLoadParseError } from "./helpers/e2e-s1";
 
 // Bug 0153 — the SIX remaining identifier positions of the reserved-keyword
 // rule (docs/bugs/0153-reserved-keyword-remaining-identifier-positions.md).
@@ -208,27 +209,8 @@ const RESERVED = "theta/parse/reserved-keyword-as-identifier";
 const MUT_IMMUTABLE = "theta/parse/mut-on-immutable-context";
 const IMPORT_MALFORMED = "theta/parse/import-malformed-specifier-list";
 
-/**
- * The registry row's normative *Message* template with its named placeholders
- * filled (DIAG-4). Definedness and placeholder presence are asserted first, so
- * a missing row or a reworded template reds by naming the registry rather than
- * by a bare `undefined` comparison.
- */
 function msg(code: string, fills: ReadonlyArray<readonly [string, string]>): string {
-  const template = registryMessage(REGISTRY, code) as string | undefined;
-  expect(
-    template,
-    `DIAG-4 anchor: docs/spec_topics/diagnostics/code-registry-parse.md must carry the Message row for ${code}`,
-  ).toBeDefined();
-  let out = template as string;
-  for (const [placeholder, value] of fills) {
-    expect(
-      out,
-      `DIAG-4: the ${code} Message template must carry the ${placeholder} placeholder; template=${JSON.stringify(template)}`,
-    ).toContain(placeholder);
-    out = out.replace(placeholder, value);
-  }
-  return out;
+  return registryMessageOf(REGISTRY, "docs/spec_topics/diagnostics/code-registry-parse.md", code, fills);
 }
 
 /** The registry *Message* for the reserved code with `<keyword>` filled. */
@@ -308,24 +290,8 @@ function mutAt(line: number, column: number): string {
   return at(MUT_IMMUTABLE, msg(MUT_IMMUTABLE, []), line, column, column + "mut".length);
 }
 
-/**
- * Whether `diagnostics` blocks registration. This replicates `hasLoadParseError`
- * (src/extension/production-composition.ts) by construction: that function
- * is module-private — `rg -n 'export.*hasLoadParseError' src/` matches nothing —
- * so it cannot be imported, and the predicate is mirrored here instead, the same
- * way and for the same reason tests/fn-param-name-reserved-keyword.test.ts and
- * tests/index-element-alias-runtime-disposition.test.ts mirror it. Its clauses
- * are the whole of the original: error severity, and a code in the
- * `theta/load/` or `theta/parse/` namespace. `parseDiscoveredTheta` applies it
- * and drops the theta.
- */
 function blocksRegistration(diagnostics: readonly Diagnostic[]): boolean {
-  return diagnostics.some(
-    (diagnostic) =>
-      diagnostic.severity === "error" &&
-      (diagnostic.code.startsWith("theta/load/") ||
-        diagnostic.code.startsWith("theta/parse/")),
-  );
+  return diagnostics.some(isLoadParseError);
 }
 
 // ===========================================================================

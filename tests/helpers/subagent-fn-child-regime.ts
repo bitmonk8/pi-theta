@@ -127,3 +127,22 @@ export async function driveSubagentFnEntry(input: DriveFnEntryInput): Promise<Dr
   expect(lines, "a fn-entry drive writes exactly one envelope line").toHaveLength(1);
   return { lines, envelope: parseEnvelopeLine(lines[0]!.trimEnd()), outcomeEmissions };
 }
+
+/** Shared RecordingBus fixture for the child-regime witnesses. */
+export class RecordingBus {
+  readonly emitted: { channel: string; data: unknown }[] = [];
+  emit(channel: string, data: unknown): void {
+    this.emitted.push({ channel, data });
+  }
+}
+
+/** Shared reportOf fixture for the child-regime witnesses. */
+export function reportOf(value: unknown): Record<string, unknown> {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    throw new Error(
+      `the driven root returned ${JSON.stringify(value)} instead of the R report object — ` +
+        `the fixture set did not reach its tail expression, so no assertion below is meaningful`,
+    );
+  }
+  return value as Record<string, unknown>;
+}

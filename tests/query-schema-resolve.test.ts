@@ -1,18 +1,15 @@
+import { parseDoc } from "./helpers/e2e-s1";
 import { describe, expect, it } from "vitest";
 import {
-  parseThetaDocument,
   type Block,
   type Expr,
   type ThetaDocument,
-  type ParseThetaDocumentDeps,
   type QueryExpr,
   type SchemaDecl,
   type Stmt,
 } from "../src/parser/theta-document";
-import type { SystemNoteChannelDeps } from "../src/extension/system-note-channel";
-import type { ModelReferenceMatcher } from "../src/parser/frontmatter";
 import { lowerQueryResponseSchema } from "../src/runtime/query-schema-lowering";
-import type { ThetaSource } from "../src/lexer/lexer";
+
 
 // V13b integration — parser-level tests for the whole-body query-schema resolve
 // pass (`resolveQuerySchemas`, wired into `parseThetaDocument`): the QRY-2
@@ -32,21 +29,8 @@ import type { ThetaSource } from "../src/lexer/lexer";
 
 // --- harness ---------------------------------------------------------------
 
-function makeDeps(): ParseThetaDocumentDeps {
-  const systemNote: SystemNoteChannelDeps = {
-    pi: { sendMessage: (): void => {} },
-    ui: { notify: (): void => {} },
-    emitDiagnostic: (): void => {},
-  };
-  const modelMatcher: ModelReferenceMatcher = {
-    resolve: (): "resolved" => "resolved",
-  };
-  return { systemNote, modelMatcher };
-}
-
 function parse(src: string, path = "resolve.theta"): ThetaDocument {
-  const source: ThetaSource = { path, bytes: new TextEncoder().encode(src) };
-  return parseThetaDocument(source, makeDeps());
+  return parseDoc(src, path);
 }
 
 /** The `schema` declarations of a parsed body (for the lowering helper). */

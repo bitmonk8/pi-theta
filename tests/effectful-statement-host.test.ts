@@ -1,3 +1,10 @@
+import {
+  span,
+  SEAM_NOOP_CHECKPOINT as NOOP_CHECKPOINT,
+  SEAM_NOOP_SINK as NOOP_SINK,
+  ScriptedCheckpoint,
+  RecordingMutator,
+} from "./helpers/invoke-seam-scaffold";
 import { describe, expect, it } from "vitest";
 import { executeBody, type ExecuteBodyDeps } from "../src/runtime/statement-executor";
 import {
@@ -6,12 +13,8 @@ import {
   type QueryHostDispatch,
 } from "../src/runtime/effectful-statement-host";
 import { buildEnvironment, type LexicalEnvironment } from "../src/runtime/lexical-environment";
-import type { Checkpoint, CheckpointKind, CheckpointSite } from "../src/seams/checkpoint";
-import type {
-  CommittedConversationMutator,
-  CommittedSurface,
-  DrivenConversationMode,
-} from "../src/runtime/terminal-outcomes";
+import type { Checkpoint, CheckpointSite } from "../src/seams/checkpoint";
+import type { CommittedConversationMutator, DrivenConversationMode } from "../src/runtime/terminal-outcomes";
 import { makeErr, makeOk, type ThetaValue, type ResultValue } from "../src/runtime/value";
 import type {
   FreePhaseTurn,
@@ -19,11 +22,7 @@ import type {
   QueryModelDriver,
   QueryToolLoopConfig,
 } from "../src/runtime/query-tool-loop";
-import type {
-  AgentToolResultEnvelope,
-  CodeSideToolCall,
-  ToolLoweringSink,
-} from "../src/runtime/tool-call-execute";
+import type { AgentToolResultEnvelope, CodeSideToolCall } from "../src/runtime/tool-call-execute";
 import type { InvokeChild, DrivenInvokeResult } from "../src/runtime/invoke-cancellation";
 import type { CommittedSideEffect } from "../src/runtime/no-rollback";
 import type {
@@ -37,7 +36,7 @@ import type {
   Stmt,
   ToolCallStmt,
 } from "../src/parser/theta-document";
-import type { SourceRange } from "../src/diagnostics/diagnostic";
+
 
 // V19d-T — failing tests for the paired `V19d` effectful statement wiring.
 //
@@ -68,10 +67,6 @@ import type { SourceRange } from "../src/diagnostics/diagnostic";
 // missing fixture, or a harness throw.
 
 // --- AST construction helpers ----------------------------------------------
-
-function span(): SourceRange {
-  return { start: { line: 1, column: 1 }, end: { line: 1, column: 2 } };
-}
 
 function numberExpr(text: string): Expr {
   return { kind: "number", text, numericType: "integer", range: span() };
@@ -114,52 +109,7 @@ const SITE: CheckpointSite = { file: "theta.theta", line: 1, column: 1 };
 
 // --- Checkpoint substrate (PIC-10) -----------------------------------------
 
-/** A no-op `Checkpoint` (an already-resolved promise). */
-const NOOP_CHECKPOINT: Checkpoint = {
-  before(): Promise<void> {
-    return Promise.resolve();
-  },
-};
-
-/**
- * A `Checkpoint` whose `before(...)` invokes an injected callback on each await,
- * carrying the 1-based call index and the checkpoint kind — the deterministic
- * substrate (PIC-10) that lands an abort at a chosen checkpoint boundary without
- * depending on JS microtask scheduling.
- */
-class ScriptedCheckpoint implements Checkpoint {
-  #calls = 0;
-  readonly #onBefore: (call: number, kind: CheckpointKind) => void;
-  constructor(onBefore: (call: number, kind: CheckpointKind) => void) {
-    this.#onBefore = onBefore;
-  }
-  before(kind: CheckpointKind): Promise<void> {
-    this.#calls += 1;
-    this.#onBefore(this.#calls, kind);
-    return Promise.resolve();
-  }
-}
-
 // --- Recording partial-append mutator (V4c) --------------------------------
-
-class RecordingMutator implements CommittedConversationMutator {
-  readonly calls: string[] = [];
-  truncate(id: string): void {
-    this.calls.push(`truncate:${id}`);
-  }
-  rewrite(id: string): void {
-    this.calls.push(`rewrite:${id}`);
-  }
-  replace(id: string): void {
-    this.calls.push(`replace:${id}`);
-  }
-  remove(id: string): void {
-    this.calls.push(`remove:${id}`);
-  }
-  injectCompensatingTurn(surface: CommittedSurface): void {
-    this.calls.push(`inject:${surface.id}`);
-  }
-}
 
 // --- Boundary doubles the real hosts consume -------------------------------
 
@@ -237,11 +187,6 @@ class RecordingInvokeChild implements InvokeChild {
     return Promise.resolve({ source: "callee-returned", result: makeOk(this.value) });
   }
 }
-
-const NOOP_SINK: ToolLoweringSink = {
-  diagnostic(): void {},
-  systemNote(): void {},
-};
 
 function queryConfig(): QueryToolLoopConfig {
   return {

@@ -1,8 +1,7 @@
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
+import { readRegistry } from "./helpers/registry-oracle";
 import { describe, expect, it } from "vitest";
 // @ts-expect-error — JS code-registry module, no type declarations.
-import { parseRegistry, registryMessage } from "../tools/code-registry/index.js";
+import { registryMessage } from "../tools/code-registry/index.js";
 import type { Diagnostic, SourceRange } from "../src/diagnostics/diagnostic";
 import type { ThetaSource } from "../src/lexer/lexer";
 import type { ThetaCompositionInput } from "../src/extension/theta-composition-producer";
@@ -88,20 +87,7 @@ import {
 
 // --- Registry-sourced Message templates (DIAG-4) ---------------------------
 
-/** The live sharded registry page this file's three codes are registered on. */
-const REGISTRY_TEXT = readFileSync(
-  fileURLToPath(
-    new URL("../docs/spec_topics/diagnostics/code-registry-parse.md", import.meta.url),
-  ),
-  "utf8",
-);
-
-interface RegistryRow {
-  code: string;
-  message: string;
-}
-
-const REGISTRY = parseRegistry(REGISTRY_TEXT) as RegistryRow[];
+const REGISTRY = readRegistry(["parse"]);
 
 const ARITY_CODE = "theta/parse/tool-arg-arity";
 const BARE_OBJECT_CODE = "theta/parse/bare-object-literal";

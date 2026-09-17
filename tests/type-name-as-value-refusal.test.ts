@@ -27,7 +27,7 @@ import type {
 } from "../src/extension/theta-composition-producer";
 import type { RuntimeRoot } from "../src/runtime-root";
 import type { Checkpoint } from "../src/seams/checkpoint";
-import { parseDoc } from "./helpers/e2e-s1";
+import { parseDoc, isLoadParseError } from "./helpers/e2e-s1";
 import { committedThetaSources } from "./helpers/theta-corpus";
 
 // Bug 0140 — `collectIdentRoots` (src/parser/theta-document.ts:4774) builds the
@@ -372,21 +372,8 @@ function expectLines(
   expect(linesOf(doc), `${label}: ${why}`).toEqual(expected);
 }
 
-/**
- * `hasLoadParseError`'s predicate (src/extension/production-composition.ts —
- * module-private, so restated rather than imported), evaluated over the
- * diagnostics a fixture actually emitted: a theta registers unless some
- * diagnostic is an error-severity `theta/load/*` or `theta/parse/*`. This is the
- * reachability link between the refusal and a theta that does not run — the
- * whole reason the bug is a load hazard and not a diagnostic-correctness
- * question. Warnings never block registration.
- */
 function registers(doc: ThetaDocument): boolean {
-  return !doc.diagnostics.some(
-    (d: Diagnostic) =>
-      d.severity === "error" &&
-      (d.code.startsWith("theta/load/") || d.code.startsWith("theta/parse/")),
-  );
+  return !doc.diagnostics.some(isLoadParseError);
 }
 
 // ===========================================================================

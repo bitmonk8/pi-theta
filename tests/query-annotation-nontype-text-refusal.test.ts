@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 import { parseRegistry, registryMessage } from "../tools/code-registry/index.js";
 import type { ThetaDocument } from "../src/parser/theta-document";
 import { annotationSourceIsNotTypeExpression } from "../src/parser/type-layer-checks";
-import { parseDoc } from "./helpers/e2e-s1";
+import { parseDoc, diagLines, diagCodes } from "./helpers/e2e-s1";
 
 // Bug 0203 — `parseQuery`'s own `@<T>` annotation capture
 // (src/parser/theta-document.ts, the `<`-guarded branch of `parseQuery`) is an
@@ -262,22 +262,6 @@ const FM = "---\nmode: prompt\n---\n";
  */
 function queryTheta(annotation: string, decls = ""): string {
   return `${FM}${decls}let r = @<${annotation}>\`hi\`\nr\n`;
-}
-
-/** Every diagnostic rendered `<severity> <code>: <message>`, in emission order. */
-function diagLines(doc: ThetaDocument): string[] {
-  return doc.diagnostics.map((d) => `${d.severity} ${d.code}: ${d.message}`);
-}
-
-/**
- * Every diagnostic rendered `<severity> <code>`, in emission order — the
- * REGISTRY-FREE half of a refusal expectation. Asserted BEFORE the rendered
- * message on every refusal cell so the red at HEAD names the symptom the bug
- * reports (an annotation that draws nothing at all) rather than the absent
- * registry row, which is a separate, separately-titled red.
- */
-function diagCodes(doc: ThetaDocument): string[] {
-  return doc.diagnostics.map((d) => `${d.severity} ${d.code}`);
 }
 
 /**

@@ -1,8 +1,9 @@
+import { readRegistry, type RegistryRow } from "./helpers/registry-oracle";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 // @ts-expect-error — JS code-registry module, no type declarations.
-import { parseRegistry, registryMessage } from "../tools/code-registry/index.js";
+import { registryMessage } from "../tools/code-registry/index.js";
 import type { Diagnostic, SourceRange } from "../src/diagnostics/diagnostic";
 import type { ThetaDocument } from "../src/parser/theta-document";
 import { parseDoc, parseDocBytes } from "./helpers/e2e-s1";
@@ -99,15 +100,7 @@ function readRepoFile(relative: string): string {
 
 const REGISTRY_TEXT = readRepoFile(REGISTRY_PARSE_PAGE);
 
-interface RegistryRow {
-  readonly code: string;
-  readonly severity: string;
-  readonly phase: string;
-  readonly trigger: string;
-  readonly message: string;
-}
-
-const REGISTRY = parseRegistry(REGISTRY_TEXT) as RegistryRow[];
+const REGISTRY = readRegistry(["parse"]);
 
 /** The row under adjudication (code-registry-parse.md:34). */
 const INC_DEC = "theta/parse/increment-decrement";

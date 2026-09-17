@@ -59,12 +59,10 @@
 // Spec: pi-integration-contract/subagent.md (PIC-59, PIC-65),
 // diagnostics/code-registry-runtime.md, diagnostics/diagnostic-shape.md
 // (DIAG-1, DIAG-4), diagnostics/placeholder-rendering-b.md (§8).
-
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
+import { REGISTRY, type RegistryRow } from "./helpers/registry-oracle";
 import { describe, expect, it } from "vitest";
 // @ts-expect-error — JS code-registry module, no type declarations.
-import { parseRegistry, registryMessage } from "../tools/code-registry/index.js";
+import { registryMessage } from "../tools/code-registry/index.js";
 import { driveSubagentChild } from "../src/runtime/subagent-json-driver";
 import {
   SUBAGENT_ENVELOPE_PARSE_FAILED_CODE,
@@ -72,29 +70,11 @@ import {
   THETA_RESULT_KEY,
 } from "../src/runtime/subagent-envelope";
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
-import { FakeJsonChild } from "./helpers/fake-json-child";
+import { FakeJsonChild, driveOver as driveOverChild } from "./helpers/fake-json-child";
 
 // ---------------------------------------------------------------------------
 // Registry-sourced oracle (DIAG-4): the code and the Message template.
 // ---------------------------------------------------------------------------
-
-interface RegistryRow {
-  readonly code: string;
-  readonly severity: string;
-  readonly phase: string;
-  readonly message: string;
-}
-
-const REGISTRY = parseRegistry(
-  ["code-registry-parse.md", "code-registry-load.md", "code-registry-runtime.md", "code-registry-host.md"]
-    .map((page) =>
-      readFileSync(
-        fileURLToPath(new URL(`../docs/spec_topics/diagnostics/${page}`, import.meta.url)),
-        "utf8",
-      ),
-    )
-    .join("\n"),
-) as RegistryRow[];
 
 // Composed rather than written as one span, so this file does not register as
 // the code's asserting test in the closing gate's textual extraction.
@@ -156,12 +136,7 @@ function driveOver(
   thetaAbort: AbortController,
   emitted: Diagnostic[],
 ): ReturnType<typeof driveSubagentChild> {
-  return driveSubagentChild({
-    child,
-    thetaAbort,
-    calleePath: "/theta/child.theta",
-    emitDiagnostic: (d) => emitted.push(d),
-  });
+  return driveOverChild(child, thetaAbort, emitted, "/theta/child.theta");
 }
 
 /** The wire-parse diagnostics among everything the drive emitted. */

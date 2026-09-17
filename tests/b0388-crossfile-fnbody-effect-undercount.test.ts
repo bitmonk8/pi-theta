@@ -1,3 +1,4 @@
+import { fakeThetaLibFs } from "./helpers/thetalib-load-harness";
 import { describe, expect, it } from "vitest";
 import type {
   ExtensionAPI,
@@ -27,7 +28,6 @@ import type { AgentToolResultEnvelope } from "../src/runtime/tool-call-execute";
 import { isEnumValue, schemaTagOf, type ThetaValue } from "../src/runtime/value";
 import type { RuntimeRoot } from "../src/runtime-root";
 import type { Checkpoint } from "../src/seams/checkpoint";
-import type { FileSystem } from "../src/seams/file-system";
 import { parseDeps } from "./helpers/e2e-s1";
 import { fakeExecutableHost, makeFakeJsonChildLauncher, type FakeJsonChild, type SpawnRecord } from "./helpers/fake-json-child";
 import { childRegimeRootDouble, driveSubagentFnEntry } from "./helpers/subagent-fn-child-regime";
@@ -121,42 +121,6 @@ function parse(source: string, path: string): ThetaDocument {
 
 function parseApp(body: string): ThetaDocument {
   return parse(`${APP_FRONTMATTER}\n${body}`, "/proj/app.theta");
-}
-
-function fakeThetaLibFs(files: Record<string, string>): FileSystem {
-  const dirs = new Map<string, string[]>();
-  for (const path of Object.keys(files)) {
-    const slash = path.lastIndexOf("/");
-    const parent = path.slice(0, slash);
-    const entries = dirs.get(parent) ?? [];
-    entries.push(path.slice(slash + 1));
-    dirs.set(parent, entries);
-  }
-  const reject = (): Promise<never> =>
-    Promise.reject(new Error("filesystem member not exercised by this test"));
-  return {
-    readText: reject,
-    writeText: reject,
-    exists: reject,
-    homedir: (): string => "/home",
-    cwd: (): string => "/proj",
-    configDirName: (): string => ".pi",
-    globalAgentDir: (): string => "/home/.pi/agent",
-    lstat: reject,
-    realpath: reject,
-    readdir: (path: string): Promise<readonly string[]> => {
-      const entries = dirs.get(path);
-      return entries === undefined
-        ? Promise.reject(new Error(`ENOENT: ${path}`))
-        : Promise.resolve(entries);
-    },
-    readBytes: (path: string): Promise<Uint8Array> => {
-      const content = files[path];
-      return content === undefined
-        ? Promise.reject(new Error(`ENOENT: ${path}`))
-        : Promise.resolve(new TextEncoder().encode(content));
-    },
-  } as FileSystem;
 }
 
 const NOOP_CHECKPOINT: Checkpoint = {

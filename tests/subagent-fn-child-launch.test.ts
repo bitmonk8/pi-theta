@@ -22,7 +22,6 @@
 //
 // Spec: functions.md FN-6/FN-7/FN-9, invocation.md INV-4/INV-8,
 // pi-integration-contract/subagent.md #subagent-launch-contract, PIC-58/59/60.
-
 import { resolve as resolvePath } from "node:path";
 import { describe, expect, it } from "vitest";
 import type { ExtensionAPI, ExtensionCommandContext, ModelRegistry } from "@earendil-works/pi-coding-agent";
@@ -41,16 +40,8 @@ import { SUBAGENT_LAUNCH_ENTRY_ENV, SUBAGENT_INVOKE_DEPTH_ENV, type SpawnFn } fr
 import { SUBAGENT_PARAMS_ENV } from "../src/runtime/subagent-params";
 import { SUBAGENT_ROOT_ENV_MARKER } from "../src/runtime/subagent-root-regime";
 import { fakeExecutableHost, makeFakeJsonChildLauncher, type FakeJsonChild, type SpawnRecord } from "./helpers/fake-json-child";
-import { childRegimeRootDouble, driveSubagentFnEntry } from "./helpers/subagent-fn-child-regime";
+import { childRegimeRootDouble, driveSubagentFnEntry, RecordingBus } from "./helpers/subagent-fn-child-regime";
 import { SUBAGENT_CHILD_OUTCOME_CHANNEL } from "../src/runtime/subagent-placement-registry";
-
-/** RFC 0012 §7 (0.478.0): a fake `pi.events`-shaped bus recording `[channel, data]` pairs. */
-class RecordingBus {
-  readonly emitted: { channel: string; data: unknown }[] = [];
-  emit(channel: string, data: unknown): void {
-    this.emitted.push({ channel, data });
-  }
-}
 
 // ---------------------------------------------------------------------------
 // Parsing
@@ -447,7 +438,7 @@ describe("RFC-0012 §10 — child side: the fn entry runs the named subagent fn 
     }
   });
 
-  it('M9: a bare-tail fn entry emits one "ok" outcome event before the shutdown request is reachable; the envelope still carries fn_tail as today', async () => {
+  it('M9: a bare-tail fn entry emits one "ok" outcome event and an ok envelope with its tail value', async () => {
     const bus = new RecordingBus();
     const outcome = await driveSubagentFnEntry({
       theta: callerTheta(STEP_SRC, "prompt"),

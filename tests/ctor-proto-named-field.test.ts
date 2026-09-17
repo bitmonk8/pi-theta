@@ -1,5 +1,4 @@
-import { fileURLToPath } from "node:url";
-import { readFileSync } from "node:fs";
+import { REGISTRY } from "./helpers/registry-oracle";
 import { describe, expect, it } from "vitest";
 import type {
   ExtensionAPI,
@@ -7,7 +6,7 @@ import type {
   ModelRegistry,
 } from "@earendil-works/pi-coding-agent";
 // @ts-expect-error — JS code-registry module, no type declarations.
-import { parseRegistry, registryMessage } from "../tools/code-registry/index.js";
+import { registryMessage } from "../tools/code-registry/index.js";
 import type { ThetaSource } from "../src/lexer/lexer";
 import type { SystemNoteChannelDeps } from "../src/extension/system-note-channel";
 import type { ModelReferenceMatcher, ParsedFrontmatter } from "../src/parser/frontmatter";
@@ -226,22 +225,6 @@ const FM_GREP_TOOL = "---\nmode: prompt\ntools:\n  - grep\n---\n";
 // reads the registry to prove both are the registered ones — an invented or
 // reworded message must not pass by matching a string this file made up.
 // ===========================================================================
-
-const REGISTRY = parseRegistry(
-  [
-    "code-registry-parse.md",
-    "code-registry-load.md",
-    "code-registry-runtime.md",
-    "code-registry-host.md",
-  ]
-    .map((page) =>
-      readFileSync(
-        fileURLToPath(new URL(`../docs/spec_topics/diagnostics/${page}`, import.meta.url)),
-        "utf8",
-      ),
-    )
-    .join("\n"),
-) as readonly { readonly code: string; readonly message: string }[];
 
 /**
  * The registered *Message* template for `code`. A missing row fails LOUDLY: the

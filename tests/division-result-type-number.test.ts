@@ -1,8 +1,10 @@
+import { PARSE_REGISTRY_PATH as REGISTRY_PAGE } from "./helpers/load-row-harness";
+import { readRegistry } from "./helpers/registry-oracle";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 // @ts-expect-error — JS code-registry module, no type declarations.
-import { parseRegistry, registryMessage } from "../tools/code-registry/index.js";
+import { registryMessage } from "../tools/code-registry/index.js";
 import type {
   ExtensionAPI,
   ExtensionCommandContext,
@@ -27,7 +29,7 @@ import type {
 } from "../src/extension/theta-composition-producer";
 import type { RuntimeRoot } from "../src/runtime-root";
 import type { Checkpoint } from "../src/seams/checkpoint";
-import { parseDoc } from "./helpers/e2e-s1";
+import { parseDoc, argRange as sharedArgRange, letRange as sharedLetRange } from "./helpers/e2e-s1";
 import { committedThetaSources } from "./helpers/theta-corpus";
 
 // Bug 0142 — `#typeBinary`'s arithmetic arm (src/parser/static-type-inference.ts)
@@ -185,20 +187,7 @@ const OBJECT_FIELD_CODE = "theta/parse/object-field-type-mismatch";
 // cell measures.
 const ARITHMETIC_CODE = "theta/parse/non-numeric-arithmetic-operands";
 
-interface RegistryRow {
-  readonly code: string;
-  readonly severity: string;
-  readonly phase: string;
-  readonly trigger: string;
-  readonly message: string;
-}
-
-/** The live `theta/parse/*` registry page — the DIAG-4 oracle for this file. */
-const REGISTRY_PAGE = "docs/spec_topics/diagnostics/code-registry-parse.md";
-
-const REGISTRY = parseRegistry(
-  readFileSync(fileURLToPath(new URL(`../${REGISTRY_PAGE}`, import.meta.url)), "utf8"),
-) as RegistryRow[];
+const REGISTRY = readRegistry(["parse"]);
 
 /**
  * A registered code's normative *Message* template. Throws naming the registry
@@ -547,33 +536,12 @@ function expectDivisions(doc: ThetaDocument, count: number, cell: string): void 
   ).toBe(count);
 }
 
-/** The range of argument `index` of the fixture's sole call of `callee`. */
 function argRange(doc: ThetaDocument, callee: string, index: number): SourceRange {
-  const calls = anchorsOf(doc).calls.filter((c) => c.callee === callee);
-  expect(
-    calls,
-    `PRECONDITION: the fixture must hold exactly one call of '${callee}'; the parse found ${calls.length}. Diagnostics: ${render(doc)}`,
-  ).toHaveLength(1);
-  const args = calls[0]!.args;
-  expect(
-    args.length,
-    `PRECONDITION: the call of '${callee}' must carry an argument at index ${index}; it carries ${args.length}. Diagnostics: ${render(doc)}`,
-  ).toBeGreaterThan(index);
-  return args[index]!;
+  return sharedArgRange(doc, callee, index, (doc) => anchorsOf(doc).calls, render);
 }
 
-/**
- * The range of the fixture's sole `let` named `name` — the anchor
- * `checkLetRhsCompat` (src/parser/type-compat.ts) reports its narrowing on,
- * which its `1.5`-literal control measures on the same shape.
- */
 function letRange(doc: ThetaDocument, name: string): SourceRange {
-  const hits = anchorsOf(doc).lets.filter((l) => l.name === name);
-  expect(
-    hits,
-    `PRECONDITION: the fixture must hold exactly one \`let ${name}\`; the parse found ${hits.length}. Diagnostics: ${render(doc)}`,
-  ).toHaveLength(1);
-  return hits[0]!.range;
+  return sharedLetRange(doc, name, (doc) => anchorsOf(doc).lets, render);
 }
 
 /** The range of that `let`'s initialiser — the array-element sink's anchor. */

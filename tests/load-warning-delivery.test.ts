@@ -1,7 +1,7 @@
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { loadRowMessage, interpolate } from "./helpers/registry-oracle";
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type {
   ExtensionAPI,
@@ -16,8 +16,6 @@ import {
   discoverAndComposeFixtures,
 } from "../src/extension/production-composition";
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
-// @ts-expect-error — JS code-registry module, no type declarations.
-import { parseRegistry, registryMessage } from "../tools/code-registry/index.js";
 import { FakeClock } from "./helpers/fake-clock";
 import { FakeFileWatcher } from "./helpers/fake-file-watcher";
 
@@ -110,40 +108,6 @@ import { FakeFileWatcher } from "./helpers/fake-file-watcher";
 // The registry rows (DIAG-2 / DIAG-4) — messages sourced from the Message
 // column of code-registry-load.md, placeholders interpolated per cell.
 // ===========================================================================
-
-interface RegistryRow {
-  code: string;
-  namespace: string;
-  severity: string;
-  phase: string;
-  trigger: string;
-  message: string;
-}
-
-const REGISTRY = parseRegistry(
-  readFileSync(
-    fileURLToPath(
-      new URL("../docs/spec_topics/diagnostics/code-registry-load.md", import.meta.url),
-    ),
-    "utf8",
-  ),
-) as RegistryRow[];
-
-/** The row's normative Message template (DIAG-4), asserted present loudly. */
-function loadRowMessage(code: string): string {
-  const message = registryMessage(REGISTRY, code) as string | undefined;
-  expect(
-    message,
-    `DIAG-4 anchor: docs/spec_topics/diagnostics/code-registry-load.md must carry ` +
-      `the Message row for ${code}`,
-  ).toBeDefined();
-  return message!;
-}
-
-/** Interpolate a registry Message template's `<placeholder>` slots. */
-function interpolate(template: string, subs: Record<string, string>): string {
-  return template.replace(/<([a-z-]+)>/g, (whole, name: string) => subs[name] ?? whole);
-}
 
 /**
  * A registry Message template as a whole-string RegExp with every

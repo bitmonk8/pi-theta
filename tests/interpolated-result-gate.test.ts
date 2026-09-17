@@ -1,5 +1,11 @@
-import { fileURLToPath } from "node:url";
-import { readFileSync } from "node:fs";
+import { parseDeps } from "./helpers/e2e-s1";
+import {
+  ANTHROPIC_MODEL,
+  type SessionEntryDouble,
+  appendUserEntry,
+  appendAssistantEntry,
+} from "./helpers/scripted-live-session-harness";
+import { REGISTRY } from "./helpers/registry-oracle";
 import { describe, expect, it } from "vitest";
 import type {
   ExtensionAPI,
@@ -7,16 +13,11 @@ import type {
   ModelRegistry,
 } from "@earendil-works/pi-coding-agent";
 // @ts-expect-error — JS code-registry module, no type declarations.
-import { parseRegistry, registryMessage } from "../tools/code-registry/index.js";
+import { registryMessage } from "../tools/code-registry/index.js";
 import type { ThetaSource } from "../src/lexer/lexer";
 import type { Diagnostic, SourceRange } from "../src/diagnostics/diagnostic";
-import type { SystemNoteChannelDeps } from "../src/extension/system-note-channel";
-import type { ModelReferenceMatcher, ParsedFrontmatter } from "../src/parser/frontmatter";
-import {
-  parseThetaDocument,
-  type ParseThetaDocumentDeps,
-  type ThetaDocument,
-} from "../src/parser/theta-document";
+import type { ParsedFrontmatter } from "../src/parser/frontmatter";
+import { parseThetaDocument, type ThetaDocument } from "../src/parser/theta-document";
 import { executeBody, type BodyExecution } from "../src/runtime/statement-executor";
 import { isThetaPanic, QuestionOperandDefectError } from "../src/runtime/runtime-panics";
 import { isResultValue } from "../src/runtime/value";
@@ -175,23 +176,6 @@ import type { Checkpoint } from "../src/seams/checkpoint";
 // The DIAG-4 oracle: the registry Message column, read from the spec corpus.
 // ===========================================================================
 
-/** The live registry, read from the spec corpus — the DIAG-4 source of truth. */
-const REGISTRY = parseRegistry(
-  [
-    "code-registry-parse.md",
-    "code-registry-load.md",
-    "code-registry-runtime.md",
-    "code-registry-host.md",
-  ]
-    .map((page) =>
-      readFileSync(
-        fileURLToPath(new URL(`../docs/spec_topics/diagnostics/${page}`, import.meta.url)),
-        "utf8",
-      ),
-    )
-    .join("\n"),
-) as readonly { readonly code: string; readonly message: string }[];
-
 /** The reserved-keyword code the enum-variant NAME position draws (bug 0153). */
 const RESERVED_KEYWORD_CODE = "theta/parse/reserved-keyword-as-identifier";
 
@@ -234,18 +218,6 @@ function reservedKeywordMessage(keyword: string): string {
 // ===========================================================================
 // Shared parse harness (the tests/absent-member-presence-gate.test.ts pattern).
 // ===========================================================================
-
-function parseDeps(): ParseThetaDocumentDeps {
-  const systemNote: SystemNoteChannelDeps = {
-    pi: { sendMessage: (): void => {} },
-    ui: { notify: (): void => {} },
-    emitDiagnostic: (): void => {},
-  };
-  const modelMatcher: ModelReferenceMatcher = {
-    resolve: (): "resolved" => "resolved",
-  };
-  return { systemNote, modelMatcher };
-}
 
 /** The source path every fixture parses under; also the diagnostics' `file`. */
 const FIXTURE_PATH = "/theta/bug0079.theta";
@@ -420,21 +392,6 @@ const NOOP_CHECKPOINT: Checkpoint = {
   },
 };
 
-/** The user session's selected model (`ctx.model`) — provider derivation only. */
-const ANTHROPIC_MODEL = {
-  id: "m1",
-  api: "anthropic-messages",
-  provider: "anthropic",
-  strictCapable: true,
-};
-
-interface SessionEntryDouble {
-  readonly type: "message";
-  readonly id: string;
-  readonly parentId: string | undefined;
-  readonly message: Record<string, unknown>;
-}
-
 class LiveSessionDouble {
   readonly entries: SessionEntryDouble[] = [];
   sendUserMessageCalls = 0;
@@ -446,7 +403,7 @@ class LiveSessionDouble {
   sendUserMessage(content: string): void {
     this.sendUserMessageCalls += 1;
     this.sentQueryTexts.push(content);
-    this.#append({ role: "user", content: [{ type: "text", text: content }], timestamp: 0 });
+    appendUserEntry(this.entries, content);
     this.#idle = false;
   }
 
@@ -459,22 +416,8 @@ class LiveSessionDouble {
     if (this.#idle) {
       return;
     }
-    this.#append({
-      role: "assistant",
-      content: [{ type: "text", text: "ok" }],
-      api: "anthropic-messages",
-      provider: "anthropic",
-      model: "m1",
-      stopReason: "stop",
-      timestamp: 0,
-    });
+    appendAssistantEntry(this.entries, "ok", "stop");
     this.#idle = true;
-  }
-
-  #append(message: Record<string, unknown>): void {
-    const id = `e${this.entries.length + 1}`;
-    const parentId = this.entries.length === 0 ? undefined : `e${this.entries.length}`;
-    this.entries.push({ type: "message", id, parentId, message });
   }
 }
 

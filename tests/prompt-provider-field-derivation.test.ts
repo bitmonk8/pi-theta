@@ -52,7 +52,7 @@
 // §provider derivation), pi-integration-contract/conversation-drive.md
 // (PIC-50 provider derivation + sync-throw mapping, PIC-51 error-stop probe,
 // PIC-53 trailing-turn extraction), query/query-forms.md (QRY-1).
-
+import { ANTHROPIC_MODEL, type SessionEntryDouble, ajv, parse } from "./helpers/scripted-live-session-harness";
 import { describe, expect, it } from "vitest";
 import type {
   ExtensionAPI,
@@ -62,20 +62,11 @@ import type {
 import { createProductionProducerDeps } from "../src/extension/production-theta-producer";
 import type { ThetaCompositionInput } from "../src/extension/theta-composition-producer";
 import { executeBody, type BodyExecution } from "../src/runtime/statement-executor";
-import {
-  AjvSchemaValidator,
-  type LoweredSchema,
-  type SchemaSlug,
-} from "../src/seams/schema-validator";
 import type { RuntimeRoot } from "../src/runtime-root";
-import {
-  parseThetaDocument,
-  type ParseThetaDocumentDeps,
-  type ThetaDocument,
-} from "../src/parser/theta-document";
-import type { ThetaSource } from "../src/lexer/lexer";
-import type { ModelReferenceMatcher } from "../src/parser/frontmatter";
-import type { SystemNoteChannelDeps } from "../src/extension/system-note-channel";
+
+
+
+
 
 // --- The user session's selected model ---------------------------------------
 // DISTINCT `.api` and `.provider` strings so the TransportError.provider
@@ -86,13 +77,6 @@ import type { SystemNoteChannelDeps } from "../src/extension/system-note-channel
 // short provider id doubles as an `Api` value (e.g. `google-vertex`) would
 // VALUE-MASK the wrong field read; a typical entry (`anthropic` /
 // `anthropic-messages`) exposes it.
-
-const ANTHROPIC_MODEL = {
-  id: "m1",
-  api: "anthropic-messages",
-  provider: "anthropic",
-  strictCapable: true,
-};
 
 // --- The scripted provider failure texts ------------------------------------
 
@@ -144,14 +128,6 @@ interface ScriptedAssistantReply {
   readonly stopReason: string;
   readonly text?: string;
   readonly errorMessage?: string;
-}
-
-/** A `SessionManager` message entry (the `buildSessionContext` read shape). */
-interface SessionEntryDouble {
-  readonly type: "message";
-  readonly id: string;
-  readonly parentId: string | undefined;
-  readonly message: Record<string, unknown>;
 }
 
 /**
@@ -238,38 +214,6 @@ class LiveSessionDouble {
 }
 
 // --- Harness ------------------------------------------------------------------
-
-function parseDeps(): ParseThetaDocumentDeps {
-  const systemNote: SystemNoteChannelDeps = {
-    pi: { sendMessage: (): void => {} },
-    ui: { notify: (): void => {} },
-    emitDiagnostic: (): void => {},
-  };
-  const modelMatcher: ModelReferenceMatcher = { resolve: (): "resolved" => "resolved" };
-  return { systemNote, modelMatcher };
-}
-
-/** Parse `.theta` source through the production whole-file parser (must be clean). */
-function parse(src: string): ThetaDocument {
-  const source: ThetaSource = {
-    path: "probe.theta",
-    bytes: new TextEncoder().encode(src),
-  };
-  const doc = parseThetaDocument(source, parseDeps());
-  const errors = doc.diagnostics.filter((d) => d.severity === "error").map((d) => d.code);
-  expect(errors, "the fixture theta must parse cleanly before it is driven").toEqual([]);
-  expect(doc.frontmatter, "the fixture theta must carry parseable frontmatter").not.toBeNull();
-  return doc;
-}
-
-/** The production AJV validator (the typed cell's schema machinery; matches the sibling harness). */
-function ajv(): AjvSchemaValidator {
-  const slugOf = (schema: LoweredSchema): SchemaSlug => ({
-    slug: JSON.stringify(schema),
-    canonicalBytes: JSON.stringify(schema),
-  });
-  return new AjvSchemaValidator({ emit: () => {}, slugOf });
-}
 
 /**
  * A runtime-root double for the LIVE prompt-mode drive: a noop checkpoint,

@@ -1,3 +1,4 @@
+import { readRegistry, type RegistryRow } from "./helpers/registry-oracle";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
@@ -7,7 +8,7 @@ import type {
   ModelRegistry,
 } from "@earendil-works/pi-coding-agent";
 // @ts-expect-error — JS code-registry module, no type declarations.
-import { parseRegistry, registryMessage } from "../tools/code-registry/index.js";
+import { registryMessage } from "../tools/code-registry/index.js";
 import { parseDoc, parseDocBytes } from "./helpers/e2e-s1";
 import { committedThetaSources } from "./helpers/theta-corpus";
 import type { Diagnostic, SourceRange } from "../src/diagnostics/diagnostic";
@@ -140,14 +141,6 @@ const UNKNOWN_IDENT = "theta/parse/unknown-identifier";
 // and DIAG-2's evidence that disposition 1 mints no row. 
 // ===========================================================================
 
-interface RegistryRow {
-  readonly code: string;
-  readonly severity: string;
-  readonly phase: string;
-  readonly trigger: string;
-  readonly message: string;
-}
-
 const REGISTRY_PARSE_PAGE = "docs/spec_topics/diagnostics/code-registry-parse.md";
 
 function readRepoFile(relative: string): string {
@@ -155,7 +148,8 @@ function readRepoFile(relative: string): string {
 }
 
 const REGISTRY_TEXT = readRepoFile(REGISTRY_PARSE_PAGE);
-const REGISTRY = parseRegistry(REGISTRY_TEXT) as RegistryRow[];
+
+const REGISTRY = readRegistry(["parse"]);
 
 /**
  * The registry row for `code`, or a throw naming the absent row (no silent

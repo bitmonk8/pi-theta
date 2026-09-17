@@ -1,3 +1,4 @@
+import { fakeThetaLibFs } from "./helpers/thetalib-load-harness";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
@@ -7,9 +8,8 @@ import type { Diagnostic } from "../src/diagnostics/diagnostic";
 import { checkThetaImports } from "../src/extension/import-static-checks";
 import type { ThetaCompositionInput } from "../src/extension/theta-composition-producer";
 import type { ParsedFrontmatter } from "../src/parser/frontmatter";
-import { parseThetaDocument, type ThetaDocument } from "../src/parser/theta-document";
-import type { FileSystem } from "../src/seams/file-system";
-import { parseDeps } from "./helpers/e2e-s1";
+import { type ThetaDocument } from "../src/parser/theta-document";
+import { parseDeps, parseDoc as parse } from "./helpers/e2e-s1";
 
 // Bug 0211 — the `ImportDecl` / `ExportDecl` productions spell the specifier
 // list as `"{" ImportSpec ("," ImportSpec)* ","? "}"`: a `,` BETWEEN two
@@ -229,11 +229,6 @@ function malformedListMessage(): string {
 // established, tests/import-specifier-list-production-required.test.ts).
 // ===========================================================================
 
-/** Parse a source string at `path` through the shipped whole-document pipeline. */
-function parse(source: string, path: string): ThetaDocument {
-  return parseThetaDocument({ path, bytes: new TextEncoder().encode(source) }, parseDeps());
-}
-
 /**
  * Parse a `.thetalib` body. `import` / `export` are both permitted top-level
  * forms there (imports.md:13), so a degenerate spelling on either keyword draws
@@ -309,42 +304,6 @@ function specifierPairs(doc: ThetaDocument): Array<readonly [string, string]> {
 // exercised by `checkThetaImports`; every other member rejects, so an
 // unexpected call reds instead of silently returning a stand-in value.
 // ===========================================================================
-
-function fakeThetaLibFs(files: Record<string, string>): FileSystem {
-  const dirs = new Map<string, string[]>();
-  for (const path of Object.keys(files)) {
-    const slash = path.lastIndexOf("/");
-    const parent = path.slice(0, slash);
-    const entries = dirs.get(parent) ?? [];
-    entries.push(path.slice(slash + 1));
-    dirs.set(parent, entries);
-  }
-  const reject = (): Promise<never> =>
-    Promise.reject(new Error("filesystem member not exercised by this test"));
-  return {
-    readText: reject,
-    writeText: reject,
-    exists: reject,
-    homedir: (): string => "/home",
-    cwd: (): string => "/proj",
-    configDirName: (): string => ".pi",
-    globalAgentDir: (): string => "/home/.pi/agent",
-    lstat: reject,
-    realpath: reject,
-    readdir: (path: string): Promise<readonly string[]> => {
-      const entries = dirs.get(path);
-      return entries === undefined
-        ? Promise.reject(new Error(`ENOENT: ${path}`))
-        : Promise.resolve(entries);
-    },
-    readBytes: (path: string): Promise<Uint8Array> => {
-      const content = files[path];
-      return content === undefined
-        ? Promise.reject(new Error(`ENOENT: ${path}`))
-        : Promise.resolve(new TextEncoder().encode(content));
-    },
-  };
-}
 
 /** The load-pass result for one importing `.theta` body over one lib set. */
 async function loadImports(

@@ -1,3 +1,9 @@
+import {
+  span,
+  SEAM_NOOP_CHECKPOINT as NOOP_CHECKPOINT,
+  SEAM_NOOP_SINK as NOOP_SINK,
+  SEAM_NOOP_MUTATOR,
+} from "./helpers/invoke-seam-scaffold";
 import { describe, expect, it } from "vitest";
 import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import type { AssistantMessage, Message, UserMessage } from "@earendil-works/pi-ai";
@@ -20,12 +26,8 @@ import {
 } from "../src/runtime/effectful-statement-host";
 import { buildEnvironment } from "../src/runtime/lexical-environment";
 import type { ExecuteBodyDeps } from "../src/runtime/statement-executor";
-import type { Checkpoint, CheckpointKind, CheckpointSite } from "../src/seams/checkpoint";
-import type {
-  CommittedConversationMutator,
-  CommittedSurface,
-  DrivenConversationMode,
-} from "../src/runtime/terminal-outcomes";
+import type { CheckpointKind, CheckpointSite } from "../src/seams/checkpoint";
+import type { DrivenConversationMode } from "../src/runtime/terminal-outcomes";
 import { makeErr, makeOk, type ThetaValue, type ResultValue } from "../src/runtime/value";
 import type { QueryError } from "../src/runtime/query-error";
 import type {
@@ -35,16 +37,12 @@ import type {
   QueryToolLoopConfig,
 } from "../src/runtime/query-tool-loop";
 import { extractTrailingTurnText } from "../src/runtime/conversation-drive";
-import type {
-  AgentToolResultEnvelope,
-  CodeSideToolCall,
-  ToolLoweringSink,
-} from "../src/runtime/tool-call-execute";
+import type { AgentToolResultEnvelope, CodeSideToolCall } from "../src/runtime/tool-call-execute";
 import type { InvokeChild, DrivenInvokeResult } from "../src/runtime/invoke-cancellation";
 import type { CommittedSideEffect } from "../src/runtime/no-rollback";
 import type { Expr, ThetaBody, QueryExpr } from "../src/parser/theta-document";
 import type { ThetaMode, ParsedFrontmatter } from "../src/parser/frontmatter";
-import type { SourceRange } from "../src/diagnostics/diagnostic";
+
 
 // V19e-T — failing tests for the paired `V19e` per-theta runnable composition
 // producer.
@@ -83,10 +81,6 @@ import type { SourceRange } from "../src/diagnostics/diagnostic";
 
 // --- AST + Message + config helpers ----------------------------------------
 
-function span(): SourceRange {
-  return { start: { line: 1, column: 1 }, end: { line: 1, column: 2 } };
-}
-
 function queryExpr(template: string): QueryExpr {
   return { kind: "query", schema: null, template, range: span() };
 }
@@ -120,26 +114,6 @@ function assistantMessage(text: string): AssistantMessage {
 }
 
 const SITE: CheckpointSite = { file: "theta.theta", line: 1, column: 1 };
-
-/** A no-op `Checkpoint` (an already-resolved promise). */
-const NOOP_CHECKPOINT: Checkpoint = {
-  before(): Promise<void> {
-    return Promise.resolve();
-  },
-};
-
-const NOOP_SINK: ToolLoweringSink = {
-  diagnostic(): void {},
-  systemNote(): void {},
-};
-
-class RecordingMutator implements CommittedConversationMutator {
-  truncate(): void {}
-  rewrite(): void {}
-  replace(): void {}
-  remove(): void {}
-  injectCompensatingTurn(_surface: CommittedSurface): void {}
-}
 
 function queryConfig(): QueryToolLoopConfig {
   return {
@@ -272,7 +246,7 @@ function boundExecuteDeps(
     host: createEffectfulStatementHost(hostDeps),
     checkpoint: NOOP_CHECKPOINT,
     signal: new AbortController().signal,
-    mutator: new RecordingMutator(),
+    mutator: SEAM_NOOP_MUTATOR,
     mode,
     file: "test.theta",
   };

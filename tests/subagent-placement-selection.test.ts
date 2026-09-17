@@ -4,12 +4,12 @@
 // `theta/load/subagent-placement-unavailable` row (message sourced from the
 // registry, DIAG-4; mirrored in docs/reference/diagnostics.md), the load gate
 // predicate, the visible cap, and the D6 credential guard cells.
-
+import { REGISTRY } from "./helpers/registry-oracle";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 // @ts-expect-error — JS code-registry module, no type declarations.
-import { parseRegistry, registryMessage } from "../tools/code-registry/index.js";
+import { registryMessage } from "../tools/code-registry/index.js";
 import {
   createPlacementPolicy,
   createUnavailablePlacementBackend,
@@ -30,14 +30,6 @@ import {
   type SubagentPlacementBackend,
 } from "../src/runtime/subagent-placement";
 import type { ThetaBody } from "../src/parser/theta-document";
-
-const REGISTRY = parseRegistry(
-  ["code-registry-parse.md", "code-registry-load.md", "code-registry-runtime.md", "code-registry-host.md"]
-    .map((page) =>
-      readFileSync(fileURLToPath(new URL(`../docs/spec_topics/diagnostics/${page}`, import.meta.url)), "utf8"),
-    )
-    .join("\n"),
-) as { code: string; message: string; severity: string }[];
 
 function backend(
   name: string,

@@ -22,7 +22,7 @@ import {
   type SchemaSlug,
 } from "../src/seams/schema-validator";
 import { parseDoc } from "./helpers/e2e-s1";
-import { assertKeysSorted, inlineDefName, slugOfCanonicalForm } from "./helpers/canonical-slug-oracle";
+import { assertKeysSorted, inlineDefName, slugOfCanonicalForm, refNames } from "./helpers/canonical-slug-oracle";
 
 // Bug 0039 — an inline object type is recursive by the grammar, and the shared
 // body-type lowering handles neither the recursion nor the comma it introduces
@@ -595,34 +595,6 @@ function ajv(): { readonly validator: AjvSchemaValidator; readonly emitted: Diag
     validator: new AjvSchemaValidator({ emit: (d) => emitted.push(d), slugOf }),
     emitted,
   };
-}
-
-/** Every `#/$defs/<name>` pointer anywhere in a document, in encounter order. */
-function refNames(value: unknown): string[] {
-  const names: string[] = [];
-  const visit = (node: unknown): void => {
-    if (Array.isArray(node)) {
-      for (const item of node) {
-        visit(item);
-      }
-      return;
-    }
-    if (node === null || typeof node !== "object") {
-      return;
-    }
-    for (const [key, child] of Object.entries(node as Record<string, unknown>)) {
-      if (key === "$ref" && typeof child === "string") {
-        const match = /^#\/\$defs\/(.+)$/.exec(child);
-        if (match?.[1] !== undefined) {
-          names.push(match[1]);
-        }
-      } else {
-        visit(child);
-      }
-    }
-  };
-  visit(value);
-  return names;
 }
 
 /**

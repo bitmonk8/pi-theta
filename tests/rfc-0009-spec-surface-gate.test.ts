@@ -20,27 +20,11 @@
 //
 // Each cell fails loudly naming the missing surface; no cell can pass
 // vacuously (readCorpus throws on unreadable/empty files).
-
-import { fileURLToPath } from "node:url";
-import { readFileSync } from "node:fs";
+import { readCorpus as readSharedCorpus } from "./helpers/corpus-reader";
 import { describe, expect, it } from "vitest";
 
-const repoFile = (rel: string): string =>
-  fileURLToPath(new URL(`../${rel}`, import.meta.url));
-
 function readCorpus(rel: string): string {
-  let text: string;
-  try {
-    text = readFileSync(repoFile(rel), "utf8");
-  } catch (cause) {
-    throw new Error(
-      `harness precondition unmet: ${rel} is unreadable — RFC 0009's spec surface lives there, so a missing file is a loud failure, never a skip (${String(cause)})`,
-    );
-  }
-  if (text.trim() === "") {
-    throw new Error(`harness precondition unmet: ${rel} is empty; nothing to gate`);
-  }
-  return text;
+  return readSharedCorpus(rel, "rfc-0009-spec-surface-gate.test.ts's spec oracle");
 }
 
 const INVOCATION = "docs/spec_topics/invocation.md";

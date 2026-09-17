@@ -13,7 +13,6 @@
 //
 // TIER: unit, offline, provider-free, deterministic — the same tier as every
 // file that imports this module.
-
 import type { Diagnostic } from "../../src/diagnostics/diagnostic";
 import { THETA_RESULT_KEY } from "../../src/runtime/subagent-envelope";
 import type { SubagentChildProcess } from "../../src/runtime/subagent-launcher";
@@ -32,6 +31,8 @@ export function tick(): Promise<void> {
 export function driveDeps(
   child: SubagentChildProcess,
   thetaAbort: AbortController,
+  calleePath = "./worker.theta",
+  emitDiagnostic: (d: Diagnostic) => void = (): void => {},
 ): {
   child: SubagentChildProcess;
   thetaAbort: AbortController;
@@ -41,7 +42,7 @@ export function driveDeps(
   return {
     child,
     thetaAbort,
-    calleePath: "./worker.theta",
-    emitDiagnostic: (): void => {},
+    calleePath,
+    emitDiagnostic,
   };
 }

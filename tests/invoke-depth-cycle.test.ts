@@ -1,9 +1,8 @@
-import { fileURLToPath } from "node:url";
-import { readFileSync } from "node:fs";
+import { readRegistry } from "./helpers/registry-oracle";
 import { describe, expect, it } from "vitest";
 
 // @ts-expect-error — JS code-registry module, no type declarations.
-import { parseRegistry, registryMessage } from "../tools/code-registry/index.js";
+import { registryMessage } from "../tools/code-registry/index.js";
 import {
   INVOCATION_CYCLE_CODE,
   INVOKE_DEPTH_CAP,
@@ -42,23 +41,7 @@ import type { Diagnostic } from "../src/diagnostics/diagnostic";
 
 // The live sharded diagnostics registry — the single source of truth for every
 // *Message* template (the *Diagnostic message anchors* rule).
-const REGISTRY_TEXT = ["code-registry-runtime.md", "code-registry-load.md"]
-  .map((page) =>
-    readFileSync(
-      fileURLToPath(
-        new URL(`../docs/spec_topics/diagnostics/${page}`, import.meta.url),
-      ),
-      "utf8",
-    ),
-  )
-  .join("\n");
-
-interface RegistryRow {
-  code: string;
-  message: string;
-}
-
-const REGISTRY = parseRegistry(REGISTRY_TEXT) as RegistryRow[];
+const REGISTRY = readRegistry(["runtime","load"]);
 
 /** Source a code's registered *Message* template and fill its `<…>` placeholders. */
 function expectedMessage(code: string, subs: Readonly<Record<string, string>>): string {

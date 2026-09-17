@@ -42,6 +42,7 @@
 // invocation.md (§Typed return, INV-5), pi-integration-contract/subagent.md
 // (PIC-58 launch contract, PIC-59 envelope).
 
+import { reportOf } from "./helpers/subagent-fn-child-regime";
 import { describe, expect, it } from "vitest";
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -151,17 +152,6 @@ const TOP_TYPED = [
     'crossedNotStr: ve == "high", objSevNotStr: vo.sev == "high", elem0NotStr: va[0] == "high" }',
   "",
 ].join("\n");
-
-/** Narrow the envelope's `Ok` payload to the report object, failing loudly when it is not one. */
-function reportOf(value: unknown): Record<string, unknown> {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) {
-    throw new Error(
-      `the driven root returned ${JSON.stringify(value)} instead of the R report object — ` +
-        `the fixture set did not reach its tail expression, so no assertion below is meaningful`,
-    );
-  }
-  return value as Record<string, unknown>;
-}
 
 describe("bug 0067 — subagent invoke return: inbound named-enum tag reattachment", () => {
   it(

@@ -1,3 +1,4 @@
+import { parseDeps as makeParseDeps } from "./helpers/e2e-s1";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 // The scripted off-session `complete()` reply queue the typed-query cell below
@@ -30,7 +31,6 @@ vi.mock("@earendil-works/pi-ai/compat", async (importOriginal) => {
     }),
   };
 });
-
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -41,15 +41,7 @@ import type {
   ModelRegistry,
   ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
-import {
-  parseThetaDocument,
-  type EnumDecl,
-  type ParseThetaDocumentDeps,
-  type SchemaDecl,
-  type ThetaDocument,
-} from "../src/parser/theta-document";
-import type { SystemNoteChannelDeps } from "../src/extension/system-note-channel";
-import type { ModelReferenceMatcher } from "../src/parser/frontmatter";
+import { parseThetaDocument, type EnumDecl, type SchemaDecl, type ThetaDocument } from "../src/parser/theta-document";
 import type { ThetaSource } from "../src/lexer/lexer";
 import { lowerQueryResponseSchema } from "../src/runtime/query-schema-lowering";
 import {
@@ -179,16 +171,6 @@ import {
 // (`anyOf`) arms", whose candidate 1 is the rule above).
 
 // --- Substrate -------------------------------------------------------------
-
-function makeParseDeps(): ParseThetaDocumentDeps {
-  const systemNote: SystemNoteChannelDeps = {
-    pi: { sendMessage: (): void => {} },
-    ui: { notify: (): void => {} },
-    emitDiagnostic: (): void => {},
-  };
-  const modelMatcher: ModelReferenceMatcher = { resolve: (): "resolved" => "resolved" };
-  return { systemNote, modelMatcher };
-}
 
 /**
  * Parse `src` and refuse anything that did not load cleanly. A theta carrying a

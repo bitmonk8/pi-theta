@@ -16,6 +16,7 @@
 //
 // Spec: pi-integration-contract/subagent.md PIC-58/PIC-59; invocation.md FN-5.
 
+import { RecordingBus } from "./helpers/subagent-fn-child-regime";
 import { describe, expect, it } from "vitest";
 import { createProductionProducerDeps } from "../src/extension/production-theta-producer";
 import type { ThetaCompositionInput } from "../src/extension/theta-composition-producer";
@@ -29,14 +30,6 @@ import { parseEnvelopeLine } from "../src/runtime/subagent-envelope";
 import type { EncodedToolRequest, HostToolResult } from "../src/runtime/host-loop-dispatch";
 import { SUBAGENT_PARAMS_ENV } from "../src/runtime/subagent-params";
 import { SUBAGENT_CHILD_OUTCOME_CHANNEL } from "../src/runtime/subagent-placement-registry";
-
-/** RFC 0012 §7 (0.478.0): a fake `pi.events`-shaped bus recording `[channel, data]` pairs. */
-class RecordingBus {
-  readonly emitted: { channel: string; data: unknown }[] = [];
-  emit(channel: string, data: unknown): void {
-    this.emitted.push({ channel, data });
-  }
-}
 
 class RecordingCheckpoint implements Checkpoint {
   before(_kind: CheckpointKind, _site: CheckpointSite): Promise<void> {

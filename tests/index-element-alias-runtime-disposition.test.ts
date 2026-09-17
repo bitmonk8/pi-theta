@@ -1,18 +1,13 @@
+import { parseDoc, isLoadParseError } from "./helpers/e2e-s1";
 import { describe, expect, it } from "vitest";
 import type {
   ExtensionAPI,
   ExtensionCommandContext,
   ModelRegistry,
 } from "@earendil-works/pi-coding-agent";
-import type { ThetaSource } from "../src/lexer/lexer";
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
-import type { SystemNoteChannelDeps } from "../src/extension/system-note-channel";
-import type { ModelReferenceMatcher, ParsedFrontmatter } from "../src/parser/frontmatter";
-import {
-  parseThetaDocument,
-  type ParseThetaDocumentDeps,
-  type ThetaDocument,
-} from "../src/parser/theta-document";
+import type { ParsedFrontmatter } from "../src/parser/frontmatter";
+import { type ThetaDocument } from "../src/parser/theta-document";
 import { executeBody, type BodyExecution } from "../src/runtime/statement-executor";
 import { surfaceUnexpectedThrow } from "../src/runtime/runtime-panics";
 import type { ThetaValue } from "../src/runtime/value";
@@ -120,21 +115,8 @@ import type { Checkpoint } from "../src/seams/checkpoint";
 // the assertion, so the parse is inspected rather than gated.
 // ===========================================================================
 
-function parseDeps(): ParseThetaDocumentDeps {
-  const systemNote: SystemNoteChannelDeps = {
-    pi: { sendMessage: (): void => {} },
-    ui: { notify: (): void => {} },
-    emitDiagnostic: (): void => {},
-  };
-  const modelMatcher: ModelReferenceMatcher = {
-    resolve: (): "resolved" => "resolved",
-  };
-  return { systemNote, modelMatcher };
-}
-
 function parseOnly(path: string, src: string): ThetaDocument {
-  const source: ThetaSource = { path, bytes: new TextEncoder().encode(src) };
-  return parseThetaDocument(source, parseDeps());
+  return parseDoc(src, path);
 }
 
 const NOOP_CHECKPOINT: Checkpoint = {
@@ -173,22 +155,8 @@ const SITE = {
   },
 };
 
-/**
- * Whether `diagnostics` blocks registration. This replicates `hasLoadParseError`
- * (src/extension/production-composition.ts:2045–2052) by construction: that
- * function is module-private — `rg -n 'export.*hasLoadParseError' src/` matches
- * nothing — so it cannot be imported, and the predicate is mirrored here
- * instead. Its three clauses are the whole of the original: error severity, and
- * a code in the `theta/load/` or `theta/parse/` namespace.
- * `parseDiscoveredTheta` applies it at `:2092` and drops the theta.
- */
 function blocksRegistration(diagnostics: readonly Diagnostic[]): boolean {
-  return diagnostics.some(
-    (diagnostic) =>
-      diagnostic.severity === "error" &&
-      (diagnostic.code.startsWith("theta/load/") ||
-        diagnostic.code.startsWith("theta/parse/")),
-  );
+  return diagnostics.some(isLoadParseError);
 }
 
 /** One row's measurement: what the parse said, and what the runtime then did. */

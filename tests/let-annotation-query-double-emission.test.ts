@@ -49,12 +49,10 @@
 // NO SILENT SKIPPING: nothing here early-returns or conditionally skips. Every
 // asserted code is looked up in the registry first, so a renamed or removed row
 // reds by naming the registry rather than by a silently-unreachable expectation.
-
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
+import { readRegistry } from "./helpers/registry-oracle";
 import { describe, expect, it } from "vitest";
 // @ts-expect-error — JS code-registry module, no type declarations.
-import { parseRegistry, registryMessage } from "../tools/code-registry/index.js";
+import { registryMessage } from "../tools/code-registry/index.js";
 import type { ThetaDocument } from "../src/parser/theta-document";
 import { parseDoc } from "./helpers/e2e-s1";
 
@@ -68,14 +66,7 @@ const VOID_POS = "theta/parse/void-in-non-return-position";
 const UNRESOLVED = "theta/parse/unresolved-named-type";
 const LET_RHS = "theta/parse/let-rhs-type-mismatch";
 
-const REGISTRY = parseRegistry(
-  readFileSync(
-    fileURLToPath(
-      new URL("../docs/spec_topics/diagnostics/code-registry-parse.md", import.meta.url),
-    ),
-    "utf8",
-  ),
-) as { code: string; message: string }[];
+const REGISTRY = readRegistry(["parse"]);
 
 for (const code of [EMPTY_BODY, ARITY, VOID_POS, UNRESOLVED, LET_RHS]) {
   expect(

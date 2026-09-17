@@ -14,7 +14,7 @@
 // yield zero load/parse diagnostics. A seeded-invalid `.theta` fixture and a
 // runtime-materialised invalid `.thetalib` each confirm the gate reddens on a
 // malformed file.
-
+import { parseDeps as makeDeps } from "./helpers/e2e-s1";
 import { describe, expect, it } from "vitest";
 import { spawnSync } from "node:child_process";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -22,16 +22,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { lexTheta, type ThetaSource } from "../src/lexer/lexer";
-import {
-  parseThetaDocument,
-  type ParseThetaDocumentDeps,
-} from "../src/parser/theta-document";
+import { parseThetaDocument } from "../src/parser/theta-document";
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
-import type {
-  SystemNoteChannelDeps,
-  SystemNoteSender,
-} from "../src/extension/system-note-channel";
-import type { ModelReferenceMatcher } from "../src/parser/frontmatter";
+
+
 
 // Derived from this module's own file location, not the process cwd: the
 // corpus this gate scores must be a function of the commit, not of wherever
@@ -91,20 +85,6 @@ function discoverShippedFixtures(): string[] {
     .filter((p) => p.length > 0)
     .filter((p) => !p.startsWith(SEEDED_INVALID_DIR))
     .sort();
-}
-
-/** Trivially-resolving seam doubles — no `pi.sendMessage`, no model lookup. */
-function makeDeps(): ParseThetaDocumentDeps {
-  const pi: SystemNoteSender = { sendMessage: (): void => {} };
-  const systemNote: SystemNoteChannelDeps = {
-    pi,
-    ui: { notify: (): void => {} },
-    emitDiagnostic: (): void => {},
-  };
-  const modelMatcher: ModelReferenceMatcher = {
-    resolve: (): "resolved" => "resolved",
-  };
-  return { systemNote, modelMatcher };
 }
 
 /**

@@ -77,12 +77,10 @@
 // and a diagnostic arriving with no range fails loudly rather than rendering a
 // placeholder. A fixture that never reached the position under test can never
 // be mistaken for a pass.
-
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
+import { REGISTRY } from "./helpers/registry-oracle";
 import { describe, expect, it } from "vitest";
 // @ts-expect-error — JS code-registry module, no type declarations.
-import { parseRegistry, registryMessage } from "../tools/code-registry/index.js";
+import { registryMessage } from "../tools/code-registry/index.js";
 import type { LetStmt, ThetaDocument } from "../src/parser/theta-document";
 import { findLetStmt, parseDoc } from "./helpers/e2e-s1";
 
@@ -94,29 +92,6 @@ import { findLetStmt, parseDoc } from "./helpers/e2e-s1";
 
 const REFUSAL_CODE = "theta/parse/annotation-type-not-expression";
 const MISMATCH_CODE = "theta/parse/explicit-schema-mismatch";
-
-interface RegistryRow {
-  readonly code: string;
-  readonly severity: string;
-  readonly message: string;
-}
-
-/** The live four-page sharded registry — the input tests/code-registry.test.ts reconciles. */
-const REGISTRY = parseRegistry(
-  [
-    "code-registry-parse.md",
-    "code-registry-load.md",
-    "code-registry-runtime.md",
-    "code-registry-host.md",
-  ]
-    .map((page) =>
-      readFileSync(
-        fileURLToPath(new URL(`../docs/spec_topics/diagnostics/${page}`, import.meta.url)),
-        "utf8",
-      ),
-    )
-    .join("\n"),
-) as RegistryRow[];
 
 /**
  * A row's normative *Message* template (DIAG-4), read rather than restated.

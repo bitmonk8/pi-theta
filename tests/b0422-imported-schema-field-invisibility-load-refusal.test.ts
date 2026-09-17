@@ -1,3 +1,4 @@
+import { fakeThetaLibFs } from "./helpers/thetalib-load-harness";
 import { describe, expect, it } from "vitest";
 import type {
   ExtensionAPI,
@@ -13,7 +14,6 @@ import type {
 } from "../src/extension/theta-composition-producer";
 import type { ParsedFrontmatter } from "../src/parser/frontmatter";
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
-import type { FileSystem } from "../src/seams/file-system";
 import type { RuntimeRoot } from "../src/runtime-root";
 import { SYSTEM_NOTE_CHANNEL } from "../src/extension/system-note-channel";
 import { makeOk, type ThetaValue } from "../src/runtime/value";
@@ -153,47 +153,6 @@ function appSource(systemTemplate: string): string {
     "let x = 1",
     "",
   ].join("\n");
-}
-
-/**
- * An in-memory `FileSystem` serving only the registered `.thetalib` fixtures —
- * every other member REJECTS, so a resolution that reads off-fixture reds
- * loudly rather than resolving an empty buffer (the b0303 `fakeThetaLibFs`).
- */
-function fakeThetaLibFs(files: Record<string, string>): FileSystem {
-  const dirs = new Map<string, string[]>();
-  for (const path of Object.keys(files)) {
-    const slash = path.lastIndexOf("/");
-    const parent = path.slice(0, slash);
-    const entries = dirs.get(parent) ?? [];
-    entries.push(path.slice(slash + 1));
-    dirs.set(parent, entries);
-  }
-  const reject = (): Promise<never> =>
-    Promise.reject(new Error("filesystem member not exercised by this test"));
-  return {
-    readText: reject,
-    writeText: reject,
-    exists: reject,
-    homedir: (): string => "/home",
-    cwd: (): string => "/proj",
-    configDirName: (): string => ".pi",
-    globalAgentDir: (): string => "/home/.pi/agent",
-    lstat: reject,
-    realpath: reject,
-    readdir: (path: string): Promise<readonly string[]> => {
-      const entries = dirs.get(path);
-      return entries === undefined
-        ? Promise.reject(new Error(`ENOENT: ${path}`))
-        : Promise.resolve(entries);
-    },
-    readBytes: (path: string): Promise<Uint8Array> => {
-      const content = files[path];
-      return content === undefined
-        ? Promise.reject(new Error(`ENOENT: ${path}`))
-        : Promise.resolve(new TextEncoder().encode(content));
-    },
-  } as FileSystem;
 }
 
 function parseApp(systemTemplate: string): ThetaDocument {

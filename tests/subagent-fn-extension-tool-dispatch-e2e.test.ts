@@ -25,6 +25,7 @@
 // #subagent-host-loop-dispatch), functions.md FN-6 (#fn-6), RFC 0012 §10,
 // diagnostics/code-registry-load.md (`theta/load/extension-tool-unreachable`).
 
+import { resolvingHost } from "./helpers/fake-json-child";
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -42,7 +43,7 @@ import {
   discoverAndComposeFixtures,
 } from "../src/extension/production-composition";
 import { EXTENSION_TOOL_UNREACHABLE_CODE } from "../src/runtime/host-loop-dispatch";
-import type { ExecutableHost } from "../src/runtime/subagent-launcher";
+
 import { FakeHostLoopHost } from "./helpers/fake-host-loop-host";
 
 // --- The planted thetas ------------------------------------------------------
@@ -230,16 +231,6 @@ describe("PIC-64 inline-body context (parent leg) — a prompt-mode theta whose 
 });
 
 // --- No-rung host: the refusal survives, keyed on rung availability alone -----
-
-/** An executable host whose rung 1 resolves (a runnable entry point exists). */
-function resolvingHost(): ExecutableHost {
-  return {
-    argv1: "/app/pi/dist/index.js",
-    execPath: "/usr/bin/node",
-    fileExists: (): boolean => true,
-    isGenericRuntime: (): boolean => false,
-  };
-}
 
 describe("PIC-64 rung 3 — a surfaces-absent host still refuses the inline-body code call fail-closed", () => {
   let noRungDir: string;

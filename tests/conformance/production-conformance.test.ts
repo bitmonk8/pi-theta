@@ -1,3 +1,4 @@
+import { parseDeps } from "../helpers/e2e-s1";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type {
   ExtensionAPI,
@@ -31,15 +32,11 @@ import type { ThetaSettings } from "../../src/discovery/settings";
 import type { RuntimeRoot } from "../../src/runtime-root";
 import type { Checkpoint } from "../../src/seams/checkpoint";
 import type { AgentToolResultEnvelope } from "../../src/runtime/tool-call-execute";
-import {
-  parseThetaDocument,
-  type ThetaDocument,
-  type ParseThetaDocumentDeps,
-} from "../../src/parser/theta-document";
+import { parseThetaDocument, type ThetaDocument } from "../../src/parser/theta-document";
 import type { ThetaSource } from "../../src/lexer/lexer";
 import type { Diagnostic } from "../../src/diagnostics/diagnostic";
-import type { SystemNoteChannelDeps } from "../../src/extension/system-note-channel";
-import type { ModelReferenceMatcher } from "../../src/parser/frontmatter";
+
+
 
 // V20g-T — Production-path language-surface conformance suite.
 //
@@ -78,19 +75,6 @@ import type { ModelReferenceMatcher } from "../../src/parser/frontmatter";
 // ===========================================================================
 // Shared production-composition drive harness (no live model).
 // ===========================================================================
-
-/** A trivially-wired diagnostic sink + resolving `model:` matcher for the parse. */
-function parseDeps(): ParseThetaDocumentDeps {
-  const systemNote: SystemNoteChannelDeps = {
-    pi: { sendMessage: (): void => {} },
-    ui: { notify: (): void => {} },
-    emitDiagnostic: (): void => {},
-  };
-  const modelMatcher: ModelReferenceMatcher = {
-    resolve: (): "resolved" => "resolved",
-  };
-  return { systemNote, modelMatcher };
-}
 
 /** Parse a UTF-8 `.theta` source string through the production whole-file parser. */
 function parse(src: string, path = "conformance.theta"): ThetaDocument {

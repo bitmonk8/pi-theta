@@ -1,11 +1,9 @@
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
+import { registryMessageOf } from "./helpers/load-row-harness";
+import { readRegistry, type RegistryRow } from "./helpers/registry-oracle";
 import { describe, expect, it } from "vitest";
-// @ts-expect-error — JS code-registry module, no type declarations.
-import { parseRegistry, registryMessage } from "../tools/code-registry/index.js";
 import type { Diagnostic, SourceRange } from "../src/diagnostics/diagnostic";
 import type { ThetaDocument } from "../src/parser/theta-document";
-import { parseDoc } from "./helpers/e2e-s1";
+import { parseDoc, isLoadParseError } from "./helpers/e2e-s1";
 
 // Bug 0148 — the `fn` PARAMETER-NAME position of the reserved-keyword rule, and
 // the diagnostic it draws
@@ -211,47 +209,15 @@ import { parseDoc } from "./helpers/e2e-s1";
 // The diagnostic oracle — the registry's *Message* and *Sev* columns.
 // ===========================================================================
 
-interface RegistryRow {
-  readonly code: string;
-  readonly severity: string;
-  readonly message: string;
-}
-
-const REGISTRY = parseRegistry(
-  readFileSync(
-    fileURLToPath(
-      new URL("../docs/spec_topics/diagnostics/code-registry-parse.md", import.meta.url),
-    ),
-    "utf8",
-  ),
-) as RegistryRow[];
+const REGISTRY = readRegistry(["parse"]);
 
 const RESERVED = "theta/parse/reserved-keyword-as-identifier";
 const BINDING_CASE = "theta/parse/binding-case-mismatch";
 const MUT_IMMUTABLE = "theta/parse/mut-on-immutable-context";
 const FN_ARG_MISMATCH = "theta/parse/fn-arg-type-mismatch";
 
-/**
- * The registry row's normative *Message* template with its named placeholders
- * filled (DIAG-4). Definedness and placeholder presence are asserted first, so
- * a missing row or a reworded template reds by naming the registry rather than
- * by a bare `undefined` comparison.
- */
 function msg(code: string, fills: ReadonlyArray<readonly [string, string]>): string {
-  const template = registryMessage(REGISTRY, code) as string | undefined;
-  expect(
-    template,
-    `DIAG-4 anchor: docs/spec_topics/diagnostics/code-registry-parse.md must carry the Message row for ${code}`,
-  ).toBeDefined();
-  let out = template as string;
-  for (const [placeholder, value] of fills) {
-    expect(
-      out,
-      `DIAG-4: the ${code} Message template must carry the ${placeholder} placeholder; template=${JSON.stringify(template)}`,
-    ).toContain(placeholder);
-    out = out.replace(placeholder, value);
-  }
-  return out;
+  return registryMessageOf(REGISTRY, "docs/spec_topics/diagnostics/code-registry-parse.md", code, fills);
 }
 
 /** The registry *Message* for this code with `<keyword>` filled by `keyword`. */
@@ -343,24 +309,8 @@ function soleRange(doc: ThetaDocument, code: string): SourceRange {
   return r;
 }
 
-/**
- * Whether `diagnostics` blocks registration. This replicates `hasLoadParseError`
- * (src/extension/production-composition.ts:3263–3270) by construction: that
- * function is module-private — `rg -n 'export.*hasLoadParseError' src/` matches
- * nothing — so it cannot be imported, and the predicate is mirrored here
- * instead, the same way and for the same reason
- * `tests/index-element-alias-runtime-disposition.test.ts:185` mirrors it. Its
- * clauses are the whole of the original: error severity, and a code in the
- * `theta/load/` or `theta/parse/` namespace. `parseDiscoveredTheta` applies it
- * at `:2094` and drops the theta.
- */
 function blocksRegistration(diagnostics: readonly Diagnostic[]): boolean {
-  return diagnostics.some(
-    (diagnostic) =>
-      diagnostic.severity === "error" &&
-      (diagnostic.code.startsWith("theta/load/") ||
-        diagnostic.code.startsWith("theta/parse/")),
-  );
+  return diagnostics.some(isLoadParseError);
 }
 
 // ===========================================================================

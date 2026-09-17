@@ -14,7 +14,7 @@
 //     aborted invocation maps to Err(cancelled) (cancel wins over the
 //     no-envelope internal_error map); a thrown cancellation kill routes
 //     theta/runtime/internal-error without propagating.
-
+import { envelopeLine, tick, driveDeps as childDriveDeps } from "./helpers/subagent-json-driver-harness";
 import { describe, expect, it } from "vitest";
 import {
   attachSubagentCancellation,
@@ -22,11 +22,7 @@ import {
   SUBAGENT_CANCEL_KILL_INTERNAL_ERROR_CODE,
 } from "../src/runtime/subagent-json-driver";
 import { adaptChild } from "../src/extension/production-subagent-host";
-import {
-  SUBAGENT_EXIT_WITHOUT_ENVELOPE_CODE,
-  THETA_ENVELOPE_VERSION,
-  THETA_RESULT_KEY,
-} from "../src/runtime/subagent-envelope";
+import { SUBAGENT_EXIT_WITHOUT_ENVELOPE_CODE, THETA_ENVELOPE_VERSION } from "../src/runtime/subagent-envelope";
 
 /**
  * The companion crash-detail code PIC-59 pins ALONGSIDE
@@ -40,25 +36,8 @@ import type { SubagentChildProcess } from "../src/runtime/subagent-launcher";
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
 import { FakeRpcChild } from "./helpers/fake-rpc-child";
 
-/** One hand-built `theta_result` envelope line (the child emits this on stdout). */
-function envelopeLine(payload: Record<string, unknown>): string {
-  return JSON.stringify({ [THETA_RESULT_KEY]: payload });
-}
-
-/** A microtask+macrotask flush so the drive reaches its stdout-read await. */
-function tick(): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, 0));
-}
-
 function driveDeps(child: SubagentChildProcess, thetaAbort: AbortController, emitted: Diagnostic[] = []) {
-  return {
-    child,
-    thetaAbort,
-    calleePath: "/theta/child.theta",
-    emitDiagnostic: (d: Diagnostic): void => {
-      emitted.push(d);
-    },
-  };
+  return childDriveDeps(child, thetaAbort, "/theta/child.theta", (d) => { emitted.push(d); });
 }
 
 // ---------------------------------------------------------------------------

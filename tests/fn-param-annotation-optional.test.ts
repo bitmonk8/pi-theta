@@ -1,11 +1,11 @@
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
+import { readCorpus as readSharedCorpus } from "./helpers/corpus-reader";
+import { readRegistry } from "./helpers/registry-oracle";
 import { describe, expect, it } from "vitest";
 // @ts-expect-error — JS code-registry module, no type declarations.
-import { parseRegistry, registryMessage } from "../tools/code-registry/index.js";
+import { registryMessage } from "../tools/code-registry/index.js";
 import type { Diagnostic, SourceRange } from "../src/diagnostics/diagnostic";
 import type { FnDecl, FnParam, ThetaDocument } from "../src/parser/theta-document";
-import { parseDoc } from "./helpers/e2e-s1";
+import { parseDoc, topKinds } from "./helpers/e2e-s1";
 
 // Bug 0150 — both normative grammar mirrors write `FnParam ::= Ident ":" Type`,
 // yet `parseFn`'s parameter loop guards the annotation read behind
@@ -123,9 +123,8 @@ import { parseDoc } from "./helpers/e2e-s1";
 // (a) The documentation oracle — the five sites route 2 edits.
 // ===========================================================================
 
-/** Read a committed corpus file as UTF-8, relative to this test file. */
 function corpus(relative: string): string {
-  return readFileSync(fileURLToPath(new URL(relative, import.meta.url)), "utf8");
+  return readSharedCorpus(relative.slice(3), "the optional-annotation spec oracle");
 }
 
 /**
@@ -311,19 +310,7 @@ describe("0150 (a) — route 2's documentation edit: both mirrors, both prose pa
 // The diagnostic oracle — the registry's *Message* column (DIAG-4).
 // ===========================================================================
 
-interface RegistryRow {
-  readonly code: string;
-  readonly message: string;
-}
-
-const REGISTRY = parseRegistry(
-  readFileSync(
-    fileURLToPath(
-      new URL("../docs/spec_topics/diagnostics/code-registry-parse.md", import.meta.url),
-    ),
-    "utf8",
-  ),
-) as RegistryRow[];
+const REGISTRY = readRegistry(["parse"]);
 
 /**
  * The registry row's normative *Message* template with its named placeholders
@@ -455,11 +442,6 @@ function fnOf(doc: ThetaDocument): FnDecl {
 /** The recorded `{name, type}` parameter pairs of the single `fn`. */
 function paramsOf(doc: ThetaDocument): FnParam[] {
   return fnOf(doc).params.map((p) => ({ name: p.name, type: p.type }));
-}
-
-/** The top-level statement kinds, in source order — `doc.body.statements`. */
-function topKinds(doc: ThetaDocument): string[] {
-  return doc.body.statements.map((s) => s.kind);
 }
 
 /**

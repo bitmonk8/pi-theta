@@ -1,10 +1,10 @@
+import { fakeThetaLibFs } from "./helpers/thetalib-load-harness";
 import { describe, expect, it } from "vitest";
 import { parseThetaDocument, type ThetaDocument } from "../src/parser/theta-document";
 import { checkThetaImports } from "../src/extension/import-static-checks";
 import { renderSystemPrompt, type SystemTemplate } from "../src/parser/system-interpolation";
 import type { ParsedFrontmatter } from "../src/parser/frontmatter";
 import type { ThetaCompositionInput } from "../src/extension/theta-composition-producer";
-import type { FileSystem } from "../src/seams/file-system";
 import type { ThetaValue } from "../src/runtime/value";
 import { parseDeps } from "./helpers/e2e-s1";
 
@@ -132,47 +132,6 @@ function appSource(opts: {
     "let x = 1",
     "",
   ].join("\n");
-}
-
-/**
- * An in-memory `FileSystem` serving only the registered `.thetalib` fixture —
- * every other member REJECTS, so a resolution that reads off-fixture reds
- * loudly rather than resolving an empty buffer (the b0422 `fakeThetaLibFs`).
- */
-function fakeThetaLibFs(files: Record<string, string>): FileSystem {
-  const dirs = new Map<string, string[]>();
-  for (const path of Object.keys(files)) {
-    const slash = path.lastIndexOf("/");
-    const parent = path.slice(0, slash);
-    const entries = dirs.get(parent) ?? [];
-    entries.push(path.slice(slash + 1));
-    dirs.set(parent, entries);
-  }
-  const reject = (): Promise<never> =>
-    Promise.reject(new Error("filesystem member not exercised by this test"));
-  return {
-    readText: reject,
-    writeText: reject,
-    exists: reject,
-    homedir: (): string => "/home",
-    cwd: (): string => "/proj",
-    configDirName: (): string => ".pi",
-    globalAgentDir: (): string => "/home/.pi/agent",
-    lstat: reject,
-    realpath: reject,
-    readdir: (path: string): Promise<readonly string[]> => {
-      const entries = dirs.get(path);
-      return entries === undefined
-        ? Promise.reject(new Error(`ENOENT: ${path}`))
-        : Promise.resolve(entries);
-    },
-    readBytes: (path: string): Promise<Uint8Array> => {
-      const content = files[path];
-      return content === undefined
-        ? Promise.reject(new Error(`ENOENT: ${path}`))
-        : Promise.resolve(new TextEncoder().encode(content));
-    },
-  } as FileSystem;
 }
 
 /**

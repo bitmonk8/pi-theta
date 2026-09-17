@@ -1,17 +1,13 @@
+import { capturingAjv as ajv } from "./helpers/scripted-live-session-harness";
+import { REGISTRY, type RegistryRow } from "./helpers/registry-oracle";
 import { createHash } from "node:crypto";
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 // @ts-expect-error — JS code-registry module, no type declarations.
-import { parseRegistry, registryMessage } from "../tools/code-registry/index.js";
+import { registryMessage } from "../tools/code-registry/index.js";
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
 import { lowerParamsFieldType, lowerTypeExpr, type LowerCtx } from "../src/parser/params";
 import type { ThetaDocument } from "../src/parser/theta-document";
-import {
-  AjvSchemaValidator,
-  type LoweredSchema,
-  type SchemaSlug,
-} from "../src/seams/schema-validator";
+import { type LoweredSchema } from "../src/seams/schema-validator";
 import { parseDoc } from "./helpers/e2e-s1";
 
 // Bug 0040 — nothing reserves the synthesised `__inline_<slug>` `$defs` name
@@ -135,33 +131,8 @@ const CODE = "theta/parse/import-reserved-synthesised-name";
  */
 const EXPECTED_TEMPLATE = "imported symbol '<name>' binds a reserved synthesised name";
 
-interface RegistryRow {
-  readonly code: string;
-  readonly namespace: string;
-  readonly severity: string;
-  readonly phase: string;
-  readonly trigger: string;
-  readonly message: string;
-}
-
 // The live four-page sharded registry, read from the spec corpus and
 // concatenated — the same input tests/code-registry.test.ts reconciles.
-const REGISTRY = parseRegistry(
-  [
-    "code-registry-parse.md",
-    "code-registry-load.md",
-    "code-registry-runtime.md",
-    "code-registry-host.md",
-  ]
-    .map((page) =>
-      readFileSync(
-        fileURLToPath(new URL(`../docs/spec_topics/diagnostics/${page}`, import.meta.url)),
-        "utf8",
-      ),
-    )
-    .join("\n"),
-) as RegistryRow[];
-
 /**
  * The row's normative *Message* template with its single `<name>` placeholder
  * filled by the LOCAL binding (DIAG-4). Definedness is asserted first so a
@@ -310,19 +281,6 @@ function lowered(label: string, doc: ThetaDocument): LoadedParams {
 /** Parse a fixture and read its lowered `params:` document in one step. */
 function loadLowered(label: string, source: string): LoadedParams {
   return lowered(label, parseDoc(source, "bug0040.theta"));
-}
-
-/** A real `AjvSchemaValidator` plus the diagnostics it emitted. */
-function ajv(): { readonly validator: AjvSchemaValidator; readonly emitted: Diagnostic[] } {
-  const emitted: Diagnostic[] = [];
-  const slugOf = (schema: LoweredSchema): SchemaSlug => ({
-    slug: JSON.stringify(schema),
-    canonicalBytes: JSON.stringify(schema),
-  });
-  return {
-    validator: new AjvSchemaValidator({ emit: (d) => emitted.push(d), slugOf }),
-    emitted,
-  };
 }
 
 /** Whether a candidate argument object validates against a lowered document. */

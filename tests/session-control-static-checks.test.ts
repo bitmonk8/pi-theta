@@ -27,7 +27,7 @@
 // P1-P7/P10, and `parseThetaDocument` with real `tools:` frontmatter (the C6
 // realisation threads `runtimeToolSuccessTypes` from `frontmatter.tools`
 // straight into the PARSE-time type layer) for P8/P9.
-
+import { parseDeps as makeParseDeps } from "./helpers/e2e-s1";
 import { describe, expect, it } from "vitest";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { checkInvokeStaticResolution, type CalleeArity } from "../src/extension/invoke-static-checks";
@@ -38,9 +38,7 @@ import type { Expr, ThetaBody } from "../src/parser/theta-document";
 import { FakeFileSystem } from "./helpers/fake-file-system";
 import { R, strExpr, withClause } from "./helpers/call-with-clause-harness";
 import type { ThetaSource } from "../src/lexer/lexer";
-import type { SystemNoteChannelDeps } from "../src/extension/system-note-channel";
-import type { ModelReferenceMatcher } from "../src/parser/frontmatter";
-import { parseThetaDocument, type ParseThetaDocumentDeps, type ThetaDocument } from "../src/parser/theta-document";
+import { parseThetaDocument, type ThetaDocument } from "../src/parser/theta-document";
 
 const TOOL_ARG_TYPE_MISMATCH_CODE = "theta/parse/tool-arg-type-mismatch";
 const ARITY_TOO_MANY_CODE = "theta/parse/invoke-arity-too-many";
@@ -192,16 +190,6 @@ describe("RFC 0011 §3.2 row 1 — P10: a call-site `with` clause on a runtime t
 // `frontmatter.tools`; §0 C6). Driven through the real whole-file parser with
 // inline template-literal sources.
 // ===========================================================================
-
-function makeParseDeps(): ParseThetaDocumentDeps {
-  const systemNote: SystemNoteChannelDeps = {
-    pi: { sendMessage: (): void => {} },
-    ui: { notify: (): void => {} },
-    emitDiagnostic: (): void => {},
-  };
-  const modelMatcher: ModelReferenceMatcher = { resolve: (): "resolved" => "resolved" };
-  return { systemNote, modelMatcher };
-}
 
 function parseSrc(src: string): ThetaDocument {
   const source: ThetaSource = { path: "test.theta", bytes: new TextEncoder().encode(src) };

@@ -59,12 +59,10 @@
 // Spec: diagnostics/diagnostic-shape.md (DIAG-4),
 // diagnostics/code-registry-runtime.md (`:27` wire row, `:28` envelope row),
 // diagnostics/placeholder-rendering-b.md (§8).
-
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
+import { REGISTRY } from "./helpers/registry-oracle";
 import { describe, expect, it } from "vitest";
 // @ts-expect-error — JS code-registry module, no type declarations.
-import { parseRegistry, registryMessage } from "../tools/code-registry/index.js";
+import { registryMessage } from "../tools/code-registry/index.js";
 import {
   mapEnvelopeParseFailure,
   mapWireParseFailure,
@@ -78,24 +76,6 @@ const CALLEE = "/theta/child.theta";
 // Registry-sourced oracle (DIAG-4): the Message template, never a copy of it.
 // Shape mirrored from tests/subagent-wire-parse-failed-emitter.test.ts:88-149.
 // ---------------------------------------------------------------------------
-
-interface RegistryRow {
-  readonly code: string;
-  readonly severity: string;
-  readonly phase: string;
-  readonly message: string;
-}
-
-const REGISTRY = parseRegistry(
-  ["code-registry-parse.md", "code-registry-load.md", "code-registry-runtime.md", "code-registry-host.md"]
-    .map((page) =>
-      readFileSync(
-        fileURLToPath(new URL(`../docs/spec_topics/diagnostics/${page}`, import.meta.url)),
-        "utf8",
-      ),
-    )
-    .join("\n"),
-) as RegistryRow[];
 
 // Composed rather than written as one span, so this file does not register as
 // either code's asserting test in the closing gate's textual extraction.

@@ -1,10 +1,10 @@
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { readRegistry, type RegistryRow } from "./helpers/registry-oracle";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 // @ts-expect-error — JS code-registry module, no type declarations.
-import { parseRegistry, registryMessage } from "../tools/code-registry/index.js";
+import { registryMessage } from "../tools/code-registry/index.js";
 import type {
   ExtensionAPI,
   ExtensionContext,
@@ -185,27 +185,7 @@ const CODE = "theta/load/malformed-tools-field";
 const EXPECTED_MESSAGE =
   "malformed 'tools:' field; expected a comma-separated list of entries or a YAML sequence";
 
-interface RegistryRow {
-  readonly code: string;
-  readonly namespace: string;
-  readonly severity: string;
-  readonly phase: string;
-  readonly trigger: string;
-  readonly message: string;
-}
-
-/** The live sharded load registry — the *Message* column DIAG-4 makes normative. */
-const REGISTRY = parseRegistry(
-  readFileSync(
-    fileURLToPath(
-      new URL(
-        "../docs/spec_topics/diagnostics/code-registry-load.md",
-        import.meta.url,
-      ),
-    ),
-    "utf8",
-  ),
-) as RegistryRow[];
+const REGISTRY = readRegistry(["load"]);
 
 /**
  * A registry row's normative *Message* template, definedness asserted first so

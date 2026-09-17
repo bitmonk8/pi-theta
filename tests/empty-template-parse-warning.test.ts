@@ -1,8 +1,9 @@
+import { REGISTRY } from "./helpers/registry-oracle";
 import { describe, expect, it } from "vitest";
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
+
+
 // @ts-expect-error — JS code-registry module, no type declarations.
-import { parseRegistry, registryMessage } from "../tools/code-registry/index.js";
+import { registryMessage } from "../tools/code-registry/index.js";
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
 import { parseDoc } from "./helpers/e2e-s1";
 
@@ -49,33 +50,8 @@ const FILE = "bug0085.theta";
 /** Frontmatter prelude — occupies source lines 1–3; every body starts at 4. */
 const FM = "---\nmode: prompt\n---\n";
 
-interface RegistryRow {
-  code: string;
-  namespace: string;
-  severity: string;
-  phase: string;
-  trigger: string;
-  message: string;
-}
-
 // The sharded registry as shipped — the same input tests/code-registry.test.ts
 // reconciles; DIAG-4 makes its Message column the normative expectation.
-const REGISTRY_TEXT = [
-  "code-registry-parse.md",
-  "code-registry-load.md",
-  "code-registry-runtime.md",
-  "code-registry-host.md",
-]
-  .map((page) =>
-    readFileSync(
-      fileURLToPath(new URL(`../docs/spec_topics/diagnostics/${page}`, import.meta.url)),
-      "utf8",
-    ),
-  )
-  .join("\n");
-
-const REGISTRY = parseRegistry(REGISTRY_TEXT) as RegistryRow[];
-
 const NORMATIVE_MESSAGE = registryMessage(REGISTRY, EMPTY_TEMPLATE_CODE) as
   | string
   | undefined;

@@ -1,22 +1,14 @@
-import {
-  mkdtempSync,
-  mkdirSync,
-  readFileSync,
-  realpathSync,
-  rmSync,
-  symlinkSync,
-  writeFileSync,
-} from "node:fs";
+import { readRegistry } from "./helpers/registry-oracle";
+import { mkdtempSync, mkdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
-import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type {
   ExtensionAPI,
   ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
 // @ts-expect-error — JS code-registry module, no type declarations.
-import { parseRegistry, registryMessage } from "../tools/code-registry/index.js";
+import { registryMessage } from "../tools/code-registry/index.js";
 import type { ThetaFixture } from "../src/extension/factory";
 import { discoverAndComposeFixtures } from "../src/extension/production-composition";
 
@@ -64,24 +56,7 @@ import { discoverAndComposeFixtures } from "../src/extension/production-composit
 
 // --- Registry-sourced Message templates (DIAG-4) ---------------------------
 
-/** The live sharded registry pages this file's codes are registered on. */
-const REGISTRY_TEXT = ["code-registry-parse.md", "code-registry-load.md"]
-  .map((page) =>
-    readFileSync(
-      fileURLToPath(
-        new URL(`../docs/spec_topics/diagnostics/${page}`, import.meta.url),
-      ),
-      "utf8",
-    ),
-  )
-  .join("\n");
-
-interface RegistryRow {
-  code: string;
-  message: string;
-}
-
-const REGISTRY = parseRegistry(REGISTRY_TEXT) as RegistryRow[];
+const REGISTRY = readRegistry(["parse","load"]);
 
 const INVOKE_PATH_ESCAPE_CODE = "theta/load/invoke-path-escape";
 const ARITY_TOO_FEW_CODE = "theta/parse/invoke-arity-too-few";

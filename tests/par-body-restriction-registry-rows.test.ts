@@ -1,17 +1,12 @@
+import { parseDoc } from "./helpers/e2e-s1";
+import { REGISTRY, type RegistryRow } from "./helpers/registry-oracle";
 import { fileURLToPath } from "node:url";
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 // @ts-expect-error — JS code-registry module, no type declarations.
-import { parseRegistry, registryMessage } from "../tools/code-registry/index.js";
+import { registryMessage } from "../tools/code-registry/index.js";
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
-import type { ThetaSource } from "../src/lexer/lexer";
-import type { SystemNoteChannelDeps } from "../src/extension/system-note-channel";
-import type { ModelReferenceMatcher } from "../src/parser/frontmatter";
-import {
-  parseThetaDocument,
-  type ParseThetaDocumentDeps,
-  type ThetaDocument,
-} from "../src/parser/theta-document";
+import { type ThetaDocument } from "../src/parser/theta-document";
 
 // ===========================================================================
 // Bug 0200 — CTRL-4's three legacy `par for` body-restriction codes have no row
@@ -123,27 +118,16 @@ const REGISTRY_PAGE_LIST = REGISTRY_PAGES.map(
   (page) => `docs/spec_topics/diagnostics/${page}`,
 ).join(", ");
 
+const REGISTRY_TEXT = REGISTRY_PAGES.map((page) =>
+  readCorpus(`docs/spec_topics/diagnostics/${page}`),
+).join("\n");
+
 function readCorpus(relative: string): string {
   return readFileSync(
     fileURLToPath(new URL(`../${relative}`, import.meta.url)),
     "utf8",
   );
 }
-
-const REGISTRY_TEXT = REGISTRY_PAGES.map((page) =>
-  readCorpus(`docs/spec_topics/diagnostics/${page}`),
-).join("\n");
-
-interface RegistryRow {
-  readonly code: string;
-  readonly namespace: string;
-  readonly severity: string;
-  readonly phase: string;
-  readonly trigger: string;
-  readonly message: string;
-}
-
-const REGISTRY = parseRegistry(REGISTRY_TEXT) as readonly RegistryRow[];
 
 /**
  * PRECONDITION for the whole file: the shipped reader sees a populated closed
@@ -312,21 +296,8 @@ function mirrorCodes(): readonly string[] {
 // imported, per that file's own posture on tests/par-for.test.ts.
 // ---------------------------------------------------------------------------
 
-function makeDeps(): ParseThetaDocumentDeps {
-  const systemNote: SystemNoteChannelDeps = {
-    pi: { sendMessage: (): void => {} },
-    ui: { notify: (): void => {} },
-    emitDiagnostic: (): void => {},
-  };
-  const modelMatcher: ModelReferenceMatcher = {
-    resolve: (): "resolved" => "resolved",
-  };
-  return { systemNote, modelMatcher };
-}
-
 function parse(src: string, path = "bug0200.theta"): ThetaDocument {
-  const source: ThetaSource = { path, bytes: new TextEncoder().encode(src) };
-  return parseThetaDocument(source, makeDeps());
+  return parseDoc(src, path);
 }
 
 /** `@`-query in a `par for` body → `par-query-in-body` (CTRL-4 clause 1). */

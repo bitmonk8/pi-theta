@@ -1,3 +1,4 @@
+import { span, SEAM_NOOP_CHECKPOINT as NOOP_CHECKPOINT, SEAM_NOOP_MUTATOR } from "./helpers/invoke-seam-scaffold";
 import { describe, expect, it } from "vitest";
 import type {
   ExtensionAPI,
@@ -34,11 +35,7 @@ import {
   LexicalEnvironment,
 } from "../src/runtime/lexical-environment";
 import type { OperationResult } from "../src/runtime/cancellation-core";
-import type { Checkpoint, CheckpointSite } from "../src/seams/checkpoint";
-import type {
-  CommittedConversationMutator,
-  CommittedSurface,
-} from "../src/runtime/terminal-outcomes";
+import type { CheckpointSite } from "../src/seams/checkpoint";
 import type { ThetaValue } from "../src/runtime/value";
 import {
   createProductionProducerDeps,
@@ -338,10 +335,6 @@ describe("bug 0003 (A) parse layer — controls (green now, green after)", () =>
 // construction pattern).
 // ===========================================================================
 
-function span(): SourceRange {
-  return { start: { line: 1, column: 1 }, end: { line: 1, column: 2 } };
-}
-
 function stringExpr(value: string): Expr {
   return { kind: "string", value, range: span() };
 }
@@ -393,20 +386,6 @@ async function expectShapeDefectRejection(p: Promise<unknown>, toolName: string)
 // --- Executor-level harness (preEvaluateToolArgs via exported executeBody) --
 
 const SITE: CheckpointSite = { file: FILE, line: 1, column: 1 };
-
-const NOOP_CHECKPOINT: Checkpoint = {
-  before(): Promise<void> {
-    return Promise.resolve();
-  },
-};
-
-class NoopMutator implements CommittedConversationMutator {
-  truncate(_surfaceId: string): void {}
-  rewrite(_surfaceId: string): void {}
-  replace(_surfaceId: string): void {}
-  remove(_surfaceId: string): void {}
-  injectCompensatingTurn(_surface: CommittedSurface): void {}
-}
 
 /**
  * A recording `StatementEvalHost` double (the ClassifyingHost pattern from
@@ -476,7 +455,7 @@ function executorDeps(host: StatementEvalHost): ExecuteBodyDeps {
     host,
     checkpoint: NOOP_CHECKPOINT,
     signal: new AbortController().signal,
-    mutator: new NoopMutator(),
+    mutator: SEAM_NOOP_MUTATOR,
     mode: "prompt",
     file: FILE,
   };

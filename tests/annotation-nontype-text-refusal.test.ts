@@ -15,6 +15,7 @@ import {
   findLetStmt,
   isLoadParseError,
   parseDoc,
+  topKinds as stmtKinds,
 } from "./helpers/e2e-s1";
 import { REGISTRY, type RegistryRow } from "./helpers/registry-oracle";
 import { committedThetaSources } from "./helpers/theta-corpus";
@@ -370,11 +371,6 @@ function srcAt(position: Position, typeSource: string, rhsOrBody?: string): stri
     case "return":
       return `${FM}${DECLS}fn f(): ${typeSource} { ${rhsOrBody ?? "1"} }\nlet inert = 1\ninert\n`;
   }
-}
-
-/** The statement kinds a parse produced — failure-message payload. */
-function stmtKinds(doc: ThetaDocument): string[] {
-  return doc.body.statements.map((s) => s.kind);
 }
 
 /** The sole `let` statement bound to `name`, loud when the body declares none. */

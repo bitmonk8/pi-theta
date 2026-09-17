@@ -1,8 +1,9 @@
+import { readRegistry } from "./helpers/registry-oracle";
 import { describe, expect, it } from "vitest";
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
+
+
 // @ts-expect-error — JS code-registry module, no type declarations.
-import { parseRegistry, registryMessage } from "../tools/code-registry/index.js";
+import { registryMessage } from "../tools/code-registry/index.js";
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
 import { parseDoc } from "./helpers/e2e-s1";
 
@@ -69,23 +70,7 @@ const FILE = "bug0246.theta";
 /** Frontmatter prelude — occupies source lines 1–3; every body starts at line 4. */
 const FM = "---\nmode: prompt\n---\n";
 
-interface RegistryRow {
-  code: string;
-  namespace: string;
-  severity: string;
-  phase: string;
-  trigger: string;
-  message: string;
-}
-
-const REGISTRY = parseRegistry(
-  readFileSync(
-    fileURLToPath(
-      new URL("../docs/spec_topics/diagnostics/code-registry-parse.md", import.meta.url),
-    ),
-    "utf8",
-  ),
-) as RegistryRow[];
+const REGISTRY = readRegistry(["parse"]);
 
 const ROW = REGISTRY.find((r) => r.code === UNTERMINATED_TEMPLATE_CODE);
 

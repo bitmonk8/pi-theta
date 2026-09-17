@@ -56,13 +56,9 @@
 // unmet precondition). The belt-ii row DELIBERATELY feeds `executeBody` a body
 // the Layer-1 gate refuses (an immutable same-scope write) to reach the runtime
 // belt in isolation — documented at its call site.
-
+import { type Probe, render, producer } from "./helpers/runtime-belt-probe-harness";
 import { describe, expect, it } from "vitest";
-import type {
-  ExtensionAPI,
-  ExtensionCommandContext,
-  ModelRegistry,
-} from "@earendil-works/pi-coding-agent";
+import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import type { ThetaSource } from "../src/lexer/lexer";
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
 import type { SystemNoteChannelDeps } from "../src/extension/system-note-channel";
@@ -72,12 +68,7 @@ import {
   type ParseThetaDocumentDeps,
   type ThetaDocument,
 } from "../src/parser/theta-document";
-import {
-  executeBody,
-  type BodyExecution,
-  type ExecuteBodyDeps,
-  type StatementEvalHost,
-} from "../src/runtime/statement-executor";
+import { executeBody, type ExecuteBodyDeps, type StatementEvalHost } from "../src/runtime/statement-executor";
 import type { Expr, ThetaBody } from "../src/parser/theta-document";
 import type {
   CommittedConversationMutator,
@@ -89,12 +80,10 @@ import {
   INTERNAL_ERROR_CODE,
 } from "../src/runtime/runtime-panics";
 import type { ThetaValue } from "../src/runtime/value";
-import { createProductionProducerDeps } from "../src/extension/production-theta-producer";
 import type {
   ConversationBindInput,
   ThetaCompositionInput,
 } from "../src/extension/theta-composition-producer";
-import type { RuntimeRoot } from "../src/runtime-root";
 import { LexicalEnvironment } from "../src/runtime/lexical-environment";
 
 const FM = "---\nmode: prompt\n---\n";
@@ -148,45 +137,6 @@ function codesOfFull(fullSrc: string): string[] {
 }
 
 const FM_PARAMS_P = "---\nmode: prompt\nparams:\n  p: integer\n---\n";
-
-function rootDouble(): RuntimeRoot {
-  return {
-    checkpoint: { before: (): Promise<void> => Promise.resolve() },
-    idSource: { newInvocationId: (): string => "inv-1", newToolCallId: (): string => "tc-1" },
-    // The prompt-mode drive's only wait primitive is `Clock.setTimeout`; fire the
-    // callback synchronously so an instant-settle turn completes deterministically
-    // (the b0368/b0369 harness contract).
-    clock: {
-      now: (): number => 0,
-      wallNow: (): number => 0,
-      setTimeout: (fn: () => void): unknown => {
-        fn();
-        return 0;
-      },
-      clearTimeout: (): void => {},
-    },
-  } as unknown as RuntimeRoot;
-}
-
-function render(value: ThetaValue | undefined): string {
-  return value === undefined ? "undefined" : JSON.stringify(value);
-}
-
-function producer() {
-  return createProductionProducerDeps({
-    pi: {
-      sendMessage: () => {},
-      getActiveTools: () => [],
-      setActiveTools: () => {},
-    } as unknown as ExtensionAPI,
-    root: rootDouble(),
-    modelRegistry: {} as unknown as ModelRegistry,
-  });
-}
-
-type Probe =
-  | { readonly kind: "value"; readonly execution: BodyExecution }
-  | { readonly kind: "threw"; readonly thrown: unknown };
 
 /**
  * Bind + run a self-contained prompt-mode body, capturing a throw. `gate`

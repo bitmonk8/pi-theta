@@ -26,15 +26,12 @@
 // `discardPostCancelSettlement` forwards the late settlement (the non-discarding
 // behaviour CNCL-1/2/3 forbid). No test reds on a compile error, a missing
 // fixture, or a harness throw.
-
+import { RecordingSink } from "./helpers/invoke-seam-scaffold";
 import { describe, expect, it } from "vitest";
 import type { Diagnostic, SourceRange } from "../src/diagnostics/diagnostic";
 import type { RuntimeEvent } from "../src/runtime/runtime-event-channel";
 import type { ThetaValue } from "../src/runtime/value";
-import type {
-  AgentToolResultEnvelope,
-  ToolLoweringSink,
-} from "../src/runtime/tool-call-execute";
+import type { AgentToolResultEnvelope } from "../src/runtime/tool-call-execute";
 import {
   awaitToolSettlementOrAbort,
   discardPostCancelSettlement,
@@ -47,22 +44,6 @@ const SITE: { file: string; range: SourceRange } = {
   file: "call.theta",
   range: { start: { line: 3, column: 5 }, end: { line: 3, column: 9 } },
 };
-
-/**
- * A `ToolLoweringSink` recording every normative side-channel emission so a test
- * can count diagnostics / system notes and assert on the emitted diagnostic
- * shape.
- */
-class RecordingSink implements ToolLoweringSink {
-  readonly diagnostics: Diagnostic[] = [];
-  readonly systemNotes: string[] = [];
-  diagnostic(diag: Diagnostic): void {
-    this.diagnostics.push(diag);
-  }
-  systemNote(message: string): void {
-    this.systemNotes.push(message);
-  }
-}
 
 /** A `LateSettlementObserver` spy recording any forbidden post-cancel side effect. */
 class SpyObserver implements LateSettlementObserver {

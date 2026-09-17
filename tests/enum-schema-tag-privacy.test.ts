@@ -1,3 +1,11 @@
+import { parseDeps } from "./helpers/e2e-s1";
+import {
+  ANTHROPIC_MODEL,
+  type SessionEntryDouble,
+  ajv,
+  appendUserEntry,
+  appendAssistantEntry,
+} from "./helpers/scripted-live-session-harness";
 import { describe, expect, it } from "vitest";
 import type {
   ExtensionAPI,
@@ -5,13 +13,8 @@ import type {
   ModelRegistry,
 } from "@earendil-works/pi-coding-agent";
 import type { ThetaSource } from "../src/lexer/lexer";
-import type { SystemNoteChannelDeps } from "../src/extension/system-note-channel";
-import type { ModelReferenceMatcher, ParsedFrontmatter } from "../src/parser/frontmatter";
-import {
-  parseThetaDocument,
-  type ParseThetaDocumentDeps,
-  type ThetaDocument,
-} from "../src/parser/theta-document";
+import type { ParsedFrontmatter } from "../src/parser/frontmatter";
+import { parseThetaDocument, type ThetaDocument } from "../src/parser/theta-document";
 import { executeBody, type BodyExecution } from "../src/runtime/statement-executor";
 import {
   brandSchemaValue,
@@ -25,11 +28,6 @@ import { buildEnvironment } from "../src/runtime/lexical-environment";
 import { translateInbound } from "../src/runtime/wire-translation";
 import type { SchemaSidecar } from "../src/parser/schema-lowering";
 import { lowerQueryResponseSchema } from "../src/runtime/query-schema-lowering";
-import {
-  AjvSchemaValidator,
-  type LoweredSchema,
-  type SchemaSlug,
-} from "../src/seams/schema-validator";
 import { createProductionProducerDeps } from "../src/extension/production-theta-producer";
 import type {
   ConversationBindInput,
@@ -148,18 +146,6 @@ import type { Checkpoint } from "../src/seams/checkpoint";
 // Shared parse harness (the bug-0017 pattern).
 // ===========================================================================
 
-function parseDeps(): ParseThetaDocumentDeps {
-  const systemNote: SystemNoteChannelDeps = {
-    pi: { sendMessage: (): void => {} },
-    ui: { notify: (): void => {} },
-    emitDiagnostic: (): void => {},
-  };
-  const modelMatcher: ModelReferenceMatcher = {
-    resolve: (): "resolved" => "resolved",
-  };
-  return { systemNote, modelMatcher };
-}
-
 /**
  * Parse a fixture source and fail LOUDLY on any error-severity diagnostic —
  * a fixture that stops parsing must never let a bug test pass or fail for the
@@ -189,15 +175,6 @@ const FM = "---\nmode: prompt\n---\n";
 
 /** The forged wire payload every group probes with (the bug doc's shape). */
 const FORGED_ENUM_JSON = '{"__thetaEnum":"Severity","x":1}';
-
-/** The production AJV validator over a content-address slug (the 0014 helper). */
-function ajv(): AjvSchemaValidator {
-  const slugOf = (schema: LoweredSchema): SchemaSlug => ({
-    slug: JSON.stringify(schema),
-    canonicalBytes: JSON.stringify(schema),
-  });
-  return new AjvSchemaValidator({ emit: () => {}, slugOf });
-}
 
 // ===========================================================================
 // Production-executor harness for NON-query bodies (group (e)) — the bug-0017
@@ -250,21 +227,6 @@ function runSource(src: string): Promise<BodyExecution> {
 // double, completing the turn with the scripted assistant reply.
 // ===========================================================================
 
-/** The user session's selected model (`ctx.model`) — provider derivation only. */
-const ANTHROPIC_MODEL = {
-  id: "m1",
-  api: "anthropic-messages",
-  provider: "anthropic",
-  strictCapable: true,
-};
-
-interface SessionEntryDouble {
-  readonly type: "message";
-  readonly id: string;
-  readonly parentId: string | undefined;
-  readonly message: Record<string, unknown>;
-}
-
 class LiveSessionDouble {
   readonly entries: SessionEntryDouble[] = [];
   sendUserMessageCalls = 0;
@@ -282,11 +244,7 @@ class LiveSessionDouble {
   sendUserMessage(content: string): void {
     this.sendUserMessageCalls += 1;
     this.sentQueryTexts.push(content);
-    this.#append({
-      role: "user",
-      content: [{ type: "text", text: content }],
-      timestamp: 0,
-    });
+    appendUserEntry(this.entries, content);
     this.#idle = false;
   }
 
@@ -304,22 +262,8 @@ class LiveSessionDouble {
     }
     const reply = this.#replies[Math.min(this.#completedTurns, this.#replies.length - 1)]!;
     this.#completedTurns += 1;
-    this.#append({
-      role: "assistant",
-      content: [{ type: "text", text: reply.text }],
-      api: "anthropic-messages",
-      provider: "anthropic",
-      model: "m1",
-      stopReason: reply.stopReason,
-      timestamp: 0,
-    });
+    appendAssistantEntry(this.entries, reply.text, reply.stopReason);
     this.#idle = true;
-  }
-
-  #append(message: Record<string, unknown>): void {
-    const id = `e${this.entries.length + 1}`;
-    const parentId = this.entries.length === 0 ? undefined : `e${this.entries.length}`;
-    this.entries.push({ type: "message", id, parentId, message });
   }
 }
 

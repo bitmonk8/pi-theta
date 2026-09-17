@@ -1,12 +1,10 @@
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { composedRunnableCount as countComposedRunnables } from "./helpers/production-load-harness";
+
+
+
 import { describe, expect, it } from "vitest";
-import type {
-  ExtensionAPI,
-  ExtensionContext,
-} from "@earendil-works/pi-coding-agent";
-import { discoverAndComposeFixtures } from "../src/extension/production-composition";
+
+
 import { canonicalHash, toLoweredJsonValue } from "../src/parser/schema-lowering";
 import { parseDoc, errors } from "./helpers/e2e-s1";
 
@@ -115,38 +113,8 @@ function hasDescriptionKey(value: unknown): boolean {
   return false;
 }
 
-/**
- * Plant one `.theta` under a fresh temp `.pi/theta/` workspace and return the
- * count of runnables `discoverAndComposeFixtures` composes (the registration
- * outcome). Mirrors tests/b0357-doc-comment-field-variant-anchors.test.ts's rig; the
- * inert `pi`/`ctx` doubles and empty-settings plant are the same. `finally`
- * (never `catch`) guarantees teardown.
- */
-async function composedRunnableCount(fileName: string, src: string): Promise<number> {
-  const workspace = mkdtempSync(join(tmpdir(), "b0358-reg-"));
-  try {
-    mkdirSync(join(workspace, ".pi", "theta"), { recursive: true });
-    writeFileSync(join(workspace, ".pi", "theta", `${fileName}.theta`), src, "utf8");
-    writeFileSync(join(workspace, ".pi", "settings.json"), "{}", "utf8");
-    const pi = {
-      getFlag: (): undefined => undefined,
-      getCommands: (): unknown[] => [],
-      sendMessage: (): void => {},
-      registerCommand: (): void => {},
-      registerMessageRenderer: (): void => {},
-      registerFlag: (): void => {},
-      on: (): void => {},
-    } as unknown as ExtensionAPI;
-    const ctx = {
-      cwd: workspace,
-      hasUI: false,
-      modelRegistry: { getAvailable: (): readonly unknown[] => [] },
-      ui: { notify: (): void => {} },
-    } as unknown as ExtensionContext;
-    return (await discoverAndComposeFixtures(pi, ctx)).length;
-  } finally {
-    rmSync(workspace, { recursive: true, force: true });
-  }
+function composedRunnableCount(fileName: string, src: string): Promise<number> {
+  return countComposedRunnables(fileName, src, "b0358-reg-");
 }
 
 // --- fixtures ----------------------------------------------------------------

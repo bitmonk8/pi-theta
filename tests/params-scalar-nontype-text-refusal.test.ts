@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { inlineDefName } from "./helpers/canonical-slug-oracle";
 import { readFileSync, readdirSync } from "node:fs";
 import { join, posix, sep } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -7,7 +7,7 @@ import { describe, expect, it } from "vitest";
 import { parseRegistry, registryMessage } from "../tools/code-registry/index.js";
 import type { EnumDecl, SchemaDecl, ThetaDocument } from "../src/parser/theta-document";
 import { lowerQueryResponseSchema } from "../src/runtime/query-schema-lowering";
-import { parseDoc } from "./helpers/e2e-s1";
+import { parseDoc, diagLines, diagCodes } from "./helpers/e2e-s1";
 
 // Bug 0059 — a `params:` right-hand side that is a YAML SCALAR carrying text no
 // `Type` production spells is recorded verbatim as the field's declared type,
@@ -280,16 +280,6 @@ function src(paramsBlock: string): string {
  */
 function yamlQuoted(typeSource: string): string {
   return `'${typeSource.replace(/'/g, "''")}'`;
-}
-
-/** Every diagnostic rendered `<severity> <code>: <message>`, in emission order. */
-function diagLines(doc: ThetaDocument): string[] {
-  return doc.diagnostics.map((d) => `${d.severity} ${d.code}: ${d.message}`);
-}
-
-/** Every diagnostic rendered `<severity> <code>` — the count/code/severity triple. */
-function diagCodes(doc: ThetaDocument): string[] {
-  return doc.diagnostics.map((d) => `${d.severity} ${d.code}`);
 }
 
 /** The lowered `params:` document, absent when the load withheld it. */
@@ -886,16 +876,6 @@ describe("bug 0059 (c) — the three other type positions keep their bytes and t
 // right-hand side or one `lowerTypeExpr` hands over from a union arm or a
 // generic argument. GREEN at HEAD, byte-for-byte.
 // ===========================================================================
-
-/**
- * SHA-256 of a hand-written canonical form, first 16 lowercase hex characters
- * (schema-subset.md:98 hashes the LOWERED fragment; :106/:107 give the digest
- * and its truncation). `schemaSlug` is deliberately NOT imported — an oracle
- * taken from the implementation under test proves nothing.
- */
-function inlineDefName(canonical: string): string {
-  return `__inline_${createHash("sha256").update(canonical, "utf8").digest("hex").slice(0, 16)}`;
-}
 
 /**
  * `{m: array<"x" | "y">}` — the 0164 tripwire one level down, and its canonical

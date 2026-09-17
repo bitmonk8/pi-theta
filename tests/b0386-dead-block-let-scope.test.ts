@@ -32,32 +32,16 @@
 // NO SILENT SKIPPING: every cell is a direct `codesOf` equality over a fixed
 // string; there is no precondition to skip past — a mis-parse surfaces as a
 // wrong codes multiset, failing the assertion loudly.
-
+import { parseDeps } from "./helpers/e2e-s1";
 import { describe, expect, it } from "vitest";
 import type { ThetaSource } from "../src/lexer/lexer";
-import type { SystemNoteChannelDeps } from "../src/extension/system-note-channel";
-import type { ModelReferenceMatcher } from "../src/parser/frontmatter";
-import {
-  parseThetaDocument,
-  type ParseThetaDocumentDeps,
-  type ThetaDocument,
-} from "../src/parser/theta-document";
+import { parseThetaDocument, type ThetaDocument } from "../src/parser/theta-document";
 
 const FM = "---\nmode: prompt\n---\n";
 
 // ===========================================================================
 // Shared parse harness (the b0370 shape, verbatim).
 // ===========================================================================
-
-function parseDeps(): ParseThetaDocumentDeps {
-  const systemNote: SystemNoteChannelDeps = {
-    pi: { sendMessage: (): void => {} },
-    ui: { notify: (): void => {} },
-    emitDiagnostic: (): void => {},
-  };
-  const modelMatcher: ModelReferenceMatcher = { resolve: (): "resolved" => "resolved" };
-  return { systemNote, modelMatcher };
-}
 
 function parseOnly(src: string): ThetaDocument {
   const source: ThetaSource = { path: "b0386.theta", bytes: new TextEncoder().encode(FM + src) };

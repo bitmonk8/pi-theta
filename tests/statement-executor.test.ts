@@ -1,3 +1,9 @@
+import {
+  span,
+  SEAM_NOOP_CHECKPOINT as NOOP_CHECKPOINT,
+  ScriptedCheckpoint,
+  RecordingMutator,
+} from "./helpers/invoke-seam-scaffold";
 import { describe, expect, it } from "vitest";
 import {
   executeBody,
@@ -15,11 +21,7 @@ import type {
   CheckpointKind,
   CheckpointSite,
 } from "../src/seams/checkpoint";
-import type {
-  CommittedConversationMutator,
-  CommittedSurface,
-  DrivenConversationMode,
-} from "../src/runtime/terminal-outcomes";
+import type { CommittedConversationMutator, DrivenConversationMode } from "../src/runtime/terminal-outcomes";
 import { valuesEqual, type ThetaValue } from "../src/runtime/value";
 import type { QueryError } from "../src/runtime/query-error";
 import type {
@@ -35,7 +37,7 @@ import type {
   ToolCallStmt,
   WhileStmt,
 } from "../src/parser/theta-document";
-import type { SourceRange } from "../src/diagnostics/diagnostic";
+
 
 // V19c-T — failing tests for the paired `V19c` tree-walking statement executor.
 //
@@ -62,11 +64,6 @@ import type { SourceRange } from "../src/diagnostics/diagnostic";
 // — not on a compile error, a missing fixture, or a harness throw.
 
 // --- AST construction helpers ----------------------------------------------
-
-/** A throwaway 1:1–1:2 span for hand-built AST nodes. */
-function span(): SourceRange {
-  return { start: { line: 1, column: 1 }, end: { line: 1, column: 2 } };
-}
 
 function numberExpr(text: string): Expr {
   return { kind: "number", text, numericType: "integer", range: span() };
@@ -141,59 +138,7 @@ function realEnv(): LexicalEnvironment {
 
 const SITE: CheckpointSite = { file: "theta.theta", line: 1, column: 1 };
 
-/**
- * A `Checkpoint` whose `before(...)` invokes an injected callback on each await
- * — the deterministic-test substrate (PIC-10) that lands an abort at a chosen
- * checkpoint boundary without depending on JS microtask scheduling.
- */
-class ScriptedCheckpoint implements Checkpoint {
-  #calls = 0;
-  readonly #onBefore: (call: number, kind: CheckpointKind) => void;
-
-  constructor(onBefore: (call: number, kind: CheckpointKind) => void) {
-    this.#onBefore = onBefore;
-  }
-
-  before(kind: CheckpointKind): Promise<void> {
-    this.#calls += 1;
-    this.#onBefore(this.#calls, kind);
-    return Promise.resolve();
-  }
-}
-
-/** A no-op `Checkpoint` (production wiring — an already-resolved promise). */
-const NOOP_CHECKPOINT: Checkpoint = {
-  before(): Promise<void> {
-    return Promise.resolve();
-  },
-};
-
 // --- Recording partial-append mutator (V4c) --------------------------------
-
-/**
- * A `CommittedConversationMutator` that records every mutating call. The
- * ERR-8/ERR-9 non-mutation contract forbids the runtime from calling any of
- * these on the cancellation / `?`-propagation paths, so a compliant executor
- * leaves `calls` empty.
- */
-class RecordingMutator implements CommittedConversationMutator {
-  readonly calls: string[] = [];
-  truncate(surfaceId: string): void {
-    this.calls.push(`truncate:${surfaceId}`);
-  }
-  rewrite(surfaceId: string): void {
-    this.calls.push(`rewrite:${surfaceId}`);
-  }
-  replace(surfaceId: string): void {
-    this.calls.push(`replace:${surfaceId}`);
-  }
-  remove(surfaceId: string): void {
-    this.calls.push(`remove:${surfaceId}`);
-  }
-  injectCompensatingTurn(surface: CommittedSurface): void {
-    this.calls.push(`inject:${surface.id}`);
-  }
-}
 
 // --- Recording effect host (the V19d boundary) -----------------------------
 
@@ -644,7 +589,6 @@ describe("V19c-T — terminal-outcome production at real hosts (ERR-8 … ERR-12
 // Core-execution deficiency fix — `?` (try) / `match` dispatch-through and the
 // `?`-propagation flow (ERR-18 / expressions.md §`?` operator / §`match`).
 // ===========================================================================
-
 import { makeErr, makeOk } from "../src/runtime/value";
 import type {
   MatchArmNode,

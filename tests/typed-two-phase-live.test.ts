@@ -54,7 +54,15 @@
 // `complete()` call. Deterministic; no live network. Every cell asserts the
 // `sendUserMessage` and `complete()` call COUNTS so the two-phase shape is
 // pinned everywhere.
-
+import { parseDeps } from "./helpers/e2e-s1";
+import {
+  ANTHROPIC_MODEL,
+  type SessionEntryDouble,
+  ajv,
+  parse,
+  appendUserEntry,
+  appendAssistantEntry,
+} from "./helpers/scripted-live-session-harness";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // The recorded off-session `complete()` calls and the scripted reply queue.
@@ -95,7 +103,6 @@ vi.mock("@earendil-works/pi-ai/compat", async (importOriginal) => {
     }),
   };
 });
-
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import type {
@@ -107,21 +114,10 @@ import type {
 import { createProductionProducerDeps } from "../src/extension/production-theta-producer";
 import type { ThetaCompositionInput } from "../src/extension/theta-composition-producer";
 import { executeBody, type BodyExecution } from "../src/runtime/statement-executor";
-import {
-  AjvSchemaValidator,
-  type LoweredSchema,
-  type SchemaSlug,
-} from "../src/seams/schema-validator";
+import { type LoweredSchema } from "../src/seams/schema-validator";
 import type { RuntimeRoot } from "../src/runtime-root";
-import {
-  parseThetaDocument,
-  type ParseThetaDocumentDeps,
-  type SchemaDecl,
-  type ThetaDocument,
-} from "../src/parser/theta-document";
+import { parseThetaDocument, type SchemaDecl } from "../src/parser/theta-document";
 import type { ThetaSource } from "../src/lexer/lexer";
-import type { ModelReferenceMatcher } from "../src/parser/frontmatter";
-import type { SystemNoteChannelDeps } from "../src/extension/system-note-channel";
 import { lowerQueryResponseSchema } from "../src/runtime/query-schema-lowering";
 import { respondSchemaSlug } from "../src/runtime/typed-query-validation";
 // @ts-expect-error — JS code-registry module, no type declarations.
@@ -155,14 +151,6 @@ const EMPTY_ANNOTATION_MESSAGE = registryMessage(
 // --- The resolved models ------------------------------------------------------
 // DISTINCT `.api` and `.provider` strings (the bug-0007/0009 fixture
 // discipline) so a provider assertion catches a wrong-field read.
-
-/** The user session's selected model (`ctx.model`). */
-const ANTHROPIC_MODEL = {
-  id: "m1",
-  api: "anthropic-messages",
-  provider: "anthropic",
-  strictCapable: true,
-};
 
 /** The theta-frontmatter-resolved respond model for cell (b). */
 const THETA_MODEL = {
@@ -441,14 +429,6 @@ interface ScriptedAssistantReply {
   readonly errorMessage?: string;
 }
 
-/** A `SessionManager` message entry (the `buildSessionContext` read shape). */
-interface SessionEntryDouble {
-  readonly type: "message";
-  readonly id: string;
-  readonly parentId: string | undefined;
-  readonly message: Record<string, unknown>;
-}
-
 /**
  * The live user-session double the free phase drives (adapted from
  * tests/prompt-provider-field-derivation.test.ts):
@@ -489,11 +469,7 @@ class LiveSessionDouble {
   sendUserMessage(content: string): void {
     this.sendUserMessageCalls += 1;
     this.sentQueryTexts.push(content);
-    this.#append({
-      role: "user",
-      content: [{ type: "text", text: content }],
-      timestamp: 0,
-    });
+    appendUserEntry(this.entries, content);
     this.#idle = false;
   }
 
@@ -523,23 +499,8 @@ class LiveSessionDouble {
     const reply =
       this.#replies[Math.min(this.#completedTurns, this.#replies.length - 1)]!;
     this.#completedTurns += 1;
-    this.#append({
-      role: "assistant",
-      content: reply.text !== undefined ? [{ type: "text", text: reply.text }] : [],
-      api: "anthropic-messages",
-      provider: "anthropic",
-      model: "m1",
-      stopReason: reply.stopReason,
-      ...(reply.errorMessage !== undefined ? { errorMessage: reply.errorMessage } : {}),
-      timestamp: 0,
-    });
+    appendAssistantEntry(this.entries, reply.text, reply.stopReason, reply.errorMessage);
     this.#idle = true;
-  }
-
-  #append(message: Record<string, unknown>): void {
-    const id = `e${this.entries.length + 1}`;
-    const parentId = this.entries.length === 0 ? undefined : `e${this.entries.length}`;
-    this.entries.push({ type: "message", id, parentId, message });
   }
 }
 
@@ -596,29 +557,6 @@ class RecordingPi {
 
 // --- Harness ---------------------------------------------------------------------
 
-function parseDeps(): ParseThetaDocumentDeps {
-  const systemNote: SystemNoteChannelDeps = {
-    pi: { sendMessage: (): void => {} },
-    ui: { notify: (): void => {} },
-    emitDiagnostic: (): void => {},
-  };
-  const modelMatcher: ModelReferenceMatcher = { resolve: (): "resolved" => "resolved" };
-  return { systemNote, modelMatcher };
-}
-
-/** Parse `.theta` source through the production whole-file parser (must be clean). */
-function parse(src: string): ThetaDocument {
-  const source: ThetaSource = {
-    path: "probe.theta",
-    bytes: new TextEncoder().encode(src),
-  };
-  const doc = parseThetaDocument(source, parseDeps());
-  const errors = doc.diagnostics.filter((d) => d.severity === "error").map((d) => d.code);
-  expect(errors, "the fixture theta must parse cleanly before it is driven").toEqual([]);
-  expect(doc.frontmatter, "the fixture theta must carry parseable frontmatter").not.toBeNull();
-  return doc;
-}
-
 /**
  * Bug 0014 seam accommodation: blank the fixture's single query `schema` to
  * `""` IN PLACE (a narrowing cast over the parser's readonly field). Bug 0014
@@ -638,15 +576,6 @@ function blankQuerySchema(body: ThetaCompositionInput["body"]): void {
     );
   }
   (stmt.init.operand as { schema: string | null }).schema = "";
-}
-
-/** The production AJV validator (real schema validation, as the sibling suites). */
-function ajv(): AjvSchemaValidator {
-  const slugOf = (schema: LoweredSchema): SchemaSlug => ({
-    slug: JSON.stringify(schema),
-    canonicalBytes: JSON.stringify(schema),
-  });
-  return new AjvSchemaValidator({ emit: () => {}, slugOf });
 }
 
 /**

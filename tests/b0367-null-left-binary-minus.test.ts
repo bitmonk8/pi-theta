@@ -67,37 +67,26 @@
 //           mechanism; N1–N3 and the CONTROL sub-rows prove the marker, not
 //           `left.kind === "null"`, is the discriminator. If any reds, the
 //           witness is wrong.
-
+import { makeBeltProbes, type Probe, render, assertValue, producer } from "./helpers/runtime-belt-probe-harness";
+import { parseDeps } from "./helpers/e2e-s1";
 import { describe, expect, it } from "vitest";
-import type {
-  ExtensionAPI,
-  ExtensionCommandContext,
-  ModelRegistry,
-} from "@earendil-works/pi-coding-agent";
+import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import type { ThetaSource } from "../src/lexer/lexer";
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
-import type { SystemNoteChannelDeps } from "../src/extension/system-note-channel";
-import type { ModelReferenceMatcher, ParsedFrontmatter } from "../src/parser/frontmatter";
-import {
-  parseThetaDocument,
-  type Expr,
-  type ParseThetaDocumentDeps,
-  type ThetaBody,
-  type ThetaDocument,
-} from "../src/parser/theta-document";
-import { executeBody, type BodyExecution } from "../src/runtime/statement-executor";
+import type { ParsedFrontmatter } from "../src/parser/frontmatter";
+import { parseThetaDocument, type Expr, type ThetaBody, type ThetaDocument } from "../src/parser/theta-document";
+import { executeBody } from "../src/runtime/statement-executor";
 import {
   isThetaPanic,
   surfaceUnexpectedThrow,
   INTERNAL_ERROR_CODE,
 } from "../src/runtime/runtime-panics";
 import type { ThetaValue } from "../src/runtime/value";
-import { createProductionProducerDeps } from "../src/extension/production-theta-producer";
 import type {
   ConversationBindInput,
   ThetaCompositionInput,
 } from "../src/extension/theta-composition-producer";
-import type { RuntimeRoot } from "../src/runtime-root";
+
 
 // expressions.md:236 §"Other arithmetic" — the registered code for a spelled
 // `-`/`*`/`/`/`%` whose operands are not both numeric. No new code is minted
@@ -121,16 +110,6 @@ const SITE = {
 // verbatim): parseThetaDocument → createProductionProducerDeps →
 // bindPromptConversation → executeBody. Offline, provider-free, deterministic.
 // ===========================================================================
-
-function parseDeps(): ParseThetaDocumentDeps {
-  const systemNote: SystemNoteChannelDeps = {
-    pi: { sendMessage: (): void => {} },
-    ui: { notify: (): void => {} },
-    emitDiagnostic: (): void => {},
-  };
-  const modelMatcher: ModelReferenceMatcher = { resolve: (): "resolved" => "resolved" };
-  return { systemNote, modelMatcher };
-}
 
 function parseOnly(src: string): ThetaDocument {
   const source: ThetaSource = { path: "b0367.theta", bytes: new TextEncoder().encode(FM + src) };
@@ -156,41 +135,6 @@ function parseTheta(src: string): ThetaDocument {
   return doc;
 }
 
-function rootDouble(): RuntimeRoot {
-  return {
-    checkpoint: { before: (): Promise<void> => Promise.resolve() },
-    idSource: { newInvocationId: (): string => "inv-1", newToolCallId: (): string => "tc-1" },
-    // The prompt-mode interpolation drive's only wait primitive is
-    // `Clock.setTimeout`; fire the callback synchronously so an instant-settle
-    // turn completes deterministically with no real timers (b0369 harness).
-    clock: {
-      now: (): number => 0,
-      wallNow: (): number => 0,
-      setTimeout: (fn: () => void): unknown => {
-        fn();
-        return 0;
-      },
-      clearTimeout: (): void => {},
-    },
-  } as unknown as RuntimeRoot;
-}
-
-function producer() {
-  return createProductionProducerDeps({
-    pi: {
-      sendMessage: () => {},
-      getActiveTools: () => [],
-      setActiveTools: () => {},
-    } as unknown as ExtensionAPI,
-    root: rootDouble(),
-    modelRegistry: {} as unknown as ModelRegistry,
-  });
-}
-
-function render(value: ThetaValue | undefined): string {
-  return value === undefined ? "undefined" : JSON.stringify(value);
-}
-
 /** Error-severity diagnostic codes from a parse-only run (the parse rows). */
 function parseErrorCodes(src: string): string[] {
   const doc = parseOnly(src);
@@ -202,10 +146,6 @@ function parseErrorCodes(src: string): string[] {
 // of `executeBody` uncaught (the framing that reclassifies it lives one layer
 // up, theta-composition-producer.ts), so both dispositions are observable here.
 // ===========================================================================
-
-type Probe =
-  | { readonly kind: "value"; readonly execution: BodyExecution }
-  | { readonly kind: "threw"; readonly thrown: unknown };
 
 /** A binding's `executeDeps` are body-agnostic, so any parse-clean source mints them. */
 function executeDeps() {
@@ -224,27 +164,7 @@ function executeDeps() {
   return producer().bindPromptConversation(bindInput).executeDeps;
 }
 
-/** Parse + run a self-contained query-free prompt-mode source, capturing a throw. */
-async function probeSource(src: string): Promise<Probe> {
-  const doc = parseTheta(src);
-  const theta: ThetaCompositionInput = {
-    slashName: "b0367",
-    sourcePath: "/proj/b0367.theta",
-    frontmatter: doc.frontmatter as ParsedFrontmatter,
-    body: doc.body,
-  };
-  const bindInput: ConversationBindInput = {
-    theta,
-    args: "",
-    ctx: {} as unknown as ExtensionCommandContext,
-  };
-  const binding = producer().bindPromptConversation(bindInput);
-  try {
-    return { kind: "value", execution: await executeBody(theta.body, binding.executeDeps) };
-  } catch (thrown) {
-    return { kind: "threw", thrown };
-  }
-}
+const { probeSource, driveInterp } = makeBeltProbes(parseTheta, "b0367");
 
 /** Run a HAND-BUILT body directly through `executeBody`, capturing a throw. */
 async function probeBody(body: ThetaBody): Promise<Probe> {
@@ -253,26 +173,6 @@ async function probeBody(body: ThetaBody): Promise<Probe> {
   } catch (thrown) {
     return { kind: "threw", thrown };
   }
-}
-
-/**
- * Assert a value row: the body succeeded and its final value equals `expected`.
- * When the runtime threw instead, the first `expect` reds cleanly naming the
- * throw, rather than letting an uncaught throw escape the test.
- */
-function assertValue(probe: Probe, expected: ThetaValue, what: string): void {
-  if (probe.kind === "threw") {
-    expect(
-      `threw ${String(probe.thrown)}`,
-      `${what}: the witness table says success value ${render(expected)}, but the runtime threw`,
-    ).toBe(`success value ${render(expected)}`);
-    return;
-  }
-  expect(probe.execution.outcome, `${what}: the body must succeed`).toBe("success");
-  expect(
-    probe.execution.result.value,
-    `${what}: the value (byte-identical guard)`,
-  ).toEqual(expected);
 }
 
 /**
@@ -449,93 +349,6 @@ describe("bug 0367 GROUP R-STMT — the executor unary arm belts an unmarked `nu
 // renders and is handed to sendUserMessage; after fix RP aborts at render
 // (before send) while RPc still renders "v=-3".
 // ===========================================================================
-
-class InstantSettleSession {
-  readonly entries: Array<Record<string, unknown>> = [];
-  readonly sent: string[] = [];
-
-  sendUserMessage(text: string): void {
-    this.sent.push(text);
-    this.entries.push({
-      type: "message",
-      id: `u${this.entries.length + 1}`,
-      parentId: undefined,
-      message: { role: "user", content: [{ type: "text", text }] },
-    });
-    this.entries.push({
-      type: "message",
-      id: `a${this.entries.length + 1}`,
-      parentId: `u${this.entries.length}`,
-      message: {
-        role: "assistant",
-        content: [{ type: "text", text: "settled-reply" }],
-        api: "anthropic-messages",
-        provider: "anthropic",
-        model: "m1",
-        stopReason: "stop",
-      },
-    });
-  }
-
-  isIdle(): boolean {
-    return true;
-  }
-}
-
-type InterpProbe =
-  | {
-      readonly kind: "rendered";
-      readonly sent: readonly string[];
-      readonly outcome: string;
-      readonly value: ThetaValue | undefined;
-    }
-  | { readonly kind: "threw"; readonly sent: readonly string[]; readonly thrown: unknown };
-
-async function driveInterp(src: string): Promise<InterpProbe> {
-  const doc = parseTheta(src);
-  const session = new InstantSettleSession();
-  const pi = {
-    sendUserMessage: (content: string): void => session.sendUserMessage(content),
-    getActiveTools: (): string[] => [],
-    setActiveTools: (): void => {},
-    registerTool: (): void => {},
-    on: (): void => {},
-    sendMessage: (): void => {},
-  } as unknown as ExtensionAPI;
-  const deps = createProductionProducerDeps({
-    pi,
-    root: rootDouble(),
-    modelRegistry: {} as unknown as ModelRegistry,
-  });
-  const ctx = {
-    model: { id: "m1", api: "anthropic-messages", provider: "anthropic", strictCapable: true },
-    signal: undefined,
-    isIdle: (): boolean => session.isIdle(),
-    waitForIdle: (): Promise<void> => Promise.resolve(),
-    sessionManager: {
-      getEntries: (): readonly unknown[] => [...session.entries],
-      getLeafId: (): undefined => undefined,
-    },
-  } as unknown as ExtensionCommandContext;
-  const theta: ThetaCompositionInput = {
-    slashName: "b0367",
-    sourcePath: "/proj/b0367.theta",
-    frontmatter: doc.frontmatter as ParsedFrontmatter,
-    body: doc.body,
-  };
-  const binding = deps.bindPromptConversation({ theta, args: "", ctx });
-  try {
-    const execution = await executeBody(theta.body, binding.executeDeps);
-    return {
-      kind: "rendered",
-      sent: session.sent,
-      outcome: execution.outcome,
-      value: execution.result.value,
-    };
-  } catch (thrown) {
-    return { kind: "threw", sent: session.sent, thrown };
-  }
-}
 
 /**
  * Shared framing assertion: a caught throw must be the belt's plain `Error` (NOT

@@ -1,5 +1,4 @@
-import { fileURLToPath } from "node:url";
-import { readFileSync } from "node:fs";
+import { linesOf, readCorpus as readSharedCorpus } from "./helpers/corpus-reader";
 import { describe, expect, it } from "vitest";
 
 // b0455 — count words / enumerations across the corpus track the
@@ -39,31 +38,9 @@ import { describe, expect, it } from "vitest";
 // scored by content. A missing target file/line is a LOUD harness failure that
 // names the surface — never a skip, so no cell can pass vacuously.
 
-const repoFile = (rel: string): string =>
-  fileURLToPath(new URL(`../${rel}`, import.meta.url));
-
-/**
- * Read a corpus file. Unreadable or empty is a harness-precondition failure
- * that names the unmet precondition and throws — bug 0455 names each surface, so
- * an absent file must fail loudly rather than let a cell score nothing.
- */
 function readCorpus(rel: string): string {
-  let text: string;
-  try {
-    text = readFileSync(repoFile(rel), "utf8");
-  } catch (cause) {
-    throw new Error(
-      `harness precondition unmet: ${rel} is unreadable, and it is a surface bug 0455 owns — a missing corpus file is a loud failure, never a skip (${String(cause)})`,
-    );
-  }
-  if (text.trim() === "") {
-    throw new Error(`harness precondition unmet: ${rel} is empty; nothing to score`);
-  }
-  return text;
+  return readSharedCorpus(rel, "a surface bug 0455 owns");
 }
-
-/** Split tolerant of either terminator so scoring never depends on EOL flavor. */
-const linesOf = (text: string): readonly string[] => text.split(/\r?\n/);
 
 /**
  * The 1-based `n`th physical line of `rel`. A file with fewer than `n` lines is

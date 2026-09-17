@@ -36,3 +36,21 @@ export function nearAll(
     return tokens.every((t) => t.test(slice));
   });
 }
+
+/** Slice prose from a required anchor up to the next matching boundary. */
+export function sliceFrom(
+  page: string,
+  text: string,
+  startAnchor: string,
+  endPattern: RegExp,
+): string {
+  const start = text.indexOf(startAnchor);
+  if (start < 0) {
+    throw new Error(
+      `harness: ${page} no longer contains the anchor ${JSON.stringify(startAnchor)}, so this cell cannot locate the sentence it governs — re-anchor the cell rather than letting it pass over an empty slice`,
+    );
+  }
+  const rest = text.slice(start);
+  const end = rest.slice(startAnchor.length).search(endPattern);
+  return end < 0 ? rest : rest.slice(0, startAnchor.length + end);
+}

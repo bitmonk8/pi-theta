@@ -14,6 +14,7 @@
 // pi-integration-contract/subagent.md (#subagent-executable-resolution),
 // diagnostics/code-registry-load.md (`theta/load/subagent-executable-unresolved`).
 
+import { resolvingHost, bothRungsFailHost } from "./helpers/fake-json-child";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -36,26 +37,6 @@ const THETAS: readonly { readonly stem: string; readonly text: string }[] = [
   // A prompt-mode theta: never launches a child, so it MUST still register.
   { stem: "promptq", text: theta("---", "mode: prompt", "---", "@`hi`") },
 ];
-
-/** An executable host whose BOTH resolution rungs fail (no runnable entry point). */
-function bothRungsFailHost(): ExecutableHost {
-  return {
-    argv1: undefined, // rung 1: no entry script
-    execPath: "/usr/bin/node", // rung 2: a generic runtime is not Pi itself
-    fileExists: (): boolean => false,
-    isGenericRuntime: (): boolean => true,
-  };
-}
-
-/** An executable host whose rung 1 resolves (a runnable entry point exists). */
-function resolvingHost(): ExecutableHost {
-  return {
-    argv1: "/app/pi/dist/index.js",
-    execPath: "/usr/bin/node",
-    fileExists: (): boolean => true,
-    isGenericRuntime: (): boolean => false,
-  };
-}
 
 interface LoadOutcome {
   readonly registered: readonly string[];

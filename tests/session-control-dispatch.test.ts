@@ -31,7 +31,7 @@
 // is why it reds today on a real VALUE MISMATCH (never a throw, never a
 // missing fixture, never a harness precondition) — except D15, which pins
 // today's actual fallback behaviour and is GREEN AT BIRTH (stated per cell).
-
+import { parseDeps } from "./helpers/e2e-s1";
 import { describe, expect, it } from "vitest";
 import type {
   ExtensionAPI,
@@ -39,13 +39,8 @@ import type {
   ModelRegistry,
 } from "@earendil-works/pi-coding-agent";
 import type { ThetaSource } from "../src/lexer/lexer";
-import type { SystemNoteChannelDeps } from "../src/extension/system-note-channel";
-import type { ModelReferenceMatcher, ParsedFrontmatter } from "../src/parser/frontmatter";
-import {
-  parseThetaDocument,
-  type ParseThetaDocumentDeps,
-  type ThetaDocument,
-} from "../src/parser/theta-document";
+import type { ParsedFrontmatter } from "../src/parser/frontmatter";
+import { parseThetaDocument, type ThetaDocument } from "../src/parser/theta-document";
 import { executeBody } from "../src/runtime/statement-executor";
 import {
   createProductionProducerDeps,
@@ -63,16 +58,6 @@ import type { ResultValue, ThetaValue } from "../src/runtime/value";
 // Shared parse + production harness (the b0369 / tool-call-dispatch-harness
 // shape).
 // ---------------------------------------------------------------------------
-
-function parseDeps(): ParseThetaDocumentDeps {
-  const systemNote: SystemNoteChannelDeps = {
-    pi: { sendMessage: (): void => {} },
-    ui: { notify: (): void => {} },
-    emitDiagnostic: (): void => {},
-  };
-  const modelMatcher: ModelReferenceMatcher = { resolve: (): "resolved" => "resolved" };
-  return { systemNote, modelMatcher };
-}
 
 function parseTheta(src: string): ThetaDocument {
   const source: ThetaSource = { path: "session-control-dispatch.theta", bytes: new TextEncoder().encode(src) };

@@ -1,3 +1,4 @@
+import { RecordingMutator } from "./helpers/invoke-seam-scaffold";
 import { describe, expect, it } from "vitest";
 import {
   executeBody,
@@ -11,11 +12,7 @@ import {
 } from "../src/runtime/lexical-environment";
 import type { OperationResult } from "../src/runtime/cancellation-core";
 import type { Checkpoint, CheckpointSite } from "../src/seams/checkpoint";
-import type {
-  CommittedConversationMutator,
-  CommittedSurface,
-  DrivenConversationMode,
-} from "../src/runtime/terminal-outcomes";
+import type { DrivenConversationMode } from "../src/runtime/terminal-outcomes";
 import type { ResultValue, ThetaValue } from "../src/runtime/value";
 import type { QueryError } from "../src/runtime/query-error";
 import type {
@@ -124,26 +121,6 @@ const NOOP_CHECKPOINT: Checkpoint = {
     return Promise.resolve();
   },
 };
-
-/** A recording `CommittedConversationMutator` (unused by these witnesses). */
-class RecordingMutator implements CommittedConversationMutator {
-  readonly calls: string[] = [];
-  truncate(id: string): void {
-    this.calls.push(`truncate:${id}`);
-  }
-  rewrite(id: string): void {
-    this.calls.push(`rewrite:${id}`);
-  }
-  replace(id: string): void {
-    this.calls.push(`replace:${id}`);
-  }
-  remove(id: string): void {
-    this.calls.push(`remove:${id}`);
-  }
-  injectCompensatingTurn(surface: CommittedSurface): void {
-    this.calls.push(`inject:${surface.id}`);
-  }
-}
 
 /**
  * A `StatementEvalHost` double whose `runEffect` returns a scripted

@@ -1,10 +1,9 @@
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
+import { REGISTRY } from "./helpers/registry-oracle";
 import { describe, expect, it } from "vitest";
 // @ts-expect-error — JS code-registry module, no type declarations.
-import { parseRegistry, registryMessage } from "../tools/code-registry/index.js";
+import { registryMessage } from "../tools/code-registry/index.js";
 import type { SchemaDecl, ThetaDocument } from "../src/parser/theta-document";
-import { parseDoc } from "./helpers/e2e-s1";
+import { parseDoc, diagLines } from "./helpers/e2e-s1";
 
 // Bug 0162 — `theta/parse/inline-enum` is raised from the two `schema`
 // declaration call sites only, so ONE authored mistake draws a different code
@@ -120,32 +119,6 @@ const PARAMS_REFUSAL = "theta/load/params-type-not-expression";
 const SCHEMA_REFUSAL = "theta/parse/schema-type-not-expression";
 const RESERVED_KEYWORD = "theta/parse/reserved-keyword-as-identifier";
 const UNRESOLVED_NAME = "theta/parse/unresolved-named-type";
-
-interface RegistryRow {
-  readonly code: string;
-  readonly namespace: string;
-  readonly severity: string;
-  readonly phase: string;
-  readonly trigger: string;
-  readonly message: string;
-}
-
-/** The live four-page sharded registry — the input tests/code-registry.test.ts reconciles. */
-const REGISTRY = parseRegistry(
-  [
-    "code-registry-parse.md",
-    "code-registry-load.md",
-    "code-registry-runtime.md",
-    "code-registry-host.md",
-  ]
-    .map((page) =>
-      readFileSync(
-        fileURLToPath(new URL(`../docs/spec_topics/diagnostics/${page}`, import.meta.url)),
-        "utf8",
-      ),
-    )
-    .join("\n"),
-) as RegistryRow[];
 
 /**
  * A registry row's normative *Message* (DIAG-4, diagnostic-shape.md:74), read
@@ -266,10 +239,6 @@ interface Read {
   readonly frontmatterPresent: boolean;
   /** The whole document, for the loud readers below. */
   readonly doc: ThetaDocument;
-}
-
-function diagLines(doc: ThetaDocument): string[] {
-  return doc.diagnostics.map((d) => `${d.severity} ${d.code}: ${d.message}`);
 }
 
 /**

@@ -1,3 +1,4 @@
+import { ANTHROPIC_MODEL } from "./helpers/scripted-live-session-harness";
 import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -1012,14 +1013,6 @@ const NOOP_CHECKPOINT: Checkpoint = {
   before(): Promise<void> {
     return Promise.resolve();
   },
-};
-
-/** The user session's selected model (`ctx.model`) — provider derivation only. */
-const ANTHROPIC_MODEL = {
-  id: "m1",
-  api: "anthropic-messages",
-  provider: "anthropic",
-  strictCapable: true,
 };
 
 class LiveSessionDouble {

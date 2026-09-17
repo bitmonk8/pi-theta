@@ -1,5 +1,4 @@
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
+import { readCorpus as readSharedCorpus } from "./helpers/corpus-reader";
 import { describe, expect, it } from "vitest";
 import {
   buildBodyTypeSchemas,
@@ -115,10 +114,7 @@ const SPEC_TOPIC_PATH = "docs/spec_topics/schema-subset.md";
 const REFERENCE_PATH = "docs/reference/schema-subset.md";
 
 function readCorpusFile(relative: string): string {
-  return readFileSync(
-    fileURLToPath(new URL(`../${relative}`, import.meta.url)),
-    "utf8",
-  );
+  return readSharedCorpus(relative, "nonstring-literal-union-emission-subs3.test.ts's spec oracle");
 }
 
 const SPEC_TOPIC_TEXT = readCorpusFile(SPEC_TOPIC_PATH);

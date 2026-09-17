@@ -1,5 +1,5 @@
+import { RecordingSink } from "./helpers/invoke-seam-scaffold";
 import { describe, expect, it } from "vitest";
-import type { Diagnostic } from "../src/diagnostics/diagnostic";
 import type {
   Checkpoint,
   CheckpointKind,
@@ -21,7 +21,6 @@ import {
   type AgentToolResultEnvelope,
   type CodeSideToolCall,
   type ToolContentBlock,
-  type ToolLoweringSink,
 } from "../src/runtime/tool-call-execute";
 
 // V14g-T — failing tests for the paired `V14g` "Code-side `execute()`
@@ -70,20 +69,6 @@ class RecordingCheckpoint implements Checkpoint {
     this.sites.push(site);
     this.log.push(`checkpoint:${kind}`);
     return Promise.resolve();
-  }
-}
-
-/**
- * A `ToolLoweringSink` that records any normative side-channel emission so a
- * test can assert the non-text-block discard path touches none of them.
- */
-class RecordingSink implements ToolLoweringSink {
-  readonly emissions: string[] = [];
-  diagnostic(diag: Diagnostic): void {
-    this.emissions.push(`diagnostic:${diag.code}`);
-  }
-  systemNote(message: string): void {
-    this.emissions.push(`system-note:${message}`);
   }
 }
 

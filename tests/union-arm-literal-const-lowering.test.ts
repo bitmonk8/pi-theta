@@ -17,7 +17,7 @@ import {
   type LoweredSchema,
   type SchemaSlug,
 } from "../src/seams/schema-validator";
-import { parseDoc } from "./helpers/e2e-s1";
+import { parseDoc, diagLines } from "./helpers/e2e-s1";
 
 // Bug 0184 — a literal ARM of a MIXED union lowers to the EMPTY schema at all
 // four `Type` positions instead of `docs/spec_topics/schema-subset.md:79`'s
@@ -254,10 +254,6 @@ const HOISTING_POSITIONS = ["params", "field", "alias"] as const;
  */
 function yamlQuoted(typeSource: string): string {
   return `'${typeSource.replace(/'/g, "''")}'`;
-}
-
-function diagLines(doc: ThetaDocument): string[] {
-  return doc.diagnostics.map((d) => `${d.severity} ${d.code}: ${d.message}`);
 }
 
 function loweredParamsDocument(doc: ThetaDocument): Record<string, unknown> | undefined {

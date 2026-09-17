@@ -12,8 +12,8 @@ import {
   type LoweredSchema,
   type SchemaSlug,
 } from "../src/seams/schema-validator";
-import { parseDoc } from "./helpers/e2e-s1";
-import { compareCodePoint } from "./helpers/canonical-slug-oracle";
+import { parseDoc, diagLines } from "./helpers/e2e-s1";
+import { compareCodePoint, refNames } from "./helpers/canonical-slug-oracle";
 
 // Bug 0043 — `lowerTypeExpr` (src/parser/params.ts) tests for a generic
 // application BEFORE it splits a union, so any union whose source text ends in
@@ -231,11 +231,6 @@ const TRIAGE_DEF = {
   additionalProperties: false,
 };
 
-/** Every diagnostic rendered `<severity> <code>: <message>`, in emission order. */
-function diagLines(doc: ThetaDocument): string[] {
-  return doc.diagnostics.map((d) => `${d.severity} ${d.code}: ${d.message}`);
-}
-
 /**
  * A YAML single-quoted scalar. Every `params:` fixture here is quoted so a `|`
  * or a `"` in the type source cannot be read as YAML structure; the bug doc's
@@ -388,34 +383,6 @@ function ajv(): { readonly validator: AjvSchemaValidator; readonly emitted: Diag
     validator: new AjvSchemaValidator({ emit: (d) => emitted.push(d), slugOf }),
     emitted,
   };
-}
-
-/** Every `#/$defs/<name>` pointer anywhere in a document, in encounter order. */
-function refNames(value: unknown): string[] {
-  const names: string[] = [];
-  const visit = (node: unknown): void => {
-    if (Array.isArray(node)) {
-      for (const item of node) {
-        visit(item);
-      }
-      return;
-    }
-    if (node === null || typeof node !== "object") {
-      return;
-    }
-    for (const [key, child] of Object.entries(node as Record<string, unknown>)) {
-      if (key === "$ref" && typeof child === "string") {
-        const match = /^#\/\$defs\/(.+)$/.exec(child);
-        if (match?.[1] !== undefined) {
-          names.push(match[1]);
-        }
-      } else {
-        visit(child);
-      }
-    }
-  };
-  visit(value);
-  return names;
 }
 
 /**

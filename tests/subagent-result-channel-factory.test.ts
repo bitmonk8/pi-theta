@@ -5,6 +5,7 @@
 // before the socket ends. In-process over the real factory + real
 // `composeExtensionInstance`; the channel client is a fake; zero processes.
 
+import { resolvingHost } from "./helpers/fake-json-child";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -13,21 +14,12 @@ import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-a
 import { createThetaExtension, type ThetaExtensionDeps } from "../src/extension/factory";
 import { composeExtensionInstance } from "../src/extension/production-composition";
 import type { ResultChannelClient } from "../src/runtime/subagent-result-channel";
-import type { ExecutableHost } from "../src/runtime/subagent-launcher";
+
 import { SUBAGENT_PARENT_PID_ENV } from "../src/runtime/subagent-launcher";
 import { SUBAGENT_ROOT_ENV_MARKER } from "../src/runtime/subagent-root-regime";
 import { FakeClock } from "./helpers/fake-clock";
 
 const AVAILABLE_MODEL = { id: "claude-test", provider: "anthropic", api: "anthropic-messages" };
-
-function resolvingHost(): ExecutableHost {
-  return {
-    argv1: "/app/pi/dist/index.js",
-    execPath: "/usr/bin/node",
-    fileExists: (): boolean => true,
-    isGenericRuntime: (): boolean => false,
-  };
-}
 
 interface Harness {
   readonly pi: ExtensionAPI;

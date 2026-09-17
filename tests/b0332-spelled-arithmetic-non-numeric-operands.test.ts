@@ -1,32 +1,31 @@
+import { rootDouble } from "./helpers/call-with-clause-harness";
+import {
+  makeBeltProbes,
+  type Probe,
+  render,
+  assertValue,
+  producer as beltProducer,
+} from "./helpers/runtime-belt-probe-harness";
 import { describe, expect, it } from "vitest";
-import type {
-  ExtensionAPI,
-  ExtensionCommandContext,
-  ModelRegistry,
-} from "@earendil-works/pi-coding-agent";
 import type { ThetaSource } from "../src/lexer/lexer";
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
 import type { SystemNoteChannelDeps } from "../src/extension/system-note-channel";
-import type { ModelReferenceMatcher, ParsedFrontmatter } from "../src/parser/frontmatter";
+import type { ModelReferenceMatcher } from "../src/parser/frontmatter";
 import {
   parseThetaDocument,
   type ParseThetaDocumentDeps,
   type ThetaDocument,
 } from "../src/parser/theta-document";
-import { executeBody, type BodyExecution } from "../src/runtime/statement-executor";
 import {
   isThetaPanic,
   surfaceUnexpectedThrow,
   INTERNAL_ERROR_CODE,
 } from "../src/runtime/runtime-panics";
 import type { ThetaValue } from "../src/runtime/value";
-import { createProductionProducerDeps } from "../src/extension/production-theta-producer";
-import type {
-  ConversationBindInput,
-  ThetaCompositionInput,
-} from "../src/extension/theta-composition-producer";
-import type { RuntimeRoot } from "../src/runtime-root";
-import type { Checkpoint } from "../src/seams/checkpoint";
+
+
+
+
 
 // Bug 0332 — the spelled binary operators `-`, `*`, `/`, `%` on non-numeric
 // operands parse clean and silently JS-coerce. `docs/spec_topics/expressions.md`
@@ -147,29 +146,8 @@ function parseTheta(path: string, src: string): ThetaDocument {
   return doc;
 }
 
-const NOOP_CHECKPOINT: Checkpoint = {
-  before(): Promise<void> {
-    return Promise.resolve();
-  },
-};
-
-function rootDouble(): RuntimeRoot {
-  return {
-    checkpoint: NOOP_CHECKPOINT,
-    idSource: { newInvocationId: () => "inv-1", newToolCallId: () => "tc-1" },
-  } as unknown as RuntimeRoot;
-}
-
 function producer() {
-  return createProductionProducerDeps({
-    pi: {
-      sendMessage: () => {},
-      getActiveTools: () => [],
-      setActiveTools: () => {},
-    } as unknown as ExtensionAPI,
-    root: rootDouble(),
-    modelRegistry: {} as unknown as ModelRegistry,
-  });
+  return beltProducer(rootDouble());
 }
 
 const FM = "---\nmode: prompt\n---\n";
@@ -183,66 +161,12 @@ const SITE = {
   },
 };
 
-/**
- * One probe's disposition: the body produced a value, or the runtime threw. A
- * raw non-panic throw propagates out of `executeBody` uncaught (the framing that
- * reclassifies it lives one layer up, theta-composition-producer.ts), so both
- * dispositions are observable here.
- */
-type Probe =
-  | { readonly kind: "value"; readonly execution: BodyExecution }
-  | { readonly kind: "threw"; readonly thrown: unknown };
-
-/** Parse + run a self-contained query-free prompt-mode source, capturing a throw. */
-async function probeSource(src: string): Promise<Probe> {
-  const doc = parseTheta("b0332.theta", FM + src);
-  const theta: ThetaCompositionInput = {
-    slashName: "b0332",
-    sourcePath: "/proj/b0332.theta",
-    frontmatter: doc.frontmatter as ParsedFrontmatter,
-    body: doc.body,
-  };
-  const bindInput: ConversationBindInput = {
-    theta,
-    args: "",
-    ctx: {} as unknown as ExtensionCommandContext,
-  };
-  const binding = producer().bindPromptConversation(bindInput);
-  try {
-    return { kind: "value", execution: await executeBody(theta.body, binding.executeDeps) };
-  } catch (thrown) {
-    return { kind: "threw", thrown };
-  }
-}
-
-function render(value: ThetaValue | undefined): string {
-  return value === undefined ? "undefined" : JSON.stringify(value);
-}
+const { probeSource } = makeBeltProbes((src) => parseTheta("b0332.theta", FM + src), "b0332", { root: rootDouble });
 
 /** Error-severity diagnostic codes from a parse-only run (the gate rows). */
 function parseErrorCodes(src: string): string[] {
   const doc = parseOnly("b0332.theta", FM + src);
   return doc.diagnostics.filter((d) => d.severity === "error").map((d) => d.code);
-}
-
-/**
- * Assert a value row: the body succeeded and its final value equals `expected`.
- * When the runtime threw instead, the first `expect` reds cleanly naming the
- * throw, rather than letting an uncaught throw escape the test.
- */
-function assertValue(probe: Probe, expected: ThetaValue, what: string): void {
-  if (probe.kind === "threw") {
-    expect(
-      `threw ${String(probe.thrown)}`,
-      `${what}: the witness table says success value ${render(expected)}, but the runtime threw`,
-    ).toBe(`success value ${render(expected)}`);
-    return;
-  }
-  expect(probe.execution.outcome, `${what}: the body must succeed`).toBe("success");
-  expect(
-    probe.execution.result.value,
-    `${what}: the numeric control value (byte-identical guard)`,
-  ).toEqual(expected);
 }
 
 /**

@@ -2,7 +2,6 @@
 // schema hash: Unicode code-point key order, SHA-256 truncation and inline names.
 // No production canonicaliser or slug helper is imported; the hand-written
 // canonical forms and their honesty checks remain in each test file.
-
 import { createHash } from "node:crypto";
 import { expect } from "vitest";
 
@@ -51,4 +50,32 @@ export function assertKeysSorted(label: string, value: unknown, path = "$"): voi
   for (const key of keys) {
     assertKeysSorted(label, (value as Record<string, unknown>)[key], `${path}.${key}`);
   }
+}
+
+/** Collect local $defs reference names in traversal order. */
+export function refNames(value: unknown): string[] {
+  const names: string[] = [];
+  const visit = (node: unknown): void => {
+    if (Array.isArray(node)) {
+      for (const item of node) {
+        visit(item);
+      }
+      return;
+    }
+    if (node === null || typeof node !== "object") {
+      return;
+    }
+    for (const [key, child] of Object.entries(node as Record<string, unknown>)) {
+      if (key === "$ref" && typeof child === "string") {
+        const match = /^#\/\$defs\/(.+)$/.exec(child);
+        if (match?.[1] !== undefined) {
+          names.push(match[1]);
+        }
+      } else {
+        visit(child);
+      }
+    }
+  };
+  visit(value);
+  return names;
 }

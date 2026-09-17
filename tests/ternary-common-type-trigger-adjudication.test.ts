@@ -1,3 +1,5 @@
+import { readCorpus as readSharedCorpus } from "./helpers/corpus-reader";
+import { sliceFrom } from "./helpers/spec-prose-proximity";
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
@@ -89,10 +91,7 @@ import { parseDoc } from "./helpers/e2e-s1";
 // ===========================================================================
 
 function corpus(relative: string): string {
-  return readFileSync(
-    fileURLToPath(new URL(`../${relative}`, import.meta.url)),
-    "utf8",
-  );
+  return readSharedCorpus(relative, "ternary-common-type-trigger-adjudication.test.ts's spec oracle");
 }
 
 const REGISTRY_PAGE = "docs/spec_topics/diagnostics/code-registry-parse.md";
@@ -119,30 +118,6 @@ function trigger(code: string): string {
     );
   }
   return row.trigger;
-}
-
-/**
- * The text between `startAnchor` and the next `endPattern` (or the end of file).
- *
- * A missing `startAnchor` throws naming the page and the anchor: the extraction
- * is what scopes an assertion to one sentence, so a silently-empty slice would
- * turn a conformance cell into a vacuous pass.
- */
-function sliceFrom(
-  page: string,
-  text: string,
-  startAnchor: string,
-  endPattern: RegExp,
-): string {
-  const start = text.indexOf(startAnchor);
-  if (start < 0) {
-    throw new Error(
-      `harness: ${page} no longer contains the anchor ${JSON.stringify(startAnchor)}, so this cell cannot locate the sentence it governs — re-anchor the cell rather than letting it pass over an empty slice`,
-    );
-  }
-  const rest = text.slice(start);
-  const end = rest.slice(startAnchor.length).search(endPattern);
-  return end < 0 ? rest : rest.slice(0, startAnchor.length + end);
 }
 
 // ===========================================================================

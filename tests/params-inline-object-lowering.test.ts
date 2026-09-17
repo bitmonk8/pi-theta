@@ -11,7 +11,7 @@ import {
   type LoweredSchema,
   type SchemaSlug,
 } from "../src/seams/schema-validator";
-import { parseDoc } from "./helpers/e2e-s1";
+import { parseDoc, diagLines, fieldOf } from "./helpers/e2e-s1";
 import { assertKeysSorted, inlineDefName, slugOfCanonicalForm } from "./helpers/canonical-slug-oracle";
 
 // Bug 0035 — an inline object type on the `params:` right-hand side is
@@ -349,11 +349,6 @@ const NESTED_OUTER_FRAGMENT = {
 // Load helpers. Loud on every unexpected disposition.
 // ===========================================================================
 
-/** Every diagnostic rendered `<severity> <code>: <message>`, in emission order. */
-function diagLines(doc: ThetaDocument): string[] {
-  return doc.diagnostics.map((d) => `${d.severity} ${d.code}: ${d.message}`);
-}
-
 /** A parsed, cleanly-lowered `params:` block. */
 interface LoadedParams {
   readonly doc: ThetaDocument;
@@ -428,17 +423,6 @@ function expectParamsRefused(doc: ThetaDocument, name: string, why: string): voi
     doc.frontmatter,
     `${why} — bug 0035 §Expected: "the theta does not load". An error-severity params diagnostic must collapse the frontmatter exactly as the plain-named typo (fixture D) does; a loaded theta whose param validates nothing is the hole this bug reports`,
   ).toBeNull();
-}
-
-/** The named field of a loaded params block, or a loud failure. */
-function fieldOf(loaded: LoadedParams, wireName: string): BypassParamsField {
-  const found = loaded.fields.find((f) => f.wireName === wireName);
-  if (found === undefined) {
-    throw new Error(
-      `no params field '${wireName}' in ${JSON.stringify(loaded.fields)} — the declaration was dropped entirely`,
-    );
-  }
-  return found;
 }
 
 /** A real `AjvSchemaValidator` plus the diagnostics it emitted. */

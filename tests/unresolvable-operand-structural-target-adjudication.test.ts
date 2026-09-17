@@ -1,5 +1,5 @@
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
+import { readCorpus as readSharedCorpus } from "./helpers/corpus-reader";
+import { sliceFrom } from "./helpers/spec-prose-proximity";
 import { describe, expect, it } from "vitest";
 import type {
   ExtensionAPI,
@@ -23,7 +23,7 @@ import type {
 } from "../src/extension/theta-composition-producer";
 import type { RuntimeRoot } from "../src/runtime-root";
 import type { Checkpoint } from "../src/seams/checkpoint";
-import { parseDoc } from "./helpers/e2e-s1";
+import { parseDoc, diagLines as lines } from "./helpers/e2e-s1";
 
 // Bug 0144 — the ADJUDICATION of what an unresolvable operand is owed at a
 // STRUCTURAL target, written into the corpus
@@ -255,7 +255,7 @@ import { parseDoc } from "./helpers/e2e-s1";
 // ===========================================================================
 
 function corpus(relative: string): string {
-  return readFileSync(fileURLToPath(new URL(`../${relative}`, import.meta.url)), "utf8");
+  return readSharedCorpus(relative, "unresolvable-operand-structural-target-adjudication.test.ts's spec oracle");
 }
 
 const TYPE_SYSTEM_PAGE = "docs/spec_topics/type-system.md";
@@ -341,29 +341,6 @@ function unresolvedNamedType(name: string): string {
   })}`;
 }
 
-/**
- * The text between `startAnchor` and the next `endPattern` (or end of file). A
- * missing anchor throws naming the page and the anchor: the extraction is what
- * scopes an assertion to one paragraph, so a silently-empty slice would turn a
- * conformance cell into a vacuous pass.
- */
-function sliceFrom(
-  page: string,
-  text: string,
-  startAnchor: string,
-  endPattern: RegExp,
-): string {
-  const start = text.indexOf(startAnchor);
-  if (start < 0) {
-    throw new Error(
-      `harness: ${page} no longer contains the anchor ${JSON.stringify(startAnchor)}, so this cell cannot locate the paragraph it governs — re-anchor the cell rather than letting it pass over an empty slice`,
-    );
-  }
-  const rest = text.slice(start);
-  const end = rest.slice(startAnchor.length).search(endPattern);
-  return end < 0 ? rest : rest.slice(0, startAnchor.length + end);
-}
-
 /** Assert `slice` carries every required phrase, naming the file and the gap. */
 function requirePhrases(
   page: string,
@@ -385,11 +362,6 @@ function requirePhrases(
 // ===========================================================================
 
 const FM = "---\nmode: prompt\n---\n";
-
-/** `severity code: message` for EVERY diagnostic, in emission order. */
-function lines(doc: ThetaDocument): string[] {
-  return doc.diagnostics.map((d) => `${d.severity} ${d.code}: ${d.message}`);
-}
 
 function parse(body: string): ThetaDocument {
   return parseDoc(FM + body, "bug0144.theta");

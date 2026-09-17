@@ -1,3 +1,4 @@
+import { parseDeps } from "./helpers/e2e-s1";
 import { describe, expect, it } from "vitest";
 import { fileURLToPath } from "node:url";
 import { readFileSync } from "node:fs";
@@ -9,13 +10,8 @@ import type {
 // @ts-expect-error — JS code-registry module, no type declarations.
 import { parseRegistry, registryMessage } from "../tools/code-registry/index.js";
 import type { ThetaSource } from "../src/lexer/lexer";
-import type { SystemNoteChannelDeps } from "../src/extension/system-note-channel";
-import type { ModelReferenceMatcher, ParsedFrontmatter } from "../src/parser/frontmatter";
-import {
-  parseThetaDocument,
-  type ParseThetaDocumentDeps,
-  type ThetaDocument,
-} from "../src/parser/theta-document";
+import type { ParsedFrontmatter } from "../src/parser/frontmatter";
+import { parseThetaDocument, type ThetaDocument } from "../src/parser/theta-document";
 import { executeBody } from "../src/runtime/statement-executor";
 import {
   evaluateIndexAccess,
@@ -97,18 +93,6 @@ const REGISTRY = parseRegistry(
 // tests/missing-object-key-rendering.test.ts — offline, provider-free, no child
 // process, no model).
 // ===========================================================================
-
-function parseDeps(): ParseThetaDocumentDeps {
-  const systemNote: SystemNoteChannelDeps = {
-    pi: { sendMessage: (): void => {} },
-    ui: { notify: (): void => {} },
-    emitDiagnostic: (): void => {},
-  };
-  const modelMatcher: ModelReferenceMatcher = {
-    resolve: (): "resolved" => "resolved",
-  };
-  return { systemNote, modelMatcher };
-}
 
 /**
  * Parse a fixture and fail LOUDLY on any error-severity diagnostic. Every probe

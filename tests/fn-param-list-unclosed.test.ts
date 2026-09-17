@@ -1,11 +1,11 @@
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
+import { registryMessageOf } from "./helpers/load-row-harness";
+import { readRegistry } from "./helpers/registry-oracle";
 import { describe, expect, it } from "vitest";
 // @ts-expect-error — JS code-registry module, no type declarations.
-import { parseRegistry, registryMessage } from "../tools/code-registry/index.js";
+import { registryMessage } from "../tools/code-registry/index.js";
 import type { Diagnostic, SourceRange } from "../src/diagnostics/diagnostic";
 import type { FnDecl, FnParam, ThetaDocument } from "../src/parser/theta-document";
-import { parseDoc } from "./helpers/e2e-s1";
+import { parseDoc, topKinds } from "./helpers/e2e-s1";
 
 // Bug 0151 — an unclosed `fn` parameter list draws no structural diagnostic
 // (docs/bugs/0151-unclosed-fn-parameter-list-accepted.md).
@@ -127,42 +127,10 @@ import { parseDoc } from "./helpers/e2e-s1";
 // The diagnostic oracle — the registry's *Message* column (DIAG-4).
 // ===========================================================================
 
-interface RegistryRow {
-  readonly code: string;
-  readonly message: string;
-}
+const REGISTRY = readRegistry(["parse"]);
 
-const REGISTRY = parseRegistry(
-  readFileSync(
-    fileURLToPath(
-      new URL("../docs/spec_topics/diagnostics/code-registry-parse.md", import.meta.url),
-    ),
-    "utf8",
-  ),
-) as RegistryRow[];
-
-/**
- * The registry row's normative *Message* template with its named placeholders
- * filled (DIAG-4). Definedness and placeholder presence are asserted first, so
- * a missing row — the state of `theta/parse/fn-param-list-unclosed` until the
- * DIAG-2 addition lands — reds by naming the registry rather than by a bare
- * `undefined` comparison.
- */
 function msg(code: string, fills: ReadonlyArray<readonly [string, string]> = []): string {
-  const template = registryMessage(REGISTRY, code) as string | undefined;
-  expect(
-    template,
-    `DIAG-4 anchor: docs/spec_topics/diagnostics/code-registry-parse.md must carry the Message row for ${code}`,
-  ).toBeDefined();
-  let out = template as string;
-  for (const [placeholder, value] of fills) {
-    expect(
-      out,
-      `DIAG-4: the ${code} Message template must carry the ${placeholder} placeholder; template=${JSON.stringify(template)}`,
-    ).toContain(placeholder);
-    out = out.replace(placeholder, value);
-  }
-  return out;
+  return registryMessageOf(REGISTRY, "docs/spec_topics/diagnostics/code-registry-parse.md", code, fills);
 }
 
 /** The new row this bug's fix adds under DIAG-2 (absent at HEAD). */
@@ -275,11 +243,6 @@ function fnOf(doc: ThetaDocument): FnDecl {
 /** The recorded `{name, type}` parameter pairs of the single `fn`. */
 function paramsOf(doc: ThetaDocument): FnParam[] {
   return fnOf(doc).params.map((p) => ({ name: p.name, type: p.type }));
-}
-
-/** The top-level statement kinds, in source order. */
-function topKinds(doc: ThetaDocument): string[] {
-  return doc.body.statements.map((s) => s.kind);
 }
 
 /** The `fn` body's statement kinds, in source order. */

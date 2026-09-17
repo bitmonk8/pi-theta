@@ -1,3 +1,4 @@
+import { fakeThetaLibFs as w7FakeFs } from "./helpers/thetalib-load-harness";
 import { describe, expect, it } from "vitest";
 import { parseDoc, parseDeps, errors } from "./helpers/e2e-s1";
 import {
@@ -9,7 +10,6 @@ import { parseThetaDocument } from "../src/parser/theta-document";
 import { checkThetaImports } from "../src/extension/import-static-checks";
 import type { ParsedFrontmatter } from "../src/parser/frontmatter";
 import type { ThetaCompositionInput } from "../src/extension/theta-composition-producer";
-import type { FileSystem } from "../src/seams/file-system";
 import type { ThetaValue } from "../src/runtime/value";
 
 // Witness tests for bug 0406
@@ -54,43 +54,6 @@ const W7_TYPES_LIB = [
   "}",
   "",
 ].join("\n");
-
-/** In-memory `FileSystem` serving only the fixture `.thetalib` (the b0303 double). */
-function w7FakeFs(files: Record<string, string>): FileSystem {
-  const dirs = new Map<string, string[]>();
-  for (const path of Object.keys(files)) {
-    const slash = path.lastIndexOf("/");
-    const parent = path.slice(0, slash);
-    const entries = dirs.get(parent) ?? [];
-    entries.push(path.slice(slash + 1));
-    dirs.set(parent, entries);
-  }
-  const reject = (): Promise<never> =>
-    Promise.reject(new Error("filesystem member not exercised by this test"));
-  return {
-    readText: reject,
-    writeText: reject,
-    exists: reject,
-    homedir: (): string => "/home",
-    cwd: (): string => "/proj",
-    configDirName: (): string => ".pi",
-    globalAgentDir: (): string => "/home/.pi/agent",
-    lstat: reject,
-    realpath: reject,
-    readdir: (path: string): Promise<readonly string[]> => {
-      const entries = dirs.get(path);
-      return entries === undefined
-        ? Promise.reject(new Error(`ENOENT: ${path}`))
-        : Promise.resolve(entries);
-    },
-    readBytes: (path: string): Promise<Uint8Array> => {
-      const content = files[path];
-      return content === undefined
-        ? Promise.reject(new Error(`ENOENT: ${path}`))
-        : Promise.resolve(new TextEncoder().encode(content));
-    },
-  } as FileSystem;
-}
 
 /** Parse the W7 importing theta, then run the real import pass over the fixture. */
 async function w7Load(): Promise<{ errorCodes: string[]; materialised: string[] }> {

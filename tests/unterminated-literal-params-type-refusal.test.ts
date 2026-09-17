@@ -1,8 +1,9 @@
+import { REGISTRY } from "./helpers/registry-oracle";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 // @ts-expect-error — JS code-registry module, no type declarations.
-import { parseRegistry, registryMessage } from "../tools/code-registry/index.js";
+import { registryMessage } from "../tools/code-registry/index.js";
 import {
   parseTypeExpression,
   type TypeCheckSite,
@@ -129,30 +130,11 @@ import { parseDoc } from "./helpers/e2e-s1";
 // The diagnostic oracle — the registry's *Message* column (DIAG-4).
 // ===========================================================================
 
-interface RegistryRow {
-  readonly code: string;
-  readonly message: string;
-  readonly severity: string;
-  readonly namespace: string;
-  readonly phase: string;
-}
-
 const DIAGNOSTICS_DIR = "../docs/spec_topics/diagnostics/";
 
 function readDiagnosticsPage(page: string): string {
   return readFileSync(fileURLToPath(new URL(`${DIAGNOSTICS_DIR}${page}`, import.meta.url)), "utf8");
 }
-
-const REGISTRY = parseRegistry(
-  [
-    "code-registry-parse.md",
-    "code-registry-load.md",
-    "code-registry-runtime.md",
-    "code-registry-host.md",
-  ]
-    .map(readDiagnosticsPage)
-    .join("\n"),
-) as RegistryRow[];
 
 /** The `params:` position's own registered refusal — the code this route raises. */
 const PARAMS_NOT_EXPR = "theta/load/params-type-not-expression";

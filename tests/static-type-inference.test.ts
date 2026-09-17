@@ -1,3 +1,4 @@
+import { span, SEAM_NOOP_CHECKPOINT as NOOP_CHECKPOINT, SEAM_NOOP_MUTATOR } from "./helpers/invoke-seam-scaffold";
 import { describe, expect, it } from "vitest";
 import {
   StaticTypeInferencePass,
@@ -5,7 +6,6 @@ import {
 } from "../src/parser/static-type-inference";
 import { checkCompatible, type TypeEnv } from "../src/parser/type-compat";
 import type { Expr, ThetaBody, Stmt } from "../src/parser/theta-document";
-import type { SourceRange } from "../src/diagnostics/diagnostic";
 import {
   executeBody,
   type CheckpointDescriptor,
@@ -16,11 +16,6 @@ import {
   buildEnvironment,
   type LexicalEnvironment,
 } from "../src/runtime/lexical-environment";
-import type { Checkpoint } from "../src/seams/checkpoint";
-import type {
-  CommittedConversationMutator,
-  CommittedSurface,
-} from "../src/runtime/terminal-outcomes";
 import type { ThetaValue } from "../src/runtime/value";
 
 // V20b-T — failing tests for the paired `V20b` static type-inference substrate.
@@ -47,11 +42,6 @@ import type { ThetaValue } from "../src/runtime/value";
 // not on a compile error, a missing fixture, or a harness throw.
 
 // --- AST construction helpers ---------------------------------------------
-
-/** A throwaway 1:1–1:2 span for hand-built AST nodes (a parsed body's shape). */
-function span(): SourceRange {
-  return { start: { line: 1, column: 1 }, end: { line: 1, column: 2 } };
-}
 
 function exprStmt(expr: Expr): Stmt {
   return { kind: "expr", expr, range: span() };
@@ -164,21 +154,6 @@ describe("V20b-T — static type-inference substrate: per-node assignment", () =
 
 // --- V19c execution harness ------------------------------------------------
 
-const NOOP_CHECKPOINT: Checkpoint = {
-  before(): Promise<void> {
-    return Promise.resolve();
-  },
-};
-
-/** A no-op partial-append mutator (the read-only body triggers no mutation). */
-class NoopMutator implements CommittedConversationMutator {
-  truncate(): void {}
-  rewrite(): void {}
-  replace(): void {}
-  remove(): void {}
-  injectCompensatingTurn(_surface: CommittedSurface): void {}
-}
-
 /** A bounded pure-expression host: every node in the read-only body is pure. */
 class PureHost implements StatementEvalHost {
   evaluatePure(expr: Expr, env: LexicalEnvironment): ThetaValue {
@@ -217,7 +192,7 @@ function execDeps(body: ThetaBody): ExecuteBodyDeps {
     host: new PureHost(),
     checkpoint: NOOP_CHECKPOINT,
     signal: new AbortController().signal,
-    mutator: new NoopMutator(),
+    mutator: SEAM_NOOP_MUTATOR,
     mode: "prompt",
     file: "test.theta",
   };

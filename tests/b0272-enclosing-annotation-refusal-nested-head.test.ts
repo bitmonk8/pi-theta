@@ -1,8 +1,5 @@
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
+import { readRegistry } from "./helpers/registry-oracle";
 import { describe, expect, it } from "vitest";
-// @ts-expect-error — JS code-registry module, no type declarations.
-import { parseRegistry } from "../tools/code-registry/index.js";
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
 import {
   loadRowFromBody,
@@ -10,6 +7,7 @@ import {
   registryLineOf,
   registryMessageOf,
   type LoadRow,
+  PARSE_REGISTRY_PATH as REGISTRY_PATH,
 } from "./helpers/load-row-harness";
 
 // Bug 0272 — an enclosing construct's `theta/parse/annotation-type-not-expression`
@@ -141,18 +139,7 @@ import {
 // The diagnostic oracle — the registry's *Message* column (DIAG-4).
 // ===========================================================================
 
-interface RegistryRow {
-  readonly code: string;
-  readonly severity: string;
-  readonly phase: string;
-  readonly message: string;
-}
-
-const REGISTRY_PATH = "docs/spec_topics/diagnostics/code-registry-parse.md";
-
-const REGISTRY = parseRegistry(
-  readFileSync(fileURLToPath(new URL(`../${REGISTRY_PATH}`, import.meta.url)), "utf8"),
-) as RegistryRow[];
+const REGISTRY = readRegistry(["parse"]);
 
 /** The row a nested written head draws under the narrowing; its *Message* does not move. */
 const UNRESOLVED = "theta/parse/unresolved-named-type";

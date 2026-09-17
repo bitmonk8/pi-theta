@@ -13,6 +13,8 @@
 // Spec: pi-integration-contract/subagent.md #subagent-launch-contract (RFC
 // 0012 §7), execution-status.md EXST-5.
 
+import { RecordingBus } from "./helpers/subagent-fn-child-regime";
+import { resolvingHost } from "./helpers/fake-json-child";
 import { describe, expect, it } from "vitest";
 import type { ExtensionAPI, ExtensionCommandContext, ModelRegistry } from "@earendil-works/pi-coding-agent";
 import { createProductionProducerDeps } from "../src/extension/production-theta-producer";
@@ -36,7 +38,7 @@ import {
   type SubagentPlacementBackend,
   type SubagentPlacementRequest,
 } from "../src/runtime/subagent-placement";
-import type { ExecutableHost, OpenedSubagentWire, SpawnFn, SubagentChildProcess } from "../src/runtime/subagent-launcher";
+import type { OpenedSubagentWire, SpawnFn, SubagentChildProcess } from "../src/runtime/subagent-launcher";
 import type { PlacementLease } from "../src/runtime/subagent-placement-selection";
 import type { ExecutionStatusBus } from "../src/extension/execution-status/types";
 
@@ -123,14 +125,6 @@ function controlPlane(presentation: "visible" | "headless"): SubagentChildContro
     entry: { kind: "theta" },
     launch: { nonce: "n", presentation, channel: { port: 1, token: "t" } },
   };
-}
-
-/** RFC 0012 §7 (0.478.0): a fake `pi.events`-shaped bus recording `[channel, data]` pairs. */
-class RecordingBus {
-  readonly emitted: { channel: string; data: unknown }[] = [];
-  emit(channel: string, data: unknown): void {
-    this.emitted.push({ channel, data });
-  }
 }
 
 async function driveChild(input: {
@@ -448,15 +442,6 @@ function pipeLikeBackend(requests: SubagentPlacementRequest[]): SubagentPlacemen
         process: fakeChild(),
       };
     },
-  };
-}
-
-function resolvingHost(): ExecutableHost {
-  return {
-    argv1: "/app/pi/dist/index.js",
-    execPath: "/usr/bin/node",
-    fileExists: (): boolean => true,
-    isGenericRuntime: (): boolean => false,
   };
 }
 

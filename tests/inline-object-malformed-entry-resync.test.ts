@@ -6,7 +6,7 @@ import { parseRegistry, registryMessage } from "../tools/code-registry/index.js"
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
 import type { ThetaDocument } from "../src/parser/theta-document";
 import { lowerQueryResponseSchema } from "../src/runtime/query-schema-lowering";
-import { parseDoc } from "./helpers/e2e-s1";
+import { parseDoc, isLoadParseError } from "./helpers/e2e-s1";
 
 // Bug 0231 — `TypeParser.parseObject`'s field loop BREAKS at the first entry
 // that does not spell `Ident ":"`, so every field behind it is absent from both
@@ -309,26 +309,8 @@ function lines(src: string, path = "test.theta"): string[] {
   return diagLines(parseDoc(src, path));
 }
 
-/**
- * `hasLoadParseError`'s predicate (src/extension/production-composition.ts),
- * restated over a parsed document: a theta registers unless some diagnostic is
- * an error-severity `theta/load/*` or `theta/parse/*`. Group (D)'s d1 is the
- * one row of this report where that predicate is TRUE at HEAD.
- *
- * This departs, deliberately, from the bug doc's §Observed-at reading of
- * "registers" as `frontmatter !== null`: post-fix, d1's frontmatter is
- * non-null with one body diagnostic, so the doc's reading would still call
- * d1 registered while this predicate does not. The production predicate is
- * the one that matters here — it is what decides whether the theta is kept
- * or dropped at load, which is what §Fix (f)'s "lose their loads-cleanly
- * status" is about.
- */
 function registers(doc: ThetaDocument): boolean {
-  return !doc.diagnostics.some(
-    (d: Diagnostic) =>
-      d.severity === "error" &&
-      (d.code.startsWith("theta/load/") || d.code.startsWith("theta/parse/")),
-  );
+  return !doc.diagnostics.some(isLoadParseError);
 }
 
 /** One diagnostic-list cell. */

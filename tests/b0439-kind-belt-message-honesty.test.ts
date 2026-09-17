@@ -59,35 +59,26 @@
 //     fork, GREEN post-fix): `fn g(xs, a) { xs.slice(a) }` / `g([1,2,3], 1.5)`
 //     throws the byte-identical message. Same honest-tail semantic + stable head
 //     — proves the reword did not merely swap one single-class lie for another.
-
+import { makeBeltProbes, type Probe, render } from "./helpers/runtime-belt-probe-harness";
 import { describe, expect, it } from "vitest";
-import type {
-  ExtensionAPI,
-  ExtensionCommandContext,
-  ModelRegistry,
-} from "@earendil-works/pi-coding-agent";
 import type { ThetaSource } from "../src/lexer/lexer";
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
 import type { SystemNoteChannelDeps } from "../src/extension/system-note-channel";
-import type { ModelReferenceMatcher, ParsedFrontmatter } from "../src/parser/frontmatter";
+import type { ModelReferenceMatcher } from "../src/parser/frontmatter";
 import {
   parseThetaDocument,
   type ParseThetaDocumentDeps,
   type ThetaDocument,
 } from "../src/parser/theta-document";
-import { executeBody, type BodyExecution } from "../src/runtime/statement-executor";
 import {
   isThetaPanic,
   surfaceUnexpectedThrow,
   INTERNAL_ERROR_CODE,
 } from "../src/runtime/runtime-panics";
-import type { ThetaValue } from "../src/runtime/value";
-import { createProductionProducerDeps } from "../src/extension/production-theta-producer";
-import type {
-  ConversationBindInput,
-  ThetaCompositionInput,
-} from "../src/extension/theta-composition-producer";
-import type { RuntimeRoot } from "../src/runtime-root";
+
+
+
+
 
 const FM = "---\nmode: prompt\n---\n";
 
@@ -139,72 +130,13 @@ function parseTheta(src: string): ThetaDocument {
   return doc;
 }
 
-function rootDouble(): RuntimeRoot {
-  return {
-    checkpoint: { before: (): Promise<void> => Promise.resolve() },
-    idSource: { newInvocationId: (): string => "inv-1", newToolCallId: (): string => "tc-1" },
-    // The prompt-mode drive's only wait primitive is `Clock.setTimeout`; fire the
-    // callback synchronously so an instant-settle turn completes deterministically
-    // with no real timers (the b0394/b0402 harness contract).
-    clock: {
-      now: (): number => 0,
-      wallNow: (): number => 0,
-      setTimeout: (fn: () => void): unknown => {
-        fn();
-        return 0;
-      },
-      clearTimeout: (): void => {},
-    },
-  } as unknown as RuntimeRoot;
-}
-
-function render(value: ThetaValue | undefined): string {
-  return value === undefined ? "undefined" : JSON.stringify(value);
-}
-
 // ===========================================================================
 // EXECUTOR harness (b0402 shape, verbatim). A raw non-panic throw propagates out
 // of `executeBody` uncaught (the framing that reclassifies it lives one layer
 // up, theta-composition-producer.ts), so both dispositions are observable here.
 // ===========================================================================
 
-type Probe =
-  | { readonly kind: "value"; readonly execution: BodyExecution }
-  | { readonly kind: "threw"; readonly thrown: unknown };
-
-function producer() {
-  return createProductionProducerDeps({
-    pi: {
-      sendMessage: () => {},
-      getActiveTools: () => [],
-      setActiveTools: () => {},
-    } as unknown as ExtensionAPI,
-    root: rootDouble(),
-    modelRegistry: {} as unknown as ModelRegistry,
-  });
-}
-
-/** Parse + run a self-contained query-free prompt-mode source, capturing a throw. */
-async function probeSource(src: string): Promise<Probe> {
-  const doc = parseTheta(src);
-  const theta: ThetaCompositionInput = {
-    slashName: "b0439",
-    sourcePath: "/proj/b0439.theta",
-    frontmatter: doc.frontmatter as ParsedFrontmatter,
-    body: doc.body,
-  };
-  const bindInput: ConversationBindInput = {
-    theta,
-    args: "",
-    ctx: {} as unknown as ExtensionCommandContext,
-  };
-  const binding = producer().bindPromptConversation(bindInput);
-  try {
-    return { kind: "value", execution: await executeBody(theta.body, binding.executeDeps) };
-  } catch (thrown) {
-    return { kind: "threw", thrown };
-  }
-}
+const { probeSource } = makeBeltProbes(parseTheta, "b0439");
 
 /**
  * The kind belt MUST have thrown (both emission classes abort loudly — that is

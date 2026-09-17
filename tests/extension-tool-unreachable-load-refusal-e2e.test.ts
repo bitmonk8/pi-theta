@@ -26,6 +26,7 @@
 // diagnostics/code-registry-load.md (`theta/load/extension-tool-unreachable`,
 // `theta/load/unknown-tool`).
 
+import { resolvingHost } from "./helpers/fake-json-child";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -37,7 +38,7 @@ import type {
 import { composeExtensionInstance } from "../src/extension/production-composition";
 import { readParentEnv } from "../src/extension/production-subagent-host";
 import { detectSubagentRootRegime } from "../src/runtime/subagent-root-regime";
-import type { ExecutableHost } from "../src/runtime/subagent-launcher";
+
 import { EXTENSION_TOOL_UNREACHABLE_CODE } from "../src/runtime/host-loop-dispatch";
 import {
   restoreAmbientControlPlane,
@@ -206,16 +207,6 @@ const THETALIBS: readonly { readonly stem: string; readonly text: string }[] = [
     ),
   },
 ];
-
-/** An executable host whose rung 1 resolves (a runnable entry point exists). */
-function resolvingHost(): ExecutableHost {
-  return {
-    argv1: "/app/pi/dist/index.js",
-    execPath: "/usr/bin/node",
-    fileExists: (): boolean => true,
-    isGenericRuntime: (): boolean => false,
-  };
-}
 
 interface LoadOutcome {
   readonly registered: readonly string[];

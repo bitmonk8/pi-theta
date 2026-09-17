@@ -85,15 +85,16 @@
 // real child process's stdout — and the live tier is not needed, because no
 // fixture issues a query, so no provider or model participates and the whole run
 // is deterministic.
-
+import { reportOf } from "./helpers/subagent-fn-child-regime";
+import { REGISTRY } from "./helpers/registry-oracle";
 import { describe, expect, it } from "vitest";
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { readFileSync } from "node:fs";
+
 // @ts-expect-error — JS code-registry module, no type declarations.
-import { parseRegistry, registryMessage } from "../tools/code-registry/index.js";
+import { registryMessage } from "../tools/code-registry/index.js";
 import { createProductionSpawnFn } from "../src/extension/production-subagent-host";
 import { driveSubagentChild } from "../src/runtime/subagent-json-driver";
 import {
@@ -142,27 +143,6 @@ const REFUSAL_CODE = "theta/runtime/subagent-return-value-not-representable";
 
 /** The `<value>` placeholder the registry row's *Message* template carries. */
 const VALUE_PLACEHOLDER = "<value>";
-
-interface RegistryRow {
-  readonly code: string;
-  readonly message: string;
-}
-
-const REGISTRY = parseRegistry(
-  [
-    "code-registry-parse.md",
-    "code-registry-load.md",
-    "code-registry-runtime.md",
-    "code-registry-host.md",
-  ]
-    .map((page) =>
-      readFileSync(
-        fileURLToPath(new URL(`../docs/spec_topics/diagnostics/${page}`, import.meta.url)),
-        "utf8",
-      ),
-    )
-    .join("\n"),
-) as RegistryRow[];
 
 /** The registry row's normative *Message* template, `undefined` while the row is absent. */
 const REFUSAL_TEMPLATE = registryMessage(REGISTRY, REFUSAL_CODE) as string | undefined;
@@ -290,17 +270,6 @@ const TOP_NONFINITE = [
   "}",
   "",
 ].join("\n");
-
-/** Narrow the envelope's `Ok` payload to the report object, failing loudly when it is not one. */
-function reportOf(value: unknown): Record<string, unknown> {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) {
-    throw new Error(
-      `the driven root returned ${JSON.stringify(value)} instead of the R report object — ` +
-        `the fixture set did not reach its tail expression, so no assertion below is meaningful`,
-    );
-  }
-  return value as Record<string, unknown>;
-}
 
 describe("bug 0180 — a typed invoke of a subagent-mode callee whose final value is non-finite", () => {
   it(

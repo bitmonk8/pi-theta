@@ -96,7 +96,7 @@
 //     e2e-s5 minimal double), so the post-fix seams — envelope AJV at the
 //     routing step, default-literal recovery for the Parameters block — behave
 //     as production without this file needing to change again.
-
+import { LIVE_ANTHROPIC_OVERFLOW_ERROR_MESSAGE } from "./helpers/model-registry-fixture";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // The scripted off-session binder reply. `vi.hoisted` so the `vi.mock` factory
@@ -126,7 +126,6 @@ vi.mock("@earendil-works/pi-ai/compat", async (importOriginal) => {
     }),
   };
 });
-
 import type {
   ExtensionAPI,
   ExtensionCommandContext,
@@ -1067,14 +1066,6 @@ describe("bug 0011 — the binder complete() call is the spec-pinned forced-tool
 // cells below (the `length`-with-no-text and the empty-message transport
 // cells) still assert it as the no-text fallback.
 // =============================================================================
-
-/**
- * The verbatim live anthropic overflow `errorMessage`, byte-identical to the
- * string committed at `tests/binder-inference-provider-mapping.test.ts:941-942`
- * (captured from a real `claude-haiku-4-5` overflow by bug 0065's 0.100.0 run).
- */
-const LIVE_ANTHROPIC_OVERFLOW_ERROR_MESSAGE =
-  `400 {"type":"error","error":{"type":"invalid_request_error","message":"prompt is too long: 220044 tokens > 200000 maximum"},"request_id":"req_011Ce67AeKSksfCvdLP3Q6Ha"}`;
 
 /** The non-overflow control: the same pi-ai-formatted envelope shape at a 5xx. */
 const LIVE_ANTHROPIC_5XX_ERROR_MESSAGE =

@@ -95,7 +95,7 @@
 // contract that is fully determined at the parse / lowering / registration
 // boundary, so the unit tier is sufficient AND stricter (a live model cannot be
 // asked to prove a diagnostic fires).
-
+import { REGISTRY } from "./helpers/registry-oracle";
 import { describe, expect, it, vi } from "vitest";
 
 // The recorded off-session `complete()` calls and the scripted reply queue
@@ -131,11 +131,9 @@ vi.mock("@earendil-works/pi-ai/compat", async (importOriginal) => {
     }),
   };
 });
-
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { fileURLToPath } from "node:url";
 import type {
   ExtensionAPI,
   ExtensionCommandContext,
@@ -144,7 +142,7 @@ import type {
   ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
 // @ts-expect-error — JS code-registry module, no type declarations.
-import { parseRegistry, registryMessage } from "../tools/code-registry/index.js";
+import { registryMessage } from "../tools/code-registry/index.js";
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
 import type { EnumDecl, SchemaDecl, ThetaDocument } from "../src/parser/theta-document";
 import { lowerQueryResponseSchema } from "../src/runtime/query-schema-lowering";
@@ -169,37 +167,10 @@ import { codes, parseDoc } from "./helpers/e2e-s1";
 
 const CODE = "theta/parse/unresolved-named-type";
 
-interface RegistryRow {
-  readonly code: string;
-  readonly namespace: string;
-  readonly severity: string;
-  readonly phase: string;
-  readonly trigger: string;
-  readonly message: string;
-}
-
 // The live four-page sharded registry, read from the spec corpus and
 // concatenated — the same input tests/code-registry.test.ts reconciles and the
 // same composition tests/ctor-unresolved-schema-name.test.ts reads for this
 // exact row.
-const REGISTRY_TEXT = [
-  "code-registry-parse.md",
-  "code-registry-load.md",
-  "code-registry-runtime.md",
-  "code-registry-host.md",
-]
-  .map((page) =>
-    readFileSync(
-      fileURLToPath(
-        new URL(`../docs/spec_topics/diagnostics/${page}`, import.meta.url),
-      ),
-      "utf8",
-    ),
-  )
-  .join("\n");
-
-const REGISTRY = parseRegistry(REGISTRY_TEXT) as RegistryRow[];
-
 /**
  * The row's normative *Message* template with its single `<name>` placeholder
  * filled (DIAG-4). Definedness is asserted first so a missing row reds by

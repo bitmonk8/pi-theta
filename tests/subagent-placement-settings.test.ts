@@ -5,12 +5,10 @@
 // `theta/load/settings-invalid-entry` with its position-specific template; a
 // malformed global template is out of range with the parser's reason on
 // `details.reason`). Messages are sourced from the registry (DIAG-4).
-
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
+import { readRegistry } from "./helpers/registry-oracle";
 import { describe, expect, it } from "vitest";
 // @ts-expect-error — JS code-registry module, no type declarations.
-import { parseRegistry, registryMessage } from "../tools/code-registry/index.js";
+import { registryMessage } from "../tools/code-registry/index.js";
 import { loadSettings } from "../src/discovery/settings";
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
 import type { FileSystem } from "../src/seams/file-system";
@@ -24,9 +22,7 @@ const GLOBAL_PATH = "/home/theta/.pi/agent/settings.json";
 const INVALID_ENTRY = "theta/load/settings-invalid-entry";
 const OUT_OF_RANGE = "theta/load/settings-value-out-of-range";
 
-const REGISTRY = parseRegistry(
-  readFileSync(fileURLToPath(new URL("../docs/spec_topics/diagnostics/code-registry-load.md", import.meta.url)), "utf8"),
-) as { code: string; message: string; trigger: string }[];
+const REGISTRY = readRegistry(["load"]);
 
 function build(project: unknown | undefined, global: unknown | undefined): FileSystem {
   const files: Record<string, string> = {};

@@ -1,8 +1,8 @@
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
+import { PARSE_REGISTRY_PATH as REGISTRY_PAGE } from "./helpers/load-row-harness";
+import { readRegistry } from "./helpers/registry-oracle";
 import { describe, expect, it } from "vitest";
 // @ts-expect-error — JS code-registry module, no type declarations.
-import { parseRegistry, registryMessage } from "../tools/code-registry/index.js";
+import { registryMessage } from "../tools/code-registry/index.js";
 import type { Diagnostic, SourceRange } from "../src/diagnostics/diagnostic";
 import type { Block, Expr, Stmt, ThetaDocument } from "../src/parser/theta-document";
 import { parseDoc } from "./helpers/e2e-s1";
@@ -155,17 +155,7 @@ import { parseDoc } from "./helpers/e2e-s1";
 // The DIAG-4 oracle.
 // ===========================================================================
 
-interface RegistryRow {
-  readonly code: string;
-  readonly message: string;
-}
-
-/** The live `theta/parse/*` registry page — this file's only message oracle. */
-const REGISTRY_PAGE = "docs/spec_topics/diagnostics/code-registry-parse.md";
-
-const REGISTRY = parseRegistry(
-  readFileSync(fileURLToPath(new URL(`../${REGISTRY_PAGE}`, import.meta.url)), "utf8"),
-) as RegistryRow[];
+const REGISTRY = readRegistry(["parse"]);
 
 /**
  * A registered code's normative *Message* template. Throws naming the registry

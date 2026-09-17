@@ -1,19 +1,16 @@
+import { capturingAjv as ajv } from "./helpers/scripted-live-session-harness";
+import { REGISTRY } from "./helpers/registry-oracle";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 // @ts-expect-error — JS code-registry module, no type declarations.
-import { parseRegistry, registryMessage } from "../tools/code-registry/index.js";
+import { registryMessage } from "../tools/code-registry/index.js";
 import { buildBodyTypeSchemas } from "../src/parser/body-type-lowering";
 import { lowerParamsFieldType, type LowerCtx } from "../src/parser/params";
 import type { ThetaDocument } from "../src/parser/theta-document";
 import { lowerQueryResponseSchema } from "../src/runtime/query-schema-lowering";
 import { respondToolWireSchema } from "../src/runtime/respond-tool-wire";
-import type { Diagnostic } from "../src/diagnostics/diagnostic";
-import {
-  AjvSchemaValidator,
-  type LoweredSchema,
-  type SchemaSlug,
-} from "../src/seams/schema-validator";
+import { type LoweredSchema } from "../src/seams/schema-validator";
 import { parseDoc } from "./helpers/e2e-s1";
 
 // Bug 0160 — `docs/spec_topics/grammar.md:109` assigns
@@ -182,30 +179,11 @@ import { parseDoc } from "./helpers/e2e-s1";
 // The diagnostic oracle — the registry's *Message* column (DIAG-4).
 // ===========================================================================
 
-interface RegistryRow {
-  readonly code: string;
-  readonly message: string;
-  readonly severity: string;
-  readonly namespace: string;
-  readonly phase: string;
-}
-
 const DIAGNOSTICS_DIR = "../docs/spec_topics/diagnostics/";
 
 function readDiagnosticsPage(page: string): string {
   return readFileSync(fileURLToPath(new URL(`${DIAGNOSTICS_DIR}${page}`, import.meta.url)), "utf8");
 }
-
-const REGISTRY = parseRegistry(
-  [
-    "code-registry-parse.md",
-    "code-registry-load.md",
-    "code-registry-runtime.md",
-    "code-registry-host.md",
-  ]
-    .map(readDiagnosticsPage)
-    .join("\n"),
-) as RegistryRow[];
 
 /** The third code §Fix (c) settles on: refuse the inline rename outright. */
 const RENAMED_INLINE = "theta/parse/renamed-inline-field-name";
@@ -401,19 +379,6 @@ function codes(src: string, path = "bug0160.theta"): string[] {
  */
 function registersCleanly(doc: ThetaDocument): boolean {
   return !doc.diagnostics.some((d) => d.severity === "error");
-}
-
-/** A real `AjvSchemaValidator` plus the diagnostics it emitted. */
-function ajv(): { readonly validator: AjvSchemaValidator; readonly emitted: Diagnostic[] } {
-  const emitted: Diagnostic[] = [];
-  const slugOf = (schema: LoweredSchema): SchemaSlug => ({
-    slug: JSON.stringify(schema),
-    canonicalBytes: JSON.stringify(schema),
-  });
-  return {
-    validator: new AjvSchemaValidator({ emit: (d) => emitted.push(d), slugOf }),
-    emitted,
-  };
 }
 
 // ===========================================================================

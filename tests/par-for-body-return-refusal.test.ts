@@ -1,19 +1,11 @@
-import { fileURLToPath } from "node:url";
-import { readFileSync } from "node:fs";
+import { SEAM_NOOP_CHECKPOINT as NOOP_CHECKPOINT, SEAM_NOOP_MUTATOR } from "./helpers/invoke-seam-scaffold";
+import { parseDoc } from "./helpers/e2e-s1";
+import { REGISTRY } from "./helpers/registry-oracle";
 import { describe, expect, it } from "vitest";
 // @ts-expect-error — JS code-registry module, no type declarations.
-import { parseRegistry, registryMessage } from "../tools/code-registry/index.js";
+import { registryMessage } from "../tools/code-registry/index.js";
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
-import type { ThetaSource } from "../src/lexer/lexer";
-import type { SystemNoteChannelDeps } from "../src/extension/system-note-channel";
-import type { ModelReferenceMatcher } from "../src/parser/frontmatter";
-import {
-  parseThetaDocument,
-  type ThetaDocument,
-  type ThetaBody,
-  type Expr,
-  type ParseThetaDocumentDeps,
-} from "../src/parser/theta-document";
+import { type ThetaDocument, type ThetaBody, type Expr } from "../src/parser/theta-document";
 import {
   executeBody,
   type CheckpointDescriptor,
@@ -24,12 +16,7 @@ import {
   buildEnvironment,
   type LexicalEnvironment,
 } from "../src/runtime/lexical-environment";
-import type { Checkpoint } from "../src/seams/checkpoint";
 import type { OperationResult } from "../src/runtime/cancellation-core";
-import type {
-  CommittedConversationMutator,
-  CommittedSurface,
-} from "../src/runtime/terminal-outcomes";
 import type { ThetaValue } from "../src/runtime/value";
 
 // ===========================================================================
@@ -101,45 +88,9 @@ import type { ThetaValue } from "../src/runtime/value";
 
 // --- parse harness (shape copied from tests/par-for.test.ts, not imported) ---
 
-/** A trivially-wired diagnostic sink + resolving `model:` matcher for the parse. */
-function makeDeps(): ParseThetaDocumentDeps {
-  const systemNote: SystemNoteChannelDeps = {
-    pi: { sendMessage: (): void => {} },
-    ui: { notify: (): void => {} },
-    emitDiagnostic: (): void => {},
-  };
-  const modelMatcher: ModelReferenceMatcher = {
-    resolve: (): "resolved" => "resolved",
-  };
-  return { systemNote, modelMatcher };
-}
-
-/** Parse a UTF-8 `.theta` source string through the production whole-file parser. */
 function parse(src: string, path = "test.theta"): ThetaDocument {
-  const source: ThetaSource = { path, bytes: new TextEncoder().encode(src) };
-  return parseThetaDocument(source, makeDeps());
+  return parseDoc(src, path);
 }
-
-/**
- * The live registry, read from the spec corpus — the DIAG-4 message oracle
- * (the same source, and the same reader, the production emitters' messages are
- * transcribed from). Sharded across the four `code-registry-*.md` pages.
- */
-const REGISTRY = parseRegistry(
-  [
-    "code-registry-parse.md",
-    "code-registry-load.md",
-    "code-registry-runtime.md",
-    "code-registry-host.md",
-  ]
-    .map((page) =>
-      readFileSync(
-        fileURLToPath(new URL(`../docs/spec_topics/diagnostics/${page}`, import.meta.url)),
-        "utf8",
-      ),
-    )
-    .join("\n"),
-) as readonly { readonly code: string; readonly message: string }[];
 
 /** The code route (a) mints — the subject of this file. */
 const PAR_RETURN_IN_BODY = "theta/parse/par-return-in-body";
@@ -592,20 +543,6 @@ describe("bug 0223 — DIAG-4: par-return-in-body's message is the registry's", 
 // RUNTIME harness — the defensive fold, pinned
 // ===========================================================================
 
-const NOOP_CHECKPOINT: Checkpoint = {
-  before(): Promise<void> {
-    return Promise.resolve();
-  },
-};
-
-class NoopMutator implements CommittedConversationMutator {
-  truncate(): void {}
-  rewrite(): void {}
-  replace(): void {}
-  remove(): void {}
-  injectCompensatingTurn(_surface: CommittedSurface): void {}
-}
-
 /**
  * A `StatementEvalHost` that evaluates only the pure forms these bodies need —
  * literals, the loop-variable identifier, arrays and `+` / `*` binaries — and
@@ -668,7 +605,7 @@ function execDeps(body: ThetaBody, host: StatementEvalHost): ExecuteBodyDeps {
     host,
     checkpoint: NOOP_CHECKPOINT,
     signal: new AbortController().signal,
-    mutator: new NoopMutator(),
+    mutator: SEAM_NOOP_MUTATOR,
     mode: "prompt",
     file: "test.theta",
   };

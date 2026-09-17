@@ -1,10 +1,10 @@
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { readRegistry } from "./helpers/registry-oracle";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 // @ts-expect-error — JS code-registry module, no type declarations.
-import { parseRegistry, registryMessage } from "../tools/code-registry/index.js";
+import { registryMessage } from "../tools/code-registry/index.js";
 import type {
   ExtensionAPI,
   ExtensionContext,
@@ -126,18 +126,7 @@ import type { Diagnostic } from "../src/diagnostics/diagnostic";
 
 // --- Registry Message strings (diagnostics/code-registry-load.md) -----------
 
-/** The live sharded load registry — the *Message* column DIAG-4 makes normative. */
-const REGISTRY = parseRegistry(
-  readFileSync(
-    fileURLToPath(
-      new URL(
-        "../docs/spec_topics/diagnostics/code-registry-load.md",
-        import.meta.url,
-      ),
-    ),
-    "utf8",
-  ),
-) as { code: string; message: string }[];
+const REGISTRY = readRegistry(["load"]);
 
 /** Source a code's registered *Message* template and fill its `<…>` placeholders. */
 function expectedMessage(

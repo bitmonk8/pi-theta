@@ -25,7 +25,6 @@
 // shipped `createProductionProducerDeps` and drive the real `executeBody`;
 // nothing about the executor or pure-host seam itself is stubbed, only the
 // `RuntimeRoot`/`ExtensionAPI` host around it.
-
 import { expect } from "vitest";
 import type {
   ExtensionAPI,
@@ -53,7 +52,7 @@ export type Probe =
 
 /** A PURE-HOST interpolation drive's outcome: the rendered send log, or a caught throw. */
 export type InterpProbe =
-  | { readonly kind: "rendered"; readonly sent: readonly string[]; readonly outcome: string; readonly value: ThetaValue | undefined }
+  | { readonly kind: "rendered"; readonly sent: readonly string[]; readonly outcome: string; readonly value?: ThetaValue | undefined }
   | { readonly kind: "threw"; readonly sent: readonly string[]; readonly thrown: unknown };
 
 /** A PURE-HOST invoke-argument drive's outcome: whether callee load was reached. */
@@ -61,7 +60,8 @@ export type InvokeProbe =
   | { readonly kind: "value"; readonly parseCalleeCalls: number; readonly outcome: string }
   | { readonly kind: "threw"; readonly parseCalleeCalls: number; readonly thrown: unknown };
 
-function rootDouble(): RuntimeRoot {
+/** Fixed-clock root for an instant-settling prompt turn. */
+export function rootDouble(): RuntimeRoot {
   return {
     checkpoint: { before: (): Promise<void> => Promise.resolve() },
     idSource: { newInvocationId: (): string => "inv-1", newToolCallId: (): string => "tc-1" },
@@ -81,19 +81,21 @@ function rootDouble(): RuntimeRoot {
   } as unknown as RuntimeRoot;
 }
 
-function producer() {
+/** Production producer over the supplied root (fixed-clock by default). */
+export function producer(root: RuntimeRoot = rootDouble()) {
   return createProductionProducerDeps({
     pi: {
       sendMessage: () => {},
       getActiveTools: () => [],
       setActiveTools: () => {},
     } as unknown as ExtensionAPI,
-    root: rootDouble(),
+    root,
     modelRegistry: {} as unknown as ModelRegistry,
   });
 }
 
-function render(value: ThetaValue | undefined): string {
+/** Render a probe value, including the absent-value sentinel. */
+export function render(value: ThetaValue | undefined): string {
   return value === undefined ? "undefined" : JSON.stringify(value);
 }
 
@@ -163,12 +165,19 @@ class InstantSettleSession {
 export function makeBeltProbes(
   parseTheta: (src: string) => ThetaDocument,
   bugTag: string,
+  options: {
+    readonly root?: () => RuntimeRoot;
+    readonly sourcePath?: string;
+    /** Some probes intentionally report only the outcome and send log. */
+    readonly includeValue?: boolean;
+  } = {},
 ): {
   readonly probeSource: (src: string) => Promise<Probe>;
   readonly driveInterp: (src: string) => Promise<InterpProbe>;
   readonly driveInvoke: (src: string) => Promise<InvokeProbe>;
 } {
-  const sourcePath = `/proj/${bugTag}.theta`;
+  const sourcePath = options.sourcePath ?? `/proj/${bugTag}.theta`;
+  const root = options.root ?? rootDouble;
 
   /** Parse + run a self-contained query-free prompt-mode source, capturing a throw. */
   async function probeSource(src: string): Promise<Probe> {
@@ -184,7 +193,7 @@ export function makeBeltProbes(
       args: "",
       ctx: {} as unknown as ExtensionCommandContext,
     };
-    const binding = producer().bindPromptConversation(bindInput);
+    const binding = producer(root()).bindPromptConversation(bindInput);
     try {
       return { kind: "value", execution: await executeBody(theta.body, binding.executeDeps) };
     } catch (thrown) {
@@ -205,7 +214,7 @@ export function makeBeltProbes(
     } as unknown as ExtensionAPI;
     const deps = createProductionProducerDeps({
       pi,
-      root: rootDouble(),
+      root: root(),
       modelRegistry: {} as unknown as ModelRegistry,
     });
     const ctx = {
@@ -231,7 +240,7 @@ export function makeBeltProbes(
         kind: "rendered",
         sent: session.sent,
         outcome: execution.outcome,
-        value: execution.result.value,
+        ...(options.includeValue !== false ? { value: execution.result.value } : {}),
       };
     } catch (thrown) {
       return { kind: "threw", sent: session.sent, thrown };
@@ -248,7 +257,7 @@ export function makeBeltProbes(
     } as unknown as ExtensionAPI;
     const deps = createProductionProducerDeps({
       pi,
-      root: rootDouble(),
+      root: root(),
       modelRegistry: {} as unknown as ModelRegistry,
       // Bug 0293: `undefined` still yields Err(load_failure) as a VALUE (the
       // seam-absent default) — enough to record that the invoke reached callee

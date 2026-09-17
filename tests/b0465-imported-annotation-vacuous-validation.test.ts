@@ -1,3 +1,4 @@
+import { fakeThetaLibFs } from "./helpers/thetalib-load-harness";
 import { describe, expect, it } from "vitest";
 import {
   runTypedQueryLoop,
@@ -23,7 +24,6 @@ import type { Checkpoint } from "../src/seams/checkpoint";
 import { checkThetaImports } from "../src/extension/import-static-checks";
 import type { ThetaCompositionInput } from "../src/extension/theta-composition-producer";
 import type { ParsedFrontmatter } from "../src/parser/frontmatter";
-import type { FileSystem } from "../src/seams/file-system";
 import { parseDeps, parseDoc } from "./helpers/e2e-s1";
 
 // Bug 0465 — a typed `@<Schema>` query (or `invoke<Schema>` return) whose
@@ -288,45 +288,6 @@ async function driveMissingKey(
     validation,
   );
   return { outcome, followUps: state.followUps };
-}
-
-/** The in-memory `.thetalib` FS double (only `readdir`/`readBytes` are read). */
-function fakeThetaLibFs(files: Record<string, string>): FileSystem {
-  const dirs = new Map<string, string[]>();
-  for (const path of Object.keys(files)) {
-    const slash = path.lastIndexOf("/");
-    const parent = path.slice(0, slash);
-    const entries = dirs.get(parent) ?? [];
-    entries.push(path.slice(slash + 1));
-    dirs.set(parent, entries);
-  }
-  const reject = (): Promise<never> =>
-    Promise.reject(new Error("filesystem member not exercised by this test"));
-  return {
-    readText: reject,
-    writeText: reject,
-    exists: reject,
-    homedir: (): string => "/home",
-    cwd: (): string => "/proj",
-    configDirName: (): string => ".pi",
-    globalAgentDir: (): string => "/home/.pi/agent",
-    lstat: reject,
-    realpath: reject,
-    readdir: (path: string): Promise<readonly string[]> => {
-      const entries = dirs.get(path);
-      return entries === undefined
-        ? Promise.reject(new Error(`ENOENT: ${path}`))
-        : Promise.resolve(entries);
-    },
-    readBytes: (path: string): Promise<Uint8Array> => {
-      const content = Object.prototype.hasOwnProperty.call(files, path)
-        ? files[path]
-        : undefined;
-      return content === undefined
-        ? Promise.reject(new Error(`ENOENT: ${path}`))
-        : Promise.resolve(new TextEncoder().encode(content));
-    },
-  } as FileSystem;
 }
 
 // ===========================================================================

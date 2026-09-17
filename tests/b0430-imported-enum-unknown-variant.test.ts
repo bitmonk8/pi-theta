@@ -1,8 +1,6 @@
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
+import { PARSE_REGISTRY_PATH as REGISTRY_PAGE, registryMessageOf } from "./helpers/load-row-harness";
+import { readRegistry } from "./helpers/registry-oracle";
 import { describe, expect, it } from "vitest";
-// @ts-expect-error — JS code-registry module, no type declarations.
-import { parseRegistry, registryMessage } from "../tools/code-registry/index.js";
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
 import { checkThetaImports } from "../src/extension/import-static-checks";
 import type { ThetaCompositionInput } from "../src/extension/theta-composition-producer";
@@ -77,41 +75,15 @@ const UNKNOWN_VARIANT = "theta/parse/unknown-variant";
 // template reds by naming the registry, not by a bare string mismatch.
 // ===========================================================================
 
-interface RegistryRow {
-  readonly code: string;
-  readonly message: string;
-}
+const REGISTRY = readRegistry(["parse"]);
 
-const REGISTRY_PAGE = "docs/spec_topics/diagnostics/code-registry-parse.md";
-
-const REGISTRY = parseRegistry(
-  readFileSync(fileURLToPath(new URL(`../${REGISTRY_PAGE}`, import.meta.url)), "utf8"),
-) as RegistryRow[];
-
-/** `code`'s normative *Message* template with `<variant>`/`<enum>` filled. */
 function msg(code: string, variant: string, enumName: string): string {
   const found = REGISTRY.find((r) => r.code === code);
   expect(
     found,
     `PRECONDITION (DIAG-2): ${REGISTRY_PAGE} must carry the registered row for ${code}`,
   ).toBeDefined();
-  const template = registryMessage(REGISTRY, code) as string | undefined;
-  expect(
-    template,
-    `PRECONDITION (DIAG-4): ${REGISTRY_PAGE} carries no *Message* value for ${code}`,
-  ).toBeDefined();
-  let out = template as string;
-  for (const [placeholder, value] of [
-    ["<variant>", variant],
-    ["<enum>", enumName],
-  ] as const) {
-    expect(
-      out,
-      `PRECONDITION (DIAG-4): the ${code} *Message* template must carry ${placeholder}; template=${JSON.stringify(template)}`,
-    ).toContain(placeholder);
-    out = out.replace(placeholder, value);
-  }
-  return out;
+  return registryMessageOf(REGISTRY, REGISTRY_PAGE, code, [["<variant>", variant], ["<enum>", enumName]]);
 }
 
 /** `unknown variant '<variant>' on enum '<enum>'`. */

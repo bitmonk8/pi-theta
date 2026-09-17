@@ -13,8 +13,8 @@ import {
   type LoweredSchema,
   type SchemaSlug,
 } from "../src/seams/schema-validator";
-import { parseDoc } from "./helpers/e2e-s1";
-import { assertKeysSorted, inlineDefName, slugOfCanonicalForm } from "./helpers/canonical-slug-oracle";
+import { parseDoc, fieldOf } from "./helpers/e2e-s1";
+import { assertKeysSorted, inlineDefName, slugOfCanonicalForm, refNames } from "./helpers/canonical-slug-oracle";
 
 // Bug 0097 — the `params:` right-hand side keeps a naive
 // `startsWith("{") && endsWith("}")` dispatch, so a top-level union of object
@@ -535,17 +535,6 @@ function expectParamsRefused(
   ).toBeNull();
 }
 
-/** The named field of a loaded params block, or a loud failure. */
-function fieldOf(loaded: LoadedParams, wireName: string): BypassParamsField {
-  const found = loaded.fields.find((f) => f.wireName === wireName);
-  if (found === undefined) {
-    throw new Error(
-      `no params field '${wireName}' in ${JSON.stringify(loaded.fields)} — the declaration was dropped entirely`,
-    );
-  }
-  return found;
-}
-
 /** A real `AjvSchemaValidator` plus the diagnostics it emitted. */
 function ajv(): { readonly validator: AjvSchemaValidator; readonly emitted: Diagnostic[] } {
   const emitted: Diagnostic[] = [];
@@ -557,34 +546,6 @@ function ajv(): { readonly validator: AjvSchemaValidator; readonly emitted: Diag
     validator: new AjvSchemaValidator({ emit: (d) => emitted.push(d), slugOf }),
     emitted,
   };
-}
-
-/** Every `#/$defs/<name>` pointer anywhere in a document, in encounter order. */
-function refNames(value: unknown): string[] {
-  const names: string[] = [];
-  const visit = (node: unknown): void => {
-    if (Array.isArray(node)) {
-      for (const item of node) {
-        visit(item);
-      }
-      return;
-    }
-    if (node === null || typeof node !== "object") {
-      return;
-    }
-    for (const [key, child] of Object.entries(node as Record<string, unknown>)) {
-      if (key === "$ref" && typeof child === "string") {
-        const match = /^#\/\$defs\/(.+)$/.exec(child);
-        if (match?.[1] !== undefined) {
-          names.push(match[1]);
-        }
-      } else {
-        visit(child);
-      }
-    }
-  };
-  visit(value);
-  return names;
 }
 
 /**

@@ -16,23 +16,13 @@
 // assertion reds against the non-compliant probe stub; the paired
 // implementation leaf greens it.
 
+import { overridableExecutableHost as host } from "./helpers/fake-json-child";
 import { describe, expect, it } from "vitest";
 import { probeSubagentExecutable } from "../src/extension/capability-probe";
 import {
   SUBAGENT_EXECUTABLE_UNRESOLVED_CODE,
   SUBAGENT_EXECUTABLE_UNRESOLVED_MESSAGE,
-  type ExecutableHost,
 } from "../src/runtime/subagent-launcher";
-
-function host(overrides: Partial<ExecutableHost>): ExecutableHost {
-  return {
-    argv1: "/app/pi/dist/index.js",
-    execPath: "/usr/bin/node",
-    fileExists: (): boolean => true,
-    isGenericRuntime: (p): boolean => /(?:^|\/)(?:node|bun)$/.test(p),
-    ...overrides,
-  };
-}
 
 describe("RFC-0005 — Step 0 (f) subagent-executable-resolution probe", () => {
   it("rung 1 present (argv[1] names an existing file) → the probe passes", () => {

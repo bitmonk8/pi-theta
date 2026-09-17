@@ -1,6 +1,5 @@
+import { registryMessageOf } from "./helpers/load-row-harness";
 import { describe, expect, it } from "vitest";
-// @ts-expect-error — JS code-registry module, no type declarations.
-import { registryMessage } from "../tools/code-registry/index.js";
 import { readRegistry } from "./helpers/registry-oracle";
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
 import { findCode, parseDoc } from "./helpers/e2e-s1";
@@ -128,27 +127,8 @@ const UNRESOLVED_NAMED = "theta/parse/unresolved-named-type";
 
 const REGISTRY = readRegistry(["parse"]);
 
-/**
- * The registry row's normative *Message* template with its named placeholders
- * filled. Definedness and placeholder presence are asserted first, so a missing
- * row or a reworded template reds by naming the registry rather than by a bare
- * `undefined` comparison.
- */
 function msg(code: string, fills: ReadonlyArray<readonly [string, string]>): string {
-  const template = registryMessage(REGISTRY, code) as string | undefined;
-  expect(
-    template,
-    `DIAG-4 anchor: docs/spec_topics/diagnostics/code-registry-parse.md must carry the Message row for ${code}`,
-  ).toBeDefined();
-  let out = template as string;
-  for (const [placeholder, value] of fills) {
-    expect(
-      out,
-      `DIAG-4: the ${code} Message template must carry the ${placeholder} placeholder; template=${JSON.stringify(template)}`,
-    ).toContain(placeholder);
-    out = out.replace(placeholder, value);
-  }
-  return out;
+  return registryMessageOf(REGISTRY, "docs/spec_topics/diagnostics/code-registry-parse.md", code, fills);
 }
 
 // --- production parse harness ----------------------------------------------

@@ -1,3 +1,12 @@
+import { parseDeps } from "./helpers/e2e-s1";
+import {
+  ANTHROPIC_MODEL,
+  type SessionEntryDouble,
+  appendUserEntry,
+  appendAssistantEntry,
+} from "./helpers/scripted-live-session-harness";
+import { rootDouble } from "./helpers/call-with-clause-harness";
+import { makeBeltProbes, type Probe, render, producer as beltProducer } from "./helpers/runtime-belt-probe-harness";
 import { describe, expect, it } from "vitest";
 import type {
   ExtensionAPI,
@@ -6,14 +15,9 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import type { ThetaSource } from "../src/lexer/lexer";
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
-import type { SystemNoteChannelDeps } from "../src/extension/system-note-channel";
-import type { ModelReferenceMatcher, ParsedFrontmatter } from "../src/parser/frontmatter";
-import {
-  parseThetaDocument,
-  type ParseThetaDocumentDeps,
-  type ThetaDocument,
-} from "../src/parser/theta-document";
-import { executeBody, type BodyExecution } from "../src/runtime/statement-executor";
+import type { ParsedFrontmatter } from "../src/parser/frontmatter";
+import { parseThetaDocument, type ThetaDocument } from "../src/parser/theta-document";
+import { executeBody } from "../src/runtime/statement-executor";
 import {
   evaluateIndexAccess,
   isThetaPanic,
@@ -23,10 +27,7 @@ import {
 } from "../src/runtime/runtime-panics";
 import type { ThetaValue } from "../src/runtime/value";
 import { createProductionProducerDeps } from "../src/extension/production-theta-producer";
-import type {
-  ConversationBindInput,
-  ThetaCompositionInput,
-} from "../src/extension/theta-composition-producer";
+import type { ThetaCompositionInput } from "../src/extension/theta-composition-producer";
 import type { RuntimeRoot } from "../src/runtime-root";
 import type { Checkpoint } from "../src/seams/checkpoint";
 
@@ -185,18 +186,6 @@ function rejectionMessage(read: string, receiverKind: string): string {
 // Shared parse + production-executor harness (the group-(e) pattern).
 // ===========================================================================
 
-function parseDeps(): ParseThetaDocumentDeps {
-  const systemNote: SystemNoteChannelDeps = {
-    pi: { sendMessage: (): void => {} },
-    ui: { notify: (): void => {} },
-    emitDiagnostic: (): void => {},
-  };
-  const modelMatcher: ModelReferenceMatcher = {
-    resolve: (): "resolved" => "resolved",
-  };
-  return { systemNote, modelMatcher };
-}
-
 function parseOnly(path: string, src: string): ThetaDocument {
   const source: ThetaSource = { path, bytes: new TextEncoder().encode(src) };
   return parseThetaDocument(source, parseDeps());
@@ -226,23 +215,8 @@ const NOOP_CHECKPOINT: Checkpoint = {
   },
 };
 
-function rootDouble(): RuntimeRoot {
-  return {
-    checkpoint: NOOP_CHECKPOINT,
-    idSource: { newInvocationId: () => "inv-1", newToolCallId: () => "tc-1" },
-  } as unknown as RuntimeRoot;
-}
-
 function producer() {
-  return createProductionProducerDeps({
-    pi: {
-      sendMessage: () => {},
-      getActiveTools: () => [],
-      setActiveTools: () => {},
-    } as unknown as ExtensionAPI,
-    root: rootDouble(),
-    modelRegistry: {} as unknown as ModelRegistry,
-  });
+  return beltProducer(rootDouble());
 }
 
 const FM = "---\nmode: prompt\n---\n";
@@ -261,41 +235,7 @@ const SITE = {
   },
 };
 
-/**
- * One probe's disposition: the body produced a value, or the runtime threw. A
- * raw non-panic throw propagates out of `executeBody` uncaught (the framing that
- * reclassifies it lives one layer up, theta-composition-producer.ts:492), so
- * both dispositions are observable here.
- */
-type Probe =
-  | { readonly kind: "value"; readonly execution: BodyExecution }
-  | { readonly kind: "threw"; readonly thrown: unknown };
-
-/** Parse + run a self-contained query-free prompt-mode source, capturing a throw. */
-async function probeSource(src: string): Promise<Probe> {
-  const doc = parseTheta("bug0027.theta", FM + src);
-  const theta: ThetaCompositionInput = {
-    slashName: "bug0027",
-    sourcePath: "/theta/bug0027.theta",
-    frontmatter: doc.frontmatter as ParsedFrontmatter,
-    body: doc.body,
-  };
-  const bindInput: ConversationBindInput = {
-    theta,
-    args: "",
-    ctx: {} as unknown as ExtensionCommandContext,
-  };
-  const binding = producer().bindPromptConversation(bindInput);
-  try {
-    return { kind: "value", execution: await executeBody(theta.body, binding.executeDeps) };
-  } catch (thrown) {
-    return { kind: "threw", thrown };
-  }
-}
-
-function render(value: ThetaValue | undefined): string {
-  return value === undefined ? "undefined" : JSON.stringify(value);
-}
+const { probeSource } = makeBeltProbes((src) => parseTheta("bug0027.theta", FM + src), "bug0027", { root: rootDouble, sourcePath: "/theta/bug0027.theta" });
 
 /**
  * Assert the bug-0027 gate rejected `probe`, in BOTH directions:
@@ -386,20 +326,6 @@ function valueOf(probe: Probe, what: string): ThetaValue | undefined {
 // dispatch — an untyped query never calls `complete()`.
 // ===========================================================================
 
-const ANTHROPIC_MODEL = {
-  id: "m1",
-  api: "anthropic-messages",
-  provider: "anthropic",
-  strictCapable: true,
-};
-
-interface SessionEntryDouble {
-  readonly type: "message";
-  readonly id: string;
-  readonly parentId: string | undefined;
-  readonly message: Record<string, unknown>;
-}
-
 class LiveSessionDouble {
   readonly entries: SessionEntryDouble[] = [];
   sendUserMessageCalls = 0;
@@ -411,7 +337,7 @@ class LiveSessionDouble {
   sendUserMessage(content: string): void {
     this.sendUserMessageCalls += 1;
     this.sentQueryTexts.push(content);
-    this.#append({ role: "user", content: [{ type: "text", text: content }], timestamp: 0 });
+    appendUserEntry(this.entries, content);
     this.#idle = false;
   }
 
@@ -424,22 +350,8 @@ class LiveSessionDouble {
     if (this.#idle) {
       return;
     }
-    this.#append({
-      role: "assistant",
-      content: [{ type: "text", text: "ok" }],
-      api: "anthropic-messages",
-      provider: "anthropic",
-      model: "m1",
-      stopReason: "stop",
-      timestamp: 0,
-    });
+    appendAssistantEntry(this.entries, "ok", "stop");
     this.#idle = true;
-  }
-
-  #append(message: Record<string, unknown>): void {
-    const id = `e${this.entries.length + 1}`;
-    const parentId = this.entries.length === 0 ? undefined : `e${this.entries.length}`;
-    this.entries.push({ type: "message", id, parentId, message });
   }
 }
 

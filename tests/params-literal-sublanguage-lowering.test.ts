@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { inlineDefName } from "./helpers/canonical-slug-oracle";
 import { describe, expect, it } from "vitest";
 import { buildBinderEnvelopeSchema } from "../src/binder/binder-envelope";
 import { renderBinderParamLine } from "../src/binder/binder-system-prompt";
@@ -9,7 +9,7 @@ import {
   type LoweredSchema,
   type SchemaSlug,
 } from "../src/seams/schema-validator";
-import { parseDoc } from "./helpers/e2e-s1";
+import { parseDoc, diagLines } from "./helpers/e2e-s1";
 
 // Bug 0056 — theta has ONE type grammar and FOUR positions that lower a type
 // expression to JSON Schema, and only three of them own a literal sublanguage
@@ -238,22 +238,6 @@ const M_INTEGER_CANONICAL =
   '{"additionalProperties":false,"properties":{"m":{"type":"integer"}},"required":["m"],' +
   '"type":"object"}';
 
-/**
- * SHA-256 of the canonical-form bytes, first 16 lowercase hex characters
- * (schema-subset.md:106 — the digest, :107 — the truncation).
- */
-function slugOfCanonicalForm(canonical: string): string {
-  return createHash("sha256").update(canonical, "utf8").digest("hex").slice(0, 16);
-}
-
-/**
- * The synthesised `$defs` key for a fragment given its canonical form
- * (schema-subset.md:73, and :108 for the reserved `__inline_<slug>` form).
- */
-function inlineDefName(canonical: string): string {
-  return `__inline_${slugOfCanonicalForm(canonical)}`;
-}
-
 const M_XY_INLINE = inlineDefName(M_XY_CANONICAL);
 const M_CONST_INLINE = inlineDefName(M_CONST_CANONICAL);
 const M_NULL_INLINE = inlineDefName(M_NULL_CANONICAL);
@@ -307,10 +291,6 @@ const HOISTING_POSITIONS = ["params", "field", "alias"] as const;
  */
 function yamlQuoted(typeSource: string): string {
   return `'${typeSource.replace(/'/g, "''")}'`;
-}
-
-function diagLines(doc: ThetaDocument): string[] {
-  return doc.diagnostics.map((d) => `${d.severity} ${d.code}: ${d.message}`);
 }
 
 function loweredParamsDocument(doc: ThetaDocument): Record<string, unknown> | undefined {

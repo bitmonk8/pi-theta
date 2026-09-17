@@ -1,8 +1,7 @@
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
+import { REGISTRY, type RegistryRow } from "./helpers/registry-oracle";
 import { describe, expect, it } from "vitest";
 // @ts-expect-error — JS code-registry module, no type declarations.
-import { parseRegistry, registryMessage } from "../tools/code-registry/index.js";
+import { registryMessage } from "../tools/code-registry/index.js";
 import { renderBinderParamLine } from "../src/binder/binder-system-prompt";
 import { defaultLiteralStaticType } from "../src/parser/literal-sublanguage";
 import { parseExpressionSource, type ThetaDocument } from "../src/parser/theta-document";
@@ -166,31 +165,6 @@ const NEWLINE_IN_STRING = "theta/parse/literal-newline-in-string";
 const TYPE_MISMATCH = "theta/parse/params-default-type-mismatch";
 /** Bug 0232's type-half refusal, which row a13 must keep drawing. */
 const PARAMS_NOT_EXPR = "theta/load/params-type-not-expression";
-
-interface RegistryRow {
-  readonly code: string;
-  readonly namespace: string;
-  readonly severity: string;
-  readonly phase: string;
-  readonly trigger: string;
-  readonly message: string;
-}
-
-const REGISTRY = parseRegistry(
-  [
-    "code-registry-parse.md",
-    "code-registry-load.md",
-    "code-registry-runtime.md",
-    "code-registry-host.md",
-  ]
-    .map((page) =>
-      readFileSync(
-        fileURLToPath(new URL(`../docs/spec_topics/diagnostics/${page}`, import.meta.url)),
-        "utf8",
-      ),
-    )
-    .join("\n"),
-) as RegistryRow[];
 
 /** One structured registry row, or a loud failure naming the code. */
 function registryRowOf(code: string): RegistryRow {

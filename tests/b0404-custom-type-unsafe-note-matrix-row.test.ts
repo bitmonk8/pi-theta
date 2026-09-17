@@ -1,5 +1,4 @@
-import { fileURLToPath } from "node:url";
-import { readFileSync } from "node:fs";
+import { linesOf, readCorpus as readSharedCorpus } from "./helpers/corpus-reader";
 import { describe, expect, it } from "vitest";
 
 // b0404 — the custom-type-unsafe note's matrix-row oracle.
@@ -59,34 +58,9 @@ import { describe, expect, it } from "vitest";
 //     BNDR-9 custom-type-unsafe note (`theta/runtime/custom-type-unsafe`,
 //     `alwaysLogGroup`).
 
-const repoFile = (rel: string): string =>
-  fileURLToPath(new URL(`../${rel}`, import.meta.url));
-
-/**
- * Read a corpus file. A missing or empty file is a HARNESS failure that names
- * the unmet precondition and throws — never a skip, never an early return, so
- * an absent page cannot let a cell pass vacuously (the b0265 `readCorpus`
- * pattern this file mirrors).
- */
 function readCorpus(rel: string): string {
-  let text: string;
-  try {
-    text = readFileSync(repoFile(rel), "utf8");
-  } catch (cause) {
-    throw new Error(
-      `harness precondition unmet: ${rel} is unreadable, and it is this oracle's only source for the bug 0404 surface it owns — a missing corpus file is a loud failure, never a skip (${String(cause)})`,
-    );
-  }
-  if (text.trim() === "") {
-    throw new Error(
-      `harness precondition unmet: ${rel} is empty; nothing to score`,
-    );
-  }
-  return text;
+  return readSharedCorpus(rel, "this oracle's only source for the bug 0404 surface it owns");
 }
-
-/** Line splitting tolerates the page's CRLF terminators. */
-const linesOf = (text: string): readonly string[] => text.split(/\r?\n/);
 
 /** Line wrapping is editorial, so every prose match runs over a flattened run. */
 const flatten = (text: string): string => text.replace(/\s+/g, " ").trim();

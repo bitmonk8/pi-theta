@@ -6,6 +6,7 @@
 // factory-owned registry (the §5 handle) makes the same selection available.
 // In-process over the real `composeExtensionInstance`; zero processes.
 
+import { resolvingHost } from "./helpers/fake-json-child";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -18,7 +19,7 @@ import {
 } from "../src/extension/production-composition";
 import { PlacementRegistry } from "../src/runtime/subagent-placement-registry";
 import { SUBAGENT_PLACEMENT_UNAVAILABLE_CODE } from "../src/runtime/subagent-placement-selection";
-import type { ExecutableHost } from "../src/runtime/subagent-launcher";
+
 import type { PlacedChild, SubagentPlacementBackend } from "../src/runtime/subagent-placement";
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
 
@@ -76,15 +77,6 @@ function fakeHost(): { pi: ExtensionAPI; ctx: ExtensionContext; notes: string[] 
     ui: { notify: (): void => {} },
   } as unknown as ExtensionContext;
   return { pi, ctx, notes };
-}
-
-function resolvingHost(): ExecutableHost {
-  return {
-    argv1: "/app/pi/dist/index.js",
-    execPath: "/usr/bin/node",
-    fileExists: (): boolean => true,
-    isGenericRuntime: (): boolean => false,
-  };
 }
 
 function herdr(detect: boolean): SubagentPlacementBackend {

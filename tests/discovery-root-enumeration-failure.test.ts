@@ -1,5 +1,5 @@
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
+import { hitsFor } from "./helpers/e2e-s1";
+import { loadRowMessage, interpolate } from "./helpers/registry-oracle";
 import { describe, expect, it } from "vitest";
 import {
   discoverThetas,
@@ -12,8 +12,6 @@ import {
 } from "../src/discovery/package-discovery";
 import type { Diagnostic, Severity } from "../src/diagnostics/diagnostic";
 import type { FileStat, FileSystem } from "../src/seams/file-system";
-// @ts-expect-error — JS code-registry module, no type declarations.
-import { parseRegistry, registryMessage } from "../tools/code-registry/index.js";
 import { FakeClock } from "./helpers/fake-clock";
 import { FakeFileSystem } from "./helpers/fake-file-system";
 
@@ -156,40 +154,6 @@ import { FakeFileSystem } from "./helpers/fake-file-system";
 // the Message column of docs/spec_topics/diagnostics/code-registry-load.md,
 // never pasted prose. Helper shapes mirror tests/load-warning-delivery.test.ts.
 // ===========================================================================
-
-interface RegistryRow {
-  code: string;
-  namespace: string;
-  severity: string;
-  phase: string;
-  trigger: string;
-  message: string;
-}
-
-const REGISTRY = parseRegistry(
-  readFileSync(
-    fileURLToPath(
-      new URL("../docs/spec_topics/diagnostics/code-registry-load.md", import.meta.url),
-    ),
-    "utf8",
-  ),
-) as RegistryRow[];
-
-/** The row's normative Message template (DIAG-4), asserted present loudly. */
-function loadRowMessage(code: string): string {
-  const message = registryMessage(REGISTRY, code) as string | undefined;
-  expect(
-    message,
-    `DIAG-4 anchor: docs/spec_topics/diagnostics/code-registry-load.md must carry ` +
-      `the Message row for ${code}`,
-  ).toBeDefined();
-  return message!;
-}
-
-/** Interpolate a registry Message template's `<placeholder>` slots. */
-function interpolate(template: string, subs: Record<string, string>): string {
-  return template.replace(/<([a-z-]+)>/g, (whole, name: string) => subs[name] ?? whole);
-}
 
 /**
  * A registry Message template as a whole-string RegExp with every
@@ -369,16 +333,6 @@ function named(
   name: string,
 ): DiscoveredTheta | undefined {
   return thetas.find((t) => t.name === name);
-}
-
-/** The diagnostics carrying `code` and locating `file` (DISC-2 rule 2: `file`
- *  is the enumerated root path). */
-function hitsFor(
-  diagnostics: readonly Diagnostic[],
-  code: string,
-  file: string,
-): readonly Diagnostic[] {
-  return diagnostics.filter((d) => d.code === code && d.file === file);
 }
 
 interface ExpectedFailure {

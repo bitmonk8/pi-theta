@@ -83,7 +83,14 @@
 // `complete()` queue (sticky-last + throw-on-unscripted) — every runtime cell
 // asserts BOTH counters (`sendUserMessage`, `complete()`). The load-time cells
 // drive the emitter / walker / wiring seams directly (no session drive).
-
+import { parseDeps } from "./helpers/e2e-s1";
+import {
+  ANTHROPIC_MODEL,
+  type SessionEntryDouble,
+  ajv,
+  appendUserEntry,
+  appendAssistantEntry,
+} from "./helpers/scripted-live-session-harness";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // The recorded off-session `complete()` calls and the scripted reply queue
@@ -118,7 +125,6 @@ vi.mock("@earendil-works/pi-ai/compat", async (importOriginal) => {
     }),
   };
 });
-
 import { createHash } from "node:crypto";
 import type {
   ExtensionAPI,
@@ -129,23 +135,11 @@ import type {
 import { createProductionProducerDeps } from "../src/extension/production-theta-producer";
 import type { ThetaCompositionInput } from "../src/extension/theta-composition-producer";
 import { executeBody, type BodyExecution } from "../src/runtime/statement-executor";
-import {
-  AjvSchemaValidator,
-  type LoweredSchema,
-  type SchemaSlug,
-} from "../src/seams/schema-validator";
+import { type LoweredSchema } from "../src/seams/schema-validator";
 import type { RuntimeRoot } from "../src/runtime-root";
 import * as thetaDocumentModule from "../src/parser/theta-document";
-import {
-  parseThetaDocument,
-  type ParseThetaDocumentDeps,
-  type SchemaDecl,
-  type ThetaBody,
-  type ThetaDocument,
-} from "../src/parser/theta-document";
+import { parseThetaDocument, type SchemaDecl, type ThetaBody, type ThetaDocument } from "../src/parser/theta-document";
 import type { ThetaSource } from "../src/lexer/lexer";
-import type { ModelReferenceMatcher } from "../src/parser/frontmatter";
-import type { SystemNoteChannelDeps } from "../src/extension/system-note-channel";
 import { lowerQueryResponseSchema } from "../src/runtime/query-schema-lowering";
 import * as productionComposition from "../src/extension/production-composition";
 import {
@@ -159,14 +153,6 @@ import type { Diagnostic } from "../src/diagnostics/diagnostic";
 // --- The resolved models ------------------------------------------------------
 // DISTINCT `.api` / `.provider` / `.id` strings (the bug-0007/0009 fixture
 // discipline) so a provider assertion catches a wrong-field read.
-
-/** The user session's selected model (`ctx.model`) — a SUPPORTED api. */
-const ANTHROPIC_MODEL = {
-  id: "m1",
-  api: "anthropic-messages",
-  provider: "anthropic",
-  strictCapable: true,
-};
 
 /**
  * The canonical UNSUPPORTED respond model: pi-ai exposes no named-tool
@@ -326,14 +312,6 @@ interface ScriptedAssistantReply {
   readonly errorMessage?: string;
 }
 
-/** A `SessionManager` message entry (the `buildSessionContext` read shape). */
-interface SessionEntryDouble {
-  readonly type: "message";
-  readonly id: string;
-  readonly parentId: string | undefined;
-  readonly message: Record<string, unknown>;
-}
-
 /**
  * The live user-session double (duplicated from
  * tests/typed-two-phase-live.test.ts): `sendUserMessage` commits the `user`
@@ -359,11 +337,7 @@ class LiveSessionDouble {
   sendUserMessage(content: string): void {
     this.sendUserMessageCalls += 1;
     this.sentQueryTexts.push(content);
-    this.#append({
-      role: "user",
-      content: [{ type: "text", text: content }],
-      timestamp: 0,
-    });
+    appendUserEntry(this.entries, content);
     this.#idle = false;
   }
 
@@ -386,23 +360,8 @@ class LiveSessionDouble {
     const reply =
       this.#replies[Math.min(this.#completedTurns, this.#replies.length - 1)]!;
     this.#completedTurns += 1;
-    this.#append({
-      role: "assistant",
-      content: reply.text !== undefined ? [{ type: "text", text: reply.text }] : [],
-      api: "anthropic-messages",
-      provider: "anthropic",
-      model: "m1",
-      stopReason: reply.stopReason,
-      ...(reply.errorMessage !== undefined ? { errorMessage: reply.errorMessage } : {}),
-      timestamp: 0,
-    });
+    appendAssistantEntry(this.entries, reply.text, reply.stopReason, reply.errorMessage);
     this.#idle = true;
-  }
-
-  #append(message: Record<string, unknown>): void {
-    const id = `e${this.entries.length + 1}`;
-    const parentId = this.entries.length === 0 ? undefined : `e${this.entries.length}`;
-    this.entries.push({ type: "message", id, parentId, message });
   }
 }
 
@@ -440,16 +399,6 @@ class RecordingPi {
 
 // --- Harness ---------------------------------------------------------------------
 
-function parseDeps(): ParseThetaDocumentDeps {
-  const systemNote: SystemNoteChannelDeps = {
-    pi: { sendMessage: (): void => {} },
-    ui: { notify: (): void => {} },
-    emitDiagnostic: (): void => {},
-  };
-  const modelMatcher: ModelReferenceMatcher = { resolve: (): "resolved" => "resolved" };
-  return { systemNote, modelMatcher };
-}
-
 /** Parse `.theta` source through the production whole-file parser (must be clean). */
 function parse(src: string): ThetaDocument {
   const source: ThetaSource = {
@@ -460,15 +409,6 @@ function parse(src: string): ThetaDocument {
   const errors = doc.diagnostics.filter((d) => d.severity === "error").map((d) => d.code);
   expect(errors, "the fixture theta must parse cleanly before it is used").toEqual([]);
   return doc;
-}
-
-/** The production AJV validator (real schema validation, as the sibling suites). */
-function ajv(): AjvSchemaValidator {
-  const slugOf = (schema: LoweredSchema): SchemaSlug => ({
-    slug: JSON.stringify(schema),
-    canonicalBytes: JSON.stringify(schema),
-  });
-  return new AjvSchemaValidator({ emit: () => {}, slugOf });
 }
 
 /** A runtime-root double whose `Clock.setTimeout` ticks the session double. */

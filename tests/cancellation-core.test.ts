@@ -19,13 +19,9 @@
 //   - `runCancellableSequence` synthesises a top-level `cancelled` and retains
 //     no bindings, so CNCL-5 / CNCL-6 red.
 // No test reds on a compile error, a missing fixture, or a harness throw.
-
+import { ScriptedCheckpoint } from "./helpers/invoke-seam-scaffold";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import type {
-  Checkpoint,
-  CheckpointKind,
-  CheckpointSite,
-} from "../src/seams/checkpoint";
+import type { CheckpointSite } from "../src/seams/checkpoint";
 import type { RuntimeEvent } from "../src/runtime/runtime-event-channel";
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
 import type { QueryError } from "../src/runtime/query-error";
@@ -49,27 +45,6 @@ import {
 } from "../src/runtime/cancellation-core";
 
 const SITE: CheckpointSite = { file: "theta.theta", line: 1, column: 1 };
-
-/**
- * A `Checkpoint` whose `before(...)` invokes an injected callback on each await
- * — the deterministic-test substrate (PIC-10) that lands an abort at a chosen
- * checkpoint boundary without depending on JS microtask scheduling. Production
- * wiring is a no-op; a test lands the abort here.
- */
-class ScriptedCheckpoint implements Checkpoint {
-  #calls = 0;
-  readonly #onBefore: (call: number, kind: CheckpointKind) => void;
-
-  constructor(onBefore: (call: number, kind: CheckpointKind) => void) {
-    this.#onBefore = onBefore;
-  }
-
-  before(kind: CheckpointKind): Promise<void> {
-    this.#calls += 1;
-    this.#onBefore(this.#calls, kind);
-    return Promise.resolve();
-  }
-}
 
 // ===========================================================================
 // Forwarding into `thetaAbort` (cancellation.md §Signal source / §Forwarding).

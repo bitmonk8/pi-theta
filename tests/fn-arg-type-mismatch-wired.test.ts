@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 import { parseRegistry, registryMessage } from "../tools/code-registry/index.js";
 import type { Diagnostic, SourceRange } from "../src/diagnostics/diagnostic";
 import type { Block, Expr, Stmt, ThetaDocument } from "../src/parser/theta-document";
-import { errors, parseDoc } from "./helpers/e2e-s1";
+import { errors, parseDoc, argRange as sharedArgRange, letRange as sharedLetRange } from "./helpers/e2e-s1";
 
 // Bug 0050 — `theta/parse/fn-arg-type-mismatch` is a registered `E` row whose
 // sole emitter, `checkFnArgCompat` (src/parser/type-compat.ts:452), has no
@@ -599,25 +599,8 @@ function collectCalls(doc: ThetaDocument): CallSite[] {
   return out;
 }
 
-/**
- * The range of argument `index` of the fixture's sole call of `callee`.
- *
- * This is the loud precondition every cell runs first: without it, a fixture
- * whose layout drifted (or which stopped parsing at all) would let an
- * "emits no `fn-arg-type-mismatch`" assertion pass while measuring nothing.
- */
 function argRange(doc: ThetaDocument, callee: string, index: number): SourceRange {
-  const calls = collectCalls(doc).filter((c) => c.callee === callee);
-  expect(
-    calls,
-    `PRECONDITION: the fixture must hold exactly one call of '${callee}'; the parse found ${calls.length}. Diagnostics: ${render(doc)}`,
-  ).toHaveLength(1);
-  const args = calls[0]!.args;
-  expect(
-    args.length,
-    `PRECONDITION: the call of '${callee}' must carry an argument at index ${index}; it carries ${args.length}. Diagnostics: ${render(doc)}`,
-  ).toBeGreaterThan(index);
-  return args[index]!;
+  return sharedArgRange(doc, callee, index, collectCalls, render);
 }
 
 interface LetSite {
@@ -674,22 +657,8 @@ function collectLets(doc: ThetaDocument): LetSite[] {
   return out;
 }
 
-/**
- * The range of the fixture's sole `let` binding named `name`.
- *
- * The call-less counterpart of `argRange`, and the same loud precondition: the
- * u13 group's sinks are typed `let`s, object-field values and `for` iterands,
- * and several of its fixtures carry no `fn` call at all — without an anchor a
- * fixture whose layout drifted (or which stopped parsing) would let an
- * "emits nothing" assertion pass while measuring nothing.
- */
 function letRange(doc: ThetaDocument, name: string): SourceRange {
-  const hits = collectLets(doc).filter((l) => l.name === name);
-  expect(
-    hits,
-    `PRECONDITION: the fixture must hold exactly one \`let ${name}\`; the parse found ${hits.length}. Diagnostics: ${render(doc)}`,
-  ).toHaveLength(1);
-  return hits[0]!.range;
+  return sharedLetRange(doc, name, collectLets, render);
 }
 
 /**
@@ -1119,6 +1088,7 @@ describe("bug 0050 — a mistyped argument at a plain top-level `fn` call report
       argument,
       "r5 — TYPE-2's one-way widening fails at this slot through the fn-arg row, which is what the emitter's fall-through already decides",
     );
+    expect(doc.diagnostics.filter((d) => d.code === "theta/parse/integer-narrowing")).toEqual([]);
   });
 
   it("r6: a `Q`-constructed value under a declared `P` parameter fires once, on the argument", () => {

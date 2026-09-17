@@ -22,7 +22,7 @@
 // `tests/subagent-tool-admission.test.ts` / `tests/subagent-placement-load-refusal.test.ts`'s
 // `discoverAndComposeFixtures` fixture-plant pattern for the composition-level
 // cells (the load probe lives in the compose loop, not in `resolveCallableSet`).
-
+import { parseDeps as v6ParseDeps } from "./helpers/e2e-s1";
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -519,11 +519,8 @@ describe("RFC 0011 §4 — X3: an all-runtime-tool set maps to --no-tools (fake-
 // Driven through the real producer with a fake spawn so the cell asserts
 // the recorded child argv.
 // ===========================================================================
-
 import type { ThetaSource } from "../src/lexer/lexer";
-import type { ModelReferenceMatcher } from "../src/parser/frontmatter";
-import { parseThetaDocument, type ParseThetaDocumentDeps, type ThetaDocument } from "../src/parser/theta-document";
-import type { SystemNoteChannelDeps } from "../src/extension/system-note-channel";
+import { parseThetaDocument, type ThetaDocument } from "../src/parser/theta-document";
 import type { ThetaCompositionInput, ConversationBindInput } from "../src/extension/theta-composition-producer";
 import { createProductionProducerDeps } from "../src/extension/production-theta-producer";
 import { executeBody } from "../src/runtime/statement-executor";
@@ -532,16 +529,6 @@ import type { SpawnFn } from "../src/runtime/subagent-launcher";
 import { fakeExecutableHost, makeFakeJsonChildLauncher, type FakeJsonChild, type SpawnRecord } from "./helpers/fake-json-child";
 import { childRegimeRootDouble } from "./helpers/subagent-fn-child-regime";
 import type { ModelRegistry } from "@earendil-works/pi-coding-agent";
-
-function v6ParseDeps(): ParseThetaDocumentDeps {
-  const systemNote: SystemNoteChannelDeps = {
-    pi: { sendMessage: (): void => {} },
-    ui: { notify: (): void => {} },
-    emitDiagnostic: (): void => {},
-  };
-  const modelMatcher: ModelReferenceMatcher = { resolve: (): "resolved" => "resolved" };
-  return { systemNote, modelMatcher };
-}
 
 function v6Parse(src: string): ThetaDocument {
   const source: ThetaSource = { path: "/thetadir/caller.theta", bytes: new TextEncoder().encode(src) };

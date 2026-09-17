@@ -1,5 +1,4 @@
-import { fileURLToPath } from "node:url";
-import { readFileSync } from "node:fs";
+import { linesOf, readCorpus as readSharedCorpus } from "./helpers/corpus-reader";
 import { describe, expect, it } from "vitest";
 
 // b0456 — the src/parser/imports.ts citation-content-anchor gate.
@@ -39,32 +38,9 @@ import { describe, expect, it } from "vitest";
 //     cite must read `(grammar.md:184)` (AliasRhs) and no longer `(grammar.md:175)`
 //     (the statement-in-arm-body prose). This gate NEVER edits the LPA.
 
-const repoFile = (rel: string): string =>
-  fileURLToPath(new URL(`../${rel}`, import.meta.url));
-
-/**
- * Read a corpus file. A missing or empty file is a HARNESS failure that names
- * the unmet precondition and throws — never a skip, never an early return, so an
- * absent source cannot let a cell pass vacuously (the b0405/b0421 readCorpus
- * pattern this file mirrors; CLAUDE.md "no silent test skipping").
- */
 function readCorpus(rel: string): string {
-  let text: string;
-  try {
-    text = readFileSync(repoFile(rel), "utf8");
-  } catch (cause) {
-    throw new Error(
-      `harness precondition unmet: ${rel} is unreadable, and it is a source this gate scores for the bug 0456 imports.ts / LPA cite sweep — a missing corpus file is a loud failure, never a skip (${String(cause)})`,
-    );
-  }
-  if (text.trim() === "") {
-    throw new Error(`harness precondition unmet: ${rel} is empty; nothing to score`);
-  }
-  return text;
+  return readSharedCorpus(rel, "a source this gate scores for the bug 0456 imports.ts / LPA cite sweep");
 }
-
-/** Line splitting tolerates a CRLF terminator; imports.ts and the test files are LF. */
-const linesOf = (text: string): readonly string[] => text.split(/\r?\n/);
 
 const IMPORTS = "src/parser/imports.ts";
 const GRAMMAR = "docs/spec_topics/grammar.md";

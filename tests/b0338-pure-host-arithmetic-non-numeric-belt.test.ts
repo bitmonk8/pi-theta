@@ -80,35 +80,26 @@
 //   Cn-/Cn//Cn%/Cai/B3 CONTROL: byte-identical guards. If any reds, the belt
 //                        over-reached into numeric operands (Cn-/Cn//Cn%/Cai)
 //                        or perturbed the executor-path parse gate (B3).
-
+import { makeBeltProbes } from "./helpers/runtime-belt-probe-harness";
 import { describe, expect, it } from "vitest";
-import type {
-  ExtensionAPI,
-  ExtensionCommandContext,
-  ModelRegistry,
-} from "@earendil-works/pi-coding-agent";
 import type { ThetaSource } from "../src/lexer/lexer";
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
 import type { SystemNoteChannelDeps } from "../src/extension/system-note-channel";
-import type { ModelReferenceMatcher, ParsedFrontmatter } from "../src/parser/frontmatter";
+import type { ModelReferenceMatcher } from "../src/parser/frontmatter";
 import {
   parseThetaDocument,
   type ParseThetaDocumentDeps,
   type ThetaDocument,
 } from "../src/parser/theta-document";
-import { executeBody } from "../src/runtime/statement-executor";
 import {
   isThetaPanic,
   surfaceUnexpectedThrow,
   INTERNAL_ERROR_CODE,
 } from "../src/runtime/runtime-panics";
-import type { ThetaValue } from "../src/runtime/value";
-import {
-  createProductionProducerDeps,
-  type CalleeParseOutcome,
-} from "../src/extension/production-theta-producer";
-import type { ThetaCompositionInput } from "../src/extension/theta-composition-producer";
-import type { RuntimeRoot } from "../src/runtime-root";
+
+
+
+
 
 /** expressions.md §"Other arithmetic" — the parse gate 0332 shipped (executor path). */
 const NON_NUMERIC_ARITHMETIC_OPERANDS_CODE = "theta/parse/non-numeric-arithmetic-operands";
@@ -170,25 +161,6 @@ function parseErrorCodes(src: string): string[] {
   return parseOnly(src).diagnostics.filter((d) => d.severity === "error").map((d) => d.code);
 }
 
-function rootDouble(): RuntimeRoot {
-  return {
-    checkpoint: { before: (): Promise<void> => Promise.resolve() },
-    idSource: { newInvocationId: (): string => "inv-1", newToolCallId: (): string => "tc-1" },
-    // The prompt-mode drive's only wait primitive is `Clock.setTimeout`; fire the
-    // callback synchronously so the instant-settle turn completes deterministically
-    // with no real timers (the b0288 harness contract).
-    clock: {
-      now: (): number => 0,
-      wallNow: (): number => 0,
-      setTimeout: (fn: () => void): unknown => {
-        fn();
-        return 0;
-      },
-      clearTimeout: (): void => {},
-    },
-  } as unknown as RuntimeRoot;
-}
-
 // ===========================================================================
 // INTERPOLATION drive (b0288 instant-settle session double). Captures every
 // prompt text handed to `pi.sendUserMessage`; the turn commits its user entry
@@ -197,89 +169,7 @@ function rootDouble(): RuntimeRoot {
 // before the send, so it is caught here and the sent-text log is empty.
 // ===========================================================================
 
-/** The instant-settle user session: one send commits user + reply synchronously. */
-class InstantSettleSession {
-  readonly entries: Array<Record<string, unknown>> = [];
-  readonly sent: string[] = [];
-
-  sendUserMessage(text: string): void {
-    this.sent.push(text);
-    this.entries.push({
-      type: "message",
-      id: `u${this.entries.length + 1}`,
-      parentId: undefined,
-      message: { role: "user", content: [{ type: "text", text }] },
-    });
-    this.entries.push({
-      type: "message",
-      id: `a${this.entries.length + 1}`,
-      parentId: `u${this.entries.length}`,
-      message: {
-        role: "assistant",
-        content: [{ type: "text", text: "settled-reply" }],
-        api: "anthropic-messages",
-        provider: "anthropic",
-        model: "m1",
-        stopReason: "stop",
-      },
-    });
-  }
-
-  isIdle(): boolean {
-    return true;
-  }
-}
-
-/** One interpolation drive's disposition: the query rendered + sent, or the belt threw. */
-type InterpProbe =
-  | { readonly kind: "rendered"; readonly sent: readonly string[]; readonly outcome: string; readonly value: ThetaValue | undefined }
-  | { readonly kind: "threw"; readonly sent: readonly string[]; readonly thrown: unknown };
-
-async function driveInterp(src: string): Promise<InterpProbe> {
-  const doc = parseClean(src);
-  const session = new InstantSettleSession();
-  const pi = {
-    sendUserMessage: (content: string): void => session.sendUserMessage(content),
-    getActiveTools: (): string[] => [],
-    setActiveTools: (): void => {},
-    registerTool: (): void => {},
-    on: (): void => {},
-    sendMessage: (): void => {},
-  } as unknown as ExtensionAPI;
-  const deps = createProductionProducerDeps({
-    pi,
-    root: rootDouble(),
-    modelRegistry: {} as unknown as ModelRegistry,
-  });
-  const ctx = {
-    model: { id: "m1", api: "anthropic-messages", provider: "anthropic", strictCapable: true },
-    signal: undefined,
-    isIdle: (): boolean => session.isIdle(),
-    waitForIdle: (): Promise<void> => Promise.resolve(),
-    sessionManager: {
-      getEntries: (): readonly unknown[] => [...session.entries],
-      getLeafId: (): undefined => undefined,
-    },
-  } as unknown as ExtensionCommandContext;
-  const theta: ThetaCompositionInput = {
-    slashName: "b0338",
-    sourcePath: "/proj/b0338.theta",
-    frontmatter: doc.frontmatter as ParsedFrontmatter,
-    body: doc.body,
-  };
-  const binding = deps.bindPromptConversation({ theta, args: "", ctx });
-  try {
-    const execution = await executeBody(theta.body, binding.executeDeps);
-    return {
-      kind: "rendered",
-      sent: session.sent,
-      outcome: execution.outcome,
-      value: execution.result.value,
-    };
-  } catch (thrown) {
-    return { kind: "threw", sent: session.sent, thrown };
-  }
-}
+const { driveInterp, driveInvoke } = makeBeltProbes(parseClean, "b0338");
 
 // ===========================================================================
 // INVOKE drive. A recording `parseCallee` is the pre-spawn seam: `#driveCallee`
@@ -291,56 +181,6 @@ async function driveInterp(src: string): Promise<InterpProbe> {
 // fileSystem/activeRoots are wired, so `#recheckCalleeContainment` is skipped
 // and the seam is reachable at HEAD.
 // ===========================================================================
-
-/** One invoke drive's disposition, plus whether the pre-spawn callee-load seam was reached. */
-type InvokeProbe =
-  | { readonly kind: "value"; readonly parseCalleeCalls: number; readonly outcome: string }
-  | { readonly kind: "threw"; readonly parseCalleeCalls: number; readonly thrown: unknown };
-
-async function driveInvoke(src: string): Promise<InvokeProbe> {
-  const doc = parseClean(src);
-  let parseCalleeCalls = 0;
-  const pi = {
-    sendMessage: (): void => {},
-    getActiveTools: (): string[] => [],
-    setActiveTools: (): void => {},
-  } as unknown as ExtensionAPI;
-  const deps = createProductionProducerDeps({
-    pi,
-    root: rootDouble(),
-    modelRegistry: {} as unknown as ModelRegistry,
-    // Bug 0293: `undefined` still yields Err(load_failure) as a VALUE (the
-    // seam-absent / non-`ok` default) — enough to record that the invoke
-    // reached callee load carrying the bound arg; the child is never spawned,
-    // so no launcher wiring is needed.
-    parseCallee: (_caller: string | undefined, _path: string): Promise<CalleeParseOutcome | undefined> => {
-      parseCalleeCalls += 1;
-      return Promise.resolve(undefined);
-    },
-  });
-  const ctx = {
-    model: { id: "m1", provider: "anthropic" },
-    signal: undefined,
-  } as unknown as ExtensionCommandContext;
-  const theta: ThetaCompositionInput = {
-    slashName: "b0338",
-    sourcePath: "/proj/b0338.theta",
-    frontmatter: doc.frontmatter as ParsedFrontmatter,
-    body: doc.body,
-  };
-  const binding = deps.bindPromptConversation({
-    theta,
-    args: "",
-    ctx,
-    thetaAbort: new AbortController(),
-  });
-  try {
-    const execution = await executeBody(theta.body, binding.executeDeps);
-    return { kind: "value", parseCalleeCalls, outcome: execution.outcome };
-  } catch (thrown) {
-    return { kind: "threw", parseCalleeCalls, thrown };
-  }
-}
 
 // ===========================================================================
 // Shared framing assertion: a caught throw must be the belt's plain `Error`

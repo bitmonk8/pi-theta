@@ -15,7 +15,8 @@
 // file that imports this module. Nothing here is stubbed beyond the no-op
 // seam stand-ins themselves; the real `executeBody` /
 // `createEffectfulStatementHost` drive the actual production code under test.
-
+import { type Diagnostic } from "../../src/diagnostics/diagnostic";
+import { type CheckpointKind } from "../../src/seams/checkpoint";
 import type { Checkpoint } from "../../src/seams/checkpoint";
 import type { ToolLoweringSink } from "../../src/runtime/tool-call-execute";
 import type {
@@ -61,4 +62,55 @@ export interface RecordedHop {
   readonly wrapper: InvokeCalleeError;
   readonly calleePath: string;
   readonly callSite: InvokeCallSite;
+}
+
+/** Checkpoint double invoking its script with the one-based call number and kind. */
+export class ScriptedCheckpoint implements Checkpoint {
+  #calls = 0;
+  readonly #onBefore: (call: number, kind: CheckpointKind) => void;
+
+  constructor(onBefore: (call: number, kind: CheckpointKind) => void) {
+    this.#onBefore = onBefore;
+  }
+
+  before(kind: CheckpointKind): Promise<void> {
+    this.#calls += 1;
+    this.#onBefore(this.#calls, kind);
+    return Promise.resolve();
+  }
+}
+
+/** Record committed-conversation mutations in invocation order. */
+export class RecordingMutator implements CommittedConversationMutator {
+  readonly calls: string[] = [];
+  truncate(surfaceId: string): void {
+    this.calls.push(`truncate:${surfaceId}`);
+  }
+  rewrite(surfaceId: string): void {
+    this.calls.push(`rewrite:${surfaceId}`);
+  }
+  replace(surfaceId: string): void {
+    this.calls.push(`replace:${surfaceId}`);
+  }
+  remove(surfaceId: string): void {
+    this.calls.push(`remove:${surfaceId}`);
+  }
+  injectCompensatingTurn(surface: CommittedSurface): void {
+    this.calls.push(`inject:${surface.id}`);
+  }
+}
+
+/** Record both typed diagnostics/notes and their ordered lowering emissions. */
+export class RecordingSink implements ToolLoweringSink {
+  readonly emissions: string[] = [];
+  readonly diagnostics: Diagnostic[] = [];
+  readonly systemNotes: string[] = [];
+  diagnostic(diag: Diagnostic): void {
+    this.emissions.push(`diagnostic:${diag.code}`);
+    this.diagnostics.push(diag);
+  }
+  systemNote(message: string): void {
+    this.emissions.push(`system-note:${message}`);
+    this.systemNotes.push(message);
+  }
 }

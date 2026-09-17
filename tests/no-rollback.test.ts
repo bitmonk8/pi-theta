@@ -24,7 +24,7 @@
 // compensator. No test reds on a compile error, a missing fixture, or a harness
 // throw — the V17a / V17c / harness modelling of the completed callee is real and
 // green; only the V4f no-rollback behaviour under test is absent.
-
+import { ScriptedCheckpoint } from "./helpers/invoke-seam-scaffold";
 import { describe, expect, it } from "vitest";
 import {
   NO_ROLLBACK_AUTHORING_SITES,
@@ -49,35 +49,11 @@ import {
   isThetaPanic,
 } from "../src/runtime/runtime-panics";
 import type { InvokeInfraError } from "../src/runtime/query-error";
-import type {
-  Checkpoint,
-  CheckpointKind,
-  CheckpointSite,
-} from "../src/seams/checkpoint";
+import type { CheckpointSite } from "../src/seams/checkpoint";
 import type { ThetaValue } from "../src/runtime/value";
 import { loadExtension, type ResponseEvent } from "./harness/index";
 
 const SITE: CheckpointSite = { file: "no-rollback.theta", line: 1, column: 1 };
-
-/**
- * A `Checkpoint` whose `before(...)` invokes an injected callback on each await —
- * the deterministic-test substrate (PIC-10) that lands an abort at a chosen
- * checkpoint boundary without depending on JS microtask scheduling.
- */
-class ScriptedCheckpoint implements Checkpoint {
-  #calls = 0;
-  readonly #onBefore: (call: number, kind: CheckpointKind) => void;
-
-  constructor(onBefore: (call: number, kind: CheckpointKind) => void) {
-    this.#onBefore = onBefore;
-  }
-
-  before(kind: CheckpointKind): Promise<void> {
-    this.#calls += 1;
-    this.#onBefore(this.#calls, kind);
-    return Promise.resolve();
-  }
-}
 
 /**
  * A recording double of the compensating / rollback surface the runtime holds

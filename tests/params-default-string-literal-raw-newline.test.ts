@@ -1,13 +1,12 @@
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
+import { REGISTRY, type RegistryRow } from "./helpers/registry-oracle";
 import { describe, expect, it } from "vitest";
 // @ts-expect-error — JS code-registry module, no type declarations.
-import { parseRegistry, registryMessage } from "../tools/code-registry/index.js";
+import { registryMessage } from "../tools/code-registry/index.js";
 import type { BypassParamsField } from "../src/binder/binder-envelope";
 import type { SourceRange } from "../src/diagnostics/diagnostic";
 import { isBareObjectLiteral } from "../src/parser/literal-sublanguage";
 import { parseExpressionSource, type Expr, type ThetaDocument } from "../src/parser/theta-document";
-import { parseDoc } from "./helpers/e2e-s1";
+import { parseDoc, fieldOf } from "./helpers/e2e-s1";
 
 // Bug 0102 — a raw newline inside a string literal is refused in theta body code
 // and admitted at the `params:` default RHS: `p: string = "a<LF>b"` loads with
@@ -193,32 +192,6 @@ const CODE = "theta/parse/literal-newline-in-string";
 /** The sibling code raised from the same `parseParams` per-field default loop. */
 const SIBLING_CODE = "theta/parse/default-not-literal";
 
-interface RegistryRow {
-  readonly code: string;
-  readonly namespace: string;
-  readonly severity: string;
-  readonly phase: string;
-  readonly trigger: string;
-  readonly message: string;
-}
-
-/** The live four-page sharded registry — the input tests/code-registry.test.ts reconciles. */
-const REGISTRY = parseRegistry(
-  [
-    "code-registry-parse.md",
-    "code-registry-load.md",
-    "code-registry-runtime.md",
-    "code-registry-host.md",
-  ]
-    .map((page) =>
-      readFileSync(
-        fileURLToPath(new URL(`../docs/spec_topics/diagnostics/${page}`, import.meta.url)),
-        "utf8",
-      ),
-    )
-    .join("\n"),
-) as RegistryRow[];
-
 /**
  * A registry row's normative *Message* (DIAG-4). Definedness is asserted first
  * so a missing row reds by naming the registry page, never by a bare
@@ -396,17 +369,6 @@ function loadCleanly(label: string, paramsBlock: string): LoadedParams {
     fields: params.fields,
     loweredSchema: lowered,
   };
-}
-
-/** The named field of a loaded params block, or a loud failure. */
-function fieldOf(loaded: LoadedParams, wireName: string): BypassParamsField {
-  const found = loaded.fields.find((f) => f.wireName === wireName);
-  if (found === undefined) {
-    throw new Error(
-      `no params field '${wireName}' in ${JSON.stringify(loaded.fields)} — the declaration was dropped entirely`,
-    );
-  }
-  return found;
 }
 
 /**

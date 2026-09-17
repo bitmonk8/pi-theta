@@ -70,7 +70,7 @@
 // PIC-53 ordering), pi-integration-contract/provider-error-mapping.md:33
 // (stop-reason classification arm); errors-and-results/queryerror-variants.md
 // (§ContextOverflowError, §TransportError).
-
+import { parse, ajv } from "./helpers/scripted-live-session-harness";
 import { describe, expect, it } from "vitest";
 import type {
   AssistantMessage,
@@ -91,20 +91,11 @@ import {
   PROMPT_MODE_TRANSPORT_FALLBACK_MESSAGE,
   type PromptModeQueryResult,
 } from "../src/runtime/prompt-transport-mapping";
-import {
-  AjvSchemaValidator,
-  type LoweredSchema,
-  type SchemaSlug,
-} from "../src/seams/schema-validator";
 import type { RuntimeRoot } from "../src/runtime-root";
-import {
-  parseThetaDocument,
-  type ParseThetaDocumentDeps,
-  type ThetaDocument,
-} from "../src/parser/theta-document";
-import type { ThetaSource } from "../src/lexer/lexer";
-import type { ModelReferenceMatcher } from "../src/parser/frontmatter";
-import type { SystemNoteChannelDeps } from "../src/extension/system-note-channel";
+
+
+
+
 
 // --- The user session's selected model ---------------------------------------
 // Distinct `.api` / `.provider` strings (the bug-0009 fixture discipline) so a
@@ -235,38 +226,6 @@ class LiveSessionDouble {
 }
 
 // --- Harness ------------------------------------------------------------------
-
-function parseDeps(): ParseThetaDocumentDeps {
-  const systemNote: SystemNoteChannelDeps = {
-    pi: { sendMessage: (): void => {} },
-    ui: { notify: (): void => {} },
-    emitDiagnostic: (): void => {},
-  };
-  const modelMatcher: ModelReferenceMatcher = { resolve: (): "resolved" => "resolved" };
-  return { systemNote, modelMatcher };
-}
-
-/** Parse `.theta` source through the production whole-file parser (must be clean). */
-function parse(src: string): ThetaDocument {
-  const source: ThetaSource = {
-    path: "probe.theta",
-    bytes: new TextEncoder().encode(src),
-  };
-  const doc = parseThetaDocument(source, parseDeps());
-  const errors = doc.diagnostics.filter((d) => d.severity === "error").map((d) => d.code);
-  expect(errors, "the fixture theta must parse cleanly before it is driven").toEqual([]);
-  expect(doc.frontmatter, "the fixture theta must carry parseable frontmatter").not.toBeNull();
-  return doc;
-}
-
-/** The production AJV validator (matches the sibling live-seam harnesses). */
-function ajv(): AjvSchemaValidator {
-  const slugOf = (schema: LoweredSchema): SchemaSlug => ({
-    slug: JSON.stringify(schema),
-    canonicalBytes: JSON.stringify(schema),
-  });
-  return new AjvSchemaValidator({ emit: () => {}, slugOf });
-}
 
 /**
  * The runtime root for the live drive. `clock.setTimeout` first `tick()`s the

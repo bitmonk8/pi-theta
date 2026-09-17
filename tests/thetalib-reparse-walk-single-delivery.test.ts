@@ -1,14 +1,14 @@
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { readRegistry } from "./helpers/registry-oracle";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import type {
   ExtensionAPI,
   ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
 // @ts-expect-error — JS code-registry module, no type declarations.
-import { parseRegistry, registryMessage } from "../tools/code-registry/index.js";
+import { registryMessage } from "../tools/code-registry/index.js";
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
 import { composeExtensionInstance } from "../src/extension/production-composition";
 import {
@@ -138,26 +138,7 @@ function callerSource(calleeStem: string): string {
 
 // ── Registry oracle (DIAG-4) ────────────────────────────────────────────────
 
-interface RegistryRow {
-  code: string;
-  severity: string;
-  phase: string;
-  message: string;
-}
-
-const REGISTRY = [
-  "code-registry-parse.md",
-  "code-registry-load.md",
-].flatMap((page) =>
-  parseRegistry(
-    readFileSync(
-      fileURLToPath(
-        new URL(`../docs/spec_topics/diagnostics/${page}`, import.meta.url),
-      ),
-      "utf8",
-    ),
-  ) as RegistryRow[],
-);
+const REGISTRY = readRegistry(["parse","load"]);
 
 /**
  * The row's normative *Message* (DIAG-4), as a regex with the `<placeholder>`

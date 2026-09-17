@@ -1,14 +1,13 @@
+import { ajv as realAjv } from "./helpers/scripted-live-session-harness";
+import {
+  SEAM_NOOP_CHECKPOINT as NOOP_CHECKPOINT,
+  SEAM_NOOP_SINK as NOOP_SINK,
+  SEAM_NOOP_MUTATOR,
+} from "./helpers/invoke-seam-scaffold";
+import { parseDeps as makeParseDeps } from "./helpers/e2e-s1";
 import { describe, expect, it } from "vitest";
 import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
-import {
-  parseThetaDocument,
-  type EnumDecl,
-  type ParseThetaDocumentDeps,
-  type SchemaDecl,
-  type ThetaDocument,
-} from "../src/parser/theta-document";
-import type { SystemNoteChannelDeps } from "../src/extension/system-note-channel";
-import type { ModelReferenceMatcher } from "../src/parser/frontmatter";
+import { parseThetaDocument, type EnumDecl, type SchemaDecl, type ThetaDocument } from "../src/parser/theta-document";
 import type { ThetaSource } from "../src/lexer/lexer";
 import {
   composeThetaFixture,
@@ -28,21 +27,12 @@ import {
 } from "../src/runtime/effectful-statement-host";
 import { buildEnvironment, enumDeclaringKey } from "../src/runtime/lexical-environment";
 import type { BodyExecution, ExecuteBodyDeps } from "../src/runtime/statement-executor";
-import type {
-  CommittedConversationMutator,
-  CommittedSurface,
-} from "../src/runtime/terminal-outcomes";
-import type { CodeSideToolCall, ToolLoweringSink } from "../src/runtime/tool-call-execute";
+import type { CodeSideToolCall } from "../src/runtime/tool-call-execute";
 import type { InvokeChild } from "../src/runtime/invoke-cancellation";
-import type { Checkpoint } from "../src/seams/checkpoint";
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
 import type { QueryError } from "../src/runtime/query-error";
 import { evaluateObjectMember } from "../src/runtime/stdlib-object";
-import {
-  AjvSchemaValidator,
-  type LoweredSchema,
-  type SchemaSlug,
-} from "../src/seams/schema-validator";
+import { type LoweredSchema } from "../src/seams/schema-validator";
 import {
   makeEnumValue,
   makeOk,
@@ -105,16 +95,6 @@ import {
 
 // --- Substrate -------------------------------------------------------------
 
-function makeParseDeps(): ParseThetaDocumentDeps {
-  const systemNote: SystemNoteChannelDeps = {
-    pi: { sendMessage: (): void => {} },
-    ui: { notify: (): void => {} },
-    emitDiagnostic: (): void => {},
-  };
-  const modelMatcher: ModelReferenceMatcher = { resolve: (): "resolved" => "resolved" };
-  return { systemNote, modelMatcher };
-}
-
 /**
  * The theta under test: one named-`enum` param and one named-`schema` param,
  * whose declaration order (`sev` before `who`) the binder payload below does
@@ -172,17 +152,6 @@ function loweredParams(): LoweredSchema {
   return lowered;
 }
 
-/** The production content-addressing of `src/extension/production-composition.ts:3789`. */
-function realAjv(): AjvSchemaValidator {
-  return new AjvSchemaValidator({
-    emit: (): void => {},
-    slugOf: (schema: LoweredSchema): SchemaSlug => {
-      const canonicalBytes = JSON.stringify(schema);
-      return { slug: canonicalBytes, canonicalBytes };
-    },
-  });
-}
-
 /**
  * The binder-returned `args`, model-ordered inside the schema-typed field. This
  * is the shape a bind produces: the model answers the binder's tool call, its
@@ -191,25 +160,6 @@ function realAjv(): AjvSchemaValidator {
  */
 function binderArgs(): Record<string, unknown> {
   return JSON.parse('{"sev":"high","box":{"who":"w","sev":"high"}}') as Record<string, unknown>;
-}
-
-const NOOP_CHECKPOINT: Checkpoint = {
-  before(): Promise<void> {
-    return Promise.resolve();
-  },
-};
-
-const NOOP_SINK: ToolLoweringSink = {
-  diagnostic(): void {},
-  systemNote(): void {},
-};
-
-class InertMutator implements CommittedConversationMutator {
-  truncate(): void {}
-  rewrite(): void {}
-  replace(): void {}
-  remove(): void {}
-  injectCompensatingTurn(_surface: CommittedSurface): void {}
 }
 
 /** Executor deps over the fixture's own body — declarations only, so no effect dispatches. */
@@ -237,7 +187,7 @@ function inertExecuteDeps(): ExecuteBodyDeps {
     host: createEffectfulStatementHost(hostDeps),
     checkpoint: NOOP_CHECKPOINT,
     signal: new AbortController().signal,
-    mutator: new InertMutator(),
+    mutator: SEAM_NOOP_MUTATOR,
     mode: "prompt",
     file: "binder-args.theta",
   };

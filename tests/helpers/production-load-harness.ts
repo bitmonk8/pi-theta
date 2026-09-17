@@ -150,3 +150,31 @@ export function disposeWorkspace(workspaceDir: string | undefined): void {
     rmSync(workspaceDir, { recursive: true, force: true });
   }
 }
+
+/** Compose a single planted theta and return the runnable count, always disposing it. */
+export async function composedRunnableCount(fileName: string, src: string, dirPrefix: string): Promise<number> {
+  const workspace = mkdtempSync(join(tmpdir(), dirPrefix));
+  try {
+    mkdirSync(join(workspace, ".pi", "theta"), { recursive: true });
+    writeFileSync(join(workspace, ".pi", "theta", `${fileName}.theta`), src, "utf8");
+    writeFileSync(join(workspace, ".pi", "settings.json"), "{}", "utf8");
+    const pi = {
+      getFlag: (): undefined => undefined,
+      getCommands: (): unknown[] => [],
+      sendMessage: (): void => {},
+      registerCommand: (): void => {},
+      registerMessageRenderer: (): void => {},
+      registerFlag: (): void => {},
+      on: (): void => {},
+    } as unknown as ExtensionAPI;
+    const ctx = {
+      cwd: workspace,
+      hasUI: false,
+      modelRegistry: { getAvailable: (): readonly unknown[] => [] },
+      ui: { notify: (): void => {} },
+    } as unknown as ExtensionContext;
+    return (await discoverAndComposeFixtures(pi, ctx)).length;
+  } finally {
+    rmSync(workspace, { recursive: true, force: true });
+  }
+}

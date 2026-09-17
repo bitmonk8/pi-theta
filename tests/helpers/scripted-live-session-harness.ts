@@ -17,7 +17,7 @@
 //
 // TIER: unit, offline, deterministic, provider-free — the same tier as every
 // file that imports this module.
-
+import { type Diagnostic } from "../../src/diagnostics/diagnostic";
 import { expect } from "vitest";
 import {
   parseThetaDocument,
@@ -69,6 +69,8 @@ export function appendUserEntry(entries: SessionEntryDouble[], text: string): vo
 export function appendAssistantEntry(
   entries: SessionEntryDouble[],
   text: string | undefined,
+  stopReason = "stop",
+  errorMessage?: string,
 ): void {
   appendMessageEntry(entries, {
     role: "assistant",
@@ -76,7 +78,8 @@ export function appendAssistantEntry(
     api: "anthropic-messages",
     provider: "anthropic",
     model: "m1",
-    stopReason: "stop",
+    stopReason,
+    ...(errorMessage !== undefined ? { errorMessage } : {}),
     timestamp: 0,
   });
 }
@@ -116,4 +119,17 @@ export function ajv(): AjvSchemaValidator {
     canonicalBytes: JSON.stringify(schema),
   });
   return new AjvSchemaValidator({ emit: () => {}, slugOf });
+}
+
+/** A real AJV validator together with its emitted diagnostics. */
+export function capturingAjv(): { readonly validator: AjvSchemaValidator; readonly emitted: Diagnostic[] } {
+  const emitted: Diagnostic[] = [];
+  const slugOf = (schema: LoweredSchema): SchemaSlug => ({
+    slug: JSON.stringify(schema),
+    canonicalBytes: JSON.stringify(schema),
+  });
+  return {
+    validator: new AjvSchemaValidator({ emit: (d) => emitted.push(d), slugOf }),
+    emitted,
+  };
 }

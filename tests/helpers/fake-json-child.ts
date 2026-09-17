@@ -324,3 +324,23 @@ export function driveOver(
     emitDiagnostic: (d) => emitted.push(d),
   });
 }
+
+/** Executable host fixture: the entry script resolves. */
+export function resolvingHost(): ExecutableHost {
+  return {
+    argv1: "/app/pi/dist/index.js",
+    execPath: "/usr/bin/node",
+    fileExists: (): boolean => true,
+    isGenericRuntime: (): boolean => false,
+  };
+}
+
+/** Executable host fixture: both resolution rungs refuse. */
+export function bothRungsFailHost(): ExecutableHost {
+  return {
+    argv1: undefined, // rung 1: no entry script
+    execPath: "/usr/bin/node", // rung 2: a generic runtime is not Pi itself
+    fileExists: (): boolean => false,
+    isGenericRuntime: (): boolean => true,
+  };
+}

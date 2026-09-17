@@ -1,5 +1,4 @@
-import { fileURLToPath } from "node:url";
-import { readFileSync } from "node:fs";
+import { linesOf, readCorpus as readSharedCorpus } from "./helpers/corpus-reader";
 import { describe, expect, it } from "vitest";
 
 // b0405 — the bare-form grammar.md citation-sweep gate.
@@ -48,32 +47,9 @@ import { describe, expect, it } from "vitest";
 // hard-coded bare `:<n>` continuation (which the bug 0134 citation-symbol-form
 // gate refuses) and never a literal line index in an assertion.
 
-const repoFile = (rel: string): string =>
-  fileURLToPath(new URL(`../${rel}`, import.meta.url));
-
-/**
- * Read a corpus file. A missing or empty file is a HARNESS failure that names
- * the unmet precondition and throws — never a skip, never an early return, so
- * an absent source cannot let a cell pass vacuously (the b0265 `readCorpus`
- * pattern this file mirrors).
- */
 function readCorpus(rel: string): string {
-  let text: string;
-  try {
-    text = readFileSync(repoFile(rel), "utf8");
-  } catch (cause) {
-    throw new Error(
-      `harness precondition unmet: ${rel} is unreadable, and it is a source this oracle scores for the bug 0405 sweep — a missing corpus file is a loud failure, never a skip (${String(cause)})`,
-    );
-  }
-  if (text.trim() === "") {
-    throw new Error(`harness precondition unmet: ${rel} is empty; nothing to score`);
-  }
-  return text;
+  return readSharedCorpus(rel, "a source this oracle scores for the bug 0405 sweep");
 }
-
-/** Line splitting tolerates a CRLF terminator. */
-const linesOf = (text: string): readonly string[] => text.split(/\r?\n/);
 
 const GRAMMAR = "docs/spec_topics/grammar.md";
 const FN_PARAM = "tests/fn-param-not-identifier.test.ts";

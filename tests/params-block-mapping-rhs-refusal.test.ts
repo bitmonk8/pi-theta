@@ -1,14 +1,15 @@
+import { REGISTRY, type RegistryRow } from "./helpers/registry-oracle";
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 // @ts-expect-error — JS code-registry module, no type declarations.
-import { parseRegistry, registryMessage } from "../tools/code-registry/index.js";
+import { registryMessage } from "../tools/code-registry/index.js";
 import type { BypassParamsField } from "../src/binder/binder-envelope";
 import { buildBinderSystemPrompt } from "../src/binder/binder-system-prompt";
 import type { ThetaDocument } from "../src/parser/theta-document";
 import { binderParams, parametersBlockLines } from "./helpers/binder-prompt-param-mirror";
-import { parseDoc } from "./helpers/e2e-s1";
+import { parseDoc, fieldOf } from "./helpers/e2e-s1";
 
 // Bug 0041 — a `params:` right-hand side written as a YAML block mapping is not
 // a theta type expression, yet it loads with no diagnostic: the recovered
@@ -161,33 +162,8 @@ const CODE = "theta/load/params-type-not-expression";
 const EXPECTED_TEMPLATE =
   "'params:' field '<param>' right-hand side is not a theta type expression";
 
-interface RegistryRow {
-  readonly code: string;
-  readonly namespace: string;
-  readonly severity: string;
-  readonly phase: string;
-  readonly trigger: string;
-  readonly message: string;
-}
-
 // The live four-page sharded registry, read from the spec corpus and
 // concatenated — the same input tests/code-registry.test.ts reconciles.
-const REGISTRY = parseRegistry(
-  [
-    "code-registry-parse.md",
-    "code-registry-load.md",
-    "code-registry-runtime.md",
-    "code-registry-host.md",
-  ]
-    .map((page) =>
-      readFileSync(
-        fileURLToPath(new URL(`../docs/spec_topics/diagnostics/${page}`, import.meta.url)),
-        "utf8",
-      ),
-    )
-    .join("\n"),
-) as RegistryRow[];
-
 /**
  * A registry row's normative *Message* template with one placeholder filled
  * (DIAG-4). Definedness is asserted first so a missing row reds by naming the
@@ -394,17 +370,6 @@ function loadCleanly(label: string, source: string): LoadedParams {
     fields: params.fields,
     loweredSchema: lowered,
   };
-}
-
-/** The named field of a loaded params block, or a loud failure. */
-function fieldOf(loaded: LoadedParams, wireName: string): BypassParamsField {
-  const found = loaded.fields.find((f) => f.wireName === wireName);
-  if (found === undefined) {
-    throw new Error(
-      `no params field '${wireName}' in ${JSON.stringify(loaded.fields)} — the declaration was dropped entirely`,
-    );
-  }
-  return found;
 }
 
 /**

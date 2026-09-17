@@ -1,3 +1,12 @@
+import {
+  ANTHROPIC_MODEL,
+  type SessionEntryDouble,
+  ajv,
+  appendUserEntry,
+  appendAssistantEntry,
+} from "./helpers/scripted-live-session-harness";
+import { parseDoc } from "./helpers/e2e-s1";
+import { REGISTRY } from "./helpers/registry-oracle";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // Bug 0014 — an empty typed-query annotation (`@<>`) parses with no diagnostic
@@ -111,11 +120,9 @@ vi.mock("@earendil-works/pi-ai/compat", async (importOriginal) => {
     }),
   };
 });
-
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { fileURLToPath } from "node:url";
 import type {
   ExtensionAPI,
   ExtensionCommandContext,
@@ -124,17 +131,12 @@ import type {
   ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
 // @ts-expect-error — JS code-registry module, no type declarations.
-import { parseRegistry, registryMessage } from "../tools/code-registry/index.js";
+import { registryMessage } from "../tools/code-registry/index.js";
 import type { Diagnostic, SourceRange } from "../src/diagnostics/diagnostic";
-import type { ThetaSource } from "../src/lexer/lexer";
-import type { SystemNoteChannelDeps } from "../src/extension/system-note-channel";
-import type { ModelReferenceMatcher } from "../src/parser/frontmatter";
 import {
-  parseThetaDocument,
   type Block,
   type Expr,
   type InvokeExpr,
-  type ParseThetaDocumentDeps,
   type QueryExpr,
   type Stmt,
   type ThetaDocument,
@@ -144,11 +146,6 @@ import { discoverAndComposeFixtures } from "../src/extension/production-composit
 import type { ThetaFixture } from "../src/extension/factory";
 import type { ThetaCompositionInput } from "../src/extension/theta-composition-producer";
 import { executeBody, type BodyExecution } from "../src/runtime/statement-executor";
-import {
-  AjvSchemaValidator,
-  type LoweredSchema,
-  type SchemaSlug,
-} from "../src/seams/schema-validator";
 import type { RuntimeRoot } from "../src/runtime-root";
 import { lowerQueryResponseSchema } from "../src/runtime/query-schema-lowering";
 
@@ -159,33 +156,8 @@ import { lowerQueryResponseSchema } from "../src/runtime/query-schema-lowering";
 const EMPTY_ANNOTATION_CODE = "theta/parse/empty-query-annotation";
 const FILE = "bug0014.theta";
 
-interface RegistryRow {
-  code: string;
-  namespace: string;
-  severity: string;
-  phase: string;
-  trigger: string;
-  message: string;
-}
-
 // The live four-page sharded registry, read from the spec corpus and
 // concatenated — the same input tests/code-registry.test.ts reconciles.
-const REGISTRY_TEXT = [
-  "code-registry-parse.md",
-  "code-registry-load.md",
-  "code-registry-runtime.md",
-  "code-registry-host.md",
-]
-  .map((page) =>
-    readFileSync(
-      fileURLToPath(new URL(`../docs/spec_topics/diagnostics/${page}`, import.meta.url)),
-      "utf8",
-    ),
-  )
-  .join("\n");
-
-const REGISTRY = parseRegistry(REGISTRY_TEXT) as RegistryRow[];
-
 /**
  * The registry row's normative Message string (DIAG-4) — `undefined` at HEAD
  * because the row does not exist yet; the asserting cells check definedness
@@ -204,21 +176,8 @@ const NORMATIVE_MESSAGE = registryMessage(REGISTRY, EMPTY_ANNOTATION_CODE) as
 /** The frontmatter prelude — occupies source lines 1–3; the body starts at 4. */
 const FM = "---\nmode: prompt\n---\n";
 
-function makeDeps(): ParseThetaDocumentDeps {
-  const systemNote: SystemNoteChannelDeps = {
-    pi: { sendMessage: (): void => {} },
-    ui: { notify: (): void => {} },
-    emitDiagnostic: (): void => {},
-  };
-  const modelMatcher: ModelReferenceMatcher = {
-    resolve: (): "resolved" => "resolved",
-  };
-  return { systemNote, modelMatcher };
-}
-
 function parseSource(src: string): ThetaDocument {
-  const source: ThetaSource = { path: FILE, bytes: new TextEncoder().encode(src) };
-  return parseThetaDocument(source, makeDeps());
+  return parseDoc(src, FILE);
 }
 
 function withCode(diags: readonly Diagnostic[], code: string): Diagnostic[] {
@@ -413,14 +372,6 @@ function productionLoadGateRefuses(diagnostics: readonly Diagnostic[]): boolean 
 // tests/off-session-two-phase.test.ts (deg-off)).
 // ===========================================================================
 
-/** The user session's selected model (`ctx.model`). */
-const ANTHROPIC_MODEL = {
-  id: "m1",
-  api: "anthropic-messages",
-  provider: "anthropic",
-  strictCapable: true,
-};
-
 /**
  * The reply JSON that NO schema sanctioned — the (deg-live)/(deg-off) probe
  * payload. At HEAD it binds VERBATIM as the typed query's Ok value; post-fix
@@ -467,14 +418,6 @@ interface ScriptedAssistantReply {
   readonly text?: string;
 }
 
-/** A `SessionManager` message entry (the `buildSessionContext` read shape). */
-interface SessionEntryDouble {
-  readonly type: "message";
-  readonly id: string;
-  readonly parentId: string | undefined;
-  readonly message: Record<string, unknown>;
-}
-
 /**
  * The live user-session double the fused turn would drive (trimmed from the
  * (deg-live) harness): `sendUserMessage` commits the user entry and marks the
@@ -499,11 +442,7 @@ class LiveSessionDouble {
   sendUserMessage(content: string): void {
     this.sendUserMessageCalls += 1;
     this.sentQueryTexts.push(content);
-    this.#append({
-      role: "user",
-      content: [{ type: "text", text: content }],
-      timestamp: 0,
-    });
+    appendUserEntry(this.entries, content);
     this.#idle = false;
   }
 
@@ -524,22 +463,8 @@ class LiveSessionDouble {
     const reply =
       this.#replies[Math.min(this.#completedTurns, this.#replies.length - 1)]!;
     this.#completedTurns += 1;
-    this.#append({
-      role: "assistant",
-      content: reply.text !== undefined ? [{ type: "text", text: reply.text }] : [],
-      api: "anthropic-messages",
-      provider: "anthropic",
-      model: "m1",
-      stopReason: reply.stopReason,
-      timestamp: 0,
-    });
+    appendAssistantEntry(this.entries, reply.text, reply.stopReason);
     this.#idle = true;
-  }
-
-  #append(message: Record<string, unknown>): void {
-    const id = `e${this.entries.length + 1}`;
-    const parentId = this.entries.length === 0 ? undefined : `e${this.entries.length}`;
-    this.entries.push({ type: "message", id, parentId, message });
   }
 }
 
@@ -561,15 +486,6 @@ class RecordingPi {
       sendMessage: (): void => {},
     } as unknown as ExtensionAPI;
   }
-}
-
-/** The production AJV validator — present in the root so its NON-use is real. */
-function ajv(): AjvSchemaValidator {
-  const slugOf = (schema: LoweredSchema): SchemaSlug => ({
-    slug: JSON.stringify(schema),
-    canonicalBytes: JSON.stringify(schema),
-  });
-  return new AjvSchemaValidator({ emit: () => {}, slugOf });
 }
 
 /**

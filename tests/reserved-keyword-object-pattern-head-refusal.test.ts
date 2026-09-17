@@ -8,7 +8,7 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 // @ts-expect-error — JS code-registry module, no type declarations.
 import { parseRegistry, registryMessage } from "../tools/code-registry/index.js";
-import { parseDoc } from "./helpers/e2e-s1";
+import { parseDoc, isLoadParseError } from "./helpers/e2e-s1";
 import type { Diagnostic, SourceRange } from "../src/diagnostics/diagnostic";
 import type { ThetaDocument } from "../src/parser/theta-document";
 import type { ParsedFrontmatter } from "../src/parser/frontmatter";
@@ -215,22 +215,8 @@ function expectDiagnostics(
   return doc;
 }
 
-/**
- * Whether `diagnostics` denies registration. `hasLoadParseError`
- * (src/extension/production-composition.ts) is module-private — `rg -n
- * 'export.*hasLoadParseError' src/` matches nothing — so the predicate is
- * mirrored here clause for clause: error severity, and a code in the
- * `theta/load/` or `theta/parse/` namespace. It is the mechanism that turns
- * this fix's diagnostic into the refusal, so the runtime group asserts it
- * directly (the same mirror, for the same reason, as
- * tests/capitalised-bare-match-pattern-refusal.test.ts:271).
- */
 function deniesRegistration(diagnostics: readonly Diagnostic[]): boolean {
-  return diagnostics.some(
-    (d) =>
-      d.severity === "error" &&
-      (d.code.startsWith("theta/load/") || d.code.startsWith("theta/parse/")),
-  );
+  return diagnostics.some(isLoadParseError);
 }
 
 // ===========================================================================

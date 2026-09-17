@@ -75,25 +75,25 @@
 // diagnostics/code-registry-load.md (`theta/load/unresolvable-theta-path`,
 // `theta/load/binder-model-unresolved`); diagnostics/diagnostic-shape.md #diag-4
 // (the *Message* column is normative and asserting tests source it from there).
-
+import { resolvingHost } from "./helpers/fake-json-child";
+import { REGISTRY } from "./helpers/registry-oracle";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { fileURLToPath } from "node:url";
 import type {
   ExtensionAPI,
   ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
 // @ts-expect-error — JS code-registry module, no type declarations.
-import { parseRegistry, registryMessage } from "../tools/code-registry/index.js";
+import { registryMessage } from "../tools/code-registry/index.js";
 import {
   composeExtensionInstance,
   type ComposeSeamOverrides,
 } from "../src/extension/production-composition";
 import { readParentEnv } from "../src/extension/production-subagent-host";
 import { detectSubagentRootRegime } from "../src/runtime/subagent-root-regime";
-import type { ExecutableHost } from "../src/runtime/subagent-launcher";
+
 import {
   THETA_ENVELOPE_VERSION,
   THETA_RESULT_KEY,
@@ -108,23 +108,6 @@ import {
 // ===========================================================================
 // Registry anchors (DIAG-4).
 // ===========================================================================
-
-interface RegistryRow {
-  readonly code: string;
-  readonly message: string;
-}
-
-/** The live sharded registry, read from the spec corpus exactly as the H5a gate reads it. */
-const REGISTRY = parseRegistry(
-  ["code-registry-parse.md", "code-registry-load.md", "code-registry-runtime.md", "code-registry-host.md"]
-    .map((page) =>
-      readFileSync(
-        fileURLToPath(new URL(`../docs/spec_topics/diagnostics/${page}`, import.meta.url)),
-        "utf8",
-      ),
-    )
-    .join("\n"),
-) as RegistryRow[];
 
 /** The refusal cell 1 uses: a `tools:` `.theta` entry whose path does not resolve. */
 const UNRESOLVABLE_PATH_CODE = "theta/load/unresolvable-theta-path";
@@ -179,16 +162,6 @@ const THETAS: readonly { readonly stem: string; readonly text: string }[] = [
     text: theta("---", "mode: subagent", "params:", "  xs: array<string>", "---", "xs[0]"),
   },
 ];
-
-/** An executable host whose rung 1 resolves (a runnable entry point exists). */
-function resolvingHost(): ExecutableHost {
-  return {
-    argv1: "/app/pi/dist/index.js",
-    execPath: "/usr/bin/node",
-    fileExists: (): boolean => true,
-    isGenericRuntime: (): boolean => false,
-  };
-}
 
 /**
  * The compose-pass overrides plus the element-(b) envelope seam. Written as an

@@ -63,18 +63,12 @@
 // `docs/spec_topics/invocation.md:36` (INV-5 wrap parity across legs),
 // `docs/spec_topics/errors-and-results/queryerror-variants.md` §Invoke variants,
 // `docs/spec_topics/cancellation.md` (the cancelled arm's own rule).
-
+import { envelopeLine, tick, driveDeps } from "./helpers/subagent-json-driver-harness";
+import { span, SEAM_NOOP_CHECKPOINT, SEAM_NOOP_SINK, SEAM_NOOP_MUTATOR } from "./helpers/invoke-seam-scaffold";
 import { describe, expect, it } from "vitest";
-
 import { driveSubagentChild } from "../src/runtime/subagent-json-driver";
-import {
-  THETA_ENVELOPE_VERSION,
-  THETA_RESULT_KEY,
-} from "../src/runtime/subagent-envelope";
-import type { SubagentChildProcess } from "../src/runtime/subagent-launcher";
-import type { Diagnostic } from "../src/diagnostics/diagnostic";
+import { THETA_ENVELOPE_VERSION } from "../src/runtime/subagent-envelope";
 import { FakeRpcChild } from "./helpers/fake-rpc-child";
-
 import { executeBody, type ExecuteBodyDeps } from "../src/runtime/statement-executor";
 import {
   createEffectfulStatementHost,
@@ -82,45 +76,15 @@ import {
   type QueryHostDispatch,
 } from "../src/runtime/effectful-statement-host";
 import { buildEnvironment } from "../src/runtime/lexical-environment";
-import type { Checkpoint } from "../src/seams/checkpoint";
-import type {
-  CommittedConversationMutator,
-  CommittedSurface,
-  DrivenConversationMode,
-} from "../src/runtime/terminal-outcomes";
+import type { DrivenConversationMode } from "../src/runtime/terminal-outcomes";
 import { makeErr, type ResultValue, type ThetaValue } from "../src/runtime/value";
 import type { InvokeChild } from "../src/runtime/invoke-cancellation";
-import type { ToolLoweringSink } from "../src/runtime/tool-call-execute";
 import type { Expr, InvokeExpr, Stmt, ThetaBody } from "../src/parser/theta-document";
-import type { SourceRange } from "../src/diagnostics/diagnostic";
+
 
 // ===========================================================================
 // (F) Subagent-leg provenance tag (INV-5).
 // ===========================================================================
-
-/** One hand-built `theta_result` envelope line (the child emits this on stdout). */
-function envelopeLine(payload: Record<string, unknown>): string {
-  return JSON.stringify({ [THETA_RESULT_KEY]: payload });
-}
-
-/** A microtask+macrotask flush so the drive reaches its stdout-read await. */
-function tick(): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, 0));
-}
-
-function driveDeps(child: SubagentChildProcess, thetaAbort: AbortController): {
-  child: SubagentChildProcess;
-  thetaAbort: AbortController;
-  calleePath: string;
-  emitDiagnostic: (d: Diagnostic) => void;
-} {
-  return {
-    child,
-    thetaAbort,
-    calleePath: "./worker.theta",
-    emitDiagnostic: (): void => {},
-  };
-}
 
 describe("bug 0294 (F) — the subagent driver tags the reconstructed err arm with its provenance (INV-5)", () => {
   it("an `invoke_infra` cause load_failure (marked-root registration refusal, child-side) is boundary-minted — ", async () => {
@@ -455,10 +419,6 @@ describe("bug 0294 (F) — the subagent driver tags the reconstructed err arm wi
 // (GREEN post-fix: child-internal arm wraps).
 // ===========================================================================
 
-function span(): SourceRange {
-  return { start: { line: 1, column: 1 }, end: { line: 1, column: 2 } };
-}
-
 function invokeExpr(path: string): InvokeExpr {
   return { kind: "invoke", path, returnSchema: null, args: [], range: span() };
 }
@@ -466,25 +426,6 @@ function invokeExpr(path: string): InvokeExpr {
 function body(statements: readonly Stmt[], tail: Expr | null): ThetaBody {
   return { statements, tail };
 }
-
-const SEAM_NOOP_CHECKPOINT: Checkpoint = {
-  before(): Promise<void> {
-    return Promise.resolve();
-  },
-};
-
-const SEAM_NOOP_SINK: ToolLoweringSink = {
-  diagnostic(): void {},
-  systemNote(): void {},
-};
-
-const SEAM_NOOP_MUTATOR: CommittedConversationMutator = {
-  truncate(): void {},
-  rewrite(): void {},
-  replace(): void {},
-  remove(): void {},
-  injectCompensatingTurn(_surface: CommittedSurface): void {},
-};
 
 /**
  * An `InvokeChild` boundary double whose completed drive resolves the callee's

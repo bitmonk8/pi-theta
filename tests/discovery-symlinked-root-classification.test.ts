@@ -1,5 +1,4 @@
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
+import { loadRowMessage, interpolate } from "./helpers/registry-oracle";
 import { describe, expect, it } from "vitest";
 import {
   discoverThetas,
@@ -7,8 +6,6 @@ import {
   type DiscoveryInput,
 } from "../src/discovery/discovery-walk";
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
-// @ts-expect-error — JS code-registry module, no type declarations.
-import { parseRegistry, registryMessage } from "../tools/code-registry/index.js";
 import { FakeFileSystem } from "./helpers/fake-file-system";
 
 // Bug 0075 (headline half) — how `classifyPath`
@@ -69,41 +66,6 @@ import { FakeFileSystem } from "./helpers/fake-file-system";
 // ===========================================================================
 // The registry rows (DIAG-4) — the source of every expected message.
 // ===========================================================================
-
-interface RegistryRow {
-  code: string;
-  namespace: string;
-  severity: string;
-  phase: string;
-  trigger: string;
-  message: string;
-}
-
-const REGISTRY = parseRegistry(
-  readFileSync(
-    fileURLToPath(
-      new URL("../docs/spec_topics/diagnostics/code-registry-load.md", import.meta.url),
-    ),
-    "utf8",
-  ),
-) as RegistryRow[];
-
-/** The row's normative Message template (DIAG-4), asserted present loudly so a
- *  registry rename fails naming the unmet precondition instead of skipping. */
-function loadRowMessage(code: string): string {
-  const message = registryMessage(REGISTRY, code) as string | undefined;
-  expect(
-    message,
-    `DIAG-4 anchor: docs/spec_topics/diagnostics/code-registry-load.md must ` +
-      `carry the Message row for ${code}`,
-  ).toBeDefined();
-  return message!;
-}
-
-/** Interpolate a registry Message template's `<placeholder>` slots. */
-function interpolate(template: string, subs: Record<string, string>): string {
-  return template.replace(/<([a-z-]+)>/g, (whole, name: string) => subs[name] ?? whole);
-}
 
 const MISSING_SOURCE = "theta/load/missing-source";
 const UNREADABLE_SOURCE = "theta/load/unreadable-source";

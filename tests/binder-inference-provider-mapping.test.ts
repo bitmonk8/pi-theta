@@ -1,3 +1,4 @@
+import { LIVE_ANTHROPIC_OVERFLOW_ERROR_MESSAGE } from "./helpers/model-registry-fixture";
 import { describe, expect, it } from "vitest";
 import { Type } from "typebox";
 import type { Api, Model, ProviderResponse } from "@earendil-works/pi-ai";
@@ -914,16 +915,6 @@ describe("V9j-T — typed-query unsupported provider (theta/load/typed-query-uns
 // the exact values of the bytes they were given.
 
 describe("bug 0065 — anthropic overflow: the null-status gate and the formatted-envelope scan", () => {
-  /**
-   * The verbatim live `errorMessage` byte string. Whole-string numeric runs
-   * are SEVEN (`400`, `220044`, `200000`, `011`, `67`, `3`, `6` — the last
-   * four from the `request_id`), so the exactly-two rule cannot fire against
-   * it. The provider-message window is
-   * `prompt is too long: 220044 tokens > 200000 maximum`, whose runs are
-   * exactly `220044` and `200000`.
-   */
-  const LIVE_ANTHROPIC_OVERFLOW_ERROR_MESSAGE =
-    `400 {"type":"error","error":{"type":"invalid_request_error","message":"prompt is too long: 220044 tokens > 200000 maximum"},"request_id":"req_011Ce67AeKSksfCvdLP3Q6Ha"}`;
 
   // --- the headline witness (both elements at once) -----------------------
 

@@ -24,7 +24,7 @@
 // gate exercising the composition the per-leaf gates verify only in isolation.
 // Its fidelity is bounded by the session double's contract (`H4a`); the
 // real-host backstop remains `V18d`'s version-bump runtime-evidence gate.
-
+import { REGISTRY } from "./helpers/registry-oracle";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
@@ -42,7 +42,7 @@ import {
 } from "../src/binder/compact-transcript";
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
 // @ts-expect-error — JS code-registry module, no type declarations.
-import { parseRegistry, registryMessage } from "../tools/code-registry/index.js";
+import { registryMessage } from "../tools/code-registry/index.js";
 
 // --- committed reference-set readers -----------------------------------------
 
@@ -69,22 +69,6 @@ const PERMITTED_CODES = JSON.parse(
 // for every author-visible message string (the *Diagnostic message anchors*
 // rule). Golden codes are asserted against its *Message* column via
 // `registryMessage`.
-const REGISTRY = parseRegistry(
-  ["parse", "load", "runtime", "host"]
-    .map((family) =>
-      readFileSync(
-        fileURLToPath(
-          new URL(
-            `../docs/spec_topics/diagnostics/code-registry-${family}.md`,
-            import.meta.url,
-          ),
-        ),
-        "utf8",
-      ),
-    )
-    .join("\n"),
-);
-
 // --- the composed integrated-pipeline run ------------------------------------
 
 /**

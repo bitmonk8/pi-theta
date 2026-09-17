@@ -11,7 +11,7 @@
 //
 // TIER: unit, offline, deterministic, provider-free — the same tier as every
 // file that imports this module.
-
+import { registryMessageOf } from "./load-row-harness";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 // @ts-expect-error — JS code-registry module, no type declarations.
@@ -47,3 +47,15 @@ export function readRegistry(
 
 /** The live four-page sharded registry — the input tests/code-registry.test.ts reconciles. */
 export const REGISTRY: readonly RegistryRow[] = readRegistry(["parse", "load", "runtime", "host"]);
+
+const LOAD_REGISTRY = readRegistry(["load"]);
+
+/** The load registry Message column, refusing an absent row. */
+export function loadRowMessage(code: string): string {
+  return registryMessageOf(LOAD_REGISTRY, "docs/spec_topics/diagnostics/code-registry-load.md", code);
+}
+
+/** Fill the named discovery descriptors, leaving unknown placeholders intact. */
+export function interpolate(template: string, subs: Record<string, string>): string {
+  return template.replace(/<([a-z-]+)>/g, (whole, name: string) => subs[name] ?? whole);
+}

@@ -1,5 +1,4 @@
-import { fileURLToPath } from "node:url";
-import { readFileSync } from "node:fs";
+import { REGISTRY } from "./helpers/registry-oracle";
 import { describe, expect, it } from "vitest";
 import {
   renderType,
@@ -12,7 +11,7 @@ import {
   renderHostIncompatible,
 } from "../src/diagnostics/placeholder.js";
 // @ts-expect-error — JS code-registry module, no type declarations.
-import { parseRegistry, registryMessage } from "../tools/code-registry/index.js";
+import { registryMessage } from "../tools/code-registry/index.js";
 
 // V7c-T — failing tests for the paired V7c implementation: the eight
 // placeholder-rendering categories the registry's *Message* column interpolates
@@ -26,25 +25,6 @@ import { parseRegistry, registryMessage } from "../tools/code-registry/index.js"
 // full-*Message*-string equality, which §8 declares non-conformant for
 // category-8 rows. The category-8 *Message* template is sourced from the
 // registry (`registryMessage`) per the *Diagnostic message anchors* rule.
-
-interface RegistryRow {
-  code: string;
-  message: string;
-}
-
-const REGISTRY_TEXT = [
-  "code-registry-parse.md",
-  "code-registry-load.md",
-  "code-registry-runtime.md",
-  "code-registry-host.md",
-].map((page) =>
-  readFileSync(
-    fileURLToPath(
-      new URL(`../docs/spec_topics/diagnostics/${page}`, import.meta.url),
-    ),
-    "utf8",
-  ),
-).join("\n");
 
 describe("V7c-T — placeholder rendering, eight categories (DIAG-4)", () => {
   // DIAG-4 — category 1 (static-type placeholders): a Theta static type
@@ -178,7 +158,7 @@ describe("V7c-T — category 8 host-derived freeform tail (DIAG-4, §8 anchored 
   // the §8 anchored partial-match pattern, NEVER a full-*Message* equality
   // (non-conformant for category-8 rows).
   it("DIAG-4: host-incompatible node-floor renders the anchored §8 prefix/suffix surround", () => {
-    const registry = parseRegistry(REGISTRY_TEXT) as RegistryRow[];
+    const registry = REGISTRY;
     // The byte-identical surround is sourced from the registry template
     // `host incompatible (<kind>): observed <observed>, required <required>`.
     const template = registryMessage(registry, "theta/load/host-incompatible") as string;

@@ -18,7 +18,7 @@ import {
   type ThetaDocument,
 } from "../src/parser/theta-document";
 import { binderParams, parametersBlockLines } from "./helpers/binder-prompt-param-mirror";
-import { diagCodes, diagLines, parseDoc } from "./helpers/e2e-s1";
+import { diagCodes, diagLines, parseDoc, fieldOf } from "./helpers/e2e-s1";
 
 // Bug 0060 — the binder `Parameters:` per-field line shape is violable by an
 // embedded newline: a recorded declared type or default source carrying a line
@@ -387,17 +387,6 @@ function loadCleanly(label: string, paramsBlock: string): LoadedParams {
     fields: params.fields,
     loweredSchema: lowered,
   };
-}
-
-/** The named field of a loaded params block, or a loud failure. */
-function fieldOf(loaded: LoadedParams, wireName: string): BypassParamsField {
-  const found = loaded.fields.find((f) => f.wireName === wireName);
-  if (found === undefined) {
-    throw new Error(
-      `no params field '${wireName}' in ${JSON.stringify(loaded.fields)} — the declaration was dropped entirely`,
-    );
-  }
-  return found;
 }
 
 // ===========================================================================

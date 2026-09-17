@@ -1,7 +1,5 @@
-import { fileURLToPath } from "node:url";
-import { readFileSync } from "node:fs";
+import { linesOf, readCorpus as readSharedCorpus } from "./helpers/corpus-reader";
 import { describe, expect, it } from "vitest";
-
 import {
   parseThetaDocument,
   type ParseThetaDocumentDeps,
@@ -102,33 +100,9 @@ const BINARY_ARITY_PHRASE = "two numeric operands";
  *  emission at `type-layer-checks.ts:3906`. */
 const UNARY_MESSAGE_PATTERN = /unary '-' requires a numeric operand; got <type>/;
 
-const repoFile = (rel: string): string =>
-  fileURLToPath(new URL(`../${rel}`, import.meta.url));
-
-/**
- * Read a corpus file. A missing or empty file is a HARNESS failure that names
- * the unmet precondition and throws — never a skip, never an early return
- * (the b0265 readCorpus pattern), because the file IS this cell's only oracle
- * and a degraded read would report success while verifying nothing.
- */
 function readCorpus(rel: string): string {
-  let text: string;
-  try {
-    text = readFileSync(repoFile(rel), "utf8");
-  } catch (cause) {
-    throw new Error(
-      `harness precondition unmet: ${rel} is unreadable, and it is this oracle's only source for the bug 0403 surface it owns — a missing corpus file is a loud failure, never a skip (${String(cause)})`,
-    );
-  }
-  if (text.trim() === "") {
-    throw new Error(
-      `harness precondition unmet: ${rel} is empty; nothing to score`,
-    );
-  }
-  return text;
+  return readSharedCorpus(rel, "this oracle's only source for the bug 0403 surface it owns");
 }
-
-const linesOf = (text: string): readonly string[] => text.split(/\r?\n/);
 
 /** Line wrapping is editorial, so every prose match runs over a flattened run. */
 const flatten = (text: string): string => text.replace(/\s+/g, " ").trim();

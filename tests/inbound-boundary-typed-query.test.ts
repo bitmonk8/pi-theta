@@ -53,7 +53,7 @@
 // NOT appear in JSON output), :22 (an untagged string and a variant share no
 // structural ground, so `==` is `false`); expressions.md:118 (the declaration
 // -order `keys()` clause bug 0120 owns).
-
+import { ajv as realAjv } from "./helpers/scripted-live-session-harness";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 // The scripted off-session `complete()` reply queue, selected by recorded call
@@ -83,7 +83,6 @@ vi.mock("@earendil-works/pi-ai/compat", async (importOriginal) => {
     }),
   };
 });
-
 import type {
   ExtensionAPI,
   ExtensionCommandContext,
@@ -97,27 +96,11 @@ import type { ThetaCompositionInput } from "../src/extension/theta-composition-p
 import { executeBody, type BodyExecution } from "../src/runtime/statement-executor";
 import type { RuntimeRoot } from "../src/runtime-root";
 import { evaluateObjectMember } from "../src/runtime/stdlib-object";
-import {
-  AjvSchemaValidator,
-  type LoweredSchema,
-  type SchemaSlug,
-} from "../src/seams/schema-validator";
 import { makeEnumValue, schemaTagOf, valuesEqual, type ThetaValue } from "../src/runtime/value";
 import { enumDeclaringKey } from "../src/runtime/lexical-environment";
 import { parseDoc } from "./helpers/e2e-s1";
 
 // --- Substrate -------------------------------------------------------------
-
-/** The production content-addressing of `src/extension/production-composition.ts:3789`. */
-function realAjv(): AjvSchemaValidator {
-  return new AjvSchemaValidator({
-    emit: (): void => {},
-    slugOf: (schema: LoweredSchema): SchemaSlug => {
-      const canonicalBytes = JSON.stringify(schema);
-      return { slug: canonicalBytes, canonicalBytes };
-    },
-  });
-}
 
 /**
  * The theta whose typed query this file drives. `Box` declares `sev` before

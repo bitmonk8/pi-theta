@@ -21,7 +21,7 @@
 // diagnostics/code-registry-runtime.md (`theta/runtime/internal-error` Trigger);
 // cancellation.md §"Race semantics" (CNCL-1/2/3); errors-and-results/
 // error-model.md §"Runtime panics".
-
+import { RecordingMutator, RecordingSink } from "./helpers/invoke-seam-scaffold";
 import { describe, expect, it } from "vitest";
 import type { Diagnostic, SourceRange } from "../src/diagnostics/diagnostic";
 import type { CommittedSideEffect } from "../src/runtime/no-rollback";
@@ -40,11 +40,7 @@ import {
   type EffectfulStatementHostDeps,
 } from "../src/runtime/effectful-statement-host";
 import { buildEnvironment, type LexicalEnvironment } from "../src/runtime/lexical-environment";
-import type {
-  CommittedConversationMutator,
-  CommittedSurface,
-  DrivenConversationMode,
-} from "../src/runtime/terminal-outcomes";
+import type { DrivenConversationMode } from "../src/runtime/terminal-outcomes";
 import type { InvokeInfraError } from "../src/runtime/query-error";
 import type { CallExpr, ThetaBody } from "../src/parser/theta-document";
 import type { ThetaValue, ResultValue } from "../src/runtime/value";
@@ -62,18 +58,6 @@ const NOOP_CHECKPOINT: Checkpoint = {
     return Promise.resolve();
   },
 };
-
-/** A `ToolLoweringSink` recording every normative side-channel emission. */
-class RecordingSink implements ToolLoweringSink {
-  readonly diagnostics: Diagnostic[] = [];
-  readonly systemNotes: string[] = [];
-  diagnostic(diag: Diagnostic): void {
-    this.diagnostics.push(diag);
-  }
-  systemNote(message: string): void {
-    this.systemNotes.push(message);
-  }
-}
 
 /** A `CodeSideToolCall` whose `dispatch()` resolves a (possibly malformed) value. */
 function callResolving(toolName: string, resolved: unknown): CodeSideToolCall {
@@ -178,25 +162,6 @@ describe("V14c live wiring (a) — runCodeSideToolCall routes a non-conforming r
 // REAL effectful host surfaces the internal-error routing (the
 // ToolReturnShapeDefectError carrier), NOT a bound Ok/Err value.
 // ===========================================================================
-
-class RecordingMutator implements CommittedConversationMutator {
-  readonly calls: string[] = [];
-  truncate(id: string): void {
-    this.calls.push(`truncate:${id}`);
-  }
-  rewrite(id: string): void {
-    this.calls.push(`rewrite:${id}`);
-  }
-  replace(id: string): void {
-    this.calls.push(`replace:${id}`);
-  }
-  remove(id: string): void {
-    this.calls.push(`remove:${id}`);
-  }
-  injectCompensatingTurn(surface: CommittedSurface): void {
-    this.calls.push(`inject:${surface.id}`);
-  }
-}
 
 const NOOP_SINK: ToolLoweringSink = {
   diagnostic(): void {},

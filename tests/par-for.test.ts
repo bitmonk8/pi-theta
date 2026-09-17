@@ -1,3 +1,4 @@
+import { type KindedNode, collectByKind } from "./helpers/e2e-s1";
 import { fileURLToPath } from "node:url";
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
@@ -123,45 +124,6 @@ function codesOf(src: string): string[] {
 }
 
 // --- generic AST search ----------------------------------------------------
-
-interface KindedNode {
-  readonly kind: string;
-  readonly [key: string]: unknown;
-}
-
-/**
- * Collect every AST object of the given `kind` anywhere under `root` (a deep
- * own-enumerable-property walk). Used to locate the assumed `par-for` node
- * regardless of where it sits (let-RHS, expression statement, tail, nested).
- */
-function collectByKind(root: unknown, kind: string): KindedNode[] {
-  const out: KindedNode[] = [];
-  const seen = new Set<unknown>();
-  const visit = (node: unknown): void => {
-    if (node === null || typeof node !== "object") {
-      return;
-    }
-    if (seen.has(node)) {
-      return;
-    }
-    seen.add(node);
-    if (Array.isArray(node)) {
-      for (const item of node) {
-        visit(item);
-      }
-      return;
-    }
-    const obj = node as Record<string, unknown>;
-    if (typeof obj.kind === "string" && obj.kind === kind) {
-      out.push(obj as KindedNode);
-    }
-    for (const key of Object.keys(obj)) {
-      visit(obj[key]);
-    }
-  };
-  visit(root);
-  return out;
-}
 
 /** All `par-for` nodes in a parsed body. */
 function parForNodes(body: ThetaBody): KindedNode[] {

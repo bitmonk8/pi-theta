@@ -27,32 +27,17 @@
 //
 // Method: mirrors `tests/call-with-clause-parse.test.ts` / `tests/par-for.test.ts`'s
 // `parseThetaDocument` + inline template-literal-source harness.
-
+import { parseDeps as makeDeps } from "./helpers/e2e-s1";
 import { describe, expect, it } from "vitest";
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
 import type { ThetaSource } from "../src/lexer/lexer";
-import type { SystemNoteChannelDeps } from "../src/extension/system-note-channel";
-import type { ModelReferenceMatcher } from "../src/parser/frontmatter";
-import { parseThetaDocument, type ParseThetaDocumentDeps, type ThetaDocument } from "../src/parser/theta-document";
+import { parseThetaDocument, type ThetaDocument } from "../src/parser/theta-document";
 
 /** DIAG-2 asserting home for `theta/parse/session-tool-in-isolated-body` (I1-I4 below). */
 const SESSION_TOOL_IN_ISOLATED_BODY_CODE = "theta/parse/session-tool-in-isolated-body";
 const UNKNOWN_IDENTIFIER_CODE = "theta/parse/unknown-identifier";
 const SHADOWED_CALLABLE_CALL_CODE = "theta/parse/shadowed-callable-call";
 const NESTED_FN_CODE = "theta/parse/nested-fn";
-
-/** A trivially-wired diagnostic sink + resolving `model:` matcher for the parse. */
-function makeDeps(): ParseThetaDocumentDeps {
-  const systemNote: SystemNoteChannelDeps = {
-    pi: { sendMessage: (): void => {} },
-    ui: { notify: (): void => {} },
-    emitDiagnostic: (): void => {},
-  };
-  const modelMatcher: ModelReferenceMatcher = {
-    resolve: (): "resolved" => "resolved",
-  };
-  return { systemNote, modelMatcher };
-}
 
 /** Parse a UTF-8 `.theta` source string through the production whole-file parser. */
 function parse(src: string, path = "test.theta"): ThetaDocument {

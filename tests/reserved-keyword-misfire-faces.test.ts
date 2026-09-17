@@ -7,7 +7,7 @@ import type { Diagnostic } from "../src/diagnostics/diagnostic";
 import { reservedKeywords } from "../src/lexer/lexer";
 import { EXPORT_IN_THETA_CODE } from "../src/parser/imports";
 import type { ThetaDocument } from "../src/parser/theta-document";
-import { parseDoc } from "./helpers/e2e-s1";
+import { parseDoc, isLoadParseError } from "./helpers/e2e-s1";
 
 // Bug 0242 — three lexer-side faces of `contextualDiagnostics` range a
 // diagnostic on a token the author wrote correctly
@@ -282,22 +282,8 @@ function mutAt(line: number, column: number): string {
   return at(MUT_IMMUTABLE, msg(MUT_IMMUTABLE, []), line, column, column + "mut".length);
 }
 
-/**
- * Whether `diagnostics` blocks registration. This replicates, by construction,
- * `hasLoadParseError` (src/extension/production-composition.ts) as applied
- * inside `parseDiscoveredTheta` in that file: it is module-private — `rg -n
- * 'export.*hasLoadParseError' src/` matches nothing — so it cannot be imported,
- * and the predicate is mirrored here the same way and for the same reason
- * tests/reserved-keyword-remaining-identifier-positions.test.ts and
- * tests/fn-param-name-reserved-keyword.test.ts mirror it.
- */
 function blocksRegistration(diagnostics: readonly Diagnostic[]): boolean {
-  return diagnostics.some(
-    (diagnostic) =>
-      diagnostic.severity === "error" &&
-      (diagnostic.code.startsWith("theta/load/") ||
-        diagnostic.code.startsWith("theta/parse/")),
-  );
+  return diagnostics.some(isLoadParseError);
 }
 
 // ===========================================================================

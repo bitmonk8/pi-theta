@@ -32,7 +32,6 @@ import {
   SUBAGENT_PARENT_PID_ENV,
   SUBAGENT_SPAWN_FAILED_CODE,
   SUBAGENT_SPAWN_INTERNAL_ERROR_CODE,
-  type ExecutableHost,
   type SubagentLaunchRequest,
 } from "../src/runtime/subagent-launcher";
 import { SUBAGENT_ROOT_ENV_MARKER } from "../src/runtime/subagent-root-regime";
@@ -45,7 +44,12 @@ import {
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
 import type { InvokeInfraError } from "../src/runtime/query-error";
 import type { HostToolSnapshotEntry } from "../src/seams/host-tool-snapshot";
-import { enoentSpawnError, makeFakeJsonChildLauncher } from "./helpers/fake-json-child";
+import {
+  enoentSpawnError,
+  makeFakeJsonChildLauncher,
+  overridableExecutableHost as host,
+  fakeSubagentLaunchRequest,
+} from "./helpers/fake-json-child";
 import {
   createProductionExecutableHost,
   isEmbeddedFsPath,
@@ -57,16 +61,6 @@ import { join } from "node:path";
 // ---------------------------------------------------------------------------
 // Executable-resolution ladder.
 // ---------------------------------------------------------------------------
-
-function host(overrides: Partial<ExecutableHost>): ExecutableHost {
-  return {
-    argv1: "/app/pi/dist/index.js",
-    execPath: "/usr/bin/node",
-    fileExists: (): boolean => true,
-    isGenericRuntime: (p): boolean => /(?:^|\/)(?:node|bun)$/.test(p),
-    ...overrides,
-  };
-}
 
 describe("RFC-0005 — executable-resolution ladder", () => {
   it("rung 1: when argv[1] names an existing file, spawn execPath (the Node/Bun binary) with that script", () => {
@@ -424,22 +418,13 @@ describe("RFC-0006 — child env", () => {
 // ---------------------------------------------------------------------------
 
 function launchRequest(overrides?: Partial<SubagentLaunchRequest>): SubagentLaunchRequest {
+  const request = fakeSubagentLaunchRequest();
   return {
-    argv: {
-      slug: "child",
-      thetaDirs: ["/work/project/.pi/theta"],
-      systemPrompt: "you are a subagent",
-      hostTools: ["read"],
-      noHostTools: false,
-      provider: "anthropic",
-      model: "claude-sonnet",
-      projectTrust: false,
-    },
+    ...request,
+    argv: { ...request.argv, hostTools: ["read"], noHostTools: false },
     cwd: "/work/project",
     parentEnv: { PATH: "/usr/bin", ANTHROPIC_API_KEY: "sk-xxx" },
-    parentPid: 999,
     invokeDepth: 3,
-    host: host({ argv1: "/app/pi/dist/index.js", fileExists: (): boolean => true }),
     ...overrides,
   };
 }

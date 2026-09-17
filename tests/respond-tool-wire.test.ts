@@ -47,7 +47,7 @@
 // query/query-failure-and-repair.md (QRY-22 validate-then-bind),
 // schema-subset.md (SUBS-1 — the emission table the envelope wraps and never
 // rewrites).
-
+import { ajv, appendUserEntry, appendAssistantEntry, ANTHROPIC_MODEL } from "./helpers/scripted-live-session-harness";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 // The recorded off-session `complete()` calls and the scripted reply queue (the
@@ -79,7 +79,6 @@ vi.mock("@earendil-works/pi-ai/compat", async (importOriginal) => {
     }),
   };
 });
-
 import type {
   ExtensionAPI,
   ExtensionCommandContext,
@@ -96,11 +95,7 @@ import {
 } from "../src/runtime/respond-tool-wire";
 import { lowerQueryResponseSchema } from "../src/runtime/query-schema-lowering";
 import type { EnumDecl, SchemaDecl } from "../src/parser/theta-document";
-import {
-  AjvSchemaValidator,
-  type LoweredSchema,
-  type SchemaSlug,
-} from "../src/seams/schema-validator";
+import { type LoweredSchema } from "../src/seams/schema-validator";
 import { createProductionProducerDeps } from "../src/extension/production-theta-producer";
 import type { ThetaCompositionInput } from "../src/extension/theta-composition-producer";
 import { executeBody } from "../src/runtime/statement-executor";
@@ -109,15 +104,6 @@ import type { RuntimeRoot } from "../src/runtime-root";
 import { parseDoc } from "./helpers/e2e-s1";
 import { makeEnumValue, valuesEqual, type ThetaValue } from "../src/runtime/value";
 import { enumDeclaringKey } from "../src/runtime/lexical-environment";
-
-/** The real AJV seam (no coercion, no default-fill) — the QRY-22 validator. */
-function ajv(): AjvSchemaValidator {
-  const slugOf = (schema: LoweredSchema): SchemaSlug => ({
-    slug: JSON.stringify(schema),
-    canonicalBytes: JSON.stringify(schema),
-  });
-  return new AjvSchemaValidator({ emit: () => {}, slugOf });
-}
 
 /** Lower one annotation against a body source through the real seam. */
 function lower(annotation: string, body: string): LoweredSchema {
@@ -442,12 +428,7 @@ async function drive(source: string): Promise<{
   };
   const notes: string[] = [];
   const tools: ToolDefinition[] = [];
-  const model = {
-    id: "m1",
-    api: "anthropic-messages",
-    provider: "anthropic",
-    strictCapable: true,
-  };
+  const model = ANTHROPIC_MODEL;
   const deps = createProductionProducerDeps({
     pi: {
       sendMessage: (message: { readonly content?: unknown }): void => {
@@ -850,7 +831,7 @@ class OnSessionDouble {
 
   sendUserMessage(content: string): void {
     this.sendUserMessageCalls += 1;
-    this.#append({ role: "user", content: [{ type: "text", text: content }], timestamp: 0 });
+    appendUserEntry(this.entries, content);
     this.#idle = false;
   }
 
@@ -877,22 +858,8 @@ class OnSessionDouble {
           `a captured early respond terminates the free phase after exactly ONE`,
       );
     }
-    this.#append({
-      role: "assistant",
-      content: [{ type: "text", text: "done" }],
-      api: "anthropic-messages",
-      provider: "anthropic",
-      model: "m1",
-      stopReason: "stop",
-      timestamp: 0,
-    });
+    appendAssistantEntry(this.entries, "done", "stop");
     this.#idle = true;
-  }
-
-  #append(message: Record<string, unknown>): void {
-    const id = `e${this.entries.length + 1}`;
-    const parentId = this.entries.length === 0 ? undefined : `e${this.entries.length}`;
-    this.entries.push({ type: "message", id, parentId, message });
   }
 }
 
@@ -938,12 +905,7 @@ async function driveOnSession(
     }
     placed = midTurn(definition);
   };
-  const model = {
-    id: "m1",
-    api: "anthropic-messages",
-    provider: "anthropic",
-    strictCapable: true,
-  };
+  const model = ANTHROPIC_MODEL;
   const deps = createProductionProducerDeps({
     pi: {
       sendMessage: (message: { readonly content?: unknown }): void => {

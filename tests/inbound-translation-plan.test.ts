@@ -1,13 +1,6 @@
+import { parseDeps as makeDeps, schemaDeclsOf, enumDeclsOf } from "./helpers/e2e-s1";
 import { describe, expect, it } from "vitest";
-import {
-  parseThetaDocument,
-  type EnumDecl,
-  type ParseThetaDocumentDeps,
-  type SchemaDecl,
-  type ThetaDocument,
-} from "../src/parser/theta-document";
-import type { SystemNoteChannelDeps } from "../src/extension/system-note-channel";
-import type { ModelReferenceMatcher } from "../src/parser/frontmatter";
+import { parseThetaDocument, type ThetaDocument } from "../src/parser/theta-document";
 import type { ThetaSource } from "../src/lexer/lexer";
 import { lowerQueryResponseSchema } from "../src/runtime/query-schema-lowering";
 import {
@@ -34,30 +27,10 @@ import {
 // the third `$ref`-target map this bug lands), runtime-value-model.md
 // §"Wire-name translation".
 
-function makeDeps(): ParseThetaDocumentDeps {
-  const systemNote: SystemNoteChannelDeps = {
-    pi: { sendMessage: (): void => {} },
-    ui: { notify: (): void => {} },
-    emitDiagnostic: (): void => {},
-  };
-  const modelMatcher: ModelReferenceMatcher = {
-    resolve: (): "resolved" => "resolved",
-  };
-  return { systemNote, modelMatcher };
-}
-
 /** Parse real theta source (mirrors `tests/query-schema-resolve.test.ts`'s harness). */
 function parse(src: string, path = "plan.theta"): ThetaDocument {
   const source: ThetaSource = { path, bytes: new TextEncoder().encode(src) };
   return parseThetaDocument(source, makeDeps());
-}
-
-function schemaDeclsOf(doc: ThetaDocument): readonly SchemaDecl[] {
-  return doc.body.statements.filter((s): s is SchemaDecl => s.kind === "schema");
-}
-
-function enumDeclsOf(doc: ThetaDocument): readonly EnumDecl[] {
-  return doc.body.statements.filter((s): s is EnumDecl => s.kind === "enum");
 }
 
 /**

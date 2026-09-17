@@ -1,14 +1,6 @@
+import { parseDoc } from "./helpers/e2e-s1";
 import { describe, expect, it } from "vitest";
-import {
-  parseThetaDocument,
-  type EnumDecl,
-  type ParseThetaDocumentDeps,
-  type SchemaDecl,
-  type ThetaDocument,
-} from "../src/parser/theta-document";
-import type { SystemNoteChannelDeps } from "../src/extension/system-note-channel";
-import type { ModelReferenceMatcher } from "../src/parser/frontmatter";
-import type { ThetaSource } from "../src/lexer/lexer";
+import { type EnumDecl, type SchemaDecl, type ThetaDocument } from "../src/parser/theta-document";
 import { lowerQueryResponseSchema } from "../src/runtime/query-schema-lowering";
 import { buildInboundTranslationPlan, type SchemaSidecar } from "../src/parser/schema-lowering";
 import { translateInbound, translateOutbound } from "../src/runtime/wire-translation";
@@ -44,21 +36,8 @@ import {
 // docs/bugs/0020-enum-schema-tags-presence-only-forgeable.md pins the
 // non-enumerable-brand posture `schemaTagOf` reads by.
 
-function makeDeps(): ParseThetaDocumentDeps {
-  const systemNote: SystemNoteChannelDeps = {
-    pi: { sendMessage: (): void => {} },
-    ui: { notify: (): void => {} },
-    emitDiagnostic: (): void => {},
-  };
-  const modelMatcher: ModelReferenceMatcher = {
-    resolve: (): "resolved" => "resolved",
-  };
-  return { systemNote, modelMatcher };
-}
-
 function parse(src: string, path = "retag.theta"): ThetaDocument {
-  const source: ThetaSource = { path, bytes: new TextEncoder().encode(src) };
-  return parseThetaDocument(source, makeDeps());
+  return parseDoc(src, path);
 }
 
 function schemaDeclsOf(doc: ThetaDocument): readonly SchemaDecl[] {

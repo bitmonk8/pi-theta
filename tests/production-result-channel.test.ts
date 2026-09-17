@@ -13,7 +13,7 @@
 //      writes its envelope to the channel (never fd 1), mirrors its own error
 //      diagnostics as `stderr` frames, exposes the client on the wiring; a
 //      `pipe` child (no channel) exposes none.
-
+import { resolvingHost } from "./helpers/fake-json-child";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -48,7 +48,6 @@ import {
 import {
   SUBAGENT_INVOKE_DEPTH_ENV,
   SUBAGENT_PARENT_PID_ENV,
-  type ExecutableHost,
   type PreparedSubagentLaunch,
   type SubagentLaunchRequest,
 } from "../src/runtime/subagent-launcher";
@@ -121,11 +120,18 @@ describe("RFC-0012 §3 — node:net adapters over the loopback interface", () =>
     const probe = await createProductionChannelServer().listen(() => {});
     probe.close();
     const raw = createProductionChannelClient().connect(probe.port);
-    const errored = new Promise<void>((resolve) => raw.onError(() => resolve()));
+    let errorCount = 0;
+    const closed = new Promise<void>((resolve) => raw.onClose(resolve));
+    const errored = new Promise<void>((resolve) => raw.onError(() => {
+      errorCount += 1;
+      resolve();
+    }));
     raw.write("hello\n");
     await errored;
     expect(() => raw.write("late\n")).not.toThrow();
     expect(() => raw.end()).not.toThrow();
+    await closed;
+    expect(errorCount).toBe(1);
   });
 
   it("the secret mint yields 32 lowercase hex characters and never repeats across a batch", () => {
@@ -371,15 +377,6 @@ function fakeHost(): { pi: ExtensionAPI; ctx: ExtensionContext } {
     ui: { notify: (): void => {} },
   } as unknown as ExtensionContext;
   return { pi, ctx };
-}
-
-function resolvingHost(): ExecutableHost {
-  return {
-    argv1: "/app/pi/dist/index.js",
-    execPath: "/usr/bin/node",
-    fileExists: (): boolean => true,
-    isGenericRuntime: (): boolean => false,
-  };
 }
 
 function fakeChannelClient(): ResultChannelClient & { lines: string[]; mirrored: string[]; closed: number } {

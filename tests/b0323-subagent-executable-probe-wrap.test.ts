@@ -28,6 +28,7 @@
 // green at HEAD — the shipped host structurally cannot throw and the clean
 // verdict route is unchanged.
 
+import { bothRungsFailHost } from "./helpers/fake-json-child";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -63,16 +64,6 @@ function throwingHost(): ExecutableHost {
     fileExists: (): boolean => {
       throw new Error(EACCES_MESSAGE);
     },
-    isGenericRuntime: (): boolean => true,
-  };
-}
-
-/** A host whose BOTH resolution rungs fail cleanly (no throw, no runnable entry point). */
-function bothRungsFailHost(): ExecutableHost {
-  return {
-    argv1: undefined, // rung 1: no entry script
-    execPath: "/usr/bin/node", // rung 2: a generic runtime is not Pi itself
-    fileExists: (): boolean => false,
     isGenericRuntime: (): boolean => true,
   };
 }

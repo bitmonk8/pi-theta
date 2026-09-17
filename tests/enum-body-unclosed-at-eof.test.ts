@@ -6,7 +6,7 @@ import { parseRegistry, registryMessage } from "../tools/code-registry/index.js"
 import { buildBodyTypeSchemas } from "../src/parser/body-type-lowering";
 import type { Diagnostic, SourceRange } from "../src/diagnostics/diagnostic";
 import type { EnumDecl, SchemaDecl, ThetaDocument } from "../src/parser/theta-document";
-import { parseDoc } from "./helpers/e2e-s1";
+import { parseDoc, topKinds } from "./helpers/e2e-s1";
 
 // Bug 0259 — an `enum` variant list that reaches end of input with at least one
 // variant captured draws ZERO diagnostics, registers, and lowers
@@ -314,11 +314,6 @@ function q(
 /** Every diagnostic rendered for a failure payload. */
 function render(doc: ThetaDocument): string {
   return JSON.stringify(quads(doc));
-}
-
-/** The top-level statement kinds, in source order. */
-function topKinds(doc: ThetaDocument): string[] {
-  return doc.body.statements.map((s) => s.kind);
 }
 
 /**

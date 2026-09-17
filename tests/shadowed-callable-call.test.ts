@@ -1,3 +1,4 @@
+import { parseDoc } from "./helpers/e2e-s1";
 import { describe, expect, it } from "vitest";
 import type {
   ExtensionAPI,
@@ -5,15 +6,8 @@ import type {
   ModelRegistry,
 } from "@earendil-works/pi-coding-agent";
 import type { Diagnostic, SourceRange } from "../src/diagnostics/diagnostic";
-import type { ThetaSource } from "../src/lexer/lexer";
-import type { SystemNoteChannelDeps } from "../src/extension/system-note-channel";
-import type { ModelReferenceMatcher, ParsedFrontmatter } from "../src/parser/frontmatter";
-import {
-  parseThetaDocument,
-  type ParseThetaDocumentDeps,
-  type ThetaBody,
-  type ThetaDocument,
-} from "../src/parser/theta-document";
+import type { ParsedFrontmatter } from "../src/parser/frontmatter";
+import { type ThetaBody, type ThetaDocument } from "../src/parser/theta-document";
 import type {
   CallableSetSnapshot,
   ResolvedCallable,
@@ -93,21 +87,8 @@ const BARE_OBJECT_CODE = "theta/parse/bare-object-literal";
 const SHAPE_CODE = "theta/parse/tool-arg-not-object-literal";
 const FILE = "bug0016.theta";
 
-function makeDeps(): ParseThetaDocumentDeps {
-  const systemNote: SystemNoteChannelDeps = {
-    pi: { sendMessage: (): void => {} },
-    ui: { notify: (): void => {} },
-    emitDiagnostic: (): void => {},
-  };
-  const modelMatcher: ModelReferenceMatcher = {
-    resolve: (): "resolved" => "resolved",
-  };
-  return { systemNote, modelMatcher };
-}
-
 function parseSource(src: string): ThetaDocument {
-  const source: ThetaSource = { path: FILE, bytes: new TextEncoder().encode(src) };
-  return parseThetaDocument(source, makeDeps());
+  return parseDoc(src, FILE);
 }
 
 function diagsOf(src: string): readonly Diagnostic[] {

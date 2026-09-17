@@ -5,7 +5,8 @@
 // with inert, in-band recording seams so a test can assert on the returned
 // diagnostics / tokens without a model or session. No behaviour is stubbed:
 // the code paths under assertion are the shipped ones.
-
+import { type SourceRange } from "../../src/diagnostics/diagnostic";
+import { type BypassParamsField } from "../../src/binder/binder-envelope";
 import { expect } from "vitest";
 import { lexTheta, type LexResult, type ThetaSource } from "../../src/lexer/lexer";
 import {
@@ -14,6 +15,8 @@ import {
   type LetStmt,
   type ThetaDocument,
   type ParseThetaDocumentDeps,
+  type SchemaDecl,
+  type EnumDecl,
 } from "../../src/parser/theta-document";
 import type { Diagnostic } from "../../src/diagnostics/diagnostic";
 import type {
@@ -185,4 +188,111 @@ export function loadCleanly(label: string, source: string, path = "test.theta"):
     );
   }
   return { defs: (lowered["$defs"] ?? {}) as Record<string, unknown>, loweredSchema: lowered };
+}
+
+/** Top-level statement kinds in source order. */
+export function topKinds(doc: ThetaDocument): string[] {
+  return doc.body.statements.map((s) => s.kind);
+}
+
+/** Top-level declarations of this kind, preserving source order. */
+export function schemaDeclsOf(doc: ThetaDocument): readonly SchemaDecl[] {
+  return doc.body.statements.filter((s): s is SchemaDecl => s.kind === "schema");
+}
+
+/** Top-level declarations of this kind, preserving source order. */
+export function enumDeclsOf(doc: ThetaDocument): readonly EnumDecl[] {
+  return doc.body.statements.filter((s): s is EnumDecl => s.kind === "enum");
+}
+
+/** Read a params field, failing loudly if its declaration was dropped. */
+export function fieldOf(loaded: { readonly fields: readonly BypassParamsField[] }, wireName: string): BypassParamsField {
+  const found = loaded.fields.find((f) => f.wireName === wireName);
+  if (found === undefined) {
+    throw new Error(
+      `no params field '${wireName}' in ${JSON.stringify(loaded.fields)} — the declaration was dropped entirely`,
+    );
+  }
+  return found;
+}
+
+/** Diagnostics for a code and file, in emission order. */
+export function hitsFor(
+  diagnostics: readonly Diagnostic[],
+  code: string,
+  file: string,
+): readonly Diagnostic[] {
+  return diagnostics.filter((d) => d.code === code && d.file === file);
+}
+
+/** A structural AST node carrying a kind discriminator. */
+export interface KindedNode {
+  readonly kind: string;
+  readonly [key: string]: unknown;
+}
+
+/** Collect nodes of a kind, visiting each object identity once. */
+export function collectByKind(root: unknown, kind: string): KindedNode[] {
+  const out: KindedNode[] = [];
+  const seen = new Set<unknown>();
+  const visit = (node: unknown): void => {
+    if (node === null || typeof node !== "object") {
+      return;
+    }
+    if (seen.has(node)) {
+      return;
+    }
+    seen.add(node);
+    if (Array.isArray(node)) {
+      for (const item of node) {
+        visit(item);
+      }
+      return;
+    }
+    const obj = node as Record<string, unknown>;
+    if (typeof obj.kind === "string" && obj.kind === kind) {
+      out.push(obj as KindedNode);
+    }
+    for (const key of Object.keys(obj)) {
+      visit(obj[key]);
+    }
+  };
+  visit(root);
+  return out;
+}
+
+/** Locate the sole fixture anchor, retaining the cardinality preconditions and diagnostics. */
+export function argRange(
+  doc: ThetaDocument,
+  callee: string,
+  index: number,
+  collectCalls: (doc: ThetaDocument) => readonly { readonly callee: string; readonly args: readonly SourceRange[] }[],
+  render: (doc: ThetaDocument) => string,
+): SourceRange {
+  const calls = collectCalls(doc).filter((c) => c.callee === callee);
+  expect(
+    calls,
+    `PRECONDITION: the fixture must hold exactly one call of '${callee}'; the parse found ${calls.length}. Diagnostics: ${render(doc)}`,
+  ).toHaveLength(1);
+  const args = calls[0]!.args;
+  expect(
+    args.length,
+    `PRECONDITION: the call of '${callee}' must carry an argument at index ${index}; it carries ${args.length}. Diagnostics: ${render(doc)}`,
+  ).toBeGreaterThan(index);
+  return args[index]!;
+}
+
+/** Locate the sole fixture anchor, retaining the cardinality preconditions and diagnostics. */
+export function letRange(
+  doc: ThetaDocument,
+  name: string,
+  collectLets: (doc: ThetaDocument) => readonly { readonly name: string; readonly range: SourceRange }[],
+  render: (doc: ThetaDocument) => string,
+): SourceRange {
+  const hits = collectLets(doc).filter((l) => l.name === name);
+  expect(
+    hits,
+    `PRECONDITION: the fixture must hold exactly one \`let ${name}\`; the parse found ${hits.length}. Diagnostics: ${render(doc)}`,
+  ).toHaveLength(1);
+  return hits[0]!.range;
 }
