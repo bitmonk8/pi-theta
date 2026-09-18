@@ -18,7 +18,7 @@
 // inert-deps wrapper over the shipped `parseThetaDocument`.
 
 import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
+import { repoFile } from "./corpus-reader";
 import { expect } from "vitest";
 // @ts-expect-error — JS code-registry module, no type declarations.
 import { parseRegistry, registryMessage } from "../../tools/code-registry/index.js";
@@ -48,10 +48,7 @@ export const PARSE_REGISTRY_PATH = "docs/spec_topics/diagnostics/code-registry-p
 
 /** `code-registry-parse.md`, parsed once. */
 export const PARSE_REGISTRY: readonly ParseCodeRegistryRow[] = parseRegistry(
-  readFileSync(
-    fileURLToPath(new URL(`../../${PARSE_REGISTRY_PATH}`, import.meta.url)),
-    "utf8",
-  ),
+  readFileSync(repoFile(PARSE_REGISTRY_PATH), "utf8"),
 ) as ParseCodeRegistryRow[];
 
 /**

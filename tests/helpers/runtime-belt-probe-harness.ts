@@ -45,8 +45,10 @@ import type {
   ConversationBindInput,
   ThetaCompositionInput,
 } from "../../src/extension/theta-composition-producer";
-import type { Checkpoint } from "../../src/seams/checkpoint";
 import type { RuntimeRoot } from "../../src/runtime-root";
+import { noopPi } from "./call-with-clause-harness";
+import { rootWith } from "./fixture-dispatch-harness";
+import { SEAM_NOOP_CHECKPOINT } from "./invoke-seam-scaffold";
 
 /** An EXECUTOR probe's outcome: the body's success value, or a caught throw. */
 export type Probe =
@@ -65,33 +67,25 @@ export type InvokeProbe =
 
 /** Fixed-clock root for an instant-settling prompt turn. */
 export function rootDouble(): RuntimeRoot {
-  return {
-    checkpoint: { before: (): Promise<void> => Promise.resolve() },
-    idSource: { newInvocationId: (): string => "inv-1", newToolCallId: (): string => "tc-1" },
-    // The prompt-mode drive's only wait primitive is `Clock.setTimeout`; fire the
-    // callback synchronously so an instant-settle turn completes deterministically
-    // with no real timers (the fixed-clock harness contract this module's
-    // callers share).
-    clock: {
-      now: (): number => 0,
-      wallNow: (): number => 0,
-      setTimeout: (fn: () => void): unknown => {
-        fn();
-        return 0;
-      },
-      clearTimeout: (): void => {},
+  // The prompt-mode drive's only wait primitive is `Clock.setTimeout`; fire the
+  // callback synchronously so an instant-settle turn completes deterministically
+  // with no real timers (the fixed-clock harness contract this module's
+  // callers share).
+  return rootWith(SEAM_NOOP_CHECKPOINT, "inv-1", {
+    now: (): number => 0,
+    wallNow: (): number => 0,
+    setTimeout: (fn: () => void): unknown => {
+      fn();
+      return 0;
     },
-  } as unknown as RuntimeRoot;
+    clearTimeout: (): void => {},
+  });
 }
 
 /** Production producer over the supplied root (fixed-clock by default). */
 export function producer(root: RuntimeRoot = rootDouble()) {
   return createProductionProducerDeps({
-    pi: {
-      sendMessage: () => {},
-      getActiveTools: () => [],
-      setActiveTools: () => {},
-    } as unknown as ExtensionAPI,
+    pi: noopPi(),
     root,
     modelRegistry: {} as unknown as ModelRegistry,
   });
@@ -280,11 +274,7 @@ export function makeBeltProbes(
   async function driveInvoke(src: string): Promise<InvokeProbe> {
     const doc = parseTheta(src);
     let parseCalleeCalls = 0;
-    const pi = {
-      sendMessage: (): void => {},
-      getActiveTools: (): string[] => [],
-      setActiveTools: (): void => {},
-    } as unknown as ExtensionAPI;
+    const pi = noopPi();
     const deps = createProductionProducerDeps({
       pi,
       root: root(),
@@ -327,12 +317,6 @@ export function makeBeltProbes(
   return { probeSource, driveInterp, driveInvoke };
 }
 
-const NOOP_CHECKPOINT: Checkpoint = {
-  before(): Promise<void> {
-    return Promise.resolve();
-  },
-};
-
 export interface NumericRunOutcome {
   /** Every parse-time code, in emission order — the refusal channel. */
   readonly codes: readonly string[];
@@ -367,10 +351,7 @@ export async function runNumericFixture(
     args: "",
     ctx: {} as unknown as ExtensionCommandContext,
   };
-  const binding = producer({
-    checkpoint: NOOP_CHECKPOINT,
-    idSource: { newInvocationId: () => "inv-1", newToolCallId: () => "tc-1" },
-  } as unknown as RuntimeRoot).bindPromptConversation(bindInput);
+  const binding = producer(rootWith(SEAM_NOOP_CHECKPOINT)).bindPromptConversation(bindInput);
   const execution = await executeBody(theta.body, binding.executeDeps);
   expect(
     execution.outcome,

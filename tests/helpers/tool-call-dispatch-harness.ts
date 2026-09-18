@@ -49,7 +49,7 @@ import type { AgentToolResultEnvelope } from "../../src/runtime/tool-call-execut
 import type { ResultValue, ThetaValue } from "../../src/runtime/value";
 import type { RuntimeRoot } from "../../src/runtime-root";
 import type { RootRegime } from "../../src/runtime/subagent-root-regime";
-import type { Checkpoint } from "../../src/seams/checkpoint";
+import { SEAM_NOOP_CHECKPOINT as NOOP_CHECKPOINT } from "./invoke-seam-scaffold";
 import {
   AjvSchemaValidator,
   type LoweredSchema,
@@ -122,11 +122,7 @@ export function statementBody(statements: readonly Stmt[], tail: Expr | null): T
   return { statements, tail };
 }
 
-export const NOOP_CHECKPOINT: Checkpoint = {
-  before(): Promise<void> {
-    return Promise.resolve();
-  },
-};
+export { NOOP_CHECKPOINT };
 
 /**
  * A `RuntimeRoot` double exposing the members the code-side tool-call path

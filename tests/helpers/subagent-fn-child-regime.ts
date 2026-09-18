@@ -29,15 +29,15 @@ import { newInvokeChainAtDepth } from "../../src/runtime/invoke-depth-cycle";
 import { parseEnvelopeLine, type EnvelopeParse } from "../../src/runtime/subagent-envelope";
 import { SUBAGENT_PARAMS_ENV } from "../../src/runtime/subagent-params";
 import type { RuntimeRoot } from "../../src/runtime-root";
-import type { Checkpoint, CheckpointKind, CheckpointSite } from "../../src/seams/checkpoint";
+import type { Checkpoint } from "../../src/seams/checkpoint";
+import { SEAM_NOOP_CHECKPOINT } from "./invoke-seam-scaffold";
 import type { ParsedFrontmatter } from "../../src/parser/frontmatter";
 import { parseExpressionSource } from "../../src/parser/theta-document";
 import { ajv } from "./scripted-live-session-harness";
 
-/** A `RuntimeRoot` double: real AJV validator, zero clock, no-op checkpoint, fixed ids. */
-export function childRegimeRootDouble(): RuntimeRoot {
+/** Fresh fixed-id and zero-clock doubles, with timers forwarded to the ambient host. */
+function fixedIdsAndClock(): Pick<RuntimeRoot, "idSource" | "clock"> {
   return {
-    checkpoint: { before: (): Promise<void> => Promise.resolve() },
     idSource: { newInvocationId: () => "inv-1", newToolCallId: () => "tc-1" },
     clock: {
       now: () => 0,
@@ -45,6 +45,14 @@ export function childRegimeRootDouble(): RuntimeRoot {
       setTimeout: (fn: () => void, ms: number) => setTimeout(fn, ms),
       clearTimeout: (h: unknown) => clearTimeout(h as ReturnType<typeof setTimeout>),
     },
+  };
+}
+
+/** A `RuntimeRoot` double: real AJV validator, zero clock, no-op checkpoint, fixed ids. */
+export function childRegimeRootDouble(): RuntimeRoot {
+  return {
+    checkpoint: SEAM_NOOP_CHECKPOINT,
+    ...fixedIdsAndClock(),
     schemaValidator: ajv(),
   } as unknown as RuntimeRoot;
 }
@@ -149,22 +157,10 @@ export function reportOf(value: unknown): Record<string, unknown> {
   return value as Record<string, unknown>;
 }
 
-export class NoopCheckpoint implements Checkpoint {
-  before(_kind: CheckpointKind, _site: CheckpointSite): Promise<void> {
-    return Promise.resolve();
-  }
-}
-
 export function rootDouble(checkpoint?: Checkpoint): RuntimeRoot {
   return {
-    checkpoint: checkpoint ?? new NoopCheckpoint(),
-    idSource: { newInvocationId: () => "inv-1", newToolCallId: () => "tc-1" },
-    clock: {
-      now: () => 0,
-      wallNow: () => 0,
-      setTimeout: (fn: () => void, ms: number) => setTimeout(fn, ms),
-      clearTimeout: (h: unknown) => clearTimeout(h as ReturnType<typeof setTimeout>),
-    },
+    checkpoint: checkpoint ?? SEAM_NOOP_CHECKPOINT,
+    ...fixedIdsAndClock(),
     schemaValidator: { compile: () => ({ validate: () => ({ ok: true as const }) }) },
   } as unknown as RuntimeRoot;
 }

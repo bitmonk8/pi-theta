@@ -12,7 +12,7 @@
 import { PARSE_REGISTRY_PATH as REGISTRY_PAGE, registryMessageOf } from "./load-row-harness";
 import { expect } from "vitest";
 import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
+import { repoFile } from "./corpus-reader";
 // @ts-expect-error — JS code-registry module, no type declarations.
 import { parseRegistry, registryMessage } from "../../tools/code-registry/index.js";
 
@@ -34,9 +34,7 @@ export function readRegistry(
     shards
       .map((shard) =>
         readFileSync(
-          fileURLToPath(
-            new URL(`../../docs/spec_topics/diagnostics/code-registry-${shard}.md`, import.meta.url),
-          ),
+          repoFile(`docs/spec_topics/diagnostics/code-registry-${shard}.md`),
           "utf8",
         ),
       )

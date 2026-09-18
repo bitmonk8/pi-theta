@@ -3,7 +3,6 @@
 
 import { expect } from "vitest";
 import type {
-  ExtensionAPI,
   ModelRegistry,
 } from "@earendil-works/pi-coding-agent";
 import type { ParsedFrontmatter } from "../../src/parser/frontmatter";
@@ -20,6 +19,7 @@ import type {
 import type { SchemaValidator } from "../../src/seams/schema-validator";
 import { parseTheta } from "./e2e-s1";
 import { rootWith } from "./fixture-dispatch-harness";
+import { noopPi } from "./call-with-clause-harness";
 import { SEAM_NOOP_CHECKPOINT as NOOP_CHECKPOINT } from "./invoke-seam-scaffold";
 import { ctxDouble } from "./tool-call-dispatch-harness";
 
@@ -36,11 +36,7 @@ export function producer(opts: ProducerOpts = {}) {
   return createProductionProducerDeps({
     // `getActiveTools`/`setActiveTools` satisfy the PIC-17 prompt→prompt
     // suspend window; `sendMessage` satisfies the theta-system-note channel.
-    pi: {
-      sendMessage: () => {},
-      getActiveTools: () => [],
-      setActiveTools: () => {},
-    } as unknown as ExtensionAPI,
+    pi: noopPi(),
     root: {
       ...rootWith(NOOP_CHECKPOINT),
       ...(opts.schemaValidator !== undefined ? { schemaValidator: opts.schemaValidator } : {}),

@@ -1,5 +1,5 @@
 import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
+import { repoFile } from "./corpus-reader";
 import { expect } from "vitest";
 // @ts-expect-error — JS code-registry module, no type declarations.
 import { registryMessage } from "../../tools/code-registry/index.js";
@@ -139,10 +139,7 @@ function category1Lines(page: string): string[] {
  * already emits.
  */
 export function readAdmittedStandInTokens(): ReadonlySet<string> {
-  const page = readFileSync(
-    fileURLToPath(new URL(`../../${PLACEHOLDER_RENDERING_A}`, import.meta.url)),
-    "utf8",
-  );
+  const page = readFileSync(repoFile(PLACEHOLDER_RENDERING_A), "utf8");
   const lines = category1Lines(page);
 
   const headerIndex = lines.findIndex(

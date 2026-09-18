@@ -13,7 +13,8 @@
 // Spec: pi-integration-contract/subagent.md #subagent-launch-contract (RFC
 // 0012 §7), execution-status.md EXST-5.
 
-import { RecordingBus, NoopCheckpoint, rootDouble, noopPi, subagentTheta, childCtx } from "./helpers/subagent-fn-child-regime";
+import { RecordingBus, rootDouble, noopPi, subagentTheta, childCtx } from "./helpers/subagent-fn-child-regime";
+import { SEAM_NOOP_CHECKPOINT } from "./helpers/invoke-seam-scaffold";
 import { resolvingHost } from "./helpers/fake-json-child";
 import { describe, expect, it } from "vitest";
 import type { ModelRegistry } from "@earendil-works/pi-coding-agent";
@@ -58,7 +59,7 @@ class ThrowingCheckpoint implements Checkpoint {
 function hexInvocationRoot(ids: readonly string[]): RuntimeRoot {
   let i = 0;
   return {
-    checkpoint: new NoopCheckpoint(),
+    checkpoint: SEAM_NOOP_CHECKPOINT,
     idSource: {
       newInvocationId: (): string => ids[Math.min(i++, ids.length - 1)]!,
       newToolCallId: (): string => "tc-1",

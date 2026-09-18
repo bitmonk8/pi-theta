@@ -22,7 +22,7 @@ import {
 import type { AjvSchemaValidator, LoweredSchema } from "../../src/seams/schema-validator";
 import type { SchemaDecl } from "../../src/parser/theta-document";
 import type { ValidationIssue } from "../../src/runtime/query-error";
-import { ajv as sharedAjv, schemaDeclsOf as sharedSchemaDeclsOf } from "./typed-query-harness";
+import { ajv as sharedAjv, schemaDeclsOf as sharedSchemaDeclsOf, forcedRespondConfig } from "./typed-query-harness";
 
 export { NOOP_CHECKPOINT, liveSignal } from "./typed-query-harness";
 
@@ -30,13 +30,12 @@ export function config(invocationId: string): QueryToolLoopConfig {
   // A typed query at `max_rounds: 0` fires the forced-respond terminator as its
   // only turn (QRY-14) — the scripted model supplies only that turn, and the
   // follow-up rides the injected `driveFollowUp`.
-  return {
-    maxRounds: 0,
+  return forcedRespondConfig({
     querySite: { file: "probe.theta", line: 1, column: 1 },
     thetaSlashName: "/probe",
     invocationId,
     occurredAt: 0,
-  };
+  });
 }
 
 /**
