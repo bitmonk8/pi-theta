@@ -1,4 +1,4 @@
-import { readdirSync, readFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
@@ -8,6 +8,7 @@ import { StaticTypeInferencePass } from "../src/parser/static-type-inference";
 import { checkCompatible, displayType, type TypeEnv } from "../src/parser/type-compat";
 import { parseDoc } from "./helpers/e2e-s1";
 import { committedThetaSources } from "./helpers/theta-corpus";
+import { tsFiles } from "./helpers/ts-files";
 
 // Bug 0195 — four corpus sentences state that an unsunk empty array literal
 // (`for x in []`, `let xs = []`) is `theta/parse/array-no-common-type`, and the
@@ -361,20 +362,9 @@ describe("bug 0195 (B) — the behaviour route (a) does not move", () => {
 
 /** Every `.ts` file under `src/`, relative to the repository root. */
 function srcFiles(): string[] {
-  const root = path.join(REPO_ROOT, "src");
-  const out: string[] = [];
-  const walk = (dir: string): void => {
-    for (const entry of readdirSync(dir, { withFileTypes: true })) {
-      const abs = path.join(dir, entry.name);
-      if (entry.isDirectory()) {
-        walk(abs);
-      } else if (entry.name.endsWith(".ts")) {
-        out.push(path.relative(REPO_ROOT, abs).split(path.sep).join("/"));
-      }
-    }
-  };
-  walk(root);
-  return out;
+  return tsFiles(path.join(REPO_ROOT, "src")).map((file) =>
+    path.relative(REPO_ROOT, file).split(path.sep).join("/"),
+  );
 }
 
 describe("bug 0195 (C) — the V2a array-sink seam stays unwired", () => {
@@ -415,8 +405,8 @@ describe("bug 0195 (C) — the V2a array-sink seam stays unwired", () => {
 // copied from the report.
 // ===========================================================================
 
-describe("bug 0195 (D) — no committed theta carries an empty array literal", () => {
-  it("D1: the census re-derives to 34 files and zero `[]`", () => {
+describe("bug 0195 (D) — no committed theta carries a `for`-iterand `[]`", () => {
+  it("D1: the pinned census contains no `for`-iterand `[]`", () => {
     const files = committedThetaSources();
     expect(
       files.length,

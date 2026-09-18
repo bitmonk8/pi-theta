@@ -8,6 +8,11 @@ import {
   type AuditRecord,
   type AuditResult,
 } from "../src/extension/inventory-closure-audit";
+import {
+  DISCRIMINATOR_SHAPE,
+  TYPEBOX_MEMBER_ACCESS_ALLOW_LIST,
+  TYPEBOX_NAMED_IMPORT_ALLOW_LIST,
+} from "./helpers/inventory-closure-audit";
 
 // V18b — the `npm test`-side inventory-closure audit gate (the disk-walk driver
 // + fail-closed `npm test` wiring the paired core `runInventoryClosureAudit`
@@ -25,13 +30,6 @@ import {
 // The audit is unanchored by a numbered PREFIX-N REQ-ID (it mechanizes the
 // PIC-15 / §"Inventory-closure audit" surface-set-closure MUST), so this gate
 // asserts the observable green-on-main / red-on-seed Ships-when contract.
-
-const TYPEBOX_NAMED_IMPORT_ALLOW_LIST = ["Type"] as const;
-const TYPEBOX_MEMBER_ACCESS_ALLOW_LIST = ["Unsafe"] as const;
-
-/** `audit/<class>/<family>/<symptom>` structural shape (audit-failures.md). */
-const DISCRIMINATOR_SHAPE =
-  /^audit\/(violation|infra|canary)\/[a-z0-9]+(-[a-z0-9]+)*\/[a-z0-9]+(-[a-z0-9]+)*$/;
 
 /**
  * Walk the *audited source tree* (audit-resolution.md §"Audit scope"): the

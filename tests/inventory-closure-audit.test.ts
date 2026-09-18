@@ -5,6 +5,11 @@ import {
   type AuditRecord,
   type AuditResult,
 } from "../src/extension/inventory-closure-audit";
+import {
+  DISCRIMINATOR_SHAPE,
+  TYPEBOX_MEMBER_ACCESS_ALLOW_LIST,
+  TYPEBOX_NAMED_IMPORT_ALLOW_LIST,
+} from "./helpers/inventory-closure-audit";
 
 // V18b-T — failing tests for the build-time inventory-closure audit (paired
 // V18b impl).
@@ -24,13 +29,6 @@ import {
 // segment (violation / infra / canary), the per-family record-shape `symbol`
 // values (family-(1) = bare member; family-(4) = the offending shape literal;
 // family-(5) = the literal `<n/a>` sentinel), and the two canary counters.
-
-const TYPEBOX_NAMED_IMPORT_ALLOW_LIST = ["Type"] as const;
-const TYPEBOX_MEMBER_ACCESS_ALLOW_LIST = ["Unsafe"] as const;
-
-/** The `audit/<class>/<family>/<symptom>` structural shape (audit-failures.md). */
-const DISCRIMINATOR_SHAPE =
-  /^audit\/(violation|infra|canary)\/[a-z0-9]+(-[a-z0-9]+)*\/[a-z0-9]+(-[a-z0-9]+)*$/;
 
 /** The literal five-character `<n/a>` sentinel (audit-wire-and-canary.md). */
 const NA = "<n/a>";

@@ -1,6 +1,6 @@
 import { readCorpus as readSharedCorpus } from "./helpers/corpus-reader";
 import { sliceFrom } from "./helpers/spec-prose-proximity";
-import { readdirSync, readFileSync, statSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 // @ts-expect-error — JS code-registry module, no type declarations.
@@ -8,6 +8,7 @@ import { parseRegistry } from "../tools/code-registry/index.js";
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
 import type { Block, Expr, Stmt, ThetaDocument } from "../src/parser/theta-document";
 import { parseDoc } from "./helpers/e2e-s1";
+import { tsFiles } from "./helpers/ts-files";
 
 // Bug 0155 — the ternary is ADJUDICATED OUT of the common-type rules that carry
 // an array-literal *Trigger*, and the corpus must stop saying otherwise
@@ -643,16 +644,8 @@ describe("bug 0155 (B/d) — the first-branch reduction and its consequences, by
 function srcFiles(): string[] {
   // Slash-normalised so the `src/`-relative rendering below is identical on
   // POSIX and Windows hosts.
-  const root = fileURLToPath(new URL("../src", import.meta.url)).replace(/\\/g, "/");
-  const out: string[] = [];
-  const walk = (dir: string): void => {
-    for (const entry of readdirSync(dir)) {
-      const full = `${dir}/${entry}`;
-      if (statSync(full).isDirectory()) walk(full);
-      else if (entry.endsWith(".ts")) out.push(full);
-    }
-  };
-  walk(root);
+  const root = fileURLToPath(new URL("../src", import.meta.url));
+  const out = tsFiles(root).map((file) => file.replace(/\\/g, "/"));
   if (out.length === 0) {
     throw new Error(
       "harness: no `.ts` files found under `src/` — this cell reads the shipped source as its oracle, so an empty scan is a harness failure, never a skip",
