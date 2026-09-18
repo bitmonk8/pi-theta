@@ -43,6 +43,7 @@ import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import {
   makeHarness as makeBaseHarness,
   makeTheta,
+  makeWiring,
   type Harness as BaseHarness,
   type RegisteredCommand,
 } from "./helpers/watch-arming-harness";
@@ -51,9 +52,7 @@ import {
   type ThetaExtensionDeps,
 } from "../src/extension/factory";
 import type { ExtensionInstanceWiring } from "../src/extension/production-composition";
-import { ThetaRegistry, type ParsedTheta } from "../src/extension/reload-wiring";
-import { FakeClock } from "./helpers/fake-clock";
-import { ActiveInvocationRegistry } from "../src/runtime/active-invocation-registry";
+import { ThetaRegistry } from "../src/extension/reload-wiring";
 import {
   SYSTEM_NOTE_CHANNEL,
   SYSTEM_NOTE_DELIVERY_FAILED_CODE,
@@ -137,20 +136,6 @@ function makeHarness(): Harness {
     noteAttempts,
     notified,
     diagnostics,
-  };
-}
-
-function makeWiring(
-  thetas: readonly ParsedTheta[],
-  registry: ThetaRegistry,
-): ExtensionInstanceWiring {
-  return {
-    thetas,
-    registry,
-    activeInvocations: new ActiveInvocationRegistry(),
-    forwardingSignals: [],
-    clock: new FakeClock(),
-    installHotReload: () => ({ detach: (): void => {} }),
   };
 }
 

@@ -1,10 +1,10 @@
 import {
+  linesOf,
   matrixRowDump,
   perVariantMatrixRows as readPerVariantMatrixRows,
+  readCorpus as readSharedCorpus,
   type MatrixRow,
 } from "./helpers/corpus-reader";
-import { fileURLToPath } from "node:url";
-import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
 // b0434 — every registered operator-facing `theta/runtime/*` note is rowless
@@ -55,9 +55,6 @@ import { describe, expect, it } from "vitest";
 //   from the shutdown clean-cancel row (4), and must not disturb the b0265
 //   panic-row substring (5). A fix that over-reaches reds one of these.
 
-const repoFile = (rel: string): string =>
-  fileURLToPath(new URL(`../${rel}`, import.meta.url));
-
 /**
  * Read a corpus file. A missing or empty file is a HARNESS failure that names
  * the unmet precondition and throws — never a skip, never an early return, so
@@ -65,24 +62,8 @@ const repoFile = (rel: string): string =>
  * pattern this file mirrors).
  */
 function readCorpus(rel: string): string {
-  let text: string;
-  try {
-    text = readFileSync(repoFile(rel), "utf8");
-  } catch (cause) {
-    throw new Error(
-      `harness precondition unmet: ${rel} is unreadable, and it is a required source for the bug 0434 surface this oracle owns — a missing corpus file is a loud failure, never a skip (${String(cause)})`,
-    );
-  }
-  if (text.trim() === "") {
-    throw new Error(
-      `harness precondition unmet: ${rel} is empty; nothing to score`,
-    );
-  }
-  return text;
+  return readSharedCorpus(rel, "a required source for the bug 0434 surface this oracle owns");
 }
-
-/** Line splitting tolerates the page's CRLF terminators. */
-const linesOf = (text: string): readonly string[] => text.split(/\r?\n/);
 
 const RUNTIME_EVENT_CHANNEL =
   "docs/spec_topics/pi-integration-contract/runtime-event-channel.md";

@@ -24,7 +24,7 @@
 // Spec: query/query-failure-and-repair.md (QRY-22, QRY-11), schema-subset.md
 // (SUBS-1), errors-and-results/queryerror-variants.md (ValidationError shape).
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   NOOP_CHECKPOINT,
   liveSignal,
@@ -140,7 +140,7 @@ describe("V13e (Defect B) — production typed-query schema validation (QRY-22)"
     expect(built.followUpCalls).toBe(1);
   });
 
-  it("the lowered Triage schema is the declared shape (conveyed to the model), not the bare type name", () => {
+  it("the lowered Triage schema is the declared shape (conveyed to the model), not the bare type name", async () => {
     const lowered = lowerQueryResponseSchema("Triage", schemaDeclsOf(TRIAGE_SOURCE, "triage.theta"));
     expect(lowered, "QRY-22: parser retains the schema body so it lowers").toBeDefined();
     expect(lowered).toMatchObject({
@@ -156,7 +156,17 @@ describe("V13e (Defect B) — production typed-query schema validation (QRY-22)"
         `observed ${JSON.stringify(properties["category"])}`,
     ).toEqual({ type: "string", enum: ["bug", "feature", "question"] });
     expect(properties["urgent"]).toEqual({ type: "boolean" });
-    // Not the bare type name.
-    expect(lowered).not.toBe("Triage");
+    // The query loop conveys the lowered shape through the validation seam.
+    const { validation } = buildTriageValidation([]);
+    const convey = vi.spyOn(validation, "convey");
+    await runTypedQueryLoop(
+      NOOP_CHECKPOINT,
+      liveSignal(),
+      new RespondingModel({ category: "question", urgent: false }),
+      config(),
+      validation,
+    );
+    expect(convey).toHaveBeenCalledTimes(1);
+    expect(convey).toHaveBeenCalledWith(lowered);
   });
 });

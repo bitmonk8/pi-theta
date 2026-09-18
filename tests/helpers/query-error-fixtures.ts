@@ -7,7 +7,7 @@ import type {
   QueryError,
   TransportError,
 } from "../../src/runtime/query-error";
-import type { ChainHop } from "../../src/runtime/err-note-render";
+import { renderTopLevelErrNote, type ChainHop } from "../../src/runtime/err-note-render";
 import type { InvocationRecord } from "../../src/runtime/invoke-provenance";
 
 export function transport(message: string): TransportError {
@@ -54,4 +54,9 @@ export function record(parentPath: string, callSiteLine: number): InvocationReco
 
 export function hop(calleePath: string, parentPath: string, callSiteLine: number): ChainHop {
   return { calleePath, record: record(parentPath, callSiteLine) };
+}
+
+/** Render a leaf error at the boundary with no chain (the SLSH-3 non-cascade path). */
+export function boundaryNoChain(name: string, error: QueryError): string {
+  return renderTopLevelErrNote({ thetaName: name, error, chain: [] });
 }

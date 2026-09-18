@@ -1,12 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { parseDoc as parse } from "./helpers/e2e-s1";
+import { diagnosticLines, letsOf, onlyFn, parseDoc as parse, trailingExpr } from "./helpers/e2e-s1";
 import {
-  type Block,
-  type Expr,
-  type FnDecl,
-  type LetStmt,
   type MatchExpr,
-  type ThetaDocument,
 } from "../src/parser/theta-document";
 
 // Bug 0006 regression — a leading-`[` line begins a new statement
@@ -38,45 +33,6 @@ import {
 // CONTROL tests pin the neighbouring behaviour the same-line rule must not
 // disturb (same-line index access, open-bracket spill continuation, the
 // bind-then-return workaround).
-
-// --- assertion helpers ----------------------------------------------------
-
-/** `code: message` render of the document's diagnostics, for diff-friendly emptiness assertions. */
-function diagnosticLines(doc: ThetaDocument): string[] {
-  return doc.diagnostics.map((d) => `${d.code}: ${d.message}`);
-}
-
-/**
- * A block's trailing expression under the parser's dual encoding: the
- * promoted `tail`, or the final `ExprStmt`'s expression. The two encodings
- * are runtime-equivalent by design (src/runtime/statement-executor.ts — "the
- * executor's final value [is] invariant to the tail-vs-`expr`-statement
- * encoding"), and a fn-body trailing expression lands as an `ExprStmt` (the
- * block-internal `stmt-sep` is swallowed, so tail promotion's `lineStart`
- * never fires). Asserting through this helper keeps the tests pinned to what
- * bug 0006 is about — the array literal is a STANDALONE trailing expression,
- * not postfix on its predecessor — without over-pinning which encoding the
- * parser picks.
- */
-function trailingExpr(block: Block): Expr | null {
-  if (block.tail !== null) {
-    return block.tail;
-  }
-  const last = block.statements[block.statements.length - 1];
-  return last !== undefined && last.kind === "expr" ? last.expr : null;
-}
-
-/** The single `FnDecl` of the parsed document. */
-function onlyFn(doc: ThetaDocument): FnDecl {
-  const fn = doc.body.statements.find((s): s is FnDecl => s.kind === "fn");
-  expect(fn, "the fn declaration parses into the body").toBeDefined();
-  return fn as FnDecl;
-}
-
-/** The `let` statements of a block, in order. */
-function letsOf(block: Block): LetStmt[] {
-  return block.statements.filter((s): s is LetStmt => s.kind === "let");
-}
 
 // --------------------------------------------------------------------------
 // Regression pins — the shapes the gluing mis-parsed

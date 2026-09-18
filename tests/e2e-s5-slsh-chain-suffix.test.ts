@@ -35,7 +35,7 @@
 // edits, no stubbing.
 
 import { describe, expect, it } from "vitest";
-import { calleeWrap, hop, modelTool, transport } from "./helpers/query-error-fixtures";
+import { boundaryNoChain, calleeWrap, hop, modelTool, transport } from "./helpers/query-error-fixtures";
 import {
   isInvokeCalleeError,
   renderLeafKindNote,
@@ -43,7 +43,6 @@ import {
 } from "../src/runtime/err-note-render";
 import type {
   CodeToolError,
-  QueryError,
 } from "../src/runtime/query-error";
 
 const DASH = "\u2014"; // em-dash, the SLSH-4 template separator.
@@ -58,12 +57,6 @@ const SUFFIX_MARKER = "invoked at";
  */
 function unknownToolCode(tool_name: string, message: string): CodeToolError {
   return { kind: "code_tool", message, tool_name, cause: "unknown_tool" };
-}
-
-/** Render at the boundary with the EMPTY chain — the model-invoked tool-error
- * surface produces no `invoke_callee` hop, so V15g records no invocation. */
-function boundaryNoChain(name: string, error: QueryError): string {
-  return renderTopLevelErrNote({ thetaName: name, error, chain: [] });
 }
 
 // ===========================================================================

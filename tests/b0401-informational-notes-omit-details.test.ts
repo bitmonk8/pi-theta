@@ -69,8 +69,7 @@ import {
   type ThetaExtensionDeps,
 } from "../src/extension/factory";
 import type { ExtensionInstanceWiring } from "../src/extension/production-composition";
-import { ThetaRegistry, type ParsedTheta } from "../src/extension/reload-wiring";
-import { ActiveInvocationRegistry } from "../src/runtime/active-invocation-registry";
+import { ThetaRegistry } from "../src/extension/reload-wiring";
 import {
   driveSlashPromptTurn,
   type SlashPromptDriveDeps,
@@ -78,8 +77,7 @@ import {
 import { parseDoc } from "./helpers/e2e-s1";
 import { binderProducerWithCapture as producerWithCapture } from "./helpers/scripted-live-session-harness";
 import { ctxDouble } from "./helpers/tool-call-dispatch-harness";
-import { invoke, makeHarness, makeTheta } from "./helpers/watch-arming-harness";
-import { FakeClock } from "./helpers/fake-clock";
+import { invoke, makeHarness, makeTheta, makeWiring } from "./helpers/watch-arming-harness";
 
 const SYSTEM_NOTE_CHANNEL = "theta-system-note";
 
@@ -217,20 +215,6 @@ function makeFactoryHarness(): FactoryHarness {
     },
   });
   return { ...harness, notes };
-}
-
-function makeWiring(
-  thetas: readonly ParsedTheta[],
-  registry: ThetaRegistry,
-): ExtensionInstanceWiring {
-  return {
-    thetas,
-    registry,
-    activeInvocations: new ActiveInvocationRegistry(),
-    forwardingSignals: [],
-    clock: new FakeClock(),
-    installHotReload: () => ({ detach: (): void => {} }),
-  };
 }
 
 // ===========================================================================

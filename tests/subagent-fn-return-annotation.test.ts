@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseDoc as parse } from "./helpers/e2e-s1";
+import { diagnosticLines, parseDoc as parse } from "./helpers/e2e-s1";
 import {
   type FnDecl,
   type LetStmt,
@@ -64,11 +64,6 @@ import {
 // verified parsing today), and the plain-`fn` question-scope check.
 
 // --- assertion helpers ----------------------------------------------------
-
-/** `code: message` render of the document's diagnostics, for diff-friendly emptiness assertions. */
-function diagnosticLines(doc: ThetaDocument): string[] {
-  return doc.diagnostics.map((d) => `${d.code}: ${d.message}`);
-}
 
 /** The document's diagnostic codes (for presence/absence-of-code assertions). */
 function codesOf(doc: ThetaDocument): string[] {

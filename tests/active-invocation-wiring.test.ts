@@ -28,6 +28,7 @@
 // pins at the handler level, here wired through the production factory.
 
 import { executorHook, resetExecutorHook } from "./helpers/parked-statement-executor";
+import { makeEntry } from "./helpers/session-shutdown-harness";
 import { bootFactory } from "./helpers/watch-arming-harness";
 import { captureConsoleErrorForEach } from "./helpers/compose-workspace-harness";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -171,16 +172,11 @@ describe("Increment B1 — factory session_shutdown operates on the shared regis
 
   it("(cancel in-flight) aborts an entry with the synthesised CNCL-4 reason and stamps shutdownReason BEFORE the abort", async () => {
     const activeInvocations = new ActiveInvocationRegistry();
-    const thetaAbort = new AbortController();
+    const { entry, settle } = makeEntry("foo", "inv-42", { settleable: true });
+    // Immediately-settling barrier so sub-step 3 does not park.
+    settle();
+    const { thetaAbort } = entry;
     let reasonAtAbort: string | undefined = "<not-observed>";
-    const entry: ActiveInvocationEntry = {
-      thetaAbort,
-      // Immediately-settling barrier so sub-step 3 does not park.
-      disposeBarrier: Promise.resolve(),
-      shutdownReason: undefined,
-      theta: "foo",
-      invocationId: "inv-42",
-    };
     // Record `shutdownReason` at the instant of abort: sub-step 2 must stamp the
     // field BEFORE calling `thetaAbort.abort(reason)`.
     thetaAbort.signal.addEventListener("abort", () => {
@@ -202,14 +198,8 @@ describe("Increment B1 — factory session_shutdown operates on the shared regis
   it("(bounded await) a never-settling disposeBarrier is bounded by the cap, emits one reload-teardown-timeout naming /<theta>:<invocationId>, and still proceeds", async () => {
     const clock = new FakeClock();
     const activeInvocations = new ActiveInvocationRegistry();
-    const entry: ActiveInvocationEntry = {
-      thetaAbort: new AbortController(),
-      // Never settles — forces the sub-step 3 cap to fire.
-      disposeBarrier: new Promise<void>(() => {}),
-      shutdownReason: undefined,
-      theta: "foo",
-      invocationId: "inv-stuck",
-    };
+    // Never settles — forces the sub-step 3 cap to fire.
+    const { entry } = makeEntry("foo", "inv-stuck");
     activeInvocations.add(entry);
 
     const { harness, registry } = await bootFactory(clock, { activeInvocations });

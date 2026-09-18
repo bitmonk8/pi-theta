@@ -15,14 +15,12 @@ import {
   type LowerableSchema,
 } from "../src/parser/body-type-lowering";
 import { hoistInlineObjectType, parseParams, type LowerCtx } from "../src/parser/params";
-import {
-  AjvSchemaValidator,
-  type LoweredSchema,
-} from "../src/seams/schema-validator";
+import type { LoweredSchema } from "../src/seams/schema-validator";
 import type { SchemaDecl, ThetaDocument } from "../src/parser/theta-document";
 import { defineRecordField, type ThetaValue } from "../src/runtime/value";
 import { parseDoc } from "./helpers/e2e-s1";
-import { jsonSlug, hasOwn, prototypeReport, range, loweredParams } from "./helpers/proto-named-harness";
+import { hasOwn, prototypeReport, range, loweredParams } from "./helpers/proto-named-harness";
+import { ajv as validator } from "./helpers/scripted-live-session-harness";
 import { readCorpus } from "./helpers/corpus-reader";
 
 // Bug 0210 — the five record-write sites bug 0119's six-site fix left outside its
@@ -134,11 +132,6 @@ import { readCorpus } from "./helpers/corpus-reader";
 // ===========================================================================
 // Shared harness.
 // ===========================================================================
-
-/** A real AJV validator (the `V8c` seam), configured exactly as production is. */
-function validator(): AjvSchemaValidator {
-  return new AjvSchemaValidator({ emit: () => {}, slugOf: jsonSlug });
-}
 
 /** The `properties` table of a lowered object document, or a loud failure. */
 function propertiesOf(document: Record<string, unknown>, what: string): object {

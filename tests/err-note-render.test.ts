@@ -19,7 +19,7 @@
 // throw.
 
 import { describe, expect, it } from "vitest";
-import { calleeWrap, codeTool, hop, modelTool, transport } from "./helpers/query-error-fixtures";
+import { boundaryNoChain as boundary, calleeWrap, codeTool, hop, modelTool, transport } from "./helpers/query-error-fixtures";
 import {
   renderLeafKindNote,
   renderTopLevelErrNote,
@@ -88,11 +88,6 @@ function unlistedKind(kind: string, message: string): QueryError {
   // the union structurally (matching `CancelledError`'s field set) with an
   // unlisted tag — the SNK-k catch-all input.
   return { kind, message } as QueryError;
-}
-
-/** Render a leaf error at the boundary with no chain (the SLSH-3 non-cascade path). */
-function boundary(name: string, error: QueryError): string {
-  return renderTopLevelErrNote({ thetaName: name, error, chain: [] });
 }
 
 // ===========================================================================

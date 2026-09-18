@@ -504,8 +504,8 @@ describe("core-exec: `match` expression in the body grammar", () => {
   });
 });
 
-describe("core-exec: postfix `?` still terminates and composes with access", () => {
-  it("wraps a `.field` chain result under `?` correctly (foo()?.bar order)", () => {
+describe("core-exec: postfix `?` on a bare call", () => {
+  it("wraps a bare call in a TryExpr", () => {
     const doc = parse(["let s = sentiment(text)?"].join("\n"));
     const let_ = doc.body.statements.find((s): s is LetStmt => s.kind === "let");
     const init = let_?.init as TryExpr | undefined;

@@ -23,27 +23,16 @@
 // class instance whose remaining methods must keep their original `this`.
 
 import { shutdownDeps } from "./helpers/session-shutdown-harness";
+import { executorHook, resetExecutorHook } from "./helpers/parked-statement-executor";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ModelRegistry } from "@earendil-works/pi-coding-agent";
 
 // The DRIVE seam's body call is the "did the theta run?" observable; parking it
 // is not needed here (the binder is the parked step), but it must be observable
 // and must not require a live session.
-const executorHook = vi.hoisted(() => ({
-  calls: 0,
-}));
 vi.mock("../src/runtime/statement-executor", async (importOriginal) => {
-  const actual =
-    await importOriginal<typeof import("../src/runtime/statement-executor")>();
-  return {
-    ...actual,
-    executeBody: (): Promise<unknown> => {
-      executorHook.calls += 1;
-      // A `fail` outcome routes the prompt surface down the branch that never
-      // reads `sessionManager`, keeping the harness session-free.
-      return Promise.resolve({ outcome: "fail", error: null });
-    },
-  };
+  const { mockStatementExecutor } = await import("./helpers/parked-statement-executor");
+  return mockStatementExecutor(importOriginal);
 });
 
 import { createProductionProducerDeps } from "../src/extension/production-theta-producer";
@@ -118,6 +107,14 @@ async function dispatchParkedInBinder(): Promise<ParkedDispatch> {
     },
   }) as ThetaProducerDeps;
 
+  let calls = 0;
+  executorHook.impl = (): Promise<unknown> => {
+    calls += 1;
+    // A `fail` outcome routes the prompt surface down the branch that never
+    // reads `sessionManager`, keeping the harness session-free.
+    return Promise.resolve({ outcome: "fail", error: null });
+  };
+
   const run = composeThetaFixture(promptTheta(), deps).run("", driveCtx());
   await tick();
 
@@ -129,7 +126,7 @@ async function dispatchParkedInBinder(): Promise<ParkedDispatch> {
     "harness precondition unmet: the dispatch never reached the parked binder",
   ).toBeDefined();
   expect(
-    executorHook.calls,
+    calls,
     "harness precondition unmet: the theta body ran before the binder resolved",
   ).toBe(0);
 
@@ -138,7 +135,7 @@ async function dispatchParkedInBinder(): Promise<ParkedDispatch> {
     run,
     thetaAbortSeen: () => thetaAbortSeen,
     releaseBinder,
-    bodyCalls: () => executorHook.calls,
+    bodyCalls: () => calls,
   };
 }
 
@@ -152,9 +149,7 @@ async function drivePeakShutdown(registry: ActiveInvocationRegistry): Promise<vo
   await done;
 }
 
-afterEach(() => {
-  executorHook.calls = 0;
-});
+afterEach(resetExecutorHook);
 
 describe("bug 0074 — session_shutdown inside the awaited binder window", () => {
   it("(a) the registry entry spans the binder call: size()===1 while the invocation is parked in the binder", async () => {

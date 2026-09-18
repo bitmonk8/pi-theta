@@ -1,13 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { parseDoc as parse } from "./helpers/e2e-s1";
+import { diagnosticLines, letsOf, onlyFn, parseDoc as parse, trailingExpr } from "./helpers/e2e-s1";
 import {
   type Block,
   type CallExpr,
-  type Expr,
-  type FnDecl,
-  type LetStmt,
   type ReassignStmt,
-  type ThetaDocument,
 } from "../src/parser/theta-document";
 
 // Bug 0015 regression — after a postfix-`?` line, a keyword-free statement
@@ -53,31 +49,6 @@ import {
 
 // --- assertion helpers ----------------------------------------------------
 
-/** `code: message` render of the document's diagnostics, for diff-friendly emptiness assertions. */
-function diagnosticLines(doc: ThetaDocument): string[] {
-  return doc.diagnostics.map((d) => `${d.code}: ${d.message}`);
-}
-
-/**
- * A block's trailing expression under the parser's dual encoding: the
- * promoted `tail`, or the final `ExprStmt`'s expression. The two encodings
- * are runtime-equivalent by design (see the bug-0006 regression file /
- * src/runtime/statement-executor.ts), and which one the parser picks differs
- * between top level (tail promotion fires on a line-start final form) and a
- * braced body (the block-internal `stmt-sep` is swallowed). Asserting through
- * this helper keeps the tests pinned to what bug 0015 is about — the ternary
- * is a STANDALONE trailing statement, not consequent material for the
- * preceding postfix `?` — without over-pinning which encoding the parser
- * picks.
- */
-function trailingExpr(block: Block): Expr | null {
-  if (block.tail !== null) {
-    return block.tail;
-  }
-  const last = block.statements[block.statements.length - 1];
-  return last !== undefined && last.kind === "expr" ? last.expr : null;
-}
-
 /**
  * Statement kinds with the dual-encoded trailing expression normalised away:
  * when the block has no promoted `tail` and its final statement is an
@@ -92,23 +63,11 @@ function stmtKindsBeforeTail(block: Block): string[] {
     : kinds;
 }
 
-/** The `let` statements of a block, in order. */
-function letsOf(block: Block): LetStmt[] {
-  return block.statements.filter((s): s is LetStmt => s.kind === "let");
-}
-
 /** The `reassign` statements of a block, in order. */
 function reassignsOf(block: Block): ReassignStmt[] {
   return block.statements.filter(
     (s): s is ReassignStmt => s.kind === "reassign",
   );
-}
-
-/** The single `FnDecl` of the parsed document. */
-function onlyFn(doc: ThetaDocument): FnDecl {
-  const fn = doc.body.statements.find((s): s is FnDecl => s.kind === "fn");
-  expect(fn, "the fn declaration parses into the body").toBeDefined();
-  return fn as FnDecl;
 }
 
 /**

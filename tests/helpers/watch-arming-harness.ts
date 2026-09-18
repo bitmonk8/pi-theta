@@ -201,6 +201,21 @@ export function makeTheta(
   };
 }
 
+/** Fixed factory wiring with fresh invocation state and clock, and no-op hot reload. */
+export function makeWiring(
+  thetas: readonly ParsedTheta[],
+  registry: ThetaRegistry,
+): ExtensionInstanceWiring {
+  return {
+    thetas,
+    registry,
+    activeInvocations: new ActiveInvocationRegistry(),
+    forwardingSignals: [],
+    clock: new FakeClock(),
+    installHotReload: () => ({ detach: (): void => {} }),
+  };
+}
+
 export interface FactoryBoot {
   readonly harness: Harness;
   readonly registry: ThetaRegistry;
@@ -333,14 +348,8 @@ export async function bootRegistryHarness(
   const deps: ThetaExtensionDeps = {
     fixtures: [],
     ...options,
-    composeInstance: async (): Promise<ExtensionInstanceWiring> => ({
-      thetas,
-      registry,
-      activeInvocations: new ActiveInvocationRegistry(),
-      forwardingSignals: [],
-      clock: new FakeClock(),
-      installHotReload: () => ({ detach: (): void => {} }),
-    }),
+    composeInstance: async (): Promise<ExtensionInstanceWiring> =>
+      makeWiring(thetas, registry),
   };
   createThetaExtension(deps)(harness.pi);
   await harness.fireSessionStart();

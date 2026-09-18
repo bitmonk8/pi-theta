@@ -31,7 +31,7 @@
 // builder is a sentinel; the arming decision is a no-op; the guard is inverted;
 // the guarded-handler wrapper does not guard).
 
-import { sinkSpy, shutdownDeps, eventWith, makeEntry } from "./helpers/session-shutdown-harness";
+import { sinkSpy, shutdownDeps, eventWith, makeEntry, driveShutdown } from "./helpers/session-shutdown-harness";
 import { describe, expect, it, vi } from "vitest";
 import { FakeClock } from "./helpers/fake-clock";
 import {
@@ -39,10 +39,8 @@ import {
 } from "../src/runtime/active-invocation-registry";
 import { ThetaRegistry } from "../src/extension/reload-wiring";
 import {
-  runSessionShutdown,
   RUNTIME_DEGRADED_CODE,
   type SessionShutdownDeps,
-  type SessionShutdownEventLike,
 } from "../src/extension/session-shutdown";
 import {
   armSessionSwapTripwireForReason,
@@ -116,16 +114,6 @@ function makeShutdownHarness(): ShutdownHarness {
     sink,
   });
   return { deps, registry, clock, sink };
-}
-
-/** Drive a teardown to completion even when sub-step 3 never settles. */
-async function driveShutdown(
-  event: SessionShutdownEventLike,
-  harness: ShutdownHarness,
-): Promise<void> {
-  const done = runSessionShutdown(event, harness.deps);
-  harness.clock.advance(2000 + 3);
-  await done;
 }
 
 // ============================================================================

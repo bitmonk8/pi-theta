@@ -35,11 +35,13 @@
 import {
   watcherSpy,
   signalSpy,
+  sinkSpy,
   makeEntry,
   healthyInventory,
   type ControllableEntry,
   shutdownDeps,
   eventWith,
+  driveShutdown,
 } from "./helpers/session-shutdown-harness";
 import { assert, describe, expect, it, vi } from "vitest";
 import { FakeClock } from "./helpers/fake-clock";
@@ -59,10 +61,8 @@ import {
   synthesiseSessionShutdownReason,
   teardownStepFailedDiagnostic,
   TEARDOWN_STEP_CALL_LABELS,
-  type EmissionSink,
   type NestedShapeEmission,
   type SessionShutdownDeps,
-  type SessionShutdownEventLike,
   CANCELLED_BY_SESSION_SHUTDOWN_CODE,
   RELOAD_TEARDOWN_TIMEOUT_CODE,
   RUNTIME_DEGRADED_CODE,
@@ -80,28 +80,6 @@ const cancelledMessage = (name: string, reason: string): string =>
   `theta /${name} cancelled by session shutdown (${reason})`;
 
 // --- helpers ----------------------------------------------------------------
-
-function sinkSpy(
-  options: { serialiseThrows?: boolean; emitThrows?: boolean } = {},
-): EmissionSink & {
-  emit: ReturnType<typeof vi.fn>;
-  serialise: ReturnType<typeof vi.fn>;
-} {
-  return {
-    emit: vi.fn((line: unknown) => {
-      void line;
-      if (options.emitThrows === true) {
-        throw new Error("console.error boom");
-      }
-    }),
-    serialise: vi.fn((diagnostic: Diagnostic) => {
-      if (options.serialiseThrows === true) {
-        throw new Error("serialiser boom");
-      }
-      return JSON.stringify(diagnostic);
-    }),
-  };
-}
 
 interface HarnessOverrides {
   readonly entries?: readonly ControllableEntry[];
@@ -159,17 +137,6 @@ function makeHarness(overrides: HarnessOverrides = {}): Harness {
     forwardingSignals,
     sink,
   };
-}
-
-/** Drive a teardown that must complete even when sub-step 3 never settles. */
-async function driveShutdown(
-  event: SessionShutdownEventLike,
-  harness: Harness,
-): Promise<void> {
-  const done = runSessionShutdown(event, harness.deps);
-  // Fire the bounded-await cap so a never-settling sub-step 3 does not hang.
-  harness.clock.advance(SHUTDOWN_AWAIT_CAP_MS + 3);
-  await done;
 }
 
 // ============================================================================

@@ -13,7 +13,9 @@ import type {
   SessionShutdownEventLike,
   TeardownAwareDebouncer,
 } from "../../src/extension/session-shutdown";
+import { runSessionShutdown, SHUTDOWN_AWAIT_CAP_MS } from "../../src/extension/session-shutdown";
 import type { Clock } from "../../src/seams/clock";
+import type { FakeClock } from "./fake-clock";
 
 /** A registry entry whose `disposeBarrier` is externally settleable. */
 export interface ControllableEntry {
@@ -69,15 +71,25 @@ export function fakeDebouncerDep(
 
 // The sink serialises via JSON.stringify, so each `emit` call carries the single
 // serialised diagnostic line — parseable back to its `details` shape.
-export function sinkSpy(): EmissionSink & {
+export function sinkSpy(
+  options: { serialiseThrows?: boolean; emitThrows?: boolean } = {},
+): EmissionSink & {
   emit: ReturnType<typeof vi.fn>;
   serialise: ReturnType<typeof vi.fn>;
 } {
   return {
     emit: vi.fn((line: unknown) => {
       void line;
+      if (options.emitThrows === true) {
+        throw new Error("console.error boom");
+      }
     }),
-    serialise: vi.fn((diagnostic: Diagnostic) => JSON.stringify(diagnostic)),
+    serialise: vi.fn((diagnostic: Diagnostic) => {
+      if (options.serialiseThrows === true) {
+        throw new Error("serialiser boom");
+      }
+      return JSON.stringify(diagnostic);
+    }),
   };
 }
 
@@ -114,6 +126,17 @@ export function shutdownDeps(
     },
     ...overrides,
   };
+}
+
+/** Drive a teardown that must complete even when sub-step 3 never settles. */
+export async function driveShutdown(
+  event: SessionShutdownEventLike,
+  harness: { readonly deps: SessionShutdownDeps; readonly clock: FakeClock },
+): Promise<void> {
+  const done = runSessionShutdown(event, harness.deps);
+  // Fire the bounded-await cap so a never-settling sub-step 3 does not hang.
+  harness.clock.advance(SHUTDOWN_AWAIT_CAP_MS + 3);
+  await done;
 }
 
 export const eventWith = (reason: unknown): SessionShutdownEventLike => ({ reason });

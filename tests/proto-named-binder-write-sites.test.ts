@@ -1,18 +1,16 @@
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import type { Api, Model, ProviderResponse } from "@earendil-works/pi-ai";
 import { fillDefaultsAndRevalidate } from "../src/binder/defaulting";
 import { buildBinderEnvelopeSchema } from "../src/binder/binder-envelope";
 import { buildBinderCompleteCall } from "../src/binder/binder-inference";
 import {
-  AjvSchemaValidator,
   type CompiledValidator,
   type LoweredSchema,
 } from "../src/seams/schema-validator";
 import { renderArgumentEcho, type EchoType } from "../src/render/argument-echo";
 import type { ThetaValue } from "../src/runtime/value";
-import { jsonSlug, hasOwn, prototypeReport, loweredParams, type Field } from "./helpers/proto-named-harness";
+import { hasOwn, prototypeReport, loweredParams, type Field } from "./helpers/proto-named-harness";
+import { ajv as validator } from "./helpers/scripted-live-session-harness";
 import { readCorpus } from "./helpers/corpus-reader";
 
 // Bug 0214 — the three writes/reads keyed by an author-controlled `params:` wire
@@ -92,15 +90,6 @@ import { readCorpus } from "./helpers/corpus-reader";
 //   3-SRC  the production read's shape                     → no own-key guard on the read
 //   3a     the echo for an absent `__proto__` field        → RangeError from `renderArgumentEcho`
 //   3b     the echo for an absent `toString` field         → the same RangeError
-
-// ===========================================================================
-// Shared harness.
-// ===========================================================================
-
-/** A real AJV validator (the `V8c` seam), configured exactly as production is. */
-function validator(): AjvSchemaValidator {
-  return new AjvSchemaValidator({ emit: () => {}, slugOf: jsonSlug });
-}
 
 // ===========================================================================
 // (1) `fillDefaultsAndRevalidate` — the fill-if-absent write.
@@ -315,9 +304,9 @@ function okArmArgs(document: Record<string, unknown>, what: string): Record<stri
 }
 
 /** `src/binder/binder-inference.ts`, read as text (cell (2-SRC) only). */
-const BINDER_INFERENCE_SOURCE = readFileSync(
-  fileURLToPath(new URL("../src/binder/binder-inference.ts", import.meta.url)),
-  "utf8",
+const BINDER_INFERENCE_SOURCE = readCorpus(
+  "src/binder/binder-inference.ts",
+  "cell (2-SRC)'s source for the inliner's copy walk",
 );
 
 /**

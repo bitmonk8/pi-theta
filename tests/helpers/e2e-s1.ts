@@ -331,6 +331,42 @@ export function diagCodes(doc: ThetaDocument): string[] {
   return doc.diagnostics.map((d) => `${d.severity} ${d.code}`);
 }
 
+/** `code: message` render of the document's diagnostics, for diff-friendly emptiness assertions. */
+export function diagnosticLines(doc: ThetaDocument): string[] {
+  return doc.diagnostics.map((d) => `${d.code}: ${d.message}`);
+}
+
+/**
+ * A block's trailing expression under the parser's dual encoding: the
+ * promoted `tail`, or the final `ExprStmt`'s expression. The two encodings
+ * are runtime-equivalent by design (src/runtime/statement-executor.ts — "the
+ * executor's final value [is] invariant to the tail-vs-`expr`-statement
+ * encoding"), and a fn-body trailing expression lands as an `ExprStmt` (the
+ * block-internal `stmt-sep` is swallowed, so tail promotion's `lineStart`
+ * never fires). Asserting through this helper keeps statement-boundary tests
+ * pinned to a standalone trailing expression without over-pinning which
+ * encoding the parser picks.
+ */
+export function trailingExpr(block: Block): Expr | null {
+  if (block.tail !== null) {
+    return block.tail;
+  }
+  const last = block.statements[block.statements.length - 1];
+  return last !== undefined && last.kind === "expr" ? last.expr : null;
+}
+
+/** The single `FnDecl` of the parsed document. */
+export function onlyFn(doc: ThetaDocument): FnDecl {
+  const fn = doc.body.statements.find((s): s is FnDecl => s.kind === "fn");
+  expect(fn, "the fn declaration parses into the body").toBeDefined();
+  return fn as FnDecl;
+}
+
+/** The `let` statements of a block, in order. */
+export function letsOf(block: Block): LetStmt[] {
+  return block.statements.filter((s): s is LetStmt => s.kind === "let");
+}
+
 /** The sole top-level `let` statement bound to `name`, if the body declares one. */
 export function findLetStmt(doc: ThetaDocument, name: string): LetStmt | undefined {
   return doc.body.statements.find(
