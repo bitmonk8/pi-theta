@@ -1,15 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { lexTheta, type LexResult, type Token } from "../src/lexer/lexer";
+import type { Token } from "../src/lexer/lexer";
 import {
   checkIntegerNarrowing,
   validatePathLiteral,
 } from "../src/lexer/literals";
 import type { Diagnostic, SourceRange } from "../src/diagnostics/diagnostic";
-import {
-  type SystemNoteChannelDeps,
-  type SystemNoteDetails,
-  type SystemNoteSender,
-} from "../src/extension/system-note-channel";
+import { lexWithSeam as lex, deliveredDiagnostics, type SeamFixture } from "./helpers/e2e-s1";
 
 // V1b-T — failing tests for the paired `V1b` "string, number, and path
 // literals" implementation.
@@ -40,44 +36,6 @@ import {
 // absent diagnostic), not on a compile error, missing fixture, or harness throw.
 
 // --- recording channel double (V7d seam) ---------------------------------
-
-interface SeamFixture {
-  readonly deps: SystemNoteChannelDeps;
-  readonly delivered: Diagnostic[][];
-}
-
-function seam(): SeamFixture {
-  const delivered: Diagnostic[][] = [];
-  const pi: SystemNoteSender = {
-    sendMessage: (message): void => {
-      const details: SystemNoteDetails = message.details!;
-      if ("diagnostics" in details) {
-        delivered.push([...details.diagnostics]);
-      }
-    },
-  };
-  const deps: SystemNoteChannelDeps = {
-    pi,
-    ui: { notify: (): void => {} },
-    emitDiagnostic: (): void => {},
-  };
-  return { deps, delivered };
-}
-
-/** Lex a UTF-8 string source; return the lex result and the seam fixture. */
-function lex(src: string): { result: LexResult; fixture: SeamFixture } {
-  const fixture = seam();
-  const result = lexTheta(
-    { path: "test.theta", bytes: new TextEncoder().encode(src) },
-    fixture.deps,
-  );
-  return { result, fixture };
-}
-
-/** Every diagnostic the lexer delivered through the V7d seam, flattened. */
-function deliveredDiagnostics(fixture: SeamFixture): Diagnostic[] {
-  return fixture.delivered.flat();
-}
 
 /** The first delivered diagnostic carrying `code`, if any. */
 function deliveredCode(fixture: SeamFixture, code: string): Diagnostic | undefined {

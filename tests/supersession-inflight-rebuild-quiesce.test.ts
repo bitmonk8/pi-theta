@@ -267,7 +267,6 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { parseRegistry, registryMessage } from "../tools/code-registry/index.js";
 import type {
   ExtensionAPI,
-  ExtensionCommandContext,
   ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
@@ -291,13 +290,9 @@ import type {
   SystemNoteSender,
 } from "../src/extension/system-note-channel";
 import { FakeClock } from "./helpers/fake-clock";
-import { FakeFileWatcher } from "./helpers/fake-file-watcher";
+import { CountingFakeFileWatcher, waitFor } from "./helpers/fake-file-watcher";
+import { watcherAt, wiringAt, dispatchRegistered, greetShuttingDownNotes } from "./helpers/watch-arming-harness";
 import type { TimerHandle } from "../src/seams/clock";
-import type {
-  FileWatchEvent,
-  OnWatchTerminate,
-  Unsubscribe,
-} from "../src/seams/file-watcher";
 
 /**
  * The supersession path's own cap (§Fix step 3). Reuses the teardown's value —
@@ -390,9 +385,6 @@ function quiesceFailedMessage(error: string): string {
   );
 }
 
-/** The drain-state arm-(b) note for `/greet` (`drain-state.ts` `shuttingDownNote`). */
-const GREET_SHUTTING_DOWN_NOTE = "theta /greet: extension shutting down";
-
 /** Prefix of the watcher structural-change note (`reload-wiring.ts`). */
 const STRUCTURAL_NOTE_PREFIX = "theta watcher: ";
 
@@ -412,15 +404,6 @@ const REDISCOVERED_NAMES = ["greet", "third"] as const;
  * An unbounded await would exhaust this instead of hanging the whole file.
  */
 const SETTLE_BOUND_MS = 2000;
-
-/**
- * Bound (real ms) on awaiting a dispatched slash handler. The arm-(b)
- * short-circuit settles immediately; POST-fix the same dispatch enters a REAL
- * prompt-mode theta run against the minimal fake command ctx, whose settling
- * this suite must not depend on — the note channel carries the discriminator
- * either way (mirrors tests/double-session-start-supersession.test.ts).
- */
-const DISPATCH_SETTLE_CAP_MS = 1200;
 
 /**
  * The three throw shapes the quiesce arm's ONE try/catch has to span (tests
@@ -492,26 +475,6 @@ function faultingHandle(
   };
 }
 
-/** A per-compose counting watcher: arm/detach is observable per generation. */
-class CountingFakeFileWatcher extends FakeFileWatcher {
-  watchCalls = 0;
-  attached = false;
-
-  override watch(
-    roots: readonly string[],
-    handler: (event: FileWatchEvent) => void,
-    onTerminate?: OnWatchTerminate,
-  ): Unsubscribe {
-    this.watchCalls += 1;
-    this.attached = true;
-    const inner = super.watch(roots, handler, onTerminate);
-    return () => {
-      this.attached = false;
-      inner();
-    };
-  }
-}
-
 /**
  * The one shared `FakeClock`, recording every armed timer window so a test can
  * prove the debounce window really was armed (test 3) and that the post-fix
@@ -561,11 +524,6 @@ interface ReRegisterEvent {
   readonly outgoingRegistryDrained: boolean;
   /** `registrations.length` immediately before the bridge call. */
   readonly registrationsBefore: number;
-}
-
-/** The registered pi command options shape the dispatch helper invokes against. */
-interface RegisteredCommand {
-  readonly handler: (args: string, ctx: ExtensionCommandContext) => unknown;
 }
 
 interface Harness {
@@ -833,23 +791,6 @@ function makeBoot(workspace: string, thetaDir: string, options: BootOptions): Bo
   };
 }
 
-/** Loud indexed access (noUncheckedIndexedAccess + fail-loudly on setup faults). */
-function watcherAt(b: Boot, index: number): CountingFakeFileWatcher {
-  const watcher = b.watchers[index];
-  if (watcher === undefined) {
-    throw new Error(`compose #${index + 1} never created its watcher`);
-  }
-  return watcher;
-}
-
-function wiringAt(b: Boot, index: number): ExtensionInstanceWiring {
-  const wiring = b.wirings[index];
-  if (wiring === undefined) {
-    throw new Error(`compose #${index + 1} never resolved its wiring`);
-  }
-  return wiring;
-}
-
 /** One generation's registry key set, sorted — the publish-observable. */
 function registryKeys(b: Boot, index: number): readonly string[] {
   return [...wiringAt(b, index).registry.snapshot().keys()].sort();
@@ -860,51 +801,8 @@ function structuralNotes(b: Boot): readonly RecordedNote[] {
   return b.harness.notes.filter((n) => n.content.startsWith(STRUCTURAL_NOTE_PREFIX));
 }
 
-/** All arm-(b) shutting-down notes for `/greet`. */
-function greetShuttingDownNotes(b: Boot): readonly RecordedNote[] {
-  return b.harness.notes.filter((n) => n.content === GREET_SHUTTING_DOWN_NOTE);
-}
-
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-/** Poll a real-timer-bounded condition (the compose path does real fs I/O). */
-async function waitFor(cond: () => boolean, label: string): Promise<void> {
-  for (let i = 0; i < 400; i++) {
-    if (cond()) return;
-    await sleep(5);
-  }
-  throw new Error(`timeout waiting for ${label}`);
-}
-
-/**
- * Invoke the pi-registered handler for `/<name>` and await its settling,
- * bounded by `DISPATCH_SETTLE_CAP_MS` (see the constant's rationale). The note
- * channel carries the real discriminator; the returned outcome is recorded only
- * to prove the dispatch was reached.
- */
-async function dispatchRegistered(
-  b: Boot,
-  name: string,
-): Promise<"resolved" | "rejected" | "timed-out"> {
-  const options = b.harness.commands.get(name) as RegisteredCommand | undefined;
-  if (options === undefined) {
-    // No silent skipping (AGENTS.md): a missing registration is a setup fault.
-    throw new Error(`no command registered for /${name}`);
-  }
-  const settled = Promise.resolve(
-    options.handler("", {} as unknown as ExtensionCommandContext),
-  ).then(
-    () => "resolved" as const,
-    () => "rejected" as const,
-  );
-  return Promise.race([
-    settled,
-    new Promise<"timed-out">((resolve) =>
-      setTimeout(() => resolve("timed-out"), DISPATCH_SETTLE_CAP_MS),
-    ),
-  ]);
 }
 
 /** What the supersession pass looked like at the instant start #2 returned. */
@@ -1151,10 +1049,10 @@ describe("bug 0034 — the supersession pass never awaits handle.whenIdle() (reg
     // answering the drain-state arm-(b) note. At HEAD the name is bound to
     // generation 1's drained registry and answers "extension shutting down" on
     // a live session.
-    const shuttingDownBefore = greetShuttingDownNotes(b).length;
-    const outcome = await dispatchRegistered(b, "greet");
+    const shuttingDownBefore = greetShuttingDownNotes(b.harness).length;
+    const outcome = await dispatchRegistered(b.harness, "greet");
     expect.soft(
-      greetShuttingDownNotes(b).length - shuttingDownBefore,
+      greetShuttingDownNotes(b.harness).length - shuttingDownBefore,
       "(b) dispatching a surviving name must not answer the arm-(b) shutting-down note",
     ).toBe(0);
     expect.soft(

@@ -1,6 +1,4 @@
-import { readFileSync } from "node:fs";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { corpus, section as corpusSection, flat } from "./helpers/corpus-reader";
 import { describe, expect, it } from "vitest";
 import { codes, hasCode, parseDoc } from "./helpers/e2e-s1";
 
@@ -59,47 +57,14 @@ import { codes, hasCode, parseDoc } from "./helpers/e2e-s1";
 // row (code-registry-parse.md) names no access form in either cell, so no
 // registry edit is owed and DIAG-4 stays untouched.
 
-const REPO_ROOT = fileURLToPath(new URL("..", import.meta.url));
-
 // ===========================================================================
 // Corpus readers. Every failure names its unmet precondition and throws; a
 // missing file, a renamed heading or a vanished bullet must never let a
 // conformance cell range over an empty string and pass vacuously.
 // ===========================================================================
 
-/** A corpus file's bytes, read off the live tree so no cell asserts a snapshot. */
-function corpus(rel: string): string {
-  const text = readFileSync(path.join(REPO_ROOT, rel), "utf8");
-  if (text.trim().length === 0) {
-    throw new Error(
-      `harness: ${rel} read empty, so the section this cell scopes to does not exist — a loud failure, never a vacuous pass`,
-    );
-  }
-  return text;
-}
-
-/**
- * The body of a `##`-headed section, heading line included, up to the next
- * `## ` heading. Region-scoped so no cell below can be satisfied by the
- * required token appearing in unrelated prose elsewhere on the page — both
- * grammar pages say "member access" in several other sections.
- */
-function section(text: string, heading: string, rel: string): string {
-  const start = text.indexOf(`\n${heading}\n`);
-  if (start < 0) {
-    throw new Error(
-      `harness: ${rel} carries no heading ${JSON.stringify(heading)}, so the forbidden-inside-a-literal region this cell scopes to does not exist`,
-    );
-  }
-  const rest = text.slice(start + 1 + heading.length);
-  const end = rest.indexOf("\n## ");
-  return heading + (end < 0 ? rest : rest.slice(0, end));
-}
-
-/** Whitespace-collapsed, lowercased text — wording and wrapping are the editor's. */
-function flat(text: string): string {
-  return text.replace(/\s+/g, " ").trim().toLowerCase();
-}
+const section = (text: string, heading: string, rel: string): string =>
+  corpusSection(text, heading, rel, "forbidden-inside-a-literal");
 
 /** A file's line count, trailing newline not counted as a line. */
 function lineCount(text: string): number {

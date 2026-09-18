@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  createTypePositionMatrix,
   expectCaptured,
   expectRows,
   loadRowFromBody,
@@ -195,120 +196,7 @@ function paramsTheta(label: string, typeText: string): LoadRow {
 // The nine type-reference positions.
 // ===========================================================================
 
-/** One probed position: its fixture, the declarations it captures, and its emission range. */
-interface Position {
-  readonly id: string;
-  /** The fixture, in the shape bug 0281 §Reproduction spells it. */
-  readonly build: (spelling: string) => LoadRow;
-  /** The declarations the fixture captures, asserted before any disposition. */
-  readonly decls: readonly string[];
-  /**
-   * The `line:column` this position emits at. Each is MEASURED, at this
-   * position, over the same fixture shape carrying the BARE spelling of the
-   * head under test — the reading an applied head converges on. The range is
-   * therefore fixed by the position's existing sibling emission rather than
-   * chosen here.
-   */
-  readonly at: string;
-}
-
-const POSITIONS: readonly Position[] = [
-  {
-    id: "query-T-head",
-    build: (sp) => theta(`query-T-head (${sp})`, `let r = @<${sp}>\`q\`\n"ok"`),
-    decls: [],
-    at: "6:9",
-  },
-  {
-    id: "query-E-arg",
-    build: (sp) => theta(`query-E-arg (${sp})`, `let r = @<Result<integer, ${sp}>>\`q\`\n"ok"`),
-    decls: [],
-    at: "6:9",
-  },
-  {
-    id: "fn-return",
-    build: (sp) => theta(`fn-return (${sp})`, `fn step(): ${sp} { Ok(1) }\n"ok"`),
-    decls: [],
-    at: "6:1",
-  },
-  {
-    id: "fn-param",
-    build: (sp) => theta(`fn-param (${sp})`, `fn step(p: ${sp}): integer { 1 }\n"ok"`),
-    decls: [],
-    at: "6:1",
-  },
-  {
-    id: "let-annot",
-    build: (sp) => theta(`let-annot (${sp})`, `let a: ${sp} = Ok(1)\n"ok"`),
-    decls: [],
-    at: "6:1",
-  },
-  {
-    id: "invoke-ascr",
-    build: (sp) => theta(`invoke-ascr (${sp})`, `let r = invoke<${sp}>("./x.theta", "hi")\n"ok"`),
-    decls: [],
-    at: "6:9",
-  },
-  {
-    id: "schema-field",
-    build: (sp) => theta(`schema-field (${sp})`, `schema S { f: ${sp} }\n"ok"`),
-    decls: ["S"],
-    at: "6:1",
-  },
-  {
-    id: "schema-alias",
-    build: (sp) => theta(`schema-alias (${sp})`, `schema S = ${sp}\n"ok"`),
-    decls: ["S"],
-    at: "6:1",
-  },
-  {
-    id: "params-field",
-    build: (sp) => paramsTheta(`params-field (${sp})`, sp),
-    decls: [],
-    at: "5:6",
-  },
-];
-
-/** Every (position, spelling) pair, in table order, with its position's own facts. */
-function cells(spellings: readonly string[]): {
-  position: Position;
-  spelling: string;
-  head: string;
-  row: LoadRow;
-}[] {
-  return POSITIONS.flatMap((position) =>
-    spellings.map((spelling) => ({
-      position,
-      spelling,
-      head: spelling.slice(0, spelling.indexOf("<")),
-      row: position.build(spelling),
-    })),
-  );
-}
-
-/** Assert one whole matrix's captures, ordered codes, ordered lines and registration. */
-function expectMatrix<T extends { position: Position; row: LoadRow }>(
-  probes: readonly T[],
-  codesFor: (p: T) => readonly string[],
-  linesFor: (p: T) => readonly string[],
-  registers: (p: T) => boolean,
-): void {
-  for (const position of POSITIONS) {
-    expectCaptured(
-      probes.filter((p) => p.position === position).map((p) => p.row),
-      position.decls,
-    );
-  }
-  expectRows(
-    probes.map((p) => p.row),
-    probes.map(codesFor),
-    () => probes.map(linesFor),
-  );
-  expect(
-    probes.map((p) => [p.row.label, registered(p.row)]),
-    "registration follows the diagnostic list: an error-severity parse refusal denies it",
-  ).toEqual(probes.map((p) => [p.row.label, registers(p)]));
-}
+const { POSITIONS, cells, expectMatrix } = createTypePositionMatrix(theta, paramsTheta);
 
 /**
  * The three lines the `schema X = Ok<…>` / `Err<…>` cells draw at the alias

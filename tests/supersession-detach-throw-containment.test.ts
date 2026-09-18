@@ -154,6 +154,7 @@ import {
   type ExtensionInstanceWiring,
 } from "../src/extension/production-composition";
 import { RELOAD_DEBOUNCE_WINDOW_MS } from "../src/extension/reload-debounce";
+import { watcherAt, wiringAt } from "./helpers/watch-arming-harness";
 import { FakeClock } from "./helpers/fake-clock";
 import { FakeFileWatcher } from "./helpers/fake-file-watcher";
 import type { TimerHandle } from "../src/seams/clock";
@@ -392,23 +393,6 @@ function makeBoot(workspace: string, options: BootOptions): Boot {
   createThetaExtension(deps)(harness.pi);
 
   return { harness, clock, watchers, wirings, diagnostics };
-}
-
-/** Loud indexed access (noUncheckedIndexedAccess + fail-loudly on setup faults). */
-function watcherAt(b: Boot, index: number): ProductionShapeFakeFileWatcher {
-  const watcher = b.watchers[index];
-  if (watcher === undefined) {
-    throw new Error(`compose #${index + 1} never created its watcher`);
-  }
-  return watcher;
-}
-
-function wiringAt(b: Boot, index: number): ExtensionInstanceWiring {
-  const wiring = b.wirings[index];
-  if (wiring === undefined) {
-    throw new Error(`compose #${index + 1} never resolved its wiring`);
-  }
-  return wiring;
 }
 
 function sleep(ms: number): Promise<void> {

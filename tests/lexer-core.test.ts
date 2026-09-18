@@ -1,12 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { lexTheta, type LexResult, type Token } from "../src/lexer/lexer";
-import type { Diagnostic } from "../src/diagnostics/diagnostic";
-import {
-  SYSTEM_NOTE_CHANNEL,
-  type SystemNoteChannelDeps,
-  type SystemNoteDetails,
-  type SystemNoteSender,
-} from "../src/extension/system-note-channel";
+import { SYSTEM_NOTE_CHANNEL } from "../src/extension/system-note-channel";
+import { seam, lexWithSeam as lex, deliveredDiagnostics, type SeamFixture } from "./helpers/e2e-s1";
 
 // V1a-T — failing tests for the paired `V1a` lexer-core implementation.
 //
@@ -30,46 +25,6 @@ import {
 
 // --- recording channel double (V7d seam) ---------------------------------
 
-interface SeamFixture {
-  readonly deps: SystemNoteChannelDeps;
-  /** Every batch the lexer delivered through the V7d `theta-system-note` seam. */
-  readonly delivered: Diagnostic[][];
-  /** Raw `sendMessage` envelopes, to pin batched single-send delivery. */
-  readonly sent: Array<{ customType: string; details?: SystemNoteDetails }>;
-}
-
-function seam(): SeamFixture {
-  const delivered: Diagnostic[][] = [];
-  const sent: Array<{ customType: string; details?: SystemNoteDetails }> = [];
-  const pi: SystemNoteSender = {
-    sendMessage: (message): void => {
-      sent.push({
-        customType: message.customType,
-        ...(message.details !== undefined ? { details: message.details } : {}),
-      });
-      if ("diagnostics" in message.details!) {
-        delivered.push([...message.details!.diagnostics]);
-      }
-    },
-  };
-  const deps: SystemNoteChannelDeps = {
-    pi,
-    ui: { notify: (): void => {} },
-    emitDiagnostic: (): void => {},
-  };
-  return { deps, delivered, sent };
-}
-
-/** Lex a UTF-8 string source; return the lex result and the seam fixture. */
-function lex(src: string): { result: LexResult; fixture: SeamFixture } {
-  const fixture = seam();
-  const result = lexTheta(
-    { path: "test.theta", bytes: new TextEncoder().encode(src) },
-    fixture.deps,
-  );
-  return { result, fixture };
-}
-
 /** Lex a raw byte source (for the encoding path that precedes decoding). */
 function lexBytes(bytes: Uint8Array): {
   result: LexResult;
@@ -78,11 +33,6 @@ function lexBytes(bytes: Uint8Array): {
   const fixture = seam();
   const result = lexTheta({ path: "test.theta", bytes }, fixture.deps);
   return { result, fixture };
-}
-
-/** Every diagnostic the lexer delivered through the V7d seam, flattened. */
-function deliveredDiagnostics(fixture: SeamFixture): Diagnostic[] {
-  return fixture.delivered.flat();
 }
 
 /**

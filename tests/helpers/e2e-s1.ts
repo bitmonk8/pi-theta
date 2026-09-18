@@ -22,6 +22,7 @@ import {
 } from "../../src/parser/theta-document";
 import type { Diagnostic } from "../../src/diagnostics/diagnostic";
 import type {
+  SystemNoteDetails,
   SystemNoteChannelDeps,
   SystemNoteSender,
 } from "../../src/extension/system-note-channel";
@@ -375,4 +376,50 @@ export function soleByFragment(diagnostics: readonly Diagnostic[], fragment: str
     `expected exactly one diagnostic whose message contains '${fragment}'; got ${hits.length}: ${JSON.stringify(hits.map((d) => d.message))}`,
   ).toHaveLength(1);
   return hits[0]!;
+}
+
+export interface SeamFixture {
+  readonly deps: SystemNoteChannelDeps;
+  /** Every batch the lexer delivered through the V7d `theta-system-note` seam. */
+  readonly delivered: Diagnostic[][];
+  /** Raw `sendMessage` envelopes, to pin batched single-send delivery. */
+  readonly sent: Array<{ customType: string; details?: SystemNoteDetails }>;
+}
+
+/** Record lexer diagnostic batches and their raw system-note envelopes. */
+export function seam(): SeamFixture {
+  const delivered: Diagnostic[][] = [];
+  const sent: Array<{ customType: string; details?: SystemNoteDetails }> = [];
+  const pi: SystemNoteSender = {
+    sendMessage: (message): void => {
+      sent.push({
+        customType: message.customType,
+        ...(message.details !== undefined ? { details: message.details } : {}),
+      });
+      if ("diagnostics" in message.details!) {
+        delivered.push([...message.details!.diagnostics]);
+      }
+    },
+  };
+  const deps: SystemNoteChannelDeps = {
+    pi,
+    ui: { notify: (): void => {} },
+    emitDiagnostic: (): void => {},
+  };
+  return { deps, delivered, sent };
+}
+
+/** Lex a UTF-8 string source; return the lex result and the seam fixture. */
+export function lexWithSeam(src: string): { result: LexResult; fixture: SeamFixture } {
+  const fixture = seam();
+  const result = lexTheta(
+    { path: "test.theta", bytes: new TextEncoder().encode(src) },
+    fixture.deps,
+  );
+  return { result, fixture };
+}
+
+/** Every diagnostic the lexer delivered through the V7d seam, flattened. */
+export function deliveredDiagnostics(fixture: SeamFixture): Diagnostic[] {
+  return fixture.delivered.flat();
 }

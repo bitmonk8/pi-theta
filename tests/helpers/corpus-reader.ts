@@ -43,3 +43,36 @@ export function readCorpus(rel: string, owner: string): string {
 
 /** Split a corpus file's text into its lines, tolerant of either line ending. */
 export const linesOf = (text: string): readonly string[] => text.split(/\r?\n/);
+
+/** A corpus file's bytes, read off the live tree so no cell asserts a snapshot. */
+export function corpus(rel: string): string {
+  const text = readFileSync(repoFile(rel), "utf8");
+  if (text.trim().length === 0) {
+    throw new Error(
+      `harness: ${rel} read empty, so the section this cell scopes to does not exist — a loud failure, never a vacuous pass`,
+    );
+  }
+  return text;
+}
+
+/**
+ * The body of a `##`-headed section, heading line included, up to the next
+ * `## ` heading. Region-scoped so no cell below can be satisfied by the
+ * required token appearing in unrelated prose elsewhere on the page.
+ */
+export function section(text: string, heading: string, rel: string, region: string): string {
+  const start = text.indexOf(`\n${heading}\n`);
+  if (start < 0) {
+    throw new Error(
+      `harness: ${rel} carries no heading ${JSON.stringify(heading)}, so the ${region} region this cell scopes to does not exist`,
+    );
+  }
+  const rest = text.slice(start + 1 + heading.length);
+  const end = rest.indexOf("\n## ");
+  return heading + (end < 0 ? rest : rest.slice(0, end));
+}
+
+/** Whitespace-collapsed, lowercased text — wording and wrapping are the editor's. */
+export function flat(text: string): string {
+  return text.replace(/\s+/g, " ").trim().toLowerCase();
+}

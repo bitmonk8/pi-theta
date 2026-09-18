@@ -71,7 +71,8 @@
 //     which would swallow the sibling's entry and disable theta-vs-foreign
 //     collision detection outright.
 //
-// Harness: mirrors tests/double-session-start-supersession.test.ts (the real
+// Harness: shares tests/helpers/watch-arming-harness.ts with
+// tests/double-session-start-supersession.test.ts (the real
 // `createThetaExtension` + `composeExtensionInstance` over a mkdtemp temp-dir
 // workspace, hand-rolled pi/ctx fakes, ONE shared `FakeClock`, one COUNTING
 // `FakeFileWatcher` per compose, `fireSessionStart`/`fireSessionShutdown`,
@@ -94,27 +95,20 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import type {
-  ExtensionAPI,
-  ExtensionCommandContext,
-  ExtensionContext,
-} from "@earendil-works/pi-coding-agent";
-import {
-  createThetaExtension,
-  type ThetaExtensionDeps,
-} from "../src/extension/factory";
-import {
-  composeExtensionInstance,
-  type ExtensionInstanceWiring,
-} from "../src/extension/production-composition";
 import { RELOAD_DEBOUNCE_WINDOW_MS } from "../src/extension/reload-debounce";
-import { FakeClock } from "./helpers/fake-clock";
-import { FakeFileWatcher } from "./helpers/fake-file-watcher";
-import type {
-  FileWatchEvent,
-  OnWatchTerminate,
-  Unsubscribe,
-} from "../src/seams/file-watcher";
+import { waitFor } from "./helpers/fake-file-watcher";
+import {
+  REPEAT_START_NOTE,
+  watcherAt,
+  wiringAt,
+  dispatchRegistered,
+  repeatStartNotes,
+  greetShuttingDownNotes,
+  makeSupersessionBoot as makeBoot,
+  type SupersessionBoot as Boot,
+  type SupersessionHarness as Harness,
+  type SupersessionNote as RecordedNote,
+} from "./helpers/watch-arming-harness";
 
 /**
  * The `theta/load/cross-format-collision` code as it appears in a rendered
@@ -125,266 +119,8 @@ import type {
  */
 const COLLISION_CODE = "theta/load/cross-format-collision";
 
-/** The pinned bug-0021 repeat-start diagnostic content (registration-steps.md step 5). */
-const REPEAT_START_NOTE =
-  "theta: repeat session_start without session_shutdown; superseding prior hot-reload generation";
-
-/** Prefix filter for repeat-start notes — content-shape agnostic. */
-const REPEAT_START_NOTE_PREFIX = "theta: repeat session_start";
-
-/** The drain-state arm-(b) note for `/greet` (drain-state.ts `shuttingDownNote`). */
-const GREET_SHUTTING_DOWN_NOTE = "theta /greet: extension shutting down";
-
 const GREET_THETA = ["---", "mode: prompt", "---", "@`hi`", ""].join("\n");
 const SECOND_THETA = ["---", "mode: prompt", "---", "@`yo`", ""].join("\n");
-
-/**
- * Bound (real ms) on awaiting a dispatched slash handler. A re-owned `/greet`
- * enters a REAL prompt-mode run against the minimal fake command ctx, whose
- * settling this suite must not depend on — the note assertions carry the
- * discrimination either way.
- */
-const DISPATCH_SETTLE_CAP_MS = 1200;
-
-/**
- * A per-compose counting watcher: `attached` makes the step-5 arm/detach
- * lifecycle of ONE compose generation observable, and holding the instance per
- * generation is what lets test 4 drive generation 1's hot-reload pass.
- */
-class CountingFakeFileWatcher extends FakeFileWatcher {
-  watchCalls = 0;
-  attached = false;
-
-  override watch(
-    roots: readonly string[],
-    handler: (event: FileWatchEvent) => void,
-    onTerminate?: OnWatchTerminate,
-  ): Unsubscribe {
-    this.watchCalls += 1;
-    this.attached = true;
-    const unsubscribe = super.watch(roots, handler, onTerminate);
-    return () => {
-      this.attached = false;
-      unsubscribe();
-    };
-  }
-}
-
-/** A recorded `pi.sendMessage` call (the `theta-system-note` channel). */
-interface RecordedNote {
-  readonly customType: string;
-  readonly content: string;
-  readonly display: boolean;
-  readonly triggerTurn: unknown;
-}
-
-/** One `pi.getCommands()` entry (the fake's `SlashCommandInfo` shape). */
-interface FakeCommandInfo {
-  readonly name: string;
-  readonly source: string;
-}
-
-/** The registered pi command options shape the dispatch helper invokes against. */
-interface RegisteredCommand {
-  readonly handler: (args: string, ctx: ExtensionCommandContext) => unknown;
-}
-
-interface Harness {
-  readonly pi: ExtensionAPI;
-  readonly ctx: ExtensionContext;
-  readonly commands: Map<string, unknown>;
-  /**
-   * The SEQUENCE of `pi.registerCommand` names, in call order — the
-   * re-ownership witness (a Map alone cannot show a re-register).
-   */
-  readonly registeredNames: string[];
-  readonly notes: RecordedNote[];
-  /**
-   * Bug-0024 delta: extra `pi.getCommands()` entries carrying an ARBITRARY
-   * `source`, planted and removed by a test between deliveries. `getCommands`
-   * returns the extension-sourced registered names (what Pi reports back for
-   * this instance's own registrations) concatenated with these, so a test can
-   * model a genuine Pi-owned `"prompt"` template appearing under a name the
-   * instance already registered.
-   */
-  readonly extraCommands: FakeCommandInfo[];
-  fireSessionStart(): Promise<void>;
-  fireSessionShutdown(): Promise<void>;
-}
-
-function makeHarness(cwd: string): Harness {
-  const commands = new Map<string, unknown>();
-  const registeredNames: string[] = [];
-  const notes: RecordedNote[] = [];
-  const extraCommands: FakeCommandInfo[] = [];
-  const subscriptions = new Map<
-    string,
-    ((event: unknown, ctx: ExtensionContext) => unknown)[]
-  >();
-
-  const pi = {
-    registerFlag: (): void => {},
-    registerMessageRenderer: (): void => {},
-    registerCommand: (name: string, options: unknown): void => {
-      registeredNames.push(name);
-      commands.set(name, options);
-    },
-    on: (event: string, handler: (e: unknown, c: ExtensionContext) => unknown): void => {
-      const list = subscriptions.get(event) ?? [];
-      list.push(handler);
-      subscriptions.set(event, list);
-    },
-    getFlag: (): undefined => undefined,
-    // Faithful to the host at the pin (`dist/core/agent-session.js:1826–1833`):
-    // every command an extension registered comes back as `source: "extension"`,
-    // indistinguishable from a sibling extension's — which is exactly why
-    // PIC-69's exclusion has to key on the instance's own ledger.
-    getCommands: (): FakeCommandInfo[] => [
-      ...[...commands.keys()].map((name) => ({ name, source: "extension" })),
-      ...extraCommands,
-    ],
-    sendMessage: (
-      message: { customType: string; content: string; display: boolean; details: unknown },
-      options: { triggerTurn: unknown },
-    ): void => {
-      notes.push({
-        customType: message.customType,
-        content: message.content,
-        display: message.display,
-        triggerTurn: options.triggerTurn,
-      });
-    },
-    sendUserMessage: (): void => {},
-  } as unknown as ExtensionAPI;
-
-  const ctx = {
-    cwd,
-    hasUI: false,
-    modelRegistry: { getAvailable: (): readonly unknown[] => [] },
-    ui: { notify: (): void => {} },
-  } as unknown as ExtensionContext;
-
-  const fire = async (event: string, payload: Record<string, unknown>): Promise<void> => {
-    for (const handler of subscriptions.get(event) ?? []) {
-      await handler(payload, ctx);
-    }
-  };
-
-  return {
-    pi,
-    ctx,
-    commands,
-    registeredNames,
-    notes,
-    extraCommands,
-    fireSessionStart: () => fire("session_start", { type: "session_start" }),
-    // `reason: "exit"` — an always-tear-down reason, so the V9r session-swap
-    // tripwire stays un-armed and cannot confound the post-rebind dispatch
-    // discriminators below.
-    fireSessionShutdown: () =>
-      fire("session_shutdown", { type: "session_shutdown", reason: "exit" }),
-  };
-}
-
-/** One booted extension instance with per-compose watcher/wiring capture. */
-interface Boot {
-  readonly harness: Harness;
-  /** The ONE FakeClock shared by every compose (drives the debounce boundary). */
-  readonly clock: FakeClock;
-  /** Per-compose counting watchers, indexed by compose START order. */
-  readonly watchers: CountingFakeFileWatcher[];
-  /** Per-compose wirings, indexed by compose START order (set at compose settle). */
-  readonly wirings: (ExtensionInstanceWiring | undefined)[];
-}
-
-function makeBoot(workspace: string): Boot {
-  const harness = makeHarness(workspace);
-  const clock = new FakeClock();
-  const watchers: CountingFakeFileWatcher[] = [];
-  const wirings: (ExtensionInstanceWiring | undefined)[] = [];
-
-  const deps: ThetaExtensionDeps = {
-    fixtures: [],
-    // The double must mirror the production default export's wiring
-    // (src/extension/factory.ts) — forwarding the own-registration ledger as
-    // the 5th argument — or the pass under test runs without the ledger.
-    composeInstance: async (pi, ctx, ownRegisteredNames) => {
-      // One NEW counting watcher per compose call, indexed by START order
-      // (created synchronously at dep entry, before any await): generations are
-      // distinguishable only by their per-compose resources.
-      const index = watchers.length;
-      const watcher = new CountingFakeFileWatcher();
-      watchers.push(watcher);
-      const wiring = await composeExtensionInstance(
-        pi,
-        ctx,
-        { fileWatcher: watcher, clock },
-        undefined,
-        ownRegisteredNames,
-      );
-      wirings[index] = wiring;
-      return wiring;
-    },
-  };
-  createThetaExtension(deps)(harness.pi);
-
-  return { harness, clock, watchers, wirings };
-}
-
-/** Loud indexed access (noUncheckedIndexedAccess + fail-loudly on setup faults). */
-function watcherAt(b: Boot, index: number): CountingFakeFileWatcher {
-  const watcher = b.watchers[index];
-  if (watcher === undefined) {
-    throw new Error(`compose #${index + 1} never created its watcher`);
-  }
-  return watcher;
-}
-
-function wiringAt(b: Boot, index: number): ExtensionInstanceWiring {
-  const wiring = b.wirings[index];
-  if (wiring === undefined) {
-    throw new Error(`compose #${index + 1} never resolved its wiring`);
-  }
-  return wiring;
-}
-
-/** Poll a real-timer-bounded condition (the compose path does real fs I/O). */
-async function waitFor(cond: () => boolean, label: string): Promise<void> {
-  for (let i = 0; i < 400; i++) {
-    if (cond()) return;
-    await new Promise((resolve) => setTimeout(resolve, 5));
-  }
-  throw new Error(`timeout waiting for ${label}`);
-}
-
-/**
- * Invoke the pi-registered handler for `/<name>` and await its settling,
- * bounded by `DISPATCH_SETTLE_CAP_MS`. The recorded NOTES are the
- * discriminator; the returned outcome is asserted only where the contract
- * pins it.
- */
-async function dispatchRegistered(
-  harness: Harness,
-  name: string,
-): Promise<"resolved" | "rejected" | "timed-out"> {
-  const options = harness.commands.get(name) as RegisteredCommand | undefined;
-  if (options === undefined) {
-    // No silent skipping (AGENTS.md): a missing registration is a setup fault.
-    throw new Error(`no command registered for /${name}`);
-  }
-  const settled = Promise.resolve(
-    options.handler("", {} as unknown as ExtensionCommandContext),
-  ).then(
-    () => "resolved" as const,
-    () => "rejected" as const,
-  );
-  return Promise.race([
-    settled,
-    new Promise<"timed-out">((resolve) =>
-      setTimeout(() => resolve("timed-out"), DISPATCH_SETTLE_CAP_MS),
-    ),
-  ]);
-}
 
 /**
  * Let any LIVE dispatch (a re-owned `/greet` enters a real prompt-mode run)
@@ -405,16 +141,6 @@ async function settleInvocations(b: Boot): Promise<void> {
 /** All notes carrying a `theta/load/cross-format-collision` diagnostic. */
 function collisionNotes(harness: Harness, since = 0): readonly RecordedNote[] {
   return harness.notes.slice(since).filter((n) => n.content.includes(COLLISION_CODE));
-}
-
-/** All notes carrying the pinned repeat-start diagnostic prefix. */
-function repeatStartNotes(harness: Harness): readonly RecordedNote[] {
-  return harness.notes.filter((n) => n.content.startsWith(REPEAT_START_NOTE_PREFIX));
-}
-
-/** All arm-(b) shutting-down notes for `/greet`. */
-function greetShuttingDownNotes(harness: Harness): readonly RecordedNote[] {
-  return harness.notes.filter((n) => n.content === GREET_SHUTTING_DOWN_NOTE);
 }
 
 /** Fail loudly (never skip) if the surviving-name precondition is not on disk. */

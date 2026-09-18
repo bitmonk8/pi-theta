@@ -47,9 +47,9 @@
 //     that observed a newer start goes zero-touch — its watcher is NEVER
 //     armed, its registry never published, nothing registered by it.
 //
-// Harness: mirrors tests/watcher-hot-reload-integration.test.ts (the real
+// Harness: tests/helpers/watch-arming-harness.ts supplies the real
 // `createThetaExtension` + `composeExtensionInstance` over a mkdtemp temp-dir
-// workspace, shared pi/ctx fakes, fireSessionStart/fireSessionShutdown)
+// workspace, shared pi/ctx fakes, fireSessionStart/fireSessionShutdown
 // with the bug-0021 reproduction deltas: ONE shared `FakeClock` across all
 // composes, one COUNTING `FakeFileWatcher` subclass PER compose call (so
 // arm/detach is observable per generation), the per-compose wirings retained
@@ -61,273 +61,29 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync, unlinkSync } from "node:
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
-import {
-  createThetaExtension,
-  type ThetaExtensionDeps,
-} from "../src/extension/factory";
-import {
-  composeExtensionInstance,
-  type ExtensionInstanceWiring,
-} from "../src/extension/production-composition";
 import { RELOAD_DEBOUNCE_WINDOW_MS } from "../src/extension/reload-debounce";
 import type { ActiveInvocationEntry } from "../src/runtime/active-invocation-registry";
+import { waitFor } from "./helpers/fake-file-watcher";
 import {
-  makeHarness as makeCommandHarness,
-  type Harness as CommandHarness,
-  type RegisteredCommand,
+  REPEAT_START_NOTE,
+  watcherAt,
+  wiringAt,
+  dispatchRegistered,
+  repeatStartNotes,
+  greetShuttingDownNotes,
+  makeSupersessionBoot,
+  type SupersessionBoot as Boot,
 } from "./helpers/watch-arming-harness";
-import { FakeClock } from "./helpers/fake-clock";
-import { FakeFileWatcher } from "./helpers/fake-file-watcher";
-import type {
-  FileWatchEvent,
-  OnWatchTerminate,
-  Unsubscribe,
-} from "../src/seams/file-watcher";
-
-/**
- * The pinned repeat-start diagnostic content (post-fix contract 1).
- * Deliberately a string literal rather than a `src/**` import: the
- * RED-at-HEAD run executes against a tree where the diagnostic does not exist
- * yet, and the red must land on the assertions, never on collection.
- */
-const REPEAT_START_NOTE =
-  "theta: repeat session_start without session_shutdown; superseding prior hot-reload generation";
-
-/** Prefix filter for "zero repeat-start notes" (control) — content-shape agnostic. */
-const REPEAT_START_NOTE_PREFIX = "theta: repeat session_start";
-
-/** The drain-state arm-(b) note for `/greet` (drain-state.ts `shuttingDownNote`). */
-const GREET_SHUTTING_DOWN_NOTE = "theta /greet: extension shutting down";
 
 const GREET_THETA = ["---", "mode: prompt", "---", "@`hi`", ""].join("\n");
 const SECOND_THETA = ["---", "mode: prompt", "---", "@`hi`", ""].join("\n");
-
-/**
- * Bound (real ms) on awaiting a dispatched slash handler. Post-fix the
- * interesting dispatches short-circuit on a drain-state note and settle
- * immediately; PRE-fix a stale-generation dispatch can enter a REAL prompt-mode
- * theta run against the minimal fake command ctx, whose settling this suite
- * must not depend on — the note assertions carry the red either way.
- */
-const DISPATCH_SETTLE_CAP_MS = 1200;
-
-/**
- * A per-compose counting watcher: `watchCalls`/`attached` make the step-5
- * arm/detach lifecycle of ONE compose generation observable (the defect is
- * precisely that the superseded generation's arm has no reachable detach).
- */
-class CountingFakeFileWatcher extends FakeFileWatcher {
-  watchCalls = 0;
-  attached = false;
-
-  override watch(
-    roots: readonly string[],
-    handler: (event: FileWatchEvent) => void,
-    onTerminate?: OnWatchTerminate,
-  ): Unsubscribe {
-    this.watchCalls += 1;
-    this.attached = true;
-    const unsubscribe = super.watch(roots, handler, onTerminate);
-    return () => {
-      // Idempotent detach observation (FakeFileWatcher's own unsubscribe
-      // already tolerates repeats).
-      this.attached = false;
-      unsubscribe();
-    };
-  }
-}
-
-/** A recorded `pi.sendMessage` call (the `theta-system-note` channel). */
-interface RecordedNote {
-  readonly customType: string;
-  readonly content: string;
-  readonly display: boolean;
-  readonly triggerTurn: unknown;
-}
-
-interface Harness extends Omit<CommandHarness, "fireSessionShutdown"> {
-  /**
-   * The SEQUENCE of `pi.registerCommand` names, in call order — the "no new
-   * registerCommand calls" witness (a Map alone cannot show a re-register).
-   */
-  readonly registeredNames: string[];
-  readonly notes: RecordedNote[];
-  /** Recorded `pi.sendUserMessage` calls (a dispatched theta RUN's observable). */
-  readonly userMessages: unknown[][];
-  fireSessionStart(): Promise<void>;
-  fireSessionShutdown(): Promise<void>;
-}
-
-function makeHarness(cwd: string): Harness {
-  const registeredNames: string[] = [];
-  const notes: RecordedNote[] = [];
-  const userMessages: unknown[][] = [];
-  const harness = makeCommandHarness(cwd, {}, {
-    onRegisterCommand: (name): void => {
-      registeredNames.push(name);
-    },
-    sendMessage: (message, options): void => {
-      notes.push({
-        customType: message.customType,
-        content: message.content,
-        display: message.display,
-        triggerTurn: options.triggerTurn,
-      });
-    },
-    sendUserMessage: (...args: unknown[]): void => {
-      userMessages.push(args);
-    },
-  });
-  return {
-    ...harness,
-    registeredNames,
-    notes,
-    userMessages,
-    // `reason: "exit"` — an always-tear-down reason, so the V9r session-swap
-    // tripwire stays un-armed and cannot confound the post-shutdown dispatch
-    // discriminators below.
-    fireSessionShutdown: () => harness.fireSessionShutdown("exit"),
-  };
-}
-
-/** One booted extension instance with per-compose watcher/wiring capture. */
-interface Boot {
-  readonly harness: Harness;
-  /** The ONE FakeClock shared by every compose (the bug-0021 repro pin). */
-  readonly clock: FakeClock;
-  /** Per-compose counting watchers, indexed by compose START order. */
-  readonly watchers: CountingFakeFileWatcher[];
-  /** Per-compose wirings, indexed by compose START order (set at compose settle). */
-  readonly wirings: (ExtensionInstanceWiring | undefined)[];
-  /** Release the deferred gate parked ahead of compose #index (gated boots only). */
-  releaseCompose(index: number): void;
-}
-
-function makeBoot(workspace: string, options: { gateComposes?: boolean } = {}): Boot {
-  const harness = makeHarness(workspace);
-  const clock = new FakeClock();
-  const watchers: CountingFakeFileWatcher[] = [];
-  const wirings: (ExtensionInstanceWiring | undefined)[] = [];
-  const releases: (() => void)[] = [];
-
-  const deps: ThetaExtensionDeps = {
-    fixtures: [],
-    // The double must mirror the production default export's wiring
-    // (src/extension/factory.ts) — forwarding the own-registration ledger as
-    // the 5th argument — or the pass under test runs without the ledger.
-    composeInstance: async (pi, ctx, ownRegisteredNames) => {
-      // One NEW counting watcher per compose call, indexed by START order
-      // (created synchronously at dep entry, before any await): generations
-      // are distinguishable only by their per-compose resources, which is the
-      // whole point of the bug.
-      const index = watchers.length;
-      const watcher = new CountingFakeFileWatcher();
-      watchers.push(watcher);
-      if (options.gateComposes === true) {
-        // Overlap seam (test 3): park BEFORE the real compose runs so the
-        // test can invert completion order against start order — the bug
-        // report's last-completer-wins variant.
-        await new Promise<void>((resolve) => {
-          releases[index] = resolve;
-        });
-      }
-      const wiring = await composeExtensionInstance(
-        pi,
-        ctx,
-        { fileWatcher: watcher, clock },
-        undefined,
-        ownRegisteredNames,
-      );
-      wirings[index] = wiring;
-      return wiring;
-    },
-  };
-  createThetaExtension(deps)(harness.pi);
-
-  return {
-    harness,
-    clock,
-    watchers,
-    wirings,
-    releaseCompose: (index) => {
-      const release = releases[index];
-      if (release === undefined) {
-        // No silent skipping (AGENTS.md): an unparked compose is a harness defect.
-        throw new Error(`compose #${index + 1} never parked at its gate`);
-      }
-      release();
-    },
-  };
-}
-
-/** Loud indexed access (noUncheckedIndexedAccess + fail-loudly on setup faults). */
-function watcherAt(b: Boot, index: number): CountingFakeFileWatcher {
-  const watcher = b.watchers[index];
-  if (watcher === undefined) {
-    throw new Error(`compose #${index + 1} never created its watcher`);
-  }
-  return watcher;
-}
-
-function wiringAt(b: Boot, index: number): ExtensionInstanceWiring {
-  const wiring = b.wirings[index];
-  if (wiring === undefined) {
-    throw new Error(`compose #${index + 1} never resolved its wiring`);
-  }
-  return wiring;
-}
-
-/** Poll a real-timer-bounded condition (the compose path does real fs I/O). */
-async function waitFor(cond: () => boolean, label: string): Promise<void> {
-  for (let i = 0; i < 400; i++) {
-    if (cond()) return;
-    await new Promise((resolve) => setTimeout(resolve, 5));
-  }
-  throw new Error(`timeout waiting for ${label}`);
-}
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-/**
- * Invoke the pi-registered handler for `/<name>` and await its settling,
- * bounded by `DISPATCH_SETTLE_CAP_MS` (see the constant's rationale). The
- * returned outcome is asserted only where the contract pins it; the
- * drain-state NOTE recorded (or not) on the harness is the real discriminator.
- */
-async function dispatchRegistered(
-  harness: Harness,
-  name: string,
-): Promise<"resolved" | "rejected" | "timed-out"> {
-  const options = harness.commands.get(name) as RegisteredCommand | undefined;
-  if (options === undefined) {
-    // No silent skipping (AGENTS.md): a missing registration is a setup fault.
-    throw new Error(`no command registered for /${name}`);
-  }
-  const settled = Promise.resolve(
-    options.handler("", {} as unknown as ExtensionCommandContext),
-  ).then(
-    () => "resolved" as const,
-    () => "rejected" as const,
-  );
-  return Promise.race([
-    settled,
-    new Promise<"timed-out">((resolve) =>
-      setTimeout(() => resolve("timed-out"), DISPATCH_SETTLE_CAP_MS),
-    ),
-  ]);
-}
-
-/** All notes carrying the pinned repeat-start diagnostic prefix. */
-function repeatStartNotes(harness: Harness): readonly RecordedNote[] {
-  return harness.notes.filter((n) => n.content.startsWith(REPEAT_START_NOTE_PREFIX));
-}
-
-/** All arm-(b) shutting-down notes for `/greet`. */
-function greetShuttingDownNotes(harness: Harness): readonly RecordedNote[] {
-  return harness.notes.filter((n) => n.content === GREET_SHUTTING_DOWN_NOTE);
+function makeBoot(workspace: string, options: { gateComposes?: boolean } = {}): Boot {
+  return makeSupersessionBoot(workspace, { ...options, recordUserMessages: true });
 }
 
 describe("bug 0021 — double session_start supersession (registration-steps.md step 5, PIC-57/PIC-67/PIC-68)", () => {

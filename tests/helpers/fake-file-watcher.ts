@@ -212,3 +212,29 @@ export class RecursiveRootFileWatcher implements FileWatcher {
     });
   }
 }
+
+/**
+ * A per-compose counting watcher: `watchCalls`/`attached` make the step-5
+ * arm/detach lifecycle of ONE compose generation observable (the defect is
+ * precisely that the superseded generation's arm has no reachable detach).
+ */
+export class CountingFakeFileWatcher extends FakeFileWatcher {
+  watchCalls = 0;
+  attached = false;
+
+  override watch(
+    roots: readonly string[],
+    handler: (event: FileWatchEvent) => void,
+    onTerminate?: OnWatchTerminate,
+  ): Unsubscribe {
+    this.watchCalls += 1;
+    this.attached = true;
+    const unsubscribe = super.watch(roots, handler, onTerminate);
+    return () => {
+      // Idempotent detach observation (FakeFileWatcher's own unsubscribe
+      // already tolerates repeats).
+      this.attached = false;
+      unsubscribe();
+    };
+  }
+}
