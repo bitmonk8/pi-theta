@@ -31,12 +31,11 @@
 // builder is a sentinel; the arming decision is a no-op; the guard is inverted;
 // the guarded-handler wrapper does not guard).
 
-import { sinkSpy, shutdownDeps, eventWith } from "./helpers/session-shutdown-harness";
+import { sinkSpy, shutdownDeps, eventWith, makeEntry } from "./helpers/session-shutdown-harness";
 import { describe, expect, it, vi } from "vitest";
 import { FakeClock } from "./helpers/fake-clock";
 import {
   ActiveInvocationRegistry,
-  type ActiveInvocationEntry,
 } from "../src/runtime/active-invocation-registry";
 import { ThetaRegistry } from "../src/extension/reload-wiring";
 import {
@@ -96,17 +95,6 @@ function survivedEmits(sink: ReturnType<typeof sinkSpy>): unknown[][] {
 }
 
 // --- session_shutdown teardown harness (for the arming integration test) ----
-
-function makeEntry(theta: string, invocationId: string): ActiveInvocationEntry {
-  return {
-    thetaAbort: new AbortController(),
-    // A never-settling barrier so sub-step 3's bounded await is exercised.
-    disposeBarrier: new Promise<void>(() => {}),
-    shutdownReason: undefined,
-    theta,
-    invocationId,
-  };
-}
 
 interface ShutdownHarness {
   readonly deps: SessionShutdownDeps;
@@ -178,7 +166,7 @@ describe("cka-27 — arming the session-swap tripwire", () => {
   it("cka-27: on a session-only session_shutdown the handler runs full teardown, arms the tripwire, and writes NO degraded branch", async () => {
     const harness = makeShutdownHarness();
     const drainSpy = vi.spyOn(harness.registry, "drain");
-    harness.deps.activeInvocations.add(makeEntry("plan", "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"));
+    harness.deps.activeInvocations.add(makeEntry("plan", "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa").entry);
 
     await driveShutdown(eventWith("new"), harness);
 

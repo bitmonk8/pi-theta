@@ -60,6 +60,7 @@
 //     here rather than skipped silently.
 import { rootDouble as beltRootDouble } from "./helpers/runtime-belt-probe-harness";
 import { describe, expect, it } from "vitest";
+import { FakeActiveSetPi as RecordingActiveSet, type GateMode } from "./helpers/fake-active-set-pi";
 import type {
   ExtensionAPI,
   ExtensionCommandContext,
@@ -98,58 +99,6 @@ const ACTIVE_SET_RESTORE_FAILED = "theta/runtime/active-set-restore-failed";
 // window, where this harness supplies the name.
 const RESTORE_NOTE_VERBATIM =
   /^theta: failed to restore tool active-set after \/\S+; the user session may have unexpected tools active\. Run \/reload to reset\.$/;
-
-// --- The injectable active-set gate ----------------------------------------
-// Mirrors tests/tool-registration-lifetime.test.ts's `FakeActiveSetPi`: the
-// first `setActiveTools` is the step-2 install, every later call is a step-4
-// restore. Its throw schedule reproduces the bug doc's §Reproduction probe
-// shape (a restore throw from a healthy host at restore time).
-
-type GateMode =
-  | "healthy"
-  | "throw-restore-once" // transient: first restore throws, the retry succeeds
-  | "throw-restore-always" // persistent: both restore attempts throw
-  | "throw-install"; // step-2 install throws (PIC-19 setup failure)
-
-class RecordingActiveSet {
-  readonly setCalls: string[][] = [];
-  getCalls = 0;
-  #installed = false;
-  #restoreAttempts = 0;
-
-  constructor(
-    readonly snapshot: readonly string[],
-    readonly mode: GateMode,
-  ) {}
-
-  getActiveTools(): string[] {
-    this.getCalls += 1;
-    return [...this.snapshot];
-  }
-
-  setActiveTools(names: string[]): void {
-    this.setCalls.push([...names]);
-    if (!this.#installed) {
-      this.#installed = true;
-      if (this.mode === "throw-install") {
-        throw new Error("active-set install drift");
-      }
-      return;
-    }
-    this.#restoreAttempts += 1;
-    if (this.mode === "throw-restore-always") {
-      throw new Error("active-set restore failure");
-    }
-    if (this.mode === "throw-restore-once" && this.#restoreAttempts === 1) {
-      throw new Error("active-set transient restore failure");
-    }
-  }
-
-  /** Every `setActiveTools` call after the step-2 install. */
-  get restoreAttempts(): string[][] {
-    return this.setCalls.slice(1);
-  }
-}
 
 // --- Compliant-deps recorders (what the Option-1 fix threads) --------------
 
@@ -206,7 +155,7 @@ describe("bug 0372 (RED) — runPromptSuspendInvoke restores under the PIC-8/PIC
   it("B1: a transient single restore throw is re-attempted once, the child result is preserved, the ambient set is restored, and no diagnostic fires", async () => {
     // Fork (invoke-prompt-suspend.ts:123 bare `finally` restore): the first
     // restore throw propagates and rejects the hop, masking "CHILD-OK".
-    const gate = new RecordingActiveSet(SUSPEND_SNAPSHOT, "throw-restore-once");
+    const gate = new RecordingActiveSet(SUSPEND_SNAPSHOT, "throw-restore-once", "active-set");
     const rec = makeRecorders();
 
     let outcome: { result: string } | undefined;
@@ -237,7 +186,7 @@ describe("bug 0372 (RED) — runPromptSuspendInvoke restores under the PIC-8/PIC
   });
 
   it("B2: a double restore throw fires active-set-restore-failed (E) + the verbatim display note and still propagates the child completion unmasked", async () => {
-    const gate = new RecordingActiveSet(SUSPEND_SNAPSHOT, "throw-restore-always");
+    const gate = new RecordingActiveSet(SUSPEND_SNAPSHOT, "throw-restore-always", "active-set");
     const rec = makeRecorders();
 
     let outcome: { result: string } | undefined;
@@ -274,7 +223,7 @@ describe("bug 0372 (RED) — runPromptSuspendInvoke restores under the PIC-8/PIC
   });
 
   it("B3: a step-2 install throw routes to internal-error, the child body never runs, and no restore is attempted (PIC-19)", async () => {
-    const gate = new RecordingActiveSet(SUSPEND_SNAPSHOT, "throw-install");
+    const gate = new RecordingActiveSet(SUSPEND_SNAPSHOT, "throw-install", "active-set");
     const rec = makeRecorders();
     let bodyRan = false;
 
@@ -297,7 +246,7 @@ describe("bug 0372 (RED) — runPromptSuspendInvoke restores under the PIC-8/PIC
   });
 
   it("B4 (CONTROL): a healthy gate installs the child set then restores the snapshot and preserves the result — GREEN at the fork", async () => {
-    const gate = new RecordingActiveSet(SUSPEND_SNAPSHOT, "healthy");
+    const gate = new RecordingActiveSet(SUSPEND_SNAPSHOT, "healthy", "active-set");
     const rec = makeRecorders();
 
     const outcome = await runPromptSuspendInvoke(
@@ -471,7 +420,7 @@ async function driveQuery(mode: GateMode): Promise<QueryDriveResult> {
     body: doc.body,
   };
   const session = new InstantSettleSession(QUERY_REPLY);
-  const gate = new RecordingActiveSet(QUERY_SNAPSHOT, mode);
+  const gate = new RecordingActiveSet(QUERY_SNAPSHOT, mode, "active-set");
   const diagnostics: Diagnostic[] = [];
   const systemNoteChannel: SystemNoteChannelDeps = {
     pi: {

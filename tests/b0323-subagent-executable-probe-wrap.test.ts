@@ -30,19 +30,16 @@
 
 import { bothRungsFailHost } from "./helpers/fake-json-child";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import type {
-  ExtensionAPI,
-  ExtensionContext,
-} from "@earendil-works/pi-coding-agent";
+import {
+  SUBAGENT_EXECUTABLE_THETAS,
+  runExecutableLoad as runLoad,
+} from "./helpers/compose-workspace-harness";
+import { plantThetaWorkspace, disposeWorkspace } from "./helpers/production-load-harness";
 import {
   probeSubagentExecutable,
   HOST_INCOMPATIBLE_CODE,
 } from "../src/extension/capability-probe";
 import { createProductionExecutableHost } from "../src/extension/production-subagent-host";
-import { composeExtensionInstance } from "../src/extension/production-composition";
 import type { ExecutableHost } from "../src/runtime/subagent-launcher";
 import { SUBAGENT_EXECUTABLE_UNRESOLVED_CODE } from "../src/runtime/subagent-launcher";
 
@@ -97,64 +94,14 @@ describe("bug 0323 (A) — probeSubagentExecutable wraps a throwing host", () =>
 //     host-incompatible (not unwind the load pass), and leave prompt mode alone.
 // ---------------------------------------------------------------------------
 
-function theta(...lines: string[]): string {
-  return lines.join("\n") + "\n";
-}
-
-const THETAS: readonly { readonly stem: string; readonly text: string }[] = [
-  { stem: "subq", text: theta("---", "mode: subagent", "model: claude-test", "---", "@`hi`") },
-  { stem: "promptq", text: theta("---", "mode: prompt", "---", "@`hi`") },
-];
-
-interface LoadOutcome {
-  readonly registered: readonly string[];
-  readonly noteContent: readonly string[];
-}
-
-async function runLoad(cwd: string, host: ExecutableHost): Promise<LoadOutcome> {
-  const noteContent: string[] = [];
-  const pi = {
-    getFlag: (): undefined => undefined,
-    getCommands: (): readonly unknown[] => [],
-    sendMessage: (message: { content?: unknown }): void => {
-      if (typeof message.content === "string") {
-        noteContent.push(message.content);
-      }
-    },
-    sendUserMessage: (): void => {},
-    getActiveTools: (): readonly string[] => [],
-    setActiveTools: (): void => {},
-    getAllTools: (): readonly unknown[] => [],
-    registerMessageRenderer: (): void => {},
-  } as unknown as ExtensionAPI;
-  const ctx = {
-    cwd,
-    hasUI: true,
-    modelRegistry: {
-      getAvailable: (): readonly unknown[] => [
-        { id: "claude-test", provider: "anthropic", api: "anthropic-messages" },
-      ],
-    },
-    ui: { notify: (): void => {} },
-  } as unknown as ExtensionContext;
-
-  const wiring = await composeExtensionInstance(pi, ctx, { subagentExecutableHost: host });
-  return { registered: wiring.thetas.map((t) => t.slashName), noteContent };
-}
-
 let workspaceDir: string;
 
 beforeAll(() => {
-  workspaceDir = mkdtempSync(join(tmpdir(), "theta-b0323-exec-wrap-"));
-  const dir = join(workspaceDir, ".pi", "theta");
-  mkdirSync(dir, { recursive: true });
-  for (const l of THETAS) {
-    writeFileSync(join(dir, `${l.stem}.theta`), l.text, "utf8");
-  }
+  workspaceDir = plantThetaWorkspace("theta-b0323-exec-wrap-", SUBAGENT_EXECUTABLE_THETAS);
 });
 
 afterAll(() => {
-  rmSync(workspaceDir, { recursive: true, force: true });
+  disposeWorkspace(workspaceDir);
 });
 
 describe("bug 0323 (B) — a throwing host refuses through the composition root", () => {

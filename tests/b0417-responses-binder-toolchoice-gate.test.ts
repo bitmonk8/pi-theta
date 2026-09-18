@@ -41,6 +41,7 @@
 //     message → the zero-spend and synthesized-refusal cells red.
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { callInput } from "./helpers/binder-inference-fixture";
 
 // The scripted off-session binder reply plus the call counter — the gate's
 // zero-spend observable. `vi.hoisted` so the `vi.mock` factory can close over
@@ -63,7 +64,6 @@ vi.mock("@earendil-works/pi-ai/compat", async (importOriginal) => {
   };
 });
 
-import type { Api, Model, ProviderResponse } from "@earendil-works/pi-ai";
 import type {
   ExtensionAPI,
   ExtensionCommandContext,
@@ -72,7 +72,6 @@ import type {
 import {
   binderToolName,
   buildBinderCompleteCall,
-  type BinderCompleteCallInput,
 } from "../src/binder/binder-inference";
 import { createProductionProducerDeps } from "../src/extension/production-theta-producer";
 import {
@@ -83,7 +82,6 @@ import { ActiveInvocationRegistry } from "../src/runtime/active-invocation-regis
 import { parseThetaDocument } from "../src/parser/theta-document";
 import type { ThetaSource } from "../src/lexer/lexer";
 import type { RuntimeRoot } from "../src/runtime-root";
-import type { BinderEnvelopeSchema } from "../src/binder/binder-envelope";
 import { parseDeps } from "./helpers/e2e-s1";
 import {
   AjvSchemaValidator,
@@ -99,27 +97,6 @@ const KNOWN_WALL_NOW = 1720000000000;
 // ============================================================================
 
 describe("bug 0417 Face A — openai-responses / openai-codex-responses spell the FLAT {type:'function',name}", () => {
-  const envelope: BinderEnvelopeSchema = {
-    anyOf: [
-      {
-        type: "object",
-        properties: { kind: { const: "ok" } },
-        required: ["kind"],
-      },
-    ],
-  };
-  function callInput(api: string): BinderCompleteCallInput {
-    return {
-      model: { api } as unknown as Model<Api>,
-      systemPrompt: "You are the binder.",
-      envelopeSchema: envelope,
-      slug: "triage",
-      seed: 7,
-      signal: new AbortController().signal,
-      onResponse: (_r: ProviderResponse, _m: Model<Api>) => {},
-    };
-  }
-
   it("openai-responses → flat {type:'function',name} (Reach 1 measured; NOT the {type:'tool',name} default, NOT the nested {function:{name}} form)", () => {
     const call = buildBinderCompleteCall(callInput("openai-responses"));
     expect(

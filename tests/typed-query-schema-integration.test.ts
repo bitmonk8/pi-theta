@@ -3,12 +3,10 @@
 //
 // These drive a typed `@`-query end-to-end through the REAL runtime execution
 // path (`runTypedQueryLoop` / `runQueryEffect`, NOT the isolated `V5d` / `V13c`
-// / `V13d` units) and assert that a query's declared response schema — a named
-// `schema` decl AND an inline object/type annotation alike — is lowered to the
-// validating JSON Schema (`V5d`/`SUBS-1`), conveyed to the model on the
-// forced-respond turn (the conveyance carries the LOWERED shape, not the bare
-// type name), and that the response is validated against it with
-// respond-repair (`QRY-11`) on non-conformance.
+// / `V13d` units) and assert that the injected lowering seam's response schema
+// is conveyed to the model on the forced-respond turn (the conveyance carries
+// the LOWERED shape, not the bare type name), and that the response is validated
+// against it with respond-repair (`QRY-11`) on non-conformance.
 //
 // The tests inject a `TypedQuerySchemaValidation` seam whose steps wrap the REAL
 // collaborators — a real lowered JSON Schema, the real `AjvSchemaValidator`,
@@ -136,7 +134,7 @@ class ExhaustingRepairDriver implements RespondRepairDriver {
 /**
  * A `TypedQuerySchemaValidation` seam whose steps wrap the REAL collaborators
  * and record each invocation, so a test asserts the execution path drove the
- * real lowering / `AjvSchemaValidator` / `runRespondRepairLoop`.
+ * lowering seam / real `AjvSchemaValidator` / real `runRespondRepairLoop`.
  */
 class SpyValidation implements TypedQuerySchemaValidation {
   lowerCalls = 0;
@@ -223,10 +221,6 @@ describe("V13e-T — QRY-22 lowered-shape conveyance", () => {
       validation.conveyed,
       "QRY-22: the forced-respond conveyance carries the lowered shape",
     ).toEqual(LOWERED);
-    expect(
-      validation.conveyed,
-      "QRY-22: the conveyance is NOT the bare type name",
-    ).not.toBe("Report");
   });
 });
 
@@ -292,11 +286,11 @@ describe("V13e-T — QRY-22 validation enforced via the execution path", () => {
 });
 
 // ===========================================================================
-// QRY-22 — inline object/type annotation drives the same pipeline.
+// QRY-22 — lowered-schema seam integration.
 // ===========================================================================
 
-describe("V13e-T — QRY-22 inline object/type annotation integration", () => {
-  it("QRY-22: an inline object/type-annotated typed query lowers its declared shape, conveys the lowered shape, and validates the response against it", async () => {
+describe("V13e-T — QRY-22 lowered-schema seam integration", () => {
+  it("QRY-22: a typed query conveys the injected lowered schema and validates a non-conforming response against it", async () => {
     const validation = new SpyValidation();
 
     const outcome = await runTypedQueryLoop(
@@ -309,19 +303,19 @@ describe("V13e-T — QRY-22 inline object/type annotation integration", () => {
 
     expect(
       validation.lowerCalls,
-      "QRY-22: the execution path lowers the inline shape (V5d/SUBS-1)",
+      "QRY-22: the execution path invokes the lowering seam",
     ).toBeGreaterThan(0);
     expect(
       validation.conveyed,
-      "QRY-22: the inline query's conveyance carries the lowered shape",
+      "QRY-22: the query's conveyance carries the injected lowered shape",
     ).toEqual(LOWERED);
     expect(
       validation.validateCalls,
-      "QRY-22: the inline query's response is validated against the lowered schema",
+      "QRY-22: the query's response is validated against the lowered schema",
     ).toBeGreaterThan(0);
     expect(
       outcome.kind,
-      "QRY-22: a non-conforming inline-typed response is not bound as the value",
+      "QRY-22: a non-conforming typed response is not bound as the value",
     ).not.toBe("value");
   });
 });

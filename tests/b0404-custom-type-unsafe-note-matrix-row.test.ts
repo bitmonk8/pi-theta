@@ -1,4 +1,11 @@
-import { linesOf, readCorpus as readSharedCorpus } from "./helpers/corpus-reader";
+import {
+  flatten,
+  linesOf,
+  matrixRowDump,
+  perVariantMatrixRows as readPerVariantMatrixRows,
+  readCorpus as readSharedCorpus,
+  type MatrixRow,
+} from "./helpers/corpus-reader";
 import { describe, expect, it } from "vitest";
 
 // b0404 — the custom-type-unsafe note's matrix-row oracle.
@@ -62,9 +69,6 @@ function readCorpus(rel: string): string {
   return readSharedCorpus(rel, "this oracle's only source for the bug 0404 surface it owns");
 }
 
-/** Line wrapping is editorial, so every prose match runs over a flattened run. */
-const flatten = (text: string): string => text.replace(/\s+/g, " ").trim();
-
 const RUNTIME_EVENT_CHANNEL =
   "docs/spec_topics/pi-integration-contract/runtime-event-channel.md";
 
@@ -119,57 +123,12 @@ function locateSite(
   return hits[0] as Site;
 }
 
-interface MatrixRow extends Site {
-  /** The row's markdown cells, trimmed: [selector, display, content]. */
-  readonly cells: readonly string[];
-}
-
-/** A markdown table row `| a | b | c |` split into trimmed cells `[a, b, c]`. */
-function tableCells(rawRow: string): string[] {
-  return rawRow
-    .split("|")
-    .slice(1, -1)
-    .map((c) => c.trim());
-}
-
-/**
- * The `|`-started rows of the "Per-variant `display` / `content` pairings
- * (normative)" table, located by its header and bounded by the next blank line
- * — never by index, so the fix's inserted row does not slip the block. Includes
- * the header/separator rows (they match no cell filter below).
- */
-function perVariantMatrixRows(): readonly MatrixRow[] {
-  const lines = linesOf(readCorpus(RUNTIME_EVENT_CHANNEL));
-  const headerIdx = lines.findIndex(
-    (l) => l.includes("Per-variant") && l.includes("pairings (normative)"),
-  );
-  if (headerIdx < 0) {
-    throw new Error(
-      `harness precondition unmet: ${RUNTIME_EVENT_CHANNEL} carries no "Per-variant … pairings (normative)" table header — the matrix bug 0404 extends cannot be located, so the matrix cells would score vacuously`,
-    );
-  }
-  const rows: MatrixRow[] = [];
-  let i = headerIdx + 1;
-  while (i < lines.length && (lines[i] ?? "").trim() === "") i += 1;
-  for (; i < lines.length; i += 1) {
-    const raw = lines[i] ?? "";
-    if (raw.startsWith("|")) {
-      rows.push({
-        what: "per-variant matrix row",
-        line: i + 1,
-        text: flatten(raw),
-        cells: tableCells(raw),
-      });
-      continue;
-    }
-    break;
-  }
-  if (rows.length === 0) {
-    throw new Error(
-      `harness precondition unmet: the per-variant table at ${RUNTIME_EVENT_CHANNEL} line ${headerIdx + 1} has no \`|\`-started rows`,
-    );
-  }
-  return rows;
+function perVariantMatrixRows(): readonly (MatrixRow & Site)[] {
+  return readPerVariantMatrixRows(
+    readCorpus(RUNTIME_EVENT_CHANNEL),
+    RUNTIME_EVENT_CHANNEL,
+    "bug 0404 extends",
+  ).map((row) => ({ what: "per-variant matrix row", ...row }));
 }
 
 /** The `details: { diagnostics }` bullet (single physical line). */
@@ -224,7 +183,7 @@ describe("bug 0404 — the custom-type-unsafe operator-facing note gets a per-va
     });
     expect(
       matching.length,
-      `cell 1 (bug 0404 §Fix item 2 — "the matching matrix row"): the per-variant table must carry EXACTLY ONE \`|\`-row that (a) is not the panic row, (b) selects the single-element registered \`theta/runtime/*\` diagnostic routed as an operator-facing note (the BNDR-9 custom-type-unsafe rejection), (c) pairs display \`true\` to the failure-mode template "${FAILURE_TEMPLATE_PHRASE}". Found ${matching.length}. The shipped note (production-theta-producer.ts #emitCustomTypeUnsafeNote) fits no other row; at the fork it is rowless.\nTable rows now present:\n${rows.map((r) => `  line ${r.line}: ${r.text.slice(0, 140)}`).join("\n")}`,
+      `cell 1 (bug 0404 §Fix item 2 — "the matching matrix row"): the per-variant table must carry EXACTLY ONE \`|\`-row that (a) is not the panic row, (b) selects the single-element registered \`theta/runtime/*\` diagnostic routed as an operator-facing note (the BNDR-9 custom-type-unsafe rejection), (c) pairs display \`true\` to the failure-mode template "${FAILURE_TEMPLATE_PHRASE}". Found ${matching.length}. The shipped note (production-theta-producer.ts #emitCustomTypeUnsafeNote) fits no other row; at the fork it is rowless.\nTable rows now present:\n${matrixRowDump(rows, 140)}`,
     ).toBe(1);
   });
 

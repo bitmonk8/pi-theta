@@ -27,8 +27,9 @@ import {
   sinkSpy,
   shutdownDeps,
   eventWith,
+  fakeDebouncerDep,
 } from "./helpers/session-shutdown-harness";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import { FakeClock, flush } from "./helpers/fake-clock";
 import {
   runSessionShutdown,
@@ -36,7 +37,6 @@ import {
   TEARDOWN_STEP_CALL_LABELS,
   TEARDOWN_STEP_FAILED_CODE,
   type SessionShutdownDeps,
-  type TeardownAwareDebouncer,
 } from "../src/extension/session-shutdown";
 import { ActiveInvocationRegistry } from "../src/runtime/active-invocation-registry";
 
@@ -70,20 +70,6 @@ function makeHarness(): Harness {
   return { deps, clock, sink };
 }
 
-// A debouncer whose `whenIdle` rejects, so sub-step 4's quiesce catch emits the
-// `details.call: "debouncer.whenIdle(awaitCap)"` diagnostic under test.
-function fakeDebouncerDep(
-  whenIdleImpl: () => Promise<void>,
-): TeardownAwareDebouncer & {
-  markTornDown: ReturnType<typeof vi.fn>;
-  whenIdle: ReturnType<typeof vi.fn>;
-} {
-  return {
-    markTornDown: vi.fn(),
-    whenIdle: vi.fn(whenIdleImpl),
-  };
-}
-
 /** The flat `details` shape the teardown-step-failed diagnostic carries. */
 interface TeardownStepFailedDetails {
   readonly details: { readonly step: number; readonly call: string };
@@ -108,6 +94,8 @@ describe("bug 0376 — TEARDOWN_STEP_CALL_LABELS[4] omits debouncer.whenIdle(awa
     // the emitted diagnostic and assert set membership against the constant.
     // RED now: the emitter emits step 4 / "debouncer.whenIdle(awaitCap)", which
     // is NOT a member of the constant's three-label row 4.
+    // A debouncer whose `whenIdle` rejects, so sub-step 4's quiesce catch emits the
+    // `details.call: "debouncer.whenIdle(awaitCap)"` diagnostic under test.
     const debouncer = fakeDebouncerDep(async () => {
       throw new Error("whenIdle boom");
     });

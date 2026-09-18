@@ -34,6 +34,7 @@
 
 import {
   watcherSpy,
+  signalSpy,
   makeEntry,
   healthyInventory,
   type ControllableEntry,
@@ -59,7 +60,6 @@ import {
   teardownStepFailedDiagnostic,
   TEARDOWN_STEP_CALL_LABELS,
   type EmissionSink,
-  type ForwardingSignalSource,
   type NestedShapeEmission,
   type SessionShutdownDeps,
   type SessionShutdownEventLike,
@@ -80,12 +80,6 @@ const cancelledMessage = (name: string, reason: string): string =>
   `theta /${name} cancelled by session shutdown (${reason})`;
 
 // --- helpers ----------------------------------------------------------------
-
-function signalSpy(label: ForwardingSignalSource["label"]): ForwardingSignalSource & {
-  removeEventListener: ReturnType<typeof vi.fn>;
-} {
-  return { label, removeEventListener: vi.fn() };
-}
 
 function sinkSpy(
   options: { serialiseThrows?: boolean; emitThrows?: boolean } = {},

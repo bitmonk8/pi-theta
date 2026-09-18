@@ -5,12 +5,13 @@
 // multi-feature fixture `.theta` end-to-end through the `H4a` harness against the
 // in-process Pi session double, driving the integrated pipeline (typed query →
 // tool loop → code-tool invoke → schema lowering/validation → binder →
-// cancellation) in a single composed run, and asserts:
+// cancellation) in a single composed run. This file asserts:
 //   1. the run's appended turns match the committed golden transcript (order,
 //      count, per-turn content);
-//   2. the run emits exactly the `theta-system-note` codes in the committed
-//      golden diagnostics list, each asserted against the diagnostics-registry
-//      *Message* strings;
+//   2. a separate renderer/diagnostic-builder fixture produces exactly the codes
+//      in the committed golden diagnostics list, each asserted against the
+//      diagnostics-registry *Message* strings; this does not observe note emission
+//      from the composed run;
 //   3. a committed permitted-code list (a best-effort union of the Deps slices'
 //      emittable codes) is checked in alongside the fixture; and
 //   4. a containment check asserts `golden ⊆ permitted`, reddening `npm test`
@@ -133,14 +134,12 @@ function driveComposedRun(): { transcript: ResponseEvent[]; slashRegistered: boo
 }
 
 /**
- * The `theta-system-note` diagnostics the composed fixture path emits, collected
- * from the live production emission surfaces of the Deps slices (not synthesised
- * from the observable transcript). The binder facet includes a session-context
- * `custom` message whose `customType` is not transcript-safe, so the `V11b`
- * compact-transcript renderer rejects it before rendering and the binder emits
- * `theta/runtime/custom-type-unsafe` (BNDR-9).
+ * Render a standalone user/custom-message fixture and build the diagnostic for
+ * its transcript-unsafe custom type (V11b, BNDR-9). This calls the production
+ * renderer and diagnostic builder directly, not the binder or driveComposedRun,
+ * and does not observe delivery on the `theta-system-note` channel.
  */
-function collectEmittedDiagnostics(): Diagnostic[] {
+function buildRendererFixtureDiagnostics(): Diagnostic[] {
   const unsafeCustomType = "review-card\ntype";
   // The renderer's input is the closed `TranscriptMessage` set (bug 0478); a
   // `user` + `custom` pair is in-set, so no cast is needed.
@@ -214,22 +213,21 @@ describe("H7a — golden transcript (Convention: phase categories — end-to-end
 });
 
 // ===========================================================================
-// Tests bullet 2 — the run emits exactly the golden diagnostics codes, each
-// asserted against the diagnostics-registry Message strings.
+// Tests bullet 2 — the standalone renderer/diagnostic-builder fixture produces
+// exactly the golden codes, each checked against the registry Message strings.
 // ===========================================================================
 
-describe("H7a — golden diagnostics (Convention: phase categories — end-to-end harness)", () => {
-  it("emits exactly the theta-system-note codes in the committed golden diagnostics list", () => {
-    const emitted = collectEmittedDiagnostics();
-    const emittedCodes = [...new Set(emitted.map((d) => d.code))].sort();
+describe("H7a — golden diagnostics (standalone renderer / diagnostic builder)", () => {
+  it("the standalone renderer fixture produces exactly the codes in the committed golden diagnostics list", () => {
+    const diagnostics = buildRendererFixtureDiagnostics();
+    const codes = [...new Set(diagnostics.map((d) => d.code))].sort();
 
-    // Exactly the committed golden diagnostics list — no code the composition
-    // does not emit, no code it emits that is not enumerated.
-    expect(emittedCodes).toEqual([...GOLDEN_DIAGNOSTICS].sort());
+    // Exactly the committed list — no missing or extra code from this fixture.
+    expect(codes).toEqual([...GOLDEN_DIAGNOSTICS].sort());
   });
 
   it("each golden diagnostic code resolves to its diagnostics-registry Message string, sourced from the registry", () => {
-    const emitted = collectEmittedDiagnostics();
+    const diagnostics = buildRendererFixtureDiagnostics();
 
     for (const code of GOLDEN_DIAGNOSTICS) {
       // Diagnostic message anchors: the code resolves to exactly one registry
@@ -240,10 +238,10 @@ describe("H7a — golden diagnostics (Convention: phase categories — end-to-en
       );
     }
 
-    // theta/runtime/custom-type-unsafe (V11b, BNDR-9): the emitted diagnostic's
+    // theta/runtime/custom-type-unsafe (V11b, BNDR-9): the built diagnostic's
     // rendered message equals the registry template with `<value>` substituted,
     // sourced from the registry rather than copy-pasted prose.
-    const customTypeUnsafe = emitted.find((d) => d.code === CUSTOM_TYPE_UNSAFE_CODE);
+    const customTypeUnsafe = diagnostics.find((d) => d.code === CUSTOM_TYPE_UNSAFE_CODE);
     expect(customTypeUnsafe).toBeDefined();
     const template = registryMessage(REGISTRY, CUSTOM_TYPE_UNSAFE_CODE) as string;
     expect(customTypeUnsafe?.message).toBe(

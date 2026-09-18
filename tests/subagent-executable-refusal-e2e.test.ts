@@ -16,80 +16,21 @@
 
 import { resolvingHost, bothRungsFailHost } from "./helpers/fake-json-child";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import type {
-  ExtensionAPI,
-  ExtensionContext,
-} from "@earendil-works/pi-coding-agent";
-import { composeExtensionInstance } from "../src/extension/production-composition";
-import type { ExecutableHost } from "../src/runtime/subagent-launcher";
+import {
+  SUBAGENT_EXECUTABLE_THETAS,
+  runExecutableLoad as runLoad,
+} from "./helpers/compose-workspace-harness";
+import { plantThetaWorkspace, disposeWorkspace } from "./helpers/production-load-harness";
 import { SUBAGENT_EXECUTABLE_UNRESOLVED_CODE } from "../src/runtime/subagent-launcher";
-
-function theta(...lines: string[]): string {
-  return lines.join("\n") + "\n";
-}
-
-const THETAS: readonly { readonly stem: string; readonly text: string }[] = [
-  // A subagent-mode theta: refused when the child `pi` executable is unresolvable.
-  { stem: "subq", text: theta("---", "mode: subagent", "model: claude-test", "---", "@`hi`") },
-  // A prompt-mode theta: never launches a child, so it MUST still register.
-  { stem: "promptq", text: theta("---", "mode: prompt", "---", "@`hi`") },
-];
-
-interface LoadOutcome {
-  readonly registered: readonly string[];
-  readonly noteContent: readonly string[];
-}
-
-async function runLoad(cwd: string, host: ExecutableHost): Promise<LoadOutcome> {
-  const noteContent: string[] = [];
-  const pi = {
-    getFlag: (): undefined => undefined,
-    getCommands: (): readonly unknown[] => [],
-    // The load-phase pre-eval note channel routes error-severity load diagnostics
-    // through `pi.sendMessage`; capture the rendered content so the pinned code
-    // can be witnessed.
-    sendMessage: (message: { content?: unknown }): void => {
-      if (typeof message.content === "string") {
-        noteContent.push(message.content);
-      }
-    },
-    sendUserMessage: (): void => {},
-    getActiveTools: (): readonly string[] => [],
-    setActiveTools: (): void => {},
-    getAllTools: (): readonly unknown[] => [],
-    registerMessageRenderer: (): void => {},
-  } as unknown as ExtensionAPI;
-  const ctx = {
-    cwd,
-    hasUI: true,
-    modelRegistry: {
-      getAvailable: (): readonly unknown[] => [
-        { id: "claude-test", provider: "anthropic", api: "anthropic-messages" },
-      ],
-    },
-    ui: { notify: (): void => {} },
-  } as unknown as ExtensionContext;
-
-  const wiring = await composeExtensionInstance(pi, ctx, { subagentExecutableHost: host });
-  return { registered: wiring.thetas.map((t) => t.slashName), noteContent };
-}
 
 let workspaceDir: string;
 
 beforeAll(() => {
-  workspaceDir = mkdtempSync(join(tmpdir(), "theta-rfc0005-exec-refusal-"));
-  const dir = join(workspaceDir, ".pi", "theta");
-  mkdirSync(dir, { recursive: true });
-  for (const l of THETAS) {
-    writeFileSync(join(dir, `${l.stem}.theta`), l.text, "utf8");
-  }
+  workspaceDir = plantThetaWorkspace("theta-rfc0005-exec-refusal-", SUBAGENT_EXECUTABLE_THETAS);
 });
 
 afterAll(() => {
-  rmSync(workspaceDir, { recursive: true, force: true });
+  disposeWorkspace(workspaceDir);
 });
 
 describe("RFC-0005 — Step 0 (f) executable-resolution refusal through the composition root", () => {

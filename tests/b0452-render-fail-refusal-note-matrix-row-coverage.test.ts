@@ -1,4 +1,11 @@
-import { linesOf, readCorpus as readSharedCorpus } from "./helpers/corpus-reader";
+import {
+  flatten,
+  linesOf,
+  matrixRowDump,
+  perVariantMatrixRows as readPerVariantMatrixRows,
+  readCorpus as readSharedCorpus,
+  type MatrixRow,
+} from "./helpers/corpus-reader";
 import { describe, expect, it } from "vitest";
 
 // b0452 — the bug-0422 route (c) system-render-fail refusal note ships a
@@ -56,9 +63,6 @@ function readCorpus(rel: string): string {
   return readSharedCorpus(rel, "a required source for the bug 0452 surface this oracle owns");
 }
 
-/** Line wrapping is editorial, so every prose match runs over a flattened run. */
-const flatten = (text: string): string => text.replace(/\s+/g, " ").trim();
-
 const RUNTIME_EVENT_CHANNEL =
   "docs/spec_topics/pi-integration-contract/runtime-event-channel.md";
 const PRODUCER = "src/extension/production-theta-producer.ts";
@@ -87,63 +91,12 @@ const PANIC_ROW_SELECTOR = "runtime panic (single-element batch";
 /** The BNDR-9 custom-type-unsafe failure-mode template — NOT a serialised line. */
 const FAILURE_TEMPLATE_PHRASE = "custom-message type is not transcript-safe";
 
-interface MatrixRow {
-  /** 1-based line number, re-derived on every run. */
-  readonly line: number;
-  /** The row's own text, flattened. */
-  readonly text: string;
-  /** The row's markdown cells, trimmed: [selector, display, content]. */
-  readonly cells: readonly string[];
-}
-
-/** A markdown table row `| a | b | c |` split into trimmed cells `[a, b, c]`. */
-function tableCells(rawRow: string): string[] {
-  return rawRow
-    .split("|")
-    .slice(1, -1)
-    .map((c) => c.trim());
-}
-
-/**
- * The `|`-started rows of the "Per-variant `display` / `content` pairings
- * (normative)" table, located by its header and bounded by the next blank line
- * — never by index, so the fix's inserted row does not slip the block. Includes
- * the header/separator rows (they match no cell filter below).
- */
 function perVariantMatrixRows(): readonly MatrixRow[] {
-  const lines = linesOf(readCorpus(RUNTIME_EVENT_CHANNEL));
-  const headerIdx = lines.findIndex(
-    (l) => l.includes("Per-variant") && l.includes("pairings (normative)"),
+  return readPerVariantMatrixRows(
+    readCorpus(RUNTIME_EVENT_CHANNEL),
+    RUNTIME_EVENT_CHANNEL,
+    "bug 0452 adds a row to",
   );
-  if (headerIdx < 0) {
-    throw new Error(
-      `harness precondition unmet: ${RUNTIME_EVENT_CHANNEL} carries no "Per-variant … pairings (normative)" table header — the matrix bug 0452 adds a row to cannot be located, so the matrix cells would score vacuously`,
-    );
-  }
-  const rows: MatrixRow[] = [];
-  let i = headerIdx + 1;
-  while (i < lines.length && (lines[i] ?? "").trim() === "") i += 1;
-  for (; i < lines.length; i += 1) {
-    const raw = lines[i] ?? "";
-    if (raw.startsWith("|")) {
-      rows.push({ line: i + 1, text: flatten(raw), cells: tableCells(raw) });
-      continue;
-    }
-    break;
-  }
-  if (rows.length === 0) {
-    throw new Error(
-      `harness precondition unmet: the per-variant table at ${RUNTIME_EVENT_CHANNEL} line ${headerIdx + 1} has no \`|\`-started rows`,
-    );
-  }
-  return rows;
-}
-
-/** Dump of the current matrix rows for a red cell's diagnostic, mirroring b0434. */
-function matrixRowDump(): string {
-  return perVariantMatrixRows()
-    .map((r) => `  line ${r.line}: ${r.text.slice(0, 160)}`)
-    .join("\n");
 }
 
 /**
@@ -215,7 +168,7 @@ describe("bug 0452 — the render-fail refusal note gets a per-variant matrix ro
     });
     expect(
       rows.length,
-      `cell 1 (bug 0452 §Fix, Option 2 — add a per-variant row for the render-fail refusal note): the per-variant table must carry EXACTLY ONE \`|\`-row that (a) references the \`details: { diagnostics\` shape and (b) pairs it to a content cell containing "${REFUSAL_CONTENT_SUBSTRING}" (the site's verbatim template). Found ${rows.length}. At the fork this is 0: the bug-0422 route (c) note is rowless under the per-variant matrix.\nTable rows now present:\n${matrixRowDump()}`,
+      `cell 1 (bug 0452 §Fix, Option 2 — add a per-variant row for the render-fail refusal note): the per-variant table must carry EXACTLY ONE \`|\`-row that (a) references the \`details: { diagnostics\` shape and (b) pairs it to a content cell containing "${REFUSAL_CONTENT_SUBSTRING}" (the site's verbatim template). Found ${rows.length}. At the fork this is 0: the bug-0422 route (c) note is rowless under the per-variant matrix.\nTable rows now present:\n${matrixRowDump(perVariantMatrixRows(), 160)}`,
     ).toBe(1);
   });
 
@@ -262,7 +215,7 @@ describe("bug 0452 — the render-fail refusal note gets a per-variant matrix ro
     );
     expect(
       pinningRows.length,
-      `cell 3 (bug 0452 §Fix witness — code↔doc tie): the verbatim template "${REFUSAL_TEMPLATE_PHRASE}" ships at ${PRODUCER} and must be pinned by EXACTLY ONE per-variant matrix row content cell. Found ${pinningRows.length} matching row(s). At the fork it is in the producer but in zero matrix rows.\nTable rows now present:\n${matrixRowDump()}`,
+      `cell 3 (bug 0452 §Fix witness — code↔doc tie): the verbatim template "${REFUSAL_TEMPLATE_PHRASE}" ships at ${PRODUCER} and must be pinned by EXACTLY ONE per-variant matrix row content cell. Found ${pinningRows.length} matching row(s). At the fork it is in the producer but in zero matrix rows.\nTable rows now present:\n${matrixRowDump(perVariantMatrixRows(), 160)}`,
     ).toBe(1);
   });
 

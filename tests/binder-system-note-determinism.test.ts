@@ -1,5 +1,5 @@
+import { callInput } from "./helpers/binder-inference-fixture";
 import { describe, expect, it } from "vitest";
-import type { Api, Model, ProviderResponse } from "@earendil-works/pi-ai";
 import {
   SYSTEM_NOTE_CODEPOINT_CAP,
   capSystemNote,
@@ -9,11 +9,7 @@ import {
   sanitizeSystemNoteSubstring,
 } from "../src/binder/system-note";
 import { deriveBinderSeed } from "../src/binder/binder-seed";
-import {
-  buildBinderCompleteCall,
-  type BinderCompleteCallInput,
-} from "../src/binder/binder-inference";
-import type { BinderEnvelopeSchema } from "../src/binder/binder-envelope";
+import { buildBinderCompleteCall } from "../src/binder/binder-inference";
 import { renderArgumentEcho } from "../src/render/argument-echo";
 
 // V11e-T — failing tests for the paired `V11e` "Binder system-note rendering
@@ -153,30 +149,6 @@ describe("V11e-T — System-note rendering (defaulting-system-note-echo.md #syst
 // ============================================================================
 
 describe("V11e-T — Binder determinism (determinism-cancellation-failure.md §Determinism)", () => {
-  const envelope: BinderEnvelopeSchema = {
-    anyOf: [
-      {
-        type: "object",
-        properties: { kind: { const: "ok" } },
-        required: ["kind"],
-      },
-    ],
-  };
-
-  function callInput(seed: number): BinderCompleteCallInput {
-    return {
-      // `openai-completions` carries a `seed` field, so the FNV-derived seed
-      // surfaces on `options.seed` (the provider seed-field mapping is V9j's).
-      model: { api: "openai-completions" } as unknown as Model<Api>,
-      systemPrompt: "You are the binder.",
-      envelopeSchema: envelope,
-      slug: "triage",
-      seed,
-      signal: new AbortController().signal,
-      onResponse: (_response: ProviderResponse, _model: Model<Api>) => {},
-    };
-  }
-
   it("cka-42: the binder seed is FNV-1a-derived (deterministic) and `temperature: 0` is sent on a pair the placement mapping sends it for", () => {
     // FNV-1a 32-bit reference vectors (offset basis 0x811c9dc5, prime
     // 0x01000193, UTF-8 input bytes, masked to 32-bit unsigned). Conforming
@@ -193,7 +165,7 @@ describe("V11e-T — Binder determinism (determinism-cancellation-failure.md §D
     // sending one; the FNV-derived seed flows through the constructed provider
     // call unchanged.
     const seed = deriveBinderSeed("code-review");
-    const call = buildBinderCompleteCall(callInput(seed));
+    const call = buildBinderCompleteCall(callInput("openai-completions", seed));
     expect(call.options.temperature).toBe(0);
     expect((call.options as Record<string, unknown>).seed).toBe(seed);
   });

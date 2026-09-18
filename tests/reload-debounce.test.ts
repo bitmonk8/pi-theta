@@ -5,7 +5,7 @@ import {
   RELOAD_DEBOUNCE_WINDOW_MS,
   type RebuildOutcome,
 } from "../src/extension/reload-debounce";
-import { FakeClock } from "./helpers/fake-clock";
+import { FakeClock, flush } from "./helpers/fake-clock";
 import type { FileWatchEvent } from "../src/seams/file-watcher";
 
 // V10d-T — reload debounce and cross-window rebuild serialization (tests).
@@ -18,13 +18,6 @@ import type { FileWatchEvent } from "../src/seams/file-watcher";
 // Time is driven deterministically through the injected `Clock` seam via the
 // `FakeClock` test double (V8d): `Clock.setTimeout` / `Clock.clearTimeout` back
 // the debounce, and `FakeClock.advance(ms)` crosses the window boundary.
-
-/** Flush the microtask queue so an in-flight rebuild's promise settles. */
-async function flush(times = 8): Promise<void> {
-  for (let i = 0; i < times; i++) {
-    await Promise.resolve();
-  }
-}
 
 // ---------------------------------------------------------------------------
 // Reload-debounce code-keyed area (`cka-36`,

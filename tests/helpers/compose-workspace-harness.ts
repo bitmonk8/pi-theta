@@ -46,6 +46,7 @@ import type { Diagnostic } from "../../src/diagnostics/diagnostic";
 import { composeExtensionInstance } from "../../src/extension/production-composition";
 import { RendererGate, SYSTEM_NOTE_CHANNEL } from "../../src/extension/system-note-channel";
 import type { ParsedTheta } from "../../src/extension/reload-wiring";
+import type { ExecutableHost } from "../../src/runtime/subagent-launcher";
 
 export type PiHandler = (event: unknown, ctx: ExtensionContext) => unknown;
 
@@ -237,6 +238,57 @@ export async function runLoadPass(workspace: Pick<ComposeWorkspace, "cwd">): Pro
     registered: wiring.thetas.map((t) => t.slashName),
     thetas: wiring.thetas,
   };
+}
+
+function theta(...lines: string[]): string {
+  return lines.join("\n") + "\n";
+}
+
+export const SUBAGENT_EXECUTABLE_THETAS: readonly { readonly stem: string; readonly text: string }[] = [
+  // A subagent-mode theta: refused when the child `pi` executable is unresolvable.
+  { stem: "subq", text: theta("---", "mode: subagent", "model: claude-test", "---", "@`hi`") },
+  // A prompt-mode theta: never launches a child, so it MUST still register.
+  { stem: "promptq", text: theta("---", "mode: prompt", "---", "@`hi`") },
+];
+
+export interface ExecutableLoadOutcome {
+  readonly registered: readonly string[];
+  readonly noteContent: readonly string[];
+}
+
+/** Load prompt/subagent fixtures through the real executable-host override seam. */
+export async function runExecutableLoad(cwd: string, host: ExecutableHost): Promise<ExecutableLoadOutcome> {
+  const noteContent: string[] = [];
+  const pi = {
+    getFlag: (): undefined => undefined,
+    getCommands: (): readonly unknown[] => [],
+    // The load-phase pre-eval note channel routes error-severity load diagnostics
+    // through `pi.sendMessage`; capture the rendered content so the pinned code
+    // can be witnessed.
+    sendMessage: (message: { content?: unknown }): void => {
+      if (typeof message.content === "string") {
+        noteContent.push(message.content);
+      }
+    },
+    sendUserMessage: (): void => {},
+    getActiveTools: (): readonly string[] => [],
+    setActiveTools: (): void => {},
+    getAllTools: (): readonly unknown[] => [],
+    registerMessageRenderer: (): void => {},
+  } as unknown as ExtensionAPI;
+  const ctx = {
+    cwd,
+    hasUI: true,
+    modelRegistry: {
+      getAvailable: (): readonly unknown[] => [
+        { id: "claude-test", provider: "anthropic", api: "anthropic-messages" },
+      ],
+    },
+    ui: { notify: (): void => {} },
+  } as unknown as ExtensionContext;
+
+  const wiring = await composeExtensionInstance(pi, ctx, { subagentExecutableHost: host });
+  return { registered: wiring.thetas.map((t) => t.slashName), noteContent };
 }
 
 // ── Observation helpers (PTQ-0230) ──────────────────────────────────────────

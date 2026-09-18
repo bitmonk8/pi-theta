@@ -29,13 +29,14 @@
 // the diagnostic code). These two cells are the only place `details` is pinned.
 
 import { describe, expect, it } from "vitest";
+import { FakeActiveSetPi } from "./helpers/fake-active-set-pi";
 import type {
   ExtensionAPI,
   ExtensionCommandContext,
   ModelRegistry,
 } from "@earendil-works/pi-coding-agent";
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
-import type { ActiveSetGateDeps, ActiveSetPi } from "../src/runtime/tool-registration";
+import type { ActiveSetGateDeps } from "../src/runtime/tool-registration";
 import { withActiveSetGate } from "../src/runtime/tool-registration";
 import { createProductionProducerDeps } from "../src/extension/production-theta-producer";
 import type { ThetaCompositionInput } from "../src/extension/theta-composition-producer";
@@ -93,43 +94,14 @@ function expectNoRuntimeEventKey(note: Record<string, unknown>, where: string): 
 // Cell 1 (PRIMARY, the gate) — unit over `withActiveSetGate` on the
 // double-restore-throw path, capturing the FULL note object handed to
 // `emitSystemNote` so `note.details` is inspectable. Mirrors the
-// `FakeActiveSetPi` / `makeGateDeps` harness of
+// shared `FakeActiveSetPi` / `makeGateDeps` harness of
 // tests/tool-registration-lifetime.test.ts, but the recorder captures the whole
 // object (the existing PIC-8 cell asserts only `note.content`).
 // ===========================================================================
 
-/** `FakeActiveSetPi` mirror: first `setActiveTools` is the install; every later
- *  call is a restore. `throwOnRestore` makes both restore attempts throw so the
- *  PIC-8(c) advisory fires (the double-throw path). */
-class FakeActiveSetPi implements ActiveSetPi {
-  readonly setCalls: string[][] = [];
-  throwOnRestore = false;
-  #installed = false;
-
-  constructor(readonly snapshot: string[]) {}
-
-  getActiveTools(): string[] {
-    return [...this.snapshot];
-  }
-
-  setActiveTools(names: string[]): void {
-    this.setCalls.push([...names]);
-    if (!this.#installed) {
-      this.#installed = true;
-      return;
-    }
-    if (this.throwOnRestore) throw new Error("setActiveTools restore failure");
-  }
-
-  get restoreAttempts(): string[][] {
-    return this.setCalls.slice(1);
-  }
-}
-
 describe("bug 0433 (RED) — the PIC-8(c) advisory note carries no fabricated runtime-event key", () => {
   it("Cell 1: a double-restore-throw fires the advisory note with NO `event` key in details (content/display/diagnostic unchanged)", async () => {
-    const pi = new FakeActiveSetPi(["user_tool_a", "user_tool_b"]);
-    pi.throwOnRestore = true;
+    const pi = new FakeActiveSetPi(["user_tool_a", "user_tool_b"], "throw-restore-always");
 
     // Capture as `unknown[]` — vitest transpiles (esbuild, NO typecheck), so the
     // runtime object is inspectable regardless of the note's declared TS type.

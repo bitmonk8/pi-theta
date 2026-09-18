@@ -1,3 +1,8 @@
+import {
+  matrixRowDump,
+  perVariantMatrixRows as readPerVariantMatrixRows,
+  type MatrixRow,
+} from "./helpers/corpus-reader";
 import { fileURLToPath } from "node:url";
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
@@ -79,9 +84,6 @@ function readCorpus(rel: string): string {
 /** Line splitting tolerates the page's CRLF terminators. */
 const linesOf = (text: string): readonly string[] => text.split(/\r?\n/);
 
-/** Line wrapping is editorial, so every prose match runs over a flattened run. */
-const flatten = (text: string): string => text.replace(/\s+/g, " ").trim();
-
 const RUNTIME_EVENT_CHANNEL =
   "docs/spec_topics/pi-integration-contract/runtime-event-channel.md";
 const CODE_REGISTRY_RUNTIME = "docs/spec_topics/diagnostics/code-registry-runtime.md";
@@ -130,56 +132,12 @@ const OPERATOR_FACING_RUNTIME_CODES: readonly string[] = [
   "subagent-model-unresolved",
 ];
 
-interface MatrixRow {
-  /** 1-based line number, re-derived on every run. */
-  readonly line: number;
-  /** The row's own text, flattened. */
-  readonly text: string;
-  /** The row's markdown cells, trimmed: [selector, display, content]. */
-  readonly cells: readonly string[];
-}
-
-/** A markdown table row `| a | b | c |` split into trimmed cells `[a, b, c]`. */
-function tableCells(rawRow: string): string[] {
-  return rawRow
-    .split("|")
-    .slice(1, -1)
-    .map((c) => c.trim());
-}
-
-/**
- * The `|`-started rows of the "Per-variant `display` / `content` pairings
- * (normative)" table, located by its header and bounded by the next blank line
- * — never by index, so the fix's edited/inserted row does not slip the block.
- * Includes the header/separator rows (they match no cell filter below).
- */
 function perVariantMatrixRows(): readonly MatrixRow[] {
-  const lines = linesOf(readCorpus(RUNTIME_EVENT_CHANNEL));
-  const headerIdx = lines.findIndex(
-    (l) => l.includes("Per-variant") && l.includes("pairings (normative)"),
+  return readPerVariantMatrixRows(
+    readCorpus(RUNTIME_EVENT_CHANNEL),
+    RUNTIME_EVENT_CHANNEL,
+    "bug 0434 generalises",
   );
-  if (headerIdx < 0) {
-    throw new Error(
-      `harness precondition unmet: ${RUNTIME_EVENT_CHANNEL} carries no "Per-variant … pairings (normative)" table header — the matrix bug 0434 generalises cannot be located, so the matrix cells would score vacuously`,
-    );
-  }
-  const rows: MatrixRow[] = [];
-  let i = headerIdx + 1;
-  while (i < lines.length && (lines[i] ?? "").trim() === "") i += 1;
-  for (; i < lines.length; i += 1) {
-    const raw = lines[i] ?? "";
-    if (raw.startsWith("|")) {
-      rows.push({ line: i + 1, text: flatten(raw), cells: tableCells(raw) });
-      continue;
-    }
-    break;
-  }
-  if (rows.length === 0) {
-    throw new Error(
-      `harness precondition unmet: the per-variant table at ${RUNTIME_EVENT_CHANNEL} line ${headerIdx + 1} has no \`|\`-started rows`,
-    );
-  }
-  return rows;
 }
 
 /**
@@ -226,13 +184,6 @@ function selectingRowCount(): number {
     .length;
 }
 
-/** Dump of the current matrix rows for a red cell's diagnostic, mirroring b0404 cell 1. */
-function matrixRowDump(): string {
-  return perVariantMatrixRows()
-    .map((r) => `  line ${r.line}: ${r.text.slice(0, 140)}`)
-    .join("\n");
-}
-
 /**
  * Whether code-registry-runtime.md carries a `| \`theta/runtime/<code>\` |`-started
  * registry row. A missing row is a loud harness precondition failure naming the
@@ -254,7 +205,7 @@ describe("bug 0434 — the per-variant matrix gives every registered operator-fa
     const count = selectingRowCount();
     expect(
       count,
-      `cell 1 (bug 0434 §Fix, OPTION 1 — generalise the parse/load/type row's selector): the per-variant table must carry EXACTLY ONE \`|\`-row that (a) references the \`details: { diagnostics\` shape, (b) references operator-facing-note routing, (c) is not the panic row, and (d) pairs it to the serialised \`<code>: <message>\` content (not the BNDR-9 "${FAILURE_TEMPLATE_PHRASE}" template, not the \`aborted:\` panic framing). Found ${count}. At the fork this is 0: 21 registered theta/runtime/* operator-facing note classes are rowless under the per-variant matrix — the parse/load/type row's selector names only the batch, the panic row is scoped to the top-level panic framing, and the BNDR-9 row's content mandate is the custom-type-unsafe template.\nTable rows now present:\n${matrixRowDump()}`,
+      `cell 1 (bug 0434 §Fix, OPTION 1 — generalise the parse/load/type row's selector): the per-variant table must carry EXACTLY ONE \`|\`-row that (a) references the \`details: { diagnostics\` shape, (b) references operator-facing-note routing, (c) is not the panic row, and (d) pairs it to the serialised \`<code>: <message>\` content (not the BNDR-9 "${FAILURE_TEMPLATE_PHRASE}" template, not the \`aborted:\` panic framing). Found ${count}. At the fork this is 0: 21 registered theta/runtime/* operator-facing note classes are rowless under the per-variant matrix — the parse/load/type row's selector names only the batch, the panic row is scoped to the top-level panic framing, and the BNDR-9 row's content mandate is the custom-type-unsafe template.\nTable rows now present:\n${matrixRowDump(perVariantMatrixRows(), 140)}`,
     ).toBe(1);
   });
 
@@ -276,7 +227,7 @@ describe("bug 0434 — the per-variant matrix gives every registered operator-fa
     const uncovered = OPERATOR_FACING_RUNTIME_CODES.filter(() => count !== 1);
     expect(
       uncovered,
-      `cell 2 (bug 0434 §Fix witness — "each note class is selected by exactly one matrix row"): every registered operator-facing \`theta/runtime/*\` code ships the same group-B serialised-content triple through one funnel, so its shared note class must have exactly one selecting matrix row. Selecting-row count is ${count}; ${uncovered.length}/${OPERATOR_FACING_RUNTIME_CODES.length} codes are uncovered. At the fork the count is 0 and all 21 are rowless:\n${uncovered.map((c) => `  theta/runtime/${c}`).join("\n")}\nTable rows now present:\n${matrixRowDump()}`,
+      `cell 2 (bug 0434 §Fix witness — "each note class is selected by exactly one matrix row"): every registered operator-facing \`theta/runtime/*\` code ships the same group-B serialised-content triple through one funnel, so its shared note class must have exactly one selecting matrix row. Selecting-row count is ${count}; ${uncovered.length}/${OPERATOR_FACING_RUNTIME_CODES.length} codes are uncovered. At the fork the count is 0 and all 21 are rowless:\n${uncovered.map((c) => `  theta/runtime/${c}`).join("\n")}\nTable rows now present:\n${matrixRowDump(perVariantMatrixRows(), 140)}`,
     ).toEqual([]);
   });
 

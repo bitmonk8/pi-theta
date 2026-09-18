@@ -38,17 +38,12 @@ import {
   liveSignal,
   forcedRespondConfig,
   RespondingModel,
-  schemaDeclsOf,
-  ajv,
+  buildTriageValidation,
 } from "./helpers/typed-query-harness";
 import {
   runTypedQueryLoop,
   type QueryToolLoopConfig,
-  type TypedQuerySchemaValidation,
 } from "../src/runtime/query-tool-loop";
-import { buildTypedQueryValidation } from "../src/runtime/typed-query-validation";
-import { lowerQueryResponseSchema } from "../src/runtime/query-schema-lowering";
-import type { LoweredSchema } from "../src/seams/schema-validator";
 
 // --- Substrate -------------------------------------------------------------
 
@@ -59,45 +54,6 @@ function config(): QueryToolLoopConfig {
     invocationId: "inv-s3",
     occurredAt: 0,
   });
-}
-
-/** The shipped-shape triage schema (mirrors docs/examples/handle-error.theta). */
-const TRIAGE_SOURCE = [
-  "schema Triage {",
-  '  category: "bug" | "feature" | "question",',
-  "  urgent: boolean",
-  "}",
-].join("\n");
-
-/**
- * Build the production `TypedQuerySchemaValidation` for `@<Triage>` exactly as
- * the shipped producer composes it, over a scripted respond-repair follow-up
- * sequence. `followUps` are the raw reply strings the driven follow-up turns
- * would return.
- */
-function buildTriageValidation(followUps: readonly string[]): {
-  readonly validation: TypedQuerySchemaValidation;
-  readonly lowered: LoweredSchema;
-  readonly followUpCalls: () => number;
-} {
-  const schemas = schemaDeclsOf(TRIAGE_SOURCE, "triage.theta");
-  const lowered = lowerQueryResponseSchema("Triage", schemas);
-  if (lowered === undefined) {
-    throw new Error("Triage schema failed to lower — parser did not retain the schema body");
-  }
-  const state = { calls: 0 };
-  const validation = buildTypedQueryValidation({
-    lowered,
-    schemaValidator: ajv("triage"),
-    attempts: followUps.length,
-    maxRounds: 0,
-    driveFollowUp: () => {
-      const reply = followUps[state.calls] ?? "{}";
-      state.calls += 1;
-      return Promise.resolve(reply);
-    },
-  });
-  return { validation, lowered, followUpCalls: () => state.calls };
 }
 
 // ===========================================================================
@@ -181,7 +137,7 @@ describe("e2e-S3 — typed query: respond-repair recovers a non-conforming objec
     if (outcome.kind === "value") {
       expect(outcome.value).toEqual({ category: "bug", urgent: true });
     }
-    expect(built.followUpCalls(), "exactly one respond-repair follow-up drove").toBe(1);
+    expect(built.followUpCalls, "exactly one respond-repair follow-up drove").toBe(1);
   });
 });
 
@@ -211,6 +167,6 @@ describe("e2e-S3 — typed query: unrecoverable non-conformance surfaces termina
     }
     // Both respond-repair follow-up slots were consumed before terminal
     // exhaustion (QRY-11 bounded by respond_repair.attempts).
-    expect(built.followUpCalls()).toBe(2);
+    expect(built.followUpCalls).toBe(2);
   });
 });

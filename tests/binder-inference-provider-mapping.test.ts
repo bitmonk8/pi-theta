@@ -1,7 +1,8 @@
+import { callInput, envelope } from "./helpers/binder-inference-fixture";
 import { LIVE_ANTHROPIC_OVERFLOW_ERROR_MESSAGE } from "./helpers/model-registry-fixture";
 import { describe, expect, it } from "vitest";
 import { Type } from "typebox";
-import type { Api, Model, ProviderResponse } from "@earendil-works/pi-ai";
+import type { Api, Model } from "@earendil-works/pi-ai";
 import {
   BINDER_MESSAGE_CONTENT,
   BINDER_TOOL_DESCRIPTION,
@@ -54,15 +55,6 @@ import { deepKeyOccurrences } from "./helpers/deep-key-occurrences";
 // typed queries"; diagnostic code/message from diagnostics/code-registry-load.md.
 
 // --- helpers ----------------------------------------------------------------
-
-/**
- * A minimal `Model<Api>` fixture. `.api` and `.id` are the fields the seam
- * reads; `modelOf` supplies only `.api`, so every row it drives is one the
- * temperature placement mapping sends the field for by default.
- */
-function modelOf(api: string): Model<Api> {
-  return { api } as unknown as Model<Api>;
-}
 
 function classify(
   overrides: Partial<ProviderClassifierInput> & { api: string },
@@ -365,31 +357,6 @@ describe("V9j-T — provider classifier → QueryError (cka-35)", () => {
 // ============================================================================
 
 describe("V9j-T — complete() binder envelope (cka-34)", () => {
-  const envelope: BinderEnvelopeSchema = {
-    anyOf: [
-      {
-        type: "object",
-        properties: { kind: { const: "ok" } },
-        required: ["kind"],
-      },
-    ],
-  };
-
-  function callInput(
-    api: string,
-    seed: number,
-  ): BinderCompleteCallInput {
-    return {
-      model: modelOf(api),
-      systemPrompt: "You are the binder.",
-      envelopeSchema: envelope,
-      slug: "triage",
-      seed,
-      signal: new AbortController().signal,
-      onResponse: (_response: ProviderResponse, _model: Model<Api>) => {},
-    };
-  }
-
   it("cka-34: context.messages carries the fixed single user message literal", () => {
     const call = buildBinderCompleteCall(callInput("anthropic-messages", 7));
     expect(call.context.messages).toHaveLength(1);
@@ -675,13 +642,13 @@ describe("V9j-T — complete() binder envelope (cka-34)", () => {
   //
   // A "not sent" row must OMIT the key: an own `temperature` key holding
   // `undefined` still reaches the adapter's payload builder, so presence is
-  // asserted with `in`, never against `undefined`. The `modelOf`-built cells
+  // asserted with `in`, never against `undefined`. The `callInput`-built cells
   // above carry no `id` at all and so exercise only the default-sent rows;
   // these cells are the id-keyed half.
 
   /**
    * The `callInput` triple with a model carrying BOTH `api` and the exact `id`
-   * — the pair the temperature placement is keyed on. `modelOf` above supplies
+   * — the pair the temperature placement is keyed on. `callInput` above supplies
    * only `api`, which no id-scoped row can match.
    */
   function callInputForModelId(

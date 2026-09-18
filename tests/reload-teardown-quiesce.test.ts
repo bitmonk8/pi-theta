@@ -27,11 +27,10 @@
 // fakes, and assertion conventions mirror `tests/reload-debounce.test.ts`
 // (V10d-T) and `tests/session-shutdown.test.ts` (V9g-T).
 //
-// Because `ReloadDebouncer.whenIdle` / `.markTornDown` and the sub-step-4
-// `debouncer` dep do not exist yet, the tests reach them through guarded /
-// typed-optional accessors and a widened deps type so the FILE TYPE-CHECKS and
-// COLLECTS; the reds land on the guarded-existence assertions or on the
-// behavioural assertions, never on `tsc`.
+// The `ReloadDebouncer.whenIdle` / `.markTornDown` unit tests use guarded /
+// typed-optional accessors so feature-absent reds land on the guarded-existence
+// assertions rather than on `tsc`. Sub-step-4 dependency doubles use the
+// production `SessionShutdownDeps` surface.
 
 import { controllableRebuild } from "./helpers/controllable-rebuild";
 import {
@@ -42,6 +41,7 @@ import {
   type ControllableEntry,
   shutdownDeps,
   eventWith,
+  fakeDebouncerDep,
 } from "./helpers/session-shutdown-harness";
 import { describe, expect, it, vi } from "vitest";
 import { FakeClock, flush } from "./helpers/fake-clock";
@@ -231,22 +231,6 @@ describe("PIC-57 — ReloadDebouncer.whenIdle (unit)", () => {
 // session_shutdown sub-step 4 — mark torn-down + bounded whenIdle quiesce
 // ===========================================================================
 
-/**
- * The teardown-aware debouncer dependency sub-step 4 requires. Declared here as
- * the interface the implementation must satisfy so this file type-checks while
- * `SessionShutdownDeps` does not yet carry a `debouncer` field. The caller owns
- * the shared-deadline bound (spec `details.call: "debouncer.whenIdle(awaitCap)"`).
- */
-interface TeardownAwareDebouncerDep {
-  markTornDown(): void;
-  whenIdle(): Promise<void>;
-}
-
-/** Widened deps carrying the not-yet-declared `debouncer` sub-step 4 reads. */
-interface DebouncerQuiesceDeps extends SessionShutdownDeps {
-  readonly debouncer?: TeardownAwareDebouncerDep;
-}
-
 interface Harness {
   readonly deps: SessionShutdownDeps;
   readonly clock: FakeClock;
@@ -281,18 +265,6 @@ function makeHarness(
   return { deps, clock, forwardingSignals, sink };
 }
 
-function fakeDebouncerDep(
-  whenIdleImpl: () => Promise<void>,
-): TeardownAwareDebouncerDep & {
-  markTornDown: ReturnType<typeof vi.fn>;
-  whenIdle: ReturnType<typeof vi.fn>;
-} {
-  return {
-    markTornDown: vi.fn(),
-    whenIdle: vi.fn(whenIdleImpl),
-  };
-}
-
 describe("PIC-57 sub-step 4 — mark torn-down + bounded whenIdle quiesce", () => {
   it("PIC-57 sub-step 4: marks the debouncer torn-down and awaits whenIdle before the handler resolves (ordering)", async () => {
     let releaseWhenIdle: () => void = (): void => {};
@@ -310,7 +282,7 @@ describe("PIC-57 sub-step 4 — mark torn-down + bounded whenIdle quiesce", () =
       }),
     };
     const harness = makeHarness();
-    const deps: DebouncerQuiesceDeps = { ...harness.deps, debouncer };
+    const deps: SessionShutdownDeps = { ...harness.deps, debouncer };
 
     let resolved = false;
     const done = runSessionShutdown(eventWith("reload"), deps).then(() => {
@@ -349,7 +321,7 @@ describe("PIC-57 sub-step 4 — mark torn-down + bounded whenIdle quiesce", () =
     const neverIdle = new Promise<void>(() => {});
     const debouncer = fakeDebouncerDep(() => neverIdle);
     const harness = makeHarness({ entries: [a, b] });
-    const deps: DebouncerQuiesceDeps = { ...harness.deps, debouncer };
+    const deps: SessionShutdownDeps = { ...harness.deps, debouncer };
 
     const done = runSessionShutdown(eventWith("reload"), deps);
     // Fire sub-step 3's cap so the shared absolute deadline is exhausted.
@@ -391,9 +363,9 @@ describe("PIC-57 sub-step 4 — mark torn-down + bounded whenIdle quiesce", () =
     // No entries → sub-step 3 resolves without a clock advance, so the shared
     // deadline is NOT exhausted and sub-step 4 performs the real quiesce await.
     const harness = makeHarness({ clock });
-    const deps: DebouncerQuiesceDeps = {
+    const deps: SessionShutdownDeps = {
       ...harness.deps,
-      debouncer: debouncer as unknown as TeardownAwareDebouncerDep,
+      debouncer,
     };
 
     let handlerResolved = false;
@@ -422,7 +394,7 @@ describe("PIC-57 sub-step 4 — mark torn-down + bounded whenIdle quiesce", () =
       throw new Error("whenIdle boom");
     });
     const harness = makeHarness();
-    const deps: DebouncerQuiesceDeps = { ...harness.deps, debouncer };
+    const deps: SessionShutdownDeps = { ...harness.deps, debouncer };
 
     const done = runSessionShutdown(eventWith("reload"), deps);
     harness.clock.advance(SHUTDOWN_AWAIT_CAP_MS + 3);

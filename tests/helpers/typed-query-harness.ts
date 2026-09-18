@@ -7,6 +7,7 @@ import type {
   FreePhaseTurn,
   QueryModelDriver,
   QueryToolLoopConfig,
+  TypedQuerySchemaValidation,
 } from "../../src/runtime/query-tool-loop";
 import {
   AjvSchemaValidator,
@@ -19,6 +20,8 @@ import {
   type SchemaDecl,
 } from "../../src/parser/theta-document";
 import type { ThetaSource } from "../../src/lexer/lexer";
+import { buildTypedQueryValidation } from "../../src/runtime/typed-query-validation";
+import { lowerQueryResponseSchema } from "../../src/runtime/query-schema-lowering";
 
 export { SEAM_NOOP_CHECKPOINT as NOOP_CHECKPOINT } from "./invoke-seam-scaffold";
 
@@ -75,4 +78,47 @@ export function ajv(slug: string): AjvSchemaValidator {
     canonicalBytes: JSON.stringify(schema),
   });
   return new AjvSchemaValidator({ emit: () => {}, slugOf });
+}
+
+/** The shipped-shape triage schema (mirrors docs/examples/handle-error.theta). */
+export const TRIAGE_SOURCE = [
+  "schema Triage {",
+  '  category: "bug" | "feature" | "question",',
+  "  urgent: boolean",
+  "}",
+].join("\n");
+
+/**
+ * Build the production `TypedQuerySchemaValidation` for `@<Triage>` exactly as
+ * the shipped producer composes it, over a scripted respond-repair follow-up
+ * sequence. `followUps` are the raw reply strings the driven follow-up turns
+ * would return.
+ */
+export function buildTriageValidation(
+  followUps: readonly string[],
+): { readonly validation: TypedQuerySchemaValidation; readonly lowered: LoweredSchema; followUpCalls: number } {
+  const schemas = schemaDeclsOf(TRIAGE_SOURCE, "triage.theta");
+  const lowered = lowerQueryResponseSchema("Triage", schemas);
+  if (lowered === undefined) {
+    throw new Error("Triage schema failed to lower — parser did not retain the schema body");
+  }
+  const state = { followUpCalls: 0 };
+  const validation = buildTypedQueryValidation({
+    lowered,
+    schemaValidator: ajv("triage"),
+    attempts: followUps.length,
+    maxRounds: 0,
+    driveFollowUp: () => {
+      const reply = followUps[state.followUpCalls] ?? "{}";
+      state.followUpCalls += 1;
+      return Promise.resolve(reply);
+    },
+  });
+  return {
+    validation,
+    lowered,
+    get followUpCalls() {
+      return state.followUpCalls;
+    },
+  };
 }

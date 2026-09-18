@@ -11,6 +11,7 @@ import type {
   ForwardingSignalSource,
   SessionShutdownDeps,
   SessionShutdownEventLike,
+  TeardownAwareDebouncer,
 } from "../../src/extension/session-shutdown";
 import type { Clock } from "../../src/seams/clock";
 
@@ -51,6 +52,19 @@ export function signalSpy(
   label: ForwardingSignalSource["label"],
 ): ForwardingSignalSource & { removeEventListener: ReturnType<typeof vi.fn> } {
   return { label, removeEventListener: vi.fn() };
+}
+
+/** A debouncer double with caller-supplied quiesce behaviour. */
+export function fakeDebouncerDep(
+  whenIdleImpl: () => Promise<void>,
+): TeardownAwareDebouncer & {
+  markTornDown: ReturnType<typeof vi.fn>;
+  whenIdle: ReturnType<typeof vi.fn>;
+} {
+  return {
+    markTornDown: vi.fn(),
+    whenIdle: vi.fn(whenIdleImpl),
+  };
 }
 
 // The sink serialises via JSON.stringify, so each `emit` call carries the single

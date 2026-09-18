@@ -46,7 +46,7 @@
 // Token cost: one live drive (one binder pass plus one body turn).
 
 import { describe, expect, it } from "vitest";
-import type { Api, Model, ProviderResponse } from "@earendil-works/pi-ai";
+import { callInput } from "../helpers/binder-inference-fixture";
 import {
   bootShippedExtension,
   driveSlashCaptureTurn,
@@ -58,7 +58,6 @@ import {
   binderToolName,
   buildBinderCompleteCall,
 } from "../../src/binder/binder-inference";
-import type { BinderEnvelopeSchema } from "../../src/binder/binder-envelope";
 
 /** The two declared values the slash argument names; their sum is the oracle. */
 const X_VALUE = 263;
@@ -114,24 +113,7 @@ describe("bug 0417 live: a non-bypass `params:` theta bound through an openai-re
     // required): the pure forced-tool-choice spelling for an openai-responses
     // model must be the flat function form. A neutralised fix reds here with
     // zero tokens spent, and the failure is attributable to bug 0417's row.
-    const envelope: BinderEnvelopeSchema = {
-      anyOf: [
-        {
-          type: "object",
-          properties: { kind: { const: "ok" } },
-          required: ["kind"],
-        },
-      ],
-    };
-    const call = buildBinderCompleteCall({
-      model: { api: "openai-responses" } as unknown as Model<Api>,
-      systemPrompt: "You are the binder.",
-      envelopeSchema: envelope,
-      slug: "triage",
-      seed: 7,
-      signal: new AbortController().signal,
-      onResponse: (_r: ProviderResponse, _m: Model<Api>) => {},
-    });
+    const call = buildBinderCompleteCall(callInput("openai-responses"));
     expect(
       (call.options as Record<string, unknown>)["toolChoice"],
       "attribution: an openai-responses binder call must spell the FLAT " +

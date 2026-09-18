@@ -76,3 +76,68 @@ export function section(text: string, heading: string, rel: string, region: stri
 export function flat(text: string): string {
   return text.replace(/\s+/g, " ").trim().toLowerCase();
 }
+
+/** Line wrapping is editorial, so every prose match runs over a flattened run. */
+export const flatten = (text: string): string => text.replace(/\s+/g, " ").trim();
+
+export interface MatrixRow {
+  /** 1-based line number, re-derived on every run. */
+  readonly line: number;
+  /** The row's own text, flattened. */
+  readonly text: string;
+  /** The row's markdown cells, trimmed: [selector, display, content]. */
+  readonly cells: readonly string[];
+}
+
+/** A markdown table row `| a | b | c |` split into trimmed cells `[a, b, c]`. */
+function tableCells(rawRow: string): string[] {
+  return rawRow
+    .split("|")
+    .slice(1, -1)
+    .map((c) => c.trim());
+}
+
+/**
+ * The `|`-started rows of the "Per-variant `display` / `content` pairings
+ * (normative)" table, located by its header and bounded by the next blank line
+ * — never by index. Includes the header/separator rows (callers filter them).
+ */
+export function perVariantMatrixRows(
+  text: string,
+  rel: string,
+  matrixChange: string,
+): readonly MatrixRow[] {
+  const lines = linesOf(text);
+  const headerIdx = lines.findIndex(
+    (l) => l.includes("Per-variant") && l.includes("pairings (normative)"),
+  );
+  if (headerIdx < 0) {
+    throw new Error(
+      `harness precondition unmet: ${rel} carries no "Per-variant … pairings (normative)" table header — the matrix ${matrixChange} cannot be located, so the matrix cells would score vacuously`,
+    );
+  }
+  const rows: MatrixRow[] = [];
+  let i = headerIdx + 1;
+  while (i < lines.length && (lines[i] ?? "").trim() === "") i += 1;
+  for (; i < lines.length; i += 1) {
+    const raw = lines[i] ?? "";
+    if (raw.startsWith("|")) {
+      rows.push({ line: i + 1, text: flatten(raw), cells: tableCells(raw) });
+      continue;
+    }
+    break;
+  }
+  if (rows.length === 0) {
+    throw new Error(
+      `harness precondition unmet: the per-variant table at ${rel} line ${headerIdx + 1} has no \`|\`-started rows`,
+    );
+  }
+  return rows;
+}
+
+/** Dump matrix rows for a failing cell, retaining the caller's text limit. */
+export function matrixRowDump(rows: readonly MatrixRow[], maxChars: number): string {
+  return rows
+    .map((r) => `  line ${r.line}: ${r.text.slice(0, maxChars)}`)
+    .join("\n");
+}

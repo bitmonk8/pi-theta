@@ -31,16 +31,14 @@ import {
   forcedRespondConfig,
   RespondingModel,
   schemaDeclsOf,
-  ajv,
+  TRIAGE_SOURCE,
+  buildTriageValidation,
 } from "./helpers/typed-query-harness";
 import {
   runTypedQueryLoop,
   type QueryToolLoopConfig,
-  type TypedQuerySchemaValidation,
 } from "../src/runtime/query-tool-loop";
-import { buildTypedQueryValidation } from "../src/runtime/typed-query-validation";
 import { lowerQueryResponseSchema } from "../src/runtime/query-schema-lowering";
-import type { LoweredSchema } from "../src/seams/schema-validator";
 
 // --- Substrate -------------------------------------------------------------
 
@@ -51,47 +49,6 @@ function config(): QueryToolLoopConfig {
     invocationId: "inv-1",
     occurredAt: 0,
   });
-}
-
-/** The shipped-shape triage schema (mirrors docs/examples/handle-error.theta). */
-const TRIAGE_SOURCE = [
-  "schema Triage {",
-  '  category: "bug" | "feature" | "question",',
-  "  urgent: boolean",
-  "}",
-].join("\n");
-
-/**
- * Build the production `TypedQuerySchemaValidation` for `@<Triage>` exactly as
- * the fixed producer composes it, over a scripted respond-repair follow-up.
- */
-function buildTriageValidation(
-  followUps: readonly string[],
-): { readonly validation: TypedQuerySchemaValidation; readonly lowered: LoweredSchema; followUpCalls: number } {
-  const schemas = schemaDeclsOf(TRIAGE_SOURCE, "triage.theta");
-  const lowered = lowerQueryResponseSchema("Triage", schemas);
-  if (lowered === undefined) {
-    throw new Error("Triage schema failed to lower — parser did not retain the schema body");
-  }
-  const state = { followUpCalls: 0 };
-  const validation = buildTypedQueryValidation({
-    lowered,
-    schemaValidator: ajv("triage"),
-    attempts: followUps.length,
-    maxRounds: 0,
-    driveFollowUp: () => {
-      const reply = followUps[state.followUpCalls] ?? "{}";
-      state.followUpCalls += 1;
-      return Promise.resolve(reply);
-    },
-  });
-  return {
-    validation,
-    lowered,
-    get followUpCalls() {
-      return state.followUpCalls;
-    },
-  };
 }
 
 // ===========================================================================

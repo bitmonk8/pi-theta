@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { FakeActiveSetPi } from "./helpers/fake-active-set-pi";
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
 import {
   type ActiveSetAdvisoryNote,
@@ -38,44 +39,6 @@ const ACTIVE_SET_RESTORE_FAILED = "theta/runtime/active-set-restore-failed";
 const REGISTRATION_CACHE_COLLISION = "theta/runtime/registration-cache-collision";
 
 // --- test doubles ----------------------------------------------------------
-
-/** A configurable double of the `pi` snapshot/restore surface. */
-class FakeActiveSetPi implements ActiveSetPi {
-  readonly setCalls: string[][] = [];
-  getCalls = 0;
-  throwOnGet = false;
-  throwOnInstall = false;
-  throwOnRestore = false;
-  #installed = false;
-
-  constructor(readonly snapshot: string[]) {}
-
-  getActiveTools(): string[] {
-    this.getCalls++;
-    if (this.throwOnGet) throw new Error("getActiveTools SDK-shape drift");
-    return [...this.snapshot];
-  }
-
-  setActiveTools(names: string[]): void {
-    this.setCalls.push([...names]);
-    if (!this.#installed) {
-      this.#installed = true;
-      if (this.throwOnInstall) throw new Error("setActiveTools install drift");
-      return;
-    }
-    if (this.throwOnRestore) throw new Error("setActiveTools restore failure");
-  }
-
-  /** Step-2 install vector — the first `setActiveTools` call. */
-  get installVectorSeen(): string[] | undefined {
-    return this.setCalls[0];
-  }
-
-  /** Step-4 restore attempts — every `setActiveTools` call after the install. */
-  get restoreAttempts(): string[][] {
-    return this.setCalls.slice(1);
-  }
-}
 
 interface Recorders {
   readonly diagnostics: Diagnostic[];
@@ -151,8 +114,7 @@ describe("V9f-T — PIC-17 active-set allowlist gating", () => {
 
 describe("V9f-T — PIC-8 restore-failure protocol", () => {
   it("PIC-8: a step-4 restore throw triggers exactly one re-attempt, then active-set-restore-failed (E) + a display:true note, and propagates the original error", async () => {
-    const pi = new FakeActiveSetPi(["user_tool_a", "user_tool_b"]);
-    pi.throwOnRestore = true;
+    const pi = new FakeActiveSetPi(["user_tool_a", "user_tool_b"], "throw-restore-always");
     const { deps, rec } = makeGateDeps(pi, [], "code-review");
     const originalError = new Error("provider exploded mid-query");
 
@@ -198,8 +160,7 @@ describe("V9f-T — PIC-8 restore-failure protocol", () => {
 
 describe("V9f-T — PIC-19 snapshot/swap-install-failure protocol", () => {
   it("PIC-19: a step-1 snapshot throw surfaces as internal-error with no restore owed", async () => {
-    const pi = new FakeActiveSetPi(["user_tool_a"]);
-    pi.throwOnGet = true;
+    const pi = new FakeActiveSetPi(["user_tool_a"], "throw-get");
     const { deps, rec } = makeGateDeps(pi, ["__theta_respond_x"], "code-review");
 
     await expect(
@@ -217,8 +178,7 @@ describe("V9f-T — PIC-19 snapshot/swap-install-failure protocol", () => {
   });
 
   it("PIC-19: a step-2 swap-install throw surfaces as internal-error with no restore owed", async () => {
-    const pi = new FakeActiveSetPi(["user_tool_a"]);
-    pi.throwOnInstall = true;
+    const pi = new FakeActiveSetPi(["user_tool_a"], "throw-install");
     const { deps, rec } = makeGateDeps(pi, ["__theta_respond_x"], "code-review");
 
     await expect(
