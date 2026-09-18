@@ -1,6 +1,7 @@
 // Shared scripted-live-session scaffold for the bug-0288/0319/0414 prompt-mode
 // witnesses (PTQ-0328), plus production system-note capture (PTQ-0537) and
-// scripted off-session binder rigs (PTQ-0454, PTQ-0463).
+// scripted off-session binder rigs (PTQ-0454, PTQ-0463), including
+// parse-then-drive params-default fixtures.
 //
 // WHY THIS FILE EXISTS. tests/b0288-prompt-turn-completion-witness.test.ts,
 // tests/b0319-prompt-bidirectional-ctx-abort-witness.test.ts and
@@ -20,11 +21,12 @@
 // file that imports this module.
 import { type Diagnostic } from "../../src/diagnostics/diagnostic";
 import { expect } from "vitest";
-import type { ExtensionAPI, ModelRegistry } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionCommandContext, ModelRegistry } from "@earendil-works/pi-coding-agent";
 import {
   createProductionProducerDeps,
   type ProductionProducerInput,
 } from "../../src/extension/production-theta-producer";
+import type { ThetaCompositionInput } from "../../src/extension/theta-composition-producer";
 import type { RuntimeRoot } from "../../src/runtime-root";
 import { rootDouble as fixedClockRoot } from "./runtime-belt-probe-harness";
 import {
@@ -228,13 +230,18 @@ export function binderProducerWithCapture(
  * extraction reads the envelope from the FIRST ToolCall naming the binder
  * tool; a free-text reply would be the malformed-envelope class.
  * The mutable holder stays in the caller's `vi.hoisted` mock scope.
+ * A missing-tool message makes absence a harness failure instead of a fallback reply.
  */
 export function scriptEnvelope(
   scripted: { replyFor: undefined | ((context: unknown) => unknown) },
   envelope: unknown,
+  missingToolMessage?: string,
 ): void {
   scripted.replyFor = (context: unknown): unknown => {
     const tools = (context as { tools?: ReadonlyArray<{ name?: unknown }> }).tools;
+    if (typeof tools?.[0]?.name !== "string" && missingToolMessage !== undefined) {
+      throw new Error(missingToolMessage);
+    }
     const name = typeof tools?.[0]?.name === "string" ? tools[0].name : "__theta_bind_none";
     return {
       role: "assistant",
@@ -243,4 +250,82 @@ export function scriptEnvelope(
       timestamp: 0,
     };
   };
+}
+
+/** What one fixture did when the shipped load path and binder were handed it. */
+export interface DriveOutcome {
+  /** The one-line disposition: the assertion subject of each drive cell. */
+  readonly summary: string;
+  readonly diagnostics: readonly string[];
+  readonly binderCalls: number;
+  readonly notes: readonly string[];
+}
+
+/**
+ * Bind the parse/drive harness to its fixture filesystem and hoisted complete()
+ * recorder. Keep the caller's default rendering (JSON versus String) unchanged.
+ * Unregistered filesystem paths reject rather than hiding a recovery failure.
+ * The reply omits `p`, exercising the real default merge and AJV validation.
+ */
+export function makeDefaultBinderDrive(
+  fixtureSources: ReadonlyMap<string, string>,
+  scripted: { calls: unknown[]; replyFor: undefined | ((context: unknown) => unknown) },
+  renderDefault: (value: unknown) => string | undefined,
+): (name: string, source: string) => Promise<DriveOutcome> {
+  /**
+   * Parse a fixture through the shipped whole-file parser and, ONLY when it
+   * registers, drive one real binder pass over it.
+   *
+   * The registration verdict is a VALUE in `summary`, never a skipped drive: a
+   * fixture that registers is driven and reports what it bound, which is what
+   * makes a red name the bound value rather than an absent test.
+   */
+  async function driveIfRegistered(name: string, source: string): Promise<DriveOutcome> {
+    scripted.calls = [];
+    scriptEnvelope(
+      scripted,
+      { kind: "ok", args: { topic: "hello" } },
+      "the binder call attached no forced tool, so no ToolCall reply can name it — the harness cannot script an envelope",
+    );
+    const thetaSource: ThetaSource = {
+      path: `${name}.theta`,
+      bytes: new TextEncoder().encode(source),
+    };
+    const doc = parseThetaDocument(thetaSource, parseDeps());
+    const diagnostics = doc.diagnostics.map((d) => `${d.severity} ${d.code}`);
+    if (doc.frontmatter === null) {
+      return { summary: "refused at load", diagnostics, binderCalls: 0, notes: [] };
+    }
+    const { deps, notes } = binderProducerWithCapture({
+      readBytes: (path: string): Promise<Uint8Array> => {
+        const source = fixtureSources.get(path);
+        return source !== undefined
+          ? Promise.resolve(new TextEncoder().encode(source))
+          : Promise.reject(new Error(`fixture fs: no source registered for ${path}`));
+      },
+    });
+    const theta: ThetaCompositionInput = {
+      slashName: name,
+      sourcePath: `/theta/${name}.theta`,
+      frontmatter: doc.frontmatter,
+      body: doc.body,
+      binderModel: "binder-model",
+    };
+    const result = await deps.runBinder({
+      theta,
+      args: "hello",
+      ctx: {} as unknown as ExtensionCommandContext,
+    });
+    const channel = noteChannelEntries(notes).map((n) => n.content);
+    return {
+      summary: `registered and driven; bound=${String(result.bound)}; p=${renderDefault(
+        result.args?.["p"],
+      )}; binder calls=${scripted.calls.length}`,
+      diagnostics,
+      binderCalls: scripted.calls.length,
+      notes: channel,
+    };
+  }
+
+  return driveIfRegistered;
 }

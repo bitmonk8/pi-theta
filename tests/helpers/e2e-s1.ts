@@ -540,6 +540,64 @@ export function deliveredDiagnostics(fixture: SeamFixture): Diagnostic[] {
   return fixture.delivered.flat();
 }
 
+/** Bind the params-default fixture scaffold to a declaration body and filename. */
+export function paramsDefaultFixture(body: string, path: string): {
+  readonly src: (paramsBlock: string) => string;
+  readonly paramsDoc: (rhs: string) => ThetaDocument;
+} {
+  /** A `mode: prompt` theta whose `params:` block is `paramsBlock`. */
+  function src(paramsBlock: string): string {
+    return `---\nmode: prompt\nparams:\n${paramsBlock}\n---\n${body}\n`;
+  }
+
+  /**
+   * A `params:` right-hand side wrapped as a YAML single-quoted scalar.
+   * Theta-side literals carry theta-side quotes, and an unquoted spelling of a
+   * text carrying a `:`, a `#` or a `{` breaks the YAML frame outright, which
+   * collapses the load to a different diagnostic entirely.
+   */
+  function paramsDoc(rhs: string): ThetaDocument {
+    return parseDoc(src(`  p: '${rhs.replace(/'/g, "''")}'`), path);
+  }
+
+  return { src, paramsDoc };
+}
+
+/** The recorded default half of field `p`, or `undefined` when the load withheld it. */
+export function recordedDefault(doc: ThetaDocument): string | undefined {
+  return doc.frontmatter?.params?.fields.find((f) => f.wireName === "p")?.defaultSource;
+}
+
+/** The lowered `properties.p` fragment, or `undefined` when the load withheld it. */
+export function loweredP(doc: ThetaDocument): unknown {
+  const lowered = doc.frontmatter?.params?.loweredSchema as
+    | { readonly properties?: Record<string, unknown> }
+    | undefined;
+  return lowered?.properties?.["p"];
+}
+
+/** Read the diagnostic after a caller has asserted its one-element count. */
+export function firstDiagnostic(label: string, doc: ThetaDocument): Diagnostic {
+  const diagnostic = doc.diagnostics[0];
+  if (diagnostic === undefined) {
+    throw new Error(`${label}: diagnostics[0] absent after a one-element count assertion`);
+  }
+  return diagnostic;
+}
+
+/** Assert the shared params-refusal disposition, retaining each caller's rationale and reader. */
+export function expectParamsDropGateShape(
+  label: string,
+  doc: ThetaDocument,
+  diagnostic: Diagnostic,
+  readLowered: (doc: ThetaDocument) => unknown,
+  clauses: { readonly severity: string; readonly frontmatter: string; readonly lowered: string },
+): void {
+  expect(diagnostic.severity, `${label}: ${clauses.severity}`).toBe("error");
+  expect(doc.frontmatter, `${label}: ${clauses.frontmatter}`).toBeNull();
+  expect(readLowered(doc), `${label}: ${clauses.lowered}`).toBeUndefined();
+}
+
 /**
  * Every LOOP-VARIABLE and `let` binder site of `doc` in source order, each
  * rendered `<kind> <name>@<range>`: a `for` / `par-for` site carries its

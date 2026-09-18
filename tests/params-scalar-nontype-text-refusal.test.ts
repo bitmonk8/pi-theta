@@ -7,7 +7,7 @@ import { describe, expect, it } from "vitest";
 import { parseRegistry, registryMessage } from "../tools/code-registry/index.js";
 import type { EnumDecl, SchemaDecl, ThetaDocument } from "../src/parser/theta-document";
 import { lowerQueryResponseSchema } from "../src/runtime/query-schema-lowering";
-import { parseDoc, diagLines, diagCodes } from "./helpers/e2e-s1";
+import { firstDiagnostic, expectParamsDropGateShape, parseDoc, diagLines, diagCodes } from "./helpers/e2e-s1";
 
 // Bug 0059 — a `params:` right-hand side that is a YAML SCALAR carrying text no
 // `Type` production spells is recorded verbatim as the field's declared type,
@@ -341,20 +341,12 @@ function expectTextRefused(label: string, doc: ThetaDocument, param: string): vo
       `honest disposition is refusal with EXACTLY ONE error-severity ${CODE}. Rendered ` +
       `diagnostics: ${JSON.stringify(diagLines(doc))}`,
   ).toEqual([`error ${CODE}`]);
-  const diagnostic = doc.diagnostics[0];
-  if (diagnostic === undefined) {
-    throw new Error(`${label}: diagnostics[0] absent after a one-element count assertion`);
-  }
+  const diagnostic = firstDiagnostic(label, doc);
   // The two properties the shipped drop gate reads. `hasLoadParseError`
   // (src/extension/production-composition.ts:3263–3270) drops a theta exactly
   // when some diagnostic has `severity === "error"` and a code in the
   // `theta/load/` or `theta/parse/` namespace, so asserting both is the
   // reachability link between this emission and a theta that does not register.
-  expect(
-    diagnostic.severity,
-    `${label}: the drop gate reads error severity, so a warning would leave the ` +
-      `accept-anything param registered`,
-  ).toBe("error");
   expect(
     diagnostic.code.startsWith("theta/load/"),
     `${label}: the drop gate reads the \`theta/load/\` / \`theta/parse/\` namespaces only; ` +
@@ -365,17 +357,15 @@ function expectTextRefused(label: string, doc: ThetaDocument, param: string): vo
     `${label}: DIAG-4 — the rendered message is the registry row's template with the ` +
       `category-5 \`<param>\` placeholder rendered as the field name, unquoted`,
   ).toBe(refusalMessage(param));
-  expect(
-    doc.frontmatter,
-    `${label}: an error-severity params diagnostic collapses the frontmatter, which is what ` +
+  expectParamsDropGateShape(label, doc, diagnostic, loweredParams, {
+    severity: `the drop gate reads error severity, so a warning would leave the ` +
+      `accept-anything param registered`,
+    frontmatter: `an error-severity params diagnostic collapses the frontmatter, which is what ` +
       `withholds registration; a loaded theta whose param validates nothing is the hole this ` +
       `bug reports`,
-  ).toBeNull();
-  expect(
-    loweredParams(doc),
-    `${label}: no lowered \`params:\` document may survive the refusal — a surviving ` +
+    lowered: `no lowered \`params:\` document may survive the refusal — a surviving ` +
       `\`properties.p = {}\` is the permissive fragment the three consumers compile`,
-  ).toBeUndefined();
+  });
 }
 
 // ===========================================================================

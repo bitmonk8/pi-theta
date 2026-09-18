@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 // @ts-expect-error — JS code-registry module, no type declarations.
 import { registryMessage } from "../tools/code-registry/index.js";
 import type { ThetaDocument } from "../src/parser/theta-document";
-import { parseDoc } from "./helpers/e2e-s1";
+import { firstDiagnostic, expectParamsDropGateShape, parseDoc, paramsDefaultFixture, diagLines, diagCodes } from "./helpers/e2e-s1";
 
 // Bug 0066 — the load-time companion gate of the discarded post-default-merge
 // verdict. `parseParams` (src/parser/params.ts) checks only that a `params:`
@@ -186,30 +186,7 @@ const BODY = [
   "let z = 1",
 ].join("\n");
 
-/** A `mode: prompt` theta whose `params:` block is `paramsBlock`. */
-function src(paramsBlock: string): string {
-  return `---\nmode: prompt\nparams:\n${paramsBlock}\n---\n${BODY}\n`;
-}
-
-/**
- * A `params:` right-hand side wrapped as a YAML single-quoted scalar.
- * Theta-side literals carry theta-side quotes, and an unquoted spelling of a
- * text carrying a `:`, a `#` or a `{` breaks the YAML frame outright, which
- * collapses the load to a different diagnostic entirely.
- */
-function paramsDoc(rhs: string): ThetaDocument {
-  return parseDoc(src(`  p: '${rhs.replace(/'/g, "''")}'`), "bug0066.theta");
-}
-
-/** Every diagnostic rendered `<severity> <code>: <message>`, in emission order. */
-function diagLines(doc: ThetaDocument): string[] {
-  return doc.diagnostics.map((d) => `${d.severity} ${d.code}: ${d.message}`);
-}
-
-/** Every diagnostic rendered `<severity> <code>` — the count/code/severity triple. */
-function diagCodes(doc: ThetaDocument): string[] {
-  return doc.diagnostics.map((d) => `${d.severity} ${d.code}`);
-}
+const { src, paramsDoc } = paramsDefaultFixture(BODY, "bug0066.theta");
 
 /**
  * The two properties the shipped drop gate reads (`hasLoadParseError`,
@@ -218,26 +195,16 @@ function diagCodes(doc: ThetaDocument): string[] {
  * link from this emission to a theta that does not register.
  */
 function expectDropGateShape(label: string, doc: ThetaDocument): void {
-  const diagnostic = doc.diagnostics[0];
-  if (diagnostic === undefined) {
-    throw new Error(`${label}: diagnostics[0] absent after a one-element count assertion`);
-  }
-  expect(
-    diagnostic.severity,
-    `${label}: the drop gate reads error severity, so a warning would leave the theta registered with a default the declared type forbids`,
-  ).toBe("error");
+  const diagnostic = firstDiagnostic(label, doc);
   expect(
     diagnostic.code.startsWith("theta/parse/"),
     `${label}: the drop gate reads the \`theta/load/\` / \`theta/parse/\` namespaces only; observed code ${diagnostic.code}`,
   ).toBe(true);
-  expect(
-    doc.frontmatter,
-    `${label}: an error-severity params diagnostic withholds the frontmatter, which is what un-registers the theta — the same disposition the sibling \`default-not-literal\` refusal already produces`,
-  ).toBeNull();
-  expect(
-    doc.frontmatter?.params?.loweredSchema,
-    `${label}: no lowered \`params:\` document may survive the refusal — a surviving one is what the discarded runtime verdict would then be the only judge of`,
-  ).toBeUndefined();
+  expectParamsDropGateShape(label, doc, diagnostic, (parsed) => parsed.frontmatter?.params?.loweredSchema, {
+    severity: `the drop gate reads error severity, so a warning would leave the theta registered with a default the declared type forbids`,
+    frontmatter: `an error-severity params diagnostic withholds the frontmatter, which is what un-registers the theta — the same disposition the sibling \`default-not-literal\` refusal already produces`,
+    lowered: `no lowered \`params:\` document may survive the refusal — a surviving one is what the discarded runtime verdict would then be the only judge of`,
+  });
 }
 
 // ===========================================================================

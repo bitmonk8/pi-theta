@@ -139,33 +139,14 @@ vi.mock("@earendil-works/pi-ai/compat", async (importOriginal) => {
     }),
   };
 });
-import type {
-  ExtensionAPI,
-  ExtensionCommandContext,
-  ModelRegistry,
-} from "@earendil-works/pi-coding-agent";
 import type { SourceRange } from "../src/diagnostics/diagnostic";
-import { createProductionProducerDeps } from "../src/extension/production-theta-producer";
-import type { ThetaCompositionInput } from "../src/extension/theta-composition-producer";
-import type { SystemNoteChannelDeps } from "../src/extension/system-note-channel";
-import type { ThetaSource } from "../src/lexer/lexer";
-import type { ModelReferenceMatcher } from "../src/parser/frontmatter";
 import {
   checkLiteralSublanguage,
   defaultLiteralStaticType,
 } from "../src/parser/literal-sublanguage";
-import {
-  parseThetaDocument,
-  type ParseThetaDocumentDeps,
-  type ThetaDocument,
-} from "../src/parser/theta-document";
-import type { RuntimeRoot } from "../src/runtime-root";
-import {
-  AjvSchemaValidator,
-  type LoweredSchema,
-  type SchemaSlug,
-} from "../src/seams/schema-validator";
-import { parseDoc } from "./helpers/e2e-s1";
+import type { ThetaDocument } from "../src/parser/theta-document";
+import { makeDefaultBinderDrive } from "./helpers/scripted-live-session-harness";
+import { firstDiagnostic, expectParamsDropGateShape, parseDoc, paramsDefaultFixture, diagLines, diagCodes, recordedDefault, loweredP } from "./helpers/e2e-s1";
 
 // ===========================================================================
 // The codes and their normative messages (DIAG-2 / DIAG-4).
@@ -244,43 +225,7 @@ const BODY = [
   "let z = 1",
 ].join("\n");
 
-/** A `mode: prompt` theta whose `params:` block is `paramsBlock`. */
-function src(paramsBlock: string): string {
-  return `---\nmode: prompt\nparams:\n${paramsBlock}\n---\n${BODY}\n`;
-}
-
-/**
- * A `params:` right-hand side wrapped as a YAML single-quoted scalar.
- * Theta-side literals carry theta-side quotes, and an unquoted spelling of a
- * text carrying a `:`, a `#` or a `{` breaks the YAML frame outright, which
- * collapses the load to a different diagnostic entirely.
- */
-function paramsDoc(rhs: string): ThetaDocument {
-  return parseDoc(src(`  p: '${rhs.replace(/'/g, "''")}'`), "bug0166.theta");
-}
-
-/** Every diagnostic rendered `<severity> <code>: <message>`, in emission order. */
-function diagLines(doc: ThetaDocument): string[] {
-  return doc.diagnostics.map((d) => `${d.severity} ${d.code}: ${d.message}`);
-}
-
-/** Every diagnostic rendered `<severity> <code>` — the count/code/severity triple. */
-function diagCodes(doc: ThetaDocument): string[] {
-  return doc.diagnostics.map((d) => `${d.severity} ${d.code}`);
-}
-
-/** The recorded default half of field `p`, or `undefined` when the load withheld it. */
-function recordedDefault(doc: ThetaDocument): string | undefined {
-  return doc.frontmatter?.params?.fields.find((f) => f.wireName === "p")?.defaultSource;
-}
-
-/** The lowered `properties.p` fragment, or `undefined` when the load withheld it. */
-function loweredP(doc: ThetaDocument): unknown {
-  const lowered = doc.frontmatter?.params?.loweredSchema as
-    | { readonly properties?: Record<string, unknown> }
-    | undefined;
-  return lowered?.properties?.["p"];
-}
+const { src, paramsDoc } = paramsDefaultFixture(BODY, "bug0166.theta");
 
 /**
  * The whole refusal contract for one offending field: EXACTLY ONE diagnostic,
@@ -303,26 +248,16 @@ function expectRefusedAsNonLiteral(label: string, doc: ThetaDocument, expr: stri
     diagCodes(doc),
     `${label}: grammar.md:20–24 derives \`"-" NUMBER\` and no other unary alternative, and :51 bounds the carve-out to numeric literals, so this RHS is an operator outside the sublanguage and code-registry-parse.md:48 claims it for ${NOT_LITERAL_CODE} at a count of one. Rendered: ${JSON.stringify(diagLines(doc))}`,
   ).toEqual([`error ${NOT_LITERAL_CODE}`]);
-  const diagnostic = doc.diagnostics[0];
-  if (diagnostic === undefined) {
-    throw new Error(`${label}: diagnostics[0] absent after a one-element count assertion`);
-  }
+  const diagnostic = firstDiagnostic(label, doc);
   expect(
     diagnostic.message,
     `${label}: DIAG-4 — the rendered message is the registry row's template with \`<expr>\` rendered as the offending sub-expression, which for a nested spelling is the INNER \`neg\` span the container recursion returns, not the container`,
   ).toBe(notLiteralMessage(expr));
-  expect(
-    diagnostic.severity,
-    `${label}: the drop gate reads error severity, so a warning would leave the theta registered with a default the position's grammar does not derive`,
-  ).toBe("error");
-  expect(
-    doc.frontmatter,
-    `${label}: an error-severity params diagnostic withholds the frontmatter, which is what un-registers the theta — the observable that keeps the coerced number out of body scope`,
-  ).toBeNull();
-  expect(
-    loweredP(doc),
-    `${label}: no lowered \`params:\` fragment may survive the refusal — a surviving one is what the post-default-merge AJV hook then judges the coerced value against`,
-  ).toBeUndefined();
+  expectParamsDropGateShape(label, doc, diagnostic, loweredP, {
+    severity: `the drop gate reads error severity, so a warning would leave the theta registered with a default the position's grammar does not derive`,
+    frontmatter: `an error-severity params diagnostic withholds the frontmatter, which is what un-registers the theta — the observable that keeps the coerced number out of body scope`,
+    lowered: `no lowered \`params:\` fragment may survive the refusal — a surviving one is what the post-default-merge AJV hook then judges the coerced value against`,
+  });
 }
 
 // ===========================================================================
@@ -783,14 +718,6 @@ describe("bug 0166 (E) — the refusal sits behind the position's guards", () =>
 // tests/binder-post-merge-ajv-enforcement.test.ts production-producer pattern).
 // ===========================================================================
 
-const SYSTEM_NOTE_CHANNEL = "theta-system-note";
-
-/** A captured `pi.sendMessage` custom message. */
-interface CapturedNote {
-  readonly customType: string;
-  readonly content: string;
-}
-
 /**
  * The drive fixtures' body. `Count` is the alias whose lowered `{"type":
  * "number"}` fragment admits every coerced value the recovery produces —
@@ -842,166 +769,7 @@ const FIXTURE_SOURCES: ReadonlyMap<string, string> = new Map(
   DRIVE_ROWS.map(([, name, rhs]) => [`/theta/${name}.theta`, driveTheta(rhs)] as const),
 );
 
-function parseDepsForDrive(): ParseThetaDocumentDeps {
-  const systemNote: SystemNoteChannelDeps = {
-    pi: { sendMessage: (): void => {} },
-    ui: { notify: (): void => {} },
-    emitDiagnostic: (): void => {},
-  };
-  const modelMatcher: ModelReferenceMatcher = { resolve: (): "resolved" => "resolved" };
-  return { systemNote, modelMatcher };
-}
-
-/**
- * The production AJV validator, wired with the same JSON.stringify
- * content-addressing the shipped composition root uses, so the envelope AJV at
- * the routing step and the post-default-merge hook validate exactly as
- * production does.
- */
-function realAjvValidator(): AjvSchemaValidator {
-  return new AjvSchemaValidator({
-    emit: (): void => {},
-    slugOf: (schema: LoweredSchema): SchemaSlug => {
-      const canonicalBytes = JSON.stringify(schema);
-      return { slug: canonicalBytes, canonicalBytes };
-    },
-  });
-}
-
-/**
- * A runtime-root double sufficient for a binder pass: noop checkpoint,
- * deterministic ids, wall-clock zero, the REAL AJV validator, and an in-memory
- * fs resolving the fixture sources by `sourcePath`. An unregistered path REJECTS
- * loudly — a silent empty read would make a defaults-recovery failure look like
- * a clean merge and hide the very fill this group measures.
- */
-function rootDouble(): RuntimeRoot {
-  return {
-    checkpoint: { before: (): Promise<void> => Promise.resolve() },
-    idSource: { newInvocationId: (): string => "inv-1", newToolCallId: (): string => "tc-1" },
-    clock: { wallNow: (): number => 0 },
-    schemaValidator: realAjvValidator(),
-    fileSystem: {
-      readBytes: (path: string): Promise<Uint8Array> => {
-        const source = FIXTURE_SOURCES.get(path);
-        return source !== undefined
-          ? Promise.resolve(new TextEncoder().encode(source))
-          : Promise.reject(new Error(`fixture fs: no source registered for ${path}`));
-      },
-    },
-  } as unknown as RuntimeRoot;
-}
-
-/** A production producer wired with a capturing `pi.sendMessage`. */
-function producerWithCapture(): {
-  readonly deps: ReturnType<typeof createProductionProducerDeps>;
-  readonly notes: CapturedNote[];
-} {
-  const notes: CapturedNote[] = [];
-  const pi = {
-    sendMessage: (message: CapturedNote): void => {
-      notes.push(message);
-    },
-  } as unknown as ExtensionAPI;
-  const modelRegistry = {
-    getAvailable: (): readonly unknown[] => [
-      {
-        id: "binder-model",
-        provider: "anthropic-messages",
-        api: "anthropic-messages",
-        strictCapable: true,
-      },
-    ],
-    getApiKeyAndHeaders: async (): Promise<{ ok: boolean }> => ({ ok: true }),
-  } as unknown as ModelRegistry;
-  const deps = createProductionProducerDeps({ pi, root: rootDouble(), modelRegistry });
-  return { deps, notes };
-}
-
-/**
- * Script a ToolCall reply carrying the `ok` envelope the binder's own system
- * prompt asks for — the defaulted field OMITTED — naming whatever forced tool
- * production attached on the captured call, so the reply matches the slug
- * production derives for this fixture's envelope schema.
- */
-function scriptOkEnvelopeOmittingDefault(): void {
-  scripted.replyFor = (context) => {
-    const tools = (context as { readonly tools?: ReadonlyArray<{ readonly name?: unknown }> })
-      .tools;
-    const toolName = tools?.[0]?.name;
-    if (typeof toolName !== "string") {
-      throw new Error(
-        "the binder call attached no forced tool, so no ToolCall reply can name it — the harness cannot script an envelope",
-      );
-    }
-    return {
-      role: "assistant",
-      content: [
-        {
-          type: "toolCall",
-          id: "tc-1",
-          name: toolName,
-          arguments: { envelope: { kind: "ok", args: { topic: "hello" } } },
-        },
-      ],
-      stopReason: "toolUse",
-      timestamp: 0,
-    };
-  };
-}
-
-/** What one fixture did when the shipped load path and binder were handed it. */
-interface DriveOutcome {
-  /** The one-line disposition: the assertion subject of every cell in group F. */
-  readonly summary: string;
-  readonly diagnostics: readonly string[];
-  readonly binderCalls: number;
-  readonly notes: readonly string[];
-}
-
-/**
- * Parse a fixture through the shipped whole-file parser and, ONLY when it
- * registers, drive one real binder pass over it.
- *
- * The registration verdict is a VALUE in `summary`, never a skipped drive: a
- * fixture that registers is driven and reports what it bound, which is what
- * makes a red name the coerced value rather than an absent test.
- */
-async function driveIfRegistered(name: string, source: string): Promise<DriveOutcome> {
-  scripted.calls = [];
-  scriptOkEnvelopeOmittingDefault();
-  const thetaSource: ThetaSource = {
-    path: `${name}.theta`,
-    bytes: new TextEncoder().encode(source),
-  };
-  const doc = parseThetaDocument(thetaSource, parseDepsForDrive());
-  const diagnostics = doc.diagnostics.map((d) => `${d.severity} ${d.code}`);
-  if (doc.frontmatter === null) {
-    return { summary: "refused at load", diagnostics, binderCalls: 0, notes: [] };
-  }
-  const { deps, notes } = producerWithCapture();
-  const theta: ThetaCompositionInput = {
-    slashName: name,
-    sourcePath: `/theta/${name}.theta`,
-    frontmatter: doc.frontmatter,
-    body: doc.body,
-    binderModel: "binder-model",
-  };
-  const result = await deps.runBinder({
-    theta,
-    args: "hello",
-    ctx: {} as unknown as ExtensionCommandContext,
-  });
-  const channel = notes.filter((n) => n.customType === SYSTEM_NOTE_CHANNEL).map((n) => n.content);
-  return {
-    summary: `registered and driven; bound=${String(result.bound)}; p=${String(
-      result.args?.["p"],
-    )}; binder calls=${scripted.calls.length}`,
-    diagnostics,
-    binderCalls: scripted.calls.length,
-    notes: channel,
-  };
-}
+const driveIfRegistered = makeDefaultBinderDrive(FIXTURE_SOURCES, scripted, String);
 
 // ===========================================================================
 // (F) THE RUNTIME TIER (§Fix (e)(7), second half).

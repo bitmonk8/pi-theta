@@ -118,17 +118,10 @@ describe("ERR-15 — discriminator type-openness (queryerror-variants.md ERR-15)
       expect(isTheta10QueryErrorKind(kind)).toBe(true);
     }
     // A deferred user-defined / `BinderError`-as-variant tag is NOT in the
-    // closed runtime set, even though the *type* admits it (see below).
-    expect(isTheta10QueryErrorKind("binder")).toBe(false);
-  });
-
-  it("ERR-15: `kind` is typed `string` at the type level, so a future tag is assignable", () => {
-    // Type-system witness: a hypothetical tenth variant's `kind` string is a
-    // valid `QueryError["kind"]`. If `kind` were a closed enum of the nine
-    // tags, this assignment would not type-check — its compilation is the open
-    // seam. The runtime value is irrelevant; the assertion is that this builds.
+    // closed runtime set. The assignment also keeps the type-openness witness
+    // checked by tsc; the assertion exercises the production predicate.
     const futureKind: QueryError["kind"] = "binder";
-    expect(typeof futureKind).toBe("string");
+    expect(isTheta10QueryErrorKind(futureKind)).toBe(false);
   });
 });
 
