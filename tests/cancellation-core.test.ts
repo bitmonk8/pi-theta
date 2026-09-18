@@ -19,12 +19,15 @@
 //   - `runCancellableSequence` synthesises a top-level `cancelled` and retains
 //     no bindings, so CNCL-5 / CNCL-6 red.
 // No test reds on a compile error, a missing fixture, or a harness throw.
-import { createUnhandledRejectionTrap, settleAndObserve } from "./helpers/unhandled-rejection-trap";
+import {
+  createUnhandledRejectionTrap,
+  makeChannels as makeSubstrateChannels,
+  settleAndObserve,
+} from "./helpers/unhandled-rejection-trap";
 import { ScriptedCheckpoint } from "./helpers/invoke-seam-scaffold";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { CheckpointSite } from "../src/seams/checkpoint";
 import type { RuntimeEvent } from "../src/runtime/runtime-event-channel";
-import type { Diagnostic } from "../src/diagnostics/diagnostic";
 import type { QueryError } from "../src/runtime/query-error";
 import {
   AGENT_END_CANCEL_MESSAGE,
@@ -40,7 +43,6 @@ import {
   type CancellableStatement,
   type OperationResult,
   type SubstrateCancellationGuard,
-  type SubstrateSideChannels,
   type ToolCallCancellationGuard,
   type ToolCallSideChannels,
 } from "../src/runtime/cancellation-core";
@@ -284,26 +286,6 @@ describe("V17a-T — late tool-call settlement discard (CNCL-1/2/3)", () => {
 // V17a leaf-ID inline so the H5f per-facet citing-test gate associates this
 // substrate-suppression facet to its test.
 // ===========================================================================
-
-interface SubstrateRecording {
-  readonly channels: SubstrateSideChannels;
-  readonly events: RuntimeEvent[];
-  readonly diagnostics: Diagnostic[];
-}
-
-function makeSubstrateChannels(): SubstrateRecording {
-  const events: RuntimeEvent[] = [];
-  const diagnostics: Diagnostic[] = [];
-  const channels: SubstrateSideChannels = {
-    emitRuntimeEvent: (event): void => {
-      events.push(event);
-    },
-    emitDiagnostic: (diagnostic): void => {
-      diagnostics.push(diagnostic);
-    },
-  };
-  return { channels, events, diagnostics };
-}
 
 const rejectionTrap = createUnhandledRejectionTrap();
 const { unhandled } = rejectionTrap;

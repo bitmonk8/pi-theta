@@ -25,18 +25,19 @@
 //     (cka-33 / V14f channels 2 and 3).
 // No test reds on a compile error, a missing fixture, or a harness throw.
 
-import { createUnhandledRejectionTrap, settleAndObserve } from "./helpers/unhandled-rejection-trap";
+import {
+  createUnhandledRejectionTrap,
+  makeChannels,
+  settleAndObserve,
+} from "./helpers/unhandled-rejection-trap";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { ProductionCheckpoint } from "../src/seams/production-checkpoint";
 import type { CheckpointSite } from "../src/seams/checkpoint";
 import { FakeClock } from "./helpers/fake-clock";
-import type { Diagnostic } from "../src/diagnostics/diagnostic";
-import type { RuntimeEvent } from "../src/runtime/runtime-event-channel";
 import {
   guardToolExecutePromise,
   routeToolExecuteLateSettlement,
   type ToolExecuteCancellationGuard,
-  type ToolExecuteSideChannels,
 } from "../src/runtime/tool-call-swallowing-handler";
 
 // The code-side `execute()` Promise's cancellation surfaces at the `tool-call`
@@ -48,26 +49,6 @@ const TOOL_CALL_SITE: CheckpointSite = {
 };
 
 // --- recording side channels + unhandledRejection trap ----------------------
-
-interface RecordingChannels {
-  readonly channels: ToolExecuteSideChannels;
-  readonly events: RuntimeEvent[];
-  readonly diagnostics: Diagnostic[];
-}
-
-function makeChannels(): RecordingChannels {
-  const events: RuntimeEvent[] = [];
-  const diagnostics: Diagnostic[] = [];
-  const channels: ToolExecuteSideChannels = {
-    emitRuntimeEvent: (event): void => {
-      events.push(event);
-    },
-    emitDiagnostic: (diagnostic): void => {
-      diagnostics.push(diagnostic);
-    },
-  };
-  return { channels, events, diagnostics };
-}
 
 const rejectionTrap = createUnhandledRejectionTrap();
 const { unhandled } = rejectionTrap;

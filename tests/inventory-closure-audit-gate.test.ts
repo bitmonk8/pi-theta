@@ -1,17 +1,14 @@
 import { describe, expect, it } from "vitest";
 import { lstatSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { SDK_SURFACE_INVENTORY } from "../src/extension/sdk-inventory";
 import {
   formatAuditRecordLine,
-  runInventoryClosureAudit,
   type AuditRecord,
   type AuditResult,
 } from "../src/extension/inventory-closure-audit";
 import {
   DISCRIMINATOR_SHAPE,
-  TYPEBOX_MEMBER_ACCESS_ALLOW_LIST,
-  TYPEBOX_NAMED_IMPORT_ALLOW_LIST,
+  auditWith,
 } from "./helpers/inventory-closure-audit";
 
 // V18b — the `npm test`-side inventory-closure audit gate (the disk-walk driver
@@ -79,12 +76,7 @@ function runAuditGate(files: Map<string, string>): {
 } {
   let result: AuditResult;
   try {
-    result = runInventoryClosureAudit({
-      files,
-      inventory: SDK_SURFACE_INVENTORY,
-      typeboxNamedImportAllowList: TYPEBOX_NAMED_IMPORT_ALLOW_LIST,
-      typeboxMemberAccessAllowList: TYPEBOX_MEMBER_ACCESS_ALLOW_LIST,
-    });
+    result = auditWith(files);
   } catch (e: unknown) {
     // Fail-closed: an audit-internal throw before record emission surfaces as an
     // infrastructure-failure record and a hard test failure, never a silent pass.
@@ -148,12 +140,7 @@ describe("inventory-closure audit gate — lands green on main", () => {
 // step-2(b) branch (5) rewrite-shape, never an exemption marker), and the
 // green-on-main tree above proves none of these shapes exist in `src/`.
 function auditOneFile(src: string): AuditRecord[] {
-  const result = runInventoryClosureAudit({
-    files: new Map([["src/x.ts", src]]),
-    inventory: SDK_SURFACE_INVENTORY,
-    typeboxNamedImportAllowList: TYPEBOX_NAMED_IMPORT_ALLOW_LIST,
-    typeboxMemberAccessAllowList: TYPEBOX_MEMBER_ACCESS_ALLOW_LIST,
-  });
+  const result = auditWith(new Map([["src/x.ts", src]]));
   return result.records.filter((r) => r.discriminator.startsWith("audit/violation/"));
 }
 

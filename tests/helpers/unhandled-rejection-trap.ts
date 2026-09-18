@@ -1,4 +1,29 @@
-// Shared Node unhandled-rejection recording and settlement drain for cancellation tests.
+// Shared side-channel recording and settlement drain for cancellation tests.
+
+import type { Diagnostic } from "../../src/diagnostics/diagnostic";
+import type { RuntimeEvent } from "../../src/runtime/runtime-event-channel";
+import type { SubstrateSideChannels } from "../../src/runtime/cancellation-core";
+
+export interface RecordingChannels {
+  readonly channels: SubstrateSideChannels;
+  readonly events: RuntimeEvent[];
+  readonly diagnostics: Diagnostic[];
+}
+
+/** Record runtime events and diagnostics on the cancellation side channels. */
+export function makeChannels(): RecordingChannels {
+  const events: RuntimeEvent[] = [];
+  const diagnostics: Diagnostic[] = [];
+  const channels: SubstrateSideChannels = {
+    emitRuntimeEvent: (event): void => {
+      events.push(event);
+    },
+    emitDiagnostic: (diagnostic): void => {
+      diagnostics.push(diagnostic);
+    },
+  };
+  return { channels, events, diagnostics };
+}
 
 /** Records every Node `unhandledRejection` process event for the active test.
  * Wire `install` / `dispose` through the caller's beforeEach / afterEach hooks. */

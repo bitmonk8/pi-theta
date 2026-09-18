@@ -1,14 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { SDK_SURFACE_INVENTORY } from "../src/extension/sdk-inventory";
 import {
-  runInventoryClosureAudit,
   type AuditRecord,
   type AuditResult,
 } from "../src/extension/inventory-closure-audit";
 import {
   DISCRIMINATOR_SHAPE,
-  TYPEBOX_MEMBER_ACCESS_ALLOW_LIST,
-  TYPEBOX_NAMED_IMPORT_ALLOW_LIST,
+  auditWith,
 } from "./helpers/inventory-closure-audit";
 
 // V18b-T — failing tests for the build-time inventory-closure audit (paired
@@ -34,12 +31,7 @@ import {
 const NA = "<n/a>";
 
 function audit(files: Record<string, string>): AuditResult {
-  return runInventoryClosureAudit({
-    files: new Map(Object.entries(files)),
-    inventory: SDK_SURFACE_INVENTORY,
-    typeboxNamedImportAllowList: TYPEBOX_NAMED_IMPORT_ALLOW_LIST,
-    typeboxMemberAccessAllowList: TYPEBOX_MEMBER_ACCESS_ALLOW_LIST,
-  });
+  return auditWith(new Map(Object.entries(files)));
 }
 
 /** 1-based line number of the first source line containing `needle`. */
