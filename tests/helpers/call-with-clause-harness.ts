@@ -30,7 +30,10 @@ import type {
   ExtensionCommandContext,
   ModelRegistry,
 } from "@earendil-works/pi-coding-agent";
-import type { SourceRange } from "../../src/diagnostics/diagnostic";
+import { resolve as resolvePath } from "node:path";
+import { checkInvokeStaticResolution, type CalleeArity } from "../../src/extension/invoke-static-checks";
+import { FakeFileSystem } from "./fake-file-system";
+import type { Diagnostic, SourceRange } from "../../src/diagnostics/diagnostic";
 import type {
   Expr,
   InvokeExpr,
@@ -285,4 +288,32 @@ export function subagentCallee(
     frontmatter: { mode: "subagent" } as unknown as ParsedFrontmatter,
     body: trivialSubagentBody(),
   };
+}
+
+/** Host-native resolution of `./callee.theta` against the CALLER's directory (`/thetadir`, since `resolveCalleeAbsolute` resolves relative to `dirname(callerPath)`, not the fake fs `cwd`; windows prepends the current drive) — the exact path `resolveCalleeAbsolute` (invoke-static-checks.ts) produces, normalised to forward slashes. */
+const RESOLVED_CALLEE = resolvePath("/thetadir", "./callee.theta").replace(/\\/g, "/");
+const RESOLVED_THETA_ROOT = resolvePath("/thetadir").replace(/\\/g, "/");
+
+/** Check a single invoke's clause against a resolvable callee with caller-supplied arity. */
+export function checkInvokeWithClause(
+  clause: FakeCallWithClause,
+  resolveCalleeArity: (calleeAbsolutePath: string) => Promise<CalleeArity | undefined>,
+): Promise<Diagnostic[]> {
+  const input: ThetaCompositionInput = {
+    slashName: "caller",
+    sourcePath: "/thetadir/caller.theta",
+    frontmatter: {} as unknown as ParsedFrontmatter,
+    body: bodyWithInvoke("./callee.theta", clause),
+  };
+  return checkInvokeStaticResolution(input, {
+    fs: new FakeFileSystem({
+      homedir: "/home/u",
+      cwd: "/theta",
+      files: { [RESOLVED_CALLEE]: "theta", [RESOLVED_THETA_ROOT]: "" },
+      dirs: { [RESOLVED_THETA_ROOT]: [] },
+    }),
+    activeRoots: [RESOLVED_THETA_ROOT],
+    graph: { edges: new Map([["caller", []]]), unresolvable: new Set<string>() },
+    resolveCalleeArity,
+  });
 }

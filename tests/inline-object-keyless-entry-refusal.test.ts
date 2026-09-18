@@ -6,7 +6,7 @@ import { parseRegistry, registryMessage } from "../tools/code-registry/index.js"
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
 import type { ThetaDocument } from "../src/parser/theta-document";
 import { lowerQueryResponseSchema } from "../src/runtime/query-schema-lowering";
-import { parseDoc } from "./helpers/e2e-s1";
+import { parseDoc, subagentTheta as theta, subagentParamsSrc } from "./helpers/e2e-s1";
 
 // Bug 0244 — an inline object type entry that spells no top-level `:` is
 // consumed by `TypeParser.parseObject`'s recovery arms and is invisible to
@@ -312,14 +312,6 @@ function renderAll(exps: readonly Exp[]): string[] {
 // lowerers under assertion are the production ones.
 // ===========================================================================
 
-/** Frontmatter for every `.theta` body row — occupies lines 1–3, body starts at 4. */
-const FM = "---\nmode: subagent\n---\n";
-
-/** A `mode: subagent` theta whose body is `stmt`. */
-function theta(stmt: string): string {
-  return `${FM}${stmt}\n`;
-}
-
 /**
  * §Reproduction's verbatim `params:` fixture: a whole theta whose one `params:`
  * field carries the interior under test as a single-quoted YAML scalar, so the
@@ -327,7 +319,7 @@ function theta(stmt: string): string {
  * measured here spells a `'`, which group (L) recomputes.
  */
 function paramsSrc(interior: string): string {
-  return `---\nmode: subagent\nparams:\n  p: '${interior}'\n---\n1\n`;
+  return subagentParamsSrc(`  p: '${interior}'`);
 }
 
 /** Every diagnostic rendered `<severity> <code>: <message>`, in emission order. */

@@ -3,9 +3,9 @@ import { readRegistry } from "./helpers/registry-oracle";
 import { describe, expect, it } from "vitest";
 // @ts-expect-error — JS code-registry module, no type declarations.
 import { registryMessage } from "../tools/code-registry/index.js";
-import type { Diagnostic, SourceRange } from "../src/diagnostics/diagnostic";
+import type { Diagnostic } from "../src/diagnostics/diagnostic";
 import type { FnDecl, FnParam, ThetaDocument } from "../src/parser/theta-document";
-import { parseDoc, topKinds } from "./helpers/e2e-s1";
+import { at, parseDoc, topKinds } from "./helpers/e2e-s1";
 
 // Bug 0150 — both normative grammar mirrors write `FnParam ::= Ident ":" Type`,
 // yet `parseFn`'s parameter loop guards the annotation read behind
@@ -369,13 +369,6 @@ interface Triple {
   readonly severity: string;
   readonly code: string;
   readonly at: string;
-}
-
-/** `l:c-l:c`, 1-indexed, end-column exclusive; `-` for an unlocated diagnostic. */
-function at(r: SourceRange | undefined): string {
-  return r === undefined
-    ? "-"
-    : `${r.start.line}:${r.start.column}-${r.end.line}:${r.end.column}`;
 }
 
 /** The structural triples of every diagnostic, in report order. */

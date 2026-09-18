@@ -1,4 +1,15 @@
-import { RecordingMutator } from "./helpers/invoke-seam-scaffold";
+import { strExpr as stringExpr } from "./helpers/tool-call-dispatch-harness";
+import {
+  RecordingMutator,
+  SEAM_NOOP_CHECKPOINT as NOOP_CHECKPOINT,
+  SITE,
+  body,
+  identExpr,
+  letStmt,
+  matchExpr,
+  queryExpr,
+  realEnv,
+} from "./helpers/invoke-seam-scaffold";
 import { describe, expect, it } from "vitest";
 import { executeBody, type ExecuteBodyDeps } from "../src/runtime/statement-executor";
 import {
@@ -6,8 +17,7 @@ import {
   type EffectfulStatementHostDeps,
   type QueryHostDispatch,
 } from "../src/runtime/effectful-statement-host";
-import { buildEnvironment, type LexicalEnvironment } from "../src/runtime/lexical-environment";
-import type { Checkpoint, CheckpointSite } from "../src/seams/checkpoint";
+import type { LexicalEnvironment } from "../src/runtime/lexical-environment";
 import type { DrivenConversationMode } from "../src/runtime/terminal-outcomes";
 import type { ThetaValue } from "../src/runtime/value";
 import type {
@@ -28,11 +38,7 @@ import type {
   Expr,
   MatchArmNode,
   MatchExpr,
-  QueryExpr,
-  ThetaBody,
-  Stmt,
 } from "../src/parser/theta-document";
-import type { SourceRange } from "../src/diagnostics/diagnostic";
 
 // Bug 0307 PART 2 — empty_template parity: the empty-rendered-template query
 // failure must ride the SAME consumption-time disposition as every other
@@ -52,36 +58,6 @@ import type { SourceRange } from "../src/diagnostics/diagnostic";
 // whose `renderedText` is empty, triggering the real empty_template
 // short-circuit. Fix version placeholder: 0.298.0 (no version invented here).
 
-// --- AST construction helpers ----------------------------------------------
-
-function span(): SourceRange {
-  return { start: { line: 1, column: 1 }, end: { line: 1, column: 2 } };
-}
-
-function stringExpr(value: string): Expr {
-  return { kind: "string", value, range: span() };
-}
-
-function identExpr(name: string): Expr {
-  return { kind: "ident", name, range: span() };
-}
-
-function queryExpr(template: string): QueryExpr {
-  return { kind: "query", schema: null, template, range: span() };
-}
-
-function matchExpr(scrutinee: Expr, arms: readonly MatchArmNode[]): MatchExpr {
-  return { kind: "match", scrutinee, arms, range: span() };
-}
-
-function letStmt(name: string, init: Expr): Stmt {
-  return { kind: "let", name, mutable: false, annotation: null, init, range: span() };
-}
-
-function body(statements: readonly Stmt[], tail: Expr | null = null): ThetaBody {
-  return { statements, tail };
-}
-
 /** The two-arm result `match` the recovery shape uses (Err arm first). */
 function errFirstMatch(scrutinee: Expr): MatchExpr {
   const arms: MatchArmNode[] = [
@@ -90,19 +66,6 @@ function errFirstMatch(scrutinee: Expr): MatchExpr {
   ];
   return matchExpr(scrutinee, arms);
 }
-
-/** A real root environment over an empty body. */
-function realEnv(): LexicalEnvironment {
-  return buildEnvironment({ body: { statements: [], tail: null } });
-}
-
-const SITE: CheckpointSite = { file: "theta.theta", line: 1, column: 1 };
-
-const NOOP_CHECKPOINT: Checkpoint = {
-  before(): Promise<void> {
-    return Promise.resolve();
-  },
-};
 
 /**
  * A scripted `QueryModelDriver`. The empty_template short-circuit resolves

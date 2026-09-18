@@ -116,16 +116,11 @@
 import { describe, expect, it } from "vitest";
 import type {
   ExtensionAPI,
-  ExtensionCommandContext,
   ModelRegistry,
 } from "@earendil-works/pi-coding-agent";
-import type { ThetaSource } from "../src/lexer/lexer";
-import type { SystemNoteChannelDeps } from "../src/extension/system-note-channel";
-import type { ModelReferenceMatcher, ParsedFrontmatter } from "../src/parser/frontmatter";
+import type { ParsedFrontmatter } from "../src/parser/frontmatter";
 import {
-  parseThetaDocument,
   type EnumDecl,
-  type ParseThetaDocumentDeps,
   type SchemaDecl,
   type ThetaDocument,
 } from "../src/parser/theta-document";
@@ -161,13 +156,10 @@ import type {
   ConversationBindInput,
   ThetaCompositionInput,
 } from "../src/extension/theta-composition-producer";
-import type { RuntimeRoot } from "../src/runtime-root";
-import type { Checkpoint } from "../src/seams/checkpoint";
-import {
-  AjvSchemaValidator,
-  type LoweredSchema,
-  type SchemaSlug,
-} from "../src/seams/schema-validator";
+import type { LoweredSchema } from "../src/seams/schema-validator";
+import { parseDoc } from "./helpers/e2e-s1";
+import { rootDouble, ctxDouble } from "./helpers/tool-call-dispatch-harness";
+import { ajv as realAjvValidator } from "./helpers/scripted-live-session-harness";
 
 // ===========================================================================
 // Harness — the real production prompt-mode binding over a real parse, plus the
@@ -206,18 +198,6 @@ function callerColourRed(): EnumValue {
   return makeEnumValue(enumDeclaringKey("/theta/caller.theta", "Colour"), RED);
 }
 
-function parseDeps(): ParseThetaDocumentDeps {
-  const systemNote: SystemNoteChannelDeps = {
-    pi: { sendMessage: (): void => {} },
-    ui: { notify: (): void => {} },
-    emitDiagnostic: (): void => {},
-  };
-  const modelMatcher: ModelReferenceMatcher = {
-    resolve: (): "resolved" => "resolved",
-  };
-  return { systemNote, modelMatcher };
-}
-
 /**
  * Parse a fixture and fail LOUDLY on any error-severity diagnostic — a fixture
  * that stops parsing must never let a bug test pass, or red, for the wrong
@@ -226,8 +206,7 @@ function parseDeps(): ParseThetaDocumentDeps {
  * establishes per run rather than assuming.
  */
 function parseTheta(path: string, src: string): ThetaDocument {
-  const source: ThetaSource = { path, bytes: new TextEncoder().encode(src) };
-  const doc = parseThetaDocument(source, parseDeps());
+  const doc = parseDoc(src, path);
   const errors = doc.diagnostics.filter((d) => d.severity === "error");
   if (errors.length > 0) {
     throw new Error(
@@ -236,40 +215,6 @@ function parseTheta(path: string, src: string): ThetaDocument {
     );
   }
   return doc;
-}
-
-const NOOP_CHECKPOINT: Checkpoint = {
-  before(): Promise<void> {
-    return Promise.resolve();
-  },
-};
-
-/**
- * The production AJV validator, wired with the same `JSON.stringify`
- * content-addressing the shipped composition root uses. A stub would decide the
- * verdict the (b) cells route through, so the real seam is what every cell runs
- * against.
- */
-function realAjvValidator(): AjvSchemaValidator {
-  return new AjvSchemaValidator({
-    emit: (): void => {},
-    slugOf: (schema: LoweredSchema): SchemaSlug => {
-      const canonicalBytes = JSON.stringify(schema);
-      return { slug: canonicalBytes, canonicalBytes };
-    },
-  });
-}
-
-function rootDouble(): RuntimeRoot {
-  return {
-    checkpoint: NOOP_CHECKPOINT,
-    idSource: { newInvocationId: () => "inv-1", newToolCallId: () => "tc-1" },
-    schemaValidator: realAjvValidator(),
-  } as unknown as RuntimeRoot;
-}
-
-function ctxDouble(): ExtensionCommandContext {
-  return {} as unknown as ExtensionCommandContext;
 }
 
 /**

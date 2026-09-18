@@ -65,11 +65,7 @@ import type {
 import { createProductionProducerDeps } from "../src/extension/production-theta-producer";
 import type { ThetaCompositionInput } from "../src/extension/theta-composition-producer";
 import type { RuntimeRoot } from "../src/runtime-root";
-import {
-  AjvSchemaValidator,
-  type LoweredSchema,
-  type SchemaSlug,
-} from "../src/seams/schema-validator";
+import { rootDouble } from "./helpers/scripted-live-session-harness";
 
 // The corpus this file sweeps is a function of the commit, not of the process
 // cwd, so the root is derived from this module's own location.
@@ -579,27 +575,15 @@ const BINDER_MODEL = {
  * reading empty, so a fixture wiring slip cannot read as a pass.
  */
 function dispatchRoot(): RuntimeRoot {
-  return {
-    checkpoint: { before: (): Promise<void> => Promise.resolve() },
-    idSource: {
-      newInvocationId: (): string => "inv-1",
-      newToolCallId: (): string => "tc-1",
-    },
+  return rootDouble({
     clock: { wallNow: (): number => 0 },
-    schemaValidator: new AjvSchemaValidator({
-      emit: (): void => {},
-      slugOf: (schema: LoweredSchema): SchemaSlug => {
-        const canonicalBytes = JSON.stringify(schema);
-        return { slug: canonicalBytes, canonicalBytes };
-      },
-    }),
     fileSystem: {
       readBytes: (path: string): Promise<Uint8Array> =>
         path === DISPATCH_SOURCE_PATH
           ? Promise.resolve(new TextEncoder().encode(DISPATCH_THETA))
           : Promise.reject(new Error(`fixture fs: no source registered for ${path}`)),
     },
-  } as unknown as RuntimeRoot;
+  });
 }
 
 /** The composition input for the carrier-type fixture, parsed cleanly. */

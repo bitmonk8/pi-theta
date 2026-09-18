@@ -16,6 +16,8 @@
 // file that imports this module. Nothing here is stubbed beyond the no-op
 // seam stand-ins themselves; the real `executeBody` /
 // `createEffectfulStatementHost` drive the actual production code under test.
+import type { Expr, MatchArmNode, MatchExpr, QueryExpr, Stmt, ThetaBody } from "../../src/parser/theta-document";
+import { buildEnvironment, type LexicalEnvironment } from "../../src/runtime/lexical-environment";
 import { type Diagnostic } from "../../src/diagnostics/diagnostic";
 import type { CheckpointKind, CheckpointSite } from "../../src/seams/checkpoint";
 import type { Checkpoint } from "../../src/seams/checkpoint";
@@ -164,3 +166,37 @@ export class SpyCompensator implements RollbackCompensator {
     this.calls.push(`enumerate:${effects.length}`);
   }
 }
+
+// Hand-built AST and root environment shared by the bug-0307 executor witnesses.
+
+/** An identifier at the throwaway span. */
+export function identExpr(name: string): Expr {
+  return { kind: "ident", name, range: span() };
+}
+
+/** An untyped `@`-query expression. */
+export function queryExpr(template: string): QueryExpr {
+  return { kind: "query", schema: null, template, range: span() };
+}
+
+/** A `match` expression node. */
+export function matchExpr(scrutinee: Expr, arms: readonly MatchArmNode[]): MatchExpr {
+  return { kind: "match", scrutinee, arms, range: span() };
+}
+
+/** A `let <name> = <init>` statement (immutable, unannotated). */
+export function letStmt(name: string, init: Expr): Stmt {
+  return { kind: "let", name, mutable: false, annotation: null, init, range: span() };
+}
+
+/** A body with the given statements and optional tail. */
+export function body(statements: readonly Stmt[], tail: Expr | null = null): ThetaBody {
+  return { statements, tail };
+}
+
+/** A real root environment over an empty body. */
+export function realEnv(): LexicalEnvironment {
+  return buildEnvironment({ body: { statements: [], tail: null } });
+}
+
+export const SITE: CheckpointSite = { file: "theta.theta", line: 1, column: 1 };

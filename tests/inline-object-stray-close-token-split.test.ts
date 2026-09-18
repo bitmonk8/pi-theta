@@ -6,7 +6,7 @@ import { registryMessage } from "../tools/code-registry/index.js";
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
 import type { ThetaDocument } from "../src/parser/theta-document";
 import { splitTopLevelSegments, topLevelColon } from "../src/parser/params";
-import { parseDoc } from "./helpers/e2e-s1";
+import { parseDoc, subagentTheta as theta } from "./helpers/e2e-s1";
 
 // Bug 0238 — a stray depth-0 CLOSE token in an inline object type underflows
 // `splitTopLevelSegments`' depth counter, so every entry behind it merges into
@@ -304,11 +304,6 @@ function paramsSrc(type: string): string {
     ? `"${type.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`
     : `'${type}'`;
   return `---\nmode: prompt\nparams:\n  p: ${scalar}\n---\nlet x = 1\n`;
-}
-
-/** A `mode: subagent` theta whose body is `stmt` (the statement on line 4). */
-function theta(stmt: string): string {
-  return `---\nmode: subagent\n---\n${stmt}\n`;
 }
 
 /** Every diagnostic rendered `<severity> <code>: <message>`, in emission order. */

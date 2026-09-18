@@ -62,12 +62,7 @@ vi.mock("@earendil-works/pi-ai/compat", async (importOriginal) => {
   };
 });
 
-import type {
-  ExtensionAPI,
-  ExtensionCommandContext,
-  ModelRegistry,
-} from "@earendil-works/pi-coding-agent";
-import { createProductionProducerDeps } from "../src/extension/production-theta-producer";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { ThetaCompositionInput } from "../src/extension/theta-composition-producer";
 import {
   createThetaExtension,
@@ -80,21 +75,11 @@ import {
   driveSlashPromptTurn,
   type SlashPromptDriveDeps,
 } from "../src/runtime/slash-dispatch";
-import {
-  parseThetaDocument,
-  type ParseThetaDocumentDeps,
-} from "../src/parser/theta-document";
-import type { ThetaSource } from "../src/lexer/lexer";
-import type { RuntimeRoot } from "../src/runtime-root";
-import type { ModelReferenceMatcher } from "../src/parser/frontmatter";
-import type { SystemNoteChannelDeps } from "../src/extension/system-note-channel";
+import { parseDoc } from "./helpers/e2e-s1";
+import { binderProducerWithCapture as producerWithCapture } from "./helpers/scripted-live-session-harness";
+import { ctxDouble } from "./helpers/tool-call-dispatch-harness";
 import { invoke, makeHarness, makeTheta } from "./helpers/watch-arming-harness";
 import { FakeClock } from "./helpers/fake-clock";
-import {
-  AjvSchemaValidator,
-  type LoweredSchema,
-  type SchemaSlug,
-} from "../src/seams/schema-validator";
 
 const SYSTEM_NOTE_CHANNEL = "theta-system-note";
 
@@ -158,72 +143,14 @@ function scriptEnvelope(envelope: unknown): void {
   };
 }
 
-function parseDeps(): ParseThetaDocumentDeps {
-  const systemNote: SystemNoteChannelDeps = {
-    pi: { sendMessage: (): void => {} },
-    ui: { notify: (): void => {} },
-    emitDiagnostic: (): void => {},
-  };
-  const modelMatcher: ModelReferenceMatcher = { resolve: (): "resolved" => "resolved" };
-  return { systemNote, modelMatcher };
-}
-
 function parse(path: string, src: string) {
-  const source: ThetaSource = { path, bytes: new TextEncoder().encode(src) };
-  const doc = parseThetaDocument(source, parseDeps());
+  const doc = parseDoc(src, path);
   const errors = doc.diagnostics
     .filter((d) => d.severity === "error")
     .map((d) => d.code);
   expect(errors, "the theta must parse cleanly before it is driven").toEqual([]);
   expect(doc.frontmatter, "the theta must carry parseable frontmatter").not.toBeNull();
   return doc;
-}
-
-function rootDouble(): RuntimeRoot {
-  return {
-    checkpoint: { before: (): Promise<void> => Promise.resolve() },
-    idSource: {
-      newInvocationId: (): string => "inv-1",
-      newToolCallId: (): string => "tc-1",
-    },
-    clock: { wallNow: (): number => 0 },
-    schemaValidator: new AjvSchemaValidator({
-      emit: (): void => {},
-      slugOf: (schema: LoweredSchema): SchemaSlug => {
-        const canonicalBytes = JSON.stringify(schema);
-        return { slug: canonicalBytes, canonicalBytes };
-      },
-    }),
-  } as unknown as RuntimeRoot;
-}
-
-const BINDER_MODEL = {
-  id: "binder-model",
-  provider: "anthropic-messages",
-  api: "anthropic-messages",
-  strictCapable: true,
-};
-
-function producerWithCapture(): {
-  readonly deps: ReturnType<typeof createProductionProducerDeps>;
-  readonly notes: CapturedNote[];
-} {
-  const notes: CapturedNote[] = [];
-  const pi = {
-    sendMessage: (message: CapturedNote): void => {
-      notes.push(message);
-    },
-  } as unknown as ExtensionAPI;
-  const modelRegistry = {
-    getAvailable: (): readonly unknown[] => [BINDER_MODEL],
-    getApiKeyAndHeaders: async (): Promise<{ ok: boolean }> => ({ ok: true }),
-  } as unknown as ModelRegistry;
-  const deps = createProductionProducerDeps({ pi, root: rootDouble(), modelRegistry });
-  return { deps, notes };
-}
-
-function ctxDouble(): ExtensionCommandContext {
-  return {} as unknown as ExtensionCommandContext;
 }
 
 // A two-required-string-param theta drives a genuine binder pass with no

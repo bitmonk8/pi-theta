@@ -39,6 +39,7 @@ import type { CallExpr, Expr, InvokeExpr, ThetaBody } from "../src/parser/theta-
 import {
   autoRespondingSpawn,
   bodyWithInvoke,
+  checkInvokeWithClause,
   driveCaller,
   driveCtx,
   memberOnNull,
@@ -189,9 +190,6 @@ describe("RFC 0009 failure arms — V2/V3: an invalid cwd VALUE aborts before an
 // ===========================================================================
 
 describe("RFC 0009 failure arms — V4: a statically-provable non-string clause value draws the F3-widened arg-type code per surface", () => {
-  const RESOLVED_THETA_ROOT = resolvePath("/thetadir").replace(/\\/g, "/");
-  const RESOLVED_CALLEE = resolvePath("/thetadir", "./callee.theta").replace(/\\/g, "/");
-
   function subagentArity(): Promise<CalleeArity | undefined> {
     return Promise.resolve({
       requiredCount: 0,
@@ -202,35 +200,7 @@ describe("RFC 0009 failure arms — V4: a statically-provable non-string clause 
   }
 
   it("invoke(...) surface: `with { cwd: 42 }` draws theta/parse/invoke-arg-type-mismatch (RED)", async () => {
-    const invoke = {
-      kind: "invoke",
-      path: "./callee.theta",
-      returnSchema: null,
-      args: [],
-      range: R(),
-      withClause: withClause(numberValue),
-    } as unknown as InvokeExpr;
-    const body: ThetaBody = {
-      statements: [{ kind: "invoke", invoke, range: R() } as unknown as ThetaBody["statements"][number]],
-      tail: null,
-    };
-    const input: ThetaCompositionInput = {
-      slashName: "caller",
-      sourcePath: "/thetadir/caller.theta",
-      frontmatter: {} as unknown as ParsedFrontmatter,
-      body,
-    };
-    const diags = await checkInvokeStaticResolution(input, {
-      fs: new FakeFileSystem({
-        homedir: "/home/u",
-        cwd: "/theta",
-        files: { [RESOLVED_CALLEE]: "theta", [RESOLVED_THETA_ROOT]: "" },
-        dirs: { [RESOLVED_THETA_ROOT]: [] },
-      }),
-      activeRoots: [RESOLVED_THETA_ROOT],
-      graph: { edges: new Map([["caller", []]]), unresolvable: new Set<string>() },
-      resolveCalleeArity: subagentArity,
-    });
+    const diags = await checkInvokeWithClause(withClause(numberValue), subagentArity);
     expect(
       diags.map((d) => d.code),
       `expected theta/parse/invoke-arg-type-mismatch among ${JSON.stringify(diags.map((d) => d.code))}`,

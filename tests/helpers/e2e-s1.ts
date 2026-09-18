@@ -34,6 +34,8 @@ import {
   type FrontmatterParseResult,
   type ModelReferenceMatcher,
 } from "../../src/parser/frontmatter";
+import { StaticTypeInferencePass } from "../../src/parser/static-type-inference";
+import { checkCompatible, displayType, type Compatibility, type TypeEnv } from "../../src/parser/type-compat";
 import type { LoweredSchema } from "../../src/seams/schema-validator";
 
 /** An in-band, no-op system-note channel that discards emitted batches. */
@@ -99,8 +101,8 @@ export const FRONTMATTER: readonly string[] = ["---", "mode: prompt", "---"];
 const FM = `${FRONTMATTER.join("\n")}\n`;
 
 /** Parse `body` as a `.theta` under the standard frontmatter. */
-export function parsePromptBody(body: string): ThetaDocument {
-  return parseDoc(FM + body);
+export function parsePromptBody(body: string, path = "test.theta"): ThetaDocument {
+  return parseDoc(FM + body, path);
 }
 
 /** The diagnostics the production parse reports for `body`, in emission order. */
@@ -123,9 +125,11 @@ export function documentCodes(doc: ThetaDocument): string[] {
   return doc.diagnostics.map((d: Diagnostic) => d.code);
 }
 
-/** A source range rendered as `l:c-l:c`. */
-export function at(r: SourceRange): string {
-  return `${r.start.line}:${r.start.column}-${r.end.line}:${r.end.column}`;
+/** `l:c-l:c`, 1-indexed, end-column exclusive; `-` for an unlocated diagnostic. */
+export function at(r: SourceRange | undefined): string {
+  return r === undefined
+    ? "-"
+    : `${r.start.line}:${r.start.column}-${r.end.line}:${r.end.column}`;
 }
 
 /** Every diagnostic rendered `severity code @l:c-l:c: message` — failure payload. */
@@ -290,6 +294,19 @@ export function findFnDecl(doc: ThetaDocument, name: string): FnDecl | undefined
   return doc.body.statements.find(
     (s): s is FnDecl => s.kind === "fn" && (s as FnDecl).name === name,
   );
+}
+
+/** Frontmatter for every `.theta` body row — occupies lines 1–3, body starts at 4. */
+const SUBAGENT_FM = "---\nmode: subagent\n---\n";
+
+/** A `mode: subagent` theta whose body is `stmt`. */
+export function subagentTheta(stmt: string): string {
+  return `${SUBAGENT_FM}${stmt}\n`;
+}
+
+/** A `mode: subagent` theta whose `params:` block is `block` (the key on line 4). */
+export function subagentParamsSrc(block: string): string {
+  return `---\nmode: subagent\nparams:\n${block}\n---\n1\n`;
 }
 
 /** One theta file: `---` fences over `<frontmatter>`, body `let x = 1`. */
@@ -737,3 +754,293 @@ export function binderSites(doc: ThetaDocument, subject: string): string[] {
   walkBlock(body);
   return out;
 }
+
+/** The whole aggregated diagnostic list as comparable `severity code message @range` strings. */
+export function allHits(doc: ThetaDocument): string[] {
+  return doc.diagnostics.map(
+    (d: Diagnostic) => `${d.severity} ${d.code} ${d.message} @${at(d.range)}`,
+  );
+}
+
+/** One expected entry of `allHits`, built from a registry-sourced message. */
+export function hit(code: string, message: string, anchor: SourceRange): string {
+  return `error ${code} ${message} @${at(anchor)}`;
+}
+
+export interface ArithmeticAnchors {
+  readonly calls: ReadonlyArray<{ readonly callee: string; readonly args: readonly SourceRange[] }>;
+  readonly lets: ReadonlyArray<{
+    readonly name: string;
+    readonly range: SourceRange;
+    readonly init: SourceRange | undefined;
+  }>;
+  readonly objectFields: ReadonlyArray<{ readonly name: string; readonly value: SourceRange }>;
+  readonly parForMaxes: readonly SourceRange[];
+  /** Every division node — the division silence cells' non-vacuity channel. */
+  readonly divisions: readonly SourceRange[];
+  /** Every `{ kind: "binary", op: "%" }` node — the non-vacuity channel. */
+  readonly modulos: readonly SourceRange[];
+  /** The right operand of every `%` node, in the same order — group (D) reads it. */
+  readonly moduloDivisors: readonly Expr[];
+  /**
+   * Every spelled `-`/`*`/`/`/`%` binary node's own range (bug 0332's gate
+   * anchor), EXCLUDING the synthetic-`null`-left unary `-` shape — the same
+   * exclusion `checkArithmeticOperands` itself applies.
+   */
+  readonly arithmeticOps: ReadonlyArray<{ readonly op: string; readonly range: SourceRange }>;
+}
+
+/**
+ * Every anchor the division/modulo assertions range against, collected in one walk.
+ *
+ * The walk covers the node kinds these fixtures use; a fixture whose node it
+ * cannot reach fails one of the loud preconditions below rather than letting an
+ * absence assertion pass while measuring nothing. `modulos` is what makes the
+ * silence cells non-vacuous: a cell asserting "`1 % -0` at this sink draws
+ * nothing" first asserts the parsed fixture actually holds a `%` node.
+ */
+export function arithmeticAnchorsOf(doc: ThetaDocument): ArithmeticAnchors {
+  const calls: Array<{ callee: string; args: SourceRange[] }> = [];
+  const lets: Array<{ name: string; range: SourceRange; init: SourceRange | undefined }> = [];
+  const objectFields: Array<{ name: string; value: SourceRange }> = [];
+  const parForMaxes: SourceRange[] = [];
+  const divisions: SourceRange[] = [];
+  const modulos: SourceRange[] = [];
+  const moduloDivisors: Expr[] = [];
+  const arithmeticOps: Array<{ op: string; range: SourceRange }> = [];
+  const walkExpr = (e: Expr): void => {
+    switch (e.kind) {
+      case "call":
+        calls.push({ callee: e.callee, args: e.args.map((a) => a.range) });
+        for (const a of e.args) walkExpr(a);
+        return;
+      case "invoke":
+        calls.push({ callee: "invoke", args: e.args.map((a) => a.range) });
+        for (const a of e.args) walkExpr(a);
+        return;
+      case "method-call":
+        walkExpr(e.target);
+        for (const a of e.args) walkExpr(a);
+        return;
+      case "try":
+        walkExpr(e.operand);
+        return;
+      case "array":
+        for (const el of e.elements) walkExpr(el);
+        return;
+      case "object":
+        for (const f of e.fields) {
+          objectFields.push({ name: f.name, value: f.value.range });
+          walkExpr(f.value);
+        }
+        return;
+      case "ternary":
+        walkExpr(e.condition);
+        walkExpr(e.consequent);
+        walkExpr(e.alternate);
+        return;
+      case "binary":
+        if (e.op === "/") divisions.push(e.range);
+        if (e.op === "%") {
+          modulos.push(e.range);
+          moduloDivisors.push(e.right);
+        }
+        if (["-", "*", "/", "%"].includes(e.op) && !(e.op === "-" && e.left.kind === "null")) {
+          arithmeticOps.push({ op: e.op, range: e.range });
+        }
+        walkExpr(e.left);
+        walkExpr(e.right);
+        return;
+      case "member":
+        walkExpr(e.target);
+        return;
+      case "index":
+        walkExpr(e.target);
+        walkExpr(e.index);
+        return;
+      case "match":
+        walkExpr(e.scrutinee);
+        for (const arm of e.arms) walkExpr(arm.body);
+        return;
+      case "result-ctor":
+        walkExpr(e.arg);
+        return;
+      case "par-for":
+        walkExpr(e.iterand);
+        if (e.max !== null) {
+          parForMaxes.push(e.max.range);
+          walkExpr(e.max);
+        }
+        walkBlock(e.body);
+        return;
+      default:
+        return;
+    }
+  };
+  const walkBlock = (b: Block): void => {
+    for (const s of b.statements) walkStmt(s);
+    if (b.tail !== null) walkExpr(b.tail);
+  };
+  const walkStmt = (s: Stmt): void => {
+    switch (s.kind) {
+      case "let":
+        lets.push({ name: s.name, range: s.range, init: s.init?.range });
+        if (s.init !== null) walkExpr(s.init);
+        return;
+      case "reassign":
+        walkExpr(s.value);
+        return;
+      case "expr":
+        walkExpr(s.expr);
+        return;
+      case "tool-call":
+        walkExpr(s.call);
+        return;
+      case "invoke":
+        walkExpr(s.invoke);
+        return;
+      case "return":
+        if (s.operand !== null) walkExpr(s.operand);
+        return;
+      case "fn":
+        walkBlock(s.body);
+        return;
+      case "for":
+        walkExpr(s.iterand);
+        walkBlock(s.body);
+        return;
+      case "while":
+        walkExpr(s.condition);
+        walkBlock(s.body);
+        return;
+      case "if":
+        walkExpr(s.condition);
+        walkBlock(s.then);
+        return;
+      default:
+        return;
+    }
+  };
+  walkBlock(doc.body);
+  return { calls, lets, objectFields, parForMaxes, divisions, modulos, moduloDivisors, arithmeticOps };
+}
+
+/**
+ * The range of the fixture's sole spelled `op` arithmetic node — bug 0332's
+ * `theta/parse/non-numeric-arithmetic-operands` anchor, which is the BINARY
+ * node's own range, not its enclosing statement/literal (L4's third hit is
+ * narrower than the array literal ARRAY_ELEMENT_CODE anchors on).
+ */
+export function arithmeticOpRange(doc: ThetaDocument, op: string): SourceRange {
+  const hits = arithmeticAnchorsOf(doc).arithmeticOps.filter((a) => a.op === op);
+  expect(
+    hits,
+    `PRECONDITION: the fixture must hold exactly one spelled '${op}' arithmetic node; the parse found ${hits.length}. Diagnostics: ${render(doc)}`,
+  ).toHaveLength(1);
+  return hits[0]!.range;
+}
+
+/** Locate the arithmetic fixture anchor using the shared cardinality checks. */
+export function arithmeticArgRange(doc: ThetaDocument, callee: string, index: number): SourceRange {
+  return argRange(doc, callee, index, (doc) => arithmeticAnchorsOf(doc).calls, render);
+}
+
+/** Locate the arithmetic fixture anchor using the shared cardinality checks. */
+export function arithmeticLetRange(doc: ThetaDocument, name: string): SourceRange {
+  return letRange(doc, name, (doc) => arithmeticAnchorsOf(doc).lets, render);
+}
+
+/** The range of that `let`'s initialiser — the array-element sink's anchor. */
+export function letInitRange(doc: ThetaDocument, name: string): SourceRange {
+  const hits = arithmeticAnchorsOf(doc).lets.filter((l) => l.name === name);
+  expect(
+    hits,
+    `PRECONDITION: the fixture must hold exactly one \`let ${name}\`; the parse found ${hits.length}. Diagnostics: ${render(doc)}`,
+  ).toHaveLength(1);
+  const init = hits[0]!.init;
+  expect(
+    init,
+    `PRECONDITION: \`let ${name}\` must carry an initialiser. Diagnostics: ${render(doc)}`,
+  ).toBeDefined();
+  return init as SourceRange;
+}
+
+/** The range of the sole schema-constructor field value named `field`. */
+export function objectFieldRange(doc: ThetaDocument, field: string): SourceRange {
+  const hits = arithmeticAnchorsOf(doc).objectFields.filter((f) => f.name === field);
+  expect(
+    hits,
+    `PRECONDITION: the fixture must hold exactly one constructor field '${field}'; the parse found ${hits.length}. Diagnostics: ${render(doc)}`,
+  ).toHaveLength(1);
+  return hits[0]!.value;
+}
+
+/** The range of the sole `par for … max` operand — that sink's own anchor. */
+export function parForMaxRange(doc: ThetaDocument): SourceRange {
+  const hits = arithmeticAnchorsOf(doc).parForMaxes;
+  expect(
+    hits,
+    `PRECONDITION: the fixture must hold exactly one \`par for … max\` operand; the parse found ${hits.length}. Diagnostics: ${render(doc)}`,
+  ).toHaveLength(1);
+  return hits[0]!;
+}
+
+interface RawRead {
+  readonly display: string;
+  readonly vsInteger: Compatibility;
+  readonly raw: string;
+}
+
+/** An empty `TypeEnv`: the raw-read fixtures declare no named type. */
+const EMPTY_TYPE_ENV = {} as TypeEnv;
+
+/**
+ * `StaticTypeInferencePass.typeOf` on the fixture's body tail.
+ *
+ * The read is reported as `displayType` plus `checkCompatible(t, integer)`
+ * rather than as the raw `CompatType` object: those two are what every sink in
+ * the arithmetic fixture suites consumes, and the `literal`-versus-`prim` distinction
+ * the object carries is not the observable under test. The raw object rides along
+ * in the failure payload so a red names the shape that produced it.
+ */
+function typeOfTail(doc: ThetaDocument, cell: string): RawRead {
+  expect(
+    doc.diagnostics.filter((d: Diagnostic) => d.severity === "error").map((d) => d.code),
+    `PRECONDITION (${cell}): the raw-read fixture must parse without an error-severity diagnostic, or the type read below is about a parse failure. Diagnostics: ${render(doc)}`,
+  ).toEqual([]);
+  const tail = doc.body.tail;
+  expect(
+    tail,
+    `PRECONDITION (${cell}): the fixture must end in a trailing expression, which is the node the read is taken on. Diagnostics: ${render(doc)}`,
+  ).not.toBeNull();
+  const type = new StaticTypeInferencePass({ checkCompatible, enumNames: new Set() }).typeOf(
+    tail as Expr,
+    EMPTY_TYPE_ENV,
+  );
+  return {
+    display: displayType(type),
+    vsInteger: checkCompatible(type, { kind: "prim", name: "integer" }, EMPTY_TYPE_ENV),
+    raw: JSON.stringify(type),
+  };
+}
+
+/** `display|vs-integer` — one comparable string per raw read. */
+export function numericReading(doc: ThetaDocument, cell: string): string {
+  const r = typeOfTail(doc, cell);
+  return `${r.display}|${r.vsInteger}`;
+}
+
+/** `fn g(n: integer)` — the annotated sink group (a) and half of group (c) drive. */
+export const G_INT = "fn g(n: integer): number { 1 }\n";
+
+/** The spec-correct parameter annotation for a `/` result. */
+export const G_NUM = "fn g(n: number): number { 1 }\n";
+
+/** A sink that fires on an `integer` and on a `number` alike (cell aRender). */
+export const G_STR = "fn g(s: string): number { 1 }\n";
+
+/** The `integer`-declared schema field of cells c1 / c2 / h4. */
+export const S_INT = "schema S { n: integer }\n";
+
+/** The `string`-declared schema field of cells L3 / L3c (finding F3). */
+export const S_STR = "schema S { s: string }\n";

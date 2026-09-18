@@ -45,6 +45,7 @@ import type {
   ConversationBindInput,
   ThetaCompositionInput,
 } from "../../src/extension/theta-composition-producer";
+import type { Checkpoint } from "../../src/seams/checkpoint";
 import type { RuntimeRoot } from "../../src/runtime-root";
 
 /** An EXECUTOR probe's outcome: the body's success value, or a caught throw. */
@@ -324,4 +325,61 @@ export function makeBeltProbes(
   }
 
   return { probeSource, driveInterp, driveInvoke };
+}
+
+const NOOP_CHECKPOINT: Checkpoint = {
+  before(): Promise<void> {
+    return Promise.resolve();
+  },
+};
+
+export interface NumericRunOutcome {
+  /** Every parse-time code, in emission order — the refusal channel. */
+  readonly codes: readonly string[];
+  /** The final value rendered, and whether it is an integer. */
+  readonly value: string;
+  readonly isInteger: boolean;
+}
+
+/**
+ * Execute one parsed numeric fixture, reporting both halves.
+ *
+ * Unlike the parse cells this does NOT reject an error-severity parse: after
+ * the fix these fixtures refuse, and the point of the runtime half is that the
+ * refusal is the ONLY defence — the executor runs the same body to the same
+ * value either way. A witness pinning only the diagnostic would not red if the
+ * refusal were later removed while the runtime stayed as it is.
+ */
+export async function runNumericFixture(
+  doc: ThetaDocument,
+  cell: string,
+  bugTag: string,
+  sourcePath: string,
+): Promise<NumericRunOutcome> {
+  const theta: ThetaCompositionInput = {
+    slashName: bugTag,
+    sourcePath,
+    frontmatter: doc.frontmatter as ParsedFrontmatter,
+    body: doc.body,
+  };
+  const bindInput: ConversationBindInput = {
+    theta,
+    args: "",
+    ctx: {} as unknown as ExtensionCommandContext,
+  };
+  const binding = producer({
+    checkpoint: NOOP_CHECKPOINT,
+    idSource: { newInvocationId: () => "inv-1", newToolCallId: () => "tc-1" },
+  } as unknown as RuntimeRoot).bindPromptConversation(bindInput);
+  const execution = await executeBody(theta.body, binding.executeDeps);
+  expect(
+    execution.outcome,
+    `PRECONDITION (${cell}): the body must run to completion, or the value assertion below measures an abort rather than the value that reached the annotated position`,
+  ).toBe("success");
+  const value = execution.result.value;
+  return {
+    codes: doc.diagnostics.map((d: Diagnostic) => d.code),
+    value: String(value),
+    isInteger: Number.isInteger(value),
+  };
 }

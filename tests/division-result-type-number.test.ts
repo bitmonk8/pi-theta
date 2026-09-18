@@ -1,35 +1,19 @@
-import { PARSE_REGISTRY_PATH as REGISTRY_PAGE } from "./helpers/load-row-harness";
-import { interpolateStrict, readRegistry } from "./helpers/registry-oracle";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-// @ts-expect-error — JS code-registry module, no type declarations.
-import { registryMessage } from "../tools/code-registry/index.js";
-import type {
-  ExtensionAPI,
-  ExtensionCommandContext,
-  ModelRegistry,
-} from "@earendil-works/pi-coding-agent";
-import type { Diagnostic, SourceRange } from "../src/diagnostics/diagnostic";
-import type { Block, Expr, Stmt, ThetaDocument } from "../src/parser/theta-document";
-import type { ParsedFrontmatter } from "../src/parser/frontmatter";
-import { StaticTypeInferencePass } from "../src/parser/static-type-inference";
+import type { ThetaDocument } from "../src/parser/theta-document";
 import {
-  checkCompatible,
-  displayType,
-  type Compatibility,
-  type CompatType,
-  type TypeEnv,
-} from "../src/parser/type-compat";
-import { executeBody } from "../src/runtime/statement-executor";
-import { createProductionProducerDeps } from "../src/extension/production-theta-producer";
-import type {
-  ConversationBindInput,
-  ThetaCompositionInput,
-} from "../src/extension/theta-composition-producer";
-import type { RuntimeRoot } from "../src/runtime-root";
-import type { Checkpoint } from "../src/seams/checkpoint";
-import { parseDoc, argRange as sharedArgRange, letRange as sharedLetRange } from "./helpers/e2e-s1";
+  parseDoc, parsePromptBody, at, render, allHits, hit,
+  arithmeticAnchorsOf as anchorsOf, arithmeticOpRange,
+  arithmeticArgRange as argRange, arithmeticLetRange as letRange,
+  letInitRange, objectFieldRange, parForMaxRange, numericReading,
+  G_INT, G_NUM, G_STR, S_INT, S_STR,
+} from "./helpers/e2e-s1";
+import {
+  fnArgMessage, narrowingMessage, arrayElementMessage, letRhsMessage,
+  arithmeticMessage, objectFieldMismatchMessage,
+} from "./helpers/registry-oracle";
+import { runNumericFixture, type NumericRunOutcome as RunOutcome } from "./helpers/runtime-belt-probe-harness";
 import { committedThetaSources } from "./helpers/theta-corpus";
 
 // Bug 0142 — `#typeBinary`'s arithmetic arm (src/parser/static-type-inference.ts)
@@ -187,328 +171,13 @@ const OBJECT_FIELD_CODE = "theta/parse/object-field-type-mismatch";
 // cell measures.
 const ARITHMETIC_CODE = "theta/parse/non-numeric-arithmetic-operands";
 
-const REGISTRY = readRegistry(["parse"]);
-
-/**
- * A registered code's normative *Message* template. Throws naming the registry
- * page when the row is absent, so a registry drift can never degrade an
- * assertion below into a comparison against `undefined`.
- */
-function registered(code: string): string {
-  const template = registryMessage(REGISTRY, code) as string | undefined;
-  if (template === undefined) {
-    throw new Error(
-      `harness: ${REGISTRY_PAGE} carries no Message row for ${code} — the DIAG-4 column is this file's oracle, so a missing row is a harness failure, never a skip`,
-    );
-  }
-  return template;
-}
-
-/**
- * Interpolate a registered template's `<…>` placeholders from `subs`, in one
- * pass so a substituted value is never re-scanned.
- *
- * The placeholder set is derived from the TEMPLATE, not assumed: an unsupplied
- * placeholder and an unused substitution both throw, so a registry row that
- * changes shape fails loudly here instead of quietly producing a string no
- * emission can equal.
- */
-function fill(code: string, subs: ReadonlyMap<string, string>): string {
-  const template = registered(code);
-  return interpolateStrict(
-    template,
-    subs,
-    (token) =>
-      `harness: the ${code} Message template carries placeholder ${token}, which this file supplies no substitution for — the registry row changed shape (${REGISTRY_PAGE})`,
-    (token) =>
-      `harness: this file substitutes ${token} into the ${code} Message, which no longer carries it — the registry row changed shape (${REGISTRY_PAGE})`,
-  );
-}
-
-/** `fn '<name>' argument <i> ('<param>') type mismatch: expected <expected>, got <actual>`. */
-function fnArgMessage(
-  fnName: string,
-  index: number,
-  paramName: string,
-  expected: string,
-  actual: string,
-): string {
-  return fill(
-    FN_ARG_CODE,
-    new Map([
-      ["<name>", fnName],
-      ["<i>", String(index)],
-      ["<param>", paramName],
-      ["<expected>", expected],
-      ["<actual>", actual],
-    ]),
-  );
-}
-
-/** `cannot narrow number to integer` — a placeholder-free registered Message. */
-function narrowingMessage(): string {
-  return fill(NARROWING_CODE, new Map());
-}
-
-/** `array element type mismatch at index <i>: expected <expected>, got <actual>`. */
-function arrayElementMessage(index: number, expected: string, actual: string): string {
-  return fill(
-    ARRAY_ELEMENT_CODE,
-    new Map([
-      ["<i>", String(index)],
-      ["<expected>", expected],
-      ["<actual>", actual],
-    ]),
-  );
-}
-
-/** `let binding '<name>' initialiser type mismatch: expected <expected>, got <actual>`. */
-function letRhsMessage(name: string, expected: string, actual: string): string {
-  return fill(
-    LET_RHS_CODE,
-    new Map([
-      ["<name>", name],
-      ["<expected>", expected],
-      ["<actual>", actual],
-    ]),
-  );
-}
-
-/** `'<op>' requires two numeric operands; got <left> and <right>`. */
-function arithmeticMessage(op: string, left: string, right: string): string {
-  return fill(
-    ARITHMETIC_CODE,
-    new Map([
-      ["<op>", op],
-      ["<left>", left],
-      ["<right>", right],
-    ]),
-  );
-}
-
-/** `field '<field>' on schema '<schema>' type mismatch: expected <expected>, got <actual>`. */
-function objectFieldMismatchMessage(
-  field: string,
-  schema: string,
-  expected: string,
-  actual: string,
-): string {
-  return fill(
-    OBJECT_FIELD_CODE,
-    new Map([
-      ["<field>", field],
-      ["<schema>", schema],
-      ["<expected>", expected],
-      ["<actual>", actual],
-    ]),
-  );
-}
-
 // ===========================================================================
 // Parse harness — the house driver, plus AST anchors that double as the loud
 // precondition every cell runs first.
 // ===========================================================================
 
-const FILE = "bug0142.theta";
-
-/** Frontmatter for every fixture — occupies lines 1–3, body starts at line 4. */
-const FM = "---\nmode: prompt\n---\n";
-
-/** An empty `TypeEnv`: no fixture in group (t) or (oi) declares a named type. */
-const EMPTY_ENV = {} as TypeEnv;
-
 function parse(src: string): ThetaDocument {
-  return parseDoc(FM + src, FILE);
-}
-
-function at(r: SourceRange | undefined): string {
-  return r === undefined
-    ? "-"
-    : `${r.start.line}:${r.start.column}-${r.end.line}:${r.end.column}`;
-}
-
-/** Every diagnostic rendered `severity code @l:c-l:c: message` — failure payload. */
-function render(doc: ThetaDocument): string {
-  return JSON.stringify(
-    doc.diagnostics.map(
-      (d: Diagnostic) => `${d.severity} ${d.code} @${at(d.range)}: ${d.message}`,
-    ),
-  );
-}
-
-/** The whole aggregated diagnostic list as comparable `severity code message @range` strings. */
-function allHits(doc: ThetaDocument): string[] {
-  return doc.diagnostics.map(
-    (d: Diagnostic) => `${d.severity} ${d.code} ${d.message} @${at(d.range)}`,
-  );
-}
-
-/** One expected entry of `allHits`, built from a registry-sourced message. */
-function hit(code: string, message: string, anchor: SourceRange): string {
-  return `error ${code} ${message} @${at(anchor)}`;
-}
-
-interface Anchors {
-  readonly calls: ReadonlyArray<{ readonly callee: string; readonly args: readonly SourceRange[] }>;
-  readonly lets: ReadonlyArray<{
-    readonly name: string;
-    readonly range: SourceRange;
-    readonly init: SourceRange | undefined;
-  }>;
-  readonly objectFields: ReadonlyArray<{ readonly name: string; readonly value: SourceRange }>;
-  readonly parForMaxes: readonly SourceRange[];
-  readonly divisions: readonly SourceRange[];
-  /**
-   * Every spelled `-`/`*`/`/`/`%` binary node's own range (bug 0332's gate
-   * anchor), EXCLUDING the synthetic-`null`-left unary `-` shape — the same
-   * exclusion `checkArithmeticOperands` itself applies, so this anchor and the
-   * diagnostic's own range can never disagree on which nodes count.
-   */
-  readonly arithmeticOps: ReadonlyArray<{ readonly op: string; readonly range: SourceRange }>;
-}
-
-/**
- * Every anchor this file's assertions range against, collected in one walk.
- *
- * The walk covers the node kinds these fixtures use; a fixture whose node it
- * cannot reach fails one of the loud preconditions below rather than letting an
- * absence assertion pass while measuring nothing. `divisions` is what makes the
- * silence cells non-vacuous: a cell that asserts "`3 / 2` at this sink draws
- * nothing" first asserts the parsed fixture actually holds a `/` node.
- */
-function anchorsOf(doc: ThetaDocument): Anchors {
-  const calls: Array<{ callee: string; args: SourceRange[] }> = [];
-  const lets: Array<{ name: string; range: SourceRange; init: SourceRange | undefined }> = [];
-  const objectFields: Array<{ name: string; value: SourceRange }> = [];
-  const parForMaxes: SourceRange[] = [];
-  const divisions: SourceRange[] = [];
-  const arithmeticOps: Array<{ op: string; range: SourceRange }> = [];
-  const walkExpr = (e: Expr): void => {
-    switch (e.kind) {
-      case "call":
-        calls.push({ callee: e.callee, args: e.args.map((a) => a.range) });
-        for (const a of e.args) walkExpr(a);
-        return;
-      case "invoke":
-        calls.push({ callee: "invoke", args: e.args.map((a) => a.range) });
-        for (const a of e.args) walkExpr(a);
-        return;
-      case "method-call":
-        walkExpr(e.target);
-        for (const a of e.args) walkExpr(a);
-        return;
-      case "try":
-        walkExpr(e.operand);
-        return;
-      case "array":
-        for (const el of e.elements) walkExpr(el);
-        return;
-      case "object":
-        for (const f of e.fields) {
-          objectFields.push({ name: f.name, value: f.value.range });
-          walkExpr(f.value);
-        }
-        return;
-      case "ternary":
-        walkExpr(e.condition);
-        walkExpr(e.consequent);
-        walkExpr(e.alternate);
-        return;
-      case "binary":
-        if (e.op === "/") divisions.push(e.range);
-        if (["-", "*", "/", "%"].includes(e.op) && !(e.op === "-" && e.left.kind === "null")) {
-          arithmeticOps.push({ op: e.op, range: e.range });
-        }
-        walkExpr(e.left);
-        walkExpr(e.right);
-        return;
-      case "member":
-        walkExpr(e.target);
-        return;
-      case "index":
-        walkExpr(e.target);
-        walkExpr(e.index);
-        return;
-      case "match":
-        walkExpr(e.scrutinee);
-        for (const arm of e.arms) walkExpr(arm.body);
-        return;
-      case "result-ctor":
-        walkExpr(e.arg);
-        return;
-      case "par-for":
-        walkExpr(e.iterand);
-        if (e.max !== null) {
-          parForMaxes.push(e.max.range);
-          walkExpr(e.max);
-        }
-        walkBlock(e.body);
-        return;
-      default:
-        return;
-    }
-  };
-  const walkBlock = (b: Block): void => {
-    for (const s of b.statements) walkStmt(s);
-    if (b.tail !== null) walkExpr(b.tail);
-  };
-  const walkStmt = (s: Stmt): void => {
-    switch (s.kind) {
-      case "let":
-        lets.push({ name: s.name, range: s.range, init: s.init?.range });
-        if (s.init !== null) walkExpr(s.init);
-        return;
-      case "reassign":
-        walkExpr(s.value);
-        return;
-      case "expr":
-        walkExpr(s.expr);
-        return;
-      case "tool-call":
-        walkExpr(s.call);
-        return;
-      case "invoke":
-        walkExpr(s.invoke);
-        return;
-      case "return":
-        if (s.operand !== null) walkExpr(s.operand);
-        return;
-      case "fn":
-        walkBlock(s.body);
-        return;
-      case "for":
-        walkExpr(s.iterand);
-        walkBlock(s.body);
-        return;
-      case "while":
-        walkExpr(s.condition);
-        walkBlock(s.body);
-        return;
-      case "if":
-        walkExpr(s.condition);
-        walkBlock(s.then);
-        return;
-      default:
-        return;
-    }
-  };
-  walkBlock(doc.body);
-  return { calls, lets, objectFields, parForMaxes, divisions, arithmeticOps };
-}
-
-/**
- * The range of the fixture's sole spelled `op` arithmetic node — bug 0332's
- * `theta/parse/non-numeric-arithmetic-operands` anchor, which is the BINARY
- * node's own range, not its enclosing statement/literal (L4's third hit is
- * narrower than the array literal ARRAY_ELEMENT_CODE anchors on).
- */
-function arithmeticOpRange(doc: ThetaDocument, op: string): SourceRange {
-  const hits = anchorsOf(doc).arithmeticOps.filter((a) => a.op === op);
-  expect(
-    hits,
-    `PRECONDITION: the fixture must hold exactly one spelled '${op}' arithmetic node; the parse found ${hits.length}. Diagnostics: ${render(doc)}`,
-  ).toHaveLength(1);
-  return hits[0]!.range;
+  return parsePromptBody(src, "bug0142.theta");
 }
 
 /**
@@ -525,94 +194,13 @@ function expectDivisions(doc: ThetaDocument, count: number, cell: string): void 
   ).toBe(count);
 }
 
-function argRange(doc: ThetaDocument, callee: string, index: number): SourceRange {
-  return sharedArgRange(doc, callee, index, (doc) => anchorsOf(doc).calls, render);
-}
-
-function letRange(doc: ThetaDocument, name: string): SourceRange {
-  return sharedLetRange(doc, name, (doc) => anchorsOf(doc).lets, render);
-}
-
-/** The range of that `let`'s initialiser — the array-element sink's anchor. */
-function letInitRange(doc: ThetaDocument, name: string): SourceRange {
-  const hits = anchorsOf(doc).lets.filter((l) => l.name === name);
-  expect(
-    hits,
-    `PRECONDITION: the fixture must hold exactly one \`let ${name}\`; the parse found ${hits.length}. Diagnostics: ${render(doc)}`,
-  ).toHaveLength(1);
-  const init = hits[0]!.init;
-  expect(
-    init,
-    `PRECONDITION: \`let ${name}\` must carry an initialiser. Diagnostics: ${render(doc)}`,
-  ).toBeDefined();
-  return init as SourceRange;
-}
-
-/** The range of the sole schema-constructor field value named `field`. */
-function objectFieldRange(doc: ThetaDocument, field: string): SourceRange {
-  const hits = anchorsOf(doc).objectFields.filter((f) => f.name === field);
-  expect(
-    hits,
-    `PRECONDITION: the fixture must hold exactly one constructor field '${field}'; the parse found ${hits.length}. Diagnostics: ${render(doc)}`,
-  ).toHaveLength(1);
-  return hits[0]!.value;
-}
-
-/** The range of the sole `par for … max` operand — that sink's own anchor. */
-function parForMaxRange(doc: ThetaDocument): SourceRange {
-  const hits = anchorsOf(doc).parForMaxes;
-  expect(
-    hits,
-    `PRECONDITION: the fixture must hold exactly one \`par for … max\` operand; the parse found ${hits.length}. Diagnostics: ${render(doc)}`,
-  ).toHaveLength(1);
-  return hits[0]!;
-}
-
 // ===========================================================================
 // Raw-type harness — the pass in isolation, over the shipped `⊑` engine.
 // ===========================================================================
 
-interface RawRead {
-  readonly display: string;
-  readonly vsInteger: Compatibility;
-  readonly raw: string;
-}
-
-/**
- * `StaticTypeInferencePass.typeOf` on the fixture's body tail.
- *
- * The read is reported as `displayType` plus `checkCompatible(t, integer)`
- * rather than as the raw `CompatType` object: those two are what every sink in
- * groups (a), (b) and (c) consumes, and the `literal`-versus-`prim` distinction
- * the object carries is a §Non-goal of this report. The raw object rides along
- * in the failure payload so a red names the shape that produced it.
- */
-function typeOfTail(src: string, cell: string): RawRead {
-  const doc = parse(src);
-  expect(
-    doc.diagnostics.filter((d: Diagnostic) => d.severity === "error").map((d) => d.code),
-    `PRECONDITION (${cell}): the raw-read fixture must parse without an error-severity diagnostic, or the type read below is about a parse failure. Diagnostics: ${render(doc)}`,
-  ).toEqual([]);
-  const tail = doc.body.tail;
-  expect(
-    tail,
-    `PRECONDITION (${cell}): the fixture must end in a trailing expression, which is the node the read is taken on. Diagnostics: ${render(doc)}`,
-  ).not.toBeNull();
-  const type = new StaticTypeInferencePass({ checkCompatible, enumNames: new Set() }).typeOf(
-    tail as Expr,
-    EMPTY_ENV,
-  );
-  return {
-    display: displayType(type),
-    vsInteger: checkCompatible(type, { kind: "prim", name: "integer" }, EMPTY_ENV),
-    raw: JSON.stringify(type),
-  };
-}
-
 /** `display|vs-integer` — one comparable string per raw read. */
 function reading(src: string, cell: string): string {
-  const r = typeOfTail(src, cell);
-  return `${r.display}|${r.vsInteger}`;
+  return numericReading(parse(src), cell);
 }
 
 /** The reading a `/` node is owed, and the reading the widening produces. */
@@ -624,35 +212,6 @@ const INTEGER_READING = "integer|compatible";
 // tests/non-object-receiver-gate.test.ts establishes. Offline: every fixture is
 // query-free, so no model and no provider is reached.
 // ===========================================================================
-
-const NOOP_CHECKPOINT: Checkpoint = {
-  before(): Promise<void> {
-    return Promise.resolve();
-  },
-};
-
-function producer() {
-  return createProductionProducerDeps({
-    pi: {
-      sendMessage: () => {},
-      getActiveTools: () => [],
-      setActiveTools: () => {},
-    } as unknown as ExtensionAPI,
-    root: {
-      checkpoint: NOOP_CHECKPOINT,
-      idSource: { newInvocationId: () => "inv-1", newToolCallId: () => "tc-1" },
-    } as unknown as RuntimeRoot,
-    modelRegistry: {} as unknown as ModelRegistry,
-  });
-}
-
-interface RunOutcome {
-  /** Every parse-time code, in emission order — the refusal channel. */
-  readonly codes: readonly string[];
-  /** The final value rendered, and whether it is an integer. */
-  readonly value: string;
-  readonly isInteger: boolean;
-}
 
 /**
  * Parse and execute one fixture, reporting both halves.
@@ -666,45 +225,8 @@ interface RunOutcome {
 async function runFixture(src: string, cell: string): Promise<RunOutcome> {
   const doc = parse(src);
   expectDivisions(doc, 1, cell);
-  const theta: ThetaCompositionInput = {
-    slashName: "bug0142",
-    sourcePath: "/theta/bug0142.theta",
-    frontmatter: doc.frontmatter as ParsedFrontmatter,
-    body: doc.body,
-  };
-  const bindInput: ConversationBindInput = {
-    theta,
-    args: "",
-    ctx: {} as unknown as ExtensionCommandContext,
-  };
-  const binding = producer().bindPromptConversation(bindInput);
-  const execution = await executeBody(theta.body, binding.executeDeps);
-  expect(
-    execution.outcome,
-    `PRECONDITION (${cell}): the body must run to completion, or the value assertion below measures an abort rather than the value that reached the annotated position`,
-  ).toBe("success");
-  const value = execution.result.value;
-  return {
-    codes: doc.diagnostics.map((d: Diagnostic) => d.code),
-    value: String(value),
-    isInteger: Number.isInteger(value),
-  };
+  return runNumericFixture(doc, cell, "bug0142", "/theta/bug0142.theta");
 }
-
-// ===========================================================================
-// Fixtures — the bug doc's §Reproduction rows verbatim.
-// ===========================================================================
-
-/** `fn g(n: integer)` — the annotated sink group (a) and half of group (c) drive. */
-const G_INT = "fn g(n: integer): number { 1 }\n";
-/** The spec-correct parameter annotation for a `/` result. */
-const G_NUM = "fn g(n: number): number { 1 }\n";
-/** A sink that fires on an `integer` and on a `number` alike (cell aRender). */
-const G_STR = "fn g(s: string): number { 1 }\n";
-/** The `integer`-declared schema field of cells c1 / c2 / h4. */
-const S_INT = "schema S { n: integer }\n";
-/** The `string`-declared schema field of cells L3 / L3c (finding F3). */
-const S_STR = "schema S { s: string }\n";
 
 // ===========================================================================
 // (t) — the raw inference read. The measurement that separates this report from

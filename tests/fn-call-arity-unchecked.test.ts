@@ -6,7 +6,7 @@ import { describe, expect, it } from "vitest";
 import { registryMessage } from "../tools/code-registry/index.js";
 import type { Diagnostic, SourceRange } from "../src/diagnostics/diagnostic";
 import type { Block, Expr, Stmt, ThetaDocument } from "../src/parser/theta-document";
-import { parseDoc } from "./helpers/e2e-s1";
+import { at, parseDoc, render } from "./helpers/e2e-s1";
 
 // Bug 0131 — a `<name>(args)` call whose callee resolves to a top-level `fn` in
 // the same file is subject to no argument-COUNT check at any parse seam: the
@@ -214,20 +214,6 @@ const FILE = "bug0131.theta";
 
 function parse(src: string): ThetaDocument {
   return parseDoc(src, FILE);
-}
-
-function at(r: SourceRange): string {
-  return `${r.start.line}:${r.start.column}-${r.end.line}:${r.end.column}`;
-}
-
-/** Every diagnostic rendered `severity code @range: message` — the failure payload. */
-function render(doc: ThetaDocument): string {
-  return JSON.stringify(
-    doc.diagnostics.map(
-      (d: Diagnostic) =>
-        `${d.severity} ${d.code} @${d.range === undefined ? "-" : at(d.range)}: ${d.message}`,
-    ),
-  );
 }
 
 /** Every diagnostic rendered `severity message @range`, for one code. */

@@ -70,35 +70,12 @@ vi.mock("@earendil-works/pi-ai/compat", async (importOriginal) => {
   };
 });
 
-import type {
-  ExtensionAPI,
-  ExtensionCommandContext,
-  ModelRegistry,
-} from "@earendil-works/pi-coding-agent";
-import { createProductionProducerDeps } from "../src/extension/production-theta-producer";
 import type { ThetaCompositionInput } from "../src/extension/theta-composition-producer";
-import {
-  parseThetaDocument,
-  type ParseThetaDocumentDeps,
-} from "../src/parser/theta-document";
-import type { ThetaSource } from "../src/lexer/lexer";
-import type { RuntimeRoot } from "../src/runtime-root";
-import type { ModelReferenceMatcher } from "../src/parser/frontmatter";
-import type { SystemNoteChannelDeps } from "../src/extension/system-note-channel";
-import {
-  AjvSchemaValidator,
-  type LoweredSchema,
-  type SchemaSlug,
-} from "../src/seams/schema-validator";
+import { parseDoc } from "./helpers/e2e-s1";
+import { binderProducerWithCapture as producerWithCapture } from "./helpers/scripted-live-session-harness";
+import { ctxDouble } from "./helpers/tool-call-dispatch-harness";
 
 const SYSTEM_NOTE_CHANNEL = "theta-system-note";
-
-/** A captured `pi.sendMessage` custom message (the theta-system-note channel). */
-interface CapturedNote {
-  readonly customType: string;
-  readonly content: string;
-  readonly display?: boolean;
-}
 
 /**
  * Script a ToolCall-bearing binder reply carrying `{ envelope }` in its
@@ -121,79 +98,9 @@ function scriptEnvelope(envelope: unknown): void {
   };
 }
 
-function parseDeps(): ParseThetaDocumentDeps {
-  const systemNote: SystemNoteChannelDeps = {
-    pi: { sendMessage: (): void => {} },
-    ui: { notify: (): void => {} },
-    emitDiagnostic: (): void => {},
-  };
-  const modelMatcher: ModelReferenceMatcher = { resolve: (): "resolved" => "resolved" };
-  return { systemNote, modelMatcher };
-}
-
-/**
- * A runtime-root double sufficient for a binder pass with NO defaulted fields.
- * Carries the REAL AJV validator: the bug-0011 forced-tool routing validates
- * the extracted envelope against the anyOf envelope schema before routing. No
- * `fileSystem` seam is wired because every fixture below binds all params from
- * the model args — the defaults-merge short-circuits without touching it.
- */
-function rootDouble(): RuntimeRoot {
-  return {
-    checkpoint: { before: (): Promise<void> => Promise.resolve() },
-    idSource: { newInvocationId: (): string => "inv-1", newToolCallId: (): string => "tc-1" },
-    clock: { wallNow: (): number => 0 },
-    schemaValidator: new AjvSchemaValidator({
-      emit: (): void => {},
-      slugOf: (schema: LoweredSchema): SchemaSlug => {
-        const canonicalBytes = JSON.stringify(schema);
-        return { slug: canonicalBytes, canonicalBytes };
-      },
-    }),
-  } as unknown as RuntimeRoot;
-}
-
-const BINDER_MODEL = {
-  id: "binder-model",
-  provider: "anthropic-messages",
-  api: "anthropic-messages",
-  strictCapable: true,
-};
-
-/**
- * A production producer wired with a capturing `pi.sendMessage`, a model
- * registry that resolves `binder-model`, and the root double. Returns the
- * producer deps + the captured-notes sink.
- */
-function producerWithCapture(): {
-  readonly deps: ReturnType<typeof createProductionProducerDeps>;
-  readonly notes: CapturedNote[];
-} {
-  const notes: CapturedNote[] = [];
-  const pi = {
-    sendMessage: (message: CapturedNote): void => {
-      notes.push(message);
-    },
-  } as unknown as ExtensionAPI;
-  const modelRegistry = {
-    getAvailable: (): readonly unknown[] => [BINDER_MODEL],
-    getApiKeyAndHeaders: async (): Promise<{ ok: boolean }> => ({ ok: true }),
-  } as unknown as ModelRegistry;
-  const deps = createProductionProducerDeps({ pi, root: rootDouble(), modelRegistry });
-  return { deps, notes };
-}
-
-function ctxDouble(): ExtensionCommandContext {
-  return {} as unknown as ExtensionCommandContext;
-}
-
 /** Parse `.theta` source through the production whole-file parser. */
 function parse(src: string) {
-  const source: ThetaSource = {
-    path: "probe.theta",
-    bytes: new TextEncoder().encode(src),
-  };
-  const doc = parseThetaDocument(source, parseDeps());
+  const doc = parseDoc(src, "probe.theta");
   const errors = doc.diagnostics
     .filter((d) => d.severity === "error")
     .map((d) => `${d.code}: ${d.message}`);

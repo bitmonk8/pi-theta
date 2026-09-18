@@ -40,10 +40,10 @@ import type {
   ExtensionCommandContext,
   ModelRegistry,
 } from "@earendil-works/pi-coding-agent";
-import type { ThetaSource } from "../src/lexer/lexer";
-import type { SystemNoteChannelDeps } from "../src/extension/system-note-channel";
-import type { ModelReferenceMatcher, ParsedFrontmatter } from "../src/parser/frontmatter";
-import { parseThetaDocument, type ThetaDocument } from "../src/parser/theta-document";
+import type { ParsedFrontmatter } from "../src/parser/frontmatter";
+import type { ThetaDocument } from "../src/parser/theta-document";
+import { parseDoc } from "./helpers/e2e-s1";
+import { rootDouble } from "./helpers/call-with-clause-harness";
 import { executeBody } from "../src/runtime/statement-executor";
 import {
   createProductionProducerDeps,
@@ -53,8 +53,6 @@ import type {
   ConversationBindInput,
   ThetaCompositionInput,
 } from "../src/extension/theta-composition-producer";
-import type { RuntimeRoot } from "../src/runtime-root";
-import type { Checkpoint } from "../src/seams/checkpoint";
 import {
   AjvSchemaValidator,
   type LoweredSchema,
@@ -66,26 +64,9 @@ const PROMPT_FM = "---\nmode: prompt\n---\n";
 /** The two-variant declaration every fixture reuses; explicit wire values so the collision is on the tag alone. */
 const SEV_DECL = 'enum Sev { Low = "low", High = "high" }\n';
 
-const NOOP_CHECKPOINT: Checkpoint = {
-  before(): Promise<void> {
-    return Promise.resolve();
-  },
-};
-
-function parseDepsLocal(): Parameters<typeof parseThetaDocument>[1] {
-  const systemNote: SystemNoteChannelDeps = {
-    pi: { sendMessage: (): void => {} },
-    ui: { notify: (): void => {} },
-    emitDiagnostic: (): void => {},
-  };
-  const modelMatcher: ModelReferenceMatcher = { resolve: (): "resolved" => "resolved" };
-  return { systemNote, modelMatcher };
-}
-
 /** Parse a fixture and fail LOUDLY on any error-severity diagnostic (*No silent test skipping*). */
 function parseTheta(path: string, src: string): ThetaDocument {
-  const source: ThetaSource = { path, bytes: new TextEncoder().encode(src) };
-  const doc = parseThetaDocument(source, parseDepsLocal());
+  const doc = parseDoc(src, path);
   const errors = doc.diagnostics.filter((d) => d.severity === "error");
   if (errors.length > 0) {
     throw new Error(
@@ -105,14 +86,6 @@ function realAjvValidator(): AjvSchemaValidator {
       return { slug: canonicalBytes, canonicalBytes };
     },
   });
-}
-
-function rootDouble(): RuntimeRoot {
-  return {
-    checkpoint: NOOP_CHECKPOINT,
-    idSource: { newInvocationId: () => "inv-1", newToolCallId: () => "tc-1" },
-    schemaValidator: realAjvValidator(),
-  } as unknown as RuntimeRoot;
 }
 
 /**
@@ -168,7 +141,7 @@ async function driveAttachChain(input: {
       getActiveTools: () => [],
       setActiveTools: () => {},
     } as unknown as ExtensionAPI,
-    root: rootDouble(),
+    root: { ...rootDouble(), schemaValidator: realAjvValidator() },
     modelRegistry: {} as unknown as ModelRegistry,
     parseCallee,
   });

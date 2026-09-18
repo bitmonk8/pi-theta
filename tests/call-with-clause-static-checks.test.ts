@@ -32,16 +32,11 @@ import {
 import type { ThetaCompositionInput } from "../src/extension/theta-composition-producer";
 import type { ParsedFrontmatter } from "../src/parser/frontmatter";
 import type { CallableSetSnapshot } from "../src/parser/callable-set";
-import type { Expr, InvokeExpr, ThetaBody } from "../src/parser/theta-document";
+import type { Expr, ThetaBody } from "../src/parser/theta-document";
 import type { ThetaFixture } from "../src/extension/factory";
 import { discoverAndComposeFixtures } from "../src/extension/production-composition";
-import { resolve as resolvePath } from "node:path";
-import { R, strExpr, withClause, type FakeCallWithClause } from "./helpers/call-with-clause-harness";
+import { checkInvokeWithClause, R, strExpr, withClause, type FakeCallWithClause } from "./helpers/call-with-clause-harness";
 import { FakeFileSystem } from "./helpers/fake-file-system";
-
-/** Host-native resolution of `./callee.theta` against the CALLER's directory (`/thetadir`, since `resolveCalleeAbsolute` resolves relative to `dirname(callerPath)`, not the fake fs `cwd`; windows prepends the current drive) — the exact path `resolveCalleeAbsolute` (invoke-static-checks.ts) produces, normalised to forward slashes. */
-const RESOLVED_CALLEE = resolvePath("/thetadir", "./callee.theta").replace(/\\/g, "/");
-const RESOLVED_THETA_ROOT = resolvePath("/thetadir").replace(/\\/g, "/");
 
 const WITH_CLAUSE_PROMPT_MODE_CALLEE_CODE = "theta/parse/with-clause-prompt-mode-callee";
 const WITH_CLAUSE_PI_TOOL_CODE = "theta/parse/with-clause-pi-tool";
@@ -158,37 +153,9 @@ describe("RFC 0009 static checks — rows 12a-13c: every non-.theta-callable bar
 
 describe("RFC 0009 static checks — row 6: invoke(...) with a clause on a statically-resolvable prompt-mode callee", () => {
   it("draws theta/parse/with-clause-prompt-mode-callee (RED)", async () => {
-    const invoke = {
-      kind: "invoke",
-      path: "./callee.theta",
-      returnSchema: null,
-      args: [],
-      range: R(),
-      withClause: withClause(strExpr("a")),
-    } as unknown as InvokeExpr;
-    const body: ThetaBody = {
-      statements: [{ kind: "invoke", invoke, range: R() } as unknown as ThetaBody["statements"][number]],
-      tail: null,
-    };
     const promptArity = (): Promise<CalleeArity | undefined> =>
       Promise.resolve({ requiredCount: 0, totalCount: 0, fields: [], mode: "prompt" } as unknown as CalleeArity);
-    const input: ThetaCompositionInput = {
-      slashName: "caller",
-      sourcePath: "/thetadir/caller.theta",
-      frontmatter: {} as unknown as ParsedFrontmatter,
-      body,
-    };
-    const diags = await checkInvokeStaticResolution(input, {
-      fs: new FakeFileSystem({
-        homedir: "/home/u",
-        cwd: "/theta",
-        files: { [RESOLVED_CALLEE]: "theta", [RESOLVED_THETA_ROOT]: "" },
-        dirs: { [RESOLVED_THETA_ROOT]: [] },
-      }),
-      activeRoots: [RESOLVED_THETA_ROOT],
-      graph: EMPTY_GRAPH,
-      resolveCalleeArity: promptArity,
-    });
+    const diags = await checkInvokeWithClause(withClause(strExpr("a")), promptArity);
     expect(diags.map((d) => d.code)).toContain(WITH_CLAUSE_PROMPT_MODE_CALLEE_CODE);
   });
 });

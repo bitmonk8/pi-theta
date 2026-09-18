@@ -6,7 +6,7 @@ import type { Diagnostic } from "../src/diagnostics/diagnostic";
 import type { ThetaDocument } from "../src/parser/theta-document";
 import { splitTopLevel } from "../src/parser/params";
 import { lowerQueryResponseSchema } from "../src/runtime/query-schema-lowering";
-import { parseDoc } from "./helpers/e2e-s1";
+import { parseDoc, subagentTheta as theta, subagentParamsSrc as paramsSrc } from "./helpers/e2e-s1";
 
 // Bug 0236 — `TypeParser.parsePrimary` has no arm for `[`, so a bracket group
 // written as a generic type argument falls to the tolerant punctuation skip,
@@ -325,18 +325,6 @@ function renderAll(exps: readonly Exp[]): string[] {
 // behaviour is stubbed: the lexer, the parser, the frontmatter reader and the
 // lowerers under assertion are the production ones.
 // ===========================================================================
-
-/** Frontmatter for every `.theta` body row — occupies lines 1–3, body starts at 4. */
-const FM = "---\nmode: subagent\n---\n";
-
-function theta(stmt: string): string {
-  return `${FM}${stmt}\n`;
-}
-
-/** A `mode: subagent` theta whose `params:` block is `block` (the key on line 4). */
-function paramsSrc(block: string): string {
-  return `---\nmode: subagent\nparams:\n${block}\n---\n1\n`;
-}
 
 /** Every diagnostic rendered `<severity> <code>: <message>`, in emission order. */
 function diagLines(doc: ThetaDocument): string[] {

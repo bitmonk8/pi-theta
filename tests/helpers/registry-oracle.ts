@@ -11,11 +11,11 @@
 //
 // TIER: unit, offline, deterministic, provider-free — the same tier as every
 // file that imports this module.
-import { registryMessageOf } from "./load-row-harness";
+import { PARSE_REGISTRY_PATH as REGISTRY_PAGE, registryMessageOf } from "./load-row-harness";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 // @ts-expect-error — JS code-registry module, no type declarations.
-import { parseRegistry } from "../../tools/code-registry/index.js";
+import { parseRegistry, registryMessage } from "../../tools/code-registry/index.js";
 
 /** A parsed row of the sharded code registry, as `parseRegistry` yields it. */
 export interface RegistryRow {
@@ -86,4 +86,121 @@ export function interpolateStrict(
     }
   }
   return message;
+}
+
+const PARSE_REGISTRY = readRegistry(["parse"]);
+
+/**
+ * A registered code's normative *Message* template. Throws naming the registry
+ * page when the row is absent, so a registry drift can never degrade an
+ * assertion below into a comparison against `undefined`.
+ */
+function registeredParseMessage(code: string): string {
+  const template = registryMessage(PARSE_REGISTRY, code) as string | undefined;
+  if (template === undefined) {
+    throw new Error(
+      `harness: ${REGISTRY_PAGE} carries no Message row for ${code} — the DIAG-4 column is this file's oracle, so a missing row is a harness failure, never a skip`,
+    );
+  }
+  return template;
+}
+
+/**
+ * Interpolate a registered template's `<…>` placeholders from `subs`, in one
+ * pass so a substituted value is never re-scanned.
+ *
+ * The placeholder set is derived from the TEMPLATE, not assumed: an unsupplied
+ * placeholder and an unused substitution both throw, so a registry row that
+ * changes shape fails loudly here instead of quietly producing a string no
+ * emission can equal.
+ */
+export function fillParseMessage(code: string, subs: ReadonlyMap<string, string>): string {
+  const template = registeredParseMessage(code);
+  return interpolateStrict(
+    template,
+    subs,
+    (token) =>
+      `harness: the ${code} Message template carries placeholder ${token}, which this file supplies no substitution for — the registry row changed shape (${REGISTRY_PAGE})`,
+    (token) =>
+      `harness: this file substitutes ${token} into the ${code} Message, which no longer carries it — the registry row changed shape (${REGISTRY_PAGE})`,
+  );
+}
+
+/** `fn '<name>' argument <i> ('<param>') type mismatch: expected <expected>, got <actual>`. */
+export function fnArgMessage(
+  fnName: string,
+  index: number,
+  paramName: string,
+  expected: string,
+  actual: string,
+): string {
+  return fillParseMessage(
+    "theta/parse/fn-arg-type-mismatch",
+    new Map([
+      ["<name>", fnName],
+      ["<i>", String(index)],
+      ["<param>", paramName],
+      ["<expected>", expected],
+      ["<actual>", actual],
+    ]),
+  );
+}
+
+/** `cannot narrow number to integer` — a placeholder-free registered Message. */
+export function narrowingMessage(): string {
+  return fillParseMessage("theta/parse/integer-narrowing", new Map());
+}
+
+/** `array element type mismatch at index <i>: expected <expected>, got <actual>`. */
+export function arrayElementMessage(index: number, expected: string, actual: string): string {
+  return fillParseMessage(
+    "theta/parse/array-element-type-mismatch",
+    new Map([
+      ["<i>", String(index)],
+      ["<expected>", expected],
+      ["<actual>", actual],
+    ]),
+  );
+}
+
+/** `let binding '<name>' initialiser type mismatch: expected <expected>, got <actual>`. */
+export function letRhsMessage(name: string, expected: string, actual: string): string {
+  return fillParseMessage(
+    "theta/parse/let-rhs-type-mismatch",
+    new Map([
+      ["<name>", name],
+      ["<expected>", expected],
+      ["<actual>", actual],
+    ]),
+  );
+}
+
+/** `'<op>' requires two numeric operands; got <left> and <right>`. */
+export function arithmeticMessage(op: string, left: string, right: string): string {
+  return fillParseMessage(
+    "theta/parse/non-numeric-arithmetic-operands",
+    new Map([
+      ["<op>", op],
+      ["<left>", left],
+      ["<right>", right],
+    ]),
+  );
+}
+
+/** `field '<field>' on schema '<schema>' type mismatch: expected <expected>, got <actual>`. */
+export function objectFieldMismatchMessage(
+  field: string,
+  schema: string,
+  expected: string,
+  actual: string,
+): string {
+  return fillParseMessage(
+    "theta/parse/object-field-type-mismatch",
+    new Map([
+      ["<field>", field],
+      ["<schema>", schema],
+      ["<expected>", expected],
+      ["<actual>", actual],
+    ]),
+  );
 }

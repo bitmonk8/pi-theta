@@ -7,7 +7,7 @@ import type { ThetaDocument } from "../src/parser/theta-document";
 import { isSingleEnclosingBraceGroup } from "../src/parser/params";
 import { annotationSourceIsNotTypeExpression } from "../src/parser/type-layer-checks";
 import { lowerQueryResponseSchema } from "../src/runtime/query-schema-lowering";
-import { parseDoc } from "./helpers/e2e-s1";
+import { parseDoc, subagentTheta as theta, subagentParamsSrc } from "./helpers/e2e-s1";
 
 // Bug 0256 — an inline object entry stranded behind `TypeParser.parseObject`'s
 // exit on a missing entry separator is never visited, so a `params:` field
@@ -240,14 +240,6 @@ function renderAll(exps: readonly Exp[]): string[] {
 // lowerers under assertion are the production ones.
 // ===========================================================================
 
-/** Frontmatter for every `.theta` body row — occupies lines 1–3, body starts at 4. */
-const FM = "---\nmode: subagent\n---\n";
-
-/** A `mode: subagent` theta whose body is `stmt`. */
-function theta(stmt: string): string {
-  return `${FM}${stmt}\n`;
-}
-
 /**
  * §Reproduction's verbatim `params:` fixture: a whole theta whose one `params:`
  * field carries the type under test as a single-quoted YAML scalar, so the
@@ -255,7 +247,7 @@ function theta(stmt: string): string {
  * measured here spells a `'`, which group (L) recomputes.
  */
 function paramsSrc(type: string): string {
-  return `---\nmode: subagent\nparams:\n  p: '${type}'\n---\n1\n`;
+  return subagentParamsSrc(`  p: '${type}'`);
 }
 
 /** Every diagnostic rendered `<severity> <code>: <message>`, in emission order. */

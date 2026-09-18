@@ -1,4 +1,16 @@
-import { RecordingMutator } from "./helpers/invoke-seam-scaffold";
+import { strExpr as stringExpr } from "./helpers/tool-call-dispatch-harness";
+import {
+  RecordingMutator,
+  SEAM_NOOP_CHECKPOINT as NOOP_CHECKPOINT,
+  SITE,
+  body,
+  identExpr,
+  letStmt,
+  matchExpr,
+  queryExpr,
+  realEnv,
+  span,
+} from "./helpers/invoke-seam-scaffold";
 import { describe, expect, it } from "vitest";
 import {
   executeBody,
@@ -6,12 +18,8 @@ import {
   type ExecuteBodyDeps,
   type StatementEvalHost,
 } from "../src/runtime/statement-executor";
-import {
-  buildEnvironment,
-  LexicalEnvironment,
-} from "../src/runtime/lexical-environment";
+import type { LexicalEnvironment } from "../src/runtime/lexical-environment";
 import type { OperationResult } from "../src/runtime/cancellation-core";
-import type { Checkpoint, CheckpointSite } from "../src/seams/checkpoint";
 import type { DrivenConversationMode } from "../src/runtime/terminal-outcomes";
 import type { ResultValue, ThetaValue } from "../src/runtime/value";
 import type { QueryError } from "../src/runtime/query-error";
@@ -19,10 +27,8 @@ import type {
   Expr,
   MatchArmNode,
   MatchExpr,
-  ThetaBody,
   Stmt,
 } from "../src/parser/theta-document";
-import type { SourceRange } from "../src/diagnostics/diagnostic";
 
 // Bug 0307 — a value-position query-effect failure (`let r = @`…``, no `?`)
 // must BIND `Err(QueryError)` so the author's downstream `match r` handler can
@@ -54,47 +60,13 @@ import type { SourceRange } from "../src/diagnostics/diagnostic";
 // query failure and the executor is driven to the value-position abort. The fix
 // version placeholder used below is 0.298.0 (no version invented here).
 
-// --- AST construction helpers ----------------------------------------------
-
-/** A throwaway 1:1–1:2 span for hand-built AST nodes. */
-function span(): SourceRange {
-  return { start: { line: 1, column: 1 }, end: { line: 1, column: 2 } };
-}
-
-function stringExpr(value: string): Expr {
-  return { kind: "string", value, range: span() };
-}
-
-function identExpr(name: string): Expr {
-  return { kind: "ident", name, range: span() };
-}
-
 function arrayExpr(elements: readonly Expr[]): Expr {
   return { kind: "array", elements, range: span() };
-}
-
-/** An untyped `@`-query expression. */
-function queryExpr(template: string): Expr {
-  return { kind: "query", schema: null, template, range: span() };
-}
-
-/** A `match` expression node. */
-function matchExpr(scrutinee: Expr, arms: readonly MatchArmNode[]): MatchExpr {
-  return { kind: "match", scrutinee, arms, range: span() };
-}
-
-/** A `let <name> = <init>` statement (immutable, unannotated). */
-function letStmt(name: string, init: Expr): Stmt {
-  return { kind: "let", name, mutable: false, annotation: null, init, range: span() };
 }
 
 /** A `return <operand>` statement. */
 function returnStmt(operand: Expr | null): Stmt {
   return { kind: "return", operand, range: span() };
-}
-
-function body(statements: readonly Stmt[], tail: Expr | null = null): ThetaBody {
-  return { statements, tail };
 }
 
 /** The two-arm result `match` the bug's recovery shape uses. */
@@ -105,22 +77,6 @@ function okErrMatch(scrutinee: Expr): MatchExpr {
   ];
   return matchExpr(scrutinee, arms);
 }
-
-// --- Real environment ------------------------------------------------------
-
-/** A real root environment over an empty body. */
-function realEnv(): LexicalEnvironment {
-  return buildEnvironment({ body: { statements: [], tail: null } });
-}
-
-const SITE: CheckpointSite = { file: "theta.theta", line: 1, column: 1 };
-
-/** A no-op `Checkpoint` (an already-resolved promise). */
-const NOOP_CHECKPOINT: Checkpoint = {
-  before(): Promise<void> {
-    return Promise.resolve();
-  },
-};
 
 /**
  * A `StatementEvalHost` double whose `runEffect` returns a scripted
