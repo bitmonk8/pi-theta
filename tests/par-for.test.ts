@@ -1,20 +1,14 @@
-import { type KindedNode, collectByKind } from "./helpers/e2e-s1";
+import { type KindedNode, collectByKind, parseDoc as parse, bodyOf } from "./helpers/e2e-s1";
+import { flush as tick } from "./helpers/fake-clock";
+import { ok } from "./helpers/par-for-harness";
+import { SEAM_NOOP_CHECKPOINT, SEAM_NOOP_MUTATOR } from "./helpers/invoke-seam-scaffold";
 import { fileURLToPath } from "node:url";
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 // @ts-expect-error — JS code-registry module, no type declarations.
 import { parseRegistry, registryMessage } from "../tools/code-registry/index.js";
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
-import type { ThetaSource } from "../src/lexer/lexer";
-import type { SystemNoteChannelDeps } from "../src/extension/system-note-channel";
-import type { ModelReferenceMatcher } from "../src/parser/frontmatter";
-import {
-  parseThetaDocument,
-  type ThetaDocument,
-  type ThetaBody,
-  type Expr,
-  type ParseThetaDocumentDeps,
-} from "../src/parser/theta-document";
+import type { ThetaBody, Expr } from "../src/parser/theta-document";
 import {
   StaticTypeInferencePass,
   type StaticTypeInferenceDeps,
@@ -35,12 +29,7 @@ import {
   buildEnvironment,
   type LexicalEnvironment,
 } from "../src/runtime/lexical-environment";
-import type { Checkpoint } from "../src/seams/checkpoint";
 import type { OperationResult } from "../src/runtime/cancellation-core";
-import type {
-  CommittedConversationMutator,
-  CommittedSurface,
-} from "../src/runtime/terminal-outcomes";
 import { isResultValue, type ThetaValue } from "../src/runtime/value";
 import type { QueryError } from "../src/runtime/query-error";
 import { HostFatal, IndexOutOfBoundsPanic } from "../src/runtime/runtime-panics";
@@ -98,25 +87,6 @@ import { HostFatal, IndexOutOfBoundsPanic } from "../src/runtime/runtime-panics"
 // `kind === "par-for"` and read `.variable` / `.iterand` / `.max` / `.body`.
 
 // --- parse harness ---------------------------------------------------------
-
-/** A trivially-wired diagnostic sink + resolving `model:` matcher for the parse. */
-function makeDeps(): ParseThetaDocumentDeps {
-  const systemNote: SystemNoteChannelDeps = {
-    pi: { sendMessage: (): void => {} },
-    ui: { notify: (): void => {} },
-    emitDiagnostic: (): void => {},
-  };
-  const modelMatcher: ModelReferenceMatcher = {
-    resolve: (): "resolved" => "resolved",
-  };
-  return { systemNote, modelMatcher };
-}
-
-/** Parse a UTF-8 `.theta` source string through the production whole-file parser. */
-function parse(src: string, path = "test.theta"): ThetaDocument {
-  const source: ThetaSource = { path, bytes: new TextEncoder().encode(src) };
-  return parseThetaDocument(source, makeDeps());
-}
 
 /** The set of diagnostic codes the production parse aggregated for `src`. */
 function codesOf(src: string): string[] {
@@ -2236,33 +2206,6 @@ describe("RFC-0003 par-for — static type is array<Result<U, QueryError>> (CTRL
 // observes that behaviour through `runEffect`; it stays inert until the executor
 // routes `par-for` iterations through the host.
 
-const NOOP_CHECKPOINT: Checkpoint = {
-  before(): Promise<void> {
-    return Promise.resolve();
-  },
-};
-
-class NoopMutator implements CommittedConversationMutator {
-  truncate(): void {}
-  rewrite(): void {}
-  replace(): void {}
-  remove(): void {}
-  injectCompensatingTurn(_surface: CommittedSurface): void {}
-}
-
-/** Await `n` microtask turns — deterministic scheduling advance for the tests. */
-async function tick(n: number): Promise<void> {
-  for (let i = 0; i < n; i += 1) {
-    // eslint-disable-next-line no-await-in-loop
-    await Promise.resolve();
-  }
-}
-
-/** An `Ok(value)` operation result (the effect succeeded). */
-function ok(value: ThetaValue): OperationResult {
-  return { ok: true, value };
-}
-
 /** An `Err(error)` operation result (a non-cancel failure). */
 function errResult(error: QueryError): OperationResult {
   return { ok: false, error };
@@ -2429,17 +2372,12 @@ function execDeps(
   return {
     env: buildEnvironment({ body }),
     host,
-    checkpoint: NOOP_CHECKPOINT,
+    checkpoint: SEAM_NOOP_CHECKPOINT,
     signal: signal ?? new AbortController().signal,
-    mutator: new NoopMutator(),
+    mutator: { ...SEAM_NOOP_MUTATOR },
     mode: "prompt",
     file: "test.theta",
   };
-}
-
-/** Parse `src` and return its body (for execution). */
-function bodyOf(src: string): ThetaBody {
-  return parse(src).body;
 }
 
 /** Assert `value` is a runtime `array<Result<…>>` and return it, else fail. */

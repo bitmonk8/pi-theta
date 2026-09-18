@@ -140,30 +140,17 @@ vi.mock("@earendil-works/pi-ai/compat", async (importOriginal) => {
   };
 });
 
-import type {
-  ExtensionAPI,
-  ExtensionCommandContext,
-  ModelRegistry,
-} from "@earendil-works/pi-coding-agent";
-import { createProductionProducerDeps } from "../src/extension/production-theta-producer";
+import type { createProductionProducerDeps } from "../src/extension/production-theta-producer";
 import type { ThetaCompositionInput } from "../src/extension/theta-composition-producer";
-import {
-  parseExpressionSource,
-  parseThetaDocument,
-  type ParseThetaDocumentDeps,
-} from "../src/parser/theta-document";
-import type { ThetaSource } from "../src/lexer/lexer";
-import type { RuntimeRoot } from "../src/runtime-root";
-import type { ModelReferenceMatcher } from "../src/parser/frontmatter";
-import type { SystemNoteChannelDeps } from "../src/extension/system-note-channel";
+import { parseExpressionSource } from "../src/parser/theta-document";
 import { DEPTH_VIOLATION_MESSAGE, jsonDepth, MAX_JSON_DEPTH } from "../src/runtime/depth-walk";
+import { parseDoc } from "./helpers/e2e-s1";
 import {
-  AjvSchemaValidator,
-  type LoweredSchema,
-  type SchemaSlug,
-} from "../src/seams/schema-validator";
-
-const SYSTEM_NOTE_CHANNEL = "theta-system-note";
+  binderProducerWithCapture,
+  type BinderCapturedNote as CapturedNote,
+  noteChannelEntries,
+} from "./helpers/scripted-live-session-harness";
+import { ctxDouble } from "./helpers/tool-call-dispatch-harness";
 
 /** The rule-3 prefix/suffix separator of `renderFailureNote` (U+2014 EM DASH). */
 const EM_DASH = "\u2014";
@@ -177,18 +164,6 @@ const AJV_ARGS_PHRASE = "argument binding produced invalid args";
 /** The AJV-on-`args` note for one theta and one rendered `<ajv-summary>`. */
 function ajvArgsNote(thetaName: string, ajvSummary: string): string {
   return `theta /${thetaName}: ${AJV_ARGS_PHRASE} ${EM_DASH} ${ajvSummary}`;
-}
-
-/**
- * A captured `pi.sendMessage` custom message. `details` is read as well as
- * `content` because PIC-1 (c) is a claim about `details.event`
- * (runtime-event-channel.md:110), not about the rendered line.
- */
-interface CapturedNote {
-  readonly customType: string;
-  readonly content: string;
-  readonly display?: boolean;
-  readonly details?: { readonly event?: Record<string, unknown> };
 }
 
 // ===========================================================================
@@ -347,7 +322,7 @@ const AT_LIMIT_PATH = "/theta/b66lim.theta";
  * The fixture sources by their composition-input `sourcePath`. PTQ-0303
  * retargeted `#recoverDeclaredDefaults` to read the theta's own loaded
  * `frontmatter.params.fields` rather than re-reading `sourcePath` off disk, so
- * `rootDouble()`'s `fileSystem.readBytes` is no longer read by anything this
+ * `producerWithCapture()`'s `fileSystem.readBytes` is no longer read by anything this
  * file drives; it stays wired (and still REJECTS an unregistered path loudly)
  * only for shape parity with the `RuntimeRoot` seam. `DEEP_UNRECOVERABLE_DEFAULT_PATH`
  * is omitted from this map because nothing here looks it up any more; cell (5)
@@ -373,23 +348,9 @@ const AT_LIMIT_ARGS = { p: { a: { b: { c: "x" } } } } as const;
 // Harness (the bug-0011 / e2e-s5 production-producer pattern).
 // ===========================================================================
 
-function parseDeps(): ParseThetaDocumentDeps {
-  const systemNote: SystemNoteChannelDeps = {
-    pi: { sendMessage: (): void => {} },
-    ui: { notify: (): void => {} },
-    emitDiagnostic: (): void => {},
-  };
-  const modelMatcher: ModelReferenceMatcher = { resolve: (): "resolved" => "resolved" };
-  return { systemNote, modelMatcher };
-}
-
 /** Parse `.theta` source through the production whole-file parser. */
 function parse(src: string) {
-  const source: ThetaSource = {
-    path: "b66.theta",
-    bytes: new TextEncoder().encode(src),
-  };
-  const doc = parseThetaDocument(source, parseDeps());
+  const doc = parseDoc(src, "b66.theta");
   expect(
     doc.diagnostics.map((d) => `${d.severity} ${d.code}: ${d.message}`),
     "the fixture must parse cleanly before it is driven — a refused parse would make every note assertion below unreachable",
@@ -398,71 +359,16 @@ function parse(src: string) {
   return doc;
 }
 
-/**
- * The production AJV validator, wired with the same JSON.stringify
- * content-addressing the shipped composition root uses, so the envelope AJV at
- * the routing step and the post-merge hook validate exactly as production.
- */
-function realAjvValidator(): AjvSchemaValidator {
-  return new AjvSchemaValidator({
-    emit: (): void => {},
-    slugOf: (schema: LoweredSchema): SchemaSlug => {
-      const canonicalBytes = JSON.stringify(schema);
-      return { slug: canonicalBytes, canonicalBytes };
+/** Capture binder notes with the fixture filesystem's rejecting lookup. */
+function producerWithCapture() {
+  return binderProducerWithCapture({
+    readBytes: (path: string): Promise<Uint8Array> => {
+      const src = FIXTURE_SOURCES.get(path);
+      return src !== undefined
+        ? Promise.resolve(new TextEncoder().encode(src))
+        : Promise.reject(new Error(`fixture fs: no source registered for ${path}`));
     },
   });
-}
-
-/**
- * A runtime-root double sufficient for a binder pass: noop checkpoint,
- * deterministic ids, wall-clock zero, the REAL AJV validator, and an in-memory
- * fs resolving the fixture sources by `sourcePath`.
- */
-function rootDouble(): RuntimeRoot {
-  return {
-    checkpoint: { before: (): Promise<void> => Promise.resolve() },
-    idSource: { newInvocationId: (): string => "inv-1", newToolCallId: (): string => "tc-1" },
-    clock: { wallNow: (): number => 0 },
-    schemaValidator: realAjvValidator(),
-    fileSystem: {
-      readBytes: (path: string): Promise<Uint8Array> => {
-        const src = FIXTURE_SOURCES.get(path);
-        return src !== undefined
-          ? Promise.resolve(new TextEncoder().encode(src))
-          : Promise.reject(new Error(`fixture fs: no source registered for ${path}`));
-      },
-    },
-  } as unknown as RuntimeRoot;
-}
-
-/** A production producer wired with a capturing `pi.sendMessage`. */
-function producerWithCapture(): {
-  readonly deps: ReturnType<typeof createProductionProducerDeps>;
-  readonly notes: CapturedNote[];
-} {
-  const notes: CapturedNote[] = [];
-  const pi = {
-    sendMessage: (message: CapturedNote): void => {
-      notes.push(message);
-    },
-  } as unknown as ExtensionAPI;
-  const modelRegistry = {
-    getAvailable: (): readonly unknown[] => [
-      {
-        id: "binder-model",
-        provider: "anthropic-messages",
-        api: "anthropic-messages",
-        strictCapable: true,
-      },
-    ],
-    getApiKeyAndHeaders: async (): Promise<{ ok: boolean }> => ({ ok: true }),
-  } as unknown as ModelRegistry;
-  const deps = createProductionProducerDeps({ pi, root: rootDouble(), modelRegistry });
-  return { deps, notes };
-}
-
-function ctxDouble(): ExtensionCommandContext {
-  return {} as unknown as ExtensionCommandContext;
 }
 
 /** Build the composition input for a parsed fixture theta. */
@@ -479,11 +385,6 @@ function thetaInput(
     body: doc.body,
     binderModel: "binder-model",
   };
-}
-
-/** The `theta-system-note` channel entries, in delivery order. */
-function noteChannelEntries(notes: readonly CapturedNote[]): CapturedNote[] {
-  return notes.filter((n) => n.customType === SYSTEM_NOTE_CHANNEL);
 }
 
 /** Every channel note's rendered content — the readable form of a red. */

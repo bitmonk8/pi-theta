@@ -15,6 +15,7 @@ import {
   type FnDecl,
   type LetStmt,
   type ThetaDocument,
+  type ThetaBody,
   type ParseThetaDocumentDeps,
   type SchemaDecl,
   type EnumDecl,
@@ -69,6 +70,11 @@ export function parseDeps(): ParseThetaDocumentDeps {
 export function parseDoc(src: string, path = "test.theta"): ThetaDocument {
   const source: ThetaSource = { path, bytes: new TextEncoder().encode(src) };
   return parseThetaDocument(source, parseDeps());
+}
+
+/** Parse `src` and return its body (including bodies with load diagnostics). */
+export function bodyOf(src: string): ThetaBody {
+  return parseDoc(src).body;
 }
 
 /**

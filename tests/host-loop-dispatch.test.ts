@@ -30,8 +30,8 @@ import {
   type HostToolResult,
 } from "../src/runtime/host-loop-dispatch";
 import { checkExtensionToolReachability } from "../src/extension/extension-tool-reachability";
-import type { Expr, ThetaBody } from "../src/parser/theta-document";
-import type { SourceRange } from "../src/diagnostics/diagnostic";
+import type { ThetaBody } from "../src/parser/theta-document";
+import { body, callExpr, objArg, strExpr } from "./helpers/tool-call-dispatch-harness";
 
 describe("PIC-64 — code-side dispatch ladder (fail-closed)", () => {
   it("no rung available → fail-closed load refusal with the precise extension-tool-unreachable diagnostic", () => {
@@ -115,20 +115,9 @@ describe("PIC-64 — code-side dispatch ladder (fail-closed)", () => {
 describe("PIC-64 rung 3 — checkExtensionToolReachability (prompt-mode / parent leg)", () => {
   const FILE = "/theta/prompt-demo.theta";
 
-  function span(): SourceRange {
-    return { start: { line: 1, column: 1 }, end: { line: 1, column: 2 } };
-  }
-
   /** A body whose tail code-side-calls `callee({ op: "write" })`. */
   function bodyCalling(callee: string): ThetaBody {
-    const arg: Expr = {
-      kind: "object",
-      typeName: null,
-      fields: [{ name: "op", value: { kind: "string", value: "write", range: span() } }],
-      range: span(),
-    };
-    const call: Expr = { kind: "call", callee, args: [arg], range: span() };
-    return { statements: [], tail: call };
+    return body(callExpr(callee, [objArg({ op: strExpr("write") })]));
   }
 
   /** A body with NO code-side call site (model-facing-only reach). */

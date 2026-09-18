@@ -111,33 +111,21 @@ vi.mock("@earendil-works/pi-ai/compat", async (importOriginal) => {
   };
 });
 
-import type {
-  ExtensionAPI,
-  ExtensionCommandContext,
-  ModelRegistry,
-} from "@earendil-works/pi-coding-agent";
-import { capSystemNote } from "../src/binder/system-note";
-import { createProductionProducerDeps } from "../src/extension/production-theta-producer";
 import type { ThetaCompositionInput } from "../src/extension/theta-composition-producer";
-import type { ThetaSource } from "../src/lexer/lexer";
-import type { ModelReferenceMatcher } from "../src/parser/frontmatter";
-import {
-  parseThetaDocument,
-  type ParseThetaDocumentDeps,
-} from "../src/parser/theta-document";
+import { capSystemNote } from "../src/binder/system-note";
 import {
   renderArgumentEcho,
   renderEchoValue,
   type EchoType,
 } from "../src/render/argument-echo";
 import { makeEnumValue } from "../src/runtime/value";
-import type { RuntimeRoot } from "../src/runtime-root";
-import type { SystemNoteChannelDeps } from "../src/extension/system-note-channel";
 import {
-  AjvSchemaValidator,
-  type LoweredSchema,
-  type SchemaSlug,
-} from "../src/seams/schema-validator";
+  binderProducerWithCapture as producerWithCapture,
+  noteChannelEntries,
+  parse,
+  scriptEnvelope,
+} from "./helpers/scripted-live-session-harness";
+import { ctxDouble } from "./helpers/tool-call-dispatch-harness";
 
 const str: EchoType = { kind: "string" };
 
@@ -443,94 +431,6 @@ describe("bug 0087 — the theta-controlled prefix, separator and `(default)` ta
 // the envelope's `args` is JSON and `"a\nb"` is a valid JSON string, which
 // `#mergeDeclaredDefaults` preserves unchanged under fill-if-absent.
 
-const SYSTEM_NOTE_CHANNEL = "theta-system-note";
-
-/** A captured `pi.sendMessage` custom message (the theta-system-note channel). */
-interface CapturedNote {
-  readonly customType: string;
-  readonly content: string;
-  readonly display?: boolean;
-}
-
-/**
- * Script a ToolCall-bearing binder reply carrying `{ envelope }` in its
- * `arguments`, naming the binder tool production actually attached on the
- * captured call — the forced-tool extraction reads the envelope from the FIRST
- * ToolCall naming that tool, so a free-text reply would be the
- * malformed-envelope class instead of the `ok` arm under test.
- */
-function scriptEnvelope(envelope: unknown): void {
-  scripted.replyFor = (context: unknown): unknown => {
-    const tools = (context as { tools?: ReadonlyArray<{ name?: unknown }> }).tools;
-    const name = typeof tools?.[0]?.name === "string" ? tools[0].name : "__theta_bind_none";
-    return {
-      role: "assistant",
-      content: [{ type: "toolCall", id: "tc-1", name, arguments: { envelope } }],
-      stopReason: "toolUse",
-      timestamp: 0,
-    };
-  };
-}
-
-function parseDeps(): ParseThetaDocumentDeps {
-  const systemNote: SystemNoteChannelDeps = {
-    pi: { sendMessage: (): void => {} },
-    ui: { notify: (): void => {} },
-    emitDiagnostic: (): void => {},
-  };
-  const modelMatcher: ModelReferenceMatcher = { resolve: (): "resolved" => "resolved" };
-  return { systemNote, modelMatcher };
-}
-
-/**
- * A runtime-root double sufficient for a binder pass with NO defaulted fields.
- * Carries the REAL AJV validator: the forced-tool routing validates the
- * extracted envelope against the anyOf envelope schema before routing.
- */
-function rootDouble(): RuntimeRoot {
-  return {
-    checkpoint: { before: (): Promise<void> => Promise.resolve() },
-    idSource: { newInvocationId: (): string => "inv-1", newToolCallId: (): string => "tc-1" },
-    clock: { wallNow: (): number => 0 },
-    schemaValidator: new AjvSchemaValidator({
-      emit: (): void => {},
-      slugOf: (schema: LoweredSchema): SchemaSlug => {
-        const canonicalBytes = JSON.stringify(schema);
-        return { slug: canonicalBytes, canonicalBytes };
-      },
-    }),
-  } as unknown as RuntimeRoot;
-}
-
-const BINDER_MODEL = {
-  id: "binder-model",
-  provider: "anthropic-messages",
-  api: "anthropic-messages",
-  strictCapable: true,
-};
-
-function producerWithCapture(): {
-  readonly deps: ReturnType<typeof createProductionProducerDeps>;
-  readonly notes: CapturedNote[];
-} {
-  const notes: CapturedNote[] = [];
-  const pi = {
-    sendMessage: (message: CapturedNote): void => {
-      notes.push(message);
-    },
-  } as unknown as ExtensionAPI;
-  const modelRegistry = {
-    getAvailable: (): readonly unknown[] => [BINDER_MODEL],
-    getApiKeyAndHeaders: async (): Promise<{ ok: boolean }> => ({ ok: true }),
-  } as unknown as ModelRegistry;
-  const deps = createProductionProducerDeps({ pi, root: rootDouble(), modelRegistry });
-  return { deps, notes };
-}
-
-function ctxDouble(): ExtensionCommandContext {
-  return {} as unknown as ExtensionCommandContext;
-}
-
 // A two-required-string-param theta: a genuine binder pass (not a no-params or
 // single-string bypass) with NO defaulted fields, so the defaults merge
 // short-circuits without touching the filesystem seam.
@@ -547,14 +447,7 @@ const TWO_PARAM_THETA = [
 ].join("\n");
 
 function twoParamTheta(): ThetaCompositionInput {
-  const source: ThetaSource = {
-    path: "code-review.theta",
-    bytes: new TextEncoder().encode(TWO_PARAM_THETA),
-  };
-  const doc = parseThetaDocument(source, parseDeps());
-  const errors = doc.diagnostics.filter((d) => d.severity === "error").map((d) => d.code);
-  expect(errors, "the binder theta must parse cleanly before it is driven").toEqual([]);
-  expect(doc.frontmatter, "the binder theta must carry parseable frontmatter").not.toBeNull();
+  const doc = parse(TWO_PARAM_THETA, "code-review.theta", "binder");
   return {
     slashName: "code-review",
     sourcePath: "/theta/code-review.theta",
@@ -570,7 +463,7 @@ function twoParamTheta(): ThetaCompositionInput {
  * emitter, so a broken harness cannot masquerade as a passing assertion.
  */
 async function bindAndReadNote(args: Readonly<Record<string, unknown>>): Promise<string> {
-  scriptEnvelope({ kind: "ok", args });
+  scriptEnvelope(scripted, { kind: "ok", args });
   const { deps, notes } = producerWithCapture();
   const result = await deps.runBinder({
     theta: twoParamTheta(),
@@ -580,7 +473,7 @@ async function bindAndReadNote(args: Readonly<Record<string, unknown>>): Promise
   expect(result.bound, "the scripted `ok` envelope must bind for the echo to be emitted").toBe(
     true,
   );
-  const channelNotes = notes.filter((n) => n.customType === SYSTEM_NOTE_CHANNEL);
+  const channelNotes = noteChannelEntries(notes);
   expect(
     channelNotes,
     "exactly one theta-system-note (the success echo) is emitted on the `ok` arm",

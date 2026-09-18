@@ -1,32 +1,9 @@
 import { describe, expect, it } from "vitest";
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
-import type { ThetaSource } from "../src/lexer/lexer";
-import type { SystemNoteChannelDeps } from "../src/extension/system-note-channel";
-import type { ModelReferenceMatcher } from "../src/parser/frontmatter";
-import {
-  parseThetaDocument,
-  type ThetaDocument,
-  type ThetaBody,
-  type Expr,
-  type ParseThetaDocumentDeps,
-} from "../src/parser/theta-document";
-import {
-  executeBody,
-  type CheckpointDescriptor,
-  type ExecuteBodyDeps,
-  type StatementEvalHost,
-} from "../src/runtime/statement-executor";
-import {
-  buildEnvironment,
-  type LexicalEnvironment,
-} from "../src/runtime/lexical-environment";
-import type { Checkpoint } from "../src/seams/checkpoint";
-import type { OperationResult } from "../src/runtime/cancellation-core";
-import type {
-  CommittedConversationMutator,
-  CommittedSurface,
-} from "../src/runtime/terminal-outcomes";
-import type { ThetaValue } from "../src/runtime/value";
+import { executeBody } from "../src/runtime/statement-executor";
+import { bodyOf } from "./helpers/e2e-s1";
+import { flush as tick } from "./helpers/fake-clock";
+import { ParForHost, execDeps } from "./helpers/par-for-harness";
 
 // ===========================================================================
 // Bug 0324 (runtime half) — witness suite (Phase 1, RED). Fixed in 0.312.0.
@@ -55,7 +32,7 @@ import type { ThetaValue } from "../src/runtime/value";
 // emitDiagnostic wiring (design Half 2): `ExecuteBodyDeps` gains an OPTIONAL
 // `emitDiagnostic` field in Phase 2, and `evalParFor` calls it on the
 // clamp-down branch. That field does not exist on the production type yet, so
-// this file declares a local `DiagnosticSpyDeps` interface that EXTENDS
+// the shared harness declares a `DiagnosticSpyDeps` interface that EXTENDS
 // `ExecuteBodyDeps` with the field the fix will add (no src/ change) and wires a
 // capturing spy. The spy stays empty today because the production `evalParFor`
 // makes no such call — so the diagnostic assertion is RED-for-the-right-reason
@@ -63,147 +40,6 @@ import type { ThetaValue } from "../src/runtime/value";
 // peak-in-flight assertion reds independently of the spy.
 
 const RUNTIME_CODE = "theta/runtime/par-max-non-integer";
-
-/** A trivially-wired diagnostic sink + resolving `model:` matcher for the parse. */
-function makeDeps(): ParseThetaDocumentDeps {
-  const systemNote: SystemNoteChannelDeps = {
-    pi: { sendMessage: (): void => {} },
-    ui: { notify: (): void => {} },
-    emitDiagnostic: (): void => {},
-  };
-  const modelMatcher: ModelReferenceMatcher = {
-    resolve: (): "resolved" => "resolved",
-  };
-  return { systemNote, modelMatcher };
-}
-
-/** Parse a UTF-8 `.theta` source string through the production whole-file parser. */
-function parse(src: string): ThetaDocument {
-  const source: ThetaSource = {
-    path: "test.theta",
-    bytes: new TextEncoder().encode(src),
-  };
-  return parseThetaDocument(source, makeDeps());
-}
-
-/** Parse `src` and return its body (for execution). */
-function bodyOf(src: string): ThetaBody {
-  return parse(src).body;
-}
-
-const NOOP_CHECKPOINT: Checkpoint = {
-  before(): Promise<void> {
-    return Promise.resolve();
-  },
-};
-
-class NoopMutator implements CommittedConversationMutator {
-  truncate(): void {}
-  rewrite(): void {}
-  replace(): void {}
-  remove(): void {}
-  injectCompensatingTurn(_surface: CommittedSurface): void {}
-}
-
-/** Await `n` microtask turns — deterministic scheduling advance for the tests. */
-async function tick(n: number): Promise<void> {
-  for (let i = 0; i < n; i += 1) {
-    // eslint-disable-next-line no-await-in-loop
-    await Promise.resolve();
-  }
-}
-
-/** An `Ok(value)` operation result (the effect succeeded). */
-function ok(value: ThetaValue): OperationResult {
-  return { ok: true, value };
-}
-
-/**
- * A gated `StatementEvalHost` for `par for` bodies, modelled on the `ParForHost`
- * of tests/par-for.test.ts: the bounded pure forms a fan-out body needs are
- * evaluated against the real per-iteration environment, and `invoke` is a
- * checkpointed effect held open on `gate` so the in-flight peak is the width the
- * executor admits.
- */
-class ParForHost implements StatementEvalHost {
-  inFlight = 0;
-  peakInFlight = 0;
-  /** An optional gate every effect awaits before resolving (concurrency probe). */
-  gate: Promise<void> | null = null;
-
-  evaluatePure(expr: Expr, env: LexicalEnvironment): ThetaValue {
-    return this.#eval(expr, env);
-  }
-
-  checkpointFor(expr: Expr): CheckpointDescriptor | null {
-    if (expr.kind === "call" || expr.kind === "query" || expr.kind === "invoke") {
-      return { kind: "tool-call", site: { file: "test.theta", line: 1, column: 1 } };
-    }
-    return null;
-  }
-
-  async runEffect(): Promise<OperationResult> {
-    this.inFlight += 1;
-    this.peakInFlight = Math.max(this.peakInFlight, this.inFlight);
-    try {
-      if (this.gate !== null) {
-        await this.gate;
-      }
-      return ok(null);
-    } finally {
-      this.inFlight -= 1;
-    }
-  }
-
-  #eval(expr: Expr, env: LexicalEnvironment): ThetaValue {
-    switch (expr.kind) {
-      case "number":
-        return Number(expr.text);
-      case "string":
-        return expr.value;
-      case "bool":
-        return expr.value;
-      case "null":
-        return null;
-      case "ident": {
-        const r = env.resolve(expr.name);
-        return "value" in r ? ((r.value ?? null) as ThetaValue) : null;
-      }
-      case "array":
-        return expr.elements.map((e) => this.#eval(e, env));
-      default:
-        return null;
-    }
-  }
-}
-
-/**
- * `ExecuteBodyDeps` plus the runtime-diagnostic channel the fix threads into
- * `evalParFor`. Declared here — not in src/ — so the capturing spy compiles
- * against the field the Phase-2 fix adds without touching the production type.
- */
-interface DiagnosticSpyDeps extends ExecuteBodyDeps {
-  readonly emitDiagnostic: (diagnostic: Diagnostic) => void;
-}
-
-function execDeps(
-  body: ThetaBody,
-  host: StatementEvalHost,
-  captured: Diagnostic[],
-): DiagnosticSpyDeps {
-  return {
-    env: buildEnvironment({ body }),
-    host,
-    checkpoint: NOOP_CHECKPOINT,
-    signal: new AbortController().signal,
-    mutator: new NoopMutator(),
-    mode: "prompt",
-    file: "test.theta",
-    emitDiagnostic: (d: Diagnostic): void => {
-      captured.push(d);
-    },
-  };
-}
 
 describe("bug 0324 runtime — a non-number `max` value must clamp width down and diagnose", () => {
   it("a `string`-valued `max` operand clamps in-flight width to 1 and emits the runtime code", async () => {

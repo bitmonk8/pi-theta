@@ -1,5 +1,6 @@
 // Shared scripted-live-session scaffold for the bug-0288/0319/0414 prompt-mode
-// witnesses (PTQ-0328), plus production system-note capture (PTQ-0537).
+// witnesses (PTQ-0328), plus production system-note capture (PTQ-0537) and
+// scripted off-session binder rigs (PTQ-0454, PTQ-0463).
 //
 // WHY THIS FILE EXISTS. tests/b0288-prompt-turn-completion-witness.test.ts,
 // tests/b0319-prompt-bidirectional-ctx-abort-witness.test.ts and
@@ -19,7 +20,7 @@
 // file that imports this module.
 import { type Diagnostic } from "../../src/diagnostics/diagnostic";
 import { expect } from "vitest";
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ModelRegistry } from "@earendil-works/pi-coding-agent";
 import {
   createProductionProducerDeps,
   type ProductionProducerInput,
@@ -132,8 +133,9 @@ export function ajv(): AjvSchemaValidator {
 export function rootDouble(overrides: {
   readonly clock?: Partial<RuntimeRoot["clock"]>;
   readonly tokenEstimator?: RuntimeRoot["tokenEstimator"];
+  readonly fileSystem?: Pick<RuntimeRoot["fileSystem"], "readBytes">;
 } = {}): RuntimeRoot {
-  return { ...fixedClockRoot(), schemaValidator: ajv(), ...overrides } as RuntimeRoot;
+  return { ...fixedClockRoot(), schemaValidator: ajv(), ...overrides } as unknown as RuntimeRoot;
 }
 
 /** A real AJV validator together with its emitted diagnostics. */
@@ -150,21 +152,23 @@ export function capturingAjv(): { readonly validator: AjvSchemaValidator; readon
 }
 
 /** A captured `pi.sendMessage` custom message, including its structured details. */
-export interface CapturedNote {
+export interface CapturedNote<TDetails = unknown> {
   readonly customType: string;
   readonly content: string;
   readonly display?: boolean;
-  readonly details?: unknown;
+  readonly details?: TDetails;
 }
 
 /** Build the production producer with a note sink and the caller's root/registry seams. */
-export function producerWithCapture(input: Omit<ProductionProducerInput, "pi">): {
+export function producerWithCapture<TDetails = unknown>(
+  input: Omit<ProductionProducerInput, "pi">,
+): {
   readonly deps: ReturnType<typeof createProductionProducerDeps>;
-  readonly notes: CapturedNote[];
+  readonly notes: CapturedNote<TDetails>[];
 } {
-  const notes: CapturedNote[] = [];
+  const notes: CapturedNote<TDetails>[] = [];
   const pi = {
-    sendMessage: (message: CapturedNote): void => {
+    sendMessage: (message: CapturedNote<TDetails>): void => {
       notes.push(message);
     },
   } as unknown as ExtensionAPI;
@@ -173,6 +177,70 @@ export function producerWithCapture(input: Omit<ProductionProducerInput, "pi">):
 }
 
 /** The system-note entries in capture order. */
-export function noteChannelEntries(notes: readonly CapturedNote[]): CapturedNote[] {
+export function noteChannelEntries<TDetails>(
+  notes: readonly CapturedNote<TDetails>[],
+): CapturedNote<TDetails>[] {
   return notes.filter((n) => n.customType === "theta-system-note");
+}
+
+/**
+ * A captured binder message. `details` is read as well as `content` because
+ * PIC-1 (c) is a claim about `details.event` (runtime-event-channel.md:110),
+ * not about the rendered line.
+ */
+export type BinderCapturedNote = CapturedNote<{ readonly event?: Record<string, unknown> }>;
+
+const BINDER_MODEL = {
+  id: "binder-model",
+  provider: "anthropic-messages",
+  api: "anthropic-messages",
+  strictCapable: true,
+};
+
+/**
+ * A production binder with a capturing `pi.sendMessage`, a registry resolving
+ * `binder-model`, and the real AJV validator. The wall clock is fixed at zero;
+ * callers may supply their own fixture filesystem for default recovery.
+ */
+export function binderProducerWithCapture(
+  fileSystem?: Pick<RuntimeRoot["fileSystem"], "readBytes">,
+): {
+  readonly deps: ReturnType<typeof createProductionProducerDeps>;
+  readonly notes: BinderCapturedNote[];
+} {
+  const modelRegistry = {
+    getAvailable: (): readonly unknown[] => [BINDER_MODEL],
+    getApiKeyAndHeaders: async (): Promise<{ ok: boolean }> => ({ ok: true }),
+  } as unknown as ModelRegistry;
+  return producerWithCapture<{ readonly event?: Record<string, unknown> }>({
+    root: rootDouble({
+      clock: { wallNow: (): number => 0 },
+      ...(fileSystem === undefined ? {} : { fileSystem }),
+    }),
+    modelRegistry,
+  });
+}
+
+/**
+ * Script a ToolCall-bearing binder reply carrying `{ envelope }` in its
+ * `arguments`, naming the binder tool production actually attached on the
+ * captured call (`context.tools[0].name`) — the bug-0011 forced-tool
+ * extraction reads the envelope from the FIRST ToolCall naming the binder
+ * tool; a free-text reply would be the malformed-envelope class.
+ * The mutable holder stays in the caller's `vi.hoisted` mock scope.
+ */
+export function scriptEnvelope(
+  scripted: { replyFor: undefined | ((context: unknown) => unknown) },
+  envelope: unknown,
+): void {
+  scripted.replyFor = (context: unknown): unknown => {
+    const tools = (context as { tools?: ReadonlyArray<{ name?: unknown }> }).tools;
+    const name = typeof tools?.[0]?.name === "string" ? tools[0].name : "__theta_bind_none";
+    return {
+      role: "assistant",
+      content: [{ type: "toolCall", id: "tc-1", name, arguments: { envelope } }],
+      stopReason: "toolUse",
+      timestamp: 0,
+    };
+  };
 }

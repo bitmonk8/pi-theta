@@ -136,28 +136,16 @@ vi.mock("@earendil-works/pi-ai/compat", async (importOriginal) => {
   };
 });
 
-import type {
-  ExtensionAPI,
-  ExtensionCommandContext,
-  ModelRegistry,
-} from "@earendil-works/pi-coding-agent";
-import { createProductionProducerDeps } from "../src/extension/production-theta-producer";
 import type { ThetaCompositionInput } from "../src/extension/theta-composition-producer";
-import type { SystemNoteChannelDeps } from "../src/extension/system-note-channel";
-import type { ThetaSource } from "../src/lexer/lexer";
-import type { ModelReferenceMatcher } from "../src/parser/frontmatter";
-import {
-  parseThetaDocument,
-  type ParseThetaDocumentDeps,
-} from "../src/parser/theta-document";
 import { renderEchoValue, type EchoType } from "../src/render/argument-echo";
 import type { ThetaValue } from "../src/runtime/value";
-import type { RuntimeRoot } from "../src/runtime-root";
+import { parseDoc } from "./helpers/e2e-s1";
 import {
-  AjvSchemaValidator,
-  type LoweredSchema,
-  type SchemaSlug,
-} from "../src/seams/schema-validator";
+  binderProducerWithCapture as producerWithCapture,
+  noteChannelEntries,
+  scriptEnvelope,
+} from "./helpers/scripted-live-session-harness";
+import { ctxDouble } from "./helpers/tool-call-dispatch-harness";
 
 // ===========================================================================
 // Descriptor constructors (the settled §Fix shape)
@@ -218,105 +206,7 @@ function expectCallerSideRangeError(
 // Harness — the group-G rig of tests/echo-value-rule1-sanitisation.test.ts
 // ===========================================================================
 
-const SYSTEM_NOTE_CHANNEL = "theta-system-note";
-
-/** A captured `pi.sendMessage` custom message (the theta-system-note channel). */
-interface CapturedNote {
-  readonly customType: string;
-  readonly content: string;
-  readonly display?: boolean;
-}
-
-/**
- * Script a ToolCall-bearing binder reply carrying `{ envelope }` in its
- * `arguments`, naming the binder tool production actually attached on the
- * captured call — the forced-tool extraction reads the envelope from the FIRST
- * ToolCall naming that tool, so a free-text reply would be the
- * malformed-envelope class instead of the `ok` arm under test.
- */
-function scriptEnvelope(envelope: unknown): void {
-  scripted.replyFor = (context: unknown): unknown => {
-    const tools = (context as { tools?: ReadonlyArray<{ name?: unknown }> }).tools;
-    const name = typeof tools?.[0]?.name === "string" ? tools[0].name : "__theta_bind_none";
-    return {
-      role: "assistant",
-      content: [{ type: "toolCall", id: "tc-1", name, arguments: { envelope } }],
-      stopReason: "toolUse",
-      timestamp: 0,
-    };
-  };
-}
-
-function parseDeps(): ParseThetaDocumentDeps {
-  const systemNote: SystemNoteChannelDeps = {
-    pi: { sendMessage: (): void => {} },
-    ui: { notify: (): void => {} },
-    emitDiagnostic: (): void => {},
-  };
-  const modelMatcher: ModelReferenceMatcher = { resolve: (): "resolved" => "resolved" };
-  return { systemNote, modelMatcher };
-}
-
 const SOURCE_PATH = "/fixtures/t.theta";
-
-/**
- * A runtime-root double sufficient for a binder pass: noop checkpoint,
- * deterministic ids, wall-clock zero, the REAL AJV validator (the forced-tool
- * routing validates the extracted envelope, and the post-default-merge hook
- * re-validates the merged document), and an in-memory fs serving exactly the
- * bytes the parser saw so `#recoverDeclaredDefaults` re-reads the same source.
- * An unregistered path REJECTS loudly: a silent empty read would turn a
- * defaults-recovery failure into a clean-looking merge.
- */
-function rootDouble(source: string): RuntimeRoot {
-  return {
-    checkpoint: { before: (): Promise<void> => Promise.resolve() },
-    idSource: { newInvocationId: (): string => "inv-1", newToolCallId: (): string => "tc-1" },
-    clock: { wallNow: (): number => 0 },
-    schemaValidator: new AjvSchemaValidator({
-      emit: (): void => {},
-      slugOf: (schema: LoweredSchema): SchemaSlug => {
-        const canonicalBytes = JSON.stringify(schema);
-        return { slug: canonicalBytes, canonicalBytes };
-      },
-    }),
-    fileSystem: {
-      readBytes: (path: string): Promise<Uint8Array> =>
-        path === SOURCE_PATH
-          ? Promise.resolve(new TextEncoder().encode(source))
-          : Promise.reject(new Error(`fixture fs: no source registered for ${path}`)),
-    },
-  } as unknown as RuntimeRoot;
-}
-
-const BINDER_MODEL = {
-  id: "binder-model",
-  provider: "anthropic-messages",
-  api: "anthropic-messages",
-  strictCapable: true,
-};
-
-function producerWithCapture(source: string): {
-  readonly deps: ReturnType<typeof createProductionProducerDeps>;
-  readonly notes: CapturedNote[];
-} {
-  const notes: CapturedNote[] = [];
-  const pi = {
-    sendMessage: (message: CapturedNote): void => {
-      notes.push(message);
-    },
-  } as unknown as ExtensionAPI;
-  const modelRegistry = {
-    getAvailable: (): readonly unknown[] => [BINDER_MODEL],
-    getApiKeyAndHeaders: async (): Promise<{ ok: boolean }> => ({ ok: true }),
-  } as unknown as ModelRegistry;
-  const deps = createProductionProducerDeps({ pi, root: rootDouble(source), modelRegistry });
-  return { deps, notes };
-}
-
-function ctxDouble(): ExtensionCommandContext {
-  return {} as unknown as ExtensionCommandContext;
-}
 
 /** Compose one fixture theta source from its `params:` lines and its body. */
 function thetaSource(paramLines: readonly string[], bodyLines: readonly string[]): string {
@@ -333,11 +223,7 @@ function thetaSource(paramLines: readonly string[], bodyLines: readonly string[]
 }
 
 function compositionInput(source: string): ThetaCompositionInput {
-  const parsed: ThetaSource = {
-    path: "t.theta",
-    bytes: new TextEncoder().encode(source),
-  };
-  const doc = parseThetaDocument(parsed, parseDeps());
+  const doc = parseDoc(source, "t.theta");
   expect(
     doc.diagnostics.map((d) => `${d.severity} ${d.code}: ${d.message}`),
     "the fixture must parse cleanly before it is driven — a refused parse would make the echo assertion unreachable",
@@ -363,8 +249,13 @@ async function bindAndReadNote(
   source: string,
   args: Readonly<Record<string, unknown>>,
 ): Promise<string> {
-  scriptEnvelope({ kind: "ok", args });
-  const { deps, notes } = producerWithCapture(source);
+  scriptEnvelope(scripted, { kind: "ok", args });
+  const { deps, notes } = producerWithCapture({
+    readBytes: (path: string): Promise<Uint8Array> =>
+      path === SOURCE_PATH
+        ? Promise.resolve(new TextEncoder().encode(source))
+        : Promise.reject(new Error(`fixture fs: no source registered for ${path}`)),
+  });
   const result = await deps.runBinder({
     theta: compositionInput(source),
     args: "some free-text invocation tail",
@@ -373,7 +264,7 @@ async function bindAndReadNote(
   expect(result.bound, "the scripted `ok` envelope must bind for the echo to be emitted").toBe(
     true,
   );
-  const channelNotes = notes.filter((n) => n.customType === SYSTEM_NOTE_CHANNEL);
+  const channelNotes = noteChannelEntries(notes);
   expect(
     channelNotes,
     "exactly one theta-system-note (the success echo) is emitted on the `ok` arm",

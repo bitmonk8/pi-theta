@@ -49,132 +49,16 @@ vi.mock("@earendil-works/pi-ai/compat", async (importOriginal) => {
   };
 });
 
-import type {
-  ExtensionAPI,
-  ExtensionCommandContext,
-  ModelRegistry,
-} from "@earendil-works/pi-coding-agent";
-import { createProductionProducerDeps } from "../src/extension/production-theta-producer";
 import type { ThetaCompositionInput } from "../src/extension/theta-composition-producer";
 import {
-  parseThetaDocument,
-  type ParseThetaDocumentDeps,
-} from "../src/parser/theta-document";
-import type { ThetaSource } from "../src/lexer/lexer";
-import type { RuntimeRoot } from "../src/runtime-root";
-import type { ModelReferenceMatcher } from "../src/parser/frontmatter";
-import type { SystemNoteChannelDeps } from "../src/extension/system-note-channel";
-import {
-  AjvSchemaValidator,
-  type LoweredSchema,
-  type SchemaSlug,
-} from "../src/seams/schema-validator";
+  binderProducerWithCapture as producerWithCapture,
+  noteChannelEntries,
+  parse,
+  scriptEnvelope,
+} from "./helpers/scripted-live-session-harness";
+import { ctxDouble } from "./helpers/tool-call-dispatch-harness";
 
 const SYSTEM_NOTE_CHANNEL = "theta-system-note";
-
-/** A captured `pi.sendMessage` custom message (the theta-system-note channel). */
-interface CapturedNote {
-  readonly customType: string;
-  readonly content: string;
-  readonly display?: boolean;
-}
-
-/**
- * Script a ToolCall-bearing binder reply carrying `{ envelope }` in its
- * `arguments`, naming the binder tool production actually attached on the
- * captured call (`context.tools[0].name`) — the bug-0011 forced-tool
- * extraction reads the envelope from the FIRST ToolCall naming the binder
- * tool; a free-text reply would be the malformed-envelope class.
- */
-function scriptEnvelope(envelope: unknown): void {
-  scripted.replyFor = (context: unknown): unknown => {
-    const tools = (context as { tools?: ReadonlyArray<{ name?: unknown }> }).tools;
-    const name = typeof tools?.[0]?.name === "string" ? tools[0].name : "__theta_bind_none";
-    return {
-      role: "assistant",
-      content: [{ type: "toolCall", id: "tc-1", name, arguments: { envelope } }],
-      stopReason: "toolUse",
-      timestamp: 0,
-    };
-  };
-}
-
-function parseDeps(): ParseThetaDocumentDeps {
-  const systemNote: SystemNoteChannelDeps = {
-    pi: { sendMessage: (): void => {} },
-    ui: { notify: (): void => {} },
-    emitDiagnostic: (): void => {},
-  };
-  const modelMatcher: ModelReferenceMatcher = { resolve: (): "resolved" => "resolved" };
-  return { systemNote, modelMatcher };
-}
-
-/** Parse `.theta` source through the production whole-file parser. */
-function parse(src: string) {
-  const source: ThetaSource = {
-    path: "code-review.theta",
-    bytes: new TextEncoder().encode(src),
-  };
-  const doc = parseThetaDocument(source, parseDeps());
-  const errors = doc.diagnostics.filter((d) => d.severity === "error").map((d) => d.code);
-  expect(errors, "the binder theta must parse cleanly before it is driven").toEqual([]);
-  expect(doc.frontmatter, "the binder theta must carry parseable frontmatter").not.toBeNull();
-  return doc;
-}
-
-/**
- * A runtime-root double sufficient for a binder pass with NO defaulted fields.
- * Carries the REAL AJV validator: the bug-0011 forced-tool routing validates
- * the extracted envelope against the anyOf envelope schema before routing.
- */
-function rootDouble(): RuntimeRoot {
-  return {
-    checkpoint: { before: (): Promise<void> => Promise.resolve() },
-    idSource: { newInvocationId: (): string => "inv-1", newToolCallId: (): string => "tc-1" },
-    clock: { wallNow: (): number => 0 },
-    schemaValidator: new AjvSchemaValidator({
-      emit: (): void => {},
-      slugOf: (schema: LoweredSchema): SchemaSlug => {
-        const canonicalBytes = JSON.stringify(schema);
-        return { slug: canonicalBytes, canonicalBytes };
-      },
-    }),
-  } as unknown as RuntimeRoot;
-}
-
-const BINDER_MODEL = {
-  id: "binder-model",
-  provider: "anthropic-messages",
-  api: "anthropic-messages",
-  strictCapable: true,
-};
-
-/**
- * A production producer wired with a capturing `pi.sendMessage`, a model
- * registry that resolves `binder-model`, and the root double. Returns the
- * producer deps + the captured-notes sink.
- */
-function producerWithCapture(): {
-  readonly deps: ReturnType<typeof createProductionProducerDeps>;
-  readonly notes: CapturedNote[];
-} {
-  const notes: CapturedNote[] = [];
-  const pi = {
-    sendMessage: (message: CapturedNote): void => {
-      notes.push(message);
-    },
-  } as unknown as ExtensionAPI;
-  const modelRegistry = {
-    getAvailable: (): readonly unknown[] => [BINDER_MODEL],
-    getApiKeyAndHeaders: async (): Promise<{ ok: boolean }> => ({ ok: true }),
-  } as unknown as ModelRegistry;
-  const deps = createProductionProducerDeps({ pi, root: rootDouble(), modelRegistry });
-  return { deps, notes };
-}
-
-function ctxDouble(): ExtensionCommandContext {
-  return {} as unknown as ExtensionCommandContext;
-}
 
 // A two-required-string-param theta (forces a genuine binder pass — not a
 // no-params or single-string bypass — with NO defaulted fields, so the
@@ -192,7 +76,7 @@ const TWO_PARAM_THETA = [
 ].join("\n");
 
 function twoParamTheta(overrides?: { readonly bindEcho?: boolean }): ThetaCompositionInput {
-  const doc = parse(TWO_PARAM_THETA);
+  const doc = parse(TWO_PARAM_THETA, "code-review.theta", "binder");
   const frontmatter =
     overrides?.bindEcho === undefined
       ? doc.frontmatter!
@@ -206,10 +90,6 @@ function twoParamTheta(overrides?: { readonly bindEcho?: boolean }): ThetaCompos
   };
 }
 
-function noteChannelEntries(notes: readonly CapturedNote[]): CapturedNote[] {
-  return notes.filter((n) => n.customType === SYSTEM_NOTE_CHANNEL);
-}
-
 beforeEach(() => {
   scripted.replyFor = undefined;
 });
@@ -221,7 +101,7 @@ afterEach(() => {
 describe("e2e-s5 CAND-2 — binder echo note emission through the production producer", () => {
   it("REQ-BINDER-21 (ok arm): a scripted `ok` binder reply emits the `Running /…` echo note on the theta-system-note channel", async () => {
     // The off-session binder returns a well-formed `ok` envelope.
-    scriptEnvelope({ kind: "ok", args: { topic: "async", audience: "team" } });
+    scriptEnvelope(scripted, { kind: "ok", args: { topic: "async", audience: "team" } });
     const { deps, notes } = producerWithCapture();
 
     const result = await deps.runBinder({
@@ -247,7 +127,7 @@ describe("e2e-s5 CAND-2 — binder echo note emission through the production pro
   });
 
   it("REQ-BINDER-36: `bind_echo: false` suppresses the echo note — the binder still binds, no note is emitted", async () => {
-    scriptEnvelope({ kind: "ok", args: { topic: "async", audience: "team" } });
+    scriptEnvelope(scripted, { kind: "ok", args: { topic: "async", audience: "team" } });
     const { deps, notes } = producerWithCapture();
 
     const result = await deps.runBinder({
@@ -264,7 +144,7 @@ describe("e2e-s5 CAND-2 — binder echo note emission through the production pro
   });
 
   it("REQ-BINDER-21/38 (needs_info arm): a `needs_info` envelope emits the failure note and does NOT bind", async () => {
-    scriptEnvelope({ kind: "needs_info", message: "which repository?" });
+    scriptEnvelope(scripted, { kind: "needs_info", message: "which repository?" });
     const { deps, notes } = producerWithCapture();
 
     const result = await deps.runBinder({
@@ -287,11 +167,11 @@ describe("e2e-s5 CAND-2 — binder echo note emission through the production pro
   it("determinism: a second identical `ok` pass emits a byte-identical echo note", async () => {
     const okEnvelope = { kind: "ok", args: { topic: "async", audience: "team" } };
 
-    scriptEnvelope(okEnvelope);
+    scriptEnvelope(scripted, okEnvelope);
     const first = producerWithCapture();
     await first.deps.runBinder({ theta: twoParamTheta(), args: "x", ctx: ctxDouble() });
 
-    scriptEnvelope(okEnvelope);
+    scriptEnvelope(scripted, okEnvelope);
     const second = producerWithCapture();
     await second.deps.runBinder({ theta: twoParamTheta(), args: "x", ctx: ctxDouble() });
 
