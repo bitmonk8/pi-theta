@@ -8,9 +8,7 @@
 import { resolvingHost } from "./helpers/fake-json-child";
 import { makeIdleModelHost } from "./helpers/compose-workspace-harness";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { plantThetaWorkspace, disposeWorkspace } from "./helpers/production-load-harness";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { createThetaExtension, type ThetaExtensionDeps } from "../src/extension/factory";
 import { composeExtensionInstance } from "../src/extension/production-composition";
@@ -71,14 +69,13 @@ describe("RFC-0012 §3 — the factory latches, reuses and closes the child's re
   let workspace: string;
 
   beforeEach(() => {
-    workspace = mkdtempSync(join(tmpdir(), "theta-rfc0012-channel-factory-"));
-    const dir = join(workspace, ".pi", "theta");
-    mkdirSync(dir, { recursive: true });
-    writeFileSync(join(dir, "clean.theta"), ["---", "mode: subagent", "---", '"ok"', ""].join("\n"), "utf8");
+    workspace = plantThetaWorkspace("theta-rfc0012-channel-factory-", [
+      { stem: "clean", text: ["---", "mode: subagent", "---", '"ok"', ""].join("\n") },
+    ]);
   });
 
   afterEach(() => {
-    rmSync(workspace, { recursive: true, force: true });
+    disposeWorkspace(workspace);
   });
 
   it("first compose dials (here: the injected client); a repeat session_start hands the LIVE client back in; session_shutdown closes it exactly once, after the teardown", async () => {

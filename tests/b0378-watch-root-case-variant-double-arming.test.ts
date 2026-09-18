@@ -23,6 +23,7 @@ import type {
   Unsubscribe,
 } from "../src/seams/file-watcher";
 import { FakeClock } from "./helpers/fake-clock";
+import { waitFor } from "./helpers/fake-file-watcher";
 
 // Bug 0378 — the step-5 watch-root union (`discoveryWatchRoots` in
 // `runComposePass`, src/extension/production-composition.ts) used to dedupe its
@@ -243,17 +244,6 @@ function makeHarness(cwd: string, flags: Readonly<Record<string, string>>): Harn
   };
 
   return { pi, notes, fireSessionStart: () => fire("session_start") };
-}
-
-/** Poll a real-timer-bounded condition; throw loudly on timeout naming the
- *  unmet precondition (the b0311/b0312 loud-fail idiom — never an early return
- *  or skip). */
-async function waitFor(cond: () => boolean, label: string): Promise<void> {
-  for (let i = 0; i < 400; i++) {
-    if (cond()) return;
-    await new Promise((resolve) => setTimeout(resolve, 5));
-  }
-  throw new Error(`timeout waiting for ${label}`);
 }
 
 /** The structural-change notes recorded since `from` (content-keyed). */

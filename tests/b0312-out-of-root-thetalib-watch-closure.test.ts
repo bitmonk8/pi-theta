@@ -24,7 +24,7 @@ import type {
   Unsubscribe,
 } from "../src/seams/file-watcher";
 import { FakeClock } from "./helpers/fake-clock";
-import { waitFor } from "./helpers/fake-file-watcher";
+import { norm, settle, waitFor } from "./helpers/fake-file-watcher";
 import {
   makeRecordingHarness,
   structuralNotesSince,
@@ -80,11 +80,6 @@ import {
 // emit or re-arm — neither models the scoping this bug turns on.
 //
 // Every `0.315.0` is the literal placeholder the fix's shipped version fills.
-
-/** Normalise a path for the cross-platform containment check (this repo runs on Windows). */
-function norm(path: string): string {
-  return path.replace(/\\/g, "/").toLowerCase();
-}
 
 /**
  * A `FileWatcher` seam double that models real chokidar recursive-root scoping,
@@ -178,18 +173,6 @@ class RecursiveRootFileWatcher implements FileWatcher {
       const r = norm(root);
       return p === r || p.startsWith(r.endsWith("/") ? r : `${r}/`);
     });
-  }
-}
-
-/** Best-effort bounded poll of the observable, then RETURN (never throw) so the
- *  following `expect` is the witness. Used where the reload the fix would run is
- *  a no-op today (an OUT-OF-ROOT edit): pre-fix the observable never moves and
- *  the poll runs to its bound, so the `expect` reds on the stale value; post-fix
- *  the poll exits as soon as the rebuild lands. Event-driven, not a bare sleep. */
-async function settle(cond: () => boolean): Promise<void> {
-  for (let i = 0; i < 200; i++) {
-    if (cond()) return;
-    await new Promise((resolve) => setTimeout(resolve, 5));
   }
 }
 

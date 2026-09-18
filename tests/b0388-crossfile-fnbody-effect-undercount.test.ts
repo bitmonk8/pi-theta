@@ -1,33 +1,24 @@
-import { fakeThetaLibFs } from "./helpers/thetalib-load-harness";
+import {
+  bindImportedBody,
+  fakeThetaLibFs,
+  parseImportingApp as parseApp,
+} from "./helpers/thetalib-load-harness";
 import { describe, expect, it } from "vitest";
 import type {
-  ExtensionAPI,
   ExtensionCommandContext,
   ModelRegistry,
 } from "@earendil-works/pi-coding-agent";
 import { checkThetaImports } from "../src/extension/import-static-checks";
-import {
-  createProductionProducerDeps,
-  type PiToolDispatch,
-} from "../src/extension/production-theta-producer";
-import type {
-  ConversationBindInput,
-  ThetaCompositionInput,
-} from "../src/extension/theta-composition-producer";
+import type { ThetaCompositionInput } from "../src/extension/theta-composition-producer";
 import type { ParsedFrontmatter } from "../src/parser/frontmatter";
-import { parseThetaDocument, type ThetaDocument } from "../src/parser/theta-document";
 import {
   InvokeDepthExceededPanic,
   newInvokeChainAtDepth,
   pushCountableFrame,
 } from "../src/runtime/invoke-depth-cycle";
-import type { MaterializedImport } from "../src/runtime/lexical-environment";
 import { executeBody } from "../src/runtime/statement-executor";
 import { SUBAGENT_INVOKE_DEPTH_ENV, type SpawnFn } from "../src/runtime/subagent-launcher";
-import type { AgentToolResultEnvelope } from "../src/runtime/tool-call-execute";
 import { isEnumValue, schemaTagOf, type ThetaValue } from "../src/runtime/value";
-import type { RuntimeRoot } from "../src/runtime-root";
-import type { Checkpoint } from "../src/seams/checkpoint";
 import { parseDeps } from "./helpers/e2e-s1";
 import { fakeExecutableHost, makeFakeJsonChildLauncher, type FakeJsonChild, type SpawnRecord } from "./helpers/fake-json-child";
 import { childRegimeRootDouble, driveSubagentFnEntry } from "./helpers/subagent-fn-child-regime";
@@ -109,26 +100,6 @@ import { childRegimeRootDouble, driveSubagentFnEntry } from "./helpers/subagent-
 // `0.386.0` is a literal version placeholder — the lane parent fills the real
 // version.
 
-/** The importing `.theta` frontmatter every fixture shares. */
-// Bug 0479: the pin names the registry double's qualified `provider/id` (equal
-// to `ctx.model`), not its display name — the dispatch-time exact-match rule
-// reads the id, so a display-name pin would refuse the turn and the spawn.
-const APP_FRONTMATTER = ["---", 'model: "anthropic/claude-sonnet-5"', "mode: prompt", "---"].join("\n");
-
-function parse(source: string, path: string): ThetaDocument {
-  return parseThetaDocument({ path, bytes: new TextEncoder().encode(source) }, parseDeps());
-}
-
-function parseApp(body: string): ThetaDocument {
-  return parse(`${APP_FRONTMATTER}\n${body}`, "/proj/app.theta");
-}
-
-const NOOP_CHECKPOINT: Checkpoint = {
-  before(): Promise<void> {
-    return Promise.resolve();
-  },
-};
-
 /**
  * The observable of one runtime row: the settled final value with its schema
  * brand and enum brand, or the thrown error's `name: message`. A throw is
@@ -178,8 +149,8 @@ function launchSubstrate(): LaunchSubstrate {
 /**
  * Parse `/proj/app.theta`, run the real `checkThetaImports` over `libs`, then
  * run the real `executeBody` with whatever the load pass materialised — the
- * committed tests/b0354-crossfile-fn-depth-uncounted.test.ts `measure()`
- * harness VERBATIM, seeding the top-level chain via
+ * shared `bindImportedBody` harness (tests/helpers/thetalib-load-harness.ts),
+ * seeding the top-level chain via
  * `subagentInboundInvokeDepth` (the b0354-established proxy for real invoke
  * frames — the SAME per-chain counter, bug 0388 doc §Reproduction).
  *
@@ -196,82 +167,31 @@ async function measure(
   subagentInboundInvokeDepth?: number,
   launch?: LaunchSubstrate,
 ): Promise<Measured> {
-  const app = parseApp(appBody);
-  expect(
-    app.frontmatter,
-    `the importing theta's frontmatter must parse or the load pass reads nothing; diagnostics: ${JSON.stringify(
-      app.diagnostics.map((d) => `${d.severity} ${d.code}: ${d.message}`),
-    )}`,
-  ).not.toBeNull();
-  const frontmatter = app.frontmatter as ParsedFrontmatter;
-  const input: ThetaCompositionInput = {
-    slashName: "app",
-    sourcePath: "/proj/app.theta",
-    frontmatter,
-    body: app.body,
-  };
-  const check = await checkThetaImports(input, {
-    fs: fakeThetaLibFs(libs),
-    parseDeps: parseDeps(),
-  });
-  const imports: readonly MaterializedImport[] = check.imports;
-
-  const deps = createProductionProducerDeps({
-    pi: {} as unknown as ExtensionAPI,
-    root:
-      launch !== undefined
-        ? childRegimeRootDouble()
-        : ({
-            checkpoint: NOOP_CHECKPOINT,
-            idSource: {
-              newInvocationId: (): string => "inv-1",
-              newToolCallId: (): string => "tc-1",
-            },
-          } as unknown as RuntimeRoot),
-    modelRegistry: {
+  const { app, check, binding } = await bindImportedBody(
+    appBody,
+    libs,
+    {
       getAvailable: (): unknown[] => [
         { id: "claude-sonnet-5", provider: "anthropic", displayName: "sonnet" },
       ],
     } as unknown as ModelRegistry,
-    resolvePiTool: (name: string): PiToolDispatch => ({
-      toolName: name,
-      execute: (): Promise<AgentToolResultEnvelope> =>
-        Promise.resolve({ content: [{ type: "text", text: "AMBIENT" }] }),
-    }),
-    // Seed the top-level chain at this depth so a short cross-file `fn` chain
-    // reaches the cap. Absent → the producer seeds at 0.
-    ...(subagentInboundInvokeDepth !== undefined ? { subagentInboundInvokeDepth } : {}),
-    ...(launch !== undefined
+    subagentInboundInvokeDepth,
+    launch !== undefined
       ? {
+          root: childRegimeRootDouble(),
           subagentSpawn: launch.spawn,
           subagentExecutableHost: fakeExecutableHost(),
           subagentParentEnv: {},
           subagentParentPid: 4242,
-        }
-      : {}),
-  });
-  const theta: ThetaCompositionInput = {
-    slashName: "app",
-    sourcePath: "/proj/app.theta",
-    frontmatter,
-    body: app.body,
-    callableSet: Object.freeze({ entries: new Map() }),
-    ...(imports.length > 0 ? { imports } : {}),
-  } as ThetaCompositionInput;
-  const bindInput: ConversationBindInput = {
-    theta,
-    args: "",
-    ctx:
-      launch !== undefined
-        ? ({
+          ctx: {
             model: { id: "claude-sonnet-5", provider: "anthropic", displayName: "sonnet" },
             cwd: "/proj",
             signal: undefined,
             sessionManager: { getEntries: () => [], getLeafId: () => undefined },
-          } as unknown as ExtensionCommandContext)
-        : ({} as unknown as ExtensionCommandContext),
-  };
-  const binding = deps.bindPromptConversation(bindInput);
+          } as unknown as ExtensionCommandContext,
+        }
+      : {},
+  );
   // The `.then(ok, err)` rejection arm — not a broad `catch` — turns a runtime
   // panic (a top-level `InvokeDepthExceededPanic`) into a comparable value.
   const runtime = await executeBody(app.body, binding.executeDeps).then(

@@ -7,12 +7,15 @@
 // chosen boundaries instead of reaching the real disk.
 //
 // Also provides the synchronous params marshal/intake fs doubles, with
-// write/read/unlink recorders for the PIC-60 carrier tests.
+// write/read/unlink recorders and a real-fs marshal builder for the PIC-60 carrier tests.
 //
 // Spec: host-interfaces-services.md PIC-13; lexical.md §Encoding.
 
+import type { DiscoveryInput, DiscoveredTheta } from "../../src/discovery/discovery-walk";
+import type { ThetaSettings } from "../../src/discovery/settings";
 import type { FileStat, FileSystem } from "../../src/seams/file-system";
-import type { ParamsIntakeDeps, ParamsMarshalDeps } from "../../src/runtime/subagent-params";
+import { rmSync, writeFileSync } from "node:fs";
+import { SUBAGENT_PARAMS_TEMP_FILE_MODE, type ParamsIntakeDeps, type ParamsMarshalDeps } from "../../src/runtime/subagent-params";
 
 /**
  * Constructor inputs the fake reports. Every map is keyed by absolute path.
@@ -289,6 +292,19 @@ export class FakeFileSystem implements FileSystem {
   }
 }
 
+/** A real parent-side fs seam writing a mode-stamped temp file at the caller's path. */
+export function realMarshalFs(path: string): ParamsMarshalDeps {
+  return {
+    writeTempFile: (contents): string => {
+      writeFileSync(path, contents, { mode: SUBAGENT_PARAMS_TEMP_FILE_MODE });
+      return path;
+    },
+    unlink: (p): void => {
+      rmSync(p, { force: true });
+    },
+  };
+}
+
 /** A fake parent-side fs seam recording temp-file writes and unlinks. */
 export function fakeMarshalFs(): {
   readonly deps: ParamsMarshalDeps;
@@ -497,4 +513,58 @@ export function buildSettings(project: SettingsFileSpec, global: SettingsFileSpe
   if (global.content !== undefined) files[GLOBAL_SETTINGS_PATH] = global.content;
   if (global.error !== undefined) errors[GLOBAL_SETTINGS_PATH] = global.error;
   return new FakeFileSystem({ homedir: SETTINGS_HOME, cwd: SETTINGS_CWD, files, errors });
+}
+
+export const DISCOVERY_GLOBAL_ROOT = "/home/theta/.pi/agent/theta";
+export const DISCOVERY_PROJECT_ROOT = "/project/.pi/theta";
+
+/** The two conventional roots' ancestor chains, registered in every fixture.
+ *  An absent conventional root is skipped BEFORE classification today (DISC-2's
+ *  conventional-root exemption), so the chains are not load-bearing for those
+ *  roots any more; they keep each fixture's directory shape self-consistent. */
+export const DISCOVERY_BASE = mergeDirs(ancestors(DISCOVERY_GLOBAL_ROOT), ancestors(DISCOVERY_PROJECT_ROOT));
+
+/** Build a discovery fixture with the conventional home and working directory. */
+export function buildDiscovery(spec: Omit<FakeFileSystemOptions, "homedir" | "cwd">): FakeFileSystem {
+  return new FakeFileSystem({
+    ...spec,
+    homedir: SETTINGS_HOME,
+    cwd: SETTINGS_CWD,
+    dirs: spec.dirs ?? {},
+    files: spec.files ?? {},
+  });
+}
+
+/** An empty merged-settings view (no settings-sourced thetaPaths). */
+const NO_SETTINGS: ThetaSettings = {};
+
+/** Discovery input with no settings sources unless the caller supplies them. */
+export function discoveryInput(fs: FileSystem, extra: Partial<DiscoveryInput> = {}): DiscoveryInput {
+  return { fs, settings: NO_SETTINGS, ...extra };
+}
+
+/** The discovered theta bearing a slash name, if any. */
+export function namedTheta(thetas: readonly DiscoveredTheta[], name: string): DiscoveredTheta | undefined {
+  return thetas.find((l) => l.name === name);
+}
+
+/** Bug 0440 arm 1 / bug 0461 control: a CLI file shadows a settings file. */
+export function cliSettingsShadowInput(thetaBody: string): DiscoveryInput {
+  const fs = buildDiscovery({
+    dirs: mergeDirs(
+      ancestors("/ext/plan.theta"),
+      { "/ext": ["plan.theta"] },
+      ancestors("/work/plan.theta"),
+      { "/work": ["plan.theta"] },
+    ),
+    files: {
+      "/ext/plan.theta": thetaBody,
+      "/work/plan.theta": thetaBody,
+    },
+  });
+
+  return discoveryInput(fs, {
+    cliPaths: ["/ext/plan.theta"],
+    settings: { thetaPaths: ["/work/plan.theta"] },
+  });
 }

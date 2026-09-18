@@ -72,7 +72,7 @@ import type { Diagnostic } from "../src/diagnostics/diagnostic";
 import { loadSettings } from "../src/discovery/settings";
 import { PiFileSystem } from "../src/seams/pi-file-system";
 import { FakeClock } from "./helpers/fake-clock";
-import { FakeFileWatcher } from "./helpers/fake-file-watcher";
+import { FakeFileWatcher, waitFor } from "./helpers/fake-file-watcher";
 
 /**
  * The host's stale-ctx error message, byte-exact. Sourced from the installed
@@ -276,15 +276,6 @@ interface Boot {
   composeParked(): boolean;
   /** Case C / bug-0022 seam: release the parked compose so `session_start` completes. */
   releaseCompose(): void;
-}
-
-/** Poll a real-timer-bounded condition (the compose path does real fs I/O). */
-async function waitFor(cond: () => boolean, label: string): Promise<void> {
-  for (let i = 0; i < 400; i++) {
-    if (cond()) return;
-    await new Promise((resolve) => setTimeout(resolve, 5));
-  }
-  throw new Error(`timeout waiting for ${label}`);
 }
 
 /**

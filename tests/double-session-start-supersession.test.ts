@@ -62,7 +62,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { RELOAD_DEBOUNCE_WINDOW_MS } from "../src/extension/reload-debounce";
-import type { ActiveInvocationEntry } from "../src/runtime/active-invocation-registry";
+import { fakeEntry as makeEntry } from "./helpers/execution-status-progress";
 import { waitFor } from "./helpers/fake-file-watcher";
 import {
   REPEAT_START_NOTE,
@@ -158,13 +158,10 @@ describe("bug 0021 — double session_start supersession (registration-steps.md 
         forwardingDetachCalls += 1;
       },
     });
-    const fakeEntry: ActiveInvocationEntry = {
-      thetaAbort: new AbortController(),
-      disposeBarrier: Promise.resolve(),
-      shutdownReason: undefined,
+    const fakeEntry = makeEntry({
       theta: "greet",
       invocationId: "00000000-0000-4000-8000-000000000000",
-    };
+    });
     wiringAt(b, 0).activeInvocations.add(fakeEntry);
 
     // Generation 2 discovers ONLY `/second`: `/greet` is deleted from disk, so

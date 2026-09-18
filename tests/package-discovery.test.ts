@@ -1,3 +1,4 @@
+import { byCode } from "./helpers/e2e-s1";
 import { describe, expect, it } from "vitest";
 import {
   discoverPackageThetas,
@@ -6,7 +7,6 @@ import {
   type PackageDiscoveryResult,
 } from "../src/discovery/package-discovery";
 import type { ThetaSettings } from "../src/discovery/settings";
-import type { Diagnostic } from "../src/diagnostics/diagnostic";
 import type { FileSystem } from "../src/seams/file-system";
 import { FileSystemDecorator, FakeFileSystem } from "./helpers/fake-file-system";
 import { FakeClock } from "./helpers/fake-clock";
@@ -123,10 +123,6 @@ async function drive(
   }
   await flush();
   return p;
-}
-
-function byCode(diagnostics: readonly Diagnostic[], code: string): readonly Diagnostic[] {
-  return diagnostics.filter((d) => d.code === code);
 }
 
 function named(

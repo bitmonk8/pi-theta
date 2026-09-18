@@ -298,21 +298,22 @@ describe("T-PRG — L3-B12: verbosity off — nothing published/appended, not co
 });
 
 describe("T-PRG — L3-B13: dead entry channel — bus still publishes, no milestone, NEVER a sendMessage fallback", () => {
-  it("appendMilestone is never attempted/never fallback-delivered when the channel is dead", async () => {
+  it("a dead channel never fallback-delivers milestones", async () => {
     const { bus, authorMessageCalls } = fakeBus();
+    const appendCalls: unknown[] = [];
     const entryChannel: EntryChannelHandle = {
       live: () => false,
-      append: (): boolean => {
+      append: (note): boolean => {
+        appendCalls.push(note);
         throw new Error("append (message-channel fallback) MUST NOT be called for milestones — EXST-14");
       },
       appendMilestone: (): boolean => false,
     };
     const { hostApi, calls } = fakeHostApi();
     registerThetaProgressTool(hostApi, baseDeps({ bus: () => bus, entryChannel }));
-    await expect(
-      calls[0]!.execute("c1", ARGS, undefined, undefined, {} as never),
-    ).resolves.toBeDefined();
+    await calls[0]!.execute("c1", ARGS, undefined, undefined, {} as never);
     expect(authorMessageCalls).toHaveLength(1);
+    expect(appendCalls).toHaveLength(0);
   });
 });
 
@@ -340,10 +341,13 @@ describe("T-PRG — L3-B15: bus latch undefined but registry live — milestone 
     const { entryChannel, milestoneCalls } = fakeEntryChannel();
     const { hostApi, calls } = fakeHostApi();
     registerThetaProgressTool(hostApi, baseDeps({ bus: () => undefined, entryChannel }));
-    await expect(
-      calls[0]!.execute("c1", ARGS, undefined, undefined, {} as never),
-    ).resolves.toBeDefined();
+    await calls[0]!.execute("c1", ARGS, undefined, undefined, {} as never);
     expect(milestoneCalls).toHaveLength(1);
+    expect(milestoneCalls[0]).toMatchObject({
+      ...ARGS,
+      theta: "quality-loop",
+      invocation_id: "inv-1",
+    });
   });
 });
 

@@ -8,9 +8,8 @@ import {
 import { executeBody } from "../src/runtime/statement-executor";
 import { isEnumValue, schemaTagOf, type ThetaValue } from "../src/runtime/value";
 import {
-  bindImportedBodyOverFs,
+  bindImportedBody,
   expectCleanImportLoad,
-  fakeThetaLibFs,
 } from "./helpers/thetalib-load-harness";
 
 // Bug 0354 — a CROSS-FILE `.thetalib` `fn` call is never counted against
@@ -125,10 +124,9 @@ async function measure(
   libs: Record<string, string>,
   subagentInboundInvokeDepth?: number,
 ): Promise<Measured> {
-  const { app, check, binding } = await bindImportedBodyOverFs(
+  const { app, check, binding } = await bindImportedBody(
     appBody,
-    "/proj/app.theta",
-    fakeThetaLibFs(libs),
+    libs,
     {
       getAvailable: (): unknown[] => [
         { id: "claude-sonnet-5", provider: "anthropic", displayName: "sonnet" },

@@ -12,7 +12,12 @@ import {
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
 import type { FileSystem } from "../src/seams/file-system";
 import { FakeClock } from "./helpers/fake-clock";
-import { FakeFileSystem, ancestors, mergeDirs } from "./helpers/fake-file-system";
+import {
+  FakeFileSystem,
+  ancestors,
+  mergeDirs,
+  DISCOVERY_BASE as BASE,
+} from "./helpers/fake-file-system";
 
 // Bug 0077 — the settings `thetaPaths` glob matcher compares an entry's basename
 // against the PATTERN's basename rather than against the pattern
@@ -87,8 +92,6 @@ import { FakeFileSystem, ancestors, mergeDirs } from "./helpers/fake-file-system
 
 const HOME = "/home/theta";
 const CWD = "/project";
-const GLOBAL_ROOT = "/home/theta/.pi/agent/theta";
-const PROJECT_ROOT = "/project/.pi/theta";
 const NM = "/project/node_modules";
 
 /** The settings-file directory `thetaPaths` entries resolve against (the
@@ -98,12 +101,6 @@ const SETTINGS_BASE = "/project/.pi";
 
 /** A body that registers (this walk reads bytes and the filename, not syntax). */
 const THETA_BODY = "mode: prompt\n---\n";
-
-/** The two conventional roots' ancestor chains, in every settings fixture: an
- *  absent conventional root then classifies as a clean (silent) missing rather
- *  than as an unreadable ancestor failure, so each cell's diagnostic set is
- *  about its `thetaPaths` array alone. */
-const BASE = mergeDirs(ancestors(GLOBAL_ROOT), ancestors(PROJECT_ROOT));
 
 /** The five installed-package roots `packageRoots` enumerates
  *  (src/discovery/package-discovery.ts), registered as empty directories so no

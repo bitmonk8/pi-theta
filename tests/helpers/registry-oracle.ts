@@ -12,7 +12,6 @@
 import { PARSE_REGISTRY_PATH as REGISTRY_PAGE, registryMessageOf } from "./load-row-harness";
 import { expect } from "vitest";
 import { readFileSync } from "node:fs";
-import { expect } from "vitest";
 import { fileURLToPath } from "node:url";
 // @ts-expect-error — JS code-registry module, no type declarations.
 import { parseRegistry, registryMessage } from "../../tools/code-registry/index.js";

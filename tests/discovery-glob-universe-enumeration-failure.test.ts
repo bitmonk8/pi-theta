@@ -23,7 +23,13 @@ import { composeExtensionInstance } from "../src/extension/production-compositio
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
 import type { FileSystem } from "../src/seams/file-system";
 import { FakeClock } from "./helpers/fake-clock";
-import { FakeFileSystem, ReaddirDeniedFileSystem, ancestors, mergeDirs } from "./helpers/fake-file-system";
+import {
+  FakeFileSystem,
+  ReaddirDeniedFileSystem,
+  ancestors,
+  mergeDirs,
+  discoveryInput as input,
+} from "./helpers/fake-file-system";
 import { FakeFileWatcher } from "./helpers/fake-file-watcher";
 
 // Bug 0113 — both `listTree` copies swallow every `readdir` rejection, so a
@@ -266,10 +272,6 @@ function buildPackages(spec: FakeSpec): FakeFileSystem {
  * The optional `lstat` denial gives S3 a dirty ancestor chain.
  */
 class ReaddirDenied extends ReaddirDeniedFileSystem {}
-
-function input(fs: FileSystem, extra: Partial<DiscoveryInput> = {}): DiscoveryInput {
-  return { fs, settings: {}, ...extra };
-}
 
 /** A settings input whose `thetaPaths` resolve against `/project/.pi`. */
 function settingsInput(fs: FileSystem, thetaPaths: readonly string[]): DiscoveryInput {

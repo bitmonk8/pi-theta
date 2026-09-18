@@ -1,13 +1,20 @@
+import { byCode } from "./helpers/e2e-s1";
 import { describe, expect, it } from "vitest";
 import {
   discoverThetas,
-  type DiscoveredTheta,
-  type DiscoveryInput,
   type PiOwnedCommand,
 } from "../src/discovery/discovery-walk";
-import { loadSettings, type ThetaSettings } from "../src/discovery/settings";
-import type { Diagnostic } from "../src/diagnostics/diagnostic";
-import { FakeFileSystem, ancestors, mergeDirs } from "./helpers/fake-file-system";
+import { loadSettings } from "../src/discovery/settings";
+import {
+  FakeFileSystem,
+  ancestors,
+  mergeDirs,
+  DISCOVERY_BASE as BASE,
+  DISCOVERY_GLOBAL_ROOT as GLOBAL_ROOT,
+  DISCOVERY_PROJECT_ROOT as PROJECT_ROOT,
+  discoveryInput as input,
+  namedTheta as named,
+} from "./helpers/fake-file-system";
 
 // V10a-T — failing tests for the paired `V10a` five-source discovery walk
 // (`src/discovery/discovery-walk.ts`). The bullets trace to DISC-1…DISC-4 in
@@ -22,14 +29,6 @@ import { FakeFileSystem, ancestors, mergeDirs } from "./helpers/fake-file-system
 
 const HOME = "/home/theta";
 const CWD = "/project";
-const GLOBAL_ROOT = "/home/theta/.pi/agent/theta";
-const PROJECT_ROOT = "/project/.pi/theta";
-
-/** The two conventional roots' ancestor chains, registered in every fixture.
- *  An absent conventional root is skipped BEFORE classification today (DISC-2's
- *  conventional-root exemption), so the chains are not load-bearing for those
- *  roots any more; they keep each fixture's directory shape self-consistent. */
-const BASE = mergeDirs(ancestors(GLOBAL_ROOT), ancestors(PROJECT_ROOT));
 
 interface FakeSpec {
   readonly dirs?: Record<string, readonly string[]>;
@@ -49,21 +48,6 @@ function build(spec: FakeSpec): FakeFileSystem {
     symlinks: spec.symlinks ?? {},
     ...(spec.caseInsensitive !== undefined ? { caseInsensitive: spec.caseInsensitive } : {}),
   });
-}
-
-/** An empty merged-settings view (no settings-sourced thetaPaths). */
-const NO_SETTINGS: ThetaSettings = {};
-
-function input(fs: FakeFileSystem, extra: Partial<DiscoveryInput> = {}): DiscoveryInput {
-  return { fs, settings: NO_SETTINGS, ...extra };
-}
-
-function byCode(diagnostics: readonly Diagnostic[], code: string): readonly Diagnostic[] {
-  return diagnostics.filter((d) => d.code === code);
-}
-
-function named(thetas: readonly DiscoveredTheta[], name: string): DiscoveredTheta | undefined {
-  return thetas.find((l) => l.name === name);
 }
 
 // --------------------------------------------------------------------------

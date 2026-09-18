@@ -17,7 +17,6 @@ import { tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { assert } from "vitest";
-import { collectSystemNotes } from "../helpers/live-transcript";
 import {
   DefaultResourceLoader,
   ModelRegistry,

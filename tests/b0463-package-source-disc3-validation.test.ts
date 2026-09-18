@@ -38,8 +38,8 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { discoverThetas, type DiscoveryInput } from "../src/discovery/discovery-walk";
-import type { Diagnostic } from "../src/diagnostics/diagnostic";
 import { FakeFileSystem } from "./helpers/fake-file-system";
+import { byCode } from "./helpers/e2e-s1";
 import { makeHarness, mintWorkspace } from "./helpers/package-merge-e2e-harness";
 
 const INVALID_SLASH_NAME = "theta/load/invalid-slash-name";
@@ -119,10 +119,6 @@ function packageInput(
   packageCandidates: readonly PackageCandidate[],
 ): DiscoveryInput {
   return { fs, settings: {}, packageCandidates } as unknown as DiscoveryInput;
-}
-
-function byCode(diagnostics: readonly Diagnostic[], code: string): readonly Diagnostic[] {
-  return diagnostics.filter((d) => d.code === code);
 }
 
 describe("b0463 face (2) — package case-collision (discoverThetas + FakeFileSystem)", () => {

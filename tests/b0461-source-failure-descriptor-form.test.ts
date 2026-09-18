@@ -50,6 +50,7 @@
 
 import { describe, expect, it } from "vitest";
 import { soleByFragment } from "./helpers/e2e-s1";
+import { THETA_BODY } from "./helpers/discovery-scratch-harness";
 import { discoverThetas, type DiscoveryInput } from "../src/discovery/discovery-walk";
 import {
   discoverPackageThetas,
@@ -58,10 +59,19 @@ import {
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
 import type { FileSystem } from "../src/seams/file-system";
 import { FakeClock } from "./helpers/fake-clock";
-import { FakeFileSystem, ReaddirDeniedFileSystem, ancestors, mergeDirs } from "./helpers/fake-file-system";
+import {
+  FakeFileSystem,
+  type FakeFileSystemOptions,
+  ReaddirDeniedFileSystem,
+  ancestors,
+  mergeDirs,
+  buildDiscovery as build,
+  discoveryInput as input,
+  cliSettingsShadowInput,
+  SETTINGS_HOME as HOME,
+  SETTINGS_CWD as CWD,
+} from "./helpers/fake-file-system";
 
-const HOME = "/home/theta";
-const CWD = "/project";
 // The two conventional roots' resolved directory paths (0268 forward-slashed) —
 // the descriptor VALUEs the fix renders for the project/global kinds.
 // globalAgentDir() = <homedir>/.pi/agent; project root = <cwd>/.pi/theta.
@@ -69,8 +79,6 @@ const GLOBAL_ROOT = "/home/theta/.pi/agent/theta";
 const PROJECT_ROOT = "/project/.pi/theta";
 const SETTINGS_BASE = "/project/.pi";
 const NM = "/project/node_modules";
-
-const THETA_BODY = "mode: prompt\n---\n";
 
 // The three failure-mode registry codes, used as string literals exactly as the
 // committed discovery witnesses do (discovery-walk.test.ts, b0364, b0363,
@@ -82,20 +90,6 @@ const MISSING_SOURCE = "theta/load/missing-source";
 const UNREADABLE_SOURCE = "theta/load/unreadable-source";
 const WRONG_TYPE_SOURCE = "theta/load/wrong-type-source";
 const SHADOW_FRAGMENT = "shadowed across discovery sources";
-
-interface FakeSpec {
-  readonly dirs?: Record<string, readonly string[]>;
-  readonly files?: Record<string, string>;
-}
-
-function build(spec: FakeSpec): FakeFileSystem {
-  return new FakeFileSystem({
-    homedir: HOME,
-    cwd: CWD,
-    dirs: spec.dirs ?? {},
-    files: spec.files ?? {},
-  });
-}
 
 /** The five installed-package roots `packageRoots` enumerates, registered as
  *  empty directories so a root's absence never contributes an incidental
@@ -109,17 +103,13 @@ const PKG_ROOTS: Record<string, readonly string[]> = {
   "/home/theta/.pi/agent/git": [],
 };
 
-function buildPackages(spec: FakeSpec): FakeFileSystem {
+function buildPackages(spec: Pick<FakeFileSystemOptions, "dirs" | "files">): FakeFileSystem {
   return new FakeFileSystem({
     homedir: HOME,
     cwd: CWD,
     dirs: mergeDirs(PKG_ROOTS, spec.dirs ?? {}),
     files: spec.files ?? {},
   });
-}
-
-function input(fs: FileSystem, extra: Partial<DiscoveryInput> = {}): DiscoveryInput {
-  return { fs, settings: {}, ...extra };
 }
 
 /** A settings input whose `thetaPaths` resolve against `/project/.pi`. */
@@ -345,7 +335,7 @@ describe("b0461 cell 7 — package unreadable renders the descriptor form", () =
 
 // --------------------------------------------------------------------------
 // Cell 8 — CONTROL (GREEN now AND after fix). The cross-source-shadow row is
-// bug 0440's already-pinned ground and is untouched by this fix. Copied from
+// bug 0440's already-pinned ground and is untouched by this fix. Shares its fixture with
 // tests/b0440-cross-source-shadow-descriptor-form.test.ts arm 1: a `--theta`
 // file (priority 1) shadows a settings `thetaPaths` file (priority 2) deriving
 // the same slash name; the mint already renders the descriptor form. This
@@ -354,25 +344,7 @@ describe("b0461 cell 7 — package unreadable renders the descriptor form", () =
 
 describe("b0461 cell 8 (control) — cross-source-shadow keeps the descriptor form", () => {
   it("renders 'cli-flag:\"--theta …\"' wins over 'settings:\"…\"', unchanged by this fix", async () => {
-    const fs = build({
-      dirs: mergeDirs(
-        ancestors("/ext/plan.theta"),
-        { "/ext": ["plan.theta"] },
-        ancestors("/work/plan.theta"),
-        { "/work": ["plan.theta"] },
-      ),
-      files: {
-        "/ext/plan.theta": THETA_BODY,
-        "/work/plan.theta": THETA_BODY,
-      },
-    });
-
-    const { diagnostics } = await discoverThetas(
-      input(fs, {
-        cliPaths: ["/ext/plan.theta"],
-        settings: { thetaPaths: ["/work/plan.theta"] },
-      }),
-    );
+    const { diagnostics } = await discoverThetas(cliSettingsShadowInput(THETA_BODY));
 
     const shadow = soleByFragment(diagnostics, SHADOW_FRAGMENT);
     expect(shadow.message).toBe(

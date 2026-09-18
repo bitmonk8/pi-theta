@@ -1,3 +1,4 @@
+import { byCode } from "./helpers/e2e-s1";
 import { describe, expect, it } from "vitest";
 import {
   discoverThetas,
@@ -9,10 +10,9 @@ import {
   type PackageDiscoveredTheta,
 } from "../src/discovery/package-discovery";
 import { loadSettings, type ThetaSettings } from "../src/discovery/settings";
-import type { Diagnostic } from "../src/diagnostics/diagnostic";
-import type { FileStat, FileSystem } from "../src/seams/file-system";
+import type { FileSystem } from "../src/seams/file-system";
 import { FakeClock } from "./helpers/fake-clock";
-import { FakeFileSystem, ancestors, mergeDirs } from "./helpers/fake-file-system";
+import { FakeFileSystem, FileSystemDecorator, ancestors, mergeDirs } from "./helpers/fake-file-system";
 
 // Every conventional path is resolved against the RUNNING host, and an absent
 // conventional root is silent.
@@ -82,8 +82,8 @@ interface FakeSpec {
  * delegating every other member to an inner `FakeFileSystem`. The shared fake
  * hardcodes `".pi"` and `<homedir>/.pi/agent` (and existing suites depend on
  * those defaults), so the host substitution is injected here rather than in the
- * fake. The delegation shape mirrors `ReaddirDenied`
- * (tests/discovery-root-enumeration-failure.test.ts:302-352).
+ * fake. `FileSystemDecorator` (tests/helpers/fake-file-system.ts) supplies
+ * the pass-through members.
  *
  * The two recorders serve the NEGATIVE direction: "the `.pi` path was never
  * even consulted" is a stronger statement than "the `.pi` theta did not
@@ -96,17 +96,16 @@ interface FakeSpec {
  * explicitly, which is the only way to express the relocated case: a directory
  * NAME cannot.
  */
-class HostFileSystem implements FileSystem {
+class HostFileSystem extends FileSystemDecorator {
   /** Every path passed to `readText` / `readBytes`, in call order. */
   readonly reads: string[] = [];
   /** Every path passed to `readdir`, in call order. */
   readonly listings: string[] = [];
-  readonly #inner: FakeFileSystem;
   readonly #configDirName: string;
   readonly #globalAgentDir: string;
 
   constructor(inner: FakeFileSystem, configDirName: string, globalAgentDir?: string) {
-    this.#inner = inner;
+    super(inner);
     this.#configDirName = configDirName;
     this.#globalAgentDir = globalAgentDir ?? `${inner.homedir()}/${configDirName}/agent`;
   }
@@ -121,33 +120,15 @@ class HostFileSystem implements FileSystem {
 
   readText(path: string): Promise<string> {
     this.reads.push(path);
-    return this.#inner.readText(path);
+    return this.inner.readText(path);
   }
   readBytes(path: string): Promise<Uint8Array> {
     this.reads.push(path);
-    return this.#inner.readBytes(path);
+    return this.inner.readBytes(path);
   }
   readdir(path: string): Promise<readonly string[]> {
     this.listings.push(path);
-    return this.#inner.readdir(path);
-  }
-  writeText(path: string, contents: string): Promise<void> {
-    return this.#inner.writeText(path, contents);
-  }
-  exists(path: string): Promise<boolean> {
-    return this.#inner.exists(path);
-  }
-  homedir(): string {
-    return this.#inner.homedir();
-  }
-  cwd(): string {
-    return this.#inner.cwd();
-  }
-  lstat(path: string): Promise<FileStat> {
-    return this.#inner.lstat(path);
-  }
-  realpath(path: string): Promise<string> {
-    return this.#inner.realpath(path);
+    return this.inner.readdir(path);
   }
 }
 
@@ -188,10 +169,6 @@ const NO_SETTINGS: ThetaSettings = {};
 
 function input(fs: FileSystem, extra: Partial<DiscoveryInput> = {}): DiscoveryInput {
   return { fs, settings: NO_SETTINGS, ...extra };
-}
-
-function byCode(diagnostics: readonly Diagnostic[], code: string): readonly Diagnostic[] {
-  return diagnostics.filter((d) => d.code === code);
 }
 
 function named(

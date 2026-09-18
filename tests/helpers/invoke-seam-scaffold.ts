@@ -25,6 +25,7 @@ import type { ToolLoweringSink } from "../../src/runtime/tool-call-execute";
 import type {
   CommittedConversationMutator,
   CommittedSurface,
+  DrivenConversationMode,
 } from "../../src/runtime/terminal-outcomes";
 import type { SourceRange } from "../../src/diagnostics/diagnostic";
 import type { InvokeCalleeError } from "../../src/runtime/query-error";
@@ -34,6 +35,13 @@ import type {
   CompensatingTurn,
   RollbackCompensator,
 } from "../../src/runtime/no-rollback";
+import type { OperationResult } from "../../src/runtime/cancellation-core";
+import type {
+  CheckpointDescriptor,
+  ExecuteBodyDeps,
+  StatementEvalHost,
+} from "../../src/runtime/statement-executor";
+import type { ThetaValue } from "../../src/runtime/value";
 
 /** A `Checkpoint` whose `before()` resolves immediately — the seam is not
  *  itself under test at the call sites that use this scaffold. */
@@ -200,3 +208,56 @@ export function realEnv(): LexicalEnvironment {
 }
 
 export const SITE: CheckpointSite = { file: "theta.theta", line: 1, column: 1 };
+
+/**
+ * A `StatementEvalHost` double whose `runEffect` returns a scripted
+ * `OperationResult` keyed by the effect expression's `kind` (a `query` keys on
+ * `"query"`) / a call's callee, and whose `evaluatePure` evaluates the bounded
+ * literal / ident forms the witnesses need against the real environment. Queries
+ * are modelled as `{ ok:false, error }` or `{ ok:true, value }` — exactly what
+ * `runQueryEffect` feeds `evalExpr`'s effect arm for failure or success.
+ */
+export class ScriptedHost implements StatementEvalHost {
+  readonly results = new Map<string, OperationResult>();
+
+  evaluatePure(expr: Expr, env: LexicalEnvironment): ThetaValue {
+    switch (expr.kind) {
+      case "string":
+      case "bool":
+        return expr.value;
+      case "number":
+        return Number(expr.text);
+      case "null":
+        return null;
+      case "ident":
+        return env.resolve(expr.name).value ?? null;
+      default:
+        return null;
+    }
+  }
+
+  checkpointFor(expr: Expr): CheckpointDescriptor | null {
+    if (expr.kind === "call" || expr.kind === "query" || expr.kind === "invoke") {
+      return { kind: "tool-call", site: SITE };
+    }
+    return null;
+  }
+
+  runEffect(expr: Expr): Promise<OperationResult> {
+    const key = expr.kind === "call" ? expr.callee : expr.kind;
+    return Promise.resolve(this.results.get(key) ?? { ok: true, value: null });
+  }
+}
+
+/** Assemble `ExecuteBodyDeps` from a host. */
+export function deps(host: StatementEvalHost): ExecuteBodyDeps {
+  return {
+    env: realEnv(),
+    host,
+    checkpoint: SEAM_NOOP_CHECKPOINT,
+    signal: new AbortController().signal,
+    mutator: new RecordingMutator(),
+    mode: "prompt" as DrivenConversationMode,
+    file: "test.theta",
+  };
+}

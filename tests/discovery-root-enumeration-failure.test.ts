@@ -1,4 +1,4 @@
-import { hitsFor } from "./helpers/e2e-s1";
+import { hitsFor, byCode } from "./helpers/e2e-s1";
 import { loadRowMessage, interpolate } from "./helpers/registry-oracle";
 import { describe, expect, it } from "vitest";
 import {
@@ -13,7 +13,17 @@ import {
 import type { Diagnostic, Severity } from "../src/diagnostics/diagnostic";
 import type { FileSystem } from "../src/seams/file-system";
 import { FakeClock } from "./helpers/fake-clock";
-import { FakeFileSystem, ReaddirDeniedFileSystem, ancestors, mergeDirs, buildPackages } from "./helpers/fake-file-system";
+import {
+  FakeFileSystem,
+  ReaddirDeniedFileSystem,
+  ancestors,
+  mergeDirs,
+  buildPackages,
+  DISCOVERY_BASE as BASE,
+  DISCOVERY_GLOBAL_ROOT as GLOBAL_ROOT,
+  DISCOVERY_PROJECT_ROOT as PROJECT_ROOT,
+  discoveryInput as input,
+} from "./helpers/fake-file-system";
 
 // Bug 0076 — a discovery root that exists but whose enumeration fails
 // contributes zero thetas and zero diagnostics
@@ -177,19 +187,10 @@ const UNREADABLE_SOURCE = "theta/load/unreadable-source";
 
 const HOME = "/home/theta";
 const CWD = "/project";
-const GLOBAL_ROOT = "/home/theta/.pi/agent/theta";
-const PROJECT_ROOT = "/project/.pi/theta";
 const NM = "/project/node_modules";
 
 /** A body that parses far enough to register (the walk only reads bytes). */
 const THETA_BODY = "mode: prompt\n---\n";
-
-/** The two conventional roots' ancestor chains, in every walk fixture. An
- *  absent conventional root is skipped BEFORE classification today (DISC-2's
- *  conventional-root exemption), so the chains no longer decide those roots'
- *  disposition; they keep each cell's diagnostic count about the root under
- *  test alone by keeping the fixture's directory shape self-consistent. */
-const BASE = mergeDirs(ancestors(GLOBAL_ROOT), ancestors(PROJECT_ROOT));
 
 interface FakeSpec {
   readonly dirs?: Record<string, readonly string[]>;
@@ -217,16 +218,8 @@ function build(spec: FakeSpec): FakeFileSystem {
  */
 class ReaddirDenied extends ReaddirDeniedFileSystem {}
 
-function input(fs: FileSystem, extra: Partial<DiscoveryInput> = {}): DiscoveryInput {
-  return { fs, settings: {}, ...extra };
-}
-
 function packageInput(fs: FileSystem): PackageDiscoveryInput {
   return { fs, clock: new FakeClock(), settings: {} };
-}
-
-function byCode(diagnostics: readonly Diagnostic[], code: string): readonly Diagnostic[] {
-  return diagnostics.filter((d) => d.code === code);
 }
 
 function named(

@@ -1,26 +1,16 @@
 import { strExpr as stringExpr } from "./helpers/tool-call-dispatch-harness";
 import {
-  RecordingMutator,
-  SEAM_NOOP_CHECKPOINT as NOOP_CHECKPOINT,
-  SITE,
+  ScriptedHost,
+  deps,
   body,
   identExpr,
   letStmt,
   matchExpr,
   queryExpr,
-  realEnv,
   span,
 } from "./helpers/invoke-seam-scaffold";
 import { describe, expect, it } from "vitest";
-import {
-  executeBody,
-  type CheckpointDescriptor,
-  type ExecuteBodyDeps,
-  type StatementEvalHost,
-} from "../src/runtime/statement-executor";
-import type { LexicalEnvironment } from "../src/runtime/lexical-environment";
-import type { OperationResult } from "../src/runtime/cancellation-core";
-import type { DrivenConversationMode } from "../src/runtime/terminal-outcomes";
+import { executeBody } from "../src/runtime/statement-executor";
 import type { ResultValue, ThetaValue } from "../src/runtime/value";
 import type { QueryError } from "../src/runtime/query-error";
 import type {
@@ -76,59 +66,6 @@ function okErrMatch(scrutinee: Expr): MatchExpr {
     { pattern: { kind: "constructor", ctor: "Err", inner: { kind: "wildcard" } }, body: stringExpr("HANDLED") },
   ];
   return matchExpr(scrutinee, arms);
-}
-
-/**
- * A `StatementEvalHost` double whose `runEffect` returns a scripted
- * `OperationResult` keyed by the effect expression's `kind` (a `query` keys on
- * `"query"`) / a call's callee, and whose `evaluatePure` evaluates the bounded
- * literal / ident forms the witnesses need against the real environment. The
- * failing query is modelled as `{ ok:false, error: <tool_loop_exhausted> }` —
- * exactly what `runQueryEffect` feeds `evalExpr`'s effect arm for that variant.
- */
-class ScriptedHost implements StatementEvalHost {
-  readonly results = new Map<string, OperationResult>();
-
-  evaluatePure(expr: Expr, env: LexicalEnvironment): ThetaValue {
-    switch (expr.kind) {
-      case "string":
-      case "bool":
-        return expr.value;
-      case "number":
-        return Number(expr.text);
-      case "null":
-        return null;
-      case "ident":
-        return env.resolve(expr.name).value ?? null;
-      default:
-        return null;
-    }
-  }
-
-  checkpointFor(expr: Expr): CheckpointDescriptor | null {
-    if (expr.kind === "call" || expr.kind === "query" || expr.kind === "invoke") {
-      return { kind: "tool-call", site: SITE };
-    }
-    return null;
-  }
-
-  runEffect(expr: Expr): Promise<OperationResult> {
-    const key = expr.kind === "call" ? expr.callee : expr.kind;
-    return Promise.resolve(this.results.get(key) ?? { ok: true, value: null });
-  }
-}
-
-/** Assemble `ExecuteBodyDeps` from a host. */
-function deps(host: StatementEvalHost): ExecuteBodyDeps {
-  return {
-    env: realEnv(),
-    host,
-    checkpoint: NOOP_CHECKPOINT,
-    signal: new AbortController().signal,
-    mutator: new RecordingMutator(),
-    mode: "prompt" as DrivenConversationMode,
-    file: "test.theta",
-  };
 }
 
 /** The ceiling-#2 `tool_loop_exhausted` breach the bug's live probe fires. */

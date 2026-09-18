@@ -3,7 +3,7 @@ import { REGISTRY } from "./helpers/registry-oracle";
 import { describe, expect, it } from "vitest";
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
 import type { ThetaDocument } from "../src/parser/theta-document";
-import { parseDoc } from "./helpers/e2e-s1";
+import { diag, parseDoc, rendered } from "./helpers/e2e-s1";
 
 // Bug 0154 — the INLINE OBJECT TYPE's field name is a schema field name, so the
 // lowercase-first identifier rule reaches it, and nothing enforces it there
@@ -242,34 +242,6 @@ function theta(body: string): ThetaDocument {
  */
 function withParams(block: string): ThetaDocument {
   return parseDoc(`---\nmode: subagent\nparams:\n${block}\n---\n1\n`);
-}
-
-/** Every diagnostic rendered `severity code: message @l:c-l:c`, in emission order. */
-function rendered(doc: ThetaDocument): string[] {
-  return doc.diagnostics.map((d: Diagnostic) => {
-    const r = d.range;
-    const at =
-      r === undefined
-        ? "-"
-        : `${r.start.line}:${r.start.column}-${r.end.line}:${r.end.column}`;
-    return `${d.severity} ${d.code}: ${d.message} @${at}`;
-  });
-}
-
-/**
- * One expected diagnostic in `rendered`'s form. Every span this file asserts is
- * single-line, so the row reads `line, startColumn, endColumn` with the end
- * column exclusive.
- */
-function diag(
-  severity: "error" | "warning",
-  code: string,
-  message: string,
-  line: number,
-  startColumn: number,
-  endColumn: number,
-): string {
-  return `${severity} ${code}: ${message} @${line}:${startColumn}-${line}:${endColumn}`;
 }
 
 /**

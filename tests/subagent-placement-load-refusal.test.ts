@@ -9,9 +9,7 @@
 import { resolvingHost } from "./helpers/fake-json-child";
 import { makeIdleModelHost } from "./helpers/compose-workspace-harness";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { plantThetaWorkspace, disposeWorkspace } from "./helpers/production-load-harness";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import {
   composeExtensionInstance,
@@ -27,22 +25,23 @@ import type { Diagnostic } from "../src/diagnostics/diagnostic";
 let workspaceDir: string;
 
 beforeAll(() => {
-  workspaceDir = mkdtempSync(join(tmpdir(), "theta-rfc0012-placement-load-"));
-  const dir = join(workspaceDir, ".pi", "theta");
-  mkdirSync(dir, { recursive: true });
-  writeFileSync(join(dir, "worker.theta"), ["---", "mode: subagent", "---", '"ok"', ""].join("\n"), "utf8");
-  writeFileSync(
-    join(dir, "inline.theta"),
-    ["---", "mode: prompt", "---", "subagent fn step(x: string): string { x }", 'step("a")', ""].join("\n"),
-    "utf8",
+  workspaceDir = plantThetaWorkspace(
+    "theta-rfc0012-placement-load-",
+    [
+      { stem: "worker", text: ["---", "mode: subagent", "---", '"ok"', ""].join("\n") },
+      {
+        stem: "inline",
+        text: ["---", "mode: prompt", "---", "subagent fn step(x: string): string { x }", 'step("a")', ""].join("\n"),
+      },
+      { stem: "plain", text: ["---", "mode: prompt", "---", '"hello"', ""].join("\n") },
+    ],
+    // The explicit selection under test: a backend nobody has registered.
+    JSON.stringify({ theta: { subagentPlacement: "herdr" } }),
   );
-  writeFileSync(join(dir, "plain.theta"), ["---", "mode: prompt", "---", '"hello"', ""].join("\n"), "utf8");
-  // The explicit selection under test: a backend nobody has registered.
-  writeFileSync(join(workspaceDir, ".pi", "settings.json"), JSON.stringify({ theta: { subagentPlacement: "herdr" } }), "utf8");
 });
 
 afterAll(() => {
-  rmSync(workspaceDir, { recursive: true, force: true });
+  disposeWorkspace(workspaceDir);
 });
 
 function fakeHost(): { pi: ExtensionAPI; ctx: ExtensionContext; notes: string[] } {

@@ -79,9 +79,7 @@ import { resolvingHost } from "./helpers/fake-json-child";
 import { makeIdleModelHost, noteLinesContaining } from "./helpers/compose-workspace-harness";
 import { REGISTRY } from "./helpers/registry-oracle";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { plantThetaWorkspace, disposeWorkspace } from "./helpers/production-load-harness";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 // @ts-expect-error — JS code-registry module, no type declarations.
 import { registryMessage } from "../tools/code-registry/index.js";
@@ -293,21 +291,15 @@ beforeAll(() => {
   // subagent child) authenticates by the same rule and preempts the planted
   // one, so scrub it for the whole file and restore it afterwards.
   ambientControlPlane = scrubAmbientControlPlane();
-  workspaceDir = mkdtempSync(join(tmpdir(), "theta-bug0178-refusal-envelope-"));
-  const dir = join(workspaceDir, ".pi", "theta");
-  mkdirSync(dir, { recursive: true });
-  for (const fixture of THETAS) {
-    writeFileSync(join(dir, `${fixture.stem}.theta`), fixture.text, "utf8");
-  }
-  writeFileSync(
-    join(workspaceDir, ".pi", "settings.json"),
+  workspaceDir = plantThetaWorkspace(
+    "theta-bug0178-refusal-envelope-",
+    THETAS,
     JSON.stringify({ theta: { binderModel: UNMATCHABLE_BINDER_MODEL } }),
-    "utf8",
   );
 });
 
 afterAll(() => {
-  rmSync(workspaceDir, { recursive: true, force: true });
+  disposeWorkspace(workspaceDir);
   if (ambientControlPlane !== undefined) {
     restoreAmbientControlPlane(ambientControlPlane);
     ambientControlPlane = undefined;

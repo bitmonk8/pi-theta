@@ -27,7 +27,7 @@
 
 import { afterEach, describe, expect, it } from "vitest";
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -36,12 +36,10 @@ import {
   readMarshalledParams,
   SUBAGENT_PARAMS_ENV,
   SUBAGENT_PARAMS_FILE_ENV,
-  SUBAGENT_PARAMS_TEMP_FILE_MODE,
   SUBAGENT_PARAMS_THRESHOLD_BYTES,
   type ParamsIntakeDeps,
-  type ParamsMarshalDeps,
 } from "../src/runtime/subagent-params";
-import { fakeIntakeFs, fakeMarshalFs } from "./helpers/fake-file-system";
+import { fakeIntakeFs, fakeMarshalFs, realMarshalFs } from "./helpers/fake-file-system";
 
 // ---------------------------------------------------------------------------
 // Fixtures.
@@ -246,22 +244,14 @@ describe("SPAWN-08 — marshal → read round-trip at both payload sizes", () =>
     const dir = mkdtempSync(join(tmpdir(), "pi-theta-params-carrier-"));
     tempDirs.push(dir);
     const path = join(dir, "params.json");
-    const realMarshalFs: ParamsMarshalDeps = {
-      writeTempFile: (contents): string => {
-        writeFileSync(path, contents, { mode: SUBAGENT_PARAMS_TEMP_FILE_MODE });
-        return path;
-      },
-      unlink: (p): void => {
-        rmSync(p, { force: true });
-      },
-    };
+    const realFs = realMarshalFs(path);
     const realIntakeFs: ParamsIntakeDeps = {
       readFile: (p): string => readFileSync(p, "utf8"),
       unlink: (p): void => {
         rmSync(p, { force: true });
       },
     };
-    const marshalled = marshalParams(LARGE_PARAMS, realMarshalFs);
+    const marshalled = marshalParams(LARGE_PARAMS, realFs);
     try {
       const childEnv = childEnvOver(
         { [SUBAGENT_PARAMS_ENV]: canonicalizeParamsJson(STALE_CALLER_PARAMS) },

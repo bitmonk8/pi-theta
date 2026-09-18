@@ -55,6 +55,7 @@ import { checkThetaImports, type ThetaImportCheck } from "../../src/extension/im
 import {
   createProductionProducerDeps,
   type PiToolDispatch,
+  type ProductionProducerInput,
 } from "../../src/extension/production-theta-producer";
 import type {
   BodyExecutingConversationBinding,
@@ -222,6 +223,14 @@ export interface ImportedBodyBinding {
   readonly binding: BodyExecutingConversationBinding;
 }
 
+/** Optional child-launch substrate for imported-body witnesses that cross a process boundary. */
+export type ImportedBodyOverrides = Partial<Pick<
+  ProductionProducerInput,
+  "root" | "subagentSpawn" | "subagentExecutableHost" | "subagentParentEnv" | "subagentParentPid"
+>> & {
+  readonly ctx?: ExtensionCommandContext;
+};
+
 /**
  * Parse the importing theta at `sourcePath` (its body only — the shared
  * frontmatter above is prepended), run the real `checkThetaImports` over
@@ -248,6 +257,8 @@ export interface ImportedBodyBinding {
  * such cell passes an empty stub (`{}` cast to `ModelRegistry`).
  * `subagentInboundInvokeDepth` seeds the shared invoke-chain counter for
  * cross-file depth witnesses; absent means the producer starts at zero.
+ * `overrides` supplies the root, context and spawn substrate for child-launch
+ * witnesses; omitted fields retain the inert defaults.
  */
 export async function bindImportedBodyOverFs(
   appBody: string,
@@ -255,6 +266,7 @@ export async function bindImportedBodyOverFs(
   fs: FileSystem,
   modelRegistry: ModelRegistry,
   subagentInboundInvokeDepth?: number,
+  overrides: ImportedBodyOverrides = {},
 ): Promise<ImportedBodyBinding> {
   const app = parseImportingApp(appBody, sourcePath);
   expect(
@@ -276,6 +288,7 @@ export async function bindImportedBodyOverFs(
   });
   const imports: readonly MaterializedImport[] = check.imports;
 
+  const { ctx, ...producerOverrides } = overrides;
   const deps = createProductionProducerDeps({
     pi: {} as unknown as ExtensionAPI,
     root: {
@@ -288,6 +301,7 @@ export async function bindImportedBodyOverFs(
     modelRegistry,
     resolvePiTool: ambientResolvePiTool,
     ...(subagentInboundInvokeDepth !== undefined ? { subagentInboundInvokeDepth } : {}),
+    ...producerOverrides,
   });
   const theta: ThetaCompositionInput = {
     slashName: "app",
@@ -300,7 +314,7 @@ export async function bindImportedBodyOverFs(
   const bindInput: ConversationBindInput = {
     theta,
     args: "",
-    ctx: {} as unknown as ExtensionCommandContext,
+    ctx: ctx ?? ({} as unknown as ExtensionCommandContext),
   };
   const binding = deps.bindPromptConversation(bindInput);
   return { app, check, binding };
@@ -317,8 +331,17 @@ export async function bindImportedBody(
   appBody: string,
   libs: Record<string, string>,
   modelRegistry: ModelRegistry,
+  subagentInboundInvokeDepth?: number,
+  overrides: ImportedBodyOverrides = {},
 ): Promise<ImportedBodyBinding> {
-  return bindImportedBodyOverFs(appBody, "/proj/app.theta", fakeThetaLibFs(libs), modelRegistry);
+  return bindImportedBodyOverFs(
+    appBody,
+    "/proj/app.theta",
+    fakeThetaLibFs(libs),
+    modelRegistry,
+    subagentInboundInvokeDepth,
+    overrides,
+  );
 }
 
 /** The three-field shape `expectCleanImportLoad` checks: parse codes, load diagnostics, materialised imports. */

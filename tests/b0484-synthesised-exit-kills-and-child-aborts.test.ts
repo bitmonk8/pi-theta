@@ -31,7 +31,7 @@ import {
   abortInvocationsOnResultChannelDeath,
   RESULT_CHANNEL_DEATH_CANCEL_MESSAGE,
 } from "../src/runtime/cancellation-core";
-import type { ActiveInvocationEntry } from "../src/runtime/active-invocation-registry";
+import { fakeEntry } from "./helpers/execution-status-progress";
 import { driveSubagentChild } from "../src/runtime/subagent-json-driver";
 import type { ChildExitInfo } from "../src/runtime/subagent-launcher";
 import type { PlacedChild } from "../src/runtime/subagent-placement";
@@ -276,19 +276,9 @@ describe("bug 0484 — the child treats channel death as fatal", () => {
 });
 
 describe("bug 0484 — the channel-death sweep over active invocations", () => {
-  function entry(theta: string): ActiveInvocationEntry {
-    return {
-      thetaAbort: new AbortController(),
-      disposeBarrier: Promise.resolve(),
-      shutdownReason: undefined,
-      theta,
-      invocationId: `${theta}-id`,
-    };
-  }
-
   it("aborts every entry with the pinned CNCL-4 reason and stamps no shutdownReason", () => {
-    const a = entry("a");
-    const b = entry("b");
+    const a = fakeEntry({ theta: "a", invocationId: "a-id" });
+    const b = fakeEntry({ theta: "b", invocationId: "b-id" });
     abortInvocationsOnResultChannelDeath([a, b]);
     for (const swept of [a, b]) {
       expect(swept.thetaAbort.signal.aborted).toBe(true);
@@ -299,13 +289,13 @@ describe("bug 0484 — the channel-death sweep over active invocations", () => {
   });
 
   it("per-entry isolation: a throwing abort does not stop the sweep", () => {
-    const throwing = entry("boom");
+    const throwing = fakeEntry({ theta: "boom", invocationId: "boom-id" });
     Object.defineProperty(throwing.thetaAbort, "abort", {
       value: (): never => {
         throw new Error("defective controller");
       },
     });
-    const after = entry("after");
+    const after = fakeEntry({ theta: "after", invocationId: "after-id" });
     expect(() => abortInvocationsOnResultChannelDeath([throwing, after])).not.toThrow();
     expect(after.thetaAbort.signal.aborted).toBe(true);
   });

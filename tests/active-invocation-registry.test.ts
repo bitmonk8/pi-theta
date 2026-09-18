@@ -12,31 +12,17 @@
 // (`createAgentSession` / `AgentSessionLike`) was retired under RFC-0005.
 
 import { describe, expect, it } from "vitest";
-import {
-  ActiveInvocationRegistry,
-  type ActiveInvocationEntry,
-} from "../src/runtime/active-invocation-registry";
-
-// --- helpers --------------------------------------------------------------
-
-function makeEntry(theta: string, invocationId: string): ActiveInvocationEntry {
-  return {
-    thetaAbort: new AbortController(),
-    disposeBarrier: Promise.resolve(),
-    shutdownReason: undefined,
-    theta,
-    invocationId,
-  };
-}
+import { ActiveInvocationRegistry } from "../src/runtime/active-invocation-registry";
+import { fakeEntry } from "./helpers/execution-status-progress";
 
 // --- insertion-order iteration --------------------------------------------
 
 describe("ActiveInvocationRegistry — insertion-order iteration (PIC area)", () => {
   it("iterates registered invocations in insertion order; teardown reaches every entry", () => {
     const registry = new ActiveInvocationRegistry();
-    const e1 = makeEntry("alpha", "id-1");
-    const e2 = makeEntry("beta", "id-2");
-    const e3 = makeEntry("gamma", "id-3");
+    const e1 = fakeEntry({ theta: "alpha", invocationId: "id-1" });
+    const e2 = fakeEntry({ theta: "beta", invocationId: "id-2" });
+    const e3 = fakeEntry({ theta: "gamma", invocationId: "id-3" });
 
     registry.add(e1);
     registry.add(e2);

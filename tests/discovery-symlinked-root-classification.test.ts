@@ -3,10 +3,17 @@ import { describe, expect, it } from "vitest";
 import {
   discoverThetas,
   type DiscoveredTheta,
-  type DiscoveryInput,
 } from "../src/discovery/discovery-walk";
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
-import { FakeFileSystem, ancestors, mergeDirs } from "./helpers/fake-file-system";
+import {
+  FakeFileSystem,
+  ancestors,
+  mergeDirs,
+  DISCOVERY_BASE as BASE,
+  DISCOVERY_GLOBAL_ROOT as GLOBAL_ROOT,
+  DISCOVERY_PROJECT_ROOT as PROJECT_ROOT,
+  discoveryInput as input,
+} from "./helpers/fake-file-system";
 
 // Bug 0075 (headline half) — how `classifyPath`
 // (src/discovery/discovery-walk.ts) must classify a discovery candidate
@@ -77,16 +84,9 @@ const WRONG_TYPE_SOURCE = "theta/load/wrong-type-source";
 
 const HOME = "/home/theta";
 const CWD = "/project";
-const GLOBAL_ROOT = "/home/theta/.pi/agent/theta";
-const PROJECT_ROOT = "/project/.pi/theta";
 
 /** A body that parses far enough to register (the walk reads the bytes). */
 const THETA_BODY = "mode: prompt\n---\n";
-
-/** Both conventional roots' ancestor chains, in every fixture, so an absent
- *  conventional root classifies as a clean (silent) missing and each cell's
- *  diagnostic set is about the path under test alone. */
-const BASE = mergeDirs(ancestors(GLOBAL_ROOT), ancestors(PROJECT_ROOT));
 
 interface FakeSpec {
   readonly dirs?: Record<string, readonly string[]>;
@@ -106,10 +106,6 @@ function build(spec: FakeSpec): FakeFileSystem {
     others: spec.others ?? [],
     errors: spec.errors ?? {},
   });
-}
-
-function input(fs: FakeFileSystem, extra: Partial<DiscoveryInput> = {}): DiscoveryInput {
-  return { fs, settings: {}, ...extra };
 }
 
 function names(thetas: readonly DiscoveredTheta[]): string[] {

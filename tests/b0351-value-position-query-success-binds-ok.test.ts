@@ -1,18 +1,6 @@
-import { RecordingMutator } from "./helpers/invoke-seam-scaffold";
+import { ScriptedHost, deps } from "./helpers/invoke-seam-scaffold";
 import { describe, expect, it } from "vitest";
-import {
-  executeBody,
-  type CheckpointDescriptor,
-  type ExecuteBodyDeps,
-  type StatementEvalHost,
-} from "../src/runtime/statement-executor";
-import {
-  buildEnvironment,
-  LexicalEnvironment,
-} from "../src/runtime/lexical-environment";
-import type { OperationResult } from "../src/runtime/cancellation-core";
-import type { Checkpoint, CheckpointSite } from "../src/seams/checkpoint";
-import type { DrivenConversationMode } from "../src/runtime/terminal-outcomes";
+import { executeBody } from "../src/runtime/statement-executor";
 import {
   isResultValue,
   makeErr,
@@ -131,75 +119,6 @@ function okErrMatch(scrutinee: Expr): MatchExpr {
     { pattern: { kind: "constructor", ctor: "Err", inner: { kind: "wildcard" } }, body: stringExpr("ERRARM") },
   ];
   return matchExpr(scrutinee, arms);
-}
-
-// --- Real environment ------------------------------------------------------
-
-/** A real root environment over an empty body. */
-function realEnv(): LexicalEnvironment {
-  return buildEnvironment({ body: { statements: [], tail: null } });
-}
-
-const SITE: CheckpointSite = { file: "theta.theta", line: 1, column: 1 };
-
-/** A no-op `Checkpoint` (an already-resolved promise). */
-const NOOP_CHECKPOINT: Checkpoint = {
-  before(): Promise<void> {
-    return Promise.resolve();
-  },
-};
-
-/**
- * A `StatementEvalHost` double whose `runEffect` returns a scripted
- * `OperationResult` keyed by the effect expression's `kind` (a `query` keys on
- * `"query"`) / a call's callee, and whose `evaluatePure` evaluates the bounded
- * literal / ident forms the witnesses need against the real environment. A
- * succeeding query is modelled as `{ ok:true, value: <raw payload/string> }` —
- * exactly what `runQueryEffect` feeds `evalExpr`'s effect arm for a success.
- */
-class ScriptedHost implements StatementEvalHost {
-  readonly results = new Map<string, OperationResult>();
-
-  evaluatePure(expr: Expr, env: LexicalEnvironment): ThetaValue {
-    switch (expr.kind) {
-      case "string":
-      case "bool":
-        return expr.value;
-      case "number":
-        return Number(expr.text);
-      case "null":
-        return null;
-      case "ident":
-        return env.resolve(expr.name).value ?? null;
-      default:
-        return null;
-    }
-  }
-
-  checkpointFor(expr: Expr): CheckpointDescriptor | null {
-    if (expr.kind === "call" || expr.kind === "query" || expr.kind === "invoke") {
-      return { kind: "tool-call", site: SITE };
-    }
-    return null;
-  }
-
-  runEffect(expr: Expr): Promise<OperationResult> {
-    const key = expr.kind === "call" ? expr.callee : expr.kind;
-    return Promise.resolve(this.results.get(key) ?? { ok: true, value: null });
-  }
-}
-
-/** Assemble `ExecuteBodyDeps` from a host. */
-function deps(host: StatementEvalHost): ExecuteBodyDeps {
-  return {
-    env: realEnv(),
-    host,
-    checkpoint: NOOP_CHECKPOINT,
-    signal: new AbortController().signal,
-    mutator: new RecordingMutator(),
-    mode: "prompt" as DrivenConversationMode,
-    file: "test.theta",
-  };
 }
 
 /** A non-cancel query failure (the 0307 Err-side control's error). */

@@ -1,8 +1,13 @@
+import { byCode } from "./helpers/e2e-s1";
 import { describe, expect, it } from "vitest";
-import { discoverThetas, type DiscoveryInput } from "../src/discovery/discovery-walk";
-import type { ThetaSettings } from "../src/discovery/settings";
-import type { Diagnostic } from "../src/diagnostics/diagnostic";
-import { FakeFileSystem, ancestors, mergeDirs } from "./helpers/fake-file-system";
+import { discoverThetas } from "../src/discovery/discovery-walk";
+import {
+  FakeFileSystem,
+  ancestors,
+  mergeDirs,
+  DISCOVERY_BASE as BASE,
+  discoveryInput as input,
+} from "./helpers/fake-file-system";
 
 // V20f-T — failing tests for the paired `V20f` production-wiring fix (Bucket C:
 // implemented wrongly). A `--theta <file>` / settings `thetaPaths` entry naming a
@@ -20,12 +25,6 @@ import { FakeFileSystem, ancestors, mergeDirs } from "./helpers/fake-file-system
 
 const HOME = "/home/theta";
 const CWD = "/project";
-const GLOBAL_ROOT = "/home/theta/.pi/agent/theta";
-const PROJECT_ROOT = "/project/.pi/theta";
-
-/** The two conventional roots' ancestor chains — registered so an absent
- *  conventional root classifies as a silent missing, not an unreadable one. */
-const BASE = mergeDirs(ancestors(GLOBAL_ROOT), ancestors(PROJECT_ROOT));
 
 interface FakeSpec {
   readonly dirs?: Record<string, readonly string[]>;
@@ -41,16 +40,6 @@ function build(spec: FakeSpec): FakeFileSystem {
     errors: {},
     symlinks: {},
   });
-}
-
-const NO_SETTINGS: ThetaSettings = {};
-
-function input(fs: FakeFileSystem, extra: Partial<DiscoveryInput> = {}): DiscoveryInput {
-  return { fs, settings: NO_SETTINGS, ...extra };
-}
-
-function byCode(diagnostics: readonly Diagnostic[], code: string): readonly Diagnostic[] {
-  return diagnostics.filter((d) => d.code === code);
 }
 
 // --------------------------------------------------------------------------

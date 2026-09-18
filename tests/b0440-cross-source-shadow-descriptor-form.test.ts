@@ -38,12 +38,17 @@
 // value and renders the descriptor form / drops the placeholder-supplied quotes.
 
 import { describe, expect, it } from "vitest";
-import { discoverThetas, type DiscoveryInput } from "../src/discovery/discovery-walk";
-import { FakeFileSystem, ancestors, mergeDirs } from "./helpers/fake-file-system";
+import { discoverThetas } from "../src/discovery/discovery-walk";
+import {
+  buildDiscovery as build,
+  discoveryInput as input,
+  cliSettingsShadowInput,
+  ancestors,
+  mergeDirs,
+} from "./helpers/fake-file-system";
 import { soleByFragment } from "./helpers/e2e-s1";
+import { THETA_BODY } from "./helpers/discovery-scratch-harness";
 
-const HOME = "/home/theta";
-const CWD = "/project";
 // globalAgentDir() = <homedir>/.pi/agent, project root = <cwd>/.pi/theta —
 // the two conventional roots' resolved directory paths (0268 forward-slashed),
 // which the fix renders as the project/global descriptor VALUES.
@@ -56,26 +61,6 @@ const PROJECT_ROOT = "/project/.pi/theta";
 const SHADOW_FRAGMENT = "shadowed across discovery sources";
 const COLLISION_FRAGMENT = "collides at the same priority";
 
-interface FakeSpec {
-  readonly dirs?: Record<string, readonly string[]>;
-  readonly files?: Record<string, string>;
-}
-
-function build(spec: FakeSpec): FakeFileSystem {
-  return new FakeFileSystem({
-    homedir: HOME,
-    cwd: CWD,
-    dirs: spec.dirs ?? {},
-    files: spec.files ?? {},
-  });
-}
-
-function input(fs: FakeFileSystem, extra: Partial<DiscoveryInput> = {}): DiscoveryInput {
-  return { fs, settings: {}, ...extra };
-}
-
-const THETA_BODY = "mode: prompt\n---\n";
-
 // --------------------------------------------------------------------------
 // Arm 1 — cli-flag vs settings. A `--theta` file (priority 1) and a settings
 // `thetaPaths` file (priority 2) derive the same slash name; the cli source
@@ -86,25 +71,7 @@ const THETA_BODY = "mode: prompt\n---\n";
 
 describe("b0440 arm 1 — cli-flag vs settings shadow renders the descriptor form", () => {
   it("renders 'cli-flag:\"--theta …\"' wins over 'settings:\"…\"', not bare paths", async () => {
-    const fs = build({
-      dirs: mergeDirs(
-        ancestors("/ext/plan.theta"),
-        { "/ext": ["plan.theta"] },
-        ancestors("/work/plan.theta"),
-        { "/work": ["plan.theta"] },
-      ),
-      files: {
-        "/ext/plan.theta": THETA_BODY,
-        "/work/plan.theta": THETA_BODY,
-      },
-    });
-
-    const { diagnostics } = await discoverThetas(
-      input(fs, {
-        cliPaths: ["/ext/plan.theta"],
-        settings: { thetaPaths: ["/work/plan.theta"] },
-      }),
-    );
+    const { diagnostics } = await discoverThetas(cliSettingsShadowInput(THETA_BODY));
 
     const shadow = soleByFragment(diagnostics, SHADOW_FRAGMENT);
     expect(shadow.message).toBe(

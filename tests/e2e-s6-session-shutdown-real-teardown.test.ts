@@ -1,10 +1,8 @@
 import { bootFactory, type Harness } from "./helpers/watch-arming-harness";
 import { signalSpy } from "./helpers/session-shutdown-harness";
 import { describe, expect, it, vi } from "vitest";
-import {
-  ActiveInvocationRegistry,
-  type ActiveInvocationEntry,
-} from "../src/runtime/active-invocation-registry";
+import { ActiveInvocationRegistry } from "../src/runtime/active-invocation-registry";
+import { fakeEntry } from "./helpers/execution-status-progress";
 import type { ForwardingSignalSource } from "../src/extension/session-shutdown";
 import { FakeClock } from "./helpers/fake-clock";
 
@@ -30,18 +28,6 @@ import { FakeClock } from "./helpers/fake-clock";
 // listeners); REQ-PIC-35/76/78/81, REQ-SESS-3/SESS-4. No filesystem, no live
 // model, no real watcher.
 
-/** A single in-flight entry whose `disposeBarrier` is already settled so
- * sub-step 3's bounded await completes immediately. */
-function seededEntry(theta: string, invocationId: string): ActiveInvocationEntry {
-  return {
-    thetaAbort: new AbortController(),
-    disposeBarrier: Promise.resolve(),
-    shutdownReason: undefined,
-    theta,
-    invocationId,
-  };
-}
-
 interface Booted {
   readonly harness: Harness;
   readonly activeInvocations: ActiveInvocationRegistry;
@@ -55,8 +41,9 @@ interface Booted {
  * that carries a SEEDED shared registry + forwarding-signal sink. */
 async function boot(): Promise<Booted> {
   const activeInvocations = new ActiveInvocationRegistry();
-  activeInvocations.add(seededEntry("foo", "11111111-1111-4111-8111-111111111111"));
-  activeInvocations.add(seededEntry("bar", "22222222-2222-4222-8222-222222222222"));
+  // The entries' disposeBarriers are already settled so sub-step 3's bounded await completes immediately.
+  activeInvocations.add(fakeEntry({ theta: "foo", invocationId: "11111111-1111-4111-8111-111111111111" }));
+  activeInvocations.add(fakeEntry({ theta: "bar", invocationId: "22222222-2222-4222-8222-222222222222" }));
   const forwardingSignals = [
     signalSpy("ctx.signal.removeEventListener"),
     signalSpy("toolSignal.removeEventListener"),

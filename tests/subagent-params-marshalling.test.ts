@@ -20,7 +20,7 @@
 // reds on its primary behaviour; the paired implementation leaf greens them.
 
 import { describe, expect, it } from "vitest";
-import { rmSync, statSync, writeFileSync } from "node:fs";
+import { statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -34,10 +34,9 @@ import {
   SUBAGENT_PARAMS_TEMP_FILE_MODE,
   SUBAGENT_PARAMS_THRESHOLD_BYTES,
   SUBAGENT_PARAMS_VALIDATION_FAILED_CODE,
-  type ParamsMarshalDeps,
   type ParamsSchemaValidator,
 } from "../src/runtime/subagent-params";
-import { fakeIntakeFs, fakeMarshalFs } from "./helpers/fake-file-system";
+import { fakeIntakeFs, fakeMarshalFs, realMarshalFs } from "./helpers/fake-file-system";
 
 const ALWAYS_VALID: ParamsSchemaValidator = {
   validate: () => ({ ok: true }),
@@ -157,15 +156,7 @@ describe("PIC-60 — env / temp-file threshold cutover", () => {
     }
     // POSIX only: a real fs write at the pinned mode is owner read/write only.
     const path = join(tmpdir(), `pi-theta-params-perm-${process.pid}.json`);
-    const realFs: ParamsMarshalDeps = {
-      writeTempFile: (contents): string => {
-        writeFileSync(path, contents, { mode: SUBAGENT_PARAMS_TEMP_FILE_MODE });
-        return path;
-      },
-      unlink: (p): void => {
-        rmSync(p, { force: true });
-      },
-    };
+    const realFs = realMarshalFs(path);
     const marshalled = marshalParams(bigParams(), realFs);
     try {
       const stat = statSync(path);

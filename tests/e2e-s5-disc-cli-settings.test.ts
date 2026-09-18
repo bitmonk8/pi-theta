@@ -1,12 +1,8 @@
 import { delimiter as PATH_DELIMITER } from "node:path";
 import { describe, expect, it } from "vitest";
 import { byCode } from "./helpers/e2e-s1";
-import {
-  discoverThetas,
-  type DiscoveredTheta,
-  type DiscoveryInput,
-} from "../src/discovery/discovery-walk";
-import { loadSettings, type ThetaSettings } from "../src/discovery/settings";
+import { discoverThetas } from "../src/discovery/discovery-walk";
+import { loadSettings } from "../src/discovery/settings";
 import {
   FakeFileSystem,
   ancestors,
@@ -15,6 +11,9 @@ import {
   SETTINGS_CWD as CWD,
   PROJECT_SETTINGS_PATH as PROJECT_SETTINGS,
   GLOBAL_SETTINGS_PATH as GLOBAL_SETTINGS,
+  DISCOVERY_BASE as BASE,
+  discoveryInput as input,
+  namedTheta as named,
 } from "./helpers/fake-file-system";
 
 // e2e-s5 — offline-unit (METHOD M1) coverage for three uncovered DISC
@@ -34,13 +33,6 @@ import {
 //               diagnostic); the wrong-type rule fires only for a
 //               non-.theta-file, non-directory target.
 
-const GLOBAL_ROOT = "/home/theta/.pi/agent/theta";
-const PROJECT_ROOT = "/project/.pi/theta";
-
-/** Both conventional roots' ancestor chains — registered in every fixture so an
- *  absent conventional root classifies as a clean (silent) missing. */
-const BASE = mergeDirs(ancestors(GLOBAL_ROOT), ancestors(PROJECT_ROOT));
-
 interface FakeSpec {
   readonly dirs?: Record<string, readonly string[]>;
   readonly files?: Record<string, string>;
@@ -59,16 +51,6 @@ function build(spec: FakeSpec): FakeFileSystem {
     symlinks: spec.symlinks ?? {},
     others: spec.others ?? [],
   });
-}
-
-const NO_SETTINGS: ThetaSettings = {};
-
-function input(fs: FakeFileSystem, extra: Partial<DiscoveryInput> = {}): DiscoveryInput {
-  return { fs, settings: NO_SETTINGS, ...extra };
-}
-
-function named(thetas: readonly DiscoveredTheta[], name: string): DiscoveredTheta | undefined {
-  return thetas.find((l) => l.name === name);
 }
 
 const THETA = "mode: prompt\n---\n";

@@ -14,7 +14,7 @@ import { REGISTRY_SWAP_FAILED_CODE } from "../src/extension/reload-wiring";
 import { RELOAD_DEBOUNCE_WINDOW_MS } from "../src/extension/reload-debounce";
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
 import { FakeClock } from "./helpers/fake-clock";
-import { FakeFileWatcher } from "./helpers/fake-file-watcher";
+import { FakeFileWatcher, waitFor } from "./helpers/fake-file-watcher";
 import { makeRecordingHarness, type RecordingHarness } from "./helpers/watch-arming-harness";
 
 // Phase 5 (DISCO-2) — deterministic watcher / hot-reload integration.
@@ -62,15 +62,6 @@ function makeHarness(cwd: string): Harness {
       getCommandsThrows = v;
     },
   };
-}
-
-/** Poll a real-timer-bounded condition (awaits the genuinely-async fs reads). */
-async function waitFor(cond: () => boolean, label: string): Promise<void> {
-  for (let i = 0; i < 400; i++) {
-    if (cond()) return;
-    await new Promise((resolve) => setTimeout(resolve, 5));
-  }
-  throw new Error(`timeout waiting for ${label}`);
 }
 
 describe("Phase 5 (DISCO-2) — watcher / hot-reload wired through the shipped composition", () => {

@@ -1108,3 +1108,31 @@ export const S_INT = "schema S { n: integer }\n";
 
 /** The `string`-declared schema field of cells L3 / L3c (finding F3). */
 export const S_STR = "schema S { s: string }\n";
+
+/** Every diagnostic rendered `severity code: message @l:c-l:c`, in emission order. */
+export function rendered(doc: ThetaDocument): string[] {
+  return doc.diagnostics.map((d: Diagnostic) => {
+    const r = d.range;
+    const at =
+      r === undefined
+        ? "-"
+        : `${r.start.line}:${r.start.column}-${r.end.line}:${r.end.column}`;
+    return `${d.severity} ${d.code}: ${d.message} @${at}`;
+  });
+}
+
+/**
+ * One expected diagnostic in `rendered`'s form. Expected spans are single-line,
+ * so the row reads `line, startColumn, endColumn` with the end
+ * column exclusive.
+ */
+export function diag(
+  severity: "error" | "warning",
+  code: string,
+  message: string,
+  line: number,
+  startColumn: number,
+  endColumn: number,
+): string {
+  return `${severity} ${code}: ${message} @${line}:${startColumn}-${line}:${endColumn}`;
+}
