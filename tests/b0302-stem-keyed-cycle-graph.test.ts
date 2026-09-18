@@ -51,12 +51,7 @@
 // this fork by construction, which is the point.
 
 import { describe, expect, it } from "vitest";
-import { checkThetaImports } from "../src/extension/import-static-checks";
-import type { ThetaCompositionInput } from "../src/extension/theta-composition-producer";
-import type { ParsedFrontmatter } from "../src/parser/frontmatter";
-import { parseThetaDocument, type ThetaDocument } from "../src/parser/theta-document";
-import type { FileSystem } from "../src/seams/file-system";
-import { parseDeps } from "./helpers/e2e-s1";
+import { loadThetaLibDiags } from "./helpers/thetalib-load-harness";
 
 /** The registered load code the spec §Cycles anchor names. */
 const CYCLE_CODE = "theta/load/import-cycle";
@@ -70,80 +65,13 @@ const CYCLE_CODE = "theta/load/import-cycle";
  */
 const COLLISION_CODE = "theta/parse/import-name-collision";
 
-/** The importing `.theta` frontmatter every fixture shares (a real prompt-mode theta). */
-const APP_FRONTMATTER = ["---", 'model: "sonnet"', "mode: prompt", "---"].join("\n");
-
-function parse(source: string, path: string): ThetaDocument {
-  return parseThetaDocument({ path, bytes: new TextEncoder().encode(source) }, parseDeps());
-}
-
-function parseApp(body: string): ThetaDocument {
-  return parse(`${APP_FRONTMATTER}\n${body}`, "/proj/app.theta");
-}
-
-// The in-memory `.thetalib` filesystem double from
-// tests/reexport-chain-resolution.test.ts: only `readdir` / `readBytes` are
-// exercised, every other member rejects so an unexpected call reds loudly.
-function fakeThetaLibFs(files: Record<string, string>): FileSystem {
-  const dirs = new Map<string, string[]>();
-  for (const path of Object.keys(files)) {
-    const slash = path.lastIndexOf("/");
-    const parent = path.slice(0, slash);
-    const entries = dirs.get(parent) ?? [];
-    entries.push(path.slice(slash + 1));
-    dirs.set(parent, entries);
-  }
-  const reject = (): Promise<never> =>
-    Promise.reject(new Error("filesystem member not exercised by this test"));
-  return {
-    readText: reject,
-    writeText: reject,
-    exists: reject,
-    homedir: (): string => "/home",
-    cwd: (): string => "/proj",
-    configDirName: (): string => ".pi",
-    globalAgentDir: (): string => "/home/.pi/agent",
-    lstat: reject,
-    realpath: reject,
-    readdir: (path: string): Promise<readonly string[]> => {
-      const entries = dirs.get(path);
-      return entries === undefined
-        ? Promise.reject(new Error(`ENOENT: ${path}`))
-        : Promise.resolve(entries);
-    },
-    readBytes: (path: string): Promise<Uint8Array> => {
-      const content = files[path];
-      return content === undefined
-        ? Promise.reject(new Error(`ENOENT: ${path}`))
-        : Promise.resolve(new TextEncoder().encode(content));
-    },
-  } as FileSystem;
-}
-
 /**
  * Parse `/proj/app.theta`, run the real `checkThetaImports` over `libs`, and
  * render the load-pass diagnostics as `${severity} ${code}: ${message}` lines —
  * the exact string shape the bug doc §Reproduction quotes.
  */
 async function diagLines(appBody: string, libs: Record<string, string>): Promise<string[]> {
-  const app = parseApp(appBody);
-  expect(
-    app.frontmatter,
-    `the importing theta's frontmatter must parse or the load pass reads nothing; diagnostics: ${JSON.stringify(
-      app.diagnostics.map((d) => `${d.severity} ${d.code}: ${d.message}`),
-    )}`,
-  ).not.toBeNull();
-  const input: ThetaCompositionInput = {
-    slashName: "app",
-    sourcePath: "/proj/app.theta",
-    frontmatter: app.frontmatter as ParsedFrontmatter,
-    body: app.body,
-  };
-  const check = await checkThetaImports(input, {
-    fs: fakeThetaLibFs(libs),
-    parseDeps: parseDeps(),
-  });
-  return check.diagnostics.map((d) => `${d.severity} ${d.code}: ${d.message}`);
+  return (await loadThetaLibDiags(appBody, libs)).diagLines;
 }
 
 describe("bug 0302 — the cycle graph's node identity is the file, not the basename stem", () => {

@@ -110,7 +110,9 @@ export function fakeThetaLibFs(files: Record<string, string>): FileSystem {
         : Promise.resolve(entries);
     },
     readBytes: (path: string): Promise<Uint8Array> => {
-      const content = files[path];
+      const content = Object.prototype.hasOwnProperty.call(files, path)
+        ? files[path]
+        : undefined;
       return content === undefined
         ? Promise.reject(new Error(`ENOENT: ${path}`))
         : Promise.resolve(new TextEncoder().encode(content));
@@ -123,25 +125,41 @@ export interface LoadResult {
   readonly appParseCodes: string[];
   readonly diagnostics: readonly Diagnostic[];
   readonly diagLines: string[];
+  readonly materialised: string[];
+  readonly rendered: string[];
+}
+
+/** Parse an importing `.theta` body under the shared prompt-mode frontmatter. */
+export function parseImportingApp(body: string, sourcePath = "/proj/app.theta"): ThetaDocument {
+  return parseThetaDocument(
+    { path: sourcePath, bytes: new TextEncoder().encode(`${APP_FRONTMATTER}\n${body}`) },
+    parseDeps(),
+  );
+}
+
+/** Every diagnostic rendered `<severity> <code> <file>: <message>`. */
+export function renderThetaLibDiags(diagnostics: readonly Diagnostic[]): string[] {
+  return diagnostics.map(
+    (d) => `${d.severity} ${d.code} ${d.file === undefined ? "-" : d.file}: ${d.message}`,
+  );
 }
 
 /**
  * Parse `/proj/app.theta` (given only its body — the shared frontmatter above
  * is prepended) and run the real `checkThetaImports` over `libs`, returning
- * the load pass's diagnostics rendered as `severity code: message`.
+ * the materialised names and load diagnostics, with and without file names.
+ * An already-parsed `/proj/app.theta` may be supplied so callers can assert
+ * parse-tier diagnostics before driving the load pass over the same document.
  *
  * The importing theta's frontmatter is asserted to parse — if it did not the
  * load pass would read nothing and a later red would be a harness fault rather
  * than the missing diagnostic under witness.
  */
 export async function loadThetaLibDiags(
-  appBody: string,
+  appBody: string | ThetaDocument,
   libs: Record<string, string>,
 ): Promise<LoadResult> {
-  const app = parseThetaDocument(
-    { path: "/proj/app.theta", bytes: new TextEncoder().encode(`${APP_FRONTMATTER}\n${appBody}`) },
-    parseDeps(),
-  );
+  const app = typeof appBody === "string" ? parseImportingApp(appBody) : appBody;
   expect(
     app.frontmatter,
     `the importing theta's frontmatter must parse or the load pass reads nothing; diagnostics: ${JSON.stringify(
@@ -163,7 +181,22 @@ export async function loadThetaLibDiags(
     appParseCodes: app.diagnostics.map((d) => d.code),
     diagnostics: check.diagnostics,
     diagLines: check.diagnostics.map((d) => `${d.severity} ${d.code}: ${d.message}`),
+    materialised: check.imports.map((m) => `${m.kind} ${m.name}`),
+    rendered: renderThetaLibDiags(check.diagnostics),
   };
+}
+
+/** Assert that the library resolved and exported the symbol before checking a load-pass verdict. */
+export function expectMaterialisedImport(
+  result: LoadResult,
+  expected: string,
+  cell: string,
+  reason: string,
+): void {
+  expect(
+    result.materialised,
+    `PRECONDITION (${cell}): the load pass must materialise \`${expected}\`; that is the proof ${reason}. Diagnostics: ${JSON.stringify(result.rendered)}`,
+  ).toContain(expected);
 }
 
 /** A no-op `Checkpoint`: `bindImportedBody`'s cells checkpoint nothing observable. */
@@ -213,17 +246,17 @@ export interface ImportedBodyBinding {
  * session switch reads `getAvailable` to resolve a spawned session's model, so
  * a caller driving a `subagent fn` cell must populate it; a caller with no
  * such cell passes an empty stub (`{}` cast to `ModelRegistry`).
+ * `subagentInboundInvokeDepth` seeds the shared invoke-chain counter for
+ * cross-file depth witnesses; absent means the producer starts at zero.
  */
 export async function bindImportedBodyOverFs(
   appBody: string,
   sourcePath: string,
   fs: FileSystem,
   modelRegistry: ModelRegistry,
+  subagentInboundInvokeDepth?: number,
 ): Promise<ImportedBodyBinding> {
-  const app = parseThetaDocument(
-    { path: sourcePath, bytes: new TextEncoder().encode(`${APP_FRONTMATTER}\n${appBody}`) },
-    parseDeps(),
-  );
+  const app = parseImportingApp(appBody, sourcePath);
   expect(
     app.frontmatter,
     `the importing theta's frontmatter must parse or the load pass reads nothing; diagnostics: ${JSON.stringify(
@@ -254,6 +287,7 @@ export async function bindImportedBodyOverFs(
     } as unknown as RuntimeRoot,
     modelRegistry,
     resolvePiTool: ambientResolvePiTool,
+    ...(subagentInboundInvokeDepth !== undefined ? { subagentInboundInvokeDepth } : {}),
   });
   const theta: ThetaCompositionInput = {
     slashName: "app",

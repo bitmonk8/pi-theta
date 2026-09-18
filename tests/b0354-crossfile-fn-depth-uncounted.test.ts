@@ -1,33 +1,17 @@
 import { describe, expect, it } from "vitest";
-import type {
-  ExtensionAPI,
-  ExtensionCommandContext,
-  ModelRegistry,
-} from "@earendil-works/pi-coding-agent";
-import { checkThetaImports } from "../src/extension/import-static-checks";
-import {
-  createProductionProducerDeps,
-  type PiToolDispatch,
-} from "../src/extension/production-theta-producer";
-import type {
-  ConversationBindInput,
-  ThetaCompositionInput,
-} from "../src/extension/theta-composition-producer";
-import type { ParsedFrontmatter } from "../src/parser/frontmatter";
-import { parseThetaDocument, type ThetaDocument } from "../src/parser/theta-document";
+import type { ModelRegistry } from "@earendil-works/pi-coding-agent";
 import {
   InvokeDepthExceededPanic,
   newInvokeChainAtDepth,
   pushCountableFrame,
 } from "../src/runtime/invoke-depth-cycle";
-import type { MaterializedImport } from "../src/runtime/lexical-environment";
 import { executeBody } from "../src/runtime/statement-executor";
-import type { AgentToolResultEnvelope } from "../src/runtime/tool-call-execute";
 import { isEnumValue, schemaTagOf, type ThetaValue } from "../src/runtime/value";
-import type { RuntimeRoot } from "../src/runtime-root";
-import type { Checkpoint } from "../src/seams/checkpoint";
-import type { FileSystem } from "../src/seams/file-system";
-import { parseDeps } from "./helpers/e2e-s1";
+import {
+  bindImportedBodyOverFs,
+  expectCleanImportLoad,
+  fakeThetaLibFs,
+} from "./helpers/thetalib-load-harness";
 
 // Bug 0354 — a CROSS-FILE `.thetalib` `fn` call is never counted against
 // ceiling #1 (INV-4, the invoke-chain depth cap of 32). INV-4 names FOUR
@@ -90,59 +74,6 @@ import { parseDeps } from "./helpers/e2e-s1";
 // `0.367.0` is a literal version placeholder — the lane parent fills the real
 // version.
 
-/** The importing `.theta` frontmatter every fixture shares. */
-const APP_FRONTMATTER = ["---", 'model: "sonnet"', "mode: prompt", "---"].join("\n");
-
-function parse(source: string, path: string): ThetaDocument {
-  return parseThetaDocument({ path, bytes: new TextEncoder().encode(source) }, parseDeps());
-}
-
-function parseApp(body: string): ThetaDocument {
-  return parse(`${APP_FRONTMATTER}\n${body}`, "/proj/app.theta");
-}
-
-function fakeThetaLibFs(files: Record<string, string>): FileSystem {
-  const dirs = new Map<string, string[]>();
-  for (const path of Object.keys(files)) {
-    const slash = path.lastIndexOf("/");
-    const parent = path.slice(0, slash);
-    const entries = dirs.get(parent) ?? [];
-    entries.push(path.slice(slash + 1));
-    dirs.set(parent, entries);
-  }
-  const reject = (): Promise<never> =>
-    Promise.reject(new Error("filesystem member not exercised by this test"));
-  return {
-    readText: reject,
-    writeText: reject,
-    exists: reject,
-    homedir: (): string => "/home",
-    cwd: (): string => "/proj",
-    configDirName: (): string => ".pi",
-    globalAgentDir: (): string => "/home/.pi/agent",
-    lstat: reject,
-    realpath: reject,
-    readdir: (path: string): Promise<readonly string[]> => {
-      const entries = dirs.get(path);
-      return entries === undefined
-        ? Promise.reject(new Error(`ENOENT: ${path}`))
-        : Promise.resolve(entries);
-    },
-    readBytes: (path: string): Promise<Uint8Array> => {
-      const content = files[path];
-      return content === undefined
-        ? Promise.reject(new Error(`ENOENT: ${path}`))
-        : Promise.resolve(new TextEncoder().encode(content));
-    },
-  } as FileSystem;
-}
-
-const NOOP_CHECKPOINT: Checkpoint = {
-  before(): Promise<void> {
-    return Promise.resolve();
-  },
-};
-
 /**
  * The observable of one runtime row: the settled final value with its schema
  * brand and enum brand, or the thrown error's `name: message`. A throw is
@@ -194,64 +125,17 @@ async function measure(
   libs: Record<string, string>,
   subagentInboundInvokeDepth?: number,
 ): Promise<Measured> {
-  const app = parseApp(appBody);
-  expect(
-    app.frontmatter,
-    `the importing theta's frontmatter must parse or the load pass reads nothing; diagnostics: ${JSON.stringify(
-      app.diagnostics.map((d) => `${d.severity} ${d.code}: ${d.message}`),
-    )}`,
-  ).not.toBeNull();
-  const frontmatter = app.frontmatter as ParsedFrontmatter;
-  const input: ThetaCompositionInput = {
-    slashName: "app",
-    sourcePath: "/proj/app.theta",
-    frontmatter,
-    body: app.body,
-  };
-  const check = await checkThetaImports(input, {
-    fs: fakeThetaLibFs(libs),
-    parseDeps: parseDeps(),
-  });
-  const imports: readonly MaterializedImport[] = check.imports;
-
-  const deps = createProductionProducerDeps({
-    pi: {} as unknown as ExtensionAPI,
-    root: {
-      checkpoint: NOOP_CHECKPOINT,
-      idSource: {
-        newInvocationId: (): string => "inv-1",
-        newToolCallId: (): string => "tc-1",
-      },
-    } as unknown as RuntimeRoot,
-    modelRegistry: {
+  const { app, check, binding } = await bindImportedBodyOverFs(
+    appBody,
+    "/proj/app.theta",
+    fakeThetaLibFs(libs),
+    {
       getAvailable: (): unknown[] => [
         { id: "claude-sonnet-5", provider: "anthropic", displayName: "sonnet" },
       ],
     } as unknown as ModelRegistry,
-    resolvePiTool: (name: string): PiToolDispatch => ({
-      toolName: name,
-      execute: (): Promise<AgentToolResultEnvelope> =>
-        Promise.resolve({ content: [{ type: "text", text: "AMBIENT" }] }),
-    }),
-    // The one new passthrough: seed the top-level chain at this depth so a short
-    // cross-file `fn` chain reaches the cap (the mixed-sum / re-export /
-    // pure-host witnesses). Absent → the producer seeds at 0 (the fn-chain rows).
-    ...(subagentInboundInvokeDepth !== undefined ? { subagentInboundInvokeDepth } : {}),
-  });
-  const theta: ThetaCompositionInput = {
-    slashName: "app",
-    sourcePath: "/proj/app.theta",
-    frontmatter,
-    body: app.body,
-    callableSet: Object.freeze({ entries: new Map() }),
-    ...(imports.length > 0 ? { imports } : {}),
-  } as ThetaCompositionInput;
-  const bindInput: ConversationBindInput = {
-    theta,
-    args: "",
-    ctx: {} as unknown as ExtensionCommandContext,
-  };
-  const binding = deps.bindPromptConversation(bindInput);
+    subagentInboundInvokeDepth,
+  );
   // The `.then(ok, err)` rejection arm — not a broad `catch` — turns a runtime
   // panic (a top-level `InvokeDepthExceededPanic`) into a comparable value.
   const runtime = await executeBody(app.body, binding.executeDeps).then(
@@ -328,15 +212,13 @@ function libChain(n: number): Record<string, string> {
  * precondition, not as the missing-count defect under test.
  */
 function expectCleanLoad(row: Measured, label: string, expectedMaterialised: string[]): void {
-  expect(row.appParseCodes, `${label}: the importing file parses clean`).toEqual([]);
-  expect(
-    row.diagLines,
-    `${label}: a well-formed \`.thetalib\` import is legal at every static gate; the load pass must report nothing (bug doc §Reproduction: \`load diagnostics: []\`)`,
-  ).toEqual([]);
-  expect(
-    row.materialised,
-    `${label}: imports.md §Visibility auto-exports a top-level \`fn\`, so the imported symbol materialises under its local name`,
-  ).toEqual(expectedMaterialised);
+  expectCleanImportLoad(
+    row,
+    label,
+    "a well-formed `.thetalib` import is legal at every static gate; the load pass must report nothing (bug doc §Reproduction: `load diagnostics: []`)",
+    "imports.md §Visibility auto-exports a top-level `fn`, so the imported symbol materialises under its local name",
+    expectedMaterialised,
+  );
 }
 
 describe("bug 0354 — cross-file `.thetalib` `fn` frames are uncounted against ceiling #1 (INV-4)", () => {

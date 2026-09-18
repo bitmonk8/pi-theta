@@ -1,13 +1,13 @@
 import { PARSE_REGISTRY_PATH as REGISTRY_PAGE, registryMessageOf } from "./helpers/load-row-harness";
 import { readRegistry } from "./helpers/registry-oracle";
 import { describe, expect, it } from "vitest";
-import type { Diagnostic } from "../src/diagnostics/diagnostic";
-import { checkThetaImports } from "../src/extension/import-static-checks";
-import type { ThetaCompositionInput } from "../src/extension/theta-composition-producer";
-import type { ParsedFrontmatter } from "../src/parser/frontmatter";
-import type { ThetaDocument } from "../src/parser/theta-document";
-import type { FileSystem } from "../src/seams/file-system";
-import { parseDeps, parseDoc } from "./helpers/e2e-s1";
+import {
+  expectMaterialisedImport,
+  loadThetaLibDiags as compose,
+  parseImportingApp as parseApp,
+  renderThetaLibDiags as render,
+  type LoadResult as ComposeResult,
+} from "./helpers/thetalib-load-harness";
 
 // Bug 0430 — an unknown variant on an IMPORTED enum is refused at no static
 // phase and aborts at runtime. The same-file spelling `enum Sev { Low }` +
@@ -98,96 +98,8 @@ const APP_PATH = "/proj/app.theta";
 const LIB_PATH = "/proj/lib.thetalib";
 const MID_PATH = "/proj/mid.thetalib";
 
-/** The importing `.theta`'s frontmatter; body starts on source line 5. */
-const FM = ["---", 'model: "sonnet"', "mode: prompt", "---", ""].join("\n");
-
 /** The declaring enum, identical whether same-file or in the lib. */
 const ENUM = "enum Sev { Low }";
-
-// ===========================================================================
-// The in-memory `.thetalib` filesystem double. Only `readdir` / `readBytes` are
-// exercised by `checkThetaImports`; every other member REJECTS, so an
-// unexpected call reds instead of silently returning a stand-in value.
-// ===========================================================================
-
-function fakeThetaLibFs(files: Record<string, string>): FileSystem {
-  const dirs = new Map<string, string[]>();
-  for (const path of Object.keys(files)) {
-    const slash = path.lastIndexOf("/");
-    const parent = path.slice(0, slash);
-    const entries = dirs.get(parent) ?? [];
-    entries.push(path.slice(slash + 1));
-    dirs.set(parent, entries);
-  }
-  const reject = (): Promise<never> =>
-    Promise.reject(new Error("filesystem member not exercised by this test"));
-  return {
-    readText: reject,
-    writeText: reject,
-    exists: reject,
-    homedir: (): string => "/home",
-    cwd: (): string => "/proj",
-    configDirName: (): string => ".pi",
-    globalAgentDir: (): string => "/home/.pi/agent",
-    lstat: reject,
-    realpath: reject,
-    readdir: (path: string): Promise<readonly string[]> => {
-      const entries = dirs.get(path);
-      return entries === undefined
-        ? Promise.reject(new Error(`ENOENT: ${path}`))
-        : Promise.resolve(entries);
-    },
-    readBytes: (path: string): Promise<Uint8Array> => {
-      const content = Object.prototype.hasOwnProperty.call(files, path)
-        ? files[path]
-        : undefined;
-      return content === undefined
-        ? Promise.reject(new Error(`ENOENT: ${path}`))
-        : Promise.resolve(new TextEncoder().encode(content));
-    },
-  } as FileSystem;
-}
-
-interface ComposeResult {
-  readonly diagnostics: readonly Diagnostic[];
-  readonly materialised: readonly string[];
-  readonly rendered: readonly string[];
-}
-
-/** Every diagnostic rendered `<severity> <code> <file>: <message>`. */
-function render(diagnostics: readonly Diagnostic[]): string[] {
-  return diagnostics.map(
-    (d) => `${d.severity} ${d.code} ${d.file === undefined ? "-" : d.file}: ${d.message}`,
-  );
-}
-
-/** Parse an importing `.theta` body under the shared frontmatter. */
-function parseApp(body: string): ThetaDocument {
-  return parseDoc(FM + body, APP_PATH);
-}
-
-/** Run the shipped load pass over one importing document and one library set. */
-async function compose(doc: ThetaDocument, libs: Record<string, string>): Promise<ComposeResult> {
-  expect(
-    doc.frontmatter,
-    `PRECONDITION: the importing theta's frontmatter must parse, or the load pass reads nothing. Parse diagnostics: ${JSON.stringify(render(doc.diagnostics))}`,
-  ).not.toBeNull();
-  const input: ThetaCompositionInput = {
-    slashName: "app",
-    sourcePath: APP_PATH,
-    frontmatter: doc.frontmatter as ParsedFrontmatter,
-    body: doc.body,
-  };
-  const result = await checkThetaImports(input, {
-    fs: fakeThetaLibFs(libs),
-    parseDeps: parseDeps(),
-  });
-  return {
-    diagnostics: result.diagnostics,
-    materialised: result.imports.map((m) => `${m.kind} ${m.name}`),
-    rendered: render(result.diagnostics),
-  };
-}
 
 /**
  * The anti-vacuity precondition every imported cell runs: the enum MATERIALISED
@@ -198,10 +110,12 @@ async function compose(doc: ThetaDocument, libs: Record<string, string>): Promis
  * measuring an unresolvable import.
  */
 function expectMaterialised(result: ComposeResult, expected: string, cell: string): void {
-  expect(
-    result.materialised,
-    `PRECONDITION (${cell}): the load pass must materialise \`${expected}\`; that is the proof the library resolved, parsed and exported the enum with its variant set, so the member-access walk was genuinely reachable. Diagnostics: ${JSON.stringify(result.rendered)}`,
-  ).toContain(expected);
+  expectMaterialisedImport(
+    result,
+    expected,
+    cell,
+    "the library resolved, parsed and exported the enum with its variant set, so the member-access walk was genuinely reachable",
+  );
 }
 
 /** The unknown-variant hits present in `result`, rendered, in emission order. */

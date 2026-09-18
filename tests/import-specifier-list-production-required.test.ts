@@ -4,12 +4,9 @@ import { describe, expect, it } from "vitest";
 // @ts-expect-error — JS code-registry module, no type declarations.
 import { parseRegistry, registryMessage } from "../tools/code-registry/index.js";
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
-import { checkThetaImports } from "../src/extension/import-static-checks";
-import type { ThetaCompositionInput } from "../src/extension/theta-composition-producer";
-import type { ParsedFrontmatter } from "../src/parser/frontmatter";
 import { parseThetaDocument, type ThetaDocument } from "../src/parser/theta-document";
-import type { FileSystem } from "../src/seams/file-system";
 import { parseDeps } from "./helpers/e2e-s1";
+import { loadThetaLibDiags as loadImports } from "./helpers/thetalib-load-harness";
 
 // Bug 0100 — the shapes the closed `ImportDecl` / `ExportDecl` / `ImportSpec` /
 // `ExportSpec` productions exclude are all structurally reachable inside
@@ -321,76 +318,6 @@ function firstStatement(doc: ThetaDocument): ImportNodeShape {
     `the fixture must parse to at least one top-level statement, or there is no node to read. Diagnostics: ${JSON.stringify(diagLines(doc.diagnostics))}`,
   ).toBeGreaterThan(0);
   return statements[0] as ImportNodeShape;
-}
-
-// ===========================================================================
-// The in-memory `.thetalib` filesystem double (the shape
-// tests/subagent-fn.test.ts:1581–1614 uses). Only `readdir` / `readBytes` are
-// exercised by `checkThetaImports`; every other member rejects, so an
-// unexpected call reds instead of silently returning a stand-in value.
-// ===========================================================================
-
-function fakeThetaLibFs(files: Record<string, string>): FileSystem {
-  const dirs = new Map<string, string[]>();
-  for (const path of Object.keys(files)) {
-    const slash = path.lastIndexOf("/");
-    const parent = path.slice(0, slash);
-    const name = path.slice(slash + 1);
-    const entries = dirs.get(parent) ?? [];
-    entries.push(name);
-    dirs.set(parent, entries);
-  }
-  const reject = (): Promise<never> =>
-    Promise.reject(new Error("filesystem member not exercised by this test"));
-  return {
-    readText: reject,
-    writeText: reject,
-    exists: reject,
-    homedir: (): string => "/home",
-    cwd: (): string => "/proj",
-    configDirName: (): string => ".pi",
-    globalAgentDir: (): string => "/home/.pi/agent",
-    lstat: reject,
-    realpath: reject,
-    readdir: (path: string): Promise<readonly string[]> => {
-      const entries = dirs.get(path);
-      return entries === undefined
-        ? Promise.reject(new Error(`ENOENT: ${path}`))
-        : Promise.resolve(entries);
-    },
-    readBytes: (path: string): Promise<Uint8Array> => {
-      const content = files[path];
-      return content === undefined
-        ? Promise.reject(new Error(`ENOENT: ${path}`))
-        : Promise.resolve(new TextEncoder().encode(content));
-    },
-  };
-}
-
-/** The load-pass result for one importing `.theta` body over one lib set. */
-async function loadImports(
-  appBody: string,
-  libs: Record<string, string>,
-): Promise<{ readonly diagnostics: readonly Diagnostic[]; readonly materialised: string[] }> {
-  const app = parseApp(appBody);
-  expect(
-    app.frontmatter,
-    `the importing theta's frontmatter must parse, or the load pass reads nothing. Diagnostics: ${JSON.stringify(diagLines(app.diagnostics))}`,
-  ).not.toBeNull();
-  const input: ThetaCompositionInput = {
-    slashName: "app",
-    sourcePath: "/proj/app.theta",
-    frontmatter: app.frontmatter as ParsedFrontmatter,
-    body: app.body,
-  };
-  const result = await checkThetaImports(input, {
-    fs: fakeThetaLibFs(libs),
-    parseDeps: parseDeps(),
-  });
-  return {
-    diagnostics: result.diagnostics,
-    materialised: result.imports.map((m) => `${m.kind} ${m.name}`),
-  };
 }
 
 // ===========================================================================
