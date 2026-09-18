@@ -2,7 +2,7 @@
 id: PTQ-1038
 title: thetalib-load-harness.ts declares its own module-private NOOP_CHECKPOINT byte-identical to the canonical SEAM_NOOP_CHECKPOINT two sibling in-scope files already import
 lens: D7
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - tests/helpers/thetalib-load-harness.ts:249-253

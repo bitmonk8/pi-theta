@@ -2,7 +2,7 @@
 id: PTQ-1067
 title: Three hardening files each redeclare a retry-once-if-the-resulting-turn-is-transport-ish wrapper around runProbe, one of them shadowing the canonical driveOnce name with different semantics
 lens: D7
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - tests/live/hardening/recent-rfc-live-drives.test.ts:67-84

@@ -12,6 +12,7 @@ d4_class: clone
 wave: qw20260918202006
 reported_by: lens-d7-testquality (anthropic/claude-sonnet-5)
 date: 2026-09-18
+fix_skips: 1
 ---
 
 # watcher-hot-reload-integration.test.ts's GREET_THETA/SECOND_THETA fixture strings are redeclared byte-identical in four sibling watcher test files
@@ -92,3 +93,6 @@ does not vary by file.
 ## Triage
 <triage appends: verdict + one-line reason. Nothing above this line is edited.>
 verdict: confirmed — independently re-verified: `grep -rl 'GREET_THETA = ["---", "mode: prompt", "---", "@`hi`", ""].join' tests/` returns exactly the 5 named files and the `const GREET_THETA`/`const SECOND_THETA` pairs sit at the cited lines (watcher-hot-reload-integration:42-43, b0311:48-49, hot-reload-stale-ctx:107-108, rebind-self-collision:122-123 byte-identical on both lines; double-session-start:78-79 identical on GREET only, its SECOND reuses "@`hi`" as the candidate states), every copy is live (2-4 `writeFileSync` planting uses per file; 1+5 in the filed file), tests/helpers/ exports no such constant (watch-arming-harness.ts:192 `makeTheta` builds a ParsedTheta, not source text; the only exported source-text fixtures are GOOD_THETA/BAD_THETA/THETA_BODY/TWO_PARAM_THETA with different bodies), the file is not a gate suite, docs/bugs 0021/0310/0311/0470/0471 cite it only as a harness/witness and no merge/rename/delete is proposed, and no PTQ row names GREET_THETA/SECOND_THETA (PTQ-0491/0530/0715/0928 cover watcher harness/clock/boot code, PTQ-0606/0782 cover `theta()` builders in unrelated files) — a copy-paste fixture whose fix is a mechanical hoist into the already-imported watch-arming-harness (triage: claude-fable-5-1)
+
+## Fix attempts
+- qw20260918202006: skipped — [PTQ-0925-off-session-mock-scaffold-triplicated.md] PTQ-0925: Shared the mock/reset scaffold across all five triage-cited files using an opt-in helper. / PTQ-0935: Extracted the bind/assert/read tail for all three cited copies; retained every assertion. / PTQ-1036: Distinct descriptions now prove project precedence; a temporary package-wins override correctly failed the new assertion and was removed. / PTQ-1039: Migrated b0378 to the existing recording harness and note filter, adding optional flags support. No tests deleted; required gate passed for all changes: tsc and 11,569 tests across 687 files. ||

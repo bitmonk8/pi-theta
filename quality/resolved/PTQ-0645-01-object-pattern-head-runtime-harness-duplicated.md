@@ -2,7 +2,7 @@
 id: PTQ-0645
 title: The parse-to-executeBody production runtime harness (NOOP_CHECKPOINT/rootDouble/producer/execute/expectValue) is redeclared byte-identical in both object-pattern-head refusal test files
 lens: D7
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - tests/object-pattern-head-field-set-refusal.test.ts:487-539

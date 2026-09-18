@@ -2,7 +2,7 @@
 id: PTQ-1066
 title: The forced-sequential three-file read chain fixture and its instruction text are redeclared with only the numeric payload changed across two hardening files
 lens: D7
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - tests/live/hardening/session-promptloop.test.ts:43-56

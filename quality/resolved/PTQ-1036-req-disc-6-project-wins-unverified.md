@@ -2,7 +2,7 @@
 id: PTQ-1036
 title: The REQ-DISC-6 "project wins" test only proves the name registered once, never which source won
 lens: D7                     # D2 | D4 | D7 | D8 | D9 - the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - tests/e2e-s5-package-discovery-composition-root.test.ts:57-69

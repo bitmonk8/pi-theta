@@ -18,6 +18,7 @@ fix_scope: cross-module       # localized | module | cross-module - mechanical s
 wave: qw20260917154546
 reported_by: lens-d7-testquality (anthropic/claude-sonnet-5)
 date: 2026-09-17
+fix_skips: 1
 ---
 
 # subagent-envelope-nonfinite-ok-refusal.test.ts retypes the parseDeps/parseTheta/NOOP_CHECKPOINT/realAjvValidator/rootDouble/ChildDrive/driveChildRoot/soleEnvelope/driveDetail harness three sibling files already carry, with no tests/helpers/ home
@@ -183,3 +184,6 @@ already point toward.
 
 ## Triage
 verdict: confirmed — independently re-verified: extracted all four module-scope harnesses (nonfinite-ok-refusal:289-360/473-560, negative-zero-fidelity:272-345/478-555, result-carriage:980-1053/1049-1115, return-depth-refusal:726-799/792-868) and diffed them under $TEMP — parseDeps/parseTheta/NOOP_CHECKPOINT/realAjvValidator/rootDouble(schemaValidator)/soleEnvelope/driveDetail are body-identical in all four (diff hunks are JSDoc prose only), driveChildRoot differs only by the sourcePath const name (CALLEE_PATH vs UNIT_CALLEE_PATH) and the outcomeEmitted recording triple present in nonfinite-ok-refusal and return-depth-refusal but absent in the other two; the bundle-specific pieces (driveChildRoot/soleEnvelope/driveDetail) grep to exactly these four files and no helper; docs/bugs/0201:316-321 quote ("the harness shape … driveChildRoot") reproduces; bug 0180 header is "fixed (0.105.0)" and mapNonRepresentableReturnValue exists at src/runtime/subagent-envelope.ts:966; coverage-matrix cites none of the four files; no gate/recording-double/red-witness carve-out applies; not tracked in issues/resolved (PTQ-0209/0360/0384 are different harnesses; sibling intake 131-02 is the prompt-attach driver, a distinct root cause). Two overstatements noted but non-refuting: the stated grep actually hits parseDeps/rootDouble/NOOP_CHECKPOINT in dozens of files and tests/helpers/call-with-clause-harness.ts does export a zero-arg rootDouble (different shape, no schemaValidator param), and tests/helpers/subagent-fn-child-regime.ts (driveSubagentFnEntry/childRegimeRootDouble) is a near-cousin child-regime drive the fixer may want to build on (triage: claude-fable-5-1)
+
+## Fix attempts
+- qw20260918202006: skipped — [PTQ-0645-01-object-pattern-head-runtime-harness-duplicated.md] PTQ-0645: Shared the runtime harness across both listed files and the triage-cited third copy; retained fixture-path literals and all assertions. / PTQ-0646: Shared diagnostic helpers across six files, reused registry/corpus helpers, and preserved hint assertions and raw-page checks. / PTQ-0653: Centralized all eight TRIAGE_DEF copies and four BODY copies in tests/helpers/triage-fixture.ts; tests unchanged. / PTQ-0657: Shared AJV note constants and rendering through the existing binder harness. Final required gate passed: TypeScript and all 11,569 tests across 687 files. ||

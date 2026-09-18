@@ -2,7 +2,7 @@
 id: PTQ-1025
 title: Two tests/helpers/ modules each export a same-named collectSystemNotes with the same theta-system-note/theta-progress-entry walk
 lens: D7                     # D2 | D4 | D7 | D8 | D9 - the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - tests/helpers/live-transcript.ts:33-58

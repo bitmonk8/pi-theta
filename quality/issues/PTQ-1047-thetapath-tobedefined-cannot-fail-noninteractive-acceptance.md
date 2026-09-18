@@ -20,6 +20,7 @@ fix_scope: localized          # localized | module | cross-module - mechanical s
 wave: qw20260918202006
 reported_by: lens-d7-testquality (anthropic/claude-sonnet-5)
 date: 2026-09-18
+fix_skips: 1
 ---
 
 # requireAuthoredTheta's return type proves thetaPath is never undefined, so nine expect(thetaPath).toBeDefined() checks cannot fail
@@ -125,3 +126,6 @@ already guarantee.
 ## Triage
 <!-- triage appends: verdict + one-line reason. Nothing above this line is edited. -->
 verdict: confirmed — independently re-verified: `requireAuthoredTheta(spec: FeatureThetaSpec): string` (noninteractive-acceptance.test.ts:89-99) wraps `resolveFeatureThetaPath(): string | undefined` (harness.ts:325-330) and routes the `undefined` arm through `failLoudly(): never` (harness.ts:124-128, `assert.fail` + explicit throw), so `path` is narrowed to `string` before `return path` — confirmed by a mktemp tsc probe (`const t: string = path` after the never-call compiles clean under --strict); `grep -n -A1 "requireAuthoredTheta(spec)"` returns exactly the 9 cited pairs (:139/140, 164/165, 207/208, 261/262, 339/340, 383/384, 408/409, 435/436, 462/463), each `expect(thetaPath).toBeDefined()` asserting a proposition the preceding throw-or-narrow already establishes — a D7 assertion-that-cannot-fail in tests/; carve-outs checked: not a *gate* file, no recording double, coverage-matrix 0 hits, and the candidate's "docs/bugs 0 hits" claim is wrong (docs/bugs/0030 names `requireAuthoredTheta` 4×) but immaterial — bug 0030 is fixed (0.35.0) and cites the function only for doc-block placement, never `thetaPath`/`toBeDefined`; not a duplicate — PTQ-0764 (same file) is the unawaited `requireLiveHost` root cause, and PTQ-0242/0818/0903/0261 are toBeDefined findings in other files (triage: claude-fable-5-1)
+
+## Fix attempts
+- qw20260918202006: skipped — [PTQ-1024-clean-stem-vacuity-guard-quadruplicated.md] PTQ-1024: Shared the clean fixture and registration guard across all five files, including b0267. Assertions preserved; required gate and affected live tests passed. / PTQ-1048: Shared chain-source builders and driven-turn assertions across three files. Fixture bytes and test names preserved; required gate and affected live tests passed. / PTQ-1034: Replaced local helpers in b0351, b0357, and triage-added b0307 with canonical errorCodes imports. Assertions unchanged; required gate and affected live tests passed. / PTQ-1040: Replaced both local helpers with canonical errorCodes imports and removed orphaned Diagnostic imports. Assertions unchanged; required gate and affected live tests passed. Overall verification: TypeScript, 687 offline files (11,569 tests), and all 10 affected live files passed. No tests deleted. ||

@@ -16,7 +16,7 @@ d4_class: parallel
 wave: qw20260917154546
 reported_by: lens-d7-testquality (anthropic/claude-sonnet-5)
 date: 2026-09-17
-fix_skips: 0
+fix_skips: 1
 ---
 
 # A `loweredAnnotation` helper ("the lowered response schema for an annotation, or a loud failure") is independently redeclared in five test files, including the in-scope schema-slug-canonical-form-mints.test.ts
@@ -198,3 +198,4 @@ verdict: confirmed — independently re-verified: `grep "function loweredAnnotat
 
 ## Fix attempts
 - (wave unknown): skipped — (no fixer notes recorded)
+- qw20260918202006: skipped — [PTQ-0645-01-object-pattern-head-runtime-harness-duplicated.md] PTQ-0645: Shared the runtime harness across both listed files and the triage-cited third copy; retained fixture-path literals and all assertions. / PTQ-0646: Shared diagnostic helpers across six files, reused registry/corpus helpers, and preserved hint assertions and raw-page checks. / PTQ-0653: Centralized all eight TRIAGE_DEF copies and four BODY copies in tests/helpers/triage-fixture.ts; tests unchanged. / PTQ-0657: Shared AJV note constants and rendering through the existing binder harness. Final required gate passed: TypeScript and all 11,569 tests across 687 files. ||

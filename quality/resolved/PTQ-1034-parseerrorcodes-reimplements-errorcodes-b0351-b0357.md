@@ -2,7 +2,7 @@
 id: PTQ-1034
 title: b0351live and b0357 each redeclare a local parseErrorCodes helper instead of importing the canonical errorCodes from tests/helpers/e2e-s1.ts
 lens: D7                     # D2 | D4 | D7 | D8 | D9 - the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - tests/live/acceptance/b0351live-value-position-query-success-binds.test.ts:122-128

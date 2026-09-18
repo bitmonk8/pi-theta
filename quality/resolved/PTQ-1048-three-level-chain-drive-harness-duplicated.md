@@ -2,7 +2,7 @@
 id: PTQ-1048
 title: The three-level tools-chain drive harness (summand constants, prompt-caller source, child source, driven-turn assertions) is duplicated across three live registration cells
 lens: D7
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - tests/live/b0271live-grandchild-callee-drop-depth-two-live-cell.test.ts:169-192

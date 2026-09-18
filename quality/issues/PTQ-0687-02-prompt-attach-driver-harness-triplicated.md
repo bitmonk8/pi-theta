@@ -18,6 +18,7 @@ fix_scope: cross-module       # localized | module | cross-module - mechanical s
 wave: qw20260917154546
 reported_by: lens-d7-testquality (anthropic/claude-sonnet-5)
 date: 2026-09-17
+fix_skips: 1
 ---
 
 # subagent-envelope-nonfinite-ok-refusal.test.ts retypes the prompt-attach-cell driver (driveTypedInvoke/boundaryResult/promptOutcome) two sibling files already carry verbatim, including identical PIC-17/bug-0293 comments
@@ -251,3 +252,6 @@ verbatim shared comments already point toward.
 
 ## Triage
 verdict: confirmed — independently re-verified: all three drivers reproduce at the cited lines with the identical parseTheta→ThetaCompositionInput→createProductionProducerDeps({parseCallee})→bindPromptConversation→executeBody sequence and both verbatim comments; `boundaryResult` diffs byte-identical between nonfinite-ok-refusal:426-441 and result-carriage:1522-1537 and `promptOutcome` byte-identical between nonfinite-ok-refusal:465-467 and negative-zero-fidelity:470-472; negative-zero-fidelity:404 itself states "`driveTypedInvoke` is the same construction"; no tests/helpers/ module wires parseCallee+bindPromptConversation+executeBody (parent-producer-harness.ts is the spawn-launcher harness, PTQ-0384's home); not tracked by PTQ-0209 (rootDouble trio), PTQ-0360/0384/0397 (different harnesses); all 79 tests pass at HEAD. Census correction only: the "exactly these three files" grep claims are wrong — the PIC-17 comment hits 8 files, the Bug 0293 comment 10, and the same `driveTypedInvoke`+`boundaryResult` driver also recurs in tests/invoke-depth-wire-form-metric.test.ts:281-340 and tests/invoke-return-enum-carrier-projection.test.ts:269-330 (5 copies, not 3) — an undercount that widens, not refutes, the root cause; the fixer should fold those two in (triage: claude-fable-5-1)
+
+## Fix attempts
+- qw20260918202006: skipped — [PTQ-0645-01-object-pattern-head-runtime-harness-duplicated.md] PTQ-0645: Shared the runtime harness across both listed files and the triage-cited third copy; retained fixture-path literals and all assertions. / PTQ-0646: Shared diagnostic helpers across six files, reused registry/corpus helpers, and preserved hint assertions and raw-page checks. / PTQ-0653: Centralized all eight TRIAGE_DEF copies and four BODY copies in tests/helpers/triage-fixture.ts; tests unchanged. / PTQ-0657: Shared AJV note constants and rendering through the existing binder harness. Final required gate passed: TypeScript and all 11,569 tests across 687 files. ||

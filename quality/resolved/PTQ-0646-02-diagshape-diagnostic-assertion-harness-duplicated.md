@@ -2,7 +2,7 @@
 id: PTQ-0646
 title: The DiagShape/shapes/render/readRepoFile diagnostic-assertion harness is redeclared byte-identical across six pattern-refusal test files
 lens: D7
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - tests/object-pattern-head-field-set-refusal.test.ts:200-204

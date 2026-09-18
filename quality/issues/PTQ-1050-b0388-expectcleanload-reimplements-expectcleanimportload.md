@@ -13,6 +13,7 @@ fix_scope: localized          # localized | module | cross-module - mechanical s
 wave: qw20260918202006
 reported_by: lens-d7-testquality (anthropic/claude-sonnet-5)
 date: 2026-09-18
+fix_skips: 1
 ---
 
 # b0388's local expectCleanLoad reimplements expectCleanImportLoad from a helper module it already partially imports
@@ -143,3 +144,6 @@ where the duplicate already sits, not a design for the change.
 ## Triage
 <triage appends: verdict + one-line reason. Nothing above this line is edited.>
 verdict: confirmed — independently re-verified: all three excerpts match at the cited lines (b0388:295-305 local `expectCleanLoad`, thetalib-load-harness.ts:408-418 exported `expectCleanImportLoad`, b0354:212-221 the delegating sibling); `grep -n expectCleanImportLoad` over b0388 → 0 hits while lines 1-5 import `bindImportedBody`/`fakeThetaLibFs`/`parseImportingApp` from that same module; the local copy is live (callers at :365/:386/:441/:454) and b0388's `Measured` (:117-124, three `string[]` fields) is structurally assignable to `CleanLoadRow` (:393-397), so the delegation is mechanical; dating holds (b0388 landed 770cbb82 2026-09-03, `expectCleanImportLoad` first landed 994e421c 2026-09-14 — an unmigrated copy, not a retype despite the helper); no carve-out applies (not a gate file, positive-precondition helper not a recording double, docs/bugs/0388 governs the runtime RED cells not this GREEN precondition, 0 coverage-matrix hits, no merge/rename/delete proposed); not a duplicate — PTQ-0532 (fixed) named b0354 only and its fix left b0388 untouched, PTQ-0875 (fixed) covered b0388's `measure()` and its triage note records `measure()` alone, PTQ-0315 (fixed) migrated b0303/b0305/b0306, and no open row or TRIAGE_LOG entry mentions `expectCleanLoad` at b0388 — the PTQ-0625/0875 precedent rules the same harness class at a distinct site a separate row (triage: claude-fable-5-1)
+
+## Fix attempts
+- qw20260918202006: skipped — [PTQ-0925-off-session-mock-scaffold-triplicated.md] PTQ-0925: Shared the mock/reset scaffold across all five triage-cited files using an opt-in helper. / PTQ-0935: Extracted the bind/assert/read tail for all three cited copies; retained every assertion. / PTQ-1036: Distinct descriptions now prove project precedence; a temporary package-wins override correctly failed the new assertion and was removed. / PTQ-1039: Migrated b0378 to the existing recording harness and note filter, adding optional flags support. No tests deleted; required gate passed for all changes: tsc and 11,569 tests across 687 files. ||

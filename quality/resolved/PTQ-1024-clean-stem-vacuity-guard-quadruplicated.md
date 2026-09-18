@@ -2,7 +2,7 @@
 id: PTQ-1024
 title: The CLEAN_STEM vacuity-guard fixture, its literal source and its precondition assertion are duplicated across four live registration cells
 lens: D7
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - tests/live/b0270live-callee-tools-missing-theta-path-live-cell.test.ts:207

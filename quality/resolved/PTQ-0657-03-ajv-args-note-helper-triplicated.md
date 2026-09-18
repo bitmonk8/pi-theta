@@ -2,7 +2,7 @@
 id: PTQ-0657
 title: The EM_DASH/AJV_SUMMARY_SEPARATOR/AJV_ARGS_PHRASE constants and ajvArgsNote() are redeclared byte-for-byte in three binder/params test files
 lens: D7                     # D2 | D4 | D7 | D8 | D9 - the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - tests/params-default-enum-access-merge.test.ts:193-208

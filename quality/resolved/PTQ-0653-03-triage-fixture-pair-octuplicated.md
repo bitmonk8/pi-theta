@@ -2,7 +2,7 @@
 id: PTQ-0653
 title: The TRIAGE_DEF closed-lowering constant and BODY fixture source are byte-identical across eight and four sibling test files respectively
 lens: D7
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - tests/params-block-mapping-rhs-refusal.test.ts:247-252

@@ -13,6 +13,7 @@ fix_scope: module
 wave: qw20260918202006
 reported_by: lens-d7-testquality (anthropic/claude-sonnet-5)
 date: 2026-09-18
+fix_skips: 1
 ---
 
 # The H9a offender/control drive-and-teardown sequence is duplicated near-verbatim across b0297live, b0298live, and b0301live instead of a shared tests/helpers/ harness
@@ -193,3 +194,6 @@ clean file sets in this same directory.
 ## Triage
 <!-- appended by triage -->
 verdict: confirmed — independently re-verified: the `describe`/`it` blocks sit exactly at b0297live:165-256, b0298live:154-244, b0301live:179-270; a slug/field-normalised mktemp sed-range diff of the three ~92-line `it()` bodies differs in 5 (a↔b) and 2 (a↔c) hunks, all comment/assertion-message prose, with the statement sequence (4 attribution expects → requireLiveHost → mkdtempSync×4 → writeFileSync×4 → spawnPiPrint+3 expects → spawnPiPrint+2 expects → finally rmSync×4) identical; `CONTROL_PROBE`/`-ctl-"` grep to exactly these 3 files and neither tests/helpers/ nor tests/live/acceptance/harness.ts exports the composed sequence; coverage-matrix grep → 0 hits and prior-finding grep → only resolved PTQ-0756 (disjoint `errorCodes` root cause) reproduce; PTQ-0755/PTQ-0759 (offender/probe/clean shape, mkdtemp×3 + parseSystemNoteCodes) cite disjoint file lists and PTQ-0759 was itself confirmed as a separate row for a second file set, so this is the same per-set precedent not a duplicate; PTQ-0762 is tests/live/ composeCodesOf, unrelated; all locations under tests/, D7 boilerplate-duplication class, no gate file, no recording double, no cell merge/rename/delete, requireLiveHost posture unaltered (triage: claude-fable-5-1)
+
+## Fix attempts
+- qw20260918202006: skipped — [PTQ-1024-clean-stem-vacuity-guard-quadruplicated.md] PTQ-1024: Shared the clean fixture and registration guard across all five files, including b0267. Assertions preserved; required gate and affected live tests passed. / PTQ-1048: Shared chain-source builders and driven-turn assertions across three files. Fixture bytes and test names preserved; required gate and affected live tests passed. / PTQ-1034: Replaced local helpers in b0351, b0357, and triage-added b0307 with canonical errorCodes imports. Assertions unchanged; required gate and affected live tests passed. / PTQ-1040: Replaced both local helpers with canonical errorCodes imports and removed orphaned Diagnostic imports. Assertions unchanged; required gate and affected live tests passed. Overall verification: TypeScript, 687 offline files (11,569 tests), and all 10 affected live files passed. No tests deleted. ||

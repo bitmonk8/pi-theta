@@ -12,6 +12,7 @@ fix_scope: localized
 wave: qw20260918202006
 reported_by: lens-d7-testquality (anthropic/claude-sonnet-5)
 date: 2026-09-18
+fix_skips: 1
 ---
 
 # execution-status-progress-tool.test.ts declares makeOrderRecordingPi then re-inlines an almost byte-identical pi double for the very next test
@@ -126,3 +127,6 @@ harness shape re-typed in the same file.
 ## Triage
 <triage appends: verdict + one-line reason. Nothing above this line is edited.>
 verdict: confirmed — independently re-verified: both excerpts reproduce verbatim at :415-444 and :468-490; a whitespace-normalised mktemp diff of the two 20-line `pi` literals shows only the `registerTool` body differs (records `t` vs throws), so this is a same-file copy-paste double; `makeOrderRecordingPi` has exactly one caller (:448) and the (b) test builds its own literal instead of calling it with a throwing variant; the sibling `makeAbsentSeamPi` reproduces at tests/extension-factory-harness.test.ts:39-68 (test-local, not exported from tests/helpers/, so no canonical import exists — fix is the in-file consolidation); stated searches reproduce (docs/bugs → 0 hits, coverage-matrix → 0 hits); not a gate test, no test removal proposed; no open/resolved PTQ cites this file's factory-path pi double (resolved PTQ-0293/0667/0852/0903/0911/0965 cover other helpers in this file), and same-wave sibling d7-03 (`fakeBus`, :46-61/:277-286) is a distinct root cause (triage: claude-fable-5-1)
+
+## Fix attempts
+- qw20260918202006: skipped — [PTQ-0925-off-session-mock-scaffold-triplicated.md] PTQ-0925: Shared the mock/reset scaffold across all five triage-cited files using an opt-in helper. / PTQ-0935: Extracted the bind/assert/read tail for all three cited copies; retained every assertion. / PTQ-1036: Distinct descriptions now prove project precedence; a temporary package-wins override correctly failed the new assertion and was removed. / PTQ-1039: Migrated b0378 to the existing recording harness and note filter, adding optional flags support. No tests deleted; required gate passed for all changes: tsc and 11,569 tests across 687 files. ||

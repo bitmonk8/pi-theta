@@ -2,7 +2,7 @@
 id: PTQ-1040
 title: b0406live and b0444live each redeclare a byte-identical errorCodes helper instead of importing the canonical export from tests/helpers/e2e-s1.ts
 lens: D7                     # D2 | D4 | D7 | D8 | D9 - the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - tests/live/acceptance/b0406live-object-param-system-interp-registration.test.ts:136-142

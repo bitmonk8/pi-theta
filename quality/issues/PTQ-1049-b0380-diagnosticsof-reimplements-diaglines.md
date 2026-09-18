@@ -12,6 +12,7 @@ fix_scope: localized         # localized | module | cross-module - mechanical si
 wave: qw20260918202006
 reported_by: lens-d7-testquality (anthropic/claude-sonnet-5)
 date: 2026-09-18
+fix_skips: 1
 ---
 
 # b0380's local diagnosticsOf reimplements the canonical diagLines export from tests/helpers/e2e-s1.ts
@@ -97,3 +98,6 @@ already sits beside.
 ## Triage
 <!-- pending -->
 verdict: confirmed — independently re-verified: b0380:133-141 `diagnosticsOf` carries the byte-identical `${d.severity} ${d.code}: ${d.message}` map over `parseDoc(text, path).diagnostics` and tests/helpers/e2e-s1.ts:289-292 exports `diagLines(doc)` with that exact body; the file's sole e2e-s1 import (:62) names `parseDoc` only, and the local copy is live (3 callers :151/:154/:158, the :151 attribution message depending on its rendering); all locations under tests/, boilerplate-duplication class, not a gate file, no recording double, no cell merge/rename/delete (bug 0380 status fixed, coverage-matrix 0 hits), failLoudly posture untouched; not a duplicate — the candidate's overlap grep actually returns four resolved rows (PTQ-0246/0377/0386/0480), none touching diagnosticsOf/diagLines, and open PTQ-0755/0759 neither list b0380 nor mention e2e-s1/diagLines (their root cause is a missing shared offender/probe/clean harness, whereas this is an existing export not imported), matching the confirmed per-file precedent PTQ-0770/0865/0869/0877/0981/0996/0802; fixer notes: the same-wave d7-01 triage flagged b0380's mkdtemp/spawn/rmSync shell for fold-in to 0755/0759 (separate from this row), and the sibling local `codesOf(text, path)` at :139-141 is likewise signature-identical to e2e-s1.ts:224 `export function codesOf(src, path)` (triage: claude-fable-5-1)
+
+## Fix attempts
+- qw20260918202006: skipped — [PTQ-1024-clean-stem-vacuity-guard-quadruplicated.md] PTQ-1024: Shared the clean fixture and registration guard across all five files, including b0267. Assertions preserved; required gate and affected live tests passed. / PTQ-1048: Shared chain-source builders and driven-turn assertions across three files. Fixture bytes and test names preserved; required gate and affected live tests passed. / PTQ-1034: Replaced local helpers in b0351, b0357, and triage-added b0307 with canonical errorCodes imports. Assertions unchanged; required gate and affected live tests passed. / PTQ-1040: Replaced both local helpers with canonical errorCodes imports and removed orphaned Diagnostic imports. Assertions unchanged; required gate and affected live tests passed. Overall verification: TypeScript, 687 offline files (11,569 tests), and all 10 affected live files passed. No tests deleted. ||

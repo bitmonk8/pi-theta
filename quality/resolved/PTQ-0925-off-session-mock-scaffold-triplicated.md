@@ -2,7 +2,7 @@
 id: PTQ-0925
 title: The scripted off-session complete() vi.hoisted/vi.mock scaffold and its beforeEach/afterEach reset pair are byte-identical across three in-scope files
 lens: D7                     # D2 | D4 | D7 | D8 | D9 - the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - tests/e2e-s5-binder-echo-emission.test.ts:36-50

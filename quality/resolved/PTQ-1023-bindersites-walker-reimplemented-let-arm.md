@@ -2,7 +2,7 @@
 id: PTQ-1023
 title: let-arm-withhold-binding-scoped.test.ts redeclares tests/helpers/e2e-s1.ts's exported binderSites walker instead of importing it
 lens: D7
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - tests/helpers/e2e-s1.ts:747-856

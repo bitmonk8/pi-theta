@@ -12,6 +12,7 @@ fix_scope: localized
 wave: qw20260918202006
 reported_by: lens-d7-testquality (anthropic/claude-sonnet-5)
 date: 2026-09-18
+fix_skips: 1
 ---
 
 # execution-status-progress-tool.test.ts declares fakeBus(initialVerbosity) then re-inlines the identical closure for the L3-B12 test instead of calling it
@@ -99,3 +100,6 @@ existing in-file helper.
 ## Triage
 <triage appends: verdict + one-line reason. Nothing above this line is edited.>
 verdict: confirmed — independently re-verified: both excerpts reproduce verbatim at tests/execution-status-progress-tool.test.ts:46-61 (`fakeBus`) and :277-286 (inline), the inline copy restates the same three overrides (`authorMessage` recorder, `setVerbosity` writer, `verbosity` reader) over the same imported `noopExecutionStatusBus` skeleton; grep confirms `fakeBus` is declared only here, called at 9 sites (:81, :136, :157, :184, :205, :230, :245, :258, :302), and `noopExecutionStatusBus(` appears in exactly 2 places in the file — the helper body and this one inline site — so "every sibling describe calls it" reproduces; docs/bugs (0 hits for `fakeBus`) and coverage-matrix (0 hits for `fakeBus`/`L3-B12`/the file) claims reproduce; not a gate test, the recorder is a MUST-happen witness (asserted length 1 at :294) so no negative-witness carve-out, no assertion removal proposed; not a duplicate — PTQ-0852 (fixed, ab12798a) covered the 14-method no-op skeleton and its fix is what left both sites on `noopExecutionStatusBus`, this residue (in-file parameterised helper bypassed for its one non-default-verbosity caller) is a distinct root cause, and PTQ-0667 expressly excluded the bus doubles. One accounting nit for the fixer, not refuting: the filing's "only functional difference" omits that the test reassigns the closure variable directly (`verbosity = "names"` at :293), which `fakeBus`'s return shape does not expose — the migration is `fakeBus("off")` plus `bus.setVerbosity("names")`, which writes the same closure variable via the helper's own override; production only reads `bus.verbosity()` (progress-tool.ts:236) and never calls `setVerbosity`, so behaviour is identical (triage: claude-fable-5-1)
+
+## Fix attempts
+- qw20260918202006: skipped — [PTQ-0925-off-session-mock-scaffold-triplicated.md] PTQ-0925: Shared the mock/reset scaffold across all five triage-cited files using an opt-in helper. / PTQ-0935: Extracted the bind/assert/read tail for all three cited copies; retained every assertion. / PTQ-1036: Distinct descriptions now prove project precedence; a temporary package-wins override correctly failed the new assertion and was removed. / PTQ-1039: Migrated b0378 to the existing recording harness and note filter, adding optional flags support. No tests deleted; required gate passed for all changes: tsc and 11,569 tests across 687 files. ||

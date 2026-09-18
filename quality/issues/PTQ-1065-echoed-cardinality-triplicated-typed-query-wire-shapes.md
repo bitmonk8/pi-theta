@@ -13,6 +13,7 @@ fix_scope: localized
 wave: qw20260918202006
 reported_by: lens-d7-testquality (anthropic/claude-sonnet-5)
 date: 2026-09-18
+fix_skips: 1
 ---
 
 # The three-expect echoed-sentinel-cardinality block is retyped identically three times inside typed-query-wire-shapes.test.ts
@@ -99,3 +100,6 @@ comments already point toward.
 ## Triage
 <!-- triage appends its note here -->
 verdict: confirmed — independently re-verified: the three 14-line `expect()` blocks at :225-238/:302-315/:474-487 are byte-identical (mktemp sed-range extracts share md5 dde400e1; the enclosing :218-238 vs :299-315 diff differs only in the preceding comment, :299-315 vs :471-487 diff is empty), the `echoed.length|new Set(echoed).size` grep returns exactly the 9 cited hits, no helper in tests/helpers/ or tests/live/harness.ts covers this shape (harness.ts only populates `reAskCount`; the only other consumer, live-production-acceptance.test.ts:9845, uses the distinct exact-form `toHaveLength(1 + turn.reAskCount)`), and the class is D7 boilerplate duplication inside tests/live/ with no gate-pin or recording-double carve-out; two of the candidate's FP-check greps do NOT reproduce as stated but neither refutes it — `echoed.length` in docs/bugs/ hits 0290 (1, not 0), whose §Fix (b) cites these three cells as the edited sites and whose Residual 3 records this very repetition as an acknowledged leftover ("a shared helper is not owed by §Fix" — scoping the fix, not ruling the copies must stay; the proposed helper returns `echoed` so the per-cell `echoed[0]` wire-value assertions and the file's `it()`s are untouched, so the bug-doc witness carve-out does not bind), and the quality overlap grep hits PTQ-0546 (resolved) plus same-wave qw20260918202006-d7-03 (2, not 0), both of which cover the console.error spy-gate block in other live cells, not this root cause (0 quality files mention `echoed`/`reAskCount`) — not a duplicate (triage: claude-fable-5-1)
+
+## Fix attempts
+- qw20260918202006: skipped — [PTQ-1024-clean-stem-vacuity-guard-quadruplicated.md] PTQ-1024: Shared the clean fixture and registration guard across all five files, including b0267. Assertions preserved; required gate and affected live tests passed. / PTQ-1048: Shared chain-source builders and driven-turn assertions across three files. Fixture bytes and test names preserved; required gate and affected live tests passed. / PTQ-1034: Replaced local helpers in b0351, b0357, and triage-added b0307 with canonical errorCodes imports. Assertions unchanged; required gate and affected live tests passed. / PTQ-1040: Replaced both local helpers with canonical errorCodes imports and removed orphaned Diagnostic imports. Assertions unchanged; required gate and affected live tests passed. Overall verification: TypeScript, 687 offline files (11,569 tests), and all 10 affected live files passed. No tests deleted. ||
