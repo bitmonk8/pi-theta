@@ -1,18 +1,8 @@
+import { parseTheta } from "./helpers/e2e-s1";
+import { bindAndExecute, producer } from "./helpers/prompt-value-harness";
 import { describe, expect, it } from "vitest";
-import type {
-  ExtensionAPI,
-  ExtensionCommandContext,
-  ModelRegistry,
-} from "@earendil-works/pi-coding-agent";
-import type { ThetaSource } from "../src/lexer/lexer";
-import type { SystemNoteChannelDeps } from "../src/extension/system-note-channel";
-import type { ModelReferenceMatcher, ParsedFrontmatter } from "../src/parser/frontmatter";
-import {
-  parseThetaDocument,
-  type ParseThetaDocumentDeps,
-  type ThetaDocument,
-} from "../src/parser/theta-document";
-import { executeBody, type BodyExecution } from "../src/runtime/statement-executor";
+import type { ParsedFrontmatter } from "../src/parser/frontmatter";
+import type { BodyExecution } from "../src/runtime/statement-executor";
 import {
   isResultValue,
   isWireLowerable,
@@ -22,16 +12,7 @@ import {
   type ThetaValue,
 } from "../src/runtime/value";
 import { evaluateQuestion } from "../src/runtime/runtime-panics";
-import {
-  createProductionProducerDeps,
-  type CalleeParseOutcome,
-} from "../src/extension/production-theta-producer";
-import type {
-  ConversationBindInput,
-  ThetaCompositionInput,
-} from "../src/extension/theta-composition-producer";
-import type { RuntimeRoot } from "../src/runtime-root";
-import type { Checkpoint } from "../src/seams/checkpoint";
+import type { ThetaCompositionInput } from "../src/extension/theta-composition-producer";
 import {
   AjvSchemaValidator,
   type LoweredSchema,
@@ -118,45 +99,18 @@ import {
 // bindPromptConversation → executeBody).
 // ===========================================================================
 
-function parseDeps(): ParseThetaDocumentDeps {
-  const systemNote: SystemNoteChannelDeps = {
-    pi: { sendMessage: (): void => {} },
-    ui: { notify: (): void => {} },
-    emitDiagnostic: (): void => {},
-  };
-  const modelMatcher: ModelReferenceMatcher = {
-    resolve: (): "resolved" => "resolved",
-  };
-  return { systemNote, modelMatcher };
-}
-
-/**
- * Parse a fixture source and fail LOUDLY on any error-severity diagnostic —
- * a fixture that stops parsing must never let a bug test pass or fail for the
- * wrong reason (no silent skip).
- */
-function parseTheta(path: string, src: string): ThetaDocument {
-  const source: ThetaSource = { path, bytes: new TextEncoder().encode(src) };
-  const doc = parseThetaDocument(source, parseDeps());
-  const errors = doc.diagnostics.filter((d) => d.severity === "error");
-  if (errors.length > 0) {
-    throw new Error(
-      `fixture ${path} failed to parse: ${errors.map((d) => `${d.code}: ${d.message}`).join("; ")}`,
-    );
-  }
-  return doc;
-}
-
-const NOOP_CHECKPOINT: Checkpoint = {
-  before(): Promise<void> {
-    return Promise.resolve();
-  },
-};
-
 /**
  * The production AJV validator (real schema validation), wired with the same
  * `JSON.stringify` content-addressing the shipped composition root uses — the
  * `tests/binder-forced-tool-dispatch.test.ts` `realAjvValidator()` pattern.
+ *
+ * Bug 0172: the `.theta`-callable invoke leg now derives a return type by
+ * FN-3 inference over the callee's tail (a named-schema constructor here),
+ * so `#validateInvokeReturn` reaches `root.schemaValidator.compile(...)` on
+ * a path this double previously never exercised (`returnSchema` was always
+ * `null` for a `tools:`-routed call). A real validator is what production
+ * wires there; a stub double must not paper over that with a guard — the
+ * fix is the double, not a defensive `undefined` check in production code.
  */
 function realAjvValidator(): AjvSchemaValidator {
   return new AjvSchemaValidator({
@@ -166,59 +120,6 @@ function realAjvValidator(): AjvSchemaValidator {
       return { slug: canonicalBytes, canonicalBytes };
     },
   });
-}
-
-function rootDouble(): RuntimeRoot {
-  return {
-    checkpoint: NOOP_CHECKPOINT,
-    idSource: { newInvocationId: () => "inv-1", newToolCallId: () => "tc-1" },
-    // Bug 0172: the `.theta`-callable invoke leg now derives a return type by
-    // FN-3 inference over the callee's tail (a named-schema constructor here),
-    // so `#validateInvokeReturn` reaches `root.schemaValidator.compile(...)` on
-    // a path this double previously never exercised (`returnSchema` was always
-    // `null` for a `tools:`-routed call). A real validator is what production
-    // wires there; a stub double must not paper over that with a guard — the
-    // fix is the double, not a defensive `undefined` check in production code.
-    schemaValidator: realAjvValidator(),
-  } as unknown as RuntimeRoot;
-}
-
-function ctxDouble(): ExtensionCommandContext {
-  return {} as unknown as ExtensionCommandContext;
-}
-
-interface ProducerOpts {
-  // Bug 0293: the seam returns the three-arm `CalleeParseOutcome` verdict; the
-  // one success stub below wraps its callee as `{ kind: "ok", input }`.
-  readonly parseCallee?: (
-    callerPath: string | undefined,
-    calleePath: string,
-  ) => Promise<CalleeParseOutcome | undefined>;
-}
-
-function producer(opts: ProducerOpts = {}) {
-  return createProductionProducerDeps({
-    // `getActiveTools`/`setActiveTools` satisfy the PIC-17 prompt→prompt
-    // suspend window (`runPromptSuspendInvoke`); `sendMessage` satisfies the
-    // theta-system-note channel.
-    pi: {
-      sendMessage: () => {},
-      getActiveTools: () => [],
-      setActiveTools: () => {},
-    } as unknown as ExtensionAPI,
-    root: rootDouble(),
-    modelRegistry: {} as unknown as ModelRegistry,
-    ...(opts.parseCallee !== undefined ? { parseCallee: opts.parseCallee } : {}),
-  });
-}
-
-function bindAndExecute(
-  deps: ReturnType<typeof producer>,
-  theta: ThetaCompositionInput,
-): Promise<BodyExecution> {
-  const bindInput: ConversationBindInput = { theta, args: "", ctx: ctxDouble() };
-  const binding = deps.bindPromptConversation(bindInput);
-  return executeBody(theta.body, binding.executeDeps);
 }
 
 const FM = "---\nmode: prompt\n---\n";
@@ -232,7 +133,7 @@ function runSource(src: string): Promise<BodyExecution> {
     frontmatter: doc.frontmatter as ParsedFrontmatter,
     body: doc.body,
   };
-  return bindAndExecute(producer(), theta);
+  return bindAndExecute(producer({ schemaValidator: realAjvValidator() }), theta);
 }
 
 // ===========================================================================
@@ -416,6 +317,7 @@ describe("bug 0017 (c) — a callee final value carrying `ok: boolean` crosses t
   async function runInvoke(calleeSrc: string): Promise<BodyExecution> {
     const callee = calleeReturning(calleeSrc);
     const deps = producer({
+      schemaValidator: realAjvValidator(),
       parseCallee: (_caller, _path) => Promise.resolve({ kind: "ok", input: callee }),
     });
     const callerDoc = parseTheta(

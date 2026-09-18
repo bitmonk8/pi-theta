@@ -1,5 +1,9 @@
-// Shared registration recorder and invocation/argument fixtures for progress-tool tests.
+// Shared execution-status fixtures: progress-tool recording and renderer snapshots.
 
+import type {
+  ExecutionStatusSnapshot,
+  InvocationNodeSnapshot,
+} from "../../src/extension/execution-status/types";
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
 import type {
   THETA_PROGRESS_PARAMETERS,
@@ -34,3 +38,15 @@ export function fakeEntry(overrides: Partial<ActiveInvocationEntry> = {}): Activ
 }
 
 export const ARGS: ThetaProgressParams = { message: "built 3 of 12", scope: "fix", done: 3, total: 12 };
+
+/** Minimal node builder — only the fields a given assertion needs are set. */
+export function node(overrides: Partial<InvocationNodeSnapshot> & Pick<InvocationNodeSnapshot, "invocationId" | "theta" | "startedAtMs">): InvocationNodeSnapshot {
+  return {
+    counters: { checkpoints: 0, loopIters: 0 },
+    ...overrides,
+  };
+}
+
+export function snapshotOf(nodes: readonly InvocationNodeSnapshot[], untracked = 0): ExecutionStatusSnapshot {
+  return { nodes, untracked };
+}

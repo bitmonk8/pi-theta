@@ -1,12 +1,11 @@
 import { describe, expect, it } from "vitest";
+import { byCode } from "./helpers/e2e-s1";
 import {
   loadSettings,
   mergeSettings,
   type JsonObject,
 } from "../src/discovery/settings";
-import type { Diagnostic } from "../src/diagnostics/diagnostic";
-import type { FileSystem } from "../src/seams/file-system";
-import { FakeFileSystem } from "./helpers/fake-file-system";
+import { buildSettings as build, EMPTY_SETTINGS_FILE as EMPTY } from "./helpers/fake-file-system";
 
 // V10c-T — failing tests for the paired `V10c` settings reads-and-merge
 // implementation (`src/discovery/settings.ts`). The bullets trace to DISC-7
@@ -18,39 +17,6 @@ import { FakeFileSystem } from "./helpers/fake-file-system";
 // absent — the stubs return an empty merge object and an empty
 // settings/diagnostics result, so each assertion reds on the missing merged key
 // or the missing diagnostic, not on a compile error, fixture, or harness throw.
-
-// Resolved settings-file locations the seam reads (POSIX-joined per the module
-// contract: project = `<cwd>/.pi/settings.json`, global =
-// `<homedir>/.pi/agent/settings.json`).
-const HOME = "/home/theta";
-const CWD = "/project";
-const PROJECT_PATH = "/project/.pi/settings.json";
-const GLOBAL_PATH = "/home/theta/.pi/agent/settings.json";
-
-/** One settings file's on-disk state: present-with-content, unreadable, or (omitted) missing. */
-interface FileSpec {
-  readonly content?: string;
-  readonly error?: string;
-}
-
-/** A valid, empty settings file — contributes no keys and no diagnostics. */
-const EMPTY: FileSpec = { content: "{}" };
-
-/** Build a FileSystem fake placing the two settings files at their resolved paths. */
-function build(project: FileSpec, global: FileSpec): FileSystem {
-  const files: Record<string, string> = {};
-  const errors: Record<string, string> = {};
-  if (project.content !== undefined) files[PROJECT_PATH] = project.content;
-  if (project.error !== undefined) errors[PROJECT_PATH] = project.error;
-  if (global.content !== undefined) files[GLOBAL_PATH] = global.content;
-  if (global.error !== undefined) errors[GLOBAL_PATH] = global.error;
-  return new FakeFileSystem({ homedir: HOME, cwd: CWD, files, errors });
-}
-
-/** Diagnostics matching a registry code. */
-function byCode(diagnostics: readonly Diagnostic[], code: string): readonly Diagnostic[] {
-  return diagnostics.filter((d) => d.code === code);
-}
 
 // --------------------------------------------------------------------------
 // DISC-7 — deep-merge precedence (objects deep-merge, arrays/scalars replace,

@@ -470,3 +470,31 @@ export class ReaddirDeniedFileSystem extends FileSystemDecorator {
     return this.inner.lstat(path);
   }
 }
+
+// Resolved settings-file locations the seam reads (POSIX-joined per the module
+// contract: project = `<cwd>/.pi/settings.json`, global =
+// `<homedir>/.pi/agent/settings.json`).
+export const SETTINGS_HOME = "/home/theta";
+export const SETTINGS_CWD = "/project";
+export const PROJECT_SETTINGS_PATH = "/project/.pi/settings.json";
+export const GLOBAL_SETTINGS_PATH = "/home/theta/.pi/agent/settings.json";
+
+/** One settings file's on-disk state: present-with-content, unreadable, or (omitted) missing. */
+export interface SettingsFileSpec {
+  readonly content?: string;
+  readonly error?: string;
+}
+
+/** A valid, empty settings file — contributes no keys and no diagnostics. */
+export const EMPTY_SETTINGS_FILE: SettingsFileSpec = { content: "{}" };
+
+/** Build a FileSystem fake placing the two settings files at their resolved paths. */
+export function buildSettings(project: SettingsFileSpec, global: SettingsFileSpec): FileSystem {
+  const files: Record<string, string> = {};
+  const errors: Record<string, string> = {};
+  if (project.content !== undefined) files[PROJECT_SETTINGS_PATH] = project.content;
+  if (project.error !== undefined) errors[PROJECT_SETTINGS_PATH] = project.error;
+  if (global.content !== undefined) files[GLOBAL_SETTINGS_PATH] = global.content;
+  if (global.error !== undefined) errors[GLOBAL_SETTINGS_PATH] = global.error;
+  return new FakeFileSystem({ homedir: SETTINGS_HOME, cwd: SETTINGS_CWD, files, errors });
+}

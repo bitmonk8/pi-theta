@@ -6,10 +6,8 @@ import {
   type FooterUi,
 } from "../src/extension/execution-status/footer-sink";
 import { FOOTER_CLAMP_CHARS } from "../src/extension/execution-status/types";
-import type {
-  ExecutionStatusSnapshot,
-  InvocationNodeSnapshot,
-} from "../src/extension/execution-status/types";
+import type { InvocationNodeSnapshot } from "../src/extension/execution-status/types";
+import { node, snapshotOf } from "./helpers/execution-status-progress";
 
 // RFC 0010 (execution-status.md EXST-8/EXST-10) — `tests/execution-status-footer.test.ts`
 // (T-FTR). Behaviour-matrix rows B35-B40, B43 (EXST-8 worked examples,
@@ -19,18 +17,6 @@ import type {
 // `renderWorkingMessage`) produce the rendered strings, and `render()` calls
 // them and forwards the result to `setStatus`/`setWorkingMessage`. Every
 // worked-example / string assertion below asserts the real rendered string.
-
-/** Minimal node builder — only the fields a given assertion needs are set. */
-function node(overrides: Partial<InvocationNodeSnapshot> & Pick<InvocationNodeSnapshot, "invocationId" | "theta" | "startedAtMs">): InvocationNodeSnapshot {
-  return {
-    counters: { checkpoints: 0, loopIters: 0 },
-    ...overrides,
-  };
-}
-
-function snapshotOf(nodes: readonly InvocationNodeSnapshot[], untracked = 0): ExecutionStatusSnapshot {
-  return { nodes, untracked };
-}
 
 // ---------------------------------------------------------------------------
 // B35/B36 — the EXST-8 worked example: single node, tool-call effect, an

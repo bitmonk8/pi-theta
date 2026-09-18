@@ -1,13 +1,11 @@
 import { describe, expect, it } from "vitest";
+import { byCode } from "./helpers/e2e-s1";
 import { loadSettings, type ThetaSettings } from "../src/discovery/settings";
-import type { Diagnostic } from "../src/diagnostics/diagnostic";
-import type { FileSystem } from "../src/seams/file-system";
-import { FakeFileSystem } from "./helpers/fake-file-system";
+import { buildSettings as build, EMPTY_SETTINGS_FILE as EMPTY } from "./helpers/fake-file-system";
 
 // RFC 0010 (execution-status.md EXST-10) — `tests/execution-status-settings-progress.test.ts`
-// (T-CMD settings half). Behaviour-matrix rows B56-B58. Mirrors
-// `tests/settings-merge.test.ts`'s `FileSpec`/`build`/`byCode` harness
-// exactly (same FakeFileSystem-backed `loadSettings` entry point).
+// (T-CMD settings half). Behaviour-matrix rows B56-B58. Uses the shared
+// FakeFileSystem-backed settings harness.
 //
 // `theta.progress` is a recognised `thetas.*` scalar key in
 // `src/discovery/settings.ts` (EXST-10): a valid `"counts"` value survives
@@ -15,28 +13,6 @@ import { FakeFileSystem } from "./helpers/fake-file-system";
 // `settings.theta?.progress`, and an invalid value fires the
 // `theta/load/settings-value-out-of-range` diagnostic naming `thetas.progress`
 // and is treated absent.
-
-const HOME = "/home/theta";
-const CWD = "/project";
-const PROJECT_PATH = "/project/.pi/settings.json";
-const GLOBAL_PATH = "/home/theta/.pi/agent/settings.json";
-
-interface FileSpec {
-  readonly content?: string;
-}
-
-const EMPTY: FileSpec = { content: "{}" };
-
-function build(project: FileSpec, global: FileSpec): FileSystem {
-  const files: Record<string, string> = {};
-  if (project.content !== undefined) files[PROJECT_PATH] = project.content;
-  if (global.content !== undefined) files[GLOBAL_PATH] = global.content;
-  return new FakeFileSystem({ homedir: HOME, cwd: CWD, files, errors: {} });
-}
-
-function byCode(diagnostics: readonly Diagnostic[], code: string): readonly Diagnostic[] {
-  return diagnostics.filter((d) => d.code === code);
-}
 
 /**
  * Read `progress` through an `unknown` widening rather than a locally-

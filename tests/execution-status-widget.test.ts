@@ -5,10 +5,7 @@ import {
   type WidgetUi,
 } from "../src/extension/execution-status/widget-sink";
 import { WIDGET_HEIGHT_LINES } from "../src/extension/execution-status/types";
-import type {
-  ExecutionStatusSnapshot,
-  InvocationNodeSnapshot,
-} from "../src/extension/execution-status/types";
+import { node, snapshotOf } from "./helpers/execution-status-progress";
 
 // RFC 0010 (execution-status.md EXST-8/EXST-11) — `tests/execution-status-widget.test.ts`
 // (T-WDG). Behaviour-matrix rows B41-B44 (EXST-8 render algorithm, worked
@@ -18,14 +15,6 @@ import type {
 // `widget-sink.ts`'s `renderStatusTree` produces the tree lines, and
 // `render()` calls it and forwards the result to `setWidget`. Every
 // line-content assertion below asserts the real rendered lines.
-
-function node(overrides: Partial<InvocationNodeSnapshot> & Pick<InvocationNodeSnapshot, "invocationId" | "theta" | "startedAtMs">): InvocationNodeSnapshot {
-  return { counters: { checkpoints: 0, loopIters: 0 }, ...overrides };
-}
-
-function snapshotOf(nodes: readonly InvocationNodeSnapshot[], untracked = 0): ExecutionStatusSnapshot {
-  return { nodes, untracked };
-}
 
 // ---------------------------------------------------------------------------
 // B41 — the EXST-8 worked example, width 100, names, tree.

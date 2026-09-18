@@ -1,29 +1,16 @@
+import { parseDeps, parseTheta } from "./helpers/e2e-s1";
+import { bindAndExecute, producer } from "./helpers/prompt-value-harness";
+import { ctxDouble } from "./helpers/tool-call-dispatch-harness";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import type {
-  ExtensionAPI,
-  ExtensionCommandContext,
-  ModelRegistry,
-} from "@earendil-works/pi-coding-agent";
 // @ts-expect-error — JS code-registry module, no type declarations.
 import { parseRegistry, registryMessage } from "../tools/code-registry/index.js";
 import type { ThetaSource } from "../src/lexer/lexer";
-import type { SystemNoteChannelDeps } from "../src/extension/system-note-channel";
-import type { ModelReferenceMatcher, ParsedFrontmatter } from "../src/parser/frontmatter";
-import {
-  parseThetaDocument,
-  type ParseThetaDocumentDeps,
-  type ThetaDocument,
-} from "../src/parser/theta-document";
+import type { ParsedFrontmatter } from "../src/parser/frontmatter";
+import { parseThetaDocument } from "../src/parser/theta-document";
 import { executeBody, type BodyExecution } from "../src/runtime/statement-executor";
-import { createProductionProducerDeps } from "../src/extension/production-theta-producer";
-import type {
-  ConversationBindInput,
-  ThetaCompositionInput,
-} from "../src/extension/theta-composition-producer";
-import type { RuntimeRoot } from "../src/runtime-root";
-import type { Checkpoint } from "../src/seams/checkpoint";
+import type { ThetaCompositionInput } from "../src/extension/theta-composition-producer";
 import { renderTopLevelErrNote } from "../src/runtime/err-note-render";
 import type { QueryError } from "../src/runtime/query-error";
 
@@ -85,25 +72,6 @@ import type { QueryError } from "../src/runtime/query-error";
 // (b-series) and is deliberately NOT re-asserted here.
 
 // ===========================================================================
-// Shared harness — parse a real source, drive it through the production
-// prompt-mode binding (parseThetaDocument → createProductionProducerDeps →
-// bindPromptConversation → executeBody). The exact
-// tests/result-value-privacy.test.ts §"Shared harness" pattern.
-// ===========================================================================
-
-function parseDeps(): ParseThetaDocumentDeps {
-  const systemNote: SystemNoteChannelDeps = {
-    pi: { sendMessage: (): void => {} },
-    ui: { notify: (): void => {} },
-    emitDiagnostic: (): void => {},
-  };
-  const modelMatcher: ModelReferenceMatcher = {
-    resolve: (): "resolved" => "resolved",
-  };
-  return { systemNote, modelMatcher };
-}
-
-// ===========================================================================
 // The DIAG-4 oracle for the one row decided at PARSE (m6). Mirrors the
 // `REGISTRY` / `registered` shape tests/ctor-field-type-check.test.ts
 // established: diagnostic-shape.md:74 makes the registry's *Message* column
@@ -158,6 +126,8 @@ function registeredMessage(code: string, placeholder: string, value: string): st
   return template.replace(placeholder, value);
 }
 
+const FM = "---\nmode: prompt\n---\n";
+
 /**
  * Parse a fixture source and fail LOUDLY on any error-severity diagnostic — a
  * fixture that stops parsing must never let a bug test pass or fail for the
@@ -167,52 +137,6 @@ function registeredMessage(code: string, placeholder: string, value: string): st
  * and stay unclassified even after the stage-2 `union`/`object` widening). m6
  * uses the gate inverted — its throw IS that row's refusal observable.
  */
-function parseTheta(path: string, src: string): ThetaDocument {
-  const source: ThetaSource = { path, bytes: new TextEncoder().encode(src) };
-  const doc = parseThetaDocument(source, parseDeps());
-  const errors = doc.diagnostics.filter((d) => d.severity === "error");
-  if (errors.length > 0) {
-    throw new Error(
-      `fixture ${path} failed to parse: ${errors.map((d) => `${d.code}: ${d.message}`).join("; ")}`,
-    );
-  }
-  return doc;
-}
-
-const NOOP_CHECKPOINT: Checkpoint = {
-  before(): Promise<void> {
-    return Promise.resolve();
-  },
-};
-
-function rootDouble(): RuntimeRoot {
-  return {
-    checkpoint: NOOP_CHECKPOINT,
-    idSource: { newInvocationId: () => "inv-1", newToolCallId: () => "tc-1" },
-  } as unknown as RuntimeRoot;
-}
-
-function ctxDouble(): ExtensionCommandContext {
-  return {} as unknown as ExtensionCommandContext;
-}
-
-function producer() {
-  return createProductionProducerDeps({
-    // `getActiveTools`/`setActiveTools` satisfy the PIC-17 window;
-    // `sendMessage` satisfies the theta-system-note channel.
-    pi: {
-      sendMessage: () => {},
-      getActiveTools: () => [],
-      setActiveTools: () => {},
-    } as unknown as ExtensionAPI,
-    root: rootDouble(),
-    modelRegistry: {} as unknown as ModelRegistry,
-  });
-}
-
-const FM = "---\nmode: prompt\n---\n";
-
-/** Parse a self-contained prompt-mode source into a composition input. */
 function thetaOf(src: string): ThetaCompositionInput {
   const doc = parseTheta("bug0019.theta", src);
   return {
@@ -221,15 +145,6 @@ function thetaOf(src: string): ThetaCompositionInput {
     frontmatter: doc.frontmatter as ParsedFrontmatter,
     body: doc.body,
   };
-}
-
-function bindAndExecute(
-  deps: ReturnType<typeof producer>,
-  theta: ThetaCompositionInput,
-): Promise<BodyExecution> {
-  const bindInput: ConversationBindInput = { theta, args: "", ctx: ctxDouble() };
-  const binding = deps.bindPromptConversation(bindInput);
-  return executeBody(theta.body, binding.executeDeps);
 }
 
 /** Parse + run a self-contained prompt-mode source through the production binding. */

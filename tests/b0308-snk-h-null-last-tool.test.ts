@@ -35,12 +35,7 @@
 // tests/query-tool-loop.test.ts and tests/prompt-tool-loop-governor.test.ts.
 
 import { describe, it, expect } from "vitest";
-import type {
-  ExtensionAPI,
-  ExtensionHandler,
-  ToolCallEvent,
-  ToolCallEventResult,
-} from "@earendil-works/pi-coding-agent";
+import { FakePi } from "./helpers/fake-governor-pi";
 import { renderLeafKindNote } from "../src/runtime/err-note-render";
 import type {
   QueryError,
@@ -207,55 +202,12 @@ describe("bug 0308 (C) — last_tool_name: null is reachable under max_rounds: 0
 // `exhausted === true` is set in the SAME `#onToolCall` event that records a
 // concrete (non-null) `lastToolName` — so the producer's `?? "respond"` can
 // never see a null on the reachable exhausted path, and dropping it is
-// byte-neutral. FakePi mirrors tests/prompt-tool-loop-governor.test.ts.
+// byte-neutral. FakePi is shared with tests/prompt-tool-loop-governor.test.ts.
 // ===========================================================================
-
-/** A minimal fake `pi` that captures the governor's `on(...)` handlers. */
-class FakePi {
-  #bpr: (() => void) | undefined;
-  #toolCall:
-    | ((event: ToolCallEvent) => ToolCallEventResult | undefined)
-    | undefined;
-
-  readonly api: ExtensionAPI;
-
-  constructor() {
-    const on = (
-      event: string,
-      handler: ExtensionHandler<unknown, unknown>,
-    ): void => {
-      if (event === "before_provider_request") {
-        this.#bpr = () => {
-          void handler(undefined as never, undefined as never);
-        };
-      } else if (event === "tool_call") {
-        this.#toolCall = (e: ToolCallEvent) =>
-          handler(e as never, undefined as never) as
-            | ToolCallEventResult
-            | undefined;
-      }
-    };
-    this.api = { on } as unknown as ExtensionAPI;
-  }
-
-  providerRequest(): void {
-    this.#bpr?.();
-  }
-
-  toolCall(toolName: string): ToolCallEventResult | undefined {
-    const event = {
-      type: "tool_call",
-      toolCallId: `tc-${toolName}`,
-      toolName,
-      input: {},
-    } as unknown as ToolCallEvent;
-    return this.#toolCall?.(event);
-  }
-}
 
 describe("bug 0308 (D) — exhausted === true always carries a non-null lastToolName", () => {
   it("a governor driven to exhaustion snapshots {exhausted:true, lastToolName:'grep'} — the producer's `?? \"respond\"` is dead", () => {
-    const pi = new FakePi();
+    const pi = new FakePi((toolName) => `tc-${toolName}`);
     const gov = new PromptToolLoopGovernor();
     gov.ensureRegistered(pi.api);
     gov.begin(1);

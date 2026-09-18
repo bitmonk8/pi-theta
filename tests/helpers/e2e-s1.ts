@@ -220,6 +220,11 @@ export function findCode(
   return diags.find((d) => d.code === code);
 }
 
+/** Diagnostics matching a registry code. */
+export function byCode(diagnostics: readonly Diagnostic[], code: string): readonly Diagnostic[] {
+  return diagnostics.filter((d) => d.code === code);
+}
+
 /** All distinct diagnostic codes present (sorted, for readable failures). */
 export function codes(diags: readonly Diagnostic[]): string[] {
   return [...new Set(diags.map((d) => d.code))].sort();

@@ -1,13 +1,21 @@
 import { delimiter as PATH_DELIMITER } from "node:path";
 import { describe, expect, it } from "vitest";
+import { byCode } from "./helpers/e2e-s1";
 import {
   discoverThetas,
   type DiscoveredTheta,
   type DiscoveryInput,
 } from "../src/discovery/discovery-walk";
 import { loadSettings, type ThetaSettings } from "../src/discovery/settings";
-import type { Diagnostic } from "../src/diagnostics/diagnostic";
-import { FakeFileSystem, ancestors, mergeDirs } from "./helpers/fake-file-system";
+import {
+  FakeFileSystem,
+  ancestors,
+  mergeDirs,
+  SETTINGS_HOME as HOME,
+  SETTINGS_CWD as CWD,
+  PROJECT_SETTINGS_PATH as PROJECT_SETTINGS,
+  GLOBAL_SETTINGS_PATH as GLOBAL_SETTINGS,
+} from "./helpers/fake-file-system";
 
 // e2e-s5 — offline-unit (METHOD M1) coverage for three uncovered DISC
 // requirements, driven through the production discovery entry `discoverThetas`
@@ -26,12 +34,8 @@ import { FakeFileSystem, ancestors, mergeDirs } from "./helpers/fake-file-system
 //               diagnostic); the wrong-type rule fires only for a
 //               non-.theta-file, non-directory target.
 
-const HOME = "/home/theta";
-const CWD = "/project";
 const GLOBAL_ROOT = "/home/theta/.pi/agent/theta";
 const PROJECT_ROOT = "/project/.pi/theta";
-const PROJECT_SETTINGS = "/project/.pi/settings.json";
-const GLOBAL_SETTINGS = "/home/theta/.pi/agent/settings.json";
 
 /** Both conventional roots' ancestor chains — registered in every fixture so an
  *  absent conventional root classifies as a clean (silent) missing. */
@@ -61,10 +65,6 @@ const NO_SETTINGS: ThetaSettings = {};
 
 function input(fs: FakeFileSystem, extra: Partial<DiscoveryInput> = {}): DiscoveryInput {
   return { fs, settings: NO_SETTINGS, ...extra };
-}
-
-function byCode(diagnostics: readonly Diagnostic[], code: string): readonly Diagnostic[] {
-  return diagnostics.filter((d) => d.code === code);
 }
 
 function named(thetas: readonly DiscoveredTheta[], name: string): DiscoveredTheta | undefined {

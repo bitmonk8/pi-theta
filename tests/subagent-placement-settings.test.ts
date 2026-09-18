@@ -7,17 +7,16 @@
 // `details.reason`). Messages are sourced from the registry (DIAG-4).
 import { readRegistry } from "./helpers/registry-oracle";
 import { describe, expect, it } from "vitest";
+import { byCode } from "./helpers/e2e-s1";
 // @ts-expect-error — JS code-registry module, no type declarations.
 import { registryMessage } from "../tools/code-registry/index.js";
 import { loadSettings } from "../src/discovery/settings";
-import type { Diagnostic } from "../src/diagnostics/diagnostic";
 import type { FileSystem } from "../src/seams/file-system";
-import { FakeFileSystem } from "./helpers/fake-file-system";
-
-const HOME = "/home/theta";
-const CWD = "/project";
-const PROJECT_PATH = "/project/.pi/settings.json";
-const GLOBAL_PATH = "/home/theta/.pi/agent/settings.json";
+import {
+  buildSettings,
+  PROJECT_SETTINGS_PATH as PROJECT_PATH,
+  GLOBAL_SETTINGS_PATH as GLOBAL_PATH,
+} from "./helpers/fake-file-system";
 
 const INVALID_ENTRY = "theta/load/settings-invalid-entry";
 const OUT_OF_RANGE = "theta/load/settings-value-out-of-range";
@@ -25,14 +24,10 @@ const OUT_OF_RANGE = "theta/load/settings-value-out-of-range";
 const REGISTRY = readRegistry(["load"]);
 
 function build(project: unknown | undefined, global: unknown | undefined): FileSystem {
-  const files: Record<string, string> = {};
-  if (project !== undefined) files[PROJECT_PATH] = JSON.stringify(project);
-  if (global !== undefined) files[GLOBAL_PATH] = JSON.stringify(global);
-  return new FakeFileSystem({ homedir: HOME, cwd: CWD, files, errors: {} });
-}
-
-function byCode(diagnostics: readonly Diagnostic[], code: string): readonly Diagnostic[] {
-  return diagnostics.filter((d) => d.code === code);
+  return buildSettings(
+    project === undefined ? {} : { content: JSON.stringify(project) },
+    global === undefined ? {} : { content: JSON.stringify(global) },
+  );
 }
 
 const TMUX_TEMPLATE = {
