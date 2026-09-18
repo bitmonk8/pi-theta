@@ -1,5 +1,3 @@
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import type {
   ExtensionAPI,
@@ -31,6 +29,7 @@ import { executeBody } from "../src/runtime/statement-executor";
 import type { RuntimeRoot } from "../src/runtime-root";
 import type { Checkpoint } from "../src/seams/checkpoint";
 import type { AgentToolResultEnvelope } from "../src/runtime/tool-call-execute";
+import { readCorpus } from "./helpers/corpus-reader";
 
 // Bug 0069 §Fix constraint 5, hardened per bug 0107 (§Fix routes (c) + (b)) —
 // the `tools:` entry grammar must have ONE implementation. `presentedCallableNames`
@@ -114,11 +113,9 @@ import type { AgentToolResultEnvelope } from "../src/runtime/tool-call-execute";
 
 // --- The shipped source under scan -----------------------------------------
 
-const PRODUCER_SOURCE = readFileSync(
-  fileURLToPath(
-    new URL("../src/extension/production-theta-producer.ts", import.meta.url),
-  ),
-  "utf8",
+const PRODUCER_SOURCE = readCorpus(
+  "src/extension/production-theta-producer.ts",
+  "group (D1)'s source for the shipped tools-entry grammar scan",
 );
 
 /**

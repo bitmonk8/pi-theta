@@ -35,19 +35,16 @@
 // edits, no stubbing.
 
 import { describe, expect, it } from "vitest";
-import { modelTool, transport } from "./helpers/query-error-fixtures";
+import { calleeWrap, hop, modelTool, transport } from "./helpers/query-error-fixtures";
 import {
   isInvokeCalleeError,
   renderLeafKindNote,
   renderTopLevelErrNote,
-  type ChainHop,
 } from "../src/runtime/err-note-render";
 import type {
   CodeToolError,
-  InvokeCalleeError,
   QueryError,
 } from "../src/runtime/query-error";
-import type { InvocationRecord } from "../src/runtime/invoke-provenance";
 
 const DASH = "\u2014"; // em-dash, the SLSH-4 template separator.
 // The one substring whose presence is the SLSH-5 chain suffix's signature.
@@ -61,19 +58,6 @@ const SUFFIX_MARKER = "invoked at";
  */
 function unknownToolCode(tool_name: string, message: string): CodeToolError {
   return { kind: "code_tool", message, tool_name, cause: "unknown_tool" };
-}
-
-/** The `invoke_callee` cascade wrapper (the REQ-SLSH-22 surface). */
-function calleeWrap(callee_path: string, inner: QueryError): InvokeCalleeError {
-  return { kind: "invoke_callee", message: "callee returned Err", callee_path, inner };
-}
-
-function record(parentPath: string, callSiteLine: number): InvocationRecord {
-  return { parentPath, callSiteLine };
-}
-
-function hop(calleePath: string, parentPath: string, callSiteLine: number): ChainHop {
-  return { calleePath, record: record(parentPath, callSiteLine) };
 }
 
 /** Render at the boundary with the EMPTY chain — the model-invoked tool-error

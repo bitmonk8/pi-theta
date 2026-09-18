@@ -19,22 +19,19 @@
 // throw.
 
 import { describe, expect, it } from "vitest";
-import { codeTool, modelTool, transport } from "./helpers/query-error-fixtures";
+import { calleeWrap, codeTool, hop, modelTool, transport } from "./helpers/query-error-fixtures";
 import {
   renderLeafKindNote,
   renderTopLevelErrNote,
-  type ChainHop,
 } from "../src/runtime/err-note-render";
 import type {
   CancelledError,
   ContextOverflowError,
-  InvokeCalleeError,
   InvokeInfraError,
   QueryError,
   ToolLoopExhaustedError,
   ValidationError,
 } from "../src/runtime/query-error";
-import type { InvocationRecord } from "../src/runtime/invoke-provenance";
 
 const DASH = "\u2014"; // em-dash, the SLSH-4 template separator.
 
@@ -91,18 +88,6 @@ function unlistedKind(kind: string, message: string): QueryError {
   // the union structurally (matching `CancelledError`'s field set) with an
   // unlisted tag — the SNK-k catch-all input.
   return { kind, message } as QueryError;
-}
-
-function calleeWrap(callee_path: string, inner: QueryError): InvokeCalleeError {
-  return { kind: "invoke_callee", message: "callee returned Err", callee_path, inner };
-}
-
-function record(parentPath: string, callSiteLine: number): InvocationRecord {
-  return { parentPath, callSiteLine };
-}
-
-function hop(calleePath: string, parentPath: string, callSiteLine: number): ChainHop {
-  return { calleePath, record: record(parentPath, callSiteLine) };
 }
 
 /** Render a leaf error at the boundary with no chain (the SLSH-3 non-cascade path). */

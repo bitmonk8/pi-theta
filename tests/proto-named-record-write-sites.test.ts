@@ -1,5 +1,3 @@
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import {
   applyBinderBypass,
@@ -24,7 +22,8 @@ import {
 import type { SchemaDecl, ThetaDocument } from "../src/parser/theta-document";
 import { defineRecordField, type ThetaValue } from "../src/runtime/value";
 import { parseDoc } from "./helpers/e2e-s1";
-import { jsonSlug, hasOwn, prototypeReport, range } from "./helpers/proto-named-harness";
+import { jsonSlug, hasOwn, prototypeReport, range, loweredParams } from "./helpers/proto-named-harness";
+import { readCorpus } from "./helpers/corpus-reader";
 
 // Bug 0210 — the five record-write sites bug 0119's six-site fix left outside its
 // scope. Every one is the same idiom: a plain `{}` record and an ASSIGNMENT keyed
@@ -319,9 +318,9 @@ function marshalledInlineParams(record: Record<string, unknown>): unknown {
 // ===========================================================================
 
 /** `src/extension/production-theta-producer.ts`, read as text (cell A-SRC only). */
-const PRODUCTION_PRODUCER_SOURCE = readFileSync(
-  fileURLToPath(new URL("../src/extension/production-theta-producer.ts", import.meta.url)),
-  "utf8",
+const PRODUCTION_PRODUCER_SOURCE = readCorpus(
+  "src/extension/production-theta-producer.ts",
+  "cell A-SRC's source for the production record loops",
 );
 
 /**
@@ -729,36 +728,16 @@ describe("bug 0210 (C1) — `lowerObjectFields` keeps a `__proto__` field in `pr
 });
 
 describe("bug 0210 (C2) — `parseParams` keeps a `__proto__` field in `properties`", () => {
-  /** The lowered `params:` document for `{ __proto__: integer, a: string }`. */
-  function loweredParams(): Record<string, unknown> {
-    const result = parseParams(
-      [
-        { name: "__proto__", typeSource: "integer", range: range(1) },
-        { name: "a", typeSource: "string", range: range(2) },
-      ],
-      [],
-      { file: "test.theta" },
-    );
-    const errors = result.diagnostics.filter((d) => d.severity === "error");
-    if (errors.length > 0) {
-      throw new Error(
-        `harness: this \`params:\` block must lower CLEAN (code-registry-parse.md:19 admits a \`_\`-leading name), so a diagnostic here is a harness failure. Observed ${errors
-          .map((d) => `${d.code}: ${d.message}`)
-          .join("; ")}`,
-      );
-    }
-    if (result.loweredSchema === undefined) {
-      throw new Error(
-        "harness: `parseParams` withheld the lowered schema with no error-severity diagnostic — cell (C2) has nothing to assert on",
-      );
-    }
-    return result.loweredSchema as Record<string, unknown>;
-  }
+  /** The `params:` fields for `{ __proto__: integer, a: string }`. */
+  const fields = [
+    { name: "__proto__", typeSource: "integer" },
+    { name: "a", typeSource: "string" },
+  ] as const;
 
   it("RED (C2): the lowered `params:` document carries the field under its own name", () => {
     // 0210 §Reproduction E1, at the `parseParams` seam. Same two lines as (c1),
     // keyed by a frontmatter `params:` field name.
-    const document = loweredParams();
+    const document = loweredParams(fields, "cell C2");
     expect(
       documentShape(document, "cell C2"),
       'PRIMARY (bug 0210, cell C2 — site (c2)): the lowered `params:` document must carry the declared field under its own name with `required` agreeing (schema-subset.md:8 / :78). HEAD observes `{ownProtoKey:false, propertiesOwnKeys:["a"], tablePrototypeIsTheFieldNode:true, requiredMatchesProperties:false}`',
@@ -777,7 +756,7 @@ describe("bug 0210 (C2) — `parseParams` keeps a `__proto__` field in `properti
     // `Error: schema is invalid: data/properties/type must be object,boolean`
     // rather than returning a validator. At slash dispatch that throw is framed
     // as a runtime-defect system note and no registered diagnostic fires.
-    const document = loweredParams() as LoweredSchema;
+    const document = loweredParams(fields, "cell C2, AJV");
     const ajv = validator();
     expect(
       () => ajv.compile(document),

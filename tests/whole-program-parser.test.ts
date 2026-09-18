@@ -456,7 +456,7 @@ describe("core-exec: `match` expression in the body grammar", () => {
     expect(m?.arms.length).toBe(3);
   });
 
-  it("captures the six pattern forms — constructor over an object pattern, wildcard-in-Err, identifier binding", () => {
+  it("captures five pattern forms — constructor over an object pattern, wildcard-in-Err, identifier binding", () => {
     const doc = parse(src);
     const let_ = doc.body.statements.find((s): s is LetStmt => s.kind === "let");
     const m = let_?.init as MatchExpr;

@@ -20,8 +20,8 @@ import { SEAM_NOOP_CHECKPOINT, SEAM_NOOP_MUTATOR } from "./helpers/invoke-seam-s
 // RFC 0010 (execution-status.md EXST-3(c)) — `tests/execution-status-parfor-lanes.test.ts`
 // (B18). `ExecuteBodyDeps.statusLanes` is an OPTIONAL field
 // (`statement-executor.ts`); `evalParFor` reads it and drives
-// open()/claim()/settle()/close() per lane when present, and is
-// byte-identical when absent. Uses the shared par-for parse/no-op scaffold
+// open()/claim()/settle()/close() per lane when present; execution succeeds
+// when absent. Uses the shared par-for parse/no-op scaffold
 // with an immediate-effect host and a lane-hook recorder.
 
 /** A minimal `StatementEvalHost` for a `par for` body whose per-iteration
@@ -110,7 +110,7 @@ describe("B18 — evalParFor invokes statusLanes hooks (claim/complete per lane)
     expect(events[events.length - 1]).toBe("close()");
   });
 
-  it("is a no-op interplay: an absent statusLanes field leaves evalParFor byte-identical (S6: b03xx/b0438 shapes untouched)", async () => {
+  it("evalParFor succeeds when statusLanes is absent", async () => {
     const host = new RecordingParForHost();
     const body = bodyOf('par for f in [1, 2, 3] max 2 { invoke("./c.theta", f) f }');
     const deps: ExecuteBodyDeps = {

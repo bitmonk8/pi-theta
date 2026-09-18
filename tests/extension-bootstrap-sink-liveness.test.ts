@@ -29,7 +29,7 @@ import {
   RendererGate,
   SYSTEM_NOTE_CHANNEL,
 } from "../src/extension/system-note-channel";
-import { finishWorkspace, noteDiagnostics, requireHandler, captureConsoleError, captureStderr, type ComposeWorkspace } from "./helpers/compose-workspace-harness";
+import { makeInertSdkMembers, finishWorkspace, noteDiagnostics, requireHandler, captureConsoleError, captureStderr, type ComposeWorkspace } from "./helpers/compose-workspace-harness";
 
 // Bug 0023 — the two-tier bootstrap-diagnostic sink, the per-instance
 // `RendererGate` threading and the production `ProbeHost`, driven directly at
@@ -160,18 +160,13 @@ function makeHost(options: HostOptions = {}): HostDouble {
   let notifyAttempts = 0;
 
   const pi = {
+    ...makeInertSdkMembers(),
     registerFlag: (): void => {},
-    getFlag: (): undefined => undefined,
     getCommands: (): readonly { name: string; source: string }[] => [],
     on: (event: string, handler: PiHandler): void => {
       handlers.set(event, handler);
     },
     registerCommand: (): void => {},
-    sendUserMessage: (): void => {},
-    registerTool: (): void => {},
-    setActiveTools: (): void => {},
-    getActiveTools: (): readonly unknown[] => [],
-    getAllTools: (): readonly unknown[] => [],
     registerMessageRenderer: (): void => {},
     sendMessage: (
       message: { customType: string; content: string; details: unknown },

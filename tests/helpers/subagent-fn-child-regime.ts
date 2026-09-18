@@ -24,7 +24,7 @@
 import { expect } from "vitest";
 import type { ExtensionAPI, ExtensionCommandContext, ModelRegistry } from "@earendil-works/pi-coding-agent";
 import { createProductionProducerDeps } from "../../src/extension/production-theta-producer";
-import type { ThetaCompositionInput } from "../../src/extension/theta-composition-producer";
+import type { ConversationBindInput, ThetaCompositionInput } from "../../src/extension/theta-composition-producer";
 import { newInvokeChainAtDepth } from "../../src/runtime/invoke-depth-cycle";
 import { parseEnvelopeLine, type EnvelopeParse } from "../../src/runtime/subagent-envelope";
 import { SUBAGENT_PARAMS_ENV } from "../../src/runtime/subagent-params";
@@ -185,6 +185,16 @@ export function subagentTheta(tail: string): ThetaCompositionInput {
     body: { statements: [], tail: parseExpressionSource(tail) },
     callableSet: { entries: new Map() },
   } as unknown as ThetaCompositionInput;
+}
+
+/** A parent-side subagent bind input with a bare context and a fresh abort controller. */
+export function bindInput(): ConversationBindInput {
+  const ctx = {
+    model: { id: "claude-test", provider: "anthropic" },
+    cwd: "/tmp",
+    signal: undefined,
+  } as unknown as ExtensionCommandContext;
+  return { theta: subagentTheta('"unused-parent-side"'), args: "", ctx, thetaAbort: new AbortController() };
 }
 
 export function childCtx(shutdown?: () => void): ExtensionCommandContext {

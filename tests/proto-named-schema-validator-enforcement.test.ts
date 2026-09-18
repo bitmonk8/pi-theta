@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
 import { fillDefaultsAndRevalidate } from "../src/binder/defaulting";
-import { parseParams } from "../src/parser/params";
 import {
   AjvSchemaValidator,
   type CompiledValidator,
@@ -8,7 +7,7 @@ import {
   type ValidationError,
 } from "../src/seams/schema-validator";
 import { defineRecordField } from "../src/runtime/value";
-import { jsonSlug, hasOwn, range } from "./helpers/proto-named-harness";
+import { jsonSlug, hasOwn, loweredParams } from "./helpers/proto-named-harness";
 
 // Bug 0212 — the `V8c` validator seam does not enforce a lowered document that
 // declares a property literally named `__proto__`. Bug 0210's fix (0.136.0) made
@@ -133,39 +132,6 @@ function validator(): AjvSchemaValidator {
     },
     slugOf: jsonSlug,
   });
-}
-
-/**
- * The lowered `params:` document for `fields`, through the shipped `parseParams`
- * (`src/parser/params.ts`) — never a hand-built table where the production
- * producer can be driven instead. Fails LOUDLY on any error-severity diagnostic
- * or a withheld schema: `code-registry-parse.md:19` admits a `_`-leading name,
- * so a diagnostic here is a harness failure, and a withheld document would leave
- * the cell asserting nothing.
- */
-function loweredParams(
-  fields: readonly { readonly name: string; readonly typeSource: string }[],
-  what: string,
-): LoweredSchema {
-  const result = parseParams(
-    fields.map((field, index) => ({ ...field, range: range(index + 1) })),
-    [],
-    { file: "test.theta" },
-  );
-  const errors = result.diagnostics.filter((d) => d.severity === "error");
-  if (errors.length > 0) {
-    throw new Error(
-      `harness: ${what}'s \`params:\` block must lower CLEAN (code-registry-parse.md:19 admits a \`_\`-leading name), so a diagnostic here is a harness failure. Observed ${errors
-        .map((d) => `${d.code}: ${d.message}`)
-        .join("; ")}`,
-    );
-  }
-  if (result.loweredSchema === undefined) {
-    throw new Error(
-      `harness: \`parseParams\` withheld the lowered schema for ${what} with no error-severity diagnostic — the cell has nothing to compile`,
-    );
-  }
-  return result.loweredSchema;
 }
 
 /** The compiled validator for `fields`' lowered `params:` document. */

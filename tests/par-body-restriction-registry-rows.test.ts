@@ -1,7 +1,6 @@
 import { parseDoc } from "./helpers/e2e-s1";
 import { interpolateStrict, REGISTRY, type RegistryRow } from "./helpers/registry-oracle";
-import { fileURLToPath } from "node:url";
-import { readFileSync } from "node:fs";
+import { readCorpus as readSharedCorpus } from "./helpers/corpus-reader";
 import { describe, expect, it } from "vitest";
 // @ts-expect-error — JS code-registry module, no type declarations.
 import { registryMessage } from "../tools/code-registry/index.js";
@@ -123,10 +122,7 @@ const REGISTRY_TEXT = REGISTRY_PAGES.map((page) =>
 ).join("\n");
 
 function readCorpus(relative: string): string {
-  return readFileSync(
-    fileURLToPath(new URL(`../${relative}`, import.meta.url)),
-    "utf8",
-  );
+  return readSharedCorpus(relative, "this oracle's source for bug 0200's registry and mirror rows");
 }
 
 /**

@@ -284,14 +284,26 @@ describe("RFC-0012 §3 — synthesised settlement", () => {
   });
 
   it("onLine / onStderrLine return detach handles", async () => {
-    const { channel, server } = await open();
+    const { channel, server, lines, stderr } = await open();
     const seen: string[] = [];
+    const seenStderr: string[] = [];
     const detach = channel.onLine((line) => seen.push(line));
+    const detachStderr = channel.onStderrLine((line) => seenStderr.push(line));
     const child = server.dial();
     child.push(hello());
+    const progress = JSON.stringify({ theta_progress: { v: 1 } });
+    child.push(`${progress}\n`);
+    child.push(stderrFrame("before detach"));
+    expect(seen).toEqual([progress]);
+    expect(seenStderr).toEqual(["before detach"]);
     detach();
-    child.push(`${JSON.stringify({ theta_progress: { v: 1 } })}\n`);
-    expect(seen).toEqual([]);
+    detachStderr();
+    child.push(`${progress}\n`);
+    child.push(stderrFrame("after detach"));
+    expect(seen).toEqual([progress]);
+    expect(seenStderr).toEqual(["before detach"]);
+    expect(lines).toEqual([progress, progress]);
+    expect(stderr).toEqual(["before detach", "after detach"]);
   });
 });
 

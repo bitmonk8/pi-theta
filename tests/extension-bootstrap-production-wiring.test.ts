@@ -11,7 +11,7 @@ import thetaExtension, {
   EXTENSION_BOOTSTRAP_FAILED_CODE,
 } from "../src/extension/factory";
 import { SYSTEM_NOTE_CHANNEL } from "../src/extension/system-note-channel";
-import { noteDiagnostics, requireHandler, captureConsoleError, captureStderr } from "./helpers/compose-workspace-harness";
+import { makeInertSdkMembers, noteDiagnostics, requireHandler, captureConsoleError, captureStderr } from "./helpers/compose-workspace-harness";
 
 // Bug 0023 — the production composition omits its V9k / V9p / step-0 seams.
 //
@@ -124,8 +124,8 @@ function makeRecordingHost(options: HostOptions = {}): RecordingHost {
   };
 
   const surface: Record<string, unknown> = {
+    ...makeInertSdkMembers(),
     registerFlag: (): void => guard("registerFlag"),
-    getFlag: (): undefined => undefined,
     getCommands: (): readonly { name: string; source: string }[] => [],
     on: (event: string, handler: PiHandler): void => {
       // `guard` throws before the handler is stored, so a failing subscription
@@ -133,13 +133,8 @@ function makeRecordingHost(options: HostOptions = {}): RecordingHost {
       guard(`on:${event}`);
       handlers.set(event, handler);
     },
-    // The eight factory-probable SDK members (capability-probe.md Step 0 (c)).
+    // The remaining factory-probable SDK members (capability-probe.md Step 0 (c)).
     registerCommand: (name: string): void => guard(`registerCommand:${name}`),
-    sendUserMessage: (): void => {},
-    registerTool: (): void => {},
-    setActiveTools: (): void => {},
-    getActiveTools: (): readonly unknown[] => [],
-    getAllTools: (): readonly unknown[] => [],
     registerMessageRenderer: (): void => guard("registerMessageRenderer"),
     sendMessage: (
       message: {

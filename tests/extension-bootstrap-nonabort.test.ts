@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { SUBSCRIPTION_ORDER, exactlyOne, type PiEvent } from "./helpers/compose-workspace-harness";
+import { makeInertSdkMembers, SUBSCRIPTION_ORDER, exactlyOne, type PiEvent } from "./helpers/compose-workspace-harness";
 import type {
   ExtensionAPI,
   ExtensionCommandContext,
@@ -387,20 +387,15 @@ function makeProductionRendererHost(): ProductionRendererHost {
   const calls: string[] = [];
   const notes: unknown[] = [];
   const pi = {
+    ...makeInertSdkMembers(),
     registerFlag: (): void => {
       calls.push("registerFlag");
     },
-    getFlag: (): undefined => undefined,
     getCommands: (): readonly unknown[] => [],
     on: (event: string): void => {
       calls.push(`on:${event}`);
     },
     registerCommand: (): void => {},
-    sendUserMessage: (): void => {},
-    registerTool: (): void => {},
-    setActiveTools: (): void => {},
-    getActiveTools: (): readonly unknown[] => [],
-    getAllTools: (): readonly unknown[] => [],
     registerMessageRenderer: (): void => {
       calls.push("registerMessageRenderer");
       throw new Error("registerMessageRenderer host seam absent");

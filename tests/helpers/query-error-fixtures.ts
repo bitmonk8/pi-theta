@@ -1,10 +1,14 @@
-// Shared QueryError leaf fixtures for error-note rendering tests.
+// Shared QueryError leaf and cascade fixtures for error-note rendering tests.
 
 import type {
   CodeToolError,
+  InvokeCalleeError,
   ModelToolError,
+  QueryError,
   TransportError,
 } from "../../src/runtime/query-error";
+import type { ChainHop } from "../../src/runtime/err-note-render";
+import type { InvocationRecord } from "../../src/runtime/invoke-provenance";
 
 export function transport(message: string): TransportError {
   return {
@@ -37,4 +41,17 @@ export function codeTool(
   message: string,
 ): CodeToolError {
   return { kind: "code_tool", message, tool_name, cause };
+}
+
+/** The `invoke_callee` cascade wrapper (the REQ-SLSH-22 surface). */
+export function calleeWrap(callee_path: string, inner: QueryError): InvokeCalleeError {
+  return { kind: "invoke_callee", message: "callee returned Err", callee_path, inner };
+}
+
+export function record(parentPath: string, callSiteLine: number): InvocationRecord {
+  return { parentPath, callSiteLine };
+}
+
+export function hop(calleePath: string, parentPath: string, callSiteLine: number): ChainHop {
+  return { calleePath, record: record(parentPath, callSiteLine) };
 }

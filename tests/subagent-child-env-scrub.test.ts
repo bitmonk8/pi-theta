@@ -28,11 +28,8 @@
 // #subagent-extension-pin.
 
 import { describe, expect, it } from "vitest";
+import { bindInput } from "./helpers/subagent-fn-child-regime";
 import { createProductionProducerDeps } from "../src/extension/production-theta-producer";
-import type {
-  ConversationBindInput,
-  ThetaCompositionInput,
-} from "../src/extension/theta-composition-producer";
 import {
   buildSubagentChildEnv,
   SUBAGENT_EXTENSION_PIN_ENV,
@@ -49,12 +46,9 @@ import {
   SUBAGENT_PARAMS_FILE_ENV,
 } from "../src/runtime/subagent-params";
 import { fakeExecutableHost, makeFakeJsonChildLauncher } from "./helpers/fake-json-child";
-import type { ModelRegistry, ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
+import type { ModelRegistry, ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { RuntimeRoot } from "../src/runtime-root";
 import type { Checkpoint, CheckpointKind, CheckpointSite } from "../src/seams/checkpoint";
-import type { ParsedFrontmatter } from "../src/parser/frontmatter";
-import type { ThetaBody } from "../src/parser/theta-document";
-import { parseExpressionSource } from "../src/parser/theta-document";
 
 /**
  * The per-launch control-plane carriers: every control-plane key EXCEPT the
@@ -182,27 +176,6 @@ function rootDouble(): RuntimeRoot {
       clearTimeout: (handle: unknown) => clearTimeout(handle as ReturnType<typeof setTimeout>),
     },
   } as unknown as RuntimeRoot;
-}
-
-function subagentTheta(): ThetaCompositionInput {
-  const frontmatter = { mode: "subagent" } as unknown as ParsedFrontmatter;
-  const body: ThetaBody = { statements: [], tail: parseExpressionSource('"unused-parent-side"') };
-  return {
-    slashName: "worker",
-    sourcePath: "/theta/worker.theta",
-    frontmatter,
-    body,
-    callableSet: { entries: new Map() },
-  } as unknown as ThetaCompositionInput;
-}
-
-function bindInput(): ConversationBindInput {
-  const ctx = {
-    model: { id: "claude-test", provider: "anthropic" },
-    cwd: "/tmp",
-    signal: undefined,
-  } as unknown as ExtensionCommandContext;
-  return { theta: subagentTheta(), args: "", ctx, thetaAbort: new AbortController() };
 }
 
 describe("bug 0474 — the production launch composition carries only this launch's control plane", () => {

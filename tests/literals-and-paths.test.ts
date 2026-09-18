@@ -189,7 +189,7 @@ describe("V1b-T — path-literal validation", () => {
     expect(d?.message).toBe(
       "invalid path separator: backslash in path literal",
     );
-    expect(d?.range, "the diagnostic is located at the offending span").toBeDefined();
+    expect(d?.range, "the diagnostic is located at the offending span").toEqual(span());
   });
 
   it("theta/parse/invoke-non-theta-extension: a .THETA invoke path is rejected byte-exact (cross-OS)", () => {

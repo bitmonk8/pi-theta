@@ -5,17 +5,15 @@ import type { Api, Model, ProviderResponse } from "@earendil-works/pi-ai";
 import { fillDefaultsAndRevalidate } from "../src/binder/defaulting";
 import { buildBinderEnvelopeSchema } from "../src/binder/binder-envelope";
 import { buildBinderCompleteCall } from "../src/binder/binder-inference";
-import { parseParams } from "../src/parser/params";
 import {
   AjvSchemaValidator,
   type CompiledValidator,
   type LoweredSchema,
-  type SchemaSlugFn,
 } from "../src/seams/schema-validator";
 import { renderArgumentEcho, type EchoType } from "../src/render/argument-echo";
 import type { ThetaValue } from "../src/runtime/value";
-import type { SourceRange } from "../src/diagnostics/diagnostic";
-import { hasOwn, prototypeReport } from "./helpers/proto-named-harness";
+import { jsonSlug, hasOwn, prototypeReport, loweredParams, type Field } from "./helpers/proto-named-harness";
+import { readCorpus } from "./helpers/corpus-reader";
 
 // Bug 0214 — the three writes/reads keyed by an author-controlled `params:` wire
 // name that bug 0210's five-site fix left outside its scope, and that 0210's fix
@@ -99,59 +97,9 @@ import { hasOwn, prototypeReport } from "./helpers/proto-named-harness";
 // Shared harness.
 // ===========================================================================
 
-/** A content-addressing function deriving a distinct slug per distinct schema. */
-const jsonSlug: SchemaSlugFn = (schema) => {
-  const bytes = JSON.stringify(schema);
-  return { slug: bytes, canonicalBytes: bytes };
-};
-
 /** A real AJV validator (the `V8c` seam), configured exactly as production is. */
 function validator(): AjvSchemaValidator {
   return new AjvSchemaValidator({ emit: () => {}, slugOf: jsonSlug });
-}
-
-/** A source range for a synthesised `params:` field. */
-function range(line: number): SourceRange {
-  return { start: { line, column: 1 }, end: { line, column: 2 } };
-}
-
-/**
- * One `params:` field as the frontmatter seam hands it to `parseParams`. A
- * `defaultSource` is the default RHS verbatim, so the lowering's own
- * `defaultSource` gate decides `required` exactly as it does in production.
- */
-interface Field {
-  readonly name: string;
-  readonly typeSource: string;
-  readonly defaultSource?: string;
-}
-
-/**
- * The lowered `params:` document for `fields`, or a loud failure. Every fixture
- * here must lower CLEAN — its parse-cleanliness is half of what makes each drop
- * a defect rather than a refusal (code-registry-parse.md:19 admits a `_`-leading
- * name), so a diagnostic is a harness failure, never a skip.
- */
-function loweredParams(fields: readonly Field[], what: string): LoweredSchema {
-  const result = parseParams(
-    fields.map((field, index) => ({ ...field, range: range(index + 1) })),
-    [],
-    { file: "bug0214.theta" },
-  );
-  const errors = result.diagnostics.filter((d) => d.severity === "error");
-  if (errors.length > 0) {
-    throw new Error(
-      `harness: ${what}'s \`params:\` block must lower CLEAN; observed ${errors
-        .map((d) => `${d.code}: ${d.message}`)
-        .join("; ")}`,
-    );
-  }
-  if (result.loweredSchema === undefined) {
-    throw new Error(
-      `harness: \`parseParams\` withheld the lowered schema for ${what} with no error-severity diagnostic — the cell has nothing to drive`,
-    );
-  }
-  return result.loweredSchema;
 }
 
 // ===========================================================================
@@ -190,6 +138,7 @@ describe("bug 0214 (1a) — a `__proto__`-named field's primitive default is fil
         { name: "__proto__", typeSource: "string", defaultSource: '"x"' },
       ],
       "cell 1a",
+      "bug0214.theta",
     );
     const result = fillDefaultsAndRevalidate({
       binderArgs: { a: "1" },
@@ -228,6 +177,7 @@ describe("bug 0214 (1b) — a `__proto__`-named field's OBJECT default is filled
         { name: "__proto__", typeSource: "{i: integer}", defaultSource: "{i: 1}" },
       ],
       "cell 1b",
+      "bug0214.theta",
     );
     const result = fillDefaultsAndRevalidate({
       binderArgs: { a: "1" },
@@ -271,6 +221,7 @@ describe("bug 0214 (1c) — the ordinary-name control: an ordinary defaulted fie
         { name: "p", typeSource: "string", defaultSource: '"x"' },
       ],
       "cell 1c",
+      "bug0214.theta",
     );
     const result = fillDefaultsAndRevalidate({
       binderArgs: { a: "1" },
@@ -318,7 +269,7 @@ function attachedArgsTable(
   what: string,
 ): { readonly relaxed: Record<string, unknown>; readonly attached: Record<string, unknown> } {
   const envelopeSchema = buildBinderEnvelopeSchema({
-    paramsSchema: loweredParams(fields, what),
+    paramsSchema: loweredParams(fields, what, "bug0214.theta"),
     defaultedFields: [],
   });
   const relaxed = okArmArgs(envelopeSchema as Record<string, unknown>, `${what}'s envelope`);
@@ -496,9 +447,9 @@ describe("bug 0214 (2b) — the ordinary-name control: the attached bytes are un
 // ===========================================================================
 
 /** `src/extension/production-theta-producer.ts`, read as text (group (3) only). */
-const PRODUCTION_PRODUCER_SOURCE = readFileSync(
-  fileURLToPath(new URL("../src/extension/production-theta-producer.ts", import.meta.url)),
-  "utf8",
+const PRODUCTION_PRODUCER_SOURCE = readCorpus(
+  "src/extension/production-theta-producer.ts",
+  "group (3)'s source for the production echo read",
 );
 
 /**

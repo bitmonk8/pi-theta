@@ -26,16 +26,14 @@
 // invocation.md INV-5, cancellation.md.
 
 import { describe, expect, it } from "vitest";
+import { bindInput } from "./helpers/subagent-fn-child-regime";
 import { createProductionProducerDeps } from "../src/extension/production-theta-producer";
-import type { ThetaProducerDeps, ConversationBindInput, ThetaCompositionInput } from "../src/extension/theta-composition-producer";
+import type { ThetaProducerDeps } from "../src/extension/theta-composition-producer";
 import { fakeExecutableHost, makeFakeJsonChildLauncher, FakeJsonChild } from "./helpers/fake-json-child";
 import type { ModelRegistry } from "@earendil-works/pi-coding-agent";
 import type { RuntimeRoot } from "../src/runtime-root";
 import type { Checkpoint, CheckpointKind, CheckpointSite } from "../src/seams/checkpoint";
-import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
-import type { ParsedFrontmatter } from "../src/parser/frontmatter";
-import type { ThetaBody } from "../src/parser/theta-document";
-import { parseExpressionSource } from "../src/parser/theta-document";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { QueryError, TransportError, InvokeInfraError } from "../src/runtime/query-error";
 import type { ResultValue } from "../src/runtime/value";
 
@@ -65,18 +63,6 @@ function noopPi(): ExtensionAPI {
   return { sendMessage: (): void => {}, getAllTools: () => [] } as unknown as ExtensionAPI;
 }
 
-function subagentTheta(): ThetaCompositionInput {
-  const frontmatter = { mode: "subagent" } as unknown as ParsedFrontmatter;
-  const body: ThetaBody = { statements: [], tail: parseExpressionSource('"unused-parent-side"') };
-  return {
-    slashName: "worker",
-    sourcePath: "/theta/worker.theta",
-    frontmatter,
-    body,
-    callableSet: { entries: new Map() },
-  } as unknown as ThetaCompositionInput;
-}
-
 function makeDeps(
   parentEnv: Readonly<Record<string, string | undefined>> = {},
 ): { deps: ThetaProducerDeps; launcher: ReturnType<typeof makeFakeJsonChildLauncher> } {
@@ -94,15 +80,6 @@ function makeDeps(
     subagentParentPid: 4242,
   });
   return { deps, launcher };
-}
-
-function bindInput(): ConversationBindInput {
-  const ctx = {
-    model: { id: "claude-test", provider: "anthropic" },
-    cwd: "/tmp",
-    signal: undefined,
-  } as unknown as ExtensionCommandContext;
-  return { theta: subagentTheta(), args: "", ctx, thetaAbort: new AbortController() };
 }
 
 /** Bind the production subagent conversation and return the eagerly-launched fake child. */

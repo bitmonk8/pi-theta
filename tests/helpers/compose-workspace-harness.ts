@@ -73,6 +73,18 @@ export interface HostDouble {
   readonly notified: Array<readonly [string, string]>;
 }
 
+/** Inert SDK members shared by composition/bootstrap doubles; recording and fault hooks stay local. */
+export function makeInertSdkMembers() {
+  return {
+    getFlag: (): undefined => undefined,
+    sendUserMessage: (): void => {},
+    registerTool: (): void => {},
+    setActiveTools: (): void => {},
+    getActiveTools: (): readonly unknown[] => [],
+    getAllTools: (): readonly unknown[] => [],
+  };
+}
+
 /** A recording `ExtensionAPI` / `ExtensionContext` pair for `composeExtensionInstance`. */
 export function makeHost(cwd: string): HostDouble {
   const notes: RecordedNote[] = [];
@@ -80,18 +92,13 @@ export function makeHost(cwd: string): HostDouble {
   const handlers = new Map<string, PiHandler>();
 
   const pi = {
+    ...makeInertSdkMembers(),
     registerFlag: (): void => {},
-    getFlag: (): undefined => undefined,
     getCommands: (): readonly { name: string; source: string }[] => [],
     on: (event: string, handler: PiHandler): void => {
       handlers.set(event, handler);
     },
     registerCommand: (): void => {},
-    sendUserMessage: (): void => {},
-    registerTool: (): void => {},
-    setActiveTools: (): void => {},
-    getActiveTools: (): readonly unknown[] => [],
-    getAllTools: (): readonly unknown[] => [],
     registerMessageRenderer: (): void => {},
     sendMessage: (message: { customType: string; content: string; details: unknown }): void => {
       notes.push({

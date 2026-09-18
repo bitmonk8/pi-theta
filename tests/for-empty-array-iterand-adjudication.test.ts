@@ -6,6 +6,7 @@ import type { Diagnostic } from "../src/diagnostics/diagnostic";
 import type { Expr, ThetaDocument } from "../src/parser/theta-document";
 import { StaticTypeInferencePass } from "../src/parser/static-type-inference";
 import { checkCompatible, displayType, type TypeEnv } from "../src/parser/type-compat";
+import { corpus, section } from "./helpers/corpus-reader";
 import { parseDoc } from "./helpers/e2e-s1";
 import { committedThetaSources } from "./helpers/theta-corpus";
 import { tsFiles } from "./helpers/ts-files";
@@ -65,36 +66,6 @@ import { tsFiles } from "./helpers/ts-files";
 // emission order. Offline, provider-free, deterministic.
 
 const REPO_ROOT = fileURLToPath(new URL("..", import.meta.url));
-
-/** A corpus file's bytes, read off the live tree so no cell asserts a snapshot. */
-function corpus(rel: string): string {
-  const abs = path.join(REPO_ROOT, rel);
-  const text = readFileSync(abs, "utf8");
-  if (text.length === 0) {
-    throw new Error(
-      `harness: ${rel} read empty, so the conformance cell below would range over no prose — a loud failure, never a vacuous pass`,
-    );
-  }
-  return text;
-}
-
-/**
- * The body of a `##`-headed section, by heading text.
- *
- * Region-scoped so a cell cannot be satisfied by the required phrase appearing
- * in some unrelated part of the page.
- */
-function section(text: string, heading: string, rel: string): string {
-  const start = text.indexOf(heading);
-  if (start < 0) {
-    throw new Error(
-      `harness: ${rel} contains no heading ${JSON.stringify(heading)}, so the region this cell scopes to does not exist`,
-    );
-  }
-  const rest = text.slice(start + heading.length);
-  const end = rest.indexOf("\n## ");
-  return heading + (end < 0 ? rest : rest.slice(0, end));
-}
 
 // ===========================================================================
 // (A) CORPUS CONFORMANCE — RED at HEAD. Both directions per cell: the false
@@ -157,7 +128,7 @@ describe("bug 0195 (A) — the four corpus sentences state the adjudicated obser
 
   it("A4: expressions.md §Array construction states the fallback and keeps rule 3", () => {
     const rel = "docs/spec_topics/expressions.md";
-    const region = section(corpus(rel), "## Array construction", rel);
+    const region = section(corpus(rel), "## Array construction", rel, "Array construction");
     expect(
       region.includes("array<unknown>"),
       `A4: ${rel}:222 names three contexts an empty literal may take its element type from and no fallback for their absence; §"Array construction" must state that fallback (\`array<unknown>\`), since it is this page's rule the other three cite.`,

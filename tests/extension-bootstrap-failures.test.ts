@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { SUBSCRIPTION_ORDER, exactlyOne, type PiEvent } from "./helpers/compose-workspace-harness";
+import { makeInertSdkMembers, SUBSCRIPTION_ORDER, exactlyOne, type PiEvent } from "./helpers/compose-workspace-harness";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
 import thetaExtension, {
@@ -210,16 +210,11 @@ function makeProductionHost(throwOn: string): ProductionHost {
     }
   };
   const pi = {
+    ...makeInertSdkMembers(),
     registerFlag: (): void => guard("registerFlag"),
-    getFlag: (): undefined => undefined,
     getCommands: (): readonly unknown[] => [],
     on: (event: string): void => guard(`on:${event}`),
     registerCommand: (): void => {},
-    sendUserMessage: (): void => {},
-    registerTool: (): void => {},
-    setActiveTools: (): void => {},
-    getActiveTools: (): readonly unknown[] => [],
-    getAllTools: (): readonly unknown[] => [],
     registerMessageRenderer: (): void => guard("registerMessageRenderer"),
     sendMessage: (message: { customType: string; details: unknown }): void => {
       notes.push({ customType: message.customType, details: message.details });
