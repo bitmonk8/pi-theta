@@ -116,25 +116,9 @@
 // scripted envelope (the binder's only contribution is the JSON `args`), and
 // the live tier would make a fully determined observable stochastic.
 
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 
-// The scripted off-session binder reply. `vi.hoisted` so the `vi.mock` factory
-// (hoisted above the imports) can close over a mutable holder each test sets.
-const scripted = vi.hoisted(() => ({
-  replyFor: undefined as undefined | ((context: unknown) => unknown),
-}));
-
-// Replace ONLY the off-session `complete()` free function; every other pi-ai
-// export (types, helpers) passes through unchanged.
-vi.mock("@earendil-works/pi-ai/compat", async (importOriginal) => {
-  const actual = await importOriginal<Record<string, unknown>>();
-  return {
-    ...actual,
-    complete: vi.fn(async (_model: unknown, context: unknown) =>
-      scripted.replyFor?.(context),
-    ),
-  };
-});
+import { scripted } from "./helpers/scripted-off-session-mock";
 
 import type { ThetaCompositionInput } from "../src/extension/theta-composition-producer";
 import { renderEchoValue, type EchoType } from "../src/render/argument-echo";
@@ -142,7 +126,7 @@ import type { ThetaValue } from "../src/runtime/value";
 import { parseDoc } from "./helpers/e2e-s1";
 import {
   binderProducerWithCapture as producerWithCapture,
-  noteChannelEntries,
+  bindAndReadNote as bindAndReadEchoNote,
   scriptEnvelope,
 } from "./helpers/scripted-live-session-harness";
 import { ctxDouble } from "./helpers/tool-call-dispatch-harness";
@@ -250,36 +234,18 @@ async function bindAndReadNote(
   args: Readonly<Record<string, unknown>>,
 ): Promise<string> {
   scriptEnvelope(scripted, { kind: "ok", args });
-  const { deps, notes } = producerWithCapture({
+  const capture = producerWithCapture({
     readBytes: (path: string): Promise<Uint8Array> =>
       path === SOURCE_PATH
         ? Promise.resolve(new TextEncoder().encode(source))
         : Promise.reject(new Error(`fixture fs: no source registered for ${path}`)),
   });
-  const result = await deps.runBinder({
+  return bindAndReadEchoNote(capture, {
     theta: compositionInput(source),
     args: "some free-text invocation tail",
     ctx: ctxDouble(),
   });
-  expect(result.bound, "the scripted `ok` envelope must bind for the echo to be emitted").toBe(
-    true,
-  );
-  const channelNotes = noteChannelEntries(notes);
-  expect(
-    channelNotes,
-    "exactly one theta-system-note (the success echo) is emitted on the `ok` arm",
-  ).toHaveLength(1);
-  expect(channelNotes[0]!.display, "the echo note is display:true").toBe(true);
-  return channelNotes[0]!.content;
 }
-
-beforeEach(() => {
-  scripted.replyFor = undefined;
-});
-
-afterEach(() => {
-  vi.clearAllMocks();
-});
 
 // ===========================================================================
 // A. The three reachable carriers, through the production emitter

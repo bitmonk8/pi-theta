@@ -282,14 +282,15 @@ export interface RecordingHarness<Details = unknown> extends Harness {
   registrationCount(): number;
 }
 
-/** Capture command handlers, notes, and subscriptions for dispatch and reload tests. */
+/** Capture command handlers, notes, and subscriptions for dispatch and reload tests.
+ * Optional flags feed the same discovery-root plumbing as `makeHarness`. */
 export function makeRecordingHarness<Details = unknown>(
   cwd = "/does/not/matter",
-  options: { beforeGetCommands?: () => void } = {},
+  options: { beforeGetCommands?: () => void; flags?: Readonly<Record<string, string>> } = {},
 ): RecordingHarness<Details> {
   const notes: RecordedNote<Details>[] = [];
   let registrations = 0;
-  const harness = makeHarness(cwd, {}, {
+  const harness = makeHarness(cwd, options.flags ?? {}, {
     ...options,
     onRegisterCommand: (): void => { registrations += 1; },
     sendMessage: (message, options): void => {

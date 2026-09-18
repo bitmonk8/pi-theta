@@ -24,7 +24,7 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { runProductionLoad } from "./helpers/production-load-harness";
+import { runProductionLoad, type LoadOutcome } from "./helpers/production-load-harness";
 
 /** A clean prompt theta that registers with no binder/model precondition. */
 const CLEAN_THETA = ["---", "mode: prompt", "tools: read", "---", "@`hi`", ""].join("\n");
@@ -36,6 +36,7 @@ function plant(path: string, text: string): void {
 
 let workspaceDir: string;
 let registered: readonly string[];
+let fixtures: LoadOutcome["fixtures"];
 
 beforeAll(async () => {
   workspaceDir = mkdtempSync(join(tmpdir(), "theta-e2e-s5-pkg-"));
@@ -58,15 +59,23 @@ beforeAll(async () => {
   // name in the walk, so the composition-root merge does NOT add the package
   // copy (project > packages priority; registered exactly once).
   plant(join(nm, "dupe-e2e-s5", "package.json"), JSON.stringify({ name: "dupe-e2e-s5", version: "1.0.0" }));
-  plant(join(nm, "dupe-e2e-s5", "theta", "shadowme-e2e-s5.theta"), CLEAN_THETA);
-  plant(join(workspaceDir, ".pi", "theta", "shadowme-e2e-s5.theta"), CLEAN_THETA);
+  plant(
+    join(nm, "dupe-e2e-s5", "theta", "shadowme-e2e-s5.theta"),
+    CLEAN_THETA.replace("mode: prompt", "mode: prompt\ndescription: package shadow fixture"),
+  );
+  plant(
+    join(workspaceDir, ".pi", "theta", "shadowme-e2e-s5.theta"),
+    CLEAN_THETA.replace("mode: prompt", "mode: prompt\ndescription: project shadow fixture"),
+  );
 
   // A minimal valid settings file pins the fixture's settings read to a known
   // value. An ABSENT settings file is silent (package-and-settings.md
   // §Failure modes), so the plant is hermeticity, not noise suppression.
   plant(join(workspaceDir, ".pi", "settings.json"), "{}");
 
-  registered = (await runProductionLoad(workspaceDir)).registered;
+  const loaded = await runProductionLoad(workspaceDir);
+  registered = loaded.registered;
+  fixtures = loaded.fixtures;
 }, 60000);
 
 afterAll(() => {
@@ -99,5 +108,9 @@ describe("e2e-s5 gap#3 — package discovery through the composition root", () =
       "the same-name theta must register exactly once — the walk's cross-source-shadow resolution keeps the higher-priority project copy and drops the package copy. Registered: " +
         JSON.stringify(registered),
     ).toHaveLength(1);
+    expect(
+      fixtures.find((f) => f.slashName === "shadowme-e2e-s5")?.description,
+      "the composed description must come from the project copy, not the package copy",
+    ).toBe("project shadow fixture");
   });
 });

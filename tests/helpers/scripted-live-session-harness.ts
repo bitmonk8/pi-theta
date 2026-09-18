@@ -26,7 +26,7 @@ import {
   createProductionProducerDeps,
   type ProductionProducerInput,
 } from "../../src/extension/production-theta-producer";
-import type { ThetaCompositionInput } from "../../src/extension/theta-composition-producer";
+import type { BinderRunInput, ThetaCompositionInput } from "../../src/extension/theta-composition-producer";
 import { executeBody, type BodyExecution } from "../../src/runtime/statement-executor";
 import type { RuntimeRoot } from "../../src/runtime-root";
 import { rootDouble as fixedClockRoot } from "./runtime-belt-probe-harness";
@@ -216,12 +216,35 @@ export function binderProducerWithCapture(
 }
 
 /**
+ * Drive a scripted `ok` bind and read its single displayed system note. Fails
+ * loudly naming the unmet precondition when the bind did not reach the emitter,
+ * so a broken harness cannot masquerade as a passing assertion. Nothing here
+ * catches: a throw out of the echo path surfaces as the test's own rejection.
+ */
+export async function bindAndReadNote(
+  { deps, notes }: ReturnType<typeof binderProducerWithCapture>,
+  input: BinderRunInput,
+): Promise<string> {
+  const result = await deps.runBinder(input);
+  expect(result.bound, "the scripted `ok` envelope must bind for the echo to be emitted").toBe(
+    true,
+  );
+  const channelNotes = noteChannelEntries(notes);
+  expect(
+    channelNotes,
+    "exactly one theta-system-note (the success echo) is emitted on the `ok` arm",
+  ).toHaveLength(1);
+  expect(channelNotes[0]!.display, "the echo note is display:true").toBe(true);
+  return channelNotes[0]!.content;
+}
+
+/**
  * Script a ToolCall-bearing binder reply carrying `{ envelope }` in its
  * `arguments`, naming the binder tool production actually attached on the
  * captured call (`context.tools[0].name`) — the bug-0011 forced-tool
  * extraction reads the envelope from the FIRST ToolCall naming the binder
  * tool; a free-text reply would be the malformed-envelope class.
- * The mutable holder stays in the caller's `vi.hoisted` mock scope.
+ * The mutable holder belongs to the caller's or shared helper's `vi.hoisted` mock scope.
  * A missing-tool message makes absence a harness failure instead of a fallback reply.
  */
 export function scriptEnvelope(

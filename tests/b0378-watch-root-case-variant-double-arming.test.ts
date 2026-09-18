@@ -2,10 +2,6 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import type {
-  ExtensionAPI,
-  ExtensionContext,
-} from "@earendil-works/pi-coding-agent";
 import {
   createThetaExtension,
   type ThetaExtensionDeps,
@@ -15,7 +11,6 @@ import {
   type ExtensionInstanceWiring,
 } from "../src/extension/production-composition";
 import { RELOAD_DEBOUNCE_WINDOW_MS } from "../src/extension/reload-debounce";
-import type { Diagnostic } from "../src/diagnostics/diagnostic";
 import type {
   FileWatcher,
   FileWatchEvent,
@@ -24,6 +19,12 @@ import type {
 } from "../src/seams/file-watcher";
 import { FakeClock } from "./helpers/fake-clock";
 import { waitFor } from "./helpers/fake-file-watcher";
+import {
+  makeRecordingHarness,
+  structuralNotesSince,
+  type RecordingHarness,
+  type WatchNoteDetails,
+} from "./helpers/watch-arming-harness";
 
 // Bug 0378 — the step-5 watch-root union (`discoveryWatchRoots` in
 // `runComposePass`, src/extension/production-composition.ts) used to dedupe its
@@ -88,21 +89,6 @@ function norm(path: string): string {
  *  `discoveryWatchRoots` records and hands chokidar. */
 function fwd(path: string): string {
   return path.replace(/\\/g, "/").replace(/\/+$/, "");
-}
-
-/** A recorded `pi.sendMessage` call (the `theta-system-note` channel). */
-interface RecordedNote {
-  readonly customType: string;
-  readonly content: string;
-  readonly display: boolean;
-  readonly details: {
-    readonly diagnostics?: readonly Diagnostic[];
-    readonly structural?: {
-      readonly added: readonly string[];
-      readonly removed: readonly string[];
-    };
-  };
-  readonly triggerTurn: unknown;
 }
 
 /**
@@ -184,80 +170,11 @@ class CaseVariantFanoutFileWatcher implements FileWatcher {
   }
 }
 
-interface Harness {
-  readonly pi: ExtensionAPI;
-  readonly notes: RecordedNote[];
-  fireSessionStart(): Promise<void>;
-}
-
-/** fake-pi harness combining b0310's `getFlag(flags)` plumbing (the `--theta`
- *  CLI root reaches discovery only through `getFlag('theta')`) with b0311/b0312's
- *  `sendMessage` note recorder (the `theta-system-note` channel). */
-function makeHarness(cwd: string, flags: Readonly<Record<string, string>>): Harness {
-  const commands = new Map<string, unknown>();
-  const notes: RecordedNote[] = [];
-  const subscriptions = new Map<
-    string,
-    ((event: unknown, ctx: ExtensionContext) => unknown)[]
-  >();
-
-  const pi = {
-    registerFlag: (): void => {},
-    registerMessageRenderer: (): void => {},
-    registerCommand: (name: string, options: unknown): void => {
-      commands.set(name, options);
-    },
-    on: (event: string, handler: (e: unknown, c: ExtensionContext) => unknown): void => {
-      const list = subscriptions.get(event) ?? [];
-      list.push(handler);
-      subscriptions.set(event, list);
-    },
-    getFlag: (name: string): string | undefined => flags[name],
-    getCommands: (): { name: string; source: string }[] =>
-      [...commands.keys()].map((name) => ({ name, source: "extension" })),
-    sendMessage: (
-      message: { customType: string; content: string; display: boolean; details: unknown },
-      options: { triggerTurn: unknown },
-    ): void => {
-      notes.push({
-        customType: message.customType,
-        content: message.content,
-        display: message.display,
-        details: message.details as RecordedNote["details"],
-        triggerTurn: options.triggerTurn,
-      });
-    },
-    sendUserMessage: (): void => {},
-  } as unknown as ExtensionAPI;
-
-  const ctx = {
-    cwd,
-    hasUI: false,
-    modelRegistry: { getAvailable: (): readonly unknown[] => [] },
-    ui: { notify: (): void => {} },
-  } as unknown as ExtensionContext;
-
-  const fire = async (event: string): Promise<void> => {
-    for (const handler of subscriptions.get(event) ?? []) {
-      await handler({ type: event }, ctx);
-    }
-  };
-
-  return { pi, notes, fireSessionStart: () => fire("session_start") };
-}
-
-/** The structural-change notes recorded since `from` (content-keyed). */
-function structuralNotesSince(harness: Harness, from: number): RecordedNote[] {
-  return harness.notes
-    .slice(from)
-    .filter((note) => note.content.startsWith("theta watcher:"));
-}
-
 describe("Bug 0378 — the watch-root union must key on physical-directory identity, not case-variant spelling", () => {
   let workspace: string;
   let fakeWatcher: CaseVariantFanoutFileWatcher;
   let fakeClock: FakeClock;
-  let harness: Harness;
+  let harness: RecordingHarness<WatchNoteDetails>;
   let wiring: ExtensionInstanceWiring | undefined;
 
   afterEach(() => {
@@ -269,7 +186,7 @@ describe("Bug 0378 — the watch-root union must key on physical-directory ident
   async function boot(flags: Readonly<Record<string, string>>): Promise<void> {
     fakeWatcher = new CaseVariantFanoutFileWatcher();
     fakeClock = new FakeClock();
-    harness = makeHarness(workspace, flags);
+    harness = makeRecordingHarness<WatchNoteDetails>(workspace, { flags });
     wiring = undefined;
     const deps: ThetaExtensionDeps = {
       fixtures: [],

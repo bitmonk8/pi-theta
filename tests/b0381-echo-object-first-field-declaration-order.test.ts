@@ -50,32 +50,17 @@
 // value-key-order-equals-declaration-order control, byte-identical across the
 // fix).
 
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 
-// The scripted off-session binder reply. `vi.hoisted` so the `vi.mock` factory
-// (hoisted above the imports) can close over a mutable holder each test sets.
-const scripted = vi.hoisted(() => ({
-  replyFor: undefined as undefined | ((context: unknown) => unknown),
-}));
-
-// Replace ONLY the off-session `complete()` free function; every other pi-ai
-// export (types, helpers) passes through unchanged.
-vi.mock("@earendil-works/pi-ai/compat", async (importOriginal) => {
-  const actual = await importOriginal<Record<string, unknown>>();
-  return {
-    ...actual,
-    complete: vi.fn(async (_model: unknown, context: unknown) =>
-      scripted.replyFor?.(context),
-    ),
-  };
-});
+import { scripted } from "./helpers/scripted-off-session-mock";
 
 import type { ThetaCompositionInput } from "../src/extension/theta-composition-producer";
 import { parseDoc } from "./helpers/e2e-s1";
-import { binderProducerWithCapture as producerWithCapture } from "./helpers/scripted-live-session-harness";
+import {
+  binderProducerWithCapture as producerWithCapture,
+  bindAndReadNote as bindAndReadEchoNote,
+} from "./helpers/scripted-live-session-harness";
 import { ctxDouble } from "./helpers/tool-call-dispatch-harness";
-
-const SYSTEM_NOTE_CHANNEL = "theta-system-note";
 
 /**
  * Script a ToolCall-bearing binder reply carrying `{ envelope }` in its
@@ -132,31 +117,13 @@ async function bindAndReadNote(
   args: Readonly<Record<string, unknown>>,
 ): Promise<string> {
   scriptEnvelope({ kind: "ok", args });
-  const { deps, notes } = producerWithCapture();
-  const result = await deps.runBinder({
+  const capture = producerWithCapture();
+  return bindAndReadEchoNote(capture, {
     theta: probeTheta(source),
     args: "some free-text invocation tail",
     ctx: ctxDouble(),
   });
-  expect(result.bound, "the scripted `ok` envelope must bind for the echo to be emitted").toBe(
-    true,
-  );
-  const channelNotes = notes.filter((n) => n.customType === SYSTEM_NOTE_CHANNEL);
-  expect(
-    channelNotes,
-    "exactly one theta-system-note (the success echo) is emitted on the `ok` arm",
-  ).toHaveLength(1);
-  expect(channelNotes[0]!.display, "the echo note is display:true").toBe(true);
-  return channelNotes[0]!.content;
 }
-
-beforeEach(() => {
-  scripted.replyFor = undefined;
-});
-
-afterEach(() => {
-  vi.clearAllMocks();
-});
 
 // ===========================================================================
 // Fixtures — one `pet` param, four declaration-order sources

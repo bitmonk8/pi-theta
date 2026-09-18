@@ -91,25 +91,9 @@
 // over the scripted envelope and would make a fully determined observable
 // stochastic.
 
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 
-// The scripted off-session binder reply. `vi.hoisted` so the `vi.mock` factory
-// (hoisted above the imports) can close over a mutable holder each test sets.
-const scripted = vi.hoisted(() => ({
-  replyFor: undefined as undefined | ((context: unknown) => unknown),
-}));
-
-// Replace ONLY the off-session `complete()` free function; every other pi-ai
-// export (types, helpers) passes through unchanged.
-vi.mock("@earendil-works/pi-ai/compat", async (importOriginal) => {
-  const actual = await importOriginal<Record<string, unknown>>();
-  return {
-    ...actual,
-    complete: vi.fn(async (_model: unknown, context: unknown) =>
-      scripted.replyFor?.(context),
-    ),
-  };
-});
+import { scripted } from "./helpers/scripted-off-session-mock";
 
 import type { ThetaCompositionInput } from "../src/extension/theta-composition-producer";
 import { capSystemNote } from "../src/binder/system-note";
@@ -121,7 +105,7 @@ import {
 import { makeEnumValue } from "../src/runtime/value";
 import {
   binderProducerWithCapture as producerWithCapture,
-  noteChannelEntries,
+  bindAndReadNote as bindAndReadEchoNote,
   parse,
   scriptEnvelope,
 } from "./helpers/scripted-live-session-harness";
@@ -464,31 +448,13 @@ function twoParamTheta(): ThetaCompositionInput {
  */
 async function bindAndReadNote(args: Readonly<Record<string, unknown>>): Promise<string> {
   scriptEnvelope(scripted, { kind: "ok", args });
-  const { deps, notes } = producerWithCapture();
-  const result = await deps.runBinder({
+  const capture = producerWithCapture();
+  return bindAndReadEchoNote(capture, {
     theta: twoParamTheta(),
     args: "the async module for the team",
     ctx: ctxDouble(),
   });
-  expect(result.bound, "the scripted `ok` envelope must bind for the echo to be emitted").toBe(
-    true,
-  );
-  const channelNotes = noteChannelEntries(notes);
-  expect(
-    channelNotes,
-    "exactly one theta-system-note (the success echo) is emitted on the `ok` arm",
-  ).toHaveLength(1);
-  expect(channelNotes[0]!.display, "the echo note is display:true").toBe(true);
-  return channelNotes[0]!.content;
 }
-
-beforeEach(() => {
-  scripted.replyFor = undefined;
-});
-
-afterEach(() => {
-  vi.clearAllMocks();
-});
 
 describe("bug 0087 — the delivered theta-system-note content is one physical line (production emitter)", () => {
   it("g1: a binder-supplied value carrying U+000A is delivered collapsed to one U+0020", () => {

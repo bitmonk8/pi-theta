@@ -27,27 +27,9 @@
 // binder/determinism-cancellation-failure.md §"Failure-mode templates"
 // (REQ-BINDER-38 needs_info row). Method: M2 (production producer, no live model).
 
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 
-// The scripted off-session binder reply. `vi.hoisted` so the `vi.mock` factory
-// (hoisted above the imports) can close over a mutable holder each test sets.
-// `replyFor` scripts the reply as a FUNCTION of the captured call so a ToolCall
-// reply can name whatever binder tool production actually attached.
-const scripted = vi.hoisted(() => ({
-  replyFor: undefined as undefined | ((context: unknown) => unknown),
-}));
-
-// Replace ONLY the off-session `complete()` free function; every other pi-ai
-// export (types, helpers) passes through unchanged.
-vi.mock("@earendil-works/pi-ai/compat", async (importOriginal) => {
-  const actual = await importOriginal<Record<string, unknown>>();
-  return {
-    ...actual,
-    complete: vi.fn(async (_model: unknown, context: unknown) =>
-      scripted.replyFor?.(context),
-    ),
-  };
-});
+import { scripted } from "./helpers/scripted-off-session-mock";
 
 import type { ThetaCompositionInput } from "../src/extension/theta-composition-producer";
 import {
@@ -75,14 +57,6 @@ function twoParamTheta(overrides?: { readonly bindEcho?: boolean }): ThetaCompos
     binderModel: "binder-model",
   };
 }
-
-beforeEach(() => {
-  scripted.replyFor = undefined;
-});
-
-afterEach(() => {
-  vi.clearAllMocks();
-});
 
 describe("e2e-s5 CAND-2 — binder echo note emission through the production producer", () => {
   it("REQ-BINDER-21 (ok arm): a scripted `ok` binder reply emits the `Running /…` echo note on the theta-system-note channel", async () => {
