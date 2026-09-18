@@ -1,17 +1,11 @@
 import { describe, expect, it } from "vitest";
-import type {
-  ExtensionAPI,
-  ExtensionCommandContext,
-  ExtensionContext,
-} from "@earendil-works/pi-coding-agent";
 import {
-  createThetaExtension,
-  type ThetaExtensionDeps,
-} from "../src/extension/factory";
-import type { ExtensionInstanceWiring } from "../src/extension/production-composition";
-import { ThetaRegistry, type ParsedTheta } from "../src/extension/reload-wiring";
-import { FakeClock } from "./helpers/fake-clock";
-import { ActiveInvocationRegistry } from "../src/runtime/active-invocation-registry";
+  bootRegistryHarness as boot,
+  invoke,
+  makeTheta,
+  thetaNotes,
+} from "./helpers/watch-arming-harness";
+import { ThetaRegistry } from "../src/extension/reload-wiring";
 
 // PIC-29..32 — factory-level drain-gated dispatch integration.
 //
@@ -24,163 +18,12 @@ import { ActiveInvocationRegistry } from "../src/runtime/active-invocation-regis
 // superseded-entry sub-case) or emits the shutting-down / superseded note on the
 // `theta-system-note` channel with `triggerTurn:false`.
 //
-// The harness is copied verbatim from
-// `tests/watcher-hot-reload-integration.test.ts` (the fake pi capturing
-// `registerCommand` handlers + `sendMessage` notes, the subscription table, and
-// `fireSessionStart`). The only divergence is that `composeInstance` is a
-// deterministic stub returning a `ThetaRegistry` this test fully controls (a
-// no-op `installHotReload`), so there is NO filesystem, NO watcher, and NO live
-// model — the REAL registration path is still exercised end-to-end.
-
-/** A recorded `pi.sendMessage` call. */
-interface RecordedNote {
-  readonly customType: string;
-  readonly content: string;
-  readonly display: boolean;
-  readonly details: unknown;
-  readonly triggerTurn: unknown;
-}
-
-/** The registered pi command options shape this test invokes against. */
-interface RegisteredCommand {
-  readonly handler: (args: string, ctx: ExtensionCommandContext) => unknown;
-}
-
-interface Harness {
-  readonly pi: ExtensionAPI;
-  readonly ctx: ExtensionContext;
-  readonly commands: Map<string, unknown>;
-  readonly notes: RecordedNote[];
-  readonly subscriptions: Map<
-    string,
-    ((event: unknown, ctx: ExtensionContext) => unknown)[]
-  >;
-  fireSessionStart(): Promise<void>;
-}
-
-/**
- * The minimal fake-pi harness, replicated the same way the watcher-hot-reload
- * integration test does (its helpers are not exported): capture
- * `registerCommand` options (so the registered handler can be invoked),
- * `sendMessage` notes, and the `pi.on` subscription table.
- */
-function makeHarness(): Harness {
-  const commands = new Map<string, unknown>();
-  const notes: RecordedNote[] = [];
-  const subscriptions = new Map<
-    string,
-    ((event: unknown, ctx: ExtensionContext) => unknown)[]
-  >();
-
-  const pi = {
-    registerFlag: (): void => {},
-    registerMessageRenderer: (): void => {},
-    registerCommand: (name: string, options: unknown): void => {
-      commands.set(name, options);
-    },
-    on: (event: string, handler: (e: unknown, c: ExtensionContext) => unknown): void => {
-      const list = subscriptions.get(event) ?? [];
-      list.push(handler);
-      subscriptions.set(event, list);
-    },
-    getFlag: (): undefined => undefined,
-    getCommands: (): { name: string; source: string }[] =>
-      [...commands.keys()].map((name) => ({ name, source: "extension" })),
-    sendMessage: (
-      message: { customType: string; content: string; display: boolean; details: unknown },
-      options: { triggerTurn: unknown },
-    ): void => {
-      notes.push({
-        customType: message.customType,
-        content: message.content,
-        display: message.display,
-        details: message.details,
-        triggerTurn: options.triggerTurn,
-      });
-    },
-    sendUserMessage: (): void => {},
-  } as unknown as ExtensionAPI;
-
-  const ctx = {
-    cwd: "/does/not/matter",
-    hasUI: false,
-    modelRegistry: { getAvailable: (): readonly unknown[] => [] },
-    ui: { notify: (): void => {} },
-  } as unknown as ExtensionContext;
-
-  const fire = async (event: string): Promise<void> => {
-    for (const handler of subscriptions.get(event) ?? []) {
-      await handler({ type: event }, ctx);
-    }
-  };
-
-  return {
-    pi,
-    ctx,
-    commands,
-    notes,
-    subscriptions,
-    fireSessionStart: () => fire("session_start"),
-  };
-}
-
-/**
- * A minimal `ParsedTheta`. The registration path and the drain-gated wrapper read
- * only `slashName` + `run`; `frontmatter` / `body` are never touched at dispatch
- * time, so they carry inert placeholders.
- */
-function makeTheta(
-  slashName: string,
-  run: (args: string, ctx: ExtensionCommandContext) => Promise<void>,
-): ParsedTheta {
-  return {
-    slashName,
-    frontmatter: { mode: "prompt" } as unknown as ParsedTheta["frontmatter"],
-    body: { statements: [] } as unknown as ParsedTheta["body"],
-    run,
-  };
-}
-
-/**
- * Boot the extension through the REAL factory with a deterministic
- * `composeInstance` returning the given registry + thetas and a no-op
- * `installHotReload`, then fire `session_start` so `drainGatedHandler` is the
- * registered handler for each theta.
- */
-async function boot(
-  registry: ThetaRegistry,
-  thetas: readonly ParsedTheta[],
-): Promise<Harness> {
-  const harness = makeHarness();
-  const deps: ThetaExtensionDeps = {
-    fixtures: [],
-    composeInstance: async (): Promise<ExtensionInstanceWiring> => ({
-      thetas,
-      registry,
-      activeInvocations: new ActiveInvocationRegistry(),
-      forwardingSignals: [],
-      clock: new FakeClock(),
-      installHotReload: () => ({ detach: (): void => {} }),
-    }),
-  };
-  createThetaExtension(deps)(harness.pi);
-  await harness.fireSessionStart();
-  return harness;
-}
-
-/** Invoke the captured pi handler for `name` (the drain-gated wrapper). */
-async function invoke(harness: Harness, name: string, args = ""): Promise<void> {
-  const options = harness.commands.get(name) as RegisteredCommand | undefined;
-  if (options === undefined) {
-    throw new Error(`no command registered for /${name}`);
-  }
-  await options.handler(args, {} as unknown as ExtensionCommandContext);
-}
-
-/** The `theta-system-note` entries recorded so far. */
-function thetaNotes(harness: Harness): readonly RecordedNote[] {
-  return harness.notes.filter((n) => n.customType === "theta-system-note");
-}
+// `bootRegistryHarness` in `tests/helpers/watch-arming-harness.ts` captures
+// `registerCommand` handlers + `sendMessage` notes and fires `session_start`.
+// Its `composeInstance` is a deterministic stub returning a `ThetaRegistry`
+// this test fully controls (a no-op `installHotReload`), so there is NO
+// filesystem, NO watcher, and NO live model — the REAL registration path is
+// still exercised end-to-end.
 
 describe("PIC-29..32 — drain-gated dispatch through the real registration path", () => {
   it("(1) normal dispatch: arm (a) runs the theta's raw run and emits NO note", async () => {

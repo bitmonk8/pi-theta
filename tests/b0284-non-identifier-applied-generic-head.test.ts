@@ -2,10 +2,21 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 // @ts-expect-error — JS code-registry module, no type declarations.
-import { parseRegistry, registryMessage } from "../tools/code-registry/index.js";
-import type { Diagnostic } from "../src/diagnostics/diagnostic";
-import type { ThetaDocument } from "../src/parser/theta-document";
-import { parseDoc } from "./helpers/e2e-s1";
+import { parseRegistry } from "../tools/code-registry/index.js";
+import {
+  expectCaptured,
+  expectRows,
+  loadRowFromBody,
+  loadRowFromParam,
+  PARSE_REGISTRY,
+  PARSE_REGISTRY_PATH,
+  registered,
+  registryLineOf,
+  registryMessageOf,
+  startPositions,
+  type LoadRow,
+  type ParseCodeRegistryRow as RegistryRow,
+} from "./helpers/load-row-harness";
 
 // Bug 0284 — a generic head that is NOT identifier-shaped (`a b<integer>`,
 // `Nope.Sub<integer>`, `a-b<integer>`, `f()<integer>`, `1x<integer>`) is
@@ -112,14 +123,6 @@ import { parseDoc } from "./helpers/e2e-s1";
 // The diagnostic oracle — the registries' *Message* columns (DIAG-4).
 // ===========================================================================
 
-interface RegistryRow {
-  readonly code: string;
-  readonly severity: string;
-  readonly phase: string;
-  readonly message: string;
-}
-
-const PARSE_REGISTRY_PATH = "docs/spec_topics/diagnostics/code-registry-parse.md";
 const LOAD_REGISTRY_PATH = "docs/spec_topics/diagnostics/code-registry-load.md";
 
 function readRegistry(relativePath: string): RegistryRow[] {
@@ -128,7 +131,6 @@ function readRegistry(relativePath: string): RegistryRow[] {
   ) as RegistryRow[];
 }
 
-const PARSE_REGISTRY = readRegistry(PARSE_REGISTRY_PATH);
 const LOAD_REGISTRY = readRegistry(LOAD_REGISTRY_PATH);
 
 /** The `params:` member of the not-expression family — this bug's subject code there. */
@@ -149,7 +151,7 @@ const RESULT_SCHEMA = "theta/parse/result-in-schema-position";
 const UNSUPPORTED = "theta/parse/unsupported-feature";
 
 /** Which registry page holds a code's row — the load page for `theta/load/…`, else parse. */
-function registryFor(code: string): { rows: RegistryRow[]; path: string } {
+function registryFor(code: string): { rows: readonly RegistryRow[]; path: string } {
   return code.startsWith("theta/load/")
     ? { rows: LOAD_REGISTRY, path: LOAD_REGISTRY_PATH }
     : { rows: PARSE_REGISTRY, path: PARSE_REGISTRY_PATH };
@@ -164,22 +166,13 @@ function registryFor(code: string): { rows: RegistryRow[]; path: string } {
  */
 function msg(code: string, fills: ReadonlyArray<readonly [string, string]> = []): string {
   const { rows, path } = registryFor(code);
-  const template = registryMessage(rows, code) as string | undefined;
-  expect(template, `DIAG-4 anchor: ${path} must carry the Message row for ${code}`).toBeDefined();
-  let out = template as string;
-  for (const [placeholder, value] of fills) {
-    expect(
-      out,
-      `DIAG-4: the ${code} Message template must carry the ${placeholder} placeholder; template=${JSON.stringify(template)}`,
-    ).toContain(placeholder);
-    out = out.replace(placeholder, value);
-  }
-  return out;
+  return registryMessageOf(rows, path, code, fills);
 }
 
 /** One rendered diagnostic line, `<severity> <code>: <message>` — the bug document's own rendering. */
 function line(code: string, fills: ReadonlyArray<readonly [string, string]> = []): string {
-  return `error ${code}: ${msg(code, fills)}`;
+  const { rows, path } = registryFor(code);
+  return registryLineOf(rows, path, code, fills);
 }
 
 /** The `params:` refusal, rendered for the field name `p` every fixture here declares. */
@@ -196,37 +189,9 @@ function unresolvedLine(name: string): string {
 // The load harness.
 // ===========================================================================
 
-/** One parsed row: its codes, its rendered lines, its lowered `params:` and its captures. */
-interface LoadRow {
-  readonly label: string;
-  readonly codes: readonly string[];
-  readonly lines: readonly string[];
-  readonly declared: readonly string[];
-  readonly statements: number;
-  readonly doc: ThetaDocument;
-}
-
-/** The frontmatter every body fixture carries; its length puts the body at line 6. */
-const FRONTMATTER = "---\ndescription: d\nmode: prompt\n---\n\n";
-
-/** A parsed document wrapped as a row, so every group reads one shape. */
-function row(label: string, source: string): LoadRow {
-  const doc = parseDoc(source, "b0284.theta");
-  return {
-    label,
-    codes: doc.diagnostics.map((d: Diagnostic) => d.code),
-    lines: doc.diagnostics.map((d: Diagnostic) => `${d.severity} ${d.code}: ${d.message}`),
-    declared: doc.body.statements
-      .filter((s) => s.kind === "schema" || s.kind === "enum")
-      .map((s) => (s as { name: string }).name),
-    statements: doc.body.statements.length,
-    doc,
-  };
-}
-
 /** A `mode: prompt` theta whose body is `body` verbatim, parsed once. */
 function theta(label: string, body: string): LoadRow {
-  return row(label, `${FRONTMATTER}${body}\n`);
+  return loadRowFromBody(label, body, "b0284.theta");
 }
 
 /**
@@ -237,10 +202,7 @@ function theta(label: string, body: string): LoadRow {
  * statement to read.
  */
 function paramsTheta(label: string, typeText: string): LoadRow {
-  return row(
-    label,
-    `---\ndescription: d\nmode: prompt\nparams:\n  p: '${typeText}'\n---\n\nlet z = 1\n"ok"\n`,
-  );
+  return loadRowFromParam(label, typeText, "b0284.theta");
 }
 
 /**
@@ -252,69 +214,6 @@ function paramsTheta(label: string, typeText: string): LoadRow {
  */
 function lowered(r: LoadRow): unknown {
   return r.doc.frontmatter?.params?.loweredSchema ?? null;
-}
-
-/**
- * The composition root's registration gate, mirrored: `hasLoadParseError`
- * (`src/extension/production-composition.ts` line 3053, consulted at line
- * 1570) is `diagnostics.some(d => d.severity === "error" &&
- * (d.code.startsWith("theta/load/") || d.code.startsWith("theta/parse/")))`,
- * and a document carrying one is not registered. Every diagnostic below is a
- * `theta/load/…` or `theta/parse/…` code, so the code-prefix half of the real
- * predicate always holds here.
- */
-function registered(r: LoadRow): boolean {
-  return !r.doc.diagnostics.some((d: Diagnostic) => d.severity === "error");
-}
-
-/**
- * The 1-indexed `line:column` start of each diagnostic in a row. The captures
- * this bug spans emit at different coordinates — the `params:` field at its own
- * frontmatter line, the `let` / `fn` / `schema` sites at the declaration's
- * start, the query site at its expression's start — so the position is what
- * reads WHICH capture spoke.
- */
-function startPositions(r: LoadRow): string[] {
-  return r.doc.diagnostics.map((d: Diagnostic) =>
-    d.range === undefined ? "unlocated" : `${d.range.start.line}:${d.range.start.column}`,
-  );
-}
-
-/**
- * Assert every row parsed to a body and captured exactly the declarations it
- * names, before any disposition is read off it. A dropped statement produces an
- * empty diagnostic list, which reads exactly like a clean load unless the
- * capture is asserted separately — this is the precondition, failing loudly.
- */
-function expectCaptured(rows: readonly LoadRow[], names: readonly string[]): void {
-  const empty = rows.filter((r) => r.statements === 0).map((r) => r.label);
-  expect(
-    empty,
-    "precondition: every fixture must parse to at least one body statement; a row listed here lost its body upstream of the type walk, so its diagnostic list says nothing about this bug",
-  ).toEqual([]);
-  const mismatched = rows
-    .filter((r) => JSON.stringify(r.declared) !== JSON.stringify(names))
-    .map((r) => [r.label, r.declared]);
-  expect(
-    mismatched,
-    `precondition: every fixture must capture exactly the declarations ${JSON.stringify(names)}`,
-  ).toEqual([]);
-}
-
-/**
- * Assert the ordered code list, THEN the ordered rendered-message list. The
- * message side is a thunk so the registry read happens only after the code
- * assertion has passed: a missing emission must red as a missing diagnostic,
- * not as a registry lookup.
- */
-function expectRows(
-  rows: readonly LoadRow[],
-  expected: readonly (readonly string[])[],
-  expectedLines: () => readonly (readonly string[])[],
-): void {
-  expect(rows.map((r) => [r.label, r.codes])).toEqual(rows.map((r, i) => [r.label, expected[i]]));
-  const wanted = expectedLines();
-  expect(rows.map((r) => [r.label, r.lines])).toEqual(rows.map((r, i) => [r.label, wanted[i]]));
 }
 
 /** Assert the registration outcome of every row, per the mirrored gate above. */

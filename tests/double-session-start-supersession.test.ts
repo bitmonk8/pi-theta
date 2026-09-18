@@ -49,7 +49,7 @@
 //
 // Harness: mirrors tests/watcher-hot-reload-integration.test.ts (the real
 // `createThetaExtension` + `composeExtensionInstance` over a mkdtemp temp-dir
-// workspace, hand-rolled pi/ctx fakes, fireSessionStart/fireSessionShutdown)
+// workspace, shared pi/ctx fakes, fireSessionStart/fireSessionShutdown)
 // with the bug-0021 reproduction deltas: ONE shared `FakeClock` across all
 // composes, one COUNTING `FakeFileWatcher` subclass PER compose call (so
 // arm/detach is observable per generation), the per-compose wirings retained
@@ -61,11 +61,7 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync, unlinkSync } from "node:
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import type {
-  ExtensionAPI,
-  ExtensionCommandContext,
-  ExtensionContext,
-} from "@earendil-works/pi-coding-agent";
+import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import {
   createThetaExtension,
   type ThetaExtensionDeps,
@@ -76,6 +72,11 @@ import {
 } from "../src/extension/production-composition";
 import { RELOAD_DEBOUNCE_WINDOW_MS } from "../src/extension/reload-debounce";
 import type { ActiveInvocationEntry } from "../src/runtime/active-invocation-registry";
+import {
+  makeHarness as makeCommandHarness,
+  type Harness as CommandHarness,
+  type RegisteredCommand,
+} from "./helpers/watch-arming-harness";
 import { FakeClock } from "./helpers/fake-clock";
 import { FakeFileWatcher } from "./helpers/fake-file-watcher";
 import type {
@@ -145,15 +146,7 @@ interface RecordedNote {
   readonly triggerTurn: unknown;
 }
 
-/** The registered pi command options shape the dispatch helper invokes against. */
-interface RegisteredCommand {
-  readonly handler: (args: string, ctx: ExtensionCommandContext) => unknown;
-}
-
-interface Harness {
-  readonly pi: ExtensionAPI;
-  readonly ctx: ExtensionContext;
-  readonly commands: Map<string, unknown>;
+interface Harness extends Omit<CommandHarness, "fireSessionShutdown"> {
   /**
    * The SEQUENCE of `pi.registerCommand` names, in call order — the "no new
    * registerCommand calls" witness (a Map alone cannot show a re-register).
@@ -167,34 +160,14 @@ interface Harness {
 }
 
 function makeHarness(cwd: string): Harness {
-  const commands = new Map<string, unknown>();
   const registeredNames: string[] = [];
   const notes: RecordedNote[] = [];
   const userMessages: unknown[][] = [];
-  const subscriptions = new Map<
-    string,
-    ((event: unknown, ctx: ExtensionContext) => unknown)[]
-  >();
-
-  const pi = {
-    registerFlag: (): void => {},
-    registerMessageRenderer: (): void => {},
-    registerCommand: (name: string, options: unknown): void => {
+  const harness = makeCommandHarness(cwd, {}, {
+    onRegisterCommand: (name): void => {
       registeredNames.push(name);
-      commands.set(name, options);
     },
-    on: (event: string, handler: (e: unknown, c: ExtensionContext) => unknown): void => {
-      const list = subscriptions.get(event) ?? [];
-      list.push(handler);
-      subscriptions.set(event, list);
-    },
-    getFlag: (): undefined => undefined,
-    getCommands: (): { name: string; source: string }[] =>
-      [...commands.keys()].map((name) => ({ name, source: "extension" })),
-    sendMessage: (
-      message: { customType: string; content: string; display: boolean; details: unknown },
-      options: { triggerTurn: unknown },
-    ): void => {
+    sendMessage: (message, options): void => {
       notes.push({
         customType: message.customType,
         content: message.content,
@@ -205,34 +178,16 @@ function makeHarness(cwd: string): Harness {
     sendUserMessage: (...args: unknown[]): void => {
       userMessages.push(args);
     },
-  } as unknown as ExtensionAPI;
-
-  const ctx = {
-    cwd,
-    hasUI: false,
-    modelRegistry: { getAvailable: (): readonly unknown[] => [] },
-    ui: { notify: (): void => {} },
-  } as unknown as ExtensionContext;
-
-  const fire = async (event: string, payload: Record<string, unknown>): Promise<void> => {
-    for (const handler of subscriptions.get(event) ?? []) {
-      await handler(payload, ctx);
-    }
-  };
-
+  });
   return {
-    pi,
-    ctx,
-    commands,
+    ...harness,
     registeredNames,
     notes,
     userMessages,
-    fireSessionStart: () => fire("session_start", { type: "session_start" }),
     // `reason: "exit"` — an always-tear-down reason, so the V9r session-swap
     // tripwire stays un-armed and cannot confound the post-shutdown dispatch
     // discriminators below.
-    fireSessionShutdown: () =>
-      fire("session_shutdown", { type: "session_shutdown", reason: "exit" }),
+    fireSessionShutdown: () => harness.fireSessionShutdown("exit"),
   };
 }
 

@@ -132,6 +132,18 @@ export function loadRowFromBody(label: string, body: string, fixturePath: string
 }
 
 /**
+ * A one-field `params:` fixture: the type is on line 5 and the body includes a
+ * binding so `expectCaptured` can observe a statement before reading diagnostics.
+ */
+export function loadRowFromParam(label: string, typeText: string, fixturePath: string): LoadRow {
+  return loadRow(
+    label,
+    `---\ndescription: d\nmode: prompt\nparams:\n  p: '${typeText}'\n---\n\nlet z = 1\n"ok"\n`,
+    fixturePath,
+  );
+}
+
+/**
  * The composition root's registration gate, mirrored: `hasLoadParseError`
  * (`src/extension/production-composition.ts`) is
  * `diagnostics.some(d => d.severity === "error" && (d.code.startsWith("theta/load/") ||

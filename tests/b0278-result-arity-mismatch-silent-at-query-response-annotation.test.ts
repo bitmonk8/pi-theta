@@ -1,11 +1,16 @@
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-// @ts-expect-error — JS code-registry module, no type declarations.
-import { parseRegistry, registryMessage } from "../tools/code-registry/index.js";
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
-import type { ThetaDocument } from "../src/parser/theta-document";
-import { parseDoc } from "./helpers/e2e-s1";
+import {
+  expectCaptured,
+  expectRows,
+  loadRowFromBody,
+  PARSE_REGISTRY as REGISTRY,
+  PARSE_REGISTRY_PATH as REGISTRY_PATH,
+  registered,
+  registryLineOf,
+  startPositions,
+  type LoadRow,
+} from "./helpers/load-row-harness";
 
 // Bug 0278 — a wrong-arity `Result` application written at the `@<T>` query
 // annotation draws nothing and registers
@@ -110,7 +115,7 @@ import { parseDoc } from "./helpers/e2e-s1";
 // rather than a live load.
 //
 // NO SILENT SKIPPING. Nothing here early-returns, branches on the environment
-// or skips. `msg` asserts its registry row is present and carries each
+// or skips. `registryLineOf` asserts its registry row is present and carries each
 // placeholder it fills before substituting, and every cell asserts its fixture
 // captured a body statement and exactly the declarations it names BEFORE
 // reading a disposition off it — a fixture the parser dropped upstream produces
@@ -126,19 +131,6 @@ import { parseDoc } from "./helpers/e2e-s1";
 // The diagnostic oracle — the registry's *Message* column (DIAG-4).
 // ===========================================================================
 
-interface RegistryRow {
-  readonly code: string;
-  readonly severity: string;
-  readonly phase: string;
-  readonly message: string;
-}
-
-const REGISTRY_PATH = "docs/spec_topics/diagnostics/code-registry-parse.md";
-
-const REGISTRY = parseRegistry(
-  readFileSync(fileURLToPath(new URL(`../${REGISTRY_PATH}`, import.meta.url)), "utf8"),
-) as RegistryRow[];
-
 /** The row this bug's inputs must draw at the `@<T>` ascription. */
 const ARITY = "theta/parse/generic-arity-mismatch";
 /** The name row the arity-2 controls keep, and which a wrong-arity interior must NOT gain. */
@@ -146,33 +138,9 @@ const UNRESOLVED = "theta/parse/unresolved-named-type";
 /** Forbidden at this capture by §Fix constraint 3: the ascription walks as `"value"`. */
 const SCHEMA_POSITION = "theta/parse/result-in-schema-position";
 
-/**
- * The registry row's normative *Message* template with its named placeholders
- * filled (DIAG-4). Definedness and placeholder presence are asserted first, so
- * a row whose *Message* moved reds by naming the registry page rather than by a
- * bare `undefined` comparison downstream. No message prose is written out in
- * this file.
- */
-function msg(code: string, fills: ReadonlyArray<readonly [string, string]> = []): string {
-  const template = registryMessage(REGISTRY, code) as string | undefined;
-  expect(
-    template,
-    `DIAG-4 anchor: ${REGISTRY_PATH} must carry the Message row for ${code}`,
-  ).toBeDefined();
-  let out = template as string;
-  for (const [placeholder, value] of fills) {
-    expect(
-      out,
-      `DIAG-4: the ${code} Message template must carry the ${placeholder} placeholder; template=${JSON.stringify(template)}`,
-    ).toContain(placeholder);
-    out = out.replace(placeholder, value);
-  }
-  return out;
-}
-
 /** One rendered diagnostic line, `<severity> <code>: <message>` — the bug document's own rendering. */
 function line(code: string, fills: ReadonlyArray<readonly [string, string]> = []): string {
-  return `error ${code}: ${msg(code, fills)}`;
+  return registryLineOf(REGISTRY, REGISTRY_PATH, code, fills);
 }
 
 /** The arity refusal, rendered for one constructor, its declared arity and the written count. */
@@ -193,102 +161,14 @@ function unresolvedLine(name: string): string {
 // The load harness.
 // ===========================================================================
 
-/** One parsed row: its codes, its rendered lines, and the declarations it captured. */
-interface LoadRow {
-  readonly label: string;
-  readonly codes: readonly string[];
-  readonly lines: readonly string[];
-  readonly declared: readonly string[];
-  readonly statements: number;
-  readonly doc: ThetaDocument;
-}
-
-/** The frontmatter every fixture carries, per the bug document's §Reproduction. */
-const FRONTMATTER = "---\ndescription: d\nmode: prompt\n---\n\n";
-
 /** Every row this file builds, so group (C)'s corpus-wide absence assertion can read them all. */
 const ALL_ROWS: LoadRow[] = [];
 
 /** A `mode: prompt` theta whose body is `body` verbatim, parsed once. */
 function theta(label: string, body: string): LoadRow {
-  const doc = parseDoc(`${FRONTMATTER}${body}\n`, "b0278.theta");
-  const row: LoadRow = {
-    label,
-    codes: doc.diagnostics.map((d: Diagnostic) => d.code),
-    lines: doc.diagnostics.map((d: Diagnostic) => `${d.severity} ${d.code}: ${d.message}`),
-    declared: doc.body.statements
-      .filter((s) => s.kind === "schema" || s.kind === "enum")
-      .map((s) => (s as { name: string }).name),
-    statements: doc.body.statements.length,
-    doc,
-  };
+  const row = loadRowFromBody(label, body, "b0278.theta");
   ALL_ROWS.push(row);
   return row;
-}
-
-/**
- * The composition root's registration gate, mirrored: `hasLoadParseError`
- * (`src/extension/production-composition.ts`) is
- * `diagnostics.some(d => d.severity === "error" && (d.code.startsWith("theta/load/") ||
- * d.code.startsWith("theta/parse/")))`, and a document carrying one is not
- * registered. Every diagnostic below is a `theta/parse/…` code, so the
- * code-prefix half of the real predicate always holds here.
- */
-function registered(row: LoadRow): boolean {
-  return !row.doc.diagnostics.some((d: Diagnostic) => d.severity === "error");
-}
-
-/**
- * The 1-indexed `line:column` start of each diagnostic in a row. The two routes
- * this bug separates emit at different columns of one source line — the query
- * arm at the query EXPRESSION's own start, `walkStatement`'s `let` arm at the
- * STATEMENT's start (column 1) — so the column is what reads WHICH route spoke.
- */
-function startPositions(row: LoadRow): string[] {
-  return row.doc.diagnostics.map((d: Diagnostic) =>
-    d.range === undefined ? "unlocated" : `${d.range.start.line}:${d.range.start.column}`,
-  );
-}
-
-/**
- * Assert every row parsed to a body and captured exactly the declarations it
- * names, before any disposition is read off it. A dropped statement produces an
- * empty diagnostic list, which reads exactly like a clean load unless the
- * capture is asserted separately — this is the precondition, failing loudly.
- */
-function expectCaptured(rows: readonly LoadRow[], names: readonly string[]): void {
-  const empty = rows.filter((r) => r.statements === 0).map((r) => r.label);
-  expect(
-    empty,
-    "precondition: every fixture must parse to at least one body statement; a row listed here lost its body upstream of the type walk, so its diagnostic list says nothing about this bug",
-  ).toEqual([]);
-  const mismatched = rows
-    .filter((r) => JSON.stringify(r.declared) !== JSON.stringify(names))
-    .map((r) => [r.label, r.declared]);
-  expect(
-    mismatched,
-    `precondition: every fixture must capture exactly the declarations ${JSON.stringify(names)}`,
-  ).toEqual([]);
-}
-
-/**
- * Assert the ordered code list, THEN the ordered rendered-message list. The
- * message side is a thunk so the registry read happens only after the code
- * assertion has passed: a missing emission must red as a missing diagnostic,
- * not as a registry lookup.
- */
-function expectRows(
-  rows: readonly LoadRow[],
-  expected: readonly (readonly string[])[],
-  expectedLines: () => readonly (readonly string[])[],
-): void {
-  expect(rows.map((r) => [r.label, r.codes])).toEqual(
-    rows.map((r, i) => [r.label, expected[i]]),
-  );
-  const wanted = expectedLines();
-  expect(rows.map((r) => [r.label, r.lines])).toEqual(
-    rows.map((r, i) => [r.label, wanted[i]]),
-  );
 }
 
 /**

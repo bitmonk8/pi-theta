@@ -65,7 +65,6 @@ vi.mock("@earendil-works/pi-ai/compat", async (importOriginal) => {
 import type {
   ExtensionAPI,
   ExtensionCommandContext,
-  ExtensionContext,
   ModelRegistry,
 } from "@earendil-works/pi-coding-agent";
 import { createProductionProducerDeps } from "../src/extension/production-theta-producer";
@@ -89,6 +88,7 @@ import type { ThetaSource } from "../src/lexer/lexer";
 import type { RuntimeRoot } from "../src/runtime-root";
 import type { ModelReferenceMatcher } from "../src/parser/frontmatter";
 import type { SystemNoteChannelDeps } from "../src/extension/system-note-channel";
+import { invoke, makeHarness, makeTheta } from "./helpers/watch-arming-harness";
 import { FakeClock } from "./helpers/fake-clock";
 import {
   AjvSchemaValidator,
@@ -270,13 +270,9 @@ function noParamsTheta(): ThetaCompositionInput {
 }
 
 // ===========================================================================
-// Factory harness (mirrors tests/drain-gated-dispatch-integration.test.ts and
-// tests/double-session-start-supersession.test.ts), capturing raw messages.
+// Factory harness (shared through tests/helpers/watch-arming-harness.ts),
+// capturing raw messages rather than reconstructing their fields.
 // ===========================================================================
-
-interface RegisteredCommand {
-  readonly handler: (args: string, ctx: ExtensionCommandContext) => unknown;
-}
 
 interface FactoryHarness {
   readonly pi: ExtensionAPI;
@@ -286,60 +282,14 @@ interface FactoryHarness {
 }
 
 function makeFactoryHarness(): FactoryHarness {
-  const commands = new Map<string, unknown>();
   const notes: CapturedNote[] = [];
-  const subscriptions = new Map<
-    string,
-    ((event: unknown, ctx: ExtensionContext) => unknown)[]
-  >();
-
-  const pi = {
-    registerFlag: (): void => {},
-    registerMessageRenderer: (): void => {},
-    registerCommand: (name: string, options: unknown): void => {
-      commands.set(name, options);
-    },
-    on: (event: string, handler: (e: unknown, c: ExtensionContext) => unknown): void => {
-      const list = subscriptions.get(event) ?? [];
-      list.push(handler);
-      subscriptions.set(event, list);
-    },
-    getFlag: (): undefined => undefined,
-    getCommands: (): { name: string; source: string }[] =>
-      [...commands.keys()].map((name) => ({ name, source: "extension" })),
+  const harness = makeHarness("/does/not/matter", {}, {
     // Capture the RAW message object so `details` presence reflects the wire.
     sendMessage: (message: CapturedNote): void => {
       notes.push(message);
     },
-    sendUserMessage: (): void => {},
-  } as unknown as ExtensionAPI;
-
-  const ctx = {
-    cwd: "/does/not/matter",
-    hasUI: false,
-    modelRegistry: { getAvailable: (): readonly unknown[] => [] },
-    ui: { notify: (): void => {} },
-  } as unknown as ExtensionContext;
-
-  const fire = async (event: string): Promise<void> => {
-    for (const handler of subscriptions.get(event) ?? []) {
-      await handler({ type: event }, ctx);
-    }
-  };
-
-  return { pi, notes, commands, fireSessionStart: () => fire("session_start") };
-}
-
-function makeTheta(
-  slashName: string,
-  run: (args: string, ctx: ExtensionCommandContext) => Promise<void>,
-): ParsedTheta {
-  return {
-    slashName,
-    frontmatter: { mode: "prompt" } as unknown as ParsedTheta["frontmatter"],
-    body: { statements: [] } as unknown as ParsedTheta["body"],
-    run,
-  };
+  });
+  return { ...harness, notes };
 }
 
 function makeWiring(
@@ -354,19 +304,6 @@ function makeWiring(
     clock: new FakeClock(),
     installHotReload: () => ({ detach: (): void => {} }),
   };
-}
-
-async function invoke(
-  harness: FactoryHarness,
-  name: string,
-  args = "",
-): Promise<void> {
-  const options = harness.commands.get(name) as RegisteredCommand | undefined;
-  if (options === undefined) {
-    // No silent skipping (AGENTS.md): a missing registration is a setup fault.
-    throw new Error(`no command registered for /${name}`);
-  }
-  await options.handler(args, {} as unknown as ExtensionCommandContext);
 }
 
 // ===========================================================================
