@@ -38,7 +38,7 @@
 
 import { rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { expect, vi } from "vitest";
+import { afterEach, beforeEach, expect, vi } from "vitest";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 // @ts-expect-error — JS code-registry module, no type declarations.
 import { registryMessage } from "../../tools/code-registry/index.js";
@@ -402,6 +402,21 @@ export function captureConsoleError(): unknown[][] {
     calls.push(args);
   });
   return calls;
+}
+
+/** Capture fresh `console.error` calls per test and restore the spy after each. */
+export function captureConsoleErrorForEach(): { readonly calls: unknown[][] } {
+  const capture = { calls: [] as unknown[][] };
+  let restore: () => void;
+  beforeEach(() => {
+    capture.calls = captureConsoleError();
+    const spy = vi.mocked(console.error);
+    restore = () => spy.mockRestore();
+  });
+  afterEach(() => {
+    restore();
+  });
+  return capture;
 }
 
 /** Spy `process.stderr.write`, returning its accumulating chunk log. */

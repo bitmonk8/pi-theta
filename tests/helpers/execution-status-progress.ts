@@ -1,6 +1,7 @@
-// Shared execution-status fixtures: progress-tool recording and renderer snapshots.
+// Shared execution-status fixtures: bus doubles, progress-tool recording and renderer snapshots.
 
 import type {
+  ExecutionStatusBus,
   ExecutionStatusSnapshot,
   InvocationNodeSnapshot,
 } from "../../src/extension/execution-status/types";
@@ -10,6 +11,27 @@ import type {
   ThetaProgressParams,
 } from "../../src/extension/execution-status/progress-tool";
 import type { ActiveInvocationEntry } from "../../src/runtime/active-invocation-registry";
+
+/** No-op status bus; callers override only the methods they need to observe. */
+export function noopExecutionStatusBus(overrides: Partial<ExecutionStatusBus> = {}): ExecutionStatusBus {
+  return {
+    invocationStarted: (): void => {},
+    invocationBound: (): void => {},
+    invocationEnded: (): void => {},
+    invocationPlaced: (): void => {},
+    checkpointBefore: (): void => {},
+    openLaneSet: () => ({ claim: (): void => {}, settle: (): void => {}, close: (): void => {} }),
+    childEvent: (): void => {},
+    authorMessage: (): void => {},
+    setVerbosity: (): void => {},
+    verbosity: () => "names",
+    setViewShape: (): void => {},
+    viewShape: () => "tree",
+    snapshot: () => ({ nodes: [], untracked: 0 }),
+    dispose: (): void => {},
+    ...overrides,
+  };
+}
 
 export function fakeHostApi(): {
   hostApi: { registerTool: (t: ToolDefinition<typeof THETA_PROGRESS_PARAMETERS>) => void };

@@ -1,32 +1,27 @@
 import { describe, expect, it } from "vitest";
-import type {
-  ExtensionAPI,
-  ExtensionCommandContext,
-  ModelRegistry,
-} from "@earendil-works/pi-coding-agent";
-import {
-  createProductionProducerDeps,
-  type CalleeParseOutcome,
-  type PiToolDispatch,
-} from "../src/extension/production-theta-producer";
-import type {
-  ThetaCompositionInput,
-  ConversationBindInput,
-} from "../src/extension/theta-composition-producer";
-import { executeBody } from "../src/runtime/statement-executor";
-import type { RuntimeRoot } from "../src/runtime-root";
-import type { Checkpoint } from "../src/seams/checkpoint";
+import type { PiToolDispatch } from "../src/extension/production-theta-producer";
+import type { ThetaCompositionInput } from "../src/extension/theta-composition-producer";
 import type { AgentToolResultEnvelope } from "../src/runtime/tool-call-execute";
 import { makeOk, type ThetaValue, type ResultValue } from "../src/runtime/value";
-import type {
-  CallExpr,
-  Expr,
-  ThetaBody,
-  ObjectFieldNode,
-  Stmt,
-} from "../src/parser/theta-document";
+import type { Expr, ThetaBody } from "../src/parser/theta-document";
 import type { ParsedFrontmatter } from "../src/parser/frontmatter";
-import type { SourceRange } from "../src/diagnostics/diagnostic";
+import {
+  callExpr,
+  tryExpr,
+  identExpr,
+  memberExpr,
+  indexExpr,
+  numberExpr,
+  strExpr as stringExpr,
+  binaryExpr,
+  objectExpr,
+  letStmt,
+  statementBody as body,
+  ctxDouble,
+  coreExecProducer as producer,
+  promptTheta,
+  runCoreBody as runBody,
+} from "./helpers/tool-call-dispatch-harness";
 
 // Core-execution deficiency fix — end-to-end through the REAL production host
 // (`createEffectfulStatementHost` + the production `evaluatePureExpression` +
@@ -34,126 +29,6 @@ import type { SourceRange } from "../src/diagnostics/diagnostic";
 // the prompt-mode binding (no live session). These pin the previously-broken
 // body evaluation: member / index / object-literal pure evaluation, `?`
 // dispatch-through + unwrap, and object-literal tool-arg lowering (V14g).
-
-function span(): SourceRange {
-  return { start: { line: 1, column: 1 }, end: { line: 1, column: 2 } };
-}
-
-function callExpr(callee: string, args: readonly Expr[] = []): CallExpr {
-  return { kind: "call", callee, args, range: span() };
-}
-
-function tryExpr(operand: Expr): Expr {
-  return { kind: "try", operand, range: span() };
-}
-
-function identExpr(name: string): Expr {
-  return { kind: "ident", name, range: span() };
-}
-
-function memberExpr(target: Expr, field: string): Expr {
-  return { kind: "member", target, field, range: span() };
-}
-
-function indexExpr(target: Expr, index: Expr): Expr {
-  return { kind: "index", target, index, range: span() };
-}
-
-function numberExpr(text: string): Expr {
-  return { kind: "number", text, numericType: "integer", range: span() };
-}
-
-function stringExpr(value: string): Expr {
-  return { kind: "string", value, range: span() };
-}
-
-function binaryExpr(op: string, left: Expr, right: Expr): Expr {
-  return { kind: "binary", op, left, right, range: span() };
-}
-
-function objectExpr(typeName: string | null, fields: readonly ObjectFieldNode[]): Expr {
-  return { kind: "object", typeName, fields, range: span() };
-}
-
-function letStmt(name: string, init: Expr): Stmt {
-  return { kind: "let", name, mutable: false, annotation: null, init, range: span() };
-}
-
-function body(statements: readonly Stmt[], tail: Expr | null): ThetaBody {
-  return { statements, tail };
-}
-
-const NOOP_CHECKPOINT: Checkpoint = {
-  before(): Promise<void> {
-    return Promise.resolve();
-  },
-};
-
-function rootDouble(): RuntimeRoot {
-  return {
-    checkpoint: NOOP_CHECKPOINT,
-    idSource: { newInvocationId: () => "inv-1", newToolCallId: () => "tc-1" },
-  } as unknown as RuntimeRoot;
-}
-
-function ctxDouble(): ExtensionCommandContext {
-  return {} as unknown as ExtensionCommandContext;
-}
-
-interface ProducerOpts {
-  readonly resolvePiTool?: (name: string) => PiToolDispatch | undefined;
-  // Bug 0293: the shipped seam now returns the `CalleeParseOutcome` verdict, but
-  // this harness wires NO `fileSystem` seam, so `#recheckCalleeContainment`
-  // skips its runtime re-check and every `undefined` here still reaches the
-  // `load_failure` default unmodified — this file's own load_failure pins stay
-  // exactly as they were (AGENTS.md §Live-suite: this is the harness the bug
-  // doc names as never reaching the re-check).
-  readonly parseCallee?: (
-    callerPath: string | undefined,
-    calleePath: string,
-  ) => Promise<CalleeParseOutcome | undefined>;
-}
-
-function producer(opts: ProducerOpts) {
-  return createProductionProducerDeps({
-    // `runBinder` routes the SLSH-1 no-params overflow note through
-    // `pi.sendMessage` (theta-system-note channel); a noop stub satisfies it.
-    pi: { sendMessage: () => {} } as unknown as ExtensionAPI,
-    root: rootDouble(),
-    modelRegistry: {} as unknown as ModelRegistry,
-    ...(opts.resolvePiTool !== undefined ? { resolvePiTool: opts.resolvePiTool } : {}),
-    ...(opts.parseCallee !== undefined ? { parseCallee: opts.parseCallee } : {}),
-  });
-}
-
-function promptTheta(thetaBody: ThetaBody, tools?: readonly string[]): ThetaCompositionInput {
-  const frontmatter: ParsedFrontmatter = {
-    mode: "prompt",
-    ...(tools !== undefined ? { tools } : {}),
-  };
-  return { slashName: "demo", sourcePath: "/theta/demo.theta", frontmatter, body: thetaBody };
-}
-
-/**
- * Drive the theta body through the real prompt-mode binding, injecting
- * `paramBindings` as top-level local slots (the same install path the binder
- * threading uses), and return the FN-5 final value.
- */
-async function runBody(
-  deps: ReturnType<typeof producer>,
-  theta: ThetaCompositionInput,
-  paramBindings?: ReadonlyMap<string, ThetaValue>,
-): Promise<{ readonly outcome: string; readonly value: ThetaValue | undefined }> {
-  const bindInput: ConversationBindInput = {
-    theta,
-    args: "",
-    ctx: ctxDouble(),
-    ...(paramBindings !== undefined ? { paramBindings } : {}),
-  };
-  const binding = deps.bindPromptConversation(bindInput);
-  const execution = await executeBody(theta.body, binding.executeDeps);
-  return { outcome: execution.outcome, value: execution.result.value };
-}
 
 // ===========================================================================
 // Pure member / index / object evaluation on bound values.

@@ -110,6 +110,20 @@ export function diagsOf(body: readonly string[]): readonly Diagnostic[] {
   return parseDoc([...FRONTMATTER, ...body].join("\n")).diagnostics;
 }
 
+/** The aggregated diagnostic codes, in emission order. */
+export function bodyCodesOf(body: readonly string[]): string[] {
+  return diagsOf(body).map((d: Diagnostic) => d.code);
+}
+
+/**
+ * The message reported for `code`, or `undefined` when no diagnostic carries it.
+ * Selecting by code rather than by position keeps a message failure attributable
+ * to its own row even where the code list is also wrong.
+ */
+export function diagnosticMessageFor(diags: readonly Diagnostic[], code: string): string | undefined {
+  return findCode(diags, code)?.message;
+}
+
 /** `(code, message)` pairs in emission order — the whole list, unfiltered. */
 export function rowsOf(body: readonly string[]): Array<readonly [string, string]> {
   return diagsOf(body).map((d) => [d.code, d.message] as const);

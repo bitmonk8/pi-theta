@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
-import { findCode, parseDoc } from "./helpers/e2e-s1";
+import { diagsOf, bodyCodesOf as codesOf, diagnosticMessageFor as messageFor } from "./helpers/e2e-s1";
 
 // Bug 0089 — an alias-typed `fn` parameter and the two structural gates that
 // must read it through TYPE-11 rather than as an opaque `named L`
@@ -133,35 +133,6 @@ import { findCode, parseDoc } from "./helpers/e2e-s1";
 //
 // NO SILENT SKIPPING: nothing here early-returns, branches on the environment,
 // or conditionally skips.
-
-// --- production parse harness ----------------------------------------------
-//
-// `parseDoc` (tests/helpers/e2e-s1.ts) is the shipped whole-file entry point
-// `parseThetaDocument` wrapped in the standard inert deps — an in-band no-op
-// system-note channel and a resolving `model:` matcher. No behaviour is
-// stubbed: the type layer under assertion is the production one.
-
-/** The frontmatter every body below is parsed under. */
-const FRONTMATTER: readonly string[] = ["---", "mode: prompt", "---"];
-
-/** The diagnostics the production parse reports for `body`, in emission order. */
-function diagsOf(body: readonly string[]): readonly Diagnostic[] {
-  return parseDoc([...FRONTMATTER, ...body].join("\n")).diagnostics;
-}
-
-/** The aggregated diagnostic codes, in emission order. */
-function codesOf(body: readonly string[]): string[] {
-  return diagsOf(body).map((d: Diagnostic) => d.code);
-}
-
-/**
- * The message reported for `code`, or `undefined` when no diagnostic carries it.
- * Selecting by code rather than by position keeps a message failure attributable
- * to its own row even where the code list is also wrong.
- */
-function messageFor(diags: readonly Diagnostic[], code: string): string | undefined {
-  return findCode(diags, code)?.message;
-}
 
 /**
  * The recurring iterand body: one `fn` whose single parameter is declared `t`,

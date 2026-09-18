@@ -26,11 +26,10 @@
 // (tests/registry-closed-set-corpus-gate.test.ts), so it is located by its
 // registry code literal here — the house style of tests/discovery-walk.test.ts.
 
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { makeHarness, type CapturedNote } from "./helpers/package-merge-e2e-harness";
+import { makeHarness, mintWorkspace, type CapturedNote } from "./helpers/package-merge-e2e-harness";
 
 const CROSS_FORMAT_COLLISION = "theta/load/cross-format-collision";
 
@@ -47,20 +46,14 @@ function byCode(notes: readonly CapturedNote[], code: string): CapturedNote[] {
 
 describe("b0458 — package theta vs Pi-owned prompt template", () => {
   let workspace: string;
-  let savedHome: string | undefined;
-  let savedUserProfile: string | undefined;
-  let savedAgentDir: string | undefined;
+  let disposeWorkspace: () => void;
 
   beforeEach(() => {
-    workspace = mkdtempSync(join(tmpdir(), "theta-b0458-"));
-    savedHome = process.env.HOME;
-    savedUserProfile = process.env.USERPROFILE;
-    savedAgentDir = process.env.PI_CODING_AGENT_DIR;
     // Redirect the home + global-agent roots into the empty workspace so the
     // walk is deterministic (no real ~/.pi/agent or global-package scan).
-    process.env.HOME = workspace;
-    process.env.USERPROFILE = workspace;
-    process.env.PI_CODING_AGENT_DIR = join(workspace, ".pi", "agent");
+    const ws = mintWorkspace("theta-b0458-");
+    workspace = ws.cwd;
+    disposeWorkspace = ws.dispose;
 
     // A project-local node_modules package (priority-4) shipping a theta whose
     // slash name `promptdup` a Pi-owned prompt template owns, plus an
@@ -77,13 +70,7 @@ describe("b0458 — package theta vs Pi-owned prompt template", () => {
   });
 
   afterEach(() => {
-    if (savedHome === undefined) delete process.env.HOME;
-    else process.env.HOME = savedHome;
-    if (savedUserProfile === undefined) delete process.env.USERPROFILE;
-    else process.env.USERPROFILE = savedUserProfile;
-    if (savedAgentDir === undefined) delete process.env.PI_CODING_AGENT_DIR;
-    else process.env.PI_CODING_AGENT_DIR = savedAgentDir;
-    rmSync(workspace, { recursive: true, force: true });
+    disposeWorkspace();
   });
 
   it("drops a package theta whose slash name a Pi-owned prompt template owns, with a cross-format-collision note", async () => {

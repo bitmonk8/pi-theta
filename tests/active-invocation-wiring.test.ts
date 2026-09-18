@@ -28,12 +28,9 @@
 // pins at the handler level, here wired through the production factory.
 
 import { executorHook, resetExecutorHook } from "./helpers/parked-statement-executor";
-import {
-  makeHarness as makeFactoryHarness,
-  type Harness as FactoryHarness,
-  makeTheta,
-} from "./helpers/watch-arming-harness";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { bootFactory } from "./helpers/watch-arming-harness";
+import { captureConsoleErrorForEach } from "./helpers/compose-workspace-harness";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type {
   ModelRegistry,
 } from "@earendil-works/pi-coding-agent";
@@ -58,12 +55,6 @@ import {
 } from "../src/extension/theta-composition-producer";
 import type { BodyExecution } from "../src/runtime/statement-executor";
 import {
-  createThetaExtension,
-  type ThetaExtensionDeps,
-} from "../src/extension/factory";
-import type { ExtensionInstanceWiring } from "../src/extension/production-composition";
-import { ThetaRegistry } from "../src/extension/reload-wiring";
-import {
   ActiveInvocationRegistry,
   type ActiveInvocationEntry,
 } from "../src/runtime/active-invocation-registry";
@@ -73,7 +64,6 @@ import {
 } from "../src/extension/session-shutdown";
 import { SHUTDOWN_AWAIT_CAP_MS } from "../src/extension/capability-probe";
 import { FakeClock } from "./helpers/fake-clock";
-import type { Clock } from "../src/seams/clock";
 import {
   PassthroughCheckpoint,
   rootWith,
@@ -176,51 +166,8 @@ describe("Increment B1 — the registry entry SPANS the in-flight body via the D
   });
 });
 
-// --- factory-level scaffolding (mirrors session-shutdown-wiring) -------------
-
-interface FactoryBoot {
-  readonly harness: FactoryHarness;
-  readonly registry: ThetaRegistry;
-  readonly activeInvocations: ActiveInvocationRegistry;
-  readonly clock: Clock;
-}
-
-/** Boot through the REAL factory with a `composeInstance` returning the given
- *  shared `ActiveInvocationRegistry` + `ThetaRegistry` + clock. */
-async function bootFactory(
-  activeInvocations: ActiveInvocationRegistry,
-  clock: Clock,
-): Promise<FactoryBoot> {
-  const harness = makeFactoryHarness("/does/not/matter", {}, { sendUserMessage: false });
-  const registry = new ThetaRegistry([["foo", makeTheta("foo")]]);
-  const deps: ThetaExtensionDeps = {
-    fixtures: [],
-    composeInstance: async (): Promise<ExtensionInstanceWiring> => ({
-      thetas: [makeTheta("foo")],
-      registry,
-      activeInvocations,
-      forwardingSignals: [],
-      clock,
-      installHotReload: () => ({ detach: (): void => {} }),
-    }),
-  };
-  createThetaExtension(deps)(harness.pi);
-  await harness.fireSessionStart();
-  return { harness, registry, activeInvocations, clock };
-}
-
 describe("Increment B1 — factory session_shutdown operates on the shared registry", () => {
-  let errors: unknown[] = [];
-  let errorSpy: ReturnType<typeof vi.spyOn>;
-  beforeEach(() => {
-    errors = [];
-    errorSpy = vi.spyOn(console, "error").mockImplementation((line: unknown) => {
-      errors.push(line);
-    });
-  });
-  afterEach(() => {
-    errorSpy.mockRestore();
-  });
+  const errors = captureConsoleErrorForEach();
 
   it("(cancel in-flight) aborts an entry with the synthesised CNCL-4 reason and stamps shutdownReason BEFORE the abort", async () => {
     const activeInvocations = new ActiveInvocationRegistry();
@@ -241,7 +188,7 @@ describe("Increment B1 — factory session_shutdown operates on the shared regis
     });
     activeInvocations.add(entry);
 
-    const { harness } = await bootFactory(activeInvocations, new FakeClock());
+    const { harness } = await bootFactory(new FakeClock(), { activeInvocations });
     await harness.fireSessionShutdown("quit");
 
     expect(thetaAbort.signal.aborted).toBe(true);
@@ -265,7 +212,7 @@ describe("Increment B1 — factory session_shutdown operates on the shared regis
     };
     activeInvocations.add(entry);
 
-    const { harness, registry } = await bootFactory(activeInvocations, clock);
+    const { harness, registry } = await bootFactory(clock, { activeInvocations });
 
     // Fire the teardown; the bounded-await timer is armed synchronously before
     // the first `await`, so advancing the fake clock past the cap fires it.
@@ -274,8 +221,8 @@ describe("Increment B1 — factory session_shutdown operates on the shared regis
     await pending;
 
     // Exactly one reload-teardown-timeout, naming the still-in-flight entry.
-    const timeoutLines = errors
-      .map((line) => String(line))
+    const timeoutLines = errors.calls
+      .map(([line]) => String(line))
       .filter((line) => line.includes(RELOAD_TEARDOWN_TIMEOUT_CODE));
     expect(timeoutLines).toHaveLength(1);
     expect(timeoutLines[0]).toContain("/foo:inv-stuck");

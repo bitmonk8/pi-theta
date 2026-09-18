@@ -7,7 +7,7 @@ import { PROGRESS_WIRE_MAX_LINE_BYTES } from "../src/extension/execution-status/
 import { attachChildActivityTap } from "../src/extension/execution-status/child-tap";
 import { ActiveInvocationRegistry } from "../src/runtime/active-invocation-registry";
 import { FakeClock } from "./helpers/fake-clock";
-import { ARGS, fakeEntry, fakeHostApi } from "./helpers/execution-status-progress";
+import { ARGS, fakeEntry, fakeHostApi, noopExecutionStatusBus } from "./helpers/execution-status-progress";
 import { FAKE_CHILD, recordingPublish } from "./helpers/fake-rpc-child";
 
 // RFC 0010 Layer L3 (execution-status.md EXST-5/EXST-15; subagent.md PIC-74)
@@ -163,22 +163,10 @@ describe("T-WIRE — L3-B20: 200ms acceptance interval carries dropped:1 on the 
 describe("T-WIRE — L3-B21: verbosity off -> zero lines", () => {
   it("a call under the child's own 'off' ceiling emits nothing", async () => {
     let verbosity: "off" | "counts" | "names" = "off";
-    const bus = {
-      invocationStarted: (): void => {},
-      invocationBound: (): void => {},
-      invocationEnded: (): void => {},
-      invocationPlaced: (): void => {},
-      checkpointBefore: (): void => {},
-      openLaneSet: () => ({ claim: (): void => {}, settle: (): void => {}, close: (): void => {} }),
-      childEvent: (): void => {},
-      authorMessage: (): void => {},
+    const bus = noopExecutionStatusBus({
       setVerbosity: (v: "off" | "counts" | "names"): void => { verbosity = v; },
       verbosity: () => verbosity,
-      setViewShape: (): void => {},
-      viewShape: () => "tree" as const,
-      snapshot: () => ({ nodes: [], untracked: 0 }),
-      dispose: (): void => {},
-    };
+    });
     const { deps, writtenLines } = childDeps({ bus: () => bus });
     const { hostApi, calls } = fakeHostApi();
     registerThetaProgressTool(hostApi, deps);
@@ -189,17 +177,29 @@ describe("T-WIRE — L3-B21: verbosity off -> zero lines", () => {
 
 describe("T-WIRE — L3-B22: an over-4096-byte line drops (counted), seq not consumed, no partial write", () => {
   it("a fault-injected oversized builder path never partially writes and does not advance seq", async () => {
-    const hugeMessage = "m".repeat(PROGRESS_WIRE_MAX_LINE_BYTES + 100);
-    const { deps, writtenLines } = childDeps();
+    // Tool fields are clamped before serialization; the registry id is not.
+    // An over-cap ASCII id alone forces the defensive wire-size gate.
+    const oversizedRoot = fakeEntry({ invocationId: "i".repeat(PROGRESS_WIRE_MAX_LINE_BYTES + 100) });
+    const registry = new ActiveInvocationRegistry();
+    registry.add(oversizedRoot);
+    const clock = new FakeClock();
+    const { deps, writtenLines } = childDeps({ invocations: () => registry, clock: () => clock });
     const { hostApi, calls } = fakeHostApi();
     registerThetaProgressTool(hostApi, deps);
-    await calls[0]!.execute("c1", { message: hugeMessage }, undefined, undefined, {} as never);
+    await calls[0]!.execute("c1", ARGS, undefined, undefined, {} as never);
+    expect(writtenLines).toHaveLength(0);
+
+    registry.remove(oversizedRoot);
+    registry.add(fakeEntry({ invocationId: "root-inv" }));
+    clock.advance(200); // The recovery call must not hit the rate gate.
     await calls[0]!.execute("c2", ARGS, undefined, undefined, {} as never);
 
+    expect(writtenLines).toHaveLength(1);
     expect(writtenLines.every((l) => Buffer.byteLength(l, "utf8") <= PROGRESS_WIRE_MAX_LINE_BYTES)).toBe(true);
-    if (writtenLines.length > 0) {
-      expect(JSON.parse(writtenLines[0]!.trimEnd()).theta_progress.seq).toBe(1);
-    }
+    const progress = JSON.parse(writtenLines[0]!.trimEnd()).theta_progress;
+    expect(progress.seq).toBe(1);
+    expect(progress.invocation_id).toBe("root-inv");
+    expect(progress.event).toEqual({ ...ARGS, dropped: 1 });
   });
 });
 

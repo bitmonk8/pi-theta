@@ -32,7 +32,9 @@ import {
   composeExtensionInstance,
   type ExtensionInstanceWiring,
 } from "../../src/extension/production-composition";
-import type { ParsedTheta, ThetaRegistry } from "../../src/extension/reload-wiring";
+import { ThetaRegistry, type ParsedTheta } from "../../src/extension/reload-wiring";
+import type { ForwardingSignalSource } from "../../src/extension/session-shutdown";
+import type { Clock } from "../../src/seams/clock";
 import type { Diagnostic } from "../../src/diagnostics/diagnostic";
 import { ActiveInvocationRegistry } from "../../src/runtime/active-invocation-registry";
 import { FakeClock } from "./fake-clock";
@@ -197,6 +199,46 @@ export function makeTheta(
     body: { statements: [] } as unknown as ParsedTheta["body"],
     run,
   };
+}
+
+export interface FactoryBoot {
+  readonly harness: Harness;
+  readonly registry: ThetaRegistry;
+  readonly activeInvocations: ActiveInvocationRegistry;
+  readonly forwardingSignals: ForwardingSignalSource[];
+  readonly clock: Clock;
+}
+
+/**
+ * Boot through the REAL factory with a fixed `composeInstance` wiring, then
+ * fire `session_start` so shutdown reads the supplied shared resources.
+ * Callers can replace the hot-reload detach adapter and bootstrap diagnostic sink.
+ */
+export async function bootFactory(
+  clock: Clock,
+  options: Partial<Pick<ExtensionInstanceWiring,
+    "registry" | "activeInvocations" | "forwardingSignals" | "installHotReload"
+  >> & Pick<ThetaExtensionDeps, "emitDiagnostic"> & { sendUserMessage?: boolean } = {},
+): Promise<FactoryBoot> {
+  const harness = makeHarness("/does/not/matter", {}, { sendUserMessage: options.sendUserMessage ?? false });
+  const registry = options.registry ?? new ThetaRegistry([["foo", makeTheta("foo")]]);
+  const activeInvocations = options.activeInvocations ?? new ActiveInvocationRegistry();
+  const forwardingSignals = options.forwardingSignals ?? [];
+  const deps: ThetaExtensionDeps = {
+    fixtures: [],
+    ...(options.emitDiagnostic === undefined ? {} : { emitDiagnostic: options.emitDiagnostic }),
+    composeInstance: async (): Promise<ExtensionInstanceWiring> => ({
+      thetas: [makeTheta("foo")],
+      registry,
+      activeInvocations,
+      forwardingSignals,
+      clock,
+      installHotReload: options.installHotReload ?? (() => ({ detach: (): void => {} })),
+    }),
+  };
+  createThetaExtension(deps)(harness.pi);
+  await harness.fireSessionStart();
+  return { harness, registry, activeInvocations, forwardingSignals, clock };
 }
 
 /** A recorded `pi.sendMessage` call, including its delivery option. */

@@ -28,21 +28,12 @@ import {
   type SessionControlPi,
 } from "../src/runtime/session-control-tools";
 import { type ResultValue, type ThetaValue } from "../src/runtime/value";
-import {
-  guardToolExecutePromise,
-  type ToolExecuteCancellationGuard,
-  type ToolExecuteSideChannels,
-} from "../src/runtime/tool-call-swallowing-handler";
+import { abortToolExecuteRace } from "./helpers/tool-execute-cancellation-race";
 
 /** Unwrap a `ThetaValue` known to be a branded `Result` for direct field access. */
 function asResult(value: ThetaValue): ResultValue {
   return value as ResultValue;
 }
-
-const noopChannels: ToolExecuteSideChannels = {
-  emitRuntimeEvent: (): void => {},
-  emitDiagnostic: (): void => {},
-};
 
 // ===========================================================================
 // D1 / D2 — compact() onComplete → Ok forwarded verbatim; blank instructions
@@ -213,26 +204,14 @@ describe("session-control-adapters (V24a-T) — Option A cancellation race (D5/D
       },
     };
 
-    const controller = new AbortController();
-    const guard: ToolExecuteCancellationGuard = { cancellationSurfaced: false };
-
-    const outcome = await new Promise<"settled" | "cancelled">((resolve) => {
-      const guarded = guardToolExecutePromise(
-        executeCompactTool(host, "compact", "keep"),
-        guard,
-        noopChannels,
-      );
-      guarded.then((): void => {
+    const outcome = await abortToolExecuteRace(
+      () => executeCompactTool(host, "compact", "keep"),
+      (guard, resolve): void => {
         if (!guard.cancellationSurfaced) {
           resolve("settled");
         }
-      });
-      controller.signal.addEventListener("abort", (): void => {
-        guard.cancellationSurfaced = true;
-        resolve("cancelled");
-      });
-      controller.abort();
-    });
+      },
+    );
 
     expect(outcome, "D5 primary: the abort race resolves 'cancelled' promptly").toBe("cancelled");
     expect(abortCalls, "D5: Option A invokes NO host abort of any kind").toEqual([]);
@@ -248,25 +227,14 @@ describe("session-control-adapters (V24a-T) — Option A cancellation race (D5/D
       getContextUsage: (): ContextUsage | undefined => undefined,
     };
 
-    const controller = new AbortController();
-    const guard: ToolExecuteCancellationGuard = { cancellationSurfaced: false };
     let settledCount = 0;
 
-    const cancelled = await new Promise<"cancelled">((resolve) => {
-      const guarded = guardToolExecutePromise(
-        executeCompactTool(host, "compact", "keep"),
-        guard,
-        noopChannels,
-      );
-      guarded.then((): void => {
+    const cancelled = await abortToolExecuteRace(
+      () => executeCompactTool(host, "compact", "keep"),
+      (): void => {
         settledCount += 1;
-      });
-      controller.signal.addEventListener("abort", (): void => {
-        guard.cancellationSurfaced = true;
-        resolve("cancelled");
-      });
-      controller.abort();
-    });
+      },
+    );
     expect(cancelled).toBe("cancelled");
 
     // Background compaction completes late, after the theta reported cancelled.
@@ -291,25 +259,14 @@ describe("session-control-adapters (V24a-T) — Option A cancellation race (D5/D
       getContextUsage: (): ContextUsage | undefined => undefined,
     };
 
-    const controller = new AbortController();
-    const guard: ToolExecuteCancellationGuard = { cancellationSurfaced: false };
     let settledCount = 0;
 
-    const cancelled = await new Promise<"cancelled">((resolve) => {
-      const guarded = guardToolExecutePromise(
-        executeCompactTool(host, "compact", "keep"),
-        guard,
-        noopChannels,
-      );
-      guarded.then((): void => {
+    const cancelled = await abortToolExecuteRace(
+      () => executeCompactTool(host, "compact", "keep"),
+      (): void => {
         settledCount += 1;
-      });
-      controller.signal.addEventListener("abort", (): void => {
-        guard.cancellationSurfaced = true;
-        resolve("cancelled");
-      });
-      controller.abort();
-    });
+      },
+    );
     expect(cancelled).toBe("cancelled");
 
     onErrorFn?.(new Error("Compaction cancelled"));

@@ -32,6 +32,7 @@ import type { SystemNoteChannelDeps } from "../src/extension/system-note-channel
 import { createProductionProducerDeps } from "../src/extension/production-theta-producer";
 import type { ConversationBindInput, ThetaCompositionInput } from "../src/extension/theta-composition-producer";
 import type { ExecutionStatusBus } from "../src/extension/execution-status/types";
+import { noopExecutionStatusBus } from "./helpers/execution-status-progress";
 import { executeBody, type BodyExecution } from "../src/runtime/statement-executor";
 import { isResultValue, type ThetaValue } from "../src/runtime/value";
 import type { QueryError } from "../src/runtime/query-error";
@@ -117,24 +118,11 @@ const errLine = (error: QueryError, provenance: "mint" | "propagated", fnTail?: 
 
 function recordingBus(): { bus: ExecutionStatusBus; bound: { id: string; mode: string }[] } {
   const bound: { id: string; mode: string }[] = [];
-  const bus = {
-    invocationStarted: (): void => {},
+  const bus = noopExecutionStatusBus({
     invocationBound: (id: string, info: { mode: string }): void => {
       bound.push({ id, mode: info.mode });
     },
-    invocationEnded: (): void => {},
-    invocationPlaced: (): void => {},
-    checkpointBefore: (): void => {},
-    openLaneSet: () => ({ claim: (): void => {}, settle: (): void => {}, close: (): void => {} }),
-    childEvent: (): void => {},
-    authorMessage: (): void => {},
-    setVerbosity: (): void => {},
-    verbosity: () => "names" as const,
-    setViewShape: (): void => {},
-    viewShape: () => "tree" as const,
-    snapshot: () => ({ nodes: [], untracked: 0 }),
-    dispose: (): void => {},
-  } as unknown as ExecutionStatusBus;
+  });
   return { bus, bound };
 }
 

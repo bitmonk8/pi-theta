@@ -50,43 +50,18 @@ import { abortForAgentEnd } from "../src/runtime/cancellation-core";
 import { executeBody } from "../src/runtime/statement-executor";
 import { rootWith } from "./helpers/fixture-dispatch-harness";
 import type { AgentToolResultEnvelope } from "../src/runtime/tool-call-execute";
-import type {
-  CallExpr,
-  Expr,
-  ThetaBody,
-  ObjectFieldNode,
-  Stmt,
-} from "../src/parser/theta-document";
+import type { ThetaBody } from "../src/parser/theta-document";
 import type { ParsedFrontmatter } from "../src/parser/frontmatter";
 import type { ThetaValue } from "../src/runtime/value";
-import type { SourceRange } from "../src/diagnostics/diagnostic";
-
-// --- AST helpers ------------------------------------------------------------
-
-function span(): SourceRange {
-  return { start: { line: 1, column: 1 }, end: { line: 1, column: 2 } };
-}
-function callExpr(callee: string, args: readonly Expr[] = []): CallExpr {
-  return { kind: "call", callee, args, range: span() };
-}
-function tryExpr(operand: Expr): Expr {
-  return { kind: "try", operand, range: span() };
-}
-function identExpr(name: string): Expr {
-  return { kind: "ident", name, range: span() };
-}
-function objectExpr(typeName: string | null, fields: readonly ObjectFieldNode[]): Expr {
-  return { kind: "object", typeName, fields, range: span() };
-}
-function stringExpr(value: string): Expr {
-  return { kind: "string", value, range: span() };
-}
-function letStmt(name: string, init: Expr): Stmt {
-  return { kind: "let", name, mutable: false, annotation: null, init, range: span() };
-}
-function body(statements: readonly Stmt[], tail: Expr | null): ThetaBody {
-  return { statements, tail };
-}
+import {
+  callExpr,
+  tryExpr,
+  identExpr,
+  objectExpr,
+  strExpr as stringExpr,
+  letStmt,
+  statementBody as body,
+} from "./helpers/tool-call-dispatch-harness";
 
 // --- system-note recorder ---------------------------------------------------
 

@@ -3,7 +3,7 @@ import { readRegistry } from "./helpers/registry-oracle";
 import { describe, expect, it } from "vitest";
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
 import type { ThetaDocument } from "../src/parser/theta-document";
-import { findCode, parseDoc } from "./helpers/e2e-s1";
+import { FRONTMATTER, parseDoc, findCode, diagsOf, bodyCodesOf as codesOf, diagnosticMessageFor as messageFor } from "./helpers/e2e-s1";
 
 // Bug 0241 — `docs/spec_topics/grammar.md:230`'s FOURTH sink bullet, "the
 // element type of an array-typed sink that this literal is itself an element of
@@ -137,22 +137,9 @@ function msg(code: string, fills: ReadonlyArray<readonly [string, string]>): str
 // `parseThetaDocument` wrapped in the standard inert deps. No behaviour under
 // assertion is stubbed: the type layer is the production one.
 
-/** The frontmatter every body below is parsed under (lines 1–3). */
-const FRONTMATTER: readonly string[] = ["---", "mode: prompt", "---"];
-
 /** The whole-document parse of `body`, source beginning on line 4. */
 function docOf(body: readonly string[]): ThetaDocument {
   return parseDoc([...FRONTMATTER, ...body].join("\n"));
-}
-
-/** The diagnostics the production parse reports for `body`, in emission order. */
-function diagsOf(body: readonly string[]): readonly Diagnostic[] {
-  return docOf(body).diagnostics;
-}
-
-/** The whole unfiltered diagnostic code list, in emission order. */
-function codesOf(body: readonly string[]): string[] {
-  return diagsOf(body).map((d: Diagnostic) => d.code);
 }
 
 /**
@@ -162,16 +149,6 @@ function codesOf(body: readonly string[]): string[] {
  */
 function registers(doc: ThetaDocument): boolean {
   return doc.frontmatter !== null && !doc.diagnostics.some((d) => d.severity === "error");
-}
-
-/**
- * The message reported for `code`, or `undefined` when no diagnostic carries it.
- * Selecting by code rather than by position keeps a message failure attributable
- * to its own row even where the code list is also wrong; the whole ordered code
- * list is asserted separately in every cell.
- */
-function messageFor(diags: readonly Diagnostic[], code: string): string | undefined {
-  return findCode(diags, code)?.message;
 }
 
 /** The 1-based start column of the first diagnostic carrying `code`. */

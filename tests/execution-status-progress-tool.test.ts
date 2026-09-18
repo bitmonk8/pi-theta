@@ -16,7 +16,7 @@ import type { ExecutionStatusBus, ProgressAuthorMessage } from "../src/extension
 import type { EntryChannelHandle } from "../src/extension/execution-status/entry-channel";
 import { ActiveInvocationRegistry, type ActiveInvocationEntry } from "../src/runtime/active-invocation-registry";
 import { FakeClock } from "./helpers/fake-clock";
-import { ARGS, fakeEntry, fakeHostApi } from "./helpers/execution-status-progress";
+import { ARGS, fakeEntry, fakeHostApi, noopExecutionStatusBus } from "./helpers/execution-status-progress";
 import { renderFooterLine } from "../src/extension/execution-status/footer-sink";
 import { createProgressEntryRenderer } from "../src/extension/execution-status/entry-channel";
 import {
@@ -41,10 +41,6 @@ import type { Diagnostic } from "../src/diagnostics/diagnostic";
 // effect (a `bus.authorMessage` call, an `appendMilestone` call, a clamp, a
 // drop count, a rendered string) — none of them are vacuous.
 
-function noopLaneHandle() {
-  return { claim: (): void => {}, settle: (): void => {}, close: (): void => {} };
-}
-
 /** A minimal fake `ExecutionStatusBus`: every producer a no-op spy, `verbosity`
  *  returns a controllable value, `authorMessage` records its calls. */
 function fakeBus(initialVerbosity: "off" | "counts" | "names" = "names"): {
@@ -53,14 +49,7 @@ function fakeBus(initialVerbosity: "off" | "counts" | "names" = "names"): {
 } {
   const authorMessageCalls: { invocationId: string | undefined; payload: ProgressAuthorMessage }[] = [];
   let verbosity = initialVerbosity;
-  const bus: ExecutionStatusBus = {
-    invocationStarted: (): void => {},
-    invocationBound: (): void => {},
-    invocationEnded: (): void => {},
-    invocationPlaced: (): void => {},
-    checkpointBefore: (): void => {},
-    openLaneSet: () => noopLaneHandle(),
-    childEvent: (): void => {},
+  const bus = noopExecutionStatusBus({
     authorMessage: (invocationId, payload): void => {
       authorMessageCalls.push({ invocationId, payload });
     },
@@ -68,11 +57,7 @@ function fakeBus(initialVerbosity: "off" | "counts" | "names" = "names"): {
       verbosity = v;
     },
     verbosity: () => verbosity,
-    setViewShape: (): void => {},
-    viewShape: () => "tree",
-    snapshot: () => ({ nodes: [], untracked: 0 }),
-    dispose: (): void => {},
-  };
+  });
   return { bus, authorMessageCalls };
 }
 
@@ -291,14 +276,7 @@ describe("T-PRG — L3-B12: verbosity off — nothing published/appended, not co
     registry.add(fakeEntry());
     let verbosity: "off" | "counts" | "names" = "off";
     const authorMessageCalls: unknown[] = [];
-    const bus: ExecutionStatusBus = {
-      invocationStarted: (): void => {},
-      invocationBound: (): void => {},
-      invocationEnded: (): void => {},
-      invocationPlaced: (): void => {},
-      checkpointBefore: (): void => {},
-      openLaneSet: () => noopLaneHandle(),
-      childEvent: (): void => {},
+    const bus = noopExecutionStatusBus({
       authorMessage: (_id, payload): void => {
         authorMessageCalls.push(payload);
       },
@@ -306,11 +284,7 @@ describe("T-PRG — L3-B12: verbosity off — nothing published/appended, not co
         verbosity = v;
       },
       verbosity: () => verbosity,
-      setViewShape: (): void => {},
-      viewShape: () => "tree",
-      snapshot: () => ({ nodes: [], untracked: 0 }),
-      dispose: (): void => {},
-    };
+    });
     const { hostApi, calls } = fakeHostApi();
     registerThetaProgressTool(hostApi, baseDeps({ invocations: () => registry, bus: () => bus }));
 

@@ -122,23 +122,25 @@ describe("T-TAP — B29: class-3 non-retention (EXST-5/EXST-12) — allowlisted 
     }
   });
 
-  it("B29: the tap is a pure, non-mutating function of each line — a deep-frozen fixture line ingests without throwing", () => {
+  it("B29: identical tool-execution lines publish the same allowlisted event on each ingestion without throwing", () => {
     const child = FAKE_CHILD();
-    const { publish } = recordingPublish();
+    const { events, publish } = recordingPublish();
     attachChildActivityTap(child, publish);
 
-    const fixture = Object.freeze({
+    const line = JSON.stringify({
       type: "tool_execution_start",
       toolCallId: "1",
       toolName: "bash",
-      args: Object.freeze({ command: "echo hi" }),
+      args: { command: "echo hi" },
     });
-    const line = JSON.stringify(fixture);
 
     expect(() => child.emitRawLine(line)).not.toThrow();
-    // Idempotent: emitting the identical (frozen-sourced) line twice produces
-    // the same observable shape both times — no hidden state mutation.
+    expect(events).toEqual([{ type: "tool_execution_start", toolName: "bash" }]);
     expect(() => child.emitRawLine(line)).not.toThrow();
+    expect(events).toEqual([
+      { type: "tool_execution_start", toolName: "bash" },
+      { type: "tool_execution_start", toolName: "bash" },
+    ]);
   });
 });
 

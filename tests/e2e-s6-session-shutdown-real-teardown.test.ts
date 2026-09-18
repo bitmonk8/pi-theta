@@ -1,12 +1,6 @@
-import { makeHarness, type Harness, makeTheta } from "./helpers/watch-arming-harness";
+import { bootFactory, type Harness } from "./helpers/watch-arming-harness";
 import { signalSpy } from "./helpers/session-shutdown-harness";
 import { describe, expect, it, vi } from "vitest";
-import {
-  createThetaExtension,
-  type ThetaExtensionDeps,
-} from "../src/extension/factory";
-import type { ExtensionInstanceWiring } from "../src/extension/production-composition";
-import { ThetaRegistry } from "../src/extension/reload-wiring";
 import {
   ActiveInvocationRegistry,
   type ActiveInvocationEntry,
@@ -60,8 +54,6 @@ interface Booted {
 /** Boot through the REAL factory with a `composeInstance` returning a wiring
  * that carries a SEEDED shared registry + forwarding-signal sink. */
 async function boot(): Promise<Booted> {
-  const harness = makeHarness();
-  const registry = new ThetaRegistry([["foo", makeTheta("foo")]]);
   const activeInvocations = new ActiveInvocationRegistry();
   activeInvocations.add(seededEntry("foo", "11111111-1111-4111-8111-111111111111"));
   activeInvocations.add(seededEntry("bar", "22222222-2222-4222-8222-222222222222"));
@@ -70,19 +62,12 @@ async function boot(): Promise<Booted> {
     signalSpy("toolSignal.removeEventListener"),
   ];
   const detach = vi.fn();
-  const deps: ThetaExtensionDeps = {
-    fixtures: [],
-    composeInstance: async (): Promise<ExtensionInstanceWiring> => ({
-      thetas: [makeTheta("foo")],
-      registry,
-      activeInvocations,
-      forwardingSignals,
-      clock: new FakeClock(),
-      installHotReload: () => ({ detach }),
-    }),
-  };
-  createThetaExtension(deps)(harness.pi);
-  await harness.fireSessionStart();
+  const { harness } = await bootFactory(new FakeClock(), {
+    activeInvocations,
+    forwardingSignals,
+    installHotReload: () => ({ detach }),
+    sendUserMessage: true,
+  });
   return { harness, activeInvocations, forwardingSignals, detach };
 }
 

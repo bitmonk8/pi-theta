@@ -1,8 +1,7 @@
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { makeHarness } from "./helpers/package-merge-e2e-harness";
+import { makeHarness, mintWorkspace, type PackageMergeWorkspace } from "./helpers/package-merge-e2e-harness";
 
 // S6 (PIC / DISC seam at the composition root) — the package-source
 // walk-routed adjudication.
@@ -34,17 +33,11 @@ const PACKAGE_UNIQUE = ["---", "mode: prompt", "---", "@`package`", ""].join(
 
 describe("S6 — composition-root package two-stage merge", () => {
   let workspace: string;
-  let savedHome: string | undefined;
-  let savedUserProfile: string | undefined;
+  let minted: PackageMergeWorkspace;
 
   beforeEach(() => {
-    workspace = mkdtempSync(join(tmpdir(), "theta-s6-pkgmerge-"));
-    // Redirect os.homedir() so the global package roots resolve under the empty
-    // workspace (deterministic — no real ~/.pi/agent scan).
-    savedHome = process.env.HOME;
-    savedUserProfile = process.env.USERPROFILE;
-    process.env.HOME = workspace;
-    process.env.USERPROFILE = workspace;
+    minted = mintWorkspace("theta-s6-pkgmerge-");
+    workspace = minted.cwd;
 
     // Project theta (walk-discovered, higher priority) claiming `dup`.
     const thetaDir = join(workspace, ".pi", "theta");
@@ -65,11 +58,7 @@ describe("S6 — composition-root package two-stage merge", () => {
   });
 
   afterEach(() => {
-    if (savedHome === undefined) delete process.env.HOME;
-    else process.env.HOME = savedHome;
-    if (savedUserProfile === undefined) delete process.env.USERPROFILE;
-    else process.env.USERPROFILE = savedUserProfile;
-    rmSync(workspace, { recursive: true, force: true });
+    minted.dispose();
   });
 
   it("merges in a uniquely-named package theta (unclaimed) and drops a package theta whose name is already claimed by a walk theta", async () => {

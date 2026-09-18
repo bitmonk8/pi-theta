@@ -38,6 +38,7 @@ import {
 import type { OpenedSubagentWire, SpawnFn, SubagentChildProcess } from "../src/runtime/subagent-launcher";
 import type { PlacementLease } from "../src/runtime/subagent-placement-selection";
 import type { ExecutionStatusBus } from "../src/extension/execution-status/types";
+import { noopExecutionStatusBus } from "./helpers/execution-status-progress";
 
 /** M7: a checkpoint whose `before()` rejects with a fixed value — a `for` loop's `loop-iter` checkpoint site is the injection point. */
 class ThrowingCheckpoint implements Checkpoint {
@@ -408,24 +409,11 @@ function openWire(): Promise<OpenedSubagentWire> {
 
 function recordingBus(): { bus: ExecutionStatusBus; placed: { id: string; backend: string; handle: string }[] } {
   const placed: { id: string; backend: string; handle: string }[] = [];
-  const bus = {
-    invocationStarted: (): void => {},
-    invocationBound: (): void => {},
-    invocationEnded: (): void => {},
+  const bus = noopExecutionStatusBus({
     invocationPlaced: (id: string, placement: { backend: string; handle: string }): void => {
       placed.push({ id, ...placement });
     },
-    checkpointBefore: (): void => {},
-    openLaneSet: () => ({ claim: (): void => {}, settle: (): void => {}, close: (): void => {} }),
-    childEvent: (): void => {},
-    authorMessage: (): void => {},
-    setVerbosity: (): void => {},
-    verbosity: () => "names" as const,
-    setViewShape: (): void => {},
-    viewShape: () => "tree" as const,
-    snapshot: () => ({ nodes: [], untracked: 0 }),
-    dispose: (): void => {},
-  } as unknown as ExecutionStatusBus;
+  });
   return { bus, placed };
 }
 

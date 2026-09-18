@@ -1,13 +1,9 @@
-import { makeHarness, type Harness, makeTheta } from "./helpers/watch-arming-harness";
+import { bootFactory, makeHarness, type Harness, makeTheta } from "./helpers/watch-arming-harness";
 import { assert, describe, expect, it, vi } from "vitest";
 import type {
   ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
-import {
-  createThetaExtension,
-  type ThetaExtensionDeps,
-} from "../src/extension/factory";
-import type { ExtensionInstanceWiring } from "../src/extension/production-composition";
+import { createThetaExtension } from "../src/extension/factory";
 import {
   ThetaRegistry,
 } from "../src/extension/reload-wiring";
@@ -55,22 +51,13 @@ async function boot(
   registry: ThetaRegistry,
   activeInvocations: ActiveInvocationRegistry = new ActiveInvocationRegistry(),
 ): Promise<Booted> {
-  const harness = makeHarness();
   const detach = vi.fn();
-  const thetas = [makeTheta("foo")];
-  const deps: ThetaExtensionDeps = {
-    fixtures: [],
-    composeInstance: async (): Promise<ExtensionInstanceWiring> => ({
-      thetas,
-      registry,
-      activeInvocations,
-      forwardingSignals: [],
-      clock: new FakeClock(),
-      installHotReload: () => ({ detach }),
-    }),
-  };
-  createThetaExtension(deps)(harness.pi);
-  await harness.fireSessionStart();
+  const { harness } = await bootFactory(new FakeClock(), {
+    registry,
+    activeInvocations,
+    installHotReload: () => ({ detach }),
+    sendUserMessage: true,
+  });
   return { harness, registry, detach, activeInvocations };
 }
 
@@ -196,25 +183,14 @@ interface BootedWithDiagnostics {
  * being silently swallowed by the optional-call.
  */
 async function bootWithDiagnosticSink(): Promise<BootedWithDiagnostics> {
-  const harness = makeHarness();
   const bootstrapDiagnostics: Diagnostic[] = [];
-  const registry = new ThetaRegistry([["foo", makeTheta("foo")]]);
-  const deps: ThetaExtensionDeps = {
-    fixtures: [],
+  const { harness } = await bootFactory(new FakeClock(), {
     emitDiagnostic: (diagnostic: Diagnostic): void => {
       bootstrapDiagnostics.push(diagnostic);
     },
-    composeInstance: async (): Promise<ExtensionInstanceWiring> => ({
-      thetas: [makeTheta("foo")],
-      registry,
-      activeInvocations: new ActiveInvocationRegistry(),
-      forwardingSignals: [],
-      clock: new FakeClock(),
-      installHotReload: () => ({ detach: vi.fn() }),
-    }),
-  };
-  createThetaExtension(deps)(harness.pi);
-  await harness.fireSessionStart();
+    installHotReload: () => ({ detach: vi.fn() }),
+    sendUserMessage: true,
+  });
   return { harness, bootstrapDiagnostics };
 }
 

@@ -22,12 +22,9 @@
 //      Step-1's detach works and the forwarding is intact before detach).
 
 import { executorHook, resetExecutorHook } from "./helpers/parked-statement-executor";
-import {
-  makeHarness as makeFactoryHarness,
-  type Harness as FactoryHarness,
-  makeTheta,
-} from "./helpers/watch-arming-harness";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { bootFactory } from "./helpers/watch-arming-harness";
+import { captureConsoleErrorForEach } from "./helpers/compose-workspace-harness";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type {
   ModelRegistry,
 } from "@earendil-works/pi-coding-agent";
@@ -44,12 +41,6 @@ vi.mock("../src/runtime/statement-executor", async (importOriginal) => {
 import { createProductionProducerDeps } from "../src/extension/production-theta-producer";
 import { composeThetaFixture } from "../src/extension/theta-composition-producer";
 import type { BodyExecution } from "../src/runtime/statement-executor";
-import {
-  createThetaExtension,
-  type ThetaExtensionDeps,
-} from "../src/extension/factory";
-import type { ExtensionInstanceWiring } from "../src/extension/production-composition";
-import { ThetaRegistry } from "../src/extension/reload-wiring";
 import { ActiveInvocationRegistry } from "../src/runtime/active-invocation-registry";
 import {
   TEARDOWN_STEP_FAILED_CODE,
@@ -60,7 +51,6 @@ import {
   forwardSlashCommandCancel,
 } from "../src/runtime/cancellation-core";
 import { FakeClock } from "./helpers/fake-clock";
-import type { Clock } from "../src/seams/clock";
 import {
   PassthroughCheckpoint,
   rootWith,
@@ -72,49 +62,8 @@ import {
 
 afterEach(resetExecutorHook);
 
-// --- factory-level scaffolding (mirrors active-invocation-wiring) ------------
-
-interface FactoryBoot {
-  readonly harness: FactoryHarness;
-  readonly forwardingSignals: ForwardingSignalSource[];
-}
-
-/** Boot through the REAL factory with a `composeInstance` exposing the given
- *  shared `forwardingSignals` sink (the array sub-step 5 reads). */
-async function bootFactory(
-  forwardingSignals: ForwardingSignalSource[],
-  clock: Clock,
-): Promise<FactoryBoot> {
-  const harness = makeFactoryHarness("/does/not/matter", {}, { sendUserMessage: false });
-  const registry = new ThetaRegistry([["foo", makeTheta("foo")]]);
-  const deps: ThetaExtensionDeps = {
-    fixtures: [],
-    composeInstance: async (): Promise<ExtensionInstanceWiring> => ({
-      thetas: [makeTheta("foo")],
-      registry,
-      activeInvocations: new ActiveInvocationRegistry(),
-      forwardingSignals,
-      clock,
-      installHotReload: () => ({ detach: (): void => {} }),
-    }),
-  };
-  createThetaExtension(deps)(harness.pi);
-  await harness.fireSessionStart();
-  return { harness, forwardingSignals };
-}
-
 describe("Increment B2 — factory session_shutdown sub-step 5 detaches the shared forwarding listeners", () => {
-  let errors: unknown[] = [];
-  let errorSpy: ReturnType<typeof vi.spyOn>;
-  beforeEach(() => {
-    errors = [];
-    errorSpy = vi.spyOn(console, "error").mockImplementation((line: unknown) => {
-      errors.push(line);
-    });
-  });
-  afterEach(() => {
-    errorSpy.mockRestore();
-  });
+  const errors = captureConsoleErrorForEach();
 
   it("(detaches in-flight listeners) each source's removeEventListener runs exactly once in list order, with per-source isolation on a throwing detach", async () => {
     const order: string[] = [];
@@ -144,7 +93,7 @@ describe("Increment B2 — factory session_shutdown sub-step 5 detaches the shar
       },
     ];
 
-    const { harness } = await bootFactory(forwardingSignals, new FakeClock());
+    const { harness } = await bootFactory(new FakeClock(), { forwardingSignals });
     await harness.fireSessionShutdown("quit");
 
     // All three detached, exactly once each, in list order.
@@ -159,8 +108,8 @@ describe("Increment B2 — factory session_shutdown sub-step 5 detaches the shar
 
     // Exactly one teardown-step-failed, tagged with the throwing source's label
     // at step 5.
-    const failLines = errors
-      .map((line) => String(line))
+    const failLines = errors.calls
+      .map(([line]) => String(line))
       .filter((line) => line.includes(TEARDOWN_STEP_FAILED_CODE));
     expect(failLines).toHaveLength(1);
     expect(failLines[0]).toContain("toolSignal.removeEventListener");

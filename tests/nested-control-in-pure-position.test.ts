@@ -1,77 +1,33 @@
 import { describe, expect, it } from "vitest";
-import type {
-  ExtensionAPI,
-  ExtensionCommandContext,
-  ModelRegistry,
-} from "@earendil-works/pi-coding-agent";
-import {
-  createProductionProducerDeps,
-  type PiToolDispatch,
-} from "../src/extension/production-theta-producer";
-import type {
-  ThetaCompositionInput,
-  ConversationBindInput,
-} from "../src/extension/theta-composition-producer";
-import { executeBody } from "../src/runtime/statement-executor";
-import type { RuntimeRoot } from "../src/runtime-root";
-import type { Checkpoint } from "../src/seams/checkpoint";
+import type { PiToolDispatch } from "../src/extension/production-theta-producer";
 import type { AgentToolResultEnvelope } from "../src/runtime/tool-call-execute";
 import { isResultValue, type ThetaValue, type ResultValue } from "../src/runtime/value";
-import type {
-  CallExpr,
-  Expr,
-  ThetaBody,
-  MatchExpr,
-  ObjectFieldNode,
-  PatternNode,
-  Stmt,
-} from "../src/parser/theta-document";
-import type { ParsedFrontmatter } from "../src/parser/frontmatter";
-import type { SourceRange } from "../src/diagnostics/diagnostic";
+import type { CallExpr, Expr, MatchExpr, PatternNode } from "../src/parser/theta-document";
+import {
+  span,
+  callExpr,
+  tryExpr,
+  identExpr,
+  memberExpr,
+  indexExpr,
+  numberExpr,
+  strExpr as stringExpr,
+  objectExpr,
+  binaryExpr,
+  letStmt,
+  statementBody as body,
+  coreExecProducer as producer,
+  promptTheta,
+  runCoreBody as runBody,
+} from "./helpers/tool-call-dispatch-harness";
 
 // README known-gap "bullet 2" regression — a nested `match` or an effectful
 // expression (tool-call / query / invoke / user-`fn` call) used DIRECTLY as an
 // object-literal field value or an array element must evaluate to its correct
 // value (routed through the async executor `evalExpr`), NOT silently yield
 // `null` with a `success` outcome. Drives the REAL production path
-// (`createEffectfulStatementHost` + the real `runCodeSideToolCall`), mirroring
-// tests/production-core-exec.test.ts.
-
-function span(): SourceRange {
-  return { start: { line: 1, column: 1 }, end: { line: 1, column: 2 } };
-}
-
-function callExpr(callee: string, args: readonly Expr[] = []): CallExpr {
-  return { kind: "call", callee, args, range: span() };
-}
-
-function tryExpr(operand: Expr): Expr {
-  return { kind: "try", operand, range: span() };
-}
-
-function identExpr(name: string): Expr {
-  return { kind: "ident", name, range: span() };
-}
-
-function memberExpr(target: Expr, field: string): Expr {
-  return { kind: "member", target, field, range: span() };
-}
-
-function indexExpr(target: Expr, index: Expr): Expr {
-  return { kind: "index", target, index, range: span() };
-}
-
-function numberExpr(text: string): Expr {
-  return { kind: "number", text, numericType: "integer", range: span() };
-}
-
-function stringExpr(value: string): Expr {
-  return { kind: "string", value, range: span() };
-}
-
-function objectExpr(typeName: string | null, fields: readonly ObjectFieldNode[]): Expr {
-  return { kind: "object", typeName, fields, range: span() };
-}
+// (`createEffectfulStatementHost` + the real `runCodeSideToolCall`), sharing
+// the core-execution harness with tests/production-core-exec.test.ts.
 
 function arrayExpr(elements: readonly Expr[]): Expr {
   return { kind: "array", elements, range: span() };
@@ -79,10 +35,6 @@ function arrayExpr(elements: readonly Expr[]): Expr {
 
 function boolExpr(value: boolean): Expr {
   return { kind: "bool", value, range: span() };
-}
-
-function binaryExpr(op: string, left: Expr, right: Expr): Expr {
-  return { kind: "binary", op, left, right, range: span() };
 }
 
 function ternaryExpr(condition: Expr, consequent: Expr, alternate: Expr): Expr {
@@ -131,68 +83,6 @@ function matchLiteral(
     ],
     range: span(),
   };
-}
-
-function letStmt(name: string, init: Expr): Stmt {
-  return { kind: "let", name, mutable: false, annotation: null, init, range: span() };
-}
-
-function body(statements: readonly Stmt[], tail: Expr | null): ThetaBody {
-  return { statements, tail };
-}
-
-const NOOP_CHECKPOINT: Checkpoint = {
-  before(): Promise<void> {
-    return Promise.resolve();
-  },
-};
-
-function rootDouble(): RuntimeRoot {
-  return {
-    checkpoint: NOOP_CHECKPOINT,
-    idSource: { newInvocationId: () => "inv-1", newToolCallId: () => "tc-1" },
-  } as unknown as RuntimeRoot;
-}
-
-function ctxDouble(): ExtensionCommandContext {
-  return {} as unknown as ExtensionCommandContext;
-}
-
-interface ProducerOpts {
-  readonly resolvePiTool?: (name: string) => PiToolDispatch | undefined;
-}
-
-function producer(opts: ProducerOpts) {
-  return createProductionProducerDeps({
-    pi: { sendMessage: () => {} } as unknown as ExtensionAPI,
-    root: rootDouble(),
-    modelRegistry: {} as unknown as ModelRegistry,
-    ...(opts.resolvePiTool !== undefined ? { resolvePiTool: opts.resolvePiTool } : {}),
-  });
-}
-
-function promptTheta(thetaBody: ThetaBody, tools?: readonly string[]): ThetaCompositionInput {
-  const frontmatter: ParsedFrontmatter = {
-    mode: "prompt",
-    ...(tools !== undefined ? { tools } : {}),
-  };
-  return { slashName: "demo", sourcePath: "/theta/demo.theta", frontmatter, body: thetaBody };
-}
-
-async function runBody(
-  deps: ReturnType<typeof producer>,
-  theta: ThetaCompositionInput,
-  paramBindings?: ReadonlyMap<string, ThetaValue>,
-): Promise<{ readonly outcome: string; readonly value: ThetaValue | undefined }> {
-  const bindInput: ConversationBindInput = {
-    theta,
-    args: "",
-    ctx: ctxDouble(),
-    ...(paramBindings !== undefined ? { paramBindings } : {}),
-  };
-  const binding = deps.bindPromptConversation(bindInput);
-  const execution = await executeBody(theta.body, binding.executeDeps);
-  return { outcome: execution.outcome, value: execution.result.value };
 }
 
 // A `grep(args)` Pi tool scripted to return `Ok(text)` and record its params.

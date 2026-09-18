@@ -13,24 +13,32 @@
 // body-driving runner, the `Err` carrier reader, and the recording
 // built-in-shaped snapshot entry.
 //
+// Also supports hand-built core-execution bodies with resolvePiTool/parseCallee
+// seams and a minimal, non-validating root (PTQ-0639 / PTQ-0670).
+//
 // TIER: unit, offline, deterministic, provider-free — the same tier as every
 // file that imports this module.
 
 import { expect } from "vitest";
+import { rootWith } from "./fixture-dispatch-harness";
 import type {
   ExtensionAPI,
   ExtensionCommandContext,
   ModelRegistry,
 } from "@earendil-works/pi-coding-agent";
 import type { Diagnostic, SourceRange } from "../../src/diagnostics/diagnostic";
-import { createProductionProducerDeps } from "../../src/extension/production-theta-producer";
+import {
+  createProductionProducerDeps,
+  type CalleeParseOutcome,
+  type PiToolDispatch,
+} from "../../src/extension/production-theta-producer";
 import type {
   ConversationBindInput,
   ThetaCompositionInput,
 } from "../../src/extension/theta-composition-producer";
 import type { ParsedFrontmatter } from "../../src/parser/frontmatter";
 import type { CallableSetSnapshot, ResolvedCallable } from "../../src/parser/callable-set";
-import type { CallExpr, Expr, ObjectExpr, ThetaBody } from "../../src/parser/theta-document";
+import type { CallExpr, Expr, ObjectExpr, ObjectFieldNode, Stmt, ThetaBody } from "../../src/parser/theta-document";
 import type {
   DispatchLadderProbe,
   EncodedToolRequest,
@@ -76,6 +84,42 @@ export function callExpr(callee: string, args: readonly Expr[] = []): CallExpr {
 
 export function body(tail: Expr | null): ThetaBody {
   return { statements: [], tail };
+}
+
+export function tryExpr(operand: Expr): Expr {
+  return { kind: "try", operand, range: span() };
+}
+
+export function identExpr(name: string): Expr {
+  return { kind: "ident", name, range: span() };
+}
+
+export function memberExpr(target: Expr, field: string): Expr {
+  return { kind: "member", target, field, range: span() };
+}
+
+export function indexExpr(target: Expr, index: Expr): Expr {
+  return { kind: "index", target, index, range: span() };
+}
+
+export function numberExpr(text: string): Expr {
+  return { kind: "number", text, numericType: "integer", range: span() };
+}
+
+export function binaryExpr(op: string, left: Expr, right: Expr): Expr {
+  return { kind: "binary", op, left, right, range: span() };
+}
+
+export function objectExpr(typeName: string | null, fields: readonly ObjectFieldNode[]): Expr {
+  return { kind: "object", typeName, fields, range: span() };
+}
+
+export function letStmt(name: string, init: Expr): Stmt {
+  return { kind: "let", name, mutable: false, annotation: null, init, range: span() };
+}
+
+export function statementBody(statements: readonly Stmt[], tail: Expr | null): ThetaBody {
+  return { statements, tail };
 }
 
 export const NOOP_CHECKPOINT: Checkpoint = {
@@ -214,4 +258,59 @@ export function builtinEntry(
       },
     },
   };
+}
+
+export interface CoreExecProducerOpts {
+  readonly resolvePiTool?: (name: string) => PiToolDispatch | undefined;
+  // Bug 0293: the shipped seam now returns the `CalleeParseOutcome` verdict, but
+  // this harness wires NO `fileSystem` seam, so `#recheckCalleeContainment`
+  // skips its runtime re-check and every `undefined` here still reaches the
+  // `load_failure` default unmodified — production-core-exec.test.ts's pins stay
+  // exactly as they were (AGENTS.md §Live-suite: this is the harness the bug
+  // doc names as never reaching the re-check).
+  readonly parseCallee?: (
+    callerPath: string | undefined,
+    calleePath: string,
+  ) => Promise<CalleeParseOutcome | undefined>;
+}
+
+export function coreExecProducer(opts: CoreExecProducerOpts) {
+  return createProductionProducerDeps({
+    // `runBinder` routes the SLSH-1 no-params overflow note through
+    // `pi.sendMessage` (theta-system-note channel); a noop stub satisfies it.
+    pi: { sendMessage: () => {} } as unknown as ExtensionAPI,
+    root: rootWith(NOOP_CHECKPOINT),
+    modelRegistry: {} as unknown as ModelRegistry,
+    ...(opts.resolvePiTool !== undefined ? { resolvePiTool: opts.resolvePiTool } : {}),
+    ...(opts.parseCallee !== undefined ? { parseCallee: opts.parseCallee } : {}),
+  });
+}
+
+export function promptTheta(thetaBody: ThetaBody, tools?: readonly string[]): ThetaCompositionInput {
+  const frontmatter: ParsedFrontmatter = {
+    mode: "prompt",
+    ...(tools !== undefined ? { tools } : {}),
+  };
+  return { slashName: "demo", sourcePath: "/theta/demo.theta", frontmatter, body: thetaBody };
+}
+
+/**
+ * Drive the theta body through the real prompt-mode binding, injecting
+ * `paramBindings` as top-level local slots (the same install path the binder
+ * threading uses), and return the FN-5 final value.
+ */
+export async function runCoreBody(
+  deps: ReturnType<typeof coreExecProducer>,
+  theta: ThetaCompositionInput,
+  paramBindings?: ReadonlyMap<string, ThetaValue>,
+): Promise<{ readonly outcome: string; readonly value: ThetaValue | undefined }> {
+  const bindInput: ConversationBindInput = {
+    theta,
+    args: "",
+    ctx: ctxDouble(),
+    ...(paramBindings !== undefined ? { paramBindings } : {}),
+  };
+  const binding = deps.bindPromptConversation(bindInput);
+  const execution = await executeBody(theta.body, binding.executeDeps);
+  return { outcome: execution.outcome, value: execution.result.value };
 }

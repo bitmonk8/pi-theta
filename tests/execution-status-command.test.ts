@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   RESERVED_COMMAND_NAMES,
   parseThetaStatusArg,
@@ -8,7 +8,7 @@ import {
   type StatusCommandPi,
 } from "../src/extension/execution-status/status-command";
 import { createExecutionStatusBus } from "../src/extension/execution-status/bus";
-import type { ExecutionStatusBus } from "../src/extension/execution-status/types";
+import { STATUS_TICK_MS, type ExecutionStatusBus, type StatusSink } from "../src/extension/execution-status/types";
 import { FakeClock } from "./helpers/fake-clock";
 
 // RFC 0010 (execution-status.md EXST-11) — `tests/execution-status-command.test.ts`
@@ -102,16 +102,17 @@ describe("T-CMD — B59: /theta-status min changes the live bus view shape", () 
 });
 
 // ---------------------------------------------------------------------------
-// B60 — verbosity off ceiling: the command never widens it (asserted at the
-// bus level once the command actually drives setViewShape — currently it
-// never does, so this reds on the missing state change rather than any
-// ceiling violation).
+// B60 — verbosity off ceiling: changing the view does not resume sink renders.
 // ---------------------------------------------------------------------------
 
 describe("T-CMD — B60: /theta-status tree under verbosity off still renders nothing", () => {
   it("view shape reaches 'tree' but verbosity stays 'off' (no widening)", async () => {
-    const bus: ExecutionStatusBus = createExecutionStatusBus({ clock: new FakeClock(), sinks: [] });
+    const clock = new FakeClock();
+    const sink: StatusSink = { id: "footer", render: vi.fn(), clear: vi.fn() };
+    const bus: ExecutionStatusBus = createExecutionStatusBus({ clock, sinks: [sink] });
+    bus.setViewShape("min");
     bus.setVerbosity("off");
+    bus.invocationStarted("inv-1", "foo");
     const deps: RegisterThetaStatusCommandDeps = { current: () => bus };
     const { pi, getHandler } = fakePi();
     registerThetaStatusCommand(pi, deps);
@@ -119,6 +120,20 @@ describe("T-CMD — B60: /theta-status tree under verbosity off still renders no
     await getHandler()("tree", ctx);
     expect(bus.viewShape()).toBe("tree");
     expect(bus.verbosity()).toBe("off");
+    clock.advance(STATUS_TICK_MS * 2);
+    expect(sink.clear).toHaveBeenCalledTimes(1);
+    expect(sink.render).not.toHaveBeenCalled();
+
+    // Control: the same sink renders the tracked invocation when the ceiling opens.
+    bus.setVerbosity("names");
+    clock.advance(STATUS_TICK_MS);
+    expect(sink.render).toHaveBeenCalledWith(
+      expect.objectContaining({ nodes: [expect.objectContaining({ invocationId: "inv-1" })] }),
+      "tree",
+      "names",
+      expect.any(Number),
+    );
+    bus.dispose();
   });
 });
 
