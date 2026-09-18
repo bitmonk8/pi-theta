@@ -29,6 +29,7 @@ import {
   RendererGate,
   SYSTEM_NOTE_CHANNEL,
 } from "../src/extension/system-note-channel";
+import { finishWorkspace, type ComposeWorkspace } from "./helpers/compose-workspace-harness";
 
 // Bug 0023 — the two-tier bootstrap-diagnostic sink, the per-instance
 // `RendererGate` threading and the production `ProbeHost`, driven directly at
@@ -731,12 +732,6 @@ const BLOCK_COMMENT_THETA = [
   "",
 ].join("\n");
 
-interface ComposeWorkspace {
-  /** The discovery-root `ctx.cwd` points at. */
-  readonly cwd: string;
-  readonly dispose: () => void;
-}
-
 /** Plant the malformed theta on the conventional project source (`.pi/theta/`). */
 function plantMalformedTheta(): ComposeWorkspace {
   const cwd = mkdtempSync(join(tmpdir(), "theta-0023-gate-"));
@@ -746,14 +741,7 @@ function plantMalformedTheta(): ComposeWorkspace {
     BLOCK_COMMENT_THETA,
     "utf8",
   );
-  // A minimal valid settings file pins the fixture's settings read to a known
-  // value. An ABSENT settings file is silent (package-and-settings.md
-  // §Failure modes), so the plant is hermeticity, not noise suppression.
-  writeFileSync(join(cwd, ".pi", "settings.json"), "{}", "utf8");
-  return {
-    cwd,
-    dispose: (): void => rmSync(cwd, { recursive: true, force: true }),
-  };
+  return finishWorkspace(cwd);
 }
 
 describe("bug 0023 element 2 — the per-instance RendererGate reaches the compose pass's parse-time channel", () => {

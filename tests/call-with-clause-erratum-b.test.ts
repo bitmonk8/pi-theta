@@ -31,7 +31,7 @@
 // the three legal surfaces); invocation.md INV-8; RFC 0009 erratum log
 // "Erratum B".
 
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -50,6 +50,7 @@ import type { CallableSetSnapshot } from "../src/parser/callable-set";
 import type { ParsedFrontmatter } from "../src/parser/frontmatter";
 import { parseThetaDocument, type FnDecl, type ThetaDocument } from "../src/parser/theta-document";
 import type { MaterializedImport } from "../src/runtime/lexical-environment";
+import { finishWorkspace, type ComposeWorkspace } from "./helpers/compose-workspace-harness";
 import { parseDeps } from "./helpers/e2e-s1";
 import { FakeFileSystem } from "./helpers/fake-file-system";
 
@@ -228,19 +229,17 @@ describe("Erratum B — the .thetalib parse-time arm admits a lib-body call on o
 // ===========================================================================
 
 describe("Erratum B — composition level: the deferred imported-callee check gates registration", () => {
-  let workspaceDir: string;
+  let workspace: ComposeWorkspace | undefined;
 
   afterEach(() => {
-    if (workspaceDir !== undefined) {
-      rmSync(workspaceDir, { recursive: true, force: true });
-    }
+    workspace?.dispose();
   });
 
   async function compose(libBody: string): Promise<{ readonly slugs: string[]; readonly notifications: string[] }> {
-    workspaceDir = mkdtempSync(join(tmpdir(), "rfc0009-erratum-b-"));
-    const thetaDir = join(workspaceDir, ".pi", "theta");
+    const cwd = mkdtempSync(join(tmpdir(), "rfc0009-erratum-b-"));
+    const thetaDir = join(cwd, ".pi", "theta");
     mkdirSync(thetaDir, { recursive: true });
-    writeFileSync(join(workspaceDir, ".pi", "settings.json"), "{}", "utf8");
+    workspace = finishWorkspace(cwd);
     writeFileSync(join(thetaDir, "lib.thetalib"), libBody, "utf8");
     writeFileSync(
       join(thetaDir, "caller.theta"),
@@ -257,7 +256,7 @@ describe("Erratum B — composition level: the deferred imported-callee check ga
       setActiveTools: (): void => {},
     } as unknown as ExtensionAPI;
     const ctx = {
-      cwd: workspaceDir,
+      cwd: workspace.cwd,
       modelRegistry: { getAvailable: (): readonly unknown[] => [] },
       ui: {
         notify: (message: string): void => {

@@ -1,22 +1,26 @@
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import type {
-  ExtensionAPI,
-  ExtensionCommandContext,
-  ExtensionContext,
-} from "@earendil-works/pi-coding-agent";
+import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 // @ts-expect-error — JS code-registry module, no type declarations.
-import { parseRegistry, registryMessage } from "../tools/code-registry/index.js";
+import { parseRegistry } from "../tools/code-registry/index.js";
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
+import { discoverAndComposeFixtures } from "../src/extension/production-composition";
+import { SYSTEM_NOTE_CHANNEL } from "../src/extension/system-note-channel";
 import {
-  composeExtensionInstance,
-  discoverAndComposeFixtures,
-} from "../src/extension/production-composition";
-import { RendererGate, SYSTEM_NOTE_CHANNEL } from "../src/extension/system-note-channel";
-import type { ParsedTheta } from "../src/extension/reload-wiring";
+  allDiagnostics,
+  describeNotes,
+  finishWorkspace,
+  makeHost,
+  normalisePath,
+  normativeMessagePattern,
+  requireDriven,
+  runLoadPass,
+  type ComposeWorkspace,
+  type LoadPass,
+} from "./helpers/compose-workspace-harness";
 
 // Bug 0270 — a subagent callee whose OWN `tools:` names a `.theta` path that
 // resolves to no file un-registers, while its prompt-mode `tools:` caller still
@@ -93,10 +97,8 @@ import type { ParsedTheta } from "../src/extension/reload-wiring";
 // TIER: unit — offline, provider-free, deterministic. Host doubles only; no
 // provider, no child process, no live model. The seam is one predicate inside
 // the shipped composition root, and `composeExtensionInstance` over planted
-// files reaches it directly. The harness (`makeHost` / `plantWorkspace` /
-// `runLoadPass`) is modelled on, and duplicated from rather than shared with,
-// `tests/callee-post-parse-errors-un-register-tools-caller.test.ts`, bug 0267's
-// landed witness, which this file neither reads from nor mutates.
+// files reaches it directly. The host and load-pass harness is shared through
+// `tests/helpers/compose-workspace-harness.ts`; fixture planting stays local.
 //
 // PATH SEPARATORS. Two walks spell the same file differently. Every path
 // comparison below separator-normalises both sides first; the spelling
@@ -221,102 +223,6 @@ const REGISTRY = parseRegistry(
 ) as RegistryRow[];
 
 /**
- * The row's normative *Message* (DIAG-4) as a regex with the `<placeholder>`
- * slots opened up. Throws naming the registry page when the row is absent, so
- * registry drift can never degrade a presence assertion into a comparison
- * against `undefined`.
- */
-function normativeMessagePattern(code: string): RegExp {
-  const message = registryMessage(REGISTRY, code) as string | undefined;
-  if (typeof message !== "string" || message.length === 0) {
-    throw new Error(
-      "harness: docs/spec_topics/diagnostics/code-registry-load.md carries no Message row for " +
-        `${code} — the DIAG-4 column is this file's only message oracle, so a missing row is a ` +
-        "harness failure, never a skip",
-    );
-  }
-  const escaped = message.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  return new RegExp(escaped.replace(/<[a-z-]+>/g, ".+"));
-}
-
-// ── Host doubles ────────────────────────────────────────────────────────────
-
-type PiHandler = (event: unknown, ctx: ExtensionContext) => unknown;
-
-interface RecordedNote {
-  readonly customType: string;
-  readonly content: string;
-  readonly details: unknown;
-}
-
-interface HostDouble {
-  readonly pi: ExtensionAPI;
-  readonly ctx: ExtensionContext;
-  readonly notes: RecordedNote[];
-  readonly notified: Array<readonly [string, string]>;
-}
-
-function makeHost(cwd: string): HostDouble {
-  const notes: RecordedNote[] = [];
-  const notified: Array<readonly [string, string]> = [];
-  const handlers = new Map<string, PiHandler>();
-
-  const pi = {
-    registerFlag: (): void => {},
-    getFlag: (): undefined => undefined,
-    getCommands: (): readonly { name: string; source: string }[] => [],
-    on: (event: string, handler: PiHandler): void => {
-      handlers.set(event, handler);
-    },
-    registerCommand: (): void => {},
-    sendUserMessage: (): void => {},
-    registerTool: (): void => {},
-    setActiveTools: (): void => {},
-    getActiveTools: (): readonly unknown[] => [],
-    getAllTools: (): readonly unknown[] => [],
-    registerMessageRenderer: (): void => {},
-    sendMessage: (message: {
-      customType: string;
-      content: string;
-      details: unknown;
-    }): void => {
-      notes.push({
-        customType: message.customType,
-        content: message.content,
-        details: message.details,
-      });
-    },
-  } as unknown as ExtensionAPI;
-
-  const ctx = {
-    cwd,
-    hasUI: false,
-    modelRegistry: { getAvailable: (): readonly unknown[] => [] },
-    ui: {
-      notify: (message: string, type: "error"): void => {
-        notified.push([message, type]);
-      },
-    },
-  } as unknown as ExtensionContext;
-
-  return { pi, ctx, notes, notified };
-}
-
-// ── The workspace ───────────────────────────────────────────────────────────
-
-interface ComposeWorkspace {
-  readonly cwd: string;
-  /** Absolute, separator-normalised path of a file planted on the project source. */
-  path: (name: string) => string;
-  readonly dispose: () => void;
-}
-
-/** Separator-normalise a path so Win32 `\` and POSIX `/` spellings compare. */
-function normalisePath(path: string): string {
-  return path.replace(/\\/g, "/");
-}
-
-/**
  * Plant the named fixture files on the conventional project source
  * (`.pi/theta/`), exactly as bug 0270 §Reproduction does. `outside` plants into
  * a sibling directory that is NOT a discovery root, which is how cell (D)
@@ -343,55 +249,14 @@ function plantWorkspace(
       writeFileSync(join(cwd, "outside", name), body, "utf8");
     }
   }
-  // A minimal valid settings file pins the fixture's settings read to a known
-  // value. An ABSENT settings file is silent (package-and-settings.md §Failure
-  // modes), so the plant is hermeticity, not noise suppression.
-  writeFileSync(join(cwd, ".pi", "settings.json"), "{}", "utf8");
+  const workspace = finishWorkspace(cwd);
   for (const name of dirs ?? []) {
     const target = name.startsWith("outside/")
       ? join(cwd, "outside", name.slice("outside/".length))
       : join(cwd, ".pi", "theta", name);
     mkdirSync(target, { recursive: true });
   }
-  return {
-    cwd,
-    path: (name: string): string => normalisePath(join(cwd, ".pi", "theta", name)),
-    dispose: (): void => rmSync(cwd, { recursive: true, force: true }),
-  };
-}
-
-// ── The load pass ───────────────────────────────────────────────────────────
-
-interface LoadPass {
-  /** Every `theta-system-note` the pass put on the channel, in order. */
-  readonly notes: readonly RecordedNote[];
-  readonly offChannel: readonly RecordedNote[];
-  readonly notified: readonly (readonly [string, string])[];
-  /** Slash names the pass actually registered. */
-  readonly registered: readonly string[];
-  readonly thetas: readonly ParsedTheta[];
-}
-
-/**
- * Drive the SHIPPED composition root over the planted workspace with an
- * UNDEGRADED `RendererGate`, so every note takes the transcript
- * (`pi.sendMessage`) arm the author reads.
- */
-async function runLoadPass(workspace: ComposeWorkspace): Promise<LoadPass> {
-  const host = makeHost(workspace.cwd);
-  const wiring = await composeExtensionInstance(
-    host.pi,
-    host.ctx,
-    undefined,
-    new RendererGate(),
-  );
-  return {
-    notes: host.notes.filter((n) => n.customType === SYSTEM_NOTE_CHANNEL),
-    offChannel: host.notes.filter((n) => n.customType !== SYSTEM_NOTE_CHANNEL),
-    notified: host.notified,
-    registered: wiring.thetas.map((t) => t.slashName),
-    thetas: wiring.thetas,
-  };
+  return workspace;
 }
 
 // ── The dispatch pass (cell C) ──────────────────────────────────────────────
@@ -446,27 +311,6 @@ async function runDispatchPass(workspace: ComposeWorkspace): Promise<DispatchPas
 
 // ── Observation helpers ─────────────────────────────────────────────────────
 
-function noteDiagnostics(note: RecordedNote): readonly Diagnostic[] {
-  const details = note.details as { diagnostics?: unknown } | undefined;
-  const diagnostics = details?.diagnostics;
-  if (!Array.isArray(diagnostics)) {
-    expect.fail(
-      `system note carries no details.diagnostics array: ${JSON.stringify(note.details)}`,
-    );
-  }
-  return diagnostics as readonly Diagnostic[];
-}
-
-function allDiagnostics(notes: readonly RecordedNote[]): readonly Diagnostic[] {
-  return notes.flatMap((note) => [...noteDiagnostics(note)]);
-}
-
-function describeNotes(notes: readonly RecordedNote[]): string {
-  return notes.length === 0
-    ? "[] (NO NOTE ON THE CHANNEL)"
-    : notes.map((n, i) => `[${i}] ${n.content}`).join("\n");
-}
-
 /** Error-severity codes the pass located at `file`, sorted and de-duplicated. */
 function errorCodesAt(pass: LoadPass, file: string): readonly string[] {
   return [
@@ -476,17 +320,6 @@ function errorCodesAt(pass: LoadPass, file: string): readonly string[] {
         .map((d) => d.code),
     ),
   ].sort();
-}
-
-/** The host double must have been driven at all before any decision means anything. */
-function requireDriven(pass: LoadPass): void {
-  if (pass.notes.length === 0 && pass.registered.length === 0) {
-    throw new Error(
-      "harness: the composition root neither registered a theta nor put anything on the " +
-        "theta-system-note channel — the bug-0270 fixture no longer reaches the load pass, " +
-        "so nothing below is verified",
-    );
-  }
 }
 
 /**
@@ -536,7 +369,7 @@ function expectCallerRefused(pass: LoadPass, callerPath: string, callerName: str
       `${callerRows.length}\n${describeNotes(pass.notes)}`,
   ).toBeGreaterThanOrEqual(1);
   expect((callerRows[0] as Diagnostic).message, `${CALLEE_HAS_ERRORS_CODE} message`).toMatch(
-    normativeMessagePattern(CALLEE_HAS_ERRORS_CODE),
+    normativeMessagePattern(REGISTRY, CALLEE_HAS_ERRORS_CODE),
   );
 }
 
@@ -550,7 +383,7 @@ describe("bug 0270 — a callee whose own `tools:` names a missing `.theta` un-r
     });
     try {
       const pass = await runLoadPass(workspace);
-      requireDriven(pass);
+      requireDriven(pass, "0270");
       // `code-registry-load.md` line 29: error severity at the callee, which is
       // what makes the unresolvable entry one of the callee's own structural
       // checks under `invocation.md` line 22.
@@ -585,7 +418,7 @@ describe("bug 0270 — a callee whose own `tools:` names a missing `.theta` un-r
     });
     try {
       const pass = await runLoadPass(workspace);
-      requireDriven(pass);
+      requireDriven(pass, "0270");
 
       // The grandchild is itself discovered on the same project source, so it
       // registers in its own right beside the pair under test.
@@ -693,7 +526,7 @@ describe("bug 0270 — a callee whose own `tools:` names a missing `.theta` un-r
     );
     try {
       const pass = await runLoadPass(workspace);
-      requireDriven(pass);
+      requireDriven(pass, "0270");
       requireCalleeDropRoute(pass, INVOKE_PATH_ESCAPE_CODE, workspace.path(CALLEE_NAME));
 
       // The caller already refuses on this route, through the escape row at its
@@ -735,7 +568,7 @@ describe("bug 0270 — a callee whose own `tools:` names a missing `.theta` un-r
     );
     try {
       const pass = await runLoadPass(workspace);
-      requireDriven(pass);
+      requireDriven(pass, "0270");
       // The premise: the callee's own pass reads the entry, the read fails, and
       // its own row is the read-failure route rather than an escape.
       requireCalleeDropRoute(
@@ -770,7 +603,7 @@ describe("bug 0270 — a callee whose own `tools:` names a missing `.theta` un-r
     );
     try {
       const pass = await runLoadPass(workspace);
-      requireDriven(pass);
+      requireDriven(pass, "0270");
       requireCalleeDropRoute(
         pass,
         UNRESOLVABLE_THETA_PATH_CODE,
@@ -807,7 +640,7 @@ describe("bug 0270 — a callee whose own `tools:` names a missing `.theta` un-r
     });
     try {
       const pass = await runLoadPass(workspace);
-      requireDriven(pass);
+      requireDriven(pass, "0270");
       requireCalleeDropRoute(pass, CALLEE_HAS_ERRORS_CODE, workspace.path(CALLEE_NAME));
 
       expect(

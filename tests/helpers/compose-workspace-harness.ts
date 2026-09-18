@@ -147,7 +147,7 @@ export interface LoadPass {
  * UNDEGRADED `RendererGate`, so every note takes the transcript
  * (`pi.sendMessage`) arm the author reads.
  */
-export async function runLoadPass(workspace: ComposeWorkspace): Promise<LoadPass> {
+export async function runLoadPass(workspace: Pick<ComposeWorkspace, "cwd">): Promise<LoadPass> {
   const host = makeHost(workspace.cwd);
   const wiring = await composeExtensionInstance(host.pi, host.ctx, undefined, new RendererGate());
   return {
@@ -200,9 +200,17 @@ export function errorFilesOf(pass: LoadPass, code: string): readonly string[] {
 /**
  * The host double must have been driven at all before any decision means
  * anything. `bugId` (e.g. `"0275"`) names the fixture in the thrown message,
- * exactly as each importing file's own bug report does.
+ * exactly as each importing file's own bug report does. `requireNotes` keeps
+ * diagnostic-channel witnesses from accepting registration alone as evidence.
  */
-export function requireDriven(pass: LoadPass, bugId: string): void {
+export function requireDriven(pass: LoadPass, bugId: string, requireNotes = false): void {
+  if (pass.notes.length === 0 && requireNotes) {
+    throw new Error(
+      "harness: the composition root put NOTHING on the theta-system-note channel — " +
+        `the bug-${bugId} fixture no longer reaches the diagnostic channel, so no spelling ` +
+        "below is verified",
+    );
+  }
   if (pass.notes.length === 0 && pass.registered.length === 0) {
     throw new Error(
       "harness: the composition root neither registered a theta nor put anything on the " +

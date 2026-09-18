@@ -1,20 +1,22 @@
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import type {
-  ExtensionAPI,
-  ExtensionContext,
-} from "@earendil-works/pi-coding-agent";
 // @ts-expect-error — JS code-registry module, no type declarations.
-import { parseRegistry, registryMessage } from "../tools/code-registry/index.js";
+import { parseRegistry } from "../tools/code-registry/index.js";
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
-import { composeExtensionInstance } from "../src/extension/production-composition";
 import {
-  RendererGate,
-  SYSTEM_NOTE_CHANNEL,
-} from "../src/extension/system-note-channel";
+  allDiagnostics,
+  describeNotes,
+  finishWorkspace,
+  normalisePath,
+  normativeMessagePattern,
+  noteDiagnostics,
+  runLoadPass,
+  type ComposeWorkspace as SharedComposeWorkspace,
+  type RecordedNote,
+} from "./helpers/compose-workspace-harness";
 
 // Bug 0255 — a dropped theta's LEX-phase diagnostics reach the
 // `theta-system-note` channel TWICE, because two independent delivery sites see
@@ -69,11 +71,10 @@ import {
 //       code and DIAG-4 Message.
 //
 // Offline, provider-free, deterministic: host doubles only, no provider, no
-// child process. The host doubles are MODELLED ON (duplicated from, not shared
-// with) tests/extension-bootstrap-sink-liveness.test.ts — `makeHost`
-// (:186–251) and `plantMalformedTheta` (:741–757) — because that file is bug
-// 0023's protected witness and is not mutated by this one. That file's element-2
-// cell (:759–791) drives the same block-comment path but asserts channel
+// child process. The host and load-pass harness is shared through
+// `tests/helpers/compose-workspace-harness.ts`; fixture planting stays local.
+// Bug 0023's witness, `tests/extension-bootstrap-sink-liveness.test.ts`, drives
+// the same block-comment path in its element-2 cell but asserts channel
 // ROUTING with `toContain`, never delivery counts, so it neither witnesses nor
 // blocks this duplication.
 //
@@ -137,95 +138,9 @@ const REGISTRY = parseRegistry(
   ),
 ) as RegistryRow[];
 
-/**
- * The row's normative *Message* (DIAG-4), as a regex with the `<placeholder>`
- * slots opened up. Throws naming the registry page when the row is absent, so
- * registry drift can never degrade a constraint-1 presence assertion into a
- * comparison against `undefined`.
- */
-function normativeMessagePattern(code: string): RegExp {
-  const message = registryMessage(REGISTRY, code) as string | undefined;
-  if (typeof message !== "string" || message.length === 0) {
-    throw new Error(
-      `harness: docs/spec_topics/diagnostics/code-registry-parse.md carries no Message row for ` +
-        `${code} — the DIAG-4 column is this file's only message oracle for the bug 0255 ` +
-        `§Fix constraint-1 presence guard, so a missing row is a harness failure, never a skip`,
-    );
-  }
-  const escaped = message.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  return new RegExp(escaped.replace(/<[a-z-]+>/g, ".+"));
-}
-
-// ── Host doubles (modelled on tests/extension-bootstrap-sink-liveness.test.ts) ─
-
-type PiHandler = (event: unknown, ctx: ExtensionContext) => unknown;
-
-interface RecordedNote {
-  readonly customType: string;
-  readonly content: string;
-  readonly details: unknown;
-}
-
-interface HostDouble {
-  readonly pi: ExtensionAPI;
-  readonly ctx: ExtensionContext;
-  /** `pi.sendMessage` envelopes the host accepted. */
-  readonly notes: RecordedNote[];
-  /** `ctx.ui.notify` deliveries the host accepted. */
-  readonly notified: Array<readonly [string, string]>;
-}
-
-function makeHost(cwd: string): HostDouble {
-  const notes: RecordedNote[] = [];
-  const notified: Array<readonly [string, string]> = [];
-  const handlers = new Map<string, PiHandler>();
-
-  const pi = {
-    registerFlag: (): void => {},
-    getFlag: (): undefined => undefined,
-    getCommands: (): readonly { name: string; source: string }[] => [],
-    on: (event: string, handler: PiHandler): void => {
-      handlers.set(event, handler);
-    },
-    registerCommand: (): void => {},
-    sendUserMessage: (): void => {},
-    registerTool: (): void => {},
-    setActiveTools: (): void => {},
-    getActiveTools: (): readonly unknown[] => [],
-    getAllTools: (): readonly unknown[] => [],
-    registerMessageRenderer: (): void => {},
-    sendMessage: (message: {
-      customType: string;
-      content: string;
-      details: unknown;
-    }): void => {
-      notes.push({
-        customType: message.customType,
-        content: message.content,
-        details: message.details,
-      });
-    },
-  } as unknown as ExtensionAPI;
-
-  const ctx = {
-    cwd,
-    hasUI: false,
-    modelRegistry: { getAvailable: (): readonly unknown[] => [] },
-    ui: {
-      notify: (message: string, type: "error"): void => {
-        notified.push([message, type]);
-      },
-    },
-  } as unknown as ExtensionContext;
-
-  return { pi, ctx, notes, notified };
-}
-
 // ── The load pass ───────────────────────────────────────────────────────────
 
-interface ComposeWorkspace {
-  /** The discovery-root `ctx.cwd` points at. */
-  readonly cwd: string;
+interface ComposeWorkspace extends SharedComposeWorkspace {
   /**
    * The planted `.theta`'s absolute path (the `<file>` half of every rendered
    * line), SEPARATOR-NORMALISED: discovery joins its walk with `/` even on
@@ -233,7 +148,6 @@ interface ComposeWorkspace {
    * platform separator, which is not this bug's subject.
    */
   readonly thetaPath: string;
-  readonly dispose: () => void;
 }
 
 /**
@@ -247,73 +161,15 @@ function plantTheta(stem: string, body: string): ComposeWorkspace {
   mkdirSync(join(cwd, ".pi", "theta"), { recursive: true });
   const thetaPath = join(cwd, ".pi", "theta", `${stem}.theta`);
   writeFileSync(thetaPath, `${FM}${body}\n`, "utf8");
-  // A minimal valid settings file pins the fixture's settings read to a known
-  // value. An ABSENT settings file is silent (package-and-settings.md
-  // §Failure modes), so the plant is hermeticity, not noise suppression.
-  writeFileSync(join(cwd, ".pi", "settings.json"), "{}", "utf8");
   return {
-    cwd,
+    ...finishWorkspace(cwd),
+    // Bug 0268 pins POSIX spelling at delivery: normalise only the expected
+    // fixture literal, never the delivered `row.file` compared below.
     thetaPath: normalisePath(thetaPath),
-    dispose: (): void => rmSync(cwd, { recursive: true, force: true }),
-  };
-}
-
-interface LoadPass {
-  /** Every `theta-system-note` the pass put on the channel, in order. */
-  readonly notes: readonly RecordedNote[];
-  /** `pi.sendMessage` envelopes on any other customType (expected: none). */
-  readonly offChannel: readonly RecordedNote[];
-  readonly notified: readonly (readonly [string, string])[];
-  /** Slash names the pass actually registered. */
-  readonly registered: readonly string[];
-}
-
-/**
- * Drive the SHIPPED composition root over the planted workspace with an
- * UNDEGRADED `RendererGate`, so every note takes the transcript
- * (`pi.sendMessage`) arm and the counts below are the counts the author reads.
- */
-async function runLoadPass(workspace: ComposeWorkspace): Promise<LoadPass> {
-  const host = makeHost(workspace.cwd);
-  const wiring = await composeExtensionInstance(
-    host.pi,
-    host.ctx,
-    undefined,
-    new RendererGate(),
-  );
-  return {
-    notes: host.notes.filter((n) => n.customType === SYSTEM_NOTE_CHANNEL),
-    offChannel: host.notes.filter((n) => n.customType !== SYSTEM_NOTE_CHANNEL),
-    notified: host.notified,
-    registered: wiring.thetas.map((t) => t.slashName),
   };
 }
 
 // ── Observation helpers ─────────────────────────────────────────────────────
-
-// Bug 0268 pins one separator convention (POSIX forward slash) at the
-// rendering / delivery seam, so `row.file` below is compared verbatim rather
-// than normalised: `normalisePath` is retained ONLY to build the expected
-// fixture literal (`plantTheta`'s `thetaPath`), which starts from a native
-// path and must state the same pinned spelling the channel now guarantees.
-function normalisePath(path: string): string {
-  return path.replace(/\\/g, "/");
-}
-
-function noteDiagnostics(note: RecordedNote): readonly Diagnostic[] {
-  const details = note.details as { diagnostics?: unknown } | undefined;
-  const diagnostics = details?.diagnostics;
-  if (!Array.isArray(diagnostics)) {
-    expect.fail(
-      `system note carries no details.diagnostics array: ${JSON.stringify(note.details)}`,
-    );
-  }
-  return diagnostics as readonly Diagnostic[];
-}
-
-function allDiagnostics(notes: readonly RecordedNote[]): readonly Diagnostic[] {
-  return notes.flatMap((note) => [...noteDiagnostics(note)]);
-}
 
 /**
  * The diagnostic's rendered FIRST line — `<file>:<line>:<col>: <code>:
@@ -346,12 +202,6 @@ function renderedOccurrences(
     count += 1;
     from = at + needle.length;
   }
-}
-
-function describeNotes(notes: readonly RecordedNote[]): string {
-  return notes.length === 0
-    ? "[] (NO NOTE ON THE CHANNEL)"
-    : notes.map((n, i) => `[${i}] ${n.content}`).join("\n");
 }
 
 /**
@@ -394,7 +244,7 @@ describe("bug 0255 — a dropped theta's lex rows reach the channel exactly once
       const row = soleRow(pass.notes, BLOCK_COMMENT_CODE);
       expect(row.severity).toBe("error");
       expect(row.file ?? "").toBe(workspace.thetaPath);
-      expect(row.message).toMatch(normativeMessagePattern(BLOCK_COMMENT_CODE));
+      expect(row.message).toMatch(normativeMessagePattern(REGISTRY, BLOCK_COMMENT_CODE));
 
       // diagnostic-shape.md:65 — one `pi.sendMessage` per `.theta` file. At HEAD
       // this is 2: route 1's batch plus route 2's per-diagnostic re-delivery.
@@ -427,13 +277,13 @@ describe("bug 0255 — a dropped theta's lex rows reach the channel exactly once
       const letRow = soleRow(pass.notes, LET_WITHOUT_INITIALISER_CODE);
       // Constraint 1 again, per row.
       expect(backslash.message).toMatch(
-        normativeMessagePattern(STRAY_BACKSLASH_CODE),
+        normativeMessagePattern(REGISTRY, STRAY_BACKSLASH_CODE),
       );
       expect(reserved.message).toMatch(
-        normativeMessagePattern(RESERVED_KEYWORD_CODE),
+        normativeMessagePattern(REGISTRY, RESERVED_KEYWORD_CODE),
       );
       expect(letRow.message).toMatch(
-        normativeMessagePattern(LET_WITHOUT_INITIALISER_CODE),
+        normativeMessagePattern(REGISTRY, LET_WITHOUT_INITIALISER_CODE),
       );
 
       // At HEAD this is 4 (§Reproduction (C)): route 1's two-row batch, the
@@ -485,7 +335,7 @@ describe("bug 0255 — a dropped theta's lex rows reach the channel exactly once
 
       const row = soleRow(pass.notes, LET_WITHOUT_INITIALISER_CODE);
       expect(row.message).toMatch(
-        normativeMessagePattern(LET_WITHOUT_INITIALISER_CODE),
+        normativeMessagePattern(REGISTRY, LET_WITHOUT_INITIALISER_CODE),
       );
       // This row travels route 2 ONLY, so its count is already correct at HEAD.
       // Pinning it makes an over-broad dedup — one that suppresses the drop

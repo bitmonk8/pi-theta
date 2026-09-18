@@ -3,21 +3,20 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import type {
-  ExtensionAPI,
-  ExtensionContext,
-} from "@earendil-works/pi-coding-agent";
 // @ts-expect-error — JS code-registry module, no type declarations.
 import { parseRegistry, registryMessage } from "../tools/code-registry/index.js";
 import {
   renderDiagnosticLine,
   type Diagnostic,
 } from "../src/diagnostics/diagnostic";
-import { composeExtensionInstance } from "../src/extension/production-composition";
 import {
-  RendererGate,
-  SYSTEM_NOTE_CHANNEL,
-} from "../src/extension/system-note-channel";
+  allDiagnostics,
+  describeNotes,
+  noteDiagnostics,
+  requireDriven,
+  runLoadPass,
+  type LoadPass,
+} from "./helpers/compose-workspace-harness";
 
 // Bug 0268 — one load pass renders `theta-system-note` file paths under three
 // mutually inconsistent separator conventions, and which convention a given
@@ -82,10 +81,9 @@ import {
 //     serialised content format `<file>:<line>:<col>: <code>: <message>`.
 //
 // Offline, provider-free, deterministic: host doubles only, no provider, no
-// child process. The host doubles and the fixture-planting shape are MODELLED
-// ON (duplicated from, not shared with)
-// `tests/thetalib-reparse-walk-single-delivery.test.ts`, bug 0264's witness,
-// which is neither read from nor mutated by this file. That file counts
+// child process. The host and load-pass helpers come from
+// `tests/helpers/compose-workspace-harness.ts`; path-spelling fixtures stay local.
+// `tests/thetalib-reparse-walk-single-delivery.test.ts`, bug 0264's witness, counts
 // deliveries and deliberately separator-normalises before comparing, so it
 // neither witnesses nor blocks this bug.
 //
@@ -153,69 +151,6 @@ function normativeMessagePattern(code: string): RegExp {
   return new RegExp(escaped.replace(/<[a-z-]+>/g, ".+"));
 }
 
-// ── Host doubles ────────────────────────────────────────────────────────────
-
-type PiHandler = (event: unknown, ctx: ExtensionContext) => unknown;
-
-interface RecordedNote {
-  readonly customType: string;
-  readonly content: string;
-  readonly details: unknown;
-}
-
-interface HostDouble {
-  readonly pi: ExtensionAPI;
-  readonly ctx: ExtensionContext;
-  readonly notes: RecordedNote[];
-  readonly notified: Array<readonly [string, string]>;
-}
-
-function makeHost(cwd: string): HostDouble {
-  const notes: RecordedNote[] = [];
-  const notified: Array<readonly [string, string]> = [];
-  const handlers = new Map<string, PiHandler>();
-
-  const pi = {
-    registerFlag: (): void => {},
-    getFlag: (): undefined => undefined,
-    getCommands: (): readonly { name: string; source: string }[] => [],
-    on: (event: string, handler: PiHandler): void => {
-      handlers.set(event, handler);
-    },
-    registerCommand: (): void => {},
-    sendUserMessage: (): void => {},
-    registerTool: (): void => {},
-    setActiveTools: (): void => {},
-    getActiveTools: (): readonly unknown[] => [],
-    getAllTools: (): readonly unknown[] => [],
-    registerMessageRenderer: (): void => {},
-    sendMessage: (message: {
-      customType: string;
-      content: string;
-      details: unknown;
-    }): void => {
-      notes.push({
-        customType: message.customType,
-        content: message.content,
-        details: message.details,
-      });
-    },
-  } as unknown as ExtensionAPI;
-
-  const ctx = {
-    cwd,
-    hasUI: false,
-    modelRegistry: { getAvailable: (): readonly unknown[] => [] },
-    ui: {
-      notify: (message: string, type: "error"): void => {
-        notified.push([message, type]);
-      },
-    },
-  } as unknown as ExtensionContext;
-
-  return { pi, ctx, notes, notified };
-}
-
 // ── The load pass ───────────────────────────────────────────────────────────
 
 interface ComposeWorkspace {
@@ -255,55 +190,12 @@ function plantWorkspace(
   };
 }
 
-interface LoadPass {
-  readonly notes: readonly RecordedNote[];
-  readonly offChannel: readonly RecordedNote[];
-  readonly notified: readonly (readonly [string, string])[];
-}
-
-/**
- * Drive the SHIPPED composition root over the planted workspace with an
- * UNDEGRADED `RendererGate`, so every note takes the transcript
- * (`pi.sendMessage`) arm and the spellings below are the spellings the author
- * reads.
- */
-async function runLoadPass(workspace: ComposeWorkspace): Promise<LoadPass> {
-  const host = makeHost(workspace.cwd);
-  await composeExtensionInstance(
-    host.pi,
-    host.ctx,
-    undefined,
-    new RendererGate(),
-  );
-  return {
-    notes: host.notes.filter((n) => n.customType === SYSTEM_NOTE_CHANNEL),
-    offChannel: host.notes.filter((n) => n.customType !== SYSTEM_NOTE_CHANNEL),
-    notified: host.notified,
-  };
-}
-
 // ── Observation helpers ─────────────────────────────────────────────────────
-
-function noteDiagnostics(note: RecordedNote): readonly Diagnostic[] {
-  const details = note.details as { diagnostics?: unknown } | undefined;
-  const diagnostics = details?.diagnostics;
-  return Array.isArray(diagnostics) ? (diagnostics as readonly Diagnostic[]) : [];
-}
-
-function allDiagnostics(pass: LoadPass): readonly Diagnostic[] {
-  return pass.notes.flatMap((note) => [...noteDiagnostics(note)]);
-}
-
-function describeNotes(pass: LoadPass): string {
-  return pass.notes.length === 0
-    ? "[] (NO NOTE ON THE CHANNEL)"
-    : pass.notes.map((n, i) => `[${i}] ${n.content}`).join("\n");
-}
 
 /** Every `file` string a pass put on the channel, head lines and related sites. */
 function deliveredFiles(pass: LoadPass): readonly string[] {
   const files: string[] = [];
-  for (const diagnostic of allDiagnostics(pass)) {
+  for (const diagnostic of allDiagnostics(pass.notes)) {
     if (diagnostic.file !== undefined) {
       files.push(diagnostic.file);
     }
@@ -314,24 +206,13 @@ function deliveredFiles(pass: LoadPass): readonly string[] {
   return files;
 }
 
-/** The host double must have been driven before any spelling means anything. */
-function requireDriven(pass: LoadPass): void {
-  if (pass.notes.length === 0) {
-    throw new Error(
-      "harness: the composition root put NOTHING on the theta-system-note channel — " +
-        "the bug-0268 fixture no longer reaches the diagnostic channel, so no spelling " +
-        "below is verified",
-    );
-  }
-}
-
 /**
  * The one lex row the pass produced for a file, located by basename so the
  * lookup does not itself presuppose a spelling. Fails loudly when the fixture
  * stopped producing it.
  */
 function lexRowFor(pass: LoadPass, basename: string): Diagnostic {
-  const rows = allDiagnostics(pass).filter(
+  const rows = allDiagnostics(pass.notes).filter(
     (d) =>
       d.code === UNTERMINATED_TEMPLATE_CODE &&
       (d.file ?? "").split(/[\\/]/).pop() === basename,
@@ -340,7 +221,7 @@ function lexRowFor(pass: LoadPass, basename: string): Diagnostic {
     throw new Error(
       `harness: no ${UNTERMINATED_TEMPLATE_CODE} row for ${basename} reached the channel — ` +
         `the bug-0268 fixture no longer exercises its walk, so nothing below is ` +
-        `verified. Notes:\n${describeNotes(pass)}`,
+        `verified. Notes:\n${describeNotes(pass.notes)}`,
     );
   }
   return rows[0] as Diagnostic;
@@ -364,15 +245,15 @@ describe("bug 0268 — one load pass spells every rendered file path under one c
     });
     try {
       const pass = await runLoadPass(workspace);
-      requireDriven(pass);
+      requireDriven(pass, "0268", true);
 
       // Every file field the pass delivered is spelled with the forward slash
       // alone, so one path literal matches the whole pass.
       const files = deliveredFiles(pass);
-      expect(files.length, describeNotes(pass)).toBeGreaterThan(0);
+      expect(files.length, describeNotes(pass.notes)).toBeGreaterThan(0);
       expect(
         files.filter((f) => f.includes("\\")),
-        `file fields carrying a backslash\n${describeNotes(pass)}`,
+        `file fields carrying a backslash\n${describeNotes(pass.notes)}`,
       ).toEqual([]);
 
       // And each is exactly the pinned absolute POSIX path of its fixture.
@@ -387,7 +268,7 @@ describe("bug 0268 — one load pass spells every rendered file path under one c
       );
       expect(
         files.filter((f) => !expected.has(f)),
-        `file fields that are not the pinned POSIX spelling of a fixture\n${describeNotes(pass)}`,
+        `file fields that are not the pinned POSIX spelling of a fixture\n${describeNotes(pass.notes)}`,
       ).toEqual([]);
 
       // Constraint 1 — the rendered string and the structured field agree: each
@@ -461,17 +342,17 @@ describe("bug 0268 — one load pass spells every rendered file path under one c
     try {
       const discoveryPass = await runLoadPass(discoveryFirst);
       const toolsPass = await runLoadPass(toolsWalkFirst);
-      requireDriven(discoveryPass);
-      requireDriven(toolsPass);
+      requireDriven(discoveryPass, "0268", true);
+      requireDriven(toolsPass, "0268", true);
 
       const discoveryRow = lexRowFor(discoveryPass, "b0268bad.theta");
       const toolsRow = lexRowFor(toolsPass, "b0268bad.theta");
 
       // Each spells its own workspace's callee under the pinned convention.
-      expect(discoveryRow.file, describeNotes(discoveryPass)).toBe(
+      expect(discoveryRow.file, describeNotes(discoveryPass.notes)).toBe(
         discoveryFirst.posixPath("b0268bad.theta"),
       );
-      expect(toolsRow.file, describeNotes(toolsPass)).toBe(
+      expect(toolsRow.file, describeNotes(toolsPass.notes)).toBe(
         toolsWalkFirst.posixPath("sub/b0268bad.theta"),
       );
 
@@ -488,7 +369,7 @@ describe("bug 0268 — one load pass spells every rendered file path under one c
         [...deliveredFiles(discoveryPass), ...deliveredFiles(toolsPass)].filter((f) =>
           f.includes("\\"),
         ),
-        `file fields carrying a backslash\n${describeNotes(discoveryPass)}\n${describeNotes(toolsPass)}`,
+        `file fields carrying a backslash\n${describeNotes(discoveryPass.notes)}\n${describeNotes(toolsPass.notes)}`,
       ).toEqual([]);
     } finally {
       discoveryFirst.dispose();
