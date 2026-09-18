@@ -2,7 +2,6 @@ import { parseDeps } from "../helpers/e2e-s1";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type {
   ExtensionAPI,
-  ExtensionCommandContext,
   ModelRegistry,
 } from "@earendil-works/pi-coding-agent";
 import {
@@ -22,6 +21,8 @@ import {
 } from "../../src/runtime/value";
 import { discoverThetas } from "../../src/discovery/discovery-walk";
 import { FakeFileSystem } from "../helpers/fake-file-system";
+import { rootDouble } from "../helpers/call-with-clause-harness";
+import { ctxDouble } from "../helpers/tool-call-dispatch-harness";
 import {
   disposeWorkspace,
   plantThetaWorkspace,
@@ -29,8 +30,6 @@ import {
   type LoadOutcome,
 } from "../helpers/production-load-harness";
 import type { ThetaSettings } from "../../src/discovery/settings";
-import type { RuntimeRoot } from "../../src/runtime-root";
-import type { Checkpoint } from "../../src/seams/checkpoint";
 import type { AgentToolResultEnvelope } from "../../src/runtime/tool-call-execute";
 import { parseThetaDocument, type ThetaDocument } from "../../src/parser/theta-document";
 import type { ThetaSource } from "../../src/lexer/lexer";
@@ -92,29 +91,6 @@ function errorCodesOf(src: string): string[] {
   return parse(src)
     .diagnostics.filter((d) => d.severity === "error")
     .map((d) => d.code);
-}
-
-const NOOP_CHECKPOINT: Checkpoint = {
-  before(): Promise<void> {
-    return Promise.resolve();
-  },
-};
-
-/**
- * A runtime root double sufficient for the pure / effectful production dispatch
- * (checkpoint gate, id source, wall clock). No live session, model registry, or
- * schema validator is exercised by the drivable surface below.
- */
-function rootDouble(): RuntimeRoot {
-  return {
-    checkpoint: NOOP_CHECKPOINT,
-    idSource: { newInvocationId: () => "inv-1", newToolCallId: () => "tc-1" },
-    clock: { wallNow: () => 0 },
-  } as unknown as RuntimeRoot;
-}
-
-function ctxDouble(): ExtensionCommandContext {
-  return {} as unknown as ExtensionCommandContext;
 }
 
 function producer(resolvePiTool?: (name: string) => PiToolDispatch | undefined) {
