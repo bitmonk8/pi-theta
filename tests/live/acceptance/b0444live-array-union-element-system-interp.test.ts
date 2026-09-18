@@ -69,9 +69,8 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { requireLiveHost, resolveAcceptanceHost, spawnPiPrint } from "./harness";
-import { parseDoc } from "../../helpers/e2e-s1";
+import { parseDoc, errorCodes } from "../../helpers/e2e-s1";
 import { renderSystemPrompt } from "../../../src/parser/system-interpolation";
-import type { Diagnostic } from "../../../src/diagnostics/diagnostic";
 import type { ThetaValue } from "../../../src/runtime/value";
 
 /**
@@ -136,14 +135,6 @@ const MARSHALLED_PETS = [
 
 /** The wire form the child's per-element arm pick must render for MARSHALLED_PETS. */
 const EXPECTED_WIRE_RENDER = 'You are a calculator. Your list of records is [{"N":"tom","W":10},{"B":"pug","W":20}].';
-
-/** The error-severity load/parse codes `parseDoc` attributes to one source. */
-function errorCodes(thetaText: string, thetaPath: string): readonly string[] {
-  return parseDoc(thetaText, thetaPath)
-    .diagnostics.filter((d: Diagnostic) => d.severity === "error")
-    .map((d: Diagnostic) => d.code)
-    .sort();
-}
 
 describe("H9a live — bug 0444 array-of-union element `system:` interpolation renders wire keys through the real `pi -p`", () => {
   it("renders each union element's wire keys into the spawned child's system prompt and drives", async () => {

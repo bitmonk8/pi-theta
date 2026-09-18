@@ -143,6 +143,11 @@ import {
   rowsLocatedAt,
   describeRows,
   requireNoteChannel,
+  toolsChainRootSource,
+  toolsChainChildSource,
+  expectToolsChainTurn,
+  vacuityGuardTheta,
+  requireVacuityGuardRegistered,
   type RenderedRow,
 } from "../helpers/live-diagnostic-oracle";
 
@@ -159,35 +164,11 @@ const GRANDCHILD_STEM = "b0280scratchgrand";
 const CLEAN_STEM = "b0280scratchclean";
 
 /**
- * The two summands the root adds in code. Their sum is rendered into the
- * outbound template, so the deterministic drive channel carries a value only the
- * theta's own evaluation could have produced — the compute-from-inline-value
- * discriminator, not a verbatim-echo demand (bug 0243).
- */
-const LEFT_SUMMAND = 263;
-const RIGHT_SUMMAND = 514;
-const COMPUTED_SUM = String(LEFT_SUMMAND + RIGHT_SUMMAND);
-
-/** The task-framed arithmetic question, over the number the theta computed. */
-const DRIVE_QUESTION_PREFIX = `The prior step produced the number ${COMPUTED_SUM}.`;
-
-/**
  * The root, identical in both workspaces: `mode: prompt`, one `tools:` `.theta`
  * entry naming the subagent-mode child, and one `@`…`` query over a computed
  * value so the healthy half has a real turn to drive.
  */
-const ROOT_SOURCE = [
-  "---",
-  "mode: prompt",
-  "tools:",
-  `  - ./${CHILD_STEM}.theta as child`,
-  "---",
-  `let n = ${LEFT_SUMMAND} + ${RIGHT_SUMMAND}`,
-  "let r = @`The prior step produced the number ${n}. " +
-    "What is that number plus 100? Answer with the number only.`?",
-  "r",
-  "",
-].join("\n");
+const ROOT_SOURCE = toolsChainRootSource(CHILD_STEM);
 
 /**
  * The child, identical in both workspaces: `mode: subagent`, a clean body, its
@@ -196,16 +177,7 @@ const ROOT_SOURCE = [
  * carry the single `theta/load/prompt-mode-callable` row — and the file whose
  * refusal the root above it must inherit as `theta/load/callee-has-errors`.
  */
-const CHILD_SOURCE = [
-  "---",
-  "mode: subagent",
-  "description: b0280scratch fixture child",
-  "tools:",
-  `  - ./${GRANDCHILD_STEM}.theta as grand`,
-  "---",
-  "let a = 1",
-  "",
-].join("\n");
+const CHILD_SOURCE = toolsChainChildSource(GRANDCHILD_STEM, "b0280scratch fixture child", "grand");
 
 /**
  * The grandchild, parameterised by its declared mode. A prompt-mode grandchild
@@ -225,19 +197,11 @@ function grandchildSource(mode: "prompt" | "subagent"): string {
   ].join("\n");
 }
 
-/**
- * An unrelated, `tools:`-free theta present in BOTH workspaces. It is the
- * per-boot vacuity guard: a boot in which it fails to register has a discovery
- * or registration regression, and no absence claim below means anything. It is
- * never driven, so it spends no tokens.
- */
-const CLEAN_SOURCE = ["---", "mode: prompt", "---", "@`ping`", ""].join("\n");
-
 /** The three files that are byte-identical across both workspaces. */
 const SHARED_THETAS: readonly PlantedTheta[] = [
   { source: "project", stem: ROOT_STEM, text: ROOT_SOURCE },
   { source: "project", stem: CHILD_STEM, text: CHILD_SOURCE },
-  { source: "project", stem: CLEAN_STEM, text: CLEAN_SOURCE },
+  vacuityGuardTheta(CLEAN_STEM),
 ];
 
 /** Plant the three shared fixture files plus the grandchild in the given mode. */
@@ -262,13 +226,7 @@ describe("bug 0280 live cell — a `tools:` root does not register over a child 
     try {
       const offenderRegistered = JSON.stringify(offender.registeredNames());
 
-      // Vacuity guard: an unrelated, `tools:`-free theta in the same boot.
-      expect(
-        offender.command(CLEAN_STEM),
-        "bug-0280 live cell precondition unmet: the unrelated clean theta did not register in " +
-          "the refusal boot, so discovery or registration regressed independently of bug 0280 " +
-          "and every absence claim below would hold vacuously. Registered: " + offenderRegistered,
-      ).toBeDefined();
+      requireVacuityGuardRegistered(offender, CLEAN_STEM, "refusal", "bug-0280");
 
       requireNoteChannel(offender, "refusal", "bug-0280");
 
@@ -415,18 +373,7 @@ describe("bug 0280 live cell — a `tools:` root does not register over a child 
       // fail-closed note is what proves the drive ended cleanly rather than
       // merely resolving. The model's reply is stochastic and is not asserted.
       const driven = await driveSlashCaptureTurn(control, `/${ROOT_STEM}`);
-      expect(
-        driven.userTexts.join("\n"),
-        "the root's QRY-18 rendered template must carry the sum the theta computed; its " +
-          "absence means either the query never reached the provider or the computed value " +
-          "never reached the prompt. Observed: " + JSON.stringify(driven.userTexts),
-      ).toContain(DRIVE_QUESTION_PREFIX);
-      expect(
-        driven.systemNotes,
-        "every fail-closed ending of a top-level drive lands on the theta-system-note channel " +
-          "(the SLSH-3 err note, the cancelled note, the panic framings); the healthy root " +
-          "must end with none. Observed: " + JSON.stringify(driven.systemNotes),
-      ).toEqual([]);
+      expectToolsChainTurn(driven, "root");
     } finally {
       await control.dispose();
       controlWorkspace.dispose();

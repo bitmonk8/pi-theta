@@ -55,7 +55,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { requireLiveHost, spawnPiPrint } from "./harness";
-import { parseDoc } from "../../helpers/e2e-s1";
+import { errorCodes as parseErrorCodes } from "../../helpers/e2e-s1";
 
 /**
  * The inner theta: its value-position query `let r = @`…`` fails with
@@ -115,14 +115,6 @@ const PROBE = [
  */
 const FIXED_ANSWER = "142";
 const UNFIXED_ANSWER = "155";
-
-/** Error-severity diagnostic codes from a parse-only run, sorted for readable failures. */
-function parseErrorCodes(thetaText: string, thetaPath: string): string[] {
-  return parseDoc(thetaText, thetaPath)
-    .diagnostics.filter((d) => d.severity === "error")
-    .map((d) => d.code)
-    .sort();
-}
 
 describe("H9a live — bug 0307 value-position query Err binds & recovers through the real `pi -p`", () => {
   it("a let-bound query failure recovers in-body and the theta continues to a decidable arithmetic answer", async () => {

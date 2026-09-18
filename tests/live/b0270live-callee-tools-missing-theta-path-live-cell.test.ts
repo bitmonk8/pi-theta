@@ -137,6 +137,8 @@ import {
   renderedRows,
   rowsLocatedAt,
   requireNoteChannel,
+  vacuityGuardTheta,
+  requireVacuityGuardRegistered,
   type RenderedRow,
 } from "../helpers/live-diagnostic-oracle";
 
@@ -199,14 +201,6 @@ const GRANDCHILD_SOURCE = [
 ].join("\n");
 
 /**
- * An unrelated, `tools:`-free theta present in BOTH workspaces. It is the
- * per-boot vacuity guard: a boot in which it fails to register has a discovery
- * or registration regression, and no absence claim below means anything. It is
- * never driven, so it spends no tokens.
- */
-const CLEAN_SOURCE = ["---", "mode: prompt", "---", "@`ping`", ""].join("\n");
-
-/**
  * Half (c)'s callee: PROMPT mode carrying the same missing-`.theta` entry as the
  * subagent callee above. Prompt mode is deliberate — the gate under test runs
  * before `#driveCallee`'s mode branch, so this file reaches it in full while
@@ -245,7 +239,7 @@ const THETAS: readonly PlantedTheta[] = [
   { source: "project", stem: CALLEE_STEM, text: CALLEE_SOURCE },
   { source: "project", stem: PROMPT_CALLEE_STEM, text: PROMPT_CALLEE_SOURCE },
   { source: "project", stem: INVOKE_CALLER_STEM, text: INVOKE_CALLER_SOURCE },
-  { source: "project", stem: CLEAN_STEM, text: CLEAN_SOURCE },
+  vacuityGuardTheta(CLEAN_STEM),
 ];
 
 const THETAS_WITH_GRANDCHILD: readonly PlantedTheta[] = [
@@ -277,13 +271,7 @@ describe("bug 0270 live cell — a `tools:` caller does not register over a call
     try {
       const offenderRegistered = JSON.stringify(offender.registeredNames());
 
-      // Vacuity guard: an unrelated, `tools:`-free theta in the same boot.
-      expect(
-        offender.command(CLEAN_STEM),
-        "bug-0270 live cell precondition unmet: the unrelated clean theta did not register in " +
-          "the offender boot, so discovery or registration regressed independently of bug 0270 " +
-          "and every absence claim below would hold vacuously. Registered: " + offenderRegistered,
-      ).toBeDefined();
+      requireVacuityGuardRegistered(offender, CLEAN_STEM, "offender", "bug-0270");
 
       requireNoteChannel(offender, "offender", "bug-0270");
 

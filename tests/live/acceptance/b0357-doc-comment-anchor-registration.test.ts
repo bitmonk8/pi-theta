@@ -63,7 +63,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { requireLiveHost, spawnPiPrint } from "./harness";
-import { parseDoc, errors } from "../../helpers/e2e-s1";
+import { errorCodes as parseErrorCodes } from "../../helpers/e2e-s1";
 
 /** The registry code the pre-fix leading-word sniff drew on a field/variant `///`. */
 const DOC_COMMENT_MISPLACED = "theta/parse/doc-comment-misplaced";
@@ -121,13 +121,6 @@ const PROBER = [
 const LOADED = "LOADED";
 const REFUSED = "REFUSED";
 const SUBJECT_ARITHMETIC = "777";
-
-/** Error-severity diagnostic codes from a parse-only run, sorted for readable failures. */
-function parseErrorCodes(thetaText: string, thetaPath: string): string[] {
-  return errors(parseDoc(thetaText, thetaPath).diagnostics)
-    .map((d) => d.code)
-    .sort();
-}
 
 describe("H9a live — bug 0357 field/variant doc-comment registration through the real `pi -p`", () => {
   it("registers the field+variant `///` theta and drives its turn end-to-end", async () => {

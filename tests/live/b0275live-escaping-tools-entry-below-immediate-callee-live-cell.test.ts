@@ -147,6 +147,11 @@ import {
   rowsLocatedAt,
   describeRows,
   requireNoteChannel,
+  toolsChainRootSource,
+  toolsChainChildSource,
+  expectToolsChainTurn,
+  vacuityGuardTheta,
+  requireVacuityGuardRegistered,
   type RenderedRow,
 } from "../helpers/live-diagnostic-oracle";
 
@@ -182,35 +187,11 @@ const ESCAPING_SPEC = `../../${OUTSIDE_DIR}/${OUT_STEM}.theta`;
 const IN_ROOT_SPEC = `./${LEAF_STEM}.theta`;
 
 /**
- * The two summands the grandparent adds in code. Their sum is rendered into the
- * outbound template, so the deterministic drive channel carries a value only the
- * theta's own evaluation could have produced — the compute-from-inline-value
- * discriminator, not a verbatim-echo demand (bug 0243).
- */
-const LEFT_SUMMAND = 263;
-const RIGHT_SUMMAND = 514;
-const COMPUTED_SUM = String(LEFT_SUMMAND + RIGHT_SUMMAND);
-
-/** The task-framed arithmetic question, over the number the theta computed. */
-const DRIVE_QUESTION_PREFIX = `The prior step produced the number ${COMPUTED_SUM}.`;
-
-/**
  * The grandparent, identical in both workspaces: `mode: prompt`, one `tools:`
  * `.theta` entry naming the subagent-mode child, and one `@`…`` query over a
  * computed value so the healthy half has a real turn to drive.
  */
-const GRANDPARENT_SOURCE = [
-  "---",
-  "mode: prompt",
-  "tools:",
-  `  - ./${CHILD_STEM}.theta as child`,
-  "---",
-  `let n = ${LEFT_SUMMAND} + ${RIGHT_SUMMAND}`,
-  "let r = @`The prior step produced the number ${n}. " +
-    "What is that number plus 100? Answer with the number only.`?",
-  "r",
-  "",
-].join("\n");
+const GRANDPARENT_SOURCE = toolsChainRootSource(CHILD_STEM);
 
 /**
  * The child, identical in both workspaces: `mode: subagent`, a clean body, its
@@ -219,16 +200,7 @@ const GRANDPARENT_SOURCE = [
  * it is the file the one-level relocation covers — and therefore the file that
  * must carry the escape row and no `theta/load/callee-has-errors` beside it.
  */
-const CHILD_SOURCE = [
-  "---",
-  "mode: subagent",
-  "description: b0275live fixture child",
-  "tools:",
-  `  - ./${GRANDCHILD_STEM}.theta as gc`,
-  "---",
-  "let a = 1",
-  "",
-].join("\n");
+const CHILD_SOURCE = toolsChainChildSource(GRANDCHILD_STEM, "b0275live fixture child", "gc");
 
 /**
  * The grandchild, parameterised by its single `tools:` entry spec. Everything
@@ -261,20 +233,12 @@ function leafSource(label: string): string {
   ].join("\n");
 }
 
-/**
- * An unrelated, `tools:`-free theta present in BOTH workspaces. It is the
- * per-boot vacuity guard: a boot in which it fails to register has a discovery
- * or registration regression, and no absence claim below means anything. It is
- * never driven, so it spends no tokens.
- */
-const CLEAN_SOURCE = ["---", "mode: prompt", "---", "@`ping`", ""].join("\n");
-
 /** The four files that are byte-identical across both workspaces. */
 const SHARED_THETAS: readonly PlantedTheta[] = [
   { source: "project", stem: GRANDPARENT_STEM, text: GRANDPARENT_SOURCE },
   { source: "project", stem: CHILD_STEM, text: CHILD_SOURCE },
   { source: "project", stem: LEAF_STEM, text: leafSource("leaf") },
-  { source: "project", stem: CLEAN_STEM, text: CLEAN_SOURCE },
+  vacuityGuardTheta(CLEAN_STEM),
 ];
 
 /** The absolute path of the planted escape target, for the plant precondition. */
@@ -337,13 +301,7 @@ describe("bug 0275 live cell — a `tools:` grandparent does not register over a
     try {
       const offenderRegistered = JSON.stringify(offender.registeredNames());
 
-      // Vacuity guard: an unrelated, `tools:`-free theta in the same boot.
-      expect(
-        offender.command(CLEAN_STEM),
-        "bug-0275 live cell precondition unmet: the unrelated clean theta did not register in " +
-          "the offender boot, so discovery or registration regressed independently of bug 0275 " +
-          "and every absence claim below would hold vacuously. Registered: " + offenderRegistered,
-      ).toBeDefined();
+      requireVacuityGuardRegistered(offender, CLEAN_STEM, "offender", "bug-0275");
 
       requireNoteChannel(offender, "offender", "bug-0275");
 
@@ -502,18 +460,7 @@ describe("bug 0275 live cell — a `tools:` grandparent does not register over a
       // fail-closed note is what proves the drive ended cleanly rather than
       // merely resolving. The model's reply is stochastic and is not asserted.
       const driven = await driveSlashCaptureTurn(control, `/${GRANDPARENT_STEM}`);
-      expect(
-        driven.userTexts.join("\n"),
-        "the grandparent's QRY-18 rendered template must carry the sum the theta computed; its " +
-          "absence means either the query never reached the provider or the computed value " +
-          "never reached the prompt. Observed: " + JSON.stringify(driven.userTexts),
-      ).toContain(DRIVE_QUESTION_PREFIX);
-      expect(
-        driven.systemNotes,
-        "every fail-closed ending of a top-level drive lands on the theta-system-note channel " +
-          "(the SLSH-3 err note, the cancelled note, the panic framings); the healthy " +
-          "grandparent must end with none. Observed: " + JSON.stringify(driven.systemNotes),
-      ).toEqual([]);
+      expectToolsChainTurn(driven, "grandparent");
     } finally {
       await control.dispose();
       controlWorkspace.dispose();

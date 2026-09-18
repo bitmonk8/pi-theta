@@ -76,8 +76,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { requireLiveHost, resolveAcceptanceHost, spawnPiPrint } from "./harness";
-import { parseDoc } from "../../helpers/e2e-s1";
-import type { Diagnostic } from "../../../src/diagnostics/diagnostic";
+import { parseDoc, errorCodes } from "../../helpers/e2e-s1";
 
 /** The registry code the mis-classification draws on the inline-object `.Ident` step at the fork. */
 const FORK_REFUSAL_CODE = "theta/parse/system-interp-bad-field";
@@ -132,14 +131,6 @@ const PROBE = [
 const REGISTERED_OK = "877";
 /** The answer the prober prints when the child failed to register (d = 0). */
 const REFUSED_ANSWER = "100";
-
-/** The error-severity load/parse codes `parseDoc` attributes to one source. */
-function errorCodes(thetaText: string, thetaPath: string): readonly string[] {
-  return parseDoc(thetaText, thetaPath)
-    .diagnostics.filter((d: Diagnostic) => d.severity === "error")
-    .map((d: Diagnostic) => d.code)
-    .sort();
-}
 
 describe("H9a live — bugs 0406/0407/0408 object-param `system:` interpolation registers and drives through the real `pi -p`", () => {
   it("registers the inline-object-`system:` subagent and carries its interpolated object field into the spawned child's system prompt", async () => {
