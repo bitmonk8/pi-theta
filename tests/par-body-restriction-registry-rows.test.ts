@@ -1,5 +1,5 @@
 import { parseDoc } from "./helpers/e2e-s1";
-import { REGISTRY, type RegistryRow } from "./helpers/registry-oracle";
+import { interpolateStrict, REGISTRY, type RegistryRow } from "./helpers/registry-oracle";
 import { fileURLToPath } from "node:url";
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
@@ -161,30 +161,19 @@ function shardedRow(code: string): RegistryRow {
  * Interpolate a sharded row's *Message* template from `subs` in ONE pass. An
  * unsupplied placeholder and an unused substitution both throw, so a row that
  * lands with a different placeholder vocabulary fails loudly rather than
- * quietly producing a string no emission equals. (Shape mirrored from `fill`
- * in bug 0194's witness, tests/loop-element-withhold-binding-scoped.test.ts.)
+ * quietly producing a string no emission equals. Uses the shared strict
+ * interpolation helper with this witness's registry lookup and failure text.
  */
 function fill(code: string, subs: ReadonlyMap<string, string>): string {
   const template = shardedRow(code).message;
-  const used = new Set<string>();
-  const message = template.replace(/<[a-z]+>/g, (token) => {
-    const value = subs.get(token);
-    if (value === undefined) {
-      throw new Error(
-        `harness precondition unmet: the ${code} Message template carries placeholder ${token}, which this file supplies no substitution for — the registry row changed shape (${REGISTRY_PAGE_LIST})`,
-      );
-    }
-    used.add(token);
-    return value;
-  });
-  for (const token of subs.keys()) {
-    if (!used.has(token)) {
-      throw new Error(
-        `harness precondition unmet: this file substitutes ${token} into the ${code} Message, which does not carry it — the registry row changed shape (${REGISTRY_PAGE_LIST})`,
-      );
-    }
-  }
-  return message;
+  return interpolateStrict(
+    template,
+    subs,
+    (token) =>
+    `harness precondition unmet: the ${code} Message template carries placeholder ${token}, which this file supplies no substitution for — the registry row changed shape (${REGISTRY_PAGE_LIST})`,
+    (token) =>
+    `harness precondition unmet: this file substitutes ${token} into the ${code} Message, which does not carry it — the registry row changed shape (${REGISTRY_PAGE_LIST})`,
+  );
 }
 
 /**

@@ -1,12 +1,8 @@
 import { describe, expect, it } from "vitest";
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
 import type { ThetaSource } from "../src/lexer/lexer";
-import type { SystemNoteChannelDeps } from "../src/extension/system-note-channel";
-import type { ModelReferenceMatcher } from "../src/parser/frontmatter";
-import {
-  parseThetaDocument,
-  type ParseThetaDocumentDeps,
-} from "../src/parser/theta-document";
+import { parseThetaDocument } from "../src/parser/theta-document";
+import { parseDeps as makeDeps } from "./helpers/e2e-s1";
 
 // S4 e2e campaign — witnesses for the ten registry diagnostic codes that the
 // shipped tree previously NEVER emitted. Each was a theta-defect: the closed
@@ -19,18 +15,6 @@ import {
 // reconciled from `it.fails` (defect-recording) to plain `it(...)` — they are
 // now permanent POSITIVE gates asserting each code fires on its documented
 // trigger. Do not weaken these back to `it.fails`.
-
-function makeDeps(): ParseThetaDocumentDeps {
-  const systemNote: SystemNoteChannelDeps = {
-    pi: { sendMessage: (): void => {} },
-    ui: { notify: (): void => {} },
-    emitDiagnostic: (): void => {},
-  };
-  const modelMatcher: ModelReferenceMatcher = {
-    resolve: (): "resolved" => "resolved",
-  };
-  return { systemNote, modelMatcher };
-}
 
 function codesOf(src: string): string[] {
   const source: ThetaSource = {

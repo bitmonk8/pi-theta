@@ -1,3 +1,4 @@
+import { interpolateStrict } from "./helpers/registry-oracle";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
@@ -202,25 +203,14 @@ function fill(code: string, subs: ReadonlyMap<string, string>): string {
       `harness: ${REGISTRY_PAGE} carries no Message row for ${code} — the DIAG-4 column is this file's oracle, so a missing row is a harness failure, never a skip`,
     );
   }
-  const used = new Set<string>();
-  const message = template.replace(/<[a-z]+>/g, (token) => {
-    const value = subs.get(token);
-    if (value === undefined) {
-      throw new Error(
-        `harness: the ${code} Message template carries placeholder ${token}, which this file supplies no substitution for — the registry row changed shape (${REGISTRY_PAGE})`,
-      );
-    }
-    used.add(token);
-    return value;
-  });
-  for (const token of subs.keys()) {
-    if (!used.has(token)) {
-      throw new Error(
-        `harness: this file substitutes ${token} into the ${code} Message, which no longer carries it — the registry row changed shape (${REGISTRY_PAGE})`,
-      );
-    }
-  }
-  return message;
+  return interpolateStrict(
+    template,
+    subs,
+    (token) =>
+      `harness: the ${code} Message template carries placeholder ${token}, which this file supplies no substitution for — the registry row changed shape (${REGISTRY_PAGE})`,
+    (token) =>
+      `harness: this file substitutes ${token} into the ${code} Message, which no longer carries it — the registry row changed shape (${REGISTRY_PAGE})`,
+  );
 }
 
 /** `array elements have no common type; …` — a placeholder-free registered Message. */

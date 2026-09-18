@@ -10,21 +10,17 @@
 // bite); cells 2, 3, 8, 10, 11 pin existing behaviour the refactor must not
 // regress.
 
-import { spawnSync, type SpawnSyncReturns } from "node:child_process";
-import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { qualityToolRunner, writeFile } from "./helpers/quality-tool-harness";
 
 const STORE = fileURLToPath(new URL("../tools/quality/store.mjs", import.meta.url));
 
-function runStore(root: string, args: string[]): SpawnSyncReturns<string> {
-  return spawnSync(process.execPath, [STORE, ...args], {
-    encoding: "utf8",
-    env: { ...process.env, QUALITY_STORE_ROOT: root },
-  });
-}
+const runStore = qualityToolRunner(STORE);
 
 function git(root: string, ...args: string[]): string {
   const r = spawnSync(
@@ -43,12 +39,6 @@ function makeLines(n: number): string {
 
 function readFile(root: string, relPath: string): string {
   return readFileSync(join(root, ...relPath.split("/")), "utf8");
-}
-
-function writeFile(root: string, relPath: string, content: string): void {
-  const abs = join(root, ...relPath.split("/"));
-  mkdirSync(join(abs, ".."), { recursive: true });
-  writeFileSync(abs, content);
 }
 
 function writeSurfaces(root: string): void {

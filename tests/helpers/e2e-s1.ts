@@ -12,6 +12,9 @@ import { expect } from "vitest";
 import { lexTheta, type LexResult, type ThetaSource } from "../../src/lexer/lexer";
 import {
   parseThetaDocument,
+  type Block,
+  type Expr,
+  type Stmt,
   type FnDecl,
   type LetStmt,
   type ThetaDocument,
@@ -104,16 +107,17 @@ export function documentCodes(doc: ThetaDocument): string[] {
   return doc.diagnostics.map((d: Diagnostic) => d.code);
 }
 
+/** A source range rendered as `l:c-l:c`. */
+export function at(r: SourceRange): string {
+  return `${r.start.line}:${r.start.column}-${r.end.line}:${r.end.column}`;
+}
+
 /** Every diagnostic rendered `severity code @l:c-l:c: message` — failure payload. */
 export function render(doc: ThetaDocument): string {
   return JSON.stringify(
     doc.diagnostics.map((d: Diagnostic) => {
       const r = d.range;
-      const at =
-        r === undefined
-          ? "-"
-          : `${r.start.line}:${r.start.column}-${r.end.line}:${r.end.column}`;
-      return `${d.severity} ${d.code} @${at}: ${d.message}`;
+      return `${d.severity} ${d.code} @${r === undefined ? "-" : at(r)}: ${d.message}`;
     }),
   );
 }
@@ -529,4 +533,128 @@ export function lexWithSeam(src: string): { result: LexResult; fixture: SeamFixt
 /** Every diagnostic the lexer delivered through the V7d seam, flattened. */
 export function deliveredDiagnostics(fixture: SeamFixture): Diagnostic[] {
   return fixture.delivered.flat();
+}
+
+/**
+ * Every LOOP-VARIABLE and `let` binder site of `doc` in source order, each
+ * rendered `<kind> <name>@<range>`: a `for` / `par-for` site carries its
+ * ITERAND's range (the span `checkForIterand` reports on), a `let` site carries
+ * the statement's own range (the span the relation sinks report on).
+ *
+ * This is the loud precondition every row runs FIRST. These witnesses concern
+ * a scope write that has no direct observable, so most rows assert an absence
+ * or a single emission; without an anchor a fixture that stopped
+ * parsing, lost its loop, or drifted a line would let those rows pass while
+ * measuring nothing. A body the walk cannot reach throws naming the fixture
+ * rather than returning an empty list.
+ */
+export function binderSites(doc: ThetaDocument, subject: string): string[] {
+  const out: string[] = [];
+  const walkExpr = (e: Expr): void => {
+    switch (e.kind) {
+      case "par-for":
+        out.push(`par-for ${e.variable}@${at(e.iterand.range)}`);
+        walkExpr(e.iterand);
+        if (e.max !== null) walkExpr(e.max);
+        walkBlock(e.body);
+        return;
+      case "match":
+        walkExpr(e.scrutinee);
+        for (const arm of e.arms) walkExpr(arm.body);
+        return;
+      case "call":
+      case "invoke":
+        for (const a of e.args) walkExpr(a);
+        return;
+      case "method-call":
+        walkExpr(e.target);
+        for (const a of e.args) walkExpr(a);
+        return;
+      case "member":
+        walkExpr(e.target);
+        return;
+      case "index":
+        walkExpr(e.target);
+        walkExpr(e.index);
+        return;
+      case "binary":
+        walkExpr(e.left);
+        walkExpr(e.right);
+        return;
+      case "ternary":
+        walkExpr(e.condition);
+        walkExpr(e.consequent);
+        walkExpr(e.alternate);
+        return;
+      case "array":
+        for (const el of e.elements) walkExpr(el);
+        return;
+      case "object":
+        for (const f of e.fields) walkExpr(f.value);
+        return;
+      case "try":
+        walkExpr(e.operand);
+        return;
+      case "result-ctor":
+        walkExpr(e.arg);
+        return;
+      default:
+        return;
+    }
+  };
+  const walkBlock = (b: Block): void => {
+    for (const s of b.statements) walkStmt(s);
+    if (b.tail !== null) walkExpr(b.tail);
+  };
+  const walkStmt = (s: Stmt): void => {
+    switch (s.kind) {
+      case "let":
+        out.push(`let ${s.name}@${at(s.range)}`);
+        if (s.init !== null) walkExpr(s.init);
+        return;
+      case "for":
+        out.push(`for ${s.variable}@${at(s.iterand.range)}`);
+        walkExpr(s.iterand);
+        walkBlock(s.body);
+        return;
+      case "fn":
+        walkBlock(s.body);
+        return;
+      case "while":
+        walkExpr(s.condition);
+        walkBlock(s.body);
+        return;
+      case "if": {
+        walkExpr(s.condition);
+        walkBlock(s.then);
+        // `otherwise` is a chained `IfStmt`, an `else` `Block`, or none; only
+        // the statement form carries a `kind` discriminator.
+        const otherwise = s.otherwise;
+        if (otherwise !== null) {
+          if ("kind" in otherwise) walkStmt(otherwise);
+          else walkBlock(otherwise);
+        }
+        return;
+      }
+      case "expr":
+        walkExpr(s.expr);
+        return;
+      case "reassign":
+        walkExpr(s.value);
+        return;
+      case "return":
+        if (s.operand !== null) walkExpr(s.operand);
+        return;
+      default:
+        return;
+    }
+  };
+  const body = doc.body;
+  if (body === null) {
+    throw new Error(
+      `harness: the fixture produced no parsed body, so its diagnostic set is about a parse failure rather than ${subject}. Diagnostics: ${render(doc)}`,
+    );
+  }
+  walkBlock(body);
+  return out;
 }

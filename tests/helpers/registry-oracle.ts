@@ -4,8 +4,8 @@
 // the four sharded registry pages (code-registry-{parse,load,runtime,host}.md),
 // parse each through the real `parseRegistry`, and join the rows into one
 // array — were redeclared byte-for-byte (confirmed via `diff`) in several test
-// files. This module centralises that read only: each file's own
-// `registryMessageOf` / `registryRowOf`-shaped reader — whose assertion style
+// files. This module centralises that read and placeholder interpolation. Each
+// file's `registryMessageOf` / `registryRowOf`-shaped reader — whose assertion style
 // and wording vary per file — stays local, parameterised by the `REGISTRY` this
 // module exports rather than by a locally re-parsed copy.
 //
@@ -58,4 +58,32 @@ export function loadRowMessage(code: string): string {
 /** Fill the named discovery descriptors, leaving unknown placeholders intact. */
 export function interpolate(template: string, subs: Record<string, string>): string {
   return template.replace(/<([a-z-]+)>/g, (whole, name: string) => subs[name] ?? whole);
+}
+
+/**
+ * Interpolate lowercase `<…>` placeholders in one pass, without re-scanning
+ * substituted values. Unsupplied placeholders and unused substitutions both
+ * throw using the caller's failure wording; literal `array<T>` stays intact.
+ */
+export function interpolateStrict(
+  template: string,
+  subs: ReadonlyMap<string, string>,
+  unsupplied: (token: string) => string,
+  unused: (token: string) => string,
+): string {
+  const used = new Set<string>();
+  const message = template.replace(/<[a-z]+>/g, (token) => {
+    const value = subs.get(token);
+    if (value === undefined) {
+      throw new Error(unsupplied(token));
+    }
+    used.add(token);
+    return value;
+  });
+  for (const token of subs.keys()) {
+    if (!used.has(token)) {
+      throw new Error(unused(token));
+    }
+  }
+  return message;
 }

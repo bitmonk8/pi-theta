@@ -1,11 +1,12 @@
+import { interpolateStrict } from "./helpers/registry-oracle";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 // @ts-expect-error — JS code-registry module, no type declarations.
 import { parseRegistry, registryMessage } from "../tools/code-registry/index.js";
-import type { Diagnostic, SourceRange } from "../src/diagnostics/diagnostic";
-import type { Block, Expr, Stmt, ThetaDocument } from "../src/parser/theta-document";
-import { parseDoc } from "./helpers/e2e-s1";
+import type { Diagnostic } from "../src/diagnostics/diagnostic";
+import type { ThetaDocument } from "../src/parser/theta-document";
+import { at, binderSites, parseDoc, render } from "./helpers/e2e-s1";
 
 // Bug 0194 — `TypeLayerWalk.unprovableBindings` (src/parser/type-layer-checks.ts)
 // is a `Set<CompatType>` whose membership test is JavaScript object identity,
@@ -194,25 +195,14 @@ function registered(code: string): string {
  */
 function fill(code: string, subs: ReadonlyMap<string, string>): string {
   const template = registered(code);
-  const used = new Set<string>();
-  const message = template.replace(/<[a-z]+>/g, (token) => {
-    const value = subs.get(token);
-    if (value === undefined) {
-      throw new Error(
-        `harness: the ${code} Message template carries placeholder ${token}, which this file supplies no substitution for — the registry row changed shape (${REGISTRY_PAGE})`,
-      );
-    }
-    used.add(token);
-    return value;
-  });
-  for (const token of subs.keys()) {
-    if (!used.has(token)) {
-      throw new Error(
-        `harness: this file substitutes ${token} into the ${code} Message, which no longer carries it — the registry row changed shape (${REGISTRY_PAGE})`,
-      );
-    }
-  }
-  return message;
+  return interpolateStrict(
+    template,
+    subs,
+    (token) =>
+      `harness: the ${code} Message template carries placeholder ${token}, which this file supplies no substitution for — the registry row changed shape (${REGISTRY_PAGE})`,
+    (token) =>
+      `harness: this file substitutes ${token} into the ${code} Message, which no longer carries it — the registry row changed shape (${REGISTRY_PAGE})`,
+  );
 }
 
 
@@ -278,142 +268,6 @@ function parse(body: string, frontmatter = FM): ThetaDocument {
   return parseDoc(frontmatter + body, FILE);
 }
 
-function at(r: SourceRange): string {
-  return `${r.start.line}:${r.start.column}-${r.end.line}:${r.end.column}`;
-}
-
-/** Every diagnostic rendered `severity code @range: message` — failure payload. */
-function render(doc: ThetaDocument): string {
-  return JSON.stringify(
-    doc.diagnostics.map((d: Diagnostic) => {
-      const r = d.range;
-      return `${d.severity} ${d.code} @${r === undefined ? "-" : at(r)}: ${d.message}`;
-    }),
-  );
-}
-
-/**
- * Every LOOP-VARIABLE and `let` binder site of `doc` in source order, each
- * rendered `<kind> <name>@<range>`: a `for` / `par-for` site carries its
- * ITERAND's range, a `let` site carries the statement's own range.
- *
- * This is the loud precondition every row runs FIRST. The subject of this file
- * is an order-dependent suppression whose only observable is a diagnostic that
- * is absent, so a fixture that stopped parsing, lost a loop, or drifted a line
- * would let the currently-`[]` rows pass while measuring nothing. A body the
- * walk cannot reach throws naming the diagnostics it found instead.
- */
-function binderSites(doc: ThetaDocument): string[] {
-  const out: string[] = [];
-  const walkExpr = (e: Expr): void => {
-    switch (e.kind) {
-      case "par-for":
-        out.push(`par-for ${e.variable}@${at(e.iterand.range)}`);
-        walkExpr(e.iterand);
-        if (e.max !== null) walkExpr(e.max);
-        walkBlock(e.body);
-        return;
-      case "match":
-        walkExpr(e.scrutinee);
-        for (const arm of e.arms) walkExpr(arm.body);
-        return;
-      case "call":
-      case "invoke":
-        for (const a of e.args) walkExpr(a);
-        return;
-      case "method-call":
-        walkExpr(e.target);
-        for (const a of e.args) walkExpr(a);
-        return;
-      case "member":
-        walkExpr(e.target);
-        return;
-      case "index":
-        walkExpr(e.target);
-        walkExpr(e.index);
-        return;
-      case "binary":
-        walkExpr(e.left);
-        walkExpr(e.right);
-        return;
-      case "ternary":
-        walkExpr(e.condition);
-        walkExpr(e.consequent);
-        walkExpr(e.alternate);
-        return;
-      case "array":
-        for (const el of e.elements) walkExpr(el);
-        return;
-      case "object":
-        for (const f of e.fields) walkExpr(f.value);
-        return;
-      case "try":
-        walkExpr(e.operand);
-        return;
-      case "result-ctor":
-        walkExpr(e.arg);
-        return;
-      default:
-        return;
-    }
-  };
-  const walkBlock = (b: Block): void => {
-    for (const s of b.statements) walkStmt(s);
-    if (b.tail !== null) walkExpr(b.tail);
-  };
-  const walkStmt = (s: Stmt): void => {
-    switch (s.kind) {
-      case "let":
-        out.push(`let ${s.name}@${at(s.range)}`);
-        if (s.init !== null) walkExpr(s.init);
-        return;
-      case "for":
-        out.push(`for ${s.variable}@${at(s.iterand.range)}`);
-        walkExpr(s.iterand);
-        walkBlock(s.body);
-        return;
-      case "fn":
-        walkBlock(s.body);
-        return;
-      case "while":
-        walkExpr(s.condition);
-        walkBlock(s.body);
-        return;
-      case "if": {
-        walkExpr(s.condition);
-        walkBlock(s.then);
-        // `otherwise` is a chained `IfStmt`, an `else` `Block`, or none; only
-        // the statement form carries a `kind` discriminator.
-        const otherwise = s.otherwise;
-        if (otherwise !== null) {
-          if ("kind" in otherwise) walkStmt(otherwise);
-          else walkBlock(otherwise);
-        }
-        return;
-      }
-      case "expr":
-        walkExpr(s.expr);
-        return;
-      case "reassign":
-        walkExpr(s.value);
-        return;
-      case "return":
-        if (s.operand !== null) walkExpr(s.operand);
-        return;
-      default:
-        return;
-    }
-  };
-  const body = doc.body;
-  if (body === null) {
-    throw new Error(
-      `harness: the fixture produced no parsed body, so its diagnostic set is about a parse failure rather than the loop arms under test. Diagnostics: ${render(doc)}`,
-    );
-  }
-  walkBlock(body);
-  return out;
-}
-
 interface Expectation {
   readonly codes: readonly string[];
   readonly msgs: readonly string[];
@@ -457,7 +311,7 @@ interface Row {
 function expectRow(row: Row): ThetaDocument {
   const doc = parse(row.src, row.frontmatter ?? FM);
   expect(
-    binderSites(doc),
+    binderSites(doc, "the loop arms under test"),
     `${row.label} PRECONDITION: the fixture's loop-variable / \`let\` binder sites must be exactly these, so a drifted or unparsed fixture fails here instead of letting the assertions below measure nothing. Diagnostics: ${render(doc)}`,
   ).toEqual([...row.sites]);
   expect(

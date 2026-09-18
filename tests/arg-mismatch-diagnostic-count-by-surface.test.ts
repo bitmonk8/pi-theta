@@ -7,7 +7,7 @@ import {
   runProductionLoad,
   type LoadOutcome,
 } from "./helpers/production-load-harness";
-import { REGISTRY } from "./helpers/registry-oracle";
+import { interpolateStrict, REGISTRY } from "./helpers/registry-oracle";
 
 // Bug 0147 — INTRA-SITE MULTIPLICITY for the argument-type-mismatch family.
 //
@@ -133,27 +133,16 @@ function registered(code: string): string {
  * than producing a string no emission can equal.
  */
 function fill(code: string, subs: ReadonlyMap<string, string>): string {
-  const used = new Set<string>();
-  const message = registered(code).replace(/<[a-z]+>/g, (token) => {
-    const value = subs.get(token);
-    if (value === undefined) {
-      throw new Error(
-        `harness: the ${code} *Message* carries ${token}, which this file supplies no ` +
-          "substitution for — the registry row changed shape",
-      );
-    }
-    used.add(token);
-    return value;
-  });
-  for (const token of subs.keys()) {
-    if (!used.has(token)) {
-      throw new Error(
-        `harness: this file substitutes ${token} into the ${code} *Message*, which no ` +
-          "longer carries it — the registry row changed shape",
-      );
-    }
-  }
-  return message;
+  return interpolateStrict(
+    registered(code),
+    subs,
+    (token) =>
+      `harness: the ${code} *Message* carries ${token}, which this file supplies no ` +
+        "substitution for — the registry row changed shape",
+    (token) =>
+      `harness: this file substitutes ${token} into the ${code} *Message*, which no ` +
+        "longer carries it — the registry row changed shape",
+  );
 }
 
 /** `invoke argument <i> ('<param>') type mismatch: expected <expected>, got <actual>`. */

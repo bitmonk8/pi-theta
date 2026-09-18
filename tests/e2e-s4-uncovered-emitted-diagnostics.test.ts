@@ -1,12 +1,8 @@
 import { describe, expect, it } from "vitest";
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
 import type { ThetaSource } from "../src/lexer/lexer";
-import type { SystemNoteChannelDeps } from "../src/extension/system-note-channel";
-import type { ModelReferenceMatcher } from "../src/parser/frontmatter";
-import {
-  parseThetaDocument,
-  type ParseThetaDocumentDeps,
-} from "../src/parser/theta-document";
+import { parseThetaDocument } from "../src/parser/theta-document";
+import { parseDeps as makeDeps } from "./helpers/e2e-s1";
 
 // S4 e2e campaign — coverage for registry diagnostic codes that ARE emitted by
 // the shipped parser but had no shape-asserting test (DIAG "UNCOVERED-emitted",
@@ -16,18 +12,6 @@ import {
 // message match the closed registry (DIAG-1/2/4). Expected message strings are
 // sourced from the registry Message column (docs/spec_topics/diagnostics/
 // code-registry-{parse,load}.md) with `<…>` placeholders interpolated.
-
-function makeDeps(): ParseThetaDocumentDeps {
-  const systemNote: SystemNoteChannelDeps = {
-    pi: { sendMessage: (): void => {} },
-    ui: { notify: (): void => {} },
-    emitDiagnostic: (): void => {},
-  };
-  const modelMatcher: ModelReferenceMatcher = {
-    resolve: (): "resolved" => "resolved",
-  };
-  return { systemNote, modelMatcher };
-}
 
 function parse(src: string): readonly Diagnostic[] {
   const source: ThetaSource = {

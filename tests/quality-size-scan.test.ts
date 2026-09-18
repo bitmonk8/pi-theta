@@ -6,33 +6,17 @@
 // for hostLoc/bandForFile/bandForFn where a bare integer/throw is the
 // simplest observable.
 
-import { spawnSync, type SpawnSyncReturns } from "node:child_process";
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { qualityToolRunner, writeFile, writeManifest } from "./helpers/quality-tool-harness";
 
 const SCAN = fileURLToPath(new URL("../tools/quality/size-scan.mjs", import.meta.url));
 const SCAN_URL = pathToFileURL(SCAN).href;
 
-function runScan(root: string, args: string[]): SpawnSyncReturns<string> {
-  return spawnSync(process.execPath, [SCAN, ...args], {
-    encoding: "utf8",
-    env: { ...process.env, QUALITY_STORE_ROOT: root },
-  });
-}
-
-function writeFile(root: string, relPath: string, content: string): void {
-  const abs = join(root, ...relPath.split("/"));
-  mkdirSync(join(abs, ".."), { recursive: true });
-  writeFileSync(abs, content);
-}
-
-function writeManifest(root: string, relPath: string, files: string[]): string {
-  writeFile(root, relPath, files.join("\n") + "\n");
-  return relPath;
-}
+const runScan = qualityToolRunner(SCAN);
 
 /** Exactly n lines, trailing newline (countLines(file) == n, wc -l semantics). */
 function makeFileOfLines(n: number): string {

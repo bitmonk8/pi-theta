@@ -1,3 +1,4 @@
+import { interpolateStrict } from "./helpers/registry-oracle";
 import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -119,27 +120,16 @@ function registered(code: string): string {
  * of producing a string no emission can equal.
  */
 function fill(code: string, subs: ReadonlyMap<string, string>): string {
-  const used = new Set<string>();
-  const message = registered(code).replace(/<[a-z]+>/g, (token) => {
-    const value = subs.get(token);
-    if (value === undefined) {
-      throw new Error(
-        `harness: the ${code} *Message* carries ${token}, which this file supplies ` +
-          "no substitution for — the registry row changed shape",
-      );
-    }
-    used.add(token);
-    return value;
-  });
-  for (const token of subs.keys()) {
-    if (!used.has(token)) {
-      throw new Error(
-        `harness: this file substitutes ${token} into the ${code} *Message*, which no ` +
-          "longer carries it — the registry row changed shape",
-      );
-    }
-  }
-  return message;
+  return interpolateStrict(
+    registered(code),
+    subs,
+    (token) =>
+      `harness: the ${code} *Message* carries ${token}, which this file supplies ` +
+        "no substitution for — the registry row changed shape",
+    (token) =>
+      `harness: this file substitutes ${token} into the ${code} *Message*, which no ` +
+        "longer carries it — the registry row changed shape",
+  );
 }
 
 /**
