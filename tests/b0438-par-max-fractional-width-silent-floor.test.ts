@@ -1,32 +1,9 @@
 import { describe, expect, it } from "vitest";
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
-import type { ThetaSource } from "../src/lexer/lexer";
-import type { SystemNoteChannelDeps } from "../src/extension/system-note-channel";
-import type { ModelReferenceMatcher } from "../src/parser/frontmatter";
-import {
-  parseThetaDocument,
-  type ThetaDocument,
-  type ThetaBody,
-  type Expr,
-  type ParseThetaDocumentDeps,
-} from "../src/parser/theta-document";
-import {
-  executeBody,
-  type CheckpointDescriptor,
-  type ExecuteBodyDeps,
-  type StatementEvalHost,
-} from "../src/runtime/statement-executor";
-import {
-  buildEnvironment,
-  type LexicalEnvironment,
-} from "../src/runtime/lexical-environment";
-import type { Checkpoint } from "../src/seams/checkpoint";
-import type { OperationResult } from "../src/runtime/cancellation-core";
-import type {
-  CommittedConversationMutator,
-  CommittedSurface,
-} from "../src/runtime/terminal-outcomes";
-import { isResultValue, type ThetaValue } from "../src/runtime/value";
+import { executeBody } from "../src/runtime/statement-executor";
+import { bodyOf, codesOf } from "./helpers/e2e-s1";
+import { flush as tick } from "./helpers/fake-clock";
+import { ParForHost, execDeps, okCount, countCode } from "./helpers/par-for-harness";
 
 // ===========================================================================
 // Bug 0438 — a laundered finite NON-integral `par for max` operand ≥ 1 (`2.5`,
@@ -68,8 +45,7 @@ import { isResultValue, type ThetaValue } from "../src/runtime/value";
 // byte-identical (controls A4/bnd) — the fix lowers `2.5` to width 1 and
 // touches nothing else.
 //
-// Observables (modelled on tests/b0326-max-non-positive-runtime.test.ts's
-// `ParForHost`): a gated effect host holds every iteration open, so the peak
+// Observables (`ParForHost` in `tests/helpers/par-for-harness.ts`): a gated effect host holds every iteration open, so the peak
 // in-flight count is the width the executor admits. The FLIP cells RED at fork
 // for the silent-floor reason — `2.5` floors to width 2 (peak 2, not 1) with no
 // par-max-non-integer diagnostic and no reworded message. The CONTROL/STATIC
@@ -79,7 +55,7 @@ import { isResultValue, type ThetaValue } from "../src/runtime/value";
 //
 // emitDiagnostic wiring: the production `ExecuteBodyDeps` already carries the
 // optional `emitDiagnostic?:` runtime channel (statement-executor.ts:203, since
-// bug 0324); the `DiagnosticSpyDeps` interface below only TIGHTENS that field
+// bug 0324); the shared harness's `DiagnosticSpyDeps` only TIGHTENS that field
 // from optional to required so the capturing spy is statically guaranteed wired
 // — no src/ change. The executeBody seam runs the body REGARDLESS of parse/load
 // diagnostics, standing in for the deferred/`unknown` runtime route whose
@@ -96,172 +72,6 @@ const NON_INTEGER_MESSAGE =
 const NON_POSITIVE_CODE = "theta/runtime/par-max-non-positive";
 /** The parse-side refusal of the DIRECT spelling `max 2.5` (control A5). */
 const INTEGER_NARROWING_CODE = "theta/parse/integer-narrowing";
-
-/** A trivially-wired diagnostic sink + resolving `model:` matcher for the parse. */
-function makeDeps(): ParseThetaDocumentDeps {
-  const systemNote: SystemNoteChannelDeps = {
-    pi: { sendMessage: (): void => {} },
-    ui: { notify: (): void => {} },
-    emitDiagnostic: (): void => {},
-  };
-  const modelMatcher: ModelReferenceMatcher = {
-    resolve: (): "resolved" => "resolved",
-  };
-  return { systemNote, modelMatcher };
-}
-
-/** Parse a UTF-8 `.theta` source string through the production whole-file parser. */
-function parse(src: string): ThetaDocument {
-  const source: ThetaSource = {
-    path: "test.theta",
-    bytes: new TextEncoder().encode(src),
-  };
-  return parseThetaDocument(source, makeDeps());
-}
-
-/** Parse `src` and return its body (for execution). */
-function bodyOf(src: string): ThetaBody {
-  return parse(src).body;
-}
-
-/** The set of diagnostic codes the production parse aggregated for `src`. */
-function codesOf(src: string): string[] {
-  return parse(src).diagnostics.map((d: Diagnostic) => d.code);
-}
-
-const NOOP_CHECKPOINT: Checkpoint = {
-  before(): Promise<void> {
-    return Promise.resolve();
-  },
-};
-
-class NoopMutator implements CommittedConversationMutator {
-  truncate(): void {}
-  rewrite(): void {}
-  replace(): void {}
-  remove(): void {}
-  injectCompensatingTurn(_surface: CommittedSurface): void {}
-}
-
-/** Await `n` microtask turns — deterministic scheduling advance for the tests. */
-async function tick(n: number): Promise<void> {
-  for (let i = 0; i < n; i += 1) {
-    // eslint-disable-next-line no-await-in-loop
-    await Promise.resolve();
-  }
-}
-
-/** An `Ok(value)` operation result (the effect succeeded). */
-function ok(value: ThetaValue): OperationResult {
-  return { ok: true, value };
-}
-
-/**
- * A gated `StatementEvalHost` for `par for` bodies, modelled on the `ParForHost`
- * of tests/b0326-max-non-positive-runtime.test.ts: the bounded pure forms a
- * fan-out body needs are evaluated against the real per-iteration environment,
- * and `runEffect` is a checkpointed effect held open on `gate` so the in-flight
- * peak is the width the executor admits. The `max` operand itself (`w`, `2`) is
- * computed by the executor's internal `evalExpr`, not by this host — so the
- * laundered `let w = 2.5` value reaches the width read exactly as a deferred
- * runtime operand would.
- */
-class ParForHost implements StatementEvalHost {
-  inFlight = 0;
-  peakInFlight = 0;
-  /** An optional gate every effect awaits before resolving (concurrency probe). */
-  gate: Promise<void> | null = null;
-
-  evaluatePure(expr: Expr, env: LexicalEnvironment): ThetaValue {
-    return this.#eval(expr, env);
-  }
-
-  checkpointFor(expr: Expr): CheckpointDescriptor | null {
-    if (expr.kind === "call" || expr.kind === "query" || expr.kind === "invoke") {
-      return { kind: "tool-call", site: { file: "test.theta", line: 1, column: 1 } };
-    }
-    return null;
-  }
-
-  async runEffect(): Promise<OperationResult> {
-    this.inFlight += 1;
-    this.peakInFlight = Math.max(this.peakInFlight, this.inFlight);
-    try {
-      if (this.gate !== null) {
-        await this.gate;
-      }
-      return ok(null);
-    } finally {
-      this.inFlight -= 1;
-    }
-  }
-
-  #eval(expr: Expr, env: LexicalEnvironment): ThetaValue {
-    switch (expr.kind) {
-      case "number":
-        return Number(expr.text);
-      case "string":
-        return expr.value;
-      case "bool":
-        return expr.value;
-      case "null":
-        return null;
-      case "ident": {
-        const r = env.resolve(expr.name);
-        return "value" in r ? ((r.value ?? null) as ThetaValue) : null;
-      }
-      case "array":
-        return expr.elements.map((e) => this.#eval(e, env));
-      default:
-        return null;
-    }
-  }
-}
-
-/**
- * `ExecuteBodyDeps` with the runtime-diagnostic channel required (not optional).
- * The production type carries `emitDiagnostic?:` since bug 0324 landed
- * (statement-executor.ts:203); this override only tightens it so the capturing
- * spy is guaranteed wired — no src/ change.
- */
-interface DiagnosticSpyDeps extends ExecuteBodyDeps {
-  readonly emitDiagnostic: (diagnostic: Diagnostic) => void;
-}
-
-function execDeps(
-  body: ThetaBody,
-  host: StatementEvalHost,
-  captured: Diagnostic[],
-): DiagnosticSpyDeps {
-  return {
-    env: buildEnvironment({ body }),
-    host,
-    checkpoint: NOOP_CHECKPOINT,
-    signal: new AbortController().signal,
-    mutator: new NoopMutator(),
-    mode: "prompt",
-    file: "test.theta",
-    emitDiagnostic: (d: Diagnostic): void => {
-      captured.push(d);
-    },
-  };
-}
-
-/** Count of `Ok(_)` envelopes in a loop's `array<Result>` value. */
-// `BodyExecution.result.value` is `ThetaValue | undefined` (an absent-tail
-// drive resolves to no value); the non-array guard already maps `undefined` to
-// the sentinel, so the parameter admits it directly.
-function okCount(value: ThetaValue | undefined): number {
-  if (!Array.isArray(value)) {
-    return -1;
-  }
-  return value.filter((e) => isResultValue(e) && e.ok).length;
-}
-
-/** Count of captured diagnostics carrying `code`. */
-function countCode(captured: readonly Diagnostic[], code: string): number {
-  return captured.filter((d) => d.code === code).length;
-}
 
 describe("bug 0438 runtime — a laundered finite non-integral `max` ≥ 1 must clamp to 1 AND diagnose, not silently floor", () => {
   it("FLIP A1: laundered `max 2.5` over 5 gated elements clamps to peak 1, drains 5 Ok, and emits par-max-non-integer with the reworded message", async () => {

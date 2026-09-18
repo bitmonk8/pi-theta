@@ -2,10 +2,6 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync, unlinkSync } from "node:
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import type {
-  ExtensionAPI,
-  ExtensionContext,
-} from "@earendil-works/pi-coding-agent";
 import {
   createThetaExtension,
   type ThetaExtensionDeps,
@@ -19,6 +15,7 @@ import { RELOAD_DEBOUNCE_WINDOW_MS } from "../src/extension/reload-debounce";
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
 import { FakeClock } from "./helpers/fake-clock";
 import { FakeFileWatcher } from "./helpers/fake-file-watcher";
+import { makeRecordingHarness, type RecordingHarness } from "./helpers/watch-arming-harness";
 
 // Phase 5 (DISCO-2) — deterministic watcher / hot-reload integration.
 //
@@ -45,100 +42,25 @@ import { FakeFileWatcher } from "./helpers/fake-file-watcher";
 const GREET_THETA = ["---", "mode: prompt", "---", "@`hi`", ""].join("\n");
 const SECOND_THETA = ["---", "mode: prompt", "---", "@`yo`", ""].join("\n");
 
-/** A recorded `pi.sendMessage` call (the `theta-system-note` channel). */
-interface RecordedNote {
-  readonly customType: string;
-  readonly content: string;
-  readonly display: boolean;
-  readonly details: { readonly diagnostics?: readonly Diagnostic[] };
-  readonly triggerTurn: unknown;
-}
-
-interface Harness {
-  readonly pi: ExtensionAPI;
-  readonly ctx: ExtensionContext;
-  readonly commands: Map<string, unknown>;
-  readonly notes: RecordedNote[];
-  readonly subscriptions: Map<
-    string,
-    ((event: unknown, ctx: ExtensionContext) => unknown)[]
-  >;
+interface Harness extends RecordingHarness<{ readonly diagnostics?: readonly Diagnostic[] }> {
   /** Arm/disarm a `pi.getCommands()` throw (drives the watcher-time swap failure). */
   setGetCommandsThrows(v: boolean): void;
-  fireSessionStart(): Promise<void>;
-  fireSessionShutdown(): Promise<void>;
 }
 
 function makeHarness(cwd: string): Harness {
-  const commands = new Map<string, unknown>();
-  const notes: RecordedNote[] = [];
-  const subscriptions = new Map<
-    string,
-    ((event: unknown, ctx: ExtensionContext) => unknown)[]
-  >();
   let getCommandsThrows = false;
-
-  const pi = {
-    registerFlag: (): void => {},
-    registerMessageRenderer: (): void => {},
-    registerCommand: (name: string, options: unknown): void => {
-      commands.set(name, options);
-    },
-    on: (event: string, handler: (e: unknown, c: ExtensionContext) => unknown): void => {
-      const list = subscriptions.get(event) ?? [];
-      list.push(handler);
-      subscriptions.set(event, list);
-    },
-    getFlag: (): undefined => undefined,
-    getCommands: (): { name: string; source: string }[] => {
+  const harness = makeRecordingHarness<{ readonly diagnostics?: readonly Diagnostic[] }>(cwd, {
+    beforeGetCommands: (): void => {
       if (getCommandsThrows) {
         throw new Error("getCommands boom (watcher-time)");
       }
-      return [...commands.keys()].map((name) => ({ name, source: "extension" }));
     },
-    sendMessage: (
-      message: { customType: string; content: string; display: boolean; details: unknown },
-      options: { triggerTurn: unknown },
-    ): void => {
-      notes.push({
-        customType: message.customType,
-        content: message.content,
-        display: message.display,
-        details: message.details as RecordedNote["details"],
-        triggerTurn: options.triggerTurn,
-      });
-    },
-    sendUserMessage: (): void => {},
-  } as unknown as ExtensionAPI;
-
-  const ctx = {
-    cwd,
-    hasUI: false,
-    modelRegistry: { getAvailable: (): readonly unknown[] => [] },
-    ui: { notify: (): void => {} },
-  } as unknown as ExtensionContext;
-
-  const fire = async (event: string): Promise<void> => {
-    for (const handler of subscriptions.get(event) ?? []) {
-      await handler({ type: event }, ctx);
-    }
-  };
-
+  });
   return {
-    pi,
-    ctx,
-    commands,
-    notes,
-    subscriptions,
+    ...harness,
     setGetCommandsThrows: (v) => {
       getCommandsThrows = v;
     },
-    fireSessionStart: () => fire("session_start"),
-    // The wired `session_shutdown` handler is genuinely async (sub-step 4's
-    // watcher-detach runs after sub-step 3's bounded await), so the teardown is
-    // awaited before the test advances the clock — otherwise the pending
-    // debounce timer fires ahead of the detach that cancels it.
-    fireSessionShutdown: () => fire("session_shutdown"),
   };
 }
 
@@ -345,6 +267,10 @@ describe("Phase 5 (DISCO-2) — watcher / hot-reload wired through the shipped c
     fakeWatcher.emit({ kind: "change", path: join(thetaDir, "second.theta") });
 
     // Tear down: session_shutdown must detach the watcher and cancel the timer.
+    // The wired `session_shutdown` handler is genuinely async (sub-step 4's
+    // watcher-detach runs after sub-step 3's bounded await), so the teardown is
+    // awaited before the test advances the clock — otherwise the pending
+    // debounce timer fires ahead of the detach that cancels it.
     await harness.fireSessionShutdown();
 
     // Crossing the boundary now fires nothing (the pending timer was cancelled),

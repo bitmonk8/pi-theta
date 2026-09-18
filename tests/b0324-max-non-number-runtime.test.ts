@@ -1,9 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
-import { executeBody } from "../src/runtime/statement-executor";
 import { bodyOf } from "./helpers/e2e-s1";
-import { flush as tick } from "./helpers/fake-clock";
-import { ParForHost, execDeps } from "./helpers/par-for-harness";
+import { ParForHost, driveGated } from "./helpers/par-for-harness";
 
 // ===========================================================================
 // Bug 0324 (runtime half) — witness suite (Phase 1, RED). Fixed in 0.312.0.
@@ -45,10 +43,6 @@ describe("bug 0324 runtime — a non-number `max` value must clamp width down an
   it("a `string`-valued `max` operand clamps in-flight width to 1 and emits the runtime code", async () => {
     const host = new ParForHost();
     const captured: Diagnostic[] = [];
-    let release!: () => void;
-    host.gate = new Promise<void>((res) => {
-      release = res;
-    });
 
     // `w` is a `string` — post-fix this exact shape is load-refused by
     // `non-integer-max`, but the seam harness executes the body regardless of
@@ -61,12 +55,7 @@ describe("bug 0324 runtime — a non-number `max` value must clamp width down an
         "\n",
       ),
     );
-    const execPromise = executeBody(body, execDeps(body, host, captured));
-    await tick(30);
-
-    const peakWhileGated = host.peakInFlight;
-    release();
-    await execPromise;
+    const { peakWhileGated } = await driveGated(body, host, captured);
 
     expect(
       peakWhileGated,
@@ -81,20 +70,11 @@ describe("bug 0324 runtime — a non-number `max` value must clamp width down an
   it("CONTROL: an integer `max` value throttles to that width with no diagnostic", async () => {
     const host = new ParForHost();
     const captured: Diagnostic[] = [];
-    let release!: () => void;
-    host.gate = new Promise<void>((res) => {
-      release = res;
-    });
 
     const body = bodyOf(
       'par for f in [1, 2, 3, 4, 5] max 2 { invoke("./c.theta", f) }',
     );
-    const execPromise = executeBody(body, execDeps(body, host, captured));
-    await tick(30);
-
-    const peakWhileGated = host.peakInFlight;
-    release();
-    await execPromise;
+    const { peakWhileGated } = await driveGated(body, host, captured);
 
     expect(
       peakWhileGated,

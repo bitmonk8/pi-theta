@@ -1,10 +1,9 @@
 import { describe, expect, it } from "vitest";
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
 import { executeBody } from "../src/runtime/statement-executor";
-import { isResultValue, type ThetaValue } from "../src/runtime/value";
+import { type ThetaValue } from "../src/runtime/value";
 import { bodyOf, codesOf } from "./helpers/e2e-s1";
-import { flush as tick } from "./helpers/fake-clock";
-import { ParForHost, execDeps } from "./helpers/par-for-harness";
+import { ParForHost, driveGated, execDeps, okCount, countCode } from "./helpers/par-for-harness";
 
 // ===========================================================================
 // Bug 0326 — a non-positive integer `par for max` operand (`max 0`, `max -3`,
@@ -57,22 +56,6 @@ const NON_POSITIVE_MESSAGE =
 /** The 0324/0325 code — the sibling class this fix must NOT steal from. */
 const NON_INTEGER_CODE = "theta/runtime/par-max-non-integer";
 
-/** Count of `Ok(_)` envelopes in a loop's `array<Result>` value. */
-// `BodyExecution.result.value` is `ThetaValue | undefined` (an absent-tail
-// drive resolves to no value); the non-array guard already maps `undefined` to
-// the sentinel, so the parameter admits it directly.
-function okCount(value: ThetaValue | undefined): number {
-  if (!Array.isArray(value)) {
-    return -1;
-  }
-  return value.filter((e) => isResultValue(e) && e.ok).length;
-}
-
-/** Count of captured diagnostics carrying `code`. */
-function countCode(captured: readonly Diagnostic[], code: string): number {
-  return captured.filter((d) => d.code === code).length;
-}
-
 describe("bug 0326 runtime — a non-positive integer `max` value must clamp to 1 AND diagnose", () => {
   it("A: `max 0` over 5 gated elements holds peak 1, completes with 5 Ok, and emits par-max-non-positive exactly once", async () => {
     // CTRL-2: `max 0` means "admit no work"; the runtime instead runs 1-wide to
@@ -81,20 +64,11 @@ describe("bug 0326 runtime — a non-positive integer `max` value must clamp to 
     // clamps); the RED gate is the absent new diagnostic on this `< 1` class.
     const host = new ParForHost();
     const captured: Diagnostic[] = [];
-    let release!: () => void;
-    host.gate = new Promise<void>((res) => {
-      release = res;
-    });
 
     const body = bodyOf(
       'par for f in [1, 2, 3, 4, 5] max 0 { invoke("./c.theta", f) }',
     );
-    const execPromise = executeBody(body, execDeps(body, host, captured));
-    await tick(30);
-
-    const peakWhileGated = host.peakInFlight;
-    release();
-    const exec = await execPromise;
+    const { peakWhileGated, execution: exec } = await driveGated(body, host, captured);
 
     expect(
       peakWhileGated,
@@ -121,20 +95,11 @@ describe("bug 0326 runtime — a non-positive integer `max` value must clamp to 
     // widths are the class that makes this a real trap (`max free_slots` at 0).
     const host = new ParForHost();
     const captured: Diagnostic[] = [];
-    let release!: () => void;
-    host.gate = new Promise<void>((res) => {
-      release = res;
-    });
 
     const body = bodyOf(
       'par for f in [1, 2, 3, 4, 5] max 0 - 3 { invoke("./c.theta", f) }',
     );
-    const execPromise = executeBody(body, execDeps(body, host, captured));
-    await tick(30);
-
-    const peakWhileGated = host.peakInFlight;
-    release();
-    const exec = await execPromise;
+    const { peakWhileGated, execution: exec } = await driveGated(body, host, captured);
 
     expect(
       peakWhileGated,
@@ -155,20 +120,11 @@ describe("bug 0326 runtime — a non-positive integer `max` value must clamp to 
     // the new branch does not over-fire on the ordinary integer path.
     const host = new ParForHost();
     const captured: Diagnostic[] = [];
-    let release!: () => void;
-    host.gate = new Promise<void>((res) => {
-      release = res;
-    });
 
     const body = bodyOf(
       'par for f in [1, 2, 3, 4, 5] max 2 { invoke("./c.theta", f) }',
     );
-    const execPromise = executeBody(body, execDeps(body, host, captured));
-    await tick(30);
-
-    const peakWhileGated = host.peakInFlight;
-    release();
-    await execPromise;
+    const { peakWhileGated } = await driveGated(body, host, captured);
 
     expect(
       peakWhileGated,
@@ -186,20 +142,11 @@ describe("bug 0326 runtime — a non-positive integer `max` value must clamp to 
     // A `<= 1` mis-implementation would red this cell.
     const host = new ParForHost();
     const captured: Diagnostic[] = [];
-    let release!: () => void;
-    host.gate = new Promise<void>((res) => {
-      release = res;
-    });
 
     const body = bodyOf(
       'par for f in [1, 2, 3, 4, 5] max 1 { invoke("./c.theta", f) }',
     );
-    const execPromise = executeBody(body, execDeps(body, host, captured));
-    await tick(30);
-
-    const peakWhileGated = host.peakInFlight;
-    release();
-    await execPromise;
+    const { peakWhileGated } = await driveGated(body, host, captured);
 
     expect(
       peakWhileGated,

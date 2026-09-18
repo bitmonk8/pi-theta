@@ -1,17 +1,20 @@
-// Shared gated par-for host and diagnostic-capturing executor deps (PTQ-0483).
+// Shared gated par-for host, driver, and diagnostic-capturing executor deps.
 // The broader par-for conformance host keeps its payload/outcome scripting;
 // these bug witnesses need only dispatch count and admitted in-flight width.
 import type { Diagnostic } from "../../src/diagnostics/diagnostic";
 import type { Expr, ThetaBody } from "../../src/parser/theta-document";
 import type { OperationResult } from "../../src/runtime/cancellation-core";
 import { buildEnvironment, type LexicalEnvironment } from "../../src/runtime/lexical-environment";
-import type {
-  CheckpointDescriptor,
-  ExecuteBodyDeps,
-  StatementEvalHost,
+import {
+  executeBody,
+  type BodyExecution,
+  type CheckpointDescriptor,
+  type ExecuteBodyDeps,
+  type StatementEvalHost,
 } from "../../src/runtime/statement-executor";
-import type { ThetaValue } from "../../src/runtime/value";
+import { isResultValue, type ThetaValue } from "../../src/runtime/value";
 import { SEAM_NOOP_CHECKPOINT, SEAM_NOOP_MUTATOR } from "./invoke-seam-scaffold";
+import { flush } from "./fake-clock";
 
 /** An `Ok(value)` operation result (the effect succeeded). */
 export function ok(value: ThetaValue): OperationResult {
@@ -109,5 +112,40 @@ export function execDeps(
       captured.push(d);
     },
   };
+}
+
+/** Arm the effect gate, sample the peak after 30 microtask turns, then release and drain. */
+export async function driveGated(
+  body: ThetaBody,
+  host: ParForHost,
+  captured: Diagnostic[],
+): Promise<{ peakWhileGated: number; execution: BodyExecution }> {
+  let release!: () => void;
+  host.gate = new Promise<void>((res) => {
+    release = res;
+  });
+  const execPromise = executeBody(body, execDeps(body, host, captured));
+  await flush(30);
+
+  const peakWhileGated = host.peakInFlight;
+  release();
+  const execution = await execPromise;
+  return { peakWhileGated, execution };
+}
+
+/** Count of `Ok(_)` envelopes in a loop's `array<Result>` value. */
+// `BodyExecution.result.value` is `ThetaValue | undefined` (an absent-tail
+// drive resolves to no value); the non-array guard already maps `undefined` to
+// the sentinel, so the parameter admits it directly.
+export function okCount(value: ThetaValue | undefined): number {
+  if (!Array.isArray(value)) {
+    return -1;
+  }
+  return value.filter((e) => isResultValue(e) && e.ok).length;
+}
+
+/** Count of captured diagnostics carrying `code`. */
+export function countCode(captured: readonly Diagnostic[], code: string): number {
+  return captured.filter((d) => d.code === code).length;
 }
 

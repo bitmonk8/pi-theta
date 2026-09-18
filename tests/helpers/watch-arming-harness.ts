@@ -48,7 +48,7 @@ export interface Harness {
   >;
   fireSessionStart(): Promise<void>;
   /** Also accepts the legacy `exit` reason pinned by the supersession witnesses. */
-  fireSessionShutdown(reason: SessionShutdownEvent["reason"] | "exit"): Promise<void>;
+  fireSessionShutdown(reason?: SessionShutdownEvent["reason"] | "exit"): Promise<void>;
 }
 
 /**
@@ -68,6 +68,10 @@ export function makeHarness(
   flags: Readonly<Record<string, string>> = {},
   options: {
     onRegisterCommand?: (name: string, options: unknown) => void;
+    /** Inject a watcher-time command-list failure before reading registrations. */
+    beforeGetCommands?: () => void;
+    /** Capture fallback delivery through the context's UI sink. */
+    notify?: (message: string, type: string) => void;
     /** Foreign entries appended to the instance's extension-sourced registrations. */
     extraCommands?: readonly { readonly name: string; readonly source: string }[];
     sendMessage?: (
@@ -96,11 +100,13 @@ export function makeHarness(
       subscriptions.set(event, list);
     },
     getFlag: (name: string): string | undefined => flags[name],
-    getCommands: (): { name: string; source: string }[] =>
-      [
+    getCommands: (): { name: string; source: string }[] => {
+      options.beforeGetCommands?.();
+      return [
         ...[...commands.keys()].map((name) => ({ name, source: "extension" })),
         ...(options.extraCommands ?? []),
-      ],
+      ];
+    },
     sendMessage: options.sendMessage ?? ((): void => {}),
     ...(options.sendUserMessage === false ? {} : {
       sendUserMessage: typeof options.sendUserMessage === "function"
@@ -113,7 +119,7 @@ export function makeHarness(
     cwd,
     hasUI: false,
     modelRegistry: { getAvailable: (): readonly unknown[] => [] },
-    ui: { notify: (): void => {} },
+    ui: { notify: options.notify ?? ((): void => {}) },
   } as unknown as ExtensionContext;
 
   const fire = async (event: string, payload: unknown): Promise<void> => {
@@ -129,7 +135,7 @@ export function makeHarness(
     subscriptions,
     fireSessionStart: () => fire("session_start", { type: "session_start" }),
     fireSessionShutdown: (reason) =>
-      fire("session_shutdown", { type: "session_shutdown", reason }),
+      fire("session_shutdown", { type: "session_shutdown", ...(reason === undefined ? {} : { reason }) }),
   };
 }
 
@@ -222,10 +228,12 @@ export interface RecordingHarness<Details = unknown> extends Harness {
 /** Capture command handlers, notes, and subscriptions for dispatch and reload tests. */
 export function makeRecordingHarness<Details = unknown>(
   cwd = "/does/not/matter",
+  options: { beforeGetCommands?: () => void } = {},
 ): RecordingHarness<Details> {
   const notes: RecordedNote<Details>[] = [];
   let registrations = 0;
   const harness = makeHarness(cwd, {}, {
+    ...options,
     onRegisterCommand: (): void => { registrations += 1; },
     sendMessage: (message, options): void => {
       notes.push({

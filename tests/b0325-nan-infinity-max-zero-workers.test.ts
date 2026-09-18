@@ -13,8 +13,7 @@ import {
 } from "../src/runtime/runtime-panics";
 import { isResultValue, type ThetaValue } from "../src/runtime/value";
 import { bodyOf } from "./helpers/e2e-s1";
-import { flush as tick } from "./helpers/fake-clock";
-import { ParForHost as RecordingParForHost, execDeps } from "./helpers/par-for-harness";
+import { ParForHost as RecordingParForHost, driveGated, execDeps } from "./helpers/par-for-harness";
 
 // ===========================================================================
 // Bug 0325 — a NaN / ±Infinity `par for max` operand yields a non-finite width,
@@ -160,26 +159,17 @@ describe("bug 0325 — a non-finite `par for max` width spawns zero workers and 
     // corroborates.
     const host = new RecordingParForHost();
     const captured: Diagnostic[] = [];
-    let release!: () => void;
-    host.gate = new Promise<void>((res) => {
-      release = res;
-    });
 
     const body = bodyOf(
       ["let w = 1 % 0", 'par for f in [1, 2, 3, 4, 5] max w { invoke("./c.theta", f) }'].join(
         "\n",
       ),
     );
-    const execPromise = executeBody(body, execDeps(body, host, captured));
-    await tick(30);
-
     // Read the concurrent peak WHILE gated (the admitted width), then release
     // and drain to read the TOTAL effect count. Post-fix the width-1 clamp holds
     // one iteration in flight (peak 1) while all five drain sequentially once
     // released (total 5) — so the total is read AFTER the await, never before.
-    const peakWhileGated = host.peakInFlight;
-    release();
-    await execPromise;
+    const { peakWhileGated } = await driveGated(body, host, captured);
     const totalEffects = host.started;
 
     expect.soft(
@@ -311,18 +301,9 @@ describe("bug 0325 — a non-finite `par for max` width spawns zero workers and 
     // AND post-fix.
     const host = new RecordingParForHost();
     const captured: Diagnostic[] = [];
-    let release!: () => void;
-    host.gate = new Promise<void>((res) => {
-      release = res;
-    });
 
     const body = bodyOf('par for f in [1, 2, 3, 4, 5] max 2 { invoke("./c.theta", f) }');
-    const execPromise = executeBody(body, execDeps(body, host, captured));
-    await tick(30);
-
-    const peakWhileGated = host.peakInFlight;
-    release();
-    await execPromise;
+    const { peakWhileGated } = await driveGated(body, host, captured);
 
     expect(
       peakWhileGated,

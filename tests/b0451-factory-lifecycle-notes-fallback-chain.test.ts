@@ -32,19 +32,20 @@
 //
 // Each cell pairs a CONTROL fail-loud precondition (the note site was genuinely
 // reached — so a witness red is never a vacuous "note never emitted" pass) with
-// the WITNESS assertions (RED at the fork). The harness (fake pi / ctx / deps,
-// makeTheta / boot / invoke) is copied from
-// tests/drain-gated-dispatch-integration.test.ts, with a throwing
+// the WITNESS assertions (RED at the fork). The shared fake-pi harness in
+// tests/helpers/watch-arming-harness.ts is extended with a throwing
 // `pi.sendMessage` on the `theta-system-note` channel, a `ctx.ui.notify`
 // recorder, and an `emitDiagnostic` recorder threaded through
 // `ThetaExtensionDeps.emitDiagnostic` — the off-channel sink the fix delivers to.
 
 import { describe, expect, it } from "vitest";
-import type {
-  ExtensionAPI,
-  ExtensionCommandContext,
-  ExtensionContext,
-} from "@earendil-works/pi-coding-agent";
+import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
+import {
+  makeHarness as makeBaseHarness,
+  makeTheta,
+  type Harness as BaseHarness,
+  type RegisteredCommand,
+} from "./helpers/watch-arming-harness";
 import {
   createThetaExtension,
   type ThetaExtensionDeps,
@@ -80,14 +81,7 @@ interface RecordedNotify {
   readonly type: string;
 }
 
-/** The registered pi command options shape this test invokes against. */
-interface RegisteredCommand {
-  readonly handler: (args: string, ctx: ExtensionCommandContext) => unknown;
-}
-
-interface Harness {
-  readonly pi: ExtensionAPI;
-  readonly commands: Map<string, unknown>;
+interface Harness extends BaseHarness {
   /** Non-throwing sends recorded (customType !== theta-system-note). */
   readonly notes: RecordedNote[];
   /**
@@ -100,41 +94,20 @@ interface Harness {
   readonly notified: RecordedNotify[];
   /** Off-channel `emitDiagnostic` sink (fallback-chain step 2 observable). */
   readonly diagnostics: Diagnostic[];
-  fireSessionStart(): Promise<void>;
 }
 
 /**
- * The minimal fake-pi harness copied from
- * tests/drain-gated-dispatch-integration.test.ts, with three additions for this
- * bug: a `pi.sendMessage` that THROWS a non-stale error on the
+ * The shared fake-pi harness with three additions for this bug:
+ * a `pi.sendMessage` that THROWS a non-stale error on the
  * `theta-system-note` channel (recording the attempt first), a `ctx.ui.notify`
  * recorder, and (built in `boot`) an `emitDiagnostic` recorder.
  */
 function makeHarness(): Harness {
-  const commands = new Map<string, unknown>();
   const notes: RecordedNote[] = [];
   const noteAttempts: RecordedNote[] = [];
   const notified: RecordedNotify[] = [];
   const diagnostics: Diagnostic[] = [];
-  const subscriptions = new Map<
-    string,
-    ((event: unknown, ctx: ExtensionContext) => unknown)[]
-  >();
-
-  const pi = {
-    registerFlag: (): void => {},
-    registerMessageRenderer: (): void => {},
-    registerCommand: (name: string, options: unknown): void => {
-      commands.set(name, options);
-    },
-    on: (event: string, handler: (e: unknown, c: ExtensionContext) => unknown): void => {
-      const list = subscriptions.get(event) ?? [];
-      list.push(handler);
-      subscriptions.set(event, list);
-    },
-    getFlag: (): undefined => undefined,
-    getCommands: (): { name: string; source: string }[] =>
-      [...commands.keys()].map((name) => ({ name, source: "extension" })),
+  const harness = makeBaseHarness("/does/not/matter", {}, {
     sendMessage: (
       message: { customType: string; content: string; display: boolean },
       options: { triggerTurn: unknown },
@@ -153,50 +126,17 @@ function makeHarness(): Harness {
       }
       notes.push(record);
     },
-    sendUserMessage: (): void => {},
-  } as unknown as ExtensionAPI;
-
-  const ctx = {
-    cwd: "/does/not/matter",
-    hasUI: false,
-    modelRegistry: { getAvailable: (): readonly unknown[] => [] },
-    ui: {
-      notify: (message: string, type: string): void => {
-        notified.push({ message, type });
-      },
+    notify: (message: string, type: string): void => {
+      notified.push({ message, type });
     },
-  } as unknown as ExtensionContext;
-
-  const fire = async (event: string): Promise<void> => {
-    for (const handler of subscriptions.get(event) ?? []) {
-      await handler({ type: event }, ctx);
-    }
-  };
+  });
 
   return {
-    pi,
-    commands,
+    ...harness,
     notes,
     noteAttempts,
     notified,
     diagnostics,
-    fireSessionStart: () => fire("session_start"),
-  };
-}
-
-/**
- * A minimal `ParsedTheta` (only `slashName` + `run` are read at dispatch time),
- * copied from tests/drain-gated-dispatch-integration.test.ts.
- */
-function makeTheta(
-  slashName: string,
-  run: (args: string, ctx: ExtensionCommandContext) => Promise<void>,
-): ParsedTheta {
-  return {
-    slashName,
-    frontmatter: { mode: "prompt" } as unknown as ParsedTheta["frontmatter"],
-    body: { statements: [] } as unknown as ParsedTheta["body"],
-    run,
   };
 }
 

@@ -1,14 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { ThetaSource } from "../src/lexer/lexer";
-import type { SystemNoteChannelDeps } from "../src/extension/system-note-channel";
-import type { ModelReferenceMatcher } from "../src/parser/frontmatter";
-import {
-  parseThetaDocument,
-  type ThetaDocument,
-  type ThetaBody,
-  type Expr,
-  type ParseThetaDocumentDeps,
-} from "../src/parser/theta-document";
+import type { ThetaBody, Expr } from "../src/parser/theta-document";
 import {
   executeBody,
   type CheckpointDescriptor,
@@ -19,61 +10,19 @@ import {
   buildEnvironment,
   type LexicalEnvironment,
 } from "../src/runtime/lexical-environment";
-import type { Checkpoint } from "../src/seams/checkpoint";
 import type { OperationResult } from "../src/runtime/cancellation-core";
-import type {
-  CommittedConversationMutator,
-  CommittedSurface,
-} from "../src/runtime/terminal-outcomes";
 import type { ThetaValue } from "../src/runtime/value";
 import type { ParForLaneHooks, ParForLaneSetHandle } from "../src/extension/execution-status/types";
+import { bodyOf } from "./helpers/e2e-s1";
+import { ok } from "./helpers/par-for-harness";
+import { SEAM_NOOP_CHECKPOINT, SEAM_NOOP_MUTATOR } from "./helpers/invoke-seam-scaffold";
 
 // RFC 0010 (execution-status.md EXST-3(c)) — `tests/execution-status-parfor-lanes.test.ts`
 // (B18). `ExecuteBodyDeps.statusLanes` is an OPTIONAL field
 // (`statement-executor.ts`); `evalParFor` reads it and drives
 // open()/claim()/settle()/close() per lane when present, and is
-// byte-identical when absent. Harness mirrors
-// `tests/b0325-nan-infinity-max-zero-workers.test.ts`'s
-// `RecordingParForHost`/`execDeps`/parse-and-drive shape exactly (same
-// `executeBody` entry point, same `NoopMutator`, same pure-eval subset).
-
-/** A trivially-wired diagnostic sink + resolving `model:` matcher for the parse. */
-function makeDeps(): ParseThetaDocumentDeps {
-  const systemNote: SystemNoteChannelDeps = {
-    pi: { sendMessage: (): void => {} },
-    ui: { notify: (): void => {} },
-    emitDiagnostic: (): void => {},
-  };
-  const modelMatcher: ModelReferenceMatcher = { resolve: (): "resolved" => "resolved" };
-  return { systemNote, modelMatcher };
-}
-
-function parse(src: string): ThetaDocument {
-  const source: ThetaSource = { path: "test.theta", bytes: new TextEncoder().encode(src) };
-  return parseThetaDocument(source, makeDeps());
-}
-
-function bodyOf(src: string): ThetaBody {
-  return parse(src).body;
-}
-
-const NOOP_CHECKPOINT: Checkpoint = {
-  before(): Promise<void> {
-    return Promise.resolve();
-  },
-};
-
-class NoopMutator implements CommittedConversationMutator {
-  truncate(): void {}
-  rewrite(): void {}
-  replace(): void {}
-  remove(): void {}
-  injectCompensatingTurn(_surface: CommittedSurface): void {}
-}
-
-function ok(value: ThetaValue): OperationResult {
-  return { ok: true, value };
-}
+// byte-identical when absent. Uses the shared par-for parse/no-op scaffold
+// with an immediate-effect host and a lane-hook recorder.
 
 /** A minimal `StatementEvalHost` for a `par for` body whose per-iteration
  *  effect is a bare `invoke` call resolving immediately. */
@@ -136,9 +85,9 @@ function execDeps(body: ThetaBody, host: StatementEvalHost, statusLanes: ParForL
   return {
     env: buildEnvironment({ body }),
     host,
-    checkpoint: NOOP_CHECKPOINT,
+    checkpoint: SEAM_NOOP_CHECKPOINT,
     signal: new AbortController().signal,
-    mutator: new NoopMutator(),
+    mutator: { ...SEAM_NOOP_MUTATOR },
     mode: "prompt",
     file: "test.theta",
     statusLanes,
@@ -167,9 +116,9 @@ describe("B18 — evalParFor invokes statusLanes hooks (claim/complete per lane)
     const deps: ExecuteBodyDeps = {
       env: buildEnvironment({ body }),
       host,
-      checkpoint: NOOP_CHECKPOINT,
+      checkpoint: SEAM_NOOP_CHECKPOINT,
       signal: new AbortController().signal,
-      mutator: new NoopMutator(),
+      mutator: { ...SEAM_NOOP_MUTATOR },
       mode: "prompt",
       file: "test.theta",
       // statusLanes intentionally absent
