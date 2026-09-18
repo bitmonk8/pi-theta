@@ -88,10 +88,7 @@
 // fixture.
 
 import { describe, expect, it } from "vitest";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { requireLiveHost, spawnPiPrint } from "./harness";
+import { driveAcceptanceSequence } from "../../helpers/acceptance-sequence-harness";
 import { errorCodes as parseErrorCodes } from "../../helpers/e2e-s1";
 
 /** The registry code the surviving object-branch refusal reds with (bug doc §Fix constraint 2 / type-compat.ts's object-branch gate). */
@@ -186,63 +183,41 @@ describe("H9a live — bug 0344 commonType literal-candidate admittee registers/
 
     // Live-host precondition — fails loudly naming the unmet precondition;
     // never a skip or early return.
-    await requireLiveHost();
+    await driveAcceptanceSequence({
+      slug: "b0344",
+      files: {
+        "b0344admittee.theta": ADMITTEE,
+        "b0344offender.theta": OFFENDER,
+        "b0344probe.theta": PROBE,
+      },
+      drives: [
+        // ---- (1) the previously-refused admittee registers AND drives ----
+        {
+          label: "admittee",
+          slashInvocation: "/b0344admittee",
+          expected: ADMITTEE_OK,
+          message: (admittee) =>
+            `admittee: the widened element read must no longer refuse, so ` +
+              `/b0344admittee registers and a real turn answers 2 + 263 = ${ADMITTEE_OK}. ` +
+              `A refused theta (bug 0344 unfixed) does not exist as a slash command and cannot ` +
+              `drive, so this could not answer ${ADMITTEE_OK}. stdout: ${admittee.stdout} ` +
+              `stderr: ${admittee.stderr}`,
+        },
 
-    const thetaDir = mkdtempSync(join(tmpdir(), "theta-b0344-root-"));
-    const admitteeCwd = mkdtempSync(join(tmpdir(), "theta-b0344-cwd-"));
-    const probeCwd = mkdtempSync(join(tmpdir(), "theta-b0344-cwd-"));
-    try {
-      writeFileSync(join(thetaDir, "b0344admittee.theta"), ADMITTEE, "utf8");
-      writeFileSync(join(thetaDir, "b0344offender.theta"), OFFENDER, "utf8");
-      writeFileSync(join(thetaDir, "b0344probe.theta"), PROBE, "utf8");
-
-      // ---- (1) the previously-refused admittee registers AND drives ----
-      const admittee = await spawnPiPrint({
-        thetaDir,
-        slashInvocation: "/b0344admittee",
-        cwd: admitteeCwd,
-      });
-      expect(
-        admittee.exitCode,
-        `admittee: expected a no-error exit (0), got ${String(admittee.exitCode)}. ` +
-          `stderr: ${admittee.stderr}`,
-      ).toBe(0);
-      expect(
-        admittee.stdout,
-        `admittee: the widened element read must no longer refuse, so ` +
-          `/b0344admittee registers and a real turn answers 2 + 263 = ${ADMITTEE_OK}. ` +
-          `A refused theta (bug 0344 unfixed) does not exist as a slash command and cannot ` +
-          `drive, so this could not answer ${ADMITTEE_OK}. stdout: ${admittee.stdout} ` +
-          `stderr: ${admittee.stderr}`,
-      ).toContain(ADMITTEE_OK);
-
-      // ---- (2) the genuinely disjoint object array is still refused, observed via invoke ----
-      const probe = await spawnPiPrint({
-        thetaDir,
-        slashInvocation: "/b0344probe",
-        cwd: probeCwd,
-      });
-      expect(
-        probe.exitCode,
-        `probe: expected a no-error exit (0), got ${String(probe.exitCode)}. ` +
-          `stderr: ${probe.stderr}`,
-      ).toBe(0);
-      expect(
-        probe.stdout,
-        `probe: the offending theta must NOT register (its two-object-schema ` +
-          `array reds at parse with the object-branch gate), so the prober's ` +
-          `invoke("./b0344offender.theta") resolves Err and the match prints "${REFUSED}". ` +
-          `Printing "${LOADED}" means the literal widening swallowed the object-branch ` +
-          `gate — bug 0344 over-fixed. stdout: ${probe.stdout} stderr: ${probe.stderr}`,
-      ).toContain(REFUSED);
-      expect(
-        probe.stdout,
-        `probe: the Ok arm must not fire; stdout: ${probe.stdout}`,
-      ).not.toContain(LOADED);
-    } finally {
-      rmSync(thetaDir, { recursive: true, force: true });
-      rmSync(admitteeCwd, { recursive: true, force: true });
-      rmSync(probeCwd, { recursive: true, force: true });
-    }
+        // ---- (2) the genuinely disjoint object array is still refused, observed via invoke ----
+        {
+          label: "probe",
+          slashInvocation: "/b0344probe",
+          expected: REFUSED,
+          unexpected: LOADED,
+          message: (probe) =>
+            `probe: the offending theta must NOT register (its two-object-schema ` +
+              `array reds at parse with the object-branch gate), so the prober's ` +
+              `invoke("./b0344offender.theta") resolves Err and the match prints "${REFUSED}". ` +
+              `Printing "${LOADED}" means the literal widening swallowed the object-branch ` +
+              `gate — bug 0344 over-fixed. stdout: ${probe.stdout} stderr: ${probe.stderr}`,
+        },
+      ],
+    });
   });
 });

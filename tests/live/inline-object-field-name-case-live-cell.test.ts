@@ -49,10 +49,7 @@
 // is required, so a neutralised fix reds here with zero tokens spent (per
 // AGENTS.md's "prefer the offline-attributable guard").
 
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { MockInstance } from "vitest";
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
+import { describe, expect, it } from "vitest";
 import {
   bootShippedExtension,
   driveSlashCaptureTurn,
@@ -60,22 +57,16 @@ import {
   requireLiveProvider,
   type PlantedTheta,
 } from "./harness";
-import { thetaOwnedStderrLines } from "./theta-stderr-prefixes";
+import { assertThetaStderrCleanForEach } from "../helpers/theta-stderr-gate";
 import { parseDoc } from "../helpers/e2e-s1";
 // @ts-expect-error -- JS code-registry module, no type declarations.
-import { parseRegistry, registryMessage } from "../../tools/code-registry/index.js";
+import { registryMessage } from "../../tools/code-registry/index.js";
+import { readRegistry } from "../helpers/registry-oracle";
 
 /** The registered code bug 0154's fix draws (E, parse). */
 const BINDING_CASE_CODE = "theta/parse/binding-case-mismatch";
 
-const REGISTRY = parseRegistry(
-  readFileSync(
-    fileURLToPath(
-      new URL("../../docs/spec_topics/diagnostics/code-registry-parse.md", import.meta.url),
-    ),
-    "utf8",
-  ),
-) as { code: string; message: string }[];
+const REGISTRY = readRegistry(["parse"]);
 
 /**
  * `binding name must start with a lowercase letter or _` -- DIAG-4: the
@@ -159,28 +150,7 @@ const GOOD = [
   "",
 ].join("\n");
 
-let consoleErrorSpy: MockInstance | undefined;
-
-beforeEach(() => {
-  consoleErrorSpy = vi.spyOn(console, "error");
-});
-
-afterEach(() => {
-  const spy = consoleErrorSpy;
-  try {
-    const lines = (spy?.mock.calls ?? []).map((args) => args.map(String).join(" "));
-    const offenders = thetaOwnedStderrLines(lines);
-    expect(
-      offenders,
-      "bug 0018's live verification observable for this suite is a 0-byte " +
-        "stderr capture; this spy caught theta-owned stderr line(s) instead: " +
-        JSON.stringify(offenders),
-    ).toEqual([]);
-  } finally {
-    spy?.mockRestore();
-    consoleErrorSpy = undefined;
-  }
-});
+assertThetaStderrCleanForEach();
 
 describe("bug 0154 live: an ill-cased inline object field name is refused at registration, and the lowercase-first sibling registers and drives", () => {
   it("does not register `let r: { Ys: string } | null = null`, the theta-system-note channel carries theta/parse/binding-case-mismatch, and `{ys: string}` still registers and drives to the live sentinel via `answer.ys`", async () => {

@@ -4,12 +4,12 @@ import { expect } from "vitest";
 import { thetaOwnedStderrLines } from "../live/theta-stderr-prefixes";
 import { captureConsoleErrorForEach } from "./compose-workspace-harness";
 
-/** Assert the shared prefix-filtered capture, then any cell-specific stderr witness. */
+/** Assert the shared prefix-filtered capture, returning raw calls for cell-specific witnesses. */
 export function assertThetaStderrCleanForEach(options: {
   readonly message?: (offenders: readonly string[]) => string;
   readonly assertLines?: (lines: readonly string[]) => void;
-} = {}): void {
-  captureConsoleErrorForEach({
+} = {}): { readonly calls: unknown[][] } {
+  return captureConsoleErrorForEach({
     writeThrough: true,
     assertLines: (lines) => {
       const offenders = thetaOwnedStderrLines(lines);

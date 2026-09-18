@@ -80,12 +80,10 @@
 // is required, so a neutralised fix reds here with zero tokens spent (per
 // AGENTS.md's "prefer the offline-attributable guard").
 
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { MockInstance } from "vitest";
+import { describe, expect, it } from "vitest";
 // @ts-expect-error — JS code-registry module, no type declarations.
-import { parseRegistry, registryMessage } from "../../tools/code-registry/index.js";
+import { registryMessage } from "../../tools/code-registry/index.js";
+import { readRegistry } from "../helpers/registry-oracle";
 import {
   bootShippedExtension,
   driveSlashCaptureTurn,
@@ -93,20 +91,13 @@ import {
   requireLiveProvider,
   type PlantedTheta,
 } from "./harness";
-import { thetaOwnedStderrLines } from "./theta-stderr-prefixes";
+import { assertThetaStderrCleanForEach } from "../helpers/theta-stderr-gate";
 import { parseDoc } from "../helpers/e2e-s1";
 
 /** The registered row bug 0154's pass draws, withheld by bug 0237's truncation. */
 const CASE = "theta/parse/binding-case-mismatch";
 
-const REGISTRY = parseRegistry(
-  readFileSync(
-    fileURLToPath(
-      new URL("../../docs/spec_topics/diagnostics/code-registry-parse.md", import.meta.url),
-    ),
-    "utf8",
-  ),
-) as { code: string; message: string }[];
+const REGISTRY = readRegistry(["parse"]);
 
 /**
  * `<code>: <Message>` for the case row, read from the registry rather than
@@ -220,27 +211,7 @@ function systemNoteContents(entries: readonly unknown[]): readonly string[] {
   return notes;
 }
 
-let consoleErrorSpy: MockInstance | undefined;
-
-beforeEach(() => {
-  consoleErrorSpy = vi.spyOn(console, "error");
-});
-
-afterEach(() => {
-  const spy = consoleErrorSpy;
-  try {
-    const lines = (spy?.mock.calls ?? []).map((args) => args.map(String).join(" "));
-    const offenders = thetaOwnedStderrLines(lines);
-    expect(
-      offenders,
-      "bug 0018's live verification observable for this suite is a 0-byte stderr capture; this " +
-        "spy caught theta-owned stderr line(s) instead: " + JSON.stringify(offenders),
-    ).toEqual([]);
-  } finally {
-    spy?.mockRestore();
-    consoleErrorSpy = undefined;
-  }
-});
+assertThetaStderrCleanForEach();
 
 describe("bug 0237 live: a params: field whose inline object type has an empty type position is refused at registration instead of minting an uppercase $defs key ", () => {
   it("does not register `p: '{a: , Zs: string}'` post-fix, the theta-system-note channel names binding-case-mismatch, and the well-formed params: sibling and the case-clean annotation sibling still register and drive ", async () => {

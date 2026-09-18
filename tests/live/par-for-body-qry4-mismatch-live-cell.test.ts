@@ -76,8 +76,6 @@
 // the run on an offline check of the same `parseThetaDocument` computation.
 
 import { describe, expect, it } from "vitest";
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
 import {
   bootShippedExtension,
   collectSystemNotes as systemNoteContents,
@@ -86,22 +84,16 @@ import {
   type PlantedTheta,
 } from "./harness";
 import { parseDoc } from "../helpers/e2e-s1";
+import { readRegistry } from "../helpers/registry-oracle";
 // @ts-expect-error — JS code-registry module, no type declarations.
-import { parseRegistry, registryMessage } from "../../tools/code-registry/index.js";
+import { registryMessage } from "../../tools/code-registry/index.js";
 
 /** QRY-4's warning — the verdict this fix makes reachable in a `par for` body. */
 const MISMATCH_CODE = "theta/parse/explicit-schema-mismatch";
 /** CTRL-4's refusal (docs/spec_topics/control-flow.md:76), unmoved by this fix. */
 const PAR_QUERY_IN_BODY = "theta/parse/par-query-in-body";
 
-const REGISTRY = parseRegistry(
-  readFileSync(
-    fileURLToPath(
-      new URL("../../docs/spec_topics/diagnostics/code-registry-parse.md", import.meta.url),
-    ),
-    "utf8",
-  ),
-) as { code: string; message: string }[];
+const REGISTRY = readRegistry(["parse"]);
 
 /**
  * `theta/parse/explicit-schema-mismatch: <registered Message>` — DIAG-4: the

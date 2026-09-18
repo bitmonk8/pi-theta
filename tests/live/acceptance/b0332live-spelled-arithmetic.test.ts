@@ -52,10 +52,7 @@
 // fires on these crafted fixtures only, never on a committed fixture.
 
 import { describe, expect, it } from "vitest";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { requireLiveHost, spawnPiPrint } from "./harness";
+import { driveAcceptanceSequence } from "../../helpers/acceptance-sequence-harness";
 import { errorCodes as parseErrorCodes } from "../../helpers/e2e-s1";
 
 /** The registry code the spelled non-numeric arithmetic reds with (expressions.md §"Other arithmetic"). */
@@ -138,61 +135,39 @@ describe("H9a live — bug 0332 spelled-arithmetic refusal/compute through the r
 
     // Live-host precondition — fails loudly naming the unmet precondition; never
     // a skip or early return.
-    await requireLiveHost();
+    await driveAcceptanceSequence({
+      slug: "b0332",
+      files: {
+        "b0332offender.theta": OFFENDER,
+        "b0332probe.theta": PROBE,
+        "b0332control.theta": CONTROL,
+      },
+      drives: [
+        // ---- (b) the well-formed numeric control registers and drives ----
+        {
+          label: "control",
+          slashInvocation: "/b0332control",
+          expected: CONTROL_OK,
+          message: (control) =>
+            `control: 7 - 2 must compute 5, so the query's answer is 5 + 100 = ${CONTROL_OK}. ` +
+              `A broken numeric arithmetic path (gate/belt over-reach) would fail to compute 5, ` +
+              `so this cannot answer ${CONTROL_OK}. stdout: ${control.stdout} stderr: ${control.stderr}`,
+        },
 
-    const thetaDir = mkdtempSync(join(tmpdir(), "theta-b0332-root-"));
-    const controlCwd = mkdtempSync(join(tmpdir(), "theta-b0332-cwd-"));
-    const probeCwd = mkdtempSync(join(tmpdir(), "theta-b0332-cwd-"));
-    try {
-      writeFileSync(join(thetaDir, "b0332offender.theta"), OFFENDER, "utf8");
-      writeFileSync(join(thetaDir, "b0332probe.theta"), PROBE, "utf8");
-      writeFileSync(join(thetaDir, "b0332control.theta"), CONTROL, "utf8");
-
-      // ---- (b) the well-formed numeric control registers and drives ----
-      const control = await spawnPiPrint({
-        thetaDir,
-        slashInvocation: "/b0332control",
-        cwd: controlCwd,
-      });
-      expect(
-        control.exitCode,
-        `control: expected a no-error exit (0), got ${String(control.exitCode)}. ` +
-          `stderr: ${control.stderr}`,
-      ).toBe(0);
-      expect(
-        control.stdout,
-        `control: 7 - 2 must compute 5, so the query's answer is 5 + 100 = ${CONTROL_OK}. ` +
-          `A broken numeric arithmetic path (gate/belt over-reach) would fail to compute 5, ` +
-          `so this cannot answer ${CONTROL_OK}. stdout: ${control.stdout} stderr: ${control.stderr}`,
-      ).toContain(CONTROL_OK);
-
-      // ---- (a) the non-numeric spelled-arithmetic theta is refused, via invoke ----
-      const probe = await spawnPiPrint({
-        thetaDir,
-        slashInvocation: "/b0332probe",
-        cwd: probeCwd,
-      });
-      expect(
-        probe.exitCode,
-        `probe: expected a no-error exit (0), got ${String(probe.exitCode)}. ` +
-          `stderr: ${probe.stderr}`,
-      ).toBe(0);
-      expect(
-        probe.stdout,
-        `probe: the offending theta must NOT register (its spelled \`"a" - "b"\` reds at ` +
-          `parse), so the prober's invoke("./b0332offender.theta") resolves Err and ` +
-          `the match prints "${REFUSED}". Printing "${LOADED}" means a non-numeric ` +
-          `spelled arithmetic loaded clean — bug 0332 unfixed. stdout: ${probe.stdout} ` +
-          `stderr: ${probe.stderr}`,
-      ).toContain(REFUSED);
-      expect(
-        probe.stdout,
-        `probe: the Ok arm must not fire; stdout: ${probe.stdout}`,
-      ).not.toContain(LOADED);
-    } finally {
-      rmSync(thetaDir, { recursive: true, force: true });
-      rmSync(controlCwd, { recursive: true, force: true });
-      rmSync(probeCwd, { recursive: true, force: true });
-    }
+        // ---- (a) the non-numeric spelled-arithmetic theta is refused, via invoke ----
+        {
+          label: "probe",
+          slashInvocation: "/b0332probe",
+          expected: REFUSED,
+          unexpected: LOADED,
+          message: (probe) =>
+            `probe: the offending theta must NOT register (its spelled \`"a" - "b"\` reds at ` +
+              `parse), so the prober's invoke("./b0332offender.theta") resolves Err and ` +
+              `the match prints "${REFUSED}". Printing "${LOADED}" means a non-numeric ` +
+              `spelled arithmetic loaded clean — bug 0332 unfixed. stdout: ${probe.stdout} ` +
+              `stderr: ${probe.stderr}`,
+        },
+      ],
+    });
   });
 });

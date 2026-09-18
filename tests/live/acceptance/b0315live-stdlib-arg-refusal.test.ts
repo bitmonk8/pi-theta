@@ -54,10 +54,7 @@
 // committed fixtures.
 
 import { describe, expect, it } from "vitest";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { requireLiveHost, spawnPiPrint } from "./harness";
+import { driveAcceptanceSequence } from "../../helpers/acceptance-sequence-harness";
 import { errorCodes as parseErrorCodes } from "../../helpers/e2e-s1";
 
 /** The registry code the too-few `replace("-")` reds with (design brief). */
@@ -139,61 +136,39 @@ describe("H9a live — bug 0315 stdlib-argument refusal/correct-call through the
 
     // Live-host precondition — fails loudly naming the unmet precondition; never
     // a skip or early return.
-    await requireLiveHost();
+    await driveAcceptanceSequence({
+      slug: "b0315",
+      files: {
+        "b0315offender.theta": OFFENDER,
+        "b0315probe.theta": PROBE,
+        "b0315control.theta": CONTROL,
+      },
+      drives: [
+        // ---- (b) the well-formed correct-arity control registers and drives ----
+        {
+          label: "control",
+          slashInvocation: "/b0315control",
+          expected: CONTROL_OK,
+          message: (control) =>
+            `control: a correct-arity stdlib call must register and drive, so the query's ` +
+              `answer is 263 + 514 = ${CONTROL_OK}. If the fix broke correct-arity calls the ` +
+              `theta would not register and this cannot answer ${CONTROL_OK}. ` +
+              `stdout: ${control.stdout} stderr: ${control.stderr}`,
+        },
 
-    const thetaDir = mkdtempSync(join(tmpdir(), "theta-b0315-root-"));
-    const controlCwd = mkdtempSync(join(tmpdir(), "theta-b0315-cwd-"));
-    const probeCwd = mkdtempSync(join(tmpdir(), "theta-b0315-cwd-"));
-    try {
-      writeFileSync(join(thetaDir, "b0315offender.theta"), OFFENDER, "utf8");
-      writeFileSync(join(thetaDir, "b0315probe.theta"), PROBE, "utf8");
-      writeFileSync(join(thetaDir, "b0315control.theta"), CONTROL, "utf8");
-
-      // ---- (b) the well-formed correct-arity control registers and drives ----
-      const control = await spawnPiPrint({
-        thetaDir,
-        slashInvocation: "/b0315control",
-        cwd: controlCwd,
-      });
-      expect(
-        control.exitCode,
-        `control: expected a no-error exit (0), got ${String(control.exitCode)}. ` +
-          `stderr: ${control.stderr}`,
-      ).toBe(0);
-      expect(
-        control.stdout,
-        `control: a correct-arity stdlib call must register and drive, so the query's ` +
-          `answer is 263 + 514 = ${CONTROL_OK}. If the fix broke correct-arity calls the ` +
-          `theta would not register and this cannot answer ${CONTROL_OK}. ` +
-          `stdout: ${control.stdout} stderr: ${control.stderr}`,
-      ).toContain(CONTROL_OK);
-
-      // ---- (a) the wrong-arity stdlib theta is refused, observed via invoke ----
-      const probe = await spawnPiPrint({
-        thetaDir,
-        slashInvocation: "/b0315probe",
-        cwd: probeCwd,
-      });
-      expect(
-        probe.exitCode,
-        `probe: expected a no-error exit (0), got ${String(probe.exitCode)}. ` +
-          `stderr: ${probe.stderr}`,
-      ).toBe(0);
-      expect(
-        probe.stdout,
-        "probe: the offending theta must NOT register (its wrong-arity replace reds " +
-          "at parse), so the prober's invoke resolves Err and the match prints " +
-          `"${REFUSED}". Printing "${LOADED}" means a wrong-arity stdlib call loaded ` +
-          `clean — bug 0315 unfixed. stdout: ${probe.stdout} stderr: ${probe.stderr}`,
-      ).toContain(REFUSED);
-      expect(
-        probe.stdout,
-        `probe: the Ok arm must not fire; stdout: ${probe.stdout}`,
-      ).not.toContain(LOADED);
-    } finally {
-      rmSync(thetaDir, { recursive: true, force: true });
-      rmSync(controlCwd, { recursive: true, force: true });
-      rmSync(probeCwd, { recursive: true, force: true });
-    }
+        // ---- (a) the wrong-arity stdlib theta is refused, observed via invoke ----
+        {
+          label: "probe",
+          slashInvocation: "/b0315probe",
+          expected: REFUSED,
+          unexpected: LOADED,
+          message: (probe) =>
+            "probe: the offending theta must NOT register (its wrong-arity replace reds " +
+              "at parse), so the prober's invoke resolves Err and the match prints " +
+              `"${REFUSED}". Printing "${LOADED}" means a wrong-arity stdlib call loaded ` +
+              `clean — bug 0315 unfixed. stdout: ${probe.stdout} stderr: ${probe.stderr}`,
+        },
+      ],
+    });
   });
 });

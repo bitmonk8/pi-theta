@@ -88,12 +88,10 @@
 // this cell's red direction, and they are the bug's symptom exactly as an
 // author reads it.
 
-import { reservedKeywordFragment } from "../helpers/registry-oracle";
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
+import { readRegistry, reservedKeywordFragment } from "../helpers/registry-oracle";
 import { describe, expect, it } from "vitest";
 // @ts-expect-error — JS code-registry module, no type declarations.
-import { parseRegistry, registryMessage } from "../../tools/code-registry/index.js";
+import { registryMessage } from "../../tools/code-registry/index.js";
 import {
   bootShippedExtension,
   plantThetaWorkspace,
@@ -104,14 +102,7 @@ import {
 const SINGLE_LINE_IF_CODE = "theta/parse/single-line-if";
 
 /** docs/spec_topics/diagnostics/code-registry-parse.md:21 and `:23` carry both registry rows, sharded across this page. */
-const PARSE_REGISTRY = parseRegistry(
-  readFileSync(
-    fileURLToPath(
-      new URL("../../docs/spec_topics/diagnostics/code-registry-parse.md", import.meta.url),
-    ),
-    "utf8",
-  ),
-) as { code: string; message: string }[];
+const PARSE_REGISTRY = readRegistry(["parse"]);
 
 /**
  * The single-line-body row's *Message*, read from the registry on the same

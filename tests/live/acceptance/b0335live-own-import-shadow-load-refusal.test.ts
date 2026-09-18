@@ -74,15 +74,8 @@
 // FIX: bug 0335 (reuses `theta/parse/import-name-collision`, no new registry row).
 
 import { describe, expect, it } from "vitest";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { requireLiveHost, spawnPiPrint } from "./harness";
-import { checkThetaImports } from "../../../src/extension/import-static-checks";
-import type { ThetaCompositionInput } from "../../../src/extension/theta-composition-producer";
-import type { ParsedFrontmatter } from "../../../src/parser/frontmatter";
-import { parseDeps, parseDoc } from "../../helpers/e2e-s1";
-import { fakeThetaLibFs } from "../../helpers/thetalib-load-harness";
+import { driveAcceptanceSequence } from "../../helpers/acceptance-sequence-harness";
+import { importCheckCodes } from "../../helpers/thetalib-load-harness";
 
 /** The reused code the widened dependency-`.thetalib` collision arm draws. */
 const CODE = "theta/parse/import-name-collision";
@@ -160,36 +153,6 @@ const REFUSED = "REFUSED";
 const LOADED = "LOADED";
 const CONTROL_OK = "1042";
 
-/**
- * The load-pass diagnostic codes for one theta over an in-memory lib set — the
- * cross-file attribution channel `parseThetaDocument` alone cannot reach.
- */
-async function importCheckCodes(
-  thetaText: string,
-  thetaPath: string,
-  libs: Record<string, string>,
-): Promise<readonly string[]> {
-  const app = parseDoc(thetaText, thetaPath);
-  expect(
-    app.frontmatter,
-    `attribution: ${thetaPath} frontmatter must parse or the load pass reads nothing`,
-  ).not.toBeNull();
-  const input: ThetaCompositionInput = {
-    slashName: "probe",
-    sourcePath: thetaPath,
-    frontmatter: app.frontmatter as ParsedFrontmatter,
-    body: app.body,
-  };
-  const check = await checkThetaImports(input, {
-    fs: fakeThetaLibFs(libs),
-    parseDeps: parseDeps(),
-  });
-  return check.diagnostics
-    .filter((d) => d.severity === "error")
-    .map((d) => d.code)
-    .sort();
-}
-
 describe("H9a live — bug 0335 dependency-.thetalib own-import-vs-own-declaration collision load refusal through the real `pi -p`", () => {
   it("refuses the theta whose dependency library carries its own import-vs-declaration collision, and still registers and drives the well-formed control", async () => {
     // ATTRIBUTION GUARD (offline, token-free, runs BEFORE the live host is
@@ -216,67 +179,45 @@ describe("H9a live — bug 0335 dependency-.thetalib own-import-vs-own-declarati
 
     // Live-host precondition — fails loudly naming the unmet precondition
     // (`resolveAcceptanceHost`); never a skip or early return.
-    await requireLiveHost();
+    await driveAcceptanceSequence({
+      slug: "b0335",
+      files: {
+        // All fixture files land in the temp discovery root together: the
+        // offender and its two-library chain; the control and its clean lib.
+        "b0335offender.theta": OFFENDER,
+        "b0335liba.thetalib": OFFENDER_LIB_A,
+        "b0335libb.thetalib": OFFENDER_LIB_B,
+        "b0335probe.theta": PROBE,
+        "b0335control.theta": CONTROL,
+        "b0335ok.thetalib": CONTROL_LIB_OK,
+      },
+      drives: [
+        // ---- (1) the well-formed control registers and drives a real turn ----
+        {
+          label: "control",
+          slashInvocation: "/b0335control",
+          expected: CONTROL_OK,
+          message: (control) =>
+            `control: the temp discovery root must register and DRIVE the well-formed ` +
+              `clean-import theta — without this the refusal assertion below could pass ` +
+              `vacuously (wrong root, no registration at all). stdout: ${control.stdout} ` +
+              `stderr: ${control.stderr}`,
+        },
 
-    const thetaDir = mkdtempSync(join(tmpdir(), "theta-b0335-root-"));
-    const controlCwd = mkdtempSync(join(tmpdir(), "theta-b0335-cwd-"));
-    const probeCwd = mkdtempSync(join(tmpdir(), "theta-b0335-cwd-"));
-    try {
-      // All fixture files land in the temp discovery root together: the
-      // offender and its two-library chain; the control and its clean lib.
-      writeFileSync(join(thetaDir, "b0335offender.theta"), OFFENDER, "utf8");
-      writeFileSync(join(thetaDir, "b0335liba.thetalib"), OFFENDER_LIB_A, "utf8");
-      writeFileSync(join(thetaDir, "b0335libb.thetalib"), OFFENDER_LIB_B, "utf8");
-      writeFileSync(join(thetaDir, "b0335probe.theta"), PROBE, "utf8");
-      writeFileSync(join(thetaDir, "b0335control.theta"), CONTROL, "utf8");
-      writeFileSync(join(thetaDir, "b0335ok.thetalib"), CONTROL_LIB_OK, "utf8");
-
-      // ---- (1) the well-formed control registers and drives a real turn ----
-      const control = await spawnPiPrint({
-        thetaDir,
-        slashInvocation: "/b0335control",
-        cwd: controlCwd,
-      });
-      expect(
-        control.exitCode,
-        `control: expected a no-error exit (0), got ${String(control.exitCode)}. ` +
-          `stderr: ${control.stderr}`,
-      ).toBe(0);
-      expect(
-        control.stdout,
-        `control: the temp discovery root must register and DRIVE the well-formed ` +
-          `clean-import theta — without this the refusal assertion below could pass ` +
-          `vacuously (wrong root, no registration at all). stdout: ${control.stdout} ` +
-          `stderr: ${control.stderr}`,
-      ).toContain(CONTROL_OK);
-
-      // ---- (2) the offending theta is refused, observed through invoke ----
-      const probe = await spawnPiPrint({
-        thetaDir,
-        slashInvocation: "/b0335probe",
-        cwd: probeCwd,
-      });
-      expect(
-        probe.exitCode,
-        `probe: expected a no-error exit (0), got ${String(probe.exitCode)}. ` +
-          `stderr: ${probe.stderr}`,
-      ).toBe(0);
-      expect(
-        probe.stdout,
-        `probe: the offending theta must NOT load, so the prober's ` +
-          `invoke("./b0335offender.theta") resolves Err(InvokeInfraError) and the ` +
-          `match prints "${REFUSED}". Printing "${LOADED}" means a dependency library's ` +
-          `own import-vs-own-declaration collision loaded clean — bug 0335 unfixed. ` +
-          `stdout: ${probe.stdout} stderr: ${probe.stderr}`,
-      ).toContain(REFUSED);
-      expect(
-        probe.stdout,
-        `probe: the Ok arm must not fire; stdout: ${probe.stdout}`,
-      ).not.toContain(LOADED);
-    } finally {
-      rmSync(thetaDir, { recursive: true, force: true });
-      rmSync(controlCwd, { recursive: true, force: true });
-      rmSync(probeCwd, { recursive: true, force: true });
-    }
+        // ---- (2) the offending theta is refused, observed through invoke ----
+        {
+          label: "probe",
+          slashInvocation: "/b0335probe",
+          expected: REFUSED,
+          unexpected: LOADED,
+          message: (probe) =>
+            `probe: the offending theta must NOT load, so the prober's ` +
+              `invoke("./b0335offender.theta") resolves Err(InvokeInfraError) and the ` +
+              `match prints "${REFUSED}". Printing "${LOADED}" means a dependency library's ` +
+              `own import-vs-own-declaration collision loaded clean — bug 0335 unfixed. ` +
+              `stdout: ${probe.stdout} stderr: ${probe.stderr}`,
+        },
+      ],
+    });
   });
 });

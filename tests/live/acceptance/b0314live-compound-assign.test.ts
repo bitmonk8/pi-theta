@@ -52,10 +52,7 @@
 // measurement (the constraint b0304's live cell documents).
 
 import { describe, expect, it } from "vitest";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { requireLiveHost, spawnPiPrint } from "./harness";
+import { driveAcceptanceSequence } from "../../helpers/acceptance-sequence-harness";
 import { errorCodes as parseErrorCodes } from "../../helpers/e2e-s1";
 
 /** The registry code the desugared non-numeric `+` reds with (expressions.md §"`+` operator"). */
@@ -141,63 +138,41 @@ describe("H9a live — bug 0314 compound-assign refusal/concat through the real 
 
     // Live-host precondition — fails loudly naming the unmet precondition; never
     // a skip or early return.
-    await requireLiveHost();
+    await driveAcceptanceSequence({
+      slug: "b0314",
+      files: {
+        "b0314offender.theta": OFFENDER,
+        "b0314probe.theta": PROBE,
+        "b0314control.theta": CONTROL,
+      },
+      drives: [
+        // ---- (b) the well-formed += concat control registers and drives ----
+        {
+          label: "control",
+          slashInvocation: "/b0314control",
+          expected: CONTROL_OK,
+          message: (control) =>
+            `control: "ab" += "cd" must concatenate to "abcd" (length 4), so the query's ` +
+              `answer is 4 + 100 = ${CONTROL_OK}. A silent-zero compound (bug 0314 unfixed) ` +
+              `makes s the number 0 and s.length aborts the theta, so this cannot answer ` +
+              `${CONTROL_OK}. stdout: ${control.stdout} stderr: ${control.stderr}`,
+        },
 
-    const thetaDir = mkdtempSync(join(tmpdir(), "theta-b0314-root-"));
-    const controlCwd = mkdtempSync(join(tmpdir(), "theta-b0314-cwd-"));
-    const probeCwd = mkdtempSync(join(tmpdir(), "theta-b0314-cwd-"));
-    try {
-      writeFileSync(join(thetaDir, "b0314offender.theta"), OFFENDER, "utf8");
-      writeFileSync(join(thetaDir, "b0314probe.theta"), PROBE, "utf8");
-      writeFileSync(join(thetaDir, "b0314control.theta"), CONTROL, "utf8");
-
-      // ---- (b) the well-formed += concat control registers and drives ----
-      const control = await spawnPiPrint({
-        thetaDir,
-        slashInvocation: "/b0314control",
-        cwd: controlCwd,
-      });
-      expect(
-        control.exitCode,
-        `control: expected a no-error exit (0), got ${String(control.exitCode)}. ` +
-          `stderr: ${control.stderr}`,
-      ).toBe(0);
-      expect(
-        control.stdout,
-        `control: "ab" += "cd" must concatenate to "abcd" (length 4), so the query's ` +
-          `answer is 4 + 100 = ${CONTROL_OK}. A silent-zero compound (bug 0314 unfixed) ` +
-          `makes s the number 0 and s.length aborts the theta, so this cannot answer ` +
-          `${CONTROL_OK}. stdout: ${control.stdout} stderr: ${control.stderr}`,
-      ).toContain(CONTROL_OK);
-
-      // ---- (a) the non-numeric compound theta is refused, observed via invoke ----
-      const probe = await spawnPiPrint({
-        thetaDir,
-        slashInvocation: "/b0314probe",
-        cwd: probeCwd,
-      });
-      expect(
-        probe.exitCode,
-        `probe: expected a no-error exit (0), got ${String(probe.exitCode)}. ` +
-          `stderr: ${probe.stderr}`,
-      ).toBe(0);
-      expect(
-        probe.stdout,
-        `probe: the offending theta must NOT register (its compound += on arrays ` +
-          `reds at parse), so the prober's invoke("./b0314offender.theta") resolves Err ` +
-          `and ` +
-          `the match prints "${REFUSED}". Printing "${LOADED}" means a non-numeric ` +
-          `compound loaded clean — bug 0314 unfixed. stdout: ${probe.stdout} ` +
-          `stderr: ${probe.stderr}`,
-      ).toContain(REFUSED);
-      expect(
-        probe.stdout,
-        `probe: the Ok arm must not fire; stdout: ${probe.stdout}`,
-      ).not.toContain(LOADED);
-    } finally {
-      rmSync(thetaDir, { recursive: true, force: true });
-      rmSync(controlCwd, { recursive: true, force: true });
-      rmSync(probeCwd, { recursive: true, force: true });
-    }
+        // ---- (a) the non-numeric compound theta is refused, observed via invoke ----
+        {
+          label: "probe",
+          slashInvocation: "/b0314probe",
+          expected: REFUSED,
+          unexpected: LOADED,
+          message: (probe) =>
+            `probe: the offending theta must NOT register (its compound += on arrays ` +
+              `reds at parse), so the prober's invoke("./b0314offender.theta") resolves Err ` +
+              `and ` +
+              `the match prints "${REFUSED}". Printing "${LOADED}" means a non-numeric ` +
+              `compound loaded clean — bug 0314 unfixed. stdout: ${probe.stdout} ` +
+              `stderr: ${probe.stderr}`,
+        },
+      ],
+    });
   });
 });

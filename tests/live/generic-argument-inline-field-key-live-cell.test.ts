@@ -67,8 +67,7 @@
 // (per AGENTS.md's "prefer the offline-attributable guard"). At HEAD that guard
 // is the first thing that reds, and it reds naming the missing refusal.
 
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { MockInstance } from "vitest";
+import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import {
@@ -78,7 +77,7 @@ import {
   requireLiveProvider,
   type PlantedTheta,
 } from "./harness";
-import { thetaOwnedStderrLines } from "./theta-stderr-prefixes";
+import { assertThetaStderrCleanForEach } from "../helpers/theta-stderr-gate";
 import { parseDoc } from "../helpers/e2e-s1";
 // @ts-expect-error -- JS code-registry module, no type declarations.
 import { parseRegistry, registryMessage } from "../../tools/code-registry/index.js";
@@ -180,27 +179,7 @@ const GOOD = [
   "",
 ].join("\n");
 
-let consoleErrorSpy: MockInstance | undefined;
-
-beforeEach(() => {
-  consoleErrorSpy = vi.spyOn(console, "error");
-});
-
-afterEach(() => {
-  const spy = consoleErrorSpy;
-  try {
-    const lines = (spy?.mock.calls ?? []).map((args) => args.map(String).join(" "));
-    const offenders = thetaOwnedStderrLines(lines);
-    expect(
-      offenders,
-      "bug 0018's live verification observable for this suite is a 0-byte stderr capture; this " +
-        "spy caught theta-owned stderr line(s) instead: " + JSON.stringify(offenders),
-    ).toEqual([]);
-  } finally {
-    spy?.mockRestore();
-    consoleErrorSpy = undefined;
-  }
-});
+assertThetaStderrCleanForEach();
 
 describe("bug 0233 live: an inline field key inside a generic argument is refused at registration, and the conformant generic sibling registers and drives", () => {
   it("does not register `let r: array<{a b: string}> | null = null`, the theta-system-note channel carries theta/parse/inline-field-name-not-identifier naming the raw key `a b`, and `array<{ab: string}>` still registers and drives to the live sentinel", async () => {

@@ -67,11 +67,10 @@
 // cells in this suite that DO reach that launch; importing the harness
 // inherits them regardless.
 
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
+import { readRegistry } from "../helpers/registry-oracle";
 // @ts-expect-error — JS code-registry module, no type declarations.
-import { parseRegistry, registryMessage } from "../../tools/code-registry/index.js";
+import { registryMessage } from "../../tools/code-registry/index.js";
 import {
   bootShippedExtension,
   collectSystemNotes as systemNoteContents,
@@ -81,12 +80,7 @@ import {
 } from "./harness";
 
 /** The live `theta/parse/*` registry page — the same page the offline witness reads. */
-const PARSE_REGISTRY = parseRegistry(
-  readFileSync(
-    fileURLToPath(new URL("../../docs/spec_topics/diagnostics/code-registry-parse.md", import.meta.url)),
-    "utf8",
-  ),
-) as { code: string; message: string }[];
+const PARSE_REGISTRY = readRegistry(["parse"]);
 
 const INLINE_ENUM_CODE = "theta/parse/inline-enum";
 

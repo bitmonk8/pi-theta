@@ -69,8 +69,6 @@
 // registered anyway.
 
 import { describe, expect, it } from "vitest";
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
 import {
   bootShippedExtension,
   collectSystemNotes as systemNoteContents,
@@ -81,20 +79,14 @@ import {
   type PlantedTheta,
 } from "./harness";
 import { parseDoc } from "../helpers/e2e-s1";
+import { readRegistry } from "../helpers/registry-oracle";
 // @ts-expect-error -- JS code-registry module, no type declarations.
-import { parseRegistry, registryMessage } from "../../tools/code-registry/index.js";
+import { registryMessage } from "../../tools/code-registry/index.js";
 
 /** The registered row the default-side guard raises for these bytes. */
 const UNTERMINATED = "theta/parse/unterminated-string";
 
-const REGISTRY = parseRegistry(
-  readFileSync(
-    fileURLToPath(
-      new URL("../../docs/spec_topics/diagnostics/code-registry-parse.md", import.meta.url),
-    ),
-    "utf8",
-  ),
-) as { code: string; message: string }[];
+const REGISTRY = readRegistry(["parse"]);
 
 /**
  * `unterminated string literal` — DIAG-4: the message half is read from the

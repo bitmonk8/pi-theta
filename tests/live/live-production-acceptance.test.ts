@@ -33,8 +33,7 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { MockInstance } from "vitest";
+import { describe, expect, it } from "vitest";
 import {
   bootShippedExtension,
   driveSlashCaptureText,
@@ -48,15 +47,16 @@ import {
   AjvSchemaValidator,
   type LoweredSchema,
 } from "../../src/seams/schema-validator";
-import { thetaOwnedStderrLines } from "./theta-stderr-prefixes";
+import { assertThetaStderrCleanForEach } from "../helpers/theta-stderr-gate";
 // The offline attribution guard of cell 89: the shipped whole-file parse entry
 // wrapped in inert deps, so an unrelated load failure cannot be mistaken for
 // the disposition that cell's live observables read.
 import { parseDoc } from "../helpers/e2e-s1";
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
 // @ts-expect-error — JS code-registry module, no type declarations.
-import { parseRegistry, registryMessage } from "../../tools/code-registry/index.js";
+import { registryMessage } from "../../tools/code-registry/index.js";
+import { readRegistry } from "../helpers/registry-oracle";
+import { PARSE_REGISTRY_PATH, registryMessageOf } from "../helpers/load-row-harness";
+import { assertNoFailClosedEnding } from "../helpers/live-transcript";
 import { INTERPOLATED_RESULT_CODE } from "../../src/render/query-render";
 
 // Drive discriminators are ANSWERS to task questions over the theta's own
@@ -268,28 +268,7 @@ const TYPED_REPLY_SCHEMA: LoweredSchema = {
  * at file scope (outside every `describe` below) so the hooks wrap all seven
  * tests without repeating the install/inspect/restore shape in each one.
  */
-let consoleErrorSpy: MockInstance | undefined;
-
-beforeEach(() => {
-  consoleErrorSpy = vi.spyOn(console, "error");
-});
-
-afterEach(() => {
-  const spy = consoleErrorSpy;
-  try {
-    const lines = (spy?.mock.calls ?? []).map((args) => args.map(String).join(" "));
-    const offenders = thetaOwnedStderrLines(lines);
-    expect(
-      offenders,
-      "bug 0018's live verification observable for this suite is a 0-byte " +
-        "stderr capture; this spy caught theta-owned stderr line(s) instead: " +
-        JSON.stringify(offenders),
-    ).toEqual([]);
-  } finally {
-    spy?.mockRestore();
-    consoleErrorSpy = undefined;
-  }
-});
+const consoleErrorCapture = assertThetaStderrCleanForEach();
 
 // ===========================================================================
 // Tests bullet 1 — discovery → registration (Convention: live-host acceptance).
@@ -992,17 +971,7 @@ function systemNoteContents(entries: readonly unknown[]): readonly string[] {
 const INVOKE_PATH_ESCAPE_CODE = "theta/load/invoke-path-escape";
 
 /** The sharded registry page carrying `theta/load/invoke-path-escape`'s row (`:33`). */
-const INVOKE_PATH_ESCAPE_REGISTRY = parseRegistry(
-  readFileSync(
-    fileURLToPath(
-      new URL(
-        "../../docs/spec_topics/diagnostics/code-registry-load.md",
-        import.meta.url,
-      ),
-    ),
-    "utf8",
-  ),
-) as { code: string; message: string }[];
+const INVOKE_PATH_ESCAPE_REGISTRY = readRegistry(["load"]);
 
 /**
  * Render `theta/load/invoke-path-escape`'s code-prefixed system-note
@@ -1015,22 +984,15 @@ const INVOKE_PATH_ESCAPE_REGISTRY = parseRegistry(
  * content this cell asserts against actually carries.
  */
 function invokePathEscapeFragment(path: string): string {
-  const template = registryMessage(
+  const message = registryMessageOf(
     INVOKE_PATH_ESCAPE_REGISTRY,
+    "docs/spec_topics/diagnostics/code-registry-load.md",
     INVOKE_PATH_ESCAPE_CODE,
-  ) as string | undefined;
-  expect(
-    template,
-    `${INVOKE_PATH_ESCAPE_CODE} has no registry row — the code this cell ` +
-      "asserts is not registered (DIAG-2)",
-  ).toBeTypeOf("string");
-  const message = (template as string).replaceAll("<path>", path);
-  expect(
-    message,
-    `${INVOKE_PATH_ESCAPE_CODE}: an unsubstituted <…> placeholder remains — ` +
-      "the registry row's Message template changed shape and this cell's " +
-      "substitution is stale",
-  ).not.toMatch(/<[a-z]+>/);
+    [
+      ["<path>", path],
+    ],
+    { replaceAll: true, unfilledPattern: /<[a-z]+>/ },
+  );
   return `${INVOKE_PATH_ESCAPE_CODE}: ${message}`;
 }
 
@@ -1443,22 +1405,15 @@ const UNREADABLE_SOURCE_CODE = "theta/load/unreadable-source";
  * registry row, not copied, mirroring this file's `invokePathEscapeFragment`.
  */
 function unreadableSourceFragment(descriptor: string): string {
-  const template = registryMessage(
+  const message = registryMessageOf(
     INVOKE_PATH_ESCAPE_REGISTRY,
+    "docs/spec_topics/diagnostics/code-registry-load.md",
     UNREADABLE_SOURCE_CODE,
-  ) as string | undefined;
-  expect(
-    template,
-    `${UNREADABLE_SOURCE_CODE} has no registry row — the code this cell ` +
-      "asserts is not registered (DIAG-2)",
-  ).toBeTypeOf("string");
-  const message = (template as string).replaceAll("<descriptor>", descriptor);
-  expect(
-    message,
-    `${UNREADABLE_SOURCE_CODE}: an unsubstituted <…> placeholder remains — ` +
-      "the registry row's Message template changed shape and this cell's " +
-      "substitution is stale",
-  ).not.toMatch(/<[a-z-]+>/);
+    [
+      ["<descriptor>", descriptor],
+    ],
+    { replaceAll: true, unfilledPattern: /<[a-z-]+>/ },
+  );
   return `${UNREADABLE_SOURCE_CODE}: ${message}`;
 }
 
@@ -1559,17 +1514,7 @@ describe("H8a-T — cell 62 (bug 0113): a settings thetaPaths glob whose static-
 // ===========================================================================
 
 /** `theta/parse/interpolated-result`'s registered Message — DIAG-4, read not copied. */
-const INTERPOLATED_RESULT_REGISTRY = parseRegistry(
-  readFileSync(
-    fileURLToPath(
-      new URL(
-        "../../docs/spec_topics/diagnostics/code-registry-parse.md",
-        import.meta.url,
-      ),
-    ),
-    "utf8",
-  ),
-) as { code: string; message: string }[];
+const INTERPOLATED_RESULT_REGISTRY = readRegistry(["parse"]);
 
 /**
  * The panic-framing `theta-system-note` text `composeThetaFixture.run`'s
@@ -1734,17 +1679,7 @@ describe("H8a-T — bug 0079 (b): a laundered Result interpolation panics instea
 // ===========================================================================
 
 /** `theta/parse/increment-decrement`'s registered Message — DIAG-4, read not copied. */
-const B0122_INCREMENT_DECREMENT_REGISTRY = parseRegistry(
-  readFileSync(
-    fileURLToPath(
-      new URL(
-        "../../docs/spec_topics/diagnostics/code-registry-parse.md",
-        import.meta.url,
-      ),
-    ),
-    "utf8",
-  ),
-) as { code: string; message: string }[];
+const B0122_INCREMENT_DECREMENT_REGISTRY = readRegistry(["parse"]);
 
 /** The fixed observable's registered code — src/parser/bindings.ts's emitter. */
 const B0122_INCREMENT_DECREMENT_CODE = "theta/parse/increment-decrement";
@@ -2056,17 +1991,7 @@ describe("H8a-T — bug 0080: constructor field order follows the schema's DECLA
 
 /** `theta/parse/increment-decrement`'s registered code and registry page. */
 const INCREMENT_DECREMENT_CODE = "theta/parse/increment-decrement";
-const INCREMENT_DECREMENT_REGISTRY = parseRegistry(
-  readFileSync(
-    fileURLToPath(
-      new URL(
-        "../../docs/spec_topics/diagnostics/code-registry-parse.md",
-        import.meta.url,
-      ),
-    ),
-    "utf8",
-  ),
-) as { code: string; message: string }[];
+const INCREMENT_DECREMENT_REGISTRY = readRegistry(["parse"]);
 
 /**
  * `theta/parse/increment-decrement: '<op>' operator is not supported` —
@@ -2075,22 +2000,15 @@ const INCREMENT_DECREMENT_REGISTRY = parseRegistry(
  * `interpolatedResultAbortedNote` helpers.
  */
 function incrementDecrementFragment(op: "++" | "--"): string {
-  const template = registryMessage(
+  const message = registryMessageOf(
     INCREMENT_DECREMENT_REGISTRY,
+    PARSE_REGISTRY_PATH,
     INCREMENT_DECREMENT_CODE,
-  ) as string | undefined;
-  expect(
-    template,
-    `${INCREMENT_DECREMENT_CODE} has no registry row — the code this cell ` +
-      "asserts is not registered (DIAG-2)",
-  ).toBeTypeOf("string");
-  const message = (template as string).replaceAll("<op>", op);
-  expect(
-    message,
-    `${INCREMENT_DECREMENT_CODE}: an unsubstituted <…> placeholder remains — ` +
-      "the registry row's Message template changed shape and this cell's " +
-      "substitution is stale",
-  ).not.toMatch(/<[a-z]+>/);
+    [
+      ["<op>", op],
+    ],
+    { replaceAll: true, unfilledPattern: /<[a-z]+>/ },
+  );
   return `${INCREMENT_DECREMENT_CODE}: ${message}`;
 }
 
@@ -2206,17 +2124,7 @@ describe("H8a-T — bug 0084: `--` in a while body draws theta/parse/increment-d
 
 /** `theta/parse/non-array-iterand`'s registered code and registry page. */
 const NON_ARRAY_ITERAND_CODE = "theta/parse/non-array-iterand";
-const NON_ARRAY_ITERAND_REGISTRY = parseRegistry(
-  readFileSync(
-    fileURLToPath(
-      new URL(
-        "../../docs/spec_topics/diagnostics/code-registry-parse.md",
-        import.meta.url,
-      ),
-    ),
-    "utf8",
-  ),
-) as { code: string; message: string }[];
+const NON_ARRAY_ITERAND_REGISTRY = readRegistry(["parse"]);
 
 /**
  * `theta/parse/non-array-iterand: 'for' expects array<T> after 'in'; got
@@ -2227,22 +2135,15 @@ const NON_ARRAY_ITERAND_REGISTRY = parseRegistry(
  * fragment for the fixed caller's own declared type may appear.
  */
 function nonArrayIterandFragment(type: string): string {
-  const template = registryMessage(
+  const message = registryMessageOf(
     NON_ARRAY_ITERAND_REGISTRY,
+    PARSE_REGISTRY_PATH,
     NON_ARRAY_ITERAND_CODE,
-  ) as string | undefined;
-  expect(
-    template,
-    `${NON_ARRAY_ITERAND_CODE} has no registry row — the code this cell ` +
-      "asserts is not registered (DIAG-2)",
-  ).toBeTypeOf("string");
-  const message = (template as string).replaceAll("<type>", type);
-  expect(
-    message,
-    `${NON_ARRAY_ITERAND_CODE}: an unsubstituted <…> placeholder remains — ` +
-      "the registry row's Message template changed shape and this cell's " +
-      "substitution is stale",
-  ).not.toMatch(/<[a-z]+>/);
+    [
+      ["<type>", type],
+    ],
+    { replaceAll: true, unfilledPattern: /<[a-z]+>/ },
+  );
   return `${NON_ARRAY_ITERAND_CODE}: ${message}`;
 }
 
@@ -2376,17 +2277,7 @@ describe("H8a-T — bug 0089: an alias-typed fn parameter iterated in a `for` re
 
 /** `theta/parse/empty-schema-body`'s registered code and registry page. */
 const EMPTY_SCHEMA_BODY_CODE = "theta/parse/empty-schema-body";
-const EMPTY_SCHEMA_BODY_REGISTRY = parseRegistry(
-  readFileSync(
-    fileURLToPath(
-      new URL(
-        "../../docs/spec_topics/diagnostics/code-registry-parse.md",
-        import.meta.url,
-      ),
-    ),
-    "utf8",
-  ),
-) as { code: string; message: string }[];
+const EMPTY_SCHEMA_BODY_REGISTRY = readRegistry(["parse"]);
 
 /**
  * `theta/parse/empty-schema-body: '<X>' has no fields; …` with `<X>`
@@ -2397,22 +2288,15 @@ const EMPTY_SCHEMA_BODY_REGISTRY = parseRegistry(
  * whose fields the capture destroyed.
  */
 function emptySchemaBodyFragment(subject: string): string {
-  const template = registryMessage(
+  const message = registryMessageOf(
     EMPTY_SCHEMA_BODY_REGISTRY,
+    PARSE_REGISTRY_PATH,
     EMPTY_SCHEMA_BODY_CODE,
-  ) as string | undefined;
-  expect(
-    template,
-    `${EMPTY_SCHEMA_BODY_CODE} has no registry row — the code this cell ` +
-      "asserts is not registered (DIAG-2)",
-  ).toBeTypeOf("string");
-  const message = (template as string).replaceAll("<X>", subject);
-  expect(
-    message,
-    `${EMPTY_SCHEMA_BODY_CODE}: an unsubstituted <…> placeholder remains — ` +
-      "the registry row's Message template changed shape and this cell's " +
-      "substitution is stale",
-  ).not.toMatch(/<[a-zA-Z]+>/);
+    [
+      ["<X>", subject],
+    ],
+    { replaceAll: true, unfilledPattern: /<[a-zA-Z]+>/ },
+  );
   return `${EMPTY_SCHEMA_BODY_CODE}: ${message}`;
 }
 
@@ -2551,17 +2435,7 @@ describe("H8a-T — bug 0095: a schema field carrying a brace-rooted union arm r
 
 /** `theta/parse/literal-newline-in-string`'s registered code and registry page (bug 0102 reuses the lexer's existing code; see docs/bugs/0102-…). */
 const LITERAL_NEWLINE_IN_STRING_CODE = "theta/parse/literal-newline-in-string";
-const LITERAL_NEWLINE_IN_STRING_REGISTRY = parseRegistry(
-  readFileSync(
-    fileURLToPath(
-      new URL(
-        "../../docs/spec_topics/diagnostics/code-registry-parse.md",
-        import.meta.url,
-      ),
-    ),
-    "utf8",
-  ),
-) as { code: string; message: string }[];
+const LITERAL_NEWLINE_IN_STRING_REGISTRY = readRegistry(["parse"]);
 
 /**
  * `theta/parse/literal-newline-in-string: literal newline in string literal` —
@@ -2747,17 +2621,7 @@ describe("H8a-T — bug 0102: a params: default's string literal carrying a raw 
 
 /** `theta/parse/unknown-method`'s registered code and registry page. */
 const UNKNOWN_METHOD_CODE = "theta/parse/unknown-method";
-const UNKNOWN_METHOD_REGISTRY = parseRegistry(
-  readFileSync(
-    fileURLToPath(
-      new URL(
-        "../../docs/spec_topics/diagnostics/code-registry-parse.md",
-        import.meta.url,
-      ),
-    ),
-    "utf8",
-  ),
-) as { code: string; message: string }[];
+const UNKNOWN_METHOD_REGISTRY = readRegistry(["parse"]);
 
 /**
  * `theta/parse/unknown-method: unknown method '<method>' on type <type>` with
@@ -2768,24 +2632,16 @@ const UNKNOWN_METHOD_REGISTRY = parseRegistry(
  * must name this fragment on the theta-system-note channel.
  */
 function unknownMethodFragment(method: string, type: string): string {
-  const template = registryMessage(
+  const message = registryMessageOf(
     UNKNOWN_METHOD_REGISTRY,
+    PARSE_REGISTRY_PATH,
     UNKNOWN_METHOD_CODE,
-  ) as string | undefined;
-  expect(
-    template,
-    `${UNKNOWN_METHOD_CODE} has no registry row — the code this cell ` +
-      "asserts is not registered (DIAG-2)",
-  ).toBeTypeOf("string");
-  const message = (template as string)
-    .replaceAll("<method>", method)
-    .replaceAll("<type>", type);
-  expect(
-    message,
-    `${UNKNOWN_METHOD_CODE}: an unsubstituted <…> placeholder remains — ` +
-      "the registry row's Message template changed shape and this cell's " +
-      "substitution is stale",
-  ).not.toMatch(/<[a-z]+>/);
+    [
+      ["<method>", method],
+      ["<type>", type],
+    ],
+    { replaceAll: true, unfilledPattern: /<[a-z]+>/ },
+  );
   return `${UNKNOWN_METHOD_CODE}: ${message}`;
 }
 
@@ -2956,17 +2812,7 @@ describe("H8a-T — bug 0125: an alias-typed array's element, called past the st
 const FN_ARG_TYPE_MISMATCH_CODE = "theta/parse/fn-arg-type-mismatch";
 
 /** The sharded registry page carrying `theta/parse/fn-arg-type-mismatch`'s row (`:116`). */
-const FN_ARG_TYPE_MISMATCH_REGISTRY = parseRegistry(
-  readFileSync(
-    fileURLToPath(
-      new URL(
-        "../../docs/spec_topics/diagnostics/code-registry-parse.md",
-        import.meta.url,
-      ),
-    ),
-    "utf8",
-  ),
-) as { code: string; message: string }[];
+const FN_ARG_TYPE_MISMATCH_REGISTRY = readRegistry(["parse"]);
 
 /**
  * `theta/parse/fn-arg-type-mismatch: fn '<name>' argument <i> ('<param>') type
@@ -2984,27 +2830,19 @@ function fnArgTypeMismatchFragment(
   expected: string,
   actual: string,
 ): string {
-  const template = registryMessage(
+  const message = registryMessageOf(
     FN_ARG_TYPE_MISMATCH_REGISTRY,
+    PARSE_REGISTRY_PATH,
     FN_ARG_TYPE_MISMATCH_CODE,
-  ) as string | undefined;
-  expect(
-    template,
-    `${FN_ARG_TYPE_MISMATCH_CODE} has no registry row — the code this cell ` +
-      "asserts is not registered (DIAG-2)",
-  ).toBeTypeOf("string");
-  const message = (template as string)
-    .replaceAll("<name>", fnName)
-    .replaceAll("<i>", String(index))
-    .replaceAll("<param>", paramName)
-    .replaceAll("<expected>", expected)
-    .replaceAll("<actual>", actual);
-  expect(
-    message,
-    `${FN_ARG_TYPE_MISMATCH_CODE}: an unsubstituted <…> placeholder remains — ` +
-      "the registry row's Message template changed shape and this cell's " +
-      "substitution is stale",
-  ).not.toMatch(/<[a-z]+>/);
+    [
+      ["<name>", fnName],
+      ["<i>", String(index)],
+      ["<param>", paramName],
+      ["<expected>", expected],
+      ["<actual>", actual],
+    ],
+    { replaceAll: true, unfilledPattern: /<[a-z]+>/ },
+  );
   return `${FN_ARG_TYPE_MISMATCH_CODE}: ${message}`;
 }
 
@@ -3162,17 +3000,7 @@ describe("H8a-T — bug 0050: a plain fn call's provably mistyped argument does 
 const INVOKE_ARG_TYPE_MISMATCH_CODE = "theta/parse/invoke-arg-type-mismatch";
 
 /** The sharded registry page carrying `theta/parse/invoke-arg-type-mismatch`'s row. */
-const INVOKE_ARG_TYPE_MISMATCH_REGISTRY = parseRegistry(
-  readFileSync(
-    fileURLToPath(
-      new URL(
-        "../../docs/spec_topics/diagnostics/code-registry-parse.md",
-        import.meta.url,
-      ),
-    ),
-    "utf8",
-  ),
-) as { code: string; message: string }[];
+const INVOKE_ARG_TYPE_MISMATCH_REGISTRY = readRegistry(["parse"]);
 
 /**
  * `theta/parse/invoke-arg-type-mismatch: invoke argument <i> ('<param>') type
@@ -3190,26 +3018,18 @@ function invokeArgTypeMismatchFragment(
   expected: string,
   actual: string,
 ): string {
-  const template = registryMessage(
+  const message = registryMessageOf(
     INVOKE_ARG_TYPE_MISMATCH_REGISTRY,
+    PARSE_REGISTRY_PATH,
     INVOKE_ARG_TYPE_MISMATCH_CODE,
-  ) as string | undefined;
-  expect(
-    template,
-    `${INVOKE_ARG_TYPE_MISMATCH_CODE} has no registry row — the code this ` +
-      "cell asserts is not registered (DIAG-2)",
-  ).toBeTypeOf("string");
-  const message = (template as string)
-    .replaceAll("<i>", String(index))
-    .replaceAll("<param>", paramName)
-    .replaceAll("<expected>", expected)
-    .replaceAll("<actual>", actual);
-  expect(
-    message,
-    `${INVOKE_ARG_TYPE_MISMATCH_CODE}: an unsubstituted <…> placeholder ` +
-      "remains — the registry row's Message template changed shape and " +
-      "this cell's substitution is stale",
-  ).not.toMatch(/<[a-z]+>/);
+    [
+      ["<i>", String(index)],
+      ["<param>", paramName],
+      ["<expected>", expected],
+      ["<actual>", actual],
+    ],
+    { replaceAll: true, unfilledPattern: /<[a-z]+>/ },
+  );
   return `${INVOKE_ARG_TYPE_MISMATCH_CODE}: ${message}`;
 }
 
@@ -3394,17 +3214,7 @@ describe("H8a-T — bug 0137: a literal invoke(...) call's provably mistyped arg
 
 /** `theta/parse/binding-case-mismatch`'s registered code and registry page. */
 const BINDING_CASE_MISMATCH_CODE = "theta/parse/binding-case-mismatch";
-const BINDING_CASE_MISMATCH_REGISTRY = parseRegistry(
-  readFileSync(
-    fileURLToPath(
-      new URL(
-        "../../docs/spec_topics/diagnostics/code-registry-parse.md",
-        import.meta.url,
-      ),
-    ),
-    "utf8",
-  ),
-) as { code: string; message: string }[];
+const BINDING_CASE_MISMATCH_REGISTRY = readRegistry(["parse"]);
 
 /**
  * `theta/parse/binding-case-mismatch: binding name must start with a
@@ -3420,22 +3230,13 @@ const BINDING_CASE_MISMATCH_REGISTRY = parseRegistry(
  * than a fill check.
  */
 function bindingCaseMismatchFragment(): string {
-  const template = registryMessage(
+  const message = registryMessageOf(
     BINDING_CASE_MISMATCH_REGISTRY,
+    PARSE_REGISTRY_PATH,
     BINDING_CASE_MISMATCH_CODE,
-  ) as string | undefined;
-  expect(
-    template,
-    `${BINDING_CASE_MISMATCH_CODE} has no registry row — the code this cell ` +
-      "asserts is not registered (DIAG-2)",
-  ).toBeTypeOf("string");
-  const message = template as string;
-  expect(
-    message,
-    `${BINDING_CASE_MISMATCH_CODE}: the registry row's Message template grew ` +
-      "an unsubstituted <…> placeholder this reader does not fill — the row " +
-      "changed shape",
-  ).not.toMatch(/<[a-z]+>/);
+    [],
+    { unfilledPattern: /<[a-z]+>/ },
+  );
   return `${BINDING_CASE_MISMATCH_CODE}: ${message}`;
 }
 
@@ -3569,17 +3370,7 @@ describe("H8a-T — bug 0139: an uppercase-first fn parameter name draws binding
 const INTEGER_NARROWING_CODE = "theta/parse/integer-narrowing";
 
 /** The sharded registry page carrying `theta/parse/integer-narrowing`'s row (`:24`). */
-const INTEGER_NARROWING_REGISTRY = parseRegistry(
-  readFileSync(
-    fileURLToPath(
-      new URL(
-        "../../docs/spec_topics/diagnostics/code-registry-parse.md",
-        import.meta.url,
-      ),
-    ),
-    "utf8",
-  ),
-) as { code: string; message: string }[];
+const INTEGER_NARROWING_REGISTRY = readRegistry(["parse"]);
 
 /**
  * `theta/parse/integer-narrowing: cannot narrow number to integer` — DIAG-4:
@@ -3590,22 +3381,13 @@ const INTEGER_NARROWING_REGISTRY = parseRegistry(
  * rather than a fill check.
  */
 function integerNarrowingFragment(): string {
-  const template = registryMessage(
+  const message = registryMessageOf(
     INTEGER_NARROWING_REGISTRY,
+    PARSE_REGISTRY_PATH,
     INTEGER_NARROWING_CODE,
-  ) as string | undefined;
-  expect(
-    template,
-    `${INTEGER_NARROWING_CODE} has no registry row — the code this cell ` +
-      "asserts is not registered (DIAG-2)",
-  ).toBeTypeOf("string");
-  const message = template as string;
-  expect(
-    message,
-    `${INTEGER_NARROWING_CODE}: the registry row's Message template grew ` +
-      "an unsubstituted <…> placeholder this reader does not fill — the row " +
-      "changed shape",
-  ).not.toMatch(/<[a-z]+>/);
+    [],
+    { unfilledPattern: /<[a-z]+>/ },
+  );
   return `${INTEGER_NARROWING_CODE}: ${message}`;
 }
 
@@ -4202,17 +3984,7 @@ describe("H8a-T — bug 0149: an uppercase-first schema field name or params: ke
 const ARRAY_NO_COMMON_TYPE_CODE = "theta/parse/array-no-common-type";
 
 /** The sharded registry page carrying `theta/parse/array-no-common-type`'s row (`:41`). */
-const ARRAY_NO_COMMON_TYPE_REGISTRY = parseRegistry(
-  readFileSync(
-    fileURLToPath(
-      new URL(
-        "../../docs/spec_topics/diagnostics/code-registry-parse.md",
-        import.meta.url,
-      ),
-    ),
-    "utf8",
-  ),
-) as { code: string; message: string }[];
+const ARRAY_NO_COMMON_TYPE_REGISTRY = readRegistry(["parse"]);
 
 /**
  * `theta/parse/array-no-common-type: array elements have no common type; …`
@@ -4224,22 +3996,13 @@ const ARRAY_NO_COMMON_TYPE_REGISTRY = parseRegistry(
  * placeholder reds here — rather than a fill check.
  */
 function arrayNoCommonTypeFragment(): string {
-  const template = registryMessage(
+  const message = registryMessageOf(
     ARRAY_NO_COMMON_TYPE_REGISTRY,
+    PARSE_REGISTRY_PATH,
     ARRAY_NO_COMMON_TYPE_CODE,
-  ) as string | undefined;
-  expect(
-    template,
-    `${ARRAY_NO_COMMON_TYPE_CODE} has no registry row — the code this cell ` +
-      "asserts is not registered (DIAG-2)",
-  ).toBeTypeOf("string");
-  const message = template as string;
-  expect(
-    message,
-    `${ARRAY_NO_COMMON_TYPE_CODE}: the registry row's Message template grew ` +
-      "an unsubstituted <…> placeholder this reader does not fill — the row " +
-      "changed shape",
-  ).not.toMatch(/<[a-z]+>/);
+    [],
+    { unfilledPattern: /<[a-z]+>/ },
+  );
   return `${ARRAY_NO_COMMON_TYPE_CODE}: ${message}`;
 }
 
@@ -4559,17 +4322,7 @@ describe("H8a-T — bug 0155: a ternary with two distinct named object-schema br
 const DUPLICATE_INLINE_FIELD_NAME_CODE = "theta/parse/duplicate-inline-field-name";
 
 /** The sharded registry page carrying `theta/parse/duplicate-inline-field-name`'s row. */
-const DUPLICATE_INLINE_FIELD_NAME_REGISTRY = parseRegistry(
-  readFileSync(
-    fileURLToPath(
-      new URL(
-        "../../docs/spec_topics/diagnostics/code-registry-parse.md",
-        import.meta.url,
-      ),
-    ),
-    "utf8",
-  ),
-) as { code: string; message: string }[];
+const DUPLICATE_INLINE_FIELD_NAME_REGISTRY = readRegistry(["parse"]);
 
 /**
  * `theta/parse/duplicate-inline-field-name: duplicate field name '<field>'
@@ -4580,27 +4333,15 @@ const DUPLICATE_INLINE_FIELD_NAME_REGISTRY = parseRegistry(
  * placeholder is left unsubstituted.
  */
 function duplicateInlineFieldNameFragment(field: string): string {
-  const template = registryMessage(
+  const message = registryMessageOf(
     DUPLICATE_INLINE_FIELD_NAME_REGISTRY,
+    PARSE_REGISTRY_PATH,
     DUPLICATE_INLINE_FIELD_NAME_CODE,
-  ) as string | undefined;
-  expect(
-    template,
-    `${DUPLICATE_INLINE_FIELD_NAME_CODE} has no registry row — the code this ` +
-      "cell asserts is not registered (DIAG-2)",
-  ).toBeTypeOf("string");
-  const withSlot = template as string;
-  expect(
-    withSlot,
-    `${DUPLICATE_INLINE_FIELD_NAME_CODE}: the registry row's Message template ` +
-      "must carry the <field> slot this cell fills — the row changed shape",
-  ).toContain("<field>");
-  const message = withSlot.replace("<field>", field);
-  expect(
-    message,
-    `${DUPLICATE_INLINE_FIELD_NAME_CODE}: the registry row's Message template ` +
-      "grew a second unsubstituted placeholder this reader does not fill",
-  ).not.toMatch(/<[a-z]+>/);
+    [
+      ["<field>", field],
+    ],
+    { unfilledPattern: /<[a-z]+>/ },
+  );
   return `${DUPLICATE_INLINE_FIELD_NAME_CODE}: ${message}`;
 }
 
@@ -4936,14 +4677,7 @@ describe("H8a-T — bug 0056: an invoke(...) argument outside a params: literal 
       // so this theta's own top-level outcome is Success either way — a
       // failure note here would mean the fixture itself is broken, not that
       // bug 0056 fired.
-      const failureNotes = turn.systemNotes.filter((n) =>
-        /^theta \/b56livecheck (returned Err|cancelled|aborted)/.test(n),
-      );
-      expect(
-        failureNotes,
-        "the invoking parent's own drive surfaced fail-closed system note(s) " +
-          "— the fixture itself is broken: " + JSON.stringify(failureNotes),
-      ).toEqual([]);
+      assertNoFailClosedEnding(turn, "b56livecheck");
     } finally {
       await handle.dispose();
       workspace.dispose();
@@ -5016,17 +4750,7 @@ describe("H8a-T — bug 0056: an invoke(...) argument outside a params: literal 
 const PARAMS_TYPE_NOT_EXPRESSION_CODE = "theta/load/params-type-not-expression";
 
 /** The sharded registry page carrying `theta/load/params-type-not-expression`'s row. */
-const PARAMS_TYPE_NOT_EXPRESSION_REGISTRY = parseRegistry(
-  readFileSync(
-    fileURLToPath(
-      new URL(
-        "../../docs/spec_topics/diagnostics/code-registry-load.md",
-        import.meta.url,
-      ),
-    ),
-    "utf8",
-  ),
-) as { code: string; message: string }[];
+const PARAMS_TYPE_NOT_EXPRESSION_REGISTRY = readRegistry(["load"]);
 
 /**
  * `theta/load/params-type-not-expression: 'params:' field '<param>'
@@ -5038,27 +4762,15 @@ const PARAMS_TYPE_NOT_EXPRESSION_REGISTRY = parseRegistry(
  * placeholder is left unsubstituted.
  */
 function paramsTypeNotExpressionFragment(param: string): string {
-  const template = registryMessage(
+  const message = registryMessageOf(
     PARAMS_TYPE_NOT_EXPRESSION_REGISTRY,
+    "docs/spec_topics/diagnostics/code-registry-load.md",
     PARAMS_TYPE_NOT_EXPRESSION_CODE,
-  ) as string | undefined;
-  expect(
-    template,
-    `${PARAMS_TYPE_NOT_EXPRESSION_CODE} has no registry row — the code this ` +
-      "cell asserts is not registered (DIAG-2)",
-  ).toBeTypeOf("string");
-  const withSlot = template as string;
-  expect(
-    withSlot,
-    `${PARAMS_TYPE_NOT_EXPRESSION_CODE}: the registry row's Message template ` +
-      "must carry the <param> slot this cell fills — the row changed shape",
-  ).toContain("<param>");
-  const message = withSlot.replace("<param>", param);
-  expect(
-    message,
-    `${PARAMS_TYPE_NOT_EXPRESSION_CODE}: the registry row's Message template ` +
-      "grew a second unsubstituted placeholder this reader does not fill",
-  ).not.toMatch(/<[a-z]+>/);
+    [
+      ["<param>", param],
+    ],
+    { unfilledPattern: /<[a-z]+>/ },
+  );
   return `${PARAMS_TYPE_NOT_EXPRESSION_CODE}: ${message}`;
 }
 
@@ -5234,17 +4946,7 @@ describe("H8a-T — bug 0059: a params: right-hand side spelling no Type product
 const SCHEMA_TYPE_NOT_EXPRESSION_CODE = "theta/parse/schema-type-not-expression";
 
 /** The sharded registry page carrying `theta/parse/schema-type-not-expression`'s row. */
-const SCHEMA_TYPE_NOT_EXPRESSION_REGISTRY = parseRegistry(
-  readFileSync(
-    fileURLToPath(
-      new URL(
-        "../../docs/spec_topics/diagnostics/code-registry-parse.md",
-        import.meta.url,
-      ),
-    ),
-    "utf8",
-  ),
-) as { code: string; message: string }[];
+const SCHEMA_TYPE_NOT_EXPRESSION_REGISTRY = readRegistry(["parse"]);
 
 /**
  * `theta/parse/schema-type-not-expression: '<X>' declares a type that is not
@@ -5256,27 +4958,15 @@ const SCHEMA_TYPE_NOT_EXPRESSION_REGISTRY = parseRegistry(
  * assertion confirms no second placeholder is left unsubstituted.
  */
 function schemaTypeNotExpressionFragment(declName: string): string {
-  const template = registryMessage(
+  const message = registryMessageOf(
     SCHEMA_TYPE_NOT_EXPRESSION_REGISTRY,
+    PARSE_REGISTRY_PATH,
     SCHEMA_TYPE_NOT_EXPRESSION_CODE,
-  ) as string | undefined;
-  expect(
-    template,
-    `${SCHEMA_TYPE_NOT_EXPRESSION_CODE} has no registry row — the code this ` +
-      "cell asserts is not registered (DIAG-2)",
-  ).toBeTypeOf("string");
-  const withSlot = template as string;
-  expect(
-    withSlot,
-    `${SCHEMA_TYPE_NOT_EXPRESSION_CODE}: the registry row's Message template ` +
-      "must carry the <X> slot this cell fills — the row changed shape",
-  ).toContain("<X>");
-  const message = withSlot.replace("<X>", declName);
-  expect(
-    message,
-    `${SCHEMA_TYPE_NOT_EXPRESSION_CODE}: the registry row's Message template ` +
-      "grew a second unsubstituted placeholder this reader does not fill",
-  ).not.toMatch(/<[a-zA-Z][a-zA-Z0-9-]*>/);
+    [
+      ["<X>", declName],
+    ],
+    { unfilledPattern: /<[a-zA-Z][a-zA-Z0-9-]*>/ },
+  );
   return `${SCHEMA_TYPE_NOT_EXPRESSION_CODE}: ${message}`;
 }
 
@@ -5776,17 +5466,7 @@ describe("H8a-T — bug 0067: a named-enum value crossing the PIC-59 envelope re
 
 /** `theta/parse/default-not-literal`'s registered code (bug 0166 narrows its Trigger to the numeric carve-out; code-registry-parse.md:48) and its registry page. */
 const DEFAULT_NOT_LITERAL_CODE = "theta/parse/default-not-literal";
-const DEFAULT_NOT_LITERAL_REGISTRY = parseRegistry(
-  readFileSync(
-    fileURLToPath(
-      new URL(
-        "../../docs/spec_topics/diagnostics/code-registry-parse.md",
-        import.meta.url,
-      ),
-    ),
-    "utf8",
-  ),
-) as { code: string; message: string }[];
+const DEFAULT_NOT_LITERAL_REGISTRY = readRegistry(["parse"]);
 
 /**
  * `theta/parse/default-not-literal: params default RHS must be a
@@ -5796,22 +5476,15 @@ const DEFAULT_NOT_LITERAL_REGISTRY = parseRegistry(
  * `unknownMethodFragment` / `invokePathEscapeFragment` helpers.
  */
 function defaultNotLiteralFragment(expr: string): string {
-  const template = registryMessage(
+  const message = registryMessageOf(
     DEFAULT_NOT_LITERAL_REGISTRY,
+    PARSE_REGISTRY_PATH,
     DEFAULT_NOT_LITERAL_CODE,
-  ) as string | undefined;
-  expect(
-    template,
-    `${DEFAULT_NOT_LITERAL_CODE} has no registry row — the code this cell ` +
-      "asserts is not registered (DIAG-2)",
-  ).toBeTypeOf("string");
-  const message = (template as string).replaceAll("<expr>", expr);
-  expect(
-    message,
-    `${DEFAULT_NOT_LITERAL_CODE}: an unsubstituted <…> placeholder remains — ` +
-      "the registry row's Message template changed shape and this cell's " +
-      "substitution is stale",
-  ).not.toMatch(/<[a-z]+>/);
+    [
+      ["<expr>", expr],
+    ],
+    { replaceAll: true, unfilledPattern: /<[a-z]+>/ },
+  );
   return `${DEFAULT_NOT_LITERAL_CODE}: ${message}`;
 }
 
@@ -6014,17 +5687,7 @@ describe("H8a-T — bug 0166: a params: default's unary `-` over a non-numeric l
 
 /** `theta/parse/default-without-literal`'s registered code (§Fix (a); code-registry-parse.md:49) and its registry page. */
 const DEFAULT_WITHOUT_LITERAL_CODE = "theta/parse/default-without-literal";
-const DEFAULT_WITHOUT_LITERAL_REGISTRY = parseRegistry(
-  readFileSync(
-    fileURLToPath(
-      new URL(
-        "../../docs/spec_topics/diagnostics/code-registry-parse.md",
-        import.meta.url,
-      ),
-    ),
-    "utf8",
-  ),
-) as { code: string; message: string }[];
+const DEFAULT_WITHOUT_LITERAL_REGISTRY = readRegistry(["parse"]);
 
 /**
  * `theta/parse/default-without-literal: params default for '<field>' is
@@ -6034,22 +5697,15 @@ const DEFAULT_WITHOUT_LITERAL_REGISTRY = parseRegistry(
  * `invokePathEscapeFragment` helpers.
  */
 function defaultWithoutLiteralFragment(field: string): string {
-  const template = registryMessage(
+  const message = registryMessageOf(
     DEFAULT_WITHOUT_LITERAL_REGISTRY,
+    PARSE_REGISTRY_PATH,
     DEFAULT_WITHOUT_LITERAL_CODE,
-  ) as string | undefined;
-  expect(
-    template,
-    `${DEFAULT_WITHOUT_LITERAL_CODE} has no registry row — the code this cell ` +
-      "asserts is not registered (DIAG-2)",
-  ).toBeTypeOf("string");
-  const message = (template as string).replaceAll("<field>", field);
-  expect(
-    message,
-    `${DEFAULT_WITHOUT_LITERAL_CODE}: an unsubstituted <…> placeholder remains — ` +
-      "the registry row's Message template changed shape and this cell's " +
-      "substitution is stale",
-  ).not.toMatch(/<[a-z]+>/);
+    [
+      ["<field>", field],
+    ],
+    { replaceAll: true, unfilledPattern: /<[a-z]+>/ },
+  );
   return `${DEFAULT_WITHOUT_LITERAL_CODE}: ${message}`;
 }
 
@@ -7157,14 +6813,7 @@ describe("H8a-T — bug 0097: an invoke(...) argument matching a params: object-
       // so this theta's own top-level outcome is Success either way — a
       // failure note here would mean the fixture itself is broken, not that
       // bug 0097 fired.
-      const failureNotes = turn.systemNotes.filter((n) =>
-        /^theta \/b97livecheck (returned Err|cancelled|aborted)/.test(n),
-      );
-      expect(
-        failureNotes,
-        "the invoking parent's own drive surfaced fail-closed system note(s) " +
-          "— the fixture itself is broken: " + JSON.stringify(failureNotes),
-      ).toEqual([]);
+      assertNoFailClosedEnding(turn, "b97livecheck");
     } finally {
       await handle.dispose();
       workspace.dispose();
@@ -7555,17 +7204,7 @@ describe("H8a-T — bug 0181: a params: default authored as Enum.Variant access 
 
 /** `theta/parse/object-field-type-mismatch`'s registered code and registry page. */
 const OBJECT_FIELD_MISMATCH_CODE = "theta/parse/object-field-type-mismatch";
-const OBJECT_FIELD_MISMATCH_REGISTRY = parseRegistry(
-  readFileSync(
-    fileURLToPath(
-      new URL(
-        "../../docs/spec_topics/diagnostics/code-registry-parse.md",
-        import.meta.url,
-      ),
-    ),
-    "utf8",
-  ),
-) as { code: string; message: string }[];
+const OBJECT_FIELD_MISMATCH_REGISTRY = readRegistry(["parse"]);
 
 /**
  * `theta/parse/object-field-type-mismatch: field '<field>' on schema
@@ -8255,17 +7894,7 @@ describe("H8a-T — bug 0126: a plain `for` body's method misuse of its loop var
 const UNKNOWN_VARIANT_CODE = "theta/parse/unknown-variant";
 
 /** The sharded registry page carrying `theta/parse/unknown-variant`'s row. */
-const UNKNOWN_VARIANT_REGISTRY = parseRegistry(
-  readFileSync(
-    fileURLToPath(
-      new URL(
-        "../../docs/spec_topics/diagnostics/code-registry-parse.md",
-        import.meta.url,
-      ),
-    ),
-    "utf8",
-  ),
-) as { code: string; message: string }[];
+const UNKNOWN_VARIANT_REGISTRY = readRegistry(["parse"]);
 
 /**
  * `theta/parse/unknown-variant: unknown variant '<variant>' on enum
@@ -8276,24 +7905,16 @@ const UNKNOWN_VARIANT_REGISTRY = parseRegistry(
  * confirms neither is left unsubstituted.
  */
 function unknownVariantFragment(variant: string, enumName: string): string {
-  const template = registryMessage(
+  const message = registryMessageOf(
     UNKNOWN_VARIANT_REGISTRY,
+    PARSE_REGISTRY_PATH,
     UNKNOWN_VARIANT_CODE,
-  ) as string | undefined;
-  expect(
-    template,
-    `${UNKNOWN_VARIANT_CODE} has no registry row — the code this cell ` +
-      "asserts is not registered (DIAG-2)",
-  ).toBeTypeOf("string");
-  const message = (template as string)
-    .replaceAll("<variant>", variant)
-    .replaceAll("<enum>", enumName);
-  expect(
-    message,
-    `${UNKNOWN_VARIANT_CODE}: an unsubstituted <…> placeholder remains — the ` +
-      "registry row's Message template changed shape and this cell's " +
-      "substitution is stale",
-  ).not.toMatch(/<[a-z]+>/);
+    [
+      ["<variant>", variant],
+      ["<enum>", enumName],
+    ],
+    { replaceAll: true, unfilledPattern: /<[a-z]+>/ },
+  );
   return `${UNKNOWN_VARIANT_CODE}: ${message}`;
 }
 
@@ -9508,14 +9129,7 @@ describe("H8a-T — bug 0184: a literal ARM of a mixed union enforces the params
       // so this theta's own top-level outcome is Success either way — a
       // failure note here would mean the fixture itself is broken, not that
       // bug 0184 fired.
-      const failureNotes = turn.systemNotes.filter((n) =>
-        /^theta \/b184livecheck (returned Err|cancelled|aborted)/.test(n),
-      );
-      expect(
-        failureNotes,
-        "the invoking parent's own drive surfaced fail-closed system note(s) " +
-          "— the fixture itself is broken: " + JSON.stringify(failureNotes),
-      ).toEqual([]);
+      assertNoFailClosedEnding(turn, "b184livecheck");
     } finally {
       await handle.dispose();
       workspace.dispose();
@@ -10631,17 +10245,7 @@ function compatibleFnArgStringLiteralTheta(): string {
 
 /** `theta/parse/type-as-value`'s registered code and registry page. */
 const TYPE_AS_VALUE_CODE = "theta/parse/type-as-value";
-const TYPE_AS_VALUE_REGISTRY = parseRegistry(
-  readFileSync(
-    fileURLToPath(
-      new URL(
-        "../../docs/spec_topics/diagnostics/code-registry-parse.md",
-        import.meta.url,
-      ),
-    ),
-    "utf8",
-  ),
-) as { code: string; message: string }[];
+const TYPE_AS_VALUE_REGISTRY = readRegistry(["parse"]);
 
 /**
  * `theta/parse/type-as-value: type '<name>' used as a value; a schema or enum
@@ -10651,21 +10255,15 @@ const TYPE_AS_VALUE_REGISTRY = parseRegistry(
  * helpers.
  */
 function typeAsValueFragment(name: string): string {
-  const template = registryMessage(
+  const message = registryMessageOf(
     TYPE_AS_VALUE_REGISTRY,
+    PARSE_REGISTRY_PATH,
     TYPE_AS_VALUE_CODE,
-  ) as string | undefined;
-  expect(
-    template,
-    `${TYPE_AS_VALUE_CODE} has no registry row — the code this cell asserts is not registered ` +
-      "(DIAG-2)",
-  ).toBeTypeOf("string");
-  const message = (template as string).replaceAll("<name>", name);
-  expect(
-    message,
-    `${TYPE_AS_VALUE_CODE}: an unsubstituted <…> placeholder remains — the registry row's ` +
-      "Message template changed shape and this cell's substitution is stale",
-  ).not.toMatch(/<[a-z]+>/);
+    [
+      ["<name>", name],
+    ],
+    { replaceAll: true, unfilledPattern: /<[a-z]+>/ },
+  );
   return `${TYPE_AS_VALUE_CODE}: ${message}`;
 }
 
@@ -10886,14 +10484,7 @@ describe("H8a-T — bug 0164: an invoke(...) argument outside a declared array<l
       // so this theta's own top-level outcome is Success either way — a
       // failure note here would mean the fixture itself is broken, not that
       // bug 0164 fired.
-      const failureNotes = turn.systemNotes.filter((n) =>
-        /^theta \/b164livecheck (returned Err|cancelled|aborted)/.test(n),
-      );
-      expect(
-        failureNotes,
-        "the invoking parent's own drive surfaced fail-closed system note(s) " +
-          "— the fixture itself is broken: " + JSON.stringify(failureNotes),
-      ).toEqual([]);
+      assertNoFailClosedEnding(turn, "b164livecheck");
     } finally {
       await handle.dispose();
       workspace.dispose();
@@ -11587,17 +11178,7 @@ describe("H8a-T — bug 0119 (cell 66): a schema field named `__proto__` survive
 
 /** The new refusal's registered code and its registry page. */
 const MALFORMED_SPECIFIER_LIST_CODE = "theta/parse/import-malformed-specifier-list";
-const MALFORMED_SPECIFIER_LIST_REGISTRY = parseRegistry(
-  readFileSync(
-    fileURLToPath(
-      new URL(
-        "../../docs/spec_topics/diagnostics/code-registry-parse.md",
-        import.meta.url,
-      ),
-    ),
-    "utf8",
-  ),
-) as { code: string; message: string }[];
+const MALFORMED_SPECIFIER_LIST_REGISTRY = readRegistry(["parse"]);
 
 /**
  * `theta/parse/import-malformed-specifier-list: <message>` — DIAG-4: the
@@ -11609,22 +11190,14 @@ const MALFORMED_SPECIFIER_LIST_REGISTRY = parseRegistry(
  * substituting anything into it.
  */
 function malformedSpecifierListFragment(): string {
-  const template = registryMessage(
+  const message = registryMessageOf(
     MALFORMED_SPECIFIER_LIST_REGISTRY,
+    PARSE_REGISTRY_PATH,
     MALFORMED_SPECIFIER_LIST_CODE,
-  ) as string | undefined;
-  expect(
-    template,
-    `${MALFORMED_SPECIFIER_LIST_CODE} has no registry row — the code this cell ` +
-      "asserts is not registered (DIAG-2)",
-  ).toBeTypeOf("string");
-  expect(
-    template as string,
-    `${MALFORMED_SPECIFIER_LIST_CODE}: an unsubstituted <…> placeholder remains — ` +
-      "this row's Message is placeholder-free, so a placeholder means the " +
-      "registry row's Message template changed shape and this cell is stale",
-  ).not.toMatch(/<[a-z]+>/);
-  return `${MALFORMED_SPECIFIER_LIST_CODE}: ${template as string}`;
+    [],
+    { unfilledPattern: /<[a-z]+>/ },
+  );
+  return `${MALFORMED_SPECIFIER_LIST_CODE}: ${message}`;
 }
 
 /** A subagent-mode theta whose single import statement is `spec`. */
@@ -13105,7 +12678,7 @@ describe("H8a-T — bug 0216 cell 75 (cell 77): the shipped session_shutdown han
         >[0],
       );
 
-      const lines = (consoleErrorSpy?.mock.calls ?? []).map((call) => call[0]);
+      const lines = consoleErrorCapture.calls.map((call) => call[0]);
       const diagnosticLines = lines.filter(
         (line): line is string =>
           typeof line === "string" &&
@@ -13192,17 +12765,7 @@ describe("H8a-T — bug 0216 cell 75 (cell 77): the shipped session_shutdown han
 
 /** `theta/parse/non-literal-discriminator`'s registered code and registry page (bug 0128 §Fix; code-registry-parse.md). */
 const NON_LITERAL_DISCRIMINATOR_CODE = "theta/parse/non-literal-discriminator";
-const NON_LITERAL_DISCRIMINATOR_REGISTRY = parseRegistry(
-  readFileSync(
-    fileURLToPath(
-      new URL(
-        "../../docs/spec_topics/diagnostics/code-registry-parse.md",
-        import.meta.url,
-      ),
-    ),
-    "utf8",
-  ),
-) as { code: string; message: string }[];
+const NON_LITERAL_DISCRIMINATOR_REGISTRY = readRegistry(["parse"]);
 
 /**
  * `theta/parse/non-literal-discriminator: discriminator '<field>' on <X> must
@@ -13212,19 +12775,16 @@ const NON_LITERAL_DISCRIMINATOR_REGISTRY = parseRegistry(
  * `emptySchemaBodyFragment` helpers.
  */
 function nonLiteralDiscriminatorFragment(field: string, schema: string): string {
-  const template = registryMessage(
+  const message = registryMessageOf(
     NON_LITERAL_DISCRIMINATOR_REGISTRY,
+    PARSE_REGISTRY_PATH,
     NON_LITERAL_DISCRIMINATOR_CODE,
-  ) as string | undefined;
-  expect(
-    template,
-    `cell 78: ${NON_LITERAL_DISCRIMINATOR_CODE} has no registry row — the code this cell asserts is not registered (DIAG-2)`,
-  ).toBeTypeOf("string");
-  const message = (template as string).replaceAll("<field>", field).replaceAll("<X>", schema);
-  expect(
-    message,
-    `cell 78: ${NON_LITERAL_DISCRIMINATOR_CODE}: an unsubstituted placeholder remains — the registry row's Message template changed shape and this cell's substitution is stale`,
-  ).not.toMatch(/<[a-z]+>/);
+    [
+      ["<field>", field],
+      ["<X>", schema],
+    ],
+    { replaceAll: true, unfilledPattern: /<[a-z]+>/ },
+  );
   return `${NON_LITERAL_DISCRIMINATOR_CODE}: ${message}`;
 }
 
@@ -13395,17 +12955,7 @@ describe("cell 78 (bug 0128): an explicit `by kind` over a resolved non-literal 
 // applies to its own code.
 
 /** The sharded registry page carrying `theta/parse/let-rhs-type-mismatch`'s row. */
-const PARSE_REGISTRY_CELL_D = parseRegistry(
-  readFileSync(
-    fileURLToPath(
-      new URL(
-        "../../docs/spec_topics/diagnostics/code-registry-parse.md",
-        import.meta.url,
-      ),
-    ),
-    "utf8",
-  ),
-) as { code: string; message: string }[];
+const PARSE_REGISTRY_CELL_D = readRegistry(["parse"]);
 
 const LET_RHS_MISMATCH_CODE_CELL_D = "theta/parse/let-rhs-type-mismatch";
 
@@ -13422,25 +12972,17 @@ function letRhsMismatchFragmentCellD(
   expected: string,
   actual: string,
 ): string {
-  const template = registryMessage(
+  const message = registryMessageOf(
     PARSE_REGISTRY_CELL_D,
+    PARSE_REGISTRY_PATH,
     LET_RHS_MISMATCH_CODE_CELL_D,
-  ) as string | undefined;
-  expect(
-    template,
-    `cell 79: ${LET_RHS_MISMATCH_CODE_CELL_D} has no registry row — the code ` +
-      "whose absence this cell asserts is not registered (DIAG-2)",
-  ).toBeTypeOf("string");
-  const message = (template as string)
-    .replaceAll("<name>", name)
-    .replaceAll("<expected>", expected)
-    .replaceAll("<actual>", actual);
-  expect(
-    message,
-    `cell 79: ${LET_RHS_MISMATCH_CODE_CELL_D}: an unsubstituted <…> placeholder ` +
-      "remains — the registry row's Message template changed shape and this " +
-      "cell's substitution is stale",
-  ).not.toMatch(/<[a-z]+>/);
+    [
+      ["<name>", name],
+      ["<expected>", expected],
+      ["<actual>", actual],
+    ],
+    { replaceAll: true, unfilledPattern: /<[a-z]+>/ },
+  );
   return `${LET_RHS_MISMATCH_CODE_CELL_D}: ${message}`;
 }
 
@@ -13610,14 +13152,7 @@ describe("H8a-T — bug 0145 cell 79: a `match` arm binder shadowing an enclosin
 // ===========================================================================
 
 /** `theta/parse/let-rhs-type-mismatch`'s registry page — DIAG-4, read not copied. */
-const CELL_C2_PARSE_REGISTRY = parseRegistry(
-  readFileSync(
-    fileURLToPath(
-      new URL("../../docs/spec_topics/diagnostics/code-registry-parse.md", import.meta.url),
-    ),
-    "utf8",
-  ),
-) as { code: string; message: string }[];
+const CELL_C2_PARSE_REGISTRY = readRegistry(["parse"]);
 
 /** The row bug 0130 owns (`docs/spec_topics/diagnostics/code-registry-parse.md:57`). */
 const CELL_C2_LET_RHS_CODE = "theta/parse/let-rhs-type-mismatch";
@@ -13633,23 +13168,17 @@ const CELL_C2_LET_RHS_CODE = "theta/parse/let-rhs-type-mismatch";
  * than passing vacuously.
  */
 function cellC2ExpectedFragment(): string {
-  const template = registryMessage(CELL_C2_PARSE_REGISTRY, CELL_C2_LET_RHS_CODE) as
-    | string
-    | undefined;
-  expect(
-    template,
-    `cell 80: ${CELL_C2_LET_RHS_CODE} has no registry row — the code this cell asserts is ` +
-      "not registered (DIAG-2)",
-  ).toBeTypeOf("string");
-  const message = (template as string)
-    .replaceAll("<name>", "x")
-    .replaceAll("<expected>", "{ a: integer }")
-    .replaceAll("<actual>", "integer");
-  expect(
-    message,
-    `cell 80: ${CELL_C2_LET_RHS_CODE}: an unsubstituted <…> placeholder remains — the ` +
-      "registry row's Message template changed shape and this cell's substitution is stale",
-  ).not.toMatch(/<[a-z]+>/);
+  const message = registryMessageOf(
+    CELL_C2_PARSE_REGISTRY,
+    PARSE_REGISTRY_PATH,
+    CELL_C2_LET_RHS_CODE,
+    [
+      ["<name>", "x"],
+      ["<expected>", "{ a: integer }"],
+      ["<actual>", "integer"],
+    ],
+    { replaceAll: true, unfilledPattern: /<[a-z]+>/ },
+  );
   return `${CELL_C2_LET_RHS_CODE}: ${message}`;
 }
 
@@ -13765,17 +13294,7 @@ describe("H8a-T cell 80 — bug 0130: an inline-object `let` annotation refuses 
 
 /** `theta/parse/nested-fn`'s registered code and registry page (bug 0118 §Fix (a); code-registry-parse.md). */
 const NESTED_FN_CODE_CELL_B2 = "theta/parse/nested-fn";
-const NESTED_FN_REGISTRY_CELL_B2 = parseRegistry(
-  readFileSync(
-    fileURLToPath(
-      new URL(
-        "../../docs/spec_topics/diagnostics/code-registry-parse.md",
-        import.meta.url,
-      ),
-    ),
-    "utf8",
-  ),
-) as { code: string; message: string }[];
+const NESTED_FN_REGISTRY_CELL_B2 = readRegistry(["parse"]);
 
 /**
  * `theta/parse/nested-fn: nested 'fn' declarations are not supported in
@@ -13928,17 +13447,7 @@ describe("cell 81 (bug 0118): a `fn` under a `par for` body is theta/parse/neste
 
 /** `theta/parse/unknown-identifier`'s registered code and registry page (bug 0224 Fix (a); code-registry-parse.md). */
 const UNKNOWN_IDENT_CODE_CELL_B = "theta/parse/unknown-identifier";
-const UNKNOWN_IDENT_REGISTRY_CELL_B = parseRegistry(
-  readFileSync(
-    fileURLToPath(
-      new URL(
-        "../../docs/spec_topics/diagnostics/code-registry-parse.md",
-        import.meta.url,
-      ),
-    ),
-    "utf8",
-  ),
-) as { code: string; message: string }[];
+const UNKNOWN_IDENT_REGISTRY_CELL_B = readRegistry(["parse"]);
 
 /**
  * `theta/parse/unknown-identifier: unknown identifier '<name>'` -- DIAG-4:
@@ -14109,14 +13618,7 @@ const CELL_D_REFUSAL_CODE = "theta/parse/annotation-type-not-expression";
 const CELL_D_MISMATCH_CODE = "theta/parse/explicit-schema-mismatch";
 
 /** The sharded registry page carrying both bug-0222 codes' rows. */
-const CELL_D_REGISTRY = parseRegistry(
-  readFileSync(
-    fileURLToPath(
-      new URL("../../docs/spec_topics/diagnostics/code-registry-parse.md", import.meta.url),
-    ),
-    "utf8",
-  ),
-) as { code: string; message: string }[];
+const CELL_D_REGISTRY = readRegistry(["parse"]);
 
 /**
  * `theta/parse/annotation-type-not-expression: '<name>' declares a type that
@@ -14278,17 +13780,7 @@ describe("H8a-T — bug 0222: the QRY-4 explicit-schema check withholds a refuse
 
 /** `theta/parse/void-in-non-return-position`'s registered code (bug 0220 Fix; code-registry-parse.md). */
 const VOID_IN_NON_RETURN_CODE_CELL_B2 = "theta/parse/void-in-non-return-position";
-const VOID_IN_NON_RETURN_REGISTRY_CELL_B2 = parseRegistry(
-  readFileSync(
-    fileURLToPath(
-      new URL(
-        "../../docs/spec_topics/diagnostics/code-registry-parse.md",
-        import.meta.url,
-      ),
-    ),
-    "utf8",
-  ),
-) as { code: string; message: string }[];
+const VOID_IN_NON_RETURN_REGISTRY_CELL_B2 = readRegistry(["parse"]);
 
 /**
  * `theta/parse/void-in-non-return-position: 'void' is only permitted as a
@@ -14451,22 +13943,13 @@ const MATCH_ARM_TYPE_MISMATCH_CODE = "theta/parse/match-arm-type-mismatch";
  * not a fill check.
  */
 function matchArmTypeMismatchFragment(): string {
-  const template = registryMessage(
+  const message = registryMessageOf(
     ARRAY_NO_COMMON_TYPE_REGISTRY,
+    PARSE_REGISTRY_PATH,
     MATCH_ARM_TYPE_MISMATCH_CODE,
-  ) as string | undefined;
-  expect(
-    template,
-    `${MATCH_ARM_TYPE_MISMATCH_CODE} has no registry row -- the code this ` +
-      "cell asserts is not registered (DIAG-2)",
-  ).toBeTypeOf("string");
-  const message = template as string;
-  expect(
-    message,
-    `${MATCH_ARM_TYPE_MISMATCH_CODE}: the registry row's Message template ` +
-      "grew an unsubstituted <...> placeholder this reader does not fill -- " +
-      "the row changed shape",
-  ).not.toMatch(/<[a-z]+>/);
+    [],
+    { unfilledPattern: /<[a-z]+>/ },
+  );
   return `${MATCH_ARM_TYPE_MISMATCH_CODE}: ${message}`;
 }
 

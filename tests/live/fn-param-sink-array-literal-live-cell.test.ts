@@ -64,8 +64,7 @@
 // Bug 0030's file-scope `console.error` spy gates this file: the filtered
 // capture (`thetaOwnedStderrLines`) must be empty.
 
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { MockInstance } from "vitest";
+import { describe, expect, it } from "vitest";
 import {
   bootShippedExtension,
   collectSystemNotes,
@@ -74,7 +73,7 @@ import {
   requireLiveProvider,
   type PlantedTheta,
 } from "./harness";
-import { thetaOwnedStderrLines } from "./theta-stderr-prefixes";
+import { assertThetaStderrCleanForEach } from "../helpers/theta-stderr-gate";
 import { parseDoc } from "../helpers/e2e-s1";
 import { registryFragment } from "../helpers/registry-oracle";
 
@@ -134,28 +133,7 @@ const ADMITTED = [
   "",
 ].join("\n");
 
-let consoleErrorSpy: MockInstance | undefined;
-
-beforeEach(() => {
-  consoleErrorSpy = vi.spyOn(console, "error");
-});
-
-afterEach(() => {
-  const spy = consoleErrorSpy;
-  try {
-    const lines = (spy?.mock.calls ?? []).map((args) => args.map(String).join(" "));
-    const offenders = thetaOwnedStderrLines(lines);
-    expect(
-      offenders,
-      "bug 0018's live verification observable for this suite is a 0-byte " +
-        "stderr capture; this spy caught theta-owned stderr line(s) instead: " +
-        JSON.stringify(offenders),
-    ).toEqual([]);
-  } finally {
-    spy?.mockRestore();
-    consoleErrorSpy = undefined;
-  }
-});
+assertThetaStderrCleanForEach();
 
 describe("bug 0156 live: a union-typed `fn` parameter supplies the array sink so its call registers and drives, while the sink-less twin stays refused", () => {
   it("registers `fn f(xs: array<A | B>)` called with one A and one B and drives it to the live sentinel, while the sink-less literal does not register and carries its refusal on the theta-system-note channel", async () => {

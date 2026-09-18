@@ -11,7 +11,7 @@ import { describe, expect, it } from "vitest";
 // the citing sentence describes — including one assertion message
 // (import-export-from-clause-required.test.ts:650) a future red would hand its
 // debugger. Separately, bug 0421's carved-out LPA cite (grammar.md:175 → grammar.md:184)
-// survives in the line-pinned live-production-acceptance.test.ts at line 2355.
+// survives in the line-pinned live-production-acceptance.test.ts at line 2305.
 //
 // WHY content-anchored (the 0405/0421 shape, inverted target): the bug's fix is
 // a mechanical re-pin of the citing COMMENT/MESSAGE strings only — imports.ts
@@ -34,7 +34,7 @@ import { describe, expect, it } from "vitest";
 //     assert it holds the named construct. Stale cite → wrong content → RED.
 //   FRESHNESS (RED now, GREEN after) — the literal stale `imports.ts:<N>` token
 //     is ABSENT. This is the cell the mechanical re-pin turns green.
-//   LPA (RED now, GREEN after) — read-only on the line-pinned LPA: its line-2355
+//   LPA (RED now, GREEN after) — read-only on the line-pinned LPA: its line-2305
 //     cite must read `(grammar.md:184)` (AliasRhs) and no longer `(grammar.md:175)`
 //     (the statement-in-arm-body prose). This gate NEVER edits the LPA.
 
@@ -295,7 +295,7 @@ describe("bug 0456 — the src/parser/imports.ts line-cites (and the carved-out 
   // (0336 same-line precedent). READ-ONLY — this gate never edits the LPA.
   // =========================================================================
 
-  it("cell L (LPA-RED, read-only) — the LPA line-2355 alias-RHS cite points at grammar.md's AliasRhs line, not the arm-body prose", () => {
+  it("cell L (LPA-RED, read-only) — the LPA line-2305 alias-RHS cite points at grammar.md's AliasRhs line, not the arm-body prose", () => {
     // Content truth: line 184 is the AliasRhs production; line 175 is the
     // statement-in-arm-body prose. Green now and after — grammar.md is untouched.
     const g184 = lineOf(GRAMMAR, 184);
@@ -308,16 +308,19 @@ describe("bug 0456 — the src/parser/imports.ts line-cites (and the carved-out 
       g175.includes("AliasRhs"),
       `cell L: ${GRAMMAR} line 175 must NOT hold AliasRhs — it is the statement-in-arm-body prose, which is exactly why the LPA's line-175 cite is stale (found \`${g175.trim()}\`).`,
     ).toBe(false);
-    // The stale cite lives on LPA line 2355. Read the actual line (not a fixed
-    // offset) so the cell survives incidental LPA line drift; assert the cite.
-    const lpaLine = lineOf(LPA, 2355);
+    // Locate the original line-2305 cite by its surrounding prose so helper
+    // deduplication cannot move this reader off the citation.
+    const lpaLineNumber = uniqueLine(LPA, "alias-RHS grammar cite", (line) =>
+      line.startsWith("// (grammar.md:") && line.endsWith(") already consumes."),
+    );
+    const lpaLine = lineOf(LPA, lpaLineNumber);
     expect(
       lpaLine.includes("(grammar.md:184)"),
-      `cell L: ${LPA} line 2355 must cite (grammar.md:184) (AliasRhs). At the fork it reads \`${lpaLine.trim()}\`; bug 0421 R1 / 0456 §Fix apply the same-line 175->184 refresh under the 0336 precedent.`,
+      `cell L: ${LPA} line ${lpaLineNumber} must cite (grammar.md:184) (AliasRhs). At the fork it reads \`${lpaLine.trim()}\`; bug 0421 R1 / 0456 §Fix apply the same-line 175->184 refresh under the 0336 precedent.`,
     ).toBe(true);
     expect(
       lpaLine.includes("(grammar.md:175)"),
-      `cell L: ${LPA} line 2355 must no longer cite (grammar.md:175) — that grammar line is the statement-in-arm-body prose, not the alias right-hand side the sentence names.`,
+      `cell L: ${LPA} line ${lpaLineNumber} must no longer cite (grammar.md:175) — that grammar line is the statement-in-arm-body prose, not the alias right-hand side the sentence names.`,
     ).toBe(false);
   });
 });

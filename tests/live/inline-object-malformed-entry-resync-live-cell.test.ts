@@ -54,8 +54,7 @@
 // is required, so a neutralised fix reds here with zero tokens spent (per
 // AGENTS.md's "prefer the offline-attributable guard").
 
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { MockInstance } from "vitest";
+import { describe, expect, it } from "vitest";
 import {
   bootShippedExtension,
   driveSlashCaptureTurn,
@@ -63,7 +62,7 @@ import {
   requireLiveProvider,
   type PlantedTheta,
 } from "./harness";
-import { thetaOwnedStderrLines } from "./theta-stderr-prefixes";
+import { assertThetaStderrCleanForEach } from "../helpers/theta-stderr-gate";
 import { parseDoc } from "../helpers/e2e-s1";
 
 /** The registered row bug 0154's fix draws, still withheld pre-0231 (`Zs`, row d1). */
@@ -146,27 +145,7 @@ function systemNoteContents(entries: readonly unknown[]): readonly string[] {
   return notes;
 }
 
-let consoleErrorSpy: MockInstance | undefined;
-
-beforeEach(() => {
-  consoleErrorSpy = vi.spyOn(console, "error");
-});
-
-afterEach(() => {
-  const spy = consoleErrorSpy;
-  try {
-    const lines = (spy?.mock.calls ?? []).map((args) => args.map(String).join(" "));
-    const offenders = thetaOwnedStderrLines(lines);
-    expect(
-      offenders,
-      "bug 0018's live verification observable for this suite is a 0-byte stderr capture; this " +
-        "spy caught theta-owned stderr line(s) instead: " + JSON.stringify(offenders),
-    ).toEqual([]);
-  } finally {
-    spy?.mockRestore();
-    consoleErrorSpy = undefined;
-  }
-});
+assertThetaStderrCleanForEach();
 
 describe("bug 0231 live: a well-formed field's case violation behind a malformed generic-argument entry now refuses registration", () => {
   it("does not register `let x: array<{a b: integer, Zs: string}> = [1]` post-fix, the theta-system-note channel names binding-case-mismatch, and the case-fixed sibling still registers and drives", async () => {

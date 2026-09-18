@@ -49,8 +49,7 @@
 // is required, so a neutralised fix reds here with zero tokens spent (per
 // AGENTS.md's "prefer the offline-attributable guard").
 
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { MockInstance } from "vitest";
+import { describe, expect, it } from "vitest";
 import {
   bootShippedExtension,
   driveSlashCaptureTurn,
@@ -58,16 +57,12 @@ import {
   requireLiveProvider,
   type PlantedTheta,
 } from "./harness";
-import { thetaOwnedStderrLines } from "./theta-stderr-prefixes";
+import { assertThetaStderrCleanForEach } from "../helpers/theta-stderr-gate";
 import { parseDoc } from "../helpers/e2e-s1";
-import { readRegistry } from "../helpers/registry-oracle";
-// @ts-expect-error -- JS code-registry module, no type declarations.
-import { registryMessage } from "../../tools/code-registry/index.js";
+import { registryFragment } from "../helpers/registry-oracle";
 
 /** The third code bug 0160 §Fix (c) mints (E, parse). */
 const RENAMED_INLINE = "theta/parse/renamed-inline-field-name";
-
-const REGISTRY = readRegistry(["parse"]);
 
 /**
  * `wire-name rename on field 'a' within one inline object type` — DIAG-4: the
@@ -77,12 +72,7 @@ const REGISTRY = readRegistry(["parse"]);
  * the fill is `a` and not the raw key.
  */
 function renamedInlineFragment(field: string): string {
-  const template = registryMessage(REGISTRY, RENAMED_INLINE) as string | undefined;
-  expect(
-    template,
-    `${RENAMED_INLINE} has no registry row -- the code this cell asserts is not registered (DIAG-2)`,
-  ).toBeTypeOf("string");
-  return `${RENAMED_INLINE}: ${(template as string).replace("<field>", field)}`;
+  return registryFragment(RENAMED_INLINE, { field });
 }
 
 /**
@@ -158,27 +148,7 @@ const GOOD = [
   "",
 ].join("\n");
 
-let consoleErrorSpy: MockInstance | undefined;
-
-beforeEach(() => {
-  consoleErrorSpy = vi.spyOn(console, "error");
-});
-
-afterEach(() => {
-  const spy = consoleErrorSpy;
-  try {
-    const lines = (spy?.mock.calls ?? []).map((args) => args.map(String).join(" "));
-    const offenders = thetaOwnedStderrLines(lines);
-    expect(
-      offenders,
-      "bug 0018's live verification observable for this suite is a 0-byte stderr capture; this " +
-        "spy caught theta-owned stderr line(s) instead: " + JSON.stringify(offenders),
-    ).toEqual([]);
-  } finally {
-    spy?.mockRestore();
-    consoleErrorSpy = undefined;
-  }
-});
+assertThetaStderrCleanForEach();
 
 describe("bug 0160 live: an inline `as \"WireName\"` rename is refused at registration, and the rename-free sibling registers and drives", () => {
   it('does not register `let r: {a as "w": string} | null = null`, the theta-system-note channel carries theta/parse/renamed-inline-field-name, and `{wire: string}` still registers and drives to the live sentinel via `answer.wire`', async () => {

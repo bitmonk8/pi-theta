@@ -73,10 +73,7 @@
 // src/discovery/discovery-walk.ts (`[a-z0-9][a-z0-9_-]*`), so the stems
 // stay inside that alphabet.
 
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { MockInstance } from "vitest";
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
+import { describe, expect, it } from "vitest";
 import {
   bootShippedExtension,
   collectSystemNotes as systemNoteContents,
@@ -85,10 +82,9 @@ import {
   requireLiveProvider,
   type PlantedTheta,
 } from "./harness";
-import { thetaOwnedStderrLines } from "./theta-stderr-prefixes";
+import { assertThetaStderrCleanForEach } from "../helpers/theta-stderr-gate";
 import { parseDoc } from "../helpers/e2e-s1";
-// @ts-expect-error — JS code-registry module, no type declarations.
-import { parseRegistry, registryMessage } from "../../tools/code-registry/index.js";
+import { registryFragment } from "../helpers/registry-oracle";
 
 /** Rule 1's code — the verdict the nested violation is owed (expressions.md:226). */
 const ELEMENT_CODE = "theta/parse/array-element-type-mismatch";
@@ -99,33 +95,6 @@ const ELEMENT_CODE = "theta/parse/array-element-type-mismatch";
  * against".
  */
 const NO_COMMON_CODE = "theta/parse/array-no-common-type";
-
-const REGISTRY = parseRegistry(
-  readFileSync(
-    fileURLToPath(
-      new URL("../../docs/spec_topics/diagnostics/code-registry-parse.md", import.meta.url),
-    ),
-    "utf8",
-  ),
-) as { code: string; message: string }[];
-
-/** DIAG-4: the message half is read from the registry row, not copied. */
-function registryFragment(code: string, substitutions: Readonly<Record<string, string>>): string {
-  const template = registryMessage(REGISTRY, code) as string | undefined;
-  expect(
-    template,
-    `${code} has no registry row — the code this cell asserts is not registered (DIAG-2)`,
-  ).toBeTypeOf("string");
-  let message = template as string;
-  for (const [key, value] of Object.entries(substitutions)) {
-    message = message.replaceAll(`<${key}>`, value);
-  }
-  expect(
-    message,
-    `${code}: an unsubstituted placeholder remains — the registry row's Message template changed shape`,
-  ).not.toMatch(/<[a-z]+>/);
-  return `${code}: ${message}`;
-}
 
 /** The three planted stems, unique to this cell across the live workspace. */
 const STEM_CONTROL = "b0241live-ctl";
@@ -187,28 +156,7 @@ const ADMITTED = [
   "",
 ].join("\n");
 
-let consoleErrorSpy: MockInstance | undefined;
-
-beforeEach(() => {
-  consoleErrorSpy = vi.spyOn(console, "error");
-});
-
-afterEach(() => {
-  const spy = consoleErrorSpy;
-  try {
-    const lines = (spy?.mock.calls ?? []).map((args) => args.map(String).join(" "));
-    const offenders = thetaOwnedStderrLines(lines);
-    expect(
-      offenders,
-      "bug 0018's live verification observable for this suite is a 0-byte " +
-        "stderr capture; this spy caught theta-owned stderr line(s) instead: " +
-        JSON.stringify(offenders),
-    ).toEqual([]);
-  } finally {
-    spy?.mockRestore();
-    consoleErrorSpy = undefined;
-  }
-});
+assertThetaStderrCleanForEach();
 
 describe("bug 0241 live: the nested element sink admits its rule-3 literal so the theta registers and drives, while the nested element VIOLATION stays refused under rule 1", () => {
   it("registers the nested `array<array<A | B>>` binding and drives it to the live sentinel, while the nested `C` violation does not register and carries rule 1's refusal on the theta-system-note channel", async () => {

@@ -67,10 +67,7 @@
 // registers on this crafted fixture only, never on a committed fixture.
 
 import { describe, expect, it } from "vitest";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { requireLiveHost, spawnPiPrint } from "./harness";
+import { driveAcceptanceSequence } from "../../helpers/acceptance-sequence-harness";
 import { errorCodes as parseErrorCodes } from "../../helpers/e2e-s1";
 
 /** The registry code the genuinely-wrong reassignment reds with (bindings.md §"reassignment"). */
@@ -158,63 +155,41 @@ describe("H9a live — bug 0341 inferred-binding accumulator registers/drives th
 
     // Live-host precondition — fails loudly naming the unmet precondition; never
     // a skip or early return.
-    await requireLiveHost();
+    await driveAcceptanceSequence({
+      slug: "b0341",
+      files: {
+        "b0341accumulator.theta": ACCUMULATOR,
+        "b0341offender.theta": OFFENDER,
+        "b0341probe.theta": PROBE,
+      },
+      drives: [
+        // ---- (1) the previously-refused accumulator registers AND drives ----
+        {
+          label: "accumulator",
+          slashInvocation: "/b0341accumulator",
+          expected: ACCUMULATOR_OK,
+          message: (accumulator) =>
+            `accumulator: the inferred-binding write must no longer refuse, so ` +
+              `/b0341accumulator registers and a real turn answers 263 + 514 = ${ACCUMULATOR_OK}. ` +
+              `A refused theta (bug 0341 unfixed) does not exist as a slash command and cannot ` +
+              `drive, so this could not answer ${ACCUMULATOR_OK}. stdout: ${accumulator.stdout} ` +
+              `stderr: ${accumulator.stderr}`,
+        },
 
-    const thetaDir = mkdtempSync(join(tmpdir(), "theta-b0341-root-"));
-    const accumulatorCwd = mkdtempSync(join(tmpdir(), "theta-b0341-cwd-"));
-    const probeCwd = mkdtempSync(join(tmpdir(), "theta-b0341-cwd-"));
-    try {
-      writeFileSync(join(thetaDir, "b0341accumulator.theta"), ACCUMULATOR, "utf8");
-      writeFileSync(join(thetaDir, "b0341offender.theta"), OFFENDER, "utf8");
-      writeFileSync(join(thetaDir, "b0341probe.theta"), PROBE, "utf8");
-
-      // ---- (1) the previously-refused accumulator registers AND drives ----
-      const accumulator = await spawnPiPrint({
-        thetaDir,
-        slashInvocation: "/b0341accumulator",
-        cwd: accumulatorCwd,
-      });
-      expect(
-        accumulator.exitCode,
-        `accumulator: expected a no-error exit (0), got ${String(accumulator.exitCode)}. ` +
-          `stderr: ${accumulator.stderr}`,
-      ).toBe(0);
-      expect(
-        accumulator.stdout,
-        `accumulator: the inferred-binding write must no longer refuse, so ` +
-          `/b0341accumulator registers and a real turn answers 263 + 514 = ${ACCUMULATOR_OK}. ` +
-          `A refused theta (bug 0341 unfixed) does not exist as a slash command and cannot ` +
-          `drive, so this could not answer ${ACCUMULATOR_OK}. stdout: ${accumulator.stdout} ` +
-          `stderr: ${accumulator.stderr}`,
-      ).toContain(ACCUMULATOR_OK);
-
-      // ---- (2) the genuinely wrong write is still refused, observed via invoke ----
-      const probe = await spawnPiPrint({
-        thetaDir,
-        slashInvocation: "/b0341probe",
-        cwd: probeCwd,
-      });
-      expect(
-        probe.exitCode,
-        `probe: expected a no-error exit (0), got ${String(probe.exitCode)}. ` +
-          `stderr: ${probe.stderr}`,
-      ).toBe(0);
-      expect(
-        probe.stdout,
-        `probe: the offending theta must NOT register (its \`a = 5\` on an inferred ` +
-          `\`string\` binding reds at parse), so the prober's ` +
-          `invoke("./b0341offender.theta") resolves Err and the match prints "${REFUSED}". ` +
-          `Printing "${LOADED}" means the widening swallowed a real mismatch — bug 0341 ` +
-          `over-fixed. stdout: ${probe.stdout} stderr: ${probe.stderr}`,
-      ).toContain(REFUSED);
-      expect(
-        probe.stdout,
-        `probe: the Ok arm must not fire; stdout: ${probe.stdout}`,
-      ).not.toContain(LOADED);
-    } finally {
-      rmSync(thetaDir, { recursive: true, force: true });
-      rmSync(accumulatorCwd, { recursive: true, force: true });
-      rmSync(probeCwd, { recursive: true, force: true });
-    }
+        // ---- (2) the genuinely wrong write is still refused, observed via invoke ----
+        {
+          label: "probe",
+          slashInvocation: "/b0341probe",
+          expected: REFUSED,
+          unexpected: LOADED,
+          message: (probe) =>
+            `probe: the offending theta must NOT register (its \`a = 5\` on an inferred ` +
+              `\`string\` binding reds at parse), so the prober's ` +
+              `invoke("./b0341offender.theta") resolves Err and the match prints "${REFUSED}". ` +
+              `Printing "${LOADED}" means the widening swallowed a real mismatch — bug 0341 ` +
+              `over-fixed. stdout: ${probe.stdout} stderr: ${probe.stderr}`,
+        },
+      ],
+    });
   });
 });

@@ -87,8 +87,7 @@
 //
 // Token cost: two live drives (one binder pass + one body turn each). 
 
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { MockInstance } from "vitest";
+import { describe, expect, it } from "vitest";
 import {
   bootShippedExtension,
   driveSlashCaptureTurn,
@@ -96,7 +95,7 @@ import {
   requireLiveProvider,
   type PlantedTheta,
 } from "./harness";
-import { thetaOwnedStderrLines } from "./theta-stderr-prefixes";
+import { assertThetaStderrCleanForEach } from "../helpers/theta-stderr-gate";
 import { parseDoc } from "../helpers/e2e-s1";
 
 /** The two declared values the slash argument names; their product is the oracle. */
@@ -175,28 +174,7 @@ function normalisedLowering(text: string, path: string): string {
   return JSON.stringify(lowered).replace(/__inline_[0-9a-f]+/g, "__inline_HASH");
 }
 
-let consoleErrorSpy: MockInstance | undefined;
-
-beforeEach(() => {
-  consoleErrorSpy = vi.spyOn(console, "error");
-});
-
-afterEach(() => {
-  const spy = consoleErrorSpy;
-  try {
-    const lines = (spy?.mock.calls ?? []).map((args) => args.map(String).join(" "));
-    const offenders = thetaOwnedStderrLines(lines);
-    expect(
-      offenders,
-      "bug 0018's live verification observable for this suite is a 0-byte stderr capture; this " +
-        "spy caught theta-owned stderr line(s) instead: " +
-        JSON.stringify(offenders),
-    ).toEqual([]);
-  } finally {
-    spy?.mockRestore();
-    consoleErrorSpy = undefined;
-  }
-});
+assertThetaStderrCleanForEach();
 
 describe("bug 0238 live: a params: field carrying a stray depth-0 close token registers a contract that ACCEPTS the field it declares, converging on its byte-neighbour control ", () => {
   it("binds both `a` and `m` for `p: '{a: integer, b > c, m: integer}'` through the real binder and drives clean, exactly as the control `{a: integer, m: integer}` does ", async () => {

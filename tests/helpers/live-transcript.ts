@@ -1,5 +1,6 @@
 // Shared observations over live drives' settled transcripts and system notes.
-import type { LiveExtensionHandle } from "../live/harness";
+import { expect } from "vitest";
+import type { DrivenTurn, LiveExtensionHandle } from "../live/harness";
 
 export { collectSystemNotes } from "./recording-system-note-channel";
 
@@ -9,6 +10,18 @@ export { collectSystemNotes } from "./recording-system-note-channel";
  * successful drive must produce none of them.
  */
 export const FAIL_CLOSED_MARKERS = ["returned Err:", "cancelled", "aborted"] as const;
+
+/** Require a clean parent drive after its invoke results were explicitly matched. */
+export function assertNoFailClosedEnding(turn: Pick<DrivenTurn, "systemNotes">, stem: string): void {
+  const escapedStem = stem.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const failurePattern = new RegExp(`^theta /${escapedStem} (returned Err|cancelled|aborted)`);
+  const failureNotes = turn.systemNotes.filter((n) => failurePattern.test(n));
+  expect(
+    failureNotes,
+    "the invoking parent's own drive surfaced fail-closed system note(s) " +
+      "— the fixture itself is broken: " + JSON.stringify(failureNotes),
+  ).toEqual([]);
+}
 
 /** Count appended assistant messages carrying an on-session respond tool call. */
 export function countOnSessionRespondCalls(handle: LiveExtensionHandle, entriesBefore: number): number {

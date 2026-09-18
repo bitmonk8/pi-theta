@@ -49,8 +49,7 @@
 // `tests/live/live-production-acceptance.test.ts`): the filtered capture
 // (`thetaOwnedStderrLines`) must be empty.
 
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { MockInstance } from "vitest";
+import { describe, expect, it } from "vitest";
 import {
   bootShippedExtension,
   collectSystemNotes,
@@ -59,7 +58,7 @@ import {
   requireLiveProvider,
   type PlantedTheta,
 } from "./harness";
-import { thetaOwnedStderrLines } from "./theta-stderr-prefixes";
+import { assertThetaStderrCleanForEach } from "../helpers/theta-stderr-gate";
 import { parseDoc } from "../helpers/e2e-s1";
 import { registryFragment } from "../helpers/registry-oracle";
 
@@ -115,28 +114,7 @@ const GOOD = [
   "",
 ].join("\n");
 
-let consoleErrorSpy: MockInstance | undefined;
-
-beforeEach(() => {
-  consoleErrorSpy = vi.spyOn(console, "error");
-});
-
-afterEach(() => {
-  const spy = consoleErrorSpy;
-  try {
-    const lines = (spy?.mock.calls ?? []).map((args) => args.map(String).join(" "));
-    const offenders = thetaOwnedStderrLines(lines);
-    expect(
-      offenders,
-      "bug 0018's live verification observable for this suite is a 0-byte " +
-        "stderr capture; this spy caught theta-owned stderr line(s) instead: " +
-        JSON.stringify(offenders),
-    ).toEqual([]);
-  } finally {
-    spy?.mockRestore();
-    consoleErrorSpy = undefined;
-  }
-});
+assertThetaStderrCleanForEach();
 
 describe("bug 0129 live: an empty inline object field type under an explicit `by` clause withholds nested-discriminator, and the literal-discriminator sibling still registers and drives", () => {
   it('does not register `schema Cat { kind: {}, name: string }` under `by kind`, the theta-system-note channel carries empty-schema-body ALONE (not nested-discriminator), and the kind: "cat"/"dog" sibling under the same clause registers and drives to the live sentinel', async () => {

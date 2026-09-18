@@ -49,11 +49,9 @@
 // Bug 0030's file-scope `console.error` spy gates this file: the filtered
 // capture (`thetaOwnedStderrLines`) must be empty.
 
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { MockInstance } from "vitest";
+import { describe, expect, it } from "vitest";
 import { join } from "node:path";
-import { readFileSync, writeFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
+import { writeFileSync } from "node:fs";
 import {
   bootShippedExtension,
   driveSlashCaptureTurn,
@@ -62,26 +60,16 @@ import {
   type PlantedTheta,
 } from "./harness";
 import { collectSystemNotes } from "../helpers/live-transcript";
-import { thetaOwnedStderrLines } from "./theta-stderr-prefixes";
+import { assertThetaStderrCleanForEach } from "../helpers/theta-stderr-gate";
 import { parseDeps, parseDoc } from "../helpers/e2e-s1";
 import { FakeFileSystem } from "../helpers/fake-file-system";
 import { checkThetaImports } from "../../src/extension/import-static-checks";
 import type { ThetaCompositionInput } from "../../src/extension/theta-composition-producer";
 import type { ParsedFrontmatter } from "../../src/parser/frontmatter";
-// @ts-expect-error — JS code-registry module, no type declarations.
-import { parseRegistry, registryMessage } from "../../tools/code-registry/index.js";
+import { fnArgMessage } from "../helpers/registry-oracle";
 
 /** The row under test: E severity, phase `type`, so a fired slot denies registration. */
 const CODE = "theta/parse/fn-arg-type-mismatch";
-
-const REGISTRY = parseRegistry(
-  readFileSync(
-    fileURLToPath(
-      new URL("../../docs/spec_topics/diagnostics/code-registry-parse.md", import.meta.url),
-    ),
-    "utf8",
-  ),
-) as { code: string; message: string }[];
 
 /**
  * `fn '<name>' argument <i> ('<param>') type mismatch: expected <expected>,
@@ -95,37 +83,7 @@ function fnArgFragment(
   expected: string,
   actual: string,
 ): string {
-  const template = registryMessage(REGISTRY, CODE) as string | undefined;
-  expect(
-    template,
-    `${CODE} has no registry row — the code this cell asserts is not registered (DIAG-2)`,
-  ).toBeTypeOf("string");
-  const subs = new Map<string, string>([
-    ["<name>", name],
-    ["<i>", String(index)],
-    ["<param>", paramName],
-    ["<expected>", expected],
-    ["<actual>", actual],
-  ]);
-  const used = new Set<string>();
-  const message = (template as string).replace(/<[a-z]+>/g, (token) => {
-    const value = subs.get(token);
-    expect(
-      value,
-      `${CODE}: the Message template carries ${token}, which this cell supplies no ` +
-        "substitution for — the registry row changed shape",
-    ).toBeTypeOf("string");
-    used.add(token);
-    return value as string;
-  });
-  for (const token of subs.keys()) {
-    expect(
-      used.has(token),
-      `${CODE}: this cell substitutes ${token} into the Message template, which no ` +
-        "longer carries it — the registry row changed shape",
-    ).toBe(true);
-  }
-  return `${CODE}: ${message}`;
+  return `${CODE}: ${fnArgMessage(name, index, paramName, expected, actual)}`;
 }
 
 /**
@@ -203,28 +161,7 @@ async function composeCodesOf(body: string): Promise<readonly string[]> {
   return result.diagnostics.map((d) => d.code);
 }
 
-let consoleErrorSpy: MockInstance | undefined;
-
-beforeEach(() => {
-  consoleErrorSpy = vi.spyOn(console, "error");
-});
-
-afterEach(() => {
-  const spy = consoleErrorSpy;
-  try {
-    const lines = (spy?.mock.calls ?? []).map((args) => args.map(String).join(" "));
-    const offenders = thetaOwnedStderrLines(lines);
-    expect(
-      offenders,
-      "bug 0018's live verification observable for this suite is a 0-byte " +
-        "stderr capture; this spy caught theta-owned stderr line(s) instead: " +
-        JSON.stringify(offenders),
-    ).toEqual([]);
-  } finally {
-    spy?.mockRestore();
-    consoleErrorSpy = undefined;
-  }
-});
+assertThetaStderrCleanForEach();
 
 describe("bug 0138 live: an imported-`.thetalib` `fn` call's mistyped argument denies registration, while its well-typed twin registers and drives", () => {
   it("registers the well-typed control and drives it to the live sentinel, while the mistyped imported call does not register and carries its refusal on the theta-system-note channel", async () => {

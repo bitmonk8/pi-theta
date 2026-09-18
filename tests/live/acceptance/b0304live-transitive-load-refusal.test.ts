@@ -63,10 +63,7 @@
 // loads and `invoke` runs it — spends no extra model turn.
 
 import { describe, expect, it } from "vitest";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { requireLiveHost, spawnPiPrint } from "./harness";
+import { driveAcceptanceSequence } from "../../helpers/acceptance-sequence-harness";
 import { importCheckCodes } from "../../helpers/thetalib-load-harness";
 
 /** The registry code the fix pushes for a transitive unresolvable import path. */
@@ -176,68 +173,46 @@ describe("H9a live — bug 0304 transitive-lib load refusal through the real `pi
 
     // Live-host precondition — fails loudly naming the unmet precondition
     // (`resolveAcceptanceHost`); never a skip or early return.
-    await requireLiveHost();
+    await driveAcceptanceSequence({
+      slug: "b0304",
+      files: {
+        // All fixture files land in the temp discovery root together: the offender
+        // and its lib; the control and its two libs. `b0304missing.thetalib` is
+        // deliberately ABSENT — that absence is the offender's fault.
+        "b0304offender.theta": OFFENDER,
+        "b0304a.thetalib": OFFENDER_LIB,
+        "b0304probe.theta": PROBE,
+        "b0304control.theta": CONTROL,
+        "b0304ok.thetalib": CONTROL_LIB,
+        "b0304base.thetalib": CONTROL_BASE,
+      },
+      drives: [
+        // ---- (1) the well-formed control registers and drives a real turn ----
+        {
+          label: "control",
+          slashInvocation: "/b0304control",
+          expected: CONTROL_OK,
+          message: (control) =>
+            `control: the temp discovery root must register and DRIVE the well-formed ` +
+              `two-hop import theta — without this the refusal assertion below could pass ` +
+              `vacuously (wrong root, no registration at all). stdout: ${control.stdout} ` +
+              `stderr: ${control.stderr}`,
+        },
 
-    const thetaDir = mkdtempSync(join(tmpdir(), "theta-b0304-root-"));
-    const controlCwd = mkdtempSync(join(tmpdir(), "theta-b0304-cwd-"));
-    const probeCwd = mkdtempSync(join(tmpdir(), "theta-b0304-cwd-"));
-    try {
-      // All fixture files land in the temp discovery root together: the offender
-      // and its lib; the control and its two libs. `b0304missing.thetalib` is
-      // deliberately ABSENT — that absence is the offender's fault.
-      writeFileSync(join(thetaDir, "b0304offender.theta"), OFFENDER, "utf8");
-      writeFileSync(join(thetaDir, "b0304a.thetalib"), OFFENDER_LIB, "utf8");
-      writeFileSync(join(thetaDir, "b0304probe.theta"), PROBE, "utf8");
-      writeFileSync(join(thetaDir, "b0304control.theta"), CONTROL, "utf8");
-      writeFileSync(join(thetaDir, "b0304ok.thetalib"), CONTROL_LIB, "utf8");
-      writeFileSync(join(thetaDir, "b0304base.thetalib"), CONTROL_BASE, "utf8");
-
-      // ---- (1) the well-formed control registers and drives a real turn ----
-      const control = await spawnPiPrint({
-        thetaDir,
-        slashInvocation: "/b0304control",
-        cwd: controlCwd,
-      });
-      expect(
-        control.exitCode,
-        `control: expected a no-error exit (0), got ${String(control.exitCode)}. ` +
-          `stderr: ${control.stderr}`,
-      ).toBe(0);
-      expect(
-        control.stdout,
-        `control: the temp discovery root must register and DRIVE the well-formed ` +
-          `two-hop import theta — without this the refusal assertion below could pass ` +
-          `vacuously (wrong root, no registration at all). stdout: ${control.stdout} ` +
-          `stderr: ${control.stderr}`,
-      ).toContain(CONTROL_OK);
-
-      // ---- (2) the offending theta is refused, observed through invoke ----
-      const probe = await spawnPiPrint({
-        thetaDir,
-        slashInvocation: "/b0304probe",
-        cwd: probeCwd,
-      });
-      expect(
-        probe.exitCode,
-        `probe: expected a no-error exit (0), got ${String(probe.exitCode)}. ` +
-          `stderr: ${probe.stderr}`,
-      ).toBe(0);
-      expect(
-        probe.stdout,
-        `probe: the offending theta must NOT load, so the prober's ` +
-          `invoke("./b0304offender.theta") resolves Err(InvokeInfraError) and the ` +
-          `match prints "${REFUSED}". Printing "${LOADED}" means a broken transitive ` +
-          `lib import loaded clean — bug 0304 unfixed. stdout: ${probe.stdout} ` +
-          `stderr: ${probe.stderr}`,
-      ).toContain(REFUSED);
-      expect(
-        probe.stdout,
-        `probe: the Ok arm must not fire; stdout: ${probe.stdout}`,
-      ).not.toContain(LOADED);
-    } finally {
-      rmSync(thetaDir, { recursive: true, force: true });
-      rmSync(controlCwd, { recursive: true, force: true });
-      rmSync(probeCwd, { recursive: true, force: true });
-    }
+        // ---- (2) the offending theta is refused, observed through invoke ----
+        {
+          label: "probe",
+          slashInvocation: "/b0304probe",
+          expected: REFUSED,
+          unexpected: LOADED,
+          message: (probe) =>
+            `probe: the offending theta must NOT load, so the prober's ` +
+              `invoke("./b0304offender.theta") resolves Err(InvokeInfraError) and the ` +
+              `match prints "${REFUSED}". Printing "${LOADED}" means a broken transitive ` +
+              `lib import loaded clean — bug 0304 unfixed. stdout: ${probe.stdout} ` +
+              `stderr: ${probe.stderr}`,
+        },
+      ],
+    });
   });
 });

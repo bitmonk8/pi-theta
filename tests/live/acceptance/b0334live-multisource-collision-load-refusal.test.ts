@@ -75,15 +75,8 @@
 // FIX: 0.303.0.
 
 import { describe, expect, it } from "vitest";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { requireLiveHost, spawnPiPrint } from "./harness";
-import { checkThetaImports } from "../../../src/extension/import-static-checks";
-import type { ThetaCompositionInput } from "../../../src/extension/theta-composition-producer";
-import type { ParsedFrontmatter } from "../../../src/parser/frontmatter";
-import { parseDeps, parseDoc } from "../../helpers/e2e-s1";
-import { fakeThetaLibFs } from "../../helpers/thetalib-load-harness";
+import { driveAcceptanceSequence } from "../../helpers/acceptance-sequence-harness";
+import { importCheckCodes } from "../../helpers/thetalib-load-harness";
 
 /** The reused code the widened re-export closure check pushes for a multi-source collision. */
 const CODE = "theta/parse/import-name-collision";
@@ -196,36 +189,6 @@ const LOADED = "LOADED";
 const CONTROL_OK = "1042";
 const DIAMOND_OK = "206";
 
-/**
- * The load-pass diagnostic codes for one theta over an in-memory lib set — the
- * cross-file attribution channel `parseThetaDocument` alone cannot reach.
- */
-async function importCheckCodes(
-  thetaText: string,
-  thetaPath: string,
-  libs: Record<string, string>,
-): Promise<readonly string[]> {
-  const app = parseDoc(thetaText, thetaPath);
-  expect(
-    app.frontmatter,
-    `attribution: ${thetaPath} frontmatter must parse or the load pass reads nothing`,
-  ).not.toBeNull();
-  const input: ThetaCompositionInput = {
-    slashName: "probe",
-    sourcePath: thetaPath,
-    frontmatter: app.frontmatter as ParsedFrontmatter,
-    body: app.body,
-  };
-  const check = await checkThetaImports(input, {
-    fs: fakeThetaLibFs(libs),
-    parseDeps: parseDeps(),
-  });
-  return check.diagnostics
-    .filter((d) => d.severity === "error")
-    .map((d) => d.code)
-    .sort();
-}
-
 describe("H9a live — bug 0334 multi-source re-export collision load refusal through the real `pi -p`", () => {
   it("refuses the theta whose hub re-export closure carries a multi-source collision, still registers and drives the well-formed control, and still registers and drives the diamond control", async () => {
     // ATTRIBUTION GUARD (offline, token-free, runs BEFORE the live host is
@@ -261,94 +224,63 @@ describe("H9a live — bug 0334 multi-source re-export collision load refusal th
 
     // Live-host precondition — fails loudly naming the unmet precondition
     // (`resolveAcceptanceHost`); never a skip or early return.
-    await requireLiveHost();
+    await driveAcceptanceSequence({
+      slug: "b0334",
+      files: {
+        // All fixture files land in the temp discovery root together: the
+        // offender, its hub, and its two colliding sources; the control and its
+        // lib; the diamond and its hub/mids/base.
+        "b0334offender.theta": OFFENDER,
+        "b0334hub.thetalib": OFFENDER_HUB,
+        "b0334a.thetalib": OFFENDER_LIB_A,
+        "b0334b.thetalib": OFFENDER_LIB_B,
+        "b0334probe.theta": PROBE,
+        "b0334control.theta": CONTROL,
+        "b0334ok.thetalib": CONTROL_LIB_OK,
+        "b0334diamond.theta": DIAMOND,
+        "b0334dhub.thetalib": DIAMOND_HUB,
+        "b0334midA.thetalib": DIAMOND_MID_A,
+        "b0334midB.thetalib": DIAMOND_MID_B,
+        "b0334base.thetalib": DIAMOND_BASE,
+      },
+      drives: [
+        // ---- (1) the well-formed single-source control registers and drives a real turn ----
+        {
+          label: "control",
+          slashInvocation: "/b0334control",
+          expected: CONTROL_OK,
+          message: (control) =>
+            `control: the temp discovery root must register and DRIVE the well-formed ` +
+              `single-source hub re-export theta — without this the refusal assertion below ` +
+              `could pass vacuously (wrong root, no registration at all). stdout: ${control.stdout} ` +
+              `stderr: ${control.stderr}`,
+        },
 
-    const thetaDir = mkdtempSync(join(tmpdir(), "theta-b0334-root-"));
-    const controlCwd = mkdtempSync(join(tmpdir(), "theta-b0334-cwd-"));
-    const diamondCwd = mkdtempSync(join(tmpdir(), "theta-b0334-cwd-"));
-    const probeCwd = mkdtempSync(join(tmpdir(), "theta-b0334-cwd-"));
-    try {
-      // All fixture files land in the temp discovery root together: the
-      // offender, its hub, and its two colliding sources; the control and its
-      // lib; the diamond and its hub/mids/base.
-      writeFileSync(join(thetaDir, "b0334offender.theta"), OFFENDER, "utf8");
-      writeFileSync(join(thetaDir, "b0334hub.thetalib"), OFFENDER_HUB, "utf8");
-      writeFileSync(join(thetaDir, "b0334a.thetalib"), OFFENDER_LIB_A, "utf8");
-      writeFileSync(join(thetaDir, "b0334b.thetalib"), OFFENDER_LIB_B, "utf8");
-      writeFileSync(join(thetaDir, "b0334probe.theta"), PROBE, "utf8");
-      writeFileSync(join(thetaDir, "b0334control.theta"), CONTROL, "utf8");
-      writeFileSync(join(thetaDir, "b0334ok.thetalib"), CONTROL_LIB_OK, "utf8");
-      writeFileSync(join(thetaDir, "b0334diamond.theta"), DIAMOND, "utf8");
-      writeFileSync(join(thetaDir, "b0334dhub.thetalib"), DIAMOND_HUB, "utf8");
-      writeFileSync(join(thetaDir, "b0334midA.thetalib"), DIAMOND_MID_A, "utf8");
-      writeFileSync(join(thetaDir, "b0334midB.thetalib"), DIAMOND_MID_B, "utf8");
-      writeFileSync(join(thetaDir, "b0334base.thetalib"), DIAMOND_BASE, "utf8");
+        // ---- (2) the diamond control registers and drives a real turn ----
+        {
+          label: "diamond",
+          slashInvocation: "/b0334diamond",
+          expected: DIAMOND_OK,
+          message: (diamond) =>
+            `diamond: one declaration reached by two re-export paths must register and DRIVE — ` +
+              `proving the fix rejects the multi-source collision specifically, not any name reached ` +
+              `through more than one re-export edge. stdout: ${diamond.stdout} stderr: ${diamond.stderr}`,
+        },
 
-      // ---- (1) the well-formed single-source control registers and drives a real turn ----
-      const control = await spawnPiPrint({
-        thetaDir,
-        slashInvocation: "/b0334control",
-        cwd: controlCwd,
-      });
-      expect(
-        control.exitCode,
-        `control: expected a no-error exit (0), got ${String(control.exitCode)}. ` +
-          `stderr: ${control.stderr}`,
-      ).toBe(0);
-      expect(
-        control.stdout,
-        `control: the temp discovery root must register and DRIVE the well-formed ` +
-          `single-source hub re-export theta — without this the refusal assertion below ` +
-          `could pass vacuously (wrong root, no registration at all). stdout: ${control.stdout} ` +
-          `stderr: ${control.stderr}`,
-      ).toContain(CONTROL_OK);
-
-      // ---- (2) the diamond control registers and drives a real turn ----
-      const diamond = await spawnPiPrint({
-        thetaDir,
-        slashInvocation: "/b0334diamond",
-        cwd: diamondCwd,
-      });
-      expect(
-        diamond.exitCode,
-        `diamond: expected a no-error exit (0), got ${String(diamond.exitCode)}. ` +
-          `stderr: ${diamond.stderr}`,
-      ).toBe(0);
-      expect(
-        diamond.stdout,
-        `diamond: one declaration reached by two re-export paths must register and DRIVE — ` +
-          `proving the fix rejects the multi-source collision specifically, not any name reached ` +
-          `through more than one re-export edge. stdout: ${diamond.stdout} stderr: ${diamond.stderr}`,
-      ).toContain(DIAMOND_OK);
-
-      // ---- (3) the offending theta is refused, observed through invoke ----
-      const probe = await spawnPiPrint({
-        thetaDir,
-        slashInvocation: "/b0334probe",
-        cwd: probeCwd,
-      });
-      expect(
-        probe.exitCode,
-        `probe: expected a no-error exit (0), got ${String(probe.exitCode)}. ` +
-          `stderr: ${probe.stderr}`,
-      ).toBe(0);
-      expect(
-        probe.stdout,
-        `probe: the offending theta must NOT load, so the prober's ` +
-          `invoke("./b0334offender.theta") resolves Err(InvokeInfraError) and the ` +
-          `match prints "${REFUSED}". Printing "${LOADED}" means a hub's multi-source ` +
-          `re-export collision loaded clean — bug 0334 unfixed. stdout: ${probe.stdout} ` +
-          `stderr: ${probe.stderr}`,
-      ).toContain(REFUSED);
-      expect(
-        probe.stdout,
-        `probe: the Ok arm must not fire; stdout: ${probe.stdout}`,
-      ).not.toContain(LOADED);
-    } finally {
-      rmSync(thetaDir, { recursive: true, force: true });
-      rmSync(controlCwd, { recursive: true, force: true });
-      rmSync(diamondCwd, { recursive: true, force: true });
-      rmSync(probeCwd, { recursive: true, force: true });
-    }
+        // ---- (3) the offending theta is refused, observed through invoke ----
+        {
+          label: "probe",
+          slashInvocation: "/b0334probe",
+          expected: REFUSED,
+          unexpected: LOADED,
+          message: (probe) =>
+            `probe: the offending theta must NOT load, so the prober's ` +
+              `invoke("./b0334offender.theta") resolves Err(InvokeInfraError) and the ` +
+              `match prints "${REFUSED}". Printing "${LOADED}" means a hub's multi-source ` +
+              `re-export collision loaded clean — bug 0334 unfixed. stdout: ${probe.stdout} ` +
+              `stderr: ${probe.stderr}`,
+        },
+      ],
+    });
   });
 });

@@ -78,10 +78,7 @@
 // basename risks a both-added collision at merge; this lane's merge token makes
 // the file uniquely named and strippable by the parent — 
 
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { MockInstance } from "vitest";
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
+import { describe, expect, it } from "vitest";
 import {
   bootShippedExtension,
   driveSlashCaptureTurn,
@@ -89,10 +86,11 @@ import {
   requireLiveProvider,
   type PlantedTheta,
 } from "./harness";
-import { thetaOwnedStderrLines } from "./theta-stderr-prefixes";
+import { assertThetaStderrCleanForEach } from "../helpers/theta-stderr-gate";
 import { parseDoc } from "../helpers/e2e-s1";
 // @ts-expect-error — JS code-registry module, no type declarations.
-import { parseRegistry, registryMessage } from "../../tools/code-registry/index.js";
+import { registryMessage } from "../../tools/code-registry/index.js";
+import { readRegistry } from "../helpers/registry-oracle";
 
 /** The casing refusal the lowercase declaration must draw (E, parse). */
 const CASE_MISMATCH = "theta/parse/schema-case-mismatch";
@@ -100,14 +98,7 @@ const CASE_MISMATCH = "theta/parse/schema-case-mismatch";
 /** The second code a refused declaration must NOT be able to decide (E, type). */
 const LET_RHS_MISMATCH = "theta/parse/let-rhs-type-mismatch";
 
-const REGISTRY = parseRegistry(
-  readFileSync(
-    fileURLToPath(
-      new URL("../../docs/spec_topics/diagnostics/code-registry-parse.md", import.meta.url),
-    ),
-    "utf8",
-  ),
-) as { code: string; message: string }[];
+const REGISTRY = readRegistry(["parse"]);
 
 /** DIAG-4: the message half is read from the registry row, not copied. */
 function registryFragment(code: string, substitutions: Readonly<Record<string, string>>): string {
@@ -201,28 +192,7 @@ const CONTROL = [
   "",
 ].join("\n");
 
-let consoleErrorSpy: MockInstance | undefined;
-
-beforeEach(() => {
-  consoleErrorSpy = vi.spyOn(console, "error");
-});
-
-afterEach(() => {
-  const spy = consoleErrorSpy;
-  try {
-    const lines = (spy?.mock.calls ?? []).map((args) => args.map(String).join(" "));
-    const offenders = thetaOwnedStderrLines(lines);
-    expect(
-      offenders,
-      "bug 0018's live verification observable for this suite is a 0-byte " +
-        "stderr capture; this spy caught theta-owned stderr line(s) instead: " +
-        JSON.stringify(offenders),
-    ).toEqual([]);
-  } finally {
-    spy?.mockRestore();
-    consoleErrorSpy = undefined;
-  }
-});
+assertThetaStderrCleanForEach();
 
 describe("bug 0135 live: a `schema <lowercase>` declaration is refused for its casing and decides no other check, while the clean control registers and drives", () => {
   it("refuses the lowercase-declaration document with the casing code alone — no let-rhs mismatch on the note channel — while the clean control registers and drives to the live sentinel", async () => {

@@ -84,10 +84,7 @@
 // loads spends no extra model turn.
 
 import { describe, expect, it } from "vitest";
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { requireLiveHost, spawnPiPrint } from "./harness";
+import { driveAcceptanceSequence } from "../../helpers/acceptance-sequence-harness";
 import { importCheckCodes } from "../../helpers/thetalib-load-harness";
 
 /** The registry code the fix keeps for a genuine cycle and withholds for the acyclic twin. */
@@ -214,80 +211,55 @@ describe("H9a live — bug 0302 stem-twin cycle graph through the real `pi -p`",
 
     // Live-host precondition — fails loudly naming the unmet precondition
     // (`resolveAcceptanceHost`); never a skip or early return.
-    await requireLiveHost();
+    await driveAcceptanceSequence({
+      slug: "b0302",
+      files: {
+        // The acyclic target and its two same-stem libs (one a directory down).
+        "b0302acyclic.theta": ACYCLIC_TARGET,
+        "b0302util.thetalib": ACYCLIC_UTIL,
+        "sub/b0302util.thetalib": ACYCLIC_SUB_UTIL,
 
-    const thetaDir = mkdtempSync(join(tmpdir(), "theta-b0302-root-"));
-    const acyclicCwd = mkdtempSync(join(tmpdir(), "theta-b0302-cwd-"));
-    const cyclicCwd = mkdtempSync(join(tmpdir(), "theta-b0302-cwd-"));
-    try {
-      // The acyclic target and its two same-stem libs (one a directory down).
-      mkdirSync(join(thetaDir, "sub"), { recursive: true });
-      writeFileSync(join(thetaDir, "b0302acyclic.theta"), ACYCLIC_TARGET, "utf8");
-      writeFileSync(join(thetaDir, "b0302util.thetalib"), ACYCLIC_UTIL, "utf8");
-      writeFileSync(join(thetaDir, "sub", "b0302util.thetalib"), ACYCLIC_SUB_UTIL, "utf8");
+        // The cyclic target, `x`, its two same-stem libs (one closing the cycle,
+        // one the masking twin), and the prober that invokes it.
+        "b0302cyclic.theta": CYCLIC_TARGET,
+        "b0302x.thetalib": CYCLIC_X,
+        "a/b0302util.thetalib": CYCLIC_A_UTIL,
+        "b/b0302util.thetalib": CYCLIC_B_UTIL,
+        "b0302cyclicprobe.theta": CYCLIC_PROBE,
+      },
+      drives: [
+        // ---- (a) the acyclic same-stem program REGISTERS and DRIVES ----
+        // Direct slash drive of the target itself. Also the anti-vacuity guard for
+        // the refusal below: it proves the temp discovery root registers and drives
+        // a target at all, so a REFUSED reading in (b) cannot be a wrong-root false
+        // pass.
+        {
+          label: "acyclic",
+          slashInvocation: "/b0302acyclic",
+          expected: ACYCLIC_OK,
+          message: (acyclic) =>
+            `acyclic: two same-stem \`b0302util.thetalib\` files in different ` +
+              `directories are acyclic, so the target must register and DRIVE — ` +
+              `computing f(941) + 100 = ${ACYCLIC_OK}. Printing no such number means ` +
+              `the stem-keyed graph drew a false import-cycle self-loop and ` +
+              `un-registered the target — bug 0302 unfixed. stdout: ${acyclic.stdout} ` +
+              `stderr: ${acyclic.stderr}`,
+        },
 
-      // The cyclic target, `x`, its two same-stem libs (one closing the cycle,
-      // one the masking twin), and the prober that invokes it.
-      mkdirSync(join(thetaDir, "a"), { recursive: true });
-      mkdirSync(join(thetaDir, "b"), { recursive: true });
-      writeFileSync(join(thetaDir, "b0302cyclic.theta"), CYCLIC_TARGET, "utf8");
-      writeFileSync(join(thetaDir, "b0302x.thetalib"), CYCLIC_X, "utf8");
-      writeFileSync(join(thetaDir, "a", "b0302util.thetalib"), CYCLIC_A_UTIL, "utf8");
-      writeFileSync(join(thetaDir, "b", "b0302util.thetalib"), CYCLIC_B_UTIL, "utf8");
-      writeFileSync(join(thetaDir, "b0302cyclicprobe.theta"), CYCLIC_PROBE, "utf8");
-
-      // ---- (a) the acyclic same-stem program REGISTERS and DRIVES ----
-      // Direct slash drive of the target itself. Also the anti-vacuity guard for
-      // the refusal below: it proves the temp discovery root registers and drives
-      // a target at all, so a REFUSED reading in (b) cannot be a wrong-root false
-      // pass.
-      const acyclic = await spawnPiPrint({
-        thetaDir,
-        slashInvocation: "/b0302acyclic",
-        cwd: acyclicCwd,
-      });
-      expect(
-        acyclic.exitCode,
-        `acyclic: expected a no-error exit (0), got ${String(acyclic.exitCode)}. ` +
-          `stderr: ${acyclic.stderr}`,
-      ).toBe(0);
-      expect(
-        acyclic.stdout,
-        `acyclic: two same-stem \`b0302util.thetalib\` files in different ` +
-          `directories are acyclic, so the target must register and DRIVE — ` +
-          `computing f(941) + 100 = ${ACYCLIC_OK}. Printing no such number means ` +
-          `the stem-keyed graph drew a false import-cycle self-loop and ` +
-          `un-registered the target — bug 0302 unfixed. stdout: ${acyclic.stdout} ` +
-          `stderr: ${acyclic.stderr}`,
-      ).toContain(ACYCLIC_OK);
-
-      // ---- (b) the cyclic same-stem program is REFUSED, observed through invoke ----
-      const cyclic = await spawnPiPrint({
-        thetaDir,
-        slashInvocation: "/b0302cyclicprobe",
-        cwd: cyclicCwd,
-      });
-      expect(
-        cyclic.exitCode,
-        `cyclic: expected a no-error exit (0), got ${String(cyclic.exitCode)}. ` +
-          `stderr: ${cyclic.stderr}`,
-      ).toBe(0);
-      expect(
-        cyclic.stdout,
-        `cyclic: \`x → a/b0302util → x\` is a genuine cycle, so the target must ` +
-          `NOT register and the prober's invoke resolves Err — printing ` +
-          `"${REFUSED}". Printing "${LOADED}" means the stem-twin \`b/b0302util\` ` +
-          `overwrote the back-edge and masked the cycle — bug 0302 unfixed. ` +
-          `stdout: ${cyclic.stdout} stderr: ${cyclic.stderr}`,
-      ).toContain(REFUSED);
-      expect(
-        cyclic.stdout,
-        `cyclic: the Ok arm must not fire; stdout: ${cyclic.stdout}`,
-      ).not.toContain(LOADED);
-    } finally {
-      rmSync(thetaDir, { recursive: true, force: true });
-      rmSync(acyclicCwd, { recursive: true, force: true });
-      rmSync(cyclicCwd, { recursive: true, force: true });
-    }
+        // ---- (b) the cyclic same-stem program is REFUSED, observed through invoke ----
+        {
+          label: "cyclic",
+          slashInvocation: "/b0302cyclicprobe",
+          expected: REFUSED,
+          unexpected: LOADED,
+          message: (cyclic) =>
+            `cyclic: \`x → a/b0302util → x\` is a genuine cycle, so the target must ` +
+              `NOT register and the prober's invoke resolves Err — printing ` +
+              `"${REFUSED}". Printing "${LOADED}" means the stem-twin \`b/b0302util\` ` +
+              `overwrote the back-edge and masked the cycle — bug 0302 unfixed. ` +
+              `stdout: ${cyclic.stdout} stderr: ${cyclic.stderr}`,
+        },
+      ],
+    });
   });
 });

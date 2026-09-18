@@ -55,10 +55,7 @@
 // is required, so a neutralised fix reds here with zero tokens spent (per
 // AGENTS.md's "prefer the offline-attributable guard").
 
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { MockInstance } from "vitest";
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
+import { describe, expect, it } from "vitest";
 import {
   bootShippedExtension,
   driveSlashCaptureTurn,
@@ -66,22 +63,16 @@ import {
   requireLiveProvider,
   type PlantedTheta,
 } from "./harness";
-import { thetaOwnedStderrLines } from "./theta-stderr-prefixes";
+import { assertThetaStderrCleanForEach } from "../helpers/theta-stderr-gate";
 import { parseDoc } from "../helpers/e2e-s1";
 // @ts-expect-error -- JS code-registry module, no type declarations.
-import { parseRegistry, registryMessage } from "../../tools/code-registry/index.js";
+import { registryMessage } from "../../tools/code-registry/index.js";
+import { readRegistry } from "../helpers/registry-oracle";
 
 /** The row bug 0228 §Fix (b) mints (E, parse). */
 const NOT_IDENT = "theta/parse/inline-field-name-not-identifier";
 
-const REGISTRY = parseRegistry(
-  readFileSync(
-    fileURLToPath(
-      new URL("../../docs/spec_topics/diagnostics/code-registry-parse.md", import.meta.url),
-    ),
-    "utf8",
-  ),
-) as { code: string; message: string }[];
+const REGISTRY = readRegistry(["parse"]);
 
 /**
  * `field name 'a b' within one inline object type is not an identifier` —
@@ -175,27 +166,7 @@ const GOOD = [
   "",
 ].join("\n");
 
-let consoleErrorSpy: MockInstance | undefined;
-
-beforeEach(() => {
-  consoleErrorSpy = vi.spyOn(console, "error");
-});
-
-afterEach(() => {
-  const spy = consoleErrorSpy;
-  try {
-    const lines = (spy?.mock.calls ?? []).map((args) => args.map(String).join(" "));
-    const offenders = thetaOwnedStderrLines(lines);
-    expect(
-      offenders,
-      "bug 0018's live verification observable for this suite is a 0-byte stderr capture; this " +
-        "spy caught theta-owned stderr line(s) instead: " + JSON.stringify(offenders),
-    ).toEqual([]);
-  } finally {
-    spy?.mockRestore();
-    consoleErrorSpy = undefined;
-  }
-});
+assertThetaStderrCleanForEach();
 
 describe("bug 0228 live: an inline field name spelling two identifiers is refused at registration, and the space-free sibling registers and drives", () => {
   it("does not register `let r: {a b: string} | null = null`, the theta-system-note channel carries theta/parse/inline-field-name-not-identifier naming the raw key `a b`, and `{ab: string}` still registers and drives to the live sentinel via `answer.ab`", async () => {

@@ -12,8 +12,8 @@
 // explicitly rather than assumed, so a file whose registry setup is its own
 // (read scope, page set) is unaffected.
 //
-// TIER: unit, offline, deterministic, provider-free — the same tier as every
-// file that imports this module. Nothing here is stubbed: `loadRow` parses
+// TIER: unit, offline, deterministic, provider-free; the registry readers are
+// also used by live cells. Nothing here is stubbed: `loadRow` parses
 // through the real `parseDoc` (`tests/helpers/e2e-s1.ts`), itself a thin,
 // inert-deps wrapper over the shipped `parseThetaDocument`.
 
@@ -55,26 +55,39 @@ export const PARSE_REGISTRY: readonly ParseCodeRegistryRow[] = parseRegistry(
  * The registry row's normative *Message* template with its named placeholders
  * filled (DIAG-4). Definedness and placeholder presence are asserted first, so
  * a row whose *Message* moved reds by naming the registry page rather than by a
- * bare `undefined` comparison downstream.
+ * bare `undefined` comparison downstream. Live fragment readers can retain
+ * replace-all substitution and their post-fill placeholder drift guard.
  */
 export function registryMessageOf(
   registry: readonly RegistryRow[],
   registryPath: string,
   code: string,
   fills: ReadonlyArray<readonly [string, string]> = [],
+  options: {
+    readonly replaceAll?: boolean;
+    readonly unfilledPattern?: RegExp;
+  } = {},
 ): string {
   const template = registryMessage(registry, code) as string | undefined;
   expect(
     template,
     `DIAG-4 anchor: ${registryPath} must carry the Message row for ${code}`,
-  ).toBeDefined();
+  ).toBeTypeOf("string");
   let out = template as string;
   for (const [placeholder, value] of fills) {
     expect(
       out,
       `DIAG-4: the ${code} Message template must carry the ${placeholder} placeholder; template=${JSON.stringify(template)}`,
     ).toContain(placeholder);
-    out = out.replace(placeholder, value);
+    out = options.replaceAll
+      ? out.replaceAll(placeholder, value)
+      : out.replace(placeholder, value);
+  }
+  if (options.unfilledPattern !== undefined) {
+    expect(
+      out,
+      `${code}: an unsubstituted placeholder remains — the registry row's Message template changed shape`,
+    ).not.toMatch(options.unfilledPattern);
   }
   return out;
 }

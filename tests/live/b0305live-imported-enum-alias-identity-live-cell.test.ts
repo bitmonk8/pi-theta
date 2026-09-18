@@ -56,8 +56,7 @@
 // Bug 0030's file-scope `console.error` spy gates this file: the filtered
 // capture (`thetaOwnedStderrLines`) must be empty.
 
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { MockInstance } from "vitest";
+import { describe, expect, it } from "vitest";
 import { join } from "node:path";
 import { writeFileSync } from "node:fs";
 import {
@@ -67,7 +66,7 @@ import {
   requireLiveProvider,
   type PlantedTheta,
 } from "./harness";
-import { thetaOwnedStderrLines } from "./theta-stderr-prefixes";
+import { assertThetaStderrCleanForEach } from "../helpers/theta-stderr-gate";
 import { parseDeps, parseDoc } from "../helpers/e2e-s1";
 import { FakeFileSystem } from "../helpers/fake-file-system";
 import { checkThetaImports } from "../../src/extension/import-static-checks";
@@ -140,28 +139,7 @@ async function composeCodesOf(body: string): Promise<readonly string[]> {
   return result.diagnostics.map((d) => d.code);
 }
 
-let consoleErrorSpy: MockInstance | undefined;
-
-beforeEach(() => {
-  consoleErrorSpy = vi.spyOn(console, "error");
-});
-
-afterEach(() => {
-  const spy = consoleErrorSpy;
-  try {
-    const lines = (spy?.mock.calls ?? []).map((args) => args.map(String).join(" "));
-    const offenders = thetaOwnedStderrLines(lines);
-    expect(
-      offenders,
-      "bug 0018's live verification observable for this suite is a 0-byte " +
-        "stderr capture; this spy caught theta-owned stderr line(s) instead: " +
-        JSON.stringify(offenders),
-    ).toEqual([]);
-  } finally {
-    spy?.mockRestore();
-    consoleErrorSpy = undefined;
-  }
-});
+assertThetaStderrCleanForEach();
 
 describe("bug 0305 live: two aliases of one imported enum compare equal into a live prompt", () => {
   it("registers the importing app and drives it to the alias-equality sentinel", async () => {

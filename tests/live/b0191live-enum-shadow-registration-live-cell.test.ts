@@ -94,8 +94,7 @@
 // verification report for whether that direction was driven live or proved
 // offline and why.
 
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { MockInstance } from "vitest";
+import { describe, expect, it } from "vitest";
 import {
   bootShippedExtension,
   driveSlashCaptureTurn,
@@ -104,7 +103,7 @@ import {
   type PlantedTheta,
 } from "./harness";
 import { FAIL_CLOSED_MARKERS } from "../helpers/live-transcript";
-import { thetaOwnedStderrLines } from "./theta-stderr-prefixes";
+import { assertThetaStderrCleanForEach } from "../helpers/theta-stderr-gate";
 import { parseDoc } from "../helpers/e2e-s1";
 
 const PRECONDITION_STEM = "b0191livectl";
@@ -156,28 +155,7 @@ const PRECONDITION_THETA =
     "@`What is 2 plus 2? Answer with the number only.`",
   ].join("\n") + "\n";
 
-let consoleErrorSpy: MockInstance | undefined;
-
-beforeEach(() => {
-  consoleErrorSpy = vi.spyOn(console, "error");
-});
-
-afterEach(() => {
-  const spy = consoleErrorSpy;
-  try {
-    const lines = (spy?.mock.calls ?? []).map((args) => args.map(String).join(" "));
-    const offenders = thetaOwnedStderrLines(lines);
-    expect(
-      offenders,
-      "bug 0018's live verification observable for this suite is a 0-byte " +
-        "stderr capture; this spy caught theta-owned stderr line(s) instead: " +
-        JSON.stringify(offenders),
-    ).toEqual([]);
-  } finally {
-    spy?.mockRestore();
-    consoleErrorSpy = undefined;
-  }
-});
+assertThetaStderrCleanForEach();
 
 describe("bug 0191 live: the double-collision member read loads/registers/drives clean", () => {
   it("registers and drives the CLEAN double-collision carrier to the arithmetic oracle", async () => {
