@@ -68,7 +68,7 @@ import { describe, expect, it } from "vitest";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { failLoudly, requireLiveHost, resolveAcceptanceHost, spawnPiPrint } from "./harness";
+import { requireLiveHost, resolveAcceptanceHost, spawnPiPrint } from "./harness";
 import { parseDoc } from "../../helpers/e2e-s1";
 import { renderSystemPrompt } from "../../../src/parser/system-interpolation";
 import type { Diagnostic } from "../../../src/diagnostics/diagnostic";
@@ -181,12 +181,7 @@ describe("H9a live — bug 0444 array-of-union element `system:` interpolation r
 
     // Live-host precondition — fails loudly naming the unmet precondition; never
     // a skip or early return.
-    const { modelId } = await requireLiveHost();
-    if (modelId.length === 0) {
-      failLoudly(
-        "live-host precondition unmet: the shared live-suite model resolver returned an empty model id.",
-      );
-    }
+    await requireLiveHost();
 
     const thetaDir = mkdtempSync(join(tmpdir(), "theta-b0444-"));
     const probeCwd = mkdtempSync(join(tmpdir(), "theta-b0444-cwd-"));

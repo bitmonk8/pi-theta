@@ -70,8 +70,8 @@ import { describe, expect, it } from "vitest";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { failLoudly, requireLiveHost, spawnPiPrint } from "./harness";
-import { parseDoc } from "../../helpers/e2e-s1";
+import { requireLiveHost, spawnPiPrint } from "./harness";
+import { errorCodes as parseErrorCodes } from "../../helpers/e2e-s1";
 
 /** The registry code the genuinely-wrong reassignment reds with (bindings.md §"reassignment"). */
 const MISMATCH_CODE = "theta/parse/reassign-rhs-type-mismatch";
@@ -135,14 +135,6 @@ const ACCUMULATOR_OK = "777";
 const REFUSED = "REFUSED";
 const LOADED = "LOADED";
 
-/** Error-severity diagnostic codes from a parse-only run, sorted for readable failures. */
-function parseErrorCodes(thetaText: string, thetaPath: string): string[] {
-  return parseDoc(thetaText, thetaPath)
-    .diagnostics.filter((d) => d.severity === "error")
-    .map((d) => d.code)
-    .sort();
-}
-
 describe("H9a live — bug 0341 inferred-binding accumulator registers/drives through the real `pi -p`", () => {
   it("registers and drives the previously-refused accumulator, and still refuses the genuinely wrong write", async () => {
     // ATTRIBUTION GUARD (offline, token-free, runs BEFORE the live host is
@@ -166,13 +158,7 @@ describe("H9a live — bug 0341 inferred-binding accumulator registers/drives th
 
     // Live-host precondition — fails loudly naming the unmet precondition; never
     // a skip or early return.
-    const { modelId } = await requireLiveHost();
-    if (modelId.length === 0) {
-      failLoudly(
-        "live-host precondition unmet: the shared live-suite model resolver " +
-          "returned an empty model id.",
-      );
-    }
+    await requireLiveHost();
 
     const thetaDir = mkdtempSync(join(tmpdir(), "theta-b0341-root-"));
     const accumulatorCwd = mkdtempSync(join(tmpdir(), "theta-b0341-cwd-"));

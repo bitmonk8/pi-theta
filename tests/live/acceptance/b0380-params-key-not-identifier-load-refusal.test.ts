@@ -58,7 +58,7 @@ import { describe, expect, it } from "vitest";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { failLoudly, parseSystemNoteCodes, requireLiveHost, spawnPiPrint } from "./harness";
+import { parseSystemNoteCodes, requireLiveHost, spawnPiPrint } from "./harness";
 import { parseDoc } from "../../helpers/e2e-s1";
 
 /** The row the settled Option-A fix mints (src/parser/frontmatter.ts `extractParsedParams`). */
@@ -161,12 +161,7 @@ describe("-- H9a live: bug 0380 non-identifier `params:` key refusal at load thr
 
     // Live-host precondition -- fails loudly naming the unmet precondition;
     // never a skip or early return.
-    const { modelId } = await requireLiveHost();
-    if (modelId.length === 0) {
-      failLoudly(
-        "live-host precondition unmet: the shared live-suite model resolver returned an empty model id.",
-      );
-    }
+    await requireLiveHost();
 
     const thetaDir = mkdtempSync(join(tmpdir(), "theta-b0380-root-"));
     const cleanCwd = mkdtempSync(join(tmpdir(), "theta-b0380-cwd-"));

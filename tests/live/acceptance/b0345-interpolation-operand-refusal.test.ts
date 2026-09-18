@@ -58,8 +58,8 @@ import { describe, expect, it } from "vitest";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { failLoudly, requireLiveHost, spawnPiPrint } from "./harness";
-import { parseDoc } from "../../helpers/e2e-s1";
+import { requireLiveHost, spawnPiPrint } from "./harness";
+import { errorCodes as parseErrorCodes } from "../../helpers/e2e-s1";
 
 /** The registry code the mixed `+` interpolation reds with (expressions.md §"`+` operator"). */
 const MIXED_PLUS_OPERANDS_CODE = "theta/parse/mixed-plus-operands";
@@ -119,14 +119,6 @@ const REFUSED = "REFUSED";
 const LOADED = "LOADED";
 const CONTROL_OK = "103";
 
-/** Error-severity diagnostic codes from a parse-only run, sorted for readable failures. */
-function parseErrorCodes(thetaText: string, thetaPath: string): string[] {
-  return parseDoc(thetaText, thetaPath)
-    .diagnostics.filter((d) => d.severity === "error")
-    .map((d) => d.code)
-    .sort();
-}
-
 describe("H9a live — bug 0345 interpolation operand refusal/compute through the real `pi -p`", () => {
   it("refuses the operand-violating interpolation theta, and still registers and drives the numeric-interpolation control", async () => {
     // ATTRIBUTION GUARD (offline, token-free, runs BEFORE the live host is
@@ -148,13 +140,7 @@ describe("H9a live — bug 0345 interpolation operand refusal/compute through th
 
     // Live-host precondition — fails loudly naming the unmet precondition; never
     // a skip or early return.
-    const { modelId } = await requireLiveHost();
-    if (modelId.length === 0) {
-      failLoudly(
-        "live-host precondition unmet: the shared live-suite model resolver " +
-          "returned an empty model id.",
-      );
-    }
+    await requireLiveHost();
 
     const thetaDir = mkdtempSync(join(tmpdir(), "theta-b0345-root-"));
     const controlCwd = mkdtempSync(join(tmpdir(), "theta-b0345-cwd-"));

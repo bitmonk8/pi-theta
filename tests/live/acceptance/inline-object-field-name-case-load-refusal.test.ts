@@ -74,7 +74,6 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
-  failLoudly,
   parseSystemNoteCodes,
   requireLiveHost,
   spawnPiPrint,
@@ -181,12 +180,7 @@ describe("-- H9a live: bug 0154 binding-case-mismatch refusal at the inline obje
 
     // Live-host precondition -- fails loudly naming the unmet precondition
     // (`resolveAcceptanceHost`); never a skip or early return.
-    const { modelId } = await requireLiveHost();
-    if (modelId.length === 0) {
-      failLoudly(
-        "live-host precondition unmet: the shared live-suite model resolver returned an empty model id.",
-      );
-    }
+    await requireLiveHost();
 
     const thetaDir = mkdtempSync(join(tmpdir(), "theta-cellbcm-root-"));
     const cleanCwd = mkdtempSync(join(tmpdir(), "theta-cellbcm-cwd-"));

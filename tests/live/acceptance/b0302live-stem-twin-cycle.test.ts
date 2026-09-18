@@ -87,12 +87,8 @@ import { describe, expect, it } from "vitest";
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { failLoudly, requireLiveHost, spawnPiPrint } from "./harness";
-import { checkThetaImports } from "../../../src/extension/import-static-checks";
-import type { ThetaCompositionInput } from "../../../src/extension/theta-composition-producer";
-import type { ParsedFrontmatter } from "../../../src/parser/frontmatter";
-import type { FileSystem } from "../../../src/seams/file-system";
-import { parseDeps, parseDoc } from "../../helpers/e2e-s1";
+import { requireLiveHost, spawnPiPrint } from "./harness";
+import { importCheckCodes } from "../../helpers/thetalib-load-harness";
 
 /** The registry code the fix keeps for a genuine cycle and withholds for the acyclic twin. */
 const CYCLE_CODE = "theta/load/import-cycle";
@@ -190,73 +186,6 @@ const ACYCLIC_OK = "1041"; // f(941) + 100 — the acyclic target LOADED and DRO
 const REFUSED = "REFUSED"; // Err arm — the cyclic target was REFUSED.
 const LOADED = "LOADED"; // Ok arm — the cyclic target wrongly loaded (bug unfixed).
 
-/** The in-memory `.thetalib` filesystem double from tests/reexport-chain-resolution.test.ts. */
-function fakeThetaLibFs(files: Record<string, string>): FileSystem {
-  const dirs = new Map<string, string[]>();
-  for (const path of Object.keys(files)) {
-    const slash = path.lastIndexOf("/");
-    const parent = path.slice(0, slash);
-    const entries = dirs.get(parent) ?? [];
-    entries.push(path.slice(slash + 1));
-    dirs.set(parent, entries);
-  }
-  const reject = (): Promise<never> =>
-    Promise.reject(new Error("filesystem member not exercised by this test"));
-  return {
-    readText: reject,
-    writeText: reject,
-    exists: reject,
-    homedir: (): string => "/home",
-    cwd: (): string => "/proj",
-    configDirName: (): string => ".pi",
-    globalAgentDir: (): string => "/home/.pi/agent",
-    lstat: reject,
-    realpath: reject,
-    readdir: (path: string): Promise<readonly string[]> => {
-      const entries = dirs.get(path);
-      return entries === undefined
-        ? Promise.reject(new Error(`ENOENT: ${path}`))
-        : Promise.resolve(entries);
-    },
-    readBytes: (path: string): Promise<Uint8Array> => {
-      const content = files[path];
-      return content === undefined
-        ? Promise.reject(new Error(`ENOENT: ${path}`))
-        : Promise.resolve(new TextEncoder().encode(content));
-    },
-  } as FileSystem;
-}
-
-/**
- * The load-pass diagnostic codes for one theta over an in-memory lib set — the
- * cross-file cycle verdict `parseThetaDocument` alone cannot reach.
- */
-async function importCheckCodes(
-  thetaText: string,
-  thetaPath: string,
-  libs: Record<string, string>,
-): Promise<readonly string[]> {
-  const app = parseDoc(thetaText, thetaPath);
-  expect(
-    app.frontmatter,
-    `attribution: ${thetaPath} frontmatter must parse or the load pass reads nothing`,
-  ).not.toBeNull();
-  const input: ThetaCompositionInput = {
-    slashName: "probe",
-    sourcePath: thetaPath,
-    frontmatter: app.frontmatter as ParsedFrontmatter,
-    body: app.body,
-  };
-  const check = await checkThetaImports(input, {
-    fs: fakeThetaLibFs(libs),
-    parseDeps: parseDeps(),
-  });
-  return check.diagnostics
-    .filter((d) => d.severity === "error")
-    .map((d) => d.code)
-    .sort();
-}
-
 describe("H9a live — bug 0302 stem-twin cycle graph through the real `pi -p`", () => {
   it("drives the acyclic same-stem program and refuses the cyclic same-stem program", async () => {
     // ATTRIBUTION GUARD (offline, token-free, runs BEFORE the live host is
@@ -285,13 +214,7 @@ describe("H9a live — bug 0302 stem-twin cycle graph through the real `pi -p`",
 
     // Live-host precondition — fails loudly naming the unmet precondition
     // (`resolveAcceptanceHost`); never a skip or early return.
-    const { modelId } = await requireLiveHost();
-    if (modelId.length === 0) {
-      failLoudly(
-        "live-host precondition unmet: the shared live-suite model resolver " +
-          "returned an empty model id.",
-      );
-    }
+    await requireLiveHost();
 
     const thetaDir = mkdtempSync(join(tmpdir(), "theta-b0302-root-"));
     const acyclicCwd = mkdtempSync(join(tmpdir(), "theta-b0302-cwd-"));

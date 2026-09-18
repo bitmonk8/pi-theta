@@ -62,7 +62,7 @@ import { describe, expect, it } from "vitest";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { failLoudly, requireLiveHost, spawnPiPrint } from "./harness";
+import { requireLiveHost, spawnPiPrint } from "./harness";
 import { parseDoc, errors } from "../../helpers/e2e-s1";
 
 /** The registry code the pre-fix leading-word sniff drew on a field/variant `///`. */
@@ -148,13 +148,7 @@ describe("H9a live — bug 0357 field/variant doc-comment registration through t
 
     // Live-host precondition — fails loudly naming the unmet precondition; never
     // a skip or early return.
-    const { modelId } = await requireLiveHost();
-    if (modelId.length === 0) {
-      failLoudly(
-        "live-host precondition unmet: the shared live-suite model resolver " +
-          "returned an empty model id.",
-      );
-    }
+    await requireLiveHost();
 
     const thetaDir = mkdtempSync(join(tmpdir(), "theta-b0357-root-"));
     const subjectCwd = mkdtempSync(join(tmpdir(), "theta-b0357-cwd-"));

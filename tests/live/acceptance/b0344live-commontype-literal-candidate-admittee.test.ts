@@ -91,8 +91,8 @@ import { describe, expect, it } from "vitest";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { failLoudly, requireLiveHost, spawnPiPrint } from "./harness";
-import { parseDoc } from "../../helpers/e2e-s1";
+import { requireLiveHost, spawnPiPrint } from "./harness";
+import { errorCodes as parseErrorCodes } from "../../helpers/e2e-s1";
 
 /** The registry code the surviving object-branch refusal reds with (bug doc §Fix constraint 2 / type-compat.ts's object-branch gate). */
 const NO_COMMON_TYPE_CODE = "theta/parse/array-no-common-type";
@@ -161,14 +161,6 @@ const ADMITTEE_OK = "265";
 const REFUSED = "REFUSED";
 const LOADED = "LOADED";
 
-/** Error-severity diagnostic codes from a parse-only run, sorted for readable failures. */
-function parseErrorCodes(thetaText: string, thetaPath: string): string[] {
-  return parseDoc(thetaText, thetaPath)
-    .diagnostics.filter((d) => d.severity === "error")
-    .map((d) => d.code)
-    .sort();
-}
-
 describe("H9a live — bug 0344 commonType literal-candidate admittee registers/drives through the real `pi -p`", () => {
   it("registers and drives the previously-refused admittee, and still refuses the genuinely disjoint object array", async () => {
     // ATTRIBUTION GUARD (offline, token-free, runs BEFORE the live host is
@@ -194,13 +186,7 @@ describe("H9a live — bug 0344 commonType literal-candidate admittee registers/
 
     // Live-host precondition — fails loudly naming the unmet precondition;
     // never a skip or early return.
-    const { modelId } = await requireLiveHost();
-    if (modelId.length === 0) {
-      failLoudly(
-        "live-host precondition unmet: the shared live-suite model resolver " +
-          "returned an empty model id.",
-      );
-    }
+    await requireLiveHost();
 
     const thetaDir = mkdtempSync(join(tmpdir(), "theta-b0344-root-"));
     const admitteeCwd = mkdtempSync(join(tmpdir(), "theta-b0344-cwd-"));

@@ -58,6 +58,7 @@
 // diagnostic, so the sibling's registration and drive stay green.
 
 import { describe, expect, it } from "vitest";
+import { FAIL_CLOSED_MARKERS } from "../helpers/live-transcript";
 import {
   bootShippedExtension,
   driveSlashCaptureTurn,
@@ -99,13 +100,6 @@ function objectPatternTheta(head: string, label: string): string {
     ].join("\n") + "\n"
   );
 }
-
-/**
- * The fail-closed markers a top-level theta drive lands on the
- * `theta-system-note` channel (AGENTS.md §"Assert on real observables"). The
- * sibling drive must produce none of them.
- */
-const FAIL_CLOSED_MARKERS = ["returned Err:", "cancelled", "aborted"] as const;
 
 describe("bug 0219 — a reserved keyword heading an object pattern is refused at live production load and un-registers the theta", () => {
   it(": un-registers the reserved-braced-head theta while the declared-braced-head sibling over the SAME match shape registers and drives", async () => {

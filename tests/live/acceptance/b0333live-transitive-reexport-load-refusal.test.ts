@@ -76,12 +76,12 @@ import { describe, expect, it } from "vitest";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { failLoudly, requireLiveHost, spawnPiPrint } from "./harness";
+import { requireLiveHost, spawnPiPrint } from "./harness";
 import { checkThetaImports } from "../../../src/extension/import-static-checks";
 import type { ThetaCompositionInput } from "../../../src/extension/theta-composition-producer";
 import type { ParsedFrontmatter } from "../../../src/parser/frontmatter";
-import type { FileSystem } from "../../../src/seams/file-system";
 import { parseDeps, parseDoc } from "../../helpers/e2e-s1";
+import { fakeThetaLibFs } from "../../helpers/thetalib-load-harness";
 
 /** The registry code the widened seed pushes for a transitive broken re-export source path. */
 const CODE = "theta/load/unresolvable-thetalib-path";
@@ -177,43 +177,6 @@ const REFUSED = "REFUSED";
 const LOADED = "LOADED";
 const CONTROL_OK = "1041";
 
-/** The in-memory `.thetalib` filesystem double from tests/reexport-chain-resolution.test.ts. */
-function fakeThetaLibFs(files: Record<string, string>): FileSystem {
-  const dirs = new Map<string, string[]>();
-  for (const path of Object.keys(files)) {
-    const slash = path.lastIndexOf("/");
-    const parent = path.slice(0, slash);
-    const entries = dirs.get(parent) ?? [];
-    entries.push(path.slice(slash + 1));
-    dirs.set(parent, entries);
-  }
-  const reject = (): Promise<never> =>
-    Promise.reject(new Error("filesystem member not exercised by this test"));
-  return {
-    readText: reject,
-    writeText: reject,
-    exists: reject,
-    homedir: (): string => "/home",
-    cwd: (): string => "/proj",
-    configDirName: (): string => ".pi",
-    globalAgentDir: (): string => "/home/.pi/agent",
-    lstat: reject,
-    realpath: reject,
-    readdir: (path: string): Promise<readonly string[]> => {
-      const entries = dirs.get(path);
-      return entries === undefined
-        ? Promise.reject(new Error(`ENOENT: ${path}`))
-        : Promise.resolve(entries);
-    },
-    readBytes: (path: string): Promise<Uint8Array> => {
-      const content = files[path];
-      return content === undefined
-        ? Promise.reject(new Error(`ENOENT: ${path}`))
-        : Promise.resolve(new TextEncoder().encode(content));
-    },
-  } as FileSystem;
-}
-
 /**
  * The load-pass diagnostic codes for one theta over an in-memory lib set — the
  * cross-file attribution channel `parseThetaDocument` alone cannot reach.
@@ -272,13 +235,7 @@ describe("H9a live — bug 0333 transitive-re-export load refusal through the re
 
     // Live-host precondition — fails loudly naming the unmet precondition
     // (`resolveAcceptanceHost`); never a skip or early return.
-    const { modelId } = await requireLiveHost();
-    if (modelId.length === 0) {
-      failLoudly(
-        "live-host precondition unmet: the shared live-suite model resolver " +
-          "returned an empty model id.",
-      );
-    }
+    await requireLiveHost();
 
     const thetaDir = mkdtempSync(join(tmpdir(), "theta-b0333-root-"));
     const controlCwd = mkdtempSync(join(tmpdir(), "theta-b0333-cwd-"));

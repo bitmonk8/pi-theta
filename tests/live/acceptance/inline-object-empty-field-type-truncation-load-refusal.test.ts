@@ -87,7 +87,7 @@ import { describe, expect, it } from "vitest";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { failLoudly, parseSystemNoteCodes, requireLiveHost, spawnPiPrint } from "./harness";
+import { parseSystemNoteCodes, requireLiveHost, spawnPiPrint } from "./harness";
 import { parseDoc } from "../../helpers/e2e-s1";
 
 /** The registered code bug 0237's fix lets reach the `params:` position. */
@@ -196,12 +196,7 @@ describe("-- H9a live: bug 0237's empty inline field type stops truncating the i
 
     // Live-host precondition -- fails loudly naming the unmet precondition
     // (`resolveAcceptanceHost`); never a skip or early return.
-    const { modelId } = await requireLiveHost();
-    if (modelId.length === 0) {
-      failLoudly(
-        "live-host precondition unmet: the shared live-suite model resolver returned an empty model id.",
-      );
-    }
+    await requireLiveHost();
 
     const thetaDir = mkdtempSync(join(tmpdir(), "theta-b237-root-"));
     const cleanCwd = mkdtempSync(join(tmpdir(), "theta-b237-cwd-"));

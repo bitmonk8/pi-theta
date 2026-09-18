@@ -80,7 +80,7 @@ import { describe, expect, it } from "vitest";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { failLoudly, parseSystemNoteCodes, requireLiveHost, spawnPiPrint } from "./harness";
+import { parseSystemNoteCodes, requireLiveHost, spawnPiPrint } from "./harness";
 import { parseDoc } from "../../helpers/e2e-s1";
 
 /** Bug 0228's raw-key row, which §Fix (a) route 1 widens into generic arguments. */
@@ -178,12 +178,7 @@ describe("-- H9a live: bug 0233 raw-key refusal inside a generic type argument t
 
     // Live-host precondition -- fails loudly naming the unmet precondition
     // (`resolveAcceptanceHost`); never a skip or early return.
-    const { modelId } = await requireLiveHost();
-    if (modelId.length === 0) {
-      failLoudly(
-        "live-host precondition unmet: the shared live-suite model resolver returned an empty model id.",
-      );
-    }
+    await requireLiveHost();
 
     const thetaDir = mkdtempSync(join(tmpdir(), "theta-b0233-root-"));
     const cleanCwd = mkdtempSync(join(tmpdir(), "theta-b0233-cwd-"));

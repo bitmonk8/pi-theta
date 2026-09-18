@@ -55,8 +55,8 @@ import { describe, expect, it } from "vitest";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { failLoudly, requireLiveHost, spawnPiPrint } from "./harness";
-import { parseDoc } from "../../helpers/e2e-s1";
+import { requireLiveHost, spawnPiPrint } from "./harness";
+import { errorCodes as parseErrorCodes } from "../../helpers/e2e-s1";
 
 /** The registry code the spelled non-numeric arithmetic reds with (expressions.md §"Other arithmetic"). */
 const NON_NUMERIC_ARITHMETIC_OPERANDS_CODE = "theta/parse/non-numeric-arithmetic-operands";
@@ -118,14 +118,6 @@ const REFUSED = "REFUSED";
 const LOADED = "LOADED";
 const CONTROL_OK = "105";
 
-/** Error-severity diagnostic codes from a parse-only run, sorted for readable failures. */
-function parseErrorCodes(thetaText: string, thetaPath: string): string[] {
-  return parseDoc(thetaText, thetaPath)
-    .diagnostics.filter((d) => d.severity === "error")
-    .map((d) => d.code)
-    .sort();
-}
-
 describe("H9a live — bug 0332 spelled-arithmetic refusal/compute through the real `pi -p`", () => {
   it("refuses the non-numeric spelled-arithmetic theta, and still registers and drives the well-formed numeric control", async () => {
     // ATTRIBUTION GUARD (offline, token-free, runs BEFORE the live host is
@@ -146,13 +138,7 @@ describe("H9a live — bug 0332 spelled-arithmetic refusal/compute through the r
 
     // Live-host precondition — fails loudly naming the unmet precondition; never
     // a skip or early return.
-    const { modelId } = await requireLiveHost();
-    if (modelId.length === 0) {
-      failLoudly(
-        "live-host precondition unmet: the shared live-suite model resolver " +
-          "returned an empty model id.",
-      );
-    }
+    await requireLiveHost();
 
     const thetaDir = mkdtempSync(join(tmpdir(), "theta-b0332-root-"));
     const controlCwd = mkdtempSync(join(tmpdir(), "theta-b0332-cwd-"));

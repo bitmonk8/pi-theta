@@ -41,8 +41,8 @@
 // just the `fakeThetaLibFs` double itself (PTQ-0393); both now import the
 // export below instead.
 //
-// TIER: unit, offline, deterministic, provider-free — the same tier as every
-// file that imports this module.
+// TIER: offline, deterministic, provider-free — also used for attribution
+// guards before live acceptance tests cross the host boundary.
 
 import { expect } from "vitest";
 import type {
@@ -69,7 +69,7 @@ import type { AgentToolResultEnvelope } from "../../src/runtime/tool-call-execut
 import type { RuntimeRoot } from "../../src/runtime-root";
 import type { Checkpoint } from "../../src/seams/checkpoint";
 import type { FileSystem } from "../../src/seams/file-system";
-import { parseDeps } from "./e2e-s1";
+import { parseDeps, parseDoc } from "./e2e-s1";
 
 /** The importing `.theta` frontmatter every fixture in this family shares. */
 // Bug 0479: the pin names the registry double's qualified `provider/id` (equal
@@ -80,18 +80,26 @@ const APP_FRONTMATTER = ["---", 'model: "anthropic/claude-sonnet-5"', "mode: pro
 /**
  * An in-memory `.thetalib` filesystem double: `readdir` / `readBytes` answer
  * from a flat path→content map (a directory listing is derived from the map's
- * own keys); every other `FileSystem` member rejects loudly so an unexpected
- * call reds rather than returning a silent default.
+ * own keys). Paths in `unreadable` are also listed, but `readBytes` rejects
+ * them with an EACCES-shaped error (the listed-but-unreadable live witness).
+ * Every other `FileSystem` member rejects loudly so an unexpected call reds
+ * rather than returning a silent default.
  */
-export function fakeThetaLibFs(files: Record<string, string>): FileSystem {
+export function fakeThetaLibFs(
+  files: Record<string, string>,
+  unreadable: readonly string[] = [],
+): FileSystem {
   const dirs = new Map<string, string[]>();
-  for (const path of Object.keys(files)) {
+  const list = (path: string): void => {
     const slash = path.lastIndexOf("/");
     const parent = path.slice(0, slash);
     const entries = dirs.get(parent) ?? [];
     entries.push(path.slice(slash + 1));
     dirs.set(parent, entries);
-  }
+  };
+  for (const path of Object.keys(files)) list(path);
+  for (const path of unreadable) list(path);
+  const unreadableSet = new Set(unreadable);
   const reject = (): Promise<never> =>
     Promise.reject(new Error("filesystem member not exercised by this test"));
   return {
@@ -111,6 +119,13 @@ export function fakeThetaLibFs(files: Record<string, string>): FileSystem {
         : Promise.resolve(entries);
     },
     readBytes: (path: string): Promise<Uint8Array> => {
+      if (unreadableSet.has(path)) {
+        return Promise.reject(
+          Object.assign(new Error(`EACCES: permission denied, open '${path}'`), {
+            code: "EACCES",
+          }),
+        );
+      }
       const content = Object.prototype.hasOwnProperty.call(files, path)
         ? files[path]
         : undefined;
@@ -119,6 +134,36 @@ export function fakeThetaLibFs(files: Record<string, string>): FileSystem {
         : Promise.resolve(new TextEncoder().encode(content));
     },
   } as FileSystem;
+}
+
+/**
+ * The load-pass diagnostic codes for one theta over an in-memory lib set — the
+ * cross-file attribution channel `parseThetaDocument` alone cannot reach.
+ */
+export async function importCheckCodes(
+  thetaText: string,
+  thetaPath: string,
+  libs: Record<string, string>,
+): Promise<readonly string[]> {
+  const app = parseDoc(thetaText, thetaPath);
+  expect(
+    app.frontmatter,
+    `attribution: ${thetaPath} frontmatter must parse or the load pass reads nothing`,
+  ).not.toBeNull();
+  const input: ThetaCompositionInput = {
+    slashName: "probe",
+    sourcePath: thetaPath,
+    frontmatter: app.frontmatter as ParsedFrontmatter,
+    body: app.body,
+  };
+  const check = await checkThetaImports(input, {
+    fs: fakeThetaLibFs(libs),
+    parseDeps: parseDeps(),
+  });
+  return check.diagnostics
+    .filter((d) => d.severity === "error")
+    .map((d) => d.code)
+    .sort();
 }
 
 /** The reshaped result of one `checkThetaImports` load over a fake `.thetalib` tree. */

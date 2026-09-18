@@ -67,16 +67,16 @@ import { describe, expect, it } from "vitest";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { failLoudly, requireLiveHost, resolveAcceptanceHost, spawnPiPrint } from "./harness";
+import { requireLiveHost, resolveAcceptanceHost, spawnPiPrint } from "./harness";
 import { parseThetaDocument, type ThetaDocument } from "../../../src/parser/theta-document";
 import { checkThetaImports } from "../../../src/extension/import-static-checks";
 import { renderSystemPrompt, type SystemTemplate } from "../../../src/parser/system-interpolation";
 import type { ParsedFrontmatter } from "../../../src/parser/frontmatter";
 import type { ThetaCompositionInput } from "../../../src/extension/theta-composition-producer";
-import type { FileSystem } from "../../../src/seams/file-system";
 import type { Diagnostic } from "../../../src/diagnostics/diagnostic";
 import type { ThetaValue } from "../../../src/runtime/value";
 import { parseDeps } from "../../helpers/e2e-s1";
+import { fakeThetaLibFs } from "../../helpers/thetalib-load-harness";
 
 const PROJ_DIR = "/proj";
 const TYPES_LIB_PATH = `${PROJ_DIR}/types.thetalib`;
@@ -156,47 +156,6 @@ const MARSHALLED_AUTHORS = [
 /** The wire form the load-phase array-face carry must render for MARSHALLED_AUTHORS. */
 const EXPECTED_WIRE_RENDER =
   'You are a calculator. Your list of author records is [{"FirstName":"Ada","Weight":10},{"FirstName":"Bob","Weight":20}].';
-
-/**
- * An in-memory `FileSystem` serving only the registered `.thetalib` fixture —
- * every other member REJECTS, so a resolution that reads off-fixture reds loudly
- * rather than resolving an empty buffer (the b0422/b0423 `fakeThetaLibFs`).
- */
-function fakeThetaLibFs(files: Record<string, string>): FileSystem {
-  const dirs = new Map<string, string[]>();
-  for (const path of Object.keys(files)) {
-    const slash = path.lastIndexOf("/");
-    const parent = path.slice(0, slash);
-    const entries = dirs.get(parent) ?? [];
-    entries.push(path.slice(slash + 1));
-    dirs.set(parent, entries);
-  }
-  const reject = (): Promise<never> =>
-    Promise.reject(new Error("filesystem member not exercised by this test"));
-  return {
-    readText: reject,
-    writeText: reject,
-    exists: reject,
-    homedir: (): string => "/home",
-    cwd: (): string => PROJ_DIR,
-    configDirName: (): string => ".pi",
-    globalAgentDir: (): string => "/home/.pi/agent",
-    lstat: reject,
-    realpath: reject,
-    readdir: (path: string): Promise<readonly string[]> => {
-      const entries = dirs.get(path);
-      return entries === undefined
-        ? Promise.reject(new Error(`ENOENT: ${path}`))
-        : Promise.resolve(entries);
-    },
-    readBytes: (path: string): Promise<Uint8Array> => {
-      const content = files[path];
-      return content === undefined
-        ? Promise.reject(new Error(`ENOENT: ${path}`))
-        : Promise.resolve(new TextEncoder().encode(content));
-    },
-  } as FileSystem;
-}
 
 /** One measured child LOAD row: the effective template the spawn site renders + preconditions. */
 interface ChildLoadRow {
@@ -288,12 +247,7 @@ describe("H9a live — bug 0445 imported `array<Import>` element `system:` inter
 
     // Live-host precondition — fails loudly naming the unmet precondition; never
     // a skip or early return.
-    const { modelId } = await requireLiveHost();
-    if (modelId.length === 0) {
-      failLoudly(
-        "live-host precondition unmet: the shared live-suite model resolver returned an empty model id.",
-      );
-    }
+    await requireLiveHost();
 
     const thetaDir = mkdtempSync(join(tmpdir(), "theta-b0445-"));
     const probeCwd = mkdtempSync(join(tmpdir(), "theta-b0445-cwd-"));

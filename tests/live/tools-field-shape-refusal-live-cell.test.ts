@@ -40,18 +40,17 @@
 // launch; importing the harness inherits them, but this cell does not
 // exercise that path.
 
-import { describe, expect, it } from "vitest";
+import { describe, it } from "vitest";
+import {
+  expectRegisteredControlThenAbsentSubject,
+  toolsTheta,
+} from "../helpers/live-diagnostic-oracle";
 import {
   bootShippedExtension,
   plantThetaWorkspace,
   requireLiveProvider,
   type PlantedTheta,
 } from "./harness";
-
-/** A `mode: prompt` `.theta` whose `tools:` field is the given lines, body names no callable. */
-function toolsTheta(toolsLines: readonly string[]): string {
-  return ["---", "mode: prompt", ...toolsLines, "---", "@`hi`"].join("\n") + "\n";
-}
 
 describe("bug 0104 live cell — a mapping-valued `tools:` field is refused at live production load, ranged, and un-registers the theta", () => {
   it("un-registers the flow-mapping `tools:` theta while a sibling admitted-spelling theta over the SAME entry registers", async () => {
@@ -73,29 +72,30 @@ describe("bug 0104 live cell — a mapping-valued `tools:` field is refused at l
       // Precondition: the control must register before the refusal
       // assertion means anything — otherwise an empty registered set would
       // satisfy the refusal vacuously (no silent skipping).
-      expect(
-        handle.command("cellcscalar"),
-        "bug-0104 live cell precondition unmet: the plain-scalar `tools: read` control did " +
-          "not register — discovery or registration regressed independent of " +
-          "bug 0104, so the refusal assertion below cannot witness anything. " +
-          "Registered: " + JSON.stringify(handle.registeredNames()),
-      ).toBeDefined();
-
-      // The fixed observable: the mapping-valued sibling must be ABSENT from
-      // the registered set — real observable off the settled `ExtensionRunner`,
-      // never a `prompt()` resolution (no turn is driven in this cell at all).
-      expect(
-        handle.command("cellcmapping"),
-        "bug-0104 live cell: a `tools: {read: bash}` theta registered — the field-shape " +
-          "refusal (`theta/load/malformed-tools-field`) did not fire and the " +
-          "theta loaded with the silently emptied callable set bug 0104 " +
-          "reports. Registered: " + JSON.stringify(handle.registeredNames()),
-      ).toBeUndefined();
-      expect(
-        handle.registeredNames(),
-        "bug-0104 live cell: the mapping-valued theta's slash name must not appear in the " +
-          "registered set.",
-      ).not.toContain("cellcmapping");
+      expectRegisteredControlThenAbsentSubject(
+        handle,
+        [
+          {
+            stem: "cellcscalar",
+            message: "bug-0104 live cell precondition unmet: the plain-scalar `tools: read` control did " +
+              "not register — discovery or registration regressed independent of " +
+              "bug 0104, so the refusal assertion below cannot witness anything. " +
+              "Registered: ",
+          },
+        ],
+        // The fixed observable: the mapping-valued sibling must be ABSENT from
+        // the registered set — real observable off the settled `ExtensionRunner`,
+        // never a `prompt()` resolution (no turn is driven in this cell at all).
+        {
+          stem: "cellcmapping",
+          commandMessage: "bug-0104 live cell: a `tools: {read: bash}` theta registered — the field-shape " +
+            "refusal (`theta/load/malformed-tools-field`) did not fire and the " +
+            "theta loaded with the silently emptied callable set bug 0104 " +
+            "reports. Registered: ",
+          registeredNamesMessage: "bug-0104 live cell: the mapping-valued theta's slash name must not appear in the " +
+            "registered set.",
+        },
+      );
     } finally {
       await handle.dispose();
       workspace.dispose();

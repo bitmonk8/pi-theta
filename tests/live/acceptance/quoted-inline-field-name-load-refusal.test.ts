@@ -74,7 +74,6 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
-  failLoudly,
   parseSystemNoteCodes,
   requireLiveHost,
   spawnPiPrint,
@@ -187,12 +186,7 @@ describe("— H9a live: bug 0176 quoted-inline-field-name refusal through the re
 
     // Live-host precondition — fails loudly naming the unmet precondition
     // (`resolveAcceptanceHost`); never a skip or early return.
-    const { modelId } = await requireLiveHost();
-    if (modelId.length === 0) {
-      failLoudly(
-        "live-host precondition unmet: the shared live-suite model resolver returned an empty model id.",
-      );
-    }
+    await requireLiveHost();
 
     const thetaDir = mkdtempSync(join(tmpdir(), "theta-cellqfn-root-"));
     const cleanCwd = mkdtempSync(join(tmpdir(), "theta-cellqfn-cwd-"));

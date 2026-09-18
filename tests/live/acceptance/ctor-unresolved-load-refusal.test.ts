@@ -82,7 +82,7 @@ import { describe, expect, it } from "vitest";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { failLoudly, requireLiveHost, spawnPiPrint } from "./harness";
+import { requireLiveHost, spawnPiPrint } from "./harness";
 // The shipped whole-document parse, driven through the shared offline helper's
 // inert seams (`tests/helpers/e2e-s1.ts`) — the same entry point the offline
 // witness `tests/ctor-unresolved-schema-name.test.ts` uses.
@@ -187,13 +187,7 @@ describe("H9a live — bug 0025 object-constructor load refusal through the real
 
     // Live-host precondition — fails loudly naming the unmet precondition
     // (`resolveAcceptanceHost`); never a skip or early return.
-    const { modelId } = await requireLiveHost();
-    if (modelId.length === 0) {
-      failLoudly(
-        "live-host precondition unmet: the shared live-suite model resolver " +
-          "returned an empty model id.",
-      );
-    }
+    await requireLiveHost();
 
     const thetaDir = mkdtempSync(join(tmpdir(), "theta-b25-root-"));
     const controlCwd = mkdtempSync(join(tmpdir(), "theta-b25-cwd-"));

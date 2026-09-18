@@ -87,6 +87,36 @@ export function interpolateStrict(
 
 const PARSE_REGISTRY = readRegistry(["parse"]);
 
+const RESERVED_KEYWORD_CODE = "theta/parse/reserved-keyword-as-identifier";
+
+/**
+ * `theta/parse/reserved-keyword-as-identifier: reserved keyword '<keyword>'
+ * cannot be used as an identifier` — DIAG-4: the message half is read from the
+ * registry row, not copied. The row's presence is asserted (DIAG-2), the
+ * `<keyword>` slot's presence is asserted before it is filled, and the filled
+ * result is checked for a second unsubstituted placeholder.
+ */
+export function reservedKeywordFragment(keyword: string): string {
+  const template = registryMessage(PARSE_REGISTRY, RESERVED_KEYWORD_CODE) as
+    | string
+    | undefined;
+  expect(
+    template,
+    `${RESERVED_KEYWORD_CODE} has no registry row — the code this cell asserts is not registered (DIAG-2)`,
+  ).toBeTypeOf("string");
+  const withSlot = template as string;
+  expect(
+    withSlot,
+    `${RESERVED_KEYWORD_CODE}: the registry row's Message template must carry the <keyword> slot this cell fills — the row changed shape`,
+  ).toContain("<keyword>");
+  const message = withSlot.replace("<keyword>", keyword);
+  expect(
+    message,
+    `${RESERVED_KEYWORD_CODE}: the registry row's Message template grew a second unsubstituted placeholder this reader does not fill`,
+  ).not.toMatch(/<[a-z]+>/);
+  return `${RESERVED_KEYWORD_CODE}: ${message}`;
+}
+
 /** DIAG-4: the message half is read from the registry row, not copied. */
 export function registryFragment(code: string, substitutions: Readonly<Record<string, string>>): string {
   const template = registryMessage(PARSE_REGISTRY, code) as string | undefined;

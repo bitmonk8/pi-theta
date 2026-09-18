@@ -81,7 +81,7 @@ import { describe, expect, it } from "vitest";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { failLoudly, parseSystemNoteCodes, requireLiveHost, spawnPiPrint } from "./harness";
+import { parseSystemNoteCodes, requireLiveHost, spawnPiPrint } from "./harness";
 import { parseDoc } from "../../helpers/e2e-s1";
 
 /** The `params:` position's own registered refusal -- the code this fix raises. */
@@ -184,12 +184,7 @@ describe("H9a live: bug 0232 params-type-not-expression refusal for an untermina
 
     // Live-host precondition -- fails loudly naming the unmet precondition
     // (`resolveAcceptanceHost`); never a skip or early return.
-    const { modelId } = await requireLiveHost();
-    if (modelId.length === 0) {
-      failLoudly(
-        "live-host precondition unmet: the shared live-suite model resolver returned an empty model id.",
-      );
-    }
+    await requireLiveHost();
 
     const thetaDir = mkdtempSync(join(tmpdir(), "theta-b0232-root-"));
     const cleanCwd = mkdtempSync(join(tmpdir(), "theta-b0232-cwd-"));

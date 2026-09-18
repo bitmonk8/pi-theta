@@ -415,13 +415,20 @@ export function loadPermittedCodes(): readonly string[] {
 
 /**
  * Require a configured, credentialed live provider/model. Fails loudly naming
- * the missing precondition (never a silent skip) via `resolveAcceptanceHost`.
+ * the missing precondition (never a silent skip), including an empty model id.
  * Called only AFTER the feature-theta presence assertion, so a missing fixture
  * file reds before this ever runs, token-free. Returns the resolved model id
  * (the same host `spawnPiPrint` drives against).
  */
 export async function requireLiveHost(): Promise<{ readonly modelId: string }> {
-  return { modelId: (await resolveAcceptanceHost()).model };
+  const modelId = (await resolveAcceptanceHost()).model;
+  if (modelId.length === 0) {
+    failLoudly(
+      "live-host precondition unmet: the shared live-suite model resolver " +
+        "returned an empty model id.",
+    );
+  }
+  return { modelId };
 }
 
 // ---------------------------------------------------------------------------

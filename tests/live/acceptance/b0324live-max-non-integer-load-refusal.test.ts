@@ -69,8 +69,8 @@ import { describe, expect, it } from "vitest";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { failLoudly, requireLiveHost, spawnPiPrint } from "./harness";
-import { parseDoc } from "../../helpers/e2e-s1";
+import { requireLiveHost, spawnPiPrint } from "./harness";
+import { errorCodes as parseErrorCodes } from "../../helpers/e2e-s1";
 
 /** The registry code an incompatible-typed `max` operand reds with (design spec). */
 const NON_INTEGER_MAX_CODE = "theta/parse/non-integer-max";
@@ -131,14 +131,6 @@ const REFUSED = "REFUSED";
 const LOADED = "LOADED";
 const CONTROL_OK = "777";
 
-/** Error-severity diagnostic codes from a parse-only run, sorted for readable failures. */
-function parseErrorCodes(thetaText: string, thetaPath: string): string[] {
-  return parseDoc(thetaText, thetaPath)
-    .diagnostics.filter((d) => d.severity === "error")
-    .map((d) => d.code)
-    .sort();
-}
-
 describe("H9a live — bug 0324 non-integer-max load refusal/correct-operand control through the real `pi -p`", () => {
   it("refuses the incompatible-max theta, and still registers and drives the well-formed compatible-max control", async () => {
     // ATTRIBUTION GUARD (offline, token-free, runs BEFORE the live host is
@@ -157,13 +149,7 @@ describe("H9a live — bug 0324 non-integer-max load refusal/correct-operand con
 
     // Live-host precondition — fails loudly naming the unmet precondition;
     // never a skip or early return.
-    const { modelId } = await requireLiveHost();
-    if (modelId.length === 0) {
-      failLoudly(
-        "live-host precondition unmet: the shared live-suite model resolver " +
-          "returned an empty model id.",
-      );
-    }
+    await requireLiveHost();
 
     const thetaDir = mkdtempSync(join(tmpdir(), "theta-b0324-root-"));
     const controlCwd = mkdtempSync(join(tmpdir(), "theta-b0324-cwd-"));

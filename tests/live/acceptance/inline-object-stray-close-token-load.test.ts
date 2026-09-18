@@ -153,12 +153,7 @@ describe("H9a live: bug 0238's stray depth-0 close token no longer deletes a dec
     // Live-host precondition -- fails loudly naming the unmet precondition;
     // never a skip or early return. Resolved first because the `bind_model:`
     // line of both fixtures is re-derived from it (bug 0064).
-    const { modelId } = await requireLiveHost();
-    if (modelId.length === 0) {
-      failLoudly(
-        "live-host precondition unmet: the shared live-suite model resolver returned an empty model id.",
-      );
-    }
+    await requireLiveHost();
     const host = await resolveAcceptanceHost();
     if (host.provider === "" || host.model === "") {
       failLoudly(

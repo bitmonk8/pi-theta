@@ -75,7 +75,7 @@ import { describe, expect, it } from "vitest";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { failLoudly, requireLiveHost, resolveAcceptanceHost, spawnPiPrint } from "./harness";
+import { requireLiveHost, resolveAcceptanceHost, spawnPiPrint } from "./harness";
 import { parseDoc } from "../../helpers/e2e-s1";
 import type { Diagnostic } from "../../../src/diagnostics/diagnostic";
 
@@ -170,12 +170,7 @@ describe("H9a live — bugs 0406/0407/0408 object-param `system:` interpolation 
 
     // Live-host precondition — fails loudly naming the unmet precondition; never
     // a skip or early return.
-    const { modelId } = await requireLiveHost();
-    if (modelId.length === 0) {
-      failLoudly(
-        "live-host precondition unmet: the shared live-suite model resolver returned an empty model id.",
-      );
-    }
+    await requireLiveHost();
 
     const thetaDir = mkdtempSync(join(tmpdir(), "theta-b0406-"));
     const probeCwd = mkdtempSync(join(tmpdir(), "theta-b0406-cwd-"));

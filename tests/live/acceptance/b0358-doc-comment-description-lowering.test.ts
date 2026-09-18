@@ -154,13 +154,7 @@ describe("H9a live — bug 0358 `///` description lowering through the real `pi 
 
     // Live-host precondition — fails loudly naming the unmet precondition; never
     // a skip or early return.
-    const { modelId } = await requireLiveHost();
-    if (modelId.length === 0) {
-      failLoudly(
-        "live-host precondition unmet: the shared live-suite model resolver " +
-          "returned an empty model id.",
-      );
-    }
+    await requireLiveHost();
 
     const thetaDir = mkdtempSync(join(tmpdir(), "theta-b0358-root-"));
     const subjectCwd = mkdtempSync(join(tmpdir(), "theta-b0358-cwd-"));

@@ -61,6 +61,7 @@
 // Token cost: one live drive (one binder pass plus one body turn).
 
 import { describe, expect, it } from "vitest";
+import { FAIL_CLOSED_MARKERS } from "../helpers/live-transcript";
 import {
   bootShippedExtension,
   driveSlashCaptureTurn,
@@ -139,13 +140,6 @@ const OFFENDER = [
   "1",
   "",
 ].join("\n");
-
-/**
- * The fail-closed markers a top-level theta drive lands on the
- * `theta-system-note` channel (AGENTS.md §"Assert on real observables"). The
- * control's drive must produce none of them.
- */
-const FAIL_CLOSED_MARKERS = ["returned Err:", "cancelled", "aborted"] as const;
 
 describe("live: bug 0249's field-boundary repair denies registration to `let x = [schema T { a: \"s\", let: nope }]` while a legal typed-object-literal key registers and drives a real turn", () => {
   it("keeps the field-boundary-shift offender out of the registered set while the legal control registers and completes a real turn over its typed-object-literal field", async () => {

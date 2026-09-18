@@ -81,7 +81,6 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
-  failLoudly,
   requireLiveHost,
   resolveAcceptanceHost,
   spawnPiPrint,
@@ -91,8 +90,8 @@ import { checkThetaImports } from "../../../src/extension/import-static-checks";
 import type { ThetaCompositionInput } from "../../../src/extension/theta-composition-producer";
 import type { ParsedFrontmatter } from "../../../src/parser/frontmatter";
 import type { Diagnostic } from "../../../src/diagnostics/diagnostic";
-import type { FileSystem } from "../../../src/seams/file-system";
 import { parseDeps } from "../../helpers/e2e-s1";
+import { fakeThetaLibFs } from "../../helpers/thetalib-load-harness";
 
 /** The load-phase sibling code bug 0422 route (a) mints for a walked-off imported field. */
 const LOAD_BAD_FIELD_CODE = "theta/load/system-interp-bad-field";
@@ -208,47 +207,6 @@ const WIRE_NEUTRALISED = "600";
 /** DIRECTION 2 answer: the callee refused at load (d = 0). */
 const REFUSED_ANSWER = "100";
 
-/**
- * An in-memory `FileSystem` serving only the registered `.thetalib` fixture —
- * every other member REJECTS, so a resolution that reads off-fixture reds loudly
- * rather than resolving an empty buffer (the b0422/b0423 `fakeThetaLibFs`).
- */
-function fakeThetaLibFs(files: Record<string, string>): FileSystem {
-  const dirs = new Map<string, string[]>();
-  for (const path of Object.keys(files)) {
-    const slash = path.lastIndexOf("/");
-    const parent = path.slice(0, slash);
-    const entries = dirs.get(parent) ?? [];
-    entries.push(path.slice(slash + 1));
-    dirs.set(parent, entries);
-  }
-  const reject = (): Promise<never> =>
-    Promise.reject(new Error("filesystem member not exercised by this test"));
-  return {
-    readText: reject,
-    writeText: reject,
-    exists: reject,
-    homedir: (): string => "/home",
-    cwd: (): string => PROJ_DIR,
-    configDirName: (): string => ".pi",
-    globalAgentDir: (): string => "/home/.pi/agent",
-    lstat: reject,
-    realpath: reject,
-    readdir: (path: string): Promise<readonly string[]> => {
-      const entries = dirs.get(path);
-      return entries === undefined
-        ? Promise.reject(new Error(`ENOENT: ${path}`))
-        : Promise.resolve(entries);
-    },
-    readBytes: (path: string): Promise<Uint8Array> => {
-      const content = files[path];
-      return content === undefined
-        ? Promise.reject(new Error(`ENOENT: ${path}`))
-        : Promise.resolve(new TextEncoder().encode(content));
-    },
-  } as FileSystem;
-}
-
 /** One measured LOAD row for a child: parse + import-check diagnostics, materialised imports, and the load-phase-patched template. */
 interface ChildLoadRow {
   readonly errorCodes: readonly string[];
@@ -326,12 +284,7 @@ describe("H9a live — bugs 0422/0423 imported-schema `system:` wire-render and 
 
     // Live-host precondition — fails loudly naming the unmet precondition; never
     // a skip or early return.
-    const { modelId } = await requireLiveHost();
-    if (modelId.length === 0) {
-      failLoudly(
-        "live-host precondition unmet: the shared live-suite model resolver returned an empty model id.",
-      );
-    }
+    await requireLiveHost();
 
     const thetaDir = mkdtempSync(join(tmpdir(), "theta-b0422wire-"));
     const probeCwd = mkdtempSync(join(tmpdir(), "theta-b0422wire-cwd-"));
@@ -388,12 +341,7 @@ describe("H9a live — bugs 0422/0423 imported-schema `system:` wire-render and 
 
     // Live-host precondition — fails loudly naming the unmet precondition; never
     // a skip or early return.
-    const { modelId } = await requireLiveHost();
-    if (modelId.length === 0) {
-      failLoudly(
-        "live-host precondition unmet: the shared live-suite model resolver returned an empty model id.",
-      );
-    }
+    await requireLiveHost();
 
     const thetaDir = mkdtempSync(join(tmpdir(), "theta-b0422typo-"));
     const probeCwd = mkdtempSync(join(tmpdir(), "theta-b0422typo-cwd-"));

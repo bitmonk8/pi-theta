@@ -88,60 +88,14 @@
 // siblings' and the control's registration stay green and the note assertions
 // turn green with them.
 
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
+import { reservedKeywordFragment } from "../helpers/registry-oracle";
 import { describe, expect, it } from "vitest";
-// @ts-expect-error — JS code-registry module, no type declarations.
-import { parseRegistry, registryMessage } from "../../tools/code-registry/index.js";
 import {
   bootShippedExtension,
   plantThetaWorkspace,
   requireLiveProvider,
   type PlantedTheta,
 } from "./harness";
-
-const RESERVED_KEYWORD_CODE = "theta/parse/reserved-keyword-as-identifier";
-
-/** The sharded registry page carrying this code's row (`:21`). */
-const RESERVED_KEYWORD_REGISTRY = parseRegistry(
-  readFileSync(
-    fileURLToPath(
-      new URL("../../docs/spec_topics/diagnostics/code-registry-parse.md", import.meta.url),
-    ),
-    "utf8",
-  ),
-) as { code: string; message: string }[];
-
-/**
- * `theta/parse/reserved-keyword-as-identifier: reserved keyword '<keyword>'
- * cannot be used as an identifier` — DIAG-4: the message half is READ from the
- * registry row, not copied. This mirrors the bug 0148 cell's reader
- * (tests/live/live-production-acceptance.test.ts:3665–3688) exactly: the row's
- * presence is asserted (DIAG-2), the `<keyword>` slot's presence is asserted
- * before it is filled, and the filled result is checked for a second
- * unsubstituted placeholder.
- */
-function reservedKeywordFragment(keyword: string): string {
-  const template = registryMessage(
-    RESERVED_KEYWORD_REGISTRY,
-    RESERVED_KEYWORD_CODE,
-  ) as string | undefined;
-  expect(
-    template,
-    `${RESERVED_KEYWORD_CODE} has no registry row — the code this cell asserts is not registered (DIAG-2)`,
-  ).toBeTypeOf("string");
-  const withSlot = template as string;
-  expect(
-    withSlot,
-    `${RESERVED_KEYWORD_CODE}: the registry row's Message template must carry the <keyword> slot this cell fills — the row changed shape`,
-  ).toContain("<keyword>");
-  const message = withSlot.replace("<keyword>", keyword);
-  expect(
-    message,
-    `${RESERVED_KEYWORD_CODE}: the registry row's Message template grew a second unsubstituted placeholder this reader does not fill`,
-  ).not.toMatch(/<[a-z]+>/);
-  return `${RESERVED_KEYWORD_CODE}: ${message}`;
-}
 
 /**
  * The theta-system-note channel contents from the settled in-memory

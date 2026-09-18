@@ -48,18 +48,17 @@
 // the real shipped host's discovery-and-registration wiring rather than only
 // the in-test composition helper.
 
-import { describe, expect, it } from "vitest";
+import { describe, it } from "vitest";
+import {
+  expectRegisteredControlThenAbsentSubject,
+  toolsTheta,
+} from "../helpers/live-diagnostic-oracle";
 import {
   bootShippedExtension,
   plantThetaWorkspace,
   requireLiveProvider,
   type PlantedTheta,
 } from "./harness";
-
-/** A `mode: prompt` `.theta` carrying the given `tools:` line, body names no callable. */
-function toolsTheta(toolsLine: string): string {
-  return ["---", "mode: prompt", toolsLine, "---", "@`hi`"].join("\n") + "\n";
-}
 
 describe("bug 0206 live cell — a zero-entry `tools:` scalar is refused at live production load and un-registers the theta", () => {
   it(": un-registers the empty-quoted-scalar theta while a sibling quoted scalar naming ONE entry registers", async () => {
@@ -73,10 +72,10 @@ describe("bug 0206 live cell — a zero-entry `tools:` scalar is refused at live
       // substitution was empty). Pre-fix this registers with the empty callable
       // set and no diagnostic; post-fix it must be absent from the registered
       // set entirely.
-      { source: "project", stem: "cellf2empty", text: toolsTheta('tools: ""') },
+      { source: "project", stem: "cellf2empty", text: toolsTheta(['tools: ""']) },
       // The control: the SAME quoted spelling naming ONE entry. Must register —
       // bounding the refusal to a split that yields no entry, not to quoting.
-      { source: "project", stem: "cellf2scalar", text: toolsTheta('tools: "read"') },
+      { source: "project", stem: "cellf2scalar", text: toolsTheta(['tools: "read"']) },
     ];
     const workspace = plantThetaWorkspace(thetas);
     const handle = await bootShippedExtension({ workspace, provider });
@@ -84,28 +83,28 @@ describe("bug 0206 live cell — a zero-entry `tools:` scalar is refused at live
       // Precondition, asserted FIRST: the control must register before the
       // refusal assertion means anything — otherwise an empty registered set
       // would satisfy it vacuously (no silent skipping).
-      expect(
-        handle.command("cellf2scalar"),
-        "precondition unmet: the quoted one-entry `tools: \"read\"` control " +
-          "did not register — discovery or registration regressed independent of " +
-          "bug 0206, so the refusal assertion below cannot witness anything. " +
-          "Registered: " + JSON.stringify(handle.registeredNames()),
-      ).toBeDefined();
-
-      // The fixed observable, read off the settled `ExtensionRunner`.
-      expect(
-        handle.command("cellf2empty"),
-        ': a `tools: ""` theta registered — the zero-entry refusal ' +
-          "(`theta/load/malformed-tools-field`) did not fire and the theta loaded " +
-          "with the silently emptied callable set bug 0206 reports, " +
-          "indistinguishably from a file with no `tools:` line. Registered: " +
-          JSON.stringify(handle.registeredNames()),
-      ).toBeUndefined();
-      expect(
-        handle.registeredNames(),
-        ": the zero-entry theta's slash name must not appear in the " +
-          "registered set.",
-      ).not.toContain("cellf2empty");
+      expectRegisteredControlThenAbsentSubject(
+        handle,
+        [
+          {
+            stem: "cellf2scalar",
+            message: "precondition unmet: the quoted one-entry `tools: \"read\"` control " +
+              "did not register — discovery or registration regressed independent of " +
+              "bug 0206, so the refusal assertion below cannot witness anything. " +
+              "Registered: ",
+          },
+        ],
+        // The fixed observable, read off the settled `ExtensionRunner`.
+        {
+          stem: "cellf2empty",
+          commandMessage: ': a `tools: ""` theta registered — the zero-entry refusal ' +
+            "(`theta/load/malformed-tools-field`) did not fire and the theta loaded " +
+            "with the silently emptied callable set bug 0206 reports, " +
+            "indistinguishably from a file with no `tools:` line. Registered: ",
+          registeredNamesMessage: ": the zero-entry theta's slash name must not appear in the " +
+            "registered set.",
+        },
+      );
     } finally {
       await handle.dispose();
       workspace.dispose();

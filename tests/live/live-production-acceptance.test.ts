@@ -3849,54 +3849,7 @@ describe("H8a-T — bug 0152: a `%` remainder by a static-zero integer divisor b
 // file is weakened, reworded, reordered or deleted.
 // ===========================================================================
 
-const RESERVED_KEYWORD_CODE = "theta/parse/reserved-keyword-as-identifier";
-
-/** The sharded registry page carrying `theta/parse/reserved-keyword-as-identifier`'s row (`:21`). */
-const RESERVED_KEYWORD_REGISTRY = parseRegistry(
-  readFileSync(
-    fileURLToPath(
-      new URL(
-        "../../docs/spec_topics/diagnostics/code-registry-parse.md",
-        import.meta.url,
-      ),
-    ),
-    "utf8",
-  ),
-) as { code: string; message: string }[];
-
-/**
- * `theta/parse/reserved-keyword-as-identifier: reserved keyword '<keyword>'
- * cannot be used as an identifier` — DIAG-4: the message half is read from the
- * registry row, not copied, mirroring this file's `bindingCaseMismatchFragment`
- * / `integerNarrowingFragment`. Unlike those two rows this one CARRIES a
- * `<keyword>` placeholder, so the presence assertion is a fill check rather
- * than a drift guard, and the trailing assertion confirms no second placeholder
- * is left unsubstituted.
- */
-function reservedKeywordFragment(keyword: string): string {
-  const template = registryMessage(
-    RESERVED_KEYWORD_REGISTRY,
-    RESERVED_KEYWORD_CODE,
-  ) as string | undefined;
-  expect(
-    template,
-    `${RESERVED_KEYWORD_CODE} has no registry row — the code this cell ` +
-      "asserts is not registered (DIAG-2)",
-  ).toBeTypeOf("string");
-  const withSlot = template as string;
-  expect(
-    withSlot,
-    `${RESERVED_KEYWORD_CODE}: the registry row's Message template must carry ` +
-      "the <keyword> slot this cell fills — the row changed shape",
-  ).toContain("<keyword>");
-  const message = withSlot.replace("<keyword>", keyword);
-  expect(
-    message,
-    `${RESERVED_KEYWORD_CODE}: the registry row's Message template grew a ` +
-      "second unsubstituted placeholder this reader does not fill",
-  ).not.toMatch(/<[a-z]+>/);
-  return `${RESERVED_KEYWORD_CODE}: ${message}`;
-}
+import { reservedKeywordFragment } from "../helpers/registry-oracle";
 
 /**
  * The bug doc's own §Reproduction row a1

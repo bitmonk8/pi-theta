@@ -65,7 +65,7 @@ import { describe, expect, it } from "vitest";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { failLoudly, requireLiveHost, spawnPiPrint } from "./harness";
+import { requireLiveHost, spawnPiPrint } from "./harness";
 import { errorCodes, parseDoc } from "../../helpers/e2e-s1";
 
 /** The registry code the fix pushes for a present non-scalar `system:` field. */
@@ -177,13 +177,7 @@ describe("H9a live — bug 0298 non-scalar `system:` load refusal through the re
 
     // Live-host precondition — fails loudly naming the unmet precondition
     // (`resolveAcceptanceHost`); never a skip or early return.
-    const { modelId } = await requireLiveHost();
-    if (modelId.length === 0) {
-      failLoudly(
-        "live-host precondition unmet: the shared live-suite model resolver " +
-          "returned an empty model id.",
-      );
-    }
+    await requireLiveHost();
 
     // Two separate discovery roots: the offender's load-time system note (the
     // very diagnostic under test) reaches every theta discovered beside it, so
