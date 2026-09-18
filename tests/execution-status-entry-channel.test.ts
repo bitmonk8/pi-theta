@@ -144,6 +144,7 @@ describe("T-ENT — B50: appendEntry throws on note N -> permanent degrade for N
     const { pi, appendCalls } = fakePi({ appendEntryThrows: true });
     const channel = createEntryChannel(pi);
     const firstDelivered = channel.append(BATCH_NOTE);
+    expect(channel.live()).toBe(false);
     const secondDelivered = channel.append(STRUCTURAL_NOTE);
     expect(firstDelivered, "N: falls back to sendMessage").toBe(false);
     expect(secondDelivered, "N+1: permanent degrade, also falls back").toBe(false);

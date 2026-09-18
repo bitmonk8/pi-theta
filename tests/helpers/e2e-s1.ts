@@ -73,6 +73,76 @@ export function parseDoc(src: string, path = "test.theta"): ThetaDocument {
   return parseThetaDocument(source, parseDeps());
 }
 
+/** Frontmatter for every `.theta` row — occupies lines 1–3, body starts at 4. */
+const FM = "---\nmode: prompt\n---\n";
+
+/** Parse `body` as a `.theta` under the standard frontmatter. */
+export function parsePromptBody(body: string): ThetaDocument {
+  return parseDoc(FM + body);
+}
+
+/** The aggregated diagnostic codes, in report order. */
+export function documentCodes(doc: ThetaDocument): string[] {
+  return doc.diagnostics.map((d: Diagnostic) => d.code);
+}
+
+/** Every diagnostic rendered `severity code @l:c-l:c: message` — failure payload. */
+export function render(doc: ThetaDocument): string {
+  return JSON.stringify(
+    doc.diagnostics.map((d: Diagnostic) => {
+      const r = d.range;
+      const at =
+        r === undefined
+          ? "-"
+          : `${r.start.line}:${r.start.column}-${r.end.line}:${r.end.column}`;
+      return `${d.severity} ${d.code} @${at}: ${d.message}`;
+    }),
+  );
+}
+
+/** A 1-indexed, end-exclusive-column source range literal. */
+export function range(
+  startLine: number,
+  startColumn: number,
+  endLine: number,
+  endColumn: number,
+): SourceRange {
+  return {
+    start: { line: startLine, column: startColumn },
+    end: { line: endLine, column: endColumn },
+  };
+}
+
+/** The message reported for `code`, or `undefined` when no diagnostic carries it. */
+export function messageFor(doc: ThetaDocument, code: string): string | undefined {
+  return doc.diagnostics.find((d: Diagnostic) => d.code === code)?.message;
+}
+
+/**
+ * The range of the single diagnostic carrying `code`. Uniqueness and
+ * locatedness are asserted before the read, so an absent, duplicated, or
+ * location-less diagnostic reds by naming the row rather than by comparing
+ * against `undefined`.
+ */
+export function soleRange(doc: ThetaDocument, code: string): SourceRange {
+  const hits = doc.diagnostics.filter((d: Diagnostic) => d.code === code);
+  expect(
+    hits.length,
+    `exactly one ${code} is expected before its range is read; diagnostics=${render(doc)}`,
+  ).toBe(1);
+  const only = hits[0];
+  if (only === undefined) {
+    throw new Error(`no ${code} diagnostic to range; diagnostics=${render(doc)}`);
+  }
+  const r = only.range;
+  if (r === undefined) {
+    throw new Error(
+      `the ${code} diagnostic must be located on the offending token; diagnostics=${render(doc)}`,
+    );
+  }
+  return r;
+}
+
 /** Parse `src` and return its body (including bodies with load diagnostics). */
 export function bodyOf(src: string): ThetaBody {
   return parseDoc(src).body;

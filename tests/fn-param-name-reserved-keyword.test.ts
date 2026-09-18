@@ -1,9 +1,18 @@
 import { registryMessageOf } from "./helpers/load-row-harness";
 import { readRegistry, type RegistryRow } from "./helpers/registry-oracle";
 import { describe, expect, it } from "vitest";
-import type { Diagnostic, SourceRange } from "../src/diagnostics/diagnostic";
+import type { Diagnostic } from "../src/diagnostics/diagnostic";
 import type { ThetaDocument } from "../src/parser/theta-document";
-import { parseDoc, isLoadParseError } from "./helpers/e2e-s1";
+import {
+  parseDoc,
+  isLoadParseError,
+  parsePromptBody as theta,
+  documentCodes as codesOf,
+  render,
+  range,
+  messageFor,
+  soleRange,
+} from "./helpers/e2e-s1";
 
 // Bug 0148 — the `fn` PARAMETER-NAME position of the reserved-keyword rule, and
 // the diagnostic it draws
@@ -234,79 +243,9 @@ function reservedMsg(keyword: string): string {
 // system-note channel and a resolving `model:` matcher. No behaviour is
 // stubbed: the lexer and parser under assertion are the production ones.
 
-/** Frontmatter for every `.theta` row — occupies lines 1–3, body starts at 4. */
-const FM = "---\nmode: prompt\n---\n";
-
-/** Parse `body` as a `.theta` under the standard frontmatter. */
-function theta(body: string): ThetaDocument {
-  return parseDoc(FM + body);
-}
-
-/** The aggregated diagnostic codes, in report order. */
-function codesOf(doc: ThetaDocument): string[] {
-  return doc.diagnostics.map((d: Diagnostic) => d.code);
-}
-
-/** Every diagnostic rendered `severity code @l:c-l:c: message` — failure payload. */
-function render(doc: ThetaDocument): string {
-  return JSON.stringify(
-    doc.diagnostics.map((d: Diagnostic) => {
-      const r = d.range;
-      const at =
-        r === undefined
-          ? "-"
-          : `${r.start.line}:${r.start.column}-${r.end.line}:${r.end.column}`;
-      return `${d.severity} ${d.code} @${at}: ${d.message}`;
-    }),
-  );
-}
-
-/** A 1-indexed, end-exclusive-column source range literal. */
-function range(
-  startLine: number,
-  startColumn: number,
-  endLine: number,
-  endColumn: number,
-): SourceRange {
-  return {
-    start: { line: startLine, column: startColumn },
-    end: { line: endLine, column: endColumn },
-  };
-}
-
-/** The message reported for `code`, or `undefined` when no diagnostic carries it. */
-function messageFor(doc: ThetaDocument, code: string): string | undefined {
-  return doc.diagnostics.find((d: Diagnostic) => d.code === code)?.message;
-}
-
 /** The severity reported for `code`, or `undefined` when no diagnostic carries it. */
 function severityFor(doc: ThetaDocument, code: string): string | undefined {
   return doc.diagnostics.find((d: Diagnostic) => d.code === code)?.severity;
-}
-
-/**
- * The range of the single diagnostic carrying `code`. Uniqueness and
- * locatedness are asserted before the read, so an absent, duplicated, or
- * location-less diagnostic reds by naming the row rather than by comparing
- * against `undefined`.
- */
-function soleRange(doc: ThetaDocument, code: string): SourceRange {
-  const hits = doc.diagnostics.filter((d: Diagnostic) => d.code === code);
-  expect(
-    hits.length,
-    `exactly one ${code} is expected before its range is read; diagnostics=${render(doc)}`,
-  ).toBe(1);
-  const only = hits[0];
-  if (only === undefined) {
-    throw new Error(`no ${code} diagnostic to range; diagnostics=${render(doc)}`);
-  }
-  const r = only.range;
-  if (r === undefined) {
-    throw new Error(
-      `the ${code} diagnostic must be located on the offending token; diagnostics=${render(doc)}`,
-    );
-  }
-  return r;
 }
 
 function blocksRegistration(diagnostics: readonly Diagnostic[]): boolean {

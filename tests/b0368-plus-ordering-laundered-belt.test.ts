@@ -90,7 +90,6 @@
 
 import { describe, expect, it } from "vitest";
 import type { ThetaSource } from "../src/lexer/lexer";
-import type { Diagnostic } from "../src/diagnostics/diagnostic";
 import type { SystemNoteChannelDeps } from "../src/extension/system-note-channel";
 import type { ModelReferenceMatcher } from "../src/parser/frontmatter";
 import {
@@ -99,13 +98,8 @@ import {
   type ThetaDocument,
 } from "../src/parser/theta-document";
 import { type BodyExecution } from "../src/runtime/statement-executor";
-import {
-  isThetaPanic,
-  surfaceUnexpectedThrow,
-  INTERNAL_ERROR_CODE,
-} from "../src/runtime/runtime-panics";
 import type { ThetaValue } from "../src/runtime/value";
-import { assertValue, makeBeltProbes } from "./helpers/runtime-belt-probe-harness";
+import { assertInternalError, assertValue, makeBeltProbes } from "./helpers/runtime-belt-probe-harness";
 
 const FM = "---\nmode: prompt\n---\n";
 
@@ -194,24 +188,7 @@ function assertLoudThrow(probe: Probe, leakDescription: string, what: string): v
     ).toBe("runtime loud throw");
     return;
   }
-  expect(
-    isThetaPanic(probe.thrown),
-    `${what}: the loud throw is a plain Error, NOT a ThetaPanic (the six-source panic list is closed). Thrown: ${String(probe.thrown)}`,
-  ).toBe(false);
-  const diagnostic = surfaceUnexpectedThrow(probe.thrown, SITE);
-  expect(
-    diagnostic,
-    `${what}: surfaceUnexpectedThrow returns a Diagnostic for a non-panic throw`,
-  ).toBeDefined();
-  const diag = diagnostic as Diagnostic;
-  expect(
-    diag.code,
-    `${what}: the loud throw routes to the existing permitted internal-error surface`,
-  ).toBe(INTERNAL_ERROR_CODE);
-  expect(
-    diag.message,
-    `${what}: the internal-error template prefix (tail wording is the implementer's)`,
-  ).toMatch(/^internal error: /);
+  assertFramesToInternalError(probe.thrown, what);
 }
 
 // ===========================================================================
@@ -325,21 +302,12 @@ describe("bug 0368 NaN/Infinity controls — non-finite numbers stay admitted (b
  * the LOUD FRAMED disposition, not an unframed crash.
  */
 function assertFramesToInternalError(thrown: unknown, what: string): void {
-  expect(
-    isThetaPanic(thrown),
+  assertInternalError(
+    thrown,
+    SITE,
+    what,
     `${what}: the belt is a plain Error, NOT a ThetaPanic (the six-source panic list is closed); thrown: ${String(thrown)}`,
-  ).toBe(false);
-  const diagnostic = surfaceUnexpectedThrow(thrown, SITE);
-  expect(diagnostic, `${what}: surfaceUnexpectedThrow returns a Diagnostic for the belt throw`).toBeDefined();
-  const diag = diagnostic as Diagnostic;
-  expect(
-    diag.code,
-    `${what}: the belt throw routes to the permitted internal-error surface (theta/runtime/internal-error)`,
-  ).toBe(INTERNAL_ERROR_CODE);
-  expect(
-    diag.message,
-    `${what}: the internal-error template prefix (tail wording is the implementer's)`,
-  ).toMatch(/^internal error: /);
+  );
 }
 
 // ===========================================================================

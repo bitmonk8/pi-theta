@@ -17,6 +17,7 @@
 // process env, both directions.
 
 import { afterEach, describe, expect, it } from "vitest";
+import { createEnvSandbox } from "./helpers/ambient-control-plane-scrub";
 import {
   authenticateControlPlane,
   readParentEnv,
@@ -106,29 +107,9 @@ describe("authenticateControlPlane — the parent-pid carriage gates the whole c
 });
 
 describe("readParentEnv — the production reader applies the authentication to the real environment", () => {
-  const saved: Record<string, string | undefined> = {};
+  const { setEnv, restoreEnv } = createEnvSandbox();
 
-  function setEnv(key: string, value: string | undefined): void {
-    if (!(key in saved)) {
-      saved[key] = process.env[key];
-    }
-    if (value === undefined) {
-      delete process.env[key];
-    } else {
-      process.env[key] = value;
-    }
-  }
-
-  afterEach(() => {
-    for (const [key, value] of Object.entries(saved)) {
-      if (value === undefined) {
-        delete process.env[key];
-      } else {
-        process.env[key] = value;
-      }
-      delete saved[key];
-    }
-  });
+  afterEach(restoreEnv);
 
   it("keeps a pin accompanied by the real ppid — the harness top-of-chain contract (AGENTS.md #subagent-child-pins)", () => {
     setEnv(SUBAGENT_EXTENSION_PIN_ENV, "/tree/under/test/extensions");
