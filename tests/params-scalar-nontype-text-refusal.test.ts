@@ -1,3 +1,4 @@
+import { TRIAGE_DEF } from "./helpers/triage-fixture";
 import { inlineDefName } from "./helpers/canonical-slug-oracle";
 import { readFileSync, readdirSync } from "node:fs";
 import { join, posix, sep } from "node:path";
@@ -254,14 +255,6 @@ function unresolvedMessage(name: string): string {
 
 /** `Triage` is declared in every fixture; `Tirage` and `Ghost` are declared nowhere. */
 const DECLS = "schema Triage { urgent: boolean }\n";
-
-/** The closed lowering of `schema Triage { urgent: boolean }`. */
-const TRIAGE_DEF = {
-  type: "object",
-  properties: { urgent: { type: "boolean" } },
-  required: ["urgent"],
-  additionalProperties: false,
-};
 
 /** The body every `params:` fixture carries. */
 const BODY = `${DECLS}let x = 1\n`;

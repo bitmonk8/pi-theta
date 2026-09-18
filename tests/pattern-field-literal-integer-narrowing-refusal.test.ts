@@ -1,6 +1,15 @@
-import { readRegistry, type RegistryRow } from "./helpers/registry-oracle";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
+import {
+  PARSE_REGISTRY_PATH as REGISTRY_PARSE_PAGE,
+  type DiagShape,
+  shapes,
+  render,
+  range,
+  deniesRegistration,
+} from "./helpers/load-row-harness";
+import { readRepoFile } from "./helpers/corpus-reader";
+import { readRegistry, type RegistryRow } from "./helpers/registry-oracle";
 import { describe, expect, it } from "vitest";
 import type {
   ExtensionAPI,
@@ -11,7 +20,7 @@ import type {
 import { registryMessage } from "../tools/code-registry/index.js";
 import { parseDoc, parseDocBytes } from "./helpers/e2e-s1";
 import { committedThetaSources } from "./helpers/theta-corpus";
-import type { Diagnostic, SourceRange } from "../src/diagnostics/diagnostic";
+import type { SourceRange } from "../src/diagnostics/diagnostic";
 import type { ThetaDocument } from "../src/parser/theta-document";
 import type { ParsedFrontmatter } from "../src/parser/frontmatter";
 import { executeBody, type BodyExecution } from "../src/runtime/statement-executor";
@@ -140,12 +149,6 @@ const UNKNOWN_IDENT = "theta/parse/unknown-identifier";
 // (r) The registry oracle — DIAG-4's source of truth for every rendering below,
 // and DIAG-2's evidence that disposition 1 mints no row. 
 // ===========================================================================
-
-const REGISTRY_PARSE_PAGE = "docs/spec_topics/diagnostics/code-registry-parse.md";
-
-function readRepoFile(relative: string): string {
-  return readFileSync(fileURLToPath(new URL(`../${relative}`, import.meta.url)), "utf8");
-}
 
 const REGISTRY_TEXT = readRepoFile(REGISTRY_PARSE_PAGE);
 
@@ -289,43 +292,6 @@ function lines(...parts: readonly string[]): string {
 }
 
 /**
- * A diagnostic reduced to the five normative fields
- * (docs/spec_topics/diagnostics/diagnostic-shape.md §"Internal diagnostic
- * shape"). `hint` is excluded on purpose: it is a non-normative repair aid
- * carried in its own registry column.
- */
-interface DiagShape {
-  readonly severity: string;
-  readonly code: string;
-  readonly file: string | undefined;
-  readonly range: SourceRange | undefined;
-  readonly message: string;
-}
-
-function shapes(doc: ThetaDocument): DiagShape[] {
-  return doc.diagnostics.map((d: Diagnostic) => ({
-    severity: d.severity,
-    code: d.code,
-    file: d.file,
-    range: d.range,
-    message: d.message,
-  }));
-}
-
-/** A 1-indexed, end-exclusive-column source range literal. */
-function range(
-  startLine: number,
-  startColumn: number,
-  endLine: number,
-  endColumn: number,
-): SourceRange {
-  return {
-    start: { line: startLine, column: startColumn },
-    end: { line: endLine, column: endColumn },
-  };
-}
-
-/**
  * The PATTERN's span, derived from its source spelling alone: §Fix constraint 7
  * pins the emission to the whole object-pattern's range, the object variant's
  * `range` bug 0226 added (src/parser/theta-document.ts:333). The caller states
@@ -386,20 +352,6 @@ function existing(code: string, message: string, at: SourceRange): DiagShape {
   return { severity: "error", code, file: FILE, range: at, message };
 }
 
-/** Failure payload: every diagnostic rendered `severity code @l:c-l:c: message`. */
-function render(doc: ThetaDocument): string {
-  return JSON.stringify(
-    doc.diagnostics.map((d: Diagnostic) => {
-      const r = d.range;
-      const at =
-        r === undefined
-          ? "-"
-          : `${r.start.line}:${r.start.column}-${r.end.line}:${r.end.column}`;
-      return `${d.severity} ${d.code} @${at}: ${d.message}`;
-    }),
-  );
-}
-
 /**
  * Assert a document's WHOLE diagnostic list, order-sensitive and unfiltered.
  *
@@ -422,23 +374,6 @@ function expectDiagnostics(
   why: string,
 ): ThetaDocument {
   return expectDiagnosticsOf(theta(body), expected, why);
-}
-
-/**
- * Whether `diagnostics` denies registration. `hasLoadParseError`
- * (`src/extension/production-composition.ts`) is module-private — `rg -n
- * 'export.*hasLoadParseError' src/` matches nothing — so the predicate is
- * mirrored here clause for clause: error severity, and a code in the
- * `theta/load/` or `theta/parse/` namespace. It is the mechanism that turns
- * this fix's diagnostics into the refusal (§Fix constraint 2), so every (a)
- * cell asserts it directly.
- */
-function deniesRegistration(diagnostics: readonly Diagnostic[]): boolean {
-  return diagnostics.some(
-    (d) =>
-      d.severity === "error" &&
-      (d.code.startsWith("theta/load/") || d.code.startsWith("theta/parse/")),
-  );
 }
 
 // ===========================================================================

@@ -1,3 +1,4 @@
+import { TRIAGE_DEF } from "./helpers/triage-fixture";
 import { inlineDefName } from "./helpers/canonical-slug-oracle";
 import { describe, expect, it } from "vitest";
 import { buildBinderEnvelopeSchema } from "../src/binder/binder-envelope";
@@ -267,14 +268,6 @@ const M_N_XY_INLINE = inlineDefName(M_N_XY_CANONICAL);
 
 /** The one declared type every control that names a schema resolves against. */
 const DECLS = "schema Triage { urgent: boolean }\n";
-
-/** The closed lowering of `schema Triage { urgent: boolean }`. */
-const TRIAGE_DEF = {
-  type: "object",
-  properties: { urgent: { type: "boolean" } },
-  required: ["urgent"],
-  additionalProperties: false,
-};
 
 const POSITIONS = ["params", "field", "alias", "annotation"] as const;
 type Position = (typeof POSITIONS)[number];

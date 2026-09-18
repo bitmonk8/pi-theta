@@ -19,6 +19,11 @@ import { fileURLToPath } from "node:url";
 export const repoFile = (rel: string): string =>
   fileURLToPath(new URL(`../../${rel}`, import.meta.url));
 
+/** Read a repo-relative file verbatim, including raw registry columns. */
+export function readRepoFile(relative: string): string {
+  return readFileSync(repoFile(relative), "utf8");
+}
+
 /**
  * Read a corpus file. A missing or empty file is a HARNESS failure that names
  * the unmet precondition and throws — never a skip, never an early return —

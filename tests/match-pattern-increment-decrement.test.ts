@@ -1,10 +1,17 @@
-import { readRegistry, type RegistryRow } from "./helpers/registry-oracle";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
+import {
+  PARSE_REGISTRY_PATH as REGISTRY_PARSE_PAGE,
+  type DiagShapeWithHint as DiagShape,
+  shapesWithHint as shapes,
+  renderWithHint as render,
+} from "./helpers/load-row-harness";
+import { readRepoFile } from "./helpers/corpus-reader";
+import { readRegistry, type RegistryRow } from "./helpers/registry-oracle";
 import { describe, expect, it } from "vitest";
 // @ts-expect-error — JS code-registry module, no type declarations.
 import { registryMessage } from "../tools/code-registry/index.js";
-import type { Diagnostic, SourceRange } from "../src/diagnostics/diagnostic";
+import type { SourceRange } from "../src/diagnostics/diagnostic";
 import type { ThetaDocument } from "../src/parser/theta-document";
 import { parseDoc, parseDocBytes } from "./helpers/e2e-s1";
 import { committedThetaSources } from "./helpers/theta-corpus";
@@ -91,12 +98,6 @@ import { committedThetaSources } from "./helpers/theta-corpus";
 // live row exactly as bug 0084's witness does through
 // `parseRegistry` / `registryMessage`).
 // ===========================================================================
-
-const REGISTRY_PARSE_PAGE = "docs/spec_topics/diagnostics/code-registry-parse.md";
-
-function readRepoFile(relative: string): string {
-  return readFileSync(fileURLToPath(new URL(`../${relative}`, import.meta.url)), "utf8");
-}
 
 const REGISTRY_TEXT = readRepoFile(REGISTRY_PARSE_PAGE);
 
@@ -207,32 +208,6 @@ function span(startColumn: number, endColumn: number): SourceRange {
   return at(startColumn, endColumn);
 }
 
-/**
- * The five normative diagnostic fields plus `hint`. `hint` is asserted because
- * route (a) reuses `checkIncrementDecrement` UNCHANGED, so the registered Hint
- * reaching the author is half of what this fix delivers — and its absence on
- * the two neighbouring codes is measured, not assumed.
- */
-interface DiagShape {
-  readonly severity: string;
-  readonly code: string;
-  readonly file: string | undefined;
-  readonly range: SourceRange | undefined;
-  readonly message: string;
-  readonly hint: string | undefined;
-}
-
-function shapes(doc: ThetaDocument): DiagShape[] {
-  return doc.diagnostics.map((d: Diagnostic) => ({
-    severity: d.severity,
-    code: d.code,
-    file: d.file,
-    range: d.range,
-    message: d.message,
-    hint: d.hint,
-  }));
-}
-
 /** The expected `theta/parse/increment-decrement` at `range`. */
 function incDec(op: "++" | "--", range: SourceRange): DiagShape {
   return {
@@ -265,20 +240,6 @@ function existing(code: string, message: string, range: SourceRange): DiagShape 
 const MISMATCH_MESSAGE = "match arm body type does not match the common type of the other arms";
 const STATEMENT_MESSAGE =
   "match arm body must be an expression; wrap statements in a block expression { ... }";
-
-/** Failure payload: every diagnostic rendered `severity code @l:c-l:c: message [hint]`. */
-function render(doc: ThetaDocument): string {
-  return JSON.stringify(
-    doc.diagnostics.map((d: Diagnostic) => {
-      const r = d.range;
-      const where =
-        r === undefined
-          ? "-"
-          : `${r.start.line}:${r.start.column}-${r.end.line}:${r.end.column}`;
-      return `${d.severity} ${d.code} @${where}: ${d.message} [hint=${d.hint ?? "-"}]`;
-    }),
-  );
-}
 
 // --- Arm / pattern shape ----------------------------------------------------
 

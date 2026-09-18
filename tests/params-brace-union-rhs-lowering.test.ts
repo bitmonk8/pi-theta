@@ -1,3 +1,4 @@
+import { TRIAGE_DEF, BODY } from "./helpers/triage-fixture";
 import { describe, expect, it } from "vitest";
 // @ts-expect-error — JS code-registry module, no type declarations.
 import { registryMessage } from "../tools/code-registry/index.js";
@@ -355,14 +356,6 @@ const A_XY_CANONICAL =
   `"b":{"$ref":"#/$defs/${XY_INLINE}"}},"required":["a","b"],"type":"object"}`;
 const A_XY_INLINE = inlineDefName(A_XY_CANONICAL);
 
-/** The closed lowering of `schema Triage { urgent: boolean }`. */
-const TRIAGE_DEF = {
-  type: "object",
-  properties: { urgent: { type: "boolean" } },
-  required: ["urgent"],
-  additionalProperties: false,
-};
-
 // ===========================================================================
 // The documents under assertion, assembled from the fragments above.
 // ===========================================================================
@@ -385,9 +378,6 @@ const UNION_PARAMS_DOCUMENT = {
 // ===========================================================================
 // Fixtures and load helpers. Loud on every unexpected disposition.
 // ===========================================================================
-
-/** `Triage` is declared in every fixture; `Ghost` is declared nowhere. */
-const BODY = "schema Triage { urgent: boolean }\nlet x = 1\n";
 
 /** The `schema` declaration alone, for the bodies that add one of their own. */
 const TRIAGE_BODY = "schema Triage { urgent: boolean }\n";

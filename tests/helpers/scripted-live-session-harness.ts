@@ -730,3 +730,17 @@ export function runGovernorRoundProbe(
   }
   return results;
 }
+
+/** The rule-3 prefix/suffix separator of `renderFailureNote` (U+2014 EM DASH). */
+export const EM_DASH = "\u2014";
+
+/** The two-character `<ajv-summary>` inter-issue separator (`renderAjvSummary`). */
+export const AJV_SUMMARY_SEPARATOR = "; ";
+
+/** The AJV-on-`args` row's fixed phrase (determinism-cancellation-failure.md:52). */
+export const AJV_ARGS_PHRASE = "argument binding produced invalid args";
+
+/** The AJV-on-`args` note for one theta and one rendered `<ajv-summary>`. */
+export function ajvArgsNote(thetaName: string, ajvSummary: string): string {
+  return `theta /${thetaName}: ${AJV_ARGS_PHRASE} ${EM_DASH} ${ajvSummary}`;
+}

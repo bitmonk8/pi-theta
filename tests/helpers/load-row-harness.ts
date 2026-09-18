@@ -22,10 +22,10 @@ import { repoFile } from "./corpus-reader";
 import { expect } from "vitest";
 // @ts-expect-error — JS code-registry module, no type declarations.
 import { parseRegistry, registryMessage } from "../../tools/code-registry/index.js";
-import type { Diagnostic } from "../../src/diagnostics/diagnostic";
+import type { Diagnostic, SourceRange } from "../../src/diagnostics/diagnostic";
 import type { SchemaDecl, ThetaDocument } from "../../src/parser/theta-document";
 import type { LowerCtx } from "../../src/parser/params";
-import { parseDoc, diagLines } from "./e2e-s1";
+import { parseDoc, diagLines, isLoadParseError } from "./e2e-s1";
 
 // ===========================================================================
 // The diagnostic oracle — the registry's *Message* column (DIAG-4).
@@ -467,4 +467,85 @@ export function seamCtx(): { readonly ctx: LowerCtx; readonly sink: string[] } {
     ctx: { bodyTypeMap: new Map(), defs: {}, unresolved: [], unspellable: sink },
     sink,
   };
+}
+
+/**
+ * A diagnostic reduced to the five normative fields (diagnostic-shape.md
+ * §"Internal diagnostic shape"). `hint` is excluded on purpose: it is a
+ * non-normative repair aid carried in its own registry column, so pinning it
+ * would make an added hint fail an assertion that is about the refusal.
+ */
+export interface DiagShape {
+  readonly severity: string;
+  readonly code: string;
+  readonly file: string | undefined;
+  readonly range: SourceRange | undefined;
+  readonly message: string;
+}
+
+export function shapes(doc: ThetaDocument): DiagShape[] {
+  return doc.diagnostics.map(diagnosticShape);
+}
+
+function diagnosticShape(d: Diagnostic): DiagShape {
+  return {
+    severity: d.severity,
+    code: d.code,
+    file: d.file,
+    range: d.range,
+    message: d.message,
+  };
+}
+
+/**
+ * The five normative diagnostic fields plus `hint`. `hint` is asserted because
+ * route (a) reuses `checkIncrementDecrement` UNCHANGED, so the registered Hint
+ * reaching the author is half of what this fix delivers — and its absence on
+ * the two neighbouring codes is measured, not assumed.
+ */
+export interface DiagShapeWithHint extends DiagShape {
+  readonly hint: string | undefined;
+}
+
+/** Include the repair hint where the test contract asserts it. */
+export function shapesWithHint(doc: ThetaDocument): DiagShapeWithHint[] {
+  return doc.diagnostics.map((d) => ({ ...diagnosticShape(d), hint: d.hint }));
+}
+
+/** A 1-indexed, end-exclusive-column source range literal. */
+export function range(
+  startLine: number,
+  startColumn: number,
+  endLine: number,
+  endColumn: number,
+): SourceRange {
+  return {
+    start: { line: startLine, column: startColumn },
+    end: { line: endLine, column: endColumn },
+  };
+}
+
+/** Failure payload: every diagnostic rendered `severity code @l:c-l:c: message`. */
+export function render(doc: ThetaDocument, includeHint = false): string {
+  return JSON.stringify(
+    doc.diagnostics.map((d: Diagnostic) => {
+      const r = d.range;
+      const at =
+        r === undefined
+          ? "-"
+          : `${r.start.line}:${r.start.column}-${r.end.line}:${r.end.column}`;
+      const hint = includeHint ? ` [hint=${d.hint ?? "-"}]` : "";
+      return `${d.severity} ${d.code} @${at}: ${d.message}${hint}`;
+    }),
+  );
+}
+
+/** Failure payload including each diagnostic's repair hint. */
+export function renderWithHint(doc: ThetaDocument): string {
+  return render(doc, true);
+}
+
+/** Whether the error-severity load/parse registration mirror refuses the list. */
+export function deniesRegistration(diagnostics: readonly Diagnostic[]): boolean {
+  return diagnostics.some(isLoadParseError);
 }

@@ -1,3 +1,4 @@
+import { TRIAGE_DEF } from "./helpers/triage-fixture";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
@@ -238,14 +239,6 @@ function unresolvedLine(name: string): string {
 // point at every level (`additionalProperties` < `properties` < `required` <
 // `type`) and array elements — `required` included — left in lowering order.
 // ===========================================================================
-
-/** The closed lowering of `schema Triage { urgent: boolean }`. */
-const TRIAGE_DEF = {
-  type: "object",
-  properties: { urgent: { type: "boolean" } },
-  required: ["urgent"],
-  additionalProperties: false,
-};
 
 /** `{x: integer, y: string}` — the nested fragment of A1 / F2 / C1 / C3. */
 const XY_FRAGMENT = {

@@ -1,3 +1,4 @@
+import { EM_DASH, ajvArgsNote } from "./helpers/scripted-live-session-harness";
 import { REGISTRY } from "./helpers/registry-oracle";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -294,17 +295,6 @@ import type { QueryError } from "../src/runtime/query-error";
 import { makeOk, type ResultValue, type ThetaValue } from "../src/runtime/value";
 
 const SYSTEM_NOTE_CHANNEL = "theta-system-note";
-
-/** The rule-3 prefix/suffix separator of `renderFailureNote` (U+2014 EM DASH). */
-const EM_DASH = "\u2014";
-
-/** The AJV-on-`args` row's fixed phrase (determinism-cancellation-failure.md:52). */
-const AJV_ARGS_PHRASE = "argument binding produced invalid args";
-
-/** The AJV-on-`args` note for one theta and one rendered `<ajv-summary>`. */
-function ajvArgsNote(thetaName: string, ajvSummary: string): string {
-  return `theta /${thetaName}: ${AJV_ARGS_PHRASE} ${EM_DASH} ${ajvSummary}`;
-}
 
 // ===========================================================================
 // The codes and their normative messages (DIAG-4).

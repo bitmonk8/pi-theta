@@ -1,3 +1,4 @@
+import { TRIAGE_DEF } from "./helpers/triage-fixture";
 import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import { buildBinderEnvelopeSchema } from "../src/binder/binder-envelope";
@@ -151,14 +152,6 @@ const DECLS = 'schema Sev = "x" | "y"\nschema Triage { urgent: boolean }\n';
 
 /** `schema Sev = "x" | "y"`'s own closed lowering, reached through the literal check at the TOP of its alias RHS. */
 const SEV_DEF = { type: "string", enum: ["x", "y"] };
-
-/** `schema Triage { urgent: boolean }`'s closed object form. */
-const TRIAGE_DEF = {
-  type: "object",
-  properties: { urgent: { type: "boolean" } },
-  required: ["urgent"],
-  additionalProperties: false,
-};
 
 const POSITIONS = ["params", "field", "alias", "annotation"] as const;
 type Position = (typeof POSITIONS)[number];

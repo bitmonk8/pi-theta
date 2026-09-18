@@ -146,25 +146,14 @@ import { parseExpressionSource } from "../src/parser/theta-document";
 import { DEPTH_VIOLATION_MESSAGE, jsonDepth, MAX_JSON_DEPTH } from "../src/runtime/depth-walk";
 import { parseDoc } from "./helpers/e2e-s1";
 import {
+  AJV_SUMMARY_SEPARATOR,
+  AJV_ARGS_PHRASE,
+  ajvArgsNote,
   binderProducerWithCapture,
   type BinderCapturedNote as CapturedNote,
   noteChannelEntries,
 } from "./helpers/scripted-live-session-harness";
 import { ctxDouble } from "./helpers/tool-call-dispatch-harness";
-
-/** The rule-3 prefix/suffix separator of `renderFailureNote` (U+2014 EM DASH). */
-const EM_DASH = "\u2014";
-
-/** The two-character `<ajv-summary>` inter-issue separator (`renderAjvSummary`). */
-const AJV_SUMMARY_SEPARATOR = "; ";
-
-/** The AJV-on-`args` row's fixed phrase (determinism-cancellation-failure.md:52). */
-const AJV_ARGS_PHRASE = "argument binding produced invalid args";
-
-/** The AJV-on-`args` note for one theta and one rendered `<ajv-summary>`. */
-function ajvArgsNote(thetaName: string, ajvSummary: string): string {
-  return `theta /${thetaName}: ${AJV_ARGS_PHRASE} ${EM_DASH} ${ajvSummary}`;
-}
 
 // ===========================================================================
 // Fixtures.

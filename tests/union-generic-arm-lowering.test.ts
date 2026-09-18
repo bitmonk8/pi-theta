@@ -1,3 +1,4 @@
+import { TRIAGE_DEF } from "./helpers/triage-fixture";
 import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
 // @ts-expect-error — JS code-registry module, no type declarations.
@@ -220,14 +221,6 @@ const DOG_DEF = {
   type: "object",
   properties: { kind: { const: "dog" } },
   required: ["kind"],
-  additionalProperties: false,
-};
-
-/** The closed lowering of `schema Triage { urgent: boolean }`. */
-const TRIAGE_DEF = {
-  type: "object",
-  properties: { urgent: { type: "boolean" } },
-  required: ["urgent"],
   additionalProperties: false,
 };
 

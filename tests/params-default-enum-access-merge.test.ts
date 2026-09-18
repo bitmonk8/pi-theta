@@ -1,3 +1,4 @@
+import { AJV_SUMMARY_SEPARATOR, ajvArgsNote } from "./helpers/scripted-live-session-harness";
 import {
   SEAM_NOOP_CHECKPOINT as NOOP_CHECKPOINT,
   SEAM_NOOP_SINK as NOOP_SINK,
@@ -183,22 +184,8 @@ import { enumDeclaringKey } from "../src/runtime/lexical-environment";
 
 const SYSTEM_NOTE_CHANNEL = "theta-system-note";
 
-/** The rule-3 prefix/suffix separator of `renderFailureNote` (U+2014 EM DASH). */
-const EM_DASH = "\u2014";
-
 /** The echo's elided-value marker and the rule-2 truncation marker (U+2026). */
 const ELLIPSIS = "\u2026";
-
-/** The two-character `<ajv-summary>` inter-issue separator (`renderAjvSummary`). */
-const AJV_SUMMARY_SEPARATOR = "; ";
-
-/** The AJV-on-`args` row's fixed phrase (determinism-cancellation-failure.md:52). */
-const AJV_ARGS_PHRASE = "argument binding produced invalid args";
-
-/** The AJV-on-`args` note for one theta and one rendered `<ajv-summary>`. */
-function ajvArgsNote(thetaName: string, ajvSummary: string): string {
-  return `theta /${thetaName}: ${AJV_ARGS_PHRASE} ${EM_DASH} ${ajvSummary}`;
-}
 
 /**
  * The locally constructed variant every enum-position cell compares against —

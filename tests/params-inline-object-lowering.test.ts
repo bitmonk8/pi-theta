@@ -1,3 +1,4 @@
+import { TRIAGE_DEF, BODY } from "./helpers/triage-fixture";
 import { describe, expect, it } from "vitest";
 // @ts-expect-error — JS code-registry module, no type declarations.
 import { registryMessage } from "../tools/code-registry/index.js";
@@ -225,21 +226,10 @@ function malformedYamlLine(
 // byte-identical to the bug doc's §Reproduction table.
 // ===========================================================================
 
-/** `Triage` is declared in every fixture; `Tirage` is declared nowhere. */
-const BODY = "schema Triage { urgent: boolean }\nlet x = 1\n";
-
 /** A `mode: prompt` theta whose `params:` block is `paramsBlock`. */
 function src(paramsBlock: string, body: string = BODY): string {
   return `---\nmode: prompt\nparams:\n${paramsBlock}\n---\n${body}`;
 }
-
-/** The closed lowering of `schema Triage { urgent: boolean }`. */
-const TRIAGE_DEF = {
-  type: "object",
-  properties: { urgent: { type: "boolean" } },
-  required: ["urgent"],
-  additionalProperties: false,
-};
 
 // The lowered fragments the inline objects hoist to (schema-subset.md:73 step 2
 // via the Object emission rule of step 3: `type` / `properties` in declaring

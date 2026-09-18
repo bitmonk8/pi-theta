@@ -3,9 +3,11 @@
 
 import { expect } from "vitest";
 import type {
+  ExtensionCommandContext,
   ModelRegistry,
 } from "@earendil-works/pi-coding-agent";
 import type { ParsedFrontmatter } from "../../src/parser/frontmatter";
+import type { ThetaDocument } from "../../src/parser/theta-document";
 import { executeBody, type BodyExecution } from "../../src/runtime/statement-executor";
 import type { ThetaValue } from "../../src/runtime/value";
 import {
@@ -50,10 +52,37 @@ export function producer(opts: ProducerOpts = {}) {
 export function bindAndExecute(
   deps: ReturnType<typeof producer>,
   theta: ThetaCompositionInput,
+  ctx: ExtensionCommandContext = ctxDouble(),
 ): Promise<BodyExecution> {
-  const bindInput: ConversationBindInput = { theta, args: "", ctx: ctxDouble() };
+  const bindInput: ConversationBindInput = { theta, args: "", ctx };
   const binding = deps.bindPromptConversation(bindInput);
   return executeBody(theta.body, binding.executeDeps);
+}
+
+/** Run already-parsed pattern witnesses with their fixture identity and inert context. */
+export function createParsedPromptHarness(bugTag: string, sourcePath: string) {
+  async function execute(doc: ThetaDocument): Promise<BodyExecution> {
+    const input: ThetaCompositionInput = {
+      slashName: bugTag,
+      sourcePath,
+      frontmatter: doc.frontmatter as ParsedFrontmatter,
+      body: doc.body,
+    };
+    return bindAndExecute(producer(), input, {} as unknown as ExtensionCommandContext);
+  }
+
+  /** Assert the value an already-parsed body evaluates to. */
+  async function expectValue(
+    doc: ThetaDocument,
+    value: ThetaValue,
+    why: string,
+  ): Promise<void> {
+    const execution = await execute(doc);
+    expect(execution.outcome, `${why}: the body reaches a value`).toBe("success");
+    expect(execution.result.value, why).toEqual(value);
+  }
+
+  return { execute, expectValue };
 }
 
 export const FM = "---\nmode: prompt\n---\n";

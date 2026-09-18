@@ -1,26 +1,22 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
+import { createParsedPromptHarness } from "./helpers/prompt-value-harness";
+import {
+  PARSE_REGISTRY_PATH as REGISTRY_PARSE_PAGE,
+  type DiagShape,
+  shapes,
+  render,
+  range,
+  deniesRegistration,
+} from "./helpers/load-row-harness";
+import { readRegistry, type RegistryRow } from "./helpers/registry-oracle";
 import { describe, expect, it } from "vitest";
-import type {
-  ExtensionAPI,
-  ExtensionCommandContext,
-  ModelRegistry,
-} from "@earendil-works/pi-coding-agent";
 // @ts-expect-error — JS code-registry module, no type declarations.
-import { parseRegistry, registryMessage } from "../tools/code-registry/index.js";
+import { registryMessage } from "../tools/code-registry/index.js";
 import { parseDoc, parseDocBytes } from "./helpers/e2e-s1";
 import { committedThetaSources } from "./helpers/theta-corpus";
-import type { Diagnostic, SourceRange } from "../src/diagnostics/diagnostic";
+import type { SourceRange } from "../src/diagnostics/diagnostic";
 import type { ThetaDocument } from "../src/parser/theta-document";
-import type { ParsedFrontmatter } from "../src/parser/frontmatter";
-import { executeBody, type BodyExecution } from "../src/runtime/statement-executor";
-import { createProductionProducerDeps } from "../src/extension/production-theta-producer";
-import type {
-  ConversationBindInput,
-  ThetaCompositionInput,
-} from "../src/extension/theta-composition-producer";
-import type { RuntimeRoot } from "../src/runtime-root";
-import type { Checkpoint } from "../src/seams/checkpoint";
 import type { ThetaValue } from "../src/runtime/value";
 
 // Bug 0226 — a `match` object-pattern head that RESOLVES is admitted with any
@@ -190,20 +186,7 @@ const NARROWING = "theta/parse/integer-narrowing";
 // below, and DIAG-2's evidence that the route mints no row.
 // ===========================================================================
 
-interface RegistryRow {
-  readonly code: string;
-  readonly severity: string;
-  readonly phase: string;
-  readonly message: string;
-}
-
-const REGISTRY_PARSE_PAGE = "docs/spec_topics/diagnostics/code-registry-parse.md";
-
-function readRepoFile(relative: string): string {
-  return readFileSync(fileURLToPath(new URL(`../${relative}`, import.meta.url)), "utf8");
-}
-
-const REGISTRY = parseRegistry(readRepoFile(REGISTRY_PARSE_PAGE)) as RegistryRow[];
+const REGISTRY = readRegistry(["parse"]);
 
 /**
  * The registry row for `code`, or a throw naming the absent row (no silent
@@ -338,43 +321,6 @@ function lines(...parts: readonly string[]): string {
 }
 
 /**
- * A diagnostic reduced to the five normative fields (diagnostic-shape.md
- * §"Internal diagnostic shape"). `hint` is excluded on purpose: it is a
- * non-normative repair aid carried in its own registry column, so pinning it
- * would make an added hint fail an assertion that is about the refusal.
- */
-interface DiagShape {
-  readonly severity: string;
-  readonly code: string;
-  readonly file: string | undefined;
-  readonly range: SourceRange | undefined;
-  readonly message: string;
-}
-
-function shapes(doc: ThetaDocument): DiagShape[] {
-  return doc.diagnostics.map((d: Diagnostic) => ({
-    severity: d.severity,
-    code: d.code,
-    file: d.file,
-    range: d.range,
-    message: d.message,
-  }));
-}
-
-/** A 1-indexed, end-exclusive-column source range literal. */
-function range(
-  startLine: number,
-  startColumn: number,
-  endLine: number,
-  endColumn: number,
-): SourceRange {
-  return {
-    start: { line: startLine, column: startColumn },
-    end: { line: endLine, column: endColumn },
-  };
-}
-
-/**
  * The PATTERN's span, from its source spelling alone: element (1) of the
  * settled route carries the whole pattern's range on the object `PatternNode`,
  * head token through closing `}`. Derived, not guessed: the caller states the
@@ -427,20 +373,6 @@ function narrowing(at: SourceRange): DiagShape {
   return { severity: "error", code: NARROWING, file: FILE, range: at, message: NARROWING_MESSAGE };
 }
 
-/** Failure payload: every diagnostic rendered `severity code @l:c-l:c: message`. */
-function render(doc: ThetaDocument): string {
-  return JSON.stringify(
-    doc.diagnostics.map((d: Diagnostic) => {
-      const r = d.range;
-      const at =
-        r === undefined
-          ? "-"
-          : `${r.start.line}:${r.start.column}-${r.end.line}:${r.end.column}`;
-      return `${d.severity} ${d.code} @${at}: ${d.message}`;
-    }),
-  );
-}
-
 /**
  * Assert `body`'s WHOLE diagnostic list, order-sensitive and unfiltered.
  *
@@ -458,85 +390,13 @@ function expectDiagnostics(
   return doc;
 }
 
-/**
- * Whether `diagnostics` denies registration. `hasLoadParseError`
- * (src/extension/production-composition.ts) is module-private — `rg -n
- * 'export.*hasLoadParseError' src/` matches nothing — so the predicate is
- * mirrored here clause for clause: error severity, and a code in the
- * `theta/load/` or `theta/parse/` namespace. It is the mechanism that turns
- * this fix's diagnostics into the refusal, so the wrong-arm cells assert it
- * directly (the same mirror, for the same reason, as symbol
- * `deniesRegistration`,
- * tests/object-pattern-head-unresolved-refusal.test.ts:266).
- */
-function deniesRegistration(diagnostics: readonly Diagnostic[]): boolean {
-  return diagnostics.some(
-    (d) =>
-      d.severity === "error" &&
-      (d.code.startsWith("theta/load/") || d.code.startsWith("theta/parse/")),
-  );
-}
-
 // ===========================================================================
-// Runtime harness — parse → production prompt-mode binding → `executeBody`
-// (the tests/object-pattern-head-unresolved-refusal.test.ts:402–:454 shape,
-// symbols `producer` / `execute` / `expectValue`). Offline, provider-free: a
-// query-free prompt body dispatches no model.
+// Runtime harness — `createParsedPromptHarness`
+// (tests/helpers/prompt-value-harness.ts). Offline, provider-free: a query-free
+// prompt body dispatches no model.
 // ===========================================================================
 
-const NOOP_CHECKPOINT: Checkpoint = {
-  before(): Promise<void> {
-    return Promise.resolve();
-  },
-};
-
-function rootDouble(): RuntimeRoot {
-  return {
-    checkpoint: NOOP_CHECKPOINT,
-    idSource: { newInvocationId: () => "inv-1", newToolCallId: () => "tc-1" },
-  } as unknown as RuntimeRoot;
-}
-
-function producer(): ReturnType<typeof createProductionProducerDeps> {
-  return createProductionProducerDeps({
-    // `sendMessage` satisfies the theta-system-note channel; the active-tools
-    // pair satisfies the PIC-17 snapshot/restore window. No provider, no model.
-    pi: {
-      sendMessage: () => {},
-      getActiveTools: () => [],
-      setActiveTools: () => {},
-    } as unknown as ExtensionAPI,
-    root: rootDouble(),
-    modelRegistry: {} as unknown as ModelRegistry,
-  });
-}
-
-async function execute(doc: ThetaDocument): Promise<BodyExecution> {
-  const input: ThetaCompositionInput = {
-    slashName: "bug0226",
-    sourcePath: "/theta/bug0226.theta",
-    frontmatter: doc.frontmatter as ParsedFrontmatter,
-    body: doc.body,
-  };
-  const bindInput: ConversationBindInput = {
-    theta: input,
-    args: "",
-    ctx: {} as unknown as ExtensionCommandContext,
-  };
-  const binding = producer().bindPromptConversation(bindInput);
-  return executeBody(input.body, binding.executeDeps);
-}
-
-/** Assert the value an already-parsed body evaluates to. */
-async function expectValue(
-  doc: ThetaDocument,
-  value: ThetaValue,
-  why: string,
-): Promise<void> {
-  const execution = await execute(doc);
-  expect(execution.outcome, `${why}: the body reaches a value`).toBe("success");
-  expect(execution.result.value, why).toEqual(value);
-}
+const { execute, expectValue } = createParsedPromptHarness("bug0226", "/theta/bug0226.theta");
 
 /**
  * Assert that a member of the class is refused at LOAD — first that it denies

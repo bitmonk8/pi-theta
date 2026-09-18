@@ -1,3 +1,4 @@
+import { BODY } from "./helpers/triage-fixture";
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -280,9 +281,6 @@ const AB_INLINE = `__inline_${AB_SLUG}`;
 // ===========================================================================
 // Fixture sources — the bug doc's `@@` rows, byte-identical.
 // ===========================================================================
-
-/** `Triage` is declared in every fixture; `Tirage` is declared nowhere. */
-const BODY = "schema Triage { urgent: boolean }\nlet x = 1\n";
 
 /** A `mode: prompt` theta whose `params:` block is `paramsBlock`. */
 function src(paramsBlock: string): string {

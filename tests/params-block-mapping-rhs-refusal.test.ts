@@ -1,3 +1,4 @@
+import { TRIAGE_DEF, BODY } from "./helpers/triage-fixture";
 import { REGISTRY, type RegistryRow } from "./helpers/registry-oracle";
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
@@ -219,14 +220,6 @@ function malformedYamlMessage(
 // oracle taken from the implementation under test proves nothing.
 // ===========================================================================
 
-/** The closed lowering of `schema Triage { urgent: boolean }`. */
-const TRIAGE_DEF = {
-  type: "object",
-  properties: { urgent: { type: "boolean" } },
-  required: ["urgent"],
-  additionalProperties: false,
-};
-
 /** The lowered fragment of the inline object type `{a: Triage}` (step 3). */
 const G_FRAGMENT = {
   type: "object",
@@ -279,9 +272,6 @@ const MF_INLINE = `__inline_${MF_SLUG}`;
 // Fixture sources. One body, one frontmatter shape, one `params:` block —
 // byte-identical to the bug doc's §Reproduction table.
 // ===========================================================================
-
-/** `Triage` is declared in every fixture; `Tirage` is declared nowhere. */
-const BODY = "schema Triage { urgent: boolean }\nlet x = 1\n";
 
 /** A `mode: prompt` theta whose `params:` block is `paramsBlock`. */
 function src(paramsBlock: string): string {
