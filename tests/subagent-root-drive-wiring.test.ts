@@ -16,63 +16,15 @@
 //
 // Spec: pi-integration-contract/subagent.md PIC-58/PIC-59; invocation.md FN-5.
 
-import { RecordingBus } from "./helpers/subagent-fn-child-regime";
+import { RecordingBus, rootDouble, noopPi, subagentTheta, childCtx } from "./helpers/subagent-fn-child-regime";
 import { describe, expect, it } from "vitest";
 import { createProductionProducerDeps } from "../src/extension/production-theta-producer";
 import type { ThetaCompositionInput } from "../src/extension/theta-composition-producer";
 import type { ModelRegistry } from "@earendil-works/pi-coding-agent";
-import type { RuntimeRoot } from "../src/runtime-root";
-import type { Checkpoint, CheckpointKind, CheckpointSite } from "../src/seams/checkpoint";
-import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
-import type { ParsedFrontmatter } from "../src/parser/frontmatter";
-import { parseExpressionSource } from "../src/parser/theta-document";
 import { parseEnvelopeLine } from "../src/runtime/subagent-envelope";
 import type { EncodedToolRequest, HostToolResult } from "../src/runtime/host-loop-dispatch";
 import { SUBAGENT_PARAMS_ENV } from "../src/runtime/subagent-params";
 import { SUBAGENT_CHILD_OUTCOME_CHANNEL } from "../src/runtime/subagent-placement-registry";
-
-class RecordingCheckpoint implements Checkpoint {
-  before(_kind: CheckpointKind, _site: CheckpointSite): Promise<void> {
-    return Promise.resolve();
-  }
-}
-
-function rootDouble(): RuntimeRoot {
-  return {
-    checkpoint: new RecordingCheckpoint(),
-    idSource: { newInvocationId: () => "inv-1", newToolCallId: () => "tc-1" },
-    clock: {
-      wallNow: () => 0,
-      setTimeout: (fn: () => void, ms: number) => setTimeout(fn, ms),
-      clearTimeout: (h: unknown) => clearTimeout(h as ReturnType<typeof setTimeout>),
-    },
-    schemaValidator: { compile: () => ({ validate: () => ({ ok: true as const }) }) },
-  } as unknown as RuntimeRoot;
-}
-
-function noopPi(): ExtensionAPI {
-  return { sendMessage: (): void => {}, getAllTools: () => [] } as unknown as ExtensionAPI;
-}
-
-function subagentTheta(tail: string): ThetaCompositionInput {
-  return {
-    slashName: "worker",
-    sourcePath: "/theta/worker.theta",
-    frontmatter: { mode: "subagent" } as unknown as ParsedFrontmatter,
-    body: { statements: [], tail: parseExpressionSource(tail) },
-    callableSet: { entries: new Map() },
-  } as unknown as ThetaCompositionInput;
-}
-
-function childCtx(): ExtensionCommandContext {
-  return {
-    model: { id: "claude-test", provider: "anthropic" },
-    cwd: "/tmp",
-    signal: undefined,
-    // The child's own (empty) host session — the regime drives against it.
-    sessionManager: { getEntries: () => [], getLeafId: () => undefined },
-  } as unknown as ExtensionCommandContext;
-}
 
 describe("RFC-0006 — child-side subagent-root drive wiring", () => {
   it("reports isSubagentRootFor true when the regime marks this process as the root child for the theta", () => {

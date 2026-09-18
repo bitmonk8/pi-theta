@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { attachChildActivityTap } from "../src/extension/execution-status/child-tap";
-import { TAP_LINE_MAX_BYTES, type ChildTapEvent } from "../src/extension/execution-status/types";
-import { FakeRpcChild } from "./helpers/fake-rpc-child";
+import { TAP_LINE_MAX_BYTES } from "../src/extension/execution-status/types";
+import { FAKE_CHILD, recordingPublish } from "./helpers/fake-rpc-child";
 
 // RFC 0010 (execution-status.md EXST-5) — `tests/execution-status-child-tap.test.ts`
 // (T-TAP). Behaviour-matrix rows B28-B31, B33-B34 (B32 is the existing S6
@@ -13,13 +13,6 @@ import { FakeRpcChild } from "./helpers/fake-rpc-child";
 // the original listener still runs, ordering preserved) and classifies each
 // line, calling `publish` for recognised event lines and skipping publish
 // for garbage/unknown/oversized/ignored-type lines.
-
-const FAKE_CHILD = () => new FakeRpcChild({ exitOnStdinEof: false });
-
-function recordingPublish(): { events: ChildTapEvent[]; publish: (e: ChildTapEvent) => void } {
-  const events: ChildTapEvent[] = [];
-  return { events, publish: (e) => events.push(e) };
-}
 
 // ---------------------------------------------------------------------------
 // B28 — recognised event ordering -> bus-shaped updates.
@@ -150,16 +143,13 @@ describe("T-TAP — B29: class-3 non-retention (EXST-5/EXST-12) — allowlisted 
 });
 
 // ---------------------------------------------------------------------------
-// B30 — ignored-line classes: no publish, no diagnostic.
+// B30 — ignored-line classes: no publish; later recognised lines still publish.
 // ---------------------------------------------------------------------------
 
-describe("T-TAP — B30: oversized / garbage / non-object / unrecognised-type / message_update lines are all ignored with no diagnostic", () => {
-  it("B30: every ignored-line class produces zero publishes and the emitDiagnostic spy is never called", () => {
+describe("T-TAP — B30: oversized / garbage / non-object / unrecognised-type / message_update lines are all ignored", () => {
+  it("B30: every ignored-line class produces zero publishes without stopping later recognised events", () => {
     const child = FAKE_CHILD();
     const { events, publish } = recordingPublish();
-    const emitDiagnostic = () => {
-      throw new Error("emitDiagnostic must never be called by the tap (DIAG-2)");
-    };
     attachChildActivityTap(child, publish);
 
     // Oversized (> TAP_LINE_MAX_BYTES).
@@ -178,7 +168,9 @@ describe("T-TAP — B30: oversized / garbage / non-object / unrecognised-type / 
     );
 
     expect(events).toHaveLength(0);
-    expect(emitDiagnostic).toBeDefined(); // never invoked — the tap has no reference to it at all
+    // The listener remains active after the ignored lines.
+    child.emitRawLine(JSON.stringify({ type: "turn_start" }));
+    expect(events).toEqual([{ type: "turn_start" }]);
   });
 });
 

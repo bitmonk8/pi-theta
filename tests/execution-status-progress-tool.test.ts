@@ -9,15 +9,14 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import {
   registerThetaProgressTool,
-  THETA_PROGRESS_PARAMETERS,
   type ProgressToolDeps,
-  type ThetaProgressParams,
 } from "../src/extension/execution-status/progress-tool";
 import { THETA_PROGRESS_TOOL_NAME } from "../src/extension/execution-status/types";
 import type { ExecutionStatusBus, ProgressAuthorMessage } from "../src/extension/execution-status/types";
 import type { EntryChannelHandle } from "../src/extension/execution-status/entry-channel";
 import { ActiveInvocationRegistry, type ActiveInvocationEntry } from "../src/runtime/active-invocation-registry";
 import { FakeClock } from "./helpers/fake-clock";
+import { ARGS, fakeEntry, fakeHostApi } from "./helpers/execution-status-progress";
 import { renderFooterLine } from "../src/extension/execution-status/footer-sink";
 import { createProgressEntryRenderer } from "../src/extension/execution-status/entry-channel";
 import {
@@ -41,21 +40,6 @@ import type { Diagnostic } from "../src/diagnostics/diagnostic";
 // segments (EXST-14; PIC-71). Every row below asserts the real shipped
 // effect (a `bus.authorMessage` call, an `appendMilestone` call, a clamp, a
 // drop count, a rendered string) — none of them are vacuous.
-
-function fakeHostApi(): {
-  hostApi: { registerTool: (t: ToolDefinition<typeof THETA_PROGRESS_PARAMETERS>) => void };
-  calls: ToolDefinition<typeof THETA_PROGRESS_PARAMETERS>[];
-} {
-  const calls: ToolDefinition<typeof THETA_PROGRESS_PARAMETERS>[] = [];
-  return {
-    hostApi: {
-      registerTool: (t): void => {
-        calls.push(t);
-      },
-    },
-    calls,
-  };
-}
 
 function noopLaneHandle() {
   return { claim: (): void => {}, settle: (): void => {}, close: (): void => {} };
@@ -92,16 +76,6 @@ function fakeBus(initialVerbosity: "off" | "counts" | "names" = "names"): {
   return { bus, authorMessageCalls };
 }
 
-function fakeEntry(): ActiveInvocationEntry {
-  return {
-    thetaAbort: new AbortController(),
-    disposeBarrier: Promise.resolve(),
-    shutdownReason: undefined,
-    theta: "quality-loop",
-    invocationId: "inv-1",
-  };
-}
-
 function fakeEntryChannel(): { entryChannel: EntryChannelHandle; milestoneCalls: unknown[] } {
   const milestoneCalls: unknown[] = [];
   const entryChannel: EntryChannelHandle = {
@@ -130,8 +104,6 @@ function baseDeps(overrides: Partial<ProgressToolDeps> = {}): ProgressToolDeps {
     ...overrides,
   };
 }
-
-const ARGS: ThetaProgressParams = { message: "built 3 of 12", scope: "fix", done: 3, total: 12 };
 
 // ---------------------------------------------------------------------------
 // A. Registration + schema (EXST-13)

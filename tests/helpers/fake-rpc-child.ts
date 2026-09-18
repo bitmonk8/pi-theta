@@ -21,6 +21,7 @@
 // consume it structurally and the harness stays coherent with the contract.
 
 import type { Message } from "@earendil-works/pi-ai";
+import type { ChildTapEvent } from "../../src/extension/execution-status/types";
 import type {
   ChildExitInfo,
   ExecutableHost,
@@ -349,4 +350,13 @@ export function enoentSpawnError(execPath: string): Error {
   const err = new Error(`spawn ${execPath} ENOENT`) as Error & { code?: string };
   err.code = "ENOENT";
   return err;
+}
+
+/** A child-activity tap fixture that does not exit on stdin EOF. */
+export const FAKE_CHILD = () => new FakeRpcChild({ exitOnStdinEof: false });
+
+/** Record the child-activity tap's published events in order. */
+export function recordingPublish(): { events: ChildTapEvent[]; publish: (e: ChildTapEvent) => void } {
+  const events: ChildTapEvent[] = [];
+  return { events, publish: (e) => events.push(e) };
 }

@@ -1,16 +1,14 @@
 import { describe, expect, it, vi } from "vitest";
-import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
 import {
   registerThetaProgressTool,
-  THETA_PROGRESS_PARAMETERS,
   type ProgressToolDeps,
-  type ThetaProgressParams,
 } from "../src/extension/execution-status/progress-tool";
-import { PROGRESS_WIRE_MAX_LINE_BYTES, type ChildTapEvent } from "../src/extension/execution-status/types";
+import { PROGRESS_WIRE_MAX_LINE_BYTES } from "../src/extension/execution-status/types";
 import { attachChildActivityTap } from "../src/extension/execution-status/child-tap";
-import { ActiveInvocationRegistry, type ActiveInvocationEntry } from "../src/runtime/active-invocation-registry";
+import { ActiveInvocationRegistry } from "../src/runtime/active-invocation-registry";
 import { FakeClock } from "./helpers/fake-clock";
-import { FakeRpcChild } from "./helpers/fake-rpc-child";
+import { ARGS, fakeEntry, fakeHostApi } from "./helpers/execution-status-progress";
+import { FAKE_CHILD, recordingPublish } from "./helpers/fake-rpc-child";
 
 // RFC 0010 Layer L3 (execution-status.md EXST-5/EXST-15; subagent.md PIC-74)
 // — T-WIRE, `tests/execution-status-progress-wire.test.ts`. Behaviour-matrix
@@ -25,35 +23,13 @@ import { FakeRpcChild } from "./helpers/fake-rpc-child";
 // real shipped effect — a written wire line, an accepted publish, or a
 // silently-dropped malformed line — none of them are vacuous.
 
-function fakeHostApi(): {
-  hostApi: { registerTool: (t: ToolDefinition<typeof THETA_PROGRESS_PARAMETERS>) => void };
-  calls: ToolDefinition<typeof THETA_PROGRESS_PARAMETERS>[];
-} {
-  const calls: ToolDefinition<typeof THETA_PROGRESS_PARAMETERS>[] = [];
-  return {
-    hostApi: { registerTool: (t): void => { calls.push(t); } },
-    calls,
-  };
-}
-
-function fakeEntry(overrides: Partial<ActiveInvocationEntry> = {}): ActiveInvocationEntry {
-  return {
-    thetaAbort: new AbortController(),
-    disposeBarrier: Promise.resolve(),
-    shutdownReason: undefined,
-    theta: "quality-loop",
-    invocationId: "root-inv",
-    ...overrides,
-  };
-}
-
 function childDeps(overrides: Partial<ProgressToolDeps> = {}): {
   deps: ProgressToolDeps;
   writtenLines: string[];
 } {
   const writtenLines: string[] = [];
   const registry = new ActiveInvocationRegistry();
-  registry.add(fakeEntry());
+  registry.add(fakeEntry({ invocationId: "root-inv" }));
   const clock = new FakeClock();
   const deps: ProgressToolDeps = {
     isChildRegime: true,
@@ -68,8 +44,6 @@ function childDeps(overrides: Partial<ProgressToolDeps> = {}): {
   };
   return { deps, writtenLines };
 }
-
-const ARGS: ThetaProgressParams = { message: "built 3 of 12", scope: "fix", done: 3, total: 12 };
 
 // ---------------------------------------------------------------------------
 // C. Child regime (EXST-15 / PIC-74 emit side)
@@ -232,7 +206,7 @@ describe("T-WIRE — L3-B22: an over-4096-byte line drops (counted), seq not con
 describe("T-WIRE — L3-B23: production default writer is the fd-1 writeSync discipline", () => {
   it("registerThetaProgressTool accepts an OMITTED writeWireLine without throwing (the production-default arm exists as a code path)", () => {
     const registry = new ActiveInvocationRegistry();
-    registry.add(fakeEntry());
+    registry.add(fakeEntry({ invocationId: "root-inv" }));
     const deps: ProgressToolDeps = {
       isChildRegime: true,
       bus: () => undefined,
@@ -253,7 +227,7 @@ describe("T-WIRE — L3-B23: production default writer is the fd-1 writeSync dis
   // `process.stdout.write` to a spy and prove the default writer never calls it.
   it("the DEFAULT writeWireLine arm targets fd 1 directly, never process.stdout.write", async () => {
     const registry = new ActiveInvocationRegistry();
-    registry.add(fakeEntry());
+    registry.add(fakeEntry({ invocationId: "root-inv" }));
     const deps: ProgressToolDeps = {
       isChildRegime: true,
       bus: () => undefined,
@@ -281,13 +255,6 @@ describe("T-WIRE — L3-B23: production default writer is the fd-1 writeSync dis
 // ---------------------------------------------------------------------------
 // D. Parent tap ingest (PIC-74 parent posture)
 // ---------------------------------------------------------------------------
-
-const FAKE_CHILD = () => new FakeRpcChild({ exitOnStdinEof: false });
-
-function recordingPublish(): { events: ChildTapEvent[]; publish: (e: ChildTapEvent) => void } {
-  const events: ChildTapEvent[] = [];
-  return { events, publish: (e) => events.push(e) };
-}
 
 function validWireLine(overrides: Record<string, unknown> = {}): string {
   return JSON.stringify({

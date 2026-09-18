@@ -13,16 +13,13 @@
 // Spec: pi-integration-contract/subagent.md #subagent-launch-contract (RFC
 // 0012 §7), execution-status.md EXST-5.
 
-import { RecordingBus } from "./helpers/subagent-fn-child-regime";
+import { RecordingBus, NoopCheckpoint, rootDouble, noopPi, subagentTheta, childCtx } from "./helpers/subagent-fn-child-regime";
 import { resolvingHost } from "./helpers/fake-json-child";
 import { describe, expect, it } from "vitest";
-import type { ExtensionAPI, ExtensionCommandContext, ModelRegistry } from "@earendil-works/pi-coding-agent";
+import type { ModelRegistry } from "@earendil-works/pi-coding-agent";
 import { createProductionProducerDeps } from "../src/extension/production-theta-producer";
-import type { ThetaCompositionInput } from "../src/extension/theta-composition-producer";
 import type { RuntimeRoot } from "../src/runtime-root";
 import type { Checkpoint, CheckpointKind, CheckpointSite } from "../src/seams/checkpoint";
-import type { ParsedFrontmatter } from "../src/parser/frontmatter";
-import { parseExpressionSource } from "../src/parser/theta-document";
 import { parseEnvelopeLine } from "../src/runtime/subagent-envelope";
 import type { SubagentChildControlPlane } from "../src/runtime/subagent-launch-file";
 import { HostFatal } from "../src/runtime/runtime-panics";
@@ -42,36 +39,12 @@ import type { OpenedSubagentWire, SpawnFn, SubagentChildProcess } from "../src/r
 import type { PlacementLease } from "../src/runtime/subagent-placement-selection";
 import type { ExecutionStatusBus } from "../src/extension/execution-status/types";
 
-class NoopCheckpoint implements Checkpoint {
-  before(_kind: CheckpointKind, _site: CheckpointSite): Promise<void> {
-    return Promise.resolve();
-  }
-}
-
 /** M7: a checkpoint whose `before()` rejects with a fixed value — a `for` loop's `loop-iter` checkpoint site is the injection point. */
 class ThrowingCheckpoint implements Checkpoint {
   constructor(private readonly thrown: unknown) {}
   before(_kind: CheckpointKind, _site: CheckpointSite): Promise<void> {
     return Promise.reject(this.thrown);
   }
-}
-
-function rootDouble(checkpoint?: Checkpoint): RuntimeRoot {
-  return {
-    checkpoint: checkpoint ?? new NoopCheckpoint(),
-    idSource: { newInvocationId: () => "inv-1", newToolCallId: () => "tc-1" },
-    clock: {
-      now: () => 0,
-      wallNow: () => 0,
-      setTimeout: (fn: () => void, ms: number) => setTimeout(fn, ms),
-      clearTimeout: (h: unknown) => clearTimeout(h as ReturnType<typeof setTimeout>),
-    },
-    schemaValidator: { compile: () => ({ validate: () => ({ ok: true as const }) }) },
-  } as unknown as RuntimeRoot;
-}
-
-function noopPi(): ExtensionAPI {
-  return { sendMessage: (): void => {}, getAllTools: () => [] } as unknown as ExtensionAPI;
 }
 
 /**
@@ -97,26 +70,6 @@ function hexInvocationRoot(ids: readonly string[]): RuntimeRoot {
     },
     schemaValidator: { compile: () => ({ validate: () => ({ ok: true as const }) }) },
   } as unknown as RuntimeRoot;
-}
-
-function subagentTheta(tail: string): ThetaCompositionInput {
-  return {
-    slashName: "worker",
-    sourcePath: "/theta/worker.theta",
-    frontmatter: { mode: "subagent" } as unknown as ParsedFrontmatter,
-    body: { statements: [], tail: parseExpressionSource(tail) },
-    callableSet: { entries: new Map() },
-  } as unknown as ThetaCompositionInput;
-}
-
-function childCtx(shutdown: (() => void) | undefined): ExtensionCommandContext {
-  return {
-    model: { id: "claude-test", provider: "anthropic" },
-    cwd: "/tmp",
-    signal: undefined,
-    sessionManager: { getEntries: () => [], getLeafId: () => undefined },
-    ...(shutdown !== undefined ? { shutdown } : {}),
-  } as unknown as ExtensionCommandContext;
 }
 
 function controlPlane(presentation: "visible" | "headless"): SubagentChildControlPlane {

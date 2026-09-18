@@ -16,6 +16,9 @@
 // parent validates the return against the fn's `): T`), a zero `Clock`, and a
 // no-op checkpoint.
 //
+// The theta-entry root-drive and visible-regime tests share the lightweight
+// root, pi, theta, and context builders below; fn-entry drives retain the AJV root.
+//
 // TIER: unit, offline, deterministic, provider-free.
 
 import { expect } from "vitest";
@@ -26,6 +29,9 @@ import { newInvokeChainAtDepth } from "../../src/runtime/invoke-depth-cycle";
 import { parseEnvelopeLine, type EnvelopeParse } from "../../src/runtime/subagent-envelope";
 import { SUBAGENT_PARAMS_ENV } from "../../src/runtime/subagent-params";
 import type { RuntimeRoot } from "../../src/runtime-root";
+import type { Checkpoint, CheckpointKind, CheckpointSite } from "../../src/seams/checkpoint";
+import type { ParsedFrontmatter } from "../../src/parser/frontmatter";
+import { parseExpressionSource } from "../../src/parser/theta-document";
 import { AjvSchemaValidator, type LoweredSchema, type SchemaSlug } from "../../src/seams/schema-validator";
 
 /** A `RuntimeRoot` double: real AJV validator, zero clock, no-op checkpoint, fixed ids. */
@@ -145,4 +151,49 @@ export function reportOf(value: unknown): Record<string, unknown> {
     );
   }
   return value as Record<string, unknown>;
+}
+
+export class NoopCheckpoint implements Checkpoint {
+  before(_kind: CheckpointKind, _site: CheckpointSite): Promise<void> {
+    return Promise.resolve();
+  }
+}
+
+export function rootDouble(checkpoint?: Checkpoint): RuntimeRoot {
+  return {
+    checkpoint: checkpoint ?? new NoopCheckpoint(),
+    idSource: { newInvocationId: () => "inv-1", newToolCallId: () => "tc-1" },
+    clock: {
+      now: () => 0,
+      wallNow: () => 0,
+      setTimeout: (fn: () => void, ms: number) => setTimeout(fn, ms),
+      clearTimeout: (h: unknown) => clearTimeout(h as ReturnType<typeof setTimeout>),
+    },
+    schemaValidator: { compile: () => ({ validate: () => ({ ok: true as const }) }) },
+  } as unknown as RuntimeRoot;
+}
+
+export function noopPi(): ExtensionAPI {
+  return { sendMessage: (): void => {}, getAllTools: () => [] } as unknown as ExtensionAPI;
+}
+
+export function subagentTheta(tail: string): ThetaCompositionInput {
+  return {
+    slashName: "worker",
+    sourcePath: "/theta/worker.theta",
+    frontmatter: { mode: "subagent" } as unknown as ParsedFrontmatter,
+    body: { statements: [], tail: parseExpressionSource(tail) },
+    callableSet: { entries: new Map() },
+  } as unknown as ThetaCompositionInput;
+}
+
+export function childCtx(shutdown?: () => void): ExtensionCommandContext {
+  return {
+    model: { id: "claude-test", provider: "anthropic" },
+    cwd: "/tmp",
+    signal: undefined,
+    // The child's own (empty) host session — the regime drives against it.
+    sessionManager: { getEntries: () => [], getLeafId: () => undefined },
+    ...(shutdown !== undefined ? { shutdown } : {}),
+  } as unknown as ExtensionCommandContext;
 }
