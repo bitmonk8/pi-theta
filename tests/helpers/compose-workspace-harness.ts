@@ -33,8 +33,8 @@
 // `makeIdleModelHost` supplies the no-op host + idle, one-model context used
 // by result-channel and registration-refusal tests; recording hooks stay local.
 //
-// TIER: unit, offline, deterministic, provider-free — the same tier as every
-// file that imports this module.
+// TIER: unit, offline, deterministic, provider-free. Live load cells also reuse
+// the pure `theta` text builder.
 
 import { rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -256,7 +256,7 @@ export async function runLoadPass(workspace: Pick<ComposeWorkspace, "cwd">): Pro
   };
 }
 
-function theta(...lines: string[]): string {
+export function theta(...lines: string[]): string {
   return lines.join("\n") + "\n";
 }
 

@@ -31,6 +31,7 @@
 // echoing text already in front of it.
 
 import { describe, it, expect } from "vitest";
+import { driveOnce } from "../../helpers/live-probe-helpers";
 import { requireLiveProvider, runProbe, turnAt } from "./probe-harness";
 import type { PlantedFile } from "./probe-harness";
 
@@ -53,17 +54,6 @@ const CHAIN_QUERY =
   "@`Read the file ch1.txt. Each file names the next file to read. Read exactly ONE " +
   "file at a time, following the chain, until a file gives you a final number. " +
   "Report that number plus 2000. Answer with the number only.`";
-
-/** Retry once on a transport/429 blip (never a silent skip). */
-async function driveOnce<T>(run: () => Promise<T>): Promise<T> {
-  try {
-    return await run();
-  } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e);
-    if (/429|transport|rate/i.test(msg)) return await run();
-    throw e;
-  }
-}
 
 describe("prompt-mode tool_loop.max_rounds enforcement (ceiling #2 / STAGE B)", () => {
   // PL-1 — the cap fires. A >=3-round chain under max_rounds:1 exhausts after

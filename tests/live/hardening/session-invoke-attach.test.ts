@@ -26,15 +26,11 @@
 // and be ABSENT from `userTexts`.
 
 import { describe, it, expect } from "vitest";
+import { transportish } from "../../helpers/live-probe-helpers";
 import { requireLiveProvider, runProbe } from "./probe-harness";
 import type { ProbeResult } from "./probe-harness";
 
 const provider = requireLiveProvider();
-
-function transportish(s: string | undefined): boolean {
-  if (s === undefined) return false;
-  return /429|overloaded|transport|rate.?limit|ECONNRESET|timeout|503|529/i.test(s);
-}
 
 /** Drive one probe; retry once on a transport-ish failure. Returns joined userTexts of the last turn. */
 async function drive(make: () => Promise<ProbeResult>): Promise<{ text: string; probe: ProbeResult }> {

@@ -139,7 +139,7 @@ describe("H9a-T (a) prompt-mode sentinel turn (Convention: Phase 1 acceptance)",
     const thetaPath = requireAuthoredTheta(spec);
     expect(thetaPath).toBeDefined();
 
-    requireLiveHost();
+    await requireLiveHost();
     const cwd = scratchCwd();
     const result = await spawnPiPrint({
       thetaDir: FEATURE_THETA_DIR,
@@ -168,7 +168,7 @@ describe("H9a-T (b) typed query with a named schema (QRY-22; Convention: Phase 1
       failLoudly(`${spec.label}: named-schema theta must declare a typedQuerySchema invariant`);
     }
 
-    requireLiveHost();
+    await requireLiveHost();
     const cwd = scratchCwd();
     const result = await spawnPiPrint({
       thetaDir: FEATURE_THETA_DIR,
@@ -211,7 +211,7 @@ describe("H9a-T (c) typed query with an inline object type (QRY-22; Convention: 
       failLoudly(`${spec.label}: inline-type theta must declare a typedQuerySchema invariant`);
     }
 
-    requireLiveHost();
+    await requireLiveHost();
     const cwd = scratchCwd();
     const result = await spawnPiPrint({
       thetaDir: FEATURE_THETA_DIR,
@@ -265,7 +265,7 @@ describe("H9a-T (d) params theta forcing an OFF-session binder pass (no envelope
       failLoudly(`${spec.label}: params-binder theta must declare a binderEnvelope invariant`);
     }
 
-    requireLiveHost();
+    await requireLiveHost();
     const cwd = scratchCwd();
     // The only live reach to a real binder call runs against the model the
     // shared selection rule resolves, not against whatever id the committed
@@ -340,7 +340,7 @@ describe("H9a-T (e) subagent spawn drives to a success terminal (Convention: Pha
     expect(thetaPath).toBeDefined();
     expect(spec.invariants.subagentSuccess).toBe(true);
 
-    requireLiveHost();
+    await requireLiveHost();
     const cwd = scratchCwd();
     const result = await spawnPiPrint({
       thetaDir: FEATURE_THETA_DIR,
@@ -383,7 +383,7 @@ describe("H9a-T (f) code-tool loop (Convention: Phase 1 acceptance)", () => {
     const thetaPath = requireAuthoredTheta(spec);
     expect(thetaPath).toBeDefined();
 
-    requireLiveHost();
+    await requireLiveHost();
     const cwd = scratchCwd();
     const result = await spawnPiPrint({
       thetaDir: FEATURE_THETA_DIR,
@@ -408,7 +408,7 @@ describe("H9a-T (g) imports / invoke across thetas (Convention: Phase 1)", () =>
     const thetaPath = requireAuthoredTheta(spec);
     expect(thetaPath).toBeDefined();
 
-    requireLiveHost();
+    await requireLiveHost();
     const cwd = scratchCwd();
     const result = await spawnPiPrint({
       thetaDir: FEATURE_THETA_DIR,
@@ -435,7 +435,7 @@ describe("H9a-T (h) error/result match surfacing a QueryError (Convention: Phase
     const thetaPath = requireAuthoredTheta(spec);
     expect(thetaPath).toBeDefined();
 
-    requireLiveHost();
+    await requireLiveHost();
     const cwd = scratchCwd();
     const result = await spawnPiPrint({
       thetaDir: FEATURE_THETA_DIR,
@@ -463,7 +463,7 @@ describe("H9a-T (i) multi-source discovery, project + --theta CLI (Convention: P
     expect(thetaPath).toBeDefined();
     expect(spec.invariants.multiSourceDiscovery).toBe(true);
 
-    requireLiveHost();
+    await requireLiveHost();
 
     // Project-source discovery: the fixtures dir doubles as the project source.
     const projectCwd = scratchCwd();

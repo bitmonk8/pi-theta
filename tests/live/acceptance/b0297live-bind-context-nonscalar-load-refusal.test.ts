@@ -76,8 +76,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { failLoudly, requireLiveHost, spawnPiPrint } from "./harness";
-import { parseDoc } from "../../helpers/e2e-s1";
-import type { Diagnostic } from "../../../src/diagnostics/diagnostic";
+import { errorCodes, parseDoc } from "../../helpers/e2e-s1";
 
 /** The registry code the fix pushes for a present non-scalar `bind_context:`. */
 const CODE = "theta/load/unknown-bind-context-value";
@@ -162,15 +161,6 @@ const CONTROL_PROBE = [
 const REFUSED = "REFUSED";
 const LOADED = "LOADED";
 const CONTROL_OK = "877";
-
-/** The error-severity load/parse codes `parseDoc` attributes to one source. */
-function errorCodes(thetaText: string, thetaPath: string): readonly string[] {
-  const doc = parseDoc(thetaText, thetaPath);
-  return doc.diagnostics
-    .filter((d: Diagnostic) => d.severity === "error")
-    .map((d: Diagnostic) => d.code)
-    .sort();
-}
 
 describe("H9a live — bug 0297 non-scalar `bind_context:` load refusal through the real `pi -p`", () => {
   it("refuses the non-scalar-`bind_context:` theta, and still registers and drives the scalar-`bind_context:` control", async () => {

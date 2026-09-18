@@ -17,12 +17,12 @@
 // `acceptanceStderrOffenders` / `assertStderrClean`, the per-area stderr gate
 // `noninteractive-acceptance.test.ts` calls at every spawn site.
 
-import { spawn } from "node:child_process";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, delimiter, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { assert, expect } from "vitest";
+import { spawnCapturedNodeProcess } from "../../helpers/real-subagent-spawn";
 import {
   AjvSchemaValidator,
   type LoweredSchema,
@@ -436,14 +436,18 @@ export interface PiPrintResult {
 }
 
 export interface SpawnPiPrintOptions {
-  /** The primary `--theta <dir>` discovery source (the feature-theta fixtures dir). */
-  readonly thetaDir: string;
+  /** The primary `--theta <dir>` discovery source; omit for project-only discovery. */
+  readonly thetaDir?: string;
   /** Additional `--theta <dir>` CLI sources (for multi-source discovery, area (i)). */
   readonly extraThetaDirs?: readonly string[];
   /** The slash command to invoke (`/<stem>`), plus any argument text. */
   readonly slashInvocation: string;
   /** Working directory for the spawned `pi` process. */
   readonly cwd: string;
+  /** Additional CLI flags (e.g. `--mode json --no-session`). */
+  readonly extraArgs?: readonly string[];
+  /** Additional environment entries for the spawned process. */
+  readonly extraEnv?: NodeJS.ProcessEnv;
   /** An optional deadline (ms) after which the run is aborted (cancellation, area (e)). */
   readonly abortAfterMs?: number;
 }
@@ -456,7 +460,10 @@ export interface SpawnPiPrintOptions {
  * these captures can be scored; this harness only drives the process.
  */
 export async function spawnPiPrint(options: SpawnPiPrintOptions): Promise<PiPrintResult> {
-  const thetaDirs = [options.thetaDir, ...(options.extraThetaDirs ?? [])];
+  const thetaDirs = [
+    ...(options.thetaDir === undefined ? [] : [options.thetaDir]),
+    ...(options.extraThetaDirs ?? []),
+  ];
   // Drive the turns against the model the shared live-suite selection rule
   // resolves (see resolveAcceptanceHost).
   const host = await resolveAcceptanceHost();
@@ -477,62 +484,30 @@ export async function spawnPiPrint(options: SpawnPiPrintOptions): Promise<PiPrin
     // dir — the host pi argv parser keeps only the LAST occurrence of a
     // repeated extension string flag, silently dropping every earlier root.
     ...(thetaDirs.length > 0 ? ["--theta", thetaDirs.join(delimiter)] : []),
+    ...(options.extraArgs ?? []),
     options.slashInvocation,
   ];
-  return new Promise<PiPrintResult>((resolve, reject) => {
-    const child = spawn(process.execPath, args, {
-      cwd: options.cwd,
-      // #subagent-extension-pin (bug 0002 defect 2): the `-ne -e` pin above only
-      // covers the OUTER process; a subagent-mode theta makes the outer's theta
-      // extension spawn an INNER child whose argv would otherwise rely on
-      // ambient discovery — on a machine with a stale globally-installed theta
-      // build the inner child silently binds to the WRONG extension (no
-      // envelope, fail-closed (e)/(g)). The env knob makes the launcher pin
-      // every nested child to the same working-tree build under test.
-      // The pin travels with the parent-pid carriage (subagent.md
-      // #subagent-control-plane-authentication): the spawned `pi`'s real parent
-      // is THIS harness process, so naming our own pid is what authenticates
-      // the control plane inside it — without it the pin is stripped and the
-      // inner child falls back to ambient discovery.
-      env: {
-        ...process.env,
-        [SUBAGENT_EXTENSION_PIN_ENV]: EXTENSION_ENTRY,
-        [SUBAGENT_PARENT_PID_ENV]: String(process.pid),
-      },
-      // Close the child's stdin: `pi -p` in non-interactive print mode reads its
-      // prompt from argv, but an OPEN inherited stdin pipe leaves it waiting for
-      // EOF and the process-and-exit run never terminates. `"ignore"` gives the
-      // child an already-closed stdin so it exits after emitting its output.
-      // (The same treatment is applied to the INNER subagent child by
-      // `createProductionSpawnFn` — the bug 0002 primary fix.)
-      stdio: ["ignore", "pipe", "pipe"],
-    });
-    let stdout = "";
-    let stderr = "";
-    child.stdout.on("data", (chunk: Buffer) => {
-      stdout += chunk.toString("utf8");
-    });
-    child.stderr.on("data", (chunk: Buffer) => {
-      stderr += chunk.toString("utf8");
-    });
-    let timer: NodeJS.Timeout | undefined;
-    if (options.abortAfterMs !== undefined) {
-      timer = setTimeout(() => {
-        child.kill("SIGTERM");
-      }, options.abortAfterMs);
-    }
-    child.on("error", (err) => {
-      if (timer !== undefined) {
-        clearTimeout(timer);
-      }
-      reject(err);
-    });
-    child.on("close", (code) => {
-      if (timer !== undefined) {
-        clearTimeout(timer);
-      }
-      resolve({ exitCode: code, stdout, stderr });
-    });
+  return spawnCapturedNodeProcess(args, {
+    cwd: options.cwd,
+    // #subagent-extension-pin (bug 0002 defect 2): the `-ne -e` pin above only
+    // covers the OUTER process; a subagent-mode theta makes the outer's theta
+    // extension spawn an INNER child whose argv would otherwise rely on
+    // ambient discovery — on a machine with a stale globally-installed theta
+    // build the inner child silently binds to the WRONG extension (no
+    // envelope, fail-closed (e)/(g)). The env knob makes the launcher pin
+    // every nested child to the same working-tree build under test.
+    // The pin travels with the parent-pid carriage (subagent.md
+    // #subagent-control-plane-authentication): the spawned `pi`'s real parent
+    // is THIS harness process, so naming our own pid is what authenticates
+    // the control plane inside it — without it the pin is stripped and the
+    // inner child falls back to ambient discovery.
+    env: {
+      ...process.env,
+      [SUBAGENT_EXTENSION_PIN_ENV]: EXTENSION_ENTRY,
+      [SUBAGENT_PARENT_PID_ENV]: String(process.pid),
+      ...options.extraEnv,
+    },
+    ...(options.abortAfterMs === undefined ? {} : { abortAfterMs: options.abortAfterMs }),
   });
 }
 

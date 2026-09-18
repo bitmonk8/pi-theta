@@ -89,8 +89,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { failLoudly, requireLiveHost, spawnPiPrint } from "./harness";
-import { parseDoc } from "../../helpers/e2e-s1";
-import type { Diagnostic } from "../../../src/diagnostics/diagnostic";
+import { errorCodes, parseDoc } from "../../helpers/e2e-s1";
 
 /** The registry code the fix pushes for a present non-boolean `bind_echo:`. */
 const CODE = "theta/load/unknown-bind-echo-value";
@@ -176,15 +175,6 @@ const CONTROL_PROBE = [
 const REFUSED = "REFUSED";
 const LOADED = "LOADED";
 const CONTROL_OK = "877";
-
-/** The error-severity load/parse codes `parseDoc` attributes to one source. */
-function errorCodes(thetaText: string, thetaPath: string): readonly string[] {
-  const doc = parseDoc(thetaText, thetaPath);
-  return doc.diagnostics
-    .filter((d: Diagnostic) => d.severity === "error")
-    .map((d: Diagnostic) => d.code)
-    .sort();
-}
 
 describe("H9a live — bug 0301 non-boolean `bind_echo:` load refusal through the real `pi -p`", () => {
   it("refuses the non-boolean-`bind_echo:` theta, and still registers and drives the boolean-`bind_echo:` control", async () => {

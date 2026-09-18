@@ -89,52 +89,15 @@ import {
   type LiveExtensionHandle,
   type PlantedTheta,
 } from "./harness";
+import { collectSystemNotes } from "../helpers/live-transcript";
+import { theta } from "../helpers/compose-workspace-harness";
 
 const MALFORMED = "theta/load/malformed-tool-entry";
 const INVOKE_PATH_ESCAPE = "theta/load/invoke-path-escape";
 
-function theta(...lines: readonly string[]): string {
-  return lines.join("\n") + "\n";
-}
-
-/**
- * The `theta-system-note` channel contents of the settled in-memory
- * `SessionManager` — every note the boot appended, including the shipped sink's
- * per-error load-diagnostic notes. Mirrors the harness's own private
- * `collectSystemNotes` reader (string or text-part-array content).
- */
-function bootNotes(handle: LiveExtensionHandle): readonly string[] {
-  const notes: string[] = [];
-  for (const entry of handle.sessionManager.getEntries()) {
-    const e = entry as { customType?: string; content?: unknown; data?: unknown };
-    if (e.customType === "theta-system-note") {
-      if (typeof e.content === "string") notes.push(e.content);
-      else if (Array.isArray(e.content)) {
-        for (const part of e.content) {
-          const t = (part as { text?: string }).text;
-          if (typeof t === "string") notes.push(t);
-        }
-      }
-    } else if (e.customType === "theta-progress-entry") {
-      // PIC-72 (runtime-event-channel.md): the three migrated operator-note
-      // classes (parse/load/type diagnostic BATCH, structural-change,
-      // binder-model recovery) deliver through the `theta-progress-entry`
-      // custom-entry channel instead of `theta-system-note` whenever both
-      // entry members are present (entry-channel.ts). The entry's `data`
-      // carries the SAME `SystemNote` shape the message channel used to
-      // carry (PIC-71: byte-identical rendered content), so extracting its
-      // `content` keeps every existing substring assertion working
-      // unchanged — a channel-union repair, not a weakening.
-      const data = e.data as { content?: unknown } | undefined;
-      if (typeof data?.content === "string") notes.push(data.content);
-    }
-  }
-  return notes;
-}
-
 /** The boot notes naming one planted `.theta` file (the rendered line carries its path). */
 function notesFor(handle: LiveExtensionHandle, stem: string): readonly string[] {
-  return bootNotes(handle).filter((n) => n.includes(`${stem}.theta`));
+  return collectSystemNotes(handle.sessionManager.getEntries()).filter((n) => n.includes(`${stem}.theta`));
 }
 
 describe("bug 0248 live cell — a callee's MALFORMED escaping `tools:` entry draws no containment refusal at its caller at live production load", () => {
@@ -250,7 +213,7 @@ describe("bug 0248 live cell — a callee's MALFORMED escaping `tools:` entry dr
 
       // Precondition 2 (the diagnostic channel exists): the shipped sink
       // appended at least one load note during boot.
-      const allNotes = bootNotes(handle);
+      const allNotes = collectSystemNotes(handle.sessionManager.getEntries());
       if (allNotes.length === 0) {
         failLoudly(
           "bug-0248 live cell precondition unmet: the boot appended NO " +

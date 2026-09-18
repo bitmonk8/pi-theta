@@ -91,7 +91,8 @@ import {
   requireLiveProvider,
   type PlantedTheta,
 } from "./harness";
-import { parseDoc } from "../helpers/e2e-s1";
+import { FAIL_CLOSED_MARKERS } from "../helpers/live-transcript";
+import { diagLines, parseDoc } from "../helpers/e2e-s1";
 
 /**
  * The `empty-schema-body` line the comma-only interior draws, rendered with the
@@ -166,17 +167,6 @@ const PRECONDITION_THETA = [
   "",
 ].join("\n");
 
-/**
- * The fail-closed markers a top-level theta drive lands on the
- * `theta-system-note` channel (AGENTS.md §"Assert on real observables"). The
- * control's drive must produce none of them.
- */
-const FAIL_CLOSED_MARKERS = ["returned Err:", "cancelled", "aborted"] as const;
-
-function diagLines(text: string, path: string): string[] {
-  return parseDoc(text, path).diagnostics.map((d) => `${d.severity} ${d.code}: ${d.message}`);
-}
-
 /** The `params:` lowering, verbatim — `null` when the frontmatter is withheld. */
 function loweredParams(text: string, path: string): string {
   return JSON.stringify(parseDoc(text, path).frontmatter?.params?.loweredSchema ?? null);
@@ -190,7 +180,7 @@ describe("bug 0257 live: a `params:` field whose inline object interior is a com
     // carries none, so a neutralised fix reds here before a single token is
     // spent.
     expect(
-      diagLines(OFFENDER, `${OFFENDER_STEM}.theta`),
+      diagLines(parseDoc(OFFENDER, `${OFFENDER_STEM}.theta`)),
       "attribution: the slot the lone comma opens must draw one " +
         "theta/parse/empty-schema-body line and nothing else — no `Field` derives before it, " +
         "which is the only question the partition depends on. At HEAD (pre-fix) this list is " +
@@ -205,7 +195,7 @@ describe("bug 0257 live: a `params:` field whose inline object interior is a com
         "live cell exists for",
     ).toEqual("null");
     expect(
-      diagLines(CONTROL, `${CONTROL_STEM}.theta`),
+      diagLines(parseDoc(CONTROL, `${CONTROL_STEM}.theta`)),
       "attribution: the control (one well-formed field, same `params:` position) must carry " +
         "zero diagnostics — the fix must not over-refuse an inline object type that opens no " +
         "slot",

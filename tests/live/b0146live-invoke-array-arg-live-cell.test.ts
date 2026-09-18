@@ -63,6 +63,7 @@ import {
   type LiveWorkspace,
   type PlantedTheta,
 } from "./harness";
+import { collectSystemNotes } from "../helpers/live-transcript";
 import { thetaOwnedStderrLines } from "./theta-stderr-prefixes";
 // @ts-expect-error — JS code-registry module, no type declarations.
 import { parseRegistry, registryMessage } from "../../tools/code-registry/index.js";
@@ -220,40 +221,6 @@ afterEach(() => {
   }
 });
 
-/**
- * The `theta-system-note` channel contents of the settled in-memory
- * `SessionManager`, read directly off `getEntries()` (AGENTS.md §"Assert on real
- * observables"). Load-time diagnostics land here before any drive is attempted.
- */
-function systemNoteContents(entries: readonly unknown[]): readonly string[] {
-  const notes: string[] = [];
-  for (const entry of entries) {
-    const e = entry as { customType?: string; content?: unknown; data?: unknown };
-    if (e.customType === "theta-system-note") {
-      if (typeof e.content === "string") notes.push(e.content);
-      else if (Array.isArray(e.content)) {
-        for (const part of e.content) {
-          const t = (part as { text?: string }).text;
-          if (typeof t === "string") notes.push(t);
-        }
-      }
-    } else if (e.customType === "theta-progress-entry") {
-      // PIC-72 (runtime-event-channel.md): the three migrated operator-note
-      // classes (parse/load/type diagnostic BATCH, structural-change,
-      // binder-model recovery) deliver through the `theta-progress-entry`
-      // custom-entry channel instead of `theta-system-note` whenever both
-      // entry members are present (entry-channel.ts). The entry's `data`
-      // carries the SAME `SystemNote` shape the message channel used to
-      // carry (PIC-71: byte-identical rendered content), so extracting its
-      // `content` keeps every existing substring assertion working
-      // unchanged — a channel-union repair, not a weakening.
-      const data = e.data as { content?: unknown } | undefined;
-      if (typeof data?.content === "string") notes.push(data.content);
-    }
-  }
-  return notes;
-}
-
 // ONE boot for both halves: the halves are reported independently so a red half
 // (a) does not hide half (b)'s verdict, and one live host serves both.
 let workspace: LiveWorkspace;
@@ -292,7 +259,7 @@ describe("bug 0146 live: an array literal at an incompatible `invoke(...)` param
         JSON.stringify(handle.registeredNames()),
     ).toBeDefined();
 
-    const notes = systemNoteContents(handle.sessionManager.getEntries());
+    const notes = collectSystemNotes(handle.sessionManager.getEntries());
 
     // The refusal channel's positive control, asserted FIRST: an integer
     // literal at the same param is decided today, so this establishes that a

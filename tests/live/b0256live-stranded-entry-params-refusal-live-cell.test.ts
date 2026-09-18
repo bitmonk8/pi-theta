@@ -88,7 +88,8 @@ import {
   requireLiveProvider,
   type PlantedTheta,
 } from "./harness";
-import { parseDoc } from "../helpers/e2e-s1";
+import { FAIL_CLOSED_MARKERS } from "../helpers/live-transcript";
+import { diagLines, parseDoc } from "../helpers/e2e-s1";
 
 const MALFORMED_FIELD_MESSAGE =
   "malformed schema field; each field is 'name: Type' or 'name as \"WireName\": Type'";
@@ -158,17 +159,6 @@ const PRECONDITION_THETA = [
   "",
 ].join("\n");
 
-/**
- * The fail-closed markers a top-level theta drive lands on the
- * `theta-system-note` channel (AGENTS.md §"Assert on real observables"). The
- * control's drive must produce none of them.
- */
-const FAIL_CLOSED_MARKERS = ["returned Err:", "cancelled", "aborted"] as const;
-
-function diagLines(text: string, path: string): string[] {
-  return parseDoc(text, path).diagnostics.map((d) => `${d.severity} ${d.code}: ${d.message}`);
-}
-
 describe("bug 0256 live: a `params:` field whose inline object interior strands an entry behind the field loop's exit is REFUSED at live production load and un-registers the theta, while its well-formed byte-neighbour control at the same generic-argument enclosure registers and drives", () => {
   it("keeps `p: 'array<{a: b c, d e}>'` out of the registered set while `p: 'array<{a: integer, m: integer}>'` registers and completes a real turn over both bound scalar fields", async () => {
     // ATTRIBUTION GUARD (offline, token-free, runs BEFORE the live host is
@@ -176,7 +166,7 @@ describe("bug 0256 live: a `params:` field whose inline object interior strands 
     // count-consequence law) and the control carries none, so a neutralised
     // fix reds here before a single token is spent.
     expect(
-      diagLines(OFFENDER, `${OFFENDER_STEM}.theta`),
+      diagLines(parseDoc(OFFENDER, `${OFFENDER_STEM}.theta`)),
       "attribution: the stranded keyless entry `d e` must draw one " +
         "theta/parse/malformed-schema-field line and nothing else — at HEAD (pre-fix) this list " +
         "is EMPTY, which is bug 0256 itself. A SECOND line here would mean the fix also refused " +
@@ -184,7 +174,7 @@ describe("bug 0256 live: a `params:` field whose inline object interior strands 
         "(§Non-goals)",
     ).toEqual([`error theta/parse/malformed-schema-field: ${MALFORMED_FIELD_MESSAGE}`]);
     expect(
-      diagLines(CONTROL, `${CONTROL_STEM}.theta`),
+      diagLines(parseDoc(CONTROL, `${CONTROL_STEM}.theta`)),
       "attribution: the control (both entries well-formed, same generic-argument enclosure) " +
         "must carry zero diagnostics — the fix must not over-refuse an inline object type that " +
         "strands nothing",

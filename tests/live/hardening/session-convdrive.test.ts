@@ -24,15 +24,9 @@
 
 import { describe, it, expect } from "vitest";
 import { requireLiveProvider, runProbe, turnAt } from "./probe-harness";
-import type { PlantedFile } from "./probe-harness";
+import { F } from "../../helpers/live-probe-helpers";
 
 const provider = requireLiveProvider();
-
-const F = (path: string, lines: string[]): PlantedFile => ({
-  source: "project",
-  path,
-  text: lines.join("\n"),
-});
 
 describe("multi-turn conversation drive / final value / model-reply-as-value", () => {
   // CONV-3 (baseline, FN-5): a subagent child's TAIL expression is a query

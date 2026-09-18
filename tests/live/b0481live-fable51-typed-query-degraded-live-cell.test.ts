@@ -63,6 +63,7 @@ import {
   requireLiveProvider,
   type PlantedTheta,
 } from "./harness";
+import { countOnSessionRespondCalls } from "../helpers/live-transcript";
 import { isForcedToolChoiceRejection } from "../../src/binder/forced-tool-choice";
 
 const X_VALUE = 263;
@@ -129,19 +130,7 @@ describe("bug 0481 live: a typed `@` query on the forcing-rejecting claude-fable
 
       const entriesBefore = handle.sessionManager.getEntries().length;
       const turn = await driveSlashCaptureTurn(handle, `/${STEM}`);
-      const appended = handle.sessionManager.getEntries().slice(entriesBefore) as readonly {
-        readonly type?: string;
-        readonly message?: { readonly role?: string; readonly content?: unknown };
-      }[];
-      const onSessionRespondCalls = appended.filter(
-        (e) =>
-          e.type === "message" &&
-          e.message?.role === "assistant" &&
-          Array.isArray(e.message.content) &&
-          (e.message.content as { type?: string; name?: string }[]).some(
-            (c) => c.type === "toolCall" && String(c.name ?? "").startsWith("__theta_respond_"),
-          ),
-      ).length;
+      const onSessionRespondCalls = countOnSessionRespondCalls(handle, entriesBefore);
       expect(
         onSessionRespondCalls,
         "the free-phase turn called the on-session respond tool, so this run bound WITHOUT the " +

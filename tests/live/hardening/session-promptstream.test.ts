@@ -34,15 +34,9 @@
 
 import { describe, it, expect } from "vitest";
 import { requireLiveProvider, runProbe, turnAt } from "./probe-harness";
-import type { PlantedFile } from "./probe-harness";
+import { F } from "../../helpers/live-probe-helpers";
 
 const provider = requireLiveProvider();
-
-const F = (path: string, lines: string[]): PlantedFile => ({
-  source: "project",
-  path,
-  text: lines.join("\n"),
-});
 
 describe("prompt-mode user-visible streaming for every query (SLSH-2 / QTL-1)", () => {
   it(

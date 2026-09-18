@@ -1,5 +1,6 @@
-// Shared real-process launch, watchdog, and teardown plumbing for offline subagent witnesses.
+// Shared real-process launch, watchdog, and teardown plumbing for subagent and live acceptance witnesses.
 // Fixtures, assertions, control-plane overrides, and watchdog bounds stay with each caller.
+import { spawn } from "node:child_process";
 import { existsSync, rmSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import type { Diagnostic } from "../../src/diagnostics/diagnostic";
@@ -139,4 +140,54 @@ export async function reapSubagentChildren(
       // Best-effort scratch cleanup; never mask the primary test failure.
     }
   }
+}
+
+/** Spawn a Node entry with closed stdin and capture both streams through process close. */
+export function spawnCapturedNodeProcess(
+  args: readonly string[],
+  options: {
+    readonly cwd: string;
+    readonly env: NodeJS.ProcessEnv;
+    readonly abortAfterMs?: number;
+  },
+): Promise<{ readonly exitCode: number | null; readonly stdout: string; readonly stderr: string }> {
+  return new Promise((resolve, reject) => {
+    const child = spawn(process.execPath, args, {
+      cwd: options.cwd,
+      env: options.env,
+      // Close the child's stdin: `pi -p` in non-interactive print mode reads its
+      // prompt from argv, but an OPEN inherited stdin pipe leaves it waiting for
+      // EOF and the process-and-exit run never terminates. `"ignore"` gives the
+      // child an already-closed stdin so it exits after emitting its output.
+      // (The same treatment is applied to the INNER subagent child by
+      // `createProductionSpawnFn` — the bug 0002 primary fix.)
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    let stdout = "";
+    let stderr = "";
+    child.stdout.on("data", (chunk: Buffer) => {
+      stdout += chunk.toString("utf8");
+    });
+    child.stderr.on("data", (chunk: Buffer) => {
+      stderr += chunk.toString("utf8");
+    });
+    let timer: NodeJS.Timeout | undefined;
+    if (options.abortAfterMs !== undefined) {
+      timer = setTimeout(() => {
+        child.kill("SIGTERM");
+      }, options.abortAfterMs);
+    }
+    child.on("error", (err) => {
+      if (timer !== undefined) {
+        clearTimeout(timer);
+      }
+      reject(err);
+    });
+    child.on("close", (code) => {
+      if (timer !== undefined) {
+        clearTimeout(timer);
+      }
+      resolve({ exitCode: code, stdout, stderr });
+    });
+  });
 }

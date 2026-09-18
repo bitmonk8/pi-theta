@@ -60,6 +60,7 @@ import {
   requireLiveProvider,
   type PlantedTheta,
 } from "./harness";
+import { FAIL_CLOSED_MARKERS } from "../helpers/live-transcript";
 import { parseDoc } from "../helpers/e2e-s1";
 
 /** The two declared values the slash argument names; their sum is the oracle. */
@@ -102,13 +103,6 @@ const PRECONDITION_THETA = [
 
 /** The committed marker prefixing the rendered outbound turn (the `userTexts` read). */
 const BODY_MARKER = "B0251LIVE-BOUND";
-
-/**
- * The fail-closed markers a top-level theta drive lands on the
- * `theta-system-note` channel (AGENTS.md §"Assert on real observables"). A
- * successful bind must produce none of them.
- */
-const FAIL_CLOSED_MARKERS = ["returned Err:", "cancelled", "aborted"] as const;
 
 describe("bug 0251 live: a `params:` field carrying a tolerated junk segment (`b > c`) binds and drives a real turn over the fields the lowering kept", () => {
   it("registers the carrier theta with zero diagnostics and completes a real turn binding both `a` and `m`", async () => {

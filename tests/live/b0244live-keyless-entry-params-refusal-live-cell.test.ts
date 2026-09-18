@@ -81,7 +81,8 @@ import {
   requireLiveProvider,
   type PlantedTheta,
 } from "./harness";
-import { parseDoc } from "../helpers/e2e-s1";
+import { FAIL_CLOSED_MARKERS } from "../helpers/live-transcript";
+import { diagLines, parseDoc } from "../helpers/e2e-s1";
 
 const MALFORMED_FIELD_MESSAGE =
   "malformed schema field; each field is 'name: Type' or 'name as \"WireName\": Type'";
@@ -146,17 +147,6 @@ const PRECONDITION_THETA = [
   "",
 ].join("\n");
 
-/**
- * The fail-closed markers a top-level theta drive lands on the
- * `theta-system-note` channel (AGENTS.md §"Assert on real observables"). The
- * control's drive must produce none of them.
- */
-const FAIL_CLOSED_MARKERS = ["returned Err:", "cancelled", "aborted"] as const;
-
-function diagLines(text: string, path: string): string[] {
-  return parseDoc(text, path).diagnostics.map((d) => `${d.severity} ${d.code}: ${d.message}`);
-}
-
 describe("bug 0244 live: a `params:` field whose inline object interior spells a keyless entry is REFUSED at live production load and un-registers the theta, while its byte-neighbour control (colon added) registers and drives", () => {
   it("keeps `p: '{a: integer, m}'` out of the registered set while `p: '{a: integer, m: integer}'` registers and completes a real turn over both bound fields", async () => {
     // ATTRIBUTION GUARD (offline, token-free, runs BEFORE the live host is
@@ -164,13 +154,13 @@ describe("bug 0244 live: a `params:` field whose inline object interior spells a
     // count-consequence law) and the control carries none, so a neutralised
     // fix reds here before a single token is spent.
     expect(
-      diagLines(OFFENDER, `${OFFENDER_STEM}.theta`),
+      diagLines(parseDoc(OFFENDER, `${OFFENDER_STEM}.theta`)),
       "attribution: the keyless `m` entry must draw one " +
         "theta/parse/malformed-schema-field line and nothing else — at HEAD (pre-fix) this list " +
         "is EMPTY, which is bug 0244 itself",
     ).toEqual([`error theta/parse/malformed-schema-field: ${MALFORMED_FIELD_MESSAGE}`]);
     expect(
-      diagLines(CONTROL, `${CONTROL_STEM}.theta`),
+      diagLines(parseDoc(CONTROL, `${CONTROL_STEM}.theta`)),
       "attribution: the byte-neighbour control (colon added to the second entry) must carry " +
         "zero diagnostics — the fix must not over-refuse a well-formed inline-object interior",
     ).toEqual([]);

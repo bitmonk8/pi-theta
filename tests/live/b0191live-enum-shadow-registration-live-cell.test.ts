@@ -103,6 +103,7 @@ import {
   requireLiveProvider,
   type PlantedTheta,
 } from "./harness";
+import { FAIL_CLOSED_MARKERS } from "../helpers/live-transcript";
 import { thetaOwnedStderrLines } from "./theta-stderr-prefixes";
 import { parseDoc } from "../helpers/e2e-s1";
 
@@ -154,13 +155,6 @@ const PRECONDITION_THETA =
     "---",
     "@`What is 2 plus 2? Answer with the number only.`",
   ].join("\n") + "\n";
-
-/**
- * The fail-closed markers a top-level theta drive lands on the
- * `theta-system-note` channel (AGENTS.md §"Assert on real observables"). The
- * CLEAN drive must produce none of them.
- */
-const FAIL_CLOSED_MARKERS = ["returned Err:", "cancelled", "aborted"] as const;
 
 let consoleErrorSpy: MockInstance | undefined;
 

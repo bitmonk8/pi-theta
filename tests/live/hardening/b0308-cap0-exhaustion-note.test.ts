@@ -27,20 +27,10 @@
 // errors-and-results.md (ERR-19), slash-invocation.md (SNK-h / SLSH-3).
 
 import { describe, it, expect } from "vitest";
+import { driveOnce } from "../../helpers/live-probe-helpers";
 import { requireLiveProvider, runProbe, turnAt } from "./probe-harness";
 
 const provider = requireLiveProvider();
-
-/** Retry once on a transport/429 blip (never a silent skip). */
-async function driveOnce<T>(run: () => Promise<T>): Promise<T> {
-  try {
-    return await run();
-  } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e);
-    if (/429|transport|rate/i.test(msg)) return await run();
-    throw e;
-  }
-}
 
 describe("bug 0308 — cap-0 untyped exhaustion note (SNK-h null last_tool_name)", () => {
   // A mode: a prompt-mode theta with max_rounds: 0 whose body ends in an

@@ -85,7 +85,8 @@ import {
   requireLiveProvider,
   type PlantedTheta,
 } from "./harness";
-import { parseDoc } from "../helpers/e2e-s1";
+import { FAIL_CLOSED_MARKERS } from "../helpers/live-transcript";
+import { diagLines, parseDoc } from "../helpers/e2e-s1";
 
 interface RegistryRow {
   readonly code: string;
@@ -199,17 +200,6 @@ const PRECONDITION_THETA = [
 /** The slash argument naming both values in natural language (the binder's input). */
 const SLASH_ARG = ` a is ${String(A_VALUE)} and m is ${String(M_VALUE)}`;
 
-/**
- * The fail-closed markers a top-level theta drive lands on the
- * `theta-system-note` channel (AGENTS.md §"Assert on real observables"). The
- * control's drive must produce none of them.
- */
-const FAIL_CLOSED_MARKERS = ["returned Err:", "cancelled", "aborted"] as const;
-
-function diagLines(text: string, path: string): string[] {
-  return parseDoc(text, path).diagnostics.map((d) => `${d.severity} ${d.code}: ${d.message}`);
-}
-
 describe("bug 0252 live: a `let` annotation carrying brace-and-angle junk is REFUSED at live production load and un-registers the theta, while its byte-neighbour control registers and drives", () => {
   it("keeps `{a: integer, b > c, m: integer}` out of the registered set while `{a: integer, m: integer}` registers and completes a real turn over both bound fields", async () => {
     // ATTRIBUTION GUARD (offline, token-free, runs BEFORE the live host is
@@ -217,13 +207,13 @@ describe("bug 0252 live: a `let` annotation carrying brace-and-angle junk is REF
     // one diagnostic per offending annotation) and the control carries none, so
     // a neutralised fix reds here before a single token is spent.
     expect(
-      diagLines(OFFENDER, `${OFFENDER_STEM}.theta`),
+      diagLines(parseDoc(OFFENDER, `${OFFENDER_STEM}.theta`)),
       "attribution: the junk `let` annotation must draw the refusal and nothing else — at HEAD " +
         "the brace-and-angle conjunct declines before the sink runs and this list is EMPTY, " +
         "which is bug 0252 itself",
     ).toEqual([refusalLine(BINDER)]);
     expect(
-      diagLines(CONTROL, `${CONTROL_STEM}.theta`),
+      diagLines(parseDoc(CONTROL, `${CONTROL_STEM}.theta`)),
       "attribution: the byte-neighbour control must carry zero diagnostics — the route must not " +
         "over-refuse a well-formed inline-object annotation over a `params:`-supplied value",
     ).toEqual([]);

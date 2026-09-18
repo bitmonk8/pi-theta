@@ -69,34 +69,22 @@
 // broken positive-scan cannot falsely red it). Restored, both arms green
 // again. This proves the PRESENT assertion is live, not vacuous.
 
-import { spawn } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
-  EXTENSION_ENTRY,
-  PI_CLI_ENTRY,
   failLoudly,
-  resolveAcceptanceHost,
+  spawnPiPrint,
+  type PiPrintResult,
 } from "./harness";
-import {
-  SUBAGENT_EXTENSION_PIN_ENV,
-  SUBAGENT_PARENT_PID_ENV,
-} from "../../../src/runtime/subagent-launcher";
 import { SUBAGENT_ROOT_ENV_MARKER } from "../../../src/runtime/subagent-root-regime";
-
-interface WireProbeResult {
-  readonly exitCode: number | null;
-  readonly stdout: string;
-  readonly stderr: string;
-}
 
 /**
  * Spawn the real `pi` binary marked as its OWN subagent-root regime (see the
  * file header): `-p "/<slug>"` against a scratch project workspace whose
  * `.pi/theta/<slug>.theta` IS the marked theta, with the two authenticated
- * control-plane env vars set on the child process itself. Mirrors
+ * control-plane env vars set on the child process itself. Uses
  * `./harness.ts`'s `spawnPiPrint` argv/env shape (extension pin, provider/model,
  * closed stdin) with the regime marker added and no `--theta` flag (project
  * discovery finds the workspace's own `.pi/theta/` root).
@@ -104,48 +92,16 @@ interface WireProbeResult {
 async function spawnWireProbe(options: {
   readonly cwd: string;
   readonly slug: string;
-}): Promise<WireProbeResult> {
-  const host = await resolveAcceptanceHost();
-  const args = [
-    PI_CLI_ENTRY,
-    "-ne",
-    "-e",
-    EXTENSION_ENTRY,
-    "--mode",
-    "json",
-    "-p",
-    `/${options.slug}`,
-    "--no-session",
-    "--provider",
-    host.provider,
-    "--model",
-    host.model,
-  ];
-  return new Promise<WireProbeResult>((resolve, reject) => {
-    const child = spawn(process.execPath, args, {
-      cwd: options.cwd,
-      env: {
-        ...process.env,
-        [SUBAGENT_EXTENSION_PIN_ENV]: EXTENSION_ENTRY,
-        [SUBAGENT_PARENT_PID_ENV]: String(process.pid),
-        // The regime marker: this spawned process treats ITSELF as the
-        // subagent child (see file header) — no launcher, no grandchild.
-        [SUBAGENT_ROOT_ENV_MARKER]: options.slug,
-      },
-      stdio: ["ignore", "pipe", "pipe"],
-    });
-    let stdout = "";
-    let stderr = "";
-    child.stdout.on("data", (chunk: Buffer) => {
-      stdout += chunk.toString("utf8");
-    });
-    child.stderr.on("data", (chunk: Buffer) => {
-      stderr += chunk.toString("utf8");
-    });
-    child.on("error", reject);
-    child.on("close", (code) => {
-      resolve({ exitCode: code, stdout, stderr });
-    });
+}): Promise<PiPrintResult> {
+  return spawnPiPrint({
+    cwd: options.cwd,
+    slashInvocation: `/${options.slug}`,
+    extraArgs: ["--mode", "json", "--no-session"],
+    extraEnv: {
+      // The regime marker: this spawned process treats ITSELF as the
+      // subagent child (see file header) — no launcher, no grandchild.
+      [SUBAGENT_ROOT_ENV_MARKER]: options.slug,
+    },
   });
 }
 

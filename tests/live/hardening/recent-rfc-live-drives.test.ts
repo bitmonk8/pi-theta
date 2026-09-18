@@ -44,15 +44,11 @@
 // / `system-note delivery failed` stderr noise it previously emitted.
 
 import { describe, it, expect } from "vitest";
+import { transportish } from "../../helpers/live-probe-helpers";
 import { requireLiveProvider, runProbe } from "./probe-harness";
 import type { ProbeResult, PlantedFile } from "./probe-harness";
 
 const provider = requireLiveProvider();
-
-function transportish(s: string | undefined): boolean {
-  if (s === undefined) return false;
-  return /429|overloaded|transport|rate.?limit|ECONNRESET|timeout|503|529/i.test(s);
-}
 
 type Turn = ProbeResult["turns"][number] | undefined;
 

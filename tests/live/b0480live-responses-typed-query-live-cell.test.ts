@@ -55,6 +55,7 @@ import {
   requireLiveProvider,
   type PlantedTheta,
 } from "./harness";
+import { countOnSessionRespondCalls, FAIL_CLOSED_MARKERS as DRIVE_FAIL_CLOSED_MARKERS } from "../helpers/live-transcript";
 import {
   TYPED_QUERY_SUPPORTED_PROVIDER_APIS,
   checkTypedQueryProviderSupport,
@@ -106,10 +107,8 @@ const PRECONDITION_THETA = [
 
 /** Every fail-closed ending of a top-level drive lands on the note channel. */
 const FAIL_CLOSED_MARKERS = [
-  "returned Err:",
+  ...DRIVE_FAIL_CLOSED_MARKERS,
   "does not support forced tool-use",
-  "cancelled",
-  "aborted",
 ] as const;
 
 describe("bug 0480 live: a typed `@` query on an openai-responses model binds its respond payload", () => {
@@ -166,19 +165,7 @@ describe("bug 0480 live: a typed `@` query on an openai-responses model binds it
 
       const entriesBefore = handle.sessionManager.getEntries().length;
       const turn = await driveSlashCaptureTurn(handle, `/${STEM}`);
-      const appended = handle.sessionManager.getEntries().slice(entriesBefore) as readonly {
-        readonly type?: string;
-        readonly message?: { readonly role?: string; readonly content?: unknown };
-      }[];
-      const onSessionRespondCalls = appended.filter(
-        (e) =>
-          e.type === "message" &&
-          e.message?.role === "assistant" &&
-          Array.isArray(e.message.content) &&
-          (e.message.content as { type?: string; name?: string }[]).some(
-            (c) => c.type === "toolCall" && String(c.name ?? "").startsWith("__theta_respond_"),
-          ),
-      ).length;
+      const onSessionRespondCalls = countOnSessionRespondCalls(handle, entriesBefore);
       // PATH DISCRIMINATOR: the flat toolChoice reaches the wire only on the
       // OFF-SESSION forced respond dispatch (`complete()`); a free-phase turn
       // that volunteers the on-session respond tool binds without it. The

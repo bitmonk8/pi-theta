@@ -269,6 +269,11 @@ export function errors(diags: readonly Diagnostic[]): Diagnostic[] {
   return diags.filter((d) => d.severity === "error");
 }
 
+/** The error-severity load/parse codes `parseDoc` attributes to one source, sorted. */
+export function errorCodes(thetaText: string, thetaPath: string): readonly string[] {
+  return errors(parseDoc(thetaText, thetaPath).diagnostics).map((d) => d.code).sort();
+}
+
 /**
  * True iff `d` is the error-severity `theta/load/*` or `theta/parse/*` refusal
  * that blocks registration (mirrors `hasLoadParseError`,
