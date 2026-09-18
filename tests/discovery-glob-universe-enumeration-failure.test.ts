@@ -21,9 +21,9 @@ import {
 } from "../src/extension/factory";
 import { composeExtensionInstance } from "../src/extension/production-composition";
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
-import type { FileStat, FileSystem } from "../src/seams/file-system";
+import type { FileSystem } from "../src/seams/file-system";
 import { FakeClock } from "./helpers/fake-clock";
-import { FakeFileSystem } from "./helpers/fake-file-system";
+import { FakeFileSystem, ReaddirDeniedFileSystem, ancestors, mergeDirs } from "./helpers/fake-file-system";
 import { FakeFileWatcher } from "./helpers/fake-file-watcher";
 
 // Bug 0113 — both `listTree` copies swallow every `readdir` rejection, so a
@@ -209,34 +209,6 @@ const NM = "/project/node_modules";
 /** A body that parses far enough to register (the walk only reads bytes). */
 const THETA_BODY = "mode: prompt\n---\n";
 
-/** Proper-ancestor directories of `leaf`, so an `ENOENT` on `leaf` is a CLEAN
- *  leaf under the :68 walk (every ancestor `lstat`s ok as a directory) rather
- *  than an unreadable ancestor chain. The leaf itself is NOT registered. */
-function ancestors(leaf: string): Record<string, string[]> {
-  const segs = leaf.split("/").filter((s) => s.length > 0);
-  const out: Record<string, string[]> = { "/": [] };
-  let parent = "/";
-  for (let i = 0; i < segs.length - 1; i++) {
-    const path = parent === "/" ? `/${segs[i]}` : `${parent}/${segs[i]}`;
-    out[path] = [];
-    parent = path;
-  }
-  return out;
-}
-
-/** Merge several dirs maps, concatenating entry lists for shared keys. */
-function mergeDirs(
-  ...maps: Record<string, readonly string[]>[]
-): Record<string, readonly string[]> {
-  const out: Record<string, string[]> = {};
-  for (const m of maps) {
-    for (const [k, v] of Object.entries(m)) {
-      out[k] = [...(out[k] ?? []), ...v];
-    }
-  }
-  return out;
-}
-
 /** The two conventional roots' ancestor chains plus the settings-base chain, in
  *  every settings fixture, so a cell's diagnostic set is about the path under
  *  test alone and the fixture's directory shape stays self-consistent. */
@@ -291,76 +263,9 @@ function buildPackages(spec: FakeSpec): FakeFileSystem {
  * delegates every other member to an inner `FakeFileSystem`. This is the seam
  * that reaches the defect: the denied directory still `lstat`s as a directory,
  * so the universe walk descends into it and only its enumeration fails.
- * Mirrors tests/discovery-root-enumeration-failure.test.ts:298-353, extended
- * with the `lstat` denial cell S3 needs for a dirty ancestor chain.
+ * The optional `lstat` denial gives S3 a dirty ancestor chain.
  */
-class ReaddirDenied implements FileSystem {
-  readonly #inner: FakeFileSystem;
-  readonly #denied: string;
-  readonly #code: string;
-  readonly #lstatDenied: { readonly path: string; readonly code: string } | undefined;
-
-  constructor(
-    inner: FakeFileSystem,
-    denied: string,
-    code: string,
-    lstatDenied?: { readonly path: string; readonly code: string },
-  ) {
-    this.#inner = inner;
-    this.#denied = denied;
-    this.#code = code;
-    this.#lstatDenied = lstatDenied;
-  }
-
-  readdir(path: string): Promise<readonly string[]> {
-    if (path === this.#denied) {
-      return Promise.reject(codeError(this.#code));
-    }
-    return this.#inner.readdir(path);
-  }
-
-  readText(path: string): Promise<string> {
-    return this.#inner.readText(path);
-  }
-  readBytes(path: string): Promise<Uint8Array> {
-    return this.#inner.readBytes(path);
-  }
-  writeText(path: string, contents: string): Promise<void> {
-    return this.#inner.writeText(path, contents);
-  }
-  exists(path: string): Promise<boolean> {
-    return this.#inner.exists(path);
-  }
-  homedir(): string {
-    return this.#inner.homedir();
-  }
-  cwd(): string {
-    return this.#inner.cwd();
-  }
-  configDirName(): string {
-    return this.#inner.configDirName();
-  }
-  globalAgentDir(): string {
-    return this.#inner.globalAgentDir();
-  }
-  lstat(path: string): Promise<FileStat> {
-    if (this.#lstatDenied !== undefined && path === this.#lstatDenied.path) {
-      return Promise.reject(codeError(this.#lstatDenied.code));
-    }
-    return this.#inner.lstat(path);
-  }
-  realpath(path: string): Promise<string> {
-    return this.#inner.realpath(path);
-  }
-}
-
-/** A Node-style error carrying the injected `.code` (what `nodeErrorCode`,
- *  src/discovery/node-error-code.ts:25, reads). */
-function codeError(code: string): NodeJS.ErrnoException {
-  const error: NodeJS.ErrnoException = new Error(`${code}: readdir`);
-  error.code = code;
-  return error;
-}
+class ReaddirDenied extends ReaddirDeniedFileSystem {}
 
 function input(fs: FileSystem, extra: Partial<DiscoveryInput> = {}): DiscoveryInput {
   return { fs, settings: {}, ...extra };

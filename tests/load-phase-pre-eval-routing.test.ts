@@ -2,18 +2,7 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import type {
-  ExtensionAPI,
-  ExtensionContext,
-} from "@earendil-works/pi-coding-agent";
-import {
-  createThetaExtension,
-  type ThetaExtensionDeps,
-} from "../src/extension/factory";
-import { composeExtensionInstance } from "../src/extension/production-composition";
-import type { Diagnostic } from "../src/diagnostics/diagnostic";
-import { FakeClock } from "./helpers/fake-clock";
-import { FakeFileWatcher } from "./helpers/fake-file-watcher";
+import { GOOD_THETA, BAD_THETA, makeShippedHarness as makeHarness, type RecordedNote } from "./helpers/production-load-harness";
 
 // V4e (production wiring) — load-phase pre-evaluation failure note-routing.
 //
@@ -31,123 +20,10 @@ import { FakeFileWatcher } from "./helpers/fake-file-watcher";
 // shipped LOAD path surfaced load errors via a transient `ctx.ui.notify` toast
 // (notes.md "known load-phase routing gap"), inconsistent with the RELOAD path.
 
-const GOOD_THETA = ["---", "mode: prompt", "tools: read", "---", "@`hi`", ""].join(
-  "\n",
-);
-// A load FAILURE: `tools:` names a Pi tool absent from the threaded registry →
-// `theta/load/unknown-tool` (an error-severity ERR-6 pre-eval failure). The theta
-// is dropped (un-registered); the failure MUST route onto the note channel.
-const BAD_THETA = [
-  "---",
-  "mode: prompt",
-  "tools: totally_unknown_xyz",
-  "---",
-  "@`hi`",
-  "",
-].join("\n");
-
-/** A recorded `pi.sendMessage` call (the `theta-system-note` channel). */
-interface RecordedNote {
-  readonly customType: string;
-  readonly content: string;
-  readonly display: boolean;
-  readonly details: { readonly diagnostics?: readonly Diagnostic[] };
-  readonly triggerTurn: unknown;
-}
-
-interface Harness {
-  readonly pi: ExtensionAPI;
-  readonly commands: Map<string, unknown>;
-  readonly notes: RecordedNote[];
-  readonly notifications: string[];
-  fireSessionStart(): Promise<void>;
-}
-
-function makeHarness(cwd: string): Harness {
-  const commands = new Map<string, unknown>();
-  const notes: RecordedNote[] = [];
-  const notifications: string[] = [];
-  const subscriptions = new Map<
-    string,
-    ((event: unknown, ctx: ExtensionContext) => unknown)[]
-  >();
-
-  const pi = {
-    registerFlag: (): void => {},
-    registerMessageRenderer: (): void => {},
-    registerCommand: (name: string, options: unknown): void => {
-      commands.set(name, options);
-    },
-    on: (
-      event: string,
-      handler: (e: unknown, c: ExtensionContext) => unknown,
-    ): void => {
-      const list = subscriptions.get(event) ?? [];
-      list.push(handler);
-      subscriptions.set(event, list);
-    },
-    getFlag: (): undefined => undefined,
-    getCommands: (): { name: string; source: string }[] =>
-      [...commands.keys()].map((name) => ({ name, source: "extension" })),
-    sendMessage: (
-      message: {
-        customType: string;
-        content: string;
-        display: boolean;
-        details: unknown;
-      },
-      options: { triggerTurn: unknown },
-    ): void => {
-      notes.push({
-        customType: message.customType,
-        content: message.content,
-        display: message.display,
-        details: message.details as RecordedNote["details"],
-        triggerTurn: options.triggerTurn,
-      });
-    },
-    sendUserMessage: (): void => {},
-  } as unknown as ExtensionAPI;
-
-  const ctx = {
-    cwd,
-    hasUI: false,
-    modelRegistry: { getAvailable: (): readonly unknown[] => [] },
-    // A recording toast so a regression back to the toast surface is observable.
-    ui: {
-      notify: (message: string, _type: "error"): void => {
-        notifications.push(message);
-      },
-    },
-  } as unknown as ExtensionContext;
-
-  const deps: ThetaExtensionDeps = {
-    fixtures: [],
-    composeInstance: (composePi, composeCtx) =>
-      composeExtensionInstance(composePi, composeCtx, {
-        fileWatcher: new FakeFileWatcher(),
-        clock: new FakeClock(),
-      }),
-  };
-  createThetaExtension(deps)(pi);
-
-  return {
-    pi,
-    commands,
-    notes,
-    notifications,
-    fireSessionStart: async () => {
-      for (const handler of subscriptions.get("session_start") ?? []) {
-        await handler({ type: "session_start" }, ctx);
-      }
-    },
-  };
-}
-
 /** The error-severity load-phase notes routed onto the channel this pass. */
 function loadErrorNotes(notes: readonly RecordedNote[]): RecordedNote[] {
   return notes.filter((n) =>
-    (n.details.diagnostics ?? []).some((d) => d.severity === "error"),
+    (n.details!.diagnostics ?? []).some((d) => d.severity === "error"),
   );
 }
 
@@ -185,7 +61,7 @@ describe("V4e — load-phase pre-evaluation failures route onto the theta-system
     const errorNotes = loadErrorNotes(harness.notes);
     expect(errorNotes.length).toBeGreaterThanOrEqual(1);
     const note = errorNotes.find((n) =>
-      (n.details.diagnostics ?? []).some(
+      (n.details!.diagnostics ?? []).some(
         (d) => d.code === "theta/load/unknown-tool",
       ),
     );

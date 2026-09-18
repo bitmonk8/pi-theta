@@ -7,7 +7,7 @@ import {
 } from "../src/discovery/discovery-walk";
 import { loadSettings, type ThetaSettings } from "../src/discovery/settings";
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
-import { FakeFileSystem } from "./helpers/fake-file-system";
+import { FakeFileSystem, ancestors, mergeDirs } from "./helpers/fake-file-system";
 
 // e2e-s5 — offline-unit (METHOD M1) coverage for three uncovered DISC
 // requirements, driven through the production discovery entry `discoverThetas`
@@ -32,33 +32,6 @@ const GLOBAL_ROOT = "/home/theta/.pi/agent/theta";
 const PROJECT_ROOT = "/project/.pi/theta";
 const PROJECT_SETTINGS = "/project/.pi/settings.json";
 const GLOBAL_SETTINGS = "/home/theta/.pi/agent/settings.json";
-
-/** Proper-ancestor directories of `leaf` (so a clean-leaf ENOENT lstats every
- *  ancestor as an enterable directory). The leaf itself is NOT registered. */
-function ancestors(leaf: string): Record<string, string[]> {
-  const segs = leaf.split("/").filter((s) => s.length > 0);
-  const out: Record<string, string[]> = { "/": [] };
-  let parent = "/";
-  for (let i = 0; i < segs.length - 1; i++) {
-    const path = parent === "/" ? `/${segs[i]}` : `${parent}/${segs[i]}`;
-    out[path] = [];
-    parent = path;
-  }
-  return out;
-}
-
-/** Merge several dirs maps, concatenating entry lists for shared keys. */
-function mergeDirs(
-  ...maps: Record<string, readonly string[]>[]
-): Record<string, readonly string[]> {
-  const out: Record<string, string[]> = {};
-  for (const m of maps) {
-    for (const [k, v] of Object.entries(m)) {
-      out[k] = [...(out[k] ?? []), ...v];
-    }
-  }
-  return out;
-}
 
 /** Both conventional roots' ancestor chains — registered in every fixture so an
  *  absent conventional root classifies as a clean (silent) missing. */

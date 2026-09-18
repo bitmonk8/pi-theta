@@ -7,8 +7,8 @@ import {
 } from "../src/discovery/package-discovery";
 import type { ThetaSettings } from "../src/discovery/settings";
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
-import type { FileStat, FileSystem } from "../src/seams/file-system";
-import { FakeFileSystem } from "./helpers/fake-file-system";
+import type { FileSystem } from "../src/seams/file-system";
+import { FileSystemDecorator, FakeFileSystem } from "./helpers/fake-file-system";
 import { FakeClock } from "./helpers/fake-clock";
 
 // V10b-T — failing tests for the paired `V10b` package-discovery bounded walk
@@ -57,13 +57,12 @@ function baseFs(spec: FakeSpec): FakeFileSystem {
  * the only thing that can settle that candidate. Test code is unrestricted, so
  * this drives the DISC-6 per-read-timeout / global-timeout surface deterministically.
  */
-class InstrumentedFileSystem implements FileSystem {
+class InstrumentedFileSystem extends FileSystemDecorator {
   packageJsonReads = 0;
-  readonly #base: FakeFileSystem;
   readonly #hang: ReadonlySet<string>;
 
   constructor(base: FakeFileSystem, hang: Iterable<string> = []) {
-    this.#base = base;
+    super(base);
     this.#hang = new Set(hang);
   }
 
@@ -80,41 +79,13 @@ class InstrumentedFileSystem implements FileSystem {
   async readText(path: string): Promise<string> {
     const hung = this.#enterRead(path);
     if (hung !== undefined) return hung;
-    return this.#base.readText(path);
+    return this.inner.readText(path);
   }
 
   async readBytes(path: string): Promise<Uint8Array> {
     const hung = this.#enterRead(path);
     if (hung !== undefined) return hung;
-    return this.#base.readBytes(path);
-  }
-
-  writeText(path: string, contents: string): Promise<void> {
-    return this.#base.writeText(path, contents);
-  }
-  exists(path: string): Promise<boolean> {
-    return this.#base.exists(path);
-  }
-  homedir(): string {
-    return this.#base.homedir();
-  }
-  cwd(): string {
-    return this.#base.cwd();
-  }
-  configDirName(): string {
-    return this.#base.configDirName();
-  }
-  globalAgentDir(): string {
-    return this.#base.globalAgentDir();
-  }
-  readdir(path: string): Promise<readonly string[]> {
-    return this.#base.readdir(path);
-  }
-  lstat(path: string): Promise<FileStat> {
-    return this.#base.lstat(path);
-  }
-  realpath(path: string): Promise<string> {
-    return this.#base.realpath(path);
+    return this.inner.readBytes(path);
   }
 }
 

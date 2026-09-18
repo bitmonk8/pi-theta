@@ -8,7 +8,7 @@ import {
 } from "../src/discovery/discovery-walk";
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
 import type { FileSystem } from "../src/seams/file-system";
-import { FakeFileSystem } from "./helpers/fake-file-system";
+import { FakeFileSystem, mergeDirs } from "./helpers/fake-file-system";
 
 // The CLI source is a single-invocation override whose components the shell
 // normally expands, so a `--theta` component shares with a settings
@@ -109,19 +109,6 @@ const BANG_DIR = "!/opt/lit";
 
 /** A body that parses far enough to register (the walk only reads bytes). */
 const THETA_BODY = "mode: prompt\n---\n";
-
-/** Merge several dirs maps, concatenating entry lists for shared keys. */
-function mergeDirs(
-  ...maps: Record<string, readonly string[]>[]
-): Record<string, readonly string[]> {
-  const out: Record<string, string[]> = {};
-  for (const m of maps) {
-    for (const [k, v] of Object.entries(m)) {
-      out[k] = [...(out[k] ?? []), ...v];
-    }
-  }
-  return out;
-}
 
 /** `/opt/t` holding `a.theta`, with a complete POSIX ancestor chain so an
  *  `ENOENT` on a leaf under it is a CLEAN leaf. */

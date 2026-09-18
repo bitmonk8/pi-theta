@@ -14,7 +14,7 @@ import {
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
 import type { FileStat, FileSystem } from "../src/seams/file-system";
 import { FakeClock } from "./helpers/fake-clock";
-import { FakeFileSystem } from "./helpers/fake-file-system";
+import { FileSystemDecorator, codeError, FakeFileSystem, ancestors, mergeDirs, buildPackages } from "./helpers/fake-file-system";
 
 // `listTree` (`src/discovery/discovery-walk.ts`) classifies an
 // entry-level `lstat` rejection by code and carries the non-`ENOENT` path out
@@ -123,33 +123,6 @@ const NM = "/project/node_modules";
 /** A body that parses far enough to register (the walk only reads bytes). */
 const THETA_BODY = "mode: prompt\n---\n";
 
-/** Proper-ancestor directories of `leaf`, registered empty; the leaf itself is
- *  not registered, so an `ENOENT` on it is a clean leaf. */
-function ancestors(leaf: string): Record<string, string[]> {
-  const segs = leaf.split("/").filter((s) => s.length > 0);
-  const out: Record<string, string[]> = { "/": [] };
-  let parent = "/";
-  for (let i = 0; i < segs.length - 1; i++) {
-    const path = parent === "/" ? `/${segs[i]}` : `${parent}/${segs[i]}`;
-    out[path] = [];
-    parent = path;
-  }
-  return out;
-}
-
-/** Merge several dirs maps, concatenating entry lists for shared keys. */
-function mergeDirs(
-  ...maps: Record<string, readonly string[]>[]
-): Record<string, readonly string[]> {
-  const out: Record<string, string[]> = {};
-  for (const m of maps) {
-    for (const [k, v] of Object.entries(m)) {
-      out[k] = [...(out[k] ?? []), ...v];
-    }
-  }
-  return out;
-}
-
 /** The conventional roots' ancestor chains plus the settings-base chain, in
  *  every settings fixture, so a cell's diagnostic set is about the path under
  *  test alone and the fixture's directory shape stays self-consistent. */
@@ -158,18 +131,6 @@ const BASE = mergeDirs(
   ancestors(PROJECT_ROOT),
   ancestors(DENIED_SUB),
 );
-
-/** The five installed-package roots `packageRoots` enumerates
- *  (src/discovery/package-discovery.ts:226-246), registered as empty
- *  directories so a root's absence never contributes an incidental rejection
- *  to a package cell's diagnostic set. */
-const PKG_ROOTS: Record<string, readonly string[]> = {
-  "/project/.pi/npm": [],
-  "/project/.pi/git": [],
-  [NM]: [],
-  "/home/theta/.pi/agent/npm": [],
-  "/home/theta/.pi/agent/git": [],
-};
 
 interface FakeSpec {
   readonly dirs?: Record<string, readonly string[]>;
@@ -185,23 +146,6 @@ function build(spec: FakeSpec): FakeFileSystem {
   });
 }
 
-function buildPackages(spec: FakeSpec): FakeFileSystem {
-  return new FakeFileSystem({
-    homedir: HOME,
-    cwd: CWD,
-    dirs: mergeDirs(PKG_ROOTS, spec.dirs ?? {}),
-    files: spec.files ?? {},
-  });
-}
-
-/** A Node-style error carrying the injected `.code` (what `nodeErrorCode`,
- *  src/discovery/node-error-code.ts:25, reads). */
-function codeError(code: string): NodeJS.ErrnoException {
-  const error: NodeJS.ErrnoException = new Error(`${code}: lstat`);
-  error.code = code;
-  return error;
-}
-
 /**
  * A `FileSystem` decorator that rejects `lstat` for exactly one path with a
  * named Node-style `.code` and delegates every other member — `readdir`
@@ -209,52 +153,21 @@ function codeError(code: string): NodeJS.ErrnoException {
  * defect: the parent enumerates successfully and names the entry, and only the
  * entry's own type probe fails, which is what `listTree` discards.
  */
-class LstatDenied implements FileSystem {
-  readonly #inner: FakeFileSystem;
+class LstatDenied extends FileSystemDecorator {
   readonly #denied: string;
   readonly #code: string;
 
   constructor(inner: FakeFileSystem, denied: string, code: string) {
-    this.#inner = inner;
+    super(inner);
     this.#denied = denied;
     this.#code = code;
   }
 
   lstat(path: string): Promise<FileStat> {
     if (path === this.#denied) {
-      return Promise.reject(codeError(this.#code));
+      return Promise.reject(codeError(this.#code, "lstat"));
     }
-    return this.#inner.lstat(path);
-  }
-  readdir(path: string): Promise<readonly string[]> {
-    return this.#inner.readdir(path);
-  }
-  readText(path: string): Promise<string> {
-    return this.#inner.readText(path);
-  }
-  readBytes(path: string): Promise<Uint8Array> {
-    return this.#inner.readBytes(path);
-  }
-  writeText(path: string, contents: string): Promise<void> {
-    return this.#inner.writeText(path, contents);
-  }
-  exists(path: string): Promise<boolean> {
-    return this.#inner.exists(path);
-  }
-  homedir(): string {
-    return this.#inner.homedir();
-  }
-  cwd(): string {
-    return this.#inner.cwd();
-  }
-  configDirName(): string {
-    return this.#inner.configDirName();
-  }
-  globalAgentDir(): string {
-    return this.#inner.globalAgentDir();
-  }
-  realpath(path: string): Promise<string> {
-    return this.#inner.realpath(path);
+    return this.inner.lstat(path);
   }
 }
 

@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { discoverThetas, type DiscoveryInput } from "../src/discovery/discovery-walk";
 import type { ThetaSettings } from "../src/discovery/settings";
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
-import { FakeFileSystem } from "./helpers/fake-file-system";
+import { FakeFileSystem, ancestors, mergeDirs } from "./helpers/fake-file-system";
 
 // V20f-T — failing tests for the paired `V20f` production-wiring fix (Bucket C:
 // implemented wrongly). A `--theta <file>` / settings `thetaPaths` entry naming a
@@ -22,30 +22,6 @@ const HOME = "/home/theta";
 const CWD = "/project";
 const GLOBAL_ROOT = "/home/theta/.pi/agent/theta";
 const PROJECT_ROOT = "/project/.pi/theta";
-
-/** Proper-ancestor directories of `leaf`, each an enterable empty directory, so
- *  an ENOENT candidate lstats every ancestor cleanly (clean-leaf ENOENT walk). */
-function ancestors(leaf: string): Record<string, string[]> {
-  const segs = leaf.split("/").filter((s) => s.length > 0);
-  const out: Record<string, string[]> = { "/": [] };
-  let parent = "/";
-  for (let i = 0; i < segs.length - 1; i++) {
-    const path = parent === "/" ? `/${segs[i]}` : `${parent}/${segs[i]}`;
-    out[path] = [];
-    parent = path;
-  }
-  return out;
-}
-
-function mergeDirs(...maps: Record<string, readonly string[]>[]): Record<string, readonly string[]> {
-  const out: Record<string, string[]> = {};
-  for (const m of maps) {
-    for (const [k, v] of Object.entries(m)) {
-      out[k] = [...(out[k] ?? []), ...v];
-    }
-  }
-  return out;
-}
 
 /** The two conventional roots' ancestor chains — registered so an absent
  *  conventional root classifies as a silent missing, not an unreadable one. */

@@ -11,9 +11,9 @@ import {
   type PackageDiscoveryInput,
 } from "../src/discovery/package-discovery";
 import type { Diagnostic, Severity } from "../src/diagnostics/diagnostic";
-import type { FileStat, FileSystem } from "../src/seams/file-system";
+import type { FileSystem } from "../src/seams/file-system";
 import { FakeClock } from "./helpers/fake-clock";
-import { FakeFileSystem } from "./helpers/fake-file-system";
+import { FakeFileSystem, ReaddirDeniedFileSystem, ancestors, mergeDirs, buildPackages } from "./helpers/fake-file-system";
 
 // Bug 0076 — a discovery root that exists but whose enumeration fails
 // contributes zero thetas and zero diagnostics
@@ -184,52 +184,12 @@ const NM = "/project/node_modules";
 /** A body that parses far enough to register (the walk only reads bytes). */
 const THETA_BODY = "mode: prompt\n---\n";
 
-/** Proper-ancestor directories of `leaf`, so an `ENOENT` on `leaf` is a CLEAN
- *  leaf under the :66 walk (every ancestor `lstat`s ok as a directory) rather
- *  than an unreadable ancestor chain. The leaf itself is NOT registered. */
-function ancestors(leaf: string): Record<string, string[]> {
-  const segs = leaf.split("/").filter((s) => s.length > 0);
-  const out: Record<string, string[]> = { "/": [] };
-  let parent = "/";
-  for (let i = 0; i < segs.length - 1; i++) {
-    const path = parent === "/" ? `/${segs[i]}` : `${parent}/${segs[i]}`;
-    out[path] = [];
-    parent = path;
-  }
-  return out;
-}
-
-/** Merge several dirs maps, concatenating entry lists for shared keys. */
-function mergeDirs(
-  ...maps: Record<string, readonly string[]>[]
-): Record<string, readonly string[]> {
-  const out: Record<string, string[]> = {};
-  for (const m of maps) {
-    for (const [k, v] of Object.entries(m)) {
-      out[k] = [...(out[k] ?? []), ...v];
-    }
-  }
-  return out;
-}
-
 /** The two conventional roots' ancestor chains, in every walk fixture. An
  *  absent conventional root is skipped BEFORE classification today (DISC-2's
  *  conventional-root exemption), so the chains no longer decide those roots'
  *  disposition; they keep each cell's diagnostic count about the root under
  *  test alone by keeping the fixture's directory shape self-consistent. */
 const BASE = mergeDirs(ancestors(GLOBAL_ROOT), ancestors(PROJECT_ROOT));
-
-/** The five installed-package roots `packageRoots` enumerates
- *  (src/discovery/package-discovery.ts:232-242), registered as empty
- *  directories so a root's absence never contributes an incidental `readdir`
- *  rejection to a package cell's diagnostic set. */
-const PKG_ROOTS: Record<string, readonly string[]> = {
-  "/project/.pi/npm": [],
-  "/project/.pi/git": [],
-  [NM]: [],
-  "/home/theta/.pi/agent/npm": [],
-  "/home/theta/.pi/agent/git": [],
-};
 
 interface FakeSpec {
   readonly dirs?: Record<string, readonly string[]>;
@@ -249,72 +209,13 @@ function build(spec: FakeSpec): FakeFileSystem {
   });
 }
 
-function buildPackages(spec: FakeSpec): FakeFileSystem {
-  return new FakeFileSystem({
-    homedir: HOME,
-    cwd: CWD,
-    dirs: mergeDirs(PKG_ROOTS, spec.dirs ?? {}),
-    files: spec.files ?? {},
-  });
-}
-
 /**
  * A `FileSystem` decorator that rejects `readdir` for exactly one path with a
  * Node-style `.code` and delegates every other member — notably `lstat` — to an
  * inner `FakeFileSystem`. This is the seam that reaches the defect: the root
  * classifies as a directory and only its enumeration fails.
  */
-class ReaddirDenied implements FileSystem {
-  readonly #inner: FakeFileSystem;
-  readonly #denied: string;
-  readonly #code: string;
-
-  constructor(inner: FakeFileSystem, denied: string, code: string) {
-    this.#inner = inner;
-    this.#denied = denied;
-    this.#code = code;
-  }
-
-  readdir(path: string): Promise<readonly string[]> {
-    if (path === this.#denied) {
-      const error: NodeJS.ErrnoException = new Error(`${this.#code}: readdir`);
-      error.code = this.#code;
-      return Promise.reject(error);
-    }
-    return this.#inner.readdir(path);
-  }
-
-  readText(path: string): Promise<string> {
-    return this.#inner.readText(path);
-  }
-  readBytes(path: string): Promise<Uint8Array> {
-    return this.#inner.readBytes(path);
-  }
-  writeText(path: string, contents: string): Promise<void> {
-    return this.#inner.writeText(path, contents);
-  }
-  exists(path: string): Promise<boolean> {
-    return this.#inner.exists(path);
-  }
-  homedir(): string {
-    return this.#inner.homedir();
-  }
-  cwd(): string {
-    return this.#inner.cwd();
-  }
-  configDirName(): string {
-    return this.#inner.configDirName();
-  }
-  globalAgentDir(): string {
-    return this.#inner.globalAgentDir();
-  }
-  lstat(path: string): Promise<FileStat> {
-    return this.#inner.lstat(path);
-  }
-  realpath(path: string): Promise<string> {
-    return this.#inner.realpath(path);
-  }
-}
+class ReaddirDenied extends ReaddirDeniedFileSystem {}
 
 function input(fs: FileSystem, extra: Partial<DiscoveryInput> = {}): DiscoveryInput {
   return { fs, settings: {}, ...extra };

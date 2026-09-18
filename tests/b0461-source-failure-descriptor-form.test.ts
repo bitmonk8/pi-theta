@@ -49,15 +49,16 @@
 // AND after the fix, proving the fix does not disturb the shadow mint.
 
 import { describe, expect, it } from "vitest";
+import { soleByFragment } from "./helpers/e2e-s1";
 import { discoverThetas, type DiscoveryInput } from "../src/discovery/discovery-walk";
 import {
   discoverPackageThetas,
   type PackageDiscoveryInput,
 } from "../src/discovery/package-discovery";
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
-import type { FileStat, FileSystem } from "../src/seams/file-system";
+import type { FileSystem } from "../src/seams/file-system";
 import { FakeClock } from "./helpers/fake-clock";
-import { FakeFileSystem } from "./helpers/fake-file-system";
+import { FakeFileSystem, ReaddirDeniedFileSystem, ancestors, mergeDirs } from "./helpers/fake-file-system";
 
 const HOME = "/home/theta";
 const CWD = "/project";
@@ -81,35 +82,6 @@ const MISSING_SOURCE = "theta/load/missing-source";
 const UNREADABLE_SOURCE = "theta/load/unreadable-source";
 const WRONG_TYPE_SOURCE = "theta/load/wrong-type-source";
 const SHADOW_FRAGMENT = "shadowed across discovery sources";
-
-/** Proper-ancestor directories of `leaf` as empty dirs, so an ENOENT on `leaf`
- *  is a CLEAN leaf under the DISC-2 ancestor walk (every ancestor lstats ok as
- *  a directory ⇒ *missing*, not *unreadable*). The leaf itself is NOT
- *  registered. Copied from tests/b0440-cross-source-shadow-descriptor-form.test.ts. */
-function ancestors(leaf: string): Record<string, string[]> {
-  const segs = leaf.split("/").filter((s) => s.length > 0);
-  const out: Record<string, string[]> = { "/": [] };
-  let parent = "/";
-  for (let i = 0; i < segs.length - 1; i++) {
-    const path = parent === "/" ? `/${segs[i]}` : `${parent}/${segs[i]}`;
-    out[path] = [];
-    parent = path;
-  }
-  return out;
-}
-
-/** Merge several dirs maps, concatenating entry lists for shared keys. */
-function mergeDirs(
-  ...maps: Record<string, readonly string[]>[]
-): Record<string, readonly string[]> {
-  const out: Record<string, string[]> = {};
-  for (const m of maps) {
-    for (const [k, v] of Object.entries(m)) {
-      out[k] = [...(out[k] ?? []), ...v];
-    }
-  }
-  return out;
-}
 
 interface FakeSpec {
   readonly dirs?: Record<string, readonly string[]>;
@@ -164,66 +136,9 @@ function packageInput(fs: FileSystem): PackageDiscoveryInput {
  * Node-style `.code`, delegating every other member to an inner
  * `FakeFileSystem`. This is the seam that reaches the unreadable arm: the denied
  * directory still `lstat`s as a directory, so classification descends into it
- * and only its enumeration fails. Copied from
- * tests/discovery-glob-universe-enumeration-failure.test.ts (the lstat-denial
- * cell that file adds is unused here, so this copy omits it).
+ * and only its enumeration fails.
  */
-class ReaddirDenied implements FileSystem {
-  readonly #inner: FakeFileSystem;
-  readonly #denied: string;
-  readonly #code: string;
-
-  constructor(inner: FakeFileSystem, denied: string, code: string) {
-    this.#inner = inner;
-    this.#denied = denied;
-    this.#code = code;
-  }
-
-  readdir(path: string): Promise<readonly string[]> {
-    if (path === this.#denied) {
-      return Promise.reject(codeError(this.#code));
-    }
-    return this.#inner.readdir(path);
-  }
-
-  readText(path: string): Promise<string> {
-    return this.#inner.readText(path);
-  }
-  readBytes(path: string): Promise<Uint8Array> {
-    return this.#inner.readBytes(path);
-  }
-  writeText(path: string, contents: string): Promise<void> {
-    return this.#inner.writeText(path, contents);
-  }
-  exists(path: string): Promise<boolean> {
-    return this.#inner.exists(path);
-  }
-  homedir(): string {
-    return this.#inner.homedir();
-  }
-  cwd(): string {
-    return this.#inner.cwd();
-  }
-  configDirName(): string {
-    return this.#inner.configDirName();
-  }
-  globalAgentDir(): string {
-    return this.#inner.globalAgentDir();
-  }
-  lstat(path: string): Promise<FileStat> {
-    return this.#inner.lstat(path);
-  }
-  realpath(path: string): Promise<string> {
-    return this.#inner.realpath(path);
-  }
-}
-
-/** A Node-style error carrying the injected `.code` (`nodeErrorCode` reads it). */
-function codeError(code: string): NodeJS.ErrnoException {
-  const error: NodeJS.ErrnoException = new Error(`${code}: readdir`);
-  error.code = code;
-  return error;
-}
+class ReaddirDenied extends ReaddirDeniedFileSystem {}
 
 /** The single diagnostic carrying `code`, or a loud failure naming the unmet
  *  precondition — never a silent skip when the expected diagnostic is absent or
@@ -234,17 +149,6 @@ function soleByCode(diagnostics: readonly Diagnostic[], code: string): Diagnosti
   expect(
     hits,
     `expected exactly one diagnostic with code '${code}'; got ${hits.length}: ${JSON.stringify(diagnostics)}`,
-  ).toHaveLength(1);
-  return hits[0]!;
-}
-
-/** The single diagnostic whose message contains `fragment` (cell 8's shadow
- *  locator — the shadow code is not gate-safe as a literal). Mirrors bug 0440. */
-function soleByFragment(diagnostics: readonly Diagnostic[], fragment: string): Diagnostic {
-  const hits = diagnostics.filter((d) => d.message.includes(fragment));
-  expect(
-    hits,
-    `expected exactly one diagnostic whose message contains '${fragment}'; got ${hits.length}: ${JSON.stringify(hits.map((d) => d.message))}`,
   ).toHaveLength(1);
   return hits[0]!;
 }

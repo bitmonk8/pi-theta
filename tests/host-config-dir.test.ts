@@ -12,7 +12,7 @@ import { loadSettings, type ThetaSettings } from "../src/discovery/settings";
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
 import type { FileStat, FileSystem } from "../src/seams/file-system";
 import { FakeClock } from "./helpers/fake-clock";
-import { FakeFileSystem } from "./helpers/fake-file-system";
+import { FakeFileSystem, ancestors, mergeDirs } from "./helpers/fake-file-system";
 
 // Every conventional path is resolved against the RUNNING host, and an absent
 // conventional root is silent.
@@ -69,33 +69,6 @@ const THETA_BODY = "mode: prompt\n---\n";
 // --------------------------------------------------------------------------
 // Fixture + seam helpers.
 // --------------------------------------------------------------------------
-
-/** Proper-ancestor directories of `leaf`, root-first (the leaf itself is NOT
- *  registered), so an `ENOENT` on `leaf` is a CLEAN leaf under the :66 walk. */
-function ancestors(leaf: string): Record<string, string[]> {
-  const segs = leaf.split("/").filter((s) => s.length > 0);
-  const out: Record<string, string[]> = { "/": [] };
-  let parent = "/";
-  for (let i = 0; i < segs.length - 1; i++) {
-    const path = parent === "/" ? `/${segs[i]}` : `${parent}/${segs[i]}`;
-    out[path] = [];
-    parent = path;
-  }
-  return out;
-}
-
-/** Merge several dirs maps, concatenating entry lists for shared keys. */
-function mergeDirs(
-  ...maps: Record<string, readonly string[]>[]
-): Record<string, readonly string[]> {
-  const out: Record<string, string[]> = {};
-  for (const m of maps) {
-    for (const [k, v] of Object.entries(m)) {
-      out[k] = [...(out[k] ?? []), ...v];
-    }
-  }
-  return out;
-}
 
 interface FakeSpec {
   readonly dirs?: Record<string, readonly string[]>;

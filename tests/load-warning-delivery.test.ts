@@ -7,17 +7,8 @@ import type {
   ExtensionAPI,
   ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
-import {
-  createThetaExtension,
-  type ThetaExtensionDeps,
-} from "../src/extension/factory";
-import {
-  composeExtensionInstance,
-  discoverAndComposeFixtures,
-} from "../src/extension/production-composition";
-import type { Diagnostic } from "../src/diagnostics/diagnostic";
-import { FakeClock } from "./helpers/fake-clock";
-import { FakeFileWatcher } from "./helpers/fake-file-watcher";
+import { discoverAndComposeFixtures } from "../src/extension/production-composition";
+import { GOOD_THETA, BAD_THETA, makeShippedHarness, type RecordedNote } from "./helpers/production-load-harness";
 
 // Bug 0013 — load-phase WARNING diagnostics are dropped by both production
 // sinks (docs/bugs/0013-load-warnings-dropped-by-both-production-sinks.md).
@@ -99,8 +90,8 @@ import { FakeFileWatcher } from "./helpers/fake-file-watcher";
 //
 // Method: the shipped-path cells drive the REAL factory + composeExtension-
 // Instance over a temp-dir workspace with real .theta files on disk (the
-// tests/load-phase-pre-eval-routing.test.ts harness, extended with a
-// parameterisable model registry); the helper-path cells drive the REAL
+// shared `makeShippedHarness` in tests/helpers/production-load-harness.ts,
+// with a parameterisable model registry); the helper-path cells drive the REAL
 // discoverAndComposeFixtures (the tests/e2e-s6-load-emit-toast-path.test.ts
 // harness). Fake pi/ctx seams only where those harnesses already fake them.
 
@@ -124,25 +115,6 @@ function templateToRegExp(template: string): RegExp {
 // ===========================================================================
 // Fixtures.
 // ===========================================================================
-
-/** A clean control theta — registers, no diagnostics. */
-const GOOD_THETA = ["---", "mode: prompt", "tools: read", "---", "@`hi`", ""].join(
-  "\n",
-);
-
-/**
- * The ERROR control (reused from tests/load-phase-pre-eval-routing.test.ts):
- * `tools:` names an unknown Pi tool → theta/load/unknown-tool (E), theta
- * dropped, failure note-routed. Error routing must be UNCHANGED by the fix.
- */
-const BAD_THETA = [
-  "---",
-  "mode: prompt",
-  "tools: totally_unknown_xyz",
-  "---",
-  "@`hi`",
-  "",
-].join("\n");
 
 /**
  * Provokes theta/load/typed-query-unsupported-provider (W): a typed query
@@ -237,113 +209,6 @@ const ANTHROPIC_MSTRICT = {
   api: "anthropic-messages",
   strictCapable: true,
 };
-
-// ===========================================================================
-// Shipped-path harness (tests/load-phase-pre-eval-routing.test.ts, extended
-// with a parameterisable model registry): the REAL factory + the REAL
-// composeExtensionInstance over a temp-dir workspace; fake pi records every
-// sendMessage; fake ctx.ui.notify records every toast.
-// ===========================================================================
-
-/** A recorded `pi.sendMessage` call (the `theta-system-note` channel). */
-interface RecordedNote {
-  readonly customType: string;
-  readonly content: string;
-  readonly display: boolean;
-  readonly details: { readonly diagnostics?: readonly Diagnostic[] } | undefined;
-  readonly triggerTurn: unknown;
-}
-
-interface ShippedHarness {
-  readonly commands: Map<string, unknown>;
-  readonly notes: RecordedNote[];
-  readonly notifications: string[];
-  fireSessionStart(): Promise<void>;
-}
-
-function makeShippedHarness(
-  cwd: string,
-  availableModels: readonly unknown[],
-): ShippedHarness {
-  const commands = new Map<string, unknown>();
-  const notes: RecordedNote[] = [];
-  const notifications: string[] = [];
-  const subscriptions = new Map<
-    string,
-    ((event: unknown, ctx: ExtensionContext) => unknown)[]
-  >();
-
-  const pi = {
-    registerFlag: (): void => {},
-    registerMessageRenderer: (): void => {},
-    registerCommand: (name: string, options: unknown): void => {
-      commands.set(name, options);
-    },
-    on: (
-      event: string,
-      handler: (e: unknown, c: ExtensionContext) => unknown,
-    ): void => {
-      const list = subscriptions.get(event) ?? [];
-      list.push(handler);
-      subscriptions.set(event, list);
-    },
-    getFlag: (): undefined => undefined,
-    getCommands: (): { name: string; source: string }[] =>
-      [...commands.keys()].map((name) => ({ name, source: "extension" })),
-    sendMessage: (
-      message: {
-        customType: string;
-        content: string;
-        display: boolean;
-        details: unknown;
-      },
-      options: { triggerTurn: unknown },
-    ): void => {
-      notes.push({
-        customType: message.customType,
-        content: message.content,
-        display: message.display,
-        details: message.details as RecordedNote["details"],
-        triggerTurn: options.triggerTurn,
-      });
-    },
-    sendUserMessage: (): void => {},
-  } as unknown as ExtensionAPI;
-
-  const ctx = {
-    cwd,
-    hasUI: false,
-    modelRegistry: { getAvailable: (): readonly unknown[] => [...availableModels] },
-    // A recording toast so a warning wrongly routed to the transient surface
-    // is observable (diagnostic-shape.md transient-toast MUST NOT).
-    ui: {
-      notify: (message: string, _type: "error"): void => {
-        notifications.push(message);
-      },
-    },
-  } as unknown as ExtensionContext;
-
-  const deps: ThetaExtensionDeps = {
-    fixtures: [],
-    composeInstance: (composePi, composeCtx) =>
-      composeExtensionInstance(composePi, composeCtx, {
-        fileWatcher: new FakeFileWatcher(),
-        clock: new FakeClock(),
-      }),
-  };
-  createThetaExtension(deps)(pi);
-
-  return {
-    commands,
-    notes,
-    notifications,
-    fireSessionStart: async () => {
-      for (const handler of subscriptions.get("session_start") ?? []) {
-        await handler({ type: "session_start" }, ctx);
-      }
-    },
-  };
-}
 
 // ===========================================================================
 // Helper-path harness (tests/e2e-s6-load-emit-toast-path.test.ts): the REAL

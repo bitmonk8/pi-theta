@@ -50,8 +50,8 @@ export interface FakeFileSystemOptions {
 }
 
 /** Build a Node-style error carrying the injected `.code`. */
-function codeError(code: string): NodeJS.ErrnoException {
-  const error: NodeJS.ErrnoException = new Error(`${code}: fake filesystem`);
+export function codeError(code: string, operation = "fake filesystem"): NodeJS.ErrnoException {
+  const error: NodeJS.ErrnoException = new Error(`${code}: ${operation}`);
   error.code = code;
   return error;
 }
@@ -344,4 +344,129 @@ export function fakeIntakeFs(contentsByPath: Record<string, string>): {
       },
     },
   };
+}
+
+/** Proper-ancestor directories of `leaf` as empty dirs, so a clean-leaf ENOENT
+ *  walk finds every ancestor enterable. The leaf itself is NOT registered. */
+export function ancestors(leaf: string): Record<string, string[]> {
+  const segs = leaf.split("/").filter((s) => s.length > 0);
+  const out: Record<string, string[]> = { "/": [] };
+  let parent = "/";
+  for (let i = 0; i < segs.length - 1; i++) {
+    const path = parent === "/" ? `/${segs[i]}` : `${parent}/${segs[i]}`;
+    out[path] = [];
+    parent = path;
+  }
+  return out;
+}
+
+/** Merge several dirs maps, concatenating entry lists for shared keys. */
+export function mergeDirs(
+  ...maps: Record<string, readonly string[]>[]
+): Record<string, readonly string[]> {
+  const out: Record<string, string[]> = {};
+  for (const m of maps) {
+    for (const [k, v] of Object.entries(m)) {
+      out[k] = [...(out[k] ?? []), ...v];
+    }
+  }
+  return out;
+}
+
+/** The five installed-package roots `packageRoots`
+ *  (`src/discovery/package-discovery.ts`) enumerates, registered as empty
+ *  directories so a root's absence never contributes an incidental `readdir`
+ *  rejection to a package cell's diagnostic set. */
+export const PKG_ROOTS: Record<string, readonly string[]> = {
+  "/project/.pi/npm": [],
+  "/project/.pi/git": [],
+  "/project/node_modules": [],
+  "/home/theta/.pi/agent/npm": [],
+  "/home/theta/.pi/agent/git": [],
+};
+
+/** Build a package fixture with all five scan roots present, initially empty. */
+export function buildPackages(spec: Pick<FakeFileSystemOptions, "dirs" | "files">): FakeFileSystem {
+  return new FakeFileSystem({
+    homedir: "/home/theta",
+    cwd: "/project",
+    dirs: mergeDirs(PKG_ROOTS, spec.dirs ?? {}),
+    files: spec.files ?? {},
+  });
+}
+
+/** Delegate the FileSystem seam, letting a test override only intercepted members. */
+export class FileSystemDecorator implements FileSystem {
+  constructor(protected readonly inner: FileSystem) {}
+
+  readText(path: string): Promise<string> {
+    return this.inner.readText(path);
+  }
+  readBytes(path: string): Promise<Uint8Array> {
+    return this.inner.readBytes(path);
+  }
+  writeText(path: string, contents: string): Promise<void> {
+    return this.inner.writeText(path, contents);
+  }
+  exists(path: string): Promise<boolean> {
+    return this.inner.exists(path);
+  }
+  homedir(): string {
+    return this.inner.homedir();
+  }
+  cwd(): string {
+    return this.inner.cwd();
+  }
+  configDirName(): string {
+    return this.inner.configDirName();
+  }
+  globalAgentDir(): string {
+    return this.inner.globalAgentDir();
+  }
+  readdir(path: string): Promise<readonly string[]> {
+    return this.inner.readdir(path);
+  }
+  lstat(path: string): Promise<FileStat> {
+    return this.inner.lstat(path);
+  }
+  realpath(path: string): Promise<string> {
+    return this.inner.realpath(path);
+  }
+}
+
+/**
+ * Reject readdir for one path while its lstat still reports a directory, so
+ * discovery reaches the enumeration-failure arm. An optional lstat denial
+ * dirties an ancestor chain for the glob-universe witness.
+ */
+export class ReaddirDeniedFileSystem extends FileSystemDecorator {
+  readonly #denied: string;
+  readonly #code: string;
+  readonly #lstatDenied: { readonly path: string; readonly code: string } | undefined;
+
+  constructor(
+    inner: FakeFileSystem,
+    denied: string,
+    code: string,
+    lstatDenied?: { readonly path: string; readonly code: string },
+  ) {
+    super(inner);
+    this.#denied = denied;
+    this.#code = code;
+    this.#lstatDenied = lstatDenied;
+  }
+
+  readdir(path: string): Promise<readonly string[]> {
+    if (path === this.#denied) {
+      return Promise.reject(codeError(this.#code, "readdir"));
+    }
+    return this.inner.readdir(path);
+  }
+
+  lstat(path: string): Promise<FileStat> {
+    if (this.#lstatDenied !== undefined && path === this.#lstatDenied.path) {
+      return Promise.reject(codeError(this.#lstatDenied.code, "readdir"));
+    }
+    return this.inner.lstat(path);
+  }
 }

@@ -39,8 +39,8 @@
 
 import { describe, expect, it } from "vitest";
 import { discoverThetas, type DiscoveryInput } from "../src/discovery/discovery-walk";
-import type { Diagnostic } from "../src/diagnostics/diagnostic";
-import { FakeFileSystem } from "./helpers/fake-file-system";
+import { FakeFileSystem, ancestors, mergeDirs } from "./helpers/fake-file-system";
+import { soleByFragment } from "./helpers/e2e-s1";
 
 const HOME = "/home/theta";
 const CWD = "/project";
@@ -55,33 +55,6 @@ const PROJECT_ROOT = "/project/.pi/theta";
 // keep the corpus gate's no-literal-code carve-out intact.
 const SHADOW_FRAGMENT = "shadowed across discovery sources";
 const COLLISION_FRAGMENT = "collides at the same priority";
-
-/** Proper-ancestor directories of `leaf` as empty dirs, so a clean-leaf ENOENT
- *  walk finds every ancestor enterable. The leaf itself is NOT registered. */
-function ancestors(leaf: string): Record<string, string[]> {
-  const segs = leaf.split("/").filter((s) => s.length > 0);
-  const out: Record<string, string[]> = { "/": [] };
-  let parent = "/";
-  for (let i = 0; i < segs.length - 1; i++) {
-    const path = parent === "/" ? `/${segs[i]}` : `${parent}/${segs[i]}`;
-    out[path] = [];
-    parent = path;
-  }
-  return out;
-}
-
-/** Merge several dirs maps, concatenating entry lists for shared keys. */
-function mergeDirs(
-  ...maps: Record<string, readonly string[]>[]
-): Record<string, readonly string[]> {
-  const out: Record<string, string[]> = {};
-  for (const m of maps) {
-    for (const [k, v] of Object.entries(m)) {
-      out[k] = [...(out[k] ?? []), ...v];
-    }
-  }
-  return out;
-}
 
 interface FakeSpec {
   readonly dirs?: Record<string, readonly string[]>;
@@ -102,23 +75,6 @@ function input(fs: FakeFileSystem, extra: Partial<DiscoveryInput> = {}): Discove
 }
 
 const THETA_BODY = "mode: prompt\n---\n";
-
-/** All diagnostics whose message carries `fragment`. */
-function byFragment(diagnostics: readonly Diagnostic[], fragment: string): readonly Diagnostic[] {
-  return diagnostics.filter((d) => d.message.includes(fragment));
-}
-
-/** The single diagnostic carrying `fragment`, or a loud failure naming the
- *  unmet precondition — never a silent skip when the expected diagnostic is
- *  absent or duplicated (the witness would otherwise be vacuous). */
-function soleByFragment(diagnostics: readonly Diagnostic[], fragment: string): Diagnostic {
-  const hits = byFragment(diagnostics, fragment);
-  expect(
-    hits,
-    `expected exactly one diagnostic whose message contains '${fragment}'; got ${hits.length}: ${JSON.stringify(hits.map((d) => d.message))}`,
-  ).toHaveLength(1);
-  return hits[0]!;
-}
 
 // --------------------------------------------------------------------------
 // Arm 1 — cli-flag vs settings. A `--theta` file (priority 1) and a settings

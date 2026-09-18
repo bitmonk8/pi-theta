@@ -46,7 +46,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { discoverThetas, type DiscoveryInput, type PiOwnedCommand } from "../src/discovery/discovery-walk";
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
-import { FakeFileSystem } from "./helpers/fake-file-system";
+import { FakeFileSystem, ancestors, mergeDirs } from "./helpers/fake-file-system";
 import { makeHarness, expectSoleCollisionNote } from "./helpers/cross-format-collision-harness";
 
 const HOME = "/home/theta";
@@ -60,33 +60,6 @@ const COLLISION_FRAGMENT = "collides at the same priority";
 // --------------------------------------------------------------------------
 // FakeFileSystem scaffolding (mirrors b0440's helpers).
 // --------------------------------------------------------------------------
-
-/** Proper-ancestor directories of `leaf` as empty dirs, so a clean-leaf ENOENT
- *  walk finds every ancestor enterable. The leaf itself is NOT registered. */
-function ancestors(leaf: string): Record<string, string[]> {
-  const segs = leaf.split("/").filter((s) => s.length > 0);
-  const out: Record<string, string[]> = { "/": [] };
-  let parent = "/";
-  for (let i = 0; i < segs.length - 1; i++) {
-    const path = parent === "/" ? `/${segs[i]}` : `${parent}/${segs[i]}`;
-    out[path] = [];
-    parent = path;
-  }
-  return out;
-}
-
-/** Merge several dirs maps, concatenating entry lists for shared keys. */
-function mergeDirs(
-  ...maps: Record<string, readonly string[]>[]
-): Record<string, readonly string[]> {
-  const out: Record<string, string[]> = {};
-  for (const m of maps) {
-    for (const [k, v] of Object.entries(m)) {
-      out[k] = [...(out[k] ?? []), ...v];
-    }
-  }
-  return out;
-}
 
 /** A FakeFileSystem holding one `plan.theta` under each of `dirs`. */
 function fsWithPlanIn(dirs: readonly string[]): FakeFileSystem {

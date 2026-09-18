@@ -358,3 +358,15 @@ export function letRange(
   ).toHaveLength(1);
   return hits[0]!.range;
 }
+
+/** The single diagnostic carrying `fragment`, or a loud failure naming the
+ *  unmet precondition — never a silent skip when the expected diagnostic is
+ *  absent or duplicated (the witness would otherwise be vacuous). */
+export function soleByFragment(diagnostics: readonly Diagnostic[], fragment: string): Diagnostic {
+  const hits = diagnostics.filter((d) => d.message.includes(fragment));
+  expect(
+    hits,
+    `expected exactly one diagnostic whose message contains '${fragment}'; got ${hits.length}: ${JSON.stringify(hits.map((d) => d.message))}`,
+  ).toHaveLength(1);
+  return hits[0]!;
+}

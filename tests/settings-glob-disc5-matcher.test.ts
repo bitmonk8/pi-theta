@@ -12,7 +12,7 @@ import {
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
 import type { FileSystem } from "../src/seams/file-system";
 import { FakeClock } from "./helpers/fake-clock";
-import { FakeFileSystem } from "./helpers/fake-file-system";
+import { FakeFileSystem, ancestors, mergeDirs } from "./helpers/fake-file-system";
 
 // Bug 0077 — the settings `thetaPaths` glob matcher compares an entry's basename
 // against the PATTERN's basename rather than against the pattern
@@ -98,35 +98,6 @@ const SETTINGS_BASE = "/project/.pi";
 
 /** A body that registers (this walk reads bytes and the filename, not syntax). */
 const THETA_BODY = "mode: prompt\n---\n";
-
-/** Proper-ancestor directories of `leaf`, so an `ENOENT` on `leaf` is a clean
- *  leaf under the discovery-sources.md ancestor walk (every ancestor `lstat`s ok
- *  as a directory) rather than an unreadable ancestor chain. The leaf itself is
- *  NOT registered. */
-function ancestors(leaf: string): Record<string, string[]> {
-  const segs = leaf.split("/").filter((s) => s.length > 0);
-  const out: Record<string, string[]> = { "/": [] };
-  let parent = "/";
-  for (let i = 0; i < segs.length - 1; i++) {
-    const path = parent === "/" ? `/${segs[i]}` : `${parent}/${segs[i]}`;
-    out[path] = [];
-    parent = path;
-  }
-  return out;
-}
-
-/** Merge several dirs maps, concatenating entry lists for shared keys. */
-function mergeDirs(
-  ...maps: Record<string, readonly string[]>[]
-): Record<string, readonly string[]> {
-  const out: Record<string, string[]> = {};
-  for (const m of maps) {
-    for (const [k, v] of Object.entries(m)) {
-      out[k] = [...(out[k] ?? []), ...v];
-    }
-  }
-  return out;
-}
 
 /** The two conventional roots' ancestor chains, in every settings fixture: an
  *  absent conventional root then classifies as a clean (silent) missing rather
