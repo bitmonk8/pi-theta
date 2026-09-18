@@ -46,54 +46,34 @@
 // add cost and nondeterminism for no additional reach: the emission body is a
 // self-contained literal on the in-process producer.
 //
-// Rig mirrors tests/e2e-s5-binder-echo-emission.test.ts (rootDouble /
-// producerWithCapture / modelRegistry double resolving BINDER_MODEL / a two-
-// string-param theta) and tests/b0383-slsh4-note-details-event.test.ts (the
-// `presentDetailsKey` disjoint-by-key classifier, CapturedNote/noteChannelEntries).
+// Shared parse / AJV / note capture: tests/helpers/scripted-live-session-harness.ts.
+// The session-context root and two-string-param theta stay local, as does the
+// `presentDetailsKey` disjoint-by-key classifier.
 
 import { describe, expect, it } from "vitest";
 
 import type {
-  ExtensionAPI,
   ExtensionCommandContext,
   ModelRegistry,
 } from "@earendil-works/pi-coding-agent";
-import { createProductionProducerDeps } from "../src/extension/production-theta-producer";
 import type { ThetaCompositionInput } from "../src/extension/theta-composition-producer";
-import {
-  parseThetaDocument,
-  type ParseThetaDocumentDeps,
-} from "../src/parser/theta-document";
-import type { ThetaSource } from "../src/lexer/lexer";
 import type { RuntimeRoot } from "../src/runtime-root";
-import type { ModelReferenceMatcher } from "../src/parser/frontmatter";
-import type { SystemNoteChannelDeps } from "../src/extension/system-note-channel";
 import {
-  AjvSchemaValidator,
-  type LoweredSchema,
-  type SchemaSlug,
-} from "../src/seams/schema-validator";
+  ajv as realAjv,
+  parse,
+  producerWithCapture as captureProductionNotes,
+  noteChannelEntries,
+} from "./helpers/scripted-live-session-harness";
 import {
   customTypeUnsafeDiagnostic,
   renderCustomTypeUnsafeNote,
 } from "../src/binder/compact-transcript";
-
-const SYSTEM_NOTE_CHANNEL = "theta-system-note";
 
 // The transcript-unsafe `customType`: `]` (U+005D) breaks the `[custom:<type>]`
 // role tag, so BNDR-9's `isTranscriptSafeCustomType` rejects it and the
 // renderer's pre-scan returns `{kind:"custom-type-unsafe", value:"weird]type"}`.
 const UNSAFE_CUSTOM_TYPE = "weird]type";
 const SLASH_NAME = "code-review";
-
-/** A captured `pi.sendMessage` custom message — INCLUDING `details`, the
- *  machine-readable half this bug is about. */
-interface CapturedNote {
-  readonly customType: string;
-  readonly content: string;
-  readonly display?: boolean;
-  readonly details?: unknown;
-}
 
 /**
  * The disjoint-by-key `details` classifier `diagnostic-shape.md:20` requires
@@ -118,29 +98,6 @@ function diagnosticsArm(details: unknown): readonly Record<string, unknown>[] {
   return (details as { diagnostics: readonly Record<string, unknown>[] }).diagnostics;
 }
 
-function parseDeps(): ParseThetaDocumentDeps {
-  const systemNote: SystemNoteChannelDeps = {
-    pi: { sendMessage: (): void => {} },
-    ui: { notify: (): void => {} },
-    emitDiagnostic: (): void => {},
-  };
-  const modelMatcher: ModelReferenceMatcher = { resolve: (): "resolved" => "resolved" };
-  return { systemNote, modelMatcher };
-}
-
-/** Parse `.theta` source through the production whole-file parser. */
-function parse(src: string) {
-  const source: ThetaSource = {
-    path: "code-review.theta",
-    bytes: new TextEncoder().encode(src),
-  };
-  const doc = parseThetaDocument(source, parseDeps());
-  const errors = doc.diagnostics.filter((d) => d.severity === "error").map((d) => d.code);
-  expect(errors, "the binder theta must parse cleanly before it is driven").toEqual([]);
-  expect(doc.frontmatter, "the binder theta must carry parseable frontmatter").not.toBeNull();
-  return doc;
-}
-
 /**
  * A runtime-root double sufficient to reach `#emitCustomTypeUnsafeNote`. The
  * session-context walk consumes `root.tokenEstimator` (session-context-walk.ts:
@@ -156,13 +113,7 @@ function rootDouble(): RuntimeRoot {
     idSource: { newInvocationId: (): string => "inv-1", newToolCallId: (): string => "tc-1" },
     clock: { wallNow: (): number => 0 },
     tokenEstimator: { estimate: (_message: unknown): number => 1 },
-    schemaValidator: new AjvSchemaValidator({
-      emit: (): void => {},
-      slugOf: (schema: LoweredSchema): SchemaSlug => {
-        const canonicalBytes = JSON.stringify(schema);
-        return { slug: canonicalBytes, canonicalBytes };
-      },
-    }),
+    schemaValidator: realAjv(),
   } as unknown as RuntimeRoot;
 }
 
@@ -178,22 +129,12 @@ const BINDER_MODEL = {
  * registry resolving `binder-model`, and the root double. Returns the producer
  * deps + the captured-notes sink.
  */
-function producerWithCapture(): {
-  readonly deps: ReturnType<typeof createProductionProducerDeps>;
-  readonly notes: CapturedNote[];
-} {
-  const notes: CapturedNote[] = [];
-  const pi = {
-    sendMessage: (message: CapturedNote): void => {
-      notes.push(message);
-    },
-  } as unknown as ExtensionAPI;
+function producerWithCapture(): ReturnType<typeof captureProductionNotes> {
   const modelRegistry = {
     getAvailable: (): readonly unknown[] => [BINDER_MODEL],
     getApiKeyAndHeaders: async (): Promise<{ ok: boolean }> => ({ ok: true }),
   } as unknown as ModelRegistry;
-  const deps = createProductionProducerDeps({ pi, root: rootDouble(), modelRegistry });
-  return { deps, notes };
+  return captureProductionNotes({ root: rootDouble(), modelRegistry });
 }
 
 // A two-required-string-param, `bind_context: session`, prompt-mode binder
@@ -214,7 +155,7 @@ const SESSION_BINDER_THETA = [
 ].join("\n");
 
 function sessionBinderTheta(): ThetaCompositionInput {
-  const doc = parse(SESSION_BINDER_THETA);
+  const doc = parse(SESSION_BINDER_THETA, "code-review.theta", "binder");
   return {
     slashName: SLASH_NAME,
     sourcePath: "/theta/code-review.theta",
@@ -257,10 +198,6 @@ function ctxWithUnsafeCustomEntry(): ExtensionCommandContext {
       getLeafId: (): string => "e2",
     },
   } as unknown as ExtensionCommandContext;
-}
-
-function noteChannelEntries(notes: readonly CapturedNote[]): CapturedNote[] {
-  return notes.filter((n) => n.customType === SYSTEM_NOTE_CHANNEL);
 }
 
 describe("bug 0398 — custom-type-unsafe note carries details: { diagnostics: [Diagnostic] }", () => {

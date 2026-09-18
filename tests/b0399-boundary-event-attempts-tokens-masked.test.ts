@@ -51,8 +51,11 @@
 
 import { describe, expect, it } from "vitest";
 
-import type { ExtensionAPI, ModelRegistry } from "@earendil-works/pi-coding-agent";
-import { createProductionProducerDeps } from "../src/extension/production-theta-producer";
+import type { ModelRegistry } from "@earendil-works/pi-coding-agent";
+import {
+  producerWithCapture as captureProductionNotes,
+  noteChannelEntries,
+} from "./helpers/scripted-live-session-harness";
 import type { RuntimeRoot } from "../src/runtime-root";
 import { renderTopLevelErrNote } from "../src/runtime/err-note-render";
 import type { RuntimeEvent } from "../src/runtime/runtime-event-channel";
@@ -109,24 +112,11 @@ import type { ThetaSource } from "../src/lexer/lexer";
 import type { Checkpoint } from "../src/seams/checkpoint";
 import type { SourceRange } from "../src/diagnostics/diagnostic";
 
-const SYSTEM_NOTE_CHANNEL = "theta-system-note";
-
 // Known id/timestamp so the boundary-BUILT (absent-event) arm's freshly-minted
 // `invocation_id` / `occurred_at` are assertable at exact values — the 0383
 // freshness set this bug does NOT re-litigate.
 const KNOWN_INVOCATION_ID = "inv-b0399";
 const KNOWN_WALL_NOW = 424242;
-
-/**
- * A captured `pi.sendMessage` custom message — INCLUDING `details`, the
- * machine-readable half this bug is about.
- */
-interface CapturedNote {
-  readonly customType: string;
-  readonly content: string;
-  readonly display?: boolean;
-  readonly details?: unknown;
-}
 
 /**
  * A runtime-root double whose `idSource.newInvocationId()` / `clock.wallNow()`
@@ -149,25 +139,11 @@ function rootDouble(): RuntimeRoot {
  * A production producer wired with a capturing `pi.sendMessage` and the
  * known-value root double. Returns the producer deps + the captured-notes sink.
  */
-function producerWithCapture(): {
-  readonly deps: ReturnType<typeof createProductionProducerDeps>;
-  readonly notes: CapturedNote[];
-} {
-  const notes: CapturedNote[] = [];
-  const pi = {
-    sendMessage: (message: CapturedNote): void => {
-      notes.push(message);
-    },
-  } as unknown as ExtensionAPI;
+function producerWithCapture(): ReturnType<typeof captureProductionNotes> {
   const modelRegistry = {
     getAvailable: (): readonly unknown[] => [],
   } as unknown as ModelRegistry;
-  const deps = createProductionProducerDeps({ pi, root: rootDouble(), modelRegistry });
-  return { deps, notes };
-}
-
-function noteChannelEntries(notes: readonly CapturedNote[]): CapturedNote[] {
-  return notes.filter((n) => n.customType === SYSTEM_NOTE_CHANNEL);
+  return captureProductionNotes({ root: rootDouble(), modelRegistry });
 }
 
 /** The `event` arm of a captured note's `details`, typed for assertion. */

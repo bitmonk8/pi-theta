@@ -2,10 +2,6 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync, unlinkSync } from "node:
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import type {
-  ExtensionAPI,
-  ExtensionContext,
-} from "@earendil-works/pi-coding-agent";
 import {
   createThetaExtension,
   type ThetaExtensionDeps,
@@ -27,8 +23,14 @@ import type {
   OnWatchTerminate,
   Unsubscribe,
 } from "../src/seams/file-watcher";
-import type { Diagnostic } from "../src/diagnostics/diagnostic";
 import { FakeClock } from "./helpers/fake-clock";
+import { waitFor } from "./helpers/fake-file-watcher";
+import {
+  makeRecordingHarness,
+  structuralNotesSince,
+  type RecordingHarness,
+  type WatchNoteDetails,
+} from "./helpers/watch-arming-harness";
 
 // Bug 0312 — a `.thetalib` imported via a parent-relative path
 // (`../lib/x.thetalib`, the second example imports.md:19 blesses) resolves one
@@ -68,8 +70,8 @@ import { FakeClock } from "./helpers/fake-clock";
 // `installHotReload` (src/extension/hot-reload.ts) can union the closure dirs
 // into its watch roots and re-arm on change.
 //
-// Harness: mirrors tests/b0311-structural-note-derived-from-paths.test.ts — the
-// SHIPPED composition (`composeExtensionInstance`) through the real factory
+// Harness: shared note recording from tests/helpers/watch-arming-harness.ts;
+// the SHIPPED composition (`composeExtensionInstance`) through the real factory
 // (`createThetaExtension`), a real temp-dir workspace under `.pi/theta`, a FAKE
 // `Clock` (FakeClock), and a TEST-LOCAL `FileWatcher` that models real chokidar
 // recursive-root scoping (see `RecursiveRootFileWatcher` below) so an unwatched
@@ -179,103 +181,6 @@ class RecursiveRootFileWatcher implements FileWatcher {
   }
 }
 
-/** A recorded `pi.sendMessage` call (the `theta-system-note` channel). */
-interface RecordedNote {
-  readonly customType: string;
-  readonly content: string;
-  readonly display: boolean;
-  readonly details: {
-    readonly diagnostics?: readonly Diagnostic[];
-    readonly structural?: {
-      readonly added: readonly string[];
-      readonly removed: readonly string[];
-    };
-  };
-  readonly triggerTurn: unknown;
-}
-
-interface Harness {
-  readonly pi: ExtensionAPI;
-  readonly notes: RecordedNote[];
-  /** Count of `pi.registerCommand` calls — a rebuild-settled signal that does
-   *  not require the registered SET to change (a no-op-registry reload still
-   *  re-registers every survivor, so the count advances). */
-  registrationCount(): number;
-  fireSessionStart(): Promise<void>;
-}
-
-function makeHarness(cwd: string): Harness {
-  const commands = new Map<string, unknown>();
-  const notes: RecordedNote[] = [];
-  const subscriptions = new Map<
-    string,
-    ((event: unknown, ctx: ExtensionContext) => unknown)[]
-  >();
-  let registrations = 0;
-
-  const pi = {
-    registerFlag: (): void => {},
-    registerMessageRenderer: (): void => {},
-    registerCommand: (name: string, options: unknown): void => {
-      registrations += 1;
-      commands.set(name, options);
-    },
-    on: (event: string, handler: (e: unknown, c: ExtensionContext) => unknown): void => {
-      const list = subscriptions.get(event) ?? [];
-      list.push(handler);
-      subscriptions.set(event, list);
-    },
-    getFlag: (): undefined => undefined,
-    getCommands: (): { name: string; source: string }[] =>
-      [...commands.keys()].map((name) => ({ name, source: "extension" })),
-    sendMessage: (
-      message: { customType: string; content: string; display: boolean; details: unknown },
-      options: { triggerTurn: unknown },
-    ): void => {
-      notes.push({
-        customType: message.customType,
-        content: message.content,
-        display: message.display,
-        details: message.details as RecordedNote["details"],
-        triggerTurn: options.triggerTurn,
-      });
-    },
-    sendUserMessage: (): void => {},
-  } as unknown as ExtensionAPI;
-
-  const ctx = {
-    cwd,
-    hasUI: false,
-    modelRegistry: { getAvailable: (): readonly unknown[] => [] },
-    ui: { notify: (): void => {} },
-  } as unknown as ExtensionContext;
-
-  const fire = async (event: string): Promise<void> => {
-    for (const handler of subscriptions.get(event) ?? []) {
-      await handler({ type: event }, ctx);
-    }
-  };
-
-  return {
-    pi,
-    notes,
-    registrationCount: () => registrations,
-    fireSessionStart: () => fire("session_start"),
-  };
-}
-
-/** Poll a real-timer-bounded condition; throw loudly on timeout naming the
- *  unmet precondition (the b0311 loud-fail idiom — never an early return/skip).
- *  Used where a rebuild fires in BOTH tree states (an IN-ROOT edit), so the
- *  settle itself is not the witness. */
-async function waitFor(cond: () => boolean, label: string): Promise<void> {
-  for (let i = 0; i < 400; i++) {
-    if (cond()) return;
-    await new Promise((resolve) => setTimeout(resolve, 5));
-  }
-  throw new Error(`timeout waiting for ${label}`);
-}
-
 /** Best-effort bounded poll of the observable, then RETURN (never throw) so the
  *  following `expect` is the witness. Used where the reload the fix would run is
  *  a no-op today (an OUT-OF-ROOT edit): pre-fix the observable never moves and
@@ -286,13 +191,6 @@ async function settle(cond: () => boolean): Promise<void> {
     if (cond()) return;
     await new Promise((resolve) => setTimeout(resolve, 5));
   }
-}
-
-/** The structural-change notes recorded since `from` (content-keyed). */
-function structuralNotesSince(harness: Harness, from: number): RecordedNote[] {
-  return harness.notes
-    .slice(from)
-    .filter((note) => note.content.startsWith("theta watcher:"));
 }
 
 /**
@@ -381,7 +279,7 @@ describe("Bug 0312 — the armed watch set must cover the resolved out-of-root `
   let workspace: string;
   let fakeWatcher: RecursiveRootFileWatcher;
   let fakeClock: FakeClock;
-  let harness: Harness;
+  let harness: RecordingHarness<WatchNoteDetails>;
   let wiring: ExtensionInstanceWiring | undefined;
 
   afterEach(() => {
@@ -392,7 +290,7 @@ describe("Bug 0312 — the armed watch set must cover the resolved out-of-root `
   async function boot(): Promise<void> {
     fakeWatcher = new RecursiveRootFileWatcher();
     fakeClock = new FakeClock();
-    harness = makeHarness(workspace);
+    harness = makeRecordingHarness<WatchNoteDetails>(workspace);
     wiring = undefined;
     const deps: ThetaExtensionDeps = {
       fixtures: [],

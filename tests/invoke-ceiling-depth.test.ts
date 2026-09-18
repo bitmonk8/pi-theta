@@ -3,8 +3,8 @@
 //
 // Spec: hard-ceilings/ceilings-3-and-4.md §"Per-boundary destination/surface
 // table (ceiling #4)" (#ceiling-4-table, the `params` / `invoke(...)` and
-// `invoke<T>`-return rows) and CIO-1 (#cio-1, the slash-load cross-route) /
-// CIO-3 (#cio-3, the depth-walk-before-AJV ordering at every AJV boundary);
+// `invoke<T>`-return rows) and CIO-3 (#cio-3, the depth-walk-before-AJV
+// ordering at every AJV boundary);
 // invocation.md §"Failures" (the `InvokeInfraError { cause: "validation" |
 // "return_validation" }` carrier). Code-keyed obligation area `cka-10`
 // (schema-subset.md, no numbered REQ-ID — the depth ceiling carries no numbered
@@ -154,20 +154,12 @@ describe("V15j-T — depth-6 `invoke<T>` return-value live carrier (ceiling-4-ta
   });
 });
 
-describe("V15j-T — the invoke `params` vector targets the runtime `invoke` boundary, not the binder slash-load `params` boundary (CIO-1, cka-10)", () => {
-  it("ceiling-4-table (`params` row) / CIO-1: the `params` live carrier here is the runtime `invoke(...)` boundary; the slash-load `params` boundary cross-routes to ceiling #3 (witnessed at V11f / V4e) and does not surface an `InvokeInfraError` here", () => {
-    // ceilings-3-and-4.md#ceiling-4-table + #cio-1: the slash-load `params`
-    // arm routes through ceiling #3's load-time system-note classification
-    // rather than ceiling #4's recoverable-`Err` path — that arm is witnessed
-    // at V11f / V4e, not here. This seam is the runtime `invoke` boundary only,
-    // so a depth-6 `params` value surfaces the recoverable `Err(InvokeInfraError
-    // { cause: "validation" })` (the invoke arm), never a ceiling-#3 load-time
-    // note.
+describe("V15j-T — runtime invoke `params` breach classification (ceiling-4-table, cka-10)", () => {
+  it("ceiling-4-table (`params` invoke row): a depth-6 `params` argument reports invoke_infra with cause validation", () => {
+    // This cell checks the runtime invoke breach's kind and cause only;
+    // it does not exercise or compare the binder slash-load boundary.
     const breach = enforceInvokeParamsDepth(CALLEE_PATH, DEPTH_6_VALUE);
 
-    // Primary: the runtime `invoke` boundary surfaces the recoverable `Err`
-    // carrier — proving this vector is the invoke arm, not the cross-routed
-    // slash-load arm.
     expect(breach, "the runtime invoke `params` boundary surfaces an InvokeInfraError").toBeDefined();
     if (breach === undefined) {
       throw new Error("unreachable: the runtime invoke `params` boundary must surface a breach");

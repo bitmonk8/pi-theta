@@ -436,8 +436,19 @@ describe("T-BUS — par-for lane lifecycle (EXST-3(c))", () => {
     handle.claim(1);
     // Cancel mid-fan-out: lanes 2 and 3 are never claimed nor settled.
     expect(() => bus.invocationEnded("inv-1")).not.toThrow();
+    const ended = bus.snapshot().nodes.find((n) => n.invocationId === "inv-1");
+    expect(ended?.endedAtMs).toBe(clock.now());
+    expect(ended?.lanes).toEqual({
+      total: 4,
+      width: 4,
+      queued: 2,
+      done: 0,
+      err: 0,
+      running: [{ index: 0, startedAtMs: 0 }, { index: 1, startedAtMs: 0 }],
+    });
     clock.advance(STATUS_TICK_MS + DONE_LINGER_MS);
     expect(() => bus.snapshot()).not.toThrow();
+    expect(bus.snapshot().nodes.some((n) => n.invocationId === "inv-1")).toBe(false);
   });
 
   it("B14-scoped adapter shape: a ParForLaneHooks adapter over bus.openLaneSet forwards (invocationId, total, width) unchanged (EXST-3(c) producer-adapter shape)", () => {

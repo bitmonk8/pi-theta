@@ -1,5 +1,5 @@
 // Shared scripted-live-session scaffold for the bug-0288/0319/0414 prompt-mode
-// witnesses (PTQ-0328).
+// witnesses (PTQ-0328), plus production system-note capture (PTQ-0537).
 //
 // WHY THIS FILE EXISTS. tests/b0288-prompt-turn-completion-witness.test.ts,
 // tests/b0319-prompt-bidirectional-ctx-abort-witness.test.ts and
@@ -19,6 +19,11 @@
 // file that imports this module.
 import { type Diagnostic } from "../../src/diagnostics/diagnostic";
 import { expect } from "vitest";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import {
+  createProductionProducerDeps,
+  type ProductionProducerInput,
+} from "../../src/extension/production-theta-producer";
 import type { RuntimeRoot } from "../../src/runtime-root";
 import { rootDouble as fixedClockRoot } from "./runtime-belt-probe-harness";
 import {
@@ -142,4 +147,32 @@ export function capturingAjv(): { readonly validator: AjvSchemaValidator; readon
     validator: new AjvSchemaValidator({ emit: (d) => emitted.push(d), slugOf }),
     emitted,
   };
+}
+
+/** A captured `pi.sendMessage` custom message, including its structured details. */
+export interface CapturedNote {
+  readonly customType: string;
+  readonly content: string;
+  readonly display?: boolean;
+  readonly details?: unknown;
+}
+
+/** Build the production producer with a note sink and the caller's root/registry seams. */
+export function producerWithCapture(input: Omit<ProductionProducerInput, "pi">): {
+  readonly deps: ReturnType<typeof createProductionProducerDeps>;
+  readonly notes: CapturedNote[];
+} {
+  const notes: CapturedNote[] = [];
+  const pi = {
+    sendMessage: (message: CapturedNote): void => {
+      notes.push(message);
+    },
+  } as unknown as ExtensionAPI;
+  const deps = createProductionProducerDeps({ pi, ...input });
+  return { deps, notes };
+}
+
+/** The system-note entries in capture order. */
+export function noteChannelEntries(notes: readonly CapturedNote[]): CapturedNote[] {
+  return notes.filter((n) => n.customType === "theta-system-note");
 }

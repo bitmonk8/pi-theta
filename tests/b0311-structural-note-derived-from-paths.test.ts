@@ -2,10 +2,6 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync, unlinkSync } from "node:
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import type {
-  ExtensionAPI,
-  ExtensionContext,
-} from "@earendil-works/pi-coding-agent";
 import {
   createThetaExtension,
   type ThetaExtensionDeps,
@@ -15,9 +11,14 @@ import {
   type ExtensionInstanceWiring,
 } from "../src/extension/production-composition";
 import { RELOAD_DEBOUNCE_WINDOW_MS } from "../src/extension/reload-debounce";
-import type { Diagnostic } from "../src/diagnostics/diagnostic";
 import { FakeClock } from "./helpers/fake-clock";
-import { FakeFileWatcher } from "./helpers/fake-file-watcher";
+import { FakeFileWatcher, waitFor } from "./helpers/fake-file-watcher";
+import {
+  makeRecordingHarness,
+  structuralNotesSince,
+  type RecordingHarness,
+  type WatchNoteDetails,
+} from "./helpers/watch-arming-harness";
 
 // Bug 0311 — the structural-change `theta-system-note` must derive from the
 // debounce-window observed add/unlink PATHS for `.theta` / `.thetalib` files,
@@ -40,8 +41,8 @@ import { FakeFileWatcher } from "./helpers/fake-file-watcher";
 // the SHIPPED composition (`composeExtensionInstance`) through the real factory
 // (`createThetaExtension`) with a FAKE `FileWatcher` + FAKE `Clock`. A real
 // temp-dir workspace backs discovery; the fake watcher fires `onChange`; the
-// fake clock crosses the 250 ms debounce boundary. This replicate adds a
-// `pi.registerCommand` invocation counter so a rebuild that does NOT change the
+// fake clock crosses the 250 ms debounce boundary. The shared recording harness
+// counts `pi.registerCommand` calls so a rebuild that does NOT change the
 // registry (witness B) is still observable as settled.
 
 const GREET_THETA = ["---", "mode: prompt", "---", "@`hi`", ""].join("\n");
@@ -54,117 +55,10 @@ const GREET_THETA_BROKEN = ["---", "mode: prompt", "---", "let = = =", ""].join(
 // the false structural note.
 const PARSE_CODE = "theta/parse/let-without-initialiser";
 
-/** A recorded `pi.sendMessage` call (the `theta-system-note` channel). */
-interface RecordedNote {
-  readonly customType: string;
-  readonly content: string;
-  readonly display: boolean;
-  readonly details: {
-    readonly diagnostics?: readonly Diagnostic[];
-    readonly structural?: {
-      readonly added: readonly string[];
-      readonly removed: readonly string[];
-    };
-  };
-  readonly triggerTurn: unknown;
-}
-
-interface Harness {
-  readonly pi: ExtensionAPI;
-  readonly ctx: ExtensionContext;
-  readonly commands: Map<string, unknown>;
-  readonly notes: RecordedNote[];
-  /** Count of `pi.registerCommand` calls: a rebuild-settled signal that does
-   *  not require the registered SET to change (a no-op-registry reload still
-   *  re-registers every survivor, so the count advances). */
-  registrationCount(): number;
-  fireSessionStart(): Promise<void>;
-}
-
-function makeHarness(cwd: string): Harness {
-  const commands = new Map<string, unknown>();
-  const notes: RecordedNote[] = [];
-  const subscriptions = new Map<
-    string,
-    ((event: unknown, ctx: ExtensionContext) => unknown)[]
-  >();
-  let registrations = 0;
-
-  const pi = {
-    registerFlag: (): void => {},
-    registerMessageRenderer: (): void => {},
-    registerCommand: (name: string, options: unknown): void => {
-      registrations += 1;
-      commands.set(name, options);
-    },
-    on: (event: string, handler: (e: unknown, c: ExtensionContext) => unknown): void => {
-      const list = subscriptions.get(event) ?? [];
-      list.push(handler);
-      subscriptions.set(event, list);
-    },
-    getFlag: (): undefined => undefined,
-    getCommands: (): { name: string; source: string }[] =>
-      [...commands.keys()].map((name) => ({ name, source: "extension" })),
-    sendMessage: (
-      message: { customType: string; content: string; display: boolean; details: unknown },
-      options: { triggerTurn: unknown },
-    ): void => {
-      notes.push({
-        customType: message.customType,
-        content: message.content,
-        display: message.display,
-        details: message.details as RecordedNote["details"],
-        triggerTurn: options.triggerTurn,
-      });
-    },
-    sendUserMessage: (): void => {},
-  } as unknown as ExtensionAPI;
-
-  const ctx = {
-    cwd,
-    hasUI: false,
-    modelRegistry: { getAvailable: (): readonly unknown[] => [] },
-    ui: { notify: (): void => {} },
-  } as unknown as ExtensionContext;
-
-  const fire = async (event: string): Promise<void> => {
-    for (const handler of subscriptions.get(event) ?? []) {
-      await handler({ type: event }, ctx);
-    }
-  };
-
-  return {
-    pi,
-    ctx,
-    commands,
-    notes,
-    registrationCount: () => registrations,
-    fireSessionStart: () => fire("session_start"),
-  };
-}
-
-/** Poll a real-timer-bounded condition (awaits the genuinely-async fs reads);
- *  throws loudly on timeout naming the unmet precondition — the loud-fail
- *  pattern the integration harness uses, never an early return / skip. */
-async function waitFor(cond: () => boolean, label: string): Promise<void> {
-  for (let i = 0; i < 400; i++) {
-    if (cond()) return;
-    await new Promise((resolve) => setTimeout(resolve, 5));
-  }
-  throw new Error(`timeout waiting for ${label}`);
-}
-
-/** The structural-change notes emitted since `from` (content-keyed). */
-function structuralNotesSince(harness: Harness, from: number): RecordedNote[] {
-  return harness.notes
-    .slice(from)
-    .filter((note) => note.content.startsWith("theta watcher:"));
-}
-
 describe("Bug 0311 — structural note derives from watcher paths, not the name-set diff", () => {
   let workspace: string;
   let thetaDir: string;
-  let harness: Harness;
+  let harness: RecordingHarness<WatchNoteDetails>;
   let fakeWatcher: FakeFileWatcher;
   let fakeClock: FakeClock;
   let wiring: ExtensionInstanceWiring | undefined;
@@ -175,7 +69,7 @@ describe("Bug 0311 — structural note derives from watcher paths, not the name-
     mkdirSync(thetaDir, { recursive: true });
     writeFileSync(join(thetaDir, "greet.theta"), GREET_THETA, "utf8");
 
-    harness = makeHarness(workspace);
+    harness = makeRecordingHarness<WatchNoteDetails>(workspace);
     fakeWatcher = new FakeFileWatcher();
     fakeClock = new FakeClock();
     wiring = undefined;

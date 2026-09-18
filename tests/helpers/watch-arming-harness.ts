@@ -1,5 +1,5 @@
 // Shared session_start-firing extension harness for the watch-arming test
-// pair (PTQ-0363), plus factory dispatch and session lifecycle wiring tests.
+// pair (PTQ-0363), plus factory dispatch, session lifecycle, and structural-note tests.
 //
 // WHY THIS FILE EXISTS. tests/b0310-watch-roots-root-union.test.ts and
 // tests/b0339-package-source-watch-arming.test.ts each independently
@@ -33,6 +33,7 @@ import {
   type ExtensionInstanceWiring,
 } from "../../src/extension/production-composition";
 import type { ParsedTheta, ThetaRegistry } from "../../src/extension/reload-wiring";
+import type { Diagnostic } from "../../src/diagnostics/diagnostic";
 import { ActiveInvocationRegistry } from "../../src/runtime/active-invocation-registry";
 import { FakeClock } from "./fake-clock";
 import { RootsRecordingFileWatcher, waitFor } from "./fake-file-watcher";
@@ -188,33 +189,60 @@ export function makeTheta(
 }
 
 /** A recorded `pi.sendMessage` call, including its delivery option. */
-export interface RecordedNote {
+export interface RecordedNote<Details = unknown> {
   readonly customType: string;
   readonly content: string;
   readonly display: boolean;
-  readonly details: unknown;
+  readonly details: Details;
   readonly triggerTurn: unknown;
 }
 
-export interface RecordingHarness extends Harness {
-  readonly notes: RecordedNote[];
+/** The diagnostic and structural payloads inspected by watcher witnesses. */
+export interface WatchNoteDetails {
+  readonly diagnostics?: readonly Diagnostic[];
+  readonly structural?: {
+    readonly added: readonly string[];
+    readonly removed: readonly string[];
+  };
 }
 
-/** Capture command handlers, notes, and subscriptions for factory dispatch tests. */
-export function makeRecordingHarness(): RecordingHarness {
-  const notes: RecordedNote[] = [];
-  const harness = makeHarness("/does/not/matter", {}, {
+export interface RecordingHarness<Details = unknown> extends Harness {
+  readonly notes: RecordedNote<Details>[];
+  /** Count of `pi.registerCommand` calls: a rebuild-settled signal that does
+   *  not require the registered SET to change (a no-op-registry reload still
+   *  re-registers every survivor, so the count advances). */
+  registrationCount(): number;
+}
+
+/** Capture command handlers, notes, and subscriptions for dispatch and reload tests. */
+export function makeRecordingHarness<Details = unknown>(
+  cwd = "/does/not/matter",
+): RecordingHarness<Details> {
+  const notes: RecordedNote<Details>[] = [];
+  let registrations = 0;
+  const harness = makeHarness(cwd, {}, {
+    onRegisterCommand: (): void => { registrations += 1; },
     sendMessage: (message, options): void => {
       notes.push({
         customType: message.customType,
         content: message.content,
         display: message.display,
-        details: message.details,
+        details: message.details as Details,
         triggerTurn: options.triggerTurn,
       });
     },
   });
-  return { ...harness, notes };
+  return { ...harness, notes, registrationCount: () => registrations };
+}
+
+/** The structural-change notes emitted since `from` (content-keyed). */
+export function structuralNotesSince(
+  harness: RecordingHarness<WatchNoteDetails>,
+  from: number,
+): RecordedNote<WatchNoteDetails>[] {
+  return harness.notes
+    .slice(from)
+    .filter((note) => note.content.startsWith("theta watcher:"));
 }
 
 /** The registered pi command options shape the dispatch helpers invoke against. */

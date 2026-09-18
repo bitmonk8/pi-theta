@@ -62,11 +62,9 @@ vi.mock("@earendil-works/pi-ai/compat", async (importOriginal) => {
 });
 
 import type {
-  ExtensionAPI,
   ExtensionCommandContext,
   ModelRegistry,
 } from "@earendil-works/pi-coding-agent";
-import { createProductionProducerDeps } from "../src/extension/production-theta-producer";
 import {
   composeThetaFixture,
   type ThetaCompositionInput,
@@ -76,21 +74,14 @@ import {
   type ActiveInvocationEntry,
 } from "../src/runtime/active-invocation-registry";
 import { renderBinderSystemNote } from "../src/binder/retry-taxonomy";
-import {
-  parseThetaDocument,
-  type ParseThetaDocumentDeps,
-} from "../src/parser/theta-document";
-import type { ThetaSource } from "../src/lexer/lexer";
 import type { RuntimeRoot } from "../src/runtime-root";
-import type { ModelReferenceMatcher } from "../src/parser/frontmatter";
-import type { SystemNoteChannelDeps } from "../src/extension/system-note-channel";
 import {
-  AjvSchemaValidator,
-  type LoweredSchema,
-  type SchemaSlug,
-} from "../src/seams/schema-validator";
-
-const SYSTEM_NOTE_CHANNEL = "theta-system-note";
+  ajv as realAjv,
+  parse,
+  producerWithCapture,
+  noteChannelEntries as channelNotes,
+  type CapturedNote,
+} from "./helpers/scripted-live-session-harness";
 
 // A pinned wall clock so the runtime-event `occurred_at` (stamped via
 // `root.clock.wallNow()` per §Fix constraint 1) is assertable at an exact value.
@@ -106,19 +97,6 @@ const BINDER_MODEL = {
 /** The transport-failure `errorMessage` the scripted error-stop reply carries. */
 const TRANSPORT_ERROR_MESSAGE = "503 upstream unavailable";
 
-// --- captured note shape ----------------------------------------------------
-
-/**
- * A captured `pi.sendMessage` custom message — INCLUDING `details`, the
- * machine-readable half this bug is about.
- */
-interface CapturedNote {
-  readonly customType: string;
-  readonly content: string;
-  readonly display?: boolean;
-  readonly details?: { readonly event?: Record<string, unknown> };
-}
-
 /**
  * A real `ActiveInvocationRegistry` that records each inserted entry's
  * `invocationId` at `add`-time. The dispatch `finally` removes the entry before
@@ -132,39 +110,6 @@ class RecordingRegistry extends ActiveInvocationRegistry {
     this.addedIds.push(entry.invocationId);
     super.add(entry);
   }
-}
-
-// --- parse + root scaffolding (the e2e-s5 / bug-0066 production pattern) -----
-
-function parseDeps(): ParseThetaDocumentDeps {
-  const systemNote: SystemNoteChannelDeps = {
-    pi: { sendMessage: (): void => {} },
-    ui: { notify: (): void => {} },
-    emitDiagnostic: (): void => {},
-  };
-  const modelMatcher: ModelReferenceMatcher = { resolve: (): "resolved" => "resolved" };
-  return { systemNote, modelMatcher };
-}
-
-/** Parse `.theta` source through the production whole-file parser (must be clean). */
-function parse(src: string, path: string) {
-  const source: ThetaSource = { path, bytes: new TextEncoder().encode(src) };
-  const doc = parseThetaDocument(source, parseDeps());
-  const errors = doc.diagnostics.filter((d) => d.severity === "error").map((d) => d.code);
-  expect(errors, "the binder theta must parse cleanly before it is driven").toEqual([]);
-  expect(doc.frontmatter, "the binder theta must carry parseable frontmatter").not.toBeNull();
-  return doc;
-}
-
-/** The production AJV validator, wired with the shipped content-addressing. */
-function realAjv(): AjvSchemaValidator {
-  return new AjvSchemaValidator({
-    emit: (): void => {},
-    slugOf: (schema: LoweredSchema): SchemaSlug => {
-      const canonicalBytes = JSON.stringify(schema);
-      return { slug: canonicalBytes, canonicalBytes };
-    },
-  });
 }
 
 /**
@@ -242,7 +187,7 @@ const SOURCES: ReadonlyMap<string, string> = new Map([
 ]);
 
 function twoParamTheta(): ThetaCompositionInput {
-  const doc = parse(TWO_PARAM_THETA, TWO_PARAM_PATH);
+  const doc = parse(TWO_PARAM_THETA, TWO_PARAM_PATH, "binder");
   return {
     slashName: "code-review",
     sourcePath: TWO_PARAM_PATH,
@@ -253,7 +198,7 @@ function twoParamTheta(): ThetaCompositionInput {
 }
 
 function deepChainTheta(): ThetaCompositionInput {
-  const doc = parse(DEEP_CHAIN_THETA, DEEP_CHAIN_PATH);
+  const doc = parse(DEEP_CHAIN_THETA, DEEP_CHAIN_PATH, "binder");
   return {
     slashName: "b0397deep",
     sourcePath: DEEP_CHAIN_PATH,
@@ -346,19 +291,12 @@ async function driveDispatch(
   args: string,
   ctx: ExtensionCommandContext,
 ): Promise<DriveOutcome> {
-  const notes: CapturedNote[] = [];
-  const pi = {
-    sendMessage: (message: CapturedNote): void => {
-      notes.push(message);
-    },
-  } as unknown as ExtensionAPI;
   const modelRegistry = {
     getAvailable: (): readonly unknown[] => [BINDER_MODEL],
     getApiKeyAndHeaders: async (): Promise<{ ok: boolean }> => ({ ok: true }),
   } as unknown as ModelRegistry;
   const registry = new RecordingRegistry();
-  const deps = createProductionProducerDeps({
-    pi,
+  const { deps, notes } = producerWithCapture({
     root: rootDouble(),
     modelRegistry,
     activeInvocations: registry,
@@ -366,10 +304,6 @@ async function driveDispatch(
 
   await composeThetaFixture(theta, deps).run(args, ctx);
   return { notes, registry };
-}
-
-function channelNotes(notes: readonly CapturedNote[]): CapturedNote[] {
-  return notes.filter((n) => n.customType === SYSTEM_NOTE_CHANNEL);
 }
 
 /** A readable summary of the wire for a red that names what WAS emitted. */
@@ -420,7 +354,7 @@ function assertFailureEvent(
     note.details,
     "the group-A binder-failure note routes `details: { event: RuntimeEvent }` (runtime-event-channel.md:46-53)",
   ).toBeDefined();
-  const event = note.details?.event;
+  const event = (note.details as { readonly event?: Record<string, unknown> } | undefined)?.event;
   expect(
     event,
     "diagnostic-shape.md:20 — the present `event` key selects the runtime-event arm; it must be an object",
