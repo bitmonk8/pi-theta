@@ -1,5 +1,4 @@
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type {
@@ -13,6 +12,7 @@ import { SUBAGENT_CALLABLE_HASHES_ENV } from "../src/runtime/subagent-callable-h
 import { SUBAGENT_PARENT_PID_ENV } from "../src/runtime/subagent-launcher";
 import { SUBAGENT_ROOT_ENV_MARKER } from "../src/runtime/subagent-root-regime";
 import { createEnvSandbox } from "./helpers/ambient-control-plane-scrub";
+import { disposeWorkspace, plantThetaWorkspace } from "./helpers/production-load-harness";
 
 
 // RFC-0005 — child-side `.theta` callable content-hash verification, wired into
@@ -58,29 +58,19 @@ async function runChildLoad(cwd: string): Promise<LoadOutcome> {
 }
 
 beforeEach(() => {
-  workspaceDir = mkdtempSync(join(tmpdir(), "theta-rfc0005-hashref-"));
-  const dir = join(workspaceDir, ".pi", "theta");
-  mkdirSync(dir, { recursive: true });
-  // A subagent-mode callee the parent would have marshalled a closure hash for.
-  writeFileSync(
-    join(dir, "code-review.theta"),
-    "---\nmode: subagent\n---\n@`review`\n",
-    "utf8",
-  );
-  writeFileSync(
-    join(dir, "helper.theta"),
-    "---\nmode: subagent\n---\n@`help`\n",
-    "utf8",
-  );
   // A minimal valid settings file pins the fixture's settings read to a known
   // value. An ABSENT settings file is silent (package-and-settings.md
   // §Failure modes), so the plant is hermeticity, not noise suppression.
-  writeFileSync(join(workspaceDir, ".pi", "settings.json"), "{}", "utf8");
+  workspaceDir = plantThetaWorkspace("theta-rfc0005-hashref-", [
+    // A subagent-mode callee the parent would have marshalled a closure hash for.
+    { stem: "code-review", text: "---\nmode: subagent\n---\n@`review`\n" },
+    { stem: "helper", text: "---\nmode: subagent\n---\n@`help`\n" },
+  ], "{}");
 });
 
 afterEach(() => {
   restoreEnv();
-  rmSync(workspaceDir, { recursive: true, force: true });
+  disposeWorkspace(workspaceDir);
 });
 
 describe("RFC-0005 — child refuses a callee whose content-hash diverged", () => {

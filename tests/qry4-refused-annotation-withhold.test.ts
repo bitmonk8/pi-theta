@@ -82,7 +82,7 @@ import { describe, expect, it } from "vitest";
 // @ts-expect-error — JS code-registry module, no type declarations.
 import { registryMessage } from "../tools/code-registry/index.js";
 import type { LetStmt, ThetaDocument } from "../src/parser/theta-document";
-import { findLetStmt, parseDoc } from "./helpers/e2e-s1";
+import { collectByKind, findLetStmt, parseDoc } from "./helpers/e2e-s1";
 
 // ===========================================================================
 // The two codes under assertion, and their normative messages (DIAG-2/DIAG-4).
@@ -239,21 +239,7 @@ function letStmtOf(label: string, doc: ThetaDocument, name: string): LetStmt {
  * `resolveQuerySchemas` has run, the way §Reproduction (C) and (D) read it.
  */
 function querySchemas(src: string): unknown[] {
-  const found: unknown[] = [];
-  const seen = new Set<object>();
-  const walk = (node: unknown): void => {
-    if (node === null || typeof node !== "object") return;
-    if (seen.has(node as object)) return;
-    seen.add(node as object);
-    const record = node as Record<string, unknown>;
-    if (record.kind === "query") found.push(record.schema);
-    for (const value of Object.values(record)) {
-      if (Array.isArray(value)) value.forEach(walk);
-      else walk(value);
-    }
-  };
-  walk(parseDoc(src, "bug0222.theta").body as unknown);
-  return found;
+  return collectByKind(parseDoc(src, "bug0222.theta").body, "query").map((record) => record.schema);
 }
 
 // ===========================================================================

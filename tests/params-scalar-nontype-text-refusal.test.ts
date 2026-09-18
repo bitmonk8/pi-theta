@@ -1,4 +1,4 @@
-import { TRIAGE_DEF } from "./helpers/triage-fixture";
+import { DECLS, TRIAGE_DEF } from "./helpers/triage-fixture";
 import { inlineDefName } from "./helpers/canonical-slug-oracle";
 import { readFileSync, readdirSync } from "node:fs";
 import { join, posix, sep } from "node:path";
@@ -8,7 +8,7 @@ import { describe, expect, it } from "vitest";
 import { parseRegistry, registryMessage } from "../tools/code-registry/index.js";
 import type { EnumDecl, SchemaDecl, ThetaDocument } from "../src/parser/theta-document";
 import { lowerQueryResponseSchema } from "../src/runtime/query-schema-lowering";
-import { firstDiagnostic, expectParamsDropGateShape, parseDoc, diagLines, diagCodes } from "./helpers/e2e-s1";
+import { yamlQuoted, firstDiagnostic, expectParamsDropGateShape, parseDoc, diagLines, diagCodes } from "./helpers/e2e-s1";
 
 // Bug 0059 — a `params:` right-hand side that is a YAML SCALAR carrying text no
 // `Type` production spells is recorded verbatim as the field's declared type,
@@ -253,26 +253,12 @@ function unresolvedMessage(name: string): string {
 // Fixture sources and the loud readers.
 // ===========================================================================
 
-/** `Triage` is declared in every fixture; `Tirage` and `Ghost` are declared nowhere. */
-const DECLS = "schema Triage { urgent: boolean }\n";
-
 /** The body every `params:` fixture carries. */
 const BODY = `${DECLS}let x = 1\n`;
 
 /** A `mode: prompt` theta whose `params:` block is `paramsBlock`. */
 function src(paramsBlock: string): string {
   return `---\nmode: prompt\nparams:\n${paramsBlock}\n---\n${BODY}`;
-}
-
-/**
- * A theta type expression wrapped as a YAML single-quoted scalar. Theta-side
- * literals carry theta-side quotes, and an unquoted spelling of a text carrying
- * a `:`, a `#` or a `{` breaks the YAML frame outright, which collapses the load
- * to `theta/load/malformed-frontmatter-yaml` (bug 0263) — a different frame
- * entirely.
- */
-function yamlQuoted(typeSource: string): string {
-  return `'${typeSource.replace(/'/g, "''")}'`;
 }
 
 /** The lowered `params:` document, absent when the load withheld it. */

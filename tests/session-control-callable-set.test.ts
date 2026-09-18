@@ -17,23 +17,20 @@
 // This file is the DIAG-2 asserting home for the full code string
 // `theta/load/session-tool-unavailable` (V8/V8b).
 //
-// Method: mirrors `tests/callable-set.test.ts`'s unit-level `deps()` /
-// `resolveScalar` / `resolveList` harness for the §3.4 unit-level cells, and
+// Method: uses `tests/helpers/e2e-s1.ts`'s shared `callableSetDeps` /
+// `resolveScalar` harness for the §3.4 unit-level cells, and
 // `tests/subagent-tool-admission.test.ts` / `tests/subagent-placement-load-refusal.test.ts`'s
 // `discoverAndComposeFixtures` fixture-plant pattern for the composition-level
 // cells (the load probe lives in the compose loop, not in `resolveCallableSet`).
-import { parseDeps as v6ParseDeps } from "./helpers/e2e-s1";
+import { callableSetDeps as deps, parseDeps as v6ParseDeps, resolveScalar } from "./helpers/e2e-s1";
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import {
-  resolveCallableSet,
-  type CallableSetDeps,
   type CallableSetResult,
   type ResolvedThetaCallee,
-  type ToolsField,
 } from "../src/parser/callable-set";
 import { RUNTIME_TOOL_NAMES, RUNTIME_TOOL_SIGNATURES, runtimeToolPresentedNames } from "../src/parser/runtime-tools";
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
@@ -98,29 +95,6 @@ describe("RFC 0011 §2 — RUNTIME_TOOL_SIGNATURES / runtimeToolPresentedNames (
 /** A resolved `.theta` callee stand-in (unused by these cells; mirrors tests/callable-set.test.ts). */
 function thetaCallee(mode: "prompt" | "subagent"): Omit<ResolvedThetaCallee, "calleePath"> {
   return { kind: "theta", mode };
-}
-
-function deps(opts?: {
-  piTools?: readonly string[];
-  thetaCallees?: Readonly<Record<string, Omit<ResolvedThetaCallee, "calleePath">>>;
-  reservedNames?: readonly string[];
-}): CallableSetDeps {
-  const piTools = new Set(opts?.piTools ?? []);
-  const thetaCallees = opts?.thetaCallees ?? {};
-  return {
-    resolvePiTool: (name) =>
-      piTools.has(name) ? { kind: "pi-tool", toolDefinition: { name } } : undefined,
-    resolveThetaCallee: (thetaPath) => {
-      const callee = thetaCallees[thetaPath];
-      return callee === undefined ? undefined : { ...callee, calleePath: thetaPath };
-    },
-    reservedNames: new Set(opts?.reservedNames ?? []),
-  };
-}
-
-function resolveScalar(text: string, d: CallableSetDeps): CallableSetResult {
-  const tools: ToolsField = { kind: "scalar", text };
-  return resolveCallableSet({ file: "test.theta", tools, deps: d });
 }
 
 /** Read `.kind` / `.name` off a resolved entry as a loose shape (the future

@@ -76,8 +76,7 @@
 // (SLSH-4, the normative templates), `:50`, `:54` (SLSH-5 and its worked
 // examples).
 
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { realpathSync } from "node:fs";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type {
@@ -87,6 +86,7 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import type { ThetaFixture } from "../src/extension/factory";
 import { discoverAndComposeFixtures } from "../src/extension/production-composition";
+import { disposeWorkspace, plantThetaWorkspace } from "./helpers/production-load-harness";
 
 /** The em-dash U+2014 the SLSH-4 templates carry verbatim. */
 const DASH = "\u2014";
@@ -238,14 +238,9 @@ beforeAll(async () => {
   // post-`realpath` form SLSH-5 pins (the OS temp dir is a symlink on some
   // hosts, and a fix routing through the `FileSystem.realpath` seam would
   // otherwise disagree with these expectations for an unrelated reason).
-  workspaceDir = realpathSync(mkdtempSync(join(tmpdir(), "theta-bug0088-")));
-  thetaDir = join(workspaceDir, ".pi", "theta");
-  mkdirSync(thetaDir, { recursive: true });
-  for (const planted of THETAS) {
-    writeFileSync(join(thetaDir, `${planted.stem}.theta`), planted.text, "utf8");
-  }
   // A present, minimal settings file pins the fixture's settings read.
-  writeFileSync(join(workspaceDir, ".pi", "settings.json"), "{}", "utf8");
+  workspaceDir = realpathSync(plantThetaWorkspace("theta-bug0088-", THETAS, "{}"));
+  thetaDir = join(workspaceDir, ".pi", "theta");
 
   const fixtures: readonly ThetaFixture[] = await discoverAndComposeFixtures(
     hostPi(),
@@ -266,9 +261,7 @@ beforeAll(async () => {
 }, 60_000);
 
 afterAll(() => {
-  if (workspaceDir !== undefined) {
-    rmSync(workspaceDir, { recursive: true, force: true });
-  }
+  disposeWorkspace(workspaceDir);
 });
 
 describe("bug 0088 — the SLSH-5 chain suffix on a cascaded top-level Err note", () => {

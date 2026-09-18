@@ -15,14 +15,13 @@ import {
 import { hoistInlineObjectType, type LowerCtx } from "../src/parser/params";
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
 import type { SchemaDecl } from "../src/parser/theta-document";
-import { lowerQueryResponseSchema } from "../src/runtime/query-schema-lowering";
 import { respondToolWireSchema } from "../src/runtime/respond-tool-wire";
 import {
   AjvSchemaValidator,
   type LoweredSchema,
   type SchemaSlug,
 } from "../src/seams/schema-validator";
-import { loadSchemaDecls, parseDoc, diagLines } from "./helpers/e2e-s1";
+import { loweredAnnotation as lowerAnnotation, loadSchemaDecls, parseDoc, diagLines } from "./helpers/e2e-s1";
 import { assertKeysSorted, inlineDefName, slugOfCanonicalForm, refNames } from "./helpers/canonical-slug-oracle";
 
 // Bug 0039 — an inline object type is recursive by the grammar, and the shared
@@ -503,19 +502,9 @@ function schemaDeclsOf(body: string): readonly SchemaDecl[] {
 /** The `schema Triage { urgent: boolean }` declaration set every annotation resolves against. */
 const TRIAGE_DECLS = schemaDeclsOf(`${TRIAGE_BODY}let x = 1\n`);
 
-/**
- * The lowered response schema for an inline annotation, or a loud failure.
- * `undefined` is reserved for the EMPTY annotation alone, so it is a harness
- * error here rather than a fixture outcome.
- */
+/** Lower against this fixture's declaration set. */
 function loweredAnnotation(label: string, annotation: string): LoweredSchema {
-  const lowered = lowerQueryResponseSchema(annotation, TRIAGE_DECLS);
-  if (lowered === undefined) {
-    throw new Error(
-      `${label}: \`@<${annotation}>\` lowered to nothing, so QRY-22 would bind an UNVALIDATED response; only the empty annotation may lower to undefined`,
-    );
-  }
-  return lowered;
+  return lowerAnnotation(label, annotation, TRIAGE_DECLS);
 }
 
 /** A parsed, cleanly-lowered `params:` block. */

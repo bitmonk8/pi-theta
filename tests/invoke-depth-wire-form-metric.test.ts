@@ -113,20 +113,14 @@
 // TOKENS: none. Every theta body here is a pure tail expression; no `@` query is
 // issued, so no provider is contacted and no model turn is spent.
 
+import { drivePromptAttach } from "./helpers/prompt-value-harness";
 import { describe, expect, it } from "vitest";
-import type {
-  ExtensionAPI,
-  ModelRegistry,
-} from "@earendil-works/pi-coding-agent";
-import type { ParsedFrontmatter } from "../src/parser/frontmatter";
 import {
   type EnumDecl,
   type SchemaDecl,
   type ThetaDocument,
 } from "../src/parser/theta-document";
-import { executeBody, type BodyExecution } from "../src/runtime/statement-executor";
 import {
-  isResultValue,
   makeEnumValue,
   makeOk,
   valuesEqual,
@@ -151,11 +145,6 @@ import {
   parseEnvelopeLine,
   serializeOkEnvelope,
 } from "../src/runtime/subagent-envelope";
-import { createProductionProducerDeps } from "../src/extension/production-theta-producer";
-import type {
-  ConversationBindInput,
-  ThetaCompositionInput,
-} from "../src/extension/theta-composition-producer";
 import type { LoweredSchema } from "../src/seams/schema-validator";
 import { parseDoc } from "./helpers/e2e-s1";
 import { rootDouble, ctxDouble } from "./helpers/tool-call-dispatch-harness";
@@ -227,61 +216,14 @@ async function driveTypedInvoke(input: {
   readonly annotation: string;
   readonly calleeTail: string;
 }): Promise<ResultValue> {
-  const calleeDoc = parseTheta("kid.theta", PROMPT_FM + COLOUR_DECL + input.calleeTail);
-  const callee: ThetaCompositionInput = {
-    slashName: "kid",
-    sourcePath: "/theta/kid.theta",
-    frontmatter: calleeDoc.frontmatter as ParsedFrontmatter,
-    body: calleeDoc.body,
-  };
-  const deps = createProductionProducerDeps({
-    // `getActiveTools` / `setActiveTools` satisfy the PIC-17 prompt→prompt
-    // suspend window; `sendMessage` satisfies the theta-system-note channel.
-    pi: {
-      sendMessage: () => {},
-      getActiveTools: () => [],
-      setActiveTools: () => {},
-    } as unknown as ExtensionAPI,
-    root: rootDouble(),
-    modelRegistry: {} as unknown as ModelRegistry,
-    // Bug 0293: the seam returns the three-arm `CalleeParseOutcome` verdict.
-    parseCallee: () => Promise.resolve({ kind: "ok" as const, input: callee }),
+  return drivePromptAttach({
+    callerBody: COLOUR_DECL + `invoke<${input.annotation}>("${CALLEE_PATH}")\n`,
+    calleeBody: COLOUR_DECL + input.calleeTail,
+    calleeName: "kid",
+    parse: parseTheta,
+    root: rootDouble,
+    ctx: ctxDouble(),
   });
-
-  const callerSrc =
-    PROMPT_FM + COLOUR_DECL + `invoke<${input.annotation}>("${CALLEE_PATH}")\n`;
-  const callerDoc = parseTheta("caller.theta", callerSrc);
-  const theta: ThetaCompositionInput = {
-    slashName: "caller",
-    sourcePath: "/theta/caller.theta",
-    frontmatter: callerDoc.frontmatter as ParsedFrontmatter,
-    body: callerDoc.body,
-  };
-  const bindInput: ConversationBindInput = { theta, args: "", ctx: ctxDouble() };
-  const binding = deps.bindPromptConversation(bindInput);
-  return boundaryResult(await executeBody(theta.body, binding.executeDeps));
-}
-
-/**
- * The `Result` the tail `invoke<T>(...)` expression produced. A caller body that
- * did not reach its tail says nothing about the return boundary, so that is a
- * loud harness failure rather than a cell outcome.
- */
-function boundaryResult(execution: BodyExecution): ResultValue {
-  if (execution.outcome !== "success") {
-    throw new Error(
-      `precondition unmet: the caller body ended '${execution.outcome}' instead of reaching its ` +
-        `tail invoke — error ${JSON.stringify(execution.error)}`,
-    );
-  }
-  const tail = execution.result.value;
-  if (tail === undefined || !isResultValue(tail)) {
-    throw new Error(
-      `precondition unmet: the caller's tail value is not the invoke boundary Result — ` +
-        `${JSON.stringify(tail)}`,
-    );
-  }
-  return tail;
 }
 
 /** The `Err` payload rendered into an assertion message, so a red names the cause. */

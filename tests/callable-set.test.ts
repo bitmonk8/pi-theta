@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
+import { callableSetDeps as deps, resolveScalar } from "./helpers/e2e-s1";
 import {
   resolveCallableSet,
   type CallableSetDeps,
   type CallableSetResult,
   type ResolvedThetaCallee,
-  type ResolvedPiTool,
   type ToolsField,
 } from "../src/parser/callable-set";
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
@@ -32,11 +32,6 @@ function withCode(diags: readonly Diagnostic[], code: string): Diagnostic | unde
   return diags.find((d) => d.code === code);
 }
 
-/** A resolved Pi-tool stand-in (the ToolDefinition is opaque to this seam). */
-function piTool(name: string): ResolvedPiTool {
-  return { kind: "pi-tool", toolDefinition: { name } };
-}
-
 /**
  * A resolved `.theta` callee stand-in with a given declared mode. The
  * `calleePath` is injected by the `deps` factory from the resolution-table key
@@ -44,34 +39,6 @@ function piTool(name: string): ResolvedPiTool {
  */
 function thetaCallee(mode: "prompt" | "subagent"): Omit<ResolvedThetaCallee, "calleePath"> {
   return { kind: "theta", mode };
-}
-
-/**
- * Build `CallableSetDeps` from an explicit Pi-tool registry, a `.theta`
- * resolution table (keyed by the path literal as written), and reserved
- * top-level names. Anything absent resolves as unknown / unresolvable.
- */
-function deps(opts?: {
-  piTools?: readonly string[];
-  thetaCallees?: Readonly<Record<string, Omit<ResolvedThetaCallee, "calleePath">>>;
-  reservedNames?: readonly string[];
-}): CallableSetDeps {
-  const piTools = new Set(opts?.piTools ?? []);
-  const thetaCallees = opts?.thetaCallees ?? {};
-  return {
-    resolvePiTool: (name) => (piTools.has(name) ? piTool(name) : undefined),
-    resolveThetaCallee: (thetaPath) => {
-      const callee = thetaCallees[thetaPath];
-      return callee === undefined ? undefined : { ...callee, calleePath: thetaPath };
-    },
-    reservedNames: new Set(opts?.reservedNames ?? []),
-  };
-}
-
-/** Resolve a comma-separated short-form `tools:` value. */
-function resolveScalar(text: string, d: CallableSetDeps): CallableSetResult {
-  const tools: ToolsField = { kind: "scalar", text };
-  return resolveCallableSet({ file: "test.theta", tools, deps: d });
 }
 
 /** Resolve a YAML list-form `tools:` value. */

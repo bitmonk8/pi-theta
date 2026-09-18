@@ -6,6 +6,14 @@
 // diagnostics / tokens without a model or session. The frontmatter-only
 // helpers share the same resolving matcher and diagnostic finder. No behaviour is stubbed:
 // the code paths under assertion are the shipped ones.
+import {
+  resolveCallableSet,
+  type CallableSetDeps,
+  type CallableSetResult,
+  type ResolvedPiTool,
+  type ResolvedThetaCallee,
+  type ToolsField,
+} from "../../src/parser/callable-set";
 import { type SourceRange } from "../../src/diagnostics/diagnostic";
 import { type BypassParamsField } from "../../src/binder/binder-envelope";
 import { expect } from "vitest";
@@ -37,6 +45,7 @@ import {
 import { StaticTypeInferencePass } from "../../src/parser/static-type-inference";
 import { checkCompatible, displayType, type Compatibility, type TypeEnv } from "../../src/parser/type-compat";
 import type { LoweredSchema } from "../../src/seams/schema-validator";
+import { lowerQueryResponseSchema } from "../../src/runtime/query-schema-lowering";
 
 /** An in-band, no-op system-note channel that discards emitted batches. */
 function inertSystemNote(): SystemNoteChannelDeps {
@@ -70,6 +79,17 @@ export function parseFrontmatterLines(...frontmatterLines: string[]): Frontmatte
 /** Parse-theta-document deps whose seams are inert offline no-ops. */
 export function parseDeps(): ParseThetaDocumentDeps {
   return { systemNote: inertSystemNote(), modelMatcher: resolvingMatcher };
+}
+
+/**
+ * A theta-side literal carries theta-side quotes, so a `params:` entry wraps the
+ * whole type expression in a YAML single-quoted scalar. The unquoted spelling
+ * is not valid YAML and collapses the load to `theta/load/malformed-frontmatter-yaml`
+ * (bug 0056 §Reproduction *Spelling*; bug 0263 names the code this collapse now
+ * reports), which is a different frame.
+ */
+export function yamlQuoted(typeSource: string): string {
+  return `'${typeSource.replace(/'/g, "''")}'`;
 }
 
 /** Parse a UTF-8 `.theta` source string through the whole-document pipeline. */
@@ -521,6 +541,46 @@ export function capturedSchemas(doc: ThetaDocument): CapturedSchema[] {
 /** Top-level declarations of this kind, preserving source order. */
 export function enumDeclsOf(doc: ThetaDocument): readonly EnumDecl[] {
   return doc.body.statements.filter((s): s is EnumDecl => s.kind === "enum");
+}
+
+/**
+ * The lowered response schema for an annotation, or a loud failure.
+ * `undefined` is reserved for the EMPTY annotation alone, so it is a harness
+ * error here rather than a fixture outcome.
+ */
+export function loweredAnnotation(
+  label: string,
+  annotation: string,
+  decls: readonly SchemaDecl[],
+  enums: readonly EnumDecl[] = [],
+  missingMessage = `${label}: \`@<${annotation}>\` lowered to nothing, so QRY-22 would bind an UNVALIDATED response; only the empty annotation may lower to undefined`,
+): LoweredSchema {
+  const lowered = lowerQueryResponseSchema(annotation, decls, enums);
+  if (lowered === undefined) {
+    throw new Error(missingMessage);
+  }
+  return lowered;
+}
+
+/**
+ * Load `@<annotation>` through the SHIPPED path: `parseThetaDocument` for the
+ * declarations and the diagnostics, then `lowerQueryResponseSchema` for the
+ * annotation itself (the same pair the typed-query mechanism drives).
+ * The caller supplies its fixture and diagnostic precondition before lowering.
+ */
+export function parseAndLowerAnnotation(
+  label: string,
+  annotation: string,
+  fixture: {
+    readonly source: string;
+    readonly path: string;
+    readonly assertDiagnostics: (doc: ThetaDocument) => void;
+    readonly missingMessage: string;
+  },
+): LoweredSchema {
+  const doc = parseDoc(fixture.source, fixture.path);
+  fixture.assertDiagnostics(doc);
+  return loweredAnnotation(label, annotation, schemaDeclsOf(doc), enumDeclsOf(doc), fixture.missingMessage);
 }
 
 /** Read a params field, failing loudly if its declaration was dropped. */
@@ -1194,4 +1254,37 @@ export function diag(
   endColumn: number,
 ): string {
   return `${severity} ${code}: ${message} @${line}:${startColumn}-${line}:${endColumn}`;
+}
+
+/** A resolved Pi-tool stand-in (the ToolDefinition is opaque to this seam). */
+function piTool(name: string): ResolvedPiTool {
+  return { kind: "pi-tool", toolDefinition: { name } };
+}
+
+/**
+ * Build `CallableSetDeps` from an explicit Pi-tool registry, a `.theta`
+ * resolution table (keyed by the path literal as written), and reserved
+ * top-level names. Anything absent resolves as unknown / unresolvable.
+ */
+export function callableSetDeps(opts?: {
+  piTools?: readonly string[];
+  thetaCallees?: Readonly<Record<string, Omit<ResolvedThetaCallee, "calleePath">>>;
+  reservedNames?: readonly string[];
+}): CallableSetDeps {
+  const piTools = new Set(opts?.piTools ?? []);
+  const thetaCallees = opts?.thetaCallees ?? {};
+  return {
+    resolvePiTool: (name) => (piTools.has(name) ? piTool(name) : undefined),
+    resolveThetaCallee: (thetaPath) => {
+      const callee = thetaCallees[thetaPath];
+      return callee === undefined ? undefined : { ...callee, calleePath: thetaPath };
+    },
+    reservedNames: new Set(opts?.reservedNames ?? []),
+  };
+}
+
+/** Resolve a comma-separated short-form `tools:` value. */
+export function resolveScalar(text: string, d: CallableSetDeps): CallableSetResult {
+  const tools: ToolsField = { kind: "scalar", text };
+  return resolveCallableSet({ file: "test.theta", tools, deps: d });
 }

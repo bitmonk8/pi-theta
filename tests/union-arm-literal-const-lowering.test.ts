@@ -17,7 +17,7 @@ import {
   type LoweredSchema,
   type SchemaSlug,
 } from "../src/seams/schema-validator";
-import { parseDoc, diagLines } from "./helpers/e2e-s1";
+import { yamlQuoted, parseDoc, diagLines } from "./helpers/e2e-s1";
 
 // Bug 0184 — a literal ARM of a MIXED union lowers to the EMPTY schema at all
 // four `Type` positions instead of `docs/spec_topics/schema-subset.md:79`'s
@@ -244,17 +244,6 @@ type Position = (typeof POSITIONS)[number];
 
 /** The three positions that hoist an inline object under a minted `$defs` name. */
 const HOISTING_POSITIONS = ["params", "field", "alias"] as const;
-
-/**
- * A theta-side literal carries theta-side quotes, so a `params:` entry wraps the
- * whole type expression in a YAML single-quoted scalar. The unquoted spelling is
- * not valid YAML and collapses the load to `theta/load/malformed-frontmatter-yaml`
- * (bug 0263), which is a different frame (the spelling discipline
- * `tests/params-literal-sublanguage-lowering.test.ts` established).
- */
-function yamlQuoted(typeSource: string): string {
-  return `'${typeSource.replace(/'/g, "''")}'`;
-}
 
 function loweredParamsDocument(doc: ThetaDocument): Record<string, unknown> | undefined {
   return doc.frontmatter?.params?.loweredSchema as Record<string, unknown> | undefined;

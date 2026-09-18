@@ -70,13 +70,13 @@
 // PIC-53 ordering), pi-integration-contract/provider-error-mapping.md:33
 // (stop-reason classification arm); errors-and-results/queryerror-variants.md
 // (§ContextOverflowError, §TransportError).
+import { user as userMessage, assistantMessage } from "./helpers/agent-message-fixtures";
 import { parse, ajv } from "./helpers/scripted-live-session-harness";
 import { describe, expect, it } from "vitest";
 import type {
   AssistantMessage,
   Message,
   ToolResultMessage,
-  UserMessage,
 } from "@earendil-works/pi-ai";
 import type {
   ExtensionAPI,
@@ -483,40 +483,11 @@ describe("bug 0413 (CONTROL) — a normal `stop` boundary still binds its Ok tex
 
 // ===========================================================================
 // DIRECT unit cells over `extractPromptModeQueryResult` — pin the classifier
-// arm itself, independent of the two consumer sites, mirroring
-// tests/prompt-transport-mapping.test.ts's pi-ai `Message[]` builders. RED at
+// arm itself, independent of the two consumer sites, using the shared
+// pi-ai `Message[]` builders. RED at
 // the fork (the classifier returns Ok for every non-`"error"` terminator);
 // the "toolUse" normal-boundary control stays Ok both before and after.
 // ===========================================================================
-
-function userMessage(content: string): UserMessage {
-  return { role: "user", content, timestamp: 0 };
-}
-
-function assistantMessage(opts: {
-  text?: string;
-  stopReason: AssistantMessage["stopReason"];
-  errorMessage?: string;
-}): AssistantMessage {
-  const base: AssistantMessage = {
-    role: "assistant",
-    content: opts.text === undefined ? [] : [{ type: "text", text: opts.text }],
-    api: "anthropic-messages",
-    provider: "anthropic",
-    model: "claude-test",
-    usage: {
-      input: 0,
-      output: 0,
-      cacheRead: 0,
-      cacheWrite: 0,
-      totalTokens: 0,
-      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
-    },
-    stopReason: opts.stopReason,
-    timestamp: 0,
-  };
-  return opts.errorMessage === undefined ? base : { ...base, errorMessage: opts.errorMessage };
-}
 
 function toolResultMessage(): ToolResultMessage {
   return {

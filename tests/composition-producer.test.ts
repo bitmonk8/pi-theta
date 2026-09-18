@@ -1,3 +1,4 @@
+import { user as userMessage } from "./helpers/agent-message-fixtures";
 import {
   span,
   SEAM_NOOP_CHECKPOINT as NOOP_CHECKPOINT,
@@ -6,7 +7,7 @@ import {
 } from "./helpers/invoke-seam-scaffold";
 import { describe, expect, it } from "vitest";
 import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
-import type { AssistantMessage, Message, UserMessage } from "@earendil-works/pi-ai";
+import type { AssistantMessage, Message } from "@earendil-works/pi-ai";
 import {
   composeThetaFixture,
   type BodyExecutingConversationBinding,
@@ -87,10 +88,6 @@ function queryExpr(template: string): QueryExpr {
 
 function body(statements: readonly [] = [], tail: Expr | null = null): ThetaBody {
   return { statements, tail };
-}
-
-function userMessage(content: string): UserMessage {
-  return { role: "user", content, timestamp: 0 };
 }
 
 function assistantMessage(text: string): AssistantMessage {

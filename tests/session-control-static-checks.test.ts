@@ -30,13 +30,9 @@
 import { parseDeps as makeParseDeps } from "./helpers/e2e-s1";
 import { describe, expect, it } from "vitest";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { checkInvokeStaticResolution, type CalleeArity } from "../src/extension/invoke-static-checks";
-import type { ThetaCompositionInput } from "../src/extension/theta-composition-producer";
-import type { ParsedFrontmatter } from "../src/parser/frontmatter";
 import type { CallableSetSnapshot } from "../src/parser/callable-set";
-import type { Expr, ThetaBody } from "../src/parser/theta-document";
-import { FakeFileSystem } from "./helpers/fake-file-system";
-import { R, strExpr, withClause } from "./helpers/call-with-clause-harness";
+import type { Expr, LetStmt } from "../src/parser/theta-document";
+import { bodyOf, checkBody, R, strExpr, withClause } from "./helpers/call-with-clause-harness";
 import type { ThetaSource } from "../src/lexer/lexer";
 import { parseThetaDocument, type ThetaDocument } from "../src/parser/theta-document";
 
@@ -51,13 +47,9 @@ const NON_ORDERABLE_OPERANDS_CODE = "theta/parse/non-orderable-operands";
 // ===========================================================================
 
 /** A bare-ident `CallExpr` over a runtime-tool entry, with the given args. */
-function letCall(name: string, callee: string, args: readonly Expr[], clause?: ReturnType<typeof withClause>) {
+function letCall(name: string, callee: string, args: readonly Expr[], clause?: ReturnType<typeof withClause>): LetStmt {
   const call = { kind: "call", callee, args, range: R(), withClause: clause } as unknown as Expr;
   return { kind: "let", name, mutable: false, annotation: null, init: call, range: R() };
-}
-
-function bodyOf(...stmts: ReturnType<typeof letCall>[]): ThetaBody {
-  return { statements: stmts as unknown as ThetaBody["statements"], tail: null };
 }
 
 /** A `NumberExpr` integer literal. */
@@ -69,9 +61,6 @@ function intExpr(text: string): Expr {
 function objExpr(fields: readonly { readonly name: string; readonly value: Expr }[]): Expr {
   return { kind: "object", typeName: null, fields, range: R() } as unknown as Expr;
 }
-
-const EMPTY_GRAPH = { edges: new Map([["caller", []]]), unresolvable: new Set<string>() };
-const noArityResolution = (): Promise<CalleeArity | undefined> => Promise.resolve(undefined);
 
 /** A frozen callable set classifying the three RFC 0011 names as `kind: "runtime-tool"`
  * via a structural cast (the future `ResolvedRuntimeTool` union member does not
@@ -86,24 +75,6 @@ function runtimeToolCallableSet(): CallableSetSnapshot {
       ["session_name", { kind: "runtime-tool", name: "session_name" }],
     ]) as unknown as CallableSetSnapshot["entries"],
   } as unknown as CallableSetSnapshot;
-}
-
-async function checkBody(body: ThetaBody, callableSet: CallableSetSnapshot | undefined): Promise<string[]> {
-  const input: ThetaCompositionInput = {
-    slashName: "caller",
-    sourcePath: "/thetadir/caller.theta",
-    frontmatter: {} as unknown as ParsedFrontmatter,
-    body,
-  };
-  const deps = {
-    fs: new FakeFileSystem({ homedir: "/home/u", cwd: "/theta", files: {}, dirs: {} }),
-    activeRoots: ["/theta"],
-    graph: EMPTY_GRAPH,
-    resolveCalleeArity: noArityResolution,
-    ...(callableSet !== undefined ? { callableSet } : {}),
-  };
-  const diags = await checkInvokeStaticResolution(input, deps);
-  return diags.map((d) => d.code);
 }
 
 describe("RFC 0011 §5.2 — P1: default-partition arity is admitted (green control)", () => {

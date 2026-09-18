@@ -150,6 +150,7 @@ export function ctxDouble(): ExtensionCommandContext {
 }
 
 export interface ProducerOpts {
+  readonly root?: RuntimeRoot;
   readonly hostLoopDispatch?: (
     request: EncodedToolRequest,
     signal: AbortSignal,
@@ -162,7 +163,7 @@ export interface ProducerOpts {
 export function producer(opts: ProducerOpts) {
   return createProductionProducerDeps({
     pi: {} as unknown as ExtensionAPI,
-    root: rootDouble(),
+    root: opts.root ?? rootDouble(),
     modelRegistry: {} as unknown as ModelRegistry,
     ...(opts.hostLoopDispatch !== undefined ? { hostLoopDispatch: opts.hostLoopDispatch } : {}),
     ...(opts.dispatchLadderProbe !== undefined
@@ -182,14 +183,20 @@ export function snapshot(
   return Object.freeze({ entries: new Map(entries) });
 }
 
-/** A prompt-mode theta whose tail is the code-side tool call under test. */
-export function thetaWithSet(tail: Expr, callableSet: CallableSetSnapshot): ThetaCompositionInput {
-  const frontmatter: ParsedFrontmatter = { mode: "prompt" };
-  return {
+/** A prompt-mode theta over a callable-set snapshot, from a tail or a full body. */
+export function thetaWithSet(
+  tail: Expr | ThetaBody,
+  callableSet: CallableSetSnapshot,
+  identity: Pick<ThetaCompositionInput, "slashName" | "sourcePath"> = {
     slashName: "demo",
     sourcePath: "/theta/demo.theta",
+  },
+): ThetaCompositionInput {
+  const frontmatter: ParsedFrontmatter = { mode: "prompt" };
+  return {
+    ...identity,
     frontmatter,
-    body: body(tail),
+    body: "statements" in tail ? tail : body(tail),
     callableSet,
   };
 }
@@ -235,6 +242,36 @@ export function errOf(
       };
     }
   ).error;
+}
+
+/** A recording `pi-tool` snapshot entry capturing every dispatched params object. */
+export function recordingPiTool(toolName: string): {
+  readonly entry: ResolvedCallable;
+  readonly params: unknown[];
+} {
+  const params: unknown[] = [];
+  const dispatch: PiToolDispatch = {
+    toolName,
+    execute: (_id: string, p: unknown): Promise<AgentToolResultEnvelope> => {
+      params.push(p);
+      return Promise.resolve({ content: [{ type: "text", text: `${toolName}-out` }] });
+    },
+  };
+  return { entry: { kind: "pi-tool", toolDefinition: dispatch }, params };
+}
+
+/** Bind with the minimal, non-validating root and optional top-level params. */
+export function bind(
+  theta: ThetaCompositionInput,
+  paramBindings?: ReadonlyMap<string, ThetaValue>,
+) {
+  const bindInput: ConversationBindInput = {
+    theta,
+    args: "",
+    ctx: ctxDouble(),
+    ...(paramBindings !== undefined ? { paramBindings } : {}),
+  };
+  return producer({ root: rootWith(NOOP_CHECKPOINT) }).bindPromptConversation(bindInput);
 }
 
 /** A recording built-in-shaped entry: `{ toolName, parameters, execute }`. */

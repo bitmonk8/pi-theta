@@ -78,24 +78,18 @@
 // because (b) does not teach the seam about the carrier — under §Fix (c) both
 // would move.
 
+import { drivePromptAttach } from "./helpers/prompt-value-harness";
 import { describe, expect, it } from "vitest";
-import type {
-  ExtensionAPI,
-  ExtensionCommandContext,
-  ModelRegistry,
-} from "@earendil-works/pi-coding-agent";
+import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import type { ThetaSource } from "../src/lexer/lexer";
-import type { ParsedFrontmatter } from "../src/parser/frontmatter";
 import {
   parseThetaDocument,
   type EnumDecl,
   type SchemaDecl,
   type ThetaDocument,
 } from "../src/parser/theta-document";
-import { executeBody, type BodyExecution } from "../src/runtime/statement-executor";
 import {
   brandSchemaValue,
-  isResultValue,
   makeEnumValue,
   schemaTagOf,
   valuesEqual,
@@ -106,11 +100,6 @@ import { decodeInboundValue, declaredNames } from "../src/runtime/inbound-bounda
 import { enumDeclaringKey } from "../src/runtime/lexical-environment";
 import { lowerQueryResponseSchema } from "../src/runtime/query-schema-lowering";
 import { parseEnvelopeLine, serializeOkEnvelope } from "../src/runtime/subagent-envelope";
-import { createProductionProducerDeps } from "../src/extension/production-theta-producer";
-import type {
-  ConversationBindInput,
-  ThetaCompositionInput,
-} from "../src/extension/theta-composition-producer";
 import type { RuntimeRoot } from "../src/runtime-root";
 import { parseDeps } from "./helpers/e2e-s1";
 import { rootDouble as sharedRootDouble } from "./helpers/call-with-clause-harness";
@@ -249,64 +238,18 @@ async function driveTypedInvoke(input: {
   readonly callerDecls: string;
   readonly calleeBody: string;
 }): Promise<{ readonly result: ResultValue; readonly records: readonly ValidateRecord[] }> {
-  const calleeDoc = parseTheta("kidp.theta", PROMPT_FM + input.calleeBody);
-  const callee: ThetaCompositionInput = {
-    slashName: "kidp",
-    sourcePath: "/theta/kidp.theta",
-    frontmatter: calleeDoc.frontmatter as ParsedFrontmatter,
-    body: calleeDoc.body,
-  };
-  const recorder = new RecordingSchemaValidator(realAjvValidator());
-  const deps = createProductionProducerDeps({
-    // `getActiveTools` / `setActiveTools` satisfy the PIC-17 prompt→prompt
-    // suspend window (`runPromptSuspendInvoke`); `sendMessage` satisfies the
-    // theta-system-note channel.
-    pi: {
-      sendMessage: () => {},
-      getActiveTools: () => [],
-      setActiveTools: () => {},
-    } as unknown as ExtensionAPI,
-    root: rootDouble(recorder),
-    modelRegistry: {} as unknown as ModelRegistry,
-    // Bug 0293: the seam returns the three-arm `CalleeParseOutcome` verdict.
-    parseCallee: () => Promise.resolve({ kind: "ok" as const, input: callee }),
+  let recorder: RecordingSchemaValidator;
+  const result = await drivePromptAttach({
+    callerBody: input.callerDecls + `invoke<${input.annotation}>("${CALLEE_PATH}")\n`,
+    calleeBody: input.calleeBody,
+    parse: parseTheta,
+    root: () => {
+      recorder = new RecordingSchemaValidator(realAjvValidator());
+      return rootDouble(recorder);
+    },
+    ctx: ctxDouble(),
   });
-
-  const callerSrc =
-    PROMPT_FM + input.callerDecls + `invoke<${input.annotation}>("${CALLEE_PATH}")\n`;
-  const callerDoc = parseTheta("caller.theta", callerSrc);
-  const theta: ThetaCompositionInput = {
-    slashName: "caller",
-    sourcePath: "/theta/caller.theta",
-    frontmatter: callerDoc.frontmatter as ParsedFrontmatter,
-    body: callerDoc.body,
-  };
-  const bindInput: ConversationBindInput = { theta, args: "", ctx: ctxDouble() };
-  const binding = deps.bindPromptConversation(bindInput);
-  const execution = await executeBody(theta.body, binding.executeDeps);
-  return { result: boundaryResult(execution), records: recorder.records };
-}
-
-/**
- * The `Result` the tail `invoke<T>(...)` expression produced. A caller body that
- * did not reach its tail says nothing about the return boundary, so that is a
- * loud harness failure rather than a cell outcome.
- */
-function boundaryResult(execution: BodyExecution): ResultValue {
-  if (execution.outcome !== "success") {
-    throw new Error(
-      `precondition unmet: the caller body ended '${execution.outcome}' instead of reaching its ` +
-        `tail invoke — error ${JSON.stringify(execution.error)}`,
-    );
-  }
-  const tail = execution.result.value;
-  if (tail === undefined || !isResultValue(tail)) {
-    throw new Error(
-      `precondition unmet: the caller's tail value is not the invoke boundary Result — ` +
-        `${JSON.stringify(tail)}`,
-    );
-  }
-  return tail;
+  return { result, records: recorder!.records };
 }
 
 /** The `Err` payload rendered into an assertion message, so a red names the cause. */

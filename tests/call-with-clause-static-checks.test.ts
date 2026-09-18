@@ -26,17 +26,13 @@ import { afterEach, describe, expect, it } from "vitest";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import {
   buildInvokeGraph,
-  checkInvokeStaticResolution,
   type CalleeArity,
 } from "../src/extension/invoke-static-checks";
-import type { ThetaCompositionInput } from "../src/extension/theta-composition-producer";
-import type { ParsedFrontmatter } from "../src/parser/frontmatter";
 import type { CallableSetSnapshot } from "../src/parser/callable-set";
-import type { Expr, ThetaBody } from "../src/parser/theta-document";
+import type { Expr, LetStmt } from "../src/parser/theta-document";
 import type { ThetaFixture } from "../src/extension/factory";
 import { discoverAndComposeFixtures } from "../src/extension/production-composition";
-import { checkInvokeWithClause, R, strExpr, withClause, type FakeCallWithClause } from "./helpers/call-with-clause-harness";
-import { FakeFileSystem } from "./helpers/fake-file-system";
+import { bodyOf, checkBody, checkInvokeWithClause, R, strExpr, withClause, type FakeCallWithClause } from "./helpers/call-with-clause-harness";
 
 const WITH_CLAUSE_PROMPT_MODE_CALLEE_CODE = "theta/parse/with-clause-prompt-mode-callee";
 const WITH_CLAUSE_PI_TOOL_CODE = "theta/parse/with-clause-pi-tool";
@@ -44,38 +40,9 @@ const WITH_CLAUSE_IN_PROCESS_CALLEE_CODE = "theta/parse/with-clause-in-process-c
 const UNKNOWN_IDENTIFIER_CODE = "theta/parse/unknown-identifier";
 
 /** A bare-ident `CallExpr`, optionally carrying a cast `withClause`, as a `let` init (lands in `collectCallSites().callExprs`). */
-function letCall(name: string, callee: string, clause?: FakeCallWithClause) {
+function letCall(name: string, callee: string, clause?: FakeCallWithClause): LetStmt {
   const call = { kind: "call", callee, args: [], range: R(), withClause: clause } as unknown as Expr;
   return { kind: "let", name, mutable: false, annotation: null, init: call, range: R() };
-}
-
-function bodyOf(...stmts: ReturnType<typeof letCall>[]): ThetaBody {
-  return { statements: stmts as unknown as ThetaBody["statements"], tail: null };
-}
-
-const EMPTY_GRAPH = { edges: new Map([["caller", []]]), unresolvable: new Set<string>() };
-
-const noArityResolution = (): Promise<CalleeArity | undefined> => Promise.resolve(undefined);
-
-async function checkBody(
-  body: ThetaBody,
-  callableSet: CallableSetSnapshot | undefined,
-): Promise<string[]> {
-  const input: ThetaCompositionInput = {
-    slashName: "caller",
-    sourcePath: "/thetadir/caller.theta",
-    frontmatter: {} as unknown as ParsedFrontmatter,
-    body,
-  };
-  const deps = {
-    fs: new FakeFileSystem({ homedir: "/home/u", cwd: "/theta", files: {}, dirs: {} }),
-    activeRoots: ["/theta"],
-    graph: EMPTY_GRAPH,
-    resolveCalleeArity: noArityResolution,
-    ...(callableSet !== undefined ? { callableSet } : {}),
-  };
-  const diags = await checkInvokeStaticResolution(input, deps);
-  return diags.map((d) => d.code);
 }
 
 /** A frozen callable set classifying `helper` as a `.theta` callee (kind theta) and `read` as a Pi tool. */

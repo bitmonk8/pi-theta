@@ -1,29 +1,9 @@
 import { parseDoc } from "./helpers/e2e-s1";
+import { bind, recordingPiTool, snapshot, thetaWithSet } from "./helpers/tool-call-dispatch-harness";
 import { describe, expect, it } from "vitest";
-import type {
-  ExtensionAPI,
-  ExtensionCommandContext,
-  ModelRegistry,
-} from "@earendil-works/pi-coding-agent";
 import type { Diagnostic, SourceRange } from "../src/diagnostics/diagnostic";
-import type { ParsedFrontmatter } from "../src/parser/frontmatter";
 import { type ThetaBody, type ThetaDocument } from "../src/parser/theta-document";
-import type {
-  CallableSetSnapshot,
-  ResolvedCallable,
-} from "../src/parser/callable-set";
 import { executeBody, type ExecuteBodyDeps } from "../src/runtime/statement-executor";
-import type { Checkpoint } from "../src/seams/checkpoint";
-import {
-  createProductionProducerDeps,
-  type PiToolDispatch,
-} from "../src/extension/production-theta-producer";
-import type {
-  ConversationBindInput,
-  ThetaCompositionInput,
-} from "../src/extension/theta-composition-producer";
-import type { RuntimeRoot } from "../src/runtime-root";
-import type { AgentToolResultEnvelope } from "../src/runtime/tool-call-execute";
 import type { ThetaValue } from "../src/runtime/value";
 
 // Bug 0016 — a call to a lexically shadowed Pi-tool name dispatches the tool at
@@ -449,80 +429,7 @@ describe("bug 0016 parse layer — schema/enum names are not §Identifier-resolu
 // `read` → `executeBody(parsed.body, binding.executeDeps)`.
 // ===========================================================================
 
-const NOOP_CHECKPOINT: Checkpoint = {
-  before(): Promise<void> {
-    return Promise.resolve();
-  },
-};
-
-function rootDouble(): RuntimeRoot {
-  return {
-    checkpoint: NOOP_CHECKPOINT,
-    idSource: {
-      newInvocationId: () => "inv-1",
-      newToolCallId: () => "tc-1",
-    },
-  } as unknown as RuntimeRoot;
-}
-
-function ctxDouble(): ExtensionCommandContext {
-  return {} as unknown as ExtensionCommandContext;
-}
-
-function producer() {
-  return createProductionProducerDeps({
-    pi: {} as unknown as ExtensionAPI,
-    root: rootDouble(),
-    modelRegistry: {} as unknown as ModelRegistry,
-  });
-}
-
-/** A recording `pi-tool` snapshot entry capturing every dispatched params object. */
-function recordingPiTool(toolName: string): {
-  readonly entry: ResolvedCallable;
-  readonly params: unknown[];
-} {
-  const params: unknown[] = [];
-  const dispatch: PiToolDispatch = {
-    toolName,
-    execute: (_id: string, p: unknown): Promise<AgentToolResultEnvelope> => {
-      params.push(p);
-      return Promise.resolve({ content: [{ type: "text", text: `${toolName}-out` }] });
-    },
-  };
-  return { entry: { kind: "pi-tool", toolDefinition: dispatch }, params };
-}
-
-function snapshot(
-  entries: readonly (readonly [string, ResolvedCallable])[],
-): CallableSetSnapshot {
-  return Object.freeze({ entries: new Map(entries) });
-}
-
-/** A prompt-mode theta over a callable-set snapshot. */
-function thetaWithSet(programBody: ThetaBody, callableSet: CallableSetSnapshot): ThetaCompositionInput {
-  const frontmatter: ParsedFrontmatter = { mode: "prompt" };
-  return {
-    slashName: "bug0016",
-    sourcePath: "/theta/bug0016.theta",
-    frontmatter,
-    body: programBody,
-    callableSet,
-  };
-}
-
-function bind(
-  theta: ThetaCompositionInput,
-  paramBindings?: ReadonlyMap<string, ThetaValue>,
-) {
-  const bindInput: ConversationBindInput = {
-    theta,
-    args: "",
-    ctx: ctxDouble(),
-    ...(paramBindings !== undefined ? { paramBindings } : {}),
-  };
-  return producer().bindPromptConversation(bindInput);
-}
+const PRODUCER_IDENTITY = { slashName: "bug0016", sourcePath: "/theta/bug0016.theta" };
 
 interface RuntimeCell {
   readonly body: ThetaBody;
@@ -554,7 +461,7 @@ function bindParsedSource(
     "runtime-cell source parses clean apart from the bug-0016 parse codes",
   ).toEqual([]);
   const read = recordingPiTool("read");
-  const binding = bind(thetaWithSet(parsed.body, snapshot([["read", read.entry]])), paramBindings);
+  const binding = bind(thetaWithSet(parsed.body, snapshot([["read", read.entry]]), PRODUCER_IDENTITY), paramBindings);
   return { body: parsed.body, deps: binding.executeDeps, params: read.params };
 }
 

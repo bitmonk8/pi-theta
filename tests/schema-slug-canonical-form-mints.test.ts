@@ -2,13 +2,8 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
-import type {
-  EnumDecl,
-  SchemaDecl,
-  ThetaDocument,
-} from "../src/parser/theta-document";
+import type { ThetaDocument } from "../src/parser/theta-document";
 import { productionSchemaSlugOf } from "../src/extension/production-composition";
-import { lowerQueryResponseSchema } from "../src/runtime/query-schema-lowering";
 import {
   createRegistrationCache,
   registerToolInCache,
@@ -21,7 +16,7 @@ import {
   type LoweredSchema,
   type SchemaSlug,
 } from "../src/seams/schema-validator";
-import { parseDoc } from "./helpers/e2e-s1";
+import { parseAndLowerAnnotation, parseDoc } from "./helpers/e2e-s1";
 import { assertKeysSorted, compareCodePoint, slugOfCanonicalForm } from "./helpers/canonical-slug-oracle";
 
 // Bug 0099 — one canonical schema hash, three sites that do not compute it.
@@ -223,25 +218,20 @@ function diagLines(doc: ThetaDocument): string[] {
  * annotation itself (the same pair the typed-query mechanism drives).
  */
 function loweredAnnotation(cell: string, annotation: string, expectedCodes: readonly string[]): LoweredSchema {
-  const doc = parseDoc(
-    `---\nmode: prompt\n---\nlet r = @<${annotation}>\`hi\`\nr\n`,
-    "bug0099.theta",
-  );
-  expect(
-    doc.diagnostics.map((d) => d.code),
-    `${cell}: the fixture's disposition is a precondition of the slug claim — a differently ` +
-      `refused annotation lowers a different fragment; observed ${JSON.stringify(diagLines(doc))}`,
-  ).toEqual([...expectedCodes]);
-  const schemas = doc.body.statements.filter((s): s is SchemaDecl => s.kind === "schema");
-  const enums = doc.body.statements.filter((s): s is EnumDecl => s.kind === "enum");
-  const lowered = lowerQueryResponseSchema(annotation, schemas, enums);
-  if (lowered === undefined) {
-    throw new Error(
+  return parseAndLowerAnnotation(cell, annotation, {
+    source: `---\nmode: prompt\n---\nlet r = @<${annotation}>\`hi\`\nr\n`,
+    path: "bug0099.theta",
+    assertDiagnostics: (doc) => {
+      expect(
+        doc.diagnostics.map((d) => d.code),
+        `${cell}: the fixture's disposition is a precondition of the slug claim — a differently ` +
+          `refused annotation lowers a different fragment; observed ${JSON.stringify(diagLines(doc))}`,
+      ).toEqual([...expectedCodes]);
+    },
+    missingMessage:
       `${cell}: \`@<${annotation}>\` lowered to NOTHING, so there is no fragment for ` +
         `schema-subset.md:98 to hash and no respond tool to name`,
-    );
-  }
-  return lowered;
+  });
 }
 
 // ===========================================================================

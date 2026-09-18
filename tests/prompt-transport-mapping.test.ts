@@ -15,8 +15,9 @@
 //     value with an un-coerced empty `message` (PIC-50).
 // No test reds on a compile error, a missing fixture, or a harness throw.
 
+import { user as userMessage, assistantMessage } from "./helpers/agent-message-fixtures";
 import { describe, expect, it } from "vitest";
-import type { AssistantMessage, Message, UserMessage } from "@earendil-works/pi-ai";
+import type { Message } from "@earendil-works/pi-ai";
 import {
   extractPromptModeQueryResult,
   mapPromptModeSyncThrow,
@@ -24,46 +25,6 @@ import {
   type PromptModeQueryResult,
 } from "../src/runtime/prompt-transport-mapping";
 import type { TransportError } from "../src/runtime/query-error";
-
-// ---------------------------------------------------------------------------
-// pi-ai Message builders.
-// ---------------------------------------------------------------------------
-
-function userMessage(content: string): UserMessage {
-  return { role: "user", content, timestamp: 0 };
-}
-
-/**
- * An assistant message carrying the given `text` and a chosen `stopReason` /
- * optional `errorMessage`. Used to build the driven turn's trailing `assistant`
- * message the post-`waitForIdle()` probe reads.
- */
-function assistantMessage(opts: {
-  text?: string;
-  stopReason: AssistantMessage["stopReason"];
-  errorMessage?: string;
-}): AssistantMessage {
-  const base: AssistantMessage = {
-    role: "assistant",
-    content: opts.text === undefined ? [] : [{ type: "text", text: opts.text }],
-    api: "anthropic-messages",
-    provider: "anthropic",
-    model: "claude-test",
-    usage: {
-      input: 0,
-      output: 0,
-      cacheRead: 0,
-      cacheWrite: 0,
-      totalTokens: 0,
-      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
-    },
-    stopReason: opts.stopReason,
-    timestamp: 0,
-  };
-  return opts.errorMessage === undefined
-    ? base
-    : { ...base, errorMessage: opts.errorMessage };
-}
 
 /** Narrow a `PromptModeQueryResult` to its `Err` arm, failing loudly otherwise. */
 function expectErr(result: PromptModeQueryResult): Extract<

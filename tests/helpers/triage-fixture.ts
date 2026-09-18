@@ -8,5 +8,8 @@ export const TRIAGE_DEF = {
   additionalProperties: false,
 };
 
+/** The declared type every control that names Triage resolves against. */
+export const DECLS = "schema Triage { urgent: boolean }\n";
+
 /** A Triage declaration followed by one binding, shared by params fixtures. */
-export const BODY = "schema Triage { urgent: boolean }\nlet x = 1\n";
+export const BODY = `${DECLS}let x = 1\n`;

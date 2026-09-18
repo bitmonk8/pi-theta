@@ -11,7 +11,7 @@ import {
   type LoweredSchema,
   type SchemaSlug,
 } from "../src/seams/schema-validator";
-import { parseDoc } from "./helpers/e2e-s1";
+import { yamlQuoted, parseAndLowerAnnotation, parseDoc } from "./helpers/e2e-s1";
 
 // Bug 0164 — `lowerTypeExpr` recurses a GENERIC's ARGUMENT through ITSELF and
 // never through the literal sublanguage, so `array<"x" | "y">` lowers
@@ -158,17 +158,6 @@ type Position = (typeof POSITIONS)[number];
 
 /** The three positions that hoist an inline object under a minted `$defs` name. */
 const HOISTING_POSITIONS = ["params", "field", "alias"] as const;
-
-/**
- * A theta-side literal carries theta-side quotes, so a `params:` entry wraps the
- * whole type expression in a YAML single-quoted scalar. The unquoted spelling is
- * not valid YAML and collapses the load to `theta/load/malformed-frontmatter-yaml`
- * (bug 0263), which is a different frame (the spelling discipline
- * `tests/params-literal-sublanguage-lowering.test.ts` established).
- */
-function yamlQuoted(typeSource: string): string {
-  return `'${typeSource.replace(/'/g, "''")}'`;
-}
 
 function diagLines(doc: ThetaDocument): string[] {
   return doc.diagnostics.map((d) => `${d.severity} ${d.code}: ${d.message}`);
@@ -1382,22 +1371,20 @@ describe("bug 0164 (f) — the enforcing `items` reaches the model-facing schema
 describe("bug 0164 (g) — the respond tool's name moves with the lowered annotation", () => {
   /** The lowered annotation document, loud on an absent lowering. */
   function loweredAnnotation(cell: string, annotation: string): LoweredSchema {
-    const doc = parseDoc(`---\nmode: prompt\n---\n${DECLS}let inert = 1\ninert\n`, "bug0164.theta");
-    expect(
-      diagLines(doc),
-      `${cell}: the declaration fixture must load clean or nothing resolves; observed ` +
-        `${JSON.stringify(diagLines(doc))}`,
-    ).toEqual([]);
-    const schemas = doc.body.statements.filter((s): s is SchemaDecl => s.kind === "schema");
-    const enums = doc.body.statements.filter((s): s is EnumDecl => s.kind === "enum");
-    const lowered = lowerQueryResponseSchema(annotation, schemas, enums);
-    if (lowered === undefined) {
-      throw new Error(
+    return parseAndLowerAnnotation(cell, annotation, {
+      source: `---\nmode: prompt\n---\n${DECLS}let inert = 1\ninert\n`,
+      path: "bug0164.theta",
+      assertDiagnostics: (doc) => {
+        expect(
+          diagLines(doc),
+          `${cell}: the declaration fixture must load clean or nothing resolves; observed ` +
+            `${JSON.stringify(diagLines(doc))}`,
+        ).toEqual([]);
+      },
+      missingMessage:
         `${cell}: \`@<${annotation}>\` produced no lowered document, so there is no fragment to ` +
           `register a respond tool over and nothing for the model to be constrained by`,
-      );
-    }
-    return lowered;
+    });
   }
 
   for (const [cell, annotation, expectedBytes, canonicalBytes, headSlug, why] of RESPOND_ROWS) {

@@ -111,10 +111,11 @@
 // integration witness `tests/subagent-invoke-nonfinite-return-refusal.test.ts`
 // (its `negVal` cell at `:541`), which this file deliberately leaves alone.
 //
-// HARNESS PROVENANCE — nothing new is invented here. `driveChildRoot`,
-// `soleEnvelope`, `driveDetail`, `parseTheta`, `realAjvValidator`, `rootDouble`,
-// `loweredFor` and the prompt-leg drive are
-// `tests/subagent-envelope-nonfinite-ok-refusal.test.ts`'s harness, reproduced
+// HARNESS PROVENANCE — `driveChildRoot`, `soleEnvelope`, `driveDetail`,
+// `parseTheta` and `envelopeRootDouble` are shared through
+// `tests/helpers/subagent-fn-child-regime.ts`; `realAjvValidator` imports `ajv`
+// from `tests/helpers/scripted-live-session-harness.ts`. `loweredFor` and the
+// prompt-leg drive follow `tests/subagent-envelope-nonfinite-ok-refusal.test.ts`
 // with the same construction (the regime is selected by `subagentRootRegime`
 // naming the theta's slug, an injected `emitResultEnvelope` captures the line,
 // and a REAL `AjvSchemaValidator` sits on the runtime root so the drive's own
@@ -128,27 +129,25 @@
 // (`docs/bugs/0134-params-shift-induced-stale-citations.md`): the file is >6000
 // lines and every landed fix inserts into it.
 
+import { drivePromptAttach, promptOutcome as renderPromptOutcome } from "./helpers/prompt-value-harness";
+import { parseDeps } from "./helpers/e2e-s1";
+import { ajv as realAjvValidator } from "./helpers/scripted-live-session-harness";
+import {
+  driveChildRoot as driveEnvelopeChildRoot,
+  soleEnvelope,
+  driveDetail,
+  type ChildDrive,
+  parseTheta,
+  envelopeRootDouble as rootDouble,
+} from "./helpers/subagent-fn-child-regime";
 import { describe, expect, it } from "vitest";
-import type {
-  ExtensionAPI,
-  ExtensionCommandContext,
-  ModelRegistry,
-} from "@earendil-works/pi-coding-agent";
-import type { ThetaSource } from "../src/lexer/lexer";
-import type { Diagnostic } from "../src/diagnostics/diagnostic";
-import type { SystemNoteChannelDeps } from "../src/extension/system-note-channel";
-import type { ModelReferenceMatcher, ParsedFrontmatter } from "../src/parser/frontmatter";
 import {
   parseThetaDocument,
   type EnumDecl,
-  type ParseThetaDocumentDeps,
   type SchemaDecl,
-  type ThetaDocument,
 } from "../src/parser/theta-document";
-import { executeBody, type BodyExecution } from "../src/runtime/statement-executor";
 import { evaluateSource, type EvalHost } from "../src/runtime/expression-evaluator";
 import {
-  isResultValue,
   makeEnumValue,
   makeOk,
   valuesEqual,
@@ -168,19 +167,7 @@ import {
 } from "../src/runtime/subagent-envelope";
 import { renderCanonicalNumber } from "../src/render/canonical-number";
 import { stringifyInterpolatedValue } from "../src/render/query-render";
-import { createProductionProducerDeps } from "../src/extension/production-theta-producer";
-import type {
-  ConversationBindInput,
-  ThetaCompositionInput,
-} from "../src/extension/theta-composition-producer";
-import type { RuntimeRoot } from "../src/runtime-root";
-import type { Checkpoint } from "../src/seams/checkpoint";
-import {
-  AjvSchemaValidator,
-  type LoweredSchema,
-  type SchemaSlug,
-  type SchemaValidator,
-} from "../src/seams/schema-validator";
+import type { LoweredSchema } from "../src/seams/schema-validator";
 
 // ===========================================================================
 // Shared constants and sign-legible rendering.
@@ -189,7 +176,6 @@ import {
 const CALLEE_PATH = "./kid.theta";
 
 const PROMPT_FM = "---\nmode: prompt\n---\n";
-const SUBAGENT_FM = "---\nmode: subagent\n---\n";
 
 const NBOX_DECL = "schema NBox { n: number | null, who: string }\n";
 
@@ -266,74 +252,8 @@ function memberAt(value: unknown, path: readonly (string | number)[], label: str
 
 // ===========================================================================
 // Harness — the real parse, the real AJV seam, the real production bindings.
-// Reproduced from `tests/subagent-envelope-nonfinite-ok-refusal.test.ts`.
+// Shared through `tests/helpers/subagent-fn-child-regime.ts`.
 // ===========================================================================
-
-function parseDeps(): ParseThetaDocumentDeps {
-  const systemNote: SystemNoteChannelDeps = {
-    pi: { sendMessage: (): void => {} },
-    ui: { notify: (): void => {} },
-    emitDiagnostic: (): void => {},
-  };
-  const modelMatcher: ModelReferenceMatcher = { resolve: (): "resolved" => "resolved" };
-  return { systemNote, modelMatcher };
-}
-
-/**
- * Parse a fixture and fail LOUDLY on any error-severity diagnostic — a fixture
- * that stops parsing must never let a bug test pass, or red, for the wrong
- * reason (*No silent test skipping*). Every body below is measured to load with
- * `[]` diagnostics, which is this report's own premise: `-0` is minted from
- * clean source (`docs/spec_topics/expressions.md:232`).
- */
-function parseTheta(path: string, src: string): ThetaDocument {
-  const source: ThetaSource = { path, bytes: new TextEncoder().encode(src) };
-  const doc = parseThetaDocument(source, parseDeps());
-  const errors = doc.diagnostics.filter((d) => d.severity === "error");
-  if (errors.length > 0) {
-    throw new Error(
-      `precondition unmet: fixture ${path} failed to parse — ` +
-        `${errors.map((d) => `${d.code}: ${d.message}`).join("; ")}`,
-    );
-  }
-  return doc;
-}
-
-const NOOP_CHECKPOINT: Checkpoint = {
-  before(): Promise<void> {
-    return Promise.resolve();
-  },
-};
-
-/**
- * The production AJV validator, wired with the same `JSON.stringify`
- * content-addressing the shipped composition root uses. The seam's
- * `{ strict: false, allErrors: true, logger: false }` construction
- * (`src/seams/schema-validator.ts:112`) is what decides both legs' verdicts, so
- * a stub validator would decide part of the very thing under test.
- */
-function realAjvValidator(): AjvSchemaValidator {
-  return new AjvSchemaValidator({
-    emit: (): void => {},
-    slugOf: (schema: LoweredSchema): SchemaSlug => {
-      const canonicalBytes = JSON.stringify(schema);
-      return { slug: canonicalBytes, canonicalBytes };
-    },
-  });
-}
-
-function rootDouble(schemaValidator: SchemaValidator): RuntimeRoot {
-  return {
-    checkpoint: NOOP_CHECKPOINT,
-    idSource: { newInvocationId: () => "inv-1", newToolCallId: () => "tc-1" },
-    clock: {
-      wallNow: () => 0,
-      setTimeout: (fn: () => void, ms: number) => setTimeout(fn, ms),
-      clearTimeout: (h: unknown) => clearTimeout(h as ReturnType<typeof setTimeout>),
-    },
-    schemaValidator,
-  } as unknown as RuntimeRoot;
-}
 
 /** The real lowering, over the declarations the runtime reads off the body statements. */
 function loweredFor(annotation: string): LoweredSchema {
@@ -407,78 +327,22 @@ async function drivePromptLeg(input: {
   readonly callerBody: string;
   readonly calleeBody: string;
 }): Promise<ResultValue> {
-  const calleeDoc = parseTheta("kidp.theta", PROMPT_FM + input.calleeBody);
-  const callee: ThetaCompositionInput = {
-    slashName: "kidp",
-    sourcePath: "/theta/kidp.theta",
-    frontmatter: calleeDoc.frontmatter as ParsedFrontmatter,
-    body: calleeDoc.body,
-  };
-  const deps = createProductionProducerDeps({
-    // `getActiveTools` / `setActiveTools` satisfy the PIC-17 prompt→prompt
-    // suspend window; `sendMessage` satisfies the theta-system-note channel.
-    pi: {
-      sendMessage: () => {},
-      getActiveTools: () => [],
-      setActiveTools: () => {},
-    } as unknown as ExtensionAPI,
-    root: rootDouble(realAjvValidator()),
-    modelRegistry: {} as unknown as ModelRegistry,
-    // Bug 0293: the seam returns the three-arm `CalleeParseOutcome` verdict.
-    parseCallee: () => Promise.resolve({ kind: "ok" as const, input: callee }),
+  return drivePromptAttach({
+    ...input,
+    parse: parseTheta,
+    root: () => rootDouble(realAjvValidator()),
+    boundaryKind: "tail",
   });
-
-  const callerDoc = parseTheta("caller.theta", PROMPT_FM + input.callerBody);
-  const theta: ThetaCompositionInput = {
-    slashName: "caller",
-    sourcePath: "/theta/caller.theta",
-    frontmatter: callerDoc.frontmatter as ParsedFrontmatter,
-    body: callerDoc.body,
-  };
-  const bindInput: ConversationBindInput = {
-    theta,
-    args: "",
-    ctx: {} as unknown as ExtensionCommandContext,
-  };
-  const binding = deps.bindPromptConversation(bindInput);
-  return boundaryResult(await executeBody(theta.body, binding.executeDeps));
-}
-
-/**
- * The `Result` the caller's tail produced. A caller body that did not reach its
- * tail says nothing about the return boundary, so that is a loud harness failure
- * rather than a cell outcome.
- */
-function boundaryResult(execution: BodyExecution): ResultValue {
-  if (execution.outcome !== "success") {
-    throw new Error(
-      `precondition unmet: the caller body ended '${execution.outcome}' instead of reaching its ` +
-        `tail — error ${JSON.stringify(execution.error)}`,
-    );
-  }
-  const tail = execution.result.value;
-  if (tail === undefined || !isResultValue(tail)) {
-    throw new Error(
-      `precondition unmet: the caller's tail value is not the boundary Result — ` +
-        `${JSON.stringify(tail)}`,
-    );
-  }
-  return tail;
 }
 
 /** The prompt leg's outcome rendered for an assertion message, signed zeros intact. */
 function promptOutcome(result: ResultValue): string {
-  return result.ok ? `Ok(${render(result.value)})` : `Err(${JSON.stringify(result.error)})`;
+  return renderPromptOutcome(result, render);
 }
 
 // ---------------------------------------------------------------------------
 // The shipped child-side envelope writer, driven in-process.
 // ---------------------------------------------------------------------------
-
-interface ChildDrive {
-  readonly lines: readonly string[];
-  readonly diagnostics: readonly Diagnostic[];
-}
 
 /**
  * Drive the SHIPPED child-side writer `driveSubagentRootRegime`
@@ -491,62 +355,7 @@ interface ChildDrive {
  * refusal.
  */
 async function driveChildRoot(body: string): Promise<ChildDrive> {
-  const doc = parseTheta("worker.theta", SUBAGENT_FM + body);
-  const lines: string[] = [];
-  const diagnostics: Diagnostic[] = [];
-  const deps = createProductionProducerDeps({
-    pi: { sendMessage: (): void => {}, getAllTools: () => [] } as unknown as ExtensionAPI,
-    root: rootDouble(realAjvValidator()),
-    modelRegistry: {
-      getAvailable: () => [{ id: "claude-test", provider: "anthropic" }],
-    } as unknown as ModelRegistry,
-    subagentParentEnv: {},
-    subagentRootRegime: { active: true, slug: "worker" },
-    emitResultEnvelope: (line: string): void => {
-      lines.push(line);
-    },
-    emitDiagnostic: (diagnostic: Diagnostic): void => {
-      diagnostics.push(diagnostic);
-    },
-  });
-  const theta = {
-    slashName: "worker",
-    sourcePath: CALLEE_PATH,
-    frontmatter: doc.frontmatter as ParsedFrontmatter,
-    body: doc.body,
-    callableSet: { entries: new Map() },
-  } as unknown as ThetaCompositionInput;
-  await deps.driveSubagentRootRegime?.({
-    theta,
-    args: "",
-    ctx: {
-      model: { id: "claude-test", provider: "anthropic" },
-      cwd: "/tmp",
-      // The child's own (empty) host session — the regime drives against it.
-      sessionManager: { getEntries: () => [], getLeafId: () => undefined },
-    } as unknown as ExtensionCommandContext,
-    thetaAbort: new AbortController(),
-  } as ConversationBindInput);
-  return { lines, diagnostics };
-}
-
-/** The single envelope line the drive wrote, or a loud failure naming what it wrote instead. */
-function soleEnvelope(drive: ChildDrive): EnvelopeParse {
-  if (drive.lines.length !== 1) {
-    throw new Error(
-      `precondition unmet: PIC-59 fixes ONE theta_result line per process; the drive wrote ` +
-        `${drive.lines.length} — ${JSON.stringify(drive.lines)}`,
-    );
-  }
-  return parseEnvelopeLine((drive.lines[0] as string).trimEnd());
-}
-
-/** The drive's whole observable surface rendered for an assertion message. */
-function driveDetail(drive: ChildDrive): string {
-  return (
-    ` — observed envelope lines ${JSON.stringify(drive.lines)}, diagnostics ` +
-    `${JSON.stringify(drive.diagnostics)}`
-  );
+  return driveEnvelopeChildRoot(body, CALLEE_PATH);
 }
 
 // ===========================================================================

@@ -86,6 +86,8 @@ export function makeInertSdkMembers() {
 }
 
 export interface HostOptions {
+  /** Supply a registry snapshot, optionally recording each read. */
+  readonly getAllTools?: () => readonly unknown[];
   /** Runs after recording each send; may throw to simulate failed delivery. */
   readonly onSendMessage?: (message: RecordedNote) => void;
   /** Runs after recording each toast; may throw to simulate an unavailable UI. */
@@ -100,6 +102,7 @@ export function makeHost(cwd: string, opts: HostOptions = {}): HostDouble {
 
   const pi = {
     ...makeInertSdkMembers(),
+    ...(opts.getAllTools === undefined ? {} : { getAllTools: opts.getAllTools }),
     registerFlag: (): void => {},
     getCommands: (): readonly { name: string; source: string }[] => [],
     on: (event: string, handler: PiHandler): void => {
@@ -244,8 +247,10 @@ export interface LoadPass {
  * UNDEGRADED `RendererGate`, so every note takes the transcript
  * (`pi.sendMessage`) arm the author reads.
  */
-export async function runLoadPass(workspace: Pick<ComposeWorkspace, "cwd">): Promise<LoadPass> {
-  const host = makeHost(workspace.cwd);
+export async function runLoadPass(
+  workspace: Pick<ComposeWorkspace, "cwd">,
+  host: HostDouble = makeHost(workspace.cwd),
+): Promise<LoadPass> {
   const wiring = await composeExtensionInstance(host.pi, host.ctx, undefined, new RendererGate());
   return {
     notes: host.notes.filter((n) => n.customType === SYSTEM_NOTE_CHANNEL),

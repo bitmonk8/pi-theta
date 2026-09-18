@@ -8,13 +8,12 @@ import type { BypassParamsField } from "../src/binder/binder-envelope";
 import { renderBinderParamLine } from "../src/binder/binder-system-prompt";
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
 import type { SchemaDecl, ThetaDocument } from "../src/parser/theta-document";
-import { lowerQueryResponseSchema } from "../src/runtime/query-schema-lowering";
 import {
   AjvSchemaValidator,
   type LoweredSchema,
   type SchemaSlug,
 } from "../src/seams/schema-validator";
-import { loadSchemaDecls, parseDoc, fieldOf } from "./helpers/e2e-s1";
+import { loweredAnnotation as lowerAnnotation, loadSchemaDecls, parseDoc, fieldOf } from "./helpers/e2e-s1";
 import { assertKeysSorted, inlineDefName, slugOfCanonicalForm, refNames } from "./helpers/canonical-slug-oracle";
 
 // Bug 0097 — the `params:` right-hand side keeps a naive
@@ -428,19 +427,12 @@ function schemaDeclsOf(body: string): readonly SchemaDecl[] {
 /** The declaration set an inline annotation resolves against. */
 const TRIAGE_DECLS = schemaDeclsOf(BODY);
 
-/**
- * The lowered response schema for an annotation, or a loud failure.
- * `undefined` is reserved for the EMPTY annotation alone, so it is a harness
- * error here rather than a fixture outcome.
- */
+/** Lower against this fixture's declaration set. */
 function loweredAnnotation(label: string, annotation: string): LoweredSchema {
-  const lowered = lowerQueryResponseSchema(annotation, TRIAGE_DECLS);
-  if (lowered === undefined) {
-    throw new Error(
-      `${label}: \`@<${annotation}>\` lowered to nothing, so there is no reference document to compare the \`params:\` position against`,
-    );
-  }
-  return lowered;
+  return lowerAnnotation(
+    label, annotation, TRIAGE_DECLS, [],
+    `${label}: \`@<${annotation}>\` lowered to nothing, so there is no reference document to compare the \`params:\` position against`,
+  );
 }
 
 /** A parsed, cleanly-lowered `params:` block. */

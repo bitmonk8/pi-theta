@@ -5,7 +5,6 @@ import { REGISTRY } from "./helpers/registry-oracle";
 import { collectUnresolvedNamedTypes } from "../src/parser/body-type-lowering";
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
 import type { SchemaDecl, ThetaDocument } from "../src/parser/theta-document";
-import { lowerQueryResponseSchema } from "../src/runtime/query-schema-lowering";
 import { respondSchemaIsEnveloped, respondToolWireSchema } from "../src/runtime/respond-tool-wire";
 import { respondSchemaSlug } from "../src/runtime/typed-query-validation";
 import {
@@ -13,7 +12,7 @@ import {
   type LoweredSchema,
   type SchemaSlug,
 } from "../src/seams/schema-validator";
-import { loadSchemaDecls, loadCleanly as loadCleanlyShared, parseDoc, type LoadedParams } from "./helpers/e2e-s1";
+import { loweredAnnotation as lowerAnnotation, loadSchemaDecls, loadCleanly as loadCleanlyShared, parseDoc, type LoadedParams } from "./helpers/e2e-s1";
 import { assertKeysSorted, inlineDefName, slugOfCanonicalForm, refNames } from "./helpers/canonical-slug-oracle";
 
 // Bug 0053 — `lowerQueryResponseSchema`'s ROOT brace dispatch is a
@@ -436,23 +435,13 @@ function schemaDeclsOf(body: string): readonly SchemaDecl[] {
 /** The `schema Triage { urgent: boolean }` declaration set an inline annotation resolves against. */
 const TRIAGE_DECLS = schemaDeclsOf(`${TRIAGE_BODY}let x = 1\n`);
 
-/**
- * The lowered response schema for an annotation, or a loud failure.
- * `undefined` is reserved for the EMPTY annotation alone, so it is a harness
- * error here rather than a fixture outcome.
- */
+/** Lower against this fixture's declaration set. */
 function loweredAnnotation(
   label: string,
   annotation: string,
   decls: readonly SchemaDecl[] = TRIAGE_DECLS,
 ): LoweredSchema {
-  const lowered = lowerQueryResponseSchema(annotation, decls);
-  if (lowered === undefined) {
-    throw new Error(
-      `${label}: \`@<${annotation}>\` lowered to nothing, so QRY-22 would bind an UNVALIDATED response; only the empty annotation may lower to undefined`,
-    );
-  }
-  return lowered;
+  return lowerAnnotation(label, annotation, decls);
 }
 
 /** This file's binding of the shared `tests/helpers/e2e-s1.ts` `loadCleanly` harness. */

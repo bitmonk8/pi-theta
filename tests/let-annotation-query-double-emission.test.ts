@@ -54,7 +54,7 @@ import { describe, expect, it } from "vitest";
 // @ts-expect-error — JS code-registry module, no type declarations.
 import { registryMessage } from "../tools/code-registry/index.js";
 import type { ThetaDocument } from "../src/parser/theta-document";
-import { parseDoc } from "./helpers/e2e-s1";
+import { collectByKind, parseDoc } from "./helpers/e2e-s1";
 
 // ===========================================================================
 // The codes under assertion, checked against the registry before use (DIAG-2).
@@ -162,21 +162,7 @@ function expectTable(
  * silently, and group (g) reds on it instead.
  */
 function querySchemas(src: string): unknown[] {
-  const found: unknown[] = [];
-  const seen = new Set<object>();
-  const walk = (node: unknown): void => {
-    if (node === null || typeof node !== "object") return;
-    if (seen.has(node as object)) return;
-    seen.add(node as object);
-    const record = node as Record<string, unknown>;
-    if (record.kind === "query") found.push(record.schema);
-    for (const value of Object.values(record)) {
-      if (Array.isArray(value)) value.forEach(walk);
-      else walk(value);
-    }
-  };
-  walk(parseDoc(src, "bug0093.theta").body as unknown);
-  return found;
+  return collectByKind(parseDoc(src, "bug0093.theta").body, "query").map((record) => record.schema);
 }
 
 // ===========================================================================

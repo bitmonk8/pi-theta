@@ -1,15 +1,23 @@
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 // @ts-expect-error — JS code-registry module, no type declarations.
-import { parseRegistry, registryMessage } from "../tools/code-registry/index.js";
-import type { Diagnostic } from "../src/diagnostics/diagnostic";
-import { composeExtensionInstance } from "../src/extension/production-composition";
-import { RendererGate, SYSTEM_NOTE_CHANNEL } from "../src/extension/system-note-channel";
-import type { ParsedTheta } from "../src/extension/reload-wiring";
+import { parseRegistry } from "../tools/code-registry/index.js";
+import {
+  makeHost as makeHostCore,
+  finishWorkspace,
+  normalisePath,
+  runLoadPass as runLoadPassCore,
+  allDiagnostics,
+  describeNotes,
+  requireDriven as requireDrivenCore,
+  normativeMessagePattern as normativeMessagePatternCore,
+  type HostDouble as BaseHostDouble,
+  type ComposeWorkspace,
+  type LoadPass as BaseLoadPass,
+} from "./helpers/compose-workspace-harness";
 
 // Bug 0276 — the `callee-has-errors` depth walk bounds termination but not cost:
 // a subtree named by two callers is judged once per simple path that reaches it,
@@ -104,10 +112,8 @@ import type { ParsedTheta } from "../src/extension/reload-wiring";
 // provider, no child process, no live model. The seam is one predicate inside
 // the shipped composition root, and `composeExtensionInstance` over planted
 // files reaches it directly, so neither an integration nor a live tier is
-// needed. The harness (`makeHost` / `plantWorkspace` / `runLoadPass`) is
-// modelled on, and duplicated from rather than shared with,
-// `tests/grandchild-callee-drop-un-registers-depth-two-caller.test.ts`, bug
-// 0271's landed witness, which this file neither reads from nor mutates.
+// needed. The harness extends `tests/helpers/compose-workspace-harness.ts`
+// with the frozen registry snapshot and judgement counter this witness needs.
 //
 // PATH SEPARATORS. Every path comparison below separator-normalises both sides
 // first; the spelling divergence itself is bug 0268's subject and is neither
@@ -367,101 +373,33 @@ const REGISTRY = ["code-registry-parse.md", "code-registry-load.md"].flatMap(
  * against `undefined`.
  */
 function normativeMessagePattern(code: string): RegExp {
-  const message = registryMessage(REGISTRY, code) as string | undefined;
-  if (typeof message !== "string" || message.length === 0) {
-    throw new Error(
-      "harness: the docs/spec_topics/diagnostics/ registry pages carry no Message row for " +
-        `${code} — the DIAG-4 column is this file's only message oracle, so a missing row ` +
-        "is a harness failure, never a skip",
-    );
-  }
-  const escaped = message.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  return new RegExp(escaped.replace(/<[a-z-]+>/g, ".+"));
+  return normativeMessagePatternCore(REGISTRY, code);
 }
 
 // ── Host doubles ────────────────────────────────────────────────────────────
 
-type PiHandler = (event: unknown, ctx: ExtensionContext) => unknown;
-
-interface RecordedNote {
-  readonly customType: string;
-  readonly content: string;
-  readonly details: unknown;
-}
-
-interface HostDouble {
-  readonly pi: ExtensionAPI;
-  readonly ctx: ExtensionContext;
-  readonly notes: RecordedNote[];
-  readonly notified: Array<readonly [string, string]>;
+interface HostDouble extends BaseHostDouble {
   /** How many times the composition root read the registry snapshot. */
   readonly snapshotReads: { count: number };
 }
 
 function makeHost(cwd: string): HostDouble {
-  const notes: RecordedNote[] = [];
-  const notified: Array<readonly [string, string]> = [];
   const snapshotReads = { count: 0 };
   // One frozen array, returned by reference on every read, so a store keyed on
   // the snapshot's IDENTITY sees one snapshot for the whole pass rather than a
   // fresh object per call. The counter is the cost observable; the identity is
   // what keeps the observable honest under a memo keyed that way.
   const snapshot: readonly unknown[] = Object.freeze([PROBE_TOOL]);
-  const handlers = new Map<string, PiHandler>();
-
-  const pi = {
-    registerFlag: (): void => {},
-    getFlag: (): undefined => undefined,
-    getCommands: (): readonly { name: string; source: string }[] => [],
-    on: (event: string, handler: PiHandler): void => {
-      handlers.set(event, handler);
-    },
-    registerCommand: (): void => {},
-    sendUserMessage: (): void => {},
-    registerTool: (): void => {},
-    setActiveTools: (): void => {},
-    getActiveTools: (): readonly unknown[] => [],
+  const host = makeHostCore(cwd, {
     getAllTools: (): readonly unknown[] => {
       snapshotReads.count += 1;
       return snapshot;
     },
-    registerMessageRenderer: (): void => {},
-    sendMessage: (message: { customType: string; content: string; details: unknown }): void => {
-      notes.push({
-        customType: message.customType,
-        content: message.content,
-        details: message.details,
-      });
-    },
-  } as unknown as ExtensionAPI;
-
-  const ctx = {
-    cwd,
-    hasUI: false,
-    modelRegistry: { getAvailable: (): readonly unknown[] => [] },
-    ui: {
-      notify: (message: string, type: "error"): void => {
-        notified.push([message, type]);
-      },
-    },
-  } as unknown as ExtensionContext;
-
-  return { pi, ctx, notes, notified, snapshotReads };
+  });
+  return { ...host, snapshotReads };
 }
 
 // ── The workspace ───────────────────────────────────────────────────────────
-
-interface ComposeWorkspace {
-  readonly cwd: string;
-  /** Absolute, separator-normalised path of a file planted on the project source. */
-  path: (name: string) => string;
-  readonly dispose: () => void;
-}
-
-/** Separator-normalise a path so Win32 `\` and POSIX `/` spellings compare. */
-function normalisePath(path: string): string {
-  return path.replace(/\\/g, "/");
-}
 
 /**
  * Plant the named fixture files on the conventional project source
@@ -475,27 +413,12 @@ function plantWorkspace(files: Readonly<Record<string, string>>): ComposeWorkspa
   for (const [name, body] of Object.entries(files)) {
     writeFileSync(join(cwd, ".pi", "theta", name), body, "utf8");
   }
-  // A minimal valid settings file pins the fixture's settings read to a known
-  // value. An ABSENT settings file is silent (package-and-settings.md §Failure
-  // modes), so the plant is hermeticity, not noise suppression.
-  writeFileSync(join(cwd, ".pi", "settings.json"), "{}", "utf8");
-  return {
-    cwd,
-    path: (name: string): string => normalisePath(join(cwd, ".pi", "theta", name)),
-    dispose: (): void => rmSync(cwd, { recursive: true, force: true }),
-  };
+  return finishWorkspace(cwd);
 }
 
 // ── The load pass ───────────────────────────────────────────────────────────
 
-interface LoadPass {
-  /** Every `theta-system-note` the pass put on the channel, in order. */
-  readonly notes: readonly RecordedNote[];
-  readonly offChannel: readonly RecordedNote[];
-  readonly notified: readonly (readonly [string, string])[];
-  /** Slash names the pass actually registered. */
-  readonly registered: readonly string[];
-  readonly thetas: readonly ParsedTheta[];
+interface LoadPass extends BaseLoadPass {
   /** Wall-clock milliseconds the whole pass took, reported beside the count. */
   readonly elapsedMs: number;
   /** Judgements: one registry-snapshot read per `resolveCallableSet` over a `tools:` list. */
@@ -510,41 +433,12 @@ interface LoadPass {
 async function runLoadPass(workspace: ComposeWorkspace): Promise<LoadPass> {
   const host = makeHost(workspace.cwd);
   const started = Date.now();
-  const wiring = await composeExtensionInstance(host.pi, host.ctx, undefined, new RendererGate());
+  const pass = await runLoadPassCore(workspace, host);
   const elapsedMs = Date.now() - started;
-  return {
-    notes: host.notes.filter((n) => n.customType === SYSTEM_NOTE_CHANNEL),
-    offChannel: host.notes.filter((n) => n.customType !== SYSTEM_NOTE_CHANNEL),
-    notified: host.notified,
-    registered: wiring.thetas.map((t) => t.slashName),
-    thetas: wiring.thetas,
-    elapsedMs,
-    judgements: host.snapshotReads.count,
-  };
+  return { ...pass, elapsedMs, judgements: host.snapshotReads.count };
 }
 
 // ── Observation helpers ─────────────────────────────────────────────────────
-
-function noteDiagnostics(note: RecordedNote): readonly Diagnostic[] {
-  const details = note.details as { diagnostics?: unknown } | undefined;
-  const diagnostics = details?.diagnostics;
-  if (!Array.isArray(diagnostics)) {
-    expect.fail(
-      `system note carries no details.diagnostics array: ${JSON.stringify(note.details)}`,
-    );
-  }
-  return diagnostics as readonly Diagnostic[];
-}
-
-function allDiagnostics(notes: readonly RecordedNote[]): readonly Diagnostic[] {
-  return notes.flatMap((note) => [...noteDiagnostics(note)]);
-}
-
-function describeNotes(notes: readonly RecordedNote[]): string {
-  return notes.length === 0
-    ? "[] (NO NOTE ON THE CHANNEL)"
-    : notes.map((n, i) => `[${i}] ${n.content}`).join("\n");
-}
 
 /**
  * DISTINCT files at which the pass located an error-severity row of `code`,
@@ -575,13 +469,7 @@ function errorRows(pass: LoadPass): readonly string[] {
 
 /** The host double must have been driven at all before any decision means anything. */
 function requireDriven(pass: LoadPass): void {
-  if (pass.notes.length === 0 && pass.registered.length === 0) {
-    throw new Error(
-      "harness: the composition root neither registered a theta nor put anything on the " +
-        "theta-system-note channel — the bug-0276 fixture no longer reaches the load pass, " +
-        "so nothing below is verified",
-    );
-  }
+  requireDrivenCore(pass, "0276");
 }
 
 /**

@@ -1,14 +1,10 @@
 import { span, SEAM_NOOP_CHECKPOINT as NOOP_CHECKPOINT, SEAM_NOOP_MUTATOR } from "./helpers/invoke-seam-scaffold";
 import { describe, expect, it } from "vitest";
-import type {
-  ExtensionAPI,
-  ExtensionCommandContext,
-  ModelRegistry,
-} from "@earendil-works/pi-coding-agent";
+import { bind, recordingPiTool, snapshot, thetaWithSet } from "./helpers/tool-call-dispatch-harness";
 import type { Diagnostic, SourceRange } from "../src/diagnostics/diagnostic";
 import type { ThetaSource } from "../src/lexer/lexer";
 import type { SystemNoteChannelDeps } from "../src/extension/system-note-channel";
-import type { ModelReferenceMatcher, ParsedFrontmatter } from "../src/parser/frontmatter";
+import type { ModelReferenceMatcher } from "../src/parser/frontmatter";
 import {
   parseThetaDocument,
   type CallExpr,
@@ -20,10 +16,6 @@ import {
   type ThetaBody,
   type ToolCallStmt,
 } from "../src/parser/theta-document";
-import type {
-  CallableSetSnapshot,
-  ResolvedCallable,
-} from "../src/parser/callable-set";
 import {
   executeBody,
   type CheckpointDescriptor,
@@ -37,16 +29,6 @@ import {
 import type { OperationResult } from "../src/runtime/cancellation-core";
 import type { CheckpointSite } from "../src/seams/checkpoint";
 import type { ThetaValue } from "../src/runtime/value";
-import {
-  createProductionProducerDeps,
-  type PiToolDispatch,
-} from "../src/extension/production-theta-producer";
-import type {
-  ConversationBindInput,
-  ThetaCompositionInput,
-} from "../src/extension/theta-composition-producer";
-import type { RuntimeRoot } from "../src/runtime-root";
-import type { AgentToolResultEnvelope } from "../src/runtime/tool-call-execute";
 
 // Bug 0003 — whole-object Pi-tool argument dispatches with dropped args instead
 // of the documented parse rejection
@@ -533,66 +515,7 @@ describe("bug 0003 (B) runtime defect layer — preEvaluateToolArgs (via its exp
 // createProductionProducerDeps → bindPromptConversation → StatementEvalHost
 // surface, the callable-set-runtime-enforcement.test.ts pattern) -------------
 
-function rootDouble(): RuntimeRoot {
-  return {
-    checkpoint: NOOP_CHECKPOINT,
-    idSource: {
-      newInvocationId: () => "inv-1",
-      newToolCallId: () => "tc-1",
-    },
-  } as unknown as RuntimeRoot;
-}
-
-function ctxDouble(): ExtensionCommandContext {
-  return {} as unknown as ExtensionCommandContext;
-}
-
-function producer() {
-  return createProductionProducerDeps({
-    pi: {} as unknown as ExtensionAPI,
-    root: rootDouble(),
-    modelRegistry: {} as unknown as ModelRegistry,
-  });
-}
-
-/** A recording `pi-tool` snapshot entry capturing every dispatched params object. */
-function recordingPiTool(toolName: string): {
-  readonly entry: ResolvedCallable;
-  readonly params: unknown[];
-} {
-  const params: unknown[] = [];
-  const dispatch: PiToolDispatch = {
-    toolName,
-    execute: (_id: string, p: unknown): Promise<AgentToolResultEnvelope> => {
-      params.push(p);
-      return Promise.resolve({ content: [{ type: "text", text: `${toolName}-out` }] });
-    },
-  };
-  return { entry: { kind: "pi-tool", toolDefinition: dispatch }, params };
-}
-
-function snapshot(
-  entries: readonly (readonly [string, ResolvedCallable])[],
-): CallableSetSnapshot {
-  return Object.freeze({ entries: new Map(entries) });
-}
-
-/** A prompt-mode theta over a callable-set snapshot. */
-function thetaWithSet(programBody: ThetaBody, callableSet: CallableSetSnapshot): ThetaCompositionInput {
-  const frontmatter: ParsedFrontmatter = { mode: "prompt" };
-  return {
-    slashName: "bug0003",
-    sourcePath: "/theta/bug0003.theta",
-    frontmatter,
-    body: programBody,
-    callableSet,
-  };
-}
-
-function bind(theta: ThetaCompositionInput) {
-  const bindInput: ConversationBindInput = { theta, args: "", ctx: ctxDouble() };
-  return producer().bindPromptConversation(bindInput);
-}
+const PRODUCER_IDENTITY = { slashName: "bug0003", sourcePath: "/theta/bug0003.theta" };
 
 describe("bug 0003 (B) runtime defect layer — lowerToolCallParams (via the exported bindPromptConversation host surface)", () => {
   // `lowerToolCallParams` is module-private in
@@ -605,7 +528,7 @@ describe("bug 0003 (B) runtime defect layer — lowerToolCallParams (via the exp
 
   it("RED (vii): a non-object first argument on the ordinary lowering path is an internal defect, not `{}`", async () => {
     const read = recordingPiTool("read");
-    const binding = bind(thetaWithSet(body([]), snapshot([["read", read.entry]])));
+    const binding = bind(thetaWithSet(body([]), snapshot([["read", read.entry]]), PRODUCER_IDENTITY));
     const expr = callExpr("read", [identExpr("args")]);
 
     const p = binding.executeDeps.host.runEffect(expr, binding.executeDeps.env, undefined);
@@ -627,7 +550,7 @@ describe("bug 0003 (B) runtime defect layer — lowerToolCallParams (via the exp
       [letStmt("args", objectExpr([{ name: "path", value: stringExpr("x") }]))],
       callExpr("read", [identExpr("args")]),
     );
-    const binding = bind(thetaWithSet(program, snapshot([["read", read.entry]])));
+    const binding = bind(thetaWithSet(program, snapshot([["read", read.entry]]), PRODUCER_IDENTITY));
 
     await expectShapeDefectRejection(executeBody(program, binding.executeDeps), "read");
     expect(read.params, "the tool must never execute with degraded {} params").toEqual([]);
@@ -635,7 +558,7 @@ describe("bug 0003 (B) runtime defect layer — lowerToolCallParams (via the exp
 
   it("CONTROL (viii-c): an object-literal argument still lowers its fields to the params object", async () => {
     const read = recordingPiTool("read");
-    const binding = bind(thetaWithSet(body([]), snapshot([["read", read.entry]])));
+    const binding = bind(thetaWithSet(body([]), snapshot([["read", read.entry]]), PRODUCER_IDENTITY));
     const expr = callExpr("read", [objectExpr([{ name: "path", value: stringExpr("x") }])]);
 
     const r = await binding.executeDeps.host.runEffect(expr, binding.executeDeps.env, undefined);
@@ -648,7 +571,7 @@ describe("bug 0003 (B) runtime defect layer — lowerToolCallParams (via the exp
 
   it("CONTROL (viii-d): a ZERO-argument call still lowers to empty params (parse admits `read()` — finding iv)", async () => {
     const read = recordingPiTool("read");
-    const binding = bind(thetaWithSet(body([]), snapshot([["read", read.entry]])));
+    const binding = bind(thetaWithSet(body([]), snapshot([["read", read.entry]]), PRODUCER_IDENTITY));
 
     const r = await binding.executeDeps.host.runEffect(
       callExpr("read", []),

@@ -19,6 +19,9 @@
 // The theta-entry root-drive and visible-regime tests share the lightweight
 // root, pi, theta, and context builders below; fn-entry drives retain the AJV root.
 //
+// Envelope fidelity/refusal witnesses also share the parsed theta-entry writer
+// drive below, with diagnostics and optional outcome-events capture.
+//
 // TIER: unit, offline, deterministic, provider-free.
 
 import { expect } from "vitest";
@@ -32,7 +35,10 @@ import type { RuntimeRoot } from "../../src/runtime-root";
 import type { Checkpoint } from "../../src/seams/checkpoint";
 import { SEAM_NOOP_CHECKPOINT } from "./invoke-seam-scaffold";
 import type { ParsedFrontmatter } from "../../src/parser/frontmatter";
-import { parseExpressionSource } from "../../src/parser/theta-document";
+import type { Diagnostic } from "../../src/diagnostics/diagnostic";
+import type { SchemaValidator } from "../../src/seams/schema-validator";
+import { parseDoc } from "./e2e-s1";
+import { parseExpressionSource, type ThetaDocument } from "../../src/parser/theta-document";
 import { ajv } from "./scripted-live-session-harness";
 
 /** Fresh fixed-id and zero-clock doubles, with timers forwarded to the ambient host. */
@@ -198,4 +204,120 @@ export function childCtx(shutdown?: () => void): ExtensionCommandContext {
     sessionManager: { getEntries: () => [], getLeafId: () => undefined },
     ...(shutdown !== undefined ? { shutdown } : {}),
   } as unknown as ExtensionCommandContext;
+}
+
+/**
+ * Parse a fixture and fail loudly on any error-severity diagnostic: a broken
+ * fixture must not let an envelope witness pass or fail for the wrong reason.
+ */
+export function parseTheta(path: string, src: string): ThetaDocument {
+  const doc = parseDoc(src, path);
+  const errors = doc.diagnostics.filter((d) => d.severity === "error");
+  if (errors.length > 0) {
+    throw new Error(
+      `precondition unmet: fixture ${path} failed to parse — ` +
+        `${errors.map((d) => `${d.code}: ${d.message}`).join("; ")}`,
+    );
+  }
+  return doc;
+}
+
+/** A schema-validator root with fixed ids, a zero wall clock, and a no-op checkpoint. */
+export function envelopeRootDouble(schemaValidator: SchemaValidator): RuntimeRoot {
+  return {
+    checkpoint: SEAM_NOOP_CHECKPOINT,
+    idSource: { newInvocationId: () => "inv-1", newToolCallId: () => "tc-1" },
+    clock: {
+      wallNow: () => 0,
+      setTimeout: (fn: () => void, ms: number) => setTimeout(fn, ms),
+      clearTimeout: (h: unknown) => clearTimeout(h as ReturnType<typeof setTimeout>),
+    },
+    schemaValidator,
+  } as unknown as RuntimeRoot;
+}
+
+export interface ChildDrive {
+  readonly lines: readonly string[];
+  readonly diagnostics: readonly Diagnostic[];
+  /** RFC 0012 §7 (0.478.0): every `[channel, data]` pair recorded on the injected outcome-events fake. */
+  readonly outcomeEmitted: readonly { readonly channel: string; readonly data: unknown }[];
+}
+
+const SUBAGENT_FM = "---\nmode: subagent\n---\n";
+
+/**
+ * Drive the shipped child-side writer over a parsed theta body. Capture every
+ * envelope line and diagnostic, injecting the outcome-events recorder only
+ * for witnesses that request it. The real AJV validator uses JSON.stringify
+ * content-addressing, as in the shipped composition root.
+ */
+export async function driveChildRoot(
+  body: string,
+  sourcePath: string,
+  captureOutcomes = false,
+): Promise<ChildDrive> {
+  const doc = parseTheta("worker.theta", SUBAGENT_FM + body);
+  const lines: string[] = [];
+  const diagnostics: Diagnostic[] = [];
+  const outcomeEmitted: { channel: string; data: unknown }[] = [];
+  const deps = createProductionProducerDeps({
+    pi: { sendMessage: (): void => {}, getAllTools: () => [] } as unknown as ExtensionAPI,
+    root: envelopeRootDouble(ajv()),
+    modelRegistry: {
+      getAvailable: () => [{ id: "claude-test", provider: "anthropic" }],
+    } as unknown as ModelRegistry,
+    subagentParentEnv: {},
+    subagentRootRegime: { active: true, slug: "worker" },
+    emitResultEnvelope: (line: string): void => {
+      lines.push(line);
+    },
+    emitDiagnostic: (diagnostic: Diagnostic): void => {
+      diagnostics.push(diagnostic);
+    },
+    ...(captureOutcomes ? {
+      subagentOutcomeEvents: {
+        emit: (channel: string, data: unknown): void => {
+          outcomeEmitted.push({ channel, data });
+        },
+      },
+    } : {}),
+  });
+  const theta = {
+    slashName: "worker",
+    sourcePath,
+    frontmatter: doc.frontmatter as ParsedFrontmatter,
+    body: doc.body,
+    callableSet: { entries: new Map() },
+  } as unknown as ThetaCompositionInput;
+  await deps.driveSubagentRootRegime?.({
+    theta,
+    args: "",
+    ctx: {
+      model: { id: "claude-test", provider: "anthropic" },
+      cwd: "/tmp",
+      // The child's own (empty) host session — the regime drives against it.
+      sessionManager: { getEntries: () => [], getLeafId: () => undefined },
+    } as unknown as ExtensionCommandContext,
+    thetaAbort: new AbortController(),
+  } as ConversationBindInput);
+  return { lines, diagnostics, outcomeEmitted };
+}
+
+/** The single envelope line the drive wrote, or a loud failure naming what it wrote instead. */
+export function soleEnvelope(drive: ChildDrive): EnvelopeParse {
+  if (drive.lines.length !== 1) {
+    throw new Error(
+      `precondition unmet: PIC-59 fixes ONE theta_result line per process; the drive wrote ` +
+        `${drive.lines.length} — ${JSON.stringify(drive.lines)}`,
+    );
+  }
+  return parseEnvelopeLine((drive.lines[0] as string).trimEnd());
+}
+
+/** The drive's whole observable surface rendered for an assertion message. */
+export function driveDetail(drive: ChildDrive): string {
+  return (
+    ` — observed envelope lines ${JSON.stringify(drive.lines)}, diagnostics ` +
+    `${JSON.stringify(drive.diagnostics)}`
+  );
 }

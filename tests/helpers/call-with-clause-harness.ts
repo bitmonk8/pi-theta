@@ -40,6 +40,7 @@ import type {
   Stmt,
   ThetaBody,
 } from "../../src/parser/theta-document";
+import type { CallableSetSnapshot } from "../../src/parser/callable-set";
 import type { ParsedFrontmatter } from "../../src/parser/frontmatter";
 import { executeBody, type BodyExecution } from "../../src/runtime/statement-executor";
 import {
@@ -316,4 +317,35 @@ export function checkInvokeWithClause(
     graph: { edges: new Map([["caller", []]]), unresolvable: new Set<string>() },
     resolveCalleeArity,
   });
+}
+
+/** A statement-only body for hand-built static call sites. */
+export function bodyOf(...stmts: Stmt[]): ThetaBody {
+  return { statements: stmts, tail: null };
+}
+
+const EMPTY_GRAPH = { edges: new Map([["caller", []]]), unresolvable: new Set<string>() };
+
+const noArityResolution = (): Promise<CalleeArity | undefined> => Promise.resolve(undefined);
+
+/** Run the static call checks with inert resolution deps and return diagnostic codes. */
+export async function checkBody(
+  body: ThetaBody,
+  callableSet: CallableSetSnapshot | undefined,
+): Promise<string[]> {
+  const input: ThetaCompositionInput = {
+    slashName: "caller",
+    sourcePath: "/thetadir/caller.theta",
+    frontmatter: {} as unknown as ParsedFrontmatter,
+    body,
+  };
+  const deps = {
+    fs: new FakeFileSystem({ homedir: "/home/u", cwd: "/theta", files: {}, dirs: {} }),
+    activeRoots: ["/theta"],
+    graph: EMPTY_GRAPH,
+    resolveCalleeArity: noArityResolution,
+    ...(callableSet !== undefined ? { callableSet } : {}),
+  };
+  const diags = await checkInvokeStaticResolution(input, deps);
+  return diags.map((d) => d.code);
 }

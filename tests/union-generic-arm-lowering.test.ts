@@ -13,7 +13,7 @@ import {
   type LoweredSchema,
   type SchemaSlug,
 } from "../src/seams/schema-validator";
-import { parseDoc, diagLines } from "./helpers/e2e-s1";
+import { yamlQuoted, parseDoc, diagLines } from "./helpers/e2e-s1";
 import { compareCodePoint, refNames } from "./helpers/canonical-slug-oracle";
 
 // Bug 0043 — `lowerTypeExpr` (src/parser/params.ts) tests for a generic
@@ -223,16 +223,6 @@ const DOG_DEF = {
   required: ["kind"],
   additionalProperties: false,
 };
-
-/**
- * A YAML single-quoted scalar. Every `params:` fixture here is quoted so a `|`
- * or a `"` in the type source cannot be read as YAML structure; the bug doc's
- * §Reproduction records that the unquoted plain-scalar spelling lowers
- * byte-identically, so the quoting is a fixture concern only.
- */
-function yamlQuoted(typeSource: string): string {
-  return `'${typeSource.replace(/'/g, "''")}'`;
-}
 
 /** What one `Type` position yields for one type source. */
 interface PositionRead {

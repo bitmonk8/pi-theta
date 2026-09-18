@@ -1,4 +1,4 @@
-import { TRIAGE_DEF } from "./helpers/triage-fixture";
+import { DECLS, TRIAGE_DEF } from "./helpers/triage-fixture";
 import { inlineDefName } from "./helpers/canonical-slug-oracle";
 import { describe, expect, it } from "vitest";
 import { buildBinderEnvelopeSchema } from "../src/binder/binder-envelope";
@@ -10,7 +10,7 @@ import {
   type LoweredSchema,
   type SchemaSlug,
 } from "../src/seams/schema-validator";
-import { parseDoc, diagLines } from "./helpers/e2e-s1";
+import { yamlQuoted, parseDoc, diagLines } from "./helpers/e2e-s1";
 
 // Bug 0056 — theta has ONE type grammar and FOUR positions that lower a type
 // expression to JSON Schema, and only three of them own a literal sublanguage
@@ -266,25 +266,11 @@ const M_N_XY_INLINE = inlineDefName(M_N_XY_CANONICAL);
 // The four `Type` positions, and the loud drivers that read them.
 // ===========================================================================
 
-/** The one declared type every control that names a schema resolves against. */
-const DECLS = "schema Triage { urgent: boolean }\n";
-
 const POSITIONS = ["params", "field", "alias", "annotation"] as const;
 type Position = (typeof POSITIONS)[number];
 
 /** The three positions that hoist an inline object under a minted `$defs` name. */
 const HOISTING_POSITIONS = ["params", "field", "alias"] as const;
-
-/**
- * A theta-side literal carries theta-side quotes, so a `params:` entry wraps the
- * whole type expression in a YAML single-quoted scalar. The unquoted spelling
- * is not valid YAML and collapses the load to `theta/load/malformed-frontmatter-yaml`
- * (bug 0056 §Reproduction *Spelling*; bug 0263 names the code this collapse now
- * reports), which is a different frame.
- */
-function yamlQuoted(typeSource: string): string {
-  return `'${typeSource.replace(/'/g, "''")}'`;
-}
 
 function loweredParamsDocument(doc: ThetaDocument): Record<string, unknown> | undefined {
   return doc.frontmatter?.params?.loweredSchema as Record<string, unknown> | undefined;

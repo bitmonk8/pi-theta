@@ -20,8 +20,9 @@
 //   - `extractTrailingTurnText` returns a fixed sentinel (PIC-53).
 // No test reds on a compile error, a missing fixture, or a harness throw.
 
+import { user as userMessage } from "./helpers/agent-message-fixtures";
 import { describe, expect, it } from "vitest";
-import type { AssistantMessage, Message, UserMessage } from "@earendil-works/pi-ai";
+import type { AssistantMessage, Message } from "@earendil-works/pi-ai";
 import {
   extractTrailingTurnText,
   subscribePromptModeCancelForwarding,
@@ -108,10 +109,6 @@ class QueryFailure extends Error {
 }
 
 // --- pi-ai Message builders -------------------------------------------------
-
-function userMessage(content: string): UserMessage {
-  return { role: "user", content, timestamp: 0 };
-}
 
 /** An assistant message carrying the given text parts (plus optional thinking / tool-call). */
 function assistantMessage(
