@@ -18,7 +18,7 @@ import type {
   Unsubscribe,
 } from "../src/seams/file-watcher";
 import { FakeClock } from "./helpers/fake-clock";
-import { waitFor } from "./helpers/fake-file-watcher";
+import { norm, waitFor } from "./helpers/fake-file-watcher";
 import {
   makeRecordingHarness,
   structuralNotesSince,
@@ -78,12 +78,6 @@ import {
 // Every `0.376.0` is the literal placeholder the fix's shipped version fills.
 
 const HELLO_THETA = ["---", "mode: prompt", "---", "@`hi`", ""].join("\n");
-
-/** Normalise a path to the forward-slash, lower-case comparison form (this repo
- *  runs on a case-insensitive Windows host — the regime the bug turns on). */
-function norm(path: string): string {
-  return path.replace(/\\/g, "/").toLowerCase();
-}
 
 /** Forward-slash a path without lower-casing — the spelling form
  *  `discoveryWatchRoots` records and hands chokidar. */

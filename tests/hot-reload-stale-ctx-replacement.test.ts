@@ -73,6 +73,7 @@ import { loadSettings } from "../src/discovery/settings";
 import { PiFileSystem } from "../src/seams/pi-file-system";
 import { FakeClock } from "./helpers/fake-clock";
 import { FakeFileWatcher, waitFor } from "./helpers/fake-file-watcher";
+import { GREET_THETA, SECOND_THETA } from "./helpers/watch-arming-harness";
 
 /**
  * The host's stale-ctx error message, byte-exact. Sourced from the installed
@@ -103,9 +104,6 @@ const QUIESCE_PREFIX = "theta hot-reload quiesced:";
  * Case A: ONE `ctx.cwd` probe touch at reload-pass entry, nothing else.
  */
 const EXPECTED_PROBE_TOUCHES = ["ctx.cwd"];
-
-const GREET_THETA = ["---", "mode: prompt", "---", "@`hi`", ""].join("\n");
-const SECOND_THETA = ["---", "mode: prompt", "---", "@`yo`", ""].join("\n");
 
 /** A recorded `pi.sendMessage` call (the `theta-system-note` channel). */
 interface RecordedNote {

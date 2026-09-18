@@ -1,10 +1,9 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
+import { createPatternRefusalHarness } from "./helpers/prompt-value-harness";
 import {
   PARSE_REGISTRY_PATH as REGISTRY_PARSE_PAGE,
   type DiagShape,
-  shapes,
-  render,
   range,
   deniesRegistration,
 } from "./helpers/load-row-harness";
@@ -18,7 +17,7 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 // @ts-expect-error — JS code-registry module, no type declarations.
 import { registryMessage } from "../tools/code-registry/index.js";
-import { parseDoc, parseDocBytes } from "./helpers/e2e-s1";
+import { parseDocBytes } from "./helpers/e2e-s1";
 import { committedThetaSources } from "./helpers/theta-corpus";
 import type { SourceRange } from "../src/diagnostics/diagnostic";
 import type { ThetaDocument } from "../src/parser/theta-document";
@@ -164,14 +163,9 @@ function reservedMessage(keyword: string): string {
 // (tests/helpers/e2e-s1.ts:39) with inert offline deps.
 // ===========================================================================
 
-/** Every row is a whole prompt-mode theta; frontmatter occupies lines 1–3. */
-const FM = "---\nmode: prompt\n---\n";
-
 const FILE = "bug0141.theta";
 
-function theta(body: string): ThetaDocument {
-  return parseDoc(FM + body, FILE);
-}
+const { existing, expectDiagnostics } = createPatternRefusalHarness(FILE, (doc) => execute(doc));
 
 /** The expected refusal for a capitalised bare pattern head. */
 function cap(name: string, at: SourceRange): DiagShape {
@@ -193,28 +187,6 @@ function reserved(keyword: string, at: SourceRange): DiagShape {
     range: at,
     message: reservedMessage(keyword),
   };
-}
-
-/** An expected diagnostic from a code this fix does not move. */
-function existing(code: string, message: string, at: SourceRange): DiagShape {
-  return { severity: "error", code, file: FILE, range: at, message };
-}
-
-/**
- * Assert `body`'s WHOLE diagnostic list, order-sensitive.
- *
- * `assembleDiagnostics` (src/diagnostics/diagnostic.ts:123) orders by
- * (file, line, column) with a stable sort, so the expected order in a
- * multi-diagnostic row is positional and is measured, never guessed.
- */
-function expectDiagnostics(
-  body: string,
-  expected: readonly DiagShape[],
-  why: string,
-): ThetaDocument {
-  const doc = theta(body);
-  expect(shapes(doc), `${why}\n  actual diagnostics: ${render(doc)}`).toEqual([...expected]);
-  return doc;
 }
 
 // ===========================================================================

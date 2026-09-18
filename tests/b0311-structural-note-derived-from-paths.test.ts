@@ -14,6 +14,8 @@ import { RELOAD_DEBOUNCE_WINDOW_MS } from "../src/extension/reload-debounce";
 import { FakeClock } from "./helpers/fake-clock";
 import { FakeFileWatcher, waitFor } from "./helpers/fake-file-watcher";
 import {
+  GREET_THETA,
+  SECOND_THETA,
   makeRecordingHarness,
   structuralNotesSince,
   type RecordingHarness,
@@ -45,8 +47,6 @@ import {
 // counts `pi.registerCommand` calls so a rebuild that does NOT change the
 // registry (witness B) is still observable as settled.
 
-const GREET_THETA = ["---", "mode: prompt", "---", "@`hi`", ""].join("\n");
-const SECOND_THETA = ["---", "mode: prompt", "---", "@`yo`", ""].join("\n");
 // A body that fails to parse: `let` with no initialiser. On reload greet drops
 // (its parse failed) while its file path is unchanged — no file added/removed.
 const GREET_THETA_BROKEN = ["---", "mode: prompt", "---", "let = = =", ""].join("\n");

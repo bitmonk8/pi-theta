@@ -15,7 +15,7 @@ import { RELOAD_DEBOUNCE_WINDOW_MS } from "../src/extension/reload-debounce";
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
 import { FakeClock } from "./helpers/fake-clock";
 import { FakeFileWatcher, waitFor } from "./helpers/fake-file-watcher";
-import { makeRecordingHarness, type RecordingHarness } from "./helpers/watch-arming-harness";
+import { GREET_THETA, SECOND_THETA, makeRecordingHarness, type RecordingHarness } from "./helpers/watch-arming-harness";
 
 // Phase 5 (DISCO-2) — deterministic watcher / hot-reload integration.
 //
@@ -38,9 +38,6 @@ import { makeRecordingHarness, type RecordingHarness } from "./helpers/watch-arm
 //   (d) a rebuild failure surfaces ERR-7 (`theta/runtime/registry-swap-failed`)
 //       on the `theta-system-note` channel, leaving the prior registry live;
 //   (e) `session_shutdown` detaches the watcher and cancels the pending timer.
-
-const GREET_THETA = ["---", "mode: prompt", "---", "@`hi`", ""].join("\n");
-const SECOND_THETA = ["---", "mode: prompt", "---", "@`yo`", ""].join("\n");
 
 interface Harness extends RecordingHarness<{ readonly diagnostics?: readonly Diagnostic[] }> {
   /** Arm/disarm a `pi.getCommands()` throw (drives the watcher-time swap failure). */

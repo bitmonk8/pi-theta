@@ -4,8 +4,9 @@ import type {
   ExecutionStatusBus,
   ExecutionStatusSnapshot,
   InvocationNodeSnapshot,
+  ProgressAuthorMessage,
 } from "../../src/extension/execution-status/types";
-import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ToolDefinition } from "@earendil-works/pi-coding-agent";
 import type {
   THETA_PROGRESS_PARAMETERS,
   ThetaProgressParams,
@@ -31,6 +32,62 @@ export function noopExecutionStatusBus(overrides: Partial<ExecutionStatusBus> = 
     dispose: (): void => {},
     ...overrides,
   };
+}
+
+/** A minimal fake `ExecutionStatusBus`: every producer a no-op spy, `verbosity`
+ *  returns a controllable value, `authorMessage` records its calls. */
+export function fakeBus(initialVerbosity: "off" | "counts" | "names" = "names"): {
+  bus: ExecutionStatusBus;
+  authorMessageCalls: { invocationId: string | undefined; payload: ProgressAuthorMessage }[];
+} {
+  const authorMessageCalls: { invocationId: string | undefined; payload: ProgressAuthorMessage }[] = [];
+  let verbosity = initialVerbosity;
+  const bus = noopExecutionStatusBus({
+    authorMessage: (invocationId, payload): void => {
+      authorMessageCalls.push({ invocationId, payload });
+    },
+    setVerbosity: (v): void => {
+      verbosity = v;
+    },
+    verbosity: () => verbosity,
+  });
+  return { bus, authorMessageCalls };
+}
+
+/** A recording `pi` double: every call pushed to `calls` in order, so ordering
+ *  claims (registerTool BEFORE any `pi.on` subscription) are checked on the
+ *  observed sequence rather than inferred from source layout. An optional error
+ *  makes registerTool throw after recording the call. */
+export function makeOrderRecordingPi(registerToolError?: Error): {
+  pi: ExtensionAPI;
+  calls: string[];
+  registeredTools: ToolDefinition<never>[];
+} {
+  const calls: string[] = [];
+  const registeredTools: ToolDefinition<never>[] = [];
+  const pi = {
+    registerFlag: (): void => {
+      calls.push("registerFlag");
+    },
+    registerMessageRenderer: (): void => {
+      calls.push("registerMessageRenderer");
+    },
+    registerTool: (t: ToolDefinition<never>): void => {
+      calls.push("registerTool");
+      if (registerToolError !== undefined) throw registerToolError;
+      registeredTools.push(t);
+    },
+    registerCommand: (): void => {
+      calls.push("registerCommand");
+    },
+    on: (event: string): void => {
+      calls.push(`on:${event}`);
+    },
+    getFlag: (): undefined => undefined,
+    getCommands: (): unknown[] => [],
+    sendUserMessage: (): void => {},
+  };
+  return { pi: pi as unknown as ExtensionAPI, calls, registeredTools };
 }
 
 export function fakeHostApi(): {

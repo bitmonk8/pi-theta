@@ -1,22 +1,20 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { createParsedPromptHarness } from "./helpers/prompt-value-harness";
+import { createParsedPromptHarness, createPatternRefusalHarness } from "./helpers/prompt-value-harness";
 import {
   PARSE_REGISTRY_PATH as REGISTRY_PARSE_PAGE,
   type DiagShape,
-  shapes,
-  render,
   range,
+  patternRange,
   deniesRegistration,
 } from "./helpers/load-row-harness";
 import { readRegistry, type RegistryRow } from "./helpers/registry-oracle";
 import { describe, expect, it } from "vitest";
 // @ts-expect-error — JS code-registry module, no type declarations.
 import { registryMessage } from "../tools/code-registry/index.js";
-import { parseDoc, parseDocBytes } from "./helpers/e2e-s1";
+import { parseDocBytes } from "./helpers/e2e-s1";
 import { committedThetaSources } from "./helpers/theta-corpus";
 import type { SourceRange } from "../src/diagnostics/diagnostic";
-import type { ThetaDocument } from "../src/parser/theta-document";
 import type { ThetaValue } from "../src/runtime/value";
 
 // Bug 0226 — a `match` object-pattern head that RESOLVES is admitted with any
@@ -306,29 +304,28 @@ describe("0226 (r) — the two registered rows the refusals render from", () => 
 // (tests/helpers/e2e-s1.ts:39; the signature is `parseDoc(src, path)`).
 // ===========================================================================
 
-/** Every row is a whole prompt-mode theta; frontmatter occupies lines 1–3. */
-const FM = "---\nmode: prompt\n---\n";
-
 const FILE = "bug0226.theta";
 
-function theta(body: string): ThetaDocument {
-  return parseDoc(FM + body, FILE);
-}
+/**
+ * Assert that a member of the class is refused at LOAD — first that it denies
+ * registration, carrying the arm it ANSWERS in the failure payload, then its
+ * whole diagnostic list.
+ *
+ * §Fix constraint 2 keeps dispatch byte-identical, so the greenable form of a
+ * wrong-arm claim is the registration DENIAL, never a changed value: the value
+ * is computed and reported first so the red names the pre-fix answered arm
+ * (bug 0226 §Reproduction (A): a1 `"r-arm"`, a2 `1`, a3 `"r-arm"`, a4
+ * `"r-arm"`, a5 `"animal-arm"`, a6 `"other-arm"`, a7 `"other"`) rather than
+ * only a missing diagnostic.
+ */
+const { existing, expectDiagnostics, expectRefused } = createPatternRefusalHarness(
+  FILE,
+  (doc) => execute(doc),
+);
 
 /** A body assembled from lines, so a cell's line numbers read off its array. */
 function lines(...parts: readonly string[]): string {
   return parts.join("\n") + "\n";
-}
-
-/**
- * The PATTERN's span, from its source spelling alone: element (1) of the
- * settled route carries the whole pattern's range on the object `PatternNode`,
- * head token through closing `}`. Derived, not guessed: the caller states the
- * line, the start column and the pattern text, and the end column is
- * `start + text.length` because the range's end column is exclusive.
- */
-function patternRange(line: number, column: number, pattern: string): SourceRange {
-  return range(line, column, line, column + pattern.length);
 }
 
 /** The expected field-NAME refusal, rendered through the registry oracle. */
@@ -359,11 +356,6 @@ function typeMismatch(
   };
 }
 
-/** An expected diagnostic from a code this fix does not move (group (v)). */
-function existing(code: string, message: string, at: SourceRange): DiagShape {
-  return { severity: "error", code, file: FILE, range: at, message };
-}
-
 /**
  * The narrowing refusal, rendered through the registry oracle. Bug 0234's
  * fix keeps `checkObjectFieldCompat`'s whole result at the pattern position,
@@ -373,23 +365,6 @@ function narrowing(at: SourceRange): DiagShape {
   return { severity: "error", code: NARROWING, file: FILE, range: at, message: NARROWING_MESSAGE };
 }
 
-/**
- * Assert `body`'s WHOLE diagnostic list, order-sensitive and unfiltered.
- *
- * `assembleDiagnostics` (src/diagnostics/diagnostic.ts:123) orders by
- * (file, line, column) with a stable sort, so a multi-diagnostic row's
- * expected order is positional and measured, never guessed.
- */
-function expectDiagnostics(
-  body: string,
-  expected: readonly DiagShape[],
-  why: string,
-): ThetaDocument {
-  const doc = theta(body);
-  expect(shapes(doc), `${why}\n  actual diagnostics: ${render(doc)}`).toEqual([...expected]);
-  return doc;
-}
-
 // ===========================================================================
 // Runtime harness — `createParsedPromptHarness`
 // (tests/helpers/prompt-value-harness.ts). Offline, provider-free: a query-free
@@ -397,32 +372,6 @@ function expectDiagnostics(
 // ===========================================================================
 
 const { execute, expectValue } = createParsedPromptHarness("bug0226", "/theta/bug0226.theta");
-
-/**
- * Assert that a member of the class is refused at LOAD — first that it denies
- * registration, carrying the arm it ANSWERS in the failure payload, then its
- * whole diagnostic list.
- *
- * §Fix constraint 2 keeps dispatch byte-identical, so the greenable form of a
- * wrong-arm claim is the registration DENIAL, never a changed value: the value
- * is computed and reported first so the red names the pre-fix answered arm
- * (bug 0226 §Reproduction (A): a1 `"r-arm"`, a2 `1`, a3 `"r-arm"`, a4
- * `"r-arm"`, a5 `"animal-arm"`, a6 `"other-arm"`, a7 `"other"`) rather than
- * only a missing diagnostic.
- */
-async function expectRefused(
-  body: string,
-  expected: readonly DiagShape[],
-  why: string,
-): Promise<void> {
-  const doc = theta(body);
-  const execution = await execute(doc);
-  expect(
-    deniesRegistration(doc.diagnostics),
-    `${why}\n  the body answers ${JSON.stringify(execution.result.value)} (outcome=${execution.outcome})\n  actual diagnostics: ${render(doc)}`,
-  ).toBe(true);
-  expect(shapes(doc), `${why}\n  actual diagnostics: ${render(doc)}`).toEqual([...expected]);
-}
 
 /** Assert a boundary row keeps BOTH its silence and its measured value. */
 async function expectClean(body: string, value: ThetaValue, why: string): Promise<void> {

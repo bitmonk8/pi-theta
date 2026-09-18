@@ -1,5 +1,6 @@
 import {
   bindImportedBody,
+  expectCleanImportLoad,
   fakeThetaLibFs,
   parseImportingApp as parseApp,
 } from "./helpers/thetalib-load-harness";
@@ -293,15 +294,13 @@ function libChain(n: number): Record<string, string> {
  * precondition, not as the undercount defect under test.
  */
 function expectCleanLoad(row: Measured, label: string, expectedMaterialised: string[]): void {
-  expect(row.appParseCodes, `${label}: the importing file parses clean`).toEqual([]);
-  expect(
-    row.diagLines,
-    `${label}: a well-formed \`.thetalib\` import is legal at every static gate; the load pass must report nothing (bug doc §Reproduction: \`load diagnostics: []\`)`,
-  ).toEqual([]);
-  expect(
-    row.materialised,
-    `${label}: imports.md §Visibility auto-exports a top-level \`fn\`, so the imported symbol materialises under its local name`,
-  ).toEqual(expectedMaterialised);
+  expectCleanImportLoad(
+    row,
+    label,
+    "a well-formed `.thetalib` import is legal at every static gate; the load pass must report nothing (bug doc §Reproduction: `load diagnostics: []`)",
+    "imports.md §Visibility auto-exports a top-level `fn`, so the imported symbol materialises under its local name",
+    expectedMaterialised,
+  );
 }
 
 describe("bug 0388 — an effect dispatched from inside a cross-file `fn` body undercounts against INV-4", () => {

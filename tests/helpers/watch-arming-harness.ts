@@ -40,6 +40,10 @@ import { ActiveInvocationRegistry } from "../../src/runtime/active-invocation-re
 import { FakeClock } from "./fake-clock";
 import { CountingFakeFileWatcher, RootsRecordingFileWatcher, waitFor } from "./fake-file-watcher";
 
+/** Minimal prompt-mode source fixtures planted by watcher and reload tests. */
+export const GREET_THETA = ["---", "mode: prompt", "---", "@`hi`", ""].join("\n");
+export const SECOND_THETA = ["---", "mode: prompt", "---", "@`yo`", ""].join("\n");
+
 export interface Harness {
   readonly pi: ExtensionAPI;
   readonly ctx: ExtensionContext;

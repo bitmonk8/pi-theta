@@ -5,18 +5,16 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type {
   ExtensionAPI,
   ExtensionContext,
-  ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
 import {
   registerThetaProgressTool,
   type ProgressToolDeps,
 } from "../src/extension/execution-status/progress-tool";
 import { THETA_PROGRESS_TOOL_NAME } from "../src/extension/execution-status/types";
-import type { ExecutionStatusBus, ProgressAuthorMessage } from "../src/extension/execution-status/types";
 import type { EntryChannelHandle } from "../src/extension/execution-status/entry-channel";
 import { ActiveInvocationRegistry, type ActiveInvocationEntry } from "../src/runtime/active-invocation-registry";
 import { FakeClock } from "./helpers/fake-clock";
-import { ARGS, fakeEntry, fakeHostApi, noopExecutionStatusBus } from "./helpers/execution-status-progress";
+import { ARGS, fakeBus, fakeEntry, fakeHostApi, makeOrderRecordingPi } from "./helpers/execution-status-progress";
 import { renderFooterLine } from "../src/extension/execution-status/footer-sink";
 import { createProgressEntryRenderer } from "../src/extension/execution-status/entry-channel";
 import {
@@ -40,26 +38,6 @@ import type { Diagnostic } from "../src/diagnostics/diagnostic";
 // segments (EXST-14; PIC-71). Every row below asserts the real shipped
 // effect (a `bus.authorMessage` call, an `appendMilestone` call, a clamp, a
 // drop count, a rendered string) — none of them are vacuous.
-
-/** A minimal fake `ExecutionStatusBus`: every producer a no-op spy, `verbosity`
- *  returns a controllable value, `authorMessage` records its calls. */
-function fakeBus(initialVerbosity: "off" | "counts" | "names" = "names"): {
-  bus: ExecutionStatusBus;
-  authorMessageCalls: { invocationId: string | undefined; payload: ProgressAuthorMessage }[];
-} {
-  const authorMessageCalls: { invocationId: string | undefined; payload: ProgressAuthorMessage }[] = [];
-  let verbosity = initialVerbosity;
-  const bus = noopExecutionStatusBus({
-    authorMessage: (invocationId, payload): void => {
-      authorMessageCalls.push({ invocationId, payload });
-    },
-    setVerbosity: (v): void => {
-      verbosity = v;
-    },
-    verbosity: () => verbosity,
-  });
-  return { bus, authorMessageCalls };
-}
 
 function fakeEntryChannel(): { entryChannel: EntryChannelHandle; milestoneCalls: unknown[] } {
   const milestoneCalls: unknown[] = [];
@@ -274,24 +252,14 @@ describe("T-PRG — L3-B12: verbosity off — nothing published/appended, not co
   it("a call under 'off' publishes nothing and does not consume the rate window for a later 'names' call", async () => {
     const registry = new ActiveInvocationRegistry();
     registry.add(fakeEntry());
-    let verbosity: "off" | "counts" | "names" = "off";
-    const authorMessageCalls: unknown[] = [];
-    const bus = noopExecutionStatusBus({
-      authorMessage: (_id, payload): void => {
-        authorMessageCalls.push(payload);
-      },
-      setVerbosity: (v): void => {
-        verbosity = v;
-      },
-      verbosity: () => verbosity,
-    });
+    const { bus, authorMessageCalls } = fakeBus("off");
     const { hostApi, calls } = fakeHostApi();
     registerThetaProgressTool(hostApi, baseDeps({ invocations: () => registry, bus: () => bus }));
 
     await calls[0]!.execute("c1", ARGS, undefined, undefined, {} as never);
     expect(authorMessageCalls).toHaveLength(0);
 
-    verbosity = "names";
+    bus.setVerbosity("names");
     await calls[0]!.execute("c2", ARGS, undefined, undefined, {} as never);
     expect(authorMessageCalls).toHaveLength(1); // the off call must NOT have been counted-but-dropped
   });
@@ -409,40 +377,6 @@ describe("T-PRG — L3-B17: entry renderer's exact milestone template (PIC-71)",
 // `tests/extension-factory-harness.test.ts`'s `makeAbsentSeamPi`/ordering idiom.
 // ---------------------------------------------------------------------------
 
-/** A recording `pi` double: every call pushed to `calls` in order, so ordering
- *  claims (registerTool BEFORE any `pi.on` subscription) are checked on the
- *  observed sequence rather than inferred from source layout. */
-function makeOrderRecordingPi(): {
-  pi: ExtensionAPI;
-  calls: string[];
-  registeredTools: ToolDefinition<never>[];
-} {
-  const calls: string[] = [];
-  const registeredTools: ToolDefinition<never>[] = [];
-  const pi = {
-    registerFlag: (): void => {
-      calls.push("registerFlag");
-    },
-    registerMessageRenderer: (): void => {
-      calls.push("registerMessageRenderer");
-    },
-    registerTool: (t: ToolDefinition<never>): void => {
-      calls.push("registerTool");
-      registeredTools.push(t);
-    },
-    registerCommand: (): void => {
-      calls.push("registerCommand");
-    },
-    on: (event: string): void => {
-      calls.push(`on:${event}`);
-    },
-    getFlag: (): undefined => undefined,
-    getCommands: (): unknown[] => [],
-    sendUserMessage: (): void => {},
-  };
-  return { pi: pi as unknown as ExtensionAPI, calls, registeredTools };
-}
-
 describe("T-PRG — factory-path (a): registerTool fires in the factory's synchronous body, BEFORE any pi.on subscription", () => {
   it("the recorded call order places registerTool ahead of every pi.on(...) subscription (including session_start)", () => {
     const { pi, calls, registeredTools } = makeOrderRecordingPi();
@@ -465,29 +399,8 @@ describe("T-PRG — factory-path (a): registerTool fires in the factory's synchr
 
 describe("T-PRG — factory-path (b): a throwing pi.registerTool draws bootstrapFailedDiagnostic('pi.registerTool') and the factory still succeeds", () => {
   it("emits the standard bootstrap diagnostic naming theta_progress and completes the remaining registrations", () => {
-    const calls: string[] = [];
+    const { pi, calls } = makeOrderRecordingPi(new Error("registerTool host seam absent"));
     const diagnostics: Diagnostic[] = [];
-    const pi = {
-      registerFlag: (): void => {
-        calls.push("registerFlag");
-      },
-      registerMessageRenderer: (): void => {
-        calls.push("registerMessageRenderer");
-      },
-      registerTool: (): void => {
-        calls.push("registerTool");
-        throw new Error("registerTool host seam absent");
-      },
-      registerCommand: (): void => {
-        calls.push("registerCommand");
-      },
-      on: (event: string): void => {
-        calls.push(`on:${event}`);
-      },
-      getFlag: (): undefined => undefined,
-      getCommands: (): unknown[] => [],
-      sendUserMessage: (): void => {},
-    } as unknown as ExtensionAPI;
 
     expect(() =>
       createThetaExtension({ fixtures: [], emitDiagnostic: (d) => diagnostics.push(d) })(pi),

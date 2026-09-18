@@ -1,9 +1,7 @@
-import { createParsedPromptHarness } from "./helpers/prompt-value-harness";
+import { createParsedPromptHarness, createPatternRefusalHarness } from "./helpers/prompt-value-harness";
 import {
   PARSE_REGISTRY_PATH as REGISTRY_PARSE_PAGE,
   type DiagShape,
-  shapes,
-  render,
   range,
   deniesRegistration,
 } from "./helpers/load-row-harness";
@@ -12,9 +10,7 @@ import { readRegistry, type RegistryRow } from "./helpers/registry-oracle";
 import { describe, expect, it } from "vitest";
 // @ts-expect-error — JS code-registry module, no type declarations.
 import { registryMessage } from "../tools/code-registry/index.js";
-import { parseDoc } from "./helpers/e2e-s1";
 import type { SourceRange } from "../src/diagnostics/diagnostic";
-import type { ThetaDocument } from "../src/parser/theta-document";
 
 // Bug 0219 — a reserved keyword heading an OBJECT pattern in a `match` arm
 // draws nothing, where the same spelling written bare at the same position
@@ -116,14 +112,9 @@ function capMessage(name: string): string {
 // (tests/helpers/e2e-s1.ts:39) with inert offline deps.
 // ===========================================================================
 
-/** Every row is a whole prompt-mode theta; frontmatter occupies lines 1–3. */
-const FM = "---\nmode: prompt\n---\n";
-
 const FILE = "bug0219.theta";
 
-function theta(body: string): ThetaDocument {
-  return parseDoc(FM + body, FILE);
-}
+const { existing, expectDiagnostics } = createPatternRefusalHarness(FILE, (doc) => execute(doc));
 
 /** The expected refusal for a reserved keyword heading an object pattern. */
 function reserved(keyword: string, at: SourceRange): DiagShape {
@@ -134,28 +125,6 @@ function reserved(keyword: string, at: SourceRange): DiagShape {
     range: at,
     message: reservedMessage(keyword),
   };
-}
-
-/** An expected diagnostic from a code this fix does not move. */
-function existing(code: string, message: string, at: SourceRange): DiagShape {
-  return { severity: "error", code, file: FILE, range: at, message };
-}
-
-/**
- * Assert `body`'s WHOLE diagnostic list, order-sensitive.
- *
- * `assembleDiagnostics` (src/diagnostics/diagnostic.ts:123) orders by
- * (file, line, column) with a stable sort, so a multi-diagnostic row's expected
- * order is positional and measured, never guessed.
- */
-function expectDiagnostics(
-  body: string,
-  expected: readonly DiagShape[],
-  why: string,
-): ThetaDocument {
-  const doc = theta(body);
-  expect(shapes(doc), `${why}\n  actual diagnostics: ${render(doc)}`).toEqual([...expected]);
-  return doc;
 }
 
 // ===========================================================================

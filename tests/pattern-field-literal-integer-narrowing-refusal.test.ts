@@ -1,11 +1,13 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
+import { createPatternRefusalHarness } from "./helpers/prompt-value-harness";
 import {
   PARSE_REGISTRY_PATH as REGISTRY_PARSE_PAGE,
   type DiagShape,
-  shapes,
+  expectDiagnosticsOf,
   render,
   range,
+  patternRange,
   deniesRegistration,
 } from "./helpers/load-row-harness";
 import { readRepoFile } from "./helpers/corpus-reader";
@@ -272,14 +274,23 @@ describe("0234 (r) — the registered row the refusal renders from, and the defe
 // (tests/helpers/e2e-s1.ts). 
 // ===========================================================================
 
-/** Every row is a whole prompt-mode theta; frontmatter occupies lines 1–3. */
-const FM = "---\nmode: prompt\n---\n";
-
 const FILE = "bug0234.theta";
 
-function theta(body: string): ThetaDocument {
-  return parseDoc(FM + body, FILE);
-}
+/**
+ * Assert that a member of the class is refused at LOAD — first that it denies
+ * registration, carrying the arm it ANSWERS in the failure payload, then its
+ * whole diagnostic list.
+ *
+ * §Fix constraint 2 keeps dispatch byte-identical, so the greenable form of a
+ * wrong-arm claim is the registration DENIAL, never a changed value: the value
+ * is computed and reported first so the red names the pre-fix answered arm
+ * (measured at HEAD — A1 `"other"`, A2 `"n-arm"`, A3 `"n-arm"`, A4 `"other"`,
+ * A6 `"none"`, A7 `"other"`) rather than only a missing diagnostic.
+ */
+const { theta, existing, expectDiagnostics, expectRefused } = createPatternRefusalHarness(
+  FILE,
+  (doc) => execute(doc),
+);
 
 /** A whole theta source given verbatim, for the `params:` row B5. */
 function thetaRaw(src: string): ThetaDocument {
@@ -289,19 +300,6 @@ function thetaRaw(src: string): ThetaDocument {
 /** A body assembled from lines, so a cell's line numbers read off its array. */
 function lines(...parts: readonly string[]): string {
   return parts.join("\n") + "\n";
-}
-
-/**
- * The PATTERN's span, derived from its source spelling alone: §Fix constraint 7
- * pins the emission to the whole object-pattern's range, the object variant's
- * `range` bug 0226 added (src/parser/theta-document.ts:333). The caller states
- * the line, the start column and the pattern text, and the end column is
- * `start + text.length` because the range's end column is exclusive — which is
- * exactly what row a5's measured `6:19-6:31` for `Q { a: "x" }` (12 characters
- * at column 19) confirms against the tree.
- */
-function patternRange(line: number, column: number, pattern: string): SourceRange {
-  return range(line, column, line, column + pattern.length);
 }
 
 /** The expected narrowing refusal, rendered through the registry oracle. */
@@ -345,35 +343,6 @@ function typeMismatch(
     range: at,
     message: fill(TYPE_MISMATCH_TEMPLATE, { field, schema, expected, actual }),
   };
-}
-
-/** An expected diagnostic from a code this fix does not move. */
-function existing(code: string, message: string, at: SourceRange): DiagShape {
-  return { severity: "error", code, file: FILE, range: at, message };
-}
-
-/**
- * Assert a document's WHOLE diagnostic list, order-sensitive and unfiltered.
- *
- * `assembleDiagnostics` (src/diagnostics/diagnostic.ts) orders by
- * (file, line, column) with a stable sort, so a multi-diagnostic row's expected
- * order is positional and measured, never guessed (row B5 and row B7).
- */
-function expectDiagnosticsOf(
-  doc: ThetaDocument,
-  expected: readonly DiagShape[],
-  why: string,
-): ThetaDocument {
-  expect(shapes(doc), `${why}\n  actual diagnostics: ${render(doc)}`).toEqual([...expected]);
-  return doc;
-}
-
-function expectDiagnostics(
-  body: string,
-  expected: readonly DiagShape[],
-  why: string,
-): ThetaDocument {
-  return expectDiagnosticsOf(theta(body), expected, why);
 }
 
 // ===========================================================================
@@ -434,31 +403,6 @@ async function expectValue(
   const execution = await execute(doc);
   expect(execution.outcome, `${why}: the body reaches a value`).toBe("success");
   expect(execution.result.value, why).toEqual(value);
-}
-
-/**
- * Assert that a member of the class is refused at LOAD — first that it denies
- * registration, carrying the arm it ANSWERS in the failure payload, then its
- * whole diagnostic list.
- *
- * §Fix constraint 2 keeps dispatch byte-identical, so the greenable form of a
- * wrong-arm claim is the registration DENIAL, never a changed value: the value
- * is computed and reported first so the red names the pre-fix answered arm
- * (measured at HEAD — A1 `"other"`, A2 `"n-arm"`, A3 `"n-arm"`, A4 `"other"`,
- * A6 `"none"`, A7 `"other"`) rather than only a missing diagnostic.
- */
-async function expectRefused(
-  body: string,
-  expected: readonly DiagShape[],
-  why: string,
-): Promise<void> {
-  const doc = theta(body);
-  const execution = await execute(doc);
-  expect(
-    deniesRegistration(doc.diagnostics),
-    `${why}\n  the body answers ${JSON.stringify(execution.result.value)} (outcome=${execution.outcome})\n  actual diagnostics: ${render(doc)}`,
-  ).toBe(true);
-  expectDiagnosticsOf(doc, expected, why);
 }
 
 /** Assert a boundary row keeps BOTH its silence and its measured value. */

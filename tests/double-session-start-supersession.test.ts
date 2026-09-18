@@ -65,6 +65,7 @@ import { RELOAD_DEBOUNCE_WINDOW_MS } from "../src/extension/reload-debounce";
 import { fakeEntry as makeEntry } from "./helpers/execution-status-progress";
 import { waitFor } from "./helpers/fake-file-watcher";
 import {
+  GREET_THETA,
   REPEAT_START_NOTE,
   watcherAt,
   wiringAt,
@@ -75,7 +76,6 @@ import {
   type SupersessionBoot as Boot,
 } from "./helpers/watch-arming-harness";
 
-const GREET_THETA = ["---", "mode: prompt", "---", "@`hi`", ""].join("\n");
 const SECOND_THETA = ["---", "mode: prompt", "---", "@`hi`", ""].join("\n");
 
 function sleep(ms: number): Promise<void> {

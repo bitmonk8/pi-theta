@@ -525,6 +525,33 @@ export function range(
   };
 }
 
+/**
+ * The PATTERN's span, from its source spelling alone: the object `PatternNode`
+ * carries the whole pattern's range, head token through closing `}`.
+ * Derived, not guessed: the caller states the
+ * line, the start column and the pattern text, and the end column is
+ * `start + text.length` because the range's end column is exclusive.
+ */
+export function patternRange(line: number, column: number, pattern: string): SourceRange {
+  return range(line, column, line, column + pattern.length);
+}
+
+/**
+ * Assert a document's WHOLE diagnostic list, order-sensitive and unfiltered.
+ *
+ * `assembleDiagnostics` (src/diagnostics/diagnostic.ts) orders by
+ * (file, line, column) with a stable sort, so a multi-diagnostic row's expected
+ * order is positional and measured, never guessed.
+ */
+export function expectDiagnosticsOf(
+  doc: ThetaDocument,
+  expected: readonly DiagShape[],
+  why: string,
+): ThetaDocument {
+  expect(shapes(doc), `${why}\n  actual diagnostics: ${render(doc)}`).toEqual([...expected]);
+  return doc;
+}
+
 /** Failure payload: every diagnostic rendered `severity code @l:c-l:c: message`. */
 export function render(doc: ThetaDocument, includeHint = false): string {
   return JSON.stringify(

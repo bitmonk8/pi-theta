@@ -98,6 +98,8 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { RELOAD_DEBOUNCE_WINDOW_MS } from "../src/extension/reload-debounce";
 import { waitFor } from "./helpers/fake-file-watcher";
 import {
+  GREET_THETA,
+  SECOND_THETA,
   REPEAT_START_NOTE,
   watcherAt,
   wiringAt,
@@ -118,9 +120,6 @@ import {
  * observable (note content), not on an internal.
  */
 const COLLISION_CODE = "theta/load/cross-format-collision";
-
-const GREET_THETA = ["---", "mode: prompt", "---", "@`hi`", ""].join("\n");
-const SECOND_THETA = ["---", "mode: prompt", "---", "@`yo`", ""].join("\n");
 
 /**
  * Let any LIVE dispatch (a re-owned `/greet` enters a real prompt-mode run)

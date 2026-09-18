@@ -7,6 +7,7 @@ import type {
   ExtensionCommandContext,
   ModelRegistry,
 } from "@earendil-works/pi-coding-agent";
+import type { SourceRange } from "../../src/diagnostics/diagnostic";
 import type { ParsedFrontmatter } from "../../src/parser/frontmatter";
 import type { ThetaDocument } from "../../src/parser/theta-document";
 import { executeBody, type BodyExecution } from "../../src/runtime/statement-executor";
@@ -22,7 +23,13 @@ import type {
 import type { Diagnostic } from "../../src/diagnostics/diagnostic";
 import type { RuntimeRoot } from "../../src/runtime-root";
 import type { SchemaValidator } from "../../src/seams/schema-validator";
-import { parseTheta } from "./e2e-s1";
+import { parseDoc, parseTheta } from "./e2e-s1";
+import {
+  type DiagShape,
+  deniesRegistration,
+  expectDiagnosticsOf,
+  render,
+} from "./load-row-harness";
 import { rootWith } from "./fixture-dispatch-harness";
 import { noopPi } from "./call-with-clause-harness";
 import { SEAM_NOOP_CHECKPOINT as NOOP_CHECKPOINT } from "./invoke-seam-scaffold";
@@ -88,7 +95,52 @@ export function createParsedPromptHarness(bugTag: string, sourcePath: string) {
   return { execute, expectValue };
 }
 
+/** Every row is a whole prompt-mode theta; frontmatter occupies lines 1–3. */
 export const FM = "---\nmode: prompt\n---\n";
+
+/** Bind pattern-refusal assertions to a fixture path and its unchanged executor. */
+export function createPatternRefusalHarness(
+  file: string,
+  execute: (doc: ThetaDocument) => Promise<BodyExecution>,
+) {
+  function theta(body: string): ThetaDocument {
+    return parseDoc(FM + body, file);
+  }
+
+  /** An expected diagnostic from a code the caller's fix does not move. */
+  function existing(code: string, message: string, at: SourceRange): DiagShape {
+    return { severity: "error", code, file, range: at, message };
+  }
+
+  /** Assert `body`'s WHOLE diagnostic list, order-sensitive and unfiltered. */
+  function expectDiagnostics(
+    body: string,
+    expected: readonly DiagShape[],
+    why: string,
+  ): ThetaDocument {
+    return expectDiagnosticsOf(theta(body), expected, why);
+  }
+
+  /**
+   * Assert LOAD registration denial before the whole diagnostic list, carrying
+   * the computed arm in the failure payload rather than changing dispatch.
+   */
+  async function expectRefused(
+    body: string,
+    expected: readonly DiagShape[],
+    why: string,
+  ): Promise<void> {
+    const doc = theta(body);
+    const execution = await execute(doc);
+    expect(
+      deniesRegistration(doc.diagnostics),
+      `${why}\n  the body answers ${JSON.stringify(execution.result.value)} (outcome=${execution.outcome})\n  actual diagnostics: ${render(doc)}`,
+    ).toBe(true);
+    expectDiagnosticsOf(doc, expected, why);
+  }
+
+  return { theta, existing, expectDiagnostics, expectRefused };
+}
 
 /** Parse + run a self-contained query-free prompt-mode body and return its final value. */
 export async function runValue(src: string, bugTag: string): Promise<ThetaValue | undefined> {

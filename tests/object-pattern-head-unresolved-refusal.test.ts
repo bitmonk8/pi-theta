@@ -1,12 +1,11 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { createParsedPromptHarness } from "./helpers/prompt-value-harness";
+import { createParsedPromptHarness, createPatternRefusalHarness } from "./helpers/prompt-value-harness";
 import {
   PARSE_REGISTRY_PATH as REGISTRY_PARSE_PAGE,
   type DiagShape,
-  shapes,
-  render,
   range,
+  patternRange,
   deniesRegistration,
 } from "./helpers/load-row-harness";
 import { readRepoFile } from "./helpers/corpus-reader";
@@ -14,11 +13,10 @@ import { readRegistry, type RegistryRow } from "./helpers/registry-oracle";
 import { describe, expect, it } from "vitest";
 // @ts-expect-error — JS code-registry module, no type declarations.
 import { registryMessage } from "../tools/code-registry/index.js";
-import { parseDoc, parseDocBytes } from "./helpers/e2e-s1";
+import { parseDocBytes } from "./helpers/e2e-s1";
 import { committedThetaSources } from "./helpers/theta-corpus";
 import type { SourceRange } from "../src/diagnostics/diagnostic";
 import { EXPORT_IN_THETA_CODE } from "../src/parser/imports";
-import type { ThetaDocument } from "../src/parser/theta-document";
 
 // Bug 0221 — a NON-reserved `match` object-pattern head is checked against
 // nothing: an undeclared `R { a: 1 }`, an undeclared head nested one level
@@ -162,28 +160,27 @@ function extraField(field: string, schema: string, at: SourceRange): DiagShape {
   };
 }
 
-/**
- * The pattern's span, from its source spelling alone (bug 0226 element (1)):
- * head token through closing `}`. `start + text.length` because the range's
- * end column is exclusive.
- */
-function patternRange(line: number, column: number, pattern: string): SourceRange {
-  return range(line, column, line, column + pattern.length);
-}
-
 // ===========================================================================
 // Parse harness — the shipped `parseThetaDocument` through `parseDoc`
 // (tests/helpers/e2e-s1.ts:39; the signature is `parseDoc(src, path)`).
 // ===========================================================================
 
-/** Every row is a whole prompt-mode theta; frontmatter occupies lines 1–3. */
-const FM = "---\nmode: prompt\n---\n";
-
 const FILE = "bug0221.theta";
 
-function theta(body: string): ThetaDocument {
-  return parseDoc(FM + body, FILE);
-}
+/**
+ * Assert that a wrong-arm row is refused at LOAD — first that it denies
+ * registration, carrying the arm it answers in the failure payload, then its
+ * whole diagnostic list.
+ *
+ * The route changes no dispatch (§Fix (c)(4)), so the greenable form of a
+ * wrong-arm claim is the registration denial, not a changed value: the value
+ * is computed and reported first so the red names the wrong arm the bug
+ * describes rather than only a missing diagnostic.
+ */
+const { existing, expectDiagnostics, expectRefused: expectRefusedWrongArm } = createPatternRefusalHarness(
+  FILE,
+  (doc) => execute(doc),
+);
 
 /** The expected refusal for an unresolved object-pattern head. */
 function unresolved(name: string, at: SourceRange): DiagShape {
@@ -205,28 +202,6 @@ function reserved(keyword: string, at: SourceRange): DiagShape {
     range: at,
     message: reservedMessage(keyword),
   };
-}
-
-/** An expected diagnostic from a code this fix does not move. */
-function existing(code: string, message: string, at: SourceRange): DiagShape {
-  return { severity: "error", code, file: FILE, range: at, message };
-}
-
-/**
- * Assert `body`'s WHOLE diagnostic list, order-sensitive.
- *
- * `assembleDiagnostics` (src/diagnostics/diagnostic.ts:123) orders by
- * (file, line, column) with a stable sort, so a multi-diagnostic row's expected
- * order is positional and measured, never guessed.
- */
-function expectDiagnostics(
-  body: string,
-  expected: readonly DiagShape[],
-  why: string,
-): ThetaDocument {
-  const doc = theta(body);
-  expect(shapes(doc), `${why}\n  actual diagnostics: ${render(doc)}`).toEqual([...expected]);
-  return doc;
 }
 
 // ===========================================================================
@@ -358,30 +333,6 @@ describe("0221 (r) — the registered row the refusal renders from", () => {
 // ===========================================================================
 
 const { execute, expectValue } = createParsedPromptHarness("bug0221", "/theta/bug0221.theta");
-
-/**
- * Assert that a wrong-arm row is refused at LOAD — first that it denies
- * registration, carrying the arm it answers in the failure payload, then its
- * whole diagnostic list.
- *
- * The route changes no dispatch (§Fix (c)(4)), so the greenable form of a
- * wrong-arm claim is the registration denial, not a changed value: the value
- * is computed and reported first so the red names the wrong arm the bug
- * describes rather than only a missing diagnostic.
- */
-async function expectRefusedWrongArm(
-  body: string,
-  expected: readonly DiagShape[],
-  why: string,
-): Promise<void> {
-  const doc = theta(body);
-  const execution = await execute(doc);
-  expect(
-    deniesRegistration(doc.diagnostics),
-    `${why}\n  the body answers ${JSON.stringify(execution.result.value)} (outcome=${execution.outcome})\n  actual diagnostics: ${render(doc)}`,
-  ).toBe(true);
-  expect(shapes(doc), `${why}\n  actual diagnostics: ${render(doc)}`).toEqual([...expected]);
-}
 
 // ===========================================================================
 // (a) The undeclared non-reserved head — the bug's group (A).
