@@ -29,8 +29,8 @@ import type { SourceRange } from "../src/diagnostics/diagnostic";
 // runners:
 //   - a code-side `<name>(args)` Pi-tool call dispatches the resolved host
 //     tool's `execute(...)` and lowers its envelope (V14g) to `Ok(text)`;
-//   - an `execute()` throw / unknown host tool surfaces
-//     `Err(CodeToolError{cause:"execution"})`, never a fabricated value;
+//   - an `execute()` throw / unknown host tool surfaces a `CodeToolError`
+//     with cause `execution` / `unknown_tool`, never a fabricated value;
 //   - a `.theta`-callable `<name>(args)` call routes to the invoke path, and a
 //     callee that cannot be loaded surfaces `Err(InvokeInfraError{cause:
 //     "load_failure"})` across the boundary — never `Ok(null)` (FN-5).
@@ -221,14 +221,18 @@ describe("H8b — real-host code-side tool-call wiring", () => {
     );
   });
 
-  it("an unresolved host tool name surfaces Err(execution) rather than fabricating a value", async () => {
+  it("an unresolved host tool name surfaces Err(CodeToolError{cause:'unknown_tool'}) rather than fabricating a value", async () => {
     // No `resolvePiTool` collaborator: the code-side call names no resolvable
-    // host tool, so the dispatch throws and lowers to the execution Err.
+    // host tool, so the regime-inactive snapshot miss lowers to unknown_tool
+    // without dispatching (bug 0322).
     const inner = (await runBody(
       producer({}),
       promptTheta(callExpr("no_such_tool")),
     )) as ResultValue;
     expect(inner.ok, "an unresolved host tool surfaces Err, never Ok('')").toBe(false);
+    const err = (inner as { readonly ok: false; readonly error: { readonly kind?: string; readonly cause?: string } }).error;
+    expect(err.kind, "the unresolved host tool is a CodeToolError").toBe("code_tool");
+    expect(err.cause, "the snapshot miss has cause 'unknown_tool'").toBe("unknown_tool");
   });
 });
 

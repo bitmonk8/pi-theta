@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
 import type { ThetaDocument } from "../src/parser/theta-document";
-import { parseDoc } from "./helpers/e2e-s1";
+import { assertSingleLine, parseDoc } from "./helpers/e2e-s1";
 
 // Bug 0348 — `theta/load/unknown-frontmatter-field` interpolates an
 // author-chosen YAML key into its message with NO line-break transform, so a
@@ -107,24 +107,6 @@ function parseUf(...frontmatterLines: string[]): {
  */
 function ufMessage(...frontmatterLines: string[]): string {
   return parseUf(...frontmatterLines).diag.message;
-}
-
-/**
- * The single-line contract (diagnostic-shape.md:34): a `message` carries no
- * physical break. A raw U+000A forges the serialised content format's
- * blank-line block separator and `  hint:` continuation; a raw U+000D forges
- * the `\r\n`-terminated related-site line. Both are the operator-deception
- * vectors bug 0105 documented. Modelled on the 0300 test's guard.
- */
-function assertSingleLine(message: string, label: string): void {
-  expect(
-    message.includes("\n"),
-    `${label}: message must contain NO raw U+000A — a raw LF splits the single-line summary and forges the serialised content format's blank-line / hint-continuation shapes (diagnostic-shape.md:34, placeholder-rendering-b.md:75)`,
-  ).toBe(false);
-  expect(
-    message.includes("\r"),
-    `${label}: message must contain NO raw U+000D — the single-line summary admits no carriage return (diagnostic-shape.md:34)`,
-  ).toBe(false);
 }
 
 describe("bug 0348 — unknown-frontmatter-field key renders single-line, collapsed", () => {

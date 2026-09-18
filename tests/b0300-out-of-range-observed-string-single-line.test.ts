@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseDoc } from "./helpers/e2e-s1";
+import { assertSingleLine, parseDoc } from "./helpers/e2e-s1";
 
 // Bug 0300 — `theta/load/frontmatter-value-out-of-range` interpolates a
 // string-valued `<observed>` with no line-break transform, so an author-chosen
@@ -62,24 +62,6 @@ function oorMessage(...frontmatterLines: string[]): string {
     );
   }
   return d.message;
-}
-
-/**
- * The single-line contract (diagnostic-shape.md:34): a `message` carries no
- * physical break. A raw U+000A forges the serialised content format's
- * blank-line block separator and `  hint:` continuation; a raw U+000D forges
- * the `\r\n`-terminated related-site line. Both are the operator-deception
- * vectors bug 0105 documented.
- */
-function assertSingleLine(message: string, label: string): void {
-  expect(
-    message.includes("\n"),
-    `${label}: message must contain NO raw U+000A — a raw LF splits the single-line summary and forges the serialised content format's blank-line / hint-continuation shapes (diagnostic-shape.md:34, placeholder-rendering-b.md:75)`,
-  ).toBe(false);
-  expect(
-    message.includes("\r"),
-    `${label}: message must contain NO raw U+000D — the single-line summary admits no carriage return (diagnostic-shape.md:34)`,
-  ).toBe(false);
 }
 
 describe("bug 0300 — out-of-range `<observed>` string renders single-line, escaped", () => {

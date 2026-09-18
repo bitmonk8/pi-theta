@@ -188,6 +188,24 @@ export function expectDiagnosticRow(
   expect((row as Diagnostic).message).toBe(message);
 }
 
+/**
+ * The single-line contract (diagnostic-shape.md:34): a `message` carries no
+ * physical break. A raw U+000A forges the serialised content format's
+ * blank-line block separator and `  hint:` continuation; a raw U+000D forges
+ * the `\r\n`-terminated related-site line. Both are the operator-deception
+ * vectors bug 0105 documented.
+ */
+export function assertSingleLine(message: string, label: string): void {
+  expect(
+    message.includes("\n"),
+    `${label}: message must contain NO raw U+000A — a raw LF splits the single-line summary and forges the serialised content format's blank-line / hint-continuation shapes (diagnostic-shape.md:34, placeholder-rendering-b.md:75)`,
+  ).toBe(false);
+  expect(
+    message.includes("\r"),
+    `${label}: message must contain NO raw U+000D — the single-line summary admits no carriage return (diagnostic-shape.md:34)`,
+  ).toBe(false);
+}
+
 /** Assert NO row carries the given code. */
 export function expectNoDiagnosticRow(diags: readonly Diagnostic[], code: string): void {
   expect(

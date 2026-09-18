@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 import * as liveHarness from "./live/harness";
-import { failLoudly } from "./live/harness";
+import {
+  createSettledTurnPollHarness,
+  emptyTextAfterThinking,
+  immediateSleep,
+} from "./helpers/settled-turn-poll-harness";
+import { failLoudly, messageEntry as message } from "./live/harness";
 
 // Bug 0290 — bug 0289's bounded same-session re-ask re-issues the LAST user
 // text VERBATIM through the real `prompt()` seam inside `captureSettledTurn`,
@@ -72,38 +77,12 @@ function requireCapture(): CaptureSettledTurn {
   return seam.captureSettledTurn;
 }
 
-/** One in-memory `SessionManager` message entry, shaped as the harness readers walk it. */
-function message(role: string, content: unknown, stopReason?: string): unknown {
-  return { type: "message", message: { role, content, stopReason } };
-}
-
-/** The witnessed empty settle: a normal `stop` boundary, a thinking part, an EMPTY text part. */
-function emptyTextAfterThinking(stopReason: string): unknown {
-  return message(
-    "assistant",
-    [
-      { type: "thinking", thinking: "…" },
-      { type: "text", text: "" },
-    ],
-    stopReason,
-  );
-}
-
-/** A sleep that resolves on the microtask queue — the poll bound must cost no wall time here. */
-async function immediateSleep(): Promise<void> {}
-
-/** Run `run`, returning the message of the loud failure it must produce. */
-async function captureLoudFailure(run: () => Promise<unknown>): Promise<string> {
-  try {
-    await run();
-  } catch (error) {
-    return error instanceof Error ? error.message : String(error);
-  }
-  return failLoudly(
+const { discoverPollBound } = createSettledTurnPollHarness({
+  bug: "bug 0290",
+  unexpectedSuccessMessage:
     "bug 0290: the drive returned instead of failing loudly, so the poll bound it " +
-      "consumed cannot be measured.",
-  );
-}
+    "consumed cannot be measured.",
+});
 
 // The sentinel-carrying rendered query the exposed live cells filter for, in the
 // task-framed compute-from-inline-value shape AGENTS.md §"Assert on real
@@ -196,7 +175,7 @@ describe("bug 0290 — the bounded re-ask is observable on the drive's result", 
     // the count into the in-loop return alone leaves the expiry return
     // reporting a re-ask that demonstrably happened as none.
     const capture = requireCapture();
-    const pollBound = await discoverPollBound(capture);
+    const pollBound = await discoverPollBound(capture, SENTINEL_QUERY, SLASH);
     const settledEmpty = [message("user", SENTINEL_QUERY), emptyTextAfterThinking("stop")];
     const reAskTurn = [message("user", SENTINEL_QUERY), message("assistant", "857", "stop")];
     const pending = [message("user", SENTINEL_QUERY)];
@@ -274,44 +253,3 @@ describe("bug 0290 — the bounded re-ask is observable on the drive's result", 
     expect(new Set(echoed).size).toBe(2);
   });
 });
-
-/**
- * The harness's own poll bound, measured rather than duplicated as a literal:
- * an all-pending slice consumes exactly one sleep per poll before the drive
- * fails loudly. Reading it back is what lets the cell above place its empty
- * settle on the FINAL poll without pinning `ASSISTANT_TURN_POLL_BOUND`'s value
- * here.
- */
-async function discoverPollBound(capture: CaptureSettledTurn): Promise<number> {
-  const pending = [message("user", SENTINEL_QUERY)];
-  let polls = 0;
-  const observed = await captureLoudFailure(async () =>
-    capture(
-      {
-        getEntries: () => pending,
-        prompt: async () => {
-          failLoudly(
-            "bug 0290: a slice with no trailing assistant entry is PENDING, so the drive " +
-              "must not re-ask it.",
-          );
-        },
-        isIdle: () => true,
-        sleep: async () => {
-          polls++;
-        },
-      },
-      0,
-      SLASH,
-    ),
-  );
-  // A genuinely pending slice — no trailing assistant entry at all — is the one
-  // shape whose expiry still says "never settled" (bug 0289 §Fix element (a)).
-  expect(observed).toContain("never settled");
-  if (polls < 2) {
-    failLoudly(
-      `bug 0290 precondition unmet: the drive's poll bound measured as ${polls}, too small ` +
-        "to place an empty settle on its final poll.",
-    );
-  }
-  return polls;
-}

@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 import * as liveHarness from "./live/harness";
 import {
+  createSettledTurnPollHarness,
+  emptyTextAfterThinking,
+  immediateSleep,
+} from "./helpers/settled-turn-poll-harness";
+import {
   failLoudly,
   messageEntry as message,
   systemNoteEntry as note,
@@ -112,33 +117,12 @@ function requireCapture(): CaptureSettledTurn {
   return seam.captureSettledTurn;
 }
 
-/** The witnessed shape: a normal `stop` boundary, a thinking part, an EMPTY text part. */
-function emptyTextAfterThinking(stopReason: string): unknown {
-  return message(
-    "assistant",
-    [
-      { type: "thinking", thinking: "…" },
-      { type: "text", text: "" },
-    ],
-    stopReason,
-  );
-}
-
-/** A sleep that resolves on the microtask queue — the poll bound must cost no wall time here. */
-async function immediateSleep(): Promise<void> {}
-
-/** Run `run`, returning the message of the loud failure it must produce. */
-async function captureLoudFailure(run: () => Promise<unknown>): Promise<string> {
-  try {
-    await run();
-  } catch (error) {
-    return error instanceof Error ? error.message : String(error);
-  }
-  return failLoudly(
+const { captureLoudFailure, discoverPollBound } = createSettledTurnPollHarness({
+  bug: "bug 0289",
+  unexpectedSuccessMessage:
     "bug 0289: the drive returned instead of failing loudly, so the state it " +
-      "reported for the turn cannot be inspected.",
-  );
-}
+    "reported for the turn cannot be inspected.",
+});
 
 const QUERY_ONE = "What is 471 plus 133? Answer with the number only.";
 const QUERY_TWO =
@@ -384,7 +368,7 @@ describe("bug 0289 — settled-but-empty turn classification", () => {
     // classification reports "never settled" for a slice that holds a trailing
     // assistant entry, and discards the re-ask's own result unclassified.
     const capture = requireCapture();
-    const pollBound = await discoverPollBound(capture);
+    const pollBound = await discoverPollBound(capture, QUERY_TWO, "/b0273livegood");
     const settledEmpty = [message("user", QUERY_TWO), emptyTextAfterThinking("stop")];
     const reAskTurn = [message("user", QUERY_TWO), message("assistant", "865", "stop")];
 
@@ -476,44 +460,3 @@ describe("bug 0289 — settled-but-empty turn classification", () => {
     expect(observed).not.toContain("never settled");
   });
 });
-
-/**
- * The harness's own poll bound, measured rather than duplicated as a literal:
- * an all-pending slice consumes exactly one sleep per poll before the drive
- * fails loudly. Reading it back is what lets the cell above place its empty
- * settle on the FINAL poll without pinning `ASSISTANT_TURN_POLL_BOUND`'s value
- * here.
- */
-async function discoverPollBound(capture: CaptureSettledTurn): Promise<number> {
-  const pending = [message("user", QUERY_TWO)];
-  let polls = 0;
-  const observed = await captureLoudFailure(async () =>
-    capture(
-      {
-        getEntries: () => pending,
-        prompt: async () => {
-          failLoudly(
-            "bug 0289: a slice with no trailing assistant entry is PENDING, so the " +
-              "drive must not re-ask it.",
-          );
-        },
-        isIdle: () => true,
-        sleep: async () => {
-          polls++;
-        },
-      },
-      0,
-      "/b0273livegood",
-    ),
-  );
-  // A genuinely pending slice — no trailing assistant entry at all — is the one
-  // shape whose expiry may still say "never settled".
-  expect(observed).toContain("never settled");
-  if (polls < 2) {
-    failLoudly(
-      `bug 0289 precondition unmet: the drive's poll bound measured as ${polls}, too small ` +
-        "to place an empty settle on its final poll.",
-    );
-  }
-  return polls;
-}
