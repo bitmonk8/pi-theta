@@ -44,45 +44,11 @@
 // / `system-note delivery failed` stderr noise it previously emitted.
 
 import { describe, it, expect } from "vitest";
-import { transportish } from "../../helpers/live-probe-helpers";
+import { driveProbeWithRetries } from "../../helpers/live-probe-helpers";
 import { requireLiveProvider, runProbe } from "./probe-harness";
-import type { ProbeResult, PlantedFile } from "./probe-harness";
+import type { PlantedFile } from "./probe-harness";
 
 const provider = requireLiveProvider();
-
-type Turn = ProbeResult["turns"][number] | undefined;
-
-// Live turns can fail for environmental (transport) reasons that are NOT the
-// property under test. Some failure modes surface on `turn.error` (a final-turn
-// transport fault propagated by `?`), but a per-iteration transport fault inside
-// a `par for` body degrades an element to `Err` WITHOUT setting `turn.error` —
-// the loop still runs to completion. So the retry decision is: retry when the
-// last turn errored transport-ish, OR when the deterministic `expect` value the
-// caller is about to assert is not yet present (`satisfied` is false). On the
-// FINAL attempt we return whatever we have and let the caller's `expect` run, so
-// a genuine (non-transport, persistent) defect still fails loudly — never a
-// silent skip. `satisfied` is evaluated against the same code-computed channel
-// the assertion reads, so this only ever masks transient environmental faults,
-// not a real logic regression (which would fail every attempt).
-async function driveRobust(
-  make: () => Promise<ProbeResult>,
-  satisfied: (u: string, turn: Turn) => boolean,
-  attempts = 3,
-): Promise<{ u: string; turn: Turn; probe: ProbeResult }> {
-  let probe = await make();
-  let turn = probe.turns[probe.turns.length - 1];
-  let u = (turn?.userTexts ?? []).join("\n");
-  for (let i = 1; i < attempts; i += 1) {
-    const transient =
-      transportish(turn?.error) || (turn?.systemNotes ?? []).some(transportish);
-    if (!transient && satisfied(u, turn)) break;
-    await probe.dispose();
-    probe = await make();
-    turn = probe.turns[probe.turns.length - 1];
-    u = (turn?.userTexts ?? []).join("\n");
-  }
-  return { u, turn, probe };
-}
 
 // ===========================================================================
 // RFC 0001 — `subagent fn`: real spawned-session turn + code-computed return
@@ -131,9 +97,13 @@ describe("RFC 0001 `subagent fn` — live spawned-session turn + code-computed r
           ].join("\n"),
         },
       ];
-      const { u, turn, probe } = await driveRobust(
+      const { u, turn, probe } = await driveProbeWithRetries(
         () => runProbe({ provider, files, drives: ["/sfnlive"] }),
-        (text) => text.includes("RES=42"),
+        {
+          satisfied: (text) => text.includes("RES=42"),
+          attempts: 3,
+          checkSystemNotes: true,
+        },
       );
       try {
         expect(probe.registeredNames).toContain("sfnlive");
@@ -221,9 +191,13 @@ describe("RFC 0003 `par for` — live per-iteration turns, ordered result collec
         const v = [Number(m[1]), Number(m[2]), Number(m[3])];
         return { v, nok: v.filter((x) => x !== -1).length };
       };
-      const { u, turn, probe } = await driveRobust(
+      const { u, turn, probe } = await driveProbeWithRetries(
         () => runProbe({ provider, files, drives: ["/parlive"] }),
-        (text) => parse(text).nok >= 2,
+        {
+          satisfied: (text) => parse(text).nok >= 2,
+          attempts: 3,
+          checkSystemNotes: true,
+        },
       );
       try {
         expect(probe.registeredNames).toContain("parlive");
@@ -295,9 +269,13 @@ describe("RFC 0002 computed tool args — live computed-path read of a planted f
           ].join("\n"),
         },
       ];
-      const { u, turn, probe } = await driveRobust(
+      const { u, turn, probe } = await driveProbeWithRetries(
         () => runProbe({ provider, files, drives: ["/ctarg"] }),
-        (text) => text.includes(SENTINEL),
+        {
+          satisfied: (text) => text.includes(SENTINEL),
+          attempts: 3,
+          checkSystemNotes: true,
+        },
       );
       try {
         expect(probe.registeredNames).toContain("ctarg");

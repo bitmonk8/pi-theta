@@ -31,29 +31,13 @@
 // echoing text already in front of it.
 
 import { describe, it, expect } from "vitest";
-import { driveOnce } from "../../helpers/live-probe-helpers";
+import { chainFixture, driveOnce } from "../../helpers/live-probe-helpers";
 import { requireLiveProvider, runProbe, turnAt } from "./probe-harness";
-import type { PlantedFile } from "./probe-harness";
 
 const provider = requireLiveProvider();
 
-// Three chained files: each names the next, forcing SEQUENTIAL read rounds.
-// Reaching the final number requires reading ch3, whose name is known only
-// from ch2, whose name is known only from ch1 => >= 3 sequential tool rounds.
-const CHAIN: readonly PlantedFile[] = [
-  { source: "rel", path: "ch1.txt", text: "STEP1 done. Next, read the file ch2.txt to continue." },
-  { source: "rel", path: "ch2.txt", text: "STEP2 done. Next, read the file ch3.txt to continue." },
-  {
-    source: "rel",
-    path: "ch3.txt",
-    text: "STEP3 done. The final number is 3193. Stop; do not read any more files.",
-  },
-];
-
-const CHAIN_QUERY =
-  "@`Read the file ch1.txt. Each file names the next file to read. Read exactly ONE " +
-  "file at a time, following the chain, until a file gives you a final number. " +
-  "Report that number plus 2000. Answer with the number only.`";
+const { files: CHAIN, instruction: CHAIN_INSTRUCTION } = chainFixture(3193, 2000);
+const CHAIN_QUERY = "@`" + CHAIN_INSTRUCTION + "`";
 
 describe("prompt-mode tool_loop.max_rounds enforcement (ceiling #2 / STAGE B)", () => {
   // PL-1 — the cap fires. A >=3-round chain under max_rounds:1 exhausts after

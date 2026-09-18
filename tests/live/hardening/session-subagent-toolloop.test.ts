@@ -42,44 +42,16 @@
 // proves a real turn ran.
 
 import { describe, it, expect } from "vitest";
-import { transportish } from "../../helpers/live-probe-helpers";
+import { chainFixture, driveProbeWithRetries } from "../../helpers/live-probe-helpers";
 import { requireLiveProvider, runProbe, turnAt } from "./probe-harness";
-import type { ProbeResult } from "./probe-harness";
 
 const provider = requireLiveProvider();
-
-/** Run a probe; retry once if the last drive errored transport-ish (429 is not a finding). */
-async function driveOnce(make: () => Promise<ProbeResult>): Promise<ProbeResult> {
-  let probe = await make();
-  const turn = probe.turns[probe.turns.length - 1];
-  if (turn !== undefined && transportish(turn.error)) {
-    await probe.dispose();
-    probe = await make();
-  }
-  return probe;
-}
 
 function theta(front: string[], body: string): string {
   return ["---", ...front, "---", body].join("\n");
 }
 
-// A dependency chain of files: each names the next, forcing SEQUENTIAL tool
-// rounds (the model cannot know ch2/ch3's names without first reading ch1/ch2).
-// Reaching the final number therefore requires >= 3 sequential read rounds.
-const CHAIN_FILES = [
-  { source: "rel" as const, path: "ch1.txt", text: "STEP1 done. Next, read the file ch2.txt to continue." },
-  { source: "rel" as const, path: "ch2.txt", text: "STEP2 done. Next, read the file ch3.txt to continue." },
-  {
-    source: "rel" as const,
-    path: "ch3.txt",
-    text: "STEP3 done. The final number is 4271. Stop; do not read any more files.",
-  },
-];
-
-const CHAIN_INSTRUCTION =
-  "Read the file ch1.txt. Each file names the next file to read. Read exactly ONE file at a time, " +
-  "following the chain, until a file gives you a final number. Report that number plus 3000. " +
-  "Answer with the number only.";
+const { files: CHAIN_FILES, instruction: CHAIN_INSTRUCTION } = chainFixture(4271, 3000);
 
 describe("subagent model-driven tool loops + ceiling #2", () => {
   // STL-1 — MULTI-ROUND tool loop inside a spawned subagent works. Default
@@ -88,7 +60,7 @@ describe("subagent model-driven tool loops + ceiling #2", () => {
   // sequential read rounds; a returned 7271 (the planted 4271 plus 3000) proves
   // the multi-round loop ran end-to-end (SUBAG-2 confirmed only a single read).
   it("STL-1: a multi-round subagent tool loop (chained reads) completes and returns the computed number", async () => {
-    const probe = await driveOnce(() =>
+    const { probe } = await driveProbeWithRetries(() =>
       runProbe({
         provider,
         files: [
@@ -134,7 +106,7 @@ describe("subagent model-driven tool loops + ceiling #2", () => {
   // AgentSession absorbs the rounds -> OK=7271 (cap of 1 never tripped despite
   // >=3 rounds) — the potential defect (subagent twin of QTL-4).
   it("STL-2: a subagent tool_loop.max_rounds:1 vs a forced 3-round chain — does ceiling #2 fire?", async () => {
-    const probe = await driveOnce(() =>
+    const { probe } = await driveProbeWithRetries(() =>
       runProbe({
         provider,
         files: [

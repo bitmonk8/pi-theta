@@ -26,23 +26,10 @@
 // and be ABSENT from `userTexts`.
 
 import { describe, it, expect } from "vitest";
-import { transportish } from "../../helpers/live-probe-helpers";
+import { driveProbeWithRetries } from "../../helpers/live-probe-helpers";
 import { requireLiveProvider, runProbe } from "./probe-harness";
-import type { ProbeResult } from "./probe-harness";
 
 const provider = requireLiveProvider();
-
-/** Drive one probe; retry once on a transport-ish failure. Returns joined userTexts of the last turn. */
-async function drive(make: () => Promise<ProbeResult>): Promise<{ text: string; probe: ProbeResult }> {
-  let probe = await make();
-  let turn = probe.turns[probe.turns.length - 1];
-  if (turn !== undefined && transportish(turn.error)) {
-    await probe.dispose();
-    probe = await make();
-    turn = probe.turns[probe.turns.length - 1];
-  }
-  return { text: (turn?.userTexts ?? []).join("\n"), probe };
-}
 
 const P = (mode: string, body: string): string =>
   ["---", "description: x", `mode: ${mode}`, "---", body].join("\n");
@@ -73,7 +60,7 @@ describe("prompt->prompt invoke attach (cross-mode)", () => {
         ),
       },
     ];
-    const { text, probe } = await drive(() => runProbe({ provider, files, drives: ["/ppparent"] }));
+    const { u: text, probe } = await driveProbeWithRetries(() => runProbe({ provider, files, drives: ["/ppparent"] }));
     try {
       // Child's query attached as a user-visible turn (the core fix) ...
       expect(text).toContain("CHILD_TURN_SENTINEL");
@@ -108,7 +95,7 @@ describe("prompt->prompt invoke attach (cross-mode)", () => {
         ),
       },
     ];
-    const { text, probe } = await drive(() => runProbe({ provider, files, drives: ["/ppret"] }));
+    const { u: text, probe } = await driveProbeWithRetries(() => runProbe({ provider, files, drives: ["/ppret"] }));
     try {
       // Child's final value 42 crossed the invoke boundary ...
       expect(text).toContain("RET=42");
