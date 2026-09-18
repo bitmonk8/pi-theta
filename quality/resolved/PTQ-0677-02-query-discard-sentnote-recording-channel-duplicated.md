@@ -2,7 +2,7 @@
 id: PTQ-0677
 title: query-discard.test.ts's SentNote/makeChannel recording-channel double is byte-identical to runtime-event-channel.test.ts's and re-implements a shape b0268's makeChannel also duplicates
 lens: D7
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - tests/query-discard.test.ts:36-59

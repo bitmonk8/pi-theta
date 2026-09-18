@@ -2,7 +2,7 @@
 id: PTQ-0472
 title: host-loop-dispatch.test.ts redeclares tool-call-dispatch-harness's span()/objArg/callExpr/body AST builders inline instead of importing them
 lens: D7
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - tests/host-loop-dispatch.test.ts:118-132

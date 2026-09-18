@@ -2,7 +2,7 @@
 id: PTQ-0491
 title: rebind-self-collision-reownership.test.ts redeclares double-session-start-supersession.test.ts's whole compose harness (CountingFakeFileWatcher/makeHarness/makeBoot/watcherAt/wiringAt/waitFor/dispatchRegistered) instead of importing it
 lens: D7                     # D2 | D4 | D7 | D8 | D9 - the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - tests/rebind-self-collision-reownership.test.ts:154-170

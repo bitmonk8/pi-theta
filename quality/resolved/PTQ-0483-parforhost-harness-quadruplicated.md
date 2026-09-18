@@ -2,7 +2,7 @@
 id: PTQ-0483
 title: ParForHost/execDeps/makeDeps/tick harness block is re-typed near-verbatim across four par-for test files
 lens: D7
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - tests/b0324-max-non-number-runtime.test.ts:67-206

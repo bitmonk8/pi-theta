@@ -2,7 +2,7 @@
 id: PTQ-0526
 title: the nine-position `Position`/`POSITIONS`/`cells`/`expectMatrix` fixture-and-assertion table is duplicated byte-for-byte between b0281 and b0282
 lens: D7                     # D2 | D4 | D7 | D8 | D9 - the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - tests/b0281-applied-reserved-generic-head-gate-at-nine-positions.test.ts:312-426

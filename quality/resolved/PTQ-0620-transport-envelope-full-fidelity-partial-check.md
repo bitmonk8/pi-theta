@@ -2,7 +2,7 @@
 id: PTQ-0620
 title: production-subagent-query-model.test.ts's "full fidelity" transport-envelope test checks 2 of the envelope's 5 fields
 lens: D7                     # D2 | D4 | D7 | D8 | D9 - the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - tests/production-subagent-query-model.test.ts:144-163

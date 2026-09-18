@@ -2,7 +2,7 @@
 id: PTQ-0601
 title: The recordingDeps()/parse() diagnostic-capturing harness is redeclared byte-for-byte in four parser test files, including the in-scope leading-bracket-statement-boundary.test.ts
 lens: D7
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - tests/leading-bracket-statement-boundary.test.ts:52-84

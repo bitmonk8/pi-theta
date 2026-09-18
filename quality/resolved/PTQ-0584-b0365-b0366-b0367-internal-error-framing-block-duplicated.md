@@ -2,7 +2,7 @@
 id: PTQ-0584
 title: The five-assertion "loud throw frames to internal-error" block is duplicated four times across b0365 (inline twice) and as byte-identical assertLoudThrow functions in b0366/b0367
 lens: D7                     # D2 | D4 | D7 | D8 | D9 - the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - tests/b0365-index-kind-belt.test.ts:508-516

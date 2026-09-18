@@ -2,7 +2,7 @@
 id: PTQ-0730
 title: proto-named-binder-write-sites.test.ts's hasOwn/prototypeReport pair is redeclared byte-for-byte in two sibling proto-named-*.test.ts files
 lens: D7                     # D2 | D4 | D7 | D8 | D9 - the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - tests/proto-named-binder-write-sites.test.ts:117-136

@@ -2,7 +2,7 @@
 id: PTQ-0592
 title: The theta()/codesOf()/render()/range()/messageFor()/soleRange() diagnostic-rendering harness is redeclared byte-identical between fn-param-name-case.test.ts and fn-param-name-reserved-keyword.test.ts
 lens: D7                     # D2 | D4 | D7 | D8 | D9 - the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - tests/fn-param-name-case.test.ts:169-236

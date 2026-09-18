@@ -2,7 +2,7 @@
 id: PTQ-0589
 title: "T-ENT B50's test name claims live() reports dead after a failed append but the body never calls live()"
 lens: D7
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - tests/execution-status-entry-channel.test.ts:142-152

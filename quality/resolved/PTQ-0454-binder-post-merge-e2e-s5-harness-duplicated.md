@@ -2,7 +2,7 @@
 id: PTQ-0454
 title: binder-post-merge-ajv-enforcement.test.ts retypes the e2e-s5-binder-echo-emission CapturedNote/parseDeps/parse/rootDouble/producerWithCapture/ctxDouble/noteChannelEntries sextet
 lens: D7
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - tests/binder-post-merge-ajv-enforcement.test.ts:187-192

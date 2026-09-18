@@ -2,7 +2,7 @@
 id: PTQ-0590
 title: control-plane-authentication.test.ts hand-rolls the savedEnv/setEnv/afterEach-restore scaffold instead of importing tests/helpers/ambient-control-plane-scrub.ts's createEnvSandbox
 lens: D7
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - tests/control-plane-authentication.test.ts:109-131

@@ -2,7 +2,7 @@
 id: PTQ-0643
 title: system-note-channel.test.ts's SentNote/ChannelFixture/makeChannel recording double is a fourth independent copy of a shape already duplicated three times
 lens: D7                     # D2 | D4 | D7 | D8 | D9 - the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - tests/system-note-channel.test.ts:36-90

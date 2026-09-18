@@ -2,7 +2,7 @@
 id: PTQ-0609
 title: b0382's transport/modelTool/codeTool QueryError leaf builders are redeclared byte-identically from tests/err-note-render.test.ts
 lens: D7
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - tests/b0382-slsh3-note-line-discipline.test.ts:66-92

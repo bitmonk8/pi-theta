@@ -2,7 +2,7 @@
 id: PTQ-0625
 title: b0449's measure() reimplements bindImportedBodyOverFs/bindImportedBody (and their fakeThetaLibFs) instead of importing them
 lens: D7                     # D2 | D4 | D7 | D8 | D9 - the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - tests/b0449-reexport-chain-enum-unknown-variant.test.ts:165-199

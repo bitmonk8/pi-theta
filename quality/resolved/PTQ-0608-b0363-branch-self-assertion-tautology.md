@@ -2,7 +2,7 @@
 id: PTQ-0608
 title: Six `expect(caseInsensitive).toBe(true/false)` calls inside the branch their own value selected can never fail
 lens: D7                     # D2 | D4 | D7 | D8 | D9 - the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - tests/b0363-file-entry-stem-judged-on-entry-spelling.test.ts:132-133

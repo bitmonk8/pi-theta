@@ -2,7 +2,7 @@
 id: PTQ-0560
 title: lexer-core.test.ts redeclares literals-and-paths.test.ts's SeamFixture recording double for the V7d diagnostic-emission seam
 lens: D7                     # D2 | D4 | D7 | D8 | D9 - the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - tests/lexer-core.test.ts:33-86

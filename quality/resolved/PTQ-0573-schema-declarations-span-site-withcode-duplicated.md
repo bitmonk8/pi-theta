@@ -2,7 +2,7 @@
 id: PTQ-0573
 title: The span()/site()/withCode() seam-call harness for src/parser/schema-declarations.ts is redeclared byte-identically in the V5a and V5b test files
 lens: D7                     # D2 | D4 | D7 | D8 | D9 - the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - tests/disc-unions-recursion.test.ts:34-46

@@ -2,7 +2,7 @@
 id: PTQ-0583
 title: b0337 retypes the PI_CLI_ENTRY/EXTENSION_ENTRY/requirePath/launch/watchdog/cleanup subagent-spawn harness that 11 sibling files already carry, with no tests/helpers/ home
 lens: D7                     # D2 | D4 | D7 | D8 | D9 - the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - tests/b0337-theta-enum-identity-invoke.test.ts:495-514

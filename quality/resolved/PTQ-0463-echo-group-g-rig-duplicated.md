@@ -2,7 +2,7 @@
 id: PTQ-0463
 title: echo-array-per-element-descriptor.test.ts redeclares the group-G production-binder rig it names as echo-value-rule1-sanitisation.test.ts's own
 lens: D7                     # D2 | D4 | D7 | D8 | D9 - the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - tests/echo-array-per-element-descriptor.test.ts:221-320

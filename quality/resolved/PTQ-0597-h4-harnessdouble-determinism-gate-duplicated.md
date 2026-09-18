@@ -2,7 +2,7 @@
 id: PTQ-0597
 title: response-programming-surface.test.ts's harnessDouble() and determinism-gate test body are duplicated byte-for-byte (apart from names) in modeled-behaviour-surface.test.ts
 lens: D7                     # D2 | D4 | D7 | D8 | D9 - the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - tests/response-programming-surface.test.ts:24-26

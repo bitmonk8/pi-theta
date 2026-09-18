@@ -2,7 +2,7 @@
 id: PTQ-0547
 title: grammar-literal-forbidden-access-naming.test.ts redeclares the corpus/section/flat doc-reading harness its own header names as copied from grammar-trailing-trigger-equals.test.ts
 lens: D7                     # D2 | D4 | D7 | D8 | D9 - the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - tests/grammar-literal-forbidden-access-naming.test.ts:71-79
