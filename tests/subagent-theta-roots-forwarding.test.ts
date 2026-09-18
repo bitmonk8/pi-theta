@@ -32,24 +32,23 @@
 // path [control]; (E) real-spawn end-to-end: a callee in the FIRST of two
 // roots completes through a REAL child [RED until fixed].
 
+import {
+  PI_CLI_ENTRY,
+  EXTENSION_ENTRY,
+  requirePathFor,
+  realExecutableHost,
+  launchRealSubagentChild,
+  childExit,
+  driveWatchedSubagentChild,
+  reapSubagentChildren,
+} from "./helpers/real-subagent-spawn";
 import { describe, expect, it, vi } from "vitest";
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
-import { fileURLToPath } from "node:url";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { discoverAndComposeFixtures } from "../src/extension/production-composition";
-import { createProductionSpawnFn } from "../src/extension/production-subagent-host";
-import { driveSubagentChild } from "../src/runtime/subagent-json-driver";
-import {
-  PI_CLI_DIALECT,
-  assembleSubagentArgv,
-  launchSubagentChild,
-  SUBAGENT_EXTENSION_PIN_ENV,
-  type ChildExitInfo,
-  type ExecutableHost,
-} from "../src/runtime/subagent-launcher";
-import type { Diagnostic } from "../src/diagnostics/diagnostic";
+import { PI_CLI_DIALECT, assembleSubagentArgv, SUBAGENT_EXTENSION_PIN_ENV, type ExecutableHost } from "../src/runtime/subagent-launcher";
 
 // ---------------------------------------------------------------------------
 // (A)–(C) — argv shape (assembleSubagentArgv, #subagent-launch-contract).
@@ -191,14 +190,6 @@ describe("bug 0008 — the joined --theta value splits back to both roots on the
 // createProductionSpawnFn + driveSubagentChild; provider-free, zero tokens).
 // ---------------------------------------------------------------------------
 
-/** The repo's pinned pi CLI entry — the SAME executable resolution rung 1 uses in production. */
-const PI_CLI_ENTRY = fileURLToPath(
-  new URL("../node_modules/@earendil-works/pi-coding-agent/dist/cli.js", import.meta.url),
-);
-
-/** This working tree's extension entry (the build under test; mirrors the acceptance harness pin). */
-const EXTENSION_ENTRY = fileURLToPath(new URL("../extensions", import.meta.url));
-
 /**
  * The marshalled model reference riding the child argv (`--provider`/`--model`,
  * PIC-62). NEVER CONTACTED: the scratch thetas below are pure tail expressions
@@ -215,14 +206,10 @@ const CHILD_MODEL_PROVIDER = "fable";
 const CHILD_MODEL_ID = "claude-fable-5";
 
 /** Fail loudly on a missing precondition — never a silent skip (*No silent test skipping*). */
-function requirePath(path: string, what: string): void {
-  if (!existsSync(path)) {
-    throw new Error(
-      `precondition unmet: ${what} not found at ${path} — the bug-0008 real-spawn ` +
-        `regression test needs the repo install (npm install); it never silently skips.`,
-    );
-  }
-}
+const requirePath = requirePathFor(
+  `the bug-0008 real-spawn ` +
+    `regression test needs the repo install (npm install); it never silently skips.`,
+);
 
 describe("bug 0008 — real subagent child with TWO discovery roots (production spawn path, provider-free)", () => {
   it(
@@ -293,42 +280,21 @@ describe("bug 0008 — real subagent child with TWO discovery roots (production 
       // Rung-1 executable resolution, exactly as a pi-hosted parent resolves it
       // (node + the entry script); pinned to the repo's own pi install so the
       // test exercises the version the launch contract is audited against.
-      const host: ExecutableHost = {
-        argv1: PI_CLI_ENTRY,
-        execPath: process.execPath,
-        fileExists: (p: string): boolean => existsSync(p),
-        isGenericRuntime: (): boolean => false,
-      };
-
-      const diagnostics: Diagnostic[] = [];
-      const emitDiagnostic = (d: Diagnostic): void => {
-        diagnostics.push(d);
-      };
+      const host: ExecutableHost = realExecutableHost();
 
       // The REAL production spawn path: launchSubagentChild assembles the exact
       // production argv (including the --theta forwarding under test) and
       // spawns via createProductionSpawnFn — the argv-collapse regression is
       // caught against the real host flag parser, not over a fake.
-      const launch = launchSubagentChild(
-        {
-          argv: {
-            slug: "bug8a",
-            thetaDirs: [dirA, dirB],
-            systemPrompt: "",
-            hostTools: [],
-            noHostTools: true,
-            provider: CHILD_MODEL_PROVIDER,
-            model: CHILD_MODEL_ID,
-            projectTrust: false,
-          },
-          cwd: scratchDir,
-          parentEnv,
-          parentPid: process.pid,
-          invokeDepth: 0,
-          host,
-        },
-        { spawn: createProductionSpawnFn(), emitDiagnostic },
-      );
+      const { launch, diagnostics, emitDiagnostic } = launchRealSubagentChild({
+        slug: "bug8a",
+        thetaDirs: [dirA, dirB],
+        provider: CHILD_MODEL_PROVIDER,
+        model: CHILD_MODEL_ID,
+        cwd: scratchDir,
+        parentEnv,
+        host,
+      });
       expect(launch.ok, `launch failed: ${JSON.stringify(diagnostics)}`).toBe(true);
       if (!launch.ok) {
         return;
@@ -337,7 +303,7 @@ describe("bug 0008 — real subagent child with TWO discovery roots (production 
 
       // Subscribed BEFORE driving so the terminal `'close'` is never missed;
       // hoisted above the `try` so the `finally` can await the exit too.
-      const exitPromise = new Promise<ChildExitInfo>((resolve) => child.onExit(resolve));
+      const exitPromise = childExit(child);
 
       try {
         // In-test bound BELOW the vitest timeout: on a hang kill the pair so
@@ -345,19 +311,9 @@ describe("bug 0008 — real subagent child with TWO discovery roots (production 
         // instead of the test (and a live child) hanging to the outer timeout.
         // 25s: the pre-fix red path measures ~15s (provider retry/backoff
         // against the refused loopback), so the bound needs headroom above it.
-        let killedByWatchdog = false;
-        const watchdog = setTimeout(() => {
-          killedByWatchdog = true;
-          child.kill();
-        }, 25_000);
-
-        const result = await driveSubagentChild({
-          child,
-          thetaAbort: new AbortController(),
-          calleePath: join(dirA, "bug8a.theta"),
-          emitDiagnostic,
-        });
-        clearTimeout(watchdog);
+        const { result, killedByWatchdog } = await driveWatchedSubagentChild(
+          child, join(dirA, "bug8a.theta"), emitDiagnostic, 25_000,
+        );
 
         expect(
           killedByWatchdog,
@@ -393,20 +349,7 @@ describe("bug 0008 — real subagent child with TWO discovery roots (production 
         // the failure path the kill (async taskkill on Windows) may not have
         // landed yet, so an immediate rmSync could throw EBUSY and replace the
         // primary assertion error with a less diagnostic one.
-        child.kill();
-        let reapTimer: ReturnType<typeof setTimeout> | undefined;
-        await Promise.race([
-          exitPromise,
-          new Promise<void>((resolve) => {
-            reapTimer = setTimeout(resolve, 5_000);
-          }),
-        ]);
-        clearTimeout(reapTimer);
-        try {
-          rmSync(scratchDir, { recursive: true, force: true });
-        } catch {
-          // Best-effort scratch cleanup; never mask the primary test failure.
-        }
+        await reapSubagentChildren([{ kill: () => child.kill(), exited: exitPromise }], scratchDir);
       }
     },
     35_000,

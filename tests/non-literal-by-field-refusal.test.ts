@@ -8,9 +8,8 @@ import {
   type DiscriminatorCandidateField,
   type UnionVariantSchema,
 } from "../src/parser/schema-declarations";
-import type { SourceRange } from "../src/diagnostics/diagnostic";
-import type { SchemaDecl, ThetaDocument } from "../src/parser/theta-document";
-import { parseDoc } from "./helpers/e2e-s1";
+import { site } from "./helpers/invoke-seam-scaffold";
+import { parseDoc, capturedSchemas, type CapturedSchema } from "./helpers/e2e-s1";
 
 // Bug 0128 — an explicit `by <field>` clause whose named field RESOLVES in
 // every variant but whose type is not a single literal loads with zero
@@ -186,28 +185,12 @@ function nonStringDiscriminatorLine(field: string, schema: string, kind: string)
 // The load harness.
 // ===========================================================================
 
-/** One schema declaration's observable field capture. */
-interface CapturedSchema {
-  readonly name: string;
-  readonly fields: readonly { readonly name: string; readonly typeSource: string }[];
-}
-
 /** One `parseDoc` row: its codes, its rendered lines, and what it captured. */
 interface LoadRow {
   readonly label: string;
   readonly codes: readonly string[];
   readonly lines: readonly string[];
   readonly schemas: readonly CapturedSchema[];
-}
-
-/** The schema declarations a document captured, in source order. */
-function capturedSchemas(doc: ThetaDocument): CapturedSchema[] {
-  return doc.body.statements
-    .filter((s): s is SchemaDecl => s.kind === "schema")
-    .map((s) => ({
-      name: s.name,
-      fields: (s.fields ?? []).map((f) => ({ name: f.name, typeSource: f.typeSource })),
-    }));
 }
 
 function loadRow(label: string, source: string, path = "bug0128.theta"): LoadRow {
@@ -671,15 +654,6 @@ describe("bug 0128 class 2 — a brace-rooted union-typed `by` field is the same
 // The seam — `checkDiscriminatedUnion`, and the non-goal boundary.
 // ===========================================================================
 
-/** A throwaway 1:1–1:2 span for the seam calls. */
-function site(): { file: string; range: SourceRange } {
-  const range: SourceRange = {
-    start: { line: 1, column: 1 },
-    end: { line: 1, column: 2 },
-  };
-  return { file: "bug0128.theta", range };
-}
-
 /** The classification shape the classifier produces (schema-declarations.ts:368). */
 type FieldClassification = Pick<DiscriminatorCandidateField, "literal" | "nested">;
 
@@ -707,7 +681,7 @@ function seamLines(catKind: FieldClassification, by: string | undefined): string
     ...(by !== undefined ? { by } : {}),
     variants: animalVariants(catKind),
   };
-  return checkDiscriminatedUnion(decl, site()).map(
+  return checkDiscriminatedUnion(decl, site("bug0128.theta")).map(
     (d) => `${d.severity} ${d.code}: ${d.message}`,
   );
 }
@@ -718,7 +692,7 @@ function seamCodes(catKind: FieldClassification, by: string | undefined): string
     ...(by !== undefined ? { by } : {}),
     variants: animalVariants(catKind),
   };
-  return checkDiscriminatedUnion(decl, site()).map((d) => d.code);
+  return checkDiscriminatedUnion(decl, site("bug0128.theta")).map((d) => d.code);
 }
 
 describe("bug 0128 seam — `checkDiscriminatedUnion` on a `{}`-classified field", () => {

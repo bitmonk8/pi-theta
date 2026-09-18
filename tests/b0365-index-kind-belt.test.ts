@@ -79,11 +79,10 @@
 // observable (returned undefined / success value null / lying unquoted message /
 // NullIndexAccessPanic / MissingObjectKeyPanic / rendered+sent), so the run
 // visibly shows the 0365 defect — not a bare assertion count.
-import { makeBeltProbes, type Probe, render, assertValue } from "./helpers/runtime-belt-probe-harness";
+import { makeBeltProbes, type Probe, render, assertValue, assertInternalError } from "./helpers/runtime-belt-probe-harness";
 import { parseDeps } from "./helpers/e2e-s1";
 import { describe, expect, it } from "vitest";
 import type { ThetaSource } from "../src/lexer/lexer";
-import type { Diagnostic } from "../src/diagnostics/diagnostic";
 import { parseThetaDocument, type ThetaDocument } from "../src/parser/theta-document";
 import {
   evaluateIndexAccess,
@@ -91,8 +90,6 @@ import {
   MissingObjectKeyPanic,
   NullIndexAccessPanic,
   isThetaPanic,
-  surfaceUnexpectedThrow,
-  INTERNAL_ERROR_CODE,
 } from "../src/runtime/runtime-panics";
 import type { ThetaValue } from "../src/runtime/value";
 
@@ -406,15 +403,10 @@ describe("bug 0365 H3 — a laundered boolean object index throws a plain-Error 
     }
     // RED-for-right-reason: HEAD String()-coerces the boolean to the key "true"
     // and throws a ThetaPanic (MissingObjectKeyPanic) — a manufactured key.
-    expect(
-      isThetaPanic(probe.thrown),
+    assertInternalError(
+      probe.thrown, SITE, "H3",
       `H3: post-fix the deferred non-string object index throws a PLAIN Error belt, NOT a ThetaPanic (HEAD throws MissingObjectKeyPanic on the String()-coerced "true" key); thrown: ${String(probe.thrown)}`,
-    ).toBe(false);
-    const diagnostic = surfaceUnexpectedThrow(probe.thrown, SITE);
-    expect(diagnostic, "H3: surfaceUnexpectedThrow returns a Diagnostic for the belt throw").toBeDefined();
-    const diag = diagnostic as Diagnostic;
-    expect(diag.code, "H3: the belt routes to the permitted internal-error surface").toBe(INTERNAL_ERROR_CODE);
-    expect(diag.message, "H3: the internal-error template prefix").toMatch(/^internal error: /);
+    );
   });
 });
 
@@ -509,15 +501,10 @@ describe("bug 0365 PH3 — laundered boolean object index in interpolation throw
     }
     // RED-for-right-reason: HEAD throws MissingObjectKeyPanic (a ThetaPanic) on
     // the String()-coerced "true" key.
-    expect(
-      isThetaPanic(probe.thrown),
+    assertInternalError(
+      probe.thrown, SITE, "PH3",
       `PH3: post-fix the deferred boolean object index throws a PLAIN Error belt, NOT a ThetaPanic (HEAD throws MissingObjectKeyPanic on the String()-coerced "true" key); thrown: ${String(probe.thrown)}`,
-    ).toBe(false);
-    const diagnostic = surfaceUnexpectedThrow(probe.thrown, SITE);
-    expect(diagnostic, "PH3: surfaceUnexpectedThrow returns a Diagnostic for the belt throw").toBeDefined();
-    const diag = diagnostic as Diagnostic;
-    expect(diag.code, "PH3: the belt routes to the permitted internal-error surface").toBe(INTERNAL_ERROR_CODE);
-    expect(diag.message, "PH3: the internal-error template prefix").toMatch(/^internal error: /);
+    );
     expect(probe.sent, "PH3: the belt throws at render, so nothing is handed to sendUserMessage").toEqual([]);
   });
 });

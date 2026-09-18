@@ -26,6 +26,8 @@
 // nothing about the executor or pure-host seam itself is stubbed, only the
 // `RuntimeRoot`/`ExtensionAPI` host around it.
 import { expect } from "vitest";
+import type { Diagnostic, SourceRange } from "../../src/diagnostics/diagnostic";
+import { isThetaPanic, surfaceUnexpectedThrow, INTERNAL_ERROR_CODE } from "../../src/runtime/runtime-panics";
 import type {
   ExtensionAPI,
   ExtensionCommandContext,
@@ -117,6 +119,33 @@ export function assertValue(probe: Probe, expected: ThetaValue, what: string): v
     probe.execution.result.value,
     `${what}: the control value (byte-identical guard)`,
   ).toEqual(expected);
+}
+
+/** Assert a non-panic throw frames to the permitted internal-error code and template. */
+export function assertInternalError(
+  thrown: unknown,
+  site: { readonly file: string; readonly range: SourceRange },
+  what: string,
+  nonPanicMessage = `${what}: the loud throw is a plain Error, NOT a ThetaPanic (the six-source panic list is closed). Thrown: ${String(thrown)}`,
+): void {
+  expect(
+    isThetaPanic(thrown),
+    nonPanicMessage,
+  ).toBe(false);
+  const diagnostic = surfaceUnexpectedThrow(thrown, site);
+  expect(
+    diagnostic,
+    `${what}: surfaceUnexpectedThrow returns a Diagnostic for a non-panic throw`,
+  ).toBeDefined();
+  const diag = diagnostic as Diagnostic;
+  expect(
+    diag.code,
+    `${what}: the loud throw routes to the existing permitted internal-error surface`,
+  ).toBe(INTERNAL_ERROR_CODE);
+  expect(
+    diag.message,
+    `${what}: the internal-error template prefix (tail wording is the implementer's)`,
+  ).toMatch(/^internal error: /);
 }
 
 /** An instant-settling session double: records every `pi.sendUserMessage` call and settles synchronously. */

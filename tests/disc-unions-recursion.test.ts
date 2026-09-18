@@ -4,7 +4,8 @@ import {
   checkDiscriminatedUnion,
   detectTypeAliasCycles,
 } from "../src/parser/schema-declarations";
-import type { Diagnostic, SourceRange } from "../src/diagnostics/diagnostic";
+import { site } from "./helpers/invoke-seam-scaffold";
+import { findCode as withCode } from "./helpers/e2e-s1";
 
 // V5b-T — failing tests for the paired `V5b` "discriminated unions, recursion,
 // and cycle detection" implementation.
@@ -29,21 +30,6 @@ import type { Diagnostic, SourceRange } from "../src/diagnostics/diagnostic";
 // absent: every seam is an inert stub returning no diagnostics. Each test reds
 // on its own primary assertion (an absent expected diagnostic), not on a
 // compile error, missing fixture, or harness throw.
-
-/** A throwaway 1:1–1:2 span for the seam calls. */
-function span(): SourceRange {
-  return { start: { line: 1, column: 1 }, end: { line: 1, column: 2 } };
-}
-
-/** A located site at the throwaway span. */
-function site(): { file: string; range: SourceRange } {
-  return { file: "test.theta", range: span() };
-}
-
-/** The first diagnostic carrying `code`, if any. */
-function withCode(diags: readonly Diagnostic[], code: string): Diagnostic | undefined {
-  return diags.find((d) => d.code === code);
-}
 
 // --- schemas.md §Discriminated unions — non-string discriminator ----------
 

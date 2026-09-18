@@ -9,9 +9,8 @@ import {
   type DiscriminatorCandidateField,
   type UnionVariantSchema,
 } from "../src/parser/schema-declarations";
-import type { SourceRange } from "../src/diagnostics/diagnostic";
-import type { SchemaDecl, ThetaDocument } from "../src/parser/theta-document";
-import { parseDoc } from "./helpers/e2e-s1";
+import { site } from "./helpers/invoke-seam-scaffold";
+import { parseDoc, capturedSchemas, type CapturedSchema } from "./helpers/e2e-s1";
 
 // Bug 0096 — `classifyDiscriminatorFieldType` guards its nested-object arm with
 // a positional brace test, ordered ahead of its own top-level-`|` split, so a
@@ -477,16 +476,6 @@ describe("bug 0096 item 1 — the brace predicate pair and the classification it
 // Item 2 — the seam, both directions (§Reproduction table E).
 // ===========================================================================
 
-/** A throwaway 1:1–1:2 span for the seam calls. */
-function span(): SourceRange {
-  return { start: { line: 1, column: 1 }, end: { line: 1, column: 2 } };
-}
-
-/** A located site at the throwaway span. */
-function site(): { file: string; range: SourceRange } {
-  return { file: "test.theta", range: span() };
-}
-
 /**
  * `Cat` and `Dog` as `schema Cat { kind: <under test>, name: string }` /
  * `schema Dog { kind: "dog", name: string }` reach
@@ -565,27 +554,11 @@ function thetaSrc(decls: string): string {
   return `---\nmode: prompt\n---\n${decls}\nlet a = 1\na`;
 }
 
-/** One schema declaration's observable field capture. */
-interface CapturedSchema {
-  readonly name: string;
-  readonly fields: readonly { readonly name: string; readonly typeSource: string }[];
-}
-
 /** One `parseDoc` row: the rendered diagnostic list and every captured field. */
 interface LoadRow {
   readonly label: string;
   readonly diagnostics: readonly string[];
   readonly schemas: readonly CapturedSchema[];
-}
-
-/** The declarations a document captured, in source order. */
-function capturedSchemas(doc: ThetaDocument): CapturedSchema[] {
-  return doc.body.statements
-    .filter((s): s is SchemaDecl => s.kind === "schema")
-    .map((s) => ({
-      name: s.name,
-      fields: (s.fields ?? []).map((f) => ({ name: f.name, typeSource: f.typeSource })),
-    }));
 }
 
 /**

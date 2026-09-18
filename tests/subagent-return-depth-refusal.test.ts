@@ -162,8 +162,18 @@
 //       live tier adds nothing — no fixture issues a query, so no provider or
 //       model participates and the whole run is deterministic.
 
+import {
+  PI_CLI_ENTRY,
+  EXTENSION_ENTRY,
+  requirePathFor,
+  realExecutableHost,
+  launchRealSubagentChild,
+  childExit,
+  driveWatchedSubagentChild,
+  reapSubagentChildren,
+} from "./helpers/real-subagent-spawn";
 import { describe, expect, it } from "vitest";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -174,20 +184,14 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 // @ts-expect-error — JS code-registry module, no type declarations.
 import { parseRegistry, registryMessage } from "../tools/code-registry/index.js";
-import { createProductionSpawnFn } from "../src/extension/production-subagent-host";
 import { createProductionProducerDeps } from "../src/extension/production-theta-producer";
 import { SUBAGENT_CHILD_OUTCOME_CHANNEL } from "../src/runtime/subagent-placement-registry";
 import type {
   ConversationBindInput,
   ThetaCompositionInput,
 } from "../src/extension/theta-composition-producer";
-import { driveSubagentChild, type SubagentInvocationResult } from "../src/runtime/subagent-json-driver";
-import {
-  launchSubagentChild,
-  SUBAGENT_EXTENSION_PIN_ENV,
-  type ChildExitInfo,
-  type ExecutableHost,
-} from "../src/runtime/subagent-launcher";
+import { type SubagentInvocationResult } from "../src/runtime/subagent-json-driver";
+import { type ChildExitInfo, type ExecutableHost } from "../src/runtime/subagent-launcher";
 import {
   DEPTH_VIOLATION_MESSAGE,
   MAX_JSON_DEPTH,
@@ -221,14 +225,6 @@ import {
 // Shared constants.
 // ===========================================================================
 
-/** The repo's pinned pi CLI entry — the SAME executable resolution rung 1 uses in production. */
-const PI_CLI_ENTRY = fileURLToPath(
-  new URL("../node_modules/@earendil-works/pi-coding-agent/dist/cli.js", import.meta.url),
-);
-
-/** This working tree's extension entry (the build under test). */
-const EXTENSION_ENTRY = fileURLToPath(new URL("../extensions", import.meta.url));
-
 /**
  * The marshalled model reference riding the child argv (`--provider`/`--model`,
  * PIC-62). NEVER CONTACTED: no fixture below issues a query.
@@ -246,15 +242,11 @@ const INVOKE_INFRA_KIND = "invoke_infra";
 const UNIT_CALLEE_PATH = "./kid.theta";
 
 /** Fail loudly on a missing precondition — never a silent skip (*No silent test skipping*). */
-function requirePath(path: string, what: string): void {
-  if (!existsSync(path)) {
-    throw new Error(
-      `precondition unmet: ${what} not found at ${path} — the bug-0187 too-deep ` +
-        `subagent-return witness needs the repo install (npm install) and the built extension ` +
-        `entry; it never silently skips.`,
-    );
-  }
-}
+const requirePath = requirePathFor(
+  `the bug-0187 too-deep ` +
+    `subagent-return witness needs the repo install (npm install) and the built extension ` +
+    `entry; it never silently skips.`,
+);
 
 // ===========================================================================
 // The route-(b) seam, read through a DYNAMIC import.
@@ -1223,12 +1215,7 @@ describe("bug 0187 (UNINFERRED) — what a caller binds at a return boundary tha
       // (node + the entry script); pinned to the repo's own pi install. Under
       // vitest `process.argv[1]` is vitest's own entry, so an unpinned rung 1
       // would spawn `node <vitest-entry> …` and the child would die instantly.
-      const host: ExecutableHost = {
-        argv1: PI_CLI_ENTRY,
-        execPath: process.execPath,
-        fileExists: (p: string): boolean => existsSync(p),
-        isGenericRuntime: (): boolean => false,
-      };
+      const host: ExecutableHost = realExecutableHost();
 
       /** Every child launched below, reaped in the `finally` on every path. */
       const launched: { readonly kill: () => void; readonly exited: Promise<ChildExitInfo> }[] = [];
@@ -1242,30 +1229,14 @@ describe("bug 0187 (UNINFERRED) — what a caller binds at a return boundary tha
          * pin silently and bind ambient builds instead.
          */
         const driveRoot = async (slug: string): Promise<RootOutcome> => {
-          const diagnostics: Diagnostic[] = [];
-          const emitDiagnostic = (d: Diagnostic): void => {
-            diagnostics.push(d);
-          };
-          const launch = launchSubagentChild(
-            {
-              argv: {
-                slug,
-                thetaDirs: [thetaDir],
-                systemPrompt: "",
-                hostTools: [],
-                noHostTools: true,
-                provider: CHILD_MODEL_PROVIDER,
-                model: CHILD_MODEL_ID,
-                projectTrust: false,
-              },
-              cwd: scratchDir,
-              parentEnv: { ...process.env, [SUBAGENT_EXTENSION_PIN_ENV]: EXTENSION_ENTRY },
-              parentPid: process.pid,
-              invokeDepth: 0,
-              host,
-            },
-            { spawn: createProductionSpawnFn(), emitDiagnostic },
-          );
+          const { launch, diagnostics, emitDiagnostic } = launchRealSubagentChild({
+            slug,
+            thetaDirs: [thetaDir],
+            provider: CHILD_MODEL_PROVIDER,
+            model: CHILD_MODEL_ID,
+            cwd: scratchDir,
+            host,
+          });
           if (!launch.ok) {
             throw new Error(
               `precondition unmet: the spawn of root '${slug}' failed, so nothing about the ` +
@@ -1274,25 +1245,16 @@ describe("bug 0187 (UNINFERRED) — what a caller binds at a return boundary tha
           }
           const child = launch.child;
           // Subscribed BEFORE driving so the terminal `'close'` is never missed.
-          const exited = new Promise<ChildExitInfo>((r) => child.onExit(r));
+          const exited = childExit(child);
           launched.push({ kill: () => child.kill(), exited });
 
           // In-test bound BELOW the vitest timeout: on a stall (this root or its
           // grandchild making no progress) kill the pair so the drive settles
           // fail-closed and the assertions below report loudly, instead of the
           // test and a live process tree hanging to the outer timeout.
-          let killedByWatchdog = false;
-          const watchdog = setTimeout(() => {
-            killedByWatchdog = true;
-            child.kill();
-          }, 90_000);
-          const result = await driveSubagentChild({
-            child,
-            thetaAbort: new AbortController(),
-            calleePath: join(thetaDir, `${slug}.theta`),
-            emitDiagnostic,
-          });
-          clearTimeout(watchdog);
+          const { result, killedByWatchdog } = await driveWatchedSubagentChild(
+            child, join(thetaDir, `${slug}.theta`), emitDiagnostic, 90_000,
+          );
           const exit = await exited;
           return { result, exit, diagnostics, killedByWatchdog };
         };
@@ -1610,22 +1572,7 @@ describe("bug 0187 (UNINFERRED) — what a caller binds at a return boundary tha
         // dir — a dying child's cwd is inside scratchDir, so an immediate
         // rmSync could throw EBUSY and replace the primary assertion error with
         // a less diagnostic one.
-        for (const child of launched) {
-          child.kill();
-        }
-        let reapTimer: ReturnType<typeof setTimeout> | undefined;
-        await Promise.race([
-          Promise.all(launched.map((c) => c.exited)),
-          new Promise<void>((r) => {
-            reapTimer = setTimeout(r, 5_000);
-          }),
-        ]);
-        clearTimeout(reapTimer);
-        try {
-          rmSync(scratchDir, { recursive: true, force: true });
-        } catch {
-          // Best-effort scratch cleanup; never mask the primary test failure.
-        }
+        await reapSubagentChildren(launched, scratchDir);
       }
     },
     600_000,

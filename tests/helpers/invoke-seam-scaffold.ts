@@ -56,6 +56,11 @@ export function span(): SourceRange {
   return { start: { line: 1, column: 1 }, end: { line: 1, column: 2 } };
 }
 
+/** A located site at the throwaway span. */
+export function site(file = "test.theta"): { file: string; range: SourceRange } {
+  return { file, range: span() };
+}
+
 /** One recorded SLSH-5 hop (`deps.recordInvokeHop` fires only when a wrap
  *  decision constructs an `invoke_callee` wrapper). */
 export interface RecordedHop {

@@ -1,3 +1,13 @@
+import {
+  PI_CLI_ENTRY,
+  EXTENSION_ENTRY,
+  requirePathFor,
+  realExecutableHost,
+  launchRealSubagentChild,
+  childExit,
+  driveWatchedSubagentChild,
+  reapSubagentChildren,
+} from "./helpers/real-subagent-spawn";
 import { parseDeps as makeParseDeps } from "./helpers/e2e-s1";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -31,10 +41,9 @@ vi.mock("@earendil-works/pi-ai/compat", async (importOriginal) => {
     }),
   };
 });
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { fileURLToPath } from "node:url";
 import type {
   ExtensionAPI,
   ExtensionCommandContext,
@@ -79,14 +88,8 @@ import type { Checkpoint } from "../src/seams/checkpoint";
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
 import type { QueryError } from "../src/runtime/query-error";
 import type { RuntimeRoot } from "../src/runtime-root";
-import { createProductionSpawnFn } from "../src/extension/production-subagent-host";
 import { driveSubagentChild } from "../src/runtime/subagent-json-driver";
-import {
-  launchSubagentChild,
-  SUBAGENT_EXTENSION_PIN_ENV,
-  type ChildExitInfo,
-  type ExecutableHost,
-} from "../src/runtime/subagent-launcher";
+import { type ChildExitInfo, type ExecutableHost } from "../src/runtime/subagent-launcher";
 import { SUBAGENT_PARAMS_ENV, SUBAGENT_PARAMS_FILE_ENV } from "../src/runtime/subagent-params";
 import {
   AjvSchemaValidator,
@@ -1306,27 +1309,15 @@ describe("bug 0172 face 2 — the binder-`args` boundary, parent side, over a un
 // and `parentPid` written beside it so the AUTHENTICATED control plane does not
 // strip the pin.
 
-/** The repo's pinned pi CLI entry — the SAME executable resolution rung 1 uses in production. */
-const PI_CLI_ENTRY = fileURLToPath(
-  new URL("../node_modules/@earendil-works/pi-coding-agent/dist/cli.js", import.meta.url),
-);
-
-/** This working tree's extension entry (the build under test). */
-const EXTENSION_ENTRY = fileURLToPath(new URL("../extensions", import.meta.url));
-
 /** The marshalled model reference riding the child argv (PIC-62). NEVER CONTACTED. */
 const CHILD_MODEL_PROVIDER = "anthropic";
 const CHILD_MODEL_ID = "claude-fable-5";
 
 /** Fail loudly on a missing precondition — never a silent skip. */
-function requirePath(path: string, what: string): void {
-  if (!existsSync(path)) {
-    throw new Error(
-      `precondition unmet: ${what} not found at ${path} — the bug-0172 face-2 invoke witness ` +
-        `needs the repo install (npm install); it never silently skips.`,
-    );
-  }
-}
+const requirePath = requirePathFor(
+  `the bug-0172 face-2 invoke witness ` +
+    `needs the repo install (npm install); it never silently skips.`,
+);
 
 /** The callee: an enum-variant tail, which crosses the envelope as the bare wire string. */
 const INVOKE_KID = [
@@ -1398,50 +1389,26 @@ async function driveRootChild(input: {
 
   // Rung-1 executable resolution, exactly as a pi-hosted parent resolves it
   // (node + the entry script); pinned to the repo's own pi install.
-  const host: ExecutableHost = {
-    argv1: PI_CLI_ENTRY,
-    execPath: process.execPath,
-    fileExists: (p: string): boolean => existsSync(p),
-    isGenericRuntime: (): boolean => false,
-  };
-  const diagnostics: Diagnostic[] = [];
-  const emitDiagnostic = (d: Diagnostic): void => {
-    diagnostics.push(d);
-  };
+  const host: ExecutableHost = realExecutableHost();
   // The extension pin rides `parentEnv` and inherits down to any grandchild the
   // root theta spawns; `parentPid` is what authenticates the pin at each level,
   // so omitting it would strip the pin silently and bind ambient builds.
-  const launch = launchSubagentChild(
-    {
-      argv: {
-        slug: input.slug,
-        thetaDirs: [input.thetaDir],
-        systemPrompt: "",
-        hostTools: [],
-        noHostTools: true,
-        provider: CHILD_MODEL_PROVIDER,
-        model: CHILD_MODEL_ID,
-        projectTrust: false,
-      },
-      cwd: input.scratchDir,
-      parentEnv: {
-        ...process.env,
-        [SUBAGENT_EXTENSION_PIN_ENV]: EXTENSION_ENTRY,
-      },
-      // THIS launch's params ride the per-launch control-plane channel (bug
-      // 0474): the launcher scrubs every inherited per-launch carrier out of
-      // `parentEnv`, so a carrier this process itself holds cannot reach the
-      // child; both carriers are named so the channel choice is authoritative.
-      controlPlaneEnv: {
-        [SUBAGENT_PARAMS_ENV]: input.params,
-        [SUBAGENT_PARAMS_FILE_ENV]: undefined,
-      },
-      parentPid: process.pid,
-      invokeDepth: 0,
-      host,
+  const { launch, diagnostics, emitDiagnostic } = launchRealSubagentChild({
+    slug: input.slug,
+    thetaDirs: [input.thetaDir],
+    provider: CHILD_MODEL_PROVIDER,
+    model: CHILD_MODEL_ID,
+    cwd: input.scratchDir,
+    // THIS launch's params ride the per-launch control-plane channel (bug
+    // 0474): the launcher scrubs every inherited per-launch carrier out of
+    // `parentEnv`, so a carrier this process itself holds cannot reach the
+    // child; both carriers are named so the channel choice is authoritative.
+    controlPlaneEnv: {
+      [SUBAGENT_PARAMS_ENV]: input.params,
+      [SUBAGENT_PARAMS_FILE_ENV]: undefined,
     },
-    { spawn: createProductionSpawnFn(), emitDiagnostic },
-  );
+    host,
+  });
   if (!launch.ok) {
     throw new Error(
       `harness: the child did not launch (${JSON.stringify(launch.reason)}), so no cell below ` +
@@ -1452,44 +1419,23 @@ async function driveRootChild(input: {
 
   // Subscribed BEFORE driving so the terminal `'close'` is never missed.
   let exit: ChildExitInfo | "no exit observed" = "no exit observed";
-  const exitPromise = new Promise<ChildExitInfo>((resolve) =>
-    child.onExit((info) => {
-      exit = info;
-      resolve(info);
-    }),
-  );
+  const exitPromise = childExit(child, (info) => { exit = info; });
   // In-test bound BELOW the vitest timeout: on a stall (the root child or a
   // grandchild making no progress) kill the tree so the drive settles
   // fail-closed and the assertions report loudly, instead of the test and a
   // live process tree hanging to the outer timeout.
-  let killedByWatchdog = false;
+  let killedByWatchdog: boolean;
   let result: Awaited<ReturnType<typeof driveSubagentChild>>;
   try {
-    const watchdog = setTimeout(() => {
-      killedByWatchdog = true;
-      child.kill();
-    }, 60_000);
-    result = await driveSubagentChild({
-      child,
-      thetaAbort: new AbortController(),
-      calleePath: join(input.thetaDir, `${input.slug}.theta`),
-      emitDiagnostic,
-    });
-    clearTimeout(watchdog);
+    ({ result, killedByWatchdog } = await driveWatchedSubagentChild(
+      child, join(input.thetaDir, `${input.slug}.theta`), emitDiagnostic, 60_000,
+    ));
   } finally {
     // Reap on every path (idempotent on an already-exited child), then await its
     // exit (bounded): the dying child's cwd is inside the scratch tree, so
     // leaving it live could make the caller's cleanup throw EBUSY and replace a
     // primary assertion error with a less diagnostic one.
-    child.kill();
-    let reapTimer: ReturnType<typeof setTimeout> | undefined;
-    await Promise.race([
-      exitPromise,
-      new Promise<void>((resolve) => {
-        reapTimer = setTimeout(resolve, 5_000);
-      }),
-    ]);
-    clearTimeout(reapTimer);
+    await reapSubagentChildren([{ kill: () => child.kill(), exited: exitPromise }]);
   }
   return {
     ok: result.ok,

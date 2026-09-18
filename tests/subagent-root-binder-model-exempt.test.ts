@@ -120,33 +120,27 @@
 // §"Argument shape" (a `.theta` callable takes its callee `params:` positionally
 // in declaration order).
 
+import {
+  PI_CLI_ENTRY,
+  EXTENSION_ENTRY,
+  requirePathFor,
+  realExecutableHost,
+  launchRealSubagentChild,
+  childExit,
+  driveWatchedSubagentChild,
+  reapSubagentChildren,
+} from "./helpers/real-subagent-spawn";
 import { describe, expect, it } from "vitest";
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { fileURLToPath } from "node:url";
-import { createProductionSpawnFn } from "../src/extension/production-subagent-host";
 import { driveSubagentChild } from "../src/runtime/subagent-json-driver";
-import {
-  launchSubagentChild,
-  SUBAGENT_EXTENSION_PIN_ENV,
-  type ChildExitInfo,
-  type ExecutableHost,
-} from "../src/runtime/subagent-launcher";
+import { type ChildExitInfo, type ExecutableHost } from "../src/runtime/subagent-launcher";
 import { SUBAGENT_CALLABLE_HASHES_ENV } from "../src/runtime/subagent-callable-hash";
 import {
   SUBAGENT_PARAMS_ENV,
   SUBAGENT_PARAMS_FILE_ENV,
 } from "../src/runtime/subagent-params";
-import type { Diagnostic } from "../src/diagnostics/diagnostic";
-
-/** The repo's pinned pi CLI entry — the SAME executable resolution rung 1 uses in production. */
-const PI_CLI_ENTRY = fileURLToPath(
-  new URL("../node_modules/@earendil-works/pi-coding-agent/dist/cli.js", import.meta.url),
-);
-
-/** This working tree's extension entry (the build under test). */
-const EXTENSION_ENTRY = fileURLToPath(new URL("../extensions", import.meta.url));
 
 /**
  * The marshalled model reference riding the child argv (`--provider`/`--model`,
@@ -185,15 +179,11 @@ const FENCE_BIND_MODEL = "anthropic/claude-haiku-4-5";
 const ROW_WATCHDOG_MS = 120_000;
 
 /** Fail loudly on a missing precondition — never a silent skip (*No silent test skipping*). */
-function requirePath(path: string, what: string): void {
-  if (!existsSync(path)) {
-    throw new Error(
-      `precondition unmet: ${what} not found at ${path} — the bug-0178 subagent-root ` +
-        `binder-model-exemption witness needs the repo install (npm install); it never ` +
-        `silently skips.`,
-    );
-  }
-}
+const requirePath = requirePathFor(
+  `the bug-0178 subagent-root ` +
+    `binder-model-exemption witness needs the repo install (npm install); it never ` +
+    `silently skips.`,
+);
 
 /** Assemble one `mode: subagent` fixture, so a fence row differs by exactly its one extra line. */
 function subagentFixture(spec: {
@@ -358,45 +348,26 @@ async function driveDirect(input: {
   readonly params: string | undefined;
   readonly host: ExecutableHost;
 }): Promise<RowOutcome> {
-  const diagnostics: Diagnostic[] = [];
-  const emitDiagnostic = (diagnostic: Diagnostic): void => {
-    diagnostics.push(diagnostic);
-  };
-  const launch = launchSubagentChild(
-    {
-      argv: {
-        slug: input.slug,
-        thetaDirs: [input.thetaDir],
-        systemPrompt: "",
-        hostTools: [],
-        noHostTools: true,
-        provider: CHILD_MODEL_PROVIDER,
-        model: CHILD_MODEL_ID,
-        projectTrust: false,
-      },
-      cwd: input.scratchDir,
-      // The extension pin rides `parentEnv` and inherits down to any grandchild
-      // the root theta's calls spawn; `parentPid` is what authenticates it at
-      // each level. THIS launch's params ride the per-launch control-plane
-      // channel (bug 0474): the launcher scrubs every inherited per-launch
-      // carrier out of `parentEnv`, so no carrier held by THIS process survives
-      // into the child, and both params carriers are named so the channel choice
-      // is authoritative.
-      parentEnv: {
-        ...process.env,
-        [SUBAGENT_EXTENSION_PIN_ENV]: EXTENSION_ENTRY,
-      },
-      controlPlaneEnv: {
-        [SUBAGENT_PARAMS_ENV]: input.params,
-        [SUBAGENT_PARAMS_FILE_ENV]: undefined,
-        [SUBAGENT_CALLABLE_HASHES_ENV]: undefined,
-      },
-      parentPid: process.pid,
-      invokeDepth: 0,
-      host: input.host,
+  const { launch, diagnostics, emitDiagnostic } = launchRealSubagentChild({
+    slug: input.slug,
+    thetaDirs: [input.thetaDir],
+    provider: CHILD_MODEL_PROVIDER,
+    model: CHILD_MODEL_ID,
+    cwd: input.scratchDir,
+    // The extension pin rides `parentEnv` and inherits down to any grandchild
+    // the root theta's calls spawn; `parentPid` is what authenticates it at
+    // each level. THIS launch's params ride the per-launch control-plane
+    // channel (bug 0474): the launcher scrubs every inherited per-launch
+    // carrier out of `parentEnv`, so no carrier held by THIS process survives
+    // into the child, and both params carriers are named so the channel choice
+    // is authoritative.
+    controlPlaneEnv: {
+      [SUBAGENT_PARAMS_ENV]: input.params,
+      [SUBAGENT_PARAMS_FILE_ENV]: undefined,
+      [SUBAGENT_CALLABLE_HASHES_ENV]: undefined,
     },
-    { spawn: createProductionSpawnFn(), emitDiagnostic },
-  );
+    host: input.host,
+  });
   if (!launch.ok) {
     return {
       stem: input.slug,
@@ -423,30 +394,17 @@ async function driveDirect(input: {
     stderrLines.push(line);
   });
   let exit: ChildExitInfo | "no exit observed" = "no exit observed";
-  const exitPromise = new Promise<ChildExitInfo>((resolve) =>
-    child.onExit((info) => {
-      exit = info;
-      resolve(info);
-    }),
-  );
+  const exitPromise = childExit(child, (info) => { exit = info; });
 
   // In-test bound BELOW the outer timeout: on a stall, kill so the drive settles
   // fail-closed and the row reports loudly instead of hanging the suite with a
   // live process tree.
-  let killedByWatchdog = false;
+  let killedByWatchdog: boolean;
   let result: Awaited<ReturnType<typeof driveSubagentChild>>;
   try {
-    const watchdog = setTimeout(() => {
-      killedByWatchdog = true;
-      child.kill();
-    }, ROW_WATCHDOG_MS);
-    result = await driveSubagentChild({
-      child,
-      thetaAbort: new AbortController(),
-      calleePath: join(input.thetaDir, `${input.slug}.theta`),
-      emitDiagnostic,
-    });
-    clearTimeout(watchdog);
+    ({ result, killedByWatchdog } = await driveWatchedSubagentChild(
+      child, join(input.thetaDir, `${input.slug}.theta`), emitDiagnostic, ROW_WATCHDOG_MS,
+    ));
   } finally {
     // Reap on every path (idempotent on an already-exited child), then await its
     // exit (bounded) before the next row: the dying child's cwd is inside the
@@ -455,15 +413,7 @@ async function driveDirect(input: {
     // here — before the record below is built — is also what makes `exit` and the
     // final `stdoutLines` count complete for a row whose drive settled on the
     // envelope rather than on the exit.
-    child.kill();
-    let reapTimer: ReturnType<typeof setTimeout> | undefined;
-    await Promise.race([
-      exitPromise,
-      new Promise<void>((resolve) => {
-        reapTimer = setTimeout(resolve, 5_000);
-      }),
-    ]);
-    clearTimeout(reapTimer);
+    await reapSubagentChildren([{ kill: () => child.kill(), exited: exitPromise }]);
   }
   return {
     stem: input.slug,
@@ -504,12 +454,7 @@ describe("bug 0178 — a spawned subagent child registers the marked root theta 
 
       // Rung-1 executable resolution, exactly as a pi-hosted parent resolves it
       // (node + the entry script); pinned to the repo's own pi install.
-      const host: ExecutableHost = {
-        argv1: PI_CLI_ENTRY,
-        execPath: process.execPath,
-        fileExists: (path: string): boolean => existsSync(path),
-        isGenericRuntime: (): boolean => false,
-      };
+      const host: ExecutableHost = realExecutableHost();
 
       try {
         // Sequential: each row is a whole child process, and a concurrent fan-out

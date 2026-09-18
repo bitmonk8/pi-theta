@@ -68,28 +68,21 @@
 // (bugs 0178/0179, open). Every declaration a fixture needs is in its own body,
 // and each caller uses the explicit `invoke<T>` annotation form.
 
+import {
+  PI_CLI_ENTRY,
+  EXTENSION_ENTRY,
+  requirePathFor,
+  realExecutableHost,
+  launchRealSubagentChild,
+  childExit,
+  driveWatchedSubagentChild,
+  reapSubagentChildren,
+} from "./helpers/real-subagent-spawn";
 import { describe, expect, it } from "vitest";
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { fileURLToPath } from "node:url";
-import { createProductionSpawnFn } from "../src/extension/production-subagent-host";
-import { driveSubagentChild } from "../src/runtime/subagent-json-driver";
-import {
-  launchSubagentChild,
-  SUBAGENT_EXTENSION_PIN_ENV,
-  type ChildExitInfo,
-  type ExecutableHost,
-} from "../src/runtime/subagent-launcher";
-import type { Diagnostic } from "../src/diagnostics/diagnostic";
-
-/** The repo's pinned pi CLI entry — the SAME executable resolution rung 1 uses in production. */
-const PI_CLI_ENTRY = fileURLToPath(
-  new URL("../node_modules/@earendil-works/pi-coding-agent/dist/cli.js", import.meta.url),
-);
-
-/** This working tree's extension entry (the build under test). */
-const EXTENSION_ENTRY = fileURLToPath(new URL("../extensions", import.meta.url));
+import { type ExecutableHost } from "../src/runtime/subagent-launcher";
 
 /** The marshalled model reference riding the child argv (PIC-62). NEVER CONTACTED: no fixture issues a query. */
 const CHILD_MODEL_PROVIDER = "anthropic";
@@ -102,14 +95,10 @@ const SUBAGENT_FM = "---\nmode: subagent\n---\n";
 const SEV_DECL = 'enum Sev { Low = "low", High = "high" }\n';
 
 /** Fail loudly on a missing precondition — never a silent skip (*No silent test skipping*). */
-function requirePath(path: string, what: string): void {
-  if (!existsSync(path)) {
-    throw new Error(
-      `precondition unmet: ${what} not found at ${path} — the bug-0342 forwarded-enum ` +
-        `witness needs the repo install (npm install); it never silently skips.`,
-    );
-  }
-}
+const requirePath = requirePathFor(
+  `the bug-0342 forwarded-enum ` +
+    `witness needs the repo install (npm install); it never silently skips.`,
+);
 
 /** Declaring file C: tails its own `Sev.Low`. Reused at both the subagent (cs) and prompt (cp) depths. */
 const C_BODY = SEV_DECL + "Sev.Low\n";
@@ -208,69 +197,37 @@ describe("bug 0342 — a forwarded enum keeps its declaring file's identity acro
       }
       writeFileSync(join(thetaDir, "top.theta"), TOP_ROOT);
 
-      const host: ExecutableHost = {
-        argv1: PI_CLI_ENTRY,
-        execPath: process.execPath,
-        fileExists: (p: string): boolean => existsSync(p),
-        isGenericRuntime: (): boolean => false,
-      };
-
-      const diagnostics: Diagnostic[] = [];
-      const emitDiagnostic = (d: Diagnostic): void => {
-        diagnostics.push(d);
-      };
+      const host: ExecutableHost = realExecutableHost();
 
       // The REAL production spawn path with ALL THREE child pins: the executable
       // (host.argv1 → PI_CLI_ENTRY), the extension identity
       // (SUBAGENT_EXTENSION_PIN_ENV → this tree's extensions/, which inherits down
       // to the grandchildren the depth-2 invokes spawn), and parentPid (which
       // AUTHENTICATES the pin at each level — omitting it strips the pin silently).
-      const launch = launchSubagentChild(
-        {
-          argv: {
-            slug: "top",
-            thetaDirs: [thetaDir],
-            systemPrompt: "",
-            hostTools: [],
-            noHostTools: true,
-            provider: CHILD_MODEL_PROVIDER,
-            model: CHILD_MODEL_ID,
-            projectTrust: false,
-          },
-          cwd: scratchDir,
-          parentEnv: { ...process.env, [SUBAGENT_EXTENSION_PIN_ENV]: EXTENSION_ENTRY },
-          parentPid: process.pid,
-          invokeDepth: 0,
-          host,
-        },
-        { spawn: createProductionSpawnFn(), emitDiagnostic },
-      );
+      const { launch, diagnostics, emitDiagnostic } = launchRealSubagentChild({
+        slug: "top",
+        thetaDirs: [thetaDir],
+        provider: CHILD_MODEL_PROVIDER,
+        model: CHILD_MODEL_ID,
+        cwd: scratchDir,
+        host,
+      });
       expect(launch.ok, `launch failed: ${JSON.stringify(diagnostics)}`).toBe(true);
       if (!launch.ok) {
         return;
       }
       const child = launch.child;
 
-      const exitPromise = new Promise<ChildExitInfo>((resolve) => child.onExit(resolve));
+      const exitPromise = childExit(child);
 
       try {
         // In-test watchdog BELOW the vitest timeout: on a stall (the root child or
         // any grandchild making no progress) kill the tree so the drive settles
         // fail-closed and the assertions report loudly, rather than hanging to the
         // outer timeout.
-        let killedByWatchdog = false;
-        const watchdog = setTimeout(() => {
-          killedByWatchdog = true;
-          child.kill();
-        }, 100_000);
-
-        const result = await driveSubagentChild({
-          child,
-          thetaAbort: new AbortController(),
-          calleePath: join(thetaDir, "top.theta"),
-          emitDiagnostic,
-        });
-        clearTimeout(watchdog);
+        const { result, killedByWatchdog } = await driveWatchedSubagentChild(
+          child, join(thetaDir, "top.theta"), emitDiagnostic, 100_000,
+        );
 
         expect(
           killedByWatchdog,
@@ -352,20 +309,7 @@ describe("bug 0342 — a forwarded enum keeps its declaring file's identity acro
         expect(exit.code).toBe(0);
         expect(exit.signal).toBeNull();
       } finally {
-        child.kill();
-        let reapTimer: ReturnType<typeof setTimeout> | undefined;
-        await Promise.race([
-          exitPromise,
-          new Promise<void>((resolve) => {
-            reapTimer = setTimeout(resolve, 5_000);
-          }),
-        ]);
-        clearTimeout(reapTimer);
-        try {
-          rmSync(scratchDir, { recursive: true, force: true });
-        } catch {
-          // Best-effort scratch cleanup; never mask the primary test failure.
-        }
+        await reapSubagentChildren([{ kill: () => child.kill(), exited: exitPromise }], scratchDir);
       }
     },
     180_000,

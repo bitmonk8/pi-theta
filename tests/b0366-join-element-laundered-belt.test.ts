@@ -82,7 +82,7 @@
 //            HEAD and after. If any reds, the belt over-reached into the parse
 //            gate, the all-string join, the empty array, or perturbed the bug
 //            0315 arity belt (ARITY).
-import { makeBeltProbes, type Probe, render, assertValue } from "./helpers/runtime-belt-probe-harness";
+import { makeBeltProbes, type Probe, render, assertValue, assertInternalError } from "./helpers/runtime-belt-probe-harness";
 import { parseDeps } from "./helpers/e2e-s1";
 import { describe, expect, it } from "vitest";
 import type { ThetaSource } from "../src/lexer/lexer";
@@ -168,24 +168,7 @@ function assertLoudThrow(probe: Probe, leakDescription: string, what: string): v
     ).toBe("runtime loud throw");
     return;
   }
-  expect(
-    isThetaPanic(probe.thrown),
-    `${what}: the loud throw is a plain Error, NOT a ThetaPanic (the six-source panic list is closed). Thrown: ${String(probe.thrown)}`,
-  ).toBe(false);
-  const diagnostic = surfaceUnexpectedThrow(probe.thrown, SITE);
-  expect(
-    diagnostic,
-    `${what}: surfaceUnexpectedThrow returns a Diagnostic for a non-panic throw`,
-  ).toBeDefined();
-  const diag = diagnostic as Diagnostic;
-  expect(
-    diag.code,
-    `${what}: the loud throw routes to the existing permitted internal-error surface`,
-  ).toBe(INTERNAL_ERROR_CODE);
-  expect(
-    diag.message,
-    `${what}: the internal-error template prefix (tail wording is the implementer's)`,
-  ).toMatch(/^internal error: /);
+  assertInternalError(probe.thrown, SITE, what);
 }
 
 // ===========================================================================

@@ -269,6 +269,20 @@ export function schemaDeclsOf(doc: ThetaDocument): readonly SchemaDecl[] {
   return doc.body.statements.filter((s): s is SchemaDecl => s.kind === "schema");
 }
 
+/** One schema declaration's observable field capture. */
+export interface CapturedSchema {
+  readonly name: string;
+  readonly fields: readonly { readonly name: string; readonly typeSource: string }[];
+}
+
+/** The schema declarations a document captured, in source order. */
+export function capturedSchemas(doc: ThetaDocument): CapturedSchema[] {
+  return schemaDeclsOf(doc).map((s) => ({
+    name: s.name,
+    fields: (s.fields ?? []).map((f) => ({ name: f.name, typeSource: f.typeSource })),
+  }));
+}
+
 /** Top-level declarations of this kind, preserving source order. */
 export function enumDeclsOf(doc: ThetaDocument): readonly EnumDecl[] {
   return doc.body.statements.filter((s): s is EnumDecl => s.kind === "enum");

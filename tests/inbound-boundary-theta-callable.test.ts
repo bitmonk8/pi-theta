@@ -81,28 +81,21 @@
 // declaration-order `keys()` clause); pi-integration-contract/subagent.md
 // (PIC-58 launch contract, PIC-59 envelope).
 
+import {
+  PI_CLI_ENTRY,
+  EXTENSION_ENTRY,
+  requirePathFor,
+  realExecutableHost,
+  launchRealSubagentChild,
+  childExit,
+  driveWatchedSubagentChild,
+  reapSubagentChildren,
+} from "./helpers/real-subagent-spawn";
 import { describe, expect, it } from "vitest";
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { fileURLToPath } from "node:url";
-import { createProductionSpawnFn } from "../src/extension/production-subagent-host";
-import { driveSubagentChild } from "../src/runtime/subagent-json-driver";
-import {
-  launchSubagentChild,
-  SUBAGENT_EXTENSION_PIN_ENV,
-  type ChildExitInfo,
-  type ExecutableHost,
-} from "../src/runtime/subagent-launcher";
-import type { Diagnostic } from "../src/diagnostics/diagnostic";
-
-/** The repo's pinned pi CLI entry — the SAME executable resolution rung 1 uses in production. */
-const PI_CLI_ENTRY = fileURLToPath(
-  new URL("../node_modules/@earendil-works/pi-coding-agent/dist/cli.js", import.meta.url),
-);
-
-/** This working tree's extension entry (the build under test). */
-const EXTENSION_ENTRY = fileURLToPath(new URL("../extensions", import.meta.url));
+import { type ExecutableHost } from "../src/runtime/subagent-launcher";
 
 /**
  * The marshalled model reference riding the child argv (`--provider`/`--model`,
@@ -112,14 +105,10 @@ const CHILD_MODEL_PROVIDER = "anthropic";
 const CHILD_MODEL_ID = "claude-fable-5";
 
 /** Fail loudly on a missing precondition — never a silent skip (*No silent test skipping*). */
-function requirePath(path: string, what: string): void {
-  if (!existsSync(path)) {
-    throw new Error(
-      `precondition unmet: ${what} not found at ${path} — the bug-0172 \`.theta\`-callable ` +
-        `witness needs the repo install (npm install); it never silently skips.`,
-    );
-  }
-}
+const requirePath = requirePathFor(
+  `the bug-0172 \`.theta\`-callable ` +
+    `witness needs the repo install (npm install); it never silently skips.`,
+);
 
 /** Frontmatter every callee shares: the spawned-process regime whose envelope carries the wire form. */
 const SUBAGENT_FRONTMATTER = ["---", "mode: subagent", "---"];
@@ -220,42 +209,20 @@ describe("bug 0172 — a typed .theta-callable tool-call return performs the inb
 
       // Rung-1 executable resolution, exactly as a pi-hosted parent resolves it
       // (node + the entry script); pinned to the repo's own pi install.
-      const host: ExecutableHost = {
-        argv1: PI_CLI_ENTRY,
-        execPath: process.execPath,
-        fileExists: (p: string): boolean => existsSync(p),
-        isGenericRuntime: (): boolean => false,
-      };
-
-      const diagnostics: Diagnostic[] = [];
-      const emitDiagnostic = (d: Diagnostic): void => {
-        diagnostics.push(d);
-      };
+      const host: ExecutableHost = realExecutableHost();
 
       // The REAL production spawn path. The extension pin rides `parentEnv` and
       // inherits down to the grandchildren the root theta's calls spawn;
       // `parentPid` is what authenticates the pin at each level, so omitting it
       // would strip the pin silently and bind ambient builds instead.
-      const launch = launchSubagentChild(
-        {
-          argv: {
-            slug: "top",
-            thetaDirs: [thetaDir],
-            systemPrompt: "",
-            hostTools: [],
-            noHostTools: true,
-            provider: CHILD_MODEL_PROVIDER,
-            model: CHILD_MODEL_ID,
-            projectTrust: false,
-          },
-          cwd: scratchDir,
-          parentEnv: { ...process.env, [SUBAGENT_EXTENSION_PIN_ENV]: EXTENSION_ENTRY },
-          parentPid: process.pid,
-          invokeDepth: 0,
-          host,
-        },
-        { spawn: createProductionSpawnFn(), emitDiagnostic },
-      );
+      const { launch, diagnostics, emitDiagnostic } = launchRealSubagentChild({
+        slug: "top",
+        thetaDirs: [thetaDir],
+        provider: CHILD_MODEL_PROVIDER,
+        model: CHILD_MODEL_ID,
+        cwd: scratchDir,
+        host,
+      });
       expect(launch.ok, `launch failed: ${JSON.stringify(diagnostics)}`).toBe(true);
       if (!launch.ok) {
         return;
@@ -264,7 +231,7 @@ describe("bug 0172 — a typed .theta-callable tool-call return performs the inb
 
       // Subscribed BEFORE driving so the terminal `'close'` is never missed;
       // hoisted above the `try` so the `finally` can await the exit too.
-      const exitPromise = new Promise<ChildExitInfo>((resolve) => child.onExit(resolve));
+      const exitPromise = childExit(child);
 
       try {
         // In-test bound BELOW the vitest timeout: on a stall (the root child or
@@ -272,19 +239,9 @@ describe("bug 0172 — a typed .theta-callable tool-call return performs the inb
         // drive settles fail-closed and the assertions below report loudly,
         // instead of the test and a live process tree hanging to the outer
         // timeout.
-        let killedByWatchdog = false;
-        const watchdog = setTimeout(() => {
-          killedByWatchdog = true;
-          child.kill();
-        }, 90_000);
-
-        const result = await driveSubagentChild({
-          child,
-          thetaAbort: new AbortController(),
-          calleePath: join(thetaDir, "top.theta"),
-          emitDiagnostic,
-        });
-        clearTimeout(watchdog);
+        const { result, killedByWatchdog } = await driveWatchedSubagentChild(
+          child, join(thetaDir, "top.theta"), emitDiagnostic, 90_000,
+        );
 
         expect(
           killedByWatchdog,
@@ -387,20 +344,7 @@ describe("bug 0172 — a typed .theta-callable tool-call return performs the inb
         // its exit (bounded) before dropping the scratch dir — the dying child's
         // cwd is inside scratchDir, so an immediate rmSync could throw EBUSY and
         // replace the primary assertion error with a less diagnostic one.
-        child.kill();
-        let reapTimer: ReturnType<typeof setTimeout> | undefined;
-        await Promise.race([
-          exitPromise,
-          new Promise<void>((resolve) => {
-            reapTimer = setTimeout(resolve, 5_000);
-          }),
-        ]);
-        clearTimeout(reapTimer);
-        try {
-          rmSync(scratchDir, { recursive: true, force: true });
-        } catch {
-          // Best-effort scratch cleanup; never mask the primary test failure.
-        }
+        await reapSubagentChildren([{ kill: () => child.kill(), exited: exitPromise }], scratchDir);
       }
     },
     150_000,
