@@ -248,14 +248,19 @@ describe("RFC 0009 threading (B) — the single bind move (production-theta-prod
       body: { statements: [], tail: null },
       callableSet: { entries: new Map() },
     } as ThetaCompositionInput;
+    let resolvedCwdReads = 0;
     const bindInput = {
       theta,
       args: "",
       ctx: driveCtx(CALLER_CWD),
-      resolvedCwd: "/should/never/be/read",
+      get resolvedCwd(): string {
+        resolvedCwdReads += 1;
+        return "/should/never/be/read";
+      },
     } as unknown as ConversationBindInput;
-    // A prompt-mode bind never spawns a child at all — `resolvedCwd` is inert
-    // on this path both before and after RFC 0009 (green guard).
+    // Record reads independently of spawning: even a harmless field access
+    // must fail this guard.
     expect(() => deps.bindPromptConversation(bindInput)).not.toThrow();
+    expect(resolvedCwdReads).toBe(0);
   });
 });

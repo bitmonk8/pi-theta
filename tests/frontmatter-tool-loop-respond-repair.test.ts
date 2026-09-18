@@ -1,10 +1,6 @@
 import { describe, expect, it } from "vitest";
-import {
-  parseFrontmatter,
-  type FrontmatterParseResult,
-  type ModelReferenceMatcher,
-} from "../src/parser/frontmatter";
-import type { Diagnostic } from "../src/diagnostics/diagnostic";
+import type { FrontmatterParseResult } from "../src/parser/frontmatter";
+import { findCode as withCode, parseFrontmatterLines } from "./helpers/e2e-s1";
 
 // V6e-T — failing tests for the paired `V6e` "`respond_repair` and `tool_loop`"
 // frontmatter parse implementation.
@@ -36,22 +32,13 @@ import type { Diagnostic } from "../src/diagnostics/diagnostic";
 // out-of-range diagnostic, or a wrongly-registered theta — not on a compile
 // error, missing fixture, or harness throw.
 
-/** The first diagnostic carrying `code`, if any. */
-function withCode(diags: readonly Diagnostic[], code: string): Diagnostic | undefined {
-  return diags.find((d) => d.code === code);
-}
-
-/** A matcher that resolves every reference (no test here exercises `model:`). */
-const resolvingMatcher: ModelReferenceMatcher = { resolve: () => "resolved" };
-
 /**
  * Parse a `subagent`-mode `.theta` built from the given extra frontmatter lines
  * (a trivial `mode: subagent` header keeps the only error under test the one
  * the extra lines introduce) under the resolving matcher.
  */
 function parse(...frontmatterLines: string[]): FrontmatterParseResult {
-  const source = ["---", "mode: subagent", ...frontmatterLines, "---", "@`hello`"].join("\n");
-  return parseFrontmatter(source, { file: "test.theta", modelMatcher: resolvingMatcher });
+  return parseFrontmatterLines("mode: subagent", ...frontmatterLines);
 }
 
 const OOR = "theta/load/frontmatter-value-out-of-range";

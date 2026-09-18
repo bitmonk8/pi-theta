@@ -1,11 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
-  parseFrontmatter,
-  type FrontmatterParseResult,
   type ModelMatchOutcome,
   type ModelReferenceMatcher,
 } from "../src/parser/frontmatter";
-import type { Diagnostic } from "../src/diagnostics/diagnostic";
+import { findCode as withCode, parseFrontmatterSource as parse, theta } from "./helpers/e2e-s1";
 
 // V6a-T — failing tests for the paired `V6a` "frontmatter field contract"
 // implementation.
@@ -24,30 +22,9 @@ import type { Diagnostic } from "../src/diagnostics/diagnostic";
 // un-registered theta, or an undefined parsed field) — not on a compile error,
 // missing fixture, or harness throw.
 
-/** The first diagnostic carrying `code`, if any. */
-function withCode(diags: readonly Diagnostic[], code: string): Diagnostic | undefined {
-  return diags.find((d) => d.code === code);
-}
-
-/** A matcher that resolves every reference (for tests not exercising `model:`). */
-const resolvingMatcher: ModelReferenceMatcher = { resolve: () => "resolved" };
-
 /** A matcher that returns a fixed outcome for every reference. */
 function fixedMatcher(outcome: ModelMatchOutcome): ModelReferenceMatcher {
   return { resolve: () => outcome };
-}
-
-/** Parse a full `.theta` source under the given (default resolving) matcher. */
-function parse(
-  source: string,
-  matcher: ModelReferenceMatcher = resolvingMatcher,
-): FrontmatterParseResult {
-  return parseFrontmatter(source, { file: "test.theta", modelMatcher: matcher });
-}
-
-/** Build a `.theta` source from frontmatter lines plus a trivial body. */
-function theta(...frontmatterLines: string[]): string {
-  return ["---", ...frontmatterLines, "---", "@`hello`"].join("\n");
 }
 
 // --- frontmatter-fields-a.md §Field contract — required `mode:` -----------

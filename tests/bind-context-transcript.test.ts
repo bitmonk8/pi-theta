@@ -16,11 +16,7 @@ import {
   renderCustomTypeUnsafeNote,
   type TranscriptMessage,
 } from "../src/binder/compact-transcript";
-import {
-  parseFrontmatter,
-  type FrontmatterParseResult,
-  type ModelReferenceMatcher,
-} from "../src/parser/frontmatter";
+import { findCode as withCode, parseFrontmatterSource as parse, theta } from "./helpers/e2e-s1";
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
 
 // V11b-T — failing tests for the paired `V11b` "Bind context and transcript
@@ -341,20 +337,6 @@ describe("BNDR-9 — transcript-safe `customType` precondition", () => {
 // theta/parse/bind-context-session-on-subagent — parse-time warning
 // binder/binder-model-and-context.md §"Binder context";
 // diagnostics/code-registry-parse.md
-
-const resolvingMatcher: ModelReferenceMatcher = { resolve: () => "resolved" };
-
-function parse(source: string): FrontmatterParseResult {
-  return parseFrontmatter(source, { file: "test.theta", modelMatcher: resolvingMatcher });
-}
-
-function theta(...frontmatterLines: string[]): string {
-  return ["---", ...frontmatterLines, "---", "@`hello`"].join("\n");
-}
-
-function withCode(diags: readonly Diagnostic[], code: string): Diagnostic | undefined {
-  return diags.find((d) => d.code === code);
-}
 
 describe("theta/parse/bind-context-session-on-subagent", () => {
   it("fires for `bind_context: session` on a `mode: subagent` theta and NOT on a prompt-mode theta", () => {

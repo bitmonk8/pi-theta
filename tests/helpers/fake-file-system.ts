@@ -6,9 +6,13 @@
 // case-canonicalisation / transitive-symlink / ELOOP / ENOENT behaviour at
 // chosen boundaries instead of reaching the real disk.
 //
+// Also provides the synchronous params marshal/intake fs doubles, with
+// write/read/unlink recorders for the PIC-60 carrier tests.
+//
 // Spec: host-interfaces-services.md PIC-13; lexical.md §Encoding.
 
 import type { FileStat, FileSystem } from "../../src/seams/file-system";
+import type { ParamsIntakeDeps, ParamsMarshalDeps } from "../../src/runtime/subagent-params";
 
 /**
  * Constructor inputs the fake reports. Every map is keyed by absolute path.
@@ -283,4 +287,61 @@ export class FakeFileSystem implements FileSystem {
     }
     return undefined;
   }
+}
+
+/** A fake parent-side fs seam recording temp-file writes and unlinks. */
+export function fakeMarshalFs(): {
+  readonly deps: ParamsMarshalDeps;
+  readonly writes: { path: string; contents: string }[];
+  readonly unlinks: string[];
+} {
+  const writes: { path: string; contents: string }[] = [];
+  const unlinks: string[] = [];
+  let counter = 0;
+  return {
+    writes,
+    unlinks,
+    deps: {
+      writeTempFile: (contents): string => {
+        counter += 1;
+        const path = `/tmp/pi-theta-params-${counter}.json`;
+        writes.push({ path, contents });
+        return path;
+      },
+      unlink: (path): void => {
+        unlinks.push(path);
+      },
+    },
+  };
+}
+
+/**
+ * A fake child-side fs seam serving one temp file's contents and recording
+ * reads + deletes. An unknown path THROWS: a test that asserts the child never
+ * opened a stale carrier gets that for free.
+ */
+export function fakeIntakeFs(contentsByPath: Record<string, string>): {
+  readonly deps: ParamsIntakeDeps;
+  readonly reads: string[];
+  readonly unlinks: string[];
+} {
+  const reads: string[] = [];
+  const unlinks: string[] = [];
+  return {
+    reads,
+    unlinks,
+    deps: {
+      readFile: (path): string => {
+        const contents = contentsByPath[path];
+        if (contents === undefined) {
+          throw new Error(`fake intake fs: no file at ${path}`);
+        }
+        reads.push(path);
+        return contents;
+      },
+      unlink: (path): void => {
+        unlinks.push(path);
+      },
+    },
+  };
 }

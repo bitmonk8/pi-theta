@@ -34,63 +34,10 @@ import {
   SUBAGENT_PARAMS_TEMP_FILE_MODE,
   SUBAGENT_PARAMS_THRESHOLD_BYTES,
   SUBAGENT_PARAMS_VALIDATION_FAILED_CODE,
-  type ParamsIntakeDeps,
   type ParamsMarshalDeps,
   type ParamsSchemaValidator,
 } from "../src/runtime/subagent-params";
-
-// ---------------------------------------------------------------------------
-// In-memory fs seam doubles (test code is unrestricted).
-// ---------------------------------------------------------------------------
-
-/** A fake parent-side fs seam recording temp-file writes and unlinks. */
-function fakeMarshalFs(): {
-  readonly deps: ParamsMarshalDeps;
-  readonly writes: { path: string; contents: string }[];
-  readonly unlinks: string[];
-} {
-  const writes: { path: string; contents: string }[] = [];
-  const unlinks: string[] = [];
-  let counter = 0;
-  return {
-    writes,
-    unlinks,
-    deps: {
-      writeTempFile: (contents): string => {
-        counter += 1;
-        const path = `/tmp/pi-theta-params-${counter}.json`;
-        writes.push({ path, contents });
-        return path;
-      },
-      unlink: (path): void => {
-        unlinks.push(path);
-      },
-    },
-  };
-}
-
-/** A fake child-side fs seam serving one temp file's contents and recording deletes. */
-function fakeIntakeFs(contentsByPath: Record<string, string>): {
-  readonly deps: ParamsIntakeDeps;
-  readonly unlinks: string[];
-} {
-  const unlinks: string[] = [];
-  return {
-    unlinks,
-    deps: {
-      readFile: (path): string => {
-        const contents = contentsByPath[path];
-        if (contents === undefined) {
-          throw new Error(`fake intake fs: no file at ${path}`);
-        }
-        return contents;
-      },
-      unlink: (path): void => {
-        unlinks.push(path);
-      },
-    },
-  };
-}
+import { fakeIntakeFs, fakeMarshalFs } from "./helpers/fake-file-system";
 
 const ALWAYS_VALID: ParamsSchemaValidator = {
   validate: () => ({ ok: true }),

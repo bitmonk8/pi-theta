@@ -1,10 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-  parseFrontmatter,
-  type FrontmatterParseResult,
-  type ModelReferenceMatcher,
-} from "../src/parser/frontmatter";
-import type { Diagnostic } from "../src/diagnostics/diagnostic";
+import { findCode as withCode, parseFrontmatterLines as parse } from "./helpers/e2e-s1";
 
 // e2e-campaign slice S2 (frontmatter-imports), area FRNT.
 //
@@ -23,17 +18,6 @@ import type { Diagnostic } from "../src/diagnostics/diagnostic";
 //   REQ-FRNT-21 theta/load/params-null          (spec-requirements.md:326)
 //   REQ-FRNT-68 theta/load/unknown-methodology-value (spec-requirements.md:373)
 //   REQ-FRNT-26 argument_hint (underscore) → unknown-frontmatter-field (spec-requirements.md:331)
-
-const resolvingMatcher: ModelReferenceMatcher = { resolve: () => "resolved" };
-
-function parse(...frontmatterLines: string[]): FrontmatterParseResult {
-  const source = ["---", ...frontmatterLines, "---", "@`hello`"].join("\n");
-  return parseFrontmatter(source, { file: "test.theta", modelMatcher: resolvingMatcher });
-}
-
-function withCode(diags: readonly Diagnostic[], code: string): Diagnostic | undefined {
-  return diags.find((d) => d.code === code);
-}
 
 describe("S2/FRNT-2 — unrecognised `mode:` value (theta/load/unknown-mode-value)", () => {
   it("distinct from missing-mode: `mode: agent` fires unknown-mode-value and the theta is not registered", () => {

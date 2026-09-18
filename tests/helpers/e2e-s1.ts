@@ -3,7 +3,8 @@
 // These wrap the REAL production front-end entry points — `lexTheta`
 // (src/lexer/lexer.ts) and `parseThetaDocument` (src/parser/theta-document.ts) —
 // with inert, in-band recording seams so a test can assert on the returned
-// diagnostics / tokens without a model or session. No behaviour is stubbed:
+// diagnostics / tokens without a model or session. The frontmatter-only
+// helpers share the same resolving matcher and diagnostic finder. No behaviour is stubbed:
 // the code paths under assertion are the shipped ones.
 import { type SourceRange } from "../../src/diagnostics/diagnostic";
 import { type BypassParamsField } from "../../src/binder/binder-envelope";
@@ -23,7 +24,11 @@ import type {
   SystemNoteChannelDeps,
   SystemNoteSender,
 } from "../../src/extension/system-note-channel";
-import type { ModelReferenceMatcher } from "../../src/parser/frontmatter";
+import {
+  parseFrontmatter,
+  type FrontmatterParseResult,
+  type ModelReferenceMatcher,
+} from "../../src/parser/frontmatter";
 import type { LoweredSchema } from "../../src/seams/schema-validator";
 
 /** An in-band, no-op system-note channel that discards emitted batches. */
@@ -36,6 +41,24 @@ function inertSystemNote(): SystemNoteChannelDeps {
 const resolvingMatcher: ModelReferenceMatcher = {
   resolve: (): "resolved" => "resolved",
 };
+
+/** Parse a full `.theta` source under the given (default resolving) matcher. */
+export function parseFrontmatterSource(
+  source: string,
+  matcher: ModelReferenceMatcher = resolvingMatcher,
+): FrontmatterParseResult {
+  return parseFrontmatter(source, { file: "test.theta", modelMatcher: matcher });
+}
+
+/** Build a `.theta` source from frontmatter lines plus a trivial body. */
+export function theta(...frontmatterLines: string[]): string {
+  return ["---", ...frontmatterLines, "---", "@`hello`"].join("\n");
+}
+
+/** Parse frontmatter lines with a trivial body under the resolving matcher. */
+export function parseFrontmatterLines(...frontmatterLines: string[]): FrontmatterParseResult {
+  return parseFrontmatterSource(theta(...frontmatterLines));
+}
 
 /** Parse-theta-document deps whose seams are inert offline no-ops. */
 export function parseDeps(): ParseThetaDocumentDeps {

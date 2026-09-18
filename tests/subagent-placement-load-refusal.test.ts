@@ -7,6 +7,7 @@
 // In-process over the real `composeExtensionInstance`; zero processes.
 
 import { resolvingHost } from "./helpers/fake-json-child";
+import { makeIdleModelHost } from "./helpers/compose-workspace-harness";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -22,8 +23,6 @@ import { SUBAGENT_PLACEMENT_UNAVAILABLE_CODE } from "../src/runtime/subagent-pla
 
 import type { PlacedChild, SubagentPlacementBackend } from "../src/runtime/subagent-placement";
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
-
-const AVAILABLE_MODEL = { id: "claude-test", provider: "anthropic", api: "anthropic-messages" };
 
 let workspaceDir: string;
 
@@ -48,34 +47,13 @@ afterAll(() => {
 
 function fakeHost(): { pi: ExtensionAPI; ctx: ExtensionContext; notes: string[] } {
   const notes: string[] = [];
+  const { pi: basePi, ctx } = makeIdleModelHost(workspaceDir, true);
   const pi = {
-    getFlag: (): undefined => undefined,
-    getCommands: (): readonly unknown[] => [],
+    ...basePi,
     sendMessage: (message: { content?: unknown }): void => {
       if (typeof message.content === "string") notes.push(message.content);
     },
-    sendUserMessage: (): void => {},
-    getActiveTools: (): readonly string[] => [],
-    setActiveTools: (): void => {},
-    getAllTools: (): readonly unknown[] => [],
-    registerMessageRenderer: (): void => {},
-    registerProvider: (): void => {},
-    unregisterProvider: (): void => {},
-    setModel: (): Promise<boolean> => Promise.resolve(true),
-    on: (): void => {},
   } as unknown as ExtensionAPI;
-  const ctx = {
-    cwd: workspaceDir,
-    hasUI: true,
-    model: AVAILABLE_MODEL,
-    isIdle: (): boolean => true,
-    modelRegistry: {
-      getAvailable: (): readonly unknown[] => [AVAILABLE_MODEL],
-      find: (): undefined => undefined,
-    },
-    sessionManager: { getEntries: (): readonly unknown[] => [] },
-    ui: { notify: (): void => {} },
-  } as unknown as ExtensionContext;
   return { pi, ctx, notes };
 }
 

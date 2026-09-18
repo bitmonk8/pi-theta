@@ -30,6 +30,9 @@
 // message pattern stay the caller's own, so the assertion takes both as
 // parameters instead of pinning one code.
 //
+// `makeIdleModelHost` supplies the no-op host + idle, one-model context used
+// by result-channel and registration-refusal tests; recording hooks stay local.
+//
 // TIER: unit, offline, deterministic, provider-free — the same tier as every
 // file that imports this module.
 
@@ -100,6 +103,41 @@ export function makeHost(cwd: string): HostDouble {
   } as unknown as ExtensionContext;
 
   return { pi, ctx, notes, notified };
+}
+
+/** The one model the idle host registry offers. */
+const AVAILABLE_MODEL = { id: "claude-test", provider: "anthropic", api: "anthropic-messages" };
+
+/** A no-op composition host with one available model and an empty, idle session. */
+export function makeIdleModelHost(cwd: string, hasUI: boolean): { pi: ExtensionAPI; ctx: ExtensionContext } {
+  const pi = {
+    getFlag: (): undefined => undefined,
+    getCommands: (): readonly unknown[] => [],
+    sendMessage: (): void => {},
+    sendUserMessage: (): void => {},
+    getActiveTools: (): readonly string[] => [],
+    setActiveTools: (): void => {},
+    getAllTools: (): readonly unknown[] => [],
+    registerMessageRenderer: (): void => {},
+    // The PIC-64 host-loop-dispatch surfaces keep load fixtures reachable.
+    registerProvider: (): void => {},
+    unregisterProvider: (): void => {},
+    setModel: (): Promise<boolean> => Promise.resolve(true),
+    on: (): void => {},
+  } as unknown as ExtensionAPI;
+  const ctx = {
+    cwd,
+    hasUI,
+    model: AVAILABLE_MODEL,
+    isIdle: (): boolean => true,
+    modelRegistry: {
+      getAvailable: (): readonly unknown[] => [AVAILABLE_MODEL],
+      find: (): undefined => undefined,
+    },
+    sessionManager: { getEntries: (): readonly unknown[] => [] },
+    ui: { notify: (): void => {} },
+  } as unknown as ExtensionContext;
+  return { pi, ctx };
 }
 
 export interface ComposeWorkspace {

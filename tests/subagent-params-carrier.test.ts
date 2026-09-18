@@ -41,67 +41,11 @@ import {
   type ParamsIntakeDeps,
   type ParamsMarshalDeps,
 } from "../src/runtime/subagent-params";
+import { fakeIntakeFs, fakeMarshalFs } from "./helpers/fake-file-system";
 
 // ---------------------------------------------------------------------------
-// Fixtures (fs seam doubles in the style of subagent-params-marshalling.test.ts).
+// Fixtures.
 // ---------------------------------------------------------------------------
-
-/** A fake parent-side fs seam recording temp-file writes and unlinks. */
-function fakeMarshalFs(): {
-  readonly deps: ParamsMarshalDeps;
-  readonly writes: { path: string; contents: string }[];
-  readonly unlinks: string[];
-} {
-  const writes: { path: string; contents: string }[] = [];
-  const unlinks: string[] = [];
-  let counter = 0;
-  return {
-    writes,
-    unlinks,
-    deps: {
-      writeTempFile: (contents): string => {
-        counter += 1;
-        const path = `/tmp/pi-theta-params-${counter}.json`;
-        writes.push({ path, contents });
-        return path;
-      },
-      unlink: (path): void => {
-        unlinks.push(path);
-      },
-    },
-  };
-}
-
-/**
- * A fake child-side fs seam serving one temp file's contents and recording
- * reads + deletes. An unknown path THROWS: a test that asserts the child never
- * opened a stale carrier gets that for free.
- */
-function fakeIntakeFs(contentsByPath: Record<string, string>): {
-  readonly deps: ParamsIntakeDeps;
-  readonly reads: string[];
-  readonly unlinks: string[];
-} {
-  const reads: string[] = [];
-  const unlinks: string[] = [];
-  return {
-    reads,
-    unlinks,
-    deps: {
-      readFile: (path): string => {
-        const contents = contentsByPath[path];
-        if (contents === undefined) {
-          throw new Error(`fake intake fs: no file at ${path}`);
-        }
-        reads.push(path);
-        return contents;
-      },
-      unlink: (path): void => {
-        unlinks.push(path);
-      },
-    },
-  };
-}
 
 /** Small params — strictly below the pinned threshold, so they ride the inline carrier. */
 const SMALL_PARAMS: Record<string, unknown> = { topic: "sea" };

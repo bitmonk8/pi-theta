@@ -6,6 +6,7 @@
 // `composeExtensionInstance`; the channel client is a fake; zero processes.
 
 import { resolvingHost } from "./helpers/fake-json-child";
+import { makeIdleModelHost } from "./helpers/compose-workspace-harness";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -19,8 +20,6 @@ import { SUBAGENT_PARENT_PID_ENV } from "../src/runtime/subagent-launcher";
 import { SUBAGENT_ROOT_ENV_MARKER } from "../src/runtime/subagent-root-regime";
 import { FakeClock } from "./helpers/fake-clock";
 
-const AVAILABLE_MODEL = { id: "claude-test", provider: "anthropic", api: "anthropic-messages" };
-
 interface Harness {
   readonly pi: ExtensionAPI;
   readonly ctx: ExtensionContext;
@@ -30,9 +29,10 @@ interface Harness {
 function makeHarness(cwd: string): Harness {
   const subscriptions = new Map<string, ((event: unknown, ctx: ExtensionContext) => unknown)[]>();
   const commands = new Map<string, unknown>();
+  const { pi: basePi, ctx } = makeIdleModelHost(cwd, false);
   const pi = {
+    ...basePi,
     registerFlag: (): void => {},
-    registerMessageRenderer: (): void => {},
     registerCommand: (name: string, options: unknown): void => {
       commands.set(name, options);
     },
@@ -41,30 +41,9 @@ function makeHarness(cwd: string): Harness {
       list.push(handler);
       subscriptions.set(event, list);
     },
-    getFlag: (): undefined => undefined,
     getCommands: (): { name: string; source: string }[] =>
       [...commands.keys()].map((name) => ({ name, source: "extension" })),
-    sendMessage: (): void => {},
-    sendUserMessage: (): void => {},
-    getActiveTools: (): readonly string[] => [],
-    setActiveTools: (): void => {},
-    getAllTools: (): readonly unknown[] => [],
-    registerProvider: (): void => {},
-    unregisterProvider: (): void => {},
-    setModel: (): Promise<boolean> => Promise.resolve(true),
   } as unknown as ExtensionAPI;
-  const ctx = {
-    cwd,
-    hasUI: false,
-    model: AVAILABLE_MODEL,
-    isIdle: (): boolean => true,
-    modelRegistry: {
-      getAvailable: (): readonly unknown[] => [AVAILABLE_MODEL],
-      find: (): undefined => undefined,
-    },
-    sessionManager: { getEntries: (): readonly unknown[] => [] },
-    ui: { notify: (): void => {} },
-  } as unknown as ExtensionContext;
   return {
     pi,
     ctx,

@@ -1,10 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-  parseFrontmatter,
-  type FrontmatterParseResult,
-  type ModelReferenceMatcher,
-} from "../src/parser/frontmatter";
-import type { Diagnostic } from "../src/diagnostics/diagnostic";
+import { findCode as withCode, parseFrontmatterLines as parse } from "./helpers/e2e-s1";
 
 // e2e-campaign slice S2 (frontmatter-imports), area FRNT — advisory-diagnostic
 // gaps.
@@ -24,17 +19,6 @@ import type { Diagnostic } from "../src/diagnostics/diagnostic";
 //       permanent gates.
 //
 // Findings: FIND-S2-1 (FRNT-23), FIND-S2-2 (FRNT-22), FIND-S2-3 (FRNT-5).
-
-const resolvingMatcher: ModelReferenceMatcher = { resolve: () => "resolved" };
-
-function parse(...frontmatterLines: string[]): FrontmatterParseResult {
-  const source = ["---", ...frontmatterLines, "---", "@`hello`"].join("\n");
-  return parseFrontmatter(source, { file: "test.theta", modelMatcher: resolvingMatcher });
-}
-
-function withCode(diags: readonly Diagnostic[], code: string): Diagnostic | undefined {
-  return diags.find((d) => d.code === code);
-}
 
 // --- FIND-S2-1 / REQ-FRNT-23 — deferred-frontmatter-field -------------------
 // Spec (spec-requirements.md:328): reserved names → `theta/load/deferred-

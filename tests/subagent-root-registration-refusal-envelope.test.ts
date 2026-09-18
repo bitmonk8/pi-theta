@@ -76,15 +76,13 @@
 // `theta/load/binder-model-unresolved`); diagnostics/diagnostic-shape.md #diag-4
 // (the *Message* column is normative and asserting tests source it from there).
 import { resolvingHost } from "./helpers/fake-json-child";
+import { makeIdleModelHost } from "./helpers/compose-workspace-harness";
 import { REGISTRY } from "./helpers/registry-oracle";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type {
-  ExtensionAPI,
-  ExtensionContext,
-} from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 // @ts-expect-error — JS code-registry module, no type declarations.
 import { registryMessage } from "../tools/code-registry/index.js";
 import {
@@ -141,9 +139,6 @@ const MISSING_CALLEE_ENTRY = "./no-such-callee.theta";
  */
 const UNMATCHABLE_BINDER_MODEL = "no-such-model-bug0178";
 
-/** The one model the fake registry offers — what a resolvable reference would have to name. */
-const AVAILABLE_MODEL = { id: "claude-test", provider: "anthropic", api: "anthropic-messages" };
-
 const THETAS: readonly { readonly stem: string; readonly text: string }[] = [
   // The NON-binder-model refusal. No `params:`, so it is bypass-eligible and
   // element (a) cannot rescue it: whatever route (a) takes, this theta still
@@ -196,25 +191,14 @@ async function runLoad(
   const noteContent: string[] = [];
   const captured: string[] = [];
   const outcomeEmitted: { channel: string; data: unknown }[] = [];
+  const { pi: basePi, ctx } = makeIdleModelHost(cwd, true);
   const pi = {
-    getFlag: (): undefined => undefined,
-    getCommands: (): readonly unknown[] => [],
+    ...basePi,
     sendMessage: (message: { content?: unknown }): void => {
       if (typeof message.content === "string") {
         noteContent.push(message.content);
       }
     },
-    sendUserMessage: (): void => {},
-    getActiveTools: (): readonly string[] => [],
-    setActiveTools: (): void => {},
-    getAllTools: (): readonly unknown[] => [],
-    registerMessageRenderer: (): void => {},
-    // The PIC-64 host-loop-dispatch surfaces, present so no fixture below is
-    // refused for a reachability reason this file is not about.
-    registerProvider: (): void => {},
-    unregisterProvider: (): void => {},
-    setModel: (): Promise<boolean> => Promise.resolve(true),
-    on: (): void => {},
     // M15: a minimal `pi.events` bus — the load-pass registration-refusal
     // envelope writer (bug 0178 element (b)) is a LOAD-pass write outside
     // `driveSubagentRootRegime` and owes no outcome event in 0.478.0 (decision 2).
@@ -225,18 +209,6 @@ async function runLoad(
       on: (): (() => void) => (): void => {},
     },
   } as unknown as ExtensionAPI;
-  const ctx = {
-    cwd,
-    hasUI: true,
-    model: AVAILABLE_MODEL,
-    isIdle: (): boolean => true,
-    modelRegistry: {
-      getAvailable: (): readonly unknown[] => [AVAILABLE_MODEL],
-      find: (): undefined => undefined,
-    },
-    sessionManager: { getEntries: (): readonly unknown[] => [] },
-    ui: { notify: (): void => {} },
-  } as unknown as ExtensionContext;
 
   // The regime is selected ONLY by the parent-launcher env marker, and the read
   // is authenticated by the parent-pid carriage — a real launcher always writes

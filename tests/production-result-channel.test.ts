@@ -14,6 +14,7 @@
 //      diagnostics as `stderr` frames, exposes the client on the wiring; a
 //      `pipe` child (no channel) exposes none.
 import { resolvingHost } from "./helpers/fake-json-child";
+import { makeIdleModelHost } from "./helpers/compose-workspace-harness";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -326,7 +327,6 @@ describe("RFC-0012 §2/§3 — createProductionSubagentWire", () => {
 // Tier 3 — the composition root.
 // ===========================================================================
 
-const AVAILABLE_MODEL = { id: "claude-test", provider: "anthropic", api: "anthropic-messages" };
 const MISSING_CALLEE_ENTRY = "./no-such-callee.theta";
 
 let workspaceDir: string;
@@ -350,33 +350,7 @@ afterAll(() => {
 });
 
 function fakeHost(): { pi: ExtensionAPI; ctx: ExtensionContext } {
-  const pi = {
-    getFlag: (): undefined => undefined,
-    getCommands: (): readonly unknown[] => [],
-    sendMessage: (): void => {},
-    sendUserMessage: (): void => {},
-    getActiveTools: (): readonly string[] => [],
-    setActiveTools: (): void => {},
-    getAllTools: (): readonly unknown[] => [],
-    registerMessageRenderer: (): void => {},
-    registerProvider: (): void => {},
-    unregisterProvider: (): void => {},
-    setModel: (): Promise<boolean> => Promise.resolve(true),
-    on: (): void => {},
-  } as unknown as ExtensionAPI;
-  const ctx = {
-    cwd: workspaceDir,
-    hasUI: true,
-    model: AVAILABLE_MODEL,
-    isIdle: (): boolean => true,
-    modelRegistry: {
-      getAvailable: (): readonly unknown[] => [AVAILABLE_MODEL],
-      find: (): undefined => undefined,
-    },
-    sessionManager: { getEntries: (): readonly unknown[] => [] },
-    ui: { notify: (): void => {} },
-  } as unknown as ExtensionContext;
-  return { pi, ctx };
+  return makeIdleModelHost(workspaceDir, true);
 }
 
 function fakeChannelClient(): ResultChannelClient & { lines: string[]; mirrored: string[]; closed: number } {
