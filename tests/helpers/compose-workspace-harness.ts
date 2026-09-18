@@ -38,7 +38,7 @@
 
 import { rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { expect } from "vitest";
+import { expect, vi } from "vitest";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 // @ts-expect-error — JS code-registry module, no type declarations.
 import { registryMessage } from "../../tools/code-registry/index.js";
@@ -48,6 +48,16 @@ import { RendererGate, SYSTEM_NOTE_CHANNEL } from "../../src/extension/system-no
 import type { ParsedTheta } from "../../src/extension/reload-wiring";
 
 export type PiHandler = (event: unknown, ctx: ExtensionContext) => unknown;
+
+// The canonical factory-time `pi.on` subscription order (steps 1/3/4 of
+// registration-steps.md): `resources_discover` (step 1, after the `--theta`
+// flag), `session_start` (step 3), `session_shutdown` (step 4).
+export const SUBSCRIPTION_ORDER = [
+  "resources_discover",
+  "session_start",
+  "session_shutdown",
+] as const;
+export type PiEvent = (typeof SUBSCRIPTION_ORDER)[number];
 
 export interface RecordedNote {
   readonly customType: string;
@@ -358,4 +368,50 @@ export function expectCallerRefusedWithCalleeHasErrors(
       describeNotes(pass.notes),
   ).toEqual([code]);
   expect((rows[0] as Diagnostic).message, `${code} message`).toMatch(messagePattern);
+}
+
+// Narrow the recorded diagnostics to exactly one, failing loudly (no silent
+// skip) when the factory emitted none or more than one.
+export function exactlyOne(diagnostics: readonly Diagnostic[]): Diagnostic {
+  if (diagnostics.length !== 1) {
+    expect.fail(
+      `expected exactly one extension-bootstrap-failed diagnostic, got ${diagnostics.length}`,
+    );
+  }
+  return diagnostics[0] as Diagnostic;
+}
+
+/** Read an installed factory subscription, failing loudly when it is absent. */
+export function requireHandler(
+  host: { readonly handlers: Map<string, PiHandler> },
+  event: string,
+): PiHandler {
+  const handler = host.handlers.get(event);
+  if (handler === undefined) {
+    expect.fail(
+      `the factory installed no '${event}' subscription (installed: ${[...host.handlers.keys()].join(", ") || "none"})`,
+    );
+  }
+  return handler;
+}
+
+/** Spy `console.error`, returning its accumulating argument log. */
+export function captureConsoleError(): unknown[][] {
+  const calls: unknown[][] = [];
+  vi.spyOn(console, "error").mockImplementation((...args: unknown[]): void => {
+    calls.push(args);
+  });
+  return calls;
+}
+
+/** Spy `process.stderr.write`, returning its accumulating chunk log. */
+export function captureStderr(): string[] {
+  const chunks: string[] = [];
+  vi.spyOn(process.stderr, "write").mockImplementation(
+    (chunk: string | Uint8Array): boolean => {
+      chunks.push(String(chunk));
+      return true;
+    },
+  );
+  return chunks;
 }

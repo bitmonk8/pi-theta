@@ -95,11 +95,27 @@ export function parseBodyWithFrontmatter(
 }
 
 /** Frontmatter for every `.theta` row — occupies lines 1–3, body starts at 4. */
-const FM = "---\nmode: prompt\n---\n";
+export const FRONTMATTER: readonly string[] = ["---", "mode: prompt", "---"];
+const FM = `${FRONTMATTER.join("\n")}\n`;
 
 /** Parse `body` as a `.theta` under the standard frontmatter. */
 export function parsePromptBody(body: string): ThetaDocument {
   return parseDoc(FM + body);
+}
+
+/** The diagnostics the production parse reports for `body`, in emission order. */
+export function diagsOf(body: readonly string[]): readonly Diagnostic[] {
+  return parseDoc([...FRONTMATTER, ...body].join("\n")).diagnostics;
+}
+
+/** `(code, message)` pairs in emission order — the whole list, unfiltered. */
+export function rowsOf(body: readonly string[]): Array<readonly [string, string]> {
+  return diagsOf(body).map((d) => [d.code, d.message] as const);
+}
+
+/** An UNANNOTATED `fn` parameter read inside an `array<…>`, plus a call. */
+export function fnParamCarrier(body: readonly string[]): readonly string[] {
+  return ["fn f(p) {", ...body, "}", "let z = f(1)", "1"];
 }
 
 /** The aggregated diagnostic codes, in report order. */

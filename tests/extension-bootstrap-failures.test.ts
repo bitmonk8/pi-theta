@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { SUBSCRIPTION_ORDER, exactlyOne, type PiEvent } from "./helpers/compose-workspace-harness";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
 import thetaExtension, {
@@ -28,16 +29,6 @@ import { SYSTEM_NOTE_CHANNEL } from "../src/extension/system-note-channel";
 // factory-time `pi.registerFlag` / `pi.on(...)` throw fatal to the whole
 // extension (the remaining steps do not execute) and emits exactly one
 // diagnostic; until then these tests red on those primary assertions.
-
-// The canonical factory-time `pi.on` subscription order (steps 1/3/4 of
-// registration-steps.md): `resources_discover` (step 1, after the `--theta`
-// flag), `session_start` (step 3), `session_shutdown` (step 4).
-const SUBSCRIPTION_ORDER = [
-  "resources_discover",
-  "session_start",
-  "session_shutdown",
-] as const;
-type PiEvent = (typeof SUBSCRIPTION_ORDER)[number];
 
 interface RecordingPi {
   pi: ExtensionAPI;
@@ -77,17 +68,6 @@ function makeRecordingPi(throwOn: ReadonlySet<string>): RecordingPi {
     sendMessage: (): void => {},
   };
   return { pi: pi as unknown as ExtensionAPI, calls, subscriptions };
-}
-
-// Narrow the recorded diagnostics to exactly one, failing loudly (no silent
-// skip) when the factory emitted none or more than one.
-function exactlyOne(diagnostics: readonly Diagnostic[]): Diagnostic {
-  if (diagnostics.length !== 1) {
-    expect.fail(
-      `expected exactly one extension-bootstrap-failed diagnostic, got ${diagnostics.length}`,
-    );
-  }
-  return diagnostics[0] as Diagnostic;
 }
 
 // ── `pi.registerFlag` failure — fatal to the whole extension ────────────────

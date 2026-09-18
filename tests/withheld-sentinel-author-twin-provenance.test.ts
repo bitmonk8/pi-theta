@@ -1,10 +1,8 @@
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 // @ts-expect-error — JS code-registry module, no type declarations.
-import { parseRegistry, registryMessage } from "../tools/code-registry/index.js";
-import type { Diagnostic } from "../src/diagnostics/diagnostic";
-import { parseDoc } from "./helpers/e2e-s1";
+import { registryMessage } from "../tools/code-registry/index.js";
+import { rowsOf, fnParamCarrier } from "./helpers/e2e-s1";
+import { readRegistry } from "./helpers/registry-oracle";
 import {
   annotationToCompatType,
   letAnnotationToCompatType,
@@ -93,19 +91,7 @@ import {
 // The diagnostic oracle — the registry's *Message* column (DIAG-4).
 // ===========================================================================
 
-interface RegistryRow {
-  readonly code: string;
-  readonly message: string;
-}
-
-const REGISTRY = parseRegistry(
-  readFileSync(
-    fileURLToPath(
-      new URL("../docs/spec_topics/diagnostics/code-registry-parse.md", import.meta.url),
-    ),
-    "utf8",
-  ),
-) as RegistryRow[];
+const REGISTRY = readRegistry(["parse"]);
 
 /** The registry row's normative *Message* template with its placeholders filled. */
 function msg(code: string, fills: ReadonlyArray<readonly [string, string]>): string {
@@ -234,24 +220,6 @@ describe("0143 w1 — the engine's withheld mint must be DISTINGUISHABLE from th
 // ===========================================================================
 // w2 — the marker is carried through composition.
 // ===========================================================================
-
-/** The frontmatter every w2 body is parsed under. */
-const FRONTMATTER: readonly string[] = ["---", "mode: prompt", "---"];
-
-/** The diagnostics the production parse reports for `body`, in emission order. */
-function diagsOf(body: readonly string[]): readonly Diagnostic[] {
-  return parseDoc([...FRONTMATTER, ...body].join("\n")).diagnostics;
-}
-
-/** `(code, message)` pairs in emission order — the whole list, unfiltered. */
-function rowsOf(body: readonly string[]): Array<readonly [string, string]> {
-  return diagsOf(body).map((d) => [d.code, d.message] as const);
-}
-
-/** An UNANNOTATED `fn` parameter read inside an `array<…>`, plus a call. */
-function fnParamCarrier(body: readonly string[]): readonly string[] {
-  return ["fn f(p) {", ...body, "}", "let z = f(1)", "1"];
-}
 
 describe("0143 w2 — the marker is carried through composition: every genuine engine mint keeps its withhold", () => {
   // WHY THIS EXISTS BESIDE w1. Route 1 moves the predicate off the name and

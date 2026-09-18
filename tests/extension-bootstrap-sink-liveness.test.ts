@@ -29,7 +29,7 @@ import {
   RendererGate,
   SYSTEM_NOTE_CHANNEL,
 } from "../src/extension/system-note-channel";
-import { finishWorkspace, type ComposeWorkspace } from "./helpers/compose-workspace-harness";
+import { finishWorkspace, noteDiagnostics, requireHandler, captureConsoleError, captureStderr, type ComposeWorkspace } from "./helpers/compose-workspace-harness";
 
 // Bug 0023 — the two-tier bootstrap-diagnostic sink, the per-instance
 // `RendererGate` threading and the production `ProbeHost`, driven directly at
@@ -109,38 +109,6 @@ function diagnostic(marker: string): Diagnostic {
     message: `extension bootstrap failed: ${marker}`,
     details: { capability: "pi.registerFlag", error: marker },
   };
-}
-
-function noteDiagnostics(note: RecordedNote): readonly Diagnostic[] {
-  const details = note.details as { diagnostics?: unknown } | undefined;
-  const diagnostics = details?.diagnostics;
-  if (!Array.isArray(diagnostics)) {
-    expect.fail(
-      `system note carries no details.diagnostics array: ${JSON.stringify(note.details)}`,
-    );
-  }
-  return diagnostics as readonly Diagnostic[];
-}
-
-/** Spy `console.error`, returning its accumulating argument log. */
-function captureConsoleError(): unknown[][] {
-  const calls: unknown[][] = [];
-  vi.spyOn(console, "error").mockImplementation((...args: unknown[]): void => {
-    calls.push(args);
-  });
-  return calls;
-}
-
-/** Spy `process.stderr.write`, returning its accumulating chunk log. */
-function captureStderr(): string[] {
-  const chunks: string[] = [];
-  vi.spyOn(process.stderr, "write").mockImplementation(
-    (chunk: string | Uint8Array): boolean => {
-      chunks.push(String(chunk));
-      return true;
-    },
-  );
-  return chunks;
 }
 
 afterEach(() => {
@@ -344,16 +312,6 @@ function bootWithSink(
     latchSessionContext: sink.latchSessionContext,
     composeInstance: async () => wiring,
   })(host.pi);
-}
-
-function requireHandler(host: HostDouble, event: string): PiHandler {
-  const handler = host.handlers.get(event);
-  if (handler === undefined) {
-    expect.fail(
-      `the factory installed no '${event}' subscription (installed: ${[...host.handlers.keys()].join(", ") || "none"})`,
-    );
-  }
-  return handler;
 }
 
 const ARMING_THROW = "watcher arming failed";

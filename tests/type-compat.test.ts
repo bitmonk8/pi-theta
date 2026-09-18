@@ -8,7 +8,8 @@ import {
   type NamedDecl,
   type TypeEnv,
 } from "../src/parser/type-compat";
-import type { Diagnostic, SourceRange } from "../src/diagnostics/diagnostic";
+import { site } from "./helpers/invoke-seam-scaffold";
+import { findCode as withCode } from "./helpers/e2e-s1";
 
 // V2b-T — failing tests for the paired `V2b` "type-compatibility engine (`⊑`)".
 //
@@ -59,17 +60,6 @@ function field(name: string, type: CompatType): { name: string; type: CompatType
 }
 
 const EMPTY_ENV: TypeEnv = {};
-
-/** A throwaway 1:1–1:2 span for the per-site seam calls. */
-function span(): SourceRange {
-  return { start: { line: 1, column: 1 }, end: { line: 1, column: 2 } };
-}
-function site(): { file: string; range: SourceRange } {
-  return { file: "test.theta", range: span() };
-}
-function withCode(diags: readonly Diagnostic[], code: string): Diagnostic | undefined {
-  return diags.find((d) => d.code === code);
-}
 
 // --- TYPE-1 — reflexivity -------------------------------------------------
 

@@ -1,10 +1,8 @@
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 // @ts-expect-error — JS code-registry module, no type declarations.
-import { parseRegistry, registryMessage } from "../tools/code-registry/index.js";
-import type { Diagnostic } from "../src/diagnostics/diagnostic";
-import { parseDoc } from "./helpers/e2e-s1";
+import { registryMessage } from "../tools/code-registry/index.js";
+import { parseDoc, FRONTMATTER, diagsOf, rowsOf, fnParamCarrier } from "./helpers/e2e-s1";
+import { readRegistry } from "./helpers/registry-oracle";
 import {
   CATEGORY1_PLACEHOLDERS,
   fillsOf,
@@ -111,25 +109,13 @@ import { resolveNamed, WITHHELD_BINDER_TYPE_NAME } from "../src/parser/type-comp
 // The diagnostic oracle — the registry's *Message* column (DIAG-4).
 // ===========================================================================
 
-interface RegistryRow {
-  readonly code: string;
-  readonly message: string;
-}
-
 /**
  * Both sharded tables this file's codes live in: the `theta/parse/*` rows and
  * the one `theta/load/*` row (`params-type-not-expression`,
  * code-registry-load.md:19). `parseRegistry` is documented against the
  * concatenated tables (tools/code-registry/index.js:24–30).
  */
-const REGISTRY = parseRegistry(
-  [
-    "docs/spec_topics/diagnostics/code-registry-parse.md",
-    "docs/spec_topics/diagnostics/code-registry-load.md",
-  ]
-    .map((rel) => readFileSync(fileURLToPath(new URL(`../${rel}`, import.meta.url)), "utf8"))
-    .join("\n"),
-) as RegistryRow[];
+const REGISTRY = readRegistry(["parse", "load"]);
 
 /** The registry row's normative *Message* template with its placeholders filled. */
 function msg(code: string, fills: ReadonlyArray<readonly [string, string]>): string {
@@ -147,21 +133,6 @@ function msg(code: string, fills: ReadonlyArray<readonly [string, string]>): str
     out = out.replace(placeholder, value);
   }
   return out;
-}
-
-// --- production parse harness ----------------------------------------------
-
-/** The frontmatter every body below is parsed under. */
-const FRONTMATTER: readonly string[] = ["---", "mode: prompt", "---"];
-
-/** The diagnostics the production parse reports for `body`, in emission order. */
-function diagsOf(body: readonly string[]): readonly Diagnostic[] {
-  return parseDoc([...FRONTMATTER, ...body].join("\n")).diagnostics;
-}
-
-/** `(code, message)` pairs in emission order — the whole list, unfiltered. */
-function rowsOf(body: readonly string[]): Array<readonly [string, string]> {
-  return diagsOf(body).map((d) => [d.code, d.message] as const);
 }
 
 const SCHEMA_NOT_EXPR = "theta/parse/schema-type-not-expression";
@@ -369,11 +340,6 @@ describe("0143 group M — every author type-slice position refuses `<withheld>`
 // ===========================================================================
 // GROUP F2 — the CLAUSE-ADMITTED render face, pinned byte-exact.
 // ===========================================================================
-
-/** An unannotated `fn` parameter read inside an `array<…>`, plus a call. */
-function fnParamCarrier(body: readonly string[]): readonly string[] {
-  return ["fn f(p) {", ...body, "}", "let z = f(1)", "1"];
-}
 
 describe("0143 face 2 — the sentinel's rendering is CLAUSE-ADMITTED and pinned unmoved", () => {
   // SCOPE. Every cell below asserts the CURRENT rendering, deliberately. Bug

@@ -11,6 +11,7 @@ import thetaExtension, {
   EXTENSION_BOOTSTRAP_FAILED_CODE,
 } from "../src/extension/factory";
 import { SYSTEM_NOTE_CHANNEL } from "../src/extension/system-note-channel";
+import { noteDiagnostics, requireHandler, captureConsoleError, captureStderr } from "./helpers/compose-workspace-harness";
 
 // Bug 0023 — the production composition omits its V9k / V9p / step-0 seams.
 //
@@ -212,17 +213,6 @@ function exactlyOneNote(notes: readonly RecordedNote[]): RecordedNote {
   return notes[0] as RecordedNote;
 }
 
-function noteDiagnostics(note: RecordedNote): readonly Diagnostic[] {
-  const details = note.details as { diagnostics?: unknown } | undefined;
-  const diagnostics = details?.diagnostics;
-  if (!Array.isArray(diagnostics)) {
-    expect.fail(
-      `system note carries no details.diagnostics array: ${JSON.stringify(note.details)}`,
-    );
-  }
-  return diagnostics as readonly Diagnostic[];
-}
-
 function exactlyOneDiagnostic(note: RecordedNote): Diagnostic {
   const diagnostics = noteDiagnostics(note);
   if (diagnostics.length !== 1) {
@@ -231,37 +221,6 @@ function exactlyOneDiagnostic(note: RecordedNote): Diagnostic {
     );
   }
   return diagnostics[0] as Diagnostic;
-}
-
-function requireHandler(host: RecordingHost, event: string): PiHandler {
-  const handler = host.handlers.get(event);
-  if (handler === undefined) {
-    expect.fail(
-      `the factory installed no '${event}' subscription (installed: ${[...host.handlers.keys()].join(", ") || "none"})`,
-    );
-  }
-  return handler;
-}
-
-/** Spy `console.error`, returning its accumulating argument log. */
-function captureConsoleError(): unknown[][] {
-  const calls: unknown[][] = [];
-  vi.spyOn(console, "error").mockImplementation((...args: unknown[]): void => {
-    calls.push(args);
-  });
-  return calls;
-}
-
-/** Spy `process.stderr.write`, returning its accumulating chunk log. */
-function captureStderr(): string[] {
-  const chunks: string[] = [];
-  vi.spyOn(process.stderr, "write").mockImplementation(
-    (chunk: string | Uint8Array): boolean => {
-      chunks.push(String(chunk));
-      return true;
-    },
-  );
-  return chunks;
 }
 
 afterEach(() => {

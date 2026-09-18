@@ -7,7 +7,8 @@ import {
   checkLiteralSublanguage,
   checkObjectLiteralFields,
 } from "../src/parser/literal-sublanguage";
-import type { Diagnostic, SourceRange } from "../src/diagnostics/diagnostic";
+import { site } from "./helpers/invoke-seam-scaffold";
+import { findCode as withCode } from "./helpers/e2e-s1";
 
 // V2a-T — failing tests for the paired `V2a` "type grammar and theta literal
 // sublanguage" implementation.
@@ -26,21 +27,6 @@ import type { Diagnostic, SourceRange } from "../src/diagnostics/diagnostic";
 // `checkLiteralSublanguage` / `checkObjectLiteralFields` seams
 // (src/parser/literal-sublanguage.ts).
 //
-
-/** A throwaway 1:1–1:2 span for the parse-context seam calls. */
-function span(): SourceRange {
-  return { start: { line: 1, column: 1 }, end: { line: 1, column: 2 } };
-}
-
-/** A located site at the throwaway span. */
-function site(): { file: string; range: SourceRange } {
-  return { file: "test.theta", range: span() };
-}
-
-/** The first diagnostic carrying `code`, if any. */
-function withCode(diags: readonly Diagnostic[], code: string): Diagnostic | undefined {
-  return diags.find((d) => d.code === code);
-}
 
 // --- grammar.md §"Type grammar" — generic-application arity ---------------
 

@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { SUBSCRIPTION_ORDER, exactlyOne, type PiEvent } from "./helpers/compose-workspace-harness";
 import type {
   ExtensionAPI,
   ExtensionCommandContext,
@@ -47,15 +48,6 @@ import { ThetaRegistry } from "../src/extension/reload-wiring";
 // per-theta `registerCommand` failures locally (no diagnostic, no degrade) and
 // does not read `pi.getCommands()` at all, so these tests red on their primary
 // assertions until the paired V9p implementation lands.
-
-// The canonical factory-time `pi.on` subscription order (steps 1/3/4 of
-// registration-steps.md).
-const SUBSCRIPTION_ORDER = [
-  "resources_discover",
-  "session_start",
-  "session_shutdown",
-] as const;
-type PiEvent = (typeof SUBSCRIPTION_ORDER)[number];
 
 type SessionStartHandler = (
   event: unknown,
@@ -154,17 +146,6 @@ function makeRecordingPi(opts: RecordingOpts = {}): RecordingPi {
       }
     },
   };
-}
-
-// Narrow the recorded diagnostics to exactly one, failing loudly (no silent
-// skip) when the factory emitted none or more than one.
-function exactlyOne(diagnostics: readonly Diagnostic[]): Diagnostic {
-  if (diagnostics.length !== 1) {
-    expect.fail(
-      `expected exactly one extension-bootstrap-failed diagnostic, got ${diagnostics.length}`,
-    );
-  }
-  return diagnostics[0] as Diagnostic;
 }
 
 function fixture(slashName: string): ThetaFixture {
