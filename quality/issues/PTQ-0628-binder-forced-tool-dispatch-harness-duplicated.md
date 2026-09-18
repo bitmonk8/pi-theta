@@ -20,7 +20,7 @@ fix_scope: cross-module       # localized | module | cross-module - mechanical s
 wave: qw20260917154546
 reported_by: lens-d7-testquality (anthropic/claude-sonnet-5)
 date: 2026-09-17
-fix_skips: 1
+fix_skips: 0
 ---
 
 # binder-forced-tool-dispatch.test.ts redeclares the parseDeps/parse/ctxDouble/noteChannelEntries/CapturedNote/TWO_PARAM_THETA sextet tests/e2e-s5-binder-echo-emission.test.ts already carries

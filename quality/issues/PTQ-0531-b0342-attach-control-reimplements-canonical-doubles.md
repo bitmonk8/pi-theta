@@ -13,7 +13,7 @@ fix_scope: localized         # localized | module | cross-module - mechanical si
 wave: qw20260917154546
 reported_by: lens-d7-testquality (anthropic/claude-sonnet-5)
 date: 2026-09-17
-fix_skips: 1
+fix_skips: 0
 ---
 
 # b0342-forwarded-enum-attach-control.test.ts re-derives e2e-s1's parseDeps/parseDoc and call-with-clause-harness's NOOP_CHECKPOINT/rootDouble instead of importing them

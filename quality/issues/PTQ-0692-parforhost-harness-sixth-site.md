@@ -13,7 +13,7 @@ d4_class: parallel
 wave: qw20260917154546
 reported_by: lens-d7-testquality (anthropic/claude-sonnet-5)
 date: 2026-09-17
-fix_skips: 1
+fix_skips: 0
 ---
 
 # execution-status-parfor-lanes reproduces the makeDeps/parse/bodyOf/NOOP_CHECKPOINT/NoopMutator/ok par-for harness already flagged as duplicated, as an uncounted sixth site

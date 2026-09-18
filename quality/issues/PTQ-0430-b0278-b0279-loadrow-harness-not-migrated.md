@@ -14,7 +14,7 @@ fix_scope: module            # localized | module | cross-module - mechanical si
 wave: qw20260917154546
 reported_by: lens-d7-testquality (anthropic/claude-sonnet-5)
 date: 2026-09-17
-fix_skips: 1
+fix_skips: 0
 ---
 
 # b0278 and b0279 redefine the LoadRow/msg/line/registered/expectCaptured/expectRows harness that tests/helpers/load-row-harness.ts already centralises, and a sibling in the same review scope (b0277) already imports instead

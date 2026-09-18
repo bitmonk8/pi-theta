@@ -13,7 +13,7 @@ fix_scope: localized          # localized | module | cross-module - mechanical s
 wave: qw20260917154546
 reported_by: lens-d7-testquality (anthropic/claude-sonnet-5)
 date: 2026-09-17
-fix_skips: 1
+fix_skips: 0
 ---
 
 # typeenv-prototype-names.test.ts and union-arm-literal-const-lowering.test.ts each redefine diagLines(doc) though both already import parseDoc from tests/helpers/e2e-s1, which exports the identical function

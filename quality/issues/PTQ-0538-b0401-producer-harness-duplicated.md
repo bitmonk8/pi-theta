@@ -12,7 +12,7 @@ fix_scope: cross-module       # localized | module | cross-module - mechanical s
 wave: qw20260917154546
 reported_by: lens-d7-testquality (anthropic/claude-sonnet-5)
 date: 2026-09-17
-fix_skips: 1
+fix_skips: 0
 ---
 
 # b0401 redeclares the parseDeps/rootDouble/BINDER_MODEL/producerWithCapture/ctxDouble producer harness tests/e2e-s5-binder-echo-emission.test.ts already carries

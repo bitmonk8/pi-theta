@@ -12,7 +12,7 @@ fix_scope: module            # localized | module | cross-module - mechanical si
 wave: qw20260917154546
 reported_by: lens-d7-testquality (anthropic/claude-sonnet-5)
 date: 2026-09-17
-fix_skips: 1
+fix_skips: 0
 ---
 
 # CapturedSchema interface and capturedSchemas() are byte-identical between non-literal-by-field-refusal.test.ts and discriminator-field-classifier-brace-group.test.ts, with loadRow() a near-identical third copy

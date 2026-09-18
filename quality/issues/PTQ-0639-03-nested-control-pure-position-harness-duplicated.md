@@ -12,7 +12,7 @@ fix_scope: localized
 wave: qw20260917154546
 reported_by: lens-d7-testquality (anthropic/claude-sonnet-5)
 date: 2026-09-17
-fix_skips: 1
+fix_skips: 0
 ---
 
 # nested-control-in-pure-position.test.ts's AST-builder-plus-producer harness is a byte-identical copy of production-core-exec.test.ts's, acknowledged as a mirror rather than a shared import

@@ -363,7 +363,11 @@ describe("tools/quality/store.mjs (scratch fixture store via QUALITY_STORE_ROOT)
     expect(rows.length).toBe(2);
   });
 
-  it("cell 14: a file-connected component larger than --max stays one part (never split into conflicting lanes)", () => {
+  it("cell 14: a file-connected component larger than --max emits ONE bounded slice and defers the tail behind that part (never two lanes on one file, never an unfixable manifest)", () => {
+    // Wave qw20260917204232 tests__p1: a ~109-issue component gave one lane an
+    // unfixable manifest and 105 UNREACHED issues each gained an unfair
+    // fix_skips. The slice bounds the lane; the tail defers like a host-lane
+    // deferral and re-clusters next wave.
     writeIssue(root, "PTQ-0041-a.md", { location: "tests/hub.test.ts:1-2", id: "PTQ-0041" });
     writeIssue(root, "PTQ-0042-b.md", { location: "tests/hub.test.ts:3-4", id: "PTQ-0042" });
     writeIssue(root, "PTQ-0043-c.md", { location: "tests/hub.test.ts:5-6", id: "PTQ-0043" });
@@ -371,10 +375,32 @@ describe("tools/quality/store.mjs (scratch fixture store via QUALITY_STORE_ROOT)
     const r = runStore(root, ["clusters", "--max", "2"]);
     expect(r.status).toBe(0);
     const rows = r.stdout.trim().split("\n").filter(Boolean).map((l) => l.split("\t"));
-    expect(rows.length).toBe(1);
-    const only = rows[0] ?? [];
+    const partRows = rows.filter((c) => c[0] !== "deferred");
+    const deferredRows = rows.filter((c) => c[0] === "deferred");
+    expect(partRows).toHaveLength(1);
+    const only = partRows[0] ?? [];
     expect(only[0]).toBe("tests");
-    expect(Number(only[2])).toBe(3);
+    expect(Number(only[2])).toBe(2);
+    // Stable order: the slice is the first --max issues; the tail defers
+    // behind the part's key in the same three-column deferred shape.
+    expect(readFile(root, only[1]!).trim().split("\n")).toEqual([
+      "quality/issues/PTQ-0041-a.md",
+      "quality/issues/PTQ-0042-b.md",
+    ]);
+    expect(deferredRows).toEqual([["deferred", "quality/issues/PTQ-0043-c.md", "tests"]]);
+    // An oversized slice never absorbs a neighbouring small component: a
+    // disjoint issue in the same dirname gets its own part.
+    writeIssue(root, "PTQ-0044-d.md", { location: "tests/solo.test.ts:1-2", id: "PTQ-0044" });
+    const r2 = runStore(root, ["clusters", "--max", "2", "--wave", "c14b"]);
+    const rows2 = r2.stdout.trim().split("\n").filter(Boolean).map((l) => l.split("\t"));
+    const parts2 = rows2.filter((c) => c[0] !== "deferred").map((c) => [c[0], c[2]]);
+    expect(parts2).toEqual([
+      ["tests__p1", "2"],
+      ["tests__p2", "1"],
+    ]);
+    expect(rows2.filter((c) => c[0] === "deferred")).toEqual([
+      ["deferred", "quality/issues/PTQ-0043-c.md", "tests__p1"],
+    ]);
   });
 
   it("cell 11: open-count counts only status: open issues", () => {

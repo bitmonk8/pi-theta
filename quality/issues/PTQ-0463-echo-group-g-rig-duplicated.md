@@ -13,7 +13,7 @@ fix_scope: cross-module      # localized | module | cross-module - mechanical si
 wave: qw20260917154546
 reported_by: lens-d7-testquality (anthropic/claude-sonnet-5)
 date: 2026-09-17
-fix_skips: 1
+fix_skips: 0
 ---
 
 # echo-array-per-element-descriptor.test.ts redeclares the group-G production-binder rig it names as echo-value-rule1-sanitisation.test.ts's own

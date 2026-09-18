@@ -17,7 +17,7 @@ d4_class: clone
 wave: qw20260917154546
 reported_by: lens-d7-testquality (anthropic/claude-sonnet-5)
 date: 2026-09-17
-fix_skips: 1
+fix_skips: 0
 ---
 
 # load-warning-delivery.test.ts redeclares load-phase-pre-eval-routing.test.ts's RecordedNote/pi-double/ctx-double harness and GOOD_THETA/BAD_THETA fixtures

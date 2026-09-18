@@ -12,7 +12,7 @@ fix_scope: module             # localized | module | cross-module - mechanical s
 wave: qw20260917154546
 reported_by: lens-d7-testquality (anthropic/claude-sonnet-5)
 date: 2026-09-17
-fix_skips: 1
+fix_skips: 0
 ---
 
 # missing-object-key-rendering.test.ts's parseDeps/parseTheta/NOOP_CHECKPOINT/rootDouble/producer harness is a verbatim, self-acknowledged copy of non-object-receiver-gate.test.ts's block

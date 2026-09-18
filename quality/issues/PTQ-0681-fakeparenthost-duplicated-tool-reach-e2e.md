@@ -12,7 +12,7 @@ fix_scope: cross-module       # localized | module | cross-module - mechanical s
 wave: qw20260917154546
 reported_by: lens-d7-testquality (anthropic/claude-sonnet-5)
 date: 2026-09-17
-fix_skips: 1
+fix_skips: 0
 ---
 
 # prompt-mode-extension-tool-reach-e2e.test.ts's FakeParentHost class is a near-byte-identical copy of subagent-fn-extension-tool-dispatch-e2e.test.ts's FakeParentHost

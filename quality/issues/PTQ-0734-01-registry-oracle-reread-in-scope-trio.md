@@ -13,7 +13,7 @@ fix_scope: cross-module      # localized | module | cross-module - mechanical si
 wave: qw20260917154546
 reported_by: lens-d7-testquality (anthropic/claude-sonnet-5)
 date: 2026-09-17
-fix_skips: 1
+fix_skips: 0
 ---
 
 # All three in-scope files redeclare the RegistryRow/REGISTRY diagnostics-registry read that tests/helpers/registry-oracle.ts already exports

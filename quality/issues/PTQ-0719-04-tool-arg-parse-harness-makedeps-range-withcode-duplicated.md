@@ -17,7 +17,7 @@ fix_scope: module            # localized | module | cross-module - mechanical si
 wave: qw20260917154546
 reported_by: lens-d7-testquality (anthropic/claude-sonnet-5)
 date: 2026-09-17
-fix_skips: 1
+fix_skips: 0
 ---
 
 # tool-arg-parse-checks.test.ts and tool-arg-shape-enforcement.test.ts redeclare an identical makeDeps/range/withCode parse harness, and makeDeps duplicates tests/helpers/e2e-s1.ts's parseDeps

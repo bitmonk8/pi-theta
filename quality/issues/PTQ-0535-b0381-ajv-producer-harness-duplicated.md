@@ -13,7 +13,7 @@ fix_scope: cross-module
 wave: qw20260917154546
 reported_by: lens-d7-testquality (anthropic/claude-sonnet-5)
 date: 2026-09-17
-fix_skips: 1
+fix_skips: 0
 ---
 
 # b0381's AJV-backed rootDouble/producerWithCapture/parseDeps/BINDER_MODEL/ctxDouble quintet is byte-identical to tests/e2e-s5-binder-echo-emission.test.ts and tests/echo-value-rule1-sanitisation.test.ts

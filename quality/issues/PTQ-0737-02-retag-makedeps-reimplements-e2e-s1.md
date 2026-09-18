@@ -12,7 +12,7 @@ fix_scope: module
 wave: qw20260917154546
 reported_by: lens-d7-testquality (anthropic/claude-sonnet-5)
 date: 2026-09-17
-fix_skips: 1
+fix_skips: 0
 ---
 
 # wire-translation-inbound-retag.test.ts redeclares makeDeps()/parse() byte-for-byte instead of importing tests/helpers/e2e-s1.ts's parseDeps()/parseDoc()

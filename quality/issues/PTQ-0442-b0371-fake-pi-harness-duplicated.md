@@ -12,7 +12,7 @@ fix_scope: cross-module      # localized | module | cross-module - mechanical si
 wave: qw20260917154546
 reported_by: lens-d7-testquality (anthropic/claude-sonnet-5)
 date: 2026-09-17
-fix_skips: 1
+fix_skips: 0
 ---
 
 # b0371's fake-pi harness (makeHarness/makeTheta/invoke/thetaNotes) is byte-identical to drain-gated-dispatch-integration.test.ts's, not imported

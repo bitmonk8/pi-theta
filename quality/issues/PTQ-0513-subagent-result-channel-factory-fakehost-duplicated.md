@@ -14,7 +14,7 @@ d4_class: clone
 wave: qw20260917154546
 reported_by: lens-d7-testquality (anthropic/claude-sonnet-5)
 date: 2026-09-17
-fix_skips: 1
+fix_skips: 0
 ---
 
 # subagent-result-channel-factory.test.ts's makeHarness pi/ctx object and AVAILABLE_MODEL constant duplicate production-result-channel.test.ts's fakeHost/ctx and AVAILABLE_MODEL near-verbatim

@@ -16,7 +16,7 @@ fix_scope: module
 wave: qw20260917154546
 reported_by: lens-d7-testquality (anthropic/claude-sonnet-5)
 date: 2026-09-17
-fix_skips: 1
+fix_skips: 0
 ---
 
 # b0429 and b0430 each hand-roll an identical checkThetaImports load harness a canonical tests/helpers/ version already covers

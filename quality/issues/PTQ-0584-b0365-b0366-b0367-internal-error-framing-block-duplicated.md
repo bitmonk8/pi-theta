@@ -14,7 +14,7 @@ fix_scope: cross-module       # localized | module | cross-module - mechanical s
 wave: qw20260917154546
 reported_by: lens-d7-testquality (anthropic/claude-sonnet-5)
 date: 2026-09-17
-fix_skips: 1
+fix_skips: 0
 ---
 
 # The five-assertion "loud throw frames to internal-error" block is duplicated four times across b0365 (inline twice) and as byte-identical assertLoudThrow functions in b0366/b0367

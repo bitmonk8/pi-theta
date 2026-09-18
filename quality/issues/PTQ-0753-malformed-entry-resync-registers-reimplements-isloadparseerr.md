@@ -12,7 +12,7 @@ fix_scope: localized          # localized | module | cross-module - mechanical s
 wave: qw20260917154546
 reported_by: lens-d7-testquality (anthropic/claude-sonnet-5)
 date: 2026-09-17
-fix_skips: 1
+fix_skips: 0
 ---
 
 # registers() in inline-object-malformed-entry-resync.test.ts re-derives the predicate tests/helpers/e2e-s1.ts already exports as isLoadParseError

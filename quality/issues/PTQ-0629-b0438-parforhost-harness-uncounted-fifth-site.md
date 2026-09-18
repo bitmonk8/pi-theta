@@ -15,7 +15,7 @@ d4_class: parallel
 wave: qw20260917154546
 reported_by: lens-d7-testquality (anthropic/claude-sonnet-5)
 date: 2026-09-17
-fix_skips: 1
+fix_skips: 0
 ---
 
 # b0438 reproduces the makeDeps/parse/bodyOf/ParForHost/execDeps harness already flagged as duplicated across three sibling par-for bug files, as an uncounted fifth site

@@ -18,7 +18,7 @@ d4_class: clone
 wave: qw20260917154546
 reported_by: lens-d7-testquality (anthropic/claude-sonnet-5)
 date: 2026-09-17
-fix_skips: 1
+fix_skips: 0
 ---
 
 # A RecordingCheckpoint `Checkpoint` double recording fired kinds/sites is redeclared near-identically across seven test files

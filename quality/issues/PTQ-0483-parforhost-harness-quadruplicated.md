@@ -15,7 +15,7 @@ d4_class: parallel
 wave: qw20260917154546
 reported_by: lens-d7-testquality (anthropic/claude-sonnet-5)
 date: 2026-09-17
-fix_skips: 1
+fix_skips: 0
 ---
 
 # ParForHost/execDeps/makeDeps/tick harness block is re-typed near-verbatim across four par-for test files

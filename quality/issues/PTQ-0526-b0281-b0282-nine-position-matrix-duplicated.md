@@ -12,7 +12,7 @@ fix_scope: cross-module       # localized | module | cross-module - mechanical s
 wave: qw20260917154546
 reported_by: lens-d7-testquality (anthropic/claude-sonnet-5)
 date: 2026-09-17
-fix_skips: 1
+fix_skips: 0
 ---
 
 # the nine-position `Position`/`POSITIONS`/`cells`/`expectMatrix` fixture-and-assertion table is duplicated byte-for-byte between b0281 and b0282

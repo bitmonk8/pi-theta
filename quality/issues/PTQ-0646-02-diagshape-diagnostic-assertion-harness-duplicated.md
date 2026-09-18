@@ -24,7 +24,7 @@ fix_scope: cross-module
 wave: qw20260917154546
 reported_by: lens-d7-testquality (anthropic/claude-sonnet-5)
 date: 2026-09-17
-fix_skips: 1
+fix_skips: 0
 ---
 
 # The DiagShape/shapes/render/readRepoFile diagnostic-assertion harness is redeclared byte-identical across six pattern-refusal test files

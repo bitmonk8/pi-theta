@@ -18,7 +18,7 @@ fix_scope: cross-module      # localized | module | cross-module - mechanical si
 wave: qw20260917154546
 reported_by: lens-d7-testquality (anthropic/claude-sonnet-5)
 date: 2026-09-17
-fix_skips: 1
+fix_skips: 0
 ---
 
 # b0461's ancestors/mergeDirs/ReaddirDenied fake-fs scaffolding is a byte-identical copy repeated across five test files

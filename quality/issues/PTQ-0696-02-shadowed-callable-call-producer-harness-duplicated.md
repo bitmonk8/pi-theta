@@ -12,7 +12,7 @@ fix_scope: cross-module       # localized | module | cross-module - mechanical s
 wave: qw20260917154546
 reported_by: lens-d7-testquality (anthropic/claude-sonnet-5)
 date: 2026-09-17
-fix_skips: 1
+fix_skips: 0
 ---
 
 # shadowed-callable-call.test.ts's rootDouble/ctxDouble/producer/recordingPiTool/snapshot/thetaWithSet/bind block is a near-byte-identical copy of tool-arg-shape-enforcement.test.ts's

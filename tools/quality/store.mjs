@@ -68,8 +68,10 @@
 //       parallel fix wave. Parts are FILE-DISJOINT: issues citing a common file
 //       always share a part (they run as parallel lanes and are cherry-picked
 //       in order, so two parts editing one file would conflict at integration);
-//       a file-connected component larger than n stays one oversized part.
-//       Without --max the grouping is unsplit.
+//       a file-connected component larger than n emits ONE bounded slice (its
+//       first n issues, stable order) and DEFERS the tail behind that part's
+//       key (one lane owns the component's files per wave; the next wave
+//       re-clusters the remainder). Without --max the grouping is unsplit.
 //       HOST-LANE RULE (lens ∈ {D9, D8}, quality-loop-d4-d8-design.md §3):
 //       every open issue whose lens is D9 or D8 is grouped by its HOST FILE
 //       (the path part of its d9_host/d8_host, else its first location's
@@ -759,32 +761,54 @@ switch (cmd) {
       for (const [key, paths] of [...clusters.entries()].sort()) {
         // Parts inherit the parent cluster's already-sorted issue order, so the
         // same backlog always splits the same way (stable across waves).
-        const parts = [];
+        const parts = []; // [partKey, { paths, tail }]
         if (paths.length <= maxPer) {
-          parts.push([key, paths]);
+          parts.push([key, { paths, tail: [] }]);
         } else {
           // Parts run as PARALLEL worktree lanes and are cherry-picked in order,
           // so two parts must never edit the same file: issues that cite a
           // common file travel together (connected components over cited
           // paths), and components are packed first-fit into parts of at most
-          // --max issues. A component larger than --max stays one oversized part
-          // rather than being split into lanes that would conflict at
-          // integration (wave qw20260912091742 lost a lane exactly that way).
+          // --max issues. A component larger than --max used to stay ONE
+          // oversized part (two lanes on one file conflict at integration —
+          // wave qw20260912091742 lost a lane that way), but the D7 cold pass
+          // showed the other failure mode: a ~109-issue component handed one
+          // lane an unfixable manifest, the fixer skipped 105 UNREACHED
+          // issues, and every skip unfairly advanced the fix_skips parking
+          // counter (wave qw20260917204232 tests__p1). An oversized component
+          // now emits ONE bounded slice (its first --max issues, stable
+          // order) and DEFERS the tail behind that part's key — the same
+          // one-lane-owns-the-files sequencing the D9/D8 host lanes use; the
+          // next wave re-clusters the remainder minus whatever the slice
+          // fixed.
           const components = fileDisjointComponents(paths, citedFiles);
-          const packed = [];
+          const packed = []; // { paths: string[], tail: string[] }
           for (const comp of components) {
-            const slot = packed.find((part) => part.length + comp.length <= maxPer);
-            if (slot) slot.push(...comp);
-            else packed.push([...comp]);
+            if (comp.length > maxPer) {
+              // Oversized: a bounded slice + a deferred tail; never shares a part.
+              packed.push({ paths: comp.slice(0, maxPer), tail: comp.slice(maxPer) });
+              continue;
+            }
+            const slot = packed.find(
+              (part) => part.tail.length === 0 && part.paths.length + comp.length <= maxPer,
+            );
+            if (slot) slot.paths.push(...comp);
+            else packed.push({ paths: [...comp], tail: [] });
           }
-          // One oversized component packs into a single part: it keeps the bare key.
+          // A single packed part keeps the bare key.
           if (packed.length === 1) parts.push([key, packed[0]]);
-          else packed.forEach((partPaths, i) => parts.push([`${key}__p${i + 1}`, partPaths]));
+          else packed.forEach((part, i) => parts.push([`${key}__p${i + 1}`, part]));
         }
-        for (const [partKey, partPaths] of parts) {
+        for (const [partKey, part] of parts) {
           const p = path.join(outDir, `${partKey.replaceAll("/", "__")}.txt`);
-          fs.writeFileSync(p, partPaths.join("\n") + "\n");
-          rows.push([partKey, rel(p), partPaths.length]);
+          fs.writeFileSync(p, part.paths.join("\n") + "\n");
+          rows.push([partKey, rel(p), part.paths.length]);
+          // The tail rows use the SAME three-column deferred shape as the
+          // host-lane deferrals: the loop logs them; the store leaves the
+          // issues open for the next wave's re-cluster.
+          for (const tailPath of part.tail) {
+            process.stdout.write(`deferred\t${tailPath}\t${partKey}\n`);
+          }
         }
       }
     }

@@ -14,7 +14,7 @@ fix_scope: module            # localized | module | cross-module - mechanical si
 wave: qw20260917154546
 reported_by: lens-d7-testquality (anthropic/claude-sonnet-5)
 date: 2026-09-17
-fix_skips: 1
+fix_skips: 0
 ---
 
 # tools-derived-name-shape/tools-entry-closed-grammar/tools-entry-containment each re-declare production-load-harness.ts's runProductionLoad and workspace plant/dispose

@@ -21,7 +21,7 @@ fix_scope: cross-module      # localized | module | cross-module - mechanical si
 wave: qw20260917154546
 reported_by: lens-d7-testquality (anthropic/claude-sonnet-5)
 date: 2026-09-17
-fix_skips: 1
+fix_skips: 0
 ---
 
 # The off-session scripted complete() mock scaffold, reply builder and tool reader are hand-copied across eight test files with no tests/helpers/ home

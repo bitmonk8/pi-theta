@@ -20,7 +20,7 @@ fix_scope: cross-module
 wave: qw20260917154546
 reported_by: lens-d7-testquality (anthropic/claude-sonnet-5)
 date: 2026-09-17
-fix_skips: 1
+fix_skips: 0
 ---
 
 # binder-post-merge-ajv-enforcement.test.ts retypes the e2e-s5-binder-echo-emission CapturedNote/parseDeps/parse/rootDouble/producerWithCapture/ctxDouble/noteChannelEntries sextet

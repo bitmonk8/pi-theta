@@ -14,7 +14,7 @@ fix_scope: localized          # localized | module | cross-module - mechanical s
 wave: qw20260917154546
 reported_by: lens-d7-testquality (anthropic/claude-sonnet-5)
 date: 2026-09-17
-fix_skips: 1
+fix_skips: 0
 ---
 
 # PKG_ROOTS and buildPackages are redeclared byte-identically in discovery-root-enumeration-failure.test.ts and discovery-tree-walk-lstat-failure.test.ts

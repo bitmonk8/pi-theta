@@ -17,7 +17,7 @@ d4_class: clone
 wave: qw20260917154546
 reported_by: lens-d7-testquality (anthropic/claude-sonnet-5)
 date: 2026-09-17
-fix_skips: 1
+fix_skips: 0
 ---
 
 # loop-element-withhold-binding-scoped.test.ts redeclares plain-for-loop-variable-element-type.test.ts's at/render/binderSites AST-walking trio byte-for-byte

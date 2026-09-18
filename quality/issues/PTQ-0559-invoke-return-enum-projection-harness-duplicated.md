@@ -15,7 +15,7 @@ fix_scope: cross-module
 wave: qw20260917154546
 reported_by: lens-d7-testquality (anthropic/claude-sonnet-5)
 date: 2026-09-17
-fix_skips: 1
+fix_skips: 0
 ---
 
 # invoke-return-enum-carrier-projection.test.ts re-derives e2e-s1's parseDeps and call-with-clause-harness's NOOP_CHECKPOINT/rootDouble instead of importing them
