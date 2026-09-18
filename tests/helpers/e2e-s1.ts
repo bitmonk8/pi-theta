@@ -743,8 +743,16 @@ export function expectParamsDropGateShape(
  * parsing, lost its loop, or drifted a line would let those rows pass while
  * measuring nothing. A body the walk cannot reach throws naming the fixture
  * rather than returning an empty list.
+ *
+ * `includeCallArguments` also records `arg <callee>#<i>@<argument range>`
+ * sites and visits statement-position tool calls and invokes. The let-arm
+ * witness uses these anchors to prove its diagnostic sinks were reached.
  */
-export function binderSites(doc: ThetaDocument, subject: string): string[] {
+export function binderSites(
+  doc: ThetaDocument,
+  subject: string,
+  { includeCallArguments = false }: { readonly includeCallArguments?: boolean } = {},
+): string[] {
   const out: string[] = [];
   const walkExpr = (e: Expr): void => {
     switch (e.kind) {
@@ -759,6 +767,13 @@ export function binderSites(doc: ThetaDocument, subject: string): string[] {
         for (const arm of e.arms) walkExpr(arm.body);
         return;
       case "call":
+        if (includeCallArguments) {
+          e.args.forEach((a: Expr, i: number) => {
+            out.push(`arg ${e.callee}#${i}@${at(a.range)}`);
+          });
+        }
+        for (const a of e.args) walkExpr(a);
+        return;
       case "invoke":
         for (const a of e.args) walkExpr(a);
         return;
@@ -832,6 +847,14 @@ export function binderSites(doc: ThetaDocument, subject: string): string[] {
         }
         return;
       }
+      // A bare `hs(ws)` in statement position is a `tool-call`, not an `expr`;
+      // the let-arm's sinks live there as often as inside a `let`.
+      case "tool-call":
+        if (includeCallArguments) walkExpr(s.call);
+        return;
+      case "invoke":
+        if (includeCallArguments) walkExpr(s.invoke);
+        return;
       case "expr":
         walkExpr(s.expr);
         return;

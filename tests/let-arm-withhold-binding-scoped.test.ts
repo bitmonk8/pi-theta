@@ -4,9 +4,9 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 // @ts-expect-error — JS code-registry module, no type declarations.
 import { parseRegistry, registryMessage } from "../tools/code-registry/index.js";
-import type { Diagnostic, SourceRange } from "../src/diagnostics/diagnostic";
-import type { Block, Expr, Stmt, ThetaDocument } from "../src/parser/theta-document";
-import { parseDoc } from "./helpers/e2e-s1";
+import type { Diagnostic } from "../src/diagnostics/diagnostic";
+import type { ThetaDocument } from "../src/parser/theta-document";
+import { at, binderSites, parseDoc, render } from "./helpers/e2e-s1";
 
 // Bug 0199 — `TypeLayerWalk.unprovableBindings` (src/parser/type-layer-checks.ts)
 // is a `Set<CompatType>` whose membership test is JavaScript object identity,
@@ -249,158 +249,6 @@ function parse(body: string): ThetaDocument {
   return parseDoc(FM + body, FILE);
 }
 
-function at(r: SourceRange): string {
-  return `${r.start.line}:${r.start.column}-${r.end.line}:${r.end.column}`;
-}
-
-/** Every diagnostic rendered `severity code @range: message` — failure payload. */
-function render(doc: ThetaDocument): string {
-  return JSON.stringify(
-    doc.diagnostics.map((d: Diagnostic) => {
-      const r = d.range;
-      return `${d.severity} ${d.code} @${r === undefined ? "-" : at(r)}: ${d.message}`;
-    }),
-  );
-}
-
-/**
- * Every binding site and every judged CALL-ARGUMENT site of `doc` in source
- * order: `let <name>@<stmt range>`, `for <var>@<iterand range>`, and
- * `arg <callee>#<i>@<argument range>`.
- *
- * This is the loud precondition every row runs FIRST. The subject of this file
- * is an order-dependent suppression whose only observable is a diagnostic that
- * is absent, so a fixture that stopped parsing, lost a statement, or drifted a
- * line would let the currently-`[]` rows pass while measuring nothing. The
- * argument sites are in the list because the owed verdict is anchored on the
- * ARGUMENT node — pinning them here means each row's `[]` is measured at a sink
- * the walk demonstrably reached, and the `located` list below compares against
- * the same range.
- */
-function binderSites(doc: ThetaDocument): string[] {
-  const out: string[] = [];
-  const walkExpr = (e: Expr): void => {
-    switch (e.kind) {
-      case "call":
-        e.args.forEach((a: Expr, i: number) => {
-          out.push(`arg ${e.callee}#${i}@${at(a.range)}`);
-        });
-        for (const a of e.args) walkExpr(a);
-        return;
-      case "par-for":
-        out.push(`par-for ${e.variable}@${at(e.iterand.range)}`);
-        walkExpr(e.iterand);
-        if (e.max !== null) walkExpr(e.max);
-        walkBlock(e.body);
-        return;
-      case "match":
-        walkExpr(e.scrutinee);
-        for (const arm of e.arms) walkExpr(arm.body);
-        return;
-      case "invoke":
-        for (const a of e.args) walkExpr(a);
-        return;
-      case "method-call":
-        walkExpr(e.target);
-        for (const a of e.args) walkExpr(a);
-        return;
-      case "member":
-        walkExpr(e.target);
-        return;
-      case "index":
-        walkExpr(e.target);
-        walkExpr(e.index);
-        return;
-      case "binary":
-        walkExpr(e.left);
-        walkExpr(e.right);
-        return;
-      case "ternary":
-        walkExpr(e.condition);
-        walkExpr(e.consequent);
-        walkExpr(e.alternate);
-        return;
-      case "array":
-        for (const el of e.elements) walkExpr(el);
-        return;
-      case "object":
-        for (const f of e.fields) walkExpr(f.value);
-        return;
-      case "try":
-        walkExpr(e.operand);
-        return;
-      case "result-ctor":
-        walkExpr(e.arg);
-        return;
-      default:
-        return;
-    }
-  };
-  const walkBlock = (b: Block): void => {
-    for (const s of b.statements) walkStmt(s);
-    if (b.tail !== null) walkExpr(b.tail);
-  };
-  const walkStmt = (s: Stmt): void => {
-    switch (s.kind) {
-      case "let":
-        out.push(`let ${s.name}@${at(s.range)}`);
-        if (s.init !== null) walkExpr(s.init);
-        return;
-      case "for":
-        out.push(`for ${s.variable}@${at(s.iterand.range)}`);
-        walkExpr(s.iterand);
-        walkBlock(s.body);
-        return;
-      case "fn":
-        walkBlock(s.body);
-        return;
-      case "while":
-        walkExpr(s.condition);
-        walkBlock(s.body);
-        return;
-      case "if": {
-        walkExpr(s.condition);
-        walkBlock(s.then);
-        // `otherwise` is a chained `IfStmt`, an `else` `Block`, or none; only
-        // the statement form carries a `kind` discriminator.
-        const otherwise = s.otherwise;
-        if (otherwise !== null) {
-          if ("kind" in otherwise) walkStmt(otherwise);
-          else walkBlock(otherwise);
-        }
-        return;
-      }
-      // A bare `hs(ws)` in statement position is a `tool-call`, not an `expr`;
-      // the sinks these rows judge live there as often as inside a `let`.
-      case "tool-call":
-        walkExpr(s.call);
-        return;
-      case "invoke":
-        walkExpr(s.invoke);
-        return;
-      case "expr":
-        walkExpr(s.expr);
-        return;
-      case "reassign":
-        walkExpr(s.value);
-        return;
-      case "return":
-        if (s.operand !== null) walkExpr(s.operand);
-        return;
-      default:
-        return;
-    }
-  };
-  const body = doc.body;
-  if (body === null) {
-    throw new Error(
-      `harness: the fixture produced no parsed body, so its diagnostic set is about a parse failure rather than the \`let\` arm under test. Diagnostics: ${render(doc)}`,
-    );
-  }
-  walkBlock(body);
-  return out;
-}
-
 interface Expectation {
   readonly codes: readonly string[];
   readonly msgs: readonly string[];
@@ -443,7 +291,7 @@ interface Row {
 function expectRow(row: Row): ThetaDocument {
   const doc = parse(row.src);
   expect(
-    binderSites(doc),
+    binderSites(doc, "the `let` arm under test", { includeCallArguments: true }),
     `${row.label} PRECONDITION: the fixture's binding and judged-argument sites must be exactly these, so a drifted or unparsed fixture fails here instead of letting the assertions below measure nothing. Diagnostics: ${render(doc)}`,
   ).toEqual([...row.sites]);
   expect(

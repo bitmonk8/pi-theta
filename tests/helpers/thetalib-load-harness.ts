@@ -67,9 +67,9 @@ import { parseThetaDocument, type ThetaDocument } from "../../src/parser/theta-d
 import type { MaterializedImport } from "../../src/runtime/lexical-environment";
 import type { AgentToolResultEnvelope } from "../../src/runtime/tool-call-execute";
 import type { RuntimeRoot } from "../../src/runtime-root";
-import type { Checkpoint } from "../../src/seams/checkpoint";
 import type { FileSystem } from "../../src/seams/file-system";
 import { parseDeps, parseDoc } from "./e2e-s1";
+import { SEAM_NOOP_CHECKPOINT as NOOP_CHECKPOINT } from "./invoke-seam-scaffold";
 
 /** The importing `.theta` frontmatter every fixture in this family shares. */
 // Bug 0479: the pin names the registry double's qualified `provider/id` (equal
@@ -244,13 +244,6 @@ export function expectMaterialisedImport(
     `PRECONDITION (${cell}): the load pass must materialise \`${expected}\`; that is the proof ${reason}. Diagnostics: ${JSON.stringify(result.rendered)}`,
   ).toContain(expected);
 }
-
-/** A no-op `Checkpoint`: `bindImportedBody`'s cells checkpoint nothing observable. */
-const NOOP_CHECKPOINT: Checkpoint = {
-  before(): Promise<void> {
-    return Promise.resolve();
-  },
-};
 
 /** `resolvePiTool` resolves any name to an "AMBIENT" sentinel — no caller here consults it. */
 function ambientResolvePiTool(name: string): PiToolDispatch {
