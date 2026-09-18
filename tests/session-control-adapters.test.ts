@@ -17,7 +17,7 @@
 // harness throw. Each `it()` names its D-cell so the implementer's V24a pass
 // can diff this file against green with zero rewriting.
 
-import { createUnhandledRejectionTrap } from "./helpers/unhandled-rejection-trap";
+import { createUnhandledRejectionTrap, settleAndObserve } from "./helpers/unhandled-rejection-trap";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { CompactOptions, ContextUsage } from "@earendil-works/pi-coding-agent";
 import {
@@ -241,10 +241,7 @@ describe("session-control-adapters (V24a-T) — Option A cancellation race (D5/D
     onCompleteFn?.({ summary: "s", tokensBefore: 100, estimatedTokensAfter: 40, firstKeptEntryId: "x" });
 
     // Drain microtasks + one macrotask so a would-be unhandledRejection lands.
-    for (let i = 0; i < 8; i++) {
-      await Promise.resolve();
-    }
-    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    await settleAndObserve();
 
     expect(settledCount, "D5b: no second visible outcome from the late onComplete").toBeLessThanOrEqual(1);
     expect(unhandled).toEqual([]);
@@ -271,10 +268,7 @@ describe("session-control-adapters (V24a-T) — Option A cancellation race (D5/D
 
     onErrorFn?.(new Error("Compaction cancelled"));
 
-    for (let i = 0; i < 8; i++) {
-      await Promise.resolve();
-    }
-    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    await settleAndObserve();
 
     expect(settledCount, "D5c: no second visible outcome, never a late execution-Err").toBeLessThanOrEqual(1);
     expect(unhandled).toEqual([]);
