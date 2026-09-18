@@ -1,5 +1,6 @@
 // A shared no-op `ExecuteBodyDeps` scaffold for driving the real `executeBody`
-// over an injected `InvokeChild` boundary double (PTQ-0244).
+// over an injected `InvokeChild` boundary double (PTQ-0244), plus recording
+// seam doubles for cancellation and lowering witnesses.
 //
 // WHY THIS FILE EXISTS. The `SEAM_NOOP_CHECKPOINT` / `SEAM_NOOP_SINK` /
 // `SEAM_NOOP_MUTATOR` no-op triple, `span()`, and the `RecordedHop` SLSH-5
@@ -16,7 +17,7 @@
 // seam stand-ins themselves; the real `executeBody` /
 // `createEffectfulStatementHost` drive the actual production code under test.
 import { type Diagnostic } from "../../src/diagnostics/diagnostic";
-import { type CheckpointKind } from "../../src/seams/checkpoint";
+import type { CheckpointKind, CheckpointSite } from "../../src/seams/checkpoint";
 import type { Checkpoint } from "../../src/seams/checkpoint";
 import type { ToolLoweringSink } from "../../src/runtime/tool-call-execute";
 import type {
@@ -26,6 +27,11 @@ import type {
 import type { SourceRange } from "../../src/diagnostics/diagnostic";
 import type { InvokeCalleeError } from "../../src/runtime/query-error";
 import type { InvokeCallSite } from "../../src/runtime/invoke-provenance";
+import type {
+  CommittedSideEffect,
+  CompensatingTurn,
+  RollbackCompensator,
+} from "../../src/runtime/no-rollback";
 
 /** A `Checkpoint` whose `before()` resolves immediately — the seam is not
  *  itself under test at the call sites that use this scaffold. */
@@ -117,5 +123,44 @@ export class RecordingSink implements ToolLoweringSink {
   systemNote(message: string): void {
     this.emissions.push(`system-note:${message}`);
     this.systemNotes.push(message);
+  }
+}
+
+/**
+ * A `Checkpoint` recording kinds/sites and an optional ordered event log, so a
+ * test can assert it fires immediately before each cancellable site (PIC-10).
+ * `before` resolves on the microtask queue; the macrotask-yield property is
+ * exercised separately against the real `ProductionCheckpoint`.
+ */
+export class RecordingCheckpoint implements Checkpoint {
+  readonly kinds: CheckpointKind[] = [];
+  readonly sites: CheckpointSite[] = [];
+  readonly log: string[] | undefined;
+  readonly #logPrefix: string;
+
+  constructor(log?: string[], logPrefix = "checkpoint:") {
+    this.log = log;
+    this.#logPrefix = logPrefix;
+  }
+
+  before(kind: CheckpointKind, site: CheckpointSite): Promise<void> {
+    this.kinds.push(kind);
+    this.sites.push(site);
+    this.log?.push(`${this.#logPrefix}${kind}`);
+    return Promise.resolve();
+  }
+}
+
+/** A `RollbackCompensator` spy: records any forbidden compensating operation. */
+export class SpyCompensator implements RollbackCompensator {
+  readonly calls: string[] = [];
+  unwindSideEffect(id: string): void {
+    this.calls.push(`unwind:${id}`);
+  }
+  appendCompensatingTurn(turn: CompensatingTurn): void {
+    this.calls.push(`append:${turn.id}`);
+  }
+  enumerateCompletedSideEffects(effects: readonly CommittedSideEffect[]): void {
+    this.calls.push(`enumerate:${effects.length}`);
   }
 }

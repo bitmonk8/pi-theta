@@ -17,6 +17,7 @@
 // harness throw. Each `it()` names its D-cell so the implementer's V24a pass
 // can diff this file against green with zero rewriting.
 
+import { createUnhandledRejectionTrap } from "./helpers/unhandled-rejection-trap";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { CompactOptions, ContextUsage } from "@earendil-works/pi-coding-agent";
 import {
@@ -189,17 +190,10 @@ describe("session-control-adapters (V24a-T) — executeCompactTool absent token 
 // ===========================================================================
 
 describe("session-control-adapters (V24a-T) — Option A cancellation race (D5/D5b/D5c)", () => {
-  const unhandled: unknown[] = [];
-  function onUnhandled(reason: unknown): void {
-    unhandled.push(reason);
-  }
-  beforeEach(() => {
-    unhandled.length = 0;
-    process.on("unhandledRejection", onUnhandled);
-  });
-  afterEach(() => {
-    process.off("unhandledRejection", onUnhandled);
-  });
+  const rejectionTrap = createUnhandledRejectionTrap();
+  const { unhandled } = rejectionTrap;
+  beforeEach(rejectionTrap.install);
+  afterEach(rejectionTrap.dispose);
 
   it("D5: an abort mid-flight surfaces 'cancelled' promptly and the fake records ZERO abort/abortCompaction calls", async () => {
     const abortCalls: string[] = [];

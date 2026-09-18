@@ -1,15 +1,7 @@
-import { RecordingSink } from "./helpers/invoke-seam-scaffold";
+import { RecordingCheckpoint, RecordingSink, SpyCompensator } from "./helpers/invoke-seam-scaffold";
 import { describe, expect, it } from "vitest";
-import type {
-  Checkpoint,
-  CheckpointKind,
-  CheckpointSite,
-} from "../src/seams/checkpoint";
-import type {
-  CommittedSideEffect,
-  CompensatingTurn,
-  RollbackCompensator,
-} from "../src/runtime/no-rollback";
+import type { CheckpointSite } from "../src/seams/checkpoint";
+import type { CommittedSideEffect } from "../src/runtime/no-rollback";
 import { handleNoRollbackTerminalEvent } from "../src/runtime/no-rollback";
 import {
   CODE_TOOL_MESSAGE_MAX_BYTES,
@@ -47,43 +39,6 @@ const utf8Len = (s: string): number => new TextEncoder().encode(s).length;
 /** A never-aborted signal for the checkpoint-presence and value arms. */
 function liveSignal(): AbortSignal {
   return new AbortController().signal;
-}
-
-/**
- * A `Checkpoint` recording the ordered `(kind, site)` sequence so a test can
- * assert a cancellation checkpoint fires immediately before each code-side tool
- * dispatch (PIC-10 / cancellation.md §Granularity). `before` resolves on the
- * microtask queue — the macrotask-yield property is `V17c`'s, not this leaf's.
- */
-class RecordingCheckpoint implements Checkpoint {
-  readonly kinds: CheckpointKind[] = [];
-  readonly sites: CheckpointSite[] = [];
-  readonly log: string[];
-
-  constructor(log: string[]) {
-    this.log = log;
-  }
-
-  before(kind: CheckpointKind, site: CheckpointSite): Promise<void> {
-    this.kinds.push(kind);
-    this.sites.push(site);
-    this.log.push(`checkpoint:${kind}`);
-    return Promise.resolve();
-  }
-}
-
-/** A `RollbackCompensator` spy: records any forbidden compensating operation. */
-class SpyCompensator implements RollbackCompensator {
-  readonly calls: string[] = [];
-  unwindSideEffect(id: string): void {
-    this.calls.push(`unwind:${id}`);
-  }
-  appendCompensatingTurn(turn: CompensatingTurn): void {
-    this.calls.push(`append:${turn.id}`);
-  }
-  enumerateCompletedSideEffects(effects: readonly CommittedSideEffect[]): void {
-    this.calls.push(`enumerate:${effects.length}`);
-  }
 }
 
 const text = (t: string): ToolContentBlock => ({ type: "text", text: t });

@@ -1,16 +1,16 @@
 import { readRegistry } from "./helpers/registry-oracle";
-import { mkdtempSync, mkdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import {
+  disposeWorkspace,
+  plantThetaWorkspace,
+  runProductionLoad,
+  type LoadOutcome,
+} from "./helpers/production-load-harness";
+import { mkdtempSync, realpathSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import type {
-  ExtensionAPI,
-  ExtensionContext,
-} from "@earendil-works/pi-coding-agent";
 // @ts-expect-error — JS code-registry module, no type declarations.
 import { registryMessage } from "../tools/code-registry/index.js";
-import type { ThetaFixture } from "../src/extension/factory";
-import { discoverAndComposeFixtures } from "../src/extension/production-composition";
 
 // Bug 0110 — discovery-root containment over the `tools:` `.theta`-entry
 // surface (`theta/load/invoke-path-escape`).
@@ -162,13 +162,6 @@ const OUT_OF_ROOT_SUBAGENT_CALLEES = [
   "linkfar",
 ] as const;
 
-interface LoadOutcome {
-  /** Slash names the production compose helper returned (returned fixtures). */
-  readonly registered: readonly string[];
-  /** Diagnostic messages surfaced via `ctx.ui.notify`. */
-  readonly notifications: readonly string[];
-}
-
 let outcome: LoadOutcome;
 let workspaceDir: string;
 let outsideDir: string;
@@ -180,39 +173,17 @@ let relSpec: string;
 /** Set iff planting the constraint-(c) junction failed; cell I fails loudly on it. */
 let junctionError: string | undefined;
 
-async function runProductionLoad(cwd: string): Promise<LoadOutcome> {
-  const notifications: string[] = [];
-  const pi = {
-    getFlag: (): undefined => undefined,
-    getCommands: (): readonly unknown[] => [],
-    sendMessage: (): void => {},
-    sendUserMessage: (): void => {},
-    getActiveTools: (): readonly string[] => [],
-    setActiveTools: (): void => {},
-  } as unknown as ExtensionAPI;
-  const ctx = {
-    cwd,
-    modelRegistry: { getAvailable: (): readonly unknown[] => [] },
-    ui: {
-      notify: (message: string, _type: "error"): void => {
-        notifications.push(message);
-      },
-    },
-  } as unknown as ExtensionContext;
-
-  const fixtures: readonly ThetaFixture[] = await discoverAndComposeFixtures(pi, ctx);
-  return { registered: fixtures.map((f) => f.slashName), notifications };
-}
-
 function plant(dir: string, stem: string, text: string): void {
   writeFileSync(join(dir, `${stem}.theta`), text, "utf8");
 }
 
 beforeAll(async () => {
   outsideDir = mkdtempSync(join(tmpdir(), "theta-b0110-out-"));
-  workspaceDir = mkdtempSync(join(tmpdir(), "theta-b0110-ws-"));
+  // A minimal valid settings file pins the fixture's settings read to a known
+  // value. An ABSENT settings file is silent (package-and-settings.md
+  // §Failure modes), so the plant is hermeticity, not noise suppression.
+  workspaceDir = plantThetaWorkspace("theta-b0110-ws-", [], "{}");
   projectThetaDir = join(workspaceDir, ".pi", "theta");
-  mkdirSync(projectThetaDir, { recursive: true });
   // Every absolute entry spec is written forward-slashed: a host-native
   // backslash path inside a DOUBLE-QUOTED YAML scalar (cell C2) would be read
   // as an escape sequence, which would reject that cell on YAML syntax rather
@@ -410,18 +381,14 @@ beforeAll(async () => {
     ),
   );
 
-  // A minimal valid settings file pins the fixture's settings read to a known
-  // value. An ABSENT settings file is silent (package-and-settings.md
-  // §Failure modes), so the plant is hermeticity, not noise suppression.
-  writeFileSync(join(workspaceDir, ".pi", "settings.json"), "{}", "utf8");
   outcome = await runProductionLoad(workspaceDir);
 });
 
 afterAll(() => {
   // The out-of-root directory goes first: with the junction's target already
   // gone, the workspace teardown cannot descend through it.
-  rmSync(outsideDir, { recursive: true, force: true });
-  rmSync(workspaceDir, { recursive: true, force: true });
+  disposeWorkspace(outsideDir);
+  disposeWorkspace(workspaceDir);
 });
 
 /**

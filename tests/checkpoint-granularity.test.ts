@@ -22,12 +22,9 @@
 // early-stop expectations red rather than a compile error, a missing fixture,
 // or a harness throw.
 
+import { RecordingCheckpoint } from "./helpers/invoke-seam-scaffold";
 import { describe, expect, it } from "vitest";
-import type {
-  Checkpoint,
-  CheckpointKind,
-  CheckpointSite,
-} from "../src/seams/checkpoint";
+import type { CheckpointSite } from "../src/seams/checkpoint";
 import type { ThetaValue } from "../src/runtime/value";
 import {
   runCheckpointedBinderCall,
@@ -39,30 +36,6 @@ import { FakeClock } from "./helpers/fake-clock";
 
 const LOOP_SITE: CheckpointSite = { file: "theta.theta", line: 3, column: 1 };
 const BINDER_SITE: CheckpointSite = { file: "theta.theta", line: 1, column: 1 };
-
-/**
- * A `Checkpoint` that records an ordered event log so a test can assert a
- * checkpoint fires *immediately before* each cancellable site (PIC-10). `before`
- * resolves on the microtask queue — the deterministic test substrate whose
- * yield kind does not matter to the presence / interleave arms; the macrotask
- * property is exercised separately against the real `ProductionCheckpoint`.
- */
-class RecordingCheckpoint implements Checkpoint {
-  readonly log: string[];
-  readonly kinds: CheckpointKind[] = [];
-  readonly sites: CheckpointSite[] = [];
-
-  constructor(log: string[]) {
-    this.log = log;
-  }
-
-  before(kind: CheckpointKind, site: CheckpointSite): Promise<void> {
-    this.kinds.push(kind);
-    this.sites.push(site);
-    this.log.push(`before:${kind}`);
-    return Promise.resolve();
-  }
-}
 
 /** A never-aborted signal for the presence / negative arms. */
 function liveSignal(): AbortSignal {
@@ -76,7 +49,7 @@ function liveSignal(): AbortSignal {
 describe("V17c-T — loop-iteration checkpoint site (cka-47 / V17c)", () => {
   it("cka-47 / V17c: a loop-iter checkpoint fires immediately before each for/while iteration, at the loop site", async () => {
     const log: string[] = [];
-    const checkpoint = new RecordingCheckpoint(log);
+    const checkpoint = new RecordingCheckpoint(log, "before:");
     const snapshot: readonly ThetaValue[] = ["a", "b", "c"];
     const host: CheckpointedLoopHost = {
       snapshot,
@@ -110,7 +83,7 @@ describe("V17c-T — loop-iteration checkpoint site (cka-47 / V17c)", () => {
 describe("V17c-T — binder LLM-call checkpoint site (cka-47 / V17c)", () => {
   it("cka-47 / V17c: a binder-call checkpoint fires immediately before the binder's LLM call, at the binder site", async () => {
     const log: string[] = [];
-    const checkpoint = new RecordingCheckpoint(log);
+    const checkpoint = new RecordingCheckpoint(log, "before:");
 
     const outcome = await runCheckpointedBinderCall(
       checkpoint,
@@ -131,7 +104,7 @@ describe("V17c-T — binder LLM-call checkpoint site (cka-47 / V17c)", () => {
 
   it("cka-47 / V17c: an abort observed at the binder-call checkpoint skips the LLM call", async () => {
     const log: string[] = [];
-    const checkpoint = new RecordingCheckpoint(log);
+    const checkpoint = new RecordingCheckpoint(log, "before:");
     const controller = new AbortController();
     controller.abort(); // already aborted before the pre-call checkpoint
 
@@ -160,7 +133,7 @@ describe("V17c-T — binder LLM-call checkpoint site (cka-47 / V17c)", () => {
 describe("V17c-T — no checkpoint at non-checkpoint node kinds (cka-47 / V17c)", () => {
   it("cka-47 / V17c: primitive operations and straight-line statements inside the loop body fire no checkpoint (only the per-iteration loop-iter)", async () => {
     const log: string[] = [];
-    const checkpoint = new RecordingCheckpoint(log);
+    const checkpoint = new RecordingCheckpoint(log, "before:");
     const snapshot: readonly ThetaValue[] = [10, 20];
     const host: CheckpointedLoopHost = {
       snapshot,
@@ -195,7 +168,7 @@ describe("V17c-T — no checkpoint at non-checkpoint node kinds (cka-47 / V17c)"
 
   it("cka-47 / V17c: primitive/straight-line work inside a binder call fires no additional checkpoint (only the one binder-call)", async () => {
     const log: string[] = [];
-    const checkpoint = new RecordingCheckpoint(log);
+    const checkpoint = new RecordingCheckpoint(log, "before:");
 
     await runCheckpointedBinderCall(checkpoint, liveSignal(), BINDER_SITE, async () => {
       // Straight-line statements and primitive operations inside the call body.

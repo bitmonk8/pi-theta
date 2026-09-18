@@ -19,6 +19,7 @@
 //   - `runCancellableSequence` synthesises a top-level `cancelled` and retains
 //     no bindings, so CNCL-5 / CNCL-6 red.
 // No test reds on a compile error, a missing fixture, or a harness throw.
+import { createUnhandledRejectionTrap, settleAndObserve } from "./helpers/unhandled-rejection-trap";
 import { ScriptedCheckpoint } from "./helpers/invoke-seam-scaffold";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { CheckpointSite } from "../src/seams/checkpoint";
@@ -304,34 +305,10 @@ function makeSubstrateChannels(): SubstrateRecording {
   return { channels, events, diagnostics };
 }
 
-const unhandled: unknown[] = [];
-function onUnhandled(reason: unknown): void {
-  unhandled.push(reason);
-}
-
-beforeEach(() => {
-  unhandled.length = 0;
-  process.on("unhandledRejection", onUnhandled);
-});
-
-afterEach(() => {
-  process.off("unhandledRejection", onUnhandled);
-});
-
-/**
- * Drain microtasks and take a macrotask turn so a would-be `unhandledRejection`
- * (raised by Node on the next macrotask after the microtask queue empties for a
- * rejected, handler-less Promise) is observed if it fires.
- */
-async function settleAndObserve(): Promise<void> {
-  for (let i = 0; i < 8; i++) {
-    await Promise.resolve();
-  }
-  await new Promise<void>((resolve) => setTimeout(resolve, 0));
-  for (let i = 0; i < 8; i++) {
-    await Promise.resolve();
-  }
-}
+const rejectionTrap = createUnhandledRejectionTrap();
+const { unhandled } = rejectionTrap;
+beforeEach(rejectionTrap.install);
+afterEach(rejectionTrap.dispose);
 
 describe("V17a-T — swallowing-handler substrate suppression (cka-33 / V17a)", () => {
   it("cka-33 / V17a: routeAbandonableSettlement discards after cancellation with no second RuntimeEvent and no diagnostic of any severity", () => {

@@ -24,6 +24,7 @@
 //     (cka-33 / V13f channels 2 and 3).
 // No test reds on a compile error, a missing fixture, or a harness throw.
 
+import { createUnhandledRejectionTrap, settleAndObserve } from "./helpers/unhandled-rejection-trap";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { ProductionCheckpoint } from "../src/seams/production-checkpoint";
 import type { CheckpointSite } from "../src/seams/checkpoint";
@@ -68,35 +69,10 @@ function makeChannels(): RecordingChannels {
   return { channels, events, diagnostics };
 }
 
-/** Records every Node `unhandledRejection` process event for the active test. */
-const unhandled: unknown[] = [];
-function onUnhandled(reason: unknown): void {
-  unhandled.push(reason);
-}
-
-beforeEach(() => {
-  unhandled.length = 0;
-  process.on("unhandledRejection", onUnhandled);
-});
-
-afterEach(() => {
-  process.off("unhandledRejection", onUnhandled);
-});
-
-/**
- * Drain microtasks and take a macrotask turn so a would-be `unhandledRejection`
- * (raised by Node on the next macrotask after the microtask queue empties for a
- * rejected, handler-less Promise) is observed if it fires.
- */
-async function settleAndObserve(): Promise<void> {
-  for (let i = 0; i < 8; i++) {
-    await Promise.resolve();
-  }
-  await new Promise<void>((resolve) => setTimeout(resolve, 0));
-  for (let i = 0; i < 8; i++) {
-    await Promise.resolve();
-  }
-}
+const rejectionTrap = createUnhandledRejectionTrap();
+const { unhandled } = rejectionTrap;
+beforeEach(rejectionTrap.install);
+afterEach(rejectionTrap.dispose);
 
 // ---------------------------------------------------------------------------
 // cka-33 / V13f channel 1 — construction-site attachment before microtask.

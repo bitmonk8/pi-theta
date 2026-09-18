@@ -32,12 +32,9 @@
 // terminal shape), query/query-failure-and-repair.md (QRY-11 respond-repair
 // routing), query/query-tool-loop.md (QRY-14 forced respond turn).
 
+import { RecordingCheckpoint } from "./helpers/invoke-seam-scaffold";
 import { describe, expect, it } from "vitest";
-import type {
-  Checkpoint,
-  CheckpointKind,
-  CheckpointSite,
-} from "../src/seams/checkpoint";
+import type { CheckpointSite } from "../src/seams/checkpoint";
 import {
   runTypedQueryLoop,
   type ForcedRespondTurn,
@@ -70,16 +67,6 @@ function config(maxRounds: number): QueryToolLoopConfig {
 /** A never-aborted signal (the non-cancellation arms). */
 function liveSignal(): AbortSignal {
   return new AbortController().signal;
-}
-
-/** A checkpoint recording the ordered kinds (the cka-47 pre-dispatch site). */
-class RecordingCheckpoint implements Checkpoint {
-  readonly kinds: CheckpointKind[] = [];
-
-  before(kind: CheckpointKind): Promise<void> {
-    this.kinds.push(kind);
-    return Promise.resolve();
-  }
 }
 
 /** The wrong-tool branch the driver reports (ERR-17). */

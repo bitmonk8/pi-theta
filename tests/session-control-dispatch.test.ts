@@ -31,6 +31,7 @@
 // is why it reds today on a real VALUE MISMATCH (never a throw, never a
 // missing fixture, never a harness precondition) — except D15, which pins
 // today's actual fallback behaviour and is GREEN AT BIRTH (stated per cell).
+import { RecordingCheckpoint } from "./helpers/invoke-seam-scaffold";
 import { parseDeps } from "./helpers/e2e-s1";
 import { describe, expect, it } from "vitest";
 import type {
@@ -51,7 +52,7 @@ import type {
 } from "../src/extension/theta-composition-producer";
 import type { CallableSetSnapshot, ResolvedCallable } from "../src/parser/callable-set";
 import type { RuntimeRoot } from "../src/runtime-root";
-import type { Checkpoint, CheckpointKind, CheckpointSite } from "../src/seams/checkpoint";
+import type { Checkpoint } from "../src/seams/checkpoint";
 import type { ResultValue, ThetaValue } from "../src/runtime/value";
 
 // ---------------------------------------------------------------------------
@@ -78,14 +79,6 @@ function runtimeToolEntry(name: string): ResolvedCallable {
 
 function snapshotOf(entries: readonly (readonly [string, ResolvedCallable])[]): CallableSetSnapshot {
   return Object.freeze({ entries: new Map(entries) });
-}
-
-class RecordingCheckpoint implements Checkpoint {
-  readonly kinds: CheckpointKind[] = [];
-  before(kind: CheckpointKind, _site: CheckpointSite): Promise<void> {
-    this.kinds.push(kind);
-    return Promise.resolve();
-  }
 }
 
 function rootDouble(checkpoint: Checkpoint): RuntimeRoot {

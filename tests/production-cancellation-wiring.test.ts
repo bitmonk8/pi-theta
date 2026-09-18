@@ -29,6 +29,8 @@
 // tests/cancellation-core.test.ts, tests/*-swallowing-handler.test.ts, and
 // tests/binder-call-cancellation.test.ts; here we pin the production callers.
 
+import { createUnhandledRejectionTrap, settleAndObserve } from "./helpers/unhandled-rejection-trap";
+import { RecordingCheckpoint } from "./helpers/invoke-seam-scaffold";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type {
   ExtensionAPI,
@@ -47,7 +49,6 @@ import type {
 import { abortForAgentEnd } from "../src/runtime/cancellation-core";
 import { executeBody } from "../src/runtime/statement-executor";
 import { rootWith } from "./helpers/fixture-dispatch-harness";
-import type { Checkpoint, CheckpointKind, CheckpointSite } from "../src/seams/checkpoint";
 import type { AgentToolResultEnvelope } from "../src/runtime/tool-call-execute";
 import type {
   CallExpr,
@@ -85,18 +86,6 @@ function letStmt(name: string, init: Expr): Stmt {
 }
 function body(statements: readonly Stmt[], tail: Expr | null): ThetaBody {
   return { statements, tail };
-}
-
-// --- recording Checkpoint seam ----------------------------------------------
-
-class RecordingCheckpoint implements Checkpoint {
-  readonly kinds: CheckpointKind[] = [];
-  readonly sites: CheckpointSite[] = [];
-  before(kind: CheckpointKind, site: CheckpointSite): Promise<void> {
-    this.kinds.push(kind);
-    this.sites.push(site);
-    return Promise.resolve();
-  }
 }
 
 // --- system-note recorder ---------------------------------------------------
@@ -275,28 +264,10 @@ describe("CANCEL-4 — binder-call checkpoint gates the binder LLM call", () => 
 // CANCEL-3 — code-side execute() swallowing-handler attachment (no leak).
 // ===========================================================================
 
-// Records every Node `unhandledRejection` for the active test.
-const unhandled: unknown[] = [];
-function onUnhandled(reason: unknown): void {
-  unhandled.push(reason);
-}
-beforeEach(() => {
-  unhandled.length = 0;
-  process.on("unhandledRejection", onUnhandled);
-});
-afterEach(() => {
-  process.off("unhandledRejection", onUnhandled);
-});
-
-async function settleAndObserve(): Promise<void> {
-  for (let i = 0; i < 8; i++) {
-    await Promise.resolve();
-  }
-  await new Promise<void>((resolve) => setTimeout(resolve, 0));
-  for (let i = 0; i < 8; i++) {
-    await Promise.resolve();
-  }
-}
+const rejectionTrap = createUnhandledRejectionTrap();
+const { unhandled } = rejectionTrap;
+beforeEach(rejectionTrap.install);
+afterEach(rejectionTrap.dispose);
 
 describe("CANCEL-3 — code-side execute() dispatch attaches a construction-site swallowing handler", () => {
   it("CANCEL-3: a rejecting tool execute() driven through the real production dispatch raises no Node unhandledRejection and surfaces Err(code_tool) once", async () => {
