@@ -20,12 +20,11 @@ import { hoistInlineObjectType, parseParams, type LowerCtx } from "../src/parser
 import {
   AjvSchemaValidator,
   type LoweredSchema,
-  type SchemaSlugFn,
 } from "../src/seams/schema-validator";
 import type { SchemaDecl, ThetaDocument } from "../src/parser/theta-document";
-import type { SourceRange } from "../src/diagnostics/diagnostic";
 import { defineRecordField, type ThetaValue } from "../src/runtime/value";
 import { parseDoc } from "./helpers/e2e-s1";
+import { jsonSlug, hasOwn, prototypeReport, range } from "./helpers/proto-named-harness";
 
 // Bug 0210 — the five record-write sites bug 0119's six-site fix left outside its
 // scope. Every one is the same idiom: a plain `{}` record and an ASSIGNMENT keyed
@@ -137,12 +136,6 @@ import { parseDoc } from "./helpers/e2e-s1";
 // Shared harness.
 // ===========================================================================
 
-/** A content-addressing function deriving a distinct slug per distinct schema. */
-const jsonSlug: SchemaSlugFn = (schema) => {
-  const bytes = JSON.stringify(schema);
-  return { slug: bytes, canonicalBytes: bytes };
-};
-
 /** A real AJV validator (the `V8c` seam), configured exactly as production is. */
 function validator(): AjvSchemaValidator {
   return new AjvSchemaValidator({ emit: () => {}, slugOf: jsonSlug });
@@ -172,28 +165,6 @@ function requiredOf(document: Record<string, unknown>, what: string): readonly s
     );
   }
   return required as readonly string[];
-}
-
-/** Whether `key` is an OWN key of `target` — never a prototype-chain read. */
-function hasOwn(target: object, key: string): boolean {
-  return Object.prototype.hasOwnProperty.call(target, key);
-}
-
-/**
- * How a properties table's prototype reads back: the sentinel string for
- * `Object.prototype`, else the prototype's own JSON. The sentinel keeps the
- * failure diff legible — at HEAD these cells print the FIELD'S OWN LOWERED
- * SCHEMA NODE, which is the whole symptom.
- */
-function prototypeReport(target: object): string {
-  const proto = Object.getPrototypeOf(target);
-  if (proto === Object.prototype) {
-    return "Object.prototype";
-  }
-  if (proto === null) {
-    return "null";
-  }
-  return JSON.stringify(proto);
 }
 
 // ===========================================================================
@@ -698,11 +669,6 @@ describe("bug 0210 (B) — the respond wire returns the properties the model sen
 // and that the field's own lowered node is no longer the table's prototype),
 // never a specific prototype identity for the table itself.
 // ===========================================================================
-
-/** A throwaway located range for the `params:` field inputs. */
-function range(line: number): SourceRange {
-  return { start: { line, column: 1 }, end: { line, column: 10 } };
-}
 
 /** The emission every (c) cell must produce for `{ __proto__: integer, a: string }`. */
 const EXPECTED_C_BYTES =

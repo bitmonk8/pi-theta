@@ -13,10 +13,12 @@ import {
   emitDiagnosticBatch,
   sendSystemNote,
   type SystemNote,
-  type SystemNoteChannelDeps,
-  type SystemNoteDetails,
-  type SystemNoteSender,
 } from "../src/extension/system-note-channel";
+import {
+  makeRecordingChannel as makeChannel,
+  type ChannelFixture,
+  type SentNote,
+} from "./helpers/recording-system-note-channel";
 
 // Bug 0268 — the presentational seams that spell a diagnostic's `file`.
 //
@@ -54,9 +56,7 @@ import {
 //
 // Offline, provider-free, deterministic: string inputs and a recording channel
 // double, no filesystem, no provider, no child process. The channel double is
-// MODELLED ON (duplicated from, not shared with)
-// `tests/system-note-channel.test.ts`, which is the V7d witness and is neither
-// read from nor mutated here.
+// shared with the V7d witness in `tests/system-note-channel.test.ts`.
 //
 // No silent skipping: a missing registry row throws naming itself.
 
@@ -129,51 +129,6 @@ const LIB_LINE = 2;
 const LIB_COL = 11;
 const BAD_LINE = 5;
 const BAD_COL = 9;
-
-// ── Recording channel double ────────────────────────────────────────────────
-
-interface SentNote {
-  readonly customType: string;
-  readonly content: string;
-  readonly display: boolean;
-  readonly details?: SystemNoteDetails;
-}
-
-interface ChannelFixture {
-  readonly deps: SystemNoteChannelDeps;
-  readonly sent: SentNote[];
-  readonly notified: Array<readonly [string, string]>;
-  readonly emitted: Diagnostic[];
-}
-
-function makeChannel(): ChannelFixture {
-  const sent: SentNote[] = [];
-  const notified: Array<readonly [string, string]> = [];
-  const emitted: Diagnostic[] = [];
-
-  const pi: SystemNoteSender = {
-    sendMessage: (message): void => {
-      sent.push({
-        customType: message.customType,
-        content: message.content,
-        display: message.display,
-        ...(message.details !== undefined ? { details: message.details } : {}),
-      });
-    },
-  };
-  const deps: SystemNoteChannelDeps = {
-    pi,
-    ui: {
-      notify: (message: string, type: "error"): void => {
-        notified.push([message, type]);
-      },
-    },
-    emitDiagnostic: (diagnostic: Diagnostic): void => {
-      emitted.push(diagnostic);
-    },
-  };
-  return { deps, sent, notified, emitted };
-}
 
 /** The single note the channel accepted; fails loudly when the arm never ran. */
 function soleNote(fixture: ChannelFixture): SentNote {

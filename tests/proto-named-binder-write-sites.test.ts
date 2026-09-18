@@ -15,6 +15,7 @@ import {
 import { renderArgumentEcho, type EchoType } from "../src/render/argument-echo";
 import type { ThetaValue } from "../src/runtime/value";
 import type { SourceRange } from "../src/diagnostics/diagnostic";
+import { hasOwn, prototypeReport } from "./helpers/proto-named-harness";
 
 // Bug 0214 — the three writes/reads keyed by an author-controlled `params:` wire
 // name that bug 0210's five-site fix left outside its scope, and that 0210's fix
@@ -112,28 +113,6 @@ function validator(): AjvSchemaValidator {
 /** A source range for a synthesised `params:` field. */
 function range(line: number): SourceRange {
   return { start: { line, column: 1 }, end: { line, column: 2 } };
-}
-
-/** Whether `key` is an OWN key of `target` — never a prototype-chain read. */
-function hasOwn(target: object, key: string): boolean {
-  return Object.prototype.hasOwnProperty.call(target, key);
-}
-
-/**
- * How a record's prototype reads back: the sentinel string for
- * `Object.prototype`, else the prototype's own JSON. The sentinel keeps the
- * failure diff legible — the object-default cell prints the DEFAULT VALUE here
- * at HEAD, which is the whole symptom.
- */
-function prototypeReport(target: object): string {
-  const proto = Object.getPrototypeOf(target);
-  if (proto === Object.prototype) {
-    return "Object.prototype";
-  }
-  if (proto === null) {
-    return "null";
-  }
-  return JSON.stringify(proto);
 }
 
 /**

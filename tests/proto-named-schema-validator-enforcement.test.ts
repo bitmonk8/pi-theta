@@ -5,11 +5,10 @@ import {
   AjvSchemaValidator,
   type CompiledValidator,
   type LoweredSchema,
-  type SchemaSlugFn,
   type ValidationError,
 } from "../src/seams/schema-validator";
 import { defineRecordField } from "../src/runtime/value";
-import type { SourceRange } from "../src/diagnostics/diagnostic";
+import { jsonSlug, hasOwn, range } from "./helpers/proto-named-harness";
 
 // Bug 0212 — the `V8c` validator seam does not enforce a lowered document that
 // declares a property literally named `__proto__`. Bug 0210's fix (0.136.0) made
@@ -113,20 +112,9 @@ import type { SourceRange } from "../src/diagnostics/diagnostic";
 //   G   the exact-`^__proto__$`-pattern collision (F1's lock, see its header)
 
 // ===========================================================================
-// Shared harness. Built to mirror `tests/proto-named-record-write-sites.test.ts`
-// (bug 0210's witness) so the two files' verdicts are comparable line for line.
+// Shared harness. Uses the same primitives as bug 0210's witness in
+// `tests/proto-named-record-write-sites.test.ts` so the verdicts stay comparable.
 // ===========================================================================
-
-/**
- * A content-addressing function deriving a distinct slug per distinct schema —
- * production's canonical-bytes discipline (`schema-validator.ts:391`, the
- * byte-equality check inside `compile` at `:384`) reduced to
- * `JSON.stringify`. Identical to 0210's witness `jsonSlug`.
- */
-const jsonSlug: SchemaSlugFn = (schema) => {
-  const bytes = JSON.stringify(schema);
-  return { slug: bytes, canonicalBytes: bytes };
-};
 
 /**
  * A real AJV validator (the `V8c` seam), configured exactly as production is
@@ -145,11 +133,6 @@ function validator(): AjvSchemaValidator {
     },
     slugOf: jsonSlug,
   });
-}
-
-/** A throwaway located range for the `params:` field inputs. */
-function range(line: number): SourceRange {
-  return { start: { line, column: 1 }, end: { line, column: 10 } };
 }
 
 /**
@@ -191,11 +174,6 @@ function compiledParams(
   what: string,
 ): CompiledValidator {
   return validator().compile(loweredParams(fields, what));
-}
-
-/** Whether `key` is an OWN key of `target` — never a prototype-chain read. */
-function hasOwn(target: object, key: string): boolean {
-  return Object.prototype.hasOwnProperty.call(target, key);
 }
 
 /**

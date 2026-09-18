@@ -14,10 +14,8 @@ import type { Diagnostic } from "../src/diagnostics/diagnostic";
 import {
   SYSTEM_NOTE_CHANNEL,
   type SystemNote,
-  type SystemNoteChannelDeps,
-  type SystemNoteDetails,
-  type SystemNoteSender,
 } from "../src/extension/system-note-channel";
+import { makeRecordingChannel as makeChannel } from "./helpers/recording-system-note-channel";
 import {
   GROUP_A_KINDS,
   MASKED_CEILING_IDS,
@@ -39,33 +37,6 @@ import {
   type RuntimeEvent,
   type RuntimeEventEmitContext,
 } from "../src/runtime/runtime-event-channel";
-
-// --- recording channel double --------------------------------------------
-
-interface SentNote {
-  readonly customType: string;
-  readonly content: string;
-  readonly display: boolean;
-  readonly details?: SystemNoteDetails;
-}
-
-function makeChannel(): {
-  readonly deps: SystemNoteChannelDeps;
-  readonly sent: SentNote[];
-} {
-  const sent: SentNote[] = [];
-  const pi: SystemNoteSender = {
-    sendMessage: (message): void => {
-      sent.push({ ...message });
-    },
-  };
-  const deps: SystemNoteChannelDeps = {
-    pi,
-    ui: { notify: (): void => {} },
-    emitDiagnostic: (): void => {},
-  };
-  return { deps, sent };
-}
 
 function baseEvent(overrides?: Partial<RuntimeEvent>): RuntimeEvent {
   return {

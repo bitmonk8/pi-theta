@@ -14,10 +14,11 @@
 import { describe, expect, it } from "vitest";
 import {
   SYSTEM_NOTE_CHANNEL,
-  type SystemNoteChannelDeps,
-  type SystemNoteDetails,
-  type SystemNoteSender,
 } from "../src/extension/system-note-channel";
+import {
+  makeRecordingChannel as makeChannel,
+  type SentNote,
+} from "./helpers/recording-system-note-channel";
 import type { RuntimeEvent } from "../src/runtime/runtime-event-channel";
 import type { QueryError, TransportError } from "../src/runtime/query-error";
 import {
@@ -30,33 +31,6 @@ import {
   type QueryStatement,
   type QueryStatementDisposition,
 } from "../src/runtime/query-discard";
-
-// --- recording channel double ---------------------------------------------
-
-interface SentNote {
-  readonly customType: string;
-  readonly content: string;
-  readonly display: boolean;
-  readonly details?: SystemNoteDetails;
-}
-
-function makeChannel(): {
-  readonly deps: SystemNoteChannelDeps;
-  readonly sent: SentNote[];
-} {
-  const sent: SentNote[] = [];
-  const pi: SystemNoteSender = {
-    sendMessage: (message): void => {
-      sent.push({ ...message });
-    },
-  };
-  const deps: SystemNoteChannelDeps = {
-    pi,
-    ui: { notify: (): void => {} },
-    emitDiagnostic: (): void => {},
-  };
-  return { deps, sent };
-}
 
 const RANGE = {
   start: { line: 7, column: 3 },

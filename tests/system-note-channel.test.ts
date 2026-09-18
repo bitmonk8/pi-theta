@@ -26,68 +26,8 @@ import {
   emitDiagnosticBatch,
   sendSystemNote,
   type SystemNote,
-  type SystemNoteChannelDeps,
-  type SystemNoteDetails,
-  type SystemNoteSender,
 } from "../src/extension/system-note-channel";
-
-// --- recording channel double --------------------------------------------
-
-interface SentNote {
-  readonly customType: string;
-  readonly content: string;
-  readonly display: boolean;
-  readonly details?: SystemNoteDetails;
-  readonly options: { readonly triggerTurn: false };
-}
-
-interface ChannelFixture {
-  readonly deps: SystemNoteChannelDeps;
-  readonly sent: SentNote[];
-  readonly notified: Array<readonly [string, string]>;
-  readonly emitted: Diagnostic[];
-}
-
-function makeChannel(opts?: {
-  readonly sendThrows?: unknown;
-  readonly notifyThrows?: unknown;
-  readonly emitThrows?: unknown;
-  readonly health?: SystemNoteChannelHealth;
-  readonly rendererGate?: RendererGate;
-}): ChannelFixture {
-  const sent: SentNote[] = [];
-  const notified: Array<readonly [string, string]> = [];
-  const emitted: Diagnostic[] = [];
-
-  const pi: SystemNoteSender = {
-    sendMessage: (message, options): void => {
-      if (opts?.sendThrows !== undefined) {
-        throw opts.sendThrows;
-      }
-      sent.push({ ...message, options });
-    },
-  };
-  const deps: SystemNoteChannelDeps = {
-    pi,
-    ui: {
-      notify: (message: string, type: "error"): void => {
-        notified.push([message, type]);
-        if (opts?.notifyThrows !== undefined) {
-          throw opts.notifyThrows;
-        }
-      },
-    },
-    emitDiagnostic: (diagnostic: Diagnostic): void => {
-      emitted.push(diagnostic);
-      if (opts?.emitThrows !== undefined) {
-        throw opts.emitThrows;
-      }
-    },
-    ...(opts?.rendererGate !== undefined ? { rendererGate: opts.rendererGate } : {}),
-    ...(opts?.health !== undefined ? { health: opts.health } : {}),
-  };
-  return { deps, sent, notified, emitted };
-}
+import { makeRecordingChannel as makeChannel } from "./helpers/recording-system-note-channel";
 
 function diag(file: string, line: number, column: number): Diagnostic {
   return {
