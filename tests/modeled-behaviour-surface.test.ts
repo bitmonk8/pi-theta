@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { loadExtension, type ResponseEvent } from "./harness/index";
+import type { ResponseEvent } from "./harness/index";
+import { assertDeterministicReplay, harnessDouble } from "./helpers/response-program-harness";
 
 // H4c — modeled-behaviour response-programming surface. This is a horizontal
 // (Convention.) leaf: the assertions below ARE the inline self-check its "Ships
@@ -23,11 +24,6 @@ import { loadExtension, type ResponseEvent } from "./harness/index";
 //
 // The surface is reached through H4a's harness: `loadExtension(...).double`
 // owns the `responses` programmer and the `driveResponses()` drive.
-
-/** Load the extension through the harness and return its scripting surface. */
-function harnessDouble() {
-  return loadExtension({ fixtures: [] }).double;
-}
 
 // --- Convention: end-to-end harness — determinism gate -----------------------
 
@@ -54,18 +50,7 @@ describe("H4c — modeled-behaviour surface determinism (Convention: end-to-end 
   }
 
   it("replays the same scripted modeled inputs to the same transcript on every run", () => {
-    const first = harnessDouble();
-    scriptModeledCategories(first);
-    const runA = first.driveResponses();
-    const runB = first.responses.drive();
-    // Same instance, replayed: byte-identical observable transcript.
-    expect(runB).toEqual(runA);
-
-    // A second, independently-constructed harness double with the identical
-    // script yields the identical transcript (cross-instance determinism).
-    const second = harnessDouble();
-    scriptModeledCategories(second);
-    expect(second.driveResponses()).toEqual(runA);
+    assertDeterministicReplay(scriptModeledCategories);
   });
 });
 

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { loadExtension, type ResponseEvent } from "./harness/index";
+import type { ResponseEvent } from "./harness/index";
+import { assertDeterministicReplay, harnessDouble } from "./helpers/response-program-harness";
 
 // H4b — response-programming surface. This is a horizontal (Convention.) leaf:
 // the assertions below ARE the inline test surface its "Ships when" gate names —
@@ -19,11 +20,6 @@ import { loadExtension, type ResponseEvent } from "./harness/index";
 //
 // The surface is reached through H4a's harness: `loadExtension(...).double`
 // owns the `responses` programmer and the `driveResponses()` drive.
-
-/** Load the extension through the harness and return its scripting surface. */
-function harnessDouble() {
-  return loadExtension({ fixtures: [] }).double;
-}
 
 // --- Convention: end-to-end harness — determinism gate -----------------------
 
@@ -50,18 +46,7 @@ describe("H4b — response-programming surface determinism (Convention: end-to-e
   }
 
   it("replays the same scripted inputs to the same observable transcript on every run", () => {
-    const first = harnessDouble();
-    scriptAllCategories(first);
-    const runA = first.driveResponses();
-    const runB = first.responses.drive();
-    // Same instance, replayed: byte-identical observable transcript.
-    expect(runB).toEqual(runA);
-
-    // A second, independently-constructed harness double with the identical
-    // script yields the identical transcript (cross-instance determinism).
-    const second = harnessDouble();
-    scriptAllCategories(second);
-    expect(second.driveResponses()).toEqual(runA);
+    assertDeterministicReplay(scriptAllCategories);
   });
 
   it("replays each cancellation-injection point deterministically", () => {

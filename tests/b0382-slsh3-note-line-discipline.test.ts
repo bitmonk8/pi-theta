@@ -27,16 +27,12 @@
 // SLSH-3 one-line pin; §Fix constraint 4 — the four witness obligations).
 
 import { describe, expect, it } from "vitest";
+import { codeTool, modelTool, transport } from "./helpers/query-error-fixtures";
 import {
   renderLeafKindNote,
   renderTopLevelErrNote,
 } from "../src/runtime/err-note-render";
-import type {
-  CodeToolError,
-  ModelToolError,
-  QueryError,
-  TransportError,
-} from "../src/runtime/query-error";
+import type { QueryError } from "../src/runtime/query-error";
 import { lowerToolExecuteThrow } from "../src/runtime/tool-call-execute";
 
 const DASH = "\u2014"; // em-dash, the SLSH-4 template separator (mirrors tests/err-note-render.test.ts).
@@ -59,36 +55,6 @@ function forgedNonFirstLines(s: string): number {
   return physicalLines(s)
     .slice(1)
     .filter((line) => FORGED_LINE.test(line)).length;
-}
-
-// --- Leaf factories (mirror tests/err-note-render.test.ts) ------------------
-
-function transport(message: string): TransportError {
-  return {
-    kind: "transport",
-    message,
-    http_status: null,
-    provider: "anthropic-messages",
-    retryable: true,
-  };
-}
-
-function modelTool(tool_name: string, message: string): ModelToolError {
-  return {
-    kind: "model_tool",
-    message,
-    tool_name,
-    tool_call_id: "toolu_1",
-    raw_response: null,
-  };
-}
-
-function codeTool(
-  tool_name: string,
-  cause: CodeToolError["cause"],
-  message: string,
-): CodeToolError {
-  return { kind: "code_tool", message, tool_name, cause };
 }
 
 /** Build an arbitrary leaf shape as a `QueryError` (ERR-15 discriminator openness). */

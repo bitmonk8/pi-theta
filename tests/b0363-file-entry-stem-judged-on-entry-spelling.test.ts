@@ -130,7 +130,10 @@ describe("bug 0363 (A) — settings thetaPaths, on-disk `Plan.theta` referenced 
     const caseInsensitive = filesystemIsCaseInsensitive(scratchDir);
 
     if (caseInsensitive) {
-      expect(caseInsensitive, "case-insensitive filesystem branch").toBe(true);
+      expect(
+        thetas.filter((t) => underScratch(t.path)).map((t) => t.name),
+        "case-insensitive filesystem branch: registered names under scratch",
+      ).toEqual([]);
       // RED pre-fix: the lowercase reference resolves to on-disk `Plan.theta`
       // and the entry-spelled stem `plan` passes SLASH_NAME, so `/plan`
       // registers silently today. Post-fix the on-disk stem `Plan` is judged.
@@ -148,7 +151,10 @@ describe("bug 0363 (A) — settings thetaPaths, on-disk `Plan.theta` referenced 
       expect(basename(posix(invalid[0]!.file!))).toBe("Plan.theta");
       expect(invalid[0]!.severity).toBe("error");
     } else {
-      expect(caseInsensitive, "case-sensitive filesystem branch").toBe(false);
+      expect(
+        thetas.filter((t) => underScratch(t.path)).map((t) => t.name),
+        "case-sensitive filesystem branch: no registration for a missing source",
+      ).toEqual([]);
       // Control (§Non-goals 3): the lowercase reference does not resolve to the
       // uppercase file, so it is a missing settings source — identical pre/post.
       const missing = scratchDiags(diagnostics, MISSING_SOURCE);
@@ -176,7 +182,10 @@ describe("bug 0363 (B) — settings thetaPaths, on-disk `good.theta` referenced 
     const caseInsensitive = filesystemIsCaseInsensitive(scratchDir);
 
     if (caseInsensitive) {
-      expect(caseInsensitive, "case-insensitive filesystem branch").toBe(true);
+      expect(
+        thetas.filter((t) => underScratch(t.path)).map((t) => t.name),
+        "case-insensitive filesystem branch: registered names under scratch",
+      ).toEqual(["good"]);
       // RED pre-fix: the entry-spelled stem `GOOD` fails SLASH_NAME, so the
       // well-formed on-disk file is refused today. Post-fix the on-disk stem
       // `good` is legal and registers.
@@ -195,7 +204,10 @@ describe("bug 0363 (B) — settings thetaPaths, on-disk `good.theta` referenced 
         `direction (ii): no invalid-slash-name expected for a legal on-disk stem; diagnostics=${json(diagnostics)}`,
       ).toEqual([]);
     } else {
-      expect(caseInsensitive, "case-sensitive filesystem branch").toBe(false);
+      expect(
+        thetas.filter((t) => underScratch(t.path)).map((t) => t.name),
+        "case-sensitive filesystem branch: no registration for a missing source",
+      ).toEqual([]);
       // Control (§Non-goals 3): the uppercase reference does not resolve.
       const missing = scratchDiags(diagnostics, MISSING_SOURCE);
       expect(
@@ -224,7 +236,10 @@ describe("bug 0363 (E) — CLI --theta, on-disk `Plan.theta` referenced as `plan
     const caseInsensitive = filesystemIsCaseInsensitive(scratchDir);
 
     if (caseInsensitive) {
-      expect(caseInsensitive, "case-insensitive filesystem branch").toBe(true);
+      expect(
+        thetas.filter((t) => underScratch(t.path)).map((t) => t.name),
+        "case-insensitive filesystem branch: registered names under scratch",
+      ).toEqual([]);
       expect(
         namedUnderScratch(thetas, "plan"),
         `direction (i) via CLI: /plan must NOT register; thetas=${json(thetas)}`,
@@ -237,7 +252,10 @@ describe("bug 0363 (E) — CLI --theta, on-disk `Plan.theta` referenced as `plan
       expect(basename(posix(invalid[0]!.file!))).toBe("Plan.theta");
       expect(invalid[0]!.severity).toBe("error");
     } else {
-      expect(caseInsensitive, "case-sensitive filesystem branch").toBe(false);
+      expect(
+        thetas.filter((t) => underScratch(t.path)).map((t) => t.name),
+        "case-sensitive filesystem branch: no registration for a missing source",
+      ).toEqual([]);
       // Control: a missing CLI path is an error (CLI_MODES.missing === error).
       const missing = scratchDiags(diagnostics, MISSING_SOURCE);
       expect(

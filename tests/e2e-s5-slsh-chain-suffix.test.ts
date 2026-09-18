@@ -35,6 +35,7 @@
 // edits, no stubbing.
 
 import { describe, expect, it } from "vitest";
+import { modelTool, transport } from "./helpers/query-error-fixtures";
 import {
   isInvokeCalleeError,
   renderLeafKindNote,
@@ -44,9 +45,7 @@ import {
 import type {
   CodeToolError,
   InvokeCalleeError,
-  ModelToolError,
   QueryError,
-  TransportError,
 } from "../src/runtime/query-error";
 import type { InvocationRecord } from "../src/runtime/invoke-provenance";
 
@@ -57,36 +56,11 @@ const SUFFIX_MARKER = "invoked at";
 // --- Factories --------------------------------------------------------------
 
 /**
- * A `ModelToolError` (`kind: "model_tool"`): the non-recoverable adapter-layer
- * failure that can surface a `QueryError` out of the model-driven `@`-query
- * tool-call loop. It is a LEAF — it carries no `inner` and no invocation chain.
- */
-function modelTool(tool_name: string, message: string): ModelToolError {
-  return {
-    kind: "model_tool",
-    message,
-    tool_name,
-    tool_call_id: "toolu_1",
-    raw_response: null,
-  };
-}
-
-/**
  * A `CodeToolError` with `cause: "unknown_tool"` — the ONLY `code_tool` that can
  * arise for a `.theta` callable (tool-calls.md:36). Also a leaf, no chain.
  */
 function unknownToolCode(tool_name: string, message: string): CodeToolError {
   return { kind: "code_tool", message, tool_name, cause: "unknown_tool" };
-}
-
-function transport(message: string): TransportError {
-  return {
-    kind: "transport",
-    message,
-    http_status: null,
-    provider: "anthropic-messages",
-    retryable: true,
-  };
 }
 
 /** The `invoke_callee` cascade wrapper (the REQ-SLSH-22 surface). */

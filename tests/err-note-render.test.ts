@@ -19,6 +19,7 @@
 // throw.
 
 import { describe, expect, it } from "vitest";
+import { codeTool, modelTool, transport } from "./helpers/query-error-fixtures";
 import {
   renderLeafKindNote,
   renderTopLevelErrNote,
@@ -26,14 +27,11 @@ import {
 } from "../src/runtime/err-note-render";
 import type {
   CancelledError,
-  CodeToolError,
   ContextOverflowError,
   InvokeCalleeError,
   InvokeInfraError,
-  ModelToolError,
   QueryError,
   ToolLoopExhaustedError,
-  TransportError,
   ValidationError,
 } from "../src/runtime/query-error";
 import type { InvocationRecord } from "../src/runtime/invoke-provenance";
@@ -53,26 +51,6 @@ function validation(cause: ValidationError["cause"], attempts: number): Validati
   };
 }
 
-function transport(message: string): TransportError {
-  return {
-    kind: "transport",
-    message,
-    http_status: null,
-    provider: "anthropic-messages",
-    retryable: true,
-  };
-}
-
-function modelTool(tool_name: string, message: string): ModelToolError {
-  return {
-    kind: "model_tool",
-    message,
-    tool_name,
-    tool_call_id: "toolu_1",
-    raw_response: null,
-  };
-}
-
 function contextOverflow(): ContextOverflowError {
   return {
     kind: "context_overflow",
@@ -85,14 +63,6 @@ function contextOverflow(): ContextOverflowError {
 
 function cancelled(): CancelledError {
   return { kind: "cancelled", message: "aborted" };
-}
-
-function codeTool(
-  tool_name: string,
-  cause: CodeToolError["cause"],
-  message: string,
-): CodeToolError {
-  return { kind: "code_tool", message, tool_name, cause };
 }
 
 function toolLoopExhausted(

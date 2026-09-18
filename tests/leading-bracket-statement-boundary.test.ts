@@ -1,19 +1,11 @@
 import { describe, expect, it } from "vitest";
-import type { Diagnostic } from "../src/diagnostics/diagnostic";
-import type { ThetaSource } from "../src/lexer/lexer";
-import type {
-  SystemNoteChannelDeps,
-  SystemNoteSender,
-} from "../src/extension/system-note-channel";
-import type { ModelReferenceMatcher } from "../src/parser/frontmatter";
+import { parseDoc as parse } from "./helpers/e2e-s1";
 import {
-  parseThetaDocument,
   type Block,
   type Expr,
   type FnDecl,
   type LetStmt,
   type MatchExpr,
-  type ParseThetaDocumentDeps,
   type ThetaDocument,
 } from "../src/parser/theta-document";
 
@@ -46,43 +38,6 @@ import {
 // CONTROL tests pin the neighbouring behaviour the same-line rule must not
 // disturb (same-line index access, open-bracket spill continuation, the
 // bind-then-return workaround).
-
-// --- seam doubles ---------------------------------------------------------
-
-function recordingDeps(): {
-  deps: ParseThetaDocumentDeps;
-  delivered: Diagnostic[][];
-} {
-  const delivered: Diagnostic[][] = [];
-  const pi: SystemNoteSender = {
-    sendMessage: (message): void => {
-      if ("diagnostics" in message.details!) {
-        delivered.push([...message.details!.diagnostics]);
-      }
-    },
-  };
-  const systemNote: SystemNoteChannelDeps = {
-    pi,
-    ui: { notify: (): void => {} },
-    emitDiagnostic: (): void => {},
-  };
-  // A trivially-resolving `model:` matcher — the frontmatter model hook is not
-  // under test here.
-  const modelMatcher: ModelReferenceMatcher = {
-    resolve: (): "resolved" => "resolved",
-  };
-  return { deps: { systemNote, modelMatcher }, delivered };
-}
-
-/** Parse a UTF-8 `.theta` source string into a {@link ThetaDocument}. */
-function parse(src: string, path = "test.theta"): ThetaDocument {
-  const { deps } = recordingDeps();
-  const source: ThetaSource = {
-    path,
-    bytes: new TextEncoder().encode(src),
-  };
-  return parseThetaDocument(source, deps);
-}
 
 // --- assertion helpers ----------------------------------------------------
 
