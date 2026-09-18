@@ -1,7 +1,6 @@
 import {
   mkdirSync,
   mkdtempSync,
-  readFileSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
@@ -14,6 +13,7 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import type { ThetaFixture } from "../src/extension/factory";
 import { discoverAndComposeFixtures } from "../src/extension/production-composition";
+import { filesystemIsCaseInsensitive } from "./helpers/case-insensitive-host-probe";
 
 // Bug 0379 — a `tools:` `.theta` entry's fate is judged on the ENTRY's own
 // spelling, not the on-disk file's basename. On a case-insensitive filesystem
@@ -169,34 +169,6 @@ const DERIVED_NAME_SUBSTRING = "derives the default name";
 
 /** The stable substring of the extension refusal (`theta/parse/invoke-non-theta-extension`). */
 const NON_THETA_EXTENSION_SUBSTRING = "does not end in .theta";
-
-// --- FS case-sensitivity probe (helper copied VERBATIM from -------------------
-// --- tests/b0329-hash-mismatch-refuses-invocation.test.ts cell D; only the ----
-// --- probe filename's bug number is localised to b0379) ----------------------
-
-/**
- * Whether the workspace filesystem is case-insensitive: write a lowercase file,
- * attempt the uppercase read. A successful read ⇒ case-insensitive. Only ENOENT
- * is the case-sensitive signal; any other error is a real fault and rethrows
- * (no swallow — CLAUDE.md/AGENTS.md "let crash"). The probe file lives in the
- * per-test tmp workspace and is removed with it.
- */
-function filesystemIsCaseInsensitive(dir: string): boolean {
-  const lower = join(dir, "b0379-case-probe-aa");
-  writeFileSync(lower, "x", "utf8");
-  try {
-    readFileSync(join(dir, "b0379-case-probe-AA"), "utf8");
-    return true;
-  } catch (probeError: unknown) {
-    const code = (probeError as NodeJS.ErrnoException).code;
-    if (code !== "ENOENT") {
-      throw probeError;
-    }
-    return false;
-  } finally {
-    rmSync(lower, { force: true });
-  }
-}
 
 /** Probe this host's filesystem once, over a throwaway directory. */
 function probeCaseSensitivity(): boolean {

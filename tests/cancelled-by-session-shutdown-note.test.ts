@@ -51,8 +51,8 @@
 // bounded await, i.e. on the clean-cancel arm the rule scopes to. Offline: no
 // provider, no filesystem, no watcher.
 
+import { SEAM_NOOP_CHECKPOINT } from "./helpers/invoke-seam-scaffold";
 import {
-  PassthroughCheckpoint,
   rootWith,
   recordingPi,
   promptTheta,
@@ -145,7 +145,7 @@ async function dispatchParkedInBody(
     // `occurred_at` via `root.clock.wallNow()`) whenever cell (b)'s Esc-style
     // abort surfaces the SNK-f cancelled note, so the double needs a `clock`
     // seam or that construction throws before `pi.sendMessage` is reached.
-    root: rootWith(new PassthroughCheckpoint(), INVOCATION_ID, new FakeClock()),
+    root: rootWith(SEAM_NOOP_CHECKPOINT, INVOCATION_ID, new FakeClock()),
     modelRegistry: {} as unknown as ModelRegistry,
     activeInvocations: registry,
     ...extraInput,

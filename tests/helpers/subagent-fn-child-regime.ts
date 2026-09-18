@@ -32,14 +32,10 @@ import type { RuntimeRoot } from "../../src/runtime-root";
 import type { Checkpoint, CheckpointKind, CheckpointSite } from "../../src/seams/checkpoint";
 import type { ParsedFrontmatter } from "../../src/parser/frontmatter";
 import { parseExpressionSource } from "../../src/parser/theta-document";
-import { AjvSchemaValidator, type LoweredSchema, type SchemaSlug } from "../../src/seams/schema-validator";
+import { ajv } from "./scripted-live-session-harness";
 
 /** A `RuntimeRoot` double: real AJV validator, zero clock, no-op checkpoint, fixed ids. */
 export function childRegimeRootDouble(): RuntimeRoot {
-  const slugOf = (schema: LoweredSchema): SchemaSlug => ({
-    slug: JSON.stringify(schema),
-    canonicalBytes: JSON.stringify(schema),
-  });
   return {
     checkpoint: { before: (): Promise<void> => Promise.resolve() },
     idSource: { newInvocationId: () => "inv-1", newToolCallId: () => "tc-1" },
@@ -49,7 +45,7 @@ export function childRegimeRootDouble(): RuntimeRoot {
       setTimeout: (fn: () => void, ms: number) => setTimeout(fn, ms),
       clearTimeout: (h: unknown) => clearTimeout(h as ReturnType<typeof setTimeout>),
     },
-    schemaValidator: new AjvSchemaValidator({ emit: (): void => {}, slugOf }),
+    schemaValidator: ajv(),
   } as unknown as RuntimeRoot;
 }
 

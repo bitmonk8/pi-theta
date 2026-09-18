@@ -17,19 +17,11 @@ import type {
   ConversationBindInput,
   ThetaCompositionInput,
 } from "../../src/extension/theta-composition-producer";
-import type { RuntimeRoot } from "../../src/runtime-root";
 import type { SchemaValidator } from "../../src/seams/schema-validator";
 import { parseTheta } from "./e2e-s1";
+import { rootWith } from "./fixture-dispatch-harness";
 import { SEAM_NOOP_CHECKPOINT as NOOP_CHECKPOINT } from "./invoke-seam-scaffold";
 import { ctxDouble } from "./tool-call-dispatch-harness";
-
-function rootDouble(schemaValidator?: SchemaValidator): RuntimeRoot {
-  return {
-    checkpoint: NOOP_CHECKPOINT,
-    idSource: { newInvocationId: () => "inv-1", newToolCallId: () => "tc-1" },
-    ...(schemaValidator !== undefined ? { schemaValidator } : {}),
-  } as unknown as RuntimeRoot;
-}
 
 export interface ProducerOpts {
   readonly schemaValidator?: SchemaValidator;
@@ -49,7 +41,10 @@ export function producer(opts: ProducerOpts = {}) {
       getActiveTools: () => [],
       setActiveTools: () => {},
     } as unknown as ExtensionAPI,
-    root: rootDouble(opts.schemaValidator),
+    root: {
+      ...rootWith(NOOP_CHECKPOINT),
+      ...(opts.schemaValidator !== undefined ? { schemaValidator: opts.schemaValidator } : {}),
+    },
     modelRegistry: {} as unknown as ModelRegistry,
     ...(opts.parseCallee !== undefined ? { parseCallee: opts.parseCallee } : {}),
   });

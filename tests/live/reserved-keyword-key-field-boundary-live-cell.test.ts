@@ -68,7 +68,7 @@ import {
   requireLiveProvider,
   type PlantedTheta,
 } from "./harness";
-import { parseDoc } from "../helpers/e2e-s1";
+import { parseDoc, diagLines } from "../helpers/e2e-s1";
 
 /** The two declared values the drive's own theta body computes; their product is the oracle. */
 const OK_VALUE = 19;
@@ -147,10 +147,6 @@ const OFFENDER = [
  */
 const FAIL_CLOSED_MARKERS = ["returned Err:", "cancelled", "aborted"] as const;
 
-function diagLines(text: string, path: string): string[] {
-  return parseDoc(text, path).diagnostics.map((d) => `${d.severity} ${d.code}: ${d.message}`);
-}
-
 describe("live: bug 0249's field-boundary repair denies registration to `let x = [schema T { a: \"s\", let: nope }]` while a legal typed-object-literal key registers and drives a real turn", () => {
   it("keeps the field-boundary-shift offender out of the registered set while the legal control registers and completes a real turn over its typed-object-literal field", async () => {
     // ATTRIBUTION GUARD (offline, token-free, runs BEFORE the live host is
@@ -159,21 +155,21 @@ describe("live: bug 0249's field-boundary repair denies registration to `let x =
     // diagnostics — a neutralised fix reds here before a single token is
     // spent.
     expect(
-      diagLines(OFFENDER, `${OFFENDER_STEM}.theta`).some((line) =>
+      diagLines(parseDoc(OFFENDER, `${OFFENDER_STEM}.theta`)).some((line) =>
         line.includes("extra-object-field") && line.includes("'nope'"),
       ),
       "attribution: the reserved key `let` must not leave the loop re-reading `nope` as the " +
         "next field name — a red here is the pre-fix field-boundary shift, bug 0249 itself",
     ).toBe(false);
     expect(
-      diagLines(OFFENDER, `${OFFENDER_STEM}.theta`).some((line) =>
+      diagLines(parseDoc(OFFENDER, `${OFFENDER_STEM}.theta`)).some((line) =>
         line.includes("theta/parse/reserved-keyword-as-identifier") && line.includes("'let'"),
       ),
       "attribution: the reserved key `let` must draw the reserved-keyword refusal — a red here " +
         "means the fix never reached this shape",
     ).toBe(true);
     expect(
-      diagLines(CONTROL, `${CONTROL_STEM}.theta`),
+      diagLines(parseDoc(CONTROL, `${CONTROL_STEM}.theta`)),
       "attribution: the legal typed-object-literal key `ok` must draw zero diagnostics — the fix " +
         "must not over-refuse a well-formed key",
     ).toEqual([]);

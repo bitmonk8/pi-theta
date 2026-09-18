@@ -51,8 +51,8 @@ import {
   forwardSlashCommandCancel,
 } from "../src/runtime/cancellation-core";
 import { FakeClock } from "./helpers/fake-clock";
+import { SEAM_NOOP_CHECKPOINT } from "./helpers/invoke-seam-scaffold";
 import {
-  PassthroughCheckpoint,
   rootWith,
   noopPi,
   promptTheta,
@@ -122,7 +122,7 @@ describe("Increment B2 — a normal settle removes the sources (no accumulation)
     const forwardingSignals: ForwardingSignalSource[] = [];
     const deps = createProductionProducerDeps({
       pi: noopPi(),
-      root: rootWith(new PassthroughCheckpoint()),
+      root: rootWith(SEAM_NOOP_CHECKPOINT),
       modelRegistry: {} as unknown as ModelRegistry,
       activeInvocations: new ActiveInvocationRegistry(),
       forwardingSignals,

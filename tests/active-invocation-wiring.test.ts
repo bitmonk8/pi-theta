@@ -64,8 +64,8 @@ import {
 } from "../src/extension/session-shutdown";
 import { SHUTDOWN_AWAIT_CAP_MS } from "../src/extension/capability-probe";
 import { FakeClock } from "./helpers/fake-clock";
+import { SEAM_NOOP_CHECKPOINT } from "./helpers/invoke-seam-scaffold";
 import {
-  PassthroughCheckpoint,
   rootWith,
   noopPi,
   promptTheta,
@@ -89,7 +89,7 @@ describe("Increment B1 — the registry entry SPANS the in-flight body via the D
 
     const deps = createProductionProducerDeps({
       pi: noopPi(),
-      root: rootWith(new PassthroughCheckpoint()),
+      root: rootWith(SEAM_NOOP_CHECKPOINT),
       modelRegistry: {} as unknown as ModelRegistry,
       activeInvocations: registry,
     });
@@ -140,7 +140,7 @@ describe("Increment B1 — the registry entry SPANS the in-flight body via the D
     const registry = new ActiveInvocationRegistry();
     const deps = createProductionProducerDeps({
       pi: noopPi(),
-      root: rootWith(new PassthroughCheckpoint()),
+      root: rootWith(SEAM_NOOP_CHECKPOINT),
       modelRegistry: {} as unknown as ModelRegistry,
       activeInvocations: registry,
     });

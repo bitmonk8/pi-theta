@@ -32,17 +32,12 @@ import type { RuntimeRoot } from "../../src/runtime-root";
 import { rootDouble as fixedClockRoot } from "./runtime-belt-probe-harness";
 import {
   parseThetaDocument,
-  type ParseThetaDocumentDeps,
   type ThetaDocument,
 } from "../../src/parser/theta-document";
 import type { ThetaSource } from "../../src/lexer/lexer";
-import type { ModelReferenceMatcher } from "../../src/parser/frontmatter";
-import type { SystemNoteChannelDeps } from "../../src/extension/system-note-channel";
-import {
-  AjvSchemaValidator,
-  type LoweredSchema,
-  type SchemaSlug,
-} from "../../src/seams/schema-validator";
+import { AjvSchemaValidator } from "../../src/seams/schema-validator";
+import { parseDeps } from "./e2e-s1";
+import { jsonSlug } from "./proto-named-harness";
 
 /**
  * The user session's selected model (the bug-0288 fixture model). Distinct
@@ -102,17 +97,6 @@ function appendMessageEntry(entries: SessionEntryDouble[], message: Record<strin
   entries.push({ type: "message", id, parentId, message });
 }
 
-/** Parse-theta-document deps whose seams are inert offline no-ops. */
-export function parseDeps(): ParseThetaDocumentDeps {
-  const systemNote: SystemNoteChannelDeps = {
-    pi: { sendMessage: (): void => {} },
-    ui: { notify: (): void => {} },
-    emitDiagnostic: (): void => {},
-  };
-  const modelMatcher: ModelReferenceMatcher = { resolve: (): "resolved" => "resolved" };
-  return { systemNote, modelMatcher };
-}
-
 /** Parse `.theta` source through the production whole-file parser (must be clean). */
 export function parse(src: string, path = "probe.theta", fixture = "fixture"): ThetaDocument {
   const source: ThetaSource = { path, bytes: new TextEncoder().encode(src) };
@@ -125,11 +109,7 @@ export function parse(src: string, path = "probe.theta", fixture = "fixture"): T
 
 /** The production AJV validator (matches the sibling live-seam harnesses). */
 export function ajv(): AjvSchemaValidator {
-  const slugOf = (schema: LoweredSchema): SchemaSlug => ({
-    slug: JSON.stringify(schema),
-    canonicalBytes: JSON.stringify(schema),
-  });
-  return new AjvSchemaValidator({ emit: () => {}, slugOf });
+  return new AjvSchemaValidator({ emit: () => {}, slugOf: jsonSlug });
 }
 
 /** AJV-backed root; `clock.setTimeout` fires synchronously for instant-settle turns. */
@@ -144,12 +124,8 @@ export function rootDouble(overrides: {
 /** A real AJV validator together with its emitted diagnostics. */
 export function capturingAjv(): { readonly validator: AjvSchemaValidator; readonly emitted: Diagnostic[] } {
   const emitted: Diagnostic[] = [];
-  const slugOf = (schema: LoweredSchema): SchemaSlug => ({
-    slug: JSON.stringify(schema),
-    canonicalBytes: JSON.stringify(schema),
-  });
   return {
-    validator: new AjvSchemaValidator({ emit: (d) => emitted.push(d), slugOf }),
+    validator: new AjvSchemaValidator({ emit: (d) => emitted.push(d), slugOf: jsonSlug }),
     emitted,
   };
 }

@@ -59,8 +59,8 @@ import {
   SHUTDOWN_AWAIT_CAP_MS,
 } from "../src/extension/session-shutdown";
 import { FakeClock } from "./helpers/fake-clock";
+import { SEAM_NOOP_CHECKPOINT } from "./helpers/invoke-seam-scaffold";
 import {
-  PassthroughCheckpoint,
   rootWith,
   noopPi,
   promptTheta,
@@ -89,7 +89,7 @@ async function dispatchParkedInBinder(): Promise<ParkedDispatch> {
   const registry = new ActiveInvocationRegistry();
   const base = createProductionProducerDeps({
     pi: noopPi(),
-    root: rootWith(new PassthroughCheckpoint()),
+    root: rootWith(SEAM_NOOP_CHECKPOINT),
     modelRegistry: {} as unknown as ModelRegistry,
     activeInvocations: registry,
   });

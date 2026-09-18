@@ -1,9 +1,10 @@
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { DiscoveredTheta } from "../src/discovery/discovery-walk";
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
+import { filesystemIsCaseInsensitive } from "./helpers/case-insensitive-host-probe";
 import {
   THETA_BODY,
   json,
@@ -77,30 +78,6 @@ function namedUnderScratch(
 
 function scratchDiags(diags: readonly Diagnostic[], code: string): Diagnostic[] {
   return diags.filter((d) => d.code === code && d.file !== undefined && underScratch(d.file));
-}
-
-/**
- * Whether the scratch filesystem is case-insensitive: write a lowercase probe
- * file, attempt the uppercase read. A successful read ⇒ case-insensitive. Only
- * ENOENT is the case-sensitive signal; any other error is a real fault and
- * rethrows (no swallow — CLAUDE.md/AGENTS.md "let crash"). The probe file lives
- * in the per-test scratch root and is removed here.
- */
-function filesystemIsCaseInsensitive(dir: string): boolean {
-  const lower = join(dir, "b0363-case-probe-aa");
-  writeFileSync(lower, "x", "utf8");
-  try {
-    readFileSync(join(dir, "b0363-case-probe-AA"), "utf8");
-    return true;
-  } catch (probeError: unknown) {
-    const code = (probeError as NodeJS.ErrnoException).code;
-    if (code !== "ENOENT") {
-      throw probeError;
-    }
-    return false;
-  } finally {
-    rmSync(lower, { force: true });
-  }
 }
 
 beforeEach(() => {

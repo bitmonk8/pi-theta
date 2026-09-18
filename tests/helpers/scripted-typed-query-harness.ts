@@ -19,29 +19,12 @@ import {
   DEPTH_VIOLATION_MESSAGE,
   DEPTH_VIOLATION_SCHEMA_KEYWORD,
 } from "../../src/runtime/depth-walk";
-import {
-  AjvSchemaValidator,
-  type LoweredSchema,
-  type SchemaSlug,
-} from "../../src/seams/schema-validator";
-import {
-  parseThetaDocument,
-  type ParseThetaDocumentDeps,
-  type SchemaDecl,
-} from "../../src/parser/theta-document";
+import type { AjvSchemaValidator, LoweredSchema } from "../../src/seams/schema-validator";
+import type { SchemaDecl } from "../../src/parser/theta-document";
 import type { ValidationIssue } from "../../src/runtime/query-error";
-import type { ThetaSource } from "../../src/lexer/lexer";
-import type { Checkpoint } from "../../src/seams/checkpoint";
+import { ajv as sharedAjv, schemaDeclsOf as sharedSchemaDeclsOf } from "./typed-query-harness";
 
-export const NOOP_CHECKPOINT: Checkpoint = {
-  before(): Promise<void> {
-    return Promise.resolve();
-  },
-};
-
-export function liveSignal(): AbortSignal {
-  return new AbortController().signal;
-}
+export { NOOP_CHECKPOINT, liveSignal } from "./typed-query-harness";
 
 export function config(invocationId: string): QueryToolLoopConfig {
   // A typed query at `max_rounds: 0` fires the forced-respond terminator as its
@@ -77,29 +60,12 @@ export class OpeningModel implements QueryModelDriver {
 
 /** Parse `.theta` source and return its body's `schema` declarations. */
 export function schemaDeclsOf(src: string): readonly SchemaDecl[] {
-  const deps = {
-    systemNote: {
-      pi: { sendMessage: () => Promise.resolve() },
-      ui: { notify: () => {} },
-      emitDiagnostic: () => {},
-    },
-    modelMatcher: { resolve: () => "resolved" as const },
-  } as unknown as ParseThetaDocumentDeps;
-  const source: ThetaSource = {
-    path: "probe.theta",
-    bytes: new TextEncoder().encode(src),
-  };
-  const doc = parseThetaDocument(source, deps);
-  return doc.body.statements.filter((s): s is SchemaDecl => s.kind === "schema");
+  return sharedSchemaDeclsOf(src, "probe.theta");
 }
 
-/** The real production AJV validator (byte-identical to the sibling suites). */
+/** The production AJV validator with the scripted fixture's schema slug. */
 export function ajv(): AjvSchemaValidator {
-  const slugOf = (schema: LoweredSchema): SchemaSlug => ({
-    slug: "probe",
-    canonicalBytes: JSON.stringify(schema),
-  });
-  return new AjvSchemaValidator({ emit: () => {}, slugOf });
+  return sharedAjv("probe");
 }
 
 /** A `FollowUpRespondOutcome` delivering `payload` through the shipped payload arm. */

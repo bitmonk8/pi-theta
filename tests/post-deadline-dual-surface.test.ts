@@ -38,8 +38,8 @@
 // Only `executeBody` is replaced, so the body can be parked on a deferred.
 // Offline: no provider, no filesystem, no watcher.
 
+import { SEAM_NOOP_CHECKPOINT } from "./helpers/invoke-seam-scaffold";
 import {
-  PassthroughCheckpoint,
   rootWith,
   recordingPi,
   promptTheta,
@@ -150,7 +150,7 @@ describe("bug 0208 — the post-deadline dual surface", () => {
     const cleanCancelLines: string[] = [];
     const input = {
       pi: recordingPi(notes),
-      root: rootWith(new PassthroughCheckpoint(), INVOCATION_ID),
+      root: rootWith(SEAM_NOOP_CHECKPOINT, INVOCATION_ID),
       modelRegistry: {} as unknown as ModelRegistry,
       activeInvocations: registry,
       cleanCancelSink: recordingSink(cleanCancelLines),

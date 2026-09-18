@@ -13,7 +13,7 @@ import {
 } from "../src/parser/body-type-lowering";
 import { hoistInlineObjectType, type LowerCtx } from "../src/parser/params";
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
-import type { SchemaDecl, ThetaDocument } from "../src/parser/theta-document";
+import type { SchemaDecl } from "../src/parser/theta-document";
 import { lowerQueryResponseSchema } from "../src/runtime/query-schema-lowering";
 import { respondToolWireSchema } from "../src/runtime/respond-tool-wire";
 import {
@@ -21,7 +21,7 @@ import {
   type LoweredSchema,
   type SchemaSlug,
 } from "../src/seams/schema-validator";
-import { parseDoc } from "./helpers/e2e-s1";
+import { parseDoc, diagLines } from "./helpers/e2e-s1";
 import { assertKeysSorted, inlineDefName, slugOfCanonicalForm, refNames } from "./helpers/canonical-slug-oracle";
 
 // Bug 0039 — an inline object type is recursive by the grammar, and the shared
@@ -494,11 +494,6 @@ function paramsSrc(paramsBlock: string, body: string): string {
 /** A body carrying a typed query whose annotation is `annotation`. */
 function annotationBody(annotation: string): string {
   return `${TRIAGE_BODY}let r = @<${annotation}>\`x\`\nr\n`;
-}
-
-/** Every diagnostic rendered `<severity> <code>: <message>`, in emission order. */
-function diagLines(doc: ThetaDocument): string[] {
-  return doc.diagnostics.map((d) => `${d.severity} ${d.code}: ${d.message}`);
 }
 
 /**

@@ -12,9 +12,7 @@
 //     scripted per-prompt response queue;
 //   - injects failure modes: crash / nonzero exit (`crashWith`), unparseable
 //     stdout output (`emitRawLine`), and stdin-EOF-driven exit
-//     (`exitOnStdinEof`, on by default — the orphan-prevention presupposition);
-//   - records spawn argv / env / cwd (via `makeFakeChildLauncher`) for the
-//     launch-contract assertions.
+//     (`exitOnStdinEof`, on by default — the orphan-prevention presupposition).
 //
 // The `FakeRpcChild` implements the planned `SubagentChildProcess` handle from
 // `src/runtime/subagent-launcher.ts`, so the launcher / driver / teardown seams
@@ -24,24 +22,8 @@ import type { Message } from "@earendil-works/pi-ai";
 import type { ChildTapEvent } from "../../src/extension/execution-status/types";
 import type {
   ChildExitInfo,
-  ExecutableHost,
-  SpawnFn,
   SubagentChildProcess,
 } from "../../src/runtime/subagent-launcher";
-
-/**
- * A fake `ExecutableHost` whose rung-1 entry-script always resolves — so
- * `resolveSubagentExecutable` yields a runnable entry point for tests that drive
- * the real `launchSubagentChild` over `makeFakeChildLauncher`.
- */
-export function fakeExecutableHost(): ExecutableHost {
-  return {
-    argv1: "/theta/entry.js",
-    execPath: "/usr/bin/node",
-    fileExists: (): boolean => true,
-    isGenericRuntime: (): boolean => false,
-  };
-}
 
 /** An `agent_end` RPC event, the shape PIC-43 extracts from. */
 export interface AgentEndWireEvent {
@@ -55,15 +37,6 @@ export type InboundCommand =
   | { readonly type: "prompt"; readonly message: string }
   | { readonly type: "abort" }
   | { readonly type: string; readonly [k: string]: unknown };
-
-/** The record one `makeFakeChildLauncher` spawn captures. */
-export interface SpawnRecord {
-  readonly execPath: string;
-  readonly args: readonly string[];
-  readonly cwd: string;
-  readonly env: Record<string, string | undefined>;
-  readonly child: FakeRpcChild;
-}
 
 /**
  * Options for one fake child. `exitOnStdinEof` defaults to `true` — the
@@ -293,63 +266,6 @@ export class FakeRpcChild implements SubagentChildProcess {
     this.#exited = true;
     for (const l of this.#exitListeners) l(info);
   }
-}
-
-/** A fake `SpawnFn` plus the list of spawn records it captured. */
-export interface FakeChildLauncher {
-  readonly spawn: SpawnFn;
-  readonly spawns: SpawnRecord[];
-  /** Configure the next child(s) the launcher produces. */
-  configureNext(options: FakeRpcChildOptions): void;
-  /** Make the next spawn throw `error` (spawn-failure injection, e.g. ENOENT). */
-  failNextSpawn(error: Error): void;
-}
-
-/**
- * Build a fake child launcher that records every spawn's `execPath` / `args` /
- * `cwd` / `env` and returns a `FakeRpcChild`. Supports spawn-failure injection
- * (`failNextSpawn`) for the ENOENT path.
- */
-export function makeFakeChildLauncher(): FakeChildLauncher {
-  const spawns: SpawnRecord[] = [];
-  let nextOptions: FakeRpcChildOptions = {};
-  let nextSpawnError: Error | undefined;
-
-  const spawn: SpawnFn = (execPath, args, options) => {
-    if (nextSpawnError !== undefined) {
-      const err = nextSpawnError;
-      nextSpawnError = undefined;
-      throw err;
-    }
-    const child = new FakeRpcChild(nextOptions);
-    nextOptions = {};
-    spawns.push({
-      execPath,
-      args: [...args],
-      cwd: options.cwd,
-      env: { ...options.env },
-      child,
-    });
-    return child;
-  };
-
-  return {
-    spawn,
-    spawns,
-    configureNext(options: FakeRpcChildOptions): void {
-      nextOptions = options;
-    },
-    failNextSpawn(error: Error): void {
-      nextSpawnError = error;
-    },
-  };
-}
-
-/** An ENOENT-shaped error for the spawn-failure (executable-missing) path. */
-export function enoentSpawnError(execPath: string): Error {
-  const err = new Error(`spawn ${execPath} ENOENT`) as Error & { code?: string };
-  err.code = "ENOENT";
-  return err;
 }
 
 /** A child-activity tap fixture that does not exit on stdin EOF. */

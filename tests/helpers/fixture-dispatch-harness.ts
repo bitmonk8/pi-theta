@@ -18,7 +18,6 @@
 // TIER: unit, offline, deterministic, provider-free — the same tier as every
 // file that imports this module.
 
-import { rmSync } from "node:fs";
 import type {
   ExtensionAPI,
   ExtensionCommandContext,
@@ -30,7 +29,9 @@ import type { ParsedFrontmatter } from "../../src/parser/frontmatter";
 import type { ThetaBody } from "../../src/parser/theta-document";
 import type { Clock } from "../../src/seams/clock";
 import type { RuntimeRoot } from "../../src/runtime-root";
-import type { Checkpoint, CheckpointKind, CheckpointSite } from "../../src/seams/checkpoint";
+import type { Checkpoint } from "../../src/seams/checkpoint";
+
+export { disposeWorkspace } from "./production-load-harness";
 
 /** One recorded `pi.sendMessage` batch — a `theta-system-note` entry, or off-channel. */
 export interface RecordedMessage {
@@ -135,19 +136,6 @@ export async function dispatchTopLevelFixtures(
       );
     }
     await fixture.run("", dispatchCtx(cwd));
-  }
-}
-
-/** Remove a planted temp workspace, tolerating an unset `dir` (a `beforeAll` throw before planting). */
-export function disposeWorkspace(dir: string | undefined): void {
-  if (dir !== undefined) {
-    rmSync(dir, { recursive: true, force: true });
-  }
-}
-
-export class PassthroughCheckpoint implements Checkpoint {
-  before(_kind: CheckpointKind, _site: CheckpointSite): Promise<void> {
-    return Promise.resolve();
   }
 }
 

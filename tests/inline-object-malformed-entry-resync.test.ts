@@ -3,10 +3,9 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 // @ts-expect-error — JS code-registry module, no type declarations.
 import { parseRegistry, registryMessage } from "../tools/code-registry/index.js";
-import type { Diagnostic } from "../src/diagnostics/diagnostic";
 import type { ThetaDocument } from "../src/parser/theta-document";
 import { lowerQueryResponseSchema } from "../src/runtime/query-schema-lowering";
-import { parseDoc, isLoadParseError, subagentTheta as theta, subagentParamsSrc as paramsSrc } from "./helpers/e2e-s1";
+import { parseDoc, diagLines, isLoadParseError, subagentTheta as theta, subagentParamsSrc as paramsSrc } from "./helpers/e2e-s1";
 
 // Bug 0231 — `TypeParser.parseObject`'s field loop BREAKS at the first entry
 // that does not spell `Ident ":"`, so every field behind it is absent from both
@@ -287,11 +286,6 @@ function renderAll(exps: readonly Exp[]): string[] {
 // behaviour is stubbed: the lexer, the parser and the frontmatter reader under
 // assertion are the production ones.
 // ===========================================================================
-
-/** Every diagnostic rendered `<severity> <code>: <message>`, in emission order. */
-function diagLines(doc: ThetaDocument): string[] {
-  return doc.diagnostics.map((d: Diagnostic) => `${d.severity} ${d.code}: ${d.message}`);
-}
 
 function lines(src: string, path = "test.theta"): string[] {
   return diagLines(parseDoc(src, path));

@@ -130,19 +130,25 @@ export function plantThetaWorkspace(
   settingsJson?: string,
 ): string {
   const workspaceDir = mkdtempSync(join(tmpdir(), dirPrefix));
-  const projectThetaDir = join(workspaceDir, ".pi", "theta");
-  mkdirSync(projectThetaDir, { recursive: true });
-  for (const fixture of fixtures) {
-    writeFileSync(
-      join(projectThetaDir, `${fixture.stem}.${fixture.ext ?? "theta"}`),
-      fixture.text,
-      "utf8",
-    );
+  try {
+    const projectThetaDir = join(workspaceDir, ".pi", "theta");
+    mkdirSync(projectThetaDir, { recursive: true });
+    for (const fixture of fixtures) {
+      writeFileSync(
+        join(projectThetaDir, `${fixture.stem}.${fixture.ext ?? "theta"}`),
+        fixture.text,
+        "utf8",
+      );
+    }
+    if (settingsJson !== undefined) {
+      writeFileSync(join(workspaceDir, ".pi", "settings.json"), settingsJson, "utf8");
+    }
+    return workspaceDir;
+  } catch (error) {
+    // The caller cannot dispose a workspace that failed before it was returned.
+    disposeWorkspace(workspaceDir);
+    throw error;
   }
-  if (settingsJson !== undefined) {
-    writeFileSync(join(workspaceDir, ".pi", "settings.json"), settingsJson, "utf8");
-  }
-  return workspaceDir;
 }
 
 /**
@@ -157,11 +163,8 @@ export function disposeWorkspace(workspaceDir: string | undefined): void {
 
 /** Compose a single planted theta and return the runnable count, always disposing it. */
 export async function composedRunnableCount(fileName: string, src: string, dirPrefix: string): Promise<number> {
-  const workspace = mkdtempSync(join(tmpdir(), dirPrefix));
+  const workspace = plantThetaWorkspace(dirPrefix, [{ stem: fileName, text: src }], "{}");
   try {
-    mkdirSync(join(workspace, ".pi", "theta"), { recursive: true });
-    writeFileSync(join(workspace, ".pi", "theta", `${fileName}.theta`), src, "utf8");
-    writeFileSync(join(workspace, ".pi", "settings.json"), "{}", "utf8");
     const pi = {
       getFlag: (): undefined => undefined,
       getCommands: (): unknown[] => [],
@@ -179,7 +182,7 @@ export async function composedRunnableCount(fileName: string, src: string, dirPr
     } as unknown as ExtensionContext;
     return (await discoverAndComposeFixtures(pi, ctx)).length;
   } finally {
-    rmSync(workspace, { recursive: true, force: true });
+    disposeWorkspace(workspace);
   }
 }
 
