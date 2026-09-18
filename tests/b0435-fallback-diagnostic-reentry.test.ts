@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -6,6 +6,12 @@ import type {
   ExtensionAPI,
   ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
+import {
+  finishWorkspace,
+  makeHost as makeComposeHost,
+  type ComposeWorkspace as Workspace,
+  type RecordedNote as RecordedSend,
+} from "./helpers/compose-workspace-harness";
 import { composeExtensionInstance } from "../src/extension/production-composition";
 import {
   RendererGate,
@@ -48,7 +54,7 @@ import {
 // `pi.sendMessage` re-invocation carries the delivery-failed code.
 //
 // Offline, provider-free, deterministic: host doubles only, no provider, no
-// child process. Modelled on (not shared with)
+// child process. Shares the compose-workspace harness used by
 // `tests/b0268-load-note-path-spelling-single-convention.test.ts` — its
 // composeExtensionInstance host-double + workspace-planting shape.
 //
@@ -64,12 +70,6 @@ const BROKEN_THETA =
 const UNTERMINATED_TEMPLATE_CODE = "theta/parse/unterminated-template";
 const TERMINAL_PREFIX = "system-note delivery failed: ";
 
-interface RecordedSend {
-  readonly customType: string;
-  readonly content: string;
-  readonly details: unknown;
-}
-
 /** The `details.diagnostics[0].code` a recorded send carries, or `undefined`. */
 function firstDiagnosticCode(send: RecordedSend): string | undefined {
   const details = send.details as
@@ -78,24 +78,17 @@ function firstDiagnosticCode(send: RecordedSend): string | undefined {
   return details?.diagnostics?.[0]?.code;
 }
 
-interface Workspace {
-  readonly cwd: string;
-  readonly dispose: () => void;
-}
-
 /** Plant `broken.theta` + `{}` settings on a hermetic temp project source. */
 function plantBrokenWorkspace(): Workspace {
   const cwd = mkdtempSync(join(tmpdir(), "theta-b0435-"));
   const planted = join(cwd, ".pi", "theta", "broken.theta");
   mkdirSync(dirname(planted), { recursive: true });
   writeFileSync(planted, BROKEN_THETA, "utf8");
-  // An absent settings file is silent; the `{}` plant is hermeticity.
-  writeFileSync(join(cwd, ".pi", "settings.json"), "{}", "utf8");
-  return { cwd, dispose: () => rmSync(cwd, { recursive: true, force: true }) };
+  return finishWorkspace(cwd);
 }
 
 /**
- * A b0268-style host double whose `pi.sendMessage` records every call.
+ * The shared compose host with b0435 delivery-failure injection.
  * `throwOnSystemNote(index)` decides whether the Nth (1-based) `theta-system-note`
  * send throws; `notifyThrows` makes `ctx.ui.notify` throw (no attached UI).
  */
@@ -111,32 +104,10 @@ function makeHost(
   sends: RecordedSend[];
   notified: string[];
 } {
-  const sends: RecordedSend[] = [];
   const notified: string[] = [];
   let systemNoteCount = 0;
-
-  const pi = {
-    registerFlag: (): void => {},
-    getFlag: (): undefined => undefined,
-    getCommands: (): readonly unknown[] => [],
-    on: (): void => {},
-    registerCommand: (): void => {},
-    sendUserMessage: (): void => {},
-    registerTool: (): void => {},
-    setActiveTools: (): void => {},
-    getActiveTools: (): readonly unknown[] => [],
-    getAllTools: (): readonly unknown[] => [],
-    registerMessageRenderer: (): void => {},
-    sendMessage: (message: {
-      customType: string;
-      content: string;
-      details: unknown;
-    }): void => {
-      sends.push({
-        customType: message.customType,
-        content: message.content,
-        details: message.details,
-      });
+  const host = makeComposeHost(cwd, {
+    onSendMessage: (message): void => {
       if (message.customType === SYSTEM_NOTE_CHANNEL) {
         systemNoteCount += 1;
         if (opts.throwOnSystemNote(systemNoteCount)) {
@@ -146,23 +117,15 @@ function makeHost(
         }
       }
     },
-  } as unknown as ExtensionAPI;
-
-  const ctx = {
-    cwd,
-    hasUI: false,
-    modelRegistry: { getAvailable: (): readonly unknown[] => [] },
-    ui: {
-      notify: (message: string, _type: "error"): void => {
-        notified.push(message);
-        if (opts.notifyThrows) {
-          throw new Error("b0435: no UI attached");
-        }
-      },
+    onNotify: (message): void => {
+      notified.push(message);
+      if (opts.notifyThrows) {
+        throw new Error("b0435: no UI attached");
+      }
     },
-  } as unknown as ExtensionContext;
+  });
 
-  return { pi, ctx, sends, notified };
+  return { pi: host.pi, ctx: host.ctx, sends: host.notes, notified };
 }
 
 describe("bug 0435 — the compose channel's delivery-failure diagnostic step must not re-invoke pi.sendMessage", () => {

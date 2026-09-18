@@ -1,21 +1,14 @@
+import { parseTheta } from "./helpers/e2e-s1";
+import { rootWith } from "./helpers/fixture-dispatch-harness";
+import { NOOP_CHECKPOINT } from "./helpers/tool-call-dispatch-harness";
+import { producer } from "./helpers/runtime-belt-probe-harness";
 import { fileURLToPath } from "node:url";
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import type {
-  ExtensionAPI,
-  ExtensionCommandContext,
-  ModelRegistry,
-} from "@earendil-works/pi-coding-agent";
+import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 // @ts-expect-error — JS code-registry module, no type declarations.
 import { parseRegistry, registryMessage } from "../tools/code-registry/index.js";
-import type { ThetaSource } from "../src/lexer/lexer";
-import type { SystemNoteChannelDeps } from "../src/extension/system-note-channel";
-import type { ModelReferenceMatcher, ParsedFrontmatter } from "../src/parser/frontmatter";
-import {
-  parseThetaDocument,
-  type ParseThetaDocumentDeps,
-  type ThetaDocument,
-} from "../src/parser/theta-document";
+import type { ParsedFrontmatter } from "../src/parser/frontmatter";
 import { executeBody } from "../src/runtime/statement-executor";
 import {
   evaluateIndexAccess,
@@ -24,13 +17,10 @@ import {
   MISSING_OBJECT_KEY_CODE,
 } from "../src/runtime/runtime-panics";
 import type { ThetaValue } from "../src/runtime/value";
-import { createProductionProducerDeps } from "../src/extension/production-theta-producer";
 import type {
   ConversationBindInput,
   ThetaCompositionInput,
 } from "../src/extension/theta-composition-producer";
-import type { RuntimeRoot } from "../src/runtime-root";
-import type { Checkpoint } from "../src/seams/checkpoint";
 
 // Bug 0036 — `MissingObjectKeyPanic`'s one emission site interpolates the raw
 // key (`src/runtime/runtime-panics.ts:270`,
@@ -163,66 +153,8 @@ const BARE_KIND = missingKeyMessage("kind");
 const BARE_DEFINITELY_ABSENT = missingKeyMessage("definitely_absent");
 
 // ===========================================================================
-// Shared parse + production-executor harness (the tests/non-object-receiver-gate.test.ts
-// pattern).
+// Shared parse + production-executor harness.
 // ===========================================================================
-
-function parseDeps(): ParseThetaDocumentDeps {
-  const systemNote: SystemNoteChannelDeps = {
-    pi: { sendMessage: (): void => {} },
-    ui: { notify: (): void => {} },
-    emitDiagnostic: (): void => {},
-  };
-  const modelMatcher: ModelReferenceMatcher = {
-    resolve: (): "resolved" => "resolved",
-  };
-  return { systemNote, modelMatcher };
-}
-
-/**
- * Parse a fixture and fail LOUDLY on any error-severity diagnostic. Every probe
- * here is parse-clean by construction — the static object-index check
- * (`checkObjectIndex`, src/runtime/stdlib-object.ts) requires only that the
- * index be a `string`, so a non-identifier-shaped key reaches the runtime
- * (bug 0036 §Reproduction). A parse rejection is therefore a harness defect,
- * and must never let a probe pass or fail for the wrong reason.
- */
-function parseTheta(path: string, src: string): ThetaDocument {
-  const source: ThetaSource = { path, bytes: new TextEncoder().encode(src) };
-  const doc = parseThetaDocument(source, parseDeps());
-  const errors = doc.diagnostics.filter((d) => d.severity === "error");
-  if (errors.length > 0) {
-    throw new Error(
-      `fixture ${path} failed to parse: ${errors.map((d) => `${d.code}: ${d.message}`).join("; ")}`,
-    );
-  }
-  return doc;
-}
-
-const NOOP_CHECKPOINT: Checkpoint = {
-  before(): Promise<void> {
-    return Promise.resolve();
-  },
-};
-
-function rootDouble(): RuntimeRoot {
-  return {
-    checkpoint: NOOP_CHECKPOINT,
-    idSource: { newInvocationId: () => "inv-1", newToolCallId: () => "tc-1" },
-  } as unknown as RuntimeRoot;
-}
-
-function producer() {
-  return createProductionProducerDeps({
-    pi: {
-      sendMessage: () => {},
-      getActiveTools: () => [],
-      setActiveTools: () => {},
-    } as unknown as ExtensionAPI,
-    root: rootDouble(),
-    modelRegistry: {} as unknown as ModelRegistry,
-  });
-}
 
 /** The bug's §Reproduction frontmatter and fixture prologue, verbatim. */
 const FM = "---\nmode: prompt\n---\n";
@@ -237,7 +169,14 @@ type Probe =
   | { readonly kind: "value"; readonly rendered: string }
   | { readonly kind: "threw"; readonly thrown: unknown };
 
-/** Parse + run a self-contained query-free prompt-mode source, capturing a throw. */
+/**
+ * Parse a fixture and fail LOUDLY on any error-severity diagnostic. Every probe
+ * here is parse-clean by construction — the static object-index check
+ * (`checkObjectIndex`, src/runtime/stdlib-object.ts) requires only that the
+ * index be a `string`, so a non-identifier-shaped key reaches the runtime
+ * (bug 0036 §Reproduction). A parse rejection is therefore a harness defect,
+ * and must never let a probe pass or fail for the wrong reason.
+ */
 async function probeSource(src: string): Promise<Probe> {
   const doc = parseTheta("bug0036.theta", FM + src);
   const theta: ThetaCompositionInput = {
@@ -251,7 +190,7 @@ async function probeSource(src: string): Promise<Probe> {
     args: "",
     ctx: {} as unknown as ExtensionCommandContext,
   };
-  const binding = producer().bindPromptConversation(bindInput);
+  const binding = producer(rootWith(NOOP_CHECKPOINT)).bindPromptConversation(bindInput);
   try {
     const execution = await executeBody(theta.body, binding.executeDeps);
     return { kind: "value", rendered: render(execution.result.value) };

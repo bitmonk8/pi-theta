@@ -1,3 +1,4 @@
+import { assertNoStemIsASuffix, theta, invokeCaller, callableCaller } from "./helpers/production-load-harness";
 import { interpolateStrict } from "./helpers/registry-oracle";
 import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -255,10 +256,6 @@ interface PlantedTheta {
   readonly text: string;
 }
 
-function theta(...lines: readonly string[]): string {
-  return lines.join("\n") + "\n";
-}
-
 /**
  * A `mode: subagent` callee declaring one `params:` field named `x`.
  *
@@ -271,16 +268,6 @@ function theta(...lines: readonly string[]): string {
  */
 function callee(paramType: string): string {
   return theta("---", "mode: subagent", "params:", `  x: ${paramType}`, "---", "@`hi`");
-}
-
-/** A `mode: subagent` caller with no `tools:` — the `invoke(...)` literal surface. */
-function invokeCaller(...body: readonly string[]): string {
-  return theta("---", "mode: subagent", "---", ...body, "@`hi`");
-}
-
-/** A `mode: subagent` caller resolving one `.theta` entry — the callable surface. */
-function callableCaller(entry: string, ...body: readonly string[]): string {
-  return theta("---", "mode: subagent", "tools:", `  - ${entry}`, "---", ...body, "@`hi`");
 }
 
 /**
@@ -483,14 +470,7 @@ beforeAll(async () => {
   // `<separator><stem>.theta`, so a suffix pair would let one caller's
   // diagnostic satisfy or defeat another caller's assertion.
   const stems = THETAS.map((t) => t.stem);
-  for (const stem of stems) {
-    const shadowed = stems.filter((other) => other !== stem && other.endsWith(stem));
-    expect(
-      shadowed,
-      `harness: planted stem '${stem}' is a suffix of ${JSON.stringify(shadowed)}, so ` +
-        "per-caller diagnostic attribution below is ambiguous",
-    ).toEqual([]);
-  }
+  assertNoStemIsASuffix(stems);
 
   workspaceDir = mkdtempSync(join(tmpdir(), "theta-bug0137-"));
   const projectThetaDir = join(workspaceDir, ".pi", "theta");

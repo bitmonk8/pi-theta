@@ -23,8 +23,9 @@ import { expect } from "vitest";
 // @ts-expect-error — JS code-registry module, no type declarations.
 import { parseRegistry, registryMessage } from "../../tools/code-registry/index.js";
 import type { Diagnostic } from "../../src/diagnostics/diagnostic";
-import type { ThetaDocument } from "../../src/parser/theta-document";
-import { parseDoc } from "./e2e-s1";
+import type { SchemaDecl, ThetaDocument } from "../../src/parser/theta-document";
+import type { LowerCtx } from "../../src/parser/params";
+import { parseDoc, diagLines } from "./e2e-s1";
 
 // ===========================================================================
 // The diagnostic oracle — the registry's *Message* column (DIAG-4).
@@ -329,4 +330,144 @@ export function createTypePositionMatrix(
   }
 
   return { POSITIONS, cells, expectMatrix };
+}
+
+/** The three positions that thread the `LowerCtx.unspellable` refusal sink. */
+export type SinkPosition = "field" | "alias" | "params";
+
+/** The four annotation-side positions used by type-refusal probes. */
+export type AnnotationPosition = "let" | "fnparam" | "fnret" | "query";
+
+/** `Cat` for the rows whose text names it, so no unresolved-name diagnostic enters. */
+const CAT_DECL = "schema Cat { a: string }\n";
+
+/** The declaration each sink position refuses at — what `<X>` / `<param>` renders. */
+export const TYPE_POSITION_DECL_NAME: Record<SinkPosition, string> = { field: "S", alias: "X", params: "f" };
+
+/** The §Reproduction fixture for one position, with `T` substituted. */
+function fixture(
+  position: SinkPosition | AnnotationPosition,
+  typeSource: string,
+  withCat: boolean,
+  paramsScalar: (typeSource: string) => string,
+): string {
+  const cat = withCat ? CAT_DECL : "";
+  switch (position) {
+    case "field":
+      return `${cat}schema S {\n  f: ${typeSource}\n}\nlet x = 1\n`;
+    case "alias":
+      return `${cat}schema X = ${typeSource}\nlet x = 1\n`;
+    case "params":
+      return `---\nmode: prompt\nparams:\n  f: ${paramsScalar(typeSource)}\n---\n${cat}let x = 1\n`;
+    case "let":
+      return `${cat}let x: ${typeSource} = 1\n`;
+    case "fnparam":
+      return `${cat}fn f(p: ${typeSource}): integer { 1 }\nlet x = 1\n`;
+    case "fnret":
+      return `${cat}fn f(): ${typeSource} { 1 }\nlet x = 1\n`;
+    case "query":
+      return `${cat}let r = @<${typeSource}>\`hi\`\n`;
+  }
+}
+
+/** What one fixture yields. */
+export interface TypePositionRead {
+  /** Every diagnostic rendered `<severity> <code>: <message>`, in emission order. */
+  readonly lines: readonly string[];
+  /** Codes in the order requested by the reader (emission or distinct-sorted). */
+  readonly codes: readonly string[];
+  /** The count the shipped drop gate reads: error severity in the two namespaces. */
+  readonly gateCount: number;
+  /** Whether the load produced a frontmatter block at all. */
+  readonly frontmatterPresent: boolean;
+  /** The whole document, for the loud readers below. */
+  readonly doc: ThetaDocument;
+}
+
+/** Bind type-position fixtures to their path, code ordering and YAML scalar spelling. */
+export function makeTypePositionReader(options: {
+  readonly path: string;
+  readonly codeOrder: "emission" | "distinct-sorted";
+  readonly paramsScalar?: (typeSource: string) => string;
+}) {
+  const paramsScalar = options.paramsScalar ?? ((typeSource: string) => `'${typeSource}'`);
+
+  /**
+   * Read one type text at one position through the shipped load path, loud on
+   * every way a fixture can fail to reach the lowering: a fixture whose
+   * declaration never parsed would assert a verdict for the wrong reason.
+   */
+  function read(
+    label: string,
+    position: SinkPosition | AnnotationPosition,
+    typeSource: string,
+    withCat = false,
+  ): TypePositionRead {
+    const src = fixture(position, typeSource, withCat, paramsScalar);
+    const doc = parseDoc(src, options.path);
+    if (position === "field" || position === "alias") {
+      const wanted = TYPE_POSITION_DECL_NAME[position];
+      const decl = doc.body.statements.find(
+        (s): s is SchemaDecl => s.kind === "schema" && s.name === wanted,
+      );
+      if (decl === undefined) {
+        throw new Error(
+          `${label}: the fixture must declare \`schema ${wanted}\` for a type-position verdict to ` +
+            `be attributable to it; statement kinds ` +
+            `${JSON.stringify(doc.body.statements.map((s) => s.kind))}, diagnostics ` +
+            `${JSON.stringify(diagLines(doc))}`,
+        );
+      }
+    }
+    return {
+      lines: diagLines(doc),
+      codes: options.codeOrder === "distinct-sorted"
+        ? [...new Set(doc.diagnostics.map((d) => d.code))].sort()
+        : doc.diagnostics.map((d) => d.code),
+      gateCount: doc.diagnostics.filter(
+        (d) =>
+          d.severity === "error" &&
+          (d.code.startsWith("theta/load/") || d.code.startsWith("theta/parse/")),
+      ).length,
+      frontmatterPresent: doc.frontmatter !== null && doc.frontmatter !== undefined,
+      doc,
+    };
+  }
+
+  return read;
+}
+
+/**
+ * The lowered `params:` property for field `f`, loud when the load withheld the
+ * frontmatter or the lowered document: comparing `undefined` against a fragment
+ * would pass or fail for a reason that is not the cell's.
+ */
+export function loweredF(label: string, r: TypePositionRead): unknown {
+  const document = r.doc.frontmatter?.params?.loweredSchema as
+    | Record<string, unknown>
+    | undefined;
+  if (document === undefined) {
+    throw new Error(
+      `${label}: the fixture declares a \`params:\` block, so its lowered schema must be ` +
+        `present for the field's fragment to be readable; frontmatter present: ` +
+        `${r.frontmatterPresent}, diagnostics ${JSON.stringify(r.lines)}`,
+    );
+  }
+  const properties = document["properties"] as Record<string, unknown> | undefined;
+  if (properties === undefined || !("f" in properties)) {
+    throw new Error(
+      `${label}: the lowered \`params:\` document carries no property \`f\`, so the field never ` +
+        `lowered; document ${JSON.stringify(document)}`,
+    );
+  }
+  return properties["f"];
+}
+
+/** The `LowerCtx` the direct-seam cells thread: no declarations, one sink. */
+export function seamCtx(): { readonly ctx: LowerCtx; readonly sink: string[] } {
+  const sink: string[] = [];
+  return {
+    ctx: { bodyTypeMap: new Map(), defs: {}, unresolved: [], unspellable: sink },
+    sink,
+  };
 }

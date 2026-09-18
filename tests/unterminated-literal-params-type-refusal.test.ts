@@ -10,7 +10,7 @@ import {
 } from "../src/parser/type-grammar";
 import type { SourceRange } from "../src/diagnostics/diagnostic";
 import type { ThetaDocument } from "../src/parser/theta-document";
-import { parseDoc } from "./helpers/e2e-s1";
+import { expectGroup as expectGroupShared, type DiagnosticCell, parseDoc } from "./helpers/e2e-s1";
 
 // =====================================================================
 // THE CLASS (docs/bugs/0232-unterminated-literal-params-type-drops-inline-fields.md)
@@ -270,12 +270,7 @@ function paramsLoweredSchema(type: string): unknown {
   return fm.params?.loweredSchema ?? null;
 }
 
-interface Cell {
-  readonly cell: string;
-  readonly src: string;
-  readonly path?: string;
-  readonly expected: readonly Exp[];
-}
+type Cell = DiagnosticCell<Exp>;
 
 /**
  * One group's cells asserted as a whole-map equality: separate assertions stop
@@ -283,16 +278,10 @@ interface Cell {
  * is only meaningful against every cell at once.
  */
 function expectGroup(cells: readonly Cell[], why: string): void {
-  const actual: Record<string, string[]> = {};
-  const expected: Record<string, string[]> = {};
-  for (const c of cells) {
-    // The cell LABEL alone is the key: a fixture source is multi-line, and a
-    // multi-line key turns vitest's whole-map diff into an unreadable wall.
-    // Uniqueness of the labels is asserted in group (F).
-    actual[c.cell] = lines(c.src, c.path);
-    expected[c.cell] = renderAll(c.expected);
-  }
-  expect(actual, why).toEqual(expected);
+  // The cell LABEL alone is the key: a fixture source is multi-line, and a
+  // multi-line key turns vitest's whole-map diff into an unreadable wall.
+  // Uniqueness of the labels is asserted in group (F).
+  expectGroupShared(cells, why, (c) => lines(c.src, c.path), renderAll, (c) => c.cell);
 }
 
 // ===========================================================================

@@ -1,18 +1,17 @@
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
+import { registryErrorLine as line, schemaRefusal, paramsRefusal } from "./helpers/registry-oracle";
+import {
+  makeTypePositionReader, loweredF, seamCtx, TYPE_POSITION_DECL_NAME as DECL_NAME,
+  type SinkPosition as Position, type TypePositionRead as Read,
+} from "./helpers/load-row-harness";
 import { describe, expect, it } from "vitest";
-// @ts-expect-error — JS code-registry module, no type declarations.
-import { parseRegistry, registryMessage } from "../tools/code-registry/index.js";
 import {
   classifyGenericArgumentSegments,
   isUnspellableTextRefusable,
   lowerTypeExpr,
   splitTopLevel,
-  type LowerCtx,
 } from "../src/parser/params";
 import { lowerQueryResponseSchema } from "../src/runtime/query-schema-lowering";
-import type { SchemaDecl, ThetaDocument } from "../src/parser/theta-document";
-import { parseDoc } from "./helpers/e2e-s1";
+import { parseDoc, diagLines } from "./helpers/e2e-s1";
 
 // Bug 0204 — `lowerTypeExpr`'s generic-application arm reads its argument list
 // with `splitTopLevel`'s `"angle"` default, whose brace/bracket tracking is off
@@ -160,184 +159,14 @@ const RESULT_IN_SCHEMA = "theta/parse/result-in-schema-position";
 const UNRESOLVED = "theta/parse/unresolved-named-type";
 const LET_MISMATCH = "theta/parse/let-rhs-type-mismatch";
 
-interface RegistryRow {
-  readonly code: string;
-  readonly namespace: string;
-  readonly severity: string;
-  readonly phase: string;
-  readonly trigger: string;
-  readonly message: string;
-}
-
-/** The live four-page sharded registry — the input tests/code-registry.test.ts reconciles. */
-const REGISTRY = parseRegistry(
-  [
-    "code-registry-parse.md",
-    "code-registry-load.md",
-    "code-registry-runtime.md",
-    "code-registry-host.md",
-  ]
-    .map((page) =>
-      readFileSync(
-        fileURLToPath(new URL(`../docs/spec_topics/diagnostics/${page}`, import.meta.url)),
-        "utf8",
-      ),
-    )
-    .join("\n"),
-) as RegistryRow[];
-
-/**
- * A registry row's normative *Message* (DIAG-4, diagnostic-shape.md:74), read
- * rather than restated. Definedness is asserted first so a missing row reds by
- * naming the registry page instead of comparing against a bare `undefined`.
- */
-function registryMessageOf(code: string): string {
-  const template = registryMessage(REGISTRY, code) as string | undefined;
-  expect(
-    template,
-    `DIAG-4 anchor: the diagnostics code registry must carry the *Message* row for ${code}; ` +
-      `without it every expected message in this file would be a restatement, which DIAG-4 bars`,
-  ).toBeDefined();
-  return template as string;
-}
-
-/** `error <code>: <message>` for one substitution set, rendered from the registry. */
-function line(code: string, subs: ReadonlyArray<readonly [string, string]>): string {
-  let message = registryMessageOf(code);
-  for (const [placeholder, value] of subs) {
-    expect(
-      message.includes(placeholder),
-      `DIAG-4 anchor: the registry *Message* for ${code} must carry the ${placeholder} ` +
-        `placeholder this file interpolates; observed template ${JSON.stringify(message)}`,
-    ).toBe(true);
-    message = message.replace(placeholder, value);
-  }
-  return `error ${code}: ${message}`;
-}
-
-/** The schema-position refusal, rendered for the offending declaration's name. */
-function schemaRefusal(declName: string): string {
-  return line(SCHEMA_REFUSAL, [["<X>", declName]]);
-}
-
-/** The `params:`-position refusal, rendered for one field name. */
-function paramsRefusal(field: string): string {
-  return line(PARAMS_REFUSAL, [["<param>", field]]);
-}
-
 // ===========================================================================
 // The three sink-threading positions, and the §Reproduction (b) fixtures.
 // ===========================================================================
 
 /** The three positions bug 0204 §Reproduction (b) measures. */
-type Position = "field" | "alias" | "params";
 const POSITIONS: readonly Position[] = ["field", "alias", "params"];
 
-/** `Cat` for the rows whose text names it, so no unresolved-name diagnostic enters. */
-const CAT_DECL = "schema Cat { a: string }\n";
-
-/** The declaration each schema position refuses at — what `<X>` renders. */
-const DECL_NAME: Record<Position, string> = { field: "S", alias: "X", params: "f" };
-
-/** The §Reproduction (b) fixture for one position, with `T` substituted. */
-function fixture(position: Position, typeSource: string, withCat: boolean): string {
-  const cat = withCat ? CAT_DECL : "";
-  if (position === "field") {
-    return `${cat}schema S {\n  f: ${typeSource}\n}\nlet x = 1\n`;
-  }
-  if (position === "alias") {
-    return `${cat}schema X = ${typeSource}\nlet x = 1\n`;
-  }
-  return `---\nmode: prompt\nparams:\n  f: '${typeSource}'\n---\n${cat}let x = 1\n`;
-}
-
-/** What one fixture yields. */
-interface Read {
-  /** Every diagnostic rendered `<severity> <code>: <message>`, in emission order. */
-  readonly lines: readonly string[];
-  /** Distinct codes present, sorted. */
-  readonly codes: readonly string[];
-  /** The count the shipped drop gate reads: error severity in the two namespaces. */
-  readonly gateCount: number;
-  /** Whether the load produced a frontmatter block at all. */
-  readonly frontmatterPresent: boolean;
-  /** The whole document, for the loud readers below. */
-  readonly doc: ThetaDocument;
-}
-
-function diagLines(doc: ThetaDocument): string[] {
-  return doc.diagnostics.map((d) => `${d.severity} ${d.code}: ${d.message}`);
-}
-
-/**
- * Read one type text at one position through the shipped load path, loud on
- * every way a fixture can fail to reach the lowering: a fixture whose
- * declaration never parsed would assert silence for the wrong reason.
- */
-function read(label: string, position: Position, typeSource: string, withCat = false): Read {
-  const src = fixture(position, typeSource, withCat);
-  const doc = parseDoc(src, "bug0204.theta");
-  if (position !== "params") {
-    const wanted = DECL_NAME[position];
-    const decl = doc.body.statements.find(
-      (s): s is SchemaDecl => s.kind === "schema" && s.name === wanted,
-    );
-    if (decl === undefined) {
-      throw new Error(
-        `${label}: the fixture must declare \`schema ${wanted}\` for a type-position verdict to ` +
-          `be attributable to it; statement kinds ` +
-          `${JSON.stringify(doc.body.statements.map((s) => s.kind))}, diagnostics ` +
-          `${JSON.stringify(diagLines(doc))}`,
-      );
-    }
-  }
-  return {
-    lines: diagLines(doc),
-    codes: [...new Set(doc.diagnostics.map((d) => d.code))].sort(),
-    gateCount: doc.diagnostics.filter(
-      (d) =>
-        d.severity === "error" &&
-        (d.code.startsWith("theta/load/") || d.code.startsWith("theta/parse/")),
-    ).length,
-    frontmatterPresent: doc.frontmatter !== null && doc.frontmatter !== undefined,
-    doc,
-  };
-}
-
-/**
- * The lowered `params:` property for field `f`, loud when the load withheld the
- * frontmatter or the lowered document: comparing `undefined` against a fragment
- * would pass or fail for a reason that is not the cell's.
- */
-function loweredF(label: string, r: Read): unknown {
-  const document = r.doc.frontmatter?.params?.loweredSchema as
-    | Record<string, unknown>
-    | undefined;
-  if (document === undefined) {
-    throw new Error(
-      `${label}: the fixture declares a \`params:\` block, so its lowered schema must be present ` +
-        `for the field's fragment to be readable; frontmatter present: ` +
-        `${r.frontmatterPresent}, diagnostics ${JSON.stringify(r.lines)}`,
-    );
-  }
-  const properties = document["properties"] as Record<string, unknown> | undefined;
-  if (properties === undefined || !("f" in properties)) {
-    throw new Error(
-      `${label}: the lowered \`params:\` document carries no property \`f\`, so the field never ` +
-        `lowered; document ${JSON.stringify(document)}`,
-    );
-  }
-  return properties["f"];
-}
-
-/** The `LowerCtx` the direct-seam cells thread: no declarations, one sink. */
-function seamCtx(): { readonly ctx: LowerCtx; readonly sink: string[] } {
-  const sink: string[] = [];
-  return {
-    ctx: { bodyTypeMap: new Map(), defs: {}, unresolved: [], unspellable: sink },
-    sink,
-  };
-}
+const read = makeTypePositionReader({ path: "bug0204.theta", codeOrder: "distinct-sorted" });
 
 // The type texts every group reuses, spelled once.
 const T3 = "array<{a: string, b: integer, c: boolean}>";

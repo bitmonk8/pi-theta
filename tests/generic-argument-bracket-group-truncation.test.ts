@@ -6,7 +6,7 @@ import type { Diagnostic } from "../src/diagnostics/diagnostic";
 import type { ThetaDocument } from "../src/parser/theta-document";
 import { splitTopLevel } from "../src/parser/params";
 import { lowerQueryResponseSchema } from "../src/runtime/query-schema-lowering";
-import { parseDoc, subagentTheta as theta, subagentParamsSrc as paramsSrc } from "./helpers/e2e-s1";
+import { expectGroup as expectGroupShared, type DiagnosticCell, parseDoc, subagentTheta as theta, subagentParamsSrc as paramsSrc } from "./helpers/e2e-s1";
 
 // Bug 0236 — `TypeParser.parsePrimary` has no arm for `[`, so a bracket group
 // written as a generic type argument falls to the tolerant punctuation skip,
@@ -336,12 +336,7 @@ function lines(src: string, path = "test.theta"): string[] {
 }
 
 /** One diagnostic-list cell. */
-interface Cell {
-  readonly cell: string;
-  readonly src: string;
-  readonly path?: string | undefined;
-  readonly expected: readonly Exp[];
-}
+type Cell = DiagnosticCell<Exp>;
 
 /**
  * One group's cells asserted as a whole-map equality: separate assertions would
@@ -349,14 +344,7 @@ interface Cell {
  * agreement claims are only meaningful against whole lists compared together.
  */
 function expectGroup(cells: readonly Cell[], why: string): void {
-  const actual: Record<string, string[]> = {};
-  const expected: Record<string, string[]> = {};
-  for (const c of cells) {
-    const key = `${c.cell} :: ${c.src}`;
-    actual[key] = lines(c.src, c.path ?? "test.theta");
-    expected[key] = renderAll(c.expected);
-  }
-  expect(actual, why).toEqual(expected);
+  expectGroupShared(cells, why, (c) => lines(c.src, c.path ?? "test.theta"), renderAll);
 }
 
 /** `<A>` — the over-applied `array` behind a bracket group (§Reproduction (b)). */

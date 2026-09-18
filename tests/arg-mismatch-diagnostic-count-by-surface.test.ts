@@ -2,6 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 // @ts-expect-error — JS code-registry module, no type declarations.
 import { registryMessage } from "../tools/code-registry/index.js";
 import {
+  assertNoStemIsASuffix,
   disposeWorkspace,
   plantThetaWorkspace,
   runProductionLoad,
@@ -651,14 +652,7 @@ beforeAll(async () => {
     `harness: planted stems collide: ${JSON.stringify(duplicates)} — one cell's file ` +
       "would overwrite another's",
   ).toEqual([]);
-  for (const stem of stems) {
-    const shadowed = stems.filter((other) => other !== stem && other.endsWith(stem));
-    expect(
-      shadowed,
-      `harness: planted stem '${stem}' is a suffix of ${JSON.stringify(shadowed)}, so ` +
-        "per-caller diagnostic attribution below is ambiguous",
-    ).toEqual([]);
-  }
+  assertNoStemIsASuffix(stems);
 
   // A minimal valid settings file pins the fixture's settings read to a known
   // value; an ABSENT settings file is silent, so this is hermeticity rather

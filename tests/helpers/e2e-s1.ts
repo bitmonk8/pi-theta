@@ -286,6 +286,36 @@ export function diagLines(doc: ThetaDocument): string[] {
   return doc.diagnostics.map((d) => `${d.severity} ${d.code}: ${d.message}`);
 }
 
+/** One diagnostic-list cell, with an optional fixture path for its driver. */
+export interface DiagnosticCell<Exp> {
+  readonly cell: string;
+  readonly src: string;
+  readonly path?: string | undefined;
+  readonly expected: readonly Exp[];
+}
+
+/**
+ * One group's cells asserted as a whole-map equality: separate assertions would
+ * stop at the first divergence and hide the rest, and the subject-versus-control
+ * agreement claims are only meaningful against whole lists compared together.
+ */
+export function expectGroup<Exp>(
+  cells: readonly DiagnosticCell<Exp>[],
+  why: string,
+  lines: (cell: DiagnosticCell<Exp>) => string[],
+  renderAll: (exps: readonly Exp[]) => string[],
+  keyOf: (cell: DiagnosticCell<Exp>) => string = (c) => `${c.cell} :: ${c.src}`,
+): void {
+  const actual: Record<string, string[]> = {};
+  const expected: Record<string, string[]> = {};
+  for (const c of cells) {
+    const key = keyOf(c);
+    actual[key] = lines(c);
+    expected[key] = renderAll(c.expected);
+  }
+  expect(actual, why).toEqual(expected);
+}
+
 /** The document's diagnostics carrying `code`, in emission order. */
 export function withCode(doc: ThetaDocument, code: string): Diagnostic[] {
   return doc.diagnostics.filter((d) => d.code === code);
@@ -416,6 +446,21 @@ export function topKinds(doc: ThetaDocument): string[] {
 /** Top-level declarations of this kind, preserving source order. */
 export function schemaDeclsOf(doc: ThetaDocument): readonly SchemaDecl[] {
   return doc.body.statements.filter((s): s is SchemaDecl => s.kind === "schema");
+}
+
+/**
+ * Schema declarations from a prompt body that must load without diagnostics.
+ * Read the statements, including alias-form declarations absent from `doc.schemas`,
+ * and fail with the rendered diagnostics rather than mask a broken fixture.
+ */
+export function loadSchemaDecls(body: string, path: string): readonly SchemaDecl[] {
+  const doc = parsePromptBody(body, path);
+  if (doc.diagnostics.length > 0) {
+    throw new Error(
+      `harness: the decl body must load cleanly, but produced ${JSON.stringify(diagLines(doc))}`,
+    );
+  }
+  return schemaDeclsOf(doc);
 }
 
 /** One schema declaration's observable field capture. */

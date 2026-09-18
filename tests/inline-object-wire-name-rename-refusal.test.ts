@@ -11,7 +11,7 @@ import type { ThetaDocument } from "../src/parser/theta-document";
 import { lowerQueryResponseSchema } from "../src/runtime/query-schema-lowering";
 import { respondToolWireSchema } from "../src/runtime/respond-tool-wire";
 import { type LoweredSchema } from "../src/seams/schema-validator";
-import { parseDoc } from "./helpers/e2e-s1";
+import { expectGroup as expectGroupShared, type DiagnosticCell, parseDoc } from "./helpers/e2e-s1";
 
 // Bug 0160 — `docs/spec_topics/grammar.md:109` assigns
 // `theta/parse/wire-name-collision` and `theta/parse/redundant-wire-name`
@@ -387,12 +387,7 @@ function registersCleanly(doc: ThetaDocument): boolean {
 // re-assert all of it at CODE level with no registry dependency.
 // ===========================================================================
 
-interface Cell {
-  readonly cell: string;
-  readonly src: string;
-  readonly path?: string;
-  readonly expected: readonly Exp[];
-}
+type Cell = DiagnosticCell<Exp>;
 
 /** The eleven `Type` positions, in the vocabulary of the landed siblings. */
 const POSITION_LABELS = [
@@ -754,14 +749,7 @@ const NEW_ROW_LIST_CELLS = 50;
  * precedence / ordering claims above are only meaningful against whole lists.
  */
 function expectGroup(cells: readonly Cell[], why: string): void {
-  const actual: Record<string, string[]> = {};
-  const expected: Record<string, string[]> = {};
-  for (const c of cells) {
-    const key = `${c.cell} :: ${c.src}`;
-    actual[key] = lines(c.src, c.path);
-    expected[key] = renderAll(c.expected);
-  }
-  expect(actual, why).toEqual(expected);
+  expectGroupShared(cells, why, (c) => lines(c.src, c.path), renderAll);
 }
 
 // ===========================================================================

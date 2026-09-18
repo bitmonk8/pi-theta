@@ -13,6 +13,7 @@
 // file that imports this module.
 import { PARSE_REGISTRY_PATH as REGISTRY_PAGE, registryMessageOf } from "./load-row-harness";
 import { readFileSync } from "node:fs";
+import { expect } from "vitest";
 import { fileURLToPath } from "node:url";
 // @ts-expect-error — JS code-registry module, no type declarations.
 import { parseRegistry, registryMessage } from "../../tools/code-registry/index.js";
@@ -203,4 +204,46 @@ export function objectFieldMismatchMessage(
       ["<actual>", actual],
     ]),
   );
+}
+
+const SCHEMA_REFUSAL = "theta/parse/schema-type-not-expression";
+const PARAMS_REFUSAL = "theta/load/params-type-not-expression";
+
+/**
+ * A registry row's normative *Message* (DIAG-4, diagnostic-shape.md:74), read
+ * rather than restated. Definedness is asserted first so a missing row reds by
+ * naming the registry page instead of comparing against a bare `undefined`.
+ */
+function anchoredRegistryMessage(code: string): string {
+  const template = registryMessage(REGISTRY, code) as string | undefined;
+  expect(
+    template,
+    `DIAG-4 anchor: the diagnostics code registry must carry the *Message* row for ${code}; ` +
+      `without it every expected message in this file would be a restatement, which DIAG-4 bars`,
+  ).toBeDefined();
+  return template as string;
+}
+
+/** `error <code>: <message>` for one substitution set, rendered from the registry. */
+export function registryErrorLine(code: string, subs: ReadonlyArray<readonly [string, string]>): string {
+  let message = anchoredRegistryMessage(code);
+  for (const [placeholder, value] of subs) {
+    expect(
+      message.includes(placeholder),
+      `DIAG-4 anchor: the registry *Message* for ${code} must carry the ${placeholder} ` +
+        `placeholder this file interpolates; observed template ${JSON.stringify(message)}`,
+    ).toBe(true);
+    message = message.replace(placeholder, value);
+  }
+  return `error ${code}: ${message}`;
+}
+
+/** The schema-position refusal, rendered for the offending declaration's name. */
+export function schemaRefusal(declName: string): string {
+  return registryErrorLine(SCHEMA_REFUSAL, [["<X>", declName]]);
+}
+
+/** The `params:`-position refusal, rendered for one field name. */
+export function paramsRefusal(field: string): string {
+  return registryErrorLine(PARAMS_REFUSAL, [["<param>", field]]);
 }

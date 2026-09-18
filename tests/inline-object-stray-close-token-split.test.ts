@@ -6,7 +6,7 @@ import { registryMessage } from "../tools/code-registry/index.js";
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
 import type { ThetaDocument } from "../src/parser/theta-document";
 import { splitTopLevelSegments, topLevelColon } from "../src/parser/params";
-import { parseDoc, subagentTheta as theta } from "./helpers/e2e-s1";
+import { expectGroup as expectGroupShared, type DiagnosticCell, parseDoc, subagentTheta as theta } from "./helpers/e2e-s1";
 
 // Bug 0238 — a stray depth-0 CLOSE token in an inline object type underflows
 // `splitTopLevelSegments`' depth counter, so every entry behind it merges into
@@ -321,11 +321,7 @@ function loweredParams(type: string): string {
 }
 
 /** One diagnostic-list cell. */
-interface Cell {
-  readonly cell: string;
-  readonly src: string;
-  readonly expected: readonly Exp[];
-}
+type Cell = DiagnosticCell<Exp>;
 
 /**
  * One group's cells asserted as a whole-map equality: separate assertions would
@@ -333,14 +329,7 @@ interface Cell {
  * agreement claims are only meaningful against whole lists compared together.
  */
 function expectGroup(cells: readonly Cell[], why: string): void {
-  const actual: Record<string, string[]> = {};
-  const expected: Record<string, string[]> = {};
-  for (const c of cells) {
-    const key = `${c.cell} :: ${c.src}`;
-    actual[key] = lines(c.src);
-    expected[key] = renderAll(c.expected);
-  }
-  expect(actual, why).toEqual(expected);
+  expectGroupShared(cells, why, (c) => lines(c.src), renderAll);
 }
 
 // The six §Reproduction (A) interiors.

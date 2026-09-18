@@ -55,25 +55,11 @@ import {
   noteChannelEntries,
   parse,
   scriptEnvelope,
+  TWO_PARAM_THETA,
 } from "./helpers/scripted-live-session-harness";
 import { ctxDouble } from "./helpers/tool-call-dispatch-harness";
 
 const SYSTEM_NOTE_CHANNEL = "theta-system-note";
-
-// A two-required-string-param theta (forces a genuine binder pass — not a
-// no-params or single-string bypass — with NO defaulted fields, so the
-// defaults-merge short-circuits without touching the filesystem seam).
-const TWO_PARAM_THETA = [
-  "---",
-  "mode: prompt",
-  "bind_model: binder-model",
-  "params:",
-  "  topic: string",
-  "  audience: string",
-  "---",
-  "@`review ${topic} for ${audience}`",
-  "",
-].join("\n");
 
 function twoParamTheta(overrides?: { readonly bindEcho?: boolean }): ThetaCompositionInput {
   const doc = parse(TWO_PARAM_THETA, "code-review.theta", "binder");

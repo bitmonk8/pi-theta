@@ -25,6 +25,7 @@
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { expect } from "vitest";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { createThetaExtension, type ThetaExtensionDeps, type ThetaFixture } from "../../src/extension/factory";
 import { composeExtensionInstance, discoverAndComposeFixtures } from "../../src/extension/production-composition";
@@ -107,6 +108,32 @@ export async function runProductionLoad(
       .filter((line) => line.length > 0),
     fixtures,
   };
+}
+
+/** Guard per-caller diagnostic attribution against planted stems shadowing one another. */
+export function assertNoStemIsASuffix(stems: readonly string[]): void {
+  for (const stem of stems) {
+    const shadowed = stems.filter((other) => other !== stem && other.endsWith(stem));
+    expect(
+      shadowed,
+      `harness: planted stem '${stem}' is a suffix of ${JSON.stringify(shadowed)}, so ` +
+        "per-caller diagnostic attribution below is ambiguous",
+    ).toEqual([]);
+  }
+}
+
+export function theta(...lines: readonly string[]): string {
+  return lines.join("\n") + "\n";
+}
+
+/** A `mode: subagent` caller with no `tools:` — the `invoke(...)` literal surface. */
+export function invokeCaller(...body: readonly string[]): string {
+  return theta("---", "mode: subagent", "---", ...body, "@`hi`");
+}
+
+/** A `mode: subagent` caller resolving one callable entry — the callable surface. */
+export function callableCaller(entry: string, ...body: readonly string[]): string {
+  return theta("---", "mode: subagent", "tools:", `  - ${entry}`, "---", ...body, "@`hi`");
 }
 
 /** One fixture `plantThetaWorkspace` writes under a workspace's `.pi/theta/`. */

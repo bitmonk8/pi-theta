@@ -24,12 +24,7 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import type {
-  ExtensionAPI,
-  ExtensionContext,
-} from "@earendil-works/pi-coding-agent";
-import type { ThetaFixture } from "../src/extension/factory";
-import { discoverAndComposeFixtures } from "../src/extension/production-composition";
+import { runProductionLoad } from "./helpers/production-load-harness";
 
 /** A clean prompt theta that registers with no binder/model precondition. */
 const CLEAN_THETA = ["---", "mode: prompt", "tools: read", "---", "@`hi`", ""].join("\n");
@@ -37,28 +32,6 @@ const CLEAN_THETA = ["---", "mode: prompt", "tools: read", "---", "@`hi`", ""].j
 function plant(path: string, text: string): void {
   mkdirSync(join(path, ".."), { recursive: true });
   writeFileSync(path, text, "utf8");
-}
-
-/**
- * Drive the PRODUCTION COMPOSE HELPER over a real on-disk workspace with an
- * empty model registry (no live model). Returns the registered slash names.
- */
-async function runProductionLoad(cwd: string): Promise<readonly string[]> {
-  const pi = {
-    getFlag: (): undefined => undefined,
-    getCommands: (): readonly unknown[] => [],
-    sendMessage: (): void => {},
-    sendUserMessage: (): void => {},
-    getActiveTools: (): readonly string[] => [],
-    setActiveTools: (): void => {},
-  } as unknown as ExtensionAPI;
-  const ctx = {
-    cwd,
-    modelRegistry: { getAvailable: (): readonly unknown[] => [] },
-    ui: { notify: (): void => {} },
-  } as unknown as ExtensionContext;
-  const fixtures: readonly ThetaFixture[] = await discoverAndComposeFixtures(pi, ctx);
-  return fixtures.map((f) => f.slashName);
 }
 
 let workspaceDir: string;
@@ -93,7 +66,7 @@ beforeAll(async () => {
   // §Failure modes), so the plant is hermeticity, not noise suppression.
   plant(join(workspaceDir, ".pi", "settings.json"), "{}");
 
-  registered = await runProductionLoad(workspaceDir);
+  registered = (await runProductionLoad(workspaceDir)).registered;
 }, 60000);
 
 afterAll(() => {

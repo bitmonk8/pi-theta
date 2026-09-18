@@ -1,4 +1,5 @@
-import { parseDeps } from "./helpers/e2e-s1";
+import { parseDoc, parseTheta } from "./helpers/e2e-s1";
+import { NOOP_CHECKPOINT } from "./helpers/tool-call-dispatch-harness";
 import {
   ANTHROPIC_MODEL,
   type SessionEntryDouble,
@@ -6,17 +7,16 @@ import {
   appendAssistantEntry,
 } from "./helpers/scripted-live-session-harness";
 import { rootDouble } from "./helpers/call-with-clause-harness";
-import { makeBeltProbes, type Probe, render, producer as beltProducer } from "./helpers/runtime-belt-probe-harness";
+import { makeBeltProbes, type Probe, render } from "./helpers/runtime-belt-probe-harness";
 import { describe, expect, it } from "vitest";
 import type {
   ExtensionAPI,
   ExtensionCommandContext,
   ModelRegistry,
 } from "@earendil-works/pi-coding-agent";
-import type { ThetaSource } from "../src/lexer/lexer";
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
 import type { ParsedFrontmatter } from "../src/parser/frontmatter";
-import { parseThetaDocument, type ThetaDocument } from "../src/parser/theta-document";
+import type { ThetaDocument } from "../src/parser/theta-document";
 import { executeBody } from "../src/runtime/statement-executor";
 import {
   evaluateIndexAccess,
@@ -29,7 +29,6 @@ import type { ThetaValue } from "../src/runtime/value";
 import { createProductionProducerDeps } from "../src/extension/production-theta-producer";
 import type { ThetaCompositionInput } from "../src/extension/theta-composition-producer";
 import type { RuntimeRoot } from "../src/runtime-root";
-import type { Checkpoint } from "../src/seams/checkpoint";
 
 // Bug 0027 — runtime receiver dispatch classifies by JS `typeof`, so an enum
 // value (a boxed `String` carrier) and a `Result` value (an `{ ok, … }` object
@@ -187,36 +186,7 @@ function rejectionMessage(read: string, receiverKind: string): string {
 // ===========================================================================
 
 function parseOnly(path: string, src: string): ThetaDocument {
-  const source: ThetaSource = { path, bytes: new TextEncoder().encode(src) };
-  return parseThetaDocument(source, parseDeps());
-}
-
-/**
- * Parse a fixture and fail LOUDLY on any error-severity diagnostic. Every probe
- * in this file is a parse-clean source by the bug's §Reproduction (the A2 layer
- * classifies an enum receiver `"unknown"` and defers, `Result` has no
- * `CompatType` form at all), so a rejection here is a harness defect — never a
- * silent skip.
- */
-function parseTheta(path: string, src: string): ThetaDocument {
-  const doc = parseOnly(path, src);
-  const errors = doc.diagnostics.filter((d) => d.severity === "error");
-  if (errors.length > 0) {
-    throw new Error(
-      `fixture ${path} failed to parse: ${errors.map((d) => `${d.code}: ${d.message}`).join("; ")}`,
-    );
-  }
-  return doc;
-}
-
-const NOOP_CHECKPOINT: Checkpoint = {
-  before(): Promise<void> {
-    return Promise.resolve();
-  },
-};
-
-function producer() {
-  return beltProducer(rootDouble());
+  return parseDoc(src, path);
 }
 
 const FM = "---\nmode: prompt\n---\n";
@@ -235,6 +205,13 @@ const SITE = {
   },
 };
 
+/**
+ * Parse a fixture and fail LOUDLY on any error-severity diagnostic. Every probe
+ * in this file is a parse-clean source by the bug's §Reproduction (the A2 layer
+ * classifies an enum receiver `"unknown"` and defers, `Result` has no
+ * `CompatType` form at all), so a rejection here is a harness defect — never a
+ * silent skip.
+ */
 const { probeSource } = makeBeltProbes((src) => parseTheta("bug0027.theta", FM + src), "bug0027", { root: rootDouble, sourcePath: "/theta/bug0027.theta" });
 
 /**

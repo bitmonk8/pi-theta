@@ -169,6 +169,21 @@ export function noteChannelEntries<TDetails>(
  */
 export type BinderCapturedNote = CapturedNote<{ readonly event?: Record<string, unknown> }>;
 
+// A two-required-string-param theta (forces a genuine binder pass — not a
+// no-params or single-string bypass — with NO defaulted fields, so the ok arm's
+// defaults-merge short-circuits without touching the filesystem seam).
+export const TWO_PARAM_THETA = [
+  "---",
+  "mode: prompt",
+  "bind_model: binder-model",
+  "params:",
+  "  topic: string",
+  "  audience: string",
+  "---",
+  "@`review ${topic} for ${audience}`",
+  "",
+].join("\n");
+
 const BINDER_MODEL = {
   id: "binder-model",
   provider: "anthropic-messages",

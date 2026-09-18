@@ -85,8 +85,15 @@ export function makeInertSdkMembers() {
   };
 }
 
+export interface HostOptions {
+  /** Runs after recording each send; may throw to simulate failed delivery. */
+  readonly onSendMessage?: (message: RecordedNote) => void;
+  /** Runs after recording each toast; may throw to simulate an unavailable UI. */
+  readonly onNotify?: (message: string) => void;
+}
+
 /** A recording `ExtensionAPI` / `ExtensionContext` pair for `composeExtensionInstance`. */
-export function makeHost(cwd: string): HostDouble {
+export function makeHost(cwd: string, opts: HostOptions = {}): HostDouble {
   const notes: RecordedNote[] = [];
   const notified: Array<readonly [string, string]> = [];
   const handlers = new Map<string, PiHandler>();
@@ -106,6 +113,7 @@ export function makeHost(cwd: string): HostDouble {
         content: message.content,
         details: message.details,
       });
+      opts.onSendMessage?.(message);
     },
   } as unknown as ExtensionAPI;
 
@@ -116,6 +124,7 @@ export function makeHost(cwd: string): HostDouble {
     ui: {
       notify: (message: string, type: "error"): void => {
         notified.push([message, type]);
+        opts.onNotify?.(message);
       },
     },
   } as unknown as ExtensionContext;

@@ -128,19 +128,11 @@ vi.mock("@earendil-works/pi-ai/compat", async (importOriginal) => {
 });
 import type {
   ExtensionAPI,
-  ExtensionCommandContext,
   ModelRegistry,
 } from "@earendil-works/pi-coding-agent";
 import { createProductionProducerDeps } from "../src/extension/production-theta-producer";
 import type { ThetaCompositionInput } from "../src/extension/theta-composition-producer";
-import {
-  parseThetaDocument,
-  type ParseThetaDocumentDeps,
-} from "../src/parser/theta-document";
-import type { ThetaSource } from "../src/lexer/lexer";
 import type { RuntimeRoot } from "../src/runtime-root";
-import type { ModelReferenceMatcher } from "../src/parser/frontmatter";
-import type { SystemNoteChannelDeps } from "../src/extension/system-note-channel";
 import {
   BINDER_MESSAGE_CONTENT,
   BINDER_TOOL_DESCRIPTION,
@@ -155,32 +147,15 @@ import {
   type SchemaSlug,
 } from "../src/seams/schema-validator";
 import { deepKeyOccurrences } from "./helpers/deep-key-occurrences";
-
-const SYSTEM_NOTE_CHANNEL = "theta-system-note";
-
-/** A captured `pi.sendMessage` custom message (the theta-system-note channel). */
-interface CapturedNote {
-  readonly customType: string;
-  readonly content: string;
-  readonly display?: boolean;
-}
+import {
+  type CapturedNote,
+  noteChannelEntries,
+  parse,
+  TWO_PARAM_THETA,
+} from "./helpers/scripted-live-session-harness";
+import { ctxDouble } from "./helpers/tool-call-dispatch-harness";
 
 // --- theta fixtures ----------------------------------------------------------
-
-// A two-required-string-param theta (forces a genuine binder pass — not a
-// no-params or single-string bypass — with NO defaulted fields, so the ok arm's
-// defaults-merge short-circuits without touching the filesystem seam).
-const TWO_PARAM_THETA = [
-  "---",
-  "mode: prompt",
-  "bind_model: binder-model",
-  "params:",
-  "  topic: string",
-  "  audience: string",
-  "---",
-  "@`review ${topic} for ${audience}`",
-  "",
-].join("\n");
 
 // The defaulted-field variant: `tone` declares the Theta-literal default
 // `"neutral"`, so the V11d Parameters block must render the byte-exact line
@@ -266,30 +241,7 @@ const MISTRAL_BINDER_MODEL: BinderModelDouble = {
   strictCapable: true,
 };
 
-// --- harness (copied from the e2e-s5 pattern, extended per the header) --------
-
-function parseDeps(): ParseThetaDocumentDeps {
-  const systemNote: SystemNoteChannelDeps = {
-    pi: { sendMessage: (): void => {} },
-    ui: { notify: (): void => {} },
-    emitDiagnostic: (): void => {},
-  };
-  const modelMatcher: ModelReferenceMatcher = { resolve: (): "resolved" => "resolved" };
-  return { systemNote, modelMatcher };
-}
-
-/** Parse `.theta` source through the production whole-file parser. */
-function parse(src: string) {
-  const source: ThetaSource = {
-    path: "code-review.theta",
-    bytes: new TextEncoder().encode(src),
-  };
-  const doc = parseThetaDocument(source, parseDeps());
-  const errors = doc.diagnostics.filter((d) => d.severity === "error").map((d) => d.code);
-  expect(errors, "the binder theta must parse cleanly before it is driven").toEqual([]);
-  expect(doc.frontmatter, "the binder theta must carry parseable frontmatter").not.toBeNull();
-  return doc;
-}
+// --- binder-specific harness ------------------------------------------------
 
 /**
  * The production AJV validator (real schema validation), wired with the same
@@ -353,13 +305,9 @@ function producerWithCapture(model: BinderModelDouble = ANTHROPIC_BINDER_MODEL):
   return { deps, notes };
 }
 
-function ctxDouble(): ExtensionCommandContext {
-  return {} as unknown as ExtensionCommandContext;
-}
-
 /** Build the composition input for a parsed fixture theta. */
 function thetaInput(source: string, sourcePath: string): ThetaCompositionInput {
-  const doc = parse(source);
+  const doc = parse(source, "code-review.theta", "binder");
   return {
     slashName: "code-review",
     sourcePath,
@@ -379,10 +327,6 @@ function defaultedTheta(): ThetaCompositionInput {
 
 function enumParamTheta(): ThetaCompositionInput {
   return thetaInput(ENUM_PARAM_THETA, ENUM_PARAM_SOURCE_PATH);
-}
-
-function noteChannelEntries(notes: readonly CapturedNote[]): CapturedNote[] {
-  return notes.filter((n) => n.customType === SYSTEM_NOTE_CHANNEL);
 }
 
 // --- captured-call accessors ---------------------------------------------------

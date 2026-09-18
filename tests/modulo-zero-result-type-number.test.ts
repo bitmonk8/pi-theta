@@ -1,13 +1,12 @@
+import {
+  assertNoStemIsASuffix, theta, invokeCaller,
+  runProductionLoad, plantThetaWorkspace, disposeWorkspace, type LoadOutcome,
+} from "./helpers/production-load-harness";
 import { PARSE_REGISTRY_PATH as REGISTRY_PAGE } from "./helpers/load-row-harness";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { ThetaDocument } from "../src/parser/theta-document";
-import type { ThetaFixture } from "../src/extension/factory";
-import { discoverAndComposeFixtures } from "../src/extension/production-composition";
 import {
   parseDoc, parsePromptBody, at, render, allHits, hit,
   arithmeticAnchorsOf as anchorsOf, arithmeticOpRange,
@@ -1221,18 +1220,9 @@ interface PlantedTheta {
   readonly text: string;
 }
 
-function theta(...lines: readonly string[]): string {
-  return lines.join("\n") + "\n";
-}
-
 /** A `mode: subagent` callee declaring one `params: x: string` field. */
 function calleeStr(): string {
   return theta("---", "mode: subagent", "params:", "  x: string", "---", "@`hi`");
-}
-
-/** A `mode: subagent` caller with no `tools:` — the `invoke(...)` literal surface. */
-function invokeCaller(...body: readonly string[]): string {
-  return theta("---", "mode: subagent", "---", ...body, "@`hi`");
 }
 
 /** A `mode: subagent` theta whose body is a typed binding — the registration rows. */
@@ -1264,83 +1254,22 @@ const THETAS: readonly PlantedTheta[] = [
   { stem: "regctl", text: bindingTheta("let n: integer = 1.5") },
 ];
 
-interface LoadOutcome {
-  readonly registered: readonly string[];
-  readonly notifications: readonly string[];
-  readonly diagnosticLines: readonly string[];
-}
-
 let outcome: LoadOutcome;
 let workspaceDir: string;
-
-async function runProductionLoad(cwd: string): Promise<LoadOutcome> {
-  const notifications: string[] = [];
-  const chunks: string[] = [];
-  const pi = {
-    getFlag: (): undefined => undefined,
-    getCommands: (): readonly unknown[] => [],
-    sendMessage: (): void => {},
-    sendUserMessage: (): void => {},
-    getActiveTools: (): readonly string[] => [],
-    setActiveTools: (): void => {},
-  } as unknown as ExtensionAPI;
-  const ctx = {
-    cwd,
-    modelRegistry: { getAvailable: (): readonly unknown[] => [] },
-    ui: {
-      notify: (message: string, _type: "error"): void => {
-        notifications.push(message);
-      },
-    },
-  } as unknown as ExtensionContext;
-
-  const write = process.stderr.write.bind(process.stderr);
-  process.stderr.write = ((chunk: unknown): boolean => {
-    chunks.push(String(chunk));
-    return true;
-  }) as typeof process.stderr.write;
-  const fixtures: readonly ThetaFixture[] = await discoverAndComposeFixtures(
-    pi,
-    ctx,
-  ).finally(() => {
-    process.stderr.write = write;
-  });
-
-  return {
-    registered: fixtures.map((f) => f.slashName),
-    notifications,
-    diagnosticLines: chunks
-      .join("")
-      .split(/\r?\n/)
-      .filter((line) => line.length > 0),
-  };
-}
 
 beforeAll(async () => {
   // No stem may be a suffix of another: the per-caller channel filter matches
   // `<separator><stem>.theta`, so a suffix pair would let one caller's
   // diagnostic satisfy or defeat another caller's assertion.
   const stems = THETAS.map((t) => t.stem);
-  for (const stem of stems) {
-    const shadowed = stems.filter((other) => other !== stem && other.endsWith(stem));
-    expect(
-      shadowed,
-      `harness: planted stem '${stem}' is a suffix of ${JSON.stringify(shadowed)}, so per-caller diagnostic attribution below is ambiguous`,
-    ).toEqual([]);
-  }
+  assertNoStemIsASuffix(stems);
 
-  workspaceDir = mkdtempSync(join(tmpdir(), "theta-bug0152-"));
-  const projectThetaDir = join(workspaceDir, ".pi", "theta");
-  mkdirSync(projectThetaDir, { recursive: true });
-  for (const planted of THETAS) {
-    writeFileSync(join(projectThetaDir, `${planted.stem}.theta`), planted.text, "utf8");
-  }
-  writeFileSync(join(workspaceDir, ".pi", "settings.json"), "{}", "utf8");
+  workspaceDir = plantThetaWorkspace("theta-bug0152-", THETAS, "{}");
   outcome = await runProductionLoad(workspaceDir);
 });
 
 afterAll(() => {
-  rmSync(workspaceDir, { recursive: true, force: true });
+  disposeWorkspace(workspaceDir);
 });
 
 /** Diagnostic lines the load attributed to one planted `.theta`. */

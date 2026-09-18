@@ -6,7 +6,7 @@ import { parseRegistry, registryMessage } from "../tools/code-registry/index.js"
 import { lowerParamsFieldType, type LowerCtx } from "../src/parser/params";
 import type { ThetaDocument } from "../src/parser/theta-document";
 import { lowerQueryResponseSchema } from "../src/runtime/query-schema-lowering";
-import { parseDoc } from "./helpers/e2e-s1";
+import { expectGroup as expectGroupShared, type DiagnosticCell, parseDoc } from "./helpers/e2e-s1";
 
 // Bug 0229 — `topLevelColon` (src/parser/params.ts) latches a quoted
 // region without a backslash arm, while the split that feeds it
@@ -313,12 +313,7 @@ function paramsFragment(type: string): {
   return { fragment: lowerParamsFieldType(type, ctx), defs, unresolved };
 }
 
-interface Cell {
-  readonly cell: string;
-  readonly src: string;
-  readonly path?: string;
-  readonly expected: readonly Exp[];
-}
+type Cell = DiagnosticCell<Exp>;
 
 /**
  * One group's cells asserted as a whole-map equality: separate assertions stop
@@ -326,14 +321,7 @@ interface Cell {
  * is only meaningful against every cell at once.
  */
 function expectGroup(cells: readonly Cell[], why: string): void {
-  const actual: Record<string, string[]> = {};
-  const expected: Record<string, string[]> = {};
-  for (const c of cells) {
-    const key = `${c.cell} :: ${c.src}`;
-    actual[key] = lines(c.src, c.path);
-    expected[key] = renderAll(c.expected);
-  }
-  expect(actual, why).toEqual(expected);
+  expectGroupShared(cells, why, (c) => lines(c.src, c.path), renderAll);
 }
 
 // ===========================================================================

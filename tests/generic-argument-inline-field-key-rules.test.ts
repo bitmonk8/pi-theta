@@ -5,7 +5,7 @@ import { registryMessage } from "../tools/code-registry/index.js";
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
 import type { ThetaDocument } from "../src/parser/theta-document";
 import { lowerQueryResponseSchema } from "../src/runtime/query-schema-lowering";
-import { parseDoc, subagentTheta as theta, subagentParamsSrc as paramsSrc } from "./helpers/e2e-s1";
+import { expectGroup as expectGroupShared, type DiagnosticCell, parseDoc, subagentTheta as theta, subagentParamsSrc as paramsSrc } from "./helpers/e2e-s1";
 
 // Bug 0233 — `walkType`'s `object` arm gates its whole raw-key loop on
 // `!insideGenericArgument`, so every non-`Ident` inline-object field key
@@ -296,12 +296,7 @@ function loweredParams(src: string): string {
 }
 
 /** One diagnostic-list cell. */
-interface Cell {
-  readonly cell: string;
-  readonly src: string;
-  readonly path?: string;
-  readonly expected: readonly Exp[];
-}
+type Cell = DiagnosticCell<Exp>;
 
 /**
  * One group's cells asserted as a whole-map equality: separate assertions would
@@ -310,14 +305,7 @@ interface Cell {
  * whole lists compared together.
  */
 function expectGroup(cells: readonly Cell[], why: string): void {
-  const actual: Record<string, string[]> = {};
-  const expected: Record<string, string[]> = {};
-  for (const c of cells) {
-    const key = `${c.cell} :: ${c.src}`;
-    actual[key] = lines(c.src, c.path ?? "test.theta");
-    expected[key] = renderAll(c.expected);
-  }
-  expect(actual, why).toEqual(expected);
+  expectGroupShared(cells, why, (c) => lines(c.src, c.path ?? "test.theta"), renderAll);
 }
 
 // ===========================================================================

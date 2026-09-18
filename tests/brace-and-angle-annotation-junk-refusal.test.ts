@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
 import type { ThetaDocument } from "../src/parser/theta-document";
 import { annotationSourceIsNotTypeExpression } from "../src/parser/type-layer-checks";
-import { parseDoc } from "./helpers/e2e-s1";
+import { expectGroup as expectGroupShared, type DiagnosticCell, parseDoc } from "./helpers/e2e-s1";
 
 // Bug 0252 — `annotationSourceIsNotTypeExpression` (src/parser/type-layer-checks.ts)
 // declines — admits without judging — any annotation text carrying BOTH a brace
@@ -262,11 +262,7 @@ function lines(src: string): string[] {
 }
 
 /** One diagnostic-list cell: a whole theta source and its whole ordered list. */
-interface Cell {
-  readonly cell: string;
-  readonly src: string;
-  readonly expected: readonly Exp[];
-}
+type Cell = DiagnosticCell<Exp>;
 
 /**
  * One group's cells asserted as a whole-map equality: separate assertions would
@@ -274,14 +270,7 @@ interface Cell {
  * control claim here is only meaningful against whole lists compared together.
  */
 function expectGroup(cells: readonly Cell[], why: string): void {
-  const actual: Record<string, string[]> = {};
-  const expected: Record<string, string[]> = {};
-  for (const c of cells) {
-    const key = `${c.cell} :: ${JSON.stringify(c.src)}`;
-    actual[key] = lines(c.src);
-    expected[key] = renderAll(c.expected);
-  }
-  expect(actual, why).toEqual(expected);
+  expectGroupShared(cells, why, (c) => lines(c.src), renderAll, (c) => `${c.cell} :: ${JSON.stringify(c.src)}`);
 }
 
 // The interiors §Reproduction (A)–(D) share. `STRAY` is the sharp one: its only

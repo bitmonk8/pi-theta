@@ -1,17 +1,15 @@
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
+import { registryErrorLine as line, schemaRefusal, paramsRefusal } from "./helpers/registry-oracle";
+import {
+  makeTypePositionReader, loweredF, seamCtx, TYPE_POSITION_DECL_NAME as DECL_NAME,
+  type SinkPosition, type AnnotationPosition,
+} from "./helpers/load-row-harness";
 import { describe, expect, it } from "vitest";
-// @ts-expect-error — JS code-registry module, no type declarations.
-import { parseRegistry, registryMessage } from "../tools/code-registry/index.js";
 import {
   classifyGenericArgumentSegments,
   findCutBracketGroupText,
   lowerTypeExpr,
   splitTopLevel,
-  type LowerCtx,
 } from "../src/parser/params";
-import type { SchemaDecl, ThetaDocument } from "../src/parser/theta-document";
-import { parseDoc } from "./helpers/e2e-s1";
 
 // Bug 0217 — an inline `enum[…]` written inside a generic argument draws NO
 // diagnostic at any position (HEAD `e5d760bd`, before this file's fix).
@@ -188,93 +186,19 @@ const LET_MISMATCH = "theta/parse/let-rhs-type-mismatch";
 const ARITY = "theta/parse/generic-arity-mismatch";
 const UNRESOLVED_NAMED_TYPE = "theta/parse/unresolved-named-type";
 
-interface RegistryRow {
-  readonly code: string;
-  readonly namespace: string;
-  readonly severity: string;
-  readonly phase: string;
-  readonly trigger: string;
-  readonly message: string;
-}
-
-/** The live four-page sharded registry — the input tests/code-registry.test.ts reconciles. */
-const REGISTRY = parseRegistry(
-  [
-    "code-registry-parse.md",
-    "code-registry-load.md",
-    "code-registry-runtime.md",
-    "code-registry-host.md",
-  ]
-    .map((page) =>
-      readFileSync(
-        fileURLToPath(new URL(`../docs/spec_topics/diagnostics/${page}`, import.meta.url)),
-        "utf8",
-      ),
-    )
-    .join("\n"),
-) as RegistryRow[];
-
-/**
- * A registry row's normative *Message* (DIAG-4, diagnostic-shape.md:74), read
- * rather than restated. Definedness is asserted first so a missing row reds by
- * naming the registry page instead of comparing against a bare `undefined`.
- */
-function registryMessageOf(code: string): string {
-  const template = registryMessage(REGISTRY, code) as string | undefined;
-  expect(
-    template,
-    `DIAG-4 anchor: the diagnostics code registry must carry the *Message* row for ${code}; ` +
-      `without it every expected message in this file would be a restatement, which DIAG-4 bars`,
-  ).toBeDefined();
-  return template as string;
-}
-
-/** `error <code>: <message>` for one substitution set, rendered from the registry. */
-function line(code: string, subs: ReadonlyArray<readonly [string, string]>): string {
-  let message = registryMessageOf(code);
-  for (const [placeholder, value] of subs) {
-    expect(
-      message.includes(placeholder),
-      `DIAG-4 anchor: the registry *Message* for ${code} must carry the ${placeholder} ` +
-        `placeholder this file interpolates; observed template ${JSON.stringify(message)}`,
-    ).toBe(true);
-    message = message.replace(placeholder, value);
-  }
-  return `error ${code}: ${message}`;
-}
-
-/** The schema-position refusal, rendered for the offending declaration's name. */
-function schemaRefusal(declName: string): string {
-  return line(SCHEMA_REFUSAL, [["<X>", declName]]);
-}
-
-/** The `params:`-position refusal, rendered for one field name. */
-function paramsRefusal(field: string): string {
-  return line(PARAMS_REFUSAL, [["<param>", field]]);
-}
-
 // ===========================================================================
 // The seven §Reproduction positions, and their fixtures.
 // ===========================================================================
 
-/** The three positions that thread the `LowerCtx.unspellable` refusal sink. */
-type SinkPosition = "field" | "alias" | "params";
 const SINK_POSITIONS: readonly SinkPosition[] = ["field", "alias", "params"];
 
 /** The four positions bug 0124's bracket-tolerant decline already admits. */
-type AnnotationPosition = "let" | "fnparam" | "fnret" | "query";
 const ANNOTATION_POSITIONS: readonly AnnotationPosition[] = [
   "let",
   "fnparam",
   "fnret",
   "query",
 ];
-
-/** `Cat` for the rows whose text names it, so no unresolved-name diagnostic enters. */
-const CAT_DECL = "schema Cat { a: string }\n";
-
-/** The declaration each sink position refuses at — what `<X>` / `<param>` renders. */
-const DECL_NAME: Record<SinkPosition, string> = { field: "S", alias: "X", params: "f" };
 
 /**
  * The YAML scalar the `params:` fixture spells the type text as. §Reproduction
@@ -303,123 +227,11 @@ function paramsScalar(typeSource: string): string {
   );
 }
 
-/** The §Reproduction fixture for one position, with `T` substituted. */
-function fixture(
-  position: SinkPosition | AnnotationPosition,
-  typeSource: string,
-  withCat: boolean,
-): string {
-  const cat = withCat ? CAT_DECL : "";
-  switch (position) {
-    case "field":
-      return `${cat}schema S {\n  f: ${typeSource}\n}\nlet x = 1\n`;
-    case "alias":
-      return `${cat}schema X = ${typeSource}\nlet x = 1\n`;
-    case "params":
-      return `---\nmode: prompt\nparams:\n  f: ${paramsScalar(typeSource)}\n---\n${cat}let x = 1\n`;
-    case "let":
-      return `${cat}let x: ${typeSource} = 1\n`;
-    case "fnparam":
-      return `${cat}fn f(p: ${typeSource}): integer { 1 }\nlet x = 1\n`;
-    case "fnret":
-      return `${cat}fn f(): ${typeSource} { 1 }\nlet x = 1\n`;
-    case "query":
-      return `${cat}let r = @<${typeSource}>\`hi\`\n`;
-  }
-}
-
-/** What one fixture yields. */
-interface Read {
-  /** Every diagnostic rendered `<severity> <code>: <message>`, in emission order. */
-  readonly lines: readonly string[];
-  /** Every diagnostic's code, in emission order. */
-  readonly codes: readonly string[];
-  /** The count the shipped drop gate reads: error severity in the two namespaces. */
-  readonly gateCount: number;
-  /** Whether the load produced a frontmatter block at all. */
-  readonly frontmatterPresent: boolean;
-  /** The whole document, for the loud readers below. */
-  readonly doc: ThetaDocument;
-}
-
-function diagLines(doc: ThetaDocument): string[] {
-  return doc.diagnostics.map((d) => `${d.severity} ${d.code}: ${d.message}`);
-}
-
-/**
- * Read one type text at one position through the shipped load path, loud on
- * every way a fixture can fail to reach the lowering: a fixture whose
- * declaration never parsed would assert a verdict for the wrong reason.
- */
-function read(
-  label: string,
-  position: SinkPosition | AnnotationPosition,
-  typeSource: string,
-  withCat = false,
-): Read {
-  const src = fixture(position, typeSource, withCat);
-  const doc = parseDoc(src, "bug0217.theta");
-  if (position === "field" || position === "alias") {
-    const wanted = DECL_NAME[position];
-    const decl = doc.body.statements.find(
-      (s): s is SchemaDecl => s.kind === "schema" && s.name === wanted,
-    );
-    if (decl === undefined) {
-      throw new Error(
-        `${label}: the fixture must declare \`schema ${wanted}\` for a type-position verdict to ` +
-          `be attributable to it; statement kinds ` +
-          `${JSON.stringify(doc.body.statements.map((s) => s.kind))}, diagnostics ` +
-          `${JSON.stringify(diagLines(doc))}`,
-      );
-    }
-  }
-  return {
-    lines: diagLines(doc),
-    codes: doc.diagnostics.map((d) => d.code),
-    gateCount: doc.diagnostics.filter(
-      (d) =>
-        d.severity === "error" &&
-        (d.code.startsWith("theta/load/") || d.code.startsWith("theta/parse/")),
-    ).length,
-    frontmatterPresent: doc.frontmatter !== null && doc.frontmatter !== undefined,
-    doc,
-  };
-}
-
-/**
- * The lowered `params:` property for field `f`, loud when the load withheld the
- * frontmatter or the lowered document: comparing `undefined` against a fragment
- * would pass or fail for a reason that is not the cell's.
- */
-function loweredF(label: string, r: Read): unknown {
-  const document = r.doc.frontmatter?.params?.loweredSchema as
-    | Record<string, unknown>
-    | undefined;
-  if (document === undefined) {
-    throw new Error(
-      `${label}: the fixture declares a \`params:\` block, so its lowered schema must be ` +
-        `present for the field's fragment to be readable; frontmatter present: ` +
-        `${r.frontmatterPresent}, diagnostics ${JSON.stringify(r.lines)}`,
-    );
-  }
-  const properties = document["properties"] as Record<string, unknown> | undefined;
-  if (properties === undefined || !("f" in properties)) {
-    throw new Error(
-      `${label}: the lowered \`params:\` document carries no property \`f\`, so the field never ` +
-        `lowered; document ${JSON.stringify(document)}`,
-    );
-  }
-  return properties["f"];
-}
-
-/** The `LowerCtx` the direct-seam cells thread: no declarations, one sink. */
-function seamCtx(): { readonly ctx: LowerCtx; readonly sink: string[] } {
-  const sink: string[] = [];
-  return {
-    ctx: { bodyTypeMap: new Map(), defs: {}, unresolved: [], unspellable: sink },
-    sink,
-  };
-}
+const read = makeTypePositionReader({
+  path: "bug0217.theta",
+  codeOrder: "emission",
+  paramsScalar,
+});
 
 /** The ONE refusal a sink position draws for an illegal type text. */
 function oneRefusal(position: SinkPosition): readonly string[] {

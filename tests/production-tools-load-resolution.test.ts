@@ -1,13 +1,10 @@
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import type {
-  ExtensionAPI,
-  ExtensionContext,
-} from "@earendil-works/pi-coding-agent";
-import type { ThetaFixture } from "../src/extension/factory";
-import { discoverAndComposeFixtures } from "../src/extension/production-composition";
+import {
+  disposeWorkspace,
+  plantThetaWorkspace,
+  runProductionLoad,
+  type LoadOutcome,
+} from "./helpers/production-load-harness";
 
 // V20a-T — failing tests for the paired `V20a` "`tools:` load-time resolution
 // wiring" implementation leaf.
@@ -806,56 +803,19 @@ const THETAS: readonly PlantedTheta[] = [
 
 // --- Fake host `pi` / `ctx` for the load path ------------------------------
 
-interface LoadOutcome {
-  /** Slash names the production compose helper returned (returned fixtures). */
-  readonly registered: readonly string[];
-  /** Error-severity diagnostic messages surfaced via `ctx.ui.notify`. */
-  readonly notifications: readonly string[];
-}
-
 let outcome: LoadOutcome;
 let workspaceDir: string;
 
-async function runProductionLoad(cwd: string): Promise<LoadOutcome> {
-  const notifications: string[] = [];
-  const pi = {
-    getFlag: (): undefined => undefined,
-    getCommands: (): readonly unknown[] => [],
-    sendMessage: (): void => {},
-    sendUserMessage: (): void => {},
-    getActiveTools: (): readonly string[] => [],
-    setActiveTools: (): void => {},
-  } as unknown as ExtensionAPI;
-  const ctx = {
-    cwd,
-    modelRegistry: { getAvailable: (): readonly unknown[] => [] },
-    ui: {
-      notify: (message: string, _type: "error"): void => {
-        notifications.push(message);
-      },
-    },
-  } as unknown as ExtensionContext;
-
-  const fixtures: readonly ThetaFixture[] = await discoverAndComposeFixtures(pi, ctx);
-  return { registered: fixtures.map((f) => f.slashName), notifications };
-}
-
 beforeAll(async () => {
-  workspaceDir = mkdtempSync(join(tmpdir(), "theta-v20a-"));
-  const projectThetaDir = join(workspaceDir, ".pi", "theta");
-  mkdirSync(projectThetaDir, { recursive: true });
-  for (const l of THETAS) {
-    writeFileSync(join(projectThetaDir, `${l.stem}.theta`), l.text, "utf8");
-  }
   // A minimal valid settings file pins the fixture's settings read to a known
   // value. An ABSENT settings file is silent (package-and-settings.md
   // §Failure modes), so the plant is hermeticity, not noise suppression.
-  writeFileSync(join(workspaceDir, ".pi", "settings.json"), "{}", "utf8");
+  workspaceDir = plantThetaWorkspace("theta-v20a-", THETAS, "{}");
   outcome = await runProductionLoad(workspaceDir);
 });
 
 afterAll(() => {
-  rmSync(workspaceDir, { recursive: true, force: true });
+  disposeWorkspace(workspaceDir);
 });
 
 // A precondition guard shared by every bullet: the discovery walk found the

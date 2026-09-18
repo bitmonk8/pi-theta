@@ -13,7 +13,7 @@ import {
   type LoweredSchema,
   type SchemaSlug,
 } from "../src/seams/schema-validator";
-import { loadCleanly as loadCleanlyShared, parseDoc, type LoadedParams } from "./helpers/e2e-s1";
+import { loadSchemaDecls, loadCleanly as loadCleanlyShared, parseDoc, type LoadedParams } from "./helpers/e2e-s1";
 import { assertKeysSorted, inlineDefName, slugOfCanonicalForm, refNames } from "./helpers/canonical-slug-oracle";
 
 // Bug 0053 — `lowerQueryResponseSchema`'s ROOT brace dispatch is a
@@ -430,13 +430,7 @@ function diagLines(doc: ThetaDocument): string[] {
  * fixture never reads as a lowering result.
  */
 function schemaDeclsOf(body: string): readonly SchemaDecl[] {
-  const doc = parseDoc(bodySrc(body), "bug0053.theta");
-  if (doc.diagnostics.length > 0) {
-    throw new Error(
-      `harness: the decl body must load cleanly, but produced ${JSON.stringify(diagLines(doc))}`,
-    );
-  }
-  return doc.body.statements.filter((s): s is SchemaDecl => s.kind === "schema");
+  return loadSchemaDecls(body, "bug0053.theta");
 }
 
 /** The `schema Triage { urgent: boolean }` declaration set an inline annotation resolves against. */

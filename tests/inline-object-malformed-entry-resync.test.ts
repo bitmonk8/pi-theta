@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 import { parseRegistry, registryMessage } from "../tools/code-registry/index.js";
 import type { ThetaDocument } from "../src/parser/theta-document";
 import { lowerQueryResponseSchema } from "../src/runtime/query-schema-lowering";
-import { parseDoc, diagLines, isLoadParseError, subagentTheta as theta, subagentParamsSrc as paramsSrc } from "./helpers/e2e-s1";
+import { expectGroup as expectGroupShared, type DiagnosticCell, parseDoc, diagLines, isLoadParseError, subagentTheta as theta, subagentParamsSrc as paramsSrc } from "./helpers/e2e-s1";
 
 // Bug 0231 — `TypeParser.parseObject`'s field loop BREAKS at the first entry
 // that does not spell `Ident ":"`, so every field behind it is absent from both
@@ -296,12 +296,7 @@ function registers(doc: ThetaDocument): boolean {
 }
 
 /** One diagnostic-list cell. */
-interface Cell {
-  readonly cell: string;
-  readonly src: string;
-  readonly path?: string;
-  readonly expected: readonly Exp[];
-}
+type Cell = DiagnosticCell<Exp>;
 
 /**
  * One group's cells asserted as a whole-map equality: separate assertions would
@@ -309,14 +304,7 @@ interface Cell {
  * per-position claims are only meaningful against whole lists.
  */
 function expectGroup(cells: readonly Cell[], why: string): void {
-  const actual: Record<string, string[]> = {};
-  const expected: Record<string, string[]> = {};
-  for (const c of cells) {
-    const key = `${c.cell} :: ${c.src}`;
-    actual[key] = lines(c.src, c.path ?? "test.theta");
-    expected[key] = renderAll(c.expected);
-  }
-  expect(actual, why).toEqual(expected);
+  expectGroupShared(cells, why, (c) => lines(c.src, c.path ?? "test.theta"), renderAll);
 }
 
 // ===========================================================================

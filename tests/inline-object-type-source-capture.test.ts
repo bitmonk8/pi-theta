@@ -12,7 +12,7 @@ import type {
   ThetaDocument,
 } from "../src/parser/theta-document";
 import { lowerQueryResponseSchema } from "../src/runtime/query-schema-lowering";
-import { parseDoc } from "./helpers/e2e-s1";
+import { expectGroup as expectGroupShared, type DiagnosticCell, parseDoc } from "./helpers/e2e-s1";
 
 // Bug 0228 — the three type-source captures in `src/parser/theta-document.ts`
 // rebuild a `Type`'s text by joining lexer token texts with NO separator
@@ -432,12 +432,7 @@ function paramsFragment(type: string): Record<string, unknown> {
 // re-assert all of it at CODE level with no registry dependency.
 // ===========================================================================
 
-interface Cell {
-  readonly cell: string;
-  readonly src: string;
-  readonly path?: string;
-  readonly expected: readonly Exp[];
-}
+type Cell = DiagnosticCell<Exp>;
 
 /**
  * One inline type at every position, with one expectation for the eleven
@@ -650,14 +645,7 @@ const NEW_ROW_LIST_CELLS = 42;
  * precedence / one-row claims above are only meaningful against whole lists.
  */
 function expectGroup(cells: readonly Cell[], why: string): void {
-  const actual: Record<string, string[]> = {};
-  const expected: Record<string, string[]> = {};
-  for (const c of cells) {
-    const key = `${c.cell} :: ${c.src}`;
-    actual[key] = lines(c.src, c.path);
-    expected[key] = renderAll(c.expected);
-  }
-  expect(actual, why).toEqual(expected);
+  expectGroupShared(cells, why, (c) => lines(c.src, c.path), renderAll);
 }
 
 // ===========================================================================

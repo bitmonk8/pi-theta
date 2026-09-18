@@ -85,12 +85,10 @@ import type {
   ModelRegistry,
 } from "@earendil-works/pi-coding-agent";
 import type { ThetaSource } from "../src/lexer/lexer";
-import type { SystemNoteChannelDeps } from "../src/extension/system-note-channel";
-import type { ModelReferenceMatcher, ParsedFrontmatter } from "../src/parser/frontmatter";
+import type { ParsedFrontmatter } from "../src/parser/frontmatter";
 import {
   parseThetaDocument,
   type EnumDecl,
-  type ParseThetaDocumentDeps,
   type SchemaDecl,
   type ThetaDocument,
 } from "../src/parser/theta-document";
@@ -114,7 +112,8 @@ import type {
   ThetaCompositionInput,
 } from "../src/extension/theta-composition-producer";
 import type { RuntimeRoot } from "../src/runtime-root";
-import type { Checkpoint } from "../src/seams/checkpoint";
+import { parseDeps } from "./helpers/e2e-s1";
+import { rootDouble as sharedRootDouble } from "./helpers/call-with-clause-harness";
 import {
   AjvSchemaValidator,
   type CompiledValidator,
@@ -150,18 +149,6 @@ const LOWERED_ARRAY_SEV =
 // Harness — the real production prompt-mode binding over a real parse.
 // ===========================================================================
 
-function parseDeps(): ParseThetaDocumentDeps {
-  const systemNote: SystemNoteChannelDeps = {
-    pi: { sendMessage: (): void => {} },
-    ui: { notify: (): void => {} },
-    emitDiagnostic: (): void => {},
-  };
-  const modelMatcher: ModelReferenceMatcher = {
-    resolve: (): "resolved" => "resolved",
-  };
-  return { systemNote, modelMatcher };
-}
-
 /**
  * Parse a fixture and fail LOUDLY on any error-severity diagnostic — a fixture
  * that stops parsing must never let a bug test pass, or red, for the wrong
@@ -179,12 +166,6 @@ function parseTheta(path: string, src: string): ThetaDocument {
   }
   return doc;
 }
-
-const NOOP_CHECKPOINT: Checkpoint = {
-  before(): Promise<void> {
-    return Promise.resolve();
-  },
-};
 
 /**
  * The production AJV validator, wired with the same `JSON.stringify`
@@ -243,11 +224,8 @@ class RecordingSchemaValidator implements SchemaValidator {
 }
 
 function rootDouble(schemaValidator: SchemaValidator): RuntimeRoot {
-  return {
-    checkpoint: NOOP_CHECKPOINT,
-    idSource: { newInvocationId: () => "inv-1", newToolCallId: () => "tc-1" },
-    schemaValidator,
-  } as unknown as RuntimeRoot;
+  const { checkpoint, idSource } = sharedRootDouble();
+  return { checkpoint, idSource, schemaValidator } as unknown as RuntimeRoot;
 }
 
 function ctxDouble(): ExtensionCommandContext {

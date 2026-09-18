@@ -21,7 +21,7 @@ import {
   type LoweredSchema,
   type SchemaSlug,
 } from "../src/seams/schema-validator";
-import { parseDoc, diagLines } from "./helpers/e2e-s1";
+import { loadSchemaDecls, parseDoc, diagLines } from "./helpers/e2e-s1";
 import { assertKeysSorted, inlineDefName, slugOfCanonicalForm, refNames } from "./helpers/canonical-slug-oracle";
 
 // Bug 0039 — an inline object type is recursive by the grammar, and the shared
@@ -504,13 +504,7 @@ function annotationBody(annotation: string): string {
  * lowering result.
  */
 function schemaDeclsOf(body: string): readonly SchemaDecl[] {
-  const doc = parseDoc(bodySrc(body), "bug0039.theta");
-  if (doc.diagnostics.length > 0) {
-    throw new Error(
-      `harness: the decl body must load cleanly, but produced ${JSON.stringify(diagLines(doc))}`,
-    );
-  }
-  return doc.body.statements.filter((s): s is SchemaDecl => s.kind === "schema");
+  return loadSchemaDecls(body, "bug0039.theta");
 }
 
 /** The `schema Triage { urgent: boolean }` declaration set every annotation resolves against. */

@@ -7,7 +7,7 @@ import type { ThetaDocument } from "../src/parser/theta-document";
 import { isSingleEnclosingBraceGroup } from "../src/parser/params";
 import { annotationSourceIsNotTypeExpression } from "../src/parser/type-layer-checks";
 import { lowerQueryResponseSchema } from "../src/runtime/query-schema-lowering";
-import { parseDoc, subagentTheta as theta, subagentParamsSrc } from "./helpers/e2e-s1";
+import { expectGroup as expectGroupShared, type DiagnosticCell, parseDoc, subagentTheta as theta, subagentParamsSrc } from "./helpers/e2e-s1";
 
 // Bug 0256 — an inline object entry stranded behind `TypeParser.parseObject`'s
 // exit on a missing entry separator is never visited, so a `params:` field
@@ -265,12 +265,7 @@ function loweredParams(type: string): string {
 }
 
 /** One diagnostic-list cell. */
-interface Cell {
-  readonly cell: string;
-  readonly src: string;
-  readonly path?: string | undefined;
-  readonly expected: readonly Exp[];
-}
+type Cell = DiagnosticCell<Exp>;
 
 /**
  * One group's cells asserted as a whole-map equality: separate assertions would
@@ -278,14 +273,7 @@ interface Cell {
  * agreement claims are only meaningful against whole lists compared together.
  */
 function expectGroup(cells: readonly Cell[], why: string): void {
-  const actual: Record<string, string[]> = {};
-  const expected: Record<string, string[]> = {};
-  for (const c of cells) {
-    const key = `${c.cell} :: ${c.src}`;
-    actual[key] = lines(c.src, c.path ?? "test.theta");
-    expected[key] = renderAll(c.expected);
-  }
-  expect(actual, why).toEqual(expected);
+  expectGroupShared(cells, why, (c) => lines(c.src, c.path ?? "test.theta"), renderAll);
 }
 
 // ===========================================================================

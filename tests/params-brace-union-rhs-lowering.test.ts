@@ -13,7 +13,7 @@ import {
   type LoweredSchema,
   type SchemaSlug,
 } from "../src/seams/schema-validator";
-import { parseDoc, fieldOf } from "./helpers/e2e-s1";
+import { loadSchemaDecls, parseDoc, fieldOf } from "./helpers/e2e-s1";
 import { assertKeysSorted, inlineDefName, slugOfCanonicalForm, refNames } from "./helpers/canonical-slug-oracle";
 
 // Bug 0097 — the `params:` right-hand side keeps a naive
@@ -432,13 +432,7 @@ function diagLines(doc: ThetaDocument): string[] {
  * fixture never reads as a lowering result.
  */
 function schemaDeclsOf(body: string): readonly SchemaDecl[] {
-  const doc = parseDoc(`---\nmode: prompt\n---\n${body}`, "bug0097.theta");
-  if (doc.diagnostics.length > 0) {
-    throw new Error(
-      `harness: the decl body must load cleanly, but produced ${JSON.stringify(diagLines(doc))}`,
-    );
-  }
-  return doc.body.statements.filter((s): s is SchemaDecl => s.kind === "schema");
+  return loadSchemaDecls(body, "bug0097.theta");
 }
 
 /** The declaration set an inline annotation resolves against. */
