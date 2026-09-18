@@ -38,7 +38,12 @@ non-zero overrides all lenses),
 unlimited), `budget` (max candidates per shard, default 10), `parallel`
 (fan-out width, default 4; review shards run in batches of this size with
 reviewed-state marked after each batch, so an interrupted wave loses at most
-one batch of review work), `push` (default true), `gate_cmd` (offline
+one batch of review work), `lane_batch` (default 4): a fix lane runs its manifest as SEQUENTIAL
+batches of this many issues - each batch its own fixer/gate/review/commit
+cycle and revert boundary, squashed to one commit at lane end - so
+`cluster_max` (default 12) bounds a LANE's ownership while the review/gate
+blast radius stays at `lane_batch` (one stubborn issue sinks its batch,
+never the lane), `push` (default true), `gate_cmd` (offline
 verification gate, default `npx tsc --noEmit && npm test`), `cluster_max`
 (issues per fix lane before a cluster splits into file-disjoint parts, default
 `"4"` — small on purpose: the lane is the unit of review, and a second

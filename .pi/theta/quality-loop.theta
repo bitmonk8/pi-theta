@@ -22,14 +22,19 @@ params:
   parallel: integer = 4
   push: boolean = true
   gate_cmd: string = "npx tsc --noEmit && npm test"
-  cluster_max: string = "4"
+  cluster_max: string = "12"
+  lane_batch: integer = 4
   tree_workers: string = "6"
 ---
 // cluster_max and tree_workers are string-typed because they are spliced into
-// shell commands: cluster_max caps one manifest's issue count (an oversized
-// cluster splits into file-disjoint <key>__p1, __p2, ...; small so that one
-// hard issue cannot sink a lane of siblings under the 2-attempt review
-// budget), tree_workers caps ONE worktree's
+// shell commands: cluster_max caps one LANE's manifest (an oversized cluster
+// splits into file-disjoint <key>__p1, __p2, ... and an oversized COMPONENT
+// drains as a bounded slice + deferred tail); the lane runs its manifest as
+// SEQUENTIAL batches of `lane_batch` issues, each with its own fixer/gate/
+// review/commit cycle and revert boundary (fix-cluster-tree.theta), so one
+// hard issue sinks at most its `lane_batch`-sized batch, never the lane -
+// which is why cluster_max can sit at 12 while the review blast radius stays
+// at 4. tree_workers caps ONE worktree's
 // vitest width so parallel x tree_workers stays inside the core budget
 // (default 4 x 6 = 24 on a 32-core host).
 import { ReviewSummary, TriageVerdict, TreeFixReport, lines } from "./workers/quality.thetalib"
@@ -371,7 +376,7 @@ while cycle < max_cycles && !converged {
     // (edits, gate runs, the commit), never its identity - the child still
     // loads THIS tree's worker code (RFC 0009 §4, identity/location).
     let reports = par for w in work max parallel {
-      invoke<TreeFixReport>("./workers/fix-cluster-tree.theta", w.manifest_abs, w.key, wave, tree_gate_cmd, "") with { cwd: w.tree }?
+      invoke<TreeFixReport>("./workers/fix-cluster-tree.theta", w.manifest_abs, w.key, wave, tree_gate_cmd, "", lane_batch) with { cwd: w.tree }?
     }
 
     let mut greens: array<Green> = []
@@ -436,7 +441,7 @@ ${residue}`?
         report = report + "wave " + wave + ": cluster " + r.key + " retry skipped - worktree provisioning failed, issues stay open\n"
       } else {
         let seed = "RETRY after an integration conflict: this cluster's previous fix (commit " + r.sha + ", now discarded) conflicted with sibling lanes' already-integrated changes on: " + r.conflicts + ". This tree is at the integrated head, so those siblings' changes - including any new tests/helpers/* exports - are ALREADY present: reuse them, do not re-add them, and re-apply this cluster's fixes on top."
-        let rep = match invoke<TreeFixReport>("./workers/fix-cluster-tree.theta", r.manifest_abs, r.key, wave, tree_gate_cmd, seed) with { cwd: tree } {
+        let rep = match invoke<TreeFixReport>("./workers/fix-cluster-tree.theta", r.manifest_abs, r.key, wave, tree_gate_cmd, seed, lane_batch) with { cwd: tree } {
           Ok(x) => x,
           Err(e) => TreeFixReport { ok: false, sha: "", fixed_confirmed: [], notes: "tree worker failed: " + e.kind + " - " + e.message, fixer_notes: "" },
         }

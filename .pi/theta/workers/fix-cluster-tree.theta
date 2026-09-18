@@ -1,5 +1,5 @@
 ---
-description: "Fix one cluster inside its own git worktree - up to 2 attempts behind a bounded gate, one in-tree commit once green, never touches the quality store"
+description: "Fix one cluster inside its own git worktree - the manifest runs as SEQUENTIAL small batches (fixer/gate/review/commit per batch, each its own revert boundary), squashed to one commit at lane end; never touches the quality store"
 mode: subagent
 model: "anthropic/claude-sonnet-5"
 tools:
@@ -13,25 +13,34 @@ params:
   wave: string
   gate_cmd: string
   retry_context: string
+  batch: integer = 4
 ---
 // Runs with cwd == its own git worktree (the orchestrator dispatches it as
 // `fix_cluster_tree(...) with { cwd: tree }`), so every side effect of a fix
-// attempt - edits, gate runs, the commit - stays in that one tree and cannot
+// attempt - edits, gate runs, the commits - stays in that one tree and cannot
 // collide with a sibling fixer. The two workers it calls inherit that cwd,
 // which is why they need no change: their repo-relative paths and git commands
 // resolve against the tree. See docs/how-to/fan-out-into-git-worktrees.md.
 //
-// This wrapper is code-only: it drives two workers and a gate and never takes
-// a turn of its own, so the parent's child-activity tap sees no model traffic
-// for minutes at a time and the lane looks dead. The `theta_progress` calls
-// below are the narrative channel that makes it watchable - running in the
-// child regime each accepted call is exactly one PIC-74 stdout wire line, and
-// the parent's tap renders it per-lane as the class-2 segment (EXST-15). They
-// are placed at attempt/gate/review/commit boundaries only: each is separated
-// from the next by a worker invocation or a gate run, so the EXST-14 200 ms
-// inter-acceptance clamp drops none of them in practice.
-// See docs/how-to/report-progress-from-a-theta.md.
-import { FixReport, FixReview, TreeFixReport } from "./quality.thetalib"
+// BATCHED LANES (2026-09-18). A lane may own many issues (an oversized glued
+// component drains through one lane per wave), but gate/review rejection
+// probability grows with batch size and a rejection re-gates and re-reviews
+// EVERYTHING - one stubborn issue among ten sinks nine good fixes at the
+// attempt-2 revert. So the manifest runs as SEQUENTIAL batches of `batch`
+// issues: each batch gets the full fixer -> gate -> review -> commit cycle
+// and its own revert boundary (a double-rejected batch is reset --hard away
+// and the lane moves on; committed predecessors are untouchable history).
+// The worktree setup, the cherry-pick, and the orchestrator's integration
+// contract amortise across batches: at lane end the committed batches are
+// SQUASHED into one commit via `git reset --soft <base>` + an INDEX commit -
+// deliberately no `git add`, so stray working-tree writes (a bug-0484
+// orphaned fixer racing the lane) can never leak into the reported sha.
+//
+// This wrapper is code-only: it drives workers and gates and never takes a
+// turn of its own. The `theta_progress` calls are the narrative channel that
+// makes it watchable (PIC-74 / EXST-15), placed at batch/attempt/gate/review/
+// commit boundaries only.
+import { FixReport, FixReview, TreeFixReport, lines } from "./quality.thetalib"
 
 // Manifest transport. The cluster manifest is written under quality/tmp/,
 // which is gitignored - so the worktree's HEAD checkout does NOT carry it,
@@ -39,7 +48,7 @@ import { FixReport, FixReview, TreeFixReport } from "./quality.thetalib"
 // therefore present in this tree. Copying the main tree's manifest into this
 // tree's own quality/tmp/ keeps fix-cluster.theta and review-fix.theta reading
 // a repo-relative manifest path exactly as they do in the main tree, and the
-// copy is invisible to git (gitignored), so it cannot reach the commit.
+// copy is invisible to git (gitignored), so it cannot reach any commit.
 let man = "quality/tmp/tree-cluster.txt"
 let staged = match bash({ command: "mkdir -p quality/tmp && cp \"" + manifest_src + "\" " + man + " && wc -l < " + man }) {
   Ok(_) => true,
@@ -61,131 +70,148 @@ if !staged {
 // (AGENTS.md #subagent-child-pins).
 let env_scrub = "unset PI_THETA_SUBAGENT_ROOT PI_THETA_SUBAGENT_ROOT_WINNER PI_THETA_PARAMS PI_THETA_PARAMS_FILE PI_THETA_SUBAGENT_INVOKE_DEPTH PI_THETA_SUBAGENT_CALLABLE_HASHES PI_THETA_SUBAGENT_PARENT_PID; "
 
-// `retry_context` is "" on a lane's first run. On a rebase-and-retry (the
-// orchestrator re-runs a lane whose commit conflicted at integration, in a
-// fresh tree at the integrated head) it spells out what conflicted and what
-// the tree already contains, and seeds attempt 1's guidance exactly as a
-// rejected attempt would seed attempt 2's.
-let mut attempt = 0
-let mut guidance = retry_context
-let mut done = false
-let mut sha = ""
+// The lane's base commit: the squash target, and the "nothing committed yet"
+// sentinel for the abort paths.
+let base = bash({ command: "git rev-parse HEAD" })?.trim()
+
+let mut all_issues: array<string> = []
+all_issues = lines(bash({ command: "cat " + man })?)
+
 let mut confirmed: array<string> = []
 let mut notes = ""
 let mut fixer_notes = ""
-let mut trail = ""
+let mut batches_committed = 0
+let mut lane_aborted = ""
 
-while attempt < 2 && !done {
-  attempt += 1
-  // A number cannot be concatenated with a string in theta; the attempt index
-  // is bounded at 2, so a ternary spells it (the same idiom the notes below use).
-  let att = attempt == 1 ? "1" : "2"
-  let _ = theta_progress({ message: "attempt " + att + ": fixing " + key, scope: key, done: attempt, total: 2 })?
-  let fr_result = fix_cluster(man, guidance, gate_cmd)
-  // A failed fixer INVOKE aborts the whole lane — no gate, no review, no second
-  // attempt. The Err says nothing about the tree: a heartbeat-silence /
-  // channel-close settle abandons a child that is often STILL RUNNING (observed
-  // live 2026-09-17: the reviewer watched "code changing under its feet" while
-  // an orphaned fixer kept editing; a second orphan ground for an hour in a
-  // discarded tree). Gating a moving tree measures nothing and a review over it
-  // can confirm a state the orphan immediately invalidates. The lane sheds; the
-  // issues stay open; the next wave retries in a fresh tree. Parent-side kill
-  // semantics are bug 0484.
-  let fixer_err = match fr_result {
-    Ok(f) => "",
-    Err(e) => e.kind,
+let mut start = 0
+while start < all_issues.length && lane_aborted == "" {
+  let mut end = start + batch
+  if end > all_issues.length {
+    end = all_issues.length
   }
-  if fixer_err != "" {
-    let _ = theta_progress({ message: "fixer invoke FAILED (" + fixer_err + ") - lane aborted: " + key, scope: key, done: attempt, total: 2 })?
-    return TreeFixReport { ok: false, sha: "", fixed_confirmed: [], notes: "fixer invoke failed (" + fixer_err + ") on attempt " + att + "; lane aborted without gate or review - the tree state is unknown and the abandoned fixer child may still be editing it (orphan; bug 0484). Trail: " + trail, fixer_notes: "" }
-  }
-  let fr = match fr_result {
-    Ok(f) => f,
-    Err(e) => FixReport { fixed: [], skipped: [], notes: "unreachable: fixer_err aborted above" },
-  }
-  let _ = theta_progress({ message: "gating " + key, scope: key, done: attempt, total: 2 })?
-  // The gate is bounded (the orchestrator passes a test-runner-width-capped
-  // gate_cmd): N trees x M runner workers must stay under the core budget.
-  // Gate output goes to a gitignored in-tree log so a red gate is
-  // DIAGNOSABLE: the failing tail feeds attempt 2's guidance and the final
-  // notes. (A user-supplied gate_cmd carrying its own >/dev/null redirects
-  // degrades to the old blind behaviour - the log is then empty.)
-  // The wrapper's contract is a typed report on EVERY path - an operational
-  // failure here (gate bash timeout, tool error) folds into the report
-  // instead of Err-ing the whole worker (the qw20260911055804 lane died as a
-  // bare invoke_callee exactly this way).
-  let gate = match bash({ command: env_scrub + "{ " + gate_cmd + " ; } > quality/tmp/gate.log 2>&1 && echo GATE_PASS || echo GATE_FAIL", timeout: 3600 }) {
-    Ok(g) => g,
-    Err(e) => "GATE_FAIL gate-bash-error: " + e.kind + " - " + e.message,
-  }
-  let gate_tail = gate.includes("GATE_PASS") ? "" : match bash({ command: env_scrub + "{ grep -E 'FAIL|failed|Error' quality/tmp/gate.log | head -25 ; tail -c 1500 quality/tmp/gate.log ; } 2>/dev/null" }) {
-    Ok(t) => t,
-    Err(e) => "(gate log unavailable: " + e.kind + ")",
-  }
-  let gate_state = gate.includes("GATE_PASS") ? "green" : (gate.includes("gate-bash-error:") ? gate : "red")
-  let _ = theta_progress({ message: "gate " + gate_state + ": " + key, scope: key, done: attempt, total: 2 })?
-  trail = trail + "attempt " + att + ": gate " + gate_state + "; "
-  let rv = match review_fix(man) {
-    Ok(r) => r,
-    Err(e) => FixReview { ok: false, fixed_confirmed: [], must_fix: "fix-review worker failed: " + e.kind + " - fixer notes were: " + fr.notes, unconfirmed: "" },
-  }
-  let _ = theta_progress({ message: "review " + (rv.ok ? "confirmed" : "rejected") + ": " + key, scope: key, done: attempt, total: 2 })?
-  if gate.includes("GATE_PASS") && rv.ok && rv.fixed_confirmed.length > 0 {
-    // Single-writer rule: the tree commits code only. Any stray quality/ edit
-    // is unstaged before the commit so the store stays the orchestrator's.
-    let committed = bash({ command: "git add -A && git restore --staged -- quality >/dev/null 2>&1; git commit -q -m \"quality: " + wave + " fix " + key + "\" >/dev/null 2>&1 && git rev-parse HEAD || echo COMMIT_FAIL" })?
-    if committed.includes("COMMIT_FAIL") {
-      notes = "in-tree commit failed after a green gate and a confirming review"
-      let _ = theta_progress({ message: "commit FAILED: " + key, scope: key, done: attempt, total: 2 })?
-    } else {
-      sha = committed.trim()
-      confirmed = rv.fixed_confirmed
-      done = true
-      // What the fixer said about every issue (fixed AND skipped) - the store
-      // files this under each unfixed issue's "## Fix attempts".
-      fixer_notes = fr.notes + (rv.must_fix == "" ? "" : " | review: " + rv.must_fix) + (rv.unconfirmed == "" ? "" : " | review unconfirmed: " + rv.unconfirmed)
-      notes = "gate green, review confirmed " + rv.fixed_confirmed.join(",") + " on attempt " + att
-      let _ = theta_progress({ message: "committed " + key + " @ " + sha, scope: key, done: attempt, total: 2 })?
+  let mut chunk: array<string> = []
+  chunk = all_issues.slice(start, end)
+  start = end
+  // The batch label is its first issue's basename - strings end to end (theta
+  // has no number->string concat).
+  let mut lbl: array<string> = []
+  lbl = chunk[0].split("/")
+  let label = lbl[lbl.length - 1]
+  // Issue paths are repo-relative, shell-safe (no spaces); the sub-manifest is
+  // written by printf in the tree's own gitignored quality/tmp/.
+  let subman = "quality/tmp/tree-batch.txt"
+  let _ = bash({ command: "printf '%s\\n' " + chunk.join(" ") + " > " + subman })?
+  // The pre-batch boundary: a double-rejected batch resets --hard here (plus a
+  // clean of untracked fixer leftovers, or they leak into the NEXT batch's
+  // add -A commit); committed predecessors stay behind it.
+  let boundary = bash({ command: "git rev-parse HEAD" })?.trim()
+
+  let mut attempt = 0
+  let mut guidance = retry_context
+  let mut done = false
+  let mut trail = ""
+  while attempt < 2 && !done && lane_aborted == "" {
+    attempt += 1
+    let att = attempt == 1 ? "1" : "2"
+    let _ = theta_progress({ message: "batch " + label + " attempt " + att + ": fixing " + key, scope: key })?
+    let fr_result = fix_cluster(subman, guidance, gate_cmd)
+    // A failed fixer INVOKE aborts the whole lane - no gate, no review, no
+    // further batches. The Err says nothing about the tree: a
+    // heartbeat-silence / channel-close settle abandons a child that is often
+    // STILL RUNNING (bug 0484 - a reviewer watched "code changing under its
+    // feet"; an orphan span at 100% core). Committed predecessor batches are
+    // safe git history and are still squashed and reported below.
+    let fixer_err = match fr_result {
+      Ok(f) => "",
+      Err(e) => e.kind,
     }
-  } else {
-    trail = trail + "review ok=" + (rv.ok ? "true" : "false") + ", confirmed " + (rv.fixed_confirmed.length == 0 ? "none" : rv.fixed_confirmed.join(",")) + (rv.must_fix == "" ? "" : ", must_fix: " + rv.must_fix) + "; fixer: " + fr.notes + " | "
-    // A retry's seed stays in front of the review's must_fix: attempt 2 must
-    // still know the tree already holds the siblings' changes.
-    guidance = "ATTEMPT 2 (LAST): " + (retry_context == "" ? "" : retry_context + " ") + rv.must_fix + (gate.includes("GATE_PASS") ? "" : " ALSO: the offline gate is red after your changes - make it green. Gate failures (tail): " + gate_tail + " -- If a census/pin/inventory gate reds, its own failure message names the sanctioned same-commit re-derivation - follow it rather than avoiding the edit.")
-    if attempt >= 2 {
-      // Same revert boundary as the single-tree loop had, now per tree: undo
-      // the rejected attempt and report leftovers loudly rather than commit
-      // them. The tree itself is discarded by the orchestrator either way, so
-      // an unclean revert here cannot poison the main tree - it is reported,
-      // not a halt.
-      let _ = theta_progress({ message: "reverting " + key + " after 2 rejected attempts", scope: key, done: 2, total: 2 })?
-      let restore_ok = match bash({ command: "git restore ." }) {
-        Ok(_) => true,
-        Err(e) => false,
+    if fixer_err != "" {
+      lane_aborted = "fixer invoke failed (" + fixer_err + ") on batch " + label + " attempt " + att + "; lane aborted - tree state unknown and the abandoned fixer child may still be editing it (orphan; bug 0484)."
+      let _ = theta_progress({ message: "fixer invoke FAILED (" + fixer_err + ") - lane aborted: " + key, scope: key })?
+    } else {
+      let fr = match fr_result {
+        Ok(f) => f,
+        Err(e) => FixReport { fixed: [], skipped: [], notes: "unreachable: fixer_err aborted above" },
       }
-      let residue_n = match bash({ command: "git status --porcelain | wc -l" }) {
-        Ok(n) => n,
-        Err(e) => "unknown",
+      let _ = theta_progress({ message: "batch " + label + ": gating " + key, scope: key })?
+      // The gate is bounded (the orchestrator passes a test-runner-width-capped
+      // gate_cmd). Output goes to a gitignored in-tree log so a red gate is
+      // DIAGNOSABLE: the failing tail feeds attempt 2's guidance and the notes.
+      let gate = match bash({ command: env_scrub + "{ " + gate_cmd + " ; } > quality/tmp/gate.log 2>&1 && echo GATE_PASS || echo GATE_FAIL", timeout: 3600 }) {
+        Ok(g) => g,
+        Err(e) => "GATE_FAIL gate-bash-error: " + e.kind + " - " + e.message,
       }
-      if !restore_ok {
-        trail = trail + "in-tree revert bash FAILED; "
+      let gate_tail = gate.includes("GATE_PASS") ? "" : match bash({ command: env_scrub + "{ grep -E 'FAIL|failed|Error' quality/tmp/gate.log | head -25 ; tail -c 1500 quality/tmp/gate.log ; } 2>/dev/null" }) {
+        Ok(t) => t,
+        Err(e) => "(gate log unavailable: " + e.kind + ")",
       }
-      notes = "2 rejected fix attempts, reverted in-tree. Trail: " + trail
-      if residue_n.trim() != "0" {
-        let residue = bash({ command: "git status --porcelain | head -20" })?
-        notes = "2 rejected fix attempts; UNCLEAN in-tree revert (leftovers below, worktree discarded): " + residue.trim() + " | Trail: " + trail
+      let gate_state = gate.includes("GATE_PASS") ? "green" : (gate.includes("gate-bash-error:") ? gate : "red")
+      let _ = theta_progress({ message: "batch " + label + ": gate " + gate_state, scope: key })?
+      trail = trail + "attempt " + att + ": gate " + gate_state + "; "
+      let rv = match review_fix(subman) {
+        Ok(r) => r,
+        Err(e) => FixReview { ok: false, fixed_confirmed: [], must_fix: "fix-review worker failed: " + e.kind + " - fixer notes were: " + fr.notes, unconfirmed: "" },
+      }
+      let _ = theta_progress({ message: "batch " + label + ": review " + (rv.ok ? "confirmed" : "rejected"), scope: key })?
+      if gate.includes("GATE_PASS") && rv.ok && rv.fixed_confirmed.length > 0 {
+        // Single-writer rule: the tree commits code only. Any stray quality/
+        // edit is unstaged before the commit so the store stays the
+        // orchestrator's.
+        let committed = bash({ command: "git add -A && git restore --staged -- quality >/dev/null 2>&1; git commit -q -m \"quality: " + wave + " fix " + key + " batch " + label + "\" >/dev/null 2>&1 && git rev-parse HEAD || echo COMMIT_FAIL" })?
+        if committed.includes("COMMIT_FAIL") {
+          notes = notes + "[" + label + "] in-tree commit failed after a green gate and a confirming review. "
+          let _ = theta_progress({ message: "batch " + label + ": commit FAILED", scope: key })?
+          done = true
+        } else {
+          batches_committed += 1
+          confirmed = confirmed.concat(rv.fixed_confirmed)
+          done = true
+          fixer_notes = fixer_notes + "[" + label + "] " + fr.notes + (rv.must_fix == "" ? "" : " | review: " + rv.must_fix) + (rv.unconfirmed == "" ? "" : " | review unconfirmed: " + rv.unconfirmed) + " || "
+          notes = notes + "[" + label + "] gate green, review confirmed " + rv.fixed_confirmed.join(",") + " on attempt " + att + ". "
+          let _ = theta_progress({ message: "batch " + label + ": committed", scope: key })?
+        }
+      } else {
+        trail = trail + "review ok=" + (rv.ok ? "true" : "false") + ", confirmed " + (rv.fixed_confirmed.length == 0 ? "none" : rv.fixed_confirmed.join(",")) + (rv.must_fix == "" ? "" : ", must_fix: " + rv.must_fix) + "; fixer: " + fr.notes + " | "
+        // A retry's seed stays in front of the review's must_fix: attempt 2
+        // must still know the tree already holds prior batches' changes.
+        guidance = "ATTEMPT 2 (LAST): " + (retry_context == "" ? "" : retry_context + " ") + rv.must_fix + (gate.includes("GATE_PASS") ? "" : " ALSO: the offline gate is red after your changes - make it green. Gate failures (tail): " + gate_tail + " -- If a census/pin/inventory gate reds, its own failure message names the sanctioned same-commit re-derivation - follow it rather than avoiding the edit.")
+        if attempt >= 2 {
+          // Batch revert boundary: reset to the pre-batch commit and clean the
+          // failed attempt's untracked leftovers (a new helper module etc.) so
+          // they cannot leak into the NEXT batch's `git add -A` commit.
+          // quality/ is excluded: the manifests and gate log live there
+          // (gitignored) and the next batch still needs them.
+          let _ = theta_progress({ message: "batch " + label + ": reverting after 2 rejected attempts", scope: key })?
+          let restore_ok = match bash({ command: "git reset --hard " + boundary + " >/dev/null 2>&1 && git clean -fd -e quality >/dev/null 2>&1; git status --porcelain | wc -l" }) {
+            Ok(n) => n.trim() == "0",
+            Err(e) => false,
+          }
+          if restore_ok {
+            notes = notes + "[" + label + "] 2 rejected fix attempts, batch reverted. Trail: " + trail + " "
+          } else {
+            let residue = bash({ command: "git status --porcelain | head -10" })?
+            notes = notes + "[" + label + "] 2 rejected attempts; UNCLEAN batch revert (leftovers: " + residue.trim() + ") - lane halted to protect later batches. Trail: " + trail + " "
+            lane_aborted = "unclean batch revert at " + label
+          }
+        }
       }
     }
   }
 }
 
-// Tail value. An `if` is a STATEMENT in theta — a trailing if/else's branch
-// values go nowhere and the callee's final value would be null (the exact
-// shape of the 2026-09-10 abort: Ok(null) crossing PIC-59, then `.ok` panics
-// in the orchestrator). Bind, then end on a bare expression tail like
-// fix-cluster.theta's `r`.
-let mut out = TreeFixReport { ok: false, sha: "", fixed_confirmed: [], notes: notes, fixer_notes: "" }
-if done {
-  out = TreeFixReport { ok: true, sha: sha, fixed_confirmed: confirmed, notes: notes, fixer_notes: fixer_notes }
+// Lane end: squash the committed batches into ONE reported commit. `reset
+// --soft` moves HEAD to base while the INDEX still holds the last batch
+// commit's tree; committing the index (no `git add`) reproduces exactly that
+// tree - stray post-batch working-tree writes (an orphaned fixer racing this
+// lane, bug 0484) cannot reach it. The orchestrator's contract (one sha,
+// cherry-picked) is unchanged.
+let mut out = TreeFixReport { ok: false, sha: "", fixed_confirmed: [], notes: notes + lane_aborted, fixer_notes: fixer_notes }
+if batches_committed > 0 {
+  let squashed = bash({ command: "git reset --soft " + base + " >/dev/null 2>&1 && git commit -q -m \"quality: " + wave + " fix " + key + "\" >/dev/null 2>&1 && git rev-parse HEAD || echo SQUASH_FAIL" })?
+  if squashed.includes("SQUASH_FAIL") {
+    out = TreeFixReport { ok: false, sha: "", fixed_confirmed: [], notes: notes + lane_aborted + " SQUASH FAILED at lane end - tree discarded, no integration.", fixer_notes: fixer_notes }
+  } else {
+    out = TreeFixReport { ok: true, sha: squashed.trim(), fixed_confirmed: confirmed, notes: notes + (lane_aborted == "" ? "" : "LANE ABORTED after " + lane_aborted + " - committed batches up to the abort are included. "), fixer_notes: fixer_notes }
+  }
 }
 out
