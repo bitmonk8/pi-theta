@@ -76,7 +76,7 @@
 // `theta/load/binder-model-unresolved`); diagnostics/diagnostic-shape.md #diag-4
 // (the *Message* column is normative and asserting tests source it from there).
 import { resolvingHost } from "./helpers/fake-json-child";
-import { makeIdleModelHost } from "./helpers/compose-workspace-harness";
+import { makeIdleModelHost, noteLinesContaining } from "./helpers/compose-workspace-harness";
 import { REGISTRY } from "./helpers/registry-oracle";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
@@ -98,6 +98,7 @@ import {
 } from "../src/runtime/subagent-envelope";
 import { SUBAGENT_CHILD_OUTCOME_CHANNEL } from "../src/runtime/subagent-placement-registry";
 import {
+  createEnvSandbox,
   restoreAmbientControlPlane,
   scrubAmbientControlPlane,
   type AmbientControlPlaneSnapshot,
@@ -213,12 +214,16 @@ async function runLoad(
   // The regime is selected ONLY by the parent-launcher env marker, and the read
   // is authenticated by the parent-pid carriage — a real launcher always writes
   // both. Plant both around the compose, restore after (no leakage).
-  const priorMarker = process.env["PI_THETA_SUBAGENT_ROOT"];
-  const priorPid = process.env["PI_THETA_SUBAGENT_PARENT_PID"];
-  if (options?.rootSlug !== undefined) {
-    process.env["PI_THETA_SUBAGENT_ROOT"] = options.rootSlug;
-    process.env["PI_THETA_SUBAGENT_PARENT_PID"] = String(process.ppid);
-  }
+  const { setEnv, restoreEnv } = createEnvSandbox();
+  // Capture both keys even in the parent leg, preserving the unconditional restore.
+  setEnv(
+    "PI_THETA_SUBAGENT_ROOT",
+    options?.rootSlug !== undefined ? options.rootSlug : process.env["PI_THETA_SUBAGENT_ROOT"],
+  );
+  setEnv(
+    "PI_THETA_SUBAGENT_PARENT_PID",
+    options?.rootSlug !== undefined ? String(process.ppid) : process.env["PI_THETA_SUBAGENT_PARENT_PID"],
+  );
   try {
     const regimeActive = detectSubagentRootRegime(readParentEnv()).active;
     const overrides: EnvelopeCapturingOverrides = {
@@ -236,33 +241,8 @@ async function runLoad(
       outcomeEmitted,
     };
   } finally {
-    if (priorMarker === undefined) {
-      delete process.env["PI_THETA_SUBAGENT_ROOT"];
-    } else {
-      process.env["PI_THETA_SUBAGENT_ROOT"] = priorMarker;
-    }
-    if (priorPid === undefined) {
-      delete process.env["PI_THETA_SUBAGENT_PARENT_PID"];
-    } else {
-      process.env["PI_THETA_SUBAGENT_PARENT_PID"] = priorPid;
-    }
+    restoreEnv();
   }
-}
-
-/**
- * The note LINES (split across every note) that contain ALL of `substrings`.
- * Load-refusal notes render as `<file>: <code>: <message>`, so matching a code
- * AND the refusing theta's filename on ONE line attributes the refusal to that
- * theta — a whole-pass `toContain` would be satisfied by any other theta's
- * refusal in the same pass.
- */
-function noteLinesContaining(
-  noteContent: readonly string[],
-  ...substrings: readonly string[]
-): string[] {
-  return noteContent
-    .flatMap((note) => note.split("\n"))
-    .filter((line) => substrings.every((substring) => line.includes(substring)));
 }
 
 /**

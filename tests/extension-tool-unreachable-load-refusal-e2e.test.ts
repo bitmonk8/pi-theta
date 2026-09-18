@@ -26,21 +26,19 @@
 // diagnostics/code-registry-load.md (`theta/load/extension-tool-unreachable`,
 // `theta/load/unknown-tool`).
 
+import { makeIdleModelHost, noteLinesContaining } from "./helpers/compose-workspace-harness";
 import { resolvingHost } from "./helpers/fake-json-child";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type {
-  ExtensionAPI,
-  ExtensionContext,
-} from "@earendil-works/pi-coding-agent";
 import { composeExtensionInstance } from "../src/extension/production-composition";
 import { readParentEnv } from "../src/extension/production-subagent-host";
 import { detectSubagentRootRegime } from "../src/runtime/subagent-root-regime";
 
 import { EXTENSION_TOOL_UNREACHABLE_CODE } from "../src/runtime/host-loop-dispatch";
 import {
+  createEnvSandbox,
   restoreAmbientControlPlane,
   scrubAmbientControlPlane,
   type AmbientControlPlaneSnapshot,
@@ -237,58 +235,15 @@ async function runLoad(
   },
 ): Promise<LoadOutcome> {
   const noteContent: string[] = [];
-  const surfaces = options?.hostLoopSurfaces ?? true;
-  const pi = {
-    getFlag: (): undefined => undefined,
-    getCommands: (): readonly unknown[] => [],
-    sendMessage: (message: { content?: unknown }): void => {
-      if (typeof message.content === "string") {
-        noteContent.push(message.content);
-      }
-    },
-    sendUserMessage: (): void => {},
-    getActiveTools: (): readonly string[] => [],
-    setActiveTools: (): void => {},
+  const { pi, ctx } = makeIdleModelHost(cwd, true, {
+    noteContent,
     // The extension tool the mode-independent admission reads: present in the
     // registry (so `tools: my_tool` resolves in BOTH modes), but with no host
     // built-in `execute` — a code-side call to it needs a PIC-64 dispatch rung.
-    getAllTools: (): readonly unknown[] => [
-      { name: "my_tool", parameters: {}, sourceInfo: { scope: "user" } },
-    ],
-    registerMessageRenderer: (): void => {},
-    // PIC-64 rung 2 (host-loop dispatch) Pi surfaces — present by default so the
-    // `probeHostLoopSurfaces` probe passes in BOTH the parent and the
-    // child-regime runs (the rung is establishable wherever the surfaces are).
-    // The surfaces-absent variant drops `registerProvider`, killing the probe.
-    ...(surfaces
-      ? {
-          registerProvider: (): void => {},
-          unregisterProvider: (): void => {},
-          setModel: (): Promise<boolean> => Promise.resolve(true),
-        }
-      : {}),
-    // The rung-1 upstream surface, exposed WITHOUT any rung-1 dispatcher
-    // existing in the codebase — the host shape that must not let registration
-    // outrun dispatchability.
-    ...(options?.getToolDefinitionMember === true
-      ? { getToolDefinition: (): undefined => undefined }
-      : {}),
-    on: (): void => {},
-  } as unknown as ExtensionAPI;
-  const ctx = {
-    cwd,
-    hasUI: true,
-    model: { id: "claude-test", provider: "anthropic", api: "anthropic-messages" },
-    isIdle: (): boolean => true,
-    modelRegistry: {
-      getAvailable: (): readonly unknown[] => [
-        { id: "claude-test", provider: "anthropic", api: "anthropic-messages" },
-      ],
-      find: (): undefined => undefined,
-    },
-    sessionManager: { getEntries: (): readonly unknown[] => [] },
-    ui: { notify: (): void => {} },
-  } as unknown as ExtensionContext;
+    tools: [{ name: "my_tool", parameters: {}, sourceInfo: { scope: "user" } }],
+    hostLoopSurfaces: options?.hostLoopSurfaces ?? true,
+    getToolDefinitionMember: options?.getToolDefinitionMember ?? false,
+  });
 
   // The child regime is selected ONLY by the parent-launcher env marker
   // (`detectSubagentRootRegime` reads `readParentEnv()`), and that read is
@@ -296,12 +251,16 @@ async function runLoad(
   // marker counts only beside a parent-pid carriage naming this process's real
   // parent — a real launcher always writes both. Plant both around the compose
   // for the child-context case, restore after (no leakage).
-  const priorMarker = process.env["PI_THETA_SUBAGENT_ROOT"];
-  const priorPid = process.env["PI_THETA_SUBAGENT_PARENT_PID"];
-  if (options?.childRegime === true) {
-    process.env["PI_THETA_SUBAGENT_ROOT"] = "codecall";
-    process.env["PI_THETA_SUBAGENT_PARENT_PID"] = String(process.ppid);
-  }
+  const { setEnv, restoreEnv } = createEnvSandbox();
+  // Capture both keys even in the parent leg, preserving the unconditional restore.
+  setEnv(
+    "PI_THETA_SUBAGENT_ROOT",
+    options?.childRegime === true ? "codecall" : process.env["PI_THETA_SUBAGENT_ROOT"],
+  );
+  setEnv(
+    "PI_THETA_SUBAGENT_PARENT_PID",
+    options?.childRegime === true ? String(process.ppid) : process.env["PI_THETA_SUBAGENT_PARENT_PID"],
+  );
   try {
     // The premise probe: the regime the compose pass will detect, read through
     // the same authenticated view it uses. A childRegime cell whose marker was
@@ -314,35 +273,8 @@ async function runLoad(
     });
     return { registered: wiring.thetas.map((t) => t.slashName), noteContent, regimeActive };
   } finally {
-    if (priorMarker === undefined) {
-      delete process.env["PI_THETA_SUBAGENT_ROOT"];
-    } else {
-      process.env["PI_THETA_SUBAGENT_ROOT"] = priorMarker;
-    }
-    if (priorPid === undefined) {
-      delete process.env["PI_THETA_SUBAGENT_PARENT_PID"];
-    } else {
-      process.env["PI_THETA_SUBAGENT_PARENT_PID"] = priorPid;
-    }
+    restoreEnv();
   }
-}
-
-/**
- * The note LINES (split across every note) that contain ALL of `substrings`.
- * Load-refusal notes are rendered diagnostic lines carrying the refusing
- * theta's file path (`<file>: <code>: <message>`), so matching a diagnostic
- * code AND the refusing theta's filename on ONE line attributes the refusal to
- * that theta — a whole-pass `toContain` would be satisfied by ANY theta's
- * refusal (e.g. the subagent `codecall` theta's), even if the theta under test
- * refused via a different diagnostic.
- */
-function noteLinesContaining(
-  noteContent: readonly string[],
-  ...substrings: readonly string[]
-): string[] {
-  return noteContent
-    .flatMap((note) => note.split("\n"))
-    .filter((line) => substrings.every((substring) => line.includes(substring)));
 }
 
 let workspaceDir: string;

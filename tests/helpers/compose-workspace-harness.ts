@@ -108,21 +108,53 @@ export function makeHost(cwd: string): HostDouble {
 /** The one model the idle host registry offers. */
 const AVAILABLE_MODEL = { id: "claude-test", provider: "anthropic", api: "anthropic-messages" };
 
+export interface IdleModelHostOptions {
+  /** Record string notes emitted during composition, when supplied. */
+  readonly noteContent?: string[];
+  /** Registry entries for mode-independent tool admission. Default: no tools. */
+  readonly tools?: readonly unknown[];
+  /** PIC-64 rung-2 surfaces; false models a host with no host-loop rung. Default true. */
+  readonly hostLoopSurfaces?: boolean;
+  /** Expose the upstream rung-1 member without wiring a dispatcher. Default false. */
+  readonly getToolDefinitionMember?: boolean;
+}
+
 /** A no-op composition host with one available model and an empty, idle session. */
-export function makeIdleModelHost(cwd: string, hasUI: boolean): { pi: ExtensionAPI; ctx: ExtensionContext } {
+export function makeIdleModelHost(
+  cwd: string,
+  hasUI: boolean,
+  options?: IdleModelHostOptions,
+): { pi: ExtensionAPI; ctx: ExtensionContext } {
   const pi = {
     getFlag: (): undefined => undefined,
     getCommands: (): readonly unknown[] => [],
-    sendMessage: (): void => {},
+    sendMessage: (message: { content?: unknown }): void => {
+      if (typeof message.content === "string") {
+        options?.noteContent?.push(message.content);
+      }
+    },
     sendUserMessage: (): void => {},
     getActiveTools: (): readonly string[] => [],
     setActiveTools: (): void => {},
-    getAllTools: (): readonly unknown[] => [],
+    getAllTools: (): readonly unknown[] => [...(options?.tools ?? [])],
     registerMessageRenderer: (): void => {},
-    // The PIC-64 host-loop-dispatch surfaces keep load fixtures reachable.
-    registerProvider: (): void => {},
-    unregisterProvider: (): void => {},
-    setModel: (): Promise<boolean> => Promise.resolve(true),
+    // PIC-64 rung 2 (host-loop dispatch) Pi surfaces — present by default so the
+    // `probeHostLoopSurfaces` probe passes in BOTH the parent and the
+    // child-regime runs (the rung is establishable wherever the surfaces are).
+    // The surfaces-absent variant drops `registerProvider`, killing the probe.
+    ...(options?.hostLoopSurfaces ?? true
+      ? {
+          registerProvider: (): void => {},
+          unregisterProvider: (): void => {},
+          setModel: (): Promise<boolean> => Promise.resolve(true),
+        }
+      : {}),
+    // The rung-1 upstream surface, exposed WITHOUT any rung-1 dispatcher
+    // existing in the codebase — the host shape that must not let registration
+    // outrun dispatchability.
+    ...(options?.getToolDefinitionMember === true
+      ? { getToolDefinition: (): undefined => undefined }
+      : {}),
     on: (): void => {},
   } as unknown as ExtensionAPI;
   const ctx = {
@@ -198,6 +230,22 @@ export async function runLoadPass(workspace: Pick<ComposeWorkspace, "cwd">): Pro
 }
 
 // ── Observation helpers (PTQ-0230) ──────────────────────────────────────────
+
+/**
+ * The note LINES (split across every note) that contain ALL of `substrings`.
+ * Load-refusal notes render as `<file>: <code>: <message>`, so matching a code
+ * AND the refusing theta's filename on ONE line attributes the refusal to that
+ * theta — a whole-pass `toContain` would be satisfied by any other theta's
+ * refusal in the same pass.
+ */
+export function noteLinesContaining(
+  noteContent: readonly string[],
+  ...substrings: readonly string[]
+): string[] {
+  return noteContent
+    .flatMap((note) => note.split("\n"))
+    .filter((line) => substrings.every((substring) => line.includes(substring)));
+}
 
 export function noteDiagnostics(note: RecordedNote): readonly Diagnostic[] {
   const details = note.details as { diagnostics?: unknown } | undefined;

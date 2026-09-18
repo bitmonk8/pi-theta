@@ -30,13 +30,6 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import type {
-  ExtensionAPI,
-  ExtensionContext,
-  ExtensionCommandContext,
-  ModelRegistry,
-} from "@earendil-works/pi-coding-agent";
-import type { Api, Model } from "@earendil-works/pi-ai";
 import type { ThetaFixture } from "../src/extension/factory";
 import {
   composeExtensionInstance,
@@ -44,7 +37,8 @@ import {
 } from "../src/extension/production-composition";
 import { EXTENSION_TOOL_UNREACHABLE_CODE } from "../src/runtime/host-loop-dispatch";
 
-import { FakeHostLoopHost } from "./helpers/fake-host-loop-host";
+import { makeIdleModelHost, noteLinesContaining } from "./helpers/compose-workspace-harness";
+import { FakeParentHost } from "./helpers/fake-host-loop-host";
 
 // --- The planted thetas ------------------------------------------------------
 
@@ -75,124 +69,6 @@ const MY_TOOL_SCHEMA = {
   required: ["op"],
 } as const;
 
-// --- Fake parent host (parent leg; mirrors prompt-mode-extension-tool-reach-e2e) --
-
-/**
- * The fake PARENT host: serves the production compose helper's load pass (the
- * discovery/admission `pi` + `ctx` surfaces) AND simulates the user session's
- * host agent loop for the composition-built host-loop dispatch — the shared
- * fabricated-turn core (`FakeHostLoopHost`), with only the parent-leg load-pass
- * surfaces added. The loop it wraps IS the process's backing host session the
- * inline body's dispatch must land in.
- */
-class FakeParentHost {
-  readonly loop: FakeHostLoopHost;
-  readonly notifications: string[] = [];
-  readonly notes: string[] = [];
-
-  constructor(readonly cwd: string) {
-    this.loop = new FakeHostLoopHost((name, args) => ({
-      content: [{ type: "text", text: `RAN:${name}:${JSON.stringify(args)}` }],
-      isError: false,
-    }));
-  }
-
-  get executorCalls(): readonly { name: string; args: unknown }[] {
-    return this.loop.executorCalls;
-  }
-
-  get currentModelId(): string {
-    return this.loop.currentModelId;
-  }
-
-  get activeTools(): readonly string[] {
-    return this.loop.activeTools;
-  }
-
-  get pi(): ExtensionAPI {
-    const loop = this.loop;
-    return {
-      getFlag: (): undefined => undefined,
-      getCommands: (): readonly unknown[] => [],
-      sendMessage: (message: { content?: unknown }): void => {
-        if (typeof message.content === "string") {
-          this.notes.push(message.content);
-        }
-      },
-      registerMessageRenderer: (): void => {},
-      getActiveTools: (): string[] => loop.getActiveTools(),
-      setActiveTools: (names: string[]): void => loop.setActiveTools(names),
-      // The extension-registered tool the mode-independent admission reads.
-      getAllTools: (): readonly unknown[] => [
-        {
-          name: "my_tool",
-          parameters: MY_TOOL_SCHEMA,
-          sourceInfo: { scope: "user" },
-        },
-      ],
-      registerProvider: (name: string, config: { streamSimple: unknown }): void =>
-        loop.registerProvider(name, config),
-      unregisterProvider: (name: string): void => loop.unregisterProvider(name),
-      setModel: (model: Model<Api>): Promise<boolean> => loop.setModel(model),
-      sendUserMessage: (content: string): void => loop.sendUserMessage(content),
-      on: (event: string, handler: () => void): void => loop.on(event, handler),
-    } as unknown as ExtensionAPI;
-  }
-
-  get ctx(): ExtensionContext {
-    const host = this;
-    const loop = this.loop;
-    return {
-      cwd: this.cwd,
-      hasUI: true,
-      get model(): Model<Api> {
-        return loop.currentModel;
-      },
-      isIdle: (): boolean => loop.isIdle(),
-      modelRegistry: {
-        getAvailable: (): readonly unknown[] => [],
-        find: (provider: string, id: string): Model<Api> | undefined =>
-          loop.findRegisteredModel(provider, id),
-      },
-      sessionManager: {
-        getEntries: (): readonly { type: string; message?: Record<string, unknown> }[] =>
-          [...loop.entries],
-        getLeafId: (): undefined => undefined,
-      },
-      ui: {
-        notify: (message: string): void => {
-          host.notifications.push(message);
-        },
-      },
-    } as unknown as ExtensionContext;
-  }
-
-  /** The per-dispatch `ExtensionCommandContext` a slash dispatch would carry. */
-  runCtx(): ExtensionCommandContext {
-    const loop = this.loop;
-    return {
-      signal: undefined,
-      cwd: this.cwd,
-      get model(): Model<Api> {
-        return loop.currentModel;
-      },
-      isIdle: (): boolean => loop.isIdle(),
-      waitForIdle: (): Promise<void> => Promise.resolve(),
-      modelRegistry: {
-        getAvailable: (): readonly unknown[] => [],
-        find: (provider: string, id: string): Model<Api> | undefined =>
-          loop.findRegisteredModel(provider, id),
-      },
-      sessionManager: {
-        getEntries: (): readonly { type: string; message?: Record<string, unknown> }[] =>
-          [...loop.entries],
-        getLeafId: (): undefined => undefined,
-      },
-      ui: { notify: (): void => {} },
-    } as unknown as ExtensionCommandContext;
-  }
-}
-
 // --- Parent leg: load + dispatch through the production compose helper --------
 
 let parentDir: string;
@@ -204,7 +80,7 @@ beforeAll(async () => {
   const dir = join(parentDir, ".pi", "theta");
   mkdirSync(dir, { recursive: true });
   writeFileSync(join(dir, "fncall.theta"), PARENT_FNCALL, "utf8");
-  parentHost = new FakeParentHost(parentDir);
+  parentHost = new FakeParentHost(parentDir, MY_TOOL_SCHEMA);
   parentFixtures = await discoverAndComposeFixtures(parentHost.pi, parentHost.ctx);
 });
 
@@ -251,37 +127,11 @@ describe("PIC-64 rung 3 — a surfaces-absent host still refuses the inline-body
     // A host WITHOUT the host-loop dispatch Pi surfaces (no registerProvider /
     // unregisterProvider / setModel): `probeHostLoopSurfaces` fails, no rung is
     // establishable, and the ladder is fail-closed.
-    const pi = {
-      getFlag: (): undefined => undefined,
-      getCommands: (): readonly unknown[] => [],
-      sendMessage: (message: { content?: unknown }): void => {
-        if (typeof message.content === "string") {
-          noteContent.push(message.content);
-        }
-      },
-      sendUserMessage: (): void => {},
-      getActiveTools: (): readonly string[] => [],
-      setActiveTools: (): void => {},
-      getAllTools: (): readonly unknown[] => [
-        { name: "my_tool", parameters: MY_TOOL_SCHEMA, sourceInfo: { scope: "user" } },
-      ],
-      registerMessageRenderer: (): void => {},
-      on: (): void => {},
-    } as unknown as ExtensionAPI;
-    const ctx = {
-      cwd: noRungDir,
-      hasUI: true,
-      model: { id: "claude-test", provider: "anthropic", api: "anthropic-messages" },
-      isIdle: (): boolean => true,
-      modelRegistry: {
-        getAvailable: (): readonly unknown[] => [
-          { id: "claude-test", provider: "anthropic", api: "anthropic-messages" },
-        ],
-        find: (): undefined => undefined,
-      },
-      sessionManager: { getEntries: (): readonly unknown[] => [] },
-      ui: { notify: (): void => {} },
-    } as unknown as ExtensionContext;
+    const { pi, ctx } = makeIdleModelHost(noRungDir, true, {
+      noteContent,
+      tools: [{ name: "my_tool", parameters: MY_TOOL_SCHEMA, sourceInfo: { scope: "user" } }],
+      hostLoopSurfaces: false,
+    });
 
     const wiring = await composeExtensionInstance(pi, ctx, {
       subagentExecutableHost: resolvingHost(),
@@ -295,13 +145,11 @@ describe("PIC-64 rung 3 — a surfaces-absent host still refuses the inline-body
     // The refusal is the pinned fail-closed rung-3 diagnostic, attributed to the
     // refusing theta (one line carrying the file, the code, and the tool name) —
     // NOT an admission unknown-tool (the registry name resolves mode-independently).
-    const refusalLines = noteContent
-      .flatMap((note) => note.split("\n"))
-      .filter(
-        (line) =>
-          line.includes("fncall.theta") &&
-          line.includes(EXTENSION_TOOL_UNREACHABLE_CODE),
-      );
+    const refusalLines = noteLinesContaining(
+      noteContent,
+      "fncall.theta",
+      EXTENSION_TOOL_UNREACHABLE_CODE,
+    );
     expect(
       refusalLines.length,
       "fncall.theta itself must refuse with the extension-tool-unreachable code — " +
