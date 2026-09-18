@@ -1,0 +1,108 @@
+---
+id: pending
+title: inline-object-stranded-entry-refusal.test.ts's throw-based registryMessageOf is one of nineteen byte-identical repo-wide copies with no shared home
+lens: D7
+status: intake
+verdict: pending
+locations:
+  - tests/inline-object-stranded-entry-refusal.test.ts:155-176
+  - tests/inline-object-keyless-entry-refusal.test.ts:200-219
+sites: 2
+fix_scope: cross-module
+d4_class: clone
+wave: qw20260918050411
+reported_by: lens-d7-testquality (anthropic/claude-sonnet-5)
+date: 2026-09-18
+---
+
+# inline-object-stranded-entry-refusal.test.ts's throw-based registryMessageOf is one of nineteen byte-identical repo-wide copies with no shared home
+
+## Observation
+`tests/inline-object-stranded-entry-refusal.test.ts` declares a local
+`registryMessageOf(code: string): string` that looks up a registry row's
+*Message* template and, if it is `undefined`, THROWS an `Error` naming the
+missing code (rather than using `expect(...).toBeDefined()`). The identical
+function shape — same signature, same `registryMessage(REGISTRY, code)` read,
+same `if (template === undefined) { throw new Error(...) }` guard, same
+closing `return template;` — recurs, independently declared with no shared
+import, in at least nineteen `tests/*.test.ts` files repository-wide,
+including a second file quoted below for a line-for-line structural
+comparison. No `tests/helpers/` module exports this throw-based variant (the
+only exported sibling, `tests/helpers/load-row-harness.ts`'s
+`registryMessageOf`, uses `expect(...).toBeDefined()` instead of a throw and
+takes `registry`/`registryPath`/`fills` as parameters, so it is not what any
+of the nineteen files use).
+
+## Evidence
+
+`tests/inline-object-stranded-entry-refusal.test.ts:155-176` (re-read
+immediately before filing):
+```ts
+/**
+ * A registry row's normative *Message* template (DIAG-4), read rather than
+ * restated. THROWS, naming the missing row, so a missing row can never degrade
+ * an assertion below into a comparison against `undefined` and can never be
+ * silently replaced by a hard-coded string. Called only from inside a test
+ * body: at module scope a throw would abort collection and take the green
+ * fences down with it.
+ */
+function registryMessageOf(code: string): string {
+  const template = registryMessage(REGISTRY, code) as string | undefined;
+  if (template === undefined) {
+    throw new Error(
+      `harness: the diagnostics code registry carries no Message row for ${code} — DIAG-4 ` +
+        `(docs/spec_topics/diagnostics/diagnostic-shape.md) makes that column this file's only ` +
+        `oracle, so a missing row is a loud harness failure, never a skip and never a ` +
+        `hard-coded fallback. Bug 0256's §Fix carries the ` +
+        `theta/parse/malformed-schema-field Trigger rewrite in the same commit as the site it ` +
+        `is raised from (docs/spec_topics/diagnostics/code-registry-parse.md:99)`,
+    );
+  }
+  return template;
+}
+```
+
+`tests/inline-object-keyless-entry-refusal.test.ts:200-219` — the same
+signature, the same `registryMessage(REGISTRY, code)` read, the same
+`if (template === undefined) { throw new Error(...) }` shape and the same
+closing `return template;`, differing only in the bug number and code named
+inside the thrown message's text:
+```ts
+function registryMessageOf(code: string): string {
+  const template = registryMessage(REGISTRY, code) as string | undefined;
+  if (template === undefined) {
+    throw new Error(
+      `harness: the diagnostics code registry carries no Message row for ${code} — DIAG-4 ` +
+        `(docs/spec_topics/diagnostics/diagnostic-shape.md) makes that column this file's only ` +
+        `oracle, so a missing row is a loud harness failure, never a skip and never a ` +
+        `hard-coded fallback. Bug 0244's §Fix carries the row's Trigger widening in the same ` +
+        `commit as the sites it is raised from ` +
+        `(docs/spec_topics/diagnostics/code-registry-parse.md:99)`,
+    );
+  }
+  return template;
+}
+```
+
+Exact search: `grep -rl "function registryMessageOf(code: string): string" tests/*.test.ts` returns exactly 19 files: `annotation-nontype-text-refusal.test.ts`, `b0449-reexport-chain-enum-unknown-variant.test.ts`, `b0450-imported-enum-system-param.test.ts`, `generic-argument-shredded-group-refusal.test.ts`, `inline-object-empty-entry-slot-refusal.test.ts`, `inline-object-keyless-entry-refusal.test.ts`, `inline-object-stranded-entry-refusal.test.ts`, `nested-inline-enum-generic-argument-refusal.test.ts`, `params-default-empty-literal-refusal.test.ts`, `params-default-string-literal-raw-newline.test.ts`, `params-default-trailing-residue-refusal.test.ts`, `params-default-type-compat.test.ts`, `params-default-unary-minus-non-numeric-refusal.test.ts`, `params-default-unresolvable-enum-variant.test.ts`, `params-inline-enum-position-refusal.test.ts`, `params-scalar-nontype-text-refusal.test.ts`, `query-annotation-nontype-text-refusal.test.ts`, `schema-body-nontype-text-refusal.test.ts`, `type-name-as-value-refusal.test.ts`. A companion exact search, `grep -rl "harness: the diagnostics code registry carries no Message row for" tests/*.test.ts`, returns exactly 8 of these 19 (the ones using this precise thrown-message wording, including the one in scope), confirming the thrown-message template — not only the surrounding function shape — is itself copy-pasted.
+
+## Why this is a problem
+The function is pure harness plumbing — how a test converts a registry-row lookup into a loud, named failure — not domain logic specific to any one bug's subject; the file's own doc comment states the design rationale for throwing rather than asserting (module-scope safety), which is a real, considered choice, but that choice does not require the whole body, including the thrown-message wording, to be retyped independently at each of nineteen sites. `tests/helpers/load-row-harness.ts` already exports a `registryMessageOf` for the same lookup-and-guard need, but its `expect`-based, parameterised shape is not what any of these nineteen files import or extend, so each file re-derived its own throw-based sibling instead of adding one beside the existing export.
+
+## Suggested direction (non-binding, optional)
+A throw-based `registryMessageOf(registry, registryPath, code)` sibling beside
+`tests/helpers/load-row-harness.ts`'s existing `expect`-based export would
+give the nineteen files one shared throwing variant to import instead of each
+retyping the guard and its message text.
+
+## False-positive check
+- Gate-pin check: `tests/inline-object-stranded-entry-refusal.test.ts` does not match `*gate*.test.ts` or the named gate-kin patterns (closing-gate, cross-cutting-gates, rfc-*-spec-surface-gate, committed-fixture-parse-gate, registry-closed-set-corpus-gate); `ls tests/*gate*.test.ts | grep -i stranded` → 0 hits.
+- Recording-double check: `registryMessageOf` performs a synchronous lookup and throw; it records no calls and backs no "never called" witness, so the negative-witness carve-out does not apply.
+- docs/bugs/ signature search: `grep -rl "inline-object-stranded-entry-refusal" docs/bugs/*.md` returns three documents (0256, 0281, 0282); all cite the file as a witness by cell id or by name, none names or depends on the internal shape of `registryMessageOf`, and none states a rationale for the function being retyped at each site rather than shared.
+- coverage-matrix/bug-doc citation search: `grep -n "inline-object-stranded-entry-refusal" docs/reference/coverage-matrix.md` → 0 hits. This finding proposes no merge, rename, or deletion of the file or any `it()`/`describe()` — only that the local `registryMessageOf` definition could be replaced by a shared throw-based export.
+- Coverage check: the claim is entirely about a repeated function DEFINITION, not a missing test path; the function is exercised by the file's own currently-running `render()` calls.
+- Prior-filing overlap check: `grep -rl "inline-object-stranded-entry-refusal" quality/intake/*.md quality/issues/*.md quality/resolved/*.md` returns PTQ-0555, PTQ-0596 (different fixture-builder/`expectGroup` root causes, disjoint from this function), PTQ-0205 (the `diagLines`/`diagCodes` rendering pair, already fixed/exported and a different function), and PTQ-0488 (the four-page `REGISTRY` read itself, already fixed — this file now imports `REGISTRY` from `registry-oracle.ts`, and this finding is about the message-lookup guard built on top of that import, not the read). None of these covers `registryMessageOf`'s throw-based body; `PTQ-0638` covers a structurally different, `expect`-based `registryMessageOf` (no `fills` split into a separate `line()` helper) in two files outside this review's scope, which is not this pattern.
+
+## Triage
+<!-- pending -->
+verdict: questionable — independently re-verified: both excerpts reproduce verbatim at tests/inline-object-stranded-entry-refusal.test.ts:155-176 and tests/inline-object-keyless-entry-refusal.test.ts:200-219 (same lookup→throw-if-undefined→return skeleton, differing only in the per-bug tail sentence), the in-scope copy is live (2 call sites), both locations under tests/, D7 boilerplate-duplication class, no gate/recording-double/coverage-matrix carve-out, and it is not a duplicate (same-wave d7-01-query-annotation triage names the throw-shaped reader a distinct root cause; no open PTQ tracks it) — but the accounting is overstated and the anchor collides with a recorded fix decision: awk-extracting every `function registryMessageOf(code: string): string` body shows only 10 of the 19 throw (9 — b0449, b0450, params-default-empty-literal, -string-literal-raw-newline, params-scalar-nontype-text, generic-argument-shredded-group, nested-inline-enum-generic-argument, params-inline-enum-position, schema-body-nontype-text — are `expect`-based and already covered by confirmed d7-02-params-inline-enum / pending d7-03), of the 10 only the 4 params-default copies are byte-identical while the 6 long-template copies each carry a distinct bug-0256/0244/0257/0124/0203/0140 sentence, and the "8 of these 19" message grep is 6-of-19 plus 2 `templateOf` functions in let-annotation-inline-object-compat / qry4-refused-annotation-withhold; more importantly resolved PTQ-0215 — whose title names `registryMessageOf` and whose evidence quoted this same 19-file count — was fixed by centralising the REGISTRY read only, and that fix wrote into tests/helpers/registry-oracle.ts:7-10 that each file's `registryMessageOf`-shaped reader "whose assertion style and wording vary per file — stays local", a split PTQ-0659/0488/0473's accept notes reiterated; no helper exports a throw body so the fix mints a new parameterised export (per-file message tail) rather than a drop-in migration, so whether to override the PTQ-0215 fixer's recorded decision for ~9 lines × 10 files needs a human ruling; if accepted, scope to the 10 throw-based files, not 19 (triage: claude-fable-5-1)
