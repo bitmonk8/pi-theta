@@ -77,18 +77,15 @@
 // each. 
 
 import { describe, expect, it } from "vitest";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import {
   failLoudly,
   loadPermittedCodes,
   parseSystemNoteCodes,
   requireLiveHost,
   resolveAcceptanceHost,
-  spawnPiPrint,
 } from "./harness";
-import { parseDoc } from "../../helpers/e2e-s1";
+import { diagLines, parseDoc } from "../../helpers/e2e-s1";
+import { drivePiPrintFixtures } from "../../helpers/pi-print-fixture-harness";
 
 /** The two declared values the slash argument names; their product is the oracle. */
 const A_VALUE = 17;
@@ -132,11 +129,6 @@ const OFFENDER_TYPE = "{a: integer, b > c, m: integer}";
 /** §Reproduction row W1 -- the byte-neighbour control the offender must converge on. */
 const CONTROL_TYPE = "{a: integer, m: integer}";
 
-/** Render one source's parse diagnostics as `severity code: message` strings. */
-function diagnosticsOf(text: string, path: string): readonly string[] {
-  return parseDoc(text, path).diagnostics.map((d) => `${d.severity} ${d.code}: ${d.message}`);
-}
-
 /**
  * The lowered `params:` schema of one source with the `$defs` content hash
  * normalised away: the two spellings hash DIFFERENT source text, so only the
@@ -171,12 +163,12 @@ describe("H9a live: bug 0238's stray depth-0 close token no longer deletes a dec
     // ["a"]` and `additionalProperties: false`, which is bug 0238 itself, so a
     // neutralised fix reds here with zero tokens spent.
     expect(
-      diagnosticsOf(offender, `${OFFENDER_STEM}.theta`),
+      diagLines(parseDoc(offender, `${OFFENDER_STEM}.theta`)),
       "attribution: the offending params: theta must still load clean -- §Fix route (a) repairs " +
         "the segmentation and mints no diagnostic for this spelling",
     ).toEqual([]);
     expect(
-      diagnosticsOf(control, `${CONTROL_STEM}.theta`),
+      diagLines(parseDoc(control, `${CONTROL_STEM}.theta`)),
       "attribution: the byte-neighbour control must carry zero diagnostics",
     ).toEqual([]);
     expect(
@@ -192,84 +184,77 @@ describe("H9a live: bug 0238's stray depth-0 close token no longer deletes a dec
         "above cannot be satisfied by two empty lowerings",
     ).toContain('"required":["a","m"]');
 
-    const thetaDir = mkdtempSync(join(tmpdir(), "theta-b0238-root-"));
-    const controlCwd = mkdtempSync(join(tmpdir(), "theta-b0238-cwd-"));
-    const offenderCwd = mkdtempSync(join(tmpdir(), "theta-b0238-cwd-"));
-    try {
-      writeFileSync(join(thetaDir, `${OFFENDER_STEM}.theta`), offender, "utf8");
-      writeFileSync(join(thetaDir, `${CONTROL_STEM}.theta`), control, "utf8");
-
-      const permitted = loadPermittedCodes();
-
+    const permitted = loadPermittedCodes();
+    await drivePiPrintFixtures("b0238", { root: {
+      [`${OFFENDER_STEM}.theta`]: offender,
+      [`${CONTROL_STEM}.theta`]: control,
+    } }, [
       // ---- (1) CONTROL: the reference run, spawned FIRST so a provider-side
       // problem reds against the spelling that is green at HEAD too. ----
-      const controlRun = await spawnPiPrint({
-        thetaDir,
+      {
+        root: "root",
         slashInvocation: `/${CONTROL_STEM}${SLASH_ARG}`,
-        cwd: controlCwd,
-      });
-      expect(
-        controlRun.exitCode,
-        `control: expected a no-error exit (0), got ${String(controlRun.exitCode)}. stderr: ${controlRun.stderr}`,
-      ).toBe(0);
-      expect(
-        controlRun.stdout,
-        `control: the byte-neighbour control must register and DRIVE a real binder pass + body turn -- without it the offender assertion below would be unattributable. stdout: ${controlRun.stdout} stderr: ${controlRun.stderr}`,
-      ).toContain(PRODUCT);
-      expect(
-        controlRun.stderr.split(/\r?\n/).filter((line) => line.trim().length > 0),
-        `control: stderr must be empty for a diagnostic-free run (bug 0030 §Fix empty-capture gate). stderr: ${controlRun.stderr}`,
-      ).toEqual([]);
-      expect(
-        parseSystemNoteCodes(controlRun.stdout + controlRun.stderr).filter(
-          (code) => !permitted.includes(code),
-        ),
-        `control: the capture carries a code absent from tests/fixtures/h7a/permitted-codes.json. observed=${JSON.stringify(parseSystemNoteCodes(controlRun.stdout + controlRun.stderr))} stdout: ${controlRun.stdout} stderr: ${controlRun.stderr}`,
-      ).toEqual([]);
-
+        check(controlRun) {
+          expect(
+            controlRun.exitCode,
+            `control: expected a no-error exit (0), got ${String(controlRun.exitCode)}. stderr: ${controlRun.stderr}`,
+          ).toBe(0);
+          expect(
+            controlRun.stdout,
+            `control: the byte-neighbour control must register and DRIVE a real binder pass + body turn -- without it the offender assertion below would be unattributable. stdout: ${controlRun.stdout} stderr: ${controlRun.stderr}`,
+          ).toContain(PRODUCT);
+          expect(
+            controlRun.stderr.split(/\r?\n/).filter((line) => line.trim().length > 0),
+            `control: stderr must be empty for a diagnostic-free run (bug 0030 §Fix empty-capture gate). stderr: ${controlRun.stderr}`,
+          ).toEqual([]);
+          expect(
+            parseSystemNoteCodes(controlRun.stdout + controlRun.stderr).filter(
+              (code) => !permitted.includes(code),
+            ),
+            `control: the capture carries a code absent from tests/fixtures/h7a/permitted-codes.json. observed=${JSON.stringify(parseSystemNoteCodes(controlRun.stdout + controlRun.stderr))} stdout: ${controlRun.stdout} stderr: ${controlRun.stderr}`,
+          ).toEqual([]);
+        },
+      },
       // ---- (2) OFFENDER: the fixed observable, through the real binary. ----
-      const offenderRun = await spawnPiPrint({
-        thetaDir,
+      {
+        root: "root",
         slashInvocation: `/${OFFENDER_STEM}${SLASH_ARG}`,
-        cwd: offenderCwd,
-      });
-      expect(
-        offenderRun.exitCode,
-        `offender: expected a no-error exit (0), got ${String(offenderRun.exitCode)}. stdout: ${offenderRun.stdout} stderr: ${offenderRun.stderr}`,
-      ).toBe(0);
-      // THE FIXED OBSERVABLE, live: at HEAD the registered contract omitted
-      // the declared field `m` and the envelope validator answered
-      // `must NOT have additional properties` for the caller's value
-      // (§Reproduction row E2). Post-fix that signature is impossible: the
-      // lowered fragment carries BOTH fields, pinned offline by E1/E2 and
-      // in-process by the H8a cell, where the bound drive reaches the
-      // arithmetic oracle deterministically. The spawned binder leg is NOT
-      // asked for the oracle here: the tolerated `b > c` segment renders
-      // into the live contract text and measurably derails the binder
-      // model's reply at random (narration or empty text over identical
-      // bytes), so a content demand on this reply would gate on model mood,
-      // not on the fix. The oracle stays on the byte-neighbour control
-      // above; the E2-signature absence below is the offender's own fixed
-      // observable.
-      expect(
-        offenderRun.stdout + offenderRun.stderr,
-        `offender: the capture carries bug 0238's pre-fix E2 signature -- the registered contract still omits the declared field. stdout: ${offenderRun.stdout} stderr: ${offenderRun.stderr}`,
-      ).not.toMatch(/must NOT have additional|additionalProperty/);
-      expect(
-        offenderRun.stderr.split(/\r?\n/).filter((line) => line.trim().length > 0),
-        `offender: stderr must be empty for a run that drives clean (bug 0030 §Fix empty-capture gate). stderr: ${offenderRun.stderr}`,
-      ).toEqual([]);
+        check(offenderRun) {
+          expect(
+            offenderRun.exitCode,
+            `offender: expected a no-error exit (0), got ${String(offenderRun.exitCode)}. stdout: ${offenderRun.stdout} stderr: ${offenderRun.stderr}`,
+          ).toBe(0);
+          // THE FIXED OBSERVABLE, live: at HEAD the registered contract omitted
+          // the declared field `m` and the envelope validator answered
+          // `must NOT have additional properties` for the caller's value
+          // (§Reproduction row E2). Post-fix that signature is impossible: the
+          // lowered fragment carries BOTH fields, pinned offline by E1/E2 and
+          // in-process by the H8a cell, where the bound drive reaches the
+          // arithmetic oracle deterministically. The spawned binder leg is NOT
+          // asked for the oracle here: the tolerated `b > c` segment renders
+          // into the live contract text and measurably derails the binder
+          // model's reply at random (narration or empty text over identical
+          // bytes), so a content demand on this reply would gate on model mood,
+          // not on the fix. The oracle stays on the byte-neighbour control
+          // above; the E2-signature absence below is the offender's own fixed
+          // observable.
+          expect(
+            offenderRun.stdout + offenderRun.stderr,
+            `offender: the capture carries bug 0238's pre-fix E2 signature -- the registered contract still omits the declared field. stdout: ${offenderRun.stdout} stderr: ${offenderRun.stderr}`,
+          ).not.toMatch(/must NOT have additional|additionalProperty/);
+          expect(
+            offenderRun.stderr.split(/\r?\n/).filter((line) => line.trim().length > 0),
+            `offender: stderr must be empty for a run that drives clean (bug 0030 §Fix empty-capture gate). stderr: ${offenderRun.stderr}`,
+          ).toEqual([]);
 
-      // ---- MEASUREMENT (permitted-codes disposition) ----
-      const observedCodes = parseSystemNoteCodes(offenderRun.stdout + offenderRun.stderr);
-      expect(
-        observedCodes.filter((code) => !permitted.includes(code)),
-        `MEASUREMENT: the offender capture carries theta code(s) absent from tests/fixtures/h7a/permitted-codes.json. observed=${JSON.stringify(observedCodes)}. This route mints no code and narrows no registry row, so nothing here is expected; the file is left byte-untouched and the real run decides. stdout: ${offenderRun.stdout} stderr: ${offenderRun.stderr}`,
-      ).toEqual([]);
-    } finally {
-      rmSync(thetaDir, { recursive: true, force: true });
-      rmSync(controlCwd, { recursive: true, force: true });
-      rmSync(offenderCwd, { recursive: true, force: true });
-    }
+          // ---- MEASUREMENT (permitted-codes disposition) ----
+          const observedCodes = parseSystemNoteCodes(offenderRun.stdout + offenderRun.stderr);
+          expect(
+            observedCodes.filter((code) => !permitted.includes(code)),
+            `MEASUREMENT: the offender capture carries theta code(s) absent from tests/fixtures/h7a/permitted-codes.json. observed=${JSON.stringify(observedCodes)}. This route mints no code and narrows no registry row, so nothing here is expected; the file is left byte-untouched and the real run decides. stdout: ${offenderRun.stdout} stderr: ${offenderRun.stderr}`,
+          ).toEqual([]);
+        },
+      },
+    ]);
   });
 });

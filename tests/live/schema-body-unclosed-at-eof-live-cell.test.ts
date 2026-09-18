@@ -79,6 +79,7 @@
 // note-channel → driven-turn path.
 
 import { describe, expect, it } from "vitest";
+import { CASE_CODE, minimalPromptTheta as promptTheta, noteChannelTheta } from "../helpers/live-diagnostic-oracle";
 import {
   bootShippedExtension,
   driveSlashCaptureTurn,
@@ -89,13 +90,6 @@ import {
 
 /** The new row bug 0245's fix adds under DIAG-2. */
 const UNCLOSED_CODE = "theta/parse/schema-body-unclosed";
-/** Bug 0139's row — live at HEAD, the note-channel precondition. */
-const CASE_CODE = "theta/parse/binding-case-mismatch";
-
-/** A `mode: prompt` `.theta` whose body is the given lines. */
-function promptTheta(bodyLines: readonly string[]): string {
-  return ["---", "mode: prompt", "---", ...bodyLines].join("\n") + "\n";
-}
 
 // Drive discriminators are ANSWERS to task questions over an inline value —
 // deterministic content a degraded plain-prompt run cannot produce by
@@ -135,11 +129,7 @@ describe("bug 0245 — an unclosed `schema` object body is refused at live produ
       // code exists at HEAD. Its note proves the channel carries load-phase
       // parse codes at all, so the new code's absence below is attributable to
       // this bug rather than to an unwired channel.
-      {
-        source: "project",
-        stem: "b0245livenotechannel",
-        text: promptTheta(["let P = 1", "@`hi`"]),
-      },
+      noteChannelTheta("b0245livenotechannel", promptTheta),
     ];
     const workspace = plantThetaWorkspace(thetas);
     const handle = await bootShippedExtension({ workspace, provider });

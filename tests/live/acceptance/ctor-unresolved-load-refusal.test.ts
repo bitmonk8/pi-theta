@@ -79,14 +79,12 @@
 // pre-fix direction spends no extra turn either.
 
 import { describe, expect, it } from "vitest";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { requireLiveHost, spawnPiPrint } from "./harness";
+import { requireLiveHost } from "./harness";
 // The shipped whole-document parse, driven through the shared offline helper's
 // inert seams (`tests/helpers/e2e-s1.ts`) — the same entry point the offline
 // witness `tests/ctor-unresolved-schema-name.test.ts` uses.
-import { parseDoc } from "../../helpers/e2e-s1";
+import { codesOf, diagLines, parseDoc } from "../../helpers/e2e-s1";
+import { drivePiPrintFixtures } from "../../helpers/pi-print-fixture-harness";
 
 /** The registry code the fix widens to the object-constructor position. */
 const CODE = "theta/parse/unresolved-named-type";
@@ -151,18 +149,6 @@ const REFUSED = "REFUSED";
 const LOADED = "LOADED";
 const CONTROL_OK = "1041";
 
-/** Render one source's parse diagnostics as `severity code: message` strings. */
-function diagnosticsOf(text: string, path: string): readonly string[] {
-  return parseDoc(text, path).diagnostics.map(
-    (d) => `${d.severity} ${d.code}: ${d.message}`,
-  );
-}
-
-/** Codes only, for the attribution guard. */
-function codesOf(text: string, path: string): readonly string[] {
-  return parseDoc(text, path).diagnostics.map((d) => d.code);
-}
-
 describe("H9a live — bug 0025 object-constructor load refusal through the real `pi -p`", () => {
   it("refuses the theta whose constructor names an undeclared schema, and still registers and drives the well-formed control", async () => {
     // ATTRIBUTION GUARD (offline, token-free, runs BEFORE the live host is
@@ -172,15 +158,15 @@ describe("H9a live — bug 0025 object-constructor load refusal through the real
     expect(
       codesOf(OFFENDER, "b25offender.theta"),
       `attribution: the offending theta must carry exactly one diagnostic, the ` +
-        `widened ${CODE}; actual=${JSON.stringify(diagnosticsOf(OFFENDER, "b25offender.theta"))}`,
+        `widened ${CODE}; actual=${JSON.stringify(diagLines(parseDoc(OFFENDER, "b25offender.theta")))}`,
     ).toEqual([CODE]);
     expect(
-      diagnosticsOf(PROBE, "b25probe.theta"),
+      diagLines(parseDoc(PROBE, "b25probe.theta")),
       "attribution: the prober must be clean, so it registers and its verdict " +
         "reflects the OFFENDER's disposition only",
     ).toEqual([]);
     expect(
-      diagnosticsOf(CONTROL, "b25control.theta"),
+      diagLines(parseDoc(CONTROL, "b25control.theta")),
       "attribution: the control must be clean — a well-formed constructor over a " +
         "declared top-level schema is unaffected by the fix",
     ).toEqual([]);
@@ -189,60 +175,54 @@ describe("H9a live — bug 0025 object-constructor load refusal through the real
     // (`resolveAcceptanceHost`); never a skip or early return.
     await requireLiveHost();
 
-    const thetaDir = mkdtempSync(join(tmpdir(), "theta-b25-root-"));
-    const controlCwd = mkdtempSync(join(tmpdir(), "theta-b25-cwd-"));
-    const probeCwd = mkdtempSync(join(tmpdir(), "theta-b25-cwd-"));
-    try {
-      writeFileSync(join(thetaDir, "b25offender.theta"), OFFENDER, "utf8");
-      writeFileSync(join(thetaDir, "b25probe.theta"), PROBE, "utf8");
-      writeFileSync(join(thetaDir, "b25control.theta"), CONTROL, "utf8");
-
+    await drivePiPrintFixtures("b25", { root: {
+      "b25offender.theta": OFFENDER,
+      "b25probe.theta": PROBE,
+      "b25control.theta": CONTROL,
+    } }, [
       // ---- (1) the well-formed control registers and drives a real turn ----
-      const control = await spawnPiPrint({
-        thetaDir,
+      {
+        root: "root",
         slashInvocation: "/b25control",
-        cwd: controlCwd,
-      });
-      expect(
-        control.exitCode,
-        `control: expected a no-error exit (0), got ${String(control.exitCode)}. ` +
-          `stderr: ${control.stderr}`,
-      ).toBe(0);
-      expect(
-        control.stdout,
-        `control: the temp discovery root must register and DRIVE the well-formed ` +
-          `constructor theta — without this the refusal assertion below could pass ` +
-          `vacuously (wrong root, no registration at all). stdout: ${control.stdout} ` +
-          `stderr: ${control.stderr}`,
-      ).toContain(CONTROL_OK);
-
+        check(control) {
+          expect(
+            control.exitCode,
+            `control: expected a no-error exit (0), got ${String(control.exitCode)}. ` +
+              `stderr: ${control.stderr}`,
+          ).toBe(0);
+          expect(
+            control.stdout,
+            `control: the temp discovery root must register and DRIVE the well-formed ` +
+              `constructor theta — without this the refusal assertion below could pass ` +
+              `vacuously (wrong root, no registration at all). stdout: ${control.stdout} ` +
+              `stderr: ${control.stderr}`,
+          ).toContain(CONTROL_OK);
+        },
+      },
       // ---- (2) the offending theta is refused, observed through invoke ----
-      const probe = await spawnPiPrint({
-        thetaDir,
+      {
+        root: "root",
         slashInvocation: "/b25probe",
-        cwd: probeCwd,
-      });
-      expect(
-        probe.exitCode,
-        `probe: expected a no-error exit (0), got ${String(probe.exitCode)}. ` +
-          `stderr: ${probe.stderr}`,
-      ).toBe(0);
-      expect(
-        probe.stdout,
-        `probe: the offending theta must NOT load, so the prober's ` +
-          `invoke("./b25offender.theta") resolves Err(InvokeInfraError) and the ` +
-          `match prints "${REFUSED}". Printing "${LOADED}" means the constructor ` +
-          `naming an undeclared schema loaded clean — bug 0025 unfixed. stdout: ` +
-          `${probe.stdout} stderr: ${probe.stderr}`,
-      ).toContain(REFUSED);
-      expect(
-        probe.stdout,
-        `probe: the Ok arm must not fire; stdout: ${probe.stdout}`,
-      ).not.toContain(LOADED);
-    } finally {
-      rmSync(thetaDir, { recursive: true, force: true });
-      rmSync(controlCwd, { recursive: true, force: true });
-      rmSync(probeCwd, { recursive: true, force: true });
-    }
+        check(probe) {
+          expect(
+            probe.exitCode,
+            `probe: expected a no-error exit (0), got ${String(probe.exitCode)}. ` +
+              `stderr: ${probe.stderr}`,
+          ).toBe(0);
+          expect(
+            probe.stdout,
+            `probe: the offending theta must NOT load, so the prober's ` +
+              `invoke("./b25offender.theta") resolves Err(InvokeInfraError) and the ` +
+              `match prints "${REFUSED}". Printing "${LOADED}" means the constructor ` +
+              `naming an undeclared schema loaded clean — bug 0025 unfixed. stdout: ` +
+              `${probe.stdout} stderr: ${probe.stderr}`,
+          ).toContain(REFUSED);
+          expect(
+            probe.stdout,
+            `probe: the Ok arm must not fire; stdout: ${probe.stdout}`,
+          ).not.toContain(LOADED);
+        },
+      },
+    ]);
   });
 });

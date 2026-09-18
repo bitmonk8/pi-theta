@@ -65,10 +65,8 @@
 // single typed-query turn.
 
 import { describe, expect, it } from "vitest";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { requireLiveHost, resolveAcceptanceHost, spawnPiPrint } from "./harness";
+import { expectPiPrintFixture } from "../../helpers/pi-print-fixture-harness";
+import { requireLiveHost, resolveAcceptanceHost } from "./harness";
 import { parseDoc, errorCodes } from "../../helpers/e2e-s1";
 import { renderSystemPrompt } from "../../../src/parser/system-interpolation";
 import type { ThetaValue } from "../../../src/runtime/value";
@@ -174,32 +172,19 @@ describe("H9a live — bug 0444 array-of-union element `system:` interpolation r
     // a skip or early return.
     await requireLiveHost();
 
-    const thetaDir = mkdtempSync(join(tmpdir(), "theta-b0444-"));
-    const probeCwd = mkdtempSync(join(tmpdir(), "theta-b0444-cwd-"));
-    try {
-      writeFileSync(join(thetaDir, "b0444childwire.theta"), child, "utf8");
-      writeFileSync(join(thetaDir, "b0444probe.theta"), PROBE, "utf8");
-
-      const probe = await spawnPiPrint({
-        thetaDir,
-        slashInvocation: "/b0444probe",
-        cwd: probeCwd,
-      });
-      expect(
-        probe.exitCode,
-        `probe: expected a no-error exit (0), got ${String(probe.exitCode)}. stderr: ${probe.stderr}`,
-      ).toBe(0);
-      expect(
-        probe.stdout,
+    await expectPiPrintFixture("b0444", {
+      "b0444childwire.theta": child,
+      "b0444probe.theta": PROBE,
+    }, {
+      rootName: "",
+      slashInvocation: "/b0444probe",
+      expectedStdout: WIRE_OK,
+      stdoutMessage: (probe) =>
         `probe: the array-of-union-\`system:\` child must render each element's WIRE key \`"W"\` ` +
           `at the spawn boundary, so it sums 10 + 20 = 30, returns 500 + 30 = 530, and the prober ` +
           `computes 530 + 100 = ${WIRE_OK}. The fork's theta-side render exposes no \`"W"\` key → ` +
           `child adds 0 → returns 500 → the prober answers ${NEUTRALISED_ANSWER}. ` +
           `stdout: ${probe.stdout} stderr: ${probe.stderr}`,
-      ).toContain(WIRE_OK);
-    } finally {
-      rmSync(thetaDir, { recursive: true, force: true });
-      rmSync(probeCwd, { recursive: true, force: true });
-    }
+    });
   });
 });

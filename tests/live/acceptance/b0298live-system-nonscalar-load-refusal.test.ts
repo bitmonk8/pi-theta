@@ -61,12 +61,8 @@
 //
 // Token-bounded: two `pi -p` spawns, one pinned single-turn each.
 
-import { describe, expect, it } from "vitest";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { requireLiveHost, spawnPiPrint } from "./harness";
-import { errorCodes, parseDoc } from "../../helpers/e2e-s1";
+import { describe, it } from "vitest";
+import { expectOffenderControlRefusal } from "../../helpers/pi-print-fixture-harness";
 
 /** The registry code the fix pushes for a present non-scalar `system:` field. */
 const CODE = "theta/load/malformed-system-field";
@@ -158,87 +154,19 @@ describe("H9a live — bug 0298 non-scalar `system:` load refusal through the re
     // CODE and the control is clean and registers, so neither live sentinel can
     // be produced by an unrelated failure. RED at the pre-fix tree — the parser
     // silently dropped the non-scalar `system:` and the offender read `[]`.
-    expect(
-      errorCodes(OFFENDER, "/proj/b0298offender.theta"),
-      `attribution: the offender's non-scalar \`system:\` must carry exactly ${CODE}`,
-    ).toEqual([CODE]);
-    expect(
-      parseDoc(OFFENDER, "/proj/b0298offender.theta").frontmatter,
-      "attribution: a refused theta does not register (frontmatter is null)",
-    ).toBeNull();
-    expect(
-      errorCodes(CONTROL, "/proj/b0298control.theta"),
-      "attribution: the scalar-`system:` control carries no error and registers",
-    ).toEqual([]);
-    expect(
-      parseDoc(CONTROL, "/proj/b0298control.theta").frontmatter,
-      "attribution: the scalar-`system:` control registers (frontmatter non-null)",
-    ).not.toBeNull();
-
-    // Live-host precondition — fails loudly naming the unmet precondition
-    // (`resolveAcceptanceHost`); never a skip or early return.
-    await requireLiveHost();
-
-    // Two separate discovery roots: the offender's load-time system note (the
-    // very diagnostic under test) reaches every theta discovered beside it, so
-    // isolating the control keeps its drive run free of that note.
-    const offenderDir = mkdtempSync(join(tmpdir(), "theta-b0298-off-"));
-    const controlDir = mkdtempSync(join(tmpdir(), "theta-b0298-ctl-"));
-    const offenderCwd = mkdtempSync(join(tmpdir(), "theta-b0298-cwd-"));
-    const controlCwd = mkdtempSync(join(tmpdir(), "theta-b0298-cwd-"));
-    try {
-      writeFileSync(join(offenderDir, "b0298offender.theta"), OFFENDER, "utf8");
-      writeFileSync(join(offenderDir, "b0298offenderprobe.theta"), OFFENDER_PROBE, "utf8");
-      writeFileSync(join(controlDir, "b0298control.theta"), CONTROL, "utf8");
-      writeFileSync(join(controlDir, "b0298controlprobe.theta"), CONTROL_PROBE, "utf8");
-
-      // ---- (1) the non-scalar-`system:` offender is refused, via invoke ----
-      const probe = await spawnPiPrint({
-        thetaDir: offenderDir,
-        slashInvocation: "/b0298offenderprobe",
-        cwd: offenderCwd,
-      });
-      expect(
-        probe.exitCode,
-        `offender probe: expected a no-error exit (0), got ${String(probe.exitCode)}. ` +
-          `stderr: ${probe.stderr}`,
-      ).toBe(0);
-      expect(
-        probe.stdout,
-        `offender probe: the non-scalar \`system:\` theta must NOT load, so ` +
-          `invoke("./b0298offender.theta") resolves Err(InvokeInfraError) and the ` +
-          `match prints "${REFUSED}". Printing "${LOADED}" means a non-scalar ` +
-          `\`system:\` loaded clean — bug 0298 unfixed. stdout: ${probe.stdout} ` +
-          `stderr: ${probe.stderr}`,
-      ).toContain(REFUSED);
-      expect(
-        probe.stdout,
-        `offender probe: the Ok arm must not fire; stdout: ${probe.stdout}`,
-      ).not.toContain(LOADED);
-
-      // ---- (2) the scalar-`system:` control registers and drives ----
-      const control = await spawnPiPrint({
-        thetaDir: controlDir,
-        slashInvocation: "/b0298controlprobe",
-        cwd: controlCwd,
-      });
-      expect(
-        control.exitCode,
-        `control probe: expected a no-error exit (0), got ${String(control.exitCode)}. ` +
-          `stderr: ${control.stderr}`,
-      ).toBe(0);
-      expect(
-        control.stdout,
-        `control probe: the scalar-\`system:\` subagent must register and DRIVE — ` +
-          `it returns 777 and the prober computes 777 + 100 = ${CONTROL_OK}. A ` +
-          `control the fix wrongly refused resolves Err → d = 0 → answer 100. ` +
-          `stdout: ${control.stdout} stderr: ${control.stderr}`,
-      ).toContain(CONTROL_OK);
-    } finally {
-      rmSync(offenderDir, { recursive: true, force: true });
-      rmSync(controlDir, { recursive: true, force: true });
-      rmSync(offenderCwd, { recursive: true, force: true });
-      rmSync(controlCwd, { recursive: true, force: true });
-    }
+    await expectOffenderControlRefusal({
+      slug: "b0298",
+      offender: OFFENDER,
+      offenderProbe: OFFENDER_PROBE,
+      control: CONTROL,
+      controlProbe: CONTROL_PROBE,
+      code: CODE,
+      refused: REFUSED,
+      loaded: LOADED,
+      controlOk: CONTROL_OK,
+      offenderLabel: "non-scalar `system:`",
+      controlLabel: "scalar-`system:`",
+      unfixedBehavior: "a non-scalar `system:` loaded clean — bug 0298 unfixed",
+    });
   });
 });

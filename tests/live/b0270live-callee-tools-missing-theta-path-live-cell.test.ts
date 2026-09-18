@@ -133,6 +133,9 @@ import {
   type PlantedTheta,
 } from "./harness";
 import {
+  DRIVE_QUESTION,
+  toolsChainRootSource,
+  expectToolsChainTurn,
   liveRegistryMessagePattern,
   renderedRows,
   rowsLocatedAt,
@@ -155,24 +158,11 @@ const INVOKE_CALLER_STEM = "b0270liveinvcaller";
 const PROMPT_CALLEE_STEM = "b0270livepromptcallee";
 const CLEAN_STEM = "b0270liveclean";
 
-/** The arithmetic drive question — task-framed, no verbatim-echo demand (bug 0243). */
-const DRIVE_QUESTION = "What is 263 plus 514? Answer with the number only.";
-
-/**
- * The caller, identical in both workspaces: `mode: prompt`, one `tools:`
- * `.theta` entry naming the subagent-mode callee, and one `@`…`` query so the
- * healthy half has a real turn to drive.
- */
-const CALLER_SOURCE = [
-  "---",
-  "mode: prompt",
-  "tools:",
-  `  - ./${CALLEE_STEM}.theta as callee`,
-  "---",
-  `let r = @\`${DRIVE_QUESTION}\`?`,
-  "r",
-  "",
-].join("\n");
+const CALLER_SOURCE = toolsChainRootSource(CALLEE_STEM, {
+  alias: "callee",
+  prelude: [],
+  question: DRIVE_QUESTION,
+});
 
 /**
  * The callee, identical in both workspaces: `mode: subagent`, its OWN `tools:`
@@ -401,23 +391,8 @@ describe("bug 0270 live cell — a `tools:` caller does not register over a call
           "Notes: " + JSON.stringify(collectSystemNotes(control.sessionManager.getEntries())),
       ).toEqual([]);
 
-      // The registered caller RUNS. `userTexts` is the deterministic outbound
-      // render — the exact text the theta code computed and sent — and the
-      // absence of a fail-closed note is what proves the drive ended cleanly
-      // rather than merely resolving.
       const driven = await driveSlashCaptureTurn(control, `/${CALLER_STEM}`);
-      expect(
-        driven.userTexts.join("\n"),
-        "the caller's QRY-18 rendered template is the deterministic outbound-render channel; " +
-          "its absence means the query never reached the provider, so no real model turn ran. " +
-          "Observed: " + JSON.stringify(driven.userTexts),
-      ).toContain(DRIVE_QUESTION);
-      expect(
-        driven.systemNotes,
-        "every fail-closed ending of a top-level drive lands on the theta-system-note channel " +
-          "(the SLSH-3 err note, the cancelled note, the panic framings); the healthy caller " +
-          "must end with none. Observed: " + JSON.stringify(driven.systemNotes),
-      ).toEqual([]);
+      expectToolsChainTurn(driven, "caller", DRIVE_QUESTION);
     } finally {
       await control.dispose();
       controlWorkspace.dispose();

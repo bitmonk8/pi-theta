@@ -55,11 +55,9 @@
 // Token-bounded: two `pi -p` spawns, one pinned single-line turn each.
 
 import { describe, expect, it } from "vitest";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { parseSystemNoteCodes, requireLiveHost, spawnPiPrint } from "./harness";
-import { parseDoc } from "../../helpers/e2e-s1";
+import { parseSystemNoteCodes, requireLiveHost } from "./harness";
+import { codesOf, diagLines, parseDoc } from "../../helpers/e2e-s1";
+import { drivePiPrintFixtures } from "../../helpers/pi-print-fixture-harness";
 
 /** The row the settled Option-A fix mints (src/parser/frontmatter.ts `extractParsedParams`). */
 const CODE = "theta/parse/params-key-not-identifier";
@@ -130,16 +128,6 @@ const LOADED = "1418";
 // verbatim-echo demand (0243-refusal-prone).
 const CLEAN_SENTINEL = "746";
 
-/** Render one source's parse diagnostics as `severity code: message` strings. */
-function diagnosticsOf(text: string, path: string): readonly string[] {
-  return parseDoc(text, path).diagnostics.map((d) => `${d.severity} ${d.code}: ${d.message}`);
-}
-
-/** Codes only, for the attribution guard. */
-function codesOf(text: string, path: string): readonly string[] {
-  return parseDoc(text, path).diagnostics.map((d) => d.code);
-}
-
 describe("-- H9a live: bug 0380 non-identifier `params:` key refusal at load through the real `pi -p`, and the identifier-key sibling end to end", () => {
   it(": refuses the theta whose `params:` key cooks to `a b`, still registers and drives the identifier-key sibling, and measures whether the code reaches the H9a capture", async () => {
     // ATTRIBUTION GUARD (offline, token-free, runs BEFORE the live host is
@@ -148,14 +136,14 @@ describe("-- H9a live: bug 0380 non-identifier `params:` key refusal at load thr
     // unrelated load failure. A neutralised fix reds here with zero tokens.
     expect(
       codesOf(OFFENDER, "b0380offender.theta"),
-      `attribution: the offending theta must carry exactly one diagnostic, ${CODE}; actual=${JSON.stringify(diagnosticsOf(OFFENDER, "b0380offender.theta"))}`,
+      `attribution: the offending theta must carry exactly one diagnostic, ${CODE}; actual=${JSON.stringify(diagLines(parseDoc(OFFENDER, "b0380offender.theta")))}`,
     ).toEqual([CODE]);
     expect(
-      diagnosticsOf(PROBE, "b0380probe.theta"),
+      diagLines(parseDoc(PROBE, "b0380probe.theta")),
       "attribution: the prober must be clean, so it registers and its verdict reflects the OFFENDER's disposition only",
     ).toEqual([]);
     expect(
-      diagnosticsOf(CLEAN, "b0380clean.theta"),
+      diagLines(parseDoc(CLEAN, "b0380clean.theta")),
       "attribution: the identifier-key sibling must carry zero diagnostics -- the refusal must not disturb the good path",
     ).toEqual([]);
 
@@ -163,66 +151,60 @@ describe("-- H9a live: bug 0380 non-identifier `params:` key refusal at load thr
     // never a skip or early return.
     await requireLiveHost();
 
-    const thetaDir = mkdtempSync(join(tmpdir(), "theta-b0380-root-"));
-    const cleanCwd = mkdtempSync(join(tmpdir(), "theta-b0380-cwd-"));
-    const probeCwd = mkdtempSync(join(tmpdir(), "theta-b0380-cwd-"));
-    try {
-      writeFileSync(join(thetaDir, "b0380offender.theta"), OFFENDER, "utf8");
-      writeFileSync(join(thetaDir, "b0380probe.theta"), PROBE, "utf8");
-      writeFileSync(join(thetaDir, "b0380clean.theta"), CLEAN, "utf8");
-
+    await drivePiPrintFixtures("b0380", { root: {
+      "b0380offender.theta": OFFENDER,
+      "b0380probe.theta": PROBE,
+      "b0380clean.theta": CLEAN,
+    } }, [
       // ---- (1) the identifier-key sibling registers and drives ----
-      const clean = await spawnPiPrint({
-        thetaDir,
+      {
+        root: "root",
         slashInvocation: "/b0380clean hello",
-        cwd: cleanCwd,
-      });
-      expect(
-        clean.exitCode,
-        `clean: expected a no-error exit (0), got ${String(clean.exitCode)}. stderr: ${clean.stderr}`,
-      ).toBe(0);
-      expect(
-        clean.stdout,
-        `clean: the identifier-key sibling must register and DRIVE a real turn over its bound default -- without this the refusal assertion below could pass vacuously (wrong root, no registration). stdout: ${clean.stdout} stderr: ${clean.stderr}`,
-      ).toContain(CLEAN_SENTINEL);
-      expect(
-        clean.stderr.split(/\r?\n/).filter((line) => line.trim().length > 0),
-        `clean: stderr must be empty for a diagnostic-free run (bug 0030 §Fix empty-capture gate). stderr: ${clean.stderr}`,
-      ).toEqual([]);
-      expect(
-        parseSystemNoteCodes(clean.stdout + clean.stderr),
-        "clean: the identifier-key sibling must carry NO theta/{load,parse,runtime}/* code at all -- the refusal must emit nothing on the good path.",
-      ).toEqual([]);
-
+        check(clean) {
+          expect(
+            clean.exitCode,
+            `clean: expected a no-error exit (0), got ${String(clean.exitCode)}. stderr: ${clean.stderr}`,
+          ).toBe(0);
+          expect(
+            clean.stdout,
+            `clean: the identifier-key sibling must register and DRIVE a real turn over its bound default -- without this the refusal assertion below could pass vacuously (wrong root, no registration). stdout: ${clean.stdout} stderr: ${clean.stderr}`,
+          ).toContain(CLEAN_SENTINEL);
+          expect(
+            clean.stderr.split(/\r?\n/).filter((line) => line.trim().length > 0),
+            `clean: stderr must be empty for a diagnostic-free run (bug 0030 §Fix empty-capture gate). stderr: ${clean.stderr}`,
+          ).toEqual([]);
+          expect(
+            parseSystemNoteCodes(clean.stdout + clean.stderr),
+            "clean: the identifier-key sibling must carry NO theta/{load,parse,runtime}/* code at all -- the refusal must emit nothing on the good path.",
+          ).toEqual([]);
+        },
+      },
       // ---- (2) the offending theta is refused, observed through invoke ----
-      const probe = await spawnPiPrint({
-        thetaDir,
+      {
+        root: "root",
         slashInvocation: "/b0380probe",
-        cwd: probeCwd,
-      });
-      expect(
-        probe.exitCode,
-        `probe: expected a no-error exit (0), got ${String(probe.exitCode)}. stderr: ${probe.stderr}`,
-      ).toBe(0);
-      expect(
-        probe.stdout,
-        `probe: the offending theta must NOT load, so the prober's invoke("./b0380offender.theta") resolves Err(InvokeInfraError) and the match prints "${REFUSED}". Printing "${LOADED}" means the non-identifier params key still registers -- the Option-A refusal arm is missing. stdout: ${probe.stdout} stderr: ${probe.stderr}`,
-      ).toContain(REFUSED);
-      expect(
-        probe.stdout,
-        `probe: the Ok arm must not fire; stdout: ${probe.stdout}`,
-      ).not.toContain(LOADED);
+        check(probe) {
+          expect(
+            probe.exitCode,
+            `probe: expected a no-error exit (0), got ${String(probe.exitCode)}. stderr: ${probe.stderr}`,
+          ).toBe(0);
+          expect(
+            probe.stdout,
+            `probe: the offending theta must NOT load, so the prober's invoke("./b0380offender.theta") resolves Err(InvokeInfraError) and the match prints "${REFUSED}". Printing "${LOADED}" means the non-identifier params key still registers -- the Option-A refusal arm is missing. stdout: ${probe.stdout} stderr: ${probe.stderr}`,
+          ).toContain(REFUSED);
+          expect(
+            probe.stdout,
+            `probe: the Ok arm must not fire; stdout: ${probe.stdout}`,
+          ).not.toContain(LOADED);
 
-      // ---- MEASUREMENT (permitted-codes disposition) ----
-      const observedCodes = parseSystemNoteCodes(probe.stdout + probe.stderr);
-      expect(
-        observedCodes,
-        `MEASUREMENT: ${CODE} ${observedCodes.includes(CODE) ? "DOES" : "does NOT"} reach the H9a stdout+stderr capture for this refusal path (probe stdout: ${probe.stdout} stderr: ${probe.stderr}). This is the recorded evidence for the permitted-codes.json disposition.`,
-      ).toEqual([]);
-    } finally {
-      rmSync(thetaDir, { recursive: true, force: true });
-      rmSync(cleanCwd, { recursive: true, force: true });
-      rmSync(probeCwd, { recursive: true, force: true });
-    }
+          // ---- MEASUREMENT (permitted-codes disposition) ----
+          const observedCodes = parseSystemNoteCodes(probe.stdout + probe.stderr);
+          expect(
+            observedCodes,
+            `MEASUREMENT: ${CODE} ${observedCodes.includes(CODE) ? "DOES" : "does NOT"} reach the H9a stdout+stderr capture for this refusal path (probe stdout: ${probe.stdout} stderr: ${probe.stderr}). This is the recorded evidence for the permitted-codes.json disposition.`,
+          ).toEqual([]);
+        },
+      },
+    ]);
   });
 });

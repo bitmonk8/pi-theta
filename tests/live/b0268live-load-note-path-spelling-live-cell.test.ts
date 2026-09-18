@@ -86,14 +86,12 @@
 //   - `docs/spec_topics/diagnostics/diagnostic-shape.md`, §Serialised content
 //     format — `<file>:<line>:<col>: <code>: <message>`.
 
-import { readFileSync, writeFileSync } from "node:fs";
+import { writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-// @ts-expect-error — JS code-registry module, no type declarations.
-import { parseRegistry, registryMessage } from "../../tools/code-registry/index.js";
 import { renderDiagnosticLine, type Diagnostic } from "../../src/diagnostics/diagnostic";
 import { collectSystemNoteEntries } from "../helpers/recording-system-note-channel";
+import { liveRegistryMessagePattern } from "../helpers/live-diagnostic-oracle";
 import {
   bootShippedExtension,
   driveSlashCaptureTurn,
@@ -158,39 +156,7 @@ const THETAS: readonly PlantedTheta[] = [
 
 // ── Registry oracle (DIAG-4) ────────────────────────────────────────────────
 
-interface RegistryRow {
-  code: string;
-  message: string;
-}
-
-const REGISTRY = parseRegistry(
-  readFileSync(
-    fileURLToPath(
-      new URL("../../docs/spec_topics/diagnostics/code-registry-parse.md", import.meta.url),
-    ),
-    "utf8",
-  ),
-) as RegistryRow[];
-
-/**
- * The row's normative *Message* (DIAG-4) as a regex with the `<placeholder>`
- * slots opened up. Fails loudly naming the registry page when the row is absent,
- * so registry drift can never degrade a presence assertion into a comparison
- * against `undefined`.
- */
-function normativeMessagePattern(code: string): RegExp {
-  const message = registryMessage(REGISTRY, code) as string | undefined;
-  if (typeof message !== "string" || message.length === 0) {
-    failLoudly(
-      "bug-0268 live cell precondition unmet: " +
-        "docs/spec_topics/diagnostics/code-registry-parse.md carries no Message row for " +
-        `${code} — the DIAG-4 column is this cell's only message oracle, so a missing row ` +
-        "is a harness failure, never a skip",
-    );
-  }
-  const escaped = message.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  return new RegExp(escaped.replace(/<[a-z-]+>/g, ".+"));
-}
+const normativeMessagePattern = liveRegistryMessagePattern("bug-0268", "parse");
 
 // ── The settled note channel ────────────────────────────────────────────────
 

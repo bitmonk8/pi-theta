@@ -98,6 +98,7 @@
 // past all-object-schema arms, would red there instead.
 
 import { describe, expect, it } from "vitest";
+import { CASE_CODE, minimalPromptTheta as promptTheta, noteChannelTheta } from "../helpers/live-diagnostic-oracle";
 import {
   bootShippedExtension,
   driveSlashCaptureTurn,
@@ -110,13 +111,6 @@ import {
 const ABSENT_FIELD_CODE = "theta/parse/absent-discriminator-field";
 /** The existing row whose *Trigger* the fix widens over class 2. */
 const BY_ON_OBJECT_CODE = "theta/parse/by-on-object-schema";
-/** Bug 0139's row — live at HEAD, the note-channel precondition. */
-const CASE_CODE = "theta/parse/binding-case-mismatch";
-
-/** A `mode: prompt` `.theta` whose body is the given lines. */
-function promptTheta(bodyLines: readonly string[]): string {
-  return ["---", "mode: prompt", "---", ...bodyLines].join("\n") + "\n";
-}
 
 /** The two well-formed object variants every discriminator fixture below shares. */
 const CAT = 'schema Cat { kind: "cat", name: string }';
@@ -173,11 +167,7 @@ describe("bug 0046 — an absent `by` field and a `by` over non-object-schema ar
       // code exists at HEAD. Its note proves the channel carries load-phase
       // parse codes at all, so the two codes' absence below is attributable to
       // this bug rather than to an unwired channel.
-      {
-        source: "project",
-        stem: "b0046livenotechannel",
-        text: promptTheta(["let P = 1", "@`hi`"]),
-      },
+      noteChannelTheta("b0046livenotechannel", promptTheta),
     ];
     const workspace = plantThetaWorkspace(thetas);
     const handle = await bootShippedExtension({ workspace, provider });

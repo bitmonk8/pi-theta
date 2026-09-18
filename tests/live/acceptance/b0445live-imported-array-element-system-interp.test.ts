@@ -64,10 +64,8 @@
 // single typed-query turn.
 
 import { describe, expect, it } from "vitest";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { requireLiveHost, resolveAcceptanceHost, spawnPiPrint } from "./harness";
+import { expectPiPrintFixture } from "../../helpers/pi-print-fixture-harness";
+import { requireLiveHost, resolveAcceptanceHost } from "./harness";
 import { parseThetaDocument, type ThetaDocument } from "../../../src/parser/theta-document";
 import { checkThetaImports } from "../../../src/extension/import-static-checks";
 import { renderSystemPrompt, type SystemTemplate } from "../../../src/parser/system-interpolation";
@@ -75,7 +73,7 @@ import type { ParsedFrontmatter } from "../../../src/parser/frontmatter";
 import type { ThetaCompositionInput } from "../../../src/extension/theta-composition-producer";
 import type { Diagnostic } from "../../../src/diagnostics/diagnostic";
 import type { ThetaValue } from "../../../src/runtime/value";
-import { parseDeps } from "../../helpers/e2e-s1";
+import { errorCodes, parseDeps } from "../../helpers/e2e-s1";
 import { fakeThetaLibFs } from "../../helpers/thetalib-load-harness";
 
 const PROJ_DIR = "/proj";
@@ -199,13 +197,6 @@ async function measureChildLoad(childText: string): Promise<ChildLoadRow> {
   };
 }
 
-/** The error-severity parse codes a single prober source draws (probers carry no imports). */
-function probeErrorCodes(text: string, path: string): readonly string[] {
-  return parseThetaDocument({ path, bytes: new TextEncoder().encode(text) }, parseDeps())
-    .diagnostics.filter((d: Diagnostic) => d.severity === "error")
-    .map((d: Diagnostic) => d.code);
-}
-
 describe("H9a live — bug 0445 imported `array<Import>` element `system:` interpolation renders wire keys through the real `pi -p`", () => {
   it("renders each imported array element's wire keys into the spawned child's system prompt and drives", async () => {
     const host = await resolveAcceptanceHost();
@@ -241,7 +232,7 @@ describe("H9a live — bug 0445 imported `array<Import>` element `system:` inter
         `the fork renders theta-side keys (b0445 W1). rendered: ${rendered.ok ? rendered.text : "<err>"}`,
     ).toBe(true);
     expect(
-      probeErrorCodes(PROBE, `${PROJ_DIR}/b0445probe.theta`),
+      errorCodes(PROBE, `${PROJ_DIR}/b0445probe.theta`),
       "attribution: the prober (schema-constructed, type-annotated invoke argument) parses clean",
     ).toEqual([]);
 
@@ -249,33 +240,20 @@ describe("H9a live — bug 0445 imported `array<Import>` element `system:` inter
     // a skip or early return.
     await requireLiveHost();
 
-    const thetaDir = mkdtempSync(join(tmpdir(), "theta-b0445-"));
-    const probeCwd = mkdtempSync(join(tmpdir(), "theta-b0445-cwd-"));
-    try {
-      writeFileSync(join(thetaDir, "types.thetalib"), TYPES_LIB, "utf8");
-      writeFileSync(join(thetaDir, "b0445childwire.theta"), child, "utf8");
-      writeFileSync(join(thetaDir, "b0445probe.theta"), PROBE, "utf8");
-
-      const probe = await spawnPiPrint({
-        thetaDir,
-        slashInvocation: "/b0445probe",
-        cwd: probeCwd,
-      });
-      expect(
-        probe.exitCode,
-        `probe: expected a no-error exit (0), got ${String(probe.exitCode)}. stderr: ${probe.stderr}`,
-      ).toBe(0);
-      expect(
-        probe.stdout,
+    await expectPiPrintFixture("b0445", {
+      "types.thetalib": TYPES_LIB,
+      "b0445childwire.theta": child,
+      "b0445probe.theta": PROBE,
+    }, {
+      rootName: "",
+      slashInvocation: "/b0445probe",
+      expectedStdout: WIRE_OK,
+      stdoutMessage: (probe) =>
         `probe: the imported \`array<Author>\`-\`system:\` child must render each element's WIRE key ` +
           `\`"Weight"\` at the spawn boundary, so it sums 10 + 20 = 30, returns 500 + 30 = 530, and ` +
           `the prober computes 530 + 100 = ${WIRE_OK}. The fork's theta-side render exposes no ` +
           `\`"Weight"\` key → child adds 0 → returns 500 → the prober answers ${NEUTRALISED_ANSWER}. ` +
           `stdout: ${probe.stdout} stderr: ${probe.stderr}`,
-      ).toContain(WIRE_OK);
-    } finally {
-      rmSync(thetaDir, { recursive: true, force: true });
-      rmSync(probeCwd, { recursive: true, force: true });
-    }
+    });
   });
 });

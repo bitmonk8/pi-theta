@@ -51,17 +51,13 @@
 // the genuine-unary control still registers.
 
 import { describe, expect, it } from "vitest";
+import { minimalPromptTheta as promptTheta } from "../helpers/live-diagnostic-oracle";
 import {
   bootShippedExtension,
   plantThetaWorkspace,
   requireLiveProvider,
   type PlantedTheta,
 } from "./harness";
-
-/** A `mode: prompt` `.theta` whose body is the given lines, no callable named. */
-function promptTheta(bodyLines: readonly string[]): string {
-  return ["---", "mode: prompt", "---", ...bodyLines].join("\n") + "\n";
-}
 
 describe("bug 0367 null-left-minus live cell — an authored binary `-` over a literal `null` left operand is refused at live production load and un-registers the theta", () => {
   it("un-registers the authored `null - 3` theta while a genuine unary-minus theta over the SAME operator registers", async () => {

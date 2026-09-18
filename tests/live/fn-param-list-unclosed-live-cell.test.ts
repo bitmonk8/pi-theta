@@ -72,6 +72,7 @@
 // cannot reach: the real discovery → registration → note-channel path.
 
 import { describe, expect, it } from "vitest";
+import { CASE_CODE, minimalPromptTheta as promptTheta, noteChannelTheta } from "../helpers/live-diagnostic-oracle";
 import {
   bootShippedExtension,
   collectSystemNotes,
@@ -82,13 +83,6 @@ import {
 
 /** The new row bug 0151's fix adds under DIAG-2. */
 const UNCLOSED_CODE = "theta/parse/fn-param-list-unclosed";
-/** Bug 0139's row — live at HEAD, the note-channel precondition. */
-const CASE_CODE = "theta/parse/binding-case-mismatch";
-
-/** A `mode: prompt` `.theta` whose body is the given lines. */
-function promptTheta(bodyLines: readonly string[]): string {
-  return ["---", "mode: prompt", "---", ...bodyLines].join("\n") + "\n";
-}
 
 describe("bug 0151 — an unclosed `fn` parameter list is refused at live production load and un-registers the theta", () => {
   it("un-registers the unclosed-parameter-list theta and names the new code on the theta-system-note channel, while the closed-list sibling registers", async () => {
@@ -116,11 +110,7 @@ describe("bug 0151 — an unclosed `fn` parameter list is refused at live produc
       // code exists at HEAD. Its note proves the channel carries load-phase
       // parse codes at all, so the new code's absence below is attributable to
       // this bug rather than to an unwired channel.
-      {
-        source: "project",
-        stem: "cellenotechannel",
-        text: promptTheta(["let P = 1", "@`hi`"]),
-      },
+      noteChannelTheta("cellenotechannel", promptTheta),
     ];
     const workspace = plantThetaWorkspace(thetas);
     const handle = await bootShippedExtension({ workspace, provider });

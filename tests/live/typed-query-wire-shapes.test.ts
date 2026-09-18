@@ -59,6 +59,7 @@ import {
   type DrivenTurn,
   type LiveExtensionHandle,
 } from "./harness";
+import { expectEchoedQuery } from "../helpers/live-transcript";
 import { assertThetaStderrCleanForEach } from "../helpers/theta-stderr-gate";
 import { RELOAD_TEARDOWN_TIMEOUT_CODE } from "../../src/extension/session-shutdown";
 
@@ -215,29 +216,7 @@ describe("bug 0028 (live) — a declared `enum` at the annotation root is convey
       // value, so its presence proves the enum root was conveyed, satisfied,
       // unwrapped and validated. Only the two declared WIRE values may appear —
       // the lowered `enum` is the validator, so anything else could not bind.
-      const echoed = turn.userTexts.filter((text) => text.includes(sentinel));
-      // bug 0290 §Fix element (b): bug 0289's bounded re-ask re-issues the LAST
-      // user text verbatim, so a settled-but-empty first reply admits a SECOND
-      // byte-identical sentinel-carrying occurrence — cardinality alone is no
-      // longer exactly 1. The range plus identity constraint keeps the leak
-      // detector: a real second, DISTINCT query still fails on the identity
-      // check below.
-      expect(
-        echoed.length,
-        `at least one and at most ${1 + turn.reAskCount} rendered follow-up query must carry ` +
-          `the sentinel; observed userTexts=${JSON.stringify(turn.userTexts)}`,
-      ).toBeGreaterThanOrEqual(1);
-      expect(
-        echoed.length,
-        `at least one and at most ${1 + turn.reAskCount} rendered follow-up query must carry ` +
-          `the sentinel; observed userTexts=${JSON.stringify(turn.userTexts)}`,
-      ).toBeLessThanOrEqual(1 + turn.reAskCount);
-      expect(
-        new Set(echoed).size,
-        `every sentinel-carrying occurrence must be byte-identical (the bounded re-ask ` +
-          `re-issues the last user text verbatim; a distinct second query is a real leak, ` +
-          `not a re-ask) — observed echoed=${JSON.stringify(echoed)}`,
-      ).toBe(1);
+      const echoed = expectEchoedQuery(turn, sentinel);
       expect(
         echoed[0],
         `the bound value must be one of the declared enum's WIRE values ` +
@@ -296,25 +275,7 @@ describe("bug 0028 (live) — a nested named-schema `$ref` is conveyable and the
         "the drive must reach a success terminal; a fail-closed note means the " +
           "nested-`$ref` payload never validated: " + JSON.stringify(turn.systemNotes),
       ).toEqual([]);
-      const echoed = turn.userTexts.filter((text) => text.includes(sentinel));
-      // bug 0290 §Fix element (b): see the enum-root cell above for why
-      // cardinality alone is no longer exactly 1 once the bounded re-ask fires.
-      expect(
-        echoed.length,
-        `at least one and at most ${1 + turn.reAskCount} rendered follow-up query must carry ` +
-          `the sentinel; observed userTexts=${JSON.stringify(turn.userTexts)}`,
-      ).toBeGreaterThanOrEqual(1);
-      expect(
-        echoed.length,
-        `at least one and at most ${1 + turn.reAskCount} rendered follow-up query must carry ` +
-          `the sentinel; observed userTexts=${JSON.stringify(turn.userTexts)}`,
-      ).toBeLessThanOrEqual(1 + turn.reAskCount);
-      expect(
-        new Set(echoed).size,
-        `every sentinel-carrying occurrence must be byte-identical (the bounded re-ask ` +
-          `re-issues the last user text verbatim; a distinct second query is a real leak, ` +
-          `not a re-ask) — observed echoed=${JSON.stringify(echoed)}`,
-      ).toBe(1);
+      const echoed = expectEchoedQuery(turn, sentinel);
       // The interpolation reaches THROUGH the `$ref`-validated nested object
       // (`bound.pet.species`), so a JSON-string payload that was merely
       // tolerated rather than parsed could not render it.
@@ -468,25 +429,7 @@ describe("bug 0099 (live) — canonical-slug cell: the respond tool binds under 
       // the value the respond tool call above delivered, so its presence (and
       // its wire value) proves the canonical-slug-named tool's argument
       // actually validated and bound.
-      const echoed = turn.userTexts.filter((text) => text.includes(sentinel));
-      // bug 0290 §Fix element (b): see the enum-root cell above for why
-      // cardinality alone is no longer exactly 1 once the bounded re-ask fires.
-      expect(
-        echoed.length,
-        `at least one and at most ${1 + turn.reAskCount} rendered follow-up query must carry ` +
-          `the sentinel; observed userTexts=${JSON.stringify(turn.userTexts)}`,
-      ).toBeGreaterThanOrEqual(1);
-      expect(
-        echoed.length,
-        `at least one and at most ${1 + turn.reAskCount} rendered follow-up query must carry ` +
-          `the sentinel; observed userTexts=${JSON.stringify(turn.userTexts)}`,
-      ).toBeLessThanOrEqual(1 + turn.reAskCount);
-      expect(
-        new Set(echoed).size,
-        `every sentinel-carrying occurrence must be byte-identical (the bounded re-ask ` +
-          `re-issues the last user text verbatim; a distinct second query is a real leak, ` +
-          `not a re-ask) — observed echoed=${JSON.stringify(echoed)}`,
-      ).toBe(1);
+      const echoed = expectEchoedQuery(turn, sentinel);
       expect(
         echoed[0],
         `the bound value must be one of the literal union's two wire values ` +

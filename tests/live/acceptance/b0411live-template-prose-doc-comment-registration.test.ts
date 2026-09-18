@@ -53,10 +53,8 @@
 // committed fixture is exercised.
 
 import { describe, expect, it } from "vitest";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { failLoudly, requireLiveHost, spawnPiPrint } from "./harness";
+import { expectPiPrintFixture } from "../../helpers/pi-print-fixture-harness";
+import { failLoudly, requireLiveHost } from "./harness";
 import { parseDoc, errors, hasCode } from "../../helpers/e2e-s1";
 
 /**
@@ -152,33 +150,19 @@ describe("H9a live — bug 0411 template-prose `///` registers through the real 
     // skip or early return.
     await requireLiveHost();
 
-    const thetaDir = mkdtempSync(join(tmpdir(), "theta-b0411-root-"));
-    const subjectCwd = mkdtempSync(join(tmpdir(), "theta-b0411-cwd-"));
-    try {
-      writeFileSync(join(thetaDir, "b0411subject.theta"), SUBJECT, "utf8");
-
-      // ---- (2) the template-prose subject registers AND drives ----
-      const subject = await spawnPiPrint({
-        thetaDir,
-        slashInvocation: "/b0411subject",
-        cwd: subjectCwd,
-      });
-      expect(
-        subject.exitCode,
-        `subject: expected a no-error exit (0), got ${String(subject.exitCode)}. ` +
-          `stderr: ${subject.stderr}`,
-      ).toBe(0);
-      expect(
-        subject.stdout,
+    // ---- (2) the template-prose subject registers AND drives ----
+    await expectPiPrintFixture("b0411", {
+      "b0411subject.theta": SUBJECT,
+    }, {
+      label: "subject",
+      slashInvocation: "/b0411subject",
+      expectedStdout: SUBJECT_ARITHMETIC,
+      stdoutMessage: (subject) =>
         `subject: the template-prose \`///\` theta must REGISTER (the in-template ` +
           `line is rendered prompt, not a load blocker) and drive its body, whose ` +
           `final turn computes 263 + 514 = ${SUBJECT_ARITHMETIC}. A theta that failed ` +
           `to register or drive would omit ${SUBJECT_ARITHMETIC}. stdout: ` +
           `${subject.stdout} stderr: ${subject.stderr}`,
-      ).toContain(SUBJECT_ARITHMETIC);
-    } finally {
-      rmSync(thetaDir, { recursive: true, force: true });
-      rmSync(subjectCwd, { recursive: true, force: true });
-    }
+    });
   });
 });

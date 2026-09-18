@@ -82,14 +82,18 @@
 
 import { describe, expect, it } from "vitest";
 import {
-  bootShippedExtension,
   driveSlashCaptureTurn,
-  plantThetaWorkspace,
   requireLiveProvider,
   type PlantedTheta,
 } from "./harness";
 import { FAIL_CLOSED_MARKERS } from "../helpers/live-transcript";
 import { diagLines, parseDoc } from "../helpers/e2e-s1";
+import {
+  expectRegisteredControlThenAbsentSubject,
+  minimalPromptTheta,
+  preconditionControl,
+  withLiveDiagnosticWorkspace,
+} from "../helpers/live-diagnostic-oracle";
 
 const MALFORMED_FIELD_MESSAGE =
   "malformed schema field; each field is 'name: Type' or 'name as \"WireName\": Type'";
@@ -151,13 +155,9 @@ const OFFENDER = paramsTheta("array<{a: b c, d e}>");
 const CONTROL = paramsTheta("array<{a: integer, m: integer}>");
 
 /** An unrelated theta, present only to prove the workspace itself is sound. */
-const PRECONDITION_THETA = [
-  "---",
-  "mode: prompt",
-  "---",
+const PRECONDITION_THETA = minimalPromptTheta([
   "@`What is 111 plus 222? Answer with the number only.`",
-  "",
-].join("\n");
+]);
 
 describe("bug 0256 live: a `params:` field whose inline object interior strands an entry behind the field loop's exit is REFUSED at live production load and un-registers the theta, while its well-formed byte-neighbour control at the same generic-argument enclosure registers and drives", () => {
   it("keeps `p: 'array<{a: b c, d e}>'` out of the registered set while `p: 'array<{a: integer, m: integer}>'` registers and completes a real turn over both bound scalar fields", async () => {
@@ -186,43 +186,34 @@ describe("bug 0256 live: a `params:` field whose inline object interior strands 
       { source: "project", stem: CONTROL_STEM, text: CONTROL },
       { source: "project", stem: OFFENDER_STEM, text: OFFENDER },
     ];
-    const workspace = plantThetaWorkspace(thetas);
-    const handle = await bootShippedExtension({ workspace, provider });
-    try {
-      expect(
-        handle.command(PRECONDITION_STEM),
-        "the precondition control did not register — a broken workspace, not the refusal, would " +
-          "explain the offender's absence too. Registered: " +
-          JSON.stringify(handle.registeredNames()),
-      ).toBeDefined();
-
-      // (2) CONTROL: registers, and its drive proves the whole path the
-      // offender is denied — bind, render, turn — is live in this workspace.
-      expect(
-        handle.command(CONTROL_STEM),
-        "the control `p: 'array<{a: integer, m: integer}>'` did not register — the fix " +
-          "over-refuses a well-formed inline object type inside a generic argument, or such a " +
-          "`params:` theta cannot register in this harness at all (check the `bind_model:` " +
-          "chain). Registered: " +
-          JSON.stringify(handle.registeredNames()),
-      ).toBeDefined();
-
-      // (1) OFFENDER: the fixed observable, read off the settled
-      // `ExtensionRunner` — never a `prompt()` resolution. At HEAD (pre-fix)
-      // this theta registers with an empty diagnostic list and hands the
-      // provider the permissive `{}` for `p`.
-      expect(
-        handle.command(OFFENDER_STEM),
-        "`params: p: 'array<{a: b c, d e}>'` REGISTERED — the entry stranded behind " +
-          "`TypeParser.parseObject`'s exit at the junk tail `b c` is still never visited, so " +
-          "the document loads with no diagnostic and `p` lowers to the permissive `{}` that " +
-          "accepts every argument. Registered: " +
-          JSON.stringify(handle.registeredNames()),
-      ).toBeUndefined();
-      expect(
-        handle.registeredNames(),
-        "the refused theta's slash name must not appear in the registered set.",
-      ).not.toContain(OFFENDER_STEM);
+    await withLiveDiagnosticWorkspace(provider, thetas, async (handle) => {
+      expectRegisteredControlThenAbsentSubject(
+        handle,
+        [
+          preconditionControl(PRECONDITION_STEM),
+          // (2) CONTROL: registers, and its drive proves the whole path the
+          // offender is denied — bind, render, turn — is live in this workspace.
+          {
+            stem: CONTROL_STEM,
+            message: "the control `p: 'array<{a: integer, m: integer}>'` did not register — the fix " +
+              "over-refuses a well-formed inline object type inside a generic argument, or such a " +
+              "`params:` theta cannot register in this harness at all (check the `bind_model:` " +
+              "chain). Registered: ",
+          },
+        ],
+        // (1) OFFENDER: the fixed observable, read off the settled
+        // `ExtensionRunner` — never a `prompt()` resolution. At HEAD (pre-fix)
+        // this theta registers with an empty diagnostic list and hands the
+        // provider the permissive `{}` for `p`.
+        {
+          stem: OFFENDER_STEM,
+          commandMessage: "`params: p: 'array<{a: b c, d e}>'` REGISTERED — the entry stranded behind " +
+            "`TypeParser.parseObject`'s exit at the junk tail `b c` is still never visited, so " +
+            "the document loads with no diagnostic and `p` lowers to the permissive `{}` that " +
+            "accepts every argument. Registered: ",
+          registeredNamesMessage: "the refused theta's slash name must not appear in the registered set.",
+        },
+      );
 
       const controlTurn = await driveSlashCaptureTurn(
         handle,
@@ -250,9 +241,6 @@ describe("bug 0256 live: a `params:` field whose inline object interior strands 
           "only from two values that BOTH reached the rendered body. Reply: " +
           JSON.stringify(controlTurn.text),
       ).toContain(SUM);
-    } finally {
-      await handle.dispose();
-      workspace.dispose();
-    }
+    });
   });
 });

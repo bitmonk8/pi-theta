@@ -90,7 +90,7 @@ import { checkThetaImports } from "../../../src/extension/import-static-checks";
 import type { ThetaCompositionInput } from "../../../src/extension/theta-composition-producer";
 import type { ParsedFrontmatter } from "../../../src/parser/frontmatter";
 import type { Diagnostic } from "../../../src/diagnostics/diagnostic";
-import { parseDeps } from "../../helpers/e2e-s1";
+import { errorCodes, parseDeps } from "../../helpers/e2e-s1";
 import { fakeThetaLibFs } from "../../helpers/thetalib-load-harness";
 
 /** The load-phase sibling code bug 0422 route (a) mints for a walked-off imported field. */
@@ -247,13 +247,6 @@ async function measureChildLoad(childText: string, stem: string): Promise<ChildL
   };
 }
 
-/** The error-severity parse codes a single prober source draws (probers carry no imports). */
-function probeErrorCodes(text: string, path: string): readonly string[] {
-  return parseThetaDocument({ path, bytes: new TextEncoder().encode(text) }, parseDeps())
-    .diagnostics.filter((d: Diagnostic) => d.severity === "error")
-    .map((d: Diagnostic) => d.code);
-}
-
 describe("H9a live — bugs 0422/0423 imported-schema `system:` wire-render and load-refusal through the real `pi -p`", () => {
   it("DIRECTION 1 (0423): an imported schema's bare `${cfg}` renders WIRE keys into the spawned child's system prompt", async () => {
     const host = await resolveAcceptanceHost();
@@ -278,7 +271,7 @@ describe("H9a live — bugs 0422/0423 imported-schema `system:` wire-render and 
       "attribution: the load-phase wire-render carry fired (patchedSystemTemplate present), so a green live 877 can only be the wire render",
     ).toBe(true);
     expect(
-      probeErrorCodes(PROBE_WIRE, `${PROJ_DIR}/b0422probewire.theta`),
+      errorCodes(PROBE_WIRE, `${PROJ_DIR}/b0422probewire.theta`),
       "attribution: the wire prober (schema-constructed invoke argument) parses clean",
     ).toEqual([]);
 
@@ -335,7 +328,7 @@ describe("H9a live — bugs 0422/0423 imported-schema `system:` wire-render and 
       "attribution: a walked-off imported field draws the load-phase `system-interp-bad-field` sibling (bug 0422), so the callee does not register",
     ).toContain(LOAD_BAD_FIELD_CODE);
     expect(
-      probeErrorCodes(PROBE_TYPO, `${PROJ_DIR}/b0422probetypo.theta`),
+      errorCodes(PROBE_TYPO, `${PROJ_DIR}/b0422probetypo.theta`),
       "attribution: the typo prober (schema-constructed invoke argument) parses clean",
     ).toEqual([]);
 

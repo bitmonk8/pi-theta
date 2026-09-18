@@ -71,12 +71,8 @@
 //
 // Token-bounded: two `pi -p` spawns, one pinned single-turn each.
 
-import { describe, expect, it } from "vitest";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { requireLiveHost, spawnPiPrint } from "./harness";
-import { errorCodes, parseDoc } from "../../helpers/e2e-s1";
+import { describe, it } from "vitest";
+import { expectOffenderControlRefusal } from "../../helpers/pi-print-fixture-harness";
 
 /** The registry code the fix pushes for a present non-scalar `bind_context:`. */
 const CODE = "theta/load/unknown-bind-context-value";
@@ -170,87 +166,19 @@ describe("H9a live — bug 0297 non-scalar `bind_context:` load refusal through 
     // be produced by an unrelated failure. RED at the pre-fix tree — the parser
     // narrowed the non-scalar `bind_context:` to the absent-default and the
     // offender loaded clean with `none`.
-    expect(
-      errorCodes(OFFENDER, "/proj/b0297offender.theta"),
-      `attribution: the offender's non-scalar \`bind_context:\` must carry exactly ${CODE}`,
-    ).toEqual([CODE]);
-    expect(
-      parseDoc(OFFENDER, "/proj/b0297offender.theta").frontmatter,
-      "attribution: a refused theta does not register (frontmatter is null)",
-    ).toBeNull();
-    expect(
-      errorCodes(CONTROL, "/proj/b0297control.theta"),
-      "attribution: the scalar-`bind_context:` control carries no error and registers",
-    ).toEqual([]);
-    expect(
-      parseDoc(CONTROL, "/proj/b0297control.theta").frontmatter,
-      "attribution: the scalar-`bind_context:` control registers (frontmatter non-null)",
-    ).not.toBeNull();
-
-    // Live-host precondition — fails loudly naming the unmet precondition
-    // (`resolveAcceptanceHost`); never a skip or early return.
-    await requireLiveHost();
-
-    // Two separate discovery roots: the offender's load-time system note (the
-    // very diagnostic under test) reaches every theta discovered beside it, so
-    // isolating the control keeps its drive run free of that note.
-    const offenderDir = mkdtempSync(join(tmpdir(), "theta-b0297-off-"));
-    const controlDir = mkdtempSync(join(tmpdir(), "theta-b0297-ctl-"));
-    const offenderCwd = mkdtempSync(join(tmpdir(), "theta-b0297-cwd-"));
-    const controlCwd = mkdtempSync(join(tmpdir(), "theta-b0297-cwd-"));
-    try {
-      writeFileSync(join(offenderDir, "b0297offender.theta"), OFFENDER, "utf8");
-      writeFileSync(join(offenderDir, "b0297offenderprobe.theta"), OFFENDER_PROBE, "utf8");
-      writeFileSync(join(controlDir, "b0297control.theta"), CONTROL, "utf8");
-      writeFileSync(join(controlDir, "b0297controlprobe.theta"), CONTROL_PROBE, "utf8");
-
-      // ---- (1) the non-scalar-`bind_context:` offender is refused, via invoke ----
-      const probe = await spawnPiPrint({
-        thetaDir: offenderDir,
-        slashInvocation: "/b0297offenderprobe",
-        cwd: offenderCwd,
-      });
-      expect(
-        probe.exitCode,
-        `offender probe: expected a no-error exit (0), got ${String(probe.exitCode)}. ` +
-          `stderr: ${probe.stderr}`,
-      ).toBe(0);
-      expect(
-        probe.stdout,
-        `offender probe: the non-scalar \`bind_context:\` theta must NOT load, so ` +
-          `invoke("./b0297offender.theta") resolves Err(InvokeInfraError) and the ` +
-          `match prints "${REFUSED}". Printing "${LOADED}" means a non-scalar ` +
-          `\`bind_context:\` registered silently with the default \`none\` — bug 0297 ` +
-          `unfixed. stdout: ${probe.stdout} stderr: ${probe.stderr}`,
-      ).toContain(REFUSED);
-      expect(
-        probe.stdout,
-        `offender probe: the Ok arm must not fire; stdout: ${probe.stdout}`,
-      ).not.toContain(LOADED);
-
-      // ---- (2) the scalar-`bind_context:` control registers and drives ----
-      const control = await spawnPiPrint({
-        thetaDir: controlDir,
-        slashInvocation: "/b0297controlprobe",
-        cwd: controlCwd,
-      });
-      expect(
-        control.exitCode,
-        `control probe: expected a no-error exit (0), got ${String(control.exitCode)}. ` +
-          `stderr: ${control.stderr}`,
-      ).toBe(0);
-      expect(
-        control.stdout,
-        `control probe: the scalar-\`bind_context:\` theta must register and DRIVE — ` +
-          `it returns 777 and the prober computes 777 + 100 = ${CONTROL_OK}. A ` +
-          `control the fix wrongly refused resolves Err → d = 0 → answer 100. ` +
-          `stdout: ${control.stdout} stderr: ${control.stderr}`,
-      ).toContain(CONTROL_OK);
-    } finally {
-      rmSync(offenderDir, { recursive: true, force: true });
-      rmSync(controlDir, { recursive: true, force: true });
-      rmSync(offenderCwd, { recursive: true, force: true });
-      rmSync(controlCwd, { recursive: true, force: true });
-    }
+    await expectOffenderControlRefusal({
+      slug: "b0297",
+      offender: OFFENDER,
+      offenderProbe: OFFENDER_PROBE,
+      control: CONTROL,
+      controlProbe: CONTROL_PROBE,
+      code: CODE,
+      refused: REFUSED,
+      loaded: LOADED,
+      controlOk: CONTROL_OK,
+      offenderLabel: "non-scalar `bind_context:`",
+      controlLabel: "scalar-`bind_context:`",
+      unfixedBehavior: "a non-scalar `bind_context:` registered silently with the default `none` — bug 0297 unfixed",
+    });
   });
 });

@@ -39,3 +39,35 @@ export function countOnSessionRespondCalls(handle: LiveExtensionHandle, entriesB
       ),
   ).length;
 }
+
+/**
+ * bug 0290 §Fix element (b): bug 0289's bounded re-ask re-issues the LAST
+ * user text verbatim, so a settled-but-empty first reply admits a SECOND
+ * byte-identical sentinel-carrying occurrence — cardinality alone is no
+ * longer exactly 1. The range plus identity constraint keeps the leak
+ * detector: a real second, DISTINCT query still fails on the identity
+ * check below.
+ */
+export function expectEchoedQuery(
+  turn: Pick<DrivenTurn, "userTexts" | "reAskCount">,
+  sentinel: string,
+): string[] {
+  const echoed = turn.userTexts.filter((text) => text.includes(sentinel));
+  expect(
+    echoed.length,
+    `at least one and at most ${1 + turn.reAskCount} rendered follow-up query must carry ` +
+      `the sentinel; observed userTexts=${JSON.stringify(turn.userTexts)}`,
+  ).toBeGreaterThanOrEqual(1);
+  expect(
+    echoed.length,
+    `at least one and at most ${1 + turn.reAskCount} rendered follow-up query must carry ` +
+      `the sentinel; observed userTexts=${JSON.stringify(turn.userTexts)}`,
+  ).toBeLessThanOrEqual(1 + turn.reAskCount);
+  expect(
+    new Set(echoed).size,
+    `every sentinel-carrying occurrence must be byte-identical (the bounded re-ask ` +
+      `re-issues the last user text verbatim; a distinct second query is a real leak, ` +
+      `not a re-ask) — observed echoed=${JSON.stringify(echoed)}`,
+  ).toBe(1);
+  return echoed;
+}

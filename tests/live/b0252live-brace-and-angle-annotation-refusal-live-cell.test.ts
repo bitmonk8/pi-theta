@@ -79,14 +79,18 @@ import { describe, expect, it } from "vitest";
 // @ts-expect-error — JS code-registry module, no type declarations.
 import { parseRegistry, registryMessage } from "../../tools/code-registry/index.js";
 import {
-  bootShippedExtension,
   driveSlashCaptureTurn,
-  plantThetaWorkspace,
   requireLiveProvider,
   type PlantedTheta,
 } from "./harness";
 import { FAIL_CLOSED_MARKERS } from "../helpers/live-transcript";
 import { diagLines, parseDoc } from "../helpers/e2e-s1";
+import {
+  expectRegisteredControlThenAbsentSubject,
+  minimalPromptTheta,
+  preconditionControl,
+  withLiveDiagnosticWorkspace,
+} from "../helpers/live-diagnostic-oracle";
 
 interface RegistryRow {
   readonly code: string;
@@ -189,13 +193,9 @@ const OFFENDER = annotatedLetTheta("{a: integer, b > c, m: integer}");
 const CONTROL = annotatedLetTheta("{a: integer, m: integer}");
 
 /** An unrelated theta, present only to prove the workspace itself is sound. */
-const PRECONDITION_THETA = [
-  "---",
-  "mode: prompt",
-  "---",
+const PRECONDITION_THETA = minimalPromptTheta([
   "@`What is 263 plus 514? Answer with the number only.`",
-  "",
-].join("\n");
+]);
 
 /** The slash argument naming both values in natural language (the binder's input). */
 const SLASH_ARG = ` a is ${String(A_VALUE)} and m is ${String(M_VALUE)}`;
@@ -224,40 +224,31 @@ describe("bug 0252 live: a `let` annotation carrying brace-and-angle junk is REF
       { source: "project", stem: CONTROL_STEM, text: CONTROL },
       { source: "project", stem: OFFENDER_STEM, text: OFFENDER },
     ];
-    const workspace = plantThetaWorkspace(thetas);
-    const handle = await bootShippedExtension({ workspace, provider });
-    try {
-      expect(
-        handle.command(PRECONDITION_STEM),
-        "the precondition control did not register — a broken workspace, not the refusal, would " +
-          "explain the offender's absence too. Registered: " +
-          JSON.stringify(handle.registeredNames()),
-      ).toBeDefined();
-
-      // (2) CONTROL: registers, and its drive proves the whole path the
-      // offender is denied — bind, render, turn — is live in this workspace.
-      expect(
-        handle.command(CONTROL_STEM),
-        "the byte-neighbour control `let y: {a: integer, m: integer} = p` did not register — the " +
-          "route over-refuses a well-formed annotation, or an inline-object `params:` theta " +
-          "cannot register in this harness at all (check the `bind_model:` chain). Registered: " +
-          JSON.stringify(handle.registeredNames()),
-      ).toBeDefined();
-
-      // (1) OFFENDER: the fixed observable, read off the settled
-      // `ExtensionRunner` — never a `prompt()` resolution. At HEAD this theta
-      // registers with an empty diagnostic list.
-      expect(
-        handle.command(OFFENDER_STEM),
-        "`let y: {a: integer, b > c, m: integer} = p` REGISTERED — the brace-and-angle conjunct " +
-          "still exempts the annotation from `theta/parse/annotation-type-not-expression`, so " +
-          "the theta loads and its binding's type checks stay withheld. Registered: " +
-          JSON.stringify(handle.registeredNames()),
-      ).toBeUndefined();
-      expect(
-        handle.registeredNames(),
-        "the refused theta's slash name must not appear in the registered set.",
-      ).not.toContain(OFFENDER_STEM);
+    await withLiveDiagnosticWorkspace(provider, thetas, async (handle) => {
+      expectRegisteredControlThenAbsentSubject(
+        handle,
+        [
+          preconditionControl(PRECONDITION_STEM),
+          // (2) CONTROL: registers, and its drive proves the whole path the
+          // offender is denied — bind, render, turn — is live in this workspace.
+          {
+            stem: CONTROL_STEM,
+            message: "the byte-neighbour control `let y: {a: integer, m: integer} = p` did not register — the " +
+              "route over-refuses a well-formed annotation, or an inline-object `params:` theta " +
+              "cannot register in this harness at all (check the `bind_model:` chain). Registered: ",
+          },
+        ],
+        // (1) OFFENDER: the fixed observable, read off the settled
+        // `ExtensionRunner` — never a `prompt()` resolution. At HEAD this theta
+        // registers with an empty diagnostic list.
+        {
+          stem: OFFENDER_STEM,
+          commandMessage: "`let y: {a: integer, b > c, m: integer} = p` REGISTERED — the brace-and-angle conjunct " +
+            "still exempts the annotation from `theta/parse/annotation-type-not-expression`, so " +
+            "the theta loads and its binding's type checks stay withheld. Registered: ",
+          registeredNamesMessage: "the refused theta's slash name must not appear in the registered set.",
+        },
+      );
 
       const controlTurn = await driveSlashCaptureTurn(handle, `/${CONTROL_STEM}${SLASH_ARG}`);
       expect(
@@ -282,9 +273,6 @@ describe("bug 0252 live: a `let` annotation carrying brace-and-angle junk is REF
           "computable only from two values that BOTH reached the rendered body. Reply: " +
           JSON.stringify(controlTurn.text),
       ).toContain(PRODUCT);
-    } finally {
-      await handle.dispose();
-      workspace.dispose();
-    }
+    });
   });
 });

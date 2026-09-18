@@ -72,10 +72,8 @@
 // single typed-query turn.
 
 import { describe, expect, it } from "vitest";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { requireLiveHost, resolveAcceptanceHost, spawnPiPrint } from "./harness";
+import { expectPiPrintFixture } from "../../helpers/pi-print-fixture-harness";
+import { requireLiveHost, resolveAcceptanceHost } from "./harness";
 import { parseDoc, errorCodes } from "../../helpers/e2e-s1";
 
 /** The registry code the mis-classification draws on the inline-object `.Ident` step at the fork. */
@@ -163,32 +161,19 @@ describe("H9a live — bugs 0406/0407/0408 object-param `system:` interpolation 
     // a skip or early return.
     await requireLiveHost();
 
-    const thetaDir = mkdtempSync(join(tmpdir(), "theta-b0406-"));
-    const probeCwd = mkdtempSync(join(tmpdir(), "theta-b0406-cwd-"));
-    try {
-      writeFileSync(join(thetaDir, "b0406child.theta"), child, "utf8");
-      writeFileSync(join(thetaDir, "b0406probe.theta"), PROBE, "utf8");
-
-      const probe = await spawnPiPrint({
-        thetaDir,
-        slashInvocation: "/b0406probe",
-        cwd: probeCwd,
-      });
-      expect(
-        probe.exitCode,
-        `probe: expected a no-error exit (0), got ${String(probe.exitCode)}. stderr: ${probe.stderr}`,
-      ).toBe(0);
-      expect(
-        probe.stdout,
+    await expectPiPrintFixture("b0406", {
+      "b0406child.theta": child,
+      "b0406probe.theta": PROBE,
+    }, {
+      rootName: "",
+      slashInvocation: "/b0406probe",
+      expectedStdout: REGISTERED_OK,
+      stdoutMessage: (probe) =>
         `probe: the inline-object-\`system:\` child must register and DRIVE — its ` +
           `\`system:\` renders "add exactly 277" from the invoke-argument \`cfg.addend\`, so it ` +
           `returns 500 + 277 = 777 and the prober computes 777 + 100 = ${REGISTERED_OK}. A child ` +
           `the fix did not admit (fork: ${FORK_REFUSAL_CODE}) resolves Err → d = 0 → the prober ` +
           `answers ${REFUSED_ANSWER}. stdout: ${probe.stdout} stderr: ${probe.stderr}`,
-      ).toContain(REGISTERED_OK);
-    } finally {
-      rmSync(thetaDir, { recursive: true, force: true });
-      rmSync(probeCwd, { recursive: true, force: true });
-    }
+    });
   });
 });

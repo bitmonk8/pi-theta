@@ -51,10 +51,8 @@
 // `tests/fixtures/h7a/permitted-codes.json`. Fix version placeholder: 0.298.0.
 
 import { describe, expect, it } from "vitest";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { requireLiveHost, spawnPiPrint } from "./harness";
+import { expectPiPrintFixture } from "../../helpers/pi-print-fixture-harness";
+import { requireLiveHost } from "./harness";
 import { errorCodes as parseErrorCodes } from "../../helpers/e2e-s1";
 
 /**
@@ -135,39 +133,23 @@ describe("H9a live — bug 0307 value-position query Err binds & recovers throug
     // a skip or early return.
     await requireLiveHost();
 
-    const thetaDir = mkdtempSync(join(tmpdir(), "theta-b0307-root-"));
-    const probeCwd = mkdtempSync(join(tmpdir(), "theta-b0307-cwd-"));
-    try {
-      writeFileSync(join(thetaDir, "b0307inner.theta"), INNER, "utf8");
-      writeFileSync(join(thetaDir, "b0307probe.theta"), PROBE, "utf8");
-
-      const probe = await spawnPiPrint({
-        thetaDir,
-        slashInvocation: "/b0307probe",
-        cwd: probeCwd,
-      });
-
-      expect(
-        probe.exitCode,
-        `probe: expected a no-error exit (0), got ${String(probe.exitCode)}. ` +
-          `stderr: ${probe.stderr}`,
-      ).toBe(0);
-      expect(
-        probe.stdout,
+    await expectPiPrintFixture("b0307", {
+      "b0307inner.theta": INNER,
+      "b0307probe.theta": PROBE,
+    }, {
+      slashInvocation: "/b0307probe",
+      expectedStdout: FIXED_ANSWER,
+      stdoutMessage: (probe) =>
         `probe: the inner theta's value-position query fails with ` +
           `tool_loop_exhausted; FIXED it BINDS the Err, the in-body match recovers ` +
           `code 42, the theta returns Ok(42), invoke<integer> carries 42, and the ` +
           `probe drives 42 + 100 = ${FIXED_ANSWER}. UNFIXED the let-init aborts the ` +
           `inner body, invoke resolves Err, d = 55 and the answer is ` +
           `${UNFIXED_ANSWER}. stdout: ${probe.stdout} stderr: ${probe.stderr}`,
-      ).toContain(FIXED_ANSWER);
-      // NOTE: no `.not.toContain(UNFIXED_ANSWER)` — the answer digits could recur
-      // in a verbose model reply, so a prompt-echo could false-red
-      // it. `142` is producible ONLY by the fix (it is absent from the prompt),
-      // so the positive assertion is the sound, sufficient discriminator.
-    } finally {
-      rmSync(thetaDir, { recursive: true, force: true });
-      rmSync(probeCwd, { recursive: true, force: true });
-    }
+    });
+    // NOTE: no `.not.toContain(UNFIXED_ANSWER)` — the answer digits could recur
+    // in a verbose model reply, so a prompt-echo could false-red
+    // it. `142` is producible ONLY by the fix (it is absent from the prompt),
+    // so the positive assertion is the sound, sufficient discriminator.
   });
 });

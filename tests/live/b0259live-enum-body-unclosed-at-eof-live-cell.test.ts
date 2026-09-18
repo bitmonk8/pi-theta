@@ -93,6 +93,7 @@
 // note-channel → driven-turn path.
 
 import { describe, expect, it } from "vitest";
+import { CASE_CODE, minimalPromptTheta as promptTheta, noteChannelTheta } from "../helpers/live-diagnostic-oracle";
 import {
   bootShippedExtension,
   collectSystemNotes,
@@ -104,13 +105,6 @@ import {
 
 /** The new row bug 0259's fix mints under DIAG-2. */
 const ENUM_UNCLOSED_CODE = "theta/parse/enum-body-unclosed";
-/** Bug 0139's row — live at HEAD, the note-channel precondition. */
-const CASE_CODE = "theta/parse/binding-case-mismatch";
-
-/** A `mode: prompt` `.theta` whose body is the given lines. */
-function promptTheta(bodyLines: readonly string[]): string {
-  return ["---", "mode: prompt", "---", ...bodyLines].join("\n") + "\n";
-}
 
 // Drive discriminators are ANSWERS to task questions over an inline value —
 // deterministic content a degraded plain-prompt run cannot produce by
@@ -153,11 +147,7 @@ describe("bug 0259 — an unclosed `enum` variant list is refused at live produc
       // code exists at HEAD. Its note proves the channel carries load-phase
       // parse codes at all, so the new code's absence below is attributable to
       // this bug rather than to an unwired channel.
-      {
-        source: "project",
-        stem: "b0259livenotechannel",
-        text: promptTheta(["let P = 1", "@`hi`"]),
-      },
+      noteChannelTheta("b0259livenotechannel", promptTheta),
     ];
     const workspace = plantThetaWorkspace(thetas);
     const handle = await bootShippedExtension({ workspace, provider });

@@ -89,6 +89,7 @@
 // discovery → registration → note-channel path. Title token:
 
 import { describe, expect, it } from "vitest";
+import { CASE_CODE, minimalPromptTheta as promptTheta, noteChannelTheta } from "../helpers/live-diagnostic-oracle";
 import {
   bootShippedExtension,
   collectSystemNotes,
@@ -99,13 +100,6 @@ import {
 
 /** The new row bug 0225's fix adds under DIAG-2. */
 const NOTID_CODE = "theta/parse/fn-param-not-identifier";
-/** Bug 0139's row — live at HEAD, the note-channel precondition. */
-const CASE_CODE = "theta/parse/binding-case-mismatch";
-
-/** A `mode: prompt` `.theta` whose body is the given lines. */
-function promptTheta(bodyLines: readonly string[]): string {
-  return ["---", "mode: prompt", "---", ...bodyLines].join("\n") + "\n";
-}
 
 describe("bug 0225 — a `fn` parameter name that no `Ident` derives is refused at live production load", () => {
   it("un-registers the foreign-`)` theta and names the new code on the theta-system-note channel, while both controls register —", async () => {
@@ -144,11 +138,7 @@ describe("bug 0225 — a `fn` parameter name that no `Ident` derives is refused 
       // code exists at HEAD. Its note proves the channel carries load-phase
       // parse codes at all, so the new code's absence below is attributable to
       // this bug rather than to an unwired channel.
-      {
-        source: "project",
-        stem: "cellenotechan",
-        text: promptTheta(["let P = 1", "@`hi`"]),
-      },
+      noteChannelTheta("cellenotechan", promptTheta),
     ];
     const workspace = plantThetaWorkspace(thetas);
     const handle = await bootShippedExtension({ workspace, provider });

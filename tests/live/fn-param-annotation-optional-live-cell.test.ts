@@ -93,6 +93,7 @@
 // driven-turn → note-channel path.
 
 import { describe, expect, it } from "vitest";
+import { CASE_CODE, minimalPromptTheta as promptTheta, noteChannelTheta } from "../helpers/live-diagnostic-oracle";
 import {
   bootShippedExtension,
   collectSystemNotes,
@@ -102,8 +103,6 @@ import {
   type PlantedTheta,
 } from "./harness";
 
-/** Bug 0139's row — live at HEAD, the note-channel precondition. */
-const CASE_CODE = "theta/parse/binding-case-mismatch";
 /** The value the unannotated parameter carries through to the outbound render. */
 // Drive discriminators are ANSWERS to task questions over the theta's own
 // computed text -- deterministic content a degraded plain-prompt run cannot
@@ -112,11 +111,6 @@ const CASE_CODE = "theta/parse/binding-case-mismatch";
 // filed as bug 0243. `${z}` stays in the rendered text as a context token
 // (asserted off the outbound render, not the reply).
 const SENTINEL = "unannotatedparamok";
-
-/** A `mode: prompt` `.theta` whose body is the given lines. */
-function promptTheta(bodyLines: readonly string[]): string {
-  return ["---", "mode: prompt", "---", ...bodyLines].join("\n") + "\n";
-}
 
 describe("bug 0150 — a `fn` parameter with no type annotation is the blessed shape at live production load and drive", () => {
   it("registers the unannotated-parameter theta, renders the value it computed, and lands NO theta-system-note (bug 0150)", async () => {
@@ -140,11 +134,7 @@ describe("bug 0150 — a `fn` parameter with no type annotation is the blessed s
       // parse codes at all, so the per-drive note ABSENCE asserted below is
       // attributable to the drive being clean rather than to an unwired
       // channel.
-      {
-        source: "project",
-        stem: "cellcnotechan",
-        text: promptTheta(["let P = 1", "@`hi`"]),
-      },
+      noteChannelTheta("cellcnotechan", promptTheta),
     ];
     const workspace = plantThetaWorkspace(thetas);
     const handle = await bootShippedExtension({ workspace, provider });

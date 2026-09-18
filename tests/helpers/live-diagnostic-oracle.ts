@@ -1,7 +1,15 @@
 // Registry-backed messages, fixtures, registration assertions and settled diagnostic-row readers for live cells.
 
 import { expect } from "vitest";
-import { failLoudly, type DrivenTurn, type LiveExtensionHandle, type PlantedTheta } from "../live/harness";
+import {
+  bootShippedExtension,
+  failLoudly,
+  plantThetaWorkspace,
+  type DrivenTurn,
+  type LiveExtensionHandle,
+  type LiveProvider,
+  type PlantedTheta,
+} from "../live/harness";
 import { collectSystemNotes } from "./recording-system-note-channel";
 import { normalisePath, normativeMessagePattern } from "./compose-workspace-harness";
 import { readRegistry } from "./registry-oracle";
@@ -14,15 +22,45 @@ export function promptTheta(bodyLines: readonly string[]): string {
   return ["---", "description: d", "mode: prompt", "---", "", ...bodyLines].join("\n") + "\n";
 }
 
+/** A `mode: prompt` `.theta` with no description or blank separator before the body. */
+export function minimalPromptTheta(bodyLines: readonly string[]): string {
+  return ["---", "mode: prompt", "---", ...bodyLines].join("\n") + "\n";
+}
+
 /** A `mode: prompt` `.theta` whose `tools:` field is the given lines, body names no callable. */
 export function toolsTheta(toolsLines: readonly string[]): string {
   return ["---", "mode: prompt", ...toolsLines, "---", "@`hi`"].join("\n") + "\n";
+}
+
+/** Run a live cell over a planted workspace, then dispose the handle before the workspace. */
+export async function withLiveDiagnosticWorkspace(
+  provider: LiveProvider,
+  thetas: readonly PlantedTheta[],
+  check: (handle: LiveExtensionHandle) => Promise<void>,
+): Promise<void> {
+  const workspace = plantThetaWorkspace(thetas);
+  const handle = await bootShippedExtension({ workspace, provider });
+  try {
+    await check(handle);
+  } finally {
+    await handle.dispose();
+    workspace.dispose();
+  }
 }
 
 interface RegisteredControl {
   readonly stem: string;
   /** Failure rationale ending in `Registered: `; the helper appends the live names. */
   readonly message: string;
+}
+
+/** The unrelated control proves the workspace is sound before any refusal is read. */
+export function preconditionControl(stem: string): RegisteredControl {
+  return {
+    stem,
+    message: "the precondition control did not register — a broken workspace, not the refusal, would " +
+      "explain the offender's absence too. Registered: ",
+  };
 }
 
 /**
@@ -54,11 +92,14 @@ export function expectRegisteredControlThenAbsentSubject(
 }
 
 /** The note-channel precondition: a parse fault that existed and fired before these live cells. */
-export function noteChannelTheta(stem: string): PlantedTheta {
+export function noteChannelTheta(
+  stem: string,
+  buildTheta: (bodyLines: readonly string[]) => string = promptTheta,
+): PlantedTheta {
   return {
     source: "project",
     stem,
-    text: promptTheta(["let P = 1", "@`hi`"]),
+    text: buildTheta(["let P = 1", "@`hi`"]),
   };
 }
 
@@ -91,6 +132,9 @@ export function requireVacuityGuardRegistered(
   ).toBeDefined();
 }
 
+/** The arithmetic drive question — task-framed, no verbatim-echo demand (bug 0243). */
+export const DRIVE_QUESTION = "What is 263 plus 514? Answer with the number only.";
+
 /**
  * The two summands the root adds in code. Their sum is rendered into the
  * outbound template, so the deterministic drive channel carries a value only the
@@ -106,19 +150,31 @@ const DRIVE_QUESTION_PREFIX = `The prior step produced the number ${COMPUTED_SUM
 
 /**
  * The root, identical in both workspaces: `mode: prompt`, one `tools:` `.theta`
- * entry naming the subagent-mode child, and one `@`…`` query over a computed
- * value so the healthy half has a real turn to drive.
+ * entry naming the subagent-mode child, and one `@`…`` query so the healthy
+ * half has a real turn to drive. Defaults to a computed-value query; callers
+ * can supply a fixed question with no prelude and their own callee alias.
  */
-export function toolsChainRootSource(childStem: string): string {
+export function toolsChainRootSource(
+  childStem: string,
+  {
+    alias = "child",
+    prelude = [`let n = ${LEFT_SUMMAND} + ${RIGHT_SUMMAND}`],
+    question = "The prior step produced the number ${n}. " +
+      "What is that number plus 100? Answer with the number only.",
+  }: {
+    readonly alias?: string;
+    readonly prelude?: readonly string[];
+    readonly question?: string;
+  } = {},
+): string {
   return [
     "---",
     "mode: prompt",
     "tools:",
-    `  - ./${childStem}.theta as child`,
+    `  - ./${childStem}.theta as ${alias}`,
     "---",
-    `let n = ${LEFT_SUMMAND} + ${RIGHT_SUMMAND}`,
-    "let r = @`The prior step produced the number ${n}. " +
-      "What is that number plus 100? Answer with the number only.`?",
+    ...prelude,
+    `let r = @\`${question}\`?`,
     "r",
     "",
   ].join("\n");
@@ -142,17 +198,25 @@ export function toolsChainChildSource(
   ].join("\n");
 }
 
-/** Require the computed outbound render and no fail-closed note, never the model's reply. */
+/**
+ * The registered caller runs: require the deterministic outbound render and no
+ * fail-closed note, never the model's reply or the drive merely resolving.
+ */
 export function expectToolsChainTurn(
   driven: Pick<DrivenTurn, "userTexts" | "systemNotes">,
-  rootLabel: "grandparent" | "root",
+  rootLabel: "grandparent" | "root" | "caller",
+  expectedText: string = DRIVE_QUESTION_PREFIX,
 ): void {
   expect(
     driven.userTexts.join("\n"),
-    `the ${rootLabel}'s QRY-18 rendered template must carry the sum the theta computed; its ` +
-      "absence means either the query never reached the provider or the computed value " +
-      "never reached the prompt. Observed: " + JSON.stringify(driven.userTexts),
-  ).toContain(DRIVE_QUESTION_PREFIX);
+    (rootLabel === "caller"
+      ? "the caller's QRY-18 rendered template is the deterministic outbound-render channel; " +
+        "its absence means the query never reached the provider, so no real model turn ran. " +
+        "Observed: "
+      : `the ${rootLabel}'s QRY-18 rendered template must carry the sum the theta computed; its ` +
+        "absence means either the query never reached the provider or the computed value " +
+        "never reached the prompt. Observed: ") + JSON.stringify(driven.userTexts),
+  ).toContain(expectedText);
   expect(
     driven.systemNotes,
     "every fail-closed ending of a top-level drive lands on the theta-system-note channel " +

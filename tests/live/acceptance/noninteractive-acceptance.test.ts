@@ -136,8 +136,7 @@ function assertCodesSubsetOfPermitted(
 describe("H9a-T (a) prompt-mode sentinel turn (Convention: Phase 1 acceptance)", () => {
   it("drives one prompt-mode turn via `pi -p` with a no-error exit and permitted codes only", async () => {
     const spec = featureTheta("prompt-sentinel");
-    const thetaPath = requireAuthoredTheta(spec);
-    expect(thetaPath).toBeDefined();
+    requireAuthoredTheta(spec);
 
     await requireLiveHost();
     const cwd = scratchCwd();
@@ -161,8 +160,7 @@ describe("H9a-T (a) prompt-mode sentinel turn (Convention: Phase 1 acceptance)",
 describe("H9a-T (b) typed query with a named schema (QRY-22; Convention: Phase 1)", () => {
   it("validates a named-schema typed-query response against its declared schema", async () => {
     const spec = featureTheta("typed-query-named-schema");
-    const thetaPath = requireAuthoredTheta(spec);
-    expect(thetaPath).toBeDefined();
+    requireAuthoredTheta(spec);
     const schema = spec.invariants.typedQuerySchema;
     if (schema === undefined) {
       failLoudly(`${spec.label}: named-schema theta must declare a typedQuerySchema invariant`);
@@ -204,8 +202,7 @@ describe("H9a-T (b) typed query with a named schema (QRY-22; Convention: Phase 1
 describe("H9a-T (c) typed query with an inline object type (QRY-22; Convention: Phase 1)", () => {
   it("validates an inline-object typed-query response against its declared schema", async () => {
     const spec = featureTheta("typed-query-inline");
-    const thetaPath = requireAuthoredTheta(spec);
-    expect(thetaPath).toBeDefined();
+    requireAuthoredTheta(spec);
     const schema = spec.invariants.typedQuerySchema;
     if (schema === undefined) {
       failLoudly(`${spec.label}: inline-type theta must declare a typedQuerySchema invariant`);
@@ -258,8 +255,7 @@ describe("H9a-T (c) typed query with an inline object type (QRY-22; Convention: 
 describe("H9a-T (d) params theta forcing an OFF-session binder pass (no envelope leak; Convention: Phase 1)", () => {
   it("runs the binder off-session: no envelope leak to stdout, and a success echo note surfaces", async () => {
     const spec = featureTheta("params-binder");
-    const thetaPath = requireAuthoredTheta(spec);
-    expect(thetaPath).toBeDefined();
+    requireAuthoredTheta(spec);
     const envelope = spec.invariants.binderEnvelope;
     if (envelope === undefined) {
       failLoudly(`${spec.label}: params-binder theta must declare a binderEnvelope invariant`);
@@ -336,8 +332,7 @@ describe("H9a-T (d) params theta forcing an OFF-session binder pass (no envelope
 describe("H9a-T (e) subagent spawn drives to a success terminal (Convention: Phase 1)", () => {
   it("drives a subagent-mode theta to a no-error success terminal with permitted codes only", async () => {
     const spec = featureTheta("subagent-success");
-    const thetaPath = requireAuthoredTheta(spec);
-    expect(thetaPath).toBeDefined();
+    requireAuthoredTheta(spec);
     expect(spec.invariants.subagentSuccess).toBe(true);
 
     await requireLiveHost();
@@ -380,8 +375,7 @@ describe("H9a-T (e) subagent spawn drives to a success terminal (Convention: Pha
 describe("H9a-T (f) code-tool loop (Convention: Phase 1 acceptance)", () => {
   it("drives a code-tool loop via `pi -p` with a no-error exit and permitted codes only", async () => {
     const spec = featureTheta("code-tool-loop");
-    const thetaPath = requireAuthoredTheta(spec);
-    expect(thetaPath).toBeDefined();
+    requireAuthoredTheta(spec);
 
     await requireLiveHost();
     const cwd = scratchCwd();
@@ -405,8 +399,7 @@ describe("H9a-T (f) code-tool loop (Convention: Phase 1 acceptance)", () => {
 describe("H9a-T (g) imports / invoke across thetas (Convention: Phase 1)", () => {
   it("drives imports + invoke across thetas via `pi -p` with a no-error exit and permitted codes only", async () => {
     const spec = featureTheta("imports-invoke");
-    const thetaPath = requireAuthoredTheta(spec);
-    expect(thetaPath).toBeDefined();
+    requireAuthoredTheta(spec);
 
     await requireLiveHost();
     const cwd = scratchCwd();
@@ -432,8 +425,7 @@ describe("H9a-T (g) imports / invoke across thetas (Convention: Phase 1)", () =>
 describe("H9a-T (h) error/result match surfacing a QueryError (Convention: Phase 1)", () => {
   it("surfaces a QueryError through a result `match` without an errored exit", async () => {
     const spec = featureTheta("match-queryerror");
-    const thetaPath = requireAuthoredTheta(spec);
-    expect(thetaPath).toBeDefined();
+    requireAuthoredTheta(spec);
 
     await requireLiveHost();
     const cwd = scratchCwd();
@@ -459,8 +451,7 @@ describe("H9a-T (h) error/result match surfacing a QueryError (Convention: Phase
 describe("H9a-T (i) multi-source discovery, project + --theta CLI (Convention: Phase 1)", () => {
   it("registers and runs the theta from both a project source and a --theta CLI source", async () => {
     const spec = featureTheta("multi-source-discovery");
-    const thetaPath = requireAuthoredTheta(spec);
-    expect(thetaPath).toBeDefined();
+    requireAuthoredTheta(spec);
     expect(spec.invariants.multiSourceDiscovery).toBe(true);
 
     await requireLiveHost();
