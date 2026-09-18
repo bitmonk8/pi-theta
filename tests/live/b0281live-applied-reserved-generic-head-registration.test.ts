@@ -139,6 +139,7 @@
 // `Result` and `array` heads.
 
 import { describe, expect, it } from "vitest";
+import { CASE_CODE, noteChannelTheta, promptTheta } from "../helpers/live-diagnostic-oracle";
 import {
   bootShippedExtension,
   driveSlashCaptureTurn,
@@ -149,16 +150,9 @@ import {
 
 /** The registered row an applied reserved head converges on, as its bare spelling does. */
 const RESERVED_CODE = "theta/parse/reserved-keyword-as-identifier";
-/** Bug 0139's row — already live, the note-channel precondition. */
-const CASE_CODE = "theta/parse/binding-case-mismatch";
 /** The two heads the carriers apply; the registered *Message* interpolates each. */
 const HEAD_LET = "Ok";
 const HEAD_FN = "Err";
-
-/** A `mode: prompt` `.theta` whose body is the given lines. */
-function promptTheta(bodyLines: readonly string[]): string {
-  return ["---", "description: d", "mode: prompt", "---", "", ...bodyLines].join("\n") + "\n";
-}
 
 // The drive discriminator is the ANSWER to a task question over a value the
 // theta computes — deterministic content a degraded plain-prompt run cannot
@@ -196,11 +190,7 @@ const CONTROL: PlantedTheta = {
 };
 
 /** The note-channel precondition: a parse fault that existed and fired before this change-set. */
-const NOTE_CHANNEL: PlantedTheta = {
-  source: "project",
-  stem: "b0281livenotechannel",
-  text: promptTheta(["let P = 1", "@`hi`"]),
-};
+const NOTE_CHANNEL: PlantedTheta = noteChannelTheta("b0281livenotechannel");
 
 /** Every `theta-system-note` entry's text, read off the settled `SessionManager`. */
 function systemNotesOf(handle: { sessionManager: { getEntries: () => unknown[] } }): string[] {

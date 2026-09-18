@@ -93,6 +93,7 @@ import { describe, expect, it } from "vitest";
 // @ts-expect-error — JS code-registry module, no type declarations.
 import { parseRegistry, registryMessage } from "../../tools/code-registry/index.js";
 import { renderDiagnosticLine, type Diagnostic } from "../../src/diagnostics/diagnostic";
+import { collectSystemNoteEntries } from "../helpers/recording-system-note-channel";
 import {
   bootShippedExtension,
   driveSlashCaptureTurn,
@@ -206,50 +207,13 @@ interface SettledNote {
  * (`appendCustomMessageEntry` keeps `details` on the entry).
  */
 function settledNotes(handle: LiveExtensionHandle): readonly SettledNote[] {
-  const notes: SettledNote[] = [];
-  for (const entry of handle.sessionManager.getEntries()) {
-    const e = entry as {
-      customType?: string;
-      content?: unknown;
-      details?: unknown;
-      data?: unknown;
-    };
-    if (e.customType === "theta-system-note") {
-      let content = "";
-      if (typeof e.content === "string") {
-        content = e.content;
-      } else if (Array.isArray(e.content)) {
-        for (const part of e.content) {
-          const t = (part as { text?: string }).text;
-          if (typeof t === "string") content += t;
-        }
-      }
-      const details = e.details as { diagnostics?: unknown } | undefined;
-      const diagnostics = Array.isArray(details?.diagnostics)
-        ? (details?.diagnostics as readonly Diagnostic[])
-        : [];
-      notes.push({ content, diagnostics });
-    } else if (e.customType === "theta-progress-entry") {
-      // PIC-72 (runtime-event-channel.md): the batch diagnostic class (this
-      // cell's own subject — the path-spelling note is emitted through
-      // `emitDiagnosticBatch`) delivers through the `theta-progress-entry`
-      // custom-entry channel instead of `theta-system-note` whenever both
-      // entry members are present (entry-channel.ts). The entry's `data`
-      // carries the SAME `SystemNote` shape the message channel used to
-      // carry (PIC-71: byte-identical rendered content, and the SAME
-      // `details.diagnostics` structured payload), so extracting both keeps
-      // this cell's comparison working unchanged — a channel-union repair,
-      // not a weakening.
-      const data = e.data as { content?: unknown; details?: unknown } | undefined;
-      const content = typeof data?.content === "string" ? data.content : "";
-      const details = data?.details as { diagnostics?: unknown } | undefined;
-      const diagnostics = Array.isArray(details?.diagnostics)
-        ? (details?.diagnostics as readonly Diagnostic[])
-        : [];
-      notes.push({ content, diagnostics });
-    }
-  }
-  return notes;
+  return collectSystemNoteEntries(handle.sessionManager.getEntries()).map((note) => {
+    const details = note.details as { diagnostics?: unknown } | undefined;
+    const diagnostics = Array.isArray(details?.diagnostics)
+      ? (details?.diagnostics as readonly Diagnostic[])
+      : [];
+    return { content: note.contents.join(""), diagnostics };
+  });
 }
 
 function describeNotes(notes: readonly SettledNote[]): string {

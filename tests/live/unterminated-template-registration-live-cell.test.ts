@@ -71,11 +71,10 @@
 // control theta (bug 0243 retired the verbatim-echo drive sentinel; the
 // discriminator here is the rendered outbound template, not the model's reply).
 
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
+import { readRegistry } from "../helpers/registry-oracle";
 // @ts-expect-error — JS code-registry module, no type declarations.
-import { parseRegistry, registryMessage } from "../../tools/code-registry/index.js";
+import { registryMessage } from "../../tools/code-registry/index.js";
 import {
   bootShippedExtension,
   driveSlashCaptureTurn,
@@ -88,14 +87,7 @@ import {
 const UNTERMINATED_TEMPLATE_CODE = "theta/parse/unterminated-template";
 
 /** The sharded registry page carrying the row. */
-const REGISTRY = parseRegistry(
-  readFileSync(
-    fileURLToPath(
-      new URL("../../docs/spec_topics/diagnostics/code-registry-parse.md", import.meta.url),
-    ),
-    "utf8",
-  ),
-) as { code: string; message: string }[];
+const REGISTRY = readRegistry(["parse"]);
 
 /**
  * The `<code>: <message>` fragment one emitted line carries. DIAG-4 makes the

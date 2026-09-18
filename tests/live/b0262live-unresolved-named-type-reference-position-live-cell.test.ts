@@ -99,8 +99,10 @@
 // keep registering AND keep driving.
 
 import { describe, expect, it } from "vitest";
+import { CASE_CODE, noteChannelTheta, promptTheta } from "../helpers/live-diagnostic-oracle";
 import {
   bootShippedExtension,
+  collectSystemNotes,
   driveSlashCaptureTurn,
   plantThetaWorkspace,
   requireLiveProvider,
@@ -109,13 +111,6 @@ import {
 
 /** The registered row the widening emits at the `let` annotation capture. */
 const UNRESOLVED_CODE = "theta/parse/unresolved-named-type";
-/** Bug 0139's row — already live, the note-channel precondition. */
-const CASE_CODE = "theta/parse/binding-case-mismatch";
-
-/** A `mode: prompt` `.theta` whose body is the given lines. */
-function promptTheta(bodyLines: readonly string[]): string {
-  return ["---", "description: d", "mode: prompt", "---", "", ...bodyLines].join("\n") + "\n";
-}
 
 // The drive discriminator is the ANSWER to a task question over a value the
 // theta computes — deterministic content a degraded plain-prompt run cannot
@@ -162,11 +157,7 @@ describe("bug 0262 — an unresolvable named-type head at a `let` annotation is 
       // channel carries load-phase parse codes at all, so a carrier missing
       // its code would be attributable to this bug rather than to an unwired
       // channel.
-      {
-        source: "project",
-        stem: "b0262livenotechannel",
-        text: promptTheta(["let P = 1", "@`hi`"]),
-      },
+      noteChannelTheta("b0262livenotechannel"),
     ];
     const workspace = plantThetaWorkspace(thetas);
     const handle = await bootShippedExtension({ workspace, provider });
@@ -200,31 +191,7 @@ describe("bug 0262 — an unresolvable named-type head at a `let` annotation is 
       // read off the settled in-memory `SessionManager` (deterministic; no
       // dependence on event timing), exactly as `driveSlashCaptureTurn`'s
       // `systemNotes` channel does for driven turns.
-      const notes: string[] = [];
-      for (const entry of handle.sessionManager.getEntries()) {
-        const e = entry as { customType?: string; content?: unknown; data?: unknown };
-        if (e.customType === "theta-system-note") {
-          if (typeof e.content === "string") notes.push(e.content);
-          else if (Array.isArray(e.content)) {
-            for (const part of e.content) {
-              const t = (part as { text?: string }).text;
-              if (typeof t === "string") notes.push(t);
-            }
-          }
-        } else if (e.customType === "theta-progress-entry") {
-          // PIC-72 (runtime-event-channel.md): the three migrated operator-note
-          // classes (parse/load/type diagnostic BATCH, structural-change,
-          // binder-model recovery) deliver through the `theta-progress-entry`
-          // custom-entry channel instead of `theta-system-note` whenever both
-          // entry members are present (entry-channel.ts). The entry's `data`
-          // carries the SAME `SystemNote` shape the message channel used to
-          // carry (PIC-71: byte-identical rendered content), so extracting its
-          // `content` keeps every existing substring assertion working
-          // unchanged — a channel-union repair, not a weakening.
-          const data = e.data as { content?: unknown } | undefined;
-          if (typeof data?.content === "string") notes.push(data.content);
-        }
-      }
+      const notes = collectSystemNotes(handle.sessionManager.getEntries());
       const joined = notes.join("\n");
 
       // Precondition 2: the channel carries load-phase parse codes at all.

@@ -55,11 +55,10 @@
 // Token-bounded: registration-only, zero model turns, so this cell spends no
 // tokens beyond `requireLiveProvider`'s credential resolution.
 
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
+import { readRegistry } from "../helpers/registry-oracle";
 // @ts-expect-error — JS code-registry module, no type declarations.
-import { parseRegistry, registryMessage } from "../../tools/code-registry/index.js";
+import { registryMessage } from "../../tools/code-registry/index.js";
 import {
   bootShippedExtension,
   plantThetaWorkspace,
@@ -71,14 +70,7 @@ import {
 const EMPTY_SCHEMA_BODY_CODE = "theta/parse/empty-schema-body";
 
 /** The sharded registry page carrying `theta/parse/empty-schema-body`'s row (`:91`). */
-const REGISTRY = parseRegistry(
-  readFileSync(
-    fileURLToPath(
-      new URL("../../docs/spec_topics/diagnostics/code-registry-parse.md", import.meta.url),
-    ),
-    "utf8",
-  ),
-) as { code: string; message: string }[];
+const REGISTRY = readRegistry(["parse"]);
 
 /**
  * The code-prefixed fragment one `theta/parse/empty-schema-body` line carries

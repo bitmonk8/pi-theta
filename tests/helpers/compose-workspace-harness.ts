@@ -388,14 +388,16 @@ export function requireDriven(pass: LoadPass, bugId: string, requireNotes = fals
  * The row's normative *Message* (DIAG-4) as a regex with the `<placeholder>`
  * slots opened up. Throws naming the registry pages when the row is absent, so
  * registry drift can never degrade a presence assertion into a comparison
- * against `undefined`.
+ * against `undefined`. Live callers may supply their own fail-loud precondition.
  */
 export function normativeMessagePattern(
   registry: readonly { readonly code: string; readonly message: string }[],
   code: string,
+  onMissing?: () => never,
 ): RegExp {
   const message = registryMessage(registry, code) as string | undefined;
   if (typeof message !== "string" || message.length === 0) {
+    if (onMissing !== undefined) onMissing();
     throw new Error(
       "harness: the docs/spec_topics/diagnostics/ registry pages carry no Message row for " +
         `${code} — the DIAG-4 column is this file's only message oracle, so a missing row ` +
@@ -472,17 +474,27 @@ export function captureConsoleError(): unknown[][] {
   return calls;
 }
 
-/** Capture fresh `console.error` calls per test and restore the spy after each. */
-export function captureConsoleErrorForEach(): { readonly calls: unknown[][] } {
+/** Capture fresh `console.error` calls per test; validate before restoring, even on failure. */
+export function captureConsoleErrorForEach(options: {
+  readonly writeThrough?: boolean;
+  readonly assertLines?: (lines: readonly string[]) => void;
+} = {}): { readonly calls: unknown[][] } {
   const capture = { calls: [] as unknown[][] };
-  let restore: () => void;
+  let restore: (() => void) | undefined;
   beforeEach(() => {
-    capture.calls = captureConsoleError();
+    capture.calls = options.writeThrough
+      ? vi.spyOn(console, "error").mock.calls
+      : captureConsoleError();
     const spy = vi.mocked(console.error);
     restore = () => spy.mockRestore();
   });
   afterEach(() => {
-    restore();
+    try {
+      options.assertLines?.(capture.calls.map((args) => args.map(String).join(" ")));
+    } finally {
+      restore?.();
+      restore = undefined;
+    }
   });
   return capture;
 }

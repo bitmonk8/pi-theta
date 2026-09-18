@@ -59,13 +59,13 @@
 // turn (QRY-6 layer two); the control theta issues no query at all. This cell
 // spends no tokens beyond `requireLiveProvider`'s credential resolution.
 
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
+import { readRegistry } from "../helpers/registry-oracle";
 // @ts-expect-error — JS code-registry module, no type declarations.
-import { parseRegistry, registryMessage } from "../../tools/code-registry/index.js";
+import { registryMessage } from "../../tools/code-registry/index.js";
 import {
   bootShippedExtension,
+  collectSystemNotes,
   driveSlashCaptureTurn,
   plantThetaWorkspace,
   requireLiveProvider,
@@ -76,14 +76,7 @@ import {
 const EMPTY_TEMPLATE_CODE = "theta/parse/empty-template";
 
 /** The sharded registry page carrying `theta/parse/empty-template`'s row. */
-const REGISTRY = parseRegistry(
-  readFileSync(
-    fileURLToPath(
-      new URL("../../docs/spec_topics/diagnostics/code-registry-parse.md", import.meta.url),
-    ),
-    "utf8",
-  ),
-) as { code: string; message: string }[];
+const REGISTRY = readRegistry(["parse"]);
 
 /**
  * The `<code>: <message>` fragment one `theta/parse/empty-template` line
@@ -99,40 +92,6 @@ function emptyTemplateFragment(): string {
       "counts is unregistered (DIAG-2)",
   ).toBeTypeOf("string");
   return `${EMPTY_TEMPLATE_CODE}: ${message as string}`;
-}
-
-/**
- * The `theta-system-note` channel contents off the settled in-memory
- * `SessionManager`, read off the FULL entry list (the load diagnostic fires
- * before any drive). Mirrors the 0093 sibling cell's `systemNoteContents`.
- */
-function systemNoteContents(entries: readonly unknown[]): readonly string[] {
-  const notes: string[] = [];
-  for (const entry of entries) {
-    const e = entry as { customType?: string; content?: unknown; data?: unknown };
-    if (e.customType === "theta-system-note") {
-      if (typeof e.content === "string") notes.push(e.content);
-      else if (Array.isArray(e.content)) {
-        for (const part of e.content) {
-          const t = (part as { text?: string }).text;
-          if (typeof t === "string") notes.push(t);
-        }
-      }
-    } else if (e.customType === "theta-progress-entry") {
-      // PIC-72 (runtime-event-channel.md): the three migrated operator-note
-      // classes (parse/load/type diagnostic BATCH, structural-change,
-      // binder-model recovery) deliver through the `theta-progress-entry`
-      // custom-entry channel instead of `theta-system-note` whenever both
-      // entry members are present (entry-channel.ts). The entry's `data`
-      // carries the SAME `SystemNote` shape the message channel used to
-      // carry (PIC-71: byte-identical rendered content), so extracting its
-      // `content` keeps every existing substring assertion working
-      // unchanged — a channel-union repair, not a weakening.
-      const data = e.data as { content?: unknown } | undefined;
-      if (typeof data?.content === "string") notes.push(data.content);
-    }
-  }
-  return notes;
 }
 
 /** Occurrences of `needle` in `haystack` — the count IS the claim, so it is counted. */
@@ -188,14 +147,14 @@ describe("bug 0085 — a degenerate `@`…`` template draws the parse-time warni
       // file's warnings into ONE `theta-system-note` (no severity carve-out),
       // so the fragment is counted across the notes naming this file rather
       // than by counting notes.
-      const notesBeforeDrive = systemNoteContents(handle.sessionManager.getEntries()).filter(
+      const notesBeforeDrive = collectSystemNotes(handle.sessionManager.getEntries()).filter(
         (note) => note.includes("cell0085offender"),
       );
       expect(
         notesBeforeDrive.length,
         "precondition unmet: no theta-system-note entry names the offending file at all, so " +
           "the load batch never reached the channel the author reads. Notes: " +
-          JSON.stringify(systemNoteContents(handle.sessionManager.getEntries())),
+          JSON.stringify(collectSystemNotes(handle.sessionManager.getEntries())),
       ).toBeGreaterThan(0);
 
       const fragment = emptyTemplateFragment();

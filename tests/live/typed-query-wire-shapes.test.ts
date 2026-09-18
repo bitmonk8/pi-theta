@@ -49,8 +49,7 @@
 // A missing live provider fails loudly through `requireLiveProvider`.
 
 import { createHash } from "node:crypto";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { MockInstance } from "vitest";
+import { describe, expect, it } from "vitest";
 import {
   bootShippedExtension,
   driveSlashCaptureTurn,
@@ -60,7 +59,7 @@ import {
   type DrivenTurn,
   type LiveExtensionHandle,
 } from "./harness";
-import { thetaOwnedStderrLines } from "./theta-stderr-prefixes";
+import { assertThetaStderrCleanForEach } from "../helpers/theta-stderr-gate";
 import { RELOAD_TEARDOWN_TIMEOUT_CODE } from "../../src/extension/session-shutdown";
 
 /**
@@ -162,32 +161,18 @@ function wireShapeTheta(input: {
  * the `reload-teardown-timeout` code — the JSON diagnostic line both wire
  * shapes emitted pre-fix, which no prefix class covers.
  */
-let consoleErrorSpy: MockInstance | undefined;
-
-beforeEach(() => {
-  consoleErrorSpy = vi.spyOn(console, "error");
-});
-
-afterEach(() => {
-  const spy = consoleErrorSpy;
-  try {
-    const lines = (spy?.mock.calls ?? []).map((args) => args.map(String).join(" "));
-    expect(
-      thetaOwnedStderrLines(lines),
-      "this suite's stderr observable is a 0-byte theta-owned capture; the spy " +
-        "caught theta-owned line(s) instead: " +
-        JSON.stringify(thetaOwnedStderrLines(lines)),
-    ).toEqual([]);
+assertThetaStderrCleanForEach({
+  message: (offenders) =>
+    "this suite's stderr observable is a 0-byte theta-owned capture; the spy " +
+      "caught theta-owned line(s) instead: " + JSON.stringify(offenders),
+  assertLines: (lines) => {
     expect(
       lines.filter((line) => line.includes(RELOAD_TEARDOWN_TIMEOUT_CODE)),
       `${RELOAD_TEARDOWN_TIMEOUT_CODE} means the drive was still in flight when the ` +
         `session tore down — the bug-0028 repair-spin signature. Captured: ` +
         JSON.stringify(lines),
     ).toEqual([]);
-  } finally {
-    spy?.mockRestore();
-    consoleErrorSpy = undefined;
-  }
+  },
 });
 
 describe("bug 0028 (live) — a declared `enum` at the annotation root is conveyable and the drive terminates", () => {

@@ -51,8 +51,6 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { MockInstance } from "vitest";
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
 import {
   bootShippedExtension,
   driveSlashCaptureTurn,
@@ -62,20 +60,14 @@ import {
 } from "./harness";
 import { thetaOwnedStderrLines } from "./theta-stderr-prefixes";
 import { parseDoc } from "../helpers/e2e-s1";
+import { readRegistry } from "../helpers/registry-oracle";
 // @ts-expect-error -- JS code-registry module, no type declarations.
-import { parseRegistry, registryMessage } from "../../tools/code-registry/index.js";
+import { registryMessage } from "../../tools/code-registry/index.js";
 
 /** The third code bug 0160 §Fix (c) mints (E, parse). */
 const RENAMED_INLINE = "theta/parse/renamed-inline-field-name";
 
-const REGISTRY = parseRegistry(
-  readFileSync(
-    fileURLToPath(
-      new URL("../../docs/spec_topics/diagnostics/code-registry-parse.md", import.meta.url),
-    ),
-    "utf8",
-  ),
-) as { code: string; message: string }[];
+const REGISTRY = readRegistry(["parse"]);
 
 /**
  * `wire-name rename on field 'a' within one inline object type` — DIAG-4: the

@@ -48,52 +48,21 @@
 // Bug 0030's file-scope `console.error` spy gates this file (mirrors the two
 // mentor cells): the filtered capture (`thetaOwnedStderrLines`) must be empty.
 
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { MockInstance } from "vitest";
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
+import { describe, expect, it } from "vitest";
 import {
   bootShippedExtension,
   plantThetaWorkspace,
   requireLiveProvider,
   type PlantedTheta,
 } from "./harness";
-import { thetaOwnedStderrLines } from "./theta-stderr-prefixes";
+import { assertThetaStderrCleanForEach } from "../helpers/theta-stderr-gate";
 import { parseDoc } from "../helpers/e2e-s1";
-// @ts-expect-error — JS code-registry module, no type declarations.
-import { parseRegistry, registryMessage } from "../../tools/code-registry/index.js";
+import { registryFragment } from "../helpers/registry-oracle";
 
 /** The pre-fix declaration-subject code the retained prefix must NOT draw. */
 const EMPTY_SCHEMA_BODY_CODE = "theta/parse/empty-schema-body";
 /** Bug 0133's new row — the fixed observable. */
 const MALFORMED_FIELD_CODE = "theta/parse/malformed-schema-field";
-
-const REGISTRY = parseRegistry(
-  readFileSync(
-    fileURLToPath(
-      new URL("../../docs/spec_topics/diagnostics/code-registry-parse.md", import.meta.url),
-    ),
-    "utf8",
-  ),
-) as { code: string; message: string }[];
-
-/** DIAG-4: the message half is read from the registry row, not copied. */
-function registryFragment(code: string, substitutions: Readonly<Record<string, string>>): string {
-  const template = registryMessage(REGISTRY, code) as string | undefined;
-  expect(
-    template,
-    `${code} has no registry row — the code this cell asserts is not registered (DIAG-2)`,
-  ).toBeTypeOf("string");
-  let message = template as string;
-  for (const [key, value] of Object.entries(substitutions)) {
-    message = message.replaceAll(`<${key}>`, value);
-  }
-  expect(
-    message,
-    `${code}: an unsubstituted placeholder remains — the registry row's Message template changed shape`,
-  ).not.toMatch(/<[a-z]+>/);
-  return `${code}: ${message}`;
-}
 
 /**
  * The theta-system-note channel contents from the settled in-memory
@@ -149,27 +118,7 @@ const OFFENDER = [
 /** The precondition control: a well-formed prompt theta in the same workspace. */
 const CONTROL = ["---", "mode: prompt", "---", '"CONTROL OK"', ""].join("\n");
 
-let consoleErrorSpy: MockInstance | undefined;
-
-beforeEach(() => {
-  consoleErrorSpy = vi.spyOn(console, "error");
-});
-
-afterEach(() => {
-  const spy = consoleErrorSpy;
-  try {
-    const lines = (spy?.mock.calls ?? []).map((args) => args.map(String).join(" "));
-    const offenders = thetaOwnedStderrLines(lines);
-    expect(
-      offenders,
-      "bug 0018's live verification observable for this suite is a 0-byte stderr capture; " +
-        "this spy caught theta-owned stderr line(s) instead: " + JSON.stringify(offenders),
-    ).toEqual([]);
-  } finally {
-    spy?.mockRestore();
-    consoleErrorSpy = undefined;
-  }
-});
+assertThetaStderrCleanForEach();
 
 describe("bug 0133 live : a captured schema-field prefix draws malformed-schema-field, not the declaration-subject empty-schema-body", () => {
   it("does not register `schema S { a: string, 42: integer }`, and the theta-system-note channel carries malformed-schema-field but NOT the declaration-subject empty-schema-body line ", async () => {

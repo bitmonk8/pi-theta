@@ -4,14 +4,13 @@
 // the four sharded registry pages (code-registry-{parse,load,runtime,host}.md),
 // parse each through the real `parseRegistry`, and join the rows into one
 // array — were redeclared byte-for-byte (confirmed via `diff`) in several test
-// files. This module centralises that read and placeholder interpolation. Each
-// file's `registryMessageOf` / `registryRowOf`-shaped reader — whose assertion style
-// and wording vary per file — stays local, parameterised by the `REGISTRY` this
-// module exports rather than by a locally re-parsed copy.
+// files. This module centralises that read, placeholder interpolation and the
+// identical live-cell fragment assertions. Readers whose assertion style and
+// wording vary per file stay local, using the shared registry read.
 //
-// TIER: unit, offline, deterministic, provider-free — the same tier as every
-// file that imports this module.
+// TIER: offline, deterministic, provider-free; also used by live cells.
 import { PARSE_REGISTRY_PATH as REGISTRY_PAGE, registryMessageOf } from "./load-row-harness";
+import { expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { expect } from "vitest";
 import { fileURLToPath } from "node:url";
@@ -90,6 +89,24 @@ export function interpolateStrict(
 }
 
 const PARSE_REGISTRY = readRegistry(["parse"]);
+
+/** DIAG-4: the message half is read from the registry row, not copied. */
+export function registryFragment(code: string, substitutions: Readonly<Record<string, string>>): string {
+  const template = registryMessage(PARSE_REGISTRY, code) as string | undefined;
+  expect(
+    template,
+    `${code} has no registry row — the code this cell asserts is not registered (DIAG-2)`,
+  ).toBeTypeOf("string");
+  let message = template as string;
+  for (const [key, value] of Object.entries(substitutions)) {
+    message = message.replaceAll(`<${key}>`, value);
+  }
+  expect(
+    message,
+    `${code}: an unsubstituted placeholder remains — the registry row's Message template changed shape`,
+  ).not.toMatch(/<[a-z]+>/);
+  return `${code}: ${message}`;
+}
 
 /**
  * A registered code's normative *Message* template. Throws naming the registry

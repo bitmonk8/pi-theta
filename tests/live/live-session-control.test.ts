@@ -101,6 +101,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { SettingsManager } from "@earendil-works/pi-coding-agent";
 import {
   bootShippedExtension,
+  collectSystemNotes as systemNoteContents,
   driveSlashCaptureTurn,
   failLoudly,
   plantThetaWorkspace,
@@ -109,33 +110,6 @@ import {
   type LiveWorkspace,
   type PlantedTheta,
 } from "./harness";
-
-/**
- * The `theta-system-note` (and its PIC-72 `theta-progress-entry` migration
- * twin) channel contents from the settled in-memory `SessionManager`, read
- * directly off `getEntries()` — mirrors
- * `tests/live/alias-sink-array-element-check-live-cell.test.ts`'s
- * `systemNoteContents`.
- */
-function systemNoteContents(entries: readonly unknown[]): readonly string[] {
-  const notes: string[] = [];
-  for (const entry of entries) {
-    const e = entry as { customType?: string; content?: unknown; data?: unknown };
-    if (e.customType === "theta-system-note") {
-      if (typeof e.content === "string") notes.push(e.content);
-      else if (Array.isArray(e.content)) {
-        for (const part of e.content) {
-          const t = (part as { text?: string }).text;
-          if (typeof t === "string") notes.push(t);
-        }
-      }
-    } else if (e.customType === "theta-progress-entry") {
-      const data = e.data as { content?: unknown } | undefined;
-      if (typeof data?.content === "string") notes.push(data.content);
-    }
-  }
-  return notes;
-}
 
 /** A framing that any fail-closed ending of a top-level drive lands as (SLSH-3 err note, cancel, panic). */
 function isFailFramedNote(note: string): boolean {
@@ -246,7 +220,7 @@ afterAll(async () => {
 });
 
 describe("RFC 0011 (H8a, live) — session-control runtime tools over a real host", () => {
-  it("registration preconditions — all four planted thetas register, so nothing below measures a broken workspace", () => {
+  it("registration preconditions — all three slash-dispatched thetas register, so nothing below measures a broken workspace", () => {
     for (const stem of [L1_STEM, L2_CALLER_STEM, L3_STEM]) {
       if (handle.command(stem) === undefined) {
         failLoudly(

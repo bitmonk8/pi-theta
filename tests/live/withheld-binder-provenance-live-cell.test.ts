@@ -73,10 +73,7 @@
 // see the verification report for whether that direction was driven live or
 // proved offline and why. (bug-0143-live-cell )
 
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { MockInstance } from "vitest";
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
+import { describe, expect, it } from "vitest";
 import {
   bootShippedExtension,
   driveSlashCaptureTurn,
@@ -84,40 +81,12 @@ import {
   requireLiveProvider,
   type PlantedTheta,
 } from "./harness";
-import { thetaOwnedStderrLines } from "./theta-stderr-prefixes";
+import { assertThetaStderrCleanForEach } from "../helpers/theta-stderr-gate";
 import { parseDoc } from "../helpers/e2e-s1";
-// @ts-expect-error — JS code-registry module, no type declarations.
-import { parseRegistry, registryMessage } from "../../tools/code-registry/index.js";
+import { registryFragment } from "../helpers/registry-oracle";
 
 /** The mooted face-1 refusal — the CONTROL half's expected code. */
 const ANNOTATION_NOT_EXPR_CODE = "theta/parse/annotation-type-not-expression";
-
-const REGISTRY = parseRegistry(
-  readFileSync(
-    fileURLToPath(
-      new URL("../../docs/spec_topics/diagnostics/code-registry-parse.md", import.meta.url),
-    ),
-    "utf8",
-  ),
-) as { code: string; message: string }[];
-
-/** DIAG-4: the message half is read from the registry row, not copied. */
-function registryFragment(code: string, substitutions: Readonly<Record<string, string>>): string {
-  const template = registryMessage(REGISTRY, code) as string | undefined;
-  expect(
-    template,
-    `${code} has no registry row — the code this cell asserts is not registered (DIAG-2)`,
-  ).toBeTypeOf("string");
-  let message = template as string;
-  for (const [key, value] of Object.entries(substitutions)) {
-    message = message.replaceAll(`<${key}>`, value);
-  }
-  expect(
-    message,
-    `${code}: an unsubstituted placeholder remains — the registry row's Message template changed shape`,
-  ).not.toMatch(/<[a-z]+>/);
-  return `${code}: ${message}`;
-}
 
 /**
  * The theta-system-note channel contents from the settled in-memory
@@ -217,28 +186,7 @@ const PRECONDITION_THETA =
  */
 const FAIL_CLOSED_MARKERS = ["returned Err:", "cancelled", "aborted"] as const;
 
-let consoleErrorSpy: MockInstance | undefined;
-
-beforeEach(() => {
-  consoleErrorSpy = vi.spyOn(console, "error");
-});
-
-afterEach(() => {
-  const spy = consoleErrorSpy;
-  try {
-    const lines = (spy?.mock.calls ?? []).map((args) => args.map(String).join(" "));
-    const offenders = thetaOwnedStderrLines(lines);
-    expect(
-      offenders,
-      "bug 0018's live verification observable for this suite is a 0-byte " +
-        "stderr capture; this spy caught theta-owned stderr line(s) instead: " +
-        JSON.stringify(offenders),
-    ).toEqual([]);
-  } finally {
-    spy?.mockRestore();
-    consoleErrorSpy = undefined;
-  }
-});
+assertThetaStderrCleanForEach();
 
 describe("bug 0143 live: a match-arm-binder join-element read loads/registers/drives clean, and the `<withheld>` annotation control is mooted", () => {
   it("registers and drives the CLEAN join-element carrier to the arithmetic oracle, and refuses the CONTROL annotation with annotation-type-not-expression", async () => {

@@ -1,4 +1,4 @@
-// Recording system-note channel double shared by delivery and runtime-event tests.
+// Recording system-note channel double and settled-entry readers shared by tests.
 
 import type { Diagnostic } from "../../src/diagnostics/diagnostic";
 import type {
@@ -64,4 +64,58 @@ export function makeRecordingChannel(opts?: {
     ...(opts?.health !== undefined ? { health: opts.health } : {}),
   };
   return { deps, sent, notified, emitted };
+}
+
+/** One settled note, including empty content and its unmodified structured payload. */
+export interface SystemNoteEntry {
+  readonly contents: readonly string[];
+  readonly details: unknown;
+}
+
+/**
+ * Read settled system-note and progress entries, retaining text-part boundaries
+ * and structured details. Keep entries with no text for per-note comparisons.
+ */
+export function collectSystemNoteEntries(entries: readonly unknown[]): readonly SystemNoteEntry[] {
+  const notes: SystemNoteEntry[] = [];
+  for (const entry of entries) {
+    const e = entry as {
+      customType?: string;
+      content?: unknown;
+      details?: unknown;
+      data?: unknown;
+    };
+    if (e.customType === "theta-system-note") {
+      const contents: string[] = [];
+      if (typeof e.content === "string") contents.push(e.content);
+      else if (Array.isArray(e.content)) {
+        for (const part of e.content) {
+          const t = (part as { text?: string }).text;
+          if (typeof t === "string") contents.push(t);
+        }
+      }
+      notes.push({ contents, details: e.details });
+    } else if (e.customType === "theta-progress-entry") {
+      // PIC-72 (runtime-event-channel.md): the three migrated operator-note
+      // classes (parse/load/type diagnostic BATCH, structural-change,
+      // binder-model recovery) deliver through the `theta-progress-entry`
+      // custom-entry channel instead of `theta-system-note` whenever both
+      // entry members are present (entry-channel.ts). The entry's `data`
+      // carries the SAME `SystemNote` shape the message channel used to
+      // carry (PIC-71: byte-identical rendered content), so extracting its
+      // `content` keeps every existing substring assertion working
+      // unchanged — a channel-union repair, not a weakening.
+      const data = e.data as { content?: unknown; details?: unknown } | undefined;
+      notes.push({
+        contents: typeof data?.content === "string" ? [data.content] : [],
+        details: data?.details,
+      });
+    }
+  }
+  return notes;
+}
+
+/** Extract content strings in transcript order, keeping each text part separate. */
+export function collectSystemNotes(entries: readonly unknown[]): readonly string[] {
+  return collectSystemNoteEntries(entries).flatMap((note) => note.contents);
 }

@@ -126,21 +126,25 @@
 // the theta computed (bug 0243 retired the verbatim-echo drive sentinel; the
 // discriminator here is the rendered outbound template, not the model's reply).
 
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-// @ts-expect-error — JS code-registry module, no type declarations.
-import { parseRegistry, registryMessage } from "../../tools/code-registry/index.js";
 import {
   bootShippedExtension,
+  collectSystemNotes,
   driveSlashCaptureTurn,
   failLoudly,
   plantThetaWorkspace,
   requireLiveProvider,
-  type LiveExtensionHandle,
   type LiveWorkspace,
   type PlantedTheta,
 } from "./harness";
+import {
+  liveRegistryMessagePattern,
+  renderedRows,
+  rowsLocatedAt,
+  describeRows,
+  requireNoteChannel,
+  type RenderedRow,
+} from "../helpers/live-diagnostic-oracle";
 
 const CALLEE_HAS_ERRORS_CODE = "theta/load/callee-has-errors";
 const PROMPT_MODE_CODE = "theta/load/prompt-mode-callable";
@@ -246,137 +250,7 @@ function plantWorkspace(grandchildMode: "prompt" | "subagent"): LiveWorkspace {
 
 // ── Registry oracle (DIAG-4) ────────────────────────────────────────────────
 
-interface RegistryRow {
-  code: string;
-  message: string;
-}
-
-const REGISTRY = parseRegistry(
-  readFileSync(
-    fileURLToPath(
-      new URL("../../docs/spec_topics/diagnostics/code-registry-load.md", import.meta.url),
-    ),
-    "utf8",
-  ),
-) as RegistryRow[];
-
-/**
- * The row's normative *Message* (DIAG-4) as a regex with the `<placeholder>`
- * slots opened up. Fails loudly naming the registry page when the row is absent,
- * so registry drift can never degrade a presence assertion into a comparison
- * against `undefined`.
- */
-function normativeMessagePattern(code: string): RegExp {
-  const message = registryMessage(REGISTRY, code) as string | undefined;
-  if (typeof message !== "string" || message.length === 0) {
-    failLoudly(
-      "bug-0280 live cell precondition unmet: " +
-        "docs/spec_topics/diagnostics/code-registry-load.md carries no Message row for " +
-        `${code} — the DIAG-4 column is this cell's only message oracle, so a missing row ` +
-        "is a harness failure, never a skip",
-    );
-  }
-  const escaped = message.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  return new RegExp(escaped.replace(/<[a-z-]+>/g, ".+"));
-}
-
-// ── The note channel ────────────────────────────────────────────────────────
-
-/**
- * The `theta-system-note` channel contents of the settled in-memory
- * `SessionManager` — every note the boot appended, including the shipped sink's
- * per-error load-diagnostic notes. Mirrors the harness's own private
- * `collectSystemNotes` reader (string or text-part-array content).
- */
-function bootNotes(handle: LiveExtensionHandle): readonly string[] {
-  const notes: string[] = [];
-  for (const entry of handle.sessionManager.getEntries()) {
-    const e = entry as { customType?: string; content?: unknown; data?: unknown };
-    if (e.customType === "theta-system-note") {
-      if (typeof e.content === "string") notes.push(e.content);
-      else if (Array.isArray(e.content)) {
-        for (const part of e.content) {
-          const t = (part as { text?: string }).text;
-          if (typeof t === "string") notes.push(t);
-        }
-      }
-    } else if (e.customType === "theta-progress-entry") {
-      // PIC-72 (runtime-event-channel.md): the three migrated operator-note
-      // classes (parse/load/type diagnostic BATCH, structural-change,
-      // binder-model recovery) deliver through the `theta-progress-entry`
-      // custom-entry channel instead of `theta-system-note` whenever both
-      // entry members are present (entry-channel.ts). The entry's `data`
-      // carries the SAME `SystemNote` shape the message channel used to
-      // carry (PIC-71: byte-identical rendered content), so extracting its
-      // `content` keeps every existing substring assertion working
-      // unchanged — a channel-union repair, not a weakening.
-      const data = e.data as { content?: unknown } | undefined;
-      if (typeof data?.content === "string") notes.push(data.content);
-    }
-  }
-  return notes;
-}
-
-/** Separator-normalise a path so Win32 `\` and POSIX `/` spellings compare (bug 0268). */
-function normalisePath(path: string): string {
-  return path.replace(/\\/g, "/");
-}
-
-/** One rendered diagnostic line, split at the code marker `renderDiagnosticLine` writes. */
-interface RenderedRow {
-  /** The leading location segment: the located file, separator-normalised. */
-  readonly location: string;
-  /** The registry *Message* the line carries. */
-  readonly message: string;
-}
-
-/**
- * Every rendered line in the boot's notes carrying `code`. `renderDiagnosticLine`
- * (`src/diagnostics/diagnostic.ts`) writes `<file>:<line>:<col>: <code>:
- * <message>` for a located row, so splitting at the code marker separates WHERE
- * the row sits from WHAT it says. Hint and related lines are separate lines and
- * are passed over.
- */
-function renderedRows(handle: LiveExtensionHandle, code: string): readonly RenderedRow[] {
-  const marker = `: ${code}: `;
-  const rows: RenderedRow[] = [];
-  for (const note of bootNotes(handle)) {
-    for (const line of note.split("\n")) {
-      const at = line.indexOf(marker);
-      if (at < 0) continue;
-      rows.push({
-        location: normalisePath(line.slice(0, at)),
-        message: line.slice(at + marker.length),
-      });
-    }
-  }
-  return rows;
-}
-
-/** Rows whose located file is the planted `<stem>.theta`. */
-function rowsLocatedAt(
-  handle: LiveExtensionHandle,
-  code: string,
-  stem: string,
-): readonly RenderedRow[] {
-  return renderedRows(handle, code).filter((row) => row.location.includes(`/${stem}.theta`));
-}
-
-/** Render a row list for an assertion message. */
-function describeRows(rows: readonly RenderedRow[]): readonly string[] {
-  return rows.map((row) => `${row.location}: ${row.message}`);
-}
-
-/** The boot put SOMETHING on the note channel, so an absence claim is not read off a dead channel. */
-function requireNoteChannel(handle: LiveExtensionHandle, half: string): void {
-  if (bootNotes(handle).length === 0) {
-    failLoudly(
-      `bug-0280 live cell precondition unmet: the ${half} boot appended NO ` +
-        "`theta-system-note` entries, so the shipped load-diagnostic channel is unobservable " +
-        "here. Registered: " + JSON.stringify(handle.registeredNames()),
-    );
-  }
-}
+const normativeMessagePattern = liveRegistryMessagePattern("bug-0280", "load");
 
 describe("bug 0280 live cell — a `tools:` root does not register over a child whose own `tools:` names a prompt-mode grandchild, at live production load", () => {
   it("the root above a prompt-mode grandchild entry is absent from the registered set and carries theta/load/callee-has-errors at its own file while the mode row stays at the declaring child alone, and the byte-neighbour subagent-mode chain all registers and the root drives", async () => {
@@ -396,7 +270,7 @@ describe("bug 0280 live cell — a `tools:` root does not register over a child 
           "and every absence claim below would hold vacuously. Registered: " + offenderRegistered,
       ).toBeDefined();
 
-      requireNoteChannel(offender, "refusal");
+      requireNoteChannel(offender, "refusal", "bug-0280");
 
       // Premise: the mode route fired at all this pass, at the file whose own
       // `tools:` entry names the prompt-mode callee. Bug 0280's whole claim is
@@ -407,7 +281,7 @@ describe("bug 0280 live cell — a `tools:` root does not register over a child 
         describeRows(childModeRows),
         `bug-0280 live cell precondition unmet: no ${PROMPT_MODE_CODE} row is located at the ` +
           "CHILD's own file, so the structural check at the bottom of the chain — the premise " +
-          "of everything above it — did not fire. Notes: " + JSON.stringify(bootNotes(offender)),
+          "of everything above it — did not fire. Notes: " + JSON.stringify(collectSystemNotes(offender.sessionManager.getEntries())),
       ).not.toEqual([]);
       expect(
         (childModeRows[0] as RenderedRow).message,
@@ -466,7 +340,7 @@ describe("bug 0280 live cell — a `tools:` root does not register over a child 
         `bug-0280: an error-severity ${CALLEE_HAS_ERRORS_CODE} row must be located at the ` +
           "ROOT's own file — pre-fix the author's whole load report named the child, and " +
           "nothing said the root's `tools:` entry was dead. Notes: " +
-          JSON.stringify(bootNotes(offender)),
+          JSON.stringify(collectSystemNotes(offender.sessionManager.getEntries())),
       ).not.toEqual([]);
       expect(
         (rootRows[0] as RenderedRow).message,
@@ -482,13 +356,13 @@ describe("bug 0280 live cell — a `tools:` root does not register over a child 
       expect(
         describeRows(rowsLocatedAt(offender, PROMPT_MODE_CODE, ROOT_STEM)),
         `the mode row belongs to the file that DECLARES the entry, so no ${PROMPT_MODE_CODE} ` +
-          "row belongs at the root's file. Notes: " + JSON.stringify(bootNotes(offender)),
+          "row belongs at the root's file. Notes: " + JSON.stringify(collectSystemNotes(offender.sessionManager.getEntries())),
       ).toEqual([]);
       expect(
         describeRows(rowsLocatedAt(offender, CALLEE_HAS_ERRORS_CODE, CHILD_STEM)),
         `the child declares the entry and carries the ${PROMPT_MODE_CODE} row for it, so ` +
           `${CALLEE_HAS_ERRORS_CODE} must not co-fire there. Notes: ` +
-          JSON.stringify(bootNotes(offender)),
+          JSON.stringify(collectSystemNotes(offender.sessionManager.getEntries())),
       ).toEqual([]);
     } finally {
       await offender.dispose();
@@ -525,13 +399,13 @@ describe("bug 0280 live cell — a `tools:` root does not register over a child 
       expect(
         describeRows(renderedRows(control, CALLEE_HAS_ERRORS_CODE)),
         `a chain whose every callee is subagent-mode must draw no ${CALLEE_HAS_ERRORS_CODE} ` +
-          "row anywhere. Notes: " + JSON.stringify(bootNotes(control)),
+          "row anywhere. Notes: " + JSON.stringify(collectSystemNotes(control.sessionManager.getEntries())),
       ).toEqual([]);
       expect(
         describeRows(renderedRows(control, PROMPT_MODE_CODE)),
         "no `tools:` entry here points at a prompt-mode file, so no " +
           `${PROMPT_MODE_CODE} row belongs anywhere in this boot. Notes: ` +
-          JSON.stringify(bootNotes(control)),
+          JSON.stringify(collectSystemNotes(control.sessionManager.getEntries())),
       ).toEqual([]);
 
       // The registered root RUNS. `userTexts` is the deterministic outbound
