@@ -1,32 +1,14 @@
-import { fakeThetaLibFs } from "./helpers/thetalib-load-harness";
+import { bindImportedBody } from "./helpers/thetalib-load-harness";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 // @ts-expect-error — JS code-registry module, no type declarations.
 import { parseRegistry, registryMessage } from "../tools/code-registry/index.js";
-import type {
-  ExtensionAPI,
-  ExtensionCommandContext,
-  ModelRegistry,
-} from "@earendil-works/pi-coding-agent";
+import type { ModelRegistry } from "@earendil-works/pi-coding-agent";
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
-import { checkThetaImports } from "../src/extension/import-static-checks";
-import {
-  createProductionProducerDeps,
-  type PiToolDispatch,
-} from "../src/extension/production-theta-producer";
-import type {
-  ConversationBindInput,
-  ThetaCompositionInput,
-} from "../src/extension/theta-composition-producer";
-import type { ParsedFrontmatter } from "../src/parser/frontmatter";
 import { parseThetaDocument, type ThetaDocument } from "../src/parser/theta-document";
-import type { MaterializedImport } from "../src/runtime/lexical-environment";
 import { executeBody } from "../src/runtime/statement-executor";
-import type { AgentToolResultEnvelope } from "../src/runtime/tool-call-execute";
 import { isEnumValue, schemaTagOf, type ThetaValue } from "../src/runtime/value";
-import type { RuntimeRoot } from "../src/runtime-root";
-import type { Checkpoint } from "../src/seams/checkpoint";
 import { parseDeps } from "./helpers/e2e-s1";
 
 // Bug 0101 — `export { greet } from "./base.thetalib"` is the only export
@@ -250,22 +232,9 @@ function unresolvableMessage(path: string): string {
 // tests/import-export-from-clause-required.test.ts:246–281 use.
 // ===========================================================================
 
-/** The importing `.theta` frontmatter every fixture shares. */
-const APP_FRONTMATTER = ["---", 'model: "sonnet"', "mode: prompt", "---"].join("\n");
-
 function parse(source: string, path: string): ThetaDocument {
   return parseThetaDocument({ path, bytes: new TextEncoder().encode(source) }, parseDeps());
 }
-
-function parseApp(body: string): ThetaDocument {
-  return parse(`${APP_FRONTMATTER}\n${body}`, "/proj/app.theta");
-}
-
-const NOOP_CHECKPOINT: Checkpoint = {
-  before(): Promise<void> {
-    return Promise.resolve();
-  },
-};
 
 /**
  * The observable of one runtime row: the settled final value with its schema
@@ -308,56 +277,11 @@ interface Measured {
  * §Reproduction measured that no row consults it).
  */
 async function measure(appBody: string, libs: Record<string, string>): Promise<Measured> {
-  const app = parseApp(appBody);
-  expect(
-    app.frontmatter,
-    `the importing theta's frontmatter must parse or the load pass reads nothing; diagnostics: ${JSON.stringify(
-      app.diagnostics.map((d) => `${d.severity} ${d.code}: ${d.message}`),
-    )}`,
-  ).not.toBeNull();
-  const frontmatter = app.frontmatter as ParsedFrontmatter;
-  const input: ThetaCompositionInput = {
-    slashName: "app",
-    sourcePath: "/proj/app.theta",
-    frontmatter,
-    body: app.body,
-  };
-  const check = await checkThetaImports(input, {
-    fs: fakeThetaLibFs(libs),
-    parseDeps: parseDeps(),
-  });
-  const imports: readonly MaterializedImport[] = check.imports;
-
-  const deps = createProductionProducerDeps({
-    pi: {} as unknown as ExtensionAPI,
-    root: {
-      checkpoint: NOOP_CHECKPOINT,
-      idSource: {
-        newInvocationId: (): string => "inv-1",
-        newToolCallId: (): string => "tc-1",
-      },
-    } as unknown as RuntimeRoot,
-    modelRegistry: {} as unknown as ModelRegistry,
-    resolvePiTool: (name: string): PiToolDispatch => ({
-      toolName: name,
-      execute: (): Promise<AgentToolResultEnvelope> =>
-        Promise.resolve({ content: [{ type: "text", text: "AMBIENT" }] }),
-    }),
-  });
-  const theta: ThetaCompositionInput = {
-    slashName: "app",
-    sourcePath: "/proj/app.theta",
-    frontmatter,
-    body: app.body,
-    callableSet: Object.freeze({ entries: new Map() }),
-    ...(imports.length > 0 ? { imports } : {}),
-  } as ThetaCompositionInput;
-  const bindInput: ConversationBindInput = {
-    theta,
-    args: "",
-    ctx: {} as unknown as ExtensionCommandContext,
-  };
-  const binding = deps.bindPromptConversation(bindInput);
+  const { app, check, binding } = await bindImportedBody(
+    appBody,
+    libs,
+    {} as unknown as ModelRegistry,
+  );
   // The `.then(ok, err)` rejection arm — not a broad `catch` — is the pipeline's
   // sanctioned boundary pattern and is what turns a runtime panic into a
   // comparable value.

@@ -155,8 +155,7 @@ describe("RFC-0006 — production subagent drive maps the child envelope (PIC-59
     const result = await driving;
     expect(result.ok).toBe(false);
     if (!result.ok) {
-      expect((result.error as unknown as TransportError).kind).toBe("transport");
-      expect((result.error as unknown as TransportError).http_status).toBe(503);
+      expect(result.error).toEqual(transport);
     }
     await h.teardown?.();
     h.finishInvocation?.();

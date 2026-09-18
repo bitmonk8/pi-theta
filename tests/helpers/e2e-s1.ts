@@ -73,6 +73,24 @@ export function parseDoc(src: string, path = "test.theta"): ThetaDocument {
   return parseThetaDocument(source, parseDeps());
 }
 
+/** Parse a body while requiring valid frontmatter, retaining body diagnostics. */
+export function parseBodyWithFrontmatter(
+  body: string,
+  path: string,
+  frontmatter: string = ["---", 'model: "sonnet"', "mode: prompt", "---"].join("\n"),
+): ThetaDocument {
+  const doc = parseDoc(`${frontmatter}\n${body}`, path);
+  // A frontmatter parse failure means the body is never reached — an unmet
+  // precondition, not the symptom under test. Fail loudly naming it.
+  expect(
+    doc.frontmatter,
+    `frontmatter must parse or the body is never reached; parse diagnostics: ${JSON.stringify(
+      diagLines(doc),
+    )}`,
+  ).not.toBeNull();
+  return doc;
+}
+
 /** Frontmatter for every `.theta` row — occupies lines 1–3, body starts at 4. */
 const FM = "---\nmode: prompt\n---\n";
 
@@ -223,6 +241,11 @@ export function isLoadParseError(d: Diagnostic): boolean {
 /** Every diagnostic rendered `<severity> <code>: <message>`, in emission order. */
 export function diagLines(doc: ThetaDocument): string[] {
   return doc.diagnostics.map((d) => `${d.severity} ${d.code}: ${d.message}`);
+}
+
+/** The document's diagnostics carrying `code`, in emission order. */
+export function withCode(doc: ThetaDocument, code: string): Diagnostic[] {
+  return doc.diagnostics.filter((d) => d.code === code);
 }
 
 /** Every diagnostic rendered `<severity> <code>`, in emission order. */

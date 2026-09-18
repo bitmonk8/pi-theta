@@ -1,8 +1,11 @@
 import { describe, expect, it } from "vitest";
-import type { Diagnostic } from "../src/diagnostics/diagnostic";
 import { EXPORT_IN_THETA_CODE } from "../src/parser/imports";
-import { parseThetaDocument, type ThetaDocument } from "../src/parser/theta-document";
-import { parseDeps } from "./helpers/e2e-s1";
+import {
+  diagLines,
+  documentCodes as codesOf,
+  parseBodyWithFrontmatter as parse,
+  withCode,
+} from "./helpers/e2e-s1";
 
 // Bug 0431 — a from-bearing `export { X } from "./lib.thetalib"` at a `.theta`
 // top level is wholly inert: its path is never resolved and its specifier is
@@ -29,38 +32,6 @@ import { parseDeps } from "./helpers/e2e-s1";
 // the statement is silently ignored today, is downstream and not the seam the
 // settled fix acts on). An integration or live tier would add a provider to a
 // decision no model participates in.
-
-/** The composing-document frontmatter every cell shares. */
-const APP_FRONTMATTER = ["---", 'model: "sonnet"', "mode: prompt", "---"].join("\n");
-
-function parse(body: string, path: string): ThetaDocument {
-  const source = `${APP_FRONTMATTER}\n${body}`;
-  const doc = parseThetaDocument(
-    { path, bytes: new TextEncoder().encode(source) },
-    parseDeps(),
-  );
-  // A frontmatter parse failure means the body is never reached — an unmet
-  // precondition, not the symptom under test. Fail loudly naming it.
-  expect(
-    doc.frontmatter,
-    `frontmatter must parse or the body is never reached; parse diagnostics: ${JSON.stringify(
-      doc.diagnostics.map((d) => `${d.severity} ${d.code}: ${d.message}`),
-    )}`,
-  ).not.toBeNull();
-  return doc;
-}
-
-function diagLines(doc: ThetaDocument): string[] {
-  return doc.diagnostics.map((d) => `${d.severity} ${d.code}: ${d.message}`);
-}
-
-function codesOf(doc: ThetaDocument): string[] {
-  return doc.diagnostics.map((d) => d.code);
-}
-
-function withCode(doc: ThetaDocument, code: string): Diagnostic[] {
-  return doc.diagnostics.filter((d) => d.code === code);
-}
 
 describe("bug 0431 — a from-bearing `export … from` at a .theta top level is refused, not wholly inert", () => {
   it("D1 (RED): a missing-path from-bearing export in a .theta draws theta/parse/export-in-theta", () => {

@@ -1,8 +1,11 @@
 import { describe, expect, it } from "vitest";
-import type { Diagnostic } from "../src/diagnostics/diagnostic";
 import { EXPORT_IN_THETA_CODE } from "../src/parser/imports";
-import { parseThetaDocument, type ThetaDocument } from "../src/parser/theta-document";
-import { parseDeps } from "./helpers/e2e-s1";
+import {
+  diagLines,
+  documentCodes as codesOf,
+  parseBodyWithFrontmatter as parse,
+  withCode,
+} from "./helpers/e2e-s1";
 
 // Bug 0446 — a from-bearing `export { X } from "…"` NESTED inside an `if`/`fn`
 // body (or any block-expression) is wholly inert in BOTH hosts. Bug 0431 closed
@@ -47,40 +50,8 @@ import { parseDeps } from "./helpers/e2e-s1";
 /** The literal `.thetalib` nested-export code the settled fix mints. */
 const EXPORT_NOT_TOP_LEVEL_CODE = "theta/parse/export-not-top-level";
 
-/** The composing-document frontmatter every cell shares. */
-const APP_FRONTMATTER = ["---", 'model: "sonnet"', "mode: prompt", "---"].join("\n");
-
 /** Frontmatter for the `subagent fn` cell, whose host mode is `subagent`. */
 const SUBAGENT_FRONTMATTER = ["---", 'model: "sonnet"', "mode: subagent", "---"].join("\n");
-
-function parse(body: string, path: string, frontmatter: string = APP_FRONTMATTER): ThetaDocument {
-  const source = `${frontmatter}\n${body}`;
-  const doc = parseThetaDocument(
-    { path, bytes: new TextEncoder().encode(source) },
-    parseDeps(),
-  );
-  // A frontmatter parse failure means the body is never reached — an unmet
-  // precondition, not the symptom under test. Fail loudly naming it.
-  expect(
-    doc.frontmatter,
-    `frontmatter must parse or the body is never reached; parse diagnostics: ${JSON.stringify(
-      doc.diagnostics.map((d) => `${d.severity} ${d.code}: ${d.message}`),
-    )}`,
-  ).not.toBeNull();
-  return doc;
-}
-
-function diagLines(doc: ThetaDocument): string[] {
-  return doc.diagnostics.map((d) => `${d.severity} ${d.code}: ${d.message}`);
-}
-
-function codesOf(doc: ThetaDocument): string[] {
-  return doc.diagnostics.map((d) => d.code);
-}
-
-function withCode(doc: ThetaDocument, code: string): Diagnostic[] {
-  return doc.diagnostics.filter((d) => d.code === code);
-}
 
 describe("bug 0446 — a from-bearing `export … from` nested in an if/fn body is refused, not wholly inert, in both hosts", () => {
   it("N1 (RED): a missing-path from-bearing export nested in a .theta `if` draws theta/parse/export-in-theta", () => {
