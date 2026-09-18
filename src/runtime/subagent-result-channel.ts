@@ -15,7 +15,7 @@
 //
 // Exit is SYNTHESISED when the backend declares `observesExit: false`: the
 // invocation settles on the envelope frame, on socket close, or on heartbeat
-// silence past the dispose budget — the last two mapped by the drive's existing
+// silence past `RESULT_CHANNEL_SILENCE_BUDGET_MS` — the last two mapped by the drive's existing
 // `mapExitWithoutEnvelope` (no new code, DIAG-2). The token proves a connection
 // belongs to this launch; a wrong token, a wrong nonce, a malformed hello or a
 // second connection is dropped.
@@ -31,6 +31,17 @@ import type { PlacedChild } from "./subagent-placement";
 
 /** Heartbeat period while the child's invocation is live. */
 export const RESULT_CHANNEL_HEARTBEAT_MS = 10_000;
+/**
+ * Silence budget before a synthesised `HEARTBEAT_SILENCE` exit: 12 missed
+ * 10 s heartbeats. Deliberately DECOUPLED from `SUBAGENT_DISPOSE_BUDGET_MS`
+ * (bug 0484): that budget's job is a post-envelope graceful-exit wait, while
+ * this one bounds a WORKING child's silence — and a fix-phase gate storm
+ * (parallel worktree gates × vitest workers pegging the box) was observed
+ * stalling healthy children's event loops past 30 s, so the old shared 30 s
+ * made FALSE abandonment a load artifact. With the synthesised-exit kill
+ * below, a longer budget costs only detection latency on a truly hung child.
+ */
+export const RESULT_CHANNEL_SILENCE_BUDGET_MS = 120_000;
 /**
  * The most a connection may send BEFORE its hello is accepted. A hello frame
  * is ~120 bytes; an unauthenticated peer streaming more than this without a
@@ -169,7 +180,7 @@ export interface OpenResultChannelDeps {
   readonly token: string;
   /** The launch nonce the launch file carries; the hello must echo it. */
   readonly nonce: string;
-  /** Silence budget before a synthesised `HEARTBEAT_SILENCE` exit (the dispose budget). */
+  /** Silence budget before a synthesised `HEARTBEAT_SILENCE` exit; production passes `RESULT_CHANNEL_SILENCE_BUDGET_MS` (decoupled from the dispose budget, bug 0484). */
   readonly silenceBudgetMs: number;
 }
 
@@ -369,11 +380,36 @@ export async function openResultChannel(deps: OpenResultChannelDeps): Promise<Re
  * the drive's cancellation short-circuit fires deterministically (PIC-66).
  * The drive itself retains the last stderr line for the crash-detail hint
  * (`driveSubagentChild`), so nothing is buffered here.
+ *
+ * Bug 0484: a settlement synthesised WITHOUT an envelope — heartbeat silence
+ * or a pre-envelope socket close — is an abandonment, not an exit: the child
+ * behind it is typically still a RUNNING worker (an orphaned fixer kept
+ * editing a discarded worktree for 40 minutes; another degenerated into a
+ * 100%-core spin). The adapter therefore kills the placed child through the
+ * backend handle atomically with such a settlement — subscribed FIRST, so
+ * the kill runs inside the same synchronous `settle()` that releases the
+ * drive, and the late-subscription microtask replay covers an adapter
+ * constructed after the channel already settled. The discrimination is by
+ * pseudo-signal: an envelope settlement (`{code: 0, signal: null}` — Ok AND
+ * Err, the §8 linger carve-out), the adapter's own `kill()` (`SIGKILL`,
+ * `placed.kill()` already ran), and a real observed exit (the child already
+ * exited) never re-kill. Spec: subagent.md §"Launch file and result channel"
+ * — an invocation that settles without an envelope leaves no live child.
  */
 export function adaptChannelToChildProcess(
   placed: PlacedChild,
   channel: ResultChannel,
 ): SubagentChildProcess {
+  channel.onSettled((info) => {
+    if (info.signal !== HEARTBEAT_SILENCE_SIGNAL && info.signal !== CHANNEL_CLOSED_SIGNAL) {
+      return;
+    }
+    try {
+      placed.kill();
+    } catch (killError: unknown) { // allow-broad-catch: PIC-66 kill-throw rule — the settlement (and its crash-shaped Err) must reach the drive even when the backend kill throws; pi-integration-contract/subagent.md
+      void killError;
+    }
+  });
   return {
     closeStdin: (): void => {},
     onStdoutLine: (listener): (() => void) => channel.onLine(listener),
@@ -428,10 +464,10 @@ export interface ChannelClientSocket {
 /** The child-side dialer seam (`node:net` in production; a fake in tests). */
 export interface ChannelClientSeam {
   /**
-   * Dial `127.0.0.1:port`. The channel is best-effort telemetry plus one
-   * result frame: a child whose parent went away has nothing to report to, so
-   * an error or close stops the heartbeat and turns every later write into a
-   * no-op rather than a throw.
+   * Dial `127.0.0.1:port`. An error or close stops the heartbeat and turns
+   * every later write into a no-op rather than a throw — but channel death is
+   * NOT tolerated-and-continued: `connectResultChannel` reports it through
+   * `onDead` so the child aborts its own invocation (bug 0484).
    */
   connect(port: number): ChannelClientSocket;
 }
@@ -457,6 +493,24 @@ export function connectResultChannel(input: {
   readonly token: string;
   readonly nonce: string;
   readonly heartbeatMs?: number;
+  /**
+   * Channel death — a socket error or an observed close BEFORE the client's
+   * own deliberate `close()`. Fatal to the child's invocation (bug 0484,
+   * subagent.md §"Launch file and result channel"): the supervisor is lost,
+   * the envelope has nowhere to go, so side effects must stop — the
+   * production wiring sweeps the active-invocation registry with the CNCL-4
+   * `"theta cancelled by result-channel death"` reason. Fires at most once,
+   * and never after the client's own deliberate `close()`. NOTE: in
+   * production the child does not close first — the parent's ordinary
+   * post-settlement release closes the socket — so onDead fires on
+   * essentially every channel-placed completion (the §8 Err linger
+   * included); what keeps that safe is the sweep side, which tolerates a
+   * completed invocation (envelope already delivered; a late abort of a
+   * still-registered entry inside the teardown await is a no-op of
+   * consequence). Any future logic in this callback must stay
+   * completion-safe.
+   */
+  readonly onDead?: () => void;
 }): ResultChannelClient {
   const socket = input.client.connect(input.port);
   let closed = false;
@@ -468,10 +522,21 @@ export function connectResultChannel(input: {
       heartbeat = undefined;
     }
   };
-  // The parent is gone, refused, or settled and released: nothing to report
-  // to. Stop heartbeating; later writes are no-ops.
-  socket.onError(stop);
-  socket.onClose(stop);
+  // The parent is gone, refused, or settled and released before this child's
+  // own close: stop heartbeating (later writes are no-ops — never a throw)
+  // and report the death exactly once so the invocation aborts fail-closed
+  // instead of continuing headless (bug 0484's mute-and-continue defect).
+  let deadReported = false;
+  const die = (): void => {
+    const deliberate = closed;
+    stop();
+    if (!deliberate && !deadReported) {
+      deadReported = true;
+      input.onDead?.();
+    }
+  };
+  socket.onError(die);
+  socket.onClose(die);
   socket.write(encodeControlFrame({ type: "hello", token: input.token, nonce: input.nonce }));
   const period = input.heartbeatMs ?? RESULT_CHANNEL_HEARTBEAT_MS;
   const scheduleHeartbeat = (): void => {

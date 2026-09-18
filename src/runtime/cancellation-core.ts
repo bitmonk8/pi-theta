@@ -23,6 +23,7 @@
 // seam, PIC-10); errors-and-results/queryerror-variants.md (`CancelledError`).
 
 import type { Checkpoint, CheckpointKind, CheckpointSite } from "../seams/checkpoint";
+import type { ActiveInvocationEntry } from "./active-invocation-registry";
 import type { CancelledError, QueryError } from "./query-error";
 import type { RuntimeEvent } from "./runtime-event-channel";
 import type { Diagnostic } from "../diagnostics/diagnostic";
@@ -79,6 +80,39 @@ function forwardSignalReason(
  * facet.)
  */
 export const AGENT_END_CANCEL_MESSAGE = "theta cancelled by agent_end";
+
+/**
+ * The synthesised reason for the result-channel-death trigger in a
+ * channel-placed subagent child (cancellation.md CNCL-4 third trigger; bug
+ * 0484): a JavaScript `Error` whose `message` is exactly this literal.
+ */
+export const RESULT_CHANNEL_DEATH_CANCEL_MESSAGE = "theta cancelled by result-channel death";
+
+/**
+ * The channel-death sweep (bug 0484): the child's result channel died — a
+ * socket write error, or an observed close before the client's own deliberate
+ * post-envelope close — so the supervisor is lost and side effects must stop.
+ * Aborts every entry's `thetaAbort` with one synthesised CNCL-4 reason,
+ * per-entry isolated like `session_shutdown` sub-step 2 (a throwing abort is
+ * swallowed and does not stop the sweep). Deliberately stamps NO
+ * `shutdownReason`: that field routes the session-shutdown clean-cancel note
+ * (bug 0073), which is the wrong vocabulary for a channel death. An empty
+ * snapshot (the drive already finished; the per-invocation `finally` removed
+ * the entry) is a no-op — a post-completion socket close is the parent's
+ * ordinary release, not an abandonment of running work.
+ */
+export function abortInvocationsOnResultChannelDeath(
+  entries: readonly ActiveInvocationEntry[],
+): void {
+  const reason = new Error(RESULT_CHANNEL_DEATH_CANCEL_MESSAGE);
+  for (const entry of entries) {
+    try {
+      entry.thetaAbort.abort(reason);
+    } catch (abortError: unknown) { // allow-broad-catch: cancellation.md CNCL-4 third trigger — per-entry isolation mirrors session_shutdown sub-step 2's swallow rule
+      void abortError;
+    }
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Forwarding into `thetaAbort` — the three steady-state entry points.

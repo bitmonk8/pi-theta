@@ -414,8 +414,12 @@ The parent's drive loop is unchanged in shape: `driveSubagentChild` consumes a
 line source; today that source is `onStdoutLine`, under a channel it is the
 socket's frame stream filtered to reserved-key lines. Exit is synthesised when
 `observesExit` is false: the invocation settles on the envelope frame (success
-or `Err`) or on socket close / heartbeat silence past the existing dispose
-budget (mapped through `mapExitWithoutEnvelope`, no new code). The token
+or `Err`) or on socket close / heartbeat silence past
+`RESULT_CHANNEL_SILENCE_BUDGET_MS` (mapped through `mapExitWithoutEnvelope`,
+no new code; bug 0484 decoupled the silence budget from the dispose budget and
+made a settlement without an envelope kill the placed child — only a delivered
+envelope earns the §7/§8 linger — while the child treats channel death as fatal
+to its own invocation). The token
 proves the connection belongs to this launch (pi-config's hello-token
 pattern); a second connection is dropped.
 
@@ -1013,8 +1017,9 @@ Offline (default gate, provider-free):
   a failed ppid check); nonce reuse refused.
 - **Channel:** hello-token gate (wrong token → dropped), second connection
   dropped, envelope frame settles the invocation, heartbeat silence past the
-  dispose budget → `mapExitWithoutEnvelope`, stderr mirror bounded, `Ok` →
-  shutdown request recorded, `Err` → no shutdown.
+  silence budget → `mapExitWithoutEnvelope` (and, per bug 0484, a synthesised
+  no-envelope settlement kills the placed child), stderr mirror bounded,
+  `Ok` → shutdown request recorded, `Err` → no shutdown.
 - **Selection:** `auto` ordering by priority then name; `exec` `when` gate;
   explicit unavailable → `theta/load/subagent-placement-unavailable` on
   `mode: subagent` thetas and `subagent fn`-declaring thetas only;

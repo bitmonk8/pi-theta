@@ -15,7 +15,6 @@ import {
   CHANNEL_CLOSED_SIGNAL,
   classifyInboundFrame,
   connectResultChannel,
-  encodeControlFrame,
   HEARTBEAT_SILENCE_SIGNAL,
   openResultChannel,
   RESULT_CHANNEL_HEARTBEAT_MS,
@@ -23,76 +22,26 @@ import {
   RESULT_CHANNEL_STDERR_LINE_CAP,
   type ChannelClientSeam,
   type ChannelClientSocket,
-  type ChannelConnection,
-  type ChannelServerSeam,
   type ResultChannel,
 } from "../src/runtime/subagent-result-channel";
 import { driveSubagentChild } from "../src/runtime/subagent-json-driver";
 import type { ChildExitInfo } from "../src/runtime/subagent-launcher";
 import type { PlacedChild } from "../src/runtime/subagent-placement";
-import { serializeOkEnvelope } from "../src/runtime/subagent-envelope";
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
 import { FakeClock } from "./helpers/fake-clock";
+import {
+  envelope,
+  fakeClient,
+  FakeServer,
+  heartbeat,
+  hello,
+  NONCE,
+  placedWithoutExit,
+  stderrFrame,
+  TOKEN,
+} from "./helpers/result-channel-harness";
 
-// ---------------------------------------------------------------------------
-// Fakes.
-// ---------------------------------------------------------------------------
-
-class FakeConnection implements ChannelConnection {
-  destroyed = false;
-  #data: ((chunk: string) => void) | undefined;
-  #close: (() => void) | undefined;
-  onData(listener: (chunk: string) => void): void {
-    this.#data = listener;
-  }
-  onClose(listener: () => void): void {
-    this.#close = listener;
-  }
-  destroy(): void {
-    this.destroyed = true;
-  }
-  /** The peer writes raw bytes (possibly several frames, possibly a partial one). */
-  push(chunk: string): void {
-    this.#data?.(chunk);
-  }
-  /** The peer closed its end. */
-  close(): void {
-    this.#close?.();
-  }
-}
-
-class FakeServer implements ChannelServerSeam {
-  closed = false;
-  #onConnection: ((connection: ChannelConnection) => void) | undefined;
-  readonly port: number;
-  constructor(port = 40001) {
-    this.port = port;
-  }
-  listen(onConnection: (connection: ChannelConnection) => void): Promise<{ readonly port: number; close(): void }> {
-    this.#onConnection = onConnection;
-    return Promise.resolve({
-      port: this.port,
-      close: (): void => {
-        this.closed = true;
-      },
-    });
-  }
-  /** A new dialer arrives. */
-  dial(): FakeConnection {
-    const connection = new FakeConnection();
-    this.#onConnection?.(connection);
-    return connection;
-  }
-}
-
-const TOKEN = "tok-0123";
-const NONCE = "nonce-4567";
 const BUDGET = 30_000;
-
-const hello = (token = TOKEN, nonce = NONCE): string => encodeControlFrame({ type: "hello", token, nonce });
-const heartbeat = (): string => encodeControlFrame({ type: "heartbeat" });
-const stderrFrame = (line: string): string => encodeControlFrame({ type: "stderr", line });
-const envelope = (value: unknown = 42): string => serializeOkEnvelope(value, undefined);
 
 async function open(overrides?: { server?: FakeServer; clock?: FakeClock }): Promise<{
   channel: ResultChannel;
@@ -114,18 +63,6 @@ async function open(overrides?: { server?: FakeServer; clock?: FakeClock }): Pro
   return { channel, server, clock, lines, stderr, settled };
 }
 
-function placedWithoutExit(): PlacedChild & { killed: number } {
-  const placed = {
-    handle: "pane-7",
-    capabilities: { observesExit: false, inheritsEnv: true, visible: true },
-    killed: 0,
-    onExit: (): void => {},
-    kill: (): void => {
-      placed.killed += 1;
-    },
-  };
-  return placed;
-}
 
 // ---------------------------------------------------------------------------
 // Frames.
@@ -569,47 +506,7 @@ describe("RFC-0012 §3 — adaptChannelToChildProcess feeds driveSubagentChild u
 // Child side.
 // ---------------------------------------------------------------------------
 
-class FakeSocket implements ChannelClientSocket {
-  readonly written: string[] = [];
-  ended = false;
-  #error: ((error: Error) => void) | undefined;
-  #close: (() => void) | undefined;
-  write(line: string): void {
-    this.written.push(line);
-  }
-  end(): void {
-    this.ended = true;
-  }
-  onError(listener: (error: Error) => void): void {
-    this.#error = listener;
-  }
-  onClose(listener: () => void): void {
-    this.#close = listener;
-  }
-  fail(): void {
-    this.#error?.(new Error("ECONNREFUSED"));
-  }
-  peerClosed(): void {
-    this.#close?.();
-  }
-}
 
-function fakeClient(): { seam: ChannelClientSeam; sockets: FakeSocket[]; ports: number[] } {
-  const sockets: FakeSocket[] = [];
-  const ports: number[] = [];
-  return {
-    sockets,
-    ports,
-    seam: {
-      connect: (port): ChannelClientSocket => {
-        ports.push(port);
-        const socket = new FakeSocket();
-        sockets.push(socket);
-        return socket;
-      },
-    },
-  };
-}
 
 describe("RFC-0012 §3 — connectResultChannel (child side)", () => {
   it("dials the port, writes the hello FIRST with token and nonce, then heartbeats every period on the Clock", () => {

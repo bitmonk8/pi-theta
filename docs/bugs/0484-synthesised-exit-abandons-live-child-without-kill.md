@@ -1,8 +1,32 @@
 # Bug 0484 — a synthesised channel exit (heartbeat silence / socket close) settles the invocation but never kills the placed child, and the child mutes its own heartbeats on one write error and keeps working: the invoke Errs while an orphaned worker keeps editing the same tree
 
-- **Status:** open — wrapper-side mitigation landed (fix-cluster-tree aborts
-  its lane on a fixer invoke Err instead of gating/reviewing a possibly-moving
-  tree); the parent/child kill semantics are the real fix, pending.
+- **Status:** fixed in 0.482.0 — (1) parent: `adaptChannelToChildProcess`
+  kills the placed child through the backend handle atomically with any
+  settlement synthesised without an envelope (`HEARTBEAT_SILENCE` /
+  `CHANNEL_CLOSED` pseudo-signals; the envelope path — Ok AND Err, the §8
+  linger — never kills, nor do the adapter's own `kill()` or a real observed
+  exit); (2) child: `connectResultChannel` gained `onDead` (fires at most
+  once, never on the client's own deliberate post-envelope `close()`), wired
+  in production-composition to `abortInvocationsOnResultChannelDeath` —
+  every active invocation aborts with the synthesised CNCL-4 reason
+  `"theta cancelled by result-channel death"` (no `shutdownReason` stamp;
+  that field routes the session-shutdown clean-cancel note), which also
+  removes the whole post-death execution window behind the observed hot spin
+  (no dedicated poll/backoff loop exists in the client — the spin was the
+  headless drive itself); (3) budget: the silence budget decoupled from
+  `SUBAGENT_DISPOSE_BUDGET_MS` into `RESULT_CHANNEL_SILENCE_BUDGET_MS =
+  120000` (12 missed 10 s beats; the dispose budget stays 30 s — its
+  post-envelope graceful-exit job is unrelated to bounding a working child).
+  Spec: subagent.md §"Launch file and result channel" / §Teardown / layer-3
+  residual exposure, cancellation.md CNCL-4 third trigger, RFC 0012 §3.
+  Witnesses: tests/b0484-synthesised-exit-kills-and-child-aborts.test.ts
+  (17 cells; red pre-fix — the file fails wholesale on the then-missing symbols, 11 assertion-level failures), the 120 s default-budget cell in
+  tests/production-result-channel.test.ts. A real-child channel-death
+  integration cell was NOT added — it needs a placement-backend + live-TCP
+  harness that does not exist; the live validation wave (orphan sweep during
+  the fix phase) is the end-to-end witness. The wrapper-side mitigation
+  (fix-cluster-tree lane abort on fixer invoke Err) stays — the Err
+  vocabulary is unchanged.
 - **Sev/Diff estimate:** S2/D2 — S2: observed live twice in one wave
   (2026-09-17, the D7 cold pass): (a) an orphaned `fix-cluster` child ground
   ~40 min of CPU in a lane that had long since concluded (token burn against a

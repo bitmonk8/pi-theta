@@ -21,7 +21,7 @@ import {
   type LaunchFileFs,
   type SubagentLaunchFileDocument,
 } from "../runtime/subagent-launch-file";
-import { SUBAGENT_DISPOSE_BUDGET_MS } from "../runtime/subagent-isolation";
+
 import type {
   OpenedSubagentWire,
   PreparedSubagentLaunch,
@@ -31,6 +31,7 @@ import type { PlacedChild } from "../runtime/subagent-placement";
 import {
   adaptChannelToChildProcess,
   openResultChannel,
+  RESULT_CHANNEL_SILENCE_BUDGET_MS,
   type ChannelClientSeam,
   type ChannelConnection,
   type ChannelServerSeam,
@@ -158,7 +159,7 @@ export interface ProductionSubagentWireDeps {
   readonly launchFs: LaunchFileFs;
   readonly server: ChannelServerSeam;
   readonly mintSecret: () => string;
-  /** Heartbeat-silence budget before a synthesised exit; defaults to the PIC-65 dispose budget. */
+  /** Heartbeat-silence budget before a synthesised exit; defaults to `RESULT_CHANNEL_SILENCE_BUDGET_MS` (decoupled from the PIC-65 dispose budget — bug 0484). */
   readonly silenceBudgetMs?: number;
 }
 
@@ -186,7 +187,7 @@ export function createProductionSubagentWire(
       clock: deps.clock,
       token,
       nonce,
-      silenceBudgetMs: deps.silenceBudgetMs ?? SUBAGENT_DISPOSE_BUDGET_MS,
+      silenceBudgetMs: deps.silenceBudgetMs ?? RESULT_CHANNEL_SILENCE_BUDGET_MS,
     });
     const document: SubagentLaunchFileDocument = {
       v: LAUNCH_FILE_VERSION,

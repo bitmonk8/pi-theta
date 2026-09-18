@@ -77,6 +77,7 @@ import {
   createProductionSubagentWire,
 } from "./production-result-channel";
 import type { SubagentChildControlPlane } from "../runtime/subagent-launch-file";
+import { abortInvocationsOnResultChannelDeath } from "../runtime/cancellation-core";
 import {
   connectResultChannel,
   type ResultChannelClient,
@@ -2193,7 +2194,18 @@ export async function composeExtensionInstance(
   // one — ONCE per process (the factory hands the live client back in on a
   // repeat compose; the parent drops a second connection). The hello carries
   // the token and the consumed launch nonce; the heartbeat runs on the same
-  // `Clock` the rest of the instance measures against.
+  // `Clock` the rest of the instance measures against. Channel death — a
+  // write error or an observed close before this child's own post-envelope
+  // close — is FATAL to the in-flight invocation (bug 0484): the supervisor
+  // is lost and the envelope has nowhere to go, so the sweep aborts every
+  // registry entry with the CNCL-4 `"theta cancelled by result-channel
+  // death"` reason instead of letting the drive continue headless. The
+  // parent's ordinary post-settlement release (the §8 linger included) also
+  // lands here: by then the envelope has been delivered and the entry is
+  // removed — or, in the teardown-await window, still registered but
+  // completed, where the abort is a tolerated no-op of consequence (no
+  // clean-cancel note: no shutdownReason stamp) — so sweeping a completed
+  // invocation is safe, not impossible.
   const launch = instanceControlPlane.launch;
   resultChannel =
     overrides?.subagentResultChannel ??
@@ -2204,6 +2216,9 @@ export async function composeExtensionInstance(
           port: launch.channel.port,
           token: launch.channel.token,
           nonce: launch.nonce,
+          onDead: (): void => {
+            abortInvocationsOnResultChannelDeath(activeInvocations.snapshot());
+          },
         })
       : undefined);
   const initial = await runComposePass(

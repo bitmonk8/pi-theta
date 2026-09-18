@@ -299,7 +299,7 @@ describe("RFC-0012 §2/§3 — createProductionSubagentWire", () => {
     expect(fs.files.size).toBe(0);
   });
 
-  it("the default silence budget is the PIC-65 dispose budget (30 s)", async () => {
+  it("the default silence budget is RESULT_CHANNEL_SILENCE_BUDGET_MS (120 s) — decoupled from the 30 s dispose budget (bug 0484)", async () => {
     const clock = new FakeClock();
     const openWire = createProductionSubagentWire({
       clock,
@@ -316,7 +316,7 @@ describe("RFC-0012 §2/§3 — createProductionSubagentWire", () => {
     });
     const exits: unknown[] = [];
     child.onExit((info) => exits.push(info));
-    clock.advance(29_999);
+    clock.advance(119_999);
     expect(exits).toEqual([]);
     clock.advance(1);
     expect(exits).toHaveLength(1);

@@ -4,6 +4,42 @@ All notable changes to `@bitmonk8/pi-theta` will be documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.482.0]
+
+### Fixed
+- **Bug 0484 — a synthesised channel exit settled the invocation without
+  killing the placed child, and the child muted its heartbeats on one write
+  error and kept working headless**
+  ([docs/bugs/0484](./docs/bugs/0484-synthesised-exit-abandons-live-child-without-kill.md)).
+  Observed live three times during quality-loop fix phases: an orphaned fixer
+  ground ~40 min of CPU against a discarded worktree, a reviewer watched an
+  abandoned fixer keep editing the tree under review, and a third orphan
+  degenerated into a sustained 100%-core spin. Three-part fix: (1)
+  `adaptChannelToChildProcess` kills the placed child through the backend
+  handle atomically with any settlement synthesised WITHOUT an envelope
+  (`HEARTBEAT_SILENCE` / `CHANNEL_CLOSED`) — an invocation that settles
+  without an envelope leaves no live child; the delivered-envelope path (Ok
+  AND Err, the §8 linger carve-out), the adapter's own `kill()`, and a real
+  observed exit never re-kill. (2) The child treats channel death as fatal:
+  `connectResultChannel` reports a write error or pre-close-observed socket
+  close through the new `onDead` (at most once; never on the client's own
+  deliberate post-envelope close), and the production wiring sweeps the
+  active-invocation registry via `abortInvocationsOnResultChannelDeath` with
+  the synthesised CNCL-4 reason `"theta cancelled by result-channel death"` —
+  supervisor lost ⇒ side effects stop, which also removes the post-death
+  execution window behind the hot spin. (3) The heartbeat-silence budget is
+  decoupled from the post-envelope dispose budget:
+  `RESULT_CHANNEL_SILENCE_BUDGET_MS = 120000` (12 missed 10 s beats; gate
+  storms were observed stalling healthy children past the old shared 30 s,
+  making false abandonment a load artifact — and with (1) even a false
+  abandonment now kills cleanly). `SUBAGENT_DISPOSE_BUDGET_MS` stays 30 s.
+  Spec: subagent.md §"Launch file and result channel" / §Teardown / PIC-65
+  layer-3 residual exposure (the channel now narrows the orphan window for
+  channel-placed children), cancellation.md CNCL-4 third trigger, RFC 0012
+  §3. The invoke-facing Err vocabulary is unchanged (`mapExitWithoutEnvelope`
+  receives the same pseudo-signals), so quality-loop's lane-abort mitigation
+  keys on unchanged shapes.
+
 ## [0.481.0]
 
 ### Fixed
