@@ -37,6 +37,15 @@
   alive) — the reviewer running while the settled-away fixer edited. Both
   orphans killed by hand.
 
+**Third live sighting (2026-09-18, D7 fix-drain wave):** `fix-cluster#548af516`
+outlived its lane's wrapper and sat at a SUSTAINED 100% of one core (CPU
+delta 20 s per 20 s wall; 91 s total by kill time) — not idle linger, not
+model-paced work: an abandoned child can also degenerate into a hot spin
+(candidate site: a poll/backoff path after the channel died). The
+child-side channel-death abort (fix 2) must also cover this shape; the
+orphan was killed by hand and the lane had already aborted honestly per the
+wrapper mitigation.
+
 ## Fix directions (spec-before-code, next cycle)
 
 1. **Parent:** a synthesised exit (HEARTBEAT_SILENCE, socket close before an
