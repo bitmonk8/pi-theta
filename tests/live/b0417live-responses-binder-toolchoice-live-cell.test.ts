@@ -54,6 +54,7 @@ import {
   requireLiveProvider,
   type PlantedTheta,
 } from "./harness";
+import { FAIL_CLOSED_MARKERS as DRIVE_FAIL_CLOSED_MARKERS } from "../helpers/live-transcript";
 import {
   binderToolName,
   buildBinderCompleteCall,
@@ -102,9 +103,7 @@ const PRECONDITION_THETA = [
  */
 const FAIL_CLOSED_MARKERS = [
   "argument binder unavailable",
-  "returned Err:",
-  "cancelled",
-  "aborted",
+  ...DRIVE_FAIL_CLOSED_MARKERS,
 ] as const;
 
 describe("bug 0417 live: a non-bypass `params:` theta bound through an openai-responses model binds and drives a real turn", () => {

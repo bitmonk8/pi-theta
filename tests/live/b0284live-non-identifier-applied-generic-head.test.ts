@@ -150,9 +150,10 @@
 // its applied `array` and `Result` heads.
 
 import { describe, expect, it } from "vitest";
-import { CASE_CODE, noteChannelTheta, promptTheta } from "../helpers/live-diagnostic-oracle";
+import { CASE_CODE, noteChannelTheta, paramsShapeTheta, promptTheta } from "../helpers/live-diagnostic-oracle";
 import {
   bootShippedExtension,
+  collectSystemNotes,
   driveSlashCaptureTurn,
   plantThetaWorkspace,
   requireLiveProvider,
@@ -174,47 +175,11 @@ const HEAD = "a b";
 const CONTROL_VALUE = "1059";
 const SUM_ANSWER = "2011";
 
-/**
- * The offender's fixture SHAPE, parameterised ONLY by the type written at the
- * `params:` right-hand side, so the offender and its registrability
- * precondition below differ in that one token and in nothing else.
- *
- * `bind_model:` is load-bearing, not decoration. A theta that declares `params:`
- * is not bypass-eligible (`classifyBinderBypass`,
- * `src/binder/binder-envelope.ts` line 204, consulted at
- * `src/extension/production-composition.ts` line 995), so its binder model must
- * resolve at LOAD from the `bind_model:` → `theta.binderModel` chain; when
- * neither resolves, `resolveBinderModel` (`src/binder/binder-model.ts` line 179)
- * raises
- * error-severity `theta/load/binder-model-unresolved` and the load walk drops
- * the theta — the SAME registration denial this cell attributes to the head
- * gate. Without a resolvable binder model the offender's absence assertion
- * would hold for that unrelated reason with the gate active AND with it
- * removed, witnessing nothing. The type below is the only variable that moves
- * the outcome.
- */
-function paramsShapeTheta(typeText: string): string {
-  return (
-    [
-      "---",
-      "description: d",
-      "mode: prompt",
-      "bind_model: anthropic/claude-haiku-4-5",
-      "params:",
-      `  ${FIELD}: '${typeText}'`,
-      "---",
-      "",
-      "let z = 1",
-      '"ok"',
-    ].join("\n") + "\n"
-  );
-}
-
 /** THE OFFENDER: a `params:` right-hand side whose generic head is not identifier-shaped. */
 const OFFENDER: PlantedTheta = {
   source: "project",
   stem: "b0284liveparams",
-  text: paramsShapeTheta(`${HEAD}<integer>`),
+  text: paramsShapeTheta(FIELD, `${HEAD}<integer>`),
 };
 
 /**
@@ -227,7 +192,7 @@ const OFFENDER: PlantedTheta = {
 const PARAMS_SHAPE_PRECONDITION: PlantedTheta = {
   source: "project",
   stem: "b0284liveparamsshape",
-  text: paramsShapeTheta("array<integer>"),
+  text: paramsShapeTheta(FIELD, "array<integer>"),
 };
 
 /** The control: the grammar's own parameterised heads, at three captures, driving a real turn. */
@@ -245,36 +210,6 @@ const CONTROL: PlantedTheta = {
 
 /** The note-channel precondition: a parse fault that existed and fired before this change-set. */
 const NOTE_CHANNEL: PlantedTheta = noteChannelTheta("b0284livenotechannel");
-
-/** Every `theta-system-note` entry's text, read off the settled `SessionManager`. */
-function systemNotesOf(handle: { sessionManager: { getEntries: () => unknown[] } }): string[] {
-  const notes: string[] = [];
-  for (const entry of handle.sessionManager.getEntries()) {
-    const e = entry as { customType?: string; content?: unknown; data?: unknown };
-    if (e.customType === "theta-system-note") {
-      if (typeof e.content === "string") notes.push(e.content);
-      else if (Array.isArray(e.content)) {
-        for (const part of e.content) {
-          const t = (part as { text?: string }).text;
-          if (typeof t === "string") notes.push(t);
-        }
-      }
-    } else if (e.customType === "theta-progress-entry") {
-      // PIC-72 (runtime-event-channel.md): the three migrated operator-note
-      // classes (parse/load/type diagnostic BATCH, structural-change,
-      // binder-model recovery) deliver through the `theta-progress-entry`
-      // custom-entry channel instead of `theta-system-note` whenever both
-      // entry members are present (entry-channel.ts). The entry's `data`
-      // carries the SAME `SystemNote` shape the message channel used to
-      // carry (PIC-71: byte-identical rendered content), so extracting its
-      // `content` keeps every existing substring assertion working
-      // unchanged — a channel-union repair, not a weakening.
-      const data = e.data as { content?: unknown } | undefined;
-      if (typeof data?.content === "string") notes.push(data.content);
-    }
-  }
-  return notes;
-}
 
 describe("bug 0284 — a non-identifier applied generic head is refused at live production load", () => {
   it("un-registers the `params:` offender and names the code and the field on the theta-system-note channel", async () => {
@@ -333,7 +268,7 @@ describe("bug 0284 — a non-identifier applied generic head is refused at live 
 
       // Real observable 2: the note channel, read off the settled in-memory
       // `SessionManager` (deterministic; no dependence on event timing).
-      const notes = systemNotesOf(handle);
+      const notes = collectSystemNotes(handle.sessionManager.getEntries());
       const joined = notes.join("\n");
 
       // Precondition 2: the channel carries load-phase diagnostics at all.

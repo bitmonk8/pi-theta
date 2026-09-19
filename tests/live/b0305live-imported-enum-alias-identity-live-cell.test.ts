@@ -66,12 +66,9 @@ import {
   requireLiveProvider,
   type PlantedTheta,
 } from "./harness";
+import { FAIL_CLOSED_MARKERS } from "../helpers/live-transcript";
 import { assertThetaStderrCleanForEach } from "../helpers/theta-stderr-gate";
-import { parseDeps, parseDoc } from "../helpers/e2e-s1";
-import { FakeFileSystem } from "../helpers/fake-file-system";
-import { checkThetaImports } from "../../src/extension/import-static-checks";
-import type { ThetaCompositionInput } from "../../src/extension/theta-composition-producer";
-import type { ParsedFrontmatter } from "../../src/parser/frontmatter";
+import { composeCodesOf } from "../helpers/thetalib-load-harness";
 
 /**
  * The imported `.thetalib`: one enum declaration. The app binds it under two
@@ -109,36 +106,6 @@ const WORKSPACE_CONTROL = [
   "",
 ].join("\n");
 
-/** The fail-closed markers a top-level theta drive lands on the `theta-system-note` channel. */
-const FAIL_CLOSED_MARKERS = ["returned Err:", "cancelled", "aborted"] as const;
-
-/**
- * ATTRIBUTION GUARD driver: the same `checkThetaImports` production seam the
- * live host reaches, over an in-memory `FakeFileSystem`, mirroring
- * b0306's own driver.
- */
-async function composeCodesOf(body: string): Promise<readonly string[]> {
-  const doc = parseDoc(body, "/proj/attribution.theta");
-  expect(
-    doc.frontmatter,
-    "attribution precondition: the importing theta's frontmatter must parse",
-  ).not.toBeNull();
-  const fs = new FakeFileSystem({
-    homedir: "/home",
-    cwd: "/proj",
-    files: { [`/proj/${LIB_STEM}.thetalib`]: LIB_TEXT },
-    dirs: { "/proj": [`${LIB_STEM}.thetalib`] },
-  });
-  const input: ThetaCompositionInput = {
-    slashName: "attribution",
-    sourcePath: "/proj/attribution.theta",
-    frontmatter: doc.frontmatter as ParsedFrontmatter,
-    body: doc.body,
-  };
-  const result = await checkThetaImports(input, { fs, parseDeps: parseDeps() });
-  return result.diagnostics.map((d) => d.code);
-}
-
 assertThetaStderrCleanForEach();
 
 describe("bug 0305 live: two aliases of one imported enum compare equal into a live prompt", () => {
@@ -147,7 +114,7 @@ describe("bug 0305 live: two aliases of one imported enum compare equal into a l
     // required): the importing document must carry zero compose-tier
     // diagnostics through the SAME seam the live host reaches, so the live
     // sentinel below cannot be produced by an unrelated load failure.
-    await expect(composeCodesOf(APP)).resolves.toEqual([]);
+    await expect(composeCodesOf(APP, LIB_STEM, LIB_TEXT)).resolves.toEqual([]);
 
     const provider = await requireLiveProvider();
     const thetas: PlantedTheta[] = [

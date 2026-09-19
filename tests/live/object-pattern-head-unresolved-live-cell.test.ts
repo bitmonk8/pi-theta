@@ -69,6 +69,7 @@ import {
   requireLiveProvider,
   type PlantedTheta,
 } from "./harness";
+import { FAIL_CLOSED_MARKERS } from "../helpers/live-transcript";
 
 /** The slash stem whose theta must NOT register — an undeclared braced head. */
 const UNDECLARED_STEM = "cellaundeclaredhead";
@@ -104,13 +105,6 @@ function objectPatternTheta(head: string, label: string): string {
     ].join("\n") + "\n"
   );
 }
-
-/**
- * The fail-closed markers a top-level theta drive lands on the
- * `theta-system-note` channel (AGENTS.md §"Assert on real observables"). The
- * sibling drive must produce none of them.
- */
-const FAIL_CLOSED_MARKERS = ["returned Err:", "cancelled", "aborted"] as const;
 
 describe("bug 0221 — an unresolved object-pattern head is refused at live production load and un-registers the theta", () => {
   it("un-registers the undeclared-braced-head theta while the declared-braced-head sibling over the SAME match shape registers and drives —", async () => {

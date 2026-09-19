@@ -22,6 +22,34 @@ export function promptTheta(bodyLines: readonly string[]): string {
   return ["---", "description: d", "mode: prompt", "---", "", ...bodyLines].join("\n") + "\n";
 }
 
+/**
+ * A `params:` fixture whose field and right-hand-side type are supplied by the
+ * caller. Each refusal/control pair keeps the field fixed and varies only the
+ * type, so its registrability precondition differs in nothing else.
+ *
+ * `bind_model:` is load-bearing, not decoration. A theta declaring `params:` is
+ * not bypass-eligible (`classifyBinderBypass`, `src/binder/binder-envelope.ts`),
+ * so its binder model must resolve at load from `bind_model:` → `theta.binderModel`.
+ * Otherwise `resolveBinderModel` (`src/binder/binder-model.ts`) raises
+ * error-severity `theta/load/binder-model-unresolved` and the load walk drops the
+ * theta. Without this pin, absence could hold with the head gate both active
+ * and removed, witnessing nothing.
+ */
+export function paramsShapeTheta(field: string, typeText: string): string {
+  return [
+    "---",
+    "description: d",
+    "mode: prompt",
+    "bind_model: anthropic/claude-haiku-4-5",
+    "params:",
+    `  ${field}: '${typeText}'`,
+    "---",
+    "",
+    "let z = 1",
+    '"ok"',
+  ].join("\n") + "\n";
+}
+
 /** A `mode: prompt` `.theta` with no description or blank separator before the body. */
 export function minimalPromptTheta(bodyLines: readonly string[]): string {
   return ["---", "mode: prompt", "---", ...bodyLines].join("\n") + "\n";

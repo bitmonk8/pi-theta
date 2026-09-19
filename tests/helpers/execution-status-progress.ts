@@ -6,7 +6,7 @@ import type {
   InvocationNodeSnapshot,
   ProgressAuthorMessage,
 } from "../../src/extension/execution-status/types";
-import type { ExtensionAPI, ToolDefinition } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionUIContext, ToolDefinition } from "@earendil-works/pi-coding-agent";
 import type {
   THETA_PROGRESS_PARAMETERS,
   ThetaProgressParams,
@@ -128,4 +128,80 @@ export function node(overrides: Partial<InvocationNodeSnapshot> & Pick<Invocatio
 
 export function snapshotOf(nodes: readonly InvocationNodeSnapshot[], untracked = 0): ExecutionStatusSnapshot {
   return { nodes, untracked };
+}
+
+/** One recorded UI call, optionally timestamped for before/after-completion assertions. */
+export interface RecordedCall {
+  readonly ts?: number;
+  readonly kind: "setStatus" | "setWorkingMessage" | "setWidget";
+  readonly text: string | undefined;
+  readonly lines: readonly string[] | undefined;
+}
+
+/**
+ * A recording `ExtensionUIContext` double. Only `setStatus` / `setWidget` /
+ * `setWorkingMessage` — the three members the footer (L0) and widget (L2)
+ * `StatusSink`s touch (`footer-sink.ts` `FooterUi`, `widget-sink.ts`
+ * `WidgetUi`) — are wired to record; every other member is a harmless no-op
+ * mirroring the runner's own built-in no-op UI context. These cells drive
+ * `mode: prompt` thetas with no dialog/editor/theme surface.
+ * Working-message recording and timestamps are opt-in.
+ */
+export function createRecordingUi(options: { readonly recordWorkingMessage?: boolean; readonly now: () => number }): {
+  readonly calls: (RecordedCall & { readonly ts: number })[];
+  readonly ui: ExtensionUIContext;
+};
+export function createRecordingUi(options?: { readonly recordWorkingMessage?: boolean }): {
+  readonly calls: RecordedCall[];
+  readonly ui: ExtensionUIContext;
+};
+export function createRecordingUi(options: {
+  readonly recordWorkingMessage?: boolean;
+  readonly now?: () => number;
+} = {}): { readonly calls: RecordedCall[]; readonly ui: ExtensionUIContext } {
+  const calls: RecordedCall[] = [];
+  const ui = {
+    select: async () => undefined,
+    confirm: async () => false,
+    input: async () => undefined,
+    notify: () => {},
+    onTerminalInput: () => () => {},
+    setStatus: (_key: string, text: string | undefined) => {
+      calls.push({ ...(options.now === undefined ? {} : { ts: options.now() }), kind: "setStatus", text, lines: undefined });
+    },
+    setWorkingMessage: (message?: string) => {
+      if (options.recordWorkingMessage) {
+        calls.push({ ...(options.now === undefined ? {} : { ts: options.now() }), kind: "setWorkingMessage", text: message, lines: undefined });
+      }
+    },
+    setWorkingVisible: () => {},
+    setWorkingIndicator: () => {},
+    setHiddenThinkingLabel: () => {},
+    setWidget: (_key: string, content: unknown, _options?: unknown) => {
+      calls.push({
+        ...(options.now === undefined ? {} : { ts: options.now() }),
+        kind: "setWidget",
+        text: undefined,
+        lines: Array.isArray(content) ? (content as readonly string[]) : undefined,
+      });
+    },
+    setFooter: () => {},
+    setHeader: () => {},
+    setTitle: () => {},
+    custom: async <T>() => undefined as unknown as T,
+    pasteToEditor: () => {},
+    setEditorText: () => {},
+    getEditorText: () => "",
+    editor: async () => undefined,
+    addAutocompleteProvider: () => {},
+    setEditorComponent: () => {},
+    getEditorComponent: () => undefined,
+    theme: {} as ExtensionUIContext["theme"],
+    getAllThemes: () => [],
+    getTheme: () => undefined,
+    setTheme: () => ({ success: true }),
+    getToolsExpanded: () => false,
+    setToolsExpanded: () => {},
+  } as unknown as ExtensionUIContext;
+  return { calls, ui };
 }

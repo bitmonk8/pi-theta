@@ -60,6 +60,7 @@ import {
   requireLiveProvider,
   type PlantedTheta,
 } from "./harness";
+import { FAIL_CLOSED_MARKERS } from "../helpers/live-transcript";
 
 /** The slash stem the block-tail-query theta registers under. */
 const BLOCK_STEM = "cellb0387blocktailquery";
@@ -113,13 +114,6 @@ const CONTROL_THETA = (
     "}",
   ].join("\n") + "\n"
 );
-
-/**
- * The fail-closed markers a top-level theta drive lands on the
- * `theta-system-note` channel (AGENTS.md §"Assert on real observables"). The
- * fixed block-tail-query drive must produce none of them.
- */
-const FAIL_CLOSED_MARKERS = ["returned Err:", "cancelled", "aborted"] as const;
 
 /** The arm-tag token both arms carry; its presence witnesses a dispatched arm. */
 const ARM_TAG = "b0387arm-";

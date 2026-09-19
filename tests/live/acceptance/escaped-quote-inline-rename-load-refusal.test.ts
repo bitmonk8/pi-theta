@@ -68,11 +68,9 @@
 // Token-bounded: two `pi -p` spawns, one pinned single-sentence turn each.
 
 import { describe, expect, it } from "vitest";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { parseSystemNoteCodes, requireLiveHost, spawnPiPrint } from "./harness";
-import { parseDoc } from "../../helpers/e2e-s1";
+import { requireLiveHost } from "./harness";
+import { codesOf, diagnosticsOf } from "../../helpers/e2e-s1";
+import { expectOffenderProbeClean } from "../../helpers/pi-print-fixture-harness";
 
 /** The code bug 0229 restores reach for the escaped-quote spelling (src/parser/type-grammar.ts, `walkType`'s object arm). */
 const CODE = "theta/parse/renamed-inline-field-name";
@@ -142,16 +140,6 @@ const REFUSED = "1815";
 const LOADED = "1214";
 const CLEAN_SENTINEL = "626";
 
-/** Render one source's parse diagnostics as `severity code: message` strings. */
-function diagnosticsOf(text: string, path: string): readonly string[] {
-  return parseDoc(text, path).diagnostics.map((d) => `${d.severity} ${d.code}: ${d.message}`);
-}
-
-/** Codes only, for the attribution guard. */
-function codesOf(text: string, path: string): readonly string[] {
-  return parseDoc(text, path).diagnostics.map((d) => d.code);
-}
-
 describe("-- H9a live: bug 0229 escaped-quote renamed-inline-field-name refusal at the inline object field slot through the real `pi -p`, and the escape-free sibling end to end", () => {
   it(': refuses the theta whose annotation carries `{a as "w\\"x": string}`, still registers and drives the escape-free `{wire: string}` sibling, and measures whether the code reaches the H9a capture', async () => {
     // ATTRIBUTION GUARD (offline, token-free, runs BEFORE the live host is
@@ -175,70 +163,26 @@ describe("-- H9a live: bug 0229 escaped-quote renamed-inline-field-name refusal 
     // (`resolveAcceptanceHost`); never a skip or early return.
     await requireLiveHost();
 
-    const thetaDir = mkdtempSync(join(tmpdir(), "theta-b0229-root-"));
-    const cleanCwd = mkdtempSync(join(tmpdir(), "theta-b0229-cwd-"));
-    const probeCwd = mkdtempSync(join(tmpdir(), "theta-b0229-cwd-"));
-    try {
-      writeFileSync(join(thetaDir, "escoffender.theta"), OFFENDER, "utf8");
-      writeFileSync(join(thetaDir, "escprobe.theta"), PROBE, "utf8");
-      writeFileSync(join(thetaDir, "escclean.theta"), CLEAN, "utf8");
-
-      // ---- (1) the escape-free sibling registers and drives ----
-      const clean = await spawnPiPrint({
-        thetaDir,
+    await expectOffenderProbeClean({
+      slug: "b0229",
+      files: {
+        "escoffender.theta": OFFENDER,
+        "escprobe.theta": PROBE,
+        "escclean.theta": CLEAN,
+      },
+      clean: {
         slashInvocation: "/escclean",
-        cwd: cleanCwd,
-      });
-      expect(
-        clean.exitCode,
-        `clean: expected a no-error exit (0), got ${String(clean.exitCode)}. stderr: ${clean.stderr}`,
-      ).toBe(0);
-      expect(
-        clean.stdout,
-        `clean: the escape-free sibling must register and DRIVE a real turn -- without this the refusal assertion below could pass vacuously (wrong root, no registration at all). stdout: ${clean.stdout} stderr: ${clean.stderr}`,
-      ).toContain(CLEAN_SENTINEL);
-      expect(
-        clean.stderr.split(/\r?\n/).filter((line) => line.trim().length > 0),
-        `clean: stderr must be empty for a diagnostic-free run (bug 0030 §Fix empty-capture gate). stderr: ${clean.stderr}`,
-      ).toEqual([]);
-      expect(
-        parseSystemNoteCodes(clean.stdout + clean.stderr),
-        "clean: the escape-free sibling must carry NO theta/{load,parse,runtime}/* code at all -- the refusal must emit nothing on the good path.",
-      ).toEqual([]);
-
-      // ---- (2) the offending theta is refused, observed through invoke ----
-      const probe = await spawnPiPrint({
-        thetaDir,
+        expected: CLEAN_SENTINEL,
+        message: (clean) => `clean: the escape-free sibling must register and DRIVE a real turn -- without this the refusal assertion below could pass vacuously (wrong root, no registration at all). stdout: ${clean.stdout} stderr: ${clean.stderr}`,
+        codesMessage: "clean: the escape-free sibling must carry NO theta/{load,parse,runtime}/* code at all -- the refusal must emit nothing on the good path.",
+      },
+      probe: {
         slashInvocation: "/escprobe",
-        cwd: probeCwd,
-      });
-      expect(
-        probe.exitCode,
-        `probe: expected a no-error exit (0), got ${String(probe.exitCode)}. stderr: ${probe.stderr}`,
-      ).toBe(0);
-      expect(
-        probe.stdout,
-        `probe: the offending theta must NOT load, so the prober's invoke("./escoffender.theta") resolves Err(InvokeInfraError) and the match prints "${REFUSED}". Printing "${LOADED}" means bug 0229's escaped quote is still defeating the colon scan and the field is dropped rather than refused. stdout: ${probe.stdout} stderr: ${probe.stderr}`,
-      ).toContain(REFUSED);
-      expect(
-        probe.stdout,
-        `probe: the Ok arm must not fire; stdout: ${probe.stdout}`,
-      ).not.toContain(LOADED);
-
-      // ---- MEASUREMENT (permitted-codes disposition) ----
-      // Scan the probe's combined stdout+stderr for the new code with the SAME
-      // regex the nine-area H9a manifest's `permittedCodesSubset` invariant
-      // uses. This is the actual measurement the permitted-codes.json
-      // disposition rests on -- never an assumption.
-      const observedCodes = parseSystemNoteCodes(probe.stdout + probe.stderr);
-      expect(
-        observedCodes,
-        `MEASUREMENT: ${CODE} ${observedCodes.includes(CODE) ? "DOES" : "does NOT"} reach the H9a stdout+stderr capture for this refusal path (probe stdout: ${probe.stdout} stderr: ${probe.stderr}). This is the recorded evidence for the permitted-codes.json disposition.`,
-      ).toEqual([]);
-    } finally {
-      rmSync(thetaDir, { recursive: true, force: true });
-      rmSync(cleanCwd, { recursive: true, force: true });
-      rmSync(probeCwd, { recursive: true, force: true });
-    }
+        expected: REFUSED,
+        unexpected: LOADED,
+        message: (probe) => `probe: the offending theta must NOT load, so the prober's invoke("./escoffender.theta") resolves Err(InvokeInfraError) and the match prints "${REFUSED}". Printing "${LOADED}" means bug 0229's escaped quote is still defeating the colon scan and the field is dropped rather than refused. stdout: ${probe.stdout} stderr: ${probe.stderr}`,
+      },
+      measurementMessage: (probe, observedCodes) => `MEASUREMENT: ${CODE} ${observedCodes.includes(CODE) ? "DOES" : "does NOT"} reach the H9a stdout+stderr capture for this refusal path (probe stdout: ${probe.stdout} stderr: ${probe.stderr}). This is the recorded evidence for the permitted-codes.json disposition.`,
+    });
   });
 });

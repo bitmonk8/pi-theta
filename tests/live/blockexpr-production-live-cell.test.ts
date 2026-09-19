@@ -79,6 +79,7 @@ import {
   requireLiveProvider,
   type PlantedTheta,
 } from "./harness";
+import { FAIL_CLOSED_MARKERS } from "../helpers/live-transcript";
 
 /** The slash stem the block-expr theta must register under. */
 const BLOCK_STEM = "cellemainblockexpr";
@@ -141,13 +142,6 @@ const CONTROL_THETA = (
 // filed as bug 0243. The oracle `blockexpr-${selected}` stays in the rendered
 // text as a context tag (asserted off the outbound render, not the reply), so
 // the block computation is still proven independently of the arithmetic ask.
-
-/**
- * The fail-closed markers a top-level theta drive lands on the
- * `theta-system-note` channel (AGENTS.md §"Assert on real observables"). The
- * block-expr drive must produce none of them.
- */
-const FAIL_CLOSED_MARKERS = ["returned Err:", "cancelled", "aborted"] as const;
 
 describe("bug 0082 — a `let`-RHS block and a `match`-arm block both register and drive at live production load", () => {
   it("registers the block-expr theta (absent pre-fix) and drives it to the block-computed value", async () => {

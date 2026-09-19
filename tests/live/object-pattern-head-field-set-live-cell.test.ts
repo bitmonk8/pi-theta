@@ -80,6 +80,7 @@ import {
   requireLiveProvider,
   type PlantedTheta,
 } from "./harness";
+import { FAIL_CLOSED_MARKERS } from "../helpers/live-transcript";
 
 /** The slash stem whose theta must NOT register — a field `R` cannot carry. */
 const EXTRA_FIELD_STEM = "cellbextrafieldhead";
@@ -117,13 +118,6 @@ function fieldSetTheta(declaredField: string, label: string): string {
     ].join("\n") + "\n"
   );
 }
-
-/**
- * The fail-closed markers a top-level theta drive lands on the
- * `theta-system-note` channel (AGENTS.md §"Assert on real observables"). The
- * sibling drive must produce none of them.
- */
-const FAIL_CLOSED_MARKERS = ["returned Err:", "cancelled", "aborted"] as const;
 
 describe("bug 0226 — a resolved object-pattern head with an undeclared listed field is refused at live production load and un-registers the theta", () => {
   it("un-registers the extra-field theta while the declared-field sibling over the SAME match shape registers and drives —", async () => {

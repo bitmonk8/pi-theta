@@ -95,16 +95,9 @@
 // Token-bounded: two `pi -p` spawns, one pinned single-sentence turn each.
 
 import { describe, expect, it } from "vitest";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import {
-  failLoudly,
-  parseSystemNoteCodes,
-  resolveAcceptanceHost,
-  spawnPiPrint,
-} from "./harness";
-import { parseDoc } from "../../helpers/e2e-s1";
+import { failLoudly, resolveAcceptanceHost } from "./harness";
+import { codesOf, diagnosticsOf } from "../../helpers/e2e-s1";
+import { expectOffenderProbeClean } from "../../helpers/pi-print-fixture-harness";
 
 /** The registered row the default-side guard raises for these bytes. */
 const CODE = "theta/parse/unterminated-string";
@@ -239,16 +232,6 @@ const OFFENDER_LOADED = "341";
 const CLEAN_ARG = "1207";
 const CLEAN_ANSWER = "1212";
 
-/** Render one source's parse diagnostics as `severity code: message` strings. */
-function diagnosticsOf(text: string, path: string): readonly string[] {
-  return parseDoc(text, path).diagnostics.map((d) => `${d.severity} ${d.code}: ${d.message}`);
-}
-
-/** Codes only, for the attribution guard. */
-function codesOf(text: string, path: string): readonly string[] {
-  return parseDoc(text, path).diagnostics.map((d) => d.code);
-}
-
 describe("H9a live: bug 0239 unterminated-string refusal at the params: default half through the real `pi -p`, with the closed byte-neighbour and a bypass-shaped sibling end to end", () => {
   it("ATTRIBUTION (offline, token-free): the offender carries exactly theta/parse/unterminated-string and the other three sources carry nothing", () => {
     // No live sentinel below is attributable to this bug unless the offender's
@@ -303,79 +286,38 @@ describe("H9a live: bug 0239 unterminated-string refusal at the params: default 
     const OFFENDER = offenderSrc(bindModel);
     const GOOD = goodSrc(bindModel);
 
-    const thetaDir = mkdtempSync(join(tmpdir(), "theta-b0239-root-"));
-    const cleanCwd = mkdtempSync(join(tmpdir(), "theta-b0239-cwd-"));
-    const probeCwd = mkdtempSync(join(tmpdir(), "theta-b0239-cwd-"));
-    try {
-      writeFileSync(join(thetaDir, "poffender.theta"), OFFENDER, "utf8");
-      writeFileSync(join(thetaDir, "pgood.theta"), GOOD, "utf8");
-      writeFileSync(join(thetaDir, "pprobe.theta"), PROBE, "utf8");
-      writeFileSync(join(thetaDir, "pclean.theta"), CLEAN, "utf8");
-
-      // ---- (1) the bypass-shaped sibling registers and drives ----
-      const clean = await spawnPiPrint({
-        thetaDir,
+    await expectOffenderProbeClean({
+      slug: "b0239",
+      files: {
+        "poffender.theta": OFFENDER,
+        "pgood.theta": GOOD,
+        "pprobe.theta": PROBE,
+        "pclean.theta": CLEAN,
+      },
+      clean: {
         slashInvocation: `/pclean ${CLEAN_ARG}`,
-        cwd: cleanCwd,
-      });
-      expect(
-        clean.exitCode,
-        `clean: expected a no-error exit (0), got ${String(clean.exitCode)}. stderr: ${clean.stderr}`,
-      ).toBe(0);
-      expect(
-        clean.stdout,
-        `clean: the well-formed sibling must register, BIND ${CLEAN_ARG} and DRIVE a real turn, whose only answer is ${CLEAN_ANSWER} -- without this the refusal assertion below could pass vacuously (wrong root, no registration at all). stdout: ${clean.stdout} stderr: ${clean.stderr}`,
-      ).toContain(CLEAN_ANSWER);
-      expect(
-        clean.stderr.split(/\r?\n/).filter((l) => l.trim().length > 0),
-        `clean: stderr must be empty for a diagnostic-free run (bug 0030 §Fix empty-capture gate). stderr: ${clean.stderr}`,
-      ).toEqual([]);
-      expect(
-        parseSystemNoteCodes(clean.stdout + clean.stderr),
-        "clean: the well-formed sibling must carry NO theta/{load,parse,runtime}/* code at all -- the refusal must emit nothing on the good path.",
-      ).toEqual([]);
-
-      // ---- (2) the offender is refused and the closed neighbour is not ----
-      const probe = await spawnPiPrint({
-        thetaDir,
+        expected: CLEAN_ANSWER,
+        message: (clean) => `clean: the well-formed sibling must register, BIND ${CLEAN_ARG} and DRIVE a real turn, whose only answer is ${CLEAN_ANSWER} -- without this the refusal assertion below could pass vacuously (wrong root, no registration at all). stdout: ${clean.stdout} stderr: ${clean.stderr}`,
+        codesMessage: "clean: the well-formed sibling must carry NO theta/{load,parse,runtime}/* code at all -- the refusal must emit nothing on the good path.",
+      },
+      probe: {
         slashInvocation: "/pprobe",
-        cwd: probeCwd,
-      });
-      expect(
-        probe.exitCode,
-        `probe: expected a no-error exit (0), got ${String(probe.exitCode)}. stderr: ${probe.stderr}`,
-      ).toBe(0);
-      expect(
-        probe.stdout,
-        `probe: the offending theta must NOT load, so invoke("./poffender.theta") resolves Err(InvokeInfraError) and the match prints "${OFFENDER_REFUSED}". Printing "${OFFENDER_LOADED}" means bug 0239's unterminated default literal is still being admitted, lowered and recorded. stdout: ${probe.stdout} stderr: ${probe.stderr}`,
-      ).toContain(OFFENDER_REFUSED);
-      expect(
-        probe.stdout,
-        `probe: the offender's Ok arm must not fire; stdout: ${probe.stdout}`,
-      ).not.toContain(OFFENDER_LOADED);
-      expect(
-        probe.stdout,
-        `probe: the closed byte-neighbour must still load, so invoke("./pgood.theta") resolves Ok and the match prints "${GOOD_LOADED}". Printing "${GOOD_REFUSED}" is an over-reach: the guard tested default PRESENCE, or container balance, rather than string closure. stdout: ${probe.stdout} stderr: ${probe.stderr}`,
-      ).toContain(GOOD_LOADED);
-      expect(
-        probe.stdout,
-        `probe: the closed neighbour's Err arm must not fire; stdout: ${probe.stdout}`,
-      ).not.toContain(GOOD_REFUSED);
-
-      // ---- MEASUREMENT (permitted-codes disposition) ----
-      // Scan the probe's combined stdout+stderr for the code with the SAME
-      // regex the nine-area H9a manifest's `permittedCodesSubset` invariant
-      // uses. This is the actual measurement the permitted-codes.json
-      // disposition rests on -- never an assumption.
-      const observedCodes = parseSystemNoteCodes(probe.stdout + probe.stderr);
-      expect(
-        observedCodes,
-        `MEASUREMENT: ${CODE} ${observedCodes.includes(CODE) ? "DOES" : "does NOT"} reach the H9a stdout+stderr capture for this refusal path (probe stdout: ${probe.stdout} stderr: ${probe.stderr}). This is the recorded evidence for the permitted-codes.json disposition.`,
-      ).toEqual([]);
-    } finally {
-      rmSync(thetaDir, { recursive: true, force: true });
-      rmSync(cleanCwd, { recursive: true, force: true });
-      rmSync(probeCwd, { recursive: true, force: true });
-    }
+        expected: OFFENDER_REFUSED,
+        unexpected: OFFENDER_LOADED,
+        message: (probe) => `probe: the offending theta must NOT load, so invoke("./poffender.theta") resolves Err(InvokeInfraError) and the match prints "${OFFENDER_REFUSED}". Printing "${OFFENDER_LOADED}" means bug 0239's unterminated default literal is still being admitted, lowered and recorded. stdout: ${probe.stdout} stderr: ${probe.stderr}`,
+        unexpectedMessage: (probe) => `probe: the offender's Ok arm must not fire; stdout: ${probe.stdout}`,
+        checkAdditional(probe) {
+          expect(
+            probe.stdout,
+            `probe: the closed byte-neighbour must still load, so invoke("./pgood.theta") resolves Ok and the match prints "${GOOD_LOADED}". Printing "${GOOD_REFUSED}" is an over-reach: the guard tested default PRESENCE, or container balance, rather than string closure. stdout: ${probe.stdout} stderr: ${probe.stderr}`,
+          ).toContain(GOOD_LOADED);
+          expect(
+            probe.stdout,
+            `probe: the closed neighbour's Err arm must not fire; stdout: ${probe.stdout}`,
+          ).not.toContain(GOOD_REFUSED);
+        },
+      },
+      measurementMessage: (probe, observedCodes) => `MEASUREMENT: ${CODE} ${observedCodes.includes(CODE) ? "DOES" : "does NOT"} reach the H9a stdout+stderr capture for this refusal path (probe stdout: ${probe.stdout} stderr: ${probe.stderr}). This is the recorded evidence for the permitted-codes.json disposition.`,
+    });
   });
 });

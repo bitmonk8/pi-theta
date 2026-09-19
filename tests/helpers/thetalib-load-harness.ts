@@ -69,6 +69,7 @@ import type { AgentToolResultEnvelope } from "../../src/runtime/tool-call-execut
 import type { RuntimeRoot } from "../../src/runtime-root";
 import type { FileSystem } from "../../src/seams/file-system";
 import { parseDeps, parseDoc } from "./e2e-s1";
+import { FakeFileSystem } from "./fake-file-system";
 import { SEAM_NOOP_CHECKPOINT as NOOP_CHECKPOINT } from "./invoke-seam-scaffold";
 
 /** The importing `.theta` frontmatter every fixture in this family shares. */
@@ -164,6 +165,32 @@ export async function importCheckCodes(
     .filter((d) => d.severity === "error")
     .map((d) => d.code)
     .sort();
+}
+
+/**
+ * ATTRIBUTION GUARD driver: the same `checkThetaImports` production seam the live
+ * host reaches, over an in-memory `FakeFileSystem`.
+ */
+export async function composeCodesOf(body: string, libStem: string, libText: string): Promise<readonly string[]> {
+  const doc = parseDoc(body, "/proj/attribution.theta");
+  expect(
+    doc.frontmatter,
+    "attribution precondition: the importing theta's frontmatter must parse",
+  ).not.toBeNull();
+  const fs = new FakeFileSystem({
+    homedir: "/home",
+    cwd: "/proj",
+    files: { [`/proj/${libStem}.thetalib`]: libText },
+    dirs: { "/proj": [`${libStem}.thetalib`] },
+  });
+  const input: ThetaCompositionInput = {
+    slashName: "attribution",
+    sourcePath: "/proj/attribution.theta",
+    frontmatter: doc.frontmatter as ParsedFrontmatter,
+    body: doc.body,
+  };
+  const result = await checkThetaImports(input, { fs, parseDeps: parseDeps() });
+  return result.diagnostics.map((d) => d.code);
 }
 
 /** The reshaped result of one `checkThetaImports` load over a fake `.thetalib` tree. */

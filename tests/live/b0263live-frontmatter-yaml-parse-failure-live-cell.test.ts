@@ -80,6 +80,7 @@ import {
   requireLiveProvider,
   type PlantedTheta,
 } from "./harness";
+import { FAIL_CLOSED_MARKERS } from "../helpers/live-transcript";
 import { parseDoc } from "../helpers/e2e-s1";
 
 const CODE = "theta/load/malformed-frontmatter-yaml";
@@ -172,13 +173,6 @@ const PRECONDITION_THETA = [
   "@`What is 111 plus 222? Answer with the number only.`",
   "",
 ].join("\n");
-
-/**
- * The fail-closed markers a top-level theta drive lands on the
- * `theta-system-note` channel (AGENTS.md §"Assert on real observables"). The
- * control's drive must produce none of them.
- */
-const FAIL_CLOSED_MARKERS = ["returned Err:", "cancelled", "aborted"] as const;
 
 function diagLines(text: string, path: string): string[] {
   return parseDoc(text, path).diagnostics.map(

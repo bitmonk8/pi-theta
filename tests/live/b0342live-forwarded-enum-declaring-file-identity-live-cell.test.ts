@@ -64,6 +64,7 @@ import {
   requireLiveProvider,
   type PlantedTheta,
 } from "./harness";
+import { FAIL_CLOSED_MARKERS } from "../helpers/live-transcript";
 
 /** The two-variant declaration every fixture reuses; explicit wire values so the collision is on the tag alone. */
 const SEV_DECL = 'enum Sev { Low = "low", High = "high" }';
@@ -104,9 +105,6 @@ const TOP = [
   "@`RESULT=${p.own == p.fwd}/${p.fwd == direct}|END What is 526 plus 142? Answer with the number only.`",
   "",
 ].join("\n");
-
-/** The fail-closed markers a top-level theta drive lands on the `theta-system-note` channel. */
-const FAIL_CLOSED_MARKERS = ["returned Err:", "cancelled", "aborted"] as const;
 
 describe("bug 0342 live: a forwarded enum keeps its declaring file's identity across a depth-2 subagent chain", () => {
   it("the value C declares and B forwards renders `!=` B's own Sev.Low and `==` a direct-from-C value", async () => {

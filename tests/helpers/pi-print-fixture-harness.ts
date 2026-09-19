@@ -4,7 +4,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect } from "vitest";
-import { requireLiveHost, spawnPiPrint, type PiPrintResult } from "../live/acceptance/harness";
+import { parseSystemNoteCodes, requireLiveHost, spawnPiPrint, type PiPrintResult } from "../live/acceptance/harness";
 import { errorCodes, parseDoc } from "./e2e-s1";
 
 interface FixtureDrive<Root extends string> {
@@ -80,6 +80,78 @@ export async function expectPiPrintFixture(
       expect(result.stdout, drive.stdoutMessage(result)).toContain(drive.expectedStdout);
     },
   }]);
+}
+
+interface OffenderProbeCleanCase {
+  readonly slug: string;
+  readonly files: Readonly<Record<string, string>>;
+  readonly clean: {
+    readonly slashInvocation: string;
+    readonly expected: string;
+    readonly message: (clean: PiPrintResult) => string;
+    readonly codesMessage: string;
+  };
+  readonly probe: {
+    readonly slashInvocation: string;
+    readonly expected: string;
+    readonly unexpected: string;
+    readonly message: (probe: PiPrintResult) => string;
+    readonly unexpectedMessage?: (probe: PiPrintResult) => string;
+    readonly checkAdditional?: (probe: PiPrintResult) => void;
+  };
+  readonly measurementMessage: (probe: PiPrintResult, observedCodes: readonly string[]) => string;
+}
+
+/**
+ * Drive the clean sibling before its refusal probe in the same discovery root.
+ * Keep the clean exit/stdout/empty-stderr/no-code guards and the probe's positive
+ * and negative stdout witnesses. Callers own attribution and live-host checks,
+ * including any provider-qualified bind_model needed to construct the fixtures.
+ */
+export async function expectOffenderProbeClean(test: OffenderProbeCleanCase): Promise<void> {
+  await drivePiPrintFixtures(test.slug, { root: test.files }, [
+    {
+      root: "root",
+      slashInvocation: test.clean.slashInvocation,
+      check(clean) {
+        expect(
+          clean.exitCode,
+          `clean: expected a no-error exit (0), got ${String(clean.exitCode)}. stderr: ${clean.stderr}`,
+        ).toBe(0);
+        expect(clean.stdout, test.clean.message(clean)).toContain(test.clean.expected);
+        // Bug 0030's empty-capture gate: every nonblank stderr line is rejected.
+        expect(
+          clean.stderr.split(/\r?\n/).filter((line) => line.trim().length > 0),
+          `clean: stderr must be empty for a diagnostic-free run (bug 0030 §Fix empty-capture gate). stderr: ${clean.stderr}`,
+        ).toEqual([]);
+        expect(
+          parseSystemNoteCodes(clean.stdout + clean.stderr),
+          test.clean.codesMessage,
+        ).toEqual([]);
+      },
+    },
+    {
+      root: "root",
+      slashInvocation: test.probe.slashInvocation,
+      check(probe) {
+        expect(
+          probe.exitCode,
+          `probe: expected a no-error exit (0), got ${String(probe.exitCode)}. stderr: ${probe.stderr}`,
+        ).toBe(0);
+        expect(probe.stdout, test.probe.message(probe)).toContain(test.probe.expected);
+        expect(
+          probe.stdout,
+          test.probe.unexpectedMessage?.(probe) ?? `probe: the Ok arm must not fire; stdout: ${probe.stdout}`,
+        ).not.toContain(test.probe.unexpected);
+        test.probe.checkAdditional?.(probe);
+
+        // MEASUREMENT (permitted-codes disposition): use the same regex as the
+        // H9a manifest's permittedCodesSubset invariant, never an assumption.
+        const observedCodes = parseSystemNoteCodes(probe.stdout + probe.stderr);
+        expect(observedCodes, test.measurementMessage(probe, observedCodes)).toEqual([]);
+      },
+    },
+  ]);
 }
 
 interface OffenderControlCase {

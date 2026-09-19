@@ -142,6 +142,7 @@ import { describe, expect, it } from "vitest";
 import { CASE_CODE, noteChannelTheta, promptTheta } from "../helpers/live-diagnostic-oracle";
 import {
   bootShippedExtension,
+  collectSystemNotes,
   driveSlashCaptureTurn,
   plantThetaWorkspace,
   requireLiveProvider,
@@ -192,36 +193,6 @@ const CONTROL: PlantedTheta = {
 /** The note-channel precondition: a parse fault that existed and fired before this change-set. */
 const NOTE_CHANNEL: PlantedTheta = noteChannelTheta("b0281livenotechannel");
 
-/** Every `theta-system-note` entry's text, read off the settled `SessionManager`. */
-function systemNotesOf(handle: { sessionManager: { getEntries: () => unknown[] } }): string[] {
-  const notes: string[] = [];
-  for (const entry of handle.sessionManager.getEntries()) {
-    const e = entry as { customType?: string; content?: unknown; data?: unknown };
-    if (e.customType === "theta-system-note") {
-      if (typeof e.content === "string") notes.push(e.content);
-      else if (Array.isArray(e.content)) {
-        for (const part of e.content) {
-          const t = (part as { text?: string }).text;
-          if (typeof t === "string") notes.push(t);
-        }
-      }
-    } else if (e.customType === "theta-progress-entry") {
-      // PIC-72 (runtime-event-channel.md): the three migrated operator-note
-      // classes (parse/load/type diagnostic BATCH, structural-change,
-      // binder-model recovery) deliver through the `theta-progress-entry`
-      // custom-entry channel instead of `theta-system-note` whenever both
-      // entry members are present (entry-channel.ts). The entry's `data`
-      // carries the SAME `SystemNote` shape the message channel used to
-      // carry (PIC-71: byte-identical rendered content), so extracting its
-      // `content` keeps every existing substring assertion working
-      // unchanged — a channel-union repair, not a weakening.
-      const data = e.data as { content?: unknown } | undefined;
-      if (typeof data?.content === "string") notes.push(data.content);
-    }
-  }
-  return notes;
-}
-
 describe("bug 0281 — an applied reserved head is refused at live production load and un-registers the theta", () => {
   it("un-registers both carriers and names the code and each head spelling on the theta-system-note channel", async () => {
     const provider = await requireLiveProvider();
@@ -270,7 +241,7 @@ describe("bug 0281 — an applied reserved head is refused at live production lo
 
       // Real observable 2: the note channel, read off the settled in-memory
       // `SessionManager` (deterministic; no dependence on event timing).
-      const notes = systemNotesOf(handle);
+      const notes = collectSystemNotes(handle.sessionManager.getEntries());
       const joined = notes.join("\n");
 
       // Precondition 2: the channel carries load-phase parse codes at all.

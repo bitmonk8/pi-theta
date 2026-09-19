@@ -70,15 +70,9 @@
 // Token-bounded: two `pi -p` spawns, one pinned single-sentence turn each.
 
 import { describe, expect, it } from "vitest";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import {
-  parseSystemNoteCodes,
-  requireLiveHost,
-  spawnPiPrint,
-} from "./harness";
-import { parseDoc } from "../../helpers/e2e-s1";
+import { requireLiveHost } from "./harness";
+import { codesOf, diagnosticsOf } from "../../helpers/e2e-s1";
+import { expectOffenderProbeClean } from "../../helpers/pi-print-fixture-harness";
 
 /** The registry code bug 0176 §Fix route A mints (src/parser/type-grammar.ts). */
 const CODE = "theta/parse/quoted-inline-field-name";
@@ -153,18 +147,6 @@ const REFUSED = "1709";
 const LOADED = "1308";
 const CLEAN_SENTINEL = "681";
 
-/** Render one source's parse diagnostics as `severity code: message` strings. */
-function diagnosticsOf(text: string, path: string): readonly string[] {
-  return parseDoc(text, path).diagnostics.map(
-    (d) => `${d.severity} ${d.code}: ${d.message}`,
-  );
-}
-
-/** Codes only, for the attribution guard. */
-function codesOf(text: string, path: string): readonly string[] {
-  return parseDoc(text, path).diagnostics.map((d) => d.code);
-}
-
 describe("— H9a live: bug 0176 quoted-inline-field-name refusal through the real `pi -p`, and the identifier-spelled sibling end to end", () => {
   it(": refuses the theta whose annotation carries `{\"a\": string}`, still registers and drives the identifier-spelled `{a: string}` sibling, and measures whether the code reaches the H9a capture", async () => {
     // ATTRIBUTION GUARD (offline, token-free, runs BEFORE the live host is
@@ -188,72 +170,26 @@ describe("— H9a live: bug 0176 quoted-inline-field-name refusal through the re
     // (`resolveAcceptanceHost`); never a skip or early return.
     await requireLiveHost();
 
-    const thetaDir = mkdtempSync(join(tmpdir(), "theta-cellqfn-root-"));
-    const cleanCwd = mkdtempSync(join(tmpdir(), "theta-cellqfn-cwd-"));
-    const probeCwd = mkdtempSync(join(tmpdir(), "theta-cellqfn-cwd-"));
-    try {
-      writeFileSync(join(thetaDir, "cellqfnoffender.theta"), OFFENDER, "utf8");
-      writeFileSync(join(thetaDir, "cellqfnprobe.theta"), PROBE, "utf8");
-      writeFileSync(join(thetaDir, "cellqfnclean.theta"), CLEAN, "utf8");
-
-      // ---- (1) the identifier-spelled sibling registers and drives ----
-      const clean = await spawnPiPrint({
-        thetaDir,
+    await expectOffenderProbeClean({
+      slug: "cellqfn",
+      files: {
+        "cellqfnoffender.theta": OFFENDER,
+        "cellqfnprobe.theta": PROBE,
+        "cellqfnclean.theta": CLEAN,
+      },
+      clean: {
         slashInvocation: "/cellqfnclean",
-        cwd: cleanCwd,
-      });
-      expect(
-        clean.exitCode,
-        `clean: expected a no-error exit (0), got ${String(clean.exitCode)}. stderr: ${clean.stderr}`,
-      ).toBe(0);
-      expect(
-        clean.stdout,
-        `clean: the identifier-spelled sibling must register and DRIVE a real turn — without this the refusal assertion below could pass vacuously (wrong root, no registration at all). stdout: ${clean.stdout} stderr: ${clean.stderr}`,
-      ).toContain(CLEAN_SENTINEL);
-      // bug 0030's empty-capture gate, applied inline: a diagnostic-free run
-      // must show 0 bytes of stderr, the same property every H9a area asserts.
-      expect(
-        clean.stderr.split(/\r?\n/).filter((line) => line.trim().length > 0),
-        `clean: stderr must be empty for a diagnostic-free run (bug 0030 §Fix empty-capture gate). stderr: ${clean.stderr}`,
-      ).toEqual([]);
-      expect(
-        parseSystemNoteCodes(clean.stdout + clean.stderr),
-        "clean: the identifier-spelled sibling must carry NO theta/{load,parse,runtime}/* code at all — the fix must not emit anything on the good path.",
-      ).toEqual([]);
-
-      // ---- (2) the offending theta is refused, observed through invoke ----
-      const probe = await spawnPiPrint({
-        thetaDir,
+        expected: CLEAN_SENTINEL,
+        message: (clean) => `clean: the identifier-spelled sibling must register and DRIVE a real turn — without this the refusal assertion below could pass vacuously (wrong root, no registration at all). stdout: ${clean.stdout} stderr: ${clean.stderr}`,
+        codesMessage: "clean: the identifier-spelled sibling must carry NO theta/{load,parse,runtime}/* code at all — the fix must not emit anything on the good path.",
+      },
+      probe: {
         slashInvocation: "/cellqfnprobe",
-        cwd: probeCwd,
-      });
-      expect(
-        probe.exitCode,
-        `probe: expected a no-error exit (0), got ${String(probe.exitCode)}. stderr: ${probe.stderr}`,
-      ).toBe(0);
-      expect(
-        probe.stdout,
-        `probe: the offending theta must NOT load, so the prober's invoke("./cellqfnoffender.theta") resolves Err(InvokeInfraError) and the match prints "${REFUSED}". Printing "${LOADED}" means bug 0176 is unfixed. stdout: ${probe.stdout} stderr: ${probe.stderr}`,
-      ).toContain(REFUSED);
-      expect(
-        probe.stdout,
-        `probe: the Ok arm must not fire; stdout: ${probe.stdout}`,
-      ).not.toContain(LOADED);
-
-      // ---- MEASUREMENT (obligation 3(c)) ----
-      // Scan the probe's combined stdout+stderr for the new code with the SAME
-      // regex the nine-area H9a manifest's `permittedCodesSubset` invariant
-      // uses. This is the actual measurement the permitted-codes.json
-      // disposition is based on — never an assumption.
-      const observedCodes = parseSystemNoteCodes(probe.stdout + probe.stderr);
-      expect(
-        observedCodes,
-        `MEASUREMENT: ${CODE} ${observedCodes.includes(CODE) ? "DOES" : "does NOT"} reach the H9a stdout+stderr capture for this refusal path (probe stdout: ${probe.stdout} stderr: ${probe.stderr}). This is the recorded evidence for the permitted-codes.json disposition (obligation 3(c)).`,
-      ).toEqual([]);
-    } finally {
-      rmSync(thetaDir, { recursive: true, force: true });
-      rmSync(cleanCwd, { recursive: true, force: true });
-      rmSync(probeCwd, { recursive: true, force: true });
-    }
+        expected: REFUSED,
+        unexpected: LOADED,
+        message: (probe) => `probe: the offending theta must NOT load, so the prober's invoke("./cellqfnoffender.theta") resolves Err(InvokeInfraError) and the match prints "${REFUSED}". Printing "${LOADED}" means bug 0176 is unfixed. stdout: ${probe.stdout} stderr: ${probe.stderr}`,
+      },
+      measurementMessage: (probe, observedCodes) => `MEASUREMENT: ${CODE} ${observedCodes.includes(CODE) ? "DOES" : "does NOT"} reach the H9a stdout+stderr capture for this refusal path (probe stdout: ${probe.stdout} stderr: ${probe.stderr}). This is the recorded evidence for the permitted-codes.json disposition (obligation 3(c)).`,
+    });
   });
 });

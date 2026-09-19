@@ -76,52 +76,19 @@
 import { describe, expect, it } from "vitest";
 import {
   bootShippedExtension,
+  collectSystemNotes,
   driveSlashCaptureTurn,
   plantThetaWorkspace,
   requireLiveProvider,
   type PlantedTheta,
 } from "./harness";
+import { FAIL_CLOSED_MARKERS } from "../helpers/live-transcript";
 import { assertThetaStderrCleanForEach } from "../helpers/theta-stderr-gate";
 import { parseDoc } from "../helpers/e2e-s1";
 import { registryFragment } from "../helpers/registry-oracle";
 
 /** The mooted face-1 refusal — the CONTROL half's expected code. */
 const ANNOTATION_NOT_EXPR_CODE = "theta/parse/annotation-type-not-expression";
-
-/**
- * The theta-system-note channel contents from the settled in-memory
- * `SessionManager`, read directly off `getEntries()` (AGENTS.md §"Assert on
- * real observables"). Mirrors `live-production-acceptance.test.ts`'s
- * `systemNoteContents`.
- */
-function systemNoteContents(entries: readonly unknown[]): readonly string[] {
-  const notes: string[] = [];
-  for (const entry of entries) {
-    const e = entry as { customType?: string; content?: unknown; data?: unknown };
-    if (e.customType === "theta-system-note") {
-      if (typeof e.content === "string") notes.push(e.content);
-      else if (Array.isArray(e.content)) {
-        for (const part of e.content) {
-          const t = (part as { text?: string }).text;
-          if (typeof t === "string") notes.push(t);
-        }
-      }
-    } else if (e.customType === "theta-progress-entry") {
-      // PIC-72 (runtime-event-channel.md): the three migrated operator-note
-      // classes (parse/load/type diagnostic BATCH, structural-change,
-      // binder-model recovery) deliver through the `theta-progress-entry`
-      // custom-entry channel instead of `theta-system-note` whenever both
-      // entry members are present (entry-channel.ts). The entry's `data`
-      // carries the SAME `SystemNote` shape the message channel used to
-      // carry (PIC-71: byte-identical rendered content), so extracting its
-      // `content` keeps every existing substring assertion working
-      // unchanged — a channel-union repair, not a weakening.
-      const data = e.data as { content?: unknown } | undefined;
-      if (typeof data?.content === "string") notes.push(data.content);
-    }
-  }
-  return notes;
-}
 
 const PRECONDITION_STEM = "b0143livectl";
 const CLEAN_STEM = "b0143liveclean";
@@ -178,13 +145,6 @@ const PRECONDITION_THETA =
     "---",
     "@`What is 2 + 2? Reply with only the resulting integer digits and nothing else.`",
   ].join("\n") + "\n";
-
-/**
- * The fail-closed markers a top-level theta drive lands on the
- * `theta-system-note` channel (AGENTS.md §"Assert on real observables"). The
- * CLEAN drive must produce none of them.
- */
-const FAIL_CLOSED_MARKERS = ["returned Err:", "cancelled", "aborted"] as const;
 
 assertThetaStderrCleanForEach();
 
@@ -264,7 +224,7 @@ describe("bug 0143 live: a match-arm-binder join-element read loads/registers/dr
         "Registered: " + JSON.stringify(handle.registeredNames()),
       ).not.toContain(CONTROL_STEM);
 
-      const notes = systemNoteContents(handle.sessionManager.getEntries());
+      const notes = collectSystemNotes(handle.sessionManager.getEntries());
       const expectedFragment = registryFragment(ANNOTATION_NOT_EXPR_CODE, { name: "v" });
       expect(
         notes.some((note) => note.includes(expectedFragment)),

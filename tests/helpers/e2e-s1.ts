@@ -311,6 +311,11 @@ export function diagLines(doc: ThetaDocument): string[] {
   return doc.diagnostics.map((d) => `${d.severity} ${d.code}: ${d.message}`);
 }
 
+/** Render one source's parse diagnostics as `severity code: message` strings. */
+export function diagnosticsOf(text: string, path: string): readonly string[] {
+  return diagLines(parseDoc(text, path));
+}
+
 /** One diagnostic-list cell, with an optional fixture path for its driver. */
 export interface DiagnosticCell<Exp> {
   readonly cell: string;
@@ -404,8 +409,8 @@ export function findFnDecl(doc: ThetaDocument, name: string): FnDecl | undefined
 /** Frontmatter for every `.theta` body row — occupies lines 1–3, body starts at 4. */
 const SUBAGENT_FM = "---\nmode: subagent\n---\n";
 
-/** A `mode: subagent` theta whose body is `stmt`. */
-export function subagentTheta(stmt: string): string {
+/** A `mode: subagent` theta whose body is `stmt`, defaulting to a minimal registration control. */
+export function subagentTheta(stmt: string = "@`Reply with a short one-line greeting.`"): string {
   return `${SUBAGENT_FM}${stmt}\n`;
 }
 

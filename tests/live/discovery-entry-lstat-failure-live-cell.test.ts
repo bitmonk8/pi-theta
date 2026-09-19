@@ -59,92 +59,16 @@
 // standalone file: no existing live cell is weakened, reworded, reordered or
 // deleted.
 
-import { readFileSync, mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { promises as fsp } from "node:fs";
 import { join } from "node:path";
-import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { bootShippedExtension, plantThetaWorkspace, requireLiveProvider } from "./harness";
-// @ts-expect-error — JS code-registry module, no type declarations.
-import { parseRegistry, registryMessage } from "../../tools/code-registry/index.js";
+import { subagentTheta } from "../helpers/e2e-s1";
+import { collectSystemNotes, bootShippedExtension, plantThetaWorkspace, requireLiveProvider } from "./harness";
+import { descriptorFragment } from "../helpers/registry-oracle";
 
 /** `theta/load/unreadable-source`'s registered code (DIAG-4). */
 const UNREADABLE_SOURCE_CODE = "theta/load/unreadable-source";
-
-/** The sharded registry page carrying `theta/load/unreadable-source`'s row. */
-const REGISTRY = parseRegistry(
-  readFileSync(
-    fileURLToPath(
-      new URL("../../docs/spec_topics/diagnostics/code-registry-load.md", import.meta.url),
-    ),
-    "utf8",
-  ),
-) as { code: string; message: string }[];
-
-/**
- * `theta/load/unreadable-source: discovery source is unreadable: <descriptor>`
- * with `<descriptor>` substituted — DIAG-4: the message half is READ from the
- * registry row, not transcribed, mirroring cell 62's
- * `unreadableSourceFragment`.
- */
-function unreadableSourceFragment(descriptor: string): string {
-  const template = registryMessage(REGISTRY, UNREADABLE_SOURCE_CODE) as string | undefined;
-  expect(
-    template,
-    `${UNREADABLE_SOURCE_CODE} has no registry row — DIAG-2's closed registry ` +
-      "does not carry the code this cell asserts",
-  ).toBeTypeOf("string");
-  const message = (template as string).replaceAll("<descriptor>", descriptor);
-  expect(
-    message,
-    `${UNREADABLE_SOURCE_CODE}: an unsubstituted <…> placeholder remains — the ` +
-      "registry row's Message template changed shape and this substitution is stale",
-  ).not.toMatch(/<[a-z-]+>/);
-  return `${UNREADABLE_SOURCE_CODE}: ${message}`;
-}
-
-/**
- * The `theta-system-note` channel contents from the settled in-memory
- * `SessionManager`, read directly off `getEntries()` (AGENTS.md §"Assert on
- * real observables"). Mirrors cell 62's `systemNoteContents` (unexported from
- * `./harness`, so each acceptance-style file restates it against the full
- * entry list — this diagnostic fires at LOAD time, before any drive).
- */
-function systemNoteContents(entries: readonly unknown[]): readonly string[] {
-  const notes: string[] = [];
-  for (const entry of entries) {
-    const e = entry as { customType?: string; content?: unknown; data?: unknown };
-    if (e.customType === "theta-system-note") {
-      if (typeof e.content === "string") notes.push(e.content);
-      else if (Array.isArray(e.content)) {
-        for (const part of e.content) {
-          const t = (part as { text?: string }).text;
-          if (typeof t === "string") notes.push(t);
-        }
-      }
-    } else if (e.customType === "theta-progress-entry") {
-      // PIC-72 (runtime-event-channel.md): the three migrated operator-note
-      // classes (parse/load/type diagnostic BATCH, structural-change,
-      // binder-model recovery) deliver through the `theta-progress-entry`
-      // custom-entry channel instead of `theta-system-note` whenever both
-      // entry members are present (entry-channel.ts). The entry's `data`
-      // carries the SAME `SystemNote` shape the message channel used to
-      // carry (PIC-71: byte-identical rendered content), so extracting its
-      // `content` keeps every existing substring assertion working
-      // unchanged — a channel-union repair, not a weakening.
-      const data = e.data as { content?: unknown } | undefined;
-      if (typeof data?.content === "string") notes.push(data.content);
-    }
-  }
-  return notes;
-}
-
-/** A minimal subagent-mode `.theta` — the precondition control's body. */
-function subagentTheta(): string {
-  return ["---", "mode: subagent", "---", "@`Reply with a short one-line greeting.`", ""].join(
-    "\n",
-  );
-}
 
 describe(
   "H8a-T (bug 0075) — a settings thetaPaths glob universe entry whose lstat rejects " +
@@ -241,11 +165,11 @@ describe(
           // discovery-sources.md:69 forbids silence for a traversal failure
           // inside a root that exists. The warning fires at LOAD time, before
           // any drive, so the full entry list is the delta (mirrors cell 62).
-          const notes = systemNoteContents(handle.sessionManager.getEntries());
+          const notes = collectSystemNotes(handle.sessionManager.getEntries());
           // Bug 0461: the unreadable-source row renders `<descriptor>` in the
           // normative `<kind>:"<value>"` form — the settings value is the
           // offending `thetaPaths` entry text verbatim (placeholder-rendering-b.md §5).
-          const expectedFragment = unreadableSourceFragment('settings:"g/**/*.theta"');
+          const expectedFragment = descriptorFragment(UNREADABLE_SOURCE_CODE, 'settings:"g/**/*.theta"');
           expect(
             notes.some((note) => note.includes(expectedFragment)),
             "no theta-system-note entry named the entry-lstat unreadable-source " +

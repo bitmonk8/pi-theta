@@ -66,71 +66,7 @@ import {
   plantThetaWorkspace,
   requireLiveProvider,
 } from "./harness";
-import type { ExtensionUIContext } from "@earendil-works/pi-coding-agent";
-
-/** One recorded call to the injected UI double, timestamped for the
- *  before/after-completion ordering assertions below. */
-interface RecordedCall {
-  readonly ts: number;
-  readonly kind: "setStatus" | "setWorkingMessage" | "setWidget";
-  readonly text: string | undefined;
-  readonly lines: readonly string[] | undefined;
-}
-
-/**
- * A recording `ExtensionUIContext` double. Only `setStatus` / `setWidget` /
- * `setWorkingMessage` — the three members the footer (L0) and widget (L2)
- * `StatusSink`s touch (`footer-sink.ts` `FooterUi`, `widget-sink.ts`
- * `WidgetUi`) — are wired to record; every other member is a harmless no-op
- * mirroring the runner's own built-in no-op UI context, since nothing this
- * cell drives (a `mode: prompt` theta with no dialog/editor/theme surface)
- * ever calls them.
- */
-function createRecordingUi(): { readonly calls: RecordedCall[]; readonly ui: ExtensionUIContext } {
-  const calls: RecordedCall[] = [];
-  const ui = {
-    select: async () => undefined,
-    confirm: async () => false,
-    input: async () => undefined,
-    notify: () => {},
-    onTerminalInput: () => () => {},
-    setStatus: (_key: string, text: string | undefined) => {
-      calls.push({ ts: Date.now(), kind: "setStatus", text, lines: undefined });
-    },
-    setWorkingMessage: (message?: string) => {
-      calls.push({ ts: Date.now(), kind: "setWorkingMessage", text: message, lines: undefined });
-    },
-    setWorkingVisible: () => {},
-    setWorkingIndicator: () => {},
-    setHiddenThinkingLabel: () => {},
-    setWidget: (_key: string, content: unknown, _options?: unknown) => {
-      calls.push({
-        ts: Date.now(),
-        kind: "setWidget",
-        text: undefined,
-        lines: Array.isArray(content) ? (content as readonly string[]) : undefined,
-      });
-    },
-    setFooter: () => {},
-    setHeader: () => {},
-    setTitle: () => {},
-    custom: async <T>() => undefined as unknown as T,
-    pasteToEditor: () => {},
-    setEditorText: () => {},
-    getEditorText: () => "",
-    editor: async () => undefined,
-    addAutocompleteProvider: () => {},
-    setEditorComponent: () => {},
-    getEditorComponent: () => undefined,
-    theme: {} as ExtensionUIContext["theme"],
-    getAllThemes: () => [],
-    getTheme: () => undefined,
-    setTheme: () => ({ success: true }),
-    getToolsExpanded: () => false,
-    setToolsExpanded: () => {},
-  } as unknown as ExtensionUIContext;
-  return { calls, ui };
-}
+import { createRecordingUi } from "../helpers/execution-status-progress";
 
 /** The subagent-mode lane callee: one tiny, lane-distinguishing model turn. */
 const LANE_CALLEE = [
@@ -180,7 +116,7 @@ describe("RFC 0010 (H8a, live, L0) — a real `par for` drive shows lane transit
     ]);
 
     const handle = await bootShippedExtension({ workspace, provider });
-    const { calls, ui } = createRecordingUi();
+    const { calls, ui } = createRecordingUi({ recordWorkingMessage: true, now: Date.now });
     try {
       if (handle.command(CALLER_STEM) === undefined) {
         failLoudly(

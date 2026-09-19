@@ -52,6 +52,24 @@ export function loadRowMessage(code: string): string {
   return registryMessageOf(LOAD_REGISTRY, "docs/spec_topics/diagnostics/code-registry-load.md", code);
 }
 
+/** `<code>: <message>` with `<descriptor>` substituted — DIAG-4: the message
+ *  half is READ from the registry row, not transcribed. */
+export function descriptorFragment(code: string, descriptor: string): string {
+  const template = registryMessage(LOAD_REGISTRY, code) as string | undefined;
+  expect(
+    template,
+    `${code} has no registry row — DIAG-2's closed registry does not carry ` +
+      "the code this cell asserts",
+  ).toBeTypeOf("string");
+  const message = (template as string).replaceAll("<descriptor>", descriptor);
+  expect(
+    message,
+    `${code}: an unsubstituted <…> placeholder remains — the registry row's ` +
+      "Message template changed shape and this substitution is stale",
+  ).not.toMatch(/<[a-z-]+>/);
+  return `${code}: ${message}`;
+}
+
 /** Fill the named discovery descriptors, leaving unknown placeholders intact. */
 export function interpolate(template: string, subs: Record<string, string>): string {
   return template.replace(/<([a-z-]+)>/g, (whole, name: string) => subs[name] ?? whole);

@@ -84,11 +84,9 @@
 // Token-bounded: two `pi -p` spawns, one pinned single-sentence turn each.
 
 import { describe, expect, it } from "vitest";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { parseSystemNoteCodes, requireLiveHost, spawnPiPrint } from "./harness";
-import { parseDoc } from "../../helpers/e2e-s1";
+import { requireLiveHost } from "./harness";
+import { codesOf, diagnosticsOf, parseDoc } from "../../helpers/e2e-s1";
+import { expectOffenderProbeClean } from "../../helpers/pi-print-fixture-harness";
 
 /** The registered code bug 0237's fix lets reach the `params:` position. */
 const CODE = "theta/parse/binding-case-mismatch";
@@ -160,16 +158,6 @@ const CLEAN = [
 const REFUSED = "1738";
 const LOADED = "1537";
 
-/** Render one source's parse diagnostics as `severity code: message` strings. */
-function diagnosticsOf(text: string, path: string): readonly string[] {
-  return parseDoc(text, path).diagnostics.map((d) => `${d.severity} ${d.code}: ${d.message}`);
-}
-
-/** Codes only, for the attribution guard. */
-function codesOf(text: string, path: string): readonly string[] {
-  return parseDoc(text, path).diagnostics.map((d) => d.code);
-}
-
 describe("-- H9a live: bug 0237's empty inline field type stops truncating the interior, so the params: document is refused through the real `pi -p` ", () => {
   it(": refuses `params:` `p: '{a: , Zs: string}'`, still registers and drives the case-clean sibling, and measures whether the code reaches the H9a capture ", async () => {
     // ATTRIBUTION GUARD (offline, token-free, runs BEFORE the live host is
@@ -198,72 +186,26 @@ describe("-- H9a live: bug 0237's empty inline field type stops truncating the i
     // (`resolveAcceptanceHost`); never a skip or early return.
     await requireLiveHost();
 
-    const thetaDir = mkdtempSync(join(tmpdir(), "theta-b237-root-"));
-    const cleanCwd = mkdtempSync(join(tmpdir(), "theta-b237-cwd-"));
-    const probeCwd = mkdtempSync(join(tmpdir(), "theta-b237-cwd-"));
-    try {
-      writeFileSync(join(thetaDir, "b237offender.theta"), OFFENDER, "utf8");
-      writeFileSync(join(thetaDir, "b237probe.theta"), PROBE, "utf8");
-      writeFileSync(join(thetaDir, "b237clean.theta"), CLEAN, "utf8");
-
-      // ---- (1) the case-clean sibling registers and drives ----
-      const clean = await spawnPiPrint({
-        thetaDir,
+    await expectOffenderProbeClean({
+      slug: "b237",
+      files: {
+        "b237offender.theta": OFFENDER,
+        "b237probe.theta": PROBE,
+        "b237clean.theta": CLEAN,
+      },
+      clean: {
         slashInvocation: "/b237clean",
-        cwd: cleanCwd,
-      });
-      expect(
-        clean.exitCode,
-        `clean: expected a no-error exit (0), got ${String(clean.exitCode)}. stderr: ${clean.stderr}`,
-      ).toBe(0);
-      expect(
-        clean.stdout,
-        `clean: the case-clean sibling must register and DRIVE a real turn -- without this the refusal assertion below could pass vacuously (wrong root, no registration at all). stdout: ${clean.stdout} stderr: ${clean.stderr}`,
-      ).toContain(CLEAN_SENTINEL);
-      // bug 0030's empty-capture gate, applied inline: a diagnostic-free run
-      // must show 0 bytes of stderr, the same property every H9a area asserts.
-      expect(
-        clean.stderr.split(/\r?\n/).filter((line) => line.trim().length > 0),
-        `clean: stderr must be empty for a diagnostic-free run (bug 0030 §Fix empty-capture gate). stderr: ${clean.stderr}`,
-      ).toEqual([]);
-      expect(
-        parseSystemNoteCodes(clean.stdout + clean.stderr),
-        "clean: the case-clean sibling must carry NO theta/{load,parse,runtime}/* code at all -- the fix must not emit anything on the good path.",
-      ).toEqual([]);
-
-      // ---- (2) the offending theta is refused, observed through invoke ----
-      const probe = await spawnPiPrint({
-        thetaDir,
+        expected: CLEAN_SENTINEL,
+        message: (clean) => `clean: the case-clean sibling must register and DRIVE a real turn -- without this the refusal assertion below could pass vacuously (wrong root, no registration at all). stdout: ${clean.stdout} stderr: ${clean.stderr}`,
+        codesMessage: "clean: the case-clean sibling must carry NO theta/{load,parse,runtime}/* code at all -- the fix must not emit anything on the good path.",
+      },
+      probe: {
         slashInvocation: "/b237probe",
-        cwd: probeCwd,
-      });
-      expect(
-        probe.exitCode,
-        `probe: expected a no-error exit (0), got ${String(probe.exitCode)}. stderr: ${probe.stderr}`,
-      ).toBe(0);
-      expect(
-        probe.stdout,
-        `probe: the offending theta must NOT load post-fix, so the prober's invoke("./b237offender.theta") resolves Err(InvokeInfraError) and the match prints "${REFUSED}". Printing "${LOADED}" means bug 0237's truncation still swallows the entry separator, so ${CODE} never fires and the uppercase key 'Zs' is still lowered into the provider-facing $defs. stdout: ${probe.stdout} stderr: ${probe.stderr}`,
-      ).toContain(REFUSED);
-      expect(
-        probe.stdout,
-        `probe: the Ok arm must not fire; stdout: ${probe.stdout}`,
-      ).not.toContain(LOADED);
-
-      // ---- MEASUREMENT (permitted-codes disposition) ----
-      // Scan the probe's combined stdout+stderr for the code with the SAME
-      // regex the nine-area H9a manifest's `permittedCodesSubset` invariant
-      // uses. This is the actual measurement the disposition rests on -- never
-      // an assumption.
-      const observedCodes = parseSystemNoteCodes(probe.stdout + probe.stderr);
-      expect(
-        observedCodes,
-        `MEASUREMENT: ${CODE} ${observedCodes.includes(CODE) ? "DOES" : "does NOT"} reach the H9a stdout+stderr capture for this refusal path (probe stdout: ${probe.stdout} stderr: ${probe.stderr}). This is the recorded evidence for the permitted-codes.json disposition; this route mints no new code, so no entry is added either way.`,
-      ).toEqual([]);
-    } finally {
-      rmSync(thetaDir, { recursive: true, force: true });
-      rmSync(cleanCwd, { recursive: true, force: true });
-      rmSync(probeCwd, { recursive: true, force: true });
-    }
+        expected: REFUSED,
+        unexpected: LOADED,
+        message: (probe) => `probe: the offending theta must NOT load post-fix, so the prober's invoke("./b237offender.theta") resolves Err(InvokeInfraError) and the match prints "${REFUSED}". Printing "${LOADED}" means bug 0237's truncation still swallows the entry separator, so ${CODE} never fires and the uppercase key 'Zs' is still lowered into the provider-facing $defs. stdout: ${probe.stdout} stderr: ${probe.stderr}`,
+      },
+      measurementMessage: (probe, observedCodes) => `MEASUREMENT: ${CODE} ${observedCodes.includes(CODE) ? "DOES" : "does NOT"} reach the H9a stdout+stderr capture for this refusal path (probe stdout: ${probe.stdout} stderr: ${probe.stderr}). This is the recorded evidence for the permitted-codes.json disposition; this route mints no new code, so no entry is added either way.`,
+    });
   });
 });

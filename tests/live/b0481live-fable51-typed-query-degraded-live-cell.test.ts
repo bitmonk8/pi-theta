@@ -63,7 +63,7 @@ import {
   requireLiveProvider,
   type PlantedTheta,
 } from "./harness";
-import { countOnSessionRespondCalls } from "../helpers/live-transcript";
+import { countOnSessionRespondCalls, FAIL_CLOSED_MARKERS } from "../helpers/live-transcript";
 import { isForcedToolChoiceRejection } from "../../src/binder/forced-tool-choice";
 
 const X_VALUE = 263;
@@ -88,9 +88,6 @@ const FABLE_THETA = [
   "@`" + BOUND_MARKER + "${s.value}. Is that number odd or even? Answer with one word.`",
   "",
 ].join("\n");
-
-/** Every fail-closed ending of a top-level drive lands on the note channel. */
-const FAIL_CLOSED_MARKERS = ["returned Err:", "cancelled", "aborted"] as const;
 
 describe("bug 0481 live: a typed `@` query on the forcing-rejecting claude-fable-5-1 binds through the degraded dispatch", () => {
   it("the rejected forced dispatch degrades (toolChoice omitted) and the payload binds; no fail-closed ending", async () => {

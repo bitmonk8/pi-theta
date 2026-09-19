@@ -77,56 +77,7 @@ import {
   plantThetaWorkspace,
   requireLiveProvider,
 } from "./harness";
-import type { ExtensionUIContext } from "@earendil-works/pi-coding-agent";
-
-interface RecordedCall {
-  readonly kind: "setStatus" | "setWidget";
-  readonly text: string | undefined;
-  readonly lines: readonly string[] | undefined;
-}
-
-function createRecordingUi(): { readonly calls: RecordedCall[]; readonly ui: ExtensionUIContext } {
-  const calls: RecordedCall[] = [];
-  const ui = {
-    select: async () => undefined,
-    confirm: async () => false,
-    input: async () => undefined,
-    notify: () => {},
-    onTerminalInput: () => () => {},
-    setStatus: (_key: string, text: string | undefined) => {
-      calls.push({ kind: "setStatus", text, lines: undefined });
-    },
-    setWorkingMessage: () => {},
-    setWorkingVisible: () => {},
-    setWorkingIndicator: () => {},
-    setHiddenThinkingLabel: () => {},
-    setWidget: (_key: string, content: unknown, _options?: unknown) => {
-      calls.push({
-        kind: "setWidget",
-        text: undefined,
-        lines: Array.isArray(content) ? (content as readonly string[]) : undefined,
-      });
-    },
-    setFooter: () => {},
-    setHeader: () => {},
-    setTitle: () => {},
-    custom: async <T>() => undefined as unknown as T,
-    pasteToEditor: () => {},
-    setEditorText: () => {},
-    getEditorText: () => "",
-    editor: async () => undefined,
-    addAutocompleteProvider: () => {},
-    setEditorComponent: () => {},
-    getEditorComponent: () => undefined,
-    theme: {} as ExtensionUIContext["theme"],
-    getAllThemes: () => [],
-    getTheme: () => undefined,
-    setTheme: () => ({ success: true }),
-    getToolsExpanded: () => false,
-    setToolsExpanded: () => {},
-  } as unknown as ExtensionUIContext;
-  return { calls, ui };
-}
+import { createRecordingUi, type RecordedCall } from "../helpers/execution-status-progress";
 
 const AUTHOR_MESSAGE_GLYPH = "\u270E";
 

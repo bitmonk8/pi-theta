@@ -45,90 +45,22 @@
 // standalone file; no existing live cell is weakened, reworded, reordered or
 // deleted.
 
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
+import { subagentTheta } from "../helpers/e2e-s1";
 import {
   bootShippedExtension,
+  collectSystemNotes,
   plantThetaWorkspace,
   requireLiveProvider,
   type LiveWorkspace,
 } from "./harness";
-// @ts-expect-error — JS code-registry module, no type declarations.
-import { parseRegistry, registryMessage } from "../../tools/code-registry/index.js";
+import { descriptorFragment } from "../helpers/registry-oracle";
 
 /** `theta/load/missing-source`'s registered code (DIAG-4). */
 const MISSING_SOURCE_CODE = "theta/load/missing-source";
 /** `theta/load/unreadable-source`'s registered code (DIAG-4) — the code the
  *  bug document quotes as WRONGLY emitted before the fix. */
 const UNREADABLE_SOURCE_CODE = "theta/load/unreadable-source";
-
-/** The sharded registry page carrying both codes' rows. */
-const REGISTRY = parseRegistry(
-  readFileSync(
-    fileURLToPath(
-      new URL("../../docs/spec_topics/diagnostics/code-registry-load.md", import.meta.url),
-    ),
-    "utf8",
-  ),
-) as { code: string; message: string }[];
-
-/** `<code>: <message>` with `<descriptor>` substituted — DIAG-4: the message
- *  half is READ from the registry row, not transcribed. */
-function fragment(code: string, descriptor: string): string {
-  const template = registryMessage(REGISTRY, code) as string | undefined;
-  expect(
-    template,
-    `${code} has no registry row — DIAG-2's closed registry does not carry ` +
-      "the code this cell asserts",
-  ).toBeTypeOf("string");
-  const message = (template as string).replaceAll("<descriptor>", descriptor);
-  expect(
-    message,
-    `${code}: an unsubstituted <…> placeholder remains — the registry row's ` +
-      "Message template changed shape and this substitution is stale",
-  ).not.toMatch(/<[a-z-]+>/);
-  return `${code}: ${message}`;
-}
-
-/** The `theta-system-note` channel contents from the settled in-memory
- *  `SessionManager`, read directly off `getEntries()` (AGENTS.md §"Assert on
- *  real observables"). This diagnostic fires at LOAD time, before any drive. */
-function systemNoteContents(entries: readonly unknown[]): readonly string[] {
-  const notes: string[] = [];
-  for (const entry of entries) {
-    const e = entry as { customType?: string; content?: unknown; data?: unknown };
-    if (e.customType === "theta-system-note") {
-      if (typeof e.content === "string") notes.push(e.content);
-      else if (Array.isArray(e.content)) {
-        for (const part of e.content) {
-          const t = (part as { text?: string }).text;
-          if (typeof t === "string") notes.push(t);
-        }
-      }
-    } else if (e.customType === "theta-progress-entry") {
-      // PIC-72 (runtime-event-channel.md): the three migrated operator-note
-      // classes (parse/load/type diagnostic BATCH, structural-change,
-      // binder-model recovery) deliver through the `theta-progress-entry`
-      // custom-entry channel instead of `theta-system-note` whenever both
-      // entry members are present (entry-channel.ts). The entry's `data`
-      // carries the SAME `SystemNote` shape the message channel used to
-      // carry (PIC-71: byte-identical rendered content), so extracting its
-      // `content` keeps every existing substring assertion working
-      // unchanged — a channel-union repair, not a weakening.
-      const data = e.data as { content?: unknown } | undefined;
-      if (typeof data?.content === "string") notes.push(data.content);
-    }
-  }
-  return notes;
-}
-
-/** A minimal subagent-mode `.theta` — the precondition control's body. */
-function subagentTheta(): string {
-  return ["---", "mode: subagent", "---", "@`Reply with a short one-line greeting.`", ""].join(
-    "\n",
-  );
-}
 
 describe(
   "H8a-T (bug 0078) — an override-prefixed --theta operand naming no path warns " +
@@ -186,13 +118,13 @@ describe(
           // the pre-fix symptom (DISC-2's clean-leaf ancestor walk asking
           // about relative-looking prefix segments the operator never typed
           // as directories).
-          const notes = systemNoteContents(handle.sessionManager.getEntries());
+          const notes = collectSystemNotes(handle.sessionManager.getEntries());
           // Bug 0461: the failure-mode rows render `<descriptor>` in the
           // normative `<kind>:"<value>"` form — a cli-flag value is `--theta`
           // followed by the operand as passed (placeholder-rendering-b.md §5).
           const cliDescriptor = `cli-flag:"--theta ${absentOperand}"`;
-          const expectedMissing = fragment(MISSING_SOURCE_CODE, cliDescriptor);
-          const bannedUnreadable = fragment(UNREADABLE_SOURCE_CODE, cliDescriptor);
+          const expectedMissing = descriptorFragment(MISSING_SOURCE_CODE, cliDescriptor);
+          const bannedUnreadable = descriptorFragment(UNREADABLE_SOURCE_CODE, cliDescriptor);
           expect(
             notes.some((note) => note.includes(expectedMissing)),
             "no theta-system-note entry named the literal-path missing-source " +

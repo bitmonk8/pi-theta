@@ -76,6 +76,7 @@ import type { MockInstance } from "vitest";
 import { SUBAGENT_ROOT_ENV_MARKER } from "../../src/runtime/subagent-root-regime";
 import {
   bootShippedExtension,
+  collectSystemNotes,
   driveSlashCaptureTurn,
   failLoudly,
   plantThetaWorkspace,
@@ -131,44 +132,6 @@ const COLLISION_CODE = "theta/load/cross-format-collision";
 // injection to current models and draws refusals: the sentinel-refusal class
 // filed as bug 0243.
 const OUTBOUND_SENTINEL = "LIVE-0021";
-
-/**
- * Extract the `theta-system-note` channel contents from a slice of in-memory
- * `SessionManager` entries (their `content`, string or text-part array).
- * Mirrors the harness's own reader of the same channel — the harness exports
- * it only folded into a per-DRIVE slice (`driveSlashCaptureTurn`), and the
- * bug-0024 collision note is a LOAD-phase note emitted by the second
- * `bindExtensions` itself, so it needs the same read over a bind-scoped slice
- * (exactly as the hardening probe harness snapshots its load-phase notes).
- */
-function collectSystemNotes(entries: readonly unknown[]): readonly string[] {
-  const notes: string[] = [];
-  for (const entry of entries) {
-    const e = entry as { customType?: string; content?: unknown; data?: unknown };
-    if (e.customType === "theta-system-note") {
-      if (typeof e.content === "string") notes.push(e.content);
-      else if (Array.isArray(e.content)) {
-        for (const part of e.content) {
-          const t = (part as { text?: string }).text;
-          if (typeof t === "string") notes.push(t);
-        }
-      }
-    } else if (e.customType === "theta-progress-entry") {
-      // PIC-72 (runtime-event-channel.md): the three migrated operator-note
-      // classes (parse/load/type diagnostic BATCH, structural-change,
-      // binder-model recovery) deliver through the `theta-progress-entry`
-      // custom-entry channel instead of `theta-system-note` whenever both
-      // entry members are present (entry-channel.ts). The entry's `data`
-      // carries the SAME `SystemNote` shape the message channel used to
-      // carry (PIC-71: byte-identical rendered content), so extracting its
-      // `content` keeps every existing substring assertion working
-      // unchanged — a channel-union repair, not a weakening.
-      const data = e.data as { content?: unknown } | undefined;
-      if (typeof data?.content === "string") notes.push(data.content);
-    }
-  }
-  return notes;
-}
 
 /**
  * Real-time wait for the production 250 ms real-clock debounce to fire and any
