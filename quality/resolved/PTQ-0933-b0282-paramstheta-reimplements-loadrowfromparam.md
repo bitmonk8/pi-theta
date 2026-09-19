@@ -2,7 +2,7 @@
 id: PTQ-0933
 title: b0282's local row/theta/paramsTheta trio restates loadRowFromBody and loadRowFromParam instead of calling the already-exported functions its own sibling file uses
 lens: D7                     # D2 | D4 | D7 | D8 | D9 - the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - tests/b0282-unknown-applied-generic-head-gate-at-nine-positions.test.ts:2-15

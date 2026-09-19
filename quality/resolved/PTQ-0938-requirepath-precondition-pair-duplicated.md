@@ -2,7 +2,7 @@
 id: PTQ-0938
 title: the requirePath(PI_CLI_ENTRY, ...)/requirePath(EXTENSION_ENTRY, ...) precondition pair is repeated verbatim across 13 real-spawn subagent test files
 lens: D7                     # D2 | D4 | D7 | D8 | D9 - the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - tests/subagent-root-binder-model-exempt.test.ts:435-436

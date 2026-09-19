@@ -2,7 +2,7 @@
 id: PTQ-0942
 title: inbound-boundary-theta-callable.test.ts retypes reportOf despite the canonical export PTQ-0709's fix landed at tests/helpers/subagent-fn-child-regime.ts
 lens: D7                     # D2 | D4 | D7 | D8 | D9 - the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - tests/inbound-boundary-theta-callable.test.ts:181-190

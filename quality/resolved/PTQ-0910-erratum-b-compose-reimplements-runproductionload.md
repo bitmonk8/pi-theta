@@ -2,7 +2,7 @@
 id: PTQ-0910
 title: call-with-clause-erratum-b's local compose() re-implements the canonical runProductionLoad harness
 lens: D7
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - tests/call-with-clause-erratum-b.test.ts:238-267

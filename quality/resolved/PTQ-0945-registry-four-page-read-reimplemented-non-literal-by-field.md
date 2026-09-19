@@ -2,7 +2,7 @@
 id: PTQ-0945
 title: non-literal-by-field-refusal.test.ts redeclares the four-page diagnostics-registry read tests/helpers/registry-oracle.ts already centralises
 lens: D7                     # D2 | D4 | D7 | D8 | D9 - the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - tests/non-literal-by-field-refusal.test.ts:93-112

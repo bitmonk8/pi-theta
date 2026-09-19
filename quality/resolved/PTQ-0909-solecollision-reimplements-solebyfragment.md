@@ -2,7 +2,7 @@
 id: PTQ-0909
 title: b0459's local soleCollision re-implements the canonical soleByFragment helper
 lens: D7
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - tests/b0459-cross-format-collision-message-form.test.ts:78-85

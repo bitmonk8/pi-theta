@@ -2,8 +2,8 @@
 id: PTQ-0896
 title: reserved-keyword-remaining-identifier-positions.test.ts re-reads and re-parses the parse-shard registry instead of importing tests/helpers/registry-oracle.ts's readRegistry(["parse"])
 lens: D7
-status: open
-verdict: confirmed
+status: intake
+verdict: questionable
 locations:
   - tests/reserved-keyword-remaining-identifier-positions.test.ts:193-206
   - tests/helpers/registry-oracle.ts:19-45
@@ -12,7 +12,7 @@ fix_scope: localized
 wave: qw20260918050411
 reported_by: lens-d7-testquality (anthropic/claude-sonnet-5)
 date: 2026-09-18
-fix_skips: 1
+fix_skips: 2
 ---
 
 # reserved-keyword-remaining-identifier-positions.test.ts re-reads and re-parses the parse-shard registry instead of importing tests/helpers/registry-oracle.ts's readRegistry(["parse"])
@@ -145,6 +145,8 @@ file's own `msg`/`reservedMsg` readers, which already delegate to
 
 ## Triage
 verdict: confirmed — re-verified independently: the local 3-field `RegistryRow` + single-shard `parseRegistry(readFileSync(fileURLToPath(new URL("../docs/.../code-registry-parse.md"))))` read reproduces verbatim at tests/reserved-keyword-remaining-identifier-positions.test.ts:193-206 and is registry-oracle.ts:30-45's `readRegistry(["parse"])` bar `../` depth and a field-subset row type; 0 `helpers/registry-oracle` imports in the file while 33 tests call `readRegistry(["parse"])`; REGISTRY's two consumers (:213 via `registryMessageOf`, :376 `.find(code)` reading `.severity`) need only code/severity/message so the helper's row type is a drop-in; stated greps re-run (docs/bugs `REGISTRY = parseRegistry` → 0; coverage-matrix → 0; bug 0153 cites cells, not the load); not a gate, backs no recording double; 76/76 green at HEAD; not a duplicate — PTQ-0579 (resolved) fixed the sibling type-position file's load and its own FP-check names this file only as un-filed, PTQ-0616 (resolved) fixed this file's `msg` reader at :211-232 not the load, open PTQ-0776/0777 cite tests/live/** files only, and the only other filing citing this file (same-wave d7-02) targets the `lines()/at()` renderer at :242-266 — same D7 copy-paste-fixture class as PTQ-0579/0404/0411 (triage: claude-fable-5-1)
+verdict: questionable — parked by the store: skipped by the fixer in 2 waves (see "## Fix attempts"); rule with accept --note <direction> or reject (store)
 
 ## Fix attempts
 - qw20260919162231: skipped — [PTQ-0914-bug0058-bug0100-local-parse-reimplements-parsedoc.md] PTQ-0914: Replaced both local parse wrappers with shared parseDoc; all tests and assertions retained. / PTQ-0916: Reused shared REGISTRY and RegistryRow; retained local message readers as triage permits. / PTQ-0917: Strengthened the assertion to require exactly one error note, retaining diagnostic and envelope checks. / PTQ-0918: Reused plantThetaWorkspace and disposeWorkspace in both files; fixture writes unchanged. No tests deleted. Required gate passed for all four issues: TypeScript clean, 689 test files and 11,586 tests passed. || [PTQ-0919-assertframestointernalerror-reimplements-assertinternalerror.md] PTQ-0919: Both framing helpers delegate to assertInternalError, preserving all four checks; no tests deleted or renamed. / PTQ-0921: Reused the canonical parse-registry reader and message lookup, retaining the non-empty-message guard; no tests deleted or renamed. / PTQ-0922: Replaced the inline pi/ctx double with makeHarness; discovery assertions remain unchanged; no tests deleted or renamed. / PTQ-0926: Shared thetaInput and driveBinder across all three files, preserving per-file parsing, contexts, and fixtures; no tests deleted or renamed. Required gate passed for all four fixes: tsc clean, 689 test files and 11,586 tests passed. ||
+- qw20260919170939: skipped — [PTQ-0908-registry-oracle-reimplemented-b0268.md] PTQ-0908: Already uses readRegistry(["parse"]); cited duplication no longer reproduces. No edits. / PTQ-0909: Already uses soleByFragment at all four cited call sites; local soleCollision is absent. No edits. / PTQ-0910: compose() already delegates to runProductionLoad; duplicated host doubles are absent. No edits. / PTQ-0927: Replaced local parseDeps with the shared import and removed unused types. All tests and assertions retained. Required gate passed: TypeScript clean, 689 test files and 11,586 tests passed. || [PTQ-0928-detach-throw-harness-reimplements-supersessionharness.md] PTQ-0928: Reused shared supersession/base harnesses; preserved quiesce pass attribution and note recording. All assertions retained. / PTQ-0933: Migrated b0282 and triage-listed b0277 fixture builders to loadRowFromBody/loadRowFromParam; fixture paths and assertions unchanged. / PTQ-0934: Imported shared render in b0368 and triage-listed b0369; removed identical local copies without changing assertions. / PTQ-0937: Imported shared reportOf at both sites; preserved exact failure wording through an optional fixture label. No tests deleted. Exact verification gate passed: TypeScript and all 689 test files / 11,586 tests. || [PTQ-0938-requirepath-precondition-pair-duplicated.md] PTQ-0938: Centralized both path checks across all 12 callers, preserving check order and failure wording; no tests deleted. / PTQ-0939: Migrated all three triaged message readers to canonical registry helpers, retaining expected messages and adding placeholder-presence checks; no tests deleted. / PTQ-0942: Replaced the local reportOf with the canonical import, preserving narrowing and failure wording; no tests deleted. / PTQ-0945: Replaced the duplicate four-page registry read with shared REGISTRY and removed unused imports and type; no tests deleted. Required gate passed for all fixes: tsc and 11,586 tests across 689 files; git diff --check clean. ||

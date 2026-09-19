@@ -2,8 +2,8 @@
 id: PTQ-0895
 title: params-default-unresolvable-enum-variant.test.ts redeclares the NOOP_CHECKPOINT/NOOP_SINK/InertMutator/parseDeps quartet instead of importing tests/helpers/invoke-seam-scaffold.ts and tests/helpers/e2e-s1.ts
 lens: D7
-status: open
-verdict: confirmed
+status: intake
+verdict: questionable
 locations:
   - tests/params-default-unresolvable-enum-variant.test.ts:618-626
   - tests/params-default-unresolvable-enum-variant.test.ts:734-751
@@ -16,7 +16,7 @@ d4_class: clone
 wave: qw20260918050411
 reported_by: lens-d7-testquality (anthropic/claude-sonnet-5)
 date: 2026-09-18
-fix_skips: 1
+fix_skips: 2
 ---
 
 # params-default-unresolvable-enum-variant.test.ts redeclares the NOOP_CHECKPOINT/NOOP_SINK/InertMutator/parseDeps quartet instead of importing tests/helpers/invoke-seam-scaffold.ts and tests/helpers/e2e-s1.ts
@@ -151,6 +151,8 @@ Importing `parseDeps` from `tests/helpers/e2e-s1.ts` and `SEAM_NOOP_CHECKPOINT` 
 
 ## Triage
 verdict: confirmed — independently re-verified: local `parseDeps` (:618-626) and `NOOP_CHECKPOINT`/`NOOP_SINK`/`InertMutator` (:734-751) reproduce verbatim and are live (used at :634, :761, :763, :781, :783); `diff -w` against tests/helpers/invoke-seam-scaffold.ts:29-49 shows only name/`export`/class-vs-const differences and e2e-s1.ts:28-41 `parseDeps` is behaviourally identical (same inert sendMessage/notify/emitDiagnostic, same `"resolved"` matcher); both locations under tests/, D7 boilerplate-duplication class; stated searches reproduce (docs/bugs identifier grep → 0, coverage-matrix → 0, bugs 0185/0197 cite the file only as a whole with no merge/rename/delete proposed), no gate/recording-double carve-out; dedupe: the only PTQs citing this file are resolved PTQ-0226/0499 and open PTQ-0657 (distinct roots), and PTQ-0655/0656 tracked this exact class on the sibling enum-access-merge file only (fixed, sibling now imports) — this file was never folded in, so the fix is a mechanical import swap (triage: claude-fable-5-1)
+verdict: questionable — parked by the store: skipped by the fixer in 2 waves (see "## Fix attempts"); rule with accept --note <direction> or reject (store)
 
 ## Fix attempts
 - qw20260919162231: skipped — [PTQ-0914-bug0058-bug0100-local-parse-reimplements-parsedoc.md] PTQ-0914: Replaced both local parse wrappers with shared parseDoc; all tests and assertions retained. / PTQ-0916: Reused shared REGISTRY and RegistryRow; retained local message readers as triage permits. / PTQ-0917: Strengthened the assertion to require exactly one error note, retaining diagnostic and envelope checks. / PTQ-0918: Reused plantThetaWorkspace and disposeWorkspace in both files; fixture writes unchanged. No tests deleted. Required gate passed for all four issues: TypeScript clean, 689 test files and 11,586 tests passed. || [PTQ-0919-assertframestointernalerror-reimplements-assertinternalerror.md] PTQ-0919: Both framing helpers delegate to assertInternalError, preserving all four checks; no tests deleted or renamed. / PTQ-0921: Reused the canonical parse-registry reader and message lookup, retaining the non-empty-message guard; no tests deleted or renamed. / PTQ-0922: Replaced the inline pi/ctx double with makeHarness; discovery assertions remain unchanged; no tests deleted or renamed. / PTQ-0926: Shared thetaInput and driveBinder across all three files, preserving per-file parsing, contexts, and fixtures; no tests deleted or renamed. Required gate passed for all four fixes: tsc clean, 689 test files and 11,586 tests passed. ||
+- qw20260919170939: skipped — [PTQ-0908-registry-oracle-reimplemented-b0268.md] PTQ-0908: Already uses readRegistry(["parse"]); cited duplication no longer reproduces. No edits. / PTQ-0909: Already uses soleByFragment at all four cited call sites; local soleCollision is absent. No edits. / PTQ-0910: compose() already delegates to runProductionLoad; duplicated host doubles are absent. No edits. / PTQ-0927: Replaced local parseDeps with the shared import and removed unused types. All tests and assertions retained. Required gate passed: TypeScript clean, 689 test files and 11,586 tests passed. || [PTQ-0928-detach-throw-harness-reimplements-supersessionharness.md] PTQ-0928: Reused shared supersession/base harnesses; preserved quiesce pass attribution and note recording. All assertions retained. / PTQ-0933: Migrated b0282 and triage-listed b0277 fixture builders to loadRowFromBody/loadRowFromParam; fixture paths and assertions unchanged. / PTQ-0934: Imported shared render in b0368 and triage-listed b0369; removed identical local copies without changing assertions. / PTQ-0937: Imported shared reportOf at both sites; preserved exact failure wording through an optional fixture label. No tests deleted. Exact verification gate passed: TypeScript and all 689 test files / 11,586 tests. || [PTQ-0938-requirepath-precondition-pair-duplicated.md] PTQ-0938: Centralized both path checks across all 12 callers, preserving check order and failure wording; no tests deleted. / PTQ-0939: Migrated all three triaged message readers to canonical registry helpers, retaining expected messages and adding placeholder-presence checks; no tests deleted. / PTQ-0942: Replaced the local reportOf with the canonical import, preserving narrowing and failure wording; no tests deleted. / PTQ-0945: Replaced the duplicate four-page registry read with shared REGISTRY and removed unused imports and type; no tests deleted. Required gate passed for all fixes: tsc and 11,586 tests across 689 files; git diff --check clean. ||

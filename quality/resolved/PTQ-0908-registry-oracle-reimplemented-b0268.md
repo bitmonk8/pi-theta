@@ -2,7 +2,7 @@
 id: PTQ-0908
 title: b0268 re-parses the parse-phase registry page inline instead of calling tests/helpers/registry-oracle.ts's readRegistry
 lens: D7                     # D2 | D4 | D7 | D8 | D9 - the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - tests/b0268-load-note-path-spelling-single-convention.test.ts:116-133

@@ -2,7 +2,7 @@
 id: PTQ-0939
 title: messageTemplate() reimplements the canonical registryMessageOf() instead of importing it
 lens: D7                     # D2 | D4 | D7 | D8 | D9 - the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - tests/discriminator-field-classifier-brace-group.test.ts:93-105

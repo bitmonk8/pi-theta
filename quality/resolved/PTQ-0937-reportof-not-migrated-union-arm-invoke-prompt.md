@@ -2,7 +2,7 @@
 id: PTQ-0937
 title: inbound-union-arm-dispatch.test.ts and invoke-prompt-cell-enum-return.test.ts both retype reportOf despite the canonical export PTQ-0709's fix landed at tests/helpers/subagent-fn-child-regime.ts
 lens: D7                     # D2 | D4 | D7 | D8 | D9 - the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - tests/inbound-union-arm-dispatch.test.ts:1351-1359
