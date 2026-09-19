@@ -20,12 +20,9 @@ import type {
   SystemNoteSender,
   SystemNoteDetails,
 } from "../src/extension/system-note-channel";
+import { HOST_STALE_MESSAGE } from "./helpers/recording-system-note-channel";
 import { FakeClock } from "./helpers/fake-clock";
 import { FakeFileWatcher } from "./helpers/fake-file-watcher";
-
-/** Byte-exact host stale-ctx message (see tests/system-note-channel.test.ts). */
-const HOST_STALE_MESSAGE =
-  "This extension ctx is stale after session replacement or reload. Do not use a captured pi or command ctx after ctx.newSession(), ctx.fork(), ctx.switchSession(), or ctx.reload(). For newSession, fork, and switchSession, move post-replacement work into withSession and use the ctx passed to withSession. For reload, do not use the old ctx after await ctx.reload().";
 
 /** Flush the microtask queue so the in-flight reload pass settles. */
 async function flush(times = 8): Promise<void> {

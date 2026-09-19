@@ -11,6 +11,20 @@ import type {
   UiNotifier,
 } from "../../src/extension/system-note-channel";
 
+/**
+ * The host's stale-ctx error message, byte-exact. Sourced from the installed
+ * host package
+ * `node_modules/@earendil-works/pi-coding-agent/dist/core/extensions/loader.js`
+ * (`invalidate` default message; `assertActive` throws
+ * `new Error(state.staleMessage)`) — identical text in
+ * `dist/core/extensions/runner.js` (`invalidate(message = …)`) and
+ * `dist/core/agent-session.js` (the bare-dispose `invalidate(...)` call).
+ * Deliberately the full host literal rather than the src prefix constant so
+ * these tests witness recognition of the REAL host message.
+ */
+export const HOST_STALE_MESSAGE =
+  "This extension ctx is stale after session replacement or reload. Do not use a captured pi or command ctx after ctx.newSession(), ctx.fork(), ctx.switchSession(), or ctx.reload(). For newSession, fork, and switchSession, move post-replacement work into withSession and use the ctx passed to withSession. For reload, do not use the old ctx after await ctx.reload().";
+
 export interface SentNote {
   readonly customType: string;
   readonly content: string;

@@ -97,8 +97,7 @@ import { readRegistry } from "./helpers/registry-oracle";
 import { describe, expect, it } from "vitest";
 // @ts-expect-error — JS code-registry module, no type declarations.
 import { registryMessage } from "../tools/code-registry/index.js";
-import type { ThetaDocument } from "../src/parser/theta-document";
-import { collectByKind, parseDoc } from "./helpers/e2e-s1";
+import { collectByKind, parseDoc, rangeDiagnosticTable } from "./helpers/e2e-s1";
 
 // ===========================================================================
 // The codes under assertion, checked against the registry before use (DIAG-2).
@@ -147,55 +146,13 @@ function body(stmt: string): string {
 // `4:1-6:2` versus the query's).
 // ===========================================================================
 
-/**
- * Each diagnostic as `<severity> <code> @ <start>-<end>`, in emission order. A
- * range-less diagnostic (the located-site classification admits file-only and
- * location-less ones) would render no range to compare, so its absence is
- * asserted rather than defaulted — a silent placeholder would let a
- * declaration-ranged line read as a query-ranged one.
- */
-function diagLines(doc: ThetaDocument): string[] {
-  return doc.diagnostics.map((d) => {
-    const range = d.range;
-    expect(
-      range,
-      `bug 0220: ${d.code} arrived with no range, so a line at the QUERY's range — the ` +
-        "defect — cannot be distinguished from one at the declaration's own range, which is " +
-        "correct and out of scope",
-    ).toBeDefined();
-    const r = range as NonNullable<typeof range>;
-    return (
-      `${d.severity} ${d.code} @ ${r.start.line}:${r.start.column}` +
-      `-${r.end.line}:${r.end.column}`
-    );
-  });
-}
-
-function lines(src: string): string[] {
-  return diagLines(parseDoc(src, "bug0220.theta"));
-}
-
-/** One rendered error line at one range. */
-function at(code: string, range: string): string {
-  return `error ${code} @ ${range}`;
-}
-
-/**
- * The whole ordered diagnostic list of every cell of a table, asserted in one
- * equality so a divergence names the row rather than stopping at the first one.
- */
-function expectTable(
-  cells: ReadonlyArray<readonly [string, string, readonly string[]]>,
-  why: string,
-): void {
-  const actual: Record<string, string[]> = {};
-  const expected: Record<string, string[]> = {};
-  for (const [label, src, want] of cells) {
-    actual[label] = lines(src);
-    expected[label] = [...want];
-  }
-  expect(actual, why).toEqual(expected);
-}
+const { at, expectTable } = rangeDiagnosticTable(
+  "bug0220.theta",
+  (code) =>
+    `bug 0220: ${code} arrived with no range, so a line at the QUERY's range — the ` +
+    "defect — cannot be distinguished from one at the declaration's own range, which is " +
+    "correct and out of scope",
+);
 
 interface QueryFacts {
   readonly schema: unknown;

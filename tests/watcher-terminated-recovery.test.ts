@@ -23,7 +23,7 @@ import {
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
 import type { FileWatchEvent } from "../src/seams/file-watcher";
 import { FakeFileWatcher } from "./helpers/fake-file-watcher";
-import { channelHarness } from "./helpers/recording-system-note-channel";
+import { channelHarness, HOST_STALE_MESSAGE } from "./helpers/recording-system-note-channel";
 import {
   STALE_QUIESCE_STDERR_PREFIX,
   StaleQuiesceLog,
@@ -166,10 +166,6 @@ describe("bug 0018 (PIC-67) — terminal signal on an invalidated runtime", () =
   afterEach(() => {
     vi.restoreAllMocks();
   });
-
-  /** Byte-exact host stale-ctx message (see tests/system-note-channel.test.ts). */
-  const HOST_STALE_MESSAGE =
-    "This extension ctx is stale after session replacement or reload. Do not use a captured pi or command ctx after ctx.newSession(), ctx.fork(), ctx.switchSession(), or ctx.reload(). For newSession, fork, and switchSession, move post-replacement work into withSession and use the ctx passed to withSession. For reload, do not use the old ctx after await ctx.reload().";
 
   function staleChannel(): {
     readonly channel: SystemNoteChannelDeps;

@@ -43,7 +43,7 @@
 // that throws it — the same shape as the host's
 // dist/core/extensions/loader.js `assertActive` (guarding every ExtensionAPI
 // member) and dist/core/extensions/runner.js `createContext()` (guarding
-// every ctx getter). `HOST_STALE_MESSAGE` below is byte-exact from the
+// every ctx getter). The `HOST_STALE_MESSAGE` fixture is byte-exact from the
 // installed host package (loader.js `invalidate` default / runner.js
 // `invalidate(message = …)` / agent-session.js dispose call).
 //
@@ -71,21 +71,10 @@ import { RELOAD_DEBOUNCE_WINDOW_MS } from "../src/extension/reload-debounce";
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
 import { loadSettings } from "../src/discovery/settings";
 import { PiFileSystem } from "../src/seams/pi-file-system";
+import { HOST_STALE_MESSAGE } from "./helpers/recording-system-note-channel";
 import { FakeClock } from "./helpers/fake-clock";
 import { FakeFileWatcher, waitFor } from "./helpers/fake-file-watcher";
 import { GREET_THETA, SECOND_THETA } from "./helpers/watch-arming-harness";
-
-/**
- * The host's stale-ctx error message, byte-exact. Sourced from the installed
- * host package
- * `node_modules/@earendil-works/pi-coding-agent/dist/core/extensions/loader.js`
- * (`invalidate` default message; `assertActive` throws
- * `new Error(state.staleMessage)`) — identical text in
- * `dist/core/extensions/runner.js` (`invalidate(message = …)`) and
- * `dist/core/agent-session.js` (the bare-dispose `invalidate(...)` call).
- */
-const HOST_STALE_MESSAGE =
-  "This extension ctx is stale after session replacement or reload. Do not use a captured pi or command ctx after ctx.newSession(), ctx.fork(), ctx.switchSession(), or ctx.reload(). For newSession, fork, and switchSession, move post-replacement work into withSession and use the ctx passed to withSession. For reload, do not use the old ctx after await ctx.reload().";
 
 /** The PIC-54 terminal-arm stderr prefix (system-note-channel.ts). */
 const CASCADE_PREFIX = "system-note delivery failed:";

@@ -351,6 +351,72 @@ export function describeNotes(notes: readonly RecordedNote[]): string {
     : notes.map((n, i) => `[${i}] ${n.content}`).join("\n");
 }
 
+/**
+ * The diagnostic's rendered FIRST line — `<file>:<line>:<col>: <code>: <message>`
+ * (`docs/spec_topics/diagnostics/diagnostic-shape.md` line 63). The delivered
+ * `file` is compared verbatim — bug 0268 pins the channel to one spelling, so
+ * this oracle asserts that spelling rather than normalising around it. The
+ * hint / related continuations are excluded so the count below measures line
+ * occurrences, not note lengths.
+ */
+export function headLine(diagnostic: Diagnostic): string {
+  const { file, range, code, message } = diagnostic;
+  if (file !== undefined && range !== undefined) {
+    return `${file}:${range.start.line}:${range.start.column}: ${code}: ${message}`;
+  }
+  return file !== undefined ? `${file}: ${code}: ${message}` : `${code}: ${message}`;
+}
+
+/**
+ * Occurrences of `needle` across every note's `content`, compared verbatim:
+ * bug 0268 pins the channel to one spelling, so a repeated line collapses on
+ * its own without normalisation.
+ */
+export function renderedOccurrences(
+  notes: readonly RecordedNote[],
+  needle: string,
+): number {
+  const hay = notes.map((n) => n.content).join("\n");
+  let count = 0;
+  let from = 0;
+  for (;;) {
+    const at = hay.indexOf(needle, from);
+    if (at === -1) {
+      return count;
+    }
+    count += 1;
+    from = at + needle.length;
+  }
+}
+
+/**
+ * The one diagnostic the pass produced for `code`, deduplicated by rendered
+ * line. Fails loudly when the fixture produced none — a fixture that stopped
+ * exercising its phase is a harness failure, never a silent pass. Callers may
+ * retain fixture-specific distinct-line failure wording.
+ */
+export function soleRow(
+  notes: readonly RecordedNote[],
+  code: string,
+  bugId: string,
+  distinctLinesMessage?: (count: number) => string,
+): Diagnostic {
+  const rows = allDiagnostics(notes).filter((d) => d.code === code);
+  if (rows.length === 0) {
+    expect.fail(
+      `harness: no ${code} row reached the channel — the bug-${bugId} fixture no longer ` +
+        `exercises its phase, so nothing below is verified. Notes:\n${describeNotes(notes)}`,
+    );
+  }
+  const lines = new Set(rows.map(headLine));
+  expect(
+    lines.size,
+    distinctLinesMessage?.(lines.size) ??
+      `${code} delivered under ${lines.size} distinct rendered lines; expected one source row`,
+  ).toBe(1);
+  return rows[0] as Diagnostic;
+}
+
 /** Error-severity rows the pass located at `file`, in emission order. */
 export function errorRowsAt(pass: LoadPass, file: string): readonly Diagnostic[] {
   return allDiagnostics(pass.notes).filter(

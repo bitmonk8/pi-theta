@@ -53,8 +53,7 @@ import { readRegistry } from "./helpers/registry-oracle";
 import { describe, expect, it } from "vitest";
 // @ts-expect-error — JS code-registry module, no type declarations.
 import { registryMessage } from "../tools/code-registry/index.js";
-import type { ThetaDocument } from "../src/parser/theta-document";
-import { collectByKind, parseDoc } from "./helpers/e2e-s1";
+import { collectByKind, parseDoc, rangeDiagnosticTable } from "./helpers/e2e-s1";
 
 // ===========================================================================
 // The codes under assertion, checked against the registry before use (DIAG-2).
@@ -104,54 +103,12 @@ function blockBody(lines: readonly string[]): string {
 // dropped the range could not tell a collapsed pair from a duplicated one.
 // ===========================================================================
 
-/**
- * Each diagnostic as `<severity> <code> @ <start>-<end>`, in emission order. A
- * range-less diagnostic (the located-site classification admits file-only and
- * location-less ones) would render no range to compare, so its absence is
- * asserted rather than defaulted — a silent placeholder would let a collapsed
- * pair read as a pass.
- */
-function diagLines(doc: ThetaDocument): string[] {
-  return doc.diagnostics.map((d) => {
-    const range = d.range;
-    expect(
-      range,
-      `bug 0093: ${d.code} arrived with no range, so the two entries of a doubling pair — ` +
-        "which differ ONLY in range — cannot be distinguished at this position",
-    ).toBeDefined();
-    const r = range as NonNullable<typeof range>;
-    return (
-      `${d.severity} ${d.code} @ ${r.start.line}:${r.start.column}` +
-      `-${r.end.line}:${r.end.column}`
-    );
-  });
-}
-
-function lines(src: string): string[] {
-  return diagLines(parseDoc(src, "bug0093.theta"));
-}
-
-/** One rendered error line at one range. */
-function at(code: string, range: string): string {
-  return `error ${code} @ ${range}`;
-}
-
-/**
- * The whole ordered diagnostic list of every cell of a table, asserted in one
- * equality so a divergence names the row rather than stopping at the first one.
- */
-function expectTable(
-  cells: ReadonlyArray<readonly [string, string, readonly string[]]>,
-  why: string,
-): void {
-  const actual: Record<string, string[]> = {};
-  const expected: Record<string, string[]> = {};
-  for (const [label, src, want] of cells) {
-    actual[label] = lines(src);
-    expected[label] = [...want];
-  }
-  expect(actual, why).toEqual(expected);
-}
+const { at, expectTable } = rangeDiagnosticTable(
+  "bug0093.theta",
+  (code) =>
+    `bug 0093: ${code} arrived with no range, so the two entries of a doubling pair — ` +
+    "which differ ONLY in range — cannot be distinguished at this position",
+);
 
 /**
  * `QueryExpr.schema` of every query in the parsed body, in traversal order —

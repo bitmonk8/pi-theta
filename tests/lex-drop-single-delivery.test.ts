@@ -5,15 +5,17 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 // @ts-expect-error — JS code-registry module, no type declarations.
 import { parseRegistry } from "../tools/code-registry/index.js";
-import type { Diagnostic } from "../src/diagnostics/diagnostic";
 import {
   allDiagnostics,
   describeNotes,
   finishWorkspace,
+  headLine,
   normalisePath,
   normativeMessagePattern,
   noteDiagnostics,
+  renderedOccurrences,
   runLoadPass,
+  soleRow,
   type ComposeWorkspace as SharedComposeWorkspace,
   type RecordedNote,
 } from "./helpers/compose-workspace-harness";
@@ -169,65 +171,6 @@ function plantTheta(stem: string, body: string): ComposeWorkspace {
   };
 }
 
-// ── Observation helpers ─────────────────────────────────────────────────────
-
-/**
- * The diagnostic's rendered FIRST line — `<file>:<line>:<col>: <code>:
- * <message>` (diagnostic-shape.md:63). The hint / related continuations are
- * excluded so the count below measures line occurrences, not note lengths.
- */
-function headLine(diagnostic: Diagnostic): string {
-  const { file, range, code, message } = diagnostic;
-  if (file !== undefined && range !== undefined) {
-    return `${file}:${range.start.line}:${range.start.column}: ${code}: ${message}`;
-  }
-  return file !== undefined
-    ? `${file}: ${code}: ${message}`
-    : `${code}: ${message}`;
-}
-
-/** Occurrences of `needle` across every note's `content`, concatenated. */
-function renderedOccurrences(
-  notes: readonly RecordedNote[],
-  needle: string,
-): number {
-  const hay = notes.map((n) => n.content).join("\n");
-  let count = 0;
-  let from = 0;
-  for (;;) {
-    const at = hay.indexOf(needle, from);
-    if (at === -1) {
-      return count;
-    }
-    count += 1;
-    from = at + needle.length;
-  }
-}
-
-/**
- * The one diagnostic the pass produced for `code`, deduplicated by rendered
- * line. Fails loudly when the fixture produced none — a fixture that stopped
- * exercising its phase is a harness failure, never a silent pass.
- */
-function soleRow(
-  notes: readonly RecordedNote[],
-  code: string,
-): Diagnostic {
-  const rows = allDiagnostics(notes).filter((d) => d.code === code);
-  if (rows.length === 0) {
-    expect.fail(
-      `harness: no ${code} row reached the channel — the bug-0255 fixture no longer ` +
-        `exercises its phase, so nothing below is verified. Notes:\n${describeNotes(notes)}`,
-    );
-  }
-  const lines = new Set(rows.map(headLine));
-  expect(
-    lines.size,
-    `${code} delivered under ${lines.size} distinct rendered lines; expected one source row`,
-  ).toBe(1);
-  return rows[0] as Diagnostic;
-}
-
 // ── (1) Single-row lex drop ─────────────────────────────────────────────────
 
 describe("bug 0255 — a dropped theta's lex rows reach the channel exactly once", () => {
@@ -241,7 +184,7 @@ describe("bug 0255 — a dropped theta's lex rows reach the channel exactly once
       // (src/lexer/lexer.ts:131) without proving route 2
       // (src/extension/production-composition.ts:844) delivers reds here rather
       // than passing the count assertion below on a silent drop.
-      const row = soleRow(pass.notes, BLOCK_COMMENT_CODE);
+      const row = soleRow(pass.notes, BLOCK_COMMENT_CODE, "0255");
       expect(row.severity).toBe("error");
       expect(row.file ?? "").toBe(workspace.thetaPath);
       expect(row.message).toMatch(normativeMessagePattern(REGISTRY, BLOCK_COMMENT_CODE));
@@ -272,9 +215,9 @@ describe("bug 0255 — a dropped theta's lex rows reach the channel exactly once
     try {
       const pass = await runLoadPass(workspace);
 
-      const backslash = soleRow(pass.notes, STRAY_BACKSLASH_CODE);
-      const reserved = soleRow(pass.notes, RESERVED_KEYWORD_CODE);
-      const letRow = soleRow(pass.notes, LET_WITHOUT_INITIALISER_CODE);
+      const backslash = soleRow(pass.notes, STRAY_BACKSLASH_CODE, "0255");
+      const reserved = soleRow(pass.notes, RESERVED_KEYWORD_CODE, "0255");
+      const letRow = soleRow(pass.notes, LET_WITHOUT_INITIALISER_CODE, "0255");
       // Constraint 1 again, per row.
       expect(backslash.message).toMatch(
         normativeMessagePattern(REGISTRY, STRAY_BACKSLASH_CODE),
@@ -333,7 +276,7 @@ describe("bug 0255 — a dropped theta's lex rows reach the channel exactly once
     try {
       const pass = await runLoadPass(workspace);
 
-      const row = soleRow(pass.notes, LET_WITHOUT_INITIALISER_CODE);
+      const row = soleRow(pass.notes, LET_WITHOUT_INITIALISER_CODE, "0255");
       expect(row.message).toMatch(
         normativeMessagePattern(REGISTRY, LET_WITHOUT_INITIALISER_CODE),
       );

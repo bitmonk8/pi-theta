@@ -10,8 +10,11 @@ import {
   allDiagnostics,
   describeNotes,
   finishWorkspace,
+  headLine,
+  renderedOccurrences,
   requireDriven,
   runLoadPass,
+  soleRow,
   type ComposeWorkspace,
   type LoadPass,
   type RecordedNote,
@@ -187,22 +190,6 @@ function plantWorkspace(files: Readonly<Record<string, string>>): ComposeWorkspa
 // spelling directly — no compensation — so a regression back to bug 0268's
 // mixed spellings reds here instead of being hidden by a normalising oracle.
 
-/**
- * The diagnostic's rendered FIRST line — `<file>:<line>:<col>: <code>: <message>`
- * (`docs/spec_topics/diagnostics/diagnostic-shape.md` line 63). The delivered
- * `file` is compared verbatim — bug 0268 pins the channel to one spelling, so
- * this oracle asserts that spelling rather than normalising around it. The
- * hint / related continuations are excluded so the count below measures line
- * occurrences, not note lengths.
- */
-function headLine(diagnostic: Diagnostic): string {
-  const { file, range, code, message } = diagnostic;
-  if (file !== undefined && range !== undefined) {
-    return `${file}:${range.start.line}:${range.start.column}: ${code}: ${message}`;
-  }
-  return file !== undefined ? `${file}: ${code}: ${message}` : `${code}: ${message}`;
-}
-
 /** The position key a duplicate delivery shares: file + start position + code. */
 function positionKey(diagnostic: Diagnostic): string {
   const file = diagnostic.file ?? "";
@@ -210,28 +197,6 @@ function positionKey(diagnostic: Diagnostic): string {
   const at =
     range === undefined ? "" : `${range.start.line}:${range.start.column}`;
   return `${file}@${at}#${diagnostic.code}`;
-}
-
-/**
- * Occurrences of `needle` across every note's `content`, compared verbatim:
- * bug 0268 pins the channel to one spelling, so a repeated line collapses on
- * its own without normalisation.
- */
-function renderedOccurrences(
-  notes: readonly RecordedNote[],
-  needle: string,
-): number {
-  const hay = notes.map((n) => n.content).join("\n");
-  let count = 0;
-  let from = 0;
-  for (;;) {
-    const at = hay.indexOf(needle, from);
-    if (at === -1) {
-      return count;
-    }
-    count += 1;
-    from = at + needle.length;
-  }
 }
 
 /** Structural counterpart of the rendered count: rows sharing one position key. */
@@ -244,28 +209,6 @@ function structuralOccurrences(
 }
 
 /**
- * The one source row the pass produced for `code`, deduplicated by normalised
- * rendered line. Fails loudly when the fixture produced none — a fixture that
- * stopped exercising its phase is a harness failure, never a silent pass.
- */
-function soleRow(notes: readonly RecordedNote[], code: string): Diagnostic {
-  const rows = allDiagnostics(notes).filter((d) => d.code === code);
-  if (rows.length === 0) {
-    expect.fail(
-      `harness: no ${code} row reached the channel — the bug-0264 fixture no longer ` +
-        `exercises its phase, so nothing below is verified. Notes:\n${describeNotes(notes)}`,
-    );
-  }
-  const lines = new Set(rows.map(headLine));
-  expect(
-    lines.size,
-    `${code} delivered under ${lines.size} distinct normalised rendered lines; ` +
-      `expected one source row\n${describeNotes(notes)}`,
-  ).toBe(1);
-  return rows[0] as Diagnostic;
-}
-
-/**
  * The constraint-1 presence oracle plus the constraint-6 exact count, for one
  * row of one file: the row is present with its registry code, severity, file and
  * DIAG-4 Message, and it reaches the channel EXACTLY once in this pass.
@@ -275,7 +218,14 @@ function expectDeliveredExactlyOnce(
   code: string,
   file: string,
 ): Diagnostic {
-  const row = soleRow(pass.notes, code);
+  const row = soleRow(
+    pass.notes,
+    code,
+    "0264",
+    (count) =>
+      `${code} delivered under ${count} distinct normalised rendered lines; ` +
+      `expected one source row\n${describeNotes(pass.notes)}`,
+  );
   expect(row.severity, `${code} severity`).toBe("error");
   expect(row.file ?? "", `${code} file`).toBe(file);
   expect(row.message, `${code} message`).toMatch(normativeMessagePattern(code));

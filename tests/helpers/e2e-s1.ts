@@ -214,6 +214,53 @@ export function at(r: SourceRange | undefined): string {
     : `${r.start.line}:${r.start.column}-${r.end.line}:${r.end.column}`;
 }
 
+/** Bind range-qualified diagnostic tables to a fixture path and its missing-range failure. */
+export function rangeDiagnosticTable(path: string, missingRangeMessage: (code: string) => string) {
+  /**
+   * Each diagnostic as `<severity> <code> @ <start>-<end>`, in emission order. A
+   * range-less diagnostic (the located-site classification admits file-only and
+   * location-less ones) would render no range to compare, so its absence is
+   * asserted rather than defaulted — a silent placeholder would hide the
+   * distinction between declaration-ranged and query-ranged diagnostics.
+   */
+  function diagLines(doc: ThetaDocument): string[] {
+    return doc.diagnostics.map((d) => {
+      const range = d.range;
+      expect(range, missingRangeMessage(d.code)).toBeDefined();
+      const r = range as NonNullable<typeof range>;
+      return `${d.severity} ${d.code} @ ${at(r)}`;
+    });
+  }
+
+  function lines(src: string): string[] {
+    return diagLines(parseDoc(src, path));
+  }
+
+  /** One rendered error line at one range. */
+  function errorAt(code: string, range: string): string {
+    return `error ${code} @ ${range}`;
+  }
+
+  /**
+   * The whole ordered diagnostic list of every cell of a table, asserted in one
+   * equality so a divergence names the row rather than stopping at the first one.
+   */
+  function expectTable(
+    cells: ReadonlyArray<readonly [string, string, readonly string[]]>,
+    why: string,
+  ): void {
+    const actual: Record<string, string[]> = {};
+    const expected: Record<string, string[]> = {};
+    for (const [label, src, want] of cells) {
+      actual[label] = lines(src);
+      expected[label] = [...want];
+    }
+    expect(actual, why).toEqual(expected);
+  }
+
+  return { at: errorAt, expectTable };
+}
+
 /** Every diagnostic rendered `severity code @l:c-l:c: message` — failure payload. */
 export function render(doc: ThetaDocument): string {
   return JSON.stringify(

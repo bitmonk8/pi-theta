@@ -27,7 +27,10 @@ import {
   sendSystemNote,
   type SystemNote,
 } from "../src/extension/system-note-channel";
-import { makeRecordingChannel as makeChannel } from "./helpers/recording-system-note-channel";
+import {
+  HOST_STALE_MESSAGE,
+  makeRecordingChannel as makeChannel,
+} from "./helpers/recording-system-note-channel";
 
 function diag(file: string, line: number, column: number): Diagnostic {
   return {
@@ -327,16 +330,6 @@ describe("V7d-T — theta/runtime/system-note-delivery-failed fallback chain", (
 // --- bug 0018 (PIC-67) — stale-dead latch + fail-loud-once bounding --------
 
 describe("bug 0018 (PIC-67) — stale-dead latch and fail-loud-once terminal bounding", () => {
-  /**
-   * The host's stale-ctx invalidation message, byte-exact from the installed
-   * host package (dist/core/extensions/loader.js `invalidate` default;
-   * identical text in runner.js and the agent-session.js bare-dispose call).
-   * Deliberately the full host literal rather than the src prefix constant so
-   * these tests witness recognition of the REAL host message.
-   */
-  const HOST_STALE_MESSAGE =
-    "This extension ctx is stale after session replacement or reload. Do not use a captured pi or command ctx after ctx.newSession(), ctx.fork(), ctx.switchSession(), or ctx.reload(). For newSession, fork, and switchSession, move post-replacement work into withSession and use the ctx passed to withSession. For reload, do not use the old ctx after await ctx.reload().";
-
   function panicNote(): SystemNote {
     return {
       content: "theta /demo aborted: boom",
