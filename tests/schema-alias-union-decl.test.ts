@@ -8,7 +8,7 @@ import {
   type LoweredSchema,
   type SchemaSlug,
 } from "../src/seams/schema-validator";
-import { codes, parseDoc, diagLines } from "./helpers/e2e-s1";
+import { codes, parseDoc, diagLines, loadCleanly } from "./helpers/e2e-s1";
 
 // Bug 0033 — the `schema X = A | B` type-alias / union declaration does not
 // parse: `parseSchema` consumes only `schema` + the name, registers a field-less
@@ -607,25 +607,8 @@ interface LoadedParams {
  */
 function loadParams(label: string, source: string): LoadedParams {
   const doc = parseDoc(source, "bug0033.theta");
-  expectLoadsClean(doc, `${label}: the aliased name is a declared top-level schema`);
-  if (doc.frontmatter === null) {
-    throw new Error(
-      `${label}: the theta was REFUSED — frontmatter is null. Diagnostics: ${JSON.stringify(diagLines(doc))}`,
-    );
-  }
-  const params = doc.frontmatter.params;
-  if (params === undefined) {
-    throw new Error(
-      `${label}: the frontmatter carries no parsed params block. Diagnostics: ${JSON.stringify(diagLines(doc))}`,
-    );
-  }
-  const lowered = params.loweredSchema;
-  if (lowered === undefined) {
-    throw new Error(
-      `${label}: the params block lowered to NOTHING (loweredSchema absent), so there is no ` +
-        `AJV-validatable document. Diagnostics: ${JSON.stringify(diagLines(doc))}`,
-    );
-  }
+  expectNoResidue(doc, `${label}: the aliased name is a declared top-level schema`);
+  const { loweredSchema: lowered, defs } = loadCleanly(label, doc);
   const properties = lowered["properties"];
   if (properties === null || typeof properties !== "object") {
     throw new Error(
@@ -635,7 +618,7 @@ function loadParams(label: string, source: string): LoadedParams {
   return {
     loweredSchema: lowered,
     properties: properties as Record<string, unknown>,
-    defs: (lowered["$defs"] ?? {}) as Record<string, unknown>,
+    defs,
   };
 }
 

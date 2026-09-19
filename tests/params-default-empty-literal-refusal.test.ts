@@ -1,7 +1,6 @@
 import { REGISTRY } from "./helpers/registry-oracle";
 import { describe, expect, it } from "vitest";
-// @ts-expect-error — JS code-registry module, no type declarations.
-import { registryMessage } from "../tools/code-registry/index.js";
+import { registryMessageOf as readRegistryMessage } from "./helpers/load-row-harness";
 import type { SourceRange } from "../src/diagnostics/diagnostic";
 import { checkLiteralSublanguage } from "../src/parser/literal-sublanguage";
 import type { ThetaDocument } from "../src/parser/theta-document";
@@ -138,12 +137,11 @@ const ORDERING_CODE = "theta/parse/non-trailing-default";
  * return would report success while verifying nothing.
  */
 function registryMessageOf(code: string): string {
-  const template = registryMessage(REGISTRY, code) as string | undefined;
-  expect(
-    template,
-    `the registry must carry a ${code} row; DIAG-2 (diagnostic-shape.md:72) lands it in docs/spec_topics/diagnostics/code-registry-parse.md in the same commit as the code, and DIAG-4 (:74) makes that row's Message column the only admissible source for the expected string`,
-  ).toBeDefined();
-  return template as string;
+  return readRegistryMessage(
+    REGISTRY,
+    "docs/spec_topics/diagnostics/code-registry-{parse,load,runtime,host}.md",
+    code,
+  );
 }
 
 /** The refusal message for one field. The replacement is a function so a `$` in a name cannot read as a substitution pattern. */

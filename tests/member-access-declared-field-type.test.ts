@@ -1,10 +1,6 @@
 import { readRegistry } from "./helpers/registry-oracle";
 import { describe, expect, it } from "vitest";
-import type {
-  ExtensionAPI,
-  ExtensionCommandContext,
-  ModelRegistry,
-} from "@earendil-works/pi-coding-agent";
+import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { PARSE_REGISTRY_PATH, registryMessageOf } from "./helpers/load-row-harness";
 import type { ParsedFrontmatter } from "../src/parser/frontmatter";
 import type { ThetaDocument } from "../src/parser/theta-document";
@@ -14,13 +10,12 @@ import {
   surfaceUnexpectedThrow,
   MISSING_OBJECT_KEY_CODE,
 } from "../src/runtime/runtime-panics";
-import { createProductionProducerDeps } from "../src/extension/production-theta-producer";
 import type {
   ConversationBindInput,
   ThetaCompositionInput,
 } from "../src/extension/theta-composition-producer";
-import type { RuntimeRoot } from "../src/runtime-root";
-import type { Checkpoint } from "../src/seams/checkpoint";
+import { rootDouble } from "./helpers/call-with-clause-harness";
+import { producer } from "./helpers/runtime-belt-probe-harness";
 import { errors, parseDoc } from "./helpers/e2e-s1";
 
 // Bug 0136 — `#typeExpr`'s `case "member"` arm, anchored on `case "member"` and
@@ -1151,33 +1146,6 @@ describe("bug 0136 (x) — the sub-case bounds §Fix (c) and (d) require asserte
 // establishes. Offline, provider-free, no child process.
 // ===========================================================================
 
-const NOOP_CHECKPOINT: Checkpoint = {
-  before(): Promise<void> {
-    return Promise.resolve();
-  },
-};
-
-function rootDouble(): RuntimeRoot {
-  return {
-    checkpoint: NOOP_CHECKPOINT,
-    idSource: { newInvocationId: () => "inv-1", newToolCallId: () => "tc-1" },
-  } as unknown as RuntimeRoot;
-}
-
-function producer(): ReturnType<typeof createProductionProducerDeps> {
-  return createProductionProducerDeps({
-    // `sendMessage` satisfies the theta-system-note channel; the active-tools
-    // pair satisfies the snapshot/restore window. No provider, no model.
-    pi: {
-      sendMessage: () => {},
-      getActiveTools: () => [],
-      setActiveTools: () => {},
-    } as unknown as ExtensionAPI,
-    root: rootDouble(),
-    modelRegistry: {} as unknown as ModelRegistry,
-  });
-}
-
 /** The site `surfaceUnexpectedThrow` frames a non-panic throw against. */
 const SITE = {
   file: "bug0136.theta",
@@ -1216,7 +1184,9 @@ async function run(body: string): Promise<Run> {
     args: "",
     ctx: {} as unknown as ExtensionCommandContext,
   };
-  const binding = producer().bindPromptConversation(bindInput);
+  // `sendMessage` satisfies the theta-system-note channel; the active-tools
+  // pair satisfies the snapshot/restore window. No provider, no model.
+  const binding = producer(rootDouble()).bindPromptConversation(bindInput);
   try {
     return { kind: "value", execution: await executeBody(theta.body, binding.executeDeps) };
   } catch (thrown) {

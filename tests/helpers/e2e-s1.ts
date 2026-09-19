@@ -667,12 +667,13 @@ export interface LoadedParams {
 
 /**
  * Parse a fixture that must LOAD cleanly, and read its lowered `params:`
- * schema back. A non-empty diagnostic list, a `null` frontmatter, an absent
- * `params`, or an absent `loweredSchema` all throw, with the diagnostics
- * rendered, rather than let a caller read a field off an unloaded document.
+ * schema back. Accept an already parsed document for callers with pre-checks.
+ * A non-empty diagnostic list, a `null` frontmatter, an absent `params`, or an
+ * absent `loweredSchema` all throw, with the diagnostics rendered, rather than
+ * let a caller read a field off an unloaded document.
  */
-export function loadCleanly(label: string, source: string, path = "test.theta"): LoadedParams {
-  const doc = parseDoc(source, path);
+export function loadCleanly(label: string, source: string | ThetaDocument, path = "test.theta"): LoadedParams {
+  const doc = typeof source === "string" ? parseDoc(source, path) : source;
   expect(
     diagLines(doc),
     `${label}: this fixture must load with NO diagnostics; observed ${JSON.stringify(diagLines(doc))}`,

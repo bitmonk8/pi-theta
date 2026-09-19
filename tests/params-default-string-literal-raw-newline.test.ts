@@ -1,7 +1,6 @@
 import { REGISTRY, type RegistryRow } from "./helpers/registry-oracle";
 import { describe, expect, it } from "vitest";
-// @ts-expect-error — JS code-registry module, no type declarations.
-import { registryMessage } from "../tools/code-registry/index.js";
+import { registryMessageOf as readRegistryMessage } from "./helpers/load-row-harness";
 import type { BypassParamsField } from "../src/binder/binder-envelope";
 import type { SourceRange } from "../src/diagnostics/diagnostic";
 import { isBareObjectLiteral } from "../src/parser/literal-sublanguage";
@@ -198,12 +197,11 @@ const SIBLING_CODE = "theta/parse/default-not-literal";
  * `undefined` comparison.
  */
 function registryMessageOf(code: string): string {
-  const template = registryMessage(REGISTRY, code) as string | undefined;
-  expect(
-    template,
-    `DIAG-4 anchor: the diagnostics code registry must carry the Message row for ${code}`,
-  ).toBeDefined();
-  return template as string;
+  return readRegistryMessage(
+    REGISTRY,
+    "docs/spec_topics/diagnostics/code-registry-{parse,load,runtime,host}.md",
+    code,
+  );
 }
 
 /** One registry row, or a loud failure naming the code. */

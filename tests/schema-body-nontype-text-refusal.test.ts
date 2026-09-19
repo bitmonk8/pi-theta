@@ -1,7 +1,6 @@
 import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
-// @ts-expect-error — JS code-registry module, no type declarations.
-import { registryMessage } from "../tools/code-registry/index.js";
+import { registryMessageOf as readRegistryMessage } from "./helpers/load-row-harness";
 import type { Diagnostic, SourceRange } from "../src/diagnostics/diagnostic";
 import type {
   EnumDecl,
@@ -188,13 +187,11 @@ const CODE = "theta/parse/schema-type-not-expression";
  * and take the green over-refusal fences down with it.
  */
 function registryMessageOf(code: string): string {
-  const template = registryMessage(REGISTRY, code) as string | undefined;
-  expect(
-    template,
-    `DIAG-4 anchor: the diagnostics code registry must carry the Message row for ${code} ` +
-      `(docs/spec_topics/diagnostics/code-registry-parse.md, the shard this namespace lives on)`,
-  ).toBeDefined();
-  return template as string;
+  return readRegistryMessage(
+    REGISTRY,
+    "docs/spec_topics/diagnostics/code-registry-{parse,load,runtime,host}.md",
+    code,
+  );
 }
 
 /** One structured registry row, or a loud failure naming the code. */

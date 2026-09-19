@@ -5,7 +5,8 @@ import { join, posix, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 // @ts-expect-error — JS code-registry module, no type declarations.
-import { parseRegistry, registryMessage } from "../tools/code-registry/index.js";
+import { parseRegistry } from "../tools/code-registry/index.js";
+import { registryMessageOf as readRegistryMessage } from "./helpers/load-row-harness";
 import type { EnumDecl, SchemaDecl, ThetaDocument } from "../src/parser/theta-document";
 import { lowerQueryResponseSchema } from "../src/runtime/query-schema-lowering";
 import { yamlQuoted, firstDiagnostic, expectParamsDropGateShape, parseDoc, diagLines, diagCodes } from "./helpers/e2e-s1";
@@ -222,12 +223,11 @@ const REGISTRY = parseRegistry(
  * page, never by a bare `undefined` comparison.
  */
 function registryMessageOf(code: string): string {
-  const template = registryMessage(REGISTRY, code) as string | undefined;
-  expect(
-    template,
-    `DIAG-4 anchor: the diagnostics code registry must carry the Message row for ${code}`,
-  ).toBeDefined();
-  return template as string;
+  return readRegistryMessage(
+    REGISTRY,
+    "docs/spec_topics/diagnostics/code-registry-{parse,load,runtime,host}.md",
+    code,
+  );
 }
 
 /** One registry row, or a loud failure naming the code. */
