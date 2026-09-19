@@ -2,7 +2,7 @@
 id: PTQ-0841
 title: type-name-as-value-refusal.test.ts redeclares parseDeps/parseOnly instead of importing e2e-s1's parseDeps/parseDoc it already imports from
 lens: D7
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - tests/type-name-as-value-refusal.test.ts:30

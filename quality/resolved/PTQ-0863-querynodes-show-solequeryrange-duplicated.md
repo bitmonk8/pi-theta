@@ -2,7 +2,7 @@
 id: PTQ-0863
 title: interpolation-parse-diagnostics.test.ts redeclares the show/queryNodes/soleQueryRange query-walk harness already declared in tests/b0345-interpolation-operand-checks-at-parse.test.ts
 lens: D7                     # D2 | D4 | D7 | D8 | D9 - the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - tests/interpolation-parse-diagnostics.test.ts:283-335

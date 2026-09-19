@@ -2,7 +2,7 @@
 id: PTQ-0870
 title: Two in-scope inbound-boundary test files inline the SchemaDecl/EnumDecl filters their own sibling files import as schemaDeclsOf/enumDeclsOf
 lens: D7
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - tests/inbound-boundary-binder-args.test.ts:136-141

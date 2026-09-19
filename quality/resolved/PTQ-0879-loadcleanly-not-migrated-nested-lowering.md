@@ -2,7 +2,7 @@
 id: PTQ-0879
 title: inline-object-nested-lowering.test.ts still carries its own loadCleanly() copy that PTQ-0212's fix centralised into tests/helpers/e2e-s1.ts
 lens: D7
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - tests/inline-object-nested-lowering.test.ts:540-585

@@ -2,7 +2,7 @@
 id: PTQ-0859
 title: both in-scope files' message-template lookup functions reimplement the exported registryMessageOf instead of importing it
 lens: D7                     # D2 | D4 | D7 | D8 | D9 - the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - tests/member-access-declared-field-type.test.ts:162-179

@@ -2,7 +2,7 @@
 id: PTQ-0858
 title: reserved-keyword-misfire-faces.test.ts's lines()/at() diagnostic-rendering closure is restated verbatim in reserved-keyword-remaining-identifier-positions.test.ts
 lens: D7
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - tests/reserved-keyword-misfire-faces.test.ts:214-237

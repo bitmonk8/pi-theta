@@ -2,7 +2,7 @@
 id: PTQ-0868
 title: subagent-invoke-nonfinite-return-refusal.test.ts retypes the registry-template pointer-message composition algorithm two siblings already carry
 lens: D7
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - tests/subagent-invoke-nonfinite-return-refusal.test.ts:171-193

@@ -2,7 +2,7 @@
 id: PTQ-0840
 title: templateMessage in both in-scope tools-field files reimplements the already-imported registryMessageOf/loadRowMessage helper
 lens: D7
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - tests/tools-field-shape-refusal.test.ts:195-201

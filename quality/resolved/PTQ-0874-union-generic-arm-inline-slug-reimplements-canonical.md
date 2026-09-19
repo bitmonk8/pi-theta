@@ -2,7 +2,7 @@
 id: PTQ-0874
 title: union-generic-arm-lowering.test.ts hand-computes the __inline_<slug> formula inline instead of calling canonical-slug-oracle.ts's inlineDefName it already partially imports
 lens: D7
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - tests/union-generic-arm-lowering.test.ts:1208-1210

@@ -2,7 +2,7 @@
 id: PTQ-0850
 title: typeenv-prototype-names.test.ts's driveComposePass reimplements the mkdtemp/plant/dispose workspace lifecycle and fake-host pi/ctx pair tests/helpers/production-load-harness.ts already exports
 lens: D7                     # D2 | D4 | D7 | D8 | D9 - the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - tests/typeenv-prototype-names.test.ts:697-741

@@ -2,7 +2,7 @@
 id: PTQ-0947
 title: the let-threw-false/try-catch/expect(threw).toBe(false) idiom is repeated five times, four within par-for.test.ts and once in subagent-fn.test.ts
 lens: D7                     # D2 | D4 | D7 | D8 | D9 - the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - tests/par-for.test.ts:2604-2613

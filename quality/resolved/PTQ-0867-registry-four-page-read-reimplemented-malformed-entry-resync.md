@@ -2,7 +2,7 @@
 id: PTQ-0867
 title: inline-object-malformed-entry-resync.test.ts re-parses the four-page sharded registry inline instead of importing the REGISTRY export tests/helpers/registry-oracle.ts already carries
 lens: D7
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - tests/inline-object-malformed-entry-resync.test.ts:158-173

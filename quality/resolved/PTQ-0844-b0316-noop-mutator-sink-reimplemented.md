@@ -2,7 +2,7 @@
 id: PTQ-0844
 title: b0316 re-declares SEAM_NOOP_SINK and a no-op SEAM_NOOP_MUTATOR locally under the misleading name RecordingMutator, despite importing a sibling export from the same helper module
 lens: D7                     # D2 | D4 | D7 | D8 | D9 - the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - tests/b0316-match-scrutinee-inline-composite-ok-wrapped.test.ts:4

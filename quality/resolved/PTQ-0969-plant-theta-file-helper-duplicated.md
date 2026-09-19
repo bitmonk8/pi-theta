@@ -2,7 +2,7 @@
 id: PTQ-0969
 title: tools-entry-containment.test.ts's plant() single-file writer is redeclared byte-for-byte in nested-tools-entry-containment.test.ts
 lens: D7
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - tests/tools-entry-containment.test.ts:176-178

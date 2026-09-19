@@ -2,7 +2,7 @@
 id: PTQ-0865
 title: reassign-rhs-type-compat.test.ts's fullOf(doc) reimplements e2e-s1's exported diagLines(doc) under a different name
 lens: D7
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - tests/reassign-rhs-type-compat.test.ts:282-284

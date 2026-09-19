@@ -2,7 +2,7 @@
 id: PTQ-0842
 title: unresolvable-operand-structural-target-adjudication.test.ts re-parses the code-registry-parse.md shard locally instead of importing REGISTRY from tests/helpers/registry-oracle.ts
 lens: D7
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - tests/unresolvable-operand-structural-target-adjudication.test.ts:263-279

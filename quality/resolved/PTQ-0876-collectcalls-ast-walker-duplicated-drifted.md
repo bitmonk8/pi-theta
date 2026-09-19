@@ -2,7 +2,7 @@
 id: PTQ-0876
 title: collectCalls's recursive call-site AST walk is redeclared with drifted output shape and node-kind coverage in fn-call-arity-unchecked.test.ts and two sibling files
 lens: D7                     # D2 | D4 | D7 | D8 | D9 - the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - tests/fn-call-arity-unchecked.test.ts:241-362

@@ -2,7 +2,7 @@
 id: PTQ-0873
 title: type-name-as-value-refusal.test.ts redeclares the NOOP_CHECKPOINT/rootDouble/producer trio byte-identically instead of importing it
 lens: D7
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - tests/type-name-as-value-refusal.test.ts:1221-1243

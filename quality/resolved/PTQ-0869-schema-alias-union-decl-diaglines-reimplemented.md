@@ -2,7 +2,7 @@
 id: PTQ-0869
 title: schema-alias-union-decl.test.ts redeclares diagLines() byte-identically to the exported tests/helpers/e2e-s1.ts helper it does not import
 lens: D7
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - tests/schema-alias-union-decl.test.ts:448-451

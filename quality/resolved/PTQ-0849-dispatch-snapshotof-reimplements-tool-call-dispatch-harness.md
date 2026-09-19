@@ -2,7 +2,7 @@
 id: PTQ-0849
 title: session-control-dispatch.test.ts's snapshotOf() is a byte-for-byte reimplementation of tests/helpers/tool-call-dispatch-harness.ts's exported snapshot(), which the file's own header credits
 lens: D7                     # D2 | D4 | D7 | D8 | D9 - the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - tests/session-control-dispatch.test.ts:79-81

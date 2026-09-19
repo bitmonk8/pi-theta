@@ -2,7 +2,7 @@
 id: PTQ-0846
 title: blockexpr-production.test.ts redeclares the FM/NOOP_CHECKPOINT/rootDouble/producer scaffold byte-for-byte from tests/helpers/prompt-value-harness.ts
 lens: D7
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - tests/blockexpr-production.test.ts:120

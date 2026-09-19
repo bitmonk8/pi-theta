@@ -2,7 +2,7 @@
 id: PTQ-0864
 title: readDiagnosticsPage and its DIAGNOSTICS_DIR constant are redeclared byte-identical between both in-scope inline-object test files
 lens: D7                     # D2 | D4 | D7 | D8 | D9 - the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - tests/inline-object-type-source-capture.test.ts:172-176

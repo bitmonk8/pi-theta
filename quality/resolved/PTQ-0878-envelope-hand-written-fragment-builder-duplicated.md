@@ -2,7 +2,7 @@
 id: PTQ-0878
 title: envelope() in inline-object-stray-close-token-split.test.ts is byte-identical to a copy in inline-object-keyless-entry-refusal.test.ts with no shared home
 lens: D7
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - tests/inline-object-stray-close-token-split.test.ts:360-365

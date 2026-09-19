@@ -2,7 +2,7 @@
 id: PTQ-0861
 title: params-inline-enum-position-refusal.test.ts's registryMessageOf/line pair is a byte-identical third copy of the same two functions
 lens: D7
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - tests/params-inline-enum-position-refusal.test.ts:132-153
