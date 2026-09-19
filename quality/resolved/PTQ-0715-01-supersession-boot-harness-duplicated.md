@@ -2,7 +2,7 @@
 id: PTQ-0715
 title: supersession-inflight-rebuild-quiesce.test.ts redeclares supersession-detach-throw-containment.test.ts's RecordingFakeClock/watcherAt/wiringAt/registryKeys/structuralNotes/sleep instead of importing them
 lens: D7                     # D2 | D4 | D7 | D8 | D9 - the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - tests/supersession-detach-throw-containment.test.ts:252-258

@@ -2,7 +2,7 @@
 id: PTQ-0736
 title: The off-session scripted complete() mock scaffold, reply builder and tool reader are hand-copied across eight test files with no tests/helpers/ home
 lens: D7                     # D2 | D4 | D7 | D8 | D9 - the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - tests/unresolved-annotation-lowering.test.ts:106-133

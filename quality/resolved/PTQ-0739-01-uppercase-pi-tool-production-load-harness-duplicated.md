@@ -2,7 +2,7 @@
 id: PTQ-0739
 title: uppercase-pi-tool-name-refusal.test.ts reimplements the shared production-load workspace plant/dispose + host double instead of importing tests/helpers/production-load-harness.ts
 lens: D7
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - tests/uppercase-pi-tool-name-refusal.test.ts:373-399

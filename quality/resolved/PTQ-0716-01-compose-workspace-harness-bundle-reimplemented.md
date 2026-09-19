@@ -2,7 +2,7 @@
 id: PTQ-0716
 title: thetalib-reparse-walk-single-delivery.test.ts redeclares the whole tests/helpers/compose-workspace-harness.ts bundle instead of importing it
 lens: D7                     # D2 | D4 | D7 | D8 | D9 - the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - tests/thetalib-reparse-walk-single-delivery.test.ts:183-246

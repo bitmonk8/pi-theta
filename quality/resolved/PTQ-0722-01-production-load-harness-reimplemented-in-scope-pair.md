@@ -2,7 +2,7 @@
 id: PTQ-0722
 title: tools-entry-grammar-derivations-lockstep and tools-entry-message-line-break each reimplement the plant/dispose/runProductionLoad harness tests/helpers/production-load-harness.ts already exports
 lens: D7
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - tests/tools-entry-grammar-derivations-lockstep.test.ts:503-524

@@ -2,7 +2,7 @@
 id: PTQ-0729
 title: typed-query-provider-gate.test.ts redeclares tests/typed-two-phase-live.test.ts's rootDouble/registryDouble/ctxDouble/drive/respondToolNameOf/expectErrOfKind/expectValue harness byte-for-byte
 lens: D7                     # D2 | D4 | D7 | D8 | D9 - the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - tests/typed-query-provider-gate.test.ts:475-512

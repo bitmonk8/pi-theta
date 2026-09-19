@@ -2,7 +2,7 @@
 id: PTQ-1091
 title: registry-oracle.ts itself hand-rolls the guard-then-substitute registry-Message idiom four separate ways instead of reusing its own imported registryMessageOf
 lens: D7                     # D2 | D4 | D7 | D8 | D9 - the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - tests/helpers/registry-oracle.ts:99-118

@@ -2,7 +2,7 @@
 id: PTQ-0742
 title: watcher-terminated-recovery.test.ts reimplements tests/helpers/registry-oracle.ts's four-shard registry read locally instead of importing it
 lens: D7
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - tests/watcher-terminated-recovery.test.ts:63-81

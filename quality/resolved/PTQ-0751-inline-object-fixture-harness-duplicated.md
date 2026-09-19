@@ -2,7 +2,7 @@
 id: PTQ-0751
 title: The fixture-builder and diagnostic-assertion harness is duplicated verbatim between the two inline-object test files
 lens: D7
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - tests/inline-empty-object-type.test.ts:221-266

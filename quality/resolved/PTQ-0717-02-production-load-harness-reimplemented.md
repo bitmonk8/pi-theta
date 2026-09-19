@@ -2,7 +2,7 @@
 id: PTQ-0717
 title: tool-arg-runtime-schema-validation.test.ts redeclares tests/helpers/production-load-harness.ts's runProductionLoad and workspace plant/dispose lifecycle
 lens: D7                     # D2 | D4 | D7 | D8 | D9 - the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - tests/tool-arg-runtime-schema-validation.test.ts:99-146

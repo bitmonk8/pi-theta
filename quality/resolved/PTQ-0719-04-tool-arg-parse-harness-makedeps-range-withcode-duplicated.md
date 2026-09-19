@@ -2,7 +2,7 @@
 id: PTQ-0719
 title: tool-arg-parse-checks.test.ts and tool-arg-shape-enforcement.test.ts redeclare an identical makeDeps/range/withCode parse harness, and makeDeps duplicates tests/helpers/e2e-s1.ts's parseDeps
 lens: D7                     # D2 | D4 | D7 | D8 | D9 - the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - tests/tool-arg-parse-checks.test.ts:150-158

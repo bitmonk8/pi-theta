@@ -2,7 +2,7 @@
 id: PTQ-0741
 title: watcher-terminated-recovery.test.ts's channelHarness/SentMessage duplicates b0313-terminal-note-burst-latch.test.ts's byte-for-byte
 lens: D7
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - tests/watcher-terminated-recovery.test.ts:92-121

@@ -2,7 +2,7 @@
 id: PTQ-0740
 title: uppercase-pi-tool-name-refusal.test.ts redeclares the withCode/piTool/thetaCallee/deps/resolveList resolveCallableSet harness byte-for-byte instead of importing it
 lens: D7
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - tests/uppercase-pi-tool-name-refusal.test.ts:492-538

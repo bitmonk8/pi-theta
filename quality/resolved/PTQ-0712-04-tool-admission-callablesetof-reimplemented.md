@@ -2,7 +2,7 @@
 id: PTQ-0712
 title: subagent-tool-admission.test.ts retypes the callableSetOf frozen-snapshot reader that two sibling production-load test files already carry
 lens: D7
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - tests/subagent-tool-admission.test.ts:196-203

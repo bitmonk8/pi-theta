@@ -2,7 +2,7 @@
 id: PTQ-0747
 title: Three fn/param/void-sink test files locally re-parse code-registry-parse.md instead of using tests/helpers/load-row-harness.ts's PARSE_REGISTRY / registryMessageOf
 lens: D7
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - tests/fn-param-not-identifier.test.ts:203-239
