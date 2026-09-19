@@ -1,12 +1,11 @@
 import { callableSetDeps as deps, findCode as withCode, resolveList, thetaCallee } from "./helpers/e2e-s1";
-import { readRegistry } from "./helpers/registry-oracle";
+import { expectedMessage, readRegistry } from "./helpers/registry-oracle";
 import {
-  disposeWorkspace,
-  plantThetaWorkspace,
-  runProductionLoad,
-  type LoadOutcome,
+  productionLoadSuite,
+  theta,
+  type PlantedThetaFile as PlantedTheta,
 } from "./helpers/production-load-harness";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 // @ts-expect-error — JS code-registry module, no type declarations.
 import { registryMessage } from "../tools/code-registry/index.js";
 import type { CallableSetResult } from "../src/parser/callable-set";
@@ -118,19 +117,6 @@ import type { CallableSetResult } from "../src/parser/callable-set";
 
 const REGISTRY = readRegistry(["load"]);
 
-/** Source a code's registered *Message* template and fill its `<…>` placeholders. */
-function expectedMessage(
-  code: string,
-  subs: Readonly<Record<string, string>>,
-): string {
-  let message = registryMessage(REGISTRY, code) as string;
-  for (const [placeholder, value] of Object.entries(subs)) {
-    // `replaceAll` — the rename template repeats `<name>`.
-    message = message.replaceAll(placeholder, value);
-  }
-  return message;
-}
-
 const INVALID_DERIVED_CODE = "theta/load/invalid-derived-tool-name";
 const INVALID_RENAME_CODE = "theta/load/invalid-tool-rename";
 const COLLISION_CODE = "theta/load/tool-name-collision";
@@ -170,7 +156,7 @@ function invalidDerived(path: string, derived: string): string {
 }
 
 /** `theta/load/invalid-tool-rename` rendered for the `as BadName` target. */
-const INVALID_RENAME_MESSAGE = expectedMessage(INVALID_RENAME_CODE, {
+const INVALID_RENAME_MESSAGE = expectedMessage(REGISTRY, INVALID_RENAME_CODE, {
   "<name>": "BadName",
 });
 
@@ -200,15 +186,6 @@ describe("Bug 0070 (A) — theta/load/invalid-derived-tool-name is a registered 
 // ===========================================================================
 // Group (B) — the production load path over a real `.pi/theta/` workspace.
 // ===========================================================================
-
-interface PlantedTheta {
-  readonly stem: string;
-  readonly text: string;
-}
-
-function theta(...lines: readonly string[]): string {
-  return lines.join("\n") + "\n";
-}
 
 /**
  * The `.theta` files planted under the project discovery source. Each callee
@@ -274,28 +251,8 @@ const THETAS: readonly PlantedTheta[] = [
   },
 ];
 
-let outcome: LoadOutcome;
-let workspaceDir: string;
-
-beforeAll(async () => {
-  // A minimal valid settings file pins the fixture's settings read to a known
-  // value. An ABSENT settings file is silent (package-and-settings.md
-  // §Failure modes), so the plant is hermeticity, not noise suppression.
-  workspaceDir = plantThetaWorkspace("theta-bug0070-", THETAS, "{}");
-  outcome = await runProductionLoad(workspaceDir);
-});
-
-afterAll(() => {
-  disposeWorkspace(workspaceDir);
-});
-
-/** The registered / notified sets, rendered for an assertion message. */
-function observed(): string {
-  return (
-    ` Registered: ${JSON.stringify(outcome.registered)}` +
-    ` Notified: ${JSON.stringify(outcome.notifications)}`
-  );
-}
+const load = productionLoadSuite("theta-bug0070-", THETAS);
+const { observed } = load;
 
 // The precondition every cell below rests on, in two parts: the discovery walk
 // found the planted workspace, AND the load path resolves `tools:` at all.
@@ -304,17 +261,17 @@ function observed(): string {
 describe("Bug 0070 (B0) — the production load path discovered the workspace and resolves `tools:`", () => {
   it("registers the clean derived-name control (reviewer) and surfaces a `tools:` rejection", () => {
     expect(
-      outcome.registered.length,
+      load.outcome.registered.length,
       "the project `.pi/theta/` discovery walk registered nothing — the setup " +
         "precondition is unmet." + observed(),
     ).toBeGreaterThan(0);
     expect(
-      outcome.registered,
+      load.outcome.registered,
       "the clean `- ./code-review.theta` control did not register, so no red " +
         "below can be attributed to the derived-name rule." + observed(),
     ).toContain("reviewer");
     expect(
-      outcome.notifications,
+      load.outcome.notifications,
       `no ${INVALID_RENAME_CODE} diagnostic surfaced, so the load path is not ` +
         "resolving `tools:` at all and every un-registration assertion below " +
         "would pass vacuously." + observed(),
@@ -325,7 +282,7 @@ describe("Bug 0070 (B0) — the production load path discovered the workspace an
 describe("Bug 0070 (B1) — a digit-leading derived default name un-registers the theta", () => {
   it("theta/load/invalid-derived-tool-name: `- ./2fast.theta` does not register", () => {
     expect(
-      outcome.registered,
+      load.outcome.registered,
       "`- ./2fast.theta` registered: the callable set carries the name `2fast`, " +
         "which is offered to the model and counts for collision detection while " +
         "no theta expression can call it." + observed(),
@@ -334,7 +291,7 @@ describe("Bug 0070 (B1) — a digit-leading derived default name un-registers th
 
   it("theta/load/invalid-derived-tool-name: the load path surfaces the rejection naming the path and the derived name", () => {
     expect(
-      outcome.notifications,
+      load.outcome.notifications,
       "no diagnostic names the entry `./2fast.theta` and its derived name " +
         "`2fast`: the only signal the author gets is a parse error at their own " +
         "call site, which names no `tools:` entry." + observed(),
@@ -347,7 +304,7 @@ describe("Bug 0070 (B2) — the `as` escape hatch registers", () => {
     // The remedy the rejection message names must work: an explicit override of
     // the right shape takes the entry out of the derived-name rule entirely.
     expect(
-      outcome.registered,
+      load.outcome.registered,
       "the `as`-renamed digit-leading callee must register — the rule is about " +
         "the derived name, not about the callee file." + observed(),
     ).toContain("digitrenamed");
@@ -357,7 +314,7 @@ describe("Bug 0070 (B2) — the `as` escape hatch registers", () => {
 describe("Bug 0070 (B3) — the hyphen→underscore rewrite does not rescue a digit-leading stem", () => {
   it("theta/load/invalid-derived-tool-name: `- ./2-fast.theta` does not register", () => {
     expect(
-      outcome.registered,
+      load.outcome.registered,
       "`- ./2-fast.theta` registered: the rewrite produced `2_fast`, still " +
         "digit-leading and still unspellable." + observed(),
     ).not.toContain("hyphdigit");
@@ -367,7 +324,7 @@ describe("Bug 0070 (B3) — the hyphen→underscore rewrite does not rescue a di
     // The author needs the name that was actually bound; the stem alone does not
     // explain why `2_fast` is the unspellable name.
     expect(
-      outcome.notifications,
+      load.outcome.notifications,
       "no diagnostic names the entry `./2-fast.theta` and its derived name " +
         "`2_fast`." + observed(),
     ).toContain(invalidDerived("./2-fast.theta", "2_fast"));
@@ -377,7 +334,7 @@ describe("Bug 0070 (B3) — the hyphen→underscore rewrite does not rescue a di
 describe("Bug 0070 (B4) — the spec's own rewrite example still registers", () => {
   it("`- ./code-review.theta` registers under the derived name `code_review`", () => {
     expect(
-      outcome.registered,
+      load.outcome.registered,
       "the hyphen→underscore rewrite is load-bearing and its lowercase-first " +
         "output must stay admitted." + observed(),
     ).toContain("reviewer");
@@ -387,12 +344,12 @@ describe("Bug 0070 (B4) — the spec's own rewrite example still registers", () 
 describe("Bug 0070 (B5) — the `as`-target rule keeps its own code", () => {
   it("theta/load/invalid-tool-rename: `- read as BadName` un-registers under the rename rule", () => {
     expect(
-      outcome.registered,
+      load.outcome.registered,
       "the non-lowercase-first `as` target must keep un-registering the theta." +
         observed(),
     ).not.toContain("badrename");
     expect(
-      outcome.notifications,
+      load.outcome.notifications,
       "the rename rejection message must be unchanged." + observed(),
     ).toContain(INVALID_RENAME_MESSAGE);
   });
@@ -404,7 +361,7 @@ describe("Bug 0070 (B5) — the `as`-target rule keeps its own code", () => {
     // workspace legitimately emit the derived-name framing; what must never
     // appear is that framing applied to a name the author wrote by hand.
     expect(
-      outcome.notifications.filter(
+      load.outcome.notifications.filter(
         (n) => n.includes("derives the default name") && n.includes("BadName"),
       ),
       "an explicit `as` target is not a derived name; its own code owns it." +

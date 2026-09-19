@@ -1,5 +1,5 @@
 import {
-  assertNoStemIsASuffix, theta, invokeCaller, diagnosticLineReaders, callableCaller,
+  assertNoStemIsASuffix, theta, invokeCaller, diagnosticLineReaders, invokeArgPreconditions, callableCaller,
   runProductionLoad, type LoadOutcome,
 } from "./helpers/production-load-harness";
 import { interpolateStrict } from "./helpers/registry-oracle";
@@ -372,42 +372,17 @@ afterAll(() => {
 
 const { linesFor, linesForCode } = diagnosticLineReaders(() => outcome.diagnosticLines);
 
-/**
- * The shared positive control for every absence cell: THIS workspace and THIS
- * load produced the invoke row at least once, on both channels an absence is
- * read on. Without it an absence assertion passes while the row is unreachable
- * and nothing is being measured.
- */
-function assertRowSurfaceLive(): void {
-  expect(
-    outcome.notifications,
-    `unmet precondition: ${CODE} never surfaced for the control caller ` +
-      '(`invoke("./b0146k12.theta", 1)` at a `params: x: string` callee), so this ' +
-      "workspace produces no instance of the row and no ABSENCE below measures " +
-      "anything. Notified: " + JSON.stringify(outcome.notifications),
-  ).toContain(invokeArgMessage(0, "x", "string", "integer"));
-  expect(
-    linesForCode("b0146c12", CODE).length,
-    `unmet precondition: no diagnostic line attributes ${CODE} to the control caller, so ` +
-      "the per-caller channel every absence cell below reads is not carrying the row " +
-      "and cannot witness its absence for one caller. Lines for that caller: " +
-      JSON.stringify(linesFor("b0146c12")),
-  ).toBeGreaterThan(0);
-}
-
-/**
- * A callee's declared param type must be declarable before a cell over it means
- * anything: a `params:` RHS the grammar refuses draws its own `theta/parse/*`
- * row, which would un-register the callee's caller for an unrelated reason.
- */
-function assertParamTypeDeclarable(calleeStem: string, paramType: string): void {
-  expect(
-    linesFor(calleeStem).filter((line) => line.includes("theta/parse/")),
-    `unmet precondition: the callee declaring \`params: x: ${paramType}\` drew a parse ` +
-      "diagnostic, so this param type is not declarable and the cell over it is " +
-      "measuring a rejected declaration rather than an argument mismatch",
-  ).toEqual([]);
-}
+const { assertRowSurfaceLive, assertParamTypeDeclarable } = invokeArgPreconditions(
+  {
+    code: CODE,
+    callerStem: "b0146c12",
+    callerLabel: "control caller",
+    invocation: 'invoke("./b0146k12.theta", 1)',
+    expectedMessage: () => invokeArgMessage(0, "x", "string", "integer"),
+  },
+  () => outcome.notifications,
+  { linesFor, linesForCode },
+);
 
 // ===========================================================================
 // Cell A — DIAG-4 sourcing. Every row this file asserts is registered and

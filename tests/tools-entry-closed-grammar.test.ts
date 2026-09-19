@@ -1,11 +1,11 @@
-import { readRegistry } from "./helpers/registry-oracle";
+import { findCode as withCode } from "./helpers/e2e-s1";
+import { expectedMessage, readRegistry } from "./helpers/registry-oracle";
 import {
-  disposeWorkspace,
-  plantThetaWorkspace,
-  runProductionLoad,
-  type LoadOutcome,
+  productionLoadSuite,
+  theta,
+  type PlantedThetaFile as PlantedTheta,
 } from "./helpers/production-load-harness";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 // @ts-expect-error — JS code-registry module, no type declarations.
 import { registryMessage } from "../tools/code-registry/index.js";
 import {
@@ -14,7 +14,6 @@ import {
   type CallableSetResult,
   type ToolsField,
 } from "../src/parser/callable-set";
-import type { Diagnostic } from "../src/diagnostics/diagnostic";
 
 // Bug 0069 — a `tools:` entry's trailing residue used to be discarded with no
 // diagnostic. Before this fix, the per-entry grammar — now `parseToolsEntry`
@@ -108,19 +107,6 @@ import type { Diagnostic } from "../src/diagnostics/diagnostic";
 
 const REGISTRY = readRegistry(["load"]);
 
-/** Source a code's registered *Message* template and fill its `<…>` placeholders. */
-function expectedMessage(
-  code: string,
-  subs: Readonly<Record<string, string>>,
-): string {
-  let message = registryMessage(REGISTRY, code) as string;
-  for (const [placeholder, value] of Object.entries(subs)) {
-    // `replaceAll` — the rename template repeats `<name>`.
-    message = message.replaceAll(placeholder, value);
-  }
-  return message;
-}
-
 const MALFORMED_TOOL_ENTRY_CODE = "theta/load/malformed-tool-entry";
 
 // The normative *Message* template for the closed-grammar rejection. It is
@@ -148,6 +134,7 @@ function malformed(value: string): string {
 
 /** `theta/load/invalid-tool-rename` rendered for the `as BadName` target. */
 const INVALID_RENAME_MESSAGE = expectedMessage(
+  REGISTRY,
   "theta/load/invalid-tool-rename",
   { "<name>": "BadName" },
 );
@@ -177,15 +164,6 @@ describe("Bug 0069 (A) — theta/load/malformed-tool-entry is a registered diagn
 // ===========================================================================
 // Group (B) — the production load path over a real `.pi/theta/` workspace.
 // ===========================================================================
-
-interface PlantedTheta {
-  readonly stem: string;
-  readonly text: string;
-}
-
-function theta(...lines: readonly string[]): string {
-  return lines.join("\n") + "\n";
-}
 
 /**
  * The `.theta` files planted under the project discovery source. Each
@@ -269,28 +247,8 @@ const THETAS: readonly PlantedTheta[] = [
   },
 ];
 
-let outcome: LoadOutcome;
-let workspaceDir: string;
-
-beforeAll(async () => {
-  // A minimal valid settings file pins the fixture's settings read to a known
-  // value. An ABSENT settings file is silent (package-and-settings.md
-  // §Failure modes), so the plant is hermeticity, not noise suppression.
-  workspaceDir = plantThetaWorkspace("theta-bug0069-", THETAS, "{}");
-  outcome = await runProductionLoad(workspaceDir);
-});
-
-afterAll(() => {
-  disposeWorkspace(workspaceDir);
-});
-
-/** The registered / notified sets, rendered for an assertion message. */
-function observed(): string {
-  return (
-    ` Registered: ${JSON.stringify(outcome.registered)}` +
-    ` Notified: ${JSON.stringify(outcome.notifications)}`
-  );
-}
+const load = productionLoadSuite("theta-bug0069-", THETAS);
+const { observed } = load;
 
 // The precondition every cell below rests on: the discovery walk found the
 // planted workspace and the load path resolves `tools:` at all. Without it an
@@ -298,12 +256,12 @@ function observed(): string {
 describe("Bug 0069 (B0) — the production load path discovered the planted workspace", () => {
   it("registers the clean short-form control (ctlcomma)", () => {
     expect(
-      outcome.registered.length,
+      load.outcome.registered.length,
       "the project `.pi/theta/` discovery walk registered nothing — the setup " +
         "precondition is unmet." + observed(),
     ).toBeGreaterThan(0);
     expect(
-      outcome.registered,
+      load.outcome.registered,
       "the clean `tools: read, grep` control did not register, so no red below " +
         "can be attributed to the entry grammar." + observed(),
     ).toContain("ctlcomma");
@@ -313,7 +271,7 @@ describe("Bug 0069 (B0) — the production load path discovered the planted work
 describe("Bug 0069 (B1) — a dropped comma in the short form un-registers the theta", () => {
   it("theta/load/malformed-tool-entry: `tools: read grep` does not register", () => {
     expect(
-      outcome.registered,
+      load.outcome.registered,
       "`tools: read grep` registered: the second name left the callable set " +
         "and the theta runs with a set its author never wrote." + observed(),
     ).not.toContain("nocommaq");
@@ -321,7 +279,7 @@ describe("Bug 0069 (B1) — a dropped comma in the short form un-registers the t
 
   it("theta/load/malformed-tool-entry: the load path surfaces the rejection naming `read grep`", () => {
     expect(
-      outcome.notifications,
+      load.outcome.notifications,
       "no diagnostic names the entry `read grep`: the dropped name is " +
         "unreachable from the model and from theta code, silently." + observed(),
     ).toContain(malformed("read grep"));
@@ -331,14 +289,14 @@ describe("Bug 0069 (B1) — a dropped comma in the short form un-registers the t
 describe("Bug 0069 (B2) — two tokens in a list entry un-register the theta", () => {
   it("theta/load/malformed-tool-entry: `- read bash` does not register", () => {
     expect(
-      outcome.registered,
+      load.outcome.registered,
       "`- read bash` registered with `bash` discarded." + observed(),
     ).not.toContain("twotoken");
   });
 
   it("theta/load/malformed-tool-entry: the load path surfaces the rejection naming `read bash`", () => {
     expect(
-      outcome.notifications,
+      load.outcome.notifications,
       "no diagnostic names the entry `read bash`." + observed(),
     ).toContain(malformed("read bash"));
   });
@@ -347,7 +305,7 @@ describe("Bug 0069 (B2) — two tokens in a list entry un-register the theta", (
 describe("Bug 0069 (B3) — the dangling `as` un-registers the theta (constraint 2)", () => {
   it("theta/load/malformed-tool-entry: `- read as` does not register", () => {
     expect(
-      outcome.registered,
+      load.outcome.registered,
       "`- read as` registered: a truncated rename resolved as a rename-less " +
         "entry instead of being rejected." + observed(),
     ).not.toContain("danglingas");
@@ -355,7 +313,7 @@ describe("Bug 0069 (B3) — the dangling `as` un-registers the theta (constraint
 
   it("theta/load/malformed-tool-entry: the load path surfaces the rejection naming `read as`", () => {
     expect(
-      outcome.notifications,
+      load.outcome.notifications,
       "no diagnostic names the entry `read as`." + observed(),
     ).toContain(malformed("read as"));
   });
@@ -364,7 +322,7 @@ describe("Bug 0069 (B3) — the dangling `as` un-registers the theta (constraint
 describe("Bug 0069 (B4) — residue after a complete `as` clause un-registers the theta", () => {
   it("theta/load/malformed-tool-entry: `- read as file_read junk_here` does not register", () => {
     expect(
-      outcome.registered,
+      load.outcome.registered,
       "`- read as file_read junk_here` registered and bound `file_read`: the " +
         "rename target was accepted as complete." + observed(),
     ).not.toContain("asresidue");
@@ -372,7 +330,7 @@ describe("Bug 0069 (B4) — residue after a complete `as` clause un-registers th
 
   it("theta/load/malformed-tool-entry: the load path surfaces the rejection naming the whole entry", () => {
     expect(
-      outcome.notifications,
+      load.outcome.notifications,
       "no diagnostic names the entry `read as file_read junk_here`." + observed(),
     ).toContain(malformed("read as file_read junk_here"));
   });
@@ -381,7 +339,7 @@ describe("Bug 0069 (B4) — residue after a complete `as` clause un-registers th
 describe("Bug 0069 (B5) — three tokens whose middle token is not `as` un-register the theta", () => {
   it("theta/load/malformed-tool-entry: `- read is file_read` does not register", () => {
     expect(
-      outcome.registered,
+      load.outcome.registered,
       "`- read is file_read` registered: the token count matched the rename " +
         "shape, so both trailing tokens were discarded." + observed(),
     ).not.toContain("threenoas");
@@ -389,7 +347,7 @@ describe("Bug 0069 (B5) — three tokens whose middle token is not `as` un-regis
 
   it("theta/load/malformed-tool-entry: the load path surfaces the rejection naming `read is file_read`", () => {
     expect(
-      outcome.notifications,
+      load.outcome.notifications,
       "no diagnostic names the entry `read is file_read`." + observed(),
     ).toContain(malformed("read is file_read"));
   });
@@ -398,7 +356,7 @@ describe("Bug 0069 (B5) — three tokens whose middle token is not `as` un-regis
 describe("Bug 0069 (B6) — a non-scalar sequence item un-registers the theta (constraint 3)", () => {
   it("a `tools:` list carrying `- {a: b}` does not register", () => {
     expect(
-      outcome.registered,
+      load.outcome.registered,
       "the theta whose `tools:` list carries the non-scalar item `{a: b}` " +
         "registered: the item was dropped before the entry grammar saw it." +
         observed(),
@@ -412,7 +370,7 @@ describe("Bug 0069 (B6) — a non-scalar sequence item un-registers the theta (c
     // into the entry grammar, where a two-token slice is a grammar rejection
     // and a single-token slice is a `.theta`-path resolution failure.
     expect(
-      outcome.notifications.some((n) => n.includes("{a: b}")),
+      load.outcome.notifications.some((n) => n.includes("{a: b}")),
       "no diagnostic names the non-scalar `tools:` item `{a: b}`." + observed(),
     ).toBe(true);
   });
@@ -421,7 +379,7 @@ describe("Bug 0069 (B6) — a non-scalar sequence item un-registers the theta (c
 describe("Bug 0069 (B7) — the positive controls still register", () => {
   it("`tools: read, grep` (the comma short form) registers", () => {
     expect(
-      outcome.registered,
+      load.outcome.registered,
       "the closed grammar must reject residue, not the documented short form." +
         observed(),
     ).toContain("ctlcomma");
@@ -429,7 +387,7 @@ describe("Bug 0069 (B7) — the positive controls still register", () => {
 
   it("`- read as file_read` (the complete three-token `as` form) registers", () => {
     expect(
-      outcome.registered,
+      load.outcome.registered,
       "the closed grammar admits exactly one token or three with `as`; the " +
         "`as` form must survive." + observed(),
     ).toContain("goodrename");
@@ -439,12 +397,12 @@ describe("Bug 0069 (B7) — the positive controls still register", () => {
 describe("Bug 0069 (B8) — the `as`-target rule keeps its own code (§Non-goals)", () => {
   it("theta/load/invalid-tool-rename: `- read as BadName` un-registers under the rename rule", () => {
     expect(
-      outcome.registered,
+      load.outcome.registered,
       "the non-lowercase-first `as` target must keep un-registering the theta." +
         observed(),
     ).not.toContain("badrename");
     expect(
-      outcome.notifications,
+      load.outcome.notifications,
       "the rename rejection message must be unchanged." + observed(),
     ).toContain(INVALID_RENAME_MESSAGE);
   });
@@ -454,7 +412,7 @@ describe("Bug 0069 (B8) — the `as`-target rule keeps its own code (§Non-goals
     // `as` entry reaches the rename rule; only a fourth token makes it
     // malformed.
     expect(
-      outcome.notifications,
+      load.outcome.notifications,
       "a three-token `as` entry is grammatically well-formed; its target is " +
         "what the rename rule rejects." + observed(),
     ).not.toContain(malformed("read as BadName"));
@@ -464,11 +422,6 @@ describe("Bug 0069 (B8) — the `as`-target rule keeps its own code (§Non-goals
 // ===========================================================================
 // Group (C) — the token-count boundary, directly on `resolveCallableSet`.
 // ===========================================================================
-
-/** The first diagnostic carrying `code`, if any. */
-function withCode(diags: readonly Diagnostic[], code: string): Diagnostic | undefined {
-  return diags.find((d) => d.code === code);
-}
 
 /** `CallableSetDeps` over an explicit Pi-tool registry; nothing else resolves. */
 function deps(piTools: readonly string[]): CallableSetDeps {

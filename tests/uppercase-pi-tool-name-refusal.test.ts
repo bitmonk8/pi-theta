@@ -1,14 +1,14 @@
+import { expectedMessage } from "./helpers/registry-oracle";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 import { callableSetDeps as deps, findCode as withCode, resolveList, thetaCallee } from "./helpers/e2e-s1";
 // @ts-expect-error — JS code-registry module, no type declarations.
 import { parseRegistry, registryMessage } from "../tools/code-registry/index.js";
 import {
-  disposeWorkspace,
-  plantThetaWorkspace,
-  runProductionLoad,
-  type LoadOutcome,
+  productionLoadSuite,
+  theta,
+  type PlantedThetaFile as PlantedTheta,
 } from "./helpers/production-load-harness";
 import type { CallableSetResult } from "../src/parser/callable-set";
 
@@ -197,19 +197,6 @@ const PARSE_REGISTRY = parseRegistry(
   ),
 ) as { code: string; message: string }[];
 
-/** Source a code's registered *Message* template and fill its `<…>` placeholders. */
-function expectedMessage(
-  code: string,
-  subs: Readonly<Record<string, string>>,
-): string {
-  let message = registryMessage(REGISTRY, code) as string;
-  for (const [placeholder, value] of Object.entries(subs)) {
-    // `replaceAll` — the rename template repeats `<name>`.
-    message = message.replaceAll(placeholder, value);
-  }
-  return message;
-}
-
 /** The new code this report registers: the Pi-tool arm's own name-shape rule. */
 const INVALID_PI_TOOL_CODE = "theta/load/invalid-pi-tool-name";
 const INVALID_DERIVED_CODE = "theta/load/invalid-derived-tool-name";
@@ -264,7 +251,7 @@ function invalidPiToolName(name: string): string {
 }
 
 /** `theta/load/invalid-tool-rename` rendered for a `as BadName` target. */
-const INVALID_RENAME_BADNAME = expectedMessage(INVALID_RENAME_CODE, {
+const INVALID_RENAME_BADNAME = expectedMessage(REGISTRY, INVALID_RENAME_CODE, {
   "<name>": "BadName",
 });
 
@@ -298,15 +285,6 @@ describe("Bug 0108 (A) — theta/load/invalid-pi-tool-name is a registered diagn
 // ===========================================================================
 // Group (B) — the production load path over a real `.pi/theta/` workspace.
 // ===========================================================================
-
-interface PlantedTheta {
-  readonly stem: string;
-  readonly text: string;
-}
-
-function theta(...lines: readonly string[]): string {
-  return lines.join("\n") + "\n";
-}
 
 /** The uppercase-first registry name the `getAllTools` double publishes. */
 const UPPER_TOOL = "WebSearch";
@@ -351,33 +329,13 @@ const THETAS: readonly PlantedTheta[] = [
   },
 ];
 
-let outcome: LoadOutcome;
-let workspaceDir: string;
-
-beforeAll(async () => {
-  // A minimal valid settings file pins the fixture's settings read to a known
-  // value. An ABSENT settings file is silent (package-and-settings.md
-  // §Failure modes), so the plant is hermeticity, not noise suppression.
-  workspaceDir = plantThetaWorkspace("theta-bug0108-", THETAS, "{}");
-  outcome = await runProductionLoad(workspaceDir, {
-    // The extension-registry admission route — the only one that can publish a
-    // non-lowercase-first name, since the host built-in ladder is a closed
-    // switch over seven lowercase-first names.
-    registryTools: [{ name: UPPER_TOOL }],
-  });
+const load = productionLoadSuite("theta-bug0108-", THETAS, {
+  // The extension-registry admission route — the only one that can publish a
+  // non-lowercase-first name, since the host built-in ladder is a closed
+  // switch over seven lowercase-first names.
+  registryTools: [{ name: UPPER_TOOL }],
 });
-
-afterAll(() => {
-  disposeWorkspace(workspaceDir);
-});
-
-/** The registered / notified sets, rendered for an assertion message. */
-function observed(): string {
-  return (
-    ` Registered: ${JSON.stringify(outcome.registered)}` +
-    ` Notified: ${JSON.stringify(outcome.notifications)}`
-  );
-}
+const { observed } = load;
 
 // The precondition every cell in this group rests on, in two parts: the
 // discovery walk found the planted workspace, AND the load path resolves
@@ -386,17 +344,17 @@ function observed(): string {
 describe("Bug 0108 (B0) — the production load path discovered the workspace and resolves `tools:` ", () => {
   it("registers the lowercase Pi-tool control (goodtool) and surfaces a `tools:` rejection", () => {
     expect(
-      outcome.registered.length,
+      load.outcome.registered.length,
       "the project `.pi/theta/` discovery walk registered nothing — the setup " +
         "precondition is unmet." + observed(),
     ).toBeGreaterThan(0);
     expect(
-      outcome.registered,
+      load.outcome.registered,
       "the clean `- read` control did not register, so no red below can be " +
         "attributed to the Pi-tool name-shape rule." + observed(),
     ).toContain("goodtool");
     expect(
-      outcome.notifications,
+      load.outcome.notifications,
       `no ${INVALID_RENAME_CODE} diagnostic surfaced, so the load path is not ` +
         "resolving `tools:` at all and the un-registration assertion below " +
         "would pass vacuously." + observed(),
@@ -407,7 +365,7 @@ describe("Bug 0108 (B0) — the production load path discovered the workspace an
 describe("Bug 0108 (B1) — an uppercase-first registry name un-registers the theta at production load ", () => {
   it("theta/load/invalid-pi-tool-name: `- WebSearch` does not register", () => {
     expect(
-      outcome.registered,
+      load.outcome.registered,
       "`- WebSearch` registered: the frozen callable set carries the key " +
         "`WebSearch`, which the arm-4 resolution treats as an ordinary callable " +
         "while the case regime reserves that spelling for a schema, enum or " +
@@ -417,7 +375,7 @@ describe("Bug 0108 (B1) — an uppercase-first registry name un-registers the th
 
   it("theta/load/invalid-pi-tool-name: the load path surfaces the refusal naming the registry name", () => {
     expect(
-      outcome.notifications,
+      load.outcome.notifications,
       "no diagnostic names the entry `WebSearch`: the author writing the " +
         "implicit form is told nothing, while the identical name written as " +
         "`WebSearch as WebSearch` is refused." + observed(),
@@ -428,12 +386,12 @@ describe("Bug 0108 (B1) — an uppercase-first registry name un-registers the th
     // The remedy the refusal message names must work, and the rule must not
     // reach a conforming registry name.
     expect(
-      outcome.registered,
+      load.outcome.registered,
       "the `as`-renamed uppercase-first tool must register — the rule is about " +
         "the presented name, not about the host tool." + observed(),
     ).toContain("upperrenamed");
     expect(
-      outcome.registered,
+      load.outcome.registered,
       "a lowercase-first Pi-tool entry is unaffected." + observed(),
     ).toContain("goodtool");
   });
@@ -628,7 +586,7 @@ describe("Bug 0108 (C5) — the isBareIdentifier arm split is undisturbed ", () 
         JSON.stringify(r.diagnostics),
     ).toBeDefined();
     expect(dg?.message).toBe(
-      expectedMessage(MALFORMED_ENTRY_CODE, { "<value>": "Web Search" }),
+      expectedMessage(REGISTRY, MALFORMED_ENTRY_CODE, { "<value>": "Web Search" }),
     );
     expect(
       withCode(r.diagnostics, INVALID_PI_TOOL_CODE),
@@ -677,7 +635,7 @@ describe("Bug 0108 (C7) — the arms that continue out before the merge point st
         JSON.stringify(r.diagnostics),
     ).toBeDefined();
     expect(dg?.message).toBe(
-      expectedMessage(INVALID_RENAME_CODE, { "<name>": UPPER_TOOL }),
+      expectedMessage(REGISTRY, INVALID_RENAME_CODE, { "<name>": UPPER_TOOL }),
     );
     expect(
       withCode(r.diagnostics, INVALID_PI_TOOL_CODE),
@@ -699,7 +657,7 @@ describe("Bug 0108 (C7) — the arms that continue out before the merge point st
         JSON.stringify(r.diagnostics),
     ).toBeDefined();
     expect(dg?.message).toBe(
-      expectedMessage(UNKNOWN_TOOL_CODE, { "<name>": UPPER_TOOL }),
+      expectedMessage(REGISTRY, UNKNOWN_TOOL_CODE, { "<name>": UPPER_TOOL }),
     );
     expect(
       withCode(r.diagnostics, INVALID_PI_TOOL_CODE),
@@ -727,7 +685,7 @@ describe("Bug 0108 (C8) — the `.theta` arm is unchanged ", () => {
           JSON.stringify(r.diagnostics),
       ).toBeDefined();
       expect(dg?.message).toBe(
-        expectedMessage(INVALID_DERIVED_CODE, {
+        expectedMessage(REGISTRY, INVALID_DERIVED_CODE, {
           "<path>": path,
           "<value>": derived,
         }),

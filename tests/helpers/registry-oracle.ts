@@ -119,6 +119,20 @@ export function templateToRegExp(template: string): RegExp {
   return new RegExp(`^${escaped}$`);
 }
 
+/** Source a code's registered *Message* template and fill its `<…>` placeholders. */
+export function expectedMessage(
+  registry: readonly Pick<RegistryRow, "code" | "message">[],
+  code: string,
+  subs: Readonly<Record<string, string>>,
+): string {
+  let message = registryMessage(registry, code) as string;
+  for (const [placeholder, value] of Object.entries(subs)) {
+    // `replaceAll` — the rename template repeats `<name>`.
+    message = message.replaceAll(placeholder, value);
+  }
+  return message;
+}
+
 /** Fill the named discovery descriptors, leaving unknown placeholders intact. */
 export function interpolate(template: string, subs: Record<string, string>): string {
   return template.replace(/<([a-z-]+)>/g, (whole, name: string) => subs[name] ?? whole);

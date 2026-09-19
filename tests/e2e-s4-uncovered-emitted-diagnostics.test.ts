@@ -1,8 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
-import type { ThetaSource } from "../src/lexer/lexer";
-import { parseThetaDocument } from "../src/parser/theta-document";
-import { parseDeps as makeDeps } from "./helpers/e2e-s1";
+import { parseDoc } from "./helpers/e2e-s1";
 
 // S4 e2e campaign — coverage for registry diagnostic codes that ARE emitted by
 // the shipped parser but had no shape-asserting test (DIAG "UNCOVERED-emitted",
@@ -14,11 +12,7 @@ import { parseDeps as makeDeps } from "./helpers/e2e-s1";
 // code-registry-{parse,load}.md) with `<…>` placeholders interpolated.
 
 function parse(src: string): readonly Diagnostic[] {
-  const source: ThetaSource = {
-    path: "test.theta",
-    bytes: new TextEncoder().encode(src),
-  };
-  return parseThetaDocument(source, makeDeps()).diagnostics;
+  return parseDoc(src).diagnostics;
 }
 
 function find(src: string, code: string): Diagnostic | undefined {

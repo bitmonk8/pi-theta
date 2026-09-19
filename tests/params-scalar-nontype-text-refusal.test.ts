@@ -1,11 +1,9 @@
+import { REGISTRY, type RegistryRow } from "./helpers/registry-oracle";
 import { DECLS, TRIAGE_DEF } from "./helpers/triage-fixture";
 import { assertKeysSorted, inlineDefName } from "./helpers/canonical-slug-oracle";
 import { readFileSync, readdirSync } from "node:fs";
 import { join, posix, sep } from "node:path";
-import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-// @ts-expect-error — JS code-registry module, no type declarations.
-import { parseRegistry } from "../tools/code-registry/index.js";
 import { registryMessageOf as readRegistryMessage } from "./helpers/load-row-harness";
 import type { EnumDecl, SchemaDecl, ThetaDocument } from "../src/parser/theta-document";
 import { lowerQueryResponseSchema } from "../src/runtime/query-schema-lowering";
@@ -190,32 +188,6 @@ import { yamlQuoted, firstDiagnostic, expectParamsDropGateShape, parseDoc, diagL
 
 /** The row this refusal reuses; its *Trigger* widens, its *Message* does not. */
 const CODE = "theta/load/params-type-not-expression";
-
-interface RegistryRow {
-  readonly code: string;
-  readonly namespace: string;
-  readonly severity: string;
-  readonly phase: string;
-  readonly trigger: string;
-  readonly message: string;
-}
-
-/** The live four-page sharded registry — the input tests/code-registry.test.ts reconciles. */
-const REGISTRY = parseRegistry(
-  [
-    "code-registry-parse.md",
-    "code-registry-load.md",
-    "code-registry-runtime.md",
-    "code-registry-host.md",
-  ]
-    .map((page) =>
-      readFileSync(
-        fileURLToPath(new URL(`../docs/spec_topics/diagnostics/${page}`, import.meta.url)),
-        "utf8",
-      ),
-    )
-    .join("\n"),
-) as RegistryRow[];
 
 /**
  * A registry row's normative *Message* (DIAG-4), read rather than restated.

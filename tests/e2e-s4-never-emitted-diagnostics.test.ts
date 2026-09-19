@@ -1,8 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
-import type { ThetaSource } from "../src/lexer/lexer";
-import { parseThetaDocument } from "../src/parser/theta-document";
-import { parseDeps as makeDeps } from "./helpers/e2e-s1";
+import { parseDoc } from "./helpers/e2e-s1";
 
 // S4 e2e campaign — witnesses for the ten registry diagnostic codes that the
 // shipped tree previously NEVER emitted. Each was a theta-defect: the closed
@@ -17,11 +15,7 @@ import { parseDeps as makeDeps } from "./helpers/e2e-s1";
 // trigger. Do not weaken these back to `it.fails`.
 
 function codesOf(src: string): string[] {
-  const source: ThetaSource = {
-    path: "test.theta",
-    bytes: new TextEncoder().encode(src),
-  };
-  return parseThetaDocument(source, makeDeps()).diagnostics.map(
+  return parseDoc(src).diagnostics.map(
     (d: Diagnostic) => d.code,
   );
 }

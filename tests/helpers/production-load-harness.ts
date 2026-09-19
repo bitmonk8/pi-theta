@@ -25,7 +25,7 @@
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { expect } from "vitest";
+import { afterAll, beforeAll, expect } from "vitest";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { createThetaExtension, type ThetaExtensionDeps, type ThetaFixture } from "../../src/extension/factory";
 import { composeExtensionInstance, discoverAndComposeFixtures } from "../../src/extension/production-composition";
@@ -156,6 +156,58 @@ export function diagnosticLineReaders(getDiagnosticLines: () => readonly string[
   return { linesFor, linesForCode };
 }
 
+/** Bind the two-channel positive control and callee-declaration guards to one workspace. */
+export function invokeArgPreconditions(
+  control: {
+    readonly code: string;
+    readonly callerStem: string;
+    readonly callerLabel: string;
+    readonly invocation: string;
+    readonly expectedMessage: () => string;
+  },
+  notifications: () => readonly string[],
+  { linesFor, linesForCode }: ReturnType<typeof diagnosticLineReaders>,
+) {
+  /**
+   * The shared positive control for every absence cell: THIS workspace and THIS
+   * load produced the invoke row at least once, on both channels an absence is
+   * read on. Without it an absence assertion passes while the row is unreachable
+   * and nothing is being measured.
+   */
+  function assertRowSurfaceLive(): void {
+    expect(
+      notifications(),
+      `unmet precondition: ${control.code} never surfaced for the ${control.callerLabel} ` +
+        `(\`${control.invocation}\` at a \`params: x: string\` callee), so this ` +
+        "workspace produces no instance of the row and no ABSENCE below measures " +
+        "anything. Notified: " + JSON.stringify(notifications()),
+    ).toContain(control.expectedMessage());
+    expect(
+      linesForCode(control.callerStem, control.code).length,
+      `unmet precondition: no diagnostic line attributes ${control.code} to the ${control.callerLabel}, so ` +
+        "the per-caller channel every absence cell below reads is not carrying the row " +
+        "and cannot witness its absence for one caller. Lines for that caller: " +
+        JSON.stringify(linesFor(control.callerStem)),
+    ).toBeGreaterThan(0);
+  }
+
+  /**
+   * A callee's declared param type must be declarable before a cell over it means
+   * anything: a `params:` RHS the grammar refuses draws its own `theta/parse/*`
+   * row, which would un-register the callee's caller for an unrelated reason.
+   */
+  function assertParamTypeDeclarable(calleeStem: string, paramType: string): void {
+    expect(
+      linesFor(calleeStem).filter((line) => line.includes("theta/parse/")),
+      `unmet precondition: the callee declaring \`params: x: ${paramType}\` drew a parse ` +
+        "diagnostic, so this param type is not declarable and the cell over it is " +
+        "measuring a rejected declaration rather than an argument mismatch",
+    ).toEqual([]);
+  }
+
+  return { assertRowSurfaceLive, assertParamTypeDeclarable };
+}
+
 /** Guard per-caller diagnostic attribution against planted stems shadowing one another. */
 export function assertNoStemIsASuffix(stems: readonly string[]): void {
   for (const stem of stems) {
@@ -237,6 +289,41 @@ export function disposeWorkspace(workspaceDir: string | undefined): void {
   if (workspaceDir !== undefined) {
     rmSync(workspaceDir, { recursive: true, force: true });
   }
+}
+
+/** The registered / notified sets, rendered for an assertion message. */
+export function observedLoad(outcome: Pick<LoadOutcome, "registered" | "notifications">): string {
+  return (
+    ` Registered: ${JSON.stringify(outcome.registered)}` +
+    ` Notified: ${JSON.stringify(outcome.notifications)}`
+  );
+}
+
+/** Load one planted workspace before the suite and dispose it after all cells. */
+export function productionLoadSuite(
+  dirPrefix: string,
+  fixtures: readonly PlantedThetaFile[],
+  options: ProductionLoadOptions = {},
+) {
+  let outcome: LoadOutcome;
+  let workspaceDir: string;
+
+  beforeAll(async () => {
+    // A minimal valid settings file pins the fixture's settings read to a known
+    // value. An ABSENT settings file is silent (package-and-settings.md
+    // §Failure modes), so the plant is hermeticity, not noise suppression.
+    workspaceDir = plantThetaWorkspace(dirPrefix, fixtures, "{}");
+    outcome = await runProductionLoad(workspaceDir, options);
+  });
+
+  afterAll(() => {
+    disposeWorkspace(workspaceDir);
+  });
+
+  return {
+    get outcome(): LoadOutcome { return outcome; },
+    observed: (): string => observedLoad(outcome),
+  };
 }
 
 /** Compose a single planted theta and return the runnable count, always disposing it. */

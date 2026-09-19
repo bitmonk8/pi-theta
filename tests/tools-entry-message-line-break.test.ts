@@ -1,4 +1,4 @@
-import { disposeWorkspace, plantThetaWorkspace, runProductionLoad, type LoadOutcome } from "./helpers/production-load-harness";
+import { observedLoad, disposeWorkspace, plantThetaWorkspace, runProductionLoad, type LoadOutcome } from "./helpers/production-load-harness";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -395,10 +395,7 @@ afterAll(() => {
 
 /** The registered / notified sets, rendered for an assertion message. */
 function observed(): string {
-  return (
-    ` Registered: ${JSON.stringify(outcome.registered)}` +
-    ` Notified: ${JSON.stringify(outcome.notifications)}`
-  );
+  return observedLoad(outcome);
 }
 
 /**
