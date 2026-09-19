@@ -1,15 +1,13 @@
 import { bindImportedBody } from "./helpers/thetalib-load-harness";
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
+import { REGISTRY, type RegistryRow } from "./helpers/registry-oracle";
 import { describe, expect, it } from "vitest";
 // @ts-expect-error — JS code-registry module, no type declarations.
-import { parseRegistry, registryMessage } from "../tools/code-registry/index.js";
+import { registryMessage } from "../tools/code-registry/index.js";
 import type { ModelRegistry } from "@earendil-works/pi-coding-agent";
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
-import { parseThetaDocument, type ThetaDocument } from "../src/parser/theta-document";
 import { executeBody } from "../src/runtime/statement-executor";
 import { isEnumValue, schemaTagOf, type ThetaValue } from "../src/runtime/value";
-import { parseDeps } from "./helpers/e2e-s1";
+import { parseDoc } from "./helpers/e2e-s1";
 
 // Bug 0101 — `export { greet } from "./base.thetalib"` is the only export
 // spelling the language admits (bug 0058 refused the from-less form in 0.60.0,
@@ -152,33 +150,6 @@ const CYCLE_CODE = "theta/load/import-cycle";
 /** The one check that already reaches an export path, asserted UNCHANGED in group (g). */
 const EXTENSION_CODE = "theta/parse/import-non-thetalib-extension";
 
-interface RegistryRow {
-  readonly code: string;
-  readonly namespace: string;
-  readonly severity: string;
-  readonly phase: string;
-  readonly trigger: string;
-  readonly message: string;
-}
-
-// The live four-page sharded registry, read from the spec corpus and
-// concatenated — the same input tests/code-registry.test.ts reconciles.
-const REGISTRY = parseRegistry(
-  [
-    "code-registry-parse.md",
-    "code-registry-load.md",
-    "code-registry-runtime.md",
-    "code-registry-host.md",
-  ]
-    .map((page) =>
-      readFileSync(
-        fileURLToPath(new URL(`../docs/spec_topics/diagnostics/${page}`, import.meta.url)),
-        "utf8",
-      ),
-    )
-    .join("\n"),
-) as RegistryRow[];
-
 /**
  * A registered code's row.
  *
@@ -231,10 +202,6 @@ function unresolvableMessage(path: string): string {
 // tests/subagent-fn.test.ts:1581–1616 and
 // tests/import-export-from-clause-required.test.ts:246–281 use.
 // ===========================================================================
-
-function parse(source: string, path: string): ThetaDocument {
-  return parseThetaDocument({ path, bytes: new TextEncoder().encode(source) }, parseDeps());
-}
 
 /**
  * The observable of one runtime row: the settled final value with its schema
@@ -766,7 +733,7 @@ describe("bug 0101 (g) — a re-export's own path and specifier are checked", ()
     expect(hit.file, "sited on the lib whose statement names the unresolvable path").toBe(
       "/proj/mid.thetalib",
     );
-    const statement = parse(mid, "/proj/mid.thetalib").body.statements[0];
+    const statement = parseDoc(mid, "/proj/mid.thetalib").body.statements[0];
     expect(
       statement?.kind,
       "fixture precondition: the lib's first statement is the `export … from` under measurement",
@@ -797,7 +764,7 @@ describe("bug 0101 (g) — a re-export's own path and specifier are checked", ()
     expect(hit.message, "DIAG-4 — the unnamed specifier is `ping`").toBe(
       unknownSymbolMessage("ping", "./base.thetalib"),
     );
-    const statement = parse(mid, "/proj/mid.thetalib").body.statements[0];
+    const statement = parseDoc(mid, "/proj/mid.thetalib").body.statements[0];
     expect(
       statement?.kind,
       "fixture precondition: the lib's first statement is the `export … from` under measurement",

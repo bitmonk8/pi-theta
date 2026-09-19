@@ -258,13 +258,13 @@
 // (the awaited rebuild completes by design), so tests 1 and 2 assert nothing
 // about it; only test 3's control does, where no rebuild runs at all.
 
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { readRegistry, type RegistryRow } from "./helpers/registry-oracle";
 // @ts-expect-error — JS code-registry module, no type declarations.
-import { parseRegistry, registryMessage } from "../tools/code-registry/index.js";
+import { registryMessage } from "../tools/code-registry/index.js";
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
 import {
   createThetaExtension,
@@ -326,30 +326,13 @@ const SUPERSESSION_QUIESCE_CALL_LABEL = "hotReloadHandle.whenIdle(awaitCap)";
 const SUPERSESSION_DETACH_FAILED_CODE =
   "theta/host/session-start-supersession-detach-failed";
 
-/** One parsed row of the sharded diagnostics registry (`tools/code-registry`). */
-interface RegistryRow {
-  readonly code: string;
-  readonly namespace: string;
-  readonly severity: string;
-  readonly phase: string;
-  readonly trigger: string;
-  readonly message: string;
-}
-
 /**
  * The live `theta/host/*` registry shard, read from the spec corpus — the same
  * input tests/code-registry.test.ts reconciles. Only the host shard is read:
  * the code under assertion lives there, and a row that moved out of it SHOULD
  * red here rather than be silently found on another page.
  */
-const REGISTRY = parseRegistry(
-  readFileSync(
-    fileURLToPath(
-      new URL("../docs/spec_topics/diagnostics/code-registry-host.md", import.meta.url),
-    ),
-    "utf8",
-  ),
-) as RegistryRow[];
+const REGISTRY = readRegistry(["host"]);
 
 /**
  * The registry row under assertion, or a loud failure naming the page that must

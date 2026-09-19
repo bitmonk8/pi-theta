@@ -176,14 +176,13 @@ import {
   driveWatchedSubagentChild,
   reapSubagentChildren,
 } from "./helpers/real-subagent-spawn";
-import { composePointerMessage } from "./helpers/registry-oracle";
+import { composePointerMessage, REGISTRY } from "./helpers/registry-oracle";
 import { describe, expect, it } from "vitest";
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve, sep } from "node:path";
-import { fileURLToPath } from "node:url";
 // @ts-expect-error — JS code-registry module, no type declarations.
-import { parseRegistry, registryMessage } from "../tools/code-registry/index.js";
+import { registryMessage } from "../tools/code-registry/index.js";
 import { SUBAGENT_CHILD_OUTCOME_CHANNEL } from "../src/runtime/subagent-placement-registry";
 import { type SubagentInvocationResult } from "../src/runtime/subagent-json-driver";
 import { type ChildExitInfo, type ExecutableHost } from "../src/runtime/subagent-launcher";
@@ -305,27 +304,6 @@ function render(value: unknown): string {
 // expectation is composed from that row's halves rather than copy-pasted as
 // prose, exactly as both mirrored witnesses do.
 // ===========================================================================
-
-interface RegistryRow {
-  readonly code: string;
-  readonly message: string;
-}
-
-const REGISTRY = parseRegistry(
-  [
-    "code-registry-parse.md",
-    "code-registry-load.md",
-    "code-registry-runtime.md",
-    "code-registry-host.md",
-  ]
-    .map((page) =>
-      readFileSync(
-        fileURLToPath(new URL(`../docs/spec_topics/diagnostics/${page}`, import.meta.url)),
-        "utf8",
-      ),
-    )
-    .join("\n"),
-) as RegistryRow[];
 
 /** The `<value>` placeholder the 0180 registry row's *Message* template carries. */
 const VALUE_PLACEHOLDER = "<value>";
