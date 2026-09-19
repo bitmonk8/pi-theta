@@ -167,7 +167,7 @@ import { expectGroup as expectGroupShared, type DiagnosticCell, parseDoc, diagLi
 // silence-instead-of-refusal signature is witnessed even while the registry half
 // of the fix is outstanding.
 //
-// ANTI-VACUITY: the diagnostic-list inventory below is 67 cells, of which 47
+// ANTI-VACUITY: the diagnostic-list inventory below is 67 cells, of which 50
 // carry a non-empty expectation naming `theta/parse/renamed-inline-field-name`.
 // Cell H1 recomputes both counts from the inventory itself and fails if either
 // moves, so no cell can be quietly weakened to `[]` and no expectation can be
@@ -1425,7 +1425,7 @@ describe("bug 0160 (G) — quote style, precedence, the two gates, and the neigh
 // ===========================================================================
 
 describe("bug 0160 (H) — the inventory is counted, and every cell is also asserted without the registry", () => {
-  it("CONTROL H1: 67 diagnostic-list cells, 49 of them naming the new row", () => {
+  it("CONTROL H1: 67 diagnostic-list cells, 50 of them naming the new row", () => {
     const cells = allCells();
     expect(
       cells.length,

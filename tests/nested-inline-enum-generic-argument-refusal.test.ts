@@ -186,6 +186,12 @@ const LET_MISMATCH = "theta/parse/let-rhs-type-mismatch";
 const ARITY = "theta/parse/generic-arity-mismatch";
 const UNRESOLVED_NAMED_TYPE = "theta/parse/unresolved-named-type";
 
+const ARITY_ARRAY_TWO = line(ARITY, [
+  ["<ctor>", "array"],
+  ["<expected>", "1"],
+  ["<actual>", "2"],
+]);
+
 // ===========================================================================
 // The seven §Reproduction positions, and their fixtures.
 // ===========================================================================
@@ -778,12 +784,6 @@ describe("bug 0217 (c) — a nested inline `enum[…]` draws its position's refu
   // on c8 with the arity code ABSENT is the same regression from the other
   // face. Bug 0124's `annotationSourceIsNotTypeExpression` is untouched by
   // either row — this pair measures a POSITION's OWN walk, not that decline.
-  const ARITY_ARRAY_TWO = line(ARITY, [
-    ["<ctor>", "array"],
-    ["<expected>", "1"],
-    ["<actual>", "2"],
-  ]);
-
   for (const position of SINK_POSITIONS) {
     it(`RED (c7, ${position}): \`${E2_TWO_ARGS}\` draws its own arity diagnostic, not the sink refusal`, () => {
       const label = `c7 (${position}, ${E2_TWO_ARGS})`;
@@ -964,11 +964,6 @@ describe("bug 0217 (d) — the refusals that stand, stand, and stand exactly onc
     it(`RED (d3, ${position}): \`${E2_CAT_ARG}\` draws its own arity diagnostic, not the sink refusal`, () => {
       const label = `d3 (${position}, ${E2_CAT_ARG})`;
       const r = read(label, position, E2_CAT_ARG, true);
-      const arityArrayTwo = line(ARITY, [
-        ["<ctor>", "array"],
-        ["<expected>", "1"],
-        ["<actual>", "2"],
-      ]);
       expect(
         r.lines,
         `${label}: two arguments to arity-1 \`array\` (the group, and \`Cat +\`) is the ` +
@@ -976,7 +971,7 @@ describe("bug 0217 (d) — the refusals that stand, stand, and stand exactly onc
           `ALONE. A red reporting \`${SCHEMA_REFUSAL}\` / \`${PARAMS_REFUSAL}\` instead means ` +
           `\`parseGeneric\` truncated the list again and the last-resort sink push fired in the ` +
           `arity row's place. Observed: ${JSON.stringify(r.lines)}`,
-      ).toEqual([arityArrayTwo]);
+      ).toEqual([ARITY_ARRAY_TWO]);
       expect(
         r.gateCount,
         `${label}: still error-severity in a namespace \`hasLoadParseError\` reads, so this ` +
@@ -1160,11 +1155,6 @@ describe("bug 0217 (f) — the four annotation-side positions do not move", () =
     ["f7", E2_TWO_ARGS, false],
     ["f10", E2_CAT_ARG, true],
   ];
-  const arityArrayTwo = line(ARITY, [
-    ["<ctor>", "array"],
-    ["<expected>", "1"],
-    ["<actual>", "2"],
-  ]);
 
   for (const [id, typeSource, withCat] of ARITY_ANNOTATION_ROWS) {
     for (const position of ANNOTATION_POSITIONS) {

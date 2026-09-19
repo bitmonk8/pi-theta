@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { createPatternRefusalHarness } from "./helpers/prompt-value-harness";
+import { createParsedPromptHarness, createPatternRefusalHarness } from "./helpers/prompt-value-harness";
 import {
   PARSE_REGISTRY_PATH as REGISTRY_PARSE_PAGE,
   type DiagShape,
@@ -13,26 +13,12 @@ import {
 import { readRepoFile } from "./helpers/corpus-reader";
 import { readRegistry, type RegistryRow } from "./helpers/registry-oracle";
 import { describe, expect, it } from "vitest";
-import type {
-  ExtensionAPI,
-  ExtensionCommandContext,
-  ModelRegistry,
-} from "@earendil-works/pi-coding-agent";
 // @ts-expect-error — JS code-registry module, no type declarations.
 import { registryMessage } from "../tools/code-registry/index.js";
 import { parseDoc, parseDocBytes } from "./helpers/e2e-s1";
 import { committedThetaSources } from "./helpers/theta-corpus";
 import type { SourceRange } from "../src/diagnostics/diagnostic";
 import type { ThetaDocument } from "../src/parser/theta-document";
-import type { ParsedFrontmatter } from "../src/parser/frontmatter";
-import { executeBody, type BodyExecution } from "../src/runtime/statement-executor";
-import { createProductionProducerDeps } from "../src/extension/production-theta-producer";
-import type {
-  ConversationBindInput,
-  ThetaCompositionInput,
-} from "../src/extension/theta-composition-producer";
-import type { RuntimeRoot } from "../src/runtime-root";
-import type { Checkpoint } from "../src/seams/checkpoint";
 import type { ThetaValue } from "../src/runtime/value";
 
 // Bug 0234 — at a `match` object-pattern head, a `number`-SPELLED numeric
@@ -347,63 +333,11 @@ function typeMismatch(
 
 // ===========================================================================
 // Runtime harness — parse → production prompt-mode binding → `executeBody`
-// (bug 0226's witness shape, symbols `producer` / `execute` / `expectValue`).
+// (bug 0226's witness shape, via `createParsedPromptHarness`).
 // Offline, provider-free: a query-free prompt body dispatches no model. 
 // ===========================================================================
 
-const NOOP_CHECKPOINT: Checkpoint = {
-  before(): Promise<void> {
-    return Promise.resolve();
-  },
-};
-
-function rootDouble(): RuntimeRoot {
-  return {
-    checkpoint: NOOP_CHECKPOINT,
-    idSource: { newInvocationId: () => "inv-1", newToolCallId: () => "tc-1" },
-  } as unknown as RuntimeRoot;
-}
-
-function producer(): ReturnType<typeof createProductionProducerDeps> {
-  return createProductionProducerDeps({
-    // `sendMessage` satisfies the theta-system-note channel; the active-tools
-    // pair satisfies the PIC-17 snapshot/restore window. No provider, no model.
-    pi: {
-      sendMessage: () => {},
-      getActiveTools: () => [],
-      setActiveTools: () => {},
-    } as unknown as ExtensionAPI,
-    root: rootDouble(),
-    modelRegistry: {} as unknown as ModelRegistry,
-  });
-}
-
-async function execute(doc: ThetaDocument): Promise<BodyExecution> {
-  const input: ThetaCompositionInput = {
-    slashName: "bug0234",
-    sourcePath: "/bug0234-cells.theta",
-    frontmatter: doc.frontmatter as ParsedFrontmatter,
-    body: doc.body,
-  };
-  const bindInput: ConversationBindInput = {
-    theta: input,
-    args: "",
-    ctx: {} as unknown as ExtensionCommandContext,
-  };
-  const binding = producer().bindPromptConversation(bindInput);
-  return executeBody(input.body, binding.executeDeps);
-}
-
-/** Assert the value an already-parsed body evaluates to. */
-async function expectValue(
-  doc: ThetaDocument,
-  value: ThetaValue,
-  why: string,
-): Promise<void> {
-  const execution = await execute(doc);
-  expect(execution.outcome, `${why}: the body reaches a value`).toBe("success");
-  expect(execution.result.value, why).toEqual(value);
-}
+const { execute, expectValue } = createParsedPromptHarness("bug0234", "/bug0234-cells.theta");
 
 /** Assert a boundary row keeps BOTH its silence and its measured value. */
 async function expectClean(body: string, value: ThetaValue, why: string): Promise<void> {
