@@ -3,7 +3,7 @@ id: PTQ-0975
 title: invoke-arg-array-literal-provable.test.ts hand-parses the parse-shard registry page instead of calling registry-oracle.ts's readRegistry, which it already imports from
 lens: D7
 wave: qw20260918131151
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - tests/invoke-arg-array-literal-provable.test.ts:1

@@ -2,7 +2,7 @@
 id: PTQ-0972
 title: array-ternary-common-type-union.test.ts re-implements the registry-oracle's REGISTRY read instead of calling readRegistry
 lens: D7
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - tests/array-ternary-common-type-union.test.ts:179-189

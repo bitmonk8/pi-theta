@@ -2,7 +2,7 @@
 id: PTQ-0977
 title: invoke-arg-type-mismatch-wired.test.ts re-reads and re-parses two registry pages instead of calling the already-imported registry-oracle helper's readRegistry(["parse","load"])
 lens: D7
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - tests/invoke-arg-type-mismatch-wired.test.ts:106-123

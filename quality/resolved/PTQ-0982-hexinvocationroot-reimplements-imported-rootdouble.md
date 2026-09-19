@@ -2,7 +2,7 @@
 id: PTQ-0982
 title: subagent-visible-regime.test.ts's hexInvocationRoot re-derives the clock/schemaValidator body of the rootDouble it already imports
 lens: D7
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - tests/subagent-visible-regime.test.ts:58-74

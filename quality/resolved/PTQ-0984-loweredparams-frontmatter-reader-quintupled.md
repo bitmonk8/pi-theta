@@ -2,7 +2,7 @@
 id: PTQ-0984
 title: Both in-scope files redeclare the identical frontmatter-loweredSchema loweredParams() reader found in five tests/inline-object-*.test.ts siblings
 lens: D7
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - tests/inline-object-empty-entry-slot-refusal.test.ts:338-341

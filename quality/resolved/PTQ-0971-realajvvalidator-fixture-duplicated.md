@@ -2,7 +2,7 @@
 id: PTQ-0971
 title: realAjvValidator() double is retyped byte-for-byte across thirteen test files instead of a shared tests/helpers export
 lens: D7
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - tests/result-value-privacy.test.ts:115-123

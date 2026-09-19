@@ -2,7 +2,7 @@
 id: PTQ-0981
 title: generic-argument-bracket-group-truncation.test.ts redeclares e2e-s1's exported diagLines(doc) instead of importing it
 lens: D7
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - tests/generic-argument-bracket-group-truncation.test.ts:8

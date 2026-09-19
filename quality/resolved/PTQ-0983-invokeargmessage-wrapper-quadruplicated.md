@@ -2,7 +2,7 @@
 id: PTQ-0983
 title: invokeArgMessage's fill-wrapper body is redeclared byte-for-byte across four test files including the in-scope modulo-zero-result-type-number.test.ts
 lens: D7                     # D2 | D4 | D7 | D8 | D9 - the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - tests/modulo-zero-result-type-number.test.ts:199-214

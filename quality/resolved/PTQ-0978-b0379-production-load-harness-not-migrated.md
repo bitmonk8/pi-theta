@@ -2,7 +2,7 @@
 id: PTQ-0978
 title: b0379 redeclares runProductionLoad/LoadOutcome/workspace-plant-dispose instead of importing tests/helpers/production-load-harness.ts
 lens: D7
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - tests/b0379-tools-entry-byte-match.test.ts:84-138

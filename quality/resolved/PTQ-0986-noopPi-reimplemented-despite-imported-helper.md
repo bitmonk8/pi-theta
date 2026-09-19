@@ -2,7 +2,7 @@
 id: PTQ-0986
 title: production-subagent-query-model.test.ts redeclares noopPi() locally though it already imports the identical export from subagent-fn-child-regime.ts
 lens: D7
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - tests/production-subagent-query-model.test.ts:29

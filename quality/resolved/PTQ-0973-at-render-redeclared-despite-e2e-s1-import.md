@@ -2,7 +2,7 @@
 id: PTQ-0973
 title: match-arm-scope-inference-pass.test.ts redeclares e2e-s1's at()/render() helpers locally while already importing parseDoc from the same module
 lens: D7
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - tests/match-arm-scope-inference-pass.test.ts:31

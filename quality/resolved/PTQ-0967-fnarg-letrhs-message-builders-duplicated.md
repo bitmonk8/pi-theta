@@ -2,7 +2,7 @@
 id: PTQ-0967
 title: fnArg()/letRhs() registry-message builder functions redeclared byte-identically across both in-scope files
 lens: D7
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - tests/loop-element-withhold-binding-scoped.test.ts:215-232
