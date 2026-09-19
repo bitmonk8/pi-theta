@@ -43,9 +43,7 @@
 // (PIC-58 launch contract, PIC-59 envelope).
 
 import {
-  PI_CLI_ENTRY,
-  EXTENSION_ENTRY,
-  requirePathFor,
+  requireRealSubagentPathsFor,
   realExecutableHost,
   launchRealSubagentChild,
   childExit,
@@ -69,7 +67,7 @@ const CHILD_MODEL_PROVIDER = "anthropic";
 const CHILD_MODEL_ID = "claude-fable-5";
 
 /** Fail loudly on a missing precondition — never a silent skip (*No silent test skipping*). */
-const requirePath = requirePathFor(
+const requireRealSubagentPaths = requireRealSubagentPathsFor(
   `the bug-0067 inbound ` +
     `enum-tag witness needs the repo install (npm install); it never silently skips.`,
 );
@@ -146,8 +144,7 @@ describe("bug 0067 — subagent invoke return: inbound named-enum tag reattachme
   it(
     "a named-enum value crossing the PIC-59 envelope belongs to the child's declaration and compares UNEQUAL to the parent's own same-named variant at every depth, tag preserved",
     async () => {
-      requirePath(PI_CLI_ENTRY, "the pi CLI entry (node_modules/@earendil-works/pi-coding-agent)");
-      requirePath(EXTENSION_ENTRY, "this working tree's extension entry (extensions/)");
+      requireRealSubagentPaths();
 
       // One discovery root holds all five fixtures so the root theta's `./`
       // callee paths resolve beside it.

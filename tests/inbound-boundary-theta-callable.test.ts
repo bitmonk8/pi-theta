@@ -82,15 +82,14 @@
 // (PIC-58 launch contract, PIC-59 envelope).
 
 import {
-  PI_CLI_ENTRY,
-  EXTENSION_ENTRY,
-  requirePathFor,
+  requireRealSubagentPathsFor,
   realExecutableHost,
   launchRealSubagentChild,
   childExit,
   driveWatchedSubagentChild,
   reapSubagentChildren,
 } from "./helpers/real-subagent-spawn";
+import { reportOf } from "./helpers/subagent-fn-child-regime";
 import { describe, expect, it } from "vitest";
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -105,7 +104,7 @@ const CHILD_MODEL_PROVIDER = "anthropic";
 const CHILD_MODEL_ID = "claude-fable-5";
 
 /** Fail loudly on a missing precondition — never a silent skip (*No silent test skipping*). */
-const requirePath = requirePathFor(
+const requireRealSubagentPaths = requireRealSubagentPathsFor(
   `the bug-0172 \`.theta\`-callable ` +
     `witness needs the repo install (npm install); it never silently skips.`,
 );
@@ -178,23 +177,11 @@ const TOP = [
   "",
 ].join("\n");
 
-/** Narrow the envelope's `Ok` payload to the report object, failing loudly when it is not one. */
-function reportOf(value: unknown): Record<string, unknown> {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) {
-    throw new Error(
-      `the driven root returned ${JSON.stringify(value)} instead of the R report object — ` +
-        `the fixture set did not reach its tail expression, so no assertion below is meaningful`,
-    );
-  }
-  return value as Record<string, unknown>;
-}
-
 describe("bug 0172 — a typed .theta-callable tool-call return performs the inbound translation pass (tool-calls.md:23)", () => {
   it(
     "a named-enum value returned by a tools:-named subagent callee belongs to the callee's declaration and compares UNEQUAL to the caller's own same-named variant, tag preserved",
     async () => {
-      requirePath(PI_CLI_ENTRY, "the pi CLI entry (node_modules/@earendil-works/pi-coding-agent)");
-      requirePath(EXTENSION_ENTRY, "this working tree's extension entry (extensions/)");
+      requireRealSubagentPaths();
 
       // One discovery root holds every fixture so the root theta's `./` callee
       // paths resolve beside it.

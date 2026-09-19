@@ -86,9 +86,7 @@
 // fixture issues a query, so no provider or model participates and the whole run
 // is deterministic.
 import {
-  PI_CLI_ENTRY,
-  EXTENSION_ENTRY,
-  requirePathFor,
+  requireRealSubagentPathsFor,
   realExecutableHost,
   launchRealSubagentChild,
   childExit,
@@ -114,7 +112,7 @@ const CHILD_MODEL_PROVIDER = "anthropic";
 const CHILD_MODEL_ID = "claude-fable-5";
 
 /** Fail loudly on a missing precondition — never a silent skip (*No silent test skipping*). */
-const requirePath = requirePathFor(
+const requireRealSubagentPaths = requireRealSubagentPathsFor(
   `the bug-0180 non-finite ` +
     `subagent-return witness needs the repo install (npm install) and the built extension ` +
     `entry; it never silently skips.`,
@@ -260,8 +258,7 @@ describe("bug 0180 — a typed invoke of a subagent-mode callee whose final valu
   it(
     "the parent binds a named refusal, not a substituted null nor a message blaming the annotation",
     async () => {
-      requirePath(PI_CLI_ENTRY, "the pi CLI entry (node_modules/@earendil-works/pi-coding-agent)");
-      requirePath(EXTENSION_ENTRY, "this working tree's extension entry (extensions/)");
+      requireRealSubagentPaths();
 
       // One discovery root holds every fixture so the root theta's `./` callee
       // paths resolve beside it.

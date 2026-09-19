@@ -23,12 +23,16 @@ export const PI_CLI_ENTRY = fileURLToPath(
 /** This working tree's extension entry (the build under test). */
 export const EXTENSION_ENTRY = fileURLToPath(new URL("../../extensions", import.meta.url));
 
-/** Fail loudly on a missing precondition — never a silent skip (*No silent test skipping*). */
-export function requirePathFor(requirement: string): (path: string, what: string) => void {
-  return (path, what): void => {
+/** Require both pinned entries, failing loudly with the witness's context — never a silent skip. */
+export function requireRealSubagentPathsFor(requirement: string): () => void {
+  const requirePath = (path: string, what: string): void => {
     if (!existsSync(path)) {
       throw new Error(`precondition unmet: ${what} not found at ${path} — ${requirement}`);
     }
+  };
+  return (): void => {
+    requirePath(PI_CLI_ENTRY, "the pi CLI entry (node_modules/@earendil-works/pi-coding-agent)");
+    requirePath(EXTENSION_ENTRY, "this working tree's extension entry (extensions/)");
   };
 }
 

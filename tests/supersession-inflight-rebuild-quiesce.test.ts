@@ -265,10 +265,6 @@ import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 // @ts-expect-error — JS code-registry module, no type declarations.
 import { parseRegistry, registryMessage } from "../tools/code-registry/index.js";
-import type {
-  ExtensionAPI,
-  ExtensionContext,
-} from "@earendil-works/pi-coding-agent";
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
 import {
   createThetaExtension,
@@ -291,7 +287,16 @@ import type {
 } from "../src/extension/system-note-channel";
 import { RecordingFakeClock, sleep } from "./helpers/fake-clock";
 import { CountingFakeFileWatcher, waitFor } from "./helpers/fake-file-watcher";
-import { registryKeys, structuralNotes, watcherAt, wiringAt, dispatchRegistered, greetShuttingDownNotes } from "./helpers/watch-arming-harness";
+import {
+  makeHarness as makeBaseHarness,
+  type Harness as BaseHarness,
+  registryKeys,
+  structuralNotes,
+  watcherAt,
+  wiringAt,
+  dispatchRegistered,
+  greetShuttingDownNotes,
+} from "./helpers/watch-arming-harness";
 
 /**
  * The supersession path's own cap (§Fix step 3). Reuses the teardown's value —
@@ -505,25 +510,18 @@ interface ReRegisterEvent {
   readonly registrationsBefore: number;
 }
 
-interface Harness {
-  readonly pi: ExtensionAPI;
+interface Harness extends BaseHarness {
   /** The `theta-system-note` sender the replaced `installHotReload` delivers through. */
   readonly noteSender: SystemNoteSender;
-  readonly commands: Map<string, unknown>;
   /** Every `pi.registerCommand` call, IN ORDER, attributed to its pass. */
   readonly registrations: Registration[];
   readonly notes: RecordedNote[];
-  fireSessionStart(): Promise<void>;
 }
 
+/** Attribute registrations to their pass and share the note sink with hot reload. */
 function makeHarness(cwd: string, activePass: { label: string }): Harness {
-  const commands = new Map<string, unknown>();
   const registrations: Registration[] = [];
   const notes: RecordedNote[] = [];
-  const subscriptions = new Map<
-    string,
-    ((event: unknown, ctx: ExtensionContext) => unknown)[]
-  >();
   let startDeliveries = 0;
 
   const recordNote = (
@@ -537,42 +535,16 @@ function makeHarness(cwd: string, activePass: { label: string }): Harness {
     });
   };
 
-  const pi = {
-    registerFlag: (): void => {},
-    registerMessageRenderer: (): void => {},
-    registerCommand: (name: string, options: unknown): void => {
+  const harness = makeBaseHarness(cwd, {}, {
+    onRegisterCommand: (name): void => {
       registrations.push({ name, source: activePass.label });
-      commands.set(name, options);
     },
-    on: (event: string, handler: (e: unknown, c: ExtensionContext) => unknown): void => {
-      const list = subscriptions.get(event) ?? [];
-      list.push(handler);
-      subscriptions.set(event, list);
-    },
-    getFlag: (): undefined => undefined,
-    getCommands: (): { name: string; source: string }[] =>
-      [...commands.keys()].map((name) => ({ name, source: "extension" })),
     sendMessage: recordNote,
-    sendUserMessage: (): void => {},
-  } as unknown as ExtensionAPI;
-
-  const ctx = {
-    cwd,
-    hasUI: false,
-    modelRegistry: { getAvailable: (): readonly unknown[] => [] },
-    ui: { notify: (): void => {} },
-  } as unknown as ExtensionContext;
-
-  const fire = async (event: string, payload: Record<string, unknown>): Promise<void> => {
-    for (const handler of subscriptions.get(event) ?? []) {
-      await handler(payload, ctx);
-    }
-  };
+  });
 
   return {
-    pi,
+    ...harness,
     noteSender: { sendMessage: recordNote } as unknown as SystemNoteSender,
-    commands,
     registrations,
     notes,
     fireSessionStart: async (): Promise<void> => {
@@ -580,7 +552,7 @@ function makeHarness(cwd: string, activePass: { label: string }): Harness {
       const previous = activePass.label;
       activePass.label = `session_start#${startDeliveries}`;
       try {
-        await fire("session_start", { type: "session_start" });
+        await harness.fireSessionStart();
       } finally {
         activePass.label = previous;
       }

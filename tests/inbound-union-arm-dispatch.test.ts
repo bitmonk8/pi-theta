@@ -1,15 +1,14 @@
 import { scripted } from "./helpers/scripted-complete-queue-mock";
 import { assistantReply, contextToolsOf, ANTHROPIC_MODEL as SCRIPTED_MODEL } from "./helpers/scripted-live-session-harness";
 import {
-  PI_CLI_ENTRY,
-  EXTENSION_ENTRY,
-  requirePathFor,
+  requireRealSubagentPathsFor,
   realExecutableHost,
   launchRealSubagentChild,
   childExit,
   driveWatchedSubagentChild,
   reapSubagentChildren,
 } from "./helpers/real-subagent-spawn";
+import { reportOf } from "./helpers/subagent-fn-child-regime";
 import { parseDeps as makeParseDeps, schemaDeclsOf, enumDeclsOf } from "./helpers/e2e-s1";
 import { beforeEach, describe, expect, it } from "vitest";
 
@@ -1236,7 +1235,7 @@ const CHILD_MODEL_PROVIDER = "anthropic";
 const CHILD_MODEL_ID = "claude-fable-5";
 
 /** Fail loudly on a missing precondition — never a silent skip. */
-const requirePath = requirePathFor(
+const requireRealSubagentPaths = requireRealSubagentPathsFor(
   `the bug-0172 face-2 invoke witness ` +
     `needs the repo install (npm install); it never silently skips.`,
 );
@@ -1270,17 +1269,6 @@ const INVOKE_TOP = [
   "",
 ].join("\n");
 
-/** Narrow the envelope's `Ok` payload to the report object, failing loudly when it is not one. */
-function reportOf(value: unknown): Record<string, unknown> {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) {
-    throw new Error(
-      `the driven root returned ${JSON.stringify(value)} instead of the R report object — the ` +
-        `fixture pair did not reach its tail expression, so no assertion below is meaningful`,
-    );
-  }
-  return value as Record<string, unknown>;
-}
-
 /** One driven child: the settled envelope, the drain, and how the process ended. */
 interface ChildDrive {
   readonly ok: boolean;
@@ -1306,8 +1294,7 @@ async function driveRootChild(input: {
   readonly slug: string;
   readonly params?: string;
 }): Promise<ChildDrive> {
-  requirePath(PI_CLI_ENTRY, "the pi CLI entry (node_modules/@earendil-works/pi-coding-agent)");
-  requirePath(EXTENSION_ENTRY, "this working tree's extension entry (extensions/)");
+  requireRealSubagentPaths();
 
   // Rung-1 executable resolution, exactly as a pi-hosted parent resolves it
   // (node + the entry script); pinned to the repo's own pi install.
@@ -1413,7 +1400,7 @@ describe("bug 0172 face 2 — the invoke return boundary over a union annotation
           `the driven root resolved fail-closed instead of Ok: ${JSON.stringify(drive.payload)} ` +
             `diagnostics: ${JSON.stringify(drive.diagnostics)}`,
         ).toBe(true);
-        const report = reportOf(drive.payload);
+        const report = reportOf(drive.payload, "pair");
 
         // 0337: the callee `kid.theta` declares its OWN `Sev`, distinct from
         // `top.theta`'s `Sev` — the value the invoke returns is a value of a

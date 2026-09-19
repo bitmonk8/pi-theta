@@ -169,9 +169,7 @@ import {
   type ChildDrive,
 } from "./helpers/subagent-fn-child-regime";
 import {
-  PI_CLI_ENTRY,
-  EXTENSION_ENTRY,
-  requirePathFor,
+  requireRealSubagentPathsFor,
   realExecutableHost,
   launchRealSubagentChild,
   childExit,
@@ -226,7 +224,7 @@ const INVOKE_INFRA_KIND = "invoke_infra";
 const UNIT_CALLEE_PATH = "./kid.theta";
 
 /** Fail loudly on a missing precondition — never a silent skip (*No silent test skipping*). */
-const requirePath = requirePathFor(
+const requireRealSubagentPaths = requireRealSubagentPathsFor(
   `the bug-0187 too-deep ` +
     `subagent-return witness needs the repo install (npm install) and the built extension ` +
     `entry; it never silently skips.`,
@@ -1045,8 +1043,7 @@ describe("bug 0187 (UNINFERRED) — what a caller binds at a return boundary tha
   it(
     "a >cap terminal Ok payload is refused before it crosses, whether or not the return site names a type",
     async () => {
-      requirePath(PI_CLI_ENTRY, "the pi CLI entry (node_modules/@earendil-works/pi-coding-agent)");
-      requirePath(EXTENSION_ENTRY, "this working tree's extension entry (extensions/)");
+      requireRealSubagentPaths();
 
       // One discovery root holds every fixture so each root's `./` callee paths
       // and `tools:` entries resolve beside it.

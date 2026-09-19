@@ -143,7 +143,6 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync, unlinkSync } from "node:
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
 import {
   createThetaExtension,
@@ -154,7 +153,14 @@ import {
   type ExtensionInstanceWiring,
 } from "../src/extension/production-composition";
 import { RELOAD_DEBOUNCE_WINDOW_MS } from "../src/extension/reload-debounce";
-import { registryKeys, structuralNotes, watcherAt, wiringAt } from "./helpers/watch-arming-harness";
+import {
+  makeSupersessionHarness as makeHarness,
+  type SupersessionHarness as Harness,
+  registryKeys,
+  structuralNotes,
+  watcherAt,
+  wiringAt,
+} from "./helpers/watch-arming-harness";
 import { RecordingFakeClock, sleep } from "./helpers/fake-clock";
 import { FakeFileWatcher } from "./helpers/fake-file-watcher";
 import type {
@@ -238,73 +244,6 @@ class ProductionShapeFakeFileWatcher extends FakeFileWatcher {
       inner();
     };
   }
-}
-
-/** A recorded `pi.sendMessage` call (the `theta-system-note` channel). */
-interface RecordedNote {
-  readonly customType: string;
-  readonly content: string;
-}
-
-interface Harness {
-  readonly pi: ExtensionAPI;
-  readonly commands: Map<string, unknown>;
-  /** The SEQUENCE of `pi.registerCommand` names, in call order. */
-  readonly registeredNames: string[];
-  readonly notes: RecordedNote[];
-  fireSessionStart(): Promise<void>;
-}
-
-function makeHarness(cwd: string): Harness {
-  const commands = new Map<string, unknown>();
-  const registeredNames: string[] = [];
-  const notes: RecordedNote[] = [];
-  const subscriptions = new Map<
-    string,
-    ((event: unknown, ctx: ExtensionContext) => unknown)[]
-  >();
-
-  const pi = {
-    registerFlag: (): void => {},
-    registerMessageRenderer: (): void => {},
-    registerCommand: (name: string, options: unknown): void => {
-      registeredNames.push(name);
-      commands.set(name, options);
-    },
-    on: (event: string, handler: (e: unknown, c: ExtensionContext) => unknown): void => {
-      const list = subscriptions.get(event) ?? [];
-      list.push(handler);
-      subscriptions.set(event, list);
-    },
-    getFlag: (): undefined => undefined,
-    getCommands: (): { name: string; source: string }[] =>
-      [...commands.keys()].map((name) => ({ name, source: "extension" })),
-    sendMessage: (message: { customType: string; content: string }): void => {
-      notes.push({ customType: message.customType, content: message.content });
-    },
-    sendUserMessage: (): void => {},
-  } as unknown as ExtensionAPI;
-
-  const ctx = {
-    cwd,
-    hasUI: false,
-    modelRegistry: { getAvailable: (): readonly unknown[] => [] },
-    ui: { notify: (): void => {} },
-  } as unknown as ExtensionContext;
-
-  const fire = async (event: string, payload: Record<string, unknown>): Promise<void> => {
-    for (const handler of subscriptions.get(event) ?? []) {
-      await handler(payload, ctx);
-    }
-  };
-
-  return {
-    pi,
-    commands,
-    registeredNames,
-    notes,
-    fireSessionStart: () => fire("session_start", { type: "session_start" }),
-  };
 }
 
 interface Boot {

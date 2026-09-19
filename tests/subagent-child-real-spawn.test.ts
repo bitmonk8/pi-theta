@@ -25,9 +25,7 @@
 // envelope, PIC-65 lifecycle, #subagent-extension-pin).
 
 import {
-  PI_CLI_ENTRY,
-  EXTENSION_ENTRY,
-  requirePathFor,
+  requireRealSubagentPathsFor,
   realExecutableHost,
   launchRealSubagentChild,
   childExit,
@@ -52,7 +50,7 @@ const CHILD_MODEL_PROVIDER = "anthropic";
 const CHILD_MODEL_ID = "claude-fable-5";
 
 /** Fail loudly on a missing precondition — never a silent skip (*No silent test skipping*). */
-const requirePath = requirePathFor(
+const requireRealSubagentPaths = requireRealSubagentPathsFor(
   `the bug-0002 real-spawn ` +
     `regression test needs the repo install (npm install); it never silently skips.`,
 );
@@ -61,8 +59,7 @@ describe("bug 0002 — real subagent child spawn (production spawn path, provide
   it(
     "the real child emits its theta_result envelope and exits 0 (stdin closed at spawn — no startup deadlock)",
     async () => {
-      requirePath(PI_CLI_ENTRY, "the pi CLI entry (node_modules/@earendil-works/pi-coding-agent)");
-      requirePath(EXTENSION_ENTRY, "this working tree's extension entry (extensions/)");
+      requireRealSubagentPaths();
 
       // Scratch fixture, built fresh inside this test's own temp dir: a
       // provider-free `mode: subagent` theta whose final value is a pure tail

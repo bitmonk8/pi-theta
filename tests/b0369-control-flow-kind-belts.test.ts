@@ -125,7 +125,7 @@ import {
 } from "../src/runtime/runtime-panics";
 import type { ThetaValue } from "../src/runtime/value";
 import { parseDeps } from "./helpers/e2e-s1";
-import { assertValue, makeBeltProbes } from "./helpers/runtime-belt-probe-harness";
+import { assertValue, makeBeltProbes, render } from "./helpers/runtime-belt-probe-harness";
 
 const FM = "---\nmode: prompt\n---\n";
 
@@ -166,10 +166,6 @@ function parseTheta(src: string): ThetaDocument {
     );
   }
   return doc;
-}
-
-function render(value: ThetaValue | undefined): string {
-  return value === undefined ? "undefined" : JSON.stringify(value);
 }
 
 // ===========================================================================

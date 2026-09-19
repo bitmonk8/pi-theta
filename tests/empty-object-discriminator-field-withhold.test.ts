@@ -1,7 +1,6 @@
 import { REGISTRY } from "./helpers/registry-oracle";
 import { describe, expect, it } from "vitest";
-// @ts-expect-error — JS code-registry module, no type declarations.
-import { registryMessage } from "../tools/code-registry/index.js";
+import { PARSE_REGISTRY_PATH, registryLineOf } from "./helpers/load-row-harness";
 import type { SourceRange } from "../src/diagnostics/diagnostic";
 import { parseDoc } from "./helpers/e2e-s1";
 
@@ -78,25 +77,6 @@ import { parseDoc } from "./helpers/e2e-s1";
 // ===========================================================================
 
 /**
- * The registry row's normative *Message* template for `code` (DIAG-4). Message
- * text is never hand-copied into this file: definedness is asserted here so a
- * missing or renamed row reds by naming the registry page.
- */
-function messageTemplate(code: string): string {
-  const template = registryMessage(REGISTRY, code) as string | undefined;
-  expect(
-    template,
-    `DIAG-4 anchor: docs/spec_topics/diagnostics/code-registry-parse.md must carry the Message row for ${code}`,
-  ).toBeDefined();
-  return template as string;
-}
-
-/** One rendered diagnostic line, `<severity> <code>: <message>`. */
-function line(code: string, message: string): string {
-  return `error ${code}: ${message}`;
-}
-
-/**
  * `theta/parse/empty-schema-body` rendered for `subject`
  * (code-registry-parse.md:92). Every row of this file expects this line: it is
  * bug 0045's inline rule and the CORRECT half of the pair, unchanged by this
@@ -104,7 +84,7 @@ function line(code: string, message: string): string {
  */
 function emptySchemaBodyLine(subject: string): string {
   const code = "theta/parse/empty-schema-body";
-  return line(code, messageTemplate(code).replace("<X>", subject));
+  return registryLineOf(REGISTRY, PARSE_REGISTRY_PATH, code, [["<X>", subject]]);
 }
 
 /**
@@ -116,7 +96,10 @@ function emptySchemaBodyLine(subject: string): string {
  */
 function nestedDiscriminatorLine(field: string, schema: string): string {
   const code = "theta/parse/nested-discriminator";
-  return line(code, messageTemplate(code).replace("<field>", field).replace("<X>", schema));
+  return registryLineOf(REGISTRY, PARSE_REGISTRY_PATH, code, [
+    ["<field>", field],
+    ["<X>", schema],
+  ]);
 }
 
 /**
@@ -127,7 +110,10 @@ function nestedDiscriminatorLine(field: string, schema: string): string {
  */
 function nonLiteralDiscriminatorLine(field: string, schema: string): string {
   const code = "theta/parse/non-literal-discriminator";
-  return line(code, messageTemplate(code).replace("<field>", field).replace("<X>", schema));
+  return registryLineOf(REGISTRY, PARSE_REGISTRY_PATH, code, [
+    ["<field>", field],
+    ["<X>", schema],
+  ]);
 }
 
 /**
@@ -138,7 +124,7 @@ function nonLiteralDiscriminatorLine(field: string, schema: string): string {
  */
 function malformedSchemaFieldLine(): string {
   const code = "theta/parse/malformed-schema-field";
-  return line(code, messageTemplate(code));
+  return registryLineOf(REGISTRY, PARSE_REGISTRY_PATH, code);
 }
 
 /**
@@ -152,7 +138,10 @@ function malformedSchemaFieldLine(): string {
  */
 function absentDiscriminatorFieldLine(field: string, schema: string): string {
   const code = "theta/parse/absent-discriminator-field";
-  return line(code, messageTemplate(code).replace("<field>", field).replace("<X>", schema));
+  return registryLineOf(REGISTRY, PARSE_REGISTRY_PATH, code, [
+    ["<field>", field],
+    ["<X>", schema],
+  ]);
 }
 
 /**
@@ -164,7 +153,7 @@ function absentDiscriminatorFieldLine(field: string, schema: string): string {
  */
 function missingDiscriminatorLine(schema: string): string {
   const code = "theta/parse/missing-discriminator";
-  return line(code, messageTemplate(code).replace("<X>", schema));
+  return registryLineOf(REGISTRY, PARSE_REGISTRY_PATH, code, [["<X>", schema]]);
 }
 
 // ===========================================================================

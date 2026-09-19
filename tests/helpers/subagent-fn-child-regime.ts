@@ -152,12 +152,12 @@ export class RecordingBus {
   }
 }
 
-/** Shared reportOf fixture for the child-regime witnesses. */
-export function reportOf(value: unknown): Record<string, unknown> {
+/** Narrow the envelope's `Ok` payload to the report object, preserving the fixture's failure context. */
+export function reportOf(value: unknown, fixture: "set" | "pair" = "set"): Record<string, unknown> {
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
     throw new Error(
       `the driven root returned ${JSON.stringify(value)} instead of the R report object — ` +
-        `the fixture set did not reach its tail expression, so no assertion below is meaningful`,
+        `the fixture ${fixture} did not reach its tail expression, so no assertion below is meaningful`,
     );
   }
   return value as Record<string, unknown>;

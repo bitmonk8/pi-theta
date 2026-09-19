@@ -84,9 +84,7 @@
 // caller's own body.
 
 import {
-  PI_CLI_ENTRY,
-  EXTENSION_ENTRY,
-  requirePathFor,
+  requireRealSubagentPathsFor,
   realExecutableHost,
   launchRealSubagentChild,
   childExit,
@@ -498,7 +496,7 @@ const CHILD_MODEL_PROVIDER = "anthropic";
 const CHILD_MODEL_ID = "claude-fable-5";
 
 /** Fail loudly on a missing precondition — never a silent skip (*No silent test skipping*). */
-const requirePath = requirePathFor(
+const requireRealSubagentPaths = requireRealSubagentPathsFor(
   `the bug-0337 mode-invariance ` +
     `witness needs the repo install (npm install); it never silently skips.`,
 );
@@ -577,8 +575,7 @@ describe("bug 0337 (4) MODE-INVARIANCE — cross-file enum inequality is identic
   it(
     "a same-named enum from a different callee file collides with neither the caller's own nor the other callee's, on both legs",
     async () => {
-      requirePath(PI_CLI_ENTRY, "the pi CLI entry (node_modules/@earendil-works/pi-coding-agent)");
-      requirePath(EXTENSION_ENTRY, "this working tree's extension entry (extensions/)");
+      requireRealSubagentPaths();
 
       const scratchDir = mkdtempSync(join(tmpdir(), "pi-theta-bug0337-"));
       const thetaDir = join(scratchDir, "thetas");

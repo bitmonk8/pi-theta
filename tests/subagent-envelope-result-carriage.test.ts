@@ -191,9 +191,7 @@ import {
   envelopeRootDouble as rootDouble,
 } from "./helpers/subagent-fn-child-regime";
 import {
-  PI_CLI_ENTRY,
-  EXTENSION_ENTRY,
-  requirePathFor,
+  requireRealSubagentPathsFor,
   realExecutableHost,
   launchRealSubagentChild,
   childExit,
@@ -1570,7 +1568,7 @@ function errField(outcome: RootOutcome, field: string): unknown {
 }
 
 /** Fail loudly on a missing precondition — never a silent skip (*No silent test skipping*). */
-const requirePath = requirePathFor(
+const requireRealSubagentPaths = requireRealSubagentPathsFor(
   `the bug-0201 Result-carriage witness ` +
     `needs the repo install (npm install) and the built extension entry; it never silently ` +
     `skips.`,
@@ -1587,8 +1585,7 @@ const requirePath = requirePathFor(
  * return-boundary one.
  */
 function requireChildPins(): void {
-  requirePath(PI_CLI_ENTRY, "the pi CLI entry (node_modules/@earendil-works/pi-coding-agent)");
-  requirePath(EXTENSION_ENTRY, "this working tree's extension entry (extensions/)");
+  requireRealSubagentPaths();
   if (SUBAGENT_EXTENSION_PIN_ENV !== "PI_THETA_SUBAGENT_EXTENSION_PIN") {
     throw new Error(
       `precondition unmet: the extension-pin variable is spelled ` +

@@ -69,9 +69,7 @@
 // and each caller uses the explicit `invoke<T>` annotation form.
 
 import {
-  PI_CLI_ENTRY,
-  EXTENSION_ENTRY,
-  requirePathFor,
+  requireRealSubagentPathsFor,
   realExecutableHost,
   launchRealSubagentChild,
   childExit,
@@ -95,7 +93,7 @@ const SUBAGENT_FM = "---\nmode: subagent\n---\n";
 const SEV_DECL = 'enum Sev { Low = "low", High = "high" }\n';
 
 /** Fail loudly on a missing precondition — never a silent skip (*No silent test skipping*). */
-const requirePath = requirePathFor(
+const requireRealSubagentPaths = requireRealSubagentPathsFor(
   `the bug-0342 forwarded-enum ` +
     `witness needs the repo install (npm install); it never silently skips.`,
 );
@@ -186,8 +184,7 @@ describe("bug 0342 — a forwarded enum keeps its declaring file's identity acro
   it(
     "the value C declares and B forwards compares `==` a direct-from-C value and `!=` B's own same-named enum, on the subagent leg as on the attach leg",
     async () => {
-      requirePath(PI_CLI_ENTRY, "the pi CLI entry (node_modules/@earendil-works/pi-coding-agent)");
-      requirePath(EXTENSION_ENTRY, "this working tree's extension entry (extensions/)");
+      requireRealSubagentPaths();
 
       const scratchDir = mkdtempSync(join(tmpdir(), "pi-theta-bug0342-"));
       const thetaDir = join(scratchDir, "thetas");

@@ -33,9 +33,8 @@
 // roots completes through a REAL child [RED until fixed].
 
 import {
-  PI_CLI_ENTRY,
   EXTENSION_ENTRY,
-  requirePathFor,
+  requireRealSubagentPathsFor,
   realExecutableHost,
   launchRealSubagentChild,
   childExit,
@@ -192,7 +191,7 @@ const CHILD_MODEL_PROVIDER = "fable";
 const CHILD_MODEL_ID = "claude-fable-5";
 
 /** Fail loudly on a missing precondition — never a silent skip (*No silent test skipping*). */
-const requirePath = requirePathFor(
+const requireRealSubagentPaths = requireRealSubagentPathsFor(
   `the bug-0008 real-spawn ` +
     `regression test needs the repo install (npm install); it never silently skips.`,
 );
@@ -201,8 +200,7 @@ describe("bug 0008 — real subagent child with TWO discovery roots (production 
   it(
     "a callee living in the FIRST of two roots registers in the child and completes (no last-root-wins drop)",
     async () => {
-      requirePath(PI_CLI_ENTRY, "the pi CLI entry (node_modules/@earendil-works/pi-coding-agent)");
-      requirePath(EXTENSION_ENTRY, "this working tree's extension entry (extensions/)");
+      requireRealSubagentPaths();
 
       // Scratch fixture: TWO roots, each holding a registrable provider-free
       // `mode: subagent` theta (pure tail expression — zero queries, zero

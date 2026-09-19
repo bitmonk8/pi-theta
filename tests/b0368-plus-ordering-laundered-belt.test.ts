@@ -90,16 +90,14 @@
 
 import { describe, expect, it } from "vitest";
 import type { ThetaSource } from "../src/lexer/lexer";
-import type { SystemNoteChannelDeps } from "../src/extension/system-note-channel";
-import type { ModelReferenceMatcher } from "../src/parser/frontmatter";
 import {
   parseThetaDocument,
-  type ParseThetaDocumentDeps,
   type ThetaDocument,
 } from "../src/parser/theta-document";
 import { type BodyExecution } from "../src/runtime/statement-executor";
 import type { ThetaValue } from "../src/runtime/value";
-import { assertInternalError, assertValue, makeBeltProbes } from "./helpers/runtime-belt-probe-harness";
+import { parseDeps } from "./helpers/e2e-s1";
+import { assertInternalError, assertValue, makeBeltProbes, render } from "./helpers/runtime-belt-probe-harness";
 
 const FM = "---\nmode: prompt\n---\n";
 
@@ -117,16 +115,6 @@ const SITE = {
 // createProductionProducerDeps → bindPromptConversation → executeBody. Offline,
 // provider-free, deterministic.
 // ===========================================================================
-
-function parseDeps(): ParseThetaDocumentDeps {
-  const systemNote: SystemNoteChannelDeps = {
-    pi: { sendMessage: (): void => {} },
-    ui: { notify: (): void => {} },
-    emitDiagnostic: (): void => {},
-  };
-  const modelMatcher: ModelReferenceMatcher = { resolve: (): "resolved" => "resolved" };
-  return { systemNote, modelMatcher };
-}
 
 function parseOnly(src: string): ThetaDocument {
   const source: ThetaSource = { path: "b0368.theta", bytes: new TextEncoder().encode(FM + src) };
@@ -150,10 +138,6 @@ function parseTheta(src: string): ThetaDocument {
     );
   }
   return doc;
-}
-
-function render(value: ThetaValue | undefined): string {
-  return value === undefined ? "undefined" : JSON.stringify(value);
 }
 
 // ===========================================================================

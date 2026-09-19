@@ -121,9 +121,7 @@
 // in declaration order).
 
 import {
-  PI_CLI_ENTRY,
-  EXTENSION_ENTRY,
-  requirePathFor,
+  requireRealSubagentPathsFor,
   realExecutableHost,
   launchRealSubagentChild,
   childExit,
@@ -179,7 +177,7 @@ const FENCE_BIND_MODEL = "anthropic/claude-haiku-4-5";
 const ROW_WATCHDOG_MS = 120_000;
 
 /** Fail loudly on a missing precondition — never a silent skip (*No silent test skipping*). */
-const requirePath = requirePathFor(
+const requireRealSubagentPaths = requireRealSubagentPathsFor(
   `the bug-0178 subagent-root ` +
     `binder-model-exemption witness needs the repo install (npm install); it never ` +
     `silently skips.`,
@@ -432,8 +430,7 @@ describe("bug 0178 — a spawned subagent child registers the marked root theta 
   it(
     "every non-bypass `params:` shape returns its marshalled value through the envelope with no model turn",
     async () => {
-      requirePath(PI_CLI_ENTRY, "the pi CLI entry (node_modules/@earendil-works/pi-coding-agent)");
-      requirePath(EXTENSION_ENTRY, "this working tree's extension entry (extensions/)");
+      requireRealSubagentPaths();
 
       // One discovery root holds every fixture so the root theta's `./` callee
       // path resolves beside it; the planted settings file sits in `.pi/` with

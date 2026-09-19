@@ -3,8 +3,8 @@ import {
   createTypePositionMatrix,
   expectCaptured,
   expectRows,
-  loadRow,
-  LOAD_ROW_FRONTMATTER,
+  loadRowFromBody,
+  loadRowFromParam,
   PARSE_REGISTRY as REGISTRY,
   PARSE_REGISTRY_PATH as REGISTRY_PATH,
   registered,
@@ -194,16 +194,11 @@ function arityLine(ctor: string, expected: number, actual: number): string {
 // are the shared harness in `tests/helpers/load-row-harness.ts` (also used by
 // tests/b0274-reserved-keyword-type-head-at-five-unwired-captures.test.ts and
 // tests/b0277-unapplied-generic-head-at-five-filtered-captures.test.ts);
-// `row`, `theta` and `paramsTheta` stay local, bound to this file's fixture path.
-
-/** A parsed document wrapped as a row, so every group reads one shape. */
-function row(label: string, source: string): LoadRow {
-  return loadRow(label, source, "b0282.theta");
-}
+// `theta` and `paramsTheta` stay local, bound to this file's fixture path.
 
 /** A `mode: prompt` theta whose body is `body` verbatim, parsed once. */
 function theta(label: string, body: string): LoadRow {
-  return row(label, `${LOAD_ROW_FRONTMATTER}${body}\n`);
+  return loadRowFromBody(label, body, "b0282.theta");
 }
 
 /**
@@ -214,10 +209,7 @@ function theta(label: string, body: string): LoadRow {
  * precondition has a statement to read.
  */
 function paramsTheta(label: string, typeText: string): LoadRow {
-  return row(
-    label,
-    `---\ndescription: d\nmode: prompt\nparams:\n  p: '${typeText}'\n---\n\nlet z = 1\n"ok"\n`,
-  );
+  return loadRowFromParam(label, typeText, "b0282.theta");
 }
 
 // ===========================================================================

@@ -1,8 +1,6 @@
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
+import { REGISTRY } from "./helpers/registry-oracle";
 import { describe, expect, it } from "vitest";
-// @ts-expect-error — JS code-registry module, no type declarations.
-import { parseRegistry, registryMessage } from "../tools/code-registry/index.js";
+import { PARSE_REGISTRY_PATH, registryLineOf, registryMessageOf } from "./helpers/load-row-harness";
 import {
   checkDiscriminatedUnion,
   type DiscriminatorCandidateField,
@@ -90,50 +88,10 @@ import { parseDoc, capturedSchemas, type CapturedSchema } from "./helpers/e2e-s1
 // The diagnostic oracle — the registry's *Message* column (DIAG-4).
 // ===========================================================================
 
-interface RegistryRow {
-  readonly code: string;
-  readonly message: string;
-}
-
-const REGISTRY = parseRegistry(
-  [
-    "code-registry-parse.md",
-    "code-registry-load.md",
-    "code-registry-runtime.md",
-    "code-registry-host.md",
-  ]
-    .map((page) =>
-      readFileSync(
-        fileURLToPath(new URL(`../docs/spec_topics/diagnostics/${page}`, import.meta.url)),
-        "utf8",
-      ),
-    )
-    .join("\n"),
-) as RegistryRow[];
-
 /** The code this report mints (bug 0128 §Fix (b) candidate 1). */
 const NON_LITERAL = "theta/parse/non-literal-discriminator";
 /** Bug 0046 §Fix, settled route: an explicit `by` naming a field a variant does not declare — the boundary this file's own seam cell owns below. */
 const ABSENT_FIELD = "theta/parse/absent-discriminator-field";
-
-/**
- * The registry row's normative *Message* template for `code`. Definedness is
- * asserted here so a missing or renamed row reds by naming the registry page
- * rather than by a bare `undefined` comparison downstream.
- */
-function messageTemplate(code: string): string {
-  const template = registryMessage(REGISTRY, code) as string | undefined;
-  expect(
-    template,
-    `DIAG-4 anchor: docs/spec_topics/diagnostics/code-registry-parse.md must carry the Message row for ${code}`,
-  ).toBeDefined();
-  return template as string;
-}
-
-/** One rendered diagnostic line, `<severity> <code>: <message>`. */
-function line(code: string, message: string): string {
-  return `error ${code}: ${message}`;
-}
 
 /**
  * `theta/parse/non-literal-discriminator` rendered for `field` on `schema`.
@@ -143,42 +101,43 @@ function line(code: string, message: string): string {
  * no rendering category.
  */
 function nonLiteralDiscriminatorLine(field: string, schema: string): string {
-  return line(
-    NON_LITERAL,
-    messageTemplate(NON_LITERAL).replace("<field>", field).replace("<X>", schema),
-  );
+  return registryLineOf(REGISTRY, PARSE_REGISTRY_PATH, NON_LITERAL, [
+    ["<field>", field],
+    ["<X>", schema],
+  ]);
 }
 
 /** `theta/parse/absent-discriminator-field` rendered for `field` on `schema` (bug 0046). */
 function absentDiscriminatorFieldLine(field: string, schema: string): string {
-  return line(
-    ABSENT_FIELD,
-    messageTemplate(ABSENT_FIELD).replace("<field>", field).replace("<X>", schema),
-  );
+  return registryLineOf(REGISTRY, PARSE_REGISTRY_PATH, ABSENT_FIELD, [
+    ["<field>", field],
+    ["<X>", schema],
+  ]);
 }
 
 /** `theta/parse/missing-discriminator` rendered for `schema` — the no-clause column. */
 function missingDiscriminatorLine(schema: string): string {
   const code = "theta/parse/missing-discriminator";
-  return line(code, messageTemplate(code).replace("<X>", schema));
+  return registryLineOf(REGISTRY, PARSE_REGISTRY_PATH, code, [["<X>", schema]]);
 }
 
 /** `theta/parse/nested-discriminator` rendered for `field` on `schema` (control A11/A12/B4). */
 function nestedDiscriminatorLine(field: string, schema: string): string {
   const code = "theta/parse/nested-discriminator";
-  return line(code, messageTemplate(code).replace("<field>", field).replace("<X>", schema));
+  return registryLineOf(REGISTRY, PARSE_REGISTRY_PATH, code, [
+    ["<field>", field],
+    ["<X>", schema],
+  ]);
 }
 
 /** `theta/parse/non-string-discriminator` rendered for `field` on `schema` (control A14). */
 function nonStringDiscriminatorLine(field: string, schema: string, kind: string): string {
   const code = "theta/parse/non-string-discriminator";
-  return line(
-    code,
-    messageTemplate(code)
-      .replace("<field>", field)
-      .replace("<X>", schema)
-      .replace("<kind>", kind),
-  );
+  return registryLineOf(REGISTRY, PARSE_REGISTRY_PATH, code, [
+    ["<field>", field],
+    ["<X>", schema],
+    ["<kind>", kind],
+  ]);
 }
 
 // ===========================================================================
@@ -747,7 +706,7 @@ describe("bug 0128 registry — the minted code's row", () => {
     // prose appears in this file — because a row that existed with different
     // bytes would otherwise make every message assertion above vacuously
     // agree with whatever the registry says.
-    expect(messageTemplate(NON_LITERAL)).toBe(
+    expect(registryMessageOf(REGISTRY, PARSE_REGISTRY_PATH, NON_LITERAL)).toBe(
       "discriminator '<field>' on <X> must be a single string-literal type in every variant",
     );
   });

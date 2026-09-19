@@ -1,7 +1,6 @@
 import { REGISTRY } from "./helpers/registry-oracle";
 import { describe, expect, it } from "vitest";
-// @ts-expect-error — JS code-registry module, no type declarations.
-import { registryMessage } from "../tools/code-registry/index.js";
+import { PARSE_REGISTRY_PATH, registryLineOf } from "./helpers/load-row-harness";
 import { isSingleEnclosingBraceGroup } from "../src/parser/body-type-lowering";
 import { splitTopLevel } from "../src/parser/params";
 import {
@@ -91,25 +90,6 @@ import { parseDoc, capturedSchemas, type CapturedSchema } from "./helpers/e2e-s1
 // ===========================================================================
 
 /**
- * The registry row's normative *Message* template for `code`. Definedness is
- * asserted here so a missing or renamed row reds by naming the registry page
- * rather than by a bare `undefined` comparison downstream.
- */
-function messageTemplate(code: string): string {
-  const template = registryMessage(REGISTRY, code) as string | undefined;
-  expect(
-    template,
-    `DIAG-4 anchor: docs/spec_topics/diagnostics/code-registry-parse.md must carry the Message row for ${code}`,
-  ).toBeDefined();
-  return template as string;
-}
-
-/** One rendered diagnostic line, `<severity> <code>: <message>`. */
-function line(code: string, message: string): string {
-  return `error ${code}: ${message}`;
-}
-
-/**
  * `theta/parse/nested-discriminator` rendered for `field` on `schema`
  * (code-registry-parse.md:98). This is the whole observable surface of the
  * misclassification: the only reader of `anyNested`
@@ -117,10 +97,10 @@ function line(code: string, message: string): string {
  */
 function nestedDiscriminatorLine(field: string, schema: string): string {
   const code = "theta/parse/nested-discriminator";
-  return line(
-    code,
-    messageTemplate(code).replace("<field>", field).replace("<X>", schema),
-  );
+  return registryLineOf(REGISTRY, PARSE_REGISTRY_PATH, code, [
+    ["<field>", field],
+    ["<X>", schema],
+  ]);
 }
 
 /**
@@ -130,7 +110,7 @@ function nestedDiscriminatorLine(field: string, schema: string): string {
  */
 function missingDiscriminatorLine(schema: string): string {
   const code = "theta/parse/missing-discriminator";
-  return line(code, messageTemplate(code).replace("<X>", schema));
+  return registryLineOf(REGISTRY, PARSE_REGISTRY_PATH, code, [["<X>", schema]]);
 }
 
 /**
@@ -143,7 +123,10 @@ function missingDiscriminatorLine(schema: string): string {
  */
 function nonLiteralDiscriminatorLine(field: string, schema: string): string {
   const code = "theta/parse/non-literal-discriminator";
-  return line(code, messageTemplate(code).replace("<field>", field).replace("<X>", schema));
+  return registryLineOf(REGISTRY, PARSE_REGISTRY_PATH, code, [
+    ["<field>", field],
+    ["<X>", schema],
+  ]);
 }
 
 /**
@@ -155,7 +138,7 @@ function nonLiteralDiscriminatorLine(field: string, schema: string): string {
  */
 function emptySchemaBodyLine(subject: string): string {
   const code = "theta/parse/empty-schema-body";
-  return line(code, messageTemplate(code).replace("<X>", subject));
+  return registryLineOf(REGISTRY, PARSE_REGISTRY_PATH, code, [["<X>", subject]]);
 }
 
 /**
@@ -169,10 +152,9 @@ function emptySchemaBodyLine(subject: string): string {
  */
 function commaSeparatedFieldsLine(): string {
   const code = "theta/parse/unsupported-feature";
-  return line(
-    code,
-    messageTemplate(code).replace("<construct>", "schema fields must be comma-separated"),
-  );
+  return registryLineOf(REGISTRY, PARSE_REGISTRY_PATH, code, [
+    ["<construct>", "schema fields must be comma-separated"],
+  ]);
 }
 
 // ===========================================================================
