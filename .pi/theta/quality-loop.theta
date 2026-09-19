@@ -181,7 +181,8 @@ let mut total_clusters_reverted = 0
 let mut total_picked = 0
 let mut total_deferred = 0
 
-while cycle < max_cycles && !converged {
+let mut provider_halt = false
+while cycle < max_cycles && !converged && !provider_halt {
   cycle += 1
   let wave = bash({ command: "date -u +qw%Y%m%d%H%M%S" })?.trim()
   let review_sha = bash({ command: "git rev-parse HEAD" })?.trim()
@@ -387,6 +388,7 @@ while cycle < max_cycles && !converged {
     }
 
     let mut greens: array<Green> = []
+    let mut infra_aborts = 0
     let mut gi = 0
     while gi < work.length {
       let rep = match reports[gi] {
@@ -398,8 +400,26 @@ while cycle < max_cycles && !converged {
       } else {
         total_clusters_reverted += 1
         report = report + "wave " + wave + ": cluster " + work[gi].key + " not fixed in its worktree - " + rep.notes + "\n"
+        // An INFRA-shaped failure, distinct from an honest fix rejection: the
+        // fixer invoke itself died (wrapper lane abort) or the wrapper invoke
+        // died. When EVERY picked lane fails this way in one wave the fixer
+        // model is unreachable (VPN down, provider outage, expired auth) -
+        // observed 2026-09-19: a VPN drop ran 4 identical zero-progress
+        // cycles in 80 s, each leaving Err-linger panes (bug 0485).
+        if rep.notes.includes("fixer invoke failed") || rep.notes.includes("tree worker failed") {
+          infra_aborts += 1
+        }
       }
       gi += 1
+    }
+
+    // Provider circuit breaker: a wave whose ENTIRE pick died infra-shaped
+    // will not do better next wave - the loop would re-pick the same
+    // clusters and burn max_cycles against a dead provider. Halt at the wave
+    // boundary instead; the backlog is untouched and a re-run resumes.
+    if work.length > 0 && infra_aborts == work.length {
+      report = report + "wave " + wave + ": HALTED - every picked lane (" + (work.length == 1 ? "1" : "several") + ") aborted with an infra-shaped fixer-invoke failure; the fixer model looks unreachable (VPN down? provider outage? expired auth). Probe it (e.g. a one-line prompt against the fixer model) and re-run.\n"
+      provider_halt = true
     }
 
     // ---- 7. integrate sequentially: cherry-pick, ONE batch gate, revert last-to-first ----

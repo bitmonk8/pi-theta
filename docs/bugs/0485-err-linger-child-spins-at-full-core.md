@@ -40,6 +40,13 @@
   `fix-cluster` processes after a wave with lane aborts (delta-check first:
   a 0-delta linger is the sanctioned idle shape and safe to leave).
 
+**Second sighting (2026-09-19 11:03):** a VPN drop made every fixer child's
+first provider call fail instantly - 8 more Err-linger spinners accumulated
+in ~80 s (two per wave across 4 zero-progress cycles), each pinning a core
+for ~25 min until killed by hand. Provider-outage waves are a spin
+MULTIPLIER; the quality-loop provider circuit breaker (halt when a whole
+wave's lanes abort infra-shaped) now bounds the accumulation per run.
+
 ## Fix directions (spec-before-code, next cycle)
 
 1. Diagnose the hot site with the minimal repro above (focused vs unattended
