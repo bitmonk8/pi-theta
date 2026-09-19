@@ -5,7 +5,7 @@
  * routing step, the post-merge hook and the inbound union-arm re-test all
  * resolve through one compiled-validator cache exactly as production does.
  */
-import { ajv as realAjvValidator, AJV_SUMMARY_SEPARATOR, ajvArgsNote } from "./helpers/scripted-live-session-harness";
+import { ajv as realAjvValidator, scriptEnvelope, AJV_SUMMARY_SEPARATOR, ajvArgsNote } from "./helpers/scripted-live-session-harness";
 import {
   SEAM_NOOP_CHECKPOINT as NOOP_CHECKPOINT,
   SEAM_NOOP_SINK as NOOP_SINK,
@@ -408,33 +408,17 @@ function inertExecuteDeps(body: ThetaBody, file: string): ExecuteBodyDeps {
   };
 }
 
-/** A ToolCall-bearing assistant reply (the pi-ai `ToolCall` content-part shape). */
-function toolCallReply(name: string, args: Record<string, unknown>): unknown {
-  return {
-    role: "assistant",
-    content: [{ type: "toolCall", id: "tc-1", name, arguments: args }],
-    stopReason: "toolUse",
-    timestamp: 0,
-  };
-}
-
 /**
  * Script a ToolCall reply carrying `{ envelope }`, naming the binder tool
  * production actually attached on the captured call — so the reply matches
  * whatever slug production derives for this fixture's envelope schema.
  */
 function scriptToolCallEnvelope(envelope: unknown): void {
-  scripted.replyFor = (context) => {
-    const tools = (context as { readonly tools?: ReadonlyArray<{ readonly name?: unknown }> })
-      .tools;
-    const name = tools?.[0]?.name;
-    if (typeof name !== "string") {
-      throw new Error(
-        "the binder call attached no forced tool, so no ToolCall reply can name it — the harness cannot script an envelope",
-      );
-    }
-    return toolCallReply(name, { envelope });
-  };
+  scriptEnvelope(
+    scripted,
+    envelope,
+    "the binder call attached no forced tool, so no ToolCall reply can name it — the harness cannot script an envelope",
+  );
 }
 
 /** Everything one driven dispatch exposes. */

@@ -215,6 +215,41 @@ export const TWO_PARAM_THETA = [
   "",
 ].join("\n");
 
+/**
+ * The five-deep named-schema chain: the shape whose lowered fragment ADMITS a
+ * depth-6 `params` document, so the depth breach reaches the post-default-merge
+ * hook instead of being stopped by the envelope AJV at extraction. Each link is
+ * a body `schema` declaration, resolved whole-file from the `params:` RHS.
+ */
+export const DEEP_CHAIN_BODY = [
+  "schema L1 { a: L2 }",
+  "schema L2 { b: L3 }",
+  "schema L3 { c: L4 }",
+  "schema L4 { d: L5 }",
+  "schema L5 { e: string }",
+].join("\n");
+
+/**
+ * The depth chain with NO declared default (bug 0066 §Fix constraint 5):
+ * enforcement point #4 applies even when `params.defaultedFields` is empty.
+ * One non-string field keeps this off `classifyBinderBypass`'s single-string
+ * bypass, so it is a genuine binder pass.
+ */
+export const DEEP_NO_DEFAULT_THETA = [
+  "---",
+  "mode: prompt",
+  "bind_model: binder-model",
+  "params:",
+  "  p: L1",
+  "---",
+  DEEP_CHAIN_BODY,
+  "@`p bound`",
+  "",
+].join("\n");
+
+/** The depth-6 merged-args document admitted by the deep chain. */
+export const DEPTH_6_ARGS = { p: { a: { b: { c: { d: { e: "x" } } } } } } as const;
+
 const BINDER_MODEL = {
   id: "binder-model",
   provider: "anthropic-messages",
@@ -283,12 +318,21 @@ export function scriptEnvelope(
   envelope: unknown,
   missingToolMessage?: string,
 ): void {
-  scripted.replyFor = (context: unknown): unknown => {
+  scripted.replyFor = envelopeReplyFor(envelope, missingToolMessage);
+}
+
+/** Build the context-only reply callback for holders with different complete() signatures. */
+export function envelopeReplyFor(
+  envelope: unknown,
+  missingToolMessage?: string,
+  fallbackToolName = "__theta_bind_none",
+): (context: unknown) => unknown {
+  return (context: unknown): unknown => {
     const tools = (context as { tools?: ReadonlyArray<{ name?: unknown }> }).tools;
     if (typeof tools?.[0]?.name !== "string" && missingToolMessage !== undefined) {
       throw new Error(missingToolMessage);
     }
-    const name = typeof tools?.[0]?.name === "string" ? tools[0].name : "__theta_bind_none";
+    const name = typeof tools?.[0]?.name === "string" ? tools[0].name : fallbackToolName;
     return {
       role: "assistant",
       content: [{ type: "toolCall", id: "tc-1", name, arguments: { envelope } }],

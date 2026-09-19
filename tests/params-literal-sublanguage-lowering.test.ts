@@ -5,11 +5,8 @@ import { buildBinderEnvelopeSchema } from "../src/binder/binder-envelope";
 import { renderBinderParamLine } from "../src/binder/binder-system-prompt";
 import type { EnumDecl, SchemaDecl, ThetaDocument } from "../src/parser/theta-document";
 import { lowerQueryResponseSchema } from "../src/runtime/query-schema-lowering";
-import {
-  AjvSchemaValidator,
-  type LoweredSchema,
-  type SchemaSlug,
-} from "../src/seams/schema-validator";
+import type { LoweredSchema } from "../src/seams/schema-validator";
+import { ajv } from "./helpers/scripted-live-session-harness";
 import { yamlQuoted, parseDoc, diagLines } from "./helpers/e2e-s1";
 
 // Bug 0056 — theta has ONE type grammar and FOUR positions that lower a type
@@ -424,15 +421,6 @@ function paramsDocument(label: string, typeSource: string): LoweredSchema {
     );
   }
   return read.document;
-}
-
-/** The real AJV seam — `strict: false`, `allErrors: true`, the shipped validator. */
-function ajv(): AjvSchemaValidator {
-  const slugOf = (schema: LoweredSchema): SchemaSlug => ({
-    slug: JSON.stringify(schema),
-    canonicalBytes: JSON.stringify(schema),
-  });
-  return new AjvSchemaValidator({ emit: () => {}, slugOf });
 }
 
 // ===========================================================================

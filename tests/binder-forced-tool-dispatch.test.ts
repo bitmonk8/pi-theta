@@ -144,6 +144,7 @@ import {
   producerWithCapture as sharedProducerWithCapture,
   type CapturedNote,
   capturedCallAccessors,
+  envelopeReplyFor,
   driveBinder as driveBinderWithContext,
   thetaInput as parsedThetaInput,
   noteChannelEntries,
@@ -353,8 +354,8 @@ function toolCallReply(name: string, args: Record<string, unknown>): unknown {
  * matches the sent tool, whatever slug production derives).
  */
 function scriptToolCallEnvelope(envelope: unknown): void {
-  scripted.replyFor = (_model, context) =>
-    toolCallReply(attachedBinderToolName(context), { envelope });
+  const replyFor = envelopeReplyFor(envelope, undefined, HEAD_FALLBACK_TOOL_NAME);
+  scripted.replyFor = (_model, context) => replyFor(context);
 }
 
 /** An assistant reply whose text content is the given free-text envelope JSON. */

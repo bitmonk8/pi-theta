@@ -1,9 +1,8 @@
 import { registryMessageOf } from "./helpers/load-row-harness";
 import { REGISTRY } from "./helpers/registry-oracle";
 import { describe, expect, it } from "vitest";
-import type { Diagnostic } from "../src/diagnostics/diagnostic";
 import type { ThetaDocument } from "../src/parser/theta-document";
-import { diag, parseDoc, rendered } from "./helpers/e2e-s1";
+import { diag, isLoadParseError, parseDoc, rendered } from "./helpers/e2e-s1";
 
 // Bug 0149 — the FIELD-NAME positions of the lowercase-first identifier rule,
 // and the diagnostic they draw
@@ -215,11 +214,7 @@ function bcm(line: number, startColumn: number, endColumn: number): string {
  * registration, which is why row w2 registers and row w1 does not.
  */
 function registers(doc: ThetaDocument): boolean {
-  return !doc.diagnostics.some(
-    (d: Diagnostic) =>
-      d.severity === "error" &&
-      (d.code.startsWith("theta/load/") || d.code.startsWith("theta/parse/")),
-  );
+  return !doc.diagnostics.some(isLoadParseError);
 }
 
 // ===========================================================================

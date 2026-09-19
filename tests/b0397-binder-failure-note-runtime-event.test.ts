@@ -63,6 +63,10 @@ import {
   producerWithCapture,
   noteChannelEntries as channelNotes,
   type CapturedNote,
+  TWO_PARAM_THETA,
+  DEEP_NO_DEFAULT_THETA as DEEP_CHAIN_THETA,
+  DEPTH_6_ARGS,
+  scriptEnvelope,
 } from "./helpers/scripted-live-session-harness";
 
 // A pinned wall clock so the runtime-event `occurred_at` (stamped via
@@ -124,50 +128,15 @@ function rootDouble(): RuntimeRoot {
 
 // --- the driven thetas ------------------------------------------------------
 
-/** Two required string params — a genuine binder pass with no defaulted fields. */
-const TWO_PARAM_THETA = [
-  "---",
-  "mode: prompt",
-  "bind_model: binder-model",
-  "params:",
-  "  topic: string",
-  "  audience: string",
-  "---",
-  "@`review ${topic} for ${audience}`",
-  "",
-].join("\n");
 const TWO_PARAM_PATH = "/theta/code-review.theta";
-
-/**
- * A five-deep named-schema chain whose lowered fragment ADMITS a depth-6
- * `params` document, so a depth-6 `ok`-envelope `args` reaches the
- * post-default-merge hook and cross-routes into the AJV-on-`args` class
- * (`ajv_args`) rather than being stopped by the envelope AJV at extraction. No
- * declared default → the depth walk over the binder's own args is the subject.
- */
-const DEEP_CHAIN_THETA = [
-  "---",
-  "mode: prompt",
-  "bind_model: binder-model",
-  "params:",
-  "  p: L1",
-  "---",
-  "schema L1 { a: L2 }",
-  "schema L2 { b: L3 }",
-  "schema L3 { c: L4 }",
-  "schema L4 { d: L5 }",
-  "schema L5 { e: string }",
-  "@`p bound`",
-  "",
-].join("\n");
 const DEEP_CHAIN_PATH = "/theta/b0397deep.theta";
-const DEPTH_6_ARGS = { p: { a: { b: { c: { d: { e: "x" } } } } } } as const;
 
 const SOURCES: ReadonlyMap<string, string> = new Map([
   [TWO_PARAM_PATH, TWO_PARAM_THETA],
   [DEEP_CHAIN_PATH, DEEP_CHAIN_THETA],
 ]);
 
+/** Two required string params — a genuine binder pass with no defaulted fields. */
 function twoParamTheta(): ThetaCompositionInput {
   const doc = parse(TWO_PARAM_THETA, TWO_PARAM_PATH, "binder");
   return {
@@ -191,26 +160,6 @@ function deepChainTheta(): ThetaCompositionInput {
 }
 
 // --- scripted binder replies (one per failure route) ------------------------
-
-/**
- * Script a ToolCall reply carrying `{ envelope }`, naming the binder tool
- * production attached on the captured call (`context.tools[0].name`) — the
- * bug-0011 forced-tool extraction reads the envelope from the FIRST ToolCall
- * naming the binder tool. Reaches the `needs_info` / `ambiguous` / `ajv_args`
- * routes (which classify off the extracted envelope).
- */
-function scriptEnvelope(envelope: unknown): void {
-  scripted.replyFor = (context: unknown): unknown => {
-    const tools = (context as { tools?: ReadonlyArray<{ name?: unknown }> }).tools;
-    const name = typeof tools?.[0]?.name === "string" ? tools[0].name : "__theta_bind_none";
-    return {
-      role: "assistant",
-      content: [{ type: "toolCall", id: "tc-1", name, arguments: { envelope } }],
-      stopReason: "toolUse",
-      timestamp: 0,
-    };
-  };
-}
 
 /**
  * A free-text reply naming no binder tool → the envelope cannot be extracted →
@@ -389,7 +338,7 @@ function assertFailureEvent(
 
 describe("bug 0397 — binder-failure notes carry details: { event: RuntimeEvent } sourced from the registry entry", () => {
   it("needs_info route: details.event.kind === \"needs_info\", sourced fields present, query_site absent", async () => {
-    scriptEnvelope({ kind: "needs_info", message: "which topic?" });
+    scriptEnvelope(scripted, { kind: "needs_info", message: "which topic?" });
 
     const outcome = await driveDispatch(twoParamTheta(), "vague", ctxWith());
 
@@ -405,7 +354,7 @@ describe("bug 0397 — binder-failure notes carry details: { event: RuntimeEvent
     // (`binder-envelope.ts` — `required: ["kind", "message", "candidates"]`, nullable);
     // omitting it fails the envelope's own AJV routing check and cross-routes to
     // `malformed`, not the `ambiguous` route this cell means to witness.
-    scriptEnvelope({ kind: "ambiguous", message: "topic or audience is unclear", candidates: null });
+    scriptEnvelope(scripted, { kind: "ambiguous", message: "topic or audience is unclear", candidates: null });
 
     const outcome = await driveDispatch(twoParamTheta(), "either way", ctxWith());
 
@@ -425,7 +374,7 @@ describe("bug 0397 — binder-failure notes carry details: { event: RuntimeEvent
   });
 
   it("ajv_args route: a depth-6 `ok`-envelope args cross-routes at the post-merge hook → details.event.kind === \"ajv_args\"", async () => {
-    scriptEnvelope({ kind: "ok", args: DEPTH_6_ARGS });
+    scriptEnvelope(scripted, { kind: "ok", args: DEPTH_6_ARGS });
 
     const outcome = await driveDispatch(deepChainTheta(), "go", ctxWith());
 
@@ -461,7 +410,7 @@ describe("bug 0397 — binder-failure notes carry details: { event: RuntimeEvent
     // Green BOTH directions: the `content` half is correct today (§Non-goals);
     // this locks that the fix does not perturb the user-facing bytes. The
     // needs_info row's template interpolates the model message after the em-dash.
-    scriptEnvelope({ kind: "needs_info", message: "which topic?" });
+    scriptEnvelope(scripted, { kind: "needs_info", message: "which topic?" });
 
     const outcome = await driveDispatch(twoParamTheta(), "vague", ctxWith());
 

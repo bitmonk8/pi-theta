@@ -4,14 +4,7 @@ import {
   SEAM_NOOP_MUTATOR,
 } from "./helpers/invoke-seam-scaffold";
 import { parseDeps } from "./helpers/e2e-s1";
-/**
- * The production AJV validator, wired with the same `JSON.stringify`
- * content-addressing the shipped composition root uses
- * (`src/extension/production-composition.ts`), so the envelope AJV at the
- * routing step and the post-merge hook resolve through one compiled-validator
- * cache exactly as production does.
- */
-import { ajv as realAjvValidator, EM_DASH, ajvArgsNote } from "./helpers/scripted-live-session-harness";
+import { rootDouble, scriptEnvelope, EM_DASH, ajvArgsNote } from "./helpers/scripted-live-session-harness";
 import { REGISTRY } from "./helpers/registry-oracle";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -280,7 +273,6 @@ import {
   type ThetaDocument,
 } from "../src/parser/theta-document";
 import type { ThetaSource } from "../src/lexer/lexer";
-import type { RuntimeRoot } from "../src/runtime-root";
 import { buildEnvironment } from "../src/runtime/lexical-environment";
 import {
   createEffectfulStatementHost,
@@ -673,28 +665,6 @@ function parseDrivenCell(name: CellName): ThetaDocument {
 }
 
 /**
- * A runtime-root double sufficient for a binder pass: noop checkpoint,
- * deterministic ids, wall-clock zero, the REAL AJV validator, and an in-memory
- * fs resolving the fixture sources by `sourcePath`.
- */
-function rootDouble(): RuntimeRoot {
-  return {
-    checkpoint: { before: (): Promise<void> => Promise.resolve() },
-    idSource: { newInvocationId: (): string => "inv-1", newToolCallId: (): string => "tc-1" },
-    clock: { wallNow: (): number => 0 },
-    schemaValidator: realAjvValidator(),
-    fileSystem: {
-      readBytes: (path: string): Promise<Uint8Array> => {
-        const src = FIXTURE_SOURCES.get(path);
-        return src !== undefined
-          ? Promise.resolve(new TextEncoder().encode(src))
-          : Promise.reject(new Error(`fixture fs: no source registered for ${path}`));
-      },
-    },
-  } as unknown as RuntimeRoot;
-}
-
-/**
  * Executor deps over the driven fixture's own body. The bodies are declarations
  * only, so every effect resolver throws rather than returning a double: a
  * fixture that grew a tail would fail loudly here instead of quietly binding
@@ -730,33 +700,17 @@ function inertExecuteDeps(body: ThetaBody, file: string): ExecuteBodyDeps {
   };
 }
 
-/** A ToolCall-bearing assistant reply (the pi-ai `ToolCall` content-part shape). */
-function toolCallReply(name: string, args: Record<string, unknown>): unknown {
-  return {
-    role: "assistant",
-    content: [{ type: "toolCall", id: "tc-1", name, arguments: args }],
-    stopReason: "toolUse",
-    timestamp: 0,
-  };
-}
-
 /**
  * Script a ToolCall reply carrying `{ envelope }`, naming the binder tool
  * production actually attached on the captured call — so the reply matches
  * whatever slug production derives for this fixture's envelope schema.
  */
 function scriptToolCallEnvelope(envelope: unknown): void {
-  scripted.replyFor = (context) => {
-    const tools = (context as { readonly tools?: ReadonlyArray<{ readonly name?: unknown }> })
-      .tools;
-    const name = tools?.[0]?.name;
-    if (typeof name !== "string") {
-      throw new Error(
-        "the binder call attached no forced tool, so no ToolCall reply can name it — the harness cannot script an envelope",
-      );
-    }
-    return toolCallReply(name, { envelope });
-  };
+  scriptEnvelope(
+    scripted,
+    envelope,
+    "the binder call attached no forced tool, so no ToolCall reply can name it — the harness cannot script an envelope",
+  );
 }
 
 /**
@@ -862,7 +816,17 @@ async function driveSlash(name: CellName, options?: DriveOptions): Promise<Dispa
     ],
     getApiKeyAndHeaders: async (): Promise<{ ok: boolean }> => ({ ok: true }),
   } as unknown as ModelRegistry;
-  const production = createProductionProducerDeps({ pi, root: rootDouble(), modelRegistry });
+  const root = rootDouble({
+    fileSystem: {
+      readBytes: (path: string): Promise<Uint8Array> => {
+        const src = FIXTURE_SOURCES.get(path);
+        return src !== undefined
+          ? Promise.resolve(new TextEncoder().encode(src))
+          : Promise.reject(new Error(`fixture fs: no source registered for ${path}`));
+      },
+    },
+  });
+  const production = createProductionProducerDeps({ pi, root, modelRegistry });
 
   let binder: BinderRunResult | undefined;
   let paramBindings: ReadonlyMap<string, ThetaValue> | undefined;

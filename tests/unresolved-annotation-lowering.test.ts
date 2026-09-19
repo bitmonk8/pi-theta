@@ -1,5 +1,5 @@
 import { scripted } from "./helpers/scripted-complete-queue-mock";
-import { assistantReply, contextToolsOf, ANTHROPIC_MODEL } from "./helpers/scripted-live-session-harness";
+import { ajv, assistantReply, contextToolsOf, ANTHROPIC_MODEL } from "./helpers/scripted-live-session-harness";
 // Bug 0028 — a typed-query annotation naming no lowerable declaration (a
 // typo'd/undeclared name, a declared `enum`, or a schema-body forward/self
 // reference) lowers permissively to `{}` with no diagnostic: the QRY-22 gate
@@ -116,10 +116,8 @@ import type { Diagnostic } from "../src/diagnostics/diagnostic";
 import type { EnumDecl, SchemaDecl, ThetaDocument } from "../src/parser/theta-document";
 import { lowerQueryResponseSchema } from "../src/runtime/query-schema-lowering";
 import {
-  AjvSchemaValidator,
   type CompiledValidator,
   type LoweredSchema,
-  type SchemaSlug,
 } from "../src/seams/schema-validator";
 import { buildBinderEnvelopeSchema } from "../src/binder/binder-envelope";
 import { discoverAndComposeFixtures } from "../src/extension/production-composition";
@@ -202,15 +200,6 @@ function expectNoUnresolved(doc: ThetaDocument, why: string): void {
   expect(codes(doc.diagnostics), `${why}; actual diagnostics=${render(doc)}`).not.toContain(
     CODE,
   );
-}
-
-/** A fresh real `AjvSchemaValidator` (content-addressed so no cache collisions). */
-function ajv(): AjvSchemaValidator {
-  const slugOf = (schema: LoweredSchema): SchemaSlug => ({
-    slug: JSON.stringify(schema),
-    canonicalBytes: JSON.stringify(schema),
-  });
-  return new AjvSchemaValidator({ emit: () => {}, slugOf });
 }
 
 /** Parse a body source and return its `schema` declarations (the lowering input). */

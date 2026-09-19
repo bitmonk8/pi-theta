@@ -6,12 +6,10 @@ import { renderBinderParamLine } from "../src/binder/binder-system-prompt";
 import type { EnumDecl, SchemaDecl, ThetaDocument } from "../src/parser/theta-document";
 import { lowerQueryResponseSchema } from "../src/runtime/query-schema-lowering";
 import { respondSchemaSlug } from "../src/runtime/typed-query-validation";
-import {
-  AjvSchemaValidator,
-  type LoweredSchema,
-  type SchemaSlug,
-} from "../src/seams/schema-validator";
-import { yamlQuoted, parseAndLowerAnnotation, parseDoc } from "./helpers/e2e-s1";
+import type { LoweredSchema } from "../src/seams/schema-validator";
+import { ajv } from "./helpers/scripted-live-session-harness";
+import { keyOrderOf } from "./helpers/canonical-slug-oracle";
+import { yamlQuoted, parseAndLowerAnnotation, parseDoc, diagLines } from "./helpers/e2e-s1";
 
 // Bug 0164 — `lowerTypeExpr` recurses a GENERIC's ARGUMENT through ITSELF and
 // never through the literal sublanguage, so `array<"x" | "y">` lowers
@@ -159,10 +157,6 @@ type Position = (typeof POSITIONS)[number];
 /** The three positions that hoist an inline object under a minted `$defs` name. */
 const HOISTING_POSITIONS = ["params", "field", "alias"] as const;
 
-function diagLines(doc: ThetaDocument): string[] {
-  return doc.diagnostics.map((d) => `${d.severity} ${d.code}: ${d.message}`);
-}
-
 function loweredParamsDocument(doc: ThetaDocument): Record<string, unknown> | undefined {
   return doc.frontmatter?.params?.loweredSchema as Record<string, unknown> | undefined;
 }
@@ -299,35 +293,6 @@ function refNameOf(label: string, position: Position, typeSource: string): strin
   return match[1];
 }
 
-/**
- * Every object's OWN key order inside `value`, keyed by JSON Pointer. `toEqual`
- * cannot see key order and order is contractual here: `respondSchemaSlug`
- * (src/runtime/typed-query-validation.ts:354) hashes `JSON.stringify(lowered)`
- * and the `__inline_<slug>` mint hashes the canonical form of the same
- * fragment, so two positions agreeing on the key SET and disagreeing on the
- * order would mint two names for one declared value set. `type` before `enum`
- * is what schema-subset.md:80 spells (bug 0056 §Fix *Ordering*).
- */
-function keyOrderOf(
-  value: unknown,
-  pointer = "",
-): ReadonlyArray<readonly [string, readonly string[]]> {
-  const out: Array<readonly [string, readonly string[]]> = [];
-  if (Array.isArray(value)) {
-    value.forEach((item, index) => out.push(...keyOrderOf(item, `${pointer}/${index}`)));
-    return out;
-  }
-  if (value !== null && typeof value === "object") {
-    const keys = Object.keys(value as Record<string, unknown>);
-    out.push([pointer === "" ? "/" : pointer, keys]);
-    for (const key of keys) {
-      out.push(...keyOrderOf((value as Record<string, unknown>)[key], `${pointer}/${key}`));
-    }
-    return out;
-  }
-  return out;
-}
-
 /** The whole lowered `params:` document of a theta that MUST load. */
 function paramsDocumentOf(label: string, fields: string): LoweredSchema {
   const doc = parseDoc(
@@ -348,18 +313,6 @@ function paramsDocumentOf(label: string, fields: string): LoweredSchema {
     );
   }
   return document as LoweredSchema;
-}
-
-/**
- * The real AJV seam — `strict: false`, `allErrors: true`, the shipped validator,
- * content-addressed exactly as `src/extension/production-composition.ts` does.
- */
-function ajv(): AjvSchemaValidator {
-  const slugOf = (schema: LoweredSchema): SchemaSlug => {
-    const canonicalBytes = JSON.stringify(schema);
-    return { slug: canonicalBytes, canonicalBytes };
-  };
-  return new AjvSchemaValidator({ emit: () => {}, slugOf });
 }
 
 // ===========================================================================

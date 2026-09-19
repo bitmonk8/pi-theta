@@ -42,6 +42,7 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { callInput } from "./helpers/binder-inference-fixture";
+import { TWO_PARAM_THETA } from "./helpers/scripted-live-session-harness";
 
 // The scripted off-session binder reply plus the call counter — the gate's
 // zero-spend observable. `vi.hoisted` so the `vi.mock` factory can close over
@@ -152,17 +153,6 @@ function realAjv(): AjvSchemaValidator {
 // spans, and a path under a code-shaped directory would register as a spurious
 // asserted-code (bug 0230 §Fix, the extractor's document-name artefact class).
 const THETA_PATH = "/fixtures/b0417-two-param.theta";
-const TWO_PARAM_THETA = [
-  "---",
-  "mode: prompt",
-  "bind_model: binder-model",
-  "params:",
-  "  topic: string",
-  "  audience: string",
-  "---",
-  "@`review ${topic} for ${audience}`",
-  "",
-].join("\n");
 
 function rootDouble(): RuntimeRoot {
   let n = 0;

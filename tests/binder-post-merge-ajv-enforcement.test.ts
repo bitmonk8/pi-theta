@@ -146,6 +146,9 @@ import { parseExpressionSource } from "../src/parser/theta-document";
 import { DEPTH_VIOLATION_MESSAGE, jsonDepth, MAX_JSON_DEPTH } from "../src/runtime/depth-walk";
 import { parseDoc } from "./helpers/e2e-s1";
 import {
+  DEEP_CHAIN_BODY,
+  DEEP_NO_DEFAULT_THETA,
+  DEPTH_6_ARGS,
   AJV_SUMMARY_SEPARATOR,
   AJV_ARGS_PHRASE,
   ajvArgsNote,
@@ -154,6 +157,7 @@ import {
   thetaInput as parsedThetaInput,
   type BinderCapturedNote as CapturedNote,
   noteChannelEntries,
+  scriptEnvelope,
 } from "./helpers/scripted-live-session-harness";
 import { ctxDouble } from "./helpers/tool-call-dispatch-harness";
 
@@ -196,20 +200,6 @@ const ENUM_DEFAULT_THETA = [
 /** The over-fire control: the SAME shape whose default its own fragment ADMITS. */
 const ENUM_DEFAULT_OK_THETA = ENUM_DEFAULT_THETA.replace(`= "zzz"`, `= "x"`);
 
-/**
- * The five-deep named-schema chain: the shape whose lowered fragment ADMITS a
- * depth-6 `params` document, so the depth breach reaches the post-default-merge
- * hook instead of being stopped by the envelope AJV at extraction. Each link is
- * a body `schema` declaration, resolved whole-file from the `params:` RHS.
- */
-const DEEP_CHAIN_BODY = [
-  "schema L1 { a: L2 }",
-  "schema L2 { b: L3 }",
-  "schema L3 { c: L4 }",
-  "schema L4 { d: L5 }",
-  "schema L5 { e: string }",
-].join("\n");
-
 /** The depth chain WITH a declared default — the hook's currently-reachable arm. */
 const DEEP_DEFAULTED_THETA = [
   "---",
@@ -221,26 +211,6 @@ const DEEP_DEFAULTED_THETA = [
   "---",
   DEEP_CHAIN_BODY,
   "@`q=${q}`",
-  "",
-].join("\n");
-
-/**
- * The depth chain with NO declared default (§Fix constraint 5): at HEAD
- * `#mergeDeclaredDefaults` returns on `params.defaultedFields.length === 0`
- * before compiling a validator, so the named hook is not invoked at all — yet
- * enforcement point #4 is about the `params` boundary, not about defaults. One
- * non-string field keeps this off `classifyBinderBypass`'s single-string bypass,
- * so it is a genuine binder pass.
- */
-const DEEP_NO_DEFAULT_THETA = [
-  "---",
-  "mode: prompt",
-  "bind_model: binder-model",
-  "params:",
-  "  p: L1",
-  "---",
-  DEEP_CHAIN_BODY,
-  "@`p bound`",
   "",
 ].join("\n");
 
@@ -328,8 +298,7 @@ const FIXTURE_SOURCES: ReadonlyMap<string, string> = new Map([
   [AT_LIMIT_PATH, AT_LIMIT_THETA],
 ]);
 
-/** The depth-6 merged-args document and its breach pointer. */
-const DEPTH_6_ARGS = { p: { a: { b: { c: { d: { e: "x" } } } } } } as const;
+/** The breach pointer for DEPTH_6_ARGS. */
 const DEPTH_6_BREACH_POINTER = "/p/a/b/c/d";
 
 /** The exactly-at-limit document for the three-deep chain. */
@@ -376,33 +345,17 @@ function noteContents(notes: readonly CapturedNote[]): string[] {
   return noteChannelEntries(notes).map((n) => n.content);
 }
 
-/** A ToolCall-bearing assistant reply (the pi-ai `ToolCall` content-part shape). */
-function toolCallReply(name: string, args: Record<string, unknown>): unknown {
-  return {
-    role: "assistant",
-    content: [{ type: "toolCall", id: "tc-1", name, arguments: args }],
-    stopReason: "toolUse",
-    timestamp: 0,
-  };
-}
-
 /**
  * Script a ToolCall reply carrying `{ envelope }`, naming the binder tool
  * production actually attached on the captured call — so the reply matches
  * whatever slug production derives for this fixture's envelope schema.
  */
 function scriptToolCallEnvelope(envelope: unknown): void {
-  scripted.replyFor = (context) => {
-    const tools = (context as { readonly tools?: ReadonlyArray<{ readonly name?: unknown }> })
-      .tools;
-    const name = tools?.[0]?.name;
-    if (typeof name !== "string") {
-      throw new Error(
-        "the binder call attached no forced tool, so no ToolCall reply can name it — the harness cannot script an envelope",
-      );
-    }
-    return toolCallReply(name, { envelope });
-  };
+  scriptEnvelope(
+    scripted,
+    envelope,
+    "the binder call attached no forced tool, so no ToolCall reply can name it — the harness cannot script an envelope",
+  );
 }
 
 /** Drive one binder pass over a fixture theta. */

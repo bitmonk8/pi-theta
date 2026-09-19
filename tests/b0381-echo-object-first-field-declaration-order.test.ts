@@ -59,29 +59,9 @@ import { parseDoc } from "./helpers/e2e-s1";
 import {
   binderProducerWithCapture as producerWithCapture,
   bindAndReadNote as bindAndReadEchoNote,
+  scriptEnvelope,
 } from "./helpers/scripted-live-session-harness";
 import { ctxDouble } from "./helpers/tool-call-dispatch-harness";
-
-/**
- * Script a ToolCall-bearing binder reply carrying `{ envelope }` in its
- * `arguments`, naming the binder tool production actually attached on the
- * captured call — the bug-0011 forced-tool extraction reads the envelope from
- * the FIRST ToolCall naming the binder tool. The envelope is a JS object
- * literal passed by reference, so the key insertion order written at the call
- * site IS the "model's key order" the bug hinges on.
- */
-function scriptEnvelope(envelope: unknown): void {
-  scripted.replyFor = (context: unknown): unknown => {
-    const tools = (context as { tools?: ReadonlyArray<{ name?: unknown }> }).tools;
-    const name = typeof tools?.[0]?.name === "string" ? tools[0].name : "__theta_bind_none";
-    return {
-      role: "assistant",
-      content: [{ type: "toolCall", id: "tc-1", name, arguments: { envelope } }],
-      stopReason: "toolUse",
-      timestamp: 0,
-    };
-  };
-}
 
 /** Parse `.theta` source through the production whole-file parser. */
 function parse(src: string) {
@@ -116,7 +96,8 @@ async function bindAndReadNote(
   source: string,
   args: Readonly<Record<string, unknown>>,
 ): Promise<string> {
-  scriptEnvelope({ kind: "ok", args });
+  // The envelope keeps args by reference, preserving the model's key insertion order.
+  scriptEnvelope(scripted, { kind: "ok", args });
   const capture = producerWithCapture();
   return bindAndReadEchoNote(capture, {
     theta: probeTheta(source),

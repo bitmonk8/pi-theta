@@ -108,6 +108,7 @@ import {
   bindAndReadNote as bindAndReadEchoNote,
   parse,
   scriptEnvelope,
+  TWO_PARAM_THETA,
 } from "./helpers/scripted-live-session-harness";
 import { ctxDouble } from "./helpers/tool-call-dispatch-harness";
 
@@ -418,18 +419,6 @@ describe("bug 0087 — the theta-controlled prefix, separator and `(default)` ta
 // A two-required-string-param theta: a genuine binder pass (not a no-params or
 // single-string bypass) with NO defaulted fields, so the defaults merge
 // short-circuits without touching the filesystem seam.
-const TWO_PARAM_THETA = [
-  "---",
-  "mode: prompt",
-  "bind_model: binder-model",
-  "params:",
-  "  topic: string",
-  "  audience: string",
-  "---",
-  "@`review ${topic} for ${audience}`",
-  "",
-].join("\n");
-
 function twoParamTheta(): ThetaCompositionInput {
   const doc = parse(TWO_PARAM_THETA, "code-review.theta", "binder");
   return {

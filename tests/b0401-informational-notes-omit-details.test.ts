@@ -75,7 +75,7 @@ import {
   type SlashPromptDriveDeps,
 } from "../src/runtime/slash-dispatch";
 import { parseDoc } from "./helpers/e2e-s1";
-import { binderProducerWithCapture as producerWithCapture } from "./helpers/scripted-live-session-harness";
+import { binderProducerWithCapture as producerWithCapture, scriptEnvelope, TWO_PARAM_THETA } from "./helpers/scripted-live-session-harness";
 import { ctxDouble } from "./helpers/tool-call-dispatch-harness";
 import { invoke, makeHarness, makeTheta, makeWiring } from "./helpers/watch-arming-harness";
 
@@ -127,20 +127,6 @@ function assertOmitsEventDetails(note: CapturedNote, label: string): void {
 // the recorder capturing the RAW message so `details` presence is observable.
 // ===========================================================================
 
-function scriptEnvelope(envelope: unknown): void {
-  scripted.replyFor = (context: unknown): unknown => {
-    const tools = (context as { tools?: ReadonlyArray<{ name?: unknown }> }).tools;
-    const name =
-      typeof tools?.[0]?.name === "string" ? tools[0].name : "__theta_bind_none";
-    return {
-      role: "assistant",
-      content: [{ type: "toolCall", id: "tc-1", name, arguments: { envelope } }],
-      stopReason: "toolUse",
-      timestamp: 0,
-    };
-  };
-}
-
 function parse(path: string, src: string) {
   const doc = parseDoc(src, path);
   const errors = doc.diagnostics
@@ -153,18 +139,6 @@ function parse(path: string, src: string) {
 
 // A two-required-string-param theta drives a genuine binder pass with no
 // defaulted fields, so a scripted `ok` reaches `#emitBinderEchoNote`.
-const TWO_PARAM_THETA = [
-  "---",
-  "mode: prompt",
-  "bind_model: binder-model",
-  "params:",
-  "  topic: string",
-  "  audience: string",
-  "---",
-  "@`review ${topic} for ${audience}`",
-  "",
-].join("\n");
-
 function twoParamTheta(): ThetaCompositionInput {
   const doc = parse("code-review.theta", TWO_PARAM_THETA);
   return {
@@ -230,7 +204,7 @@ describe("bug 0401 — site 1: binder success echo omits `details`", () => {
   });
 
   async function driveEcho(): Promise<CapturedNote> {
-    scriptEnvelope({ kind: "ok", args: { topic: "async", audience: "team" } });
+    scriptEnvelope(scripted, { kind: "ok", args: { topic: "async", audience: "team" } });
     const { deps, notes } = producerWithCapture();
     const result = await deps.runBinder({
       theta: twoParamTheta(),

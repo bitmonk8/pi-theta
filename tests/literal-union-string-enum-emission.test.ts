@@ -13,11 +13,8 @@ import {
   respondToolWireSchema,
 } from "../src/runtime/respond-tool-wire";
 import { respondSchemaSlug } from "../src/runtime/typed-query-validation";
-import {
-  AjvSchemaValidator,
-  type LoweredSchema,
-  type SchemaSlug,
-} from "../src/seams/schema-validator";
+import type { LoweredSchema } from "../src/seams/schema-validator";
+import { ajv } from "./helpers/scripted-live-session-harness";
 import { parseDoc } from "./helpers/e2e-s1";
 
 // Bug 0055 — `docs/spec_topics/schema-subset.md:80` states ONE step-3 emission
@@ -288,15 +285,6 @@ function paramsSchema(label: string, source: string): LoweredSchema {
     );
   }
   return lowered;
-}
-
-/** The real AJV seam — `strict: false`, `allErrors: true`, the QRY-22 validator. */
-function ajv(): AjvSchemaValidator {
-  const slugOf = (schema: LoweredSchema): SchemaSlug => ({
-    slug: JSON.stringify(schema),
-    canonicalBytes: JSON.stringify(schema),
-  });
-  return new AjvSchemaValidator({ emit: () => {}, slugOf });
 }
 
 // ===========================================================================

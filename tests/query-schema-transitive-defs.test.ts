@@ -54,11 +54,10 @@ import {
   type QueryToolLoopConfig,
 } from "../src/runtime/query-tool-loop";
 import {
-  AjvSchemaValidator,
   type CompiledValidator,
   type LoweredSchema,
-  type SchemaSlug,
 } from "../src/seams/schema-validator";
+import { ajv } from "./helpers/scripted-live-session-harness";
 import {
   parseThetaDocument,
   type ParseThetaDocumentDeps,
@@ -85,15 +84,6 @@ function schemaDeclsOf(src: string): readonly SchemaDecl[] {
   };
   const doc = parseThetaDocument(source, deps);
   return doc.body.statements.filter((s): s is SchemaDecl => s.kind === "schema");
-}
-
-/** A fresh real `AjvSchemaValidator` (content-addressed so no cache collisions). */
-function ajv(): AjvSchemaValidator {
-  const slugOf = (schema: LoweredSchema): SchemaSlug => ({
-    slug: JSON.stringify(schema),
-    canonicalBytes: JSON.stringify(schema),
-  });
-  return new AjvSchemaValidator({ emit: () => {}, slugOf });
 }
 
 /** Lower `annotation` against `src`'s schema decls; fails loudly if it doesn't lower. */

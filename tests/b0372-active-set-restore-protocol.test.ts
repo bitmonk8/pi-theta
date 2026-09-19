@@ -69,11 +69,7 @@ import type {
 import { createProductionProducerDeps } from "../src/extension/production-theta-producer";
 import type { ThetaCompositionInput } from "../src/extension/theta-composition-producer";
 import { executeBody, type BodyExecution } from "../src/runtime/statement-executor";
-import {
-  AjvSchemaValidator,
-  type LoweredSchema,
-  type SchemaSlug,
-} from "../src/seams/schema-validator";
+import { ajv } from "./helpers/scripted-live-session-harness";
 import type { RuntimeRoot } from "../src/runtime-root";
 import {
   parseThetaDocument,
@@ -358,14 +354,6 @@ function parse(src: string): ThetaDocument {
   expect(errors, "the fixture theta must parse cleanly before it is driven").toEqual([]);
   expect(doc.frontmatter, "the fixture theta must carry parseable frontmatter").not.toBeNull();
   return doc;
-}
-
-function ajv(): AjvSchemaValidator {
-  const slugOf = (schema: LoweredSchema): SchemaSlug => ({
-    slug: JSON.stringify(schema),
-    canonicalBytes: JSON.stringify(schema),
-  });
-  return new AjvSchemaValidator({ emit: () => {}, slugOf });
 }
 
 function rootDouble(): RuntimeRoot {

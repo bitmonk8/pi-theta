@@ -1,9 +1,8 @@
 import { registryMessageOf } from "./helpers/load-row-harness";
 import { REGISTRY } from "./helpers/registry-oracle";
 import { describe, expect, it } from "vitest";
-import type { Diagnostic } from "../src/diagnostics/diagnostic";
 import type { ThetaDocument } from "../src/parser/theta-document";
-import { diag, parseDoc, rendered } from "./helpers/e2e-s1";
+import { diag, isLoadParseError, parseDoc, rendered, subagentTheta, subagentParamsSrc } from "./helpers/e2e-s1";
 
 // Bug 0154 — the INLINE OBJECT TYPE's field name is a schema field name, so the
 // lowercase-first identifier rule reaches it, and nothing enforces it there
@@ -226,12 +225,9 @@ const SCHEMA_BODY_UNCLOSED = "theta/parse/schema-body-unclosed";
 // assertion are the production ones.
 // ===========================================================================
 
-/** Frontmatter for every `.theta` body row — occupies lines 1–3, body starts at 4. */
-const FM = "---\nmode: subagent\n---\n";
-
 /** Parse `body` as a `.theta` under the standard frontmatter. */
 function theta(body: string): ThetaDocument {
-  return parseDoc(`${FM}${body}\n`);
+  return parseDoc(subagentTheta(body));
 }
 
 /**
@@ -241,7 +237,7 @@ function theta(body: string): ThetaDocument {
  * at column 6 under a two-space indent and a one-character name.
  */
 function withParams(block: string): ThetaDocument {
-  return parseDoc(`---\nmode: subagent\nparams:\n${block}\n---\n1\n`);
+  return parseDoc(subagentParamsSrc(block));
 }
 
 /**
@@ -272,11 +268,7 @@ const MALFORMED_FIELD_MESSAGE = msg(MALFORMED_FIELD, []);
  * spelling the spec refuses.
  */
 function registers(doc: ThetaDocument): boolean {
-  return !doc.diagnostics.some(
-    (d: Diagnostic) =>
-      d.severity === "error" &&
-      (d.code.startsWith("theta/load/") || d.code.startsWith("theta/parse/")),
-  );
+  return !doc.diagnostics.some(isLoadParseError);
 }
 
 // ===========================================================================

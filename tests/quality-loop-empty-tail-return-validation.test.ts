@@ -57,11 +57,7 @@ import {
 import { executeBody } from "../src/runtime/statement-executor";
 import type { RuntimeRoot } from "../src/runtime-root";
 import type { Checkpoint } from "../src/seams/checkpoint";
-import {
-  AjvSchemaValidator,
-  type LoweredSchema,
-  type SchemaSlug,
-} from "../src/seams/schema-validator";
+import { ajv } from "./helpers/scripted-live-session-harness";
 import { fakeExecutableHost, makeFakeJsonChildLauncher } from "./helpers/fake-json-child";
 import { parseDoc } from "./helpers/e2e-s1";
 
@@ -251,15 +247,6 @@ const NOOP_CHECKPOINT: Checkpoint = {
     return Promise.resolve();
   },
 };
-
-/** The production AJV validator — the seam `#validateInvokeReturn` compiles against. */
-function ajv(): AjvSchemaValidator {
-  const slugOf = (schema: LoweredSchema): SchemaSlug => ({
-    slug: JSON.stringify(schema),
-    canonicalBytes: JSON.stringify(schema),
-  });
-  return new AjvSchemaValidator({ emit: () => {}, slugOf });
-}
 
 /**
  * The runtime root the drive reads: the checkpoint/id seams the invoke path

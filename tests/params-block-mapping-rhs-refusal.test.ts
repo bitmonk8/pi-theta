@@ -10,7 +10,14 @@ import type { BypassParamsField } from "../src/binder/binder-envelope";
 import { buildBinderSystemPrompt } from "../src/binder/binder-system-prompt";
 import type { ThetaDocument } from "../src/parser/theta-document";
 import { binderParams, parametersBlockLines } from "./helpers/binder-prompt-param-mirror";
-import { parseDoc, fieldOf, diagLines, diagCodes } from "./helpers/e2e-s1";
+import {
+  parseDoc,
+  fieldOf,
+  diagLines,
+  diagCodes,
+  loadCleanly as loadCleanlyShared,
+  type LoadedParams as SharedLoadedParams,
+} from "./helpers/e2e-s1";
 
 // Bug 0041 — a `params:` right-hand side written as a YAML block mapping is not
 // a theta type expression, yet it loads with no diagnostic: the recovered
@@ -298,45 +305,23 @@ function subagentSrc(paramsBlock: string, system: string): string {
 // ===========================================================================
 
 /** The lowered `params:` document plus its two sub-records. */
-interface LoadedParams {
+interface LoadedParams extends SharedLoadedParams {
   readonly properties: Record<string, unknown>;
   readonly required: readonly string[];
-  readonly defs: Record<string, unknown>;
   readonly fields: readonly BypassParamsField[];
-  readonly loweredSchema: Record<string, unknown>;
 }
 
 /**
  * Parse a fixture that must LOAD, and read its lowered `params:` schema back.
  *
- * The empty-diagnostic assertion runs first (every fixture read through this
- * helper pins a zero-diagnostic disposition), and every absent intermediate —
+ * The shared loader's empty-diagnostic assertion runs first (every fixture read
+ * through this helper pins a zero-diagnostic disposition), and every absent intermediate —
  * a `null` frontmatter, an absent `params`, an absent `loweredSchema` — THROWS
  * with the diagnostics rendered, so a refused parse can never read as a pass.
  */
 function loadCleanly(label: string, source: string): LoadedParams {
   const doc = parseDoc(source, "bug0041.theta");
-  expect(
-    diagLines(doc),
-    `${label}: this fixture's pinned disposition is a clean load — any diagnostic is drift`,
-  ).toEqual([]);
-  if (doc.frontmatter === null) {
-    throw new Error(
-      `${label}: the theta was REFUSED — frontmatter is null. Diagnostics: ${JSON.stringify(diagLines(doc))}`,
-    );
-  }
-  const params = doc.frontmatter.params;
-  if (params === undefined) {
-    throw new Error(
-      `${label}: the frontmatter carries no parsed params block. Diagnostics: ${JSON.stringify(diagLines(doc))}`,
-    );
-  }
-  const lowered = params.loweredSchema;
-  if (lowered === undefined) {
-    throw new Error(
-      `${label}: the params block lowered to NOTHING (loweredSchema absent), so there is no AJV-validatable document at the argument boundary. Diagnostics: ${JSON.stringify(diagLines(doc))}`,
-    );
-  }
+  const { defs, loweredSchema: lowered } = loadCleanlyShared(label, doc);
   const properties = lowered["properties"];
   if (properties === null || typeof properties !== "object") {
     throw new Error(
@@ -346,8 +331,8 @@ function loadCleanly(label: string, source: string): LoadedParams {
   return {
     properties: properties as Record<string, unknown>,
     required: (lowered["required"] ?? []) as readonly string[],
-    defs: (lowered["$defs"] ?? {}) as Record<string, unknown>,
-    fields: params.fields,
+    defs,
+    fields: doc.frontmatter!.params!.fields,
     loweredSchema: lowered,
   };
 }

@@ -33,6 +33,35 @@ export function compareCodePoint(a: string, b: string): number {
   return ap.length - bp.length;
 }
 
+/**
+ * Every object's OWN key order inside `value`, keyed by JSON Pointer. `toEqual`
+ * cannot see key order and order is contractual here: `respondSchemaSlug`
+ * (src/runtime/typed-query-validation.ts) hashes `JSON.stringify(lowered)`
+ * and the `__inline_<slug>` mint hashes the canonical form of the same
+ * fragment, so two positions agreeing on the key SET and disagreeing on the
+ * order would mint two names for one declared value set. `type` before `enum`
+ * is what schema-subset.md:80 spells (bug 0056 §Fix *Ordering*).
+ */
+export function keyOrderOf(
+  value: unknown,
+  pointer = "",
+): ReadonlyArray<readonly [string, readonly string[]]> {
+  const out: Array<readonly [string, readonly string[]]> = [];
+  if (Array.isArray(value)) {
+    value.forEach((item, index) => out.push(...keyOrderOf(item, `${pointer}/${index}`)));
+    return out;
+  }
+  if (value !== null && typeof value === "object") {
+    const keys = Object.keys(value as Record<string, unknown>);
+    out.push([pointer === "" ? "/" : pointer, keys]);
+    for (const key of keys) {
+      out.push(...keyOrderOf((value as Record<string, unknown>)[key], `${pointer}/${key}`));
+    }
+    return out;
+  }
+  return out;
+}
+
 /** Assert every object key in a parsed canonical form is code-point sorted. */
 export function assertKeysSorted(label: string, value: unknown, path = "$"): void {
   if (Array.isArray(value)) {
