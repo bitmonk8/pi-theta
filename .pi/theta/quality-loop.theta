@@ -1,6 +1,6 @@
 ---
 description: "Ralph-style quality loop - review changed pi-theta sources lens-by-lens (roster in `lenses`; worker-backed today: D2, D4, D7, D8, D9), triage, fix confirmed findings in parallel git worktrees behind the offline gate, integrate, repeat until the open backlog is empty (state under quality/)"
-argument-hint: "[max_cycles] [lenses] [shard_loc] [review_cap] [budget] [parallel] [push true/false]"
+argument-hint: "[max_cycles] [lenses (or 'none' = fix-only drain)] [shard_loc] [review_cap] [budget] [parallel] [push true/false]"
 mode: prompt
 bind_model: "anthropic/claude-sonnet-5"
 tools:
@@ -130,8 +130,15 @@ ${dirty}`?
 // Lens-roster refusal: a config error refuses in seconds, before the
 // (expensive) baseline gate. A lens id must have BOTH a surfaces.json entry
 // AND a worker dispatch arm below (worker-backed today: D2, D4, D7, D8, D9).
+// `lenses: "none"` is the FIX-ONLY drain: an empty roster reviews nothing and
+// files nothing (the per-lens loops iterate zero times; intake leftovers are
+// still triaged), so each wave clusters and fixes the EXISTING open backlog
+// until it is empty or max_cycles runs out. The review ledger is untouched -
+// a later lens-bearing run resumes incremental review exactly where it was.
 let mut lens_list: array<string> = []
-lens_list = lines(lenses.replace(",", "\n"))
+if lenses != "none" {
+  lens_list = lines(lenses.replace(",", "\n"))
+}
 let lenses_out = bash({ command: "node tools/quality/store.mjs lenses" })?
 let mut configured: array<string> = []
 configured = lines(lenses_out)
@@ -142,7 +149,7 @@ for l in lens_list {
     bad_lens = l
   }
 }
-if lens_list.length == 0 {
+if lens_list.length == 0 && lenses != "none" {
   bad_lens = "(empty)"
 }
 if bad_lens != "" {

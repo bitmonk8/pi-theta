@@ -38,7 +38,13 @@ non-zero overrides all lenses),
 unlimited), `budget` (max candidates per shard, default 10), `parallel`
 (fan-out width, default 4; review shards run in batches of this size with
 reviewed-state marked after each batch, so an interrupted wave loses at most
-one batch of review work), `lane_batch` (default 4): a fix lane runs its manifest as SEQUENTIAL
+one batch of review work), `lenses=none` runs a FIX-ONLY drain: no lens reviews, no new filings
+(intake leftovers still triaged) - each wave clusters and fixes the
+existing open backlog; the review ledger is untouched, so a later
+lens-bearing run resumes incremental review where it left off.
+Use it to drain a large open backlog before filing more.
+
+`lane_batch` (default 4): a fix lane runs its manifest as SEQUENTIAL
 batches of this many issues - each batch its own fixer/gate/review/commit
 cycle and revert boundary, squashed to one commit at lane end - so
 `cluster_max` (default 12) bounds a LANE's ownership while the review/gate
