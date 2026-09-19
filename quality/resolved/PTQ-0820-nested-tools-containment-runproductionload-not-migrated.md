@@ -2,7 +2,7 @@
 id: PTQ-0820
 title: nested-tools-entry-containment.test.ts re-derives the LoadOutcome/runProductionLoad fake-host wiring production-load-harness.ts already exports
 lens: D7
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - tests/nested-tools-entry-containment.test.ts:141-197

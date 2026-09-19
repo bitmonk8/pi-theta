@@ -2,7 +2,7 @@
 id: PTQ-0812
 title: interpolation-parse-diagnostics.test.ts re-reads and re-parses the parse-shard registry instead of calling tests/helpers/registry-oracle.ts's readRegistry
 lens: D7                     # D2 | D4 | D7 | D8 | D9 - the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - tests/interpolation-parse-diagnostics.test.ts:129-148

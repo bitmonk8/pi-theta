@@ -2,7 +2,7 @@
 id: PTQ-0823
 title: par-for.test.ts re-reads the four-page diagnostics registry inline instead of importing tests/helpers/registry-oracle.ts's REGISTRY/readRegistry
 lens: D7                     # D2 | D4 | D7 | D8 | D9 - the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - tests/par-for.test.ts:372-390

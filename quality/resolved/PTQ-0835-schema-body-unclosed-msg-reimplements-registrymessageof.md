@@ -2,7 +2,7 @@
 id: PTQ-0835
 title: schema-body-unclosed-at-eof.test.ts's local msg() re-derives tests/helpers/load-row-harness.ts's exported registryMessageOf
 lens: D7                     # D2 | D4 | D7 | D8 | D9 - the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - tests/schema-body-unclosed-at-eof.test.ts:158-177

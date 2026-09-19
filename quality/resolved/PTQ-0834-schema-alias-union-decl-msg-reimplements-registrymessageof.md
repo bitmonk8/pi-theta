@@ -2,7 +2,7 @@
 id: PTQ-0834
 title: schema-alias-union-decl.test.ts redeclares a local msg() that duplicates the canonical registryMessageOf helper
 lens: D7
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - tests/schema-alias-union-decl.test.ts:190-205

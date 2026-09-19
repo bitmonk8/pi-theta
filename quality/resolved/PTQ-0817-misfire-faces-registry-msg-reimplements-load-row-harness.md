@@ -2,7 +2,7 @@
 id: PTQ-0817
 title: reserved-keyword-misfire-faces.test.ts's REGISTRY/msg() re-derives tests/helpers/load-row-harness.ts's PARSE_REGISTRY/registryMessageOf
 lens: D7
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - tests/reserved-keyword-misfire-faces.test.ts:135-190

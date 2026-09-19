@@ -2,7 +2,7 @@
 id: PTQ-0826
 title: query-annotation-nontype-text-refusal.test.ts redeclares the four-page RegistryRow/REGISTRY read instead of importing tests/helpers/registry-oracle.ts
 lens: D7
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - tests/query-annotation-nontype-text-refusal.test.ts:122-146

@@ -2,7 +2,7 @@
 id: PTQ-0830
 title: typeenv-prototype-names.test.ts redeclares the RegistryRow interface and the four-shard REGISTRY read tests/helpers/registry-oracle.ts already exports
 lens: D7                     # D2 | D4 | D7 | D8 | D9 - the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - tests/typeenv-prototype-names.test.ts:198-222

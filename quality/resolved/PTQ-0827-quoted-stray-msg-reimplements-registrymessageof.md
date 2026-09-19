@@ -2,7 +2,7 @@
 id: PTQ-0827
 title: Both files' local msg() reimplements tests/helpers/load-row-harness.ts's exported registryMessageOf statement-for-statement
 lens: D7
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - tests/inline-object-quoted-field-name-refusal.test.ts:157-172

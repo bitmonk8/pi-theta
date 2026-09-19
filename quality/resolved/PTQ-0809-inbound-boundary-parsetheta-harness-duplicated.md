@@ -2,7 +2,7 @@
 id: PTQ-0809
 title: Three inbound-boundary test files hand-roll the parse-clean precondition tests/helpers/e2e-s1.ts already exports as parseTheta
 lens: D7
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - tests/inbound-boundary-binder-args.test.ts:119-134

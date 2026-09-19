@@ -2,7 +2,7 @@
 id: PTQ-1015
 title: The `resolvePiTool` "record params into `received`, resolve a fixed text" PiToolDispatch double is redeclared six times across five files, one of them in scope
 lens: D7                     # D2 | D4 | D7 | D8 | D9 - the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - tests/nested-control-in-pure-position.test.ts:92-98

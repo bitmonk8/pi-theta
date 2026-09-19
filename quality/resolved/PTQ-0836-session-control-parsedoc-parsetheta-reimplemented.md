@@ -2,7 +2,7 @@
 id: PTQ-0836
 title: Four session-control-*.test.ts files reimplement tests/helpers/e2e-s1.ts's exported parseDoc/parseTheta/codesOf instead of importing them
 lens: D7                     # D2 | D4 | D7 | D8 | D9 - the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - tests/session-control-parse.test.ts:43-51

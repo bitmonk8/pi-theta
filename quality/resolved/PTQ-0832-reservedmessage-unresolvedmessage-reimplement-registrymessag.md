@@ -2,7 +2,7 @@
 id: PTQ-0832
 title: reservedMessage/unresolvedMessage locally reimplement the canonical registryMessageOf reader three times in one file
 lens: D7                     # D2 | D4 | D7 | D8 | D9 - the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - tests/inline-slug-name-reservation.test.ts:142-150

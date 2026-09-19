@@ -2,7 +2,7 @@
 id: PTQ-0839
 title: templateToRegExp is a byte-identical five-line helper redeclared in four test files, two in this review's scope
 lens: D7                     # D2 | D4 | D7 | D8 | D9 - the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - tests/discovery-glob-universe-enumeration-failure.test.ts:186-191

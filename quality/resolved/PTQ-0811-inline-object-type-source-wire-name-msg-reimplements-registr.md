@@ -2,7 +2,7 @@
 id: PTQ-0811
 title: inline-object-type-source-capture.test.ts and inline-object-wire-name-rename-refusal.test.ts each redeclare the lookup-assert-fill msg() body tests/helpers/load-row-harness.ts already exports as registryMessageOf
 lens: D7                     # D2 | D4 | D7 | D8 | D9 - the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - tests/inline-object-type-source-capture.test.ts:208-223

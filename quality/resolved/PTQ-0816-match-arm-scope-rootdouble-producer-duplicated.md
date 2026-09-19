@@ -2,7 +2,7 @@
 id: PTQ-0816
 title: match-arm-scope-inference-pass.test.ts re-derives NOOP_CHECKPOINT/rootDouble/pi-double instead of importing the canonical call-with-clause-harness exports
 lens: D7
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - tests/match-arm-scope-inference-pass.test.ts:1350-1372

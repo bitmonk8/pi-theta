@@ -2,7 +2,7 @@
 id: PTQ-0824
 title: params-inline-object-lowering.test.ts redeclares the capturingAjv() double tests/helpers/scripted-live-session-harness.ts already exports
 lens: D7
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - tests/params-inline-object-lowering.test.ts:429-438

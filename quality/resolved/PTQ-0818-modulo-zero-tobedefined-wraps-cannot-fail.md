@@ -2,7 +2,7 @@
 id: PTQ-0818
 title: Seven PRECONDITION `.toBeDefined()` wraps around argRange/letRange/objectFieldRange/letInitRange in modulo-zero-result-type-number.test.ts cannot register a failure distinct from the wrapped helper's own throw
 lens: D7                     # D2 | D4 | D7 | D8 | D9 - the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - tests/modulo-zero-result-type-number.test.ts:584-586

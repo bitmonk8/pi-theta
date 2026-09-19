@@ -2,7 +2,7 @@
 id: PTQ-0848
 title: ctor-declaration-order.test.ts and ctor-proto-named-field.test.ts redeclare the identical NOOP_CHECKPOINT/livePi/rootLive/registryDouble/ctxLive/drive/finalValue/renderedTurn/ownKeys production-composition drive harness
 lens: D7                     # D2 | D4 | D7 | D8 | D9 - the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - tests/ctor-declaration-order.test.ts:188-192

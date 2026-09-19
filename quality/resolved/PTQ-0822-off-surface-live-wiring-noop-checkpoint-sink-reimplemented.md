@@ -2,7 +2,7 @@
 id: PTQ-0822
 title: tool-calls-off-surface-live-wiring.test.ts reimplements SEAM_NOOP_CHECKPOINT and SEAM_NOOP_SINK as local NOOP_CHECKPOINT/NOOP_SINK despite importing sibling exports from the same helper module
 lens: D7                     # D2 | D4 | D7 | D8 | D9 - the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - tests/tool-calls-off-surface-live-wiring.test.ts:32-38
