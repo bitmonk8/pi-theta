@@ -1,5 +1,5 @@
 import { BODY } from "./helpers/triage-fixture";
-import { createHash } from "node:crypto";
+import { inlineDefName } from "./helpers/canonical-slug-oracle";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
@@ -272,11 +272,8 @@ const AB_FRAGMENT = {
 const AB_CANONICAL =
   '{"additionalProperties":false,"properties":{"a":{"$ref":"#/$defs/Triage"},"b":{"type":"integer"}},"required":["a","b"],"type":"object"}';
 
-/** SHA-256 of the canonical-form bytes, first 16 hex characters, lowercased. */
-const AB_SLUG = createHash("sha256").update(AB_CANONICAL, "utf8").digest("hex").slice(0, 16);
-
 /** The synthesised `$defs` key R1c / R2 / N1 all hoist their inline object under. */
-const AB_INLINE = `__inline_${AB_SLUG}`;
+const AB_INLINE = inlineDefName(AB_CANONICAL);
 
 // ===========================================================================
 // Fixture sources — the bug doc's `@@` rows, byte-identical.

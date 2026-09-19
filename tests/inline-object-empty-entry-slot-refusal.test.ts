@@ -2,11 +2,9 @@ import { REGISTRY } from "./helpers/registry-oracle";
 import { describe, expect, it } from "vitest";
 // @ts-expect-error — JS code-registry module, no type declarations.
 import { registryMessage } from "../tools/code-registry/index.js";
-import type { Diagnostic } from "../src/diagnostics/diagnostic";
-import type { ThetaDocument } from "../src/parser/theta-document";
 import { splitTopLevelSegments, topLevelColon } from "../src/parser/params";
 import { lowerQueryResponseSchema } from "../src/runtime/query-schema-lowering";
-import { expectGroup as expectGroupShared, type DiagnosticCell, parseDoc, subagentTheta as theta, subagentParamsSrc } from "./helpers/e2e-s1";
+import { expectGroup as expectGroupShared, type DiagnosticCell, parseDoc, diagLines, subagentTheta as theta, subagentParamsSrc } from "./helpers/e2e-s1";
 
 // Bug 0257 — an inline object entry SLOT spelling no token at all — the segment
 // a doubled, leading or lone top-level comma opens (`{a: integer,,b: string}`,
@@ -324,11 +322,6 @@ function renderAll(exps: readonly Exp[]): string[] {
  */
 function paramsSrc(type: string): string {
   return subagentParamsSrc(`  p: '${type}'`);
-}
-
-/** Every diagnostic rendered `<severity> <code>: <message>`, in emission order. */
-function diagLines(doc: ThetaDocument): string[] {
-  return doc.diagnostics.map((d: Diagnostic) => `${d.severity} ${d.code}: ${d.message}`);
 }
 
 function lines(src: string, path = "test.theta"): string[] {

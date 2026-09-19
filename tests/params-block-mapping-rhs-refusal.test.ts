@@ -10,7 +10,7 @@ import type { BypassParamsField } from "../src/binder/binder-envelope";
 import { buildBinderSystemPrompt } from "../src/binder/binder-system-prompt";
 import type { ThetaDocument } from "../src/parser/theta-document";
 import { binderParams, parametersBlockLines } from "./helpers/binder-prompt-param-mirror";
-import { parseDoc, fieldOf } from "./helpers/e2e-s1";
+import { parseDoc, fieldOf, diagLines, diagCodes } from "./helpers/e2e-s1";
 
 // Bug 0041 — a `params:` right-hand side written as a YAML block mapping is not
 // a theta type expression, yet it loads with no diagnostic: the recovered
@@ -296,16 +296,6 @@ function subagentSrc(paramsBlock: string, system: string): string {
 // ===========================================================================
 // Reading a parsed document. Loud on every unexpected disposition.
 // ===========================================================================
-
-/** Every diagnostic rendered `<severity> <code>: <message>`, in emission order. */
-function diagLines(doc: ThetaDocument): string[] {
-  return doc.diagnostics.map((d) => `${d.severity} ${d.code}: ${d.message}`);
-}
-
-/** Every diagnostic rendered `<severity> <code>` — the count/code/severity triple. */
-function diagCodes(doc: ThetaDocument): string[] {
-  return doc.diagnostics.map((d) => `${d.severity} ${d.code}`);
-}
 
 /** The lowered `params:` document plus its two sub-records. */
 interface LoadedParams {

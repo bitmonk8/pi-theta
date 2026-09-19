@@ -2,10 +2,8 @@ import { REGISTRY } from "./helpers/registry-oracle";
 import { describe, expect, it } from "vitest";
 // @ts-expect-error — JS code-registry module, no type declarations.
 import { registryMessage } from "../tools/code-registry/index.js";
-import type { Diagnostic } from "../src/diagnostics/diagnostic";
-import type { ThetaDocument } from "../src/parser/theta-document";
 import { lowerQueryResponseSchema } from "../src/runtime/query-schema-lowering";
-import { expectGroup as expectGroupShared, type DiagnosticCell, parseDoc, subagentTheta as theta, subagentParamsSrc as paramsSrc } from "./helpers/e2e-s1";
+import { expectGroup as expectGroupShared, type DiagnosticCell, parseDoc, diagLines, subagentTheta as theta, subagentParamsSrc as paramsSrc } from "./helpers/e2e-s1";
 
 // Bug 0237 — an inline object entry whose TYPE position is empty truncates the
 // interior at that entry: `TypeParser.parsePrimary`'s tolerant punctuation skip
@@ -387,11 +385,6 @@ function renderAll(exps: readonly Exp[]): string[] {
 // behaviour is stubbed: the lexer, the parser, the frontmatter reader and the
 // lowerers under assertion are the production ones.
 // ===========================================================================
-
-/** Every diagnostic rendered `<severity> <code>: <message>`, in emission order. */
-function diagLines(doc: ThetaDocument): string[] {
-  return doc.diagnostics.map((d: Diagnostic) => `${d.severity} ${d.code}: ${d.message}`);
-}
 
 function lines(src: string, path = "test.theta"): string[] {
   return diagLines(parseDoc(src, path));

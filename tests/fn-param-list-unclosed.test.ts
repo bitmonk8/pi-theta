@@ -1,10 +1,9 @@
-import { registryMessageOf } from "./helpers/load-row-harness";
+import { diagnosticHarness, registryMessageOf } from "./helpers/load-row-harness";
 import { readRegistry } from "./helpers/registry-oracle";
 import { describe, expect, it } from "vitest";
 // @ts-expect-error — JS code-registry module, no type declarations.
 import { registryMessage } from "../tools/code-registry/index.js";
-import type { Diagnostic, SourceRange } from "../src/diagnostics/diagnostic";
-import type { FnDecl, FnParam, ThetaDocument } from "../src/parser/theta-document";
+import type { ThetaDocument } from "../src/parser/theta-document";
 import { parseDoc, topKinds } from "./helpers/e2e-s1";
 
 // Bug 0151 — an unclosed `fn` parameter list draws no structural diagnostic
@@ -165,85 +164,7 @@ function theta(body: string, path = "test.theta"): ThetaDocument {
   return parseDoc(FM + body, path);
 }
 
-/** One diagnostic reduced to its structural triple — severity, code, span. */
-interface Triple {
-  readonly severity: string;
-  readonly code: string;
-  readonly at: string;
-}
-
-/** `l:c-l:c`, 1-indexed, end-column exclusive; `-` for an unlocated diagnostic. */
-function at(r: SourceRange | undefined): string {
-  return r === undefined
-    ? "-"
-    : `${r.start.line}:${r.start.column}-${r.end.line}:${r.end.column}`;
-}
-
-/** The structural triples of every diagnostic, in report order. */
-function triples(doc: ThetaDocument): Triple[] {
-  return doc.diagnostics.map((d: Diagnostic) => ({
-    severity: d.severity,
-    code: d.code,
-    at: at(d.range),
-  }));
-}
-
-/** An expected structural triple (severity is `error` for every row here). */
-function e(code: string, span: string): Triple {
-  return { severity: "error", code, at: span };
-}
-
-/** One diagnostic reduced to the full quadruple, message included. */
-interface Quad extends Triple {
-  readonly message: string;
-}
-
-/** The full quadruples of every diagnostic, in report order. */
-function quads(doc: ThetaDocument): Quad[] {
-  return doc.diagnostics.map((d: Diagnostic) => ({
-    severity: d.severity,
-    code: d.code,
-    at: at(d.range),
-    message: d.message,
-  }));
-}
-
-/** An expected quadruple whose message is read from the registry (DIAG-4). */
-function q(
-  code: string,
-  span: string,
-  fills: ReadonlyArray<readonly [string, string]> = [],
-): Quad {
-  return { severity: "error", code, at: span, message: msg(code, fills) };
-}
-
-/** Every diagnostic rendered for a failure payload. */
-function render(doc: ThetaDocument): string {
-  return JSON.stringify(quads(doc));
-}
-
-/**
- * The single `fn` declaration of `doc`. Presence and uniqueness are asserted
- * before the read, so a row whose declaration vanished reds by naming that
- * rather than by dereferencing `undefined`.
- */
-function fnOf(doc: ThetaDocument): FnDecl {
-  const decls = doc.body.statements.filter((s) => s.kind === "fn") as FnDecl[];
-  expect(
-    decls.length,
-    `exactly one \`fn\` declaration is expected; statements=${JSON.stringify(topKinds(doc))}`,
-  ).toBe(1);
-  const only = decls[0];
-  if (only === undefined) {
-    throw new Error(`no \`fn\` declaration to read; diagnostics=${render(doc)}`);
-  }
-  return only;
-}
-
-/** The recorded `{name, type}` parameter pairs of the single `fn`. */
-function paramsOf(doc: ThetaDocument): FnParam[] {
-  return fnOf(doc).params.map((p) => ({ name: p.name, type: p.type }));
-}
+const { triples, e, quads, q, render, fnOf, paramsOf, registered } = diagnosticHarness(msg);
 
 /** The `fn` body's statement kinds, in source order. */
 function bodyKinds(doc: ThetaDocument): string[] {
@@ -253,15 +174,6 @@ function bodyKinds(doc: ThetaDocument): string[] {
 /** The `fn` body's tail expression kind, or `null` when there is none. */
 function tailKind(doc: ThetaDocument): string | null {
   return fnOf(doc).body.tail?.kind ?? null;
-}
-
-/**
- * The composition root's own registration gate
- * (`hasLoadParseError`, `src/extension/production-composition.ts`):
- * `!diagnostics.some(d => d.severity === "error")`.
- */
-function registered(doc: ThetaDocument): boolean {
-  return !doc.diagnostics.some((d: Diagnostic) => d.severity === "error");
 }
 
 // ===========================================================================

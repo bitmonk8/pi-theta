@@ -2,14 +2,14 @@ import { registryMessageOf } from "./helpers/load-row-harness";
 import { REGISTRY } from "./helpers/registry-oracle";
 import { describe, expect, it } from "vitest";
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
-import type { LetStmt, QueryExpr, SchemaDecl, ThetaDocument } from "../src/parser/theta-document";
+import type { SchemaDecl, ThetaDocument } from "../src/parser/theta-document";
 import { lowerQueryResponseSchema } from "../src/runtime/query-schema-lowering";
 import {
   AjvSchemaValidator,
   type LoweredSchema,
   type SchemaSlug,
 } from "../src/seams/schema-validator";
-import { parseDoc } from "./helpers/e2e-s1";
+import { capturedQuerySchema as capturedQuerySchemaShared, parseDoc } from "./helpers/e2e-s1";
 
 // Bug 0159 — `theta/parse/duplicate-inline-field-name` compares the field-name
 // positions the TYPE GRAMMAR reads as `Ident ":"`, and that walk stops at the
@@ -283,19 +283,7 @@ function atEveryPosition(expected: readonly string[]): Record<string, string[]> 
  * separator, while `params:` passes the YAML scalar through verbatim.
  */
 function capturedQuerySchema(type: string): string {
-  const doc = parseDoc(annotSrc(type), "bug0159.theta");
-  const stmt = doc.body.statements[0];
-  expect(
-    stmt?.kind,
-    `the @<T> fixture's first statement must be the \`let r = @<T>\` binding; source=${JSON.stringify(annotSrc(type))}`,
-  ).toBe("let");
-  const init = (stmt as LetStmt).init;
-  expect(init?.kind, "that binding's initialiser must be the query expression").toBe("query");
-  const schema = (init as QueryExpr).schema;
-  expect(typeof schema, "the query expression must carry its `@<T>` annotation text").toBe(
-    "string",
-  );
-  return schema as string;
+  return capturedQuerySchemaShared(type, "bug0159.theta");
 }
 
 /** The `typeSource` a `schema` body field captured for its declared type. */

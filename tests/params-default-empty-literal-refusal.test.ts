@@ -5,7 +5,7 @@ import { registryMessage } from "../tools/code-registry/index.js";
 import type { SourceRange } from "../src/diagnostics/diagnostic";
 import { checkLiteralSublanguage } from "../src/parser/literal-sublanguage";
 import type { ThetaDocument } from "../src/parser/theta-document";
-import { parseDoc } from "./helpers/e2e-s1";
+import { parseDoc, diagLines, diagCodes } from "./helpers/e2e-s1";
 
 // Bug 0165 — a `params:` field whose `=` is followed by nothing records a
 // DEFINED but EMPTY default. `splitParamValue` (src/parser/frontmatter.ts:777)
@@ -179,16 +179,6 @@ function src(paramsBlock: string): string {
 /** Parse one `params:` block through the shipped front end. */
 function paramsDoc(paramsBlock: string): ThetaDocument {
   return parseDoc(src(paramsBlock), "bug0165.theta");
-}
-
-/** Every diagnostic rendered `<severity> <code>` — the count/code/severity triple. */
-function diagCodes(doc: ThetaDocument): string[] {
-  return doc.diagnostics.map((d) => `${d.severity} ${d.code}`);
-}
-
-/** Every diagnostic rendered `<severity> <code>: <message>`, in emission order. */
-function diagLines(doc: ThetaDocument): string[] {
-  return doc.diagnostics.map((d) => `${d.severity} ${d.code}: ${d.message}`);
 }
 
 /** The lowered `params:` document, or `undefined` when the error gate withheld it. */

@@ -1,7 +1,6 @@
 import { REGISTRY } from "./helpers/registry-oracle";
 import { describe, expect, it } from "vitest";
-// @ts-expect-error — JS code-registry module, no type declarations.
-import { registryMessage } from "../tools/code-registry/index.js";
+import { registryMessageOf } from "./helpers/load-row-harness";
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
 import type { ThetaDocument } from "../src/parser/theta-document";
 import { splitTopLevel } from "../src/parser/params";
@@ -218,20 +217,7 @@ import { expectGroup as expectGroupShared, type DiagnosticCell, parseDoc, subage
  * a bare `undefined` comparison.
  */
 function msg(code: string, fills: ReadonlyArray<readonly [string, string]>): string {
-  const template = registryMessage(REGISTRY, code) as string | undefined;
-  expect(
-    template,
-    `DIAG-4 anchor: docs/spec_topics/diagnostics/ must carry the Message row for ${code}`,
-  ).toBeDefined();
-  let out = template as string;
-  for (const [placeholder, value] of fills) {
-    expect(
-      out,
-      `DIAG-4: the ${code} Message template must carry the ${placeholder} placeholder; template=${JSON.stringify(template)}`,
-    ).toContain(placeholder);
-    out = out.replace(placeholder, value);
-  }
-  return out;
+  return registryMessageOf(REGISTRY, "docs/spec_topics/diagnostics/", code, fills);
 }
 
 const GENERIC_ARITY = "theta/parse/generic-arity-mismatch";

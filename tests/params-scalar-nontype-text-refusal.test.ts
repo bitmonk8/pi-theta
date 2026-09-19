@@ -1,5 +1,5 @@
 import { DECLS, TRIAGE_DEF } from "./helpers/triage-fixture";
-import { inlineDefName } from "./helpers/canonical-slug-oracle";
+import { assertKeysSorted, inlineDefName } from "./helpers/canonical-slug-oracle";
 import { readFileSync, readdirSync } from "node:fs";
 import { join, posix, sep } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -918,24 +918,11 @@ describe("bug 0059 (d0) — the independent `__inline_<slug>` oracle's own hones
         `schema-subset.md:98 hashes the LOWERED fragment, so the oracle's canonical string must ` +
           `carry exactly that value; observed ${canonical}`,
       ).toEqual(fragment);
-      const sorted = (value: unknown): unknown => {
-        if (Array.isArray(value)) {
-          return value.map(sorted);
-        }
-        if (value !== null && typeof value === "object") {
-          return Object.fromEntries(
-            Object.entries(value as Record<string, unknown>)
-              .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
-              .map(([k, v]) => [k, sorted(v)]),
-          );
-        }
-        return value;
-      };
+      assertKeysSorted(label, JSON.parse(canonical));
       expect(
         canonical,
-        `schema-subset.md:100 — object keys sorted by Unicode code point at every level; :101 — ` +
-          `no insignificant whitespace; observed ${canonical}`,
-      ).toBe(JSON.stringify(sorted(fragment)));
+        `schema-subset.md:101 — no insignificant whitespace; observed ${canonical}`,
+      ).toBe(JSON.stringify(JSON.parse(canonical)));
     });
   }
 });

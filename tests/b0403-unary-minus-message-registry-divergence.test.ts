@@ -1,12 +1,8 @@
 import { linesOf, readCorpus as readSharedCorpus } from "./helpers/corpus-reader";
+import { parseDeps } from "./helpers/e2e-s1";
 import { describe, expect, it } from "vitest";
-import {
-  parseThetaDocument,
-  type ParseThetaDocumentDeps,
-} from "../src/parser/theta-document";
+import { parseThetaDocument } from "../src/parser/theta-document";
 import type { ThetaSource } from "../src/lexer/lexer";
-import type { ModelReferenceMatcher } from "../src/parser/frontmatter";
-import type { SystemNoteChannelDeps } from "../src/extension/system-note-channel";
 
 // Bug 0403 — the unary-`-` parse refusal renders
 // `unary '-' requires a numeric operand; got <type>` under the code
@@ -187,16 +183,6 @@ function diag4Run(): { readonly flat: string; readonly anchorLine: number } {
 
 // --- The parse rig (mirrors b0398): production whole-file parser, in-memory
 //     doubles for the systemNote channel and the model matcher, no provider.
-
-function parseDeps(): ParseThetaDocumentDeps {
-  const systemNote: SystemNoteChannelDeps = {
-    pi: { sendMessage: (): void => {} },
-    ui: { notify: (): void => {} },
-    emitDiagnostic: (): void => {},
-  };
-  const modelMatcher: ModelReferenceMatcher = { resolve: (): "resolved" => "resolved" };
-  return { systemNote, modelMatcher };
-}
 
 interface EmittedError {
   readonly code: string;

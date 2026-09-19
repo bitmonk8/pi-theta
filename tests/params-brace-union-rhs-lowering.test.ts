@@ -7,13 +7,13 @@ import { buildBinderEnvelopeSchema } from "../src/binder/binder-envelope";
 import type { BypassParamsField } from "../src/binder/binder-envelope";
 import { renderBinderParamLine } from "../src/binder/binder-system-prompt";
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
-import type { SchemaDecl, ThetaDocument } from "../src/parser/theta-document";
+import type { SchemaDecl } from "../src/parser/theta-document";
 import {
   AjvSchemaValidator,
   type LoweredSchema,
   type SchemaSlug,
 } from "../src/seams/schema-validator";
-import { loweredAnnotation as lowerAnnotation, loadSchemaDecls, parseDoc, fieldOf } from "./helpers/e2e-s1";
+import { loweredAnnotation as lowerAnnotation, loadSchemaDecls, parseDoc, fieldOf, diagLines } from "./helpers/e2e-s1";
 import { assertKeysSorted, inlineDefName, slugOfCanonicalForm, refNames } from "./helpers/canonical-slug-oracle";
 
 // Bug 0097 — the `params:` right-hand side keeps a naive
@@ -405,11 +405,6 @@ function fieldSrc(rhs: string): string {
 /** A theta whose body carries a typed query annotated `@<rhs>`. */
 function annotationSrc(rhs: string): string {
   return `---\nmode: prompt\n---\n${TRIAGE_BODY}let r = @<${rhs}>\`x\`\nr\n`;
-}
-
-/** Every diagnostic rendered `<severity> <code>: <message>`, in emission order. */
-function diagLines(doc: ThetaDocument): string[] {
-  return doc.diagnostics.map((d) => `${d.severity} ${d.code}: ${d.message}`);
 }
 
 /**

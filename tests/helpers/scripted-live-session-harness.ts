@@ -91,7 +91,7 @@ export function appendAssistantEntry(
 }
 
 /** Append one message entry, deriving its `id`/`parentId` from the existing chain. */
-function appendMessageEntry(entries: SessionEntryDouble[], message: Record<string, unknown>): void {
+export function appendMessageEntry(entries: SessionEntryDouble[], message: Record<string, unknown>): void {
   const id = `e${entries.length + 1}`;
   const parentId = entries.length === 0 ? undefined : `e${entries.length}`;
   entries.push({ type: "message", id, parentId, message });
@@ -706,6 +706,28 @@ export function assistantReply(fields: {
     ...(fields.errorMessage !== undefined ? { errorMessage: fields.errorMessage } : {}),
     timestamp: 0,
   };
+}
+
+/** Bind capture readers to the holder so replacing its calls array stays observable. */
+export function capturedCallAccessors(scripted: {
+  readonly calls: ReadonlyArray<{ model: unknown; context: unknown; options: unknown }>;
+}) {
+  /** The captured call at `index`; throws (specific Error) when absent. */
+  function capturedCall(index: number): { model: unknown; context: unknown; options: unknown } {
+    const call = scripted.calls[index];
+    if (call === undefined) {
+      throw new Error(
+        `no complete() call captured at index ${index} (captured: ${scripted.calls.length})`,
+      );
+    }
+    return call;
+  }
+
+  function optionsOf(index: number): Record<string, unknown> {
+    return capturedCall(index).options as Record<string, unknown>;
+  }
+
+  return { capturedCall, optionsOf };
 }
 
 /** The recorded `complete()` call's `context.tools`, duck-typed. */

@@ -71,7 +71,13 @@
 // (stop-reason classification arm); errors-and-results/queryerror-variants.md
 // (§ContextOverflowError, §TransportError).
 import { user as userMessage, assistantMessage } from "./helpers/agent-message-fixtures";
-import { parse, ajv } from "./helpers/scripted-live-session-harness";
+import {
+  parse,
+  ajv,
+  ANTHROPIC_MODEL,
+  type SessionEntryDouble,
+  appendMessageEntry,
+} from "./helpers/scripted-live-session-harness";
 import { describe, expect, it } from "vitest";
 import type {
   AssistantMessage,
@@ -97,19 +103,6 @@ import type { RuntimeRoot } from "../src/runtime-root";
 
 
 
-// --- The user session's selected model ---------------------------------------
-// Distinct `.api` / `.provider` strings (the bug-0009 fixture discipline) so a
-// synthesised `TransportError.provider` is checked against the API-shaped
-// `.api` value the PIC-50 derivation pins ("anthropic-messages"), not the short
-// `.provider` id ("anthropic").
-
-const ANTHROPIC_MODEL = {
-  id: "m1",
-  api: "anthropic-messages",
-  provider: "anthropic",
-  strictCapable: true,
-};
-
 // ===========================================================================
 // The in-memory live user session (b0288 / prompt-provider harness shape,
 // EXTENDED per bug 0413).
@@ -131,14 +124,6 @@ type ScriptedReply =
       readonly errorMessage?: string;
     }
   | { readonly role: "toolResult"; readonly text?: string };
-
-/** A `SessionManager` message entry (the `buildSessionContext` read shape). */
-interface SessionEntryDouble {
-  readonly type: "message";
-  readonly id: string;
-  readonly parentId: string | undefined;
-  readonly message: Record<string, unknown>;
-}
 
 /**
  * The live user-session double `LivePromptQueryModel` drives:
@@ -219,9 +204,7 @@ class LiveSessionDouble {
   }
 
   #append(message: Record<string, unknown>): void {
-    const id = `e${this.entries.length + 1}`;
-    const parentId = this.entries.length === 0 ? undefined : `e${this.entries.length}`;
-    this.entries.push({ type: "message", id, parentId, message });
+    appendMessageEntry(this.entries, message);
   }
 }
 

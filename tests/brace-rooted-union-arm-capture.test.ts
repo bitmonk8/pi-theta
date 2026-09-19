@@ -14,7 +14,7 @@ import {
   type TypeCheckSite,
   type TypePosition,
 } from "../src/parser/type-grammar";
-import { parseDoc } from "./helpers/e2e-s1";
+import { parseDoc, diagLines } from "./helpers/e2e-s1";
 
 // Bug 0095 — `ThetaDocument.parseType` captures a brace-rooted union arm as the
 // WHOLE type at every non-alias `Type` position, leaving the `("|" Type)*` tail
@@ -198,11 +198,6 @@ function body(stmt: string): string {
 /** A `mode: prompt` theta whose `params:` block is `block`. */
 function paramsSrc(block: string): string {
   return `---\nmode: prompt\nparams:\n${block}\n---\n${TAIL}`;
-}
-
-/** Every diagnostic rendered `<severity> <code>: <message>`, in emission order. */
-function diagLines(doc: ThetaDocument): readonly string[] {
-  return doc.diagnostics.map((d) => `${d.severity} ${d.code}: ${d.message}`);
 }
 
 /** One field of a captured object schema, as name / type-source pair. */

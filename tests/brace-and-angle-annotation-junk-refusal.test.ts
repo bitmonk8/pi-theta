@@ -1,10 +1,8 @@
 import { registryMessageOf } from "./helpers/load-row-harness";
 import { REGISTRY } from "./helpers/registry-oracle";
 import { describe, expect, it } from "vitest";
-import type { Diagnostic } from "../src/diagnostics/diagnostic";
-import type { ThetaDocument } from "../src/parser/theta-document";
 import { annotationSourceIsNotTypeExpression } from "../src/parser/type-layer-checks";
-import { expectGroup as expectGroupShared, type DiagnosticCell, parseDoc } from "./helpers/e2e-s1";
+import { expectGroup as expectGroupShared, type DiagnosticCell, parseDoc, diagLines } from "./helpers/e2e-s1";
 
 // Bug 0252 — `annotationSourceIsNotTypeExpression` (src/parser/type-layer-checks.ts)
 // declines — admits without judging — any annotation text carrying BOTH a brace
@@ -250,11 +248,6 @@ function theta(body: string): string {
  */
 function paramsSrc(type: string): string {
   return `---\nmode: prompt\nparams:\n  p: '${type}'\n---\nlet x = 1\n`;
-}
-
-/** Every diagnostic rendered `<severity> <code>: <message>`, in emission order. */
-function diagLines(doc: ThetaDocument): string[] {
-  return doc.diagnostics.map((d: Diagnostic) => `${d.severity} ${d.code}: ${d.message}`);
 }
 
 function lines(src: string): string[] {

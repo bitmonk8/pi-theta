@@ -149,6 +149,7 @@ import {
 import { deepKeyOccurrences } from "./helpers/deep-key-occurrences";
 import {
   type CapturedNote,
+  capturedCallAccessors,
   noteChannelEntries,
   parse,
   TWO_PARAM_THETA,
@@ -342,23 +343,10 @@ interface CapturedContextView {
   }>;
 }
 
-/** The captured call at `index`; throws (specific Error) when absent. */
-function capturedCall(index: number): { model: unknown; context: unknown; options: unknown } {
-  const call = scripted.calls[index];
-  if (call === undefined) {
-    throw new Error(
-      `no complete() call captured at index ${index} (captured: ${scripted.calls.length})`,
-    );
-  }
-  return call;
-}
+const { capturedCall, optionsOf } = capturedCallAccessors(scripted);
 
 function contextOf(index: number): CapturedContextView {
   return capturedCall(index).context as CapturedContextView;
-}
-
-function optionsOf(index: number): Record<string, unknown> {
-  return capturedCall(index).options as Record<string, unknown>;
 }
 
 // --- scripted replies ------------------------------------------------------------

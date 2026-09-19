@@ -25,6 +25,7 @@ import {
   type Stmt,
   type FnDecl,
   type LetStmt,
+  type QueryExpr,
   type ThetaDocument,
   type ThetaBody,
   type ParseThetaDocumentDeps,
@@ -144,6 +145,22 @@ export function paramsSrc(block: string): string {
 /** The `@<T>` query annotation — a type-ascription context (grammar.md:105). */
 export function annotSrc(type: string): string {
   return body("let r = @<" + type + ">`hi`");
+}
+
+/** Read `QueryExpr.schema` off the parsed annotation fixture, asserting its AST shape. */
+export function capturedQuerySchema(type: string, path: string): string {
+  const src = annotSrc(type);
+  const doc = parseDoc(src, path);
+  const stmt = doc.body.statements[0];
+  expect(
+    stmt?.kind,
+    `the @<T> fixture's first statement must be the \`let r = @<T>\` binding; source=${JSON.stringify(src)}`,
+  ).toBe("let");
+  const init = (stmt as LetStmt).init;
+  expect(init?.kind, "that binding's initialiser must be the query expression").toBe("query");
+  const schema = (init as QueryExpr).schema;
+  expect(typeof schema, "the query expression must carry its `@<T>` annotation text").toBe("string");
+  return schema as string;
 }
 
 /** The `invoke<T>` return annotation. */

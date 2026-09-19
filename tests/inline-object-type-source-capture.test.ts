@@ -12,7 +12,12 @@ import type {
   ThetaDocument,
 } from "../src/parser/theta-document";
 import { lowerQueryResponseSchema } from "../src/runtime/query-schema-lowering";
-import { expectGroup as expectGroupShared, type DiagnosticCell, parseDoc } from "./helpers/e2e-s1";
+import {
+  capturedQuerySchema as capturedQuerySchemaShared,
+  expectGroup as expectGroupShared,
+  type DiagnosticCell,
+  parseDoc,
+} from "./helpers/e2e-s1";
 
 // Bug 0228 — the three type-source captures in `src/parser/theta-document.ts`
 // rebuild a `Type`'s text by joining lexer token texts with NO separator
@@ -380,18 +385,7 @@ function capturedLetAnnotation(type: string): string {
 
 /** `QueryExpr.schema` (:214) — `parseQuery`'s own join at :5085. */
 function capturedQuerySchema(type: string): string {
-  const src = annotSrc(type);
-  const doc = parseDoc(src, "bug0228.theta");
-  const stmt = doc.body.statements[0];
-  expect(
-    stmt?.kind,
-    `the @<T> fixture's first statement must be the \`let r = @<T>\` binding; source=${JSON.stringify(src)}`,
-  ).toBe("let");
-  const init = (stmt as LetStmt).init;
-  expect(init?.kind, "that binding's initialiser must be the query expression").toBe("query");
-  const schema = (init as QueryExpr).schema;
-  expect(typeof schema, "the query expression must carry its `@<T>` annotation text").toBe("string");
-  return schema as string;
+  return capturedQuerySchemaShared(type, "bug0228.theta");
 }
 
 /** `InvokeExpr.returnSchema` (:206) — `parseInvoke`'s own join at :4924. */

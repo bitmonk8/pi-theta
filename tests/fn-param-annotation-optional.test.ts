@@ -1,11 +1,12 @@
+import { diagnosticHarness } from "./helpers/load-row-harness";
 import { readCorpus as readSharedCorpus } from "./helpers/corpus-reader";
 import { readRegistry } from "./helpers/registry-oracle";
 import { describe, expect, it } from "vitest";
 // @ts-expect-error — JS code-registry module, no type declarations.
 import { registryMessage } from "../tools/code-registry/index.js";
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
-import type { FnDecl, FnParam, ThetaDocument } from "../src/parser/theta-document";
-import { at, parseDoc, topKinds } from "./helpers/e2e-s1";
+import type { ThetaDocument } from "../src/parser/theta-document";
+import { parseDoc, topKinds } from "./helpers/e2e-s1";
 
 // Bug 0150 — both normative grammar mirrors write `FnParam ::= Ident ":" Type`,
 // yet `parseFn`'s parameter loop guards the annotation read behind
@@ -364,78 +365,7 @@ function theta(body: string, path = "test.theta"): ThetaDocument {
   return parseDoc(FM + body, path);
 }
 
-/** One diagnostic reduced to its structural triple — severity, code, span. */
-interface Triple {
-  readonly severity: string;
-  readonly code: string;
-  readonly at: string;
-}
-
-/** The structural triples of every diagnostic, in report order. */
-function triples(doc: ThetaDocument): Triple[] {
-  return doc.diagnostics.map((d: Diagnostic) => ({
-    severity: d.severity,
-    code: d.code,
-    at: at(d.range),
-  }));
-}
-
-/** An expected structural triple (severity is `error` for every row here). */
-function e(code: string, span: string): Triple {
-  return { severity: "error", code, at: span };
-}
-
-/** One diagnostic reduced to the full quadruple, message included. */
-interface Quad extends Triple {
-  readonly message: string;
-}
-
-/** The full quadruples of every diagnostic, in report order. */
-function quads(doc: ThetaDocument): Quad[] {
-  return doc.diagnostics.map((d: Diagnostic) => ({
-    severity: d.severity,
-    code: d.code,
-    at: at(d.range),
-    message: d.message,
-  }));
-}
-
-/** An expected quadruple whose message is read from the registry (DIAG-4). */
-function q(
-  code: string,
-  span: string,
-  fills: ReadonlyArray<readonly [string, string]> = [],
-): Quad {
-  return { severity: "error", code, at: span, message: msg(code, fills) };
-}
-
-/** Every diagnostic rendered for a failure payload. */
-function render(doc: ThetaDocument): string {
-  return JSON.stringify(quads(doc));
-}
-
-/**
- * The single `fn` declaration of `doc`. Presence and uniqueness are asserted
- * before the read, so a row whose declaration vanished reds by naming that
- * rather than by dereferencing `undefined`.
- */
-function fnOf(doc: ThetaDocument): FnDecl {
-  const decls = doc.body.statements.filter((s) => s.kind === "fn") as FnDecl[];
-  expect(
-    decls.length,
-    `exactly one \`fn\` declaration is expected; statements=${JSON.stringify(topKinds(doc))}`,
-  ).toBe(1);
-  const only = decls[0];
-  if (only === undefined) {
-    throw new Error(`no \`fn\` declaration to read; diagnostics=${render(doc)}`);
-  }
-  return only;
-}
-
-/** The recorded `{name, type}` parameter pairs of the single `fn`. */
-function paramsOf(doc: ThetaDocument): FnParam[] {
-  return fnOf(doc).params.map((p) => ({ name: p.name, type: p.type }));
-}
+const { triples, e, quads, q, render, fnOf, paramsOf } = diagnosticHarness(msg);
 
 /**
  * The composition root's own registration gate, replicated: an

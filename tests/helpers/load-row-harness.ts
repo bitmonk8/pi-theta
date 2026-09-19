@@ -23,9 +23,9 @@ import { expect } from "vitest";
 // @ts-expect-error — JS code-registry module, no type declarations.
 import { parseRegistry, registryMessage } from "../../tools/code-registry/index.js";
 import type { Diagnostic, SourceRange } from "../../src/diagnostics/diagnostic";
-import type { SchemaDecl, ThetaDocument } from "../../src/parser/theta-document";
+import type { FnDecl, FnParam, SchemaDecl, ThetaDocument } from "../../src/parser/theta-document";
 import type { LowerCtx } from "../../src/parser/params";
-import { parseDoc, diagLines, isLoadParseError } from "./e2e-s1";
+import { at, topKinds, parseDoc, diagLines, isLoadParseError } from "./e2e-s1";
 
 // ===========================================================================
 // The diagnostic oracle — the registry's *Message* column (DIAG-4).
@@ -105,6 +105,91 @@ export function registryLineOf(
 // ===========================================================================
 // The load harness.
 // ===========================================================================
+
+/** One diagnostic reduced to its structural triple — severity, code, span. */
+interface Triple {
+  readonly severity: string;
+  readonly code: string;
+  readonly at: string;
+}
+
+/** One diagnostic reduced to the full quadruple, message included. */
+interface Quad extends Triple {
+  readonly message: string;
+}
+
+/** Bind diagnostic projections and declaration readers to a suite's registry-message oracle. */
+export function diagnosticHarness(
+  msg: (code: string, fills: ReadonlyArray<readonly [string, string]>) => string,
+) {
+  /** The structural triples of every diagnostic, in report order. */
+  function triples(doc: ThetaDocument): Triple[] {
+    return doc.diagnostics.map((d: Diagnostic) => ({
+      severity: d.severity,
+      code: d.code,
+      at: at(d.range),
+    }));
+  }
+
+  /** An expected structural triple (severity is `error` for every row here). */
+  function e(code: string, span: string): Triple {
+    return { severity: "error", code, at: span };
+  }
+
+  /** The full quadruples of every diagnostic, in report order. */
+  function quads(doc: ThetaDocument): Quad[] {
+    return doc.diagnostics.map((d: Diagnostic) => ({
+      severity: d.severity,
+      code: d.code,
+      at: at(d.range),
+      message: d.message,
+    }));
+  }
+
+  /** An expected quadruple whose message is read from the registry (DIAG-4). */
+  function q(
+    code: string,
+    span: string,
+    fills: ReadonlyArray<readonly [string, string]> = [],
+  ): Quad {
+    return { severity: "error", code, at: span, message: msg(code, fills) };
+  }
+
+  /** Every diagnostic rendered for a failure payload. */
+  function render(doc: ThetaDocument): string {
+    return JSON.stringify(quads(doc));
+  }
+
+  /**
+   * The single `fn` declaration of `doc`. Presence and uniqueness are asserted
+   * before the read, so a row whose declaration vanished reds by naming that
+   * rather than by dereferencing `undefined`.
+   */
+  function fnOf(doc: ThetaDocument): FnDecl {
+    const decls = doc.body.statements.filter((s) => s.kind === "fn") as FnDecl[];
+    expect(
+      decls.length,
+      `exactly one \`fn\` declaration is expected; statements=${JSON.stringify(topKinds(doc))}`,
+    ).toBe(1);
+    const only = decls[0];
+    if (only === undefined) {
+      throw new Error(`no \`fn\` declaration to read; diagnostics=${render(doc)}`);
+    }
+    return only;
+  }
+
+  /** The recorded `{name, type}` parameter pairs of the single `fn`. */
+  function paramsOf(doc: ThetaDocument): FnParam[] {
+    return fnOf(doc).params.map((p) => ({ name: p.name, type: p.type }));
+  }
+
+  /** Error-severity-only registration mirror; namespace-scoped callers keep their own predicate. */
+  function registered(doc: ThetaDocument): boolean {
+    return !doc.diagnostics.some((d: Diagnostic) => d.severity === "error");
+  }
+
+  return { triples, e, quads, q, render, fnOf, paramsOf, registered };
+}
 
 /** One parsed row: its codes, its rendered lines, and the declarations it captured. */
 export interface LoadRow {

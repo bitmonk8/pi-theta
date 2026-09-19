@@ -57,15 +57,14 @@
 // the Layer-1 gate refuses (an immutable same-scope write) to reach the runtime
 // belt in isolation — documented at its call site.
 import { type Probe, render, producer } from "./helpers/runtime-belt-probe-harness";
+import { parseDeps } from "./helpers/e2e-s1";
 import { describe, expect, it } from "vitest";
 import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import type { ThetaSource } from "../src/lexer/lexer";
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
-import type { SystemNoteChannelDeps } from "../src/extension/system-note-channel";
-import type { ModelReferenceMatcher, ParsedFrontmatter } from "../src/parser/frontmatter";
+import type { ParsedFrontmatter } from "../src/parser/frontmatter";
 import {
   parseThetaDocument,
-  type ParseThetaDocumentDeps,
   type ThetaDocument,
 } from "../src/parser/theta-document";
 import { executeBody, type ExecuteBodyDeps, type StatementEvalHost } from "../src/runtime/statement-executor";
@@ -100,16 +99,6 @@ const SITE = {
 // ===========================================================================
 // Shared parse + run harness (the b0369 shape, verbatim).
 // ===========================================================================
-
-function parseDeps(): ParseThetaDocumentDeps {
-  const systemNote: SystemNoteChannelDeps = {
-    pi: { sendMessage: (): void => {} },
-    ui: { notify: (): void => {} },
-    emitDiagnostic: (): void => {},
-  };
-  const modelMatcher: ModelReferenceMatcher = { resolve: (): "resolved" => "resolved" };
-  return { systemNote, modelMatcher };
-}
 
 function parseOnly(src: string): ThetaDocument {
   const source: ThetaSource = { path: "b0370.theta", bytes: new TextEncoder().encode(FM + src) };

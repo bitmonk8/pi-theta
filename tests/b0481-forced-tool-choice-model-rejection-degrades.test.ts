@@ -97,7 +97,7 @@ import type {
 import { createProductionProducerDeps } from "../src/extension/production-theta-producer";
 import type { ThetaCompositionInput } from "../src/extension/theta-composition-producer";
 import { executeBody, type BodyExecution } from "../src/runtime/statement-executor";
-import { parse, rootDouble } from "./helpers/scripted-live-session-harness";
+import { capturedCallAccessors, parse, rootDouble } from "./helpers/scripted-live-session-harness";
 import { isForcedToolChoiceRejection } from "../src/binder/forced-tool-choice";
 
 // --- The resolved model (respond model = ctx.model; binder model by reference) --
@@ -241,19 +241,7 @@ async function driveBinder(): Promise<{
 
 // --- Captured-call accessors ------------------------------------------------------
 
-function capturedCall(index: number): { model: unknown; context: unknown; options: unknown } {
-  const call = scripted.calls[index];
-  if (call === undefined) {
-    throw new Error(
-      `no complete() call captured at index ${index} (captured: ${scripted.calls.length})`,
-    );
-  }
-  return call;
-}
-
-function optionsOf(index: number): Record<string, unknown> {
-  return capturedCall(index).options as Record<string, unknown>;
-}
+const { capturedCall, optionsOf } = capturedCallAccessors(scripted);
 
 /** The single tool production attached on the captured call (asserted single). */
 function attachedToolName(index: number): string {

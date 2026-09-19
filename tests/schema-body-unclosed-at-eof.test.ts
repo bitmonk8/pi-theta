@@ -1,9 +1,9 @@
+import { diagnosticHarness } from "./helpers/load-row-harness";
 import { readRegistry } from "./helpers/registry-oracle";
 import { describe, expect, it } from "vitest";
 // @ts-expect-error — JS code-registry module, no type declarations.
 import { registryMessage } from "../tools/code-registry/index.js";
 import { buildBodyTypeSchemas } from "../src/parser/body-type-lowering";
-import type { Diagnostic, SourceRange } from "../src/diagnostics/diagnostic";
 import type { EnumDecl, SchemaDecl, ThetaDocument } from "../src/parser/theta-document";
 import { parseDoc, topKinds } from "./helpers/e2e-s1";
 
@@ -219,62 +219,7 @@ function theta(body: string): ThetaDocument {
  */
 const OPEN_BRACE = "4:10-4:11";
 
-/** One diagnostic reduced to its structural triple — severity, code, span. */
-interface Triple {
-  readonly severity: string;
-  readonly code: string;
-  readonly at: string;
-}
-
-/** `l:c-l:c`, 1-indexed, end-column exclusive; `-` for an unlocated diagnostic. */
-function at(r: SourceRange | undefined): string {
-  return r === undefined
-    ? "-"
-    : `${r.start.line}:${r.start.column}-${r.end.line}:${r.end.column}`;
-}
-
-/** The structural triples of every diagnostic, in report order. */
-function triples(doc: ThetaDocument): Triple[] {
-  return doc.diagnostics.map((d: Diagnostic) => ({
-    severity: d.severity,
-    code: d.code,
-    at: at(d.range),
-  }));
-}
-
-/** An expected structural triple (severity is `error` for every row here). */
-function e(code: string, span: string): Triple {
-  return { severity: "error", code, at: span };
-}
-
-/** One diagnostic reduced to the full quadruple, message included. */
-interface Quad extends Triple {
-  readonly message: string;
-}
-
-/** The full quadruples of every diagnostic, in report order. */
-function quads(doc: ThetaDocument): Quad[] {
-  return doc.diagnostics.map((d: Diagnostic) => ({
-    severity: d.severity,
-    code: d.code,
-    at: at(d.range),
-    message: d.message,
-  }));
-}
-
-/** An expected quadruple whose message is read from the registry (DIAG-4). */
-function q(
-  code: string,
-  span: string,
-  fills: ReadonlyArray<readonly [string, string]> = [],
-): Quad {
-  return { severity: "error", code, at: span, message: msg(code, fills) };
-}
-
-/** Every diagnostic rendered for a failure payload. */
-function render(doc: ThetaDocument): string {
-  return JSON.stringify(quads(doc));
-}
+const { triples, e, quads, q, render, registered } = diagnosticHarness(msg);
 
 /**
  * The single `schema` declaration of `doc`. Presence and uniqueness are
@@ -339,15 +284,6 @@ function lowered(doc: ThetaDocument): Record<string, unknown> {
     ...(d.variantValues === undefined ? {} : { variantValues: d.variantValues }),
   }));
   return Object.fromEntries(buildBodyTypeSchemas(schemas, enums).entries());
-}
-
-/**
- * The composition root's own registration gate (`hasLoadParseError`,
- * `src/extension/production-composition.ts`):
- * `!diagnostics.some(d => d.severity === "error")`.
- */
-function registered(doc: ThetaDocument): boolean {
-  return !doc.diagnostics.some((d: Diagnostic) => d.severity === "error");
 }
 
 /** The lowered body of `S` with one required `string` field `a` — groups (a)/(b). */

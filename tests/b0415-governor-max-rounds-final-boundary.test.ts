@@ -50,7 +50,13 @@
 // Cell (D) mirrors tests/b0327-untyped-exhaustion-raw-response.test.ts's
 // ScriptedModel pattern to drive `runUntypedQueryLoop` directly for the
 // cross-driver parity control.
-import { parse, ajv } from "./helpers/scripted-live-session-harness";
+import {
+  parse,
+  ajv,
+  ANTHROPIC_MODEL,
+  type SessionEntryDouble,
+  appendMessageEntry,
+} from "./helpers/scripted-live-session-harness";
 import { describe, expect, it } from "vitest";
 import type {
   ExtensionAPI,
@@ -73,17 +79,6 @@ import {
 } from "../src/runtime/query-tool-loop";
 import type { CommittedSideEffect } from "../src/runtime/no-rollback";
 
-// --- The user session's selected model ---------------------------------------
-// A distinct `.api` string so a synthesised provider is checked against the
-// API-shaped value the PIC-50 derivation pins (the b0288 fixture discipline).
-
-const ANTHROPIC_MODEL = {
-  id: "m1",
-  api: "anthropic-messages",
-  provider: "anthropic",
-  strictCapable: true,
-};
-
 // --- The captured governor handlers ------------------------------------------
 // The `PromptToolLoopGovernor` registers `before_provider_request` and
 // `tool_call` via `pi.on(...)` in query dispatch (ensureRegistered,
@@ -95,14 +90,6 @@ const ANTHROPIC_MODEL = {
 interface GovernorHandlers {
   beforeProviderRequest?: () => void;
   toolCall?: (event: Record<string, unknown>) => unknown;
-}
-
-/** A `SessionManager` message entry (the `buildSessionContext` read shape). */
-interface SessionEntryDouble {
-  readonly type: "message";
-  readonly id: string;
-  readonly parentId: string | undefined;
-  readonly message: Record<string, unknown>;
 }
 
 /** A note observed on the `theta-system-note` channel via `pi.sendMessage`. */
@@ -198,9 +185,7 @@ class GovernorBoundarySession {
   }
 
   #append(message: Record<string, unknown>): void {
-    const id = `e${this.entries.length + 1}`;
-    const parentId = this.entries.length === 0 ? undefined : `e${this.entries.length}`;
-    this.entries.push({ type: "message", id, parentId, message });
+    appendMessageEntry(this.entries, message);
   }
 }
 

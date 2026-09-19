@@ -1,4 +1,11 @@
 import { REGISTRY } from "./helpers/registry-oracle";
+import {
+  ANTHROPIC_MODEL,
+  type SessionEntryDouble,
+  appendUserEntry,
+  appendAssistantEntry,
+} from "./helpers/scripted-live-session-harness";
+import { parseDeps } from "./helpers/e2e-s1";
 import { describe, expect, it } from "vitest";
 import type {
   ExtensionAPI,
@@ -8,12 +15,10 @@ import type {
 // @ts-expect-error — JS code-registry module, no type declarations.
 import { registryMessage } from "../tools/code-registry/index.js";
 import type { ThetaSource } from "../src/lexer/lexer";
-import type { SystemNoteChannelDeps } from "../src/extension/system-note-channel";
-import type { ModelReferenceMatcher, ParsedFrontmatter } from "../src/parser/frontmatter";
+import type { ParsedFrontmatter } from "../src/parser/frontmatter";
 import {
   parseThetaDocument,
   type CallExpr,
-  type ParseThetaDocumentDeps,
   type ThetaDocument,
 } from "../src/parser/theta-document";
 import { executeBody, type BodyExecution } from "../src/runtime/statement-executor";
@@ -185,18 +190,6 @@ import type { AgentToolResultEnvelope } from "../src/runtime/tool-call-execute";
 // Parse harness.
 // ===========================================================================
 
-function parseDeps(): ParseThetaDocumentDeps {
-  const systemNote: SystemNoteChannelDeps = {
-    pi: { sendMessage: (): void => {} },
-    ui: { notify: (): void => {} },
-    emitDiagnostic: (): void => {},
-  };
-  const modelMatcher: ModelReferenceMatcher = {
-    resolve: (): "resolved" => "resolved",
-  };
-  return { systemNote, modelMatcher };
-}
-
 /** The source path every fixture parses under; also the diagnostics' `file`. */
 const FIXTURE_PATH = "/theta/bug0119.theta";
 
@@ -251,21 +244,6 @@ const NOOP_CHECKPOINT: Checkpoint = {
   },
 };
 
-/** The user session's selected model (`ctx.model`) — provider derivation only. */
-const ANTHROPIC_MODEL = {
-  id: "m1",
-  api: "anthropic-messages",
-  provider: "anthropic",
-  strictCapable: true,
-};
-
-interface SessionEntryDouble {
-  readonly type: "message";
-  readonly id: string;
-  readonly parentId: string | undefined;
-  readonly message: Record<string, unknown>;
-}
-
 class LiveSessionDouble {
   readonly entries: SessionEntryDouble[] = [];
   sendUserMessageCalls = 0;
@@ -277,7 +255,7 @@ class LiveSessionDouble {
   sendUserMessage(content: string): void {
     this.sendUserMessageCalls += 1;
     this.sentQueryTexts.push(content);
-    this.#append({ role: "user", content: [{ type: "text", text: content }], timestamp: 0 });
+    appendUserEntry(this.entries, content);
     this.#idle = false;
   }
 
@@ -290,22 +268,8 @@ class LiveSessionDouble {
     if (this.#idle) {
       return;
     }
-    this.#append({
-      role: "assistant",
-      content: [{ type: "text", text: "ok" }],
-      api: "anthropic-messages",
-      provider: "anthropic",
-      model: "m1",
-      stopReason: "stop",
-      timestamp: 0,
-    });
+    appendAssistantEntry(this.entries, "ok", "stop");
     this.#idle = true;
-  }
-
-  #append(message: Record<string, unknown>): void {
-    const id = `e${this.entries.length + 1}`;
-    const parentId = this.entries.length === 0 ? undefined : `e${this.entries.length}`;
-    this.entries.push({ type: "message", id, parentId, message });
   }
 }
 

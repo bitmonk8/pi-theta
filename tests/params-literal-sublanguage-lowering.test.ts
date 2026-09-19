@@ -1,5 +1,5 @@
 import { DECLS, TRIAGE_DEF } from "./helpers/triage-fixture";
-import { inlineDefName } from "./helpers/canonical-slug-oracle";
+import { assertKeysSorted, inlineDefName } from "./helpers/canonical-slug-oracle";
 import { describe, expect, it } from "vitest";
 import { buildBinderEnvelopeSchema } from "../src/binder/binder-envelope";
 import { renderBinderParamLine } from "../src/binder/binder-system-prompt";
@@ -464,24 +464,7 @@ describe("bug 0056 (0) — the independent `__inline_<slug>` oracle", () => {
         canonical,
         `schema-subset.md:101 — no space or newline between tokens; observed ${canonical}`,
       ).toBe(JSON.stringify(JSON.parse(canonical)));
-      const sorted = (value: unknown): unknown => {
-        if (Array.isArray(value)) {
-          return value.map(sorted);
-        }
-        if (value !== null && typeof value === "object") {
-          return Object.fromEntries(
-            Object.entries(value as Record<string, unknown>)
-              .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
-              .map(([k, v]) => [k, sorted(v)]),
-          );
-        }
-        return value;
-      };
-      expect(
-        canonical,
-        `schema-subset.md:100 — object keys sorted by Unicode code point at every level; :104 — ` +
-          `array elements left in lowering order; observed ${canonical}`,
-      ).toBe(JSON.stringify(sorted(fragment)));
+      assertKeysSorted(label, JSON.parse(canonical));
     });
   }
 });
