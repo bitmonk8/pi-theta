@@ -1,7 +1,6 @@
+import { registryMessageOrThrow } from "./helpers/load-row-harness";
 import { REGISTRY } from "./helpers/registry-oracle";
 import { describe, expect, it } from "vitest";
-// @ts-expect-error — JS code-registry module, no type declarations.
-import { registryMessage } from "../tools/code-registry/index.js";
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
 import type { ThetaDocument } from "../src/parser/theta-document";
 import { isSingleEnclosingBraceGroup } from "../src/parser/params";
@@ -152,27 +151,14 @@ import { expectGroup as expectGroupShared, type DiagnosticCell, parseDoc, subage
 // The diagnostic oracle — the registry's *Message* column (DIAG-4).
 // ===========================================================================
 
-/**
- * A registry row's normative *Message* template (DIAG-4), read rather than
- * restated. THROWS, naming the missing row, so a missing row can never degrade
- * an assertion below into a comparison against `undefined` and can never be
- * silently replaced by a hard-coded string. Called only from inside a test
- * body: at module scope a throw would abort collection and take the green
- * fences down with it.
- */
 function registryMessageOf(code: string): string {
-  const template = registryMessage(REGISTRY, code) as string | undefined;
-  if (template === undefined) {
-    throw new Error(
-      `harness: the diagnostics code registry carries no Message row for ${code} — DIAG-4 ` +
-        `(docs/spec_topics/diagnostics/diagnostic-shape.md) makes that column this file's only ` +
-        `oracle, so a missing row is a loud harness failure, never a skip and never a ` +
-        `hard-coded fallback. Bug 0256's §Fix carries the ` +
-        `theta/parse/malformed-schema-field Trigger rewrite in the same commit as the site it ` +
-        `is raised from (docs/spec_topics/diagnostics/code-registry-parse.md:99)`,
-    );
-  }
-  return template;
+  return registryMessageOrThrow(
+    REGISTRY,
+    code,
+    `Bug 0256's §Fix carries the ` +
+      `theta/parse/malformed-schema-field Trigger rewrite in the same commit as the site it ` +
+      `is raised from (docs/spec_topics/diagnostics/code-registry-parse.md:99)`,
+  );
 }
 
 const MALFORMED_FIELD = "theta/parse/malformed-schema-field";

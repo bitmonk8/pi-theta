@@ -1240,13 +1240,10 @@ const THETAS: readonly PlantedTheta[] = [
   { stem: "divplain", text: invokeCaller('invoke("./cstr.theta", 3 / 2)?') },
   // r5: the route-A residual at this sink.
   { stem: "modnegzero", text: invokeCaller('invoke("./cstr.theta", 1 % -0)?') },
-  // r6: the withheld->fires class the mirror shares with the pass (E1-E5) but
-  // that group never drives through this sink; a regression that keyed the
-  // mirror's guard to a numeric left operand would revert this row silently
-  // while r1-r5 (all numeric lefts) stayed green.
+  // r6: bug 0332 refuses the non-numeric left operand at parse, before the
+  // caller reaches the invoke-arg mirror; the caller must not register.
   { stem: "modleftstr", text: invokeCaller('invoke("./cstr.theta", "a" % 0)?') },
-  // r6c: the `-` control — its arithmetic fallback unions {string, integer},
-  // not disjoint from the callee's `x: string` param, so it stays withheld.
+  // r6c: the `-` control now refuses at parse too, before the invoke-arg sink.
   { stem: "subleftstr", text: invokeCaller('invoke("./cstr.theta", "a" - 0)?') },
   // reg1: the registration consequence.
   { stem: "regmod", text: bindingTheta("let n: integer = 1 % 0") },
@@ -1333,7 +1330,7 @@ describe("bug 0152 §Fix (c) — the `collectProvableArgTypes` mirror at the inv
     ).toBe(true);
   });
 
-  it("r6 / r6c: a non-numeric LEFT operand at the invoke sink — the withheld->fires transition", () => {
+  it("r6 / r6c: non-numeric LEFT operands refuse at parse before the invoke-arg sink", () => {
     // Bug 0332 SUPERSEDES this class at both cells: `"a" % 0` and `"a" - 0`
     // now refuse at PARSE (`theta/parse/non-numeric-arithmetic-operands`)
     // before either planted caller ever reaches `collectProvableArgTypes` and

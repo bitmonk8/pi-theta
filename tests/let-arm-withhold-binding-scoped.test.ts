@@ -1,3 +1,4 @@
+import { CLEAN, one, two, type Expectation } from "./helpers/load-row-harness";
 import { interpolateStrict } from "./helpers/registry-oracle";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -247,27 +248,6 @@ const FM = "---\nmode: prompt\n---\n";
 
 function parse(body: string): ThetaDocument {
   return parseDoc(FM + body, FILE);
-}
-
-interface Expectation {
-  readonly codes: readonly string[];
-  readonly msgs: readonly string[];
-}
-
-/** The empty contract — no diagnostic at all. */
-const CLEAN: Expectation = { codes: [], msgs: [] };
-
-/** A one-diagnostic contract. */
-function one(code: string, message: string): Expectation {
-  return { codes: [code], msgs: [message] };
-}
-
-/** An ordered two-diagnostic contract (row c3's two judged sinks). */
-function two(first: Expectation, second: Expectation): Expectation {
-  return {
-    codes: [...first.codes, ...second.codes],
-    msgs: [...first.msgs, ...second.msgs],
-  };
 }
 
 interface Row {

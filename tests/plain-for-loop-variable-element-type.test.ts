@@ -1,4 +1,4 @@
-import { PARSE_REGISTRY_PATH as REGISTRY_PAGE } from "./helpers/load-row-harness";
+import { PARSE_REGISTRY_PATH as REGISTRY_PAGE, CLEAN, one, type Expectation } from "./helpers/load-row-harness";
 import { interpolateStrict, readRegistry } from "./helpers/registry-oracle";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -337,19 +337,6 @@ const FM = "---\nmode: prompt\n---\n";
 
 function parse(body: string, path = FILE): ThetaDocument {
   return parseDoc(FM + body, path);
-}
-
-interface Expectation {
-  readonly codes: readonly string[];
-  readonly msgs: readonly string[];
-}
-
-/** The empty contract — no diagnostic at all. */
-const CLEAN: Expectation = { codes: [], msgs: [] };
-
-/** A one-diagnostic contract. */
-function one(code: string, message: string): Expectation {
-  return { codes: [code], msgs: [message] };
 }
 
 /**

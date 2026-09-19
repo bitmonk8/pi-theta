@@ -1,14 +1,8 @@
-import { callableSetOf } from "./helpers/production-load-harness";
+import { callableSetOf, runProductionLoad, type LoadOutcome } from "./helpers/production-load-harness";
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import type {
-  ExtensionAPI,
-  ExtensionContext,
-} from "@earendil-works/pi-coding-agent";
-import type { ThetaFixture } from "../src/extension/factory";
-import { discoverAndComposeFixtures } from "../src/extension/production-composition";
 import type {
   CallableSetSnapshot,
   ResolvedCallable,
@@ -158,41 +152,8 @@ const THETAS: readonly PlantedTheta[] = [
 
 // --- Load harness ----------------------------------------------------------
 
-interface LoadOutcome {
-  readonly registered: readonly string[];
-  readonly fixtures: readonly ThetaFixture[];
-  readonly notifications: readonly string[];
-}
-
 let outcome: LoadOutcome;
 let workspaceDir: string;
-
-async function runProductionLoad(cwd: string): Promise<LoadOutcome> {
-  const notifications: string[] = [];
-  const pi = {
-    getFlag: (): undefined => undefined,
-    getCommands: (): readonly unknown[] => [],
-    sendMessage: (): void => {},
-    sendUserMessage: (): void => {},
-    getActiveTools: (): readonly string[] => [],
-    setActiveTools: (): void => {},
-    // RFC-0005: the child-reachable extension tool snapshot the subagent-mode
-    // load-time admission widening reads.
-    getAllTools: (): readonly unknown[] => FAKE_ALL_TOOLS,
-  } as unknown as ExtensionAPI;
-  const ctx = {
-    cwd,
-    modelRegistry: { getAvailable: (): readonly unknown[] => [] },
-    ui: {
-      notify: (message: string, _type: "error"): void => {
-        notifications.push(message);
-      },
-    },
-  } as unknown as ExtensionContext;
-
-  const fixtures: readonly ThetaFixture[] = await discoverAndComposeFixtures(pi, ctx);
-  return { registered: fixtures.map((f) => f.slashName), fixtures, notifications };
-}
 
 /** The Pi-tool underlying names in a resolved snapshot (the `--tools` allowlist inputs). */
 function piToolNames(snapshot: CallableSetSnapshot): string[] {
@@ -216,7 +177,7 @@ beforeAll(async () => {
   // value. An ABSENT settings file is silent (package-and-settings.md
   // §Failure modes), so the plant is hermeticity, not noise suppression.
   writeFileSync(join(workspaceDir, ".pi", "settings.json"), "{}", "utf8");
-  outcome = await runProductionLoad(workspaceDir);
+  outcome = await runProductionLoad(workspaceDir, { registryTools: FAKE_ALL_TOOLS });
 });
 
 afterAll(() => {

@@ -1,8 +1,9 @@
+import { registryMessageOrThrow } from "./helpers/load-row-harness";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 // @ts-expect-error — JS code-registry module, no type declarations.
-import { parseRegistry, registryMessage } from "../tools/code-registry/index.js";
+import { parseRegistry } from "../tools/code-registry/index.js";
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
 import type { ThetaDocument } from "../src/parser/theta-document";
 import { lowerQueryResponseSchema } from "../src/runtime/query-schema-lowering";
@@ -195,27 +196,14 @@ const REGISTRY = parseRegistry(
     .join("\n"),
 ) as RegistryRow[];
 
-/**
- * A registry row's normative *Message* template (DIAG-4), read rather than
- * restated. THROWS, naming the missing row, so a missing row can never degrade
- * an assertion below into a comparison against `undefined` and can never be
- * silently replaced by a hard-coded string. Called only from inside a test
- * body: at module scope a throw would abort collection and take the green
- * fences down with it.
- */
 function registryMessageOf(code: string): string {
-  const template = registryMessage(REGISTRY, code) as string | undefined;
-  if (template === undefined) {
-    throw new Error(
-      `harness: the diagnostics code registry carries no Message row for ${code} — DIAG-4 ` +
-        `(docs/spec_topics/diagnostics/diagnostic-shape.md) makes that column this file's only ` +
-        `oracle, so a missing row is a loud harness failure, never a skip and never a ` +
-        `hard-coded fallback. Bug 0244's §Fix carries the row's Trigger widening in the same ` +
-        `commit as the sites it is raised from ` +
-        `(docs/spec_topics/diagnostics/code-registry-parse.md:99)`,
-    );
-  }
-  return template;
+  return registryMessageOrThrow(
+    REGISTRY,
+    code,
+    `Bug 0244's §Fix carries the row's Trigger widening in the same ` +
+      `commit as the sites it is raised from ` +
+      `(docs/spec_topics/diagnostics/code-registry-parse.md:99)`,
+  );
 }
 
 const MALFORMED_FIELD = "theta/parse/malformed-schema-field";

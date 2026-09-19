@@ -100,6 +100,31 @@ export function registryMessageOf(
   return out;
 }
 
+/**
+ * A registry row's normative *Message* template (DIAG-4), read rather than
+ * restated. THROWS, naming the missing row, so a missing row can never degrade
+ * an assertion below into a comparison against `undefined` and can never be
+ * silently replaced by a hard-coded string. Call only from inside a test
+ * body: at module scope a throw would abort collection and take the green
+ * fences down with it. The caller supplies its bug-specific failure context.
+ */
+export function registryMessageOrThrow(
+  registry: readonly RegistryRow[],
+  code: string,
+  missingRowContext: string,
+): string {
+  const template = registryMessage(registry, code) as string | undefined;
+  if (template === undefined) {
+    throw new Error(
+      `harness: the diagnostics code registry carries no Message row for ${code} — DIAG-4 ` +
+        `(docs/spec_topics/diagnostics/diagnostic-shape.md) makes that column this file's only ` +
+        `oracle, so a missing row is a loud harness failure, never a skip and never a ` +
+        `hard-coded fallback. ${missingRowContext}`,
+    );
+  }
+  return template;
+}
+
 /** One rendered diagnostic line, `<severity> <code>: <message>` — the bug documents' own rendering. */
 export function registryLineOf(
   registry: readonly RegistryRow[],
@@ -113,6 +138,28 @@ export function registryLineOf(
 // ===========================================================================
 // The load harness.
 // ===========================================================================
+
+/** An ordered diagnostic contract: codes and their rendered messages. */
+export interface Expectation {
+  readonly codes: readonly string[];
+  readonly msgs: readonly string[];
+}
+
+/** The empty contract — no diagnostic at all. */
+export const CLEAN: Expectation = { codes: [], msgs: [] };
+
+/** A one-diagnostic contract. */
+export function one(code: string, message: string): Expectation {
+  return { codes: [code], msgs: [message] };
+}
+
+/** An ordered two-diagnostic contract. */
+export function two(first: Expectation, second: Expectation): Expectation {
+  return {
+    codes: [...first.codes, ...second.codes],
+    msgs: [...first.msgs, ...second.msgs],
+  };
+}
 
 /** One diagnostic reduced to its structural triple — severity, code, span. */
 interface Triple {

@@ -1,4 +1,4 @@
-import { PARSE_REGISTRY_PATH as REGISTRY_PAGE } from "./helpers/load-row-harness";
+import { PARSE_REGISTRY_PATH as REGISTRY_PAGE, CLEAN, one, two, type Expectation } from "./helpers/load-row-harness";
 import { interpolateStrict, readRegistry } from "./helpers/registry-oracle";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -495,25 +495,6 @@ function armSites(doc: ThetaDocument): string[] {
   }
   walkBlock(body);
   return out;
-}
-
-interface Expectation {
-  readonly codes: readonly string[];
-  readonly msgs: readonly string[];
-}
-
-/** The empty contract — no diagnostic at all. */
-const CLEAN: Expectation = { codes: [], msgs: [] };
-
-function one(code: string, message: string): Expectation {
-  return { codes: [code], msgs: [message] };
-}
-
-function two(first: Expectation, second: Expectation): Expectation {
-  return {
-    codes: [...first.codes, ...second.codes],
-    msgs: [...first.msgs, ...second.msgs],
-  };
 }
 
 interface Row {

@@ -1,4 +1,4 @@
-import { PARSE_REGISTRY_PATH as REGISTRY_PAGE } from "./helpers/load-row-harness";
+import { PARSE_REGISTRY_PATH as REGISTRY_PAGE, CLEAN, one, type Expectation } from "./helpers/load-row-harness";
 import { interpolateStrict, readRegistry } from "./helpers/registry-oracle";
 import { describe, expect, it } from "vitest";
 // @ts-expect-error — JS code-registry module, no type declarations.
@@ -462,19 +462,6 @@ function vehicleSites(doc: ThetaDocument, label: string): string[] {
   }
   walkBlock(body);
   return out;
-}
-
-interface Expectation {
-  readonly codes: readonly string[];
-  readonly msgs: readonly string[];
-}
-
-/** The empty contract — no diagnostic at all. */
-const CLEAN: Expectation = { codes: [], msgs: [] };
-
-/** A one-diagnostic contract. */
-function one(code: string, message: string): Expectation {
-  return { codes: [code], msgs: [message] };
 }
 
 /**
