@@ -29,6 +29,7 @@ import type {
 } from "../../src/runtime/terminal-outcomes";
 import type { SourceRange } from "../../src/diagnostics/diagnostic";
 import type { InvokeCalleeError } from "../../src/runtime/query-error";
+import type { QueryToolLoopConfig } from "../../src/runtime/query-tool-loop";
 import type { InvokeCallSite } from "../../src/runtime/invoke-provenance";
 import type {
   CommittedSideEffect,
@@ -225,6 +226,17 @@ export function realEnv(): LexicalEnvironment {
 }
 
 export const SITE: CheckpointSite = { file: "theta.theta", line: 1, column: 1 };
+
+/** Query-loop defaults shared by the executor and composition witnesses. */
+export function queryConfig(): QueryToolLoopConfig {
+  return {
+    maxRounds: 3,
+    querySite: SITE,
+    thetaSlashName: "demo",
+    invocationId: "inv-1",
+    occurredAt: 0,
+  };
+}
 
 /**
  * A `StatementEvalHost` double whose `runEffect` returns a scripted

@@ -1,5 +1,6 @@
 import {
   span,
+  queryConfig,
   SEAM_NOOP_CHECKPOINT as NOOP_CHECKPOINT,
   SEAM_NOOP_SINK as NOOP_SINK,
   ScriptedCheckpoint,
@@ -13,14 +14,13 @@ import {
   type QueryHostDispatch,
 } from "../src/runtime/effectful-statement-host";
 import { buildEnvironment, type LexicalEnvironment } from "../src/runtime/lexical-environment";
-import type { Checkpoint, CheckpointSite } from "../src/seams/checkpoint";
+import type { Checkpoint } from "../src/seams/checkpoint";
 import type { CommittedConversationMutator, DrivenConversationMode } from "../src/runtime/terminal-outcomes";
 import { makeErr, makeOk, type ThetaValue, type ResultValue } from "../src/runtime/value";
 import type {
   FreePhaseTurn,
   ForcedRespondTurn,
   QueryModelDriver,
-  QueryToolLoopConfig,
 } from "../src/runtime/query-tool-loop";
 import type { AgentToolResultEnvelope, CodeSideToolCall } from "../src/runtime/tool-call-execute";
 import type { InvokeChild, DrivenInvokeResult } from "../src/runtime/invoke-cancellation";
@@ -105,8 +105,6 @@ function realEnv(): LexicalEnvironment {
   return buildEnvironment({ body: { statements: [], tail: null } });
 }
 
-const SITE: CheckpointSite = { file: "theta.theta", line: 1, column: 1 };
-
 // --- Checkpoint substrate (PIC-10) -----------------------------------------
 
 // --- Recording partial-append mutator (V4c) --------------------------------
@@ -186,16 +184,6 @@ class RecordingInvokeChild implements InvokeChild {
     // Models an ordinary callee that ran and returned Ok (bug 0294 provenance).
     return Promise.resolve({ source: "callee-returned", result: makeOk(this.value) });
   }
-}
-
-function queryConfig(): QueryToolLoopConfig {
-  return {
-    maxRounds: 3,
-    querySite: SITE,
-    thetaSlashName: "demo",
-    invocationId: "inv-1",
-    occurredAt: 0,
-  };
 }
 
 /**

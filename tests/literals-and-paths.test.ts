@@ -4,8 +4,9 @@ import {
   checkIntegerNarrowing,
   validatePathLiteral,
 } from "../src/lexer/literals";
-import type { Diagnostic, SourceRange } from "../src/diagnostics/diagnostic";
+import type { Diagnostic } from "../src/diagnostics/diagnostic";
 import { lexWithSeam as lex, deliveredDiagnostics, type SeamFixture } from "./helpers/e2e-s1";
+import { span } from "./helpers/invoke-seam-scaffold";
 
 // V1b-T — failing tests for the paired `V1b` "string, number, and path
 // literals" implementation.
@@ -45,11 +46,6 @@ function deliveredCode(fixture: SeamFixture, code: string): Diagnostic | undefin
 /** The first `string`-kind token in a lexed stream, if any. */
 function firstString(tokens: readonly Token[]): Token | undefined {
   return tokens.find((t) => t.kind === "string");
-}
-
-/** A throwaway 1:1–1:2 span for the parse-context seam calls. */
-function span(): SourceRange {
-  return { start: { line: 1, column: 1 }, end: { line: 1, column: 2 } };
 }
 
 // --- §"String literals" — escape table + \u{...} decode (LEX, cka-1) ------

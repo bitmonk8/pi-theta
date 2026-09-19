@@ -50,7 +50,6 @@ import { abortForAgentEnd } from "../src/runtime/cancellation-core";
 import { executeBody } from "../src/runtime/statement-executor";
 import { rootWith } from "./helpers/fixture-dispatch-harness";
 import type { AgentToolResultEnvelope } from "../src/runtime/tool-call-execute";
-import type { ThetaBody } from "../src/parser/theta-document";
 import type { ParsedFrontmatter } from "../src/parser/frontmatter";
 import type { ThetaValue } from "../src/runtime/value";
 import {
@@ -61,6 +60,7 @@ import {
   strExpr as stringExpr,
   letStmt,
   statementBody as body,
+  promptTheta,
 } from "./helpers/tool-call-dispatch-harness";
 
 // --- system-note recorder ---------------------------------------------------
@@ -82,14 +82,6 @@ function sentNotes(): { readonly notes: SentNote[]; readonly pi: ExtensionAPI } 
 
 function ctxWithSignal(signal: AbortSignal | undefined): ExtensionCommandContext {
   return { signal } as unknown as ExtensionCommandContext;
-}
-
-function promptTheta(thetaBody: ThetaBody, tools?: readonly string[]): ThetaCompositionInput {
-  const frontmatter: ParsedFrontmatter = {
-    mode: "prompt",
-    ...(tools !== undefined ? { tools } : {}),
-  };
-  return { slashName: "demo", sourcePath: "/theta/demo.theta", frontmatter, body: thetaBody };
 }
 
 // ===========================================================================

@@ -3,7 +3,7 @@ import {
   RecordingMutator,
   SEAM_NOOP_CHECKPOINT as NOOP_CHECKPOINT,
   SEAM_NOOP_SINK as NOOP_SINK,
-  SITE,
+  queryConfig,
   body,
   identExpr,
   letStmt,
@@ -25,7 +25,6 @@ import type {
   FreePhaseTurn,
   ForcedRespondTurn,
   QueryModelDriver,
-  QueryToolLoopConfig,
 } from "../src/runtime/query-tool-loop";
 import type {
   AgentToolResultEnvelope,
@@ -100,16 +99,6 @@ class NoopInvokeChild implements InvokeChild {
     // callee ran, so the fake models an ordinary callee-returned Ok.
     return Promise.resolve({ source: "callee-returned", result: makeOk(null) });
   }
-}
-
-function queryConfig(): QueryToolLoopConfig {
-  return {
-    maxRounds: 3,
-    querySite: SITE,
-    thetaSlashName: "demo",
-    invocationId: "inv-1",
-    occurredAt: 0,
-  };
 }
 
 /**

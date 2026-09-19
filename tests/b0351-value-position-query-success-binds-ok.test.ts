@@ -1,4 +1,13 @@
-import { ScriptedHost, deps } from "./helpers/invoke-seam-scaffold";
+import {
+  ScriptedHost,
+  deps,
+  span,
+  identExpr,
+  queryExpr,
+  matchExpr,
+  letStmt,
+  body,
+} from "./helpers/invoke-seam-scaffold";
 import { describe, expect, it } from "vitest";
 import { executeBody } from "../src/runtime/statement-executor";
 import {
@@ -13,10 +22,8 @@ import type {
   Expr,
   MatchArmNode,
   MatchExpr,
-  ThetaBody,
   Stmt,
 } from "../src/parser/theta-document";
-import type { SourceRange } from "../src/diagnostics/diagnostic";
 
 // Bug 0351 — a value-position query SUCCESS (`let r = @`…``, no `?`) must BIND
 // `Ok(payload)` so the author's documented consumption runs: `match r { Ok(v)
@@ -56,17 +63,8 @@ import type { SourceRange } from "../src/diagnostics/diagnostic";
 
 // --- AST construction helpers ----------------------------------------------
 
-/** A throwaway 1:1–1:2 span for hand-built AST nodes. */
-function span(): SourceRange {
-  return { start: { line: 1, column: 1 }, end: { line: 1, column: 2 } };
-}
-
 function stringExpr(value: string): Expr {
   return { kind: "string", value, range: span() };
-}
-
-function identExpr(name: string): Expr {
-  return { kind: "ident", name, range: span() };
 }
 
 function arrayExpr(elements: readonly Expr[]): Expr {
@@ -83,33 +81,14 @@ function callExpr(callee: string, args: readonly Expr[]): Expr {
   return { kind: "call", callee, args, range: span() };
 }
 
-/** An untyped `@`-query expression. */
-function queryExpr(template: string): Expr {
-  return { kind: "query", schema: null, template, range: span() };
-}
-
 /** An `<operand>?` (`?`-propagation) expression. */
 function tryExpr(operand: Expr): Expr {
   return { kind: "try", operand, range: span() };
 }
 
-/** A `match` expression node. */
-function matchExpr(scrutinee: Expr, arms: readonly MatchArmNode[]): MatchExpr {
-  return { kind: "match", scrutinee, arms, range: span() };
-}
-
-/** A `let <name> = <init>` statement (immutable, unannotated). */
-function letStmt(name: string, init: Expr): Stmt {
-  return { kind: "let", name, mutable: false, annotation: null, init, range: span() };
-}
-
 /** A `return <operand>` statement. */
 function returnStmt(operand: Expr | null): Stmt {
   return { kind: "return", operand, range: span() };
-}
-
-function body(statements: readonly Stmt[], tail: Expr | null = null): ThetaBody {
-  return { statements, tail };
 }
 
 /** The two-arm result `match` the bug's recovery shape uses. */

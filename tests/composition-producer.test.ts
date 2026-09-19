@@ -1,6 +1,7 @@
 import { user as userMessage } from "./helpers/agent-message-fixtures";
 import {
   span,
+  queryConfig,
   SEAM_NOOP_CHECKPOINT as NOOP_CHECKPOINT,
   SEAM_NOOP_SINK as NOOP_SINK,
   SEAM_NOOP_MUTATOR,
@@ -27,7 +28,6 @@ import {
 } from "../src/runtime/effectful-statement-host";
 import { buildEnvironment } from "../src/runtime/lexical-environment";
 import type { ExecuteBodyDeps } from "../src/runtime/statement-executor";
-import type { CheckpointKind, CheckpointSite } from "../src/seams/checkpoint";
 import type { DrivenConversationMode } from "../src/runtime/terminal-outcomes";
 import { makeErr, makeOk, type ThetaValue, type ResultValue } from "../src/runtime/value";
 import type { QueryError } from "../src/runtime/query-error";
@@ -35,7 +35,6 @@ import type {
   ForcedRespondTurn,
   FreePhaseTurn,
   QueryModelDriver,
-  QueryToolLoopConfig,
 } from "../src/runtime/query-tool-loop";
 import { extractTrailingTurnText } from "../src/runtime/conversation-drive";
 import type { AgentToolResultEnvelope, CodeSideToolCall } from "../src/runtime/tool-call-execute";
@@ -108,18 +107,6 @@ function assistantMessage(text: string): AssistantMessage {
     stopReason: "stop",
     timestamp: 0,
   } as AssistantMessage;
-}
-
-const SITE: CheckpointSite = { file: "theta.theta", line: 1, column: 1 };
-
-function queryConfig(): QueryToolLoopConfig {
-  return {
-    maxRounds: 3,
-    querySite: SITE,
-    thetaSlashName: "demo",
-    invocationId: "inv-1",
-    occurredAt: 0,
-  };
 }
 
 /** A minimal dispatch context — the producer's collaborators ignore it here. */
