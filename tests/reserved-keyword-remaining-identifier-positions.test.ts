@@ -1,9 +1,6 @@
 import { registryMessageOf } from "./helpers/load-row-harness";
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
+import { readRegistry, type RegistryRow } from "./helpers/registry-oracle";
 import { describe, expect, it } from "vitest";
-// @ts-expect-error — JS code-registry module, no type declarations.
-import { parseRegistry } from "../tools/code-registry/index.js";
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
 import { reservedKeywords } from "../src/lexer/lexer";
 import { EXPORT_IN_THETA_CODE } from "../src/parser/imports";
@@ -190,20 +187,7 @@ import { parseDoc, isLoadParseError, diagLinesWithRange as lines, errorLineAt as
 // The diagnostic oracle — the registry's *Message* and *Sev* columns.
 // ===========================================================================
 
-interface RegistryRow {
-  readonly code: string;
-  readonly severity: string;
-  readonly message: string;
-}
-
-const REGISTRY = parseRegistry(
-  readFileSync(
-    fileURLToPath(
-      new URL("../docs/spec_topics/diagnostics/code-registry-parse.md", import.meta.url),
-    ),
-    "utf8",
-  ),
-) as RegistryRow[];
+const REGISTRY = readRegistry(["parse"]);
 
 const RESERVED = "theta/parse/reserved-keyword-as-identifier";
 const MUT_IMMUTABLE = "theta/parse/mut-on-immutable-context";

@@ -2,10 +2,8 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type {
-  ExtensionAPI,
-  ExtensionContext,
-} from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { GOOD_THETA, BAD_THETA, makeHelperCtx as makeCtx } from "./helpers/production-load-harness";
 import { discoverAndComposeFixtures } from "../src/extension/production-composition";
 
 // S6 (PIC) — the `makeLoadEmit` toast+stderr diagnostic router on the H8a
@@ -33,20 +31,6 @@ import { discoverAndComposeFixtures } from "../src/extension/production-composit
 // REQ-PIC-11/87 surfacing surface; the FMC-1 / DISCLI-2 / IMPORTS-3 no-UI gap
 // noted inline at production-composition.ts:228-239.
 
-const GOOD_THETA = ["---", "mode: prompt", "tools: read", "---", "@`hi`", ""].join(
-  "\n",
-);
-// `tools:` names a Pi tool absent from the threaded registry →
-// `theta/load/unknown-tool` (error-severity ERR-6). The theta is dropped.
-const BAD_THETA = [
-  "---",
-  "mode: prompt",
-  "tools: totally_unknown_xyz",
-  "---",
-  "@`hi`",
-  "",
-].join("\n");
-
 interface Recorder {
   readonly notifications: { message: string; type: string }[];
   readonly notes: unknown[];
@@ -65,19 +49,6 @@ function makePi(recorder: Recorder): ExtensionAPI {
     registerFlag: (): void => {},
     on: (): void => {},
   } as unknown as ExtensionAPI;
-}
-
-function makeCtx(cwd: string, hasUI: boolean, recorder: Recorder): ExtensionContext {
-  return {
-    cwd,
-    hasUI,
-    modelRegistry: { getAvailable: (): readonly unknown[] => [] },
-    ui: {
-      notify: (message: string, type: string): void => {
-        recorder.notifications.push({ message, type });
-      },
-    },
-  } as unknown as ExtensionContext;
 }
 
 describe("S6 — discoverAndComposeFixtures load diagnostics route to the ctx.ui.notify toast", () => {

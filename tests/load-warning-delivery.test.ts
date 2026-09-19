@@ -3,12 +3,9 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type {
-  ExtensionAPI,
-  ExtensionContext,
-} from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { discoverAndComposeFixtures } from "../src/extension/production-composition";
-import { GOOD_THETA, BAD_THETA, makeShippedHarness, type RecordedNote } from "./helpers/production-load-harness";
+import { GOOD_THETA, BAD_THETA, makeHelperCtx, makeShippedHarness, type RecordedNote } from "./helpers/production-load-harness";
 
 // Bug 0013 — load-phase WARNING diagnostics are dropped by both production
 // sinks (docs/bugs/0013-load-warnings-dropped-by-both-production-sinks.md).
@@ -235,23 +232,6 @@ function makeHelperPi(recorder: HelperRecorder): ExtensionAPI {
     registerFlag: (): void => {},
     on: (): void => {},
   } as unknown as ExtensionAPI;
-}
-
-function makeHelperCtx(
-  cwd: string,
-  hasUI: boolean,
-  recorder: HelperRecorder,
-): ExtensionContext {
-  return {
-    cwd,
-    hasUI,
-    modelRegistry: { getAvailable: (): readonly unknown[] => [] },
-    ui: {
-      notify: (message: string, type: string): void => {
-        recorder.notifications.push({ message, type });
-      },
-    },
-  } as unknown as ExtensionContext;
 }
 
 // ===========================================================================

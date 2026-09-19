@@ -1,3 +1,9 @@
+import {
+  SEAM_NOOP_CHECKPOINT as NOOP_CHECKPOINT,
+  SEAM_NOOP_SINK as NOOP_SINK,
+  SEAM_NOOP_MUTATOR,
+} from "./helpers/invoke-seam-scaffold";
+import { parseDeps } from "./helpers/e2e-s1";
 import { EM_DASH, ajvArgsNote } from "./helpers/scripted-live-session-harness";
 import { REGISTRY } from "./helpers/registry-oracle";
 import { readFileSync } from "node:fs";
@@ -263,14 +269,11 @@ import {
 } from "../src/extension/theta-composition-producer";
 import {
   parseThetaDocument,
-  type ParseThetaDocumentDeps,
   type ThetaBody,
   type ThetaDocument,
 } from "../src/parser/theta-document";
 import type { ThetaSource } from "../src/lexer/lexer";
 import type { RuntimeRoot } from "../src/runtime-root";
-import type { ModelReferenceMatcher } from "../src/parser/frontmatter";
-import type { SystemNoteChannelDeps } from "../src/extension/system-note-channel";
 import {
   AjvSchemaValidator,
   type LoweredSchema,
@@ -283,13 +286,8 @@ import {
   type QueryHostDispatch,
 } from "../src/runtime/effectful-statement-host";
 import type { BodyExecution, ExecuteBodyDeps } from "../src/runtime/statement-executor";
-import type {
-  CommittedConversationMutator,
-  CommittedSurface,
-} from "../src/runtime/terminal-outcomes";
-import type { CodeSideToolCall, ToolLoweringSink } from "../src/runtime/tool-call-execute";
+import type { CodeSideToolCall } from "../src/runtime/tool-call-execute";
 import type { InvokeChild } from "../src/runtime/invoke-cancellation";
-import type { Checkpoint } from "../src/seams/checkpoint";
 import type { Diagnostic, Severity, SourceRange } from "../src/diagnostics/diagnostic";
 import type { QueryError } from "../src/runtime/query-error";
 import { makeOk, type ResultValue, type ThetaValue } from "../src/runtime/value";
@@ -605,16 +603,6 @@ function paramsFieldRange(name: CellName): SourceRange {
 // the shipped dispatch entry).
 // ===========================================================================
 
-function parseDeps(): ParseThetaDocumentDeps {
-  const systemNote: SystemNoteChannelDeps = {
-    pi: { sendMessage: (): void => {} },
-    ui: { notify: (): void => {} },
-    emitDiagnostic: (): void => {},
-  };
-  const modelMatcher: ModelReferenceMatcher = { resolve: (): "resolved" => "resolved" };
-  return { systemNote, modelMatcher };
-}
-
 /** Parse one cell's source through the production whole-file parser. */
 function parseCell(name: CellName): ThetaDocument {
   const source: ThetaSource = {
@@ -721,25 +709,6 @@ function rootDouble(): RuntimeRoot {
   } as unknown as RuntimeRoot;
 }
 
-const NOOP_CHECKPOINT: Checkpoint = {
-  before(): Promise<void> {
-    return Promise.resolve();
-  },
-};
-
-const NOOP_SINK: ToolLoweringSink = {
-  diagnostic(): void {},
-  systemNote(): void {},
-};
-
-class InertMutator implements CommittedConversationMutator {
-  truncate(): void {}
-  rewrite(): void {}
-  replace(): void {}
-  remove(): void {}
-  injectCompensatingTurn(_surface: CommittedSurface): void {}
-}
-
 /**
  * Executor deps over the driven fixture's own body. The bodies are declarations
  * only, so every effect resolver throws rather than returning a double: a
@@ -770,7 +739,7 @@ function inertExecuteDeps(body: ThetaBody, file: string): ExecuteBodyDeps {
     host: createEffectfulStatementHost(hostDeps),
     checkpoint: NOOP_CHECKPOINT,
     signal: new AbortController().signal,
-    mutator: new InertMutator(),
+    mutator: SEAM_NOOP_MUTATOR,
     mode: "prompt",
     file,
   };

@@ -2,11 +2,7 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import type {
-  ExtensionAPI,
-  ExtensionContext,
-} from "@earendil-works/pi-coding-agent";
-import { discoverAndComposeFixtures } from "../src/extension/production-composition";
+import { disposeWorkspace, plantThetaWorkspace, runProductionLoad } from "./helpers/production-load-harness";
 import { makeHarness } from "./helpers/package-merge-e2e-harness";
 
 // S6 (PIC) — WITNESS for FIND-S6-1 (theta-defect, FIXED): the theta `description:`
@@ -41,38 +37,15 @@ describe("S6 FIND-S6-1 — description drop on the discoverAndComposeFixtures pa
   let workspace: string;
 
   beforeEach(() => {
-    workspace = mkdtempSync(join(tmpdir(), "theta-s6-desc-a-"));
-    mkdirSync(join(workspace, ".pi", "theta"), { recursive: true });
-    writeFileSync(
-      join(workspace, ".pi", "theta", "hi.theta"),
-      THETA_WITH_DESC,
-      "utf8",
-    );
     // A minimal valid settings file pins the fixture's settings read to a known
     // value. An ABSENT settings file is silent (package-and-settings.md
     // §Failure modes), so the plant is hermeticity, not noise suppression.
-    writeFileSync(join(workspace, ".pi", "settings.json"), "{}", "utf8");
+    workspace = plantThetaWorkspace("theta-s6-desc-a-", [{ stem: "hi", text: THETA_WITH_DESC }], "{}");
   });
-  afterEach(() => rmSync(workspace, { recursive: true, force: true }));
+  afterEach(() => disposeWorkspace(workspace));
 
   it("parses description into frontmatter and threads it onto the composed runnable's top-level description", async () => {
-    const pi = {
-      getFlag: (): undefined => undefined,
-      getCommands: (): unknown[] => [],
-      sendMessage: (): void => {},
-      registerCommand: (): void => {},
-      registerMessageRenderer: (): void => {},
-      registerFlag: (): void => {},
-      on: (): void => {},
-    } as unknown as ExtensionAPI;
-    const ctx = {
-      cwd: workspace,
-      hasUI: false,
-      modelRegistry: { getAvailable: (): readonly unknown[] => [] },
-      ui: { notify: (): void => {} },
-    } as unknown as ExtensionContext;
-
-    const thetas = await discoverAndComposeFixtures(pi, ctx);
+    const { fixtures: thetas } = await runProductionLoad(workspace, { hasUI: false });
     expect(thetas).toHaveLength(1);
     const theta = thetas[0] as { description?: string; frontmatter?: { description?: string } };
 

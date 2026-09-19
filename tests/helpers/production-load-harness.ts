@@ -280,6 +280,24 @@ export const BAD_THETA = [
   "",
 ].join("\n");
 
+/** A helper-path context with no available models and a recording toast sink. */
+export function makeHelperCtx(
+  cwd: string,
+  hasUI: boolean,
+  recorder: { readonly notifications: { message: string; type: string }[] },
+): ExtensionContext {
+  return {
+    cwd,
+    hasUI,
+    modelRegistry: { getAvailable: (): readonly unknown[] => [] },
+    ui: {
+      notify: (message: string, type: string): void => {
+        recorder.notifications.push({ message, type });
+      },
+    },
+  } as unknown as ExtensionContext;
+}
+
 /** A recorded `pi.sendMessage` call (the `theta-system-note` channel). */
 export interface RecordedNote {
   readonly customType: string;
