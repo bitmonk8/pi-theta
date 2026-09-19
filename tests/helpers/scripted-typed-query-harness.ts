@@ -1,4 +1,4 @@
-// Shared forced-respond typed-query scaffold for the bug-0352/0353 witnesses
+// Shared typed-query scaffold for the bug-0352/0353/0355/0399 witnesses
 // (PTQ-0439). The real parser, schema lowerer, AJV validator and respond-repair
 // stack run against a scripted opener and repeatable follow-up.
 
@@ -21,6 +21,7 @@ import {
 } from "../../src/runtime/depth-walk";
 import type { AjvSchemaValidator, LoweredSchema } from "../../src/seams/schema-validator";
 import type { SchemaDecl } from "../../src/parser/theta-document";
+import type { CommittedSideEffect } from "../../src/runtime/no-rollback";
 import type { ValidationIssue } from "../../src/runtime/query-error";
 import { ajv as sharedAjv, schemaDeclsOf as sharedSchemaDeclsOf, forcedRespondConfig } from "./typed-query-harness";
 
@@ -54,6 +55,43 @@ export class OpeningModel implements QueryModelDriver {
   }
   forcedRespondTurn(): Promise<ForcedRespondTurn> {
     return Promise.resolve(this.opener);
+  }
+}
+
+export const toolUse = (...ids: string[]): FreePhaseTurn => ({
+  kind: "tool_use",
+  batch: ids.map((toolUseId) => ({ toolName: "search", toolUseId })),
+});
+export const textTurn = (text: string): FreePhaseTurn => ({ kind: "text", text });
+export const respond = (payload: unknown): ForcedRespondTurn => ({ kind: "respond", payload });
+
+/**
+ * A scripted parent driver: its ordered free-phase turns drive
+ * the parent's `slotCount`, and the forced respond turn opens repair on an
+ * AJV-invalid payload.
+ */
+export class ScriptedParent implements QueryModelDriver {
+  constructor(
+    private readonly freeTurns: readonly FreePhaseTurn[],
+    private readonly forced: ForcedRespondTurn,
+  ) {}
+
+  nextFreePhaseTurn(round: number): Promise<FreePhaseTurn> {
+    const turn = this.freeTurns[round];
+    if (turn === undefined) {
+      // Loud, not a silent hang: a correct loop never reads past the scripted
+      // free phase.
+      throw new Error(`no scripted free-phase turn for round ${round}`);
+    }
+    return Promise.resolve(turn);
+  }
+
+  runToolBatch(): Promise<readonly CommittedSideEffect[]> {
+    return Promise.resolve([]);
+  }
+
+  forcedRespondTurn(): Promise<ForcedRespondTurn> {
+    return Promise.resolve(this.forced);
   }
 }
 

@@ -2,11 +2,11 @@ import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import type { Diagnostic } from "../src/diagnostics/diagnostic";
 import {
   allDiagnostics,
   describeNotes,
   errorFilesOf,
+  expectCallerRefusedWithCalleeHasErrors,
   finishWorkspace,
   normalisePath,
   normativeMessagePattern as normativeMessagePatternCore,
@@ -366,25 +366,13 @@ function requireDepthOneDropRoute(pass: LoadPass, file: string): void {
  * at the caller's own `tools:` site. One entry names one callee, so one row.
  */
 function expectCallerRefused(pass: LoadPass, callerPath: string, callerStem: string): void {
-  expect(
-    pass.registered,
-    "the caller must not register over a callee this same pass un-registers\n" +
-      describeNotes(pass.notes),
-  ).not.toContain(callerStem);
-
-  const callerRows = allDiagnostics(pass.notes).filter(
-    (d) =>
-      d.code === CALLEE_HAS_ERRORS_CODE &&
-      d.severity === "error" &&
-      normalisePath(d.file ?? "") === callerPath,
-  );
-  expect(
-    callerRows.length,
-    `error-severity ${CALLEE_HAS_ERRORS_CODE} rows located at ${callerPath}: ` +
-      `${callerRows.length}\n${describeNotes(pass.notes)}`,
-  ).toBe(1);
-  expect((callerRows[0] as Diagnostic).message, `${CALLEE_HAS_ERRORS_CODE} message`).toMatch(
+  expectCallerRefusedWithCalleeHasErrors(
+    pass,
+    callerPath,
+    callerStem,
+    CALLEE_HAS_ERRORS_CODE,
     normativeMessagePattern(CALLEE_HAS_ERRORS_CODE),
+    "callee with structural errors",
   );
 }
 

@@ -6,7 +6,6 @@ import { describe, expect, it } from "vitest";
 import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 // @ts-expect-error — JS code-registry module, no type declarations.
 import { parseRegistry } from "../tools/code-registry/index.js";
-import type { Diagnostic } from "../src/diagnostics/diagnostic";
 import { checkThetaImports } from "../src/extension/import-static-checks";
 import { discoverAndComposeFixtures } from "../src/extension/production-composition";
 import { SYSTEM_NOTE_CHANNEL } from "../src/extension/system-note-channel";
@@ -17,6 +16,7 @@ import type { FileSystem } from "../src/seams/file-system";
 import {
   allDiagnostics,
   describeNotes,
+  expectCallerRefusedWithCalleeHasErrors,
   finishWorkspace,
   makeHost,
   normalisePath,
@@ -328,24 +328,13 @@ function requireCalleeDropRoute(pass: LoadPass, code: string): void {
  * does not register either.
  */
 function expectCallerRefused(pass: LoadPass, callerPath: string, callerName: string): void {
-  expect(
-    pass.registered,
-    `the caller must not register over a callee this pass un-registers\n${describeNotes(pass.notes)}`,
-  ).not.toContain(callerName);
-
-  const callerRows = allDiagnostics(pass.notes).filter(
-    (d) =>
-      d.code === CALLEE_HAS_ERRORS_CODE &&
-      d.severity === "error" &&
-      normalisePath(d.file ?? "") === callerPath,
-  );
-  expect(
-    callerRows.length,
-    `error-severity ${CALLEE_HAS_ERRORS_CODE} rows located at the caller's file: ` +
-      `${callerRows.length}\n${describeNotes(pass.notes)}`,
-  ).toBeGreaterThanOrEqual(1);
-  expect((callerRows[0] as Diagnostic).message, `${CALLEE_HAS_ERRORS_CODE} message`).toMatch(
+  expectCallerRefusedWithCalleeHasErrors(
+    pass,
+    callerPath,
+    callerName,
+    CALLEE_HAS_ERRORS_CODE,
     normativeMessagePattern(REGISTRY, CALLEE_HAS_ERRORS_CODE),
+    "callee with structural errors",
   );
 }
 

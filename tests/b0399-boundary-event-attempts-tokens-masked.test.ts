@@ -56,6 +56,17 @@ import {
   producerWithCapture as captureProductionNotes,
   noteChannelEntries,
 } from "./helpers/scripted-live-session-harness";
+import { SEAM_NOOP_SINK, SEAM_NOOP_MUTATOR, span } from "./helpers/invoke-seam-scaffold";
+import {
+  NOOP_CHECKPOINT,
+  liveSignal,
+  ajv,
+  toolUse,
+  textTurn,
+  respond,
+  ScriptedParent,
+} from "./helpers/scripted-typed-query-harness";
+import { schemaDeclsOf } from "./helpers/typed-query-harness";
 import type { RuntimeRoot } from "../src/runtime-root";
 import { renderTopLevelErrNote } from "../src/runtime/err-note-render";
 import type { RuntimeEvent } from "../src/runtime/runtime-event-channel";
@@ -77,8 +88,6 @@ import {
 import { buildEnvironment } from "../src/runtime/lexical-environment";
 import {
   runTypedQueryLoop,
-  type ForcedRespondTurn,
-  type FreePhaseTurn,
   type QueryModelDriver,
   type QueryToolLoopConfig,
   type TypedQuerySchemaValidation,
@@ -88,29 +97,14 @@ import {
   type FollowUpRespondOutcome,
 } from "../src/runtime/typed-query-validation";
 import { lowerQueryResponseSchema } from "../src/runtime/query-schema-lowering";
-import {
-  AjvSchemaValidator,
-  type LoweredSchema,
-  type SchemaSlug,
-} from "../src/seams/schema-validator";
-import {
-  parseThetaDocument,
-  type ParseThetaDocumentDeps,
-  type SchemaDecl,
-  type Expr,
-  type QueryExpr,
-  type ThetaBody,
-} from "../src/parser/theta-document";
-import type { CommittedSideEffect } from "../src/runtime/no-rollback";
+import type { LoweredSchema } from "../src/seams/schema-validator";
 import type {
-  CommittedConversationMutator,
-  CommittedSurface,
-  DrivenConversationMode,
-} from "../src/runtime/terminal-outcomes";
-import type { ToolLoweringSink } from "../src/runtime/tool-call-execute";
-import type { ThetaSource } from "../src/lexer/lexer";
-import type { Checkpoint } from "../src/seams/checkpoint";
-import type { SourceRange } from "../src/diagnostics/diagnostic";
+  SchemaDecl,
+  Expr,
+  QueryExpr,
+  ThetaBody,
+} from "../src/parser/theta-document";
+import type { DrivenConversationMode } from "../src/runtime/terminal-outcomes";
 
 // Known id/timestamp so the boundary-BUILT (absent-event) arm's freshly-minted
 // `invocation_id` / `occurred_at` are assertable at exact values — the 0383
@@ -289,16 +283,6 @@ describe("bug 0399 (ii) — the boundary-built RuntimeEvent preserves attempts/t
 //     scripted parent driver), reused verbatim so the origin event's masked is
 //     produced by the real seam, not a mock -----------------------------------
 
-const NOOP_CHECKPOINT: Checkpoint = {
-  before(): Promise<void> {
-    return Promise.resolve();
-  },
-};
-
-function liveSignal(): AbortSignal {
-  return new AbortController().signal;
-}
-
 function config(maxRounds: number): QueryToolLoopConfig {
   return {
     maxRounds,
@@ -307,71 +291,6 @@ function config(maxRounds: number): QueryToolLoopConfig {
     invocationId: "inv-0399-origin",
     occurredAt: 0,
   };
-}
-
-const toolUse = (...ids: string[]): FreePhaseTurn => ({
-  kind: "tool_use",
-  batch: ids.map((toolUseId) => ({ toolName: "search", toolUseId })),
-});
-const textTurn = (text: string): FreePhaseTurn => ({ kind: "text", text });
-const respond = (payload: unknown): ForcedRespondTurn => ({ kind: "respond", payload });
-
-/**
- * A scripted parent driver (mirrors b0355's `ScriptedParent` /
- * query-tool-loop.test.ts's `ScriptedModel`): its ordered free-phase turns drive
- * the parent's `slotCount`, and the forced respond turn opens repair on an
- * AJV-invalid payload.
- */
-class ScriptedParent implements QueryModelDriver {
-  constructor(
-    private readonly freeTurns: readonly FreePhaseTurn[],
-    private readonly forced: ForcedRespondTurn,
-  ) {}
-
-  nextFreePhaseTurn(round: number): Promise<FreePhaseTurn> {
-    const turn = this.freeTurns[round];
-    if (turn === undefined) {
-      // Loud, not a silent hang: a correct loop never reads past the scripted
-      // free phase.
-      throw new Error(`no scripted free-phase turn for round ${round}`);
-    }
-    return Promise.resolve(turn);
-  }
-
-  runToolBatch(): Promise<readonly CommittedSideEffect[]> {
-    return Promise.resolve([]);
-  }
-
-  forcedRespondTurn(): Promise<ForcedRespondTurn> {
-    return Promise.resolve(this.forced);
-  }
-}
-
-/** Parse `.theta` source and return its body's `schema` declarations. */
-function schemaDeclsOf(src: string): readonly SchemaDecl[] {
-  const parseDeps = {
-    systemNote: {
-      pi: { sendMessage: () => Promise.resolve() },
-      ui: { notify: () => {} },
-      emitDiagnostic: () => {},
-    },
-    modelMatcher: { resolve: () => "resolved" as const },
-  } as unknown as ParseThetaDocumentDeps;
-  const source: ThetaSource = {
-    path: "demo.theta",
-    bytes: new TextEncoder().encode(src),
-  };
-  const doc = parseThetaDocument(source, parseDeps);
-  return doc.body.statements.filter((s): s is SchemaDecl => s.kind === "schema");
-}
-
-/** The real production AJV validator (byte-identical to the sibling suites). */
-function ajv(): AjvSchemaValidator {
-  const slugOf = (schema: LoweredSchema): SchemaSlug => ({
-    slug: "probe",
-    canonicalBytes: JSON.stringify(schema),
-  });
-  return new AjvSchemaValidator({ emit: () => {}, slugOf });
 }
 
 /**
@@ -430,24 +349,6 @@ const FOLLOWUP_INVALID = { a: "still wrong" };
 // --- executeBody harness (mirrors effectful-statement-host.test.ts's `harness`,
 //     but resolves a TYPED query so `runTypedQueryLoop` fires) -----------------
 
-const NOOP_SINK: ToolLoweringSink = {
-  diagnostic(): void {},
-  systemNote(): void {},
-};
-
-/** A no-op committed-conversation mutator (no rollback on the fail path). */
-class NoopMutator implements CommittedConversationMutator {
-  truncate(): void {}
-  rewrite(): void {}
-  replace(): void {}
-  remove(): void {}
-  injectCompensatingTurn(_surface: CommittedSurface): void {}
-}
-
-function span(): SourceRange {
-  return { start: { line: 1, column: 1 }, end: { line: 1, column: 2 } };
-}
-
 function queryExpr(template: string): QueryExpr {
   return { kind: "query", schema: null, template, range: span() };
 }
@@ -474,7 +375,7 @@ function executeBodyHarness(
   const hostDeps: EffectfulStatementHostDeps = {
     checkpoint,
     signal,
-    sink: NOOP_SINK,
+    sink: SEAM_NOOP_SINK,
     file: "demo.theta",
     evaluatePure: () => null,
     resolveQuery: () => ({ typed: true, model, config: cfg, schemaValidation: validation }),
@@ -490,7 +391,7 @@ function executeBodyHarness(
     host: createEffectfulStatementHost(hostDeps),
     checkpoint,
     signal,
-    mutator: new NoopMutator(),
+    mutator: SEAM_NOOP_MUTATOR,
     mode: "prompt" as DrivenConversationMode,
     file: "demo.theta",
   };
@@ -513,7 +414,7 @@ describe("bug 0399 (i) — the repair-terminal origin event's masked reaches the
     // fresh budget reached max_rounds (2) co-fires ceiling #2 on ITS turn, while
     // the parent ran one free-phase round (slot 1 != 2). This is b0355's
     // under-fire direction — GREEN in the 0355-landed tree.
-    const decls = schemaDeclsOf(DEEP_SCHEMA);
+    const decls = schemaDeclsOf(DEEP_SCHEMA, "demo.theta");
     const built = buildValidation(
       "Deep",
       decls,
@@ -559,7 +460,7 @@ describe("bug 0399 (i) — the repair-terminal origin event's masked reaches the
     // forbids re-deriving it at the boundary). GREEN post-fix: the origin event
     // is threaded onto BodyExecution.originEvent and passed verbatim as the 3rd
     // arg, carrying 0355's masked.
-    const decls = schemaDeclsOf(DEEP_SCHEMA);
+    const decls = schemaDeclsOf(DEEP_SCHEMA, "demo.theta");
     const built = buildValidation(
       "Deep",
       decls,

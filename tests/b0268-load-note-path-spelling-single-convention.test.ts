@@ -4,7 +4,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 // @ts-expect-error — JS code-registry module, no type declarations.
-import { parseRegistry, registryMessage } from "../tools/code-registry/index.js";
+import { parseRegistry } from "../tools/code-registry/index.js";
 import {
   renderDiagnosticLine,
   type Diagnostic,
@@ -13,6 +13,7 @@ import {
   allDiagnostics,
   describeNotes,
   noteDiagnostics,
+  normativeMessagePattern as normativeMessagePatternCore,
   requireDriven,
   runLoadPass,
   type LoadPass,
@@ -139,16 +140,13 @@ const REGISTRY = parseRegistry(
  * `undefined`.
  */
 function normativeMessagePattern(code: string): RegExp {
-  const message = registryMessage(REGISTRY, code) as string | undefined;
-  if (typeof message !== "string" || message.length === 0) {
+  return normativeMessagePatternCore(REGISTRY, code, () => {
     throw new Error(
       `harness: docs/spec_topics/diagnostics/code-registry-parse.md carries no Message row ` +
         `for ${code} — the DIAG-4 column is this file's only message oracle, so a missing ` +
         `row is a harness failure, never a skip`,
     );
-  }
-  const escaped = message.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  return new RegExp(escaped.replace(/<[a-z-]+>/g, ".+"));
+  });
 }
 
 // ── The load pass ───────────────────────────────────────────────────────────

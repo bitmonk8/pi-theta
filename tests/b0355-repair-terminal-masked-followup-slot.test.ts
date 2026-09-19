@@ -40,11 +40,9 @@
 // direction reachable (bug doc §Fix constraint 4).
 
 import { describe, expect, it } from "vitest";
+import { toolUse, textTurn, respond, ScriptedParent } from "./helpers/scripted-typed-query-harness";
 import {
   runTypedQueryLoop,
-  type ForcedRespondTurn,
-  type FreePhaseTurn,
-  type QueryModelDriver,
   type QueryToolLoopConfig,
   type TypedQueryOutcome,
   type TypedQuerySchemaValidation,
@@ -65,7 +63,6 @@ import {
   type ParseThetaDocumentDeps,
   type SchemaDecl,
 } from "../src/parser/theta-document";
-import type { CommittedSideEffect } from "../src/runtime/no-rollback";
 import type { ThetaSource } from "../src/lexer/lexer";
 import type { Checkpoint } from "../src/seams/checkpoint";
 
@@ -90,46 +87,6 @@ function config(maxRounds: number): QueryToolLoopConfig {
     invocationId: "inv-0355",
     occurredAt: 0,
   };
-}
-
-const toolUse = (...ids: string[]): FreePhaseTurn => ({
-  kind: "tool_use",
-  batch: ids.map((toolUseId) => ({ toolName: "search", toolUseId })),
-});
-const textTurn = (text: string): FreePhaseTurn => ({ kind: "text", text });
-const respond = (payload: unknown): ForcedRespondTurn => ({ kind: "respond", payload });
-
-/**
- * A scripted parent driver (mirrors query-tool-loop.test.ts's `ScriptedModel`):
- * the ordered free-phase `tool_use` rounds drive `slotCount` up to `max_rounds`
- * so CIO-4's `max_rounds`-final branch dispatches the forced respond turn at
- * `slotCountAtDispatch == max_rounds` — the parent-exhausted shape the defect
- * needs. The forced respond turn opens repair (an AJV-invalid payload) or trips
- * the inline depth arm (a depth-6 payload).
- */
-class ScriptedParent implements QueryModelDriver {
-  constructor(
-    private readonly freeTurns: readonly FreePhaseTurn[],
-    private readonly forced: ForcedRespondTurn,
-  ) {}
-
-  nextFreePhaseTurn(round: number): Promise<FreePhaseTurn> {
-    const turn = this.freeTurns[round];
-    if (turn === undefined) {
-      // Loud, not a silent hang: a correct loop never reads past the scripted
-      // free phase (it breaks at the `max_rounds`-final branch first).
-      throw new Error(`no scripted free-phase turn for round ${round}`);
-    }
-    return Promise.resolve(turn);
-  }
-
-  runToolBatch(): Promise<readonly CommittedSideEffect[]> {
-    return Promise.resolve([]);
-  }
-
-  forcedRespondTurn(): Promise<ForcedRespondTurn> {
-    return Promise.resolve(this.forced);
-  }
 }
 
 /** Parse `.theta` source and return its body's `schema` declarations. */
