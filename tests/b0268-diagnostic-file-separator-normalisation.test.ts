@@ -1,8 +1,5 @@
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-// @ts-expect-error — JS code-registry module, no type declarations.
-import { parseRegistry, registryMessage } from "../tools/code-registry/index.js";
+import { PARSE_REGISTRY, PARSE_REGISTRY_PATH, registryMessageOf } from "./helpers/load-row-harness";
 import {
   renderDiagnosticBatch,
   renderDiagnosticLine,
@@ -62,40 +59,13 @@ import {
 
 // ── Registry oracle (DIAG-4) ────────────────────────────────────────────────
 
-interface RegistryRow {
-  code: string;
-  severity: string;
-  phase: string;
-  message: string;
-}
-
-const REGISTRY = parseRegistry(
-  readFileSync(
-    fileURLToPath(
-      new URL(
-        "../docs/spec_topics/diagnostics/code-registry-parse.md",
-        import.meta.url,
-      ),
-    ),
-    "utf8",
-  ),
-) as RegistryRow[];
-
 /**
  * The row's normative *Message* (DIAG-4). Throws naming the registry page when
  * the row is absent, so registry drift cannot degrade a byte-identity
  * assertion into a comparison against `undefined`.
  */
 function normativeMessage(code: string): string {
-  const message = registryMessage(REGISTRY, code) as string | undefined;
-  if (typeof message !== "string" || message.length === 0) {
-    throw new Error(
-      `harness: docs/spec_topics/diagnostics/code-registry-parse.md carries no Message row ` +
-        `for ${code} — the DIAG-4 column is this file's only message oracle, so a missing ` +
-        `row is a harness failure, never a skip`,
-    );
-  }
-  return message;
+  return registryMessageOf(PARSE_REGISTRY, PARSE_REGISTRY_PATH, code, [], { requireNonEmpty: true });
 }
 
 const UNTERMINATED_TEMPLATE_CODE = "theta/parse/unterminated-template";

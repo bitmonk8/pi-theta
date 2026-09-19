@@ -28,7 +28,7 @@ import {
   type ProductionProducerInput,
   type PiToolDispatch,
 } from "../../src/extension/production-theta-producer";
-import type { BinderRunInput, ThetaCompositionInput } from "../../src/extension/theta-composition-producer";
+import type { BinderRunInput, BinderRunResult, ThetaCompositionInput } from "../../src/extension/theta-composition-producer";
 import { executeBody, type BodyExecution } from "../../src/runtime/statement-executor";
 import type { RuntimeRoot } from "../../src/runtime-root";
 import { rootDouble as fixedClockRoot } from "./runtime-belt-probe-harness";
@@ -110,6 +110,32 @@ export function parse(src: string, path = "probe.theta", fixture = "fixture"): T
   expect(errors, `the ${fixture} theta must parse cleanly before it is driven`).toEqual([]);
   expect(doc.frontmatter, `the ${fixture} theta must carry parseable frontmatter`).not.toBeNull();
   return doc;
+}
+
+/** Build the composition input for a parsed fixture theta, retaining the caller's parse preconditions. */
+export function thetaInput(
+  source: string,
+  identity: { readonly slashName: string; readonly sourcePath: string; readonly binderModel?: string },
+  parseSource: (source: string) => ThetaDocument = parse,
+): ThetaCompositionInput {
+  const doc = parseSource(source);
+  return {
+    slashName: identity.slashName,
+    sourcePath: identity.sourcePath,
+    frontmatter: doc.frontmatter!,
+    body: doc.body,
+    ...(identity.binderModel !== undefined ? { binderModel: identity.binderModel } : {}),
+  };
+}
+
+/** Drive one binder pass over a fixture theta with the caller's arguments and context. */
+export async function driveBinder(
+  deps: ReturnType<typeof createProductionProducerDeps>,
+  theta: ThetaCompositionInput,
+  args: string,
+  ctx: ExtensionCommandContext,
+): Promise<BinderRunResult> {
+  return deps.runBinder({ theta, args, ctx });
 }
 
 /** The production AJV validator (matches the sibling live-seam harnesses). */

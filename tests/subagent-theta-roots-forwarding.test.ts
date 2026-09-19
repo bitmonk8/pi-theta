@@ -46,7 +46,7 @@ import { describe, expect, it, vi } from "vitest";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
-import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { makeHarness } from "./helpers/watch-arming-harness";
 import { discoverAndComposeFixtures } from "../src/extension/production-composition";
 import { PI_CLI_DIALECT, assembleSubagentArgv, SUBAGENT_EXTENSION_PIN_ENV, type ExecutableHost } from "../src/runtime/subagent-launcher";
 
@@ -144,21 +144,7 @@ describe("bug 0008 — the joined --theta value splits back to both roots on the
     // → discovery `cliPaths`), exactly what a spawned child runs at
     // session_start — no private export needed.
     const joined = [dirA, dirB].join(delimiter);
-    const pi = {
-      getFlag: (name: string): string | undefined => (name === "theta" ? joined : undefined),
-      getCommands: (): unknown[] => [],
-      sendMessage: (): void => {},
-      registerCommand: (): void => {},
-      registerMessageRenderer: (): void => {},
-      registerFlag: (): void => {},
-      on: (): void => {},
-    } as unknown as ExtensionAPI;
-    const ctx = {
-      cwd: workspace,
-      hasUI: false,
-      modelRegistry: { getAvailable: (): readonly unknown[] => [] },
-      ui: { notify: (): void => {} },
-    } as unknown as ExtensionContext;
+    const { pi, ctx } = makeHarness(workspace, { theta: joined });
 
     // Scoped stderr spy — hermeticity, not behaviour under test: an absent
     // settings file and an absent conventional root are both SILENT today

@@ -1,11 +1,10 @@
 import { loadRowMessage, interpolate, templateToRegExp } from "./helpers/registry-oracle";
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { discoverAndComposeFixtures } from "../src/extension/production-composition";
-import { GOOD_THETA, BAD_THETA, makeHelperCtx, makeShippedHarness, type RecordedNote } from "./helpers/production-load-harness";
+import { GOOD_THETA, BAD_THETA, makeHelperCtx, makeShippedHarness, plantThetaWorkspace, disposeWorkspace, type RecordedNote } from "./helpers/production-load-harness";
 
 // Bug 0013 — load-phase WARNING diagnostics are dropped by both production
 // sinks (docs/bugs/0013-load-warnings-dropped-by-both-production-sinks.md).
@@ -325,13 +324,12 @@ let workspace: string;
 let thetaDir: string;
 
 beforeEach(() => {
-  workspace = mkdtempSync(join(tmpdir(), "theta-bug0013-"));
+  workspace = plantThetaWorkspace("theta-bug0013-", []);
   thetaDir = join(workspace, ".pi", "theta");
-  mkdirSync(thetaDir, { recursive: true });
 });
 
 afterEach(() => {
-  rmSync(workspace, { recursive: true, force: true });
+  disposeWorkspace(workspace);
 });
 
 // ===========================================================================

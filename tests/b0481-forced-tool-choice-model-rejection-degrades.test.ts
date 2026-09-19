@@ -97,7 +97,12 @@ import type {
 import { createProductionProducerDeps } from "../src/extension/production-theta-producer";
 import type { ThetaCompositionInput } from "../src/extension/theta-composition-producer";
 import { executeBody, type BodyExecution } from "../src/runtime/statement-executor";
-import { capturedCallAccessors, parse, rootDouble } from "./helpers/scripted-live-session-harness";
+import {
+  capturedCallAccessors,
+  driveBinder as driveBinderWithContext,
+  thetaInput as parsedThetaInput,
+  rootDouble,
+} from "./helpers/scripted-live-session-harness";
 import { isForcedToolChoiceRejection } from "../src/binder/forced-tool-choice";
 
 // --- The resolved model (respond model = ctx.model; binder model by reference) --
@@ -203,14 +208,7 @@ function registryDouble(models: readonly unknown[]): ModelRegistry {
 }
 
 function thetaInput(source: string, opts?: { binderModel?: string }): ThetaCompositionInput {
-  const doc = parse(source);
-  return {
-    slashName: "probe",
-    sourcePath: "/theta/probe.theta",
-    frontmatter: doc.frontmatter!,
-    body: doc.body,
-    ...(opts?.binderModel !== undefined ? { binderModel: opts.binderModel } : {}),
-  };
+  return parsedThetaInput(source, { slashName: "probe", sourcePath: "/theta/probe.theta", ...opts });
 }
 
 /** Drive the typed max_rounds:0 fixture through the REAL producer. */
@@ -226,17 +224,14 @@ async function driveTypedMax0(): Promise<BodyExecution> {
 }
 
 /** Drive one binder pass over the binder fixture. */
-async function driveBinder(): Promise<{
-  readonly bound: boolean;
-  readonly args?: Readonly<Record<string, unknown>>;
-}> {
+async function driveBinder() {
   const theta = thetaInput(BINDER_THETA, { binderModel: "binder-model" });
   const deps = createProductionProducerDeps({
     pi: piDouble(),
     root: rootDouble(),
     modelRegistry: registryDouble([ANTHROPIC_BINDER_MODEL]),
   });
-  return deps.runBinder({ theta, args: "the async module for the team", ctx: ctxDouble(undefined) });
+  return driveBinderWithContext(deps, theta, "the async module for the team", ctxDouble(undefined));
 }
 
 // --- Captured-call accessors ------------------------------------------------------

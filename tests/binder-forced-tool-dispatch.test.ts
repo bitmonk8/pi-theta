@@ -150,6 +150,8 @@ import { deepKeyOccurrences } from "./helpers/deep-key-occurrences";
 import {
   type CapturedNote,
   capturedCallAccessors,
+  driveBinder as driveBinderWithContext,
+  thetaInput as parsedThetaInput,
   noteChannelEntries,
   parse,
   TWO_PARAM_THETA,
@@ -308,14 +310,11 @@ function producerWithCapture(model: BinderModelDouble = ANTHROPIC_BINDER_MODEL):
 
 /** Build the composition input for a parsed fixture theta. */
 function thetaInput(source: string, sourcePath: string): ThetaCompositionInput {
-  const doc = parse(source, "code-review.theta", "binder");
-  return {
-    slashName: "code-review",
-    sourcePath,
-    frontmatter: doc.frontmatter!,
-    body: doc.body,
-    binderModel: "binder-model",
-  };
+  return parsedThetaInput(
+    source,
+    { slashName: "code-review", sourcePath, binderModel: "binder-model" },
+    (src) => parse(src, "code-review.theta", "binder"),
+  );
 }
 
 function twoParamTheta(): ThetaCompositionInput {
@@ -427,8 +426,8 @@ function expectedEnvelopeSchemaOf(
 async function driveBinder(
   deps: ReturnType<typeof createProductionProducerDeps>,
   theta: ThetaCompositionInput,
-): Promise<{ readonly bound: boolean; readonly args?: Readonly<Record<string, unknown>> }> {
-  return deps.runBinder({ theta, args: BINDER_ARGS, ctx: ctxDouble() });
+) {
+  return driveBinderWithContext(deps, theta, BINDER_ARGS, ctxDouble());
 }
 
 // The failure-mode template rows under test (determinism-cancellation-failure.md

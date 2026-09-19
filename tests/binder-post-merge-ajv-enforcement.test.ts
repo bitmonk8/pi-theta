@@ -150,6 +150,8 @@ import {
   AJV_ARGS_PHRASE,
   ajvArgsNote,
   binderProducerWithCapture,
+  driveBinder as driveBinderWithContext,
+  thetaInput as parsedThetaInput,
   type BinderCapturedNote as CapturedNote,
   noteChannelEntries,
 } from "./helpers/scripted-live-session-harness";
@@ -366,14 +368,7 @@ function thetaInput(
   sourcePath: string,
   slashName: string,
 ): ThetaCompositionInput {
-  const doc = parse(source);
-  return {
-    slashName,
-    sourcePath,
-    frontmatter: doc.frontmatter!,
-    body: doc.body,
-    binderModel: "binder-model",
-  };
+  return parsedThetaInput(source, { slashName, sourcePath, binderModel: "binder-model" }, parse);
 }
 
 /** Every channel note's rendered content — the readable form of a red. */
@@ -415,8 +410,8 @@ async function driveBinder(
   deps: ReturnType<typeof createProductionProducerDeps>,
   theta: ThetaCompositionInput,
   slashArguments: string,
-): Promise<{ readonly bound: boolean; readonly args?: Readonly<Record<string, unknown>> }> {
-  return deps.runBinder({ theta, args: slashArguments, ctx: ctxDouble() });
+) {
+  return driveBinderWithContext(deps, theta, slashArguments, ctxDouble());
 }
 
 beforeEach(() => {

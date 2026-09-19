@@ -1,12 +1,11 @@
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 // @ts-expect-error — JS code-registry module, no type declarations.
-import { parseRegistry, registryMessage } from "../tools/code-registry/index.js";
+import { registryMessage } from "../tools/code-registry/index.js";
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
 import { EXPORT_IN_THETA_CODE } from "../src/parser/imports";
-import { parseThetaDocument, type ThetaDocument } from "../src/parser/theta-document";
-import { isLoadParseError as isRegistrationError, parseDeps } from "./helpers/e2e-s1";
+import type { ThetaDocument } from "../src/parser/theta-document";
+import { isLoadParseError as isRegistrationError, parseDoc } from "./helpers/e2e-s1";
+import { REGISTRY, type RegistryRow } from "./helpers/registry-oracle";
 import { loadThetaLibDiags as loadImports } from "./helpers/thetalib-load-harness";
 
 // Bug 0058 — `parseImportExport` guards the `from` clause with
@@ -129,33 +128,6 @@ const UNKNOWN_IDENTIFIER_CODE = "theta/parse/unknown-identifier";
 const EXPECTED_TEMPLATE =
   "import / export specifier list requires a 'from' clause with a .thetalib path literal";
 
-interface RegistryRow {
-  readonly code: string;
-  readonly namespace: string;
-  readonly severity: string;
-  readonly phase: string;
-  readonly trigger: string;
-  readonly message: string;
-}
-
-// The live four-page sharded registry, read from the spec corpus and
-// concatenated — the same input tests/code-registry.test.ts reconciles.
-const REGISTRY = parseRegistry(
-  [
-    "code-registry-parse.md",
-    "code-registry-load.md",
-    "code-registry-runtime.md",
-    "code-registry-host.md",
-  ]
-    .map((page) =>
-      readFileSync(
-        fileURLToPath(new URL(`../docs/spec_topics/diagnostics/${page}`, import.meta.url)),
-        "utf8",
-      ),
-    )
-    .join("\n"),
-) as RegistryRow[];
-
 /**
  * A registered code's normative *Message* string (DIAG-4).
  *
@@ -183,18 +155,13 @@ function missingFromMessage(): string {
 // Parse drivers and diagnostic readers.
 // ===========================================================================
 
-/** Parse a source string at `path` through the shipped whole-document pipeline. */
-function parse(source: string, path: string): ThetaDocument {
-  return parseThetaDocument({ path, bytes: new TextEncoder().encode(source) }, parseDeps());
-}
-
 /**
  * Parse a `.thetalib` body. The extension drives the top-level-form gate, and
  * `export` / `import` are permitted forms there (imports.md :13), so a
  * degenerate spelling draws no `theta/parse/thetalib-top-level-statement` noise.
  */
 function parseLib(body: string): ThetaDocument {
-  return parse(`${body}\n`, "/proj/lib.thetalib");
+  return parseDoc(`${body}\n`, "/proj/lib.thetalib");
 }
 
 /** The importing `.theta` frontmatter every `.theta` fixture shares. */
@@ -202,7 +169,7 @@ const APP_FRONTMATTER = ['---', 'model: "sonnet"', "mode: prompt", '---'].join("
 
 /** Parse a `.theta` body under the shared frontmatter. */
 function parseApp(body: string): ThetaDocument {
-  return parse(`${APP_FRONTMATTER}\n${body}`, "/proj/app.theta");
+  return parseDoc(`${APP_FRONTMATTER}\n${body}`, "/proj/app.theta");
 }
 
 /** Every diagnostic rendered `<severity> <code>: <message>`, in emission order. */

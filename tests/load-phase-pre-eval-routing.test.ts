@@ -1,8 +1,7 @@
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { GOOD_THETA, BAD_THETA, makeShippedHarness as makeHarness, type RecordedNote } from "./helpers/production-load-harness";
+import { GOOD_THETA, BAD_THETA, makeShippedHarness as makeHarness, plantThetaWorkspace, disposeWorkspace, type RecordedNote } from "./helpers/production-load-harness";
 
 // V4e (production wiring) — load-phase pre-evaluation failure note-routing.
 //
@@ -32,13 +31,12 @@ describe("V4e — load-phase pre-evaluation failures route onto the theta-system
   let thetaDir: string;
 
   beforeEach(() => {
-    workspace = mkdtempSync(join(tmpdir(), "theta-v4e-load-"));
+    workspace = plantThetaWorkspace("theta-v4e-load-", []);
     thetaDir = join(workspace, ".pi", "theta");
-    mkdirSync(thetaDir, { recursive: true });
   });
 
   afterEach(() => {
-    rmSync(workspace, { recursive: true, force: true });
+    disposeWorkspace(workspace);
   });
 
   it("a load failure surfaces one theta-system-note (triggerTurn:false) and does not abort session_start", async () => {
@@ -59,7 +57,7 @@ describe("V4e — load-phase pre-evaluation failures route onto the theta-system
     // error-severity `theta/load/unknown-tool` diagnostic and triggerTurn:false —
     // the SAME envelope shape as the reload path's ERR-7 note.
     const errorNotes = loadErrorNotes(harness.notes);
-    expect(errorNotes.length).toBeGreaterThanOrEqual(1);
+    expect(errorNotes).toHaveLength(1);
     const note = errorNotes.find((n) =>
       (n.details!.diagnostics ?? []).some(
         (d) => d.code === "theta/load/unknown-tool",
