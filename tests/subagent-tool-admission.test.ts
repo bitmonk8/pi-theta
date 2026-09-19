@@ -1,3 +1,4 @@
+import { callableSetOf } from "./helpers/production-load-harness";
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -193,15 +194,6 @@ async function runProductionLoad(cwd: string): Promise<LoadOutcome> {
   return { registered: fixtures.map((f) => f.slashName), fixtures, notifications };
 }
 
-/** Read the frozen callable-set snapshot threaded onto a runnable fixture. */
-function callableSetOf(name: string): CallableSetSnapshot {
-  const fixture = outcome.fixtures.find((f) => f.slashName === name);
-  expect(fixture, `fixture '${name}' was not registered`).toBeDefined();
-  const snapshot = (fixture as unknown as { callableSet?: CallableSetSnapshot }).callableSet;
-  expect(snapshot, `fixture '${name}' carries no callableSet snapshot`).toBeDefined();
-  return snapshot as CallableSetSnapshot;
-}
-
 /** The Pi-tool underlying names in a resolved snapshot (the `--tools` allowlist inputs). */
 function piToolNames(snapshot: CallableSetSnapshot): string[] {
   const names: string[] = [];
@@ -242,14 +234,14 @@ describe("RFC-0005 — subagent-mode extension-tool admission", () => {
   });
 
   it("the admitted callable set carries all three entries by presented name", () => {
-    const snapshot = callableSetOf("subext");
+    const snapshot = callableSetOf(outcome, "subext");
     expect([...snapshot.entries.keys()].sort()).toEqual(
       ["finding_store", "projection", "read"].sort(),
     );
   });
 
   it("the extension-tool entries carry the tool's registered `parameters` schema (RFC-0002 disjointness check input)", () => {
-    const snapshot = callableSetOf("subext");
+    const snapshot = callableSetOf(outcome, "subext");
     const findingStore = snapshot.entries.get("finding_store") as ResolvedCallable & {
       readonly toolDefinition: { readonly parameters?: unknown };
     };
@@ -263,7 +255,7 @@ describe("RFC-0005 — subagent-mode extension-tool admission", () => {
 
   it("a bare built-in still resolves in subagent mode (subread registers)", () => {
     expect(outcome.registered).toContain("subread");
-    expect(piToolNames(callableSetOf("subread"))).toContain("read");
+    expect(piToolNames(callableSetOf(outcome, "subread"))).toContain("read");
   });
 
   it("a name that is neither built-in, getAllTools(), nor a .theta callable is still refused", () => {
@@ -298,7 +290,7 @@ describe("bug 0001 — prompt-mode extension-tool admission (mode-independent re
   });
 
   it("the prompt-mode callable set carries all three entries by presented name", () => {
-    const snapshot = callableSetOf("promptext");
+    const snapshot = callableSetOf(outcome, "promptext");
     expect([...snapshot.entries.keys()].sort()).toEqual(
       ["finding_store", "projection", "read"].sort(),
     );
@@ -308,7 +300,7 @@ describe("bug 0001 — prompt-mode extension-tool admission (mode-independent re
     // Resolution snapshot (*Prompt-mode extension-tool leg*): the entry "holds
     // only the tool's name and `parameters` schema" — the schema object itself
     // must reach the frozen entry.
-    const snapshot = callableSetOf("promptext");
+    const snapshot = callableSetOf(outcome, "promptext");
     const findingStore = snapshot.entries.get("finding_store") as ResolvedCallable & {
       readonly toolDefinition: { readonly parameters?: unknown };
     };
@@ -327,7 +319,7 @@ describe("bug 0001 — prompt-mode extension-tool admission (mode-independent re
       "the renamed prompt-mode extension tool must register. Registered: " +
         JSON.stringify(outcome.registered),
     ).toContain("promptrename");
-    const snapshot = callableSetOf("promptrename");
+    const snapshot = callableSetOf(outcome, "promptrename");
     const entry = snapshot.entries.get("store") as ResolvedCallable & {
       readonly toolDefinition: { readonly toolName?: string };
     };
@@ -344,8 +336,8 @@ describe("bug 0001 — prompt-mode extension-tool admission (mode-independent re
     // its name is in this install vector". The install vector consumes the
     // snapshot's underlying pi-tool names — assert the admitted extension tool
     // is among them.
-    expect(piToolNames(callableSetOf("promptext"))).toContain("finding_store");
-    expect(piToolNames(callableSetOf("promptext"))).toContain("projection");
+    expect(piToolNames(callableSetOf(outcome, "promptext"))).toContain("finding_store");
+    expect(piToolNames(callableSetOf(outcome, "promptext"))).toContain("projection");
   });
 
   it("a prompt-mode `tools:` name that is neither built-in, registry snapshot, nor .theta callable STILL fails with theta/load/unknown-tool", () => {
@@ -361,8 +353,8 @@ describe("bug 0001 — prompt-mode extension-tool admission (mode-independent re
 describe("RFC-0005 — project-local trust inference flows from sourceInfo", () => {
   it("--approve iff the admitted callable set holds a project-local tool", () => {
     // subext admits `finding_store` (project scope) → trust inferred.
-    expect(inferChildTrust(piToolNames(callableSetOf("subext")), FAKE_ALL_TOOLS)).toBe(true);
+    expect(inferChildTrust(piToolNames(callableSetOf(outcome, "subext")), FAKE_ALL_TOOLS)).toBe(true);
     // subuser admits only `projection` (user scope) + `read` (built-in) → no trust.
-    expect(inferChildTrust(piToolNames(callableSetOf("subuser")), FAKE_ALL_TOOLS)).toBe(false);
+    expect(inferChildTrust(piToolNames(callableSetOf(outcome, "subuser")), FAKE_ALL_TOOLS)).toBe(false);
   });
 });

@@ -563,6 +563,19 @@ export async function dispatchRegistered(
   ]);
 }
 
+/** One generation's registry key set, sorted — the publish-observable. */
+export function registryKeys(b: Pick<SupersessionBoot, "wirings">, index: number): readonly string[] {
+  return [...wiringAt(b, index).registry.snapshot().keys()].sort();
+}
+
+/** Prefix of the watcher structural-change note (`reload-wiring.ts`). */
+const STRUCTURAL_NOTE_PREFIX = "theta watcher: ";
+
+/** All notes carrying the watcher structural-change prefix. */
+export function structuralNotes<T extends { readonly content: string }>(harness: { readonly notes: readonly T[] }): readonly T[] {
+  return harness.notes.filter((n) => n.content.startsWith(STRUCTURAL_NOTE_PREFIX));
+}
+
 /** All notes carrying the pinned repeat-start diagnostic prefix. */
 export function repeatStartNotes<T extends { readonly content: string }>(harness: { readonly notes: readonly T[] }): readonly T[] {
   return harness.notes.filter((n) => n.content.startsWith(REPEAT_START_NOTE_PREFIX));

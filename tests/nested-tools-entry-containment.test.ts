@@ -1,3 +1,4 @@
+import { callableSetOf } from "./helpers/production-load-harness";
 import { readRegistry } from "./helpers/registry-oracle";
 import { mkdtempSync, mkdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -502,24 +503,6 @@ function notificationsNaming(stem: string): readonly string[] {
   return outcome.notifications.filter((n) => n.includes(`${stem}.theta`));
 }
 
-/** Read the frozen callable-set snapshot threaded onto a registered fixture. */
-function callableSetOf(slashName: string): CallableSetSnapshot {
-  const fixture = outcome.fixtures.find((f) => f.slashName === slashName);
-  expect(
-    fixture,
-    `PRECONDITION: fixture '${slashName}' was not registered. Registered: ` +
-      `${JSON.stringify(outcome.registered)}; notified: ` +
-      JSON.stringify(outcome.notifications),
-  ).toBeDefined();
-  const snapshot = (fixture as unknown as { callableSet?: CallableSetSnapshot })
-    .callableSet;
-  expect(
-    snapshot,
-    `PRECONDITION: fixture '${slashName}' carries no callableSet snapshot`,
-  ).toBeDefined();
-  return snapshot as CallableSetSnapshot;
-}
-
 function fixtureOf(slashName: string): ThetaFixture {
   const fixture = outcome.fixtures.find((f) => f.slashName === slashName);
   expect(
@@ -634,7 +617,7 @@ describe("bug 0111 cell 2 — an in-root nested entry is unaffected", () => {
 
   it("2: the caller's frozen snapshot carries the nested callee's callable", () => {
     expect(
-      [...callableSetOf("callnearmid").entries.keys()],
+      [...callableSetOf(outcome, "callnearmid").entries.keys()],
       "the in-root nested callee's callable is absent from the caller's snapshot",
     ).toContain("nearmid");
   });
@@ -666,11 +649,11 @@ describe("bug 0111 cell 3 — a multi-entry nested callee with no escape loses n
   });
 
   it("3a: the caller's snapshot carries the nested callee's callable", () => {
-    expect([...callableSetOf("callmulti").entries.keys()]).toContain("multimid");
+    expect([...callableSetOf(outcome, "callmulti").entries.keys()]).toContain("multimid");
   });
 
   it("3a: each entry of that `tools:` block resolves to its own callable", () => {
-    const keys = [...callableSetOf("multitwin").entries.keys()];
+    const keys = [...callableSetOf(outcome, "multitwin").entries.keys()];
     expect(
       keys,
       "the bare Pi-tool entry of the same block minted no callable, " +
@@ -818,7 +801,7 @@ describe("bug 0111 cell 6 — a nested callee whose `tools:` is only bare Pi-too
         "a bare name was pushed through a path-shaped rule. Notified: " +
         JSON.stringify(outcome.notifications),
     ).toContain("callbaremid");
-    expect([...callableSetOf("callbaremid").entries.keys()]).toContain("baremid");
+    expect([...callableSetOf(outcome, "callbaremid").entries.keys()]).toContain("baremid");
   });
 
   it("6: no containment diagnostic names the bare-name callee", () => {
@@ -833,7 +816,7 @@ describe("bug 0111 cell 6 — a nested callee whose `tools:` is only bare Pi-too
 describe("bug 0111 cell 7 — a nested callee with no `tools:` is unaffected", () => {
   it("7: the caller registers with the nested callable minted", () => {
     expect(outcome.registered).toContain("callplainmid");
-    expect([...callableSetOf("callplainmid").entries.keys()]).toContain("plainmid");
+    expect([...callableSetOf(outcome, "callplainmid").entries.keys()]).toContain("plainmid");
   });
 
   it("7: no diagnostic names it", () => {

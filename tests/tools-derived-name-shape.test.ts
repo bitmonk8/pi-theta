@@ -1,4 +1,4 @@
-import { callableSetDeps as deps } from "./helpers/e2e-s1";
+import { callableSetDeps as deps, findCode as withCode, resolveList, thetaCallee } from "./helpers/e2e-s1";
 import { readRegistry } from "./helpers/registry-oracle";
 import {
   disposeWorkspace,
@@ -9,14 +9,7 @@ import {
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 // @ts-expect-error — JS code-registry module, no type declarations.
 import { registryMessage } from "../tools/code-registry/index.js";
-import {
-  resolveCallableSet,
-  type CallableSetDeps,
-  type CallableSetResult,
-  type ResolvedThetaCallee,
-  type ToolsField,
-} from "../src/parser/callable-set";
-import type { Diagnostic } from "../src/diagnostics/diagnostic";
+import type { CallableSetResult } from "../src/parser/callable-set";
 
 // Bug 0070 — a `tools:` entry's presented name comes from one of two sources
 // and, at the baseline probed below, only one of them was checked against the
@@ -423,28 +416,6 @@ describe("Bug 0070 (B5) — the `as`-target rule keeps its own code", () => {
 // ===========================================================================
 // Group (C) — the derived-name rule and its ordering, on `resolveCallableSet`.
 // ===========================================================================
-
-/** The first diagnostic carrying `code`, if any. */
-function withCode(diags: readonly Diagnostic[], code: string): Diagnostic | undefined {
-  return diags.find((d) => d.code === code);
-}
-
-/**
- * A resolved `.theta` callee stand-in with a given declared mode. The
- * `calleePath` is injected by the `deps` factory from the resolution-table key
- * (mirroring production: `resolveEntry` overwrites it from the entry `spec`).
- */
-function thetaCallee(
-  mode: "prompt" | "subagent",
-): Omit<ResolvedThetaCallee, "calleePath"> {
-  return { kind: "theta", mode };
-}
-
-/** Resolve a YAML list-form `tools:` value. */
-function resolveList(items: readonly string[], d: CallableSetDeps): CallableSetResult {
-  const tools: ToolsField = { kind: "list", items };
-  return resolveCallableSet({ file: "test.theta", tools, deps: d });
-}
 
 /** Every subagent-mode callee the group's cells list, keyed as written. */
 const CALLEES = {

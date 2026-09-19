@@ -30,6 +30,7 @@ import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-a
 import { createThetaExtension, type ThetaExtensionDeps, type ThetaFixture } from "../../src/extension/factory";
 import { composeExtensionInstance, discoverAndComposeFixtures } from "../../src/extension/production-composition";
 import type { Diagnostic } from "../../src/diagnostics/diagnostic";
+import type { CallableSetSnapshot } from "../../src/parser/callable-set";
 import { FakeClock } from "./fake-clock";
 import { FakeFileWatcher } from "./fake-file-watcher";
 
@@ -42,6 +43,26 @@ export interface LoadOutcome {
   readonly fixtures: readonly ThetaFixture[];
 }
 
+/** Read the frozen callable-set snapshot threaded onto a registered fixture. */
+export function callableSetOf(
+  outcome: Pick<LoadOutcome, "fixtures" | "registered" | "notifications">,
+  slashName: string,
+): CallableSetSnapshot {
+  const fixture = outcome.fixtures.find((f) => f.slashName === slashName);
+  expect(
+    fixture,
+    `PRECONDITION: fixture '${slashName}' was not registered. Registered: ` +
+      `${JSON.stringify(outcome.registered)}; notified: ` +
+      JSON.stringify(outcome.notifications),
+  ).toBeDefined();
+  const snapshot = (fixture as unknown as { callableSet?: CallableSetSnapshot }).callableSet;
+  expect(
+    snapshot,
+    `PRECONDITION: fixture '${slashName}' carries no callableSet snapshot`,
+  ).toBeDefined();
+  return snapshot as CallableSetSnapshot;
+}
+
 export interface ProductionLoadOptions {
   /** `ctx.modelRegistry.getAvailable()`'s report; default: no available models. */
   readonly availableModels?: readonly unknown[];
@@ -49,6 +70,8 @@ export interface ProductionLoadOptions {
   readonly thetaFlag?: string;
   /** `pi.getCommands()`'s report; default: no Pi-owned commands. */
   readonly piOwnedCommands?: readonly { readonly name: string; readonly source: string }[];
+  /** `pi.getAllTools()`'s report; default: no registry snapshot method. */
+  readonly registryTools?: readonly { readonly name: string }[];
 }
 
 /**
@@ -71,6 +94,7 @@ export async function runProductionLoad(
     sendUserMessage: (): void => {},
     getActiveTools: (): readonly string[] => [],
     setActiveTools: (): void => {},
+    ...(opts.registryTools !== undefined ? { getAllTools: () => opts.registryTools } : {}),
   } as unknown as ExtensionAPI;
   const ctx = {
     cwd,

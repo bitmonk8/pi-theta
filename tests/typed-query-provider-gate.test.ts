@@ -1,3 +1,4 @@
+import { scripted } from "./helpers/scripted-complete-queue-mock";
 // Bug 0010 — INCREMENT C: the typed-query provider gate — runtime Err BEFORE
 // any provider traffic + load-time warning wiring (regression pins + controls).
 //
@@ -78,65 +79,25 @@
 // errors-and-results/queryerror-variants.md (TransportError shape, provider
 // derivation).
 //
-// Method: the tests/typed-two-phase-live.test.ts LIVE harness, DUPLICATED per
-// the increment-C rules (that suite stays untouched), with the same scripted
+// Method: the shared LIVE harness used by tests/typed-two-phase-live.test.ts,
+// with the same scripted
 // `complete()` queue (sticky-last + throw-on-unscripted) — every runtime cell
 // asserts BOTH counters (`sendUserMessage`, `complete()`). The load-time cells
 // drive the emitter / walker / wiring seams directly (no session drive).
 import { parseDeps } from "./helpers/e2e-s1";
 import {
+  assistantReply,
   ANTHROPIC_MODEL,
-  type SessionEntryDouble,
-  ajv,
-  appendUserEntry,
-  appendAssistantEntry,
+  twoPhaseHarness,
+  drive,
+  expectErrOfKind,
+  expectValue,
 } from "./helpers/scripted-live-session-harness";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-// The recorded off-session `complete()` calls and the scripted reply queue
-// (`vi.hoisted` so the hoisted `vi.mock` factory closes over the holder).
-const scripted = vi.hoisted(() => ({
-  queue: [] as Array<
-    (call: { model: unknown; context: unknown; options: unknown }) => unknown
-  >,
-  calls: [] as Array<{ model: unknown; context: unknown; options: unknown }>,
-}));
-
-// Replace ONLY the off-session `complete()` free function; every other pi-ai
-// export passes through unchanged.
-vi.mock("@earendil-works/pi-ai/compat", async (importOriginal) => {
-  const actual = await importOriginal<Record<string, unknown>>();
-  return {
-    ...actual,
-    complete: vi.fn(async (model: unknown, context: unknown, options: unknown) => {
-      const call = { model, context, options };
-      const index = scripted.calls.length;
-      scripted.calls.push(call);
-      if (scripted.queue.length === 0) {
-        // No silent skipping: a dispatch against an unscripted cell fails
-        // loudly (cells that pin ZERO complete() calls leave the queue empty).
-        throw new Error(
-          `scripted complete() called with an EMPTY reply queue (call #${index + 1})`,
-        );
-      }
-      // Sticky-last consumption (the bug-0007 suite discipline).
-      const factory = scripted.queue[Math.min(index, scripted.queue.length - 1)]!;
-      return factory(call);
-    }),
-  };
-});
 import { createHash } from "node:crypto";
-import type {
-  ExtensionAPI,
-  ExtensionCommandContext,
-  ModelRegistry,
-  ToolDefinition,
-} from "@earendil-works/pi-coding-agent";
-import { createProductionProducerDeps } from "../src/extension/production-theta-producer";
-import type { ThetaCompositionInput } from "../src/extension/theta-composition-producer";
-import { executeBody, type BodyExecution } from "../src/runtime/statement-executor";
+import type { BodyExecution } from "../src/runtime/statement-executor";
 import { type LoweredSchema } from "../src/seams/schema-validator";
-import type { RuntimeRoot } from "../src/runtime-root";
 import * as thetaDocumentModule from "../src/parser/theta-document";
 import { parseThetaDocument, type SchemaDecl, type ThetaBody, type ThetaDocument } from "../src/parser/theta-document";
 import type { ThetaSource } from "../src/lexer/lexer";
@@ -268,135 +229,6 @@ function respondFixture(): RespondFixture {
   return cachedRespondFixture;
 }
 
-// --- Scripted `complete()` assistant replies ------------------------------------
-
-/** An `AssistantMessage`-shaped reply for the mocked `complete()`. */
-function assistantReply(fields: {
-  readonly stopReason: string;
-  readonly text?: string;
-  readonly errorMessage?: string;
-  readonly toolCalls?: ReadonlyArray<{
-    readonly id: string;
-    readonly name: string;
-    readonly arguments: Record<string, unknown>;
-  }>;
-}): Record<string, unknown> {
-  const content: Record<string, unknown>[] = [];
-  if (fields.text !== undefined) {
-    content.push({ type: "text", text: fields.text });
-  }
-  for (const call of fields.toolCalls ?? []) {
-    content.push({
-      type: "toolCall",
-      id: call.id,
-      name: call.name,
-      arguments: call.arguments,
-    });
-  }
-  return {
-    role: "assistant",
-    content,
-    api: "anthropic-messages",
-    stopReason: fields.stopReason,
-    ...(fields.errorMessage !== undefined ? { errorMessage: fields.errorMessage } : {}),
-    timestamp: 0,
-  };
-}
-
-// --- The in-memory live user session --------------------------------------------
-
-/** The scripted trailing assistant message one driven turn commits. */
-interface ScriptedAssistantReply {
-  readonly stopReason: string;
-  readonly text?: string;
-  readonly errorMessage?: string;
-}
-
-/**
- * The live user-session double (duplicated from
- * tests/typed-two-phase-live.test.ts): `sendUserMessage` commits the `user`
- * entry and marks the session streaming; `tick()` (from the injected `Clock`'s
- * `setTimeout`) completes the in-flight streamed turn with the scripted
- * trailing `assistant` entry; the reply queue is STICKY-LAST so over-driving
- * stays observable as the `sendUserMessageCalls` COUNT pin.
- */
-class LiveSessionDouble {
-  readonly entries: SessionEntryDouble[] = [];
-  /** Proof of ON-SESSION traffic (the gate must leave this at ZERO). */
-  sendUserMessageCalls = 0;
-  readonly sentQueryTexts: string[] = [];
-
-  #idle = true;
-  #completedTurns = 0;
-  readonly #replies: readonly ScriptedAssistantReply[];
-
-  constructor(replies: readonly ScriptedAssistantReply[]) {
-    this.#replies = [...replies];
-  }
-
-  sendUserMessage(content: string): void {
-    this.sendUserMessageCalls += 1;
-    this.sentQueryTexts.push(content);
-    appendUserEntry(this.entries, content);
-    this.#idle = false;
-  }
-
-  isIdle(): boolean {
-    return this.#idle;
-  }
-
-  /** Complete the in-flight streamed turn (inert while idle). */
-  tick(): void {
-    if (this.#idle) {
-      return;
-    }
-    if (this.#replies.length === 0) {
-      // No silent skipping: a cell that scripts NO session replies pins a
-      // drive that must issue NO session turn at all.
-      throw new Error(
-        "live session double: a driven turn completed with an EMPTY reply queue",
-      );
-    }
-    const reply =
-      this.#replies[Math.min(this.#completedTurns, this.#replies.length - 1)]!;
-    this.#completedTurns += 1;
-    appendAssistantEntry(this.entries, reply.text, reply.stopReason, reply.errorMessage);
-    this.#idle = true;
-  }
-}
-
-// --- The recording `pi` double ---------------------------------------------------
-
-/** The `ExtensionAPI` surface the drive touches (the AB recording double). */
-class RecordingPi {
-  readonly registeredTools: ToolDefinition[] = [];
-  readonly setActiveToolsCalls: string[][] = [];
-  getActiveToolsCalls = 0;
-  readonly api: ExtensionAPI;
-
-  constructor(session: LiveSessionDouble) {
-    const record = this;
-    this.api = {
-      sendUserMessage: (content: string): void => session.sendUserMessage(content),
-      getActiveTools: (): string[] => {
-        record.getActiveToolsCalls += 1;
-        return ["ambient-a"];
-      },
-      setActiveTools: (names: string[]): void => {
-        record.setActiveToolsCalls.push([...names]);
-      },
-      // Bug 0479 (PIC-17 model window): the theta's `model:` is swapped in for
-      // its free-phase turn and the session model restored; the double accepts.
-      setModel: (): Promise<boolean> => Promise.resolve(true),
-      registerTool: (tool: ToolDefinition): void => {
-        record.registeredTools.push(tool);
-      },
-      on: (): void => {},
-      sendMessage: (): void => {},
-    } as unknown as ExtensionAPI;
-  }
-}
-
 // --- Harness ---------------------------------------------------------------------
 
 /** Parse `.theta` source through the production whole-file parser (must be clean). */
@@ -411,133 +243,11 @@ function parse(src: string): ThetaDocument {
   return doc;
 }
 
-/** A runtime-root double whose `Clock.setTimeout` ticks the session double. */
-function rootDouble(session: LiveSessionDouble): RuntimeRoot {
-  return {
-    checkpoint: { before: (): Promise<void> => Promise.resolve() },
-    idSource: { newInvocationId: (): string => "inv-1", newToolCallId: (): string => "tc-1" },
-    clock: {
-      now: (): number => 0,
-      wallNow: (): number => 0,
-      setTimeout: (fn: () => void): unknown => {
-        session.tick();
-        fn();
-        return 0;
-      },
-      clearTimeout: (): void => {},
-    },
-    schemaValidator: ajv(),
-  } as unknown as RuntimeRoot;
-}
-
-/** Bug 0010 harness accommodation: getAvailable + getApiKeyAndHeaders double. */
-function registryDouble(available: readonly unknown[]): ModelRegistry {
-  return {
-    getAvailable: () => [...available],
-    getApiKeyAndHeaders: async () => ({ ok: true, apiKey: "k-test" }),
-  } as unknown as ModelRegistry;
-}
-
-/** The dispatch ctx: the user-session model + the committed-transcript surface. */
-function ctxDouble(session: LiveSessionDouble, model: unknown): ExtensionCommandContext {
-  return {
-    model,
-    signal: undefined,
-    isIdle: (): boolean => session.isIdle(),
-    waitForIdle: (): Promise<void> => Promise.resolve(),
-    sessionManager: {
-      getEntries: (): readonly SessionEntryDouble[] => [...session.entries],
-      getLeafId: (): undefined => undefined,
-    },
-  } as unknown as ExtensionCommandContext;
-}
-
-/** One assembled drive: the session/pi doubles plus the producer deps. */
-interface GateHarness {
-  readonly session: LiveSessionDouble;
-  readonly pi: RecordingPi;
-  readonly deps: ReturnType<typeof createProductionProducerDeps>;
-  readonly theta: ThetaCompositionInput;
-  readonly ctx: ExtensionCommandContext;
-}
-
-function makeHarness(opts: {
-  readonly source: string;
-  readonly model?: unknown;
-  readonly availableModels?: readonly unknown[];
-  readonly sessionReplies: readonly ScriptedAssistantReply[];
-}): GateHarness {
-  const doc = parse(opts.source);
-  expect(doc.frontmatter, "the fixture theta must carry parseable frontmatter").not.toBeNull();
-  const theta: ThetaCompositionInput = {
-    slashName: "probe",
-    sourcePath: "/theta/probe.theta",
-    frontmatter: doc.frontmatter!,
-    body: doc.body,
-  };
-  const session = new LiveSessionDouble(opts.sessionReplies);
-  const pi = new RecordingPi(session);
-  const deps = createProductionProducerDeps({
-    pi: pi.api,
-    root: rootDouble(session),
-    modelRegistry: registryDouble(opts.availableModels ?? [ANTHROPIC_MODEL]),
-  });
-  return {
-    session,
-    pi,
-    deps,
-    theta,
-    ctx: ctxDouble(session, opts.model === undefined ? ANTHROPIC_MODEL : opts.model),
-  };
-}
-
-/** Drive the harness theta once through the PRODUCTION prompt-mode binding. */
-async function drive(harness: GateHarness): Promise<BodyExecution> {
-  const binding = harness.deps.bindPromptConversation({
-    theta: harness.theta,
-    args: "",
-    ctx: harness.ctx,
-  });
-  expect(
-    binding.drivenAgainst,
-    "the harness must bind the LIVE prompt-mode drive (the user session), not an off-session host",
-  ).toBe("prompt-user-session");
-  return executeBody(harness.theta.body, binding.executeDeps);
-}
-
-/** The respond tool name the drive minted (registerTool capture, recipe fallback). */
-function respondToolNameOf(harness: GateHarness): string {
-  return harness.pi.registeredTools[0]?.name ?? respondFixture().toolName;
-}
-
-/** Dig the leaf `QueryError` of the given kind out of a `?`-unwound failed drive. */
-function expectErrOfKind(execution: BodyExecution, kind: string): Record<string, unknown> {
-  expect(
-    execution.outcome,
-    `the \`?\`-unwound Err must FAIL the body (ERR-18); observed outcome '${execution.outcome}' ` +
-      `(final value: ${JSON.stringify(execution.result.value)})`,
-  ).toBe("fail");
-  const error = execution.error;
-  expect(
-    error !== null && typeof error === "object",
-    `the fail outcome must carry the leaf QueryError; observed: ${JSON.stringify(error)}`,
-  ).toBe(true);
-  const leaf = error as unknown as Record<string, unknown>;
-  expect(
-    leaf.kind,
-    `the leaf QueryError classifies as ${kind}; observed: ${JSON.stringify(leaf)}`,
-  ).toBe(kind);
-  return leaf;
-}
-
-/** Assert a successful drive resolving the typed value. */
-function expectValue(execution: BodyExecution, expected: unknown, why: string): void {
-  expect(
-    execution.outcome,
-    `${why}; observed outcome '${execution.outcome}' (error: ${JSON.stringify(execution.error)})`,
-  ).toBe("success");
-  expect(execution.result.value, why).toEqual(expected);
-}
+const { makeHarness, respondToolNameOf } = twoPhaseHarness(
+  () => respondFixture().toolName,
+  true,
+);
+type GateHarness = ReturnType<typeof makeHarness>;
 
 /** The pinned runtime gate message for one api (conversation-drive.md, verbatim). */
 function gateMessage(api: string): string {

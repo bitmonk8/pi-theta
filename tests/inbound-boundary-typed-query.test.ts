@@ -1,3 +1,4 @@
+import { scripted } from "./helpers/scripted-complete-queue-mock";
 // Bug 0172, boundary 1 — a typed `@<Schema>` query binds the AJV-validated
 // payload itself. `runTypedQueryLoop` returns `{ kind: "value", value:
 // forced.payload }` (`src/runtime/query-tool-loop.ts:724`) and
@@ -53,36 +54,9 @@
 // NOT appear in JSON output), :22 (an untagged string and a variant share no
 // structural ground, so `==` is `false`); expressions.md:118 (the declaration
 // -order `keys()` clause bug 0120 owns).
-import { ajv as realAjv } from "./helpers/scripted-live-session-harness";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { assistantReply, contextToolsOf, ANTHROPIC_MODEL, ajv as realAjv } from "./helpers/scripted-live-session-harness";
+import { beforeEach, describe, expect, it } from "vitest";
 
-// The scripted off-session `complete()` reply queue, selected by recorded call
-// index (the `tests/respond-tool-wire.test.ts` harness discipline). `vi.hoisted`
-// so the `vi.mock` factory — hoisted above every import — closes over a mutable
-// holder. An unscripted dispatch fails loudly rather than returning a stub.
-const scripted = vi.hoisted(() => ({
-  queue: [] as Array<(call: { model: unknown; context: unknown; options: unknown }) => unknown>,
-  calls: [] as Array<{ model: unknown; context: unknown; options: unknown }>,
-}));
-
-vi.mock("@earendil-works/pi-ai/compat", async (importOriginal) => {
-  const actual = await importOriginal<Record<string, unknown>>();
-  return {
-    ...actual,
-    complete: vi.fn(async (model: unknown, context: unknown, options: unknown) => {
-      const call = { model, context, options };
-      const index = scripted.calls.length;
-      scripted.calls.push(call);
-      if (scripted.queue.length === 0) {
-        throw new Error(
-          `scripted complete() called with an EMPTY reply queue (call #${index + 1})`,
-        );
-      }
-      const factory = scripted.queue[Math.min(index, scripted.queue.length - 1)]!;
-      return factory(call);
-    }),
-  };
-});
 import type {
   ExtensionAPI,
   ExtensionCommandContext,
@@ -142,40 +116,6 @@ function modelOrderedPayload(): Record<string, unknown> {
   return JSON.parse('{"who":"w","sev":"high"}') as Record<string, unknown>;
 }
 
-/** An `AssistantMessage`-shaped scripted reply. */
-function assistantReply(fields: {
-  readonly stopReason: string;
-  readonly text?: string;
-  readonly toolCalls?: ReadonlyArray<{
-    readonly id: string;
-    readonly name: string;
-    readonly arguments: unknown;
-  }>;
-}): Record<string, unknown> {
-  const content: Record<string, unknown>[] = [];
-  if (fields.text !== undefined) {
-    content.push({ type: "text", text: fields.text });
-  }
-  for (const call of fields.toolCalls ?? []) {
-    content.push({ type: "toolCall", id: call.id, name: call.name, arguments: call.arguments });
-  }
-  return {
-    role: "assistant",
-    content,
-    api: "anthropic-messages",
-    stopReason: fields.stopReason,
-    timestamp: 0,
-  };
-}
-
-/** The recorded `complete()` call's `context.tools`, duck-typed. */
-function contextToolsOf(call: { readonly context: unknown }):
-  | readonly Record<string, unknown>[]
-  | undefined {
-  const tools = (call.context as { readonly tools?: unknown }).tools;
-  return tools === undefined ? undefined : (tools as readonly Record<string, unknown>[]);
-}
-
 /**
  * Script the `max_rounds: 0` drive: the forced respond dispatch alone, whose
  * respond-tool call carries `payload` (QRY-14 step 2).
@@ -227,12 +167,7 @@ async function driveTypedQuery(payload: unknown): Promise<{
     body: DOC.body,
   };
   const notes: string[] = [];
-  const model = {
-    id: "m1",
-    api: "anthropic-messages",
-    provider: "anthropic",
-    strictCapable: true,
-  };
+  const model = { ...ANTHROPIC_MODEL };
   const deps = createProductionProducerDeps({
     pi: {
       sendMessage: (message: { readonly content?: unknown }): void => {

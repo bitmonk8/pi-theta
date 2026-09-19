@@ -1,16 +1,8 @@
+import { disposeWorkspace, plantThetaWorkspace, runProductionLoad, type LoadOutcome } from "./helpers/production-load-harness";
 import { readRegistry, type RegistryRow } from "./helpers/registry-oracle";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 // @ts-expect-error — JS code-registry module, no type declarations.
 import { registryMessage } from "../tools/code-registry/index.js";
-import type {
-  ExtensionAPI,
-  ExtensionContext,
-} from "@earendil-works/pi-coding-agent";
-import type { ThetaFixture } from "../src/extension/factory";
-import { discoverAndComposeFixtures } from "../src/extension/production-composition";
 import {
   parseFrontmatter,
   type FrontmatterParseResult,
@@ -643,13 +635,6 @@ describe("bug 0104 (D7) — the two null spellings take the scalar arm unchanged
 // set and the notified set) exact for that row.
 // ===========================================================================
 
-interface LoadOutcome {
-  /** Slash names the production compose helper returned (returned fixtures). */
-  readonly registered: readonly string[];
-  /** Error-severity diagnostic messages surfaced via `ctx.ui.notify`. */
-  readonly notifications: readonly string[];
-}
-
 const PRODUCTION_ROWS: ReadonlyArray<{
   readonly stem: string;
   readonly text: string;
@@ -682,48 +667,18 @@ const PRODUCTION_ROWS: ReadonlyArray<{
 const outcomes = new Map<string, LoadOutcome>();
 const workspaces: string[] = [];
 
-async function runProductionLoad(cwd: string): Promise<LoadOutcome> {
-  const notifications: string[] = [];
-  const pi = {
-    getFlag: (): undefined => undefined,
-    getCommands: (): readonly unknown[] => [],
-    sendMessage: (): void => {},
-    sendUserMessage: (): void => {},
-    getActiveTools: (): readonly string[] => [],
-    setActiveTools: (): void => {},
-  } as unknown as ExtensionAPI;
-  const ctx = {
-    cwd,
-    modelRegistry: { getAvailable: (): readonly unknown[] => [] },
-    ui: {
-      notify: (message: string, _type: "error"): void => {
-        notifications.push(message);
-      },
-    },
-  } as unknown as ExtensionContext;
-
-  const fixtures: readonly ThetaFixture[] = await discoverAndComposeFixtures(pi, ctx);
-  return { registered: fixtures.map((f) => f.slashName), notifications };
-}
-
 beforeAll(async () => {
   for (const row of PRODUCTION_ROWS) {
-    const workspaceDir = mkdtempSync(join(tmpdir(), `theta-bug0104-${row.stem}-`));
+    // An absent settings file is silent; "{}" pins the fixture's settings read.
+    const workspaceDir = plantThetaWorkspace(`theta-bug0104-${row.stem}-`, [row], "{}");
     workspaces.push(workspaceDir);
-    const projectThetaDir = join(workspaceDir, ".pi", "theta");
-    mkdirSync(projectThetaDir, { recursive: true });
-    writeFileSync(join(projectThetaDir, `${row.stem}.theta`), row.text, "utf8");
-    // A minimal valid settings file pins the fixture's settings read to a known
-    // value. An ABSENT settings file is silent (package-and-settings.md
-    // §Failure modes), so the plant is hermeticity, not noise suppression.
-    writeFileSync(join(workspaceDir, ".pi", "settings.json"), "{}", "utf8");
     outcomes.set(row.stem, await runProductionLoad(workspaceDir));
   }
 });
 
 afterAll(() => {
   for (const dir of workspaces) {
-    rmSync(dir, { recursive: true, force: true });
+    disposeWorkspace(dir);
   }
 });
 

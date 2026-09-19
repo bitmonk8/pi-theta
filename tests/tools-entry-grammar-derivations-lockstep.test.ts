@@ -1,16 +1,11 @@
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { disposeWorkspace, plantThetaWorkspace, runProductionLoad as loadWorkspace } from "./helpers/production-load-harness";
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 // @ts-expect-error — JS code-registry module, no type declarations.
 import { parseRegistry, registryMessage } from "../tools/code-registry/index.js";
-import type {
-  ExtensionAPI,
-  ExtensionContext,
-} from "@earendil-works/pi-coding-agent";
-import type { ThetaFixture } from "../src/extension/factory";
-import { discoverAndComposeFixtures } from "../src/extension/production-composition";
 import {
   parseThetaDocument,
   type ParseThetaDocumentDeps,
@@ -501,35 +496,8 @@ let b0248Outcome: LoadOutcome;
 let outOfRootDir: string;
 
 async function runProductionLoad(cwd: string): Promise<LoadOutcome> {
-  const chunks: string[] = [];
-  const stderrSpy = vi
-    .spyOn(process.stderr, "write")
-    .mockImplementation((chunk): boolean => {
-      chunks.push(String(chunk));
-      return true;
-    });
-  const pi = {
-    getFlag: (): undefined => undefined,
-    getCommands: (): readonly unknown[] => [],
-    sendMessage: (): void => {},
-    sendUserMessage: (): void => {},
-    getActiveTools: (): readonly string[] => [],
-    setActiveTools: (): void => {},
-  } as unknown as ExtensionAPI;
-  const ctx = {
-    cwd,
-    modelRegistry: { getAvailable: (): readonly unknown[] => [] },
-    ui: { notify: (): void => {} },
-  } as unknown as ExtensionContext;
-
-  let fixtures: readonly ThetaFixture[];
-  try {
-    fixtures = await discoverAndComposeFixtures(pi, ctx);
-  } finally {
-    stderrSpy.mockRestore();
-  }
-
-  const raw = chunks.join("").split("\n").filter((l) => l.trim().length > 0);
+  const loaded = await loadWorkspace(cwd);
+  const raw = loaded.diagnosticLines.filter((l) => l.trim().length > 0);
   const codes = new Map<string, string[]>();
   const lines = new Map<string, string[]>();
   for (const line of raw) {
@@ -546,7 +514,7 @@ async function runProductionLoad(cwd: string): Promise<LoadOutcome> {
     );
   }
   return {
-    registered: fixtures.map((f) => f.slashName).sort(),
+    registered: [...loaded.registered].sort(),
     codes,
     lines,
     raw,
@@ -554,48 +522,27 @@ async function runProductionLoad(cwd: string): Promise<LoadOutcome> {
 }
 
 beforeAll(async () => {
-  workspaceDir = mkdtempSync(join(tmpdir(), "theta-bug0106-"));
-  const projectThetaDir = join(workspaceDir, ".pi", "theta");
-  mkdirSync(projectThetaDir, { recursive: true });
-  for (const planted of THETAS) {
-    writeFileSync(
-      join(projectThetaDir, `${planted.stem}.theta`),
-      planted.text,
-      "utf8",
-    );
-  }
-  // A minimal valid settings file pins the settings read to a known value; an
-  // ABSENT one is silent, so this is hermeticity rather than noise suppression.
-  writeFileSync(join(workspaceDir, ".pi", "settings.json"), "{}", "utf8");
+  // An absent settings file is silent; "{}" pins the fixture's settings read.
+  workspaceDir = plantThetaWorkspace("theta-bug0106-", THETAS, "{}");
   outcome = await runProductionLoad(workspaceDir);
 
   // Group (D)'s plant: its own workspace, its own out-of-root directory (the
   // entry text interpolates a path that does not exist until now, which is why
   // these fixtures cannot be static members of `THETAS`), and its own walk.
-  b0248WorkspaceDir = mkdtempSync(join(tmpdir(), "theta-bug0248-"));
-  const b0248ThetaDir = join(b0248WorkspaceDir, ".pi", "theta");
-  mkdirSync(b0248ThetaDir, { recursive: true });
-  writeFileSync(join(b0248WorkspaceDir, ".pi", "settings.json"), "{}", "utf8");
   outOfRootDir = mkdtempSync(join(tmpdir(), "theta-bug0248-out-"));
   writeFileSync(
     join(outOfRootDir, `${OUT_OF_ROOT_CALLEE}.theta`),
     theta("---", "mode: subagent", "---", "@`far`"),
     "utf8",
   );
-  for (const planted of b0248Thetas(outOfRootDir)) {
-    writeFileSync(
-      join(b0248ThetaDir, `${planted.stem}.theta`),
-      planted.text,
-      "utf8",
-    );
-  }
+  b0248WorkspaceDir = plantThetaWorkspace("theta-bug0248-", b0248Thetas(outOfRootDir), "{}");
   b0248Outcome = await runProductionLoad(b0248WorkspaceDir);
 });
 
 afterAll(() => {
-  rmSync(workspaceDir, { recursive: true, force: true });
-  rmSync(b0248WorkspaceDir, { recursive: true, force: true });
-  rmSync(outOfRootDir, { recursive: true, force: true });
+  disposeWorkspace(workspaceDir);
+  disposeWorkspace(b0248WorkspaceDir);
+  disposeWorkspace(outOfRootDir);
 });
 
 /** The codes one planted stem drew, in emission order (`[]` when clean). */

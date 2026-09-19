@@ -90,6 +90,25 @@ export class FakeClock implements Clock {
   }
 }
 
+/**
+ * A shared clock recording every armed timer window. Supersession witnesses
+ * use the record to prove a debounce window was armed and to pin the quiesce
+ * cap's magnitude; without it, green could mean no window was armed at all.
+ */
+export class RecordingFakeClock extends FakeClock {
+  readonly armedWindows: number[] = [];
+
+  override setTimeout(fn: () => void, ms: number): TimerHandle {
+    this.armedWindows.push(ms);
+    return super.setTimeout(fn, ms);
+  }
+}
+
+/** Wait on a real timer while asynchronous work settles around a fake clock. */
+export function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 /** Flush the microtask queue so in-flight promises settle. */
 export async function flush(times = 8): Promise<void> {
   for (let i = 0; i < times; i++) {

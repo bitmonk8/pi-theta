@@ -1,20 +1,21 @@
 import { readRegistry } from "./helpers/registry-oracle";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import type {
-  ExtensionAPI,
-  ExtensionContext,
-} from "@earendil-works/pi-coding-agent";
 // @ts-expect-error — JS code-registry module, no type declarations.
 import { registryMessage } from "../tools/code-registry/index.js";
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
-import { composeExtensionInstance } from "../src/extension/production-composition";
 import {
-  RendererGate,
-  SYSTEM_NOTE_CHANNEL,
-} from "../src/extension/system-note-channel";
+  allDiagnostics,
+  describeNotes,
+  finishWorkspace,
+  requireDriven,
+  runLoadPass,
+  type ComposeWorkspace,
+  type LoadPass,
+  type RecordedNote,
+} from "./helpers/compose-workspace-harness";
 
 // Bug 0264 — a malformed `.thetalib` (or a callee `.theta`) puts its lex rows on
 // the `theta-system-note` channel once per PARSING WALK, not once per file per
@@ -93,12 +94,11 @@ import {
 // an explicit bug 0264 §Non-goal and is NOT asserted on.
 //
 // Offline, provider-free, deterministic: host doubles only, no provider, no
-// child process. The host doubles and the fixture-planting shape are MODELLED ON
-// (duplicated from, not shared with) `tests/lex-drop-single-delivery.test.ts`,
-// which is bug 0255's protected witness and is not read from or mutated by this
-// file. That file drives the PRIMARY-parse double delivery of a discovered
-// `.theta` and asserts nothing about a re-parse walk, so it neither witnesses
-// nor blocks this bug.
+// child process. The host doubles and workspace lifecycle come from
+// `tests/helpers/compose-workspace-harness.ts`. The sibling witness
+// `tests/lex-drop-single-delivery.test.ts` drives the PRIMARY-parse double
+// delivery of a discovered `.theta` and asserts nothing about a re-parse walk,
+// so it neither witnesses nor blocks this bug.
 //
 // No silent skipping: an unmet precondition (registry row absent, fixture no
 // longer producing the expected phase mix, host double never called) throws
@@ -159,80 +159,7 @@ function normativeMessagePattern(code: string): RegExp {
   return new RegExp(escaped.replace(/<[a-z-]+>/g, ".+"));
 }
 
-// ── Host doubles (modelled on tests/lex-drop-single-delivery.test.ts) ────────
-
-type PiHandler = (event: unknown, ctx: ExtensionContext) => unknown;
-
-interface RecordedNote {
-  readonly customType: string;
-  readonly content: string;
-  readonly details: unknown;
-}
-
-interface HostDouble {
-  readonly pi: ExtensionAPI;
-  readonly ctx: ExtensionContext;
-  /** `pi.sendMessage` envelopes the host accepted. */
-  readonly notes: RecordedNote[];
-  /** `ctx.ui.notify` deliveries the host accepted. */
-  readonly notified: Array<readonly [string, string]>;
-}
-
-function makeHost(cwd: string): HostDouble {
-  const notes: RecordedNote[] = [];
-  const notified: Array<readonly [string, string]> = [];
-  const handlers = new Map<string, PiHandler>();
-
-  const pi = {
-    registerFlag: (): void => {},
-    getFlag: (): undefined => undefined,
-    getCommands: (): readonly { name: string; source: string }[] => [],
-    on: (event: string, handler: PiHandler): void => {
-      handlers.set(event, handler);
-    },
-    registerCommand: (): void => {},
-    sendUserMessage: (): void => {},
-    registerTool: (): void => {},
-    setActiveTools: (): void => {},
-    getActiveTools: (): readonly unknown[] => [],
-    getAllTools: (): readonly unknown[] => [],
-    registerMessageRenderer: (): void => {},
-    sendMessage: (message: {
-      customType: string;
-      content: string;
-      details: unknown;
-    }): void => {
-      notes.push({
-        customType: message.customType,
-        content: message.content,
-        details: message.details,
-      });
-    },
-  } as unknown as ExtensionAPI;
-
-  const ctx = {
-    cwd,
-    hasUI: false,
-    modelRegistry: { getAvailable: (): readonly unknown[] => [] },
-    ui: {
-      notify: (message: string, type: "error"): void => {
-        notified.push([message, type]);
-      },
-    },
-  } as unknown as ExtensionContext;
-
-  return { pi, ctx, notes, notified };
-}
-
 // ── The load pass ───────────────────────────────────────────────────────────
-
-interface ComposeWorkspace {
-  /** The discovery-root `ctx.cwd` points at. */
-  readonly cwd: string;
-  /** Absolute, separator-normalised path of a planted fixture file. */
-  path: (name: string) => string;
-  readonly dispose: () => void;
-}
 
 /**
  * Plant the named fixture files on the conventional project source
@@ -245,78 +172,20 @@ function plantWorkspace(files: Readonly<Record<string, string>>): ComposeWorkspa
   for (const [name, body] of Object.entries(files)) {
     writeFileSync(join(cwd, ".pi", "theta", name), body, "utf8");
   }
-  // A minimal valid settings file pins the fixture's settings read to a known
-  // value. An ABSENT settings file is silent (package-and-settings.md §Failure
-  // modes), so the plant is hermeticity, not noise suppression.
-  writeFileSync(join(cwd, ".pi", "settings.json"), "{}", "utf8");
-  return {
-    cwd,
-    path: (name: string): string =>
-      normalisePath(join(cwd, ".pi", "theta", name)),
-    dispose: (): void => rmSync(cwd, { recursive: true, force: true }),
-  };
-}
-
-interface LoadPass {
-  /** Every `theta-system-note` the pass put on the channel, in order. */
-  readonly notes: readonly RecordedNote[];
-  /** `pi.sendMessage` envelopes on any other customType (expected: none). */
-  readonly offChannel: readonly RecordedNote[];
-  readonly notified: readonly (readonly [string, string])[];
-  /** Slash names the pass actually registered. */
-  readonly registered: readonly string[];
-}
-
-/**
- * Drive the SHIPPED composition root over the planted workspace with an
- * UNDEGRADED `RendererGate`, so every note takes the transcript
- * (`pi.sendMessage`) arm and the counts below are the counts the author reads.
- */
-async function runLoadPass(workspace: ComposeWorkspace): Promise<LoadPass> {
-  const host = makeHost(workspace.cwd);
-  const wiring = await composeExtensionInstance(
-    host.pi,
-    host.ctx,
-    undefined,
-    new RendererGate(),
-  );
-  return {
-    notes: host.notes.filter((n) => n.customType === SYSTEM_NOTE_CHANNEL),
-    offChannel: host.notes.filter((n) => n.customType !== SYSTEM_NOTE_CHANNEL),
-    notified: host.notified,
-    registered: wiring.thetas.map((t) => t.slashName),
-  };
+  return finishWorkspace(cwd);
 }
 
 // ── Observation helpers ─────────────────────────────────────────────────────
 
 // Bug 0268 pins one separator convention (POSIX forward slash) at the
 // rendering / delivery seam, so every `Diagnostic.file` this pass observes is
-// already spelled consistently; `normalisePath` below is retained ONLY to
-// build the expected fixture literal (`plantWorkspace`'s `path`), which starts
+// already spelled consistently; the helper's `normalisePath` is used ONLY to
+// build the expected fixture literal (`finishWorkspace`'s `path`), which starts
 // from a native `join()` result and must state the same pinned spelling the
 // channel now guarantees. The comparison sites (`headLine`, `positionKey`,
 // `renderedOccurrences`, `expectDeliveredExactlyOnce`) compare the delivered
 // spelling directly — no compensation — so a regression back to bug 0268's
 // mixed spellings reds here instead of being hidden by a normalising oracle.
-function normalisePath(path: string): string {
-  return path.replace(/\\/g, "/");
-}
-
-function noteDiagnostics(note: RecordedNote): readonly Diagnostic[] {
-  const details = note.details as { diagnostics?: unknown } | undefined;
-  const diagnostics = details?.diagnostics;
-  if (!Array.isArray(diagnostics)) {
-    expect.fail(
-      `system note carries no details.diagnostics array: ${JSON.stringify(note.details)}`,
-    );
-  }
-  return diagnostics as readonly Diagnostic[];
-}
-
-function allDiagnostics(notes: readonly RecordedNote[]): readonly Diagnostic[] {
-  return notes.flatMap((note) => [...noteDiagnostics(note)]);
-}
 
 /**
  * The diagnostic's rendered FIRST line — `<file>:<line>:<col>: <code>: <message>`
@@ -374,12 +243,6 @@ function structuralOccurrences(
   return allDiagnostics(notes).filter((d) => positionKey(d) === key).length;
 }
 
-function describeNotes(notes: readonly RecordedNote[]): string {
-  return notes.length === 0
-    ? "[] (NO NOTE ON THE CHANNEL)"
-    : notes.map((n, i) => `[${i}] ${n.content}`).join("\n");
-}
-
 /**
  * The one source row the pass produced for `code`, deduplicated by normalised
  * rendered line. Fails loudly when the fixture produced none — a fixture that
@@ -427,17 +290,6 @@ function expectDeliveredExactlyOnce(
   return row;
 }
 
-/** The host double must have been driven at all before any count means anything. */
-function requireDriven(pass: LoadPass): void {
-  if (pass.notes.length === 0) {
-    throw new Error(
-      "harness: the composition root put NOTHING on the theta-system-note channel — " +
-        "the bug-0264 fixture no longer reaches the diagnostic channel, so no count " +
-        "below is verified",
-    );
-  }
-}
-
 describe("bug 0264 — a malformed .thetalib's rows reach the channel once per file per pass", () => {
   // ── (A) library + ONE importer ─────────────────────────────────────────────
 
@@ -448,7 +300,7 @@ describe("bug 0264 — a malformed .thetalib's rows reach the channel once per f
     });
     try {
       const pass = await runLoadPass(workspace);
-      requireDriven(pass);
+      requireDriven(pass, "0264", true);
       const lib = workspace.path("b0264lib.thetalib");
 
       // HEAD: 3 notes, the lex row delivered TWICE — once by `lexTheta` under
@@ -477,7 +329,7 @@ describe("bug 0264 — a malformed .thetalib's rows reach the channel once per f
     });
     try {
       const pass = await runLoadPass(workspace);
-      requireDriven(pass);
+      requireDriven(pass, "0264", true);
       const lib = workspace.path("b0264lib.thetalib");
 
       // HEAD: 6 notes, the lex row delivered FOUR times — the (A) pair once per
@@ -507,7 +359,7 @@ describe("bug 0264 — a malformed .thetalib's rows reach the channel once per f
     });
     try {
       const pass = await runLoadPass(workspace);
-      requireDriven(pass);
+      requireDriven(pass, "0264", true);
       const lib = workspace.path("b0264lib.thetalib");
 
       // HEAD: 4 notes, the lex row delivered THREE times — the (A) pair plus the
@@ -549,7 +401,7 @@ describe("bug 0264 — a malformed .thetalib's rows reach the channel once per f
     });
     try {
       const pass = await runLoadPass(workspace);
-      requireDriven(pass);
+      requireDriven(pass, "0264", true);
       const bad = workspace.path("b0264bad.theta");
       const caller = workspace.path("b0264caller.theta");
 

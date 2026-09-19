@@ -154,10 +154,9 @@ import {
   type ExtensionInstanceWiring,
 } from "../src/extension/production-composition";
 import { RELOAD_DEBOUNCE_WINDOW_MS } from "../src/extension/reload-debounce";
-import { watcherAt, wiringAt } from "./helpers/watch-arming-harness";
-import { FakeClock } from "./helpers/fake-clock";
+import { registryKeys, structuralNotes, watcherAt, wiringAt } from "./helpers/watch-arming-harness";
+import { RecordingFakeClock, sleep } from "./helpers/fake-clock";
 import { FakeFileWatcher } from "./helpers/fake-file-watcher";
-import type { TimerHandle } from "../src/seams/clock";
 import type {
   FileWatchEvent,
   OnWatchTerminate,
@@ -183,9 +182,6 @@ const THROWING_UNSUB_MESSAGE = "EMFILE: synthetic chokidar close() failure";
 const SUPERSESSION_DETACH_MESSAGE =
   `session_start supersession detach failed at ${SUPERSESSION_DETACH_CALL_LABEL}: ` +
   THROWING_UNSUB_MESSAGE;
-
-/** Prefix of the watcher structural-change note (`reload-wiring.ts`). */
-const STRUCTURAL_NOTE_PREFIX = "theta watcher: ";
 
 const THETA_BODY = ["---", "mode: prompt", "---", "@`hi`", ""].join("\n");
 
@@ -241,21 +237,6 @@ class ProductionShapeFakeFileWatcher extends FakeFileWatcher {
       this.attached = false;
       inner();
     };
-  }
-}
-
-/**
- * The one shared `FakeClock`, recording every armed timer window so a test can
- * prove the debounce window was PENDING at the supersession boundary. Without
- * that proof test 1's post-fix green would be indistinguishable from a window
- * that was never armed at all.
- */
-class RecordingFakeClock extends FakeClock {
-  readonly armedWindows: number[] = [];
-
-  override setTimeout(fn: () => void, ms: number): TimerHandle {
-    this.armedWindows.push(ms);
-    return super.setTimeout(fn, ms);
   }
 }
 
@@ -395,10 +376,6 @@ function makeBoot(workspace: string, options: BootOptions): Boot {
   return { harness, clock, watchers, wirings, diagnostics };
 }
 
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
 /**
  * Poll `cond` until true or the real-ms bound elapses. Returns whether it
  * became true. Used for the leaked-pass probe so the RED path (leak observed)
@@ -412,16 +389,6 @@ async function becameTrueWithin(cond: () => boolean, boundMs: number): Promise<b
     if (Date.now() >= deadline) return false;
     await sleep(5);
   }
-}
-
-/** One generation's registry key set, sorted — the publish-observable. */
-function registryKeys(b: Boot, index: number): readonly string[] {
-  return [...wiringAt(b, index).registry.snapshot().keys()].sort();
-}
-
-/** All notes carrying the watcher structural-change prefix. */
-function structuralNotes(harness: Harness): readonly RecordedNote[] {
-  return harness.notes.filter((n) => n.content.startsWith(STRUCTURAL_NOTE_PREFIX));
 }
 
 /** Every recorded diagnostic under the new supersession-detach code. */

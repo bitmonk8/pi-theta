@@ -1,3 +1,5 @@
+import { scripted } from "./helpers/scripted-complete-queue-mock";
+import { assistantReply, contextToolsOf, ANTHROPIC_MODEL as SCRIPTED_MODEL } from "./helpers/scripted-live-session-harness";
 import {
   PI_CLI_ENTRY,
   EXTENSION_ENTRY,
@@ -9,38 +11,8 @@ import {
   reapSubagentChildren,
 } from "./helpers/real-subagent-spawn";
 import { parseDeps as makeParseDeps } from "./helpers/e2e-s1";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 
-// The scripted off-session `complete()` reply queue the typed-query cell below
-// drives, selected by recorded call index (the `tests/respond-tool-wire.test.ts`
-// harness discipline reproduced in `tests/inbound-boundary-typed-query.test.ts`).
-// `vi.hoisted` so the `vi.mock` factory — hoisted above every import — closes
-// over a mutable holder. An unscripted dispatch fails loudly rather than
-// returning a stub. Every other cell in this file contacts no provider seam at
-// all, so the mock is inert for them.
-const scripted = vi.hoisted(() => ({
-  queue: [] as Array<(call: { model: unknown; context: unknown; options: unknown }) => unknown>,
-  calls: [] as Array<{ model: unknown; context: unknown; options: unknown }>,
-}));
-
-vi.mock("@earendil-works/pi-ai/compat", async (importOriginal) => {
-  const actual = await importOriginal<Record<string, unknown>>();
-  return {
-    ...actual,
-    complete: vi.fn(async (model: unknown, context: unknown, options: unknown) => {
-      const call = { model, context, options };
-      const index = scripted.calls.length;
-      scripted.calls.push(call);
-      if (scripted.queue.length === 0) {
-        throw new Error(
-          `scripted complete() called with an EMPTY reply queue (call #${index + 1})`,
-        );
-      }
-      const factory = scripted.queue[Math.min(index, scripted.queue.length - 1)]!;
-      return factory(call);
-    }),
-  };
-});
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -867,40 +839,6 @@ const QUERY_SOURCE = [
 
 const QUERY_DOC = loadFixture(QUERY_SOURCE, "union-arm-query.theta");
 
-/** An `AssistantMessage`-shaped scripted reply. */
-function assistantReply(fields: {
-  readonly stopReason: string;
-  readonly text?: string;
-  readonly toolCalls?: ReadonlyArray<{
-    readonly id: string;
-    readonly name: string;
-    readonly arguments: unknown;
-  }>;
-}): Record<string, unknown> {
-  const content: Record<string, unknown>[] = [];
-  if (fields.text !== undefined) {
-    content.push({ type: "text", text: fields.text });
-  }
-  for (const call of fields.toolCalls ?? []) {
-    content.push({ type: "toolCall", id: call.id, name: call.name, arguments: call.arguments });
-  }
-  return {
-    role: "assistant",
-    content,
-    api: "anthropic-messages",
-    stopReason: fields.stopReason,
-    timestamp: 0,
-  };
-}
-
-/** The recorded `complete()` call's `context.tools`, duck-typed. */
-function contextToolsOf(call: { readonly context: unknown }):
-  | readonly Record<string, unknown>[]
-  | undefined {
-  const tools = (call.context as { readonly tools?: unknown }).tools;
-  return tools === undefined ? undefined : (tools as readonly Record<string, unknown>[]);
-}
-
 /**
  * Script the `max_rounds: 0` drive: the forced respond dispatch alone, whose
  * respond-tool call carries `payload` (QRY-14 step 2).
@@ -952,14 +890,6 @@ function rootWith(validator: AjvSchemaValidator): RuntimeRoot {
     schemaValidator: validator,
   } as unknown as RuntimeRoot;
 }
-
-/** The model reference the scripted `complete()` stands behind; never contacted. */
-const SCRIPTED_MODEL = {
-  id: "m1",
-  api: "anthropic-messages",
-  provider: "anthropic",
-  strictCapable: true,
-};
 
 /** The registry the production producer resolves its off-session model through. */
 function scriptedModelRegistry(): ModelRegistry {

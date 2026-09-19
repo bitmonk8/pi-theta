@@ -1,3 +1,4 @@
+import { parseDeps, range, withCode } from "./helpers/e2e-s1";
 import { readRegistry } from "./helpers/registry-oracle";
 import { describe, expect, it } from "vitest";
 // @ts-expect-error — JS code-registry module, no type declarations.
@@ -13,12 +14,9 @@ import {
   buildInvokeGraph,
   checkInvokeStaticResolution,
 } from "../src/extension/invoke-static-checks";
-import type { SystemNoteChannelDeps } from "../src/extension/system-note-channel";
-import type { ModelReferenceMatcher } from "../src/parser/frontmatter";
 import {
   parseThetaDocument,
   type Expr,
-  type ParseThetaDocumentDeps,
   type Stmt,
   type ThetaDocument,
 } from "../src/parser/theta-document";
@@ -126,30 +124,16 @@ function shapeMessage(toolName: string): string {
   return expectedMessage(SHAPE_CODE, { "<name>": toolName });
 }
 
-// --- Parse harness (the tests/shadowed-callable-call.test.ts makeDeps pattern) --
+// --- Parse harness ----------------------------------------------------------
 
 const FILE = "bug0072.theta";
 
 /** The frontmatter prelude declaring the Pi tool `read` — occupies lines 1–5. */
 const FM = "---\nmode: prompt\ntools:\n  - read\n---\n";
 
-function makeDeps(): ParseThetaDocumentDeps {
-  const systemNote: SystemNoteChannelDeps = {
-    pi: { sendMessage: (): void => {} },
-    ui: { notify: (): void => {} },
-    emitDiagnostic: (): void => {},
-  };
-  const modelMatcher: ModelReferenceMatcher = { resolve: (): "resolved" => "resolved" };
-  return { systemNote, modelMatcher };
-}
-
 function parseSource(src: string): ThetaDocument {
   const source: ThetaSource = { path: FILE, bytes: new TextEncoder().encode(src) };
-  return parseThetaDocument(source, makeDeps());
-}
-
-function withCode(diags: readonly Diagnostic[], code: string): Diagnostic[] {
-  return diags.filter((d) => d.code === code);
+  return parseThetaDocument(source, parseDeps());
 }
 
 /** A rendered `code @line:col-line:col` list — the failure-message payload. A
@@ -165,19 +149,6 @@ function render(diags: readonly Diagnostic[]): string {
         : `${d.code} @${r.start.line}:${r.start.column}-${r.end.line}:${r.end.column}`;
     }),
   );
-}
-
-/** A 1-indexed, end-exclusive-column source range literal. */
-function range(
-  startLine: number,
-  startColumn: number,
-  endLine: number,
-  endColumn: number,
-): SourceRange {
-  return {
-    start: { line: startLine, column: startColumn },
-    end: { line: endLine, column: endColumn },
-  };
 }
 
 /**

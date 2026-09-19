@@ -1,25 +1,16 @@
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { callableSetDeps as deps } from "./helpers/e2e-s1";
+import { callableSetDeps as deps, findCode as withCode, resolveList, thetaCallee } from "./helpers/e2e-s1";
 // @ts-expect-error — JS code-registry module, no type declarations.
 import { parseRegistry, registryMessage } from "../tools/code-registry/index.js";
-import type {
-  ExtensionAPI,
-  ExtensionContext,
-} from "@earendil-works/pi-coding-agent";
-import type { ThetaFixture } from "../src/extension/factory";
-import { discoverAndComposeFixtures } from "../src/extension/production-composition";
 import {
-  resolveCallableSet,
-  type CallableSetDeps,
-  type CallableSetResult,
-  type ResolvedThetaCallee,
-  type ToolsField,
-} from "../src/parser/callable-set";
-import type { Diagnostic } from "../src/diagnostics/diagnostic";
+  disposeWorkspace,
+  plantThetaWorkspace,
+  runProductionLoad,
+  type LoadOutcome,
+} from "./helpers/production-load-harness";
+import type { CallableSetResult } from "../src/parser/callable-set";
 
 // Bug 0108 — a `tools:` entry's presented name comes from one of two sources,
 // and at the baseline probed below the lowercase-first rule both sources share
@@ -360,60 +351,24 @@ const THETAS: readonly PlantedTheta[] = [
   },
 ];
 
-interface LoadOutcome {
-  /** Slash names the production compose helper returned (returned fixtures). */
-  readonly registered: readonly string[];
-  /** Error-severity diagnostic messages surfaced via `ctx.ui.notify`. */
-  readonly notifications: readonly string[];
-}
-
 let outcome: LoadOutcome;
 let workspaceDir: string;
 
-async function runProductionLoad(cwd: string): Promise<LoadOutcome> {
-  const notifications: string[] = [];
-  const pi = {
-    getFlag: (): undefined => undefined,
-    getCommands: (): readonly unknown[] => [],
-    sendMessage: (): void => {},
-    sendUserMessage: (): void => {},
-    getActiveTools: (): readonly string[] => [],
-    setActiveTools: (): void => {},
-    // The extension-registry admission route — the only one that can publish a
-    // non-lowercase-first name, since the host built-in ladder is a closed
-    // switch over seven lowercase-first names.
-    getAllTools: (): readonly unknown[] => [{ name: UPPER_TOOL }],
-  } as unknown as ExtensionAPI;
-  const ctx = {
-    cwd,
-    modelRegistry: { getAvailable: (): readonly unknown[] => [] },
-    ui: {
-      notify: (message: string, _type: "error"): void => {
-        notifications.push(message);
-      },
-    },
-  } as unknown as ExtensionContext;
-
-  const fixtures: readonly ThetaFixture[] = await discoverAndComposeFixtures(pi, ctx);
-  return { registered: fixtures.map((f) => f.slashName), notifications };
-}
-
 beforeAll(async () => {
-  workspaceDir = mkdtempSync(join(tmpdir(), "theta-bug0108-"));
-  const projectThetaDir = join(workspaceDir, ".pi", "theta");
-  mkdirSync(projectThetaDir, { recursive: true });
-  for (const planted of THETAS) {
-    writeFileSync(join(projectThetaDir, `${planted.stem}.theta`), planted.text, "utf8");
-  }
   // A minimal valid settings file pins the fixture's settings read to a known
   // value. An ABSENT settings file is silent (package-and-settings.md
   // §Failure modes), so the plant is hermeticity, not noise suppression.
-  writeFileSync(join(workspaceDir, ".pi", "settings.json"), "{}", "utf8");
-  outcome = await runProductionLoad(workspaceDir);
+  workspaceDir = plantThetaWorkspace("theta-bug0108-", THETAS, "{}");
+  outcome = await runProductionLoad(workspaceDir, {
+    // The extension-registry admission route — the only one that can publish a
+    // non-lowercase-first name, since the host built-in ladder is a closed
+    // switch over seven lowercase-first names.
+    registryTools: [{ name: UPPER_TOOL }],
+  });
 });
 
 afterAll(() => {
-  rmSync(workspaceDir, { recursive: true, force: true });
+  disposeWorkspace(workspaceDir);
 });
 
 /** The registered / notified sets, rendered for an assertion message. */
@@ -487,28 +442,6 @@ describe("Bug 0108 (B1) — an uppercase-first registry name un-registers the th
 // ===========================================================================
 // Group (C) — the Pi-tool name rule and its ordering, on `resolveCallableSet`.
 // ===========================================================================
-
-/** The first diagnostic carrying `code`, if any. */
-function withCode(diags: readonly Diagnostic[], code: string): Diagnostic | undefined {
-  return diags.find((d) => d.code === code);
-}
-
-/**
- * A resolved `.theta` callee stand-in with a given declared mode. The
- * `calleePath` is injected by the `deps` factory from the resolution-table key
- * (mirroring production: `resolveEntry` overwrites it from the entry `spec`).
- */
-function thetaCallee(
-  mode: "prompt" | "subagent",
-): Omit<ResolvedThetaCallee, "calleePath"> {
-  return { kind: "theta", mode };
-}
-
-/** Resolve a YAML list-form `tools:` value. */
-function resolveList(items: readonly string[], d: CallableSetDeps): CallableSetResult {
-  const tools: ToolsField = { kind: "list", items };
-  return resolveCallableSet({ file: "test.theta", tools, deps: d });
-}
 
 /** Every `.theta` callee the group's cells list, keyed as written. */
 const CALLEES = {

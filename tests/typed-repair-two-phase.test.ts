@@ -1,3 +1,4 @@
+import { scripted } from "./helpers/scripted-complete-queue-mock";
 // Bug 0010 — INCREMENT C: respond-repair RESTARTS the whole two-phase loop on
 // the LIVE prompt-mode path (regression pins — these cells red before the
 // increment-C fix and now pin the fixed behaviour).
@@ -67,49 +68,11 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-// The recorded off-session `complete()` calls and the scripted reply queue.
-// `vi.hoisted` so the `vi.mock` factory (hoisted above the imports) can close
-// over a mutable holder each cell sets. Each queue entry is a FACTORY invoked
-// with the recorded call triple, so a cell can build its reply from what the
-// production code actually passed (e.g. the registered respond tool name).
-const scripted = vi.hoisted(() => ({
-  queue: [] as Array<
-    (call: { model: unknown; context: unknown; options: unknown }) => unknown
-  >,
-  calls: [] as Array<{ model: unknown; context: unknown; options: unknown }>,
-}));
-
-// Replace ONLY the off-session `complete()` free function; every other pi-ai
-// export passes through unchanged.
-vi.mock("@earendil-works/pi-ai/compat", async (importOriginal) => {
-  const actual = await importOriginal<Record<string, unknown>>();
-  return {
-    ...actual,
-    complete: vi.fn(async (model: unknown, context: unknown, options: unknown) => {
-      const call = { model, context, options };
-      const index = scripted.calls.length;
-      scripted.calls.push(call);
-      if (scripted.queue.length === 0) {
-        // No silent skipping: a dispatch against an unscripted cell fails
-        // loudly (cells that pin ZERO complete() calls leave the queue empty).
-        throw new Error(
-          `scripted complete() called with an EMPTY reply queue (call #${index + 1})`,
-        );
-      }
-      // Sticky-last consumption (the bug-0007 suite discipline): a drive that
-      // issues MORE calls than the cell scripted keeps observing the terminal
-      // reply, so over-driving stays observable as a CALL-COUNT assertion
-      // instead of a mid-flight harness throw.
-      const factory = scripted.queue[Math.min(index, scripted.queue.length - 1)]!;
-      return factory(call);
-    }),
-  };
-});
-
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
 import type { LoweredSchema } from "../src/seams/schema-validator";
 import type { SchemaDecl } from "../src/parser/theta-document";
 import {
+  assistantReply,
   ajv,
   parse,
   twoPhaseHarness,
@@ -293,45 +256,6 @@ function expectedNoncomplianceFollowUp(): string {
     slug,
     issues: [synthesizeForcedRespondIssue({ kind: "plain_text" })],
   });
-}
-
-// --- Scripted `complete()` assistant replies ------------------------------------
-
-/**
- * An `AssistantMessage`-shaped reply for the mocked `complete()`. `toolCalls`
- * scripts pi-ai `ToolCall` content parts (`{type: "toolCall", ...}`) alongside
- * any text part.
- */
-function assistantReply(fields: {
-  readonly stopReason: string;
-  readonly text?: string;
-  readonly errorMessage?: string;
-  readonly toolCalls?: ReadonlyArray<{
-    readonly id: string;
-    readonly name: string;
-    readonly arguments: Record<string, unknown>;
-  }>;
-}): Record<string, unknown> {
-  const content: Record<string, unknown>[] = [];
-  if (fields.text !== undefined) {
-    content.push({ type: "text", text: fields.text });
-  }
-  for (const call of fields.toolCalls ?? []) {
-    content.push({
-      type: "toolCall",
-      id: call.id,
-      name: call.name,
-      arguments: call.arguments,
-    });
-  }
-  return {
-    role: "assistant",
-    content,
-    api: "anthropic-messages",
-    stopReason: fields.stopReason,
-    ...(fields.errorMessage !== undefined ? { errorMessage: fields.errorMessage } : {}),
-    timestamp: 0,
-  };
 }
 
 // --- Shared live two-phase harness --------------------------------------------

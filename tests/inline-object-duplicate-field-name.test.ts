@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 import { registryMessage } from "../tools/code-registry/index.js";
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
 import { buildBodyTypeSchemas } from "../src/parser/body-type-lowering";
-import { hoistInlineObjectType, lowerParamsFieldType, type LowerCtx } from "../src/parser/params";
+import { hoistInlineObjectType, lowerParamsFieldType } from "../src/parser/params";
 import type { ThetaDocument } from "../src/parser/theta-document";
 import { lowerQueryResponseSchema } from "../src/runtime/query-schema-lowering";
 import {
@@ -12,7 +12,16 @@ import {
   type LoweredSchema,
   type SchemaSlug,
 } from "../src/seams/schema-validator";
-import { parseDoc } from "./helpers/e2e-s1";
+import {
+  annotSrc,
+  body,
+  diagLines,
+  diagnosticListHarness,
+  emptyCtx,
+  invokeSrc,
+  paramsSrc,
+  parseDoc,
+} from "./helpers/e2e-s1";
 
 // Bug 0052 — a repeated field name inside an inline object body is admitted at
 // every `Type` position: `{a: integer, a: string}` loads with zero diagnostics
@@ -269,66 +278,13 @@ function malformedYamlLine(loc: { line: number; column: number }, text: string, 
 }
 
 // ===========================================================================
-// Fixtures. One builder per position of grammar.md's enumeration, matching the
-// sibling lock over this walk arm (tests/inline-empty-object-type.test.ts).
-// Every body fixture ends `let a = 1` + `a` so the theta carries a tail
-// expression, and every `params:` fixture carries `mode: prompt` so no
-// `theta/load/missing-mode` noise is present.
-// ===========================================================================
-
-const FM = "---\nmode: prompt\n---\n";
-const TAIL = "let a = 1\na\n";
-
-/** The subject of this report: two fields of one inline body sharing a name. */
-const DUP = "{a: integer, a: string}";
-
-/** A `mode: prompt` theta whose body is `stmt` followed by the tail. */
-function body(stmt: string): string {
-  return `${FM}${stmt}\n${TAIL}`;
-}
-
-/** A `mode: prompt` theta whose `params:` block is `block`. */
-function paramsSrc(block: string): string {
-  return `---\nmode: prompt\nparams:\n${block}\n---\n${TAIL}`;
-}
-
-/** The `@<T>` query annotation — a type-ascription context (grammar.md:105). */
-function annotSrc(type: string): string {
-  return body("let r = @<" + type + ">`hi`");
-}
-
-/** The `invoke<T>` return annotation. */
-function invokeSrc(type: string): string {
-  return body(`let r = invoke<${type}>("./x.theta")`);
-}
-
-// ===========================================================================
 // Parse + assertion helpers. Loud on every unexpected disposition.
 // ===========================================================================
 
-/** Every diagnostic rendered `<severity> <code>: <message>`, in emission order. */
-function diagLines(doc: ThetaDocument): string[] {
-  return doc.diagnostics.map((d) => `${d.severity} ${d.code}: ${d.message}`);
-}
+const { lines, expectList } = diagnosticListHarness("bug0052.theta");
 
-function lines(src: string, path = "bug0052.theta"): string[] {
-  return diagLines(parseDoc(src, path));
-}
-
-/**
- * The whole ordered diagnostic list of one source, asserted against `expected`.
- * A whole-list equality is what makes both directions reachable: an absent
- * emission and an extra one both red, and the multiplicity claims of group (c)
- * are only meaningful against a whole list.
- */
-function expectList(src: string, expected: readonly string[], why: string): void {
-  expect(lines(src), `${why}\nsource=${JSON.stringify(src)}`).toEqual([...expected]);
-}
-
-/** A `LowerCtx` over an EMPTY resolution set — no declaration resolves anything. */
-function emptyCtx(): LowerCtx {
-  return { bodyTypeMap: new Map<string, Record<string, unknown>>(), defs: {}, unresolved: [] };
-}
+/** The subject of this report: two fields of one inline body sharing a name. */
+const DUP = "{a: integer, a: string}";
 
 /** A real `AjvSchemaValidator` plus the diagnostics it emitted. */
 function ajv(): { readonly validator: AjvSchemaValidator; readonly emitted: Diagnostic[] } {

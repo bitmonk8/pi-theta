@@ -42,6 +42,7 @@ import {
   type FrontmatterParseResult,
   type ModelReferenceMatcher,
 } from "../../src/parser/frontmatter";
+import type { LowerCtx } from "../../src/parser/params";
 import { StaticTypeInferencePass } from "../../src/parser/static-type-inference";
 import { checkCompatible, displayType, type Compatibility, type TypeEnv } from "../../src/parser/type-compat";
 import type { LoweredSchema } from "../../src/seams/schema-validator";
@@ -123,6 +124,36 @@ const FM = `${FRONTMATTER.join("\n")}\n`;
 /** Parse `body` as a `.theta` under the standard frontmatter. */
 export function parsePromptBody(body: string, path = "test.theta"): ThetaDocument {
   return parseDoc(FM + body, path);
+}
+
+// Fixtures for Type positions. Every body fixture ends `let a = 1` + `a`
+// so the theta carries a tail expression; every `params:` fixture carries
+// `mode: prompt` so no `theta/load/missing-mode` noise is present.
+const TAIL = "let a = 1\na\n";
+
+/** A `mode: prompt` theta whose body is `stmt` followed by the tail. */
+export function body(stmt: string): string {
+  return `${FM}${stmt}\n${TAIL}`;
+}
+
+/** A `mode: prompt` theta whose `params:` block is `block`. */
+export function paramsSrc(block: string): string {
+  return `---\nmode: prompt\nparams:\n${block}\n---\n${TAIL}`;
+}
+
+/** The `@<T>` query annotation — a type-ascription context (grammar.md:105). */
+export function annotSrc(type: string): string {
+  return body("let r = @<" + type + ">`hi`");
+}
+
+/** The `invoke<T>` return annotation. */
+export function invokeSrc(type: string): string {
+  return body(`let r = invoke<${type}>("./x.theta")`);
+}
+
+/** A `LowerCtx` over an EMPTY resolution set — no declaration resolves anything. */
+export function emptyCtx(): LowerCtx {
+  return { bodyTypeMap: new Map<string, Record<string, unknown>>(), defs: {}, unresolved: [] };
 }
 
 /** The diagnostics the production parse reports for `body`, in emission order. */
@@ -316,6 +347,25 @@ export function diagnosticsOf(text: string, path: string): readonly string[] {
   return diagLines(parseDoc(text, path));
 }
 
+/** Bind whole-list diagnostic assertions to a suite's default fixture path. */
+export function diagnosticListHarness(defaultPath: string) {
+  function lines(src: string, path = defaultPath): string[] {
+    return diagLines(parseDoc(src, path));
+  }
+
+  /**
+   * The whole ordered diagnostic list of one source, asserted against `expected`.
+   * A whole-list equality is what makes both directions reachable: an absent
+   * emission and an extra one both red, and multiplicity claims are only
+   * meaningful against a whole list.
+   */
+  function expectList(src: string, expected: readonly string[], why: string): void {
+    expect(lines(src), `${why}\nsource=${JSON.stringify(src)}`).toEqual([...expected]);
+  }
+
+  return { lines, expectList };
+}
+
 /** One diagnostic-list cell, with an optional fixture path for its driver. */
 export interface DiagnosticCell<Exp> {
   readonly cell: string;
@@ -346,9 +396,10 @@ export function expectGroup<Exp>(
   expect(actual, why).toEqual(expected);
 }
 
-/** The document's diagnostics carrying `code`, in emission order. */
-export function withCode(doc: ThetaDocument, code: string): Diagnostic[] {
-  return doc.diagnostics.filter((d) => d.code === code);
+/** Diagnostics carrying `code`, in emission order, from a document or diagnostic list. */
+export function withCode(source: ThetaDocument | readonly Diagnostic[], code: string): Diagnostic[] {
+  const diags = "diagnostics" in source ? source.diagnostics : source;
+  return diags.filter((d) => d.code === code);
 }
 
 /** Every diagnostic rendered `<severity> <code>`, in emission order. */
@@ -1291,5 +1342,20 @@ export function callableSetDeps(opts?: {
 /** Resolve a comma-separated short-form `tools:` value. */
 export function resolveScalar(text: string, d: CallableSetDeps): CallableSetResult {
   const tools: ToolsField = { kind: "scalar", text };
+  return resolveCallableSet({ file: "test.theta", tools, deps: d });
+}
+
+/**
+ * A resolved `.theta` callee stand-in with a given declared mode. The
+ * `calleePath` is injected by the `callableSetDeps` factory from the resolution-table key
+ * (mirroring production: `resolveEntry` overwrites it from the entry `spec`).
+ */
+export function thetaCallee(mode: "prompt" | "subagent"): Omit<ResolvedThetaCallee, "calleePath"> {
+  return { kind: "theta", mode };
+}
+
+/** Resolve a YAML list-form `tools:` value. */
+export function resolveList(items: readonly string[], d: CallableSetDeps): CallableSetResult {
+  const tools: ToolsField = { kind: "list", items };
   return resolveCallableSet({ file: "test.theta", tools, deps: d });
 }

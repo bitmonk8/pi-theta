@@ -22,18 +22,14 @@
 // `tests/subagent-tool-admission.test.ts` / `tests/subagent-placement-load-refusal.test.ts`'s
 // `discoverAndComposeFixtures` fixture-plant pattern for the composition-level
 // cells (the load probe lives in the compose loop, not in `resolveCallableSet`).
-import { callableSetDeps as deps, parseDeps as v6ParseDeps, resolveScalar } from "./helpers/e2e-s1";
+import { callableSetDeps as deps, findCode as withCode, parseDeps as v6ParseDeps, resolveScalar } from "./helpers/e2e-s1";
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import {
-  type CallableSetResult,
-  type ResolvedThetaCallee,
-} from "../src/parser/callable-set";
+import type { CallableSetResult } from "../src/parser/callable-set";
 import { RUNTIME_TOOL_NAMES, RUNTIME_TOOL_SIGNATURES, runtimeToolPresentedNames } from "../src/parser/runtime-tools";
-import type { Diagnostic } from "../src/diagnostics/diagnostic";
 import type { ThetaFixture } from "../src/extension/factory";
 import { discoverAndComposeFixtures } from "../src/extension/production-composition";
 import { FACTORY_PROBED_SDK_MEMBERS } from "../src/extension/capability-probe";
@@ -42,11 +38,6 @@ import { assembleSubagentArgv, inferChildTrust, PI_CLI_DIALECT } from "../src/ru
 
 /** DIAG-2 asserting home for `theta/load/session-tool-unavailable` (V8 / V8b below). */
 const SESSION_TOOL_UNAVAILABLE_CODE = "theta/load/session-tool-unavailable";
-
-/** The first diagnostic carrying `code`, if any. */
-function withCode(diags: readonly Diagnostic[], code: string): Diagnostic | undefined {
-  return diags.find((d) => d.code === code);
-}
 
 // ===========================================================================
 // §2 — the fixed-signature table is present and shaped as the sheet specifies.
@@ -91,11 +82,6 @@ describe("RFC 0011 §2 — RUNTIME_TOOL_SIGNATURES / runtimeToolPresentedNames (
 // ===========================================================================
 // §3.4 unit-level cells — driven directly through `resolveCallableSet`.
 // ===========================================================================
-
-/** A resolved `.theta` callee stand-in (unused by these cells; mirrors tests/callable-set.test.ts). */
-function thetaCallee(mode: "prompt" | "subagent"): Omit<ResolvedThetaCallee, "calleePath"> {
-  return { kind: "theta", mode };
-}
 
 /** Read `.kind` / `.name` off a resolved entry as a loose shape (the future
  * `ResolvedRuntimeTool` union member does not exist on `ResolvedCallable` yet

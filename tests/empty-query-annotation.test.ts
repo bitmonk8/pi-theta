@@ -1,4 +1,6 @@
+import { scripted } from "./helpers/scripted-complete-queue-mock";
 import {
+  assistantReply,
   ANTHROPIC_MODEL,
   type SessionEntryDouble,
   ajv,
@@ -86,40 +88,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 // driven end-to-end through `discoverAndComposeFixtures` in cell RT-load).
 // Deterministic; no live network.
 
-// The recorded off-session `complete()` calls and the scripted reply queue.
-// `vi.hoisted` so the `vi.mock` factory (hoisted above the imports) can close
-// over a mutable holder each cell sets (the bug-0010 suite pattern).
-const scripted = vi.hoisted(() => ({
-  queue: [] as Array<
-    (call: { model: unknown; context: unknown; options: unknown }) => unknown
-  >,
-  calls: [] as Array<{ model: unknown; context: unknown; options: unknown }>,
-}));
-
-// Replace ONLY the off-session `complete()` free function; every other pi-ai
-// export passes through unchanged.
-vi.mock("@earendil-works/pi-ai/compat", async (importOriginal) => {
-  const actual = await importOriginal<Record<string, unknown>>();
-  return {
-    ...actual,
-    complete: vi.fn(async (model: unknown, context: unknown, options: unknown) => {
-      const call = { model, context, options };
-      const index = scripted.calls.length;
-      scripted.calls.push(call);
-      if (scripted.queue.length === 0) {
-        // No silent skipping: a dispatch against an unscripted cell fails
-        // loudly (cells that pin ZERO complete() calls leave the queue empty).
-        throw new Error(
-          `scripted complete() called with an EMPTY reply queue (call #${index + 1})`,
-        );
-      }
-      // Sticky-last consumption (the bug-0007 suite discipline): over-driving
-      // stays observable as a CALL-COUNT assertion, not a harness throw.
-      const factory = scripted.queue[Math.min(index, scripted.queue.length - 1)]!;
-      return factory(call);
-    }),
-  };
-});
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -599,20 +567,6 @@ async function driveAdmittedOff(
     ctx: ctxOff(),
   });
   return executeBody(doc.body, binding.executeDeps);
-}
-
-/** An `AssistantMessage`-shaped reply for the mocked `complete()`. */
-function assistantReply(fields: {
-  readonly stopReason: string;
-  readonly text?: string;
-}): Record<string, unknown> {
-  return {
-    role: "assistant",
-    content: fields.text !== undefined ? [{ type: "text", text: fields.text }] : [],
-    api: "anthropic-messages",
-    stopReason: fields.stopReason,
-    timestamp: 0,
-  };
 }
 
 /** Extract a message's text (string content or text-part array), non-asserting. */

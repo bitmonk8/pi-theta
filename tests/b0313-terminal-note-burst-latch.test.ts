@@ -1,16 +1,10 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import { armWatcherWithTerminalRecovery } from "../src/extension/watcher-recovery";
 import { ThetaRegistry } from "../src/extension/reload-wiring";
-import {
-  SYSTEM_NOTE_CHANNEL,
-  type SystemNoteChannelDeps,
-  type SystemNoteDetails,
-  type SystemNoteSender,
-  type UiNotifier,
-} from "../src/extension/system-note-channel";
-import type { Diagnostic } from "../src/diagnostics/diagnostic";
+import { SYSTEM_NOTE_CHANNEL } from "../src/extension/system-note-channel";
 import type { FileWatchEvent, WatchTermination } from "../src/seams/file-watcher";
 import { FakeFileWatcher } from "./helpers/fake-file-watcher";
+import { channelHarness } from "./helpers/recording-system-note-channel";
 
 // Witness suite for bug 0313 (fixed 0.316.0): the terminal `watcher-terminated`
 // note carries no once-latch, so a synchronous error burst emits more than one
@@ -31,36 +25,6 @@ import { FakeFileWatcher } from "./helpers/fake-file-watcher";
 // once-latch (constraint 2) is testable regardless of what the shipped
 // `PiFileWatcher` adapter itself guarantees. All injection points are
 // synchronous; no timers, sleeps, or awaited waits.
-
-/** A captured `pi.sendMessage` call for the `theta-system-note` channel. */
-interface SentMessage {
-  readonly customType: string;
-  readonly content: string;
-  readonly display: boolean;
-  readonly details?: SystemNoteDetails;
-}
-
-/**
- * A `SystemNoteChannelDeps` whose `pi.sendMessage` records every sent message,
- * so the single-note assertion can count the persistent `theta-system-note`
- * route and prove `ctx.ui.notify` is never reached.
- */
-function channelHarness(): {
-  readonly channel: SystemNoteChannelDeps;
-  readonly sent: SentMessage[];
-  readonly notify: ReturnType<typeof vi.fn>;
-} {
-  const sent: SentMessage[] = [];
-  const pi: SystemNoteSender = {
-    sendMessage(message, _options): void {
-      sent.push({ ...message });
-    },
-  };
-  const notify = vi.fn<UiNotifier["notify"]>();
-  const ui: UiNotifier = { notify };
-  const emitDiagnostic = vi.fn<(d: Diagnostic) => void>();
-  return { channel: { pi, ui, emitDiagnostic }, sent, notify };
-}
 
 // ---------------------------------------------------------------------------
 // (C) burst: a synchronous terminal-signal burst emits exactly one note.

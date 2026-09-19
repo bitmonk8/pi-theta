@@ -1,6 +1,4 @@
 import { REGISTRY } from "./helpers/registry-oracle";
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 // @ts-expect-error — JS code-registry module, no type declarations.
 import { registryMessage } from "../tools/code-registry/index.js";
@@ -129,12 +127,6 @@ import { expectGroup as expectGroupShared, type DiagnosticCell, parseDoc } from 
 // ===========================================================================
 // The diagnostic oracle — the registry's *Message* column (DIAG-4).
 // ===========================================================================
-
-const DIAGNOSTICS_DIR = "../docs/spec_topics/diagnostics/";
-
-function readDiagnosticsPage(page: string): string {
-  return readFileSync(fileURLToPath(new URL(`${DIAGNOSTICS_DIR}${page}`, import.meta.url)), "utf8");
-}
 
 /** The `params:` position's own registered refusal — the code this route raises. */
 const PARAMS_NOT_EXPR = "theta/load/params-type-not-expression";

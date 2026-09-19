@@ -289,10 +289,9 @@ import type {
   SystemNoteChannelDeps,
   SystemNoteSender,
 } from "../src/extension/system-note-channel";
-import { FakeClock } from "./helpers/fake-clock";
+import { RecordingFakeClock, sleep } from "./helpers/fake-clock";
 import { CountingFakeFileWatcher, waitFor } from "./helpers/fake-file-watcher";
-import { watcherAt, wiringAt, dispatchRegistered, greetShuttingDownNotes } from "./helpers/watch-arming-harness";
-import type { TimerHandle } from "../src/seams/clock";
+import { registryKeys, structuralNotes, watcherAt, wiringAt, dispatchRegistered, greetShuttingDownNotes } from "./helpers/watch-arming-harness";
 
 /**
  * The supersession path's own cap (§Fix step 3). Reuses the teardown's value —
@@ -385,9 +384,6 @@ function quiesceFailedMessage(error: string): string {
   );
 }
 
-/** Prefix of the watcher structural-change note (`reload-wiring.ts`). */
-const STRUCTURAL_NOTE_PREFIX = "theta watcher: ";
-
 const THETA_BODY = ["---", "mode: prompt", "---", "@`hi`", ""].join("\n");
 
 /**
@@ -473,23 +469,6 @@ function faultingHandle(
       return real.whenIdle?.() ?? Promise.resolve();
     },
   };
-}
-
-/**
- * The one shared `FakeClock`, recording every armed timer window so a test can
- * prove the debounce window really was armed (test 3) and that the post-fix
- * quiesce cap timer is armed at its declared magnitude (test 4). One clock
- * serves both generations here, so the recording pins the armed window's value,
- * not which generation's clock carried it. Without that proof test 3's green
- * would be indistinguishable from a window never armed.
- */
-class RecordingFakeClock extends FakeClock {
-  readonly armedWindows: number[] = [];
-
-  override setTimeout(fn: () => void, ms: number): TimerHandle {
-    this.armedWindows.push(ms);
-    return super.setTimeout(fn, ms);
-  }
 }
 
 /** A recorded `pi.sendMessage` call (the `theta-system-note` channel). */
@@ -789,20 +768,6 @@ function makeBoot(workspace: string, thetaDir: string, options: BootOptions): Bo
       release();
     },
   };
-}
-
-/** One generation's registry key set, sorted — the publish-observable. */
-function registryKeys(b: Boot, index: number): readonly string[] {
-  return [...wiringAt(b, index).registry.snapshot().keys()].sort();
-}
-
-/** All notes carrying the watcher structural-change prefix. */
-function structuralNotes(b: Boot): readonly RecordedNote[] {
-  return b.harness.notes.filter((n) => n.content.startsWith(STRUCTURAL_NOTE_PREFIX));
-}
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 /** What the supersession pass looked like at the instant start #2 returned. */
@@ -1111,7 +1076,7 @@ describe("bug 0034 — the supersession pass never awaits handle.whenIdle() (reg
     // is cancelled and can never open a rebuild.
     await b.harness.fireSessionStart();
     const registrationsAtSupersession = b.harness.registrations.length;
-    const structuralNotesAtSupersession = structuralNotes(b).length;
+    const structuralNotesAtSupersession = structuralNotes(b.harness).length;
 
     // Advance the clock well past the window that was pending.
     b.clock.advance(RELOAD_DEBOUNCE_WINDOW_MS * 4);
@@ -1131,7 +1096,7 @@ describe("bug 0034 — the supersession pass never awaits handle.whenIdle() (reg
       "no registration after the supersession",
     ).toStrictEqual([]);
     expect(
-      structuralNotes(b).length,
+      structuralNotes(b.harness).length,
       "no structural-change note from the superseded generation",
     ).toBe(structuralNotesAtSupersession);
 

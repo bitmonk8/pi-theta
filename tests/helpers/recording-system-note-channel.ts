@@ -1,5 +1,6 @@
 // Recording system-note channel double and settled-entry readers shared by tests.
 
+import { vi } from "vitest";
 import type { Diagnostic } from "../../src/diagnostics/diagnostic";
 import type {
   RendererGate,
@@ -7,6 +8,7 @@ import type {
   SystemNoteChannelHealth,
   SystemNoteDetails,
   SystemNoteSender,
+  UiNotifier,
 } from "../../src/extension/system-note-channel";
 
 export interface SentNote {
@@ -15,6 +17,32 @@ export interface SentNote {
   readonly display: boolean;
   readonly details?: SystemNoteDetails;
   readonly options: { readonly triggerTurn: false };
+}
+
+/** A captured `pi.sendMessage` call for the `theta-system-note` channel. */
+type SentMessage = Omit<SentNote, "options">;
+
+/**
+ * Build a `SystemNoteChannelDeps` whose `pi.sendMessage` succeeds and records
+ * every sent message, so the primary-sink assertions observe the persistent
+ * `theta-system-note` route and can prove `ctx.ui.notify` is never reached.
+ */
+export function channelHarness(): {
+  readonly channel: SystemNoteChannelDeps;
+  readonly sent: SentMessage[];
+  readonly notify: ReturnType<typeof vi.fn>;
+  readonly emitDiagnostic: ReturnType<typeof vi.fn>;
+} {
+  const sent: SentMessage[] = [];
+  const pi: SystemNoteSender = {
+    sendMessage(message, _options): void {
+      sent.push({ ...message });
+    },
+  };
+  const notify = vi.fn<UiNotifier["notify"]>();
+  const ui: UiNotifier = { notify };
+  const emitDiagnostic = vi.fn<(d: Diagnostic) => void>();
+  return { channel: { pi, ui, emitDiagnostic }, sent, notify, emitDiagnostic };
 }
 
 export interface ChannelFixture {

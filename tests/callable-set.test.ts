@@ -1,13 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { callableSetDeps as deps, resolveScalar } from "./helpers/e2e-s1";
+import { callableSetDeps as deps, findCode as withCode, resolveScalar, resolveList, thetaCallee } from "./helpers/e2e-s1";
 import {
   resolveCallableSet,
-  type CallableSetDeps,
   type CallableSetResult,
-  type ResolvedThetaCallee,
-  type ToolsField,
 } from "../src/parser/callable-set";
-import type { Diagnostic } from "../src/diagnostics/diagnostic";
 
 // V6c-T — failing tests for the paired `V6c` "`tools` callable set and
 // resolution snapshot" implementation.
@@ -26,26 +22,6 @@ import type { Diagnostic } from "../src/diagnostics/diagnostic";
 // diagnostic. Each test reds on its own primary assertion (an absent expected
 // diagnostic, a missing resolved entry, or an unfrozen snapshot) — not on a
 // compile error, missing fixture, or harness throw.
-
-/** The first diagnostic carrying `code`, if any. */
-function withCode(diags: readonly Diagnostic[], code: string): Diagnostic | undefined {
-  return diags.find((d) => d.code === code);
-}
-
-/**
- * A resolved `.theta` callee stand-in with a given declared mode. The
- * `calleePath` is injected by the `deps` factory from the resolution-table key
- * (mirroring production: `resolveEntry` overwrites it from the entry `spec`).
- */
-function thetaCallee(mode: "prompt" | "subagent"): Omit<ResolvedThetaCallee, "calleePath"> {
-  return { kind: "theta", mode };
-}
-
-/** Resolve a YAML list-form `tools:` value. */
-function resolveList(items: readonly string[], d: CallableSetDeps): CallableSetResult {
-  const tools: ToolsField = { kind: "list", items };
-  return resolveCallableSet({ file: "test.theta", tools, deps: d });
-}
 
 // --- frontmatter-fields-a.md §`tools` — unknown Pi tool -------------------
 

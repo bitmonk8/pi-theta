@@ -1,11 +1,10 @@
 import { readCorpus as readSharedCorpus } from "./helpers/corpus-reader";
 import { sliceFrom } from "./helpers/spec-prose-proximity";
 import { describe, expect, it } from "vitest";
-import type {
-  ExtensionAPI,
-  ExtensionCommandContext,
-  ModelRegistry,
-} from "@earendil-works/pi-coding-agent";
+import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
+import { producer } from "./helpers/runtime-belt-probe-harness";
+import { rootWith } from "./helpers/fixture-dispatch-harness";
+import { SEAM_NOOP_CHECKPOINT } from "./helpers/invoke-seam-scaffold";
 // @ts-expect-error — JS code-registry module, no type declarations.
 import { parseRegistry, registryMessage } from "../tools/code-registry/index.js";
 import type { ParsedFrontmatter } from "../src/parser/frontmatter";
@@ -16,13 +15,10 @@ import {
   type TypeEnv,
 } from "../src/parser/type-compat";
 import { executeBody, type BodyExecution } from "../src/runtime/statement-executor";
-import { createProductionProducerDeps } from "../src/extension/production-theta-producer";
 import type {
   ConversationBindInput,
   ThetaCompositionInput,
 } from "../src/extension/theta-composition-producer";
-import type { RuntimeRoot } from "../src/runtime-root";
-import type { Checkpoint } from "../src/seams/checkpoint";
 import { parseDoc, diagLines as lines } from "./helpers/e2e-s1";
 
 // Bug 0144 — the ADJUDICATION of what an unresolvable operand is owed at a
@@ -387,36 +383,11 @@ function expectRefused(body: string, expected: readonly string[], why: string): 
 }
 
 // ===========================================================================
-// Production-executor harness for group (E), the shape
-// tests/non-object-receiver-gate.test.ts:221–292 establishes.
+// Production-executor harness for group (E), using the shared producer and
+// a checkpoint/ids-only root. `sendMessage` satisfies the theta-system-note
+// channel; the active-tools pair satisfies the PIC-17 snapshot/restore window.
+// No provider, no model.
 // ===========================================================================
-
-const NOOP_CHECKPOINT: Checkpoint = {
-  before(): Promise<void> {
-    return Promise.resolve();
-  },
-};
-
-function rootDouble(): RuntimeRoot {
-  return {
-    checkpoint: NOOP_CHECKPOINT,
-    idSource: { newInvocationId: () => "inv-1", newToolCallId: () => "tc-1" },
-  } as unknown as RuntimeRoot;
-}
-
-function producer(): ReturnType<typeof createProductionProducerDeps> {
-  return createProductionProducerDeps({
-    // `sendMessage` satisfies the theta-system-note channel; the active-tools
-    // pair satisfies the PIC-17 snapshot/restore window. No provider, no model.
-    pi: {
-      sendMessage: () => {},
-      getActiveTools: () => [],
-      setActiveTools: () => {},
-    } as unknown as ExtensionAPI,
-    root: rootDouble(),
-    modelRegistry: {} as unknown as ModelRegistry,
-  });
-}
 
 async function execute(doc: ThetaDocument): Promise<BodyExecution> {
   const theta: ThetaCompositionInput = {
@@ -430,7 +401,7 @@ async function execute(doc: ThetaDocument): Promise<BodyExecution> {
     args: "",
     ctx: {} as unknown as ExtensionCommandContext,
   };
-  return executeBody(theta.body, producer().bindPromptConversation(bindInput).executeDeps);
+  return executeBody(theta.body, producer(rootWith(SEAM_NOOP_CHECKPOINT)).bindPromptConversation(bindInput).executeDeps);
 }
 
 // ===========================================================================

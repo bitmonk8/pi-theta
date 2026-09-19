@@ -671,6 +671,51 @@ export function messageText(message: unknown): string {
   return "";
 }
 
+/**
+ * An `AssistantMessage`-shaped reply for the mocked `complete()`. `toolCalls`
+ * scripts pi-ai `ToolCall` content parts (`{type: "toolCall", ...}`) alongside
+ * any text part.
+ */
+export function assistantReply(fields: {
+  readonly stopReason: string;
+  readonly text?: string;
+  readonly errorMessage?: string;
+  readonly toolCalls?: ReadonlyArray<{
+    readonly id: string;
+    readonly name: string;
+    readonly arguments: unknown;
+  }>;
+}): Record<string, unknown> {
+  const content: Record<string, unknown>[] = [];
+  if (fields.text !== undefined) {
+    content.push({ type: "text", text: fields.text });
+  }
+  for (const call of fields.toolCalls ?? []) {
+    content.push({
+      type: "toolCall",
+      id: call.id,
+      name: call.name,
+      arguments: call.arguments,
+    });
+  }
+  return {
+    role: "assistant",
+    content,
+    api: "anthropic-messages",
+    stopReason: fields.stopReason,
+    ...(fields.errorMessage !== undefined ? { errorMessage: fields.errorMessage } : {}),
+    timestamp: 0,
+  };
+}
+
+/** The recorded `complete()` call's `context.tools`, duck-typed. */
+export function contextToolsOf(call: { readonly context: unknown }):
+  | readonly Record<string, unknown>[]
+  | undefined {
+  const tools = (call.context as { readonly tools?: unknown }).tools;
+  return tools === undefined ? undefined : (tools as readonly Record<string, unknown>[]);
+}
+
 /** The recorded `complete()` call's context.messages, duck-typed. */
 export function contextMessagesOf(call: {
   readonly context: unknown;

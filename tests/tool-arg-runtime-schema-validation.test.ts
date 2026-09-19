@@ -1,21 +1,19 @@
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import {
-  createReadToolDefinition,
-  type ExtensionAPI,
-  type ExtensionContext,
-} from "@earendil-works/pi-coding-agent";
-import type { ThetaFixture } from "../src/extension/factory";
-import { discoverAndComposeFixtures } from "../src/extension/production-composition";
+import { createReadToolDefinition } from "@earendil-works/pi-coding-agent";
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
-import type { CallableSetSnapshot, ResolvedCallable } from "../src/parser/callable-set";
+import type { ResolvedCallable } from "../src/parser/callable-set";
 import type { Expr } from "../src/parser/theta-document";
 import { DEPTH_VIOLATION_MESSAGE } from "../src/runtime/depth-walk";
 import type { EncodedToolRequest, HostToolResult } from "../src/runtime/host-loop-dispatch";
 import type { AgentToolResultEnvelope } from "../src/runtime/tool-call-execute";
 import type { ResultValue } from "../src/runtime/value";
+import {
+  callableSetOf,
+  disposeWorkspace,
+  plantThetaWorkspace,
+  runProductionLoad,
+  type LoadOutcome,
+} from "./helpers/production-load-harness";
 import {
   builtinEntry,
   callExpr,
@@ -96,75 +94,24 @@ function theta(...lines: readonly string[]): string {
 /** The one planted fixture: a prompt-mode theta admitting the built-in `read`. */
 const THREAD_STEM = "b72thread";
 
-interface LoadOutcome {
-  readonly registered: readonly string[];
-  readonly fixtures: readonly ThetaFixture[];
-  readonly notifications: readonly string[];
-}
-
 let loadOutcome: LoadOutcome;
 let workspaceDir: string;
 
-async function runProductionLoad(cwd: string): Promise<LoadOutcome> {
-  const notifications: string[] = [];
-  const pi = {
-    getFlag: (): undefined => undefined,
-    getCommands: (): readonly unknown[] => [],
-    sendMessage: (): void => {},
-    sendUserMessage: (): void => {},
-    getActiveTools: (): readonly string[] => [],
-    setActiveTools: (): void => {},
-  } as unknown as ExtensionAPI;
-  const ctx = {
-    cwd,
-    modelRegistry: { getAvailable: (): readonly unknown[] => [] },
-    ui: {
-      notify: (message: string, _type: "error"): void => {
-        notifications.push(message);
-      },
-    },
-  } as unknown as ExtensionContext;
-  const fixtures: readonly ThetaFixture[] = await discoverAndComposeFixtures(pi, ctx);
-  return { registered: fixtures.map((f) => f.slashName), fixtures, notifications };
-}
-
 beforeAll(async () => {
-  workspaceDir = mkdtempSync(join(tmpdir(), "theta-b72-schema-"));
-  const projectThetaDir = join(workspaceDir, ".pi", "theta");
-  mkdirSync(projectThetaDir, { recursive: true });
-  writeFileSync(
-    join(projectThetaDir, `${THREAD_STEM}.theta`),
-    theta("---", "mode: prompt", "tools: read", "---", "@`hi`"),
-    "utf8",
-  );
   // A minimal valid settings file pins the fixture's settings read to a known
   // value. An ABSENT settings file is silent (package-and-settings.md
   // §Failure modes), so the plant is hermeticity, not noise suppression.
-  writeFileSync(join(workspaceDir, ".pi", "settings.json"), "{}", "utf8");
+  workspaceDir = plantThetaWorkspace(
+    "theta-b72-schema-",
+    [{ stem: THREAD_STEM, text: theta("---", "mode: prompt", "tools: read", "---", "@`hi`") }],
+    "{}",
+  );
   loadOutcome = await runProductionLoad(workspaceDir);
 });
 
 afterAll(() => {
-  rmSync(workspaceDir, { recursive: true, force: true });
+  disposeWorkspace(workspaceDir);
 });
-
-/** Read the frozen callable-set snapshot threaded onto a runnable fixture. */
-function callableSetOf(slashName: string): CallableSetSnapshot {
-  const fixture = loadOutcome.fixtures.find((f) => f.slashName === slashName);
-  expect(
-    fixture,
-    `PRECONDITION: fixture '${slashName}' was not registered by the production load ` +
-      `path. Registered: ${JSON.stringify(loadOutcome.registered)}; notified: ` +
-      JSON.stringify(loadOutcome.notifications),
-  ).toBeDefined();
-  const snapshot = (fixture as unknown as { callableSet?: CallableSetSnapshot }).callableSet;
-  expect(
-    snapshot,
-    `PRECONDITION: fixture '${slashName}' carries no callableSet snapshot, so the ` +
-      "threading assertion below has nothing to read",
-  ).toBeDefined();
-  return snapshot as CallableSetSnapshot;
-}
 
 describe("bug 0072 (a) — the built-in tool's registered `parameters` reaches the frozen callable-set entry", () => {
   it("D1: the planted `tools: read` theta registered (load precondition)", () => {
@@ -196,7 +143,7 @@ describe("bug 0072 (a) — the built-in tool's registered `parameters` reaches t
         "schema, so there is nothing for the load path to thread",
     ).toBeDefined();
 
-    const entry = callableSetOf(THREAD_STEM).entries.get("read");
+    const entry = callableSetOf(loadOutcome, THREAD_STEM).entries.get("read");
     expect(entry, "PRECONDITION: the snapshot holds no `read` entry").toBeDefined();
     expect(entry!.kind, "the entry is a Pi-tool entry").toBe("pi-tool");
     const definition = (entry as { readonly toolDefinition: { readonly parameters?: unknown } })

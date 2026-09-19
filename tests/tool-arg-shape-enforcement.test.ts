@@ -1,17 +1,15 @@
+import { parseDeps, range, withCode } from "./helpers/e2e-s1";
 import { span, SEAM_NOOP_CHECKPOINT as NOOP_CHECKPOINT, SEAM_NOOP_MUTATOR } from "./helpers/invoke-seam-scaffold";
 import { describe, expect, it } from "vitest";
 import { bind, recordingPiTool, snapshot, thetaWithSet } from "./helpers/tool-call-dispatch-harness";
 import type { Diagnostic, SourceRange } from "../src/diagnostics/diagnostic";
 import type { ThetaSource } from "../src/lexer/lexer";
-import type { SystemNoteChannelDeps } from "../src/extension/system-note-channel";
-import type { ModelReferenceMatcher } from "../src/parser/frontmatter";
 import {
   parseThetaDocument,
   type CallExpr,
   type Expr,
   type LetStmt,
   type ObjectExpr,
-  type ParseThetaDocumentDeps,
   type Stmt,
   type ThetaBody,
   type ToolCallStmt,
@@ -104,33 +102,16 @@ import type { ThetaValue } from "../src/runtime/value";
 //     pinned per cell.
 
 // ===========================================================================
-// Parse-layer harness (the makeDeps pattern from
-// e2e-s4-never-emitted-diagnostics.test.ts).
+// Parse-layer harness.
 // ===========================================================================
 
 const SHAPE_CODE = "theta/parse/tool-arg-not-object-literal";
 const ARITY_CODE = "theta/parse/tool-arg-arity";
 const FILE = "bug0003.theta";
 
-function makeDeps(): ParseThetaDocumentDeps {
-  const systemNote: SystemNoteChannelDeps = {
-    pi: { sendMessage: (): void => {} },
-    ui: { notify: (): void => {} },
-    emitDiagnostic: (): void => {},
-  };
-  const modelMatcher: ModelReferenceMatcher = {
-    resolve: (): "resolved" => "resolved",
-  };
-  return { systemNote, modelMatcher };
-}
-
 function diagsOf(src: string): readonly Diagnostic[] {
   const source: ThetaSource = { path: FILE, bytes: new TextEncoder().encode(src) };
-  return parseThetaDocument(source, makeDeps()).diagnostics;
-}
-
-function withCode(diags: readonly Diagnostic[], code: string): Diagnostic[] {
-  return diags.filter((d) => d.code === code);
+  return parseThetaDocument(source, parseDeps()).diagnostics;
 }
 
 /** The frontmatter prelude — occupies source lines 1–5. */
@@ -139,19 +120,6 @@ const FM = "---\nmode: prompt\ntools:\n  - read\n---\n";
 /** The exact registered message for a tool `<name>` (diagnostics.md:94). */
 function shapeMessage(name: string): string {
   return `Pi tool '${name}' argument must be written inline as a bare object literal { ... }; a let-bound value cannot supply the field shape`;
-}
-
-/** A 1-indexed, end-exclusive-column source range literal. */
-function range(
-  startLine: number,
-  startColumn: number,
-  endLine: number,
-  endColumn: number,
-): SourceRange {
-  return {
-    start: { line: startLine, column: startColumn },
-    end: { line: endLine, column: endColumn },
-  };
 }
 
 /**

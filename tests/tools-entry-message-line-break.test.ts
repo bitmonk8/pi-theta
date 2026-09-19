@@ -1,16 +1,10 @@
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { disposeWorkspace, plantThetaWorkspace, runProductionLoad, type LoadOutcome } from "./helpers/production-load-harness";
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 // @ts-expect-error — JS code-registry module, no type declarations.
 import { parseRegistry, registryMessage } from "../tools/code-registry/index.js";
-import type {
-  ExtensionAPI,
-  ExtensionContext,
-} from "@earendil-works/pi-coding-agent";
-import type { ThetaFixture } from "../src/extension/factory";
-import { discoverAndComposeFixtures } from "../src/extension/production-composition";
 import {
   renderDiagnosticBatch,
   renderDiagnosticLine,
@@ -384,64 +378,19 @@ const THETAS: readonly PlantedTheta[] = [
   },
 ];
 
-interface LoadOutcome {
-  /** Slash names the production compose helper returned (registered fixtures). */
-  readonly registered: readonly string[];
-  /** Error-severity diagnostic messages surfaced via `ctx.ui.notify`. */
-  readonly notifications: readonly string[];
-}
-
 let outcome: LoadOutcome;
 let workspaceDir: string;
 let projectThetaDir: string;
 
-async function runProductionLoad(cwd: string): Promise<LoadOutcome> {
-  const notifications: string[] = [];
-  const pi = {
-    getFlag: (): undefined => undefined,
-    getCommands: (): readonly unknown[] => [],
-    sendMessage: (): void => {},
-    sendUserMessage: (): void => {},
-    getActiveTools: (): readonly string[] => [],
-    setActiveTools: (): void => {},
-  } as unknown as ExtensionAPI;
-  const ctx = {
-    cwd,
-    modelRegistry: { getAvailable: (): readonly unknown[] => [] },
-    ui: {
-      notify: (message: string, _type: "error"): void => {
-        notifications.push(message);
-      },
-    },
-  } as unknown as ExtensionContext;
-
-  const fixtures: readonly ThetaFixture[] = await discoverAndComposeFixtures(
-    pi,
-    ctx,
-  );
-  return { registered: fixtures.map((f) => f.slashName), notifications };
-}
-
 beforeAll(async () => {
-  workspaceDir = mkdtempSync(join(tmpdir(), "theta-bug0105-"));
+  // An absent settings file is silent; "{}" pins the fixture's settings read.
+  workspaceDir = plantThetaWorkspace("theta-bug0105-", THETAS, "{}");
   projectThetaDir = join(workspaceDir, ".pi", "theta");
-  mkdirSync(projectThetaDir, { recursive: true });
-  for (const planted of THETAS) {
-    writeFileSync(
-      join(projectThetaDir, `${planted.stem}.theta`),
-      planted.text,
-      "utf8",
-    );
-  }
-  // An ABSENT settings file is silent (package-and-settings.md §Failure
-  // modes), so the plant pins the fixture's settings read rather than
-  // suppressing noise.
-  writeFileSync(join(workspaceDir, ".pi", "settings.json"), "{}", "utf8");
   outcome = await runProductionLoad(workspaceDir);
 });
 
 afterAll(() => {
-  rmSync(workspaceDir, { recursive: true, force: true });
+  disposeWorkspace(workspaceDir);
 });
 
 /** The registered / notified sets, rendered for an assertion message. */

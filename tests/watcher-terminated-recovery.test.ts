@@ -17,13 +17,13 @@ import {
 import {
   SYSTEM_NOTE_CHANNEL,
   type SystemNoteChannelDeps,
-  type SystemNoteDetails,
   type SystemNoteSender,
   type UiNotifier,
 } from "../src/extension/system-note-channel";
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
 import type { FileWatchEvent } from "../src/seams/file-watcher";
 import { FakeFileWatcher } from "./helpers/fake-file-watcher";
+import { channelHarness } from "./helpers/recording-system-note-channel";
 import {
   STALE_QUIESCE_STDERR_PREFIX,
   StaleQuiesceLog,
@@ -66,37 +66,6 @@ const theta = (slashName: string): ParsedTheta => ({
   body: { statements: [], tail: null },
   run: NOOP_RUN,
 });
-
-/** A captured `pi.sendMessage` call for the `theta-system-note` channel. */
-interface SentMessage {
-  readonly customType: string;
-  readonly content: string;
-  readonly display: boolean;
-  readonly details?: SystemNoteDetails;
-}
-
-/**
- * Build a `SystemNoteChannelDeps` whose `pi.sendMessage` succeeds and records
- * every sent message, so the primary-sink assertions observe the persistent
- * `theta-system-note` route and can prove `ctx.ui.notify` is never reached.
- */
-function channelHarness(): {
-  readonly channel: SystemNoteChannelDeps;
-  readonly sent: SentMessage[];
-  readonly notify: ReturnType<typeof vi.fn>;
-  readonly emitDiagnostic: ReturnType<typeof vi.fn>;
-} {
-  const sent: SentMessage[] = [];
-  const pi: SystemNoteSender = {
-    sendMessage(message, _options): void {
-      sent.push({ ...message });
-    },
-  };
-  const notify = vi.fn<UiNotifier["notify"]>();
-  const ui: UiNotifier = { notify };
-  const emitDiagnostic = vi.fn<(d: Diagnostic) => void>();
-  return { channel: { pi, ui, emitDiagnostic }, sent, notify, emitDiagnostic };
-}
 
 // ---------------------------------------------------------------------------
 // PIC-55 — stopped-delivering — terminal recovery posture.

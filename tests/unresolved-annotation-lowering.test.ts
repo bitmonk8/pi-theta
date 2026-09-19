@@ -1,3 +1,5 @@
+import { scripted } from "./helpers/scripted-complete-queue-mock";
+import { assistantReply, contextToolsOf, ANTHROPIC_MODEL } from "./helpers/scripted-live-session-harness";
 // Bug 0028 — a typed-query annotation naming no lowerable declaration (a
 // typo'd/undeclared name, a declared `enum`, or a schema-body forward/self
 // reference) lowers permissively to `{}` with no diagnostic: the QRY-22 gate
@@ -96,41 +98,8 @@
 // boundary, so the unit tier is sufficient AND stricter (a live model cannot be
 // asked to prove a diagnostic fires).
 import { REGISTRY } from "./helpers/registry-oracle";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 
-// The recorded off-session `complete()` calls and the scripted reply queue
-// (the tests/off-session-two-phase.test.ts harness discipline). `vi.hoisted` so
-// the `vi.mock` factory — hoisted above every import — can close over a mutable
-// holder. Only cell RESPOND drives it; every other cell leaves the queue empty,
-// so any stray dispatch fails loudly instead of silently returning a stub.
-const scripted = vi.hoisted(() => ({
-  queue: [] as Array<
-    (call: { model: unknown; context: unknown; options: unknown }) => unknown
-  >,
-  calls: [] as Array<{ model: unknown; context: unknown; options: unknown }>,
-}));
-
-vi.mock("@earendil-works/pi-ai/compat", async (importOriginal) => {
-  const actual = await importOriginal<Record<string, unknown>>();
-  return {
-    ...actual,
-    complete: vi.fn(async (model: unknown, context: unknown, options: unknown) => {
-      const call = { model, context, options };
-      const index = scripted.calls.length;
-      scripted.calls.push(call);
-      if (scripted.queue.length === 0) {
-        // No silent skipping: an unscripted dispatch fails loudly.
-        throw new Error(
-          `scripted complete() called with an EMPTY reply queue (call #${index + 1})`,
-        );
-      }
-      // Sticky-last consumption: over-driving stays observable as a call-count
-      // assertion instead of a mid-flight harness throw.
-      const factory = scripted.queue[Math.min(index, scripted.queue.length - 1)]!;
-      return factory(call);
-    }),
-  };
-});
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -167,10 +136,6 @@ import { codes, parseDoc } from "./helpers/e2e-s1";
 
 const CODE = "theta/parse/unresolved-named-type";
 
-// The live four-page sharded registry, read from the spec corpus and
-// concatenated — the same input tests/code-registry.test.ts reconciles and the
-// same composition tests/ctor-unresolved-schema-name.test.ts reads for this
-// exact row.
 /**
  * The row's normative *Message* template with its single `<name>` placeholder
  * filled (DIAG-4). Definedness is asserted first so a missing row reds by
@@ -761,14 +726,6 @@ const SEVERITY_WIRE = {
   required: ["value"],
 };
 
-/** The resolved off-session model (distinct `.api` / `.provider`, as the siblings do). */
-const ANTHROPIC_MODEL = {
-  id: "m1",
-  api: "anthropic-messages",
-  provider: "anthropic",
-  strictCapable: true,
-};
-
 /**
  * A prompt-mode theta whose TOP-LEVEL typed `@<Severity>` query is over a
  * declared enum, under `tool_loop: max_rounds: 0` (the QRY-14 step-2
@@ -794,45 +751,6 @@ const ENUM_ROOT_THETA = [
   "v",
   "",
 ].join("\n");
-
-/** An `AssistantMessage`-shaped scripted reply (the sibling harness's builder). */
-function assistantReply(fields: {
-  readonly stopReason: string;
-  readonly text?: string;
-  readonly toolCalls?: ReadonlyArray<{
-    readonly id: string;
-    readonly name: string;
-    readonly arguments: unknown;
-  }>;
-}): Record<string, unknown> {
-  const content: Record<string, unknown>[] = [];
-  if (fields.text !== undefined) {
-    content.push({ type: "text", text: fields.text });
-  }
-  for (const call of fields.toolCalls ?? []) {
-    content.push({
-      type: "toolCall",
-      id: call.id,
-      name: call.name,
-      arguments: call.arguments,
-    });
-  }
-  return {
-    role: "assistant",
-    content,
-    api: "anthropic-messages",
-    stopReason: fields.stopReason,
-    timestamp: 0,
-  };
-}
-
-/** The recorded `complete()` call's `context.tools`, duck-typed. */
-function contextToolsOf(call: { readonly context: unknown }):
-  | readonly Record<string, unknown>[]
-  | undefined {
-  const tools = (call.context as { readonly tools?: unknown }).tools;
-  return tools === undefined ? undefined : (tools as readonly Record<string, unknown>[]);
-}
 
 describe("bug 0028 (b) enum root — a declared `enum` annotation reaches the respond-tool registration as its lowered non-object root", () => {
   it("RED RESPOND: the presented respond tool's parameters carry {\"type\":\"string\",\"enum\":[\"Low\",\"High\"]} under the wire envelope on BOTH the registered definition and the forced-respond dispatch", async () => {

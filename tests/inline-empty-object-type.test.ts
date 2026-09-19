@@ -3,15 +3,23 @@ import { describe, expect, it } from "vitest";
 // @ts-expect-error — JS code-registry module, no type declarations.
 import { registryMessage } from "../tools/code-registry/index.js";
 import type { SourceRange } from "../src/diagnostics/diagnostic";
-import { lowerParamsFieldType, type LowerCtx } from "../src/parser/params";
-import type { ThetaDocument } from "../src/parser/theta-document";
+import { lowerParamsFieldType } from "../src/parser/params";
 import {
   parseTypeExpression,
   type TypeCheckSite,
   type TypePosition,
 } from "../src/parser/type-grammar";
 import { lowerQueryResponseSchema } from "../src/runtime/query-schema-lowering";
-import { parseDoc } from "./helpers/e2e-s1";
+import {
+  annotSrc,
+  body,
+  diagLines,
+  diagnosticListHarness,
+  emptyCtx,
+  invokeSrc,
+  paramsSrc,
+  parseDoc,
+} from "./helpers/e2e-s1";
 
 // Bug 0045 — `grammar.md`'s empty-inline-object rule is unimplemented at every
 // `Type` position: `{}` written as a type draws no `theta/parse/empty-schema-body`
@@ -190,57 +198,10 @@ function quotedInlineLine(field: string): string {
 }
 
 // ===========================================================================
-// Fixtures. One builder per position of grammar.md's enumeration. Every body
-// fixture ends `let a = 1` + `a` so the theta carries a tail expression, and
-// every `params:` fixture carries `mode: prompt` so no `theta/load/missing-mode`
-// noise is present.
-// ===========================================================================
-
-const FM = "---\nmode: prompt\n---\n";
-const TAIL = "let a = 1\na\n";
-
-/** A `mode: prompt` theta whose body is `stmt` followed by the tail. */
-function body(stmt: string): string {
-  return `${FM}${stmt}\n${TAIL}`;
-}
-
-/** A `mode: prompt` theta whose `params:` block is `block`. */
-function paramsSrc(block: string): string {
-  return `---\nmode: prompt\nparams:\n${block}\n---\n${TAIL}`;
-}
-
-/** The `@<T>` query annotation — a type-ascription context (grammar.md:105). */
-function annotSrc(type: string): string {
-  return body("let r = @<" + type + ">`hi`");
-}
-
-/** The `invoke<T>` return annotation, the one position running no walk at HEAD. */
-function invokeSrc(type: string): string {
-  return body(`let r = invoke<${type}>("./x.theta")`);
-}
-
-// ===========================================================================
 // Parse + assertion helpers. Loud on every unexpected disposition.
 // ===========================================================================
 
-/** Every diagnostic rendered `<severity> <code>: <message>`, in emission order. */
-function diagLines(doc: ThetaDocument): string[] {
-  return doc.diagnostics.map((d) => `${d.severity} ${d.code}: ${d.message}`);
-}
-
-function lines(src: string, path = "bug0045.theta"): string[] {
-  return diagLines(parseDoc(src, path));
-}
-
-/**
- * The whole ordered diagnostic list of one source, asserted against `expected`.
- * A whole-list equality is what makes both directions reachable: an absent
- * emission and an extra one both red, and the multiplicity claims of group (g)
- * are only meaningful against a whole list.
- */
-function expectList(src: string, expected: readonly string[], why: string): void {
-  expect(lines(src), `${why}\nsource=${JSON.stringify(src)}`).toEqual([...expected]);
-}
+const { lines, expectList } = diagnosticListHarness("bug0045.theta");
 
 /** The seam's located site. The range is not under assertion; the emission is. */
 const SEAM_RANGE: SourceRange = {
@@ -254,11 +215,6 @@ function seamLines(source: string, position: TypePosition): string[] {
   return parseTypeExpression(source, position, SEAM_SITE).map(
     (d) => `${d.severity} ${d.code}: ${d.message}`,
   );
-}
-
-/** A `LowerCtx` over an EMPTY resolution set — no declaration resolves anything. */
-function emptyCtx(): LowerCtx {
-  return { bodyTypeMap: new Map<string, Record<string, unknown>>(), defs: {}, unresolved: [] };
 }
 
 // ===========================================================================

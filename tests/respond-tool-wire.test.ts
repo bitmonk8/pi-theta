@@ -1,3 +1,4 @@
+import { scripted } from "./helpers/scripted-complete-queue-mock";
 // Bug 0028 — the respond tool's WIRE CONTRACT: the schema the synthesised
 // `__theta_respond_<slug>` tool is registered with, and the reverse mapping from
 // a model-produced argument object back to the candidate response payload
@@ -47,38 +48,9 @@
 // query/query-failure-and-repair.md (QRY-22 validate-then-bind),
 // schema-subset.md (SUBS-1 — the emission table the envelope wraps and never
 // rewrites).
-import { ajv, appendUserEntry, appendAssistantEntry, ANTHROPIC_MODEL } from "./helpers/scripted-live-session-harness";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { assistantReply, contextToolsOf, ajv, appendUserEntry, appendAssistantEntry, ANTHROPIC_MODEL } from "./helpers/scripted-live-session-harness";
+import { beforeEach, describe, expect, it } from "vitest";
 
-// The recorded off-session `complete()` calls and the scripted reply queue (the
-// tests/off-session-two-phase.test.ts harness discipline). `vi.hoisted` so the
-// `vi.mock` factory — hoisted above every import — can close over a mutable
-// holder. An unscripted dispatch fails loudly rather than returning a stub.
-const scripted = vi.hoisted(() => ({
-  queue: [] as Array<
-    (call: { model: unknown; context: unknown; options: unknown }) => unknown
-  >,
-  calls: [] as Array<{ model: unknown; context: unknown; options: unknown }>,
-}));
-
-vi.mock("@earendil-works/pi-ai/compat", async (importOriginal) => {
-  const actual = await importOriginal<Record<string, unknown>>();
-  return {
-    ...actual,
-    complete: vi.fn(async (model: unknown, context: unknown, options: unknown) => {
-      const call = { model, context, options };
-      const index = scripted.calls.length;
-      scripted.calls.push(call);
-      if (scripted.queue.length === 0) {
-        throw new Error(
-          `scripted complete() called with an EMPTY reply queue (call #${index + 1})`,
-        );
-      }
-      const factory = scripted.queue[Math.min(index, scripted.queue.length - 1)]!;
-      return factory(call);
-    }),
-  };
-});
 import type {
   ExtensionAPI,
   ExtensionCommandContext,
@@ -493,40 +465,6 @@ function expectBound(
     result.notes.filter((note) => /returned Err|aborted|cancelled/.test(note)),
     `${why} — no fail-closed note may be surfaced; notes=${JSON.stringify(result.notes)}`,
   ).toEqual([]);
-}
-
-/** An `AssistantMessage`-shaped scripted reply. */
-function assistantReply(fields: {
-  readonly stopReason: string;
-  readonly text?: string;
-  readonly toolCalls?: ReadonlyArray<{
-    readonly id: string;
-    readonly name: string;
-    readonly arguments: unknown;
-  }>;
-}): Record<string, unknown> {
-  const content: Record<string, unknown>[] = [];
-  if (fields.text !== undefined) {
-    content.push({ type: "text", text: fields.text });
-  }
-  for (const call of fields.toolCalls ?? []) {
-    content.push({ type: "toolCall", id: call.id, name: call.name, arguments: call.arguments });
-  }
-  return {
-    role: "assistant",
-    content,
-    api: "anthropic-messages",
-    stopReason: fields.stopReason,
-    timestamp: 0,
-  };
-}
-
-/** The recorded `complete()` call's `context.tools`, duck-typed. */
-function contextToolsOf(call: { readonly context: unknown }):
-  | readonly Record<string, unknown>[]
-  | undefined {
-  const tools = (call.context as { readonly tools?: unknown }).tools;
-  return tools === undefined ? undefined : (tools as readonly Record<string, unknown>[]);
 }
 
 /** The trailing QRY-15 user message of the forced respond dispatch. */
