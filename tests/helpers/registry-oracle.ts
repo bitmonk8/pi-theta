@@ -9,7 +9,7 @@
 // wording vary per file stay local, using the shared registry read.
 //
 // TIER: offline, deterministic, provider-free; also used by live cells.
-import { PARSE_REGISTRY_PATH as REGISTRY_PAGE, registryMessageOf } from "./load-row-harness";
+import { PARSE_REGISTRY_PATH as REGISTRY_PAGE, registryLineOf, registryMessageOf } from "./load-row-harness";
 import { expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { repoFile } from "./corpus-reader";
@@ -110,29 +110,11 @@ const RESERVED_KEYWORD_CODE = "theta/parse/reserved-keyword-as-identifier";
 /**
  * `theta/parse/reserved-keyword-as-identifier: reserved keyword '<keyword>'
  * cannot be used as an identifier` — DIAG-4: the message half is read from the
- * registry row, not copied. The row's presence is asserted (DIAG-2), the
- * `<keyword>` slot's presence is asserted before it is filled, and the filled
- * result is checked for a second unsubstituted placeholder.
+ * registry row, not copied. The row's presence is asserted (DIAG-2), and the
+ * filled result is checked for an unsubstituted placeholder.
  */
 export function reservedKeywordFragment(keyword: string): string {
-  const template = registryMessage(PARSE_REGISTRY, RESERVED_KEYWORD_CODE) as
-    | string
-    | undefined;
-  expect(
-    template,
-    `${RESERVED_KEYWORD_CODE} has no registry row — the code this cell asserts is not registered (DIAG-2)`,
-  ).toBeTypeOf("string");
-  const withSlot = template as string;
-  expect(
-    withSlot,
-    `${RESERVED_KEYWORD_CODE}: the registry row's Message template must carry the <keyword> slot this cell fills — the row changed shape`,
-  ).toContain("<keyword>");
-  const message = withSlot.replace("<keyword>", keyword);
-  expect(
-    message,
-    `${RESERVED_KEYWORD_CODE}: the registry row's Message template grew a second unsubstituted placeholder this reader does not fill`,
-  ).not.toMatch(/<[a-z]+>/);
-  return `${RESERVED_KEYWORD_CODE}: ${message}`;
+  return registryFragment(RESERVED_KEYWORD_CODE, { keyword });
 }
 
 /** DIAG-4: the message half is read from the registry row, not copied. */
@@ -271,33 +253,14 @@ export function objectFieldMismatchMessage(
 const SCHEMA_REFUSAL = "theta/parse/schema-type-not-expression";
 const PARAMS_REFUSAL = "theta/load/params-type-not-expression";
 
-/**
- * A registry row's normative *Message* (DIAG-4, diagnostic-shape.md:74), read
- * rather than restated. Definedness is asserted first so a missing row reds by
- * naming the registry page instead of comparing against a bare `undefined`.
- */
-function anchoredRegistryMessage(code: string): string {
-  const template = registryMessage(REGISTRY, code) as string | undefined;
-  expect(
-    template,
-    `DIAG-4 anchor: the diagnostics code registry must carry the *Message* row for ${code}; ` +
-      `without it every expected message in this file would be a restatement, which DIAG-4 bars`,
-  ).toBeDefined();
-  return template as string;
-}
-
 /** `error <code>: <message>` for one substitution set, rendered from the registry. */
 export function registryErrorLine(code: string, subs: ReadonlyArray<readonly [string, string]>): string {
-  let message = anchoredRegistryMessage(code);
-  for (const [placeholder, value] of subs) {
-    expect(
-      message.includes(placeholder),
-      `DIAG-4 anchor: the registry *Message* for ${code} must carry the ${placeholder} ` +
-        `placeholder this file interpolates; observed template ${JSON.stringify(message)}`,
-    ).toBe(true);
-    message = message.replace(placeholder, value);
-  }
-  return `error ${code}: ${message}`;
+  return registryLineOf(
+    REGISTRY,
+    "docs/spec_topics/diagnostics/code-registry-{parse,load,runtime,host}.md",
+    code,
+    subs,
+  );
 }
 
 /** The schema-position refusal, rendered for the offending declaration's name. */
