@@ -33,6 +33,7 @@
 // routing), query/query-tool-loop.md (QRY-14 forced respond turn).
 
 import { RecordingCheckpoint } from "./helpers/invoke-seam-scaffold";
+import { liveSignal } from "./helpers/typed-query-harness";
 import { describe, expect, it } from "vitest";
 import type { CheckpointSite } from "../src/seams/checkpoint";
 import {
@@ -62,11 +63,6 @@ function config(maxRounds: number): QueryToolLoopConfig {
     invocationId: "00000000-0000-4000-8000-000000000010",
     occurredAt: 1_700_000_000_000,
   };
-}
-
-/** A never-aborted signal (the non-cancellation arms). */
-function liveSignal(): AbortSignal {
-  return new AbortController().signal;
 }
 
 /** The wrong-tool branch the driver reports (ERR-17). */

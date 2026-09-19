@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { createPatternRefusalHarness } from "./helpers/prompt-value-harness";
+import { SEAM_NOOP_CHECKPOINT as NOOP_CHECKPOINT } from "./helpers/invoke-seam-scaffold";
 import {
   PARSE_REGISTRY_PATH as REGISTRY_PARSE_PAGE,
   type DiagShape,
@@ -29,7 +30,6 @@ import type {
   ThetaCompositionInput,
 } from "../src/extension/theta-composition-producer";
 import type { RuntimeRoot } from "../src/runtime-root";
-import type { Checkpoint } from "../src/seams/checkpoint";
 import type { ThetaValue } from "../src/runtime/value";
 
 // Bug 0141 — `parsePattern`'s tail arm (src/parser/theta-document.ts:4178–4202)
@@ -194,12 +194,6 @@ function reserved(keyword: string, at: SourceRange): DiagShape {
 // (the tests/non-object-receiver-gate.test.ts:221–292 shape). Offline,
 // provider-free: no model is dispatched by a query-free prompt body.
 // ===========================================================================
-
-const NOOP_CHECKPOINT: Checkpoint = {
-  before(): Promise<void> {
-    return Promise.resolve();
-  },
-};
 
 function rootDouble(): RuntimeRoot {
   return {

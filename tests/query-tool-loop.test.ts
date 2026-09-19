@@ -18,6 +18,7 @@
 // a missing fixture, or a harness throw.
 
 import { RecordingCheckpoint, SpyCompensator } from "./helpers/invoke-seam-scaffold";
+import { liveSignal } from "./helpers/typed-query-harness";
 import { describe, expect, it } from "vitest";
 import type { CheckpointSite } from "../src/seams/checkpoint";
 import {
@@ -45,11 +46,6 @@ function config(maxRounds: number): QueryToolLoopConfig {
     invocationId: "00000000-0000-4000-8000-000000000000",
     occurredAt: 1_700_000_000_000,
   };
-}
-
-/** A never-aborted signal for the non-cancellation arms. */
-function liveSignal(): AbortSignal {
-  return new AbortController().signal;
 }
 
 /**
