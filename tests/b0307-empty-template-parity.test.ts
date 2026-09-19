@@ -2,6 +2,7 @@ import { strExpr as stringExpr } from "./helpers/tool-call-dispatch-harness";
 import {
   RecordingMutator,
   SEAM_NOOP_CHECKPOINT as NOOP_CHECKPOINT,
+  SEAM_NOOP_SINK as NOOP_SINK,
   SITE,
   body,
   identExpr,
@@ -29,7 +30,6 @@ import type {
 import type {
   AgentToolResultEnvelope,
   CodeSideToolCall,
-  ToolLoweringSink,
 } from "../src/runtime/tool-call-execute";
 import type { InvokeChild, DrivenInvokeResult } from "../src/runtime/invoke-cancellation";
 import type { CommittedSideEffect } from "../src/runtime/no-rollback";
@@ -101,11 +101,6 @@ class NoopInvokeChild implements InvokeChild {
     return Promise.resolve({ source: "callee-returned", result: makeOk(null) });
   }
 }
-
-const NOOP_SINK: ToolLoweringSink = {
-  diagnostic(): void {},
-  systemNote(): void {},
-};
 
 function queryConfig(): QueryToolLoopConfig {
   return {

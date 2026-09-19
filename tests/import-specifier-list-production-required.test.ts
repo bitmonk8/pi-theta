@@ -3,7 +3,13 @@ import { describe, expect, it } from "vitest";
 import { registryMessage } from "../tools/code-registry/index.js";
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
 import type { ThetaDocument } from "../src/parser/theta-document";
-import { isLoadParseError as isRegistrationError, parseDoc } from "./helpers/e2e-s1";
+import {
+  diagLines,
+  documentCodes as diagCodes,
+  isLoadParseError as isRegistrationError,
+  parseDoc,
+  withCode,
+} from "./helpers/e2e-s1";
 import { REGISTRY, type RegistryRow } from "./helpers/registry-oracle";
 import { loadThetaLibDiags as loadImports } from "./helpers/thetalib-load-harness";
 
@@ -234,21 +240,6 @@ const APP_FIRST_BODY_LINE = 5;
 /** Parse a `.theta` body under the shared frontmatter. */
 function parseApp(body: string): ThetaDocument {
   return parseDoc(`${APP_FRONTMATTER}\n${body}`, "/proj/app.theta");
-}
-
-/** Every diagnostic rendered `<severity> <code>: <message>`, in emission order. */
-function diagLines(diagnostics: readonly Diagnostic[]): string[] {
-  return diagnostics.map((d) => `${d.severity} ${d.code}: ${d.message}`);
-}
-
-/** Every diagnostic's code, in emission order. */
-function diagCodes(diagnostics: readonly Diagnostic[]): string[] {
-  return diagnostics.map((d) => d.code);
-}
-
-/** The diagnostics carrying `code`, in emission order. */
-function withCode(diagnostics: readonly Diagnostic[], code: string): Diagnostic[] {
-  return diagnostics.filter((d) => d.code === code);
 }
 
 /** The parsed statement list, for the node-shape assertions (§Fix constraint 7). */

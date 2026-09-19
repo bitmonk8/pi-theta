@@ -36,6 +36,7 @@
 
 import { describe, it, expect } from "vitest";
 import { FakePi } from "./helpers/fake-governor-pi";
+import { SEAM_NOOP_CHECKPOINT } from "./helpers/invoke-seam-scaffold";
 import { renderLeafKindNote } from "../src/runtime/err-note-render";
 import type {
   QueryError,
@@ -49,11 +50,7 @@ import {
   type QueryToolLoopConfig,
   type ToolCallRequest,
 } from "../src/runtime/query-tool-loop";
-import type {
-  Checkpoint,
-  CheckpointKind,
-  CheckpointSite,
-} from "../src/seams/checkpoint";
+import type { CheckpointSite } from "../src/seams/checkpoint";
 import type { CommittedSideEffect } from "../src/runtime/no-rollback";
 import { PromptToolLoopGovernor } from "../src/extension/prompt-tool-loop-governor";
 
@@ -133,13 +130,6 @@ function liveSignal(): AbortSignal {
   return new AbortController().signal;
 }
 
-/** A no-op `Checkpoint` — cell (C) does not assert on the checkpoint stream. */
-class InertCheckpoint implements Checkpoint {
-  before(_kind: CheckpointKind, _site: CheckpointSite): Promise<void> {
-    return Promise.resolve();
-  }
-}
-
 /**
  * A scripted `QueryModelDriver` whose free phase throws loudly if ever read:
  * under `max_rounds: 0` the loop exhausts BEFORE the first `nextFreePhaseTurn`,
@@ -172,7 +162,7 @@ describe("bug 0308 (C) — last_tool_name: null is reachable under max_rounds: 0
   it("runUntypedQueryLoop at max_rounds:0 exhausts with rounds:0 and last_tool_name: null", async () => {
     const model = new NoTurnModel();
     const outcome = await runUntypedQueryLoop(
-      new InertCheckpoint(),
+      SEAM_NOOP_CHECKPOINT,
       liveSignal(),
       model,
       config(0),

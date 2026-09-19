@@ -227,9 +227,10 @@ export function fnParamCarrier(body: readonly string[]): readonly string[] {
   return ["fn f(p) {", ...body, "}", "let z = f(1)", "1"];
 }
 
-/** The aggregated diagnostic codes, in report order. */
-export function documentCodes(doc: ThetaDocument): string[] {
-  return doc.diagnostics.map((d: Diagnostic) => d.code);
+/** The aggregated diagnostic codes, in report order, from a document or diagnostic list. */
+export function documentCodes(source: ThetaDocument | readonly Diagnostic[]): string[] {
+  const diags = "diagnostics" in source ? source.diagnostics : source;
+  return diags.map((d: Diagnostic) => d.code);
 }
 
 /** `l:c-l:c`, 1-indexed, end-column exclusive; `-` for an unlocated diagnostic. */
@@ -427,8 +428,9 @@ export function isLoadParseError(d: Diagnostic): boolean {
 }
 
 /** Every diagnostic rendered `<severity> <code>: <message>`, in emission order. */
-export function diagLines(doc: ThetaDocument): string[] {
-  return doc.diagnostics.map((d) => `${d.severity} ${d.code}: ${d.message}`);
+export function diagLines(source: ThetaDocument | readonly Diagnostic[]): string[] {
+  const diags = "diagnostics" in source ? source.diagnostics : source;
+  return diags.map((d) => `${d.severity} ${d.code}: ${d.message}`);
 }
 
 /**

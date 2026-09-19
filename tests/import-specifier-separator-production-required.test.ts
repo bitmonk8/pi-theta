@@ -9,7 +9,14 @@ import { checkThetaImports } from "../src/extension/import-static-checks";
 import type { ThetaCompositionInput } from "../src/extension/theta-composition-producer";
 import type { ParsedFrontmatter } from "../src/parser/frontmatter";
 import { type ThetaDocument } from "../src/parser/theta-document";
-import { isLoadParseError as isRegistrationError, parseDeps, parseDoc as parse } from "./helpers/e2e-s1";
+import {
+  diagLines,
+  documentCodes as diagCodes,
+  isLoadParseError as isRegistrationError,
+  parseDeps,
+  parseDoc as parse,
+  withCode,
+} from "./helpers/e2e-s1";
 
 // Bug 0211 — the `ImportDecl` / `ExportDecl` productions spell the specifier
 // list as `"{" ImportSpec ("," ImportSpec)* ","? "}"`: a `,` BETWEEN two
@@ -247,21 +254,6 @@ const APP_FIRST_BODY_LINE = 5;
 /** Parse a `.theta` body under the shared frontmatter. */
 function parseApp(body: string): ThetaDocument {
   return parse(`${APP_FRONTMATTER}\n${body}`, "/proj/app.theta");
-}
-
-/** Every diagnostic rendered `<severity> <code>: <message>`, in emission order. */
-function diagLines(diagnostics: readonly Diagnostic[]): string[] {
-  return diagnostics.map((d) => `${d.severity} ${d.code}: ${d.message}`);
-}
-
-/** Every diagnostic's code, in emission order. */
-function diagCodes(diagnostics: readonly Diagnostic[]): string[] {
-  return diagnostics.map((d) => d.code);
-}
-
-/** The diagnostics carrying `code`, in emission order. */
-function withCode(diagnostics: readonly Diagnostic[], code: string): Diagnostic[] {
-  return diagnostics.filter((d) => d.code === code);
 }
 
 /** The parsed statement, for the node-shape assertions (§Non-goals). */
