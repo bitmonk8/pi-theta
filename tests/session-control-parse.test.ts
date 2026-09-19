@@ -27,28 +27,14 @@
 //
 // Method: mirrors `tests/call-with-clause-parse.test.ts` / `tests/par-for.test.ts`'s
 // `parseThetaDocument` + inline template-literal-source harness.
-import { parseDeps as makeDeps } from "./helpers/e2e-s1";
+import { parseDoc as parse, codesOf } from "./helpers/e2e-s1";
 import { describe, expect, it } from "vitest";
-import type { Diagnostic } from "../src/diagnostics/diagnostic";
-import type { ThetaSource } from "../src/lexer/lexer";
-import { parseThetaDocument, type ThetaDocument } from "../src/parser/theta-document";
 
 /** DIAG-2 asserting home for `theta/parse/session-tool-in-isolated-body` (I1-I4 below). */
 const SESSION_TOOL_IN_ISOLATED_BODY_CODE = "theta/parse/session-tool-in-isolated-body";
 const UNKNOWN_IDENTIFIER_CODE = "theta/parse/unknown-identifier";
 const SHADOWED_CALLABLE_CALL_CODE = "theta/parse/shadowed-callable-call";
 const NESTED_FN_CODE = "theta/parse/nested-fn";
-
-/** Parse a UTF-8 `.theta` source string through the production whole-file parser. */
-function parse(src: string, path = "test.theta"): ThetaDocument {
-  const source: ThetaSource = { path, bytes: new TextEncoder().encode(src) };
-  return parseThetaDocument(source, makeDeps());
-}
-
-/** The set of diagnostic codes the production parse aggregated for `src`. */
-function codesOf(src: string): string[] {
-  return parse(src).diagnostics.map((d: Diagnostic) => d.code);
-}
 
 /** Frontmatter fence declaring `mode: subagent` and the given `tools:` entries (short form). */
 function fm(tools?: string): string {

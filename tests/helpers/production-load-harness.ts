@@ -72,11 +72,15 @@ export interface ProductionLoadOptions {
   readonly piOwnedCommands?: readonly { readonly name: string; readonly source: string }[];
   /** `pi.getAllTools()`'s report; default: no registry snapshot method. */
   readonly registryTools?: readonly { readonly name: string }[];
+  /** `ctx.hasUI`'s report; default: absent (no UI). */
+  readonly hasUI?: boolean;
+  /** Observe `pi.sendMessage` at load and later fixture dispatch; default: no-op. */
+  readonly sendMessage?: (message: { content?: unknown }) => void;
 }
 
 /**
  * Run the shipped composition root's discovery/compose pass over `cwd`
- * through a fake, no-UI host: `pi.ui.notify` calls are recorded, and
+ * through a fake host (no UI by default): `pi.ui.notify` calls are recorded, and
  * `process.stderr.write` is interposed for the call's duration to capture the
  * load's no-UI diagnostic mirror. The handle is restored in a `.finally`, so
  * no assertion runs while the interposition is live.
@@ -90,14 +94,16 @@ export async function runProductionLoad(
   const pi = {
     getFlag: (name: string): string | undefined => (name === "theta" ? opts.thetaFlag : undefined),
     getCommands: (): readonly { name: string; source: string }[] => opts.piOwnedCommands ?? [],
-    sendMessage: (): void => {},
+    sendMessage: opts.sendMessage ?? ((): void => {}),
     sendUserMessage: (): void => {},
+    registerMessageRenderer: (): void => {},
     getActiveTools: (): readonly string[] => [],
     setActiveTools: (): void => {},
     ...(opts.registryTools !== undefined ? { getAllTools: () => opts.registryTools } : {}),
   } as unknown as ExtensionAPI;
   const ctx = {
     cwd,
+    hasUI: opts.hasUI,
     modelRegistry: { getAvailable: (): readonly unknown[] => opts.availableModels ?? [] },
     ui: {
       notify: (message: string, _type: "error"): void => {
@@ -132,6 +138,22 @@ export async function runProductionLoad(
       .filter((line) => line.length > 0),
     fixtures,
   };
+}
+
+/** Bind per-caller readers without capturing an outcome before its load completes. */
+export function diagnosticLineReaders(getDiagnosticLines: () => readonly string[]) {
+  /** Diagnostic lines the load attributed to one planted `.theta`. */
+  function linesFor(stem: string): readonly string[] {
+    const attributed = new RegExp(`[\\\\/]${stem}\\.theta[:\\s]`);
+    return getDiagnosticLines().filter((line) => attributed.test(line));
+  }
+
+  /** Diagnostic lines attributing `code` to one planted `.theta`. */
+  function linesForCode(stem: string, code: string): readonly string[] {
+    return linesFor(stem).filter((line) => line.includes(code));
+  }
+
+  return { linesFor, linesForCode };
 }
 
 /** Guard per-caller diagnostic attribution against planted stems shadowing one another. */

@@ -1,9 +1,7 @@
-import { PARSE_REGISTRY_PATH as REGISTRY_PAGE } from "./helpers/load-row-harness";
-import { readRegistry, type RegistryRow } from "./helpers/registry-oracle";
+import { PARSE_REGISTRY_PATH as REGISTRY_PAGE, registryMessageOf } from "./helpers/load-row-harness";
+import { readRegistry } from "./helpers/registry-oracle";
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-// @ts-expect-error — JS code-registry module, no type declarations.
-import { registryMessage } from "../tools/code-registry/index.js";
 import type { Diagnostic, SourceRange } from "../src/diagnostics/diagnostic";
 import type { Block, Expr, Stmt, ThetaDocument } from "../src/parser/theta-document";
 import { at, parseDoc, render } from "./helpers/e2e-s1";
@@ -132,21 +130,6 @@ const UNKNOWN_IDENT = "theta/parse/unknown-identifier";
 const REGISTRY = readRegistry(["parse"]);
 
 /**
- * The registry row for `code`, asserted PRESENT before anything is read off it.
- *
- * At this HEAD the two minted rows are absent, so this is where every positive
- * cell reds, naming the row §(a) mints and the *Message* it must carry.
- */
-function row(code: string, why: string): RegistryRow {
-  const found = REGISTRY.find((r) => r.code === code);
-  expect(
-    found,
-    `DIAG-4 / DIAG-2: ${REGISTRY_PAGE} must carry the registered row for ${code} — ${why}. The registry is closed (DIAG-2), so an emission with no row is not assertable and a row with no emission is not either; bug 0131's adjudication §(a) mints this row with severity E, phase type.`,
-  ).toBeDefined();
-  return found as RegistryRow;
-}
-
-/**
  * `code`'s normative *Message* template with its named placeholders filled.
  * Row presence, then each placeholder's presence, then the substitution — so a
  * missing row or a reworded template reds by naming the registry rather than by
@@ -155,23 +138,8 @@ function row(code: string, why: string): RegistryRow {
 function msg(
   code: string,
   fills: ReadonlyArray<readonly [string, string]>,
-  why: string,
 ): string {
-  row(code, why);
-  const template = registryMessage(REGISTRY, code) as string | undefined;
-  expect(
-    template,
-    `DIAG-4: ${REGISTRY_PAGE} carries no *Message* column value for ${code} — ${why}`,
-  ).toBeDefined();
-  let out = template as string;
-  for (const [placeholder, value] of fills) {
-    expect(
-      out,
-      `DIAG-4: the ${code} *Message* template must carry the ${placeholder} placeholder; template=${JSON.stringify(template)}`,
-    ).toContain(placeholder);
-    out = out.replace(placeholder, value);
-  }
-  return out;
+  return registryMessageOf(REGISTRY, REGISTRY_PAGE, code, fills);
 }
 
 /**
@@ -193,7 +161,6 @@ function arityMessage(
       ["<required>", String(required)],
       ["<provided>", String(provided)],
     ],
-    `bug 0131 §(a) mints it for a plain \`fn\` call's argument count (declared ${required}, provided ${provided} at callee '${name}')`,
   );
 }
 
@@ -779,7 +746,7 @@ describe("bug 0131 (f) — a junk parameter table withholds the arity verdict", 
       locatedHits(doc, PARAM_NOT_IDENT),
       `f-junk-param-table — bug 0225's refusal must stay byte-exact through this fix (DIAG-4 Message, its own range).\n  ACTUAL: ${render(doc)}`,
     ).toEqual([
-      `error ${msg(PARAM_NOT_IDENT, [], "bug 0225's landed row, which cell f1 keeps byte-exact")} @5:3-5:4`,
+      `error ${msg(PARAM_NOT_IDENT, [])} @5:3-5:4`,
     ]);
     expectNoArityCode(
       doc,
@@ -881,7 +848,6 @@ describe("bug 0131 (h) — the excluded callee kinds draw no `fn` arity code", (
           ["<name>", "read"],
           ["<count>", "2"],
         ],
-        "bug 0072's landed Pi-tool count row, which cell h3 keeps byte-exact",
       )} @6:1-6:35`,
     ]);
     expectNoArityCode(
@@ -901,7 +867,7 @@ describe("bug 0131 (h) — the excluded callee kinds draw no `fn` arity code", (
       locatedHits(doc, UNKNOWN_IDENT),
       `h-unknown-ident — the resolution row must stay byte-exact (DIAG-4 Message, its own range).\n  ACTUAL: ${render(doc)}`,
     ).toEqual([
-      `error ${msg(UNKNOWN_IDENT, [["<name>", "q"]], "the landed callee-resolution row cell h4 keeps byte-exact")} @4:9-4:19`,
+      `error ${msg(UNKNOWN_IDENT, [["<name>", "q"]])} @4:9-4:19`,
     ]);
     expectNoArityCode(
       doc,

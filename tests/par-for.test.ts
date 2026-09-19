@@ -2,11 +2,10 @@ import { type KindedNode, collectByKind, parseDoc as parse, bodyOf } from "./hel
 import { flush as tick } from "./helpers/fake-clock";
 import { ok } from "./helpers/par-for-harness";
 import { SEAM_NOOP_CHECKPOINT, SEAM_NOOP_MUTATOR } from "./helpers/invoke-seam-scaffold";
-import { fileURLToPath } from "node:url";
-import { readFileSync } from "node:fs";
+import { REGISTRY as BUG_0118_REGISTRY } from "./helpers/registry-oracle";
 import { describe, expect, it } from "vitest";
 // @ts-expect-error — JS code-registry module, no type declarations.
-import { parseRegistry, registryMessage } from "../tools/code-registry/index.js";
+import { registryMessage } from "../tools/code-registry/index.js";
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
 import type { ThetaBody, Expr } from "../src/parser/theta-document";
 import {
@@ -338,27 +337,6 @@ describe("RFC-0003 par-for — body restrictions (CTRL-4)", () => {
 // Each newly-reachable family below is paired with a TOP-LEVEL real-parse
 // CONTROL: the control proves the code belongs to the check, so the body cell's
 // verdict is attributable to the walk's reach and nothing else.
-
-/**
- * The live registry, read from the spec corpus — the DIAG-4 message oracle for
- * this group (the same source, and the same reader, the production emitters'
- * messages are transcribed from).
- */
-const BUG_0118_REGISTRY = parseRegistry(
-  [
-    "code-registry-parse.md",
-    "code-registry-load.md",
-    "code-registry-runtime.md",
-    "code-registry-host.md",
-  ]
-    .map((page) =>
-      readFileSync(
-        fileURLToPath(new URL(`../docs/spec_topics/diagnostics/${page}`, import.meta.url)),
-        "utf8",
-      ),
-    )
-    .join("\n"),
-) as readonly { readonly code: string; readonly message: string }[];
 
 const NESTED_FN = "theta/parse/nested-fn";
 const FUNCTION_AS_VALUE = "theta/parse/function-as-value";

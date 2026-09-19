@@ -9,7 +9,7 @@ import { checkThetaImports } from "../src/extension/import-static-checks";
 import type { ThetaCompositionInput } from "../src/extension/theta-composition-producer";
 import type { ParsedFrontmatter } from "../src/parser/frontmatter";
 import { type ThetaDocument } from "../src/parser/theta-document";
-import { parseDeps, parseDoc as parse } from "./helpers/e2e-s1";
+import { isLoadParseError as isRegistrationError, parseDeps, parseDoc as parse } from "./helpers/e2e-s1";
 
 // Bug 0211 — the `ImportDecl` / `ExportDecl` productions spell the specifier
 // list as `"{" ImportSpec ("," ImportSpec)* ","? "}"`: a `,` BETWEEN two
@@ -262,20 +262,6 @@ function diagCodes(diagnostics: readonly Diagnostic[]): string[] {
 /** The diagnostics carrying `code`, in emission order. */
 function withCode(diagnostics: readonly Diagnostic[], code: string): Diagnostic[] {
   return diagnostics.filter((d) => d.code === code);
-}
-
-/**
- * Whether a diagnostic un-registers the theta that carries it: error severity
- * in the `theta/parse/` or `theta/load/` namespace. Mirrors the shipped
- * predicate `isRegistrationError` (src/extension/import-static-checks.ts:216),
- * which is module-private, so the disposition is asserted on the same two
- * properties the load pass reads rather than by re-driving discovery.
- */
-function isRegistrationError(diagnostic: Diagnostic): boolean {
-  return (
-    diagnostic.severity === "error" &&
-    (diagnostic.code.startsWith("theta/parse/") || diagnostic.code.startsWith("theta/load/"))
-  );
 }
 
 /** The parsed statement, for the node-shape assertions (§Non-goals). */

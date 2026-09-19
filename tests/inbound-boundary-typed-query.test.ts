@@ -72,7 +72,7 @@ import type { RuntimeRoot } from "../src/runtime-root";
 import { evaluateObjectMember } from "../src/runtime/stdlib-object";
 import { makeEnumValue, schemaTagOf, valuesEqual, type ThetaValue } from "../src/runtime/value";
 import { enumDeclaringKey } from "../src/runtime/lexical-environment";
-import { parseDoc } from "./helpers/e2e-s1";
+import { parseTheta } from "./helpers/e2e-s1";
 
 // --- Substrate -------------------------------------------------------------
 
@@ -100,8 +100,7 @@ const SOURCE = [
 ].join("\n");
 
 /** The parsed fixture: one parse serves the drive and every lowering assertion. */
-const DOC = parseDoc(SOURCE, "typed-query.theta");
-const DOC_ERRORS = DOC.diagnostics.filter((d) => d.severity === "error");
+const DOC = parseTheta("typed-query.theta", SOURCE);
 const SCHEMAS: readonly SchemaDecl[] = DOC.body.statements.filter(
   (s): s is SchemaDecl => s.kind === "schema",
 );
@@ -153,12 +152,6 @@ async function driveTypedQuery(payload: unknown): Promise<{
   readonly execution: BodyExecution;
   readonly notes: readonly string[];
 }> {
-  if (DOC_ERRORS.length > 0) {
-    throw new Error(
-      `harness: the fixture theta did not load cleanly, so the query driven below is not ` +
-        `the production one: ${JSON.stringify(DOC_ERRORS)}`,
-    );
-  }
   scriptRespondWith(payload);
   const theta: ThetaCompositionInput = {
     slashName: "typed-query",

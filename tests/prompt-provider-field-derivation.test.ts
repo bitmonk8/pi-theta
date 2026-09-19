@@ -52,7 +52,7 @@
 // §provider derivation), pi-integration-contract/conversation-drive.md
 // (PIC-50 provider derivation + sync-throw mapping, PIC-51 error-stop probe,
 // PIC-53 trailing-turn extraction), query/query-forms.md (QRY-1).
-import { ANTHROPIC_MODEL, type SessionEntryDouble, ajv, parse } from "./helpers/scripted-live-session-harness";
+import { ANTHROPIC_MODEL, type SessionEntryDouble, ajv, parse, appendUserEntry, appendAssistantEntry } from "./helpers/scripted-live-session-harness";
 import { describe, expect, it } from "vitest";
 import type {
   ExtensionAPI,
@@ -170,11 +170,7 @@ class LiveSessionDouble {
       throw this.#throwOnSend;
     }
     this.sentQueryTexts.push(content);
-    this.#append({
-      role: "user",
-      content: [{ type: "text", text: content }],
-      timestamp: 0,
-    });
+    appendUserEntry(this.entries, content);
     this.#idle = false;
   }
 
@@ -193,23 +189,8 @@ class LiveSessionDouble {
       // scripted fails loudly instead of hanging the poll loop.
       throw new Error("live session double: a driven turn completed with an EMPTY reply queue");
     }
-    this.#append({
-      role: "assistant",
-      content: reply.text !== undefined ? [{ type: "text", text: reply.text }] : [],
-      api: "anthropic-messages",
-      provider: "anthropic",
-      model: "m1",
-      stopReason: reply.stopReason,
-      ...(reply.errorMessage !== undefined ? { errorMessage: reply.errorMessage } : {}),
-      timestamp: 0,
-    });
+    appendAssistantEntry(this.entries, reply.text, reply.stopReason, reply.errorMessage);
     this.#idle = true;
-  }
-
-  #append(message: Record<string, unknown>): void {
-    const id = `e${this.entries.length + 1}`;
-    const parentId = this.entries.length === 0 ? undefined : `e${this.entries.length}`;
-    this.entries.push({ type: "message", id, parentId, message });
   }
 }
 

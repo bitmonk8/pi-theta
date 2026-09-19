@@ -1,9 +1,7 @@
-import { diagnosticHarness } from "./helpers/load-row-harness";
+import { diagnosticHarness, PARSE_REGISTRY_PATH, registryMessageOf } from "./helpers/load-row-harness";
 import { readCorpus as readSharedCorpus } from "./helpers/corpus-reader";
 import { readRegistry } from "./helpers/registry-oracle";
 import { describe, expect, it } from "vitest";
-// @ts-expect-error — JS code-registry module, no type declarations.
-import { registryMessage } from "../tools/code-registry/index.js";
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
 import type { ThetaDocument } from "../src/parser/theta-document";
 import { parseDoc, topKinds } from "./helpers/e2e-s1";
@@ -321,20 +319,7 @@ const REGISTRY = readRegistry(["parse"]);
  * comparison. Route 2 touches no row; these reads are what proves it.
  */
 function msg(code: string, fills: ReadonlyArray<readonly [string, string]> = []): string {
-  const template = registryMessage(REGISTRY, code) as string | undefined;
-  expect(
-    template,
-    `DIAG-4 anchor: docs/spec_topics/diagnostics/code-registry-parse.md must carry the Message row for ${code}`,
-  ).toBeDefined();
-  let out = template as string;
-  for (const [placeholder, value] of fills) {
-    expect(
-      out,
-      `DIAG-4: the ${code} Message template must carry the ${placeholder} placeholder; template=${JSON.stringify(template)}`,
-    ).toContain(placeholder);
-    out = out.replace(placeholder, value);
-  }
-  return out;
+  return registryMessageOf(REGISTRY, PARSE_REGISTRY_PATH, code, fills);
 }
 
 /** Bug 0139's row (0.79.0) — fires on the parameter NAME, not the annotation. */

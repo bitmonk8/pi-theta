@@ -1,5 +1,5 @@
 import { hitsFor } from "./helpers/e2e-s1";
-import { loadRowMessage, interpolate } from "./helpers/registry-oracle";
+import { loadRowMessage, interpolate, templateToRegExp } from "./helpers/registry-oracle";
 import { describe, expect, it } from "vitest";
 import {
   discoverThetas,
@@ -89,20 +89,6 @@ import { FileSystemDecorator, codeError, FakeFileSystem, ancestors, mergeDirs, b
 // The registry row (DIAG-4) — every expected message below is sourced from the
 // Message column of docs/spec_topics/diagnostics/code-registry-load.md.
 // ===========================================================================
-
-/**
- * A registry Message template as a whole-string RegExp with every
- * `<placeholder>` slot widened to `.+` — used on the package side, where the
- * descriptor's exact spelling is left open by the spec carrying two forms:
- * `` package `foo` (pi.theta) `` (package-and-settings.md:27) against
- * `` package `foo` (pi.theta[0]) `` (discovery-sources.md:63).
- */
-function templateToRegExp(template: string): RegExp {
-  const escaped = template
-    .replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
-    .replace(/<[a-z-]+>/g, ".+");
-  return new RegExp(`^${escaped}$`);
-}
 
 const MISSING_SOURCE = "theta/load/missing-source";
 const UNREADABLE_SOURCE = "theta/load/unreadable-source";

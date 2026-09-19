@@ -1,4 +1,4 @@
-import { diagnosticHarness } from "./helpers/load-row-harness";
+import { diagnosticHarness, registryMessageOf } from "./helpers/load-row-harness";
 import { readRegistry } from "./helpers/registry-oracle";
 import { describe, expect, it } from "vitest";
 // @ts-expect-error — JS code-registry module, no type declarations.
@@ -156,24 +156,9 @@ const REGISTRY = readRegistry(["parse"]);
  * `undefined` comparison.
  */
 function msg(code: string, fills: ReadonlyArray<readonly [string, string]> = []): string {
-  const template = registryMessage(REGISTRY, code) as string | undefined;
-  expect(
-    template,
-    `DIAG-4 anchor: docs/spec_topics/diagnostics/code-registry-parse.md must carry the Message row for ${code}`,
-  ).toBeDefined();
-  expect(
-    typeof template === "string" && template.length > 0,
-    `DIAG-4: the ${code} Message column must be a non-empty string; got ${JSON.stringify(template)}`,
-  ).toBe(true);
-  let out = template as string;
-  for (const [placeholder, value] of fills) {
-    expect(
-      out,
-      `DIAG-4: the ${code} Message template must carry the ${placeholder} placeholder; template=${JSON.stringify(template)}`,
-    ).toContain(placeholder);
-    out = out.replace(placeholder, value);
-  }
-  return out;
+  return registryMessageOf(REGISTRY, "docs/spec_topics/diagnostics/code-registry-parse.md", code, fills, {
+    requireNonEmpty: true,
+  });
 }
 
 /** The new row this bug's fix adds under DIAG-2 (absent at HEAD). */

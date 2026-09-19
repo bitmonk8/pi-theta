@@ -21,16 +21,20 @@
 // diagnostics/code-registry-runtime.md (`theta/runtime/internal-error` Trigger);
 // cancellation.md §"Race semantics" (CNCL-1/2/3); errors-and-results/
 // error-model.md §"Runtime panics".
-import { RecordingMutator, RecordingSink } from "./helpers/invoke-seam-scaffold";
+import {
+  RecordingMutator,
+  RecordingSink,
+  SEAM_NOOP_CHECKPOINT as NOOP_CHECKPOINT,
+  SEAM_NOOP_SINK as NOOP_SINK,
+} from "./helpers/invoke-seam-scaffold";
 import { describe, expect, it } from "vitest";
 import type { Diagnostic, SourceRange } from "../src/diagnostics/diagnostic";
 import type { CommittedSideEffect } from "../src/runtime/no-rollback";
-import type { Checkpoint, CheckpointKind, CheckpointSite } from "../src/seams/checkpoint";
+import type { CheckpointKind, CheckpointSite } from "../src/seams/checkpoint";
 import {
   runCodeSideToolCall,
   type AgentToolResultEnvelope,
   type CodeSideToolCall,
-  type ToolLoweringSink,
 } from "../src/runtime/tool-call-execute";
 import { ToolReturnShapeDefectError } from "../src/runtime/tool-call-off-surface";
 import { runInvokeChild, type InvokeChild, type DrivenInvokeResult } from "../src/runtime/invoke-cancellation";
@@ -51,13 +55,6 @@ const TOOL_SITE: CheckpointSite = { file: "call.theta", line: 3, column: 5 };
 function liveSignal(): AbortSignal {
   return new AbortController().signal;
 }
-
-/** A no-op `Checkpoint` whose `before(...)` resolves on the microtask queue. */
-const NOOP_CHECKPOINT: Checkpoint = {
-  before(): Promise<void> {
-    return Promise.resolve();
-  },
-};
 
 /** A `CodeSideToolCall` whose `dispatch()` resolves a (possibly malformed) value. */
 function callResolving(toolName: string, resolved: unknown): CodeSideToolCall {
@@ -162,11 +159,6 @@ describe("V14c live wiring (a) — runCodeSideToolCall routes a non-conforming r
 // REAL effectful host surfaces the internal-error routing (the
 // ToolReturnShapeDefectError carrier), NOT a bound Ok/Err value.
 // ===========================================================================
-
-const NOOP_SINK: ToolLoweringSink = {
-  diagnostic(): void {},
-  systemNote(): void {},
-};
 
 function realEnv(): LexicalEnvironment {
   return buildEnvironment({ body: { statements: [], tail: null } });

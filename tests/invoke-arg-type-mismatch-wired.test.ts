@@ -1,4 +1,4 @@
-import { assertNoStemIsASuffix, theta, invokeCaller, callableCaller } from "./helpers/production-load-harness";
+import { assertNoStemIsASuffix, theta, invokeCaller, diagnosticLineReaders, callableCaller } from "./helpers/production-load-harness";
 import { interpolateStrict } from "./helpers/registry-oracle";
 import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -489,16 +489,7 @@ afterAll(() => {
   rmSync(workspaceDir, { recursive: true, force: true });
 });
 
-/** Diagnostic lines the load attributed to one planted `.theta`. */
-function linesFor(stem: string): readonly string[] {
-  const attributed = new RegExp(`[\\\\/]${stem}\\.theta[:\\s]`);
-  return outcome.diagnosticLines.filter((line) => attributed.test(line));
-}
-
-/** Diagnostic lines attributing `code` to one planted `.theta`. */
-function linesForCode(stem: string, code: string): readonly string[] {
-  return linesFor(stem).filter((line) => line.includes(code));
-}
+const { linesFor, linesForCode } = diagnosticLineReaders(() => outcome.diagnosticLines);
 
 /**
  * The shared positive control for every absence cell: THIS workspace and THIS

@@ -32,16 +32,15 @@
 // missing fixture, never a harness precondition) — except D15, which pins
 // today's actual fallback behaviour and is GREEN AT BIRTH (stated per cell).
 import { RecordingCheckpoint } from "./helpers/invoke-seam-scaffold";
-import { parseDeps } from "./helpers/e2e-s1";
+import { parseTheta as parseFixture } from "./helpers/e2e-s1";
 import { describe, expect, it } from "vitest";
 import type {
   ExtensionAPI,
   ExtensionCommandContext,
   ModelRegistry,
 } from "@earendil-works/pi-coding-agent";
-import type { ThetaSource } from "../src/lexer/lexer";
 import type { ParsedFrontmatter } from "../src/parser/frontmatter";
-import { parseThetaDocument, type ThetaDocument } from "../src/parser/theta-document";
+import type { ThetaDocument } from "../src/parser/theta-document";
 import { executeBody } from "../src/runtime/statement-executor";
 import {
   createProductionProducerDeps,
@@ -61,15 +60,7 @@ import type { ResultValue, ThetaValue } from "../src/runtime/value";
 // ---------------------------------------------------------------------------
 
 function parseTheta(src: string): ThetaDocument {
-  const source: ThetaSource = { path: "session-control-dispatch.theta", bytes: new TextEncoder().encode(src) };
-  const doc = parseThetaDocument(source, parseDeps());
-  const errors = doc.diagnostics.filter((d) => d.severity === "error");
-  if (errors.length > 0) {
-    throw new Error(
-      `fixture failed to parse clean: ${errors.map((d) => `${d.code}: ${d.message}`).join("; ")}`,
-    );
-  }
-  return doc;
+  return parseFixture("session-control-dispatch.theta", src);
 }
 
 /** A `CallableSetSnapshot` entry of the (not-yet-real) `"runtime-tool"` kind (seam sheet §3.1). */

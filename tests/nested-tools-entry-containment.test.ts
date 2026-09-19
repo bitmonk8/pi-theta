@@ -1,19 +1,14 @@
-import { callableSetOf } from "./helpers/production-load-harness";
+import { callableSetOf, runProductionLoad, type LoadOutcome } from "./helpers/production-load-harness";
 import { readRegistry } from "./helpers/registry-oracle";
 import { mkdtempSync, mkdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import type {
-  ExtensionAPI,
-  ExtensionCommandContext,
-  ExtensionContext,
-} from "@earendil-works/pi-coding-agent";
+import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 // @ts-expect-error — JS code-registry module, no type declarations.
 import { registryMessage } from "../tools/code-registry/index.js";
 import type { ThetaFixture } from "../src/extension/factory";
 import type { CallableSetSnapshot } from "../src/parser/callable-set";
-import { discoverAndComposeFixtures } from "../src/extension/production-composition";
 
 // Bug 0111 — discovery-root containment over a `tools:` `.theta` entry declared
 // by a callee that is itself named by a `tools:` `.theta` entry (the NESTED
@@ -139,14 +134,6 @@ const OUT_OF_ROOT_STEMS = [
   "gammafar",
 ] as const;
 
-interface LoadOutcome {
-  /** Slash names the production compose helper returned. */
-  readonly registered: readonly string[];
-  readonly fixtures: readonly ThetaFixture[];
-  /** Diagnostic messages surfaced via `ctx.ui.notify`. */
-  readonly notifications: readonly string[];
-}
-
 let outcome: LoadOutcome;
 let workspaceDir: string;
 let outsideDir: string;
@@ -158,44 +145,6 @@ let nestedDir: string;
 let junctionError: string | undefined;
 /** `theta-system-note` payloads collected off the fake `pi.sendMessage`. */
 const systemNotes: string[] = [];
-
-function makePi(): ExtensionAPI {
-  return {
-    getFlag: (): undefined => undefined,
-    getCommands: (): readonly unknown[] => [],
-    sendMessage: (message: { content?: unknown }): void => {
-      if (typeof message.content === "string") systemNotes.push(message.content);
-    },
-    sendUserMessage: (): void => {},
-    registerMessageRenderer: (): void => {},
-    getActiveTools: (): readonly string[] => [],
-    setActiveTools: (): void => {},
-  } as unknown as ExtensionAPI;
-}
-
-async function runProductionLoad(cwd: string): Promise<LoadOutcome> {
-  const notifications: string[] = [];
-  const ctx = {
-    cwd,
-    hasUI: true,
-    modelRegistry: { getAvailable: (): readonly unknown[] => [] },
-    ui: {
-      notify: (message: string, _type: "error"): void => {
-        notifications.push(message);
-      },
-    },
-  } as unknown as ExtensionContext;
-
-  const fixtures: readonly ThetaFixture[] = await discoverAndComposeFixtures(
-    makePi(),
-    ctx,
-  );
-  return {
-    registered: fixtures.map((f) => f.slashName),
-    fixtures,
-    notifications,
-  };
-}
 
 /** The per-dispatch context the two residual cells drive `run("", ctx)` with. */
 function runCtx(): ExtensionCommandContext {
@@ -488,7 +437,12 @@ beforeAll(async () => {
   // value. An ABSENT settings file is silent (package-and-settings.md
   // §Failure modes), so the plant is hermeticity, not noise suppression.
   writeFileSync(join(workspaceDir, ".pi", "settings.json"), "{}", "utf8");
-  outcome = await runProductionLoad(workspaceDir);
+  outcome = await runProductionLoad(workspaceDir, {
+    hasUI: true,
+    sendMessage: (message): void => {
+      if (typeof message.content === "string") systemNotes.push(message.content);
+    },
+  });
 });
 
 afterAll(() => {

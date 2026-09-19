@@ -6,7 +6,6 @@ import { describe, expect, it } from "vitest";
 // @ts-expect-error — JS code-registry module, no type declarations.
 import { registryMessage } from "../tools/code-registry/index.js";
 import type {
-  ExtensionAPI,
   ExtensionCommandContext,
   ModelRegistry,
 } from "@earendil-works/pi-coding-agent";
@@ -25,8 +24,7 @@ import type {
   ConversationBindInput,
   ThetaCompositionInput,
 } from "../src/extension/theta-composition-producer";
-import type { RuntimeRoot } from "../src/runtime-root";
-import type { Checkpoint } from "../src/seams/checkpoint";
+import { rootDouble, noopPi } from "./helpers/call-with-clause-harness";
 import type { ThetaValue } from "../src/runtime/value";
 import { parseDoc } from "./helpers/e2e-s1";
 
@@ -1336,26 +1334,9 @@ describe("bug 0145 STRUCTURAL — every arm-body read on the `match` node takes 
 // to run would hide a control that stopped parsing clean.
 // ===========================================================================
 
-const NOOP_CHECKPOINT: Checkpoint = {
-  before(): Promise<void> {
-    return Promise.resolve();
-  },
-};
-
-function rootDouble(): RuntimeRoot {
-  return {
-    checkpoint: NOOP_CHECKPOINT,
-    idSource: { newInvocationId: () => "inv-1", newToolCallId: () => "tc-1" },
-  } as unknown as RuntimeRoot;
-}
-
 function producer() {
   return createProductionProducerDeps({
-    pi: {
-      sendMessage: () => {},
-      getActiveTools: () => [],
-      setActiveTools: () => {},
-    } as unknown as ExtensionAPI,
+    pi: noopPi(),
     root: rootDouble(),
     modelRegistry: {} as unknown as ModelRegistry,
   });

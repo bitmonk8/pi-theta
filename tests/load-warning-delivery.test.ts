@@ -1,4 +1,4 @@
-import { loadRowMessage, interpolate } from "./helpers/registry-oracle";
+import { loadRowMessage, interpolate, templateToRegExp } from "./helpers/registry-oracle";
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -99,18 +99,6 @@ import { GOOD_THETA, BAD_THETA, makeShippedHarness, type RecordedNote } from "./
 // The registry rows (DIAG-2 / DIAG-4) — messages sourced from the Message
 // column of code-registry-load.md, placeholders interpolated per cell.
 // ===========================================================================
-
-/**
- * A registry Message template as a whole-string RegExp with every
- * `<placeholder>` slot widened to `.+` — for rows (settings paths) whose
- * interpolated value is platform-path-shaped and not worth pinning byte-exact.
- */
-function templateToRegExp(template: string): RegExp {
-  const escaped = template
-    .replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
-    .replace(/<[a-z-]+>/g, ".+");
-  return new RegExp(`^${escaped}$`);
-}
 
 // ===========================================================================
 // Fixtures.

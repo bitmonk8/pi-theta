@@ -2,8 +2,7 @@ import { capturingAjv as ajv } from "./helpers/scripted-live-session-harness";
 import { REGISTRY, type RegistryRow } from "./helpers/registry-oracle";
 import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
-// @ts-expect-error — JS code-registry module, no type declarations.
-import { registryMessage } from "../tools/code-registry/index.js";
+import { PARSE_REGISTRY_PATH, registryMessageOf } from "./helpers/load-row-harness";
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
 import { lowerParamsFieldType, lowerTypeExpr, type LowerCtx } from "../src/parser/params";
 import type { ThetaDocument } from "../src/parser/theta-document";
@@ -140,13 +139,7 @@ const EXPECTED_TEMPLATE = "imported symbol '<name>' binds a reserved synthesised
  * comparison.
  */
 function reservedMessage(name: string): string {
-  const template = registryMessage(REGISTRY, CODE) as string | undefined;
-  expect(
-    template,
-    `DIAG-4 anchor: docs/spec_topics/diagnostics/code-registry-parse.md must carry the ` +
-      `Message row for ${CODE}`,
-  ).toBeDefined();
-  return (template as string).replace("<name>", name);
+  return registryMessageOf(REGISTRY, PARSE_REGISTRY_PATH, CODE, [["<name>", name]]);
 }
 
 // ===========================================================================
@@ -415,12 +408,7 @@ describe("bug 0040 (a) — the reservation code has a registry row", () => {
     // (governance/source-language-stability.md:25) for the inputs whose only
     // change is the appearance of the code — which is exactly fixtures B, C, D
     // and the (e) probes.
-    const template = registryMessage(REGISTRY, CODE) as string | undefined;
-    expect(
-      template,
-      `DIAG-4 anchor: docs/spec_topics/diagnostics/code-registry-parse.md must carry the ` +
-        `Message row for ${CODE}`,
-    ).toBeDefined();
+    const template = registryMessageOf(REGISTRY, PARSE_REGISTRY_PATH, CODE);
     expect(
       template,
       "DIAG-4 — the Message column is normative character-for-character; `<name>` is the category-5 source-derived placeholder (placeholder-rendering-b.md:10), rendered as the LOCAL binding",
@@ -968,13 +956,7 @@ const UNRESOLVED_CODE = "theta/parse/unresolved-named-type";
 describe("bug 0040 (h) — an UNBOUND reserved-form name keeps its unresolved-named-type refusal", () => {
   /** The row's normative Message template with `<name>` filled (DIAG-4). */
   function unresolvedMessage(name: string): string {
-    const template = registryMessage(REGISTRY, UNRESOLVED_CODE) as string | undefined;
-    expect(
-      template,
-      `DIAG-4 anchor: docs/spec_topics/diagnostics/code-registry-parse.md must carry the ` +
-        `Message row for ${UNRESOLVED_CODE}`,
-    ).toBeDefined();
-    return (template as string).replace("<name>", name);
+    return registryMessageOf(REGISTRY, PARSE_REGISTRY_PATH, UNRESOLVED_CODE, [["<name>", name]]);
   }
 
   /** An ordinary unbound name — the control the reserved spelling must match. */

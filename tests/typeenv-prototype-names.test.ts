@@ -1,11 +1,10 @@
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 // @ts-expect-error — JS code-registry module, no type declarations.
-import { parseRegistry, registryMessage } from "../tools/code-registry/index.js";
+import { registryMessage } from "../tools/code-registry/index.js";
 import type { SourceRange } from "../src/diagnostics/diagnostic";
 import type { Stmt, ThetaDocument } from "../src/parser/theta-document";
 import {
@@ -20,6 +19,7 @@ import { collectTypeEnv } from "../src/parser/type-layer-checks";
 import { discoverAndComposeFixtures } from "../src/extension/production-composition";
 import type { ThetaFixture } from "../src/extension/factory";
 import { parseDoc, diagLines } from "./helpers/e2e-s1";
+import { REGISTRY } from "./helpers/registry-oracle";
 
 // Bug 0038 — `collectTypeEnv` builds the `TypeEnv` as a plain `{}`, so every
 // consumer that resolves a `NamedType` by reading `env[name]` gets a JS value
@@ -194,32 +194,6 @@ const UNKNOWN_METHOD_CODE = "theta/parse/unknown-method";
 // diagnostic that bounds the `__proto__` write hazard, and the bound is the
 // `E` severity that denies registration rather than any grammar refusal.
 const SCHEMA_CASE_CODE = "theta/parse/schema-case-mismatch";
-
-interface RegistryRow {
-  readonly code: string;
-  readonly namespace: string;
-  readonly severity: string;
-  readonly phase: string;
-  readonly trigger: string;
-  readonly message: string;
-}
-
-/** The live four-page sharded registry, read from the spec corpus (DIAG-4). */
-const REGISTRY = parseRegistry(
-  [
-    "code-registry-parse.md",
-    "code-registry-load.md",
-    "code-registry-runtime.md",
-    "code-registry-host.md",
-  ]
-    .map((page) =>
-      readFileSync(
-        fileURLToPath(new URL(`../docs/spec_topics/diagnostics/${page}`, import.meta.url)),
-        "utf8",
-      ),
-    )
-    .join("\n"),
-) as RegistryRow[];
 
 /**
  * A registered code's normative *Message* template. Fails LOUDLY naming the

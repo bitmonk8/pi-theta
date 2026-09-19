@@ -4,14 +4,10 @@ import { describe, expect, it } from "vitest";
 import { registryMessage } from "../tools/code-registry/index.js";
 import { REGISTRY } from "./helpers/registry-oracle";
 import type { BypassParamsField } from "../src/binder/binder-envelope";
-import type { Diagnostic } from "../src/diagnostics/diagnostic";
 import { lowerParamsFieldType, type LowerCtx } from "../src/parser/params";
 import type { ThetaDocument } from "../src/parser/theta-document";
-import {
-  AjvSchemaValidator,
-  type LoweredSchema,
-  type SchemaSlug,
-} from "../src/seams/schema-validator";
+import type { LoweredSchema } from "../src/seams/schema-validator";
+import { capturingAjv as ajv } from "./helpers/scripted-live-session-harness";
 import { parseDoc, diagLines, fieldOf } from "./helpers/e2e-s1";
 import { assertKeysSorted, inlineDefName, slugOfCanonicalForm } from "./helpers/canonical-slug-oracle";
 
@@ -413,19 +409,6 @@ function expectParamsRefused(doc: ThetaDocument, name: string, why: string): voi
     doc.frontmatter,
     `${why} — bug 0035 §Expected: "the theta does not load". An error-severity params diagnostic must collapse the frontmatter exactly as the plain-named typo (fixture D) does; a loaded theta whose param validates nothing is the hole this bug reports`,
   ).toBeNull();
-}
-
-/** A real `AjvSchemaValidator` plus the diagnostics it emitted. */
-function ajv(): { readonly validator: AjvSchemaValidator; readonly emitted: Diagnostic[] } {
-  const emitted: Diagnostic[] = [];
-  const slugOf = (schema: LoweredSchema): SchemaSlug => ({
-    slug: JSON.stringify(schema),
-    canonicalBytes: JSON.stringify(schema),
-  });
-  return {
-    validator: new AjvSchemaValidator({ emit: (d) => emitted.push(d), slugOf }),
-    emitted,
-  };
 }
 
 // ===========================================================================

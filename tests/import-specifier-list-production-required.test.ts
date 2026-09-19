@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 import { parseRegistry, registryMessage } from "../tools/code-registry/index.js";
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
 import { parseThetaDocument, type ThetaDocument } from "../src/parser/theta-document";
-import { parseDeps } from "./helpers/e2e-s1";
+import { isLoadParseError as isRegistrationError, parseDeps } from "./helpers/e2e-s1";
 import { loadThetaLibDiags as loadImports } from "./helpers/thetalib-load-harness";
 
 // Bug 0100 — the shapes the closed `ImportDecl` / `ExportDecl` / `ImportSpec` /
@@ -282,20 +282,6 @@ function diagCodes(diagnostics: readonly Diagnostic[]): string[] {
 /** The diagnostics carrying `code`, in emission order. */
 function withCode(diagnostics: readonly Diagnostic[], code: string): Diagnostic[] {
   return diagnostics.filter((d) => d.code === code);
-}
-
-/**
- * Whether a diagnostic un-registers the theta that carries it: error severity in
- * the `theta/parse/` or `theta/load/` namespace. Mirrors the shipped predicate
- * `isRegistrationError` (src/extension/import-static-checks.ts:191), which is
- * module-private, so the drop disposition is asserted on the same two properties
- * the load pass reads rather than by re-driving discovery.
- */
-function isRegistrationError(diagnostic: Diagnostic): boolean {
-  return (
-    diagnostic.severity === "error" &&
-    (diagnostic.code.startsWith("theta/parse/") || diagnostic.code.startsWith("theta/load/"))
-  );
 }
 
 /** The parsed statement list, for the node-shape assertions (§Fix constraint 7). */

@@ -1,3 +1,4 @@
+import { registryHintOf } from "./helpers/registry-oracle";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
@@ -131,28 +132,12 @@ function registered(code: string): string {
  * docs/spec_topics/diagnostics/code-registry-parse.md:9 —
  * Code | Sev | Phase | Trigger | Spec rule | Hint | Message.
  */
-const HINT_CELL_INDEX = 5;
-
 function registryHint(code: string): string {
-  for (const line of REGISTRY_TEXT.split("\n")) {
-    const trimmed = line.trim();
-    if (!trimmed.startsWith("|")) continue;
-    const cells = trimmed
-      .replace(/^\|/, "")
-      .replace(/\|\s*$/, "")
-      .split(/(?<!\\)\|/)
-      .map((cell) => cell.trim().replace(/\\\|/g, "|"));
-    if (cells[0] !== `\`${code}\``) continue;
-    const hint = cells[HINT_CELL_INDEX];
-    if (hint === undefined || hint === "" || hint === "—") {
-      throw new Error(
-        `harness: the ${code} row at docs/spec_topics/diagnostics/code-registry-parse.md carries no Hint cell (cell ${HINT_CELL_INDEX} is ${JSON.stringify(hint)}) — bug 0084 reports the absent hint as half the defect, so an empty cell is a harness failure, never a skip`,
-      );
-    }
-    return hint;
-  }
-  throw new Error(
-    `harness: docs/spec_topics/diagnostics/code-registry-parse.md carries no row for ${code} — this file's Hint oracle is stale`,
+  return registryHintOf(
+    REGISTRY_TEXT,
+    "docs/spec_topics/diagnostics/code-registry-parse.md",
+    code,
+    "bug 0084 reports the absent hint as half the defect",
   );
 }
 

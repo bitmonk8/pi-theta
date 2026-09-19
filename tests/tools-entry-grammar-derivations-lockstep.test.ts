@@ -1,3 +1,4 @@
+import { registryHintOf } from "./helpers/registry-oracle";
 import { disposeWorkspace, plantThetaWorkspace, runProductionLoad as loadWorkspace } from "./helpers/production-load-harness";
 import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -1104,15 +1105,6 @@ function b0248Observed(stem?: string): string {
   );
 }
 
-/**
- * The *Hint* column of one `code-registry-load.md` row, prose-rendered the way
- * a diagnostic carries it: markdown links reduced to their link text and code
- * spans unbacktracked. DIAG-4's registry-sourcing discipline applied to the
- * Hint (the `registryHint` shape of
- * tests/match-pattern-increment-decrement.test.ts, whose `HINT_CELL_INDEX` is
- * this same column 5). Never pasted prose.
- */
-const HINT_CELL_INDEX = 5;
 const LOAD_REGISTRY_TEXT = readFileSync(
   fileURLToPath(
     new URL(
@@ -1123,31 +1115,21 @@ const LOAD_REGISTRY_TEXT = readFileSync(
   "utf8",
 );
 
+/**
+ * The *Hint* column of one `code-registry-load.md` row, prose-rendered the way
+ * a diagnostic carries it: markdown links reduced to their link text and code
+ * spans unbacktracked. DIAG-4's registry-sourcing discipline applied to the
+ * Hint via `registryHintOf` (tests/helpers/registry-oracle.ts). Never pasted
+ * prose.
+ */
 function registryHint(code: string): string {
-  for (const line of LOAD_REGISTRY_TEXT.split("\n")) {
-    const trimmed = line.trim();
-    if (!trimmed.startsWith("|")) continue;
-    const cells = trimmed
-      .replace(/^\|/, "")
-      .replace(/\|\s*$/, "")
-      .split(/(?<!\\)\|/)
-      .map((cell) => cell.trim().replace(/\\\|/g, "|"));
-    if (cells[0] !== `\`${code}\``) continue;
-    const hint = cells[HINT_CELL_INDEX];
-    if (hint === undefined || hint === "" || hint === "\u2014") {
-      throw new Error(
-        `harness: the ${code} row at docs/spec_topics/diagnostics/` +
-          `code-registry-load.md carries no Hint cell (cell ${HINT_CELL_INDEX} ` +
-          `is ${JSON.stringify(hint)}) — bug 0248 §Fix (d) 2 asserts the Hint ` +
-          "reaches the author, so an empty cell is a harness failure, never a skip",
-      );
-    }
-    return hint.replace(/\[([^\]]+)\]\([^)]*\)/g, "$1").replaceAll("`", "");
-  }
-  throw new Error(
-    "harness: docs/spec_topics/diagnostics/code-registry-load.md carries no " +
-      `row for ${code} — this file's Hint oracle is stale`,
+  const hint = registryHintOf(
+    LOAD_REGISTRY_TEXT,
+    "docs/spec_topics/diagnostics/code-registry-load.md",
+    code,
+    "bug 0248 §Fix (d) 2 asserts the Hint reaches the author",
   );
+  return hint.replace(/\[([^\]]+)\]\([^)]*\)/g, "$1").replaceAll("`", "");
 }
 
 /**

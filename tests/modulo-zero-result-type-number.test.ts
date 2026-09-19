@@ -1,5 +1,5 @@
 import {
-  assertNoStemIsASuffix, theta, invokeCaller,
+  assertNoStemIsASuffix, theta, invokeCaller, diagnosticLineReaders,
   runProductionLoad, plantThetaWorkspace, disposeWorkspace, type LoadOutcome,
 } from "./helpers/production-load-harness";
 import { PARSE_REGISTRY_PATH as REGISTRY_PAGE } from "./helpers/load-row-harness";
@@ -552,9 +552,9 @@ describe("bug 0152 — the typed-`let` sink judges a zero-divisor `%` initialise
       const doc = parse(src);
       expectModulos(doc, 1, cell);
       expect(
-        letRange(doc, "n"),
+        () => letRange(doc, "n"),
         `PRECONDITION (${cell}): the \`let n\` statement must be reachable, or the absence below measures nothing`,
-      ).toBeDefined();
+      ).not.toThrow();
       return `${cell} -> ${JSON.stringify(allHits(doc))}`;
     });
     expect(
@@ -580,9 +580,9 @@ describe("bug 0152 — the typed-`let` sink judges a zero-divisor `%` initialise
       const doc = parse(src);
       expectModulos(doc, 1, cell);
       expect(
-        letRange(doc, "n"),
+        () => letRange(doc, "n"),
         `PRECONDITION (${cell}): the \`let n\` statement must be reachable, or the absence below measures nothing`,
-      ).toBeDefined();
+      ).not.toThrow();
       return `${cell} -> ${JSON.stringify(allHits(doc))}`;
     });
     expect(
@@ -674,9 +674,9 @@ describe("bug 0152 — the `fn`-argument sink judges a zero-divisor `%` argument
       const doc = parse(src);
       expectModulos(doc, 1, cell);
       expect(
-        argRange(doc, "g", 0),
+        () => argRange(doc, "g", 0),
         `PRECONDITION (${cell}): the argument node must be reachable, or the absence below measures nothing`,
-      ).toBeDefined();
+      ).not.toThrow();
       return `${cell} -> ${JSON.stringify(allHits(doc))}`;
     });
     expect(
@@ -896,9 +896,9 @@ describe("bug 0152 — a non-numeric LEFT operand under a zero divisor", () => {
     // refusal `-`'s own spelling earns everywhere else in this fix.
     const control = parse('let s: string = "a" - "b"\ns\n');
     expect(
-      letRange(control, "s"),
+      () => letRange(control, "s"),
       "PRECONDITION (E1c): the `let s` statement must be reachable, or the absence below measures nothing",
-    ).toBeDefined();
+    ).not.toThrow();
     expect(
       allHits(control),
       `E1c (control) — bug 0332: \`-\` over a non-numeric pair now refuses at parse before \`checkLetRhsCompat\` is reached. Diagnostics: ${render(control)}`,
@@ -951,9 +951,9 @@ describe("bug 0152 — a non-numeric LEFT operand under a zero divisor", () => {
     // Bug 0332: same re-pin as E1c.
     const control = parse(S_STR + 'let o = S { s: "a" - "b" }\no\n');
     expect(
-      objectFieldRange(control, "s"),
+      () => objectFieldRange(control, "s"),
       "PRECONDITION (E3c): the constructor field 's' must be reachable, or the absence below measures nothing",
-    ).toBeDefined();
+    ).not.toThrow();
     expect(
       allHits(control),
       `E3c (control) — bug 0332: \`-\` over a non-numeric pair now refuses at parse. Diagnostics: ${render(control)}`,
@@ -983,9 +983,9 @@ describe("bug 0152 — a non-numeric LEFT operand under a zero divisor", () => {
     // Bug 0332: same re-pin as E1c/E3c.
     const control = parse('let xs: array<string> = ["a" - "b"]\nxs\n');
     expect(
-      letInitRange(control, "xs"),
+      () => letInitRange(control, "xs"),
       "PRECONDITION (E4c): the `let xs` initialiser must be reachable, or the absence below measures nothing",
-    ).toBeDefined();
+    ).not.toThrow();
     expect(
       allHits(control),
       `E4c (control) — bug 0332: \`-\` over a non-numeric pair now refuses at parse, anchored on the inner binary node. Diagnostics: ${render(control)}`,
@@ -1010,9 +1010,9 @@ describe("bug 0152 — a non-numeric LEFT operand under a zero divisor", () => {
     // Bug 0332: same re-pin as E1c/E3c/E4c.
     const control = parse("let b: boolean = true - false\nb\n");
     expect(
-      letRange(control, "b"),
+      () => letRange(control, "b"),
       "PRECONDITION (E5c): the `let b` statement must be reachable, or the absence below measures nothing",
-    ).toBeDefined();
+    ).not.toThrow();
     expect(
       allHits(control),
       `E5c (control) — bug 0332: \`-\` over a non-numeric pair now refuses at parse. Diagnostics: ${render(control)}`,
@@ -1272,16 +1272,7 @@ afterAll(() => {
   disposeWorkspace(workspaceDir);
 });
 
-/** Diagnostic lines the load attributed to one planted `.theta`. */
-function linesFor(stem: string): readonly string[] {
-  const attributed = new RegExp(`[\\\\/]${stem}\\.theta[:\\s]`);
-  return outcome.diagnosticLines.filter((line) => attributed.test(line));
-}
-
-/** Diagnostic lines attributing `code` to one planted `.theta`. */
-function linesForCode(stem: string, code: string): readonly string[] {
-  return linesFor(stem).filter((line) => line.includes(code));
-}
+const { linesFor, linesForCode } = diagnosticLineReaders(() => outcome.diagnosticLines);
 
 /**
  * The shared positive control every mirror cell calls first: THIS workspace and

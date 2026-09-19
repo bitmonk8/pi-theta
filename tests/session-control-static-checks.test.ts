@@ -27,14 +27,12 @@
 // P1-P7/P10, and `parseThetaDocument` with real `tools:` frontmatter (the C6
 // realisation threads `runtimeToolSuccessTypes` from `frontmatter.tools`
 // straight into the PARSE-time type layer) for P8/P9.
-import { parseDeps as makeParseDeps } from "./helpers/e2e-s1";
+import { parseDoc as parseSrc } from "./helpers/e2e-s1";
 import { describe, expect, it } from "vitest";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { CallableSetSnapshot } from "../src/parser/callable-set";
 import type { Expr, LetStmt } from "../src/parser/theta-document";
 import { bodyOf, checkBody, R, strExpr, withClause } from "./helpers/call-with-clause-harness";
-import type { ThetaSource } from "../src/lexer/lexer";
-import { parseThetaDocument, type ThetaDocument } from "../src/parser/theta-document";
 
 const TOOL_ARG_TYPE_MISMATCH_CODE = "theta/parse/tool-arg-type-mismatch";
 const ARITY_TOO_MANY_CODE = "theta/parse/invoke-arity-too-many";
@@ -161,11 +159,6 @@ describe("RFC 0011 §3.2 row 1 — P10: a call-site `with` clause on a runtime t
 // `frontmatter.tools`; §0 C6). Driven through the real whole-file parser with
 // inline template-literal sources.
 // ===========================================================================
-
-function parseSrc(src: string): ThetaDocument {
-  const source: ThetaSource = { path: "test.theta", bytes: new TextEncoder().encode(src) };
-  return parseThetaDocument(source, makeParseDeps());
-}
 
 function fm(tools: string): string {
   return ["---", "mode: subagent", `tools: ${tools}`, "---", ""].join("\n");

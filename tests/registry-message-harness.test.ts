@@ -24,6 +24,17 @@ describe("registryMessageOf live-fragment guards", () => {
     )).toBe("$ / $");
   });
 
+  it("requires a non-empty template only when requested, before substitution", () => {
+    const rows = [{ code, message: "" }];
+    expect(registryMessageOf(rows, page, code)).toBe("");
+    expect(() => registryMessageOf(rows, page, code, [["<name>", "value"]], {
+      requireNonEmpty: true,
+    })).toThrow("Message column must be a non-empty string");
+    expect(registryMessageOf([{ code, message: "<name>" }], page, code, [["<name>", ""]], {
+      requireNonEmpty: true,
+    })).toBe("");
+  });
+
   it("rejects an absent row and an absent fill slot", () => {
     expect(() => registryMessageOf([], page, code)).toThrow(page);
     expect(() => registryMessageOf(

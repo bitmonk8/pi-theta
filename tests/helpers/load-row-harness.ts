@@ -64,6 +64,8 @@ export function registryMessageOf(
   code: string,
   fills: ReadonlyArray<readonly [string, string]> = [],
   options: {
+    /** Require a non-empty template before substituting placeholders. */
+    readonly requireNonEmpty?: boolean;
     readonly replaceAll?: boolean;
     readonly unfilledPattern?: RegExp;
   } = {},
@@ -73,6 +75,12 @@ export function registryMessageOf(
     template,
     `DIAG-4 anchor: ${registryPath} must carry the Message row for ${code}`,
   ).toBeTypeOf("string");
+  if (options.requireNonEmpty) {
+    expect(
+      typeof template === "string" && template.length > 0,
+      `DIAG-4: the ${code} Message column must be a non-empty string; got ${JSON.stringify(template)}`,
+    ).toBe(true);
+  }
   let out = template as string;
   for (const [placeholder, value] of fills) {
     expect(

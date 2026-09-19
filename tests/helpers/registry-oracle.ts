@@ -42,6 +42,40 @@ export function readRegistry(
   ) as RegistryRow[];
 }
 
+/**
+ * Read the raw Hint cell that `parseRegistry` omits, refusing a missing row or
+ * empty hint with the caller's failure rationale. Table order is
+ * Code | Sev | Phase | Trigger | Spec rule | Hint | Message.
+ */
+export function registryHintOf(
+  registryText: string,
+  registryPath: string,
+  code: string,
+  missingHintReason: string,
+): string {
+  const HINT_CELL_INDEX = 5;
+  for (const line of registryText.split("\n")) {
+    const trimmed = line.trim();
+    if (!trimmed.startsWith("|")) continue;
+    const cells = trimmed
+      .replace(/^\|/, "")
+      .replace(/\|\s*$/, "")
+      .split(/(?<!\\)\|/)
+      .map((cell) => cell.trim().replace(/\\\|/g, "|"));
+    if (cells[0] !== `\`${code}\``) continue;
+    const hint = cells[HINT_CELL_INDEX];
+    if (hint === undefined || hint === "" || hint === "—") {
+      throw new Error(
+        `harness: the ${code} row at ${registryPath} carries no Hint cell (cell ${HINT_CELL_INDEX} is ${JSON.stringify(hint)}) — ${missingHintReason}, so an empty cell is a harness failure, never a skip`,
+      );
+    }
+    return hint;
+  }
+  throw new Error(
+    `harness: ${registryPath} carries no row for ${code} — this file's Hint oracle is stale`,
+  );
+}
+
 /** The live four-page sharded registry — the input tests/code-registry.test.ts reconciles. */
 export const REGISTRY: readonly RegistryRow[] = readRegistry(["parse", "load", "runtime", "host"]);
 
@@ -68,6 +102,20 @@ export function descriptorFragment(code: string, descriptor: string): string {
       "Message template changed shape and this substitution is stale",
   ).not.toMatch(/<[a-z-]+>/);
   return `${code}: ${message}`;
+}
+
+/**
+ * A registry Message template as a whole-string RegExp with every
+ * `<placeholder>` slot widened to `.+` — used where the descriptor's exact
+ * spelling is left open by the spec (`` package `foo` (pi.theta) `` at
+ * package-and-settings.md:27 against `` package `foo` (pi.theta[0]) `` at
+ * discovery-sources.md:63).
+ */
+export function templateToRegExp(template: string): RegExp {
+  const escaped = template
+    .replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+    .replace(/<[a-z-]+>/g, ".+");
+  return new RegExp(`^${escaped}$`);
 }
 
 /** Fill the named discovery descriptors, leaving unknown placeholders intact. */

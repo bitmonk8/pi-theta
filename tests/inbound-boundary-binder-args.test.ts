@@ -4,11 +4,10 @@ import {
   SEAM_NOOP_SINK as NOOP_SINK,
   SEAM_NOOP_MUTATOR,
 } from "./helpers/invoke-seam-scaffold";
-import { parseDeps as makeParseDeps } from "./helpers/e2e-s1";
+import { parseTheta } from "./helpers/e2e-s1";
 import { describe, expect, it } from "vitest";
 import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
-import { parseThetaDocument, type EnumDecl, type SchemaDecl, type ThetaDocument } from "../src/parser/theta-document";
-import type { ThetaSource } from "../src/lexer/lexer";
+import type { EnumDecl, SchemaDecl, ThetaDocument } from "../src/parser/theta-document";
 import {
   composeThetaFixture,
   type BinderRunInput,
@@ -117,15 +116,7 @@ const SOURCE = [
 ].join("\n");
 
 function loadFixture(): ThetaDocument {
-  const source: ThetaSource = { path: "binder-args.theta", bytes: new TextEncoder().encode(SOURCE) };
-  const doc = parseThetaDocument(source, makeParseDeps());
-  const errors = doc.diagnostics.filter((d) => d.severity === "error");
-  if (errors.length > 0) {
-    throw new Error(
-      `harness: the fixture theta did not load cleanly, so its \`params:\` block did not lower and ` +
-        `no cell below drives the real binder document: ${JSON.stringify(errors)}`,
-    );
-  }
+  const doc = parseTheta("binder-args.theta", SOURCE);
   if (doc.frontmatter === null) {
     throw new Error("harness: the fixture theta carries no parsed frontmatter");
   }

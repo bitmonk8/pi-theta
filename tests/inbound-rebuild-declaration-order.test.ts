@@ -1,8 +1,6 @@
 import { ajv as realAjv } from "./helpers/scripted-live-session-harness";
-import { parseDeps as makeDeps, schemaDeclsOf, enumDeclsOf } from "./helpers/e2e-s1";
+import { parseTheta, schemaDeclsOf, enumDeclsOf } from "./helpers/e2e-s1";
 import { describe, expect, it } from "vitest";
-import { parseThetaDocument, type ThetaDocument } from "../src/parser/theta-document";
-import type { ThetaSource } from "../src/lexer/lexer";
 import { lowerQueryResponseSchema } from "../src/runtime/query-schema-lowering";
 import {
   buildInboundTranslationPlan,
@@ -68,19 +66,6 @@ import {
 // inbound bullet — the rebuild this file orders); schema-subset.md:87
 // (Lowering Algorithm step 5, the per-`$defs` sidecar the carrier belongs to).
 
-function parse(src: string, path = "order.theta"): ThetaDocument {
-  const source: ThetaSource = { path, bytes: new TextEncoder().encode(src) };
-  const doc = parseThetaDocument(source, makeDeps());
-  const errors = doc.diagnostics.filter((d) => d.severity === "error");
-  if (errors.length > 0) {
-    throw new Error(
-      `harness: the fixture document did not load cleanly, so no cell below speaks about a ` +
-        `real lowered schema: ${JSON.stringify(errors)}`,
-    );
-  }
-  return doc;
-}
-
 /**
  * The whole fixture corpus: one document so a single parse serves every cell and
  * every lowered fragment traces back to the same declarations. Each schema
@@ -96,7 +81,7 @@ const FIXTURE = [
   "",
 ].join("\n");
 
-const DOC = parse(FIXTURE);
+const DOC = parseTheta("order.theta", FIXTURE);
 const SCHEMAS = schemaDeclsOf(DOC);
 const ENUMS = enumDeclsOf(DOC);
 

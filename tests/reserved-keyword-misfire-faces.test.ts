@@ -1,8 +1,8 @@
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
+import {
+  PARSE_REGISTRY as REGISTRY, PARSE_REGISTRY_PATH, registryMessageOf,
+  type ParseCodeRegistryRow as RegistryRow,
+} from "./helpers/load-row-harness";
 import { describe, expect, it } from "vitest";
-// @ts-expect-error — JS code-registry module, no type declarations.
-import { parseRegistry, registryMessage } from "../tools/code-registry/index.js";
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
 import { reservedKeywords } from "../src/lexer/lexer";
 import { EXPORT_IN_THETA_CODE } from "../src/parser/imports";
@@ -132,21 +132,6 @@ import { parseDoc, isLoadParseError } from "./helpers/e2e-s1";
 // The diagnostic oracle — the registry's *Message* and *Sev* columns (DIAG-4).
 // ===========================================================================
 
-interface RegistryRow {
-  readonly code: string;
-  readonly severity: string;
-  readonly message: string;
-}
-
-const REGISTRY = parseRegistry(
-  readFileSync(
-    fileURLToPath(
-      new URL("../docs/spec_topics/diagnostics/code-registry-parse.md", import.meta.url),
-    ),
-    "utf8",
-  ),
-) as RegistryRow[];
-
 const RESERVED = "theta/parse/reserved-keyword-as-identifier";
 const SINGLE_LINE_IF = "theta/parse/single-line-if";
 const MUT_IMMUTABLE = "theta/parse/mut-on-immutable-context";
@@ -173,20 +158,7 @@ const EXTRA_FIELD = "theta/parse/extra-object-field";
  * `undefined` comparison.
  */
 function msg(code: string, fills: ReadonlyArray<readonly [string, string]>): string {
-  const template = registryMessage(REGISTRY, code) as string | undefined;
-  expect(
-    template,
-    `DIAG-4 anchor: docs/spec_topics/diagnostics/code-registry-parse.md must carry the Message row for ${code}`,
-  ).toBeDefined();
-  let out = template as string;
-  for (const [placeholder, value] of fills) {
-    expect(
-      out,
-      `DIAG-4: the ${code} Message template must carry the ${placeholder} placeholder; template=${JSON.stringify(template)}`,
-    ).toContain(placeholder);
-    out = out.replace(placeholder, value);
-  }
-  return out;
+  return registryMessageOf(REGISTRY, PARSE_REGISTRY_PATH, code, fills);
 }
 
 /** The registry *Message* for the reserved code with `<keyword>` filled. */

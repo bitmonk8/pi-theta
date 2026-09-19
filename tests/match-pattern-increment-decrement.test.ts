@@ -7,7 +7,7 @@ import {
   renderWithHint as render,
 } from "./helpers/load-row-harness";
 import { readRepoFile } from "./helpers/corpus-reader";
-import { readRegistry, type RegistryRow } from "./helpers/registry-oracle";
+import { readRegistry, registryHintOf, type RegistryRow } from "./helpers/registry-oracle";
 import { describe, expect, it } from "vitest";
 // @ts-expect-error — JS code-registry module, no type declarations.
 import { registryMessage } from "../tools/code-registry/index.js";
@@ -135,28 +135,12 @@ function registered(code: string): string {
  * is the table header: Code | Sev | Phase | Trigger | Spec rule | Hint |
  * Message.
  */
-const HINT_CELL_INDEX = 5;
-
 function registryHint(code: string): string {
-  for (const line of REGISTRY_TEXT.split("\n")) {
-    const trimmed = line.trim();
-    if (!trimmed.startsWith("|")) continue;
-    const cells = trimmed
-      .replace(/^\|/, "")
-      .replace(/\|\s*$/, "")
-      .split(/(?<!\\)\|/)
-      .map((cell) => cell.trim().replace(/\\\|/g, "|"));
-    if (cells[0] !== `\`${code}\``) continue;
-    const hint = cells[HINT_CELL_INDEX];
-    if (hint === undefined || hint === "" || hint === "—") {
-      throw new Error(
-        `harness: the ${code} row at ${REGISTRY_PARSE_PAGE} carries no Hint cell (cell ${HINT_CELL_INDEX} is ${JSON.stringify(hint)}) — route (a) emits this Hint verbatim, so an empty cell is a harness failure, never a skip`,
-      );
-    }
-    return hint;
-  }
-  throw new Error(
-    `harness: ${REGISTRY_PARSE_PAGE} carries no row for ${code} — this file's Hint oracle is stale`,
+  return registryHintOf(
+    REGISTRY_TEXT,
+    REGISTRY_PARSE_PAGE,
+    code,
+    "route (a) emits this Hint verbatim",
   );
 }
 

@@ -1,10 +1,11 @@
 import { ANTHROPIC_MODEL } from "./helpers/scripted-live-session-harness";
+import { readRegistry } from "./helpers/registry-oracle";
 import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 // @ts-expect-error — JS code-registry module, no type declarations.
-import { parseRegistry, registryMessage } from "../tools/code-registry/index.js";
+import { registryMessage } from "../tools/code-registry/index.js";
 import type {
   ExtensionAPI,
   ExtensionCommandContext,
@@ -130,22 +131,7 @@ import { committedThetaSources } from "./helpers/theta-corpus";
 // The DIAG-4 oracle: the registry Message column, read from the spec corpus.
 // ===========================================================================
 
-const REGISTRY_TEXT = readFileSync(
-  fileURLToPath(
-    new URL("../docs/spec_topics/diagnostics/code-registry-parse.md", import.meta.url),
-  ),
-  "utf8",
-);
-
-interface RegistryRow {
-  code: string;
-  severity: string;
-  phase: string;
-  trigger: string;
-  message: string;
-}
-
-const REGISTRY = parseRegistry(REGISTRY_TEXT) as RegistryRow[];
+const REGISTRY = readRegistry(["parse"]);
 
 const INCREMENT_DECREMENT_CODE = "theta/parse/increment-decrement";
 const UNSUPPORTED_FEATURE_CODE = "theta/parse/unsupported-feature";

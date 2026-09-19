@@ -1,5 +1,5 @@
 import { hitsFor } from "./helpers/e2e-s1";
-import { loadRowMessage, interpolate } from "./helpers/registry-oracle";
+import { loadRowMessage, interpolate, templateToRegExp } from "./helpers/registry-oracle";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -181,20 +181,6 @@ import { FakeFileWatcher } from "./helpers/fake-file-watcher";
 // pasted prose. Helper shapes mirror
 // tests/discovery-root-enumeration-failure.test.ts:160-205.
 // ===========================================================================
-
-/**
- * A registry Message template as a whole-string RegExp with every
- * `<placeholder>` slot widened to `.+` — used where the descriptor's exact
- * spelling is left open by the spec (`` package `foo` (pi.theta) `` at
- * package-and-settings.md:27 against `` package `foo` (pi.theta[0]) `` at
- * discovery-sources.md:63).
- */
-function templateToRegExp(template: string): RegExp {
-  const escaped = template
-    .replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
-    .replace(/<[a-z-]+>/g, ".+");
-  return new RegExp(`^${escaped}$`);
-}
 
 const MISSING_SOURCE = "theta/load/missing-source";
 const UNREADABLE_SOURCE = "theta/load/unreadable-source";
