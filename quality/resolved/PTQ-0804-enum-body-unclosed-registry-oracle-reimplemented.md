@@ -2,7 +2,7 @@
 id: PTQ-0804
 title: enum-body-unclosed-at-eof.test.ts redeclares RegistryRow/REGISTRY instead of importing tests/helpers/load-row-harness.ts's PARSE_REGISTRY
 lens: D7                     # D2 | D4 | D7 | D8 | D9 - the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - tests/enum-body-unclosed-at-eof.test.ts:174-186

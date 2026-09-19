@@ -2,7 +2,7 @@
 id: PTQ-0789
 title: b0413 and b0415 each redeclare ANTHROPIC_MODEL, SessionEntryDouble and the entry-append body already exported by tests/helpers/scripted-live-session-harness.ts
 lens: D7                     # D2 | D4 | D7 | D8 | D9 - the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - tests/b0413-pic51b-non-error-terminators-witness.test.ts:106-111

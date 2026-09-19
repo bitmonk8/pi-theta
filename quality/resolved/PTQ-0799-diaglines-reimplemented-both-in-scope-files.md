@@ -2,7 +2,7 @@
 id: PTQ-0799
 title: Both in-scope files redeclare e2e-s1's exported diagLines(doc) under a local declaration instead of importing it
 lens: D7
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - tests/brace-and-angle-annotation-junk-refusal.test.ts:7

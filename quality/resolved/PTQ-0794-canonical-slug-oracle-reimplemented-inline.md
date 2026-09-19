@@ -2,7 +2,7 @@
 id: PTQ-0794
 title: binder-param-line-newline-normalisation.test.ts hand-computes the canonical-slug-oracle formula inline instead of importing the existing tests/helpers/canonical-slug-oracle.ts helper
 lens: D7
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - tests/binder-param-line-newline-normalisation.test.ts:260-278

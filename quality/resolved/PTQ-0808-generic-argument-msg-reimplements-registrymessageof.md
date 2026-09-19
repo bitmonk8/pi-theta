@@ -2,7 +2,7 @@
 id: PTQ-0808
 title: generic-argument-bracket-group-truncation.test.ts redeclares the lookup-assert-fill msg() body tests/helpers/load-row-harness.ts already exports as registryMessageOf
 lens: D7
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - tests/generic-argument-bracket-group-truncation.test.ts:1-9

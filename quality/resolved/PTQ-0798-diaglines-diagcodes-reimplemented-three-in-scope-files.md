@@ -2,7 +2,7 @@
 id: PTQ-0798
 title: All three in-scope files redeclare e2e-s1's exported diagLines/diagCodes instead of importing them
 lens: D7
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - tests/params-block-mapping-rhs-refusal.test.ts:311-318

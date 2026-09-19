@@ -2,7 +2,7 @@
 id: PTQ-0800
 title: generic-argument-inline-field-key-rules.test.ts redeclares e2e-s1's exported diagLines(doc) under a local declaration instead of importing it
 lens: D7
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - tests/generic-argument-inline-field-key-rules.test.ts:8

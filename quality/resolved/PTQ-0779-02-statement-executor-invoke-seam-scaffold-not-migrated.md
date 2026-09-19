@@ -2,7 +2,7 @@
 id: PTQ-0779
 title: statement-executor.test.ts redeclares invoke-seam-scaffold's span()/no-op checkpoint instead of importing them
 lens: D7
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - tests/statement-executor.test.ts:67-69

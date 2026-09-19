@@ -2,7 +2,7 @@
 id: PTQ-0793
 title: Both files reimplement a local key-sort canonicaliser instead of importing canonical-slug-oracle.ts's assertKeysSorted
 lens: D7                     # D2 | D4 | D7 | D8 | D9 - the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - tests/params-literal-sublanguage-lowering.test.ts:483-505

@@ -2,7 +2,7 @@
 id: PTQ-0795
 title: capturedCall/optionsOf complete()-capture accessors are byte-identical between b0481 and binder-forced-tool-dispatch
 lens: D7                     # D2 | D4 | D7 | D8 | D9 - the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - tests/b0481-forced-tool-choice-model-rejection-degrades.test.ts:244-256

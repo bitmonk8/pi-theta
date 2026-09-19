@@ -13,7 +13,7 @@ d4_class: parallel
 wave: qw20260917154546
 reported_by: lens-d7-testquality (anthropic/claude-sonnet-5)
 date: 2026-09-17
-fix_skips: 0
+fix_skips: 1
 ---
 
 # Two let-annotation test files re-parse the sharded diagnostics registry from disk instead of importing tests/helpers/registry-oracle.ts
@@ -137,3 +137,4 @@ verdict: confirmed — independently re-verified: both REGISTRY blocks sit at th
 
 ## Fix attempts
 - (wave unknown): skipped — (no fixer notes recorded)
+- qw20260919104142: skipped — [PTQ-0757-registry-oracle-reread-let-annotation-pair.md] PTQ-0757: No longer reproduces; both files already use registry-oracle. No edits for this issue. / PTQ-0893: Shared the range-table harness through tests/helpers/e2e-s1.ts, retaining range guards, fixture paths, failure messages, and assertions. No tests deleted. / PTQ-0854: Shared the three delivery-count helpers through tests/helpers/compose-workspace-harness.ts, preserving raw counting and failure messages. No tests deleted or weakened. / PTQ-1059: Centralised the byte-exact host literal in tests/helpers/recording-system-note-channel.ts; all four files import it. No tests deleted. Required verification gate passed: TypeScript and all 11,585 tests across 689 files. | review unconfirmed: PTQ-0757-registry-oracle-reread-let-annotation-pair.md — no uncommitted working-tree change is attributable to it, so it is not credited to this fix; however the described problem is verifiably already gone at HEAD (13ad8266): tests/let-annotation-inline-object-compat.test.ts:97 imports REGISTRY from ./helpers/registry-oracle and tests/let-annotation-query-double-emission.test.ts:52,68 imports and calls readRegistry(["parse"]) — neither file reimplements the shard read anymore (the compat file's remaining readFileSync/fileURLToPath imports serve a live fixture read at :585, not a leftover). The issue file is stale; it can be closed on re-verification with no further code change. ||

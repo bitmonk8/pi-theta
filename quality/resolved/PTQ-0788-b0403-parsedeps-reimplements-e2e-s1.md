@@ -2,7 +2,7 @@
 id: PTQ-0788
 title: b0403's local parseDeps() reimplements the canonical tests/helpers/e2e-s1.ts parseDeps() fixture
 lens: D7
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - tests/b0403-unary-minus-message-registry-divergence.test.ts:191-199

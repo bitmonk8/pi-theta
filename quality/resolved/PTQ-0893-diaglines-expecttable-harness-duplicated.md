@@ -2,7 +2,7 @@
 id: PTQ-0893
 title: The range-rendering diagLines/lines/at/expectTable table-assertion harness is redeclared verbatim in fn-return-void-query-sink.test.ts
 lens: D7                     # D2 | D4 | D7 | D8 | D9 - the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - tests/let-annotation-query-double-emission.test.ts:107-137

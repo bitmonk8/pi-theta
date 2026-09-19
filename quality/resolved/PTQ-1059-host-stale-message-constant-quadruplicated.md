@@ -2,7 +2,7 @@
 id: PTQ-1059
 title: hot-reload-stale-ctx-replacement.test.ts redeclares the byte-exact HOST_STALE_MESSAGE constant already hand-declared in three sibling files, none importing a shared source
 lens: D7
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - tests/hot-reload-stale-ctx-replacement.test.ts:86-87

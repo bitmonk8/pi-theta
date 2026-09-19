@@ -2,7 +2,7 @@
 id: PTQ-0797
 title: ctor-proto-named-field.test.ts redeclares ANTHROPIC_MODEL, SessionEntryDouble, parseDeps and LiveSessionDouble's append bodies instead of importing tests/helpers/scripted-live-session-harness.ts
 lens: D7                     # D2 | D4 | D7 | D8 | D9 - the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - tests/ctor-proto-named-field.test.ts:188-198

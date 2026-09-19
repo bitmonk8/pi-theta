@@ -2,7 +2,7 @@
 id: PTQ-0806
 title: The Triple/Quad diagnostic-projection interfaces and the fnOf/paramsOf/registered FnDecl readers are redeclared near-byte-identical across three fn-param test files
 lens: D7                     # D2 | D4 | D7 | D8 | D9 - the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - tests/fn-param-not-identifier.test.ts:238-325

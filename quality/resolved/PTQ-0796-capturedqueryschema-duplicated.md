@@ -2,7 +2,7 @@
 id: PTQ-0796
 title: capturedQuerySchema in inline-object-field-name-comparison-key.test.ts duplicates inline-object-type-source-capture.test.ts's function of the same name
 lens: D7                     # D2 | D4 | D7 | D8 | D9 - the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - tests/inline-object-field-name-comparison-key.test.ts:285-299

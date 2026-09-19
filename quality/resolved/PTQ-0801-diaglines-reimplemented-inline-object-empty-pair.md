@@ -2,7 +2,7 @@
 id: PTQ-0801
 title: Both bug-0257/0237 witness files reimplement e2e-s1's exported diagLines under a local declaration instead of importing it
 lens: D7                     # D2 | D4 | D7 | D8 | D9 - the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - tests/inline-object-empty-entry-slot-refusal.test.ts:9,338-344
