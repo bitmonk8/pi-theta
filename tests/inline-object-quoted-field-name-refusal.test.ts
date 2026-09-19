@@ -14,7 +14,7 @@ import {
   type LoweredSchema,
   type SchemaSlug,
 } from "../src/seams/schema-validator";
-import { parseDoc } from "./helpers/e2e-s1";
+import { atEveryPosition, parseDoc, typePositions } from "./helpers/e2e-s1";
 
 // Bug 0176 — the inline field-name slot admits a QUOTED key. `{"a": string}`
 // loads with zero diagnostics at all eleven `Type` positions and lowers a JSON
@@ -297,14 +297,7 @@ const POSITION_LABELS = [
 /** The whole ordered diagnostic list of one inline type at each of those eleven positions. */
 function positions(type: string): Record<string, string[]> {
   return {
-    "@<T> annotation root": lines(annotSrc(type)),
-    "let annotation": lines(body(`let x: ${type} = 1`)),
-    "schema body field": lines(body(`schema S { p: ${type} }`)),
-    "fn parameter": lines(body(`fn f(p: ${type}) { 1 }`)),
-    "fn return": lines(body(`fn f(): ${type} { 1 }`)),
-    "alias RHS": lines(body(`schema S = ${type}`)),
-    "params: field": lines(paramsSrc(`  p: '${type}'`)),
-    "invoke<T>": lines(body(`let r = invoke<${type}>("./x.theta")`)),
+    ...typePositions(type, lines),
     "union arm": lines(annotSrc(`${type} | null`)),
     "nested one level": lines(annotSrc(`{p: ${type}}`)),
     ".thetalib schema field": lines(`schema S { p: ${type} }\n`, "bug0176.thetalib"),
@@ -326,11 +319,6 @@ function positionCodes(type: string): Record<string, string[]> {
     "nested one level": codes(annotSrc(`{p: ${type}}`)),
     ".thetalib schema field": codes(`schema S { p: ${type} }\n`, "bug0176.thetalib"),
   };
-}
-
-/** One expected list repeated across all eleven positions — type-system.md:15's claim. */
-function atEveryPosition(expected: readonly string[]): Record<string, string[]> {
-  return Object.fromEntries(POSITION_LABELS.map((label) => [label, [...expected]]));
 }
 
 /** A real `AjvSchemaValidator` plus the diagnostics it emitted. */
@@ -403,7 +391,7 @@ describe("bug 0176 (A) — a single quoted inline field name is refused at every
       "A1 — one non-repeating quoted key is one line per position; the eleven positions run " +
         "one type grammar, so a fix at the shared walk answers alike everywhere and a fix at " +
         "one call site cannot",
-    ).toEqual(atEveryPosition([quotedLine('"a"')]));
+    ).toEqual(atEveryPosition(POSITION_LABELS, [quotedLine('"a"')]));
   });
 
   it('RED A2: the same eleven positions at CODE level, and the theta stops registering', () => {
@@ -417,7 +405,7 @@ describe("bug 0176 (A) — a single quoted inline field name is refused at every
         "key is refused by the shape test at `inlineObjectFieldKeys` " +
         "(src/parser/type-grammar.ts:656) behind the two existing gates " +
         "(:838), not by a residue sink",
-    ).toEqual(atEveryPosition([QUOTED_INLINE]));
+    ).toEqual(atEveryPosition(POSITION_LABELS, [QUOTED_INLINE]));
 
     // GOV-15's loads-cleanly predicate (source-language-stability.md:9) is what
     // withholds the theta and so keeps the lowering of group (C) unreached
@@ -1065,7 +1053,7 @@ describe("bug 0176 (H) — 0045's reserved shapes are untouched, the generic arg
       "H2 — a refusal keyed on the whole key's SHAPE would take 0160's rename spelling with " +
         "it; the settled emission set is the narrow one, so THIS row does not move — bug 0160's " +
         "own row is what now fires here",
-    ).toEqual(atEveryPosition([renLine("a")]));
+    ).toEqual(atEveryPosition(POSITION_LABELS, [renLine("a")]));
     expect(
       lowerQueryResponseSchema('{a as "w": integer}', [], []),
       "H2 — reached by DIRECT construction only now that the load-path refusal withholds it: " +

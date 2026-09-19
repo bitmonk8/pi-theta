@@ -147,6 +147,31 @@ export function annotSrc(type: string): string {
   return body("let r = @<" + type + ">`hi`");
 }
 
+/** The whole ordered diagnostic list of one inline type at the eight shared Type positions. */
+export function typePositions(
+  type: string,
+  lines: (src: string) => string[],
+): Record<string, string[]> {
+  return {
+    "@<T> annotation root": lines(annotSrc(type)),
+    "let annotation": lines(body(`let x: ${type} = 1`)),
+    "schema body field": lines(body(`schema S { p: ${type} }`)),
+    "fn parameter": lines(body(`fn f(p: ${type}) { 1 }`)),
+    "fn return": lines(body(`fn f(): ${type} { 1 }`)),
+    "alias RHS": lines(body(`schema S = ${type}`)),
+    "params: field": lines(paramsSrc(`  p: '${type}'`)),
+    "invoke<T>": lines(invokeSrc(type)),
+  };
+}
+
+/** One expected list repeated across all supplied positions — type-system.md:15's claim. */
+export function atEveryPosition(
+  labels: readonly string[],
+  expected: readonly string[],
+): Record<string, string[]> {
+  return Object.fromEntries(labels.map((label) => [label, [...expected]]));
+}
+
 /** Read `QueryExpr.schema` off the parsed annotation fixture, asserting its AST shape. */
 export function capturedQuerySchema(type: string, path: string): string {
   const src = annotSrc(type);
@@ -496,6 +521,11 @@ export function withCode(source: ThetaDocument | readonly Diagnostic[], code: st
   return diags.filter((d) => d.code === code);
 }
 
+/** Every message carried by a diagnostic of `code`, in emission order. */
+export function messagesFor(source: ThetaDocument | readonly Diagnostic[], code: string): string[] {
+  return withCode(source, code).map((d) => d.message);
+}
+
 /** Every diagnostic rendered `<severity> <code>`, in emission order. */
 export function diagCodes(doc: ThetaDocument): string[] {
   return doc.diagnostics.map((d) => `${d.severity} ${d.code}`);
@@ -549,6 +579,16 @@ export function findFnDecl(doc: ThetaDocument, name: string): FnDecl | undefined
   return doc.body.statements.find(
     (s): s is FnDecl => s.kind === "fn" && (s as FnDecl).name === name,
   );
+}
+
+/** Frontmatter fence declaring `mode: subagent` and the given `tools:` entries (short form). */
+export function subagentFrontmatter(tools?: string): string {
+  const lines = ["---", "mode: subagent"];
+  if (tools !== undefined) {
+    lines.push(`tools: ${tools}`);
+  }
+  lines.push("---", "");
+  return lines.join("\n");
 }
 
 /** Frontmatter for every `.theta` body row — occupies lines 1–3, body starts at 4. */
@@ -795,6 +835,58 @@ export function collectByKind(root: unknown, kind: string | readonly string[]): 
   };
   visit(root);
   return out;
+}
+
+/** A compact rendering of a document's diagnostics for failure messages. */
+export function show(doc: ThetaDocument): string {
+  return doc.diagnostics.length === 0
+    ? "[] (no diagnostic of ANY severity)"
+    : doc.diagnostics
+        .map(
+          (d) =>
+            `${d.severity} ${d.code}: ${d.message} @ ${
+              d.range === undefined
+                ? "<unlocated>"
+                : `${d.range.start.line}:${d.range.start.column}`
+            }`,
+        )
+        .join("; ");
+}
+
+/** Every `kind: "query"` node in a parsed document, in traversal order. */
+export function queryNodes(node: unknown, out: { template: string; range: SourceRange }[]): void {
+  if (node === null || typeof node !== "object") {
+    return;
+  }
+  if (Array.isArray(node)) {
+    for (const v of node) {
+      queryNodes(v, out);
+    }
+    return;
+  }
+  const rec = node as Record<string, unknown>;
+  if (rec["kind"] === "query" && typeof rec["template"] === "string") {
+    out.push({ template: rec["template"], range: rec["range"] as SourceRange });
+  }
+  for (const v of Object.values(rec)) {
+    queryNodes(v, out);
+  }
+}
+
+/**
+ * The fixture's sole query range, or a loud cardinality failure. Callers may
+ * include the matched templates in that failure's diagnostic payload.
+ */
+export function soleQueryRange(doc: ThetaDocument, includeTemplates = false): SourceRange {
+  const found: { template: string; range: SourceRange }[] = [];
+  queryNodes(doc.body, found);
+  if (found.length !== 1) {
+    throw new Error(
+      `harness: this fixture must carry exactly ONE @\`-query expression whose range locates the relocated diagnostics; found ${found.length}` +
+        (includeTemplates ? ` (${found.map((f) => JSON.stringify(f.template)).join(", ")})` : ""),
+    );
+  }
+  return (found[0] as { range: SourceRange }).range;
 }
 
 /** A call's callee, argument count, argument ranges and expression range. */

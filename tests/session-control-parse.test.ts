@@ -27,7 +27,7 @@
 //
 // Method: mirrors `tests/call-with-clause-parse.test.ts` / `tests/par-for.test.ts`'s
 // `parseThetaDocument` + inline template-literal-source harness.
-import { parseDoc as parse, codesOf } from "./helpers/e2e-s1";
+import { parseDoc as parse, codesOf, subagentFrontmatter as fm } from "./helpers/e2e-s1";
 import { describe, expect, it } from "vitest";
 
 /** DIAG-2 asserting home for `theta/parse/session-tool-in-isolated-body` (I1-I4 below). */
@@ -35,16 +35,6 @@ const SESSION_TOOL_IN_ISOLATED_BODY_CODE = "theta/parse/session-tool-in-isolated
 const UNKNOWN_IDENTIFIER_CODE = "theta/parse/unknown-identifier";
 const SHADOWED_CALLABLE_CALL_CODE = "theta/parse/shadowed-callable-call";
 const NESTED_FN_CODE = "theta/parse/nested-fn";
-
-/** Frontmatter fence declaring `mode: subagent` and the given `tools:` entries (short form). */
-function fm(tools?: string): string {
-  const lines = ["---", "mode: subagent"];
-  if (tools !== undefined) {
-    lines.push(`tools: ${tools}`);
-  }
-  lines.push("---", "");
-  return lines.join("\n");
-}
 
 // ===========================================================================
 // I1-I4 — the code fires for all three tools, renamed entries, and a nested

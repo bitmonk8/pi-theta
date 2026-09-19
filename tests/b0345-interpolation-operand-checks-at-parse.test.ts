@@ -90,7 +90,7 @@ import type { ThetaValue } from "../src/runtime/value";
 import { createProductionProducerDeps } from "../src/extension/production-theta-producer";
 import type { ThetaCompositionInput } from "../src/extension/theta-composition-producer";
 import type { RuntimeRoot } from "../src/runtime-root";
-import { parseDoc } from "./helpers/e2e-s1";
+import { parseDoc, show, soleQueryRange as soleQueryRangeShared } from "./helpers/e2e-s1";
 
 // The three registered operand codes (expressions.md §"`+` operator", §"Other
 // arithmetic", §"Ordering comparisons").
@@ -154,42 +154,6 @@ function codeAndMessage(diags: readonly Diagnostic[]): { code: string; message: 
   return diags.map((d) => ({ code: d.code, message: d.message }));
 }
 
-/** A compact rendering of a document's diagnostics for failure messages. */
-function show(doc: ThetaDocument): string {
-  return doc.diagnostics.length === 0
-    ? "[] (no diagnostic of ANY severity)"
-    : doc.diagnostics
-        .map(
-          (d) =>
-            `${d.severity} ${d.code}: ${d.message} @ ${
-              d.range === undefined
-                ? "<unlocated>"
-                : `${d.range.start.line}:${d.range.start.column}`
-            }`,
-        )
-        .join("; ");
-}
-
-/** Every `kind: "query"` node in a parsed document, in traversal order. */
-function queryNodes(node: unknown, out: { range: SourceRange }[]): void {
-  if (node === null || typeof node !== "object") {
-    return;
-  }
-  if (Array.isArray(node)) {
-    for (const v of node) {
-      queryNodes(v, out);
-    }
-    return;
-  }
-  const rec = node as Record<string, unknown>;
-  if (rec["kind"] === "query" && typeof rec["template"] === "string") {
-    out.push({ range: rec["range"] as SourceRange });
-  }
-  for (const v of Object.values(rec)) {
-    queryNodes(v, out);
-  }
-}
-
 /**
  * The range of the fixture's SOLE @`-query expression — the location the settled
  * rule requires every relocated diagnostic to carry (the same choice
@@ -198,15 +162,7 @@ function queryNodes(node: unknown, out: { range: SourceRange }[]): void {
  * exactly one query fails loudly rather than comparing against a guess.
  */
 function soleQueryRange(doc: ThetaDocument): SourceRange {
-  const found: { range: SourceRange }[] = [];
-  queryNodes(doc.body, found);
-  if (found.length !== 1) {
-    throw new Error(
-      `harness: this fixture must carry exactly ONE @\`-query expression whose range ` +
-        `locates the relocated diagnostics; found ${found.length}`,
-    );
-  }
-  return (found[0] as { range: SourceRange }).range;
+  return soleQueryRangeShared(doc);
 }
 
 /**

@@ -36,12 +36,29 @@ import type {
   RollbackCompensator,
 } from "../../src/runtime/no-rollback";
 import type { OperationResult } from "../../src/runtime/cancellation-core";
-import type {
-  CheckpointDescriptor,
-  ExecuteBodyDeps,
-  StatementEvalHost,
+import {
+  executeBody,
+  type BodyExecution,
+  type CheckpointDescriptor,
+  type ExecuteBodyDeps,
+  type StatementEvalHost,
 } from "../../src/runtime/statement-executor";
 import type { ThetaValue } from "../../src/runtime/value";
+
+/** Drive the real executor, capturing whether it threw for the caller's assertion. */
+export async function captureBodyExecution(
+  body: ThetaBody,
+  deps: ExecuteBodyDeps,
+): Promise<{ threw: boolean; exec: BodyExecution | undefined }> {
+  let threw = false;
+  let exec: BodyExecution | undefined;
+  try {
+    exec = await executeBody(body, deps);
+  } catch {
+    threw = true;
+  }
+  return { threw, exec };
+}
 
 /** A `Checkpoint` whose `before()` resolves immediately — the seam is not
  *  itself under test at the call sites that use this scaffold. */

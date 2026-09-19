@@ -182,6 +182,11 @@ export function callableCaller(entry: string, ...body: readonly string[]): strin
   return theta("---", "mode: subagent", "tools:", `  - ${entry}`, "---", ...body, "@`hi`");
 }
 
+/** Write one `.theta` fixture into an existing directory. */
+export function plantThetaFile(dir: string, stem: string, text: string): void {
+  writeFileSync(join(dir, `${stem}.theta`), text, "utf8");
+}
+
 /** One fixture `plantThetaWorkspace` writes under a workspace's `.pi/theta/`. */
 export interface PlantedThetaFile {
   readonly stem: string;

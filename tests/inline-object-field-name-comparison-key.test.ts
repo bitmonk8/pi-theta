@@ -9,7 +9,12 @@ import {
   type LoweredSchema,
   type SchemaSlug,
 } from "../src/seams/schema-validator";
-import { capturedQuerySchema as capturedQuerySchemaShared, parseDoc } from "./helpers/e2e-s1";
+import {
+  atEveryPosition,
+  capturedQuerySchema as capturedQuerySchemaShared,
+  parseDoc,
+  typePositions,
+} from "./helpers/e2e-s1";
 
 // Bug 0159 — `theta/parse/duplicate-inline-field-name` compares the field-name
 // positions the TYPE GRAMMAR reads as `Ident ":"`, and that walk stops at the
@@ -258,21 +263,9 @@ const POSITION_LABELS = [
 /** The whole ordered diagnostic list of one inline type at each of those nine positions. */
 function positions(type: string): Record<string, string[]> {
   return {
-    "@<T> annotation root": lines(annotSrc(type)),
-    "let annotation": lines(body(`let x: ${type} = 1`)),
-    "schema body field": lines(body(`schema S { p: ${type} }`)),
-    "fn parameter": lines(body(`fn f(p: ${type}) { 1 }`)),
-    "fn return": lines(body(`fn f(): ${type} { 1 }`)),
-    "alias RHS": lines(body(`schema S = ${type}`)),
-    "params: field": lines(paramsSrc(`  p: '${type}'`)),
-    "invoke<T>": lines(body(`let r = invoke<${type}>("./x.theta")`)),
+    ...typePositions(type, lines),
     ".thetalib schema field": lines(`schema S { p: ${type} }\n`, "bug0159.thetalib"),
   };
-}
-
-/** One expected list repeated across all nine positions — type-system.md:15's claim. */
-function atEveryPosition(expected: readonly string[]): Record<string, string[]> {
-  return Object.fromEntries(POSITION_LABELS.map((label) => [label, [...expected]]));
 }
 
 /**
@@ -374,7 +367,7 @@ describe("bug 0159 (A) — the six masked shapes are refused at every `Type` pos
       "A1 — a malformed entry between two well-formed ones is not a licence to stop reading " +
         "the field names the author wrote; the lowering does not stop there either, and mints " +
         '`required: ["a","a"]`',
-    ).toEqual(atEveryPosition([dupLine("a")]));
+    ).toEqual(atEveryPosition(POSITION_LABELS, [dupLine("a")]));
   });
 
   it('RED A2 (a rename ahead of the repeat): `{a as "w": integer, a: string, a: boolean}`', () => {
@@ -387,7 +380,7 @@ describe("bug 0159 (A) — the six masked shapes are refused at every `Type` pos
       positions('{a as "w": integer, a: string, a: boolean}'),
       "A2 — the rename is a distinct key, not a stop: the repeat behind it is between two " +
         "entries the lowering keys identically, and the rename itself is refused (bug 0160)",
-    ).toEqual(atEveryPosition([renLine("a"), dupLine("a")]));
+    ).toEqual(atEveryPosition(POSITION_LABELS, [renLine("a"), dupLine("a")]));
   });
 
   it('RED A3 (a quoted name ahead of the repeat): `{"a": string, a: integer, a: boolean}`', () => {
@@ -400,7 +393,7 @@ describe("bug 0159 (A) — the six masked shapes are refused at every `Type` pos
       'A3 — the quoted entry\'s key is the three characters `"a"`, distinct from `a`, so the ' +
         "repeat is between the two unquoted entries behind it, and the quoted entry ahead of " +
         "them is refused in its own right",
-    ).toEqual(atEveryPosition([quotedLine('"a"'), dupLine("a")]));
+    ).toEqual(atEveryPosition(POSITION_LABELS, [quotedLine('"a"'), dupLine("a")]));
   });
 
   it("RED A4 (a stop inside a NESTED body): `{p: {c: 1, : y, c: 2}, p: 3}`", () => {
@@ -411,7 +404,7 @@ describe("bug 0159 (A) — the six masked shapes are refused at every `Type` pos
       positions("{p: {c: 1, : y, c: 2}, p: 3}"),
       "A4 — the outer body's field split is unaffected by what a field's own type spells, so " +
         "its repeated `p` is compared; the nested body's repeated `c` is its own occurrence",
-    ).toEqual(atEveryPosition([dupLine("p"), dupLine("c")]));
+    ).toEqual(atEveryPosition(POSITION_LABELS, [dupLine("p"), dupLine("c")]));
   });
 
   it("RED A5 (the same stop two levels up): `{p: {q: {c: 1, : y, c: 2}, r: 4}, p: 3}`", () => {
@@ -422,7 +415,7 @@ describe("bug 0159 (A) — the six masked shapes are refused at every `Type` pos
       positions("{p: {q: {c: 1, : y, c: 2}, r: 4}, p: 3}"),
       "A5 — a split keyed on text is unqualified by depth, so a malformed entry three levels " +
         "down curtails no enclosing body's comparison",
-    ).toEqual(atEveryPosition([dupLine("p"), dupLine("c")]));
+    ).toEqual(atEveryPosition(POSITION_LABELS, [dupLine("p"), dupLine("c")]));
   });
 
   it("RED A6 (a completed field with no `,` behind it): `{a: 1 a: 2, a: 3}`", () => {
@@ -435,7 +428,7 @@ describe("bug 0159 (A) — the six masked shapes are refused at every `Type` pos
         "their keys are compared; at the three declaration positions and at `params:` this " +
         "line replaces the residue sink those positions raise today, each sink standing down " +
         "once the field's own walk has refused it",
-    ).toEqual(atEveryPosition([dupLine("a")]));
+    ).toEqual(atEveryPosition(POSITION_LABELS, [dupLine("a")]));
   });
 });
 
@@ -1017,7 +1010,7 @@ describe("bug 0159 (H) — the rendered subject follows the position's type-sour
     // Since bug 0228's fix every position's brace group is a raw slice of the
     // author's own source bytes, so `params:` no longer stands apart: all
     // nine positions render the SAME raw key.
-    const everywhere = atEveryPosition([dupLine('a as "w"')]);
+    const everywhere = atEveryPosition(POSITION_LABELS, [dupLine('a as "w"')]);
     expect(
       positions('{a as "w": integer, a as "w": string}'),
       "H1 — one key repeated is one line at every position; the subject is the entry's raw " +

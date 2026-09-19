@@ -1,11 +1,12 @@
 import { readRegistry } from "./helpers/registry-oracle";
 import {
   disposeWorkspace,
+  plantThetaFile as plant,
   plantThetaWorkspace,
   runProductionLoad,
   type LoadOutcome,
 } from "./helpers/production-load-harness";
-import { mkdtempSync, realpathSync, symlinkSync, writeFileSync } from "node:fs";
+import { mkdtempSync, realpathSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -172,10 +173,6 @@ let projectThetaDir: string;
 let relSpec: string;
 /** Set iff planting the constraint-(c) junction failed; cell I fails loudly on it. */
 let junctionError: string | undefined;
-
-function plant(dir: string, stem: string, text: string): void {
-  writeFileSync(join(dir, `${stem}.theta`), text, "utf8");
-}
 
 beforeAll(async () => {
   outsideDir = mkdtempSync(join(tmpdir(), "theta-b0110-out-"));

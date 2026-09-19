@@ -1,5 +1,5 @@
 import { SEAM_NOOP_CHECKPOINT as NOOP_CHECKPOINT, SEAM_NOOP_MUTATOR } from "./helpers/invoke-seam-scaffold";
-import { parseDoc } from "./helpers/e2e-s1";
+import { messagesFor as diagnosticMessagesFor, parseDoc } from "./helpers/e2e-s1";
 import { REGISTRY } from "./helpers/registry-oracle";
 import { describe, expect, it } from "vitest";
 // @ts-expect-error — JS code-registry module, no type declarations.
@@ -148,9 +148,7 @@ function showRange(d: Diagnostic): string {
 
 /** Every message carried by a diagnostic of `code`, in emission order. */
 function messagesFor(src: string, code: string): string[] {
-  return parse(src)
-    .diagnostics.filter((d: Diagnostic) => d.code === code)
-    .map((d: Diagnostic) => d.message);
+  return diagnosticMessagesFor(parse(src), code);
 }
 
 /** A compact rendering of a source's diagnostics for failure messages. */

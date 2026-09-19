@@ -1,7 +1,17 @@
-import { type KindedNode, collectByKind, parseDoc as parse, bodyOf } from "./helpers/e2e-s1";
+import {
+  type KindedNode,
+  collectByKind,
+  messagesFor as diagnosticMessagesFor,
+  parseDoc as parse,
+  bodyOf,
+} from "./helpers/e2e-s1";
 import { flush as tick } from "./helpers/fake-clock";
 import { ok } from "./helpers/par-for-harness";
-import { SEAM_NOOP_CHECKPOINT, SEAM_NOOP_MUTATOR } from "./helpers/invoke-seam-scaffold";
+import {
+  captureBodyExecution,
+  SEAM_NOOP_CHECKPOINT,
+  SEAM_NOOP_MUTATOR,
+} from "./helpers/invoke-seam-scaffold";
 import { REGISTRY as BUG_0118_REGISTRY } from "./helpers/registry-oracle";
 import { describe, expect, it } from "vitest";
 // @ts-expect-error — JS code-registry module, no type declarations.
@@ -401,9 +411,7 @@ function diagShapeOf(src: string): string[] {
 
 /** Every message carried by a diagnostic of `code`, in emission order. */
 function messagesFor(src: string, code: string): string[] {
-  return parse(src)
-    .diagnostics.filter((d: Diagnostic) => d.code === code)
-    .map((d: Diagnostic) => d.message);
+  return diagnosticMessagesFor(parse(src), code);
 }
 
 /** A compact rendering of a source's diagnostics for failure messages. */
@@ -2579,13 +2587,7 @@ describe("RFC-0003 par-for — per-iteration panic downgrade (ERR-20)", () => {
       "par for f in [0, 1, 2] { invoke(\"./child.theta\", f) }",
     );
 
-    let threw = false;
-    let exec: Awaited<ReturnType<typeof executeBody>> | undefined;
-    try {
-      exec = await executeBody(body, execDeps(body, host));
-    } catch {
-      threw = true;
-    }
+    const { threw, exec } = await captureBodyExecution(body, execDeps(body, host));
     expect(
       threw,
       "ERR-20: a per-iteration panic must NOT abort the theta (the iteration boundary is a panic-downgrade point)",
@@ -2622,13 +2624,7 @@ describe("RFC-0003 par-for — per-iteration panic downgrade (ERR-20)", () => {
       "par for f in [0, 1, 2] { invoke(\"./child.theta\", f) }",
     );
 
-    let threw = false;
-    let exec: Awaited<ReturnType<typeof executeBody>> | undefined;
-    try {
-      exec = await executeBody(body, execDeps(body, host));
-    } catch {
-      threw = true;
-    }
+    const { threw, exec } = await captureBodyExecution(body, execDeps(body, host));
     expect(
       threw,
       "ERR-20: an unexpected iteration throw must NOT abort the theta (it is downgraded)",
@@ -2694,16 +2690,10 @@ describe("RFC-0003 par-for — per-iteration panic downgrade (ERR-20)", () => {
     const src = "par for x in [0, 1] { let a = [7]\n a[9] }";
     const body = parse(src, "enclosing.theta").body;
 
-    let threw = false;
-    let exec: Awaited<ReturnType<typeof executeBody>> | undefined;
-    try {
-      exec = await executeBody(body, {
-        ...execDeps(body, host),
-        file: "enclosing.theta",
-      });
-    } catch {
-      threw = true;
-    }
+    const { threw, exec } = await captureBodyExecution(body, {
+      ...execDeps(body, host),
+      file: "enclosing.theta",
+    });
     expect(
       threw,
       "ERR-20: a pure-computation panic in a no-invoke body is downgraded, not thrown out of the theta",
@@ -3010,13 +3000,7 @@ describe("RFC-0003 par-for — width throttle is not a ceiling breach (NOCEIL-5)
       `par for f in [${inputs}] { invoke("./child.theta", f) }`,
     );
 
-    let threw = false;
-    let exec: Awaited<ReturnType<typeof executeBody>> | undefined;
-    try {
-      exec = await executeBody(body, execDeps(body, host));
-    } catch {
-      threw = true;
-    }
+    const { threw, exec } = await captureBodyExecution(body, execDeps(body, host));
     expect(
       threw,
       "NOCEIL-5: exceeding the width throttle must not throw a ceiling breach",

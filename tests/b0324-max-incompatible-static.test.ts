@@ -1,3 +1,4 @@
+import { messagesFor as diagnosticMessagesFor } from "./helpers/e2e-s1";
 import { fileURLToPath } from "node:url";
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
@@ -99,9 +100,7 @@ function codesOf(src: string): string[] {
 
 /** Every message carried by a diagnostic of `code`, in emission order. */
 function messagesFor(src: string, code: string): string[] {
-  return parse(src)
-    .diagnostics.filter((d: Diagnostic) => d.code === code)
-    .map((d: Diagnostic) => d.message);
+  return diagnosticMessagesFor(parse(src), code);
 }
 
 const NON_INTEGER_MAX = "theta/parse/non-integer-max";

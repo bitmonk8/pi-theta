@@ -1,5 +1,9 @@
 import { fakeThetaLibFs } from "./helpers/thetalib-load-harness";
-import { SEAM_NOOP_CHECKPOINT as NOOP_CHECKPOINT, SEAM_NOOP_MUTATOR } from "./helpers/invoke-seam-scaffold";
+import {
+  captureBodyExecution,
+  SEAM_NOOP_CHECKPOINT as NOOP_CHECKPOINT,
+  SEAM_NOOP_MUTATOR,
+} from "./helpers/invoke-seam-scaffold";
 import { parseDeps as makeDeps, parseDoc, type KindedNode, collectByKind } from "./helpers/e2e-s1";
 import { describe, expect, it } from "vitest";
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
@@ -1057,13 +1061,7 @@ describe("RFC-0001 subagent-fn — final-value propagation across the boundary (
       ].join("\n"),
     );
 
-    let threw = false;
-    let exec: Awaited<ReturnType<typeof executeBody>> | undefined;
-    try {
-      exec = await executeBody(body, execDeps(body, host));
-    } catch {
-      threw = true;
-    }
+    const { threw, exec } = await captureBodyExecution(body, execDeps(body, host));
     expect(
       threw,
       "FN-6: a panic inside a subagent fn body must NOT crash the caller — the subagent boundary downgrades it",

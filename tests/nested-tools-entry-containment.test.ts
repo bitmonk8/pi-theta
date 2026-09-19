@@ -1,4 +1,4 @@
-import { callableSetOf, runProductionLoad, type LoadOutcome } from "./helpers/production-load-harness";
+import { callableSetOf, plantThetaFile as plant, runProductionLoad, type LoadOutcome } from "./helpers/production-load-harness";
 import { readRegistry } from "./helpers/registry-oracle";
 import { mkdtempSync, mkdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -160,10 +160,6 @@ function runCtx(): ExtensionCommandContext {
     },
     ui: { notify: (): void => {} },
   } as unknown as ExtensionCommandContext;
-}
-
-function plant(dir: string, stem: string, text: string): void {
-  writeFileSync(join(dir, `${stem}.theta`), text, "utf8");
 }
 
 /** A subagent-mode callee with two required string params and no `tools:`. */

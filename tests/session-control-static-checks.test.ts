@@ -27,7 +27,7 @@
 // P1-P7/P10, and `parseThetaDocument` with real `tools:` frontmatter (the C6
 // realisation threads `runtimeToolSuccessTypes` from `frontmatter.tools`
 // straight into the PARSE-time type layer) for P8/P9.
-import { parseDoc as parseSrc } from "./helpers/e2e-s1";
+import { parseDoc as parseSrc, subagentFrontmatter as fm } from "./helpers/e2e-s1";
 import { describe, expect, it } from "vitest";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { CallableSetSnapshot } from "../src/parser/callable-set";
@@ -159,10 +159,6 @@ describe("RFC 0011 §3.2 row 1 — P10: a call-site `with` clause on a runtime t
 // `frontmatter.tools`; §0 C6). Driven through the real whole-file parser with
 // inline template-literal sources.
 // ===========================================================================
-
-function fm(tools: string): string {
-  return ["---", "mode: subagent", `tools: ${tools}`, "---", ""].join("\n");
-}
 
 describe("RFC 0011 §0 C6 / §5.5 — P8: context_usage's try-unwrap flows a real structural type", () => {
   it("P8: `let usage = context_usage()?` then `usage.percent > 60` is admitted (no false diagnostic) — green control (deferral already admits it today)", () => {
