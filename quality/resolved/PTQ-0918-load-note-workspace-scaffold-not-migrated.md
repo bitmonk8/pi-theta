@@ -2,7 +2,7 @@
 id: PTQ-0918
 title: load-phase-pre-eval-routing.test.ts and load-warning-delivery.test.ts hand-roll the mkdtemp/mkdir/rmSync workspace lifecycle already exported as plantThetaWorkspace/disposeWorkspace from the same module they import from
 lens: D7                     # D2 | D4 | D7 | D8 | D9 - the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - tests/load-phase-pre-eval-routing.test.ts:1-5

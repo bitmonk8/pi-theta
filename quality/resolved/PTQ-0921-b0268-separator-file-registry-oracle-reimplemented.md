@@ -2,7 +2,7 @@
 id: PTQ-0921
 title: b0268-diagnostic-file-separator-normalisation.test.ts re-parses code-registry-parse.md inline instead of importing the canonical registry read
 lens: D7                     # D2 | D4 | D7 | D8 | D9 - the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - tests/b0268-diagnostic-file-separator-normalisation.test.ts:65-97

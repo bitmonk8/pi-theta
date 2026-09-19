@@ -2,7 +2,7 @@
 id: PTQ-0919
 title: b0366 and b0367 each locally redeclare assertFramesToInternalError, duplicating the canonical assertInternalError they already import in the same file
 lens: D7                     # D2 | D4 | D7 | D8 | D9 - the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - tests/b0366-join-element-laundered-belt.test.ts:281-297

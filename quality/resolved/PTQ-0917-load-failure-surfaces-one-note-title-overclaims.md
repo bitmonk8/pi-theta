@@ -2,7 +2,7 @@
 id: PTQ-0917
 title: test title claims a load failure "surfaces one theta-system-note" but the body asserts only "at least one"
 lens: D7                     # D2 | D4 | D7 | D8 | D9 - the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - tests/load-phase-pre-eval-routing.test.ts:44-70

@@ -2,7 +2,7 @@
 id: PTQ-0926
 title: binder-post-merge-ajv-enforcement.test.ts's thetaInput/driveBinder pair retypes the same builder+wrapper two sibling binder-dispatch files already declare
 lens: D7
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - tests/binder-post-merge-ajv-enforcement.test.ts:375-388

@@ -2,7 +2,7 @@
 id: PTQ-0914
 title: import-export-from-clause-required.test.ts and import-specifier-list-production-required.test.ts each redefine a local parse() reimplementing tests/helpers/e2e-s1.ts's exported parseDoc
 lens: D7                     # D2 | D4 | D7 | D8 | D9 - the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - tests/import-export-from-clause-required.test.ts:9,187-189

@@ -2,7 +2,7 @@
 id: PTQ-0916
 title: import-export-from-clause-required.test.ts and import-specifier-list-production-required.test.ts each redeclare the four-page RegistryRow/REGISTRY read tests/helpers/registry-oracle.ts already centralises
 lens: D7                     # D2 | D4 | D7 | D8 | D9 - the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - tests/import-export-from-clause-required.test.ts:132-175

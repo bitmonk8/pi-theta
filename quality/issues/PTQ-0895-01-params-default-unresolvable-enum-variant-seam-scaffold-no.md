@@ -16,6 +16,7 @@ d4_class: clone
 wave: qw20260918050411
 reported_by: lens-d7-testquality (anthropic/claude-sonnet-5)
 date: 2026-09-18
+fix_skips: 1
 ---
 
 # params-default-unresolvable-enum-variant.test.ts redeclares the NOOP_CHECKPOINT/NOOP_SINK/InertMutator/parseDeps quartet instead of importing tests/helpers/invoke-seam-scaffold.ts and tests/helpers/e2e-s1.ts
@@ -150,3 +151,6 @@ Importing `parseDeps` from `tests/helpers/e2e-s1.ts` and `SEAM_NOOP_CHECKPOINT` 
 
 ## Triage
 verdict: confirmed — independently re-verified: local `parseDeps` (:618-626) and `NOOP_CHECKPOINT`/`NOOP_SINK`/`InertMutator` (:734-751) reproduce verbatim and are live (used at :634, :761, :763, :781, :783); `diff -w` against tests/helpers/invoke-seam-scaffold.ts:29-49 shows only name/`export`/class-vs-const differences and e2e-s1.ts:28-41 `parseDeps` is behaviourally identical (same inert sendMessage/notify/emitDiagnostic, same `"resolved"` matcher); both locations under tests/, D7 boilerplate-duplication class; stated searches reproduce (docs/bugs identifier grep → 0, coverage-matrix → 0, bugs 0185/0197 cite the file only as a whole with no merge/rename/delete proposed), no gate/recording-double carve-out; dedupe: the only PTQs citing this file are resolved PTQ-0226/0499 and open PTQ-0657 (distinct roots), and PTQ-0655/0656 tracked this exact class on the sibling enum-access-merge file only (fixed, sibling now imports) — this file was never folded in, so the fix is a mechanical import swap (triage: claude-fable-5-1)
+
+## Fix attempts
+- qw20260919162231: skipped — [PTQ-0914-bug0058-bug0100-local-parse-reimplements-parsedoc.md] PTQ-0914: Replaced both local parse wrappers with shared parseDoc; all tests and assertions retained. / PTQ-0916: Reused shared REGISTRY and RegistryRow; retained local message readers as triage permits. / PTQ-0917: Strengthened the assertion to require exactly one error note, retaining diagnostic and envelope checks. / PTQ-0918: Reused plantThetaWorkspace and disposeWorkspace in both files; fixture writes unchanged. No tests deleted. Required gate passed for all four issues: TypeScript clean, 689 test files and 11,586 tests passed. || [PTQ-0919-assertframestointernalerror-reimplements-assertinternalerror.md] PTQ-0919: Both framing helpers delegate to assertInternalError, preserving all four checks; no tests deleted or renamed. / PTQ-0921: Reused the canonical parse-registry reader and message lookup, retaining the non-empty-message guard; no tests deleted or renamed. / PTQ-0922: Replaced the inline pi/ctx double with makeHarness; discovery assertions remain unchanged; no tests deleted or renamed. / PTQ-0926: Shared thetaInput and driveBinder across all three files, preserving per-file parsing, contexts, and fixtures; no tests deleted or renamed. Required gate passed for all four fixes: tsc clean, 689 test files and 11,586 tests passed. ||
