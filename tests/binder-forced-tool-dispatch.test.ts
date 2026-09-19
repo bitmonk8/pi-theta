@@ -141,13 +141,14 @@ import {
 import { buildBinderEnvelopeSchema } from "../src/binder/binder-envelope";
 import { deriveBinderSeed } from "../src/binder/binder-seed";
 import { respondSchemaSlug } from "../src/runtime/typed-query-validation";
-import {
-  AjvSchemaValidator,
-  type LoweredSchema,
-  type SchemaSlug,
-} from "../src/seams/schema-validator";
 import { deepKeyOccurrences } from "./helpers/deep-key-occurrences";
+/**
+ * The production AJV validator (real schema validation), wired with the same
+ * JSON.stringify content-addressing the shipped composition root uses — so the
+ * post-fix envelope AJV at the routing step validates exactly as production.
+ */
 import {
+  ajv as realAjvValidator,
   type CapturedNote,
   capturedCallAccessors,
   driveBinder as driveBinderWithContext,
@@ -245,21 +246,6 @@ const MISTRAL_BINDER_MODEL: BinderModelDouble = {
 };
 
 // --- binder-specific harness ------------------------------------------------
-
-/**
- * The production AJV validator (real schema validation), wired with the same
- * JSON.stringify content-addressing the shipped composition root uses — so the
- * post-fix envelope AJV at the routing step validates exactly as production.
- */
-function realAjvValidator(): AjvSchemaValidator {
-  return new AjvSchemaValidator({
-    emit: (): void => {},
-    slugOf: (schema: LoweredSchema): SchemaSlug => {
-      const canonicalBytes = JSON.stringify(schema);
-      return { slug: canonicalBytes, canonicalBytes };
-    },
-  });
-}
 
 /**
  * A runtime-root double sufficient for a binder pass: noop checkpoint,

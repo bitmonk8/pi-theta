@@ -13,11 +13,19 @@ import {
 } from "../src/runtime/value";
 import { evaluateQuestion } from "../src/runtime/runtime-panics";
 import type { ThetaCompositionInput } from "../src/extension/theta-composition-producer";
-import {
-  AjvSchemaValidator,
-  type LoweredSchema,
-  type SchemaSlug,
-} from "../src/seams/schema-validator";
+/**
+ * The production AJV validator (real schema validation), using the shared
+ * `JSON.stringify` content-addressing fixture.
+ *
+ * Bug 0172: the `.theta`-callable invoke leg now derives a return type by
+ * FN-3 inference over the callee's tail (a named-schema constructor here),
+ * so `#validateInvokeReturn` reaches `root.schemaValidator.compile(...)` on
+ * a path this double previously never exercised (`returnSchema` was always
+ * `null` for a `tools:`-routed call). A real validator is what production
+ * wires there; a stub double must not paper over that with a guard — the
+ * fix is the double, not a defensive `undefined` check in production code.
+ */
+import { ajv as realAjvValidator } from "./helpers/scripted-live-session-harness";
 
 // Bug 0017 — a user object carrying a boolean `ok` field is misclassified as a
 // `Result` runtime value; typed-query payloads and callee final values are
@@ -98,29 +106,6 @@ import {
 // prompt-mode binding (parseThetaDocument → createProductionProducerDeps →
 // bindPromptConversation → executeBody).
 // ===========================================================================
-
-/**
- * The production AJV validator (real schema validation), wired with the same
- * `JSON.stringify` content-addressing the shipped composition root uses — the
- * `tests/binder-forced-tool-dispatch.test.ts` `realAjvValidator()` pattern.
- *
- * Bug 0172: the `.theta`-callable invoke leg now derives a return type by
- * FN-3 inference over the callee's tail (a named-schema constructor here),
- * so `#validateInvokeReturn` reaches `root.schemaValidator.compile(...)` on
- * a path this double previously never exercised (`returnSchema` was always
- * `null` for a `tools:`-routed call). A real validator is what production
- * wires there; a stub double must not paper over that with a guard — the
- * fix is the double, not a defensive `undefined` check in production code.
- */
-function realAjvValidator(): AjvSchemaValidator {
-  return new AjvSchemaValidator({
-    emit: (): void => {},
-    slugOf: (schema: LoweredSchema): SchemaSlug => {
-      const canonicalBytes = JSON.stringify(schema);
-      return { slug: canonicalBytes, canonicalBytes };
-    },
-  });
-}
 
 const FM = "---\nmode: prompt\n---\n";
 

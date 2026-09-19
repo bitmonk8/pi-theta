@@ -8,7 +8,7 @@ import {
   runProductionLoad,
   type LoadOutcome,
 } from "./helpers/production-load-harness";
-import { interpolateStrict, REGISTRY } from "./helpers/registry-oracle";
+import { interpolateStrict, REGISTRY, invokeArgMessage } from "./helpers/registry-oracle";
 
 // Bug 0147 — INTRA-SITE MULTIPLICITY for the argument-type-mismatch family.
 //
@@ -143,24 +143,6 @@ function fill(code: string, subs: ReadonlyMap<string, string>): string {
     (token) =>
       `harness: this file substitutes ${token} into the ${code} *Message*, which no ` +
         "longer carries it — the registry row changed shape",
-  );
-}
-
-/** `invoke argument <i> ('<param>') type mismatch: expected <expected>, got <actual>`. */
-function invokeArgMessage(
-  slot: number,
-  paramName: string,
-  expected: string,
-  actual: string,
-): string {
-  return fill(
-    INVOKE_ARG_CODE,
-    new Map([
-      ["<i>", String(slot)],
-      ["<param>", paramName],
-      ["<expected>", expected],
-      ["<actual>", actual],
-    ]),
   );
 }
 
@@ -516,7 +498,7 @@ const SURFACES: readonly Surface[] = [
         ),
       );
     },
-    typeMessage: (_cell, _i, m) => invokeArgMessage(m.slot, m.param, "string", m.actual),
+    typeMessage: (_cell, _i, m) => invokeArgMessage(m.slot, m.param, "string", m.actual, fill),
     arityMessage: (cell, i, arity) =>
       arity.direction === "too-many"
         ? invokeTooMany(`./${s1Callee(cell.key, i)}.theta`, arity.declared, arity.provided)

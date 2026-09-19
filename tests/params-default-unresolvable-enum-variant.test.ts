@@ -4,7 +4,14 @@ import {
   SEAM_NOOP_MUTATOR,
 } from "./helpers/invoke-seam-scaffold";
 import { parseDeps } from "./helpers/e2e-s1";
-import { EM_DASH, ajvArgsNote } from "./helpers/scripted-live-session-harness";
+/**
+ * The production AJV validator, wired with the same `JSON.stringify`
+ * content-addressing the shipped composition root uses
+ * (`src/extension/production-composition.ts`), so the envelope AJV at the
+ * routing step and the post-merge hook resolve through one compiled-validator
+ * cache exactly as production does.
+ */
+import { ajv as realAjvValidator, EM_DASH, ajvArgsNote } from "./helpers/scripted-live-session-harness";
 import { REGISTRY } from "./helpers/registry-oracle";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -274,11 +281,6 @@ import {
 } from "../src/parser/theta-document";
 import type { ThetaSource } from "../src/lexer/lexer";
 import type { RuntimeRoot } from "../src/runtime-root";
-import {
-  AjvSchemaValidator,
-  type LoweredSchema,
-  type SchemaSlug,
-} from "../src/seams/schema-validator";
 import { buildEnvironment } from "../src/runtime/lexical-environment";
 import {
   createEffectfulStatementHost,
@@ -668,23 +670,6 @@ function parseDrivenCell(name: CellName): ThetaDocument {
   ).toEqual([]);
   expect(doc.frontmatter, `cell ${name} must carry parseable frontmatter`).not.toBeNull();
   return doc;
-}
-
-/**
- * The production AJV validator, wired with the same `JSON.stringify`
- * content-addressing the shipped composition root uses
- * (`src/extension/production-composition.ts`), so the envelope AJV at the
- * routing step and the post-merge hook resolve through one compiled-validator
- * cache exactly as production does.
- */
-function realAjvValidator(): AjvSchemaValidator {
-  return new AjvSchemaValidator({
-    emit: (): void => {},
-    slugOf: (schema: LoweredSchema): SchemaSlug => {
-      const canonicalBytes = JSON.stringify(schema);
-      return { slug: canonicalBytes, canonicalBytes };
-    },
-  });
 }
 
 /**

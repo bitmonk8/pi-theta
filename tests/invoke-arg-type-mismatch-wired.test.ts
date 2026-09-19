@@ -1,16 +1,15 @@
 import { assertNoStemIsASuffix, theta, invokeCaller, diagnosticLineReaders, invokeArgPreconditions, callableCaller } from "./helpers/production-load-harness";
-import { interpolateStrict } from "./helpers/registry-oracle";
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { interpolateStrict, readRegistry, invokeArgMessage } from "./helpers/registry-oracle";
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type {
   ExtensionAPI,
   ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
 // @ts-expect-error — JS code-registry module, no type declarations.
-import { parseRegistry, registryMessage } from "../tools/code-registry/index.js";
+import { registryMessage } from "../tools/code-registry/index.js";
 import type { ThetaFixture } from "../src/extension/factory";
 import { discoverAndComposeFixtures } from "../src/extension/production-composition";
 import type { PrimitiveName } from "../src/parser/type-compat";
@@ -110,18 +109,7 @@ const REGISTRY_PAGES = [
   "docs/spec_topics/diagnostics/code-registry-load.md",
 ] as const;
 
-interface RegistryRow {
-  readonly code: string;
-  readonly severity: string;
-  readonly phase: string;
-  readonly message: string;
-}
-
-const REGISTRY = parseRegistry(
-  REGISTRY_PAGES.map((page) =>
-    readFileSync(fileURLToPath(new URL(`../${page}`, import.meta.url)), "utf8"),
-  ).join("\n"),
-) as RegistryRow[];
+const REGISTRY = readRegistry(["parse", "load"]);
 
 /**
  * A registered code's normative *Message* template, or a throw naming the
@@ -157,32 +145,6 @@ function fill(code: string, subs: ReadonlyMap<string, string>): string {
     (token) =>
       `harness: this file substitutes ${token} into the ${code} *Message*, which no ` +
         "longer carries it — the registry row changed shape",
-  );
-}
-
-/**
- * `invoke argument <i> ('<param>') type mismatch: expected <expected>, got <actual>`.
- *
- * `<i>` is the PARAM SLOT index, not the raw `invoke` argument index: the path
- * literal occupies `args[0]`, so slot `i` binds `args[i + 1]` and the first real
- * argument reports `0` (`invoke-diagnostics.ts` documents `<i>` as the 0-based
- * positional argument index, and `checkInvokeArgTypes` derives it from the slot
- * array's own index). `<param>` is the callee's `params:` field name.
- */
-function invokeArgMessage(
-  slot: number,
-  paramName: string,
-  expected: string,
-  actual: string,
-): string {
-  return fill(
-    CODE,
-    new Map([
-      ["<i>", String(slot)],
-      ["<param>", paramName],
-      ["<expected>", expected],
-      ["<actual>", actual],
-    ]),
   );
 }
 
@@ -497,7 +459,7 @@ const { assertRowSurfaceLive, assertParamTypeDeclarable } = invokeArgPreconditio
     callerStem: "a1inv",
     callerLabel: "a1 caller",
     invocation: 'invoke("./ca.theta", 1)',
-    expectedMessage: () => invokeArgMessage(0, "x", "string", "integer"),
+    expectedMessage: () => invokeArgMessage(0, "x", "string", "integer", fill),
   },
   () => outcome.notifications,
   { linesFor, linesForCode },
@@ -598,7 +560,7 @@ describe("bug 0137 cells a1, a2, a5, a7 — a mistyped `invoke(...)` argument dr
         "callee, so a declared param type is unenforced at the position " +
         "invocation.md §\"Argument binding\" assigns it. Notified: " +
         JSON.stringify(outcome.notifications),
-    ).toContain(invokeArgMessage(0, "x", "string", "integer"));
+    ).toContain(invokeArgMessage(0, "x", "string", "integer", fill));
   });
 
   it("a1: the mistyped caller does not register", () => {
@@ -615,7 +577,7 @@ describe("bug 0137 cells a1, a2, a5, a7 — a mistyped `invoke(...)` argument dr
       outcome.notifications,
       `${CODE} did not surface for a boolean literal argument at a \`string\` param. ` +
         "Notified: " + JSON.stringify(outcome.notifications),
-    ).toContain(invokeArgMessage(0, "x", "string", "boolean"));
+    ).toContain(invokeArgMessage(0, "x", "string", "boolean", fill));
   });
 
   it("a2: the mistyped caller does not register", () => {
@@ -637,7 +599,7 @@ describe("bug 0137 cells a1, a2, a5, a7 — a mistyped `invoke(...)` argument dr
       outcome.notifications,
       `${CODE} did not surface for the \`par for\`-body call. Notified: ` +
         JSON.stringify(outcome.notifications),
-    ).toContain(invokeArgMessage(0, "x", "string", "integer"));
+    ).toContain(invokeArgMessage(0, "x", "string", "integer", fill));
   });
 
   it("a5: the `par for`-body caller does not register", () => {
@@ -655,7 +617,7 @@ describe("bug 0137 cells a1, a2, a5, a7 — a mistyped `invoke(...)` argument dr
         "must be the param slot index (slot `i` binds `args[i + 1]`, the path literal " +
         "occupying `args[0]`) and `<param>` the callee's `params:` field name at that " +
         "slot. Notified: " + JSON.stringify(outcome.notifications),
-    ).toContain(invokeArgMessage(1, "y", "string", "integer"));
+    ).toContain(invokeArgMessage(1, "y", "string", "integer", fill));
   });
 
   it("a7: the caller whose second argument is mistyped does not register", () => {
@@ -681,7 +643,7 @@ describe("bug 0137 primitive cells — a `string` argument is refused at every n
         outcome.notifications,
         `${CODE} did not surface for a string argument at a \`params: x: ${primitive}\` ` +
           "callee. Notified: " + JSON.stringify(outcome.notifications),
-      ).toContain(invokeArgMessage(0, "x", primitive, "string"));
+      ).toContain(invokeArgMessage(0, "x", primitive, "string", fill));
     });
 
     it(`p-${primitive}: the caller mistyping a \`${primitive}\` param does not register`, () => {
@@ -709,7 +671,7 @@ describe("bug 0137 cells u1, u2 — an all-incompatible multi-arm set reports it
         "`<actual>`: both arms are incompatible with the `string` param, so the set is " +
         "provable and the whole set is what the author wrote. Notified: " +
         JSON.stringify(outcome.notifications),
-    ).toContain(invokeArgMessage(0, "x", "string", "integer | boolean"));
+    ).toContain(invokeArgMessage(0, "x", "string", "integer | boolean", fill));
   });
 
   it("u1: the caller does not register", () => {
@@ -725,7 +687,7 @@ describe("bug 0137 cells u1, u2 — an all-incompatible multi-arm set reports it
       outcome.notifications,
       "a composite whose arms render alike must read exactly as one arm does. " +
         "Notified: " + JSON.stringify(outcome.notifications),
-    ).toContain(invokeArgMessage(0, "x", "string", "integer"));
+    ).toContain(invokeArgMessage(0, "x", "string", "integer", fill));
     expect(
       outcome.notifications.filter((n) => n.includes("integer | integer")),
       "the collected set was rendered without deduplication",
@@ -760,7 +722,7 @@ describe("bug 0137 cells a3, a4 — a provable array literal reports, an identif
         "`array` arm reduces the literal and collects its elements, so the mismatch is " +
         "decided here exactly as it is at the same-file `fn` surface. Notified: " +
         JSON.stringify(outcome.notifications),
-    ).toContain(invokeArgMessage(0, "x", "string", "array<string>"));
+    ).toContain(invokeArgMessage(0, "x", "string", "array<string>", fill));
     expect(
       linesForCode("a3arr", CODE).length,
       `no diagnostic line attributes ${CODE} to the array-literal caller, so the emission ` +
@@ -825,7 +787,7 @@ describe("bug 0137 cells a6, u3, n1, w1 — a compatible, mixed, narrowing or wi
     expect(
       outcome.notifications,
       "the mixed-arm set was judged and rendered as a union",
-    ).not.toContain(invokeArgMessage(0, "x", "string", "integer | string"));
+    ).not.toContain(invokeArgMessage(0, "x", "string", "integer | string", fill));
     expect(
       outcome.registered,
       "the mixed-arm caller must register. Registered: " +
@@ -844,7 +806,7 @@ describe("bug 0137 cells a6, u3, n1, w1 — a compatible, mixed, narrowing or wi
     expect(
       outcome.notifications,
       "a narrowing verdict was reported through this row",
-    ).not.toContain(invokeArgMessage(0, "x", "integer", "number"));
+    ).not.toContain(invokeArgMessage(0, "x", "integer", "number", fill));
     expect(
       outcome.registered,
       "the narrowing caller must register. Registered: " +
@@ -862,7 +824,7 @@ describe("bug 0137 cells a6, u3, n1, w1 — a compatible, mixed, narrowing or wi
     expect(
       outcome.notifications,
       "the one-way widening was reported as a mismatch",
-    ).not.toContain(invokeArgMessage(0, "x", "number", "integer"));
+    ).not.toContain(invokeArgMessage(0, "x", "number", "integer", fill));
     expect(
       outcome.registered,
       "the widening caller must register. Registered: " +

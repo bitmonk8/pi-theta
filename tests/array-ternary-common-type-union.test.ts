@@ -1,9 +1,7 @@
-import { interpolateStrict } from "./helpers/registry-oracle";
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
+import { interpolateStrict, readRegistry } from "./helpers/registry-oracle";
 import { describe, expect, it } from "vitest";
 // @ts-expect-error — JS code-registry module, no type declarations.
-import { parseRegistry, registryMessage } from "../tools/code-registry/index.js";
+import { registryMessage } from "../tools/code-registry/index.js";
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
 import type { Block, Expr, Stmt, ThetaDocument } from "../src/parser/theta-document";
 import { StaticTypeInferencePass } from "../src/parser/static-type-inference";
@@ -176,17 +174,10 @@ import { parseDoc } from "./helpers/e2e-s1";
 const NO_COMMON_TYPE_CODE = "theta/parse/array-no-common-type";
 const MIXED_PLUS_CODE = "theta/parse/mixed-plus-operands";
 
-interface RegistryRow {
-  readonly code: string;
-  readonly message: string;
-}
-
 /** The live `theta/parse/*` registry page — the DIAG-4 oracle for this file. */
 const REGISTRY_PAGE = "docs/spec_topics/diagnostics/code-registry-parse.md";
 
-const REGISTRY = parseRegistry(
-  readFileSync(fileURLToPath(new URL(`../${REGISTRY_PAGE}`, import.meta.url)), "utf8"),
-) as RegistryRow[];
+const REGISTRY = readRegistry(["parse"]);
 
 /**
  * Interpolate a registered *Message* template's `<…>` placeholders from `subs`.

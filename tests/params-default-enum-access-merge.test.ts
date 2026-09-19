@@ -1,4 +1,11 @@
-import { AJV_SUMMARY_SEPARATOR, ajvArgsNote } from "./helpers/scripted-live-session-harness";
+/**
+ * The production AJV validator, wired with the same `JSON.stringify`
+ * content-addressing the shipped composition root uses
+ * (`src/extension/production-composition.ts`), so the envelope AJV at the
+ * routing step, the post-merge hook and the inbound union-arm re-test all
+ * resolve through one compiled-validator cache exactly as production does.
+ */
+import { ajv as realAjvValidator, AJV_SUMMARY_SEPARATOR, ajvArgsNote } from "./helpers/scripted-live-session-harness";
 import {
   SEAM_NOOP_CHECKPOINT as NOOP_CHECKPOINT,
   SEAM_NOOP_SINK as NOOP_SINK,
@@ -154,11 +161,6 @@ import {
 import { parseThetaDocument, type ThetaBody, type ThetaDocument } from "../src/parser/theta-document";
 import type { ThetaSource } from "../src/lexer/lexer";
 import type { RuntimeRoot } from "../src/runtime-root";
-import {
-  AjvSchemaValidator,
-  type LoweredSchema,
-  type SchemaSlug,
-} from "../src/seams/schema-validator";
 import { bindParamsInbound } from "../src/runtime/inbound-boundary";
 import { buildEnvironment } from "../src/runtime/lexical-environment";
 import {
@@ -346,23 +348,6 @@ function parseCell(name: CellName): ThetaDocument {
   ).toEqual([]);
   expect(doc.frontmatter, "the fixture must carry parseable frontmatter").not.toBeNull();
   return doc;
-}
-
-/**
- * The production AJV validator, wired with the same `JSON.stringify`
- * content-addressing the shipped composition root uses
- * (`src/extension/production-composition.ts`), so the envelope AJV at the
- * routing step, the post-merge hook and the inbound union-arm re-test all
- * resolve through one compiled-validator cache exactly as production does.
- */
-function realAjvValidator(): AjvSchemaValidator {
-  return new AjvSchemaValidator({
-    emit: (): void => {},
-    slugOf: (schema: LoweredSchema): SchemaSlug => {
-      const canonicalBytes = JSON.stringify(schema);
-      return { slug: canonicalBytes, canonicalBytes };
-    },
-  });
 }
 
 /**

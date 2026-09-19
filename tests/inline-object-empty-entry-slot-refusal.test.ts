@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 import { registryMessage } from "../tools/code-registry/index.js";
 import { splitTopLevelSegments, topLevelColon } from "../src/parser/params";
 import { lowerQueryResponseSchema } from "../src/runtime/query-schema-lowering";
-import { expectGroup as expectGroupShared, type DiagnosticCell, parseDoc, diagLines, subagentTheta as theta, subagentParamsSrc } from "./helpers/e2e-s1";
+import { expectGroup as expectGroupShared, type DiagnosticCell, parseDoc, diagLines, subagentTheta as theta, subagentParamsSrc, loweredParams } from "./helpers/e2e-s1";
 
 // Bug 0257 — an inline object entry SLOT spelling no token at all — the segment
 // a doubled, leading or lone top-level comma opens (`{a: integer,,b: string}`,
@@ -326,11 +326,6 @@ function paramsSrc(type: string): string {
 
 function lines(src: string, path = "test.theta"): string[] {
   return diagLines(parseDoc(src, path));
-}
-
-/** The `params:` lowering, verbatim — `null` when the frontmatter is withheld. */
-function loweredParams(type: string): string {
-  return JSON.stringify(parseDoc(paramsSrc(type)).frontmatter?.params?.loweredSchema ?? null);
 }
 
 /** One diagnostic-list cell. */
@@ -801,11 +796,11 @@ describe("bug 0257 (F-PARAMS) — no params: field lowers from this shape", () =
   it("the three subjects withhold their frontmatter; the control keeps its slug ", () => {
     expect(
       {
-        "doubled comma": loweredParams(DOUBLED),
-        "leading comma": loweredParams(LEADING),
-        "comma-only interior": loweredParams(LONE),
-        "control (FENCE)": loweredParams(CONTROL),
-        "the empty object (FENCE)": loweredParams("{}"),
+        "doubled comma": loweredParams(paramsSrc(DOUBLED)),
+        "leading comma": loweredParams(paramsSrc(LEADING)),
+        "comma-only interior": loweredParams(paramsSrc(LONE)),
+        "control (FENCE)": loweredParams(paramsSrc(CONTROL)),
+        "the empty object (FENCE)": loweredParams(paramsSrc("{}")),
       },
       "§Expected behaviour 6: no comma-only interior lowers the fragment " +
         "`theta/parse/empty-schema-body` refuses, and no `params:` field lowers to a permissive " +

@@ -1,5 +1,5 @@
 import { PARSE_REGISTRY_PATH as REGISTRY_PAGE, CLEAN, one, two, type Expectation } from "./helpers/load-row-harness";
-import { interpolateStrict, readRegistry } from "./helpers/registry-oracle";
+import { interpolateStrict, readRegistry, typeMismatchMessages } from "./helpers/registry-oracle";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
@@ -9,7 +9,7 @@ import type {
   ExtensionCommandContext,
   ModelRegistry,
 } from "@earendil-works/pi-coding-agent";
-import type { Diagnostic, SourceRange } from "../src/diagnostics/diagnostic";
+import type { Diagnostic } from "../src/diagnostics/diagnostic";
 import type { ParsedFrontmatter } from "../src/parser/frontmatter";
 import type {
   Block,
@@ -26,7 +26,7 @@ import type {
 } from "../src/extension/theta-composition-producer";
 import { rootDouble, noopPi } from "./helpers/call-with-clause-harness";
 import type { ThetaValue } from "../src/runtime/value";
-import { parseDoc } from "./helpers/e2e-s1";
+import { at, render, parseDoc } from "./helpers/e2e-s1";
 
 // Bug 0145 — `StaticTypeInferencePass`'s `#typeExpr` has no arm-scope concept.
 // Its `case "match"` arm maps every arm body through the `bindings` map it was
@@ -200,17 +200,7 @@ const UNKNOWN_METHOD = "theta/parse/unknown-method";
 const FN_ARG = "theta/parse/fn-arg-type-mismatch";
 const SCHEMA_CASE = "theta/parse/schema-case-mismatch";
 
-/** `let binding '<name>' initialiser type mismatch: expected <expected>, got <actual>` */
-function letRhs(name: string, expected: string, actual: string): string {
-  return fill(
-    LET_RHS,
-    new Map([
-      ["<name>", name],
-      ["<expected>", expected],
-      ["<actual>", actual],
-    ]),
-  );
-}
+const { fnArg, letRhs } = typeMismatchMessages(fill);
 
 /** `'+' has mixed operand types: <left> and <right>` */
 function mixedPlus(left: string, right: string): string {
@@ -274,26 +264,6 @@ function unknownMethod(method: string, type: string): string {
   );
 }
 
-/** `fn '<name>' argument <i> ('<param>') type mismatch: expected <expected>, got <actual>` */
-function fnArg(
-  name: string,
-  index: number,
-  param: string,
-  expected: string,
-  actual: string,
-): string {
-  return fill(
-    FN_ARG,
-    new Map([
-      ["<name>", name],
-      ["<i>", String(index)],
-      ["<param>", param],
-      ["<expected>", expected],
-      ["<actual>", actual],
-    ]),
-  );
-}
-
 /** Placeholder-free *Message*s — the template IS the rendered text. */
 const NARROWING_MESSAGE = registered(INTEGER_NARROWING);
 const ARM_MISMATCH_MESSAGE = registered(ARM_MISMATCH);
@@ -314,20 +284,6 @@ const FM = "---\nmode: prompt\n---\n";
  * unreachable from `bindings` — see row d7's comment for why that is now false.
  */
 const FM_PARAMS = "---\nmode: prompt\nparams:\n  topic: string\n---\n";
-
-function at(r: SourceRange): string {
-  return `${r.start.line}:${r.start.column}-${r.end.line}:${r.end.column}`;
-}
-
-/** Every diagnostic rendered `severity code @range: message` — failure payload. */
-function render(doc: ThetaDocument): string {
-  return JSON.stringify(
-    doc.diagnostics.map((d: Diagnostic) => {
-      const r = d.range;
-      return `${d.severity} ${d.code} @${r === undefined ? "-" : at(r)}: ${d.message}`;
-    }),
-  );
-}
 
 /**
  * A pattern rendered as its binder structure — the shape

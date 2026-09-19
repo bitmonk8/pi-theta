@@ -2,14 +2,13 @@ import {
   assertNoStemIsASuffix, theta, invokeCaller, diagnosticLineReaders, invokeArgPreconditions, callableCaller,
   runProductionLoad, type LoadOutcome,
 } from "./helpers/production-load-harness";
-import { interpolateStrict } from "./helpers/registry-oracle";
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { interpolateStrict, readRegistry, invokeArgMessage } from "./helpers/registry-oracle";
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 // @ts-expect-error — JS code-registry module, no type declarations.
-import { parseRegistry, registryMessage } from "../tools/code-registry/index.js";
+import { registryMessage } from "../tools/code-registry/index.js";
 
 // Bug 0146 — the ARRAY-LITERAL argument shape at the two call surfaces that
 // read `collectProvableArgTypes` (`src/extension/invoke-static-checks.ts`):
@@ -79,19 +78,7 @@ const SCHEMA_CONFLICT_CODE = "theta/parse/tool-arg-schema-conflict";
 /** The registry page carrying every row this file anchors on — the DIAG-4 oracle. */
 const REGISTRY_PAGE = "docs/spec_topics/diagnostics/code-registry-parse.md";
 
-interface RegistryRow {
-  readonly code: string;
-  readonly severity: string;
-  readonly phase: string;
-  readonly message: string;
-}
-
-const REGISTRY = parseRegistry(
-  readFileSync(
-    fileURLToPath(new URL(`../${REGISTRY_PAGE}`, import.meta.url)),
-    "utf8",
-  ),
-) as RegistryRow[];
+const REGISTRY = readRegistry(["parse"]);
 
 /**
  * A registered code's normative *Message* template, or a throw naming the
@@ -127,29 +114,6 @@ function fill(code: string, subs: ReadonlyMap<string, string>): string {
     (token) =>
       `harness: this file substitutes ${token} into the ${code} *Message*, which no ` +
         "longer carries it — the registry row changed shape",
-  );
-}
-
-/**
- * `invoke argument <i> ('<param>') type mismatch: expected <expected>, got <actual>`.
- *
- * `<i>` is the PARAM SLOT index: the path literal occupies the invoke call's
- * first argument, so the first real argument reports `0`.
- */
-function invokeArgMessage(
-  slot: number,
-  paramName: string,
-  expected: string,
-  actual: string,
-): string {
-  return fill(
-    CODE,
-    new Map([
-      ["<i>", String(slot)],
-      ["<param>", paramName],
-      ["<expected>", expected],
-      ["<actual>", actual],
-    ]),
   );
 }
 
@@ -378,7 +342,7 @@ const { assertRowSurfaceLive, assertParamTypeDeclarable } = invokeArgPreconditio
     callerStem: "b0146c12",
     callerLabel: "control caller",
     invocation: 'invoke("./b0146k12.theta", 1)',
-    expectedMessage: () => invokeArgMessage(0, "x", "string", "integer"),
+    expectedMessage: () => invokeArgMessage(0, "x", "string", "integer", fill),
   },
   () => outcome.notifications,
   { linesFor, linesForCode },
@@ -465,7 +429,7 @@ describe("bug 0146 cells e1-e4 — an array literal at an incompatible param dra
         'position invocation.md §"Argument binding" assigns it, while the same mistype ' +
         "through a same-file `fn` call is refused. Notified: " +
         JSON.stringify(outcome.notifications),
-    ).toContain(invokeArgMessage(0, "x", "string", "array<string>"));
+    ).toContain(invokeArgMessage(0, "x", "string", "array<string>", fill));
     expect(
       linesForCode("b0146c01", CODE).length,
       "no diagnostic line attributes the row to the array-literal caller, so the " +
@@ -489,7 +453,7 @@ describe("bug 0146 cells e1-e4 — an array literal at an incompatible param dra
       "the nested array literal's `<actual>` did not render as the pass's own nested " +
         "array type, so the collected member renders differently from the type " +
         "`#typeExpr` assigns. Notified: " + JSON.stringify(outcome.notifications),
-    ).toContain(invokeArgMessage(0, "x", "string", "array<array<integer>>"));
+    ).toContain(invokeArgMessage(0, "x", "string", "array<array<integer>>", fill));
     expect(
       outcome.registered,
       "the nested-array caller registered. Registered: " +
@@ -503,7 +467,7 @@ describe("bug 0146 cells e1-e4 — an array literal at an incompatible param dra
       "the mixed-element literal's `<actual>` did not carry the element union: the " +
         "elements are collected as a set and the whole set is what the author wrote. " +
         "Notified: " + JSON.stringify(outcome.notifications),
-    ).toContain(invokeArgMessage(0, "x", "string", "array<integer | string>"));
+    ).toContain(invokeArgMessage(0, "x", "string", "array<integer | string>", fill));
     expect(
       outcome.registered,
       "the mixed-element caller registered. Registered: " +
@@ -518,7 +482,7 @@ describe("bug 0146 cells e1-e4 — an array literal at an incompatible param dra
       "an array literal whose element type is incompatible with a STRUCTURAL param type " +
         "was admitted, so the widening reaches only primitive params. Notified: " +
         JSON.stringify(outcome.notifications),
-    ).toContain(invokeArgMessage(0, "x", "array<integer>", "array<string>"));
+    ).toContain(invokeArgMessage(0, "x", "array<integer>", "array<string>", fill));
     expect(
       outcome.registered,
       "the caller mistyping an `array<integer>` param registered. Registered: " +
@@ -546,7 +510,7 @@ describe("bug 0146 cell e6 — an alternation-typed element renders as the pass'
       "the alternation-typed element's collected union did not surface, so an argument " +
         "whose element type the pass itself resolves to a union is silently admitted. " +
         "Notified: " + JSON.stringify(outcome.notifications),
-    ).toContain(invokeArgMessage(0, "x", "array<string>", "array<integer | string>"));
+    ).toContain(invokeArgMessage(0, "x", "array<string>", "array<integer | string>", fill));
     expect(
       linesForCode("b0146c23", "theta/parse/array-element-type-mismatch"),
       "a second row fired for the same element, so this cell's caller is not isolating " +

@@ -1,11 +1,9 @@
 import { REGISTRY } from "./helpers/registry-oracle";
 import { describe, expect, it } from "vitest";
 import { registryMessageOf } from "./helpers/load-row-harness";
-import type { Diagnostic } from "../src/diagnostics/diagnostic";
-import type { ThetaDocument } from "../src/parser/theta-document";
 import { splitTopLevel } from "../src/parser/params";
 import { lowerQueryResponseSchema } from "../src/runtime/query-schema-lowering";
-import { expectGroup as expectGroupShared, type DiagnosticCell, parseDoc, subagentTheta as theta, subagentParamsSrc as paramsSrc } from "./helpers/e2e-s1";
+import { expectGroup as expectGroupShared, type DiagnosticCell, diagLines, parseDoc, subagentTheta as theta, subagentParamsSrc as paramsSrc, loweredParams } from "./helpers/e2e-s1";
 
 // Bug 0236 — `TypeParser.parsePrimary` has no arm for `[`, so a bracket group
 // written as a generic type argument falls to the tolerant punctuation skip,
@@ -312,11 +310,6 @@ function renderAll(exps: readonly Exp[]): string[] {
 // lowerers under assertion are the production ones.
 // ===========================================================================
 
-/** Every diagnostic rendered `<severity> <code>: <message>`, in emission order. */
-function diagLines(doc: ThetaDocument): string[] {
-  return doc.diagnostics.map((d: Diagnostic) => `${d.severity} ${d.code}: ${d.message}`);
-}
-
 function lines(src: string, path = "test.theta"): string[] {
   return diagLines(parseDoc(src, path));
 }
@@ -558,14 +551,12 @@ describe("bug 0236 (B) — an arity violation is refused whether or not an argum
     // GREEN at HEAD and pins that the route does not start lowering a fragment
     // for the subject on its way to fixing the count. The third column is the
     // proof this harness still reaches the `params:` lowering at all.
-    const lowered = (src: string): string =>
-      JSON.stringify(parseDoc(src).frontmatter?.params?.loweredSchema ?? null);
     expect(
       {
-        subjectA: lowered(paramsSrc(`  p: '${SUBJECT_A}'`)),
-        controlC: lowered(paramsSrc(`  p: '${CONTROL_C}'`)),
-        subjectR: lowered(paramsSrc(`  p: '${SUBJECT_R}'`)),
-        clean: lowered(paramsSrc("  p: 'array<string>'")),
+        subjectA: loweredParams(paramsSrc(`  p: '${SUBJECT_A}'`)),
+        controlC: loweredParams(paramsSrc(`  p: '${CONTROL_C}'`)),
+        subjectR: loweredParams(paramsSrc(`  p: '${SUBJECT_R}'`)),
+        clean: loweredParams(paramsSrc("  p: 'array<string>'")),
       },
       "an error-severity frontmatter diagnostic withholds the whole frontmatter object, so a " +
         "refused `params:` field lowers nothing — §Reproduction (e) row e4. A red reporting a " +

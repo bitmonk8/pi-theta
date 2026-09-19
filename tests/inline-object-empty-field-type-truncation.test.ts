@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 // @ts-expect-error — JS code-registry module, no type declarations.
 import { registryMessage } from "../tools/code-registry/index.js";
 import { lowerQueryResponseSchema } from "../src/runtime/query-schema-lowering";
-import { expectGroup as expectGroupShared, type DiagnosticCell, parseDoc, diagLines, subagentTheta as theta, subagentParamsSrc as paramsSrc } from "./helpers/e2e-s1";
+import { expectGroup as expectGroupShared, type DiagnosticCell, parseDoc, diagLines, subagentTheta as theta, subagentParamsSrc as paramsSrc, loweredParams } from "./helpers/e2e-s1";
 
 // Bug 0237 — an inline object entry whose TYPE position is empty truncates the
 // interior at that entry: `TypeParser.parsePrimary`'s tolerant punctuation skip
@@ -388,11 +388,6 @@ function renderAll(exps: readonly Exp[]): string[] {
 
 function lines(src: string, path = "test.theta"): string[] {
   return diagLines(parseDoc(src, path));
-}
-
-/** The `params:` lowering, verbatim — `null` when the frontmatter is withheld. */
-function loweredParams(src: string): string {
-  return JSON.stringify(parseDoc(src).frontmatter?.params?.loweredSchema ?? null);
 }
 
 /** One diagnostic-list cell. */

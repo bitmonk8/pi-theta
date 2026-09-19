@@ -1,5 +1,5 @@
 import { CLEAN, one, two, type Expectation } from "./helpers/load-row-harness";
-import { interpolateStrict } from "./helpers/registry-oracle";
+import { interpolateStrict, typeMismatchMessages } from "./helpers/registry-oracle";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
@@ -212,37 +212,7 @@ const LET_RHS = "theta/parse/let-rhs-type-mismatch";
 const INTERP_RESULT = "theta/parse/interpolated-result";
 const PAR_QUERY = "theta/parse/par-query-in-body";
 
-/** `fn '<name>' argument <i> ('<param>') type mismatch: expected <expected>, got <actual>` */
-function fnArg(
-  name: string,
-  index: number,
-  param: string,
-  expected: string,
-  actual: string,
-): string {
-  return fill(
-    FN_ARG,
-    new Map([
-      ["<name>", name],
-      ["<i>", String(index)],
-      ["<param>", param],
-      ["<expected>", expected],
-      ["<actual>", actual],
-    ]),
-  );
-}
-
-/** `let binding '<name>' initialiser type mismatch: expected <expected>, got <actual>` */
-function letRhs(name: string, expected: string, actual: string): string {
-  return fill(
-    LET_RHS,
-    new Map([
-      ["<name>", name],
-      ["<expected>", expected],
-      ["<actual>", actual],
-    ]),
-  );
-}
+const { fnArg, letRhs } = typeMismatchMessages(fill);
 
 /** The suppressed verdict every group (a)–(c) row is owed: `g(b)` over an `integer`. */
 const G_MISMATCH = fnArg("g", 0, "s", "string", "integer");

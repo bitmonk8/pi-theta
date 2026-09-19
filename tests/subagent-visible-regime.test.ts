@@ -14,7 +14,6 @@
 // 0012 §7), execution-status.md EXST-5.
 
 import { RecordingBus, rootDouble, noopPi, subagentTheta, childCtx } from "./helpers/subagent-fn-child-regime";
-import { SEAM_NOOP_CHECKPOINT } from "./helpers/invoke-seam-scaffold";
 import { resolvingHost } from "./helpers/fake-json-child";
 import { describe, expect, it } from "vitest";
 import type { ModelRegistry } from "@earendil-works/pi-coding-agent";
@@ -58,20 +57,7 @@ class ThrowingCheckpoint implements Checkpoint {
  */
 function hexInvocationRoot(ids: readonly string[]): RuntimeRoot {
   let i = 0;
-  return {
-    checkpoint: SEAM_NOOP_CHECKPOINT,
-    idSource: {
-      newInvocationId: (): string => ids[Math.min(i++, ids.length - 1)]!,
-      newToolCallId: (): string => "tc-1",
-    },
-    clock: {
-      now: () => 0,
-      wallNow: () => 0,
-      setTimeout: (fn: () => void, ms: number) => setTimeout(fn, ms),
-      clearTimeout: (h: unknown) => clearTimeout(h as ReturnType<typeof setTimeout>),
-    },
-    schemaValidator: { compile: () => ({ validate: () => ({ ok: true as const }) }) },
-  } as unknown as RuntimeRoot;
+  return rootDouble(undefined, (): string => ids[Math.min(i++, ids.length - 1)]!);
 }
 
 function controlPlane(presentation: "visible" | "headless"): SubagentChildControlPlane {

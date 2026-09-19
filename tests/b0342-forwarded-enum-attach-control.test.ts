@@ -53,11 +53,8 @@ import type {
   ConversationBindInput,
   ThetaCompositionInput,
 } from "../src/extension/theta-composition-producer";
-import {
-  AjvSchemaValidator,
-  type LoweredSchema,
-  type SchemaSlug,
-} from "../src/seams/schema-validator";
+/** The production AJV validator with the shipped `JSON.stringify` content-addressing, for the `invoke<T>` return gate. */
+import { ajv as realAjvValidator } from "./helpers/scripted-live-session-harness";
 
 const PROMPT_FM = "---\nmode: prompt\n---\n";
 
@@ -75,17 +72,6 @@ function parseTheta(path: string, src: string): ThetaDocument {
     );
   }
   return doc;
-}
-
-/** The production AJV validator with the shipped `JSON.stringify` content-addressing, for the `invoke<T>` return gate. */
-function realAjvValidator(): AjvSchemaValidator {
-  return new AjvSchemaValidator({
-    emit: (): void => {},
-    slugOf: (schema: LoweredSchema): SchemaSlug => {
-      const canonicalBytes = JSON.stringify(schema);
-      return { slug: canonicalBytes, canonicalBytes };
-    },
-  });
 }
 
 /**

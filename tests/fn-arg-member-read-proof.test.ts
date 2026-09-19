@@ -1,11 +1,11 @@
 import { PARSE_REGISTRY_PATH as REGISTRY_PAGE, CLEAN, one, type Expectation } from "./helpers/load-row-harness";
-import { interpolateStrict, readRegistry } from "./helpers/registry-oracle";
+import { interpolateStrict, readRegistry, typeMismatchMessages } from "./helpers/registry-oracle";
 import { describe, expect, it } from "vitest";
 // @ts-expect-error — JS code-registry module, no type declarations.
 import { registryMessage } from "../tools/code-registry/index.js";
 import type { Diagnostic, SourceRange } from "../src/diagnostics/diagnostic";
 import type { Block, Expr, Stmt, ThetaDocument } from "../src/parser/theta-document";
-import { parseDoc } from "./helpers/e2e-s1";
+import { at, render, parseDoc } from "./helpers/e2e-s1";
 
 // Bug 0190 — `provableArgType`'s shared `case "member"` / `case "method-call"`
 // arm returns `undefined` before reading anything, so the wired
@@ -199,37 +199,7 @@ const OBJECT_FIELD = "theta/parse/object-field-type-mismatch";
 const BINDING_CASE = "theta/parse/binding-case-mismatch";
 const MATCH_ARM = "theta/parse/match-arm-type-mismatch";
 
-/** `fn '<name>' argument <i> ('<param>') type mismatch: expected <expected>, got <actual>` */
-function fnArg(
-  name: string,
-  index: number,
-  param: string,
-  expected: string,
-  actual: string,
-): string {
-  return fill(
-    FN_ARG,
-    new Map([
-      ["<name>", name],
-      ["<i>", String(index)],
-      ["<param>", param],
-      ["<expected>", expected],
-      ["<actual>", actual],
-    ]),
-  );
-}
-
-/** `let binding '<name>' initialiser type mismatch: expected <expected>, got <actual>` */
-function letRhs(name: string, expected: string, actual: string): string {
-  return fill(
-    LET_RHS,
-    new Map([
-      ["<name>", name],
-      ["<expected>", expected],
-      ["<actual>", actual],
-    ]),
-  );
-}
+const { fnArg, letRhs } = typeMismatchMessages(fill);
 
 /** `field '<field>' on schema '<schema>' type mismatch: expected <expected>, got <actual>` */
 function objectField(
@@ -276,20 +246,6 @@ const FM = "---\nmode: prompt\n---\n";
 
 function parse(body: string): ThetaDocument {
   return parseDoc(FM + body, FILE);
-}
-
-function at(r: SourceRange): string {
-  return `${r.start.line}:${r.start.column}-${r.end.line}:${r.end.column}`;
-}
-
-/** Every diagnostic rendered `severity code @range: message` — failure payload. */
-function render(doc: ThetaDocument): string {
-  return JSON.stringify(
-    doc.diagnostics.map((d: Diagnostic) => {
-      const r = d.range;
-      return `${d.severity} ${d.code} @${r === undefined ? "-" : at(r)}: ${d.message}`;
-    }),
-  );
 }
 
 /**

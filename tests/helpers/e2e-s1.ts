@@ -100,6 +100,11 @@ export function parseDoc(src: string, path = "test.theta"): ThetaDocument {
   return parseThetaDocument(source, parseDeps());
 }
 
+/** The `params:` lowering, verbatim — `null` when the frontmatter is withheld. */
+export function loweredParams(src: string, path = "test.theta"): string {
+  return JSON.stringify(parseDoc(src, path).frontmatter?.params?.loweredSchema ?? null);
+}
+
 /** Parse a body while requiring valid frontmatter, retaining body diagnostics. */
 export function parseBodyWithFrontmatter(
   body: string,

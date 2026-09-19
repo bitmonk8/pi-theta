@@ -6,7 +6,7 @@ import type { ThetaDocument } from "../src/parser/theta-document";
 import { isSingleEnclosingBraceGroup } from "../src/parser/params";
 import { annotationSourceIsNotTypeExpression } from "../src/parser/type-layer-checks";
 import { lowerQueryResponseSchema } from "../src/runtime/query-schema-lowering";
-import { expectGroup as expectGroupShared, type DiagnosticCell, parseDoc, subagentTheta as theta, subagentParamsSrc } from "./helpers/e2e-s1";
+import { expectGroup as expectGroupShared, type DiagnosticCell, parseDoc, subagentTheta as theta, subagentParamsSrc, loweredParams } from "./helpers/e2e-s1";
 
 // Bug 0256 — an inline object entry stranded behind `TypeParser.parseObject`'s
 // exit on a missing entry separator is never visited, so a `params:` field
@@ -245,11 +245,6 @@ function lines(src: string, path = "test.theta"): string[] {
   return diagLines(parseDoc(src, path));
 }
 
-/** The `params:` lowering, verbatim — `null` when the frontmatter is withheld. */
-function loweredParams(type: string): string {
-  return JSON.stringify(parseDoc(paramsSrc(type)).frontmatter?.params?.loweredSchema ?? null);
-}
-
 /** One diagnostic-list cell. */
 type Cell = DiagnosticCell<Exp>;
 
@@ -346,12 +341,12 @@ describe("bug 0256 (A) — the subject, its byte-neighbour control and the class
     // writes `{}` directly. a3 keeps its fragment because it is not refused.
     expect(
       {
-        a1: loweredParams(SUBJECT),
-        a2: loweredParams(CONTROL),
-        a3: loweredParams("array<{a: b c}>"),
-        a4: loweredParams("array<{d e}>"),
-        a5: loweredParams(STRANDED),
-        a6: loweredParams("{a: b c}"),
+        a1: loweredParams(paramsSrc(SUBJECT)),
+        a2: loweredParams(paramsSrc(CONTROL)),
+        a3: loweredParams(paramsSrc("array<{a: b c}>")),
+        a4: loweredParams(paramsSrc("array<{d e}>")),
+        a5: loweredParams(paramsSrc(STRANDED)),
+        a6: loweredParams(paramsSrc("{a: b c}")),
       },
       "a red at a1 reporting the permissive fragment is the wire harm itself: a declared " +
         "`params:` contract reaching the provider as the accept-anything schema. A red at a3 " +
@@ -524,7 +519,7 @@ describe("bug 0256 (C) — the class's thirteen spellings refuse, and none lower
     const actual: Record<string, string> = {};
     const expected: Record<string, string> = {};
     for (const [id, type] of C_ROWS) {
-      actual[`${id} ${type}`] = loweredParams(type);
+      actual[`${id} ${type}`] = loweredParams(paramsSrc(type));
       expected[`${id} ${type}`] = "null";
     }
     expect(
@@ -672,7 +667,7 @@ describe("bug 0256 (F) — bug 0238's and bug 0251's landed classes are unmoved"
 
   it("rows f1 and f2: lowerings ", () => {
     expect(
-      { f1: loweredParams(STRAY), f2: loweredParams(`array<${STRAY}>`) },
+      { f1: loweredParams(paramsSrc(STRAY)), f2: loweredParams(paramsSrc(`array<${STRAY}>`)) },
       "a red at f1 reporting `null` withdraws the registration bug 0238's §Fix promises; a red " +
         "at f2 reporting anything but the permissive fragment moves bug 0251 *Residuals* item " +
         "2's measured row, which is that report's business and not this one's",

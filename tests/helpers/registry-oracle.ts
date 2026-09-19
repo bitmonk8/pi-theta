@@ -262,12 +262,41 @@ export function fnArgMessage(
   paramName: string,
   expected: string,
   actual: string,
+  fill: typeof fillParseMessage = fillParseMessage,
 ): string {
-  return fillParseMessage(
+  return fill(
     "theta/parse/fn-arg-type-mismatch",
     new Map([
       ["<name>", fnName],
       ["<i>", String(index)],
+      ["<param>", paramName],
+      ["<expected>", expected],
+      ["<actual>", actual],
+    ]),
+  );
+}
+
+/**
+ * `invoke argument <i> ('<param>') type mismatch: expected <expected>, got <actual>`.
+ *
+ * `<i>` is the PARAM SLOT index, not the raw `invoke` argument index: the path
+ * literal occupies `args[0]`, so slot `i` binds `args[i + 1]` and the first real
+ * argument reports `0` (`invoke-diagnostics.ts` documents `<i>` as the 0-based
+ * positional argument index, and `checkInvokeArgTypes` derives it from the slot
+ * array's own index). `<param>` is the callee's `params:` field name.
+ * Interpolation is one pass; unsupplied or unused placeholders throw.
+ */
+export function invokeArgMessage(
+  slot: number,
+  paramName: string,
+  expected: string,
+  actual: string,
+  fill: typeof fillParseMessage = fillParseMessage,
+): string {
+  return fill(
+    "theta/parse/invoke-arg-type-mismatch",
+    new Map([
+      ["<i>", String(slot)],
       ["<param>", paramName],
       ["<expected>", expected],
       ["<actual>", actual],
@@ -293,8 +322,13 @@ export function arrayElementMessage(index: number, expected: string, actual: str
 }
 
 /** `let binding '<name>' initialiser type mismatch: expected <expected>, got <actual>`. */
-export function letRhsMessage(name: string, expected: string, actual: string): string {
-  return fillParseMessage(
+export function letRhsMessage(
+  name: string,
+  expected: string,
+  actual: string,
+  fill: typeof fillParseMessage = fillParseMessage,
+): string {
+  return fill(
     "theta/parse/let-rhs-type-mismatch",
     new Map([
       ["<name>", name],
@@ -302,6 +336,16 @@ export function letRhsMessage(name: string, expected: string, actual: string): s
       ["<actual>", actual],
     ]),
   );
+}
+
+/** Bind the type-mismatch builders to a file's registry interpolator and failure wording. */
+export function typeMismatchMessages(fill: typeof fillParseMessage) {
+  return {
+    fnArg: (name: string, index: number, param: string, expected: string, actual: string) =>
+      fnArgMessage(name, index, param, expected, actual, fill),
+    letRhs: (name: string, expected: string, actual: string) =>
+      letRhsMessage(name, expected, actual, fill),
+  };
 }
 
 /** `'<op>' requires two numeric operands; got <left> and <right>`. */

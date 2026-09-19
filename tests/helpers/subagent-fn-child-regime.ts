@@ -41,10 +41,10 @@ import { parseDoc } from "./e2e-s1";
 import { parseExpressionSource, type ThetaDocument } from "../../src/parser/theta-document";
 import { ajv } from "./scripted-live-session-harness";
 
-/** Fresh fixed-id and zero-clock doubles, with timers forwarded to the ambient host. */
-function fixedIdsAndClock(): Pick<RuntimeRoot, "idSource" | "clock"> {
+/** Fresh id and zero-clock doubles, with fixed ids by default and timers forwarded to the ambient host. */
+function fixedIdsAndClock(newInvocationId = () => "inv-1"): Pick<RuntimeRoot, "idSource" | "clock"> {
   return {
-    idSource: { newInvocationId: () => "inv-1", newToolCallId: () => "tc-1" },
+    idSource: { newInvocationId, newToolCallId: () => "tc-1" },
     clock: {
       now: () => 0,
       wallNow: () => 0,
@@ -163,10 +163,10 @@ export function reportOf(value: unknown, fixture: "set" | "pair" = "set"): Recor
   return value as Record<string, unknown>;
 }
 
-export function rootDouble(checkpoint?: Checkpoint): RuntimeRoot {
+export function rootDouble(checkpoint?: Checkpoint, newInvocationId?: () => string): RuntimeRoot {
   return {
     checkpoint: checkpoint ?? SEAM_NOOP_CHECKPOINT,
-    ...fixedIdsAndClock(),
+    ...fixedIdsAndClock(newInvocationId),
     schemaValidator: { compile: () => ({ validate: () => ({ ok: true as const }) }) },
   } as unknown as RuntimeRoot;
 }

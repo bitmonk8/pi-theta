@@ -26,14 +26,13 @@
 // invocation.md INV-5, cancellation.md.
 
 import { describe, expect, it } from "vitest";
-import { bindInput } from "./helpers/subagent-fn-child-regime";
+import { bindInput, noopPi } from "./helpers/subagent-fn-child-regime";
 import { createProductionProducerDeps } from "../src/extension/production-theta-producer";
 import type { ThetaProducerDeps } from "../src/extension/theta-composition-producer";
 import { fakeExecutableHost, makeFakeJsonChildLauncher, FakeJsonChild } from "./helpers/fake-json-child";
 import type { ModelRegistry } from "@earendil-works/pi-coding-agent";
 import type { RuntimeRoot } from "../src/runtime-root";
 import type { Checkpoint, CheckpointKind, CheckpointSite } from "../src/seams/checkpoint";
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { QueryError, TransportError, InvokeInfraError } from "../src/runtime/query-error";
 import type { ResultValue } from "../src/runtime/value";
 
@@ -57,10 +56,6 @@ function rootDouble(): RuntimeRoot {
       clearTimeout: (handle: unknown) => clearTimeout(handle as ReturnType<typeof setTimeout>),
     },
   } as unknown as RuntimeRoot;
-}
-
-function noopPi(): ExtensionAPI {
-  return { sendMessage: (): void => {}, getAllTools: () => [] } as unknown as ExtensionAPI;
 }
 
 function makeDeps(

@@ -90,7 +90,7 @@ import {
   type PlantedTheta,
 } from "./harness";
 import { FAIL_CLOSED_MARKERS } from "../helpers/live-transcript";
-import { diagLines, parseDoc } from "../helpers/e2e-s1";
+import { diagLines, parseDoc, loweredParams } from "../helpers/e2e-s1";
 import {
   expectRegisteredControlThenAbsentSubject,
   minimalPromptTheta,
@@ -166,11 +166,6 @@ const CONTROL = paramsTheta("{a: integer}");
 const PRECONDITION_THETA = minimalPromptTheta([
   "@`What is 111 plus 222? Answer with the number only.`",
 ]);
-
-/** The `params:` lowering, verbatim — `null` when the frontmatter is withheld. */
-function loweredParams(text: string, path: string): string {
-  return JSON.stringify(parseDoc(text, path).frontmatter?.params?.loweredSchema ?? null);
-}
 
 describe("bug 0257 live: a `params:` field whose inline object interior is a comma-only empty slot is REFUSED at live production load and un-registers the theta, while its well-formed neighbour control at the same `params:` position registers and drives", () => {
   it("keeps `p: '{,}'` out of the registered set while `p: '{a: integer}'` registers and completes a real turn over both bound scalar fields", async () => {

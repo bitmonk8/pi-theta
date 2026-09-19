@@ -16,7 +16,7 @@ import {
 } from "./helpers/e2e-s1";
 import {
   fnArgMessage, narrowingMessage, arrayElementMessage, letRhsMessage,
-  arithmeticMessage, objectFieldMismatchMessage, fillParseMessage as fill,
+  arithmeticMessage, objectFieldMismatchMessage, invokeArgMessage,
 } from "./helpers/registry-oracle";
 import { runNumericFixture, type NumericRunOutcome as RunOutcome } from "./helpers/runtime-belt-probe-harness";
 import { committedThetaSources } from "./helpers/theta-corpus";
@@ -193,24 +193,6 @@ const INVOKE_ARG_CODE = "theta/parse/invoke-arg-type-mismatch";
 // right, ahead of (E1/E3/E4/E5) or instead of (E1c/E2c/E3c/E4c/E5c, r6/r6c) the
 // downstream sink each cell measures.
 const ARITHMETIC_CODE = "theta/parse/non-numeric-arithmetic-operands";
-
-/** `invoke argument <i> ('<param>') type mismatch: expected <expected>, got <actual>`. */
-function invokeArgMessage(
-  slot: number,
-  paramName: string,
-  expected: string,
-  actual: string,
-): string {
-  return fill(
-    INVOKE_ARG_CODE,
-    new Map([
-      ["<i>", String(slot)],
-      ["<param>", paramName],
-      ["<expected>", expected],
-      ["<actual>", actual],
-    ]),
-  );
-}
 
 // ===========================================================================
 // Parse harness — the house driver, plus AST anchors that double as the loud

@@ -1,6 +1,6 @@
 import { assertNoStemIsASuffix, theta, invokeCaller, diagnosticLineReaders } from "./helpers/production-load-harness";
 import { PARSE_REGISTRY_PATH as REGISTRY_PAGE } from "./helpers/load-row-harness";
-import { readRegistry } from "./helpers/registry-oracle";
+import { readRegistry, invokeArgMessage } from "./helpers/registry-oracle";
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -89,55 +89,6 @@ const CODE = "theta/parse/invoke-arg-type-mismatch";
 const ARITHMETIC_CODE = "theta/parse/non-numeric-arithmetic-operands";
 
 const REGISTRY = readRegistry(["parse"]);
-
-/**
- * `CODE`'s normative *Message* template, or a throw naming the registry page:
- * a missing row is a harness failure, never a skip, because every expected
- * string below is derived from it.
- */
-function registered(): string {
-  const template = registryMessage(REGISTRY, CODE) as string | undefined;
-  if (template === undefined) {
-    throw new Error(
-      `harness: ${REGISTRY_PAGE} carries no Message row for ${CODE} — the DIAG-4 column is this file's oracle, so a missing row is a harness failure, never a skip`,
-    );
-  }
-  return template;
-}
-
-/**
- * `invoke argument <i> ('<param>') type mismatch: expected <expected>, got <actual>`,
- * interpolated in one pass so an unsupplied or unused placeholder throws
- * rather than silently detaching this file's expectations from the registry
- * row's shape.
- */
-function invokeArgMessage(slot: number, paramName: string, expected: string, actual: string): string {
-  const subs = new Map([
-    ["<i>", String(slot)],
-    ["<param>", paramName],
-    ["<expected>", expected],
-    ["<actual>", actual],
-  ]);
-  const used = new Set<string>();
-  const message = registered().replace(/<[a-z]+>/g, (token) => {
-    const value = subs.get(token);
-    if (value === undefined) {
-      throw new Error(
-        `harness: the ${CODE} Message template carries placeholder ${token}, which this file supplies no substitution for — the registry row changed shape (${REGISTRY_PAGE})`,
-      );
-    }
-    used.add(token);
-    return value;
-  });
-  for (const token of subs.keys()) {
-    if (!used.has(token)) {
-      throw new Error(
-        `harness: this file substitutes ${token} into the ${CODE} Message, which no longer carries it — the registry row changed shape (${REGISTRY_PAGE})`,
-      );
-    }
-  }
-  return message;
-}
 
 /** `'<op>' requires two numeric operands; got <left> and <right>` — bug 0332's own row. */
 function arithmeticMessage(op: string, left: string, right: string): string {

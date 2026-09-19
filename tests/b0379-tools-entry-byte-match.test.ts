@@ -1,18 +1,16 @@
 import {
-  mkdirSync,
   mkdtempSync,
   rmSync,
-  writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import type {
-  ExtensionAPI,
-  ExtensionContext,
-} from "@earendil-works/pi-coding-agent";
-import type { ThetaFixture } from "../src/extension/factory";
-import { discoverAndComposeFixtures } from "../src/extension/production-composition";
+import {
+  disposeWorkspace,
+  plantThetaWorkspace,
+  runProductionLoad,
+  type LoadOutcome,
+} from "./helpers/production-load-harness";
 import { filesystemIsCaseInsensitive } from "./helpers/case-insensitive-host-probe";
 
 // Bug 0379 — a `tools:` `.theta` entry's fate is judged on the ENTRY's own
@@ -78,39 +76,7 @@ import { filesystemIsCaseInsensitive } from "./helpers/case-insensitive-host-pro
 // the `tools:` resolution pass is not running, so no refusal assertion below can
 // pass vacuously.
 
-// --- Shipped-composition load harness (pi/ctx doubles copied from ------------
-// --- tools-derived-name-shape.test.ts) ---------------------------------------
-
-interface LoadOutcome {
-  /** Slash names the production compose helper returned (returned fixtures). */
-  readonly registered: readonly string[];
-  /** Error-severity diagnostic messages surfaced via `ctx.ui.notify`. */
-  readonly notifications: readonly string[];
-}
-
-async function runProductionLoad(cwd: string): Promise<LoadOutcome> {
-  const notifications: string[] = [];
-  const pi = {
-    getFlag: (): undefined => undefined,
-    getCommands: (): readonly unknown[] => [],
-    sendMessage: (): void => {},
-    sendUserMessage: (): void => {},
-    getActiveTools: (): readonly string[] => [],
-    setActiveTools: (): void => {},
-  } as unknown as ExtensionAPI;
-  const ctx = {
-    cwd,
-    modelRegistry: { getAvailable: (): readonly unknown[] => [] },
-    ui: {
-      notify: (message: string, _type: "error"): void => {
-        notifications.push(message);
-      },
-    },
-  } as unknown as ExtensionContext;
-
-  const fixtures: readonly ThetaFixture[] = await discoverAndComposeFixtures(pi, ctx);
-  return { registered: fixtures.map((f) => f.slashName), notifications };
-}
+// --- Shipped-composition load harness ---------------------------------------
 
 /**
  * Plant a `.pi/theta/` workspace, run the shipped load, tear the workspace
@@ -121,20 +87,18 @@ async function runProductionLoad(cwd: string): Promise<LoadOutcome> {
 async function loadWorkspace(
   thetas: Readonly<Record<string, string>>,
 ): Promise<LoadOutcome> {
-  const dir = mkdtempSync(join(tmpdir(), "b0379-"));
+  // A minimal valid settings file pins the settings read to a known value; an
+  // ABSENT file is silent (package-and-settings.md §Failure modes), so this is
+  // hermeticity, not noise suppression (mirrors the sibling harnesses).
+  const dir = plantThetaWorkspace(
+    "b0379-",
+    Object.entries(thetas).map(([name, text]) => ({ stem: name.slice(0, -".theta".length), text })),
+    "{}",
+  );
   try {
-    const thetaDir = join(dir, ".pi", "theta");
-    mkdirSync(thetaDir, { recursive: true });
-    for (const [name, text] of Object.entries(thetas)) {
-      writeFileSync(join(thetaDir, name), text, "utf8");
-    }
-    // A minimal valid settings file pins the settings read to a known value; an
-    // ABSENT file is silent (package-and-settings.md §Failure modes), so this is
-    // hermeticity, not noise suppression (mirrors the sibling harnesses).
-    writeFileSync(join(dir, ".pi", "settings.json"), "{}", "utf8");
     return await runProductionLoad(dir);
   } finally {
-    rmSync(dir, { recursive: true, force: true });
+    disposeWorkspace(dir);
   }
 }
 

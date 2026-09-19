@@ -104,13 +104,17 @@ import type { RuntimeRoot } from "../src/runtime-root";
 import { parseDeps } from "./helpers/e2e-s1";
 import { rootDouble as sharedRootDouble } from "./helpers/call-with-clause-harness";
 import {
-  AjvSchemaValidator,
   type CompiledValidator,
   type LoweredSchema,
-  type SchemaSlug,
   type SchemaValidator,
   type ValidationError,
 } from "../src/seams/schema-validator";
+/**
+ * The production AJV validator, using the shared `JSON.stringify`
+ * content-addressing fixture. A stub would decide the verdict this file is
+ * about, so the real seam is what every cell runs against.
+ */
+import { ajv as realAjvValidator } from "./helpers/scripted-live-session-harness";
 
 // ===========================================================================
 // The lowered fragments this bug is about, pinned verbatim.
@@ -154,23 +158,6 @@ function parseTheta(path: string, src: string): ThetaDocument {
     );
   }
   return doc;
-}
-
-/**
- * The production AJV validator, wired with the same `JSON.stringify`
- * content-addressing the shipped composition root uses — the
- * `tests/binder-forced-tool-dispatch.test.ts` / `tests/result-value-privacy.test.ts`
- * `realAjvValidator()` pattern. A stub would decide the verdict this file is
- * about, so the real seam is what every cell runs against.
- */
-function realAjvValidator(): AjvSchemaValidator {
-  return new AjvSchemaValidator({
-    emit: (): void => {},
-    slugOf: (schema: LoweredSchema): SchemaSlug => {
-      const canonicalBytes = JSON.stringify(schema);
-      return { slug: canonicalBytes, canonicalBytes };
-    },
-  });
 }
 
 /** One observed `validate` call at the runtime's AJV seam. */

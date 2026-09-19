@@ -7,7 +7,7 @@ import { parseRegistry } from "../tools/code-registry/index.js";
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
 import type { ThetaDocument } from "../src/parser/theta-document";
 import { lowerQueryResponseSchema } from "../src/runtime/query-schema-lowering";
-import { expectGroup as expectGroupShared, type DiagnosticCell, envelope, parseDoc, subagentTheta as theta, subagentParamsSrc } from "./helpers/e2e-s1";
+import { expectGroup as expectGroupShared, type DiagnosticCell, envelope, parseDoc, subagentTheta as theta, subagentParamsSrc, loweredParams } from "./helpers/e2e-s1";
 
 // Bug 0244 — an inline object type entry that spells no top-level `:` is
 // consumed by `TypeParser.parseObject`'s recovery arms and is invisible to
@@ -317,11 +317,6 @@ function diagLines(doc: ThetaDocument): string[] {
 
 function lines(src: string, path = "test.theta"): string[] {
   return diagLines(parseDoc(src, path));
-}
-
-/** The `params:` lowering, verbatim — `null` when the frontmatter is withheld. */
-function loweredParams(interior: string): string {
-  return JSON.stringify(parseDoc(paramsSrc(interior)).frontmatter?.params?.loweredSchema ?? null);
 }
 
 /** One diagnostic-list cell. */
@@ -672,9 +667,9 @@ describe("bug 0244 (E) — the lowerings, and the params: fields that must stop 
     // silently.
     expect(
       {
-        e7: loweredParams("{void}"),
-        e8: loweredParams("{a: ,void}"),
-        e9: loweredParams("{a: integer,void}"),
+        e7: loweredParams(paramsSrc("{void}")),
+        e8: loweredParams(paramsSrc("{a: ,void}")),
+        e9: loweredParams(paramsSrc("{a: integer,void}")),
       },
       "a red reporting `{\"p\":{}}` at e7 or e8 is bug 0244 at the wire: the `params:` field " +
         "declares an object type whose every entry was discarded, `hoistInlineObjectType` " +
@@ -860,10 +855,10 @@ describe("bug 0244 (G) — the adjudication fences: bug 0238's tolerance and bug
     // cannot be reached by withholding every lowering.
     expect(
       {
-        g14: loweredParams(STRAY),
-        g15: loweredParams(STRAY_NESTED),
-        g16: loweredParams(STRAY_FIRST),
-        g17: loweredParams(STRAY_JUDGED_SIBLING),
+        g14: loweredParams(paramsSrc(STRAY)),
+        g15: loweredParams(paramsSrc(STRAY_NESTED)),
+        g16: loweredParams(paramsSrc(STRAY_FIRST)),
+        g17: loweredParams(paramsSrc(STRAY_JUDGED_SIBLING)),
       },
       "a red reporting `null` at g14, g15 or g16 is bug 0244 withdrawing the registration bug " +
         "0238's §Fix promises; a red reporting a fragment at g17 is a refused document lowering " +
@@ -1000,10 +995,10 @@ describe("bug 0244 (J) — a paren group that swallows the entry's only colon le
     // for a document holding an unjudged entry.
     expect(
       {
-        j7: loweredParams(PAREN_ONLY),
-        j8: loweredParams(PAREN_BESIDE_FIELD),
-        j15: loweredParams(CROSSED_ONLY),
-        j16: loweredParams(CROSSED_BESIDE_FIELD),
+        j7: loweredParams(paramsSrc(PAREN_ONLY)),
+        j8: loweredParams(paramsSrc(PAREN_BESIDE_FIELD)),
+        j15: loweredParams(paramsSrc(CROSSED_ONLY)),
+        j16: loweredParams(paramsSrc(CROSSED_BESIDE_FIELD)),
       },
       "a red reporting `{\"p\":{}}` at j7 is an unconstrained parameter reaching the provider " +
         "from an interior whose only entry contributes no property; a red at j16 reporting a " +
@@ -1191,10 +1186,10 @@ describe("bug 0256 (K) — the ruling's delivered reach: the stranded entry is v
   it("k7–k10: no stranded carrier lowers the permissive fragment any longer ", () => {
     expect(
       {
-        k7: loweredParams(`array<${STRANDED}>`),
-        k8: loweredParams(`array<${STRANDED_CONTROL}>`),
-        k9: loweredParams(`array<${STRANDED_VOID}>`),
-        k10: loweredParams(`array<${STRANDED_TYPED_TAIL}>`),
+        k7: loweredParams(paramsSrc(`array<${STRANDED}>`)),
+        k8: loweredParams(paramsSrc(`array<${STRANDED_CONTROL}>`)),
+        k9: loweredParams(paramsSrc(`array<${STRANDED_VOID}>`)),
+        k10: loweredParams(paramsSrc(`array<${STRANDED_TYPED_TAIL}>`)),
       },
       "the wire consequence of bug 0256's ruling: a `params:` field whose interior used to strand " +
         "a keyless entry now refuses and withholds the frontmatter, exactly as its junk-tail-free " +

@@ -6,7 +6,7 @@ import { describe, expect, it } from "vitest";
 import { parseRegistry, registryMessage } from "../tools/code-registry/index.js";
 import type { Diagnostic, SourceRange } from "../src/diagnostics/diagnostic";
 import type { Block, Expr, Stmt, ThetaDocument } from "../src/parser/theta-document";
-import { collectCalls as collectCallsShared, type CallSite, errors, parseDoc, argRange as sharedArgRange, letRange as sharedLetRange } from "./helpers/e2e-s1";
+import { at, render, collectCalls as collectCallsShared, type CallSite, errors, parseDoc, argRange as sharedArgRange, letRange as sharedLetRange } from "./helpers/e2e-s1";
 
 // Bug 0050 — `theta/parse/fn-arg-type-mismatch` is a registered `E` row whose
 // sole emitter, `checkFnArgCompat` (src/parser/type-compat.ts:452), has no
@@ -424,17 +424,6 @@ function parse(src: string): ThetaDocument {
   return parseDoc(src, FILE);
 }
 
-/** Every diagnostic rendered `severity code @l:c-l:c: message` — failure payload. */
-function render(doc: ThetaDocument): string {
-  return JSON.stringify(
-    doc.diagnostics.map((d: Diagnostic) => {
-      const r = d.range;
-      const at = r === undefined ? "-" : `${r.start.line}:${r.start.column}-${r.end.line}:${r.end.column}`;
-      return `${d.severity} ${d.code} @${at}: ${d.message}`;
-    }),
-  );
-}
-
 /** One diagnostic of `code`, rendered as one comparable `severity message @range` string. */
 function locatedHits(doc: ThetaDocument, code: string): string[] {
   return doc.diagnostics
@@ -458,10 +447,6 @@ function range(
     start: { line: startLine, column: startColumn },
     end: { line: endLine, column: endColumn },
   };
-}
-
-function at(r: SourceRange): string {
-  return `${r.start.line}:${r.start.column}-${r.end.line}:${r.end.column}`;
 }
 
 /** Include `invoke` expressions under the shared collector's reserved label. */

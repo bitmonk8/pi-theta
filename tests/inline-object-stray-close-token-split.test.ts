@@ -5,7 +5,7 @@ import { registryMessageOf } from "./helpers/load-row-harness";
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
 import type { ThetaDocument } from "../src/parser/theta-document";
 import { splitTopLevelSegments, topLevelColon } from "../src/parser/params";
-import { expectGroup as expectGroupShared, type DiagnosticCell, envelope, parseDoc, subagentTheta as theta } from "./helpers/e2e-s1";
+import { expectGroup as expectGroupShared, type DiagnosticCell, envelope, parseDoc, subagentTheta as theta, loweredParams } from "./helpers/e2e-s1";
 
 // Bug 0238 — a stray depth-0 CLOSE token in an inline object type underflows
 // `splitTopLevelSegments`' depth counter, so every entry behind it merges into
@@ -306,11 +306,6 @@ function lines(src: string): string[] {
   return diagLines(parseDoc(src));
 }
 
-/** The `params:` lowering, verbatim — `null` when the frontmatter is withheld. */
-function loweredParams(type: string): string {
-  return JSON.stringify(parseDoc(paramsSrc(type)).frontmatter?.params?.loweredSchema ?? null);
-}
-
 /** One diagnostic-list cell. */
 type Cell = DiagnosticCell<Exp>;
 
@@ -394,7 +389,7 @@ describe("bug 0238 (A) — the class at params:, diagnostics and lowered fragmen
     // red on the four cells below cannot be satisfied by withholding every
     // lowering.
     expect(
-      { W1: loweredParams(W1_TYPE), W16: loweredParams(W16_TYPE) },
+      { W1: loweredParams(paramsSrc(W1_TYPE)), W16: loweredParams(paramsSrc(W16_TYPE)) },
       "these two lowerings are §Expected behaviour 5's no-move bytes; a red here means the " +
         "route moved a well-formed interior's fragment",
     ).toEqual({
@@ -431,10 +426,10 @@ describe("bug 0238 (A) — the class at params:, diagnostics and lowered fragmen
     // `{a: integer, n: {m: integer}}` mints, hence the shared slug.
     expect(
       {
-        W2: loweredParams(W2_TYPE),
-        W3: loweredParams(W3_TYPE),
-        W4: loweredParams(W4_TYPE),
-        W15: loweredParams(W15_TYPE),
+        W2: loweredParams(paramsSrc(W2_TYPE)),
+        W3: loweredParams(paramsSrc(W3_TYPE)),
+        W4: loweredParams(paramsSrc(W4_TYPE)),
+        W15: loweredParams(paramsSrc(W15_TYPE)),
       },
       "a red here reporting a fragment SHORT of the declared fields is bug 0238: " +
         "`splitTopLevelSegments`' unfloored decrement (src/parser/params.ts) took `depth` to -1 " +
@@ -555,8 +550,8 @@ describe("bug 0238 (B) — the four raw-key rules, control and behind-a-stray-cl
     // joining the subjects.
     const lowered: Record<string, string> = {};
     for (const p of RULE_PAIRS) {
-      lowered[`${p.controlId} ${p.rule} control`] = loweredParams(p.control);
-      lowered[`${p.subjectId} ${p.rule} behind a stray close token`] = loweredParams(p.subject);
+      lowered[`${p.controlId} ${p.rule} control`] = loweredParams(paramsSrc(p.control));
+      lowered[`${p.subjectId} ${p.rule} behind a stray close token`] = loweredParams(paramsSrc(p.subject));
     }
     expect(
       lowered,
