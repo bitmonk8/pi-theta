@@ -1,4 +1,5 @@
 import { RecordingCheckpoint, RecordingSink, SpyCompensator } from "./helpers/invoke-seam-scaffold";
+import { liveSignal } from "./helpers/typed-query-harness";
 import { describe, expect, it } from "vitest";
 import type { CheckpointSite } from "../src/seams/checkpoint";
 import type { CommittedSideEffect } from "../src/runtime/no-rollback";
@@ -35,11 +36,6 @@ import {
 const TOOL_SITE: CheckpointSite = { file: "call.theta", line: 4, column: 7 };
 
 const utf8Len = (s: string): number => new TextEncoder().encode(s).length;
-
-/** A never-aborted signal for the checkpoint-presence and value arms. */
-function liveSignal(): AbortSignal {
-  return new AbortController().signal;
-}
 
 const text = (t: string): ToolContentBlock => ({ type: "text", text: t });
 const image = (): ToolContentBlock => ({ type: "image", source: "…" });

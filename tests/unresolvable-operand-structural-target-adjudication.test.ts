@@ -1,12 +1,13 @@
 import { readCorpus as readSharedCorpus } from "./helpers/corpus-reader";
 import { sliceFrom } from "./helpers/spec-prose-proximity";
+import { REGISTRY, type RegistryRow } from "./helpers/registry-oracle";
 import { describe, expect, it } from "vitest";
 import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { producer } from "./helpers/runtime-belt-probe-harness";
 import { rootWith } from "./helpers/fixture-dispatch-harness";
 import { SEAM_NOOP_CHECKPOINT } from "./helpers/invoke-seam-scaffold";
 // @ts-expect-error — JS code-registry module, no type declarations.
-import { parseRegistry, registryMessage } from "../tools/code-registry/index.js";
+import { registryMessage } from "../tools/code-registry/index.js";
 import type { ParsedFrontmatter } from "../src/parser/frontmatter";
 import type { ThetaDocument } from "../src/parser/theta-document";
 import {
@@ -265,14 +266,6 @@ const ITERAND_CODE = "theta/parse/non-array-iterand";
 // (b7, b10, e2, e5) assert against. Not part of bug 0144's own registered set;
 // read from the SAME live registry so a template drift reds here too.
 const UNRESOLVED_NAMED_TYPE_CODE = "theta/parse/unresolved-named-type";
-
-interface RegistryRow {
-  readonly code: string;
-  readonly trigger: string;
-  readonly message: string;
-}
-
-const REGISTRY = parseRegistry(corpus(REGISTRY_PAGE)) as RegistryRow[];
 
 /** A registered row. Fails LOUDLY naming the unmet precondition when absent. */
 function row(code: string): RegistryRow {

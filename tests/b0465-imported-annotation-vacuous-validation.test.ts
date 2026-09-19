@@ -19,12 +19,12 @@ import {
   type LoweredSchema,
   type SchemaSlug,
 } from "../src/seams/schema-validator";
-import type { EnumDecl, SchemaDecl, ThetaDocument } from "../src/parser/theta-document";
+import type { SchemaDecl, ThetaDocument } from "../src/parser/theta-document";
 import type { Checkpoint } from "../src/seams/checkpoint";
 import { checkThetaImports } from "../src/extension/import-static-checks";
 import type { ThetaCompositionInput } from "../src/extension/theta-composition-producer";
 import type { ParsedFrontmatter } from "../src/parser/frontmatter";
-import { parseDeps, parseDoc } from "./helpers/e2e-s1";
+import { parseDeps, parseDoc, schemaDeclsOf, enumDeclsOf } from "./helpers/e2e-s1";
 
 // Bug 0465 — a typed `@<Schema>` query (or `invoke<Schema>` return) whose
 // annotation names a schema IMPORTED from a `.thetalib` lowers to the permissive
@@ -170,16 +170,6 @@ function parseApp(body: string, path = APP_PATH): ThetaDocument {
     `PRECONDITION: the theta frontmatter must parse, else the body is read against nothing. Diagnostics: ${JSON.stringify(doc.diagnostics.map((d) => d.code))}`,
   ).not.toBeNull();
   return doc;
-}
-
-/** The body's `schema` decls — byte-faithful to production `schemaDeclsOf`. */
-function schemaDeclsOf(doc: ThetaDocument): readonly SchemaDecl[] {
-  return doc.body.statements.filter((s): s is SchemaDecl => s.kind === "schema");
-}
-
-/** The body's `enum` decls — byte-faithful to production `enumDeclsOf`. */
-function enumDeclsOf(doc: ThetaDocument): readonly EnumDecl[] {
-  return doc.body.statements.filter((s): s is EnumDecl => s.kind === "enum");
 }
 
 /**

@@ -1,5 +1,5 @@
 import { disposeWorkspace, plantThetaWorkspace, runProductionLoad, type LoadOutcome } from "./helpers/production-load-harness";
-import { readRegistry, type RegistryRow } from "./helpers/registry-oracle";
+import { readRegistry, loadRowMessage, type RegistryRow } from "./helpers/registry-oracle";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 // @ts-expect-error — JS code-registry module, no type declarations.
 import { registryMessage } from "../tools/code-registry/index.js";
@@ -180,32 +180,18 @@ const EXPECTED_MESSAGE =
 const REGISTRY = readRegistry(["load"]);
 
 /**
- * A registry row's normative *Message* template, definedness asserted first so
- * a missing row reds by naming the registry page rather than by a bare
- * `undefined` comparison (DIAG-4).
- */
-function templateMessage(code: string): string {
-  const template = registryMessage(REGISTRY, code) as string | undefined;
-  expect(
-    template,
-    `DIAG-4 anchor: docs/spec_topics/diagnostics/code-registry-load.md must carry the Message row for ${code}`,
-  ).toBeDefined();
-  return template as string;
-}
-
-/**
  * `theta/load/malformed-tool-entry` rendered for bug 0069's non-scalar sequence
  * ITEM (group (D6)). `<value>` is the item's recovered verbatim YAML source,
  * unquoted — the surrounding single quotes belong to the template
  * (placeholder-rendering-b.md, the parse-time literal-value `<value>`
  * sub-rule).
  */
-const MALFORMED_ENTRY_MESSAGE = templateMessage(
+const MALFORMED_ENTRY_MESSAGE = loadRowMessage(
   "theta/load/malformed-tool-entry",
 ).replaceAll("<value>", "{a: b}");
 
 /** `theta/load/unknown-tool` rendered for the two null spellings (group (D7)). */
-const UNKNOWN_TOOL_NULL_MESSAGE = templateMessage(
+const UNKNOWN_TOOL_NULL_MESSAGE = loadRowMessage(
   "theta/load/unknown-tool",
 ).replaceAll("<name>", "null");
 

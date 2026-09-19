@@ -1,8 +1,7 @@
 import { capturingAjv as ajv } from "./helpers/scripted-live-session-harness";
 import { REGISTRY } from "./helpers/registry-oracle";
 import { registryMessageOf } from "./helpers/load-row-harness";
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
+import { readRepoFile } from "./helpers/corpus-reader";
 import { describe, expect, it } from "vitest";
 // @ts-expect-error — JS code-registry module, no type declarations.
 import { registryMessage } from "../tools/code-registry/index.js";
@@ -12,7 +11,7 @@ import type { ThetaDocument } from "../src/parser/theta-document";
 import { lowerQueryResponseSchema } from "../src/runtime/query-schema-lowering";
 import { respondToolWireSchema } from "../src/runtime/respond-tool-wire";
 import { type LoweredSchema } from "../src/seams/schema-validator";
-import { expectGroup as expectGroupShared, type DiagnosticCell, parseDoc } from "./helpers/e2e-s1";
+import { expectGroup as expectGroupShared, type DiagnosticCell, parseDoc, diagLines } from "./helpers/e2e-s1";
 
 // Bug 0160 — `docs/spec_topics/grammar.md:109` assigns
 // `theta/parse/wire-name-collision` and `theta/parse/redundant-wire-name`
@@ -180,12 +179,6 @@ import { expectGroup as expectGroupShared, type DiagnosticCell, parseDoc } from 
 // The diagnostic oracle — the registry's *Message* column (DIAG-4).
 // ===========================================================================
 
-const DIAGNOSTICS_DIR = "../docs/spec_topics/diagnostics/";
-
-function readDiagnosticsPage(page: string): string {
-  return readFileSync(fileURLToPath(new URL(`${DIAGNOSTICS_DIR}${page}`, import.meta.url)), "utf8");
-}
-
 /** The third code §Fix (c) settles on: refuse the inline rename outright. */
 const RENAMED_INLINE = "theta/parse/renamed-inline-field-name";
 /** The two rows that stay DECLARATION-ONLY under this route (:90, :91). */
@@ -345,11 +338,6 @@ const REN1 = '{a as "w": integer}';
 // ===========================================================================
 // Parse + assertion helpers.
 // ===========================================================================
-
-/** Every diagnostic rendered `<severity> <code>: <message>`, in emission order. */
-function diagLines(doc: ThetaDocument): string[] {
-  return doc.diagnostics.map((d) => `${d.severity} ${d.code}: ${d.message}`);
-}
 
 function lines(src: string, path = "bug0160.theta"): string[] {
   return diagLines(parseDoc(src, path));
@@ -791,7 +779,7 @@ describe("bug 0160 (A) — the third code the refusal route mints, and its place
     // takes NO carve-out either way — its own subject was always the
     // theta-side identifier — so the control's real claim is unmoved: this
     // row is not one of the excepted ones.
-    const page = readDiagnosticsPage("placeholder-rendering-b.md");
+    const page = readRepoFile("docs/spec_topics/diagnostics/placeholder-rendering-b.md");
     expect(
       page,
       "A1 — the carve-out sentence now excepts exactly three rows (bug 0228 adds the fourth " +

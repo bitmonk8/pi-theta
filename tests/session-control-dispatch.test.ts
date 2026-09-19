@@ -33,6 +33,7 @@
 // today's actual fallback behaviour and is GREEN AT BIRTH (stated per cell).
 import { RecordingCheckpoint } from "./helpers/invoke-seam-scaffold";
 import { parseTheta as parseFixture } from "./helpers/e2e-s1";
+import { snapshot as snapshotOf } from "./helpers/tool-call-dispatch-harness";
 import { describe, expect, it } from "vitest";
 import type {
   ExtensionAPI,
@@ -66,10 +67,6 @@ function parseTheta(src: string): ThetaDocument {
 /** A `CallableSetSnapshot` entry of the (not-yet-real) `"runtime-tool"` kind (seam sheet §3.1). */
 function runtimeToolEntry(name: string): ResolvedCallable {
   return { kind: "runtime-tool", name } as unknown as ResolvedCallable;
-}
-
-function snapshotOf(entries: readonly (readonly [string, ResolvedCallable])[]): CallableSetSnapshot {
-  return Object.freeze({ entries: new Map(entries) });
 }
 
 function rootDouble(checkpoint: Checkpoint): RuntimeRoot {

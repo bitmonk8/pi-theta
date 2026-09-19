@@ -406,6 +406,36 @@ export function diagLines(doc: ThetaDocument): string[] {
   return doc.diagnostics.map((d) => `${d.severity} ${d.code}: ${d.message}`);
 }
 
+/**
+ * Every diagnostic rendered `severity code @l:c-l:c: message`, in report order,
+ * over the UNFILTERED list. An ordered whole-list `toEqual` over these strings
+ * pins the count, the order,
+ * the code, the severity, the range AND the interpolated subject of every
+ * diagnostic at once, which is what makes "the position reports the wrong
+ * subject" and "the position reports nothing" distinguishable failures.
+ */
+export function diagLinesWithRange(doc: ThetaDocument): string[] {
+  return doc.diagnostics.map((d: Diagnostic) => {
+    const r = d.range;
+    const at =
+      r === undefined
+        ? "-"
+        : `${r.start.line}:${r.start.column}-${r.end.line}:${r.end.column}`;
+    return `${d.severity} ${d.code} @${at}: ${d.message}`;
+  });
+}
+
+/** One rendered `error`-severity diagnostic line, single-line range. */
+export function errorLineAt(
+  code: string,
+  message: string,
+  line: number,
+  column: number,
+  endColumn: number,
+): string {
+  return `error ${code} @${line}:${column}-${line}:${endColumn}: ${message}`;
+}
+
 /** Render one source's parse diagnostics as `severity code: message` strings. */
 export function diagnosticsOf(text: string, path: string): readonly string[] {
   return diagLines(parseDoc(text, path));
@@ -581,6 +611,14 @@ export function expectNoDiagnosticRow(diags: readonly Diagnostic[], code: string
   ).toBeUndefined();
 }
 
+/** The `params:` envelope around a hoisted `p`, hand-written (schema-subset.md:73). */
+export function envelope(slug: string, defs: string): string {
+  return (
+    `{"type":"object","properties":{"p":{"$ref":"#/$defs/__inline_${slug}"}},` +
+    `"required":["p"],"additionalProperties":false,"$defs":{${defs}}}`
+  );
+}
+
 /** A parsed, cleanly-lowered `params:` block. */
 export interface LoadedParams {
   readonly defs: Record<string, unknown>;
@@ -729,8 +767,8 @@ export interface KindedNode {
   readonly [key: string]: unknown;
 }
 
-/** Collect nodes of a kind, visiting each object identity once. */
-export function collectByKind(root: unknown, kind: string): KindedNode[] {
+/** Collect nodes of the requested kinds, visiting each object identity once. */
+export function collectByKind(root: unknown, kind: string | readonly string[]): KindedNode[] {
   const out: KindedNode[] = [];
   const seen = new Set<unknown>();
   const visit = (node: unknown): void => {
@@ -748,7 +786,7 @@ export function collectByKind(root: unknown, kind: string): KindedNode[] {
       return;
     }
     const obj = node as Record<string, unknown>;
-    if (typeof obj.kind === "string" && obj.kind === kind) {
+    if (typeof obj.kind === "string" && (typeof kind === "string" ? obj.kind === kind : kind.includes(obj.kind))) {
       out.push(obj as KindedNode);
     }
     for (const key of Object.keys(obj)) {
@@ -757,6 +795,42 @@ export function collectByKind(root: unknown, kind: string): KindedNode[] {
   };
   visit(root);
   return out;
+}
+
+/** A call's callee, argument count, argument ranges and expression range. */
+export interface CallSite {
+  readonly callee: string;
+  readonly argCount: number;
+  readonly args: readonly SourceRange[];
+  readonly range: SourceRange;
+}
+
+/**
+ * Every call-shaped expression in the body, in traversal order. The structural
+ * walk reaches nested arguments, blocks (including else arms), and expressions
+ * without maintaining a separate node-kind switch for each fixture suite.
+ * Callers assert cardinality before using these anchors so a missing call
+ * cannot pass an absence assertion vacuously.
+ *
+ * With `includeInvoke`, an `InvokeExpr` is recorded under the reserved label
+ * "invoke": it carries a literal path, not a callee identifier. Its enclosing
+ * `InvokeStmt` has the same kind but no `args`, and must not be counted twice.
+ */
+export function collectCalls(doc: ThetaDocument, includeInvoke = false): CallSite[] {
+  const body = doc.body;
+  if (body === null) {
+    throw new Error(
+      `harness: the fixture produced no parsed body, so its diagnostic set is about a parse failure rather than the call site. Diagnostics: ${render(doc)}`,
+    );
+  }
+  const calls = collectByKind(body, includeInvoke ? ["call", "invoke"] : "call")
+    .filter((node) => "args" in node) as unknown as Extract<Expr, { kind: "call" | "invoke" }>[];
+  return calls.map((call) => ({
+    callee: call.kind === "call" ? call.callee : "invoke",
+    argCount: call.args.length,
+    args: call.args.map((arg) => arg.range),
+    range: call.range,
+  }));
 }
 
 /** Locate the sole fixture anchor, retaining the cardinality preconditions and diagnostics. */

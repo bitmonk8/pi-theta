@@ -4,10 +4,10 @@ import {
   SEAM_NOOP_SINK as NOOP_SINK,
   SEAM_NOOP_MUTATOR,
 } from "./helpers/invoke-seam-scaffold";
-import { parseTheta } from "./helpers/e2e-s1";
+import { parseTheta, schemaDeclsOf, enumDeclsOf } from "./helpers/e2e-s1";
 import { describe, expect, it } from "vitest";
 import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
-import type { EnumDecl, SchemaDecl, ThetaDocument } from "../src/parser/theta-document";
+import type { ThetaDocument } from "../src/parser/theta-document";
 import {
   composeThetaFixture,
   type BinderRunInput,
@@ -124,12 +124,8 @@ function loadFixture(): ThetaDocument {
 }
 
 const DOC = loadFixture();
-const SCHEMAS: readonly SchemaDecl[] = DOC.body.statements.filter(
-  (s): s is SchemaDecl => s.kind === "schema",
-);
-const ENUMS: readonly EnumDecl[] = DOC.body.statements.filter(
-  (s): s is EnumDecl => s.kind === "enum",
-);
+const SCHEMAS = schemaDeclsOf(DOC);
+const ENUMS = enumDeclsOf(DOC);
 
 /** The theta's own lowered `params:` document — the one the binder already compiles. */
 function loweredParams(): LoweredSchema {

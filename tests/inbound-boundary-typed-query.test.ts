@@ -63,7 +63,6 @@ import type {
   ModelRegistry,
   ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
-import type { EnumDecl, SchemaDecl } from "../src/parser/theta-document";
 import { lowerQueryResponseSchema } from "../src/runtime/query-schema-lowering";
 import { createProductionProducerDeps } from "../src/extension/production-theta-producer";
 import type { ThetaCompositionInput } from "../src/extension/theta-composition-producer";
@@ -72,7 +71,7 @@ import type { RuntimeRoot } from "../src/runtime-root";
 import { evaluateObjectMember } from "../src/runtime/stdlib-object";
 import { makeEnumValue, schemaTagOf, valuesEqual, type ThetaValue } from "../src/runtime/value";
 import { enumDeclaringKey } from "../src/runtime/lexical-environment";
-import { parseTheta } from "./helpers/e2e-s1";
+import { parseTheta, schemaDeclsOf, enumDeclsOf } from "./helpers/e2e-s1";
 
 // --- Substrate -------------------------------------------------------------
 
@@ -101,12 +100,8 @@ const SOURCE = [
 
 /** The parsed fixture: one parse serves the drive and every lowering assertion. */
 const DOC = parseTheta("typed-query.theta", SOURCE);
-const SCHEMAS: readonly SchemaDecl[] = DOC.body.statements.filter(
-  (s): s is SchemaDecl => s.kind === "schema",
-);
-const ENUMS: readonly EnumDecl[] = DOC.body.statements.filter(
-  (s): s is EnumDecl => s.kind === "enum",
-);
+const SCHEMAS = schemaDeclsOf(DOC);
+const ENUMS = enumDeclsOf(DOC);
 
 /** The model-ordered payload every cell drives: `who` first, `sev` second. */
 function modelOrderedPayload(): Record<string, unknown> {

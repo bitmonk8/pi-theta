@@ -1,9 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type {
-  ExtensionAPI,
-  ExtensionCommandContext,
-  ModelRegistry,
-} from "@earendil-works/pi-coding-agent";
+import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
 import type { ParsedFrontmatter } from "../src/parser/frontmatter";
 import {
@@ -19,16 +15,14 @@ import { EXTENSION_TOOL_UNREACHABLE_CODE } from "../src/runtime/host-loop-dispat
 import { checkSubagentFnStaticResolution } from "../src/extension/subagent-fn-static-checks";
 import { INVOCATION_CYCLE_CODE } from "../src/runtime/invoke-depth-cycle";
 import { executeBody } from "../src/runtime/statement-executor";
-import { createProductionProducerDeps } from "../src/extension/production-theta-producer";
 import type {
   ConversationBindInput,
   ThetaCompositionInput,
 } from "../src/extension/theta-composition-producer";
-import type { RuntimeRoot } from "../src/runtime-root";
-import type { Checkpoint } from "../src/seams/checkpoint";
 import type { ThetaValue } from "../src/runtime/value";
 import { buildEnvironment } from "../src/runtime/lexical-environment";
 import { parseDoc, codesOf as parseCodesOf } from "./helpers/e2e-s1";
+import { FM, producer } from "./helpers/prompt-value-harness";
 
 // Bug 0082 — the `BlockExpr` production has no AST node, so a `{ … }` block
 // expression in `match`-arm-body or `let`-RHS position is parsed as a bare
@@ -115,9 +109,6 @@ function diagsOf(src: string): { code: string; severity: string; message: string
     message: d.message,
   }));
 }
-
-/** The bug's §Reproduction frontmatter, verbatim. */
-const FM = "---\nmode: prompt\n---\n";
 
 /** The registered `theta/parse/bare-object-literal` message (src/parser/theta-document.ts:5957). */
 const BARE_OBJECT_MESSAGE =
@@ -411,31 +402,6 @@ describe("bug 0082 — statement-in-arm-body still fires unwrapped (CONTROL)", (
 // bindPromptConversation → executeBody. Offline, provider-free, no child
 // process, no model.
 // ===========================================================================
-
-const NOOP_CHECKPOINT: Checkpoint = {
-  before(): Promise<void> {
-    return Promise.resolve();
-  },
-};
-
-function rootDouble(): RuntimeRoot {
-  return {
-    checkpoint: NOOP_CHECKPOINT,
-    idSource: { newInvocationId: () => "inv-1", newToolCallId: () => "tc-1" },
-  } as unknown as RuntimeRoot;
-}
-
-function producer() {
-  return createProductionProducerDeps({
-    pi: {
-      sendMessage: () => {},
-      getActiveTools: () => [],
-      setActiveTools: () => {},
-    } as unknown as ExtensionAPI,
-    root: rootDouble(),
-    modelRegistry: {} as unknown as ModelRegistry,
-  });
-}
 
 /**
  * One runtime probe's disposition. A parse rejection is reported as a VALUE,

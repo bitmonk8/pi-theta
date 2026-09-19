@@ -6,7 +6,7 @@ import { parseRegistry, registryMessage } from "../tools/code-registry/index.js"
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
 import type { ThetaDocument } from "../src/parser/theta-document";
 import { lowerQueryResponseSchema } from "../src/runtime/query-schema-lowering";
-import { expectGroup as expectGroupShared, type DiagnosticCell, parseDoc, subagentTheta as theta, subagentParamsSrc } from "./helpers/e2e-s1";
+import { expectGroup as expectGroupShared, type DiagnosticCell, envelope, parseDoc, subagentTheta as theta, subagentParamsSrc } from "./helpers/e2e-s1";
 
 // Bug 0244 — an inline object type entry that spells no top-level `:` is
 // consumed by `TypeParser.parseObject`'s recovery arms and is invisible to
@@ -770,13 +770,6 @@ const STRAY_FIRST = "{b > c, m: integer}";
 const STRAY_NESTED = "{a: integer, n: {q > r, m: integer}}";
 /** Bug 0238's row W13 — a judged key behind the stray token. */
 const STRAY_JUDGED_SIBLING = "{a: integer, b > c, Zs: string}";
-
-function envelope(slug: string, defs: string): string {
-  return (
-    `{"type":"object","properties":{"p":{"$ref":"#/$defs/__inline_${slug}"}},` +
-    `"required":["p"],"additionalProperties":false,"$defs":{${defs}}}`
-  );
-}
 
 const FRAG_A_M =
   '{"type":"object","properties":{"a":{"type":"integer"},"m":{"type":"integer"}},' +

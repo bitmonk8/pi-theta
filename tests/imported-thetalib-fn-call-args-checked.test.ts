@@ -8,8 +8,8 @@ import type { Diagnostic } from "../src/diagnostics/diagnostic";
 import { checkThetaImports } from "../src/extension/import-static-checks";
 import type { ThetaCompositionInput } from "../src/extension/theta-composition-producer";
 import type { ParsedFrontmatter } from "../src/parser/frontmatter";
-import type { Block, Expr, Stmt, ThetaDocument } from "../src/parser/theta-document";
-import { parseDeps, parseDoc } from "./helpers/e2e-s1";
+import type { Stmt, ThetaDocument } from "../src/parser/theta-document";
+import { collectCalls, parseDeps, parseDoc } from "./helpers/e2e-s1";
 
 // Bug 0138 — an imported-`.thetalib` `fn` call's ARGUMENTS are judged by nothing.
 // `checkFnCallArgs` (src/parser/type-layer-checks.ts) resolves the callee in four
@@ -400,86 +400,6 @@ function expectRouteSilent(
     result.diagnostics.map((d) => d.code),
     `${why} — and no other diagnostic beside the expected ${JSON.stringify(otherCodes)}.\n  ACTUAL: ${JSON.stringify(result.rendered)}`,
   ).toEqual([...otherCodes]);
-}
-
-// ===========================================================================
-// A compact call-node walker, for the loud "the fixture holds the call site"
-// preconditions and for the corpus group's provided-argument counts. It reaches
-// every position this file's fixtures and the two corpus files use: a `let`
-// initialiser, an expression statement, a `fn` body, a block tail, a `?`
-// operand, a ternary arm and a nested argument. A fixture whose call it cannot
-// reach fails loudly rather than passing an absence assertion vacuously.
-// ===========================================================================
-
-interface CallSite {
-  readonly callee: string;
-  readonly argCount: number;
-}
-
-function collectCalls(doc: ThetaDocument): CallSite[] {
-  const out: CallSite[] = [];
-  const walkExpr = (e: Expr): void => {
-    switch (e.kind) {
-      case "call":
-        out.push({ callee: e.callee, argCount: e.args.length });
-        for (const a of e.args) walkExpr(a);
-        return;
-      case "try":
-        walkExpr(e.operand);
-        return;
-      case "ternary":
-        walkExpr(e.condition);
-        walkExpr(e.consequent);
-        walkExpr(e.alternate);
-        return;
-      case "binary":
-        walkExpr(e.left);
-        walkExpr(e.right);
-        return;
-      case "member":
-        walkExpr(e.target);
-        return;
-      case "method-call":
-        walkExpr(e.target);
-        for (const a of e.args) walkExpr(a);
-        return;
-      case "array":
-        for (const el of e.elements) walkExpr(el);
-        return;
-      case "object":
-        for (const f of e.fields) walkExpr(f.value);
-        return;
-      case "invoke":
-        for (const a of e.args) walkExpr(a);
-        return;
-      default:
-        return;
-    }
-  };
-  const walkBlock = (b: Block): void => {
-    for (const s of b.statements) walkStmt(s);
-    if (b.tail !== null) walkExpr(b.tail);
-  };
-  const walkStmt = (s: Stmt): void => {
-    switch (s.kind) {
-      case "let":
-        if (s.init !== null) walkExpr(s.init);
-        return;
-      case "expr":
-        walkExpr(s.expr);
-        return;
-      case "fn":
-        walkBlock(s.body);
-        return;
-      case "invoke":
-        walkExpr(s.invoke);
-        return;
-      default:
-        return;
-    }
-  };
-  walkBlock(doc.body);
-  return out;
 }
 
 /** The provided argument count of the SOLE call of `callee`. Fails loudly. */

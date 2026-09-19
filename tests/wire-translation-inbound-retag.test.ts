@@ -1,6 +1,6 @@
-import { parseDoc } from "./helpers/e2e-s1";
+import { parseDoc, schemaDeclsOf, enumDeclsOf } from "./helpers/e2e-s1";
 import { describe, expect, it } from "vitest";
-import { type EnumDecl, type SchemaDecl, type ThetaDocument } from "../src/parser/theta-document";
+import { type ThetaDocument } from "../src/parser/theta-document";
 import { lowerQueryResponseSchema } from "../src/runtime/query-schema-lowering";
 import { buildInboundTranslationPlan, type SchemaSidecar } from "../src/parser/schema-lowering";
 import { translateInbound, translateOutbound } from "../src/runtime/wire-translation";
@@ -38,14 +38,6 @@ import {
 
 function parse(src: string, path = "retag.theta"): ThetaDocument {
   return parseDoc(src, path);
-}
-
-function schemaDeclsOf(doc: ThetaDocument): readonly SchemaDecl[] {
-  return doc.body.statements.filter((s): s is SchemaDecl => s.kind === "schema");
-}
-
-function enumDeclsOf(doc: ThetaDocument): readonly EnumDecl[] {
-  return doc.body.statements.filter((s): s is EnumDecl => s.kind === "enum");
 }
 
 /** A hand-built `Person` sidecar: one renamed field, one named-enum field. */

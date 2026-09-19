@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 import { registryMessage } from "../tools/code-registry/index.js";
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
 import type { ThetaDocument } from "../src/parser/theta-document";
-import { parseDoc } from "./helpers/e2e-s1";
+import { parseDoc, diagLines } from "./helpers/e2e-s1";
 
 // Bug 0115 — `docs/spec_topics/bindings.md:12` §Reassignment states one
 // obligation on a reassignment beyond mutability ("the RHS must be compatible
@@ -278,11 +278,6 @@ function codesOf(doc: ThetaDocument): string[] {
   return doc.diagnostics.map((d: Diagnostic) => d.code);
 }
 
-/** `severity code: message` for every diagnostic, in emission order. */
-function fullOf(doc: ThetaDocument): string[] {
-  return doc.diagnostics.map((d: Diagnostic) => `${d.severity} ${d.code}: ${d.message}`);
-}
-
 /** The aggregated codes of `body` are exactly `expected`, in order. */
 function expectCodes(body: string, expected: readonly string[], why: string): void {
   const doc = parse(body);
@@ -304,7 +299,7 @@ function expectSoleMismatch(
   why: string,
 ): void {
   const doc = parse(body);
-  expect(fullOf(doc), `${why}; actual diagnostics=${render(doc)}`).toEqual([
+  expect(diagLines(doc), `${why}; actual diagnostics=${render(doc)}`).toEqual([
     `error ${CODE}: ${reassignMismatch(name, expected, actual)}`,
   ]);
 }
@@ -358,7 +353,7 @@ describe("bug 0115 (a) — a reassignment's RHS is judged against the binding's 
     // the reassignment row.
     const doc = parse('let n: integer = "hi"\n1\n');
     expect(
-      fullOf(doc),
+      diagLines(doc),
       `a3 — the typed-\`let\` sink is unchanged by this fix (its emitter is reused, not rerouted); actual diagnostics=${render(doc)}`,
     ).toEqual([`error ${LET_RHS_CODE}: ${letRhsMessage("n", "integer", "string")}`]);
   });
@@ -370,7 +365,7 @@ describe("bug 0115 (a) — a reassignment's RHS is judged against the binding's 
     // touch the structural-parse site, so this list must not move.
     const doc = parse("let n: integer = 1\nn = 2\n1\n");
     expect(
-      fullOf(doc),
+      diagLines(doc),
       `a4 — \`2\` is \`⊑ integer\`, so only the mutability row applies; actual diagnostics=${render(doc)}`,
     ).toEqual([`error ${IMMUTABLE_CODE}: ${immutableMessage("n")}`]);
   });
@@ -487,7 +482,7 @@ describe("bug 0115 (b4–b9) — all five compound forms are judged, and the com
     // `expectSoleMismatch` unchanged.
     const doc = parse('let mut n: integer = 1\nn += "hi"\n1\n');
     expect(
-      fullOf(doc),
+      diagLines(doc),
       `b4 — the desugared \`+=\` draws the operand check in lockstep with the spelled binary, in ADDITION to the compat verdict; actual diagnostics=${render(doc)}`,
     ).toEqual([
       `error ${CODE}: ${reassignMismatch("n", "integer", "string")}`,
@@ -522,7 +517,7 @@ describe("bug 0115 (b4–b9) — all five compound forms are judged, and the com
     // the whole-list equality here is the no-double-report pin as well.
     const doc = parse("let mut n: integer = 1\nn += 1.5\n1\n");
     expect(
-      fullOf(doc),
+      diagLines(doc),
       `b9 — the narrowing outcome routes to the existing registered code exactly as \`checkLetRhsCompat\` routes it; actual diagnostics=${render(doc)}`,
     ).toEqual([`error ${NARROWING_CODE}: ${registered(NARROWING_CODE)}`]);
   });
@@ -536,7 +531,7 @@ describe("bug 0115 (c) — the narrowing sub-case reports the already-registered
   it("RED c1: `let mut n: integer = 1` / `n = 1.5` reports integer-narrowing", () => {
     const doc = parse("let mut n: integer = 1\nn = 1.5\n1\n");
     expect(
-      fullOf(doc),
+      diagLines(doc),
       `c1 — the plain form of b9, at the same registered row (§Fix (c)); actual diagnostics=${render(doc)}`,
     ).toEqual([`error ${NARROWING_CODE}: ${registered(NARROWING_CODE)}`]);
   });
@@ -548,7 +543,7 @@ describe("bug 0115 (c) — the narrowing sub-case reports the already-registered
     // adding the reassignment's.
     const doc = parse("let n: integer = 1.5\n1\n");
     expect(
-      fullOf(doc),
+      diagLines(doc),
       `c2 — the initialiser position is unchanged by this fix; actual diagnostics=${render(doc)}`,
     ).toEqual([`error ${NARROWING_CODE}: ${registered(NARROWING_CODE)}`]);
   });
@@ -637,7 +632,7 @@ describe("bug 0115 (e) — the new row is added at the offending statement and t
     const body = 'let mut n: number = 1\nn = "x"\nn.length()\n';
     const doc = parse(body);
     expect(
-      fullOf(doc),
+      diagLines(doc),
       `e1 — an ADDITION, in emission order: the reassignment row precedes the method row; actual diagnostics=${render(doc)}`,
     ).toEqual([
       `error ${CODE}: ${reassignMismatch("n", "number", "string")}`,
@@ -714,7 +709,7 @@ describe("bug 0115 (f) — an immutable target reports BOTH codes; a loop variab
     // (tests/type-name-as-value-refusal.test.ts group (c)).
     const doc = parse('let n: integer = 1\nn = "hi"\n1\n');
     expect(
-      fullOf(doc),
+      diagLines(doc),
       `f1 — a non-\`mut\` target is BOTH un-writable and mistyped; actual diagnostics=${render(doc)}`,
     ).toEqual([
       `error ${IMMUTABLE_CODE}: ${immutableMessage("n")}`,
@@ -735,7 +730,7 @@ describe("bug 0115 (f) — an immutable target reports BOTH codes; a loop variab
     // adds the row 0115 flagged as then-missing.
     const doc = parse('for x in [1, 2] { x = "b" }\n1\n');
     expect(
-      fullOf(doc),
+      diagLines(doc),
       `f2 — a loop variable is both immutable and mistyped here; actual diagnostics=${render(doc)}`,
     ).toEqual([
       `error ${IMMUTABLE_CODE}: ${immutableMessage("x")}`,
@@ -754,7 +749,7 @@ describe("bug 0115 (f) — an immutable target reports BOTH codes; a loop variab
     // annotated parameter is judged where g4's unannotated one is withheld.
     const doc = parse('fn g(s: integer) { s = "a"\ns }\ng(1)\n');
     expect(
-      fullOf(doc),
+      diagLines(doc),
       `f3 — a declared parameter is both immutable and mistyped here; actual diagnostics=${render(doc)}`,
     ).toEqual([
       `error ${IMMUTABLE_CODE}: ${immutableMessage("s")}`,
@@ -920,7 +915,7 @@ describe("bug 0115 (h) — bug 0079's static interpolation gate is unchanged in 
     // row.
     const doc = parse("let mut r = Ok(1)\nr = 5\n@`x${r}`\n");
     expect(
-      fullOf(doc),
+      diagLines(doc),
       `h1 — 0079's disposition stands; the minted row must not double up on it; actual diagnostics=${render(doc)}`,
     ).toEqual([
       `error ${INTERPOLATED_RESULT_CODE}: ${registered(INTERPOLATED_RESULT_CODE)}`,

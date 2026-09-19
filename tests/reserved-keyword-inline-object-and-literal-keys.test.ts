@@ -1,10 +1,8 @@
 import { registryMessageOf } from "./helpers/load-row-harness";
 import { readRegistry, type RegistryRow } from "./helpers/registry-oracle";
 import { describe, expect, it } from "vitest";
-import type { Diagnostic } from "../src/diagnostics/diagnostic";
 import { reservedKeywords } from "../src/lexer/lexer";
-import type { ThetaDocument } from "../src/parser/theta-document";
-import { parseDoc } from "./helpers/e2e-s1";
+import { parseDoc, diagLinesWithRange, errorLineAt as at } from "./helpers/e2e-s1";
 
 // Bug 0249 — a reserved keyword spelled as an inline object type's field key
 // (`schema S { p: { let: string } }`) or as a typed object-literal key
@@ -147,26 +145,7 @@ const FM = "---\nmode: prompt\n---\n";
 
 /** Every diagnostic rendered `severity code @l:c-l:c: message`, in report order. */
 function lines(src: string, path = "test.theta"): string[] {
-  const doc: ThetaDocument = parseDoc(src, path);
-  return doc.diagnostics.map((d: Diagnostic) => {
-    const r = d.range;
-    const at =
-      r === undefined
-        ? "-"
-        : `${r.start.line}:${r.start.column}-${r.end.line}:${r.end.column}`;
-    return `${d.severity} ${d.code} @${at}: ${d.message}`;
-  });
-}
-
-/** One rendered `error`-severity diagnostic line, single-line range. */
-function at(
-  code: string,
-  message: string,
-  line: number,
-  column: number,
-  endColumn: number,
-): string {
-  return `error ${code} @${line}:${column}-${line}:${endColumn}: ${message}`;
+  return diagLinesWithRange(parseDoc(src, path));
 }
 
 /**

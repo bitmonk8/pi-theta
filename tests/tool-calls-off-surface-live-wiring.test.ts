@@ -27,6 +27,7 @@ import {
   SEAM_NOOP_CHECKPOINT as NOOP_CHECKPOINT,
   SEAM_NOOP_SINK as NOOP_SINK,
 } from "./helpers/invoke-seam-scaffold";
+import { liveSignal } from "./helpers/typed-query-harness";
 import { describe, expect, it } from "vitest";
 import type { Diagnostic, SourceRange } from "../src/diagnostics/diagnostic";
 import type { CommittedSideEffect } from "../src/runtime/no-rollback";
@@ -50,11 +51,6 @@ import type { CallExpr, ThetaBody } from "../src/parser/theta-document";
 import type { ThetaValue, ResultValue } from "../src/runtime/value";
 
 const TOOL_SITE: CheckpointSite = { file: "call.theta", line: 3, column: 5 };
-
-/** A never-aborted signal for the settled / value arms. */
-function liveSignal(): AbortSignal {
-  return new AbortController().signal;
-}
 
 /** A `CodeSideToolCall` whose `dispatch()` resolves a (possibly malformed) value. */
 function callResolving(toolName: string, resolved: unknown): CodeSideToolCall {

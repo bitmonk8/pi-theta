@@ -81,6 +81,7 @@ import {
   parseTheta,
   envelopeRootDouble as rootDouble,
 } from "./helpers/subagent-fn-child-regime";
+import { composePointerMessage } from "./helpers/registry-oracle";
 import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -250,11 +251,9 @@ function refusalTemplate(): string {
  */
 function expectedRefusalMessage(pointer: string, value: number): string {
   const template = refusalTemplate();
-  const cut = template.indexOf(VALUE_PLACEHOLDER);
-  const head = template.slice(0, cut);
-  const tail = template.slice(cut + VALUE_PLACEHOLDER.length);
+  const message = composePointerMessage(template, pointer, value);
   const separator = ": ";
-  if (!head.endsWith(separator)) {
+  if (message === undefined) {
     throw new Error(
       `precondition unmet: the ${REFUSAL_CODE} registry Message template ` +
         `${JSON.stringify(template)} does not separate its subject from ${VALUE_PLACEHOLDER} ` +
@@ -262,9 +261,7 @@ function expectedRefusalMessage(pointer: string, value: number): string {
         `insertion point`,
     );
   }
-  const subject = head.slice(0, head.length - separator.length);
-  const location = pointer.length > 0 ? ` at ${pointer}` : "";
-  return `${subject}${location}${separator}${String(value)}${tail}`;
+  return message;
 }
 
 // ===========================================================================

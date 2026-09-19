@@ -14,7 +14,7 @@ import {
   type SchemaSlug,
 } from "../src/seams/schema-validator";
 import { yamlQuoted, parseDoc, diagLines } from "./helpers/e2e-s1";
-import { compareCodePoint, refNames } from "./helpers/canonical-slug-oracle";
+import { compareCodePoint, refNames, inlineDefName } from "./helpers/canonical-slug-oracle";
 
 // Bug 0043 — `lowerTypeExpr` (src/parser/params.ts) tests for a generic
 // application BEFORE it splits a union, so any union whose source text ends in
@@ -1190,7 +1190,7 @@ describe("bug 0043 (i) — the brace-arm union, whose four positions agree byte 
    */
   const A_INT_CANONICAL =
     '{"additionalProperties":false,"properties":{"a":{"type":"integer"}},"required":["a"],"type":"object"}';
-  const A_INT_INLINE = `__inline_${createHash("sha256").update(A_INT_CANONICAL, "utf8").digest("hex").slice(0, 16)}`;
+  const A_INT_INLINE = inlineDefName(A_INT_CANONICAL);
 
   /** Bug 0039's arm dispatch: the brace arm hoists, the generic arm lowers concretely. */
   const HOISTED = {

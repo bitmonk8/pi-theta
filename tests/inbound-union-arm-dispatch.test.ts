@@ -10,7 +10,7 @@ import {
   driveWatchedSubagentChild,
   reapSubagentChildren,
 } from "./helpers/real-subagent-spawn";
-import { parseDeps as makeParseDeps } from "./helpers/e2e-s1";
+import { parseDeps as makeParseDeps, schemaDeclsOf, enumDeclsOf } from "./helpers/e2e-s1";
 import { beforeEach, describe, expect, it } from "vitest";
 
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
@@ -22,7 +22,7 @@ import type {
   ModelRegistry,
   ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
-import { parseThetaDocument, type EnumDecl, type SchemaDecl, type ThetaDocument } from "../src/parser/theta-document";
+import { parseThetaDocument, type ThetaDocument } from "../src/parser/theta-document";
 import type { ThetaSource } from "../src/lexer/lexer";
 import { lowerQueryResponseSchema } from "../src/runtime/query-schema-lowering";
 import {
@@ -163,14 +163,6 @@ function loadFixture(src: string, path: string): ThetaDocument {
     );
   }
   return doc;
-}
-
-function schemaDeclsOf(doc: ThetaDocument): readonly SchemaDecl[] {
-  return doc.body.statements.filter((s): s is SchemaDecl => s.kind === "schema");
-}
-
-function enumDeclsOf(doc: ThetaDocument): readonly EnumDecl[] {
-  return doc.body.statements.filter((s): s is EnumDecl => s.kind === "enum");
 }
 
 /** The production content-addressing of `src/extension/production-composition.ts:3789-3818`. */

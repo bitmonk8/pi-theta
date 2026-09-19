@@ -21,7 +21,7 @@ import {
   type LoweredSchema,
   type SchemaSlug,
 } from "../src/seams/schema-validator";
-import { loweredAnnotation as lowerAnnotation, loadSchemaDecls, parseDoc, diagLines } from "./helpers/e2e-s1";
+import { loweredAnnotation as lowerAnnotation, loadSchemaDecls, loadCleanly as loadCleanlyShared, type LoadedParams, parseDoc, diagLines } from "./helpers/e2e-s1";
 import { assertKeysSorted, inlineDefName, slugOfCanonicalForm, refNames } from "./helpers/canonical-slug-oracle";
 
 // Bug 0039 — an inline object type is recursive by the grammar, and the shared
@@ -507,41 +507,13 @@ function loweredAnnotation(label: string, annotation: string): LoweredSchema {
   return lowerAnnotation(label, annotation, TRIAGE_DECLS);
 }
 
-/** A parsed, cleanly-lowered `params:` block. */
-interface LoadedParams {
-  readonly properties: Record<string, unknown>;
-  readonly defs: Record<string, unknown>;
-  readonly loweredSchema: LoweredSchema;
-}
-
 /**
- * Parse a fixture that must LOAD, and read its lowered `params:` schema back.
- * Every absent intermediate — a `null` frontmatter, an absent `params`, an
- * absent `loweredSchema` — throws with the diagnostics rendered.
+ * Load a legal inline object type (grammar.md:109, type-system.md:15) through
+ * the shared clean-load harness, retaining the `properties` object precondition.
  */
-function loadCleanly(label: string, source: string): LoadedParams {
-  const doc = parseDoc(source, "bug0039.theta");
-  expect(
-    diagLines(doc),
-    `${label}: an inline object type is legal theta in every type position (grammar.md:109, type-system.md:15), so this fixture must load with NO diagnostics`,
-  ).toEqual([]);
-  if (doc.frontmatter === null) {
-    throw new Error(
-      `${label}: the theta was REFUSED — frontmatter is null. Diagnostics: ${JSON.stringify(diagLines(doc))}`,
-    );
-  }
-  const params = doc.frontmatter.params;
-  if (params === undefined) {
-    throw new Error(
-      `${label}: the frontmatter carries no parsed params block. Diagnostics: ${JSON.stringify(diagLines(doc))}`,
-    );
-  }
-  const lowered = params.loweredSchema;
-  if (lowered === undefined) {
-    throw new Error(
-      `${label}: the params block lowered to NOTHING (loweredSchema absent), so there is no AJV-validatable document for the argument boundary. Diagnostics: ${JSON.stringify(diagLines(doc))}`,
-    );
-  }
+function loadCleanly(label: string, source: string): LoadedParams & { readonly properties: Record<string, unknown> } {
+  const loaded = loadCleanlyShared(label, source, "bug0039.theta");
+  const lowered = loaded.loweredSchema;
   const properties = lowered["properties"];
   if (properties === null || typeof properties !== "object") {
     throw new Error(
@@ -550,7 +522,7 @@ function loadCleanly(label: string, source: string): LoadedParams {
   }
   return {
     properties: properties as Record<string, unknown>,
-    defs: (lowered["$defs"] ?? {}) as Record<string, unknown>,
+    defs: loaded.defs,
     loweredSchema: lowered,
   };
 }

@@ -4,30 +4,23 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 // @ts-expect-error — JS code-registry module, no type declarations.
 import { parseRegistry, registryMessage } from "../tools/code-registry/index.js";
-import type {
-  ExtensionAPI,
-  ExtensionCommandContext,
-  ModelRegistry,
-} from "@earendil-works/pi-coding-agent";
+import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
-import type { ThetaSource } from "../src/lexer/lexer";
-import type { SystemNoteChannelDeps } from "../src/extension/system-note-channel";
-import type { ModelReferenceMatcher, ParsedFrontmatter } from "../src/parser/frontmatter";
+import type { ParsedFrontmatter } from "../src/parser/frontmatter";
 import {
   parseThetaDocument,
-  type ParseThetaDocumentDeps,
   type ThetaDocument,
 } from "../src/parser/theta-document";
 import { executeBody, type BodyExecution } from "../src/runtime/statement-executor";
 import { isThetaPanic, surfaceUnexpectedThrow } from "../src/runtime/runtime-panics";
-import { createProductionProducerDeps } from "../src/extension/production-theta-producer";
 import type {
   ConversationBindInput,
   ThetaCompositionInput,
 } from "../src/extension/theta-composition-producer";
-import type { RuntimeRoot } from "../src/runtime-root";
-import type { Checkpoint } from "../src/seams/checkpoint";
-import { parseDoc, isLoadParseError } from "./helpers/e2e-s1";
+import { producer } from "./helpers/runtime-belt-probe-harness";
+import { rootWith } from "./helpers/fixture-dispatch-harness";
+import { SEAM_NOOP_CHECKPOINT } from "./helpers/invoke-seam-scaffold";
+import { parseDoc, parseDeps, isLoadParseError } from "./helpers/e2e-s1";
 import { committedThetaSources } from "./helpers/theta-corpus";
 
 // Bug 0140 — `collectIdentRoots` (src/parser/theta-document.ts:4774) builds the
@@ -1201,48 +1194,6 @@ describe("bug 0140 (d) — the call position keeps theta/parse/unknown-identifie
 // -> executeBody. Offline, provider-free, no child process, no session.
 // ===========================================================================
 
-function parseDeps(): ParseThetaDocumentDeps {
-  const systemNote: SystemNoteChannelDeps = {
-    pi: { sendMessage: (): void => {} },
-    ui: { notify: (): void => {} },
-    emitDiagnostic: (): void => {},
-  };
-  const modelMatcher: ModelReferenceMatcher = {
-    resolve: (): "resolved" => "resolved",
-  };
-  return { systemNote, modelMatcher };
-}
-
-function parseOnly(path: string, src: string): ThetaDocument {
-  const source: ThetaSource = { path, bytes: new TextEncoder().encode(src) };
-  return parseThetaDocument(source, parseDeps());
-}
-
-const NOOP_CHECKPOINT: Checkpoint = {
-  before(): Promise<void> {
-    return Promise.resolve();
-  },
-};
-
-function rootDouble(): RuntimeRoot {
-  return {
-    checkpoint: NOOP_CHECKPOINT,
-    idSource: { newInvocationId: () => "inv-1", newToolCallId: () => "tc-1" },
-  } as unknown as RuntimeRoot;
-}
-
-function producer() {
-  return createProductionProducerDeps({
-    pi: {
-      sendMessage: () => {},
-      getActiveTools: () => [],
-      setActiveTools: () => {},
-    } as unknown as ExtensionAPI,
-    root: rootDouble(),
-    modelRegistry: {} as unknown as ModelRegistry,
-  });
-}
-
 /** The site `surfaceUnexpectedThrow` frames a throw against (the ZERO body range). */
 const SITE = {
   file: "bug0140.theta",
@@ -1278,7 +1229,7 @@ function frameThrow(thrown: unknown): string {
  * for a pass, and must never silently skip.
  */
 async function runClean(label: string, body: string): Promise<BodyExecution> {
-  const doc = parseOnly("bug0140.theta", FM + body);
+  const doc = parseDoc(FM + body, "bug0140.theta");
   if (doc.diagnostics.length > 0) {
     throw new Error(
       `${label}: PRECONDITION — this row must parse clean to reach the executor at all; ` +
@@ -1296,7 +1247,7 @@ async function runClean(label: string, body: string): Promise<BodyExecution> {
     args: "",
     ctx: {} as unknown as ExtensionCommandContext,
   };
-  const binding = producer().bindPromptConversation(bindInput);
+  const binding = producer(rootWith(SEAM_NOOP_CHECKPOINT)).bindPromptConversation(bindInput);
   try {
     return await executeBody(theta.body, binding.executeDeps);
   } catch (thrown) {

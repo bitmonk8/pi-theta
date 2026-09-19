@@ -1,8 +1,4 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 // @ts-expect-error — JS code-registry module, no type declarations.
 import { registryMessage } from "../tools/code-registry/index.js";
 import type { SourceRange } from "../src/diagnostics/diagnostic";
@@ -16,10 +12,13 @@ import {
   type TypeEnv,
 } from "../src/parser/type-compat";
 import { collectTypeEnv } from "../src/parser/type-layer-checks";
-import { discoverAndComposeFixtures } from "../src/extension/production-composition";
-import type { ThetaFixture } from "../src/extension/factory";
 import { parseDoc, diagLines } from "./helpers/e2e-s1";
 import { REGISTRY } from "./helpers/registry-oracle";
+import {
+  disposeWorkspace,
+  plantThetaWorkspace,
+  runProductionLoad,
+} from "./helpers/production-load-harness";
 
 // Bug 0038 — `collectTypeEnv` builds the `TypeEnv` as a plain `{}`, so every
 // consumer that resolves a `NamedType` by reading `env[name]` gets a JS value
@@ -669,48 +668,23 @@ interface LoadProbe {
  * "the crashing file was dropped".
  */
 async function driveComposePass(mcrashBody: string, why: string): Promise<LoadProbe> {
-  const workspaceDir = mkdtempSync(join(tmpdir(), "theta-bug0038-"));
+  const workspaceDir = plantThetaWorkspace("theta-bug0038-", [
+    { stem: "actl", text: FM + "@`hi`\n" },
+    { stem: "zctl", text: FM + "@`bye`\n" },
+    { stem: "mcrash", text: FM + mcrashBody },
+  ]);
   try {
-    const projectThetaDir = join(workspaceDir, ".pi", "theta");
-    mkdirSync(projectThetaDir, { recursive: true });
-    writeFileSync(join(projectThetaDir, "actl.theta"), FM + "@`hi`\n", "utf8");
-    writeFileSync(join(projectThetaDir, "zctl.theta"), FM + "@`bye`\n", "utf8");
-    writeFileSync(join(projectThetaDir, "mcrash.theta"), FM + mcrashBody, "utf8");
-
-    const notifications: string[] = [];
-    const pi = {
-      getFlag: (): undefined => undefined,
-      getCommands: (): readonly unknown[] => [],
-      sendMessage: (): void => {},
-      sendUserMessage: (): void => {},
-      getActiveTools: (): readonly string[] => [],
-      setActiveTools: (): void => {},
-    } as unknown as ExtensionAPI;
-    const ctx = {
-      cwd: workspaceDir,
-      // Interactive posture so a drop does not also mirror to stderr; the
-      // author-visible observable under test is `ui.notify`.
-      hasUI: true,
-      modelRegistry: { getAvailable: (): readonly unknown[] => [] },
-      ui: {
-        notify: (message: string, _type: "error"): void => {
-          notifications.push(message);
-        },
-      },
-    } as unknown as ExtensionContext;
-
-    const pass = discoverAndComposeFixtures(pi, ctx);
+    // Interactive posture so a drop does not also mirror to stderr; the
+    // author-visible observable under test is `ui.notify`.
+    const pass = runProductionLoad(workspaceDir, { hasUI: true });
     await expect(
       pass,
       `${why}\n  \`discoverAndComposeFixtures\` must RETURN: a throw escaping the compose pass is converted by the factory's compose supplier (src/extension/factory.ts:702–719) into one \`theta/load/extension-compose-failed\` naming a JS \`TypeError\` with no file, no span and no theta name (code-registry-load.md:10), which is an escape from DIAG-1's per-site attribution (diagnostic-shape.md:71)`,
-    ).resolves.toBeDefined();
-    const fixtures: readonly ThetaFixture[] = await pass;
-    return {
-      registered: fixtures.map((f) => f.slashName),
-      notifications,
-    };
+    ).resolves.toMatchObject({ registered: expect.arrayContaining(["actl", "zctl"]) });
+    const { registered, notifications } = await pass;
+    return { registered, notifications };
   } finally {
-    rmSync(workspaceDir, { recursive: true, force: true });
+    disposeWorkspace(workspaceDir);
   }
 }
 

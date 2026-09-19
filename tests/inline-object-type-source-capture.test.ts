@@ -1,7 +1,6 @@
 import { REGISTRY } from "./helpers/registry-oracle";
 import { registryMessageOf } from "./helpers/load-row-harness";
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
+import { readRepoFile } from "./helpers/corpus-reader";
 import { describe, expect, it } from "vitest";
 // @ts-expect-error — JS code-registry module, no type declarations.
 import { registryMessage } from "../tools/code-registry/index.js";
@@ -10,7 +9,6 @@ import type {
   InvokeExpr,
   LetStmt,
   QueryExpr,
-  ThetaDocument,
 } from "../src/parser/theta-document";
 import { lowerQueryResponseSchema } from "../src/runtime/query-schema-lowering";
 import {
@@ -18,6 +16,7 @@ import {
   expectGroup as expectGroupShared,
   type DiagnosticCell,
   parseDoc,
+  diagLines,
 } from "./helpers/e2e-s1";
 
 // Bug 0228 — the three type-source captures in `src/parser/theta-document.ts`
@@ -174,12 +173,6 @@ import {
 // ===========================================================================
 // The diagnostic oracle — the registry's *Message* column (DIAG-4).
 // ===========================================================================
-
-const DIAGNOSTICS_DIR = "../docs/spec_topics/diagnostics/";
-
-function readDiagnosticsPage(page: string): string {
-  return readFileSync(fileURLToPath(new URL(`${DIAGNOSTICS_DIR}${page}`, import.meta.url)), "utf8");
-}
 
 /** The new row §Fix (b) mints: a raw inline field-name key that is no `Ident`. */
 const NOT_IDENT = "theta/parse/inline-field-name-not-identifier";
@@ -338,11 +331,6 @@ const CARVE_OUT_LABEL = "array<> generic argument";
 // ===========================================================================
 // Parse + assertion helpers.
 // ===========================================================================
-
-/** Every diagnostic rendered `<severity> <code>: <message>`, in emission order. */
-function diagLines(doc: ThetaDocument): string[] {
-  return doc.diagnostics.map((d) => `${d.severity} ${d.code}: ${d.message}`);
-}
 
 function lines(src: string, path = "bug0228.theta"): string[] {
   return diagLines(parseDoc(src, path));
@@ -679,7 +667,7 @@ describe("bug 0228 (A) — the row §Fix (b) mints for a raw inline key that is 
     // subject is the raw key again — the whole point is that the key is NOT an
     // identifier, so it cannot be rendered under the identifier category — so
     // the sentence widens from two rows to three.
-    const page = readDiagnosticsPage("placeholder-rendering-b.md");
+    const page = readRepoFile("docs/spec_topics/diagnostics/placeholder-rendering-b.md");
     expect(
       page,
       `A1 — §"Source-derived placeholders" must name ${NOT_IDENT} as a row whose <field> ` +

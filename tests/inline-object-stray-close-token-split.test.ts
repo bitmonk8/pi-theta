@@ -5,7 +5,7 @@ import { registryMessageOf } from "./helpers/load-row-harness";
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
 import type { ThetaDocument } from "../src/parser/theta-document";
 import { splitTopLevelSegments, topLevelColon } from "../src/parser/params";
-import { expectGroup as expectGroupShared, type DiagnosticCell, parseDoc, subagentTheta as theta } from "./helpers/e2e-s1";
+import { expectGroup as expectGroupShared, type DiagnosticCell, envelope, parseDoc, subagentTheta as theta } from "./helpers/e2e-s1";
 
 // Bug 0238 — a stray depth-0 CLOSE token in an inline object type underflows
 // `splitTopLevelSegments`' depth counter, so every entry behind it merges into
@@ -330,14 +330,6 @@ const W3_TYPE = "{a: integer, b > c, m: integer, n: integer}";
 const W4_TYPE = "{b > c, m: integer}";
 const W15_TYPE = "{a: integer, n: {q > r, m: integer}}";
 const W16_TYPE = "{a: integer, n: {q: integer, m: integer}}";
-
-/** The `params:` envelope around a hoisted `p`, hand-written (schema-subset.md:73). */
-function envelope(slug: string, defs: string): string {
-  return (
-    `{"type":"object","properties":{"p":{"$ref":"#/$defs/__inline_${slug}"}},` +
-    `"required":["p"],"additionalProperties":false,"$defs":{${defs}}}`
-  );
-}
 
 /** One hand-written `$defs` fragment body, keyed by its own slug. */
 function def(slug: string, body: string): string {

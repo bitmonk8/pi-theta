@@ -1,7 +1,5 @@
-import { REGISTRY } from "./helpers/registry-oracle";
+import { registryErrorLine as line } from "./helpers/registry-oracle";
 import { describe, expect, it } from "vitest";
-// @ts-expect-error — JS code-registry module, no type declarations.
-import { registryMessage } from "../tools/code-registry/index.js";
 import type { SchemaDecl, ThetaDocument } from "../src/parser/theta-document";
 import { parseDoc, diagLines } from "./helpers/e2e-s1";
 
@@ -119,39 +117,6 @@ const PARAMS_REFUSAL = "theta/load/params-type-not-expression";
 const SCHEMA_REFUSAL = "theta/parse/schema-type-not-expression";
 const RESERVED_KEYWORD = "theta/parse/reserved-keyword-as-identifier";
 const UNRESOLVED_NAME = "theta/parse/unresolved-named-type";
-
-/**
- * A registry row's normative *Message* (DIAG-4, diagnostic-shape.md:74), read
- * rather than restated — the neighbour witness
- * (tests/nested-inline-enum-generic-argument-refusal.test.ts) reads its
- * expectations the same way, and this file must not become the one place where
- * the inline-enum bytes are hard-coded. Definedness is asserted first so a
- * missing row reds by naming the registry page instead of comparing against a
- * bare `undefined`. 
- */
-function registryMessageOf(code: string): string {
-  const template = registryMessage(REGISTRY, code) as string | undefined;
-  expect(
-    template,
-    `DIAG-4 anchor: the diagnostics code registry must carry the *Message* row for ${code}; ` +
-      `without it every expected message in this file would be a restatement, which DIAG-4 bars`,
-  ).toBeDefined();
-  return template as string;
-}
-
-/** `error <code>: <message>` for one substitution set, rendered from the registry. */
-function line(code: string, subs: ReadonlyArray<readonly [string, string]>): string {
-  let message = registryMessageOf(code);
-  for (const [placeholder, value] of subs) {
-    expect(
-      message.includes(placeholder),
-      `DIAG-4 anchor: the registry *Message* for ${code} must carry the ${placeholder} ` +
-        `placeholder this file interpolates; observed template ${JSON.stringify(message)}`,
-    ).toBe(true);
-    message = message.replace(placeholder, value);
-  }
-  return `error ${code}: ${message}`;
-}
 
 /**
  * The registered inline-enum line. The row carries NO placeholder — it names

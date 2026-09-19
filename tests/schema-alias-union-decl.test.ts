@@ -8,7 +8,7 @@ import {
   type LoweredSchema,
   type SchemaSlug,
 } from "../src/seams/schema-validator";
-import { codes, parseDoc } from "./helpers/e2e-s1";
+import { codes, parseDoc, diagLines } from "./helpers/e2e-s1";
 
 // Bug 0033 — the `schema X = A | B` type-alias / union declaration does not
 // parse: `parseSchema` consumes only `schema` + the name, registers a field-less
@@ -429,11 +429,6 @@ function parse(body: string): ThetaDocument {
 /** Parse a `.thetalib` body: the top-level-form check keys off the extension. */
 function parseLib(body: string): ThetaDocument {
   return parseDoc(body, "bug0033.thetalib");
-}
-
-/** Every diagnostic rendered `<severity> <code>: <message>`, in emission order. */
-function diagLines(doc: ThetaDocument): string[] {
-  return doc.diagnostics.map((d) => `${d.severity} ${d.code}: ${d.message}`);
 }
 
 /**

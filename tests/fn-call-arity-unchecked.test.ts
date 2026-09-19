@@ -3,8 +3,8 @@ import { readRegistry } from "./helpers/registry-oracle";
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import type { Diagnostic, SourceRange } from "../src/diagnostics/diagnostic";
-import type { Block, Expr, Stmt, ThetaDocument } from "../src/parser/theta-document";
-import { at, parseDoc, render } from "./helpers/e2e-s1";
+import type { Stmt, ThetaDocument } from "../src/parser/theta-document";
+import { at, collectCalls, parseDoc, render } from "./helpers/e2e-s1";
 
 // Bug 0131 — a `<name>(args)` call whose callee resolves to a top-level `fn` in
 // the same file is subject to no argument-COUNT check at any parse seam: the
@@ -189,131 +189,6 @@ function locatedHits(doc: ThetaDocument, code: string): string[] {
     .filter((d: Diagnostic) => d.code === code)
     .map((d: Diagnostic) => `${d.severity} ${d.message} @${d.range === undefined ? "-" : at(d.range)}`)
     .sort();
-}
-
-interface CallSite {
-  readonly callee: string;
-  readonly argCount: number;
-  readonly range: SourceRange;
-}
-
-/**
- * Every `call`-shaped node of `doc` in source order, with its callee, its
- * argument count and its own range — the range §(c) attaches the diagnostic to.
- *
- * The walk reaches every position group (c) names: a `let` initialiser, an
- * expression statement, a schema-constructor field value, a nested argument, a
- * `fn` body, a `par for` body, a plain `for` body, an `if` body and a `?`
- * operand. A fixture whose call it cannot reach fails the loud precondition in
- * `callRangeOf` rather than passing an absence assertion vacuously.
- */
-function collectCalls(doc: ThetaDocument): CallSite[] {
-  const out: CallSite[] = [];
-  const walkExpr = (e: Expr): void => {
-    switch (e.kind) {
-      case "call":
-        out.push({ callee: e.callee, argCount: e.args.length, range: e.range });
-        for (const a of e.args) walkExpr(a);
-        return;
-      case "invoke":
-        for (const a of e.args) walkExpr(a);
-        return;
-      case "method-call":
-        walkExpr(e.target);
-        for (const a of e.args) walkExpr(a);
-        return;
-      case "try":
-        walkExpr(e.operand);
-        return;
-      case "array":
-        for (const el of e.elements) walkExpr(el);
-        return;
-      case "object":
-        for (const f of e.fields) walkExpr(f.value);
-        return;
-      case "ternary":
-        walkExpr(e.condition);
-        walkExpr(e.consequent);
-        walkExpr(e.alternate);
-        return;
-      case "binary":
-        walkExpr(e.left);
-        walkExpr(e.right);
-        return;
-      case "member":
-        walkExpr(e.target);
-        return;
-      case "index":
-        walkExpr(e.target);
-        walkExpr(e.index);
-        return;
-      case "match":
-        walkExpr(e.scrutinee);
-        for (const arm of e.arms) walkExpr(arm.body);
-        return;
-      case "result-ctor":
-        walkExpr(e.arg);
-        return;
-      case "par-for":
-        walkExpr(e.iterand);
-        if (e.max !== null) walkExpr(e.max);
-        walkBlock(e.body);
-        return;
-      default:
-        return;
-    }
-  };
-  const walkBlock = (b: Block): void => {
-    for (const s of b.statements) walkStmt(s);
-    if (b.tail !== null) walkExpr(b.tail);
-  };
-  const walkStmt = (s: Stmt): void => {
-    switch (s.kind) {
-      case "let":
-        if (s.init !== null) walkExpr(s.init);
-        return;
-      case "reassign":
-        walkExpr(s.value);
-        return;
-      case "expr":
-        walkExpr(s.expr);
-        return;
-      case "tool-call":
-        walkExpr(s.call);
-        return;
-      case "invoke":
-        walkExpr(s.invoke);
-        return;
-      case "return":
-        if (s.operand !== null) walkExpr(s.operand);
-        return;
-      case "fn":
-        walkBlock(s.body);
-        return;
-      case "for":
-        walkExpr(s.iterand);
-        walkBlock(s.body);
-        return;
-      case "while":
-        walkExpr(s.condition);
-        walkBlock(s.body);
-        return;
-      case "if":
-        walkExpr(s.condition);
-        walkBlock(s.then);
-        if (s.otherwise !== null) {
-          // The `else` arm is either a chained `IfStmt` or an `else` block; a
-          // block is the shape carrying `statements`.
-          if ("statements" in s.otherwise) walkBlock(s.otherwise);
-          else walkStmt(s.otherwise);
-        }
-        return;
-      default:
-        return;
-    }
-  };
-  walkBlock(doc.body);
-  return out;
 }
 
 /**

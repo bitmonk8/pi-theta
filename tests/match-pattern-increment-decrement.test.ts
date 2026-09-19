@@ -5,12 +5,11 @@ import {
   type DiagShapeWithHint as DiagShape,
   shapesWithHint as shapes,
   renderWithHint as render,
+  registryMessageOf,
 } from "./helpers/load-row-harness";
 import { readRepoFile } from "./helpers/corpus-reader";
 import { readRegistry, registryHintOf, type RegistryRow } from "./helpers/registry-oracle";
 import { describe, expect, it } from "vitest";
-// @ts-expect-error — JS code-registry module, no type declarations.
-import { registryMessage } from "../tools/code-registry/index.js";
 import type { SourceRange } from "../src/diagnostics/diagnostic";
 import type { ThetaDocument } from "../src/parser/theta-document";
 import { parseDoc, parseDocBytes } from "./helpers/e2e-s1";
@@ -114,21 +113,6 @@ const STATEMENT_IN_ARM_BODY = "theta/parse/statement-in-arm-body";
 const UNKNOWN_IDENT = "theta/parse/unknown-identifier";
 
 /**
- * A registered code's normative *Message* template. Throws naming the registry
- * page when the row is absent, so registry drift can never degrade an assertion
- * below into a comparison against `undefined`.
- */
-function registered(code: string): string {
-  const template = registryMessage(REGISTRY, code) as string | undefined;
-  if (template === undefined) {
-    throw new Error(
-      `harness: ${REGISTRY_PARSE_PAGE} carries no Message row for ${code} — the DIAG-4 column is this file's oracle, so a missing row is a harness failure, never a skip`,
-    );
-  }
-  return template;
-}
-
-/**
  * The row's *Hint* cell, read out of the live table. `parseRegistry` structures
  * five columns and drops *Hint*, and route (a) emits this row's Hint VERBATIM
  * (no Hint edit), so the cell is read rather than pinned as prose. Cell order
@@ -146,7 +130,7 @@ function registryHint(code: string): string {
 
 /** The registered Message with `<op>` rendered as the source token verbatim. */
 function opMessage(op: "++" | "--"): string {
-  const rendered = registered(INC_DEC).replaceAll("<op>", op);
+  const rendered = registryMessageOf(REGISTRY, REGISTRY_PARSE_PAGE, INC_DEC, [["<op>", op]], { replaceAll: true });
   expect(
     rendered,
     `${INC_DEC}: an unsubstituted <…> placeholder remains — the registry row's Message template changed shape and this file's substitution is stale`,
@@ -156,7 +140,7 @@ function opMessage(op: "++" | "--"): string {
 
 /** Bug 0141's Message with `<name>` rendered as the source spelling. */
 function capMessage(name: string): string {
-  return registered(CAP_HEAD).replaceAll("<name>", name);
+  return registryMessageOf(REGISTRY, REGISTRY_PARSE_PAGE, CAP_HEAD, [["<name>", name]], { replaceAll: true });
 }
 
 // ===========================================================================

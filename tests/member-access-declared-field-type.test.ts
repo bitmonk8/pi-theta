@@ -5,8 +5,7 @@ import type {
   ExtensionCommandContext,
   ModelRegistry,
 } from "@earendil-works/pi-coding-agent";
-// @ts-expect-error — JS code-registry module, no type declarations.
-import { registryMessage } from "../tools/code-registry/index.js";
+import { PARSE_REGISTRY_PATH, registryMessageOf } from "./helpers/load-row-harness";
 import type { ParsedFrontmatter } from "../src/parser/frontmatter";
 import type { ThetaDocument } from "../src/parser/theta-document";
 import { executeBody, type BodyExecution } from "../src/runtime/statement-executor";
@@ -160,22 +159,7 @@ const REGISTRY = readRegistry(["parse"]);
  * never a silent comparison against `undefined`.
  */
 function msg(code: string, fills: ReadonlyArray<readonly [string, string]> = []): string {
-  const template = registryMessage(REGISTRY, code) as string | undefined;
-  if (template === undefined) {
-    throw new Error(
-      `harness: docs/spec_topics/diagnostics/code-registry-parse.md carries no Message row for ${code} — the DIAG-4 column (diagnostic-shape.md:74) is this file's only oracle, so a missing row is a harness failure, never a skip`,
-    );
-  }
-  let out = template;
-  for (const [placeholder, value] of fills) {
-    if (!out.includes(placeholder)) {
-      throw new Error(
-        `harness: the ${code} Message template does not carry ${placeholder}; template=${JSON.stringify(template)}`,
-      );
-    }
-    out = out.replace(placeholder, value);
-  }
-  return out;
+  return registryMessageOf(REGISTRY, PARSE_REGISTRY_PATH, code, fills);
 }
 
 const UNKNOWN_METHOD = "theta/parse/unknown-method";

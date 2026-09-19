@@ -8,7 +8,7 @@ import type { Diagnostic } from "../src/diagnostics/diagnostic";
 import { reservedKeywords } from "../src/lexer/lexer";
 import { EXPORT_IN_THETA_CODE } from "../src/parser/imports";
 import type { ThetaDocument } from "../src/parser/theta-document";
-import { parseDoc, isLoadParseError } from "./helpers/e2e-s1";
+import { parseDoc, isLoadParseError, diagLinesWithRange as lines, errorLineAt as at } from "./helpers/e2e-s1";
 
 // Bug 0153 — the SIX remaining identifier positions of the reserved-keyword
 // rule (docs/bugs/0153-reserved-keyword-remaining-identifier-positions.md).
@@ -233,36 +233,6 @@ const FM = "---\nmode: prompt\n---\n";
 /** Parse `body` as a `.theta` under the standard frontmatter. */
 function theta(body: string): ThetaDocument {
   return parseDoc(FM + body);
-}
-
-/**
- * Every diagnostic rendered `severity code @l:c-l:c: message`, in report order,
- * over the UNFILTERED list. This is the assertion vocabulary of the whole file:
- * an ordered whole-list `toEqual` over these strings pins the count, the order,
- * the code, the severity, the range AND the interpolated subject of every
- * diagnostic at once, which is what makes "the position reports the wrong
- * subject" and "the position reports nothing" distinguishable failures.
- */
-function lines(doc: ThetaDocument): string[] {
-  return doc.diagnostics.map((d: Diagnostic) => {
-    const r = d.range;
-    const at =
-      r === undefined
-        ? "-"
-        : `${r.start.line}:${r.start.column}-${r.end.line}:${r.end.column}`;
-    return `${d.severity} ${d.code} @${at}: ${d.message}`;
-  });
-}
-
-/** One rendered `error`-severity diagnostic line, single-line range. */
-function at(
-  code: string,
-  message: string,
-  line: number,
-  column: number,
-  endColumn: number,
-): string {
-  return `error ${code} @${line}:${column}-${line}:${endColumn}: ${message}`;
 }
 
 /**

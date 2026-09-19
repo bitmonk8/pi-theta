@@ -1,8 +1,6 @@
 import { disposeWorkspace, plantThetaWorkspace, runProductionLoad, type LoadOutcome } from "./helpers/production-load-harness";
-import { readRegistry, type RegistryRow } from "./helpers/registry-oracle";
+import { readRegistry, loadRowMessage, type RegistryRow } from "./helpers/registry-oracle";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-// @ts-expect-error — JS code-registry module, no type declarations.
-import { registryMessage } from "../tools/code-registry/index.js";
 import {
   parseFrontmatter,
   type FrontmatterParseResult,
@@ -142,29 +140,15 @@ const CODE = "theta/load/malformed-tools-field";
 const REGISTRY = readRegistry(["load"]);
 
 /**
- * A registry row's normative *Message* template, definedness asserted first so
- * a missing row reds by naming the registry page rather than by a bare
- * `undefined` comparison (DIAG-4). The same helper bug 0104's witness uses.
- */
-function templateMessage(code: string): string {
-  const template = registryMessage(REGISTRY, code) as string | undefined;
-  expect(
-    template,
-    `DIAG-4 anchor: docs/spec_topics/diagnostics/code-registry-load.md must carry the Message row for ${code}`,
-  ).toBeDefined();
-  return template as string;
-}
-
-/**
  * The refusal's normative Message, READ from the registry rather than restated
  * here: bug 0206 §Fix route A reuses 0104's row unchanged, so the registry page
  * is the single source of truth and a future DIAG-4 reword moves this witness
  * with it. The template carries no placeholder, so no rendering step applies.
  */
-const REFUSAL_MESSAGE = templateMessage(CODE);
+const REFUSAL_MESSAGE = loadRowMessage(CODE);
 
 /** `theta/load/unknown-tool` rendered for the two null spellings (group (E5)). */
-const UNKNOWN_TOOL_NULL_MESSAGE = templateMessage(
+const UNKNOWN_TOOL_NULL_MESSAGE = loadRowMessage(
   "theta/load/unknown-tool",
 ).replaceAll("<name>", "null");
 

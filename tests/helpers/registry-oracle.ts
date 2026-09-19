@@ -4,9 +4,10 @@
 // the four sharded registry pages (code-registry-{parse,load,runtime,host}.md),
 // parse each through the real `parseRegistry`, and join the rows into one
 // array — were redeclared byte-for-byte (confirmed via `diff`) in several test
-// files. This module centralises that read, placeholder interpolation and the
-// identical live-cell fragment assertions. Readers whose assertion style and
-// wording vary per file stay local, using the shared registry read.
+// files. This module centralises that read, placeholder interpolation,
+// pointer-message composition and the identical live-cell fragment assertions.
+// Readers whose assertion style and wording vary per file stay local, using
+// the shared registry read.
 //
 // TIER: offline, deterministic, provider-free; also used by live cells.
 import { PARSE_REGISTRY_PATH as REGISTRY_PAGE, registryLineOf, registryMessageOf } from "./load-row-harness";
@@ -121,6 +122,27 @@ export function templateToRegExp(template: string): RegExp {
 /** Fill the named discovery descriptors, leaving unknown placeholders intact. */
 export function interpolate(template: string, subs: Record<string, string>): string {
   return template.replace(/<([a-z-]+)>/g, (whole, name: string) => subs[name] ?? whole);
+}
+
+/**
+ * Compose a refusal from its registry template, inserting ` at <pointer>`
+ * before `: <value>` (no location at the root). A malformed template returns
+ * `undefined` so callers retain their own throw or unavailable-marker wording.
+ */
+export function composePointerMessage(
+  template: string,
+  pointer: string,
+  value: number,
+): string | undefined {
+  const valuePlaceholder = "<value>";
+  const cut = template.indexOf(valuePlaceholder);
+  const head = cut < 0 ? "" : template.slice(0, cut);
+  const separator = ": ";
+  if (cut < 0 || !head.endsWith(separator)) return undefined;
+  const tail = template.slice(cut + valuePlaceholder.length);
+  const subject = head.slice(0, head.length - separator.length);
+  const location = pointer.length > 0 ? ` at ${pointer}` : "";
+  return `${subject}${location}${separator}${String(value)}${tail}`;
 }
 
 /**

@@ -200,6 +200,7 @@ import {
   driveWatchedSubagentChild,
   reapSubagentChildren,
 } from "./helpers/real-subagent-spawn";
+import { composePointerMessage } from "./helpers/registry-oracle";
 import { describe, expect, it } from "vitest";
 import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -353,10 +354,8 @@ function nonRepresentableMessage(pointer: string, value: number): string {
         `template: ${JSON.stringify(template)}`,
     );
   }
-  const cut = template.indexOf(VALUE_PLACEHOLDER);
-  const head = template.slice(0, cut);
-  const tail = template.slice(cut + VALUE_PLACEHOLDER.length);
-  if (!head.endsWith(separator)) {
+  const message = composePointerMessage(template, pointer, value);
+  if (message === undefined) {
     throw new Error(
       `precondition unmet: the ${SUBAGENT_RETURN_VALUE_NOT_REPRESENTABLE_CODE} registry Message ` +
         `template ${JSON.stringify(template)} does not separate its subject from ` +
@@ -364,9 +363,7 @@ function nonRepresentableMessage(pointer: string, value: number): string {
         `has no anchored insertion point`,
     );
   }
-  const subject = head.slice(0, head.length - separator.length);
-  const location = pointer.length > 0 ? ` at ${pointer}` : "";
-  return `${subject}${location}${separator}${String(value)}${tail}`;
+  return message;
 }
 
 /**

@@ -7,7 +7,7 @@ import type { Diagnostic } from "../src/diagnostics/diagnostic";
 import { reservedKeywords } from "../src/lexer/lexer";
 import { EXPORT_IN_THETA_CODE } from "../src/parser/imports";
 import type { ThetaDocument } from "../src/parser/theta-document";
-import { parseDoc, isLoadParseError } from "./helpers/e2e-s1";
+import { parseDoc, isLoadParseError, diagLinesWithRange as lines, errorLineAt as at } from "./helpers/e2e-s1";
 
 // Bug 0242 — three lexer-side faces of `contextualDiagnostics` range a
 // diagnostic on a token the author wrote correctly
@@ -181,32 +181,6 @@ const FM = "---\nmode: prompt\n---\n";
 /** Parse `body` as a `.theta` under the standard frontmatter. */
 function theta(body: string): ThetaDocument {
   return parseDoc(FM + body);
-}
-
-/**
- * Every diagnostic rendered `severity code @l:c-l:c: message`, in report order,
- * over the UNFILTERED list — the assertion vocabulary of the whole file.
- */
-function lines(doc: ThetaDocument): string[] {
-  return doc.diagnostics.map((d: Diagnostic) => {
-    const r = d.range;
-    const at =
-      r === undefined
-        ? "-"
-        : `${r.start.line}:${r.start.column}-${r.end.line}:${r.end.column}`;
-    return `${d.severity} ${d.code} @${at}: ${d.message}`;
-  });
-}
-
-/** One rendered `error`-severity diagnostic line, single-line range. */
-function at(
-  code: string,
-  message: string,
-  line: number,
-  column: number,
-  endColumn: number,
-): string {
-  return `error ${code} @${line}:${column}-${line}:${endColumn}: ${message}`;
 }
 
 /**

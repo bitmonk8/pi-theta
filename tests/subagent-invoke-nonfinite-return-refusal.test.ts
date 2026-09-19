@@ -96,7 +96,7 @@ import {
   reapSubagentChildren,
 } from "./helpers/real-subagent-spawn";
 import { reportOf } from "./helpers/subagent-fn-child-regime";
-import { REGISTRY } from "./helpers/registry-oracle";
+import { REGISTRY, composePointerMessage } from "./helpers/registry-oracle";
 import { describe, expect, it } from "vitest";
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -165,20 +165,16 @@ function expectedRefusalMessage(pointer: string, value: number): string {
       `row for ${REFUSAL_CODE}, and DIAG-4 makes that column the only source for this string>`
     );
   }
-  const cut = template.indexOf(VALUE_PLACEHOLDER);
-  const head = cut < 0 ? "" : template.slice(0, cut);
+  const message = composePointerMessage(template, pointer, value);
   const separator = ": ";
-  if (cut < 0 || !head.endsWith(separator)) {
+  if (message === undefined) {
     return (
       `<unavailable: the ${REFUSAL_CODE} registry Message template ${JSON.stringify(template)} ` +
       `does not carry ${VALUE_PLACEHOLDER} after a ${JSON.stringify(separator)} separator, so ` +
       `the ' at <pointer>' segment has no anchored insertion point>`
     );
   }
-  const tail = template.slice(cut + VALUE_PLACEHOLDER.length);
-  const subject = head.slice(0, head.length - separator.length);
-  const location = pointer.length > 0 ? ` at ${pointer}` : "";
-  return `${subject}${location}${separator}${String(value)}${tail}`;
+  return message;
 }
 
 // ---------------------------------------------------------------------------

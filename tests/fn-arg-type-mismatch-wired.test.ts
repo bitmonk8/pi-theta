@@ -6,7 +6,7 @@ import { describe, expect, it } from "vitest";
 import { parseRegistry, registryMessage } from "../tools/code-registry/index.js";
 import type { Diagnostic, SourceRange } from "../src/diagnostics/diagnostic";
 import type { Block, Expr, Stmt, ThetaDocument } from "../src/parser/theta-document";
-import { errors, parseDoc, argRange as sharedArgRange, letRange as sharedLetRange } from "./helpers/e2e-s1";
+import { collectCalls as collectCallsShared, type CallSite, errors, parseDoc, argRange as sharedArgRange, letRange as sharedLetRange } from "./helpers/e2e-s1";
 
 // Bug 0050 — `theta/parse/fn-arg-type-mismatch` is a registered `E` row whose
 // sole emitter, `checkFnArgCompat` (src/parser/type-compat.ts:452), has no
@@ -464,129 +464,9 @@ function at(r: SourceRange): string {
   return `${r.start.line}:${r.start.column}-${r.end.line}:${r.end.column}`;
 }
 
-interface CallSite {
-  readonly callee: string;
-  readonly args: readonly SourceRange[];
-}
-
-/**
- * Every call-shaped node of `doc` in source order, with each argument's range.
- *
- * An `invoke(...)` is recorded under the reserved label `"invoke"` — an
- * `InvokeExpr` carries a literal callee `path`, not a callee identifier, so the
- * label is this harness's handle on the node and never an author-written name.
- * The walk covers the node kinds this file's fixtures use; a fixture whose call
- * it cannot reach fails the loud precondition in `argRange` rather than passing
- * an absence assertion vacuously.
- */
+/** Include `invoke` expressions under the shared collector's reserved label. */
 function collectCalls(doc: ThetaDocument): CallSite[] {
-  const out: CallSite[] = [];
-  const walkExpr = (e: Expr): void => {
-    switch (e.kind) {
-      case "call":
-        out.push({ callee: e.callee, args: e.args.map((a) => a.range) });
-        for (const a of e.args) walkExpr(a);
-        return;
-      case "invoke":
-        out.push({ callee: "invoke", args: e.args.map((a) => a.range) });
-        for (const a of e.args) walkExpr(a);
-        return;
-      case "method-call":
-        walkExpr(e.target);
-        for (const a of e.args) walkExpr(a);
-        return;
-      case "try":
-        walkExpr(e.operand);
-        return;
-      case "array":
-        for (const el of e.elements) walkExpr(el);
-        return;
-      case "object":
-        for (const f of e.fields) walkExpr(f.value);
-        return;
-      case "ternary":
-        walkExpr(e.condition);
-        walkExpr(e.consequent);
-        walkExpr(e.alternate);
-        return;
-      case "binary":
-        walkExpr(e.left);
-        walkExpr(e.right);
-        return;
-      case "member":
-        walkExpr(e.target);
-        return;
-      case "index":
-        walkExpr(e.target);
-        walkExpr(e.index);
-        return;
-      case "match":
-        walkExpr(e.scrutinee);
-        for (const arm of e.arms) walkExpr(arm.body);
-        return;
-      case "result-ctor":
-        walkExpr(e.arg);
-        return;
-      case "par-for":
-        walkExpr(e.iterand);
-        if (e.max !== null) walkExpr(e.max);
-        walkBlock(e.body);
-        return;
-      default:
-        return;
-    }
-  };
-  const walkBlock = (b: Block): void => {
-    for (const s of b.statements) walkStmt(s);
-    if (b.tail !== null) walkExpr(b.tail);
-  };
-  const walkStmt = (s: Stmt): void => {
-    switch (s.kind) {
-      case "let":
-        if (s.init !== null) walkExpr(s.init);
-        return;
-      case "reassign":
-        walkExpr(s.value);
-        return;
-      case "expr":
-        walkExpr(s.expr);
-        return;
-      case "tool-call":
-        walkExpr(s.call);
-        return;
-      case "invoke":
-        walkExpr(s.invoke);
-        return;
-      case "return":
-        if (s.operand !== null) walkExpr(s.operand);
-        return;
-      case "fn":
-        walkBlock(s.body);
-        return;
-      case "for":
-        walkExpr(s.iterand);
-        walkBlock(s.body);
-        return;
-      case "while":
-        walkExpr(s.condition);
-        walkBlock(s.body);
-        return;
-      case "if":
-        walkExpr(s.condition);
-        walkBlock(s.then);
-        return;
-      default:
-        return;
-    }
-  };
-  const body = doc.body;
-  if (body === null) {
-    throw new Error(
-      `harness: the fixture produced no parsed body, so its diagnostic set is about a parse failure rather than the call site. Diagnostics: ${render(doc)}`,
-    );
-  }
-  walkBlock(body);
-  return out;
+  return collectCallsShared(doc, true);
 }
 
 function argRange(doc: ThetaDocument, callee: string, index: number): SourceRange {

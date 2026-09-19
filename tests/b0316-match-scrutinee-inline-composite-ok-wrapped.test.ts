@@ -1,7 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { FM, runValue as runPromptValue } from "./helpers/prompt-value-harness";
 import { parseTheta } from "./helpers/e2e-s1";
-import { SEAM_NOOP_CHECKPOINT as NOOP_CHECKPOINT } from "./helpers/invoke-seam-scaffold";
+import {
+  SEAM_NOOP_CHECKPOINT as NOOP_CHECKPOINT,
+  SEAM_NOOP_MUTATOR,
+  SEAM_NOOP_SINK as NOOP_SINK,
+} from "./helpers/invoke-seam-scaffold";
 import { executeBody, type ExecuteBodyDeps } from "../src/runtime/statement-executor";
 import type { ThetaValue } from "../src/runtime/value";
 import { makeOk } from "../src/runtime/value";
@@ -14,17 +18,13 @@ import {
 import { buildEnvironment } from "../src/runtime/lexical-environment";
 import type { DrivenConversationMode } from "../src/runtime/terminal-outcomes";
 import type {
-  CommittedConversationMutator,
-  CommittedSurface,
-} from "../src/runtime/terminal-outcomes";
-import type {
   ForcedRespondTurn,
   FreePhaseTurn,
   QueryModelDriver,
   QueryToolLoopConfig,
 } from "../src/runtime/query-tool-loop";
 import type { CommittedSideEffect } from "../src/runtime/no-rollback";
-import type { CodeSideToolCall, ToolLoweringSink } from "../src/runtime/tool-call-execute";
+import type { CodeSideToolCall } from "../src/runtime/tool-call-execute";
 import type { InvokeChild } from "../src/runtime/invoke-cancellation";
 import type { Expr } from "../src/parser/theta-document";
 
@@ -242,19 +242,6 @@ class RecordingQueryModel implements QueryModelDriver {
   }
 }
 
-class RecordingMutator implements CommittedConversationMutator {
-  truncate(): void {}
-  rewrite(): void {}
-  replace(): void {}
-  remove(): void {}
-  injectCompensatingTurn(_surface: CommittedSurface): void {}
-}
-
-const NOOP_SINK: ToolLoweringSink = {
-  diagnostic(): void {},
-  systemNote(): void {},
-};
-
 function queryConfig(): QueryToolLoopConfig {
   return {
     maxRounds: 3,
@@ -308,7 +295,7 @@ describe("bug 0316 EFFECT control — a `match` over a live query still sees Ok/
       host: createEffectfulStatementHost(hostDeps),
       checkpoint: NOOP_CHECKPOINT,
       signal: new AbortController().signal,
-      mutator: new RecordingMutator(),
+      mutator: SEAM_NOOP_MUTATOR,
       mode: "prompt" as DrivenConversationMode,
       file: "b0316-effect.theta",
     };
