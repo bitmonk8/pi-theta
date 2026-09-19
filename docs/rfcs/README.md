@@ -32,6 +32,8 @@ shipped behaviour until specified and implemented.
 - [0010 — Live execution visibility for running thetas](./0010-live-execution-visibility.md) — accepted
 - [0011 — Session-control tools: `compact`, `context_usage`, `session_name`](./0011-session-control-tools.md) — accepted
 - [0012 — Configurable subagent placement (multiplexer tabs and other launch surfaces)](./0012-configurable-subagent-placement.md) — accepted
+- [0013 — A restart contract for long-running theta panes: recover by re-issuing against durable state](./0013-long-running-theta-restart-contract.md) — draft
+- [0014 — Persisted child sessions](./0014-persisted-child-sessions.md) — queued (not yet drafted)
 
 Reclassified out of the RFC series:
 

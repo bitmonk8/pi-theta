@@ -53,7 +53,7 @@ wave's lanes abort infra-shaped) now bounds the accumulation per run.
    pane; strip the theta extension vs keep it) before touching anything.
 2. If (a) TUI-vs-pty: likely a pi-host or herdr issue — file/pin upstream,
    and consider whether quality-loop's fixer lanes even want the Err linger
-   (the transcript is the post-mortem value; a session file per RFC 0013
+   (the transcript is the post-mortem value; a session file per RFC 0014
    would preserve that without a live process).
 3. If (b) child-side service: bound it to the drive's lifetime — the §8
    linger keeps the SESSION alive, not the theta runtime's timers.
@@ -65,5 +65,5 @@ wave's lanes abort infra-shaped) now bounds the accumulation per run.
   the delivered-envelope sibling.
 - subagent.md §"Visible presentation" (the linger contract this bug reads an
   implicit idleness obligation into — the fix should make that explicit).
-- RFC 0013 (persisted child sessions) — would let automation lanes skip the
+- RFC 0014 (persisted child sessions) — would let automation lanes skip the
   live linger entirely.
