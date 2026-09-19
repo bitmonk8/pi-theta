@@ -1,6 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-// @ts-expect-error — JS code-registry module, no type declarations.
-import { registryMessage } from "../tools/code-registry/index.js";
+import { registryMessageOf } from "./helpers/load-row-harness";
 import {
   assertNoStemIsASuffix,
   disposeWorkspace,
@@ -68,7 +67,7 @@ import { interpolateStrict, REGISTRY, invokeArgMessage } from "./helpers/registr
 //
 // DIAG-4 (`docs/spec_topics/diagnostics/diagnostic-shape.md`): every expected
 // string is read from the diagnostic registry's *Message* column through
-// `registryMessage` and interpolated. No message prose is written out here; a
+// `registryMessageOf` and interpolated. No message prose is written out here; a
 // missing row or a reshaped template throws naming the registry page.
 //
 // REGISTRATION IS COUNT-INDEPENDENT and is asserted anyway, because it is what
@@ -116,14 +115,7 @@ const REGISTRY_PAGE = "docs/spec_topics/diagnostics/code-registry-parse.md";
  * every expected string below is derived from it.
  */
 function registered(code: string): string {
-  const template = registryMessage(REGISTRY, code) as string | undefined;
-  if (template === undefined) {
-    throw new Error(
-      `harness: no *Message* row for ${code} in ${REGISTRY_PAGE} — the DIAG-4 ` +
-        "column is this file's only source for the expected strings",
-    );
-  }
-  return template;
+  return registryMessageOf(REGISTRY, REGISTRY_PAGE, code);
 }
 
 /**

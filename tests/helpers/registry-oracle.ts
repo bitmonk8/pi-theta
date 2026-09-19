@@ -87,6 +87,35 @@ export interface Exp {
   readonly fills: ReadonlyArray<readonly [string, string]>;
 }
 
+const DUPLICATE_INLINE = "theta/parse/duplicate-inline-field-name";
+const QUOTED_INLINE = "theta/parse/quoted-inline-field-name";
+const RENAMED_INLINE = "theta/parse/renamed-inline-field-name";
+const NOT_IDENT = "theta/parse/inline-field-name-not-identifier";
+
+/** The duplicate raw-key refusal within an inline object type. */
+export function DUP(field: string): Exp {
+  return { severity: "error", code: DUPLICATE_INLINE, fills: [["<field>", field]] };
+}
+
+/** The quoted raw-key refusal within an inline object type. */
+export function QUOTED(field: string): Exp {
+  return { severity: "error", code: QUOTED_INLINE, fills: [["<field>", field]] };
+}
+
+/** The renamed raw-key refusal within an inline object type. */
+export function RENAMED(field: string): Exp {
+  return { severity: "error", code: RENAMED_INLINE, fills: [["<field>", field]] };
+}
+
+/**
+ * The non-identifier raw-key refusal. `field` is the RAW pre-colon key, taken
+ * verbatim after `trim()` — the same comparison key its three neighbours share
+ * — and uses the source-derived `<field>` placeholder carve-out.
+ */
+export function NOTIDENT(field: string): Exp {
+  return { severity: "error", code: NOT_IDENT, fills: [["<field>", field]] };
+}
+
 /** One rendered diagnostic, in the shape `diagLines` produces. */
 export function render(exp: Exp): string {
   return `${exp.severity} ${exp.code}: ${registryMessageOf(REGISTRY, "docs/spec_topics/diagnostics/", exp.code, exp.fills)}`;

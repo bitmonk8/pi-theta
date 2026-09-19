@@ -1,4 +1,4 @@
-import { REGISTRY } from "./helpers/registry-oracle";
+import { REGISTRY, DUP, QUOTED, RENAMED, NOTIDENT } from "./helpers/registry-oracle";
 import Ajv from "ajv";
 import { describe, expect, it } from "vitest";
 import { registryMessageOf } from "./helpers/load-row-harness";
@@ -198,10 +198,6 @@ function msg(code: string, fills: ReadonlyArray<readonly [string, string]>): str
   );
 }
 
-const DUPLICATE_INLINE = "theta/parse/duplicate-inline-field-name";
-const QUOTED_INLINE = "theta/parse/quoted-inline-field-name";
-const RENAMED_INLINE = "theta/parse/renamed-inline-field-name";
-const NOT_IDENT = "theta/parse/inline-field-name-not-identifier";
 const BINDING_CASE = "theta/parse/binding-case-mismatch";
 const LET_RHS_MISMATCH = "theta/parse/let-rhs-type-mismatch";
 const SCHEMA_NOT_EXPR = "theta/parse/schema-type-not-expression";
@@ -220,18 +216,6 @@ interface Exp {
   readonly fills: ReadonlyArray<readonly [string, string]>;
 }
 
-function DUP(field: string): Exp {
-  return { severity: "error", code: DUPLICATE_INLINE, fills: [["<field>", field]] };
-}
-function QUOTED(field: string): Exp {
-  return { severity: "error", code: QUOTED_INLINE, fills: [["<field>", field]] };
-}
-function RENAMED(field: string): Exp {
-  return { severity: "error", code: RENAMED_INLINE, fills: [["<field>", field]] };
-}
-function NOTIDENT(field: string): Exp {
-  return { severity: "error", code: NOT_IDENT, fills: [["<field>", field]] };
-}
 /** Bug 0154's lowercase-first pass over `TypeNode.fieldNames` — W13's line. */
 const CASE: Exp = { severity: "error", code: BINDING_CASE, fills: [] };
 function LETRHS(name: string, expected: string, actual: string): Exp {

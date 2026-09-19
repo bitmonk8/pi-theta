@@ -453,7 +453,8 @@ describe("bug 0043 (a) — a union whose LAST arm is `array<T>` lowers SUBS-1's 
     // others cannot pass, and it must stay green across the change.
     it(`PARITY (${label}): the four positions agree byte for byte`, () => {
       const observed = POSITIONS.map((position) => fragmentOf(label, position, source));
-      for (const [i, position] of POSITIONS.entries()) {
+      for (let i = 1; i < POSITIONS.length; i++) {
+        const position = POSITIONS[i];
         expect(
           observed[i],
           `${label}: type-system.md:15 applies ONE type grammar to every annotation position, ` +
@@ -524,7 +525,8 @@ describe("bug 0043 (b) — an `array`-headed union lowers each arm, not one mis-
     // PARITY, not RED — see the identical cell in group (a).
     it(`PARITY (${label}): the four positions agree byte for byte`, () => {
       const observed = POSITIONS.map((position) => fragmentOf(label, position, source));
-      for (const [i, position] of POSITIONS.entries()) {
+      for (let i = 1; i < POSITIONS.length; i++) {
+        const position = POSITIONS[i];
         expect(
           observed[i],
           `${label}: type-system.md:15 — one type grammar per position; ${position} lowered ` +

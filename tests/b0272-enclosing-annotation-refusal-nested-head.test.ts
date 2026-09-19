@@ -2,6 +2,7 @@ import { readRegistry } from "./helpers/registry-oracle";
 import { describe, expect, it } from "vitest";
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
 import {
+  expectDeclared,
   loadRowFromBody,
   registered,
   registryLineOf,
@@ -220,13 +221,11 @@ function expectCaptured(
     rows.map((r) => [r.label, r.statements]),
     `precondition: every fixture must parse to ${statements} body statement(s); a row listed here lost part of its body upstream of the type walk, so its diagnostic list says nothing about this bug`,
   ).toEqual(rows.map((r) => [r.label, statements]));
-  const mismatched = rows
-    .filter((r) => JSON.stringify(r.declared) !== JSON.stringify(names))
-    .map((r) => [r.label, r.declared]);
-  expect(
-    mismatched,
+  expectDeclared(
+    rows,
+    names,
     `precondition: every fixture must capture exactly the declarations ${JSON.stringify(names)}; \`Gone\` is declared in no fixture, so the head is unresolvable by construction`,
-  ).toEqual([]);
+  );
 }
 
 /**

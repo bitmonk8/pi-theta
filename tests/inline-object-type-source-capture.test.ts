@@ -1,4 +1,4 @@
-import { REGISTRY } from "./helpers/registry-oracle";
+import { REGISTRY, DUP, QUOTED, NOTIDENT } from "./helpers/registry-oracle";
 import { registryMessageOf } from "./helpers/load-row-harness";
 import { readRepoFile } from "./helpers/corpus-reader";
 import { describe, expect, it } from "vitest";
@@ -176,9 +176,8 @@ import {
 
 /** The new row §Fix (b) mints: a raw inline field-name key that is no `Ident`. */
 const NOT_IDENT = "theta/parse/inline-field-name-not-identifier";
-/** The three rows this one is subordinate to (code-registry-parse.md:98–:100). */
+/** Two of the rows this one is subordinate to (code-registry-parse.md:98–:100). */
 const DUPLICATE_INLINE = "theta/parse/duplicate-inline-field-name";
-const QUOTED_INLINE = "theta/parse/quoted-inline-field-name";
 const RENAMED_INLINE = "theta/parse/renamed-inline-field-name";
 /** The two rows whose fabricated emissions this fix REMOVES. */
 const BINDING_CASE = "theta/parse/binding-case-mismatch";
@@ -221,21 +220,6 @@ function codesOf(exps: readonly Exp[]): string[] {
   return exps.map((e) => e.code);
 }
 
-/**
- * The new row's rendering. `field` is the RAW pre-colon key, taken verbatim
- * after `trim()` — the same comparison key its three neighbours share — which
- * is why this row needs the third row-scoped `<field>` carve-out cell A1
- * asserts.
- */
-function NOTIDENT(field: string): Exp {
-  return { severity: "error", code: NOT_IDENT, fills: [["<field>", field]] };
-}
-function DUP(key: string): Exp {
-  return { severity: "error", code: DUPLICATE_INLINE, fills: [["<field>", key]] };
-}
-function QUOTED(key: string): Exp {
-  return { severity: "error", code: QUOTED_INLINE, fills: [["<field>", key]] };
-}
 function ANNOTNOTEXPR(name: string): Exp {
   return { severity: "error", code: ANNOT_NOT_EXPR, fills: [["<name>", name]] };
 }

@@ -1,4 +1,4 @@
-import { TRIAGE_DEF } from "./helpers/triage-fixture";
+import { TRIAGE_DEF, triageMap } from "./helpers/triage-fixture";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
@@ -1262,11 +1262,6 @@ describe("bug 0039 (e) — an inline object as a `schema` body field type or an 
 // ===========================================================================
 
 describe("bug 0039 (f) — the shared lowerers themselves", () => {
-  /** The resolution map every fixture here resolves `Triage` against. */
-  function triageMap(): ReadonlyMap<string, Record<string, unknown>> {
-    return new Map<string, Record<string, unknown>>([["Triage", TRIAGE_DEF]]);
-  }
-
   it("RED (f1, fixture E1): `lowerTypeSource` hoists a brace-rooted source and pushes the name it cannot resolve", () => {
     const defs: Record<string, Record<string, unknown>> = {};
     const unresolved: string[] = [];
@@ -1366,11 +1361,6 @@ describe("bug 0039 (g) — the hoist's retention, its cross-scope re-registratio
     required: ["zzz"],
     additionalProperties: false,
   };
-
-  /** The declared resolution map every fixture here resolves names against. */
-  function triageMap(): ReadonlyMap<string, Record<string, unknown>> {
-    return new Map<string, Record<string, unknown>>([["Triage", TRIAGE_DEF]]);
-  }
 
   /** One hand-built lowering scope, with the three sinks readable afterwards. */
   interface Seam {

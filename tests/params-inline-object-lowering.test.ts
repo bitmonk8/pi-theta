@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 // @ts-expect-error — JS code-registry module, no type declarations.
 import { registryMessage } from "../tools/code-registry/index.js";
 import { REGISTRY } from "./helpers/registry-oracle";
+import { registryLineOf } from "./helpers/load-row-harness";
 import type { BypassParamsField } from "../src/binder/binder-envelope";
 import { lowerParamsFieldType, type LowerCtx } from "../src/parser/params";
 import type { ThetaDocument } from "../src/parser/theta-document";
@@ -135,78 +136,25 @@ import { assertKeysSorted, inlineDefName, slugOfCanonicalForm } from "./helpers/
 
 const CODE = "theta/parse/unresolved-named-type";
 
-/**
- * The registry row's normative *Message* template with its single `<name>`
- * placeholder filled. Definedness is asserted first so a missing row reds by
- * naming the registry rather than by a bare `undefined` comparison.
- */
-function unresolvedMessage(name: string): string {
-  const template = registryMessage(REGISTRY, CODE) as string | undefined;
-  expect(
-    template,
-    `DIAG-4 anchor: docs/spec_topics/diagnostics/code-registry-parse.md must carry the Message row for ${CODE}`,
-  ).toBeDefined();
-  return (template as string).replace("<name>", name);
-}
-
 /** The one rendered diagnostic line fixtures A / D / F / G / H must all produce. */
 function unresolvedLine(name: string): string {
-  return `error ${CODE}: ${unresolvedMessage(name)}`;
+  return registryLineOf(REGISTRY, "docs/spec_topics/diagnostics/code-registry-parse.md", CODE, [
+    ["<name>", name],
+  ]);
 }
 
 /** `theta/parse/empty-schema-body` — the code bug 0045 wires into every `Type` position. */
 const EMPTY_SCHEMA_BODY = "theta/parse/empty-schema-body";
 
-/**
- * The registry row's normative *Message* template for `EMPTY_SCHEMA_BODY`, its
- * single `<X>` placeholder filled. Definedness AND placeholder presence are
- * asserted first, so a missing row — or a template that lost its placeholder —
- * reds by naming the registry rather than by a bare `undefined` comparison or a
- * silently unsubstituted string.
- */
-function emptySchemaBodyMessage(subject: string): string {
-  const template = registryMessage(REGISTRY, EMPTY_SCHEMA_BODY) as string | undefined;
-  expect(
-    template,
-    `DIAG-4 anchor: docs/spec_topics/diagnostics/code-registry-parse.md must carry the Message row for ${EMPTY_SCHEMA_BODY}`,
-  ).toBeDefined();
-  expect(
-    template,
-    `DIAG-4: the ${EMPTY_SCHEMA_BODY} Message template must carry the <X> placeholder; template=${JSON.stringify(template)}`,
-  ).toContain("<X>");
-  return (template as string).replace("<X>", subject);
-}
-
 /** The one rendered line an empty inline object type produces (bug 0045 §Fix). */
 function emptySchemaBodyLine(subject: string): string {
-  return `error ${EMPTY_SCHEMA_BODY}: ${emptySchemaBodyMessage(subject)}`;
+  return registryLineOf(REGISTRY, "docs/spec_topics/diagnostics/code-registry-parse.md", EMPTY_SCHEMA_BODY, [
+    ["<X>", subject],
+  ]);
 }
 
 /** `theta/load/malformed-frontmatter-yaml` — the code bug 0263 §Fix adds at the FM-5 discard. */
 const MALFORMED_YAML = "theta/load/malformed-frontmatter-yaml";
-
-/**
- * The registry row's normative *Message* template for `MALFORMED_YAML`, its
- * `<line>` / `<column>` / `<text>` / `<scope>` placeholders filled
- * (DIAG-4). Definedness is asserted first so a missing row reds by naming the
- * registry rather than by a bare `undefined` comparison.
- */
-function malformedYamlMessage(
-  loc: { line: number; column: number },
-  text: string,
-  scope: string,
-): string {
-  const template = registryMessage(REGISTRY, MALFORMED_YAML) as string | undefined;
-  expect(
-    template,
-    `DIAG-4 anchor: docs/spec_topics/diagnostics/code-registry-load.md must carry the Message row for ${MALFORMED_YAML}`,
-  ).toBeDefined();
-  return (template as string)
-    .replace("<line>", String(loc.line))
-    .replace("<column>", String(loc.column))
-    .replace("<text>", text)
-    .replace("<scope>", scope);
-}
 
 /** The one rendered line a frontmatter block the YAML parser rejects produces (bug 0263 §Fix). */
 function malformedYamlLine(
@@ -214,7 +162,12 @@ function malformedYamlLine(
   text: string,
   scope: string,
 ): string {
-  return `error ${MALFORMED_YAML}: ${malformedYamlMessage(loc, text, scope)}`;
+  return registryLineOf(REGISTRY, "docs/spec_topics/diagnostics/code-registry-load.md", MALFORMED_YAML, [
+    ["<line>", String(loc.line)],
+    ["<column>", String(loc.column)],
+    ["<text>", text],
+    ["<scope>", scope],
+  ]);
 }
 
 // ===========================================================================
