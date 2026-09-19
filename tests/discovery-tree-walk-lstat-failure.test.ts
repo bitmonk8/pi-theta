@@ -9,12 +9,10 @@ import {
 import {
   discoverPackageThetas,
   type PackageDiscoveredTheta,
-  type PackageDiscoveryInput,
 } from "../src/discovery/package-discovery";
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
 import type { FileStat, FileSystem } from "../src/seams/file-system";
-import { FakeClock } from "./helpers/fake-clock";
-import { FileSystemDecorator, codeError, FakeFileSystem, ancestors, mergeDirs, buildPackages } from "./helpers/fake-file-system";
+import { FileSystemDecorator, codeError, FakeFileSystem, ancestors, mergeDirs, buildPackages, packageInput } from "./helpers/fake-file-system";
 
 // `listTree` (`src/discovery/discovery-walk.ts`) classifies an
 // entry-level `lstat` rejection by code and carries the non-`ENOENT` path out
@@ -159,10 +157,6 @@ class LstatDenied extends FileSystemDecorator {
 
 function settingsInput(fs: FileSystem, thetaPaths: readonly string[]): DiscoveryInput {
   return { fs, settings: { thetaPaths, thetaPathsBaseDir: SETTINGS_BASE } };
-}
-
-function packageInput(fs: FileSystem): PackageDiscoveryInput {
-  return { fs, clock: new FakeClock(), settings: {} };
 }
 
 function named(

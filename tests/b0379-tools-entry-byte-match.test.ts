@@ -226,8 +226,7 @@ describe("bug 0379 (4) — `./util.THETA` is refused as a wrong extension, not a
 // (1) and (2) apply and are RED at HEAD; on a case-SENSITIVE host the parity
 // cell (5) applies and is GREEN at HEAD. Exactly one branch materialises on a
 // given host; both branches are real `it`s asserting real observables (no
-// vitest skip, no early return). Each `it` asserts the probed branch value
-// loudly so it is on the record.
+// vitest skip, no early return). The describe titles identify the host branch.
 // =============================================================================
 
 if (caseInsensitive) {
@@ -239,7 +238,6 @@ if (caseInsensitive) {
       // entry basename `util.theta` byte-mismatches the on-disk `Util.theta`, so
       // the entry is refused as `unresolvable-theta-path` and the caller does
       // not register.
-      expect(caseInsensitive, "probed filesystem branch: case-INSENSITIVE").toBe(true);
       const outcome = await loadWorkspace({
         "Util.theta": CALLEE,
         "pcaller.theta": callerTheta("./util.theta"),
@@ -266,7 +264,6 @@ if (caseInsensitive) {
       // file (`util.theta`) already conforming. Under BM the entry basename
       // `Util.theta` byte-mismatches the on-disk `util.theta`, so the refusal is
       // the honest `unresolvable-theta-path` and the derived-name lie is gone.
-      expect(caseInsensitive, "probed filesystem branch: case-INSENSITIVE").toBe(true);
       const outcome = await loadWorkspace({
         "util.theta": CALLEE,
         "pcaller.theta": callerTheta("./Util.theta"),
@@ -296,7 +293,6 @@ if (caseInsensitive) {
       // the cross-host parity Option BM restores for a case-insensitive host.
       // GREEN at HEAD; this branch exists so the file asserts loudly whichever
       // filesystem it runs on.
-      expect(caseInsensitive, "probed filesystem branch: case-SENSITIVE").toBe(false);
       const outcome = await loadWorkspace({
         "util.theta": CALLEE,
         "pcaller.theta": callerTheta("./Util.theta"),

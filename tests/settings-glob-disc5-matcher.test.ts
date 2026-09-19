@@ -7,15 +7,15 @@ import {
 import {
   discoverPackageThetas,
   type PackageDiscoveredTheta,
-  type PackageDiscoveryInput,
 } from "../src/discovery/package-discovery";
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
 import type { FileSystem } from "../src/seams/file-system";
-import { FakeClock } from "./helpers/fake-clock";
 import {
   FakeFileSystem,
   ancestors,
   mergeDirs,
+  buildPackages,
+  packageInput,
   DISCOVERY_BASE as BASE,
 } from "./helpers/fake-file-system";
 
@@ -102,17 +102,6 @@ const SETTINGS_BASE = "/project/.pi";
 /** A body that registers (this walk reads bytes and the filename, not syntax). */
 const THETA_BODY = "mode: prompt\n---\n";
 
-/** The five installed-package roots `packageRoots` enumerates
- *  (src/discovery/package-discovery.ts), registered as empty directories so no
- *  root's absence contributes an incidental rejection to cell 3's diagnostics. */
-const PKG_ROOTS: Record<string, readonly string[]> = {
-  "/project/.pi/npm": [],
-  "/project/.pi/git": [],
-  [NM]: [],
-  "/home/theta/.pi/agent/npm": [],
-  "/home/theta/.pi/agent/git": [],
-};
-
 interface FakeSpec {
   readonly dirs?: Record<string, readonly string[]>;
   readonly files?: Record<string, string>;
@@ -127,21 +116,8 @@ function buildWalk(spec: FakeSpec): FakeFileSystem {
   });
 }
 
-function buildPackages(spec: FakeSpec): FakeFileSystem {
-  return new FakeFileSystem({
-    homedir: HOME,
-    cwd: CWD,
-    dirs: mergeDirs(PKG_ROOTS, spec.dirs ?? {}),
-    files: spec.files ?? {},
-  });
-}
-
 function settingsInput(fs: FileSystem, thetaPaths: readonly string[]): DiscoveryInput {
   return { fs, settings: { thetaPaths, thetaPathsBaseDir: SETTINGS_BASE } };
-}
-
-function packageInput(fs: FileSystem): PackageDiscoveryInput {
-  return { fs, clock: new FakeClock(), settings: {} };
 }
 
 /** package.json contents naming a `pi.theta` array. */

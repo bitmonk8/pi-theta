@@ -1,17 +1,14 @@
-import { assertNoStemIsASuffix, theta, invokeCaller, diagnosticLineReaders, invokeArgPreconditions, callableCaller } from "./helpers/production-load-harness";
+import {
+  assertNoStemIsASuffix, theta, invokeCaller, diagnosticLineReaders, invokeArgPreconditions, callableCaller,
+  runProductionLoad, type LoadOutcome,
+} from "./helpers/production-load-harness";
 import { interpolateStrict, readRegistry, invokeArgMessage } from "./helpers/registry-oracle";
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import type {
-  ExtensionAPI,
-  ExtensionContext,
-} from "@earendil-works/pi-coding-agent";
 // @ts-expect-error — JS code-registry module, no type declarations.
 import { registryMessage } from "../tools/code-registry/index.js";
-import type { ThetaFixture } from "../src/extension/factory";
-import { discoverAndComposeFixtures } from "../src/extension/production-composition";
 import type { PrimitiveName } from "../src/parser/type-compat";
 
 // Bug 0137 — the row `theta/parse/invoke-arg-type-mismatch` over the
@@ -361,71 +358,8 @@ const THETAS: readonly PlantedTheta[] = [
 // The fake host `pi` / `ctx`, and the three channels one load surfaces on.
 // ===========================================================================
 
-interface LoadOutcome {
-  /** Slash names the production compose helper returned (returned fixtures). */
-  readonly registered: readonly string[];
-  /** Error-severity messages surfaced through `ctx.ui.notify`. */
-  readonly notifications: readonly string[];
-  /**
-   * `makeLoadEmit`'s no-UI stderr mirror, one entry per rendered line:
-   * `theta: <file>:<line>:<col>: <code>: <message>`. The only channel carrying
-   * the emitting file, which is what makes a per-caller ABSENCE assertion sound
-   * for a row whose *Message* names no callee — and the only channel a WARNING
-   * reaches at all, the notify arm being error-only.
-   */
-  readonly diagnosticLines: readonly string[];
-}
-
 let outcome: LoadOutcome;
 let workspaceDir: string;
-
-async function runProductionLoad(cwd: string): Promise<LoadOutcome> {
-  const notifications: string[] = [];
-  const chunks: string[] = [];
-  const pi = {
-    getFlag: (): undefined => undefined,
-    getCommands: (): readonly unknown[] => [],
-    sendMessage: (): void => {},
-    sendUserMessage: (): void => {},
-    getActiveTools: (): readonly string[] => [],
-    setActiveTools: (): void => {},
-  } as unknown as ExtensionAPI;
-  const ctx = {
-    cwd,
-    modelRegistry: { getAvailable: (): readonly unknown[] => [] },
-    ui: {
-      notify: (message: string, _type: "error"): void => {
-        notifications.push(message);
-      },
-    },
-  } as unknown as ExtensionContext;
-
-  // The stderr mirror is a real production channel (a `-p` / CI operator's only
-  // sight of a load diagnostic), and interposing on it is the only way to read
-  // it: it is written directly, not through an injectable seam. The window is
-  // one awaited call and the handle is restored on both outcomes, so no
-  // assertion below runs while the interposition is live.
-  const write = process.stderr.write.bind(process.stderr);
-  process.stderr.write = ((chunk: unknown): boolean => {
-    chunks.push(String(chunk));
-    return true;
-  }) as typeof process.stderr.write;
-  const fixtures: readonly ThetaFixture[] = await discoverAndComposeFixtures(
-    pi,
-    ctx,
-  ).finally(() => {
-    process.stderr.write = write;
-  });
-
-  return {
-    registered: fixtures.map((f) => f.slashName),
-    notifications,
-    diagnosticLines: chunks
-      .join("")
-      .split(/\r?\n/)
-      .filter((line) => line.length > 0),
-  };
-}
 
 beforeAll(async () => {
   // No stem may be a suffix of another: the per-caller channel filter matches

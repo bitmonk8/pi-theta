@@ -12,6 +12,8 @@
 // Spec: host-interfaces-services.md PIC-13; lexical.md §Encoding.
 
 import type { DiscoveryInput, DiscoveredTheta } from "../../src/discovery/discovery-walk";
+import type { PackageDiscoveryInput } from "../../src/discovery/package-discovery";
+import { FakeClock } from "./fake-clock";
 import type { ThetaSettings } from "../../src/discovery/settings";
 import type { FileStat, FileSystem } from "../../src/seams/file-system";
 import { rmSync, writeFileSync } from "node:fs";
@@ -409,6 +411,11 @@ export function buildPackages(spec: Pick<FakeFileSystemOptions, "dirs" | "files"
     dirs: mergeDirs(PKG_ROOTS, spec.dirs ?? {}),
     files: spec.files ?? {},
   });
+}
+
+/** Package discovery input with a fresh clock and no settings sources. */
+export function packageInput(fs: FileSystem): PackageDiscoveryInput {
+  return { fs, clock: new FakeClock(), settings: {} };
 }
 
 /** Delegate the FileSystem seam, letting a test override only intercepted members. */

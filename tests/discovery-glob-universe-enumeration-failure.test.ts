@@ -1,10 +1,10 @@
 import { hitsFor } from "./helpers/e2e-s1";
+import { makeShippedHarness } from "./helpers/production-load-harness";
 import { loadRowMessage, interpolate, templateToRegExp } from "./helpers/registry-oracle";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import {
   discoverThetas,
   type DiscoveredTheta,
@@ -13,24 +13,18 @@ import {
 import {
   discoverPackageThetas,
   type PackageDiscoveredTheta,
-  type PackageDiscoveryInput,
 } from "../src/discovery/package-discovery";
-import {
-  createThetaExtension,
-  type ThetaExtensionDeps,
-} from "../src/extension/factory";
-import { composeExtensionInstance } from "../src/extension/production-composition";
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
 import type { FileSystem } from "../src/seams/file-system";
-import { FakeClock } from "./helpers/fake-clock";
 import {
   FakeFileSystem,
   ReaddirDeniedFileSystem,
   ancestors,
   mergeDirs,
+  buildPackages,
+  packageInput,
   discoveryInput as input,
 } from "./helpers/fake-file-system";
-import { FakeFileWatcher } from "./helpers/fake-file-watcher";
 
 // Bug 0113 — both `listTree` copies swallow every `readdir` rejection, so a
 // denied subtree (or a denied static-prefix ROOT) under a settings `thetaPaths`
@@ -210,18 +204,6 @@ const BASE = mergeDirs(
   ancestors(DENIED_SUB),
 );
 
-/** The five installed-package roots `packageRoots` enumerates
- *  (src/discovery/package-discovery.ts:226-246), registered as empty
- *  directories so a root's absence never contributes an incidental `readdir`
- *  rejection to a package cell's diagnostic set. */
-const PKG_ROOTS: Record<string, readonly string[]> = {
-  "/project/.pi/npm": [],
-  "/project/.pi/git": [],
-  [NM]: [],
-  "/home/theta/.pi/agent/npm": [],
-  "/home/theta/.pi/agent/git": [],
-};
-
 interface FakeSpec {
   readonly dirs?: Record<string, readonly string[]>;
   readonly files?: Record<string, string>;
@@ -240,15 +222,6 @@ function build(spec: FakeSpec): FakeFileSystem {
   });
 }
 
-function buildPackages(spec: FakeSpec): FakeFileSystem {
-  return new FakeFileSystem({
-    homedir: HOME,
-    cwd: CWD,
-    dirs: mergeDirs(PKG_ROOTS, spec.dirs ?? {}),
-    files: spec.files ?? {},
-  });
-}
-
 /**
  * A `FileSystem` decorator that rejects `readdir` for exactly one path with a
  * Node-style `.code` — and, optionally, `lstat` for one other path — and
@@ -262,10 +235,6 @@ class ReaddirDenied extends ReaddirDeniedFileSystem {}
 /** A settings input whose `thetaPaths` resolve against `/project/.pi`. */
 function settingsInput(fs: FileSystem, thetaPaths: readonly string[]): DiscoveryInput {
   return input(fs, { settings: { thetaPaths, thetaPathsBaseDir: SETTINGS_BASE } });
-}
-
-function packageInput(fs: FileSystem): PackageDiscoveryInput {
-  return { fs, clock: new FakeClock(), settings: {} };
 }
 
 function named(
@@ -892,100 +861,6 @@ describe("bug 0113 — a package `pi.theta` universe whose readdir rejects repor
 // `classifyPath`, so no wrong-type arm sees this path either; under
 // adjudication (1)/(2) it is an unreadable-source warning.
 // ===========================================================================
-
-/** A recorded `pi.sendMessage` call (the `theta-system-note` channel). */
-interface RecordedNote {
-  readonly customType: string;
-  readonly content: string;
-  readonly display: boolean;
-  readonly details: { readonly diagnostics?: readonly Diagnostic[] } | undefined;
-  readonly triggerTurn: unknown;
-}
-
-interface ShippedHarness {
-  readonly commands: Map<string, unknown>;
-  readonly notes: RecordedNote[];
-  readonly notifications: string[];
-  fireSessionStart(): Promise<void>;
-}
-
-function makeShippedHarness(cwd: string): ShippedHarness {
-  const commands = new Map<string, unknown>();
-  const notes: RecordedNote[] = [];
-  const notifications: string[] = [];
-  const subscriptions = new Map<
-    string,
-    ((event: unknown, ctx: ExtensionContext) => unknown)[]
-  >();
-
-  const pi = {
-    registerFlag: (): void => {},
-    registerMessageRenderer: (): void => {},
-    registerCommand: (name: string, options: unknown): void => {
-      commands.set(name, options);
-    },
-    on: (event: string, handler: (e: unknown, c: ExtensionContext) => unknown): void => {
-      const list = subscriptions.get(event) ?? [];
-      list.push(handler);
-      subscriptions.set(event, list);
-    },
-    getFlag: (): undefined => undefined,
-    getCommands: (): { name: string; source: string }[] =>
-      [...commands.keys()].map((name) => ({ name, source: "extension" })),
-    sendMessage: (
-      message: {
-        customType: string;
-        content: string;
-        display: boolean;
-        details: unknown;
-      },
-      options: { triggerTurn: unknown },
-    ): void => {
-      notes.push({
-        customType: message.customType,
-        content: message.content,
-        display: message.display,
-        details: message.details as RecordedNote["details"],
-        triggerTurn: options.triggerTurn,
-      });
-    },
-    sendUserMessage: (): void => {},
-  } as unknown as ExtensionAPI;
-
-  const ctx = {
-    cwd,
-    hasUI: false,
-    modelRegistry: { getAvailable: (): readonly unknown[] => [] },
-    // A recording toast so a warning wrongly routed to the transient surface is
-    // observable (diagnostic-shape.md transient-toast MUST NOT).
-    ui: {
-      notify: (message: string, _type: "error"): void => {
-        notifications.push(message);
-      },
-    },
-  } as unknown as ExtensionContext;
-
-  const deps: ThetaExtensionDeps = {
-    fixtures: [],
-    composeInstance: (composePi, composeCtx) =>
-      composeExtensionInstance(composePi, composeCtx, {
-        fileWatcher: new FakeFileWatcher(),
-        clock: new FakeClock(),
-      }),
-  };
-  createThetaExtension(deps)(pi);
-
-  return {
-    commands,
-    notes,
-    notifications,
-    fireSessionStart: async () => {
-      for (const handler of subscriptions.get("session_start") ?? []) {
-        await handler({ type: "session_start" }, ctx);
-      }
-    },
-  };
-}
 
 describe("bug 0113 — the universe-walk warning reaches the theta-system-note channel (bug 0013's route)", () => {
   let workspace: string;

@@ -1,6 +1,5 @@
-import { REGISTRY } from "./helpers/registry-oracle";
+import { renderAll, type Exp } from "./helpers/registry-oracle";
 import { describe, expect, it } from "vitest";
-import { registryMessageOf } from "./helpers/load-row-harness";
 import { splitTopLevel } from "../src/parser/params";
 import { lowerQueryResponseSchema } from "../src/runtime/query-schema-lowering";
 import { expectGroup as expectGroupShared, type DiagnosticCell, diagLines, parseDoc, subagentTheta as theta, subagentParamsSrc as paramsSrc, loweredParams } from "./helpers/e2e-s1";
@@ -208,16 +207,6 @@ import { expectGroup as expectGroupShared, type DiagnosticCell, diagLines, parse
 // The diagnostic oracle — the registry's *Message* column (DIAG-4).
 // ===========================================================================
 
-/**
- * The registry row's normative *Message* template with its named placeholders
- * filled (DIAG-4). Definedness and placeholder presence are asserted first, so a
- * missing row or a reworded template reds by naming the registry rather than by
- * a bare `undefined` comparison.
- */
-function msg(code: string, fills: ReadonlyArray<readonly [string, string]>): string {
-  return registryMessageOf(REGISTRY, "docs/spec_topics/diagnostics/", code, fills);
-}
-
 const GENERIC_ARITY = "theta/parse/generic-arity-mismatch";
 const VOID_NON_RETURN = "theta/parse/void-in-non-return-position";
 const RESULT_IN_SCHEMA = "theta/parse/result-in-schema-position";
@@ -228,13 +217,6 @@ const LET_NO_INIT = "theta/parse/let-without-initialiser";
 const NOT_IDENT = "theta/parse/inline-field-name-not-identifier";
 const INLINE_ENUM = "theta/parse/inline-enum";
 const UNRESOLVED_NAMED_TYPE = "theta/parse/unresolved-named-type";
-
-/** One expected diagnostic, as a code plus the placeholder fills its row needs. */
-interface Exp {
-  readonly severity: "error" | "warning";
-  readonly code: string;
-  readonly fills: ReadonlyArray<readonly [string, string]>;
-}
 
 /** The arity row (code-registry-parse.md:65) — the count face of this report. */
 function ARITY(ctor: string, expected: string, actual: string): Exp {
@@ -291,15 +273,6 @@ const INLINEENUM: Exp = { severity: "error", code: INLINE_ENUM, fills: [] };
 /** Bug 0282's constructor-head gate (code-registry-parse.md:112) — f2b's non-`GENERIC_ARITY` head. */
 function UNRESOLVED(name: string): Exp {
   return { severity: "error", code: UNRESOLVED_NAMED_TYPE, fills: [["<name>", name]] };
-}
-
-/** One rendered diagnostic, in the shape `diagLines` produces. */
-function render(exp: Exp): string {
-  return `${exp.severity} ${exp.code}: ${msg(exp.code, exp.fills)}`;
-}
-
-function renderAll(exps: readonly Exp[]): string[] {
-  return exps.map(render);
 }
 
 // ===========================================================================

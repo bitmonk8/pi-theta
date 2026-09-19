@@ -8,17 +8,16 @@ import {
 } from "../src/discovery/discovery-walk";
 import {
   discoverPackageThetas,
-  type PackageDiscoveryInput,
 } from "../src/discovery/package-discovery";
 import type { Diagnostic, Severity } from "../src/diagnostics/diagnostic";
 import type { FileSystem } from "../src/seams/file-system";
-import { FakeClock } from "./helpers/fake-clock";
 import {
   FakeFileSystem,
   ReaddirDeniedFileSystem,
   ancestors,
   mergeDirs,
   buildPackages,
+  packageInput,
   DISCOVERY_BASE as BASE,
   DISCOVERY_GLOBAL_ROOT as GLOBAL_ROOT,
   DISCOVERY_PROJECT_ROOT as PROJECT_ROOT,
@@ -204,10 +203,6 @@ function build(spec: FakeSpec): FakeFileSystem {
  * classifies as a directory and only its enumeration fails.
  */
 class ReaddirDenied extends ReaddirDeniedFileSystem {}
-
-function packageInput(fs: FileSystem): PackageDiscoveryInput {
-  return { fs, clock: new FakeClock(), settings: {} };
-}
 
 function named(
   thetas: readonly DiscoveredTheta[],

@@ -54,22 +54,18 @@ import { THETA_BODY } from "./helpers/discovery-scratch-harness";
 import { discoverThetas, type DiscoveryInput } from "../src/discovery/discovery-walk";
 import {
   discoverPackageThetas,
-  type PackageDiscoveryInput,
 } from "../src/discovery/package-discovery";
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
 import type { FileSystem } from "../src/seams/file-system";
-import { FakeClock } from "./helpers/fake-clock";
 import {
-  FakeFileSystem,
-  type FakeFileSystemOptions,
   ReaddirDeniedFileSystem,
   ancestors,
   mergeDirs,
+  buildPackages,
+  packageInput,
   buildDiscovery as build,
   discoveryInput as input,
   cliSettingsShadowInput,
-  SETTINGS_HOME as HOME,
-  SETTINGS_CWD as CWD,
 } from "./helpers/fake-file-system";
 
 // The two conventional roots' resolved directory paths (0268 forward-slashed) —
@@ -91,34 +87,9 @@ const UNREADABLE_SOURCE = "theta/load/unreadable-source";
 const WRONG_TYPE_SOURCE = "theta/load/wrong-type-source";
 const SHADOW_FRAGMENT = "shadowed across discovery sources";
 
-/** The five installed-package roots `packageRoots` enumerates, registered as
- *  empty directories so a root's absence never contributes an incidental
- *  readdir rejection to the package cell. Copied from
- *  tests/discovery-glob-universe-enumeration-failure.test.ts. */
-const PKG_ROOTS: Record<string, readonly string[]> = {
-  "/project/.pi/npm": [],
-  "/project/.pi/git": [],
-  [NM]: [],
-  "/home/theta/.pi/agent/npm": [],
-  "/home/theta/.pi/agent/git": [],
-};
-
-function buildPackages(spec: Pick<FakeFileSystemOptions, "dirs" | "files">): FakeFileSystem {
-  return new FakeFileSystem({
-    homedir: HOME,
-    cwd: CWD,
-    dirs: mergeDirs(PKG_ROOTS, spec.dirs ?? {}),
-    files: spec.files ?? {},
-  });
-}
-
 /** A settings input whose `thetaPaths` resolve against `/project/.pi`. */
 function settingsInput(fs: FileSystem, thetaPaths: readonly string[]): DiscoveryInput {
   return input(fs, { settings: { thetaPaths, thetaPathsBaseDir: SETTINGS_BASE } });
-}
-
-function packageInput(fs: FileSystem): PackageDiscoveryInput {
-  return { fs, clock: new FakeClock(), settings: {} };
 }
 
 /**

@@ -80,6 +80,23 @@ export function registryHintOf(
 /** The live four-page sharded registry — the input tests/code-registry.test.ts reconciles. */
 export const REGISTRY: readonly RegistryRow[] = readRegistry(["parse", "load", "runtime", "host"]);
 
+/** One expected diagnostic, as a code plus the placeholder fills its row needs. */
+export interface Exp {
+  readonly severity: "error" | "warning";
+  readonly code: string;
+  readonly fills: ReadonlyArray<readonly [string, string]>;
+}
+
+/** One rendered diagnostic, in the shape `diagLines` produces. */
+export function render(exp: Exp): string {
+  return `${exp.severity} ${exp.code}: ${registryMessageOf(REGISTRY, "docs/spec_topics/diagnostics/", exp.code, exp.fills)}`;
+}
+
+/** Render the expected diagnostics in their declared order. */
+export function renderAll(exps: readonly Exp[]): string[] {
+  return exps.map(render);
+}
+
 const LOAD_REGISTRY = readRegistry(["load"]);
 
 /** The load registry Message column, refusing an absent row. */

@@ -20,11 +20,11 @@
 // Spec: discovery/discovery-sources.md; discovery/package-and-settings.md.
 // Method: M2 (production composition root, no live model).
 
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { runProductionLoad, type LoadOutcome } from "./helpers/production-load-harness";
+import { disposeWorkspace, runProductionLoad, type LoadOutcome } from "./helpers/production-load-harness";
 
 /** A clean prompt theta that registers with no binder/model precondition. */
 const CLEAN_THETA = ["---", "mode: prompt", "tools: read", "---", "@`hi`", ""].join("\n");
@@ -79,9 +79,7 @@ beforeAll(async () => {
 }, 60000);
 
 afterAll(() => {
-  if (workspaceDir !== undefined) {
-    rmSync(workspaceDir, { recursive: true, force: true });
-  }
+  disposeWorkspace(workspaceDir);
 });
 
 describe("e2e-s5 gap#3 — package discovery through the composition root", () => {

@@ -79,7 +79,7 @@ import { resolvingHost } from "./helpers/fake-json-child";
 import { makeIdleModelHost, noteLinesContaining } from "./helpers/compose-workspace-harness";
 import { REGISTRY } from "./helpers/registry-oracle";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { plantThetaWorkspace, disposeWorkspace } from "./helpers/production-load-harness";
+import { plantThetaWorkspace, disposeWorkspace, theta } from "./helpers/production-load-harness";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 // @ts-expect-error — JS code-registry module, no type declarations.
 import { registryMessage } from "../tools/code-registry/index.js";
@@ -124,10 +124,6 @@ function normativeMessage(code: string): string {
 // ===========================================================================
 // Fixtures.
 // ===========================================================================
-
-function theta(...lines: string[]): string {
-  return lines.join("\n") + "\n";
-}
 
 /** The `tools:` entry text, shared between the fixture and the expected message's `<path>` fill. */
 const MISSING_CALLEE_ENTRY = "./no-such-callee.theta";

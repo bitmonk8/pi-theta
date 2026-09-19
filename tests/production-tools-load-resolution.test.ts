@@ -3,7 +3,9 @@ import {
   disposeWorkspace,
   plantThetaWorkspace,
   runProductionLoad,
+  theta,
   type LoadOutcome,
+  type PlantedThetaFile,
 } from "./helpers/production-load-harness";
 
 // V20a-T — failing tests for the paired `V20a` "`tools:` load-time resolution
@@ -129,22 +131,13 @@ const MSG = {
 
 // --- Planted discovery workspace -------------------------------------------
 
-interface PlantedTheta {
-  readonly stem: string;
-  readonly text: string;
-}
-
-function theta(...lines: readonly string[]): string {
-  return lines.join("\n") + "\n";
-}
-
 /**
  * The `.theta` files planted under the project discovery source. Each malformed
  * theta pairs one `tools:`-resolution rejection with a positive control that
  * MUST still register, so the test distinguishes "the wiring rejects the bad
  * theta" from "the wiring rejects everything".
  */
-const THETAS: readonly PlantedTheta[] = [
+const THETAS: readonly PlantedThetaFile[] = [
   // A control theta whose `tools:` resolves cleanly (a known built-in Pi tool):
   // registers today and after `V20a`.
   { stem: "goodtool", text: theta("---", "mode: prompt", "tools: read", "---", "@`hi`") },

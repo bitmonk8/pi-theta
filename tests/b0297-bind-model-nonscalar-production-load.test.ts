@@ -3,7 +3,9 @@ import {
   disposeWorkspace,
   plantThetaWorkspace,
   runProductionLoad,
+  theta,
   type LoadOutcome,
+  type PlantedThetaFile,
 } from "./helpers/production-load-harness";
 
 // Bug 0297 face 2 — the PRODUCTION threading of a present non-scalar
@@ -50,21 +52,12 @@ import {
 
 // --- Planted discovery workspace -------------------------------------------
 
-interface PlantedTheta {
-  readonly stem: string;
-  readonly text: string;
-}
-
-function theta(...lines: readonly string[]): string {
-  return lines.join("\n") + "\n";
-}
-
 // A two-string `params:` block forces a real binder pass (the theta is NOT
 // bypass-eligible), so binder-model resolution runs and its verdict gates
 // registration. This is the non-bypass shape cell J of the offline witness uses.
 const NON_BYPASS_PARAMS: readonly string[] = ["params:", "  a: string", "  b: string"];
 
-const THETAS: readonly PlantedTheta[] = [
+const THETAS: readonly PlantedThetaFile[] = [
   // OFFENDER — a present non-scalar `bind_model:` (a block sequence) on a
   // non-bypass theta. Pre-fix the arm records `undefined` and no marker, so the
   // input carries neither `bindModel` nor `bindModelUnresolvable` and the

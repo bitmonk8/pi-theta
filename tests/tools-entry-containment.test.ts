@@ -4,6 +4,7 @@ import {
   plantThetaFile as plant,
   plantThetaWorkspace,
   runProductionLoad,
+  theta,
   type LoadOutcome,
 } from "./helpers/production-load-harness";
 import { mkdtempSync, realpathSync, symlinkSync } from "node:fs";
@@ -130,10 +131,6 @@ const ARITY_SPINE = ((): string => {
 })();
 
 // --- Planted discovery workspace -------------------------------------------
-
-function theta(...lines: readonly string[]): string {
-  return lines.join("\n") + "\n";
-}
 
 /**
  * Two required `params:` — `requiredCount` 2, `totalCount` 2. Every escaping
