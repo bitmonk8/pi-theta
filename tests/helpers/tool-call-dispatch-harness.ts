@@ -244,6 +244,24 @@ export function errOf(
   ).error;
 }
 
+/** A Pi-tool resolver recording the last params object and returning fixed text. */
+export function recordingPiToolResolver(text: string): {
+  readonly resolvePiTool: (name: string) => PiToolDispatch;
+  readonly received: () => unknown;
+} {
+  let received: unknown;
+  return {
+    resolvePiTool: (name: string): PiToolDispatch => ({
+      toolName: name,
+      execute: (_id, params): Promise<AgentToolResultEnvelope> => {
+        received = params;
+        return Promise.resolve({ content: [{ type: "text", text }] });
+      },
+    }),
+    received: () => received,
+  };
+}
+
 /** A recording `pi-tool` snapshot entry capturing every dispatched params object. */
 export function recordingPiTool(toolName: string): {
   readonly entry: ResolvedCallable;

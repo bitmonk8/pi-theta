@@ -1,3 +1,4 @@
+import { recordingPiToolResolver } from "./helpers/tool-call-dispatch-harness";
 import { describe, expect, it } from "vitest";
 import type {
   ExtensionAPI,
@@ -15,7 +16,6 @@ import type {
 import { executeBody } from "../src/runtime/statement-executor";
 import type { RuntimeRoot } from "../src/runtime-root";
 import type { Checkpoint } from "../src/seams/checkpoint";
-import type { AgentToolResultEnvelope } from "../src/runtime/tool-call-execute";
 import { makeOk, type ThetaValue } from "../src/runtime/value";
 import type {
   Block,
@@ -207,14 +207,7 @@ describe("V20e-T pure/async unification — effectful expression in a pure sub-e
       "grep",
     ]);
 
-    let received: unknown;
-    const resolvePiTool = (name: string): PiToolDispatch => ({
-      toolName: name,
-      execute: (_id, params): Promise<AgentToolResultEnvelope> => {
-        received = params;
-        return Promise.resolve({ content: [{ type: "text", text: "42 matches" }] });
-      },
-    });
+    const { resolvePiTool, received } = recordingPiToolResolver("42 matches");
 
     const r = await runBody(producer({ resolvePiTool }), theta);
 
@@ -225,7 +218,7 @@ describe("V20e-T pure/async unification — effectful expression in a pure sub-e
     // `received` stays `undefined` and the arm yields `null`.
     expect(r.outcome).toBe("success");
     expect(
-      received,
+      received(),
       "the effectful fn body dispatched the real tool through the executor",
     ).toEqual({ pattern: "TODO", path: "src" });
     expect(

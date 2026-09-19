@@ -1,17 +1,15 @@
 import { parseDeps } from "./helpers/e2e-s1";
 import {
-  ANTHROPIC_MODEL,
   type SessionEntryDouble,
   appendUserEntry,
   appendAssistantEntry,
+  livePi,
+  rootLive,
+  registryDouble,
+  ctxLive,
 } from "./helpers/scripted-live-session-harness";
 import { REGISTRY } from "./helpers/registry-oracle";
 import { describe, expect, it } from "vitest";
-import type {
-  ExtensionAPI,
-  ExtensionCommandContext,
-  ModelRegistry,
-} from "@earendil-works/pi-coding-agent";
 // @ts-expect-error — JS code-registry module, no type declarations.
 import { registryMessage } from "../tools/code-registry/index.js";
 import type { ThetaSource } from "../src/lexer/lexer";
@@ -24,8 +22,6 @@ import { isResultValue } from "../src/runtime/value";
 import { INTERPOLATED_RESULT_CODE, INTERPOLATED_RESULT_MESSAGE } from "../src/render/query-render";
 import { createProductionProducerDeps } from "../src/extension/production-theta-producer";
 import type { ThetaCompositionInput } from "../src/extension/theta-composition-producer";
-import type { RuntimeRoot } from "../src/runtime-root";
-import type { Checkpoint } from "../src/seams/checkpoint";
 
 // Bug 0079 — `theta/parse/interpolated-result` has no emitter. QRY-18 gives
 // `Result<T, E>` exactly one disposition in the interpolation table (a parse
@@ -386,12 +382,6 @@ function assertGateFiredWith(
 // completing the turn with the scripted reply. No provider, no model dispatch.
 // ===========================================================================
 
-const NOOP_CHECKPOINT: Checkpoint = {
-  before(): Promise<void> {
-    return Promise.resolve();
-  },
-};
-
 class LiveSessionDouble {
   readonly entries: SessionEntryDouble[] = [];
   sendUserMessageCalls = 0;
@@ -419,59 +409,6 @@ class LiveSessionDouble {
     appendAssistantEntry(this.entries, "ok", "stop");
     this.#idle = true;
   }
-}
-
-function livePi(session: LiveSessionDouble): ExtensionAPI {
-  return {
-    sendUserMessage: (content: string): void => session.sendUserMessage(content),
-    sendMessage: (): void => {},
-    getActiveTools: (): string[] => [],
-    setActiveTools: (): void => {},
-    registerTool: (): void => {},
-    on: (): void => {},
-  } as unknown as ExtensionAPI;
-}
-
-function rootLive(session: LiveSessionDouble): RuntimeRoot {
-  return {
-    checkpoint: NOOP_CHECKPOINT,
-    idSource: { newInvocationId: () => "inv-1", newToolCallId: () => "tc-1" },
-    clock: {
-      now: (): number => 0,
-      wallNow: (): number => 0,
-      setTimeout: (fn: () => void): unknown => {
-        session.tick();
-        fn();
-        return 0;
-      },
-      clearTimeout: (): void => {},
-    },
-  } as unknown as RuntimeRoot;
-}
-
-function registryDouble(): ModelRegistry {
-  return {
-    getAvailable: () => [ANTHROPIC_MODEL],
-    getApiKeyAndHeaders: async () => ({ ok: true, apiKey: "k-test" }),
-  } as unknown as ModelRegistry;
-}
-
-/**
- * `ctx` for the prompt-mode drive. `sessionManager` answers an EMPTY entry list:
- * the observable under test is the text handed to `pi.sendUserMessage`, not the
- * transcript, and an empty list keeps the drive independent of transcript replay.
- */
-function ctxLive(session: LiveSessionDouble): ExtensionCommandContext {
-  return {
-    model: ANTHROPIC_MODEL,
-    signal: undefined,
-    isIdle: (): boolean => session.isIdle(),
-    waitForIdle: (): Promise<void> => Promise.resolve(),
-    sessionManager: {
-      getEntries: (): readonly SessionEntryDouble[] => [],
-      getLeafId: (): undefined => undefined,
-    },
-  } as unknown as ExtensionCommandContext;
 }
 
 /** One drive's disposition: the body produced a value, or the runtime threw. */

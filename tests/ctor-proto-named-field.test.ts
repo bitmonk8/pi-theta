@@ -1,17 +1,18 @@
+import { recordingPiToolResolver } from "./helpers/tool-call-dispatch-harness";
 import { REGISTRY } from "./helpers/registry-oracle";
 import {
-  ANTHROPIC_MODEL,
   type SessionEntryDouble,
   appendUserEntry,
   appendAssistantEntry,
+  untypedPromptHarness,
+  ownKeys,
+  livePi,
+  rootLive,
+  registryDouble,
+  ctxLive,
 } from "./helpers/scripted-live-session-harness";
 import { parseDeps } from "./helpers/e2e-s1";
 import { describe, expect, it } from "vitest";
-import type {
-  ExtensionAPI,
-  ExtensionCommandContext,
-  ModelRegistry,
-} from "@earendil-works/pi-coding-agent";
 // @ts-expect-error — JS code-registry module, no type declarations.
 import { registryMessage } from "../tools/code-registry/index.js";
 import type { ThetaSource } from "../src/lexer/lexer";
@@ -21,7 +22,6 @@ import {
   type CallExpr,
   type ThetaDocument,
 } from "../src/parser/theta-document";
-import { executeBody, type BodyExecution } from "../src/runtime/statement-executor";
 import {
   buildObjectSchemaValue,
   schemaTagOf,
@@ -29,14 +29,8 @@ import {
   type SchemaFieldOrder,
   type ThetaValue,
 } from "../src/runtime/value";
-import {
-  createProductionProducerDeps,
-  type PiToolDispatch,
-} from "../src/extension/production-theta-producer";
+import { createProductionProducerDeps } from "../src/extension/production-theta-producer";
 import type { ThetaCompositionInput } from "../src/extension/theta-composition-producer";
-import type { RuntimeRoot } from "../src/runtime-root";
-import type { Checkpoint } from "../src/seams/checkpoint";
-import type { AgentToolResultEnvelope } from "../src/runtime/tool-call-execute";
 
 // Bug 0119 — a declared schema field literally named `__proto__` is silently
 // dropped at construction. Every record-building site on the construction path
@@ -238,12 +232,6 @@ function registeredMessage(code: string): string {
 // Production-composition drive harness.
 // ===========================================================================
 
-const NOOP_CHECKPOINT: Checkpoint = {
-  before(): Promise<void> {
-    return Promise.resolve();
-  },
-};
-
 class LiveSessionDouble {
   readonly entries: SessionEntryDouble[] = [];
   sendUserMessageCalls = 0;
@@ -273,133 +261,11 @@ class LiveSessionDouble {
   }
 }
 
-function livePi(session: LiveSessionDouble): ExtensionAPI {
-  return {
-    sendUserMessage: (content: string): void => session.sendUserMessage(content),
-    sendMessage: (): void => {},
-    getActiveTools: (): string[] => [],
-    setActiveTools: (): void => {},
-    registerTool: (): void => {},
-    on: (): void => {},
-  } as unknown as ExtensionAPI;
-}
-
-function rootLive(session: LiveSessionDouble): RuntimeRoot {
-  return {
-    checkpoint: NOOP_CHECKPOINT,
-    idSource: { newInvocationId: () => "inv-1", newToolCallId: () => "tc-1" },
-    clock: {
-      now: (): number => 0,
-      wallNow: (): number => 0,
-      setTimeout: (fn: () => void): unknown => {
-        session.tick();
-        fn();
-        return 0;
-      },
-      clearTimeout: (): void => {},
-    },
-  } as unknown as RuntimeRoot;
-}
-
-function registryDouble(): ModelRegistry {
-  return {
-    getAvailable: () => [ANTHROPIC_MODEL],
-    getApiKeyAndHeaders: async () => ({ ok: true, apiKey: "k-test" }),
-  } as unknown as ModelRegistry;
-}
-
-/**
- * `ctx` for the prompt-mode drive. `sessionManager` answers an EMPTY entry list:
- * the observables under test are the final value, the text handed to
- * `pi.sendUserMessage` and the Pi-tool argument object — not the transcript.
- */
-function ctxLive(session: LiveSessionDouble): ExtensionCommandContext {
-  return {
-    model: ANTHROPIC_MODEL,
-    signal: undefined,
-    isIdle: (): boolean => session.isIdle(),
-    waitForIdle: (): Promise<void> => Promise.resolve(),
-    sessionManager: {
-      getEntries: (): readonly SessionEntryDouble[] => [],
-      getLeafId: (): undefined => undefined,
-    },
-  } as unknown as ExtensionCommandContext;
-}
-
-/** One drive's disposition: the body produced a value, or the runtime threw. */
-type Drive =
-  | {
-      readonly kind: "value";
-      readonly execution: BodyExecution;
-      readonly session: LiveSessionDouble;
-    }
-  | { readonly kind: "threw"; readonly thrown: unknown; readonly session: LiveSessionDouble };
-
-/**
- * Parse + drive one prompt-mode theta through the production binding against
- * the live session double. Fails LOUDLY when the fixture stops parsing or the
- * binding is not the live prompt-mode one — every drive fixture here is
- * parse-clean at HEAD (that parse-cleanliness is half of what makes the drop a
- * defect), so a fixture that no longer parses can neither pass nor fail its cell
- * for the right reason.
- */
-async function drive(
-  src: string,
-  resolvePiTool?: (name: string) => PiToolDispatch | undefined,
-): Promise<Drive> {
-  const doc = parseOnly(src);
-  const errors = doc.diagnostics.filter((d) => d.severity === "error");
-  if (errors.length > 0) {
-    throw new Error(
-      `harness: this fixture must reach the RUNTIME, but it failed to parse: ${errors
-        .map((d) => `${d.code}: ${d.message}`)
-        .join("; ")}`,
-    );
-  }
-  const session = new LiveSessionDouble();
-  const deps = createProductionProducerDeps({
-    pi: livePi(session),
-    root: rootLive(session),
-    modelRegistry: registryDouble(),
-    ...(resolvePiTool !== undefined ? { resolvePiTool } : {}),
-  });
-  const theta: ThetaCompositionInput = {
-    slashName: "bug0119",
-    sourcePath: FIXTURE_PATH,
-    frontmatter: doc.frontmatter as ParsedFrontmatter,
-    body: doc.body,
-  };
-  const binding = deps.bindPromptConversation({ theta, args: "", ctx: ctxLive(session) });
-  if (binding.drivenAgainst !== "prompt-user-session") {
-    throw new Error(
-      `harness: expected the LIVE prompt-mode drive, got ${String(binding.drivenAgainst)}`,
-    );
-  }
-  try {
-    return { kind: "value", execution: await executeBody(doc.body, binding.executeDeps), session };
-  } catch (thrown) {
-    return { kind: "threw", thrown, session };
-  }
-}
-
-/**
- * The body's final value. A throw or a non-success outcome fails LOUDLY — a cell
- * about the record's contents can only be read off a value the drive produced.
- */
-async function finalValue(src: string, what: string): Promise<ThetaValue> {
-  const outcome = await drive(src);
-  if (outcome.kind === "threw") {
-    throw new Error(
-      `harness: ${what} must produce a final value; the drive threw ${String(outcome.thrown)}`,
-    );
-  }
-  if (outcome.execution.outcome !== "success") {
-    throw new Error(
-      `harness: ${what} must succeed; the drive ended ${String(outcome.execution.outcome)}`,
-    );
-  }
-  return outcome.execution.result.value as ThetaValue;
-}
+const { drive, finalValue, renderedTurn } = untypedPromptHarness(
+  parseOnly,
+  () => new LiveSessionDouble(),
+  { slashName: "bug0119", sourcePath: FIXTURE_PATH },
+);
 
 /**
  * A read cell's disposition, as a comparable value: the read delivered a value,
@@ -422,37 +288,6 @@ async function readOutcome(src: string): Promise<Read> {
     return { raised: `drive ended ${String(outcome.execution.outcome)}` };
   }
   return { delivered: outcome.execution.result.value as ThetaValue };
-}
-
-/**
- * The single text the drive handed to `pi.sendUserMessage` — the QRY-18 rendered
- * turn. A throw, or any count other than one, fails LOUDLY.
- */
-async function renderedTurn(src: string, what: string): Promise<string> {
-  const outcome = await drive(src);
-  if (outcome.kind === "threw") {
-    throw new Error(
-      `harness: ${what} must render a turn; the drive threw ${String(outcome.thrown)}`,
-    );
-  }
-  if (outcome.session.sendUserMessageCalls !== 1) {
-    throw new Error(
-      `harness: ${what} must drive exactly one streamed user turn; observed ${outcome.session.sendUserMessageCalls} (sent: ${JSON.stringify(outcome.session.sentQueryTexts)})`,
-    );
-  }
-  return outcome.session.sentQueryTexts[0] as string;
-}
-
-/**
- * The theta-visible key list of an object-schema value. A non-object value fails
- * LOUDLY rather than yielding an empty list that would pass a key-set assertion
- * vacuously.
- */
-function ownKeys(value: ThetaValue, what: string): string[] {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) {
-    throw new Error(`harness: ${what} must be an object-schema value; got ${JSON.stringify(value)}`);
-  }
-  return Object.keys(value);
 }
 
 /**
@@ -923,20 +758,14 @@ describe("bug 0119 (H) — an object-valued `__proto__` field is data, not a pro
 describe("bug 0119 (I) — the Pi-tool argument record carries the field, not a prototype", () => {
   /** Drive one `grep({…})` call and return the argument object the tool got. */
   async function receivedArgs(src: string, what: string): Promise<object> {
-    let received: unknown;
-    const resolvePiTool = (name: string): PiToolDispatch => ({
-      toolName: name,
-      execute: (_id, params): Promise<AgentToolResultEnvelope> => {
-        received = params;
-        return Promise.resolve({ content: [{ type: "text", text: "done" }] });
-      },
-    });
-    const outcome = await drive(src, resolvePiTool);
+    const tool = recordingPiToolResolver("done");
+    const outcome = await drive(src, tool.resolvePiTool);
     if (outcome.kind === "threw") {
       throw new Error(
         `harness: ${what} must dispatch the Pi tool; the drive threw ${String(outcome.thrown)}`,
       );
     }
+    const received = tool.received();
     if (received === undefined) {
       throw new Error(
         `harness: ${what}'s \`PiToolDispatch.execute\` never ran, so no argument object was recorded — the cell would assert nothing`,
@@ -1011,20 +840,13 @@ describe("bug 0119 (I) — the Pi-tool argument record carries the field, not a 
       );
     }
 
-    let received: unknown;
-    const resolvePiTool = (name: string): PiToolDispatch => ({
-      toolName: name,
-      execute: (_id, params): Promise<AgentToolResultEnvelope> => {
-        received = params;
-        return Promise.resolve({ content: [{ type: "text", text: "done" }] });
-      },
-    });
+    const tool = recordingPiToolResolver("done");
     const session = new LiveSessionDouble();
     const deps = createProductionProducerDeps({
       pi: livePi(session),
       root: rootLive(session),
       modelRegistry: registryDouble(),
-      resolvePiTool,
+      resolvePiTool: tool.resolvePiTool,
     });
     const theta: ThetaCompositionInput = {
       slashName: "bug0119",
@@ -1043,6 +865,7 @@ describe("bug 0119 (I) — the Pi-tool argument record carries the field, not a 
         `harness: cell I3's ordinary-path lowering must dispatch the tool; the effect failed with ${JSON.stringify(outcome.error)}`,
       );
     }
+    const received = tool.received();
     if (received === undefined) {
       throw new Error(
         "harness: cell I3's `PiToolDispatch.execute` never ran, so no params object was recorded — the cell would assert nothing",

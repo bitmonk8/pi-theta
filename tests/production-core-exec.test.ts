@@ -20,6 +20,7 @@ import {
   ctxDouble,
   coreExecProducer as producer,
   promptTheta,
+  recordingPiToolResolver,
   runCoreBody as runBody,
 } from "./helpers/tool-call-dispatch-harness";
 
@@ -93,14 +94,7 @@ describe("core-exec — member / index / object-literal pure evaluation (product
 
 describe("core-exec — `?` unwrap over a real dispatched effect", () => {
   it("`let hits = grep({...})?` dispatches the Pi tool with real params and `?` unwraps Ok(text)", async () => {
-    let received: unknown;
-    const resolvePiTool = (name: string): PiToolDispatch => ({
-      toolName: name,
-      execute: (_id, params): Promise<AgentToolResultEnvelope> => {
-        received = params;
-        return Promise.resolve({ content: [{ type: "text", text: "42 matches" }] });
-      },
-    });
+    const { resolvePiTool, received } = recordingPiToolResolver("42 matches");
     // let hits = grep({ pattern: "TODO", path: "src" })?   then tail `hits`
     const grep = callExpr("grep", [
       objectExpr(null, [
@@ -113,7 +107,7 @@ describe("core-exec — `?` unwrap over a real dispatched effect", () => {
     const r = await runBody(producer({ resolvePiTool }), theta);
 
     expect(
-      received,
+      received(),
       "V14g: the object-literal arg lowered to the real JSON params object (no longer {})",
     ).toEqual({ pattern: "TODO", path: "src" });
     expect(r.outcome, "the body succeeds — `?` unwrapped the tool's Ok(text)").toBe("success");
@@ -262,14 +256,7 @@ describe("core-exec — top-level params reach body scope (single-string bypass)
 
 describe("RFC 0002 — computed Pi-tool field values (runtime dispatch semantics)", () => {
   it("behavior 1: the RFC example `read({ path: base + \"/findings/\" + id + \".md\" })` dispatches the computed path", async () => {
-    let received: unknown;
-    const resolvePiTool = (name: string): PiToolDispatch => ({
-      toolName: name,
-      execute: (_id, params): Promise<AgentToolResultEnvelope> => {
-        received = params;
-        return Promise.resolve({ content: [{ type: "text", text: "contents" }] });
-      },
-    });
+    const { resolvePiTool, received } = recordingPiToolResolver("contents");
     // let body = read({ path: base + "/findings/" + id + ".md" })?  ; tail `body`
     const pathExpr = binaryExpr(
       "+",
@@ -290,7 +277,7 @@ describe("RFC 0002 — computed Pi-tool field values (runtime dispatch semantics
     const r = await runBody(producer({ resolvePiTool }), theta, params);
 
     expect(
-      received,
+      received(),
       "the computed field value lowered to the concatenated path string",
     ).toEqual({ path: "src/findings/42.md" });
     expect(r.outcome).toBe("success");

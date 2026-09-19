@@ -1,32 +1,19 @@
+import { recordingPiToolResolver } from "./helpers/tool-call-dispatch-harness";
 import {
-  ANTHROPIC_MODEL,
   type SessionEntryDouble,
   appendUserEntry,
   appendAssistantEntry,
+  untypedPromptHarness,
+  ownKeys,
 } from "./helpers/scripted-live-session-harness";
 import { describe, expect, it } from "vitest";
-import type {
-  ExtensionAPI,
-  ExtensionCommandContext,
-  ModelRegistry,
-} from "@earendil-works/pi-coding-agent";
 // @ts-expect-error — JS code-registry module, no type declarations.
 import { registryMessage } from "../tools/code-registry/index.js";
 import type { ThetaSource } from "../src/lexer/lexer";
-import type { ParsedFrontmatter } from "../src/parser/frontmatter";
 import { parseThetaDocument, type SchemaDecl, type ThetaDocument } from "../src/parser/theta-document";
 import { lowerQueryResponseSchema } from "../src/runtime/query-schema-lowering";
-import { executeBody, type BodyExecution } from "../src/runtime/statement-executor";
 import { evaluateObjectMember } from "../src/runtime/stdlib-object";
 import { brandSchemaValue, schemaTagOf, type ThetaValue } from "../src/runtime/value";
-import {
-  createProductionProducerDeps,
-  type PiToolDispatch,
-} from "../src/extension/production-theta-producer";
-import type { ThetaCompositionInput } from "../src/extension/theta-composition-producer";
-import type { RuntimeRoot } from "../src/runtime-root";
-import type { Checkpoint } from "../src/seams/checkpoint";
-import type { AgentToolResultEnvelope } from "../src/runtime/tool-call-execute";
 import { diagCodes, parseDeps } from "./helpers/e2e-s1";
 import { REGISTRY } from "./helpers/registry-oracle";
 
@@ -185,12 +172,6 @@ function assertRegistered(code: string): void {
 // ticks the session double, completing the turn with the scripted reply.
 // ===========================================================================
 
-const NOOP_CHECKPOINT: Checkpoint = {
-  before(): Promise<void> {
-    return Promise.resolve();
-  },
-};
-
 class LiveSessionDouble {
   readonly entries: SessionEntryDouble[] = [];
   sendUserMessageCalls = 0;
@@ -220,163 +201,11 @@ class LiveSessionDouble {
   }
 }
 
-function livePi(session: LiveSessionDouble): ExtensionAPI {
-  return {
-    sendUserMessage: (content: string): void => session.sendUserMessage(content),
-    sendMessage: (): void => {},
-    getActiveTools: (): string[] => [],
-    setActiveTools: (): void => {},
-    registerTool: (): void => {},
-    on: (): void => {},
-  } as unknown as ExtensionAPI;
-}
-
-function rootLive(session: LiveSessionDouble): RuntimeRoot {
-  return {
-    checkpoint: NOOP_CHECKPOINT,
-    idSource: { newInvocationId: () => "inv-1", newToolCallId: () => "tc-1" },
-    clock: {
-      now: (): number => 0,
-      wallNow: (): number => 0,
-      setTimeout: (fn: () => void): unknown => {
-        session.tick();
-        fn();
-        return 0;
-      },
-      clearTimeout: (): void => {},
-    },
-  } as unknown as RuntimeRoot;
-}
-
-function registryDouble(): ModelRegistry {
-  return {
-    getAvailable: () => [ANTHROPIC_MODEL],
-    getApiKeyAndHeaders: async () => ({ ok: true, apiKey: "k-test" }),
-  } as unknown as ModelRegistry;
-}
-
-/**
- * `ctx` for the prompt-mode drive. `sessionManager` answers an EMPTY entry list:
- * the observable under test is the final value and the text handed to
- * `pi.sendUserMessage`, not the transcript.
- */
-function ctxLive(session: LiveSessionDouble): ExtensionCommandContext {
-  return {
-    model: ANTHROPIC_MODEL,
-    signal: undefined,
-    isIdle: (): boolean => session.isIdle(),
-    waitForIdle: (): Promise<void> => Promise.resolve(),
-    sessionManager: {
-      getEntries: (): readonly SessionEntryDouble[] => [],
-      getLeafId: (): undefined => undefined,
-    },
-  } as unknown as ExtensionCommandContext;
-}
-
-/** One drive's disposition: the body produced a value, or the runtime threw. */
-type Drive =
-  | {
-      readonly kind: "value";
-      readonly execution: BodyExecution;
-      readonly session: LiveSessionDouble;
-    }
-  | { readonly kind: "threw"; readonly thrown: unknown; readonly session: LiveSessionDouble };
-
-/**
- * Parse + drive one prompt-mode theta through the production binding against the
- * live session double. Fails LOUDLY when the fixture stops parsing or the
- * binding is not the live prompt-mode one — every drive fixture here is
- * parse-clean at HEAD, and a fixture that no longer parses can neither pass nor
- * fail its cell for the right reason.
- */
-async function drive(
-  src: string,
-  resolvePiTool?: (name: string) => PiToolDispatch | undefined,
-): Promise<Drive> {
-  const doc = parseOnly(src);
-  const errors = doc.diagnostics.filter((d) => d.severity === "error");
-  if (errors.length > 0) {
-    throw new Error(
-      `harness: this fixture must reach the RUNTIME, but it failed to parse: ${errors
-        .map((d) => `${d.code}: ${d.message}`)
-        .join("; ")}`,
-    );
-  }
-  const session = new LiveSessionDouble();
-  const deps = createProductionProducerDeps({
-    pi: livePi(session),
-    root: rootLive(session),
-    modelRegistry: registryDouble(),
-    ...(resolvePiTool !== undefined ? { resolvePiTool } : {}),
-  });
-  const theta: ThetaCompositionInput = {
-    slashName: "bug0080",
-    sourcePath: FIXTURE_PATH,
-    frontmatter: doc.frontmatter as ParsedFrontmatter,
-    body: doc.body,
-  };
-  const binding = deps.bindPromptConversation({ theta, args: "", ctx: ctxLive(session) });
-  if (binding.drivenAgainst !== "prompt-user-session") {
-    throw new Error(
-      `harness: expected the LIVE prompt-mode drive, got ${String(binding.drivenAgainst)}`,
-    );
-  }
-  try {
-    return { kind: "value", execution: await executeBody(doc.body, binding.executeDeps), session };
-  } catch (thrown) {
-    return { kind: "threw", thrown, session };
-  }
-}
-
-/**
- * The body's final value. A throw or a non-success outcome fails LOUDLY — an
- * ordering cell can only be read off a value the drive actually produced.
- */
-async function finalValue(src: string, what: string): Promise<ThetaValue> {
-  const outcome = await drive(src);
-  if (outcome.kind === "threw") {
-    throw new Error(
-      `harness: ${what} must produce a final value; the drive threw ${String(outcome.thrown)}`,
-    );
-  }
-  if (outcome.execution.outcome !== "success") {
-    throw new Error(
-      `harness: ${what} must succeed; the drive ended ${String(outcome.execution.outcome)}`,
-    );
-  }
-  return outcome.execution.result.value as ThetaValue;
-}
-
-/**
- * The single text the drive handed to `pi.sendUserMessage` — the QRY-18 rendered
- * turn. A throw, or any count other than one, fails LOUDLY.
- */
-async function renderedTurn(src: string, what: string): Promise<string> {
-  const outcome = await drive(src);
-  if (outcome.kind === "threw") {
-    throw new Error(
-      `harness: ${what} must render a turn; the drive threw ${String(outcome.thrown)}`,
-    );
-  }
-  if (outcome.session.sendUserMessageCalls !== 1) {
-    throw new Error(
-      `harness: ${what} must drive exactly one streamed user turn; observed ${outcome.session.sendUserMessageCalls} (sent: ${JSON.stringify(outcome.session.sentQueryTexts)})`,
-    );
-  }
-  return outcome.session.sentQueryTexts[0] as string;
-}
-
-/**
- * The theta-visible key list of an object-schema value, read off the value the
- * drive produced. A non-object value fails LOUDLY rather than yielding an empty
- * list that would pass a key-set assertion vacuously.
- */
-function ownKeys(value: ThetaValue, what: string): string[] {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) {
-    throw new Error(`harness: ${what} must be an object-schema value; got ${JSON.stringify(value)}`);
-  }
-  return Object.keys(value);
-}
+const { drive, finalValue, renderedTurn } = untypedPromptHarness(
+  parseOnly,
+  () => new LiveSessionDouble(),
+  { slashName: "bug0080", sourcePath: FIXTURE_PATH },
+);
 
 // ===========================================================================
 // Fixture prologues.
@@ -753,23 +582,17 @@ describe("bug 0080 (E, N, S) — non-goals: equality, bare objects, and the read
     // asserted with a `schema P { b, a }` DECLARED IN SCOPE whose
     // field names are exactly the argument's, which is the input a reorder keyed
     // on names rather than on the constructor's resolved schema would scramble.
-    let received: unknown;
-    const resolvePiTool = (name: string): PiToolDispatch => ({
-      toolName: name,
-      execute: (_id, params): Promise<AgentToolResultEnvelope> => {
-        received = params;
-        return Promise.resolve({ content: [{ type: "text", text: "done" }] });
-      },
-    });
+    const tool = recordingPiToolResolver("done");
     const outcome = await drive(
       FM_GREP_TOOL + SCHEMA_P + 'let hits = grep({ a: "x", b: 1 })?\nhits\n',
-      resolvePiTool,
+      tool.resolvePiTool,
     );
     if (outcome.kind === "threw") {
       throw new Error(
         `harness: row N must dispatch the Pi tool; the drive threw ${String(outcome.thrown)}`,
       );
     }
+    const received = tool.received();
     if (received === undefined) {
       throw new Error(
         "harness: row N's `PiToolDispatch.execute` never ran, so no argument object was recorded — the cell would assert nothing",

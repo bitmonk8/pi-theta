@@ -18,6 +18,7 @@ import {
   statementBody as body,
   coreExecProducer as producer,
   promptTheta,
+  recordingPiToolResolver,
   runCoreBody as runBody,
 } from "./helpers/tool-call-dispatch-harness";
 
@@ -87,17 +88,7 @@ function matchLiteral(
 
 // A `grep(args)` Pi tool scripted to return `Ok(text)` and record its params.
 function okGrep(): { readonly resolvePiTool: (n: string) => PiToolDispatch; readonly received: () => unknown } {
-  let received: unknown;
-  return {
-    resolvePiTool: (name: string): PiToolDispatch => ({
-      toolName: name,
-      execute: (_id, params): Promise<AgentToolResultEnvelope> => {
-        received = params;
-        return Promise.resolve({ content: [{ type: "text", text: "42 matches" }] });
-      },
-    }),
-    received: () => received,
-  };
+  return recordingPiToolResolver("42 matches");
 }
 
 // A `grep(args)` Pi tool whose `execute()` throws → lowered to
@@ -282,7 +273,7 @@ describe("bullet-2 residual — control/effect under a pure operator on an inlin
     expect(r.value, "binary `+` operated on the evaluated control value, not a coerced null").toBe("hi!");
   });
 
-  it("ternary evaluates ONLY the taken branch: `true ? [ match Ok(9){...} ][0] : 0` -> 9", async () => {
+  it("ternary returns the taken branch's evaluated value: `true ? [ match Ok(9){...} ][0] : 0` -> 9", async () => {
     const indexed = indexExpr(arrayExpr([unwrapOrMatch(okCtor(numberExpr("9")), numberExpr("0"))]), numberExpr("0"));
     const theta = promptTheta(body([], ternaryExpr(boolExpr(true), indexed, numberExpr("0"))));
     const r = await runBody(producer({}), theta);

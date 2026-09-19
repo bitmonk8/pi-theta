@@ -1,7 +1,8 @@
 // Shared scripted-live-session scaffold for the bug-0288/0319/0414 prompt-mode
 // witnesses (PTQ-0328), plus production system-note capture (PTQ-0537) and
 // scripted off-session binder rigs (PTQ-0454, PTQ-0463), including
-// parse-then-drive params-default fixtures and the live two-phase query harness.
+// parse-then-drive params-default fixtures, the live two-phase query harness,
+// and untyped prompt-mode render/value witnesses.
 //
 // WHY THIS FILE EXISTS. tests/b0288-prompt-turn-completion-witness.test.ts,
 // tests/b0319-prompt-bidirectional-ctx-abort-witness.test.ts and
@@ -25,6 +26,7 @@ import type { ExtensionAPI, ExtensionCommandContext, ModelRegistry, ToolDefiniti
 import {
   createProductionProducerDeps,
   type ProductionProducerInput,
+  type PiToolDispatch,
 } from "../../src/extension/production-theta-producer";
 import type { BinderRunInput, ThetaCompositionInput } from "../../src/extension/theta-composition-producer";
 import { executeBody, type BodyExecution } from "../../src/runtime/statement-executor";
@@ -34,6 +36,9 @@ import {
   parseThetaDocument,
   type ThetaDocument,
 } from "../../src/parser/theta-document";
+import type { ParsedFrontmatter } from "../../src/parser/frontmatter";
+import type { ThetaValue } from "../../src/runtime/value";
+import { SEAM_NOOP_CHECKPOINT as NOOP_CHECKPOINT } from "./invoke-seam-scaffold";
 import type { ThetaSource } from "../../src/lexer/lexer";
 import { AjvSchemaValidator } from "../../src/seams/schema-validator";
 import { parseDeps } from "./e2e-s1";
@@ -528,7 +533,7 @@ function liveSessionRoot(session: LiveSessionDouble): RuntimeRoot {
  * `getApiKeyAndHeaders`, the respond call's auth threading copied from
  * `#completeBinderReply` (`options.apiKey` / `options.headers` when `auth.ok`).
  */
-function registryDouble(available: readonly unknown[]): ModelRegistry {
+export function registryDouble(available: readonly unknown[] = [ANTHROPIC_MODEL]): ModelRegistry {
   return {
     getAvailable: () => [...available],
     getApiKeyAndHeaders: async () => ({ ok: true, apiKey: "k-test" }),
@@ -833,4 +838,172 @@ export const AJV_ARGS_PHRASE = "argument binding produced invalid args";
 /** The AJV-on-`args` note for one theta and one rendered `<ajv-summary>`. */
 export function ajvArgsNote(thetaName: string, ajvSummary: string): string {
   return `theta /${thetaName}: ${AJV_ARGS_PHRASE} ${EM_DASH} ${ajvSummary}`;
+}
+
+// Untyped prompt-mode render/value witnesses (bugs 0079, 0080 and 0119).
+
+/** The recording session surface shared by the untyped prompt-mode witnesses. */
+interface UntypedLiveSession {
+  sendUserMessage(content: string): void;
+  isIdle(): boolean;
+  tick(): void;
+  readonly sendUserMessageCalls: number;
+  readonly sentQueryTexts: readonly string[];
+}
+
+/** The Pi API surface used by untyped streamed-turn witnesses. */
+export function livePi(session: UntypedLiveSession): ExtensionAPI {
+  return {
+    sendUserMessage: (content: string): void => session.sendUserMessage(content),
+    sendMessage: (): void => {},
+    getActiveTools: (): string[] => [],
+    setActiveTools: (): void => {},
+    registerTool: (): void => {},
+    on: (): void => {},
+  } as unknown as ExtensionAPI;
+}
+
+/** A fixed-clock root that completes the scripted turn before each timer callback. */
+export function rootLive(session: UntypedLiveSession): RuntimeRoot {
+  return {
+    checkpoint: NOOP_CHECKPOINT,
+    idSource: { newInvocationId: () => "inv-1", newToolCallId: () => "tc-1" },
+    clock: {
+      now: (): number => 0,
+      wallNow: (): number => 0,
+      setTimeout: (fn: () => void): unknown => {
+        session.tick();
+        fn();
+        return 0;
+      },
+      clearTimeout: (): void => {},
+    },
+  } as unknown as RuntimeRoot;
+}
+
+/**
+ * `ctx` for the prompt-mode drive. `sessionManager` answers an EMPTY entry list:
+ * the observable under test is the final value and the text handed to
+ * `pi.sendUserMessage`, not the transcript.
+ */
+export function ctxLive(session: UntypedLiveSession): ExtensionCommandContext {
+  return {
+    model: ANTHROPIC_MODEL,
+    signal: undefined,
+    isIdle: (): boolean => session.isIdle(),
+    waitForIdle: (): Promise<void> => Promise.resolve(),
+    sessionManager: {
+      getEntries: (): readonly SessionEntryDouble[] => [],
+      getLeafId: (): undefined => undefined,
+    },
+  } as unknown as ExtensionCommandContext;
+}
+
+/** One drive's disposition: the body produced a value, or the runtime threw. */
+type UntypedDrive<TSession> =
+  | { readonly kind: "value"; readonly execution: BodyExecution; readonly session: TSession }
+  | { readonly kind: "threw"; readonly thrown: unknown; readonly session: TSession };
+
+/** Bind the untyped production drive and its readers to a fixture path and session factory. */
+export function untypedPromptHarness<TSession extends UntypedLiveSession>(
+  parseOnly: (src: string) => ThetaDocument,
+  createSession: () => TSession,
+  identity: Pick<ThetaCompositionInput, "slashName" | "sourcePath">,
+) {
+  /**
+   * Parse + drive one prompt-mode theta through the production binding against the
+   * live session double. Fails LOUDLY when the fixture stops parsing or the
+   * binding is not the live prompt-mode one — every drive fixture here is
+   * parse-clean at HEAD, and a fixture that no longer parses can neither pass nor
+   * fail its cell for the right reason.
+   */
+  async function drive(
+    src: string,
+    resolvePiTool?: (name: string) => PiToolDispatch | undefined,
+  ): Promise<UntypedDrive<TSession>> {
+    const doc = parseOnly(src);
+    const errors = doc.diagnostics.filter((d) => d.severity === "error");
+    if (errors.length > 0) {
+      throw new Error(
+        `harness: this fixture must reach the RUNTIME, but it failed to parse: ${errors
+          .map((d) => `${d.code}: ${d.message}`)
+          .join("; ")}`,
+      );
+    }
+    const session = createSession();
+    const deps = createProductionProducerDeps({
+      pi: livePi(session),
+      root: rootLive(session),
+      modelRegistry: registryDouble(),
+      ...(resolvePiTool !== undefined ? { resolvePiTool } : {}),
+    });
+    const theta: ThetaCompositionInput = {
+      ...identity,
+      frontmatter: doc.frontmatter as ParsedFrontmatter,
+      body: doc.body,
+    };
+    const binding = deps.bindPromptConversation({ theta, args: "", ctx: ctxLive(session) });
+    if (binding.drivenAgainst !== "prompt-user-session") {
+      throw new Error(
+        `harness: expected the LIVE prompt-mode drive, got ${String(binding.drivenAgainst)}`,
+      );
+    }
+    try {
+      return { kind: "value", execution: await executeBody(doc.body, binding.executeDeps), session };
+    } catch (thrown) {
+      return { kind: "threw", thrown, session };
+    }
+  }
+
+  /**
+   * The body's final value. A throw or a non-success outcome fails LOUDLY — a
+   * value assertion requires a value the drive actually produced.
+   */
+  async function finalValue(src: string, what: string): Promise<ThetaValue> {
+    const outcome = await drive(src);
+    if (outcome.kind === "threw") {
+      throw new Error(
+        `harness: ${what} must produce a final value; the drive threw ${String(outcome.thrown)}`,
+      );
+    }
+    if (outcome.execution.outcome !== "success") {
+      throw new Error(
+        `harness: ${what} must succeed; the drive ended ${String(outcome.execution.outcome)}`,
+      );
+    }
+    return outcome.execution.result.value as ThetaValue;
+  }
+
+  /**
+   * The single text the drive handed to `pi.sendUserMessage` — the QRY-18 rendered
+   * turn. A throw, or any count other than one, fails LOUDLY.
+   */
+  async function renderedTurn(src: string, what: string): Promise<string> {
+    const outcome = await drive(src);
+    if (outcome.kind === "threw") {
+      throw new Error(
+        `harness: ${what} must render a turn; the drive threw ${String(outcome.thrown)}`,
+      );
+    }
+    if (outcome.session.sendUserMessageCalls !== 1) {
+      throw new Error(
+        `harness: ${what} must drive exactly one streamed user turn; observed ${outcome.session.sendUserMessageCalls} (sent: ${JSON.stringify(outcome.session.sentQueryTexts)})`,
+      );
+    }
+    return outcome.session.sentQueryTexts[0] as string;
+  }
+
+  return { drive, finalValue, renderedTurn };
+}
+
+/**
+ * The theta-visible key list of an object-schema value, read off the value the
+ * drive produced. A non-object value fails LOUDLY rather than yielding an empty
+ * list that would pass a key-set assertion vacuously.
+ */
+export function ownKeys(value: ThetaValue, what: string): string[] {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    throw new Error(`harness: ${what} must be an object-schema value; got ${JSON.stringify(value)}`);
+  }
+  return Object.keys(value);
 }

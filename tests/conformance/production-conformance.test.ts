@@ -22,7 +22,7 @@ import {
 import { discoverThetas } from "../../src/discovery/discovery-walk";
 import { FakeFileSystem } from "../helpers/fake-file-system";
 import { rootDouble } from "../helpers/call-with-clause-harness";
-import { ctxDouble } from "../helpers/tool-call-dispatch-harness";
+import { ctxDouble, recordingPiToolResolver } from "../helpers/tool-call-dispatch-harness";
 import {
   disposeWorkspace,
   plantThetaWorkspace,
@@ -30,7 +30,6 @@ import {
   type LoadOutcome,
 } from "../helpers/production-load-harness";
 import type { ThetaSettings } from "../../src/discovery/settings";
-import type { AgentToolResultEnvelope } from "../../src/runtime/tool-call-execute";
 import { parseThetaDocument, type ThetaDocument } from "../../src/parser/theta-document";
 import type { ThetaSource } from "../../src/lexer/lexer";
 import type { Diagnostic } from "../../src/diagnostics/diagnostic";
@@ -494,14 +493,7 @@ describe("V20g-T conformance — runtime / pure surface through the production d
   });
 
   it("method-call chain over a real dispatched effect: `grep({...})?` unwraps the tool's Ok(text)", async () => {
-    let received: unknown;
-    const resolvePiTool = (name: string): PiToolDispatch => ({
-      toolName: name,
-      execute: (_id, params): Promise<AgentToolResultEnvelope> => {
-        received = params;
-        return Promise.resolve({ content: [{ type: "text", text: "42 matches" }] });
-      },
-    });
+    const { resolvePiTool, received } = recordingPiToolResolver("42 matches");
     const r = await runSource(
       [
         "---",
@@ -514,7 +506,7 @@ describe("V20g-T conformance — runtime / pure surface through the production d
       ].join("\n"),
       resolvePiTool,
     );
-    expect(received, "the object-literal arg lowered to the real JSON params object").toEqual({
+    expect(received(), "the object-literal arg lowered to the real JSON params object").toEqual({
       pattern: "TODO",
       path: "src",
     });
