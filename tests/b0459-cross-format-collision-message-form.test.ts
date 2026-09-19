@@ -45,9 +45,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { discoverThetas, type DiscoveryInput, type PiOwnedCommand } from "../src/discovery/discovery-walk";
-import type { Diagnostic } from "../src/diagnostics/diagnostic";
 import { FakeFileSystem, ancestors, mergeDirs } from "./helpers/fake-file-system";
 import { makeHarness, expectSoleCollisionNote } from "./helpers/cross-format-collision-harness";
+import { soleByFragment } from "./helpers/e2e-s1";
 
 const HOME = "/home/theta";
 const CWD = "/project";
@@ -73,17 +73,6 @@ function fsWithPlanIn(dirs: readonly string[]): FakeFileSystem {
   return new FakeFileSystem({ homedir: HOME, cwd: CWD, dirs: mergedDirs, files });
 }
 
-/** The single diagnostic carrying the collision fragment, or a loud failure
- *  naming the unmet precondition — never a silent skip (AGENTS.md). */
-function soleCollision(diagnostics: readonly Diagnostic[]): Diagnostic {
-  const hits = diagnostics.filter((d) => d.message.includes(COLLISION_FRAGMENT));
-  expect(
-    hits,
-    `expected exactly one diagnostic containing '${COLLISION_FRAGMENT}'; got ${hits.length}: ${JSON.stringify(hits.map((d) => d.message))}`,
-  ).toHaveLength(1);
-  return hits[0]!;
-}
-
 // --------------------------------------------------------------------------
 // Cell 1 — same-format arm ORDER. Two CLI directory sources (both priority 1)
 // each ship `plan.theta`; the same-priority theta-vs-theta arm fires. §7 pins
@@ -106,7 +95,7 @@ describe("b0459 cell 1 — same-format arm renders <paths> priority-then-absolut
       settings: {},
       cliPaths: ["/opt/zz", "/opt/aa"],
     });
-    expect(soleCollision(diagnostics).message).toBe(EXPECTED);
+    expect(soleByFragment(diagnostics, COLLISION_FRAGMENT).message).toBe(EXPECTED);
     // Outcome unchanged: both same-tier copies drop.
     expect(thetas.map((t) => t.name)).not.toContain("plan");
   });
@@ -118,7 +107,7 @@ describe("b0459 cell 1 — same-format arm renders <paths> priority-then-absolut
       settings: {},
       cliPaths: ["/opt/aa", "/opt/zz"],
     });
-    expect(soleCollision(diagnostics).message).toBe(EXPECTED);
+    expect(soleByFragment(diagnostics, COLLISION_FRAGMENT).message).toBe(EXPECTED);
   });
 });
 
@@ -155,7 +144,7 @@ describe("b0459 cell 2 — Pi-owned arm tails the colliding .md sibling and drop
       piOwnedNames: piOwned as readonly PiOwnedCommand[],
     };
     const { diagnostics, thetas } = await discoverThetas(input);
-    expect(soleCollision(diagnostics).message).toBe(
+    expect(soleByFragment(diagnostics, COLLISION_FRAGMENT).message).toBe(
       "slash name 'plan' collides at the same priority: /opt/zz/plan.theta, /project/.pi/prompts/plan.md",
     );
     // Outcome unchanged: the theta drops, the Pi-owned entry survives.
@@ -183,7 +172,7 @@ describe("b0459 cell 3 — path-less extension-source sibling renders the comman
       piOwnedNames: [{ name: "plan" }],
     };
     const { diagnostics } = await discoverThetas(input);
-    expect(soleCollision(diagnostics).message).toBe(
+    expect(soleByFragment(diagnostics, COLLISION_FRAGMENT).message).toBe(
       "slash name 'plan' collides at the same priority: /opt/zz/plan.theta, plan",
     );
   });

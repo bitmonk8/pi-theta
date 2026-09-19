@@ -35,15 +35,12 @@ import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
-import type { ThetaFixture } from "../src/extension/factory";
 import {
   checkImportedWithClauseCallees,
   checkInvokeStaticResolution,
   type CalleeArity,
 } from "../src/extension/invoke-static-checks";
-import { discoverAndComposeFixtures } from "../src/extension/production-composition";
 import type { ThetaCompositionInput } from "../src/extension/theta-composition-producer";
 import type { ThetaSource } from "../src/lexer/lexer";
 import type { CallableSetSnapshot } from "../src/parser/callable-set";
@@ -53,6 +50,7 @@ import type { MaterializedImport } from "../src/runtime/lexical-environment";
 import { finishWorkspace, type ComposeWorkspace } from "./helpers/compose-workspace-harness";
 import { parseDeps } from "./helpers/e2e-s1";
 import { FakeFileSystem } from "./helpers/fake-file-system";
+import { runProductionLoad } from "./helpers/production-load-harness";
 
 const IN_PROCESS_CALLEE_CODE = "theta/parse/with-clause-in-process-callee";
 const FM = ["---", "mode: subagent", "---"].join("\n") + "\n";
@@ -235,7 +233,7 @@ describe("Erratum B — composition level: the deferred imported-callee check ga
     workspace?.dispose();
   });
 
-  async function compose(libBody: string): Promise<{ readonly slugs: string[]; readonly notifications: string[] }> {
+  async function compose(libBody: string): Promise<{ readonly slugs: readonly string[]; readonly notifications: readonly string[] }> {
     const cwd = mkdtempSync(join(tmpdir(), "rfc0009-erratum-b-"));
     const thetaDir = join(cwd, ".pi", "theta");
     mkdirSync(thetaDir, { recursive: true });
@@ -246,26 +244,8 @@ describe("Erratum B — composition level: the deferred imported-callee check ga
       ["---", "mode: subagent", "---", 'import { lib_fn } from "./lib.thetalib"', 'let r = lib_fn("a") with { cwd: "sub" }', "@`hi ${r}`", ""].join("\n"),
       "utf8",
     );
-    const notifications: string[] = [];
-    const pi = {
-      getFlag: (): undefined => undefined,
-      getCommands: (): readonly unknown[] => [],
-      sendMessage: (): void => {},
-      sendUserMessage: (): void => {},
-      getActiveTools: (): readonly string[] => [],
-      setActiveTools: (): void => {},
-    } as unknown as ExtensionAPI;
-    const ctx = {
-      cwd: workspace.cwd,
-      modelRegistry: { getAvailable: (): readonly unknown[] => [] },
-      ui: {
-        notify: (message: string): void => {
-          notifications.push(message);
-        },
-      },
-    } as unknown as ExtensionContext;
-    const fixtures: readonly ThetaFixture[] = await discoverAndComposeFixtures(pi, ctx);
-    return { slugs: fixtures.map((f) => f.slashName), notifications };
+    const { registered: slugs, notifications } = await runProductionLoad(workspace.cwd);
+    return { slugs, notifications };
   }
 
   it("a `.theta` calling an imported `.thetalib` `subagent fn` under `with { cwd }` REGISTERS", async () => {

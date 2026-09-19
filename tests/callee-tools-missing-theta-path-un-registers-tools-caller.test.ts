@@ -3,17 +3,13 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 // @ts-expect-error — JS code-registry module, no type declarations.
 import { parseRegistry } from "../tools/code-registry/index.js";
-import { discoverAndComposeFixtures } from "../src/extension/production-composition";
-import { SYSTEM_NOTE_CHANNEL } from "../src/extension/system-note-channel";
 import {
   allDiagnostics,
   describeNotes,
   expectCallerRefusedWithCalleeHasErrors,
   finishWorkspace,
-  makeHost,
   normalisePath,
   normativeMessagePattern,
   requireDriven,
@@ -21,6 +17,7 @@ import {
   type ComposeWorkspace,
   type LoadPass,
 } from "./helpers/compose-workspace-harness";
+import { runDispatchPass } from "./helpers/fixture-dispatch-harness";
 
 // Bug 0270 — a subagent callee whose OWN `tools:` names a `.theta` path that
 // resolves to no file un-registers, while its prompt-mode `tools:` caller still
@@ -257,56 +254,6 @@ function plantWorkspace(
     mkdirSync(target, { recursive: true });
   }
   return workspace;
-}
-
-// ── The dispatch pass (cell C) ──────────────────────────────────────────────
-
-interface DispatchPass {
-  readonly registered: readonly string[];
-  /** Run a registered fixture and return the notes ITS drive put on the channel. */
-  readonly drive: (stem: string) => Promise<readonly string[]>;
-}
-
-/**
- * Compose the shipped discovery + composition path into RUNNABLE fixtures, so a
- * registered caller can actually be dispatched. `composeExtensionInstance`
- * returns `ParsedTheta`s, which carry no `run`, hence the second entry point.
- * The notes are read off the settled in-memory session the host double records,
- * after the drive's promise has resolved — never off a racy event.
- */
-async function runDispatchPass(workspace: ComposeWorkspace): Promise<DispatchPass> {
-  const host = makeHost(workspace.cwd);
-  const fixtures = await discoverAndComposeFixtures(host.pi, host.ctx);
-  const runContext = {
-    signal: undefined,
-    cwd: workspace.cwd,
-    isIdle: (): boolean => true,
-    waitForIdle: (): Promise<void> => Promise.resolve(),
-    modelRegistry: { getAvailable: (): readonly unknown[] => [] },
-    sessionManager: {
-      getEntries: (): readonly unknown[] => [],
-      getLeafId: (): undefined => undefined,
-    },
-    ui: { notify: (): void => {} },
-  } as unknown as ExtensionCommandContext;
-  return {
-    registered: fixtures.map((f) => f.slashName),
-    drive: async (stem: string): Promise<readonly string[]> => {
-      const fixture = fixtures.find((f) => f.slashName === stem);
-      if (fixture === undefined) {
-        throw new Error(
-          `harness: no registered fixture named ${stem}, so its drive has no subject — ` +
-            `registered: ${JSON.stringify(fixtures.map((f) => f.slashName))}`,
-        );
-      }
-      const before = host.notes.length;
-      await fixture.run("", runContext);
-      return host.notes
-        .slice(before)
-        .filter((n) => n.customType === SYSTEM_NOTE_CHANNEL)
-        .map((n) => n.content);
-    },
-  };
 }
 
 // ── Observation helpers ─────────────────────────────────────────────────────

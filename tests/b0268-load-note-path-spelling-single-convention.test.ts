@@ -1,10 +1,7 @@
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-// @ts-expect-error — JS code-registry module, no type declarations.
-import { parseRegistry } from "../tools/code-registry/index.js";
 import {
   renderDiagnosticLine,
   type Diagnostic,
@@ -18,6 +15,7 @@ import {
   runLoadPass,
   type LoadPass,
 } from "./helpers/compose-workspace-harness";
+import { readRegistry } from "./helpers/registry-oracle";
 
 // Bug 0268 — one load pass renders `theta-system-note` file paths under three
 // mutually inconsistent separator conventions, and which convention a given
@@ -114,24 +112,7 @@ const MALFORMED_CALLEE_SOURCE =
 
 // ── Registry oracle (DIAG-4) ────────────────────────────────────────────────
 
-interface RegistryRow {
-  code: string;
-  severity: string;
-  phase: string;
-  message: string;
-}
-
-const REGISTRY = parseRegistry(
-  readFileSync(
-    fileURLToPath(
-      new URL(
-        "../docs/spec_topics/diagnostics/code-registry-parse.md",
-        import.meta.url,
-      ),
-    ),
-    "utf8",
-  ),
-) as RegistryRow[];
+const REGISTRY = readRegistry(["parse"]);
 
 /**
  * The row's normative *Message* (DIAG-4), as a regex with the `<placeholder>`

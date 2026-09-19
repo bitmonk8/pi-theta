@@ -23,6 +23,9 @@ import type {
   ExtensionCommandContext,
   ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
+import { discoverAndComposeFixtures } from "../../src/extension/production-composition";
+import { SYSTEM_NOTE_CHANNEL } from "../../src/extension/system-note-channel";
+import { makeHost, type ComposeWorkspace } from "./compose-workspace-harness";
 import type { ThetaFixture } from "../../src/extension/factory";
 import type { ThetaCompositionInput } from "../../src/extension/theta-composition-producer";
 import type { ParsedFrontmatter } from "../../src/parser/frontmatter";
@@ -90,6 +93,43 @@ export function dispatchCtx(cwd: string): ExtensionCommandContext {
     isIdle: (): boolean => true,
     abort: (): void => {},
   } as unknown as ExtensionCommandContext;
+}
+
+export interface DispatchPass {
+  readonly registered: readonly string[];
+  /** Run a registered fixture and return the notes ITS drive put on the channel. */
+  readonly drive: (stem: string) => Promise<readonly string[]>;
+}
+
+/**
+ * Compose the shipped discovery + composition path into RUNNABLE fixtures, so a
+ * registered caller can actually be dispatched. `composeExtensionInstance`
+ * returns `ParsedTheta`s, which carry no `run`, hence the second entry point.
+ * The notes are read off the settled in-memory session the host double records,
+ * after the drive's promise has resolved — never off a racy event.
+ */
+export async function runDispatchPass(workspace: ComposeWorkspace): Promise<DispatchPass> {
+  const host = makeHost(workspace.cwd);
+  const fixtures = await discoverAndComposeFixtures(host.pi, host.ctx);
+  const runContext = dispatchCtx(workspace.cwd);
+  return {
+    registered: fixtures.map((f) => f.slashName),
+    drive: async (stem: string): Promise<readonly string[]> => {
+      const fixture = fixtures.find((f) => f.slashName === stem);
+      if (fixture === undefined) {
+        throw new Error(
+          `harness: no registered fixture named ${stem}, so its drive has no subject — ` +
+            `registered: ${JSON.stringify(fixtures.map((f) => f.slashName))}`,
+        );
+      }
+      const before = host.notes.length;
+      await fixture.run("", runContext);
+      return host.notes
+        .slice(before)
+        .filter((n) => n.customType === SYSTEM_NOTE_CHANNEL)
+        .map((n) => n.content);
+    },
+  };
 }
 
 /** Every `theta-system-note` content `notes` recorded, in emission order. */
