@@ -28,7 +28,7 @@
 // #subagent-extension-pin.
 
 import { describe, expect, it } from "vitest";
-import { bindInput } from "./helpers/subagent-fn-child-regime";
+import { bindInput, rootDouble } from "./helpers/subagent-fn-child-regime";
 import { createProductionProducerDeps } from "../src/extension/production-theta-producer";
 import {
   buildSubagentChildEnv,
@@ -47,8 +47,6 @@ import {
 } from "../src/runtime/subagent-params";
 import { fakeExecutableHost, makeFakeJsonChildLauncher } from "./helpers/fake-json-child";
 import type { ModelRegistry, ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import type { RuntimeRoot } from "../src/runtime-root";
-import type { Checkpoint, CheckpointKind, CheckpointSite } from "../src/seams/checkpoint";
 
 /**
  * The per-launch control-plane carriers: every control-plane key EXCEPT the
@@ -158,25 +156,6 @@ describe("bug 0474 — buildSubagentChildEnv composes the control plane from THI
 // ---------------------------------------------------------------------------
 // Full-launch composition (the production producer's augmentation site).
 // ---------------------------------------------------------------------------
-
-class NoopCheckpoint implements Checkpoint {
-  before(_kind: CheckpointKind, _site: CheckpointSite): Promise<void> {
-    return Promise.resolve();
-  }
-}
-
-function rootDouble(): RuntimeRoot {
-  return {
-    checkpoint: new NoopCheckpoint(),
-    idSource: { newInvocationId: () => "inv-1", newToolCallId: () => "tc-1" },
-    clock: {
-      now: () => 0,
-      wallNow: () => 0,
-      setTimeout: (fn: () => void, ms: number) => setTimeout(fn, ms),
-      clearTimeout: (handle: unknown) => clearTimeout(handle as ReturnType<typeof setTimeout>),
-    },
-  } as unknown as RuntimeRoot;
-}
 
 describe("bug 0474 — the production launch composition carries only this launch's control plane", () => {
   it("a poisoned parent environment reaches the child with every stale carrier removed", async () => {

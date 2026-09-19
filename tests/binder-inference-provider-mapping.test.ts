@@ -1,4 +1,5 @@
 import { callInput, envelope } from "./helpers/binder-inference-fixture";
+import { interpolate, loadRowMessage } from "./helpers/registry-oracle";
 import { LIVE_ANTHROPIC_OVERFLOW_ERROR_MESSAGE } from "./helpers/model-registry-fixture";
 import { describe, expect, it } from "vitest";
 import { Type } from "typebox";
@@ -780,7 +781,7 @@ describe("V9j-T — typed-query unsupported provider (theta/load/typed-query-uns
   // `theta/load/typed-query-unsupported-provider`, per the *Diagnostic message
   // anchors* rule.
   const registryMessage = (provider: string, model: string): string =>
-    `provider '${provider}' (model '${model}') is outside the theta 1.0 typed-query supported set; typed queries will fail at runtime`;
+    interpolate(loadRowMessage(TYPED_QUERY_UNSUPPORTED_PROVIDER_CODE), { provider, model });
 
   it("theta/load/typed-query-unsupported-provider: surfaced (W) for a typed query on an unsupported provider", () => {
     const diagnostic = checkTypedQueryProviderSupport({

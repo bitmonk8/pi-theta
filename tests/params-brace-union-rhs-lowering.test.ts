@@ -14,7 +14,7 @@ import {
   type SchemaSlug,
 } from "../src/seams/schema-validator";
 import { loweredAnnotation as lowerAnnotation, loadSchemaDecls, parseDoc, fieldOf, diagLines } from "./helpers/e2e-s1";
-import { assertKeysSorted, inlineDefName, slugOfCanonicalForm, refNames } from "./helpers/canonical-slug-oracle";
+import { assertKeysSorted, inlineDefName, slugOfCanonicalForm, expectRefsClosed } from "./helpers/canonical-slug-oracle";
 
 // Bug 0097 — the `params:` right-hand side keeps a naive
 // `startsWith("{") && endsWith("}")` dispatch, so a top-level union of object
@@ -517,21 +517,6 @@ function ajv(): { readonly validator: AjvSchemaValidator; readonly emitted: Diag
     validator: new AjvSchemaValidator({ emit: (d) => emitted.push(d), slugOf }),
     emitted,
   };
-}
-
-/**
- * Every `$ref` in a document resolves against the DOCUMENT ROOT's `$defs`. An
- * arm hoisted without the matching closure leaves a dangling pointer AJV
- * refuses with `MissingRefError`; this check names the missing entry before the
- * compile does.
- */
-function expectRefsClosed(label: string, document: Record<string, unknown>): void {
-  const defs = (document["$defs"] ?? {}) as Record<string, unknown>;
-  const missing = [...new Set(refNames(document))].filter((name) => !(name in defs));
-  expect(
-    missing,
-    `${label}: every \`#/$defs/<name>\` pointer must have a fragment at the document root, or AJV refuses the whole document with MissingRefError; document=${JSON.stringify(document)}`,
-  ).toEqual([]);
 }
 
 /** A lowered document split into its root form and its `$defs` table. */

@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 // @ts-expect-error — JS code-registry module, no type declarations.
 import { registryMessage } from "../tools/code-registry/index.js";
 import { REGISTRY } from "./helpers/registry-oracle";
+import { registryMessageOf } from "./helpers/load-row-harness";
 import {
   buildBodyTypeSchemas,
   collectUnresolvedNamedTypes,
@@ -22,7 +23,15 @@ import {
   type SchemaSlug,
 } from "../src/seams/schema-validator";
 import { loweredAnnotation as lowerAnnotation, loadSchemaDecls, loadCleanly as loadCleanlyShared, type LoadedParams, parseDoc, diagLines } from "./helpers/e2e-s1";
-import { assertKeysSorted, inlineDefName, slugOfCanonicalForm, refNames } from "./helpers/canonical-slug-oracle";
+/**
+ * Every `$ref` in a document resolves against the DOCUMENT ROOT's `$defs` —
+ * the property `buildBodyTypeSchemas`'s pass 3 and `pruneDocumentDefs` exist to
+ * maintain. A hoisted `__inline_<slug>` name has no `bodies` entry, so a mint at
+ * the body-field or alias-RHS position that skips those closures leaves a
+ * dangling pointer AJV refuses with `MissingRefError`; this check names the
+ * missing entry before the compile does.
+ */
+import { assertKeysSorted, inlineDefName, slugOfCanonicalForm, expectRefsClosed } from "./helpers/canonical-slug-oracle";
 
 // Bug 0039 — an inline object type is recursive by the grammar, and the shared
 // body-type lowering handles neither the recursion nor the comma it introduces
@@ -212,12 +221,12 @@ const CODE = "theta/parse/unresolved-named-type";
  * naming the registry rather than by a bare `undefined` comparison.
  */
 function unresolvedMessage(name: string): string {
-  const template = registryMessage(REGISTRY, CODE) as string | undefined;
-  expect(
-    template,
-    `DIAG-4 anchor: docs/spec_topics/diagnostics/code-registry-parse.md must carry the Message row for ${CODE}`,
-  ).toBeDefined();
-  return (template as string).replace("<name>", name);
+  return registryMessageOf(
+    REGISTRY,
+    "docs/spec_topics/diagnostics/code-registry-parse.md",
+    CODE,
+    [["<name>", name]],
+  );
 }
 
 /**
@@ -538,23 +547,6 @@ function ajv(): { readonly validator: AjvSchemaValidator; readonly emitted: Diag
     validator: new AjvSchemaValidator({ emit: (d) => emitted.push(d), slugOf }),
     emitted,
   };
-}
-
-/**
- * Every `$ref` in a document resolves against the DOCUMENT ROOT's `$defs` —
- * the property `buildBodyTypeSchemas`'s pass 3 and `pruneDocumentDefs` exist to
- * maintain. A hoisted `__inline_<slug>` name has no `bodies` entry, so a mint at
- * the body-field or alias-RHS position that skips those closures leaves a
- * dangling pointer AJV refuses with `MissingRefError`; this check names the
- * missing entry before the compile does.
- */
-function expectRefsClosed(label: string, document: LoweredSchema): void {
-  const defs = (document["$defs"] ?? {}) as Record<string, unknown>;
-  const missing = [...new Set(refNames(document))].filter((name) => !(name in defs));
-  expect(
-    missing,
-    `${label}: every \`#/$defs/<name>\` pointer must have a fragment at the document root, or AJV refuses the whole document with MissingRefError; document=${JSON.stringify(document)}`,
-  ).toEqual([]);
 }
 
 // ===========================================================================

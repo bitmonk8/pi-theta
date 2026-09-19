@@ -79,3 +79,22 @@ export function refNames(value: unknown): string[] {
   visit(value);
   return names;
 }
+
+/**
+ * Every `$ref` in a document resolves against the DOCUMENT ROOT's `$defs`. An
+ * arm hoisted without the matching closure leaves a dangling pointer AJV
+ * refuses with `MissingRefError`; this check names the missing entry before the
+ * compile does.
+ */
+export function expectRefsClosed(
+  label: string,
+  document: Readonly<Record<string, unknown>>,
+  requirement = "have a fragment at the document root, or AJV refuses the whole document with MissingRefError",
+): void {
+  const defs = (document["$defs"] ?? {}) as Record<string, unknown>;
+  const missing = [...new Set(refNames(document))].filter((name) => !(name in defs));
+  expect(
+    missing,
+    `${label}: every \`#/$defs/<name>\` pointer must ${requirement}; document=${JSON.stringify(document)}`,
+  ).toEqual([]);
+}

@@ -24,11 +24,11 @@
 // pi-integration-contract/subagent.md #subagent-launch-contract, PIC-58/59/60.
 import { resolve as resolvePath } from "node:path";
 import { describe, expect, it } from "vitest";
-import type { ExtensionAPI, ExtensionCommandContext, ModelRegistry } from "@earendil-works/pi-coding-agent";
+import type { ExtensionCommandContext, ModelRegistry } from "@earendil-works/pi-coding-agent";
 import type { ThetaSource } from "../src/lexer/lexer";
-import type { ModelReferenceMatcher, ParsedFrontmatter } from "../src/parser/frontmatter";
-import { parseThetaDocument, type ParseThetaDocumentDeps, type ThetaDocument } from "../src/parser/theta-document";
-import type { SystemNoteChannelDeps } from "../src/extension/system-note-channel";
+import type { ParsedFrontmatter } from "../src/parser/frontmatter";
+import { parseThetaDocument, type ThetaDocument } from "../src/parser/theta-document";
+import { parseDeps } from "./helpers/e2e-s1";
 import { createProductionProducerDeps } from "../src/extension/production-theta-producer";
 import type { ConversationBindInput, ThetaCompositionInput } from "../src/extension/theta-composition-producer";
 import type { ExecutionStatusBus } from "../src/extension/execution-status/types";
@@ -41,22 +41,12 @@ import { SUBAGENT_LAUNCH_ENTRY_ENV, SUBAGENT_INVOKE_DEPTH_ENV, type SpawnFn } fr
 import { SUBAGENT_PARAMS_ENV } from "../src/runtime/subagent-params";
 import { SUBAGENT_ROOT_ENV_MARKER } from "../src/runtime/subagent-root-regime";
 import { fakeExecutableHost, makeFakeJsonChildLauncher, type FakeJsonChild, type SpawnRecord } from "./helpers/fake-json-child";
-import { childRegimeRootDouble, driveSubagentFnEntry, RecordingBus } from "./helpers/subagent-fn-child-regime";
+import { childRegimeRootDouble, driveSubagentFnEntry, noopPi, RecordingBus } from "./helpers/subagent-fn-child-regime";
 import { SUBAGENT_CHILD_OUTCOME_CHANNEL } from "../src/runtime/subagent-placement-registry";
 
 // ---------------------------------------------------------------------------
 // Parsing
 // ---------------------------------------------------------------------------
-
-function parseDeps(): ParseThetaDocumentDeps {
-  const systemNote: SystemNoteChannelDeps = {
-    pi: { sendMessage: (): void => {} },
-    ui: { notify: (): void => {} },
-    emitDiagnostic: (): void => {},
-  };
-  const modelMatcher: ModelReferenceMatcher = { resolve: (): "resolved" => "resolved" };
-  return { systemNote, modelMatcher };
-}
 
 function parse(src: string, path = "/thetadir/caller.theta"): ThetaDocument {
   const source: ThetaSource = { path, bytes: new TextEncoder().encode(src) };
@@ -94,10 +84,6 @@ function ctxOf(cwd = "/work/project"): ExtensionCommandContext {
     signal: undefined,
     sessionManager: { getEntries: () => [], getLeafId: () => undefined },
   } as unknown as ExtensionCommandContext;
-}
-
-function noopPi(): ExtensionAPI {
-  return { sendMessage: (): void => {}, getAllTools: () => [] } as unknown as ExtensionAPI;
 }
 
 // ---------------------------------------------------------------------------

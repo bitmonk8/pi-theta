@@ -1,13 +1,8 @@
 import { registryMessageOrThrow } from "./helpers/load-row-harness";
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
+import { REGISTRY } from "./helpers/registry-oracle";
 import { describe, expect, it } from "vitest";
-// @ts-expect-error — JS code-registry module, no type declarations.
-import { parseRegistry } from "../tools/code-registry/index.js";
-import type { Diagnostic } from "../src/diagnostics/diagnostic";
-import type { ThetaDocument } from "../src/parser/theta-document";
 import { lowerQueryResponseSchema } from "../src/runtime/query-schema-lowering";
-import { expectGroup as expectGroupShared, type DiagnosticCell, envelope, parseDoc, subagentTheta as theta, subagentParamsSrc, loweredParams } from "./helpers/e2e-s1";
+import { expectGroup as expectGroupShared, type DiagnosticCell, envelope, parseDoc, diagLines, subagentTheta as theta, subagentParamsSrc, loweredParams } from "./helpers/e2e-s1";
 
 // Bug 0244 — an inline object type entry that spells no top-level `:` is
 // consumed by `TypeParser.parseObject`'s recovery arms and is invisible to
@@ -174,28 +169,6 @@ import { expectGroup as expectGroupShared, type DiagnosticCell, envelope, parseD
 // The diagnostic oracle — the registry's *Message* column (DIAG-4).
 // ===========================================================================
 
-interface RegistryRow {
-  readonly code: string;
-  readonly message: string;
-}
-
-/** The live four-page sharded registry, read from the spec corpus (DIAG-4). */
-const REGISTRY = parseRegistry(
-  [
-    "code-registry-parse.md",
-    "code-registry-load.md",
-    "code-registry-runtime.md",
-    "code-registry-host.md",
-  ]
-    .map((page) =>
-      readFileSync(
-        fileURLToPath(new URL(`../docs/spec_topics/diagnostics/${page}`, import.meta.url)),
-        "utf8",
-      ),
-    )
-    .join("\n"),
-) as RegistryRow[];
-
 function registryMessageOf(code: string): string {
   return registryMessageOrThrow(
     REGISTRY,
@@ -308,11 +281,6 @@ function renderAll(exps: readonly Exp[]): string[] {
  */
 function paramsSrc(interior: string): string {
   return subagentParamsSrc(`  p: '${interior}'`);
-}
-
-/** Every diagnostic rendered `<severity> <code>: <message>`, in emission order. */
-function diagLines(doc: ThetaDocument): string[] {
-  return doc.diagnostics.map((d: Diagnostic) => `${d.severity} ${d.code}: ${d.message}`);
 }
 
 function lines(src: string, path = "test.theta"): string[] {

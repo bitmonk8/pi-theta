@@ -18,7 +18,7 @@ import type {
 import type { RuntimeRoot } from "../src/runtime-root";
 import type { Checkpoint } from "../src/seams/checkpoint";
 import { codes, errors, parseDoc } from "./helpers/e2e-s1";
-import { REGISTRY } from "./helpers/registry-oracle";
+import { arrayElementMessage, REGISTRY } from "./helpers/registry-oracle";
 
 // Bug 0031 — a schema-constructor field value is never compared to the type the
 // schema declares for that field, so `Point { x: "not a number", y: true }`
@@ -213,13 +213,6 @@ function fieldMismatch(
 ): string {
   return EXPECTED_TEMPLATE.replace("<field>", field)
     .replace("<schema>", schema)
-    .replace("<expected>", expected)
-    .replace("<actual>", actual);
-}
-
-function arrayElementMessage(index: number, expected: string, actual: string): string {
-  return registered(ARRAY_ELEMENT_CODE)
-    .replace("<i>", String(index))
     .replace("<expected>", expected)
     .replace("<actual>", actual);
 }

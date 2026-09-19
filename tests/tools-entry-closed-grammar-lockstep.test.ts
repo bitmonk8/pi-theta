@@ -18,18 +18,14 @@ import type {
   ConversationBindInput,
   ThetaCompositionInput,
 } from "../src/extension/theta-composition-producer";
-import {
-  parseThetaDocument,
-  type ParseThetaDocumentDeps,
-} from "../src/parser/theta-document";
+import { parseThetaDocument } from "../src/parser/theta-document";
 import type { ThetaSource } from "../src/lexer/lexer";
-import type { ModelReferenceMatcher } from "../src/parser/frontmatter";
-import type { SystemNoteChannelDeps } from "../src/extension/system-note-channel";
 import { executeBody } from "../src/runtime/statement-executor";
 import type { RuntimeRoot } from "../src/runtime-root";
 import type { Checkpoint } from "../src/seams/checkpoint";
 import type { AgentToolResultEnvelope } from "../src/runtime/tool-call-execute";
 import { readCorpus } from "./helpers/corpus-reader";
+import { parseDeps } from "./helpers/e2e-s1";
 
 // Bug 0069 §Fix constraint 5, hardened per bug 0107 (§Fix routes (c) + (b)) —
 // the `tools:` entry grammar must have ONE implementation. `presentedCallableNames`
@@ -247,19 +243,6 @@ describe("Bug 0069 (D2) — the presented names of the well-formed entry shapes"
 // Group (D3) — the behavioural half (bug 0107 §Fix (b)): what the
 // SNAPSHOT-ABSENT FALLBACK presents, read through the bug-0016 dispatch belt.
 // ===========================================================================
-
-/** A trivially-wired diagnostic sink + resolving `model:` matcher for the parse. */
-function parseDeps(): ParseThetaDocumentDeps {
-  const systemNote: SystemNoteChannelDeps = {
-    pi: { sendMessage: (): void => {} },
-    ui: { notify: (): void => {} },
-    emitDiagnostic: (): void => {},
-  };
-  const modelMatcher: ModelReferenceMatcher = {
-    resolve: (): "resolved" => "resolved",
-  };
-  return { systemNote, modelMatcher };
-}
 
 const NOOP_CHECKPOINT: Checkpoint = {
   before(): Promise<void> {

@@ -14,7 +14,7 @@ import {
   type SchemaSlug,
 } from "../src/seams/schema-validator";
 import { yamlQuoted, parseDoc, diagLines } from "./helpers/e2e-s1";
-import { compareCodePoint, refNames, inlineDefName } from "./helpers/canonical-slug-oracle";
+import { compareCodePoint, expectRefsClosed as expectRefsClosedShared, inlineDefName } from "./helpers/canonical-slug-oracle";
 
 // Bug 0043 — `lowerTypeExpr` (src/parser/params.ts) tests for a generic
 // application BEFORE it splits a union, so any union whose source text ends in
@@ -376,12 +376,7 @@ function ajv(): { readonly validator: AjvSchemaValidator; readonly emitted: Diag
  * corrected lowering carries its closure with it.
  */
 function expectRefsClosed(label: string, document: LoweredSchema): void {
-  const defs = (document["$defs"] ?? {}) as Record<string, unknown>;
-  const missing = [...new Set(refNames(document))].filter((name) => !(name in defs));
-  expect(
-    missing,
-    `${label}: every \`#/$defs/<name>\` pointer must resolve at the document root; document=${JSON.stringify(document)}`,
-  ).toEqual([]);
+  expectRefsClosedShared(label, document, "resolve at the document root");
 }
 
 // ===========================================================================

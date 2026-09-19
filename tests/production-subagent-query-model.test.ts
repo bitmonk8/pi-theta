@@ -27,24 +27,18 @@
 
 import { describe, expect, it } from "vitest";
 import { bindInput, noopPi } from "./helpers/subagent-fn-child-regime";
+import { SEAM_NOOP_CHECKPOINT } from "./helpers/invoke-seam-scaffold";
 import { createProductionProducerDeps } from "../src/extension/production-theta-producer";
 import type { ThetaProducerDeps } from "../src/extension/theta-composition-producer";
 import { fakeExecutableHost, makeFakeJsonChildLauncher, FakeJsonChild } from "./helpers/fake-json-child";
 import type { ModelRegistry } from "@earendil-works/pi-coding-agent";
 import type { RuntimeRoot } from "../src/runtime-root";
-import type { Checkpoint, CheckpointKind, CheckpointSite } from "../src/seams/checkpoint";
 import type { QueryError, TransportError, InvokeInfraError } from "../src/runtime/query-error";
 import type { ResultValue } from "../src/runtime/value";
 
-class RecordingCheckpoint implements Checkpoint {
-  before(_kind: CheckpointKind, _site: CheckpointSite): Promise<void> {
-    return Promise.resolve();
-  }
-}
-
 function rootDouble(): RuntimeRoot {
   return {
-    checkpoint: new RecordingCheckpoint(),
+    checkpoint: SEAM_NOOP_CHECKPOINT,
     idSource: { newInvocationId: () => "inv-1", newToolCallId: () => "tc-1" },
     clock: {
       // `now()` (monotonic) is exercised by the PIC-65 teardown's measured-elapsed

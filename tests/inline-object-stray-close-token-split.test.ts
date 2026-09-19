@@ -2,10 +2,8 @@ import { REGISTRY } from "./helpers/registry-oracle";
 import Ajv from "ajv";
 import { describe, expect, it } from "vitest";
 import { registryMessageOf } from "./helpers/load-row-harness";
-import type { Diagnostic } from "../src/diagnostics/diagnostic";
-import type { ThetaDocument } from "../src/parser/theta-document";
 import { splitTopLevelSegments, topLevelColon } from "../src/parser/params";
-import { expectGroup as expectGroupShared, type DiagnosticCell, envelope, parseDoc, subagentTheta as theta, loweredParams } from "./helpers/e2e-s1";
+import { expectGroup as expectGroupShared, type DiagnosticCell, envelope, parseDoc, diagLines, subagentTheta as theta, loweredParams } from "./helpers/e2e-s1";
 
 // Bug 0238 — a stray depth-0 CLOSE token in an inline object type underflows
 // `splitTopLevelSegments`' depth counter, so every entry behind it merges into
@@ -295,11 +293,6 @@ function paramsSrc(type: string): string {
     ? `"${type.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`
     : `'${type}'`;
   return `---\nmode: prompt\nparams:\n  p: ${scalar}\n---\nlet x = 1\n`;
-}
-
-/** Every diagnostic rendered `<severity> <code>: <message>`, in emission order. */
-function diagLines(doc: ThetaDocument): string[] {
-  return doc.diagnostics.map((d: Diagnostic) => `${d.severity} ${d.code}: ${d.message}`);
 }
 
 function lines(src: string): string[] {

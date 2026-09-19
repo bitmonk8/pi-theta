@@ -4,7 +4,7 @@ import { registryMessage } from "../tools/code-registry/index.js";
 import { REGISTRY } from "./helpers/registry-oracle";
 import { collectUnresolvedNamedTypes } from "../src/parser/body-type-lowering";
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
-import type { SchemaDecl, ThetaDocument } from "../src/parser/theta-document";
+import type { SchemaDecl } from "../src/parser/theta-document";
 import { respondSchemaIsEnveloped, respondToolWireSchema } from "../src/runtime/respond-tool-wire";
 import { respondSchemaSlug } from "../src/runtime/typed-query-validation";
 import {
@@ -12,8 +12,15 @@ import {
   type LoweredSchema,
   type SchemaSlug,
 } from "../src/seams/schema-validator";
-import { loweredAnnotation as lowerAnnotation, loadSchemaDecls, loadCleanly as loadCleanlyShared, parseDoc, type LoadedParams } from "./helpers/e2e-s1";
-import { assertKeysSorted, inlineDefName, slugOfCanonicalForm, refNames } from "./helpers/canonical-slug-oracle";
+import { loweredAnnotation as lowerAnnotation, loadSchemaDecls, loadCleanly as loadCleanlyShared, parseDoc, diagLines, type LoadedParams } from "./helpers/e2e-s1";
+/**
+ * Every `$ref` in a document resolves against the DOCUMENT ROOT's `$defs`. A
+ * hoisted `__inline_<slug>` name has no `bodies` entry, so an arm hoisted at
+ * the root without the matching closure leaves a dangling pointer AJV refuses
+ * with `MissingRefError`; this check names the missing entry before the
+ * compile does.
+ */
+import { assertKeysSorted, inlineDefName, slugOfCanonicalForm, expectRefsClosed } from "./helpers/canonical-slug-oracle";
 
 // Bug 0053 — `lowerQueryResponseSchema`'s ROOT brace dispatch is a
 // prefix/suffix test, so a top-level union of object arms is read as ONE inline
@@ -414,11 +421,6 @@ function annotationBody(annotation: string): string {
   return `${TRIAGE_BODY}let r = @<${annotation}>\`x\`\nr\n`;
 }
 
-/** Every diagnostic rendered `<severity> <code>: <message>`, in emission order. */
-function diagLines(doc: ThetaDocument): string[] {
-  return doc.diagnostics.map((d) => `${d.severity} ${d.code}: ${d.message}`);
-}
-
 /**
  * The `schema` declarations of a body that must load cleanly — the input
  * `lowerQueryResponseSchema` takes, built the way the shipped producer builds
@@ -460,22 +462,6 @@ function ajv(): { readonly validator: AjvSchemaValidator; readonly emitted: Diag
     validator: new AjvSchemaValidator({ emit: (d) => emitted.push(d), slugOf }),
     emitted,
   };
-}
-
-/**
- * Every `$ref` in a document resolves against the DOCUMENT ROOT's `$defs`. A
- * hoisted `__inline_<slug>` name has no `bodies` entry, so an arm hoisted at
- * the root without the matching closure leaves a dangling pointer AJV refuses
- * with `MissingRefError`; this check names the missing entry before the
- * compile does.
- */
-function expectRefsClosed(label: string, document: LoweredSchema): void {
-  const defs = (document["$defs"] ?? {}) as Record<string, unknown>;
-  const missing = [...new Set(refNames(document))].filter((name) => !(name in defs));
-  expect(
-    missing,
-    `${label}: every \`#/$defs/<name>\` pointer must have a fragment at the document root, or AJV refuses the whole document with MissingRefError; document=${JSON.stringify(document)}`,
-  ).toEqual([]);
 }
 
 // ===========================================================================

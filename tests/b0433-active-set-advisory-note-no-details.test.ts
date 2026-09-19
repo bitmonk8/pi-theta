@@ -47,13 +47,8 @@ import {
   type SchemaSlug,
 } from "../src/seams/schema-validator";
 import type { RuntimeRoot } from "../src/runtime-root";
-import {
-  parseThetaDocument,
-  type ParseThetaDocumentDeps,
-  type ThetaDocument,
-} from "../src/parser/theta-document";
-import type { ThetaSource } from "../src/lexer/lexer";
-import type { ModelReferenceMatcher } from "../src/parser/frontmatter";
+import type { ThetaDocument } from "../src/parser/theta-document";
+import { parseDoc } from "./helpers/e2e-s1";
 import {
   SYSTEM_NOTE_CHANNEL,
   type SystemNoteChannelDeps,
@@ -284,20 +279,8 @@ class InstantSettleSession {
   }
 }
 
-function parseDeps(): ParseThetaDocumentDeps {
-  return {
-    systemNote: {
-      pi: { sendMessage: (): void => {} },
-      ui: { notify: (): void => {} },
-      emitDiagnostic: (): void => {},
-    },
-    modelMatcher: { resolve: (): "resolved" => "resolved" } as ModelReferenceMatcher,
-  };
-}
-
 function parse(src: string): ThetaDocument {
-  const source: ThetaSource = { path: "probe.theta", bytes: new TextEncoder().encode(src) };
-  const doc = parseThetaDocument(source, parseDeps());
+  const doc = parseDoc(src, "probe.theta");
   const errors = doc.diagnostics.filter((d) => d.severity === "error").map((d) => d.code);
   expect(errors, "the fixture theta must parse cleanly before it is driven").toEqual([]);
   expect(doc.frontmatter, "the fixture theta must carry parseable frontmatter").not.toBeNull();

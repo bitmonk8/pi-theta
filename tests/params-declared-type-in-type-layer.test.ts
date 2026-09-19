@@ -1,5 +1,11 @@
 import { CLEAN, one, type Expectation } from "./helpers/load-row-harness";
-import { interpolateStrict, typeMismatchMessages } from "./helpers/registry-oracle";
+import {
+  arrayElementMessage as arrayElement,
+  interpolateStrict,
+  narrowingMessage as integerNarrowing,
+  objectFieldMismatchMessage as objectField,
+  typeMismatchMessages,
+} from "./helpers/registry-oracle";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
@@ -288,11 +294,6 @@ function unknownMethod(method: string, type: string): string {
   );
 }
 
-/** `cannot narrow number to integer` (no placeholders). */
-function integerNarrowing(): string {
-  return fill(INTEGER_NARROWING, new Map());
-}
-
 /** `'?' requires a Result operand; got <type>` */
 function questionOperand(type: string): string {
   return fill(QUESTION_ON_NON_RESULT, new Map([["<type>", type]]));
@@ -323,36 +324,6 @@ function objectIndex(type: string): string {
 /** `indexed access requires an array<T> or object receiver; got <type>` */
 function nonIndexable(type: string): string {
   return fill(NON_INDEXABLE, new Map([["<type>", type]]));
-}
-
-/** `field '<field>' on schema '<schema>' type mismatch: expected <expected>, got <actual>` */
-function objectField(
-  field: string,
-  schema: string,
-  expected: string,
-  actual: string,
-): string {
-  return fill(
-    OBJECT_FIELD,
-    new Map([
-      ["<field>", field],
-      ["<schema>", schema],
-      ["<expected>", expected],
-      ["<actual>", actual],
-    ]),
-  );
-}
-
-/** `array element type mismatch at index <i>: expected <expected>, got <actual>` */
-function arrayElement(index: number, expected: string, actual: string): string {
-  return fill(
-    ARRAY_ELEMENT,
-    new Map([
-      ["<i>", String(index)],
-      ["<expected>", expected],
-      ["<actual>", actual],
-    ]),
-  );
 }
 
 /** `unknown identifier '<name>'` */

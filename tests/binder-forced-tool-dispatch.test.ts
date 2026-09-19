@@ -126,10 +126,7 @@ vi.mock("@earendil-works/pi-ai/compat", async (importOriginal) => {
     }),
   };
 });
-import type {
-  ExtensionAPI,
-  ModelRegistry,
-} from "@earendil-works/pi-coding-agent";
+import type { ModelRegistry } from "@earendil-works/pi-coding-agent";
 import { createProductionProducerDeps } from "../src/extension/production-theta-producer";
 import type { ThetaCompositionInput } from "../src/extension/theta-composition-producer";
 import type { RuntimeRoot } from "../src/runtime-root";
@@ -142,13 +139,9 @@ import { buildBinderEnvelopeSchema } from "../src/binder/binder-envelope";
 import { deriveBinderSeed } from "../src/binder/binder-seed";
 import { respondSchemaSlug } from "../src/runtime/typed-query-validation";
 import { deepKeyOccurrences } from "./helpers/deep-key-occurrences";
-/**
- * The production AJV validator (real schema validation), wired with the same
- * JSON.stringify content-addressing the shipped composition root uses — so the
- * post-fix envelope AJV at the routing step validates exactly as production.
- */
 import {
-  ajv as realAjvValidator,
+  rootDouble as sharedRootDouble,
+  producerWithCapture as sharedProducerWithCapture,
   type CapturedNote,
   capturedCallAccessors,
   driveBinder as driveBinderWithContext,
@@ -255,11 +248,8 @@ const MISTRAL_BINDER_MODEL: BinderModelDouble = {
  * silent empty read.
  */
 function rootDouble(): RuntimeRoot {
-  return {
-    checkpoint: { before: (): Promise<void> => Promise.resolve() },
-    idSource: { newInvocationId: (): string => "inv-1", newToolCallId: (): string => "tc-1" },
+  return sharedRootDouble({
     clock: { wallNow: (): number => 0 },
-    schemaValidator: realAjvValidator(),
     fileSystem: {
       readBytes: (path: string): Promise<Uint8Array> => {
         const src = FIXTURE_SOURCES.get(path);
@@ -268,7 +258,7 @@ function rootDouble(): RuntimeRoot {
           : Promise.reject(new Error(`fixture fs: no source registered for ${path}`));
       },
     },
-  } as unknown as RuntimeRoot;
+  });
 }
 
 /**
@@ -280,18 +270,11 @@ function producerWithCapture(model: BinderModelDouble = ANTHROPIC_BINDER_MODEL):
   readonly deps: ReturnType<typeof createProductionProducerDeps>;
   readonly notes: CapturedNote[];
 } {
-  const notes: CapturedNote[] = [];
-  const pi = {
-    sendMessage: (message: CapturedNote): void => {
-      notes.push(message);
-    },
-  } as unknown as ExtensionAPI;
   const modelRegistry = {
     getAvailable: (): readonly unknown[] => [model],
     getApiKeyAndHeaders: async (): Promise<{ ok: boolean }> => ({ ok: true }),
   } as unknown as ModelRegistry;
-  const deps = createProductionProducerDeps({ pi, root: rootDouble(), modelRegistry });
-  return { deps, notes };
+  return sharedProducerWithCapture({ root: rootDouble(), modelRegistry });
 }
 
 /** Build the composition input for a parsed fixture theta. */
