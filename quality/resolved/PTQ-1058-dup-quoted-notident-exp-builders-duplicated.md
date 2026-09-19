@@ -2,7 +2,7 @@
 id: PTQ-1058
 title: Both in-scope files redeclare identical DUP/QUOTED/NOTIDENT Exp-builder functions with no shared tests/helpers/ export
 lens: D7
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - tests/inline-object-stray-close-token-split.test.ts:234-244

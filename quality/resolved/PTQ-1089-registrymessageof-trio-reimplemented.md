@@ -2,7 +2,7 @@
 id: PTQ-1089
 title: params-inline-object-lowering.test.ts declares three separate registry-message readers that each reimplement the canonical registryMessageOf/registryLineOf exports
 lens: D7
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - tests/params-inline-object-lowering.test.ts:147-159

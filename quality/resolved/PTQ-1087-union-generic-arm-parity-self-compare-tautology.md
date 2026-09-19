@@ -2,7 +2,7 @@
 id: PTQ-1087
 title: union-generic-arm-lowering.test.ts's PARITY loops assert observed[0] against itself on their first iteration
 lens: D7                     # D2 | D4 | D7 | D8 | D9 - the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - tests/union-generic-arm-lowering.test.ts:469-479

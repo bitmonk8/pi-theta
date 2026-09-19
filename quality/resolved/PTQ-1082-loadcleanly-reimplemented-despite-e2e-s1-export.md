@@ -2,7 +2,7 @@
 id: PTQ-1082
 title: params-block-mapping-rhs-refusal.test.ts reimplements loadCleanly's null-checking throw chain instead of importing the now-exported tests/helpers/e2e-s1.ts helper
 lens: D7
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - tests/params-block-mapping-rhs-refusal.test.ts:311-359

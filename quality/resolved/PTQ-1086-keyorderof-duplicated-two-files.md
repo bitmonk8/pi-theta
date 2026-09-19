@@ -2,7 +2,7 @@
 id: PTQ-1086
 title: keyOrderOf is declared byte-identically in generic-argument-literal-lowering.test.ts and union-arm-literal-const-lowering.test.ts
 lens: D7                     # D2 | D4 | D7 | D8 | D9 - the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - tests/generic-argument-literal-lowering.test.ts:313-340

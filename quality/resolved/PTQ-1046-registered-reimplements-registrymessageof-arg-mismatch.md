@@ -2,7 +2,7 @@
 id: PTQ-1046
 title: arg-mismatch-diagnostic-count-by-surface.test.ts's registered() reimplements the exported registryMessageOf lookup-and-guard half
 lens: D7                     # D2 | D4 | D7 | D8 | D9 - the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - tests/arg-mismatch-diagnostic-count-by-surface.test.ts:112-124

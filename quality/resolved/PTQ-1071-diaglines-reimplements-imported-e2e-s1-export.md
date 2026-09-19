@@ -2,7 +2,7 @@
 id: PTQ-1071
 title: generic-argument-literal-lowering.test.ts redeclares diagLines(doc) byte-for-byte though it already imports parseDoc from the module exporting it
 lens: D7                     # D2 | D4 | D7 | D8 | D9 - the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - tests/generic-argument-literal-lowering.test.ts:14

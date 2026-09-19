@@ -2,7 +2,7 @@
 id: PTQ-1080
 title: b0272-enclosing-annotation-refusal-nested-head.test.ts inlines expectDeclared's filter/map/expect body inside its own expectCaptured instead of importing the exported function its sibling b0279 already uses
 lens: D7
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - tests/b0272-enclosing-annotation-refusal-nested-head.test.ts:1-11

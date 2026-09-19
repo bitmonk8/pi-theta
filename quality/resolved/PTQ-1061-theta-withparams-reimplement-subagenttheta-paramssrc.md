@@ -2,7 +2,7 @@
 id: PTQ-1061
 title: inline-object-field-name-case.test.ts's local theta()/withParams() retype e2e-s1's exported subagentTheta/subagentParamsSrc string templates
 lens: D7
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - tests/inline-object-field-name-case.test.ts:230-245

@@ -2,7 +2,7 @@
 id: PTQ-1085
 title: the five-deep L1..L5 schema-chain fixture and its DEPTH_6_ARGS document are declared independently in two in-scope binder-dispatch tests
 lens: D7
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - tests/b0397-binder-failure-note-runtime-event.test.ts:148-164

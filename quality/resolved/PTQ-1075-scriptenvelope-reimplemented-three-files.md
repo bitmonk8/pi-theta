@@ -2,7 +2,7 @@
 id: PTQ-1075
 title: three in-scope binder-dispatch tests each re-implement the canonical scriptEnvelope reply-scripting double instead of importing it
 lens: D7
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - tests/b0381-echo-object-first-field-declaration-order.test.ts:73-83

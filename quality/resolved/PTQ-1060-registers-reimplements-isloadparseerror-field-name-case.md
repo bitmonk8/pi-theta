@@ -2,7 +2,7 @@
 id: PTQ-1060
 title: inline-object-field-name-case.test.ts's local registers() re-derives e2e-s1's exported isLoadParseError predicate
 lens: D7
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - tests/inline-object-field-name-case.test.ts:6,274-280

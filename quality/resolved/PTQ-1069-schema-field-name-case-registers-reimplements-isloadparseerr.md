@@ -2,7 +2,7 @@
 id: PTQ-1069
 title: schema-field-name-case.test.ts's local registers() re-derives e2e-s1's exported isLoadParseError predicate
 lens: D7
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - tests/schema-field-name-case.test.ts:6

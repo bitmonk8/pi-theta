@@ -2,7 +2,7 @@
 id: PTQ-1090
 title: params-default-unresolvable-enum-variant.test.ts's local rootDouble() reimplements the canonical rootDouble(overrides) export from a module it already imports from
 lens: D7
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - tests/params-default-unresolvable-enum-variant.test.ts:707-721

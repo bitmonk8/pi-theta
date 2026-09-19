@@ -2,7 +2,7 @@
 id: PTQ-1076
 title: inline-object-nested-lowering.test.ts declares the same one-entry triageMap() resolution-map fixture twice, in two separate describe blocks
 lens: D7
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - tests/inline-object-nested-lowering.test.ts:1312-1315
