@@ -45,6 +45,7 @@ import {
   type SubagentChildControlPlane,
 } from "../runtime/subagent-launch-file";
 import type { ExecCommandResult, ExecCommandRunner } from "../runtime/subagent-exec-placement";
+import { createLfLineBuffer } from "../runtime/subagent-result-channel";
 
 /**
  * Matches a path that lives inside a compiled binary's OWN embedded filesystem —
@@ -340,24 +341,15 @@ interface NodeChildLike {
   kill(signal?: string): void;
 }
 
-/**
- * LF-only line buffers per stream (strict-JSONL framing; a trailing CR is left
- * for the wire parser to trim).
- */
+/** Forward each stream's LF-delimited lines to its current listeners. */
 function makeLinePump(
   source: { on(event: "data", listener: (chunk: unknown) => void): void } | null,
 ): (listener: (line: string) => void) => () => void {
-  let buffer = "";
+  const buffer = createLfLineBuffer();
   const listeners = new Set<(line: string) => void>();
   source?.on("data", (chunk: unknown) => {
-    buffer += String(chunk);
-    let idx: number;
-    while ((idx = buffer.indexOf("\n")) >= 0) {
-      const line = buffer.slice(0, idx);
-      buffer = buffer.slice(idx + 1);
-      if (line.length === 0) {
-        continue;
-      }
+    buffer.append(chunk);
+    for (const line of buffer.lines()) {
       // Snapshot: a listener may unsubscribe from within its own callback
       // (a per-query reader detaches on settle), so iterate a copy.
       for (const listener of [...listeners]) {

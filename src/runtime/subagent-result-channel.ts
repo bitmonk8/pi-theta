@@ -72,6 +72,36 @@ export function encodeControlFrame(frame: ResultChannelControlFrame): string {
   return `${JSON.stringify(frame)}\n`;
 }
 
+/**
+ * LF-only line buffers per stream (strict-JSONL framing; a trailing CR is left
+ * for the wire parser to trim). Append separately from draining so callers can
+ * check the buffered length before reading any line. Lines are consumed lazily
+ * so a caller can stop mid-chunk on drop or settlement.
+ */
+export function createLfLineBuffer(): {
+  append(chunk: unknown): number;
+  lines(): Generator<string>;
+} {
+  let buffer = "";
+  return {
+    append(chunk): number {
+      buffer += String(chunk);
+      return buffer.length;
+    },
+    *lines(): Generator<string> {
+      let idx: number;
+      while ((idx = buffer.indexOf("\n")) >= 0) {
+        const line = buffer.slice(0, idx);
+        buffer = buffer.slice(idx + 1);
+        if (line.length === 0) {
+          continue;
+        }
+        yield line;
+      }
+    },
+  };
+}
+
 /** The parsed shape of one inbound line. */
 export type InboundFrame =
   | { readonly kind: "hello"; readonly token: string; readonly nonce: string }
@@ -248,7 +278,7 @@ export async function openResultChannel(deps: OpenResultChannelDeps): Promise<Re
       return;
     }
     let helloSeen = false;
-    let buffer = "";
+    const buffer = createLfLineBuffer();
     let dropped = false;
     // A dropped dialer frees the slot: a stray local process that connected
     // first must not lock the real child out (the token gate, not the slot,
@@ -265,18 +295,12 @@ export async function openResultChannel(deps: OpenResultChannelDeps): Promise<Re
       if (dropped || settled !== undefined) {
         return;
       }
-      buffer += chunk;
-      if (!helloSeen && buffer.length > RESULT_CHANNEL_PRE_HELLO_MAX_BYTES) {
+      const bufferedLength = buffer.append(chunk);
+      if (!helloSeen && bufferedLength > RESULT_CHANNEL_PRE_HELLO_MAX_BYTES) {
         drop();
         return;
       }
-      let idx: number;
-      while ((idx = buffer.indexOf("\n")) >= 0) {
-        const line = buffer.slice(0, idx);
-        buffer = buffer.slice(idx + 1);
-        if (line.length === 0) {
-          continue;
-        }
+      for (const line of buffer.lines()) {
         const frame = classifyInboundFrame(line);
         if (!helloSeen) {
           // The FIRST line must be the hello, and it must name this launch.

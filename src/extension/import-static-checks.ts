@@ -100,7 +100,7 @@ import {
 import { collectUnresolvedNamedTypes } from "../parser/body-type-lowering";
 import { collectLocalBinderNames } from "../parser/type-layer-checks";
 import { parseViaPassCache, type PassParseDeps } from "./pass-parse-cache";
-import { resolveAndParseThetaLibReference } from "./thetalib-load-parse";
+import { resolveAndParseThetaLibReference, resolveThetaLibImports } from "./thetalib-load-parse";
 import {
   toSystemParamType,
   type FrontmatterBodyTypes,
@@ -1601,21 +1601,13 @@ function createImportResolutionKit(
     }
     moduleScopeInProgress.add(resolvedPath);
     const moduleImports: MaterializedImport[] = [];
-    for (const stmt of body.statements) {
-      if (stmt.kind !== "import" || !stmt.path.endsWith(".thetalib")) {
-        continue;
-      }
-      const resolved = await resolveAndParseThetaLibReference(
-        stmt.path,
-        stmt.range,
-        resolvedPath,
-        probe,
-        resolver,
-        parseThetaLib,
-      );
-      if (resolved === undefined) {
-        continue;
-      }
+    for await (const { stmt, resolved } of resolveThetaLibImports(
+      body,
+      resolvedPath,
+      probe,
+      resolver,
+      parseThetaLib,
+    )) {
       for (const specifier of stmt.specifiers) {
         const materialized = await materializeChain(
           specifier.source,
@@ -1771,21 +1763,13 @@ async function checkTransitiveLibDeclarations(
         }
       }
     }
-    for (const stmt of parsedLib.document.body.statements) {
-      if (stmt.kind !== "import" || !stmt.path.endsWith(".thetalib")) {
-        continue;
-      }
-      const resolved = await resolveAndParseThetaLibReference(
-        stmt.path,
-        stmt.range,
-        libResolvedPath,
-        probe,
-        resolver,
-        parseThetaLib,
-      );
-      if (resolved === undefined) {
-        continue;
-      }
+    for await (const { stmt, resolved } of resolveThetaLibImports(
+      parsedLib.document.body,
+      libResolvedPath,
+      probe,
+      resolver,
+      parseThetaLib,
+    )) {
       diagnostics.push(
         ...checkImportUnknownSymbols(
           libResolvedPath,

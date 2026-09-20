@@ -36,6 +36,7 @@ import type {
   Expr,
   FnDecl,
   FnParam,
+  ObjectExpr,
   SchemaFieldSource,
   Stmt,
   ThetaBody,
@@ -94,6 +95,26 @@ export interface ImportedFnCallee {
  */
 function isShadowedImportName(name: string, shadowedNames: ReadonlySet<string>): boolean {
   return shadowedNames.has(name);
+}
+
+/** Yield named constructor sites not shadowed by local bindings, in walk order. */
+function* importedConstructorSites(
+  callSites: CollectedCallSites,
+  shadowedNames: ReadonlySet<string>,
+): Generator<{ ctor: ObjectExpr; typeName: string }> {
+  const { objectExprs } = callSites;
+  for (const ctor of objectExprs) {
+    if (ctor.typeName === null) {
+      // A bare `{ … }` object literal names no schema at all; this route
+      // judges named constructor sites only.
+      continue;
+    }
+    const typeName = ctor.typeName;
+    if (isShadowedImportName(typeName, shadowedNames)) {
+      continue;
+    }
+    yield { ctor, typeName };
+  }
 }
 
 /**
@@ -328,17 +349,7 @@ export function checkImportedSchemaCtorFields(
     return [];
   }
   const diagnostics: Diagnostic[] = [];
-  const { objectExprs } = callSites;
-  for (const ctor of objectExprs) {
-    if (ctor.typeName === null) {
-      // A bare `{ … }` object literal names no schema at all; this route
-      // judges named constructor sites only.
-      continue;
-    }
-    const typeName = ctor.typeName;
-    if (isShadowedImportName(typeName, shadowedNames)) {
-      continue;
-    }
+  for (const { ctor, typeName } of importedConstructorSites(callSites, shadowedNames)) {
     const declaredFields = importedSchemas.get(typeName);
     if (declaredFields === undefined) {
       // Not an imported schema this route reaches: a same-file schema, a
@@ -518,17 +529,7 @@ export function checkImportedNonCtorTypeNames(
     return [];
   }
   const diagnostics: Diagnostic[] = [];
-  const { objectExprs } = callSites;
-  for (const ctor of objectExprs) {
-    if (ctor.typeName === null) {
-      // A bare `{ … }` object literal names no schema at all; this route
-      // judges named constructor sites only.
-      continue;
-    }
-    const typeName = ctor.typeName;
-    if (isShadowedImportName(typeName, shadowedNames)) {
-      continue;
-    }
+  for (const { ctor, typeName } of importedConstructorSites(callSites, shadowedNames)) {
     if (!importedNonCtorNames.has(typeName)) {
       // Not a non-brace-constructible imported binding this route reaches: a
       // same-file declaration, an imported OBJECT-form schema (0429's class),

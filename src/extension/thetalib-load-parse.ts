@@ -8,6 +8,7 @@
 
 import type { SourceRange } from "../diagnostics/diagnostic";
 import { loadThetaLibImport, type Resolver } from "../parser/imports";
+import type { ImportDecl, ThetaBody } from "../parser/theta-document";
 import type { CachingThetaLibProbe, ParsedThetaLib } from "./import-static-checks";
 
 /**
@@ -41,4 +42,38 @@ export async function resolveAndParseThetaLibReference(
     return undefined;
   }
   return { resolvedPath: load.resolvedPath, parsed };
+}
+
+/**
+ * Yield resolved top-level `.thetalib` imports in source order, skipping failed
+ * references. Resolve each only when requested so the caller's per-import work
+ * finishes before the next reference is loaded.
+ */
+export async function* resolveThetaLibImports(
+  body: ThetaBody,
+  ownerResolvedPath: string,
+  probe: CachingThetaLibProbe,
+  resolver: Resolver,
+  parseThetaLib: (resolvedPath: string) => Promise<ParsedThetaLib | undefined>,
+): AsyncGenerator<{
+  stmt: ImportDecl;
+  resolved: { resolvedPath: string; parsed: ParsedThetaLib };
+}> {
+  for (const stmt of body.statements) {
+    if (stmt.kind !== "import" || !stmt.path.endsWith(".thetalib")) {
+      continue;
+    }
+    const resolved = await resolveAndParseThetaLibReference(
+      stmt.path,
+      stmt.range,
+      ownerResolvedPath,
+      probe,
+      resolver,
+      parseThetaLib,
+    );
+    if (resolved === undefined) {
+      continue;
+    }
+    yield { stmt, resolved };
+  }
 }

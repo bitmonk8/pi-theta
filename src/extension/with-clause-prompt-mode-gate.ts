@@ -1,16 +1,15 @@
 // RFC 0009 (invocation.md INV-8 static mode gate) — the call-site `with`
 // clause's mode-gate refusal: the one decision both clause-bearing call
-// surfaces inside `checkInvokeStaticResolution` (./invoke-static-checks.ts)
-// apply identically — the inline `invoke(...)` loop and the delegated
-// `.theta`-callable loop (`checkThetaCallableCallSurface`).
+// surfaces apply identically — `checkInvokeExprCallSurface` in
+// invoke-expr-call-surface.ts for `invoke(...)`, and
+// `checkThetaCallableCallSurface` in invoke-static-checks.ts for `.theta`
+// callables.
 //
-// PTQ-0364: split into its own module rather than living beside its two
-// callers — invoke-static-checks.ts is over the D4 justify band (1000 LOC),
-// so a helper shared only within that file is never grown there. This
-// module holds `withClausePromptModeRefusal` alone; invoke-static-checks.ts
-// imports it back like any other caller. `checkClauseCwdType`, the sibling
-// INV-6 rule this mirrors (the clause's `cwd` value), stays behind in
-// invoke-static-checks.ts, unmoved by this change.
+// PTQ-0364: extracted into this module to avoid growing invoke-static-checks.ts
+// past the D4 justify band (1000 LOC). Both caller modules import
+// `withClausePromptModeRefusal` here. `checkClauseCwdType`, the sibling
+// INV-6 rule this mirrors (the clause's `cwd` value), remains in
+// invoke-static-checks.ts.
 //
 // Spec: invocation.md INV-8, placeholder-rendering-b.md §7 (the `<callee>`
 // rendering rule each caller's own comment states).
