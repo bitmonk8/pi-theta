@@ -1,7 +1,7 @@
 ---
 description: "D8 simplification reviewer - reviews one shard of production source files through the overbuilt/reimplemented/against-grain/heavier-than-scale lens, files candidate findings into quality/intake/"
 mode: subagent
-model: "unity-completions/gemini-3.7-flash"
+model: "anthropic/claude-fable-5"
 tools: read, grep, bash, write
 tool_loop:
   max_rounds: 120
@@ -116,7 +116,7 @@ Write each finding as one file:
 quality/intake/${wave}-d8-NN-<short-slug>.md where NN is 01, 02, ... in
 filing order and <short-slug> is a few lowercase words joined by hyphens.
 Follow this template exactly (frontmatter fields included; set lens: D8,
-wave: ${wave}, reported_by: lens-d8-simplification (unity-completions/gemini-3.7-flash),
+wave: ${wave}, reported_by: lens-d8-simplification (anthropic/claude-fable-5),
 status: intake, verdict: pending, id: pending):
 ${template}
 
