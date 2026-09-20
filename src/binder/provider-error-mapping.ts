@@ -40,7 +40,7 @@ import type {
  * without them a body-overflow observed under the pin's KnownApi spelling would
  * classify as generic transport instead of `ContextOverflowError`.
  */
-const OVERFLOW_SIGNATURES: Readonly<Record<string, RegExp>> = Object.freeze({
+const OVERFLOW_SIGNATURES = Object.freeze({
   "anthropic-messages":
     /(prompt is too long|exceeds .* context window|maximum context length)/i,
   "openai-completions": /maximum context length|context_length_exceeded/i,
@@ -133,8 +133,11 @@ function extractOverflowTokens(
  * signature match takes precedence at any captured status (including the
  * network-level `null` class).
  */
-function overflowStatusGateSatisfied(input: ProviderClassifierInput): boolean {
-  switch (input.api) {
+function overflowStatusGateSatisfied(
+  input: ProviderClassifierInput,
+  api: keyof typeof OVERFLOW_SIGNATURES,
+): boolean {
+  switch (api) {
     case "anthropic-messages":
     case "mistral":
     // Alias spelling of the same adapter/formatter (see OVERFLOW_SIGNATURES).
@@ -149,8 +152,6 @@ function overflowStatusGateSatisfied(input: ProviderClassifierInput): boolean {
     // Alias spelling of the same adapter/formatter (see OVERFLOW_SIGNATURES).
     case "bedrock-converse-stream":
       return true;
-    default:
-      return false;
   }
 }
 
@@ -162,12 +163,14 @@ function overflowStatusGateSatisfied(input: ProviderClassifierInput): boolean {
 function matchOverflowSignature(
   input: ProviderClassifierInput,
 ): ContextOverflowError | null {
-  const signature = OVERFLOW_SIGNATURES[input.api];
+  // The lookup guard below excludes unlisted APIs before the status-gate call.
+  const api = input.api as keyof typeof OVERFLOW_SIGNATURES;
+  const signature = OVERFLOW_SIGNATURES[api];
   if (signature === undefined) return null;
   const message = input.errorMessage;
   if (message === undefined) return null;
   if (!signature.test(message)) return null;
-  if (!overflowStatusGateSatisfied(input)) return null;
+  if (!overflowStatusGateSatisfied(input, api)) return null;
   const { tokens_used, tokens_limit } = extractOverflowTokens(
     input.api,
     message,
