@@ -31,23 +31,39 @@
   and the trailing-turn extraction binds whatever text precedes the
   compaction — possibly empty.
 
-## Open contract decision (spec-before-code)
+## Fix
 
-Two candidate contracts for a compaction observed inside a driven turn:
+**SETTLED (operator, 2026-09-20): contract (1) — wait through it.** A
+compaction entry appended mid-turn does NOT settle the driven turn: the turn
+is settled only when an assistant reply FOLLOWS the compaction entry. The
+prompt-mode drive's settle detection
+(`production-theta-producer.ts` `#driveUserVisibleTurn` → `thisTurnSettled` /
+`#pollWhile` / the `waitForIdle` race) must treat a trailing `compaction`
+entry as "not yet settled" and keep its bounded waits running rather than
+extracting the text that precedes the compaction. PIC-70's expiry stays the
+loud backstop: a compaction with no following reply eventually times out and
+fails loudly (never binds an empty/partial reply). This matches pi's own
+intent that auto-compaction is transparent to the conversation
+(`docs/compaction.md` in the pi package).
 
-1. **Wait through it** — the turn is not settled until an assistant reply
-   FOLLOWS the compaction entry; the drive's bounded waits keep running
-   (PIC-70's expiry stays the loud backstop). Matches pi's own intent
-   (compaction is transparent to the conversation).
-2. **Loud Err** — classify mid-turn compaction as a transport-shaped failure
-   naming the compaction, on the theory that a compacted driven window has
-   lost prompt-critical context and any subsequent reply is untrustworthy
-   for BINDING (the reply the query binds may reference discarded content).
-
-Leaning (1) for user-visible prompt turns and untyped queries, with (2)
-reserved for the typed-query forced-respond window if measurement shows
-compaction corrupts the PIC-53 query window the off-session dispatch
-replays. Decide on the offline witness's evidence.
+Binding sub-decisions:
+- **Scope:** contract (1) applies to user-visible prompt turns, untyped
+  queries, AND the typed-query window — wait-through is the single rule; the
+  loud-Err alternative (contract 2) is DECLINED for 1.x (no measurement
+  showed compaction corrupting the PIC-53 replayed window badly enough to
+  justify a second, divergent contract, and one rule is simpler to reason
+  about). If a future measurement witnesses binding-corruption across a
+  compacted typed-query window, that is a NEW bug against this fix, not a
+  reason to hold this one.
+- **Child-regime twin:** the same seam governs a `--no-session` visible
+  child; the fix and its witness must confirm this (or document precisely why
+  the child regime differs).
+- **Witness-before-fix:** the offline witness below is written and seen RED
+  before the drive change lands (a session double that appends a `compaction`
+  entry between the driven user turn and the assistant reply, and a variant
+  with the reply absent — the first must go GREEN by waiting through to the
+  following reply; the second must time out loudly via PIC-70, never bind an
+  empty string).
 
 ## Required witnesses (write before the fix)
 

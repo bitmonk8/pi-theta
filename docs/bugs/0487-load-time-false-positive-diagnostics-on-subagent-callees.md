@@ -50,11 +50,15 @@ runtime-only resources (in-process executors, caller-supplied model). The
 validation has no concept of "this will be resolved later at invocation time"
 and rejects anything it cannot resolve at parse time.
 
-## Proposed fix
+## Fix
+
+**SETTLED (operator, 2026-09-20).** Part (1) → option A; part (2) →
+verify-the-mechanism-first (the doc's callee-graph hypothesis is likely
+WRONG, see the note under (2)); part (3) falls out of (1).
 
 Three separate carve-outs, each scoped to its own resolution gap:
 
-### (1) `theta_progress` / in-process tools
+### (1) `theta_progress` / in-process tools — OPTION A (settled)
 
 The callable-set resolver needs an additional resolution arm for tool names
 that the composition root will register as in-process executors. Options:
@@ -68,23 +72,39 @@ that the composition root will register as in-process executors. Options:
   parser accepts without host resolution. More grammar surface than needed
   for one tool.
 
-Leaning: **A**. The factory already constructs the `inProcessTools` record
-before calling `composeAndBind`; projecting its key set into the parse deps
-is mechanical.
+**SETTLED: option A.** The factory already constructs the `inProcessTools`
+record before calling `composeAndBind`; project its key set into the parse-time
+`CallableSetDeps` so `resolveEntry` accepts an in-process-tool name (currently
+only `theta_progress`) as a resolved Pi-tool-shaped entry instead of minting
+`theta/load/unknown-tool`. The name must still dispatch at runtime through the
+existing `inProcessToolExecutors` path (unchanged). All three `resolvePiTool`
+closure sites in `production-composition.ts` (the top-level compose deps and
+the two callee-resolution sites) must resolve the in-process names
+identically, so a callee declaring `theta_progress` in its own `tools:` is not
+re-flagged.
 
-### (2) `binder-model-unresolved` on callees
+### (2) `binder-model-unresolved` on callees — VERIFY THE MECHANISM FIRST
 
-A theta whose only invocation path is as a subagent callee (it has no
-`mode: prompt` / `mode: subagent` of its own — or it does, but its caller
-always supplies a model) legitimately omits `bind_model:`. The load-time
-check should suppress `binder-model-unresolved` for a file that is:
+**The doc's original callee-graph hypothesis is probably wrong and must be
+verified before any code lands.** The local `.pi/settings.json` DOES set
+`theta.binderModel`, yet the warning still fired for the workers at this
+session's startup — which points at the LOAD-TIME check ignoring the
+`theta.binderModel` settings fallback that the runtime binder honors, NOT at a
+missing callee-graph suppression. The diagnostic message itself names both
+sources ("set 'bind_model:' in frontmatter or 'theta.binderModel' in
+settings"), so the check that MINTS it must be threading the settings value and
+failing to — or the workers load in a context where settings are not visible
+(a subagent child in a worktree whose cwd has no `.pi/settings.json`).
 
-- referenced as a callee in at least one caller's `tools:` list, AND
-- not a top-level slash-registered theta (those need their own model).
-
-This requires the diagnostic to be deferred until callee-graph resolution,
-where the parser already walks the call tree. The existing
-`callee-has-errors` propagation pass is the natural place.
+Required first step (the test-writer / implementer must establish this before
+choosing the fix): reproduce the warning and determine WHICH is true —
+(a) the load-time binder-model check does not consult
+`settings.theta.binderModel` at all (fix: thread the settings fallback into
+the check so it matches the runtime resolver and the message's own promise);
+or (b) the workers legitimately load with no settings in scope and the
+callee-supplied-model suppression the doc first proposed is the right shape
+after all. Do NOT implement the callee-graph suppression on the doc's
+unverified say-so; the witness must pin the actual mechanism.
 
 ### (3) `callee-has-errors` cascade
 

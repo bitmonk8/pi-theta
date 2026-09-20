@@ -223,7 +223,42 @@ the identical dual-storage pattern.
 
 ## Fix
 
-Options:
+**SETTLED (operator, 2026-09-20): Option 2 — collision-refusal diagnostic.**
+At collection time in `collectImportedTypeDecls`, when the directly-imported
+entry's `as` alias (`outputName`) equals the source name of a DIFFERENT decl
+reached in that entry's same-lib closure, do NOT silently drop the sibling:
+mint a load-time error diagnostic refusing the import until the author picks a
+different alias, and un-register the theta. This converts the silent drop into
+a loud refusal consistent with imports.md:137's no-implicit-shadowing posture
+(two sources never silently bind one name). The valid-but-colliding theta does
+NOT begin to validate — the author must re-alias — which is the accepted
+trade for the smallest, most predictable surface (the resolve-instead options
+1/3 that would qualify/rewrite the whole `$defs` namespace are DECLINED: they
+touch the canonical schema-hash / byte-identity rules of schema-subset.md and
+the same-file-wins merge key, a materially larger blast radius than this S2
+rare-authoring collision warrants).
+
+Binding sub-decisions the fix must settle (all three in-scope for this fix):
+- **Diagnostic code:** reuse an existing load-collision code if one fits the
+  registry's closed set (DIAG-2 — prefer extending a code's firing surface
+  over minting a new one); mint a new `theta/load/*` code ONLY if none fits,
+  and add its registry row in the same change.
+- **Cross-specifier variant** (`import-static-checks.ts:1465-1470`): the same
+  first-wins across specifiers/libs must refuse identically — an earlier
+  import's claim on a name that a later import's transitive closure also
+  reaches as a DIFFERENT decl is the same collision one aggregation level up.
+- **Enum map** (`:334-339`): the identical dual-storage pattern for the enum
+  map must refuse on the same rule (schema-vs-schema is the witnessed face;
+  the enum counterpart shares the mechanism and must not silently drop).
+- **Cell `F1-a` re-pin** (`tests/b0465-imported-annotation-vacuous-validation.test.ts:812-835`):
+  today it pins the first-wins drop bytes; rewrite it to assert the refusal
+  diagnostic (RED before the fix, GREEN after). The `KNOWN RESIDUAL`
+  doc-comment (`import-static-checks.ts:256-263`) is discharged.
+- **True non-collision closures stay unaffected:** an alias that does NOT
+  equal any same-lib sibling source name (the control case) still lowers and
+  validates exactly as today.
+
+Rejected options (recorded for provenance):
 
 1. **Qualified/namespaced `$defs` keys**: key imported decls by declaring
    site (e.g. lib-qualified names) in the collection maps, rewriting intra-
