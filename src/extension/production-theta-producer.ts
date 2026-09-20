@@ -25,6 +25,7 @@ import type {
   ExtensionAPI,
   ExtensionCommandContext,
   ModelRegistry,
+  SessionEntry,
   ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
 import { dirname, isAbsolute, resolve as resolvePath } from "node:path";
@@ -2213,6 +2214,15 @@ class ProductionThetaProducer implements ThetaProducerDeps {
         ctx.sessionManager.getLeafId(),
       ).messages as unknown as readonly Message[];
 
+    // Bug 0482: the CHRONOLOGICAL leaf path, un-reordered by
+    // `buildContextEntries`'s compaction hoist — `readMessages()` alone cannot
+    // answer "did an assistant reply FOLLOW the trailing compaction" because
+    // that hoist moves the `compaction` entry to the head of the built
+    // `Message[]`. `thisTurnSettled` reads this alongside `readMessages()` to
+    // detect an unanswered trailing compaction (conversation-drive.md PIC-70).
+    const readContextPath = (): readonly SessionEntry[] =>
+      leafPathEntries(ctx.sessionManager.getEntries(), ctx.sessionManager.getLeafId());
+
     // Decision 6 / Increment B1 (active-invocation-registry.md §"Active
     // invocation registry"): the invocation's registry entry, keyed by THIS
     // `thetaAbort` so sub-step 2 (cancel in-flight) and sub-step 3 (await
@@ -2281,6 +2291,7 @@ class ProductionThetaProducer implements ThetaProducerDeps {
           signal,
           thetaAbort,
           readMessages,
+          readContextPath,
           userVisible,
           chain: activeChain,
         });
@@ -3832,6 +3843,8 @@ class ProductionThetaProducer implements ThetaProducerDeps {
       /** CANCEL-2: the per-invocation controller the live turn driver re-forwards `ctx.signal` into. */
       readonly thetaAbort: AbortController;
       readonly readMessages: () => readonly Message[];
+      /** Bug 0482: the chronological leaf path, for `thisTurnSettled`'s trailing-compaction check. */
+      readonly readContextPath: () => readonly SessionEntry[];
       readonly userVisible: boolean;
       /** Bug 0354, INV-4: the per-chain depth counter, forwarded to the render so a cross-file `fn` interpolation call is counted. */
       readonly chain?: InvokeChain;
@@ -3908,6 +3921,7 @@ class ProductionThetaProducer implements ThetaProducerDeps {
           clock: root.clock,
           queryText,
           readMessages: deps.readMessages,
+          readContextPath: deps.readContextPath,
           activeTools,
           thetaAbort: deps.thetaAbort,
           governor: this.#promptToolLoopGovernor,
@@ -5924,6 +5938,8 @@ class LivePromptQueryModel implements QueryModelDriver {
   readonly #clock: Clock;
   readonly #queryText: string;
   readonly #readMessages: () => readonly Message[];
+  /** Bug 0482: the chronological leaf path `thisTurnSettled` checks for an unanswered trailing compaction. */
+  readonly #readContextPath: () => readonly SessionEntry[];
   readonly #activeTools: readonly string[];
   readonly #thetaAbort: AbortController;
   /** STAGE B: bounds the native tool loop (armed for typed and untyped alike — bug 0010). */
@@ -5981,6 +5997,8 @@ class LivePromptQueryModel implements QueryModelDriver {
     readonly clock: Clock;
     readonly queryText: string;
     readonly readMessages: () => readonly Message[];
+    /** Bug 0482: the chronological leaf path, threaded alongside `readMessages`. */
+    readonly readContextPath: () => readonly SessionEntry[];
     /** QTL-4: the theta's callable-set underlying Pi-tool names to install for the turn. */
     readonly activeTools: readonly string[];
     /** CANCEL-2: the per-invocation controller `ctx.signal` is re-forwarded into per turn. */
@@ -6011,6 +6029,7 @@ class LivePromptQueryModel implements QueryModelDriver {
     this.#clock = deps.clock;
     this.#queryText = deps.queryText;
     this.#readMessages = deps.readMessages;
+    this.#readContextPath = deps.readContextPath;
     this.#activeTools = deps.activeTools;
     this.#thetaAbort = deps.thetaAbort;
     this.#governor = deps.governor;
@@ -6653,7 +6672,9 @@ class LivePromptQueryModel implements QueryModelDriver {
           // Only an expiry with the slice still UNSETTLED is the loud failure
           // (P1/P4: `isIdle` is not a proxy for "the send took effect").
           const startCleared = await this.#pollWhile(
-            () => this.#ctx.isIdle() && !thisTurnSettled(this.#readMessages(), turnStart),
+            () =>
+              this.#ctx.isIdle() &&
+              !thisTurnSettled(this.#readMessages(), turnStart, this.#readContextPath()),
             TURN_START_POLL_BOUND,
           );
           if (!startCleared) {
@@ -6748,7 +6769,7 @@ class LivePromptQueryModel implements QueryModelDriver {
             return;
           }
           const settleCleared = await this.#pollWhile(
-            () => !thisTurnSettled(this.#readMessages(), turnStart),
+            () => !thisTurnSettled(this.#readMessages(), turnStart, this.#readContextPath()),
             TURN_SETTLE_POLL_BOUND,
           );
           if (!settleCleared) {
@@ -6959,9 +6980,68 @@ function turnSliceSince(
  * user entry) can never read as settled no matter what the rest of the
  * transcript looks like.
  */
-function thisTurnSettled(messages: readonly Message[], turnStart: number): boolean {
+function thisTurnSettled(
+  messages: readonly Message[],
+  turnStart: number,
+  path: readonly SessionEntry[],
+): boolean {
   const slice = turnSliceSince(messages, turnStart);
-  return slice.opened && isSettledTurnEnding(slice.after);
+  return slice.opened && isSettledTurnEnding(slice.after) && !trailingCompactionUnanswered(path);
+}
+
+/**
+ * Bug 0482: the CHRONOLOGICAL leaf path (root-to-leaf, `parentId` order),
+ * mirroring pi's own `buildSessionPath` (session-manager.js) EXACTLY.
+ * `#readMessages()` cannot stand in for this: `buildContextEntries` hoists a
+ * compacted leaf path's `compaction` entry to the HEAD of the built
+ * `Message[]`, so the built surface has lost the information this predicate
+ * needs ("did an assistant reply FOLLOW the compaction").
+ */
+function leafPathEntries(
+  entries: readonly SessionEntry[],
+  leafId: string | null | undefined,
+): readonly SessionEntry[] {
+  if (leafId === null) {
+    return [];
+  }
+  const byId = new Map(entries.map((entry) => [entry.id, entry] as const));
+  const leaf = (leafId !== undefined ? byId.get(leafId) : undefined) ?? entries[entries.length - 1];
+  if (leaf === undefined) {
+    return [];
+  }
+  const path: SessionEntry[] = [];
+  let current: SessionEntry | undefined = leaf;
+  while (current !== undefined) {
+    path.push(current);
+    current = current.parentId !== null ? byId.get(current.parentId) : undefined;
+  }
+  path.reverse();
+  return path;
+}
+
+/**
+ * Bug 0482 (conversation-drive.md PIC-70): whether the chronological leaf
+ * path ends in a `compaction` entry with NO assistant reply (or settling
+ * `toolResult`) after it. Auto-compaction is transparent to the conversation
+ * (`docs/compaction.md` in the pi package) — a trailing, unanswered
+ * compaction means the turn is still in flight, so the drive must wait
+ * through it; PIC-70's settle-phase expiry is the loud backstop when no
+ * reply ever follows.
+ */
+function trailingCompactionUnanswered(path: readonly SessionEntry[]): boolean {
+  for (let i = path.length - 1; i >= 0; i -= 1) {
+    const entry = path[i];
+    if (entry === undefined) {
+      continue;
+    }
+    if (entry.type === "compaction") {
+      return true;
+    }
+    if (entry.type === "message" && (entry.message.role === "assistant" || entry.message.role === "toolResult")) {
+      return false;
+    }
+  }
+  return false;
 }
 
 /**

@@ -350,6 +350,11 @@ export const SDK_SURFACE_INVENTORY: readonly SurfaceInventoryEntry[] =
     // The H8a per-theta prompt-mode run-drive resolves the driven user session's
     // chronological message list through the `buildSessionContext` free function.
     { id: "buildSessionContext", kind: "peer-named-import" },
+    // Bug 0482 (conversation-drive.md PIC-70): the prompt-mode settle probe also
+    // walks the CHRONOLOGICAL leaf path — the raw `SessionEntry` list, un-reordered
+    // by `buildContextEntries`'s compaction hoist — to detect a trailing,
+    // unanswered `compaction` entry that must not settle the driven turn.
+    { id: "SessionEntry", kind: "peer-named-import" },
     // The H8a per-theta run-drive resolves a chained (non-first) query off-session
     // through pi-ai's `complete()` free function.
     { id: "complete", kind: "peer-named-import" },

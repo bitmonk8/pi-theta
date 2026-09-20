@@ -4,6 +4,35 @@ All notable changes to `@bitmonk8/pi-theta` will be documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.487.0]
+
+### Fixed
+- **Bug 0482 — a host auto-compaction landing mid driven-turn was read by the
+  prompt-mode drive as the turn settling, so the query bound the partial reply
+  that preceded the compaction instead of waiting for (or loudly failing on)
+  the post-compaction continuation**
+  The prompt-mode drive's settle detection
+  (`LivePromptQueryModel.#driveUserVisibleTurn` in
+  `src/extension/production-theta-producer.ts`) judged a turn settled off the
+  built `Message[]` surface, which `buildContextEntries` reorders by hoisting a
+  compacted leaf path's `compaction` entry to its head — so a mid-turn
+  compaction with a partial assistant already committed read as a trailing
+  `assistant` and settled prematurely, binding the partial text. The drive now
+  also reads the CHRONOLOGICAL leaf path (`leafPathEntries`, mirroring pi's
+  `buildSessionPath`) and, via `trailingCompactionUnanswered`, treats a
+  trailing `compaction` entry with no following `assistant` / settling
+  `toolResult` as NOT settled: it waits through to the reply that follows the
+  compaction (auto-compaction is transparent to the conversation), and PIC-70's
+  existing settle-phase expiry is the loud backstop when no reply ever follows —
+  never an empty/partial bind. One wait-through rule governs untyped queries,
+  the typed-query free phase, the degraded fused arm, repair follow-ups, and the
+  PIC-58 subagent-root `--no-session` child (all share the seam). Spec:
+  `pi-integration-contract/conversation-drive.md` PIC-70 amended. No new
+  diagnostic code. Known residual: wait-through is delivered only when the
+  turn's Started anchor survives the compaction hoist; a long prior-history
+  session or a split-turn cut instead fails loudly via the settle-phase expiry
+  (safe — never a silent bind; identical to prior behaviour).
+
 ## [0.486.0]
 
 ### Fixed
