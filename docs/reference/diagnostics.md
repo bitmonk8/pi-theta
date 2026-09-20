@@ -252,6 +252,7 @@ trigger.
 | `theta/load/callee-has-errors` | E/W | load | `callee '<path>' has errors; see related diagnostics` |
 | `theta/load/import-cycle` | E | load | `import cycle: <A>.thetalib → <B>.thetalib → <A>.thetalib` |
 | `theta/load/unresolvable-thetalib-path` | E | load | `cannot resolve .thetalib import '<path>'` |
+| `theta/load/imported-type-name-collision` | E | load | `imported type name '<name>' is claimed by two different declarations in the imported schema closure; disambiguate with a different 'as' alias` |
 | `theta/load/case-collision` | W | load | `case-insensitive filename collision in <source>: '<path-a>' and '<path-b>'` |
 | `theta/load/cross-source-shadow` | W | load | `slash name '<name>' shadowed across discovery sources: '<higher>' wins over '<lower>'` |
 | `theta/load/cross-format-collision` | E | load | `slash name '<name>' collides at the same priority: <paths>` |

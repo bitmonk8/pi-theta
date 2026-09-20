@@ -759,27 +759,68 @@ describe("bug 0465 (F1-c) — a renamed imported schema in a mutual cycle constr
   });
 });
 
-describe("bug 0465 (F1-a) — DOCUMENTED RESIDUAL: aliasing an import to the source name of its own same-lib dependency", () => {
-  it("F1-a: `import { ReviewSummary as Detail }` where ReviewSummary references a sibling `Detail` — first-wins gives the ALIAS the `Detail` name, deterministically", async () => {
-    // Pathological authoring (NOT a defect): the local alias `Detail` collides
-    // with the SOURCE name of a sibling schema `Detail` that ReviewSummary
-    // itself references. One flat-`$defs` name cannot mean both;
-    // `collectImportedTypeDecls` stores the aliased ENTRY under `Detail` first,
-    // so `@<Detail>` resolves to ReviewSummary's shape and the same-lib sibling
-    // of that name is dropped. No diagnostic is minted — the outcome is
-    // deterministic (the documented residual in `collectImportedTypeDecls`).
-    const doc = parseApp(
-      'import { ReviewSummary as Detail } from "./quality.thetalib"\nlet d: Detail = @`x`?\nd\n',
-    );
-    const { lowered } = await producerLowerImported("Detail", doc, {
-      [LIB_PATH]:
-        "schema Detail { count: integer }\nschema ReviewSummary { shard: string, detail: Detail }\n",
+describe("bug 0466 (F1-a re-pin) — aliasing an import to the source name of its own same-lib sibling MUST refuse loudly, not drop the sibling silently", () => {
+  it("F1-a: `import { ReviewSummary as Detail }` where ReviewSummary references a sibling `Detail` — the load pass refuses with `theta/load/imported-type-name-collision`", async () => {
+    // Bug 0466 (§Fix Option 2, SETTLED): the local alias `Detail` collides with
+    // the SOURCE name of a sibling schema `Detail` that ReviewSummary itself
+    // references (`detail: Detail`). One flat-`$defs` name cannot mean both.
+    // Pre-0466 `collectImportedTypeDecls` (src/extension/import-static-checks.ts
+    // :304-310) silently drops the sibling — first-wins gives the aliased ENTRY
+    // the `Detail` name — with no diagnostic (the KNOWN RESIDUAL doc-comment,
+    // import-static-checks.ts:255-263). The fix converts that silent drop into a
+    // LOAD-TIME error refusing the import until the author re-aliases, matching
+    // imports.md:137's no-implicit-shadowing posture (two sources never silently
+    // bind one name) and preserving schema-subset.md:72's closure rule.
+    const importLine = 'import { ReviewSummary as Detail } from "./quality.thetalib"';
+    const doc = parseApp(`${importLine}\nlet d: Detail = @\`x\`?\nd\n`);
+    const input: ThetaCompositionInput = {
+      slashName: "app",
+      sourcePath: APP_PATH,
+      frontmatter: doc.frontmatter as ParsedFrontmatter,
+      body: doc.body,
+    };
+    const result = await checkThetaImports(input, {
+      fs: fakeThetaLibFs({
+        [LIB_PATH]:
+          "schema Detail { count: integer }\nschema ReviewSummary { shard: string, detail: Detail }\n",
+      }),
+      parseDeps: parseDeps(),
     });
-    // The alias entry won the `Detail` name: `@<Detail>` resolves to the
-    // ReviewSummary shape, so the root carries `shard` (ReviewSummary's field),
-    // NOT the sibling `Detail`'s `count`. Deterministic, first-wins.
-    const props = (lowered as { properties?: Record<string, unknown> }).properties ?? {};
-    expect(props).toHaveProperty("shard");
-    expect(props).not.toHaveProperty("count");
+    // RED at HEAD: the collision is a silent first-wins drop, so no diagnostic
+    // under this code exists. GREEN after the fix: exactly one load-time refusal.
+    const collisions = result.diagnostics.filter(
+      (d) => d.code === "theta/load/imported-type-name-collision",
+    );
+    expect(
+      collisions,
+      "0466 §Fix Option 2: the alias-vs-sibling collision MUST mint exactly one load-time refusal (`theta/load/imported-type-name-collision`); at HEAD the sibling is dropped silently (zero diagnostics)",
+    ).toHaveLength(1);
+    const collision = collisions[0];
+    expect(collision?.severity, "the refusal is a load-time ERROR that un-registers the theta").toBe(
+      "error",
+    );
+    // DIAG-4 normative message, pinned character-for-character with `<name>` = `Detail`.
+    expect(collision?.message).toBe(
+      "imported type name 'Detail' is claimed by two different declarations in the imported schema closure; disambiguate with a different 'as' alias",
+    );
+
+    // 0466-pins.md: the refusal is sited "at the import specifier" — pin the FILE
+    // and the specifier's line/column span so a relocation regresses loudly. The
+    // `ReviewSummary as Detail` specifier sits on the import statement's line;
+    // the range spans from the SOURCE name to the end of the `as` alias.
+    expect(collision?.file, "the refusal sites on the importing theta, not the lib").toBe(APP_PATH);
+    // The frontmatter block occupies the leading lines; its trailing newline
+    // lands the body's first line (the import) at `FM.split("\n").length`.
+    const importLineNumber = FM.split("\n").length;
+    const specStartColumn = importLine.indexOf("ReviewSummary") + 1;
+    const specEndColumn = importLine.indexOf("Detail") + "Detail".length + 1;
+    expect(collision?.range?.start, "the range starts at the specifier's source name").toEqual({
+      line: importLineNumber,
+      column: specStartColumn,
+    });
+    expect(collision?.range?.end, "the range ends one past the specifier's `as` alias").toEqual({
+      line: importLineNumber,
+      column: specEndColumn,
+    });
   });
 });

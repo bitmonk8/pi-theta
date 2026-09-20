@@ -110,17 +110,17 @@ describe("bug 0456 — the src/parser/imports.ts line-cites (and the carved-out 
     // Located-by-content == pinned number: fails loudly if imports.ts drifts,
     // guarding every RED cell's re-pin target below.
     const pins: ReadonlyArray<readonly [string, number, (l: string) => boolean]> = [
-      ["checkImportReservedSynthesisedName", 342, (l) => l.startsWith("export function checkImportReservedSynthesisedName")],
-      ["IMPORT_MISSING_FROM_CLAUSE_MESSAGE", 361, (l) => l.startsWith("export const IMPORT_MISSING_FROM_CLAUSE_MESSAGE")],
-      ["checkImportMalformedSpecifierList", 419, (l) => l.startsWith("export function checkImportMalformedSpecifierList")],
-      ["checkImportDanglingAlias", 451, (l) => l.startsWith("export function checkImportDanglingAlias")],
-      ["ImportSpecifier interface", 527, (l) => l.startsWith("export interface ImportSpecifier")],
-      ["ImportSpecifier.local field", 531, (l) => l.trim() === "readonly local: string;"],
-      ["checkImportUnknownSymbols", 555, (l) => l.startsWith("export function checkImportUnknownSymbols")],
-      ["checkImportNameCollisions", 588, (l) => l.startsWith("export function checkImportNameCollisions")],
-      ["computeThetaLibExports", 791, (l) => l.startsWith("export function computeThetaLibExports")],
-      ["thetalibLocalBindings", 809, (l) => l.startsWith("export function thetalibLocalBindings")],
-      ["computeThetaLibExports contract sentence", 786, (l) => l.includes("Every top-level declaration is auto-exported")],
+      ["checkImportReservedSynthesisedName", 362, (l) => l.startsWith("export function checkImportReservedSynthesisedName")],
+      ["IMPORT_MISSING_FROM_CLAUSE_MESSAGE", 381, (l) => l.startsWith("export const IMPORT_MISSING_FROM_CLAUSE_MESSAGE")],
+      ["checkImportMalformedSpecifierList", 439, (l) => l.startsWith("export function checkImportMalformedSpecifierList")],
+      ["checkImportDanglingAlias", 471, (l) => l.startsWith("export function checkImportDanglingAlias")],
+      ["ImportSpecifier interface", 547, (l) => l.startsWith("export interface ImportSpecifier")],
+      ["ImportSpecifier.local field", 551, (l) => l.trim() === "readonly local: string;"],
+      ["checkImportUnknownSymbols", 575, (l) => l.startsWith("export function checkImportUnknownSymbols")],
+      ["checkImportNameCollisions", 608, (l) => l.startsWith("export function checkImportNameCollisions")],
+      ["computeThetaLibExports", 811, (l) => l.startsWith("export function computeThetaLibExports")],
+      ["thetalibLocalBindings", 829, (l) => l.startsWith("export function thetalibLocalBindings")],
+      ["computeThetaLibExports contract sentence", 806, (l) => l.includes("Every top-level declaration is auto-exported")],
     ];
     for (const [what, pin, matches] of pins) {
       const located = uniqueLine(IMPORTS, what, matches);
@@ -149,9 +149,9 @@ describe("bug 0456 — the src/parser/imports.ts line-cites (and the carved-out 
 
   it("cell T2 (GREEN-CONTROL) — current imports.ts symbols sit where bug 0456 re-derived them", () => {
     // Byte-identical control the RED cells lean on; passes now and after the fix.
-    expect(lineOf(IMPORTS, 451).startsWith("export function checkImportDanglingAlias")).toBe(true);
-    expect(lineOf(IMPORTS, 791).startsWith("export function computeThetaLibExports")).toBe(true);
-    expect(lineOf(IMPORTS, 809).startsWith("export function thetalibLocalBindings")).toBe(true);
+    expect(lineOf(IMPORTS, 471).startsWith("export function checkImportDanglingAlias")).toBe(true);
+    expect(lineOf(IMPORTS, 811).startsWith("export function computeThetaLibExports")).toBe(true);
+    expect(lineOf(IMPORTS, 829).startsWith("export function thetalibLocalBindings")).toBe(true);
   });
 
   // =========================================================================

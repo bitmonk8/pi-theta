@@ -64,6 +64,8 @@ import { normalizePath } from "../normalize-path";
 import {
   IMPORT_NAME_COLLISION_CODE,
   IMPORT_NAME_COLLISION_HINT,
+  IMPORTED_TYPE_NAME_COLLISION_CODE,
+  IMPORTED_TYPE_NAME_COLLISION_HINT,
   RelativeThetaLibResolver,
   UNRESOLVABLE_THETALIB_PATH_CODE,
   UNRESOLVABLE_THETALIB_PATH_HINT,
@@ -72,6 +74,7 @@ import {
   computeThetaLibExports,
   detectImportCycle,
   importNameCollisionMessage,
+  importedTypeNameCollisionMessage,
   loadThetaLibImport,
   unresolvableThetaLibPathMessage,
   type ImportSpecifier,
@@ -143,6 +146,75 @@ function unreadableThetaLibDiagnostic(site: { file: string; range: SourceRange }
     message: unresolvableThetaLibPathMessage(spec),
     hint: UNRESOLVABLE_THETALIB_PATH_HINT,
   };
+}
+
+/**
+ * `theta/load/imported-type-name-collision` (bug 0466 §Fix Option 2): one
+ * type name is claimed by two different declarations in the imported schema
+ * closure — either an entry's own `as` alias against a same-lib sibling it
+ * transitively references (`collectImportedTypeDecls`'s `collidedNames`), or
+ * two specifiers' closures reaching the same name via different decls
+ * (the cross-specifier aggregation below). Sited on the SPECIFIER whose
+ * closure introduced the collision, matching every other IMP-* diagnostic's
+ * per-specifier siting.
+ */
+function importedTypeNameCollisionDiagnostic(
+  site: { file: string; range: SourceRange },
+  name: string,
+): Diagnostic {
+  return {
+    severity: "error",
+    code: IMPORTED_TYPE_NAME_COLLISION_CODE,
+    file: site.file,
+    range: site.range,
+    message: importedTypeNameCollisionMessage(name),
+    hint: IMPORTED_TYPE_NAME_COLLISION_HINT,
+  };
+}
+
+/**
+ * Source-position keys carried on the decl AST nodes purely to anchor
+ * diagnostics / `///` runs — the `range` span on every {@link NodeBase} and
+ * the per-field `line` on {@link SchemaFieldSource}. They do NOT participate in
+ * a schema's lowered `$defs` bytes, so two byte-identical-shaped decls that sit
+ * at different offsets must compare EQUAL for collision purposes; stripping
+ * these keys before the structural compare is what keeps a cosmetic line shift
+ * from reading as a genuine collision.
+ */
+const DECL_SHAPE_POSITION_KEYS: ReadonlySet<string> = new Set(["range", "line"]);
+
+/**
+ * Bug 0466 §Fix Option 2 surface 3 (cross-specifier aggregation): whether `a`
+ * and `b` — both already resolved as the decl bound to one contended type
+ * name — are the SAME declaration (a diamond: the identical decl reached
+ * through two specifiers, exempt from refusal) or two DIFFERENT declarations
+ * that happen to share a name (a genuine collision). Reference equality
+ * covers the common case (both specifiers resolve through the same cached
+ * parse of one `.thetalib`, so the AST node is literally one object).
+ *
+ * The structural fallback compares the decls' SHAPE with source position
+ * stripped ({@link DECL_SHAPE_POSITION_KEYS}), mirroring schema-subset.md's
+ * byte-identity posture for judging "the same schema": two structurally
+ * identical decls declared at different line/column offsets in two different
+ * libs lower to the same `$defs` bytes, so they are the same declaration and
+ * draw no refusal, while a genuinely different shape still refuses.
+ */
+function isDifferentImportedTypeDecl(
+  a: SchemaDecl | EnumDecl,
+  b: SchemaDecl | EnumDecl,
+): boolean {
+  if (a === b) {
+    return false;
+  }
+  const stripPosition = (_key: string, value: unknown): unknown =>
+    typeof value === "object" && value !== null && !Array.isArray(value)
+      ? Object.fromEntries(
+          Object.entries(value as Record<string, unknown>).filter(
+            ([k]) => !DECL_SHAPE_POSITION_KEYS.has(k),
+          ),
+        )
+      : value;
+  return JSON.stringify(a, stripPosition) !== JSON.stringify(b, stripPosition);
 }
 
 /**
@@ -249,24 +321,31 @@ function referencedNamedTypes(typeSource: string): readonly string[] {
  * all of which name the source — resolve at the lowering seam. When the
  * caller renamed the ENTRY (`import { X as Summary }`), the entry is
  * ADDITIONALLY stored under `outputName` (the specifier's LOCAL `as` binding)
- * as a `name: outputName` copy, so `@<Summary>` resolves. Storage is
- * first-wins on each name.
+ * as a `name: outputName` copy, so `@<Summary>` resolves.
  *
- * KNOWN RESIDUAL (rare pathological authoring): when `outputName` equals the
- * SOURCE name of one of the entry's OWN same-lib dependencies — aliasing an
- * import to the exact name of a sibling it transitively reaches — the two
- * schemas contend for one flat-`$defs` name that cannot mean both. First-wins
- * decides it deterministically: the aliased ENTRY is stored under `outputName`
- * before the field-walk reaches the sibling, so the ENTRY wins that name and
- * the same-lib sibling of that name is dropped. No diagnostic is minted for
- * the collision; the parent report files residuals.
+ * Storage is first-wins PER NAME only among visits of the SAME declaration
+ * (a self-reference, a cycle back-edge, or a diamond reached twice — the
+ * `originalSchemaOf` / `originalEnumOf` maps below track, per stored name,
+ * which decl reference actually claimed it). When `outputName` equals the SOURCE name of a
+ * DIFFERENT same-lib decl reached in the entry's own closure (bug 0466 —
+ * `import { ReviewSummary as Detail }` where `ReviewSummary` itself
+ * references a same-lib sibling `schema Detail`), the two decls contend for
+ * one flat-`$defs` name that cannot mean both; that is a collision, not a
+ * revisit, so it is recorded in `collidedNames` for the caller to refuse with
+ * `theta/load/imported-type-name-collision` (§Fix Option 2, SETTLED) rather
+ * than silently letting the entry win the name and drop the sibling.
  */
 function collectImportedTypeDecls(
   entrySchema: SchemaDecl | undefined,
   entryEnum: EnumDecl | undefined,
   outputName: string,
   libStatements: ThetaBody["statements"],
-): { readonly schemas: ReadonlyMap<string, SchemaDecl>; readonly enums: ReadonlyMap<string, EnumDecl> } {
+): {
+  readonly schemas: ReadonlyMap<string, SchemaDecl>;
+  readonly enums: ReadonlyMap<string, EnumDecl>;
+  /** Bug 0466: type names claimed by two different same-lib decls in this entry's closure. */
+  readonly collidedNames: ReadonlySet<string>;
+} {
   const schemaByName = new Map<string, SchemaDecl>();
   const enumByName = new Map<string, EnumDecl>();
   for (const stmt of libStatements) {
@@ -280,6 +359,34 @@ function collectImportedTypeDecls(
   const schemas = new Map<string, SchemaDecl>();
   const enums = new Map<string, EnumDecl>();
   const visitedSchemas = new Set<string>();
+  const collidedNames = new Set<string>();
+  // Per stored name, the ORIGINAL (pre-rename) decl reference that claimed it —
+  // separate from `schemas`/`enums`, whose stored value under an alias name is
+  // a `{ ...decl, name: asName }` copy, not `decl` itself. Comparing against
+  // this map (not against the stored copy) is what tells a diamond revisit of
+  // the SAME decl (exempt) apart from a genuine collision with a DIFFERENT decl.
+  const originalSchemaOf = new Map<string, SchemaDecl>();
+  const originalEnumOf = new Map<string, EnumDecl>();
+
+  /** Claim `name` for `decl`, storing `storedValue`; records a bug-0466 collision instead when `name` is already claimed by a different decl. */
+  const claimSchema = (name: string, decl: SchemaDecl, storedValue: SchemaDecl): void => {
+    const claimant = originalSchemaOf.get(name);
+    if (claimant === undefined) {
+      originalSchemaOf.set(name, decl);
+      schemas.set(name, storedValue);
+    } else if (claimant !== decl) {
+      collidedNames.add(name);
+    }
+  };
+  const claimEnum = (name: string, decl: EnumDecl, storedValue: EnumDecl): void => {
+    const claimant = originalEnumOf.get(name);
+    if (claimant === undefined) {
+      originalEnumOf.set(name, decl);
+      enums.set(name, storedValue);
+    } else if (claimant !== decl) {
+      collidedNames.add(name);
+    }
+  };
 
   const typeSourcesOf = (decl: SchemaDecl): readonly string[] =>
     decl.fields !== undefined
@@ -294,17 +401,15 @@ function collectImportedTypeDecls(
     const hasShape =
       decl !== undefined && (decl.fields !== undefined || decl.arms !== undefined);
     if (decl !== undefined && hasShape) {
-      // Store under the SOURCE name so a self-reference, a cycle back-edge, and
+      // Claim under the SOURCE name so a self-reference, a cycle back-edge, and
       // every transitive field-ref (which all spell the source) resolve;
       // additionally under the alias when the entry was renamed. This runs on
       // every entry — INCLUDING the renamed entry, before the visited guard's
       // early return below — so a renamed self-recursive schema's own source
       // name is recorded rather than lost to the guard.
-      if (!schemas.has(sourceName)) {
-        schemas.set(sourceName, decl);
-      }
-      if (asName !== sourceName && !schemas.has(asName)) {
-        schemas.set(asName, { ...decl, name: asName });
+      claimSchema(sourceName, decl, decl);
+      if (asName !== sourceName) {
+        claimSchema(asName, decl, { ...decl, name: asName });
       }
     }
     // The visited guard fences the field-walk recursion alone (cycle
@@ -326,14 +431,12 @@ function collectImportedTypeDecls(
   const visitEnum = (sourceName: string, asName: string): void => {
     const decl = enumByName.get(sourceName);
     if (decl !== undefined && decl.variants !== undefined) {
-      // Same dual storage as `visitSchema`: source name so a schema field
+      // Same dual claim as `visitSchema`: source name so a schema field
       // referencing this enum by its lib-local name resolves, plus the alias
       // when the entry was renamed. An enum has no field body to walk.
-      if (!enums.has(sourceName)) {
-        enums.set(sourceName, decl);
-      }
-      if (asName !== sourceName && !enums.has(asName)) {
-        enums.set(asName, { ...decl, name: asName });
+      claimEnum(sourceName, decl, decl);
+      if (asName !== sourceName) {
+        claimEnum(asName, decl, { ...decl, name: asName });
       }
     }
   };
@@ -344,7 +447,7 @@ function collectImportedTypeDecls(
   if (entryEnum !== undefined) {
     visitEnum(entryEnum.name, outputName);
   }
-  return { schemas, enums };
+  return { schemas, enums, collidedNames };
 }
 
 /**
@@ -1042,6 +1145,13 @@ async function collectImportedSpecifierFacts(
   // displaced by a later one reaching the same name transitively.
   const importedTypeSchemas = new Map<string, SchemaDecl>();
   const importedTypeEnums = new Map<string, EnumDecl>();
+  // Bug 0466 §Fix Option 2: contended type names already refused by an
+  // `imported-type-name-collision` diagnostic, so a name collided at the
+  // single-specifier surface (`collectImportedTypeDecls`'s `collidedNames`)
+  // or merged in from a second specifier below is refused exactly once even
+  // when the same contended name recurs (e.g. a third specifier reaching the
+  // same pair of decls again).
+  const mintedTypeNameCollisions = new Set<string>();
   // Bug 0422 route (a): the real object `SystemParamType` shell for an
   // imported schema, keyed by the LOCAL binding name (`params:` names an
   // imported schema by this name, e.g. `author: Author`) — built ONLY when
@@ -1249,20 +1359,47 @@ async function collectImportedSpecifierFacts(
       // finds (`schemaDecl` / `enumDecl`) already made above, plus their
       // transitive lib-of-lib closure, renaming only the entry to the
       // specifier's LOCAL (`as`) binding (schema-subset.md:72).
-      const { schemas: transitiveSchemas, enums: transitiveEnums } = collectImportedTypeDecls(
+      const {
+        schemas: transitiveSchemas,
+        enums: transitiveEnums,
+        collidedNames,
+      } = collectImportedTypeDecls(
         schemaDecl,
         enumDecl,
         specifier.local,
         parsed.document.body.statements,
       );
+      const specifierSite = { file: sourcePath, range: specifier.range };
+      // Bug 0466 §Fix Option 2 surface 1/2: the entry's own `as` alias claimed
+      // a same-lib sibling's source name — refuse rather than let the sibling
+      // that `collectImportedTypeDecls` dropped bind silently.
+      for (const name of collidedNames) {
+        if (!mintedTypeNameCollisions.has(name)) {
+          mintedTypeNameCollisions.add(name);
+          diagnostics.push(importedTypeNameCollisionDiagnostic(specifierSite, name));
+        }
+      }
+      // Bug 0466 §Fix Option 2 surface 3: cross-specifier aggregation. A name
+      // this closure reaches that an EARLIER specifier's closure already
+      // claimed is a diamond (the SAME decl reached twice — exempt) unless the
+      // two decls are structurally different, in which case it is the same
+      // collision one aggregation level up.
       for (const [name, decl] of transitiveSchemas) {
-        if (!importedTypeSchemas.has(name)) {
+        const existing = importedTypeSchemas.get(name);
+        if (existing === undefined) {
           importedTypeSchemas.set(name, decl);
+        } else if (isDifferentImportedTypeDecl(existing, decl) && !mintedTypeNameCollisions.has(name)) {
+          mintedTypeNameCollisions.add(name);
+          diagnostics.push(importedTypeNameCollisionDiagnostic(specifierSite, name));
         }
       }
       for (const [name, decl] of transitiveEnums) {
-        if (!importedTypeEnums.has(name)) {
+        const existing = importedTypeEnums.get(name);
+        if (existing === undefined) {
           importedTypeEnums.set(name, decl);
+        } else if (isDifferentImportedTypeDecl(existing, decl) && !mintedTypeNameCollisions.has(name)) {
+          mintedTypeNameCollisions.add(name);
+          diagnostics.push(importedTypeNameCollisionDiagnostic(specifierSite, name));
         }
       }
       const materialized = await materializeChain(

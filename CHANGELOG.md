@@ -4,9 +4,31 @@ All notable changes to `@bitmonk8/pi-theta` will be documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.485.0]
+## [0.486.0]
 
 ### Fixed
+- **Bug 0466 — aliasing a `.thetalib` import to the source name of its own
+  same-lib transitive dependency silently dropped the sibling decl from the
+  lowering closure, so the collided `$defs` name bound the aliased entry's
+  shape and AJV refused payloads conforming to the declared shapes**
+  `collectImportedTypeDecls` (`src/extension/import-static-checks.ts`) stored
+  every reached decl in one flat per-kind name map, first-wins: when a
+  directly-imported entry's `as` alias equalled the source name of a different
+  same-lib sibling the entry transitively references
+  (`import { ReviewSummary as Detail }` where `ReviewSummary` declares
+  `detail: Detail`), the aliased entry claimed the name and the sibling was
+  dropped with no diagnostic, rebinding an intra-lib reference to the wrong
+  schema. Per the settled §Fix (Option 2), the collector now tracks the
+  original claimant of each name and refuses the collision at load time with a
+  new `theta/load/imported-type-name-collision` error (DIAG-2 mint) that
+  un-registers the importing theta, rather than silently dropping the sibling —
+  consistent with imports.md §Name collisions' no-implicit-shadowing posture.
+  A self-reference, a cycle back-edge, and a diamond (the same decl reached
+  twice) stay exempt; the same refusal covers the enum map and the
+  cross-specifier aggregation (a later import's closure reaching a name an
+  earlier import claimed through a structurally-different decl). True
+  non-collision closures (an alias that matches no reached sibling) lower and
+  validate exactly as before.
 - **Bug 0487 — load-time false-positive diagnostics on subagent callees:
   `unknown-tool` for the in-process `theta_progress` tool, and the cascading
   `callee-has-errors`**

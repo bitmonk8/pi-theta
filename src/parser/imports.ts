@@ -309,6 +309,26 @@ export function importNameCollisionMessage(name: string): string {
   return `imported symbol '${name}' collides with another import or top-level declaration`;
 }
 
+// ── theta/load/imported-type-name-collision ────────────────────────────────────
+
+/**
+ * Bug 0466 (§Fix Option 2): a directly-imported entry's `as` alias claims the
+ * SOURCE name of a DIFFERENT decl reached in that entry's own same-lib closure
+ * (`import { ReviewSummary as Detail }` where `ReviewSummary` itself declares
+ * `detail: Detail` against a same-lib `schema Detail`). One flat `$defs` name
+ * cannot mean both, so the collector refuses rather than let first-wins bind
+ * the wrong shape — imports.md §Name collisions' no-implicit-shadowing posture
+ * (two sources never silently bind one name), applied one level in.
+ */
+export const IMPORTED_TYPE_NAME_COLLISION_CODE = "theta/load/imported-type-name-collision";
+export const IMPORTED_TYPE_NAME_COLLISION_HINT =
+  "Choose a different 'as' alias so each imported and transitively-referenced type resolves to one declaration.";
+
+/** `theta/load/imported-type-name-collision` message (`<name>` is the contended type name). */
+export function importedTypeNameCollisionMessage(name: string): string {
+  return `imported type name '${name}' is claimed by two different declarations in the imported schema closure; disambiguate with a different 'as' alias`;
+}
+
 // ── theta/parse/import-reserved-synthesised-name ───────────────────────────────
 
 export const IMPORT_RESERVED_SYNTHESISED_NAME_CODE =

@@ -1,6 +1,6 @@
 # Bug 0466 — Aliasing a `.thetalib` import to the source name of its own same-lib transitive dependency silently drops the sibling decl from the lowering closure — the collided `$defs` name binds the aliased entry's shape, and a payload conforming to the declared shapes is refused by AJV
 
-- **Status:** open.
+- **Status:** fixed (0.486.0).
 - **Sev/Diff estimate:** S2/D2 — S2: loud-wrong. In the witnessed shape the
   collided `$defs` entry becomes self-recursive with required fields, so AJV
   refuses EVERY reply (including ones conforming to the declared shapes) and
@@ -290,6 +290,78 @@ level up), the enum map counterpart (`:334-339`), and the re-pin of cell
 which pins the current first-wins bytes as a documented residual and must be
 rewritten as the fix's witness. The `KNOWN RESIDUAL` doc-comment
 (`import-static-checks.ts:256-263`) is discharged by the fix.
+
+## Fix (0.486.0)
+
+- **What shipped:**
+  - `src/parser/imports.ts` — new diagnostic constants
+    `IMPORTED_TYPE_NAME_COLLISION_CODE` (`theta/load/imported-type-name-collision`),
+    `IMPORTED_TYPE_NAME_COLLISION_HINT`, and `importedTypeNameCollisionMessage`
+    (single source of truth for the new code, DIAG-2 mint).
+  - `src/extension/import-static-checks.ts` — `collectImportedTypeDecls`
+    rewritten from first-wins storage to a claim model (`claimSchema`/
+    `claimEnum` with per-name `originalSchemaOf`/`originalEnumOf` maps): a name
+    reached by a DIFFERENT decl than its first claimant records into
+    `collidedNames` instead of silently dropping, while a self-reference, a
+    cycle back-edge, and a diamond (same decl reached twice) stay exempt
+    (§Fix must-settle: single-specifier schema — the witnessed face — and the
+    enum map). The per-specifier loop mints one
+    `theta/load/imported-type-name-collision` error per contended name (deduped
+    via `mintedTypeNameCollisions`), sited on the introducing specifier; the
+    cross-specifier aggregation refuses a name a later closure reaches through a
+    structurally-different decl than an earlier claimant
+    (`isDifferentImportedTypeDecl`, position-stripped structural compare with a
+    reference-equality fast path — §Fix must-settle: cross-specifier variant).
+    The error un-registers the theta via `isRegistrationError`. The
+    `KNOWN RESIDUAL` doc-comment is discharged (rewritten to state the refusal).
+  - `docs/spec_topics/diagnostics/code-registry-load.md` + `docs/reference/diagnostics.md`
+    — the DIAG-2 registry row (and its reference mirror, required by
+    `tests/registry-closed-set-corpus-gate.test.ts`).
+  - `docs/spec_topics/imports.md` — §Name collisions: one sentence extending the
+    no-implicit-shadowing posture to the load-time alias-vs-lib-internal-sibling
+    and cross-specifier collisions, naming the new code.
+- **Gates:** witness `npx vitest run tests/b0465-… tests/b0466-…` → 27 passed;
+  full `npm test` → 693 files / 11599 tests green (run clean by the implementer,
+  the fixer, and the verifier; one orchestrator backstop run flaked 8–9
+  resource-sensitive process-spawn/file-watch/host-seam tests unrelated to
+  imports — all 9 files pass in isolation, 259/259); `npm run typecheck` clean;
+  `npm run lint` clean.
+- **Review:** 2 rounds. R1 (`bug-fix-reviewer`) — FINDINGS: F1 [correctness]
+  `isDifferentImportedTypeDecl` stringified raw AST incl. source position, so
+  byte-identical cross-lib decls at different offsets falsely refused; F2 [test]
+  witnesses did not assert the diagnostic site. R2 (`bug-fix-reviewer`, deep —
+  routed deep because R1 raised correctness) — CLEAN, after F1/F2 fixed (position
+  keys stripped before the structural compare; site asserted; new cell (c) pins
+  the byte-identity exemption RED-before/GREEN-after).
+- **Verification:** SOLID. (1) Witness genuinely reds — full-HEAD revert of both
+  src files reds F1-a and b0466(a) with the silent-drop symptom (0 diagnostics),
+  a targeted un-strip reds cell (c) (false-positive refusal); byte-exact
+  restore confirmed GREEN. (2) Full suite green. (3) Lint + typecheck clean.
+  (4) New live acceptance test
+  `tests/live/acceptance/b0466live-imported-alias-shadows-sibling-load-refusal.test.ts`
+  drives the real `pi -p`: the colliding theta un-registers, the control
+  registers and drives — verified GREEN with the fix and RED without it.
+- **Residuals:**
+  1. Enum cross-specifier byte-identity exemption has no dedicated witness cell
+     (the schema cell (c) covers the shared kind-agnostic compare;
+     `isDifferentImportedTypeDecl` is kind-agnostic). Non-blocking; the enum
+     face is a §Non-goal (not separately witnessed).
+  2. Witnesses assert the code/message as byte-literals rather than importing
+     the exported constants. Non-blocking: the DIAG-2 closed-set gate
+     (`tests/code-registry.test.ts`) reconciles asserted codes against the
+     registry, and a literal additionally guards against silent constant drift.
+  3. Cross-map face (a schema entry's alias equal to a reached same-lib ENUM
+     sibling's source name) still stores in both maps without refusing —
+     unchanged from pre-fix and explicitly fenced by §Non-goals; the two claim
+     maps are disjoint by kind. Worth a follow-up filing; out of scope here.
+- **Discharge notes appended:** none (0465 §Residuals item 1 designated this
+  parent filing; the linkage is recorded in §Related / §Provenance above and
+  0465 is already fixed — no edit to its closed record).
+- **Pinned dispositions / non-goals:** resolve-instead options 1 (qualified
+  `$defs` keys) and 3 (alias-aware rewriting) DECLINED, as §Fix settled. The
+  0465 fences (cross-lib nested closure, re-export-chain-only bindings) and the
+  0028 `lowerQueryResponseSchema` totality seam are untouched — the collision
+  is refused BEFORE the seam, in the collection layer.
 
 ## Provenance
 
