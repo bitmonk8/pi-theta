@@ -21,7 +21,8 @@
 
 import type { Diagnostic, Position, SourceRange } from "../diagnostics/diagnostic";
 import { assembleDiagnostics } from "../diagnostics/diagnostic";
-import { firstInvalidUtf8Offset, lexTheta, type ThetaSource, type Token } from "../lexer/lexer";
+import { lexTheta, type ThetaSource, type Token } from "../lexer/lexer";
+import { validateUtf8Encoding } from "../lexer/encoding";
 import { validatePathLiteral } from "../lexer/literals";
 import {
   checkImportDanglingAlias,
@@ -42,7 +43,7 @@ import {
   type ImportSpecifier,
   type ThetaLibTopLevelForm,
 } from "./imports";
-import { emitDiagnosticBatch, type SystemNoteChannelDeps } from "../extension/system-note-channel";
+import { type SystemNoteChannelDeps } from "../extension/system-note-channel";
 import {
   parseFrontmatter,
   type FrontmatterBodyTypes,
@@ -1051,15 +1052,8 @@ export function parseThetaDocument(
   // requires `theta/load/invalid-encoding` naming the zero-based offset of
   // the first invalid byte in the ORIGINAL file content, offset 0 for a
   // non-UTF-8 BOM — both only recoverable from `source.bytes` itself.
-  const invalidOffset = firstInvalidUtf8Offset(source.bytes);
-  if (invalidOffset >= 0) {
-    const encodingDiag: Diagnostic = {
-      severity: "error",
-      code: "theta/load/invalid-encoding",
-      file,
-      message: `invalid UTF-8 encoding at byte offset ${invalidOffset}`,
-    };
-    emitDiagnosticBatch([encodingDiag], deps.systemNote);
+  const encodingDiag = validateUtf8Encoding(source.bytes, file, deps.systemNote);
+  if (encodingDiag !== undefined) {
     return {
       frontmatter: null,
       body: { statements: [], tail: null },
