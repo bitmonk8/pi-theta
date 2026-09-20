@@ -143,6 +143,20 @@ export interface CallableSetDeps {
    */
   readonly resolvePiTool: (name: string) => ResolvedPiTool | undefined;
   /**
+   * Names the composition root will dispatch through the in-process executor
+   * path. The factory registers these before any compose pass (EXST-13), so a
+   * conforming host's `getAllTools()` snapshot carries the tool and it resolves
+   * through `resolvePiTool`; this set is defense-in-depth for a host whose
+   * snapshot does NOT reflect this extension's own before-compose registration
+   * (as bug 0487 observed), making load-time resolution independent of that. A
+   * bare identifier in this set resolves as a Pi-tool-shaped entry (carrying
+   * only `toolName`, no `execute`) instead of minting `theta/load/unknown-tool`;
+   * runtime dispatch is unchanged (`inProcessToolExecutors`). Optional and
+   * consulted only when `resolvePiTool` returns `undefined`, so a host that
+   * carries the tool resolves it there first.
+   */
+  readonly inProcessToolNames?: ReadonlySet<string>;
+  /**
    * Resolve a `.theta` path (relative to the calling theta's directory) through
    * the per-load-pass parse cache, returning the parsed callee (carrying its
    * declared `mode:`), or `undefined` when the path does not exist or is not
@@ -421,6 +435,22 @@ function resolveEntry(
     }
     const resolved = deps.resolvePiTool(spec);
     if (resolved === undefined) {
+      // An in-process tool (e.g. `theta_progress`) is registered before any
+      // compose pass (EXST-13), so a conforming host's `getAllTools()` snapshot
+      // carries it and it resolves through `resolvePiTool` above; this arm is
+      // defense-in-depth for a host whose snapshot does NOT reflect this
+      // extension's own before-compose registration (as bug 0487 observed),
+      // making load-time resolution independent of that. Accept it here as a
+      // resolved Pi-tool-shaped entry carrying only `toolName` (no `execute`),
+      // mirroring the execute-stripped shape a registry extension tool resolves
+      // to — runtime code-side dispatch reads `toolName` and, finding no
+      // `execute`, routes through `inProcessToolExecutors`.
+      if (deps.inProcessToolNames?.has(spec)) {
+        return {
+          callable: { kind: "pi-tool", toolDefinition: { toolName: spec } },
+          defaultName: spec,
+        };
+      }
       return {
         diagnostic: {
           severity: "error",

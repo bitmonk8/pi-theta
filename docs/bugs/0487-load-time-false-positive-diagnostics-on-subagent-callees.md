@@ -1,6 +1,6 @@
 # Bug 0487 — Load-time false-positive diagnostics on subagent callees: `unknown-tool` for in-process tools, `binder-model-unresolved` for caller-supplied models, and cascading `callee-has-errors`
 
-- **Status:** open.
+- **Status:** fixed (0.485.0).
 - **Sev/Diff estimate:** S4/D3 — S4: purely cosmetic; no functionality affected
   (all three diagnostics describe conditions that are resolved at invocation
   time, not load time). D3: three distinct resolution gaps in the load-time
@@ -111,6 +111,87 @@ unverified say-so; the witness must pin the actual mechanism.
 Falls out automatically once (1) is fixed: if the callee's only error was
 the `theta_progress` false positive, removing that error removes the cascade.
 No separate fix needed.
+
+## Fix (0.485.0)
+
+- **What shipped:**
+  - `src/parser/callable-set.ts` — §Fix(1): `CallableSetDeps` gains an optional
+    `inProcessToolNames: ReadonlySet<string>`; `resolveEntry` resolves a bare
+    name in that set to a Pi-tool-shaped entry (`{ kind: "pi-tool",
+    toolDefinition: { toolName: spec } }`, no `execute`) after `resolvePiTool`
+    returns `undefined` and before minting `theta/load/unknown-tool`. Runtime
+    dispatch is unchanged — the execute-less entry routes through
+    `inProcessToolExecutors` by `toolName`.
+  - `src/extension/production-composition.ts` — §Fix(1): `runComposePass`
+    derives the in-process name set (`THETA_PROGRESS_TOOL_NAME` ∪ the factory
+    `inProcessTools` record's keys) once and threads it into BOTH
+    `CallableSetDeps` construction sites (`resolveThetaToolsAtLoad`'s `deps` and
+    the callee-containment `stubDeps`) plus the `invoke(...)` dispatch-gate
+    callee parse, so a callee declaring `theta_progress` resolves identically at
+    every recursion depth. §Fix(3) (`callee-has-errors`) falls out: with the
+    callee's only load error gone, the caller cascade is gone.
+  - Spec agreement (same-commit, required by §Affected's diagnostic inventory):
+    `docs/spec_topics/diagnostics/code-registry-load.md` (the
+    `theta/load/unknown-tool` Trigger now excludes an in-process-tool name),
+    `docs/spec_topics/frontmatter/frontmatter-fields-a.md` (the Pi-tool-names
+    in-process load-time arm + the corrected `theta_progress` self-report note
+    with the TOOL-1 fail-open consequence), and
+    `docs/spec_topics/execution-status.md` (EXST-13). The load-side arm is the
+    counterpart to the dispatch-side RFC 0010 Erratum G carve-out.
+- **Gates:** witness `npx vitest run tests/b0487-theta-progress-callee-composition.test.ts
+  tests/b0487-theta-progress-callable-set-resolution.test.ts` → 7 passed; full
+  suite `npm test` → 692 files / 11596 passed; `npx tsc --noEmit` → clean;
+  `npm run lint` → clean; spec-surface + registry gates
+  (`rfc-0010-spec-surface-gate`, `code-registry`, `citation-symbol-form-gate`,
+  `cross-cutting-gates`) → 45 passed. Live
+  `tests/live/b0487-quality-loop-load-pass-live.test.ts` → 1 passed.
+- **Review:** 2 review rounds. Round 1 (deep) → F1 [spec] (behaviour changed
+  with no same-commit spec edit) + F2 [house-rule] (new comments asserted a
+  false registration ordering) + residuals; resolver logic + threading verified
+  correct and red-both-directions. Fixer round added the spec edits + corrected
+  the comments + a test-comment residual. Round 2 (fast) → CLEAN.
+- **Verification:** conditional PASS. Obligation 1 (witness reds on reverting
+  the resolver arm, restores green, byte-exact restore) → PASS. Obligation 2
+  (full suite) → PASS. Obligation 4 (lint + typecheck) → PASS. Obligation 3
+  (live end-to-end) → the added live cell loads the real unmodified `.pi/theta`
+  tree and asserts zero of the three named codes → PASS for its affirmative
+  claim, but it CANNOT red on reverting the fix (see Residual 1).
+- **Residuals:**
+  1. **All three parts are non-reproducing on the current SDK pin
+     (`@earendil-works/pi-coding-agent@0.80.10`).** Verification instrumented
+     the real `pi.getAllTools()` snapshot (through the probe harness AND a real
+     `pi -p`) and found it already carries `theta_progress` at load time —
+     EXST-13's before-compose registration works as designed on this host — so
+     part (1)'s `unknown-tool` does not fire with or without the fix; part (2)
+     (`binder-model-unresolved`) is independently non-reproducing (both
+     `resolveBinderModel` sites thread `settings.theta.binderModel`, and
+     marked-root subagent children are exempt via `isMarkedRootTheta`); part (3)
+     cascades from (1). The shipped fix is therefore **defense-in-depth**: it
+     makes load-time callable-set resolution independent of whether a host
+     reflects the extension's own pre-compose registration in its snapshot
+     (bug 0487 OBSERVED such a host on 2026-09-19; the current pin is not one).
+     The discriminating red/green witnesses are the two OFFLINE synthetic-host
+     tests (their fake `pi.getAllTools()` doubles omit `theta_progress` by
+     construction); the live cell is a clean-load regression guard that cannot
+     red on this pin (documented in its own header). The §Root-cause / §Symptoms
+     narrative describing the diagnostics as currently-firing is accurate only
+     against the observing host, not against 0.80.10.
+  2. `theta/load/extension-tool-unreachable` may misclassify an in-process name
+     by the PIC-64 ladder on a host that has a live executor but no ladder rung
+     — latent, unreachable at the current pin (the real host has rung 2; repo
+     harnesses lack executor and rungs together), and pre-existing on
+     snapshot-carrying hosts. Not introduced by this fix; follow-up material.
+  3. The `Object.keys(inProcessTools)` half of the name-set seed is unwitnessed
+     (the composition test rides the 2-arg `discoverAndComposeFixtures`, so its
+     green is carried by the unconditional `THETA_PROGRESS_TOOL_NAME` seed); the
+     unit test proves `resolveEntry` honours arbitrary injected names, narrowing
+     the gap to the one derivation line. A future second in-process tool would
+     ride only that half.
+- **Discharge notes appended:** none.
+- **Pinned dispositions / non-goals:** part (2)'s original callee-graph
+  suppression hypothesis is REJECTED — verified non-reproducing, no code shipped
+  for it. The `.pi/theta/**` workers and `quality-loop.theta` were NOT edited
+  (they are the reproduction; the fix makes them load clean unmodified).
 
 ## Workaround
 

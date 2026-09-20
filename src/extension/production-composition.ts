@@ -233,6 +233,7 @@ import type { InProcessToolExecute } from "../runtime/tool-call-execute";
 import { ActiveInvocationRegistry } from "../runtime/active-invocation-registry";
 import type { ForwardingSignalSource } from "./session-shutdown";
 import { createExecutionStatusBus } from "./execution-status/bus";
+import { THETA_PROGRESS_TOOL_NAME } from "./execution-status/types";
 import type { ExecutionStatusBus, StatusSink } from "./execution-status/types";
 import { createFooterSink, type FooterUi } from "./execution-status/footer-sink";
 import { createWidgetSink, type WidgetUi } from "./execution-status/widget-sink";
@@ -967,6 +968,23 @@ async function runComposePass(
   // below.
   const registrySnapshot: GetAllToolsSnapshot = () => pi.getAllTools?.() ?? [];
 
+  // Bug 0487 (1): the well-known in-process-tool name set, threaded alongside
+  // `getAllTools` down every `resolvePiTool` closure this pass builds
+  // (`resolveThetaToolsAtLoad`'s own deps and the callee-containment stub) so
+  // a `tools:` entry naming one resolves instead of minting a false
+  // `theta/load/unknown-tool`. Seeded with `THETA_PROGRESS_TOOL_NAME`
+  // UNCONDITIONALLY — the name is resolvable at load time whether or not this
+  // host's `pi.registerTool` succeeded in registering the live executor
+  // (`inProcessTools`, below): a load-time resolution gap must not track a
+  // runtime bootstrap outcome the factory already diagnoses on its own
+  // (`bootstrapFailedDiagnostic`). Widened with `inProcessTools`'s own keys so
+  // a future in-process tool registered only through that record still
+  // resolves without a second edit here.
+  const inProcessToolNames: ReadonlySet<string> = new Set([
+    THETA_PROGRESS_TOOL_NAME,
+    ...Object.keys(inProcessTools ?? {}),
+  ]);
+
   // INV-1 (invocation.md §Resolution): the active discovery-root union threaded
   // into the invoke containment check — the parent directory of every discovered
   // theta. Every registrable theta sits inside an active discovery root, so this
@@ -1270,8 +1288,14 @@ async function runComposePass(
     // shared-subtree collapse (§Fix constraint 6, cost profile) holds for the
     // gate's own walk.
     parseCallee: (callerPath, calleePath) =>
-      parseCalleeTheta(fileSystem, ctx, callerPath, calleePath, parseDeps, () =>
-        pi.getAllTools?.() ?? [],
+      parseCalleeTheta(
+        fileSystem,
+        ctx,
+        callerPath,
+        calleePath,
+        parseDeps,
+        () => pi.getAllTools?.() ?? [],
+        inProcessToolNames,
       ),
     // INV-1 (invocation.md §Resolution): the runtime open-time containment
     // re-check consults the same `realpath` seam and active-root union.
@@ -1375,6 +1399,11 @@ async function runComposePass(
       // `continue` a few lines down on any error-severity `tools:` diagnostic
       // makes that ordering structural rather than a placement choice.
       activeRoots,
+      // Bug 0487 (1): the in-process-tool name set, so a `tools:` entry naming
+      // one (e.g. `theta_progress`) resolves instead of minting a false
+      // `theta/load/unknown-tool` at this file's own load and at every callee
+      // this walk pre-parses beneath it.
+      inProcessToolNames,
     );
     sink.emitGroup(toolResult.diagnostics);
     if (toolResult.diagnostics.some((diagnostic) => diagnostic.severity === "error")) {
@@ -2688,6 +2717,12 @@ async function resolveThetaToolsAtLoad(
   // literal, for which the runtime open-time re-check
   // (`#recheckCalleeContainment`) remains the containment backstop.
   activeRoots?: readonly string[],
+  // Bug 0487 (1): the factory's in-process-tool name set, threaded to both
+  // `resolvePiTool` closures this function feeds — its own `deps` below and,
+  // by forwarding, `parseCalleeForTools`'s callee-containment stub — so a
+  // `tools:` entry naming an in-process tool (e.g. `theta_progress`) resolves
+  // instead of minting `theta/load/unknown-tool`.
+  inProcessToolNames?: ReadonlySet<string>,
 ): Promise<ThetaToolsResolution> {
   // Captured BEFORE the no-`tools:` early return: bug 0328's defect is that a
   // `tools:`-less subagent theta cleared the whole hash carrier, so its own
@@ -2750,7 +2785,16 @@ async function resolveThetaToolsAtLoad(
     ) {
       calleeCache.set(
         spec,
-        await parseCalleeForTools(fs, ctx, callerDir, spec, parseDeps, getAllTools, activeRoots),
+        await parseCalleeForTools(
+          fs,
+          ctx,
+          callerDir,
+          spec,
+          parseDeps,
+          getAllTools,
+          activeRoots,
+          inProcessToolNames,
+        ),
       );
     }
   }
@@ -2824,6 +2868,7 @@ async function resolveThetaToolsAtLoad(
       }
       return undefined;
     },
+    ...(inProcessToolNames !== undefined ? { inProcessToolNames } : {}),
     resolveThetaCallee: (thetaPath) => {
       const callee = calleeCache.get(thetaPath);
       if (callee === undefined || !callee.fileExists) {
@@ -3002,6 +3047,10 @@ async function parseCalleeForTools(
   deps: PassParseDeps,
   getAllTools: GetAllToolsSnapshot | undefined,
   activeRoots?: readonly string[],
+  // Bug 0487 (1): forwarded to `calleeFailsOwnStructuralChecks` for the
+  // callee's OWN `tools:` resolution stub, so a callee declaring an
+  // in-process tool name is not itself flagged `unknown-tool`.
+  inProcessToolNames?: ReadonlySet<string>,
 ): Promise<CalleeParse> {
   const absolute = isAbsolute(spec) ? spec : resolvePath(callerDir, spec);
   const bytes = await fs.readBytes(absolute).then(
@@ -3107,6 +3156,7 @@ async function parseCalleeForTools(
     new Set([absolute]),
     bytes,
     nestedContainment,
+    inProcessToolNames,
   );
   return {
     fileExists: true,
@@ -3406,6 +3456,10 @@ async function calleeFailsOwnStructuralChecksBody(
   // of which has one to hand in) — consulted below in place of a fresh
   // `checkInvokePathAtLoad` call when it names this entry's spec.
   nestedContainment: ReadonlyMap<string, LoadTimeInvokePathResult> | undefined,
+  // Bug 0487 (1): forwarded to the callee's own `resolveCallableSet` stub
+  // below and to the recursive grandchild call, so an in-process tool name
+  // resolves identically at every recursion depth.
+  inProcessToolNames: ReadonlySet<string> | undefined,
 ): Promise<{
   fails: boolean;
   ownEscapes: boolean;
@@ -3609,6 +3663,7 @@ async function calleeFailsOwnStructuralChecksBody(
       // `parseCalleeForTools` (which only ever probes its IMMEDIATE callee's
       // list); this recursive frame probes fresh, exactly as before this fix.
       undefined,
+      inProcessToolNames,
     );
     // Bug 0275 §Fix: the DEEP verdict — a grandchild whose OWN `tools:`
     // entry escapes fails its own structural checks as seen by THIS frame,
@@ -3631,6 +3686,7 @@ async function calleeFailsOwnStructuralChecksBody(
       }
       return undefined;
     },
+    ...(inProcessToolNames !== undefined ? { inProcessToolNames } : {}),
     // `undefined` ONLY for a spec the pre-resolution probe above recorded
     // unreadable — the one condition `resolveEntry`'s `resolved === undefined`
     // arm needs to raise `theta/load/unresolvable-theta-path` against the
@@ -3714,6 +3770,8 @@ async function calleeFailsOwnStructuralChecksWithTaint(
   // MISS — a memo HIT (below) needs it not at all, since a hit runs the
   // body's own `tools:` loop for neither this frame nor any deeper one.
   nestedContainment: ReadonlyMap<string, LoadTimeInvokePathResult> | undefined,
+  // Bug 0487 (1): forwarded to {@link calleeFailsOwnStructuralChecksBody}.
+  inProcessToolNames: ReadonlySet<string> | undefined,
 ): Promise<{
   fails: boolean;
   ownEscapes: boolean;
@@ -3748,6 +3806,7 @@ async function calleeFailsOwnStructuralChecksWithTaint(
     activeRoots,
     visited,
     nestedContainment,
+    inProcessToolNames,
   );
   if (memo !== undefined && !result.consultedVisited) {
     memo.write(getAllTools, activeRoots, calleeAbsolutePath, bytes, {
@@ -3792,6 +3851,8 @@ async function calleeFailsOwnStructuralChecks(
   // `parseCalleeForTools` (this function's sole caller) is the only site with
   // a precomputed map to hand in.
   nestedContainment: ReadonlyMap<string, LoadTimeInvokePathResult> | undefined,
+  // Bug 0487 (1): forwarded to {@link calleeFailsOwnStructuralChecksWithTaint}.
+  inProcessToolNames: ReadonlySet<string> | undefined,
 ): Promise<boolean> {
   const { fails } = await calleeFailsOwnStructuralChecksWithTaint(
     fs,
@@ -3805,6 +3866,7 @@ async function calleeFailsOwnStructuralChecks(
     visited,
     bytes,
     nestedContainment,
+    inProcessToolNames,
   );
   return fails;
 }
@@ -4120,6 +4182,11 @@ async function parseCalleeTheta(
   // resolves against the `pi.getAllTools()` registry snapshot mode-independently,
   // exactly like a discovered theta.
   getAllTools?: GetAllToolsSnapshot,
+  // Bug 0487 (1): the factory's in-process-tool name set, forwarded to both
+  // the structural-check gate below and this dispatch's own `tools:`
+  // resolution, so an `invoke(...)`-reached callee declaring an in-process
+  // tool name is not itself flagged `unknown-tool`.
+  inProcessToolNames?: ReadonlySet<string>,
 ): Promise<CalleeParseOutcome> {
   const baseDir = callerPath !== undefined ? dirname(callerPath) : ctx.cwd;
   const absolute = isAbsolute(calleePath) ? calleePath : resolvePath(baseDir, calleePath);
@@ -4163,6 +4230,7 @@ async function parseCalleeTheta(
     // `undefined` on every call this gate makes; see the withhold (a)
     // doc-comment on `calleeFailsOwnStructuralChecksBody`).
     undefined,
+    inProcessToolNames,
   );
   if (structural.fails) {
     return { kind: "unreadable" };
@@ -4228,7 +4296,15 @@ async function parseCalleeTheta(
     closureSourcesCache: new Map<string, readonly ClosureSource[]>(),
     closureHashCache: new Map<string, string>(),
   };
-  const toolResult = await resolveThetaToolsAtLoad(input, fs, ctx, dispatchDeps, getAllTools);
+  const toolResult = await resolveThetaToolsAtLoad(
+    input,
+    fs,
+    ctx,
+    dispatchDeps,
+    getAllTools,
+    undefined,
+    inProcessToolNames,
+  );
   return {
     kind: "ok",
     input: {

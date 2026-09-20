@@ -4,6 +4,33 @@ All notable changes to `@bitmonk8/pi-theta` will be documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.485.0]
+
+### Fixed
+- **Bug 0487 — load-time false-positive diagnostics on subagent callees:
+  `unknown-tool` for the in-process `theta_progress` tool, and the cascading
+  `callee-has-errors`**
+  The load-time callable-set resolver (`resolveEntry`, `src/parser/callable-set.ts`)
+  checked only host built-ins and the `pi.getAllTools()` registry snapshot, so a
+  `tools:` entry naming the extension's own in-process tool `theta_progress`
+  (registered as an in-process executor, dispatched at runtime through
+  `inProcessToolExecutors`) could load as `theta/load/unknown-tool` — and a caller
+  invoking such a callee inherited the false error as `theta/load/callee-has-errors`.
+  `CallableSetDeps` gains an `inProcessToolNames` set consulted after the registry
+  snapshot and before `unknown-tool` is minted, resolving the name to an
+  execute-less Pi-tool-shaped entry (runtime dispatch unchanged); the composition
+  root threads the set into every load-time resolution site. This is
+  defense-in-depth: on the current Pi SDK pin `pi.getAllTools()` already carries
+  `theta_progress` at load (EXST-13's before-compose registration), so the defect
+  does not reproduce live — the fix makes load-time resolution independent of a
+  host that does not reflect its own pre-compose registration (the observing host
+  did not). The related `binder-model-unresolved` false positive (part 2) was
+  verified non-reproducing (both `resolveBinderModel` sites already thread
+  `theta.binderModel`; marked-root subagent children are exempt). Spec agreement:
+  the `theta/load/unknown-tool` registry Trigger, the `#tools` resolution rules,
+  and EXST-13 now describe the in-process load-time arm (the load-side counterpart
+  to the dispatch-side RFC 0010 Erratum G carve-out).
+
 ## [0.484.0]
 
 ### Fixed
