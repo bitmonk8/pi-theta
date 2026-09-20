@@ -6,23 +6,27 @@
 // `{"theta_result":{"v":1,"ok":null}}`, and the orchestrator's `.ok` read
 // panicked one hop later.
 //
-// WHERE THE STATIC CHECK IS, AND IS NOT. `invocation.md` §"Typed return"
+// WHERE THE STATIC CHECK IS. `invocation.md` §"Typed return"
 // (*Empty-tail callee compatibility*) states both halves: `invoke<Schema>` of an
 // empty-tail callee is `theta/parse/invoke-return-type-mismatch` "when
 // statically resolvable", and `Err(InvokeInfraError { cause:
 // "return_validation" })` when the runtime AJV check rejects the literal `null`.
-// Only the SECOND half is implemented. `checkInvokeReturnType`
-// (src/parser/invoke-diagnostics.ts) has exactly ONE call site —
-// `checkSubagentReturnAnnotation` (src/parser/type-layer-checks.ts), which
-// passes `calleeResolvable: true` for an IN-FILE `subagent fn f(): T`
-// declaration — and the load pass (src/extension/invoke-static-checks.ts)
-// resolves a cross-file callee only for arity, per-slot argument types, cycles
-// and root containment, never for its return type. So no load-time diagnostic
-// exists for a typed `invoke<Schema>("./x.theta")` against a `.theta` callee,
-// whatever that callee's tail is; the runtime boundary is the only net. Cells A
-// and B pin that asymmetry as a tested state (the load path is SILENT
-// cross-file, and LOUD for the in-file analogue) so it is a known shape rather
-// than an unknown; cells C-E pin the net that actually caught this bug.
+// Both halves are now implemented. `checkInvokeReturnType`
+// (src/parser/invoke-diagnostics.ts) has TWO call sites —
+// `checkSubagentReturnAnnotation` (src/parser/type-layer-checks.ts), for an
+// IN-FILE `subagent fn f(): T` declaration, and the cross-file leg
+// (src/extension/invoke-expr-call-surface.ts), reached from the load pass's
+// existing cross-file walk (src/extension/invoke-static-checks.ts) alongside
+// its arity, per-slot argument type, cycle and root-containment checks. The
+// load pass now resolves a cross-file callee's return type and, on a mismatch,
+// emits `theta/parse/invoke-return-type-mismatch` and un-registers the caller —
+// so a typed `invoke<Schema>("./x.theta")` against an incompatible `.theta`
+// callee is refused at load, with the runtime AJV boundary as the remaining
+// net for whatever the static leg cannot statically resolve. Cell B pins that
+// the in-file analogue is LOUD (the check firing where it was already wired);
+// cell A pins that the cross-file leg is LOUD too, mirroring cell B — it
+// witnesses the cross-file check firing and un-registering the caller. Cells
+// C-E pin the net that actually caught this bug.
 //
 // Cells C-E drive the REAL production invoke path (`#resolveInvoke` ->
 // `#driveCallee` -> the subagent spawn cell -> `#validateInvokeReturn`) over the
@@ -166,22 +170,30 @@ async function loadCorpus(files: Record<string, string>): Promise<{
 }
 
 describe("the load path's reach over a typed invoke of an empty-tail callee", () => {
-  it("A: cross-file — `invoke<R>(\"./child.theta\")` against an empty-tail callee draws NO load/parse diagnostic and both thetas register (the runtime AJV net is the only guard)", async () => {
+  it("A: cross-file — `invoke<R>(\"./child.theta\")` against an empty-tail callee FIRES theta/parse/invoke-return-type-mismatch and un-registers the caller (the cross-file mirror of cell B, per the spec's Empty-tail callee compatibility clause)", async () => {
     const outcome = await loadCorpus({
       "caller.theta": TYPED_INVOKE_CALLER,
       "child.theta": EMPTY_TAIL_CALLEE,
     });
 
-    // Both register: the caller is not un-registered, so nothing convicted it.
-    expect(outcome.registered).toContain("caller");
+    // The error-severity return-type mismatch convicts the caller: it must not
+    // register. The callee is itself valid (a no-tail subagent theta) and still
+    // registers — the mismatch is at the caller's annotated invoke site.
+    expect(outcome.registered).not.toContain("caller");
     expect(outcome.registered).toContain("child");
-    expect(outcome.stderr).not.toMatch(/theta\/parse\/invoke-return-type-mismatch/);
-    // No theta/* diagnostic of ANY code reaches either surface for this corpus —
-    // the assertion is on the whole channel, so a future cross-file return check
-    // reddens this cell (at which point it flips to the load-gate cell the
-    // investigation was looking for).
-    expect(outcome.stderr).not.toMatch(/theta\//);
-    expect(outcome.toasts).toEqual([]);
+    expect(outcome.stderr).toMatch(/theta\/parse\/invoke-return-type-mismatch/);
+    // The toast carries the mismatch message. `<actual>` is the callee's
+    // inferred final-value type `null` (FN-4 empty tail); `<callee>` renders per
+    // the category-7 rule (the verbatim path literal here), pinned loosely so
+    // the assertion holds whatever the cross-file render form settles on while
+    // still locking the code, the shape, and the `null` actual.
+    expect(
+      outcome.toasts.some((t) =>
+        /invoke<Schema> annotation incompatible with callee '.*' return type null/.test(
+          t.message,
+        ),
+      ),
+    ).toBe(true);
   });
 
   it("B: in-file — the same relation at a `subagent fn` return annotation FIRES theta/parse/invoke-return-type-mismatch and un-registers the theta (so cell A is a reach limit, not a dead probe)", async () => {

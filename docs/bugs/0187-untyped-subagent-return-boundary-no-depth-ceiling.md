@@ -1358,3 +1358,28 @@ run is the mechanical corroboration.
   five enforcement points are handed interpreter values, not four handed parsed
   JSON. No static
   type, no evaluation semantics, and no parser file moved.
+
+- **Discharge note (2026-09-20), from bug 0473's operator-authorized control
+  repair.** Rows D, D2 and J of this report's own witness
+  (`tests/subagent-return-depth-refusal.test.ts`) named their `invoke<Schema>`
+  boundary `invoke<number>("./deepfin.theta")` /
+  `invoke<number>("./pdeepfin.theta")` purely as a VEHICLE to reach the runtime
+  depth walk — the actual subject of this report — over a callee whose tail is
+  the depth-7 literal `[[[[[[1]]]]]]` (inferred
+  `array<array<array<array<array<array<integer>>>>>>`). Bug 0473 shipped the
+  cross-file leg of the static `invoke<Schema>` return-type check this report's
+  own §Fix (a) had left unadjudicated, and that check correctly refuses
+  `array ⊑ number` at load — exactly the incompatibility rows D/D2/J's vehicle
+  annotation carried, which would have stopped all three at load and never
+  reached the runtime walk they exist to pin. The operator-authorized repair
+  re-annotated the three call sites from `invoke<number>` to
+  `invoke<array<array<array<array<array<array<number>>>>>>>` — a type
+  COMPATIBLE with the callee's own inferred deep return, so `T_calleeReturn ⊑
+  Schema` holds and load passes unchanged. The depth-7 payload and every
+  asserted runtime outcome are UNCHANGED: rows D and J still assert
+  `.toBe(DEPTH_VIOLATION_MESSAGE)` and row D2's `samePath` still asserts
+  `.toBe(true)`, because the runtime depth walk (ceiling #4, an AJV-boundary
+  check) runs regardless of how deep a *compatible* annotation nests. This
+  report's coverage — a typed `invoke<Schema>` boundary runs the runtime depth
+  walk over a too-deep return — is preserved exactly; only the vehicle's type
+  changed, not the mechanism or the verdict under test.

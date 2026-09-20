@@ -16,6 +16,13 @@
 //     positional argument against the callee's corresponding `params:` field
 //     (invocation.md §Argument binding). Shares this loop's resolved `arity`
 //     and the same soundness mechanisms as the bug 0072 check below.
+//   - bug 0473 — `theta/parse/invoke-return-type-mismatch`, over the SAME
+//     `invoke<Schema>("./x.theta", …)` site, independent of the arity/type
+//     block above: when the callee is statically resolvable, its inferred
+//     final-value type is compared against the annotated `Schema` via
+//     `checkInvokeReturnType` — the cross-file mirror of the in-file
+//     `subagent fn` return check (invocation.md §"Typed return", the
+//     Empty-tail callee compatibility clause).
 //   - bug 0072 — `theta/parse/tool-arg-type-mismatch`, folded into the SAME
 //     `.theta`-callable call-site loop immediately after its arity check, and
 //     only when arity raised no diagnostic (arity before type; invocation.md
@@ -1213,6 +1220,19 @@ export async function checkInvokeStaticResolution(
     readonly graph: InvokeGraph;
     readonly resolveCalleeArity: (calleeAbsolutePath: string) => Promise<CalleeArity | undefined>;
     /**
+     * Bug 0473: the cross-file `invoke<Schema>` return-type leg's callee-side
+     * input — the callee's inferred final-value payload, or `undefined` when
+     * it is unresolvable / not decidable without callee-namespace resolution
+     * (the runtime AJV net is the fallback for either case). Optional (unlike
+     * `resolveCalleeArity`): a caller that omits it gets no return-type leg,
+     * not a crash — the same shape `callableSet` below already uses, and the
+     * one this pass's OWN production wiring (production-composition.ts)
+     * always supplies.
+     */
+    readonly resolveCalleeReturnType?: (
+      calleeAbsolutePath: string,
+    ) => Promise<CompatType | undefined>;
+    /**
      * The caller's frozen `tools:` resolution snapshot. Drives the
      * `.theta`-callable-call arity loop below; `undefined` (no `tools:`
      * resolved yet, or a caller that never threads one) yields no
@@ -1260,6 +1280,11 @@ export async function checkInvokeStaticResolution(
           resolveCalleeAbsolute,
           checkClauseCwdType,
           buildInvokeArgSlot,
+          // Defaulted here, not left optional on `checkInvokeExprCallSurface`'s
+          // own deps: that keeps the return-type leg's `if` block below
+          // unconditional on presence, reading only as “did the callee resolve”.
+          resolveCalleeReturnType:
+            deps.resolveCalleeReturnType ?? ((): Promise<CompatType | undefined> => Promise.resolve(undefined)),
         },
       )),
     );

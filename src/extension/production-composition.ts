@@ -171,6 +171,8 @@ import {
 import { admissibleToolsSpec } from "./tools-entry-gate";
 import { RUNTIME_TOOL_SIGNATURES, type RuntimeToolName } from "../parser/runtime-tools";
 import { checkCalleeHasErrors, checkInvokeExtension } from "../parser/invoke-diagnostics";
+import { inferCalleeReturnPayload } from "../parser/type-layer-checks";
+import type { CompatType } from "../parser/type-compat";
 import { canonicalForm, schemaSlug, toLoweredJsonValue } from "../parser/schema-lowering";
 import {
   canonicalizePath,
@@ -1428,6 +1430,8 @@ async function runComposePass(
       graph: invokeGraph,
       resolveCalleeArity: (absolutePath) =>
         resolveCalleeArity(fileSystem, absolutePath, parseDeps),
+      resolveCalleeReturnType: (absolutePath) =>
+        resolveCalleeReturnType(fileSystem, absolutePath, parseDeps),
       // `toolResult` is this theta's already-frozen `tools:` snapshot (resolved
       // above by `resolveThetaToolsAtLoad`); the `.theta`-callable-call arity
       // loop resolves each call's callee against it. Guarded spread (not a bare
@@ -2457,6 +2461,42 @@ async function resolveCalleeArity(
     // arity counts come from — no second callee read.
     mode: document.frontmatter.mode,
   };
+}
+
+/**
+ * Bug 0473: the cross-file `invoke<Schema>` return-type leg's callee-side
+ * input, parallel to `resolveCalleeArity` above. Parses the callee via the
+ * same pass-scoped cache and infers its final-value payload (the same
+ * inference `checkSubagentReturnAnnotation` runs for an in-file `subagent fn`
+ * tail, over the callee's whole body). Returns `undefined` when the callee is
+ * unreadable / unparseable (not statically resolvable) or its payload is not
+ * decidable without callee-namespace resolution
+ * (`inferCalleeReturnPayload`'s own comment) — either way the runtime AJV net
+ * applies, exactly as an unresolved arity does.
+ */
+async function resolveCalleeReturnType(
+  fs: FileSystem,
+  absolutePath: string,
+  deps: PassParseDeps,
+): Promise<CompatType | undefined> {
+  const bytes = await fs.readBytes(absolutePath).then(
+    (value) => value,
+    () => undefined,
+  );
+  if (bytes === undefined) {
+    return undefined;
+  }
+  const document = parseViaPassCache({ path: absolutePath, bytes }, deps);
+  if (document.frontmatter === null || hasLoadParseError(document.diagnostics)) {
+    return undefined;
+  }
+  // Same `wireName`/`type` projection `checkTypeLayer`'s own caller
+  // (theta-document.ts) uses to build `ParamsFieldSource[]` from frontmatter.
+  const paramsFields = (document.frontmatter.params?.fields ?? []).map((field) => ({
+    name: field.wireName,
+    typeSource: field.type,
+  }));
+  return inferCalleeReturnPayload(document.body, absolutePath, paramsFields);
 }
 
 /**

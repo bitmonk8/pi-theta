@@ -1,6 +1,6 @@
 # Bug 0473 — the spec's cross-file static `invoke<Schema>` return-type check is unimplemented: a statically-resolvable literal-path callee with an incompatible (or empty-tail `null`) final value loads with zero diagnostics, and the mismatch only surfaces at runtime as `return_validation`
 
-- **Status:** open.
+- **Status:** fixed (0.484.0).
 - **Sev/Diff estimate:** S3/D3 — S3 because the fail-closed runtime net
   (`#validateInvokeReturn`, AJV against the `invoke<Schema>` annotation) does
   hold: no wrong value crosses the boundary, so shipped behaviour degrades
@@ -57,9 +57,9 @@ missing — the typed annotation instead buys the runtime AJV net.
 ## Witnesses (landed with this report)
 
 `tests/quality-loop-empty-tail-return-validation.test.ts`:
-- cell A — TRIPWIRE: pins today's cross-file zero-diagnostic behaviour and
-  REDDENS the day a cross-file return check lands (update it and this bug
-  together).
+- cell A — asserts that a cross-file `invoke<Schema>` of an empty-tail (final
+  value `null`) callee fires `theta/parse/invoke-return-type-mismatch` and
+  un-registers the caller: the cross-file mirror of cell B.
 - cell B — the in-file `subagent fn` contrast (the check firing where it is
   implemented).
 - cells C–E — the runtime net: conforming report ⇒ `Ok`; missing field /
@@ -74,3 +74,88 @@ inference the in-file path uses) and run `checkInvokeReturnType`; emit
 `theta/parse/invoke-return-type-mismatch` and refuse registration exactly as
 the in-file path does. No new diagnostic code (DIAG-2: the code exists in the
 registry; this extends its firing surface to where the spec already pins it).
+
+### Bug 0187 control repair (authorized 2026-09-20, operator)
+
+The new load-time check REDS three rows of the protected sibling witness
+`tests/subagent-return-depth-refusal.test.ts` (bug 0187): rows D, D2, and J
+spawn `invoke<number>("./deepfin.theta")` / `invoke<number>("./pdeepfin.theta")`
+where the callee returns a depth-7 array literal (`[[[[[[1]]]]]]`, inferred
+`array<array<array<array<array<array<integer>>>>>>`). The `<number>` annotation
+was an arbitrary VEHICLE to reach the runtime depth walk (the actual subject of
+bug 0187) — and array-vs-number is precisely the incompatibility this fix now
+correctly refuses at load, so the rows never reach the runtime walk.
+
+**Repair (behaviour-preserving, authorized):** re-annotate rows D/D2/J to a
+type COMPATIBLE with the callee's own inferred deep return (so
+`T_calleeReturn ⊑ Schema` holds and load passes), leaving the depth-7 payload
+unchanged so the runtime depth walk still fires and still refuses with the
+canonical `JSON document depth exceeds 5` message. Bug 0187's coverage — "a
+typed `invoke<Schema>` boundary runs the runtime depth walk over a too-deep
+return" — is preserved exactly; only the annotation's type changes, not the
+asserted runtime outcome. Ceiling #4 is a RUNTIME (AJV-boundary) check, not a
+load-time annotation-depth check, so a deep-but-compatible annotation does not
+trip a separate load refusal (row E, the `tools:`-surface control, is
+unaffected and confirms the fix is scoped to the `invoke<Schema>` surface). If
+the re-annotation unexpectedly reds any OTHER row or trips a load check, STOP
+and report rather than widening further. A discharge note is appended to
+`docs/bugs/0187-*.md` recording that its rows D/D2/J annotations were adjusted
+by the 0473 fix with coverage preserved.
+
+## Fix (0.484.0)
+
+- What shipped:
+  - `src/parser/type-layer-checks.ts` — extracted `buildTypeLayerWalk` (shared
+    pass/env/checker construction, reused byte-identically by `checkTypeLayer`);
+    added `TypeLayerWalk.inferFinalValuePayload` (the same `resolveReturnType` +
+    withheld-binder deferral the in-file `checkSubagentReturnAnnotation` runs);
+    exported `inferCalleeReturnPayload(body, file, paramsFields)`. Cross-namespace
+    safety: returns `undefined` (defer to the runtime AJV net) when the inferred
+    payload contains any `named` type — a callee-namespace name is not resolvable
+    in the caller's `TypeEnv`, where the `⊑` relation runs (§"Static resolution").
+  - `src/extension/production-composition.ts` — `resolveCalleeReturnType`
+    (readBytes → `parseViaPassCache` → `inferCalleeReturnPayload`), wired as a
+    dep into `checkInvokeStaticResolution` (parallel to `resolveCalleeArity`).
+  - `src/extension/invoke-static-checks.ts` — threaded `resolveCalleeReturnType`
+    through to `checkInvokeExprCallSurface`; header doc-comment bullet for the
+    new return-type leg.
+  - `src/extension/invoke-expr-call-surface.ts` — the return-type leg: for each
+    literal-path `invoke<Schema>` site whose containment succeeds and whose
+    `returnSchema` is written, resolve the callee's final-value payload and run
+    the existing `checkInvokeReturnType` against the caller's `typeEnv`, emitting
+    `theta/parse/invoke-return-type-mismatch` and refusing registration exactly
+    as the in-file path does. No new diagnostic code (DIAG-2).
+  - `tests/quality-loop-empty-tail-return-validation.test.ts` — cell A flipped
+    from the tripwire to the spec-correct assertion (cross-file `invoke<R>` of an
+    empty-tail callee FIRES `theta/parse/invoke-return-type-mismatch` and
+    un-registers the caller); header comment rewritten to the landed state.
+  - `tests/subagent-return-depth-refusal.test.ts` — operator-authorized bug-0187
+    control repair: rows D/D2/J re-annotated `invoke<number>` →
+    `invoke<array<array<array<array<array<array<number>>>>>>>` (compatible with
+    the callee's inferred `array^6<integer>`), payloads and asserted runtime
+    outcomes unchanged.
+- Gates: witness `npx vitest run tests/quality-loop-empty-tail-return-validation.test.ts`
+  → 5/5; full `npm test` → 690 files / 11589 passed / 0 failed (incl.
+  `tests/subagent-return-depth-refusal.test.ts` 13/13); `npm run typecheck`
+  clean; `npm run lint` clean.
+- Review: 1 round. `bug-fix-reviewer` → 3 findings, all fidelity/prose, zero
+  correctness/spec/behavioural: F1 (0187 discharge note missing), F2 (stale
+  witness header describing the fix as unimplemented), F3 (0473 cell-A witness
+  bullet still describing the tripwire). All resolved by a `bug-fix-fixer-light`
+  doc/comment-only round; polish verified by gate-diff, confirmation round
+  skipped. Residual R1 (non-blocking): a WHY sentence at the new leg's
+  `annotationToCompatType` call site suggested for the next touch of that file.
+- Verification: `bug-fix-verifier` → SOLID. Witness genuinely reds (neutralized
+  the leg → cell A red with "expected [ 'caller', 'child' ] to not include
+  'caller'", restored byte-exact → green); full suite green; live
+  `tests/live/hardening/session-invoke-attach.test.ts` (real cross-file
+  `invoke<Schema>` boundary) 2/2; lint + typecheck clean.
+- Residuals: R1 above (WHY comment, non-blocking). The incompatible-schema
+  refusal firing live has no dedicated live test — proven by the deterministic
+  unit witness (cell A), the correct home for a parse-time check.
+- Discharge notes appended: `docs/bugs/0187-untyped-subagent-return-boundary-no-depth-ceiling.md`
+  (rows D/D2/J re-annotation, coverage preserved).
+- Pinned dispositions / non-goals: named-payload callee returns defer to the
+  runtime AJV net by design (cross-namespace guard); the `tools:`-callable
+  surface is unaffected (return typing there is callee-tail inference, no
+  author annotation to compare — row E control).

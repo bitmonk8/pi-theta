@@ -6,6 +6,7 @@ import type { CallExpr, CallWithClause, Expr, InvokeExpr } from "../parser/theta
 import {
   checkCalleeHasErrors,
   checkInvokeCall,
+  checkInvokeReturnType,
   type InvokeArgSlot,
 } from "../parser/invoke-diagnostics";
 import {
@@ -374,6 +375,9 @@ export async function checkInvokeExprCallSurface(
       typePass: StaticTypeInferencePass,
       emptyCalleeAnnotationEnv: TypeEnv,
     ) => InvokeArgSlot;
+    readonly resolveCalleeReturnType: (
+      calleeAbsolutePath: string,
+    ) => Promise<CompatType | undefined>;
   },
 ): Promise<Diagnostic[]> {
   const diagnostics: Diagnostic[] = [];
@@ -427,6 +431,38 @@ export async function checkInvokeExprCallSurface(
       diagnostics.push({ ...containment.diagnostic, file: site.file, range: site.range });
       // An escaping callee cannot be opened for the arity check; move on.
       continue;
+    }
+
+    // invocation.md §"Typed return" (Empty-tail callee compatibility): a
+    // typed invoke<Schema> of a statically-resolvable literal-path callee
+    // whose inferred final value is incompatible with Schema is a parse
+    // error — the cross-file mirror of the in-file `subagent fn` return
+    // check (checkSubagentReturnAnnotation), reusing the SAME
+    // checkInvokeReturnType / theta/parse/invoke-return-type-mismatch
+    // (bug 0473). Independent of the arity/type block below: an arity or
+    // per-slot mismatch does not withhold a genuine return-type mismatch,
+    // and vice versa. Self-deferring: `resolveCalleeReturnType` answers
+    // `undefined` for an unreadable/unparseable callee, or a payload this
+    // layer cannot decide without callee-namespace resolution (named /
+    // withheld / no-common-type) — the runtime AJV net is the fallback
+    // exactly as it is for the in-file path's own unresolvable operands.
+    if (invoke.returnSchema !== null && invoke.returnSchemaAbsorbed !== true) {
+      const schema = annotationToCompatType(invoke.returnSchema);
+      if (schema !== undefined) {
+        const calleeReturn = await deps.resolveCalleeReturnType(resolvedPath);
+        if (calleeReturn !== undefined) {
+          diagnostics.push(
+            ...checkInvokeReturnType({
+              callee: invoke.path,
+              calleeResolvable: true,
+              schema,
+              calleeReturn,
+              env: typeEnv,
+              site,
+            }),
+          );
+        }
+      }
     }
 
     // INV-3 (invocation.md §Argument arity): arity is checked against the

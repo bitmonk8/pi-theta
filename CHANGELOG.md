@@ -4,6 +4,32 @@ All notable changes to `@bitmonk8/pi-theta` will be documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.484.0]
+
+### Fixed
+- **Bug 0473 — the spec's cross-file static `invoke<Schema>` return-type check
+  was unimplemented; a mismatch surfaced only at runtime as `return_validation`**
+  `invocation.md` §"Typed return" promises that when both the annotated `Schema`
+  and a literal-path callee are statically resolvable the parser checks
+  `T_calleeReturn ⊑ Schema` and a mismatch is a parse error
+  `theta/parse/invoke-return-type-mismatch`. Only the in-file `subagent fn` leg
+  ran that check; a cross-file `invoke<Schema>("./x.theta")` against an
+  incompatible (or empty-tail `null`) callee loaded with zero diagnostics and
+  failed only at the first call. The load pass's existing cross-file walk now
+  carries a return-type leg: it resolves the callee's final-value type through
+  the shared parse cache (`resolveCalleeReturnType` → `inferCalleeReturnPayload`)
+  and runs the existing `checkInvokeReturnType`, emitting
+  `theta/parse/invoke-return-type-mismatch` and un-registering the caller
+  exactly as the in-file path does. Named-payload returns defer to the runtime
+  AJV net (cross-namespace guard); no new diagnostic code (DIAG-2). Spec:
+  invocation.md §"Typed return" / §"Static resolution" / Empty-tail callee
+  compatibility clause. Witness: `tests/quality-loop-empty-tail-return-validation.test.ts`
+  cell A (cross-file mirror of cell B). The operator-authorized bug-0187 control
+  repair re-annotated rows D/D2/J of
+  `tests/subagent-return-depth-refusal.test.ts` from `invoke<number>` to a
+  deep-array type compatible with the callee's inferred return, preserving that
+  report's runtime-depth-walk coverage exactly.
+
 ## [0.483.0]
 
 ### Fixed

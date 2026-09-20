@@ -952,9 +952,16 @@ const ROOTS: Readonly<Record<string, string>> = {
   // Row C — `tools:` uninferred, FINITE and past the cap.
   "top-c.theta": toolsRoot("deepfin", bindValueBody("deepfin()")),
   // Row D — the typed control: the same payload at a boundary that DOES walk.
-  "top-d.theta": plainRoot(matchMessageBody('invoke<number>("./deepfin.theta")', "OK")),
+  "top-d.theta": plainRoot(
+    matchMessageBody(
+      'invoke<array<array<array<array<array<array<number>>>>>>>("./deepfin.theta")',
+      "OK",
+    ),
+  ),
   // Row D2 — the same typed control, read for the path it names.
-  "top-d2.theta": plainRoot(matchCalleePathBody('invoke<number>("./deepfin.theta")')),
+  "top-d2.theta": plainRoot(
+    matchCalleePathBody('invoke<array<array<array<array<array<array<number>>>>>>>("./deepfin.theta")'),
+  ),
   // Row E — the derivation control: the same boundary, a nameable callee tail.
   "top-e.theta": toolsRoot("deepschema", matchMessageBody("deepschema()", "OK")),
   // Row F — bug 0068's discard arm: untyped `invoke` binds nothing, so a
@@ -966,7 +973,12 @@ const ROOTS: Readonly<Record<string, string>> = {
   // Row I — the prompt leg, untyped: no serialisation, nothing to refuse.
   "top-i.theta": plainRoot(matchMessageBody('invoke("./pdeepfin.theta")', "OK-DISCARD")),
   // Row J — the prompt leg, typed: the PARENT-side walk owns it, unchanged.
-  "top-j.theta": plainRoot(matchMessageBody('invoke<number>("./pdeepfin.theta")', "OK")),
+  "top-j.theta": plainRoot(
+    matchMessageBody(
+      'invoke<array<array<array<array<array<array<number>>>>>>>("./pdeepfin.theta")',
+      "OK",
+    ),
+  ),
   // Row K — the wire-form over-reach fence (bug 0187 F1): the same uninferred
   // `tools:` boundary as rows A/B2/C, carrying an enum variant at level 5. Its
   // document is inside the cap, so it binds at HEAD and must keep binding.

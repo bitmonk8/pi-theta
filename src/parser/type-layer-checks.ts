@@ -43,7 +43,7 @@
 // Spec (narrative): expressions.md, control-flow.md, functions.md,
 // type-system.md, runtime-value-model.md.
 
-import type { Diagnostic } from "../diagnostics/diagnostic";
+import type { Diagnostic, SourceRange } from "../diagnostics/diagnostic";
 import type {
   ArrayExpr,
   Block,
@@ -333,14 +333,19 @@ export interface ParamsFieldSource {
  *     declared `CompatType` into the walk the same way an annotated `fn`
  *     parameter does (`walkFn`).
  */
-export function checkTypeLayer(
+/**
+ * Build the `V20b` pass / `TypeEnv` / `TypeLayerWalk` triple `checkTypeLayer`
+ * and `inferCalleeReturnPayload` both need, so the two callers construct the
+ * checker identically rather than by two independently-maintained copies
+ * drifting apart. `runtimeToolSuccessTypes` is `checkTypeLayer`'s own RFC 0011
+ * seam; `inferCalleeReturnPayload` has no analogous input and omits it.
+ */
+function buildTypeLayerWalk(
   body: ThetaBody,
   file: string,
   paramsFields: readonly ParamsFieldSource[],
-  // RFC 0011 (seam sheet §0 C6): structural return-type flow for declared
-  // runtime tools. GOV-15 inert: absent / empty for every 1.0.0-clean file.
   runtimeToolSuccessTypes?: ReadonlyMap<string, CompatType>,
-): Diagnostic[] {
+): { readonly checker: TypeLayerWalk } {
   const pass = new StaticTypeInferencePass({
     checkCompatible,
     enumNames: collectEnumNames(body.statements),
@@ -363,10 +368,79 @@ export function checkTypeLayer(
     importedSymbols,
     shadowedNames,
   );
+  return { checker };
+}
+
+export function checkTypeLayer(
+  body: ThetaBody,
+  file: string,
+  paramsFields: readonly ParamsFieldSource[],
+  // RFC 0011 (seam sheet §0 C6): structural return-type flow for declared
+  // runtime tools. GOV-15 inert: absent / empty for every 1.0.0-clean file.
+  runtimeToolSuccessTypes?: ReadonlyMap<string, CompatType>,
+): Diagnostic[] {
+  const { checker } = buildTypeLayerWalk(body, file, paramsFields, runtimeToolSuccessTypes);
   checker.walkBlock(body, paramsFieldBindings(paramsFields), {
     returnScope: { kind: "inferred" },
   });
   return checker.diagnostics;
+}
+
+/**
+ * Whether `type` contains a `named` node anywhere in its structure (prim /
+ * literal are leaves; array / union / object recurse). Used by
+ * `inferCalleeReturnPayload` to defer any payload that would need
+ * callee-namespace resolution — see that function's own comment for why.
+ */
+function containsNamedType(type: CompatType): boolean {
+  switch (type.kind) {
+    case "named":
+      return true;
+    case "array":
+      return containsNamedType(type.element);
+    case "union":
+      return type.arms.some((arm) => containsNamedType(arm));
+    case "object":
+      return type.fields.some((field) => containsNamedType(field.type));
+    case "prim":
+    case "literal":
+      return false;
+  }
+}
+
+/**
+ * Infer a whole-`.theta` callee's final-value payload — the same inference
+ * `checkSubagentReturnAnnotation` runs for an in-file `subagent fn`'s tail —
+ * for the cross-file `invoke<Schema>` return-type leg
+ * (invocation.md §"Typed return" / the Empty-tail callee compatibility
+ * clause; bug 0473). Returns `undefined` when the payload is not decidable
+ * without callee-namespace resolution.
+ *
+ * The compatibility relation `T_calleeReturn ⊑ Schema` the caller runs
+ * afterwards is decided in the CALLER's `TypeEnv`, because `Schema` is the
+ * caller's own annotation — but a `named` node inside the inferred payload
+ * names a declaration in the CALLEE's namespace, which the caller's `TypeEnv`
+ * cannot resolve. Deciding it there anyway risks a false positive: a
+ * same-spelled but unrelated caller-side declaration (a homonym) would answer
+ * for a name it does not actually denote. So a payload containing ANY `named`
+ * node is deferred here (`undefined`) rather than risk that — leaving it to
+ * the runtime AJV net, exactly as `checkInvokeReturnType` already defers a
+ * non-statically-resolvable operand. What remains decidable without any
+ * callee-namespace lookup — primitives, literals (including the FN-4
+ * empty-tail `null`), and their structural (`array`/`union`/`object`)
+ * compositions — is exactly the set this check covers.
+ */
+export function inferCalleeReturnPayload(
+  body: ThetaBody,
+  file: string,
+  paramsFields: readonly ParamsFieldSource[],
+): CompatType | undefined {
+  const { checker } = buildTypeLayerWalk(body, file, paramsFields);
+  const payload = checker.inferFinalValuePayload(body, paramsFieldBindings(paramsFields));
+  if (payload === undefined || containsNamedType(payload)) {
+    return undefined;
+  }
+  return payload;
 }
 
 /**
@@ -516,6 +590,21 @@ export function collectEnumNames(statements: readonly Stmt[]): ReadonlySet<strin
  * alias's twin still stays sound regardless — it never carries the marker and
  * therefore only ever defers, never trips a false verdict.
  */
+/**
+ * A dummy `SourceRange` for `inferFinalValuePayload`'s `resolveReturnType`
+ * call: that call's `site` is read only by a no-common-type diagnostic this
+ * whole-body inference path discards (it returns the resolved payload, never
+ * `resolveReturnType`'s own diagnostics), so no real range exists to supply.
+ * A function (not a module-level object literal): conventions.md's "no
+ * globals/statics" rule bans a shared mutable module-level object, and the
+ * H2a architectural gate (`tools/arch-checks/no-module-level-mutable.js`)
+ * enforces it mechanically on the initializer shape, so a fresh literal per
+ * call is the allowed form.
+ */
+function placeholderSiteRange(): SourceRange {
+  return { start: { line: 1, column: 1 }, end: { line: 1, column: 1 } };
+}
+
 function containsWithheldBinderType(type: CompatType): boolean {
   switch (type.kind) {
     case "named":
@@ -2286,6 +2375,34 @@ class TypeLayerWalk {
     };
     visitBlock(block);
     return found;
+  }
+
+  /**
+   * Infer a body's final-value payload — the tail/`return` LUB `resolveReturnType`
+   * computes — without checking it against any annotation. `inferCalleeReturnPayload`
+   * (module-level, below) is the sole caller: it runs this SAME resolution
+   * `checkSubagentReturnAnnotation` uses for an in-file `subagent fn`, over a
+   * whole parsed `.theta` body instead of one `fn`'s. The `site` passed to
+   * `resolveReturnType` is a placeholder — its only consumer is a discarded
+   * no-common-type diagnostic this call site never reads.
+   */
+  public inferFinalValuePayload(
+    body: Block,
+    bindings: ReadonlyMap<string, CompatType>,
+  ): CompatType | undefined {
+    const resolved = resolveReturnType({
+      contributions: this.collectReturnContributions(body, bindings),
+      hasQuestion: this.bodyHasQuestion(body),
+      env: this.env,
+      site: { file: this.file, range: placeholderSiteRange() },
+    });
+    if (resolved.kind !== "inferred") {
+      return undefined;
+    }
+    if (containsWithheldBinderType(resolved.inferred.payload)) {
+      return undefined;
+    }
+    return resolved.inferred.payload;
   }
 
   /** The boolean-position check for an `if` / `while` condition. */
