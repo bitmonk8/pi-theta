@@ -18,6 +18,25 @@ Two groups (see `package.json` scripts):
   - **Hardening probes** (`tests/live/hardening/**`) — live-axis probes over
     the in-process probe harness (`probe-harness.ts`).
 
+### Capture an expensive run to a file — never pipe it straight to `grep`
+
+The full suite (`npm test`, ~minutes / hundreds of files) and the live suite
+are expensive. **Never** pipe such a run directly into `grep`/`head`/`tail`
+(`npm test 2>&1 | grep …`): a filter picks the wrong lines the first time
+far more often than not, and every re-filter re-runs the whole suite. Tee the
+full output to a file, then grep the FILE as many times as analysis needs —
+one run, unlimited passes:
+
+```
+npm test > /tmp/npmtest.log 2>&1; tail -3 /tmp/npmtest.log      # summary
+grep -nE "FAIL|×|failed" /tmp/npmtest.log                       # failures
+grep -n "<a failing test name>" /tmp/npmtest.log                # drill in — no re-run
+```
+
+The same rule holds for `tsc`, `lint`, and any live-suite invocation: capture
+once, inspect the artifact. A truncated pipe that discards the run is a
+re-run waiting to happen, and on the live suite it also re-burns tokens.
+
 ## Live-suite conventions
 
 ### Run it liberally
