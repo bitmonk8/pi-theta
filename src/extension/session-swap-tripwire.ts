@@ -135,9 +135,10 @@ export function armSessionSwapTripwireForReason(
 export function guardSessionSwapTripwire(deps: TripwireGuardDeps): void {
   const state = deps.registry.readSessionSwapTornDown();
   if (state.armed) {
+    // ThetaRegistry.armSessionSwapTornDown records the reason whenever it arms.
     emitTeardownDiagnostic(
       deps.sink,
-      sessionSwapInstanceSurvivedDiagnostic(state.reason ?? "new"),
+      sessionSwapInstanceSurvivedDiagnostic(state.reason!),
     );
     deps.terminator.terminate();
   }

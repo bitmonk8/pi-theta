@@ -1,7 +1,6 @@
 // RFC 0010 (execution-status.md, EXST-1..12) — the shared, closed type surface
 // for the execution-status bus, its producer payloads, sink contract, and the
-// frozen caps/tuning constants. No behaviour lives here; `bus.ts`,
-// `checkpoint-decorator.ts`, and `child-tap.ts` are the behavioural leaves.
+// frozen caps/tuning constants. No behaviour lives here.
 //
 // Spec: docs/spec_topics/execution-status.md (EXST-1..12).
 

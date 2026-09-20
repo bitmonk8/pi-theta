@@ -176,6 +176,27 @@ export interface SystemNoteSender {
   ): void;
 }
 
+/** Serialize the system-note wire envelope without materialising absent details. */
+export function serializeSystemNote(
+  customType: string,
+  content: string,
+  display: boolean,
+  details: SystemNoteDetails | undefined,
+): Parameters<SystemNoteSender["sendMessage"]>[0] {
+  // Bug 0437 §Fix: an informational note's `details` is `undefined`
+  // (bug 0401's details-ABSENT wire contract). `exactOptionalPropertyTypes`
+  // forbids writing `details: undefined` onto the wire message, and the
+  // 0401 byte contract requires the KEY itself absent (`"details" in note`
+  // must be `false`), not merely `undefined`-valued — so the key is
+  // conditionally spread rather than always assigned.
+  return {
+    customType,
+    content,
+    display,
+    ...(details !== undefined ? { details } : {}),
+  };
+}
+
 /**
  * The transient toast surface (`ctx.ui`) the fallback chain calls — the only
  * member theta touches is `notify(message, "error")` (synchronous, may throw).
@@ -408,21 +429,9 @@ export function sendSystemNote(
   try {
     // Best-effort: `pi.sendMessage` returns `void` (synchronous); never await,
     // never attach a `.catch`. Only a synchronous throw is observable.
-    //
-    // Bug 0437 §Fix: an informational note's `details` is `undefined`
-    // (bug 0401's details-ABSENT wire contract). `exactOptionalPropertyTypes`
-    // forbids writing `details: undefined` onto the wire message, and the
-    // 0401 byte contract requires the KEY itself absent (`"details" in note`
-    // must be `false`), not merely `undefined`-valued — so the key is
-    // conditionally spread rather than always assigned.
     const normalisedDetails = normaliseDetailsFileSpelling(note.details);
     deps.pi.sendMessage(
-      {
-        customType: SYSTEM_NOTE_CHANNEL,
-        content: note.content,
-        display: note.display,
-        ...(normalisedDetails !== undefined ? { details: normalisedDetails } : {}),
-      },
+      serializeSystemNote(SYSTEM_NOTE_CHANNEL, note.content, note.display, normalisedDetails),
       { triggerTurn: false },
     );
     return;

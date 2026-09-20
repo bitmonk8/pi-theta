@@ -25,7 +25,6 @@ import {
 import type {
   OpenedSubagentWire,
   PreparedSubagentLaunch,
-  SubagentLaunchRequest,
 } from "../runtime/subagent-launcher";
 import type { PlacedChild } from "../runtime/subagent-placement";
 import {
@@ -177,9 +176,8 @@ export function createProductionSubagentWire(
   deps: ProductionSubagentWireDeps,
 ): (
   prepared: Extract<PreparedSubagentLaunch, { ok: true }>,
-  request: SubagentLaunchRequest,
 ) => Promise<OpenedSubagentWire> {
-  return async (prepared, _request): Promise<OpenedSubagentWire> => {
+  return async (prepared): Promise<OpenedSubagentWire> => {
     const token = deps.mintSecret();
     const nonce = deps.mintSecret();
     const channel = await openResultChannel({

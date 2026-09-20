@@ -52,6 +52,7 @@ import {
   SystemNoteChannelHealth,
   SYSTEM_NOTE_CHANNEL,
   sendSystemNote,
+  serializeSystemNote,
   type SystemNoteChannelDeps,
 } from "./system-note-channel";
 import type { ThetaRegistry, ParsedTheta } from "./reload-wiring";
@@ -752,15 +753,8 @@ export function createThetaExtension(
         liveLocalNoteChannel = {
           pi: {
             sendMessage: (message, _options): void => {
-              // Mirror buildSystemNoteDeps's serialization: an informational
-              // note (bug 0401) omits `details` on the wire entirely.
               pi.sendMessage(
-                {
-                  customType: message.customType,
-                  content: message.content,
-                  display: message.display,
-                  ...(message.details !== undefined ? { details: message.details } : {}),
-                },
+                serializeSystemNote(message.customType, message.content, message.display, message.details),
                 { triggerTurn: false },
               );
             },

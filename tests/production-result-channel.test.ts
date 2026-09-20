@@ -50,7 +50,6 @@ import {
   SUBAGENT_INVOKE_DEPTH_ENV,
   SUBAGENT_PARENT_PID_ENV,
   type PreparedSubagentLaunch,
-  type SubagentLaunchRequest,
 } from "../src/runtime/subagent-launcher";
 import { SUBAGENT_PARAMS_ENV } from "../src/runtime/subagent-params";
 import type { PlacedChild } from "../src/runtime/subagent-placement";
@@ -223,8 +222,6 @@ function preparedLaunch(): Extract<PreparedSubagentLaunch, { ok: true }> {
   };
 }
 
-const REQUEST = {} as unknown as SubagentLaunchRequest;
-
 describe("RFC-0012 §2/§3 — createProductionSubagentWire", () => {
   it("opens the channel first, then writes the launch file carrying its coordinates, the projected control plane (control-plane keys only), the presentation, the entry and a distinct nonce/token", async () => {
     const fs = fakeLaunchFs();
@@ -237,7 +234,7 @@ describe("RFC-0012 §2/§3 — createProductionSubagentWire", () => {
       server,
       mintSecret: (): string => secrets[k++]!,
     });
-    const wire = await openWire(preparedLaunch(), REQUEST);
+    const wire = await openWire(preparedLaunch());
     expect(wire.launchFile).toBe("/tmp/pi-theta-launch-1/launch.json");
     const document = JSON.parse(fs.files.get(wire.launchFile)!) as SubagentLaunchFileDocument;
     expect(document).toEqual({
@@ -268,7 +265,7 @@ describe("RFC-0012 §2/§3 — createProductionSubagentWire", () => {
       server,
       mintSecret: createProductionSecretMint(),
     });
-    await expect(openWire(preparedLaunch(), REQUEST)).rejects.toThrow("EACCES");
+    await expect(openWire(preparedLaunch())).rejects.toThrow("EACCES");
     expect(server.closed).toBe(true);
   });
 
@@ -283,7 +280,7 @@ describe("RFC-0012 §2/§3 — createProductionSubagentWire", () => {
       mintSecret: createProductionSecretMint(),
       silenceBudgetMs: 1000,
     });
-    const wire = await openWire(preparedLaunch(), REQUEST);
+    const wire = await openWire(preparedLaunch());
     expect(fs.files.size).toBe(1);
     const placed: PlacedChild = {
       handle: "pane",
@@ -307,7 +304,7 @@ describe("RFC-0012 §2/§3 — createProductionSubagentWire", () => {
       server: new FakeWireServer(),
       mintSecret: createProductionSecretMint(),
     });
-    const wire = await openWire(preparedLaunch(), REQUEST);
+    const wire = await openWire(preparedLaunch());
     const child = wire.adapt({
       handle: "h",
       capabilities: { observesExit: false, inheritsEnv: true, visible: true },

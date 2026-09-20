@@ -989,7 +989,6 @@ export interface SubagentPlacementDeps {
    */
   readonly openWire?: (
     prepared: Extract<PreparedSubagentLaunch, { ok: true }>,
-    request: SubagentLaunchRequest,
   ) => Promise<OpenedSubagentWire>;
 }
 
@@ -1030,7 +1029,7 @@ export async function placeSubagentChild(
   }
   let wire: OpenedSubagentWire | undefined;
   try {
-    wire = await deps.openWire(prepared, request);
+    wire = await deps.openWire(prepared);
     // The launch file path is on argv: re-prepare with it so the argv the
     // backend receives carries `--theta-launch <path>`.
     const withFile = prepareSubagentLaunch({

@@ -3,8 +3,11 @@
 // This module owns the load-pass and watcher-time wiring named in the V9b leaf:
 //   - the `ThetaRegistry` (a `Map<slashName, parsedTheta>`) and the
 //     build-aside-then-publish registry swap (PIC-36);
-//   - the `session_start` cross-format collision pass over the
-//     `pi.getCommands()` snapshot, treated read-only-by-convention (PIC-39);
+//   - the test-only `dropCollidingThetas` cross-format collision helper over the
+//     read-only-by-convention `pi.getCommands()` snapshot (PIC-39); shipped
+//     PIC-39/PIC-69 collision resolution is wired by `runComposePass` in
+//     `production-composition.ts`, using `readPiOwnedCommands` in
+//     `production-discovered-theta.ts`;
 //   - the structural-change `theta-system-note` decision (PIC-37 empty-window
 //     suppression / PIC-38 same-window-rename emission);
 //   - the test-only `ReloadFailureInjector` failure-injection seam (registry-

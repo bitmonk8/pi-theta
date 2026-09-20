@@ -41,7 +41,6 @@ import {
   routeSubagentSpawnFailure,
   type OpenedSubagentWire,
   type PreparedSubagentLaunch,
-  type SubagentLaunchRequest,
 } from "../runtime/subagent-launcher";
 import {
   createPipePlacementBackend,
@@ -522,7 +521,6 @@ export interface ProductionProducerInput {
    */
   readonly subagentOpenWire?: (
     prepared: Extract<PreparedSubagentLaunch, { ok: true }>,
-    request: SubagentLaunchRequest,
   ) => Promise<OpenedSubagentWire>;
   readonly subagentExecutableHost?: import("../runtime/subagent-launcher").ExecutableHost;
   readonly subagentParentEnv?: Readonly<Record<string, string | undefined>>;
@@ -1495,9 +1493,10 @@ class ProductionThetaProducer implements ThetaProducerDeps {
       });
       // The classifier-produced message renders whenever it exists, whichever
       // kind produced it: both overflow arms carry the provider's own text
-      // in the same field the transport arm does
-      // (provider-error-mapping.ts:311, :388, :399), and the outcome below is
-      // transport-class regardless of `kind` (determinism-cancellation-failure.md:36).
+      // in the same field the transport arm does (`matchOverflowSignature` and
+      // `classifyProviderResponse` in `src/binder/provider-error-mapping.ts`),
+      // and the outcome below is transport-class regardless of `kind`
+      // (determinism-cancellation-failure.md:36).
       // The fixed fallback is the no-text case only, matching the fallback's
       // specified meaning elsewhere (queryerror-variants.md:106,
       // conversation-drive.md:16 PIC-51, provider-error-mapping.md:45).
@@ -1751,9 +1750,8 @@ class ProductionThetaProducer implements ThetaProducerDeps {
    * `binder/defaulting.ts`). The declaring-enum tag / schema brand a wire-form
    * default loses here is re-established downstream by the binder-`args`
    * inbound boundary (`bindParamsInbound`, `runtime/inbound-boundary.ts`,
-   * reached from `paramBindingsFrom`, `theta-composition-producer.ts:103`,
-   * called at `:527`) that `runtime-value-model.md:34` already mandates over
-   * binder `args`.
+   * reached from `paramBindingsFrom` in `src/extension/theta-composition-producer.ts`)
+   * that `runtime-value-model.md:34` already mandates over binder `args`.
    */
   async #recoverDeclaredDefaults(
     theta: ConversationBindInput["theta"],
@@ -4351,8 +4349,9 @@ class ProductionThetaProducer implements ThetaProducerDeps {
     const canonicalName: RuntimeToolName = entry.name;
     const sig = RUNTIME_TOOL_SIGNATURES.get(canonicalName)!;
 
-    // Evaluate positional args left-to-right (the `.theta`-callable path’s
-    // `evaluatePureExpression` map, production-theta-producer.ts:3965).
+    // Evaluate positional args left-to-right, matching the `.theta`-callable
+    // `evaluatePureExpression` map in `#resolveCallAsInvoke`
+    // (`src/extension/production-theta-producer.ts`).
     const argValues: ThetaValue[] = expr.args.map((a) =>
       evaluatePureExpression(a, env),
     );

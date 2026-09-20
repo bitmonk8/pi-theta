@@ -259,10 +259,8 @@ class ExecutionStatusBusImpl implements ExecutionStatusBus {
         // EXST-7 / F6: beyond the tracked nesting depth the set counter-collapses
         // into the deepest tracked set — its claims/settles still move counters,
         // but it never becomes its own visible set.
-        const deepest = node.laneSets[node.laneSets.length - 1];
-        return deepest === undefined
-          ? NOOP_LANE_SET_HANDLE
-          : this.#laneHandle(node, deepest, false);
+        const deepest = node.laneSets[node.laneSets.length - 1]!;
+        return this.#laneHandle(node, deepest, false);
       }
       const set: LaneSetState = {
         total,
