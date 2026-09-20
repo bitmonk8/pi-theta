@@ -102,6 +102,32 @@ export function assertStdlibArgumentKinds(
 }
 
 /**
+ * Bug 0315 runtime belt: a laundered receiver (a statically-unresolvable
+ * value) reaches here without ever passing through the parse-time
+ * `stdlib-arity-mismatch` check (`../parser/type-layer-checks.ts` defers on
+ * an "unknown"-classified receiver), so a wrong-arity call would otherwise
+ * fall through to unchecked `args[i] as …` casts in the dispatcher and forward
+ * raw JS `undefined` into the host method (bug 0315 §Reproduction). Thrown
+ * BEFORE the member switch, so no case ever sees an out-of-arity `args`. The
+ * arity check is followed by the bug-0394 KIND check (same laundered-
+ * receiver gap, one level down: a correct-arity call with a wrong-KIND
+ * argument), so the belt now covers both arity and kind.
+ */
+export function assertStdlibMemberArguments(
+  member: string,
+  signatures: ReadonlyMap<string, StdlibMemberSignature>,
+  args: readonly ThetaValue[],
+): void {
+  const signature = signatures.get(member);
+  if (signature !== undefined) {
+    if (args.length < signature.min || args.length > signature.max) {
+      throw new StdlibMethodArgumentDefectError(member, signature.min, signature.max, args.length);
+    }
+    assertStdlibArgumentKinds(member, signature, args);
+  }
+}
+
+/**
  * The `string` standard-library member surface (expressions.md §"Built-in
  * methods and properties"): the allow-list the `type`-phase
  * `theta/parse/unknown-method` check consumes. Kept in lockstep with the
@@ -158,23 +184,7 @@ export function evaluateStringMember(
   member: string,
   args: readonly ThetaValue[],
 ): ThetaValue {
-  // Bug 0315 runtime belt: a laundered receiver (a statically-unresolvable
-  // `string` value) reaches here without ever passing through the parse-time
-  // `stdlib-arity-mismatch` check (`../parser/type-layer-checks.ts` defers on
-  // an "unknown"-classified receiver), so a wrong-arity call would otherwise
-  // fall through to the unchecked `args[i] as …` casts below and forward raw
-  // JS `undefined` into the host method (bug 0315 §Reproduction). Thrown
-  // BEFORE the switch, so no case below ever sees an out-of-arity `args`. The
-  // arity check is followed by the bug-0394 KIND check (same laundered-
-  // receiver gap, one level down: a correct-arity call with a wrong-KIND
-  // argument), so the belt now covers both arity and kind.
-  const signature = STRING_MEMBER_SIGNATURES.get(member);
-  if (signature !== undefined) {
-    if (args.length < signature.min || args.length > signature.max) {
-      throw new StdlibMethodArgumentDefectError(member, signature.min, signature.max, args.length);
-    }
-    assertStdlibArgumentKinds(member, signature, args);
-  }
+  assertStdlibMemberArguments(member, STRING_MEMBER_SIGNATURES, args);
   switch (member) {
     // `length` — the UTF-16 code-unit count (JS `.length`; no grapheme or
     // code-point segmentation).

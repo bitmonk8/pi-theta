@@ -1,10 +1,12 @@
 // V19b / V19b-T — the theta lexical environment and scope model.
 //
-// This module owns the runtime lexical environment and the real `EvalHost`
-// implementation the `V19c` statement executor evaluates `V19a`'s body-AST
-// expressions and statements against. It is an integration-realisation of the
-// `V3a` (`EvalHost`), `V3b` (mutability), and `V15c` (import loader) seams at a
-// real host; it closes no new coverage-matrix row.
+// This module owns the runtime lexical environment and the standalone `V3a`
+// `EvalHost` conformance implementation exercised directly by tests. The
+// production `V19c` executor uses `StatementEvalHost.evaluatePure`, wired to
+// `evaluatePureExpression` (`src/extension/production-theta-producer.ts`), which
+// reads the environment directly, not through `ThetaEvalHost`. This module
+// realises the `V3a`, `V3b` (mutability), and `V15c` (import loader) seams;
+// it closes no new coverage-matrix row.
 //
 // `V19b` OWNS the expressions.md §"Identifier resolution" first-match
 // precedence — local `let` / parameter > top-level `fn` > import > callable —
@@ -30,7 +32,7 @@
 // V19b-T (tests-task) declared these seam shapes — the `LexicalEnvironment`
 // scope model, the arm-labelled `Resolution`, the `WriteResult`, the
 // `MaterializedImport` / `EnumRegistration` inputs, the `buildEnvironment`
-// factory, and the real `ThetaEvalHost` realising `V3a`'s `EvalHost`; V19b
+// factory, and the standalone `ThetaEvalHost` realising `V3a`'s `EvalHost`; V19b
 // (this leaf) supplies the behaviour: the precedence walk in `resolve`, the
 // `let mut` discipline in `writeBinding`, the per-iteration fresh scopes of
 // `bindIterationVariable` / `child`, the `resolveSchema` / `resolveEnumVariant`
@@ -801,13 +803,14 @@ export function buildEnvironment(inputs: EnvironmentInputs): LexicalEnvironment 
 }
 
 // --------------------------------------------------------------------------
-// The real EvalHost (V3a seam realisation)
+// Standalone EvalHost (V3a conformance implementation)
 // --------------------------------------------------------------------------
 
 /**
- * The real `EvalHost` (`V3a`'s seam): resolves a bare identifier read and
- * performs a call `f(args)` against the lexical environment, in the
- * expressions.md §"Identifier resolution" first-match order.
+ * The standalone `EvalHost` (`V3a`'s seam), exercised directly by tests rather
+ * than the production statement executor. Resolves a bare identifier read
+ * against the lexical environment in the expressions.md §"Identifier
+ * resolution" first-match order; call execution is not wired here.
  */
 export class ThetaEvalHost implements EvalHost {
   public constructor(private readonly env: LexicalEnvironment) {}

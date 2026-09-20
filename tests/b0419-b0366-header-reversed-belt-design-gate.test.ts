@@ -163,8 +163,12 @@ describe("bug 0419 — b0366's witness header re-frames the reversed pre-0394 be
     const arraySrc = readCorpus(STDLIB_ARRAY);
     const stringSrc = readCorpus(STDLIB_STRING);
     expect(
-      arraySrc.includes(`${KIND_BELT_SYMBOL}(member, signature, args)`),
-      `cell A: ${STDLIB_ARRAY} must call \`${KIND_BELT_SYMBOL}\` in the member dispatcher — this is the post-0394 kind belt the b0366 header must reflect. If it is gone the reversal was undone and the header re-frame is scored against a moved fact.`,
+      arraySrc.includes("assertStdlibMemberArguments(member, ARRAY_MEMBER_SIGNATURES, args)"),
+      `cell A: ${STDLIB_ARRAY} must call the shared arity/kind belt in the member dispatcher — this is the post-0394 kind belt the b0366 header must reflect. If it is gone the reversal was undone and the header re-frame is scored against a moved fact.`,
+    ).toBe(true);
+    expect(
+      stringSrc.includes(`${KIND_BELT_SYMBOL}(member, signature, args)`),
+      `cell A: ${STDLIB_STRING}'s shared argument belt must still call \`${KIND_BELT_SYMBOL}\` — extracting the belt must not undo the post-0394 kind check.`,
     ).toBe(true);
     expect(
       /arity and kind are its two concerns/.test(stringSrc),

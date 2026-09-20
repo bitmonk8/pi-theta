@@ -55,7 +55,7 @@ import type {
 import type { FnTail } from "./subagent-envelope";
 import type { InvokeChain } from "./invoke-depth-cycle";
 import type { LexicalEnvironment } from "./lexical-environment";
-import type { ThetaValue } from "./value";
+import type { ResultValue, ThetaValue } from "./value";
 import { makeErr, makeOk } from "./value";
 import type {
   QueryModelDriver,
@@ -67,7 +67,7 @@ import { renderEmptyShortCircuit } from "../render/query-render";
 import type { CodeSideToolCall, ToolLoweringSink } from "./tool-call-execute";
 import { runCodeSideToolCall } from "./tool-call-execute";
 import { ToolReturnShapeDefectError } from "./tool-call-off-surface";
-import type { InvokeChild } from "./invoke-cancellation";
+import type { InvokeChild, InvokeResultSource } from "./invoke-cancellation";
 import { runInvokeChild } from "./invoke-cancellation";
 import { surfaceThetaCallableCalleeFailure } from "./tool-call";
 import type { InvokeCalleeError, QueryError } from "./query-error";
@@ -389,27 +389,14 @@ async function runToolCallEffect(
         // not a ruling that bare is intended; 0349 supersedes it. The
         // pre-dispatch cancelled arm below (the caller's own signal) is
         // untouched by this gate.
-        const innerKind = (result.error as { readonly kind?: unknown } | null)?.kind;
-        if (
-          invokeOutcome.source === "boundary-minted" ||
-          (innerKind === "cancelled" && deps.signal.aborted)
-        ) {
-          return { ok: true, value: result };
-        }
-        const wrapped = surfaceThetaCallableCalleeFailure(
-          child.calleePath,
-          result.error as unknown as QueryError,
-          `.theta-callable call of ${child.calleePath} callee returned Err(${summariseErrorField(innerKind)})`,
-        );
         // Bug 0088 (SLSH-5): record this hop's provenance against the wrapper.
         // The call-site token is the callee-name identifier of the bare-identifier
         // call (`worker` in `worker(...)`), i.e. `expr.range.start` — NOT a
         // receiving binding's line — hence style `theta_callable_bare`.
-        await deps.recordInvokeHop?.(wrapped as InvokeCalleeError, child.calleePath, {
+        return wrapInvokeCalleeFailure(result, invokeOutcome.source, child, deps, ".theta-callable call", {
           style: "theta_callable_bare",
           calleeNameToken: expr.range.start,
         });
-        return { ok: true, value: makeErr(wrapped as unknown as ThetaValue) };
       }
       case "cancelled":
         return { ok: false, error: makeCancelledError() };
@@ -553,62 +540,75 @@ async function runInvokeEffect(
         }
         return { ok: true, value: result };
       }
-      // XMODE-1 (errors-and-results.md §InvokeCalleeError; invocation.md
-      // §Failures / §Final-value-propagation): a callee that returns or
-      // propagates its OWN `Err` MUST be wrapped as
-      // `InvokeCalleeError { kind: "invoke_callee", callee_path, inner, message }`
-      // so a spec-conformant parent can read `e.kind == "invoke_callee"`,
-      // `e.inner` (the callee's original `QueryError`), and `e.callee_path`.
-      //
-      // The wrap/bare split is decided by PROVENANCE (`outcome.source`), not by
-      // `result.error.kind` (bug 0294). `outcome.source === "boundary-minted"`
-      // means THIS hop's own trampoline fabricated the `Err` (`runInvokeChild`'s
-      // panic-wrap catch, a fail-closed envelope map, a pre-dispatch guard) —
-      // the callee's code never ran or never returned it, so it stays bare per
-      // error-model.md's per-cause table (Panic row). `outcome.source ===
-      // "callee-returned"` means the callee's own body produced this `Err` —
-      // including a callee that `?`-propagated ITS OWN nested invoke's
-      // `invoke_infra` failure — so invocation.md:75 wraps it regardless of its
-      // `kind`. `cancelled` is a two-arm rule of its OWN, orthogonal to
-      // provenance (bug 0295; cancellation.md:66): a child invoke's own abort
-      // wraps like any other callee-returned failure, but the PARENT'S own
-      // abort must stay bare (it IS the parent's terminal cancel outcome, not
-      // a callee failure to report). `outcome.source` cannot arbitrate this —
-      // both arms can carry `source: "callee-returned"` — so the disjunct reads
-      // `deps.signal`, the one input that actually distinguishes them: signal
-      // ABORTED means the parent's own abort raced the child's envelope home
-      // (still the parent-own arm — bare), signal QUIET means the envelope's
-      // `cancelled` can only have been minted by the child's own code calling
-      // `ctx.abort()`, so it wraps.
-      // Every callee-returned `QueryError` other than a parent-own cancellation
-      // (the callee's own validation / code_tool / transport / model_tool /
-      // context_overflow / tool_loop_exhausted / invoke_callee / invoke_infra
-      // failure, or a child-internal cancellation) is wrapped. `invoke_callee`
-      // is NOT special-cased: each invoke hop adds exactly one wrapper (the
-      // SLSH-5 chain), so a deeper hop's `invoke_callee` is wrapped again. This
-      // applies to both untyped and typed invoke.
-      const innerKind = (result.error as { readonly kind?: unknown } | null)?.kind;
-      if (outcome.source === "boundary-minted" || (innerKind === "cancelled" && deps.signal.aborted)) {
-        return { ok: true, value: result };
-      }
-      const wrapped = surfaceThetaCallableCalleeFailure(
-        child.calleePath,
-        result.error as unknown as QueryError,
-        `invoke of ${child.calleePath} callee returned Err(${summariseErrorField(innerKind)})`,
-      );
-      // Bug 0088: record this hop's provenance against the wrapper just built,
+      // Bug 0088: record this hop's provenance against its wrapper,
       // before the wrapper propagates anywhere. The call-site token is the
       // `invoke(` keyword's own start position (SLSH-5's `<line>` — never a
       // receiving binding's).
-      await deps.recordInvokeHop?.(wrapped as InvokeCalleeError, child.calleePath, {
+      return wrapInvokeCalleeFailure(result, outcome.source, child, deps, "invoke", {
         style: "literal_invoke",
         invokeToken: expr.range.start,
       });
-      return { ok: true, value: makeErr(wrapped as unknown as ThetaValue) };
     }
     case "cancelled":
       return { ok: false, error: makeCancelledError() };
   }
+}
+
+/** Wrap a callee-returned failure and record its invoke-hop provenance (XMODE-1 / SLSH-5). */
+async function wrapInvokeCalleeFailure(
+  result: Extract<ResultValue, { readonly ok: false }>,
+  source: InvokeResultSource,
+  child: InvokeChild,
+  deps: EffectfulStatementHostDeps,
+  messagePrefix: string,
+  callSite: InvokeCallSite,
+): Promise<OperationResult> {
+  // XMODE-1 (errors-and-results.md §InvokeCalleeError; invocation.md
+  // §Failures / §Final-value-propagation): a callee that returns or
+  // propagates its OWN `Err` MUST be wrapped as
+  // `InvokeCalleeError { kind: "invoke_callee", callee_path, inner, message }`
+  // so a spec-conformant parent can read `e.kind == "invoke_callee"`,
+  // `e.inner` (the callee's original `QueryError`), and `e.callee_path`.
+  //
+  // The wrap/bare split is decided by PROVENANCE (`source`), not by
+  // `result.error.kind` (bug 0294). `source === "boundary-minted"`
+  // means THIS hop's own trampoline fabricated the `Err` (`runInvokeChild`'s
+  // panic-wrap catch, a fail-closed envelope map, a pre-dispatch guard) —
+  // the callee's code never ran or never returned it, so it stays bare per
+  // error-model.md's per-cause table (Panic row). `source ===
+  // "callee-returned"` means the callee's own body produced this `Err` —
+  // including a callee that `?`-propagated ITS OWN nested invoke's
+  // `invoke_infra` failure — so invocation.md:75 wraps it regardless of its
+  // `kind`. `cancelled` is a two-arm rule of its OWN, orthogonal to
+  // provenance (bug 0295; cancellation.md:66): a child invoke's own abort
+  // wraps like any other callee-returned failure, but the PARENT'S own
+  // abort must stay bare (it IS the parent's terminal cancel outcome, not
+  // a callee failure to report). `source` cannot arbitrate this —
+  // both arms can carry `source: "callee-returned"` — so the disjunct reads
+  // `deps.signal`, the one input that actually distinguishes them: signal
+  // ABORTED means the parent's own abort raced the child's envelope home
+  // (still the parent-own arm — bare), signal QUIET means the envelope's
+  // `cancelled` can only have been minted by the child's own code calling
+  // `ctx.abort()`, so it wraps.
+  // Every callee-returned `QueryError` other than a parent-own cancellation
+  // (the callee's own validation / code_tool / transport / model_tool /
+  // context_overflow / tool_loop_exhausted / invoke_callee / invoke_infra
+  // failure, or a child-internal cancellation) is wrapped. `invoke_callee`
+  // is NOT special-cased: each invoke hop adds exactly one wrapper (the
+  // SLSH-5 chain), so a deeper hop's `invoke_callee` is wrapped again. This
+  // applies to both untyped and typed invoke.
+  const innerKind = (result.error as { readonly kind?: unknown } | null)?.kind;
+  if (source === "boundary-minted" || (innerKind === "cancelled" && deps.signal.aborted)) {
+    return { ok: true, value: result };
+  }
+  const wrapped = surfaceThetaCallableCalleeFailure(
+    child.calleePath,
+    result.error as unknown as QueryError,
+    `${messagePrefix} of ${child.calleePath} callee returned Err(${summariseErrorField(innerKind)})`,
+  );
+  // Bug 0088 (SLSH-5): record this hop before the wrapper propagates anywhere.
+  await deps.recordInvokeHop?.(wrapped as InvokeCalleeError, child.calleePath, callSite);
+  return { ok: true, value: makeErr(wrapped as unknown as ThetaValue) };
 }
 
 /**

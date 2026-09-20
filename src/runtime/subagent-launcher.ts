@@ -586,7 +586,7 @@ function assembleVisibleTail(slug: string): readonly string[] {
  *   - the parent-pid carriage authenticates all of the above
  *     (`authenticateControlPlane`, `production-subagent-host.ts`).
  *
- * The list lives HERE, beside the three keys this module owns and at the site
+ * The list lives HERE, beside the keys this module owns and at the site
  * that WRITES the child control plane, so the writer and the child-side reader
  * (`authenticateControlPlane`, which imports it) cannot drift apart; the
  * extension layer consumes it in the existing extension→runtime direction.

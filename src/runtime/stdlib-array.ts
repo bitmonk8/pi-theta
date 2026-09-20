@@ -25,8 +25,8 @@
 
 import { displayType, type CompatType, type CompatSite } from "../parser/type-compat";
 import { type Diagnostic } from "../diagnostics/diagnostic";
-import { StdlibMethodArgumentDefectError, summariseNonResultOperand } from "./runtime-panics";
-import { assertStdlibArgumentKinds, type StdlibMemberSignature } from "./stdlib-string";
+import { summariseNonResultOperand } from "./runtime-panics";
+import { assertStdlibMemberArguments, type StdlibMemberSignature } from "./stdlib-string";
 import { valuesEqual, type ThetaValue } from "./value";
 
 /**
@@ -79,19 +79,13 @@ export function evaluateArrayMember(
   args: readonly ThetaValue[],
 ): ThetaValue {
   // Bug 0315 runtime belt — see the matching comment in
-  // `evaluateStringMember` (`stdlib-string.ts`): a laundered `array<T>`
+  // `assertStdlibMemberArguments` (`stdlib-string.ts`): a laundered `array<T>`
   // receiver reaches here without the parse-time arity check, so a
   // wrong-arity call (e.g. `[1,2].includes()`) would otherwise fall through
   // to the unchecked `args[i] as …` casts below. The arity check is followed
   // by the bug-0394 KIND check (same laundered-receiver gap, one level down),
   // so the belt now covers both arity and kind.
-  const signature = ARRAY_MEMBER_SIGNATURES.get(member);
-  if (signature !== undefined) {
-    if (args.length < signature.min || args.length > signature.max) {
-      throw new StdlibMethodArgumentDefectError(member, signature.min, signature.max, args.length);
-    }
-    assertStdlibArgumentKinds(member, signature, args);
-  }
+  assertStdlibMemberArguments(member, ARRAY_MEMBER_SIGNATURES, args);
   switch (member) {
     // `length` — the element count.
     case "length":

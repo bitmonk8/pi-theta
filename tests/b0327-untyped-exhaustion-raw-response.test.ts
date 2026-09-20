@@ -19,7 +19,8 @@
 //
 // PHASE 2 (the fix these witnesses are written against): the `tool_use` arm
 // gains an OPTIONAL `readonly text?: string | null` (convention mirrors
-// src/binder/provider-error-mapping.ts:358 `rawResponse?: string | null`), and
+// `ProviderClassifierInput` (`src/binder/provider-error-mapping.ts`) and its
+// `rawResponse?: string | null` field), and
 // `runUntypedQueryLoop` tracks the LAST consumed tool_use turn's text and passes
 // it as `raw_response` in the exhaustion branch (null when that turn carried no
 // text). This suite drives the shared loop directly through a deterministic

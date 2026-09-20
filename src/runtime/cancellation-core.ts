@@ -7,7 +7,8 @@
 // only propagation; the tool-call late-settlement discard rules (CNCL-1/2/3);
 // the race semantics against a completed `Ok` (CNCL-5) and a tail abort
 // (CNCL-6); and the swallowing-handler three-side-channel suppression at the
-// `Checkpoint`-seam substrate.
+// `Checkpoint`-seam substrate. The tool-exposed forwarding and CNCL-1/2/3 discard
+// helpers below are test-witnessed generic forms, not production entry points.
 //
 // This module fills in the behaviour the paired V17a-T tests-task stubbed:
 // forwarding each source signal into `thetaAbort` via a one-shot listener that
@@ -144,7 +145,8 @@ export function forwardSlashCommandCancel(
  * Tool-exposed entry — a theta registered into another theta's `tools:`
  * (cancellation.md §Forwarding into `thetaAbort`). Wire the `signal` passed to
  * `execute(...)` so that `signal.aborted` triggers `thetaAbort.abort(signal.reason)`
- * via a one-shot listener (CNCL-4 reason identity).
+ * via a one-shot listener (CNCL-4 reason identity). This is the generic form
+ * witnessed by the cancellation-core tests; no production module imports it.
  */
 export function forwardToolExposedCancel(
   _thetaAbort: AbortController,
@@ -193,7 +195,10 @@ export function deriveChildThetaAbort(_parentSignal: AbortSignal): {
  * The settlement outcome of a tool invocation's underlying `execute()` Promise,
  * enumerated so the discard decision is independent of the late-settle kind
  * (cancellation.md: "the discriminator is whether cancellation has already been
- * surfaced at the checkpoint, not the late-settle kind").
+ * surfaced at the checkpoint, not the late-settle kind"). This section is the
+ * generic form witnessed by the cancellation-core and no-rollback tests; no
+ * production module imports it. Production discards late settlements through
+ * `awaitToolSettlementOrAbort` (`src/runtime/tool-call-off-surface.ts`).
  */
 export type ToolCallSettlement =
   | { readonly kind: "resolved"; readonly value: unknown }

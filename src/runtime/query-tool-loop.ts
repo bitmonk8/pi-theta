@@ -102,7 +102,8 @@ export type FreePhaseTurn =
       // ERR-19's biconditional (queryerror-variants.md:151/:211):
       // `raw_response` carries the text the model emitted alongside a
       // terminating tool-use block, `null` on a pure tool-use turn. Optional
-      // (mirrors provider-error-mapping.ts:358 `rawResponse?: string | null`)
+      // (mirrors `ProviderClassifierInput` (`src/binder/provider-error-mapping.ts`)
+      // and its `rawResponse?: string | null` field)
       // because a driver surfaces it "when available" — the loop only reads
       // this member off the LAST consumed tool_use turn, at exhaustion.
       readonly text?: string | null;
@@ -608,23 +609,7 @@ export async function runTypedQueryLoop(
         branch: forced.branch,
         raw_response: forced.raw_response,
       });
-      switch (repair.kind) {
-        case "value":
-          // A respond-repair follow-up produced a validated value: it is the
-          // typed query's final result.
-          return { kind: "value", value: repair.value, rounds, forcedRespond, committed };
-        case "validation": {
-          // Terminal non-compliance / non-conformance: surface the repair
-          // loop's ValidationError with the operator-facing RuntimeEvent.
-          // PIC-1 (d): when a follow-up ran, its own slot count masks the event
-          // (bug 0355) — `repair.surfacing` carries it.
-          const event = buildValidationEvent(config, repair.error, slotCountAtDispatch, repair.surfacing);
-          return { kind: "validation", error: repair.error, event, rounds, forcedRespond, committed };
-        }
-        case "propagated":
-          // A proximate non-validation failure won respond-repair (QRY-11).
-          return { kind: "propagated", error: repair.error, rounds, forcedRespond, committed };
-      }
+      return respondRepairToQueryOutcome(repair, config, slotCountAtDispatch, rounds, forcedRespond, committed);
     }
     // No respond-repair machinery exists (no schema-validation collaborator):
     // surface the ERR-17 terminal ValidationError DIRECTLY — attempts 0, the
@@ -664,23 +649,7 @@ export async function runTypedQueryLoop(
         raw_response: JSON.stringify(forced.payload),
       };
       const repair = await schemaValidation.runRespondRepair(failure);
-      switch (repair.kind) {
-        case "value":
-          // A respond-repair follow-up re-validated successfully: its corrected
-          // value is the typed query's final result.
-          return { kind: "value", value: repair.value, rounds, forcedRespond, committed };
-        case "validation": {
-          // Terminal non-conformance: surface the repair loop's ValidationError
-          // on the operator-facing RuntimeEvent. PIC-1 (d) / bug 0355: a
-          // depth-arm repair terminal raised on a follow-up masks against the
-          // follow-up's own slot count (`repair.surfacing`), not the parent's.
-          const event = buildValidationEvent(config, repair.error, slotCountAtDispatch, repair.surfacing);
-          return { kind: "validation", error: repair.error, event, rounds, forcedRespond, committed };
-        }
-        case "propagated":
-          // A proximate non-validation failure won respond-repair (QRY-11).
-          return { kind: "propagated", error: repair.error, rounds, forcedRespond, committed };
-      }
+      return respondRepairToQueryOutcome(repair, config, slotCountAtDispatch, rounds, forcedRespond, committed);
     }
     // No respond-repair machinery exists (no schema-validation collaborator),
     // mirroring the noncompliance arm's split: surface the depth-violation
@@ -738,25 +707,7 @@ export async function runTypedQueryLoop(
         raw_response: result.raw_response,
       };
       const repair = await schemaValidation.runRespondRepair(failure);
-      switch (repair.kind) {
-        case "value":
-          // A respond-repair follow-up re-validated successfully: its corrected
-          // value is the typed query's final result.
-          return { kind: "value", value: repair.value, rounds, forcedRespond, committed };
-        case "validation": {
-          // Terminal non-conformance: surface the schema_validation
-          // `ValidationError` on the operator-facing `RuntimeEvent`, enumerating
-          // any co-satisfied ceiling #2 via `V9d`'s V1-reachable predicate.
-          // PIC-1 (d) / bug 0355: a follow-up-originated terminal masks against
-          // the follow-up's own slot count (`repair.surfacing`).
-          const event = buildValidationEvent(config, repair.error, slotCountAtDispatch, repair.surfacing);
-          return { kind: "validation", error: repair.error, event, rounds, forcedRespond, committed };
-        }
-        case "propagated":
-          // A proximate non-validation failure won respond-repair (QRY-11): the
-          // proximate cause propagates as the query's `Err`.
-          return { kind: "propagated", error: repair.error, rounds, forcedRespond, committed };
-      }
+      return respondRepairToQueryOutcome(repair, config, slotCountAtDispatch, rounds, forcedRespond, committed);
     }
   }
 
@@ -768,6 +719,34 @@ export async function runTypedQueryLoop(
     forcedRespond,
     committed,
   };
+}
+
+/** Map a respond-repair terminal to the typed query's outcome and dispatch records. */
+function respondRepairToQueryOutcome(
+  repair: RespondRepairOutcome,
+  config: QueryToolLoopConfig,
+  slotCountAtDispatch: number,
+  rounds: readonly FreePhaseRoundLog[],
+  forcedRespond: ForcedRespondDispatch,
+  committed: readonly CommittedSideEffect[],
+): TypedQueryOutcome {
+  switch (repair.kind) {
+    case "value":
+      // A respond-repair follow-up produced a validated value: it is the
+      // typed query's final result.
+      return { kind: "value", value: repair.value, rounds, forcedRespond, committed };
+    case "validation": {
+      // Terminal non-compliance / non-conformance: surface the repair
+      // loop's ValidationError with the operator-facing RuntimeEvent.
+      // PIC-1 (d): when a follow-up ran, its own slot count masks the event
+      // (bug 0355) — `repair.surfacing` carries it.
+      const event = buildValidationEvent(config, repair.error, slotCountAtDispatch, repair.surfacing);
+      return { kind: "validation", error: repair.error, event, rounds, forcedRespond, committed };
+    }
+    case "propagated":
+      // A proximate non-validation failure won respond-repair (QRY-11).
+      return { kind: "propagated", error: repair.error, rounds, forcedRespond, committed };
+  }
 }
 
 /**

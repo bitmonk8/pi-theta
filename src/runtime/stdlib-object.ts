@@ -49,8 +49,7 @@ import {
   type CompatType,
   type TypeEnv,
 } from "../parser/type-compat";
-import { StdlibMethodArgumentDefectError } from "./runtime-panics";
-import { assertStdlibArgumentKinds, type StdlibMemberSignature } from "./stdlib-string";
+import { assertStdlibMemberArguments, type StdlibMemberSignature } from "./stdlib-string";
 import type { ThetaValue } from "./value";
 
 /**
@@ -128,7 +127,7 @@ export function evaluateObjectMember(
   args: readonly ThetaValue[],
 ): ThetaValue {
   // Bug 0315 runtime belt — see the matching comment in
-  // `evaluateStringMember` (`stdlib-string.ts`): a laundered object receiver
+  // `assertStdlibMemberArguments` (`stdlib-string.ts`): a laundered object receiver
   // reaches here without the parse-time arity check (this arm is reachable
   // only past the bug-0027 non-object-receiver gate, which the two call sites
   // apply BEFORE this dispatcher — see this module's header comment), so a
@@ -136,13 +135,7 @@ export function evaluateObjectMember(
   // unchecked `args[0] as …` cast below. The arity check is followed by the
   // bug-0394 KIND check (same laundered-receiver gap, one level down), so the
   // belt now covers both arity and kind.
-  const signature = OBJECT_MEMBER_SIGNATURES.get(member);
-  if (signature !== undefined) {
-    if (args.length < signature.min || args.length > signature.max) {
-      throw new StdlibMethodArgumentDefectError(member, signature.min, signature.max, args.length);
-    }
-    assertStdlibArgumentKinds(member, signature, args);
-  }
+  assertStdlibMemberArguments(member, OBJECT_MEMBER_SIGNATURES, args);
   switch (member) {
     // `keys()` — the theta-side field names as an `array<string>`, in the
     // object value's own key order (schema declaration order for named schemas,
