@@ -45,6 +45,7 @@
 
 import type { Diagnostic } from "../diagnostics/diagnostic";
 import type { ThetaSource } from "../lexer/lexer";
+import { normalizePath as normaliseCacheKey } from "../normalize-path";
 import {
   parseThetaDocument,
   type ParseThetaDocumentDeps,
@@ -52,9 +53,7 @@ import {
 } from "../parser/theta-document";
 
 /** Separator-normalise an absolute path so a Win32 and a POSIX spelling key together. */
-export function normaliseCacheKey(path: string): string {
-  return path.replace(/\\/g, "/");
-}
+export { normaliseCacheKey };
 
 /**
  * Byte-for-byte comparison — a cache HIT never serves a document for changed
