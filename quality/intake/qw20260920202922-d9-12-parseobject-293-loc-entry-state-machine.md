@@ -1,0 +1,94 @@
+---
+id: pending
+title: TypeParser.parseObject runs a 293-LOC field loop with seven per-entry state latches mutated across five arms
+lens: D9
+status: intake
+verdict: pending
+locations:
+  - src/parser/type-grammar.ts:811-1103
+sites: 1
+fix_scope: module
+d9_class: breakdown
+d9_host: src/parser/type-grammar.ts#TypeParser.parseObject
+d9_band: strong
+wave: qw20260920202922
+reported_by: lens-d9-placement (anthropic/claude-fable-5)
+date: 2026-09-20
+---
+
+# TypeParser.parseObject runs a 293-LOC field loop with seven per-entry state latches mutated across five arms
+
+## Observation
+`TypeParser.parseObject` (src/parser/type-grammar.ts:811-1103) is 293 LOC —
+strong band. It recognises the inline-object production (grammar.md:101,
+`ObjectType ::= "{" Field ("," Field)* ","? "}"`) while simultaneously running
+the buffered-refusal accounting of bugs 0129/0232/0244/0256/0257: seven
+per-entry latches (`entryStart`, `entryRefused`, `pending`, `pendingSlotOpen`,
+`emptySlotBodyPushed`, `entryTainted`, `namesStopped`) are read and written
+across five loop arms plus an epilogue flush.
+
+## Evidence
+Step inventory (line ranges from the current file; locals each phase writes):
+
+| phase | lines | LOC | locals read/written |
+|---|---|---|---|
+| prologue: captures & latch init | 811-879 | 69 | writes openBrace, interiorStart, interiorHasTokens, fieldTypes, fieldNames, namesStopped, entryTainted, entryStart, entryRefused, pending, pendingSlotOpen, emptySlotBodyPushed; opens openCommaReadingConstructs |
+| loop arm: non-ident field name (slot comma / keyless refusal) | 886-957 | 72 | r/w entryStart, entryRefused, pending, pendingSlotOpen, emptySlotBodyPushed, entryTainted; reads fieldTypes.length |
+| loop arm: colon-gate failure (refusal + resync) | 958-995 | 38 | r/w pending, pendingSlotOpen, entryRefused, entryStart, entryTainted |
+| loop arm: field derivation + `as` rename skip | 996-1024 | 29 | r/w fieldNames, fieldTypes, namesStopped, pendingSlotOpen; reads entryTainted |
+| loop arm: missing-separator resync / separator reset | 1025-1063 | 39 | r/w entryTainted, entryStart, entryRefused, pendingSlotOpen |
+| epilogue: brace verdicts, gated flush, interiorSource, node build | 1069-1103 | 35 | reads pending, interiorStart, openBrace; writes braceClosed, closingBraceToken, interiorSource |
+
+The gated flush ties the loop's buffered state to the epilogue
+(src/parser/type-grammar.ts:1069-1080):
+
+```ts
+    const braceClosed = this.eatPunct("}");
+    const closingBraceIndex = interiorClosingBraceIndex(this.tokens, interiorStart);
+    const closingBraceToken = closingBraceIndex >= 0 ? this.tokens[closingBraceIndex] : undefined;
+    ...
+    if (closingBraceToken !== undefined) {
+      this.diagnostics.push(...pending);
+    }
+```
+
+## Why this is a problem
+Strong band: the presumption is breakdown unless a strong concrete reason is
+found. Reasons considered:
+- One grammar production family (concrete): holds — the body is grammar.md:101's
+  sequential recognition and calls out to parseUnion/skipMalformedEntry — but
+  concrete reasons suffice only in the justify band.
+- Single algorithm with shared local state (concrete): holds — the seven latches
+  above would have to travel as an invented per-entry state object through every
+  extracted arm — but again justify-sufficient only.
+- Strong reasons: no PIC/BNDR/EXST-cited critical section — the body's citations
+  are grammar.md:101 and bug adjudications (0129, 0232, 0237, 0238, 0244, 0252,
+  0256, 0257), and the SL5 pop-and-push collapse happens within a single arm, so
+  an arm-boundary seam does not interleave the observable `pending` order. No
+  measured cost cited anywhere in the body. git log --follow shows no prior
+  split reverted (all commits are per-bug behaviour fixes). No entry in
+  quality/exemptions.json.
+None of the four strong classes applies, so the presumption stands.
+
+## Suggested direction (non-binding, optional)
+Seam A (hypothesis, unproven): the buffered-refusal latches
+(entryStart/entryRefused/pending/pendingSlotOpen/emptySlotBodyPushed) -> a
+private EntryRefusals helper (hypothesis) — ~70 LOC, 0 exported symbols moved,
+cross-references back into the host: discardedEntryRefusal,
+entryQualifiesForRefusal, this.site. Seam B (hypothesis, unproven): the
+non-ident field-name arm (886-957) -> a private method on TypeParser — ~72 LOC,
+0 exports moved, needs the invented state object from Seam A. None identified
+yet for the epilogue. The human ratifies one.
+
+## False-positive check
+Band: strong (293 LOC per the authoritative map; not recounted). Reasons
+considered: both applicable concrete classes named with their evidence and why
+each is insufficient at this band; all four strong classes checked and absent.
+Exemptions check: quality/exemptions.json has no type-grammar key (grep run,
+zero hits). Generated-code check: hand-written; per-bug commit history.
+Spec-mirror check: grammar.md:101 is one production, but the strong band
+requires more than the production-family reason. Prior-split check: git log
+--follow src/parser/type-grammar.ts — no revert commits.
+
+## Triage
+verdict: questionable — accounting verified; target shape needs a human ruling: size-scan map re-run reproduces `src/parser/type-grammar.ts#TypeParser.parseObject` at 811-1103 / 293 LOC / band strong (FN_BANDS strong ≥ 200), quality/exemptions.json has zero type-grammar hits; all six inventory rows land at the cited boundaries (non-ident arm opens at the `else` on 887 and ends at `continue` 957, colon-gate 958-995, `Ident ":"` derivation 996-1024 with the name push at 1003, separator resync 1025-1063, flush excerpt byte-exact at 1069-1079, node build closes at 1102) and are real sequential steps of one loop rather than adjective splits; the seven latches are all live within the range (entryStart ×11, entryRefused ×10, pending ×11, pendingSlotOpen ×15, emptySlotBodyPushed ×4, entryTainted ×7, namesStopped ×3 word-hits); grammar.md:101 is the ObjectType production as quoted; git log --follow (25 commits) shows no revert/split commit (the only bug-0238 hit is a behaviour fix, not a reverted extraction). The reasons-considered list overlooked nothing: the two applicable concrete classes (one grammar production; single algorithm with ≥ 6 shared locals) are both named and, per quality/README.md:168, the strong band is kept whole only with a **strong** reason — none of spec-cited invariant / measured cost / reverted split / existing exemption applies — so the human's choice is precisely ratify-a-seam vs `human-keep-whole` on the shared-locals reason. Not a duplicate: same-wave sibling d9-11 files the FILE key `src/parser/type-grammar.ts` (justify), a distinct exemption key from this function-level `#TypeParser.parseObject` (triage: claude-fable-5-1)

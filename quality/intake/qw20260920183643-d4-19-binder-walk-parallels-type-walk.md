@@ -110,3 +110,4 @@ A shared source of truth (hypothesis) would be a single set of traversal rules f
 - Not a spec-normative vector table; not generated code; not in `tests/`.
 
 ## Triage
+verdict: questionable — accounting verified: Stmt 18/18 (11 explicit + 7 default arms in both walkStmtForLocalBinders:739-798 and walkStmt:1625-1957) and Expr 20/20 (binder walk 14 explicit + 6 default incl. `query`, which carries no nested Expr; type-layer walkExpr 15 explicit + 5 default), all four spans live via collectLocalBinderNames (import-static-checks.ts:1953, type-layer-checks.ts:358); note the "both copy names when entering blocks" claim is wrong for the binder walk (flat accumulating Set, by design) but does not affect the count; no tracked duplicate (PTQ-0330 is D8 repeated-call, PTQ-0288 is the call-site walker, d4-17/d4-20 are intra-walk clones); the shared traversal source of truth is a design decision for a human ruling (triage: claude-fable-5-1)

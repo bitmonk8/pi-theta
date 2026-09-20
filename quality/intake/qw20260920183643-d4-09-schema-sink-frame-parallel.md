@@ -113,3 +113,4 @@ A shared source of truth (hypothesis): keep the closed union and its consumer sw
 - Not a spec-normative vector table; not generated; not in `tests/`.
 
 ## Triage
+verdict: questionable — accounting verified: SchemaSinkFrame has 7 kinds, resolver switch covers 7, producer emits all 7 (union body actually at inference.ts:83-90, minor drift); both modules live; no exhaustiveness guard on the switch; but the "parallel" is one closed union produced/consumed across two modules, not two independent copies, so whether a producer-side table adds a real source of truth is a human design ruling (triage: claude-fable-5-1)

@@ -147,3 +147,5 @@ A shared source of truth for the declaration-ordering algorithm (hypothesis): a 
 
 ## Triage
 
+verdict: questionable — accounting verified: both excerpts match at the cited lines, both copies are live (`buildObjectSchemaValue` ← statement-executor/production-theta-producer/err-field-summary; `orderedEntries` ← `rebuildInbound` :406 via `translateInbound` ← src/runtime/inbound-boundary.ts, err-field-summary, invoke-static-checks — the filing's `src/binder/` path is wrong but immaterial), clone-scan lists no group for either file, and both realise the same two-step rule (declared names in declaration order, then remaining keys in original relative order); the copies differ in order source (resolved `SchemaFieldOrder` vs sidecar `fieldOrder`), wire→theta key mapping with repeated-key buckets, and pre-branches/branding, and `rebuildUnder`'s doc states structural reasons for not sharing, so the shared source of truth is a design decision for a human ruling (triage: claude-fable-5-1)
+

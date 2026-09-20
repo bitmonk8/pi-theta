@@ -1,0 +1,58 @@
+---
+id: pending
+title: ProductionThetaProducer.#resolvePromptQuery builds eight query-dispatch collaborators in one 209-LOC method
+lens: D9
+status: intake
+verdict: pending
+locations:
+  - src/extension/production-theta-producer.ts:3835-4043
+sites: 1
+fix_scope: module
+d9_class: breakdown
+d9_host: src/extension/production-theta-producer.ts#ProductionThetaProducer.#resolvePromptQuery
+d9_band: strong
+wave: qw20260920202922
+reported_by: lens-d9-placement (anthropic/claude-fable-5)
+date: 2026-09-20
+---
+
+# ProductionThetaProducer.#resolvePromptQuery builds eight query-dispatch collaborators in one 209-LOC method
+
+## Observation
+`ProductionThetaProducer.#resolvePromptQuery` (src/extension/production-theta-producer.ts:3835-4043) is 209 LOC — strong band (threshold 200). It assembles the `QueryHostDispatch` for one `@`-query: schema lowering, respond-turn context, two text shapes, governor registration, the `LivePromptQueryModel` construction, the follow-up/validation collaborator, the loop config, and the inbound decode closure.
+
+## Evidence
+Step inventory:
+
+| phase | lines | LOC | locals written (read later by) |
+|---|---|---|---|
+| deps intake + active tools + schema lowering (bug 0010) | 3853-3867 | 15 | typed, activeTools, lowered (respond, validation, decode) |
+| respond-turn context build (QRY-14 step 2) | 3868-3880 | 13 | respond (model ctor, validation, return) |
+| two text shapes: rendered vs typed-aware (QRY-6) | 3882-3901 | 20 | renderedText, queryText |
+| governor registration + maxRounds (STAGE B / CIO-4) | 3903-3912 | 10 | maxRounds |
+| LivePromptQueryModel construction (36-line options literal) | 3913-3952 | 40 | queryModelRef, queryModel, liveModel, model |
+| follow-up drive + typed validation collaborator (QRY-22) | 3954-3986 | 33 | driveFollowUp, validation |
+| QueryToolLoopConfig literal | 3988-4010 | 23 | config |
+| inbound decode closure + returned dispatch | 4012-4043 | 32 | decodeInbound |
+
+Excerpt (3913-3918, the model-construction boundary):
+```ts
+    const queryModelRef = deps.theta.frontmatter.model;
+    const queryModel = this.#resolveThetaModel(queryModelRef, deps.ctx.model);
+    const liveModel = new LivePromptQueryModel({
+          pi: deps.pi,
+          ctx: deps.ctx,
+          clock: root.clock,
+```
+
+## Why this is a problem
+Strong band (209 LOC ≥ 200): presumption of breakdown; a strong concrete reason is required. Reasons considered and defeated: (a) single algorithm with shared local state — concrete: lowered, respond, renderedText, queryText, maxRounds, liveModel cross phases (6 locals), but the phases form a linear producer-consumer chain (each is a `const` built from at most three predecessors), the exact shape a builder-helper split threads without a state object; (b) spec-cited critical section — the WHY-comments cite construction-order dependencies (model before validation, bug 0010 increment C) that a sequential helper chain preserves; no clause names an interleaving hazard; (c) closed enumeration — no; (d) generated / data-only — no; (e) measured cost / prior revert / human ruling — none found; no exemptions.json entry.
+
+## Suggested direction (non-binding, optional)
+All hypotheses unproven. Seam A: the 36-line `LivePromptQueryModel` options literal (3913-3952) -> `#buildLiveModelOptions(deps, queryText, activeTools, maxRounds, respond)` — ~40 LOC, no exports. Seam B: the typed-arm collaborators (validation + decodeInbound, 3954-3986 and 4012-4041) -> `#buildTypedQueryCollaborators(deps, lowered, liveModel, respond)` — ~60 LOC, both are `lowered !== undefined`-gated already so the arm is one unit. Seam C: none identified yet for the remainder.
+
+## False-positive check
+Band check: 209 LOC strong (map-quoted). Reasons-considered list above with defeating evidence. Exemptions check: no entry. Generated-code check: hand-authored. Spec-mirror check: not an enumeration host. Cited ranges re-read this session (offset 3835, 209 lines).
+
+## Triage
+verdict: questionable — accounting verified: size-scan map re-run gives #resolvePromptQuery 3835-4043 = 209 LOC, band strong (FN strong threshold 200); all eight phase ranges and the 3913-3918 excerpt match the current code; no quality/exemptions.json entry for the host; no reverted prior split in git log; the WHY-comments encode construction ordering (model before validation) not an interleaving invariant, so no strong reason applies (the ≥6-shared-locals concrete reason is real — 8 locals cross phases, and the model literal consumes 4 predecessors not ≤3 — but a concrete reason alone cannot defeat a strong-band presumption); not a duplicate of d9-01, whose host is the whole file. Target shape (seam A/B) needs a human ruling. (triage: claude-fable-5-1)

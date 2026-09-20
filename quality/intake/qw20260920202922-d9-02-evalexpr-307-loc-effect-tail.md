@@ -1,0 +1,89 @@
+---
+id: pending
+title: evalExpr spans 307 LOC because a 79-LOC checkpointed-effect dispatch phase and a 36-LOC member arm sit inside the expression-kind if-chain
+lens: D9
+status: intake
+verdict: pending
+locations:
+  - src/runtime/statement-executor.ts:1191-1497
+sites: 1
+fix_scope: module
+d9_class: breakdown
+d9_host: src/runtime/statement-executor.ts#evalExpr
+d9_band: strong
+wave: qw20260920202922
+reported_by: lens-d9-placement (anthropic/claude-fable-5)
+date: 2026-09-20
+---
+
+# evalExpr spans 307 LOC because a 79-LOC checkpointed-effect dispatch phase and a 36-LOC member arm sit inside the expression-kind if-chain
+
+## Observation
+`evalExpr` (src/runtime/statement-executor.ts:1191-1497, 307 LOC — strong band)
+is the executor's async expression evaluator: an if-chain over `expr.kind`
+followed by a pure-vs-checkpointed-effect tail. The chain's arms range from 2
+LOC (`binary`) to 36 LOC (`member`), and the tail after the last kind arm is
+one 79-LOC phase that pre-evaluates tool args, runs the cancellable sequence,
+and applies the Ok-wrap / cancel / Err-at-consumption disposition.
+
+## Evidence
+Step inventory (line anchors verified in the current file):
+
+| phase | lines | LOC | locals read/written |
+|---|---|---|---|
+| control-flow delegations (try/match/par-for) | 1201-1215 | 15 | expr, env, deps, atTerminal |
+| block-expression arm (Flow -> EvalResult lift) | 1223-1247 | 25 | expr, env, deps, atTerminal; flow |
+| user/subagent fn call resolution | 1249-1263 | 15 | expr, env, deps; resolved |
+| array/object composite decomposition | 1271-1316 | 46 | expr, env, deps; values/obj |
+| index arm (panic-site attach) | 1317-1338 | 22 | expr, env, deps; target, index, key |
+| member arm (enum-variant short-circuit + bug 0449 gate) | 1339-1373 | 35 | expr, env, deps; variant, target |
+| ternary/binary/method-call/result-ctor arms | 1374-1418 | 45 | expr, env, deps, atTerminal |
+| checkpointed-effect dispatch + outcome disposition | 1419-1497 | 79 | expr, env, deps, atTerminal; checkpoint, preArgs, statement, outcome, result |
+
+Effect-tail head (statement-executor.ts:1419-1425):
+
+```ts
+  const checkpoint = deps.host.checkpointFor(expr);
+  if (checkpoint === null) {
+    // Pure, synchronous, non-checkpointed work — runs to completion regardless
+    // of the abort signal (a straight-line statement boundary is not a
+    // checkpoint).
+    return { flow: "value", value: deps.host.evaluatePure(expr, env, deps.invokeChain) };
+  }
+```
+
+## Why this is a problem
+Strong band (307 LOC >= 200) carries a presumption of breakdown. Reasons
+considered and defeated: closed-enumeration dispatch — the arms do mirror the
+`Expr` kind set of parser/theta-document (spec: grammar.md expression forms),
+but the rule requires each arm short, and the member arm is 35 LOC while the
+effect tail is a 79-LOC phase that is not an enumeration arm at all; single
+algorithm with shared local state — every phase reads only the four parameters
+`(expr, env, deps, atTerminal)` plus phase-private locals, so an extracted
+effect-tail helper threads 5 values (below the 6-local bar), no state object
+needs inventing; grammar production family — evaluation, not recognition.
+Strong reasons: the QRY-8/ERR-19 consumption-position disposition is one
+ordered sequence, but it is wholly inside the effect tail — a seam at the tail
+boundary interleaves nothing; no measured cost; no reverted split; no
+exemptions entry for this host key.
+
+## Suggested direction (non-binding, optional)
+Hypotheses, unproven: Seam A: checkpointed-effect dispatch (1419-1497) ->
+`evalCheckpointedEffect(expr, env, deps, atTerminal, checkpoint)` in-file
+helper (hypothesis) — 79 LOC, 0 exported symbols, 0 external importers, 1
+back-reference (`preEvaluateToolArgs`). Seam B: member arm's enum-variant
+short-circuit (1339-1360) -> `resolveEnumMemberRead` helper (hypothesis) — ~22
+LOC, 0 exports, back-reference `env` only. None identified yet for the
+remaining arms.
+
+## False-positive check
+Band check: 307 LOC per the map. Reasons-considered list above with the
+defeating evidence per reason (arm lengths counted from verified anchors:
+1339-1373 member, 1419-1497 tail). Exemptions check: no
+`src/runtime/statement-executor.ts#evalExpr` key in quality/exemptions.json.
+Generated-code check: hand-written, bug-annotated. Spec-mirror check: the arm
+set mirrors grammar.md expression forms but fails the rule's every-arm-short
+condition, so the enumeration does not license the length.
+
+## Triage
+verdict: questionable — accounting verified: size-scan confirms evalExpr 1191-1497 / 307 LOC / strong band, excerpt matches, inventory rows are distinct kind arms plus a 79-LOC effect tail with its own private locals (member arm 35 LOC), no overlooked concrete/strong reason (enumeration fails every-arm-short; <6 shared locals; no exemptions.json key for this host), no duplicate; target shape (seam A/B) needs a human ruling (triage: claude-fable-5-1)

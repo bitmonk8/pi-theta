@@ -99,3 +99,4 @@ The natural shared home is `src/parser/type-layer-checks.ts` itself or a nearby 
 - Not a spec-normative vector table; not generated code; not in `tests/`.
 
 ## Triage
+verdict: questionable — excerpts, liveness and groups G038/G049/G070 reproduce, and the G038 pair (`splitTopLevelObjectFields`/`topLevelColonIndex`) is a genuine renamed-only clone; but the "differ only in the delimiter" diff verdict is refuted for `splitTopLevelUnion`, which tracks `<…>` depth ONLY (no `{`/`}`) — a divergence the host documents as a recorded residual at type-layer-checks.ts:1072-1075 and that bug 0252 cell F4 pins (tests/brace-and-angle-annotation-junk-refusal.test.ts:590-608), so folding all three into one `splitTopLevel(delimiter, text)` is a bracket-set behaviour choice, not a mechanical dedupe; a human should rule whether the dedupe scope is the G038 pair only or a helper parameterised by nesting-token set (triage: claude-fable-5-1)

@@ -93,3 +93,4 @@ A shared source of truth for the "value-contributing positions" contract is the 
 - No test files are involved.
 
 ## Triage
+verdict: questionable — accounting verified: `Expr` (theta-document.ts:463-483) has exactly 20 members and both `collectProvableArgTypes` (:58-216) and `#typeExpr` (:271-416) enumerate all 20, the binary arm mirrors `#typeBinary`'s five operator groups (:588-644) in order, all copies live (5 non-recursive callers), clone-scan lists no group as expected for a parallel; the co-edit risk is real and asymmetric (a tsc fixture confirms a missing arm in the `| undefined`-returning switch compiles to a silent withhold while `#typeExpr`'s `CompatType` return hits TS2366), but the shared operator predicates/`pass.typeOf` are already imported and docs/bugs 0142 §Fix(b)/0152 §Fix(c) pin the mirror as a deliberate precedent, so the shared source of truth is a design decision for a human ruling (triage: claude-fable-5-1)
