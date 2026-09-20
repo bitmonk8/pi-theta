@@ -2,7 +2,7 @@
 id: PTQ-1102
 title: "#recoverDeclaredDefaults cites theta-composition-producer.ts:527 for paramBindingsFrom's call, but the call now sits at :585"
 lens: D2
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/extension/production-theta-producer.ts:1748-1757

@@ -2,7 +2,7 @@
 id: PTQ-1114
 title: LF-delimited line pump cloned between child stdio and result channel
 lens: D4
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/extension/production-subagent-host.ts:347-360

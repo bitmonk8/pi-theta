@@ -2,7 +2,7 @@
 id: PTQ-1121
 title: System-note `details` serialization duplicated between factory-local and production channels
 lens: D4
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/extension/factory.ts:759-769

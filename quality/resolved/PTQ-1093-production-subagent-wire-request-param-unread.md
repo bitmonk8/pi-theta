@@ -2,7 +2,7 @@
 id: PTQ-1093
 title: createProductionSubagentWire's returned openWire function never reads its `request` argument
 lens: D2
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/extension/production-result-channel.ts:176-206

@@ -2,7 +2,7 @@
 id: PTQ-1096
 title: types.ts header names only 3 of the 8 files that import it, several of which are behavioural
 lens: D2                     # D2 | D4 | D7 | D8 | D9 - the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - src/extension/execution-status/types.ts:1-4

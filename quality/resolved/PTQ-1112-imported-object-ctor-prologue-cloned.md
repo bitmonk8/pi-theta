@@ -2,7 +2,7 @@
 id: PTQ-1112
 title: Imported schema-constructor and non-constructor type-name checks share an identical object-site prologue
 lens: D4
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/extension/invoke-imported-checks.ts:325-341

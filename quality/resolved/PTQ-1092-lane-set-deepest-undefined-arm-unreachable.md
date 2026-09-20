@@ -2,7 +2,7 @@
 id: PTQ-1092
 title: openLaneSet's "deepest === undefined" ternary arm is unreachable given the MAX_LANE_SET_DEPTH guard
 lens: D2
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/extension/execution-status/bus.ts:258-266

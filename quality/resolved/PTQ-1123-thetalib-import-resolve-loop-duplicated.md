@@ -2,7 +2,7 @@
 id: PTQ-1123
 title: thetalib import resolve loop duplicated in module-scope and transitive-declaration passes
 lens: D4
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/extension/import-static-checks.ts:1604-1618

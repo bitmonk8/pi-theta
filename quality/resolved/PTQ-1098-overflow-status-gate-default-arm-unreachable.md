@@ -2,7 +2,7 @@
 id: PTQ-1098
 title: overflowStatusGateSatisfied's default arm is unreachable given its sole caller's pre-filter
 lens: D2
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/binder/provider-error-mapping.ts:136-155

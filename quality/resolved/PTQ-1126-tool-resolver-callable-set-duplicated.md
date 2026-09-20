@@ -2,7 +2,7 @@
 id: PTQ-1126
 title: Tool resolver duplicated in main and stub callable-set dependencies
 lens: D4
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/extension/production-composition.ts:2848-2872

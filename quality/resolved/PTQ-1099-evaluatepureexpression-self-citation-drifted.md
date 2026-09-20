@@ -2,7 +2,7 @@
 id: PTQ-1099
 title: "#resolveRuntimeToolCall's comment cites production-theta-producer.ts:3965 for the '.theta-callable path' evaluatePureExpression map, but that line is unrelated code"
 lens: D2
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/extension/production-theta-producer.ts:4354-4356

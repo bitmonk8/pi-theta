@@ -2,7 +2,7 @@
 id: PTQ-1103
 title: reload-wiring.ts header claims to own the session_start collision pass that production never calls
 lens: D2                     # D2 | D4 | D7 | D9 - the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - src/extension/reload-wiring.ts:1-19

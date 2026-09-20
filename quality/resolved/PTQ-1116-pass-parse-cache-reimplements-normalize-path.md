@@ -2,7 +2,7 @@
 id: PTQ-1116
 title: pass-parse-cache reimplements normalizePath despite canonical helper
 lens: D4
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/normalize-path.ts:25

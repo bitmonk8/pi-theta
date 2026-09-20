@@ -2,7 +2,7 @@
 id: PTQ-1101
 title: "#classifyBinderAttempt cites provider-error-mapping.ts:311, :388, :399 for the message-carrier claim, but that file is only 265 lines long"
 lens: D2
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/extension/production-theta-producer.ts:1495-1501

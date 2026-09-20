@@ -2,7 +2,7 @@
 id: PTQ-1127
 title: Callable closure path normalization duplicated in hash and source collection
 lens: D4
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/extension/production-composition.ts:4349-4357

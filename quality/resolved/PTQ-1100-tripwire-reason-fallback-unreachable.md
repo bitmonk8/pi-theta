@@ -2,7 +2,7 @@
 id: PTQ-1100
 title: guardSessionSwapTripwire's `state.reason ?? "new"` fallback can never observe undefined
 lens: D2                     # D2 | D4 | D7 | D9 - the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - src/extension/session-swap-tripwire.ts:132-140

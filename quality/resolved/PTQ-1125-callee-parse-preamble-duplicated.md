@@ -2,7 +2,7 @@
 id: PTQ-1125
 title: Callee parse preamble duplicated between arity and return-type resolution
 lens: D4
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/extension/production-composition.ts:2444-2473
