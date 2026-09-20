@@ -555,8 +555,38 @@ export function namedTheta(thetas: readonly DiscoveredTheta[], name: string): Di
   return thetas.find((l) => l.name === name);
 }
 
-/** Bug 0440 arm 1 / bug 0461 control: a CLI file shadows a settings file. */
+/** Bug 0440 arm 1 / bug 0461 control: a CLI file shadows a settings file.
+ *  Bug 0486: the two copies must DIVERGE in content — byte-identical copies
+ *  are now the SUPPRESSED case (no shadow diagnostic), so the settings copy
+ *  carries a distinguishing trailing comment to keep the descriptor-form
+ *  witnesses seeing the warning. `cliSettingsIdenticalShadowInput` (below) is
+ *  the byte-identical counterpart for the suppression witness. */
 export function cliSettingsShadowInput(thetaBody: string): DiscoveryInput {
+  const fs = buildDiscovery({
+    dirs: mergeDirs(
+      ancestors("/ext/plan.theta"),
+      { "/ext": ["plan.theta"] },
+      ancestors("/work/plan.theta"),
+      { "/work": ["plan.theta"] },
+    ),
+    files: {
+      "/ext/plan.theta": thetaBody,
+      "/work/plan.theta": `${thetaBody}// shadowed copy — diverging bytes (bug 0486)\n`,
+    },
+  });
+
+  return discoveryInput(fs, {
+    cliPaths: ["/ext/plan.theta"],
+    settings: { thetaPaths: ["/work/plan.theta"] },
+  });
+}
+
+/** Bug 0486: a CLI file shadows a settings file whose bytes are IDENTICAL to
+ *  the winner's — the structural double a relocated-cwd subagent child sees.
+ *  The shadow must drop SILENTLY (no cross-source-shadow diagnostic). Same
+ *  topology as `cliSettingsShadowInput`; the only difference is the two copies
+ *  share byte-exact content. */
+export function cliSettingsIdenticalShadowInput(thetaBody: string): DiscoveryInput {
   const fs = buildDiscovery({
     dirs: mergeDirs(
       ancestors("/ext/plan.theta"),

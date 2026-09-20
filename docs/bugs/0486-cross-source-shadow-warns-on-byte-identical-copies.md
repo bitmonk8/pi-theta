@@ -1,8 +1,21 @@
 # Bug 0486 — cross-source-shadow warns on byte-identical copies: every relocated-cwd subagent child is showered with W diagnostics for the same file reached through two discovery routes
 
-- **Status:** open — fix designed, deliberately PARKED until the running
-  quality-loop drain concludes (src/ change; no reason to move worker
-  identity mid-run).
+- **Status:** fixed in 0.483.0. The shadow mint compares the shadowed
+  candidate's bytes with the winner's (winner read once per name group):
+  byte-identical ⇒ the candidate drops silently, no diagnostic; differing
+  content ⇒ the warning is unchanged; a read failure during the comparison
+  fails OPEN to the warning. `resolveSlashNames` gained a leading `fs`
+  parameter threaded from its one caller (`discovery-walk.ts`). Spec:
+  discovery-sources.md §"Source priority", code-registry-load.md
+  `cross-source-shadow` row. Witness: `tests/b0486-…` (3 cells —
+  identical→suppressed, differing→warns, read-throw→fail-open); the existing
+  shadow fixtures were diverged in content because byte-identical is now the
+  suppressed case.
+- **Residual (deferred, not a regression):** the cosmetic rider below (the
+  `quality-loop` shadow line's mixed-separator cli-flag descriptor value
+  `C:\UnitySrc\pi-theta/.pi/theta`) was an investigation rider ("check
+  whether"), orthogonal to the suppression semantics, and is left unaddressed
+  — it now surfaces only when the shadowed copy's bytes actually differ.
 - **Sev/Diff estimate:** S4/D2 — pure noise (the precedence is correct and
   the winner is the intended copy), but the shower is per-child and constant:
   a quality-loop lane child (cwd = its worktree, worker identity pinned to

@@ -4,6 +4,28 @@ All notable changes to `@bitmonk8/pi-theta` will be documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.483.0]
+
+### Fixed
+- **Bug 0486 — cross-source-shadow warned on byte-identical copies, showering
+  every relocated-cwd subagent child with one diagnostic per worker slug**
+  A quality-loop lane child (cwd = its worktree, worker identity pinned to the
+  main repo via `--theta`, RFC 0009 §4) saw ~9 `theta/load/cross-source-shadow`
+  warnings at every load, because ambient discovery in the worktree re-found
+  byte-identical copies of the same workers through the project walk-up and the
+  settings entry. The shadow mint now compares the shadowed candidate's bytes
+  with the winner's (winner read once per name group): byte-identical ⇒ the
+  candidate still drops but no diagnostic is minted; differing content ⇒ the
+  warning is unchanged (a stale copy silently losing to the current one is the
+  real hazard the diagnostic exists for); a read failure during the comparison
+  fails OPEN to the warning. `resolveSlashNames` gained an `fs` parameter
+  threaded from its one caller (`discovery-walk.ts`). Spec: discovery-sources.md
+  §"Source priority", code-registry-load.md `cross-source-shadow` row. Witness:
+  `tests/b0486-…` (3 cells — identical→suppressed, differing→warns,
+  read-throw→fail-open); the existing shadow fixtures
+  (`cliSettingsShadowInput`, b0440 arm 2) were diverged in content because
+  byte-identical is now the suppressed case.
+
 ## [0.482.0]
 
 ### Fixed

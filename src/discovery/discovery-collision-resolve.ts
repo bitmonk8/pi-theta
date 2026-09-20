@@ -57,6 +57,17 @@ function resolveCaseCollisions(
   return survivors;
 }
 
+/** Bug 0486: read a file's bytes, or `undefined` if the read fails — the
+ *  fail-OPEN carrier for the cross-source-shadow byte comparison (a read we
+ *  cannot complete cannot prove byte-identity, so its caller surfaces the
+ *  warning rather than suppressing it). */
+async function readBytesOrUndefined(fs: FileSystem, path: string): Promise<Uint8Array | undefined> {
+  return fs.readBytes(path).then(
+    (bytes) => bytes,
+    () => undefined,
+  );
+}
+
 /** Drop entries resolving to the same byte-exact path (a source reaching one
  *  directory through two entries dedupes silently before collision detection). */
 function dedupeByPath(candidates: readonly SourcedCandidate[]): SourcedCandidate[] {
@@ -197,6 +208,7 @@ function collisionPathOrder(a: SourcedCandidate, b: SourcedCandidate): number {
  *  pre-emption scoped to `markedRoot?.slug` (regime-gated) may register that
  *  group's winner alone before the tier adjudication runs. */
 export async function resolveSlashNames(
+  fs: FileSystem,
   candidates: readonly SourcedCandidate[],
   piOwned: readonly PiOwnedCommand[],
   diagnostics: Diagnostic[],
@@ -271,7 +283,28 @@ export async function resolveSlashNames(
     }
 
     const winner = topTier[0]!;
+    // Bug 0486: a shadow whose bytes are IDENTICAL to the winner's cannot
+    // change behaviour (the precedence is correct and the winner is the
+    // intended copy) — it is the structural double a relocated-cwd subagent
+    // child sees when ambient discovery re-finds the same worker file through
+    // the project walk-up and the settings entry (RFC 0009 §4). Suppress the
+    // warning for that case; a shadow with DIFFERING content (a stale copy
+    // silently losing to — or in a priority inversion, winning over — the
+    // current one) is the real hazard the diagnostic exists for and still
+    // warns. The winner's bytes are read at most once per group, and only
+    // when there is a lower tier to compare against; a read failure on either
+    // side fails OPEN to the warning (we cannot prove identity, so we surface).
+    const winnerBytes = lowerTier.length > 0 ? await readBytesOrUndefined(fs, winner.path) : undefined;
     for (const shadowed of lowerTier) {
+      if (winnerBytes !== undefined) {
+        const shadowedBytes = await readBytesOrUndefined(fs, shadowed.path);
+        // `Buffer.compare` (Node global, no import) is the native byte compare
+        // over the full content of both views; a length difference is non-zero.
+        if (shadowedBytes !== undefined && Buffer.compare(winnerBytes, shadowedBytes) === 0) {
+          // Byte-identical: drop silently, no diagnostic.
+          continue;
+        }
+      }
       // Different priority: the higher-priority source wins; the rest shadow.
       diagnostics.push({
         severity: "warning",

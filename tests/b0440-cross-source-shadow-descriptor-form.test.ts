@@ -98,7 +98,9 @@ describe("b0440 arm 2 — project vs global shadow renders the descriptor form",
       ),
       files: {
         [`${PROJECT_ROOT}/dup.theta`]: THETA_BODY,
-        [`${GLOBAL_ROOT}/dup.theta`]: THETA_BODY,
+        // Bug 0486: the shadowed (global) copy must DIVERGE in content, else
+        // the byte-identical suppression drops the diagnostic this arm asserts.
+        [`${GLOBAL_ROOT}/dup.theta`]: `${THETA_BODY}// shadowed copy — diverging bytes (bug 0486)\n`,
       },
     });
 

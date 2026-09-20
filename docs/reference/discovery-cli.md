@@ -34,7 +34,10 @@ only, never by an operator; read child-side once, then deleted. Provenance:
 ## Source priority (high to low)
 
 When the same slash name resolves from multiple sources, the higher-priority
-source wins and `theta/load/cross-source-shadow` (warning) names both paths:
+source wins and `theta/load/cross-source-shadow` (warning) names both paths
+— but only when the shadowed copy's bytes DIFFER from the winner's; a
+byte-identical shadow drops silently (a read failure during the comparison
+fails open to the warning):
 
 1. CLI flag (`--theta <path>`)
 2. Settings (`thetaPaths`; project `settings.json` overrides global)

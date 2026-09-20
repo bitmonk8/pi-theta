@@ -570,6 +570,7 @@ export async function discoverThetas(input: DiscoveryInput): Promise<DiscoveryRe
   const caseResolved = resolveBySource(candidates, diagnostics);
   const valid = validateAndRead(fs, caseResolved, diagnostics);
   const thetas = await resolveSlashNames(
+    fs,
     await valid,
     input.piOwnedNames ?? [],
     diagnostics,
