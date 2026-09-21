@@ -197,22 +197,13 @@ export type QueryError =
 export function orderValidationIssues(
   issues: readonly ValidationIssue[],
 ): ValidationIssue[] {
-  return [...issues]
-    .map((issue, index) => ({ issue, index }))
-    .sort((a, b) => {
-      const byPath = compareByCodePoint(a.issue.path, b.issue.path);
-      if (byPath !== 0) return byPath;
-      const byKeyword = compareByCodePoint(
-        a.issue.schema_keyword,
-        b.issue.schema_keyword,
-      );
-      if (byKeyword !== 0) return byKeyword;
-      const byMessage = compareByCodePoint(a.issue.message, b.issue.message);
-      if (byMessage !== 0) return byMessage;
-      // Stable: fall back to input position for fully equal-key entries.
-      return a.index - b.index;
-    })
-    .map((entry) => entry.issue);
+  return [...issues].sort((a, b) => {
+    const byPath = compareByCodePoint(a.path, b.path);
+    if (byPath !== 0) return byPath;
+    const byKeyword = compareByCodePoint(a.schema_keyword, b.schema_keyword);
+    if (byKeyword !== 0) return byKeyword;
+    return compareByCodePoint(a.message, b.message);
+  });
 }
 
 /**
