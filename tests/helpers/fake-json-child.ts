@@ -72,6 +72,7 @@ export function fakeSubagentLaunchRequest(overrides?: Partial<SubagentLaunchRequ
       thetaDirs: ["/work/project/.pi/theta"],
       systemPrompt: "you are a subagent",
       hostTools: [],
+      respondToolNames: [],
       noHostTools: true,
       provider: "anthropic",
       model: "claude-sonnet",

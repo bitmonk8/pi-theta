@@ -285,6 +285,7 @@ describe("RFC-0012 §4 — createExecPlacementBackend", () => {
         thetaDirs: [],
         systemPrompt: "",
         hostTools: [],
+        respondToolNames: [],
         noHostTools: true,
         provider: "anthropic",
         model: "m",

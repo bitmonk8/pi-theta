@@ -1,6 +1,6 @@
 # Bug 0488 — the subagent child's `--tools` allowlist suppresses the typed-query respond tool on pi ≥ 0.86
 
-- **Status:** open — fix settled (operator, 2026-09-21), ready for the pipeline.
+- **Status:** fixed (0.488.0).
 - **Sev/Diff estimate:** S1/D3 — S1: on pi ≥ 0.86.0 every typed query
   (`let x: T = @…`, `@<T>…`) inside a child-process subagent whose launch
   carries `--tools`/`--no-tools` loses its in-session respond tool: the model
@@ -156,3 +156,79 @@ path), and the 0.86.1 end-to-end verification is recorded in this document
 - PIC-58, subagent.md `#subagent-tools-host-names-only`,
   conversation-drive.md §typed queries, FN-7.
 - pi CHANGELOG 0.86.0 (breaking changes), docs/settings.md §Tools.
+
+## Fix (0.488.0)
+
+- **What shipped:**
+  - `src/parser/theta-document.ts` — new `collectSessionTypedQueries(body)`: a
+    collecting twin of `detectTypedQueryExpression` that STOPS at `subagent fn`
+    boundaries (FN-7: a subagent-fn body is driven by its own launch) but still
+    descends ordinary `fn` bodies; `never`-exhaustiveness backstops on its
+    walk. (§Fix step 1.)
+  - `src/runtime/typed-query-validation.ts` — new `respondToolName(slug)`
+    (`"__theta_respond_" + slug`), single-sourcing the name-prefix; the drive
+    layer's `:205` mint routed through it; slug stays `respondSchemaSlug`
+    (canonical form, bug 0099). (§Fix step 2.)
+  - `src/runtime/subagent-launcher.ts` — `SubagentArgvInput.respondToolNames`;
+    `HostCliDialect.toleratesUnregisteredToolNames` (Pi `true`, Oh-My-Pi
+    `false`); the emit site unions `hostTools ∪ respondToolNames`
+    (deduped, host-first) and flips the `noHostTools` arm to `--tools
+    <respond-only>` only when respond names exist — dialect-gated so Oh-My-Pi's
+    argv is byte-identical to today. (§Fix steps 2–4; the four cases.)
+  - `src/extension/production-theta-producer.ts` — new module-level
+    `collectLaunchRespondNames(theta, entry)`: FN-7-aware body selection (theta
+    entry → `theta.body`; fn entry → the named subagent fn's body plus
+    same-file ordinary-fn bodies; both → imported modules' bodies), lowered
+    against the CALLER theta's merged decls (parity with the child's own
+    `#resolvePromptQuery` lowering site), minting each respond name through the
+    same `respondSchemaSlug`+`respondToolName` recipe; wired into
+    `spawnSubagentConversation`'s launch argv. (§Fix step 1.)
+  - Spec: subagent.md `#subagent-tools-host-names-only` (respond names are
+    host-registry names, carried and dialect-gated; `.theta` names still
+    excluded), `#subagent-tools-allowlist-suppression` (the ≥0.86 strict-
+    allowlist reach to mid-session registrations), the launch template and the
+    RFC-0005-differences `--tools` row, and frontmatter-fields-a.md `#tools`
+    enforcement-mechanism sentence. Launcher doc-comments amended in code.
+- **Gates:** witness `tests/b0488-*.test.ts` RED before (7 cells: respond name
+  absent from the child `--tools`; seams missing) → GREEN after (14/14, incl.
+  the real-spawn cell). Full default suite `npm test` 698 files / 11616 tests
+  green. `npm run typecheck` clean. `npm run lint` clean.
+- **Review:** 2 rounds. R1 (deep) — correctness F1 (launch missed typed queries
+  in inline-called sibling/imported ordinary-fn bodies), F2 (fn-entry lowered
+  against the imported module's decls, not the caller's the child actually
+  uses), plus F3 citation / F4 banned-word / F5 unwitnessed producer half /
+  R2–R3; all fixed. R2 (fast) — CLEAN, no escalation.
+- **Verification:** SOLID. (1) Neutralising `collectLaunchRespondNames`/the
+  emit union reds every argv/real-spawn witness with the bug-0488 signature;
+  restore → green. (2) Full suite green. (3) End-to-end: new
+  `tests/b0488-real-spawn-respond-argv.test.ts` spawns a REAL child (child pins
+  per AGENTS.md `#subagent-child-pins`, provider-free) and asserts the ACTUAL
+  spawned argv `--tools` carries `__theta_respond_1aae0990d53b3485` and the real
+  host completes the invocation with no exit-2 on the unrecognised-at-startup
+  entry — re-verifying cell 4 against this repo's pinned pi build; the pinned
+  SDK 0.80.10 cannot witness the ≥0.86 host-side filtering, so this is the
+  documented live fidelity. (4) Lint + typecheck clean.
+- **Residuals:**
+  1. Binder forms `__theta_bind_<slug>` / `__inline_<slug>` are NOT carried and
+     NOT needed — VERIFIED: the binder runs parent-side via off-session
+     `complete()` + `forcedToolChoiceForApi` (`binder-inference.ts`), never
+     `pi.registerTool`, and the child skips the binder entirely under PIC-60
+     marshalled params (`production-theta-producer.ts` "skips the binder
+     entirely" / "binder bypassed"); `__inline_<slug>` are `$defs` hoist keys,
+     not tool names.
+  2. PIC-44 collision-disambiguated respond names (`__theta_respond_<slug>_<n>`,
+     minted only on a 64-bit canonical-hash collision between two distinct
+     schemas in one session, which itself fires
+     `theta/runtime/registration-cache-collision`) cannot be foreseen by the
+     static launch mint and would be suppressed. Inherent to static minting;
+     astronomically rare; not fixed.
+  3. `dedupePreservingFirst` now dedupes the host-only arm too, so a host set
+     with a duplicated underlying name (constructible only via an `as`-rename
+     aliasing the same pi tool) emits once where HEAD emitted twice. Semantics
+     unchanged (an allowlist is a set); no behavioural effect.
+- **Discharge notes appended:** none.
+- **Pinned dispositions / non-goals:** the fn-entry launch carries the fn
+  body's respond names, not the enclosing theta's top-level body's (FN-7
+  symmetry); over-collection of inline-callable ordinary-fn / imported bodies is
+  deliberate and safe (cell 4: Pi tolerates an allowlist name unknown at
+  startup; Oh-My-Pi gates all respond names out).

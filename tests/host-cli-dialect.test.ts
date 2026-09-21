@@ -33,6 +33,7 @@ function baseInput(overrides: Partial<SubagentArgvInput> = {}): SubagentArgvInpu
     thetaDirs: ["/repo/.pi/theta"],
     systemPrompt: "you are a reviewer",
     hostTools: ["read", "grep"],
+    respondToolNames: [],
     noHostTools: false,
     provider: "anthropic",
     model: "claude-sonnet-4",
@@ -308,16 +309,21 @@ describe("B1 — the dialect constants are immutable shared state", () => {
   ];
 
   for (const [name, dialect] of dialects) {
-    it(`${name} and every intent group it holds are frozen`, () => {
+    it(`${name} and every intent-array group it holds are frozen`, () => {
       // Both dialects are process-wide singletons handed to every spawn; a
       // mutable intent array would let one caller corrupt every later child.
       // Checked over Object.values rather than named fields so a newly added
-      // intent group cannot be introduced unfrozen without failing here.
+      // intent-array group cannot be introduced unfrozen without failing here.
+      //
+      // Bug 0488 widened `HostCliDialect` with `toleratesUnregisteredToolNames`
+      // (a boolean, not a flag-spelling array): a primitive has no mutable
+      // identity to freeze, so it is exempted from the array/frozen pair below
+      // by value rather than by name — a future non-array field added the same
+      // way stays exempt too, and a future ARRAY field still gets the check.
       expect(Object.isFrozen(dialect)).toBe(true);
-      const groups = Object.values(dialect);
+      const groups = Object.values(dialect).filter((value) => Array.isArray(value));
       expect(groups.length).toBeGreaterThan(0);
       for (const group of groups) {
-        expect(Array.isArray(group)).toBe(true);
         expect(Object.isFrozen(group)).toBe(true);
       }
     });

@@ -10272,3 +10272,210 @@ function typedQueryInExpr(expr: Expr): boolean {
       return false;
   }
 }
+
+// --------------------------------------------------------------------------
+// Session typed-query enumeration walk (bug 0488 — the launch-time respond-
+// tool-allowlist seam)
+// --------------------------------------------------------------------------
+
+/**
+ * Every typed `QueryExpr` (`schema !== null`) that the SESSION driving `body`
+ * will itself dispatch, in source order.
+ *
+ * WHY this walk exists separately from `detectTypedQueryExpression` (bug
+ * 0488, not a rename): that walk answers "does this theta contain a typed
+ * query anywhere", for a load-time provider-compatibility warning, so it
+ * deliberately DESCENDS a `subagent fn` body too — the warning must still
+ * fire for a typed query that only a spawned child ever runs. This walk
+ * instead answers "which respond-tool names must THIS session's own launch
+ * carry on its `--tools` allowlist", so it must STOP at a `subagent fn`
+ * boundary (FN-7): a `subagent fn` body is driven by the CHILD session that
+ * fn's own launch spawns, not by the session walking the enclosing body, and
+ * that child computes its own respond names from the same walk applied to
+ * its own body. Descending here would smuggle a callee's respond names onto
+ * the caller's allowlist (and vice versa never happens — the caller's names
+ * are never needed by the callee). An ordinary `fn` body IS descended: it
+ * runs inline in the same session that reaches its call, exactly as
+ * `detectTypedQueryExpression` treats it.
+ *
+ * Exhaustive over the same `Stmt` / `Expr` positions as `typedQueryInStmt` /
+ * `typedQueryInExpr` — a missed nesting here is a silent gap in the launch
+ * allowlist, not merely a missed warning.
+ */
+export function collectSessionTypedQueries(body: ThetaBody): QueryExpr[] {
+  const collected: QueryExpr[] = [];
+  collectSessionTypedQueriesInBlock(body, collected);
+  return collected;
+}
+
+function collectSessionTypedQueriesInBlock(block: Block, out: QueryExpr[]): void {
+  for (const stmt of block.statements) {
+    collectSessionTypedQueriesInStmt(stmt, out);
+  }
+  if (block.tail !== null) {
+    collectSessionTypedQueriesInExpr(block.tail, out);
+  }
+}
+
+function collectSessionTypedQueriesInStmt(stmt: Stmt, out: QueryExpr[]): void {
+  switch (stmt.kind) {
+    case "let":
+      if (stmt.init !== null) {
+        collectSessionTypedQueriesInExpr(stmt.init, out);
+      }
+      return;
+    case "reassign":
+      collectSessionTypedQueriesInExpr(stmt.value, out);
+      return;
+    case "if":
+      collectSessionTypedQueriesInExpr(stmt.condition, out);
+      collectSessionTypedQueriesInBlock(stmt.then, out);
+      if (stmt.otherwise !== null) {
+        if ("statements" in stmt.otherwise) {
+          collectSessionTypedQueriesInBlock(stmt.otherwise, out);
+        } else {
+          collectSessionTypedQueriesInStmt(stmt.otherwise, out);
+        }
+      }
+      return;
+    case "while":
+      collectSessionTypedQueriesInExpr(stmt.condition, out);
+      collectSessionTypedQueriesInBlock(stmt.body, out);
+      return;
+    case "for":
+      collectSessionTypedQueriesInExpr(stmt.iterand, out);
+      collectSessionTypedQueriesInBlock(stmt.body, out);
+      return;
+    case "fn":
+      // FN-7 boundary: a `subagent fn` body is driven by ITS OWN launch's
+      // session, not by the session walking the enclosing body — do not
+      // descend. An ordinary `fn` body runs inline here, so it IS descended.
+      if (!stmt.subagent) {
+        collectSessionTypedQueriesInBlock(stmt.body, out);
+      }
+      return;
+    case "return":
+      if (stmt.operand !== null) {
+        collectSessionTypedQueriesInExpr(stmt.operand, out);
+      }
+      return;
+    case "query":
+      collectSessionTypedQueriesInExpr(stmt.query, out);
+      return;
+    case "tool-call":
+      collectSessionTypedQueriesInExpr(stmt.call, out);
+      return;
+    case "invoke":
+      collectSessionTypedQueriesInExpr(stmt.invoke, out);
+      return;
+    case "expr":
+      collectSessionTypedQueriesInExpr(stmt.expr, out);
+      return;
+    case "break":
+    case "continue":
+    case "schema":
+    case "enum":
+    case "import":
+    case "export":
+    case "doc-comment":
+      // No expression positions (a query cannot occur inside these).
+      return;
+    default: {
+      // Compile-time exhaustiveness backstop: a future `Stmt` union member
+      // trips a `tsc` error here rather than being silently dropped from the
+      // launch allowlist (the silent gap this collector's header warns of).
+      const _exhaustive: never = stmt;
+      return void _exhaustive;
+    }
+  }
+}
+
+function collectSessionTypedQueriesInExpr(expr: Expr, out: QueryExpr[]): void {
+  switch (expr.kind) {
+    case "query":
+      if (expr.schema !== null) {
+        out.push(expr);
+      }
+      return;
+    case "binary":
+      collectSessionTypedQueriesInExpr(expr.left, out);
+      collectSessionTypedQueriesInExpr(expr.right, out);
+      return;
+    case "ternary":
+      collectSessionTypedQueriesInExpr(expr.condition, out);
+      collectSessionTypedQueriesInExpr(expr.consequent, out);
+      collectSessionTypedQueriesInExpr(expr.alternate, out);
+      return;
+    case "try":
+      collectSessionTypedQueriesInExpr(expr.operand, out);
+      return;
+    case "call":
+    case "invoke":
+      // RFC 0009: a typed query inside a call-site `with` clause value counts
+      // exactly as one inside an argument.
+      for (const child of [...expr.args, ...callWithClauseValues(expr)]) {
+        collectSessionTypedQueriesInExpr(child, out);
+      }
+      return;
+    case "member":
+      collectSessionTypedQueriesInExpr(expr.target, out);
+      return;
+    case "index":
+      collectSessionTypedQueriesInExpr(expr.target, out);
+      collectSessionTypedQueriesInExpr(expr.index, out);
+      return;
+    case "object":
+      for (const field of expr.fields) {
+        collectSessionTypedQueriesInExpr(field.value, out);
+      }
+      return;
+    case "array":
+      for (const element of expr.elements) {
+        collectSessionTypedQueriesInExpr(element, out);
+      }
+      return;
+    case "match":
+      collectSessionTypedQueriesInExpr(expr.scrutinee, out);
+      for (const arm of expr.arms) {
+        collectSessionTypedQueriesInExpr(arm.body, out);
+      }
+      return;
+    case "result-ctor":
+      collectSessionTypedQueriesInExpr(expr.arg, out);
+      return;
+    case "method-call":
+      collectSessionTypedQueriesInExpr(expr.target, out);
+      for (const arg of expr.args) {
+        collectSessionTypedQueriesInExpr(arg, out);
+      }
+      return;
+    case "par-for":
+      collectSessionTypedQueriesInExpr(expr.iterand, out);
+      if (expr.max !== null) {
+        collectSessionTypedQueriesInExpr(expr.max, out);
+      }
+      collectSessionTypedQueriesInBlock(expr.body, out);
+      return;
+    case "block":
+      // grammar.md:118's tail is required, but a parse rejection does not stop
+      // this walk from running over the rejected AST — `collectSessionTypedQueriesInBlock`
+      // itself is `tail !== null`-guarded, so a tail-less block contributes
+      // nothing here rather than throwing.
+      collectSessionTypedQueriesInBlock(expr.body, out);
+      return;
+    case "ident":
+    case "number":
+    case "string":
+    case "bool":
+    case "null":
+      // Leaves: no child expressions.
+      return;
+    default: {
+      // Compile-time exhaustiveness backstop: a future `Expr` union member
+      // trips a `tsc` error here rather than being silently dropped from the
+      // launch allowlist (the silent gap this collector's header warns of).
+      const _exhaustive: never = expr;
+      return void _exhaustive;
+    }
+  }
+}

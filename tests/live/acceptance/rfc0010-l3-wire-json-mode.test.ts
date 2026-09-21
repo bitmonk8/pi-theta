@@ -12,8 +12,11 @@
 // `ppid` of the spawned process, since `node:child_process` makes it a direct
 // child of this harness) is exactly the two-variable carriage
 // `buildSubagentChildEnv`/`assembleSubagentArgv` place on a REAL subagent
-// child (`subagent-launcher.ts:450/486-500`) — the same mechanism, driven by
-// hand instead of by `launchSubagentChild`. With the marker authenticated,
+// child — the argv half in `assembleSubagentArgv` (`subagent-launcher.ts:495`)
+// and the env carriage in `buildSubagentChildEnv`'s two `PI_THETA_SUBAGENT_*`
+// writes (`subagent-launcher.ts:738-739`: the `SUBAGENT_ROOT_ENV_MARKER` root
+// slug and the `SUBAGENT_PARENT_PID_ENV` parent pid) — the same mechanism,
+// driven by hand instead of by `launchSubagentChild`. With the marker authenticated,
 // `factory.ts`'s default export computes `isSubagentChild = true`
 // (`factory.ts:1362`), so `theta_progress` executes its CHILD-regime arm
 // (EXST-15): the wire line is `writeSync(1, …)`'d directly to fd 1 — which

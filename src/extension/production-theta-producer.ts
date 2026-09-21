@@ -65,6 +65,7 @@ import {
   isPipePlacement,
   placementIsVisible,
   THETA_LAUNCH_ENTRY,
+  type SubagentLaunchEntry,
 } from "../runtime/subagent-placement";
 import type { PlacementLease } from "../runtime/subagent-placement-selection";
 import type { PlacementEventBus } from "../runtime/subagent-placement-registry";
@@ -262,7 +263,7 @@ import type {
   SchemaDecl,
   SubagentSessionConfig,
 } from "../parser/theta-document";
-import { parseExpressionSource } from "../parser/theta-document";
+import { parseExpressionSource, collectSessionTypedQueries } from "../parser/theta-document";
 import { renderSystemPrompt } from "../parser/system-interpolation";
 import { lowerQueryResponseSchema } from "../runtime/query-schema-lowering";
 import { bindParamsInbound, decodeInboundValue } from "../runtime/inbound-boundary";
@@ -276,6 +277,7 @@ import type { TypedQuerySchemaValidation } from "../runtime/query-tool-loop";
 import {
   buildTypedQueryValidation,
   respondSchemaSlug,
+  respondToolName,
   type FollowUpDriveFailure,
   type FollowUpRespondOutcome,
 } from "../runtime/typed-query-validation";
@@ -2479,6 +2481,11 @@ class ProductionThetaProducer implements ThetaProducerDeps {
     // `subagent fn`s. It selects the execution-status binding (`subagent-fn`
     // keeps its pre-RFC mode), the display label, and the entry carriage.
     const entry = bindInput.entry ?? THETA_LAUNCH_ENTRY;
+    // Bug 0488: the driven body's synthesised respond-tool names, computed
+    // once here (FN-7-aware) and carried on the launch argv so the ≥0.86
+    // strict `--tools` allowlist does not suppress the child's own
+    // mid-session respond-tool registration.
+    const respondToolNames = collectLaunchRespondNames(theta, entry);
     // RFC 0012 §1 (0.477.0): the label carries a short invocation id so a
     // `par for` fan-out's visible children get distinguishable tab titles.
     // The id is the first eight hex characters of this invocation's PIC-20
@@ -2589,6 +2596,7 @@ class ProductionThetaProducer implements ThetaProducerDeps {
           thetaDirs: this.#input.activeRoots ?? [],
           systemPrompt: systemPrompt ?? "",
           hostTools: piToolNames,
+          respondToolNames,
           noHostTools,
           provider: String(model.provider),
           model: model.id,
@@ -6068,6 +6076,104 @@ function schemaDeclsOf(body: ThetaBody): SchemaDecl[] {
  */
 function enumDeclsOf(body: ThetaBody): EnumDecl[] {
   return body.statements.filter((stmt): stmt is EnumDecl => stmt.kind === "enum");
+}
+
+/**
+ * Bug 0488: the synthesised `__theta_respond_<slug>` tool names for every
+ * typed query the session THIS launch spawns will drive — the launch-time
+ * input to `SubagentArgvInput.respondToolNames`. A `.theta` callable's
+ * `--tools` allowlist must carry these or the ≥0.86 strict allowlist
+ * suppresses the child's own mid-session respond-tool registration
+ * (docs/bugs/0488-….md).
+ *
+ * Bodies the driven session executes inline (each contributing its typed
+ * queries' respond names):
+ *  - `fn` entry — the NAMED `subagent fn`'s own body (an unresolved name
+ *    yields no names; the drive path `#driveSubagentFnEntry` reports the
+ *    parent/child parse divergence, this function does not speculate about
+ *    it), PLUS every SAME-FILE top-level ordinary `fn` body: a sibling
+ *    ordinary fn called from the subagent-fn body runs inline in the same
+ *    child session and registers its typed queries' respond tools
+ *    mid-session, yet it is a statement of the enclosing theta's body — never
+ *    of `fn.body` — so `collectSessionTypedQueries(fn.body)` alone misses it.
+ *    The enclosing theta's top-level body is NOT added (the fn session does
+ *    not drive it — FN-7 symmetry).
+ *  - theta entry (the default) — the theta's own body, whose walk already
+ *    descends same-file ordinary `fn` bodies and stops at `subagent fn`
+ *    boundaries.
+ *  - BOTH entries — every imported module's body (`imp.moduleScope.body`):
+ *    an imported ordinary `.thetalib` `fn` is inline-callable, and its body
+ *    lives only in the import's module scope, never in `theta.body`.
+ *    `collectSessionTypedQueries` skips `subagent fn` bodies inside it.
+ *
+ * Over-collection is SAFE (bug 0488 cell 4: pi ≥0.86 tolerates an allowlist
+ * name unknown at startup; the OMP dialect gates all respond names out at the
+ * emit site), so this over-approximates rather than tracks reachability.
+ *
+ * Every schema is lowered against the CALLER theta's merged decls
+ * (`mergedSchemaDeclsOf(theta)` / `mergedEnumDeclsOf(theta)`) — parity with
+ * the child's actual lowering site: `#driveSubagentFnEntry` binds the body
+ * over `configured.theta` (`#applySubagentFnConfig` overrides only frontmatter
+ * / callable set, leaving `body`/`imports`/`importedTypeDecls` the caller's),
+ * so the child's `#resolvePromptQuery` lowers each query with
+ * `mergedSchemaDeclsOf(deps.theta)` = the CALLER theta's decls. Lowering here
+ * against any other decl set would mint a name the child never registers.
+ * Each lowered schema mints its respond name via the SAME `respondSchemaSlug`
+ * + `respondToolName` recipe the drive layer uses (single-source, bug
+ * 0099/0488); an unlowerable schema is skipped as the drive layer's degraded
+ * arm treats it. Deduped and SORTED for a deterministic argv.
+ */
+export function collectLaunchRespondNames(
+  theta: ConversationBindInput["theta"],
+  entry: SubagentLaunchEntry,
+): string[] {
+  const bodies: ThetaBody[] = [];
+  if (entry.kind === "fn") {
+    const lookupEnv = buildBoundEnvironment(
+      theta.body,
+      undefined,
+      theta.imports,
+      presentedCallableNames(theta),
+      theta.sourcePath,
+    );
+    const resolution = lookupEnv.resolve(entry.name);
+    const fn =
+      (resolution.arm === "fn" || resolution.arm === "import") && resolution.fn?.subagent === true
+        ? resolution.fn
+        : undefined;
+    if (fn === undefined) {
+      return [];
+    }
+    bodies.push(fn.body);
+    for (const stmt of theta.body.statements) {
+      if (stmt.kind === "fn" && stmt.subagent !== true) {
+        bodies.push(stmt.body);
+      }
+    }
+  } else {
+    bodies.push(theta.body);
+  }
+  for (const imp of theta.imports ?? []) {
+    if (imp.moduleScope?.body !== undefined) {
+      bodies.push(imp.moduleScope.body);
+    }
+  }
+  const schemaDecls = mergedSchemaDeclsOf(theta);
+  const enumDecls = mergedEnumDeclsOf(theta);
+  const names = new Set<string>();
+  for (const body of bodies) {
+    for (const q of collectSessionTypedQueries(body)) {
+      if (q.schema === null) {
+        continue;
+      }
+      const lowered = lowerQueryResponseSchema(q.schema, schemaDecls, enumDecls);
+      if (lowered === undefined) {
+        continue;
+      }
+      names.add(respondToolName(respondSchemaSlug(lowered)));
+    }
+  }
+  return [...names].sort();
 }
 
 /**

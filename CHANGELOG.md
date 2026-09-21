@@ -4,6 +4,34 @@ All notable changes to `@bitmonk8/pi-theta` will be documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.488.0]
+
+### Fixed
+- **Bug 0488 — the subagent child's `--tools` allowlist suppressed the
+  typed-query respond tool on pi ≥ 0.86**
+  pi 0.86.0 made `--tools` a strict allowlist for the whole session (providers
+  read tool declarations via `getCurrentTools()`), covering the child's OWN
+  mid-session registrations. The subagent child launch passed `--tools
+  <hostTools>` / `--no-tools` from the callee's frontmatter callable set, which
+  can never contain the per-response-schema `__theta_respond_<slug>` tool the
+  child's own pi-theta registers mid-session — so on pi ≥ 0.86 that
+  registration was suppressed (no model-facing declaration, "Tool not found"
+  on dispatch, respond-repair exhaustion, worker `Err`). The launch now
+  enumerates every typed query in the body it drives
+  (`collectLaunchRespondNames` → `collectSessionTypedQueries`, FN-7-aware,
+  lowered against the caller's decls for parity with the child's own drive),
+  mints each query's `__theta_respond_<slug>` through the same canonical-slug
+  recipe the drive layer uses (`respondSchemaSlug` + `respondToolName`), and
+  appends them (deduped) to the child's `--tools` allowlist. A body with typed
+  queries but no host tool now launches with `--tools <respond names>` rather
+  than `--no-tools`; a body with no typed query is byte-identical to before.
+  Carriage is dialect-gated: it rides the Pi dialect (which tolerates an
+  allowlist name unknown at startup, verified against pi 0.86.1) and is gated
+  OFF on Oh-My-Pi (which exits 2 on such a name — bug 0218). Spec:
+  `subagent.md` `#subagent-tools-host-names-only` /
+  `#subagent-tools-allowlist-suppression` and `frontmatter-fields-a.md`
+  `#tools`.
+
 ## [0.487.0]
 
 ### Fixed

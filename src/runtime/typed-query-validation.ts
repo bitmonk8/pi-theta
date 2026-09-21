@@ -202,7 +202,7 @@ class ProductionTypedQueryValidation implements TypedQuerySchemaValidation {
   constructor(input: TypedQueryValidationInput) {
     this.#input = input;
     this.#slug = respondSchemaSlug(input.lowered);
-    this.#toolName = input.respondToolName ?? "__theta_respond_" + this.#slug;
+    this.#toolName = input.respondToolName ?? respondToolName(this.#slug);
     this.#wire = respondToolWireSchema(input.lowered);
   }
 
@@ -380,4 +380,22 @@ function validateAgainst(
  */
 export function respondSchemaSlug(lowered: LoweredSchema): string {
   return schemaSlug(toLoweredJsonValue(lowered));
+}
+
+/**
+ * The synthesised respond-tool name for a canonical slug: `"__theta_respond_" + slug`.
+ *
+ * WHY exported (bug 0488): the launch-time allowlist enumeration
+ * (`collectLaunchRespondNames`, `production-theta-producer.ts`) and this
+ * module's `:205` validation fallback both mint the respond name through this
+ * function, single-sourcing the `__theta_respond_` PREFIX across those two
+ * sites. The name the child actually registers is minted separately by
+ * `contentAddressedName` (`tool-registration.ts`) through its own
+ * `__theta_respond_${slug}` literal (it also appends a `_<n>` collision
+ * counter), so parity between the launch-carried name and the registered name
+ * is TEST-enforced (the bug-0488 name-mint parity oracle), not guaranteed by
+ * construction.
+ */
+export function respondToolName(slug: string): string {
+  return "__theta_respond_" + slug;
 }

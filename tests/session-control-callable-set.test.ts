@@ -458,6 +458,7 @@ describe("RFC 0011 §4 — X3: an all-runtime-tool set maps to --no-tools (fake-
           thetaDirs: ["/w/.pi/theta"],
           systemPrompt: "sp",
           hostTools: piNames,
+          respondToolNames: [],
           noHostTools,
           provider: "anthropic",
           model: "claude-sonnet",

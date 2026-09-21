@@ -283,6 +283,19 @@ export interface HostCliDialect {
   readonly projectTrust: readonly string[];
   /** Withhold project-local trust from the child (least privilege). */
   readonly noProjectTrust: readonly string[];
+  /**
+   * Whether this host tolerates a `--tools` allowlist entry unknown at
+   * startup — i.e. one for a HOST tool the child's own extension registers
+   * mid-session (bug 0488: the synthesised `__theta_respond_<slug>` respond
+   * tool). `true` on Pi (cell 4, docs/bugs/0488-…: pi 0.86.1 does not exit-2
+   * on an unrecognised allowlist name at startup). `false` on Oh-My-Pi (bug
+   * 0218 / subagent.md:130: that host validates every `--tools` entry
+   * against its startup registry and exits 2 on one it does not recognise —
+   * a mid-session-only name would kill the child before it ever registers
+   * the tool). The emit site in `assembleSubagentArgv` reads this to decide
+   * whether a launch's respond-tool names ride the allowlist at all.
+   */
+  readonly toleratesUnregisteredToolNames: boolean;
 }
 
 /** The authored host dialect — Pi (`@earendil-works/pi-coding-agent`). */
@@ -296,6 +309,7 @@ export const PI_CLI_DIALECT: HostCliDialect = Object.freeze({
   ]),
   projectTrust: Object.freeze(["--approve"]),
   noProjectTrust: Object.freeze(["--no-approve"]),
+  toleratesUnregisteredToolNames: true,
 });
 
 /**
@@ -311,6 +325,7 @@ export const OMP_CLI_DIALECT: HostCliDialect = Object.freeze({
   ambientIsolation: Object.freeze(["--no-skills", "--no-rules"]),
   projectTrust: Object.freeze([]),
   noProjectTrust: Object.freeze([]),
+  toleratesUnregisteredToolNames: false,
 });
 
 /** The host `CONFIG_DIR_NAME` value that identifies an Oh-My-Pi host. */
@@ -374,22 +389,44 @@ export interface SubagentArgvInput {
   /** Resolved-and-interpolated frontmatter `system:` → `--system-prompt`. */
   readonly systemPrompt: string;
   /**
-   * The callable set's HOST-TOOL names → `--tools <name1,name2,…>`
+   * The callable set's HOST-TOOL names → part of `--tools <name1,name2,…>`
    * (defence-in-depth, PIC-58). Host-registry names ONLY: `--tools` is a HOST
    * tool allowlist, so a `.theta` callable's presented name has no business in
    * it — that half of the callable set is theta-side, resolved child-side against
    * the child's own theta registry, and carried by the presented-name + closure-
    * hash env carrier instead. One host validates this list against its registry
    * and exits 2 on an unknown name (bug 0218), so a theta-side name here is not
-   * harmless noise: it kills the child before it starts.
+   * harmless noise: it kills the child before it starts. The emitted `--tools`
+   * csv (bug 0488) is this set UNIONED with `respondToolNames` below, on a
+   * dialect that tolerates the union's mid-session-only entries.
    */
   readonly hostTools: readonly string[];
+  /**
+   * The synthesised `__theta_respond_<slug>` tool names (bug 0488) the body
+   * THIS launch drives will register mid-session for its own typed queries —
+   * deduped and sorted by the spawn site
+   * (`collectLaunchRespondNames`, `production-theta-producer.ts`). These are
+   * HOST-registry names exactly like `hostTools`: the child's own pi-theta
+   * instance calls `pi.registerTool()` for each during the run, not names the
+   * host resolves at startup. `--tools` on pi ≥ 0.86 is a strict allowlist for
+   * the WHOLE session (CHANGELOG 0.86.0), so a name absent here is never
+   * model-callable even though it is registered mid-session — the launch
+   * must carry it up front or the registration is silently suppressed (bug
+   * 0488's symptom). The emit site unions this with `hostTools`, gated by
+   * `HostCliDialect.toleratesUnregisteredToolNames` (bug 0218: a dialect that
+   * validates the allowlist at startup would exit 2 on a name it cannot
+   * resolve yet).
+   */
+  readonly respondToolNames: readonly string[];
   /**
    * `true` when the callable set holds NO host tool → `--no-tools` (empty ≠
    * omission: omission would re-enable the host's default built-ins). True for a
    * `tools: []` theta AND for one whose callable set is all `.theta` callables —
    * the child's host session needs no host tool to run those, because the theta
-   * runtime spawns their own children.
+   * runtime spawns their own children. This arm flips to `--tools
+   * <respond-only>` (bug 0488) when the tolerant dialect's respond names are
+   * non-empty — an empty host set plus a live respond name is not "no tools",
+   * it is "exactly the respond tool".
    */
   readonly noHostTools: boolean;
   /** Resolved model provider → `--provider <p>`. */
@@ -446,8 +483,13 @@ export interface SubagentArgvInput {
  * host agent loop. `--tools` is defence-in-depth only (the child theta enforces
  * its own callable set) and carries the callable set's HOST-TOOL names only — a
  * `.theta` callable is theta-side and rides the closure-hash env carrier instead
- * (bug 0218). A callable set with no host tool maps to `--no-tools` (never
- * re-enables host defaults by omission). Params ride the marshalled channel
+ * (bug 0218). Bug 0488: the `--tools` csv is HOST-TOOL names UNIONED with the
+ * driven body's synthesised respond-tool names, on a dialect that tolerates a
+ * mid-session-only allowlist entry (`HostCliDialect.toleratesUnregisteredToolNames`;
+ * gated OFF on Oh-My-Pi, bug 0218). A callable set with no host tool and no
+ * respond name maps to `--no-tools` (never re-enables host defaults by
+ * omission); a callable set with no host tool but a live respond name maps to
+ * `--tools <respond-only>` instead. Params ride the marshalled channel
  * (PIC-60), the result rides the stdout envelope (PIC-59) — neither is on argv.
  */
 export function assembleSubagentArgv(
@@ -529,15 +571,20 @@ export function assembleSubagentArgv(
       input.systemPrompt === "" ? "" : `\n${input.systemPrompt}`,
     );
   }
-  // `--no-tools` when the callable set holds no HOST tool (empty ≠ omission —
-  // omission would re-enable the host's default built-ins); otherwise the
-  // comma-joined host-registry allowlist. A `.theta` callable never appears here:
-  // it names nothing in the host's registry, and one host rejects such a name
-  // outright (bug 0218).
-  if (input.noHostTools) {
+  // `--no-tools` when the callable set holds no HOST tool AND no respond name
+  // is carried (empty ≠ omission — omission would re-enable the host's default
+  // built-ins); otherwise the comma-joined union of the host-registry
+  // allowlist and the driven body's synthesised respond-tool names (bug 0488),
+  // deduped so a respond name that collides with a host-tool name is not
+  // repeated. A `.theta` callable never appears here: it names nothing in the
+  // host's registry, and one host rejects such a name outright (bug 0218) —
+  // the same reason the respond names are gated to dialects that tolerate an
+  // allowlist entry unknown at startup.
+  const respondNames = dialect.toleratesUnregisteredToolNames ? input.respondToolNames : [];
+  if (input.noHostTools && respondNames.length === 0) {
     argv.push("--no-tools");
   } else {
-    argv.push("--tools", input.hostTools.join(","));
+    argv.push("--tools", dedupePreservingFirst([...input.hostTools, ...respondNames]).join(","));
   }
   argv.push("--provider", input.provider, "--model", input.model);
   argv.push(...dialect.ambientIsolation);
@@ -561,6 +608,25 @@ export function assembleSubagentArgv(
  */
 function assembleVisibleTail(slug: string): readonly string[] {
   return [`/${slug}`];
+}
+
+/**
+ * Dedup `names`, first occurrence wins, order preserved (bug 0488): the
+ * `--tools` csv unions `hostTools` with the driven body's respond names, and
+ * either side can repeat a name — a respond name equal to an already-listed
+ * host tool, or a caller passing a duplicate respond name — without the
+ * allowlist gaining a repeated entry.
+ */
+function dedupePreservingFirst(names: readonly string[]): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const name of names) {
+    if (!seen.has(name)) {
+      seen.add(name);
+      out.push(name);
+    }
+  }
+  return out;
 }
 
 // ---------------------------------------------------------------------------

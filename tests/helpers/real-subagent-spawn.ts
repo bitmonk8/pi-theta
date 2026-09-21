@@ -67,6 +67,7 @@ export function launchRealSubagentChild(
         thetaDirs: input.thetaDirs,
         systemPrompt: "",
         hostTools: [],
+        respondToolNames: [],
         noHostTools: true,
         provider: input.provider,
         model: input.model,
