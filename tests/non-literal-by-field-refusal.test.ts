@@ -5,7 +5,7 @@ import {
   checkDiscriminatedUnion,
   type DiscriminatorCandidateField,
   type UnionVariantSchema,
-} from "../src/parser/schema-declarations";
+} from "../src/parser/discriminated-union-checks";
 import { site } from "./helpers/invoke-seam-scaffold";
 import { parseDoc, capturedSchemas, type CapturedSchema } from "./helpers/e2e-s1";
 

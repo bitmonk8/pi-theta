@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
   checkByClause,
-  checkDiscriminatedUnion,
   detectTypeAliasCycles,
 } from "../src/parser/schema-declarations";
+import { checkDiscriminatedUnion } from "../src/parser/discriminated-union-checks";
 import { site } from "./helpers/invoke-seam-scaffold";
 import { findCode as withCode } from "./helpers/e2e-s1";
 

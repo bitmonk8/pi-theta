@@ -1,6 +1,6 @@
 import { readRegistry } from "./helpers/registry-oracle";
 import { describe, expect, it } from "vitest";
-import { checkDiscriminatedUnion, type UnionVariantSchema } from "../src/parser/schema-declarations";
+import { checkDiscriminatedUnion, type UnionVariantSchema } from "../src/parser/discriminated-union-checks";
 import type { Diagnostic, SourceRange } from "../src/diagnostics/diagnostic";
 import {
   loadRow,

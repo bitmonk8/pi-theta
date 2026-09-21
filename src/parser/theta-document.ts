@@ -73,15 +73,17 @@ import {
   checkInlineEnumForm,
   checkVariantAccess,
   checkByClause,
-  checkDiscriminatedUnion,
   detectTypeAliasCycles,
   type EnumValueKind,
   type EnumVariantDecl,
-  type DiscriminatorCandidateField,
   type SchemaDeclSite,
   type SchemaGraphNode,
-  type UnionVariantSchema,
 } from "./schema-declarations";
+import {
+  checkDiscriminatedUnion,
+  type DiscriminatorCandidateField,
+  type UnionVariantSchema,
+} from "./discriminated-union-checks";
 import { parseTypeExpression } from "./type-grammar";
 import { checkObjectLiteralFields } from "./literal-sublanguage";
 import { collectPatternBinderNames as collectPatternBindings } from "./match-result";
