@@ -334,7 +334,7 @@ export class LexicalEnvironment {
   /**
    * Local binding name → the built declaring-module environment for that
    * imported `fn` (bug 0303) — root only. Built recursively in the
-   * constructor's imports loop from the import's `moduleScope`, so an
+   * `materializeImports` loop from the import's `moduleScope`, so an
    * imported `fn`'s body can be opened against the file that declared it.
    */
   private readonly moduleEnvs: Map<string, LexicalEnvironment>;
@@ -422,68 +422,80 @@ export class LexicalEnvironment {
           this.schemas.set(stmt.name, stmt);
         }
       }
-      // Top-level `enum` registrations carry the variant sets (`V19a`'s
-      // `EnumDecl` carries only the name — see notes.md seam-shape decision).
-      for (const reg of inputs.enums ?? []) {
-        // A file-loaded `.theta` enum's tag is its file-qualified
-        // `declaringKey` (bug 0337, generalising bug 0305's scheme), so two
-        // distinct `.theta` files' same-named enums no longer collide across
-        // an in-process `invoke`. The bare-name fallback below applies only
-        // when no source path was threaded (a harness/in-memory theta).
-        this.enums.set(reg.name, {
-          variants: buildVariantWireMap(reg.variants, reg.values),
-          tag: reg.declaringKey ?? reg.name,
-        });
-      }
-      // Imported `.thetalib` symbols materialised via `V15c`'s import loader
-      // (imports.md §Visibility): an `fn` is resolvable + callable, a `schema`
-      // resolves as a constructor, an `enum` resolves its variants.
-      for (const imp of inputs.imports ?? []) {
-        this.imports.set(imp.name, imp);
-        if (imp.kind === "fn" && imp.moduleScope !== undefined) {
-          // The declaring lib's own environment (bug 0303): its own body
-          // (hoisted fns/schemas), its own materialised imports (recursively
-          // — a lib-to-lib import), and its own enum registrations, chained
-          // with `parent: null` (its OWN root) but sharing the CALLER's
-          // callables (`inputs.callables`) so effects/queries stay anchored to
-          // the calling theta's conversation (constraint 1) while free NAMES
-          // resolve in the declaring file. The nested constructor call builds
-          // ITS OWN nested module envs the same way, so a lib-to-lib import
-          // chain resolves recursively; the chain terminates because the
-          // materialisation pass that built `imp.moduleScope` is itself
-          // bounded by a visited-path set (IMP-5-independent, constraint 4).
-          this.moduleEnvs.set(
-            imp.name,
-            new LexicalEnvironment(
-              {
-                body: imp.moduleScope.body,
-                imports: imp.moduleScope.imports,
-                enums: imp.moduleScope.enums,
-                callables: inputs.callables ?? [],
-                moduleResidence: imp.moduleScope.residence,
-              },
-              null,
-            ),
-          );
-        }
-        if (imp.kind === "schema") {
-          this.schemas.set(imp.name, { kind: "schema", name: imp.name, range: syntheticRange() });
-        } else if (imp.kind === "enum") {
-          // Imported enums thread their explicit `= "..."` values (schemas.md
-          // §Enum declarations), exactly as the same-file arm above. The tag
-          // is the declaring-declaration key (bug 0305), not the local alias
-          // `imp.name`, so two aliases of one declaration — or a direct
-          // import and a re-export rename of the same declaration — mint the
-          // same runtime tag.
-          this.enums.set(imp.name, {
-            variants: buildVariantWireMap(imp.variants ?? [], imp.values),
-            tag: imp.declaringKey ?? imp.name,
-          });
-        }
-      }
+      this.registerEnums(inputs);
+      this.materializeImports(inputs);
       callables = new Set(inputs.callables ?? []);
     }
     this.callables = callables;
+  }
+
+  /**
+   * Top-level `enum` registrations carry the variant sets (`V19a`'s
+   * `EnumDecl` carries only the name — see notes.md seam-shape decision).
+   */
+  private registerEnums(inputs: EnvironmentInputs): void {
+    for (const reg of inputs.enums ?? []) {
+      // A file-loaded `.theta` enum's tag is its file-qualified
+      // `declaringKey` (bug 0337, generalising bug 0305's scheme), so two
+      // distinct `.theta` files' same-named enums no longer collide across
+      // an in-process `invoke`. The bare-name fallback below applies only
+      // when no source path was threaded (a harness/in-memory theta).
+      this.enums.set(reg.name, {
+        variants: buildVariantWireMap(reg.variants, reg.values),
+        tag: reg.declaringKey ?? reg.name,
+      });
+    }
+  }
+
+  /**
+   * Imported `.thetalib` symbols materialised via `V15c`'s import loader
+   * (imports.md §Visibility): an `fn` is resolvable + callable, a `schema`
+   * resolves as a constructor, an `enum` resolves its variants.
+   */
+  private materializeImports(inputs: EnvironmentInputs): void {
+    for (const imp of inputs.imports ?? []) {
+      this.imports.set(imp.name, imp);
+      if (imp.kind === "fn" && imp.moduleScope !== undefined) {
+        // The declaring lib's own environment (bug 0303): its own body
+        // (hoisted fns/schemas), its own materialised imports (recursively
+        // — a lib-to-lib import), and its own enum registrations, chained
+        // with `parent: null` (its OWN root) but sharing the CALLER's
+        // callables (`inputs.callables`) so effects/queries stay anchored to
+        // the calling theta's conversation (constraint 1) while free NAMES
+        // resolve in the declaring file. The nested constructor call builds
+        // ITS OWN nested module envs the same way, so a lib-to-lib import
+        // chain resolves recursively; the chain terminates because the
+        // materialisation pass that built `imp.moduleScope` is itself
+        // bounded by a visited-path set (IMP-5-independent, constraint 4).
+        this.moduleEnvs.set(
+          imp.name,
+          new LexicalEnvironment(
+            {
+              body: imp.moduleScope.body,
+              imports: imp.moduleScope.imports,
+              enums: imp.moduleScope.enums,
+              callables: inputs.callables ?? [],
+              moduleResidence: imp.moduleScope.residence,
+            },
+            null,
+          ),
+        );
+      }
+      if (imp.kind === "schema") {
+        this.schemas.set(imp.name, { kind: "schema", name: imp.name, range: syntheticRange() });
+      } else if (imp.kind === "enum") {
+        // Imported enums thread their explicit `= "..."` values (schemas.md
+        // §Enum declarations), exactly as the same-file arm above. The tag
+        // is the declaring-declaration key (bug 0305), not the local alias
+        // `imp.name`, so two aliases of one declaration — or a direct
+        // import and a re-export rename of the same declaration — mint the
+        // same runtime tag.
+        this.enums.set(imp.name, {
+          variants: buildVariantWireMap(imp.variants ?? [], imp.values),
+          tag: imp.declaringKey ?? imp.name,
+        });
+      }
+    }
   }
 
   /** The root environment (the scope that owns the fn / schema / enum / import / callable registries). */
