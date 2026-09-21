@@ -1,8 +1,8 @@
 // V1a / V1a-T — the lexer core seam.
 //
-// This module owns the load-time encoding validation, newline normalisation,
-// and tokenisation of a `.theta` / `.thetalib` source, plus the closed
-// continuation-trigger statement-joining rule, per
+// This module owns tokenisation and orchestrates encoding validation, newline
+// normalisation, continuation joining, and contextual checks for a `.theta` /
+// `.thetalib` source, per
 // spec_topics/lexical.md and spec_topics/grammar.md §"Newline continuation".
 // Lexer-surfaced diagnostics (`theta/load/invalid-encoding`, `theta/parse/*`)
 // are delivered through the V7d producer-facing diagnostic-emission seam
@@ -17,8 +17,13 @@ import {
   emitDiagnosticBatch,
   type SystemNoteChannelDeps,
 } from "../extension/system-note-channel";
-import { validateUtf8Encoding } from "./encoding";
-export { firstInvalidUtf8Offset } from "./encoding";
+import { decodeUtf8, normaliseNewlines, validateUtf8Encoding } from "./encoding";
+import { collapseContinuations } from "./continuation";
+import { contextualDiagnostics } from "./contextual-checks";
+export { decodeUtf8, firstInvalidUtf8Offset, normaliseNewlines } from "./encoding";
+export { collapseContinuations } from "./continuation";
+export { contextualDiagnostics } from "./contextual-checks";
+export type { Pos, RawToken };
 
 /**
  * Token kinds the lexer emits. `stmt-sep` is a *significant* newline that
@@ -166,31 +171,6 @@ function twoCharOperators(): ReadonlySet<string> {
   return new Set(["==", "!=", "<=", ">=", "&&", "||", "++", "--"]);
 }
 
-/**
- * Operator texts that, as the *trailing* token of a line, trigger newline
- * continuation: the binary / ternary set from grammar.md §Newline continuation,
- * plus the binding `=` the spec's own worked example (`let x =\n\n foo` is one
- * statement) treats as an incomplete-statement continuation trigger.
- */
-function trailingTriggers(): ReadonlySet<string> {
-  return new Set([
-    "+", "-", "*", "/", "%", "==", "!=", "<", "<=", ">", ">=", "&&", "||",
-    "?", ":", "=",
-  ]);
-}
-
-/**
- * Operator texts that, as the *leading* token of the next non-blank line,
- * trigger newline continuation (the binary / ternary set; `=` is not a leading
- * trigger).
- */
-function leadingTriggers(): ReadonlySet<string> {
-  return new Set([
-    "+", "-", "*", "/", "%", "==", "!=", "<", "<=", ">", ">=", "&&", "||",
-    "?", ":",
-  ]);
-}
-
 function isDigit(c: string): boolean {
   return c >= "0" && c <= "9";
 }
@@ -207,20 +187,278 @@ function isIdentPart(c: string): boolean {
   return isIdentStart(c) || isDigit(c);
 }
 
-/** Decode validated UTF-8 bytes, skipping a leading UTF-8 BOM. */
-function decodeUtf8(bytes: Uint8Array): string {
-  const hasBom =
-    bytes.length >= 3 &&
-    bytes[0] === 0xef &&
-    bytes[1] === 0xbb &&
-    bytes[2] === 0xbf;
-  const body = hasBom ? bytes.subarray(3) : bytes;
-  return new TextDecoder("utf-8", { ignoreBOM: true }).decode(body);
+/** The cursor shared by token scanning and its literal phases. */
+interface ScannerCursor {
+  readonly text: string;
+  readonly n: number;
+  readonly i: number;
+  readonly pos: () => Pos;
+  readonly advance: () => string;
 }
 
-/** Normalise `\r\n` and bare `\r` to `\n` (lexical.md §Newline normalisation). */
-function normaliseNewlines(text: string): string {
-  return text.replace(/\r\n?/g, "\n");
+/** Token and diagnostic sinks shared by the scanner phases. */
+interface ScannerSinks {
+  readonly tokens: RawToken[];
+  readonly diagnostics: Diagnostic[];
+}
+
+/**
+ * String literals: single- or double-quoted, single-line. The escape table
+ * (`\"`, `\'`, `\\`, `\n`, `\t`, `\r`, `\u{XXXX}`) is decoded into the
+ * token's `value`; `text` keeps the verbatim source slice. An unrecognised
+ * or malformed escape is `theta/parse/illegal-escape`; a `\u{...}` whose
+ * scalar value is out of range or names a surrogate is
+ * `theta/parse/invalid-unicode-escape` (lexical.md §"String literals").
+ */
+function scanStringLiteral(cursor: ScannerCursor, sinks: ScannerSinks, file: string): void {
+  const { text, n, pos, advance } = cursor;
+  const { tokens, diagnostics } = sinks;
+  const quote = text[cursor.i];
+  const start = pos();
+  let raw = advance(); // opening quote
+  let value = "";
+  let closed = false;
+  while (cursor.i < n && text[cursor.i] !== "\n") {
+    const ch = text[cursor.i];
+    if (ch === undefined) {
+      break;
+    }
+    if (ch === quote) {
+      raw += advance(); // closing quote
+      closed = true;
+      break;
+    }
+    if (ch === "\\") {
+      const escStart = pos();
+      raw += advance(); // the backslash
+      const e = text[cursor.i];
+      if (e === undefined || e === "\n") {
+        // Dangling backslash at end of line / EOF: an unrecognised escape.
+        diagnostics.push({
+          severity: "error",
+          code: "theta/parse/illegal-escape",
+          file,
+          range: { start: escStart, end: pos() },
+          message: "illegal escape sequence: \\",
+        });
+        break;
+      }
+      if (e === '"' || e === "'" || e === "\\") {
+        value += e;
+        raw += advance();
+      } else if (e === "n") {
+        value += "\n";
+        raw += advance();
+      } else if (e === "t") {
+        value += "\t";
+        raw += advance();
+      } else if (e === "r") {
+        value += "\r";
+        raw += advance();
+      } else if (e === "u") {
+        raw += advance(); // the `u`
+        // `\u{XXXX}` — 1–6 hex digits between braces, a Unicode scalar
+        // value (lexical.md §"String literals"). Consume the whole
+        // bracketed (or braceless) digit run before judging the form, so
+        // no unconsumed digit ever re-enters the loop as string content.
+        let hex = "";
+        let braced = false;
+        let braceClosed = false;
+        if (text[cursor.i] === "{") {
+          braced = true;
+          raw += advance(); // `{`
+          while (cursor.i < n && isHexDigit(text[cursor.i] ?? "")) {
+            const digit = advance();
+            hex += digit;
+            raw += digit;
+          }
+          if (text[cursor.i] === "}") {
+            raw += advance(); // `}`
+            braceClosed = true;
+          }
+        } else {
+          // Braceless `\uXXXX` has no in-form value to judge either, but
+          // the digit run still must not leak into `value` as content.
+          while (cursor.i < n && isHexDigit(text[cursor.i] ?? "")) {
+            const digit = advance();
+            hex += digit;
+            raw += digit;
+          }
+        }
+        // A malformed FORM (missing `{`, `}`, zero digits, or more than
+        // six) has no in-form value to judge, so it draws
+        // `illegal-escape`, not `invalid-unicode-escape` — that code
+        // stays exactly on its registered out-of-range/surrogate value
+        // trigger and is computed only once the form itself is
+        // well-formed (bug 0412 §Fix).
+        const wellFormed =
+          braced && braceClosed && hex.length >= 1 && hex.length <= 6;
+        const cp = wellFormed ? parseInt(hex, 16) : NaN;
+        const isScalar =
+          wellFormed && cp <= 0x10ffff && !(cp >= 0xd800 && cp <= 0xdfff);
+        if (isScalar) {
+          value += String.fromCodePoint(cp);
+        } else if (wellFormed) {
+          diagnostics.push({
+            severity: "error",
+            code: "theta/parse/invalid-unicode-escape",
+            file,
+            range: { start: escStart, end: pos() },
+            message:
+              "invalid Unicode escape: value is not a Unicode scalar value",
+          });
+        } else {
+          diagnostics.push({
+            severity: "error",
+            code: "theta/parse/illegal-escape",
+            file,
+            range: { start: escStart, end: pos() },
+            message: "illegal escape sequence: \\u",
+          });
+        }
+      } else {
+        diagnostics.push({
+          severity: "error",
+          code: "theta/parse/illegal-escape",
+          file,
+          range: { start: escStart, end: { line: pos().line, column: pos().column + 1 } },
+          message: `illegal escape sequence: \\${e}`,
+        });
+        raw += advance(); // consume the offending character
+      }
+      continue;
+    }
+    value += ch;
+    raw += advance();
+  }
+  if (!closed) {
+    // Single-line-only string literals (lexical.md §"String literals"): a
+    // scan that ends without a closing quote either hit a literal newline
+    // (the current char is `\n`) or ran off the end of the source (EOF).
+    if (text[cursor.i] === "\n") {
+      diagnostics.push({
+        severity: "error",
+        code: "theta/parse/literal-newline-in-string",
+        file,
+        range: { start, end: pos() },
+        message: "literal newline in string literal",
+      });
+    } else {
+      diagnostics.push({
+        severity: "error",
+        code: "theta/parse/unterminated-string",
+        file,
+        range: { start, end: pos() },
+        message: "unterminated string literal",
+      });
+    }
+  }
+  tokens.push({
+    kind: "string",
+    text: raw,
+    value,
+    range: { start, end: pos() },
+  });
+}
+
+/** Scan a decimal literal, rejecting unsupported tails and out-of-range values. */
+function scanNumberLiteral(cursor: ScannerCursor, sinks: ScannerSinks, file: string): void {
+  const { text, n, pos, advance } = cursor;
+  const { tokens, diagnostics } = sinks;
+  const start = pos();
+  let value = "";
+  let isFractional = false;
+  while (cursor.i < n) {
+    const d = text[cursor.i];
+    if (d === undefined || !isDigit(d)) {
+      break;
+    }
+    value += advance();
+  }
+  if (text[cursor.i] === ".") {
+    isFractional = true;
+    value += advance();
+    while (cursor.i < n) {
+      const d = text[cursor.i];
+      if (d === undefined || !isDigit(d)) {
+        break;
+      }
+      value += advance();
+    }
+  }
+  if (text[cursor.i] === "e" || text[cursor.i] === "E") {
+    isFractional = true;
+    value += advance();
+    if (text[cursor.i] === "+" || text[cursor.i] === "-") {
+      value += advance();
+    }
+    while (cursor.i < n) {
+      const d = text[cursor.i];
+      if (d === undefined || !isDigit(d)) {
+        break;
+      }
+      value += advance();
+    }
+  }
+
+  // A digit/letter/underscore abutting the decimal literal is a reserved or
+  // malformed numeric form — the theta 1.0-deferred hex (`0x`), octal (`0o`),
+  // binary (`0b`), and underscore-separator (`1_000`) syntaxes all surface
+  // here as `theta/parse/unsupported-feature` (lexical.md §"Number literals").
+  const tail = text[cursor.i];
+  if (tail !== undefined && isIdentPart(tail)) {
+    let extra = "";
+    while (cursor.i < n) {
+      const d = text[cursor.i];
+      if (d === undefined || !isIdentPart(d)) {
+        break;
+      }
+      extra += advance();
+    }
+    const fullText = value + extra;
+    diagnostics.push({
+      severity: "error",
+      code: "theta/parse/unsupported-feature",
+      file,
+      range: { start, end: pos() },
+      message: `unsupported syntactic feature: ${fullText}`,
+    });
+    tokens.push({ kind: "number", text: fullText, range: { start, end: pos() } });
+    return;
+  }
+
+  // A literal with no fractional or exponent part is typed `integer`,
+  // otherwise `number`. The magnitude is judged per lexed token, before the
+  // parse-time unary-`-` fold: an out-of-safe-range integer or a
+  // non-finite number rejects rather than silently rounding to a double or
+  // yielding `Infinity` (lexical.md §"Number literals").
+  const numericType: "integer" | "number" = isFractional
+    ? "number"
+    : "integer";
+  const parsed = Number(value);
+  if (numericType === "integer" && parsed > Number.MAX_SAFE_INTEGER) {
+    diagnostics.push({
+      severity: "error",
+      code: "theta/parse/integer-literal-out-of-range",
+      file,
+      range: { start, end: pos() },
+      message: "integer literal exceeds the safe-integer range",
+    });
+  } else if (numericType === "number" && !Number.isFinite(parsed)) {
+    diagnostics.push({
+      severity: "error",
+      code: "theta/parse/number-literal-not-finite",
+      file,
+      range: { start, end: pos() },
+      message: "number literal is not a finite IEEE-754 double",
+    });
+  }
+  tokens.push({
+    kind: "number",
+    text: value,
+    numericType,
+    range: { start, end: pos() },
+  });
 }
 
 /**
@@ -274,6 +512,15 @@ function scanTokens(
     }
     return c;
   };
+
+  const cursor: ScannerCursor = {
+    text,
+    n,
+    get i() { return i; },
+    pos,
+    advance,
+  };
+  const sinks: ScannerSinks = { tokens, diagnostics };
 
   while (i < n) {
     const c = text[i];
@@ -361,159 +608,8 @@ function scanTokens(
       return { tokens, diagnostics };
     }
 
-    // String literals: single- or double-quoted, single-line. The escape table
-    // (`\"`, `\'`, `\\`, `\n`, `\t`, `\r`, `\u{XXXX}`) is decoded into the
-    // token's `value`; `text` keeps the verbatim source slice. An unrecognised
-    // or malformed escape is `theta/parse/illegal-escape`; a `\u{...}` whose
-    // scalar value is out of range or names a surrogate is
-    // `theta/parse/invalid-unicode-escape` (lexical.md §"String literals").
     if (c === '"' || c === "'") {
-      const quote = c;
-      const start = pos();
-      let raw = advance(); // opening quote
-      let value = "";
-      let closed = false;
-      while (i < n && text[i] !== "\n") {
-        const ch = text[i];
-        if (ch === undefined) {
-          break;
-        }
-        if (ch === quote) {
-          raw += advance(); // closing quote
-          closed = true;
-          break;
-        }
-        if (ch === "\\") {
-          const escStart = pos();
-          raw += advance(); // the backslash
-          const e = text[i];
-          if (e === undefined || e === "\n") {
-            // Dangling backslash at end of line / EOF: an unrecognised escape.
-            diagnostics.push({
-              severity: "error",
-              code: "theta/parse/illegal-escape",
-              file,
-              range: { start: escStart, end: pos() },
-              message: "illegal escape sequence: \\",
-            });
-            break;
-          }
-          if (e === '"' || e === "'" || e === "\\") {
-            value += e;
-            raw += advance();
-          } else if (e === "n") {
-            value += "\n";
-            raw += advance();
-          } else if (e === "t") {
-            value += "\t";
-            raw += advance();
-          } else if (e === "r") {
-            value += "\r";
-            raw += advance();
-          } else if (e === "u") {
-            raw += advance(); // the `u`
-            // `\u{XXXX}` — 1–6 hex digits between braces, a Unicode scalar
-            // value (lexical.md §"String literals"). Consume the whole
-            // bracketed (or braceless) digit run before judging the form, so
-            // no unconsumed digit ever re-enters the loop as string content.
-            let hex = "";
-            let braced = false;
-            let braceClosed = false;
-            if (text[i] === "{") {
-              braced = true;
-              raw += advance(); // `{`
-              while (i < n && isHexDigit(text[i] ?? "")) {
-                const digit = advance();
-                hex += digit;
-                raw += digit;
-              }
-              if (text[i] === "}") {
-                raw += advance(); // `}`
-                braceClosed = true;
-              }
-            } else {
-              // Braceless `\uXXXX` has no in-form value to judge either, but
-              // the digit run still must not leak into `value` as content.
-              while (i < n && isHexDigit(text[i] ?? "")) {
-                const digit = advance();
-                hex += digit;
-                raw += digit;
-              }
-            }
-            // A malformed FORM (missing `{`, `}`, zero digits, or more than
-            // six) has no in-form value to judge, so it draws
-            // `illegal-escape`, not `invalid-unicode-escape` — that code
-            // stays exactly on its registered out-of-range/surrogate value
-            // trigger and is computed only once the form itself is
-            // well-formed (bug 0412 §Fix).
-            const wellFormed =
-              braced && braceClosed && hex.length >= 1 && hex.length <= 6;
-            const cp = wellFormed ? parseInt(hex, 16) : NaN;
-            const isScalar =
-              wellFormed && cp <= 0x10ffff && !(cp >= 0xd800 && cp <= 0xdfff);
-            if (isScalar) {
-              value += String.fromCodePoint(cp);
-            } else if (wellFormed) {
-              diagnostics.push({
-                severity: "error",
-                code: "theta/parse/invalid-unicode-escape",
-                file,
-                range: { start: escStart, end: pos() },
-                message:
-                  "invalid Unicode escape: value is not a Unicode scalar value",
-              });
-            } else {
-              diagnostics.push({
-                severity: "error",
-                code: "theta/parse/illegal-escape",
-                file,
-                range: { start: escStart, end: pos() },
-                message: "illegal escape sequence: \\u",
-              });
-            }
-          } else {
-            diagnostics.push({
-              severity: "error",
-              code: "theta/parse/illegal-escape",
-              file,
-              range: { start: escStart, end: { line: pos().line, column: pos().column + 1 } },
-              message: `illegal escape sequence: \\${e}`,
-            });
-            raw += advance(); // consume the offending character
-          }
-          continue;
-        }
-        value += ch;
-        raw += advance();
-      }
-      if (!closed) {
-        // Single-line-only string literals (lexical.md §"String literals"): a
-        // scan that ends without a closing quote either hit a literal newline
-        // (the current char is `\n`) or ran off the end of the source (EOF).
-        if (text[i] === "\n") {
-          diagnostics.push({
-            severity: "error",
-            code: "theta/parse/literal-newline-in-string",
-            file,
-            range: { start, end: pos() },
-            message: "literal newline in string literal",
-          });
-        } else {
-          diagnostics.push({
-            severity: "error",
-            code: "theta/parse/unterminated-string",
-            file,
-            range: { start, end: pos() },
-            message: "unterminated string literal",
-          });
-        }
-      }
-      tokens.push({
-        kind: "string",
-        text: raw,
-        value,
-        range: { start, end: pos() },
-      });
+      scanStringLiteral(cursor, sinks, file);
       continue;
     }
 
@@ -533,100 +629,7 @@ function scanTokens(
     }
 
     if (isDigit(c)) {
-      const start = pos();
-      let value = "";
-      let isFractional = false;
-      while (i < n) {
-        const d = text[i];
-        if (d === undefined || !isDigit(d)) {
-          break;
-        }
-        value += advance();
-      }
-      if (text[i] === ".") {
-        isFractional = true;
-        value += advance();
-        while (i < n) {
-          const d = text[i];
-          if (d === undefined || !isDigit(d)) {
-            break;
-          }
-          value += advance();
-        }
-      }
-      if (text[i] === "e" || text[i] === "E") {
-        isFractional = true;
-        value += advance();
-        if (text[i] === "+" || text[i] === "-") {
-          value += advance();
-        }
-        while (i < n) {
-          const d = text[i];
-          if (d === undefined || !isDigit(d)) {
-            break;
-          }
-          value += advance();
-        }
-      }
-
-      // A digit/letter/underscore abutting the decimal literal is a reserved or
-      // malformed numeric form — the theta 1.0-deferred hex (`0x`), octal (`0o`),
-      // binary (`0b`), and underscore-separator (`1_000`) syntaxes all surface
-      // here as `theta/parse/unsupported-feature` (lexical.md §"Number literals").
-      const tail = text[i];
-      if (tail !== undefined && isIdentPart(tail)) {
-        let extra = "";
-        while (i < n) {
-          const d = text[i];
-          if (d === undefined || !isIdentPart(d)) {
-            break;
-          }
-          extra += advance();
-        }
-        const fullText = value + extra;
-        diagnostics.push({
-          severity: "error",
-          code: "theta/parse/unsupported-feature",
-          file,
-          range: { start, end: pos() },
-          message: `unsupported syntactic feature: ${fullText}`,
-        });
-        tokens.push({ kind: "number", text: fullText, range: { start, end: pos() } });
-        continue;
-      }
-
-      // A literal with no fractional or exponent part is typed `integer`,
-      // otherwise `number`. The magnitude is judged per lexed token, before the
-      // parse-time unary-`-` fold: an out-of-safe-range integer or a
-      // non-finite number rejects rather than silently rounding to a double or
-      // yielding `Infinity` (lexical.md §"Number literals").
-      const numericType: "integer" | "number" = isFractional
-        ? "number"
-        : "integer";
-      const parsed = Number(value);
-      if (numericType === "integer" && parsed > Number.MAX_SAFE_INTEGER) {
-        diagnostics.push({
-          severity: "error",
-          code: "theta/parse/integer-literal-out-of-range",
-          file,
-          range: { start, end: pos() },
-          message: "integer literal exceeds the safe-integer range",
-        });
-      } else if (numericType === "number" && !Number.isFinite(parsed)) {
-        diagnostics.push({
-          severity: "error",
-          code: "theta/parse/number-literal-not-finite",
-          file,
-          range: { start, end: pos() },
-          message: "number literal is not a finite IEEE-754 double",
-        });
-      }
-      tokens.push({
-        kind: "number",
-        text: value,
-        numericType,
-        range: { start, end: pos() },
-      });
+      scanNumberLiteral(cursor, sinks, file);
       continue;
     }
 
@@ -726,378 +729,4 @@ function scanTokens(
   }
 
   return { tokens, diagnostics };
-}
-
-/**
- * Collapse raw newline markers into significant `stmt-sep` tokens, applying the
- * closed continuation-trigger rule (grammar.md §Newline continuation): a run of
- * one or more newlines is swallowed (no `stmt-sep`) when the bracket depth is
- * open, the prior token is a trailing trigger, or the next token is a leading
- * trigger — otherwise it collapses to exactly one `stmt-sep`. Collapsing the
- * whole run in one decision is what makes blank lines transparent to a
- * continuation. A trailing `eof` token is always appended.
- */
-function collapseContinuations(raw: readonly RawToken[]): Token[] {
-  const out: Token[] = [];
-  const trailing = trailingTriggers();
-  const leading = leadingTriggers();
-  let depth = 0;
-  let i = 0;
-
-  const isTrailing = (t: Token | undefined): boolean =>
-    t !== undefined && t.kind === "punct" && trailing.has(t.text);
-  const isLeading = (t: RawToken | undefined): boolean =>
-    t !== undefined && t.kind === "punct" && leading.has(t.text);
-
-  while (i < raw.length) {
-    const t = raw[i];
-    if (t === undefined) {
-      break;
-    }
-    if (t.kind === "newline") {
-      let j = i;
-      while (j < raw.length && raw[j]?.kind === "newline") {
-        j += 1;
-      }
-      const prev = out.length > 0 ? out[out.length - 1] : undefined;
-      const next = j < raw.length ? raw[j] : undefined;
-      const swallow = depth > 0 || isTrailing(prev) || isLeading(next);
-      if (!swallow) {
-        out.push({ kind: "stmt-sep", text: "\n", range: t.range });
-      }
-      i = j;
-      continue;
-    }
-
-    if (t.kind === "punct") {
-      if (t.text === "(" || t.text === "[" || t.text === "{") {
-        depth += 1;
-      } else if (t.text === ")" || t.text === "]" || t.text === "}") {
-        if (depth > 0) {
-          depth -= 1;
-        }
-      }
-    }
-    out.push({
-      kind: t.kind,
-      text: t.text,
-      ...(t.value !== undefined ? { value: t.value } : {}),
-      ...(t.numericType !== undefined ? { numericType: t.numericType } : {}),
-      range: t.range,
-    });
-    i += 1;
-  }
-
-  const last = out.length > 0 ? out[out.length - 1] : undefined;
-  const eofPos: Pos = last !== undefined ? last.range.end : { line: 1, column: 1 };
-  out.push({ kind: "eof", text: "", range: { start: eofPos, end: eofPos } });
-  return out;
-}
-
-/**
- * The two brace-delimited region shapes the adjacency scans below need to
- * tell apart. A `member` region encloses NAMES — a schema body, an enum body,
- * or an `import` / `export` specifier list
- * (`ImportSpec ::= Ident ("as" Ident)?`, `docs/reference/grammar.md`
- * §"Imports and re-exports"; the wire-rename clause,
- * `docs/spec_topics/schemas.md` `as "WireName"`). A `block` region encloses
- * statements, where the same eight words can be a declarator head or a
- * control header.
- */
-type BraceRegion = "member" | "block";
-
-/**
- * Classify the region the `{` at `index` opens, from that brace's own
- * antecedent alone — never from the region enclosing it.
- *
- * A `{` opens a member region when it is the body of `import` / `export` (the
- * token immediately before it, itself at a statement head), or of a `schema` /
- * `enum` DECLARATION (the keyword two back, past the declared NAME, itself at
- * a statement head or behind a statement-heading `export`). The warrant for
- * narrowing the scans is narrow and positional: it is those DECLARATION forms
- * — schema and enum bodies (`docs/reference/schema-subset.md` §"Schema
- * declarations") and the `import` / `export` specifier list
- * (`docs/reference/grammar.md` §"Imports and re-exports") — whose member
- * names bug 0153's parser leaves refuse a reserved spelling at, so the lexer
- * scan there is a duplicate rather than the whole refusal. Two brace shapes
- * spell the same tokens with no such leaf behind them and must stay `block`
- * regions: an inline object type nested in a schema body, which opens after a
- * `:`, and the typed object-literal EXPRESSION `schema T { … }`, which is
- * legal and whose keys no leaf refuses. Classifying either as `member` would
- * silence the only refusal those shapes draw.
- *
- * Each arm therefore requires a whole GRAMMAR PRODUCTION HEAD in DECLARATION
- * position, not a keyword's mere proximity to the brace: `SchemaDecl` /
- * `EnumDecl` spell `"schema" Ident "{"` / `"enum" Ident "{"`, so the token
- * between the keyword and the brace must be an `ident` and the keyword must
- * open a statement; `ImportDecl` / `ExportDecl` are declarations, so their
- * keyword must open a statement too. A `{` whose neighbourhood merely
- * contains one of those four words in some other position — `if (schema) {
- * fn: 1 }`, `let x = import { fn: 1 }`, `let x = [schema T { fn: 1 }]` —
- * belongs to no NAME-bearing declaration, and classifying it as a member
- * region would skip the scans over a region with no parser-leaf backstop
- * behind it.
- *
- * The statement-head requirement is deliberately literal, so a schema or enum
- * declaration written where its keyword does not open a statement — the
- * single-line `{ schema S { fn: 1 } }` form, whose keyword sits directly
- * behind a `{` — classifies as a block region and keeps the scans' full
- * reach, misfire included. That shape stays refused, so the narrowing costs a
- * duplicate diagnostic rather than a refusal.
- */
-function classifyBrace(tokens: readonly Token[], index: number): BraceRegion {
-  const prev = tokens[index - 1];
-  if (
-    prev !== undefined &&
-    prev.kind === "keyword" &&
-    (prev.text === "import" || prev.text === "export") &&
-    startsStatement(tokens, index - 1)
-  ) {
-    return "member";
-  }
-  const declaredHead = tokens[index - 2];
-  if (
-    declaredHead !== undefined &&
-    declaredHead.kind === "keyword" &&
-    (declaredHead.text === "schema" || declaredHead.text === "enum") &&
-    prev !== undefined &&
-    prev.kind === "ident" &&
-    startsDeclaration(tokens, index - 2)
-  ) {
-    return "member";
-  }
-  return "block";
-}
-
-/**
- * True when the token at `index` opens a statement: nothing precedes it, or a
- * `stmt-sep` does. `ImportDecl` / `ExportDecl` (`docs/reference/grammar.md`
- * §"Imports and re-exports") are declarations, so an `import` / `export`
- * keyword anywhere else — an expression operand, a parenthesised condition —
- * heads no specifier list.
- */
-function startsStatement(tokens: readonly Token[], index: number): boolean {
-  const before = tokens[index - 1];
-  return before === undefined || before.kind === "stmt-sep";
-}
-
-/**
- * True when the declarator keyword at `index` stands in DECLARATION position:
- * it opens a statement itself, or an `export` that opens a statement precedes
- * it. The `export` clause is what keeps `export schema S { … }` /
- * `export enum E { … }` classified by their declaration head rather than by
- * the re-export spelling they share a keyword with.
- */
-function startsDeclaration(tokens: readonly Token[], index: number): boolean {
-  if (startsStatement(tokens, index)) {
-    return true;
-  }
-  const before = tokens[index - 1];
-  return (
-    before !== undefined &&
-    before.kind === "keyword" &&
-    before.text === "export" &&
-    startsStatement(tokens, index - 1)
-  );
-}
-
-/**
- * True when the keyword at `index` occupies a NAME slot rather than a
- * declarator head or a control header.
- *
- * Two slots put one of the eight words the scans below key on where a name
- * belongs, and the parser leaves already refuse a reserved spelling there
- * (bug 0153 §Fix): inside a member region (`classifyBrace`), the head of a
- * member — after the opening `{`, after a `,` between members, after the `as`
- * of an import/export alias, or after a stray statement separator that
- * `collapseContinuations` only emits inside a member region when an unmatched
- * `)` / `]` has already driven its bracket-depth counter back to zero inside
- * the still-open `{` (group (M) — every well-formed member region stays at
- * depth > 0 for its whole body, so `collapseContinuations` swallows every
- * ordinary newline between members and no stmt-sep clause is reachable
- * there); and inside a block region, the iteration variable of `for` / `par
- * for`
- * (`ForStmt ::= "for" Ident "in" Expr StmtBlock`, `docs/reference/grammar.md`
- * §"Blocks"), past the
- * `mut` recovery spelling the parser leaves also own. A member's TYPE
- * position (the token after `:`) is deliberately not a name slot: the scans
- * must keep enforcing there for bug 0044's witness to hold.
- */
-function isNameSlot(tokens: readonly Token[], index: number, regions: readonly BraceRegion[]): boolean {
-  const prev = tokens[index - 1];
-  if (prev === undefined) {
-    return false;
-  }
-  if (regions[regions.length - 1] === "member") {
-    return (
-      prev.kind === "stmt-sep" ||
-      (prev.kind === "punct" && (prev.text === "{" || prev.text === ",")) ||
-      (prev.kind === "keyword" && prev.text === "as")
-    );
-  }
-  // A key position inside a non-member brace region (an inline object type's
-  // field or an object-literal constructor's field, neither of which
-  // `classifyBrace` marks `member`) is also a name slot (bug 0249): the
-  // parser leaf at that position now refuses a reserved spelling itself, so
-  // the lexer's `single-line-if` scan must not draw a second, wrongly-Triggered
-  // diagnostic there. The `:` requirement is the necessary width — a
-  // colon-less head (an enum variant, an import/export specifier) is not this
-  // slot and must keep drawing the control-header scan.
-  if (
-    regions.length > 0 &&
-    (prev.kind === "stmt-sep" || (prev.kind === "punct" && (prev.text === "{" || prev.text === ",")))
-  ) {
-    const next = tokens[index + 1];
-    if (next !== undefined && next.kind === "punct" && next.text === ":") {
-      return true;
-    }
-  }
-  if (prev.kind !== "keyword") {
-    return false;
-  }
-  if (prev.text === "for") {
-    return true;
-  }
-  const beforeMut = tokens[index - 2];
-  return (
-    prev.text === "mut" && beforeMut !== undefined && beforeMut.kind === "keyword" && beforeMut.text === "for"
-  );
-}
-
-/**
- * Run the parser-enforced identifier rules the lexer core owns at
- * declarator-name and control-header positions: reserved-keyword-as-identifier
- * and the first-letter case rules at `let` / `let mut` / `fn` (binding) and
- * `schema` / `enum` (type) name positions, and the single-line-body rule for
- * `if` / `for` / `while` / `fn` headers whose logical line carries no `{`.
- *
- * A brace-region stack (`classifyBrace`) tells a member's NAME slot apart from
- * a declarator head or a control header sharing the same spelling
- * (`isNameSlot`); at a NAME slot both the declarator arms and the
- * single-line-body scan skip the token, since the parser leaves already
- * refuse a reserved spelling there. Scope note: full identifier-position
- * coverage (every reserved word in every identifier slot) is a parser-leaf
- * obligation; the lexer core enforces the positions its closed Tests
- * obligations name, plus the name-slot discrimination those positions need to
- * avoid a second, wrongly-ranged diagnostic beside the parser leaf's correct
- * one. See notes.md.
- */
-function contextualDiagnostics(tokens: readonly Token[], file: string): Diagnostic[] {
-  const diagnostics: Diagnostic[] = [];
-  const controlHeads = new Set(["if", "for", "while", "fn"]);
-
-  const checkName = (index: number, kind: "binding" | "type"): void => {
-    const name = tokens[index];
-    if (name === undefined) {
-      return;
-    }
-    if (name.kind === "keyword") {
-      diagnostics.push({
-        severity: "error",
-        code: "theta/parse/reserved-keyword-as-identifier",
-        file,
-        range: name.range,
-        message: `reserved keyword '${name.text}' cannot be used as an identifier`,
-      });
-      return;
-    }
-    if (name.kind !== "ident") {
-      return;
-    }
-    const first = name.text[0] ?? "";
-    const isUpper = first >= "A" && first <= "Z";
-    if (kind === "binding" && isUpper) {
-      diagnostics.push({
-        severity: "error",
-        code: "theta/parse/binding-case-mismatch",
-        file,
-        range: name.range,
-        message: "binding name must start with a lowercase letter or _",
-      });
-    } else if (kind === "type" && !isUpper) {
-      diagnostics.push({
-        severity: "error",
-        code: "theta/parse/schema-case-mismatch",
-        file,
-        range: name.range,
-        message: "schema name must start with an uppercase letter",
-      });
-    }
-  };
-
-  // A `@`…`` query template body is prose, not code: the parser recovers it by
-  // slicing raw source between the backtick token bounds (see BodyParser), so the
-  // interior tokens are vestigial. Control-header words (`if` / `for` / …) and
-  // declarator keywords (`let` / `fn` / `schema` / `enum`) occurring as prose
-  // inside a template MUST NOT trigger the single-line-body or name-case rules
-  // (grammar.md §Comments: "Text inside a `@`…`` query template is not a
-  // comment" — nor is it code). Backticks are template delimiters and always
-  // pair, so a toggle tracks the template body; `${…}` interpolations sit inside
-  // it and legitimately carry no control-header/declarator statement, so
-  // suppressing the whole region is safe.
-  let inTemplateBody = false;
-  const braceRegions: BraceRegion[] = [];
-  for (let k = 0; k < tokens.length; k += 1) {
-    const t = tokens[k];
-    if (t === undefined) {
-      continue;
-    }
-    if (t.kind === "punct" && t.text === "`") {
-      inTemplateBody = !inTemplateBody;
-      continue;
-    }
-    if (!inTemplateBody && t.kind === "punct" && t.text === "{") {
-      braceRegions.push(classifyBrace(tokens, k));
-      continue;
-    }
-    if (!inTemplateBody && t.kind === "punct" && t.text === "}") {
-      braceRegions.pop();
-      continue;
-    }
-    if (inTemplateBody || t.kind !== "keyword") {
-      continue;
-    }
-    if (isNameSlot(tokens, k, braceRegions)) {
-      continue;
-    }
-    if (t.text === "let") {
-      let nameIdx = k + 1;
-      const after = tokens[nameIdx];
-      if (after !== undefined && after.kind === "keyword" && after.text === "mut") {
-        nameIdx += 1;
-      }
-      checkName(nameIdx, "binding");
-    } else if (t.text === "fn") {
-      checkName(k + 1, "binding");
-    } else if (t.text === "schema" || t.text === "enum") {
-      checkName(k + 1, "type");
-    }
-
-    if (controlHeads.has(t.text)) {
-      let m = k + 1;
-      let braced = false;
-      while (m < tokens.length) {
-        const body = tokens[m];
-        if (body === undefined || body.kind === "stmt-sep" || body.kind === "eof") {
-          break;
-        }
-        if (body.kind === "punct" && body.text === "{") {
-          braced = true;
-          break;
-        }
-        m += 1;
-      }
-      if (!braced) {
-        diagnostics.push({
-          severity: "error",
-          code: "theta/parse/single-line-if",
-          file,
-          range: t.range,
-          message: "single-line body not permitted; wrap in { ... }",
-        });
-      }
-    }
-  }
-
-  return diagnostics;
 }

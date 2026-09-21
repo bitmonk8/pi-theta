@@ -1,4 +1,4 @@
-// Shared raw-byte UTF-8 validation and diagnostic gate for lexer and parser entry points.
+// Shared raw-byte UTF-8 validation gate, plus lexer decoding and newline normalisation.
 
 import { type Diagnostic } from "../diagnostics/diagnostic";
 import {
@@ -99,4 +99,22 @@ export function firstInvalidUtf8Offset(bytes: Uint8Array): number {
     i += needed + 1;
   }
   return -1;
+}
+
+export { decodeUtf8, normaliseNewlines };
+
+/** Decode validated UTF-8 bytes, skipping a leading UTF-8 BOM. */
+function decodeUtf8(bytes: Uint8Array): string {
+  const hasBom =
+    bytes.length >= 3 &&
+    bytes[0] === 0xef &&
+    bytes[1] === 0xbb &&
+    bytes[2] === 0xbf;
+  const body = hasBom ? bytes.subarray(3) : bytes;
+  return new TextDecoder("utf-8", { ignoreBOM: true }).decode(body);
+}
+
+/** Normalise `\r\n` and bare `\r` to `\n` (lexical.md §Newline normalisation). */
+function normaliseNewlines(text: string): string {
+  return text.replace(/\r\n?/g, "\n");
 }
