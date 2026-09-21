@@ -7,6 +7,7 @@ import {
   checkCalleeHasErrors,
   checkInvokeCall,
   checkInvokeReturnType,
+  withClausePromptModeRefusal,
   type InvokeArgSlot,
 } from "../parser/invoke-diagnostics";
 import {
@@ -20,7 +21,6 @@ import { checkToolCallArguments } from "../runtime/tool-call";
 import { checkInvokePathAtLoad } from "../runtime/invocation";
 import type { FileSystem } from "../seams/file-system";
 import type { CalleeArity, CalleeArityField } from "./invoke-static-checks";
-import { withClausePromptModeRefusal } from "./with-clause-prompt-mode-gate";
 
 /**
  * The flat set of static types whose UNION covers every value `expr` can

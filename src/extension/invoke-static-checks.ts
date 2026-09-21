@@ -99,7 +99,7 @@ import type {
 } from "../parser/theta-document";
 import { walkCallSiteNodes } from "../parser/theta-document";
 import type { CallableSetSnapshot } from "../parser/callable-set";
-import { checkInvokeArity } from "../parser/invoke-diagnostics";
+import { checkInvokeArity, withClausePromptModeRefusal } from "../parser/invoke-diagnostics";
 import {
   detectInvocationCycle,
   type InvokeGraph,
@@ -108,7 +108,6 @@ import { canonicalizePath } from "../runtime/invocation";
 import { normalizePath } from "../normalize-path";
 import type { FileSystem } from "../seams/file-system";
 import type { ThetaCompositionInput } from "./theta-composition-producer";
-import { withClausePromptModeRefusal } from "./with-clause-prompt-mode-gate";
 // Bug 0072: the two static tool-argument TYPE checks reuse the existing `V20b`
 // static-type-inference substrate and `V2b` compatibility engine rather than
 // re-deriving a parallel type model for this pass.
