@@ -2,7 +2,7 @@
 id: PTQ-1215
 title: TypeLayerWalk.checkMethodCall is 91 LOC in the zone band, bundling three separately spec-anchored diagnostic families
 lens: D9
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/parser/type-layer-checks.ts:3476-3566

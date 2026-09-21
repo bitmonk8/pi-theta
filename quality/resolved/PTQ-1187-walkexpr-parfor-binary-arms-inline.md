@@ -2,7 +2,7 @@
 id: PTQ-1187
 title: TypeLayerWalk.walkExpr is 248 LOC with the par-for and binary arms carrying inline check logic every other arm delegates to a named helper
 lens: D9
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/parser/type-layer-checks.ts:3186-3433

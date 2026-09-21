@@ -2,7 +2,7 @@
 id: PTQ-1170
 title: TypeLayerWalk.walkStmt is 333 LOC because its `let` arm alone spans 198 lines of binding-record logic inside the statement dispatch
 lens: D9
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/parser/type-layer-checks.ts:1625-1957

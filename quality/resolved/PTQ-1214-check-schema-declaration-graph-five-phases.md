@@ -2,7 +2,7 @@
 id: PTQ-1214
 title: checkSchemaDeclarationGraph bundles graph collection, object by-clause, alias-RHS checks, discriminated-union validation, and cycle detection in one 178-LOC pass
 lens: D9
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/parser/theta-document.ts:8738-8915

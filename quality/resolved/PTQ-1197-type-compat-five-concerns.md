@@ -2,7 +2,7 @@
 id: PTQ-1197
 title: type-compat.ts bundles the compatibility engine, six per-site TYPE-9 checkers, the common-type join, and sentinel mints in one 1117-LOC module
 lens: D9
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/parser/type-compat.ts:1-1117

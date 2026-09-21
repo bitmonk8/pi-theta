@@ -2,7 +2,7 @@
 id: PTQ-1193
 title: walkExpr is 380 LOC because its query arm alone is 176 LOC of annotation resolution
 lens: D9
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/parser/theta-document.ts:10063-10442

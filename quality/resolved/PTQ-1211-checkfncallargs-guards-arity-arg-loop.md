@@ -2,7 +2,7 @@
 id: PTQ-1211
 title: TypeLayerWalk.checkFnCallArgs is 116 LOC in the justify band, bundling callee resolution, the arity gate, and the per-argument compat+sink loop
 lens: D9
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/parser/type-layer-checks.ts:2460-2575

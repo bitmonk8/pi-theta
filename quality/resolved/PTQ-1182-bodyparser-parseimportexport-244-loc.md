@@ -2,7 +2,7 @@
 id: PTQ-1182
 title: BodyParser.parseImportExport recognises both ImportDecl and ExportDecl in one 244-LOC body with a 150-LOC specifier-list state machine
 lens: D9
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/parser/theta-document.ts:4688-4931

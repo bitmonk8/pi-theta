@@ -2,7 +2,7 @@
 id: PTQ-1158
 title: type-layer-checks.ts bundles seven separable declaration families around the 2499-LOC TypeLayerWalk class at 4123 LOC
 lens: D9
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/parser/type-layer-checks.ts:1-4123

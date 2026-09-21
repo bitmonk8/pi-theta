@@ -2,7 +2,7 @@
 id: PTQ-1195
 title: walkCallSiteExpr is 191 LOC because its call arm alone is 95 LOC of callee-resolution judgement
 lens: D9
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/parser/theta-document.ts:8388-8578

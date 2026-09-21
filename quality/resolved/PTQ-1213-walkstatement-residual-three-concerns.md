@@ -2,7 +2,7 @@
 id: PTQ-1213
 title: walkStatement remains 303 LOC after the annotation-validation extraction, bundling statement recursion, annotation-window orchestration, and an inline schema field-type rule pipeline
 lens: D9
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/parser/theta-document.ts:9124-9426

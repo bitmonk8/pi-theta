@@ -2,7 +2,7 @@
 id: PTQ-1178
 title: TypeLayerWalk.provableArgType is a 283-LOC exhaustive Expr switch whose binary, ident, and member arms each carry 40-60-line inline soundness blocks
 lens: D9
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/parser/type-layer-checks.ts:2868-3150

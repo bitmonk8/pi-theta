@@ -2,7 +2,7 @@
 id: PTQ-1172
 title: BodyParser.parseFn recognises the fn declaration in one 245-LOC body whose 140-LOC parameter-list loop returns four flags to a bounded epilogue
 lens: D9
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/parser/theta-document.ts:3629-3873
