@@ -2,7 +2,7 @@
 id: PTQ-1156
 title: src/parser/theta-document.ts bundles twelve separable concerns in one 10750-LOC module
 lens: D9
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/parser/theta-document.ts:1-10750

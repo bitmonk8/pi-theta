@@ -2,7 +2,7 @@
 id: PTQ-1200
 title: walkType is 273 LOC because its object arm carries six independent inline-field rule families inline
 lens: D9
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/parser/type-grammar.ts:1483-1755

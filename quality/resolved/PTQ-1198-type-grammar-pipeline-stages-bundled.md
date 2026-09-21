@@ -2,7 +2,7 @@
 id: PTQ-1198
 title: type-grammar.ts bundles tokeniser, recursive-descent parser, AST model, and the diagnostic rule walker in one 1756-LOC module
 lens: D9
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/parser/type-grammar.ts:1-1756

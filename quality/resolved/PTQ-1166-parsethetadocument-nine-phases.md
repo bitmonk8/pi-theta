@@ -2,7 +2,7 @@
 id: PTQ-1166
 title: parseThetaDocument runs nine sequential phases plus an inline 89-LOC template-span scanner in one 441-LOC body
 lens: D9
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/parser/theta-document.ts:1040-1480

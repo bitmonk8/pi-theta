@@ -2,7 +2,7 @@
 id: PTQ-1218
 title: InterpolatedResultPanic is the only ThetaPanic subclass declared outside src/runtime/, living in the render module that never throws it
 lens: D9
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/render/query-render.ts:108-114

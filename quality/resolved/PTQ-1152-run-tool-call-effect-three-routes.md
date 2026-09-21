@@ -2,7 +2,7 @@
 id: PTQ-1152
 title: runToolCallEffect bundles the theta-callable invoke route, the with-clause gate, the runtime-tool route, and the Pi-tool route in one 179-LOC function
 lens: D9
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/runtime/effectful-statement-host.ts:343-521
