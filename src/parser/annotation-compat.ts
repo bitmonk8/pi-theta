@@ -227,21 +227,42 @@ function recognisedFieldType(src: string): CompatType | undefined {
   return /^[A-Za-z_][A-Za-z0-9_]*$/.test(text) ? { kind: "named", name: text } : undefined;
 }
 
+/**
+ * Indices of every top-level `delimiter` in `text`: outside `<…>` nesting
+ * depth, and outside `{…}` depth too when `trackBraces` is set. Depth is a
+ * bare counter (a stray close token drives it negative and keeps later
+ * delimiters non-top-level) — the one nesting scan all three splitters below
+ * share, so a change to which tokens count as nesting lands in every split at
+ * once. `splitTopLevelUnion` deliberately passes `trackBraces: false`; see its
+ * own doc comment and the caller comment above `letAnnotationToCompatType`.
+ */
+function topLevelDelimiterIndices(
+  text: string,
+  delimiter: string,
+  trackBraces: boolean,
+): number[] {
+  const indices: number[] = [];
+  let depth = 0;
+  for (let i = 0; i < text.length; i += 1) {
+    const c = text[i];
+    if (c === "<" || (trackBraces && c === "{")) {
+      depth += 1;
+    } else if (c === ">" || (trackBraces && c === "}")) {
+      depth -= 1;
+    } else if (c === delimiter && depth === 0) {
+      indices.push(i);
+    }
+  }
+  return indices;
+}
+
 /** Split an object type's interior on top-level `,` (outside `<…>` / `{…}` depth). */
 function splitTopLevelObjectFields(interior: string): string[] {
   const parts: string[] = [];
-  let depth = 0;
   let start = 0;
-  for (let i = 0; i < interior.length; i += 1) {
-    const c = interior[i];
-    if (c === "<" || c === "{") {
-      depth += 1;
-    } else if (c === ">" || c === "}") {
-      depth -= 1;
-    } else if (c === "," && depth === 0) {
-      parts.push(interior.slice(start, i));
-      start = i + 1;
-    }
+  for (const cut of topLevelDelimiterIndices(interior, ",", true)) {
+    parts.push(interior.slice(start, cut));
+    start = cut + 1;
   }
   parts.push(interior.slice(start));
   return parts.map((p) => p.trim());
@@ -249,18 +270,7 @@ function splitTopLevelObjectFields(interior: string): string[] {
 
 /** The index of a field's top-level `:` (outside `<…>` / `{…}` depth), or `-1`. */
 function topLevelColonIndex(part: string): number {
-  let depth = 0;
-  for (let i = 0; i < part.length; i += 1) {
-    const c = part[i];
-    if (c === "<" || c === "{") {
-      depth += 1;
-    } else if (c === ">" || c === "}") {
-      depth -= 1;
-    } else if (c === ":" && depth === 0) {
-      return i;
-    }
-  }
-  return -1;
+  return topLevelDelimiterIndices(part, ":", true)[0] ?? -1;
 }
 
 /**
@@ -313,18 +323,10 @@ function paramsFieldBindings(
  */
 export function splitTopLevelUnion(text: string): string[] {
   const parts: string[] = [];
-  let depth = 0;
   let start = 0;
-  for (let i = 0; i < text.length; i += 1) {
-    const c = text[i];
-    if (c === "<") {
-      depth += 1;
-    } else if (c === ">") {
-      depth -= 1;
-    } else if (c === "|" && depth === 0) {
-      parts.push(text.slice(start, i));
-      start = i + 1;
-    }
+  for (const cut of topLevelDelimiterIndices(text, "|", false)) {
+    parts.push(text.slice(start, cut));
+    start = cut + 1;
   }
   parts.push(text.slice(start));
   return parts.map((p) => p.trim()).filter((p) => p.length > 0);

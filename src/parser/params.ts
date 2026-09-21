@@ -63,6 +63,7 @@ import {
   isSingleEnclosingBraceGroup,
   isUnspellableTextRefusable,
   parseLiteralArm,
+  skipQuotedRegion,
   splitTopLevel,
   topLevelColon,
 } from "./type-text-split";
@@ -1274,20 +1275,11 @@ export function findCutBracketGroupText(interior: string): string | undefined {
   }
   const stack: BracketFrame[] = [];
   let angle = 0;
-  let quote: string | undefined;
   let found: { readonly start: number; readonly end: number } | undefined;
   for (let i = 0; i < interior.length; i += 1) {
     const c = interior[i] ?? "";
-    if (quote !== undefined) {
-      if (c === "\\" && i + 1 < interior.length) {
-        i += 1;
-      } else if (c === quote) {
-        quote = undefined;
-      }
-      continue;
-    }
     if (c === '"' || c === "'") {
-      quote = c;
+      i = skipQuotedRegion(interior, i);
     } else if (c === "<") {
       angle += 1;
     } else if (c === ">") {

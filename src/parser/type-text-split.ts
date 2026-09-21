@@ -249,22 +249,43 @@ export function isUnspellableTextRefusable(text: string): boolean {
  * brace or angle structure surrounds it.
  */
 function hasUnterminatedStringLiteral(text: string): boolean {
-  let quote: string | undefined;
   for (let i = 0; i < text.length; i += 1) {
     const c = text[i] ?? "";
-    if (quote !== undefined) {
-      if (c === "\\" && i + 1 < text.length) {
-        i += 1;
-      } else if (c === quote) {
-        quote = undefined;
-      }
-      continue;
-    }
     if (c === '"' || c === "'") {
-      quote = c;
+      i = skipQuotedRegion(text, i);
+      if (i >= text.length) {
+        return true;
+      }
     }
   }
-  return quote !== undefined;
+  return false;
+}
+
+/**
+ * Skip a `"`/`'` quoted region: given the index of the OPENING quote in
+ * `text`, return the index of its closing quote, or `text.length` when the
+ * literal never closes. A backslash inside the region consumes the character
+ * behind it, so an escaped quote does not close the literal. This is the ONE
+ * copy of the quote/escape rule the quote-aware scanners share —
+ * `hasUnterminatedStringLiteral` (above) and `topLevelColon` (below) here,
+ * `findCutBracketGroupText` (./params), `splitParamValue`
+ * (./frontmatter-params) and `braceGroupCarriesUnmatchedCloseToken`
+ * (./annotation-validation) — so all of them agree on what a quoted region
+ * is by construction rather than by five mirrored loops. A caller resumes
+ * its own scan at the returned index: its loop increment steps past the
+ * closing quote, or past the end when the region is unterminated.
+ */
+export function skipQuotedRegion(text: string, openIndex: number): number {
+  const quote = text[openIndex];
+  for (let i = openIndex + 1; i < text.length; i += 1) {
+    const c = text[i];
+    if (c === "\\" && i + 1 < text.length) {
+      i += 1;
+    } else if (c === quote) {
+      return i;
+    }
+  }
+  return text.length;
 }
 
 /**
@@ -287,19 +308,10 @@ function hasUnterminatedStringLiteral(text: string): boolean {
  */
 export function topLevelColon(entry: string): number {
   const open: string[] = [];
-  let quote: string | undefined;
   for (let i = 0; i < entry.length; i += 1) {
     const c = entry[i] ?? "";
-    if (quote !== undefined) {
-      if (c === "\\" && i + 1 < entry.length) {
-        i += 1;
-      } else if (c === quote) {
-        quote = undefined;
-      }
-      continue;
-    }
     if (c === '"' || c === "'") {
-      quote = c;
+      i = skipQuotedRegion(entry, i);
     } else if (c === "<" || c === "{" || c === "(") {
       open.push(c);
     } else if (c === ">" || c === "}" || c === ")") {

@@ -4,6 +4,7 @@ import type { Diagnostic, Position, SourceRange } from "../diagnostics/diagnosti
 import { collectUnresolvedNamedTypes } from "./body-type-lowering";
 import { isSingleEnclosingBraceGroup, isUnspellableTextRefusable } from "./params";
 import { parseTypeExpression, type TypeCheckRules, type TypePosition } from "./type-grammar";
+import { skipQuotedRegion } from "./type-text-split";
 
 /** Position-specific checks and capture provenance for an annotation. */
 interface AnnotationValidationSite {
@@ -385,26 +386,18 @@ const NO_DECLARED_TYPE_NAMES: ReadonlySet<string> = new Set();
  * Only ever called on a group nothing in this traversal cuts (see THE SHRED
  * DECLINE on `annotationSourceIsNotTypeExpression` below), so an unmatched
  * close token the scan finds is the author's own text and never an artefact
- * of a split. The quoted-region handling mirrors `isSingleEnclosingBraceGroup`
- * (./params) — the predicate deciding the caller's single-enclosing test — so
- * the two agree on what a quoted region is by construction rather than by
+ * of a split. The quoted-region handling is `skipQuotedRegion`
+ * (./type-text-split) — the same rule `isSingleEnclosingBraceGroup` (./params),
+ * the predicate deciding the caller's single-enclosing test, applies — so the
+ * two agree on what a quoted region is by construction rather than by
  * coincidence over whichever spellings happen to be measured.
  */
 function braceGroupCarriesUnmatchedCloseToken(text: string): boolean {
   const stack: string[] = [];
-  let quote: string | undefined;
   for (let i = 0; i < text.length; i += 1) {
     const c = text[i] ?? "";
-    if (quote !== undefined) {
-      if (c === "\\" && i + 1 < text.length) {
-        i += 1;
-      } else if (c === quote) {
-        quote = undefined;
-      }
-      continue;
-    }
     if (c === '"' || c === "'") {
-      quote = c;
+      i = skipQuotedRegion(text, i);
       continue;
     }
     if (c === "<" || c === "{") {

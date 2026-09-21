@@ -12,6 +12,7 @@ import {
   RESERVED_KEYWORDS,
   isIdentifierShaped,
 } from "./frontmatter-yaml";
+import { skipQuotedRegion } from "./type-text-split";
 
 /**
  * Split a `params:` field value scalar (`<type-expr>` optionally followed by
@@ -23,19 +24,10 @@ import {
  */
 function splitParamValue(raw: string): { typeSource: string; defaultSource?: string } {
   let depth = 0;
-  let quote: string | undefined;
   for (let i = 0; i < raw.length; i += 1) {
     const c = raw[i];
-    if (quote !== undefined) {
-      if (c === "\\" && i + 1 < raw.length) {
-        i += 1;
-      } else if (c === quote) {
-        quote = undefined;
-      }
-      continue;
-    }
     if (c === '"' || c === "'") {
-      quote = c;
+      i = skipQuotedRegion(raw, i);
       continue;
     }
     if (c === "<" || c === "{" || c === "[") {
