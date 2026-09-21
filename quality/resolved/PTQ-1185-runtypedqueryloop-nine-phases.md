@@ -2,7 +2,7 @@
 id: PTQ-1185
 title: runTypedQueryLoop spans 305 LOC across nine phases, three of which repeat the same repair-outcome dispatch and terminal-error assembly
 lens: D9
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/runtime/query-tool-loop.ts:467-771

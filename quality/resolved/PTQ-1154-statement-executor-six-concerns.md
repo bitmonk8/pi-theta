@@ -2,7 +2,7 @@
 id: PTQ-1154
 title: statement-executor.ts bundles six declaration clusters (seam types, call dispatch, defect-error family, expression evaluation, par-for engine, statement drivers) in one 2681-LOC module
 lens: D9
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/runtime/statement-executor.ts:1-2681

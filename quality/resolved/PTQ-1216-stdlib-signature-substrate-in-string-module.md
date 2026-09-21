@@ -2,7 +2,7 @@
 id: PTQ-1216
 title: The cross-stdlib signature substrate (StdlibParamKind, StdlibMemberSignature, and the two argument belts) lives in stdlib-string.ts by alphabetical accident, touching 0 string members while 4 external modules import it
 lens: D9
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/runtime/stdlib-string.ts:47-47

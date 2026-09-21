@@ -2,7 +2,7 @@
 id: PTQ-1189
 title: evalSubagentFnCall bundles two execution regimes (child-process and in-process session) plus argument binding and flow mapping in 126 LOC
 lens: D9
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/runtime/statement-executor.ts:688-813

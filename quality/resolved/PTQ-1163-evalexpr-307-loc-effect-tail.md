@@ -2,7 +2,7 @@
 id: PTQ-1163
 title: evalExpr spans 307 LOC because a 79-LOC checkpointed-effect dispatch phase and a 36-LOC member arm sit inside the expression-kind if-chain
 lens: D9
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/runtime/statement-executor.ts:1191-1497

@@ -2,7 +2,7 @@
 id: PTQ-1191
 title: runParForIteration bundles a 49-LOC iteration-host wrapper (diagnostics capture + runtime-tool backstop) with body execution and outcome mapping in 131 LOC
 lens: D9
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/runtime/statement-executor.ts:1991-2121

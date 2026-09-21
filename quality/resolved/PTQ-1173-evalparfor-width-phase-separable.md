@@ -2,7 +2,7 @@
 id: PTQ-1173
 title: evalParFor runs 209 LOC across five phases; the 69-LOC CTRL-2 width-resolution phase touches none of the worker pool's shared locals
 lens: D9
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/runtime/statement-executor.ts:2134-2342

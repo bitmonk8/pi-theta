@@ -2,7 +2,7 @@
 id: PTQ-1217
 title: concatElementType — the static element type of array<T>.concat — lives in stdlib-string.ts, touching 3 type-compat members and 0 string members, while every other array-member static check lives in stdlib-array.ts
 lens: D9
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/runtime/stdlib-string.ts:252-269
