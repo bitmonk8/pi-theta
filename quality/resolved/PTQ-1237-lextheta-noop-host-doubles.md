@@ -2,7 +2,7 @@
 id: PTQ-1237
 title: Three production snippet-lex sites in theta-document.ts fabricate no-op pi/ui host doubles to void lexTheta's mandatory system-note delivery channel, whose payload they already receive on LexResult.diagnostics
 lens: D8
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/parser/theta-document.ts:1232-1240

@@ -2,7 +2,7 @@
 id: PTQ-1235
 title: AssistantMessage.errorMessage read through a hand-spelled structural cast at three sites although pi-ai's own type already declares the field identically
 lens: D8
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/extension/live-prompt-query-driver.ts:1412

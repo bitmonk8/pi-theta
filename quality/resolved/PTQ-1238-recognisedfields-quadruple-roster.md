@@ -2,7 +2,7 @@
 id: PTQ-1238
 title: collectRecognisedFields spells its 33-field result record four times over (interface, let-block, return literal, destructures) — ~140 LOC of name plumbing to move 14 YAML keys' parse results to one caller
 lens: D8
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/parser/frontmatter.ts:350-384
