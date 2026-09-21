@@ -1,6 +1,6 @@
 // V6a / V6a-T — the frontmatter field-contract parser seam.
 //
-// This module owns the theta-file YAML frontmatter parse described by
+// This module orchestrates the theta-file YAML frontmatter parse described by
 // frontmatter.md, frontmatter/frontmatter-fields-a.md, and
 // frontmatter/frontmatter-fields-b-and-templates.md: the recognised theta 1.0
 // field vocabulary, the field-contract defaults, the required `mode:` field
@@ -27,14 +27,10 @@ import {
   isScalar,
   isSeq,
   type Node,
-  type YAMLError,
+  type YAMLMap,
 } from "yaml";
 import { type LoweredSchema } from "../seams/schema-validator";
 import {
-  parseParams,
-  splitTopLevel,
-  isSingleEnclosingBraceGroup,
-  topLevelColon,
   type ParamFieldInput,
   type BodyTypeDeclaration,
 } from "./params";
@@ -42,19 +38,33 @@ import {
   checkSystemInterpolation,
   type SystemParamType,
   type SystemTemplate,
-  type SystemUnionArm,
 } from "./system-interpolation";
-import {
-  buildSidecar,
-  encodePointerSegment,
-  type SchemaSidecar,
-  type SidecarFieldInput,
-} from "./schema-lowering";
 import {
   classifyBinderBypass,
   type BypassParamsField,
 } from "../binder/binder-envelope";
-import { reservedKeywords } from "../lexer/lexer";
+import { toSystemParamType } from "./system-param-types";
+import { extractParsedParams } from "./frontmatter-params";
+import {
+  type FrontmatterBlock,
+  extractFrontmatterBlock,
+  rangeOf,
+  malformedFrontmatterYamlDiagnostic,
+  renderScalarValue,
+  renderNonScalarModeKind,
+  renderNonScalarBindContextKind,
+  extractToolsList,
+  TOOL_LOOP_SUBKEYS,
+  RESPOND_REPAIR_SUBKEYS,
+  checkBlockShape,
+  unknownSubKeyDiagnostics,
+  resolveNonNegIntBlock,
+  checkMethodology,
+} from "./frontmatter-yaml";
+
+export { toSystemParamType } from "./system-param-types";
+export { extractParsedParams } from "./frontmatter-params";
+export * from "./frontmatter-yaml";
 
 /** A theta 1.0 invocation mode (`frontmatter-fields-a.md` field contract). */
 export type ThetaMode = "prompt" | "subagent";
@@ -336,1413 +346,52 @@ const DEFERRED_FRONTMATTER_FIELDS: ReadonlySet<string> = new Set([
   "bind_temperature",
 ]);
 
-/** The opening / closing frontmatter fence line. */
-const FENCE = "---";
-
-/** The extracted frontmatter YAML block and its file-line offset. */
-interface FrontmatterBlock {
-  /** The YAML text between the fences (fences excluded). */
-  readonly yaml: string;
-  /**
-   * The number to add to a 1-based line within `yaml` to reach the file line:
-   * the opening fence occupies file line 1, so YAML line 1 is file line 2.
-   */
-  readonly lineOffset: number;
+/** Values, presence flags, and source ranges collected from recognised YAML fields. */
+interface RecognisedFields {
+  readonly modeValue: string | undefined;
+  readonly modeRange: SourceRange | undefined;
+  readonly modePresent: boolean;
+  readonly modeValueKind: string | undefined;
+  readonly modelPresent: boolean;
+  readonly modelRaw: unknown;
+  readonly modelRange: SourceRange | undefined;
+  readonly bindContextValue: string | undefined;
+  readonly bindContextRange: SourceRange | undefined;
+  readonly bindContextPresent: boolean;
+  readonly bindContextValueKind: string | undefined;
+  readonly descriptionValue: string | undefined;
+  readonly bindModelValue: string | undefined;
+  readonly bindModelUnresolvable: boolean;
+  readonly bindEchoValue: boolean | undefined;
+  readonly bindEchoRange: SourceRange | undefined;
+  readonly bindEchoPresent: boolean;
+  readonly bindEchoScalar: string | undefined;
+  readonly bindEchoValueKind: string | undefined;
+  readonly bindEchoValueRange: SourceRange | undefined;
+  readonly argumentHintPresent: boolean;
+  readonly argumentHintRange: SourceRange | undefined;
+  readonly argumentHintValue: string | undefined;
+  readonly toolLoopNode: Node | null | undefined;
+  readonly respondRepairNode: Node | null | undefined;
+  readonly paramsNode: Node | null | undefined;
+  readonly paramsPresent: boolean;
+  readonly paramsRange: SourceRange | undefined;
+  readonly systemPresent: boolean;
+  readonly systemValue: string | undefined;
+  readonly systemRange: SourceRange | undefined;
+  readonly toolsValue: readonly string[] | undefined;
+  readonly toolsMalformedRange: SourceRange | undefined;
 }
 
-/**
- * Extract the leading `---`-fenced frontmatter block. Returns `undefined` when
- * the source has no opening fence or the opening fence is never closed — both
- * cases mean "no recognised frontmatter mapping", which downstream resolves to
- * the missing-`mode:` load error.
- */
-function extractFrontmatterBlock(source: string): FrontmatterBlock | undefined {
-  const lines = source.split("\n");
-  if ((lines[0] ?? "").trim() !== FENCE) {
-    return undefined;
-  }
-  for (let i = 1; i < lines.length; i += 1) {
-    if ((lines[i] ?? "").trim() === FENCE) {
-      return { yaml: lines.slice(1, i).join("\n"), lineOffset: 1 };
-    }
-  }
-  return undefined;
-}
-
-/**
- * Map a YAML node's byte range onto a located `SourceRange` in file
- * coordinates. Returns `undefined` when the node carries no range.
- */
-function rangeOf(
-  node: Node | null | undefined,
+/** Collect recognised fields and emit per-key diagnostics in YAML source order. */
+function collectRecognisedFields(
+  map: YAMLMap<unknown, Node | null> | undefined,
   lineCounter: LineCounter,
   lineOffset: number,
-): SourceRange | undefined {
-  if (node === null || node === undefined || !node.range) {
-    return undefined;
-  }
-  const [startOffset, endOffset] = node.range;
-  const start = lineCounter.linePos(startOffset);
-  const end = lineCounter.linePos(endOffset);
-  return {
-    start: { line: start.line + lineOffset, column: start.col },
-    end: { line: end.line + lineOffset, column: end.col },
-  };
-}
-
-/** The count of leading space/tab characters on `line`. */
-function indentOf(line: string): number {
-  return line.length - line.replace(/^[ \t]+/, "").length;
-}
-
-/**
- * The YAML scalar key `line`'s trimmed text spells, when it spells one
- * (bare, or single-/double-quoted) followed by `:`. `undefined` when the
- * trimmed text is not shaped as a mapping-entry key.
- */
-function yamlKeyOf(line: string): string | undefined {
-  const match = /^([A-Za-z0-9_-]+|'[^']*'|"[^"]*")\s*:/.exec(line.trim());
-  if (match === null) {
-    return undefined;
-  }
-  const raw = match[1] as string;
-  return raw.startsWith("'") || raw.startsWith('"') ? raw.slice(1, -1) : raw;
-}
-
-/**
- * The `params:` field name that encloses `blockLines[targetIdx]`, for bug
- * 0263's `<scope>` clause: the failing line is inside a `params:` block only
- * when a top-level (zero-indent) `params:` line precedes it with nothing but
- * indented (or blank) lines in between, and the failing line itself spells a
- * field key. `undefined` for a top-level failure, or one inside some other
- * block.
- */
-function enclosingParamsField(
-  blockLines: readonly string[],
-  targetIdx: number,
-): string | undefined {
-  const targetLine = blockLines[targetIdx] ?? "";
-  if (targetLine.trim() === "" || indentOf(targetLine) === 0) {
-    return undefined;
-  }
-  for (let i = targetIdx - 1; i >= 0; i -= 1) {
-    const line = blockLines[i] ?? "";
-    if (line.trim() === "") {
-      continue;
-    }
-    if (indentOf(line) === 0) {
-      return line.trim() === "params:" ? yamlKeyOf(targetLine) : undefined;
-    }
-  }
-  return undefined;
-}
-
-/**
- * FM-5's report for a frontmatter block the YAML parser rejects (bug 0263):
- * one diagnostic keyed to `doc.errors[0]`, naming the position and the
- * offending source line it carries. Multiple `YAMLParseError`s from the same
- * authoring mistake (bug 0263 §Fix constraint 8) all key to this one — only
- * `firstError` is read. A report is always produced, so the refusal never
- * loses its only error-severity diagnostic: the position field is optional on
- * the error type, and an error carrying none falls back to the block's own
- * first character, which keeps the row's rendering total and lets the
- * required-`mode:` arm key on the rejection itself.
- */
-function malformedFrontmatterYamlDiagnostic(
-  blockYaml: string,
-  firstError: YAMLError,
-  lineOffset: number,
   file: string,
-): Diagnostic {
-  const pos = firstError.linePos?.[0] ?? { line: 1, col: 1 };
-  const blockLines = blockYaml.split("\n");
-  const targetIdx = pos.line - 1;
-  const rawLine = blockLines[targetIdx] ?? "";
-  const text = normaliseLiteralValueLineBreaks(rawLine.trim());
-  const line = pos.line + lineOffset;
-  const column = pos.col;
-  const param = enclosingParamsField(blockLines, targetIdx);
-  const scope = param === undefined ? "" : ` (in 'params:' field '${param}')`;
-  return {
-    severity: "error",
-    code: "theta/load/malformed-frontmatter-yaml",
-    file,
-    // End-exclusive per the diagnostic shape: a one-column span at the
-    // reported position, the narrowest located extent the parser's verdict
-    // supports — the failure is a position, not a token the parser recovered.
-    range: { start: { line, column }, end: { line, column: column + 1 } },
-    message: `frontmatter block is not valid YAML: parse error at line ${line}, column ${column} near '${text}'${scope}`,
-  };
-}
-
-/**
- * Recover a `params:` field's non-scalar right-hand side as the author's own
- * bytes. An unquoted inline object type (`p: {a: Triage, b: integer}`) parses
- * as a YAML flow mapping, not a scalar, so its declared type is read off the
- * value node's own `[range[0], range[1])` offsets into `yamlSource` rather
- * than re-serialised through YAML: the type side is theta's grammar, not
- * YAML's, and a round-trip could reorder or requote what the author wrote
- * (bug 0035). The function is total over non-scalar nodes, but the flow
- * mapping is the only non-scalar shape whose recovered bytes are accepted as
- * a declared type: every other shape — a block mapping, a block sequence, a
- * flow sequence, or any unenumerated node kind — is refused in
- * `extractParsedParams` with `theta/load/params-type-not-expression`
- * (`paramValueCanCarryType`, bug 0041), and its bytes serve only the retained
- * field record. A node carrying no range recovers the empty string — there is
- * no declared type to read.
- */
-function paramValueSource(value: unknown, yamlSource: string): string {
-  const node = value as Node | null | undefined;
-  if (node === null || node === undefined || !node.range) {
-    return "";
-  }
-  const [start, end] = node.range;
-  return yamlSource.slice(start, end);
-}
-
-/**
- * Whether a `params:` field's YAML value node can carry a theta type
- * expression. The type side is theta's grammar, not YAML's: the only
- * non-scalar YAML shape that spells a `Type` is the flow mapping an inline
- * object type (`p: {a: Triage}`) parses as — every other node shape recovers
- * bytes no `Type` production spells. Stated positively (scalar or flow
- * mapping) so an unenumerated node kind is refused
- * (`theta/load/params-type-not-expression`) rather than recovered as bytes
- * and lowered permissively (bug 0041).
- */
-function paramValueCanCarryType(value: unknown): boolean {
-  return isScalar(value) || (isMap(value) && value.flow === true);
-}
-
-/**
- * Render a YAML scalar as the unquoted source text the `<value>` placeholder
- * substitutes (`placeholder-rendering-b.md` category 5): a YAML scalar with no
- * enclosing source quoting renders unquoted regardless of identifier shape.
- */
-function renderScalarValue(value: unknown): string {
-  return String(value);
-}
-
-/**
- * The bounded JSON kind token that stands in for a non-scalar `mode:` value in
- * the `theta/load/unknown-mode-value` `<value>` — a sequence is `array`, a
- * mapping is `object`, mirroring the settings-value-out-of-range `<observed>`
- * precedent (placeholder-rendering-b.md) so a present-but-bad `mode:` names its
- * shape without splicing unbounded source. A value-less explicit key (`? mode`)
- * carries a JS-null value node; the precedent renders null as `null`, so it maps
- * there too — keeping the two null spellings (`? mode` and bare `mode:`) on one
- * token. Any other non-scalar node (a mapping or an alias) is `object`: the
- * field contract pins no distinct token for an alias, and the only observable
- * is that the value is present-but-neither-recognised-mode.
- */
-function renderNonScalarModeKind(node: unknown): string {
-  if (node === null || node === undefined) return "null";
-  if (isSeq(node)) return "array";
-  return "object";
-}
-
-/**
- * The bounded kind token that stands in for a non-scalar `bind_context:` value
- * in the `theta/load/unknown-bind-context-value` `<value>` (bug 0297) — a
- * sequence is `array`, a mapping is `object`, so a present-but-bad
- * `bind_context:` names its shape without splicing unbounded source, mirroring
- * the mode-arm kind token (placeholder-rendering-b.md). A value-less explicit
- * key carries a JS-null value node and renders `null`, keeping it on the same
- * token as bare `bind_context:`. Any other non-scalar node (a mapping or an
- * alias) is `object`: the field contract pins no distinct token for an alias
- * and the only observable is that the value is present-but-neither-recognised.
- */
-function renderNonScalarBindContextKind(node: unknown): string {
-  if (node === null || node === undefined) return "null";
-  if (isSeq(node)) return "array";
-  return "object";
-}
-
-/**
- * Extract the `tools:` callable set (FRNT-2/FRNT-3): a plain scalar is the
- * comma-separated short form (frontmatter-fields-b-and-templates.md §YAML-shape:
- * the plain scalar split on commas, each entry trimmed) so `read, grep` becomes
- * two entries interchangeable with the YAML list form; a sequence becomes one
- * entry per item — a scalar item verbatim, a non-scalar item (`- {a: b}`) its
- * own verbatim YAML source slice via `paramValueSource`, so the closed
- * per-entry grammar in callable-set.ts judges it instead of the item being
- * dropped unexamined (bug 0069 §Fix constraint 3). This function is reached
- * only for the two admitted spellings — the caller (the `tools` arm of the
- * frontmatter key walk) routes here iff the value node `isScalar` or `isSeq`
- * and otherwise records a field-level refusal itself
- * (`theta/load/malformed-tools-field`, bug 0104), because the caller holds the
- * YAML node and its range and this function does not: downstream, the two
- * spellings are already collapsed into a plain string array, so a
- * present-but-unusable shape would be indistinguishable from an absent field,
- * and the absent field must keep loading silently.
- *
- * This function's `undefined` return is therefore ambiguous by design and is
- * NOT itself the refusal signal for a zero-entry scalar (bug 0206): the scalar
- * arm and the sequence arm both answer `undefined` for zero entries, but only
- * the scalar's zero-entry outcome is present-but-bad — `tools: []` (the
- * sequence arm's zero-entry input) is the one spelling the spec declares
- * equivalent to an absent field and must keep loading silently. The caller
- * disambiguates by testing which arm it dispatched to, not by testing this
- * return value alone. Entries are split ONLY on commas — the
- * whitespace split that separates an `as` rename (`grep as g`) happens later in
- * the per-entry grammar, so a single scalar entry with an `as` clause stays one
- * entry. Entries are carried verbatim so the H8b resolvers can classify each as
- * a Pi-tool name or a `.theta`-callable path. `yamlSource` is the frontmatter
- * block's raw YAML text, threaded from the `parseFrontmatter` call site, that
- * `paramValueSource` slices a non-scalar item's byte range out of.
- */
-function extractToolsList(node: unknown, yamlSource: string): readonly string[] | undefined {
-  if (isScalar(node)) {
-    const entries = String(node.value)
-      .split(",")
-      .map((entry) => entry.trim())
-      .filter((entry) => entry.length > 0);
-    return entries.length > 0 ? entries : undefined;
-  }
-  if (isSeq(node)) {
-    const entries: string[] = [];
-    for (const item of node.items) {
-      // A non-scalar sequence item recovers its own verbatim YAML source
-      // instead of being dropped (bug 0069 §Fix constraint 3): the resolver's
-      // closed per-entry grammar is the sole arbiter of well-formedness, so
-      // the item still reaches a `tools:` diagnostic naming its own text
-      // rather than silently narrowing the callable set.
-      entries.push(isScalar(item) ? String(item.value) : paramValueSource(item, yamlSource));
-    }
-    return entries.length > 0 ? entries : undefined;
-  }
-  return undefined;
-}
-
-/**
- * The reserved-keyword spellings a `params:` key can carry (lexical.md
- * §Reserved words), read from the lexer's own set (`reservedKeywords()`,
- * lexer.ts) rather than restated here as a second source of truth — the same
- * reuse `params.ts`'s `RESERVED_KEYWORDS` makes for its atom classification. A
- * `Set`, not a plain object keyed by author text: a record keyed by arbitrary
- * source spellings needs a null prototype and an own-key guard to be indexed
- * safely by author input, which a `Set.has` call needs neither of. Immutable
- * module-level data, not mutable cross-invocation state, matching
- * `DEFERRED_FRONTMATTER_FIELDS` above.
- */
-const RESERVED_KEYWORDS: ReadonlySet<string> = reservedKeywords();
-
-/** The identifier-shape predicate `<key>` / `<observed>` string rendering uses. */
-function isIdentifierShaped(s: string): boolean {
-  return /^[A-Za-z_][A-Za-z0-9_]*$/.test(s);
-}
-
-/**
- * Render the offending *parsed* scalar for the `<observed>` token on
- * `theta/load/frontmatter-value-out-of-range` (`placeholder-rendering-b.md` §8
- * parsed-scalar carve-out): a `number` (including integer-valued numbers) bare,
- * a `boolean` as `true`/`false`, `null` as the literal `null`, and a `string`
- * by category 5's `<key>` identifier-shape split (bare when identifier-shaped;
- * otherwise — unlike `<key>`'s plain double-quoting — via `JSON.stringify`, so
- * every break, interior `"`/`\`, and other control character renders as its
- * two-character JSON form, keeping `message` single-line
- * (diagnostic-shape.md:34) and matching the settings twin's already-shipped
- * rendering (settings.ts:132-135); a stringly-typed `"25"` still renders
- * `"25"`, distinct from `25`).
- */
-function renderObserved(value: unknown): string {
-  if (typeof value === "string") {
-    return isIdentifierShaped(value) ? value : JSON.stringify(value);
-  }
-  if (value === null || value === undefined) {
-    return "null";
-  }
-  return String(value);
-}
-
-/** Recognised `tool_loop:` sub-keys (FRNT-1). */
-const TOOL_LOOP_SUBKEYS: ReadonlySet<string> = new Set(["max_rounds"]);
-/** Recognised `respond_repair:` sub-keys (FRNT-1). */
-const RESPOND_REPAIR_SUBKEYS: ReadonlySet<string> = new Set(["attempts", "methodology"]);
-
-// The observed non-mapping block node's kind, where a mapping was expected: a scalar
-// by its JSON kind, a sequence as array, any other non-scalar (an alias) as object. A
-// null-valued scalar never reaches this — it is the equivalent-to-absent spelling.
-function renderNonMapBlockKind(node: Node): string {
-  if (isSeq(node)) return "array";
-  if (isScalar(node)) {
-    const v = node.value;
-    if (typeof v === "number") return "number";
-    if (typeof v === "boolean") return "boolean";
-    return "string";
-  }
-  return "object";
-}
-
-// A present `tool_loop:` / `respond_repair:` value that is not a mapping is refused
-// (0.332.0, bug 0301 face b): a scalar, a sequence, or an alias where the block contract
-// requires a mapping. Absent, a null scalar (bare key / `null` / `~`), and a mapping
-// (including the empty `{}`) are the equivalent-to-absent spellings and return
-// undefined (silent) — the null scalar is the spec's own name for the absent case.
-function checkBlockShape(
-  blockNode: Node | null | undefined,
-  fieldName: string,
-  malformedCode: string,
-  file: string,
-  lineCounter: LineCounter,
-  lineOffset: number,
-): Diagnostic | undefined {
-  if (blockNode === null || blockNode === undefined) return undefined;
-  if (isMap(blockNode)) return undefined;
-  if (isScalar(blockNode) && blockNode.value === null) return undefined;
-  const range = rangeOf(blockNode, lineCounter, lineOffset);
-  return {
-    severity: "error",
-    code: malformedCode,
-    file,
-    ...(range !== undefined ? { range } : {}),
-    message: `malformed '${fieldName}:' field; expected a mapping, got ${renderNonMapBlockKind(blockNode)}`,
-  };
-}
-
-// An unrecognised sub-key inside a `tool_loop:` / `respond_repair:` mapping draws the
-// EXISTING unknown-frontmatter-field warning with the dotted `<block>.<sub-key>` form
-// (0.332.0, bug 0301 face c), keeping the theta registered — the top-level forward-compat
-// posture one indentation level down. Only reached for a mapping block.
-function unknownSubKeyDiagnostics(
-  blockNode: Node | null | undefined,
-  dottedPrefix: string,
-  recognised: ReadonlySet<string>,
-  file: string,
-  lineCounter: LineCounter,
-  lineOffset: number,
-): Diagnostic[] {
-  if (!isMap(blockNode)) return [];
-  const out: Diagnostic[] = [];
-  for (const it of blockNode.items) {
-    if (!isScalar(it.key)) continue;
-    const sub = String(it.key.value);
-    if (recognised.has(sub)) continue;
-    const range = rangeOf(it.key, lineCounter, lineOffset);
-    out.push({
-      severity: "warning",
-      code: "theta/load/unknown-frontmatter-field",
-      file,
-      ...(range !== undefined ? { range } : {}),
-      message: `unknown frontmatter field '${dottedPrefix}.${normaliseLiteralValueLineBreaks(sub)}'`,
-    });
-  }
-  return out;
-}
-
-/**
- * Resolve a non-negative-integer sub-field of a `tool_loop` / `respond_repair`
- * block (FRNT-1). An absent, `null`, or non-map block — and a block missing the
- * sub-field — takes `defaultValue`. A present sub-field must parse to a
- * non-negative integer (integer-ness judged on the parsed numeric value, so
- * `25` and `25.0` both accept); anything else (a negative integer, a
- * non-integer number, a non-number scalar, or `null`) yields the
- * `theta/load/frontmatter-value-out-of-range` load error and the theta is not
- * registered.
- */
-function resolveNonNegIntBlock(
-  blockNode: Node | null | undefined,
-  subKey: string,
-  dottedKey: string,
-  defaultValue: number,
-  file: string,
-  lineCounter: LineCounter,
-  lineOffset: number,
-): { value: number } | { diagnostic: Diagnostic } {
-  if (!isMap(blockNode)) {
-    return { value: defaultValue };
-  }
-  const sub = blockNode.items.find(
-    (it) => isScalar(it.key) && String(it.key.value) === subKey,
-  );
-  if (sub === undefined) {
-    return { value: defaultValue };
-  }
-  const raw = isScalar(sub.value) ? sub.value.value : sub.value;
-  if (typeof raw === "number" && Number.isInteger(raw) && raw >= 0) {
-    return { value: raw };
-  }
-  const range = rangeOf((sub.value ?? sub.key) as Node, lineCounter, lineOffset);
-  return {
-    diagnostic: {
-      severity: "error",
-      code: "theta/load/frontmatter-value-out-of-range",
-      file,
-      ...(range !== undefined ? { range } : {}),
-      message: `frontmatter field '${dottedKey}' must be a non-negative integer; got ${renderObserved(
-        raw,
-      )}`,
-    },
-  };
-}
-
-/** The recognised `respond_repair.methodology:` values (frontmatter.md). */
-const RECOGNISED_METHODOLOGIES: ReadonlySet<string> = new Set([
-  "validator_error",
-  "schema_repeat",
-  "none",
-]);
-
-/**
- * Validate a present `respond_repair.methodology:` sub-field against the
- * recognised set (`validator_error` / `schema_repeat` / `none`). Absent (or a
- * non-map block) takes the default; a present value outside the set (including
- * non-string scalars) is `theta/load/unknown-methodology-value` (E) and the theta
- * is not registered.
- */
-function checkMethodology(
-  blockNode: Node | null | undefined,
-  file: string,
-  lineCounter: LineCounter,
-  lineOffset: number,
-): Diagnostic | undefined {
-  if (!isMap(blockNode)) {
-    return undefined;
-  }
-  const sub = blockNode.items.find(
-    (it) => isScalar(it.key) && String(it.key.value) === "methodology",
-  );
-  if (sub === undefined) {
-    return undefined;
-  }
-  const raw = isScalar(sub.value) ? sub.value.value : sub.value;
-  const value = raw === null || raw === undefined ? "null" : String(raw);
-  if (RECOGNISED_METHODOLOGIES.has(value)) {
-    return undefined;
-  }
-  const range = rangeOf((sub.value ?? sub.key) as Node, lineCounter, lineOffset);
-  return {
-    severity: "error",
-    code: "theta/load/unknown-methodology-value",
-    file,
-    ...(range !== undefined ? { range } : {}),
-    message: `unknown 'respond_repair.methodology:' value '${normaliseLiteralValueLineBreaks(value)}'; expected 'validator_error', 'schema_repeat', or 'none'`,
-  };
-}
-
-/**
- * The body OBJECT-schema name a `typeSource` resolves to — directly, as the
- * element of `array<...>` (recursively), or through a SINGLE-arm alias chain
- * (`schema A = Cat`, and transitively `schema A2 = A`, `schema L = array<Cat>`)
- * — the root a `system:` outbound sidecar walk needs to start from. An alias is
- * the type it names (schemas.md:60), so the walk must resolve past it; before
- * bug 0442 an alias name was returned verbatim and then refused by
- * `buildOutboundSidecars` (`fields === undefined`), leaving the aliased
- * schema's renames theta-side at the array-element and schema-field positions.
- * `undefined` when the source resolves to no object schema: an inline object, a
- * primitive, a MULTI-arm (union) alias (bug 0443's ground), an unresolved atom,
- * or an imported symbol. `seen` guards a pure-alias cycle (refused at
- * declaration by `type-alias-cycle`; a stack-overflow backstop only).
- */
-function namedSchemaOf(
-  typeSource: string | undefined,
-  bodyTypes: FrontmatterBodyTypes,
-  seen: ReadonlySet<string> = new Set(),
-): string | undefined {
-  if (typeSource === undefined) {
-    return undefined;
-  }
-  const s = typeSource.trim();
-  if (bodyTypes.schemas.has(s)) {
-    if (bodyTypes.schemas.get(s) !== undefined) {
-      return s;
-    }
-    // An alias/head-only declaration (`fields === undefined`): chase a
-    // single-arm alias RHS to the object schema it names. A multi-arm (union)
-    // RHS names no single object root (bug 0443), and a re-entered alias is a
-    // cycle backstop — both return `undefined`.
-    if (seen.has(s)) {
-      return undefined;
-    }
-    const arms = bodyTypes.aliasArms.get(s);
-    if (arms === undefined || arms.length !== 1) {
-      return undefined;
-    }
-    return namedSchemaOf(arms[0], bodyTypes, new Set([...seen, s]));
-  }
-  const arrayMatch = /^array<(.+)>$/.exec(s);
-  if (arrayMatch !== null) {
-    return namedSchemaOf(arrayMatch[1], bodyTypes, seen);
-  }
-  return undefined;
-}
-
-/**
- * Build the outbound wire-name-translation sidecars for a body-schema
- * `system:` render (bug 0407, extended by bug 0424): the sidecar path
- * (`translateOutbound`) was producer-less/dead before bug 0407 (bug 0120).
- * Builds a REAL per-`$defs` sidecar map by a transitive BFS over every body
- * schema reachable from `rootSchema` through a field's own type (directly, or
- * as an `array<Schema>` element) — each schema-typed field's input carries its
- * `$ref` target (the referenced schema's name), so `translateOutbound`'s
- * `$ref` recursion (`wire-translation.ts`) can descend past depth 0.
- * `rootSchema` names an object body schema: callers resolve an alias /
- * `array<...>` source through `namedSchemaOf`, or test the body's presence
- * inline, before reaching here.
- *
- * Lookup stays per-`$defs` (keyed by schema name), never one flat wire-key
- * namespace, so the round-1 F2 collision (two same-spelled wire names at
- * different depths resolving the wrong schema's rename map) cannot recur: a
- * position recurses through its OWN field's `refTarget`, never through a wire
- * name matched against an unrelated schema. A field whose type names an object
- * schema (directly, through an alias chain, or as an `array<...>` element) is
- * enqueued; a field whose type is an inline object embedding a schema
- * (`x: {y: Inner}`) is descended into a minted intermediate `$defs` so the
- * embedded schema's own renames still translate (bug 0441). `reserved`
- * accumulates every minted inline `$defs` name across the whole construction
- * so sibling/nested inline layers never share a key.
- *
- * `building` is the set of schema names whose sidecar is already being
- * constructed up the call stack. The BFS `seen` set only guards name→name
- * cycles WITHIN one call; an inline layer re-enters this function through
- * `refTargetInto` with a fresh BFS, so a schema that references itself through
- * an inline-object field (`schema Node { next: {n: Node} }`) would recurse
- * unbounded without it. `refTargetInto` skips re-entering a name already in
- * `building`: that schema's sidecar is produced by the in-progress call up the
- * stack and merges into the single top-level map before the render reads it,
- * so recording the `$ref` name alone is sufficient (a stack-overflow backstop
- * for a legal recursive shape, mirroring `namedSchemaOf`'s alias `seen`).
- */
-function buildOutboundSidecars(
-  rootSchema: string,
-  bodyTypes: FrontmatterBodyTypes,
-  reserved: Set<string> = new Set(),
-  building: Set<string> = new Set(),
-): { readonly sidecars: ReadonlyMap<string, SchemaSidecar>; readonly rootDef: string } {
-  const sidecars = new Map<string, SchemaSidecar>();
-  const seen = new Set<string>([rootSchema]);
-  const queue: string[] = [rootSchema];
-  while (queue.length > 0) {
-    const name = queue.shift() as string;
-    building.add(name);
-    const fields = bodyTypes.schemas.get(name);
-    if (fields === undefined) {
-      continue;
-    }
-    const inputs: SidecarFieldInput[] = fields.map((f) => {
-      const wire = f.wireName ?? f.name;
-      // A field's type names an object schema (directly, through an alias
-      // chain, or as an `array<...>` element): record its `$ref` target and
-      // enqueue it. An inline-object type source (`x: {y: Inner}`) names no
-      // single schema, so descend it into a minted intermediate `$defs` whose
-      // schema-typed fields carry their own `$ref` targets (bug 0441).
-      let refTarget = namedSchemaOf(f.typeSource, bodyTypes);
-      if (refTarget !== undefined) {
-        if (!seen.has(refTarget)) {
-          seen.add(refTarget);
-          queue.push(refTarget);
-        }
-      } else if (f.typeSource !== undefined && isSingleEnclosingBraceGroup(f.typeSource.trim())) {
-        const inline = buildInlineSidecars(f.typeSource.trim(), bodyTypes, reserved, building);
-        for (const [defName, sidecar] of inline.sidecars) {
-          sidecars.set(defName, sidecar);
-        }
-        refTarget = inline.rootDef;
-      }
-      return {
-        thetaName: f.name,
-        ...(f.wireName !== undefined ? { wireName: f.wireName } : {}),
-        pointer: `/properties/${encodePointerSegment(wire)}`,
-        type: { kind: "other" },
-        ...(refTarget !== undefined ? { refTarget } : {}),
-      };
-    });
-    sidecars.set(
-      name,
-      buildSidecar(
-        inputs,
-        inputs.map((i) => i.thetaName),
-      ),
-    );
-  }
-  return { sidecars, rootDef: rootSchema };
-}
-
-/**
- * Resolve one field/element type source to its outbound `$ref` target,
- * merging every sidecar the target needs into `sidecars` (bug 0441). A source
- * naming a body object schema (directly, through an alias chain, or as an
- * `array<...>` element) merges that schema's transitive sidecars and returns
- * its name; an inline-object source descends into a minted intermediate
- * `$defs` (`buildInlineSidecars`); anything else returns `undefined` (no hop).
- * `reserved` threads the minted-name accumulator so inline mints stay globally
- * unique across the construction; `building` guards a schema that is reachable
- * from itself through an inline layer — a name already under construction up
- * the stack is recorded as a `$ref` without re-entering `buildOutboundSidecars`
- * (its sidecar merges into the top-level map from the in-progress call).
- */
-function refTargetInto(
-  typeSource: string,
-  bodyTypes: FrontmatterBodyTypes,
-  sidecars: Map<string, SchemaSidecar>,
-  reserved: Set<string>,
-  building: Set<string>,
-): string | undefined {
-  const named = namedSchemaOf(typeSource, bodyTypes);
-  if (named !== undefined) {
-    if (building.has(named)) {
-      return named;
-    }
-    const nested = buildOutboundSidecars(named, bodyTypes, reserved, building);
-    for (const [defName, sidecar] of nested.sidecars) {
-      sidecars.set(defName, sidecar);
-    }
-    return named;
-  }
-  if (isSingleEnclosingBraceGroup(typeSource.trim())) {
-    const inline = buildInlineSidecars(typeSource.trim(), bodyTypes, reserved, building);
-    for (const [defName, sidecar] of inline.sidecars) {
-      sidecars.set(defName, sidecar);
-    }
-    return inline.rootDef;
-  }
-  return undefined;
-}
-
-/**
- * Build the outbound sidecars for an inline-object type source (`{y: Inner}`)
- * used at a container position that carries sidecars (bug 0441): mint a
- * collision-free intermediate `$defs` name for the inline layer and emit a
- * sidecar whose schema-typed fields carry their real `$ref` targets, so the
- * runtime `$ref` recursion descends past the inline wrapper to the embedded
- * schema's own renames. An inline object carries no `as` renames of its own,
- * so its fields contribute only `$ref` hops, never wire-name entries. The
- * minted name cannot collide with an author schema (those are capitalised;
- * `__inline*` is not) but `reserved` keeps sibling/nested inline mints distinct
- * from each other, so no minted sidecar clobbers another in the per-`$defs`
- * map.
- */
-function buildInlineSidecars(
-  braceSource: string,
-  bodyTypes: FrontmatterBodyTypes,
-  reserved: Set<string>,
-  building: Set<string>,
-): { readonly sidecars: ReadonlyMap<string, SchemaSidecar>; readonly rootDef: string } {
-  const sidecars = new Map<string, SchemaSidecar>();
-  let rootDef = "__inline";
-  while (bodyTypes.schemas.has(rootDef) || reserved.has(rootDef)) {
-    rootDef = `${rootDef}_`;
-  }
-  reserved.add(rootDef);
-  const inputs: SidecarFieldInput[] = [];
-  for (const entry of splitTopLevel(braceSource.slice(1, -1), ",", "angle-and-brace")) {
-    const colon = topLevelColon(entry);
-    if (colon < 0) {
-      continue;
-    }
-    const fieldName = entry.slice(0, colon).trim();
-    const fieldType = entry.slice(colon + 1).trim();
-    if (fieldName.length === 0 || fieldType.length === 0) {
-      continue;
-    }
-    const refTarget = refTargetInto(fieldType, bodyTypes, sidecars, reserved, building);
-    inputs.push({
-      thetaName: fieldName,
-      pointer: `/properties/${encodePointerSegment(fieldName)}`,
-      type: { kind: "other" },
-      ...(refTarget !== undefined ? { refTarget } : {}),
-    });
-  }
-  sidecars.set(
-    rootDef,
-    buildSidecar(
-      inputs,
-      inputs.map((i) => i.thetaName),
-    ),
-  );
-  return { sidecars, rootDef };
-}
-
-/**
- * Parse an inline object type's own field set into a `SystemParamType`
- * (bug 0406 (i)): `s` is the flow-mapping source (`{name: string, role: string}`)
- * `isSingleEnclosingBraceGroup` already gated. Mirrors `hoistInlineObjectType`'s
- * accept/reject split (params.ts) so the `system:` field set matches the
- * lowering's: a top-level entry with no colon, or an empty name / type either
- * side of it, is skipped rather than refused — the lowering's own diagnostics
- * cover a malformed entry; this seam only needs to know which fields resolve.
- * An inline object type carries no `as` renames of its own, but a FIELD of one
- * can name a body schema (`{inner: Inner}`) or embed a further inline object
- * that names one (`{x: {y: Inner}}`) whose own renames still need to translate
- * on a bare render (bug 0424, bug 0441) — so each such field collects a
- * root-position `$ref` input plus that target's transitive sidecars via
- * `refTargetInto`, merged under minted `$defs` names (no author schema is keyed
- * `__inline*`, and `reserved` keeps the root mint distinct from any nested
- * inline mint). A purely scalar inline object (no schema-hopping field)
- * produces no sidecars, byte-identical to the pre-fix shape.
- */
-function inlineObjectType(
-  s: string,
-  bodyTypes: FrontmatterBodyTypes | undefined,
-  resolving: Map<string, SystemParamType>,
-): SystemParamType {
-  const interior = s.slice(1, -1);
-  const map = new Map<string, SystemParamType>();
-  const rootInputs: SidecarFieldInput[] = [];
-  const merged = new Map<string, SchemaSidecar>();
-  const reserved = new Set<string>();
-  const building = new Set<string>();
-  for (const entry of splitTopLevel(interior, ",", "angle-and-brace")) {
-    const colon = topLevelColon(entry);
-    if (colon < 0) {
-      continue;
-    }
-    const fieldName = entry.slice(0, colon).trim();
-    const fieldType = entry.slice(colon + 1).trim();
-    if (fieldName.length === 0 || fieldType.length === 0) {
-      continue;
-    }
-    map.set(fieldName, toSystemParamType(fieldType, bodyTypes, resolving));
-    if (bodyTypes === undefined) {
-      continue;
-    }
-    const refTarget = refTargetInto(fieldType, bodyTypes, merged, reserved, building);
-    if (refTarget === undefined) {
-      continue;
-    }
-    rootInputs.push({
-      thetaName: fieldName,
-      pointer: `/properties/${encodePointerSegment(fieldName)}`,
-      type: { kind: "other" },
-      refTarget,
-    });
-  }
-  if (rootInputs.length === 0 || bodyTypes === undefined) {
-    return { kind: "object", fields: map };
-  }
-  let rootName = "__inline";
-  while (bodyTypes.schemas.has(rootName) || reserved.has(rootName)) {
-    rootName = `${rootName}_`;
-  }
-  merged.set(
-    rootName,
-    buildSidecar(
-      rootInputs,
-      rootInputs.map((i) => i.thetaName),
-    ),
-  );
-  return { kind: "object", fields: map, sidecars: merged, rootDef: rootName };
-}
-
-/**
- * The unquoted text of a single string-literal type source (`"cat"` →
- * `cat`), or `undefined` when `typeSource` is not one. Mirrors
- * `classifyDiscriminatorFieldType` (theta-document.ts) exactly: a top-level
- * `|` split is tested FIRST, so a literal-UNION field type (`"low" | "high"`,
- * the inline-enumeration idiom, schemas.md:93) — which starts and ends with a
- * quote yet is not a single literal — contributes NO literal-table entry
- * rather than the bogus literal (`low" | "high`) its endpoint quotes would
- * otherwise yield. This keeps a `system:` union arm's literal table in
- * agreement with the parser's own discriminator detection.
- */
-function stringLiteralOf(typeSource: string): string | undefined {
-  const s = typeSource.trim();
-  // A top-level `|` marks a literal UNION, not a single literal, so its
-  // endpoint quotes belong to two different literals — reject before the
-  // endpoint-quote test so `"low" | "high"` yields no literal-table entry.
-  if (splitTopLevel(s, "|").length > 1) {
-    return undefined;
-  }
-  if (s.length >= 2 && ((s.startsWith('"') && s.endsWith('"')) || (s.startsWith("'") && s.endsWith("'")))) {
-    return s.slice(1, -1);
-  }
-  return undefined;
-}
-
-/**
- * Build the `system:` union's per-arm data (bug 0425 §Fix route (a)): for
- * each `|`-separated arm source that names a body object schema — directly, or
- * through a SINGLE-arm alias chain (`schema A = Cat`, bug 0443) — with a
- * buildable outbound-sidecar map, an arm carrying that schema's rename
- * sidecars, its field-name set (for the render-time structural pick), and its
- * literal-discriminator table (for the render-time literal-match pick). Arm
- * sources are NOT unwrapped through `namedSchemaOf`, because that would unwrap
- * an `array<Cat>` source to a phantom `Cat` object arm (bug 0425 F2); the
- * alias chase here follows only a pure name→name single-arm chain and stops at
- * the first object schema, never entering an `array<...>` or multi-arm
- * (union-in-union) RHS. So an arm source that resolves to no object schema —
- * an `array<...>` element wrapper, an imported name, a scalar, a literal, or a
- * multi-arm alias — is
- * SKIPPED, not pushed as a degraded arm, so the render-time pick never
- * chooses a half-built arm; a value that would have matched a SHAPE-DISJOINT
- * skipped arm source (an `array<...>` element wrapper, a scalar, or a
- * literal — none of which an object value can ever be picked as) falls
- * through to today's untranslated bytes (the §Fix's "never guess" constraint
- * applies to the whole pipeline, not only the render step). A RECORD-shaped
- * skipped arm source (an inline-brace arm, or an imported-schema arm) that
- * shares a field set with a kept schema arm is instead picked as that kept
- * arm — never a wrong wire name, since the value is a valid instance of the
- * kept schema by every observable the parse-time type system has; it is a
- * statically-ambiguous pick the never-guess constraint does not reach, not a
- * guess. Zero
- * resolvable arms (a scalar union, a union of imported-only names, or a union
- * of `array<...>` sources) yields an empty list, and the caller keeps the
- * bare `discriminated-union` shape.
- */
-function buildSystemUnionArms(
-  armSources: readonly string[],
-  bodyTypes: FrontmatterBodyTypes,
-): readonly SystemUnionArm[] {
-  const arms: SystemUnionArm[] = [];
-  for (const rawArm of armSources) {
-    // Chase a single-arm alias arm source (`A` over `schema A = Cat`) to the
-    // body object schema it names, WITHOUT unwrapping an `array<...>` source
-    // (which would mint a phantom object arm — bug 0425 F2) and WITHOUT
-    // entering a multi-arm (union-in-union) RHS (kept conservative — bug 0443).
-    let s = rawArm.trim();
-    const seenArm = new Set<string>();
-    while (
-      bodyTypes.schemas.has(s) &&
-      bodyTypes.schemas.get(s) === undefined &&
-      !seenArm.has(s)
-    ) {
-      seenArm.add(s);
-      const chain = bodyTypes.aliasArms.get(s);
-      if (chain === undefined || chain.length !== 1) {
-        break;
-      }
-      s = chain[0]!.trim();
-    }
-    const schemaName = bodyTypes.schemas.has(s) ? s : undefined;
-    if (schemaName === undefined) {
-      continue;
-    }
-    const fields = bodyTypes.schemas.get(schemaName);
-    if (fields === undefined) {
-      continue;
-    }
-    const sc = buildOutboundSidecars(schemaName, bodyTypes);
-    const literals = new Map<string, string>();
-    for (const f of fields) {
-      const lit = stringLiteralOf(f.typeSource);
-      if (lit !== undefined) {
-        literals.set(f.name, lit);
-      }
-    }
-    arms.push({
-      name: schemaName,
-      sidecars: sc.sidecars,
-      rootDef: sc.rootDef,
-      fieldNames: fields.map((f) => f.name),
-      literals,
-    });
-  }
-  return arms;
-}
-
-/**
- * Map a `params:` field type-expression source to the `SystemParamType` the
- * `system:` interpolation surface consumes. An inline object type is
- * classified FIRST (matching `lowerTypeSource`'s structural order,
- * body-type-lowering.ts) so a top-level `|` inside its braces (`{a: string |
- * null}`) is not split as a discriminated union before the brace group is
- * recognised. Primitives map to their scalar kinds; `array<T>` terminates as
- * an array (carrying outbound sidecars when its element names a body schema);
- * a top-level union / other generic terminates as a compact-object value; a
- * `NamedType` resolving to a body `enum` is an enum, one
- * resolving to an object `schema` carries its typed fields (so `.Ident` steps
- * validate) plus the outbound wire-name-translation sidecars (bug 0407); one
- * resolving to an imported `.thetalib` symbol is `opaque-object` (bug 0406
- * parent Rec A: fields are invisible at parse, so the type admits any
- * `.Ident` step rather than refusing it); and any other / unresolved atom
- * terminates as a scalar (so `${param}` is admitted but `${param.field}` is a
- * bad-field). `resolving` is a schema-name → partially-built shell map that
- * both guards a self-referential schema against unbounded descent AND gives
- * lazy cyclic reuse: a schema reached a second time while its own field map is
- * still being built reuses the SAME (mutable) shell object, so the cycle
- * closes over itself rather than degrading to a scalar.
- *
- * `aliasChain` is the disjoint guard for PURE-alias cycles (a `schema A = B`
- * chain that never hops through an object body): it carries the alias names on
- * the current descent and RESETS to empty when descent enters an object
- * schema's fields, because from there `resolving`'s parked shell already closes
- * a legal object-hop cycle. Aliases park nothing in `resolving`, so a legal
- * object-hop cycle (`schema A = Node`, `schema Node { next: A }`) classifies
- * `p: A` and `p: Node` identically instead of reading back an alias sentinel.
- *
- * Exported (bug 0422 route (a)): the load-phase template-revalidation
- * consumer (`import-static-checks.ts`) reuses this exact function, called with
- * an imported `.thetalib`'s OWN `FrontmatterBodyTypes`, to build the real
- * object shell the parser could not see at parse time — rather than
- * reimplementing this dispatch a second time against a different field-source
- * shape.
- */
-export function toSystemParamType(
-  typeSource: string,
-  bodyTypes: FrontmatterBodyTypes | undefined,
-  resolving: Map<string, SystemParamType>,
-  aliasChain: ReadonlySet<string> = new Set(),
-): SystemParamType {
-  const s = typeSource.trim();
-  // A single enclosing brace group is an inline object type — recognised
-  // before the union and generic checks so a top-level `|` inside its braces
-  // belongs to a field type, not a discriminated-union arm. A genuine union of
-  // brace groups (`{a: X} | {b: Y}`) is not a single enclosing group — its
-  // first `{` does not close at end — so it still reaches the union split.
-  if (isSingleEnclosingBraceGroup(s)) {
-    return inlineObjectType(s, bodyTypes, resolving);
-  }
-  // The top-level union split is tested BEFORE the generic `<>` check, matching
-  // the canonical structural order of `lowerTypeExpr` (params.ts: union split
-  // then generic) and of `classifyDiscriminatorFieldType` (theta-document.ts).
-  // A union whose arms carry generics (`Cat | array<Cat>`) both contains a `<`
-  // and ends with `>`, so testing the generic branch first would swallow the
-  // whole expression as a malformed generic and discard its arms; splitting the
-  // union first routes each arm source to `buildSystemUnionArms`.
-  const unionArmSources = splitTopLevel(s, "|");
-  if (unionArmSources.length > 1) {
-    if (bodyTypes === undefined) {
-      return { kind: "discriminated-union" };
-    }
-    const arms = buildSystemUnionArms(unionArmSources, bodyTypes);
-    return arms.length > 0 ? { kind: "discriminated-union", arms } : { kind: "discriminated-union" };
-  }
-  const lt = s.indexOf("<");
-  if (lt > 0 && s.endsWith(">")) {
-    const ctor = s.slice(0, lt).trim();
-    if (ctor === "array") {
-      const element = s.slice(lt + 1, -1).trim();
-      // A union ELEMENT source (`Cat | Dog`, or a 2+-arm alias `UU`) needs a
-      // per-element arm pick, not a single sidecar map (bug 0444 §Fix route
-      // (a)): `namedSchemaOf` returns `undefined` for a union source, so the
-      // sidecar path below never covered it. Try this BEFORE the sidecar path
-      // so a union element takes `elementArms`; a non-union element falls
-      // through unchanged — including the single-arm alias chase and the
-      // inline-object descent (bugs 0442/0441), which own the non-union lanes.
-      const elementSplit = splitTopLevel(element, "|");
-      const elementUnionSources =
-        elementSplit.length > 1
-          ? elementSplit
-          : bodyTypes !== undefined && (bodyTypes.aliasArms.get(element)?.length ?? 0) >= 2
-            ? (bodyTypes.aliasArms.get(element) as readonly string[])
-            : undefined;
-      if (elementUnionSources !== undefined && bodyTypes !== undefined) {
-        const elementArms = buildSystemUnionArms(elementUnionSources, bodyTypes);
-        if (elementArms.length > 0) {
-          return { kind: "array", elementArms };
-        }
-      }
-      if (bodyTypes !== undefined) {
-        // An element naming a body object schema (directly, through an alias
-        // chain, or as a nested `array<...>`) carries that schema's sidecars
-        // (bug 0407/0442); an inline-object element (`array<{y: Inner}>`)
-        // descends into a minted intermediate `$defs` (bug 0441).
-        const named = namedSchemaOf(element, bodyTypes);
-        if (named !== undefined) {
-          const sc = buildOutboundSidecars(named, bodyTypes);
-          return { kind: "array", sidecars: sc.sidecars, rootDef: sc.rootDef };
-        } else if (isSingleEnclosingBraceGroup(element)) {
-          const inline = buildInlineSidecars(element, bodyTypes, new Set(), new Set());
-          return { kind: "array", sidecars: inline.sidecars, rootDef: inline.rootDef };
-        }
-      }
-      return { kind: "array" };    }
-    return { kind: "discriminated-union" };
-  }
-  switch (s) {
-    case "string":
-      return { kind: "string" };
-    case "integer":
-      return { kind: "integer" };
-    case "number":
-      return { kind: "number" };
-    case "boolean":
-      return { kind: "boolean" };
-    case "null":
-      return { kind: "null" };
-    default:
-      break;
-  }
-  if (bodyTypes !== undefined) {
-    if (bodyTypes.enums.has(s)) {
-      return { kind: "enum" };
-    }
-    if (bodyTypes.schemas.has(s)) {
-      const existing = resolving.get(s);
-      if (existing !== undefined) {
-        return existing;
-      }
-      const fields = bodyTypes.schemas.get(s);
-      if (fields === undefined) {
-        const arms = bodyTypes.aliasArms.get(s);
-        if (arms === undefined || arms.length === 0) {
-          // Genuinely head-only: neither an object body nor alias arms — the
-          // `empty-schema-body` family refuses this at declaration, so no
-          // registering document reaches here. Keep the permissive terminal
-          // for that unreachable case rather than inventing a behaviour for
-          // it (bug 0427 §Fix).
-          return { kind: "string" };
-        }
-        if (arms.length === 1) {
-          // One arm: the alias IS the type it names one step in (an alias-of-
-          // object gets the object shell with sidecars, alias-of-array the
-          // array kind, alias-of-primitive the scalar kind) — `schemas.md:60`.
-          // Pure-alias cycles are guarded by `aliasChain` — the set of alias
-          // names on the current descent — NOT by parking a sentinel in the
-          // shared `resolving` shell map: a sentinel there is read back by the
-          // object-schema arm's early `resolving.get(s)` return and would
-          // mis-classify a LEGAL object-hop cycle (`schema A = Node`,
-          // `schema Node { next: A }`), rendering `${p.next}` as
-          // `[object Object]` and making `p: A` and `p: Node` classify
-          // differently in one document. `aliasChain.has(s)` means a pure-alias
-          // re-entry, which `type-alias-cycle` already refuses at declaration
-          // (so no registering document reaches it) — this is a
-          // stack-overflow backstop only. A legal chain
-          // (`schema A = B; schema B = Cat`) still resolves because each name
-          // is added to a fresh copy that is discarded when descent unwinds.
-          if (aliasChain.has(s)) {
-            return { kind: "string" };
-          }
-          return toSystemParamType(arms[0]!, bodyTypes, resolving, new Set([...aliasChain, s]));
-        }
-        // Two or more arms: the `discriminated-union` terminal the INLINE
-        // spelling (`p: 'Cat | Dog'`) renders through — naming the union via an
-        // alias must not change its render (bug 0427 §Fix). Thread the SAME
-        // per-arm rename machinery the inline split uses (bug 0443): arms
-        // naming a body object schema (alias-chased) translate; when none do
-        // (a scalar/imported/array union) the conservative bare terminal
-        // stands, unchanged from the pre-0443 behaviour.
-        const unionArms = buildSystemUnionArms(arms, bodyTypes);
-        return unionArms.length > 0
-          ? { kind: "discriminated-union", arms: unionArms }
-          : { kind: "discriminated-union" };
-      }
-      const map = new Map<string, SystemParamType>();
-      const sc = buildOutboundSidecars(s, bodyTypes);
-      const shell: SystemParamType = {
-        kind: "object",
-        fields: map,
-        sidecars: sc.sidecars,
-        rootDef: sc.rootDef,
-      };
-      resolving.set(s, shell);
-      for (const f of fields) {
-        // RESET the alias chain when descending into an object schema's own
-        // fields: the object shell parked in `resolving` above already closes
-        // any legal cycle reached from inside it (b0406 W6, the recursive
-        // schema), so a pure-alias name seen on the way in must not stay
-        // in-flight and short-circuit a legal object-hop back to this schema.
-        map.set(f.name, toSystemParamType(f.typeSource, bodyTypes, resolving, new Set()));
-      }
-      return shell;
-    }
-    if (bodyTypes.imports.has(s)) {
-      // An imported schema resolves (no `unresolved-named-type`) but its
-      // fields are invisible at parse — admit any `.Ident` step rather than
-      // refusing it (bug 0406 parent Rec A's E1-compatible disposition).
-      return { kind: "opaque-object" };
-    }
-  }
-  return { kind: "string" };
-}
-
-/**
- * Split a `params:` field value scalar (`<type-expr>` optionally followed by
- * `= <literal>`) into its type expression and default RHS at the first top-level
- * `=` — one not nested inside `<...>` angle brackets, `{...}` braces, `[...]`
- * brackets, or a `"`/`'` string literal (so `array<string> = []` and
- * `Author = { name: "x" }` split correctly, and an `==`/`>=` inside a default is
- * not mistaken for the separator).
- */
-function splitParamValue(raw: string): { typeSource: string; defaultSource?: string } {
-  let depth = 0;
-  let quote: string | undefined;
-  for (let i = 0; i < raw.length; i += 1) {
-    const c = raw[i];
-    if (quote !== undefined) {
-      if (c === "\\" && i + 1 < raw.length) {
-        i += 1;
-      } else if (c === quote) {
-        quote = undefined;
-      }
-      continue;
-    }
-    if (c === '"' || c === "'") {
-      quote = c;
-      continue;
-    }
-    if (c === "<" || c === "{" || c === "[") {
-      depth += 1;
-      continue;
-    }
-    if (c === ">" || c === "}" || c === "]") {
-      depth -= 1;
-      continue;
-    }
-    if (depth === 0 && c === "=" && raw[i + 1] !== "=" && raw[i - 1] !== "=") {
-      const typeSource = raw.slice(0, i).trim();
-      const defaultSource = raw.slice(i + 1).trim();
-      return { typeSource, defaultSource };
-    }
-  }
-  return { typeSource: raw.trim() };
-}
-
-/** Whether a lowered type expression is a nullable union (a top-level `| null` arm). */
-function typeSourceIsNullable(typeSource: string): boolean {
-  return typeSource
-    .split("|")
-    .map((arm) => arm.trim())
-    .some((arm) => arm === "null");
-}
-
-/**
- * Extract the theta's lowered `params:` schema plus the load-time bypass inputs
- * from the `params:` YAML node. Returns `undefined` when the block is absent,
- * `null`, or not a mapping. The lowered schema is derived through the `V6b`
- * `parseParams` seam, supplied with the whole-file body-level named types
- * (`bodyTypeDecls`) so a `NamedType` param (a body `enum` / `schema`) lowers to
- * a present `loweredSchema` with the resolved `$def` — BIND-1: an empty body-type
- * list here previously left `loweredSchema` absent for a `NamedType` param, which
- * the runtime binder guard then mis-classified as a no-params theta. The raw
- * per-field inputs are returned alongside so `parseFrontmatter` can run the
- * whole-file `params:` diagnostics pass and build the `system:` interpolation
- * param types.
- *
- * Each field's declared type is recovered as the author's own bytes: a scalar
- * RHS reads its parsed value; a non-scalar RHS — an inline object type, a YAML
- * flow mapping — reads the value node's own source range via
- * `paramValueSource` (bug 0035), so that shape reaches `parseParams` instead of
- * being discarded as an empty type. A value node that cannot carry a type
- * expression (`paramValueCanCarryType`) draws the per-field
- * `theta/load/params-type-not-expression` in the returned `diagnostics`; the
- * field is still recorded so the `system:` interpolation seam and `parseParams`
- * see the same field set and the refusal stays one diagnostic (bug 0041). The
- * `parseParams` lowering runs once here; its diagnostics travel out separately
- * (`loweringDiagnostics`) so the caller can order them behind the shape
- * refusals.
- */
-function extractParsedParams(
-  paramsNode: Node | null | undefined,
-  file: string,
-  lineCounter: LineCounter,
-  lineOffset: number,
-  bodyTypeDecls: readonly BodyTypeDeclaration[],
-  yamlSource: string,
-): {
-  params: ParsedParams | undefined;
-  fieldInputs: readonly ParamFieldInput[];
-  diagnostics: readonly Diagnostic[];
-  loweringDiagnostics: readonly Diagnostic[];
-} {
-  if (!isMap(paramsNode)) {
-    return { params: undefined, fieldInputs: [], diagnostics: [], loweringDiagnostics: [] };
-  }
-  const fieldInputs: ParamFieldInput[] = [];
-  const bypassFields: BypassParamsField[] = [];
-  const defaultedFields: string[] = [];
-  const diagnostics: Diagnostic[] = [];
-  for (const item of paramsNode.items) {
-    if (!isScalar(item.key)) {
-      continue;
-    }
-    const name = String(item.key.value);
-    const rawValue = isScalar(item.value)
-      ? String(item.value.value)
-      : paramValueSource(item.value, yamlSource);
-    const { typeSource, defaultSource } = splitParamValue(rawValue);
-    const range =
-      rangeOf((item.value ?? item.key) as Node, lineCounter, lineOffset) ??
-      { start: { line: 0, column: 0 }, end: { line: 0, column: 0 } };
-    // lexical.md §Identifiers requires lowercase-first for a schema field
-    // name, and code-registry-parse.md's binding-case-mismatch row already
-    // names the field-name position in its Trigger. A `params:` key is that
-    // position twice over: it lowers to an object schema's property
-    // (schemas.md), and frontmatter-fields-a.md's "exposed as typed variables
-    // in the theta body" makes it a body binding as well, so the rule applies
-    // on either reading. `range` above is the VALUE node's, not the key's, so
-    // a diagnostic naming the key needs a range of its own; on an unranged key
-    // node it falls back to `range`, the same `??` fallback `range` itself
-    // already uses. Three arms split the field-name position between three
-    // rules, in the order every other enforcement site uses (`checkName`,
-    // lexer.ts; `parseFn`'s parameter check, theta-document.ts):
-    // reserved-keyword refusal first, under lexical.md §Reserved words /
-    // code-registry-parse.md:21; non-identifier-shape refusal second, under
-    // lexical.md §Identifiers / code-registry-parse.md:19; and the case gate
-    // last, over what remains — an identifier-shaped, non-reserved key. The
-    // three subjects are disjoint: a reserved spelling is never
-    // identifier-shaped-but-wrong-shaped, and the case gate only ever sees an
-    // identifier-shaped key, so no arm can reach another arm's input.
-    if (RESERVED_KEYWORDS.has(name)) {
-      // lexical.md:20 reserves 32 spellings from identifier position with no
-      // scope list, and code-registry-parse.md:21's Trigger names no
-      // position either: a `params:` key is an identifier position twice
-      // over (schemas.md's field-identifier reading, and
-      // frontmatter-fields-a.md:57's "exposed as typed variables in the
-      // theta body"), and it is the face that reaches furthest — the
-      // spelling becomes a JSON Schema property key and a `wireName` the
-      // binder and the provider receive (row L1). This key is a YAML scalar,
-      // not a token, so the predicate is membership in the shipped
-      // `RESERVED_KEYWORDS` set rather than a `kind` test, and the range
-      // comes from the key node itself, the same fallback-to-`range` shape
-      // the case arm below uses for the same key. Emitted under the
-      // registered `theta/parse/*` code and not a `theta/load/` twin: DIAG-2
-      // closes the registry, the `load` namespace carries no
-      // reserved-keyword row, and the code names the RULE rather than the
-      // module. The keyword arm runs first — mirroring `parseFn`'s
-      // parameter-name check (`theta-document.ts`, `keyword` ahead of
-      // `ident`) — though the case arm's own `!RESERVED_KEYWORDS.has` guard
-      // already keeps the two subjects disjoint.
-      diagnostics.push({
-        severity: "error",
-        code: "theta/parse/reserved-keyword-as-identifier",
-        file,
-        range: rangeOf(item.key as Node, lineCounter, lineOffset) ?? range,
-        message: `reserved keyword '${name}' cannot be used as an identifier`,
-      });
-    } else if (!isIdentifierShaped(name)) {
-      // A `params:` key is a field-name position twice over (schema property
-      // + body binding), and every sibling field-name position already
-      // refuses a non-`Ident` spelling (inline-object field names,
-      // 0154; `schema` bodies refuse it grammatically). Refusing here at LOAD
-      // closes the one position that did not, and lets the two line-oriented
-      // renderers that interpolate the name bare (renderBinderParamLine,
-      // renderArgumentEcho) stay untouched — a refused key never reaches
-      // them. The message names no key: the cooked value can carry a real
-      // U+000A (an explicit-key block scalar, `? |-`, cooks a line break into
-      // the key), and a single-line diagnostic message must never reproduce
-      // one (diagnostic-shape.md); `range` — not the message — locates the
-      // offender, the same discipline `binding-case-mismatch` above already
-      // uses for its own key.
-      diagnostics.push({
-        severity: "error",
-        code: "theta/parse/params-key-not-identifier",
-        file,
-        range: rangeOf(item.key as Node, lineCounter, lineOffset) ?? range,
-        message: "params key must be an identifier",
-      });
-    } else {
-      const first = name[0] ?? "";
-      const isUpper = first >= "A" && first <= "Z";
-      if (isUpper) {
-        diagnostics.push({
-          severity: "error",
-          code: "theta/parse/binding-case-mismatch",
-          file,
-          range: rangeOf(item.key as Node, lineCounter, lineOffset) ?? range,
-          message: "binding name must start with a lowercase letter or _",
-        });
-      }
-    }
-    // A value node outside `paramValueCanCarryType`'s set declares no type
-    // expression: the only non-scalar YAML shape that spells a `Type` is the
-    // flow mapping an inline object type parses as, and every other node
-    // shape recovers bytes no `Type` production spells. One registered error
-    // per offending field; the field is still recorded below so no second
-    // diagnostic cascades at the `system:` interpolation seam (bug 0041).
-    // `shapeRefused` rides along with the retained field so `parseParams`
-    // (bug 0059 §Fix constraint 1) can tell a node already refused HERE from
-    // one whose recovered TEXT it must judge itself, and skip its own
-    // refusal — the ordering comment on the `paramsShapeDiags` push in
-    // `parseFrontmatter`, below, states why: a field whose RHS spells no type
-    // expression is reported as such, not by whatever the lowering makes of
-    // its recovered bytes.
-    const shapeRefused = !paramValueCanCarryType(item.value);
-    if (shapeRefused) {
-      diagnostics.push({
-        severity: "error",
-        code: "theta/load/params-type-not-expression",
-        file,
-        range,
-        message: `'params:' field '${normaliseLiteralValueLineBreaks(name)}' right-hand side is not a theta type expression`,
-      });
-    }
-    fieldInputs.push({
-      name,
-      typeSource,
-      ...(defaultSource !== undefined ? { defaultSource } : {}),
-      range,
-      ...(shapeRefused ? { shapeRefused: true } : {}),
-    });
-    bypassFields.push({
-      wireName: name,
-      type: typeSource,
-      hasDefault: defaultSource !== undefined,
-      // Retained for the binder system prompt's `default=<literal>` requirement
-      // token (V11d Parameters block) — the bypass classification ignores it.
-      ...(defaultSource !== undefined ? { defaultSource } : {}),
-      nullable: typeSourceIsNullable(typeSource),
-    });
-    if (defaultSource !== undefined) {
-      defaultedFields.push(name);
-    }
-  }
-  const lowered = parseParams(fieldInputs, bodyTypeDecls, { file });
-  return {
-    params: {
-      ...(lowered.loweredSchema !== undefined ? { loweredSchema: lowered.loweredSchema } : {}),
-      defaultedFields,
-      fields: bypassFields,
-    },
-    fieldInputs,
-    diagnostics,
-    loweringDiagnostics: lowered.diagnostics,
-  };
-}
-
-/**
- * Parse a theta file's YAML frontmatter against the theta 1.0 field contract
- * (`frontmatter.md`, `frontmatter/frontmatter-fields-a.md`):
- *
- *   - the required `mode:` field — `theta/load/missing-mode` (E) when absent, and
- *     the theta is not registered;
- *   - unknown top-level keys, and unrecognised sub-keys inside a `tool_loop:` /
- *     `respond_repair:` block (rendered with the dotted `<block>.<sub-key>` form) —
- *     `theta/load/unknown-frontmatter-field` (W), one per key, tolerated (the theta
- *     still registers);
- *   - the per-call `timeout:` field — `theta/parse/timeout-field-rejected` (E),
- *     the NOCEIL-1 seam;
- *   - a present `model:` value resolved at load time through the injected
- *     model-reference matcher — `theta/load/model-unresolved` (E) on no-match /
- *     ambiguity, and the theta is not registered.
- *
- * The theta registers iff no error-severity diagnostic was raised.
- */
-export function parseFrontmatter(
-  source: string,
-  options: ParseFrontmatterOptions,
-): FrontmatterParseResult {
-  const { file, modelMatcher } = options;
-  const diagnostics: Diagnostic[] = [];
-
-  const block = extractFrontmatterBlock(source);
-  const lineCounter = new LineCounter();
-  const doc =
-    block === undefined
-      ? undefined
-      : parseDocument(block.yaml, { lineCounter });
-  // FM-5: refuse a partially-recovered YAML parse. The `yaml` lib recovers from
-  // malformed input (e.g. `x: : :`) and exposes the damage in `doc.errors`;
-  // consuming its partial `contents` as if well-formed would register a theta
-  // built from frontmatter the parser itself rejected. Discard the recovered
-  // `contents` so `map` stays undefined and no recognised field is read off a
-  // partial parse; `doc.errors[0]` carries the position and offending text
-  // the diagnostic below is built from (bug 0263), so the report names the
-  // parser's own verdict rather than falling through to the "no recognised
-  // frontmatter mapping" surface `theta/load/missing-mode` covers.
-  const yamlErrored = doc !== undefined && doc.errors.length > 0;
-  const map =
-    doc !== undefined && !yamlErrored && isMap(doc.contents)
-      ? doc.contents
-      : undefined;
-  const lineOffset = block?.lineOffset ?? 0;
-  if (yamlErrored) {
-    // `yamlErrored` is true only for a non-empty error list, so the first
-    // element is present; the report is total, which is what lets the
-    // required-`mode:` arm below key on the rejection alone.
-    const firstError = doc?.errors[0];
-    if (firstError !== undefined) {
-      diagnostics.push(
-        malformedFrontmatterYamlDiagnostic(
-          block?.yaml ?? "",
-          firstError,
-          lineOffset,
-          file,
-        ),
-      );
-    }
-  }
-
+  diagnostics: Diagnostic[],
+  block: FrontmatterBlock | undefined,
+): RecognisedFields {
   // The recognised fields the contract pins behaviour for.
   let modeValue: string | undefined;
   let modeRange: SourceRange | undefined;
@@ -2000,7 +649,84 @@ export function parseFrontmatter(
       }
     }
   }
+  return {
+    modeValue,
+    modeRange,
+    modePresent,
+    modeValueKind,
+    modelPresent,
+    modelRaw,
+    modelRange,
+    bindContextValue,
+    bindContextRange,
+    bindContextPresent,
+    bindContextValueKind,
+    descriptionValue,
+    bindModelValue,
+    bindModelUnresolvable,
+    bindEchoValue,
+    bindEchoRange,
+    bindEchoPresent,
+    bindEchoScalar,
+    bindEchoValueKind,
+    bindEchoValueRange,
+    argumentHintPresent,
+    argumentHintRange,
+    argumentHintValue,
+    toolLoopNode,
+    respondRepairNode,
+    paramsNode,
+    paramsPresent,
+    paramsRange,
+    systemPresent,
+    systemValue,
+    systemRange,
+    toolsValue,
+    toolsMalformedRange,
+  };
+}
 
+/** Check cross-field contracts and resolve model and block defaults in diagnostic order. */
+function checkRecognisedFields(
+  fields: RecognisedFields,
+  yamlErrored: boolean,
+  file: string,
+  modelMatcher: ModelReferenceMatcher,
+  lineCounter: LineCounter,
+  lineOffset: number,
+  diagnostics: Diagnostic[],
+): {
+  resolvedModel: string | undefined;
+  toolLoopResult: ReturnType<typeof resolveNonNegIntBlock>;
+  respondRepairResult: ReturnType<typeof resolveNonNegIntBlock>;
+} {
+  const {
+    modeValue,
+    modeRange,
+    modePresent,
+    modeValueKind,
+    modelPresent,
+    modelRaw,
+    modelRange,
+    bindContextValue,
+    bindContextRange,
+    bindContextPresent,
+    bindContextValueKind,
+    descriptionValue,
+    bindEchoValue,
+    bindEchoPresent,
+    bindEchoScalar,
+    bindEchoValueKind,
+    bindEchoValueRange,
+    argumentHintPresent,
+    argumentHintRange,
+    toolLoopNode,
+    respondRepairNode,
+    paramsNode,
+    paramsPresent,
+    paramsRange,
+    toolsMalformedRange,
+  } = fields;
   // Required `mode:`. A block the YAML parser rejected already drew
   // `theta/load/malformed-frontmatter-yaml` above and never reached the field
   // loop, so a key never seen there is a statement about the discard, not the
@@ -2218,6 +944,151 @@ export function parseFrontmatter(
   if (methodologyDiag !== undefined) {
     diagnostics.push(methodologyDiag);
   }
+  return { resolvedModel, toolLoopResult, respondRepairResult };
+}
+
+/** Validate the system field and build its template against the lowered params field set. */
+function buildSystemTemplate(
+  fields: RecognisedFields,
+  fieldInputs: readonly ParamFieldInput[],
+  options: ParseFrontmatterOptions,
+  file: string,
+  diagnostics: Diagnostic[],
+): SystemTemplate | undefined {
+  const { systemPresent, systemValue, systemRange, modeValue } = fields;
+  // `system:` subagent-mode-only rule + `${…}` interpolation checks, run against
+  // the theta's typed `params` (`system:` on a `mode: prompt` theta is rejected).
+  //
+  // Keyed on `systemPresent`, not on `systemValue !== undefined` (bug 0298):
+  // a present non-scalar `system:` (block sequence/mapping) still needs to
+  // draw a diagnostic, either the shape refusal below or, on a `mode: prompt`
+  // theta, `theta/parse/system-on-prompt-mode` — that code's registered
+  // trigger is presence of the key, not readability of its value, so a
+  // non-scalar value must still reach `checkSystemInterpolation`. Only a
+  // present-AND-non-scalar `system:` on a non-prompt theta has no rule left to
+  // apply it to: it is refused directly under the bug 0104 `tools:`-row shape
+  // rather than being fed a fabricated value.
+  let systemTemplate: SystemTemplate | undefined;
+  if (systemPresent) {
+    if (modeValue !== "prompt" && systemValue === undefined) {
+      diagnostics.push({
+        severity: "error",
+        code: "theta/load/malformed-system-field",
+        file,
+        ...(systemRange !== undefined ? { range: systemRange } : {}),
+        message:
+          "malformed 'system:' field; expected a scalar system prompt",
+      });
+    } else {
+      const systemParams = new Map<string, SystemParamType>();
+      for (const fieldInput of fieldInputs) {
+        systemParams.set(
+          fieldInput.name,
+          toSystemParamType(fieldInput.typeSource, options.bodyTypes, new Map()),
+        );
+      }
+      // `systemValue ?? ""`: on the `mode: prompt` branch
+      // `checkSystemInterpolation` returns the prompt-mode refusal before it
+      // reads `systemValue`'s content, so the `""` fill is never inspected; on
+      // the subagent-scalar branch `systemValue` is always defined here, so
+      // the fallback is a no-op and this arm stays byte-identical to before.
+      const systemResult = checkSystemInterpolation({
+        systemValue: systemValue ?? "",
+        mode: modeValue === "prompt" ? "prompt" : "subagent",
+        params: systemParams,
+        file,
+        ...(systemRange !== undefined ? { range: systemRange } : {}),
+      });
+      diagnostics.push(...systemResult.diagnostics);
+      // The template is present only on a valid subagent `system:` (no
+      // error-severity interpolation diagnostic); retain it so the runtime spawn
+      // can render and install it (SUBAG-1).
+      systemTemplate = systemResult.template;
+    }
+  }
+  return systemTemplate;
+}
+
+/**
+ * Parse a theta file's YAML frontmatter against the theta 1.0 field contract
+ * (`frontmatter.md`, `frontmatter/frontmatter-fields-a.md`):
+ *
+ *   - the required `mode:` field — `theta/load/missing-mode` (E) when absent, and
+ *     the theta is not registered;
+ *   - unknown top-level keys, and unrecognised sub-keys inside a `tool_loop:` /
+ *     `respond_repair:` block (rendered with the dotted `<block>.<sub-key>` form) —
+ *     `theta/load/unknown-frontmatter-field` (W), one per key, tolerated (the theta
+ *     still registers);
+ *   - the per-call `timeout:` field — `theta/parse/timeout-field-rejected` (E),
+ *     the NOCEIL-1 seam;
+ *   - a present `model:` value resolved at load time through the injected
+ *     model-reference matcher — `theta/load/model-unresolved` (E) on no-match /
+ *     ambiguity, and the theta is not registered.
+ *
+ * The theta registers iff no error-severity diagnostic was raised.
+ */
+export function parseFrontmatter(
+  source: string,
+  options: ParseFrontmatterOptions,
+): FrontmatterParseResult {
+  const { file, modelMatcher } = options;
+  const diagnostics: Diagnostic[] = [];
+
+  const block = extractFrontmatterBlock(source);
+  const lineCounter = new LineCounter();
+  const doc =
+    block === undefined
+      ? undefined
+      : parseDocument(block.yaml, { lineCounter });
+  // FM-5: refuse a partially-recovered YAML parse. The `yaml` lib recovers from
+  // malformed input (e.g. `x: : :`) and exposes the damage in `doc.errors`;
+  // consuming its partial `contents` as if well-formed would register a theta
+  // built from frontmatter the parser itself rejected. Discard the recovered
+  // `contents` so `map` stays undefined and no recognised field is read off a
+  // partial parse; `doc.errors[0]` carries the position and offending text
+  // the diagnostic below is built from (bug 0263), so the report names the
+  // parser's own verdict rather than falling through to the "no recognised
+  // frontmatter mapping" surface `theta/load/missing-mode` covers.
+  const yamlErrored = doc !== undefined && doc.errors.length > 0;
+  const map =
+    doc !== undefined && !yamlErrored && isMap(doc.contents)
+      ? doc.contents
+      : undefined;
+  const lineOffset = block?.lineOffset ?? 0;
+  if (yamlErrored) {
+    // `yamlErrored` is true only for a non-empty error list, so the first
+    // element is present; the report is total, which is what lets the
+    // required-`mode:` arm below key on the rejection alone.
+    const firstError = doc?.errors[0];
+    if (firstError !== undefined) {
+      diagnostics.push(
+        malformedFrontmatterYamlDiagnostic(
+          block?.yaml ?? "",
+          firstError,
+          lineOffset,
+          file,
+        ),
+      );
+    }
+  }
+
+  const fields = collectRecognisedFields(map, lineCounter, lineOffset, file, diagnostics, block);
+  const {
+    modeValue,
+    bindContextValue,
+    descriptionValue,
+    bindModelValue,
+    bindModelUnresolvable,
+    bindEchoValue,
+    bindEchoRange,
+    argumentHintValue,
+    paramsNode,
+    systemRange,
+    toolsValue,
+  } = fields;
+  const { resolvedModel, toolLoopResult, respondRepairResult } = checkRecognisedFields(
+    fields, yamlErrored, file, modelMatcher, lineCounter, lineOffset, diagnostics,
+  );
 
   // The whole-file body-level named types the `params:` RHS resolves against.
   // Each carries its lowered JSON-Schema fragment (a body `enum` / `schema`
@@ -2286,56 +1157,7 @@ export function parseFrontmatter(
     }
   }
 
-  // `system:` subagent-mode-only rule + `${…}` interpolation checks, run against
-  // the theta's typed `params` (`system:` on a `mode: prompt` theta is rejected).
-  //
-  // Keyed on `systemPresent`, not on `systemValue !== undefined` (bug 0298):
-  // a present non-scalar `system:` (block sequence/mapping) still needs to
-  // draw a diagnostic, either the shape refusal below or, on a `mode: prompt`
-  // theta, `theta/parse/system-on-prompt-mode` — that code's registered
-  // trigger is presence of the key, not readability of its value, so a
-  // non-scalar value must still reach `checkSystemInterpolation`. Only a
-  // present-AND-non-scalar `system:` on a non-prompt theta has no rule left to
-  // apply it to: it is refused directly under the bug 0104 `tools:`-row shape
-  // rather than being fed a fabricated value.
-  let systemTemplate: SystemTemplate | undefined;
-  if (systemPresent) {
-    if (modeValue !== "prompt" && systemValue === undefined) {
-      diagnostics.push({
-        severity: "error",
-        code: "theta/load/malformed-system-field",
-        file,
-        ...(systemRange !== undefined ? { range: systemRange } : {}),
-        message:
-          "malformed 'system:' field; expected a scalar system prompt",
-      });
-    } else {
-      const systemParams = new Map<string, SystemParamType>();
-      for (const fieldInput of fieldInputs) {
-        systemParams.set(
-          fieldInput.name,
-          toSystemParamType(fieldInput.typeSource, options.bodyTypes, new Map()),
-        );
-      }
-      // `systemValue ?? ""`: on the `mode: prompt` branch
-      // `checkSystemInterpolation` returns the prompt-mode refusal before it
-      // reads `systemValue`'s content, so the `""` fill is never inspected; on
-      // the subagent-scalar branch `systemValue` is always defined here, so
-      // the fallback is a no-op and this arm stays byte-identical to before.
-      const systemResult = checkSystemInterpolation({
-        systemValue: systemValue ?? "",
-        mode: modeValue === "prompt" ? "prompt" : "subagent",
-        params: systemParams,
-        file,
-        ...(systemRange !== undefined ? { range: systemRange } : {}),
-      });
-      diagnostics.push(...systemResult.diagnostics);
-      // The template is present only on a valid subagent `system:` (no
-      // error-severity interpolation diagnostic); retain it so the runtime spawn
-      // can render and install it (SUBAG-1).
-      systemTemplate = systemResult.template;
-    }
-  }
+  const systemTemplate = buildSystemTemplate(fields, fieldInputs, options, file, diagnostics);
 
   const registered = !diagnostics.some((d) => d.severity === "error");
   if (!registered) {
