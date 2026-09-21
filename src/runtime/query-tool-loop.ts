@@ -596,6 +596,41 @@ export async function runTypedQueryLoop(
     return { kind: "transport", error: forced.error, rounds, forcedRespond, committed };
   }
 
+  return settleRespondFailure({
+    forced,
+    config,
+    slotCountAtDispatch,
+    rounds,
+    forcedRespond,
+    committed,
+    schemaValidation,
+    lowered,
+  });
+}
+
+/**
+ * Settle forced-respond noncompliance, depth and schema failures, or return the
+ * validated value. CIO-3 keeps the depth walk before AJV in this sequence.
+ */
+async function settleRespondFailure({
+  forced,
+  config,
+  slotCountAtDispatch,
+  rounds,
+  forcedRespond,
+  committed,
+  schemaValidation,
+  lowered,
+}: {
+  readonly forced: Exclude<ForcedRespondTurn, { readonly kind: "transport" }>;
+  readonly config: QueryToolLoopConfig;
+  readonly slotCountAtDispatch: number;
+  readonly rounds: readonly FreePhaseRoundLog[];
+  readonly forcedRespond: ForcedRespondDispatch;
+  readonly committed: readonly CommittedSideEffect[];
+  readonly schemaValidation: TypedQuerySchemaValidation | undefined;
+  readonly lowered: LoweredSchema | undefined;
+}): Promise<TypedQueryOutcome> {
   if (forced.kind === "noncompliance") {
     // ERR-17 / QRY-9 (bug 0010): the forced respond turn resolved normally but
     // did not call the forced respond tool. There is NO payload — the depth
