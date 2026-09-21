@@ -8,11 +8,8 @@ import type { BypassParamsField } from "../src/binder/binder-envelope";
 import { renderBinderParamLine } from "../src/binder/binder-system-prompt";
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
 import type { SchemaDecl } from "../src/parser/theta-document";
-import {
-  AjvSchemaValidator,
-  type LoweredSchema,
-  type SchemaSlug,
-} from "../src/seams/schema-validator";
+import { type LoweredSchema } from "../src/seams/schema-validator";
+import { AjvSchemaValidator, type SchemaSlug } from "../src/seams/ajv-schema-validator";
 import { loweredAnnotation as lowerAnnotation, loadSchemaDecls, parseDoc, fieldOf, diagLines } from "./helpers/e2e-s1";
 import { assertKeysSorted, inlineDefName, slugOfCanonicalForm, expectRefsClosed } from "./helpers/canonical-slug-oracle";
 

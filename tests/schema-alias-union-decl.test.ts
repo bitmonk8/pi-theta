@@ -3,11 +3,8 @@ import { describe, expect, it } from "vitest";
 import { registryMessageOf } from "./helpers/load-row-harness";
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
 import type { ThetaDocument } from "../src/parser/theta-document";
-import {
-  AjvSchemaValidator,
-  type LoweredSchema,
-  type SchemaSlug,
-} from "../src/seams/schema-validator";
+import { type LoweredSchema } from "../src/seams/schema-validator";
+import { AjvSchemaValidator, type SchemaSlug } from "../src/seams/ajv-schema-validator";
 import { codes, parseDoc, diagLines, loadCleanly } from "./helpers/e2e-s1";
 
 // Bug 0033 — the `schema X = A | B` type-alias / union declaration does not

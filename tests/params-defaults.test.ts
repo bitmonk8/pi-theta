@@ -4,11 +4,8 @@ import {
   type BodyTypeDeclaration,
   type ParamFieldInput,
 } from "../src/parser/params";
-import {
-  AjvSchemaValidator,
-  type LoweredSchema,
-  type SchemaSlugFn,
-} from "../src/seams/schema-validator";
+import { type LoweredSchema } from "../src/seams/schema-validator";
+import { AjvSchemaValidator, type SchemaSlugFn } from "../src/seams/ajv-schema-validator";
 import type { Diagnostic, SourceRange } from "../src/diagnostics/diagnostic";
 
 // V6b-T — failing tests for the paired `V6b` "`params` and defaults"

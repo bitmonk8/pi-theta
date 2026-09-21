@@ -50,11 +50,8 @@ import type { ResultValue, ThetaValue } from "../../src/runtime/value";
 import type { RuntimeRoot } from "../../src/runtime-root";
 import type { RootRegime } from "../../src/runtime/subagent-root-regime";
 import { SEAM_NOOP_CHECKPOINT as NOOP_CHECKPOINT } from "./invoke-seam-scaffold";
-import {
-  AjvSchemaValidator,
-  type LoweredSchema,
-  type SchemaSlug,
-} from "../../src/seams/schema-validator";
+import { type LoweredSchema } from "../../src/seams/schema-validator";
+import { AjvSchemaValidator, type SchemaSlug } from "../../src/seams/ajv-schema-validator";
 
 export function span(): SourceRange {
   return { start: { line: 1, column: 1 }, end: { line: 1, column: 2 } };

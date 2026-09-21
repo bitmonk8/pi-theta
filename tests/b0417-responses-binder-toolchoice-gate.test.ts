@@ -84,11 +84,8 @@ import { parseThetaDocument } from "../src/parser/theta-document";
 import type { ThetaSource } from "../src/lexer/lexer";
 import type { RuntimeRoot } from "../src/runtime-root";
 import { parseDeps } from "./helpers/e2e-s1";
-import {
-  AjvSchemaValidator,
-  type LoweredSchema,
-  type SchemaSlug,
-} from "../src/seams/schema-validator";
+import { type LoweredSchema } from "../src/seams/schema-validator";
+import { AjvSchemaValidator, type SchemaSlug } from "../src/seams/ajv-schema-validator";
 
 const SYSTEM_NOTE_CHANNEL = "theta-system-note";
 const KNOWN_WALL_NOW = 1720000000000;

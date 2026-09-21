@@ -49,11 +49,8 @@ import {
   type RespondRepairOutcome,
   type ValidationFailure,
 } from "../src/runtime/query-respond-repair";
-import {
-  AjvSchemaValidator,
-  type LoweredSchema,
-  type SchemaSlug,
-} from "../src/seams/schema-validator";
+import { type LoweredSchema } from "../src/seams/schema-validator";
+import { AjvSchemaValidator, type SchemaSlug } from "../src/seams/ajv-schema-validator";
 import type { ValidationIssue } from "../src/runtime/query-error";
 import {
   buildEnvironment,

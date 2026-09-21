@@ -9,11 +9,8 @@ import type { Diagnostic } from "../src/diagnostics/diagnostic";
 import type { ThetaDocument } from "../src/parser/theta-document";
 import { lowerTypeSource } from "../src/parser/body-type-lowering";
 import { lowerTypeExpr, type LowerCtx } from "../src/parser/params";
-import {
-  AjvSchemaValidator,
-  type LoweredSchema,
-  type SchemaSlug,
-} from "../src/seams/schema-validator";
+import { type LoweredSchema } from "../src/seams/schema-validator";
+import { AjvSchemaValidator, type SchemaSlug } from "../src/seams/ajv-schema-validator";
 import { parseDoc } from "./helpers/e2e-s1";
 
 // Bug 0044 — `theta/parse/unresolved-named-type` fires for reserved-keyword-

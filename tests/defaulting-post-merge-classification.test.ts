@@ -6,12 +6,8 @@ import {
 } from "../src/binder/defaulting";
 import type { BinderArgsClassification } from "../src/binder/retry-taxonomy";
 import { DEPTH_VIOLATION_MESSAGE, jsonDepth, MAX_JSON_DEPTH } from "../src/runtime/depth-walk";
-import {
-  AjvSchemaValidator,
-  type CompiledValidator,
-  type LoweredSchema,
-  type SchemaSlug,
-} from "../src/seams/schema-validator";
+import { type CompiledValidator, type LoweredSchema } from "../src/seams/schema-validator";
+import { AjvSchemaValidator, type SchemaSlug } from "../src/seams/ajv-schema-validator";
 import { spyValidator } from "./helpers/spy-validator";
 
 // Bug 0066 — the post-default-merge AJV validation hook

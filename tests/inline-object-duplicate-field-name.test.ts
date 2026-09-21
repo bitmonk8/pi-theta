@@ -7,11 +7,8 @@ import { buildBodyTypeSchemas } from "../src/parser/body-type-lowering";
 import { hoistInlineObjectType, lowerParamsFieldType } from "../src/parser/params";
 import type { ThetaDocument } from "../src/parser/theta-document";
 import { lowerQueryResponseSchema } from "../src/parser/query-schema-lowering";
-import {
-  AjvSchemaValidator,
-  type LoweredSchema,
-  type SchemaSlug,
-} from "../src/seams/schema-validator";
+import { type LoweredSchema } from "../src/seams/schema-validator";
+import { AjvSchemaValidator, type SchemaSlug } from "../src/seams/ajv-schema-validator";
 import {
   annotSrc,
   body,

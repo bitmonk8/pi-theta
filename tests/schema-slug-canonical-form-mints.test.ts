@@ -11,11 +11,8 @@ import {
   type RegistrationEntry,
 } from "../src/runtime/tool-registration";
 import { respondSchemaSlug } from "../src/runtime/typed-query-validation";
-import {
-  AjvSchemaValidator,
-  type LoweredSchema,
-  type SchemaSlug,
-} from "../src/seams/schema-validator";
+import { type LoweredSchema } from "../src/seams/schema-validator";
+import { AjvSchemaValidator, type SchemaSlug } from "../src/seams/ajv-schema-validator";
 import { parseAndLowerAnnotation, parseDoc } from "./helpers/e2e-s1";
 import { assertKeysSorted, compareCodePoint, slugOfCanonicalForm } from "./helpers/canonical-slug-oracle";
 

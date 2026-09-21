@@ -5,11 +5,8 @@ import { lowerQueryResponseSchema } from "../src/parser/query-schema-lowering";
 import { buildInboundTranslationPlan, type SchemaSidecar } from "../src/parser/schema-lowering";
 import { translateInbound, translateOutbound } from "../src/runtime/wire-translation";
 import { evaluateObjectMember } from "../src/runtime/stdlib-object";
-import {
-  AjvSchemaValidator,
-  type LoweredSchema,
-  type SchemaSlug,
-} from "../src/seams/schema-validator";
+import { type LoweredSchema } from "../src/seams/schema-validator";
+import { AjvSchemaValidator, type SchemaSlug } from "../src/seams/ajv-schema-validator";
 import {
   brandSchemaValue,
   isResultValue,

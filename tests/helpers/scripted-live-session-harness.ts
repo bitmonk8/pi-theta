@@ -40,7 +40,7 @@ import type { ParsedFrontmatter } from "../../src/parser/frontmatter";
 import type { ThetaValue } from "../../src/runtime/value";
 import { SEAM_NOOP_CHECKPOINT as NOOP_CHECKPOINT } from "./invoke-seam-scaffold";
 import type { ThetaSource } from "../../src/lexer/lexer";
-import { AjvSchemaValidator } from "../../src/seams/schema-validator";
+import { AjvSchemaValidator } from "../../src/seams/ajv-schema-validator";
 import { parseDeps } from "./e2e-s1";
 import { jsonSlug } from "./proto-named-harness";
 

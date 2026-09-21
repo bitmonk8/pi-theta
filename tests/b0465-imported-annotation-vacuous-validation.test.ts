@@ -14,11 +14,8 @@ import {
   mergedSchemaDeclsOf,
   mergedEnumDeclsOf,
 } from "../src/extension/production-theta-producer";
-import {
-  AjvSchemaValidator,
-  type LoweredSchema,
-  type SchemaSlug,
-} from "../src/seams/schema-validator";
+import { type LoweredSchema } from "../src/seams/schema-validator";
+import { AjvSchemaValidator, type SchemaSlug } from "../src/seams/ajv-schema-validator";
 import type { SchemaDecl, ThetaDocument } from "../src/parser/theta-document";
 import type { Checkpoint } from "../src/seams/checkpoint";
 import { checkThetaImports } from "../src/extension/import-static-checks";

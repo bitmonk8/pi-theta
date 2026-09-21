@@ -9,11 +9,8 @@ import type {
   QueryToolLoopConfig,
   TypedQuerySchemaValidation,
 } from "../../src/runtime/query-tool-loop";
-import {
-  AjvSchemaValidator,
-  type LoweredSchema,
-  type SchemaSlug,
-} from "../../src/seams/schema-validator";
+import { type LoweredSchema } from "../../src/seams/schema-validator";
+import { AjvSchemaValidator, type SchemaSlug } from "../../src/seams/ajv-schema-validator";
 import {
   parseThetaDocument,
   type ParseThetaDocumentDeps,

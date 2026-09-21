@@ -84,11 +84,8 @@ import type {
 import type { RuntimeRoot } from "../src/runtime-root";
 import { fakeExecutableHost, makeFakeJsonChildLauncher } from "./helpers/fake-json-child";
 import { SUBAGENT_PARAMS_ENV } from "../src/runtime/subagent-params";
-import {
-  AjvSchemaValidator,
-  type LoweredSchema,
-  type SchemaSlug,
-} from "../src/seams/schema-validator";
+import { type LoweredSchema } from "../src/seams/schema-validator";
+import { AjvSchemaValidator, type SchemaSlug } from "../src/seams/ajv-schema-validator";
 import { productionSchemaSlugOf } from "../src/extension/production-composition";
 import { makeOk, type ResultValue, type ThetaValue } from "../src/runtime/value";
 

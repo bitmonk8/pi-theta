@@ -12,10 +12,8 @@ import { lowerQueryResponseSchema } from "../src/parser/query-schema-lowering";
 import { respondSchemaSlug } from "../src/runtime/typed-query-validation";
 import { makeEnumValue, valuesEqual, type ThetaValue } from "../src/runtime/value";
 import { translateInbound } from "../src/runtime/wire-translation";
-import {
-  type AjvSchemaValidator,
-  type LoweredSchema,
-} from "../src/seams/schema-validator";
+import { type LoweredSchema } from "../src/seams/schema-validator";
+import { type AjvSchemaValidator } from "../src/seams/ajv-schema-validator";
 import { ajv } from "./helpers/scripted-live-session-harness";
 import { keyOrderOf } from "./helpers/canonical-slug-oracle";
 import { yamlQuoted, parseDoc, diagLines } from "./helpers/e2e-s1";

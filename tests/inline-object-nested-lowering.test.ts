@@ -17,11 +17,8 @@ import { hoistInlineObjectType, type LowerCtx } from "../src/parser/params";
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
 import type { SchemaDecl } from "../src/parser/theta-document";
 import { respondToolWireSchema } from "../src/runtime/respond-tool-wire";
-import {
-  AjvSchemaValidator,
-  type LoweredSchema,
-  type SchemaSlug,
-} from "../src/seams/schema-validator";
+import { type LoweredSchema } from "../src/seams/schema-validator";
+import { AjvSchemaValidator, type SchemaSlug } from "../src/seams/ajv-schema-validator";
 import { loweredAnnotation as lowerAnnotation, loadSchemaDecls, loadCleanly as loadCleanlyShared, type LoadedParams, parseDoc, diagLines } from "./helpers/e2e-s1";
 /**
  * Every `$ref` in a document resolves against the DOCUMENT ROOT's `$defs` —

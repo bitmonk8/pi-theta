@@ -29,7 +29,8 @@ import {
 import type { EnumDecl, SchemaDecl } from "../src/parser/theta-document";
 import { decodeInboundValue } from "../src/runtime/inbound-boundary";
 import { lowerQueryResponseSchema } from "../src/parser/query-schema-lowering";
-import { AjvSchemaValidator, type LoweredSchema, type SchemaSlug } from "../src/seams/schema-validator";
+import { type LoweredSchema } from "../src/seams/schema-validator";
+import { AjvSchemaValidator, type SchemaSlug } from "../src/seams/ajv-schema-validator";
 import { parseDoc } from "./helpers/e2e-s1";
 
 describe("bug 0342 §Fix — envelope enum_tags sidecar round-trip", () => {

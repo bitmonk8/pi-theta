@@ -23,10 +23,8 @@ import { basename, delimiter, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { assert, expect } from "vitest";
 import { spawnCapturedNodeProcess } from "../../helpers/real-subagent-spawn";
-import {
-  AjvSchemaValidator,
-  type LoweredSchema,
-} from "../../../src/seams/schema-validator";
+import { type LoweredSchema } from "../../../src/seams/schema-validator";
+import { AjvSchemaValidator } from "../../../src/seams/ajv-schema-validator";
 import {
   buildBinderEnvelopeSchema,
   type BuildBinderEnvelopeSchemaInput,

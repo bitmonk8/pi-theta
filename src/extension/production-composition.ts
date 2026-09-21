@@ -129,7 +129,7 @@ import { WallClock } from "../seams/wall-clock";
 import { CryptoIdSource } from "../seams/crypto-id-source";
 import { PiFileWatcher } from "../seams/pi-file-watcher";
 import { PiTokenEstimator } from "../seams/pi-token-estimator";
-import { AjvSchemaValidator } from "../seams/schema-validator";
+import { AjvSchemaValidator } from "../seams/ajv-schema-validator";
 import { ProductionCheckpoint } from "../seams/production-checkpoint";
 import { createRuntimeRoot, type RuntimeRoot } from "../runtime-root";
 import type { FileSystem } from "../seams/file-system";
@@ -138,7 +138,8 @@ import {
   renderDiagnosticLine,
   type Diagnostic,
 } from "../diagnostics/diagnostic";
-import type { LoweredSchema, SchemaSlug } from "../seams/schema-validator";
+import type { LoweredSchema } from "../seams/schema-validator";
+import type { SchemaSlug } from "../seams/ajv-schema-validator";
 import {
   discoverThetas,
   type DiscoveredTheta,

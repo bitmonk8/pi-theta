@@ -1,9 +1,6 @@
 import { describe, expect, it } from "vitest";
-import {
-  AjvSchemaValidator,
-  type LoweredSchema,
-  type SchemaSlugFn,
-} from "../src/seams/schema-validator";
+import { type LoweredSchema } from "../src/seams/schema-validator";
+import { AjvSchemaValidator, type SchemaSlugFn } from "../src/seams/ajv-schema-validator";
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
 
 // V8c-T — failing tests for the paired `V8c` `SchemaValidator` seam

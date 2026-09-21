@@ -62,12 +62,8 @@ import type { RuntimeRoot } from "../src/runtime-root";
 import { driveSubagentChild } from "../src/runtime/subagent-json-driver";
 import { type ChildExitInfo, type ExecutableHost } from "../src/runtime/subagent-launcher";
 import { SUBAGENT_PARAMS_ENV, SUBAGENT_PARAMS_FILE_ENV } from "../src/runtime/subagent-params";
-import {
-  AjvSchemaValidator,
-  type LoweredSchema,
-  type SchemaSlug,
-  type SchemaValidator,
-} from "../src/seams/schema-validator";
+import { type LoweredSchema, type SchemaValidator } from "../src/seams/schema-validator";
+import { AjvSchemaValidator, type SchemaSlug } from "../src/seams/ajv-schema-validator";
 import {
   brandSchemaValue,
   makeEnumValue,

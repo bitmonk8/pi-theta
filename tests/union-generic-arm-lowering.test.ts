@@ -8,11 +8,8 @@ import type { Diagnostic } from "../src/diagnostics/diagnostic";
 import type { EnumDecl, SchemaDecl, ThetaDocument } from "../src/parser/theta-document";
 import { lowerQueryResponseSchema } from "../src/parser/query-schema-lowering";
 import { respondSchemaSlug } from "../src/runtime/typed-query-validation";
-import {
-  AjvSchemaValidator,
-  type LoweredSchema,
-  type SchemaSlug,
-} from "../src/seams/schema-validator";
+import { type LoweredSchema } from "../src/seams/schema-validator";
+import { AjvSchemaValidator, type SchemaSlug } from "../src/seams/ajv-schema-validator";
 import { yamlQuoted, parseDoc, diagLines } from "./helpers/e2e-s1";
 import { compareCodePoint, expectRefsClosed as expectRefsClosedShared, inlineDefName } from "./helpers/canonical-slug-oracle";
 

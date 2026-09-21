@@ -43,10 +43,8 @@ import {
   requireLiveProvider,
   type PlantedTheta,
 } from "./harness";
-import {
-  AjvSchemaValidator,
-  type LoweredSchema,
-} from "../../src/seams/schema-validator";
+import { type LoweredSchema } from "../../src/seams/schema-validator";
+import { AjvSchemaValidator } from "../../src/seams/ajv-schema-validator";
 import { assertThetaStderrCleanForEach } from "../helpers/theta-stderr-gate";
 // The offline attribution guard of cell 89: the shipped whole-file parse entry
 // wrapped in inert deps, so an unrelated load failure cannot be mistaken for

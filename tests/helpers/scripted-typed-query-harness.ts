@@ -19,7 +19,8 @@ import {
   DEPTH_VIOLATION_MESSAGE,
   DEPTH_VIOLATION_SCHEMA_KEYWORD,
 } from "../../src/runtime/depth-walk";
-import type { AjvSchemaValidator, LoweredSchema } from "../../src/seams/schema-validator";
+import type { LoweredSchema } from "../../src/seams/schema-validator";
+import type { AjvSchemaValidator } from "../../src/seams/ajv-schema-validator";
 import type { SchemaDecl } from "../../src/parser/theta-document";
 import type { CommittedSideEffect } from "../../src/runtime/no-rollback";
 import type { ValidationIssue } from "../../src/runtime/query-error";

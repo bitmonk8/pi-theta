@@ -65,11 +65,8 @@ import {
 } from "../src/parser/theta-document";
 import type { ThetaSource } from "../src/lexer/lexer";
 import type { ModelReferenceMatcher } from "../src/parser/frontmatter";
-import {
-  AjvSchemaValidator,
-  type LoweredSchema,
-  type SchemaSlug,
-} from "../src/seams/schema-validator";
+import { type LoweredSchema } from "../src/seams/schema-validator";
+import { AjvSchemaValidator, type SchemaSlug } from "../src/seams/ajv-schema-validator";
 
 const SYSTEM_NOTE_CHANNEL_TYPE = "theta-system-note";
 

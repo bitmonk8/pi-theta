@@ -53,11 +53,8 @@ import {
 } from "../src/runtime/typed-query-validation";
 import { lowerQueryResponseSchema } from "../src/parser/query-schema-lowering";
 import { jsonDepth } from "../src/runtime/depth-walk";
-import {
-  AjvSchemaValidator,
-  type LoweredSchema,
-  type SchemaSlug,
-} from "../src/seams/schema-validator";
+import { type LoweredSchema } from "../src/seams/schema-validator";
+import { AjvSchemaValidator, type SchemaSlug } from "../src/seams/ajv-schema-validator";
 import {
   parseThetaDocument,
   type ParseThetaDocumentDeps,

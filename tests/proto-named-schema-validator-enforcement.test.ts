@@ -1,11 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { fillDefaultsAndRevalidate } from "../src/binder/defaulting";
-import {
-  AjvSchemaValidator,
-  type CompiledValidator,
-  type LoweredSchema,
-  type ValidationError,
-} from "../src/seams/schema-validator";
+import { type CompiledValidator, type LoweredSchema, type ValidationError } from "../src/seams/schema-validator";
+import { AjvSchemaValidator } from "../src/seams/ajv-schema-validator";
 import { defineRecordField } from "../src/runtime/value";
 import { jsonSlug, hasOwn, loweredParams } from "./helpers/proto-named-harness";
 

@@ -2,7 +2,8 @@
 
 import type { SourceRange } from "../../src/diagnostics/diagnostic";
 import { parseParams } from "../../src/parser/params";
-import type { LoweredSchema, SchemaSlugFn } from "../../src/seams/schema-validator";
+import type { LoweredSchema } from "../../src/seams/schema-validator";
+import type { SchemaSlugFn } from "../../src/seams/ajv-schema-validator";
 
 /** A content-addressing function deriving a distinct slug per distinct schema. */
 export const jsonSlug: SchemaSlugFn = (schema) => {

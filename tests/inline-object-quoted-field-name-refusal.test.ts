@@ -9,11 +9,8 @@ import type { ThetaDocument } from "../src/parser/theta-document";
 import { lowerQueryResponseSchema } from "../src/parser/query-schema-lowering";
 import { buildTypedQueryValidation } from "../src/runtime/typed-query-validation";
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
-import {
-  AjvSchemaValidator,
-  type LoweredSchema,
-  type SchemaSlug,
-} from "../src/seams/schema-validator";
+import { type LoweredSchema } from "../src/seams/schema-validator";
+import { AjvSchemaValidator, type SchemaSlug } from "../src/seams/ajv-schema-validator";
 import { atEveryPosition, parseDoc, typePositions } from "./helpers/e2e-s1";
 
 // Bug 0176 — the inline field-name slot admits a QUOTED key. `{"a": string}`

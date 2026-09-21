@@ -1,11 +1,8 @@
 import { fakeThetaLibFs } from "./helpers/thetalib-load-harness";
 import { describe, expect, it } from "vitest";
 import { lowerQueryResponseSchema } from "../src/parser/query-schema-lowering";
-import {
-  AjvSchemaValidator,
-  type LoweredSchema,
-  type SchemaSlug,
-} from "../src/seams/schema-validator";
+import { type LoweredSchema } from "../src/seams/schema-validator";
+import { AjvSchemaValidator, type SchemaSlug } from "../src/seams/ajv-schema-validator";
 import type { SchemaDecl, ThetaDocument } from "../src/parser/theta-document";
 import { checkThetaImports } from "../src/extension/import-static-checks";
 import type { ThetaCompositionInput } from "../src/extension/theta-composition-producer";
