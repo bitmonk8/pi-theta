@@ -2,7 +2,7 @@
 id: PTQ-1142
 title: Local-binder collection walk parallels the type-layer Stmt/Expr walk
 lens: D4
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/parser/type-layer-checks.ts:739-798
