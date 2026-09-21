@@ -1,17 +1,14 @@
 // V2e / V2e-T — the outbound half of the wire-name translation boundary seam:
 // theta value → wire-named JSON lowering (`translateOutbound`), plus the
 // rename-free wire projection AJV gates read (`projectForValidation`). The
-// inbound rebuild walk lives in `wire-translation.ts`; the two shared
-// stateless helpers (`encodePointerSegment`, `isPlainObject`) live here and
-// are imported back by that module.
+// inbound rebuild walk lives in `wire-translation.ts`; the shared stateless
+// helper `isPlainObject` lives here and `encodePointerSegment` is re-exported
+// from `../parser/schema-lowering`, both imported back by that module.
 
-import { type SchemaSidecar } from "../parser/schema-lowering";
+import { encodePointerSegment, type SchemaSidecar } from "../parser/schema-lowering";
 import { isResultValue, type ThetaValue } from "./value";
 
-/** Encode an RFC 6901 JSON Pointer segment (`~`→`~0`, `/`→`~1`). */
-export function encodePointerSegment(segment: string): string {
-  return segment.replace(/~/g, "~0").replace(/\//g, "~1");
-}
+export { encodePointerSegment };
 
 /** Whether `value` is a plain (non-array, non-enum-boxed, non-null) JS object. */
 export function isPlainObject(value: unknown): value is { readonly [k: string]: unknown } {

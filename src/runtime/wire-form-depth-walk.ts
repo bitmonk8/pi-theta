@@ -39,12 +39,8 @@ import {
   MAX_JSON_DEPTH,
   type DepthWalkResult,
 } from "./depth-walk";
+import { encodePointerSegment } from "../parser/schema-lowering";
 import { classifyWireNode } from "./subagent-envelope";
-
-/** RFC-6901 JSON Pointer reference-token escaping: `~` → `~0`, `/` → `~1` (mirrors `depth-walk.ts`'s own escaping). */
-function escapePointerToken(token: string): string {
-  return token.replace(/~/g, "~0").replace(/\//g, "~1");
-}
 
 /**
  * Recursive descent over `value`'s WIRE FORM that fast-fails the first node
@@ -78,7 +74,7 @@ function firstTooDeep(value: unknown, level: number, path: string): string | und
     return undefined;
   }
   for (const [key, member] of node.entries) {
-    const breach = firstTooDeep(member, level + 1, `${path}/${escapePointerToken(key)}`);
+    const breach = firstTooDeep(member, level + 1, `${path}/${encodePointerSegment(key)}`);
     if (breach !== undefined) {
       return breach;
     }
