@@ -512,6 +512,50 @@ function carriesUnclosedInterior(node: TypeNode): boolean {
   }
 }
 
+/** Buffered refusal state for one `parseObject` interior and its current entry. */
+class EntryRefusals {
+  // Bug 0244 (operator adjudication): the SOURCE entry the loop is currently
+  // reading, and the buffered refusals for entries this interior has already
+  // discarded. `entryStart` is the token index the CURRENT entry began at;
+  // `entryRefused` latches once this entry has already drawn its one
+  // refusal and is reset only when an entry SEPARATOR is consumed (a
+  // genuine `,` between two source entries), so a later entry the author
+  // did write is free to draw its own. `pending` buffers rather than pushes
+  // to the parser's diagnostics directly: the refusal must be withheld when the
+  // interior never closes, which keeps bug 0232's unterminated-literal class
+  // unflipped (`parseObject`'s flush reads the same `closingBraceToken !==
+  // undefined` gate the empty-schema and raw-key rules read).
+  entryStart: number;
+  entryRefused = false;
+  readonly pending: Diagnostic[] = [];
+  // Bug 0257 (operator adjudication) — SL2/SL3/SL4/SL5's own state, additive
+  // to bug 0244's above and cleared on the same events. `pendingSlotOpen`
+  // records that the most recently opened empty entry slot's own buffered
+  // line is the tail of `pending` (so SL5's adjacency collapse `pop()`s it),
+  // valid only until the IMMEDIATELY following entry has been judged
+  // (cleared once a `Field` derives, once a genuine entry separator is
+  // crossed, or once that judgement has run) — the window SL5's adjacency
+  // collapse is scoped to. `emptySlotBodyPushed` guards SL3's per-interior
+  // cap: `theta/parse/empty-schema-body` reads "'{}' has no fields", which
+  // cannot be true twice of one interior, so a second comma-only slot before
+  // any `Field` derives buffers nothing further.
+  pendingSlotOpen = false;
+  emptySlotBodyPushed = false;
+
+  /** Start accounting at the first token after the opening brace. */
+  constructor(entryStart: number) {
+    this.entryStart = entryStart;
+  }
+
+  /** Remove the adjacent empty slot's line before its keyless-entry replacement (bug 0257 SL5). */
+  collapseAdjacentSlot(): void {
+    if (this.pendingSlotOpen) {
+      this.pending.pop();
+      this.pendingSlotOpen = false;
+    }
+  }
+}
+
 /** A tolerant recursive-descent parser for the type grammar. */
 class TypeParser {
   private pos = 0;
@@ -790,33 +834,7 @@ class TypeParser {
     // lifts there too — otherwise the following entry's own field name, which
     // the author did write, would be suppressed.
     let entryTainted = false;
-    // Bug 0244 (operator adjudication): the SOURCE entry the loop is currently
-    // reading, and the buffered refusals for entries this interior has already
-    // discarded. `entryStart` is the token index the CURRENT entry began at;
-    // `entryRefused` latches once this entry has already drawn its one
-    // refusal and is reset only when an entry SEPARATOR is consumed (a
-    // genuine `,` between two source entries), so a later entry the author
-    // did write is free to draw its own. `pending` buffers rather than pushes
-    // to `this.diagnostics` directly: the refusal must be withheld when the
-    // interior never closes, which keeps bug 0232's unterminated-literal class
-    // unflipped (the flush below reads the same `closingBraceToken !==
-    // undefined` gate the empty-schema and raw-key rules read).
-    let entryStart = this.pos;
-    let entryRefused = false;
-    const pending: Diagnostic[] = [];
-    // Bug 0257 (operator adjudication) — SL2/SL3/SL4/SL5's own state, additive
-    // to bug 0244's above and cleared on the same events. `pendingSlotOpen`
-    // records that the most recently opened empty entry slot's own buffered
-    // line is the tail of `pending` (so SL5's collapse below `pop()`s it),
-    // valid only until the IMMEDIATELY following entry has been judged
-    // (cleared once a `Field` derives, once a genuine entry separator is
-    // crossed, or once that judgement has run) — the window SL5's adjacency
-    // collapse is scoped to. `emptySlotBodyPushed` guards SL3's per-interior
-    // cap: `theta/parse/empty-schema-body` reads "'{}' has no fields", which
-    // cannot be true twice of one interior, so a second comma-only slot before
-    // any `Field` derives buffers nothing further.
-    let pendingSlotOpen = false;
-    let emptySlotBodyPushed = false;
+    const refusals = new EntryRefusals(this.pos);
     // Open across the whole field loop, so `parsePrimary` declines exactly the
     // entry-separating `,` this loop is still going to read.
     this.openCommaReadingConstructs += 1;
@@ -829,72 +847,7 @@ class TypeParser {
         if (fieldName !== undefined && fieldName.kind === "ident") {
           this.next();
         } else {
-          // Bug 0244 (operator adjudication): a field-name position holding a
-          // non-`ident` token discards the whole entry the same way the
-          // colon-gate failure below does. Refuse it here, before `this.next()`
-          // carries it away, scoped by `entryQualifiesForRefusal` to a KEYLESS
-          // entry with no stray close token (0238's tolerant class) and no
-          // top-level `:` (0252's and the tolerant skip's business elsewhere).
-          if (fieldName?.text === ",") {
-            // Bug 0257 (operator adjudication): the comma OPENS an empty entry
-            // slot — spelling no `Field` at all — exactly when NO token has
-            // been consumed for the current entry yet (`this.pos ===
-            // entryStart`): a doubled, leading or post-trailing comma
-            // (`ObjectType ::= "{" Field ("," Field)* ","? "}"`,
-            // grammar.md:101). A comma reached with `this.pos` past
-            // `entryStart` is instead the ORDINARY separator ending an entry
-            // this arm has already been discarding one token at a time — a
-            // stray-close-carrying keyless entry (0238's carve-out, `{b >,
-            // m: integer}`) or colon-present junk (0252's) — and draws
-            // nothing new: that entry's own disposition was already decided
-            // when its first token was read, and a slot requires that no
-            // token stood there at all.
-            if (this.pos === entryStart) {
-              // A `Field` already derived earlier in this interior sends the
-              // slot to `malformed-schema-field` (one line per slot, bug
-              // 0129's count-consequence law); no `Field` derived yet sends
-              // it to `empty-schema-body`, buffered at most ONCE per interior
-              // since "'{}' has no fields" cannot be true twice of one
-              // interior. No grammar-legal spelling reaches this branch: a
-              // well-formed entry's trailing comma is consumed by this loop's
-              // own `eatPunct(",")` below, and the loop then exits on `}` —
-              // so `{a: integer,}` / `{a: integer, }` never reach here.
-              if (fieldTypes.length > 0) {
-                pending.push(this.discardedEntryRefusal());
-                pendingSlotOpen = true;
-              } else if (!emptySlotBodyPushed) {
-                pending.push(emptySchemaBodyDiagnostic("{}", this.site));
-                emptySlotBodyPushed = true;
-                pendingSlotOpen = true;
-              }
-            } else {
-              pendingSlotOpen = false;
-            }
-            // The taint lifts (the entry behind this comma is one the author
-            // did write) and the refusal latch resets so that entry can draw
-            // its own line, whether this comma opened a slot or merely ended
-            // an entry this arm already judged.
-            entryStart = this.pos + 1;
-            entryRefused = false;
-          } else if (!entryRefused && this.entryQualifiesForRefusal(entryStart, interiorStart)) {
-            // Bug 0257 SL5 — adjacency collapse: the entry immediately behind
-            // an empty slot is itself keyless, so ITS refusal replaces the
-            // slot's buffered line rather than adding a second
-            // (`theta/parse/malformed-schema-field`'s registry row states the
-            // replacement; §Reproduction (c) c1–c3 stay at one line).
-            if (pendingSlotOpen) {
-              pending.pop();
-              pendingSlotOpen = false;
-            }
-            pending.push(this.discardedEntryRefusal());
-            entryRefused = true;
-          } else {
-            // Not a slot-opening comma, and this entry does not qualify for
-            // 0244's refusal (a colon-present entry, or a stray-close-
-            // carrying keyless entry) — the adjacency window for any pending
-            // slot has passed with nothing to collapse into.
-            pendingSlotOpen = false;
-          }
+          this.refuseNonIdentEntry(fieldName, fieldTypes, interiorStart, refusals);
           entryTainted = fieldName?.text !== ",";
           this.next();
           continue;
@@ -903,19 +856,16 @@ class TypeParser {
           // Bug 0244 (operator adjudication): the colon-gate failure is the
           // other discard arm, refused under the same scoping before the
           // resync below carries the entry away.
-          if (!entryRefused && this.entryQualifiesForRefusal(entryStart, interiorStart)) {
+          if (!refusals.entryRefused && this.entryQualifiesForRefusal(refusals.entryStart, interiorStart)) {
             // Bug 0257 SL5 — the same adjacency collapse as the non-`ident`
             // arm's, for the ident-with-no-colon shape (`{,void}`, `{a:
             // integer,,zs}`): this entry's own refusal replaces an
             // immediately preceding empty slot's buffered line.
-            if (pendingSlotOpen) {
-              pending.pop();
-              pendingSlotOpen = false;
-            }
-            pending.push(this.discardedEntryRefusal());
-            entryRefused = true;
+            refusals.collapseAdjacentSlot();
+            refusals.pending.push(this.discardedEntryRefusal());
+            refusals.entryRefused = true;
           } else {
-            pendingSlotOpen = false;
+            refusals.pendingSlotOpen = false;
           }
           // A malformed entry accounts for itself and for nothing else (bug
           // 0129's count-consequence law, stated in
@@ -929,11 +879,11 @@ class TypeParser {
           // write.
           const crossedSeparator = this.skipMalformedEntry();
           if (crossedSeparator) {
-            entryStart = this.pos;
-            entryRefused = false;
+            refusals.entryStart = this.pos;
+            refusals.entryRefused = false;
             // Bug 0257: a genuine entry separator was crossed, so whatever
             // slot preceded this point is no longer adjacent to anything.
-            pendingSlotOpen = false;
+            refusals.pendingSlotOpen = false;
           }
           entryTainted = false;
           continue;
@@ -957,7 +907,7 @@ class TypeParser {
           // Bug 0257: a `Field` derived, so any earlier empty slot is no
           // longer the immediately adjacent one — nothing left to collapse
           // into this field.
-          pendingSlotOpen = false;
+          refusals.pendingSlotOpen = false;
         }
         // Optional `as "WireName"` rename — skip if present.
         if (this.peek()?.kind === "ident" && this.peek()?.text === "as") {
@@ -995,17 +945,17 @@ class TypeParser {
             break;
           }
           entryTainted = false;
-          entryStart = this.pos;
-          entryRefused = false;
-          pendingSlotOpen = false;
+          refusals.entryStart = this.pos;
+          refusals.entryRefused = false;
+          refusals.pendingSlotOpen = false;
           continue;
         }
         entryTainted = false;
-        entryStart = this.pos;
-        entryRefused = false;
+        refusals.entryStart = this.pos;
+        refusals.entryRefused = false;
         // Bug 0257: the loop's own genuine `,` was consumed, so any earlier
         // empty slot is no longer adjacent to what follows.
-        pendingSlotOpen = false;
+        refusals.pendingSlotOpen = false;
       }
     } finally {
       this.openCommaReadingConstructs -= 1;
@@ -1020,7 +970,7 @@ class TypeParser {
     // interior class unflipped: an interior that never closes pushes no
     // refusal onto `this.diagnostics` at all.
     if (closingBraceToken !== undefined) {
-      this.diagnostics.push(...pending);
+      this.diagnostics.push(...refusals.pending);
     }
     // The text between this node's own `{` and the depth-0 `}`
     // `closingBraceToken` names, in `this.source` — empty when the interior
@@ -1044,6 +994,78 @@ class TypeParser {
       closingBraceSpelled: closingBraceToken !== undefined,
       interiorSource,
     };
+  }
+
+  /** Account for a non-identifier field-name token before the loop advances it. */
+  private refuseNonIdentEntry(
+    fieldName: TypeToken | undefined,
+    fieldTypes: TypeNode[],
+    interiorStart: number,
+    refusals: EntryRefusals,
+  ): void {
+    // Bug 0244 (operator adjudication): a field-name position holding a
+    // non-`ident` token discards the whole entry the same way the
+    // colon-gate failure in `parseObject` does. Refuse it here, before `this.next()`
+    // carries it away, scoped by `entryQualifiesForRefusal` to a KEYLESS
+    // entry with no stray close token (0238's tolerant class) and no
+    // top-level `:` (0252's and the tolerant skip's business elsewhere).
+    if (fieldName?.text === ",") {
+      // Bug 0257 (operator adjudication): the comma OPENS an empty entry
+      // slot — spelling no `Field` at all — exactly when NO token has
+      // been consumed for the current entry yet (`this.pos ===
+      // entryStart`): a doubled, leading or post-trailing comma
+      // (`ObjectType ::= "{" Field ("," Field)* ","? "}"`,
+      // grammar.md:101). A comma reached with `this.pos` past
+      // `entryStart` is instead the ORDINARY separator ending an entry
+      // this arm has already been discarding one token at a time — a
+      // stray-close-carrying keyless entry (0238's carve-out, `{b >,
+      // m: integer}`) or colon-present junk (0252's) — and draws
+      // nothing new: that entry's own disposition was already decided
+      // when its first token was read, and a slot requires that no
+      // token stood there at all.
+      if (this.pos === refusals.entryStart) {
+        // A `Field` already derived earlier in this interior sends the
+        // slot to `malformed-schema-field` (one line per slot, bug
+        // 0129's count-consequence law); no `Field` derived yet sends
+        // it to `empty-schema-body`, buffered at most ONCE per interior
+        // since "'{}' has no fields" cannot be true twice of one
+        // interior. No grammar-legal spelling reaches this branch: a
+        // well-formed entry's trailing comma is consumed by this loop's
+        // own `eatPunct(",")`, and the loop then exits on `}` —
+        // so `{a: integer,}` / `{a: integer, }` never reach here.
+        if (fieldTypes.length > 0) {
+          refusals.pending.push(this.discardedEntryRefusal());
+          refusals.pendingSlotOpen = true;
+        } else if (!refusals.emptySlotBodyPushed) {
+          refusals.pending.push(emptySchemaBodyDiagnostic("{}", this.site));
+          refusals.emptySlotBodyPushed = true;
+          refusals.pendingSlotOpen = true;
+        }
+      } else {
+        refusals.pendingSlotOpen = false;
+      }
+      // The taint lifts (the entry behind this comma is one the author
+      // did write) and the refusal latch resets so that entry can draw
+      // its own line, whether this comma opened a slot or merely ended
+      // an entry this arm already judged.
+      refusals.entryStart = this.pos + 1;
+      refusals.entryRefused = false;
+    } else if (!refusals.entryRefused && this.entryQualifiesForRefusal(refusals.entryStart, interiorStart)) {
+      // Bug 0257 SL5 — adjacency collapse: the entry immediately behind
+      // an empty slot is itself keyless, so ITS refusal replaces the
+      // slot's buffered line rather than adding a second
+      // (`theta/parse/malformed-schema-field`'s registry row states the
+      // replacement; §Reproduction (c) c1–c3 stay at one line).
+      refusals.collapseAdjacentSlot();
+      refusals.pending.push(this.discardedEntryRefusal());
+      refusals.entryRefused = true;
+    } else {
+      // Not a slot-opening comma, and this entry does not qualify for
+      // 0244's refusal (a colon-present entry, or a stray-close-
+      // carrying keyless entry) — the adjacency window for any pending
+      // slot has passed with nothing to collapse into.
+      refusals.pendingSlotOpen = false;
+    }
   }
 
   /**
