@@ -2,7 +2,7 @@
 id: PTQ-1232
 title: ajv-schema-validator.ts hand-rolls a hasOwn wrapper over Object.prototype.hasOwnProperty.call where ES2022 Object.hasOwn is the compiled-against library and the codebase's stated idiom
 lens: D8
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/seams/ajv-schema-validator.ts:67-69

@@ -2,7 +2,7 @@
 id: PTQ-1223
 title: wire-form-outbound.ts redeclares encodePointerSegment identically to the export of schema-lowering.ts, a module it already imports
 lens: D8
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/runtime/wire-form-outbound.ts:12-14
