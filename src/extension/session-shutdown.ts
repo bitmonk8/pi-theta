@@ -83,10 +83,7 @@ export interface ClosableWatcher {
  * sub-step 5, tagged with its closed `details.call` label.
  */
 export interface ForwardingSignalSource {
-  readonly label:
-    | "ctx.signal.removeEventListener"
-    | "toolSignal.removeEventListener"
-    | "parentInvokeSignal.removeEventListener";
+  readonly label: (typeof TEARDOWN_STEP_CALL_LABELS)[5][number];
   removeEventListener(): void;
 }
 
@@ -176,10 +173,10 @@ export async function runSessionShutdown(
   // Fixed order — `drain()` then `initDrainStateTag()` — each in its own
   // per-call `try`/`catch` so a throw from either routes to a distinct
   // `(code, details.step, details.call)` bucket and does not stop the other.
-  runIsolatedCall(1, "thetaRegistry.drain", deps.sink, () => {
+  runIsolatedCall(1, TEARDOWN_STEP_CALL_LABELS[1][0], deps.sink, () => {
     deps.registry.drain();
   });
-  runIsolatedCall(1, "thetaRegistry.initDrainStateTag", deps.sink, () => {
+  runIsolatedCall(1, TEARDOWN_STEP_CALL_LABELS[1][1], deps.sink, () => {
     deps.registry.initDrainStateTag();
   });
 
@@ -209,13 +206,13 @@ export async function runSessionShutdown(
   const disposeAwait = await runBoundedDisposeAwait(entries, deps);
 
   // ── Sub-step 4: close watchers, cancel the pending debounce timer ──
-  runIsolatedCall(4, "discoveryWatcher.close", deps.sink, () => {
+  runIsolatedCall(4, TEARDOWN_STEP_CALL_LABELS[4][0], deps.sink, () => {
     deps.discoveryWatcher.close();
   });
-  runIsolatedCall(4, "settingsWatcher.close", deps.sink, () => {
+  runIsolatedCall(4, TEARDOWN_STEP_CALL_LABELS[4][1], deps.sink, () => {
     deps.settingsWatcher.close();
   });
-  runIsolatedCall(4, "Clock.clearTimeout(debounce)", deps.sink, () => {
+  runIsolatedCall(4, TEARDOWN_STEP_CALL_LABELS[4][2], deps.sink, () => {
     if (deps.debounceHandle !== undefined) {
       deps.clock.clearTimeout(deps.debounceHandle);
     }
@@ -317,7 +314,7 @@ async function runBoundedDisposeAwait(
     // Absolute deadline capture; a slow sub-step-2 abort does not extend it.
     start = clock.now();
   } catch (nowError: unknown) { // allow-broad-catch: PIC-7 — pi-integration-contract/session-shutdown-semantics.md
-    emitTeardownDiagnostic(sink, teardownStepFailedDiagnostic(3, "Clock.now()", nowError));
+    emitTeardownDiagnostic(sink, teardownStepFailedDiagnostic(3, TEARDOWN_STEP_CALL_LABELS[3][0], nowError));
     armed = false;
   }
   // The shared absolute deadline sub-step 4's PIC-57 quiesce reuses for its
@@ -340,7 +337,7 @@ async function runBoundedDisposeAwait(
     } catch (setError: unknown) { // allow-broad-catch: PIC-7 — pi-integration-contract/session-shutdown-semantics.md
       emitTeardownDiagnostic(
         sink,
-        teardownStepFailedDiagnostic(3, "Clock.setTimeout(awaitCap)", setError),
+        teardownStepFailedDiagnostic(3, TEARDOWN_STEP_CALL_LABELS[3][1], setError),
       );
       armed = false;
     }
@@ -379,7 +376,7 @@ async function runBoundedDisposeAwait(
 
   // Success path: clear the pending cap timer so a completed reload does not
   // leak a timer onto the about-to-be-invalidated runtime.
-  runIsolatedCall(3, "Clock.clearTimeout(awaitCap)", sink, () => {
+  runIsolatedCall(3, TEARDOWN_STEP_CALL_LABELS[3][2], sink, () => {
     if (timerHandle !== undefined) {
       clock.clearTimeout(timerHandle);
     }
