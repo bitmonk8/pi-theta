@@ -2,7 +2,7 @@
 id: PTQ-1171
 title: src/runtime/wire-translation.ts (737 LOC, zone) hosts three independent recursive walks — sidecar-indexed inbound rebuild, outbound lowering, and a rename-free AJV projection — sharing only 11 LOC of helpers
 lens: D9
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/runtime/wire-translation.ts:1-737

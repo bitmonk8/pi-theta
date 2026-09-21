@@ -2,7 +2,7 @@
 id: PTQ-1138
 title: Provable argument-type collection mirrors static inference Expr/Binary switches
 lens: D4
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/extension/invoke-expr-call-surface.ts:58-216

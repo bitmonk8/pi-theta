@@ -2,7 +2,7 @@
 id: PTQ-1134
 title: Result-channel control-frame encoder and decoder must stay in step
 lens: D4
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/runtime/subagent-result-channel.ts:63-73

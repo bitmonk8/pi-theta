@@ -2,7 +2,7 @@
 id: PTQ-1141
 title: Top-level object-field, union-arm, and colon splitters cloned in type-layer-checks
 lens: D4
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/parser/type-layer-checks.ts:1219-1233

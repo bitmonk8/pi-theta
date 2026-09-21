@@ -2,7 +2,7 @@
 id: PTQ-1140
 title: Quote-aware top-level delimiter scanners cloned across params, frontmatter, and type-layer-checks
 lens: D4
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/parser/params.ts:1278-1290

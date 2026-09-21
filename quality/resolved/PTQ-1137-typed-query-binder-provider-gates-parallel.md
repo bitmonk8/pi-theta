@@ -2,7 +2,7 @@
 id: PTQ-1137
 title: Typed-query respond gate and binder forced-tool gate enumerate the same provider set independently
 lens: D4
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/runtime/typed-query-provider-gate.ts:36-44
