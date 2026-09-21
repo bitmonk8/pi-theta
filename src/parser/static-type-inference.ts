@@ -262,49 +262,142 @@ export class StaticTypeInferencePass {
   }
 
   /**
+   * The flat set of static types whose UNION covers every value `expr` can
+   * evaluate to, or `undefined` when any value-contributing position is past
+   * the parser's static view. The provable argument-type checks
+   * (../extension/invoke-expr-call-surface.ts and its consumers) reason over
+   * this SET rather than over the single reduced type `typeOf` answers.
+   *
+   * `#commonType` narrows a composite to ONE candidate and drops its siblings
+   * on two paths: a candidate survives a sibling that answers `unknown`, and a
+   * candidate set with no common member falls back to `candidates[0]`. Either
+   * path renders `flag ? 1 : "a"` as `integer`, and a check that trusts that
+   * rejects the runtime value `"a"` — which `read`'s `path: { type: "string" }`
+   * accepts. tool-calls.md §"Provable-disjointness check (parse time)" forbids
+   * exactly that ("a provable disjointness guarantees the runtime AJV check
+   * would reject the same value … The check therefore never rejects a program
+   * the runtime AJV check would accept"), and on the `.theta`-callable arm it
+   * defeats bug 0072 §Fix's rule that only an explicit incompatibility is a
+   * mismatch while `unknown` defers to the runtime net. Keeping the whole
+   * value-type set in front of all consumers is what lets `subsetKinds`' "an
+   * unrepresentable arm makes the whole union unprovable" rule
+   * (../runtime/tool-call.ts) and the every-arm-incompatible discipline decide
+   * these expressions correctly. The RENDERING stays on `displayType`, the
+   * canonical form diagnostics/placeholder-rendering-a.md category 1 mandates.
+   *
+   * The set is computed by `#typeValue`, the SAME switch that assigns the
+   * reduced type — each arm computes both answers, so a collected member can
+   * never render differently from the type the pass itself assigns, and a kind
+   * added to the `Expr` union without an arm is a compile error for BOTH
+   * answers at once (the former extension-side mirror only had that guarantee
+   * on the type side). The walk visits exactly the VALUE-contributing
+   * positions — a ternary condition and a `match` scrutinee choose WHICH arm
+   * supplies the value, never what that value is. `undefined` at any nested
+   * position propagates, and every kind not named as value-derivable yields
+   * `undefined`, so withholding is the default — it can only suppress an
+   * emission, never produce one. Read under an EMPTY bindings map: no consumer
+   * of the set resolves `let` bindings, so even a bound identifier is nominal
+   * (withheld) here.
+   */
+  collectProvableArgTypes(expr: Expr, env: TypeEnv): CompatType[] | undefined {
+    return this.#typeValue(expr, env, new Map()).members;
+  }
+
+  /**
    * Compute the static type of an expression node over the resolved
-   * `CompatType` model. Recurses into operands to compute composite types; the
-   * recursion is pure (it records nothing), so only the statement-level nodes
-   * the walk visits enter the published lookup. `bindings` resolves an in-scope
-   * `let`-binding identifier to its declared-or-inferred recorded type.
+   * `CompatType` model — `#typeValue`'s reduced-type half, kept as the
+   * type-only seam every internal reader (`infer`, `typeOf`, `#memberType`)
+   * consumes. The recursion is pure (it records nothing), so only the
+   * statement-level nodes the walk visits enter the published lookup.
+   * `bindings` resolves an in-scope `let`-binding identifier to its
+   * declared-or-inferred recorded type.
    */
   #typeExpr(
     node: Expr,
     env: TypeEnv,
     bindings: ReadonlyMap<string, CompatType>,
   ): CompatType {
+    return this.#typeValue(node, env, bindings).type;
+  }
+
+  /**
+   * The ONE `Expr` switch behind both `typeOf` (the reduced static type) and
+   * `collectProvableArgTypes` (the provable value-type set): each arm computes
+   * the two answers together, which is what keeps a collected member from ever
+   * rendering differently from the type the pass assigns — the shared source
+   * of truth that replaced the extension-side mirror of this switch.
+   */
+  #typeValue(
+    node: Expr,
+    env: TypeEnv,
+    bindings: ReadonlyMap<string, CompatType>,
+  ): ExprValueTypes {
     switch (node.kind) {
+      // A literal's whole value-type set is its own type.
       case "number":
-        return { kind: "literal", typesAs: node.numericType };
+        return exactValue({ kind: "literal", typesAs: node.numericType });
       case "string":
-        return { kind: "literal", typesAs: "string" };
+        return exactValue({ kind: "literal", typesAs: "string" });
       case "bool":
-        return { kind: "literal", typesAs: "boolean" };
+        return exactValue({ kind: "literal", typesAs: "boolean" });
       case "null":
-        return { kind: "literal", typesAs: "null" };
+        return exactValue({ kind: "literal", typesAs: "null" });
       case "ident":
         // A `let`-bound identifier resolves to its inferred type; a free
         // identifier is a nominal reference past the parser's static view.
-        return (
-          bindings.get(node.name) ?? { kind: "named", name: node.name }
-        );
+        // MEMBERS withheld even for a bound name: every consumer of the
+        // provable set reads it with an EMPTY bindings map, so an `ident` is
+        // nominal there — the shape `checkCompatible` answers `unknown` for
+        // and the runtime AJV net owns.
+        return {
+          type: bindings.get(node.name) ?? { kind: "named", name: node.name },
+          members: undefined,
+        };
       case "array": {
+        const elements = node.elements.map((e) => this.#typeValue(e, env, bindings));
         const element = this.#commonType(
-          node.elements.map((e) => this.#typeExpr(e, env, bindings)),
+          elements.map((v) => v.type),
           env,
         );
-        return { kind: "array", element };
+        const type: CompatType = { kind: "array", element };
+        // MEMBERS — an EXACTNESS-TESTED arm, not a trust of the reduction:
+        // `element` runs through `#commonType`, which can bless an
+        // unresolvable sibling or fall back to `candidates[0]`, either of
+        // which erases a member the runtime can still produce (bug 0072's
+        // false-`E` species). The elements' collected sets are unioned — a
+        // withheld element (e.g. an `ident`) withholds the whole literal, and
+        // `unionMembers` maps an empty element list to `undefined` too, the
+        // same silence the `fn` surface shows on `he([])` — and the arm only
+        // vouches for the literal when their rendering equals the reduction's
+        // element rendering, the set-wise analogue of `provableArgType`'s
+        // `array`-arm exactness test (`isProvenReduction`,
+        // ./type-layer-checks.ts). The Pi-tool consumer stands down either
+        // way (`subsetKinds`, ../runtime/tool-call.ts, admits no `array<…>`
+        // kind); the invoke / `.theta`-callable / imported-`fn` consumers
+        // compare through `checkCompatible`, which decides
+        // `array<string> ⋢ string`.
+        const collected = unionMembers(elements.map((v) => v.members));
+        return {
+          type,
+          members:
+            collected !== undefined &&
+            renderCollectedTypes(collected) === displayType(element)
+              ? [type]
+              : undefined,
+        };
       }
       case "binary":
         return this.#typeBinary(node.op, node.left, node.right, env, bindings);
-      case "ternary":
-        return this.#commonType(
-          [
-            this.#typeExpr(node.consequent, env, bindings),
-            this.#typeExpr(node.alternate, env, bindings),
-          ],
-          env,
-        );
+      case "ternary": {
+        // The condition chooses WHICH arm supplies the value, never what that
+        // value is, so only the arms contribute members.
+        const consequent = this.#typeValue(node.consequent, env, bindings);
+        const alternate = this.#typeValue(node.alternate, env, bindings);
+        return {
+          type: this.#commonType([consequent.type, alternate.type], env),
+          members: unionMembers([consequent.members, alternate.members]),
+        };
+      }
       case "try": {
         // `operand?` propagates the operand's success type statically.
         // RFC 0011 (seam sheet §0 C6): when the operand is a `call` whose
@@ -316,17 +409,24 @@ export class StaticTypeInferencePass {
         if (operand.kind === "call") {
           const successType = this.#runtimeToolSuccessTypes.get(operand.callee);
           if (successType !== undefined) {
-            return successType;
+            // MEMBERS withheld: a `call` operand is past the parser's static
+            // view for the provable set (the `call` arm below), and the
+            // unwrap withholds with it.
+            return { type: successType, members: undefined };
           }
         }
-        return this.#typeExpr(node.operand, env, bindings);
+        // `operand?` evaluates to the operand's success value, so the members
+        // pass through with the type.
+        return this.#typeValue(node.operand, env, bindings);
       }
-      case "match":
+      case "match": {
         // bug 0145 §Fix (a) route 1: an arm body executes under its OWN
         // pattern's binders (`evalMatch` installs them into a child
         // environment before the body runs, ../runtime/statement-executor.ts),
         // never under a same-named ENCLOSING binding — so each arm is typed in
         // `#matchArmScope`'s copy rather than in the caller's `bindings`.
+        // (Members are scope-blind — the `ident` arm withholds bound and free
+        // names alike — so the arm scope decides only the type half.)
         //
         // The arm types reduce through `#matchArmType`, the dominating-member
         // discipline the checker's `checkMatchArmTypes` enforces on the same
@@ -334,17 +434,34 @@ export class StaticTypeInferencePass {
         // checker refuses here (docs/reference/type-system.md §"Common-type
         // rules"): this pass owes the walk a type where the checker owes it a
         // diagnostic, and the two must agree on which candidate sets have one.
-        return this.#matchArmType(
-          node.arms.map((arm) => this.#typeExpr(arm.body, env, this.#matchArmScope(arm.pattern, bindings))),
-          env,
+        // The MEMBERS are the union of the arm-body sets: the scrutinee only
+        // chooses which arm supplies the value.
+        const arms = node.arms.map((arm) =>
+          this.#typeValue(arm.body, env, this.#matchArmScope(arm.pattern, bindings)),
         );
+        return {
+          type: this.#matchArmType(
+            arms.map((v) => v.type),
+            env,
+          ),
+          members: unionMembers(arms.map((v) => v.members)),
+        };
+      }
       case "member":
-        return this.#memberType(node, env, bindings).type;
+        return { type: this.#memberType(node, env, bindings).type, members: undefined };
       case "index": {
         // TYPE-11: unfolding first makes an alias of `array<T>` narrow to `T`;
         // TYPE-10 object-schema and unresolvable names unfold to themselves.
+        // MEMBERS withheld although the type CAN reduce past a nominal
+        // reference: withholding suppresses an emission and can never produce
+        // one, and an index read is no callable-argument idiom worth the
+        // extra provable-reduction surface (same deliberate stance as
+        // `par-for` below).
         const target = unfoldAlias(this.#typeExpr(node.target, env, bindings), env);
-        return target.kind === "array" ? target.element : { kind: "named", name: "index" };
+        return {
+          type: target.kind === "array" ? target.element : { kind: "named", name: "index" },
+          members: undefined,
+        };
       }
       case "call": {
         // RFC 0011 (seam sheet §0 C6): a call whose callee maps to a runtime
@@ -354,26 +471,33 @@ export class StaticTypeInferencePass {
         // `Result<…>` nominal rendering above. GOV-15 inert.
         const successType = this.#runtimeToolSuccessTypes.get(node.callee);
         if (successType !== undefined) {
-          return { kind: "named", name: `Result<${displayType(successType)}, QueryError>` };
+          return {
+            type: { kind: "named", name: `Result<${displayType(successType)}, QueryError>` },
+            members: undefined,
+          };
         }
-        return { kind: "named", name: node.callee };
+        return { type: { kind: "named", name: node.callee }, members: undefined };
       }
+      // Each of the arms through "method-call" types as a `named` nominal
+      // reference past the parser's static view, so each withholds its
+      // members — the runtime AJV net owns those values.
       case "invoke":
-        return { kind: "named", name: node.path };
+        return { type: { kind: "named", name: node.path }, members: undefined };
       case "query":
-        return { kind: "named", name: node.schema ?? "query" };
+        return { type: { kind: "named", name: node.schema ?? "query" }, members: undefined };
       case "object":
-        return { kind: "named", name: node.typeName ?? "object" };
+        return { type: { kind: "named", name: node.typeName ?? "object" }, members: undefined };
       case "result-ctor":
-        return { kind: "named", name: node.ctor };
+        return { type: { kind: "named", name: node.ctor }, members: undefined };
       case "method-call":
-        return { kind: "named", name: node.method };
+        return { type: { kind: "named", name: node.method }, members: undefined };
       case "par-for": {
         // CTRL-3: the value of a `par for` is `array<Result<U, QueryError>>`,
         // `U` the body tail type (absent tail → `null`). `CompatType` has no
         // dedicated `Result` shape, so the element is rendered as a nominal
         // reference naming `Result<U, QueryError>`; the outer `array` is the
         // stable, representation-independent surface the checkers consume.
+        // MEMBERS withheld deliberately — same stance as `index` above.
         //
         // TYPE-11: the iterand is unfolded before this `kind` test, so a
         // type-alias-schema iterand supplies `U` exactly as the concrete
@@ -392,26 +516,32 @@ export class StaticTypeInferencePass {
             ? this.#typeExpr(node.body.tail, env, inner)
             : { kind: "literal", typesAs: "null" };
         return {
-          kind: "array",
-          element: {
-            kind: "named",
-            name: `Result<${displayType(tailType)}, QueryError>`,
+          type: {
+            kind: "array",
+            element: {
+              kind: "named",
+              name: `Result<${displayType(tailType)}, QueryError>`,
+            },
           },
+          members: undefined,
         };
       }
       case "block":
         // bug 0082 §Fix constraint 3: a block's static type is its tail expression's
-        // type. Mirrors the `try` arm's pass-through above rather than
+        // type, and its VALUE (so its members too) IS the tail's value. Mirrors
+        // the `try` arm's pass-through above rather than
         // threading the block's own `let`s into `bindings` — this pass never
         // threads a plain (unannotated) `let`'s type to a LATER statement
         // anywhere else either (a `fn` body's sequential `let`s are not
         // threaded, `#walkStmt` records each statement's own expression against
         // `noBindings`), so a block-local name the tail reads resolves exactly
         // as unthreaded elsewhere: a nominal self-reference the `⊑` engine
-        // defers on, never a false type.
+        // defers on, never a false type. A tail-less block (already a parse
+        // error, `theta/parse/block-expr-missing-tail`) yields no value-type
+        // set to collect.
         return node.body.tail === null
-          ? { kind: "named", name: "unknown" }
-          : this.#typeExpr(node.body.tail, env, bindings);
+          ? { type: { kind: "named", name: "unknown" }, members: undefined }
+          : this.#typeValue(node.body.tail, env, bindings);
     }
   }
 
@@ -584,14 +714,20 @@ export class StaticTypeInferencePass {
     return { type: { kind: "named", name: node.field }, declared: false };
   }
 
-  /** The static type of a binary-operator expression. */
+  /**
+   * The static type of a binary-operator expression, together with its
+   * provable value-type set (`#typeValue`'s binary arm). A result-fixed
+   * operator's set is exact — `[type]` — even where an operand is statically
+   * unresolvable, so an unresolvable operand under such an operator is not a
+   * reason to withhold the expression.
+   */
   #typeBinary(
     op: string,
     left: Expr,
     right: Expr,
     env: TypeEnv,
     bindings: ReadonlyMap<string, CompatType>,
-  ): CompatType {
+  ): ExprValueTypes {
     // Unary `!` / `-` are modeled by `theta-document` `parseUnary` as a binary
     // with a synthetic `null` left operand. Mirror the runtime's unary handling
     // (`evaluateBinaryExpression`: `op === "-" && unary === true`, and the `!`
@@ -605,21 +741,27 @@ export class StaticTypeInferencePass {
     // pairing as unary here is moot — no marker is needed at this layer.
     if (left.kind === "null") {
       if (op === "!") {
-        return { kind: "prim", name: "boolean" };
+        return exactValue({ kind: "prim", name: "boolean" });
       }
       if (op === "-") {
-        return this.#typeExpr(right, env, bindings);
+        // Negation carries the operand's own type and value-type set.
+        return this.#typeValue(right, env, bindings);
       }
     }
-    // Comparison and logical operators statically produce a boolean.
+    // Comparison and logical operators statically produce a boolean, whatever
+    // the operands evaluate to (`evalBinary` in
+    // ../runtime/statement-executor.ts yields `true` / `false` for `!`, `&&`,
+    // `||` and every comparison).
     if (BOOLEAN_BINARY_OPS.has(op)) {
-      return { kind: "prim", name: "boolean" };
+      return exactValue({ kind: "prim", name: "boolean" });
     }
     // expressions.md §"Other arithmetic": `/` always produces `number`,
     // whatever the operands — there is no integer-division operator in
-    // theta 1.0, and an exactly-divisible pair is not an exception.
+    // theta 1.0, and an exactly-divisible pair is not an exception (bug 0142
+    // §Fix: the value-type set is exact for the same result-fixed reason as
+    // the boolean arm above, so the operand sets are not consulted).
     if (op === "/") {
-      return { kind: "prim", name: "number" };
+      return exactValue({ kind: "prim", name: "number" });
     }
     // expressions.md §"Other arithmetic" (:234): `n % 0` is `NaN`, and
     // because `NaN` is a `number` an `integer % 0` result widens to
@@ -627,19 +769,27 @@ export class StaticTypeInferencePass {
     // the operator alone, so the arm also has to read `right` — the only
     // reason it is not a one-line sibling of the `/` arm above. It does not
     // consult `left`: `"a" % 0` is still `NaN` (a `number`), so the arm
-    // fires ahead of either operand being typed, same as `/`.
+    // fires ahead of either operand being typed, same as `/` (bug 0152 §Fix
+    // (c): the value-type set is exact here too).
     if (op === "%" && isStaticZeroIntegerDivisor(right)) {
-      return { kind: "prim", name: "number" };
+      return exactValue({ kind: "prim", name: "number" });
     }
     // Arithmetic narrows the operands to their common type through the `⊑`
-    // engine (e.g. `integer + number` narrows to `number`).
-    return this.#commonType(
-      [
-        this.#typeExpr(left, env, bindings),
-        this.#typeExpr(right, env, bindings),
-      ],
-      env,
-    );
+    // engine (e.g. `integer + number` narrows to `number`). The value-type
+    // set is the UNION of the operand sets: the value takes one operand's
+    // kind or the two widened together, all of which the union covers.
+    // Over-approximating is safe in the one direction that matters — a wider
+    // set only makes disjointness harder to prove, and `kindsDisjoint`
+    // (../runtime/tool-call.ts) already reconciles `integer`/`number`, so a
+    // `%` divisor this arm still reaches (any divisor that is not a
+    // statically-zero integer literal) cannot turn a withheld verdict into a
+    // fired one.
+    const leftValue = this.#typeValue(left, env, bindings);
+    const rightValue = this.#typeValue(right, env, bindings);
+    return {
+      type: this.#commonType([leftValue.type, rightValue.type], env),
+      members: unionMembers([leftValue.members, rightValue.members]),
+    };
   }
 
   /**
@@ -724,12 +874,65 @@ export class StaticTypeInferencePass {
 }
 
 /**
+ * The reduced static type of an expression node together with the provable
+ * value-type set the same `#typeValue` arm computed for it — `type` is what
+ * `typeOf` publishes, `members` is what `collectProvableArgTypes` answers
+ * (`undefined` withholds). Computing the two in one switch is what keeps a
+ * collected member from ever rendering differently from the assigned type.
+ */
+interface ExprValueTypes {
+  readonly type: CompatType;
+  readonly members: CompatType[] | undefined;
+}
+
+/**
+ * A node whose provable value-type set is EXACTLY its own reduced type: a
+ * literal, or a result-fixed binary operator.
+ */
+function exactValue(type: CompatType): ExprValueTypes {
+  return { type, members: [type] };
+}
+
+/**
+ * Concatenate the collected value-type sets of a composite's value-contributing
+ * operands, propagating `undefined` from any one of them: a composite one of
+ * whose arms is unresolvable can take a value of unknown type, so nothing about
+ * it is provable. An EMPTY concatenation is `undefined` too — `#commonType`
+ * maps an empty candidate set to a nominal `unknown`, and a vacuously-true
+ * "every arm is incompatible" must never read as a proof.
+ */
+function unionMembers(
+  parts: readonly (readonly CompatType[] | undefined)[],
+): CompatType[] | undefined {
+  const collected: CompatType[] = [];
+  for (const part of parts) {
+    if (part === undefined) {
+      return undefined;
+    }
+    collected.push(...part);
+  }
+  return collected.length > 0 ? collected : undefined;
+}
+
+/**
+ * Render a collected value-type set for the `<actual>` placeholder: each member
+ * through `displayType`, deduplicated, joined with `" | "` — the top-level-union
+ * spelling `subsetKinds` (../runtime/tool-call.ts) splits back into kinds and
+ * the same spelling an author-written union annotation carries. Deduplication
+ * keeps a composite whose arms all render alike reading exactly as one arm does,
+ * so `flag ? 1 : 2` renders `integer` rather than `integer | integer`. `Set`
+ * iteration is insertion-ordered, so the arms render in source order.
+ */
+export function renderCollectedTypes(types: readonly CompatType[]): string {
+  return [...new Set(types.map((type) => displayType(type)))].join(" | ");
+}
+
+/**
  * Binary operators whose result is statically a boolean, whatever the operands
- * evaluate to. Exported because a consumer that reasons over the SET of types a
- * binary expression can take (`collectProvableArgTypes`,
- * ../extension/invoke-static-checks.ts) has to agree with `#typeBinary` on
- * exactly which operators are result-fixed; sharing the one set is what keeps
- * the two from drifting apart.
+ * evaluate to. `#typeBinary` and the provable value-type collection share the
+ * one set by construction (one merged switch); still exported because the
+ * boolean-context checks (./type-layer-walk.ts) key on exactly the same
+ * result-fixed operator set.
  */
 export const BOOLEAN_BINARY_OPS: ReadonlySet<string> = new Set([
   "==",
@@ -744,10 +947,9 @@ export const BOOLEAN_BINARY_OPS: ReadonlySet<string> = new Set([
 
 /**
  * True for a `%` divisor node that is STATICALLY provable zero: an
- * `integer`-typed numeric literal denoting `0` (bug 0152, Route A). Exported
- * so `collectProvableArgTypes`
- * (../extension/invoke-static-checks.ts) can share the one test rather than
- * restating it — the same precedent `BOOLEAN_BINARY_OPS` sets for that file.
+ * `integer`-typed numeric literal denoting `0` (bug 0152, Route A). The
+ * provable value-type collection shares the one test by construction —
+ * `#typeBinary`'s merged switch is now its only consumer.
  *
  * `numericType === "integer"` excludes `0.0` / `0e0` (`numericType: "number"`):
  * those already widen to `number` through the operand-common reduction, so
@@ -761,7 +963,7 @@ export const BOOLEAN_BINARY_OPS: ReadonlySet<string> = new Set([
  * per `theta-document.ts`'s `parseUnary`) — Route A's stated residual, not a
  * gap in this predicate.
  */
-export function isStaticZeroIntegerDivisor(node: Expr): boolean {
+function isStaticZeroIntegerDivisor(node: Expr): boolean {
   return (
     node.kind === "number" &&
     node.numericType === "integer" &&
