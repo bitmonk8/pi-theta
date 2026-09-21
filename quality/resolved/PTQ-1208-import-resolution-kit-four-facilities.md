@@ -2,7 +2,7 @@
 id: PTQ-1208
 title: createImportResolutionKit bundles four distinct closure facilities (pass parser, graph walk, module scopes, materialization chain) in one 258-LOC factory whose return record already names the state object
 lens: D9
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/extension/import-static-checks.ts:1460-1717

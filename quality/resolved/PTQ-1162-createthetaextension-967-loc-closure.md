@@ -2,7 +2,7 @@
 id: PTQ-1162
 title: createThetaExtension's returned closure is 967 LOC, bundling instance-state declaration, five registration steps, and three handler bodies in one function
 lens: D9
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/extension/factory.ts:456-1422

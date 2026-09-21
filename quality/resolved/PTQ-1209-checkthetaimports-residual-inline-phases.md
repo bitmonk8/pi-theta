@@ -2,7 +2,7 @@
 id: PTQ-1209
 title: checkThetaImports remains 287 LOC after the four ratified seams, with the per-lib subagent-fn checks and the IMP-5 cycle walk still inline in the orchestrator
 lens: D9
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/extension/import-static-checks.ts:1832-2118

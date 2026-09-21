@@ -2,7 +2,7 @@
 id: PTQ-1147
 title: import-static-checks.ts hosts ten separable import-subsystem concerns in one 2134-LOC module after four in-file function seams landed without moving any code out
 lens: D9
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/extension/import-static-checks.ts:1-2134

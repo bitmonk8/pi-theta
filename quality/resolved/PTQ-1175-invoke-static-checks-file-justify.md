@@ -2,7 +2,7 @@
 id: PTQ-1175
 title: invoke-static-checks.ts bundles the callee-arity type model, three call-surface check groups, with-clause classification, graph construction, and the orchestrator in one 1343-LOC module
 lens: D9
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/extension/invoke-static-checks.ts:1-1343

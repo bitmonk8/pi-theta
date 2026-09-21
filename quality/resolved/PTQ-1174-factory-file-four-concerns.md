@@ -2,7 +2,7 @@
 id: PTQ-1174
 title: factory.ts is 1518 LOC bundling the deps type family, the diagnostic vocabulary, the instance factory closure, and the production default export
 lens: D9
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/extension/factory.ts:1-1518

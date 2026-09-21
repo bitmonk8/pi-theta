@@ -2,7 +2,7 @@
 id: PTQ-1159
 title: collectImportedSpecifierFacts runs seven sequential per-decl/per-specifier phases at 385 LOC while its own return record already names the state object a split would need
 lens: D9
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/extension/import-static-checks.ts:1069-1453

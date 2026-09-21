@@ -2,7 +2,7 @@
 id: PTQ-1205
 title: resolveReExportClosure is 280 LOC hosting five named phase closures over a two-collection graph state that already has a shape a split could thread
 lens: D9
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/extension/import-static-checks.ts:754-1033
