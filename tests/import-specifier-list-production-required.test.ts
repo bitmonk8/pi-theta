@@ -741,7 +741,7 @@ describe("bug 0100 (f) — the dangling `as`'s downstream consequences, pinned w
   it("RED (f-export-set): the module still publishes the source name, and the lib specifier is now refused", async () => {
     // `extractThetaLibForms` records `exported: specifier.local`
     // (src/extension/import-static-checks.ts:128) and
-    // `computeThetaLibExports` publishes it (src/parser/imports.ts:811–816), so
+    // `computeThetaLibExports` publishes it (src/parser/thetalib-exports.ts:61–66), so
     // a lib whose author wrote `export { greet as hello } from` publishes
     // `greet` and the downstream `import { hello }` is refused as unknown. The
     // refusal at the LIB is what stops the module's public API differing from

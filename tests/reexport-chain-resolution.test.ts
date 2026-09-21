@@ -56,7 +56,7 @@ import { parseDoc } from "./helpers/e2e-s1";
 //     `.thetalib` files".
 //   - imports.md §Re-exports / grammar.md — "creates no local binding" governs
 //     the RE-EXPORTING lib's own scope (`thetalibLocalBindings`,
-//     src/parser/imports.ts:829; `collectIdentRoots`' import-only arm,
+//     src/parser/thetalib-exports.ts:79; `collectIdentRoots`' import-only arm,
 //     src/parser/theta-document.ts:4856–4864; `fnImportDecls`' import-only arm,
 //     :5725–5733). Neither sentence says the IMPORTING file gets no binding, so
 //     nothing here turns a re-exported name into a local binding of the

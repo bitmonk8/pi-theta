@@ -43,6 +43,8 @@ function readCorpus(rel: string): string {
 }
 
 const IMPORTS = "src/parser/imports.ts";
+// PTQ-1184 moves the V15i declarations verbatim; their citation anchors follow them.
+const EXPORTS = "src/parser/thetalib-exports.ts";
 const GRAMMAR = "docs/spec_topics/grammar.md";
 const LPA = "tests/live/live-production-acceptance.test.ts";
 const LIST = "tests/import-specifier-list-production-required.test.ts";
@@ -109,7 +111,7 @@ describe("bug 0456 — the src/parser/imports.ts line-cites (and the carved-out 
   it("cell T1 (TRUTH-ANCHOR) — the imports.ts constructs sit at their re-derived lines; the stale cited lines hold other content", () => {
     // Located-by-content == pinned number: fails loudly if imports.ts drifts,
     // guarding every RED cell's re-pin target below.
-    const pins: ReadonlyArray<readonly [string, number, (l: string) => boolean]> = [
+    const pins: ReadonlyArray<readonly [string, number, (l: string) => boolean, string?]> = [
       ["checkImportReservedSynthesisedName", 362, (l) => l.startsWith("export function checkImportReservedSynthesisedName")],
       ["IMPORT_MISSING_FROM_CLAUSE_MESSAGE", 381, (l) => l.startsWith("export const IMPORT_MISSING_FROM_CLAUSE_MESSAGE")],
       ["checkImportMalformedSpecifierList", 439, (l) => l.startsWith("export function checkImportMalformedSpecifierList")],
@@ -118,15 +120,15 @@ describe("bug 0456 — the src/parser/imports.ts line-cites (and the carved-out 
       ["ImportSpecifier.local field", 551, (l) => l.trim() === "readonly local: string;"],
       ["checkImportUnknownSymbols", 575, (l) => l.startsWith("export function checkImportUnknownSymbols")],
       ["checkImportNameCollisions", 608, (l) => l.startsWith("export function checkImportNameCollisions")],
-      ["computeThetaLibExports", 811, (l) => l.startsWith("export function computeThetaLibExports")],
-      ["thetalibLocalBindings", 829, (l) => l.startsWith("export function thetalibLocalBindings")],
-      ["computeThetaLibExports contract sentence", 806, (l) => l.includes("Every top-level declaration is auto-exported")],
+      ["computeThetaLibExports", 61, (l) => l.startsWith("export function computeThetaLibExports"), EXPORTS],
+      ["thetalibLocalBindings", 79, (l) => l.startsWith("export function thetalibLocalBindings"), EXPORTS],
+      ["computeThetaLibExports contract sentence", 56, (l) => l.includes("Every top-level declaration is auto-exported"), EXPORTS],
     ];
-    for (const [what, pin, matches] of pins) {
-      const located = uniqueLine(IMPORTS, what, matches);
+    for (const [what, pin, matches, target = IMPORTS] of pins) {
+      const located = uniqueLine(target, what, matches);
       expect(
         located,
-        `cell T1: expected \`${what}\` at ${IMPORTS}:${pin} (bug 0456 re-derived truth), found it at :${located}. If imports.ts moved, every b0456 re-pin target below is stale.`,
+        `cell T1: expected \`${what}\` at ${target}:${pin} (bug 0456 re-derived truth), found it at :${located}. If the source moved, every b0456 re-pin target below is stale.`,
       ).toBe(pin);
     }
     // The stale cited lines hold DIFFERENT constructs — the fact that makes every
@@ -150,8 +152,8 @@ describe("bug 0456 — the src/parser/imports.ts line-cites (and the carved-out 
   it("cell T2 (GREEN-CONTROL) — current imports.ts symbols sit where bug 0456 re-derived them", () => {
     // Byte-identical control the RED cells lean on; passes now and after the fix.
     expect(lineOf(IMPORTS, 471).startsWith("export function checkImportDanglingAlias")).toBe(true);
-    expect(lineOf(IMPORTS, 811).startsWith("export function computeThetaLibExports")).toBe(true);
-    expect(lineOf(IMPORTS, 829).startsWith("export function thetalibLocalBindings")).toBe(true);
+    expect(lineOf(EXPORTS, 61).startsWith("export function computeThetaLibExports")).toBe(true);
+    expect(lineOf(EXPORTS, 79).startsWith("export function thetalibLocalBindings")).toBe(true);
   });
 
   // =========================================================================
@@ -166,6 +168,7 @@ describe("bug 0456 — the src/parser/imports.ts line-cites (and the carved-out 
   // the marker — so a stale number reds and a re-pinned number greens.
   const anchors: ReadonlyArray<{
     file: string;
+    target?: string;
     label: string;
     re: RegExp;
     markers: readonly string[];
@@ -184,8 +187,9 @@ describe("bug 0456 — the src/parser/imports.ts line-cites (and the carved-out 
     },
     {
       file: LIST,
+      target: EXPORTS,
       label: "computeThetaLibExports (list:873)",
-      re: /computeThetaLibExports` publishes it \(src\/parser\/imports\.ts:(\d+)/g,
+      re: /computeThetaLibExports` publishes it \(src\/parser\/thetalib-exports\.ts:(\d+)/g,
       markers: ["export function computeThetaLibExports"],
     },
     {
@@ -214,22 +218,25 @@ describe("bug 0456 — the src/parser/imports.ts line-cites (and the carved-out 
     },
     {
       file: FROM,
+      target: EXPORTS,
       label: "computeThetaLibExports (from:22)",
       // Anchored on stable context, NOT the range-high: the fix moves both ends
       // (614–619 -> 814–819), so a trailing-number anchor could not go green.
-      re: /computeThetaLibExports` \(src\/parser\/imports\.ts:(\d+)/g,
+      re: /computeThetaLibExports` \(src\/parser\/thetalib-exports\.ts:(\d+)/g,
       markers: ["export function computeThetaLibExports"],
     },
     {
       file: FROM,
+      target: EXPORTS,
       label: "computeThetaLibExports (from:473)",
-      re: /src\/parser\/imports\.ts:(\d+)[\u2013-]\d+\) unions declarations/g,
+      re: /src\/parser\/thetalib-exports\.ts:(\d+)[\u2013-]\d+\) unions declarations/g,
       markers: ["export function computeThetaLibExports"],
     },
     {
       file: FROM,
+      target: EXPORTS,
       label: "computeThetaLibExports contract sentence (from:650 assertion message)",
-      re: /neither of the two sources src\/parser\/imports\.ts:(\d+)/g,
+      re: /neither of the two sources src\/parser\/thetalib-exports\.ts:(\d+)/g,
       markers: ["Every top-level declaration is auto-exported"],
     },
     {
@@ -242,24 +249,25 @@ describe("bug 0456 — the src/parser/imports.ts line-cites (and the carved-out 
     },
     {
       file: REEXPORT,
+      target: EXPORTS,
       label: "thetalibLocalBindings (reexport:79)",
       // The symbol and its cite wrap across two comment lines; `[\s\S]*?` spans
-      // the line break non-greedily so it binds to the nearest imports.ts cite.
-      re: /thetalibLocalBindings`,[\s\S]*?src\/parser\/imports\.ts:(\d+)/g,
+      // the line break non-greedily so it binds to the nearest thetalib-exports.ts cite.
+      re: /thetalibLocalBindings`,[\s\S]*?src\/parser\/thetalib-exports\.ts:(\d+)/g,
       markers: ["export function thetalibLocalBindings"],
     },
   ];
 
-  for (const { file, label, re, markers } of anchors) {
+  for (const { file, target = IMPORTS, label, re, markers } of anchors) {
     it(`cell C:${label} (CONTENT-ANCHOR-RED) — the cite points at the construct it names`, () => {
       const src = readCorpus(file);
       const cited = citedNumbers(file, label, src, new RegExp(re.source, re.flags));
       for (const n of cited) {
-        const line = lineOf(IMPORTS, n);
+        const line = lineOf(target, n);
         const held = markers.some((m) => line.includes(m));
         expect(
           held,
-          `cell C: ${file} cites ${IMPORTS}:${n} for ${label}, but line ${n} holds \`${line.trim()}\` — expected one of [${markers.join(" | ")}]. At the fork the cite names a pre-shift line; the mechanical re-pin (bug 0456 §Fix) points it at the construct's current line.`,
+          `cell C: ${file} cites ${target}:${n} for ${label}, but line ${n} holds \`${line.trim()}\` — expected one of [${markers.join(" | ")}]. At the fork the cite names a pre-shift line; the mechanical re-pin (bug 0456 §Fix) points it at the construct's current line.`,
         ).toBe(true);
       }
     });
