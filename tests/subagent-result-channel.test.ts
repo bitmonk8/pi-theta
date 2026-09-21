@@ -70,9 +70,9 @@ async function open(overrides?: { server?: FakeServer; clock?: FakeClock }): Pro
 
 describe("RFC-0012 §3 — inbound frame classification", () => {
   it("a theta_result line and a theta_progress line are reserved-key lines forwarded verbatim", () => {
-    expect(classifyInboundFrame(envelope().trimEnd())).toEqual({ kind: "reserved-line", line: envelope().trimEnd() });
+    expect(classifyInboundFrame(envelope().trimEnd())).toEqual({ kind: "envelope-line", line: envelope().trimEnd() });
     const progress = JSON.stringify({ theta_progress: { v: 1, invocation_id: "x", seq: 1, event: { message: "m" } } });
-    expect(classifyInboundFrame(progress)).toEqual({ kind: "reserved-line", line: progress });
+    expect(classifyInboundFrame(progress)).toEqual({ kind: "progress-line", line: progress });
   });
 
   it("control frames decode; a malformed control frame, other JSON and non-JSON are ignored", () => {

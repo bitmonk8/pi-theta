@@ -81,19 +81,22 @@ export type InboundFrame =
   | { readonly kind: "hello"; readonly token: string; readonly nonce: string }
   | { readonly kind: "heartbeat" }
   | { readonly kind: "stderr"; readonly line: string }
-  | { readonly kind: "reserved-line"; readonly line: string }
+  | { readonly kind: "envelope-line"; readonly line: string }
+  | { readonly kind: "progress-line"; readonly line: string }
   | { readonly kind: "ignored" };
 
 /**
  * Classify one inbound line. A `theta_result` / `theta_progress` line is
  * forwarded verbatim (the drive's own parser judges it, exactly as it judges
- * a stdout line); a control frame is decoded; anything else is ignored — the
- * channel inherits PIC-59's stray-line tolerance.
+ * a stdout line), with the envelope/progress verdict carried on the frame
+ * kind so the consumer never re-parses the line; a control frame is decoded;
+ * anything else is ignored — the channel inherits PIC-59's stray-line
+ * tolerance.
  */
 export function classifyInboundFrame(line: string): InboundFrame {
   const classified = classifyChildStdoutLine(line);
   if (classified.kind === "envelope") {
-    return { kind: "reserved-line", line };
+    return { kind: "envelope-line", line };
   }
   let parsed: unknown;
   try {
@@ -107,7 +110,7 @@ export function classifyInboundFrame(line: string): InboundFrame {
   }
   const record = parsed as Record<string, unknown>;
   if (Object.hasOwn(record, "theta_progress")) {
-    return { kind: "reserved-line", line };
+    return { kind: "progress-line", line };
   }
   // The cast tethers the decoder to the encoder's union: when
   // `ResultChannelControlFrame` gains a member, the `never` default below is a

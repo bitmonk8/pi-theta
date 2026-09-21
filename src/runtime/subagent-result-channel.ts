@@ -25,7 +25,6 @@
 // adapters live in `src/extension/production-result-channel.ts`.
 
 import type { Clock, TimerHandle } from "../seams/clock";
-import { classifyChildStdoutLine } from "./subagent-envelope";
 import type { ChildExitInfo, SubagentChildProcess } from "./subagent-launcher";
 import type { PlacedChild } from "./subagent-placement";
 import {
@@ -207,16 +206,18 @@ export async function openResultChannel(deps: OpenResultChannelDeps): Promise<Re
         }
         armSilence();
         switch (frame.kind) {
-          case "reserved-line":
+          case "envelope-line":
             for (const listener of [...lineListeners]) {
               listener(frame.line);
             }
-            if (classifyChildStdoutLine(frame.line).kind === "envelope") {
-              // The result arrived: the invocation is settled whatever the
-              // child does next (a visible child lingers on `Err` by design,
-              // §8 — that is not a budget breach and it is not killed).
-              settle({ code: 0, signal: null });
-              return;
+            // The result arrived: the invocation is settled whatever the
+            // child does next (a visible child lingers on `Err` by design,
+            // §8 — that is not a budget breach and it is not killed).
+            settle({ code: 0, signal: null });
+            return;
+          case "progress-line":
+            for (const listener of [...lineListeners]) {
+              listener(frame.line);
             }
             break;
           case "stderr":
