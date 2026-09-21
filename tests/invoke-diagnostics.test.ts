@@ -298,7 +298,6 @@ describe("theta/load/callee-has-errors (invocation.md §Static resolution)", () 
     const diags = checkCalleeHasErrors({
       calleePath: "./plan.theta",
       surface: "tools",
-      hasErrors: true,
       relatedSites: RELATED,
       site: SITE,
     });
@@ -315,7 +314,6 @@ describe("theta/load/callee-has-errors (invocation.md §Static resolution)", () 
     const diags = checkCalleeHasErrors({
       calleePath: "./plan.theta",
       surface: "invoke",
-      hasErrors: true,
       relatedSites: RELATED,
       site: SITE,
     });
@@ -323,16 +321,5 @@ describe("theta/load/callee-has-errors (invocation.md §Static resolution)", () 
     expect(d, "theta/load/callee-has-errors for an invoke(...) literal").toBeDefined();
     expect(d?.severity).toBe("warning");
     expect(d?.message).toBe(calleeHasErrorsMessage("./plan.theta"));
-  });
-
-  it("theta/load/callee-has-errors: a callee that resolves cleanly fires nothing", () => {
-    const diags = checkCalleeHasErrors({
-      calleePath: "./plan.theta",
-      surface: "tools",
-      hasErrors: false,
-      relatedSites: [],
-      site: SITE,
-    });
-    expect(diags).toHaveLength(0);
   });
 });

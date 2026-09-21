@@ -2,9 +2,9 @@
 //
 // This module owns the `.thetalib` import path: the permitted top-level forms
 // (`import`/`export`/`schema`/`enum`/`fn`), relative `.thetalib`-only resolution
-// through the named `Resolver` seam, and the import-cycle / unknown-symbol /
-// name-collision / unresolvable-path diagnostics (per imports.md, incl. the
-// IMP-1 resolver failure contract).
+// through the named `Resolver` seam, and the related parse- and load-phase
+// diagnostics. Resolution follows imports.md, including the IMP-1 resolver
+// failure contract.
 //
 // Diagnostic *Message* strings are sourced from the diagnostics registry
 // (diagnostics/code-registry-parse.md, diagnostics/code-registry-load.md) per

@@ -277,7 +277,7 @@ describe("bug 0422 — imported-schema field invisibility renders `undefined` / 
   // slot is emitted AND the spawn is refused (no silent host-default launch).
   //
   // The `Result` reaches the render because a bare `${author}` off an imported
-  // (opaque-object) param is value-driven: `interpolationTypeOfValue` takes the
+  // (opaque-object) param is value-driven: `interpolationTypeOf` takes the
   // `result` arm and the render fails — the bug doc's Reproduction row 3.
   // `paramBindings` carries the `Result` directly, so this cell does not depend
   // on the imports-side permissive-`{}` lowering that lets a `Result` argument

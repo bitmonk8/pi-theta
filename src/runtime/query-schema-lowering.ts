@@ -131,6 +131,7 @@
 // (QRY-22).
 
 import type { LoweredSchema } from "../seams/schema-validator";
+import { hoistNestedDefs } from "../parser/schema-defs";
 import type { EnumDecl, SchemaDecl } from "../parser/theta-document";
 import {
   buildBodyTypeSchemas,
@@ -290,24 +291,7 @@ function pruneDocumentDefs(
       : {};
 
   // HOIST (first-wins name dedup; the `hoisted` key set is the cycle guard).
-  const hoisted: Record<string, Record<string, unknown>> = {};
-  const queue: [string, Record<string, unknown>][] = Object.entries(defsMap);
-  while (queue.length > 0) {
-    const [name, body] = queue.shift() as [string, Record<string, unknown>];
-    if (hoisted[name] !== undefined) {
-      continue;
-    }
-    const nested = body["$defs"];
-    if (nested === undefined || nested === null || typeof nested !== "object") {
-      hoisted[name] = body;
-      continue;
-    }
-    queue.push(...Object.entries(nested as Record<string, Record<string, unknown>>));
-    // STRIP by shallow clone — the shared fragment itself is never mutated.
-    const stripped: Record<string, unknown> = { ...body };
-    delete stripped["$defs"];
-    hoisted[name] = stripped;
-  }
+  const hoisted = hoistNestedDefs(defsMap);
 
   // CLOSE + PRUNE: reachability from the response-schema root over the hoisted
   // (stripped) bodies. Stripping first keeps the walk exact: a ref inside a

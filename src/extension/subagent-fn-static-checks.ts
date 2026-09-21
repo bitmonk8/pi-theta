@@ -153,7 +153,6 @@ export function checkSubagentFnStaticResolution(
         ...checkCalleeHasErrors({
           calleePath: fn.name,
           surface: "tools",
-          hasErrors: true,
           relatedSites: bodyErrors.map((d) => ({
             file: d.file ?? input.file,
             range: d.range ?? fn.range,

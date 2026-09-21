@@ -26,6 +26,10 @@
 //     types"). Shares its message and its construction with the
 //     named-declaration case (`schema-declarations.ts`'s
 //     `emptySchemaBodyDiagnostic`).
+//   - `theta/parse/malformed-schema-field` — a discarded keyless inline-object
+//     entry meeting `TypeParser.entryQualifiesForRefusal`, or an illegal empty
+//     entry slot after a derived field; buffered by `TypeParser.parseObject`
+//     until the interior closes (bugs 0244 / 0257).
 //   - `theta/parse/duplicate-inline-field-name` — two or more entries of one
 //     inline object interior share a key; the inline spelling reuses the
 //     object-schema `Field` form (grammar.md §"Inline object types") and
@@ -78,6 +82,9 @@
 //     THETA-SIDE identifier its pattern captures rather than the raw key —
 //     the one rendering that answers alike at every position, token-joined or
 //     not.
+//   - `theta/parse/inline-field-name-not-identifier` (bug 0228) — a raw field
+//     key that fails the `Ident` production after the duplicate, quoted and
+//     renamed checks decline it. Shares their closing-brace gate and raw key.
 //   - `theta/parse/binding-case-mismatch` (bug 0154) — an entry of
 //     `TypeNode.fieldNames`, the theta-side IDENTIFIER retention, whose first
 //     character is neither `_` nor a lowercase letter: the inline field-name
@@ -92,6 +99,9 @@
 //     depth beneath a generic type argument, so a nested `array<{ Ys: string }>`
 //     fires exactly as a nested `array<{ a b: string }>` does. Emits before
 //     the two raw-key rules above.
+//   - `theta/parse/reserved-keyword-as-identifier` (bug 0249) — a retained
+//     inline field name in the lexer's `reservedKeywords()` set. Checked
+//     before `binding-case-mismatch`, under the same closing-brace gate.
 //
 // A caller may select a narrower rule SET than the full walk
 // (`parseTypeExpression`'s `rules` parameter; see `TypeCheckRules` below).

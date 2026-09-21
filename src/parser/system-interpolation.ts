@@ -36,6 +36,8 @@ import { type Diagnostic, type SourceRange } from "../diagnostics/diagnostic";
 import { type ThetaMode } from "./frontmatter";
 import { isEnumValue, isResultValue, schemaTagOf, type ThetaValue } from "../runtime/value";
 import {
+  interpolationTypeOf,
+  scanInterpolationBody,
   stringifyInterpolatedValue,
   type InterpolationType,
 } from "../render/query-render";
@@ -65,8 +67,8 @@ export const SYSTEM_INTERP_BAD_FIELD_CODE = "theta/parse/system-interp-bad-field
  * single-valued and closed — no compound `parse|load` cell exists — so the
  * fix mints this sibling code rather than widening the parse row's *Phase*
  * (docs/spec_topics/diagnostics/code-registry-load.md). Emitted by the
- * load-phase template-revalidation consumer in `import-static-checks.ts`, not
- * by this module.
+ * load-phase template-revalidation consumer `patchSystemTemplateForImports`
+ * (`../extension/import-system-template-patch.ts`), not by this module.
  */
 export const LOAD_SYSTEM_INTERP_BAD_FIELD_CODE = "theta/load/system-interp-bad-field";
 /** `theta/parse/system-interp-unterminated` (E). */
@@ -292,26 +294,9 @@ export function checkSystemInterpolation(
     }
 
     if (c === "$" && systemValue[i + 1] === "{") {
-      // Scan to the matching `}` (tracking `{`/`}` nesting so a brace inside the
-      // body does not close the interpolation early); EOF first ⇒ unterminated.
       flushText();
-      let depth = 1;
-      let j = i + 2;
-      let body = "";
-      while (j < systemValue.length) {
-        const cj = systemValue[j];
-        if (cj === "{") {
-          depth += 1;
-        } else if (cj === "}") {
-          depth -= 1;
-          if (depth === 0) {
-            break;
-          }
-        }
-        body += cj;
-        j += 1;
-      }
-      if (depth !== 0) {
+      const { body, end: j, closed } = scanInterpolationBody(systemValue, i + 2);
+      if (!closed) {
         diagnostics.push(
           located(SYSTEM_INTERP_UNTERMINATED_CODE, SYSTEM_INTERP_UNTERMINATED_MESSAGE, file, input.range),
         );
@@ -486,8 +471,8 @@ function parseInterpolationPath(
  * discriminated union renders as a compact-JSON object (it is an object value
  * at runtime); the `system:` grammar rejects descending *into* one.
  *
- * Exported for bug 0423's load-phase sidecar carry
- * (`import-static-checks.ts`): the object arm already threads `sidecars` /
+ * Exported for bug 0423's load-phase sidecar carry in `patchSystemTemplateForImports`
+ * (`../extension/import-system-template-patch.ts`): the object arm already threads `sidecars` /
  * `rootDef` through unchanged, so converting an imported schema's
  * `SystemParamType` shell into the `InterpolationType` a patched template part
  * carries is a call, not a reimplementation.
@@ -589,7 +574,7 @@ export function renderSystemPrompt(
     // Element-level union arms (bug 0444 §Fix route (a)): a compact
     // `JSON.stringify` of the array is byte-identical to joining the
     // per-element compact renders with `,` inside `[]`; each element picks its
-    // own arm independently so one unmatched element (`interpolationTypeOfValue`
+    // own arm independently so one unmatched element (`interpolationTypeOf`
     // → untranslated object row) never un-translates its siblings (§Fix
     // constraint).
     if (part.elementArms !== undefined && Array.isArray(value)) {
@@ -620,9 +605,9 @@ export function renderSystemPrompt(
     }
     const effectiveType =
       part.valueDriven && part.unionArms !== undefined
-        ? (unionArmObjectType(value, part.unionArms) ?? interpolationTypeOfValue(value))
+        ? (unionArmObjectType(value, part.unionArms) ?? interpolationTypeOf(value))
         : part.valueDriven
-          ? interpolationTypeOfValue(value)
+          ? interpolationTypeOf(value)
           : part.type;
     const rendered = stringifyInterpolatedValue(value, effectiveType);
     if (!rendered.ok) {
@@ -631,47 +616,6 @@ export function renderSystemPrompt(
     text += rendered.text;
   }
   return { ok: true, text };
-}
-
-/**
- * The canonical-table row a RESOLVED value selects by its own runtime kind
- * (mirrors `production-theta-producer.ts`'s `interpolationTypeOf` exactly):
- * used for the `opaque-object` and `discriminated-union` terminals, whose
- * static type alone cannot distinguish a scalar-union arm from an
- * object-schema arm, or an imported-schema field from a walked-off one. A
- * walked-off field resolves to JS `undefined`, which falls through to the
- * `object` row — `JSON.stringify(undefined)` yields the literal text
- * `undefined`. Bug 0422's fix moved bug 0406 W7's pin to a LOAD refusal for
- * the directly-imported schema class (a walked-off `.field` there now draws
- * `theta/load/system-interp-bad-field` before render). This value-driven
- * `undefined` render therefore remains only for the still-admitted classes:
- * the imported alias / head-only head (bug 0427's ground), a nested-import
- * intermediate the load re-walk admits opaquely, and a schema reached only
- * through a re-export chain — not the direct-import walked-off field.
- */
-function interpolationTypeOfValue(value: ThetaValue): InterpolationType {
-  if (typeof value === "string") {
-    return { kind: "string" };
-  }
-  if (typeof value === "number") {
-    return { kind: "number" };
-  }
-  if (typeof value === "boolean") {
-    return { kind: "boolean" };
-  }
-  if (value === null) {
-    return { kind: "null" };
-  }
-  if (isEnumValue(value)) {
-    return { kind: "enum" };
-  }
-  if (Array.isArray(value)) {
-    return { kind: "array" };
-  }
-  if (isResultValue(value)) {
-    return { kind: "result" };
-  }
-  return { kind: "object" };
 }
 
 /**

@@ -328,11 +328,11 @@ import {
 import {
   InterpolatedResultPanic,
   INTERPOLATED_RESULT_MESSAGE,
+  interpolationTypeOf,
   lexQueryTemplate,
   renderEmptyShortCircuit,
   renderTemplateText,
   stringifyInterpolatedValue,
-  type InterpolationType,
 } from "../render/query-render";
 import {
   applyBinderBypass,
@@ -8139,42 +8139,6 @@ function identifierTypeSource(source: string): string | undefined {
 function arrayElementTypeSource(source: string): string | undefined {
   const m = /^array<(.+)>$/.exec(source.trim());
   return m !== null ? (m[1] as string).trim() : undefined;
-}
-
-/**
- * Derive the QRY-18 `InterpolationType` discriminator from a runtime
- * `ThetaValue`. A number uses the `number` rule (canonical decimal, no trailing
- * `.0`, `Infinity`/`NaN` verbatim); an enum uses the bare-wire `enum` rule; a
- * `Result` is classified by its interpreter-private brand — never by key
- * presence, so an ordinary object carrying a boolean `ok` field still takes
- * the `object` arm below (bug 0017) — ahead of the `object` fall-through, so
- * `stringifyInterpolation` can raise QRY-18's runtime fallback for it instead
- * of serialising the carrier (bug 0079).
- */
-function interpolationTypeOf(value: ThetaValue): InterpolationType {
-  if (typeof value === "string") {
-    return { kind: "string" };
-  }
-  if (typeof value === "number") {
-    return { kind: "number" };
-  }
-  if (typeof value === "boolean") {
-    return { kind: "boolean" };
-  }
-  if (value === null) {
-    return { kind: "null" };
-  }
-  if (isEnumValue(value)) {
-    return { kind: "enum" };
-  }
-  if (Array.isArray(value)) {
-    return { kind: "array" };
-  }
-  if (isResultValue(value)) {
-    return { kind: "result" };
-  }
-  // A plain object schema value — compact JSON.
-  return { kind: "object" };
 }
 
 /**

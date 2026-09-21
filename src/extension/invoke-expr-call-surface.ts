@@ -420,7 +420,6 @@ export async function checkInvokeExprCallSurface(
         ...checkCalleeHasErrors({
           calleePath: invoke.path,
           surface: "invoke",
-          hasErrors: true,
           relatedSites: [],
           site,
         }),

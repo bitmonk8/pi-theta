@@ -472,7 +472,6 @@ describe("RFC-0001 subagent-fn — a broken body surfaces theta/load/callee-has-
     const diags = checkCalleeHasErrors({
       calleePath: "step",
       surface: "tools",
-      hasErrors: true,
       relatedSites: related,
       site: {
         file: "test.theta",

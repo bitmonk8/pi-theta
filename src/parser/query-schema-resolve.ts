@@ -70,6 +70,7 @@ import {
   collectTypeEnv,
 } from "./type-layer-checks";
 import type { CompatType, TypeEnv } from "./type-compat";
+import { collectTopLevelFns } from "./functions";
 
 /**
  * The source capture whose written annotation reached a schema-less query.
@@ -128,7 +129,7 @@ export function resolveQuerySchemas(
   file: string,
 ): ResolveQuerySchemasResult {
   const env = collectTypeEnv(body.statements);
-  const fns = collectFns(body.statements);
+  const fns = collectTopLevelFns(body.statements);
   const walk = new QuerySchemaResolveWalk(file, env, fns);
   const resolved = walk.rewriteBlock(body, []);
   return {
@@ -136,17 +137,6 @@ export function resolveQuerySchemas(
     diagnostics: walk.diagnostics,
     propagations: walk.propagations,
   };
-}
-
-/** Collect the top-level `fn` declarations, keyed by name, for call-arg sinks. */
-function collectFns(statements: readonly Stmt[]): ReadonlyMap<string, FnDecl> {
-  const fns = new Map<string, FnDecl>();
-  for (const stmt of statements) {
-    if (stmt.kind === "fn") {
-      fns.set(stmt.name, stmt);
-    }
-  }
-  return fns;
 }
 
 /**

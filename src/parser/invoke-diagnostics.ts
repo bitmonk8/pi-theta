@@ -640,12 +640,6 @@ export interface CalleeHasErrorsInput {
   readonly calleePath: string;
   /** The referencing surface — governs the deliberate severity split. */
   readonly surface: InvokePathSurface;
-  /**
-   * Whether the callee is unreadable, unparseable, or failed its own structural
-   * checks during the static-resolution walk (i.e. is *not* statically
-   * resolvable). When `false`, no diagnostic fires.
-   */
-  readonly hasErrors: boolean;
   /** One `related` entry per underlying error site in the callee. */
   readonly relatedSites: readonly RelatedSite[];
   /** The located referencing site the diagnostic attaches to. */
@@ -663,10 +657,7 @@ export interface CalleeHasErrorsInput {
  * listed via `related`.
  */
 export function checkCalleeHasErrors(input: CalleeHasErrorsInput): Diagnostic[] {
-  const { calleePath, surface, hasErrors, relatedSites, site } = input;
-  if (!hasErrors) {
-    return [];
-  }
+  const { calleePath, surface, relatedSites, site } = input;
   // Deliberate severity split (invocation.md §Static resolution): **error** for
   // a `tools:` `.theta` entry (the callable cannot be created and the parent does
   // not register) and **warning** for a literal `invoke(...)` callee (the parent

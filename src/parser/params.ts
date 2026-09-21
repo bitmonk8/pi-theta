@@ -56,6 +56,7 @@ import {
 import { checkInlineEnumForm } from "./schema-declarations";
 import { GENERIC_ARITY, parseTypeExpression } from "./type-grammar";
 import { defineRecordField } from "../runtime/value";
+import { hoistNestedDefs } from "./schema-defs";
 
 /**
  * One `params:` field as written in source, in declaration order.
@@ -506,55 +507,6 @@ export function parseParams(
     loweredSchema["$defs"] = hoistedDefs;
   }
   return { diagnostics, loweredSchema: loweredSchema as LoweredSchema };
-}
-
-/**
- * Lift every nested `$defs` entry a registered fragment carries up to the
- * `params:` document's OWN top level, stripping the nested copy on the way.
- *
- * WHY: `lowerTypeExpr` mints ROOT-ABSOLUTE `{ "$ref": "#/$defs/<name>" }`
- * pointers, which JSON Schema resolves against the document root and nowhere
- * else, but it registers only the names a `params:` field references DIRECTLY.
- * A name reached only THROUGH another name — `params: { p: Person }` where
- * `Person.pets: array<Animal>` — arrives inside `Person`'s own fragment-local
- * `$defs`, at `#/$defs/Person/$defs/Animal`, which no pointer can name: AJV
- * refuses the whole document with `can't resolve reference #/$defs/Animal`
- * when the binder compiles the envelope it is hoisted into
- * (binder-envelope.ts lifts this `$defs` verbatim to the envelope root). The
- * annotation path performs the same lift (`pruneDocumentDefs`,
- * query-schema-lowering.ts); this is the `params:` sibling of it, minus the
- * reachability prune (a `params:` fragment is registered only when a ref to
- * it is minted, so every hoisted name is reachable by construction).
- *
- * The queue walk is keyed by def NAME with first-wins dedup, and that name set
- * doubles as the cycle/termination guard: a self- or mutually-recursive schema
- * closure names itself, so re-queuing the same name must terminate rather than
- * recurse forever. Fragments are never mutated — a hoisted-from body sheds its
- * `$defs` through a shallow clone, because the same fragment object is aliased
- * at several positions in one document (the body-type map's own entry and
- * every closure carrying it).
- */
-function hoistNestedDefs(
-  defs: Readonly<Record<string, Record<string, unknown>>>,
-): Record<string, Record<string, unknown>> {
-  const hoisted: Record<string, Record<string, unknown>> = {};
-  const queue: [string, Record<string, unknown>][] = Object.entries(defs);
-  while (queue.length > 0) {
-    const [name, body] = queue.shift() as [string, Record<string, unknown>];
-    if (hoisted[name] !== undefined) {
-      continue;
-    }
-    const nested = body["$defs"];
-    if (nested === undefined || nested === null || typeof nested !== "object") {
-      hoisted[name] = body;
-      continue;
-    }
-    queue.push(...Object.entries(nested as Record<string, Record<string, unknown>>));
-    const stripped: Record<string, unknown> = { ...body };
-    delete stripped["$defs"];
-    hoisted[name] = stripped;
-  }
-  return hoisted;
 }
 
 /** The lowering context threaded through a single field's type expression. */

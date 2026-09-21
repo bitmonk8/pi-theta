@@ -89,7 +89,7 @@ export interface StaticTypeInferenceDeps {
    * no default: every production construction site
    * (./type-layer-checks.ts's `checkTypeLayer`,
    * ../extension/invoke-static-checks.ts's `checkInvokeStaticResolution` and
-   * `checkImportedFnCallArgs`)
+   * ../extension/invoke-imported-checks.ts's `checkImportedFnCallArgs`)
    * has the walked body's `statements` in scope and must pass the real set, so a missing
    * value is a wiring bug caught at the call site, not a silent empty-set
    * fallback that would let a production path mis-resolve a shadowed enum

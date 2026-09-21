@@ -29,6 +29,7 @@
 //     `theta/parse/unreachable-code`.
 
 import { type Diagnostic, type SourceRange } from "../diagnostics/diagnostic";
+import type { FnDecl, Stmt } from "./theta-document";
 import {
   checkCompatible,
   type Compatibility,
@@ -44,6 +45,26 @@ export interface FnSite {
 }
 
 // --- FN-1 — Placement -------------------------------------------------------
+
+/**
+ * Every top-level `fn` declaration — ordinary and `subagent fn` alike — keyed
+ * by name: the callee-resolution table `TypeLayerWalk`'s `checkFnCallArgs`
+ * consults, the parse-time counterpart of the runtime's `resolveUserFn`
+ * (`../runtime/statement-executor.ts`) hoisted-`fn` arm. A `Map`, read with
+ * `Map.get` and an explicit `!== undefined` test — a callee is
+ * author-controlled source text, the 0031/0038 null-prototype hazard class,
+ * never a plain object and never a truthiness test.
+ * Also supplies the top-level `fn` declarations for query call-arg sinks.
+ */
+export function collectTopLevelFns(statements: readonly Stmt[]): ReadonlyMap<string, FnDecl> {
+  const fns = new Map<string, FnDecl>();
+  for (const stmt of statements) {
+    if (stmt.kind === "fn") {
+      fns.set(stmt.name, stmt);
+    }
+  }
+  return fns;
+}
 
 /**
  * A `fn` declaration occurrence. `nested` is whether the declaration sits

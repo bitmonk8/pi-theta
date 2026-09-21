@@ -32,6 +32,7 @@
 // §"Unresolvable operands").
 
 import { type Diagnostic, type SourceRange } from "../diagnostics/diagnostic";
+import { classifyNamedDecl } from "./named-type-classification";
 
 /** The JSON-native primitive type names (type-system.md §"Type System"). */
 export type PrimitiveName = "string" | "number" | "integer" | "boolean" | "null";
@@ -119,7 +120,7 @@ export type TypeEnv = Readonly<Record<string, NamedDecl>>;
  * `{}` record, a name that is instead an `Object.prototype` own property
  * (`constructor`, `toString`, `valueOf`, `__proto__`, …) answers through the
  * prototype chain with a value that is not a `NamedDecl`, breaking the
- * `NamedDecl` union invariant the three classifiers' two guards
+ * `NamedDecl` union invariant the named-type classifier's two guards
  * (`decl === undefined`, then `decl.kind === "object-schema"`) are meant to
  * establish before treating `decl.rhs` as a `CompatType`. `Object.hasOwn`
  * makes this hold for a `TypeEnv` value constructed anywhere, independent of
@@ -227,7 +228,7 @@ export function checkCompatible(
  * until a non-alias form is reached. A `named` that resolves to an object schema stays
  * `named` (nominal, TYPE-10); an unresolvable `named` (past the parser's static view)
  * stays `named` so the relation reports `"unknown"` and the runtime AJV safety net
- * applies. Callers reach for this directly; the classifiers unfold inline instead.
+ * applies. Callers reach for this directly; the classifiers use `classifyNamedDecl` instead.
  */
 export function unfoldAlias(type: CompatType, env: TypeEnv): CompatType {
   let current = type;
@@ -526,17 +527,12 @@ export function classifyIndexReceiver(
       return "primitive";
     case "union":
       return "unknown";
-    case "named": {
-      const decl = resolveNamedRef(env, type);
-      if (decl === undefined) {
-        return "unknown";
-      }
-      if (decl.kind === "object-schema") {
-        return "object";
-      }
-      // A transparent alias: classify its resolved RHS (TYPE-11).
-      return classifyIndexReceiver(decl.rhs, env);
-    }
+    case "named":
+      return classifyNamedDecl(
+        resolveNamedRef(env, type),
+        "object",
+        (rhs) => classifyIndexReceiver(rhs, env),
+      );
   }
 }
 

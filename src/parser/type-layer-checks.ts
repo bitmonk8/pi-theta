@@ -44,6 +44,8 @@
 // type-system.md, runtime-value-model.md.
 
 import type { Diagnostic, SourceRange } from "../diagnostics/diagnostic";
+import { classifyNamedDecl } from "./named-type-classification";
+import { containsNamedType, containsWithheldBinderType } from "./compat-type-traversal";
 import type {
   ArrayExpr,
   Block,
@@ -87,7 +89,7 @@ import {
   checkBooleanPosition,
   checkIndexReceiver,
 } from "../runtime/expression-evaluator";
-import { checkForIterand } from "./control-flow";
+import { checkIterand } from "./type-layer-iterand";
 import { collectUnresolvedNamedTypes } from "./body-type-lowering";
 import { isSingleEnclosingBraceGroup, isUnspellableTextRefusable } from "./params";
 import {
@@ -106,7 +108,7 @@ import {
   type EnclosingReturnScope,
   type QuestionOperandType,
 } from "./match-result";
-import { resolveReturnType, type ReturnContribution } from "./functions";
+import { collectTopLevelFns, resolveReturnType, type ReturnContribution } from "./functions";
 import { checkFnCallArity, checkInvokeReturnType } from "./invoke-diagnostics";
 import { checkArrayJoin } from "../runtime/stdlib-array";
 import { checkObjectIndex } from "../runtime/stdlib-object";
@@ -186,17 +188,12 @@ function classifyOperand(type: CompatType, env: TypeEnv): OperandCategory {
     case "object":
     case "union":
       return "other";
-    case "named": {
-      const decl = resolveNamedRef(env, type);
-      if (decl === undefined) {
-        return "unknown";
-      }
-      if (decl.kind === "object-schema") {
-        return "other";
-      }
-      // A transparent alias (TYPE-11): classify its resolved RHS.
-      return classifyOperand(decl.rhs, env);
-    }
+    case "named":
+      return classifyNamedDecl(
+        resolveNamedRef(env, type),
+        "other",
+        (rhs) => classifyOperand(rhs, env),
+      );
   }
 }
 
@@ -229,16 +226,12 @@ function classifyReceiver(type: CompatType, env: TypeEnv): BuiltinReceiver {
       return "object";
     case "union":
       return "unknown";
-    case "named": {
-      const decl = resolveNamedRef(env, type);
-      if (decl === undefined) {
-        return "unknown";
-      }
-      if (decl.kind === "object-schema") {
-        return "object";
-      }
-      return classifyReceiver(decl.rhs, env);
-    }
+    case "named":
+      return classifyNamedDecl(
+        resolveNamedRef(env, type),
+        "object",
+        (rhs) => classifyReceiver(rhs, env),
+      );
   }
 }
 
@@ -384,28 +377,6 @@ export function checkTypeLayer(
     returnScope: { kind: "inferred" },
   });
   return checker.diagnostics;
-}
-
-/**
- * Whether `type` contains a `named` node anywhere in its structure (prim /
- * literal are leaves; array / union / object recurse). Used by
- * `inferCalleeReturnPayload` to defer any payload that would need
- * callee-namespace resolution — see that function's own comment for why.
- */
-function containsNamedType(type: CompatType): boolean {
-  switch (type.kind) {
-    case "named":
-      return true;
-    case "array":
-      return containsNamedType(type.element);
-    case "union":
-      return type.arms.some((arm) => containsNamedType(arm));
-    case "object":
-      return type.fields.some((field) => containsNamedType(field.type));
-    case "prim":
-    case "literal":
-      return false;
-  }
 }
 
 /**
@@ -567,30 +538,6 @@ export function collectEnumNames(statements: readonly Stmt[]): ReadonlySet<strin
 }
 
 /**
- * Whether `type` was read, in whole or in part, out of a WITHHELD binder entry —
- * the marker for "this position holds a value this layer cannot type".
- *
- * The judgement sinks that consume a raw scope-map read use it to withhold a
- * verdict, which is the discipline `provableArgType`'s identity channel gives
- * the fn-arg row. Two mechanisms make the sentinel's unresolvability
- * insufficient on its own: `checkForIterand` (./control-flow.ts) rejects EVERY
- * non-`array<T>` iterand, resolvable or not; and `decide` (./type-compat.ts)
- * answers `named ⊑ array<…>` and `named ⊑ { … }` structurally under TYPE-7 /
- * TYPE-8 BEFORE it tests whether the name resolves.
- *
- * Recursive because that structural decision recurses: `[x]` against
- * `array<array<integer>>` rests entirely on `x`. Terminating without an `env`,
- * because no alias is unfolded here: the walk is over the finite type tree the
- * inference pass built, never over the alias graph. A declared alias's
- * right-hand side CAN carry this NAME — it is a source-text slice, not a
- * token — but bug 0143 §Fix (b) route 1 moved the test off the name and onto
- * the `withheld` provenance marker `CompatType`'s `named` arm carries
- * (./type-compat.ts): only `withheldBinderType()` sets it, and no
- * author-reachable producer (`annotationToCompatType` below) ever does, so an
- * alias's twin still stays sound regardless — it never carries the marker and
- * therefore only ever defers, never trips a false verdict.
- */
-/**
  * A dummy `SourceRange` for `inferFinalValuePayload`'s `resolveReturnType`
  * call: that call's `site` is read only by a no-common-type diagnostic this
  * whole-body inference path discards (it returns the resolved payload, never
@@ -605,22 +552,6 @@ function placeholderSiteRange(): SourceRange {
   return { start: { line: 1, column: 1 }, end: { line: 1, column: 1 } };
 }
 
-function containsWithheldBinderType(type: CompatType): boolean {
-  switch (type.kind) {
-    case "named":
-      return type.withheld === true;
-    case "array":
-      return containsWithheldBinderType(type.element);
-    case "union":
-      return type.arms.some((arm) => containsWithheldBinderType(arm));
-    case "object":
-      return type.fields.some((field) => containsWithheldBinderType(field.type));
-    case "prim":
-    case "literal":
-      return false;
-  }
-}
-
 /**
  * The declared return-type annotation of every top-level `fn` that wrote one,
  * keyed by name (bug 0079 §Fix (a)). This is the static gate's only source for
@@ -628,7 +559,7 @@ function containsWithheldBinderType(type: CompatType): boolean {
  * declarations only, and a `call` node's inferred type is its callee's bare
  * NAME (static-type-inference.ts), never its declared return type — so an
  * annotated `fn`'s `Result<…>` return is otherwise invisible past the call
- * site. Top-level only, mirroring `collectFns` (query-schema-resolve.ts): a
+ * site. Top-level only, mirroring `collectTopLevelFns` (functions.ts): a
  * nested `fn`'s return annotation is not this gate's concern.
  *
  * An annotation deriving from none of `Type`'s six alternatives is OMITTED —
@@ -655,25 +586,6 @@ function collectFnReturnAnnotations(statements: readonly Stmt[]): ReadonlyMap<st
     }
   }
   return fnReturns;
-}
-
-/**
- * Every top-level `fn` declaration — ordinary and `subagent fn` alike — keyed
- * by name: the callee-resolution table `TypeLayerWalk`'s `checkFnCallArgs`
- * consults, the parse-time counterpart of the runtime's `resolveUserFn`
- * (`../runtime/statement-executor.ts`) hoisted-`fn` arm. A `Map`, read with
- * `Map.get` and an explicit `!== undefined` test — a callee is
- * author-controlled source text, the 0031/0038 null-prototype hazard class,
- * never a plain object and never a truthiness test.
- */
-function collectTopLevelFns(statements: readonly Stmt[]): ReadonlyMap<string, FnDecl> {
-  const fns = new Map<string, FnDecl>();
-  for (const stmt of statements) {
-    if (stmt.kind === "fn") {
-      fns.set(stmt.name, stmt);
-    }
-  }
-  return fns;
 }
 
 /**
@@ -1882,22 +1794,13 @@ class TypeLayerWalk {
         this.walkBlock(stmt.body, new Map(bindings), flow);
         return;
       case "for": {
-        // `checkForIterand` refuses every non-`array<T>` iterand, an
-        // unresolvable `named` included (../parser/control-flow.ts), so it is
-        // the one row that cannot defer on a withheld read by itself: the
-        // verdict is withheld here instead. A `for` body inside another binder's
-        // scope reaches this with the enclosing binder's withheld entry.
         const iterandType = this.typeOf(stmt.iterand, bindings);
-        const diag = containsWithheldBinderType(iterandType)
-          ? undefined
-          : checkForIterand(
-              { type: iterandType },
-              { file: this.file, range: stmt.iterand.range },
-              this.env,
-            );
-        if (diag !== undefined) {
-          this.diagnostics.push(diag);
-        }
+        checkIterand(
+          iterandType,
+          { file: this.file, range: stmt.iterand.range },
+          this.env,
+          this.diagnostics,
+        );
         this.walkExpr(stmt.iterand, bindings, flow);
         const inner = new Map(bindings);
         // control-flow.md §`for` … `in` binds the iteration variable "as a
@@ -3351,20 +3254,13 @@ class TypeLayerWalk {
         this.walkExpr(e.arg, bindings, flow);
         return;
       case "par-for": {
-        // CTRL-2 / grammar.md: the iterand reuses the `for` contract — a
-        // non-`array<T>` iterand is `theta/parse/non-array-iterand`.
-        // The `for` arm's withhold, at this row's second call site.
         const rawIterandType = this.typeOf(e.iterand, bindings);
-        const iterDiag = containsWithheldBinderType(rawIterandType)
-          ? undefined
-          : checkForIterand(
-              { type: rawIterandType },
-              { file: this.file, range: e.iterand.range },
-              this.env,
-            );
-        if (iterDiag !== undefined) {
-          this.diagnostics.push(iterDiag);
-        }
+        checkIterand(
+          rawIterandType,
+          { file: this.file, range: e.iterand.range },
+          this.env,
+          this.diagnostics,
+        );
         this.walkExpr(e.iterand, bindings, flow);
         // The `max` operand is an integer sink: a fractional / `number` operand
         // narrows to the existing `theta/parse/integer-narrowing` diagnostic.

@@ -10,7 +10,7 @@ import type { ThetaValue } from "../src/runtime/value";
 // A discriminated-union `system:` param (`pet: 'Cat | Dog'`) whose arms
 // declare `as` renames renders the JSON object row with NO wire-name
 // translation: `toSystemParamType` discards the arms, the union terminal is
-// value-driven, and `interpolationTypeOfValue` mints a bare `{ kind: "object" }`
+// value-driven, and `interpolationTypeOf` mints a bare `{ kind: "object" }`
 // row that carries no sidecars — so every field renders theta-side. This
 // violates the unconditional recursive-translation clause for Schema-typed
 // object / array rows and the no-second-map rule:

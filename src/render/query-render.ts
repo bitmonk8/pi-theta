@@ -28,7 +28,7 @@
 
 import { type Diagnostic, type SourceRange } from "../diagnostics/diagnostic";
 import { type ValidationError } from "../runtime/query-error";
-import { type ThetaValue } from "../runtime/value";
+import { isEnumValue, isResultValue, type ThetaValue } from "../runtime/value";
 import { ThetaPanic } from "../runtime/runtime-panics";
 import { renderCanonicalNumber } from "./canonical-number";
 import {
@@ -143,6 +143,35 @@ export interface QueryTemplateLexResult {
 }
 
 /**
+ * Scan to the matching `}` (tracking `{`/`}` nesting so a brace inside the
+ * body does not close the interpolation early); EOF first ⇒ unterminated.
+ * `start` is immediately after `${`; `end` indexes the closing `}` or EOF,
+ * and `closed` reports whether the matching brace was found.
+ */
+export function scanInterpolationBody(
+  source: string,
+  start: number,
+): { readonly body: string; readonly end: number; readonly closed: boolean } {
+  let depth = 1;
+  let j = start;
+  let body = "";
+  while (j < source.length) {
+    const cj = source[j];
+    if (cj === "{") {
+      depth += 1;
+    } else if (cj === "}") {
+      depth -= 1;
+      if (depth === 0) {
+        break;
+      }
+    }
+    body += cj;
+    j += 1;
+  }
+  return { body, end: j, closed: depth === 0 };
+}
+
+/**
  * Lex a `@`...`` query-template literal (QRY-17). `source` begins with the
  * opening backtick and, when terminated, ends at the matching unescaped closing
  * backtick. Recognised escapes are `` \` `` (literal backtick), `\$` (literal
@@ -221,25 +250,9 @@ export function lexQueryTemplate(source: string): QueryTemplateLexResult {
 
     if (c === "$" && source[i + 1] === "{") {
       // Only the `${` / `}` pair delimits an interpolation; braces alone are
-      // ordinary text. Track nesting so a `}` inside the expression (e.g. an
-      // object literal) does not close the interpolation early.
+      // ordinary text.
       flushText();
-      let depth = 1;
-      let j = i + 2;
-      let exprSource = "";
-      while (j < source.length) {
-        const cj = source[j];
-        if (cj === "{") {
-          depth += 1;
-        } else if (cj === "}") {
-          depth -= 1;
-          if (depth === 0) {
-            break;
-          }
-        }
-        exprSource += cj;
-        j += 1;
-      }
+      const { body: exprSource, end: j } = scanInterpolationBody(source, i + 2);
       parts.push({ kind: "interp", exprSource });
       // Advance past the closing `}` (or to EOF when the interpolation was not
       // closed — the outer loop then ends and `unterminated` fires).
@@ -373,6 +386,56 @@ export type InterpolationType =
       readonly rootDef?: string;
     }
   | { readonly kind: "result" };
+
+/**
+ * Derive the QRY-18 `InterpolationType` discriminator from a runtime
+ * `ThetaValue`. A number uses the `number` rule (canonical decimal, no trailing
+ * `.0`, `Infinity`/`NaN` verbatim); an enum uses the bare-wire `enum` rule; a
+ * `Result` is classified by its interpreter-private brand — never by key
+ * presence, so an ordinary object carrying a boolean `ok` field still takes
+ * the `object` arm below (bug 0017) — ahead of the `object` fall-through, so
+ * `stringifyInterpolation` can raise QRY-18's runtime fallback for it instead
+ * of serialising the carrier (bug 0079).
+ *
+ * For `system:` this is used for the `opaque-object` and
+ * `discriminated-union` terminals, whose
+ * static type alone cannot distinguish a scalar-union arm from an
+ * object-schema arm, or an imported-schema field from a walked-off one. A
+ * walked-off field resolves to JS `undefined`, which falls through to the
+ * `object` row — `JSON.stringify(undefined)` yields the literal text
+ * `undefined`. Bug 0422's fix moved bug 0406 W7's pin to a LOAD refusal for
+ * the directly-imported schema class (a walked-off `.field` there now draws
+ * `theta/load/system-interp-bad-field` before render). This value-driven
+ * `undefined` render therefore remains only for the still-admitted classes:
+ * the imported alias / head-only head (bug 0427's ground), a nested-import
+ * intermediate the load re-walk admits opaquely, and a schema reached only
+ * through a re-export chain — not the direct-import walked-off field.
+ */
+export function interpolationTypeOf(value: ThetaValue): InterpolationType {
+  if (typeof value === "string") {
+    return { kind: "string" };
+  }
+  if (typeof value === "number") {
+    return { kind: "number" };
+  }
+  if (typeof value === "boolean") {
+    return { kind: "boolean" };
+  }
+  if (value === null) {
+    return { kind: "null" };
+  }
+  if (isEnumValue(value)) {
+    return { kind: "enum" };
+  }
+  if (Array.isArray(value)) {
+    return { kind: "array" };
+  }
+  if (isResultValue(value)) {
+    return { kind: "result" };
+  }
+  // A plain object schema value — compact JSON.
+  return { kind: "object" };
+}
 
 /**
  * The outcome of stringifying one interpolation: the rendered text, or the

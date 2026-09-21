@@ -2819,7 +2819,6 @@ async function resolveThetaToolsAtLoad(
         ...checkCalleeHasErrors({
           calleePath: spec,
           surface: "tools",
-          hasErrors: true,
           relatedSites: [],
           site: { file: parsed.sourcePath, range: TOOLS_DIAGNOSTIC_RANGE },
         }),
