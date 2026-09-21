@@ -134,13 +134,15 @@ const BELT_TAIL_EXEMPT: readonly string[] = [BELT_TAIL_ALLOWED, SELF];
 // not something this gate scores at all.
 const RETIRED_FNPARAM = 'FnParam ::= Ident ":" Type';
 
-// The five enforced-scope surfaces (bug 0457 §Affected instances 2–6), pinned
-// exactly. The two era-framed non-instances are deliberately absent.
+// The enforced-scope surfaces (bug 0457 §Affected instances 2–6), including
+// instance 5's extracted body parser. The two era-framed non-instances are
+// deliberately absent.
 const FNPARAM_ENFORCED_SCOPE: readonly string[] = [
   "tests/fn-param-list-unclosed.test.ts", // instance 2
   "tests/fn-param-name-reserved-keyword.test.ts", // instance 3
   "tests/fn-param-not-identifier.test.ts", // instance 4
   "src/parser/theta-document.ts", // instance 5
+  "src/parser/body-parser.ts", // instance 5's extracted parser
   "docs/spec_topics/diagnostics/code-registry-parse.md", // instance 6 (Trigger prose)
 ];
 
