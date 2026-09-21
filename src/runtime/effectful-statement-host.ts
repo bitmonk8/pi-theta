@@ -360,47 +360,7 @@ async function runToolCallEffect(
     deps.classifyCall?.(expr, env) === "theta-callable" &&
     deps.resolveCallAsInvoke !== undefined
   ) {
-    const child = deps.resolveCallAsInvoke(expr, env, chain);
-    const invokeOutcome = await runInvokeChild(
-      deps.checkpoint,
-      deps.signal,
-      siteOf(expr, deps.file),
-      child,
-    );
-    switch (invokeOutcome.kind) {
-      case "value": {
-        const result = invokeOutcome.result;
-        // FN-5 (functions.md:44): a successful `.theta`-callable call returns the
-        // callee's typed top-level `Result` directly — byte-identical to the
-        // pre-0349 pass-through. Only a callee-RETURNED failure changes shape.
-        if (result.ok) {
-          return { ok: true, value: result };
-        }
-        // tool-calls.md:38/46: a `.theta`-callable call is semantically an
-        // `invoke` and shares its single error model, so a callee-returned
-        // `Err` cascades through `InvokeCalleeError` exactly as
-        // `runInvokeEffect`'s value arm wraps it. The wrap/bare split is
-        // decided by PROVENANCE
-        // (boundary-minted stays bare, bug 0294) and, for `cancelled`, by the
-        // caller's OWN signal (bug 0295, cancellation.md:66's two-arm rule):
-        // signal ABORTED (the caller-own arm, and the envelope-after-abort
-        // race) surfaces bare; signal QUIET means the child aborted itself, so
-        // it wraps. Bug 0088's SLSH-5 ledger exclusion for this leg was scope,
-        // not a ruling that bare is intended; 0349 supersedes it. The
-        // pre-dispatch cancelled arm below (the caller's own signal) is
-        // untouched by this gate.
-        // Bug 0088 (SLSH-5): record this hop's provenance against the wrapper.
-        // The call-site token is the callee-name identifier of the bare-identifier
-        // call (`worker` in `worker(...)`), i.e. `expr.range.start` — NOT a
-        // receiving binding's line — hence style `theta_callable_bare`.
-        return wrapInvokeCalleeFailure(result, invokeOutcome.source, child, deps, ".theta-callable call", {
-          style: "theta_callable_bare",
-          calleeNameToken: expr.range.start,
-        });
-      }
-      case "cancelled":
-        return { ok: false, error: makeCancelledError() };
-    }
+    return runThetaCallableCallEffect(expr, deps.resolveCallAsInvoke(expr, env, chain), deps);
   }
   // RFC 0009 (invocation.md INV-8; tool-calls.md TOOL-1): a call-site
   // `with { cwd }` clause on a PI-TOOL dispatch fails closed. Statically
@@ -429,34 +389,7 @@ async function runToolCallEffect(
     deps.classifyCall?.(expr, env) === "runtime-tool" &&
     deps.resolveRuntimeToolCall !== undefined
   ) {
-    const rtCall = deps.resolveRuntimeToolCall(expr, env);
-    // Checkpoint-first discipline: the tool-call checkpoint fires before
-    // dispatch, same as every other code-side tool-call kind.
-    await deps.checkpoint.before("tool-call", siteOf(expr, deps.file));
-    if (deps.signal.aborted) {
-      return { ok: false, error: makeCancelledError() };
-    }
-    // §5.4 runtime argument net: a non-string bound value → the pinned
-    // validation Err, pre-dispatch, no host call.
-    if (rtCall.argViolation !== undefined) {
-      return { ok: true, value: rtCall.argViolation };
-    }
-    // Option A cancellation (C2(d)): race the adapter Promise against the
-    // theta abort signal. NO host abort is invoked — a cancelled outcome
-    // abandons the adapter Promise and its late settlement is discarded by the
-    // construction-time `guardToolExecutePromise` guard (CNCL-1..3).
-    const settlement = await awaitToolSettlementOrAbort(
-      () => rtCall.dispatch(),
-      deps.signal,
-      rtCall.toolName,
-      deps.sink,
-    );
-    if (settlement.kind === "cancelled") {
-      return { ok: false, error: makeCancelledError() };
-    }
-    // The adapter output IS the Result value — never through
-    // `lowerResolvedToolEnvelope`'s text join.
-    return { ok: true, value: settlement.envelope };
+    return runRuntimeToolEffect(expr, deps.resolveRuntimeToolCall(expr, env), deps);
   }
   const call = deps.resolveToolCall(expr, env, evaluatedToolArgs);
   const outcome = await runCodeSideToolCall(
@@ -505,6 +438,89 @@ async function runToolCallEffect(
     case "cancelled":
       return { ok: false, error: makeCancelledError() };
   }
+}
+
+/** Drive a resolved `.theta`-callable child and surface its typed Result or cancellation. */
+async function runThetaCallableCallEffect(
+  expr: CallExpr,
+  child: InvokeChild,
+  deps: EffectfulStatementHostDeps,
+): Promise<OperationResult> {
+  const invokeOutcome = await runInvokeChild(
+    deps.checkpoint,
+    deps.signal,
+    siteOf(expr, deps.file),
+    child,
+  );
+  switch (invokeOutcome.kind) {
+    case "value": {
+      const result = invokeOutcome.result;
+      // FN-5 (functions.md:44): a successful `.theta`-callable call returns the
+      // callee's typed top-level `Result` directly — byte-identical to the
+      // pre-0349 pass-through. Only a callee-RETURNED failure changes shape.
+      if (result.ok) {
+        return { ok: true, value: result };
+      }
+      // tool-calls.md:38/46: a `.theta`-callable call is semantically an
+      // `invoke` and shares its single error model, so a callee-returned
+      // `Err` cascades through `InvokeCalleeError` exactly as
+      // `runInvokeEffect`'s value arm wraps it. The wrap/bare split is
+      // decided by PROVENANCE
+      // (boundary-minted stays bare, bug 0294) and, for `cancelled`, by the
+      // caller's OWN signal (bug 0295, cancellation.md:66's two-arm rule):
+      // signal ABORTED (the caller-own arm, and the envelope-after-abort
+      // race) surfaces bare; signal QUIET means the child aborted itself, so
+      // it wraps. Bug 0088's SLSH-5 ledger exclusion for this leg was scope,
+      // not a ruling that bare is intended; 0349 supersedes it. The
+      // pre-dispatch cancelled arm below (the caller's own signal) is
+      // untouched by this gate.
+      // Bug 0088 (SLSH-5): record this hop's provenance against the wrapper.
+      // The call-site token is the callee-name identifier of the bare-identifier
+      // call (`worker` in `worker(...)`), i.e. `expr.range.start` — NOT a
+      // receiving binding's line — hence style `theta_callable_bare`.
+      return wrapInvokeCalleeFailure(result, invokeOutcome.source, child, deps, ".theta-callable call", {
+        style: "theta_callable_bare",
+        calleeNameToken: expr.range.start,
+      });
+    }
+    case "cancelled":
+      return { ok: false, error: makeCancelledError() };
+  }
+}
+
+/** Dispatch a resolved runtime-tool call through the checkpoint and cancellation race. */
+async function runRuntimeToolEffect(
+  expr: CallExpr,
+  rtCall: RuntimeToolCall,
+  deps: EffectfulStatementHostDeps,
+): Promise<OperationResult> {
+  // Checkpoint-first discipline: the tool-call checkpoint fires before
+  // dispatch, same as every other code-side tool-call kind.
+  await deps.checkpoint.before("tool-call", siteOf(expr, deps.file));
+  if (deps.signal.aborted) {
+    return { ok: false, error: makeCancelledError() };
+  }
+  // §5.4 runtime argument net: a non-string bound value → the pinned
+  // validation Err, pre-dispatch, no host call.
+  if (rtCall.argViolation !== undefined) {
+    return { ok: true, value: rtCall.argViolation };
+  }
+  // Option A cancellation (C2(d)): race the adapter Promise against the
+  // theta abort signal. NO host abort is invoked — a cancelled outcome
+  // abandons the adapter Promise and its late settlement is discarded by the
+  // construction-time `guardToolExecutePromise` guard (CNCL-1..3).
+  const settlement = await awaitToolSettlementOrAbort(
+    () => rtCall.dispatch(),
+    deps.signal,
+    rtCall.toolName,
+    deps.sink,
+  );
+  if (settlement.kind === "cancelled") {
+    return { ok: false, error: makeCancelledError() };
+  }
+  // The adapter output IS the Result value — never through
+  // `lowerResolvedToolEnvelope`'s text join.
+  return { ok: true, value: settlement.envelope };
 }
 
 /**
