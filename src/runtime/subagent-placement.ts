@@ -17,7 +17,7 @@
 // registration protocol's `apiVersion` (`subagent-placement-registry.ts`)
 // gates shape changes to these types.
 
-import type { ChildExitInfo, SpawnFn, SubagentChildProcess } from "./subagent-launcher";
+import type { ChildExitInfo, SpawnFn, SubagentChildProcess } from "./subagent-child-process";
 
 /** The reserved backend name of the built-in process-tree placement (default). */
 export const PIPE_PLACEMENT_NAME = "pipe";
