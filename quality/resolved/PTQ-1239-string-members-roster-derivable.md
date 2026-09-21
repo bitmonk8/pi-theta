@@ -2,7 +2,7 @@
 id: PTQ-1239
 title: STRING_MEMBERS hand-maintains a second nine-name roster that is exactly STRING_MEMBER_SIGNATURES.keys(), and the code's own comment names the resulting silent-drift hazard
 lens: D8
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/runtime/stdlib-string.ts:36-46

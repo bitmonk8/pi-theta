@@ -2,7 +2,7 @@
 id: PTQ-1236
 title: toolCallableName's `.theta`-path arm hand-rolls the default-name derivation that callable-set.ts's exported thetaDefaultName declares itself the single implementation of
 lens: D8
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/parser/theta-document.ts:1856-1861
