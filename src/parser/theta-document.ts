@@ -88,6 +88,7 @@ import {
   withClauseInProcessCalleeMessage,
 } from "./invoke-diagnostics";
 import { runtimeToolPresentedNames, RUNTIME_TOOL_SIGNATURES, type RuntimeToolName } from "./runtime-tools";
+import { thetaDefaultName } from "./callable-set";
 import type { CompatType } from "./type-compat";
 import type {
   CallExpr,
@@ -1864,11 +1865,7 @@ function toolCallableName(entry: string): string {
   if (/^[A-Za-z_][A-Za-z0-9_]*$/.test(spec)) {
     return spec;
   }
-  const basename = spec.slice(spec.lastIndexOf("/") + 1);
-  const stem = basename.endsWith(".theta")
-    ? basename.slice(0, -".theta".length)
-    : basename;
-  return stem.replace(/-/g, "_");
+  return thetaDefaultName(spec);
 }
 
 /**
