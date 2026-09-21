@@ -10,11 +10,11 @@ import {
   type SchemaSinkFrame,
 } from "../src/parser/query-schema-inference";
 import {
-  type CompatSite,
   type CompatType,
   type PrimitiveName,
   type TypeEnv,
 } from "../src/parser/type-compat";
+import { type CompatSite } from "../src/parser/type-compat-sites";
 
 // V13b-T — failing tests for the paired `V13b` "query schema inference"
 // implementation.

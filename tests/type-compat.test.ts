@@ -1,13 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
-  checkCommonType,
   checkCompatible,
-  checkFnArgCompat,
-  checkLetRhsCompat,
   type CompatType,
   type NamedDecl,
   type TypeEnv,
 } from "../src/parser/type-compat";
+import { checkCommonType, checkFnArgCompat, checkLetRhsCompat } from "../src/parser/type-compat-sites";
 import { site } from "./helpers/invoke-seam-scaffold";
 import { findCode as withCode } from "./helpers/e2e-s1";
 

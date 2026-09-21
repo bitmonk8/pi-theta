@@ -12,11 +12,11 @@ import { parseThetaDocument } from "../src/parser/theta-document";
 import { StaticTypeInferencePass } from "../src/parser/static-type-inference";
 import {
   checkCompatible,
-  commonType,
   displayType,
   type CompatType,
   type TypeEnv,
 } from "../src/parser/type-compat";
+import { commonType } from "../src/parser/type-compat-sites";
 import { checkMatchArmTypes, type MatchResultSite } from "../src/parser/match-result";
 import { resolveReturnType } from "../src/parser/functions";
 import { parseDeps, parseDoc } from "./helpers/e2e-s1";

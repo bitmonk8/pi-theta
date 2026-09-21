@@ -31,7 +31,6 @@
 
 import type { Block, Expr, IfStmt, MemberExpr, PatternNode, ThetaBody, Stmt } from "./theta-document";
 import {
-  commonType,
   displayType,
   enumVariantType,
   resolveNamed,
@@ -42,6 +41,7 @@ import {
   type Compatibility,
   type TypeEnv,
 } from "./type-compat";
+import { commonType } from "./type-compat-sites";
 import { collectPatternBinderNames } from "./match-result";
 
 /**

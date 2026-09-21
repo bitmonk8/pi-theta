@@ -40,10 +40,9 @@ import {
   hasRawNewlineInStringLiteral,
 } from "./literal-sublanguage";
 import {
-  checkParamsDefaultCompat,
-  paramsDeclaredCompatType,
   type TypeEnv,
 } from "./type-compat";
+import { checkParamsDefaultCompat, paramsDeclaredCompatType } from "./type-compat-sites";
 import { isReservedSynthesisedName } from "./synthesised-names";
 import {
   canonicalForm,

@@ -52,7 +52,8 @@ import {
   collectTypeEnv,
   fnParamNamesAreIdentifiers,
 } from "../parser/type-layer-checks";
-import { checkCompatible, checkFnArgCompat, type TypeEnv } from "../parser/type-compat";
+import { checkCompatible, type TypeEnv } from "../parser/type-compat";
+import { checkFnArgCompat } from "../parser/type-compat-sites";
 import {
   collectProvableArgTypes,
   dedupeArgType,

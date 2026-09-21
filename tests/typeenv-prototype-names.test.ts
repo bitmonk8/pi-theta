@@ -5,12 +5,11 @@ import type { SourceRange } from "../src/diagnostics/diagnostic";
 import type { Stmt, ThetaDocument } from "../src/parser/theta-document";
 import {
   checkCompatible,
-  checkLetRhsCompat,
-  classifyIndexReceiver,
   type CompatType,
   type NamedDecl,
   type TypeEnv,
 } from "../src/parser/type-compat";
+import { checkLetRhsCompat, classifyIndexReceiver } from "../src/parser/type-compat-sites";
 import { collectTypeEnv } from "../src/parser/type-layer-checks";
 import { parseDoc, diagLines } from "./helpers/e2e-s1";
 import { REGISTRY } from "./helpers/registry-oracle";

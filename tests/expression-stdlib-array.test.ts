@@ -3,7 +3,8 @@ import {
   checkArrayJoin,
   evaluateArrayMember,
 } from "../src/runtime/stdlib-array";
-import type { CompatType, CompatSite } from "../src/parser/type-compat";
+import type { CompatType } from "../src/parser/type-compat";
+import type { CompatSite } from "../src/parser/type-compat-sites";
 import type { ThetaValue } from "../src/runtime/value";
 
 // V3g-T — failing tests for the paired `V3g` "expression stdlib members:

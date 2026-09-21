@@ -31,10 +31,10 @@ import {
   displayType,
   resolveNamedRef,
   unfoldAlias,
-  type CompatSite,
   type CompatType,
   type TypeEnv,
 } from "./type-compat";
+import { type CompatSite } from "./type-compat-sites";
 import type { StdlibMemberSignature, StdlibParamKind } from "../runtime/stdlib-string";
 
 /** `theta/parse/stdlib-arity-mismatch` (code-registry-parse.md; bug 0315). */

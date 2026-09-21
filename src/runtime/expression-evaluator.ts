@@ -42,11 +42,10 @@
 import type { Diagnostic } from "../diagnostics/diagnostic";
 import {
   checkCompatible,
-  classifyIndexReceiver,
-  type CompatSite,
   type CompatType,
   type TypeEnv,
 } from "../parser/type-compat";
+import { classifyIndexReceiver, type CompatSite } from "../parser/type-compat-sites";
 import { valuesEqual, type ThetaValue } from "./value";
 
 /**

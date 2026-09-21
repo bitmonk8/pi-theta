@@ -68,11 +68,6 @@ import {
 } from "../render/query-render";
 import {
   checkCompatible,
-  checkCommonType,
-  checkFnArgCompat,
-  checkLetRhsCompat,
-  checkObjectFieldCompat,
-  checkReassignRhsCompat,
   displayType,
   resolveNamed,
   resolveNamedRef,
@@ -84,6 +79,13 @@ import {
   type PrimitiveName,
   type TypeEnv,
 } from "./type-compat";
+import {
+  checkCommonType,
+  checkFnArgCompat,
+  checkLetRhsCompat,
+  checkObjectFieldCompat,
+  checkReassignRhsCompat,
+} from "./type-compat-sites";
 import { BOOLEAN_BINARY_OPS, StaticTypeInferencePass } from "./static-type-inference";
 import {
   checkBooleanPosition,

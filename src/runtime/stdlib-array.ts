@@ -23,7 +23,8 @@
 // The paired V3g implementation leaf fills in the runtime member dispatch and
 // the parse-time `join` precondition.
 
-import { displayType, type CompatType, type CompatSite } from "../parser/type-compat";
+import { displayType, type CompatType } from "../parser/type-compat";
+import { type CompatSite } from "../parser/type-compat-sites";
 import { type Diagnostic } from "../diagnostics/diagnostic";
 import { summariseNonResultOperand } from "./runtime-panics";
 import { assertStdlibMemberArguments, type StdlibMemberSignature } from "./stdlib-string";

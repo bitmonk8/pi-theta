@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
-import type { CompatSite, CompatType, TypeEnv } from "../src/parser/type-compat";
+import type { CompatType, TypeEnv } from "../src/parser/type-compat";
+import type { CompatSite } from "../src/parser/type-compat-sites";
 import {
   CALLEE_HAS_ERRORS_CODE,
   CALLEE_HAS_ERRORS_HINT,

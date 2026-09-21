@@ -30,11 +30,11 @@
 import { type Diagnostic } from "../diagnostics/diagnostic";
 import {
   checkCompatible,
-  type CompatSite,
   type CompatType,
   type PrimitiveName,
   type TypeEnv,
 } from "./type-compat";
+import { type CompatSite } from "./type-compat-sites";
 
 // --- Inferred schema model --------------------------------------------------
 

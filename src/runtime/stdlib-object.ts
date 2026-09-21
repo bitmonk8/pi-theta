@@ -43,12 +43,11 @@
 
 import type { Diagnostic } from "../diagnostics/diagnostic";
 import {
-  classifyIndexReceiver,
   displayType,
-  type CompatSite,
   type CompatType,
   type TypeEnv,
 } from "../parser/type-compat";
+import { classifyIndexReceiver, type CompatSite } from "../parser/type-compat-sites";
 import { assertStdlibMemberArguments, type StdlibMemberSignature } from "./stdlib-string";
 import type { ThetaValue } from "./value";
 

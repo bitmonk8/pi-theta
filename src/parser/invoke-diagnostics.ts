@@ -52,12 +52,12 @@ import {
 import type { CallWithClause } from "./theta-document";
 import type { ThetaMode } from "./frontmatter";
 import {
-  type CompatSite,
   type CompatType,
   type TypeEnv,
   checkCompatible,
   displayType,
 } from "./type-compat";
+import { type CompatSite } from "./type-compat-sites";
 
 // --------------------------------------------------------------------------
 // Diagnostic codes (diagnostics/code-registry-parse.md, code-registry-load.md)
