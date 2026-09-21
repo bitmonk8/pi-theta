@@ -8,8 +8,8 @@ import { evaluateStringMember } from "./stdlib-string";
 import { evaluateArrayMember } from "./stdlib-array";
 import { evaluateObjectMember } from "./stdlib-object";
 import type { Block, CallExpr, Expr, FnDecl, InvokeExpr, Stmt } from "../parser/theta-document";
-import { attachPanicRange, attachPanicSite, evaluateIndexAccess, evaluateMemberAccess, evaluateQuestion, isThetaPanic, nonObjectReceiverRejection, pushPanicFrame, QuestionOperandDefectError } from "./runtime-panics";
-import { InterpolatedResultPanic, INTERPOLATED_RESULT_MESSAGE } from "../render/query-render";
+import { attachPanicRange, attachPanicSite, evaluateIndexAccess, evaluateMemberAccess, evaluateQuestion, InterpolatedResultPanic, isThetaPanic, nonObjectReceiverRejection, pushPanicFrame, QuestionOperandDefectError } from "./runtime-panics";
+import { INTERPOLATED_RESULT_MESSAGE } from "../render/query-render";
 
 /**
  * The single runtime raise of `theta/parse/interpolated-result` in `src/` (bug

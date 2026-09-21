@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { isThetaPanic } from "../src/runtime/runtime-panics";
-import { InterpolatedResultPanic } from "../src/render/query-render";
+import { InterpolatedResultPanic, isThetaPanic } from "../src/runtime/runtime-panics";
 import { linesOf, readCorpus as readCorpusFile } from "./helpers/corpus-reader";
 
 // b0265 — the panic-scoping remnant-surface oracle.
@@ -73,7 +72,7 @@ import { linesOf, readCorpus as readCorpusFile } from "./helpers/corpus-reader";
 //   - docs/spec_topics/diagnostics/code-registry-runtime.md line 7 — the
 //     six-source prose bug 0265 §Non-goals pins true unmodified (cell E).
 //   - `isThetaPanic` (`src/runtime/runtime-panics.ts`) and
-//     `InterpolatedResultPanic` (`src/render/query-render.ts`) — the predicate
+//     `InterpolatedResultPanic` (`src/runtime/runtime-panics.ts`) — the predicate
 //     and the class cell D reads the observable off.
 
 /** This file's own corpus reads: `rel` is this oracle's only source, so a miss is loud. */
@@ -287,7 +286,7 @@ describe("bug 0265 — the surfaces outside bug 0117's scope admit the one parse
     const panic = new InterpolatedResultPanic("probe");
     expect(
       isThetaPanic(panic),
-      `cell D (bug 0265 §Reproduction surface 3 — the measured fact): \`isThetaPanic\` (\`src/runtime/runtime-panics.ts\`) must admit ${EXCEPTION_CLASS} (\`src/render/query-render.ts\`), because \`parForPanicError\` reads that predicate to choose \`cause: "panic"\` over \`cause: "internal_error"\`.`,
+      `cell D (bug 0265 §Reproduction surface 3 — the measured fact): \`isThetaPanic\` (\`src/runtime/runtime-panics.ts\`) must admit ${EXCEPTION_CLASS} (\`src/runtime/runtime-panics.ts\`), because \`parForPanicError\` reads that predicate to choose \`cause: "panic"\` over \`cause: "internal_error"\`.`,
     ).toBe(true);
     expect(
       panic.code,

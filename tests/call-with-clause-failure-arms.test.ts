@@ -33,8 +33,7 @@ import {
 } from "./helpers/fake-json-child";
 import { launchSubagentChild } from "../src/runtime/subagent-launcher";
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
-import { NullMemberAccessPanic } from "../src/runtime/runtime-panics";
-import { InterpolatedResultPanic } from "../src/render/query-render";
+import { InterpolatedResultPanic, NullMemberAccessPanic } from "../src/runtime/runtime-panics";
 import type { CallExpr, Expr, InvokeExpr, ThetaBody } from "../src/parser/theta-document";
 import {
   autoRespondingSpawn,

@@ -5,13 +5,13 @@ import { describe, expect, it } from "vitest";
 import { MatchError } from "../src/runtime/match-result";
 import {
   IndexOutOfBoundsPanic,
+  InterpolatedResultPanic,
   InvokeDepthExceededPanic,
   MissingObjectKeyPanic,
   NullIndexAccessPanic,
   NullMemberAccessPanic,
   type ThetaPanic,
 } from "../src/runtime/runtime-panics";
-import { InterpolatedResultPanic } from "../src/render/query-render";
 import { linesOf, readCorpus as readCorpusFile, repoFile } from "./helpers/corpus-reader";
 
 // b0117 — the panic-namespace scoping oracle.
@@ -20,7 +20,7 @@ import { linesOf, readCorpus as readCorpusFile, repoFile } from "./helpers/corpu
 // records that `error-model.md` §"Runtime panics" introduces its six bullets as
 // the closed set of "V1 panic sources — each carrying its registered
 // `theta/runtime/*` code", while a SEVENTH `ThetaPanic` subclass ships —
-// `InterpolatedResultPanic` (`src/render/query-render.ts`), QRY-18's runtime
+// `InterpolatedResultPanic` (`src/runtime/runtime-panics.ts`), QRY-18's runtime
 // fallback — carrying the parse-namespaced code
 // `theta/parse/interpolated-result`. No sentence on the page mentions it.
 //

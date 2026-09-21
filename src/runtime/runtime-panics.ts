@@ -1,7 +1,8 @@
 // V4b / V4b-T — the runtime-panic surface seam.
 //
-// This module owns the closed theta 1.0 runtime-panic set, the `?`-operator
-// runtime propagation seam that panics bypass, and the runtime-defect surface
+// This module owns the closed theta 1.0 `theta/runtime/*` panic set, QRY-18's
+// parse-namespaced interpolation panic, the `?`-operator runtime propagation
+// seam that panics bypass, and the runtime-defect surface
 // (`theta/runtime/internal-error`) for unexpected interpreter / adapter throws
 // (errors-and-results/error-model.md §"Runtime panics"; the registered message
 // templates live in diagnostics/code-registry-runtime.md).
@@ -34,6 +35,7 @@
 import type { Diagnostic, SourceRange } from "../diagnostics/diagnostic";
 import { toPosixFileSpelling } from "../diagnostics/diagnostic";
 import { renderInteger, renderSourceDerived } from "../diagnostics/placeholder";
+import { INTERPOLATED_RESULT_CODE } from "../render/query-render";
 import { isEnumValue, isObjectValue, isResultValue, schemaTagOf, type ResultValue, type ThetaValue } from "./value";
 
 /** The registry codes carried by the five panic sources this module owns. */
@@ -334,6 +336,26 @@ export class InvokeDepthExceededPanic extends ThetaPanic {
   constructor(message: string) {
     super(message);
     this.name = "InvokeDepthExceededPanic";
+  }
+}
+
+/**
+ * The QRY-18 runtime fallback for a `Result`-valued `${expr}` interpolation
+ * whose static type the type-layer gate (`src/parser/type-layer-checks.ts`)
+ * could not resolve ahead of load (e.g. an inferred binding that widens past
+ * the parser's static view). Carries the same registered
+ * `theta/parse/interpolated-result` code the static gate emits — QRY-18's
+ * "static where possible, runtime where not" posture. A `ThetaPanic`
+ * subclass, not a plain thrown `Error`, so `isThetaPanic` classifies it and
+ * QRY-21 (a panic during interpolation is never caught by `let _ =`) holds
+ * for it, exactly as it already does for `MissingObjectKeyPanic` /
+ * `NullMemberAccessPanic` (`../runtime/runtime-panics.ts`).
+ */
+export class InterpolatedResultPanic extends ThetaPanic {
+  readonly code = INTERPOLATED_RESULT_CODE;
+  constructor(message: string) {
+    super(message);
+    this.name = "InterpolatedResultPanic";
   }
 }
 
