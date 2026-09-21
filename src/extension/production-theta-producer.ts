@@ -1449,7 +1449,7 @@ class ProductionThetaProducer implements ThetaProducerDeps {
     // absent stopReason is fixture shorthand for a normal terminator (the
     // `classifyOffSessionReply` posture), never a failure.
     const stopReason = (reply as { readonly stopReason?: string }).stopReason;
-    const errorMessage = (reply as { readonly errorMessage?: string }).errorMessage;
+    const errorMessage = reply.errorMessage;
     const stopReasonNonNormal =
       typeof stopReason === "string" && !OFF_SESSION_NORMAL_STOP_REASONS.has(stopReason);
     if (

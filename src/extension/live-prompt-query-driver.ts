@@ -1409,7 +1409,7 @@ function classifyOffSessionReply(
     // error-stop empty content classified below.
     return { kind: "text", text: assistantText(reply) };
   }
-  const errorMessage = (reply as { readonly errorMessage?: string }).errorMessage;
+  const errorMessage = reply.errorMessage;
   const partialText = assistantText(reply);
   const classified = classifyProviderResponse({
     api: provider,
@@ -1658,7 +1658,7 @@ async function dispatchForcedRespondTurn(
     // pipeline, where a repeat rejection no longer matches this arm.
     if (
       !degraded &&
-      isForcedToolChoiceRejection((reply as { readonly errorMessage?: string }).errorMessage)
+      isForcedToolChoiceRejection(reply.errorMessage)
     ) {
       degraded = true;
       continue;
