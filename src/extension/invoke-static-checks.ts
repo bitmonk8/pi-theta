@@ -1,8 +1,9 @@
 // Load-time (compose-pass) orchestration for invoke static checks, with the
 // invoke-expression surface and shared type collection/rendering delegated to
-// invoke-expr-call-surface.ts (invocation.md §Argument arity / §Resolution /
-// §Cycle detection). Each check reuses an existing, unit-tested checker rather
-// than reimplementing it:
+// invoke-expr-call-surface.ts, the arity/slot model to invoke-callee-arity.ts,
+// and with-clause classification/cwd checks to with-clause-static-checks.ts
+// (invocation.md §Argument arity / §Resolution / §Cycle detection). Each check
+// reuses an existing, unit-tested checker rather than reimplementing it:
 //
 //   - INV-3 — `checkInvokeArity` over each `invoke("./x.theta", …)` site AND
 //     each `.theta`-callable call site (`<name>(args)` for a `tools:` `.theta`
@@ -88,32 +89,17 @@
 // diagnostics/code-registry-load.md.
 
 import { dirname, isAbsolute, resolve as resolvePath } from "node:path";
-import type { Diagnostic, SourceRange } from "../diagnostics/diagnostic";
+import type { Diagnostic } from "../diagnostics/diagnostic";
 import type {
   CallExpr,
-  Expr,
   InvokeExpr,
   MemberExpr,
   ObjectExpr,
   ThetaBody,
-  Stmt,
 } from "../parser/theta-document";
 import { walkCallSiteNodes } from "../parser/theta-document";
-import type { CallWithClause } from "../parser/theta-document";
-import type { ThetaMode } from "../parser/frontmatter";
 import type { CallableSetSnapshot } from "../parser/callable-set";
-import {
-  checkInvokeArity,
-  invokeArgTypeMismatchMessage,
-  withClauseInProcessCalleeMessage,
-  withClausePiToolMessage,
-  INVOKE_ARG_TYPE_MISMATCH_CODE,
-  WITH_CLAUSE_IN_PROCESS_CALLEE_CODE,
-  WITH_CLAUSE_IN_PROCESS_CALLEE_HINT,
-  WITH_CLAUSE_PI_TOOL_CODE,
-  WITH_CLAUSE_PI_TOOL_HINT,
-  type InvokeArgSlot,
-} from "../parser/invoke-diagnostics";
+import { checkInvokeArity } from "../parser/invoke-diagnostics";
 import {
   detectInvocationCycle,
   type InvokeGraph,
@@ -121,7 +107,6 @@ import {
 import { canonicalizePath } from "../runtime/invocation";
 import { normalizePath } from "../normalize-path";
 import type { FileSystem } from "../seams/file-system";
-import type { MaterializedImport } from "../runtime/lexical-environment";
 import type { ThetaCompositionInput } from "./theta-composition-producer";
 import { withClausePromptModeRefusal } from "./with-clause-prompt-mode-gate";
 // Bug 0072: the two static tool-argument TYPE checks reuse the existing `V20b`
@@ -130,15 +115,12 @@ import { withClausePromptModeRefusal } from "./with-clause-prompt-mode-gate";
 import { checkToolCallArguments } from "../runtime/tool-call";
 import { StaticTypeInferencePass } from "../parser/static-type-inference";
 import {
-  annotationToCompatType,
   collectEnumNames,
   collectTypeEnv,
-  letAnnotationToCompatType,
 } from "../parser/type-layer-checks";
 import { RUNTIME_TOOL_SIGNATURES, type RuntimeToolName } from "../parser/runtime-tools";
 import {
   checkCompatible,
-  displayType,
   type CompatType,
   type TypeEnv,
 } from "../parser/type-compat";
@@ -149,36 +131,16 @@ import {
   renderCollectedTypes,
 } from "./invoke-expr-call-surface";
 export { collectProvableArgTypes } from "./invoke-expr-call-surface";
-
-/**
- * RFC 0011 §0 C6: build the runtime-tool success-type map for a compose-pass
- * `StaticTypeInferencePass` from the callable set's `"runtime-tool"` entries.
- * GOV-15 inert: returns `undefined` when the set holds no such entry.
- */
-function buildComposePassSuccessTypes(
-  callableSet: CallableSetSnapshot | undefined,
-): ReadonlyMap<string, CompatType> | undefined {
-  if (callableSet === undefined) {
-    return undefined;
-  }
-  let out: Map<string, CompatType> | undefined;
-  for (const [presented, entry] of callableSet.entries) {
-    if (entry.kind !== "runtime-tool") {
-      continue;
-    }
-    const canonical: RuntimeToolName = (entry as { name: RuntimeToolName }).name;
-    const sig = RUNTIME_TOOL_SIGNATURES.get(canonical);
-    if (sig === undefined) {
-      continue;
-    }
-    const type = letAnnotationToCompatType(sig.successTypeSource);
-    if (type !== undefined) {
-      out ??= new Map();
-      out.set(presented, type);
-    }
-  }
-  return out;
-}
+import {
+  buildComposePassSuccessTypes,
+  buildInvokeArgSlot,
+  fieldSchemaType,
+  toolParameterProperties,
+  type CalleeArity,
+} from "./invoke-callee-arity";
+export { dedupeArgType, type CalleeArity, type CalleeArityField } from "./invoke-callee-arity";
+import { checkClauseCwdType, checkWithClauseDefaultReject } from "./with-clause-static-checks";
+export { checkImportedWithClauseCallees } from "./with-clause-static-checks";
 
 /**
  * The four call-shaped node kinds the shared walk (`walkCallSiteNodes`,
@@ -335,96 +297,6 @@ export function collectThetaCallableCallSites(
   return resolveThetaCallableCallSites(collectCallSites(body).callExprs, callableSet);
 }
 
-/**
- * INV-6 (invocation.md `#options-surface`) — judge a call-site `with` clause's
- * `cwd` value as an ordinary argument slot of expected type `string`: "a type
- * mismatch is the ordinary type diagnostic; no dedicated code is minted". The
- * per-surface row is exactly the surface's own argument row —
- * `theta/parse/invoke-arg-type-mismatch` on the `invoke(...)` surface,
- * `theta/parse/tool-arg-type-mismatch` on the `.theta`-callable surface (both
- * Triggers name the clause value; no registry change).
- *
- * Provable-only, the same posture the per-argument loops keep: an emission
- * needs EVERY value the expression can take to be explicitly incompatible with
- * `string`; anything past the parser's static view defers to the runtime
- * validation arm. `string` is a primitive, so the verdict is decidable under
- * the empty callee-annotation env the argument loops also judge in.
- */
-function checkClauseCwdType(input: {
-  readonly clause?: CallWithClause;
-  readonly surface:
-    | { readonly kind: "invoke"; readonly providedCount: number }
-    | { readonly kind: "theta-callable"; readonly name: string };
-  readonly file: string;
-  readonly fallbackRange: SourceRange;
-  readonly typeEnv: TypeEnv;
-  readonly typePass: StaticTypeInferencePass;
-}): Diagnostic[] {
-  const clause = input.clause;
-  if (clause === undefined) {
-    return [];
-  }
-  const expected: CompatType = { kind: "prim", name: "string" };
-  const emptyCalleeAnnotationEnv: TypeEnv = Object.create(null) as TypeEnv;
-  const out: Diagnostic[] = [];
-  for (const field of clause.fields) {
-    if (field.key !== "cwd") {
-      // An unknown key already drew `theta/parse/with-clause-unknown-key` at
-      // parse and un-registered the theta; it has no expected type here.
-      continue;
-    }
-    const valueTypes = collectProvableArgTypes(field.value, input.typeEnv, input.typePass);
-    if (valueTypes === undefined) {
-      continue;
-    }
-    if (
-      !valueTypes.every(
-        (valueType) =>
-          checkCompatible(valueType, expected, emptyCalleeAnnotationEnv) === "incompatible",
-      )
-    ) {
-      continue;
-    }
-    const actual = renderCollectedTypes(valueTypes);
-    if (input.surface.kind === "invoke") {
-      out.push({
-        severity: "error",
-        code: INVOKE_ARG_TYPE_MISMATCH_CODE,
-        file: input.file,
-        range: field.value.range,
-        // `<i>` renders the provided positional-argument count: the clause's
-        // slot follows the last real argument, so that count is the slot
-        // number an author reads off the call site. `<param>` is the key.
-        message: invokeArgTypeMismatchMessage(
-          input.surface.providedCount,
-          "cwd",
-          displayType(expected),
-          actual,
-        ),
-      });
-      continue;
-    }
-    out.push(
-      ...checkToolCallArguments({
-        toolName: input.surface.name,
-        calleeKind: "theta-callable",
-        // Neutralises the shared arity arm, exactly as the per-argument loop
-        // below does: this site's real arity is checked by `checkInvokeArity`.
-        positionalCount: 1,
-        file: input.file,
-        range: input.fallbackRange,
-        staticResolution: {
-          resolvable: true,
-          matches: false,
-          expected: displayType(expected),
-          actual,
-        },
-      }),
-    );
-  }
-  return out;
-}
-
 /** Resolve an `invoke` path literal to a forward-slash-normalised absolute path. */
 function resolveCalleeAbsolute(callerPath: string, literalPath: string): string {
   const baseDir = dirname(callerPath);
@@ -496,219 +368,6 @@ export async function buildInvokeGraph(
     edges.set(input.slashName, targets);
   }
   return { edges, unresolvable: new Set<string>() };
-}
-
-/** One `.theta`-callable / `invoke(...)` callee's `params:` field, as the
- * per-argument type-mismatch checks (`theta/parse/tool-arg-type-mismatch`, bug
- * 0072; `theta/parse/invoke-arg-type-mismatch`, bug 0137) consume it:
- * positional order, verbatim declared type source and field name. */
-export interface CalleeArityField {
-  /** The field's verbatim declared type source (`params: { x: <this> }`). */
-  readonly typeSource: string;
-  /**
-   * The field's verbatim `params:` name (`params: { <this>: string }`). Bug
-   * 0137's invoke-literal arm reports this as `<param>`; the
-   * `.theta`-callable arm's own *Message* carries no `<param>` (bug 0072 never
-   * needed this field), so that arm does not read it.
-   */
-  readonly name: string;
-}
-
-/** The callee shape the arity check consults, resolved once per site. */
-export interface CalleeArity {
-  /** Count of `params:` fields that are neither defaulted nor optional. */
-  readonly requiredCount: number;
-  /** Total `params:` field count. */
-  readonly totalCount: number;
-  /**
-   * The callee's WHOLE `params:` list, in declaration order (bug 0072; bug
-   * 0137): slot `i` of a `.theta`-callable call OR an `invoke(...)` call
-   * binds to `fields[i]`, the same positional correspondence
-   * `checkInvokeArity`'s counts already assume (invocation.md §"Argument
-   * binding").
-   */
-  readonly fields: readonly CalleeArityField[];
-  /**
-   * The callee's declared frontmatter `mode:` (RFC 0009; invocation.md INV-8's
-   * static mode gate). Carried here rather than resolved separately because
-   * `arity !== undefined` is already this pass's static-resolvability predicate
-   * (invocation.md §Static resolution) and the mode gate keys on exactly that
-   * value — so the gate costs no second callee read. Present on every
-   * `resolveCalleeArity` return: `mode:` is a required frontmatter field
-   * (`theta/load/missing-mode`), so a resolvable callee always has one.
-   */
-  readonly mode: ThetaMode;
-}
-
-/**
- * Read a Pi tool's registered JSON-Schema `parameters.properties` map (bug
- * 0072), or `undefined` when `parameters` is absent or not a plausible
- * JSON-Schema object. A `Map` built from `Object.entries`, never a
- * plain-object property read on a field name: the caller keys into this map
- * by the theta author's own object-literal field name, which is arbitrary
- * source text (the 0031/0038 hazard class) — `parameters`/`properties`/`type`
- * themselves are fixed keys this module chooses, not author-controlled, so a
- * direct property read on them is unaffected.
- */
-function toolParameterProperties(
-  parameters: unknown,
-): ReadonlyMap<string, unknown> | undefined {
-  if (typeof parameters !== "object" || parameters === null || Array.isArray(parameters)) {
-    return undefined;
-  }
-  const properties = (parameters as { readonly properties?: unknown }).properties;
-  if (typeof properties !== "object" || properties === null || Array.isArray(properties)) {
-    return undefined;
-  }
-  return new Map(Object.entries(properties as Record<string, unknown>));
-}
-
-/**
- * The JSON-Schema keywords that make one input-schema field's disjointness
- * unprovable: tool-calls.md §"Provable-disjointness check (parse time)" defers
- * anything the schema subset cannot represent to the runtime AJV check, and
- * any of these refines the accepted-value set past what a bare `type`
- * kind-set comparison can decide.
- */
-const SCHEMA_REFINEMENT_KEYS: ReadonlySet<string> = new Set([
-  "format",
-  "pattern",
-  "enum",
-  "const",
-  "anyOf",
-  "oneOf",
-  "allOf",
-  "$ref",
-  "minimum",
-  "maximum",
-  "multipleOf",
-  "minLength",
-  "maxLength",
-]);
-
-/**
- * The rendered subset-kind-set source `computeToolArgSchemaConflict`
- * (../runtime/tool-call.ts) consumes for one Pi-tool input-schema field, or
- * `undefined` when the field carries no `type` or any `SCHEMA_REFINEMENT_KEYS`
- * keyword (unprovable: defer to the runtime AJV net). A JSON-Schema
- * `type` array (`["string", "null"]`) renders as `a | b` — `subsetKinds`
- * splits top-level unions the same way an author-written union annotation
- * does.
- */
-function fieldSchemaType(fieldSchema: unknown): string | undefined {
-  if (typeof fieldSchema !== "object" || fieldSchema === null || Array.isArray(fieldSchema)) {
-    return undefined;
-  }
-  const record = fieldSchema as Record<string, unknown>;
-  if (Object.keys(record).some((key) => SCHEMA_REFINEMENT_KEYS.has(key))) {
-    return undefined;
-  }
-  const type = record["type"];
-  if (typeof type === "string") {
-    return type;
-  }
-  if (Array.isArray(type) && type.every((t) => typeof t === "string")) {
-    return (type as string[]).join(" | ");
-  }
-  return undefined;
-}
-
-/**
- * Build one `invoke(...)` positional argument slot (bug 0137), reusing the
- * `.theta`-callable arm's per-slot mechanisms unchanged: the expected side
- * from the callee's verbatim `params:` field type (`annotationToCompatType`),
- * the actual side from the SET of types the argument can evaluate to
- * (`collectProvableArgTypes`), both judged under `emptyCalleeAnnotationEnv` so
- * a caller-local homonym cannot decide a verdict about the callee's contract.
- *
- * Returns a WITHHELD slot (`paramType` / `argType` both `undefined`) whenever
- * any input is absent or the every-member-incompatible test does not hold:
- * `field` absent is the too-many case (arity already fails on this site, so
- * `checkInvokeCall` never reaches the per-argument check, and no field name is
- * available to report); `argExpr` absent cannot arise given how the caller
- * derives its loop bound from the same `invoke.args`, kept as a defensive
- * withhold rather than an unchecked index read; `annotationToCompatType`
- * returning `undefined` and `collectProvableArgTypes` returning `undefined`
- * both mean the same thing `type-system.md` §"Unresolvable operands" already
- * names — a side past the parser's static view defers to the callee's runtime
- * AJV load. `checkInvokeArgTypes` skips a withheld slot before it calls
- * `checkCompatible`.
- *
- * Never fabricates a `CompatType` for a withheld slot: `decide`
- * (`../parser/type-compat.ts`) tests `sup.kind === "array"` / `"object"`
- * before its `sub.kind === "named"` branch, so a sentinel unresolvable
- * `named` argument type would answer `"incompatible"` at an `array<…>` or
- * inline-object param — a false `E` against a well-typed program.
- */
-function buildInvokeArgSlot(
-  argExpr: Expr | undefined,
-  field: CalleeArityField | undefined,
-  typeEnv: TypeEnv,
-  typePass: StaticTypeInferencePass,
-  emptyCalleeAnnotationEnv: TypeEnv,
-): InvokeArgSlot {
-  const withheld = (paramName: string): InvokeArgSlot => ({
-    paramName,
-    paramType: undefined,
-    argType: undefined,
-  });
-  if (field === undefined) {
-    return withheld("");
-  }
-  if (argExpr === undefined) {
-    return withheld(field.name);
-  }
-  const expectedType = annotationToCompatType(field.typeSource);
-  if (expectedType === undefined) {
-    return withheld(field.name);
-  }
-  const argTypes = collectProvableArgTypes(argExpr, typeEnv, typePass);
-  if (argTypes === undefined) {
-    return withheld(field.name);
-  }
-  const everyMemberIncompatible = argTypes.every(
-    (argType) =>
-      checkCompatible(argType, expectedType, emptyCalleeAnnotationEnv) === "incompatible",
-  );
-  if (!everyMemberIncompatible) {
-    // One arm the `params:` field accepts — or answers `"unknown"` /
-    // `"integer-narrowing"` for — means a runtime value may well type-check,
-    // so the slot defers to the runtime AJV net.
-    return withheld(field.name);
-  }
-  return {
-    paramName: field.name,
-    paramType: expectedType,
-    argType: dedupeArgType(argTypes),
-  };
-}
-
-/**
- * Reduce a collected value-type set (`collectProvableArgTypes`) to the single
- * `CompatType` `checkInvokeArgTypes` re-decides against (`buildInvokeArgSlot`):
- * one member per distinct `displayType` rendering — the same de-duplication
- * `renderCollectedTypes` applies for the message string — collapsed to that
- * member alone when only one rendering survives, else a `union` over the
- * survivors so `displayType` reproduces the identical `" | "`-joined spelling.
- * Every returned member is drawn from `types` itself, never invented: the
- * every-member-incompatible verdict is decided by `buildInvokeArgSlot` BEFORE
- * this function runs, so `checkCompatible`'s union-sub rule (`decide`,
- * type-compat.ts, TYPE-6 — which returns `"incompatible"` on the FIRST
- * mismatching arm) only RE-DERIVES that verdict when `checkInvokeArgTypes`
- * re-runs it, rather than deciding it here. That rule is unsound as a
- * discriminator over a mixed set, and sound only because every arm already
- * agrees by construction.
- */
-export function dedupeArgType(types: readonly CompatType[]): CompatType {
-  const byDisplay = new Map<string, CompatType>();
-  for (const type of types) {
-    const key = displayType(type);
-    if (!byDisplay.has(key)) {
-      byDisplay.set(key, type);
-    }
-  }
-  const arms = [...byDisplay.values()];
-  return arms.length === 1 ? (arms[0] as CompatType) : { kind: "union", arms };
 }
 
 /**
@@ -889,166 +548,6 @@ function checkRuntimeToolCallSurface(
         typePass,
       }),
     );
-  }
-  return diagnostics;
-}
-
-/**
- * RFC 0009 Erratum A′ + Erratum B (invocation.md INV-8) — the call-site
- * clause's DEFAULT-REJECT callee classification: ONE loop, TWO codes, a
- * four-way verdict against the frozen callable set plus the file's own
- * `subagent fn` declarations. The clause is legal on the three
- * child-spawning surfaces, so this loop convicts everything else on the
- * bare-ident call surface: a callee the set classifies `theta` is a legal
- * surface (the mode gate above owns it); a callee naming one of THIS file's
- * top-level `subagent fn`s is a legal surface (Erratum B, RFC 0012 §10 — the
- * body is a child process, so the clause has a working directory to address;
- * the `subagent` modifier is a declaration-site fact this pass already has);
- * a callee the set classifies `pi-tool` draws `theta/parse/with-clause-pi-tool`;
- * a callee that is an IMPORTED name is DEFERRED to `checkImportedWithClauseCallees`
- * (the declaring library resolves later in the compose pass, re-export chains
- * followed by materialisation, and only then is its fn kind known); and EVERY
- * other callee — plain `fn`, locals, builtins, anything the set does not bind —
- * draws `theta/parse/with-clause-in-process-callee`. `ResolvedCallable` is
- * a closed union (`"pi-tool" | "theta" | "runtime-tool"`), so the arms are
- * total: `"runtime-tool"` falls through to the default
- * `with-clause-in-process-callee` arm (RFC 0011 §3.2 row 1).
- *
- * PRECEDENCE: this loop runs only for a parse-clean theta —
- * `parseDiscoveredTheta` (production-composition.ts) drops any
- * error-severity parse diagnostic before the compose pass calls this
- * function — so an input that drew `theta/parse/unknown-identifier`,
- * `theta/parse/shadowed-callable-call` or
- * `theta/parse/with-clause-unknown-key` never reaches it, and those keep
- * their refusal ALONE on a `.theta` host. Driven directly at the unit
- * level the loop still emits for such inputs; the pipeline-level
- * precedence is a composition-level property, not this loop's own.
- */
-function checkWithClauseDefaultReject(
-  callerPath: string,
-  callExprs: readonly CallExpr[],
-  callableSet: CallableSetSnapshot | undefined,
-  statements: readonly Stmt[],
-): Diagnostic[] {
-  const diagnostics: Diagnostic[] = [];
-  if (callableSet !== undefined) {
-    const subagentFns = topLevelSubagentFnNames(statements);
-    const imported = importedLocalNames(statements);
-    for (const call of callExprs) {
-      if (call.withClause === undefined) {
-        continue;
-      }
-      // Bug 0071 §Fix constraint 2 / the 0031-0038 hazard rule: `Map.get`
-      // plus an explicit `!== undefined` test — a callee name is
-      // author-controlled source text.
-      const entry = callableSet.entries.get(call.callee);
-      if (entry !== undefined && entry.kind === "theta") {
-        continue;
-      }
-      // Erratum B: a same-file `subagent fn` is a child-spawning surface.
-      // expressions.md §"Identifier resolution" ranks `fn` above `callable`,
-      // so a name the set ALSO binds resolves to the declaration first.
-      if (entry === undefined && subagentFns.has(call.callee)) {
-        continue;
-      }
-      // An imported name's fn kind is the declaring library's fact; judged
-      // once the import materialises (`checkImportedWithClauseCallees`).
-      if (entry === undefined && imported.has(call.callee)) {
-        continue;
-      }
-      if (entry !== undefined && entry.kind === "pi-tool") {
-        diagnostics.push({
-          severity: "error",
-          code: WITH_CLAUSE_PI_TOOL_CODE,
-          file: callerPath,
-          // The Pi-tool arm ranges over the CALL: a Pi tool is never a
-          // clause-bearing surface at all, so the whole call site is the
-          // fault, not just the clause.
-          range: call.range,
-          message: withClausePiToolMessage(call.callee),
-          hint: WITH_CLAUSE_PI_TOOL_HINT,
-        });
-        continue;
-      }
-      diagnostics.push({
-        severity: "error",
-        code: WITH_CLAUSE_IN_PROCESS_CALLEE_CODE,
-        file: callerPath,
-        // The default arm ranges over the CLAUSE: the callee is fine (it is a
-        // legal in-process call), the clause is what cannot apply to it.
-        range: call.withClause.range,
-        message: withClauseInProcessCalleeMessage(call.callee),
-        hint: WITH_CLAUSE_IN_PROCESS_CALLEE_HINT,
-      });
-    }
-  }
-  return diagnostics;
-}
-
-/** The names of every top-level `subagent fn` declared in `statements` (a declaration-site fact). */
-function topLevelSubagentFnNames(statements: readonly Stmt[]): ReadonlySet<string> {
-  const names = new Set<string>();
-  for (const stmt of statements) {
-    if (stmt.kind === "fn" && stmt.subagent === true) {
-      names.add(stmt.name);
-    }
-  }
-  return names;
-}
-
-/** The LOCAL binding names of every `import` declaration (`ImportDecl.symbols`: the alias where written, else the source name). */
-function importedLocalNames(statements: readonly Stmt[]): ReadonlySet<string> {
-  const names = new Set<string>();
-  for (const stmt of statements) {
-    if (stmt.kind === "import") {
-      for (const symbol of stmt.symbols) {
-        names.add(symbol);
-      }
-    }
-  }
-  return names;
-}
-
-/**
- * RFC 0009 Erratum B (RFC 0012 §10) — the DEFERRED half of the call-site
- * clause's default-reject classification, judged once the caller's imports
- * have materialised (re-export chains followed): a clause on a call whose
- * callee is an IMPORTED name is admitted when the materialised import is a
- * `subagent fn` (a child-spawning surface, FN-9) and draws
- * `theta/parse/with-clause-in-process-callee` otherwise — an imported plain
- * `fn`, or an imported `schema` / `enum` name used as a callee. A callee the
- * frozen callable set binds is not an imported name here (the load pass's own
- * loop owned it). An import that failed to materialise at all already drew its
- * own IMP-* refusal and un-registered the theta before this runs.
- */
-export function checkImportedWithClauseCallees(
-  callerPath: string,
-  body: ThetaBody,
-  imports: readonly MaterializedImport[],
-  callableSet: CallableSetSnapshot | undefined,
-): Diagnostic[] {
-  const diagnostics: Diagnostic[] = [];
-  const importedNames = importedLocalNames(body.statements);
-  const byName = new Map(imports.map((entry) => [entry.name, entry] as const));
-  for (const call of collectCallSites(body).callExprs) {
-    if (call.withClause === undefined || !importedNames.has(call.callee)) {
-      continue;
-    }
-    if (callableSet?.entries.get(call.callee) !== undefined) {
-      continue;
-    }
-    const materialised = byName.get(call.callee);
-    if (materialised?.kind === "fn" && materialised.fn?.subagent === true) {
-      continue;
-    }
-    diagnostics.push({
-      severity: "error",
-      code: WITH_CLAUSE_IN_PROCESS_CALLEE_CODE,
-      file: callerPath,
-      range: call.withClause.range,
-      message: withClauseInProcessCalleeMessage(call.callee),
-      hint: WITH_CLAUSE_IN_PROCESS_CALLEE_HINT,
-    });
   }
   return diagnostics;
 }
