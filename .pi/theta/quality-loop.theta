@@ -158,10 +158,25 @@ ${lenses_out}`?
   return "refused: unknown lens " + bad_lens
 }
 
-let baseline = bash({ command: "{ " + gate_cmd + " ; } >/dev/null 2>&1 && echo GATE_PASS || echo GATE_FAIL", timeout: 3600 })?
+let baseline = bash({ command: "{ " + gate_cmd + " ; } > /tmp/ql-baseline.log 2>&1 && echo GATE_PASS || echo GATE_FAIL", timeout: 3600 })?
 if !baseline.includes("GATE_PASS") {
-  let _ = @`Tell the user: /quality-loop refused to start — the offline gate is already red on the untouched tree, so fix failures could not be attributed. Fix the baseline first (gate: ${gate_cmd}).`?
-  return "refused: red baseline"
+  // Flaky-vs-real discipline (AGENTS.md §"Capture an expensive run to a file"):
+  // ~10 discovery/spawn tests time out under machine load but pass in
+  // isolation. Before refusing, re-run JUST the failing files serially —
+  // isolation-green means the baseline is green and the red was contention.
+  let failing = bash({ command: "grep -a FAIL /tmp/ql-baseline.log | grep -aoE 'tests/[A-Za-z0-9_./-]+\\.test\\.ts' | sort -u | tr '\\n' ' '", timeout: 60 })?
+  if failing.trim() == "" {
+    // No failing test files identifiable (e.g. tsc red, or a crashed run):
+    // genuinely broken baseline.
+    let _ = @`Tell the user: /quality-loop refused to start — the offline gate is already red on the untouched tree (no failing test files identifiable; likely tsc or a crashed run — see /tmp/ql-baseline.log), so fix failures could not be attributed. Fix the baseline first (gate: ${gate_cmd}).`?
+    return "refused: red baseline"
+  }
+  let isolation = bash({ command: "npx vitest run " + failing.trim() + " > /tmp/ql-isolation.log 2>&1 && echo GATE_PASS || echo GATE_FAIL", timeout: 1800 })?
+  if !isolation.includes("GATE_PASS") {
+    let _ = @`Tell the user: /quality-loop refused to start — the offline gate is red on the untouched tree and the failures REPRODUCE in isolation (${failing.trim()} — logs: /tmp/ql-baseline.log, /tmp/ql-isolation.log), so this is a real baseline red, not a contention flake. Fix the baseline first (gate: ${gate_cmd}).`?
+    return "refused: red baseline (reproduced in isolation)"
+  }
+  // Isolation-green: contention flake — proceed on a green baseline.
 }
 
 // The per-tree gate: same gate, bounded test-runner width. vitest 2.x rejects
