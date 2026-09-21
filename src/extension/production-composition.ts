@@ -1040,135 +1040,21 @@ async function runComposePass(
   // below reads only the Pi surfaces. `subagentRootRegime` itself is hoisted
   // above the discovery walk (see there) so bug 0331's marked-root winner is
   // available before `discoverThetas` runs.
-  // Bug 0178 element (b): hoisted here (not inline in `producerDeps` below) so
-  // ONE writer instance serves both `driveSubagentRootRegime`'s own PIC-59
-  // envelope and this pass's marked-root registration-refusal envelope
-  // (emitted after the registration loop) — a child process has exactly one
-  // reserved-key stdout channel (PIC-59) and must never open two independent
-  // writers onto it.
-  // RFC-0012 §3: under a non-`pipe` placement the launch file names a result
-  // channel and the envelope goes THERE, not to fd 1 — a visible child's fd 1
-  // is the interactive TUI's terminal, and a JSON line on it would corrupt the
-  // display without reaching any reader. Under `pipe` (no channel) fd 1 is the
-  // wire exactly as before.
-  const emitResultEnvelope =
-    passEnvelopeWriter ??
-    (passResultChannel !== undefined
-      ? (line: string): void => {
-          passResultChannel.writeLine(line);
-        }
-      : createProductionEnvelopeWriter());
-
-  // RFC-0012 §1: the built-in `pipe` placement — today's launch, verbatim —
-  // constructed once per compose pass over the production spawn function.
-  const pipePlacement = createPipePlacementBackend(createProductionSpawnFn());
-  // RFC-0012 §4: the `exec` backend over the operator's global template (the
-  // settings reader already dropped a project-scope value). Its `when` gate
-  // reads the same env view the selector does.
-  const execTemplate = settings.theta?.subagentPlacementExec;
-  const execPlacement =
-    execTemplate !== undefined
-      ? createExecPlacementBackend(execTemplate, {
-          runner: createProductionExecCommandRunner(),
-          env: controlPlaneEnv,
-          clock,
-        })
-      : undefined;
-  const selectPlacementNow = (): PlacementSelection =>
-    selectPlacement({
-      selector: placementSelector,
-      registered: passPlacementRegistration?.registry.snapshot() ?? [],
-      exec: execPlacement,
-      pipe: pipePlacement,
+  const { emitResultEnvelope, placementAtLoad, placementPolicy, subagentOpenWire } =
+    buildPassPlacement({
+      ctx,
+      settings,
+      controlPlaneEnv,
+      clock,
+      systemNote,
+      placementSelector,
+      passEnvelopeWriter,
+      passResultChannel,
+      passPlacementRegistration,
     });
-  // The load-time verdict, once per pass (`detect()` is env-marker based and
-  // the registered set was just discovered).
-  const placementAtLoad = selectPlacementNow();
-  // RFC-0012 §6 (+ D6): the per-launch resolver — selection, the visible cap,
-  // the credential guard. `getProviderAuthStatus` is presence-probed
-  // (`typeof`, never called at probe time): a host without it, or an
-  // `AuthStatus` without `source`, leaves the guard inert (documented caveat).
-  const providerAuthStatus =
-    typeof (ctx.modelRegistry as { readonly getProviderAuthStatus?: unknown }).getProviderAuthStatus ===
-    "function"
-      ? (provider: string): { readonly source?: string } | undefined =>
-          ctx.modelRegistry.getProviderAuthStatus(provider)
-      : undefined;
-  const placementPolicy = createPlacementPolicy({
-    select: selectPlacementNow,
-    pipe: pipePlacement,
-    maxVisible: settings.theta?.subagentPlacementMaxVisible ?? DEFAULT_SUBAGENT_PLACEMENT_MAX_VISIBLE,
-    ...(providerAuthStatus !== undefined ? { providerAuthStatus } : {}),
-    // The credential-guard note is informational (no `details`, bug 0401's
-    // wire shape) on this instance's own `theta-system-note` channel.
-    emitSystemNote: (content: string): void => {
-      sendSystemNote({ content, display: true }, systemNote);
-    },
-  });
-  // RFC-0012 §2/§3: the wire a non-`pipe` placement opens before `place()` —
-  // the loopback result channel plus the launch file carrying its coordinates.
-  const subagentOpenWire = createProductionSubagentWire({
-    clock,
-    launchFs: createProductionLaunchFileFs(),
-    server: createProductionChannelServer(),
-    mintSecret: createProductionSecretMint(),
-  });
 
-  // PIC-64: the code-side extension-tool dispatch-ladder probe — MODE- and
-  // regime-independent (the retired PIC-61 child-only availability invariant is
-  // inverted). The probe records a rung available only when it is EXECUTABLE
-  // here: the same probe gates the LOAD-time rung-3 refusal and the runtime
-  // rung routing, so recording a rung with no dispatcher behind it would
-  // register thetas whose every code-side call then fails — registration must
-  // never outrun dispatchability (rung 3's register-iff-dispatchable intent).
-  //  - rung 1 (`getToolDefinition`): the upstream surface probe
-  //    (`probeGetToolDefinitionSurface`) AND a wired rung-1 dispatcher. No
-  //    rung-1 dispatcher is implemented at the theta 1.0 Pi-SDK pin (the
-  //    surface is requested upstream, so far refused), so the conjunction reads
-  //    false even on a host exposing the member, and rung 2 carries dispatch.
-  //    When the dispatcher lands, the second conjunct becomes its wiring
-  //    presence and `resolveDispatchLadder`'s normative rung-1 preference takes
-  //    over automatically, in parent and child alike — no ladder change.
-  //  - rung 2 (host-loop dispatch): establishable wherever a real host session
-  //    with an agent loop and the required Pi surfaces is present (`typeof`
-  //    capability-probe convention, `probeHostLoopSurfaces`) — inside the
-  //    subagent-root child AND in the parent against the user's live host
-  //    session (prompt mode).
-  // Shared between the producer wiring (runtime backstop,
-  // `#dispatchExtensionToolViaLadder`) and the LOAD-time reachability refusal
-  // below (rung 3), so both read the SAME probe: a theta whose CODE calls an
-  // extension tool REGISTERS when an executable rung is establishable — in
-  // either mode, in either process — while a no-executable-rung context refuses
-  // fail-closed with `theta/load/extension-tool-unreachable`.
-  const hostLoopSurfacesPresent = probeHostLoopSurfaces({ pi, ctx });
-  // Flips to the rung-1 dispatcher's wiring presence when one exists; `false`
-  // is the honest record that no code-side rung-1 dispatch is implemented yet.
-  const getToolDefinitionDispatchWired: boolean = false;
-  const dispatchLadderProbe: DispatchLadderProbe = {
-    getToolDefinitionAvailable:
-      probeGetToolDefinitionSurface({ pi }) && getToolDefinitionDispatchWired,
-    hostLoopAvailable: hostLoopSurfacesPresent,
-  };
-
-  // PIC-64 rung 2: the production host-loop dispatch seam, wired over the live
-  // host (`pi` + `ctx` + the runtime `Clock`) whenever the rung is establishable
-  // — the parent's live user session and the subagent-root child alike. Absent
-  // only where the surfaces are missing (the ladder is fail-closed there).
-  const hostLoopDispatch = dispatchLadderProbe.hostLoopAvailable
-    ? createProductionHostLoopDispatch({ pi, ctx, clock })
-    : undefined;
-
-  // RFC 0012 §7 (0.478.0): the child-outcome bus — the SAME `pi.events` member
-  // the factory probes for placement registration, re-probed here emit-only
-  // (the producer never subscribes). Presence-probed `typeof`, degrade-silent
-  // (PIC-73 class): absent ⇒ the child regime emits no outcome event and
-  // nothing refuses or mints a diagnostic.
-  const subagentOutcomeEvents =
-    typeof (pi as { readonly events?: unknown }).events === "object" &&
-    pi.events !== null &&
-    typeof pi.events.emit === "function"
-      ? pi.events
-      : undefined;
+  const { dispatchLadderProbe, hostLoopDispatch, subagentOutcomeEvents } =
+    buildDispatchLadder({ pi, ctx, clock });
 
   const producerDeps = createProductionProducerDeps({
     pi,
@@ -1763,6 +1649,177 @@ async function runComposePass(
   return { thetas: survivors, activeRoots, watchRoots };
 }
 
+/** Build the pass's shared envelope writer, placement policy, and child wire. */
+function buildPassPlacement({
+  ctx,
+  settings,
+  controlPlaneEnv,
+  clock,
+  systemNote,
+  placementSelector,
+  passEnvelopeWriter,
+  passResultChannel,
+  passPlacementRegistration,
+}: {
+  readonly ctx: ExtensionContext;
+  readonly settings: ThetaSettings;
+  readonly controlPlaneEnv: SubagentChildControlPlane["env"];
+  readonly clock: Clock;
+  readonly systemNote: SystemNoteChannelDeps;
+  readonly placementSelector: string;
+  readonly passEnvelopeWriter: ((line: string) => void) | undefined;
+  readonly passResultChannel: ResultChannelClient | undefined;
+  readonly passPlacementRegistration: PlacementRegistrationHandle | undefined;
+}): {
+  readonly emitResultEnvelope: (line: string) => void;
+  readonly placementAtLoad: PlacementSelection;
+  readonly placementPolicy: ReturnType<typeof createPlacementPolicy>;
+  readonly subagentOpenWire: ReturnType<typeof createProductionSubagentWire>;
+} {
+  // Bug 0178 element (b): constructed here (not inline in `runComposePass`'s `producerDeps`) so
+  // ONE writer instance serves both `driveSubagentRootRegime`'s own PIC-59
+  // envelope and this pass's marked-root registration-refusal envelope
+  // (emitted after the registration loop) — a child process has exactly one
+  // reserved-key stdout channel (PIC-59) and must never open two independent
+  // writers onto it.
+  // RFC-0012 §3: under a non-`pipe` placement the launch file names a result
+  // channel and the envelope goes THERE, not to fd 1 — a visible child's fd 1
+  // is the interactive TUI's terminal, and a JSON line on it would corrupt the
+  // display without reaching any reader. Under `pipe` (no channel) fd 1 is the
+  // wire exactly as before.
+  const emitResultEnvelope =
+    passEnvelopeWriter ??
+    (passResultChannel !== undefined
+      ? (line: string): void => {
+          passResultChannel.writeLine(line);
+        }
+      : createProductionEnvelopeWriter());
+
+  // RFC-0012 §1: the built-in `pipe` placement — today's launch, verbatim —
+  // constructed once per compose pass over the production spawn function.
+  const pipePlacement = createPipePlacementBackend(createProductionSpawnFn());
+  // RFC-0012 §4: the `exec` backend over the operator's global template (the
+  // settings reader already dropped a project-scope value). Its `when` gate
+  // reads the same env view the selector does.
+  const execTemplate = settings.theta?.subagentPlacementExec;
+  const execPlacement =
+    execTemplate !== undefined
+      ? createExecPlacementBackend(execTemplate, {
+          runner: createProductionExecCommandRunner(),
+          env: controlPlaneEnv,
+          clock,
+        })
+      : undefined;
+  const selectPlacementNow = (): PlacementSelection =>
+    selectPlacement({
+      selector: placementSelector,
+      registered: passPlacementRegistration?.registry.snapshot() ?? [],
+      exec: execPlacement,
+      pipe: pipePlacement,
+    });
+  // The load-time verdict, once per pass (`detect()` is env-marker based and
+  // the registered set was just discovered).
+  const placementAtLoad = selectPlacementNow();
+  // RFC-0012 §6 (+ D6): the per-launch resolver — selection, the visible cap,
+  // the credential guard. `getProviderAuthStatus` is presence-probed
+  // (`typeof`, never called at probe time): a host without it, or an
+  // `AuthStatus` without `source`, leaves the guard inert (documented caveat).
+  const providerAuthStatus =
+    typeof (ctx.modelRegistry as { readonly getProviderAuthStatus?: unknown }).getProviderAuthStatus ===
+    "function"
+      ? (provider: string): { readonly source?: string } | undefined =>
+          ctx.modelRegistry.getProviderAuthStatus(provider)
+      : undefined;
+  const placementPolicy = createPlacementPolicy({
+    select: selectPlacementNow,
+    pipe: pipePlacement,
+    maxVisible: settings.theta?.subagentPlacementMaxVisible ?? DEFAULT_SUBAGENT_PLACEMENT_MAX_VISIBLE,
+    ...(providerAuthStatus !== undefined ? { providerAuthStatus } : {}),
+    // The credential-guard note is informational (no `details`, bug 0401's
+    // wire shape) on this instance's own `theta-system-note` channel.
+    emitSystemNote: (content: string): void => {
+      sendSystemNote({ content, display: true }, systemNote);
+    },
+  });
+  // RFC-0012 §2/§3: the wire a non-`pipe` placement opens before `place()` —
+  // the loopback result channel plus the launch file carrying its coordinates.
+  const subagentOpenWire = createProductionSubagentWire({
+    clock,
+    launchFs: createProductionLaunchFileFs(),
+    server: createProductionChannelServer(),
+    mintSecret: createProductionSecretMint(),
+  });
+  return { emitResultEnvelope, placementAtLoad, placementPolicy, subagentOpenWire };
+}
+
+/** Build the shared load/runtime dispatch probe, dispatcher, and outcome bus. */
+function buildDispatchLadder({ pi, ctx, clock }: {
+  readonly pi: ExtensionAPI;
+  readonly ctx: ExtensionContext;
+  readonly clock: Clock;
+}): {
+  readonly dispatchLadderProbe: DispatchLadderProbe;
+  readonly hostLoopDispatch: ReturnType<typeof createProductionHostLoopDispatch> | undefined;
+  readonly subagentOutcomeEvents: ExtensionAPI["events"] | undefined;
+} {
+  // PIC-64: the code-side extension-tool dispatch-ladder probe — MODE- and
+  // regime-independent (the retired PIC-61 child-only availability invariant is
+  // inverted). The probe records a rung available only when it is EXECUTABLE
+  // here: the same probe gates the LOAD-time rung-3 refusal and the runtime
+  // rung routing, so recording a rung with no dispatcher behind it would
+  // register thetas whose every code-side call then fails — registration must
+  // never outrun dispatchability (rung 3's register-iff-dispatchable intent).
+  //  - rung 1 (`getToolDefinition`): the upstream surface probe
+  //    (`probeGetToolDefinitionSurface`) AND a wired rung-1 dispatcher. No
+  //    rung-1 dispatcher is implemented at the theta 1.0 Pi-SDK pin (the
+  //    surface is requested upstream, so far refused), so the conjunction reads
+  //    false even on a host exposing the member, and rung 2 carries dispatch.
+  //    When the dispatcher lands, the second conjunct becomes its wiring
+  //    presence and `resolveDispatchLadder`'s normative rung-1 preference takes
+  //    over automatically, in parent and child alike — no ladder change.
+  //  - rung 2 (host-loop dispatch): establishable wherever a real host session
+  //    with an agent loop and the required Pi surfaces is present (`typeof`
+  //    capability-probe convention, `probeHostLoopSurfaces`) — inside the
+  //    subagent-root child AND in the parent against the user's live host
+  //    session (prompt mode).
+  // Shared between the producer wiring (runtime backstop,
+  // `#dispatchExtensionToolViaLadder`) and the LOAD-time reachability refusal
+  // in `runComposePass` (rung 3), so both read the SAME probe: a theta whose CODE calls an
+  // extension tool REGISTERS when an executable rung is establishable — in
+  // either mode, in either process — while a no-executable-rung context refuses
+  // fail-closed with `theta/load/extension-tool-unreachable`.
+  const hostLoopSurfacesPresent = probeHostLoopSurfaces({ pi, ctx });
+  // Flips to the rung-1 dispatcher's wiring presence when one exists; `false`
+  // is the honest record that no code-side rung-1 dispatch is implemented yet.
+  const getToolDefinitionDispatchWired: boolean = false;
+  const dispatchLadderProbe: DispatchLadderProbe = {
+    getToolDefinitionAvailable:
+      probeGetToolDefinitionSurface({ pi }) && getToolDefinitionDispatchWired,
+    hostLoopAvailable: hostLoopSurfacesPresent,
+  };
+
+  // PIC-64 rung 2: the production host-loop dispatch seam, wired over the live
+  // host (`pi` + `ctx` + the runtime `Clock`) whenever the rung is establishable
+  // — the parent's live user session and the subagent-root child alike. Absent
+  // only where the surfaces are missing (the ladder is fail-closed there).
+  const hostLoopDispatch = dispatchLadderProbe.hostLoopAvailable
+    ? createProductionHostLoopDispatch({ pi, ctx, clock })
+    : undefined;
+
+  // RFC 0012 §7 (0.478.0): the child-outcome bus — the SAME `pi.events` member
+  // the factory probes for placement registration, re-probed here emit-only
+  // (the producer never subscribes). Presence-probed `typeof`, degrade-silent
+  // (PIC-73 class): absent ⇒ the child regime emits no outcome event and
+  // nothing refuses or mints a diagnostic.
+  const subagentOutcomeEvents =
+    typeof (pi as { readonly events?: unknown }).events === "object" &&
+    pi.events !== null &&
+    typeof pi.events.emit === "function"
+      ? pi.events
+      : undefined;
+  return { dispatchLadderProbe, hostLoopDispatch, subagentOutcomeEvents };
+}
+
 /**
  * The presented callable name a discovered `.theta` maps to (the same
  * derivation `resolveCallableSet` applies to a bare `.theta` path: basename
@@ -2069,71 +2126,11 @@ export async function composeExtensionInstance(
   // below reads live state instead of a permanently-absent gate.
   const channel = buildSystemNoteDeps(pi, ctx, emitToast, rendererGate, entryChannel);
 
-  // V4e — load-time pre-evaluation failure routing. Each error-severity
-  // load-phase diagnostic routes onto the `theta-system-note` channel with the
-  // fixed `triggerTurn:false` option, so the shipped LOAD path surfaces load
-  // failures on the SAME channel the wired RELOAD path uses (hot-reload.ts),
-  // rather than the transient toast (closing notes.md's "known load-phase
-  // routing gap"). error-model.md pins that every pre-evaluation failure
-  // "surfaces per Diagnostics on the theta-system-note channel, does not fire a
-  // new turn (triggerTurn:false)". Severity split (bug 0013): the eight
-  // pre-eval FAILURES are all error-severity, so ERRORS route per-diagnostic
-  // through the pre-eval delivery path; a load-phase WARNING is not a pre-eval
-  // failure, but
-  // diagnostic-shape.md's persistent-diagnostics default carries no severity
-  // carve-out, so a group's warnings deliver DIRECTLY onto the same
-  // `theta-system-note` channel as ONE `emitDiagnosticBatch` note per emitted
-  // group (content: the rendered batch; display:true; details.diagnostics;
-  // triggerTurn:false) — one file's warnings never fan out one note per
-  // warning (the multi-error one-`sendMessage`-per-`.theta` rule). A routed
-  // note is best-effort and never aborts `session_start` (the theta is
-  // dropped, not the session).
   // RFC-0012 §3: the child's connected result channel (assigned below, once
   // the runtime root's clock exists; read at call time by the mirror here).
   let resultChannel: ResultChannelClient | undefined;
-  const emitLoadNoteGroup = (diagnostics: readonly Diagnostic[]): void => {
-    for (const diagnostic of diagnostics) {
-      if (diagnostic.severity !== "error") {
-        continue;
-      }
-      // RFC-0012 §3 `stderr` frame: under a non-`pipe` placement the child's
-      // stderr is a terminal the parent cannot read, so the crash detail that
-      // used to arrive on the stderr pipe — this extension's own error-
-      // severity diagnostics — is mirrored onto the channel, one bounded line
-      // each, for the parent's `subagent-child-crashed` hint.
-      resultChannel?.stderr(`${diagnostic.code}: ${diagnostic.message}`);
-      // V4e — errors-and-results/error-model.md (ERR-1…ERR-6, ERR-16):
-      // pre-eval failures never fire a turn or become evaluation outcomes.
-      // PIC-72: prefer the entry channel, else send with triggerTurn:false.
-      deliverOperatorNotePreferringEntry(
-        {
-          content: renderDiagnosticBatch([diagnostic]),
-          display: true,
-          details: { diagnostics: [diagnostic] },
-        },
-        channel,
-      );
-    }
-    // Re-scan deduplication (diagnostics/diagnostic-shape.md#re-scan-deduplication)
-    // is a normative theta 1.0 contract: a watcher-triggered reload RE-EMITS the
-    // persistent diagnostic for a still-broken file, and the runtime MUST NOT
-    // suppress duplicates. So no emission-time dedup here; the 408-note storm
-    // (bug 0470) was a symptom of bug 0471 (reloads firing on non-theta files),
-    // fixed at the watcher-trigger filter, not here.
-    const warnings = diagnostics.filter(
-      (diagnostic) => diagnostic.severity === "warning",
-    );
-    if (warnings.length > 0) {
-      emitDiagnosticBatch(warnings, channel);
-    }
-  };
-  const emitLoadNote = (diagnostic: Diagnostic): void => {
-    emitLoadNoteGroup([diagnostic]);
-  };
-  const loadSink: LoadDiagnosticSink = {
-    emit: emitLoadNote,
-    emitGroup: emitLoadNoteGroup,
-  };
+  const loadSink = makeLoadNoteSink(channel, () => resultChannel);
+  const emitLoadNote = loadSink.emit;
 
   // The single-diagnostic handle outlives the pass (the `AjvSchemaValidator`
   // seam retains it); its warning arm delivers immediately — nothing buffers —
@@ -2164,45 +2161,7 @@ export async function composeExtensionInstance(
   // global timer). Reused across hot-reload passes and disposed with the
   // instance at `session_shutdown`, so a fresh `/reload` instance starts with a
   // fresh bus and every sink un-degraded.
-  //
-  // PIC-73: each optional UI surface is presence-probed INDEPENDENTLY and
-  // `typeof`-only (the probe never calls the member). A missing surface simply
-  // removes that sink; it never refuses or degrades theta registration and
-  // mints no diagnostic. `ctx.hasUI` is advisory only and gates nothing here.
-  // `ctx.ui` is read IN PLACE at each probe and each call (never captured into
-  // a local binding — the inventory-closure audit's family-(4) shape rule), and
-  // every read is optional-chained so a divergent host missing the whole `ui`
-  // carrier degrades instead of throwing.
-  const statusSinks: StatusSink[] = [];
-  if (
-    typeof (ctx.ui as unknown as Partial<FooterUi> | undefined)?.setStatus === "function" ||
-    typeof (ctx.ui as unknown as Partial<FooterUi> | undefined)?.setWorkingMessage ===
-      "function"
-  ) {
-    statusSinks.push(
-      createFooterSink({
-        setStatus: (key, text) => {
-          (ctx.ui as unknown as Partial<FooterUi> | undefined)?.setStatus?.(key, text);
-        },
-        setWorkingMessage: (message) => {
-          (ctx.ui as unknown as Partial<FooterUi> | undefined)?.setWorkingMessage?.(message);
-        },
-      }),
-    );
-  }
-  if (typeof (ctx.ui as unknown as Partial<WidgetUi> | undefined)?.setWidget === "function") {
-    statusSinks.push(
-      createWidgetSink({
-        setWidget: (key, content, options) => {
-          (ctx.ui as unknown as Partial<WidgetUi> | undefined)?.setWidget?.(
-            key,
-            content,
-            options,
-          );
-        },
-      }),
-    );
-  }
+  const statusSinks = buildStatusSinks(ctx);
   const statusBus = createExecutionStatusBus({ clock: root.clock, sinks: statusSinks });
   latchStatusBus?.(statusBus);
 
@@ -2371,6 +2330,119 @@ export async function composeExtensionInstance(
       });
     },
   };
+}
+
+/** Route load diagnostics, reading the instance's result channel at emit time. */
+function makeLoadNoteSink(
+  channel: SystemNoteChannelDeps,
+  getResultChannel: () => ResultChannelClient | undefined,
+): LoadDiagnosticSink {
+  // V4e — load-time pre-evaluation failure routing. Each error-severity
+  // load-phase diagnostic routes onto the `theta-system-note` channel with the
+  // fixed `triggerTurn:false` option, so the shipped LOAD path surfaces load
+  // failures on the SAME channel the wired RELOAD path uses (hot-reload.ts),
+  // rather than the transient toast (closing notes.md's "known load-phase
+  // routing gap"). error-model.md pins that every pre-evaluation failure
+  // "surfaces per Diagnostics on the theta-system-note channel, does not fire a
+  // new turn (triggerTurn:false)". Severity split (bug 0013): the eight
+  // pre-eval FAILURES are all error-severity, so ERRORS route per-diagnostic
+  // through the pre-eval delivery path; a load-phase WARNING is not a pre-eval
+  // failure, but
+  // diagnostic-shape.md's persistent-diagnostics default carries no severity
+  // carve-out, so a group's warnings deliver DIRECTLY onto the same
+  // `theta-system-note` channel as ONE `emitDiagnosticBatch` note per emitted
+  // group (content: the rendered batch; display:true; details.diagnostics;
+  // triggerTurn:false) — one file's warnings never fan out one note per
+  // warning (the multi-error one-`sendMessage`-per-`.theta` rule). A routed
+  // note is best-effort and never aborts `session_start` (the theta is
+  // dropped, not the session).
+  const emitLoadNoteGroup = (diagnostics: readonly Diagnostic[]): void => {
+    for (const diagnostic of diagnostics) {
+      if (diagnostic.severity !== "error") {
+        continue;
+      }
+      // RFC-0012 §3 `stderr` frame: under a non-`pipe` placement the child's
+      // stderr is a terminal the parent cannot read, so the crash detail that
+      // used to arrive on the stderr pipe — this extension's own error-
+      // severity diagnostics — is mirrored onto the channel, one bounded line
+      // each, for the parent's `subagent-child-crashed` hint.
+      getResultChannel()?.stderr(`${diagnostic.code}: ${diagnostic.message}`);
+      // V4e — errors-and-results/error-model.md (ERR-1…ERR-6, ERR-16):
+      // pre-eval failures never fire a turn or become evaluation outcomes.
+      // PIC-72: prefer the entry channel, else send with triggerTurn:false.
+      deliverOperatorNotePreferringEntry(
+        {
+          content: renderDiagnosticBatch([diagnostic]),
+          display: true,
+          details: { diagnostics: [diagnostic] },
+        },
+        channel,
+      );
+    }
+    // Re-scan deduplication (diagnostics/diagnostic-shape.md#re-scan-deduplication)
+    // is a normative theta 1.0 contract: a watcher-triggered reload RE-EMITS the
+    // persistent diagnostic for a still-broken file, and the runtime MUST NOT
+    // suppress duplicates. So no emission-time dedup here; the 408-note storm
+    // (bug 0470) was a symptom of bug 0471 (reloads firing on non-theta files),
+    // fixed at the watcher-trigger filter, not here.
+    const warnings = diagnostics.filter(
+      (diagnostic) => diagnostic.severity === "warning",
+    );
+    if (warnings.length > 0) {
+      emitDiagnosticBatch(warnings, channel);
+    }
+  };
+  const emitLoadNote = (diagnostic: Diagnostic): void => {
+    emitLoadNoteGroup([diagnostic]);
+  };
+  const loadSink: LoadDiagnosticSink = {
+    emit: emitLoadNote,
+    emitGroup: emitLoadNoteGroup,
+  };
+  return loadSink;
+}
+
+/** Probe optional UI surfaces and construct this instance's status sinks. */
+function buildStatusSinks(ctx: ExtensionContext): StatusSink[] {
+  // PIC-73: each optional UI surface is presence-probed INDEPENDENTLY and
+  // `typeof`-only (the probe never calls the member). A missing surface simply
+  // removes that sink; it never refuses or degrades theta registration and
+  // mints no diagnostic. `ctx.hasUI` is advisory only and gates nothing here.
+  // `ctx.ui` is read IN PLACE at each probe and each call (never captured into
+  // a local binding — the inventory-closure audit's family-(4) shape rule), and
+  // every read is optional-chained so a divergent host missing the whole `ui`
+  // carrier degrades instead of throwing.
+  const statusSinks: StatusSink[] = [];
+  if (
+    typeof (ctx.ui as unknown as Partial<FooterUi> | undefined)?.setStatus === "function" ||
+    typeof (ctx.ui as unknown as Partial<FooterUi> | undefined)?.setWorkingMessage ===
+      "function"
+  ) {
+    statusSinks.push(
+      createFooterSink({
+        setStatus: (key, text) => {
+          (ctx.ui as unknown as Partial<FooterUi> | undefined)?.setStatus?.(key, text);
+        },
+        setWorkingMessage: (message) => {
+          (ctx.ui as unknown as Partial<FooterUi> | undefined)?.setWorkingMessage?.(message);
+        },
+      }),
+    );
+  }
+  if (typeof (ctx.ui as unknown as Partial<WidgetUi> | undefined)?.setWidget === "function") {
+    statusSinks.push(
+      createWidgetSink({
+        setWidget: (key, content, options) => {
+          (ctx.ui as unknown as Partial<WidgetUi> | undefined)?.setWidget?.(
+            key,
+            content,
+            options,
+          );
+        },
+      }),
+    );
+  }
+  return statusSinks;
 }
 
 /**
@@ -2724,7 +2796,6 @@ async function resolveThetaToolsAtLoad(
     return { diagnostics: [], callableSet: EMPTY_CALLABLE_SET, ...rootClosureSpread };
   }
   const callerDir = dirname(parsed.sourcePath);
-  const diagnostics: Diagnostic[] = [];
 
   // Pre-parse each distinct `.theta` callee once, keyed by the spec as written.
   //
@@ -2779,52 +2850,7 @@ async function resolveThetaToolsAtLoad(
     }
   }
 
-  // INV-1 / bug 0110, widened by bug 0111: an entry whose resolved path
-  // escapes every active discovery root is rejected on its path alone, before
-  // any rule derived from the callee's contents runs — pushed FIRST, ahead of
-  // the V15f callee-has-errors loop below, so a callable the spec says was
-  // never created cannot also draw a content-derived diagnostic (tool-calls.md
-  // §"Argument shape": "the callable is not created"; §Fix constraint 1). The
-  // same loop also drains a passed-containment callee's OWN escaping `tools:`
-  // entries (`nestedToolsEscapes`), located at THIS caller's file exactly like
-  // a depth-0 escape: bug 0111's headline is that the identical entry shape
-  // must draw the identical report whichever depth names it. Located exactly
-  // as the other `tools:`-surface diagnostics below are (a file-head span; the
-  // parsed frontmatter carries no finer per-entry range).
-  for (const callee of calleeCache.values()) {
-    if (callee.escape !== undefined) {
-      diagnostics.push({
-        ...callee.escape,
-        file: parsed.sourcePath,
-        range: TOOLS_DIAGNOSTIC_RANGE,
-      });
-    }
-    for (const nestedEscape of callee.nestedToolsEscapes ?? []) {
-      diagnostics.push({
-        ...nestedEscape,
-        file: parsed.sourcePath,
-        range: TOOLS_DIAGNOSTIC_RANGE,
-      });
-    }
-  }
-
-  // callee-has-errors (V15f): a readable, parseable `.theta` callee that carries
-  // its own error-severity load/parse diagnostics rejects the parent at load
-  // time (`tools:` surface → error severity). An escaped entry is skipped
-  // explicitly (not merely by its neutral `hasErrors: false`): its bytes were
-  // never parsed, so this rule has no subject there (§Fix constraint 1).
-  for (const [spec, callee] of calleeCache) {
-    if (callee.escape === undefined && callee.fileExists && callee.hasErrors) {
-      diagnostics.push(
-        ...checkCalleeHasErrors({
-          calleePath: spec,
-          surface: "tools",
-          relatedSites: [],
-          site: { file: parsed.sourcePath, range: TOOLS_DIAGNOSTIC_RANGE },
-        }),
-      );
-    }
-  }
+  const diagnostics = drainCalleeDiagnostics(calleeCache, parsed.sourcePath);
 
   const deps: CallableSetDeps = {
     resolvePiTool: (name) => resolveCallablePiTool(name, ctx, getAllTools),
@@ -2880,6 +2906,61 @@ async function resolveThetaToolsAtLoad(
     extensionToolNames: collectExtensionToolNames(callableSet, ctx),
     ...rootClosureSpread,
   };
+}
+
+/** Collect containment diagnostics before content-derived callee errors. */
+function drainCalleeDiagnostics(
+  calleeCache: ReadonlyMap<string, CalleeParse>,
+  sourcePath: string,
+): Diagnostic[] {
+  const diagnostics: Diagnostic[] = [];
+  // INV-1 / bug 0110, widened by bug 0111: an entry whose resolved path
+  // escapes every active discovery root is rejected on its path alone, before
+  // any rule derived from the callee's contents runs — pushed FIRST, ahead of
+  // the V15f callee-has-errors loop below, so a callable the spec says was
+  // never created cannot also draw a content-derived diagnostic (tool-calls.md
+  // §"Argument shape": "the callable is not created"; §Fix constraint 1). The
+  // same loop also drains a passed-containment callee's OWN escaping `tools:`
+  // entries (`nestedToolsEscapes`), located at THIS caller's file exactly like
+  // a depth-0 escape: bug 0111's headline is that the identical entry shape
+  // must draw the identical report whichever depth names it. Located exactly
+  // as the other `resolveThetaToolsAtLoad` diagnostics are (a file-head span; the
+  // parsed frontmatter carries no finer per-entry range).
+  for (const callee of calleeCache.values()) {
+    if (callee.escape !== undefined) {
+      diagnostics.push({
+        ...callee.escape,
+        file: sourcePath,
+        range: TOOLS_DIAGNOSTIC_RANGE,
+      });
+    }
+    for (const nestedEscape of callee.nestedToolsEscapes ?? []) {
+      diagnostics.push({
+        ...nestedEscape,
+        file: sourcePath,
+        range: TOOLS_DIAGNOSTIC_RANGE,
+      });
+    }
+  }
+
+  // callee-has-errors (V15f): a readable, parseable `.theta` callee that carries
+  // its own error-severity load/parse diagnostics rejects the parent at load
+  // time (`tools:` surface → error severity). An escaped entry is skipped
+  // explicitly (not merely by its neutral `hasErrors: false`): its bytes were
+  // never parsed, so this rule has no subject there (§Fix constraint 1).
+  for (const [spec, callee] of calleeCache) {
+    if (callee.escape === undefined && callee.fileExists && callee.hasErrors) {
+      diagnostics.push(
+        ...checkCalleeHasErrors({
+          calleePath: spec,
+          surface: "tools",
+          relatedSites: [],
+          site: { file: sourcePath, range: TOOLS_DIAGNOSTIC_RANGE },
+        }),
+      );
+    }
+  }
+  return diagnostics;
 }
 
 /**
