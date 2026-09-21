@@ -2,7 +2,7 @@
 id: PTQ-1181
 title: withClausePromptModeRefusal lives in src/extension/ but touches only parser-module members, and its rule siblings all live in parser/invoke-diagnostics.ts
 lens: D9
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/extension/with-clause-prompt-mode-gate.ts:43-61

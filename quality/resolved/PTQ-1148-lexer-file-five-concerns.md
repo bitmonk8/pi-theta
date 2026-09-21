@@ -2,7 +2,7 @@
 id: PTQ-1148
 title: src/lexer/lexer.ts bundles encoding validation, tokenisation, continuation joining, and contextual identifier checks in one 1180-LOC module
 lens: D9
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/lexer/lexer.ts:1-1180

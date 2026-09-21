@@ -2,7 +2,7 @@
 id: PTQ-1167
 title: scanTokens is a 497-LOC single function whose string-literal and number-literal arms are 151 and 97 LOC inline
 lens: D9
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/lexer/lexer.ts:310-806
