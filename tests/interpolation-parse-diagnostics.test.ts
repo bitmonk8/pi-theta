@@ -1153,8 +1153,8 @@ const SEEDED_INVALID_DIR = "tests/fixtures/h7b-invalid/";
 const EXPECTED_SHIPPED_THETA = 42;
 const EXPECTED_SHIPPED_THETALIB = 3;
 /** Measured at the D4/D8-lens commit: the corpus's own count of `@`-templates and interpolations. */
-const EXPECTED_TEMPLATES = 54;
-const EXPECTED_INTERPOLATIONS = 127;
+const EXPECTED_TEMPLATES = 55;
+const EXPECTED_INTERPOLATIONS = 129;
 
 /**
  * The token classes expressions.md:25–40 refuses, as raw substrings. A committed
