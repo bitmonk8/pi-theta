@@ -74,6 +74,46 @@ function isSchemaNode(value: unknown): value is Record<string, unknown> {
 }
 
 /**
+ * Where a keyword's sub-schemas live, as both walks below must agree on it.
+ * `map` carries a name → schema table; `single` carries one schema; `tuple`
+ * and `list` carry an array of schemas; `leaf` carries no sub-schema at all
+ * (either a non-composition keyword, or a composition keyword whose value has
+ * the wrong shape — e.g. a boolean `additionalProperties` or a non-object
+ * `properties`).
+ */
+type SubSchemaPosition =
+  | { readonly kind: "map"; readonly map: Record<string, unknown> }
+  | { readonly kind: "single" }
+  | { readonly kind: "tuple"; readonly items: readonly unknown[] }
+  | { readonly kind: "list"; readonly items: readonly unknown[] }
+  | { readonly kind: "leaf" };
+
+/**
+ * The ONE keyword-taxonomy dispatch shared by `declaresFilteredProperty` and
+ * `translateFilteredProperties`: classifies a schema node's key/value pair
+ * into the sub-schema position it holds, including the tuple-form `items`
+ * special case and the value-shape gating (`isSchemaNode` / `Array.isArray`).
+ * Both walks recurse through exactly the positions this function classifies,
+ * so a new composition keyword added here reaches detection and translation
+ * together and the two passes cannot drift.
+ */
+function classifySchemaKeyword(key: string, value: unknown): SubSchemaPosition {
+  if (SCHEMA_MAP_KEYWORDS.includes(key)) {
+    return isSchemaNode(value) ? { kind: "map", map: value } : { kind: "leaf" };
+  }
+  if (SCHEMA_VALUED_KEYWORDS.includes(key)) {
+    if (key === "items" && Array.isArray(value)) {
+      return { kind: "tuple", items: value };
+    }
+    return { kind: "single" };
+  }
+  if (SCHEMA_LIST_KEYWORDS.includes(key)) {
+    return Array.isArray(value) ? { kind: "list", items: value } : { kind: "leaf" };
+  }
+  return { kind: "leaf" };
+}
+
+/**
  * Schema-aware walk: does any `properties` table anywhere in `schema` carry
  * `__proto__` as an own enumerable key? Recurses only through the positions
  * JSON-Schema composition actually uses for sub-schemas — the three keyword
@@ -92,39 +132,33 @@ function declaresFilteredProperty(schema: unknown): boolean {
   }
   for (const key of Object.keys(schema)) {
     const value = schema[key];
-    if (SCHEMA_MAP_KEYWORDS.includes(key)) {
-      if (!isSchemaNode(value)) {
-        continue;
-      }
-      if (key === "properties" && hasOwn(value, AJV_FILTERED_SCHEMA_PROPERTY)) {
-        return true;
-      }
-      for (const mapKey of Object.keys(value)) {
-        if (declaresFilteredProperty(value[mapKey])) {
+    const position = classifySchemaKeyword(key, value);
+    switch (position.kind) {
+      case "map": {
+        if (key === "properties" && hasOwn(position.map, AJV_FILTERED_SCHEMA_PROPERTY)) {
           return true;
         }
-      }
-      continue;
-    }
-    if (SCHEMA_VALUED_KEYWORDS.includes(key)) {
-      if (key === "items" && Array.isArray(value)) {
-        if (value.some((item) => declaresFilteredProperty(item))) {
+        const map = position.map;
+        if (Object.keys(map).some((mapKey) => declaresFilteredProperty(map[mapKey]))) {
           return true;
         }
-        continue;
+        break;
       }
-      if (declaresFilteredProperty(value)) {
-        return true;
-      }
-      continue;
+      case "single":
+        if (declaresFilteredProperty(value)) {
+          return true;
+        }
+        break;
+      case "tuple":
+      case "list":
+        if (position.items.some((item) => declaresFilteredProperty(item))) {
+          return true;
+        }
+        break;
+      case "leaf":
+        // Every other key is a leaf: never recursed into.
+        break;
     }
-    if (SCHEMA_LIST_KEYWORDS.includes(key)) {
-      if (Array.isArray(value) && value.some((item) => declaresFilteredProperty(item))) {
-        return true;
-      }
-      continue;
-    }
-    // Every other key is a leaf: never recursed into.
   }
   return false;
 }
@@ -212,14 +246,11 @@ function translateFilteredProperties(schema: unknown): unknown {
   const result: Record<string, unknown> = {};
   for (const key of Object.keys(schema)) {
     const value = schema[key];
-    if (key === "properties") {
-      const translatedMap =
-        propertiesValue === undefined
-          ? (value as Record<string, unknown>)
-          : translateSchemaMap(
-              propertiesValue,
-              hasFilteredEntry ? AJV_FILTERED_SCHEMA_PROPERTY : undefined,
-            );
+    if (key === "properties" && propertiesValue !== undefined) {
+      const translatedMap = translateSchemaMap(
+        propertiesValue,
+        hasFilteredEntry ? AJV_FILTERED_SCHEMA_PROPERTY : undefined,
+      );
       defineRecordField(result, "properties", translatedMap);
       continue;
     }
@@ -231,28 +262,27 @@ function translateFilteredProperties(schema: unknown): unknown {
       defineRecordField(result, key, base);
       continue;
     }
-    if (SCHEMA_MAP_KEYWORDS.includes(key)) {
-      defineRecordField(result, key, isSchemaNode(value) ? translateSchemaMap(value) : value);
-      continue;
+    const position = classifySchemaKeyword(key, value);
+    switch (position.kind) {
+      case "map":
+        defineRecordField(result, key, translateSchemaMap(position.map));
+        break;
+      case "single":
+        defineRecordField(result, key, translateFilteredProperties(value));
+        break;
+      case "tuple":
+      case "list":
+        defineRecordField(
+          result,
+          key,
+          position.items.map((item) => translateFilteredProperties(item)),
+        );
+        break;
+      case "leaf":
+        // Leaf keyword: copied verbatim, never recursed into.
+        defineRecordField(result, key, value);
+        break;
     }
-    if (SCHEMA_VALUED_KEYWORDS.includes(key)) {
-      if (key === "items" && Array.isArray(value)) {
-        defineRecordField(result, key, value.map((item) => translateFilteredProperties(item)));
-        continue;
-      }
-      defineRecordField(result, key, translateFilteredProperties(value));
-      continue;
-    }
-    if (SCHEMA_LIST_KEYWORDS.includes(key)) {
-      defineRecordField(
-        result,
-        key,
-        Array.isArray(value) ? value.map((item) => translateFilteredProperties(item)) : value,
-      );
-      continue;
-    }
-    // Leaf keyword: copied verbatim, never recursed into.
-    defineRecordField(result, key, value);
   }
   // `hasFilteredEntry` but the node declared no own `patternProperties` key at
   // all: the loop above never visited that keyword, so add it here.
