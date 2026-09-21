@@ -1163,7 +1163,7 @@ describe("bug 0199 regression pins (this file's group (a)) — the marking-chann
 // ===========================================================================
 
 const TYPE_LAYER_SOURCE = readFileSync(
-  fileURLToPath(new URL("../src/parser/type-layer-checks.ts", import.meta.url)),
+  fileURLToPath(new URL("../src/parser/type-layer-walk.ts", import.meta.url)),
   "utf8",
 );
 
@@ -1176,19 +1176,19 @@ function walkExprMatchArm(): string {
   const call = TYPE_LAYER_SOURCE.indexOf("...checkMatchArmTypes({");
   if (call < 0) {
     throw new Error(
-      "harness: src/parser/type-layer-checks.ts no longer spreads `checkMatchArmTypes`'s diagnostics — `walkExpr`'s `case \"match\"` was restructured and this row's extraction is stale, which is a harness failure and never a skip",
+      "harness: src/parser/type-layer-walk.ts no longer spreads `checkMatchArmTypes`'s diagnostics — `walkExpr`'s `case \"match\"` was restructured and this row's extraction is stale, which is a harness failure and never a skip",
     );
   }
   const label = TYPE_LAYER_SOURCE.lastIndexOf('case "match":', call);
   if (label < 0) {
     throw new Error(
-      "harness: no `case \"match\":` label precedes the `checkMatchArmTypes` call site in src/parser/type-layer-checks.ts — the extraction anchor is stale",
+      "harness: no `case \"match\":` label precedes the `checkMatchArmTypes` call site in src/parser/type-layer-walk.ts — the extraction anchor is stale",
     );
   }
   const next = TYPE_LAYER_SOURCE.indexOf("      case ", call);
   if (next < 0) {
     throw new Error(
-      "harness: no following `case` label bounds `walkExpr`'s `match` arm in src/parser/type-layer-checks.ts — the extraction anchor is stale",
+      "harness: no following `case` label bounds `walkExpr`'s `match` arm in src/parser/type-layer-walk.ts — the extraction anchor is stale",
     );
   }
   return TYPE_LAYER_SOURCE.slice(label, next);

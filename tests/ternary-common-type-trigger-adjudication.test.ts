@@ -661,7 +661,7 @@ describe("bug 0155 (C) — `checkCommonType` stays inside the registered *Trigge
     // `theta/parse/array-element-type-mismatch`. Both codes are registered
     // against an array literal, so every call site must be reachable only from
     // an array-literal node. There is one, in `checkArrayLiteral`
-    // (src/parser/type-layer-checks.ts), whose three dispatch sites each guard
+    // (src/parser/type-layer-walk.ts), whose three dispatch sites each guard
     // on an `array`-kinded node.
     const callSites: string[] = [];
     for (const file of srcFiles()) {
@@ -686,7 +686,7 @@ describe("bug 0155 (C) — `checkCommonType` stays inside the registered *Trigge
     expect(
       callSites,
       `C1 — \`checkCommonType\` must have exactly one call site in \`src/\`, inside \`checkArrayLiteral\`. A second caller emits \`${NO_COMMON_TYPE_CODE}\` / \`${ELEMENT_MISMATCH_CODE}\` from a node the registered *Trigger* ${JSON.stringify(trigger(NO_COMMON_TYPE_CODE))} does not name, moving the emission set outside the closed registry (DIAG-2). Found: ${JSON.stringify(callSites)}`,
-    ).toEqual(["src/parser/type-layer-checks.ts:checkArrayLiteral"]);
+    ).toEqual(["src/parser/type-layer-walk.ts:checkArrayLiteral"]);
   });
 
   it("C2: `checkArrayLiteral`'s dispatch sites are all array-kinded", () => {
@@ -700,6 +700,6 @@ describe("bug 0155 (C) — `checkCommonType` stays inside the registered *Trigge
     expect(
       referencing,
       `C2 — \`checkArrayLiteral\` must be referenced only by the file that declares it; a reference from another module is a new dispatch path into the array-literal-only codes \`${NO_COMMON_TYPE_CODE}\` / \`${ELEMENT_MISMATCH_CODE}\`. Found: ${JSON.stringify(referencing)}`,
-    ).toEqual(["src/parser/type-layer-checks.ts"]);
+    ).toEqual(["src/parser/type-layer-walk.ts"]);
   });
 });

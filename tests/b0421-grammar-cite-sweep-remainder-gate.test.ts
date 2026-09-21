@@ -90,7 +90,7 @@ const BRACE_ROOTED = "tests/brace-rooted-union-arm-capture.test.ts";
 const SCHEMA_RHS_MALFORMED = "tests/schema-alias-rhs-malformed.test.ts";
 const INLINE_EMPTY = "tests/inline-empty-object-type.test.ts";
 const THETA_DOCUMENT = "src/parser/theta-document.ts";
-const TYPE_LAYER_CHECKS = "src/parser/type-layer-checks.ts";
+const TYPE_LAYER_CHECKS = "src/parser/type-layer-walk.ts";
 
 // The size of bug 0389's total insertion. The alias/schema/lowering/statement/
 // sink region all sits past the whole insertion, so each moved +9; a pre-shift
