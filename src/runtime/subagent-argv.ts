@@ -390,13 +390,5 @@ function assembleVisibleTail(slug: string): readonly string[] {
  * allowlist gaining a repeated entry.
  */
 function dedupePreservingFirst(names: readonly string[]): string[] {
-  const seen = new Set<string>();
-  const out: string[] = [];
-  for (const name of names) {
-    if (!seen.has(name)) {
-      seen.add(name);
-      out.push(name);
-    }
-  }
-  return out;
+  return [...new Set(names)];
 }
