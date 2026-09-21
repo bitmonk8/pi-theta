@@ -2,7 +2,7 @@
 id: PTQ-1227
 title: parseStructuredPayload wraps a synchronous JSON.parse in a Promise chain to route its throw through a rejection handler instead of the house allow-broad-catch try/catch, making a pure synchronous parse async
 lens: D8
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/runtime/typed-query-validation.ts:45-70

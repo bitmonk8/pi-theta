@@ -2,7 +2,7 @@
 id: PTQ-1224
 title: dirnameOf in subagent-launch-file.ts hand-rolls the directory-half split that node:path.win32.dirname already provides
 lens: D8
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/runtime/subagent-launch-file.ts:139-143

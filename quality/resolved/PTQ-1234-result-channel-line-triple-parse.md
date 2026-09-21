@@ -2,7 +2,7 @@
 id: PTQ-1234
 title: Each reserved result-channel line is JSON.parsed two to three times inside the channel layer because classifyInboundFrame discards the envelope/progress verdict it already computed and openResultChannel re-derives it
 lens: D8
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/runtime/subagent-result-frames.ts:93-110

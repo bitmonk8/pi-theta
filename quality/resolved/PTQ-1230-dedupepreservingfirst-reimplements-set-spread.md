@@ -2,7 +2,7 @@
 id: PTQ-1230
 title: dedupePreservingFirst hand-rolls the insertion-ordered dedupe that [...new Set(names)] already provides and the codebase already uses
 lens: D8
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/runtime/subagent-argv.ts:385-402
