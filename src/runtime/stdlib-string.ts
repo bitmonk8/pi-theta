@@ -120,23 +120,14 @@ export function evaluateStringMember(
  * left-to-right, non-overlapping scan: after each match the next match is
  * sought past the consumed region, with no rewind into the consumed text or the
  * inserted replacement. `to` is inserted literally — `$`-sequences (`$&`,
- * `$$`, `$n`) are never interpreted as JS replacement patterns, so this cannot
- * use the host `String.prototype.replaceAll`, whose string-replacement form
- * does interpret them. An empty `from` returns the receiver unchanged.
+ * `$$`, `$n`) are never interpreted as JS replacement patterns, so this uses
+ * the function-replacer form of the host `String.prototype.replaceAll` (its
+ * string-replacement form does interpret them). An empty `from` returns the
+ * receiver unchanged.
  */
 function replaceLiteral(receiver: string, from: string, to: string): string {
   if (from === "") {
     return receiver;
   }
-  let result = "";
-  let cursor = 0;
-  for (;;) {
-    const at = receiver.indexOf(from, cursor);
-    if (at === -1) {
-      result += receiver.slice(cursor);
-      return result;
-    }
-    result += receiver.slice(cursor, at) + to;
-    cursor = at + from.length;
-  }
+  return receiver.replaceAll(from, () => to);
 }
