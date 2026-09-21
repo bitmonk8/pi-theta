@@ -2,7 +2,7 @@
 id: PTQ-1143
 title: Object field declaration order is enforced by two independent runtime walks
 lens: D4
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/runtime/value.ts:340-345

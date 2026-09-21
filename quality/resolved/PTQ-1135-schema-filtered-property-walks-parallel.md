@@ -2,7 +2,7 @@
 id: PTQ-1135
 title: Schema filtered-property detection and translation walks are parallel
 lens: D4
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/seams/schema-validator.ts:121-160
