@@ -2,7 +2,7 @@
 id: PTQ-1149
 title: params.ts bundles the params contract, type lowering, shared text predicates, prompt projection, and top-level splitters in one 2300-LOC module
 lens: D9
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/parser/params.ts:1-2300

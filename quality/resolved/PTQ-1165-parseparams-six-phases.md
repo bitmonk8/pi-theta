@@ -2,7 +2,7 @@
 id: PTQ-1165
 title: parseParams runs six sequential phases (sink setup, per-field type pass, collision emission, ordering check, per-field default pass, schema assembly) in one 352-LOC body
 lens: D9
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/parser/params.ts:158-509

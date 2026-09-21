@@ -2,7 +2,7 @@
 id: PTQ-1155
 title: system-interpolation.ts bundles the parse-time template check and the resolve-time render, whose sole production consumers live in different layers
 lens: D9
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/parser/system-interpolation.ts:1-761

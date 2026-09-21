@@ -2,7 +2,7 @@
 id: PTQ-1180
 title: toSystemParamType is 168 LOC because its named-type/alias arm resolves enums, alias chains, unions-by-alias, and recursive schema shells inline
 lens: D9
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/parser/frontmatter.ts:1270-1437

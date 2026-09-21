@@ -2,7 +2,7 @@
 id: PTQ-1164
 title: parseFrontmatter runs six sequential phases in one 685-LOC body coupled by ~30 field-state locals
 lens: D9
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/parser/frontmatter.ts:1701-2385

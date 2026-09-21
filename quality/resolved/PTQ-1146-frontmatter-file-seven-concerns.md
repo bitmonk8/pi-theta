@@ -2,7 +2,7 @@
 id: PTQ-1146
 title: src/parser/frontmatter.ts bundles seven declaration families (2385 LOC, strong band) behind a header that names only the field-contract parse
 lens: D9
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/parser/frontmatter.ts:1-2385

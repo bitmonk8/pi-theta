@@ -2,7 +2,7 @@
 id: PTQ-1184
 title: src/parser/imports.ts carries six declaration families across two self-labelled seams (V15c and V15i) in one 834-LOC module
 lens: D9
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/parser/imports.ts:1-834

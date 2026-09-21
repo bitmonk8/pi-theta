@@ -2,7 +2,7 @@
 id: PTQ-1176
 title: lowerTypeExpr's generic-application branch is 125 of its 241 LOC, dwarfing the union and atom arms of its Type dispatch
 lens: D9
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/parser/params.ts:736-976
