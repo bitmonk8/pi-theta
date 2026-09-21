@@ -35,7 +35,7 @@ import {
   type TypeEnv,
 } from "./type-compat";
 import { type CompatSite } from "./type-compat-sites";
-import type { StdlibMemberSignature, StdlibParamKind } from "../runtime/stdlib-string";
+import type { StdlibMemberSignature, StdlibParamKind } from "../runtime/stdlib-signature";
 
 /** `theta/parse/stdlib-arity-mismatch` (code-registry-parse.md; bug 0315). */
 export const STDLIB_ARITY_MISMATCH_CODE = "theta/parse/stdlib-arity-mismatch";

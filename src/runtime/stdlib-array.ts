@@ -17,17 +17,17 @@
 //     `theta/parse/non-string-array-join` (no implicit type conversion in theta
 //     1.0).
 //
-// The `array<T>.concat(array<U>)` LUB element type is owned by V3f
-// (`concatElementType` in `stdlib-string.ts`) and is not re-declared here.
+// This module also owns the `array<T>.concat(array<U>)` LUB element type
+// computation (`concatElementType`).
 //
 // The paired V3g implementation leaf fills in the runtime member dispatch and
 // the parse-time `join` precondition.
 
-import { displayType, type CompatType } from "../parser/type-compat";
+import { checkCompatible, displayType, type CompatType, type TypeEnv } from "../parser/type-compat";
 import { type CompatSite } from "../parser/type-compat-sites";
 import { type Diagnostic } from "../diagnostics/diagnostic";
 import { summariseNonResultOperand } from "./runtime-panics";
-import { assertStdlibMemberArguments, type StdlibMemberSignature } from "./stdlib-string";
+import { assertStdlibMemberArguments, type StdlibMemberSignature } from "./stdlib-signature";
 import { valuesEqual, type ThetaValue } from "./value";
 
 /**
@@ -80,7 +80,7 @@ export function evaluateArrayMember(
   args: readonly ThetaValue[],
 ): ThetaValue {
   // Bug 0315 runtime belt — see the matching comment in
-  // `assertStdlibMemberArguments` (`stdlib-string.ts`): a laundered `array<T>`
+  // `assertStdlibMemberArguments` (`stdlib-signature.ts`): a laundered `array<T>`
   // receiver reaches here without the parse-time arity check, so a
   // wrong-arity call (e.g. `[1,2].includes()`) would otherwise fall through
   // to the unchecked `args[i] as …` casts below. The arity check is followed
@@ -117,7 +117,7 @@ export function evaluateArrayMember(
     case "slice":
       return receiver.slice(args[0] as number, args[1] as number | undefined);
     // `concat(other)` — a new array: the receiver's elements followed by the
-    // argument array's elements. The V3f type layer (`concatElementType`) has
+    // argument array's elements. The static check (`concatElementType`) has
     // already resolved the result element type to the LUB `T ⊔ U`; at runtime
     // the values are structurally uniform theta values, so a plain positional
     // append is faithful. `Array.prototype.concat` copies rather than mutating
@@ -183,4 +183,30 @@ export function checkArrayJoin(
       elementType,
     )}>`,
   };
+}
+
+/**
+ * Compute the static result element type of `array<T>.concat(array<U>)` — the
+ * least upper bound `T ⊔ U` of the receiver element type `left` and the
+ * argument element type `right` under the V2b `⊑` relation, the same LUB the
+ * array-literal common-type rule computes (`integer ⊔ number = number`;
+ * disjoint element types union to `left | right`).
+ */
+export function concatElementType(
+  left: CompatType,
+  right: CompatType,
+  env: TypeEnv,
+): CompatType {
+  // LUB under `⊑`: if one element type is `⊑` the other, the wider one is the
+  // LUB (this collapses identical types and applies the `integer ⊑ number`
+  // widening in both call directions). Disjoint element types union to
+  // `left | right`, receiver-first — the same union the array-literal
+  // common-type rule (case 2) computes.
+  if (checkCompatible(left, right, env) === "compatible") {
+    return right;
+  }
+  if (checkCompatible(right, left, env) === "compatible") {
+    return left;
+  }
+  return { kind: "union", arms: [left, right] };
 }

@@ -313,7 +313,7 @@ export type CompatRelation = (sub: CompatType, sup: CompatType, env: TypeEnv) =>
  *   2. otherwise the branches union, arms VERBATIM in receiver-first (source)
  *      order — the computed type is not a member of the input set (`["a",
  *      null]` → `string | null`). `concatElementType`
- *      (`../runtime/stdlib-string.ts`) computes the same union in the same
+ *      (`../runtime/stdlib-array.ts`) computes the same union in the same
  *      order for `array<T>.concat`, and the two are MIRRORED rather than
  *      shared: `concatElementType` treats an `"unknown"` relation as
  *      DISJOINT (it unions), where clause 1 above treats it as NON-BLOCKING

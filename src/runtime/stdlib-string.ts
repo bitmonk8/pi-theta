@@ -17,115 +17,14 @@
 //     `$`-sequences in `to` inserted literally (never interpreted as JS
 //     replacement patterns) and an empty `from` returning the receiver
 //     unchanged. The five normative reference vectors of expressions.md MUST
-//     reproduce exactly;
-//   - the static result element type of `array<T>.concat(array<U>)` — the least
-//     upper bound `T ⊔ U` under the V2b `⊑` relation, the same LUB the
-//     array-literal common-type rule computes (`integer ⊔ number = number`;
-//     disjoint element types union to `T | U`).
+//     reproduce exactly.
 //
 // V3f-T (tests-task) declared the seam — the `evaluateStringMember` runtime
-// dispatcher and the `concatElementType` LUB computation; V3f (this leaf)
-// supplies the behaviour (and wired member-access / method-call parsing into
-// the V3a evaluator).
+// dispatcher; V3f (this leaf) supplies the behaviour (and wired member-access /
+// method-call parsing into the V3a evaluator).
 
-import { checkCompatible } from "../parser/type-compat";
-import type { CompatType, TypeEnv } from "../parser/type-compat";
-import { StdlibMethodArgumentDefectError, StdlibMethodArgumentKindDefectError } from "./runtime-panics";
+import { assertStdlibMemberArguments, type StdlibMemberSignature } from "./stdlib-signature";
 import type { ThetaValue } from "./value";
-
-/**
- * Bug 0315 — the per-parameter type descriptor a stdlib member's positional
- * argument is checked against. `"element"` and `"array"` exist only for the
- * `array<T>` table (`stdlib-array.ts`) — `T`, the receiver's own element type,
- * and "any `array<U>`" (for `concat`) respectively; neither descriptor is
- * meaningful outside an array receiver, so `string`/`object` signatures never
- * spell them. Defined once here (the first stdlib module read alphabetically)
- * and imported by `stdlib-array.ts` / `stdlib-object.ts` rather than
- * redeclared three times, so the parser's type-check arm and the three
- * runtime-belt dispatchers all read ONE shape.
- */
-export type StdlibParamKind = "string" | "integer" | "element" | "array";
-
-/**
- * A stdlib member's declared signature: the positional-argument arity bounds
- * `[min, max]` (both the `type`-phase `stdlib-arity-mismatch` parse check and
- * the runtime dispatcher belt read this) and, for the arity range's own
- * indices, the per-parameter type descriptor the `stdlib-arg-type-mismatch`
- * parse check resolves against (the runtime dispatcher belt reads `params`
- * too, as of bug 0394 — arity and kind are its two concerns).
- */
-export interface StdlibMemberSignature {
-  readonly min: number;
-  readonly max: number;
-  readonly params: readonly StdlibParamKind[];
-}
-
-/**
- * Bug 0394 KIND belt — the sibling of the bug-0315 arity belt above. Reuses
- * the same `params` descriptors the parse-time `stdlib-arg-type-mismatch`
- * check resolves against, so the runtime and parse checks never drift on what
- * counts as the right kind. Runs AFTER the arity belt (arity is a precondition
- * of even indexing `args[i]`), so a wrong-kind argument on a laundered
- * receiver fails loudly here instead of reaching the switch below and
- * JS-coercing (or, for `replace`'s `from` position, diverging — bug 0394).
- * The `"integer"` arm rejects more than `typeof arg !== "number"`: a
- * non-integral `number` — fractional, `NaN`, or `±Infinity` — laundered
- * under an `integer` descriptor is the same kind of ToIntegerOrInfinity
- * coercion trap as a wrong-`typeof` value (bug 0402), so `Number.isInteger`
- * closes both the kind gap and the integrality gap in one conjunct.
- * `"element"` and an out-of-range index (an omitted optional argument) are
- * unchecked: `includes`/`indexOf` compare with `valuesEqual`, which is total
- * over any argument kind, and there is no descriptor to check for an argument
- * that was never supplied.
- */
-export function assertStdlibArgumentKinds(
-  member: string,
-  signature: StdlibMemberSignature,
-  args: readonly ThetaValue[],
-): void {
-  for (let i = 0; i < args.length; i += 1) {
-    const kind = signature.params[i];
-    const arg = args[i] as ThetaValue;
-    if (kind === "string" && typeof arg !== "string") {
-      throw new StdlibMethodArgumentKindDefectError(member, i, "a string", arg);
-    }
-    if (kind === "integer" && (typeof arg !== "number" || !Number.isInteger(arg))) {
-      throw new StdlibMethodArgumentKindDefectError(member, i, "an integer", arg);
-    }
-    if (kind === "array" && !Array.isArray(arg)) {
-      throw new StdlibMethodArgumentKindDefectError(member, i, "an array", arg);
-    }
-    // "element" / undefined: unchecked — includes/indexOf are total over any
-    // argument kind (V2c valuesEqual), and an omitted optional arg has no
-    // descriptor to check.
-  }
-}
-
-/**
- * Bug 0315 runtime belt: a laundered receiver (a statically-unresolvable
- * value) reaches here without ever passing through the parse-time
- * `stdlib-arity-mismatch` check (`../parser/type-layer-checks.ts` defers on
- * an "unknown"-classified receiver), so a wrong-arity call would otherwise
- * fall through to unchecked `args[i] as …` casts in the dispatcher and forward
- * raw JS `undefined` into the host method (bug 0315 §Reproduction). Thrown
- * BEFORE the member switch, so no case ever sees an out-of-arity `args`. The
- * arity check is followed by the bug-0394 KIND check (same laundered-
- * receiver gap, one level down: a correct-arity call with a wrong-KIND
- * argument), so the belt now covers both arity and kind.
- */
-export function assertStdlibMemberArguments(
-  member: string,
-  signatures: ReadonlyMap<string, StdlibMemberSignature>,
-  args: readonly ThetaValue[],
-): void {
-  const signature = signatures.get(member);
-  if (signature !== undefined) {
-    if (args.length < signature.min || args.length > signature.max) {
-      throw new StdlibMethodArgumentDefectError(member, signature.min, signature.max, args.length);
-    }
-    assertStdlibArgumentKinds(member, signature, args);
-  }
-}
 
 /**
  * The `string` standard-library member surface (expressions.md §"Built-in
@@ -240,30 +139,4 @@ function replaceLiteral(receiver: string, from: string, to: string): string {
     result += receiver.slice(cursor, at) + to;
     cursor = at + from.length;
   }
-}
-
-/**
- * Compute the static result element type of `array<T>.concat(array<U>)` — the
- * least upper bound `T ⊔ U` of the receiver element type `left` and the
- * argument element type `right` under the V2b `⊑` relation, the same LUB the
- * array-literal common-type rule computes (`integer ⊔ number = number`;
- * disjoint element types union to `left | right`).
- */
-export function concatElementType(
-  left: CompatType,
-  right: CompatType,
-  env: TypeEnv,
-): CompatType {
-  // LUB under `⊑`: if one element type is `⊑` the other, the wider one is the
-  // LUB (this collapses identical types and applies the `integer ⊑ number`
-  // widening in both call directions). Disjoint element types union to
-  // `left | right`, receiver-first — the same union the array-literal
-  // common-type rule (case 2) computes.
-  if (checkCompatible(left, right, env) === "compatible") {
-    return right;
-  }
-  if (checkCompatible(right, left, env) === "compatible") {
-    return left;
-  }
-  return { kind: "union", arms: [left, right] };
 }

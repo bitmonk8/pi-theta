@@ -79,7 +79,7 @@ const flattenComments = (lines: readonly string[]): string =>
 const B0366 = "tests/b0366-join-element-laundered-belt.test.ts";
 const B0394 = "tests/b0394-stdlib-wrong-kind-args-belt.test.ts";
 const STDLIB_ARRAY = "src/runtime/stdlib-array.ts";
-const STDLIB_STRING = "src/runtime/stdlib-string.ts";
+const STDLIB_SIGNATURE = "src/runtime/stdlib-signature.ts";
 
 // The symbol-form the settled §Fix (Option 1) requires the re-frame to adopt —
 // the belt entry point bug 0394 inserted after the arity check.
@@ -159,20 +159,20 @@ describe("bug 0419 — b0366's witness header re-frames the reversed pre-0394 be
   // reversal the header must reflect, so an un-reversal reds here first.
   // =========================================================================
 
-  it("cell A (SPEC-TRUTH) — the shipped belt reads `params` for kind: stdlib-array runs `assertStdlibArgumentKinds` after the arity check, stdlib-string's doc records both concerns", () => {
+  it("cell A (SPEC-TRUTH) — the shipped belt reads `params` for kind: stdlib-array runs `assertStdlibArgumentKinds` after the arity check, stdlib-signature's doc records both concerns", () => {
     const arraySrc = readCorpus(STDLIB_ARRAY);
-    const stringSrc = readCorpus(STDLIB_STRING);
+    const signatureSrc = readCorpus(STDLIB_SIGNATURE);
     expect(
       arraySrc.includes("assertStdlibMemberArguments(member, ARRAY_MEMBER_SIGNATURES, args)"),
       `cell A: ${STDLIB_ARRAY} must call the shared arity/kind belt in the member dispatcher — this is the post-0394 kind belt the b0366 header must reflect. If it is gone the reversal was undone and the header re-frame is scored against a moved fact.`,
     ).toBe(true);
     expect(
-      stringSrc.includes(`${KIND_BELT_SYMBOL}(member, signature, args)`),
-      `cell A: ${STDLIB_STRING}'s shared argument belt must still call \`${KIND_BELT_SYMBOL}\` — extracting the belt must not undo the post-0394 kind check.`,
+      signatureSrc.includes(`${KIND_BELT_SYMBOL}(member, signature, args)`),
+      `cell A: ${STDLIB_SIGNATURE}'s shared argument belt must still call \`${KIND_BELT_SYMBOL}\` — extracting the belt must not undo the post-0394 kind check.`,
     ).toBe(true);
     expect(
-      /arity and kind are its two concerns/.test(stringSrc),
-      `cell A: ${STDLIB_STRING}'s \`StdlibMemberSignature\` doc must state "arity and kind are its two concerns" — the sentence at the header's own cited lines that reversed "arity is its only concern".`,
+      /arity and kind are its two concerns/.test(signatureSrc),
+      `cell A: ${STDLIB_SIGNATURE}'s \`StdlibMemberSignature\` doc must state "arity and kind are its two concerns" — the sentence at the header's own cited lines that reversed "arity is its only concern".`,
     ).toBe(true);
   });
 

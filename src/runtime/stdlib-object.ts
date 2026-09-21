@@ -48,7 +48,7 @@ import {
   type TypeEnv,
 } from "../parser/type-compat";
 import { classifyIndexReceiver, type CompatSite } from "../parser/type-compat-sites";
-import { assertStdlibMemberArguments, type StdlibMemberSignature } from "./stdlib-string";
+import { assertStdlibMemberArguments, type StdlibMemberSignature } from "./stdlib-signature";
 import type { ThetaValue } from "./value";
 
 /**
@@ -126,7 +126,7 @@ export function evaluateObjectMember(
   args: readonly ThetaValue[],
 ): ThetaValue {
   // Bug 0315 runtime belt — see the matching comment in
-  // `assertStdlibMemberArguments` (`stdlib-string.ts`): a laundered object receiver
+  // `assertStdlibMemberArguments` (`stdlib-signature.ts`): a laundered object receiver
   // reaches here without the parse-time arity check (this arm is reachable
   // only past the bug-0027 non-object-receiver gate, which the two call sites
   // apply BEFORE this dispatcher — see this module's header comment), so a

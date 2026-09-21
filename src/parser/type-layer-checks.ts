@@ -69,8 +69,8 @@ export { annotationSourceIsNotTypeExpression } from "./annotation-validation";
 import {
   STRING_MEMBERS,
   STRING_MEMBER_SIGNATURES,
-  type StdlibMemberSignature,
 } from "../runtime/stdlib-string";
+import type { StdlibMemberSignature } from "../runtime/stdlib-signature";
 import { ARRAY_MEMBERS, ARRAY_MEMBER_SIGNATURES } from "../runtime/stdlib-array";
 import { OBJECT_MEMBERS, OBJECT_MEMBER_SIGNATURES } from "../runtime/stdlib-object";
 import type { EnclosingReturnScope } from "./match-result";

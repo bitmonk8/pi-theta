@@ -1,8 +1,6 @@
 import { describe, expect, it } from "vitest";
-import {
-  concatElementType,
-  evaluateStringMember,
-} from "../src/runtime/stdlib-string";
+import { concatElementType } from "../src/runtime/stdlib-array";
+import { evaluateStringMember } from "../src/runtime/stdlib-string";
 import type { CompatType } from "../src/parser/type-compat";
 import type { ThetaValue } from "../src/runtime/value";
 

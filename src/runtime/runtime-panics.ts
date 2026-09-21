@@ -738,7 +738,7 @@ export class StdlibMethodArgumentDefectError extends Error {
  * type is the declared one (`integer`) while the *value* it evaluates to at
  * runtime is non-integral — `n % m` with a runtime-zero `m` is `NaN`, still
  * typed `integer` at parse time — the class bug 0402 admitted with its
- * integrality conjunct at stdlib-string.ts:103. Either way the unchecked
+ * integrality conjunct in `assertStdlibArgumentKinds` (`stdlib-signature.ts`). Either way the unchecked
  * `args[i] as …` casts below would otherwise forward the raw value into a
  * host JS method that either coerces it (e.g. `endsWith(null)` answering over
  * the literal spelling "null") or, for `replace`'s `from` position, diverges
