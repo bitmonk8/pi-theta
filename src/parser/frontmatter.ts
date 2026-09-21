@@ -392,40 +392,44 @@ function collectRecognisedFields(
   diagnostics: Diagnostic[],
   block: FrontmatterBlock | undefined,
 ): RecognisedFields {
-  // The recognised fields the contract pins behaviour for.
-  let modeValue: string | undefined;
-  let modeRange: SourceRange | undefined;
-  let modePresent = false;
-  let modeValueKind: string | undefined;
-  let modelPresent = false;
-  let modelRaw: unknown;
-  let modelRange: SourceRange | undefined;
-  let bindContextValue: string | undefined;
-  let bindContextRange: SourceRange | undefined;
-  let bindContextPresent = false;
-  let bindContextValueKind: string | undefined;
-  let descriptionValue: string | undefined;
-  let bindModelValue: string | undefined;
-  let bindModelUnresolvable = false;
-  let bindEchoValue: boolean | undefined;
-  let bindEchoRange: SourceRange | undefined;
-  let bindEchoPresent = false;
-  let bindEchoScalar: string | undefined;
-  let bindEchoValueKind: string | undefined;
-  let bindEchoValueRange: SourceRange | undefined;
-  let argumentHintPresent = false;
-  let argumentHintRange: SourceRange | undefined;
-  let argumentHintValue: string | undefined;
-  let toolLoopNode: Node | null | undefined;
-  let respondRepairNode: Node | null | undefined;
-  let paramsNode: Node | null | undefined;
-  let paramsPresent = false;
-  let paramsRange: SourceRange | undefined;
-  let systemPresent = false;
-  let systemValue: string | undefined;
-  let systemRange: SourceRange | undefined;
-  let toolsValue: readonly string[] | undefined;
-  let toolsMalformedRange: SourceRange | undefined;
+  // The recognised fields the contract pins behaviour for, accumulated in one
+  // mutable record the field loop assigns into and the function returns as-is.
+  const fields: { -readonly [K in keyof RecognisedFields]: RecognisedFields[K] } =
+    {
+      modeValue: undefined,
+      modeRange: undefined,
+      modePresent: false,
+      modeValueKind: undefined,
+      modelPresent: false,
+      modelRaw: undefined,
+      modelRange: undefined,
+      bindContextValue: undefined,
+      bindContextRange: undefined,
+      bindContextPresent: false,
+      bindContextValueKind: undefined,
+      descriptionValue: undefined,
+      bindModelValue: undefined,
+      bindModelUnresolvable: false,
+      bindEchoValue: undefined,
+      bindEchoRange: undefined,
+      bindEchoPresent: false,
+      bindEchoScalar: undefined,
+      bindEchoValueKind: undefined,
+      bindEchoValueRange: undefined,
+      argumentHintPresent: false,
+      argumentHintRange: undefined,
+      argumentHintValue: undefined,
+      toolLoopNode: undefined,
+      respondRepairNode: undefined,
+      paramsNode: undefined,
+      paramsPresent: false,
+      paramsRange: undefined,
+      systemPresent: false,
+      systemValue: undefined,
+      systemRange: undefined,
+      toolsValue: undefined,
+      toolsMalformedRange: undefined,
+    };
 
   if (map !== undefined) {
     for (const item of map.items) {
@@ -449,19 +453,19 @@ function collectRecognisedFields(
         // the value's bounded kind token so the unknown-mode-value arm can name
         // the shape. `modeValueKind` is set for exactly the non-scalar present
         // case (where `modeValue` stays undefined).
-        modePresent = true;
+        fields.modePresent = true;
         if (isScalar(item.value)) {
-          modeValue = String(item.value.value);
+          fields.modeValue = String(item.value.value);
         } else {
-          modeValueKind = renderNonScalarModeKind(item.value);
+          fields.modeValueKind = renderNonScalarModeKind(item.value);
         }
-        modeRange = valueRange;
+        fields.modeRange = valueRange;
         continue;
       }
       if (key === "model") {
-        modelPresent = true;
-        modelRaw = rawValue;
-        modelRange = valueRange;
+        fields.modelPresent = true;
+        fields.modelRaw = rawValue;
+        fields.modelRange = valueRange;
         continue;
       }
       if (key === "bind_model") {
@@ -472,9 +476,9 @@ function collectRecognisedFields(
         // routes it through the existing `theta/load/binder-model-unresolved`
         // machinery exactly as an unresolvable declared string (bug 0297).
         if (isScalar(item.value)) {
-          bindModelValue = String(item.value.value);
+          fields.bindModelValue = String(item.value.value);
         } else {
-          bindModelUnresolvable = true;
+          fields.bindModelUnresolvable = true;
         }
         continue;
       }
@@ -487,7 +491,7 @@ function collectRecognisedFields(
         // A null scalar (bare key / `null` / `~`) is the spec's own name for
         // "no description" (frontmatter-fields-a.md:37) — excluded here so it
         // maps to absent instead of the fabricated text "null" (bug 0299).
-        descriptionValue =
+        fields.descriptionValue =
           isScalar(item.value) && item.value.value !== null
             ? String(item.value.value)
             : undefined;
@@ -501,9 +505,9 @@ function collectRecognisedFields(
         // the scalar VALUE is retained alongside the presence + range the
         // advisory `theta/load/argument-hint-not-displayed` reads (fired when
         // no `description:` accompanies it — an empty autocomplete entry).
-        argumentHintPresent = true;
-        argumentHintRange = keyRange;
-        argumentHintValue =
+        fields.argumentHintPresent = true;
+        fields.argumentHintRange = keyRange;
+        fields.argumentHintValue =
           isScalar(item.value) && typeof item.value.value === "string"
             ? item.value.value
             : undefined;
@@ -516,22 +520,22 @@ function collectRecognisedFields(
         // recognised-key/unrecognised-value split. No truth-coercion: a string "false"
         // refuses rather than reading as the boolean false. The key range feeds the bypass
         // advisories; the value range ranges the refusal.
-        bindEchoPresent = true;
+        fields.bindEchoPresent = true;
         if (typeof rawValue === "boolean") {
-          bindEchoValue = rawValue;
+          fields.bindEchoValue = rawValue;
         } else if (isScalar(item.value)) {
-          bindEchoScalar = String(item.value.value);
+          fields.bindEchoScalar = String(item.value.value);
         } else {
-          bindEchoValueKind = renderNonScalarBindContextKind(item.value);
+          fields.bindEchoValueKind = renderNonScalarBindContextKind(item.value);
         }
-        bindEchoRange = keyRange;
-        bindEchoValueRange = valueRange;
+        fields.bindEchoRange = keyRange;
+        fields.bindEchoValueRange = valueRange;
         continue;
       }
       if (key === "params") {
-        paramsNode = item.value;
-        paramsPresent = true;
-        paramsRange = valueRange ?? keyRange;
+        fields.paramsNode = item.value;
+        fields.paramsPresent = true;
+        fields.paramsRange = valueRange ?? keyRange;
         continue;
       }
       if (key === "bind_context") {
@@ -540,13 +544,13 @@ function collectRecognisedFields(
         // the value's bounded kind token so it can name the shape (bug 0297,
         // mirroring the `mode:` arm). `bindContextValueKind` is set for exactly
         // the non-scalar present case (where `bindContextValue` stays undefined).
-        bindContextPresent = true;
+        fields.bindContextPresent = true;
         if (isScalar(item.value)) {
-          bindContextValue = String(item.value.value);
+          fields.bindContextValue = String(item.value.value);
         } else {
-          bindContextValueKind = renderNonScalarBindContextKind(item.value);
+          fields.bindContextValueKind = renderNonScalarBindContextKind(item.value);
         }
-        bindContextRange = valueRange;
+        fields.bindContextRange = valueRange;
         continue;
       }
       if (key === "tools") {
@@ -572,23 +576,23 @@ function collectRecognisedFields(
         // all, which is the range convention every other frontmatter-shape
         // refusal here follows.
         if (isScalar(item.value)) {
-          toolsValue = extractToolsList(item.value, block?.yaml ?? "");
-          if (toolsValue === undefined) {
-            toolsMalformedRange = valueRange ?? keyRange;
+          fields.toolsValue = extractToolsList(item.value, block?.yaml ?? "");
+          if (fields.toolsValue === undefined) {
+            fields.toolsMalformedRange = valueRange ?? keyRange;
           }
         } else if (isSeq(item.value)) {
-          toolsValue = extractToolsList(item.value, block?.yaml ?? "");
+          fields.toolsValue = extractToolsList(item.value, block?.yaml ?? "");
         } else {
-          toolsMalformedRange = valueRange ?? keyRange;
+          fields.toolsMalformedRange = valueRange ?? keyRange;
         }
         continue;
       }
       if (key === "system") {
         // Captured for the subagent-mode-only rule + the `${…}` interpolation
         // checks, run once the whole-file named-type set is known.
-        systemPresent = true;
+        fields.systemPresent = true;
         if (!isScalar(item.value)) {
-          systemValue = undefined;
+          fields.systemValue = undefined;
         } else if (item.value.value === null) {
           // A value-less `system:` (bare key / `null` / `~`) carries no prompt: map
           // it to the empty template so it renders byte-identically to `system: ""`
@@ -598,19 +602,19 @@ function collectRecognisedFields(
           // check below keys on to raise `theta/load/malformed-system-field`, a code
           // reserved for a present NON-scalar `system:` — a null scalar IS a scalar,
           // so refusing it here would misclassify an absent value as malformed.
-          systemValue = "";
+          fields.systemValue = "";
         } else {
-          systemValue = String(item.value.value);
+          fields.systemValue = String(item.value.value);
         }
-        systemRange = valueRange ?? keyRange;
+        fields.systemRange = valueRange ?? keyRange;
         continue;
       }
       if (key === "tool_loop") {
-        toolLoopNode = item.value;
+        fields.toolLoopNode = item.value;
         continue;
       }
       if (key === "respond_repair") {
-        respondRepairNode = item.value;
+        fields.respondRepairNode = item.value;
         continue;
       }
       if (key === "timeout") {
@@ -649,41 +653,7 @@ function collectRecognisedFields(
       }
     }
   }
-  return {
-    modeValue,
-    modeRange,
-    modePresent,
-    modeValueKind,
-    modelPresent,
-    modelRaw,
-    modelRange,
-    bindContextValue,
-    bindContextRange,
-    bindContextPresent,
-    bindContextValueKind,
-    descriptionValue,
-    bindModelValue,
-    bindModelUnresolvable,
-    bindEchoValue,
-    bindEchoRange,
-    bindEchoPresent,
-    bindEchoScalar,
-    bindEchoValueKind,
-    bindEchoValueRange,
-    argumentHintPresent,
-    argumentHintRange,
-    argumentHintValue,
-    toolLoopNode,
-    respondRepairNode,
-    paramsNode,
-    paramsPresent,
-    paramsRange,
-    systemPresent,
-    systemValue,
-    systemRange,
-    toolsValue,
-    toolsMalformedRange,
-  };
+  return fields;
 }
 
 /** Check cross-field contracts and resolve model and block defaults in diagnostic order. */
