@@ -48,6 +48,8 @@
 // (#complete-forced-tool-presupposition), which names this table, and the
 // supported-api bound at binder-inference.md.
 
+import { TYPED_QUERY_SUPPORTED_PROVIDER_APIS } from "../runtime/typed-query-provider-gate";
+
 /**
  * The per-api forced-tool-choice spelling table, keyed on the resolved model's
  * `Model<Api>.api`:
@@ -109,16 +111,15 @@ export const FORCED_TOOL_CHOICE_API_KEYS: readonly string[] = Object.freeze(
  * so it stays gated out until an end-to-end live drive measures it — the row
  * documents the spelling without admitting the api. Held as a `Set` so the
  * membership test is prototype-safe over a registry-origin `api` string.
+ *
+ * Sourced from `TYPED_QUERY_SUPPORTED_PROVIDER_APIS` so the binder gate and
+ * the typed-query respond gate cannot drift apart (they shipped 6-vs-7 once,
+ * bug 0480); since bug 0480's live cell measured `openai-responses` on the
+ * respond turn too, the two gates' membership criteria admit the same set.
  */
-const BINDER_SUPPORTED_APIS: ReadonlySet<string> = new Set([
-  "anthropic-messages",
-  "bedrock-converse-stream",
-  "amazon-bedrock",
-  "openai-completions",
-  "mistral-conversations",
-  "mistral",
-  "openai-responses",
-]);
+const BINDER_SUPPORTED_APIS: ReadonlySet<string> = new Set(
+  TYPED_QUERY_SUPPORTED_PROVIDER_APIS,
+);
 
 /**
  * Whether the binder may dispatch a forced-tool `complete()` against a model of

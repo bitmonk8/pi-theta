@@ -109,7 +109,13 @@ export function classifyInboundFrame(line: string): InboundFrame {
   if (Object.hasOwn(record, "theta_progress")) {
     return { kind: "reserved-line", line };
   }
-  switch (record["type"]) {
+  // The cast tethers the decoder to the encoder's union: when
+  // `ResultChannelControlFrame` gains a member, the `never` default below is a
+  // compile error until this switch gains the matching case. An unknown
+  // runtime `type` still falls to the default at runtime (PIC-59's stray-line
+  // tolerance is unchanged).
+  const frameType = record["type"] as ResultChannelControlFrame["type"];
+  switch (frameType) {
     case "hello":
       return typeof record["token"] === "string" && typeof record["nonce"] === "string"
         ? { kind: "hello", token: record["token"], nonce: record["nonce"] }
@@ -118,7 +124,10 @@ export function classifyInboundFrame(line: string): InboundFrame {
       return { kind: "heartbeat" };
     case "stderr":
       return typeof record["line"] === "string" ? { kind: "stderr", line: record["line"] } : { kind: "ignored" };
-    default:
+    default: {
+      const exhaustive: never = frameType;
+      void exhaustive;
       return { kind: "ignored" };
+    }
   }
 }
