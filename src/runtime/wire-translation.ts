@@ -83,6 +83,7 @@ import {
   brandSchemaValue,
   isResultValue,
   makeEnumValue,
+  orderEntriesByDeclaration,
   schemaTagOf,
   type ThetaValue,
 } from "./value";
@@ -520,11 +521,10 @@ function firstAdmittingArm(
  * verbatim.
  *
  * The reorder is key-set preserving on the terms `buildObjectSchemaValue`
- * already is: `Object.entries` is own-enumerable only, every entry is emitted
- * exactly once, and a declared name the payload does not carry is never
- * invented. Where the sidecar names no order — a synthesised sidecar, a
- * permissive root, a `$defs` entry with no object body — payload order is
- * preserved unchanged.
+ * already is — both delegate to the shared {@link orderEntriesByDeclaration}
+ * (`value.ts`), the single source of truth for the ordering rule. Where the
+ * sidecar names no order — a synthesised sidecar, a permissive root, a `$defs`
+ * entry with no object body — payload order is preserved unchanged.
  *
  * The declaration lookup keys on the THETA-side name, because that is the key
  * the rebuilt record carries: the rename is applied to this same entry list
@@ -536,35 +536,12 @@ function orderedEntries(
 ): readonly (readonly [string, unknown])[] {
   const entries = Object.entries(value);
   const fieldOrder = index?.fieldOrder;
-  if (fieldOrder === undefined || entries.length < 2) {
+  if (fieldOrder === undefined) {
     return entries;
   }
-  // Payload positions bucketed by their theta-side key, so a declared name
-  // consumes one entry per occurrence and a payload whose keys are unique (the
-  // JSON case) resolves in one step.
-  const positions = new Map<string, number[]>();
-  entries.forEach(([wireKey], position) => {
-    const thetaKey = index?.wireToTheta.get(wireKey) ?? wireKey;
-    const bucket = positions.get(thetaKey);
-    if (bucket === undefined) {
-      positions.set(thetaKey, [position]);
-    } else {
-      bucket.push(position);
-    }
-  });
-  const ordered: (readonly [string, unknown])[] = [];
-  const taken = new Set<number>();
-  for (const declared of fieldOrder) {
-    const position = positions.get(declared)?.shift();
-    if (position !== undefined) {
-      taken.add(position);
-      ordered.push(entries[position] as readonly [string, unknown]);
-    }
-  }
-  entries.forEach((entry, position) => {
-    if (!taken.has(position)) {
-      ordered.push(entry);
-    }
-  });
-  return ordered;
+  return orderEntriesByDeclaration(
+    entries,
+    fieldOrder,
+    (wireKey) => index?.wireToTheta.get(wireKey) ?? wireKey,
+  );
 }

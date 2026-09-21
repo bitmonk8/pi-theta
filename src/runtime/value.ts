@@ -382,20 +382,20 @@ export interface SchemaFieldOrder {
  *     practice) — then brands the fresh record.
  *
  * Every read of `constructedFields` by an author-written field name is
- * OWN-KEY-guarded (`Object.prototype.hasOwnProperty.call`), never
- * truthiness: a declared field name the constructor did not supply (e.g. a
- * schema declaring `toString` whose constructor omits it) must not be
- * filled in from `Object.prototype`. The returned record's key SET and key
- * COUNT are therefore always identical to `constructedFields`'s — no
- * declared name is invented and no constructed key is dropped or
+ * OWN-KEY-only (`Object.entries`, own-enumerable), never truthiness or a
+ * prototype-chain lookup: a declared field name the constructor did not
+ * supply (e.g. a schema declaring `toString` whose constructor omits it)
+ * must not be filled in from `Object.prototype`. The returned record's key
+ * SET and key COUNT are therefore always identical to `constructedFields`'s
+ * — no declared name is invented and no constructed key is dropped or
  * duplicated (bug 0026's `__thetaSchema`-named-field case: the brand
  * install still targets a value whose STRING keys are exactly the declared
  * theta-side names). Callers build `constructedFields` with
  * {@link defineRecordField} rather than by assignment, so a declared field
- * named `__proto__` IS an own key of that record: the own-key guard below
- * classifies it exactly like any other declared name. The rebuild defines
- * each surviving field the same way, so the inherited `__proto__` accessor
- * cannot re-drop it here (bug 0119).
+ * named `__proto__` IS an own key of that record: the own-enumerable walk
+ * below classifies it exactly like any other declared name. The rebuild
+ * defines each surviving field the same way, so the inherited `__proto__`
+ * accessor cannot re-drop it here (bug 0119).
  */
 export function buildObjectSchemaValue(
   constructedFields: Record<string, ThetaValue>,
@@ -413,17 +413,71 @@ export function buildObjectSchemaValue(
     return brandSchemaValue(constructedFields, typeName);
   }
   const ordered: Record<string, ThetaValue> = {};
-  for (const field of decl.fields) {
-    if (Object.prototype.hasOwnProperty.call(constructedFields, field.name)) {
-      defineRecordField(ordered, field.name, constructedFields[field.name] as ThetaValue);
-    }
-  }
-  for (const key of Object.keys(constructedFields)) {
-    if (!Object.prototype.hasOwnProperty.call(ordered, key)) {
-      defineRecordField(ordered, key, constructedFields[key] as ThetaValue);
-    }
+  const declarationOrder = decl.fields.map((field) => field.name);
+  for (const [key, fieldValue] of orderEntriesByDeclaration(
+    Object.entries(constructedFields),
+    declarationOrder,
+    (entryKey) => entryKey,
+  )) {
+    defineRecordField(ordered, key, fieldValue);
   }
   return brandSchemaValue(ordered, typeName);
+}
+
+/**
+ * Reorder `entries` into schema DECLARATION order — the one own-key order
+ * expressions.md §"Built-in methods and properties" fixes for a named
+ * schema's `keys()`, regardless of how the value was produced: every entry
+ * whose declared (theta-side) name `fieldOrder` lists, in DECLARED order,
+ * then every remaining entry in its existing relative order. The single
+ * source of truth for that rule, shared by both walks that establish it:
+ * {@link buildObjectSchemaValue} above (constructor-built records, bug 0080)
+ * and the inbound rebuild's `orderedEntries` (`wire-translation.ts`,
+ * MODEL-ordered payloads).
+ *
+ * `declaredKeyOf` maps an entry's key to the declared name `fieldOrder`
+ * speaks in — identity on the construction side (keys are already theta
+ * names), the sidecar's wire→theta map on the inbound side.
+ *
+ * The reorder is key-set preserving: every entry is emitted exactly once,
+ * and a declared name `entries` does not carry is never invented. Entry
+ * positions are bucketed by their declared key, so a declared name consumes
+ * one entry per occurrence and an entry list whose declared keys are unique
+ * (both production callers) resolves in one step.
+ */
+export function orderEntriesByDeclaration<T>(
+  entries: readonly (readonly [string, T])[],
+  fieldOrder: readonly string[],
+  declaredKeyOf: (entryKey: string) => string,
+): readonly (readonly [string, T])[] {
+  if (entries.length < 2) {
+    return entries;
+  }
+  const positions = new Map<string, number[]>();
+  entries.forEach(([entryKey], position) => {
+    const declaredKey = declaredKeyOf(entryKey);
+    const bucket = positions.get(declaredKey);
+    if (bucket === undefined) {
+      positions.set(declaredKey, [position]);
+    } else {
+      bucket.push(position);
+    }
+  });
+  const ordered: (readonly [string, T])[] = [];
+  const taken = new Set<number>();
+  for (const declared of fieldOrder) {
+    const position = positions.get(declared)?.shift();
+    if (position !== undefined) {
+      taken.add(position);
+      ordered.push(entries[position] as readonly [string, T]);
+    }
+  }
+  entries.forEach((entry, position) => {
+    if (!taken.has(position)) {
+      ordered.push(entry);
+    }
+  });
+  return ordered;
 }
 
 /**
