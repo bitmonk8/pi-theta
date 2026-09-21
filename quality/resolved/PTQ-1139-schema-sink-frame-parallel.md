@@ -2,7 +2,7 @@
 id: PTQ-1139
 title: Typed-query schema-sink frame classification split between producer and consumer
 lens: D4
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/parser/query-schema-inference.ts:48-72
