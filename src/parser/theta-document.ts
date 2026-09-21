@@ -22,7 +22,7 @@
 
 import type { Diagnostic, Position, SourceRange } from "../diagnostics/diagnostic";
 import { assembleDiagnostics } from "../diagnostics/diagnostic";
-import { lexTheta, type ThetaSource, type Token } from "../lexer/lexer";
+import { lexTheta, type LexResult, type ThetaSource, type Token } from "../lexer/lexer";
 import { decodeUtf8, normaliseNewlines, validateUtf8Encoding } from "../lexer/encoding";
 import {
   checkThetaLibTopLevelForm,
@@ -1218,18 +1218,20 @@ function walkExprForStatementPlacement(
 }
 
 /**
- * Parse a standalone expression `source` into an `Expr`, reusing the same
- * `parseExpression` entry the body parser drives for a `let` RHS so a caller
- * (e.g. a `@`...`` template's `${…}` interpolation, expressions.md
- * §"Supported forms") honours the full expression sublanguage rather than a
- * dotted-path subset. Returns `null` when the source does not parse as a single
- * expression. Lex diagnostics are discarded here: a well-formed theta's
- * interpolation already lexed as part of the whole-file body, and a malformed
- * one degrades to `null` at the call site (the inline no-op channel keeps this
- * helper free of shared state — no module-level mutable channel).
+ * Lex an expression snippet (a `${…}` interpolation or `@`-query template
+ * source) through the real `lexTheta` under an inert system-note channel.
+ * Discarding the channel's delivery is sound here: `lexTheta` returns every
+ * diagnostic on `LexResult.diagnostics` (which the snippet callers read or
+ * deliberately discard), and a well-formed theta's snippet text already lexed
+ * — and already noted — as part of the whole-file body pass. Bug 0255 pinned
+ * the V7d design (the channel parameter stays mandatory, and none of these
+ * snippet callers may be required to supply a real channel), so the inert
+ * channel lives here, in one named place, rather than inline per site. The
+ * deps literal is constructed fresh per call, keeping the snippet helpers
+ * free of shared state — no module-level mutable channel.
  */
-export function parseExpressionSource(source: string): Expr | null {
-  const lex = lexTheta(
+function lexSnippetSource(source: string): LexResult {
+  return lexTheta(
     { path: "<interpolation>", bytes: encodeSource(source) },
     {
       pi: { sendMessage: () => {} },
@@ -1237,6 +1239,21 @@ export function parseExpressionSource(source: string): Expr | null {
       emitDiagnostic: () => {},
     },
   );
+}
+
+/**
+ * Parse a standalone expression `source` into an `Expr`, reusing the same
+ * `parseExpression` entry the body parser drives for a `let` RHS so a caller
+ * (e.g. a `@`...`` template's `${…}` interpolation, expressions.md
+ * §"Supported forms") honours the full expression sublanguage rather than a
+ * dotted-path subset. Returns `null` when the source does not parse as a single
+ * expression. Lex diagnostics are discarded here: a well-formed theta's
+ * interpolation already lexed as part of the whole-file body, and a malformed
+ * one degrades to `null` at the call site (`lexSnippetSource`'s inert channel
+ * keeps this helper free of shared state — no module-level mutable channel).
+ */
+export function parseExpressionSource(source: string): Expr | null {
+  const lex = lexSnippetSource(source);
   const parser = new BodyParser(lex.tokens, "<interpolation>", source);
   return parser.parseSingleExpression();
 }
@@ -1247,8 +1264,9 @@ export function parseExpressionSource(source: string): Expr | null {
  * `BodyParser`'s own parse-phase diagnostics — the settled route for bug 0122:
  * an expression inside an interpolation draws exactly the parse-*parser*-phase
  * diagnostics the same text draws at `let`-RHS level. Same lex seam as
- * `parseExpressionSource` (real `lexTheta`, inline no-op channel, the
- * `<interpolation>` path) and the same `BodyParser` construction; the only
+ * `parseExpressionSource` (`lexSnippetSource`: real `lexTheta`, inert
+ * channel, the `<interpolation>` path) and the same `BodyParser`
+ * construction; the only
  * difference is driving `parseSingleExpressionWithResidue()` so a residue after
  * the expression — not only the expression's own emitters — has a chance to
  * draw a diagnostic before it is discarded. `parseExpressionSource` itself is
@@ -1258,14 +1276,7 @@ function parseInterpolationSource(source: string): {
   readonly expr: Expr | null;
   readonly diagnostics: readonly Diagnostic[];
 } {
-  const lex = lexTheta(
-    { path: "<interpolation>", bytes: encodeSource(source) },
-    {
-      pi: { sendMessage: () => {} },
-      ui: { notify: () => {} },
-      emitDiagnostic: () => {},
-    },
-  );
+  const lex = lexSnippetSource(source);
   const parser = new BodyParser(lex.tokens, "<interpolation>", source);
   const expr = parser.parseSingleExpressionWithResidue();
   return { expr, diagnostics: parser.diagnostics };
@@ -3438,14 +3449,7 @@ function checkQueryTemplateInterpolations(
  * `"match"` / `"@-query template"` for the first such token, else `null`.
  */
 function firstForbiddenInterpolationToken(source: string): string | null {
-  const lex = lexTheta(
-    { path: "<interpolation>", bytes: encodeSource(source) },
-    {
-      pi: { sendMessage: () => {} },
-      ui: { notify: () => {} },
-      emitDiagnostic: () => {},
-    },
-  );
+  const lex = lexSnippetSource(source);
   for (const t of lex.tokens) {
     if (t.kind === "keyword" && t.text === "match") {
       return "match";
