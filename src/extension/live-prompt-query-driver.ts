@@ -510,7 +510,7 @@ class LivePromptQueryModel implements QueryModelDriver {
         return { kind: "transport", error: probe.error as TransportError | ContextOverflowError };
       }
       const text = extractTrailingTurnText(this.#readMessages());
-      const parse = await parseStructuredPayload(text);
+      const parse = parseStructuredPayload(text);
       return { kind: "respond", payload: payloadForRespond(parse) };
     }
     // Bug 0010 (QRY-14 step 2 / SLSH-2): the forced respond turn dispatches

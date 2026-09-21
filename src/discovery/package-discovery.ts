@@ -548,16 +548,14 @@ async function resolvePackage(
   diagnostics: Diagnostic[],
   roots: Set<string>,
 ): Promise<Map<string, string>> {
-  const parsed = await Promise.resolve()
-    .then(() => JSON.parse(manifestText) as unknown)
-    .then(
-      (value) => ({ ok: true as const, value }),
-      () => ({ ok: false as const }),
-    );
-  if (!parsed.ok) {
+  let manifest: unknown;
+  try {
+    manifest = JSON.parse(manifestText) as unknown;
+  } catch (parseError: unknown) { // allow-broad-catch: DISC-5 parse tolerance — a package contributes thetas only when its package.json parses, discovery/package-and-settings.md
+    void parseError;
     return new Map(); // a package.json that does not parse contributes nothing
   }
-  const field = readPiThetasField(parsed.value);
+  const field = readPiThetasField(manifest);
   if (field.kind === "absent") {
     // Fallback: the conventional `theta/` directory, scanned non-recursively.
     return thetasInDirectory(

@@ -225,9 +225,9 @@ type FileReadOutcome =
  * Read one settings file through the seam and parse its UTF-8 JSON root. An
  * `ENOENT` rejection maps to `absent`; any other read rejection (`EACCES`,
  * `EPERM`, `EISDIR`, …) maps to `unreadable`; an invalid-UTF-8 decode or a JSON
- * parse failure maps to `invalid-json`. All discriminate via Promise rejection
- * handlers rather than `catch` clauses (Node fs errors carry no narrow subtype
- * to bind, and the broad-`catch` ban targets `catch`).
+ * parse failure maps to `invalid-json`. The read discriminates via a Promise
+ * rejection handler (Node fs errors carry no narrow subtype to bind); the
+ * decode + parse uses the sanctioned exempted `try/catch`.
  *
  * `absent` is a distinct outcome from `unreadable` because both settings files
  * are OPTIONAL and the two conditions are not the same event: a file that is
@@ -246,19 +246,15 @@ async function readSettingsFile(fs: FileSystem, path: string): Promise<FileReadO
   if (!bytes.ok) {
     return bytes.code === "ENOENT" ? { kind: "absent" } : { kind: "unreadable" };
   }
-  const parsed = await Promise.resolve()
-    .then(() => {
-      const text = new TextDecoder("utf-8", { fatal: true }).decode(bytes.value);
-      return JSON.parse(text) as unknown;
-    })
-    .then(
-      (root) => ({ ok: true as const, root }),
-      () => ({ ok: false as const }),
-    );
-  if (!parsed.ok) {
+  let root: unknown;
+  try {
+    const text = new TextDecoder("utf-8", { fatal: true }).decode(bytes.value);
+    root = JSON.parse(text) as unknown;
+  } catch (parseError: unknown) { // allow-broad-catch: theta/load/settings-invalid-json — discovery/package-and-settings.md
+    void parseError;
     return { kind: "invalid-json" };
   }
-  return { kind: "parsed", root: parsed.root };
+  return { kind: "parsed", root };
 }
 
 /**

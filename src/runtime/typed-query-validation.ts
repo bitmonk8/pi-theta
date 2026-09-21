@@ -47,26 +47,24 @@ import {
  * payload. A reply that does not parse as JSON is surfaced as its raw text
  * (`parsed: false`) so the downstream AJV validation reports the schema mismatch
  * — never a thrown `JSON.parse` (which would escape the query as an uncaught
- * error) and never a silently-bound `null`. The parse runs through a promise
- * rejection handler rather than a broad `catch`, honouring the specific-
- * exception-types rule.
+ * error) and never a silently-bound `null`.
  */
 export type StructuredPayloadParse =
   | { readonly parsed: true; readonly value: unknown }
   | { readonly parsed: false; readonly raw: string };
 
-export function parseStructuredPayload(text: string): Promise<StructuredPayloadParse> {
+export function parseStructuredPayload(text: string): StructuredPayloadParse {
   const trimmed = text.trim();
   const first = trimmed.indexOf("{");
   const last = trimmed.lastIndexOf("}");
   const candidate =
     first >= 0 && last > first ? trimmed.slice(first, last + 1) : trimmed;
-  return Promise.resolve()
-    .then(() => JSON.parse(candidate) as unknown)
-    .then(
-      (value): StructuredPayloadParse => ({ parsed: true, value }),
-      (): StructuredPayloadParse => ({ parsed: false, raw: text }),
-    );
+  try {
+    return { parsed: true, value: JSON.parse(candidate) as unknown };
+  } catch (parseError: unknown) { // allow-broad-catch: QRY-22 respond-parse tolerance — a non-JSON reply falls back to raw text so AJV reports the mismatch, query/query-failure-and-repair.md
+    void parseError;
+    return { parsed: false, raw: text };
+  }
 }
 
 /**
@@ -306,7 +304,7 @@ class ProductionTypedQueryValidation implements TypedQuerySchemaValidation {
             surfacing,
           };
         }
-        const parse = await parseStructuredPayload(reply);
+        const parse = parseStructuredPayload(reply);
         const payload = payloadForRespond(parse);
         const result = validateAgainst(
           this.#input.schemaValidator,
