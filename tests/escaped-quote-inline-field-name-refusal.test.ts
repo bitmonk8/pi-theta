@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 import { parseRegistry, registryMessage } from "../tools/code-registry/index.js";
 import { lowerParamsFieldType, type LowerCtx } from "../src/parser/params";
 import type { ThetaDocument } from "../src/parser/theta-document";
-import { lowerQueryResponseSchema } from "../src/runtime/query-schema-lowering";
+import { lowerQueryResponseSchema } from "../src/parser/query-schema-lowering";
 import { expectGroup as expectGroupShared, type DiagnosticCell, parseDoc } from "./helpers/e2e-s1";
 
 // Bug 0229 — `topLevelColon` (src/parser/params.ts) latches a quoted

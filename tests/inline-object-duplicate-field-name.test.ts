@@ -6,7 +6,7 @@ import type { Diagnostic } from "../src/diagnostics/diagnostic";
 import { buildBodyTypeSchemas } from "../src/parser/body-type-lowering";
 import { hoistInlineObjectType, lowerParamsFieldType } from "../src/parser/params";
 import type { ThetaDocument } from "../src/parser/theta-document";
-import { lowerQueryResponseSchema } from "../src/runtime/query-schema-lowering";
+import { lowerQueryResponseSchema } from "../src/parser/query-schema-lowering";
 import {
   AjvSchemaValidator,
   type LoweredSchema,

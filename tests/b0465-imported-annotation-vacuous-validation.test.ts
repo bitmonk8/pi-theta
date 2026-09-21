@@ -9,7 +9,7 @@ import {
   type TypedQuerySchemaValidation,
 } from "../src/runtime/query-tool-loop";
 import { buildTypedQueryValidation } from "../src/runtime/typed-query-validation";
-import { lowerQueryResponseSchema } from "../src/runtime/query-schema-lowering";
+import { lowerQueryResponseSchema } from "../src/parser/query-schema-lowering";
 import {
   mergedSchemaDeclsOf,
   mergedEnumDeclsOf,

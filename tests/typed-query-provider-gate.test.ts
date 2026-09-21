@@ -101,7 +101,7 @@ import { type LoweredSchema } from "../src/seams/schema-validator";
 import * as thetaDocumentModule from "../src/parser/theta-document";
 import { parseThetaDocument, type SchemaDecl, type ThetaBody, type ThetaDocument } from "../src/parser/theta-document";
 import type { ThetaSource } from "../src/lexer/lexer";
-import { lowerQueryResponseSchema } from "../src/runtime/query-schema-lowering";
+import { lowerQueryResponseSchema } from "../src/parser/query-schema-lowering";
 import * as productionComposition from "../src/extension/production-composition";
 import {
   checkTypedQueryProviderSupport,

@@ -5,7 +5,7 @@ import type { Diagnostic } from "../src/diagnostics/diagnostic";
 import type { ThetaDocument } from "../src/parser/theta-document";
 import { isSingleEnclosingBraceGroup } from "../src/parser/params";
 import { annotationSourceIsNotTypeExpression } from "../src/parser/type-layer-checks";
-import { lowerQueryResponseSchema } from "../src/runtime/query-schema-lowering";
+import { lowerQueryResponseSchema } from "../src/parser/query-schema-lowering";
 import { expectGroup as expectGroupShared, type DiagnosticCell, parseDoc, subagentTheta as theta, subagentParamsSrc, loweredParams } from "./helpers/e2e-s1";
 
 // Bug 0256 — an inline object entry stranded behind `TypeParser.parseObject`'s

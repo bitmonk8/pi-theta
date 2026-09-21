@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 import { buildBinderEnvelopeSchema } from "../src/binder/binder-envelope";
 import { renderBinderParamLine } from "../src/binder/binder-system-prompt";
 import type { EnumDecl, SchemaDecl, ThetaDocument } from "../src/parser/theta-document";
-import { lowerQueryResponseSchema } from "../src/runtime/query-schema-lowering";
+import { lowerQueryResponseSchema } from "../src/parser/query-schema-lowering";
 import { respondSchemaSlug } from "../src/runtime/typed-query-validation";
 import type { LoweredSchema } from "../src/seams/schema-validator";
 import { ajv } from "./helpers/scripted-live-session-harness";

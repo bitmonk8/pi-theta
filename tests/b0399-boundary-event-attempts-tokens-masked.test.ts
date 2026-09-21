@@ -96,7 +96,7 @@ import {
   buildTypedQueryValidation,
   type FollowUpRespondOutcome,
 } from "../src/runtime/typed-query-validation";
-import { lowerQueryResponseSchema } from "../src/runtime/query-schema-lowering";
+import { lowerQueryResponseSchema } from "../src/parser/query-schema-lowering";
 import type { LoweredSchema } from "../src/seams/schema-validator";
 import type {
   SchemaDecl,

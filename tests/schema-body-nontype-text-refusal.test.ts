@@ -9,7 +9,7 @@ import type {
   SchemaDecl,
   ThetaDocument,
 } from "../src/parser/theta-document";
-import { lowerQueryResponseSchema } from "../src/runtime/query-schema-lowering";
+import { lowerQueryResponseSchema } from "../src/parser/query-schema-lowering";
 import { diagCodes, diagLines, isLoadParseError, parseDoc } from "./helpers/e2e-s1";
 import { REGISTRY, type RegistryRow } from "./helpers/registry-oracle";
 

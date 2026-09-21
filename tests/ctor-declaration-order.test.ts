@@ -11,7 +11,7 @@ import { describe, expect, it } from "vitest";
 import { registryMessage } from "../tools/code-registry/index.js";
 import type { ThetaSource } from "../src/lexer/lexer";
 import { parseThetaDocument, type SchemaDecl, type ThetaDocument } from "../src/parser/theta-document";
-import { lowerQueryResponseSchema } from "../src/runtime/query-schema-lowering";
+import { lowerQueryResponseSchema } from "../src/parser/query-schema-lowering";
 import { evaluateObjectMember } from "../src/runtime/stdlib-object";
 import { brandSchemaValue, schemaTagOf, type ThetaValue } from "../src/runtime/value";
 import { diagCodes, parseDeps } from "./helpers/e2e-s1";

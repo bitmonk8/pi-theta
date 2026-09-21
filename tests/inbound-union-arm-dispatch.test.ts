@@ -23,7 +23,7 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import { parseThetaDocument, type ThetaDocument } from "../src/parser/theta-document";
 import type { ThetaSource } from "../src/lexer/lexer";
-import { lowerQueryResponseSchema } from "../src/runtime/query-schema-lowering";
+import { lowerQueryResponseSchema } from "../src/parser/query-schema-lowering";
 import {
   buildInboundTranslationPlan,
   type InboundTranslationPlan,

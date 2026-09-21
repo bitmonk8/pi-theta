@@ -115,7 +115,7 @@ import type { ThetaFixture } from "../src/extension/factory";
 import type { ThetaCompositionInput } from "../src/extension/theta-composition-producer";
 import { executeBody, type BodyExecution } from "../src/runtime/statement-executor";
 import type { RuntimeRoot } from "../src/runtime-root";
-import { lowerQueryResponseSchema } from "../src/runtime/query-schema-lowering";
+import { lowerQueryResponseSchema } from "../src/parser/query-schema-lowering";
 
 // ===========================================================================
 // The registered code and its normative message (DIAG-2 / DIAG-4).

@@ -8,7 +8,7 @@ import {
 } from "../src/parser/schema-lowering";
 import type { EnumDecl, SchemaDecl, ThetaDocument } from "../src/parser/theta-document";
 import { bindParamsInbound } from "../src/runtime/inbound-boundary";
-import { lowerQueryResponseSchema } from "../src/runtime/query-schema-lowering";
+import { lowerQueryResponseSchema } from "../src/parser/query-schema-lowering";
 import { respondSchemaSlug } from "../src/runtime/typed-query-validation";
 import { makeEnumValue, valuesEqual, type ThetaValue } from "../src/runtime/value";
 import { translateInbound } from "../src/runtime/wire-translation";

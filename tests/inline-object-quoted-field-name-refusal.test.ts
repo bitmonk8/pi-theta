@@ -6,7 +6,7 @@ import { registryMessage } from "../tools/code-registry/index.js";
 import { buildBodyTypeSchemas } from "../src/parser/body-type-lowering";
 import { lowerParamsFieldType, type LowerCtx } from "../src/parser/params";
 import type { ThetaDocument } from "../src/parser/theta-document";
-import { lowerQueryResponseSchema } from "../src/runtime/query-schema-lowering";
+import { lowerQueryResponseSchema } from "../src/parser/query-schema-lowering";
 import { buildTypedQueryValidation } from "../src/runtime/typed-query-validation";
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
 import {

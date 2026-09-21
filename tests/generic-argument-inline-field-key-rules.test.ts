@@ -1,6 +1,6 @@
 import { renderAll, type Exp } from "./helpers/registry-oracle";
 import { describe, expect, it } from "vitest";
-import { lowerQueryResponseSchema } from "../src/runtime/query-schema-lowering";
+import { lowerQueryResponseSchema } from "../src/parser/query-schema-lowering";
 import { expectGroup as expectGroupShared, type DiagnosticCell, parseDoc, diagLines, subagentTheta as theta, subagentParamsSrc as paramsSrc, loweredParams } from "./helpers/e2e-s1";
 
 // Bug 0233 — `walkType`'s `object` arm gates its whole raw-key loop on

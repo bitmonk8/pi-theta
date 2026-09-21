@@ -14,7 +14,7 @@ import {
   buildTypedQueryValidation,
   type FollowUpRespondOutcome,
 } from "../../src/runtime/typed-query-validation";
-import { lowerQueryResponseSchema } from "../../src/runtime/query-schema-lowering";
+import { lowerQueryResponseSchema } from "../../src/parser/query-schema-lowering";
 import {
   DEPTH_VIOLATION_MESSAGE,
   DEPTH_VIOLATION_SCHEMA_KEYWORD,

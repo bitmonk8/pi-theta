@@ -6,7 +6,7 @@ import {
   lowerTypeSource,
 } from "../src/parser/body-type-lowering";
 import type { EnumDecl, SchemaDecl } from "../src/parser/theta-document";
-import { lowerQueryResponseSchema } from "../src/runtime/query-schema-lowering";
+import { lowerQueryResponseSchema } from "../src/parser/query-schema-lowering";
 import type { LoweredSchema } from "../src/seams/schema-validator";
 import { parseDoc } from "./helpers/e2e-s1";
 

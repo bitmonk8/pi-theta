@@ -1,7 +1,7 @@
 import { registryMessageOrThrow } from "./helpers/load-row-harness";
 import { REGISTRY } from "./helpers/registry-oracle";
 import { describe, expect, it } from "vitest";
-import { lowerQueryResponseSchema } from "../src/runtime/query-schema-lowering";
+import { lowerQueryResponseSchema } from "../src/parser/query-schema-lowering";
 import { expectGroup as expectGroupShared, type DiagnosticCell, envelope, parseDoc, diagLines, subagentTheta as theta, subagentParamsSrc, loweredParams } from "./helpers/e2e-s1";
 
 // Bug 0244 — an inline object type entry that spells no top-level `:` is

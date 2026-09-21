@@ -130,7 +130,7 @@ import {
 } from "../src/runtime/value";
 import { decodeInboundValue, declaredNames } from "../src/runtime/inbound-boundary";
 import { enumDeclaringKey } from "../src/runtime/lexical-environment";
-import { lowerQueryResponseSchema } from "../src/runtime/query-schema-lowering";
+import { lowerQueryResponseSchema } from "../src/parser/query-schema-lowering";
 import { depthWalk, jsonDepth, MAX_JSON_DEPTH } from "../src/runtime/depth-walk";
 import {
   enforceInvokeParamsDepth,

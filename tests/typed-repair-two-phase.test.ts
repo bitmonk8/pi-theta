@@ -83,7 +83,7 @@ import {
   expectValue,
   runGovernorRoundProbe,
 } from "./helpers/scripted-live-session-harness";
-import { lowerQueryResponseSchema } from "../src/runtime/query-schema-lowering";
+import { lowerQueryResponseSchema } from "../src/parser/query-schema-lowering";
 import { respondSchemaSlug } from "../src/runtime/typed-query-validation";
 import { renderFollowUpTurn } from "../src/runtime/query-followup-render";
 import {

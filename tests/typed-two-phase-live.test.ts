@@ -77,7 +77,7 @@ import type { ThetaCompositionInput } from "../src/extension/theta-composition-p
 import { type LoweredSchema } from "../src/seams/schema-validator";
 import { parseThetaDocument, type SchemaDecl } from "../src/parser/theta-document";
 import type { ThetaSource } from "../src/lexer/lexer";
-import { lowerQueryResponseSchema } from "../src/runtime/query-schema-lowering";
+import { lowerQueryResponseSchema } from "../src/parser/query-schema-lowering";
 import { respondSchemaSlug } from "../src/runtime/typed-query-validation";
 // @ts-expect-error — JS code-registry module, no type declarations.
 import { parseRegistry, registryMessage } from "../tools/code-registry/index.js";

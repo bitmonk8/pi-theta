@@ -38,7 +38,7 @@ import {
   runTypedQueryLoop,
   type QueryToolLoopConfig,
 } from "../src/runtime/query-tool-loop";
-import { lowerQueryResponseSchema } from "../src/runtime/query-schema-lowering";
+import { lowerQueryResponseSchema } from "../src/parser/query-schema-lowering";
 
 // --- Substrate -------------------------------------------------------------
 

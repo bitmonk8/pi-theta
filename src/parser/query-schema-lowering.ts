@@ -131,19 +131,19 @@
 // (QRY-22).
 
 import type { LoweredSchema } from "../seams/schema-validator";
-import { hoistNestedDefs } from "../parser/schema-defs";
-import type { EnumDecl, SchemaDecl } from "../parser/theta-document";
+import { hoistNestedDefs } from "./schema-defs";
+import type { EnumDecl, SchemaDecl } from "./theta-document";
 import {
   buildBodyTypeSchemas,
   isSingleEnclosingBraceGroup,
   lowerInlineObject,
   lowerTypeSource,
   type InlineHoistSinks,
-} from "../parser/body-type-lowering";
+} from "./body-type-lowering";
 import {
   prunePerQueryDefs,
   type QueryDefsDocument,
-} from "../parser/query-schema-inference";
+} from "./query-schema-inference";
 
 /** An identifier-shaped atom (a bare `NamedType` reference). */
 const IDENTIFIER = /^[A-Za-z_][A-Za-z0-9_]*$/;

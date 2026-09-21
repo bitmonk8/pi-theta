@@ -3,7 +3,7 @@ import { REGISTRY } from "./helpers/registry-oracle";
 import { describe, expect, it } from "vitest";
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
 import type { SchemaDecl, ThetaDocument } from "../src/parser/theta-document";
-import { lowerQueryResponseSchema } from "../src/runtime/query-schema-lowering";
+import { lowerQueryResponseSchema } from "../src/parser/query-schema-lowering";
 import {
   AjvSchemaValidator,
   type LoweredSchema,

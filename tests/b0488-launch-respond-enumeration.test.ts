@@ -26,7 +26,7 @@ import { parseDoc } from "./helpers/e2e-s1";
 import * as thetaDoc from "../src/parser/theta-document";
 import type { FnDecl, QueryExpr, ThetaBody, ThetaDocument } from "../src/parser/theta-document";
 import * as tqv from "../src/runtime/typed-query-validation";
-import { lowerQueryResponseSchema } from "../src/runtime/query-schema-lowering";
+import { lowerQueryResponseSchema } from "../src/parser/query-schema-lowering";
 import {
   collectLaunchRespondNames,
   mergedEnumDeclsOf,

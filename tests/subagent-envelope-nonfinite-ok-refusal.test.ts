@@ -92,7 +92,7 @@ import {
   type SchemaDecl,
 } from "../src/parser/theta-document";
 import { type ResultValue, type ThetaValue } from "../src/runtime/value";
-import { lowerQueryResponseSchema } from "../src/runtime/query-schema-lowering";
+import { lowerQueryResponseSchema } from "../src/parser/query-schema-lowering";
 import { MAX_JSON_DEPTH } from "../src/runtime/depth-walk";
 import { enforceInvokeReturnDepth } from "../src/runtime/invoke-ceiling-depth";
 import * as subagentEnvelope from "../src/runtime/subagent-envelope";

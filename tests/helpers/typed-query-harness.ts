@@ -21,7 +21,7 @@ import {
 } from "../../src/parser/theta-document";
 import type { ThetaSource } from "../../src/lexer/lexer";
 import { buildTypedQueryValidation } from "../../src/runtime/typed-query-validation";
-import { lowerQueryResponseSchema } from "../../src/runtime/query-schema-lowering";
+import { lowerQueryResponseSchema } from "../../src/parser/query-schema-lowering";
 
 export { SEAM_NOOP_CHECKPOINT as NOOP_CHECKPOINT } from "./invoke-seam-scaffold";
 

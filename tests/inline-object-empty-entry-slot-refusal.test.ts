@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 // @ts-expect-error — JS code-registry module, no type declarations.
 import { registryMessage } from "../tools/code-registry/index.js";
 import { splitTopLevelSegments, topLevelColon } from "../src/parser/params";
-import { lowerQueryResponseSchema } from "../src/runtime/query-schema-lowering";
+import { lowerQueryResponseSchema } from "../src/parser/query-schema-lowering";
 import { expectGroup as expectGroupShared, type DiagnosticCell, parseDoc, diagLines, subagentTheta as theta, subagentParamsSrc, loweredParams } from "./helpers/e2e-s1";
 
 // Bug 0257 — an inline object entry SLOT spelling no token at all — the segment

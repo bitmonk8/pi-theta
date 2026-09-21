@@ -1,7 +1,7 @@
 import { parseDoc, schemaDeclsOf, enumDeclsOf } from "./helpers/e2e-s1";
 import { describe, expect, it } from "vitest";
 import { type ThetaDocument } from "../src/parser/theta-document";
-import { lowerQueryResponseSchema } from "../src/runtime/query-schema-lowering";
+import { lowerQueryResponseSchema } from "../src/parser/query-schema-lowering";
 import { buildInboundTranslationPlan, type SchemaSidecar } from "../src/parser/schema-lowering";
 import { translateInbound, translateOutbound } from "../src/runtime/wire-translation";
 import { evaluateObjectMember } from "../src/runtime/stdlib-object";

@@ -1,7 +1,7 @@
 import { renderAll, type Exp } from "./helpers/registry-oracle";
 import { describe, expect, it } from "vitest";
 import { splitTopLevel } from "../src/parser/params";
-import { lowerQueryResponseSchema } from "../src/runtime/query-schema-lowering";
+import { lowerQueryResponseSchema } from "../src/parser/query-schema-lowering";
 import { expectGroup as expectGroupShared, type DiagnosticCell, diagLines, parseDoc, subagentTheta as theta, subagentParamsSrc as paramsSrc, loweredParams } from "./helpers/e2e-s1";
 
 // Bug 0236 — `TypeParser.parsePrimary` has no arm for `[`, so a bracket group

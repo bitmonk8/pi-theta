@@ -1,7 +1,7 @@
 import { ajv as realAjv } from "./helpers/scripted-live-session-harness";
 import { parseTheta, schemaDeclsOf, enumDeclsOf } from "./helpers/e2e-s1";
 import { describe, expect, it } from "vitest";
-import { lowerQueryResponseSchema } from "../src/runtime/query-schema-lowering";
+import { lowerQueryResponseSchema } from "../src/parser/query-schema-lowering";
 import {
   buildInboundTranslationPlan,
   type InboundTranslationPlan,

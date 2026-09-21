@@ -27,7 +27,7 @@ import {
 import { buildEnvironment } from "../src/runtime/lexical-environment";
 import { translateInbound } from "../src/runtime/wire-translation";
 import type { SchemaSidecar } from "../src/parser/schema-lowering";
-import { lowerQueryResponseSchema } from "../src/runtime/query-schema-lowering";
+import { lowerQueryResponseSchema } from "../src/parser/query-schema-lowering";
 import { createProductionProducerDeps } from "../src/extension/production-theta-producer";
 import type {
   ConversationBindInput,

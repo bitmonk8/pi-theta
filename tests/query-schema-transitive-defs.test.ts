@@ -44,7 +44,7 @@
 // query/query-failure-and-repair.md (QRY-22).
 
 import { describe, expect, it } from "vitest";
-import { lowerQueryResponseSchema } from "../src/runtime/query-schema-lowering";
+import { lowerQueryResponseSchema } from "../src/parser/query-schema-lowering";
 import { buildTypedQueryValidation } from "../src/runtime/typed-query-validation";
 import {
   runTypedQueryLoop,

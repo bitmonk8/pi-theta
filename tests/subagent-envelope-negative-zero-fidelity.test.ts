@@ -154,7 +154,7 @@ import {
   type ResultValue,
   type ThetaValue,
 } from "../src/runtime/value";
-import { lowerQueryResponseSchema } from "../src/runtime/query-schema-lowering";
+import { lowerQueryResponseSchema } from "../src/parser/query-schema-lowering";
 import { DEPTH_VIOLATION_MESSAGE, MAX_JSON_DEPTH } from "../src/runtime/depth-walk";
 import {
   mapNonRepresentableReturnValue,

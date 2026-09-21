@@ -2,7 +2,7 @@ import { parseDeps as makeDeps, schemaDeclsOf, enumDeclsOf } from "./helpers/e2e
 import { describe, expect, it } from "vitest";
 import { parseThetaDocument, type ThetaDocument } from "../src/parser/theta-document";
 import type { ThetaSource } from "../src/lexer/lexer";
-import { lowerQueryResponseSchema } from "../src/runtime/query-schema-lowering";
+import { lowerQueryResponseSchema } from "../src/parser/query-schema-lowering";
 import {
   buildInboundTranslationPlan,
   buildSidecar,

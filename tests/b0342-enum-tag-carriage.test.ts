@@ -28,7 +28,7 @@ import {
 } from "../src/runtime/value";
 import type { EnumDecl, SchemaDecl } from "../src/parser/theta-document";
 import { decodeInboundValue } from "../src/runtime/inbound-boundary";
-import { lowerQueryResponseSchema } from "../src/runtime/query-schema-lowering";
+import { lowerQueryResponseSchema } from "../src/parser/query-schema-lowering";
 import { AjvSchemaValidator, type LoweredSchema, type SchemaSlug } from "../src/seams/schema-validator";
 import { parseDoc } from "./helpers/e2e-s1";
 

@@ -63,7 +63,7 @@ import type {
   ModelRegistry,
   ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
-import { lowerQueryResponseSchema } from "../src/runtime/query-schema-lowering";
+import { lowerQueryResponseSchema } from "../src/parser/query-schema-lowering";
 import { createProductionProducerDeps } from "../src/extension/production-theta-producer";
 import type { ThetaCompositionInput } from "../src/extension/theta-composition-producer";
 import { executeBody, type BodyExecution } from "../src/runtime/statement-executor";

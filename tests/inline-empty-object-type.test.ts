@@ -9,7 +9,7 @@ import {
   type TypeCheckSite,
   type TypePosition,
 } from "../src/parser/type-grammar";
-import { lowerQueryResponseSchema } from "../src/runtime/query-schema-lowering";
+import { lowerQueryResponseSchema } from "../src/parser/query-schema-lowering";
 import {
   annotSrc,
   body,

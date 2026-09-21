@@ -6,7 +6,7 @@ import { registryMessage } from "../tools/code-registry/index.js";
 import { REGISTRY } from "./helpers/registry-oracle";
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
 import type { EnumDecl, SchemaDecl, ThetaDocument } from "../src/parser/theta-document";
-import { lowerQueryResponseSchema } from "../src/runtime/query-schema-lowering";
+import { lowerQueryResponseSchema } from "../src/parser/query-schema-lowering";
 import { respondSchemaSlug } from "../src/runtime/typed-query-validation";
 import {
   AjvSchemaValidator,

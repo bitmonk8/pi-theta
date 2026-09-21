@@ -10,7 +10,7 @@ import {
   lowerTypeExpr,
   splitTopLevel,
 } from "../src/parser/params";
-import { lowerQueryResponseSchema } from "../src/runtime/query-schema-lowering";
+import { lowerQueryResponseSchema } from "../src/parser/query-schema-lowering";
 import { parseDoc, diagLines } from "./helpers/e2e-s1";
 
 // Bug 0204 — `lowerTypeExpr`'s generic-application arm reads its argument list

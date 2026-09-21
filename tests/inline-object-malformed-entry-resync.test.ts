@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 // @ts-expect-error — JS code-registry module, no type declarations.
 import { registryMessage } from "../tools/code-registry/index.js";
 import type { ThetaDocument } from "../src/parser/theta-document";
-import { lowerQueryResponseSchema } from "../src/runtime/query-schema-lowering";
+import { lowerQueryResponseSchema } from "../src/parser/query-schema-lowering";
 import { expectGroup as expectGroupShared, type DiagnosticCell, parseDoc, diagLines, isLoadParseError, subagentTheta as theta, subagentParamsSrc as paramsSrc } from "./helpers/e2e-s1";
 
 // Bug 0231 — `TypeParser.parseObject`'s field loop BREAKS at the first entry

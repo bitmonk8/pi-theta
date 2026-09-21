@@ -1,6 +1,6 @@
 import { fakeThetaLibFs } from "./helpers/thetalib-load-harness";
 import { describe, expect, it } from "vitest";
-import { lowerQueryResponseSchema } from "../src/runtime/query-schema-lowering";
+import { lowerQueryResponseSchema } from "../src/parser/query-schema-lowering";
 import {
   AjvSchemaValidator,
   type LoweredSchema,

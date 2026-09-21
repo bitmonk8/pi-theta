@@ -6,7 +6,7 @@ import { join, posix, sep } from "node:path";
 import { describe, expect, it } from "vitest";
 import { registryMessageOf as readRegistryMessage } from "./helpers/load-row-harness";
 import type { EnumDecl, SchemaDecl, ThetaDocument } from "../src/parser/theta-document";
-import { lowerQueryResponseSchema } from "../src/runtime/query-schema-lowering";
+import { lowerQueryResponseSchema } from "../src/parser/query-schema-lowering";
 import { yamlQuoted, firstDiagnostic, expectParamsDropGateShape, parseDoc, diagLines, diagCodes } from "./helpers/e2e-s1";
 
 // Bug 0059 — a `params:` right-hand side that is a YAML SCALAR carrying text no

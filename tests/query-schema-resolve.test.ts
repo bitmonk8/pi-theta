@@ -8,7 +8,7 @@ import {
   type SchemaDecl,
   type Stmt,
 } from "../src/parser/theta-document";
-import { lowerQueryResponseSchema } from "../src/runtime/query-schema-lowering";
+import { lowerQueryResponseSchema } from "../src/parser/query-schema-lowering";
 
 
 // V13b integration — parser-level tests for the whole-body query-schema resolve

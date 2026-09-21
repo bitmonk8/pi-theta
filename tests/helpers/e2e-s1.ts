@@ -47,7 +47,7 @@ import type { LowerCtx } from "../../src/parser/params";
 import { StaticTypeInferencePass } from "../../src/parser/static-type-inference";
 import { checkCompatible, displayType, type Compatibility, type TypeEnv } from "../../src/parser/type-compat";
 import type { LoweredSchema } from "../../src/seams/schema-validator";
-import { lowerQueryResponseSchema } from "../../src/runtime/query-schema-lowering";
+import { lowerQueryResponseSchema } from "../../src/parser/query-schema-lowering";
 
 /** An in-band, no-op system-note channel that discards emitted batches. */
 function inertSystemNote(): SystemNoteChannelDeps {

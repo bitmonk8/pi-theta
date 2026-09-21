@@ -10,7 +10,7 @@ import type {
   LetStmt,
   QueryExpr,
 } from "../src/parser/theta-document";
-import { lowerQueryResponseSchema } from "../src/runtime/query-schema-lowering";
+import { lowerQueryResponseSchema } from "../src/parser/query-schema-lowering";
 import {
   capturedQuerySchema as capturedQuerySchemaShared,
   expectGroup as expectGroupShared,
