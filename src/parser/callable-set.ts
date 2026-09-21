@@ -33,6 +33,7 @@
 // lexical.md (§Extension matching, §Path literals),
 // tool-calls.md #session-control-runtime-tools (RFC 0011 §3.1 resolution arm).
 
+import { posix } from "node:path";
 import { normaliseLiteralValueLineBreaks, type Diagnostic } from "../diagnostics/diagnostic";
 import { checkInvokeExtension } from "./invoke-diagnostics";
 import type { ThetaMode } from "./frontmatter";
@@ -547,7 +548,7 @@ function resolveEntry(
  * derived callable name.
  */
 function entryBasename(thetaPath: string): string {
-  return thetaPath.slice(thetaPath.lastIndexOf("/") + 1);
+  return posix.basename(thetaPath);
 }
 
 /**
@@ -561,9 +562,7 @@ function entryBasename(thetaPath: string): string {
  * the two readers cannot diverge on a hyphenated stem (bug 0253).
  */
 export function thetaDefaultName(thetaPath: string): string {
-  const basename = thetaPath.slice(thetaPath.lastIndexOf("/") + 1);
-  const stem = basename.endsWith(".theta") ? basename.slice(0, -".theta".length) : basename;
-  return stem.replace(/-/g, "_");
+  return posix.basename(thetaPath, ".theta").replace(/-/g, "_");
 }
 
 /**
