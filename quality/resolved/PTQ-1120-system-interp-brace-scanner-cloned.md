@@ -2,7 +2,7 @@
 id: PTQ-1120
 title: system: interpolation brace scanner cloned in query template renderer
 lens: D4
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/parser/system-interpolation.ts:291-313

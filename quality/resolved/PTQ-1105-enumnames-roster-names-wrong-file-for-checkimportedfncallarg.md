@@ -2,7 +2,7 @@
 id: PTQ-1105
 title: StaticTypeInferenceDeps.enumNames doc names checkImportedFnCallArgs as living in invoke-static-checks.ts, but it was split into invoke-imported-checks.ts
 lens: D2
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/parser/static-type-inference.ts:88-92

@@ -2,7 +2,7 @@
 id: PTQ-1132
 title: CompatType recursive traversal cloned for named-type and withheld-binder checks
 lens: D4
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/parser/type-layer-checks.ts:398-409

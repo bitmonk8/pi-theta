@@ -2,7 +2,7 @@
 id: PTQ-1133
 title: for and par-for iterand contract checks cloned in type-layer-checks
 lens: D4
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/parser/type-layer-checks.ts:1882-1896

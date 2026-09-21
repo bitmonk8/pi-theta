@@ -2,7 +2,7 @@
 id: PTQ-1118
 title: Nested $defs hoisting algorithm duplicated between params.ts and query-schema-lowering.ts
 lens: D4
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/parser/params.ts:540-556

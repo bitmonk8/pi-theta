@@ -2,7 +2,7 @@
 id: PTQ-1111
 title: lexical-environment.ts's header claims ThetaEvalHost is "the real EvalHost implementation the V19c statement executor evaluates ... against", but no production code ever constructs one
 lens: D2
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/runtime/lexical-environment.ts:1-7

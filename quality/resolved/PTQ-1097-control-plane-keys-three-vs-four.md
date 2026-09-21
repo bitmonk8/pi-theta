@@ -2,7 +2,7 @@
 id: PTQ-1097
 title: SUBAGENT_CONTROL_PLANE_ENV_KEYS doc comment says the module owns three keys but it owns four
 lens: D2
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/runtime/subagent-launcher.ts:589-593

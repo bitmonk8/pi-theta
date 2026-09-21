@@ -2,7 +2,7 @@
 id: PTQ-1113
 title: The raw-byte invalid-UTF-8 gate is duplicated between lexTheta and parseThetaDocument
 lens: D4
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/lexer/lexer.ts:95-108

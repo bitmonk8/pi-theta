@@ -2,7 +2,7 @@
 id: PTQ-1109
 title: cancellation-core's header claims ownership of the tool-call late-settlement discard and tool-exposed forwarding without the test-only disclosure its sibling swallowing-handler section carries
 lens: D2
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/runtime/cancellation-core.ts:3-17

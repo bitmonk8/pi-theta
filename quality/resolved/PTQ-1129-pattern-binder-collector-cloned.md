@@ -2,7 +2,7 @@
 id: PTQ-1129
 title: Pattern binder name collector cloned between match-result seam and theta-document parser
 lens: D4
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/parser/match-result.ts:49-71

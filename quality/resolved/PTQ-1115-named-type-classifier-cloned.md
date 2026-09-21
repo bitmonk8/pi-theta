@@ -2,7 +2,7 @@
 id: PTQ-1115
 title: named-type alias classifier duplicated across three type checks
 lens: D4
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/parser/type-compat.ts:525-541

@@ -2,7 +2,7 @@
 id: PTQ-1128
 title: Top-level fn collection helper duplicated across query-schema-resolve and type-layer-checks
 lens: D4
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/parser/query-schema-resolve.ts:138-150

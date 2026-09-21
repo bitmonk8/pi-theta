@@ -2,7 +2,7 @@
 id: PTQ-1122
 title: theta-callable and invoke callee-failure wrapping cloned in effectful-statement-host
 lens: D4
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/runtime/effectful-statement-host.ts:377-406

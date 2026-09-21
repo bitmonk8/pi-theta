@@ -2,7 +2,7 @@
 id: PTQ-1095
 title: type-grammar.ts's module header bullet list omits three diagnostic codes the file constructs
 lens: D2                     # D2 | D4 | D7 | D8 | D9 - the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - src/parser/type-grammar.ts:11-94

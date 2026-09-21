@@ -2,7 +2,7 @@
 id: PTQ-1117
 title: typed-query respond-repair switch cloned in three terminal arms
 lens: D4
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/runtime/query-tool-loop.ts:611-631

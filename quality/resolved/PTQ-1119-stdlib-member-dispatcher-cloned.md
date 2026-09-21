@@ -2,7 +2,7 @@
 id: PTQ-1119
 title: stdlib member dispatcher scaffolding cloned across array/string/object runtimes
 lens: D4
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/runtime/stdlib-array.ts:59-135

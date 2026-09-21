@@ -2,7 +2,7 @@
 id: PTQ-1106
 title: system-interpolation.ts's two load-phase-consumer citations still name import-static-checks.ts, but that consumer moved to import-system-template-patch.ts
 lens: D2
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/parser/system-interpolation.ts:60-70

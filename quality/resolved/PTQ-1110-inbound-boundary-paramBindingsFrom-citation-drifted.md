@@ -2,7 +2,7 @@
 id: PTQ-1110
 title: "bindParamsInbound's doc comment cites theta-composition-producer.ts:102 for paramBindingsFrom, but the function sits at :96 and its call to bindParamsInbound sits at :104"
 lens: D2
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/runtime/inbound-boundary.ts:138-145

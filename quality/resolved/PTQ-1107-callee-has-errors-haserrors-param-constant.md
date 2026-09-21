@@ -2,7 +2,7 @@
 id: PTQ-1107
 title: checkCalleeHasErrors's hasErrors gate is true at every production call site
 lens: D2                     # D2 | D4 | D7 | D8 | D9 - the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - src/parser/invoke-diagnostics.ts:642-668

@@ -2,7 +2,7 @@
 id: PTQ-1131
 title: Type-annotation validation is cloned across let, fn-param, fn-return and invoke-return-schema positions
 lens: D4
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/parser/theta-document.ts:9511-9565

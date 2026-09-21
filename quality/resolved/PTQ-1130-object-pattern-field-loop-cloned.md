@@ -2,7 +2,7 @@
 id: PTQ-1130
 title: Object-pattern field loop is duplicated for typed and bare object patterns
 lens: D4
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/parser/theta-document.ts:6118-6151

@@ -2,7 +2,7 @@
 id: PTQ-1124
 title: interpolation type-of discriminator mirrored in production theta producer
 lens: D4
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/parser/system-interpolation.ts:652-671

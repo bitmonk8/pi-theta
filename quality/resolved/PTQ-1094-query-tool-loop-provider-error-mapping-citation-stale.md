@@ -2,7 +2,7 @@
 id: PTQ-1094
 title: "FreePhaseTurn's `text` field cites provider-error-mapping.ts:358 for its `rawResponse?` twin, but that file is only 265 lines long"
 lens: D2
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/runtime/query-tool-loop.ts:99-105
