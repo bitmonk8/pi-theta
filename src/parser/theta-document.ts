@@ -71,7 +71,7 @@ import {
 // so only that arm can fire from this site) instead of re-deriving the
 // message/severity locally — the same parser→runtime reuse pattern as
 // `checkDiscardedQueryResult` in structural-checks.ts.
-import { checkToolCallArguments } from "../runtime/tool-call";
+import { checkToolCallArguments } from "../runtime/tool-call-static-checks";
 // A `@`-query template body is captured verbatim at parse time; its `${…}`
 // interpolations are re-lexed here (the same lexer the render path drives) so
 // the parse-time whole-document walk can reject the forms expressions.md

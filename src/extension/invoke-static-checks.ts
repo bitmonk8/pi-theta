@@ -111,7 +111,7 @@ import type { ThetaCompositionInput } from "./theta-composition-producer";
 // Bug 0072: the two static tool-argument TYPE checks reuse the existing `V20b`
 // static-type-inference substrate and `V2b` compatibility engine rather than
 // re-deriving a parallel type model for this pass.
-import { checkToolCallArguments } from "../runtime/tool-call";
+import { checkToolCallArguments } from "../runtime/tool-call-static-checks";
 import { StaticTypeInferencePass } from "../parser/static-type-inference";
 import {
   collectEnumNames,

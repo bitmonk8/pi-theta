@@ -17,7 +17,7 @@ import {
 } from "../parser/static-type-inference";
 import { checkCompatible, displayType, type CompatType, type TypeEnv } from "../parser/type-compat";
 import { annotationToCompatType } from "../parser/type-layer-checks";
-import { checkToolCallArguments } from "../runtime/tool-call";
+import { checkToolCallArguments } from "../runtime/tool-call-static-checks";
 import { checkInvokePathAtLoad } from "../runtime/invocation";
 import type { FileSystem } from "../seams/file-system";
 import type { CalleeArity, CalleeArityField } from "./invoke-static-checks";
