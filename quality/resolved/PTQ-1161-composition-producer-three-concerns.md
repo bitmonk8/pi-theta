@@ -2,7 +2,7 @@
 id: PTQ-1161
 title: theta-composition-producer.ts bundles the conversation-binding seam-contract type family, the dispatch composition, and the runtime-defect note framing
 lens: D9
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/extension/theta-composition-producer.ts:1-756

@@ -2,7 +2,7 @@
 id: PTQ-1153
 title: session-shutdown.ts bundles the five-sub-step teardown sequence with the PIC-24..28 emission-isolation machinery three other modules consume independently
 lens: D9
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/extension/session-shutdown.ts:1-727
