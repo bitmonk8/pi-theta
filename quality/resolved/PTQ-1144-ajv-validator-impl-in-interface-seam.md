@@ -2,7 +2,7 @@
 id: PTQ-1144
 title: The V8c production `AjvSchemaValidator` implementation (415 of 452 LOC) lives inside the H3a `SchemaValidator` interface module, unlike every other seam adapter in src/seams/
 lens: D9
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/seams/schema-validator.ts:39-452

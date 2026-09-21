@@ -2,7 +2,7 @@
 id: PTQ-1136
 title: Teardown call-label roster is mirrored at call sites and the signal-source type
 lens: D4
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/extension/session-shutdown.ts:61-75
