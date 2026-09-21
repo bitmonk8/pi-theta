@@ -48,7 +48,7 @@ import type {
 import {
   createModelReferenceMatcher,
   type ModelRegistrySurface,
-} from "../extension/reload-wiring";
+} from "../parser/model-reference-matcher";
 import type { ThetaSettings } from "../discovery/settings";
 import { buildRecoveryNote } from "../runtime/runtime-event-channel";
 import type { SystemNote } from "../extension/system-note-channel";

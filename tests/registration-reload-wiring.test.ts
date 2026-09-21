@@ -9,11 +9,11 @@ import {
   createReloadFailureInjector,
   dropCollidingThetas,
   structuralChangeNote,
-  createModelReferenceMatcher,
   loadPassParse,
   REGISTRY_SWAP_FAILED_CODE,
   type ParsedTheta,
 } from "../src/extension/reload-wiring";
+import { createModelReferenceMatcher } from "../src/parser/model-reference-matcher";
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
 import type {
   ModelReferenceMatcher,

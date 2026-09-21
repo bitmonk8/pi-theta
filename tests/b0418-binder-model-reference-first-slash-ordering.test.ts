@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { matchAvailableModel } from "../src/binder/binder-model";
-import { createModelReferenceMatcher, type AvailableModel } from "../src/extension/reload-wiring";
+import { createModelReferenceMatcher, type AvailableModel } from "../src/parser/model-reference-matcher";
 import { model, registryOf } from "./helpers/model-registry-fixture";
 
 // Bug 0418 — conformance pin of the SHIPPED first-slash split.
@@ -27,7 +27,7 @@ import { model, registryOf } from "./helpers/model-registry-fixture";
 // billing serves every binder call. Both matchers must agree:
 //   - `matchAvailableModel` (src/binder/binder-model.ts:116) — the runtime
 //     re-resolution the binder dispatch uses.
-//   - `createModelReferenceMatcher` (src/extension/reload-wiring.ts:518) — the
+//   - `createModelReferenceMatcher` (`src/parser/model-reference-matcher.ts`) — the
 //     shared load-time resolver for `bind_model:` / `theta.binderModel` /
 //     `model:`.
 //

@@ -13,7 +13,7 @@
 //
 // TIER: unit, offline, deterministic, provider-free — the same tier as every
 // file that imports this module.
-import type { AvailableModel, ModelRegistrySurface } from "../../src/extension/reload-wiring";
+import type { AvailableModel, ModelRegistrySurface } from "../../src/parser/model-reference-matcher";
 
 /** One `AvailableModel` fixture row. */
 export function model(id: string, provider: string, api: string): AvailableModel {

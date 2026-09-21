@@ -15,7 +15,7 @@ import {
   type StrictCapableProbeResult,
   type LoadedTheta,
 } from "../src/binder/binder-model";
-import { createModelReferenceMatcher } from "../src/extension/reload-wiring";
+import { createModelReferenceMatcher } from "../src/parser/model-reference-matcher";
 import type {
   ModelReferenceMatcher,
   ParseFrontmatterOptions,

@@ -197,8 +197,8 @@ import {
   type StrictCapableProbeResult,
 } from "../binder/binder-model";
 import { classifyBinderBypass } from "../binder/binder-envelope";
+import { createModelReferenceMatcher } from "../parser/model-reference-matcher";
 import {
-  createModelReferenceMatcher,
   ThetaRegistry,
   type ParsedTheta,
 } from "./reload-wiring";
