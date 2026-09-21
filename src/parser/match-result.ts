@@ -34,17 +34,10 @@ import type { PatternNode } from "./theta-document";
 
 /**
  * Every name a `match` pattern binds, recursively through the constructor /
- * object / array pattern forms. Kept independent of `theta-document.ts`'s own
- * (unexported) `collectPatternBindings`: `theta-document.ts` is touched only at
- * the `checkTypeLayer` call site, so that function is not exported to be
- * shared here. Two importers as of bug 0145 §Fix (a) route 1 —
- * `type-layer-checks.ts`'s own arm-scope build and
- * `StaticTypeInferencePass`'s (./static-type-inference.ts) — both need the
- * same binder set for the same pattern, and `match-result.ts` is the
- * `match`/`Result` parse-type seam for both — `type-layer-checks.ts` already
- * reaches it for `checkMatchArmTypes`, and `static-type-inference.ts` reaches
- * it for this function alone — so a `PatternNode` type-only import from
- * `theta-document.ts` here creates no import cycle.
+ * object / array pattern forms. Shared by the parser's arm-body scope and the
+ * type-layer and static-type-inference arm scopes. The `PatternNode` import
+ * from `theta-document.ts` is type-only, so sharing this walk creates no
+ * runtime import cycle.
  */
 export function collectPatternBinderNames(pattern: PatternNode, names: Set<string>): void {
   switch (pattern.kind) {

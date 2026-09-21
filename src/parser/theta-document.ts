@@ -84,7 +84,17 @@ import {
 } from "./schema-declarations";
 import { parseTypeExpression } from "./type-grammar";
 import { checkObjectLiteralFields } from "./literal-sublanguage";
-import { annotationSourceIsNotTypeExpression, checkTypeLayer, letAnnotationToCompatType } from "./type-layer-checks";
+import { collectPatternBinderNames as collectPatternBindings } from "./match-result";
+import { parseObjectPatternFields } from "./object-pattern-fields";
+import { checkTypeLayer, letAnnotationToCompatType } from "./type-layer-checks";
+import {
+  annotationSourceIsNotTypeExpression,
+  BUILTIN_VALUE_NAMES,
+  reservedKeywordAsIdentifierDiagnostic,
+  unresolvedNamedTypeDiagnostic,
+  validateTypeAnnotation,
+  withBuiltinErrorModelNames,
+} from "./annotation-validation";
 import {
   resolveQuerySchemas,
   type PropagationCapture,
@@ -6007,6 +6017,16 @@ class BodyParser {
     this.parseExpression(); // consume + discard the RHS
   }
 
+  /** Cursor operations used by the shared typed/bare object-pattern field parser. */
+  private readonly objectPatternCursor = {
+    advance: () => this.advance(),
+    peek: () => this.peek(),
+    isPunct: (text: string) => this.isPunct(text),
+    atEnd: () => this.atEnd(),
+    tryConsumeRestPattern: () => this.tryConsumeRestPattern(),
+    parsePattern: () => this.parsePattern(),
+  };
+
   /**
    * Parse one `match` pattern (expressions.md §"Pattern grammar (theta 1.0)"):
    * wildcard `_`, `Ok(p)` / `Err(p)` constructors, a named/bare object pattern
@@ -6109,39 +6129,7 @@ class BodyParser {
           // `if`, so a `keyword`-kind head keeps bug 0219's code ALONE.
           this.diagnostics.push(unresolvedNamedTypeDiagnostic(t.text, t.range, this.file));
         }
-        this.advance();
-        const fields: { readonly name: string; readonly pattern: PatternNode }[] = [];
-        while (!this.isPunct("}") && !this.atEnd()) {
-          if (this.tryConsumeRestPattern()) {
-            if (this.isPunct(",")) {
-              this.advance();
-            }
-            continue;
-          }
-          const nameTok = this.peek();
-          if (nameTok.kind !== "ident" && nameTok.kind !== "string") {
-            this.advance();
-            continue;
-          }
-          this.advance();
-          let fieldPattern: PatternNode;
-          if (this.isPunct(":")) {
-            this.advance();
-            fieldPattern = this.parsePattern();
-          } else {
-            // `{ field }` sugars `{ field: field }` (grammar.md §Pattern
-            // grammar): a colon-less field binds the field value to a
-            // same-named identifier, never a wildcard on the next token.
-            fieldPattern = { kind: "identifier", name: nameTok.text };
-          }
-          fields.push({ name: nameTok.text, pattern: fieldPattern });
-          if (this.isPunct(",")) {
-            this.advance();
-          }
-        }
-        if (this.isPunct("}")) {
-          this.advance();
-        }
+        const fields = parseObjectPatternFields(this.objectPatternCursor);
         return { kind: "object", typeName: t.text, fields, range: spanRange(t.range, this.prevRange()) };
       }
       // A bare `_` wildcard, else an identifier binding pattern.
@@ -6172,39 +6160,7 @@ class BodyParser {
     }
     // A bare object pattern `{ field: p, … }`.
     if (t.kind === "punct" && t.text === "{") {
-      this.advance();
-      const fields: { readonly name: string; readonly pattern: PatternNode }[] = [];
-      while (!this.isPunct("}") && !this.atEnd()) {
-        if (this.tryConsumeRestPattern()) {
-          if (this.isPunct(",")) {
-            this.advance();
-          }
-          continue;
-        }
-        const nameTok = this.peek();
-        if (nameTok.kind !== "ident" && nameTok.kind !== "string") {
-          this.advance();
-          continue;
-        }
-        this.advance();
-        let fieldPattern: PatternNode;
-        if (this.isPunct(":")) {
-          this.advance();
-          fieldPattern = this.parsePattern();
-        } else {
-          // `{ field }` sugars `{ field: field }` (grammar.md §Pattern
-          // grammar): a colon-less field binds the field value to a
-          // same-named identifier, never a wildcard on the next token.
-          fieldPattern = { kind: "identifier", name: nameTok.text };
-        }
-        fields.push({ name: nameTok.text, pattern: fieldPattern });
-        if (this.isPunct(",")) {
-          this.advance();
-        }
-      }
-      if (this.isPunct("}")) {
-        this.advance();
-      }
+      const fields = parseObjectPatternFields(this.objectPatternCursor);
       return { kind: "object", typeName: null, fields, range: spanRange(t.range, this.prevRange()) };
     }
     // A pattern-position `++` / `--` (bug 0123 §Fix route (a)). Row `:34`'s
@@ -7005,25 +6961,6 @@ function nullExpr(range: SourceRange): Expr {
 // --------------------------------------------------------------------------
 
 /**
- * Type / value names the theta 1.0 stdlib exposes bare (so they never read as an
- * unknown identifier). Primitive / generic type names never legally appear in
- * value position, but folding them in keeps the check false-positive-free if
- * one is written where the walk sees an identifier. `QueryError` / `Result` are
- * the error-model names an author may reference.
- */
-const BUILTIN_VALUE_NAMES: ReadonlySet<string> = new Set([
-  "string",
-  "number",
-  "integer",
-  "boolean",
-  "null",
-  "void",
-  "array",
-  "Result",
-  "QueryError",
-]);
-
-/**
  * Derive the presented callable name for one `tools:` entry, mirroring
  * `callable-set.ts`: a bare Pi-tool name is used verbatim; a `.theta` path
  * contributes its basename (extension stripped, hyphens → underscores); an
@@ -7120,31 +7057,6 @@ function collectIdentRoots(
     }
   }
   return roots;
-}
-
-/** Collect every name a `match` pattern binds into `into` (arm-body scope). */
-function collectPatternBindings(p: PatternNode, into: Set<string>): void {
-  switch (p.kind) {
-    case "identifier":
-      into.add(p.name);
-      return;
-    case "constructor":
-      collectPatternBindings(p.inner, into);
-      return;
-    case "object":
-      for (const f of p.fields) {
-        collectPatternBindings(f.pattern, into);
-      }
-      return;
-    case "array":
-      for (const el of p.elements) {
-        collectPatternBindings(el, into);
-      }
-      return;
-    default:
-      // wildcard / literal bind nothing.
-      return;
-  }
 }
 
 /**
@@ -7645,161 +7557,6 @@ function blockExprMissingTailDiagnostic(range: SourceRange, file: string): Diagn
 }
 
 /**
- * The registered `theta/parse/unresolved-named-type` rejection. Its trigger
- * (code-registry-parse.md) covers the full `NamedType`-reference position set
- * (bug 0262 §Fix, the FULL widening): the `params:` right-hand side, the
- * `@<T>` query annotation, a `schema` body field type, the right-hand side of
- * a `schema X = ...` alias/union declaration (bug 0033 §Fix), an
- * object-constructor name, a `match` object-pattern head, a `let` annotation,
- * an `fn` parameter type, an `fn` return type, and an `invoke<Type>`
- * ascription (grammar.md §Type grammar) — plus every generic argument, union
- * arm, `Result` argument and inline object field nested inside one of those.
- * `let x: Nope = 1` and `fn f(x: Nope): number { 1 }` refuse this code exactly
- * as `schema S { f: Nope }` always has.
- *
- * NINE of the ten reference positions emit through this builder.
- * `checkObjectExpr` below (the object-constructor name), the `"schema"` case
- * of `walkStatement` plus its `"let"`, `"fn"`-parameter and `"fn"`-return
- * reads (all below — a `schema` body field type, a `let` annotation, an `fn`
- * parameter type and an `fn` return type), `walkExpr`'s `"query"` case (the
- * `@<T>` annotation) and its `"invoke"` case (the `invoke<T>` ascription), and
- * `checkSchemaDeclarationGraph` (the alias/union right-hand side) — eight
- * positions resolving names through `collectUnresolvedNamedTypes`
- * (body-type-lowering.ts). The ninth, `parsePattern`'s `match` object-pattern
- * head, resolves through `patternHeadTypeNames` instead: it references a
- * DECLARATION rather than a type expression, so it needs no lowering pass
- * (bug 0221 §Fix). The `@<T>` position reaches this builder only for
- * `Ident`-shaped text (grammar.md `NamedType ::= Ident`) that resolves to no
- * declaration: text that is not an `Ident` is refused ahead of this
- * resolution, by `theta/parse/query-annotation-type-not-expression` (bug 0203
- * §Fix), so this builder never sees it for that position. The tenth, the
- * `params:` RHS, emits the row's message from its own site (`parseParams`,
- * params.ts): params.ts is UPSTREAM of this module in the import graph (this
- * module imports `splitTopLevel` from it), so that site cannot reach this
- * builder without a cycle, and the two message literals are held identical to
- * the registry row by DIAG-4 rather than by sharing code.
- *
- * The RESOLUTION behind the four positions that carry a TYPE EXPRESSION is one
- * arm. A brace-rooted type source hoists under `__inline_<slug>`
- * (schema-subset.md:73) through `hoistInlineObjectType` (params.ts), which
- * walks the field list to `topLevelColon` and resolves each field's type
- * through the caller's own `lowerCtx` (bug 0039 §Fix). The `params:`
- * right-hand side reaches that arm through `lowerParamsFieldType`
- * (params.ts); the `@<T>` annotation, a `schema` body field type and the
- * alias/union right-hand side reach it through `lowerTypeSource`
- * (body-type-lowering.ts), which `collectUnresolvedNamedTypes` and the
- * `schema`-body lowering both run on. The fifth position, the
- * object-constructor name, resolves a NAME rather than a type expression, so
- * no inline object can nest under it. The annotation root is the one position
- * that ALSO lowers a fragment in place rather than hoisting it —
- * `lowerInlineObject`'s fragment is its document root — and that function's
- * interior `,` split nests brace depth exactly as the shared arm's does, so no
- * position reads a nested `ObjectType`'s comma as a FIELD-LIST separator.
- *
- * WHAT BOUNDS THE DESCENT IS THE ROUTE, NOT THE DEPTH. A name lands in
- * `lowerCtx.unresolved` from any nesting of inline-object FIELDS, because each
- * field's type re-enters the same arm — `{a: {x: {y: Tirage}}}` raises at all
- * four positions — and from any brace-group ARM of a top-level union, because
- * all four routes ask `lowerBraceGroupUnionArms` (params.ts) before falling
- * through to `lowerTypeExpr` and it hoists each brace-group arm of an intact
- * segment set on that arm's own terms (bug 0097 §Fix, which gave the `params:`
- * position the same dispatch its three siblings run): `{a: {x: Tirage} | Cat}`
- * raises for BOTH names at all four positions. The descent stops wherever the
- * route leaves that arm for `lowerTypeExpr`'s own recursion, which has no
- * inline-object arm and drops a brace-rooted source on its trailing catch-all.
- * Two shapes leave it, and each is a permissive silence rather than a wrong
- * fragment:
- *
- *   - a brace group inside a GENERIC ARGUMENT. `{a: array<{x: Tirage}>}`
- *     raises no unresolved-named-type at any position: `lowerTypeExpr`
- *     recurses an argument
- *     through itself, and the argument split stays angle-only — not because
- *     widening it would disagree with `theta/parse/generic-arity-mismatch`;
- *     measured, angle-only is the mode that DISAGREES with that parser (an
- *     angle-only split counts three arguments where `parseGeneric` counts
- *     one). `TypeSplitNesting`'s own doc (params.ts) states the relation
- *     correctly. The reason angle-only stands is the honesty one below: a
- *     brace-under-generic argument that widened would present as one
- *     argument and lower `{"type":"array","items":{}}`, asserting arrayness
- *     while dropping the element shape the source spells — bug 0204 keeps
- *     those bytes.
- *   - a brace group whose OWN interior `|` sits beside another arm.
- *     `{ a: Tirage | null } | Cat` raises none anywhere either: the angle-only
- *     `|` split SHREDS the group into `{ a: Tirage` and `null }`, and
- *     `lowerBraceGroupUnionArms` declines the arm dispatch for any segment set
- *     carrying a shard like those — at every position alike, since it is the
- *     one dispatch all four routes ask — handing the whole source to
- *     `lowerTypeExpr`, which has no inline-object arm to descend with. The
- *     decline holds even when one shard is itself a balanced brace group —
- *     `Cat | {a: integer | {c: Ghost} | boolean}` leaves `{c: Ghost}` standing
- *     as a segment, a NESTED arm inside the destroyed group rather than an arm
- *     of this union, so `Ghost` raises nowhere (bug 0033 §Fix residual (ii);
- *     `SchemaDecl.arms`' own caveat records the same split from the capture
- *     side, and `isBraceBalanced` (params.ts, module-private) states why a
- *     balanced shard is no exception).
- *
- * `splitTopLevel`'s `"angle"` default keeps that permissive outcome HONEST for
- * a brace-under-generic shape instead of papering over it. With brace depth
- * also tracked, `array<{a: string, b: integer}>` would present as one argument
- * and lower to `{"type":"array","items":{}}` — a fragment asserting arrayness
- * while dropping the element shape the author wrote, so a payload of arbitrary
- * elements would validate as though checked against it. Under angle depth alone
- * the same text splits into two arguments, the `array` arm does not match, and
- * the form lowers to `{}`, which asserts nothing — matching the fact that
- * nothing about the shape was derived. `queryResponseAnnotation` below is the
- * one caller needing `"angle-and-brace"`: it lowers nothing itself and wants to
- * agree with the parser computing `theta/parse/generic-arity-mismatch` about
- * the ARGUMENT COUNT. That agreement holds for a brace-carried argument (both
- * count `ObjectType` as one unit) but not for a `[…]` bracket group
- * (bug 0236): this split stays bracket-blind by the same angle-only-plus-brace
- * design that keeps it derivable-shape-only, so it still counts a bracket
- * group's own interior comma as an argument boundary where `TypeParser` (fixed
- * for that construct, `type-grammar.ts`) now does not. See
- * `queryResponseAnnotation`'s own doc block for what that residual
- * disagreement is observed as.
- */
-const UNRESOLVED_NAMED_TYPE_CODE = "theta/parse/unresolved-named-type";
-
-function unresolvedNamedTypeDiagnostic(
-  name: string,
-  range: SourceRange,
-  file: string,
-): Diagnostic {
-  return {
-    severity: "error",
-    code: UNRESOLVED_NAMED_TYPE_CODE,
-    file,
-    range,
-    message: `unresolved named type '${name}'`,
-  };
-}
-
-/**
- * The registered `theta/parse/reserved-keyword-as-identifier` rejection
- * (code-registry-parse.md:21) for a reserved spelling `collectUnresolvedNamedTypes`
- * finds where a `NamedType` is read: `NamedType ::= Ident` (grammar.md:98) is
- * an identifier position, so the row's existing trigger already covers it —
- * this builder renders the same registered Message the lexer's own
- * declarator-name check (lexer.ts) emits from a second site, held identical by
- * DIAG-4 rather than by shared code (bug 0044 §Fix). Same severity/range/file
- * construction as `unresolvedNamedTypeDiagnostic` above, the sibling sink's
- * builder.
- */
-function reservedKeywordAsIdentifierDiagnostic(
-  keyword: string,
-  range: SourceRange,
-  file: string,
-): Diagnostic {
-  return {
-    severity: "error",
-    code: "theta/parse/reserved-keyword-as-identifier",
-    file,
-    range,
-    message: `reserved keyword '${keyword}' cannot be used as an identifier`,
-  };
-}
-
-/**
  * The registered `theta/parse/capitalised-pattern-head` refusal
  * (code-registry-parse.md, bug 0141 §Fix route 1 half 1): a bare `match`
  * pattern head that is an `ident` token starting A–Z that heads none of the
@@ -7854,33 +7611,6 @@ function schemaTypeNotExpressionDiagnostic(
 }
 
 /**
- * The registered `theta/parse/annotation-type-not-expression` refusal (bug
- * 0124 §Fix): a `let` annotation, an `fn` parameter type, or an `fn` return
- * type whose captured source — `annotationSourceIsNotTypeExpression`
- * (type-layer-checks.ts) — derives from none of `Type`'s six alternatives
- * (grammar.md:90–:95). Sibling to `schemaTypeNotExpressionDiagnostic` above,
- * with one difference in what `<name>` renders: THIS position always has a
- * binder of its own — the `let` binding name, the `fn` parameter name, or the
- * `fn` name — so the message names THAT identifier rather than the enclosing
- * declaration's, unlike the schema position's field-less `SchemaFieldSource`
- * and arm string, which carry no name to render and fall back to `<X>`, the
- * declaration's own.
- */
-function annotationTypeNotExpressionDiagnostic(
-  name: string,
-  range: SourceRange,
-  file: string,
-): Diagnostic {
-  return {
-    severity: "error",
-    code: "theta/parse/annotation-type-not-expression",
-    file,
-    range,
-    message: `'${name}' declares a type that is not a theta type expression`,
-  };
-}
-
-/**
  * The registered `theta/parse/query-annotation-type-not-expression` refusal
  * (bug 0203 §Fix): an AUTHOR-WRITTEN `@<T>` / bare `@Ident` query ascription
  * whose captured source — `annotationSourceIsNotTypeExpression`
@@ -7888,7 +7618,7 @@ function annotationTypeNotExpressionDiagnostic(
  * (grammar.md §Type grammar).
  *
  * A ROW OF ITS OWN rather than a fourth position on
- * `annotationTypeNotExpressionDiagnostic` above, for three reasons.
+ * `annotationTypeNotExpressionDiagnostic` (annotation-validation.ts), for three reasons.
  * (1) That row's Trigger states its unit as the whole annotation "naming the
  * annotation's own binder"; THIS position has none — a bare `@<T>`…`` query
  * STATEMENT declares nothing at all, so there is no identifier for `<name>` to
@@ -8841,24 +8571,6 @@ function walkParamsDefaultNames(
 }
 
 /**
- * The declared-name universe a bug 0262 §Fix capture resolves against:
- * `typeNames` widened with the builtin error-model names the pattern-head
- * position already admits (`patternHeadTypeNames`'s own seed,
- * `BUILTIN_VALUE_NAMES` above — clause (iv)(1)). Reusing that constant rather
- * than a literal at each call site is what keeps the admission one fact
- * instead of one per capture: an APPLIED `Result` is never tested as an atom
- * (`lowerTypeExpr`'s generic-application arm reads a `ctor` name structurally,
- * never through the identifier-resolution arm), so admitting it here is inert
- * for that spelling; an UNAPPLIED `Result` reaches the atom arm instead and is
- * the reserved-keyword class `theta/parse/reserved-keyword-as-identifier`
- * reports at every capture (bug 0277 §Fix route (a)) — `QueryError` is the
- * only name these captures ever resolve as a `NamedType`.
- */
-function withBuiltinErrorModelNames(typeNames: ReadonlySet<string>): ReadonlySet<string> {
-  return new Set([...typeNames, ...BUILTIN_VALUE_NAMES]);
-}
-
-/**
  * The propagating captures, keyed by capture identity. Null-prototyped: the key
  * is composed from a capture kind and a source range, and every read is
  * own-key-guarded (`propagatedToQuery`), so no `Object.prototype` name can
@@ -8897,80 +8609,6 @@ function indexQueryPropagations(
 function propagatedToQuery(refs: StructuralRefs, capture: PropagationCapture): boolean {
   const key = propagationKey(capture);
   return Object.hasOwn(refs.queryPropagations, key);
-}
-
-/** Is `a` strictly before `b` in (line, column) order? */
-function positionBefore(a: Position, b: Position): boolean {
-  return a.line < b.line || (a.line === b.line && a.column < b.column);
-}
-
-/**
- * Clause (iv)(3)'s artefact-suppression predicate: does an error-severity
- * diagnostic ALREADY drawn — either in a pass that ran before the structural
- * walk (`prior`) or earlier in the structural walk itself, including this same
- * capture's own type-grammar pass (`own`) — overlap the CAPTURE WINDOW
- * `window`? An `unresolved-named-type` row drawn by THIS walk is not such
- * evidence and is filtered out of `own`: it names a head at some enclosing
- * capture and says nothing about the window of a capture nested inside it, so
- * counting it would let one refusal swallow a second written mistake — the
- * opposite of the one-diagnostic-per-written-mistake reading the clause states.
- * Every other row, including this row's emissions from a PRIOR pass, still
- * counts. Overlap is position-precise, not line-precise, and honours the
- * exclusive `end` of a `SourceRange`: the windows are what bounds the clause
- * to capture debris. A same-line fault OUTSIDE the window (a stray token past
- * the end of a `let` statement) and a body-interior fault outside an `fn`
- * header (a lexer error several lines into the body) are independent author
- * mistakes, and each keeps its own diagnostic beside the name refusal rather
- * than swallowing it. A diagnostic carrying no range cannot overlap anything
- * and is skipped, never treated as a wildcard cover.
- *
- * `own`'s overlap test is further narrowed to CONTAINMENT in `construct`, the
- * construct whose capture is being judged (bug 0272 §Fix route (b)). A row
- * ranged over an ENCLOSING declaration — an `fn` whose own header annotation is
- * refused carries the whole declaration's range, body included
- * (`annotationTypeNotExpressionDiagnostic`) — overlaps every capture window
- * nested in that body without saying anything about a head the author wrote
- * there, so counting it as cover would swallow that second written mistake. A
- * row ranged over the capture's OWN construct still passes this predicate's
- * geometry test, whichever code it carries and whichever of that construct's
- * captures earned it. `prior` stays unnarrowed: it is evidence from an earlier
- * pass, never this walk's own enclosing-declaration refusal.
- *
- * Geometry alone cannot tell a coverer that is cover FOR THIS CAPTURE from one
- * that merely shares its construct: a range wide enough to contain the
- * capture's window is exactly as wide when the text inside it is debris the
- * capture absorbed (`Gone--`) and when it is a sibling head the author wrote
- * elsewhere in the same header (`q: Gone`, a nested `fn`'s own parameter) —
- * bug 0279. Every caller therefore gates this predicate's result behind the
- * capture's own provenance mark (`annotationAbsorbed`, `typeAbsorbed`,
- * `returnTypeAbsorbed`, `returnSchemaAbsorbed`): a coverer is a verdict on the
- * capture only when the capture itself did NOT end at its own terminator —
- * whether it ran past a syntax fault and absorbed the following construct's
- * text, or halted at a token its position does not derive. A capture that DID
- * end at its own terminator holds text the author spelled there, and no
- * coverer silences it.
- */
-function captureWindowAlreadyRefused(
-  prior: readonly Diagnostic[],
-  own: readonly Diagnostic[],
-  window: SourceRange,
-  construct: SourceRange,
-): boolean {
-  const overlaps = (d: Diagnostic): boolean =>
-    d.severity === "error" &&
-    d.range !== undefined &&
-    positionBefore(d.range.start, window.end) &&
-    positionBefore(window.start, d.range.end);
-  const containedInConstruct = (d: Diagnostic): boolean =>
-    d.range !== undefined &&
-    !positionBefore(d.range.start, construct.start) &&
-    !positionBefore(construct.end, d.range.end);
-  return (
-    prior.some(overlaps) ||
-    own.some(
-      (d) => d.code !== UNRESOLVED_NAMED_TYPE_CODE && overlaps(d) && containedInConstruct(d),
-    )
-  );
 }
 
 /**
@@ -9500,19 +9138,6 @@ function walkStatement(
         ),
       );
       if (s.annotation !== null && s.annotation.length > 0) {
-        const annotationDiagStart = out.length;
-        out.push(
-          ...parseTypeExpression(s.annotation, "value", { file, range: s.range }),
-        );
-        // bug 0124 §Fix, guard 1 (bug 0061's landed guard 1, PER-ANNOTATION
-        // window): an annotation whose own walk above already drew an
-        // error-severity diagnostic keeps that diagnostic ALONE.
-        if (
-          !out.slice(annotationDiagStart).some((d) => d.severity === "error") &&
-          annotationSourceIsNotTypeExpression(s.annotation)
-        ) {
-          out.push(annotationTypeNotExpressionDiagnostic(s.name, s.range, file));
-        }
         // bug 0262 §Fix: the `let` annotation is a further `NamedType`-
         // resolution position — reference r1 of the reference-position table,
         // reaching r4 and r6's interiors (a generic argument, a union arm)
@@ -9520,9 +9145,9 @@ function walkStatement(
         // wired captures use. Withheld under three conditions: clause (iv)(2)
         // when this same text is ALSO propagating onto a bare-query
         // initialiser (the `@<T>` arm is that text's sole emitter, bug 0093);
-        // the landed guard-1 shape when this capture's own walk above already
-        // drew an error (including the not-a-type-expression push immediately
-        // above); and clause (iv)(3), gated on `s.annotationAbsorbed`, when the
+        // the landed guard-1 shape when this capture's own walk already
+        // drew an error (including the not-a-type-expression push); and clause
+        // (iv)(3), gated on `s.annotationAbsorbed`, when the
         // capture did not end at its own `=` terminator and its source window
         // is already covered by an error-severity diagnostic naming the real
         // fault — a capture stopped by that fault, not a name the author wrote
@@ -9533,32 +9158,14 @@ function walkStatement(
         // the statement's end, a stray token on the same line — is a second,
         // independent author mistake and keeps its own diagnostic beside this
         // one.
-        if (
-          !propagatedToQuery(refs, { kind: "let", range: s.range }) &&
-          !out.slice(annotationDiagStart).some((d) => d.severity === "error") &&
-          !(
-            (s.annotationAbsorbed ?? false) &&
-            captureWindowAlreadyRefused(
-              refs.priorDiagnostics,
-              out,
-              captureAbsorptionWindow(s.range, s.init),
-              s.range,
-            )
-          )
-        ) {
-          const letReservedKeywords: string[] = [];
-          const letUnresolved = collectUnresolvedNamedTypes(
-            s.annotation,
-            withBuiltinErrorModelNames(refs.typeNames),
-            letReservedKeywords,
-          );
-          for (const keyword of letReservedKeywords) {
-            out.push(reservedKeywordAsIdentifierDiagnostic(keyword, s.range, file));
-          }
-          for (const name of letUnresolved) {
-            out.push(unresolvedNamedTypeDiagnostic(name, s.range, file));
-          }
-        }
+        validateTypeAnnotation(s.annotation, {
+          position: "value",
+          name: s.name,
+          range: s.range,
+          propagated: () => propagatedToQuery(refs, { kind: "let", range: s.range }),
+          absorbed: s.annotationAbsorbed,
+          absorptionWindow: () => captureAbsorptionWindow(s.range, s.init),
+        }, refs, file, out);
       }
       if (s.init !== null) {
         walkExpr(s.init, scope, refs, file, out);
@@ -9631,18 +9238,6 @@ function walkStatement(
       );
       for (const [paramIndex, p] of s.params.entries()) {
         if (p.type.length > 0) {
-          const paramDiagStart = out.length;
-          out.push(
-            ...parseTypeExpression(p.type, "value", { file, range: s.range }),
-          );
-          // bug 0124 §Fix, guard 1: this PARAMETER's own walk above, not the
-          // parameter list's collectively.
-          if (
-            !out.slice(paramDiagStart).some((d) => d.severity === "error") &&
-            annotationSourceIsNotTypeExpression(p.type)
-          ) {
-            out.push(annotationTypeNotExpressionDiagnostic(p.name, s.range, file));
-          }
           // bug 0262 §Fix: reference r2, reaching r7 and r9's interiors (a
           // union arm, an inline object field) through the same walk. A
           // parameter IS a propagating capture: QRY-2's call-argument sink
@@ -9654,48 +9249,21 @@ function walkStatement(
           // when THIS parameter's own capture did not end at its own `,` or `)`
           // inside the DECLARATION HEADER window — a sibling parameter's own
           // head is not debris merely because it shares that header (bug 0279).
-          if (
-            !propagatedToQuery(refs, {
+          validateTypeAnnotation(p.type, {
+            position: "value",
+            name: p.name,
+            range: s.range,
+            propagated: () => propagatedToQuery(refs, {
               kind: "fn-param",
               range: s.range,
               paramIndex,
-            }) &&
-            !out.slice(paramDiagStart).some((d) => d.severity === "error") &&
-            !(
-              (p.typeAbsorbed ?? false) &&
-              captureWindowAlreadyRefused(refs.priorDiagnostics, out, fnHeaderWindow(s), s.range)
-            )
-          ) {
-            const paramReservedKeywords: string[] = [];
-            const paramUnresolved = collectUnresolvedNamedTypes(
-              p.type,
-              withBuiltinErrorModelNames(refs.typeNames),
-              paramReservedKeywords,
-            );
-            for (const keyword of paramReservedKeywords) {
-              out.push(reservedKeywordAsIdentifierDiagnostic(keyword, s.range, file));
-            }
-            for (const name of paramUnresolved) {
-              out.push(unresolvedNamedTypeDiagnostic(name, s.range, file));
-            }
-          }
+            }),
+            absorbed: p.typeAbsorbed,
+            absorptionWindow: () => fnHeaderWindow(s),
+          }, refs, file, out);
         }
       }
       if (s.returnType !== null && s.returnType.length > 0) {
-        const returnDiagStart = out.length;
-        out.push(
-          ...parseTypeExpression(s.returnType, "return", {
-            file,
-            range: s.range,
-          }),
-        );
-        // bug 0124 §Fix, guard 1: the return slot's own walk above.
-        if (
-          !out.slice(returnDiagStart).some((d) => d.severity === "error") &&
-          annotationSourceIsNotTypeExpression(s.returnType)
-        ) {
-          out.push(annotationTypeNotExpressionDiagnostic(s.name, s.range, file));
-        }
         // bug 0262 §Fix: reference r3, reaching r8's interior (a `Result`
         // argument) through the same walk. Clause (iv)(2)'s `fn`-return ->
         // query half withholds when this SAME declared return type has
@@ -9707,27 +9275,14 @@ function walkStatement(
         // `with`) inside the DECLARATION HEADER window — a fault in the body
         // interior is a different capture's own mistake, not one this capture
         // was stopped by (bug 0279).
-        if (
-          !propagatedToQuery(refs, { kind: "fn-return", range: s.range }) &&
-          !out.slice(returnDiagStart).some((d) => d.severity === "error") &&
-          !(
-            (s.returnTypeAbsorbed ?? false) &&
-            captureWindowAlreadyRefused(refs.priorDiagnostics, out, fnHeaderWindow(s), s.range)
-          )
-        ) {
-          const returnReservedKeywords: string[] = [];
-          const returnUnresolved = collectUnresolvedNamedTypes(
-            s.returnType,
-            withBuiltinErrorModelNames(refs.typeNames),
-            returnReservedKeywords,
-          );
-          for (const keyword of returnReservedKeywords) {
-            out.push(reservedKeywordAsIdentifierDiagnostic(keyword, s.range, file));
-          }
-          for (const name of returnUnresolved) {
-            out.push(unresolvedNamedTypeDiagnostic(name, s.range, file));
-          }
-        }
+        validateTypeAnnotation(s.returnType, {
+          position: "return",
+          name: s.name,
+          range: s.range,
+          propagated: () => propagatedToQuery(refs, { kind: "fn-return", range: s.range }),
+          absorbed: s.returnTypeAbsorbed,
+          absorptionWindow: () => fnHeaderWindow(s),
+        }, refs, file, out);
       }
       walkBlock(
         s.body,
@@ -10137,40 +9692,13 @@ function walkExpr(
       // covered by an error-severity diagnostic naming the real fault
       // (bug 0279).
       if (e.returnSchema !== null && e.returnSchema.trim().length > 0) {
-        const invokeDiagStart = out.length;
-        out.push(
-          ...parseTypeExpression(
-            e.returnSchema,
-            "value",
-            { file, range: e.range },
-            "inline-object-shape",
-          ),
-        );
-        if (
-          !out.slice(invokeDiagStart).some((d) => d.severity === "error") &&
-          !(
-            (e.returnSchemaAbsorbed ?? false) &&
-            captureWindowAlreadyRefused(
-              refs.priorDiagnostics,
-              out,
-              captureAbsorptionWindow(e.range, e.args[0]),
-              e.range,
-            )
-          )
-        ) {
-          const invokeReservedKeywords: string[] = [];
-          const invokeUnresolved = collectUnresolvedNamedTypes(
-            e.returnSchema,
-            withBuiltinErrorModelNames(refs.typeNames),
-            invokeReservedKeywords,
-          );
-          for (const keyword of invokeReservedKeywords) {
-            out.push(reservedKeywordAsIdentifierDiagnostic(keyword, e.range, file));
-          }
-          for (const name of invokeUnresolved) {
-            out.push(unresolvedNamedTypeDiagnostic(name, e.range, file));
-          }
-        }
+        validateTypeAnnotation(e.returnSchema, {
+          position: "value",
+          rules: "inline-object-shape",
+          range: e.range,
+          absorbed: e.returnSchemaAbsorbed,
+          absorptionWindow: () => captureAbsorptionWindow(e.range, e.args[0]),
+        }, refs, file, out);
       }
       for (const arg of [...e.args, ...callWithClauseValues(e)]) {
         walkExpr(arg, scope, refs, file, out);
