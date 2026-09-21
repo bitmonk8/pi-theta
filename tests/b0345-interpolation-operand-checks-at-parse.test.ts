@@ -91,6 +91,7 @@ import { createProductionProducerDeps } from "../src/extension/production-theta-
 import type { ThetaCompositionInput } from "../src/extension/theta-composition-producer";
 import type { RuntimeRoot } from "../src/runtime-root";
 import { parseDoc, show, soleQueryRange as soleQueryRangeShared } from "./helpers/e2e-s1";
+import { sessionBranch } from "./helpers/scripted-live-session-harness";
 
 // The three registered operand codes (expressions.md §"`+` operator", §"Other
 // arithmetic", §"Ordering comparisons").
@@ -548,6 +549,7 @@ async function driveInterp(src: string): Promise<InterpProbe> {
     sessionManager: {
       getEntries: (): readonly unknown[] => [...session.entries],
       getLeafId: (): undefined => undefined,
+      getBranch: (): readonly unknown[] => sessionBranch(session.entries),
     },
   } as unknown as ExtensionCommandContext;
   const theta: ThetaCompositionInput = {

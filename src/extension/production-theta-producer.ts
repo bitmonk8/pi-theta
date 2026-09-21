@@ -24,7 +24,6 @@ import { evaluateCallSiteCwd, evaluatePureExpression, raiseInterpolatedResult } 
 export { evaluateCallSiteCwd, evaluatePureExpression, raiseInterpolatedResult } from "../runtime/pure-expression-evaluator";
 import {
   LivePromptQueryModel,
-  leafPathEntries,
   resolveRegistryAuth,
   OFF_SESSION_NORMAL_STOP_REASONS,
   RESPOND_TOOL_DESCRIPTION,
@@ -2302,8 +2301,9 @@ class ProductionThetaProducer implements ThetaProducerDeps {
     // that hoist moves the `compaction` entry to the head of the built
     // `Message[]`. `thisTurnSettled` reads this alongside `readMessages()` to
     // detect an unanswered trailing compaction (conversation-drive.md PIC-70).
-    const readContextPath = (): readonly SessionEntry[] =>
-      leafPathEntries(ctx.sessionManager.getEntries(), ctx.sessionManager.getLeafId());
+    // `getBranch()` (no argument) is the manager's own root-to-leaf walk from
+    // its live leaf — the exact path `buildSessionPath` would produce.
+    const readContextPath = (): readonly SessionEntry[] => ctx.sessionManager.getBranch();
 
     // Decision 6 / Increment B1 (active-invocation-registry.md §"Active
     // invocation registry"): the invocation's registry entry, keyed by THIS

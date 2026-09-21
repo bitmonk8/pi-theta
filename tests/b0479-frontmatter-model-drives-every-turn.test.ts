@@ -34,7 +34,7 @@ import type { ParsedFrontmatter } from "../src/parser/frontmatter";
 import { createProductionProducerDeps } from "../src/extension/production-theta-producer";
 import type { ThetaCompositionInput } from "../src/extension/theta-composition-producer";
 import { executeBody, type BodyExecution } from "../src/runtime/statement-executor";
-import { parse, rootDouble } from "./helpers/scripted-live-session-harness";
+import { parse, rootDouble, sessionBranch } from "./helpers/scripted-live-session-harness";
 import {
   SYSTEM_NOTE_CHANNEL,
   type SystemNoteChannelDeps,
@@ -305,6 +305,7 @@ function ctxDouble(session: InstantSettleSession): ExtensionCommandContext {
     sessionManager: {
       getEntries: (): readonly SessionEntryDouble[] => [...session.entries],
       getLeafId: (): undefined => undefined,
+      getBranch: (): readonly SessionEntryDouble[] => sessionBranch(session.entries),
     },
   } as unknown as ExtensionCommandContext;
 }

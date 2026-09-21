@@ -48,7 +48,7 @@ import { scripted } from "./helpers/scripted-complete-queue-mock";
 // query/query-failure-and-repair.md (QRY-22 validate-then-bind),
 // schema-subset.md (SUBS-1 — the emission table the envelope wraps and never
 // rewrites).
-import { assistantReply, contextToolsOf, ajv, appendUserEntry, appendAssistantEntry, ANTHROPIC_MODEL } from "./helpers/scripted-live-session-harness";
+import { assistantReply, contextToolsOf, ajv, appendUserEntry, appendAssistantEntry, ANTHROPIC_MODEL, sessionBranch } from "./helpers/scripted-live-session-harness";
 import { beforeEach, describe, expect, it } from "vitest";
 
 import type {
@@ -435,6 +435,7 @@ async function drive(source: string): Promise<{
       sessionManager: {
         getEntries: (): readonly unknown[] => [],
         getLeafId: (): undefined => undefined,
+        getBranch: (): readonly unknown[] => [],
       },
     } as unknown as ExtensionCommandContext,
   });
@@ -895,6 +896,7 @@ async function driveOnSession(
       sessionManager: {
         getEntries: (): readonly unknown[] => [...session.entries],
         getLeafId: (): undefined => undefined,
+        getBranch: (): readonly unknown[] => sessionBranch(session.entries),
       },
     } as unknown as ExtensionCommandContext,
   });

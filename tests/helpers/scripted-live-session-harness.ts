@@ -31,7 +31,8 @@ import {
 import type { BinderRunInput, BinderRunResult, ThetaCompositionInput } from "../../src/extension/theta-composition-producer";
 import { executeBody, type BodyExecution } from "../../src/runtime/statement-executor";
 import type { RuntimeRoot } from "../../src/runtime-root";
-import { rootDouble as fixedClockRoot } from "./runtime-belt-probe-harness";
+import { rootDouble as fixedClockRoot, sessionBranch } from "./runtime-belt-probe-harness";
+export { sessionBranch } from "./runtime-belt-probe-harness";
 import {
   parseThetaDocument,
   type ThetaDocument,
@@ -620,6 +621,7 @@ function ctxDouble(session: LiveSessionDouble, model: unknown): ExtensionCommand
     sessionManager: {
       getEntries: (): readonly SessionEntryDouble[] => [...session.entries],
       getLeafId: (): undefined => undefined,
+      getBranch: (): readonly SessionEntryDouble[] => sessionBranch(session.entries),
     },
   } as unknown as ExtensionCommandContext;
 }
@@ -965,6 +967,7 @@ export function ctxLive(session: UntypedLiveSession): ExtensionCommandContext {
     sessionManager: {
       getEntries: (): readonly SessionEntryDouble[] => [],
       getLeafId: (): undefined => undefined,
+      getBranch: (): readonly SessionEntryDouble[] => [],
     },
   } as unknown as ExtensionCommandContext;
 }

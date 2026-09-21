@@ -1215,36 +1215,6 @@ function thisTurnSettled(
 }
 
 /**
- * Bug 0482: the CHRONOLOGICAL leaf path (root-to-leaf, `parentId` order),
- * mirroring pi's own `buildSessionPath` (session-manager.js) EXACTLY.
- * `#readMessages()` cannot stand in for this: `buildContextEntries` hoists a
- * compacted leaf path's `compaction` entry to the HEAD of the built
- * `Message[]`, so the built surface has lost the information this predicate
- * needs ("did an assistant reply FOLLOW the compaction").
- */
-function leafPathEntries(
-  entries: readonly SessionEntry[],
-  leafId: string | null | undefined,
-): readonly SessionEntry[] {
-  if (leafId === null) {
-    return [];
-  }
-  const byId = new Map(entries.map((entry) => [entry.id, entry] as const));
-  const leaf = (leafId !== undefined ? byId.get(leafId) : undefined) ?? entries[entries.length - 1];
-  if (leaf === undefined) {
-    return [];
-  }
-  const path: SessionEntry[] = [];
-  let current: SessionEntry | undefined = leaf;
-  while (current !== undefined) {
-    path.push(current);
-    current = current.parentId !== null ? byId.get(current.parentId) : undefined;
-  }
-  path.reverse();
-  return path;
-}
-
-/**
  * Bug 0482 (conversation-drive.md PIC-70): whether the chronological leaf
  * path ends in a `compaction` entry with NO assistant reply (or settling
  * `toolResult`) after it. Auto-compaction is transparent to the conversation
@@ -1711,5 +1681,5 @@ async function dispatchForcedRespondTurn(
   }
 }
 
-export { OFF_SESSION_NORMAL_STOP_REASONS, LivePromptQueryModel, leafPathEntries, resolveRegistryAuth, RESPOND_TOOL_DESCRIPTION, RESPOND_CAPTURED_TEXT, RESPOND_REPEAT_TEXT, respondToolExecuteResult };
+export { OFF_SESSION_NORMAL_STOP_REASONS, LivePromptQueryModel, resolveRegistryAuth, RESPOND_TOOL_DESCRIPTION, RESPOND_CAPTURED_TEXT, RESPOND_REPEAT_TEXT, respondToolExecuteResult };
 export type { ActiveRespondCapture, RespondTurnContext, RespondToolExecuteResult };

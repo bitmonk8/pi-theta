@@ -5,6 +5,7 @@ import {
   type SessionEntryDouble,
   appendUserEntry,
   appendAssistantEntry,
+  sessionBranch,
 } from "./helpers/scripted-live-session-harness";
 import { rootDouble } from "./helpers/call-with-clause-harness";
 import { makeBeltProbes, type Probe, render } from "./helpers/runtime-belt-probe-harness";
@@ -376,6 +377,7 @@ function ctxLive(session: LiveSessionDouble): ExtensionCommandContext {
     sessionManager: {
       getEntries: (): readonly SessionEntryDouble[] => [...session.entries],
       getLeafId: (): undefined => undefined,
+      getBranch: (): readonly SessionEntryDouble[] => sessionBranch(session.entries),
     },
   } as unknown as ExtensionCommandContext;
 }

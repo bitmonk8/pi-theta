@@ -50,6 +50,28 @@ import { noopPi } from "./call-with-clause-harness";
 import { rootWith } from "./fixture-dispatch-harness";
 import { SEAM_NOOP_CHECKPOINT } from "./invoke-seam-scaffold";
 
+/**
+ * The `SessionManager.getBranch()` double: the chronological root-to-leaf walk
+ * over the double's entry list, resolved from the LAST entry (these doubles
+ * carry no leaf pointer — the last appended entry is the leaf), mirroring pi's
+ * own `byId` parentId walk + reverse (session-manager.js `getBranch`). The
+ * production drive reads this through `ctx.sessionManager.getBranch()` (bug
+ * 0482's `readContextPath`).
+ */
+export function sessionBranch<E extends { readonly id?: unknown; readonly parentId?: unknown }>(
+  entries: readonly E[],
+): readonly E[] {
+  const byId = new Map(entries.map((entry) => [entry.id, entry] as const));
+  const path: E[] = [];
+  let current: E | undefined = entries[entries.length - 1];
+  while (current !== undefined) {
+    path.push(current);
+    current = current.parentId != null ? byId.get(current.parentId) : undefined;
+  }
+  path.reverse();
+  return path;
+}
+
 /** An EXECUTOR probe's outcome: the body's success value, or a caught throw. */
 export type Probe =
   | { readonly kind: "value"; readonly execution: BodyExecution }
@@ -249,6 +271,7 @@ export function makeBeltProbes(
       sessionManager: {
         getEntries: (): readonly unknown[] => [...session.entries],
         getLeafId: (): undefined => undefined,
+        getBranch: (): readonly unknown[] => sessionBranch(session.entries),
       },
     } as unknown as ExtensionCommandContext;
     const theta: ThetaCompositionInput = {

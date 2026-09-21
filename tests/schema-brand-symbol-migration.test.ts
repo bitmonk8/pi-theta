@@ -5,6 +5,7 @@ import {
   ajv,
   appendUserEntry,
   appendAssistantEntry,
+  sessionBranch,
 } from "./helpers/scripted-live-session-harness";
 import { SEAM_NOOP_CHECKPOINT as NOOP_CHECKPOINT } from "./helpers/invoke-seam-scaffold";
 import { describe, expect, it } from "vitest";
@@ -362,6 +363,7 @@ function ctxLive(session: LiveSessionDouble): ExtensionCommandContext {
     sessionManager: {
       getEntries: (): readonly SessionEntryDouble[] => [...session.entries],
       getLeafId: (): undefined => undefined,
+      getBranch: (): readonly SessionEntryDouble[] => sessionBranch(session.entries),
     },
   } as unknown as ExtensionCommandContext;
 }

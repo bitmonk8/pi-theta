@@ -77,6 +77,7 @@ import {
   ANTHROPIC_MODEL,
   type SessionEntryDouble,
   appendMessageEntry,
+  sessionBranch,
 } from "./helpers/scripted-live-session-harness";
 import { describe, expect, it } from "vitest";
 import type {
@@ -263,6 +264,7 @@ function ctxDouble(session: LiveSessionDouble): ExtensionCommandContext {
     sessionManager: {
       getEntries: (): readonly SessionEntryDouble[] => [...session.entries],
       getLeafId: (): undefined => undefined,
+      getBranch: (): readonly SessionEntryDouble[] => sessionBranch(session.entries),
     },
   } as unknown as ExtensionCommandContext;
 }

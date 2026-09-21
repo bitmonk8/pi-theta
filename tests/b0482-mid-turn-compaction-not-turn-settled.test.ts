@@ -94,15 +94,16 @@ import {
   appendUserEntry,
   parse,
   type SessionEntryDouble,
+  sessionBranch,
 } from "./helpers/scripted-live-session-harness";
 
 // --- The compaction session-entry helper (§the seam) ------------------------
 
 /**
  * Append a `type:"compaction"` session entry, chaining its `id`/`parentId` from
- * the existing entry list exactly as `appendMessageEntry` does so
- * `getLeafId(): undefined` resolves the leaf as the last entry and the
- * `parentId` walk reconstructs the path (buildSessionPath,
+ * the existing entry list exactly as `appendMessageEntry` does so the
+ * `getBranch()` double (`sessionBranch`) resolves the leaf as the last entry
+ * and the `parentId` walk reconstructs the path (mirroring `getBranch`,
  * node_modules/@earendil-works/pi-coding-agent/dist/core/session-manager.js).
  *
  * The field shape mirrors tests/b0478-*'s `compactedEntries()`:
@@ -284,6 +285,7 @@ function ctxDouble(session: CompactionScriptedSession): ExtensionCommandContext 
     sessionManager: {
       getEntries: (): readonly SessionEntryDouble[] => [...session.entries],
       getLeafId: (): undefined => undefined,
+      getBranch: (): readonly SessionEntryDouble[] => sessionBranch(session.entries),
     },
   } as unknown as ExtensionCommandContext;
 }

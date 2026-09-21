@@ -92,6 +92,7 @@ import {
   parse,
   type SessionEntryDouble,
   type TurnState,
+  sessionBranch,
 } from "./helpers/scripted-live-session-harness";
 
 /**
@@ -392,6 +393,7 @@ function ctxDouble(session: ScriptedLiveSession): ExtensionCommandContext {
     sessionManager: {
       getEntries: (): readonly SessionEntryDouble[] => [...session.entries],
       getLeafId: (): undefined => undefined,
+      getBranch: (): readonly SessionEntryDouble[] => sessionBranch(session.entries),
     },
   } as unknown as ExtensionCommandContext;
 }

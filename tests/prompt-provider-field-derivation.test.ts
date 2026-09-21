@@ -52,7 +52,7 @@
 // §provider derivation), pi-integration-contract/conversation-drive.md
 // (PIC-50 provider derivation + sync-throw mapping, PIC-51 error-stop probe,
 // PIC-53 trailing-turn extraction), query/query-forms.md (QRY-1).
-import { ANTHROPIC_MODEL, type SessionEntryDouble, ajv, parse, appendUserEntry, appendAssistantEntry } from "./helpers/scripted-live-session-harness";
+import { ANTHROPIC_MODEL, type SessionEntryDouble, ajv, parse, appendUserEntry, appendAssistantEntry, sessionBranch } from "./helpers/scripted-live-session-harness";
 import { describe, expect, it } from "vitest";
 import type {
   ExtensionAPI,
@@ -260,6 +260,7 @@ function ctxDouble(session: LiveSessionDouble, model: unknown): ExtensionCommand
     sessionManager: {
       getEntries: (): readonly SessionEntryDouble[] => [...session.entries],
       getLeafId: (): undefined => undefined,
+      getBranch: (): readonly SessionEntryDouble[] => sessionBranch(session.entries),
     },
   } as unknown as ExtensionCommandContext;
 }
