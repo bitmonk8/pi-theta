@@ -125,6 +125,25 @@ interface FrameOrigin {
 type OriginFrame = SchemaSinkFrame & { readonly origin?: FrameOrigin };
 
 /**
+ * Completeness ledger for this rewriter's frame construction: each key names
+ * one `SchemaSinkFrame` kind this pass emits (via the constants / constructors
+ * exported beside the union in query-schema-inference.ts). `satisfies` fails
+ * `tsc` the moment {@link SchemaSinkFrame} gains a kind not also listed here,
+ * so the construction side cannot silently lag the union — the matching
+ * consumer-side tether is the `never` backstop in `resolveQuerySchemaSink`'s
+ * switch (query-schema-inference.ts).
+ */
+const CONSTRUCTED_SINK_FRAME_KINDS = {
+  propagate: true,
+  ternary: true,
+  "array-literal": true,
+  let: true,
+  "call-arg": true,
+  "fn-return": true,
+  stop: true,
+} satisfies Record<SchemaSinkFrame["kind"], true>;
+
+/**
  * Resolve every INDIRECT typed query's response schema in `body` (QRY-2) and
  * collect the QRY-4 explicit-schema-mismatch warnings. Returns a rebuilt body
  * whose null-schema queries at a resolvable sink carry the inferred annotation

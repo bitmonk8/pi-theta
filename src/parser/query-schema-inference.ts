@@ -266,6 +266,15 @@ export function resolveQuerySchemaSink(
       case "stop":
         // Opaque: the walk halts with no sink (untyped, `string`).
         return undefined;
+      default: {
+        // Compile-time exhaustiveness tether: a new `SchemaSinkFrame` kind
+        // trips a `tsc` error here until this switch states its
+        // crossed/stopped meaning — the union's producer
+        // (query-schema-resolve.ts) carries the matching construction-side
+        // `CONSTRUCTED_SINK_FRAME_KINDS` ledger.
+        const _exhaustive: never = frame;
+        return void _exhaustive;
+      }
     }
   }
   // The walk exhausted its frames without reaching a sink: untyped.
