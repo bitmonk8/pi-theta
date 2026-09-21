@@ -2,7 +2,7 @@
 id: PTQ-1220
 title: baseFileName hand-rolls the directory-prefix strip that node:path's win32.basename already provides
 lens: D8
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/extension/execution-status/footer-sink.ts:45-55

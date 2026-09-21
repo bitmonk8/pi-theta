@@ -2,7 +2,7 @@
 id: PTQ-1225
 title: leafPathEntries hand-rolls the leaf-path walk that ctx.sessionManager.getBranch() already provides at its only production call site
 lens: D8
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/extension/live-prompt-query-driver.ts:1216-1245

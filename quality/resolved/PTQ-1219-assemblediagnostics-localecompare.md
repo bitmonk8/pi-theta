@@ -2,7 +2,7 @@
 id: PTQ-1219
 title: assembleDiagnostics orders the spec-pinned (file, line, col) sort's file key with locale-sensitive localeCompare instead of a fixed collation
 lens: D8
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/diagnostics/diagnostic.ts:128-139

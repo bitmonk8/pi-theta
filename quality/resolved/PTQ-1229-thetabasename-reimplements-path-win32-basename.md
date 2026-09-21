@@ -2,7 +2,7 @@
 id: PTQ-1229
 title: thetaBasename hand-rolls the separator-splitting basename + suffix strip that node:path's path.win32.basename already provides, in a module that already imports node:path
 lens: D8
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/extension/production-discovered-theta.ts:42-46

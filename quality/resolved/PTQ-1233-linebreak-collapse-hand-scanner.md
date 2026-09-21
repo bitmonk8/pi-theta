@@ -2,7 +2,7 @@
 id: PTQ-1233
 title: normaliseLiteralValueLineBreaks hand-rolls a 39-line character scanner for a whitespace-run collapse String.prototype.replace expresses directly
 lens: D8
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/diagnostics/diagnostic.ts:163-201
