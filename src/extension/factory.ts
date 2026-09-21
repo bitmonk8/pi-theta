@@ -1,5 +1,7 @@
 // H4a — the theta extension factory (the `src/**` production factory the
-// `extensions/index.ts` entry shim re-exports).
+// `extensions/index.ts` entry shim re-exports); injected types live in
+// `factory-deps.ts` and are re-exported here. The lifecycle teardown lives in
+// `extension-instance-shutdown.ts`.
 //
 // The factory establishes the extension by side-effect registration calls on
 // the injected `pi: ExtensionAPI` handle. Per
@@ -30,15 +32,11 @@ import type {
   ExtensionAPI,
   ExtensionCommandContext,
   ExtensionContext,
-  SessionShutdownEvent,
 } from "@earendil-works/pi-coding-agent";
 import type { Diagnostic } from "../diagnostics/diagnostic";
 import { renderUnderlyingError } from "../diagnostics/placeholder";
 import { createSystemNoteRenderer } from "./system-note-renderer";
-import {
-  createEntryChannel,
-  type EntryChannelHandle,
-} from "./execution-status/entry-channel";
+import { createEntryChannel } from "./execution-status/entry-channel";
 import type { ExecutionStatusBus } from "./execution-status/types";
 import { THETA_PROGRESS_TOOL_NAME } from "./execution-status/types";
 import {
@@ -56,24 +54,18 @@ import {
   type SystemNoteChannelDeps,
 } from "./system-note-channel";
 import type { ThetaRegistry, ParsedTheta } from "./reload-wiring";
+import { resolveSlashDispatchWithReadFailover } from "./drain-state";
 import {
-  resolveSlashDispatchWithReadFailover,
-  evalShutdownShortCircuitWithReadFailover,
-} from "./drain-state";
-import {
-  runSessionShutdown,
   createProductionEmissionSink,
-  type SessionShutdownDeps,
   type ForwardingSignalSource,
 } from "./session-shutdown";
 import {
   guardSessionSwapTripwire,
   runGuardedSlashHandler,
   createProductionFailFastTerminator,
-  type FailFastTerminator,
   type TripwireGuardDeps,
 } from "./session-swap-tripwire";
-import { ActiveInvocationRegistry } from "../runtime/active-invocation-registry";
+import type { ActiveInvocationRegistry } from "../runtime/active-invocation-registry";
 import type { Clock } from "../seams/clock";
 import type { HotReloadHandle } from "./hot-reload";
 import {
@@ -97,7 +89,13 @@ import {
   PlacementRegistry,
 } from "../runtime/subagent-placement-registry";
 import type { PlacementRegistrationHandle } from "./production-composition";
-import { SDK_SURFACE_INVENTORY } from "./sdk-inventory";
+import {
+  handleSessionShutdown,
+  type ExtensionInstanceState,
+  type SupersededGeneration,
+} from "./extension-instance-shutdown";
+import type { ThetaFixture, ThetaExtensionDeps } from "./factory-deps";
+export type { ThetaFixture, ThetaExtensionDeps } from "./factory-deps";
 
 /**
  * The diagnostics-registry code a factory-time bootstrap registration /
@@ -153,20 +151,6 @@ type BootstrapCapability =
   | "pi.registerCommand"
   | "pi.getCommands"
   | "pi.registerTool";
-
-/**
- * Bug 0021 (PIC-68): the teardown-reach residue of one superseded compose
- * generation. A repeat `session_start`'s supersede-before-publish step detaches
- * the outgoing generation's watcher and drains its registry immediately, but
- * its in-flight invocation registry and forwarding-signal list must stay
- * reachable so ONE later `session_shutdown` can cancel + reason-stamp the
- * invocations (sub-steps 2/3) and detach the listeners (sub-step 5) across
- * every generation the instance ever published — not only the latest.
- */
-interface SupersededGeneration {
-  readonly activeInvocations: ActiveInvocationRegistry | undefined;
-  readonly forwardingSignals: ForwardingSignalSource[] | undefined;
-}
 
 /**
  * Construct the `theta/load/extension-bootstrap-failed` diagnostic for a
@@ -295,159 +279,6 @@ async function quiesceOutgoingRebuild(
     SUPERSESSION_QUIESCE_CAP_MS,
     outgoingClock,
   );
-}
-
-/**
- * One in-memory theta fixture: a slash name plus the body run when the command
- * is dispatched. This is the seam the `H4a` harness's in-memory fixture-supply
- * mechanism drives and that `M` / `M-T` bind against for single-source
- * happy-path discovery — the fixture content is handed to the extension in
- * memory rather than read from the real filesystem, so no `src/**` ambient
- * filesystem read and no `FileSystem` seam dependency is introduced here.
- */
-export interface ThetaFixture {
-  /** The slash-command name this theta registers under. */
-  readonly slashName: string;
-  /**
-   * The theta's `description:` frontmatter, passed to `pi.registerCommand` so it
-   * populates the slash-command autocomplete entry (frontmatter-fields-a.md).
-   * Absent when the theta declares no (non-empty) `description:`.
-   */
-  readonly description?: string;
-  /** The command body, run by the registered slash handler on dispatch. */
-  readonly run: (args: string, ctx: ExtensionCommandContext) => Promise<void>;
-}
-
-/** Construction dependencies for the theta extension factory. */
-export interface ThetaExtensionDeps {
-  /**
-   * The in-memory theta fixtures whose slash commands the `session_start`
-   * handler registers. The `H4a` harness supplies fixtures here for its
-   * in-memory end-to-end tests; the shipped production composition root
-   * (`H8a`) supplies none here and discovers them at `session_start` via
-   * `composeInstance` below.
-   */
-  readonly fixtures: readonly ThetaFixture[];
-
-  /**
-   * The diagnostic-emission seam the factory routes a
-   * `theta/load/extension-bootstrap-failed` diagnostic through when a
-   * factory-time host-binding call throws (the impl wires this to the
-   * **System notes** fallback chain per extension-bootstrap-and-per-theta.md).
-   * Declared by `V9k-T` and consumed by the paired `V9k` implementation; the
-   * `H4a` harness path omits it, so it is optional.
-   */
-  readonly emitDiagnostic?: (diagnostic: Diagnostic) => void;
-
-  /**
-   * The ctx-latching slot the `session_start` handler fills as the first
-   * statement of its body, before any registration work (bug 0023 D1). Once
-   * filled, `emitDiagnostic` sites reached from inside a handler (which always
-   * hold a `ctx`) route through the sink's full System-notes chain; the five
-   * factory-time sites run before any `session_start` delivery and so use the
-   * ctx-free partial chain instead. A repeat `session_start` re-latches with a
-   * fresh `ctx`. Optional: the `H4a` harness path that injects its own
-   * recorder omits it.
-   */
-  readonly latchSessionContext?: (ctx: ExtensionContext) => void;
-
-  /**
-   * The renderer-availability gate (V9p). On a factory-time
-   * `pi.registerMessageRenderer` failure the paired V9p implementation calls
-   * `rendererGate.degrade()` so this extension instance's DISPLAYED system notes
-   * (`display` unset/true) permanently route through the `ctx.ui.notify` arm of
-   * the System-notes fallback chain; a `display: false` structured note still
-   * delivers via `pi.sendMessage` (bug 0454 — the transcript write is not
-   * renderer-dependent). Optional: the `H4a` / `V9k` paths that do not exercise the
-   * renderer-degrade surface omit it. Declared by `V9p-T`, consumed by `V9p`.
-   */
-  readonly rendererGate?: RendererGate;
-
-  /**
-   * The extension-instance `theta-system-note` channel the two factory-scope
-   * lifecycle notes (drain-state dispatch-refusal; repeat-`session_start`
-   * supersession) ride, so a host `pi.sendMessage` throw on either walks the
-   * channel's best-effort fallback chain (runtime-event-channel.md:140) instead
-   * of aborting the slash handler or vanishing. The production default export
-   * supplies the bootstrap sink's latched channel (the same non-re-entering
-   * off-channel sink every instance-level note uses); absent on the H4a /
-   * integration harness paths, where the factory builds a local channel over
-   * `pi` + the latched `ctx` + `emitDiagnostic` for these two sites.
-   */
-  readonly systemNoteChannel?: () => SystemNoteChannelDeps | undefined;
-
-  /**
-   * The Phase-5 production supplier that composes one extension instance and
-   * exposes the step-5 watcher installer
-   * (registration-steps.md#watcher-hot-reload-registration). When present the
-   * `session_start` handler runs it, registers the composed thetas, and arms ONE
-   * hot-reload watcher over the discovery-root union + settings-file paths; the
-   * `session_shutdown` handler detaches it, and a shutdown-less repeat
-   * `session_start` supersedes the prior generation — detaching its watcher and
-   * draining its registry — before arming its own (bug 0021, PIC-68), so the
-   * instance holds at most one armed watcher across repeat deliveries. The
-   * shipped production default export supplies this; the `H4a` in-memory
-   * harness omits it (falling back to the static `registerFixtures(deps.fixtures)`
-   * path).
-   *
-   * Bug 0024 (registration-steps.md#pic-69): the third parameter is this
-   * instance's own-registration ledger — every slash name ever passed to
-   * `pi.registerCommand` (`registerFixtures` below stamps it). The supplier
-   * forwards it into `composeExtensionInstance` so every pass that reads
-   * `pi.getCommands()` for the cross-format collision check, including the
-   * first `session_start` and every supersession/rebind pass, excludes this
-   * instance's own prior registrations from the collision source set instead
-   * of self-colliding against them.
-   */
-  readonly composeInstance?: (
-    pi: ExtensionAPI,
-    ctx: ExtensionContext,
-    ownRegisteredNames: ReadonlySet<string>,
-    // RFC 0010: the fourth/fifth parameters are the factory-owned optional-UI
-    // surfaces the compose pass needs — the PIC-71 entry channel (constructed
-    // in the factory body beside the message renderer) and the latch the
-    // composed instance hands its execution-status bus back through, so
-    // `/theta-status` (registered in the factory body) reaches the LIVE bus and
-    // `session_shutdown` can dispose it (EXST-2).
-    entryChannel?: EntryChannelHandle,
-    latchStatusBus?: (bus: ExecutionStatusBus) => void,
-    // RFC 0010 (EXST-13): the factory-owned in-process tool handlers (currently
-    // `theta_progress`'s shared-state code-side executor), so a code-side call
-    // dispatches in-process instead of through the host-loop bridge.
-    inProcessTools?: Readonly<Record<string, InProcessToolExecute>>,
-    // RFC-0012 §3: the child's LIVE result channel from an earlier compose of
-    // this same process (a repeat `session_start`), so the pass reuses the one
-    // connection the parent accepts instead of dialling a second one.
-    resultChannel?: ResultChannelClient,
-    // RFC-0012 §5: the factory-owned registered-backend set + discover trigger
-    // (the offer subscription lives in the factory body beside it).
-    placementRegistration?: PlacementRegistrationHandle,
-  ) => Promise<ExtensionInstanceWiring>;
-
-  /**
-   * RFC-0006 (subagent.md #pic-58): `true` when this extension instance is
-   * loading INSIDE a spawned subagent child `pi` process, detected by the
-   * subagent-root regime marker `PI_THETA_SUBAGENT_ROOT=<slug>` (which subsumes
-   * the retired RFC-0005 boolean `PI_THETA_SUBAGENT_CHILD` marker, per PIC-58).
-   * The child MUST NOT install its own step-5 file watcher / `ReloadDebouncer`
-   * (a recursive behaviour that must not run in the ephemeral child), so the
-   * arming is suppressed. Read once at the default export from the process env;
-   * absent (falsey) on the parent / harness paths.
-   */
-  readonly isSubagentChild?: boolean;
-
-  /**
-   * The NFR-2.1 fail-fast terminator seam (session-swap-tripwire.ts): the
-   * `Environment.FailFast`-equivalent "let crash" path the session-swap
-   * tripwire's trip-site guard invokes immediately after emitting the single
-   * `theta/host/session-swap-instance-survived` diagnostic. Injected here so
-   * the guard can terminate the process without the trip site inlining a
-   * `process.exit` literal; the shipped production default export supplies the
-   * real terminator, and the H4a / integration harness paths inject a fake so
-   * termination is observable without ending the test process. Optional: the
-   * paths that never reach the trip guard omit it.
-   */
-  readonly terminator?: FailFastTerminator;
 }
 
 /**
@@ -1215,197 +1046,31 @@ export function createThetaExtension(
       }
     }
 
-    /**
-     * `session_shutdown` (step 4) — run the five-sub-step teardown
-     * (session-shutdown-semantics.md): sub-step 1 (drain + init drain-state
-     * tag) on the latest registry, sub-steps 2/3 over the MERGED in-flight
-     * invocation registry, sub-step 4 (watcher-close + debounce-cancel) via
-     * the captured teardown handle, and sub-step 5 over the MERGED
-     * forwarding-signal list. Bug 0021 (PIC-68) — teardown reach across
-     * generations: the merged inputs span every generation the instance has
-     * published (the supersession fold plus the latest), so one shutdown's
-     * reach stays complete even after shutdown-less repeat `session_start`
-     * deliveries; sub-steps 1/4 operate on the latest generation only because
-     * the superseded generations were already drained/detached at
-     * supersession time. The whole handler body stays wrapped in the
-     * never-throw factory boundary so a throw surfaces one diagnostic rather
-     * than propagating into the host teardown. `runSessionShutdown` is async
-     * and the host awaits a returned promise (`emitSessionShutdownEvent` →
-     * `await handler(...)`), so the handler returns it inside the try to
-     * preserve await-ordering.
-     */
-    function handleSessionShutdown(
-      event: SessionShutdownEvent,
-    ): Promise<void> | undefined {
-      // Bug 0018 (PIC-67), arming check subsumed by bug 0022's
-      // compose-settle gate: record the delivery before anything can throw
-      // or short-circuit, so an in-flight `session_start` compose observes
-      // it at its compose-settle boundary even when the lazy reads below
-      // no-op this teardown.
-      shutdownEventsObserved += 1;
-      try {
-        // Read the live resources LAZILY (the subscription fires before compose
-        // runs). No live registry/clock means compose never ran / failed —
-        // there is nothing wired to tear down, so no-op safely.
-        const registry = liveRegistry;
-        const clock = liveClock;
-        if (registry === undefined || clock === undefined) {
-          return;
-        }
-
-        // Handler-entry short-circuit (spec steps I+II, PIC-31 idempotence):
-        // read the live drain state under the read-failover. A prior
-        // `session_shutdown` left the tag set, so a re-delivery short-circuits
-        // here (host-prerequisites clause (b)); a `readDrainState` throw fails
-        // OPEN (returns `false`) → proceed to the full five-sub-step teardown.
-        if (
-          evalShutdownShortCircuitWithReadFailover(() =>
-            registry.readDrainState(),
-          )
-        ) {
-          return;
-        }
-
-        // Bug 0021 (PIC-68): capture the teardown handle at the lazy-read
-        // point and build BOTH sub-step-4 adapters below over the captured
-        // local — the mutable slot is cleared before `runSessionShutdown`'s
-        // awaited sequence reaches sub-step 4, so an adapter reading the
-        // slot at call time would observe `undefined` and skip the detach.
-        const handle = hotReloadHandle;
-
-        // Bug 0021 (PIC-68) — teardown reach across generations: sub-steps
-        // 2/3 consume ONE merged handler-local `ActiveInvocationRegistry`
-        // (the superseded generations' entries in supersession order, then
-        // the latest generation's) and sub-step 5 consumes the concatenated
-        // forwarding-signal lists in the same order. Entries are shared
-        // references, so the reason-stamp/abort and the listener detach
-        // reach the real objects; the merged containers are handler-local
-        // and discarded with this teardown.
-        const mergedActiveInvocations = new ActiveInvocationRegistry();
-        const mergedForwardingSignals: ForwardingSignalSource[] = [];
-        for (const generation of supersededGenerations) {
-          for (const entry of generation.activeInvocations?.snapshot() ?? []) {
-            mergedActiveInvocations.add(entry);
-          }
-          mergedForwardingSignals.push(...(generation.forwardingSignals ?? []));
-        }
-        for (const entry of liveActiveInvocations?.snapshot() ?? []) {
-          mergedActiveInvocations.add(entry);
-        }
-        mergedForwardingSignals.push(...(liveForwardingSignals ?? []));
-
-        const shutdownDeps: SessionShutdownDeps = {
-          registry,
-          // Increment B1, widened by bug 0021: the merged registry above, so
-          // sub-step 2 (cancel in-flight) + sub-step 3 (await dispose)
-          // operate on the REAL entries of every published generation. Empty
-          // when nothing is in flight, keeping that path an instant no-op.
-          activeInvocations: mergedActiveInvocations,
-          clock,
-          // ClosableWatcher ADAPTER — documented spec-vs-impl drift: the spec
-          // deps model TWO watchers (`discoveryWatcher` + `settingsWatcher`)
-          // plus a raw `clock.clearTimeout(debounceHandle)`; production runs
-          // ONE union `FileWatcher` + a `ReloadDebouncer` behind
-          // `HotReloadHandle.detach()` (which applies the torn-down mark —
-          // itself cancelling the pending debounce — and then the unsub —
-          // hot-reload.ts). So sub-step 4's
-          // watcher-close + debounce-cancel are BOTH delegated to `detach()`
-          // here; `settingsWatcher` is a no-op (the single union watcher
-          // already covers the settings paths, detached by this adapter) and
-          // `debounceHandle` is `undefined` (the debounce is cancelled inside
-          // `detach()`, not via a raw `TimerHandle`). The adapter reconciles
-          // the two shapes.
-          discoveryWatcher: {
-            close: (): void => {
-              handle?.detach();
-            },
-          },
-          settingsWatcher: { close: (): void => {} },
-          debounceHandle: undefined,
-          // PIC-57 sub-step 4: quiesce the REAL hot-reload debouncer through
-          // the same `HotReloadHandle` the watcher-close adapter detaches.
-          // `markTornDown()` suppresses new watcher rebuilds; `whenIdle()`
-          // lets an already-in-flight rebuild complete against the still-live
-          // ctx before the handler returns and Pi invalidates the runtime.
-          // Both members are optional on `HotReloadHandle`, so a lightweight
-          // handle that only supplies `detach()` degrades to a no-op quiesce.
-          debouncer:
-            handle !== undefined
-              ? {
-                  markTornDown: (): void => {
-                    handle.markTornDown?.();
-                  },
-                  whenIdle: (): Promise<void> =>
-                    handle.whenIdle?.() ?? Promise.resolve(),
-                }
-              : undefined,
-          // Increment B2, widened by bug 0021: the merged forwarding-signal
-          // list above, so sub-step 5 detaches the listeners still attached
-          // for an invocation in-flight at shutdown under ANY published
-          // generation. Empty when nothing was ever pushed, keeping that
-          // path an instant no-op.
-          forwardingSignals: mergedForwardingSignals,
-          // PIC-46: the single injected copy of the closed-set snapshot
-          // (`SessionShutdownEvent.reason`'s `type-union-snapshot` row); the
-          // unknown-reason rule reads it, no separate copy lives here.
-          inventory: SDK_SURFACE_INVENTORY,
-          sink: {
-            emit: (line: unknown): void => {
-              console.error(line);
-            },
-            serialise: (d: Diagnostic): string => JSON.stringify(d),
-          },
-        };
-
-        // Bug 0021 (PIC-68): consume the per-generation state synchronously,
-        // before the awaited teardown runs — the deps above already hold
-        // every reference the five sub-steps need. A later
-        // start-after-shutdown supersession is then a structural no-op
-        // (nothing left to fold, drain idempotent, no handle to detach), so
-        // no generation can be torn down twice. `liveRegistry`/`liveClock`
-        // are KEPT so the host-prerequisites clause-(b) re-delivery
-        // short-circuit above still runs through the drain-state read as
-        // pinned.
-        hotReloadHandle = undefined;
-        liveActiveInvocations = undefined;
-        liveForwardingSignals = undefined;
-        // EXST-2: the bus is torn down with the instance, so a fresh
-        // `/reload` instance starts with a fresh bus and every sink
-        // un-degraded. `dispose()` is idempotent and never throws.
-        liveStatusBus?.dispose();
-        liveStatusBus = undefined;
-        supersededGenerations.length = 0;
-        // RFC-0012 §3: the child's result channel closes AFTER the five
-        // sub-steps have run — sub-step 3 awaits the in-flight invocation
-        // whose envelope rides it — so the last frame is on the wire before
-        // the socket ends. Consumed here so a re-delivery finds nothing.
-        const resultChannel = liveResultChannel;
-        liveResultChannel = undefined;
-        // RFC-0012 §5: release the offer subscription and forget the
-        // registered backends — a repeat `session_start` re-discovers into a
-        // fresh set, and no handler of this instance outlives it on the bus.
-        placementBinding.unsubscribe();
-        placementRegistry.clear();
-
-        // The classifier reads `event.reason` in its own `try` (PIC-47), so
-        // this call must not pre-read the property: a throwing getter has to
-        // route to `session-shutdown-reason-unknown`, not to this `catch`'s
-        // `extension-bootstrap-failed`. `event` (a `SessionShutdownEvent`)
-        // satisfies `SessionShutdownEventLike` structurally, so it is passed
-        // through unread.
-        return runSessionShutdown(event, shutdownDeps).finally(() => {
-          resultChannel?.close();
-        });
-      } catch (e: unknown) { // allow-broad-catch: pi-sdk-boundary — conventions.md Specific exception types only
-        deps.emitDiagnostic?.(
-          bootstrapFailedDiagnostic("pi.on", e, { event: "session_shutdown" }),
-        );
-        return;
-      }
-    }
-
+    // Keep the handler's live reads and clears on the existing closure slots;
+    // no resource or generation is captured when the subscription is installed.
+    const shutdownState: ExtensionInstanceState = {
+      get hotReloadHandle() { return hotReloadHandle; },
+      set hotReloadHandle(value) { hotReloadHandle = value; },
+      get liveRegistry() { return liveRegistry; },
+      get liveClock() { return liveClock; },
+      get liveActiveInvocations() { return liveActiveInvocations; },
+      set liveActiveInvocations(value) { liveActiveInvocations = value; },
+      get liveForwardingSignals() { return liveForwardingSignals; },
+      set liveForwardingSignals(value) { liveForwardingSignals = value; },
+      get shutdownEventsObserved() { return shutdownEventsObserved; },
+      set shutdownEventsObserved(value) { shutdownEventsObserved = value; },
+      get liveStatusBus() { return liveStatusBus; },
+      set liveStatusBus(value) { liveStatusBus = value; },
+      get liveResultChannel() { return liveResultChannel; },
+      set liveResultChannel(value) { liveResultChannel = value; },
+      supersededGenerations,
+      placementBinding,
+      placementRegistry,
+    };
     try {
-      pi.on("session_shutdown", handleSessionShutdown);
+      pi.on("session_shutdown", (event) =>
+        handleSessionShutdown(event, shutdownState, deps, bootstrapFailedDiagnostic),
+      );
     } catch (e: unknown) { // allow-broad-catch: pi-sdk-boundary — conventions.md Specific exception types only
       deps.emitDiagnostic?.(
         bootstrapFailedDiagnostic("pi.on", e, { event: "session_shutdown" }),
