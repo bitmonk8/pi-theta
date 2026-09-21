@@ -2,7 +2,7 @@
 id: PTQ-1206
 title: subagent-result-channel.ts bundles the frame protocol, the parent-side channel, and the child-side client in one 602-LOC module whose two halves have disjoint src consumers
 lens: D9
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/runtime/subagent-result-channel.ts:1-602

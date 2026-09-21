@@ -2,7 +2,7 @@
 id: PTQ-1203
 title: subagent-envelope.ts bundles serialization, parsing, failure mapping, and wire-form walks at 989 LOC (zone band)
 lens: D9
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/runtime/subagent-envelope.ts:1-989

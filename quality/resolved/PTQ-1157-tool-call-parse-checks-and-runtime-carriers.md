@@ -2,7 +2,7 @@
 id: PTQ-1157
 title: src/runtime/tool-call.ts (815 LOC, zone) bundles parse-time argument checking with five runtime error-carrier clusters that share no code with it
 lens: D9
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/runtime/tool-call.ts:1-815

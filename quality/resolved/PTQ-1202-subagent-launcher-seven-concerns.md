@@ -2,7 +2,7 @@
 id: PTQ-1202
 title: subagent-launcher.ts bundles seven launch-pipeline concerns at 1105 LOC (justify band)
 lens: D9
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/runtime/subagent-launcher.ts:1-1105
