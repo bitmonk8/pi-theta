@@ -2,8 +2,10 @@
 id: PTQ-1196
 title: The synchronous pure-expression evaluator family lives in extension/ but touches only runtime/ and parser/ members
 lens: D9
-status: open
+status: fixed
 verdict: confirmed
+resolved_by: d71574c7 (PTQ-1150 side-effect — pure-evaluator family moved to pure-expression-evaluator.ts)
+resolved_note: administratively closed — already fixed, empty-diff false-positive in subsequent waves
 locations:
   - src/extension/production-theta-producer.ts:8228-8796
 sites: 8
