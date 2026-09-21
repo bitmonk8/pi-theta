@@ -68,7 +68,7 @@ import { describe, expect, it } from "vitest";
 import { expectPiPrintFixture } from "../../helpers/pi-print-fixture-harness";
 import { requireLiveHost, resolveAcceptanceHost } from "./harness";
 import { parseDoc, errorCodes } from "../../helpers/e2e-s1";
-import { renderSystemPrompt } from "../../../src/parser/system-interpolation";
+import { renderSystemPrompt } from "../../../src/parser/system-prompt-render";
 import type { ThetaValue } from "../../../src/runtime/value";
 
 /**

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { errors, parseDoc } from "./helpers/e2e-s1";
-import { renderSystemPrompt } from "../src/parser/system-interpolation";
+import { renderSystemPrompt } from "../src/parser/system-prompt-render";
 import type { ThetaValue } from "../src/runtime/value";
 
 // Witness tests for bug 0443

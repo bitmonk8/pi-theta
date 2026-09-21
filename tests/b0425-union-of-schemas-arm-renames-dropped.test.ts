@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { parseDoc } from "./helpers/e2e-s1";
-import { renderSystemPrompt } from "../src/parser/system-interpolation";
+import { renderSystemPrompt } from "../src/parser/system-prompt-render";
 import { brandSchemaValue } from "../src/runtime/value";
 import type { ThetaValue } from "../src/runtime/value";
 

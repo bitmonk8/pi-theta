@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { parseDoc, errors } from "./helpers/e2e-s1";
 import {
-  renderSystemPrompt,
   SYSTEM_INTERP_BAD_FIELD_CODE,
 } from "../src/parser/system-interpolation";
+import { renderSystemPrompt } from "../src/parser/system-prompt-render";
 import type { ThetaValue } from "../src/runtime/value";
 
 // Witness tests for bug 0408

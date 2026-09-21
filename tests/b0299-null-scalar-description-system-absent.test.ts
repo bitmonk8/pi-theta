@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { parseDoc } from "./helpers/e2e-s1";
 import { buildBinderSystemPrompt } from "../src/binder/binder-system-prompt";
-import { renderSystemPrompt } from "../src/parser/system-interpolation";
+import { renderSystemPrompt } from "../src/parser/system-prompt-render";
 
 // Bug 0299 — a value-less `description:` or `system:` (YAML null scalar: bare
 // key, `null`, or `~`) is stringified by `String(item.value.value)` into the

@@ -2,10 +2,10 @@ import { fakeThetaLibFs as w7FakeFs } from "./helpers/thetalib-load-harness";
 import { describe, expect, it } from "vitest";
 import { parseDoc, parseDeps, errors } from "./helpers/e2e-s1";
 import {
-  renderSystemPrompt,
   SYSTEM_INTERP_BAD_FIELD_CODE,
   type SystemTemplate,
 } from "../src/parser/system-interpolation";
+import { renderSystemPrompt } from "../src/parser/system-prompt-render";
 import { parseThetaDocument } from "../src/parser/theta-document";
 import { checkThetaImports } from "../src/extension/import-static-checks";
 import type { ParsedFrontmatter } from "../src/parser/frontmatter";

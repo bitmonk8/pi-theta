@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
   checkSystemInterpolation,
-  renderSystemPrompt,
   SYSTEM_ON_PROMPT_MODE_CODE,
   SYSTEM_ON_PROMPT_MODE_MESSAGE,
   SYSTEM_INTERP_NOT_PATH_CODE,
@@ -15,6 +14,7 @@ import {
   type SystemParamType,
   type SystemTemplate,
 } from "../src/parser/system-interpolation";
+import { renderSystemPrompt } from "../src/parser/system-prompt-render";
 import {
   stringifyInterpolatedValue,
   INTERPOLATED_RESULT_CODE,

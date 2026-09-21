@@ -5,7 +5,7 @@ import {
   type BinderBypassDecision,
 } from "../src/binder/binder-envelope";
 import { bindParamsInbound } from "../src/runtime/inbound-boundary";
-import { renderSystemPrompt } from "../src/parser/system-interpolation";
+import { renderSystemPrompt } from "../src/parser/system-prompt-render";
 import { marshalParams, type ParamsMarshalDeps } from "../src/runtime/subagent-params";
 import { respondPayloadFromWire } from "../src/runtime/respond-tool-wire";
 import {

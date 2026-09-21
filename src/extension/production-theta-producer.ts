@@ -264,7 +264,7 @@ import type {
   SubagentSessionConfig,
 } from "../parser/theta-document";
 import { parseExpressionSource, collectSessionTypedQueries } from "../parser/theta-document";
-import { renderSystemPrompt } from "../parser/system-interpolation";
+import { renderSystemPrompt } from "../parser/system-prompt-render";
 import { lowerQueryResponseSchema } from "../runtime/query-schema-lowering";
 import { bindParamsInbound, decodeInboundValue } from "../runtime/inbound-boundary";
 import { projectForValidation } from "../runtime/wire-translation";
