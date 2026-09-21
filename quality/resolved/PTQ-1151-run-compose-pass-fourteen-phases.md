@@ -2,7 +2,7 @@
 id: PTQ-1151
 title: runComposePass spans 1090 LOC across fourteen sequential construction and adjudication phases
 lens: D9
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/extension/production-composition.ts:678-1767

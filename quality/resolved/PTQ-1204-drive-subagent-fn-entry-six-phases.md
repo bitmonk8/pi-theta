@@ -2,7 +2,7 @@
 id: PTQ-1204
 title: ProductionThetaProducer.#driveSubagentFnEntry runs six separable phases, including a 34-LOC inline params validator, in one 178-LOC body
 lens: D9
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/extension/production-theta-producer.ts:3294-3471

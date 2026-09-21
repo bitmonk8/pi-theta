@@ -2,7 +2,7 @@
 id: PTQ-1177
 title: createModelReferenceMatcher and its two surface types live in extension/reload-wiring.ts while their types and consumers sit in parser/frontmatter and binder/binder-model
 lens: D9
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/extension/reload-wiring.ts:494-559

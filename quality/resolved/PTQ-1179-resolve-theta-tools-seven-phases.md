@@ -2,7 +2,7 @@
 id: PTQ-1179
 title: resolveThetaToolsAtLoad runs seven adjudication phases in one 225-LOC body whose shared state is two locals
 lens: D9
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/extension/production-composition.ts:2699-2923

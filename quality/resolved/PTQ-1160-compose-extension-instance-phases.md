@@ -2,7 +2,7 @@
 id: PTQ-1160
 title: composeExtensionInstance bundles instance wiring with two low-coupling construction phases across 347 LOC
 lens: D9
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/extension/production-composition.ts:2031-2377

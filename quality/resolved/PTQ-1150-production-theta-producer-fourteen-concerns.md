@@ -2,7 +2,7 @@
 id: PTQ-1150
 title: production-theta-producer.ts bundles fourteen separable concern clusters in one 8796-LOC module
 lens: D9
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/extension/production-theta-producer.ts:1-8796

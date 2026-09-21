@@ -2,7 +2,7 @@
 id: PTQ-1192
 title: ProductionThetaProducer.driveSubagentRootRegime combines seven child-side regime phases in one 226-LOC method
 lens: D9
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/extension/production-theta-producer.ts:3043-3268

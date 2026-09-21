@@ -2,7 +2,7 @@
 id: PTQ-1190
 title: ProductionThetaProducer.runBinder sequences nine bind-pipeline phases in one 251-LOC method
 lens: D9
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/extension/production-theta-producer.ts:1035-1285

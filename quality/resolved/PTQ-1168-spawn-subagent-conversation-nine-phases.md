@@ -2,7 +2,7 @@
 id: PTQ-1168
 title: spawnSubagentConversation runs nine launch-assembly phases in one 497-LOC method
 lens: D9
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/extension/production-theta-producer.ts:2424-2920

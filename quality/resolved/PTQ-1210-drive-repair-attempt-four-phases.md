@@ -2,7 +2,7 @@
 id: PTQ-1210
 title: LivePromptQueryModel.driveRepairAttempt sequences four separable phases of the typed-query repair restart in one 120-LOC body
 lens: D9
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/extension/production-theta-producer.ts:6339-6458

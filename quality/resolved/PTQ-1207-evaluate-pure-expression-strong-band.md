@@ -2,7 +2,7 @@
 id: PTQ-1207
 title: evaluatePureExpression is 206 LOC in the strong band, with an 11-line panic-site attachment block repeated inside two of its arms
 lens: D9
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/extension/production-theta-producer.ts:8227-8432

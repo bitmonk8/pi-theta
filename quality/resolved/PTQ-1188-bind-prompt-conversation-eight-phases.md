@@ -2,7 +2,7 @@
 id: PTQ-1188
 title: ProductionThetaProducer.bindPromptConversation assembles eight binding phases in one 257-LOC method
 lens: D9
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/extension/production-theta-producer.ts:2156-2412

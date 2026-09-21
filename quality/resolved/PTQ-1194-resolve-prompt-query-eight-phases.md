@@ -2,7 +2,7 @@
 id: PTQ-1194
 title: ProductionThetaProducer.#resolvePromptQuery builds eight query-dispatch collaborators in one 209-LOC method
 lens: D9
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/extension/production-theta-producer.ts:3835-4043

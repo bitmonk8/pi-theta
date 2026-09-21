@@ -2,7 +2,7 @@
 id: PTQ-1183
 title: ProductionThetaProducer.#driveCallee chains eight guard-and-dispatch phases in one 316-LOC method
 lens: D9
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/extension/production-theta-producer.ts:4935-5250
