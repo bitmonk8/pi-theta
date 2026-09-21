@@ -2,7 +2,7 @@
 id: PTQ-1212
 title: query-schema-lowering.ts is a SUBS-1 lowering stage in src/runtime/ that touches 10 parser members and 0 runtime members, while its lowering sibling family lives in src/parser/
 lens: D9
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/runtime/query-schema-lowering.ts:1-371

@@ -2,7 +2,7 @@
 id: PTQ-1169
 title: checkBooleanPosition, checkIndexReceiver and displayCompatType are parse/type-phase checkers living in the runtime expression interpreter, consumed only by parser/type-layer-checks.ts
 lens: D9
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/runtime/expression-evaluator.ts:555-636

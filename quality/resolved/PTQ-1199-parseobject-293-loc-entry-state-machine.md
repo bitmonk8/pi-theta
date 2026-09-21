@@ -2,7 +2,7 @@
 id: PTQ-1199
 title: TypeParser.parseObject runs a 293-LOC field loop with seven per-entry state latches mutated across five arms
 lens: D9
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/parser/type-grammar.ts:811-1103

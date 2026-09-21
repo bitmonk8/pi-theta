@@ -2,7 +2,7 @@
 id: PTQ-1201
 title: LexicalEnvironment.constructor bundles six sequential registry-population phases in one 108-LOC body
 lens: D9
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/runtime/lexical-environment.ts:378-485
