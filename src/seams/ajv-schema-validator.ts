@@ -64,10 +64,6 @@ const SCHEMA_VALUED_KEYWORDS: readonly string[] = [
 /** Keywords whose value is an array of schemas. */
 const SCHEMA_LIST_KEYWORDS: readonly string[] = ["anyOf", "allOf", "oneOf"] as const;
 
-function hasOwn(target: object, key: string): boolean {
-  return Object.prototype.hasOwnProperty.call(target, key);
-}
-
 /** Whether `value` is a schema node worth walking (a non-null, non-array object). */
 function isSchemaNode(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -123,7 +119,7 @@ function classifySchemaKeyword(key: string, value: unknown): SubSchemaPosition {
  * with the keyword itself. Every other key (`enum`, `const`, `required`,
  * `type`, `format`, `description`, …) is a leaf and is never recursed into.
  * Reads own enumerable keys only (`Object.keys`) and tests membership with
- * `Object.prototype.hasOwnProperty.call`; read-only, and never mutates its
+ * `Object.hasOwn`; read-only, and never mutates its
  * input.
  */
 function declaresFilteredProperty(schema: unknown): boolean {
@@ -135,7 +131,7 @@ function declaresFilteredProperty(schema: unknown): boolean {
     const position = classifySchemaKeyword(key, value);
     switch (position.kind) {
       case "map": {
-        if (key === "properties" && hasOwn(position.map, AJV_FILTERED_SCHEMA_PROPERTY)) {
+        if (key === "properties" && Object.hasOwn(position.map, AJV_FILTERED_SCHEMA_PROPERTY)) {
           return true;
         }
         const map = position.map;
@@ -207,7 +203,7 @@ function relocateFilteredProperty(
 ): void {
   const pattern = `^${AJV_FILTERED_SCHEMA_PROPERTY}$`;
   const relocated = translateFilteredProperties(properties[AJV_FILTERED_SCHEMA_PROPERTY]);
-  const value = hasOwn(target, pattern) ? { allOf: [target[pattern], relocated] } : relocated;
+  const value = Object.hasOwn(target, pattern) ? { allOf: [target[pattern], relocated] } : relocated;
   defineRecordField(target, pattern, value);
 }
 
@@ -242,7 +238,7 @@ function translateFilteredProperties(schema: unknown): unknown {
   }
   const propertiesValue = isSchemaNode(schema.properties) ? schema.properties : undefined;
   const hasFilteredEntry =
-    propertiesValue !== undefined && hasOwn(propertiesValue, AJV_FILTERED_SCHEMA_PROPERTY);
+    propertiesValue !== undefined && Object.hasOwn(propertiesValue, AJV_FILTERED_SCHEMA_PROPERTY);
   const result: Record<string, unknown> = {};
   for (const key of Object.keys(schema)) {
     const value = schema[key];
@@ -286,7 +282,7 @@ function translateFilteredProperties(schema: unknown): unknown {
   }
   // `hasFilteredEntry` but the node declared no own `patternProperties` key at
   // all: the loop above never visited that keyword, so add it here.
-  if (hasFilteredEntry && !hasOwn(schema, "patternProperties")) {
+  if (hasFilteredEntry && !Object.hasOwn(schema, "patternProperties")) {
     const base: Record<string, unknown> = {};
     relocateFilteredProperty(base, propertiesValue as Record<string, unknown>);
     defineRecordField(result, "patternProperties", base);
