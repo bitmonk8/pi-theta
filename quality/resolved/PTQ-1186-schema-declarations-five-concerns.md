@@ -2,7 +2,7 @@
 id: PTQ-1186
 title: schema-declarations.ts carries five check families while its header enumerates three, with the discriminated-union family alone at ~330 LOC
 lens: D9
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/parser/schema-declarations.ts:1-907
