@@ -1,9 +1,9 @@
 ---
-id: pending
+id: PTQ-1224
 title: dirnameOf in subagent-launch-file.ts hand-rolls the directory-half split that node:path.win32.dirname already provides
 lens: D8
-status: intake
-verdict: pending
+status: open
+verdict: confirmed
 locations:
   - src/runtime/subagent-launch-file.ts:139-143
   - src/runtime/subagent-launch-file.ts:126-137
@@ -103,3 +103,4 @@ separator-less edge divergence.
 
 ## Triage
 verdict: questionable — accounting verified: excerpts byte-exact at subagent-launch-file.ts:126-137/139-143, sole caller deleteLaunchFile, helper unexported; node:path already imported at subagent-launcher.ts:24 (and subagent-argv.ts:3); path.win32.dirname re-verified via scratch script to return the `<dir>` half for `/`, `\` and the production mixed-separator `tmpdir()\…\pi-theta-launch-X/launch.json` shape, diverging only on separator-less input (`.` vs identity) and root-drive (`C:\` vs `C:`), both immaterial to a swallowed best-effort rmdir of an mkdtemp dir; no D8 exemption for the host, no spec clause pins the split, not tracked in issues/resolved (PTQ-0342 is normalizePath; the sibling filings are basename hosts); one filing inaccuracy noted — `Grep dirnameOf src/` actually yields a third hit, a different POSIX-only exported `dirnameOf` at src/discovery/discovery-path-classify.ts:116, which does not change the no-external-caller conclusion; the simpler shape (import dirname vs keep a 3-line local) is a design decision for a human ruling (triage: claude-fable-5-1)
+verdict: confirmed — RATIFIED (human, 2026-09-21): confirmed - D8 wave-1 batch ruling; triage equivalence verification trusted.

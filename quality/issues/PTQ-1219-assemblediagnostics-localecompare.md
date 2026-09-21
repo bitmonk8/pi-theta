@@ -1,9 +1,9 @@
 ---
-id: pending
+id: PTQ-1219
 title: assembleDiagnostics orders the spec-pinned (file, line, col) sort's file key with locale-sensitive localeCompare instead of a fixed collation
 lens: D8
-status: intake
-verdict: pending
+status: open
+verdict: confirmed
 locations:
   - src/diagnostics/diagnostic.ts:128-139
   - src/code-point-order.ts:19-31
@@ -62,3 +62,4 @@ Unproven hypothesis: compare the file key with the existing `compareCodePoint` (
 
 ## Triage
 verdict: questionable — accounting verified: excerpt byte-exact at src/diagnostics/diagnostic.ts:126-132, `localeCompare` is the sole src/ hit (grep: 1), `compareCodePoint` exists at src/code-point-order.ts:19-31 with its quoted header and 2 live importers (compact-transcript.ts:207, schema-lowering.ts:89), no D8 exemption for diagnostic.ts/assembleDiagnostics, live callers theta-document.ts:315 and par-for-executor.ts:358; the against-grain intent is real (ECMA-262 localeCompare is locale/implementation-defined; GOV-15 expects identical ordered diagnostic-code sequences) and implementation-notes.md:16 pins the (file, line, col) key without a collation, so no spec clause is dropped; the only inaccuracy is a paraphrase — 0123:292/0129:187 say "Order is stable", not "stable by construction" — non-blocking; the simpler shape (compareCodePoint vs code-unit `<`) is a design decision for a human ruling (triage: claude-fable-5-1)
+verdict: confirmed — RATIFIED (human, 2026-09-21): confirmed - D8 wave-1 batch ruling; triage equivalence verification trusted.

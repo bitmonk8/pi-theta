@@ -1,9 +1,9 @@
 ---
-id: pending
+id: PTQ-1233
 title: normaliseLiteralValueLineBreaks hand-rolls a 39-line character scanner for a whitespace-run collapse String.prototype.replace expresses directly
 lens: D8
-status: intake
-verdict: pending
+status: open
+verdict: confirmed
 locations:
   - src/diagnostics/diagnostic.ts:163-201
 sites: 1
@@ -72,3 +72,4 @@ Unproven hypothesis: keep the :164 byte-identity guard and replace the body with
 
 ## Triage
 verdict: questionable — accounting verified: excerpt byte-exact at diagnostic.ts:163-201 (39 LOC, one function), facility citation placeholder.ts:293-294 real, no D8 exemption for the host, 9 external src importers / 35 call sites live, placeholder-rendering-b.md §"Parse-time literal-value" pins exactly the four-char class + break-containing-run collapse + U+0020-only trim (behaviour, not implementation; no spec drop); the named facility covers every need — scratch fuzz of the hand scanner vs `text.replace(/[ \t\r\n]*[\r\n][ \t\r\n]*/g, " ").replace(/^ +| +$/g, "")` over 266,430 inputs (exhaustive len ≤ 5 on a 9-char alphabet incl. U+00A0/U+2028, plus 200k random len ≤ 30) gave 0 mismatches, block-scalar trailing break / edge tabs / U+00A0 cases agree; not a duplicate of resolved PTQ-0283 (that was the D4 clone across channels, this is the surviving copy's shape); the simpler shape is a design decision for a human ruling (triage: claude-fable-5-1)
+verdict: confirmed — RATIFIED (human, 2026-09-21): confirmed - D8 wave-1 batch ruling; triage equivalence verification trusted.

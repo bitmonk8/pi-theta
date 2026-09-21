@@ -1,9 +1,9 @@
 ---
-id: pending
+id: PTQ-1220
 title: baseFileName hand-rolls the directory-prefix strip that node:path's win32.basename already provides
 lens: D8
-status: intake
-verdict: pending
+status: open
+verdict: confirmed
 locations:
   - src/extension/execution-status/footer-sink.ts:45-55
 sites: 1
@@ -54,3 +54,4 @@ Unproven hypothesis: `import { win32 } from "node:path"` and let `baseFileName` 
 
 ## Triage
 verdict: questionable — accounting verified: excerpt byte-exact at footer-sink.ts:45-55; `win32.basename` re-verified under Node 24 (floor >=22.19.0) to split on both `/` and `\` and to reproduce the two cited divergences (`C:file.theta` → hand `C:file.theta` / facility `file.theta`; `a/b/` → hand `""` / facility `b`) while matching on every separator-bearing input; sole live caller renderNodeHeader:108; no D8 exemption for the host; no docs/spec_topics clause pins the stem mechanism (`base(file)` appears only in the file header); sibling intake basename candidates are different hosts (production-discovered-theta.ts, callable-set.ts) — the simpler shape (node:path import in the footer sink) is a design decision for a human ruling (triage: claude-fable-5-1)
+verdict: confirmed — RATIFIED (human, 2026-09-21): confirmed - D8 wave-1 batch ruling; triage equivalence verification trusted.

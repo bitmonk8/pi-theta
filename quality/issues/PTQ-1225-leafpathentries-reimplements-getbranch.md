@@ -1,9 +1,9 @@
 ---
-id: pending
+id: PTQ-1225
 title: leafPathEntries hand-rolls the leaf-path walk that ctx.sessionManager.getBranch() already provides at its only production call site
 lens: D8
-status: intake
-verdict: pending
+status: open
+verdict: confirmed
 locations:
   - src/extension/live-prompt-query-driver.ts:1216-1245
   - src/extension/production-theta-producer.ts:2299-2306
@@ -146,3 +146,4 @@ adding to that inventory — a fix-stage detail, not an obstacle.
 
 ## Triage
 verdict: questionable — accounting verified: excerpts match at live-prompt-query-driver.ts:1225-1245 (21 LOC) and production-theta-producer.ts:2305-2306 (sole use; export :1714 has no test importers); `getBranch` is in the `ReadonlySessionManager` Pick (session-manager.d.ts:136/:256), `ctx.sessionManager` is that type (extensions/types.d.ts:218), and getBranch (session-manager.js:881-891) is the identical parentId walk + reverse over the maintained `byId`, with `getLeafId(): string | null` (:234) making the `undefined`/missing-id fallbacks unreachable in production; no D8 exemption for the host, no spec clause requires an independent walk, no existing issue tracks it — but the simpler shape is a design decision: 36 test files / 9 harness sites fake `ctx.sessionManager` as `{ getEntries, getLeafId: () => undefined }` with no `getBranch` (the b0482 witness at :104 leans on the undefined→last-entry fallback), so the fix relocates the walk into test doubles rather than deleting it — needs a human ruling (triage: claude-fable-5-1)
+verdict: confirmed — RATIFIED (human, 2026-09-21): confirmed - D8 wave-1 batch ruling; triage equivalence verification trusted.

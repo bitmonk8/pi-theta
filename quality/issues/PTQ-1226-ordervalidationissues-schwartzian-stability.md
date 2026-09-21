@@ -1,9 +1,9 @@
 ---
-id: pending
+id: PTQ-1226
 title: orderValidationIssues hand-rolls sort stability via a decorate-with-index/tiebreak/undecorate transform that Array.prototype.sort already guarantees
 lens: D8
-status: intake
-verdict: pending
+status: open
+verdict: confirmed
 locations:
   - src/runtime/query-error.ts:197-216
 sites: 1
@@ -103,3 +103,4 @@ byte-identical under the ES2019+ stability guarantee.
 
 ## Triage
 verdict: questionable — accounting verified: excerpt byte-matches src/runtime/query-error.ts:200-216 (decorate `.map`, three compareByCodePoint keys, `a.index - b.index` tiebreak, undecorate `.map`); package.json:44 `"node": ">=22.19.0"` and tsconfig.json:3,6 `ES2022` reproduce, so ES2019 mandated Array.prototype.sort stability holds unconditionally on every reachable runtime and the named facility covers the only need the scaffolding serves (input-order preservation for equal keys — tests/queryerror-variants.test.ts:60-74 would pass unchanged); ERR-14 (queryerror-variants.md:56) pins only "a stable ascending sort keyed on the tuple", satisfied identically by a native stable sort, so no challenges_spec needed; the doc comment and inline comment restate the requirement with no distrust rationale (D2 belt precedent does not apply); no D8 exemption for query-error.ts (exemptions.json rows cover discovery-walk.ts and production-theta-producer.ts only); live callers reproduce (defaulting.ts:109, query-followup-render.ts:119, typed-query-validation.ts:365; ajv-schema-validator.ts:423 is a doc reference); not tracked elsewhere (PTQ-0357 is D4 on compareCodePoint in compact-transcript/schema-lowering, a different root cause; the qw20260920183643 D8 shard-10 note mentions a stable-sort filing but no such intake/issue file exists) — the simpler shape (drop decorate/undecorate and index tiebreak, keep the copy) is a design decision for a human ruling (triage: claude-fable-5-1)
+verdict: confirmed — RATIFIED (human, 2026-09-21): confirmed - D8 wave-1 batch ruling; triage equivalence verification trusted.

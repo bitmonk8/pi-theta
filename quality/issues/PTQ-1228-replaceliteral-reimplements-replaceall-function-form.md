@@ -1,9 +1,9 @@
 ---
-id: pending
+id: PTQ-1228
 title: replaceLiteral hand-rolls the literal all-occurrences scan that String.prototype.replaceAll's function-replacer form already provides
 lens: D8
-status: intake
-verdict: pending
+status: open
+verdict: confirmed
 locations:
   - src/runtime/stdlib-string.ts:118-142
 sites: 1
@@ -72,3 +72,4 @@ Unproven hypothesis: keep the empty-`from` guard and replace the scan with `rece
 
 ## Triage
 verdict: questionable — accounting verified: excerpts byte-match stdlib-string.ts:118-142; sole caller is the `replace` arm at :112 (tests reference the name only in comments/messages); host not in quality/exemptions.json (D8 rows are enumerateDirectory and firstAdmittingArmProperties only); no existing PTQ/intake row covers it; the named facility covers every cited need — `receiver.replaceAll(from, () => to)` behind the retained empty-`from` guard reproduces all five expressions.md:93-97 normative vectors exactly under node 22 (`$&`/`$$`/`$1` inert; unguarded `replaceAll("")` yields `XaXbXcX`, so the guard is load-bearing and the filing keeps it), tsconfig lib ES2022 admits replaceAll; the doc-comment rationale names only the string-replacer form so it does not cover the hand roll; no spec clause requires a hand scan — the simpler shape is a design decision for a human ruling (triage: claude-fable-5-1)
+verdict: confirmed — RATIFIED (human, 2026-09-21): confirmed - D8 wave-1 batch ruling; triage equivalence verification trusted.

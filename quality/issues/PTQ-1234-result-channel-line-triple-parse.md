@@ -1,9 +1,9 @@
 ---
-id: pending
+id: PTQ-1234
 title: Each reserved result-channel line is JSON.parsed two to three times inside the channel layer because classifyInboundFrame discards the envelope/progress verdict it already computed and openResultChannel re-derives it
 lens: D8
-status: intake
-verdict: pending
+status: open
+verdict: confirmed
 locations:
   - src/runtime/subagent-result-frames.ts:93-110
   - src/runtime/subagent-result-channel.ts:210-220
@@ -148,3 +148,4 @@ posture are unchanged.
 
 ## Triage
 verdict: questionable — accounting verified: excerpts byte-match (frames.ts:93-110, channel.ts:210-220, envelope.ts:304-317, frames.ts:22-24); parse multiplicity reproduces — envelope line parsed at frames.ts:94 (via classifyChildStdoutLine) + channel.ts:214 = 2, progress line at frames.ts:94 + frames.ts:100 + channel.ts:214 = 3; classifyInboundFrame has one src consumer (channel.ts:196) and channel.ts:214 is the file's only classifyChildStdoutLine call; envelope line uncapped per PIC-59 and the constant doc (progress lines are 4096-capped child-side per PIC-74, so "uncapped" over-reaches for that arm only); PIC-74 forbids widening classifyChildStdoutLine but the direction widens the channel-internal InboundFrame and forwards bytes verbatim, so no spec behaviour drops; neither file appears in quality/exemptions.json; PTQ-1134 (encoder/decoder parallel, resolved) and PTQ-1206 (D9 breakdown, resolved) name classifyInboundFrame but neither claims the re-parse; the "sole JSON.parse" doc describes a code site not a per-line call count so that contradiction is loose, but the mechanical redundancy stands; whether to widen the InboundFrame arm is a design decision for a human ruling (triage: claude-fable-5-1)
+verdict: confirmed — RATIFIED (human, 2026-09-21): confirmed - D8 wave-1 batch ruling; triage equivalence verification trusted.

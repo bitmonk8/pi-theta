@@ -1,9 +1,9 @@
 ---
-id: pending
+id: PTQ-1232
 title: ajv-schema-validator.ts hand-rolls a hasOwn wrapper over Object.prototype.hasOwnProperty.call where ES2022 Object.hasOwn is the compiled-against library and the codebase's stated idiom
 lens: D8
-status: intake
-verdict: pending
+status: open
+verdict: confirmed
 locations:
   - src/seams/ajv-schema-validator.ts:67-69
   - src/seams/ajv-schema-validator.ts:143
@@ -62,3 +62,4 @@ Unproven hypothesis: the four call sites could call `Object.hasOwn` directly and
 
 ## Triage
 verdict: questionable — accounting verified: `hasOwn` at ajv-schema-validator.ts:67-69 is byte-exact `Object.prototype.hasOwnProperty.call(target, key)`, private, with exactly four in-file callers (actual lines 138/210/245/289, minor drift from the cited 143/212/255/294; all object receivers + string keys, so `Object.hasOwn` is semantically identical); tsconfig target/lib ES2022 confirmed, `Object.hasOwn` used 20× in src/ vs 25 `.call` sites, `node` reports `typeof Object.hasOwn === 'function'`; no D8 exemption for this host (only discovery-walk#enumerateDirectory and production-theta-producer#firstAdmittingArmProperties); bug 0212's `hasOwnProperty` mentions describe AJV's internal `ownProperties` data-side read, not the seam's spelling, and no spec clause pins the `.call` form; not a duplicate of PTQ-0730 (test-side harness copy) — the simpler shape (inline `Object.hasOwn`, delete wrapper, update line-126 comment) is a design decision for a human ruling (triage: claude-fable-5-1)
+verdict: confirmed — RATIFIED (human, 2026-09-21): confirmed - D8 wave-1 batch ruling; triage equivalence verification trusted.

@@ -1,9 +1,9 @@
 ---
-id: pending
+id: PTQ-1230
 title: dedupePreservingFirst hand-rolls the insertion-ordered dedupe that [...new Set(names)] already provides and the codebase already uses
 lens: D8
-status: intake
-verdict: pending
+status: open
+verdict: confirmed
 locations:
   - src/runtime/subagent-argv.ts:385-402
   - src/runtime/subagent-argv.ts:359
@@ -63,3 +63,4 @@ Unproven hypothesis: replace the helper's body with `return [...new Set(names)];
 
 ## Triage
 verdict: questionable — accounting verified: helper 392-402 and sole call site 359 reproduce byte-exact (grep: declaration + one caller, plus a test string and bug-0488 doc mention, no dynamic access); the doc comment 385-391 asks only first-occurrence-wins insertion-ordered dedupe, which ES `Set` construction/iteration guarantees, so `[...new Set(names)]` covers every stated need; house-style cites confirmed (hot-reload.ts:344,348 `[...new Set(`, production-composition.ts:1640 `Array.from(new Set(`); no D8 exemption row for the host in quality/exemptions.json, no docs/spec_topics clause constrains the mechanism, no tracked issue covers it — the simpler shape is a design decision for a human ruling (triage: claude-fable-5-1)
+verdict: confirmed — RATIFIED (human, 2026-09-21): confirmed - D8 wave-1 batch ruling; triage equivalence verification trusted.

@@ -1,9 +1,9 @@
 ---
-id: pending
+id: PTQ-1231
 title: parseThetaDocument strips the frontmatter fences with its own splitFrontmatter scanner, then re-synthesises fake `---` fences at both parseFrontmatter call sites because extractFrontmatterBlock re-requires them
 lens: D8
-status: intake
-verdict: pending
+status: open
+verdict: confirmed
 locations:
   - src/parser/theta-document.ts:1404-1447
   - src/parser/theta-document.ts:222-223
@@ -64,3 +64,4 @@ Call-site census: grep shows the two synthesised-fence calls are parseFrontmatte
 
 ## Triage
 verdict: questionable — accounting verified at HEAD: both scanners are real (splitFrontmatter theta-document.ts:1404-1447 skips leading blank lines and maps an unclosed fence to `frontmatterText: ""`; extractFrontmatterBlock frontmatter-yaml.ts:31-42 requires the fence on line 0 and maps unclosed to `undefined`, doc-comment quote byte-exact at 26-30), `grep -rn "parseFrontmatter(" src/` hits exactly the definition (frontmatter.ts:1030) plus the two synthetic-fence callers (theta-document.ts:222, 288), so in production extractFrontmatterBlock's scan only ever runs over `---\n${split.frontmatterText}\n---` and parseFrontmatter derives `lineOffset` from that synthetic document (frontmatter.ts:1037-1058), which the re-wrap comment at 281-289 itself concedes as the blank-line coordinate shift; splitFrontmatter has one caller (194) and no other references in src/extensions/tools/tests; no D8 row for theta-document or frontmatter in quality/exemptions.json; docs/spec_topics/frontmatter.md (8 lines) pins no fence position or double extraction, and the named direction (feed the extracted block + offset in) drops no FM-4 behaviour, so no challenges_spec needed; dedupe clean — PTQ-1156/PTQ-1146/PTQ-1164/PTQ-1166 (all resolved D9) list splitFrontmatter/extractFrontmatterBlock only as inventory members, none files the strip-then-rewrap against-grain claim; D8 never confirms — whether parseFrontmatter grows a block-accepting entry or splitFrontmatter is folded into it is a design ruling (triage: claude-fable-5-1)
+verdict: confirmed — RATIFIED (human, 2026-09-21): confirmed - D8 wave-1 batch ruling; triage equivalence verification trusted.

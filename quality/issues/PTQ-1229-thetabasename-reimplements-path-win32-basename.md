@@ -1,9 +1,9 @@
 ---
-id: pending
+id: PTQ-1229
 title: thetaBasename hand-rolls the separator-splitting basename + suffix strip that node:path's path.win32.basename already provides, in a module that already imports node:path
 lens: D8
-status: intake
-verdict: pending
+status: open
+verdict: confirmed
 locations:
   - src/extension/production-discovered-theta.ts:42-46
   - src/extension/production-discovered-theta.ts:20-20
@@ -78,3 +78,4 @@ Unproven hypothesis: `path.win32.basename(path, ".theta")` substitutes directly 
 
 ## Triage
 verdict: questionable — accounting verified: excerpts byte-exact at production-discovered-theta.ts:42-46/:20, the 5 src hits (decl, import :226, call sites :1832/:3513/:4139) reproduce with one importer; side-by-side execution of the helper vs path.win32.basename(p, ".theta") over 16 shapes confirms identity on every real input and the disclosed `dir/.theta` divergence, plus undisclosed but out-of-domain ones (trailing-separator paths → "" vs stem, drive-relative `C:foo.theta` → `C:foo` vs `foo`) that cannot reach the call sites because :4092/:3513 feed resolvePath/isAbsolute output already passed through fs.readBytes and :1832 takes a discovery-walked file path; no D8 exemption for the host, no spec clause pins a bespoke derivation (code-registry-load.md's derived-name rule is preserved), no tracked issue names thetaBasename (sibling filings target footer-sink.ts / callable-set.ts); the simpler shape is a design decision for a human ruling (triage: claude-fable-5-1)
+verdict: confirmed — RATIFIED (human, 2026-09-21): confirmed - D8 wave-1 batch ruling; triage equivalence verification trusted.

@@ -1,9 +1,9 @@
 ---
-id: pending
+id: PTQ-1227
 title: parseStructuredPayload wraps a synchronous JSON.parse in a Promise chain to route its throw through a rejection handler instead of the house allow-broad-catch try/catch, making a pure synchronous parse async
 lens: D8
-status: intake
-verdict: pending
+status: open
+verdict: confirmed
 locations:
   - src/runtime/typed-query-validation.ts:45-70
   - src/discovery/package-discovery.ts:552
@@ -150,3 +150,4 @@ follow-up outside this shard.
 
 ## Triage
 verdict: questionable — accounting verified with corrections: every excerpt reproduces byte-exact (typed-query-validation.ts:45-70/:309, live-prompt-query-driver.ts:513, package-discovery.ts:551-556, subagent-result-frames.ts:98-103, eslint rule :52-57), both callers are live production `await`s, the quoted lint intent is real, no D8 exemption covers the host and no spec clause requires the parse to be async; but the sibling census is off — `src/discovery/settings.ts:250-258` is a THIRD `Promise.resolve().then(() => JSON.parse)` route the filing's grep missed, and production-composition.ts:4562 / subagent-child-hash-verify.ts:84 carry no catch at all (they propagate), so it is ~9 sanctioned `try/catch // allow-broad-catch:` sites vs 3 promise-route sites, not 14 vs 2; the root cause stands (a rejection handler discarding every reason is a broad catch in substance, outside the closing-gate token audit) but the doc comment is a stated, recurring design choice whose letter-vs-intent reading, and the sync-signature change, need a human ruling (triage: claude-fable-5-1)
+verdict: confirmed — RATIFIED (human, 2026-09-21): confirmed - SCOPE WIDENED per triage census correction: the fix covers ALL THREE Promise.resolve().then(() => JSON.parse) dodge routes (typed-query-validation.ts, package-discovery.ts:551-556, and the undisclosed sibling src/discovery/settings.ts:250-258), replacing each with the house synchronous try/catch pattern sanctioned by the eslint rule's allowance.

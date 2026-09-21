@@ -1,9 +1,9 @@
 ---
-id: pending
+id: PTQ-1221
 title: entryBasename and thetaDefaultName in callable-set.ts hand-roll the final-segment strip node:path's posix.basename already provides and the sibling imports.ts already uses
 lens: D8
-status: intake
-verdict: pending
+status: open
+verdict: confirmed
 locations:
   - src/parser/callable-set.ts:549-551
   - src/parser/callable-set.ts:563-567
@@ -59,3 +59,4 @@ Unproven hypothesis: import `posix` from `node:path` and express both helpers th
 
 ## Triage
 verdict: questionable — accounting verified: both excerpts byte-exact at callable-set.ts:549-551/563-567; `grep lastIndexOf("/") src/parser/*.ts` reproduces 3 hits (two cited + theta-document.ts:1874); callable-set.ts imports nothing from `node:*` while imports.ts:15/226-228 uses `posix.basename` for the same forward-slash literal class; spec frontmatter-fields-a.md:85 pins only "basename without `.theta`, hyphens to underscores", which `posix.basename(p, ".theta")` satisfies; host not in exemptions.json (D8 rows cover discovery-walk#enumerateDirectory and production-theta-producer#firstAdmittingArmProperties only); no open issue tracks this host (sibling wave filings target production-discovered-theta.ts / footer-sink.ts / launchfile — distinct hosts). One overstatement noted for the fixer: the "no extension-less input reaches either helper" claim holds for `resolveEntry` (checkInvokeExtension gates first) but not for `thetaDefaultName`'s producer fallback caller (production-theta-producer.ts:5884 feeds any non-bare `parseToolsEntry` spec, harness-only arm), so the trailing-slash divergence (`posix.basename("a/")`→"a" vs slice→"") is reachable on a degenerate fixture entry — the filing already delegates that guard; the simpler shape is a design decision for a human ruling (triage: claude-fable-5-1)
+verdict: confirmed — RATIFIED (human, 2026-09-21): confirmed - D8 wave-1 batch ruling; triage equivalence verification trusted.

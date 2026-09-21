@@ -1,9 +1,9 @@
 ---
-id: pending
+id: PTQ-1222
 title: theta-document's decodeSource re-hand-rolls decodeUtf8 + normaliseNewlines that src/lexer/encoding.ts already exports
 lens: D8
-status: intake
-verdict: pending
+status: open
+verdict: confirmed
 locations:
   - src/parser/theta-document.ts:1381-1391
   - src/lexer/encoding.ts:104-120
@@ -70,3 +70,4 @@ Reference search: `decodeSource` has exactly one caller (theta-document.ts:186) 
 
 ## Triage
 verdict: questionable — accounting verified at HEAD: decodeSource excerpt byte-exact at theta-document.ts:1381-1391 (header comment 1380), decodeUtf8/normaliseNewlines byte-exact at encoding.ts:104-120, re-exported at lexer.ts:23 and composed identically at lexer.ts:112; the facility covers every cited need (same BOM test, same non-fatal `TextDecoder("utf-8", { ignoreBOM: true })` the 169-175 comment relies on, same `\r\n?` regex — no load-bearing difference); grep across src/extensions/tools/tests shows decodeSource's sole caller is theta-document.ts:186 (the tests/b0410 hit is prose), theta-document already imports from both ../lexer/lexer and ../lexer/encoding; no D8 exemption for the host in quality/exemptions.json or `exemptions --lens D8`; spec check clean — lexical.md §Encoding/§Newline normalisation pin behaviour, and the named shape preserves it; dedupe clean — PTQ-1113 (resolved) covered only the UTF-8 gate, PTQ-1156/PTQ-1166 (resolved D9) name decodeSource only as an inventory row; D8 never confirms — the consolidation is a design decision for a human ruling (triage: claude-fable-5-1)
+verdict: confirmed — RATIFIED (human, 2026-09-21): confirmed - D8 wave-1 batch ruling; triage equivalence verification trusted.

@@ -1,9 +1,9 @@
 ---
-id: pending
+id: PTQ-1223
 title: wire-form-outbound.ts redeclares encodePointerSegment identically to the export of schema-lowering.ts, a module it already imports
 lens: D8
-status: intake
-verdict: pending
+status: open
+verdict: confirmed
 locations:
   - src/runtime/wire-form-outbound.ts:12-14
   - src/parser/schema-lowering.ts:665-668
@@ -73,3 +73,4 @@ Unproven hypothesis: `wire-form-outbound.ts` could import `encodePointerSegment`
 
 ## Triage
 verdict: questionable — accounting verified: all three excerpts byte-exact at the cited lines (schema-lowering.ts:665-668 exported, wire-form-outbound.ts:11-14 exported, wire-form-depth-walk.ts:45-47 private); grep reproduces 6 declaration sites and every listed call site (schema-lowering 628; system-param-types 135/231/295; import-system-template-patch 384; wire-form-outbound 111; wire-translation 395 via the wire-form-outbound import at line 90); the canonical export covers every need (identical two-replace body, all callers pass a string segment into a pointer template); a runtime→parser VALUE import already exists (inbound-boundary.ts:22 imports buildInboundTranslationPlan from schema-lowering), so the direction concern is moot; no D8 exemption for either host; no spec clause fixes the number of definition sites; not a duplicate — PTQ-1171 (resolved) created wire-form-outbound.ts and its "re-exported or duplicated" note concerned wire-translation's copy, not schema-lowering's, and the escapePointerToken private clones (depth-walk/enum-tag-carriage/subagent-wire-form/wire-form-depth-walk) were routed to D4 (REVIEW_LOG:552) but have no filed issue; which module is the single home is a design decision for a human ruling (triage: claude-fable-5-1)
+verdict: confirmed — RATIFIED (human, 2026-09-21): confirmed - D8 wave-1 batch ruling; triage equivalence verification trusted.
