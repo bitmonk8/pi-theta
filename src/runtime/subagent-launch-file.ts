@@ -24,6 +24,8 @@
 // Under `pipe` no launch file exists: a fn entry rides the env
 // (`SUBAGENT_LAUNCH_ENTRY_ENV`) and everything else stays as it was.
 
+import { win32 as pathWin32 } from "node:path";
+
 import {
   SUBAGENT_CONTROL_PLANE_ENV_KEYS,
   SUBAGENT_LAUNCH_ENTRY_ENV,
@@ -130,16 +132,10 @@ export function deleteLaunchFile(path: string, fs: LaunchFileFs): void {
     void unlinkError;
   }
   try {
-    fs.rmdir(dirnameOf(path));
+    fs.rmdir(pathWin32.dirname(path));
   } catch (rmdirError: unknown) { // allow-broad-catch: RFC-0012 launch-file backstop delete — pi-integration-contract/subagent.md
     void rmdirError;
   }
-}
-
-/** The directory half of a `<dir>/launch.json` path (both separator spellings). */
-function dirnameOf(path: string): string {
-  const idx = Math.max(path.lastIndexOf("/"), path.lastIndexOf("\\"));
-  return idx < 0 ? path : path.slice(0, idx);
 }
 
 /**
