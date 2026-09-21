@@ -27,36 +27,15 @@ import { assertStdlibMemberArguments, type StdlibMemberSignature } from "./stdli
 import type { ThetaValue } from "./value";
 
 /**
- * The `string` standard-library member surface (expressions.md §"Built-in
- * methods and properties"): the allow-list the `type`-phase
- * `theta/parse/unknown-method` check consumes. Kept in lockstep with the
- * `evaluateStringMember` dispatcher below — every name the dispatcher accepts
- * appears here, and no other.
- */
-export const STRING_MEMBERS: ReadonlySet<string> = new Set([
-  "length",
-  "toLowerCase",
-  "toUpperCase",
-  "trim",
-  "startsWith",
-  "endsWith",
-  "includes",
-  "split",
-  "replace",
-]);
-
-/**
  * Bug 0315 — the `string` member arity/argument-type table (expressions.md
  * §"Built-in methods and properties", the `string` Signature column):
  * `checkMethodCall`
  * (`../parser/type-layer-checks.ts`) reads it for the `stdlib-arity-mismatch` /
  * `stdlib-arg-type-mismatch` parse checks, and `evaluateStringMember` below
- * reads it for the runtime belt. Every key here is also a `STRING_MEMBERS`
- * name, and vice versa — the two are hand-written and independent (the
- * allow-list predates this table) rather than one derived from the other, so
- * a future member addition that updates only one of them is a silent drift a
- * reviewer must catch by inspection, the same discipline the sibling
- * `ARRAY_MEMBERS` / `OBJECT_MEMBERS` pairs below apply.
+ * reads it for the runtime belt. `STRING_MEMBERS` below is derived from this
+ * table's keys, so the two can never drift. Kept in lockstep with the
+ * `evaluateStringMember` dispatcher below — every name the dispatcher accepts
+ * appears here, and no other.
  */
 export const STRING_MEMBER_SIGNATURES: ReadonlyMap<string, StdlibMemberSignature> = new Map([
   ["length", { min: 0, max: 0, params: [] }],
@@ -69,6 +48,14 @@ export const STRING_MEMBER_SIGNATURES: ReadonlyMap<string, StdlibMemberSignature
   ["split", { min: 1, max: 1, params: ["string"] }],
   ["replace", { min: 2, max: 2, params: ["string", "string"] }],
 ]);
+
+/**
+ * The `string` standard-library member surface (expressions.md §"Built-in
+ * methods and properties"): the allow-list the `type`-phase
+ * `theta/parse/unknown-method` check consumes. Derived from
+ * `STRING_MEMBER_SIGNATURES` above so the two rosters can never drift.
+ */
+export const STRING_MEMBERS: ReadonlySet<string> = new Set(STRING_MEMBER_SIGNATURES.keys());
 
 /**
  * Evaluate a `string` standard-library member on `receiver`: the `length`
