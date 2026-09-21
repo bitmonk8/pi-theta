@@ -16,7 +16,7 @@
 // `readThetaFlagPaths` parses).
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { delimiter as PATH_DELIMITER } from "node:path";
+import { delimiter as PATH_DELIMITER, win32 as pathWin32 } from "node:path";
 import type { Diagnostic } from "../diagnostics/diagnostic";
 import type { DiscoveredTheta, PiOwnedCommand } from "../discovery/discovery-walk";
 import type { FileSystem } from "../seams/file-system";
@@ -41,8 +41,7 @@ export function hasLoadParseError(diagnostics: readonly Diagnostic[]): boolean {
 
 /** The `.theta` basename (minus extension) of a path, for the callee slash name. */
 export function thetaBasename(path: string): string {
-  const base = path.slice(path.replace(/\\/g, "/").lastIndexOf("/") + 1);
-  return base.endsWith(".theta") ? base.slice(0, -".theta".length) : base;
+  return pathWin32.basename(path, ".theta");
 }
 
 /**
