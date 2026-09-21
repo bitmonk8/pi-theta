@@ -1,7 +1,8 @@
 // V19c / V19c-T — the theta tree-walking statement executor.
 //
-// This module owns the runtime seam the paired `V19c` implementation leaf fills
-// in: `executeBody(body, deps)` walks `V19a`'s parsed `ThetaBody` statement AST
+// This module drives statements and expressions, delegating par-for, defects,
+// and subagent calls to sibling modules. `executeBody(body, deps)` walks
+// `V19a`'s parsed `ThetaBody` statement AST
 // top-to-bottom against `V19b`'s lexical environment — `let`/reassign,
 // `if`/`while`/`for` (driving the real `ForLoopHost` / `evaluateForLoop` from
 // `V3c`), `break`/`continue`, `return`, and expression-statements — segmenting
@@ -30,6 +31,23 @@
 // (CTRL-1), functions.md (FN-4/FN-5), return.md (RET-1/RET-2/RET-3),
 // errors-and-results/error-model.md (§Terminal outcomes, ERR-8 … ERR-12).
 
+import {
+  CompoundNonNumericError,
+  BinaryNonNumericError,
+  UnaryNonNumericError,
+  BinaryMixedOperandError,
+  ForIterandKindDefectError,
+  BooleanPositionKindDefectError,
+  IndexKindDefectError,
+  RejectedWriteDefectError,
+  UnknownVariantDefectError,
+} from "./executor-defects";
+export * from "./executor-defects";
+import { evalParFor } from "./par-for-executor";
+export { evalParFor } from "./par-for-executor";
+import { evalSubagentFnCall } from "./subagent-fn-call";
+export { evalSubagentFnCall } from "./subagent-fn-call";
+
 import type {
   BinaryExpr,
   Block,
@@ -38,7 +56,6 @@ import type {
   FnDecl,
   ForStmt,
   IfStmt,
-  ParForExpr,
   ThetaBody,
   MatchExpr,
   PatternNode,
@@ -50,15 +67,13 @@ import type {
 import type { Checkpoint, CheckpointKind, CheckpointSite } from "../seams/checkpoint";
 import type { ParForLaneHooks } from "../extension/execution-status/types";
 import type { Diagnostic } from "../diagnostics/diagnostic";
-import { assembleDiagnostics } from "../diagnostics/diagnostic";
 import type { CancellableStatement, OperationResult } from "./cancellation-core";
-import { makeCancelledError, runCancellableSequence } from "./cancellation-core";
-import { HostFatal, isThetaPanic, attachPanicSite, pushPanicFrame } from "./runtime-panics";
+import { runCancellableSequence } from "./cancellation-core";
+import { isThetaPanic, attachPanicSite, pushPanicFrame } from "./runtime-panics";
 import type { InvokeChain } from "./invoke-depth-cycle";
 import { pushCountableFrame, thetalibFnFrameKind } from "./invoke-depth-cycle";
 import type { InvokeResultSource } from "./invoke-cancellation";
 import type { FnTail } from "./subagent-envelope";
-import type { InvokeCalleeError, InvokeInfraError, QueryError } from "./query-error";
 import type { RuntimeEvent } from "./runtime-event-channel";
 import { evaluateForLoop, type ForLoopHost } from "./control-flow";
 import { PiToolArgShapeDefectError, ShadowedCalleeDispatchDefectError } from "./tool-call";
@@ -98,7 +113,7 @@ import {
  * error-model.md §Runtime panics), else the theta's on-disk path, else the
  * slash-name stamp for in-memory fixtures.
  */
-function panicSiteFile(env: LexicalEnvironment, deps: ExecuteBodyDeps): string {
+export function panicSiteFile(env: LexicalEnvironment, deps: ExecuteBodyDeps): string {
   return env.currentResidence() ?? deps.sourcePath ?? deps.file;
 }
 
@@ -346,7 +361,7 @@ export interface BodyExecution {
  *   - `cancel`   — a mid-body cancellation surfaced at a checkpoint — the cancel
  *     terminal outcome; no final value flows (FN-5).
  */
-type Flow =
+export type Flow =
   | { readonly kind: "normal"; readonly value: ThetaValue }
   | { readonly kind: "return"; readonly value: ThetaValue }
   | { readonly kind: "break" }
@@ -365,7 +380,7 @@ type Flow =
  * `evalExpr` call site already forwards a non-`"value"` result unchanged)
  * until it reaches a site that converts back to `Flow` via `terminalFlow`.
  */
-type EvalResult =
+export type EvalResult =
   | { readonly flow: "value"; readonly value: ThetaValue }
   | { readonly flow: "fail"; readonly error: ThetaValue; readonly event?: RuntimeEvent }
   | { readonly flow: "propagate"; readonly err: ThetaValue }
@@ -635,230 +650,6 @@ async function evalUserFnCall(
 }
 
 /**
- * Build the caller-visible `InvokeCalleeError` for a `subagent fn` callee that
- * returned / `?`-propagated its own `Err` (RFC 0001 FN-6; invocation.md
- * §Failures). The subagent boundary crosses exactly as an `invoke` of a
- * subagent-mode callee: the callee's raw `QueryError` rides as `inner` under a
- * single `invoke_callee` wrapper. The inline callee is named by the FUNCTION,
- * not a `.theta` path.
- */
-function subagentCalleeError(inner: ThetaValue, fnName: string): InvokeCalleeError {
-  return {
-    kind: "invoke_callee",
-    message: `subagent fn ${fnName} callee returned Err`,
-    callee_path: fnName,
-    inner: inner as unknown as QueryError,
-  };
-}
-
-/**
- * Build the caller-visible `InvokeInfraError` for a panic inside a `subagent fn`
- * body (RFC 0001 FN-6; invocation.md §Failures / ERR-20 boundary). A genuine
- * `ThetaPanic` (one of the closed panic sources) downgrades with `cause:"panic"`;
- * any other unexpected interpreter throw is a runtime defect with
- * `cause:"internal_error"`. An uncatchable `HostFatal` never reaches this builder
- * — it is rethrown at the boundary.
- */
-function subagentInfraError(thrown: unknown, fnName: string): InvokeInfraError {
-  const message = thrown instanceof Error ? thrown.message : String(thrown);
-  return {
-    kind: "invoke_infra",
-    message,
-    callee_path: fnName,
-    cause: isThetaPanic(thrown) ? "panic" : "internal_error",
-  };
-}
-
-/**
- * Execute a `subagent fn` call `<name>(args)` across a fresh isolated subagent
- * boundary (RFC 0001 FN-6…FN-9). Unlike a plain `fn` (which runs inline in the
- * caller's conversation, `evalUserFnCall`), each call:
- *   - evaluates its positional arguments in the caller's scope and binds them
- *     BY VALUE into a fresh isolated scope that shares the file's top-level
- *     declarations but captures none of the caller's locals (no closure);
- *   - enters a fresh isolated subagent session for the body via the host
- *     (`spawnSubagentSession`, config inherit-then-`with`-override per FN-7), so
- *     the body's `@` queries target the spawned session and the caller's
- *     conversation stays unpolluted, restoring it on return (`exitSubagentSession`);
- *   - maps the body outcome across the boundary exactly as an `invoke` of a
- *     subagent-mode callee: success → the final value; a callee Err →
- *     `Err(InvokeCalleeError)`; a body panic → `Err(InvokeInfraError{cause})`
- *     without crashing the caller (a `HostFatal` is rethrown, NOCEIL-3).
- */
-async function evalSubagentFnCall(
-  fn: FnDecl,
-  expr: CallExpr,
-  env: LexicalEnvironment,
-  deps: ExecuteBodyDeps,
-  moduleEnv?: LexicalEnvironment,
-): Promise<EvalResult> {
-  if (expr.args.length !== fn.params.length) {
-    throw new ThetaFnArityError(fn.name, fn.params.length, expr.args.length);
-  }
-  // Isolate against the DECLARING module's environment for an imported
-  // `subagent fn` (bug 0303, fix design point 10) so the body's free names
-  // resolve against the lib that declared it; a same-file `subagent fn` passes
-  // no `moduleEnv` and isolates against the caller's root unchanged.
-  const scope = (moduleEnv ?? env).spawnIsolatedScope();
-  const argValues: ThetaValue[] = [];
-  for (let i = 0; i < fn.params.length; i += 1) {
-    const arg = await evalExpr(expr.args[i] as Expr, env, deps);
-    if (arg.flow !== "value") {
-      return arg;
-    }
-    argValues.push(arg.value);
-    scope.defineLocal((fn.params[i] as FnDecl["params"][number]).name, arg.value, false);
-  }
-
-  // RFC 0012 §10 — production: the body runs in a spawned child process; this
-  // process never executes it. The host pushes the countable `subagent-fn`
-  // frame (INV-4) and marshals the depth to the child; a ceiling breach on that
-  // push throws out of the hook and is downgraded here, at the same boundary,
-  // to the caller's `Err(InvokeInfraError{cause:"panic"})`.
-  if (deps.host.runSubagentFnChild !== undefined) {
-    let outcome: SubagentFnChildOutcome;
-    try {
-      outcome = await deps.host.runSubagentFnChild(
-        {
-          fn,
-          args: argValues,
-          call: expr,
-          env,
-          site: { file: panicSiteFile(env, deps), line: expr.range.start.line, column: expr.range.start.column },
-        },
-        deps.invokeChain,
-      );
-    } catch (thrown) { // allow-broad-catch: FN-6 subagent boundary — invocation.md §Failures
-      if (thrown instanceof HostFatal) {
-        throw thrown;
-      }
-      return {
-        flow: "value",
-        value: makeErr(subagentInfraError(thrown, fn.name) as unknown as ThetaValue),
-      };
-    }
-    return mapSubagentFnChildOutcome(outcome, fn.name, deps.signal);
-  }
-
-  // Enter the fresh isolated session and run the body inside the SAME try, so a
-  // depth-ceiling breach on the spawn (the production seam pushes the countable
-  // `subagent-fn` frame here, INV-4 / FN-6) is downgraded at the boundary to the
-  // caller's `Err(InvokeInfraError{cause:"panic"})` — the runtime backstop, the
-  // same nested surfacing an `invoke` overflow takes — rather than crashing the
-  // caller. `entered` guards `exitSubagentSession` so a spawn that threw before
-  // pushing a session is not popped.
-  let entered = false;
-  let flow: Flow;
-  try {
-    await deps.host.spawnSubagentSession?.(fn.sessionConfig ?? {}, deps.invokeChain);
-    entered = true;
-    // INV-4 / FN-6: the `subagent-fn` frame is a countable frame on the active
-    // chain, so the executor advances its OWN live chain by that frame before
-    // running the body. This parallels the producer's spawned-session
-    // `childChain` (which pushes the same frame on the bind lane) at the SAME
-    // depth, so a query / invoke / nested `subagent fn` reached from inside the
-    // body threads its override at the active depth and the spawned session's
-    // `overrideChain ?? childChain` reads the override — counting the
-    // subagent-fn frame exactly once (the producer's `childChain` is then only
-    // the fallback / cap-breach / nested-spawn seed). Kept inside the boundary
-    // `try` so a cap breach on this push still downgrades to
-    // `Err(InvokeInfraError{cause:"panic"})`.
-    const bodyDeps: ExecuteBodyDeps =
-      deps.invokeChain !== undefined
-        ? { ...deps, invokeChain: pushCountableFrame(deps.invokeChain, "subagent-fn") }
-        : deps;
-    flow = await executeBlock(fn.body, scope, bodyDeps);
-  } catch (thrown) { // allow-broad-catch: FN-6 subagent boundary — invocation.md §Failures
-    // An uncatchable host fatal (NOCEIL-3) must terminate the process and is
-    // rethrown unwrapped — never downgraded to an Err at the subagent boundary.
-    if (thrown instanceof HostFatal) {
-      throw thrown;
-    }
-    // A panic (incl. a depth-ceiling breach) inside the spawned session is
-    // downgraded to the caller's Err(InvokeInfraError) so it never crashes the
-    // caller (FN-6).
-    if (entered) {
-      await deps.host.exitSubagentSession?.();
-    }
-    return {
-      flow: "value",
-      value: makeErr(subagentInfraError(thrown, fn.name) as unknown as ThetaValue),
-    };
-  }
-  await deps.host.exitSubagentSession?.();
-
-  switch (flow.kind) {
-    case "return":
-    case "normal":
-      // Success — the callee's final value (FN-5) crosses the boundary.
-      return { flow: "value", value: flow.value };
-    case "break":
-    case "continue":
-      // Barred inside a `fn` body; defensively a `null` final value.
-      return { flow: "value", value: null };
-    case "propagate":
-    case "fail": {
-      // A callee-returned / `?`-propagated Err crosses wrapped as
-      // InvokeCalleeError{inner:<raw Err>}, exactly like an invoked subagent
-      // callee (invocation.md §Failures).
-      const raw = flow.kind === "propagate" ? flow.err : flow.error;
-      return {
-        flow: "value",
-        value: makeErr(subagentCalleeError(raw, fn.name) as unknown as ThetaValue),
-      };
-    }
-    case "cancel":
-      return { flow: "cancel" };
-  }
-}
-
-/**
- * RFC 0012 §10 — project the child's envelope outcome onto the value the
- * in-process drive returned for the same body, so a `subagent fn` call's
- * observable is unchanged by where the body ran (FN-6; GOV-15):
- *
- *   - a bare tail `x` → `x`; an `Ok(x)` tail (`fn_tail: "ok"`) → `Ok(x)`; an
- *     `Err(e)` tail (`fn_tail: "err"`) → the bare `Err(e)` — exactly the three
- *     values `executeBlock`'s `normal` / `return` flow yielded;
- *   - a `?`-propagated / effect-failure `Err` the body itself surfaced
- *     (`callee-returned`, no tail marker) → `Err(InvokeCalleeError{inner})`, the
- *     `propagate` / `fail` arm's wrap;
- *   - a boundary-minted `Err` (the child's internal-error / validation /
- *     return-validation arms, a spawn or envelope failure) → bare, as the
- *     in-process panic arm was (`invoke_infra`, never wrapped);
- *   - a cancellation the CALLER's own signal explains → the `cancel` flow (the
- *     in-process `cancel` arm); a child-internal cancel wraps like any other
- *     callee-returned failure (bug 0295's two-arm rule).
- */
-function mapSubagentFnChildOutcome(
-  outcome: SubagentFnChildOutcome,
-  fnName: string,
-  signal: AbortSignal,
-): EvalResult {
-  if (outcome.kind === "cancelled") {
-    return { flow: "cancel" };
-  }
-  const { result } = outcome;
-  if (result.ok) {
-    return { flow: "value", value: outcome.fnTail === "ok" ? result : result.value };
-  }
-  if (outcome.fnTail === "err") {
-    return { flow: "value", value: result };
-  }
-  const innerKind = (result.error as { readonly kind?: unknown } | null)?.kind;
-  if (innerKind === "cancelled" && signal.aborted) {
-    return { flow: "cancel" };
-  }
-  if (outcome.source === "boundary-minted") {
-    return { flow: "value", value: result };
-  }
-  return {
-    flow: "value",
-    value: makeErr(subagentCalleeError(result.error, fnName) as unknown as ThetaValue),
-  };
-}
-
-/**
  * A boolean-position value (an `if`/`while`/ternary condition, or an operand
  * of `&&`/`||`/`!`) must be a boolean (expressions.md §Truthiness); the static
  * layer defers judgment on a statically-unresolvable value, so this is the
@@ -872,258 +663,6 @@ function requireBoolean(value: ThetaValue): boolean {
     throw new BooleanPositionKindDefectError(value);
   }
   return value;
-}
-
-/**
- * Bug 0314 (docs/bugs/0314-compound-assign-non-numeric-silent-zero.md)
- * belt-and-braces: a compound operator is defined by desugaring,
- * `x <op>= e ≡ x = x <op> e` (bindings.md §Reassignment), and the parse-time
- * type-layer routes `+=`'s implied `x + e` pair through the shared
- * `+`-operand classifier (`theta/parse/mixed-plus-operands`), which fires
- * only when both operands are statically resolvable; an unresolvable pair
- * defers exactly as the spelled binary `x = x + e` does and takes the same
- * runtime `+` arm. So a `+=` reaching here carries two strings, two
- * numbers, or an unresolvable pair that the shared `+` arm computes
- * identically to the spelled binary.
- * `-=`/`*=`/`/=`/`%=` have no parse-time operand gate: bug 0332 added one only
- * for the SPELLED `-`/`*`/`/`/`%` binaries in expression position
- * (`theta/parse/non-numeric-arithmetic-operands`, `type-layer-checks.ts`'s
- * `checkArithmeticOperands`), and its §Non-goals leaves the compound forms on
- * this runtime belt as their 0314 disposition — so a non-number operand can
- * still reach them; fabricating a `0` there silently overwrites the binding
- * with a value of a different type (the original defect), so this throws a
- * loud, specific defect instead — never a catch-all, never a fabricated number.
- */
-export class CompoundNonNumericError extends Error {
-  public constructor(op: "-=" | "*=" | "/=" | "%=", current: ThetaValue, delta: ThetaValue) {
-    super(
-      `internal defect: compound operator '${op}' requires two numbers, got ${typeof current} and ${typeof delta}; a non-number operand reached a numeric compound after the reassign type gate (bug 0314)`,
-    );
-    this.name = "CompoundNonNumericError";
-  }
-}
-
-/**
- * Bug 0332 (docs/bugs/0332-spelled-arithmetic-non-numeric-operands-no-parse-gate.md)
- * belt: the sibling of `CompoundNonNumericError` for the SPELLED `-`/`*`/`/`/`%`
- * binaries. The parse-time gate (`type-layer-checks.ts`'s
- * `checkArithmeticOperands`) refuses every statically-resolvable non-numeric
- * pair; a pair it deferred on (an unresolvable operand) can still reach
- * `applyBinaryScalar`, and casting it to `number` there would silently
- * JS-coerce (the original defect: `"a" - "b"` → `NaN`, `[1] - [2]` → `-1`).
- * A plain `Error`, NOT a `ThetaPanic` — it propagates uncaught out of
- * `executeBody` and is reframed one layer up through `surfaceUnexpectedThrow`
- * to `INTERNAL_ERROR_CODE`, exactly as `CompoundNonNumericError` is.
- */
-export class BinaryNonNumericError extends Error {
-  public constructor(op: "-" | "*" | "/" | "%", left: ThetaValue, right: ThetaValue) {
-    super(
-      `internal defect: arithmetic operator '${op}' requires two numbers, got ${typeof left} and ${typeof right}; a non-number operand reached a numeric binary after the spelled-binary type gate (bug 0332)`,
-    );
-    this.name = "BinaryNonNumericError";
-  }
-}
-
-/**
- * Bug 0392 (docs/bugs/0392-unary-minus-no-operand-discipline.md) belt: the
- * sibling of `BinaryNonNumericError` for unary `-`'s single operand. The
- * parse-time gate (`type-layer-checks.ts`'s `checkUnaryArithmeticOperand`)
- * refuses a statically-resolvable non-numeric operand; an operand it DEFERRED
- * on (an unannotated fn param, WITHHELD) can still reach `evalBinary`'s unary
- * arm, and casting it to `number` there would silently JS-coerce (the
- * original defect: `-"5"` → `-5`, `-true` → `-1`, `-null` → `-0`). The
- * direct spelling is now gated at parse, so this belt fires only on a
- * laundered operand that was never judged — the message carries no false
- * "deferred" clause. A plain `Error`, NOT a `ThetaPanic` — it propagates
- * uncaught out of `executeBody` and is reframed one layer up through
- * `surfaceUnexpectedThrow` to `INTERNAL_ERROR_CODE`, exactly as
- * `BinaryNonNumericError` is.
- */
-export class UnaryNonNumericError extends Error {
-  public constructor(value: ThetaValue) {
-    super(
-      `internal defect: unary operator '-' requires a number, got ${typeof value}; a non-number operand reached the unary negation without a parse refusal (bug 0392)`,
-    );
-    this.name = "UnaryNonNumericError";
-  }
-}
-
-/**
- * Bug 0368 (docs/bugs/0368-plus-and-ordering-laundered-operands-silent-js-coercion.md)
- * belt: the sibling of `BinaryNonNumericError` for `+` and the four ordering
- * operators. Their parse-time gates (`type-layer-checks.ts`'s
- * `checkPlusOperands` / `checkOrderingOperands`) refuse every
- * statically-resolvable mixed or non-orderable pair; a pair either gate
- * DEFERRED on (an unannotated fn param, WITHHELD) can still reach this belt,
- * and applying `+` or a relational operator to it would silently JS-coerce
- * (the original defect: `"x" + 1` → `"x1"`, `true < 2` → `true`). A plain
- * `Error`, NOT a `ThetaPanic` — it propagates uncaught out of `executeBody`
- * and is reframed one layer up through `surfaceUnexpectedThrow` to
- * `INTERNAL_ERROR_CODE`, exactly as `BinaryNonNumericError` is.
- */
-export class BinaryMixedOperandError extends Error {
-  public constructor(op: "+" | "<" | "<=" | ">" | ">=", left: ThetaValue, right: ThetaValue) {
-    super(
-      `internal defect: operator '${op}' requires two numbers or two strings, got ${typeof left} and ${typeof right}; a mixed or non-orderable operand pairing reached the runtime after the plus/ordering type gate deferred (bug 0368)`,
-    );
-    this.name = "BinaryMixedOperandError";
-  }
-}
-
-/**
- * Bug 0369 (docs/bugs/0369-control-flow-runtime-kind-fallbacks-silent.md)
- * belt: the sibling of `BinaryMixedOperandError` for the `for`/`par for`
- * iterand. The static layer's iterand check (control-flow.md CTRL-1) refuses
- * every statically-resolvable non-array iterand at parse; a value it DEFERRED
- * on (an unannotated fn param, WITHHELD) can still reach a loop entry, and
- * substituting the empty array there would silently run the body zero times
- * (the original defect: `for i in "abc"` completing with no iterations and no
- * diagnostic). A plain `Error`, NOT a `ThetaPanic` — it propagates uncaught
- * out of `executeBody` and is reframed one layer up through
- * `surfaceUnexpectedThrow` to `INTERNAL_ERROR_CODE`, exactly as
- * `BinaryMixedOperandError` is.
- */
-export class ForIterandKindDefectError extends Error {
-  public constructor(value: ThetaValue) {
-    super(
-      `internal defect: 'for'/'par for' requires an array<T> iterand, got ${typeof value}; a non-array value reached the loop entry after the iterand type gate deferred (bug 0369)`,
-    );
-    this.name = "ForIterandKindDefectError";
-  }
-}
-
-/**
- * Bug 0369 belt: the sibling of `BinaryMixedOperandError` for every
- * boolean-position consumer — an `if`/`while`/ternary condition, and an
- * operand of `&&`/`||`/`!`. The static layer's boolean-position check
- * (expressions.md §Truthiness) refuses every statically-resolvable
- * non-boolean at parse; a value can still reach one of these sites without a
- * parse refusal — either because the parse layer DEFERRED on it (an
- * unannotated fn param, statically unresolvable), or, for `!` in
- * interpolation position, because `checkInterpolationOperands` never judges
- * boolean position at all (bug 0395) — and the prior fallbacks (a strict
- * `=== true` comparison for the conditions/`&&`/`||`, raw JS `!` for the
- * negation) would silently fabricate a boolean verdict instead of
- * interpreting the actual value (the original defect: `if 1` steering false,
- * `!0` fabricating `true`). A plain `Error`, NOT a `ThetaPanic` — it
- * propagates uncaught out of `executeBody` and is reframed one layer up
- * through `surfaceUnexpectedThrow` to `INTERNAL_ERROR_CODE`, exactly as
- * `BinaryMixedOperandError` is.
- */
-export class BooleanPositionKindDefectError extends Error {
-  public constructor(value: ThetaValue) {
-    super(
-      `internal defect: a boolean-position operand (condition, '&&', '||', or '!') requires a boolean, got ${typeof value}; a non-boolean value reached the runtime without a parse refusal (bug 0369)`,
-    );
-    this.name = "BooleanPositionKindDefectError";
-  }
-}
-
-/**
- * Bug 0325 (docs/bugs/0325-nan-max-zero-workers-fabricated-ok-null-array.md)
- * belt: the CTRL-3 join's per-index write is the sibling of `BinaryNonNumericError`
- * for the `par for` worker pool. Index claiming is synchronous and the pool
- * drains to `n` (`evalParFor`), so on every healthy path `results[index]` is
- * always written before the join reads it — the `?? makeOk(null)` filler the
- * join used to fall back to was dead code on every healthy path, reachable
- * only when the scheduling invariant was already broken (e.g. a non-finite
- * width evading the ≥1 floor). Fabricating `Ok(null)` there converted a
- * broken invariant into a shape-perfect fake success instead of surfacing it,
- * so this throws a loud, specific defect naming the unwritten index. A plain
- * `Error`, NOT a `ThetaPanic` — it propagates uncaught out of `executeBody`
- * and is reframed one layer up through `surfaceUnexpectedThrow` to
- * `INTERNAL_ERROR_CODE`, exactly as `BinaryNonNumericError` is.
- */
-export class ParForUnwrittenSlotError extends Error {
-  public constructor(index: number) {
-    super(
-      `internal defect: par for join found an unwritten result slot at index ${index}; every claimed index must be written by its worker before the CTRL-3 join (bug 0325)`,
-    );
-    this.name = "ParForUnwrittenSlotError";
-  }
-}
-
-/**
- * Bug 0365 (docs/bugs/0365-array-index-nonintegral-silent-undefined.md)
- * belt: the sibling of the b0332/b0338/b0368/b0369 belts for an index
- * expression's key. The static layer's object-index check (expressions.md
- * §Indexing) refuses a statically-resolvable non-string index on an object
- * receiver at parse; a value it DEFERRED on (an unannotated fn param,
- * WITHHELD) can still reach this arm, and the removed `String()` coercion
- * would silently manufacture a key from it (the original defect: a laundered
- * boolean index reading the key `"true"`). A plain `Error`, NOT a
- * `ThetaPanic` — it propagates uncaught out of `executeBody` and is
- * reframed one layer up through `surfaceUnexpectedThrow` to
- * `INTERNAL_ERROR_CODE`, exactly as `BinaryMixedOperandError` is.
- */
-export class IndexKindDefectError extends Error {
-  public constructor(value: ThetaValue) {
-    super(
-      `internal defect: an index expression requires an integer (array) or string (object) key, got ${typeof value}; a non-number/non-string index reached the runtime after the object-index type gate deferred (bug 0365)`,
-    );
-    this.name = "IndexKindDefectError";
-  }
-}
-
-/**
- * Bug 0370 (docs/bugs/0370-reassign-target-scope-unchecked-cross-boundary-writes.md)
- * belt: the sibling of `IndexKindDefectError` for the reassign arm's
- * `WriteResult`. The static layer's target-scope walk (§Fix layer 1) refuses
- * every statically-resolvable out-of-scope, undeclared, or immutable-context
- * write target at parse; a rejected `WriteResult` reaching this arm after
- * those gates hold is a broken invariant, not a no-op — discarding it (the
- * original defect) silently drops the author's mutation. A plain `Error`,
- * NOT a `ThetaPanic` — it propagates uncaught out of `executeBody` and is
- * reframed one layer up through `surfaceUnexpectedThrow` to
- * `INTERNAL_ERROR_CODE`, exactly as `IndexKindDefectError` is.
- */
-export class RejectedWriteDefectError extends Error {
-  public constructor(target: string) {
-    super(
-      `internal defect: reassignment target '${target}' was rejected by the runtime scope layer after the parse gates held; a rejected write must not be silently discarded (bug 0370)`,
-    );
-    this.name = "RejectedWriteDefectError";
-  }
-}
-
-/**
- * Bug 0449 (docs/bugs/0449-reexport-chain-enum-unknown-variant-null-panic.md)
- * belt: the async member arm's enum short-circuit falls through to a value
- * read whenever `resolveEnumVariant` answers `undefined` — collapsing "not an
- * enum" and "registered enum, unknown variant" into one signal (0185's
- * information loss, still present by design: `resolveEnumVariant`'s contract
- * is unchanged). A re-export chain's static walk withholds a variant verdict
- * on a chain-reached specifier (code-registry-parse.md:114), so an unknown
- * variant on a chain-imported enum reaches this arm laundered past every
- * static gate; falling through would evaluate the enum NAME as a value, read
- * `null` off the pure host's non-`local` safety net, and panic
- * `NullMemberAccessPanic` — a message asserting a null target that does not
- * exist and never naming the actual fault. `isRegisteredEnum` splits the two
- * conditions so this class fails loudly instead.
- *
- * Carrier adjudication (DIAG-2): NOT a new `ThetaPanic` subclass and NOT
- * `NullMemberAccessPanic` (the lying carrier this belt exists to avoid) — the
- * V1 runtime-panic list is closed (error-model.md §"Runtime panics": six
- * sources, closed for spec-defined panic sources; runtime-panics.ts's
- * `ThetaPanic` set mirrors it exactly) and this class is not one of the six.
- * A plain `Error`, NOT a `ThetaPanic` — it propagates uncaught out of
- * `executeBody` and is reframed one layer up through `surfaceUnexpectedThrow`
- * to `INTERNAL_ERROR_CODE`, exactly as `IndexKindDefectError` /
- * `RejectedWriteDefectError` are (the standing belt law, 0332/0338/0365/0370
- * family: a laundered wrong-kind value reaching a gated-at-parse site is a
- * loud, undecorated defect, with no new registry row). The message TEXT reuses `theta/parse/unknown-variant`'s
- * registered template verbatim (0185's no-new-code adjudication: the natural
- * carrier for "registered enum, unknown variant" is that code's Message
- * column, not a fresh mint) — naming the ACCESS-SITE enum spelling
- * (`enumName`, the `as`-alias where one is written) and the variant, so a
- * renamed chain (`export { Sev as Level }`) names `Level`, never the
- * library's own declared `Sev`.
- */
-export class UnknownVariantDefectError extends Error {
-  public constructor(enumName: string, variant: string) {
-    super(`unknown variant '${variant}' on enum '${enumName}'`);
-    this.name = "UnknownVariantDefectError";
-  }
 }
 
 /**
@@ -1188,7 +727,7 @@ function applyCompound(
  * `Err` as a `Result`, a terminal/returning/discarding position surfaces the
  * fail outcome.
  */
-async function evalExpr(
+export async function evalExpr(
   expr: Expr,
   env: LexicalEnvironment,
   deps: ExecuteBodyDeps,
@@ -1337,39 +876,7 @@ async function evalExpr(
     }
   }
   if (expr.kind === "member") {
-    // `Enum.Variant`: a member on a non-local ident naming a registered enum is a
-    // pure enum-value read (runtime-value-model.md), NOT a member access on a
-    // target value — no effect can nest, so short-circuit to the variant
-    // (mirrors the pure host's `case "member"`).
-    if (expr.target.kind === "ident" && env.resolve(expr.target.name).arm !== "local") {
-      const variant = env.resolveEnumVariant(expr.target.name, expr.field);
-      if (variant !== undefined) {
-        return { flow: "value", value: variant };
-      }
-      // Bug 0449: `undefined` is ambiguous ("not an enum" vs "registered enum,
-      // unknown variant") by `resolveEnumVariant`'s own collapsed contract
-      // (0185). A re-export chain's static walk withholds a variant verdict on
-      // a chain-reached specifier, so the registered-enum half of that
-      // ambiguity can reach this arm laundered past every static gate; only
-      // THAT half fails loudly here — a genuinely non-enum ident (the
-      // ambiguity's other half) still falls through to the value read below,
-      // which is correct for a genuinely-null target (§Non-goal).
-      if (env.isRegisteredEnum(expr.target.name)) {
-        throw new UnknownVariantDefectError(expr.target.name, expr.field);
-      }
-    }
-    const target = await evalExpr(expr.target, env, deps);
-    if (target.flow !== "value") {
-      return target;
-    }
-    try {
-      return { flow: "value", value: evaluateMemberAccess(target.value, expr.field) };
-    } catch (thrown) { // allow-broad-catch: ThetaPanic-only, re-raised (bug 0476 §Fix)
-      if (isThetaPanic(thrown)) {
-        attachPanicSite(thrown, { file: panicSiteFile(env, deps), range: expr.range });
-      }
-      throw thrown;
-    }
+    return resolveEnumMemberRead(expr, env, deps);
   }
   if (expr.kind === "ternary") {
     const condition = await evalExpr(expr.condition, env, deps);
@@ -1416,6 +923,57 @@ async function evalExpr(
     return { flow: "value", value: expr.ctor === "Ok" ? makeOk(arg.value) : makeErr(arg.value) };
   }
 
+  return evalCheckpointedEffect(expr, env, deps, atTerminal);
+}
+
+/** Resolve an enum member or evaluate the member target through the executor. */
+async function resolveEnumMemberRead(
+  expr: Extract<Expr, { kind: "member" }>,
+  env: LexicalEnvironment,
+  deps: ExecuteBodyDeps,
+): Promise<EvalResult> {
+  // `Enum.Variant`: a member on a non-local ident naming a registered enum is a
+  // pure enum-value read (runtime-value-model.md), NOT a member access on a
+  // target value — no effect can nest, so short-circuit to the variant
+  // (mirrors the pure host's `case "member"`).
+  if (expr.target.kind === "ident" && env.resolve(expr.target.name).arm !== "local") {
+    const variant = env.resolveEnumVariant(expr.target.name, expr.field);
+    if (variant !== undefined) {
+      return { flow: "value", value: variant };
+    }
+    // Bug 0449: `undefined` is ambiguous ("not an enum" vs "registered enum,
+    // unknown variant") by `resolveEnumVariant`'s own collapsed contract
+    // (0185). A re-export chain's static walk withholds a variant verdict on
+    // a chain-reached specifier, so the registered-enum half of that
+    // ambiguity can reach this arm laundered past every static gate; only
+    // THAT half fails loudly here — a genuinely non-enum ident (the
+    // ambiguity's other half) still falls through to the value read below,
+    // which is correct for a genuinely-null target (§Non-goal).
+    if (env.isRegisteredEnum(expr.target.name)) {
+      throw new UnknownVariantDefectError(expr.target.name, expr.field);
+    }
+  }
+  const target = await evalExpr(expr.target, env, deps);
+  if (target.flow !== "value") {
+    return target;
+  }
+  try {
+    return { flow: "value", value: evaluateMemberAccess(target.value, expr.field) };
+  } catch (thrown) { // allow-broad-catch: ThetaPanic-only, re-raised (bug 0476 §Fix)
+    if (isThetaPanic(thrown)) {
+      attachPanicSite(thrown, { file: panicSiteFile(env, deps), range: expr.range });
+    }
+    throw thrown;
+  }
+}
+
+/** Dispatch the pure/checkpointed tail and dispose its outcome at consumption. */
+async function evalCheckpointedEffect(
+  expr: Expr,
+  env: LexicalEnvironment,
+  deps: ExecuteBodyDeps,
+  atTerminal: boolean,
+): Promise<EvalResult> {
   const checkpoint = deps.host.checkpointFor(expr);
   if (checkpoint === null) {
     // Pure, synchronous, non-checkpointed work — runs to completion regardless
@@ -1926,422 +1484,6 @@ function toRuntimePattern(pattern: PatternNode): Pattern {
 }
 
 // ---------------------------------------------------------------------------
-// RFC 0003 — `par for` parallel fan-out
-// ---------------------------------------------------------------------------
-
-/**
- * The `par for` in-flight width throttle (control-flow.md CTRL-2 /
- * hard-ceilings.md #par-for-width-throttle): at most 64 iterations in flight
- * per loop. It is a per-loop scheduling bound, NOT a routing-class ceiling
- * (NOCEIL-5): reaching it queues rather than breaches.
- */
-const PAR_FOR_THROTTLE = 64;
-
-// Shared by both `par-max-non-integer` emission sites (finite-non-integral and
-// non-number/non-finite) so the registered message can't drift between them
-// (bug 0438).
-const PAR_MAX_NON_INTEGER_MESSAGE =
-  "'par for' max operand is not a finite integer; in-flight width clamped to 1";
-
-/** The outcome of one `par for` iteration body evaluation. */
-type ParForIterationOutcome =
-  | {
-      readonly kind: "result";
-      readonly result: ResultValue;
-      readonly diagnostics: readonly Diagnostic[] | undefined;
-    }
-  | { readonly kind: "whole-theta-cancel" };
-
-/**
- * Build the element `Err` for a `par for` iteration downgrade (ERR-20, which
- * extends the invoke-boundary downgrade). The `cause` discriminates exactly as
- * the invoke boundary does (`runInvokeChild`): a thrown `ThetaPanic` — every
- * class `isThetaPanic` admits, the six `theta/runtime/*` sources plus QRY-18's
- * parse-coded fallback — is a genuine panic → `cause:"panic"`; any other
- * unexpected interpreter throw is a runtime defect → `cause:"internal_error"`.
- * For the no-invoke case the enclosing `.theta` source file names the
- * `callee_path` (there is no invoked callee to name) for BOTH causes.
- */
-function parForPanicError(thrown: unknown, file: string): QueryError {
-  const message =
-    thrown instanceof Error ? thrown.message : String(thrown);
-  return {
-    kind: "invoke_infra",
-    cause: isThetaPanic(thrown) ? "panic" : "internal_error",
-    message,
-    callee_path: file,
-  };
-}
-
-/**
- * Evaluate one `par for` iteration: bind the fresh immutable loop variable, run
- * the body through the SAME executor / effect host (so each iteration's effects
- * route through `runEffect` and its depth-32 invoke ceiling applies unshared),
- * and normalise the body outcome to that element's `Result` (CTRL-5):
- *   - a body tail value `U` → `Ok(U)`;
- *   - a `?`-propagated / unhandled effect `Err` → that element's `Err` (does
- *     NOT propagate out of the loop);
- *   - a per-element cancellation (enclosing signal un-aborted) → `Err(cancelled)`;
- *   - a whole-theta cancellation (enclosing signal aborted) → the
- *     `whole-theta-cancel` sentinel, handled by the caller;
- *   - a runtime panic (thrown) → `Err(invoke_infra, cause:"panic")` (ERR-20).
- * Child diagnostics attached to the iteration's effect results
- * (`OperationResult.childDiagnostics`) are collected for the CTRL-3 join drain.
- */
-async function runParForIteration(
-  expr: ParForExpr,
-  element: ThetaValue,
-  env: LexicalEnvironment,
-  deps: ExecuteBodyDeps,
-): Promise<ParForIterationOutcome> {
-  // A `par for` iteration scope is a write boundary (bug 0396 belt): a body
-  // write that walks out to an outer binding is the CTRL-4 concurrent-write
-  // hazard the parse-side scan exists to refuse, so this must reject rather
-  // than land silently if the scan ever misses.
-  const scope = env.bindParIterationVariable(expr.variable, element);
-  const collectedDiagnostics: Diagnostic[] = [];
-  const baseHost = deps.host;
-  // Wrap the host so each effect result's optional `childDiagnostics` transport
-  // is captured for this iteration (RFC 0003 obligation (A)).
-  const iterationHost: StatementEvalHost = {
-    evaluatePure: (e, en, chain) => baseHost.evaluatePure(e, en, chain),
-    checkpointFor: (e) => baseHost.checkpointFor(e),
-    runEffect: async (e, en, args, chain) => {
-      // RFC 0011 §6.4: runtime `par for` backstop — a runtime tool called from
-      // a `par for` body (including through a plain `fn` the body calls)
-      // surfaces the execution-Err immediately, never reaching the adapter.
-      // The static walk (§5.3) covers direct calls; this covers the fn-hop
-      // path the walk cannot see. Inert for child-process dispatch (those
-      // classify `"theta-callable"`, not `"runtime-tool"`).
-      if (
-        e.kind === "call" &&
-        baseHost.classifyCall?.(e as CallExpr, en) === "runtime-tool"
-      ) {
-        // Return as a failed operation (ok: false) so the executor routes it
-        // through the fail/value disposition (atTerminal-dependent), mirroring
-        // how `runCodeSideToolCall`’s execution-error arm surfaces
-        // CodeToolError. This avoids the double-wrap that `ok: true` with an
-        // Err value would cause at the par-for element boundary.
-        return {
-          ok: false,
-          error: {
-            kind: "code_tool",
-            message: `session-control tool '${(e as CallExpr).callee}' is not available inside a par for body`,
-            tool_name: (e as CallExpr).callee,
-            cause: "execution",
-          } as unknown as QueryError,
-        };
-      }
-      const result = await baseHost.runEffect(e, en, args, chain);
-      const childDiagnostics = (
-        result as { readonly childDiagnostics?: readonly Diagnostic[] }
-      ).childDiagnostics;
-      if (childDiagnostics !== undefined) {
-        collectedDiagnostics.push(...childDiagnostics);
-      }
-      return result;
-    },
-    ...(baseHost.classifyCall !== undefined
-      ? { classifyCall: baseHost.classifyCall.bind(baseHost) }
-      : {}),
-  };
-  const iterationDeps: ExecuteBodyDeps = { ...deps, host: iterationHost };
-
-  let flow: Flow;
-  try {
-    flow = await executeBlock(expr.body, scope, iterationDeps);
-  } catch (thrown) { // allow-broad-catch: ERR-20 — errors-and-results.md#err-20
-    // ERR-20 iteration-boundary downgrade (extends the invoke-boundary downgrade
-    // of `runInvokeChild`). An uncatchable host fatal (NOCEIL-3) must terminate
-    // the process and is rethrown unwrapped — it is never downgraded to an Err
-    // element. Any other thrown value becomes that element's Err, discriminated
-    // by `parForPanicError`: a `ThetaPanic` → cause:"panic", any other
-    // unexpected interpreter throw → cause:"internal_error". Siblings run to
-    // completion and the loop still yields a full array.
-    if (thrown instanceof HostFatal) {
-      throw thrown;
-    }
-    // The `par for` lane body boundary: push the lane frame before the ERR-20
-    // downgrade below neutralises the panic into this element's `Err` (bug
-    // 0476 §Fix). No shipped route re-surfaces it today — ERR-20 always
-    // downgrades a lane panic before it could reach a top-level note — but the
-    // frame rides the panic object for the same reason every other boundary
-    // attaches one: uniform plumbing, not a currently-observable effect here.
-    if (isThetaPanic(thrown)) {
-      pushPanicFrame(thrown, {
-        kind: "par-for",
-        file: panicSiteFile(env, deps),
-        range: expr.range,
-      });
-    }
-    return {
-      kind: "result",
-      result: makeErr(parForPanicError(thrown, deps.file) as unknown as ThetaValue),
-      diagnostics:
-        collectedDiagnostics.length > 0 ? collectedDiagnostics : undefined,
-    };
-  }
-
-  // Computed after the body ran, so it reflects every effect's captured
-  // `childDiagnostics` transport (not the empty pre-run snapshot).
-  const diagnostics =
-    collectedDiagnostics.length > 0 ? collectedDiagnostics : undefined;
-
-  switch (flow.kind) {
-    case "normal":
-      return { kind: "result", result: makeOk(flow.value), diagnostics };
-    case "return":
-      // Barred by the parser (par-return-in-body); defensively folded into the
-      // iteration's own result rather than propagated outward, exactly as a
-      // normal body completion is.
-      return { kind: "result", result: makeOk(flow.value), diagnostics };
-    case "break":
-    case "continue":
-      // Barred by the parser (par-break-continue); defensively a no-value Ok.
-      return { kind: "result", result: makeOk(null), diagnostics };
-    case "propagate":
-      // A `?` inside the body propagates to THIS iteration's result (CTRL-5).
-      return { kind: "result", result: makeErr(flow.err), diagnostics };
-    case "fail":
-      return { kind: "result", result: makeErr(flow.error), diagnostics };
-    case "cancel":
-      if (deps.signal.aborted) {
-        // Whole-theta cancellation: terminal, no per-element value flows.
-        return { kind: "whole-theta-cancel" };
-      }
-      // Per-element cancellation within the run-to-completion model: the
-      // iteration's child work was cancelled but the enclosing theta is NOT
-      // aborted, so it becomes that element's Err(cancelled) (CTRL-5).
-      return {
-        kind: "result",
-        result: makeErr(makeCancelledError() as unknown as ThetaValue),
-        diagnostics,
-      };
-  }
-}
-
-/**
- * Evaluate a `par for` expression (RFC 0003; control-flow.md CTRL-1…CTRL-5).
- * The iterand is snapshotted once at loop entry (CTRL-1); the body is scheduled
- * concurrently per element, at most `min(max ?? 64, 64)` in flight through a
- * bounded worker pool (CTRL-2); one `Result` per element is collected into an
- * input-index-ordered `array<Result<T, QueryError>>` (CTRL-3). Iterations run to
- * completion independently (CTRL-5): a per-element `Err` / panic does not cancel
- * siblings. Whole-theta cancellation (the enclosing signal fires) is terminal:
- * in-flight iterations are cancelled, not-yet-started iterations do not start,
- * and no final value flows.
- */
-async function evalParFor(
-  expr: ParForExpr,
-  env: LexicalEnvironment,
-  deps: ExecuteBodyDeps,
-): Promise<EvalResult> {
-  // CTRL-1 — evaluate the iterand exactly once at loop entry. A non-checkpointed
-  // iterand (a binding, an array literal, a member access — the common case) is
-  // pure synchronous work, so it is evaluated through the pure host in one call
-  // (no per-element microtask), which keeps the fan-out's first scheduled batch
-  // reaching the effect host promptly rather than trailing the snapshot build.
-  // A checkpointed iterand (a bare `invoke` / `.theta` call / `@`-query as the
-  // iterand) is dispatched through the effect path so its effect commits once
-  // at loop entry (CTRL-1).
-  let iterandValue: ThetaValue;
-  if (deps.host.checkpointFor(expr.iterand) === null) {
-    iterandValue = deps.host.evaluatePure(expr.iterand, env, deps.invokeChain);
-  } else {
-    const iterand = await evalExpr(expr.iterand, env, deps);
-    if (iterand.flow !== "value") {
-      return iterand;
-    }
-    iterandValue = iterand.value;
-  }
-  // Bug 0369 belt: this must fire BEFORE the CTRL-2 width resolution and worker
-  // scheduling below, so a laundered non-array iterand aborts loudly instead of
-  // scheduling a fabricated empty fan-out.
-  if (!Array.isArray(iterandValue)) {
-    throw new ForIterandKindDefectError(iterandValue);
-  }
-  const snapshot: readonly ThetaValue[] = iterandValue;
-
-  // CTRL-2 — resolve the in-flight width: `max` (evaluated once at loop entry)
-  // only lowers the width, and the 64 throttle is the hard upper bound; a `max`
-  // above the throttle clamps down to it, a `max` in [1, 64] lowers to it, and a
-  // width resolving below 1 clamps UP to 1 with
-  // `theta/runtime/par-max-non-positive` (bug 0326).
-  let width = PAR_FOR_THROTTLE;
-  if (expr.max !== null) {
-    const maxResult = await evalExpr(expr.max, env, deps);
-    if (maxResult.flow !== "value") {
-      return maxResult;
-    }
-    if (typeof maxResult.value === "number" && Number.isFinite(maxResult.value)) {
-      // A non-finite number (NaN, +Infinity, -Infinity) is not an interpretable
-      // width: `Math.floor`/`Math.max`/`Math.min` all propagate NaN through the
-      // ≥1 floor (bug 0325), and `Infinity` survives the floor to run
-      // unthrottled instead of clamped. `Number.isFinite` is the corpus's
-      // non-finite leaf test (cf. subagent-envelope.ts), so it gates the
-      // number branch the same way here.
-      const requested = Math.floor(maxResult.value);
-      if (requested < 1) {
-        // CTRL-2 grants `max` only the power to LOWER the width; a resolved
-        // width below 1 (max 0 / a negative operand) admits no work as
-        // written, so it clamps up to the panic-free floor of 1 and is
-        // diagnosed rather than silent (bug 0326).
-        width = 1;
-        deps.emitDiagnostic?.({
-          severity: "error",
-          code: "theta/runtime/par-max-non-positive",
-          file: deps.file,
-          range: expr.max.range,
-          message: "'par for' max operand must be at least 1; in-flight width clamped to 1",
-        });
-      } else if (!Number.isInteger(maxResult.value)) {
-        // CTRL-2 (`n` is any `integer`-typed expression): a finite value whose
-        // floor is ≥1 but which is itself non-integral (`2.5`) is still not an
-        // `integer` width. The direct spelling is parse-refused
-        // (`theta/parse/integer-narrowing`), so this is only reachable through
-        // the deferred/`unknown` path — the same laundered-fractional class the
-        // 0365/0402 integrality doctrine diagnoses rather than silently
-        // truncates (bug 0438). Routed into the existing non-integer code
-        // rather than a new one: its clamp-to-1 disposition already fits.
-        width = 1;
-        deps.emitDiagnostic?.({
-          severity: "error",
-          code: "theta/runtime/par-max-non-integer",
-          file: deps.file,
-          range: expr.max.range,
-          message: PAR_MAX_NON_INTEGER_MESSAGE,
-        });
-      } else {
-        width = Math.max(1, Math.min(requested, PAR_FOR_THROTTLE));
-      }
-    } else {
-      // CTRL-2: `max` only ever LOWERS the width. A non-number operand value
-      // (reached through the deferred/`unknown` static path) or a non-finite
-      // number value (NaN/±Infinity, reached through `n % 0` / `n / 0`) is
-      // unintelligible as a width, so the panic-free floor is the clamp-to-1
-      // disposition — never the clause-absent 64 throttle, which would invert
-      // the clause's one granted power.
-      width = 1;
-      deps.emitDiagnostic?.({
-        severity: "error",
-        code: "theta/runtime/par-max-non-integer",
-        file: deps.file,
-        range: expr.max.range,
-        message: PAR_MAX_NON_INTEGER_MESSAGE,
-      });
-    }
-  }
-
-  const n = snapshot.length;
-
-  // CTRL-5 — whole-theta cancellation already fired at loop entry: no iteration
-  // starts and the terminal outcome is Cancelled with no final value.
-  if (deps.signal.aborted) {
-    handlePartialTerminalOutcome(
-      { path: "cancelled", mode: deps.mode, committed: [] },
-      deps.mutator,
-    );
-    return { flow: "cancel" };
-  }
-
-  const results: (ResultValue | undefined)[] = new Array(n);
-  const childDiagnostics: (readonly Diagnostic[] | undefined)[] = new Array(n);
-  let wholeThetaCancelled = false;
-  let nextIndex = 0;
-
-  // RFC 0010 (execution-status.md EXST-3(c)): open one lane set for this
-  // fan-out. The width handed to the observer is the POST-CTRL-2 clamped
-  // `workerCount` (resolved just below), so the rendered `w<n>` is the width
-  // actually in flight, not the requested `max`. Absent hooks ⇒ every call
-  // below is a `?.` no-op and this loop is byte-identical to the pre-RFC one
-  // (EXST-3's no-observable-effect rule).
-  const workerCount = Math.min(width, n);
-  const laneSet = deps.statusLanes?.open(n, workerCount);
-
-  // A bounded worker pool: `min(width, n)` workers each pull the next input
-  // index, run its iteration to completion, and record the result at that
-  // index. Index claiming is synchronous (no await between read and
-  // increment), so each element dispatches exactly once (CTRL-1).
-  const worker = async (): Promise<void> => {
-    for (;;) {
-      if (wholeThetaCancelled) {
-        return;
-      }
-      // Not-yet-started iterations do not start once the signal fires (CTRL-5).
-      if (deps.signal.aborted) {
-        wholeThetaCancelled = true;
-        return;
-      }
-      const index = nextIndex;
-      if (index >= n) {
-        return;
-      }
-      nextIndex += 1;
-      // Published immediately after the SYNCHRONOUS claim (no await between
-      // the read and the increment above), so the observer sees the same claim
-      // order the pool dispatched in.
-      laneSet?.claim(index);
-      const element = snapshot[index] as ThetaValue;
-      const outcome = await runParForIteration(expr, element, env, deps);
-      if (outcome.kind === "whole-theta-cancel") {
-        // CTRL-5 whole-theta cancel: the lane never settles — it drops with the
-        // node at end of invocation.
-        wholeThetaCancelled = true;
-        return;
-      }
-      results[index] = outcome.result;
-      childDiagnostics[index] = outcome.diagnostics;
-      laneSet?.settle(index, outcome.result.ok ? "done" : "err");
-    }
-  };
-
-  const workers: Promise<void>[] = [];
-  for (let i = 0; i < workerCount; i += 1) {
-    workers.push(worker());
-  }
-  await Promise.all(workers); // allow: CTRL-2 — control-flow.md#par-for
-  // Every exit path below (value AND cancel) leaves the fan-out here, so the
-  // lane set closes exactly once, before either.
-  laneSet?.close();
-
-  // CTRL-5 — whole-theta cancellation observed (pre- or mid-flight): terminal
-  // Cancelled outcome, no partial array surfaced as a value.
-  if (wholeThetaCancelled || deps.signal.aborted) {
-    handlePartialTerminalOutcome(
-      { path: "cancelled", mode: deps.mode, committed: [] },
-      deps.mutator,
-    );
-    return { flow: "cancel" };
-  }
-
-  // CTRL-3 — drain child diagnostics grouped by input index (ascending), then
-  // by the existing (file, line, col) order.
-  const sink = deps.host.drainChildDiagnostics;
-  if (sink !== undefined) {
-    for (let index = 0; index < n; index += 1) {
-      const diags = childDiagnostics[index];
-      if (diags !== undefined && diags.length > 0) {
-        sink.call(deps.host, index, assembleDiagnostics([diags]));
-      }
-    }
-  }
-
-  // CTRL-3 — the value is the input-index-ordered array of per-element Results.
-  // An unwritten slot here means a claimed index never got a worker write — a
-  // scheduling-invariant violation, not a normal outcome, so it throws rather
-  // than fabricating a success (bug 0325).
-  const collected: ThetaValue[] = new Array(n);
-  for (let index = 0; index < n; index += 1) {
-    const slot = results[index];
-    if (slot === undefined) {
-      throw new ParForUnwrittenSlotError(index);
-    }
-    collected[index] = slot;
-  }
-  return { flow: "value", value: collected };
-}
-
-// ---------------------------------------------------------------------------
 // Statement / block execution
 // ---------------------------------------------------------------------------
 
@@ -2457,7 +1599,7 @@ async function executeStatement(stmt: Stmt, env: LexicalEnvironment, deps: Execu
  * then, if none fired, produce the block's final value (its tail expression, or
  * the literal `null` for a statement-terminated / empty block — FN-5).
  */
-async function executeBlock(
+export async function executeBlock(
   block: Block,
   env: LexicalEnvironment,
   deps: ExecuteBodyDeps,
