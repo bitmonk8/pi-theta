@@ -245,10 +245,24 @@ class TypeLayerWalk {
       case "expr":
         this.walkExpr(stmt.expr, bindings, flow);
         return;
-      default:
-        // schema / enum / import / export / break / continue / doc-comment —
-        // no expression to type-check.
+      case "break":
+      case "continue":
+      case "schema":
+      case "enum":
+      case "import":
+      case "export":
+      case "doc-comment":
+        // No expression to type-check.
         return;
+      default: {
+        // Compile-time exhaustiveness backstop: a future `Stmt` union member
+        // trips a `tsc` error here rather than being silently skipped by this
+        // pass while the binder collector's `walkStmtForLocalBinders`
+        // (local-binders.ts) handles it — the two walks must classify the same
+        // statement kinds in lockstep.
+        const _exhaustive: never = stmt;
+        return void _exhaustive;
+      }
     }
   }
 
@@ -1916,9 +1930,22 @@ class TypeLayerWalk {
         // `inner` copy above.
         this.walkBlock(e.body, new Map(bindings), flow);
         return;
-      default:
-        // ident / number / string / bool / null — no nested checks.
+      case "ident":
+      case "number":
+      case "string":
+      case "bool":
+      case "null":
+        // Leaves: no nested checks.
         return;
+      default: {
+        // Compile-time exhaustiveness backstop: a future `Expr` union member
+        // trips a `tsc` error here rather than being silently skipped by this
+        // pass while the binder collector's `walkExprForLocalBinders`
+        // (local-binders.ts) handles it — the two walks must classify the same
+        // expression kinds in lockstep.
+        const _exhaustive: never = e;
+        return void _exhaustive;
+      }
     }
   }
 

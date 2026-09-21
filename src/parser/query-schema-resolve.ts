@@ -59,8 +59,15 @@ import type {
   CallWithClause,
 } from "./theta-document";
 import {
+  ARRAY_ELEMENT_FRAME,
+  callArgSinkFrame,
   checkExplicitSchemaMismatch,
+  fnReturnSinkFrame,
+  letSinkFrame,
+  OPAQUE_FRAME,
+  PROPAGATE_FRAME,
   resolveQuerySchemaSink,
+  TERNARY_BRANCH_FRAME,
   type InferredSchema,
   type SchemaSinkFrame,
 } from "./query-schema-inference";
@@ -199,7 +206,7 @@ class QuerySchemaResolveWalk {
         const frames: readonly OriginFrame[] =
           annotation === undefined || origin === undefined
             ? []
-            : [{ kind: "let", annotation, origin }];
+            : [{ ...letSinkFrame(annotation), origin }];
         return { ...stmt, init: this.rewriteExpr(stmt.init, frames) };
       }
       case "reassign":
@@ -210,13 +217,13 @@ class QuerySchemaResolveWalk {
       case "while":
         return {
           ...stmt,
-          condition: this.rewriteExpr(stmt.condition, [{ kind: "stop" }]),
+          condition: this.rewriteExpr(stmt.condition, [OPAQUE_FRAME]),
           body: this.rewriteBlock(stmt.body, []),
         };
       case "for":
         return {
           ...stmt,
-          iterand: this.rewriteExpr(stmt.iterand, [{ kind: "stop" }]),
+          iterand: this.rewriteExpr(stmt.iterand, [OPAQUE_FRAME]),
           body: this.rewriteBlock(stmt.body, []),
         };
       case "fn": {
@@ -242,14 +249,11 @@ class QuerySchemaResolveWalk {
           stmt.returnType.trim() === "void"
             ? undefined
             : annotationToInferred(stmt.returnType);
-        // `exactOptionalPropertyTypes`: omit `returnType` when undefined so the
-        // frame stays assignable to the optional-property `fn-return` shape.
         const fnFrames: readonly OriginFrame[] = [
           returnType === undefined || stmt.returnType === null
-            ? { kind: "fn-return" }
+            ? fnReturnSinkFrame()
             : {
-                kind: "fn-return",
-                returnType,
+                ...fnReturnSinkFrame(returnType),
                 origin: { capture: { kind: "fn-return", range: stmt.range } },
               },
         ];
@@ -307,9 +311,7 @@ class QuerySchemaResolveWalk {
               : (this.rewriteReturnAware(stmt.otherwise, returnFrames) as IfStmt);
         return {
           ...stmt,
-          condition: this.rewriteExpr(stmt.condition, [
-            { kind: "stop" },
-          ]),
+          condition: this.rewriteExpr(stmt.condition, [OPAQUE_FRAME]),
           then: rewriteBranch(stmt.then),
           otherwise,
         };
@@ -322,9 +324,7 @@ class QuerySchemaResolveWalk {
         // sink never crosses it.
         return {
           ...stmt,
-          condition: this.rewriteExpr(stmt.condition, [
-            { kind: "stop" },
-          ]),
+          condition: this.rewriteExpr(stmt.condition, [OPAQUE_FRAME]),
           body: this.rewriteLoopBody(stmt.body, returnFrames),
         };
       case "for":
@@ -332,9 +332,7 @@ class QuerySchemaResolveWalk {
         // opaque iterand.
         return {
           ...stmt,
-          iterand: this.rewriteExpr(stmt.iterand, [
-            { kind: "stop" },
-          ]),
+          iterand: this.rewriteExpr(stmt.iterand, [OPAQUE_FRAME]),
           body: this.rewriteLoopBody(stmt.body, returnFrames),
         };
       default:
@@ -365,7 +363,7 @@ class QuerySchemaResolveWalk {
           : this.rewriteIf(stmt.otherwise);
     return {
       ...stmt,
-      condition: this.rewriteExpr(stmt.condition, [{ kind: "stop" }]),
+      condition: this.rewriteExpr(stmt.condition, [OPAQUE_FRAME]),
       then: this.rewriteBlock(stmt.then, []),
       otherwise,
     };
@@ -384,7 +382,7 @@ class QuerySchemaResolveWalk {
       case "try": {
         // The postfix `?` is transparent (ERR-18): the operand keeps the outer
         // context.
-        const operand = this.rewriteExpr(expr.operand, [{ kind: "propagate" }, ...frames]);
+        const operand = this.rewriteExpr(expr.operand, [PROPAGATE_FRAME, ...frames]);
         return { ...expr, operand } satisfies TryExpr;
       }
       case "ternary": {
@@ -392,18 +390,16 @@ class QuerySchemaResolveWalk {
         // which the outer `frames` supply); the condition is opaque.
         return {
           ...expr,
-          condition: this.rewriteExpr(expr.condition, [
-            { kind: "stop" },
-          ]),
-          consequent: this.rewriteExpr(expr.consequent, [{ kind: "ternary" }, ...frames]),
-          alternate: this.rewriteExpr(expr.alternate, [{ kind: "ternary" }, ...frames]),
+          condition: this.rewriteExpr(expr.condition, [OPAQUE_FRAME]),
+          consequent: this.rewriteExpr(expr.consequent, [TERNARY_BRANCH_FRAME, ...frames]),
+          alternate: this.rewriteExpr(expr.alternate, [TERNARY_BRANCH_FRAME, ...frames]),
         } satisfies TernaryExpr;
       }
       case "array": {
         // Each element crosses one array-literal level (transparent iff the
         // literal has a sink, supplied by the outer `frames`).
         const elements = expr.elements.map((el) =>
-          this.rewriteExpr(el, [{ kind: "array-literal" }, ...frames]),
+          this.rewriteExpr(el, [ARRAY_ELEMENT_FRAME, ...frames]),
         );
         return { ...expr, elements } satisfies ArrayExpr;
       }
@@ -411,33 +407,31 @@ class QuerySchemaResolveWalk {
         // Binary operators are opaque.
         return {
           ...expr,
-          left: this.rewriteExpr(expr.left, [{ kind: "stop" }]),
-          right: this.rewriteExpr(expr.right, [{ kind: "stop" }]),
+          left: this.rewriteExpr(expr.left, [OPAQUE_FRAME]),
+          right: this.rewriteExpr(expr.right, [OPAQUE_FRAME]),
         } satisfies BinaryExpr;
       case "member":
         // Member access is opaque.
         return {
           ...expr,
-          target: this.rewriteExpr(expr.target, [{ kind: "stop" }]),
+          target: this.rewriteExpr(expr.target, [OPAQUE_FRAME]),
         } satisfies MemberExpr;
       case "index":
         // Indexed access is opaque (both receiver and index).
         return {
           ...expr,
-          target: this.rewriteExpr(expr.target, [{ kind: "stop" }]),
-          index: this.rewriteExpr(expr.index, [{ kind: "stop" }]),
+          target: this.rewriteExpr(expr.target, [OPAQUE_FRAME]),
+          index: this.rewriteExpr(expr.index, [OPAQUE_FRAME]),
         } satisfies IndexExpr;
       case "match":
         // The scrutinee is opaque; a `match` arm is neither transparent nor in
         // scope (query-forms.md), so an arm body stops with no sink.
         return {
           ...expr,
-          scrutinee: this.rewriteExpr(expr.scrutinee, [
-            { kind: "stop" },
-          ]),
+          scrutinee: this.rewriteExpr(expr.scrutinee, [OPAQUE_FRAME]),
           arms: expr.arms.map((arm) => ({
             ...arm,
-            body: this.rewriteExpr(arm.body, [{ kind: "stop" }]),
+            body: this.rewriteExpr(arm.body, [OPAQUE_FRAME]),
           })),
         } satisfies MatchExpr;
       case "call":
@@ -461,7 +455,7 @@ class QuerySchemaResolveWalk {
         return {
           ...expr,
           args: expr.args.map((arg) =>
-            this.rewriteExpr(arg, [{ kind: "call-arg" }, ...frames]),
+            this.rewriteExpr(arg, [callArgSinkFrame(), ...frames]),
           ),
           ...this.rewriteCallWithClause(expr, frames),
         } satisfies InvokeExpr;
@@ -472,22 +466,22 @@ class QuerySchemaResolveWalk {
           ...expr,
           fields: expr.fields.map((field) => ({
             ...field,
-            value: this.rewriteExpr(field.value, [{ kind: "stop" }]),
+            value: this.rewriteExpr(field.value, [OPAQUE_FRAME]),
           })),
         } satisfies ObjectExpr;
       case "result-ctor":
         // `Ok(…)` / `Err(…)` is not a transparent sink position.
         return {
           ...expr,
-          arg: this.rewriteExpr(expr.arg, [{ kind: "stop" }]),
+          arg: this.rewriteExpr(expr.arg, [OPAQUE_FRAME]),
         } satisfies ResultCtorExpr;
       case "method-call":
         // A stdlib method receiver is opaque; its arguments are untyped
         // call-args (the builtin parameter types are not carried in the AST).
         return {
           ...expr,
-          target: this.rewriteExpr(expr.target, [{ kind: "stop" }]),
-          args: expr.args.map((arg) => this.rewriteExpr(arg, [{ kind: "call-arg" }])),
+          target: this.rewriteExpr(expr.target, [OPAQUE_FRAME]),
+          args: expr.args.map((arg) => this.rewriteExpr(arg, [callArgSinkFrame()])),
         } satisfies MethodCallExpr;
       case "block":
         // A block expression's value IS its tail, so the tail sits in the
@@ -507,11 +501,11 @@ class QuerySchemaResolveWalk {
         // unlike `case "block"` above, where the block's value IS its tail.
         return {
           ...expr,
-          iterand: this.rewriteExpr(expr.iterand, [{ kind: "stop" }]),
+          iterand: this.rewriteExpr(expr.iterand, [OPAQUE_FRAME]),
           max:
             expr.max === null
               ? null
-              : this.rewriteExpr(expr.max, [{ kind: "stop" }]),
+              : this.rewriteExpr(expr.max, [OPAQUE_FRAME]),
           body: this.rewriteBlock(expr.body, []),
         } satisfies ParForExpr;
       default:
@@ -544,7 +538,7 @@ class QuerySchemaResolveWalk {
         ...clause,
         fields: clause.fields.map((field) => ({
           ...field,
-          value: this.rewriteExpr(field.value, [{ kind: "call-arg" }, ...frames]),
+          value: this.rewriteExpr(field.value, [callArgSinkFrame(), ...frames]),
         })),
       },
     };
@@ -565,21 +559,20 @@ class QuerySchemaResolveWalk {
     if (fn === undefined) {
       // Not a local `fn` — a tool call (registry-resolved) or unknown callee;
       // its parameter types are not in this parse, so the arg stays untyped.
-      return { kind: "call-arg" };
+      return callArgSinkFrame();
     }
     const param = fn.params[index];
     if (param === undefined || param.type.length === 0) {
-      return { kind: "call-arg" };
+      return callArgSinkFrame();
     }
-    // `exactOptionalPropertyTypes`: an object/union param is not representable
-    // in `InferredSchema` (undefined) — omit `paramType` so the walk stops at
+    // An object/union param is not representable in `InferredSchema`
+    // (undefined) — `callArgSinkFrame` omits `paramType` so the walk stops at
     // the untyped call boundary.
     const paramType = annotationToInferred(param.type);
     return paramType === undefined
-      ? { kind: "call-arg" }
+      ? callArgSinkFrame()
       : {
-          kind: "call-arg",
-          paramType,
+          ...callArgSinkFrame(paramType),
           // The propagated text is the CALLEE's parameter annotation, written
           // at the `fn` declaration — so the origin names that declaration and
           // the parameter's position in its list, not the call site.

@@ -99,10 +99,23 @@ function walkStmtForLocalBinders(stmt: Stmt, names: Set<string>): void {
     case "expr":
       walkExprForLocalBinders(stmt.expr, names);
       return;
-    default:
-      // break / continue / schema / enum / import / export / doc-comment —
-      // no local binder, no nested expression.
+    case "break":
+    case "continue":
+    case "schema":
+    case "enum":
+    case "import":
+    case "export":
+    case "doc-comment":
+      // No local binder, no nested expression.
       return;
+    default: {
+      // Compile-time exhaustiveness backstop: a future `Stmt` union member
+      // trips a `tsc` error here rather than being silently skipped by this
+      // pass while the type layer's `walkStmt` (type-layer-walk.ts) handles
+      // it — the two walks must classify the same statement kinds in lockstep.
+      const _exhaustive: never = stmt;
+      return void _exhaustive;
+    }
   }
 }
 
@@ -172,9 +185,22 @@ function walkExprForLocalBinders(expr: Expr, names: Set<string>): void {
     case "block":
       walkBlockForLocalBinders(expr.body, names);
       return;
-    default:
-      // ident / number / string / bool / null — no local binder, no nested
-      // expression.
+    case "query":
+    case "ident":
+    case "number":
+    case "string":
+    case "bool":
+    case "null":
+      // No local binder, no nested expression (a `query` template is a raw
+      // string, not a nested `Expr`).
       return;
+    default: {
+      // Compile-time exhaustiveness backstop: a future `Expr` union member
+      // trips a `tsc` error here rather than being silently skipped by this
+      // pass while the type layer's `walkExpr` (type-layer-walk.ts) handles
+      // it — the two walks must classify the same expression kinds in lockstep.
+      const _exhaustive: never = expr;
+      return void _exhaustive;
+    }
   }
 }

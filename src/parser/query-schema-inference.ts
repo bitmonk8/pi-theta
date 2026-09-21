@@ -89,6 +89,67 @@ export type SchemaSinkFrame =
   | { readonly kind: "fn-return"; readonly returnType?: InferredSchema }
   | { readonly kind: "stop" };
 
+// --- Construct→frame classification (the producer half) ---------------------
+//
+// The §"Schema inference algorithm" classification of which AST construct
+// receives which frame kind, stated ONCE beside the union it produces.
+// `resolveQuerySchemas`'s tree walk (query-schema-resolve.ts) reads every frame
+// it prepends off these constants and constructors, and the
+// `resolveQuerySchemaSink` switch below states what each kind means — so adding
+// or reclassifying a construct is a change to this one module, not a producer
+// edit that can drift from the consumer's semantics.
+
+/**
+ * An opaque construct — a binary / unary operand, a member or index target, a
+ * `match` scrutinee or arm body, an object field value, an `Ok`/`Err` argument,
+ * a method-call receiver, an `if` / `while` / ternary condition, a loop
+ * iterand. Stopped: the walk halts with no sink (untyped).
+ */
+export const OPAQUE_FRAME: SchemaSinkFrame = Object.freeze({ kind: "stop" });
+
+/** The postfix error-propagation `?` operand (ERR-18). Crossed. */
+export const PROPAGATE_FRAME: SchemaSinkFrame = Object.freeze({ kind: "propagate" });
+
+/** A ternary branch (`consequent` / `alternate`). Crossed iff the ternary has a sink. */
+export const TERNARY_BRANCH_FRAME: SchemaSinkFrame = Object.freeze({ kind: "ternary" });
+
+/** An array-literal element. Crossed; inherits one `array<T>` level off the sink. */
+export const ARRAY_ELEMENT_FRAME: SchemaSinkFrame = Object.freeze({ kind: "array-literal" });
+
+/** The RHS of `let x: T = …`: the binding annotation `T` is the sink. */
+export function letSinkFrame(
+  annotation: InferredSchema,
+): Extract<SchemaSinkFrame, { kind: "let" }> {
+  return { kind: "let", annotation };
+}
+
+/**
+ * A function / tool / `invoke` / method argument (or an RFC 0009 `with`-clause
+ * value) matched to a parameter: a typed parameter is the sink; an untyped (or
+ * unresolvable) parameter yields no sink and the walk stops at the call
+ * boundary. `paramType` is omitted (never set `undefined`) so the frame stays
+ * assignable under `exactOptionalPropertyTypes`.
+ */
+export function callArgSinkFrame(
+  paramType?: InferredSchema,
+): Extract<SchemaSinkFrame, { kind: "call-arg" }> {
+  return paramType === undefined ? { kind: "call-arg" } : { kind: "call-arg", paramType };
+}
+
+/**
+ * A `fn` body tail / `return` operand: a declared return type is the sink; an
+ * undeclared (or root-`void`) return supplies none and the walk continues
+ * outward. `returnType` is omitted (never set `undefined`) so the frame stays
+ * assignable under `exactOptionalPropertyTypes`.
+ */
+export function fnReturnSinkFrame(
+  returnType?: InferredSchema,
+): Extract<SchemaSinkFrame, { kind: "fn-return" }> {
+  return returnType === undefined
+    ? { kind: "fn-return" }
+    : { kind: "fn-return", returnType };
+}
+
 /** The input to `inferQuerySchema`: the enclosing frames and the explicit ascription. */
 export interface QuerySchemaInferenceInput {
   /** Enclosing AST frames, ordered innermost-first (nearest sink wins). */
