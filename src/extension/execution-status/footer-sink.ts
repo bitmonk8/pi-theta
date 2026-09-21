@@ -14,6 +14,8 @@
 //
 // Spec: docs/spec_topics/execution-status.md EXST-8, EXST-10, EXST-12.
 
+import { win32 } from "node:path";
+
 import type {
   ExecutionStatusSnapshot,
   InvocationNodeSnapshot,
@@ -43,8 +45,7 @@ const FOOTER_STATUS_KEY = "theta";
  * fixed small width, rather than a path that would eat the whole clamp.
  */
 export function baseFileName(file: string): string {
-  const lastSlash = Math.max(file.lastIndexOf("/"), file.lastIndexOf("\\"));
-  const base = lastSlash >= 0 ? file.slice(lastSlash + 1) : file;
+  const base = win32.basename(file);
   if (base.endsWith(".thetalib")) {
     return base.slice(0, -".thetalib".length);
   }
