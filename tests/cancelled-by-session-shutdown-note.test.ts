@@ -89,11 +89,11 @@ import {
   type ActiveInvocationEntry,
   type ActiveInvocationTicket,
 } from "../src/runtime/active-invocation-registry";
+import { runSessionShutdown } from "../src/extension/session-shutdown";
 import {
-  runSessionShutdown,
   CANCELLED_BY_SESSION_SHUTDOWN_CODE,
   type EmissionSink,
-} from "../src/extension/session-shutdown";
+} from "../src/extension/teardown-emission";
 import type { SystemNoteChannelDeps } from "../src/extension/system-note-channel";
 import { FakeClock } from "./helpers/fake-clock";
 import type { Diagnostic } from "../src/diagnostics/diagnostic";

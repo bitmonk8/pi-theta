@@ -53,9 +53,9 @@ import {
 import {
   runSessionShutdown,
   SHUTDOWN_AWAIT_CAP_MS,
-  TEARDOWN_STEP_FAILED_CODE,
   type SessionShutdownDeps,
 } from "../src/extension/session-shutdown";
+import { TEARDOWN_STEP_FAILED_CODE } from "../src/extension/teardown-emission";
 import {
   ActiveInvocationRegistry,
 } from "../src/runtime/active-invocation-registry";

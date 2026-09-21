@@ -61,7 +61,7 @@ import {
 } from "./harness";
 import { expectEchoedQuery } from "../helpers/live-transcript";
 import { assertThetaStderrCleanForEach } from "../helpers/theta-stderr-gate";
-import { RELOAD_TEARDOWN_TIMEOUT_CODE } from "../../src/extension/session-shutdown";
+import { RELOAD_TEARDOWN_TIMEOUT_CODE } from "../../src/extension/teardown-emission";
 
 /**
  * The per-drive wall bound. Generous for three live turns (typed free phase +

@@ -59,10 +59,8 @@ import {
   ActiveInvocationRegistry,
   type ActiveInvocationEntry,
 } from "../src/runtime/active-invocation-registry";
-import {
-  RELOAD_TEARDOWN_TIMEOUT_CODE,
-  SESSION_SHUTDOWN_ABORT_MESSAGE,
-} from "../src/extension/session-shutdown";
+import { SESSION_SHUTDOWN_ABORT_MESSAGE } from "../src/extension/session-shutdown";
+import { RELOAD_TEARDOWN_TIMEOUT_CODE } from "../src/extension/teardown-emission";
 import { SHUTDOWN_AWAIT_CAP_MS } from "../src/extension/capability-probe";
 import { FakeClock } from "./helpers/fake-clock";
 import { SEAM_NOOP_CHECKPOINT } from "./helpers/invoke-seam-scaffold";

@@ -42,10 +42,8 @@ import { createProductionProducerDeps } from "../src/extension/production-theta-
 import { composeThetaFixture } from "../src/extension/theta-composition-producer";
 import type { BodyExecution } from "../src/runtime/statement-executor";
 import { ActiveInvocationRegistry } from "../src/runtime/active-invocation-registry";
-import {
-  TEARDOWN_STEP_FAILED_CODE,
-  type ForwardingSignalSource,
-} from "../src/extension/session-shutdown";
+import { type ForwardingSignalSource } from "../src/extension/session-shutdown";
+import { TEARDOWN_STEP_FAILED_CODE } from "../src/extension/teardown-emission";
 import {
   createThetaAbort,
   forwardSlashCommandCancel,

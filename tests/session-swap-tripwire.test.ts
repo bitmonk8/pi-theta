@@ -38,10 +38,8 @@ import {
   ActiveInvocationRegistry,
 } from "../src/runtime/active-invocation-registry";
 import { ThetaRegistry } from "../src/extension/reload-wiring";
-import {
-  RUNTIME_DEGRADED_CODE,
-  type SessionShutdownDeps,
-} from "../src/extension/session-shutdown";
+import { type SessionShutdownDeps } from "../src/extension/session-shutdown";
+import { RUNTIME_DEGRADED_CODE } from "../src/extension/teardown-emission";
 import {
   armSessionSwapTripwireForReason,
   guardSessionSwapTripwire,

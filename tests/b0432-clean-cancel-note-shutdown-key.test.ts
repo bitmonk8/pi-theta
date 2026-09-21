@@ -46,7 +46,7 @@ import {
   CANCELLED_BY_SESSION_SHUTDOWN_CODE,
   type EmissionSink,
   type CancelledBySessionShutdownDeps,
-} from "../src/extension/session-shutdown";
+} from "../src/extension/teardown-emission";
 import type { SystemNoteChannelDeps } from "../src/extension/system-note-channel";
 import type { ActiveInvocationEntry } from "../src/runtime/active-invocation-registry";
 

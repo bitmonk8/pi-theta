@@ -136,14 +136,15 @@ import type {
   ActiveInvocationRegistry,
   ActiveInvocationTicket,
 } from "../runtime/active-invocation-registry";
-import type { ForwardingSignalSource, EmissionSink } from "./session-shutdown";
+import type { ForwardingSignalSource } from "./session-shutdown";
 import type { ExecutionStatusBus, ParForLaneHooks } from "./execution-status/types";
 import { decorateCheckpoint } from "./execution-status/checkpoint-decorator";
 import { attachChildActivityTap } from "./execution-status/child-tap";
 import {
+  type EmissionSink,
   emitCancelledBySessionShutdownNote,
   createProductionEmissionSink,
-} from "./session-shutdown";
+} from "./teardown-emission";
 import { sendSystemNote, type SystemNoteChannelDeps } from "./system-note-channel";
 import { isStaleCtxError } from "./stale-ctx";
 import type {
@@ -660,7 +661,7 @@ export interface ProductionProducerInput {
    * Bug 0073 test seam: the structured-console `EmissionSink` the per-invocation
    * clean-cancel note's diagnostic-emission-isolation site class (b) row writes
    * through. Absent ⇒ the exported production console sink
-   * (`createProductionEmissionSink`, `session-shutdown.ts`).
+   * (`createProductionEmissionSink`, `teardown-emission.ts`).
    */
   readonly cleanCancelSink?: EmissionSink;
   /**

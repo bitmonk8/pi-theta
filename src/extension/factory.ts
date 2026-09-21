@@ -55,10 +55,8 @@ import {
 } from "./system-note-channel";
 import type { ThetaRegistry, ParsedTheta } from "./reload-wiring";
 import { resolveSlashDispatchWithReadFailover } from "./drain-state";
-import {
-  createProductionEmissionSink,
-  type ForwardingSignalSource,
-} from "./session-shutdown";
+import { createProductionEmissionSink } from "./teardown-emission";
+import type { ForwardingSignalSource } from "./session-shutdown";
 import {
   guardSessionSwapTripwire,
   runGuardedSlashHandler,

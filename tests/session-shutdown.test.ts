@@ -51,23 +51,25 @@ import {
 import { ThetaRegistry } from "../src/extension/reload-wiring";
 import { SESSION_SHUTDOWN_REASON_SNAPSHOT } from "../src/extension/version-bump-gates";
 import {
-  cancelledBySessionShutdownDiagnostic,
-  emitNestedShapeDiagnostic,
-  emitTeardownDiagnostic,
-  reloadTeardownTimeoutDiagnostic,
   runSessionShutdown,
   SESSION_SHUTDOWN_ABORT_MESSAGE,
   SHUTDOWN_AWAIT_CAP_MS,
   synthesiseSessionShutdownReason,
-  teardownStepFailedDiagnostic,
   TEARDOWN_STEP_CALL_LABELS,
-  type NestedShapeEmission,
   type SessionShutdownDeps,
+} from "../src/extension/session-shutdown";
+import {
+  cancelledBySessionShutdownDiagnostic,
+  emitNestedShapeDiagnostic,
+  emitTeardownDiagnostic,
+  reloadTeardownTimeoutDiagnostic,
+  teardownStepFailedDiagnostic,
+  type NestedShapeEmission,
   CANCELLED_BY_SESSION_SHUTDOWN_CODE,
   RELOAD_TEARDOWN_TIMEOUT_CODE,
   RUNTIME_DEGRADED_CODE,
   TEARDOWN_STEP_FAILED_CODE,
-} from "../src/extension/session-shutdown";
+} from "../src/extension/teardown-emission";
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
 
 // --- registry *Message* column templates (with placeholders filled) ---------

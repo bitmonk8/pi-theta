@@ -23,7 +23,7 @@
 
 import type { Diagnostic } from "../diagnostics/diagnostic";
 import type { ThetaRegistry, SessionOnlyReason } from "./reload-wiring";
-import { type EmissionSink, emitTeardownDiagnostic } from "./session-shutdown";
+import { type EmissionSink, emitTeardownDiagnostic } from "./teardown-emission";
 
 /**
  * The diagnostics-registry code the tripwire trip emits (E, runtime), sourced
@@ -60,7 +60,7 @@ export interface FailFastTerminator {
 /**
  * The production `FailFastTerminator`: `process.exit(1)`, the NFR-2.1
  * `Environment.FailFast`-equivalent "let crash" path (mirrors
- * `createProductionEmissionSink` in session-shutdown.ts). The trip has proven
+ * `createProductionEmissionSink` in teardown-emission.ts). The trip has proven
  * the host violated the teardown-and-rebind lifecycle the
  * `governed-by-rebind` resolution rests on, so the only correct posture is to
  * crash rather than run any further logic past a proven-false premise —

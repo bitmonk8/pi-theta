@@ -7,12 +7,12 @@ import { ThetaRegistry } from "../../src/extension/reload-wiring";
 import { SESSION_SHUTDOWN_REASON_SNAPSHOT } from "../../src/extension/version-bump-gates";
 import type {
   ClosableWatcher,
-  EmissionSink,
   ForwardingSignalSource,
   SessionShutdownDeps,
   SessionShutdownEventLike,
   TeardownAwareDebouncer,
 } from "../../src/extension/session-shutdown";
+import type { EmissionSink } from "../../src/extension/teardown-emission";
 import { runSessionShutdown, SHUTDOWN_AWAIT_CAP_MS } from "../../src/extension/session-shutdown";
 import type { Clock } from "../../src/seams/clock";
 import type { FakeClock } from "./fake-clock";

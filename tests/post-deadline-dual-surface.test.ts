@@ -73,11 +73,13 @@ import {
 } from "../src/runtime/active-invocation-registry";
 import {
   runSessionShutdown,
+  SHUTDOWN_AWAIT_CAP_MS,
+} from "../src/extension/session-shutdown";
+import {
   CANCELLED_BY_SESSION_SHUTDOWN_CODE,
   RELOAD_TEARDOWN_TIMEOUT_CODE,
-  SHUTDOWN_AWAIT_CAP_MS,
   type EmissionSink,
-} from "../src/extension/session-shutdown";
+} from "../src/extension/teardown-emission";
 import { FakeClock } from "./helpers/fake-clock";
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
 
