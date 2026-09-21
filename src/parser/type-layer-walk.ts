@@ -40,7 +40,7 @@ import {
   checkReassignRhsCompat,
 } from "./type-compat-sites";
 import { BOOLEAN_BINARY_OPS, type StaticTypeInferencePass } from "./static-type-inference";
-import { checkBooleanPosition, checkIndexReceiver } from "../runtime/expression-evaluator";
+import { checkBooleanPosition, checkIndexReceiver } from "./expression-position-checks";
 import { checkIterand } from "./type-layer-iterand";
 import { annotationSourceIsNotTypeExpression } from "./annotation-validation";
 import { checkStdlibMethodCall } from "./stdlib-arg-diagnostics";

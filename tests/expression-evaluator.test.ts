@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
-  checkBooleanPosition,
   evaluateSource,
   type EvalHost,
 } from "../src/runtime/expression-evaluator";
+import { checkBooleanPosition } from "../src/parser/expression-position-checks";
 import type { CompatType } from "../src/parser/type-compat";
 import type { ThetaValue } from "../src/runtime/value";
 import type { Diagnostic, SourceRange } from "../src/diagnostics/diagnostic";
