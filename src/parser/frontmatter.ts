@@ -1026,15 +1026,21 @@ function buildSystemTemplate(
  *     ambiguity, and the theta is not registered.
  *
  * The theta registers iff no error-severity diagnostic was raised.
+ *
+ * `source` is either a whole fenced document (the fences are stripped here via
+ * `extractFrontmatterBlock`) or an already-extracted `FrontmatterBlock` — the
+ * shape `splitFrontmatter` produces — so a caller that has already separated
+ * the fences feeds the block (with its real file-line offset) directly instead
+ * of re-synthesising fences for a second strip.
  */
 export function parseFrontmatter(
-  source: string,
+  source: string | FrontmatterBlock,
   options: ParseFrontmatterOptions,
 ): FrontmatterParseResult {
   const { file, modelMatcher } = options;
   const diagnostics: Diagnostic[] = [];
 
-  const block = extractFrontmatterBlock(source);
+  const block = typeof source === "string" ? extractFrontmatterBlock(source) : source;
   const lineCounter = new LineCounter();
   const doc =
     block === undefined

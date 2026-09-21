@@ -23,7 +23,7 @@
 import type { Diagnostic, Position, SourceRange } from "../diagnostics/diagnostic";
 import { assembleDiagnostics } from "../diagnostics/diagnostic";
 import { lexTheta, type ThetaSource, type Token } from "../lexer/lexer";
-import { validateUtf8Encoding } from "../lexer/encoding";
+import { decodeUtf8, normaliseNewlines, validateUtf8Encoding } from "../lexer/encoding";
 import {
   checkThetaLibTopLevelForm,
   EXPORT_IN_THETA_CODE,
@@ -40,6 +40,7 @@ import {
 import {
   parseFrontmatter,
   type FrontmatterBodyTypes,
+  type FrontmatterBlock,
   type ParsedFrontmatter,
   type ParsedToolLoop,
   type ParsedRespondRepair,
@@ -166,7 +167,7 @@ export function parseThetaDocument(
   const file = source.path;
 
   // Bug 0410 §Fix option 1 — validate the RAW, pre-decode bytes before
-  // `decodeSource` runs. `decodeSource` uses a non-fatal `TextDecoder` that
+  // `decodeUtf8` runs. `decodeUtf8` uses a non-fatal `TextDecoder` that
   // silently substitutes U+FFFD for invalid sequences, so a gate placed after
   // it (or fed re-encoded text, as the `lexTheta` call below is) can never
   // observe the original invalid byte or its offset. lexical.md §Encoding
@@ -183,7 +184,7 @@ export function parseThetaDocument(
     };
   }
 
-  const text = decodeSource(source.bytes);
+  const text = normaliseNewlines(decodeUtf8(source.bytes));
 
   // Separate the optional `---` frontmatter fence from the executable body.
   // A fence-less source is body-only: the load-time "frontmatter is required"
@@ -218,8 +219,8 @@ export function parseThetaDocument(
   // resolution touches — and its own diagnostics are discarded (the parse below
   // is the authoritative one).
   const paramFieldNames = new Set<string>();
-  if (split.frontmatterText !== null) {
-    const earlyFm = parseFrontmatter(`---\n${split.frontmatterText}\n---`, {
+  if (split.frontmatter !== null) {
+    const earlyFm = parseFrontmatter(split.frontmatter, {
       file,
       modelMatcher: deps.modelMatcher,
     });
@@ -275,17 +276,8 @@ export function parseThetaDocument(
   // feeding the `params:`-default name-resolution check below.
   let paramFields: readonly ParamFieldInput[] = [];
   const frontmatterRefusedRanges = new Set<string>();
-  if (split.frontmatterText !== null) {
-    // `splitFrontmatter` returns the frontmatter text with the `---` fences
-    // stripped, but `parseFrontmatter` re-requires them (its
-    // `extractFrontmatterBlock` matches a leading/closing `---` fence). Re-wrap
-    // the block in fences so the frontmatter fields (`mode:` / `model:` / …)
-    // actually parse; without this every fenced `.theta` yields `frontmatter:
-    // null` and a spurious `theta/load/missing-mode`. The frontmatter line
-    // numbers are block-relative for a fence at file line 0 — the common case;
-    // a fence preceded by blank lines shifts them by the blank-line count,
-    // which no current obligation asserts.
-    const fm = parseFrontmatter(`---\n${split.frontmatterText}\n---`, {
+  if (split.frontmatter !== null) {
+    const fm = parseFrontmatter(split.frontmatter, {
       file,
       modelMatcher: deps.modelMatcher,
       bodyTypes,
@@ -1374,21 +1366,8 @@ export function collectBodyTypes(
 }
 
 // --------------------------------------------------------------------------
-// Source decoding + frontmatter separation
+// Source encoding + frontmatter separation
 // --------------------------------------------------------------------------
-
-/** Decode validated UTF-8 body bytes (skipping a BOM) and normalise newlines. */
-function decodeSource(bytes: Uint8Array): string {
-  const hasBom =
-    bytes.length >= 3 &&
-    bytes[0] === 0xef &&
-    bytes[1] === 0xbb &&
-    bytes[2] === 0xbf;
-  const body = hasBom ? bytes.subarray(3) : bytes;
-  return new TextDecoder("utf-8", { ignoreBOM: true })
-    .decode(body)
-    .replace(/\r\n?/g, "\n");
-}
 
 /** Re-encode a (already-normalised) body string for the lexer's byte input. */
 function encodeSource(text: string): Uint8Array {
@@ -1399,10 +1378,13 @@ function encodeSource(text: string): Uint8Array {
  * Split a normalised source into its optional leading `---` frontmatter block
  * and the executable body. The frontmatter region is blanked (not removed) in
  * the returned body so body line numbers stay aligned with the original
- * source. Returns `frontmatterText: null` when no leading fence is present.
+ * source. The block carries the fence-stripped YAML text plus the file-line
+ * offset of the opening fence, in the `FrontmatterBlock` shape
+ * `parseFrontmatter` accepts directly. Returns `frontmatter: null` when no
+ * leading fence is present.
  */
 function splitFrontmatter(text: string): {
-  frontmatterText: string | null;
+  frontmatter: FrontmatterBlock | null;
   bodyText: string;
 } {
   const lines = text.split("\n");
@@ -1416,7 +1398,7 @@ function splitFrontmatter(text: string): {
     break;
   }
   if (open < 0) {
-    return { frontmatterText: null, bodyText: text };
+    return { frontmatter: null, bodyText: text };
   }
   let close = -1;
   for (let i = open + 1; i < lines.length; i += 1) {
@@ -1437,13 +1419,13 @@ function splitFrontmatter(text: string): {
     // missing-mode is the documented "no recognised frontmatter mapping"
     // surface (see `extractFrontmatterBlock` in frontmatter.ts).
     return {
-      frontmatterText: "",
+      frontmatter: { yaml: "", lineOffset: open + 1 },
       bodyText: lines.map(() => "").join("\n"),
     };
   }
-  const frontmatterText = lines.slice(open + 1, close).join("\n");
+  const yaml = lines.slice(open + 1, close).join("\n");
   const bodyText = lines.map((l, i) => (i <= close ? "" : l)).join("\n");
-  return { frontmatterText, bodyText };
+  return { frontmatter: { yaml, lineOffset: open + 1 }, bodyText };
 }
 
 // --------------------------------------------------------------------------
