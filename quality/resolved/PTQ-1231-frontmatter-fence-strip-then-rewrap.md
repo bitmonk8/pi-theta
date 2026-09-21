@@ -2,7 +2,7 @@
 id: PTQ-1231
 title: parseThetaDocument strips the frontmatter fences with its own splitFrontmatter scanner, then re-synthesises fake `---` fences at both parseFrontmatter call sites because extractFrontmatterBlock re-requires them
 lens: D8
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/parser/theta-document.ts:1404-1447

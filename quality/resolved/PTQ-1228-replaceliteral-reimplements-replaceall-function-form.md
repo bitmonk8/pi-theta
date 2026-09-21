@@ -2,7 +2,7 @@
 id: PTQ-1228
 title: replaceLiteral hand-rolls the literal all-occurrences scan that String.prototype.replaceAll's function-replacer form already provides
 lens: D8
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/runtime/stdlib-string.ts:118-142

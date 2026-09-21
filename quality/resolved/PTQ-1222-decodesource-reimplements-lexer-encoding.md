@@ -2,7 +2,7 @@
 id: PTQ-1222
 title: theta-document's decodeSource re-hand-rolls decodeUtf8 + normaliseNewlines that src/lexer/encoding.ts already exports
 lens: D8
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/parser/theta-document.ts:1381-1391

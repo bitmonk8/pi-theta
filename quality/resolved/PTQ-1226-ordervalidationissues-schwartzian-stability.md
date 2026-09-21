@@ -2,7 +2,7 @@
 id: PTQ-1226
 title: orderValidationIssues hand-rolls sort stability via a decorate-with-index/tiebreak/undecorate transform that Array.prototype.sort already guarantees
 lens: D8
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/runtime/query-error.ts:197-216

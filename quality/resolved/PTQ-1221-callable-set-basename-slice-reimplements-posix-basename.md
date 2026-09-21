@@ -2,7 +2,7 @@
 id: PTQ-1221
 title: entryBasename and thetaDefaultName in callable-set.ts hand-roll the final-segment strip node:path's posix.basename already provides and the sibling imports.ts already uses
 lens: D8
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/parser/callable-set.ts:549-551
