@@ -659,7 +659,7 @@ describe("bug 0203 (g) — the shared brace decline's admissions stay silent (bu
       expect(
         annotationSourceIsNotTypeExpression(annotation),
         `g${index + 1}: the decline is the SHARED one (isUnspellableTextRefusable, ` +
-          `src/parser/params.ts) — bug 0203 inherits it and narrowing it in either direction is ` +
+          `src/parser/type-text-split.ts) — bug 0203 inherits it and narrowing it in either direction is ` +
           `out of scope`,
       ).toBe(false);
       expect(
