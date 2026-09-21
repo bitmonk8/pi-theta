@@ -6,6 +6,8 @@
 // imported `.thetalib` modules (per diagnostics/diagnostic-shape.md and
 // implementation-notes.md "Static-resolution load pass").
 
+import { compareCodePoint } from "../code-point-order";
+
 /** Diagnostic severity. */
 export type Severity = "error" | "warning";
 
@@ -124,9 +126,11 @@ export function assembleDiagnostics(
 
   // Order by (file, line, col). Location-less fields sort ahead of located
   // ones (empty file / position 0). Array.prototype.sort is stable, so
-  // diagnostics tying on the full key keep their collected order.
+  // diagnostics tying on the full key keep their collected order. The file
+  // key uses the canonical code-point comparator, not locale collation, so
+  // the ordering is fixed regardless of the host's locale/ICU configuration.
   return collected.sort((a, b) => {
-    const fileCmp = (a.file ?? "").localeCompare(b.file ?? "");
+    const fileCmp = compareCodePoint(a.file ?? "", b.file ?? "");
     if (fileCmp !== 0) {
       return fileCmp;
     }
@@ -164,38 +168,10 @@ export function normaliseLiteralValueLineBreaks(text: string): string {
   if (!/[\r\n]/.test(text)) {
     return text;
   }
-  const n = text.length;
-  let out = "";
-  let i = 0;
-  while (i < n) {
-    const c = text[i] ?? "";
-    if (c === " " || c === "\t" || c === "\r" || c === "\n") {
-      let j = i;
-      let sawBreak = false;
-      while (j < n) {
-        const wc = text[j] ?? "";
-        if (wc !== " " && wc !== "\t" && wc !== "\r" && wc !== "\n") {
-          break;
-        }
-        if (wc === "\r" || wc === "\n") {
-          sawBreak = true;
-        }
-        j += 1;
-      }
-      out += sawBreak ? " " : text.slice(i, j);
-      i = j;
-      continue;
-    }
-    out += c;
-    i += 1;
-  }
-  let start = 0;
-  let end = out.length;
-  while (start < end && out[start] === " ") {
-    start += 1;
-  }
-  while (end > start && out[end - 1] === " ") {
-    end -= 1;
-  }
-  return out.slice(start, end);
+  // Each maximal whitespace run containing at least one break (the mandatory
+  // [\r\n] in the middle) collapses to one U+0020; break-free runs never
+  // match. Then leading/trailing U+0020 (only — never tab) is trimmed.
+  return text
+    .replace(/[ \t\r\n]*[\r\n][ \t\r\n]*/g, " ")
+    .replace(/^ +| +$/g, "");
 }
