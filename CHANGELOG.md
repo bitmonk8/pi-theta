@@ -4,6 +4,26 @@ All notable changes to `@bitmonk8/pi-theta` will be documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.488.1]
+
+### Added
+- **RFC 0015 Delivery 1 — the runtime trace seam** (`deps.trace?.(site,
+  kind)`). A new optional observability seam on the statement executor's
+  deps (`src/seams/trace.ts`, sibling of the checkpoint seam, which is
+  untouched): at every statement dispatch the executor publishes a
+  residence-keyed `"stmt"` trace, and at every effect dispatch (including
+  per-loop-iteration `loop-iter`) it additionally publishes the effect's
+  `CheckpointKind` through the same seam — a self-sufficient, no-join
+  `(file, line, kind)` stream for the RFC 0015 heat ring (D2). The seam is
+  optional-function shaped and wired into NO composition (print/json/child
+  and today's interactive builds are byte-identical; TUI wiring is D5); when
+  absent the cost is one undefined-check per statement. A throwing trace
+  propagates to the nearest boundary like a throwing checkpoint. Contract
+  and recorded limitations (pure `fn` bodies, `subagent fn` invoke kind,
+  pre-drive binder call) live in `src/seams/trace.ts`;
+  `HeatLineKind = TraceKind` is the D2-consuming contract in
+  `src/extension/execution-status/types.ts`.
+
 ## [0.488.0]
 
 ### Fixed

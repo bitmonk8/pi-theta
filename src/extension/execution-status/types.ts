@@ -5,6 +5,7 @@
 // Spec: docs/spec_topics/execution-status.md (EXST-1..12).
 
 import type { CheckpointKind, CheckpointSite } from "../../seams/checkpoint";
+import type { TraceKind } from "../../seams/trace";
 import type { Clock } from "../../seams/clock";
 
 // ---------------------------------------------------------------------------
@@ -62,6 +63,23 @@ export const PROGRESS_WIRE_MAX_LINE_BYTES = 4096;
 export type ProgressVerbosity = "off" | "counts" | "names"; // EXST-10
 export type ViewShape = "off" | "min" | "tree"; // EXST-11
 export type InvocationMode = "prompt" | "subagent" | "subagent-fn";
+
+/**
+ * RFC 0015 (D1→D2 contract) — the per-line heat-entry `kind` the D2 heat ring
+ * will upsert per `(file, line)`. Every kind arrives through the TRACE seam
+ * itself, already residence-keyed (src/seams/trace.ts §"D1→D2 contract"):
+ * the executor publishes `"stmt"` at statement dispatch and the effect's
+ * `CheckpointKind` at effect dispatch, both under the residence-rule file.
+ * The trace stream is SELF-SUFFICIENT — `checkpointBefore` ingest does NOT
+ * enrich heat, and no bus-side join exists (a line-keyed recency join is
+ * unsound: the `preEvaluateToolArgs` await between a statement's trace and
+ * its `checkpoint.before` lets `par for` lanes interleave, and the checkpoint
+ * site's slash-name `file` cannot disambiguate cross-file same-line
+ * collisions). `TraceKind` already spans both families; the alias names the
+ * ring's stored shape. D1 ships only this shape — the ring and its bus state
+ * are D2.
+ */
+export type HeatLineKind = TraceKind;
 
 export interface EffectRef {
   readonly kind: CheckpointKind; // src/seams/checkpoint.ts:8-14 (five kinds)

@@ -65,6 +65,7 @@ import type {
   WhileStmt,
 } from "../parser/theta-document";
 import type { Checkpoint, CheckpointKind, CheckpointSite } from "../seams/checkpoint";
+import type { Trace } from "../seams/trace";
 import type { ParForLaneHooks } from "../extension/execution-status/types";
 import type { Diagnostic } from "../diagnostics/diagnostic";
 import type { CancellableStatement, OperationResult } from "./cancellation-core";
@@ -115,6 +116,27 @@ import {
  */
 export function panicSiteFile(env: LexicalEnvironment, deps: ExecuteBodyDeps): string {
   return env.currentResidence() ?? deps.sourcePath ?? deps.file;
+}
+
+/**
+ * RFC 0015 — publish an effect's trace at its dispatch, beside (never inside)
+ * the effect's `Checkpoint.before`. The published site keeps the checkpoint
+ * site's line/column but swaps its `file` for the panic-site residence rule:
+ * checkpoint sites are built from `baseDeps.file` (the slash name), which is
+ * NOT the run card's heat key — a bus-side join is unsound (interleaved
+ * `par for` lanes, cross-file same-line collisions), so the executor hands
+ * D2 a self-sufficient residence-keyed `(file, line, kind)` stream instead
+ * (src/seams/trace.ts §"D1→D2 contract"). Fires before the pre-dispatch
+ * signal read, so a cancelled-before-commit effect still marks its line as
+ * reached.
+ */
+function traceEffectDispatch(
+  env: LexicalEnvironment,
+  deps: ExecuteBodyDeps,
+  kind: CheckpointKind,
+  site: CheckpointSite,
+): void {
+  deps.trace?.({ file: panicSiteFile(env, deps), line: site.line, column: site.column }, kind);
 }
 
 /**
@@ -306,6 +328,23 @@ export interface ExecuteBodyDeps {
    * docs/spec_topics/execution-status.md EXST-3 lane lifecycle).
    */
   readonly statusLanes?: ParForLaneHooks;
+  /**
+   * RFC 0015 (D1) — the optional statement-trace observability seam. Called
+   * with kind `"stmt"` at every statement dispatch (the statement's own
+   * source site) and with the effect's `CheckpointKind` at every effect
+   * dispatch, beside — never inside — that effect's `checkpoint.before`
+   * (`traceEffectDispatch`). OPTIONAL because the print/json/child
+   * compositions never wire it (the `statusLanes?` precedent): absent, the
+   * cost is one undefined-check per publication site. It gates nothing —
+   * cancellation stays exclusively on the `checkpoint` seam above. The
+   * executor calls it bare: a throwing trace is a defective seam
+   * implementation whose throw propagates to the nearest boundary exactly
+   * like any other executor throw (a `par for` lane downgrades it to that
+   * element's ERR-20 `Err`; only outside any boundary does it abort the
+   * drive — contract in `src/seams/trace.ts`; containment, where wanted,
+   * belongs in the composition-side wrapper).
+   */
+  readonly trace?: Trace;
 }
 
 /**
@@ -1002,6 +1041,7 @@ async function evalCheckpointedEffect(
     site: checkpoint.site,
     run: () => deps.host.runEffect(expr, env, preArgs.args, deps.invokeChain),
   };
+  traceEffectDispatch(env, deps, checkpoint.kind, checkpoint.site);
   const outcome = await runCancellableSequence(
     { checkpoint: deps.checkpoint, signal: deps.signal },
     [statement],
@@ -1345,6 +1385,7 @@ async function evalAsResult(
     site: checkpoint.site,
     run: () => deps.host.runEffect(operand, env, preArgs.args, deps.invokeChain),
   };
+  traceEffectDispatch(env, deps, checkpoint.kind, checkpoint.site);
   const outcome = await runCancellableSequence(
     { checkpoint: deps.checkpoint, signal: deps.signal },
     [statement],
@@ -1493,6 +1534,15 @@ function toRuntimePattern(pattern: PatternNode): Pattern {
  * `V19b`'s environment at build time, so they are inert at execution time.
  */
 async function executeStatement(stmt: Stmt, env: LexicalEnvironment, deps: ExecuteBodyDeps): Promise<Flow> {
+  if (deps.trace !== undefined) {
+    // RFC 0015: the site names the file a human can open — the same residence
+    // rule panic sites use (a `.thetalib` fn body names its declaring file) —
+    // so the run card's per-(file, line) heat keys land on the source it lexed.
+    deps.trace(
+      { file: panicSiteFile(env, deps), line: stmt.range.start.line, column: stmt.range.start.column },
+      "stmt",
+    );
+  }
   switch (stmt.kind) {
     case "expr": {
       // A bare expression statement's value is discarded (no `let` binds it, no
@@ -1700,6 +1750,7 @@ async function executeWhile(
 ): Promise<Flow> {
   const site = loopIterSite(stmt, deps);
   for (;;) {
+    traceEffectDispatch(env, deps, "loop-iter", site);
     const aborted = await loopIterCheckpoint(site, deps);
     if (aborted) {
       return { kind: "cancel" };
@@ -1759,6 +1810,7 @@ async function executeFor(stmt: ForStmt, env: LexicalEnvironment, deps: ExecuteB
 
   const site = loopIterSite(stmt, deps);
   for (const { element } of plan) {
+    traceEffectDispatch(env, deps, "loop-iter", site);
     const aborted = await loopIterCheckpoint(site, deps);
     if (aborted) {
       return { kind: "cancel" };

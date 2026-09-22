@@ -4,6 +4,7 @@
 // them rather than redeclaring members.
 
 export type { Checkpoint, CheckpointKind, CheckpointSite } from "./checkpoint";
+export type { Trace, TraceKind } from "./trace";
 export type {
   SchemaValidator,
   CompiledValidator,
