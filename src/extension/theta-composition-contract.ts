@@ -5,6 +5,7 @@ import type { ParsedTheta } from "./reload-wiring";
 import type { BodyExecution, ExecuteBodyDeps } from "../runtime/statement-executor";
 import type { ThetaValue, ResultValue } from "../runtime/value";
 import type { SchemaValidator } from "../seams/schema-validator";
+import type { CheckpointSite } from "../seams/checkpoint";
 import type { InvokeChain } from "../runtime/invoke-depth-cycle";
 import type { QueryError } from "../runtime/query-error";
 import type { RuntimeEvent } from "../runtime/runtime-event-channel";
@@ -174,6 +175,17 @@ export interface ConversationBindInput {
    * factory) and everywhere the composition left the seam unwired.
    */
   readonly trace?: Trace;
+  /**
+   * RFC 0015 (D7): the residence-keyed call site of the `subagent fn` call
+   * spawning this child, carried by the SPAWN PATH itself so the bus can stamp
+   * the child node's `launchSite` race-free (the D2 report's recorded option:
+   * neither a trace↔checkpoint join nor bus-resident state — the site travels
+   * with the request, so concurrent `par for` lanes cannot cross-stamp). Set
+   * by `#driveSubagentFnChild` from `SubagentFnChildRequest.site` (already
+   * residence-keyed by the executor, matching heat keys); absent on every
+   * other bind path, where the D2 invoke-derived attribution stands.
+   */
+  readonly launchSite?: CheckpointSite;
 }
 
 /**

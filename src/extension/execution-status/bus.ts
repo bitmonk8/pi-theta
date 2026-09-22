@@ -35,6 +35,7 @@ import type {
 } from "./types";
 import {
   DONE_LINGER_MS,
+  HEAT_INFLIGHT_CAPACITY,
   HEAT_RING_CAPACITY,
   MAX_LANE_SET_DEPTH,
   MAX_RUNNING_LANES_TRACKED,
@@ -46,7 +47,7 @@ import { clampAuthorMessage } from "./progress-tool";
 import { HEAT_FADE_MS } from "./render/heat";
 import type { Clock, TimerHandle } from "../../seams/clock";
 import type { CheckpointKind, CheckpointSite } from "../../seams/checkpoint";
-import type { TraceKind } from "../../seams/trace";
+import { isSpanTraceKind, type TraceKind, type TraceSettle } from "../../seams/trace";
 
 /** A no-op handle: returned when the owning node is untracked (EXST-7). */
 const NOOP_LANE_SET_HANDLE: ParForLaneSetHandle = Object.freeze({
@@ -68,6 +69,18 @@ interface HeatEntryState {
 /** The ring's composite `(file, line)` key. `\u0000` cannot occur in a path. */
 function heatKey(file: string, line: number): string {
   return `${file}\u0000${line}`;
+}
+
+/** RFC 0015 (D7): one open effect span — dispatch recorded, settle pending. */
+interface InflightSpan {
+  readonly file: string;
+  readonly line: number;
+  readonly kind: HeatLineKind;
+  readonly openedAtMs: number;
+  /** Set by whichever close fires first (settle callback / capacity eviction /
+   *  node end) so every later close is a no-op — the settle callback the
+   *  executor holds may legitimately arrive after a forced close. */
+  settled: boolean;
 }
 
 /** Mutable per-lane-set state. `running` is claim-ordered by Map insertion. */
@@ -102,19 +115,14 @@ interface NodeState {
   /** RFC 0015 (D2): the heat ring — recency-ordered by Map insertion (a re-hit
    *  re-inserts its key), so the FIRST key is always the LRU eviction victim. */
   readonly heat: Map<string, HeatEntryState>;
-  /** The most recently hit heat key — the dwell-attribution target for the
-   *  interval that the NEXT trace publication closes. */
-  lastHeatKey: string | undefined;
-  /** `clock.now()` of the newest trace publication (the open interval's start). */
-  lastTraceAtMs: number;
-  /** Operator-ruling clamp (2026-09-22): the in-flight effect's `(file, line)`,
-   *  set by every effect-kind trace publication, cleared by the next `"stmt"`
-   *  publication or node end. Kept as a standalone site (not a ring reference)
-   *  — stored independently of ring lifetime as a defensive shape; under
-   *  shipped semantics a clamped key is always the ring's MRU (nothing else
-   *  publishes between clamp-set and clamp-move/clear) and is never evicted
-   *  while clamped. */
-  clampSite: { readonly file: string; readonly line: number } | undefined;
+  /** RFC 0015 (D7): the OPEN effect spans, insertion-ordered by dispatch time
+   *  (Map order), keyed by a per-node monotonic span id — the clamp SET the
+   *  operator ruling generalises to (every in-flight line renders full-heat
+   *  until ITS settle) and the real-dwell accumulator's open half. Bounded at
+   *  `HEAT_INFLIGHT_CAPACITY`: the oldest span force-settles on overflow. */
+  readonly inflight: Map<number, InflightSpan>;
+  /** Monotonic id source for `inflight` keys (per node — no global state). */
+  nextSpanId: number;
   /** RFC 0015 (D2): the newest `"invoke"`-kind trace site on THIS node — the
    *  residence-keyed launch-site source for children bound to it. */
   lastInvokeSite: CheckpointSite | undefined;
@@ -212,9 +220,8 @@ class ExecutionStatusBusImpl implements ExecutionStatusBus {
         childLastEventAtMs: 0,
         childSeen: false,
         heat: new Map<string, HeatEntryState>(),
-        lastHeatKey: undefined,
-        lastTraceAtMs: 0,
-        clampSite: undefined,
+        inflight: new Map<number, InflightSpan>(),
+        nextSpanId: 0,
         lastInvokeSite: undefined,
         launchSite: undefined,
         childrenSpawned: 0,
@@ -230,7 +237,11 @@ class ExecutionStatusBusImpl implements ExecutionStatusBus {
 
   invocationBound(
     invocationId: string,
-    info: { readonly mode: InvocationMode; readonly parentInvocationId?: string },
+    info: {
+      readonly mode: InvocationMode;
+      readonly parentInvocationId?: string;
+      readonly launchSite?: CheckpointSite;
+    },
   ): void {
     try {
       const node = this.#nodes.get(invocationId);
@@ -239,22 +250,20 @@ class ExecutionStatusBusImpl implements ExecutionStatusBus {
       }
       node.mode = info.mode;
       node.parentInvocationId = info.parentInvocationId;
-      // RFC 0015 (D2) launch-site attribution: read (never join) the parent's
-      // state AT BIND TIME. Preferred source is the parent's newest
-      // `"invoke"`-kind trace site (residence-keyed — the same key space as
-      // heat, so D5's gutter lands in the right viewport file); fallback is the
-      // parent's currentEffect site when that effect is an `invoke`
-      // (checkpoint-site naming — covers compositions where the trace seam is
-      // unwired). Best-effort under par-for: a sibling lane's invoke between
-      // this child's launch and its bind can overwrite either source, so the
-      // attribution can name a concurrent sibling's launch line — accepted and
-      // bounded to same-parent concurrent invoke launches. No race-free source
-      // exists within bus-resident state (D2's scope); a race-free alternative
-      // — carrying the site through the spawn path in `invocationBound` info —
-      // is neither a trace↔checkpoint join nor bus-resident, and is recorded
-      // as an option for D5+. `subagent-fn` spawns publish no invoke kind at
-      // all, so any invoke-derived site would be a STALE earlier launch, not a
-      // race — skip attribution entirely for that mode (absent, never wrong).
+      // RFC 0015 (D2→D7) launch-site attribution — two sources, in priority
+      // order: (1) a site carried on the bind through the SPAWN PATH itself
+      // always wins (race-free under par-for, residence-keyed by the
+      // executor's own stamp); (2) derived fallback for non-fn modes: read
+      // (never join) the parent's bus-resident state AT BIND TIME — its
+      // newest `"invoke"`-kind trace site, else its currentEffect site when
+      // that effect is an `invoke` (covers compositions where the trace seam
+      // is unwired). The fallback is best-effort under par-for: a sibling
+      // lane's invoke between this child's launch and its bind can overwrite
+      // either source, so it can name a concurrent sibling's launch line —
+      // accepted and bounded to same-parent concurrent invoke launches.
+      // `subagent-fn` spawns publish no invoke kind at all, so a derived site
+      // would be a STALE earlier launch, not a race — an fn bind without a
+      // carried site gets no attribution (absent, never wrong).
       if (info.parentInvocationId !== undefined) {
         const parent = this.#nodes.get(info.parentInvocationId);
         if (parent !== undefined) {
@@ -262,7 +271,15 @@ class ExecutionStatusBusImpl implements ExecutionStatusBus {
           // cumulative spawn total, `subagent-fn` included — the mode gate
           // below scopes only launch-SITE attribution, not existence.
           parent.childrenSpawned += 1;
-          if (info.mode !== "subagent-fn") {
+          // RFC 0015 (D7): the spawn-path site wins when the bind carries one
+          // — it travelled with the spawn request itself, so it is race-free
+          // under par-for and residence-keyed by the executor's own stamp.
+          // It is also the ONLY source for `subagent-fn` binds (fn spawns
+          // publish no invoke-kind trace — the D2 mode gate below stands for
+          // the derived fallback, which would be a stale earlier invoke).
+          if (info.launchSite !== undefined) {
+            node.launchSite = info.launchSite;
+          } else if (info.mode !== "subagent-fn") {
             node.launchSite =
               parent.lastInvokeSite ??
               (parent.effectKind === "invoke" ? parent.effectSite : undefined);
@@ -309,30 +326,18 @@ class ExecutionStatusBusImpl implements ExecutionStatusBus {
       // Unsettled lanes are dropped with it (whole-theta cancel — CTRL-5).
       const now = this.#clock.now();
       node.endedAtMs = now;
-      // RFC 0015 (D2): node end closes the current key's open dwell interval —
-      // trace() drops publications on ended nodes, so no later close exists. A
-      // drive whose FINAL statement is its dominant long effect would otherwise
-      // record ~0 dwell for it (mirrors the trace() close).
-      if (node.lastHeatKey !== undefined) {
-        const previous = node.heat.get(node.lastHeatKey);
-        if (previous !== undefined) {
-          previous.dwellMs += now - node.lastTraceAtMs;
-        }
-        node.lastTraceAtMs = now;
+      // RFC 0015 (D7): node end force-closes every still-open effect span —
+      // whatever was in flight settled (or died) with the drive, and trace()
+      // drops publications on ended nodes so no later settle can land. Each
+      // close records the span's real dwell (a drive whose FINAL statement is
+      // its dominant long effect keeps that tail) and refreshes the entry's
+      // lastHitMs so the fade starts at end (= settle, per the operator
+      // ruling's "then fades normally"), and the clamp set empties — a
+      // lingering node's card renders no full-heat line.
+      for (const span of node.inflight.values()) {
+        this.#closeSpan(node, span, now);
       }
-      // RFC 0015 (D2): a lingering node's card must not render a full-heat
-      // line — whatever was in flight settled (or died) with the drive. Node
-      // end IS the settle witness here, so per the operator ruling ("then
-      // fades normally") the fade starts now: refresh the clamped entry's
-      // lastHitMs like the stmt-path clear, or a long-clamped line snaps
-      // full-heat→α≈0 on the lingering done-flash card.
-      if (node.clampSite !== undefined) {
-        const clamped = node.heat.get(heatKey(node.clampSite.file, node.clampSite.line));
-        if (clamped !== undefined) {
-          clamped.lastHitMs = now;
-        }
-        node.clampSite = undefined;
-      }
+      node.inflight.clear();
       this.#markDirty();
     } catch { // allow-broad-catch: EXST-9 — execution-status.md#exst-9
     }
@@ -358,80 +363,61 @@ class ExecutionStatusBusImpl implements ExecutionStatusBus {
     }
   }
 
-  trace(invocationId: string | undefined, site: CheckpointSite, kind: TraceKind): void {
+  trace(
+    invocationId: string | undefined,
+    site: CheckpointSite,
+    kind: TraceKind,
+  ): TraceSettle | undefined {
     try {
       if (this.#disposed || invocationId === undefined) {
-        return;
+        return undefined;
       }
       const node = this.#nodes.get(invocationId);
       if (node === undefined || node.endedAtMs !== undefined) {
-        return;
+        return undefined;
       }
       const now = this.#clock.now();
-      // Close the previous publication's open interval: its wall time dwells on
-      // the key that was current across it (see `HeatEntrySnapshot.dwellMs`).
-      if (node.lastHeatKey !== undefined) {
-        const previous = node.heat.get(node.lastHeatKey);
-        // Defensive shape: `lastHeatKey` is always the ring's MRU when set
-        // (attribution precedes any eviction, and nothing else deletes
-        // entries), so this lookup cannot miss under shipped semantics.
-        if (previous !== undefined) {
-          previous.dwellMs += now - node.lastTraceAtMs;
+      this.#upsertHeatEntry(node, site.file, site.line, kind, now);
+      if (!isSpanTraceKind(kind)) {
+        this.#markDirty();
+        return undefined;
+      }
+      if (kind === "invoke") {
+        node.lastInvokeSite = site;
+      }
+      // RFC 0015 (D7): open the effect span — its site joins the clamp set
+      // (`clampedLines`) and its dispatch→settle length is the line's REAL
+      // dwell. Bounded: at capacity the OLDEST open span force-settles now
+      // (dwell closed, clamp released, fade starts) — a defective seam that
+      // never settles cannot grow this map (EXST-7 posture).
+      if (node.inflight.size >= HEAT_INFLIGHT_CAPACITY) {
+        const eldestKey = node.inflight.keys().next().value;
+        if (eldestKey !== undefined) {
+          this.#closeSpan(node, node.inflight.get(eldestKey)!, now);
+          node.inflight.delete(eldestKey);
         }
       }
-      const key = heatKey(site.file, site.line);
-      const existing = node.heat.get(key);
-      if (existing !== undefined) {
-        // Re-insert so Map iteration order stays LRU→MRU (constant-cost upkeep).
-        node.heat.delete(key);
-        existing.lastHitMs = now;
-        existing.hits += 1;
-        // `"stmt"` never downgrades a recorded effect kind: an effect line's
-        // per-dispatch `"stmt"` publication precedes its effect-kind twin, and
-        // the line's gutter identity is the effect, not the dispatch.
-        if (kind !== "stmt" || existing.kind === "stmt") {
-          existing.kind = kind;
-        }
-        node.heat.set(key, existing);
-      } else {
-        if (node.heat.size >= HEAT_RING_CAPACITY) {
-          const oldest = node.heat.keys().next().value;
-          if (oldest !== undefined) {
-            node.heat.delete(oldest);
-          }
-        }
-        node.heat.set(key, { file: site.file, line: site.line, lastHitMs: now, hits: 1, dwellMs: 0, kind });
-      }
-      node.lastHeatKey = key;
-      node.lastTraceAtMs = now;
-      if (kind === "stmt") {
-        // Operator ruling (2026-09-22): a new statement dispatch is the settle
-        // witness for the previously-clamped effect — no checkpoint join needed.
-        // RESIDUAL (D2, recorded): par-for lanes share this one trace stream
-        // and this single clamp slot with no lane identity, so a sibling
-        // lane's "stmt" clears another lane's clamp while that lane is still
-        // blocked on its effect, and only the newest lane's effect is ever
-        // clamped. The collapse mirrors the shipped single-slot
-        // `currentEffect` the ruling itself names as the source; a true fix
-        // needs lane identity on the trace seam — out of D2's scope.
-        if (node.clampSite !== undefined) {
-          // Ruling second half — "then fades normally": the settled effect's
-          // fade starts at SETTLE, not dispatch, so refresh its entry's
-          // lastHitMs; otherwise a 60s effect snaps from full heat to α≈0.
-          const clamped = node.heat.get(heatKey(node.clampSite.file, node.clampSite.line));
-          if (clamped !== undefined) {
-            clamped.lastHitMs = now;
-          }
-          node.clampSite = undefined;
-        }
-      } else {
-        node.clampSite = { file: site.file, line: site.line };
-        if (kind === "invoke") {
-          node.lastInvokeSite = site;
-        }
-      }
+      const spanId = node.nextSpanId;
+      node.nextSpanId += 1;
+      const span: InflightSpan = { file: site.file, line: site.line, kind, openedAtMs: now, settled: false };
+      node.inflight.set(spanId, span);
       this.#markDirty();
+      // The settle callback the executor holds across the awaited effect.
+      // Idempotent (the `settled` latch): a forced close (capacity eviction,
+      // node end) may have landed first, and dispose() makes it inert.
+      return (): void => {
+        try {
+          if (this.#disposed || span.settled) {
+            return;
+          }
+          this.#closeSpan(node, span, this.#clock.now());
+          node.inflight.delete(spanId);
+          this.#markDirty();
+        } catch { // allow-broad-catch: EXST-9 — execution-status.md#exst-9
+        }
+      };
     } catch { // allow-broad-catch: EXST-9 — execution-status.md#exst-9
+      return undefined;
     }
   }
 
@@ -564,6 +550,12 @@ class ExecutionStatusBusImpl implements ExecutionStatusBus {
     return this.#snapshot();
   }
 
+  tracks(invocationId: string): boolean {
+    // RFC 0015 (D7, PTQ-1256): the renderer's presence gate — a Map probe, so
+    // the entry path stops building (and discarding) a full deep-copy snapshot.
+    return !this.#disposed && this.#nodes.has(invocationId);
+  }
+
   dispose(): void {
     if (this.#disposed) {
       return;
@@ -574,6 +566,80 @@ class ExecutionStatusBusImpl implements ExecutionStatusBus {
   }
 
   // -- internals ------------------------------------------------------------
+
+  /** RFC 0015 (D2/D7): the ring upsert every trace publication folds — LRU
+   *  re-insert on a re-hit, capacity eviction on a fresh key. No dwell is
+   *  recorded here: dwell is span-settle material (`#closeSpan`). */
+  #upsertHeatEntry(
+    node: NodeState,
+    file: string,
+    line: number,
+    kind: HeatLineKind,
+    now: number,
+  ): HeatEntryState {
+    const key = heatKey(file, line);
+    const existing = node.heat.get(key);
+    if (existing !== undefined) {
+      // Re-insert so Map iteration order stays LRU→MRU (constant-cost upkeep).
+      node.heat.delete(key);
+      existing.lastHitMs = now;
+      existing.hits += 1;
+      // `"stmt"` never downgrades a recorded effect kind: an effect line's
+      // per-dispatch `"stmt"` publication precedes its effect-kind twin, and
+      // the line's gutter identity is the effect, not the dispatch.
+      if (kind !== "stmt" || existing.kind === "stmt") {
+        existing.kind = kind;
+      }
+      node.heat.set(key, existing);
+      return existing;
+    }
+    if (node.heat.size >= HEAT_RING_CAPACITY) {
+      const oldest = node.heat.keys().next().value;
+      if (oldest !== undefined) {
+        node.heat.delete(oldest);
+      }
+    }
+    const fresh: HeatEntryState = { file, line, lastHitMs: now, hits: 1, dwellMs: 0, kind };
+    node.heat.set(key, fresh);
+    return fresh;
+  }
+
+  /**
+   * RFC 0015 (D7): close one effect span — land its dispatch→settle length as
+   * the line's REAL dwell and refresh the entry's lastHitMs so the fade starts
+   * at settle (the operator ruling's "then fades normally"; without the
+   * refresh a 60 s effect snaps full-heat→α≈0). A settle is NOT a publication:
+   * a surviving entry keeps its kind (an older span settling after a newer
+   * effect-kind publication on the same line must not revert the gutter —
+   * pinned by T-HEAT H19) and its hits (the dispatch already counted). Only
+   * when a tight loop smeared the ring past capacity and LRU-evicted the entry
+   * mid-span is it restored — hits 1, the span's own kind — so its dwell (the
+   * summary's whole point) is never dropped. Marks the span settled; callers
+   * own its removal from `inflight`.
+   */
+  #closeSpan(node: NodeState, span: InflightSpan, now: number): void {
+    span.settled = true;
+    const key = heatKey(span.file, span.line);
+    const existing = node.heat.get(key);
+    let entry: HeatEntryState;
+    if (existing !== undefined) {
+      // Re-insert so Map iteration order stays LRU→MRU; kind and hits untouched.
+      node.heat.delete(key);
+      existing.lastHitMs = now;
+      node.heat.set(key, existing);
+      entry = existing;
+    } else {
+      if (node.heat.size >= HEAT_RING_CAPACITY) {
+        const oldest = node.heat.keys().next().value;
+        if (oldest !== undefined) {
+          node.heat.delete(oldest);
+        }
+      }
+      entry = { file: span.file, line: span.line, lastHitMs: now, hits: 1, dwellMs: 0, kind: span.kind };
+      node.heat.set(key, entry);
+    }
+    entry.dwellMs += now - span.openedAtMs;
+  }
 
   /** Build the lane handle bound to `set`; `owned` sets may close themselves. */
   #laneHandle(node: NodeState, set: LaneSetState, owned: boolean): ParForLaneSetHandle {
@@ -738,7 +804,7 @@ class ExecutionStatusBusImpl implements ExecutionStatusBus {
    */
   #hasFadingHeat(now: number): boolean {
     for (const node of this.#nodes.values()) {
-      if (node.clampSite !== undefined) {
+      if (node.inflight.size > 0) {
         return true;
       }
       for (const entry of node.heat.values()) {
@@ -867,9 +933,26 @@ function snapshotOfHeat(node: NodeState): HeatSnapshot {
       kind: entry.kind,
     });
   }
+  // RFC 0015 (D7): the clamp SET — distinct in-flight sites, deduplicated
+  // (concurrent lanes on one line clamp it once, released when the LAST span
+  // settles). Each site sits at its NEWEST open span's position — the
+  // delete-then-set keeps Map order per-site-newest, so a re-dispatch on an
+  // already-clamped line moves the site to the end and the final element is
+  // always the most recent dispatch (the renderer's current-line anchor;
+  // pinned by T-HEAT H7d's A-B-A interleaving).
+  let clampedLines: { readonly file: string; readonly line: number }[] | undefined;
+  if (node.inflight.size > 0) {
+    const bySite = new Map<string, { readonly file: string; readonly line: number }>();
+    for (const span of node.inflight.values()) {
+      const key = heatKey(span.file, span.line);
+      bySite.delete(key);
+      bySite.set(key, { file: span.file, line: span.line });
+    }
+    clampedLines = [...bySite.values()];
+  }
   return {
     entries,
-    ...(node.clampSite !== undefined ? { clampedLine: node.clampSite } : {}),
+    ...(clampedLines !== undefined ? { clampedLines } : {}),
   };
 }
 

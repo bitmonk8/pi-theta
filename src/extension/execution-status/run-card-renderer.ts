@@ -1,9 +1,13 @@
-// RFC 0015 (D5) — the LIVE `theta-run` entry renderer, its EXST-6 tick rider,
-// and the TUI-handle capture. This is the impure shell over the D4 render
-// substrate and the D2 bus snapshot: it acquires the Theme (per render call),
-// the Clock/bus (lazy factory latches), the source bytes (filesystem seam),
-// and the TUI handle (composition capture), reduces them to the pure
-// `CardLinesModel`, and delegates all geometry to `card-lines.ts`.
+// RFC 0015 (D5/D7) — the run-card CONTROLLER: the impure shell composing the
+// live `theta-run` renderer (render/run-card-component.ts), the bounded
+// per-invocation card-state store, the heat-LUT cache
+// (render/heat-lut-cache.ts), the EXST-6 tick rider, and the TUI-handle
+// capture. D7's PTQ-1260 decomposition split the former single closure along
+// its concern seams: the component/renderer (Seam A) and the LUT cache
+// (Seam B) live in their own modules behind explicit deps records, and the
+// animation predicate (Seam C) is the module-level pure `animationOwed`
+// below — what remains here is the store, the TUI/OSC-11 wiring, and the
+// controller surface factory.ts composes.
 //
 // Injection: `createEntryChannel(pi, controller.renderer)` swaps this renderer
 // in for D3's static compact form (the D3→D5 seam); the channel's
@@ -18,10 +22,10 @@
 // live card component reads bus state at render time — so no
 // `CustomEntryComponent.invalidate()` reach-in is needed (that host method is
 // reserved for expand-toggles and host-side invalidation, which re-invoke the
-// renderer; the per-file styled-line cache therefore lives HERE, on card
-// state keyed by invocationId, per spike Deviation 4). When the predicate
-// goes false the bus's tick machinery itself goes quiet and the final render
-// is static.
+// renderer; the per-file styled-line cache therefore lives on the card-state
+// store here, keyed by invocationId, per spike Deviation 4). When the
+// predicate goes false the bus's tick machinery itself goes quiet and the
+// final render is static.
 //
 // Blend-base acquisition (spike Deviation 2, recorded design): the verified
 // OSC 11 path is pi-tui's `TUI.queryTerminalBackgroundColor({timeoutMs})`,
@@ -42,35 +46,20 @@ import type { Clock } from "../../seams/clock";
 import type {
   ExecutionStatusBus,
   ExecutionStatusSnapshot,
-  InvocationNodeSnapshot,
   StatusSink,
-  ThetaRunSeed,
 } from "./types";
-import { MAX_TRACKED_INVOCATIONS, RUN_CARD_VIEWPORT_LINES } from "./types";
+import { MAX_TRACKED_INVOCATIONS } from "./types";
 import {
   createThetaRunEntryRenderer,
   type ThetaRunEntryRenderer,
 } from "./entry-channel";
-import { baseFileName } from "./render/format";
+import { HEAT_FADE_MS } from "./render/heat";
+import { createHeatLutCache } from "./render/heat-lut-cache";
 import {
-  buildCardLines,
-  computeViewportTop,
-  followCurrentFile,
-  type CardChildRow,
-  type CardLinesModel,
-  type CardStyle,
-  type FollowState,
-  type LineHeat,
-} from "./render/card-lines";
-import { buildHeatLut, HEAT_FADE_MS, type HeatLutColorMode } from "./render/heat";
-import { resolveHeatEndpoints } from "./render/endpoint-ladder";
-import { parseSgrColor, type Rgb } from "./render/sgr";
-import {
-  createStyledLineCache,
-  styledLinesFor,
-  type StyledLineCache,
-  type SyntaxRole,
-} from "./render/styled-lines";
+  createCardState,
+  createRunCardRenderer,
+  type CardState,
+} from "./render/run-card-component";
 
 /** OSC 11 query budget: generous for a slow terminal, never render-blocking. */
 const OSC11_QUERY_TIMEOUT_MS = 1500;
@@ -163,7 +152,7 @@ export function productionReadSourceBytes(path: string): Uint8Array | undefined 
 
 export interface RunCardControllerDeps {
   /** Lazy latch: the LIVE extension-instance bus (published at compose). */
-  readonly bus: () => Pick<ExecutionStatusBus, "snapshot"> | undefined;
+  readonly bus: () => Pick<ExecutionStatusBus, "snapshot" | "tracks"> | undefined;
   /** Lazy latch: the instance `Clock` (PIC-12; published at compose). */
   readonly clock: () => Clock | undefined;
   /** Source bytes for the viewport (production: `productionReadSourceBytes`). */
@@ -179,69 +168,31 @@ export interface RunCardController {
   attachTui(handle: TuiRenderHandle): void;
 }
 
-// ---------------------------------------------------------------------------
-// Theme duck-typing (the renderer's `theme` parameter is `unknown` on the
-// D3 seam type; the real host hands the interactive `Theme`).
-// ---------------------------------------------------------------------------
-
-interface CardThemeSurface {
-  getFgAnsi(color: string): string;
-  getColorMode(): string;
-}
-
-function probeCardTheme(theme: unknown): CardThemeSurface | undefined {
-  const candidate = theme as Partial<CardThemeSurface> | undefined;
-  if (
-    typeof candidate?.getFgAnsi !== "function" ||
-    typeof candidate.getColorMode !== "function"
-  ) {
-    return undefined;
-  }
-  return candidate as CardThemeSurface;
-}
-
-/** Guarded theme fg read: a throwing/absent role yields "" (unstyled). */
-function themeFg(theme: CardThemeSurface, role: string): string {
-  try {
-    const sgr = theme.getFgAnsi(role);
-    return typeof sgr === "string" ? sgr : "";
-  } catch { // allow-broad-catch: pi-sdk-boundary — conventions.md Specific exception types only
-    return "";
-  }
-}
-
 /**
- * SyntaxRole → theme fg role. Code roles map onto the host's `syntax*`
- * family 1:1 where one exists (`ident` → `syntaxVariable` — the lexer does
- * not distinguish function idents, and variable is the common case);
- * `trivia` — comments, whitespace, template prose — maps to `syntaxComment`
- * (whitespace carries no glyphs, so fg-coloring it is inert; prose reading
- * as comment-muted is the intended de-emphasis).
+ * RFC §Animation predicate (PTQ-1260 Seam C: module-level and pure — it reads
+ * only its parameters and `HEAT_FADE_MS`): fresh heat (< `HEAT_FADE_MS`, or
+ * any in-flight effect span holding its line clamped — the D7 set) or a
+ * running child owes the card another frame.
  */
-const SYNTAX_ROLE_TO_THEME: Readonly<Record<SyntaxRole, string>> = Object.freeze({
-  keyword: "syntaxKeyword",
-  ident: "syntaxVariable",
-  number: "syntaxNumber",
-  string: "syntaxString",
-  punct: "syntaxPunctuation",
-  trivia: "syntaxComment",
-});
-
-// ---------------------------------------------------------------------------
-// Per-card state (spike Deviation 4: OUTSIDE the renderer invocation, keyed
-// by invocationId — `CustomEntryComponent.invalidate()` re-invokes the
-// renderer, so nothing on the returned component survives).
-// ---------------------------------------------------------------------------
-
-interface CardState {
-  readonly styledCache: StyledLineCache;
-  /** The TOP-LEVEL script's file, latched at the first render that knows it —
-   *  the breadcrumb's stable "parent" reference across follow switches. */
-  homeFile?: string;
-  follow?: FollowState;
-  /** Previous viewport top, valid only for `viewTopFile`. */
-  viewTop?: number;
-  viewTopFile?: string;
+export function animationOwed(snapshot: ExecutionStatusSnapshot, nowMs: number): boolean {
+  for (const node of snapshot.nodes) {
+    if (node.parentInvocationId !== undefined && node.endedAtMs === undefined) {
+      return true; // a running child (its badge/roster ages advance)
+    }
+    const heat = node.heat;
+    if (heat === undefined) {
+      continue;
+    }
+    if (heat.clampedLines !== undefined) {
+      return true; // full-heat clamps hold until each span's settle (D7 ruling)
+    }
+    for (const entry of heat.entries) {
+      if (nowMs - entry.lastHitMs < HEAT_FADE_MS) {
+        return true;
+      }
+    }
+  }
+  return false;
 }
 
 export function createRunCardController(deps: RunCardControllerDeps): RunCardController {
@@ -250,11 +201,8 @@ export function createRunCardController(deps: RunCardControllerDeps): RunCardCon
   // grow it unboundedly.
   const cards = new Map<string, CardState>();
   const staticFallback = createThetaRunEntryRenderer();
+  const lutCache = createHeatLutCache();
   let tui: TuiRenderHandle | undefined;
-  let terminalBg: Rgb | undefined;
-  // The LUT and the endpoint key it was built for (rebuild on theme/OSC change).
-  let lut: readonly string[] | undefined;
-  let lutKey: string | undefined;
 
   function cardStateFor(invocationId: string): CardState {
     const existing = cards.get(invocationId);
@@ -268,7 +216,7 @@ export function createRunCardController(deps: RunCardControllerDeps): RunCardCon
       }
       cards.delete(oldest);
     }
-    const fresh: CardState = { styledCache: createStyledLineCache() };
+    const fresh = createCardState();
     cards.set(invocationId, fresh);
     return fresh;
   }
@@ -285,292 +233,14 @@ export function createRunCardController(deps: RunCardControllerDeps): RunCardCon
     }
   }
 
-  function ensureLut(theme: CardThemeSurface): readonly string[] {
-    const colorModeRaw = ((): string => {
-      try {
-        return theme.getColorMode();
-      } catch { // allow-broad-catch: pi-sdk-boundary — conventions.md Specific exception types only
-        return "truecolor";
-      }
-    })();
-    const colorMode: HeatLutColorMode =
-      colorModeRaw === "256color" ? "256color" : "truecolor";
-    const endpoints = resolveHeatEndpoints({
-      ...(terminalBg !== undefined ? { terminalBg } : {}),
-      ...(((): { themeTextFg?: Rgb } => {
-        const parsed = parseSgrColor(themeFg(theme, "text"));
-        return parsed !== undefined ? { themeTextFg: parsed } : {};
-      })()),
-      ...(((): { themeAccentFg?: Rgb } => {
-        const parsed = parseSgrColor(themeFg(theme, "accent"));
-        return parsed !== undefined ? { themeAccentFg: parsed } : {};
-      })()),
-    });
-    const key = `${colorMode}|${endpoints.base.r},${endpoints.base.g},${endpoints.base.b}|${endpoints.hot.r},${endpoints.hot.g},${endpoints.hot.b}`;
-    if (lut === undefined || lutKey !== key) {
-      lut = buildHeatLut(endpoints.base, endpoints.hot, colorMode);
-      lutKey = key;
-    }
-    return lut;
-  }
-
-  /** Defensive seed read (PIC-21 analogue: a malformed payload never throws). */
-  function readSeed(data: unknown): ThetaRunSeed | undefined {
-    const record = data as Partial<Record<keyof ThetaRunSeed, unknown>> | undefined;
-    if (
-      typeof record?.invocationId !== "string" ||
-      typeof record.theta !== "string" ||
-      typeof record.startedAtMs !== "number"
-    ) {
-      return undefined;
-    }
-    return {
-      invocationId: record.invocationId,
-      theta: record.theta,
-      argsSummary: typeof record.argsSummary === "string" ? record.argsSummary : "",
-      startedAtMs: record.startedAtMs,
-      ...(typeof record.sourcePath === "string" ? { sourcePath: record.sourcePath } : {}),
-    };
-  }
-
-  function nodeFor(invocationId: string): InvocationNodeSnapshot | undefined {
-    const snapshot = deps.bus()?.snapshot();
-    return snapshot?.nodes.find((node) => node.invocationId === invocationId);
-  }
-
-  /**
-   * The live card component: `render(width)` recomputes from the CURRENT bus
-   * snapshot and clock, so the tick's `requestRender()` alone animates it. It
-   * degrades in place — node evicted mid-life → static compact form — and is
-   * internally guarded: a render throw would unwind pi-tui's render loop
-   * (`CustomEntryComponent` guards only the renderer INVOCATION), so any
-   * defect degrades to the static form instead (PIC-21 analogue).
-   */
-  class RunCardComponent implements Component {
-    readonly #seed: ThetaRunSeed;
-    readonly #expanded: boolean;
-    readonly #theme: CardThemeSurface;
-    readonly #rawEntry: { customType: string; data: unknown };
-    readonly #rawTheme: unknown;
-
-    constructor(
-      seed: ThetaRunSeed,
-      expanded: boolean,
-      theme: CardThemeSurface,
-      rawEntry: { customType: string; data: unknown },
-      rawTheme: unknown,
-    ) {
-      this.#seed = seed;
-      this.#expanded = expanded;
-      this.#theme = theme;
-      this.#rawEntry = rawEntry;
-      this.#rawTheme = rawTheme;
-    }
-
-    render(width: number): string[] {
-      try {
-        return this.#renderLive(width);
-      } catch { // allow-broad-catch: PIC-21 analogue — a render defect degrades to the static form, never unwinds pi-tui's render loop
-        return this.#renderStatic(width);
-      }
-    }
-
-    invalidate(): void {}
-
-    #renderStatic(width: number): string[] {
-      const component = staticFallback(
-        this.#rawEntry as never,
-        { expanded: this.#expanded },
-        this.#rawTheme,
-      );
-      return component?.render(width) ?? [];
-    }
-
-    #renderLive(width: number): string[] {
-      const clock = deps.clock();
-      const node = nodeFor(this.#seed.invocationId);
-      if (clock === undefined || node === undefined || width <= 0) {
-        // Bus evicted the node (drive over) / latches gone: static compact form.
-        return this.#renderStatic(width);
-      }
-      const now = clock.now();
-      const snapshot = deps.bus()!.snapshot();
-      const state = cardStateFor(this.#seed.invocationId);
-
-      // Current site: the operator-ruled clamp wins (the in-flight effect IS
-      // the current statement); else the ring's MRU entry (newest trace hit).
-      const heat = node.heat;
-      const mru = heat !== undefined ? heat.entries[heat.entries.length - 1] : undefined;
-      const currentSite =
-        heat?.clampedLine ?? (mru !== undefined ? { file: mru.file, line: mru.line } : undefined);
-
-      // Dwell-damped file following (decision 6). The home file is latched
-      // once (seed sourcePath, else the first observed site) so the
-      // breadcrumb's parent reference stays stable across follow switches.
-      if (state.homeFile === undefined) {
-        const first = this.#seed.sourcePath ?? currentSite?.file;
-        if (first !== undefined) {
-          state.homeFile = first;
-        }
-      }
-      const homeFile = state.homeFile;
-      if (state.follow === undefined && homeFile !== undefined) {
-        state.follow = { displayedFile: homeFile };
-      }
-      if (state.follow !== undefined) {
-        followCurrentFile(state.follow, currentSite?.file, now);
-      }
-      const displayedFile = state.follow?.displayedFile;
-
-      const style: CardStyle = {
-        syntaxFg: (role) => themeFg(this.#theme, SYNTAX_ROLE_TO_THEME[role]),
-        accentFg: themeFg(this.#theme, "accent"),
-        mutedFg: themeFg(this.#theme, "muted"),
-      };
-
-      const children = snapshot.nodes.filter(
-        (candidate) => candidate.parentInvocationId === node.invocationId,
-      );
-      const childRows: CardChildRow[] = children.map((child) => ({
-        name: child.theta,
-        ...(child.authorMessage?.scope !== undefined
-          ? { scope: child.authorMessage.scope }
-          : {}),
-        startedAtMs: child.startedAtMs,
-        ...(child.endedAtMs !== undefined ? { endedAtMs: child.endedAtMs } : {}),
-        ...(child.childActivity !== undefined
-          ? {
-              activity: {
-                turns: child.childActivity.turns,
-                toolExecs: child.childActivity.toolExecs,
-                ...(child.childActivity.lastToolName !== undefined
-                  ? { lastToolName: child.childActivity.lastToolName }
-                  : {}),
-              },
-            }
-          : {}),
-        ...(child.placement !== undefined ? { placement: child.placement } : {}),
-        ...(child.launchSite !== undefined && child.launchSite.file === displayedFile
-          ? { launchLine: child.launchSite.line }
-          : {}),
-      }));
-
-      // Viewport: styled lines for the displayed file (lexed once per file per
-      // card — spike Deviation 4's cache placement), heat ages per line.
-      let viewport: CardLinesModel["viewport"];
-      if (displayedFile !== undefined) {
-        // Bytes are read only on a cache miss: the source is immutable for a
-        // run (the lex-once contract), so a per-frame disk read would be pure
-        // waste — and the cache is what survives renderer re-invocations
-        // (spike Deviation 4).
-        const cached = state.styledCache.get(displayedFile);
-        const bytes = cached === undefined ? deps.readSourceBytes(displayedFile) : undefined;
-        if (cached !== undefined || bytes !== undefined) {
-          const styled =
-            cached ??
-            styledLinesFor(state.styledCache, {
-              path: displayedFile,
-              bytes: bytes!,
-            });
-          const heatByLine = new Map<number, LineHeat>();
-          if (heat !== undefined) {
-            for (const entry of heat.entries) {
-              if (entry.file !== displayedFile) {
-                continue;
-              }
-              const clamped =
-                heat.clampedLine !== undefined &&
-                heat.clampedLine.file === entry.file &&
-                heat.clampedLine.line === entry.line;
-              heatByLine.set(entry.line, { ageMs: now - entry.lastHitMs, clamped });
-            }
-          }
-          const currentLine =
-            currentSite !== undefined && currentSite.file === displayedFile
-              ? currentSite.line
-              : undefined;
-          const height = this.#expanded
-            ? styled.length
-            : Math.min(RUN_CARD_VIEWPORT_LINES, styled.length);
-          const prevTop = state.viewTopFile === displayedFile ? state.viewTop : undefined;
-          const top = computeViewportTop(currentLine, styled.length, height, prevTop);
-          state.viewTop = top;
-          state.viewTopFile = displayedFile;
-          viewport = {
-            lines: styled,
-            top,
-            height,
-            ...(currentLine !== undefined ? { currentLine } : {}),
-            heatByLine,
-            lut: ensureLut(this.#theme),
-          };
-        }
-      }
-
-      const model: CardLinesModel = {
-        theta: this.#seed.theta,
-        startedAtMs: node.startedAtMs,
-        nowMs: now,
-        counters: node.counters,
-        activeChildren: children.filter((child) => child.endedAtMs === undefined).length,
-        ...(node.authorMessage !== undefined ? { authorMessage: node.authorMessage } : {}),
-        ...(displayedFile !== undefined &&
-        homeFile !== undefined &&
-        displayedFile !== homeFile
-          ? { breadcrumb: { parent: this.#seed.theta, callee: baseFileName(displayedFile) } }
-          : {}),
-        ...(viewport !== undefined ? { viewport } : {}),
-        children: childRows,
-        ...(node.lanes !== undefined ? { lanes: node.lanes } : {}),
-      };
-      return buildCardLines(model, width, style);
-    }
-  }
-
-  const renderer: ThetaRunEntryRenderer = (entry, options, theme) => {
-    try {
-      const seed = readSeed(entry.data);
-      const cardTheme = probeCardTheme(theme);
-      const node = seed !== undefined ? nodeFor(seed.invocationId) : undefined;
-      if (seed === undefined || cardTheme === undefined || node === undefined || deps.clock() === undefined) {
-        // RFC "Modes and degradation": bus does not know the invocation
-        // (ended+evicted, restart) or no usable theme → the D3 static form.
-        return staticFallback(entry, options, theme);
-      }
-      return new RunCardComponent(
-        seed,
-        options.expanded === true,
-        cardTheme,
-        { customType: entry.customType, data: entry.data },
-        theme,
-      );
-    } catch { // allow-broad-catch: PIC-21 analogue — a renderer must never throw on a malformed payload
-      return undefined;
-    }
-  };
-
-  /** RFC §Animation predicate: fresh heat (< HEAT_FADE_MS, or a clamped
-   *  in-flight effect) or a running child owes the card another frame. */
-  function animationOwed(snapshot: ExecutionStatusSnapshot, nowMs: number): boolean {
-    for (const node of snapshot.nodes) {
-      if (node.parentInvocationId !== undefined && node.endedAtMs === undefined) {
-        return true; // a running child (its badge/roster ages advance)
-      }
-      const heat = node.heat;
-      if (heat === undefined) {
-        continue;
-      }
-      if (heat.clampedLine !== undefined) {
-        return true; // full-heat clamp holds until settle (operator ruling)
-      }
-      for (const entry of heat.entries) {
-        if (nowMs - entry.lastHitMs < HEAT_FADE_MS) {
-          return true;
-        }
-      }
-    }
-    return false;
-  }
+  const renderer = createRunCardRenderer({
+    bus: deps.bus,
+    clock: deps.clock,
+    readSourceBytes: deps.readSourceBytes,
+    cardStateFor,
+    ensureLut: (theme) => lutCache.ensureLut(theme),
+    staticFallback,
+  });
 
   const sink: StatusSink = {
     id: "run-card",
@@ -611,8 +281,7 @@ export function createRunCardController(deps: RunCardControllerDeps): RunCardCon
               typeof rgb.g === "number" &&
               typeof rgb.b === "number"
             ) {
-              terminalBg = { r: rgb.r, g: rgb.g, b: rgb.b };
-              lut = undefined; // next render rebuilds over the true base
+              lutCache.setTerminalBg({ r: rgb.r, g: rgb.g, b: rgb.b });
               requestRender();
             }
           },

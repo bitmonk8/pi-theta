@@ -65,11 +65,11 @@ import type {
   WhileStmt,
 } from "../parser/theta-document";
 import type { Checkpoint, CheckpointKind, CheckpointSite } from "../seams/checkpoint";
-import type { Trace } from "../seams/trace";
+import type { Trace, TraceSettle } from "../seams/trace";
 import type { ParForLaneHooks } from "../extension/execution-status/types";
 import type { Diagnostic } from "../diagnostics/diagnostic";
 import type { CancellableStatement, OperationResult } from "./cancellation-core";
-import { runCancellableSequence } from "./cancellation-core";
+import { runCancellableSequence, type CancellableSequenceOutcome } from "./cancellation-core";
 import { isThetaPanic, attachPanicSite, pushPanicFrame } from "./runtime-panics";
 import type { InvokeChain } from "./invoke-depth-cycle";
 import { pushCountableFrame, thetalibFnFrameKind } from "./invoke-depth-cycle";
@@ -129,14 +129,27 @@ export function panicSiteFile(env: LexicalEnvironment, deps: ExecuteBodyDeps): s
  * (src/seams/trace.ts §"D1→D2 contract"). Fires before the pre-dispatch
  * signal read, so a cancelled-before-commit effect still marks its line as
  * reached.
+ *
+ * RFC 0015 D7: returns the seam's span-settle callback (src/seams/trace.ts
+ * §"D7 span semantics"). The two awaited-effect callers hold it across their
+ * `runCancellableSequence` await and call it in a `finally` — the settle
+ * design (a closure returned at dispatch, not a second seam function keyed by
+ * site) makes the pairing structural: each publication settles exactly
+ * itself, so concurrent `par for` lanes on the same source line cannot
+ * cross-settle and no lane identity is needed. The per-iteration `loop-iter`
+ * callers DISCARD the return value: a loop boundary is an instant, not a
+ * bracketed wait (the seam contract returns `undefined` there).
  */
 function traceEffectDispatch(
   env: LexicalEnvironment,
   deps: ExecuteBodyDeps,
   kind: CheckpointKind,
   site: CheckpointSite,
-): void {
-  deps.trace?.({ file: panicSiteFile(env, deps), line: site.line, column: site.column }, kind);
+): TraceSettle | undefined {
+  return deps.trace?.(
+    { file: panicSiteFile(env, deps), line: site.line, column: site.column },
+    kind,
+  );
 }
 
 /**
@@ -1041,11 +1054,20 @@ async function evalCheckpointedEffect(
     site: checkpoint.site,
     run: () => deps.host.runEffect(expr, env, preArgs.args, deps.invokeChain),
   };
-  traceEffectDispatch(env, deps, checkpoint.kind, checkpoint.site);
-  const outcome = await runCancellableSequence(
-    { checkpoint: deps.checkpoint, signal: deps.signal },
-    [statement],
-  );
+  const settleTrace = traceEffectDispatch(env, deps, checkpoint.kind, checkpoint.site);
+  let outcome: CancellableSequenceOutcome;
+  try {
+    outcome = await runCancellableSequence(
+      { checkpoint: deps.checkpoint, signal: deps.signal },
+      [statement],
+    );
+  } finally {
+    // RFC 0015 D7: the effect span settles when the awaited effect completes,
+    // on EVERY path — value, `Err`-shaped outcome, cancellation, and a throw
+    // unwinding this await (settle-then-propagate) — so the run card's
+    // in-flight clamp on this line always releases with the effect.
+    settleTrace?.();
+  }
   const result = outcome.result;
   if (result.ok) {
     // Handledness/consumption symmetry with the failure branch below (QRY-8 /
@@ -1385,11 +1407,17 @@ async function evalAsResult(
     site: checkpoint.site,
     run: () => deps.host.runEffect(operand, env, preArgs.args, deps.invokeChain),
   };
-  traceEffectDispatch(env, deps, checkpoint.kind, checkpoint.site);
-  const outcome = await runCancellableSequence(
-    { checkpoint: deps.checkpoint, signal: deps.signal },
-    [statement],
-  );
+  const settleTrace = traceEffectDispatch(env, deps, checkpoint.kind, checkpoint.site);
+  let outcome: CancellableSequenceOutcome;
+  try {
+    outcome = await runCancellableSequence(
+      { checkpoint: deps.checkpoint, signal: deps.signal },
+      [statement],
+    );
+  } finally {
+    // RFC 0015 D7: settle on every completion path (see evalCheckpointedEffect).
+    settleTrace?.();
+  }
   const result = outcome.result;
   if (result.ok) {
     return { flow: "value", value: asResultValue(result.value as ThetaValue) };

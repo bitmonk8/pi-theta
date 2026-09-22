@@ -4,6 +4,30 @@ All notable changes to `@bitmonk8/pi-theta` will be documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.488.7]
+
+### Changed
+- **RFC 0015 Delivery 7 — span semantics for effect heat.** Effect trace
+  publications are now spans: the trace seam returns a settle closure at
+  dispatch and the statement executor calls it in a `finally` around both
+  awaited-effect sites, so settle fires on value, `Err`, cancellation, and
+  throw (`stmt`/`loop-iter` stay instants; the D1 no-join contract holds).
+  The bus replaces the single-slot in-flight clamp with a bounded
+  per-invocation set of in-flight effect sites (`HEAT_INFLIGHT_CAPACITY =
+  64`, oldest force-settled at capacity) and accumulates real `dwellMs`
+  from span lengths (dispatch→settle), fixing the heat-summary profile's
+  truthfulness. The card clamps EVERY in-flight effect site's line to full
+  heat until its own settle (operator ruling 2026-09-22 generalised — all
+  concurrently-blocked par-for lanes render hot; fade starts at settle).
+  Subagent-fn spawns now carry `launchSite` via spawn-path carriage in
+  `invocationBound`, so ⑂ gutter markers and roster `[line N]` cross-refs
+  appear for lens-style fan-out. Renderer quality findings folded in:
+  one bus snapshot per animation frame with a `tracks()` entry gate
+  (PTQ-1256) and `createRunCardController` decomposed into
+  `render/run-card-component.ts`, `render/heat-lut-cache.ts`,
+  `render/card-theme.ts`, and a module-level pure `animationOwed`
+  (PTQ-1260).
+
 ## [0.488.6]
 
 ### Changed

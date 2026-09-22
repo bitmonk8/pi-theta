@@ -2533,6 +2533,10 @@ class ProductionThetaProducer implements ThetaProducerDeps {
       ...(bindInput.parentInvocationId !== undefined
         ? { parentInvocationId: bindInput.parentInvocationId }
         : {}),
+      // RFC 0015 (D7): spawn-path launch-site carriage (see
+      // ConversationBindInput.launchSite) — the gutter ⑂ / roster [line N]
+      // source for subagent-fn fan-out.
+      ...(bindInput.launchSite !== undefined ? { launchSite: bindInput.launchSite } : {}),
     });
 
     const detachForwarding = this.#trackForwardingSources(forwardingSources);
@@ -3716,6 +3720,10 @@ class ProductionThetaProducer implements ThetaProducerDeps {
       chain: childChain,
       parentSignal,
       entry: { kind: "fn", name: fn.name },
+      // RFC 0015 (D7): the fn call's residence-keyed site rides the spawn path
+      // so the bus stamps the child's launchSite race-free (fn spawns publish
+      // no invoke-kind trace — this carriage is their only source).
+      launchSite: request.site,
       label: `${theta.slashName}#${fn.name}`,
       ...(parentInvocationId !== undefined ? { parentInvocationId } : {}),
       ...(resolvedCwd !== undefined ? { resolvedCwd } : {}),

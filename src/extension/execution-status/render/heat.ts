@@ -45,9 +45,9 @@ export function heatAlpha(ageMs: number): number {
 
 /**
  * Map a line's heat to its LUT index in [0, HEAT_LUT_SIZE): 0 = cold (the
- * empty LUT entry), 63 = full heat. `clamped` is the D2 operator ruling —
- * the current in-flight effect's line renders at FULL heat regardless of
- * age until the effect settles (`HeatSnapshot.clampedLine`).
+ * empty LUT entry), 63 = full heat. `clamped` is the operator ruling (D7
+ * generalised) — every in-flight effect's line renders at FULL heat
+ * regardless of age until ITS span settles (`HeatSnapshot.clampedLines`).
  */
 export function lutIndexFor(ageMs: number, clamped: boolean): number {
   if (clamped) {

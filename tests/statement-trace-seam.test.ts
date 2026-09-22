@@ -1,4 +1,4 @@
-// RFC 0015 D1 (docs/rfcs/0015-theta-run-card.md §"The trace seam") — unit
+// RFC 0015 D1/D7 (docs/rfcs/0015-theta-run-card.md §"The trace seam") — unit
 // witnesses for the optional statement-trace seam on `ExecuteBodyDeps`:
 //
 //   (a) `deps.trace(site, "stmt")` fires at EVERY statement dispatch — once per
@@ -13,15 +13,23 @@
 //       no-join D1→D2 contract (src/seams/trace.ts): the trace stream is
 //       self-sufficient, `checkpointBefore` ingest enriches nothing. Ordering
 //       is pinned: `"stmt"` → effect kind → `checkpoint.before` → effect
-//       commit. Loop statements publish `"loop-iter"` per iteration at the
-//       loop's own head line (the same line their `"stmt"` established);
+//       commit → SETTLE. Loop statements publish `"loop-iter"` per iteration
+//       at the loop's own head line (the same line their `"stmt"`
+//       established);
 //   (c) an absent trace is safe: no throw, byte-identical outcome and effect
 //       order (the seam's absent cost is one undefined-check per site);
 //   (d) a THROWING trace propagates to the nearest boundary — the executor
 //       contains nothing, so it escapes `executeBody` bare when no boundary
 //       intervenes, and a `par for` lane boundary downgrades it to that
 //       element's `Err(invoke_infra, cause:"internal_error")` (ERR-20), per
-//       the contract in `src/seams/trace.ts`.
+//       the contract in `src/seams/trace.ts`;
+//   (e) D7 SPAN semantics: the settle callback an effect-kind publication
+//       returns is called exactly once, in a `finally` around the awaited
+//       effect, on EVERY completion path — clean value, `Err` outcome,
+//       cancellation observed at the checkpoint, and a throw unwinding the
+//       await — while instant kinds' return values (`"stmt"`, `"loop-iter"`)
+//       are DISCARDED even by a defective implementation that returns one,
+//       and concurrent `par for` lanes hold independent, overlapping spans.
 
 import { describe, expect, it } from "vitest";
 import {
@@ -33,7 +41,7 @@ import {
 import { buildEnvironment } from "../src/runtime/lexical-environment";
 import type { OperationResult } from "../src/runtime/cancellation-core";
 import type { Checkpoint, CheckpointKind, CheckpointSite } from "../src/seams/checkpoint";
-import type { TraceKind } from "../src/seams/trace";
+import { isSpanTraceKind, type Trace, type TraceKind } from "../src/seams/trace";
 import type { ThetaValue } from "../src/runtime/value";
 import type {
   Block,
@@ -149,14 +157,23 @@ function deps(host: TraceProbeHost, extra: Partial<ExecuteBodyDeps> = {}): Execu
   };
 }
 
-/** A recording trace that also stamps the host-shared interleaving log. */
+/** A recording trace that also stamps the host-shared interleaving log.
+ *  D7-conforming: span kinds return a settle recorder, instants undefined. */
 function recordingTrace(host: TraceProbeHost) {
   const calls: { site: CheckpointSite; kind: TraceKind }[] = [];
-  const trace = (site: CheckpointSite, kind: TraceKind): void => {
+  const settles: { site: CheckpointSite; kind: TraceKind }[] = [];
+  const trace: Trace = (site, kind) => {
     calls.push({ site, kind });
     host.events.push(`trace:${kind}@${site.line}`);
+    if (!isSpanTraceKind(kind)) {
+      return undefined;
+    }
+    return (): void => {
+      settles.push({ site, kind });
+      host.events.push(`settle:${kind}@${site.line}`);
+    };
   };
-  return { calls, trace };
+  return { calls, settles, trace };
 }
 
 /** A recording checkpoint sharing the host log, to pin trace-vs-checkpoint order. */
@@ -241,6 +258,7 @@ describe("RFC 0015 D1 — statement trace seam", () => {
       "trace:tool-call@3",
       "checkpoint:tool-call@3",
       "effect:s0",
+      "settle:tool-call@3",
     ]);
     // The effect publication swaps the checkpoint site's slash-name file for
     // the residence key; line/column stay the checkpoint site's.
@@ -266,6 +284,7 @@ describe("RFC 0015 D1 — statement trace seam", () => {
       "trace:tool-call@7",
       "checkpoint:tool-call@7",
       "effect:s0",
+      "settle:tool-call@7",
     ]);
     expect(calls.map((c) => c.kind)).toEqual(["stmt", "tool-call"]);
   });
@@ -295,12 +314,14 @@ describe("RFC 0015 D1 — statement trace seam", () => {
       "trace:tool-call@2",
       "checkpoint:tool-call@2",
       "effect:s0",
+      "settle:tool-call@2",
       "trace:loop-iter@1",
       "checkpoint:loop-iter@1",
       "trace:stmt@2",
       "trace:tool-call@2",
       "checkpoint:tool-call@2",
       "effect:s0",
+      "settle:tool-call@2",
     ]);
     expect(calls.every((c) => c.site.file === "/probe.theta")).toBe(true);
   });
@@ -323,7 +344,12 @@ describe("RFC 0015 D1 — statement trace seam", () => {
       { line: 5, kind: "stmt", file: "/probe.theta" },
       { line: 5, kind: "tool-call", file: "/probe.theta" },
     ]);
-    expect(host.events).toEqual(["trace:stmt@5", "trace:tool-call@5", "effect:s0"]);
+    expect(host.events).toEqual([
+      "trace:stmt@5",
+      "trace:tool-call@5",
+      "effect:s0",
+      "settle:tool-call@5",
+    ]);
   });
 
   it("(c) an absent trace is safe: same outcome, same effect order, no throw", async () => {
@@ -347,11 +373,12 @@ describe("RFC 0015 D1 — statement trace seam", () => {
     const laneCalls: number[] = [];
     // Throws only at the lane-body statement (line 5); the outer dispatch
     // (the tail's own statements — none here) traces normally.
-    const trace = (site: CheckpointSite): void => {
+    const trace: Trace = (site) => {
       laneCalls.push(site.line);
       if (site.line === 5) {
         throw new DefectiveTraceError("defective trace seam");
       }
+      return undefined;
     };
     // Tail: `par for x in [1] { s0() }` — one lane, body statement at line 5.
     const parFor = parForTailExpr(
@@ -381,12 +408,152 @@ describe("RFC 0015 D1 — statement trace seam", () => {
     class DefectiveTraceError extends Error {}
     const host = new TraceProbeHost();
     const program = body([toolCallStmt("s0", 1)]);
-    const trace = (): void => {
+    const trace: Trace = () => {
       throw new DefectiveTraceError("defective trace seam");
     };
 
     await expect(executeBody(program, deps(host, { trace }))).rejects.toThrow(DefectiveTraceError);
     // The throw happened AT dispatch: the statement's effect never committed.
     expect(host.events).toEqual([]);
+  });
+});
+
+// --- (e) D7 span semantics ---------------------------------------------------
+
+/** A host whose effects block until the test releases them (concurrency probe). */
+class GatedHost extends TraceProbeHost {
+  readonly pending: (() => void)[] = [];
+
+  override async runEffect(expr: Expr): Promise<OperationResult> {
+    await new Promise<void>((release) => this.pending.push(release));
+    return super.runEffect(expr);
+  }
+}
+
+/** Bounded microtask wait; fails loudly rather than ever skipping silently. */
+async function waitFor(condition: () => boolean, what: string): Promise<void> {
+  for (let i = 0; i < 1000; i++) {
+    if (condition()) {
+      return;
+    }
+    await new Promise((resolve) => setImmediate(resolve));
+  }
+  throw new Error(`precondition unmet: ${what}`);
+}
+
+describe("RFC 0015 D7 — effect-span settle", () => {
+  it("(e) settle fires when the effect completes with an Err outcome", async () => {
+    class ErrHost extends TraceProbeHost {
+      override async runEffect(expr: Expr): Promise<OperationResult> {
+        await super.runEffect(expr);
+        return { ok: false, error: { kind: "tool_failed", message: "boom" } as never };
+      }
+    }
+    const host = new ErrHost();
+    const { settles, trace } = recordingTrace(host);
+    // A value position (`let r = s0()?` would propagate; use the bare let so
+    // the Err binds) — the drive completes and the span settled at the Err.
+    const program = body([letTryCallStmt("r", "s0", 2)]);
+
+    await executeBody(program, deps(host, { trace }));
+
+    expect(settles.map((s) => ({ line: s.site.line, kind: s.kind }))).toEqual([
+      { line: 2, kind: "tool-call" },
+    ]);
+    expect(host.events[host.events.length - 1]).toBe("settle:tool-call@2");
+  });
+
+  it("(e) settle fires when the awaited effect THROWS — settle-then-propagate", async () => {
+    class ThrowingEffectError extends Error {}
+    class ThrowingHost extends TraceProbeHost {
+      override runEffect(): Promise<OperationResult> {
+        return Promise.reject(new ThrowingEffectError("effect blew up"));
+      }
+    }
+    const host = new ThrowingHost();
+    const { settles, trace } = recordingTrace(host);
+    const program = body([toolCallStmt("s0", 3)]);
+
+    await expect(executeBody(program, deps(host, { trace }))).rejects.toThrow(
+      ThrowingEffectError,
+    );
+
+    // The finally settled the span before the throw escaped the boundary.
+    expect(settles.map((s) => ({ line: s.site.line, kind: s.kind }))).toEqual([
+      { line: 3, kind: "tool-call" },
+    ]);
+  });
+
+  it("(e) settle fires on a cancellation observed at the effect's checkpoint — the effect never committed", async () => {
+    const host = new TraceProbeHost();
+    const { settles, trace } = recordingTrace(host);
+    const aborted = new AbortController();
+    aborted.abort();
+    const program = body([toolCallStmt("s0", 4)]);
+
+    const execution = await executeBody(
+      program,
+      deps(host, { trace, signal: aborted.signal }),
+    );
+
+    expect(execution.outcome).toBe("cancel");
+    // Dispatch published (the cancelled-before-commit line still shows as
+    // reached), the effect never ran, and the span still settled.
+    expect(host.events).toEqual(["trace:stmt@4", "trace:tool-call@4", "settle:tool-call@4"]);
+    expect(settles).toHaveLength(1);
+  });
+
+  it("(e) par-for lanes hold independent, OVERLAPPING spans — both open while both lanes block, each settles its own", async () => {
+    const host = new GatedHost();
+    const { calls, settles, trace } = recordingTrace(host);
+    // Tail: `par for x in [1, 2] { s0() }` — two lanes, body statement line 5.
+    const parFor = parForTailExpr(
+      "x",
+      [numberExpr("1", at(4, 14)), numberExpr("2", at(4, 17))],
+      { statements: [toolCallStmt("s0", 5)], tail: null },
+      4,
+    );
+
+    const driving = executeBody(body([], parFor), deps(host, { trace }));
+    await waitFor(() => host.pending.length === 2, "both lanes reached their effect");
+
+    // Both spans dispatched (same source line — the shared-line case the
+    // closure pairing exists for), NEITHER settled while both lanes block.
+    expect(calls.filter((c) => c.kind === "tool-call")).toHaveLength(2);
+    expect(settles).toHaveLength(0);
+
+    // Release one lane: exactly ONE span settles — no cross-lane settle.
+    host.pending[0]!();
+    await waitFor(() => settles.length === 1, "first lane settled");
+    expect(settles).toHaveLength(1);
+
+    host.pending[1]!();
+    const execution = await driving;
+    expect(execution.outcome).toBe("success");
+    expect(settles.map((s) => ({ line: s.site.line, kind: s.kind }))).toEqual([
+      { line: 5, kind: "tool-call" },
+      { line: 5, kind: "tool-call" },
+    ]);
+  });
+
+  it("(e) the executor DISCARDS settles returned for instant kinds — a defective impl returning one for stmt/loop-iter never sees it called", async () => {
+    const host = new TraceProbeHost();
+    const settled: TraceKind[] = [];
+    // Deliberately non-conforming: returns a settle for EVERY kind.
+    const trace: Trace = (_site, kind) => (): void => {
+      settled.push(kind);
+    };
+    const loop = forStmt(
+      "x",
+      [numberExpr("1", at(1, 11))],
+      { statements: [toolCallStmt("s0", 2)], tail: null },
+      1,
+    );
+
+    await executeBody(body([loop]), deps(host, { trace }));
+
+    // Only the awaited effect's span settled; the loop-iter / stmt returns
+    // were dropped at the call sites (trace.ts §"D7 span semantics").
+    expect(settled).toEqual(["tool-call"]);
   });
 });

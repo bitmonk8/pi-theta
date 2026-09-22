@@ -26,6 +26,36 @@
 //      dispatch — before the pre-dispatch signal read — so a
 //      cancelled-before-commit effect still shows its line as reached.
 //
+// D7 span semantics (docs/rfcs/0015-theta-run-card.md, operator ruling
+// 2026-09-22 generalised): an EFFECT-kind publication is a SPAN, not an
+// instant. The `Trace` call at effect dispatch returns an optional SETTLE
+// callback; the executor holds it across the awaited effect and calls it in a
+// `finally` when the effect completes — on EVERY completion path: a clean
+// value, an `Err`-shaped outcome, a cancellation observed at the checkpoint,
+// and a throw unwinding out of the await (settle-then-propagate). The settle
+// is therefore the bus-visible witness that the effect's line stopped being
+// in-flight, replacing D2's "next `\"stmt\"` publication" heuristic — which a
+// `par for` sibling lane could fire while another lane was still blocked
+// (the D2 recorded single-clamp-slot residual). Pairing is STRUCTURAL: the
+// closure returned at dispatch names exactly its own publication, so
+// concurrent lanes running the same source line hold independent settles and
+// no lane identity, id minting, or bus-side site matching exists.
+//
+// Which kinds are spans is a closed split (`isSpanTraceKind`):
+//   - SPAN kinds: `query`, `tool-call`, `invoke`, `binder-call` — each names
+//     one awaited effect the executor can bracket dispatch→settle.
+//   - INSTANT kinds: `"stmt"` and `"loop-iter"` — a statement dispatch and a
+//     per-iteration loop boundary mark a crossing, not a blocking wait; the
+//     executor DISCARDS any settle a defective implementation returns for
+//     them, and a conforming implementation returns `undefined`.
+// A settle callback is one-shot from the executor's side (called exactly
+// once, in the `finally`); implementations MUST tolerate a late call after
+// their own forced close (e.g. the bus's invocation-end close) by making it
+// idempotent. A THROWING settle is a defective seam implementation exactly
+// like a throwing trace: the executor contains nothing, and because the call
+// sits in a `finally` the throw joins/replaces the unwinding error at the
+// nearest boundary.
+//
 // D1→D2 contract (no bus-side join): family 2 exists precisely so D2's heat
 // ring never has to join `checkpointBefore` ingest against trace entries.
 // Such a join is unsound: between a statement's `"stmt"` trace (dispatch)
@@ -79,5 +109,27 @@ import type { CheckpointKind, CheckpointSite } from "./checkpoint";
  */
 export type TraceKind = "stmt" | CheckpointKind;
 
-/** The optional executor trace hook: `deps.trace?.(residenceKeyedSite, kind)`. */
-export type Trace = (site: CheckpointSite, kind: TraceKind) => void;
+/**
+ * RFC 0015 (D7) — the settle half of an effect-span publication: called by
+ * the EXECUTOR exactly once, in a `finally` around the awaited effect, on
+ * every completion path (value / `Err` / cancel / throw). See the header's
+ * §"D7 span semantics" for the full contract (idempotence under a forced
+ * close, throwing-settle propagation).
+ */
+export type TraceSettle = () => void;
+
+/**
+ * Whether a publication kind opens a SPAN (dispatch→settle brackets one
+ * awaited effect) rather than marking an instant. Closed split — see the
+ * header's §"D7 span semantics" for why `"stmt"`/`"loop-iter"` are instants.
+ */
+export function isSpanTraceKind(kind: TraceKind): boolean {
+  return kind !== "stmt" && kind !== "loop-iter";
+}
+
+/**
+ * The optional executor trace hook: `deps.trace?.(residenceKeyedSite, kind)`.
+ * Returns the span's settle callback for span kinds (D7), `undefined` for
+ * instant kinds (`"stmt"`, `"loop-iter"`).
+ */
+export type Trace = (site: CheckpointSite, kind: TraceKind) => TraceSettle | undefined;

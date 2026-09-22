@@ -1,16 +1,18 @@
-// RFC 0015 (docs/rfcs/0015-theta-run-card.md §"Heat model", D2) —
-// `tests/execution-status-heat.test.ts` (T-HEAT). Behaviour rows H1-H18
-// (plus H6b/H10b/H16b) for
-// the bus's D2 state: the per-invocation `(file, line)` heat ring (LRU,
-// `HEAT_RING_CAPACITY`-bounded), the operator-ruled full-heat clamp on the
-// in-flight effect's line, launch-site attribution on child nodes, and the
-// snapshot-shape extension. The trace seam is deliberately NOT wired to any
-// composition here (that is D5): the rows drive `bus.trace(...)` directly,
-// which is the D2 ingest surface itself.
+// RFC 0015 (docs/rfcs/0015-theta-run-card.md §"Heat model", D2/D7) —
+// `tests/execution-status-heat.test.ts` (T-HEAT). Behaviour rows for the
+// bus's heat state: the per-invocation `(file, line)` heat ring (LRU,
+// `HEAT_RING_CAPACITY`-bounded), the D7 in-flight effect-SPAN set (bounded at
+// `HEAT_INFLIGHT_CAPACITY`, the operator-ruled full-heat clamp generalised to
+// EVERY in-flight site, real dwell from span dispatch→settle lengths),
+// launch-site attribution on child nodes (spawn-path carriage + the D2
+// derived fallback), and the snapshot-shape extension. The trace seam is
+// deliberately NOT wired to any composition here (that is D5): the rows drive
+// `bus.trace(...)` directly, which is the ingest surface itself.
 
 import { describe, expect, it } from "vitest";
 import { createExecutionStatusBus } from "../src/extension/execution-status/bus";
 import {
+  HEAT_INFLIGHT_CAPACITY,
   HEAT_RING_CAPACITY,
   STATUS_TICK_MS,
   type ExecutionStatusBus,
@@ -52,7 +54,7 @@ describe("execution-status heat ring (RFC 0015 D2)", () => {
     expect(heat!.entries).toEqual([
       { file: "quality-loop.theta", line: 10, lastHitMs: 1_000, hits: 1, dwellMs: 0, kind: "stmt" },
     ]);
-    expect(heat!.clampedLine).toBeUndefined();
+    expect(heat!.clampedLines).toBeUndefined();
   });
 
   it("H2: a re-hit bumps hits, refreshes lastHitMs, and moves the key to the MRU end of the entries order", () => {
@@ -109,108 +111,223 @@ describe("execution-status heat ring (RFC 0015 D2)", () => {
     expect(lines.has(HEAT_RING_CAPACITY + 1)).toBe(true);
   });
 
-  it("H5: dwellMs attributes each inter-publication interval to the previously-current key — a long effect lands its duration on the effect's own line", () => {
+  it("H5 (D7): dwellMs is the REAL span length — each effect's dispatch→settle interval lands on the effect's own line, and nothing else accrues dwell", () => {
     const clock = new FakeClock();
     const bus = makeBus(clock);
     startNode(bus);
     bus.trace("inv-1", SITE_A, "stmt");
-    clock.advance(100);
-    bus.trace("inv-1", SITE_A, "invoke"); // same key re-hit: 100ms dwell on A
+    clock.advance(100); // pure-statement gap: charged to NOTHING (D2 charged it to A)
+    const settleA = bus.trace("inv-1", SITE_A, "invoke")!;
     clock.advance(2_000); // the in-flight effect
-    bus.trace("inv-1", SITE_B, "stmt"); // next statement closes A's interval
-    clock.advance(30);
-    bus.trace("inv-1", SITE_B, "stmt"); // same-key re-hit closes B's 30ms
+    settleA();
+    bus.trace("inv-1", SITE_B, "stmt");
+    clock.advance(30); // another pure gap — no dwell anywhere
+    const settleB = bus.trace("inv-1", SITE_B, "tool-call")!;
+    clock.advance(40);
+    settleB();
     const entries = nodeOf(bus).heat!.entries;
     const a = entries.find((e) => e.line === 10)!;
     const b = entries.find((e) => e.line === 42)!;
-    expect(a.dwellMs).toBe(2_100);
-    expect(b.dwellMs).toBe(30);
+    expect(a.dwellMs).toBe(2_000);
+    expect(b.dwellMs).toBe(40);
   });
 
-  it("H6: an effect-kind publication clamps its (file, line); the next \"stmt\" publication clears the clamp", () => {
+  it("H5b (D7): instant kinds return no settle and accrue no dwell; a span settle is idempotent", () => {
+    const clock = new FakeClock();
+    const bus = makeBus(clock);
+    startNode(bus);
+    expect(bus.trace("inv-1", SITE_A, "stmt")).toBeUndefined();
+    expect(bus.trace("inv-1", SITE_A, "loop-iter")).toBeUndefined();
+    const settle = bus.trace("inv-1", SITE_A, "query")!;
+    clock.advance(500);
+    settle();
+    clock.advance(500);
+    settle(); // second call: no-op — no double-counted dwell
+    const a = nodeOf(bus).heat!.entries.find((e) => e.line === 10)!;
+    expect(a.dwellMs).toBe(500);
+  });
+
+  it("H6 (D7): an effect-kind publication clamps its (file, line) until ITS settle — a sibling \"stmt\" publication does NOT release it", () => {
     const clock = new FakeClock();
     const bus = makeBus(clock);
     startNode(bus);
     bus.trace("inv-1", SITE_A, "stmt");
-    bus.trace("inv-1", SITE_A, "query");
-    expect(nodeOf(bus).heat!.clampedLine).toEqual({ file: "quality-loop.theta", line: 10 });
+    const settle = bus.trace("inv-1", SITE_A, "query")!;
+    expect(nodeOf(bus).heat!.clampedLines).toEqual([{ file: "quality-loop.theta", line: 10 }]);
     // Operator ruling: the clamp holds across arbitrary wall time with no
     // further publication (the long-effect window) — the card never looks idle.
     clock.advance(60_000);
-    expect(nodeOf(bus).heat!.clampedLine).toEqual({ file: "quality-loop.theta", line: 10 });
-    bus.trace("inv-1", SITE_B, "stmt"); // effect settled: executor dispatched again
-    expect(nodeOf(bus).heat!.clampedLine).toBeUndefined();
+    // D7 (fixes the D2 par-for residual): another lane's "stmt" is NOT a
+    // settle witness for this effect — the clamp survives it.
+    bus.trace("inv-1", SITE_B, "stmt");
+    expect(nodeOf(bus).heat!.clampedLines).toEqual([{ file: "quality-loop.theta", line: 10 }]);
+    settle();
+    expect(nodeOf(bus).heat!.clampedLines).toBeUndefined();
   });
 
-  it("H6b: clearing the clamp refreshes the settled effect line's lastHitMs — the fade starts at settle, not at dispatch", () => {
+  it("H6b (D7): the settle refreshes the effect line's lastHitMs — the fade starts at settle, not at dispatch", () => {
     const clock = new FakeClock();
     const bus = makeBus(clock);
     startNode(bus);
-    bus.trace("inv-1", SITE_A, "query"); // effect dispatch at t=0 clamps A
+    const settle = bus.trace("inv-1", SITE_A, "query")!; // dispatch at t=0 clamps A
     clock.advance(60_000); // long in-flight effect held at full heat
-    bus.trace("inv-1", SITE_B, "stmt"); // settle witness clears the clamp
+    settle();
     const heat = nodeOf(bus).heat!;
-    expect(heat.clampedLine).toBeUndefined();
+    expect(heat.clampedLines).toBeUndefined();
     // Without the settle refresh, lastHitMs would still be 0 (dispatch time)
     // and the line would snap from full heat to α≈0 ("then fades normally").
     expect(heat.entries.find((e) => e.line === 10)!.lastHitMs).toBe(60_000);
+    // And the span's dwell landed whole.
+    expect(heat.entries.find((e) => e.line === 10)!.dwellMs).toBe(60_000);
   });
 
-  it("H7: the clamp always names the NEWEST effect publication across ring churn — a clamped key is the MRU and is never evicted while clamped", () => {
+  it("H7 (D7): CONCURRENT spans clamp every in-flight site — the par-for defect fix: each stays clamped until ITS settle, dedup on a shared line", () => {
     const clock = new FakeClock();
     const bus = makeBus(clock);
     startNode(bus);
-    bus.trace("inv-1", SITE_A, "invoke");
-    // >capacity distinct "stmt" keys churn the whole ring. The FIRST "stmt"
-    // already cleared SITE_A's clamp (it is the settle witness), so eviction
-    // reclaims SITE_A's entry like any LRU victim — an evicted-while-clamped
-    // key is unreachable under shipped semantics.
+    // Three "lanes": two distinct lines plus a second span on SITE_A's line.
+    const settleA1 = bus.trace("inv-1", SITE_A, "invoke")!;
+    clock.advance(10);
+    const settleB = bus.trace("inv-1", SITE_B, "invoke")!;
+    clock.advance(10);
+    const settleA2 = bus.trace("inv-1", SITE_A, "invoke")!;
+    // Deduplicated, each site at its NEWEST span's position: the second A
+    // span moves A's site to the end (newest dispatch last) rather than
+    // duplicating it.
+    expect(nodeOf(bus).heat!.clampedLines).toEqual([
+      { file: "quality-loop.theta", line: 42 },
+      { file: "quality-loop.theta", line: 10 },
+    ]);
+    // One A span settles: A stays clamped — its OTHER span is still in flight.
+    settleA1();
+    expect(nodeOf(bus).heat!.clampedLines).toEqual([
+      { file: "quality-loop.theta", line: 42 },
+      { file: "quality-loop.theta", line: 10 },
+    ]);
+    settleB();
+    expect(nodeOf(bus).heat!.clampedLines).toEqual([{ file: "quality-loop.theta", line: 10 }]);
+    settleA2();
+    expect(nodeOf(bus).heat!.clampedLines).toBeUndefined();
+  });
+
+  it("H7d (D7 pin, A-B-A): a re-dispatch on an already-clamped line makes it the LAST element — the newest DISPATCH anchors the renderer, not the oldest surviving span's site", () => {
+    const clock = new FakeClock();
+    const bus = makeBus(clock);
+    startNode(bus);
+    // A (t0), B (t10), A again (t20): A's first span is the OLDEST still open,
+    // but A is also the NEWEST dispatch — a first-occurrence dedup would put B
+    // last and recentre the ▶ anchor on line 42 while the drive sits on 10.
+    const settleA1 = bus.trace("inv-1", SITE_A, "query")!;
+    clock.advance(10);
+    const settleB = bus.trace("inv-1", SITE_B, "query")!;
+    clock.advance(10);
+    const settleA2 = bus.trace("inv-1", SITE_A, "query")!;
+    expect(nodeOf(bus).heat!.clampedLines).toEqual([
+      { file: "quality-loop.theta", line: 42 },
+      { file: "quality-loop.theta", line: 10 },
+    ]);
+    settleA1();
+    settleB();
+    settleA2();
+    expect(nodeOf(bus).heat!.clampedLines).toBeUndefined();
+  });
+
+  it("H19 (D7 pin): a settle is NOT a publication — an older span settling after a newer effect-kind publication on the same line keeps the newer gutter kind (and counts no hit)", () => {
+    const clock = new FakeClock();
+    const bus = makeBus(clock);
+    startNode(bus);
+    const settleInvoke = bus.trace("inv-1", SITE_A, "invoke")!;
+    clock.advance(10);
+    const settleQuery = bus.trace("inv-1", SITE_A, "query")!;
+    clock.advance(10);
+    settleInvoke(); // the OLDER invoke span settles after the query publication
+    const a = nodeOf(bus).heat!.entries.find((e) => e.line === 10)!;
+    expect(a.kind).toBe("query"); // gutter NOT reverted to "invoke"
+    expect(a.hits).toBe(2); // hits stays "trace publications on this key"
+    expect(a.lastHitMs).toBe(20); // fade restarts at the settle
+    expect(a.dwellMs).toBe(20); // the invoke span's full dispatch→settle length
+    settleQuery();
+    expect(nodeOf(bus).heat!.entries.find((e) => e.line === 10)!.kind).toBe("query");
+  });
+
+  it("H7b (D7, hard ceiling): HEAT_INFLIGHT_CAPACITY is 64; the span beyond capacity force-settles exactly the OLDEST open span (dwell closed, clamp released, fade starts)", () => {
+    expect(HEAT_INFLIGHT_CAPACITY).toBe(64);
+    const clock = new FakeClock();
+    const bus = makeBus(clock);
+    startNode(bus);
+    // Fill the set: spans on lines 1..64, one ms apart, none settled.
+    for (let line = 1; line <= HEAT_INFLIGHT_CAPACITY; line++) {
+      bus.trace("inv-1", { file: "f.theta", line, column: 1 }, "tool-call");
+      clock.advance(1);
+    }
+    expect(nodeOf(bus).heat!.clampedLines).toHaveLength(HEAT_INFLIGHT_CAPACITY);
+    // The 65th span evicts the OLDEST (line 1): its dwell closes at the real
+    // open length and its clamp releases with lastHitMs = now (fade starts).
+    bus.trace("inv-1", { file: "f.theta", line: 65, column: 1 }, "tool-call");
+    const heat = nodeOf(bus).heat!;
+    expect(heat.clampedLines).toHaveLength(HEAT_INFLIGHT_CAPACITY);
+    expect(heat.clampedLines!.some((s) => s.line === 1)).toBe(false);
+    expect(heat.clampedLines!.some((s) => s.line === 65)).toBe(true);
+    const evicted = heat.entries.find((e) => e.line === 1)!;
+    expect(evicted.dwellMs).toBe(HEAT_INFLIGHT_CAPACITY); // opened at 0, closed at t=64
+    expect(evicted.lastHitMs).toBe(HEAT_INFLIGHT_CAPACITY);
+  });
+
+  it("H7c (D7): a settle whose ring entry was LRU-evicted mid-span restores the entry — the span's dwell is never dropped", () => {
+    const clock = new FakeClock();
+    const bus = makeBus(clock);
+    startNode(bus);
+    const settle = bus.trace("inv-1", SITE_A, "invoke")!;
+    // A tight loop smears >capacity distinct keys — SITE_A's entry evicts.
     for (let line = 1_000; line < 1_000 + HEAT_RING_CAPACITY; line++) {
       bus.trace("inv-1", { file: "other.theta", line, column: 1 }, "stmt");
     }
     expect(nodeOf(bus).heat!.entries.some((e) => e.line === 10)).toBe(false);
-    expect(nodeOf(bus).heat!.clampedLine).toBeUndefined();
-    // Effect-kind churn: every publication moves the clamp with it, so the
-    // clamp names the newest effect key — which is the ring's MRU entry.
-    bus.trace("inv-1", SITE_A, "invoke");
-    for (let line = 2_000; line < 2_000 + HEAT_RING_CAPACITY; line++) {
-      bus.trace("inv-1", { file: "other.theta", line, column: 1 }, "invoke");
-    }
-    const heat = nodeOf(bus).heat!;
-    expect(heat.entries).toHaveLength(HEAT_RING_CAPACITY);
-    expect(heat.clampedLine).toEqual({ file: "other.theta", line: 2_000 + HEAT_RING_CAPACITY - 1 });
-    // The clamped key IS the MRU ring entry — in-ring, never orphaned.
-    expect(heat.entries[heat.entries.length - 1]!.line).toBe(2_000 + HEAT_RING_CAPACITY - 1);
+    // …but the clamp set still holds the site (in-flight-ness is span state).
+    expect(nodeOf(bus).heat!.clampedLines).toEqual([{ file: "quality-loop.theta", line: 10 }]);
+    clock.advance(5_000);
+    settle();
+    const restored = nodeOf(bus).heat!.entries.find((e) => e.line === 10)!;
+    expect(restored.dwellMs).toBe(5_000);
+    expect(restored.lastHitMs).toBe(5_000);
+    expect(nodeOf(bus).heat!.clampedLines).toBeUndefined();
   });
 
-  it("H8: invocationEnded clears the clamp — a lingering node keeps its heat but renders no full-heat line", () => {
+  it("H8 (D7): invocationEnded force-closes EVERY open span — a lingering node keeps its heat but renders no full-heat line, and a late settle is a no-op", () => {
     const clock = new FakeClock();
     const bus = makeBus(clock);
     startNode(bus);
-    bus.trace("inv-1", SITE_A, "invoke");
-    expect(nodeOf(bus).heat!.clampedLine).toBeDefined();
+    const settleA = bus.trace("inv-1", SITE_A, "invoke")!;
+    bus.trace("inv-1", SITE_B, "tool-call");
+    expect(nodeOf(bus).heat!.clampedLines).toHaveLength(2);
     bus.invocationEnded("inv-1");
     const heat = nodeOf(bus).heat!;
-    expect(heat.entries).toHaveLength(1);
-    expect(heat.clampedLine).toBeUndefined();
+    expect(heat.entries).toHaveLength(2);
+    expect(heat.clampedLines).toBeUndefined();
+    // The executor's settle arriving after the end-path close changes nothing.
+    const before = nodeOf(bus).heat!.entries.find((e) => e.line === 10)!.dwellMs;
+    clock.advance(1_000);
+    settleA();
+    expect(nodeOf(bus).heat!.entries.find((e) => e.line === 10)!.dwellMs).toBe(before);
   });
 
-  it("H17: invocationEnded closes the current key's open dwell interval — a drive whose FINAL statement is a long effect lands that tail duration on the effect's line", () => {
+  it("H17 (D7): invocationEnded closes an open span's dwell — a drive whose FINAL statement is a long effect lands that tail duration on the effect's line", () => {
     const clock = new FakeClock();
     const bus = makeBus(clock);
     startNode(bus);
     bus.trace("inv-1", SITE_A, "stmt");
     clock.advance(100);
-    bus.trace("inv-1", SITE_A, "invoke"); // same-key re-hit: 100ms dwell on A
-    clock.advance(2_000); // the long final effect — no further publication ever
+    bus.trace("inv-1", SITE_A, "invoke"); // the settle is never called —
+    clock.advance(2_000); // the drive dies mid-effect (cancel/kill path)
     bus.invocationEnded("inv-1");
     const a = nodeOf(bus).heat!.entries.find((e) => e.line === 10)!;
     // Without the end-path close the 2 000ms tail is dropped (trace() ignores
-    // ended nodes, so nothing later can attribute it).
-    expect(a.dwellMs).toBe(2_100);
+    // ended nodes, so nothing later can attribute it). The 100ms pure gap
+    // before the dispatch is deliberately NOT dwell (D7 truthfulness).
+    expect(a.dwellMs).toBe(2_000);
   });
 
-  it("H18: the end-path clamp clear refreshes the clamped entry's lastHitMs — the done-flash fade starts at end (= settle), not at the effect's dispatch", () => {
+  it("H18 (D7): the end-path close refreshes the clamped entry's lastHitMs — the done-flash fade starts at end (= settle), not at the effect's dispatch", () => {
     const clock = new FakeClock();
     const bus = makeBus(clock);
     startNode(bus);
@@ -218,7 +335,7 @@ describe("execution-status heat ring (RFC 0015 D2)", () => {
     clock.advance(60_000); // long-clamped in-flight effect
     bus.invocationEnded("inv-1");
     const heat = nodeOf(bus).heat!;
-    expect(heat.clampedLine).toBeUndefined();
+    expect(heat.clampedLines).toBeUndefined();
     // Without the settle refresh, lastHitMs would still be 0 (dispatch time)
     // and the line would snap full-heat→α≈0 on the lingering card.
     expect(heat.entries.find((e) => e.line === 10)!.lastHitMs).toBe(60_000);
@@ -275,7 +392,7 @@ describe("execution-status heat ring (RFC 0015 D2)", () => {
     expect(renders.length).toBeGreaterThan(0);
     const rendered = renders[renders.length - 1]!.nodes[0]!;
     expect(rendered.heat!.entries[0]).toMatchObject({ line: 10, kind: "tool-call" });
-    expect(rendered.heat!.clampedLine).toEqual({ file: "quality-loop.theta", line: 10 });
+    expect(rendered.heat!.clampedLines).toEqual([{ file: "quality-loop.theta", line: 10 }]);
     bus.dispose();
   });
 });
@@ -341,6 +458,36 @@ describe("execution-status launch-site attribution (RFC 0015 D2)", () => {
     startNode(bus, "child");
     bus.invocationBound("child", { mode: "subagent-fn", parentInvocationId: "parent" });
     expect(nodeOf(bus, "child").launchSite).toBeUndefined();
+  });
+
+  it("H20 (D7): a subagent-fn bind carrying the spawn-path launchSite is stamped with EXACTLY that site — race-free even with a newer sibling invoke", () => {
+    const clock = new FakeClock();
+    const bus = makeBus(clock);
+    startNode(bus, "parent");
+    // A sibling lane's invoke between this child's launch and its bind — the
+    // D2 derived source would mis-stamp it; the spawn-path carriage must win.
+    bus.trace("parent", SITE_B, "invoke");
+    startNode(bus, "child");
+    bus.invocationBound("child", {
+      mode: "subagent-fn",
+      parentInvocationId: "parent",
+      launchSite: SITE_A,
+    });
+    expect(nodeOf(bus, "child").launchSite).toEqual(SITE_A);
+  });
+
+  it("H20b (D7): the spawn-path launchSite wins over the derived source on NON-fn binds too — one carriage rule, no mode fork", () => {
+    const clock = new FakeClock();
+    const bus = makeBus(clock);
+    startNode(bus, "parent");
+    bus.trace("parent", SITE_B, "invoke");
+    startNode(bus, "child");
+    bus.invocationBound("child", {
+      mode: "subagent",
+      parentInvocationId: "parent",
+      launchSite: SITE_A,
+    });
+    expect(nodeOf(bus, "child").launchSite).toEqual(SITE_A);
   });
 
   it("H16c: a subagent-fn bind still increments the parent's cumulative childrenSpawned — the mode gate scopes launch-SITE attribution only, not existence", () => {

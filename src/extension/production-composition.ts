@@ -1088,9 +1088,12 @@ async function runComposePass(
   const statusTrace =
     ctx.mode === "tui" && statusBus !== undefined
       ? (invocationId: string): Trace =>
-          (site, kind): void => {
-            statusBus.trace(invocationId, site, kind);
-          }
+          // RFC 0015 (D7): the bus's span-settle callback rides back through
+          // the seam's return value — the executor holds it across the awaited
+          // effect and settles on every completion path (trace.ts §"D7 span
+          // semantics"). Instant kinds return undefined, unchanged.
+          (site, kind) =>
+            statusBus.trace(invocationId, site, kind)
       : undefined;
 
   const producerDeps = createProductionProducerDeps({

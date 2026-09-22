@@ -102,11 +102,25 @@ const errLine = (error: QueryError, provenance: "mint" | "propagated", fnTail?: 
   child.crashWith(0, null);
 };
 
-function recordingBus(): { bus: ExecutionStatusBus; bound: { id: string; mode: string }[] } {
-  const bound: { id: string; mode: string }[] = [];
+function recordingBus(): {
+  bus: ExecutionStatusBus;
+  bound: { id: string; mode: string; launchSite?: { file: string; line: number; column: number } }[];
+} {
+  const bound: {
+    id: string;
+    mode: string;
+    launchSite?: { file: string; line: number; column: number };
+  }[] = [];
   const bus = noopExecutionStatusBus({
-    invocationBound: (id: string, info: { mode: string }): void => {
-      bound.push({ id, mode: info.mode });
+    invocationBound: (
+      id: string,
+      info: { mode: string; launchSite?: { file: string; line: number; column: number } },
+    ): void => {
+      bound.push({
+        id,
+        mode: info.mode,
+        ...(info.launchSite !== undefined ? { launchSite: info.launchSite } : {}),
+      });
     },
   });
   return { bus, bound };
@@ -118,7 +132,11 @@ async function driveCaller(input: {
   readonly cwd?: string;
   readonly inboundDepth?: number;
   readonly paramBindings?: ReadonlyMap<string, ThetaValue>;
-}): Promise<{ execution: BodyExecution; spawns: SpawnRecord[]; bound: { id: string; mode: string }[] }> {
+}): Promise<{
+  execution: BodyExecution;
+  spawns: SpawnRecord[];
+  bound: { id: string; mode: string; launchSite?: { file: string; line: number; column: number } }[];
+}> {
   const launcher = makeFakeJsonChildLauncher();
   const spawn: SpawnFn = (execPath, args, options) => {
     const child = launcher.spawn(execPath, args, options) as FakeJsonChild;
@@ -171,6 +189,16 @@ describe("RFC-0012 §10 — parent side: a subagent fn call is a child launch of
     // FN-6: the bare tail is the call's value; the caller body's tail is that value.
     expect(outcome.execution.outcome).toBe("success");
     expect(outcome.execution.result.value).toBe("go");
+  });
+
+  it("RFC 0015 D7: the fn call's residence-keyed site rides the spawn path into the subagent-fn bind's launchSite (gutter/roster source for fn fan-out)", async () => {
+    const outcome = await driveCaller({ src: STEP_SRC, reply: okLine("go") });
+    const fnBind = outcome.bound.find((b) => b.mode === "subagent-fn");
+    expect(fnBind).toBeDefined();
+    // `step("go", 3)` is line 4 of STEP_SRC; the file is the caller's on-disk
+    // sourcePath (the panic-site residence rule — the same key space as heat),
+    // NOT the slash name a checkpoint site would carry.
+    expect(fnBind!.launchSite).toEqual({ file: "/thetadir/caller.theta", line: 4, column: 1 });
   });
 
   it("FN-7: a declaration-site `with { model }` override rides --model; the child cwd is the caller's ctx.cwd", async () => {

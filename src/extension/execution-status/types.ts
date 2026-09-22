@@ -5,7 +5,7 @@
 // Spec: docs/spec_topics/execution-status.md (EXST-1..12).
 
 import type { CheckpointKind, CheckpointSite } from "../../seams/checkpoint";
-import type { TraceKind } from "../../seams/trace";
+import type { TraceKind, TraceSettle } from "../../seams/trace";
 import type { Clock } from "../../seams/clock";
 
 // ---------------------------------------------------------------------------
@@ -42,6 +42,18 @@ export const TAP_LINE_MAX_BYTES = 32768;
  *  while hard-bounding memory against a tight loop smearing across a large
  *  script (EXST-7's bounded-state posture extends to this ring). */
 export const HEAT_RING_CAPACITY = 256;
+/** RFC 0015 (D7) — per-invocation in-flight effect-SPAN capacity: concurrent
+ *  dispatch→settle spans tracked per node (the operator-ruled full-heat clamp
+ *  set + the real-dwell accumulator). Rationale: `PAR_FOR_THROTTLE` = 64
+ *  hard-bounds ONE lane set's concurrency (the same structural bound behind
+ *  `MAX_RUNNING_LANES_TRACKED`), so 64 covers a SINGLE lane set's fan-out.
+ *  It is not a global bound: nested par-fors and nested invokes publish into
+ *  the same node, so more than 64 concurrent spans are reachable — those
+ *  degrade gracefully at capacity by force-settling the OLDEST open span
+ *  (dwell closed, clamp released, fade starts) rather than queuing
+ *  unboundedly (EXST-7's bounded-state posture). The cap also defends
+ *  against a defective seam that dispatches without settling. */
+export const HEAT_INFLIGHT_CAPACITY = 64;
 /** RFC 0015 (D3, decision 7) — terminal heat-summary gate: a top-level drive
  *  that ends before this elapsed wall time appends NO `theta-run-summary`
  *  entry ("short utility drives append nothing"). The ratified decision fixes
@@ -126,23 +138,23 @@ export interface HeatEntrySnapshot {
   readonly file: string;
   readonly line: number;
   /** `clock.now()` at the newest trace publication on this key — or at effect
-   *  settle when this key's clamp was just cleared (the fade starts at settle,
-   *  not at the effect's dispatch; node end counts as settle for a
-   *  still-clamped key). */
+   *  SETTLE when a span on this key just closed (the fade starts at settle,
+   *  not at the effect's dispatch; node end and in-flight-capacity eviction
+   *  count as settle for a still-open span). */
   readonly lastHitMs: number;
   /** Total trace publications on this key over the ring entry's lifetime. */
   readonly hits: number;
   /**
-   * Wall time this key spent as the invocation's CURRENT key: every trace
-   * publication attributes the time since the previous publication to the key
-   * that was most recently hit before it (including a re-hit of the same key).
-   * A long in-flight effect therefore lands its whole duration on the effect's
-   * own line when the next statement dispatches. A still-current key's open
-   * interval is not included until the next publication — or node end, which
-   * closes the final open interval — attributes it. (The bus
-   * guards against attributing to a missing entry as a defensive shape only:
-   * under shipped semantics the attribution target is always the ring's MRU
-   * key and cannot have been evicted.)
+   * RFC 0015 (D7) — REAL accumulated effect time on this key: the sum of the
+   * dispatch→settle lengths of every effect SPAN published on it (the trace
+   * seam's span semantics, src/seams/trace.ts §"D7 span semantics"). A span
+   * still open contributes nothing until its settle — or node end / capacity
+   * eviction, which force-close it — lands its length. Instant publications
+   * (`"stmt"`, `"loop-iter"`) accrue no dwell: dwell is where the drive
+   * BLOCKED, which is what the decision-7 heat summary reports; the D2
+   * publication-interval attribution (charging the gap to whatever key was
+   * hit last) is retired — it charged pure-statement gaps and lane
+   * interleavings to unrelated lines.
    */
   readonly dwellMs: number;
   /**
@@ -162,21 +174,23 @@ export interface HeatSnapshot {
   /** Recency order: index 0 = least recently hit (next to evict), last = newest. */
   readonly entries: readonly HeatEntrySnapshot[];
   /**
-   * Operator ruling (2026-09-22): the `(file, line)` of the current in-flight
-   * effect, held at FULL heat by the renderer until the effect settles — the
-   * card must never look idle while blocked on a long effect. Set at every
-   * effect-kind trace publication and cleared by the next `"stmt"` publication
-   * (the executor dispatching a new statement IS the settle witness the bus
-   * can see without joining checkpoint data) or by the node ending. Stored
-   * independently of ring lifetime as a defensive shape — under shipped
-   * semantics a clamped key is always the ring's MRU and is never evicted
-   * while clamped. RESIDUAL (D2, recorded): par-for lanes share one trace
-   * stream and this single clamp slot with no lane identity — a sibling
-   * lane's `"stmt"` clears another lane's clamp while that lane is still
-   * blocked on its effect, and only the newest lane's effect is ever clamped,
-   * mirroring the shipped single-slot `currentEffect` the ruling names.
+   * RFC 0015 (D7) — operator ruling (2026-09-22, generalised): the distinct
+   * `(file, line)` sites of EVERY currently in-flight effect span, each held
+   * at FULL heat by the renderer until ITS settle — concurrently-blocked
+   * `par for` lanes must ALL render hot (the observed defect: 3 lanes, 1 hot
+   * line). Opened at every effect-kind trace publication; a site leaves the
+   * set when its span settles (the executor's dispatch→settle pairing — no
+   * `"stmt"` heuristic, no lane identity), when the in-flight set evicts it
+   * at `HEAT_INFLIGHT_CAPACITY`, or when the node ends. Deduplicated (two
+   * lanes on one line yield one site, released when the LAST span on it
+   * settles); each site is ordered at its NEWEST open span's position, so a
+   * re-dispatch on an already-clamped line moves the site to the end and the
+   * last element is always the newest dispatch — the renderer's current-line
+   * anchor. Absent while no span is open. Replaces D2's single-slot
+   * `clampedLine` (that slot's recorded par-for collapse is exactly what the
+   * set fixes).
    */
-  readonly clampedLine?: { readonly file: string; readonly line: number };
+  readonly clampedLines?: readonly { readonly file: string; readonly line: number }[];
 }
 
 /**
@@ -308,15 +322,18 @@ export interface InvocationNodeSnapshot {
    */
   readonly placement?: string;
   /**
-   * RFC 0015 (D2) — launch-site attribution: the parent's `invoke` site at the
-   * moment this child node was bound (`⑂` gutter marker + roster `[line N]`
-   * cross-reference). Best-effort: sourced from the parent's most recent
-   * `"invoke"`-kind trace publication (residence-keyed, so it matches heat
-   * keys), falling back to the parent's `currentEffect` site when that effect
-   * is an `invoke` (checkpoint-site naming — slash-name `file`). Absent when
-   * neither exists, and always absent on `subagent-fn` nodes: fn spawns
-   * publish no invoke kind (D1 recorded residual), so the bus skips
-   * attribution for that mode rather than stamp a stale earlier invoke.
+   * RFC 0015 (D2/D7) — launch-site attribution: the parent's launch site for
+   * this child node, resolved when it was bound (`⑂` gutter marker + roster `[line N]`
+   * cross-reference). Preferred source (D7): the spawn-path `launchSite`
+   * carried in the `invocationBound` info — residence-keyed and race-free
+   * (it travels with the spawn request), and the ONLY source for
+   * `subagent-fn` nodes. Best-effort fallback (D2, non-fn modes): the
+   * parent's most recent `"invoke"`-kind trace publication (residence-keyed,
+   * so it matches heat keys), then the parent's `currentEffect` site when
+   * that effect is an `invoke` (checkpoint-site naming — slash-name `file`).
+   * Absent when no source exists; a `subagent-fn` bind whose info carries no
+   * site stays unattributed rather than stamping a stale earlier invoke (fn
+   * spawns publish no invoke kind — D1 recorded residual).
    */
   readonly launchSite?: CheckpointSite;
   /** RFC 0015 (D2) — present iff the node's heat ring holds at least one entry. */
@@ -377,7 +394,22 @@ export interface ExecutionStatusBus {
   invocationStarted(invocationId: string, theta: string): void;
   invocationBound(
     invocationId: string,
-    info: { readonly mode: InvocationMode; readonly parentInvocationId?: string },
+    info: {
+      readonly mode: InvocationMode;
+      readonly parentInvocationId?: string;
+      /**
+       * RFC 0015 (D7) — spawn-path launch-site carriage: the residence-keyed
+       * call site of the `invoke` / `subagent fn` call that spawned this
+       * child, carried by the SPAWN PATH itself (the producer's bind input),
+       * not derived from bus-resident trace state. Race-free by construction
+       * — the site travels with the spawn request, so concurrent `par for`
+       * lanes cannot cross-stamp — and the only launch-site source for
+       * `subagent-fn` binds, which publish no `invoke`-kind trace (D1
+       * recorded residual). When present it WINS over the D2 bind-time
+       * derivation below.
+       */
+      readonly launchSite?: CheckpointSite;
+    },
   ): void;
   invocationEnded(invocationId: string): void;
   /**
@@ -396,8 +428,24 @@ export interface ExecutionStatusBus {
    * residence-keyed (src/seams/trace.ts §"D1→D2 contract") — this method never
    * correlates against `checkpointBefore` data. `invocationId` undefined (a
    * publication the wiring could not attribute) drops the publication.
+   *
+   * RFC 0015 (D7): a SPAN-kind publication (`isSpanTraceKind`) returns its
+   * settle callback — idempotent, EXST-9-wrapped, safe after node end — which
+   * closes the span's dwell and releases its clamp site. Instant kinds and
+   * every dropped publication return `undefined`.
    */
-  trace(invocationId: string | undefined, site: CheckpointSite, kind: TraceKind): void;
+  trace(
+    invocationId: string | undefined,
+    site: CheckpointSite,
+    kind: TraceKind,
+  ): TraceSettle | undefined;
+  /**
+   * RFC 0015 (D7, PTQ-1256) — constant-cost presence probe: whether the bus
+   * currently tracks `invocationId` (lingering ended nodes included). The
+   * run-card renderer's entry gate reads this instead of building a full
+   * deep-copy snapshot it discards.
+   */
+  tracks(invocationId: string): boolean;
   openLaneSet(invocationId: string, total: number, width: number): ParForLaneSetHandle;
   childEvent(invocationId: string, event: ChildTapEvent): void;
   /** L3 (EXST-14): one class-2 author-message publication. `invocationId`

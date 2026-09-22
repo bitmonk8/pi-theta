@@ -189,16 +189,100 @@ describe("D5 — live card render", () => {
     expect(cold).not.toContain("\x1b[48;");
   });
 
-  it("OPERATOR RULING: a clamped in-flight effect's line holds FULL heat across any age", () => {
+  it("OPERATOR RULING: a clamped in-flight effect's line holds FULL heat across any age; the fade starts at ITS settle (D7)", () => {
     const h = harness();
     startDrive(h);
-    h.bus.trace("inv-1", SITE_L5, "tool-call"); // effect kind → clamp on line 5
+    const settle = h.bus.trace("inv-1", SITE_L5, "tool-call")!; // span → clamp on line 5
     const before = renderLines(h).find((line) => visible(line).includes("▶"))!;
     h.clock.advance(HEAT_FADE_MS * 3); // far past the fade window
     const after = renderLines(h).find((line) => visible(line).includes("▶"))!;
     expect(visible(after)).toContain("5 ▶");
     // Identical full-heat background prefix before and after the wait.
     expect(after.slice(0, 24)).toBe(before.slice(0, 24));
+    // D7: the settle releases the clamp and the fade starts NOW — still hot
+    // (age 0) immediately after, cold once the window passes.
+    settle();
+    const atSettle = renderLines(h).find((line) => visible(line).includes("5"))!;
+    expect(atSettle.startsWith("\x1b[48;2;")).toBe(true);
+    h.clock.advance(HEAT_FADE_MS + 1);
+    const faded = renderLines(h).find((line) => visible(line).includes('"DONE"'))!;
+    expect(faded).not.toContain("\x1b[48;");
+  });
+
+  it("D7 (operator ruling generalised): EVERY in-flight effect line renders full-heat concurrently — the par-for 3-lanes-1-hot-line defect", () => {
+    const h = harness();
+    startDrive(h);
+    // Two lanes blocked on effects on different lines of the same file.
+    h.bus.trace("inv-1", SITE_L4, "invoke");
+    const settle5 = h.bus.trace("inv-1", SITE_L5, "tool-call")!;
+    h.clock.advance(HEAT_FADE_MS * 3); // far past the fade window — both clamped
+    const lines = renderLines(h);
+    const row4 = lines.find((line) => visible(line).includes("let x = 1"))!;
+    const row5 = lines.find((line) => visible(line).includes('"DONE"'))!;
+    // Both hot at the identical full-heat LUT entry (the leading bg SGR); ▶
+    // sits on the NEWEST in-flight dispatch (line 5).
+    expect(row4.startsWith("\x1b[48;2;")).toBe(true);
+    const hotBg = row4.slice(0, row4.indexOf("m") + 1);
+    expect(row5.startsWith(hotBg)).toBe(true);
+    expect(visible(row5)).toContain("5 ▶");
+    expect(visible(row4)).not.toContain("▶");
+    // Line 5 settles: its line fades from now while line 4 stays clamped.
+    settle5();
+    h.clock.advance(HEAT_FADE_MS + 1);
+    const after = renderLines(h);
+    const row4After = after.find((line) => visible(line).includes("let x = 1"))!;
+    const row5After = after.find((line) => visible(line).includes('"DONE"'))!;
+    expect(row4After.startsWith("\x1b[48;2;")).toBe(true);
+    expect(row5After).not.toContain("\x1b[48;");
+  });
+
+  it("PTQ-1256: one bus snapshot per live render — and the renderer entry's presence gate is the tracks() probe, not a snapshot build", () => {
+    const h = harness();
+    startDrive(h);
+    let snapshots = 0;
+    let probes = 0;
+    const countingBus = {
+      snapshot: (): ReturnType<ExecutionStatusBus["snapshot"]> => {
+        snapshots += 1;
+        return h.bus.snapshot();
+      },
+      tracks: (id: string): boolean => {
+        probes += 1;
+        return h.bus.tracks(id);
+      },
+    };
+    const controller = createRunCardController({
+      bus: () => countingBus,
+      clock: () => h.clock,
+      readSourceBytes: (): Uint8Array | undefined => undefined,
+    });
+    const component = controller.renderer(entryFor(SEED), { expanded: false }, fakeTheme());
+    expect(component).toBeDefined();
+    expect(snapshots).toBe(0); // the entry gate built NO snapshot
+    expect(probes).toBe(1);
+    component!.render(80);
+    expect(snapshots).toBe(1); // node + children derive from the ONE build
+    component!.render(80);
+    expect(snapshots).toBe(2); // still exactly one per frame
+  });
+
+  it("D7: a subagent-fn child bound with the spawn-path launchSite gets the ⑂ gutter marker and the roster [line N] cross-ref", () => {
+    const h = harness();
+    startDrive(h);
+    h.bus.invocationStarted("child-1", "review-lens");
+    // No invoke-kind trace ever published — the spawn-path carriage is the
+    // only source for fn fan-out (the parallel-review-lenses case).
+    h.bus.invocationBound("child-1", {
+      mode: "subagent-fn",
+      parentInvocationId: "inv-1",
+      launchSite: SITE_L5,
+    });
+    const lines = renderLines(h, fakeTheme(), 100).map(visible);
+    const launchRow = lines.find((line) => line.includes('"DONE"'))!;
+    expect(launchRow).toContain("⑂");
+    expect(lines.some((line) => line.includes("⑂ review-lens") && line.includes("[line 5]"))).toBe(
+      true,
+    );
   });
 
   it("the styled-line cache lexes each file once per card across renderer re-invocations (spike Deviation 4)", () => {

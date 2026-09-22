@@ -335,10 +335,12 @@ describe("D3 — run-card publisher", () => {
 
     bus.invocationStarted("inv-1", "quality-loop");
     publisher.driveStarted({ invocationId: "inv-1", theta: "quality-loop", args: "" });
-    // Heat: line 5 dwells 1000 ms, line 9 dwells 200 ms (closed by node end).
-    bus.trace("inv-1", site("a.theta", 5), "stmt");
+    // Heat (D7 span dwell): line 5's effect span runs 1000 ms; line 9's span
+    // stays open and is closed by node end (200 ms tail + the gate window).
+    const settle5 = bus.trace("inv-1", site("a.theta", 5), "tool-call")!;
     clock.advance(1000);
-    bus.trace("inv-1", site("a.theta", 9), "stmt");
+    settle5();
+    bus.trace("inv-1", site("a.theta", 9), "query");
     // Counters: one checkpoint, one loop-iter.
     bus.checkpointBefore("inv-1", "loop-iter", site("a.theta", 3));
     // A child bound under inv-1, ended and EVICTED long before drive end —
@@ -361,8 +363,8 @@ describe("D3 — run-card publisher", () => {
     expect(summary.counters).toEqual({ checkpoints: 1, loopIters: 1 });
     expect(summary.childrenSpawned).toBe(1);
     expect(summary.heatProfile).toEqual([
-      { file: "a.theta", line: 5, hits: 1, dwellMs: 1000, kind: "stmt" },
-      { file: "a.theta", line: 9, hits: 1, dwellMs: RUN_SUMMARY_GATE_MS + 200, kind: "stmt" },
+      { file: "a.theta", line: 5, hits: 1, dwellMs: 1000, kind: "tool-call" },
+      { file: "a.theta", line: 9, hits: 1, dwellMs: RUN_SUMMARY_GATE_MS + 200, kind: "query" },
     ].sort((a, b) => b.dwellMs - a.dwellMs));
   });
 
@@ -373,10 +375,14 @@ describe("D3 — run-card publisher", () => {
     const publisher = createRunCardPublisher({ entryChannel: channel, clock, statusBus: bus });
     bus.invocationStarted("inv-1", "t");
     publisher.driveStarted({ invocationId: "inv-1", theta: "t", args: "" });
-    // Lines 1..14: line N dwells N*10 ms (the final line's interval closes at end).
+    // Lines 1..14: line N's effect span runs N*10 ms (D7 real dwell); line
+    // 14's span stays open and the end-path close lands the gate window on it.
     for (let line = 1; line <= 14; line += 1) {
-      bus.trace("inv-1", site("a.theta", line), "stmt");
+      const settle = bus.trace("inv-1", site("a.theta", line), "tool-call")!;
       clock.advance(line * 10);
+      if (line < 14) {
+        settle();
+      }
     }
     clock.advance(RUN_SUMMARY_GATE_MS);
     bus.invocationEnded("inv-1");
