@@ -35,6 +35,13 @@ export const FOOTER_CLAMP_CHARS = 200;
 export const WIDGET_HEIGHT_LINES = 6;
 /** Tap per-line size gate (EXST-5). */
 export const TAP_LINE_MAX_BYTES = 32768;
+/** RFC 0015 (D2) — per-invocation heat-ring capacity: distinct `(file, line)`
+ *  keys tracked per node; at capacity the least-recently-HIT key is evicted.
+ *  Rationale: the card's viewport shows 24 lines and the fade window is 4 s,
+ *  so 256 keys comfortably out-spans everything a renderer can usefully show
+ *  while hard-bounding memory against a tight loop smearing across a large
+ *  script (EXST-7's bounded-state posture extends to this ring). */
+export const HEAT_RING_CAPACITY = 256;
 
 // ---------------------------------------------------------------------------
 // L3 `theta_progress` constants (execution-status.md EXST-13/14/15;
@@ -80,6 +87,68 @@ export type InvocationMode = "prompt" | "subagent" | "subagent-fn";
  * are D2.
  */
 export type HeatLineKind = TraceKind;
+
+/**
+ * RFC 0015 (D2) — one heat-ring entry, keyed `(file, line)` (D0: per-FILE keys
+ * because nested invokes switch files; `file` is the residence-rule file the
+ * trace seam publishes, never the checkpoint site's slash name).
+ */
+export interface HeatEntrySnapshot {
+  readonly file: string;
+  readonly line: number;
+  /** `clock.now()` at the newest trace publication on this key — or at effect
+   *  settle when this key's clamp was just cleared (the fade starts at settle,
+   *  not at the effect's dispatch; node end counts as settle for a
+   *  still-clamped key). */
+  readonly lastHitMs: number;
+  /** Total trace publications on this key over the ring entry's lifetime. */
+  readonly hits: number;
+  /**
+   * Wall time this key spent as the invocation's CURRENT key: every trace
+   * publication attributes the time since the previous publication to the key
+   * that was most recently hit before it (including a re-hit of the same key).
+   * A long in-flight effect therefore lands its whole duration on the effect's
+   * own line when the next statement dispatches. A still-current key's open
+   * interval is not included until the next publication — or node end, which
+   * closes the final open interval — attributes it. (The bus
+   * guards against attributing to a missing entry as a defensive shape only:
+   * under shipped semantics the attribution target is always the ring's MRU
+   * key and cannot have been evicted.)
+   */
+  readonly dwellMs: number;
+  /**
+   * The entry's gutter kind. `"stmt"` never downgrades a recorded effect kind
+   * (a line that dispatched an effect keeps its effect identity across the
+   * per-iteration `"stmt"` re-hits); effect kinds overwrite each other freely.
+   */
+  readonly kind: HeatLineKind;
+}
+
+/**
+ * RFC 0015 (D2) — the per-node heat view a renderer reads: ring entries plus
+ * the operator-ruled full-heat clamp. Immutable-shaped copies like every other
+ * snapshot member; absent from the node snapshot while the ring is empty.
+ */
+export interface HeatSnapshot {
+  /** Recency order: index 0 = least recently hit (next to evict), last = newest. */
+  readonly entries: readonly HeatEntrySnapshot[];
+  /**
+   * Operator ruling (2026-09-22): the `(file, line)` of the current in-flight
+   * effect, held at FULL heat by the renderer until the effect settles — the
+   * card must never look idle while blocked on a long effect. Set at every
+   * effect-kind trace publication and cleared by the next `"stmt"` publication
+   * (the executor dispatching a new statement IS the settle witness the bus
+   * can see without joining checkpoint data) or by the node ending. Stored
+   * independently of ring lifetime as a defensive shape — under shipped
+   * semantics a clamped key is always the ring's MRU and is never evicted
+   * while clamped. RESIDUAL (D2, recorded): par-for lanes share one trace
+   * stream and this single clamp slot with no lane identity — a sibling
+   * lane's `"stmt"` clears another lane's clamp while that lane is still
+   * blocked on its effect, and only the newest lane's effect is ever clamped,
+   * mirroring the shipped single-slot `currentEffect` the ruling names.
+   */
+  readonly clampedLine?: { readonly file: string; readonly line: number };
+}
 
 export interface EffectRef {
   readonly kind: CheckpointKind; // src/seams/checkpoint.ts:8-14 (five kinds)
@@ -159,6 +228,20 @@ export interface InvocationNodeSnapshot {
    * clamped at ingest. Absent on `pipe` children and on prompt-mode nodes.
    */
   readonly placement?: string;
+  /**
+   * RFC 0015 (D2) — launch-site attribution: the parent's `invoke` site at the
+   * moment this child node was bound (`⑂` gutter marker + roster `[line N]`
+   * cross-reference). Best-effort: sourced from the parent's most recent
+   * `"invoke"`-kind trace publication (residence-keyed, so it matches heat
+   * keys), falling back to the parent's `currentEffect` site when that effect
+   * is an `invoke` (checkpoint-site naming — slash-name `file`). Absent when
+   * neither exists, and always absent on `subagent-fn` nodes: fn spawns
+   * publish no invoke kind (D1 recorded residual), so the bus skips
+   * attribution for that mode rather than stamp a stale earlier invoke.
+   */
+  readonly launchSite?: CheckpointSite;
+  /** RFC 0015 (D2) — present iff the node's heat ring holds at least one entry. */
+  readonly heat?: HeatSnapshot;
   readonly endedAtMs?: number; // set => lingering until eviction
 }
 
@@ -218,6 +301,14 @@ export interface ExecutionStatusBus {
     placement: { readonly backend: string; readonly handle: string },
   ): void;
   checkpointBefore(invocationId: string, kind: CheckpointKind, site: CheckpointSite): void;
+  /**
+   * RFC 0015 (D2) — the trace-seam ingest surface (wired by D5's composition;
+   * unit-driven until then). Kinds arrive from the trace seam itself, already
+   * residence-keyed (src/seams/trace.ts §"D1→D2 contract") — this method never
+   * correlates against `checkpointBefore` data. `invocationId` undefined (a
+   * publication the wiring could not attribute) drops the publication.
+   */
+  trace(invocationId: string | undefined, site: CheckpointSite, kind: TraceKind): void;
   openLaneSet(invocationId: string, total: number, width: number): ParForLaneSetHandle;
   childEvent(invocationId: string, event: ChildTapEvent): void;
   /** L3 (EXST-14): one class-2 author-message publication. `invocationId`

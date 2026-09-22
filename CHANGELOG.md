@@ -4,6 +4,27 @@ All notable changes to `@bitmonk8/pi-theta` will be documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.488.2]
+
+### Added
+- **RFC 0015 Delivery 2 — execution-status bus heat state.** The bus now
+  ingests the D1 trace seam (`ExecutionStatusBus.trace(invocationId?, site,
+  kind)`): each tracked invocation carries a per-invocation heat ring keyed
+  `(file, line)` with `{ lastHitMs, hits, dwellMs, kind }`, hard-bounded at
+  `HEAT_RING_CAPACITY` (256) with LRU eviction. Per the operator ruling, the
+  current in-flight effect's line is clamped (`HeatSnapshot.clampedLine`)
+  until the next statement dispatch or invocation end settles it, at which
+  point its `lastHitMs` is refreshed so the fade starts at settle; the end
+  path also closes the open dwell interval so a drive's final long effect
+  keeps its dwell accounting. Child nodes gain `launchSite` attribution (the
+  parent's newest invoke-kind trace site at bind, checkpoint `currentEffect`
+  fallback iff kind `invoke`, skipped for `subagent-fn` binds where any
+  invoke-derived site would be stale). Snapshots extend additively
+  (`InvocationNodeSnapshot.heat?`/`launchSite?`); no composition root wires
+  the seam yet (D5). Recorded residuals: par-for lanes share the single
+  clamp slot (mirrors the shipped single-slot `currentEffect`);
+  `"binder-call"` remains a declared-but-unpublished kind.
+
 ## [0.488.1]
 
 ### Added

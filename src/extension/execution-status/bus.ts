@@ -18,6 +18,9 @@ import type {
   ChildActivity,
   ChildTapEvent,
   ExecutionStatusBus,
+  HeatEntrySnapshot,
+  HeatLineKind,
+  HeatSnapshot,
   ExecutionStatusBusDeps,
   ExecutionStatusSnapshot,
   InvocationMode,
@@ -32,6 +35,7 @@ import type {
 } from "./types";
 import {
   DONE_LINGER_MS,
+  HEAT_RING_CAPACITY,
   MAX_LANE_SET_DEPTH,
   MAX_RUNNING_LANES_TRACKED,
   MAX_TRACKED_INVOCATIONS,
@@ -41,6 +45,7 @@ import {
 import { clampAuthorMessage } from "./progress-tool";
 import type { Clock, TimerHandle } from "../../seams/clock";
 import type { CheckpointKind, CheckpointSite } from "../../seams/checkpoint";
+import type { TraceKind } from "../../seams/trace";
 
 /** A no-op handle: returned when the owning node is untracked (EXST-7). */
 const NOOP_LANE_SET_HANDLE: ParForLaneSetHandle = Object.freeze({
@@ -48,6 +53,21 @@ const NOOP_LANE_SET_HANDLE: ParForLaneSetHandle = Object.freeze({
   settle(): void {},
   close(): void {},
 });
+
+/** Mutable per-heat-entry state (RFC 0015 D2); snapshot copies are built per tick. */
+interface HeatEntryState {
+  readonly file: string;
+  readonly line: number;
+  lastHitMs: number;
+  hits: number;
+  dwellMs: number;
+  kind: HeatLineKind;
+}
+
+/** The ring's composite `(file, line)` key. `\u0000` cannot occur in a path. */
+function heatKey(file: string, line: number): string {
+  return `${file}\u0000${line}`;
+}
 
 /** Mutable per-lane-set state. `running` is claim-ordered by Map insertion. */
 interface LaneSetState {
@@ -78,6 +98,27 @@ interface NodeState {
   childLastToolName: string | undefined;
   childLastEventAtMs: number;
   childSeen: boolean;
+  /** RFC 0015 (D2): the heat ring — recency-ordered by Map insertion (a re-hit
+   *  re-inserts its key), so the FIRST key is always the LRU eviction victim. */
+  readonly heat: Map<string, HeatEntryState>;
+  /** The most recently hit heat key — the dwell-attribution target for the
+   *  interval that the NEXT trace publication closes. */
+  lastHeatKey: string | undefined;
+  /** `clock.now()` of the newest trace publication (the open interval's start). */
+  lastTraceAtMs: number;
+  /** Operator-ruling clamp (2026-09-22): the in-flight effect's `(file, line)`,
+   *  set by every effect-kind trace publication, cleared by the next `"stmt"`
+   *  publication or node end. Kept as a standalone site (not a ring reference)
+   *  — stored independently of ring lifetime as a defensive shape; under
+   *  shipped semantics a clamped key is always the ring's MRU (nothing else
+   *  publishes between clamp-set and clamp-move/clear) and is never evicted
+   *  while clamped. */
+  clampSite: { readonly file: string; readonly line: number } | undefined;
+  /** RFC 0015 (D2): the newest `"invoke"`-kind trace site on THIS node — the
+   *  residence-keyed launch-site source for children bound to it. */
+  lastInvokeSite: CheckpointSite | undefined;
+  /** RFC 0015 (D2): stamped at `invocationBound` from the parent's state. */
+  launchSite: CheckpointSite | undefined;
   /** L3 (EXST-14): the NEWEST class-2 payload on this node; replaced, never queued. */
   authorMessage: ProgressAuthorMessage | undefined;
   /** RFC 0012 §7: the rendered `live in <backend> <handle>` reference, clamped at ingest. */
@@ -164,6 +205,12 @@ class ExecutionStatusBusImpl implements ExecutionStatusBus {
         childLastToolName: undefined,
         childLastEventAtMs: 0,
         childSeen: false,
+        heat: new Map<string, HeatEntryState>(),
+        lastHeatKey: undefined,
+        lastTraceAtMs: 0,
+        clampSite: undefined,
+        lastInvokeSite: undefined,
+        launchSite: undefined,
         authorMessage: undefined,
         placement: undefined,
         endedAtMs: undefined,
@@ -185,6 +232,30 @@ class ExecutionStatusBusImpl implements ExecutionStatusBus {
       }
       node.mode = info.mode;
       node.parentInvocationId = info.parentInvocationId;
+      // RFC 0015 (D2) launch-site attribution: read (never join) the parent's
+      // state AT BIND TIME. Preferred source is the parent's newest
+      // `"invoke"`-kind trace site (residence-keyed — the same key space as
+      // heat, so D5's gutter lands in the right viewport file); fallback is the
+      // parent's currentEffect site when that effect is an `invoke`
+      // (checkpoint-site naming — covers compositions where the trace seam is
+      // unwired). Best-effort under par-for: a sibling lane's invoke between
+      // this child's launch and its bind can overwrite either source, so the
+      // attribution can name a concurrent sibling's launch line — accepted and
+      // bounded to same-parent concurrent invoke launches. No race-free source
+      // exists within bus-resident state (D2's scope); a race-free alternative
+      // — carrying the site through the spawn path in `invocationBound` info —
+      // is neither a trace↔checkpoint join nor bus-resident, and is recorded
+      // as an option for D5+. `subagent-fn` spawns publish no invoke kind at
+      // all, so any invoke-derived site would be a STALE earlier launch, not a
+      // race — skip attribution entirely for that mode (absent, never wrong).
+      if (info.parentInvocationId !== undefined && info.mode !== "subagent-fn") {
+        const parent = this.#nodes.get(info.parentInvocationId);
+        if (parent !== undefined) {
+          node.launchSite =
+            parent.lastInvokeSite ??
+            (parent.effectKind === "invoke" ? parent.effectSite : undefined);
+        }
+      }
       this.#markDirty();
     } catch { // allow-broad-catch: EXST-9 — execution-status.md#exst-9
     }
@@ -223,7 +294,32 @@ class ExecutionStatusBusImpl implements ExecutionStatusBus {
       }
       // EXST-7: the node lingers for the done-flash and is evicted by the tick.
       // Unsettled lanes are dropped with it (whole-theta cancel — CTRL-5).
-      node.endedAtMs = this.#clock.now();
+      const now = this.#clock.now();
+      node.endedAtMs = now;
+      // RFC 0015 (D2): node end closes the current key's open dwell interval —
+      // trace() drops publications on ended nodes, so no later close exists. A
+      // drive whose FINAL statement is its dominant long effect would otherwise
+      // record ~0 dwell for it (mirrors the trace() close).
+      if (node.lastHeatKey !== undefined) {
+        const previous = node.heat.get(node.lastHeatKey);
+        if (previous !== undefined) {
+          previous.dwellMs += now - node.lastTraceAtMs;
+        }
+        node.lastTraceAtMs = now;
+      }
+      // RFC 0015 (D2): a lingering node's card must not render a full-heat
+      // line — whatever was in flight settled (or died) with the drive. Node
+      // end IS the settle witness here, so per the operator ruling ("then
+      // fades normally") the fade starts now: refresh the clamped entry's
+      // lastHitMs like the stmt-path clear, or a long-clamped line snaps
+      // full-heat→α≈0 on the lingering done-flash card.
+      if (node.clampSite !== undefined) {
+        const clamped = node.heat.get(heatKey(node.clampSite.file, node.clampSite.line));
+        if (clamped !== undefined) {
+          clamped.lastHitMs = now;
+        }
+        node.clampSite = undefined;
+      }
       this.#markDirty();
     } catch { // allow-broad-catch: EXST-9 — execution-status.md#exst-9
     }
@@ -243,6 +339,83 @@ class ExecutionStatusBusImpl implements ExecutionStatusBus {
       node.checkpoints += 1;
       if (kind === "loop-iter") {
         node.loopIters += 1;
+      }
+      this.#markDirty();
+    } catch { // allow-broad-catch: EXST-9 — execution-status.md#exst-9
+    }
+  }
+
+  trace(invocationId: string | undefined, site: CheckpointSite, kind: TraceKind): void {
+    try {
+      if (this.#disposed || invocationId === undefined) {
+        return;
+      }
+      const node = this.#nodes.get(invocationId);
+      if (node === undefined || node.endedAtMs !== undefined) {
+        return;
+      }
+      const now = this.#clock.now();
+      // Close the previous publication's open interval: its wall time dwells on
+      // the key that was current across it (see `HeatEntrySnapshot.dwellMs`).
+      if (node.lastHeatKey !== undefined) {
+        const previous = node.heat.get(node.lastHeatKey);
+        // Defensive shape: `lastHeatKey` is always the ring's MRU when set
+        // (attribution precedes any eviction, and nothing else deletes
+        // entries), so this lookup cannot miss under shipped semantics.
+        if (previous !== undefined) {
+          previous.dwellMs += now - node.lastTraceAtMs;
+        }
+      }
+      const key = heatKey(site.file, site.line);
+      const existing = node.heat.get(key);
+      if (existing !== undefined) {
+        // Re-insert so Map iteration order stays LRU→MRU (constant-cost upkeep).
+        node.heat.delete(key);
+        existing.lastHitMs = now;
+        existing.hits += 1;
+        // `"stmt"` never downgrades a recorded effect kind: an effect line's
+        // per-dispatch `"stmt"` publication precedes its effect-kind twin, and
+        // the line's gutter identity is the effect, not the dispatch.
+        if (kind !== "stmt" || existing.kind === "stmt") {
+          existing.kind = kind;
+        }
+        node.heat.set(key, existing);
+      } else {
+        if (node.heat.size >= HEAT_RING_CAPACITY) {
+          const oldest = node.heat.keys().next().value;
+          if (oldest !== undefined) {
+            node.heat.delete(oldest);
+          }
+        }
+        node.heat.set(key, { file: site.file, line: site.line, lastHitMs: now, hits: 1, dwellMs: 0, kind });
+      }
+      node.lastHeatKey = key;
+      node.lastTraceAtMs = now;
+      if (kind === "stmt") {
+        // Operator ruling (2026-09-22): a new statement dispatch is the settle
+        // witness for the previously-clamped effect — no checkpoint join needed.
+        // RESIDUAL (D2, recorded): par-for lanes share this one trace stream
+        // and this single clamp slot with no lane identity, so a sibling
+        // lane's "stmt" clears another lane's clamp while that lane is still
+        // blocked on its effect, and only the newest lane's effect is ever
+        // clamped. The collapse mirrors the shipped single-slot
+        // `currentEffect` the ruling itself names as the source; a true fix
+        // needs lane identity on the trace seam — out of D2's scope.
+        if (node.clampSite !== undefined) {
+          // Ruling second half — "then fades normally": the settled effect's
+          // fade starts at SETTLE, not dispatch, so refresh its entry's
+          // lastHitMs; otherwise a 60s effect snaps from full heat to α≈0.
+          const clamped = node.heat.get(heatKey(node.clampSite.file, node.clampSite.line));
+          if (clamped !== undefined) {
+            clamped.lastHitMs = now;
+          }
+          node.clampSite = undefined;
+        }
+      } else {
+        node.clampSite = { file: site.file, line: site.line };
+        if (kind === "invoke") {
+          node.lastInvokeSite = site;
+        }
       }
       this.#markDirty();
     } catch { // allow-broad-catch: EXST-9 — execution-status.md#exst-9
@@ -637,7 +810,27 @@ function snapshotOfNode(node: NodeState): InvocationNodeSnapshot {
     ...(childActivity !== undefined ? { childActivity } : {}),
     ...(node.authorMessage !== undefined ? { authorMessage: node.authorMessage } : {}),
     ...(node.placement !== undefined ? { placement: node.placement } : {}),
+    ...(node.launchSite !== undefined ? { launchSite: node.launchSite } : {}),
+    ...(node.heat.size > 0 ? { heat: snapshotOfHeat(node) } : {}),
     ...(node.endedAtMs !== undefined ? { endedAtMs: node.endedAtMs } : {}),
+  };
+}
+
+function snapshotOfHeat(node: NodeState): HeatSnapshot {
+  const entries: HeatEntrySnapshot[] = [];
+  for (const entry of node.heat.values()) {
+    entries.push({
+      file: entry.file,
+      line: entry.line,
+      lastHitMs: entry.lastHitMs,
+      hits: entry.hits,
+      dwellMs: entry.dwellMs,
+      kind: entry.kind,
+    });
+  }
+  return {
+    entries,
+    ...(node.clampSite !== undefined ? { clampedLine: node.clampSite } : {}),
   };
 }
 

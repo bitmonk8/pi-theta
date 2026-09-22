@@ -21,6 +21,7 @@ export function noopExecutionStatusBus(overrides: Partial<ExecutionStatusBus> = 
     invocationEnded: (): void => {},
     invocationPlaced: (): void => {},
     checkpointBefore: (): void => {},
+    trace: (): void => {},
     openLaneSet: () => ({ claim: (): void => {}, settle: (): void => {}, close: (): void => {} }),
     childEvent: (): void => {},
     authorMessage: (): void => {},
