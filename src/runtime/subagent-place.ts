@@ -1,7 +1,6 @@
 // RFC-0012 — subagent placement integration and spawn-failure dual routing.
 
 import type { Diagnostic } from "../diagnostics/diagnostic";
-import type { InvokeInfraError } from "./query-error";
 import { INTERNAL_ERROR_CODE, surfaceUnexpectedThrow } from "./runtime-panics";
 import type { SubagentChildProcess } from "./subagent-child-process";
 import {
@@ -135,8 +134,6 @@ export { INTERNAL_ERROR_CODE as SUBAGENT_SPAWN_INTERNAL_ERROR_CODE };
 export interface SpawnFailureRoutingDeps {
   /** Runtime-defect sink for the `theta/runtime/internal-error` diagnostic. */
   readonly emitDiagnostic: (diagnostic: Diagnostic) => void;
-  /** `invoke`-parent sink; absent at a top-level slash/prompt surface. */
-  readonly emitInvokeInfra?: (error: InvokeInfraError) => void;
 }
 
 /**
@@ -145,11 +142,10 @@ export interface SpawnFailureRoutingDeps {
  * already emits the operator-triage diagnostic `theta/runtime/subagent-spawn-
  * failed`, and this routing additionally surfaces the failure on the
  * invocation-failure surface as an unanticipated SDK reject —
- * `theta/runtime/internal-error`, plus `Err(InvokeInfraError { kind:
- * "invoke_infra", cause: "internal_error", ... })` to an `invoke` parent. The
- * parent invocation observes the `internal-error` routing (slash-command system
- * note / `invoke`-parent envelope); no child was launched, so there is nothing
- * to tear down.
+ * `theta/runtime/internal-error`. An `invoke` parent receives its
+ * `Err(InvokeInfraError { cause: "internal_error" })` envelope through the
+ * boundary catch on the thrown `SubagentSpawnFailedError`, not here. No child
+ * was launched, so there is nothing to tear down.
  */
 export function routeSubagentSpawnFailure(
   error: unknown,
@@ -165,15 +161,5 @@ export function routeSubagentSpawnFailure(
   });
   if (diagnostic !== undefined) {
     deps.emitDiagnostic(diagnostic);
-  }
-  // At an `invoke` parent, additionally surface the `invoke_infra` envelope.
-  if (deps.emitInvokeInfra !== undefined) {
-    const message = error instanceof Error ? error.message : String(error);
-    deps.emitInvokeInfra({
-      kind: "invoke_infra",
-      message: `internal error: ${message}`,
-      callee_path: calleePath,
-      cause: "internal_error",
-    });
   }
 }

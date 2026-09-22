@@ -42,7 +42,6 @@ import {
   verifyCallableHash,
 } from "../src/runtime/subagent-callable-hash";
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
-import type { InvokeInfraError } from "../src/runtime/query-error";
 import type { HostToolSnapshotEntry } from "../src/seams/host-tool-snapshot";
 import {
   enoentSpawnError,
@@ -536,7 +535,7 @@ describe("RFC-0006 — launchSubagentChild records argv/env/cwd", () => {
     expect(emitted.map((d) => d.code)).toContain(SUBAGENT_SPAWN_FAILED_CODE);
   });
 
-  it("spawn failure is DUALLY routed: operator-triage subagent-spawn-failed AND the invocation-failure internal-error surface (+ invoke_infra envelope)", () => {
+  it("spawn failure is DUALLY routed: operator-triage subagent-spawn-failed AND the invocation-failure internal-error surface", () => {
     const launcher = makeFakeJsonChildLauncher();
     const spawnError = enoentSpawnError("/usr/bin/node");
     launcher.failNextSpawn(spawnError);
@@ -549,22 +548,16 @@ describe("RFC-0006 — launchSubagentChild records argv/env/cwd", () => {
     launchSubagentChild(launchRequest(), { spawn: launcher.spawn, emitDiagnostic: emit });
 
     // (2) The caller additionally routes the failure through the invocation-
-    //     failure surface: theta/runtime/internal-error, plus the invoke_infra
-    //     envelope to an invoke parent (PIC-65 spawn-failure rule).
-    let envelope: InvokeInfraError | undefined;
+    //     failure surface: theta/runtime/internal-error (PIC-65 spawn-failure
+    //     rule). An invoke parent's invoke_infra envelope is minted by the
+    //     boundary catch on the thrown SubagentSpawnFailedError, not here.
     routeSubagentSpawnFailure(spawnError, "/theta/child.theta", {
       emitDiagnostic: emit,
-      emitInvokeInfra: (e): void => {
-        envelope = e;
-      },
     });
 
     const codes = emitted.map((d) => d.code);
     expect(codes).toContain(SUBAGENT_SPAWN_FAILED_CODE);
     expect(codes).toContain(SUBAGENT_SPAWN_INTERNAL_ERROR_CODE);
-    expect(envelope?.kind).toBe("invoke_infra");
-    expect(envelope?.cause).toBe("internal_error");
-    expect(envelope?.callee_path).toBe("/theta/child.theta");
   });
 });
 
