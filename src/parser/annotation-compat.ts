@@ -46,8 +46,8 @@ import { PRIMITIVE_NAMES, type ParamsFieldSource } from "./type-layer-checks";
  *     governs by name, not by this report's authority.
  *
  * Widening any of these is separate work; `letAnnotationToCompatType`
- * below is the ONLY caller authorised to mint an `object` arm, at the `let`
- * annotation site alone.
+ * below is the only converter authorised to mint an `object` arm — see its
+ * own comment for the sanctioned call sites.
  */
 export function annotationToCompatType(src: string): CompatType | undefined {
   return convertAnnotation(src, false);
@@ -60,10 +60,12 @@ export function annotationToCompatType(src: string): CompatType | undefined {
  * (`type-compat.ts:67–70`) instead of falling through to the deferred nominal
  * `named` reference, recursing through top-level union arms and `array<…>`
  * elements so `{a: integer} | null` and `array<{a: integer}>` both carry a
- * real field set. This is the ONLY call site switched to this function
- * (`walkStmt`'s `case "let"` annotation resolution); every other consumer
- * keeps calling `annotationToCompatType` for the reasons stated on its
- * comment above.
+ * real field set. The sanctioned call sites are `walkStmt`'s `case "let"`
+ * annotation resolution (`type-layer-walk.ts`) and the two RFC 0011 (seam
+ * sheet §0 C6) runtime-tool success-type mints — `theta-document.ts`'s
+ * `buildRuntimeToolSuccessTypes` and `invoke-callee-arity.ts`'s
+ * `buildComposePassSuccessTypes`; every other consumer keeps calling
+ * `annotationToCompatType` for the reasons stated on its comment above.
  *
  * An EMPTY interior (`{}`) is a DECISION, not an accident: it keeps the
  * deferring pseudo-`named` rather than minting `{kind:"object", fields:[]}`,

@@ -301,11 +301,13 @@ class TypeLayerWalk {
       // unresolvable source (`annotationToCompatType` → `undefined`)
       // falls back to `rhsType` in both places, so a name the type
       // environment cannot resolve never turns into a hole (bug 0083).
-      // Bug 0130 §Fix (a): the `let`-annotation-only conversion, the ONLY
-      // call site authorised to mint TYPE-8's `object` arm for a
-      // well-formed inline object type. Every other reader of an
-      // annotation source keeps calling `annotationToCompatType`
-      // (see that function's own comment for why the others are held).
+      // Bug 0130 §Fix (a): the `let`-annotation conversion, one of the
+      // sanctioned call sites authorised to mint TYPE-8's `object` arm for
+      // a well-formed inline object type (the others are the RFC 0011
+      // runtime-tool success-type mints — see `letAnnotationToCompatType`'s
+      // own comment for the roster). Every other reader of an annotation
+      // source keeps calling `annotationToCompatType` (see that function's
+      // own comment for why the others are held).
       const annotation =
         stmt.annotation !== null && stmt.annotation.length > 0
           ? letAnnotationToCompatType(stmt.annotation)

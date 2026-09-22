@@ -27,8 +27,9 @@
 //     `Result`, so the `system:` surface never produces a `result`-typed slot.
 //
 // The seam shapes are `SystemParamType`, the parsed `SystemTemplate`, the
-// parse-time `checkSystemInterpolation` and re-exported resolve-time
-// `renderSystemPrompt` entry points, and the diagnostic code + message anchors.
+// parse-time `checkSystemInterpolation` entry point, and the diagnostic code +
+// message anchors; the sibling `system-prompt-render.ts` owns the resolve-time
+// `renderSystemPrompt` entry point.
 //
 // Spec: frontmatter/frontmatter-fields-b-and-templates.md,
 // query/query-escapes-stringification.md.
@@ -39,12 +40,6 @@ import {
   scanInterpolationBody,
   type InterpolationType,
 } from "../render/query-render";
-
-export {
-  renderSystemPrompt,
-  type RenderSystemPromptInput,
-  type RenderSystemPromptResult,
-} from "./system-prompt-render";
 
 // --- Diagnostic codes + registry-anchored message strings ------------------
 //

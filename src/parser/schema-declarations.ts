@@ -1,8 +1,8 @@
 // V5a / V5a-T — the schema-declaration checker seam.
 //
 // This module checks object schemas, enum declarations, variant access, `by`
-// clauses, and alias cycles, and re-exports discriminated-union checks from
-// discriminated-union-checks.ts (schemas.md and type-system.md):
+// clauses, and alias cycles (schemas.md and type-system.md); the sibling
+// discriminated-union-checks.ts owns the discriminated-union checks:
 //
 //   - Object schema   — `schema X { f: T, ... }` (incl. `as "WireName"` renames):
 //       * `theta/parse/empty-schema-body`   — `schema X { }` with no fields.
@@ -29,13 +29,6 @@
 // every check.
 
 import { normaliseLiteralValueLineBreaks, type Diagnostic, type SourceRange } from "../diagnostics/diagnostic";
-
-export {
-  checkDiscriminatedUnion,
-  type DiscriminatorCandidateField,
-  type DiscriminatedUnionDecl,
-  type UnionVariantSchema,
-} from "./discriminated-union-checks";
 
 /** A located site at which a schema/enum declaration or access is checked. */
 export interface SchemaDeclSite {

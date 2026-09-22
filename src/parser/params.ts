@@ -70,11 +70,9 @@ import {
 export {
   isSingleEnclosingBraceGroup,
   isUnspellableTextRefusable,
-  parseLiteralArm,
   splitTopLevel,
   splitTopLevelSegments,
   topLevelColon,
-  type TypeSplitNesting,
 } from "./type-text-split";
 
 /**

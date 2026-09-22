@@ -63,7 +63,6 @@ import {
 } from "./frontmatter-yaml";
 
 export { toSystemParamType } from "./system-param-types";
-export { extractParsedParams } from "./frontmatter-params";
 export * from "./frontmatter-yaml";
 
 /** A theta 1.0 invocation mode (`frontmatter-fields-a.md` field contract). */

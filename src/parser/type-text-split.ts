@@ -7,8 +7,8 @@
  * by the `}` at the final index, with no unmatched close before then (quote
  * contents are skipped so a brace inside a string literal cannot perturb
  * depth). `lowerTypeSource` (body-type-lowering.ts) and `lowerParamsFieldType`
- * (below) both ask this of the whole source, then of each arm of a union
- * through `lowerBraceGroupUnionArms` (below) — every caller needs it rather
+ * (params.ts) both ask this of the whole source, then of each arm of a union
+ * through `lowerBraceGroupUnionArms` (params.ts) — every caller needs it rather
  * than a naive `startsWith("{") && endsWith("}")`, which also matches
  * `{a: integer} | {b: integer}`: a UNION of two object arms whose first `{`
  * closes at `{a: integer}`, well short of the string's end. Reading that
@@ -32,19 +32,19 @@
  * The predicate serves callers beyond the type-lowering dispatches: the
  * discriminator-field classifier in `theta-document.ts` asks it for the same
  * reason at a non-lowering position (bug 0096 §Fix). `lowerParamsFieldType`
- * (below) asks it too, in place of the positional `startsWith("{") &&
+ * (params.ts) asks it too, in place of the positional `startsWith("{") &&
  * endsWith("}")` test bug 0039 §Fix's byte-freeze had kept there: bug 0097
  * §Fix is the authority that lifts the freeze for a top-level union of
  * brace-balanced arms, and this predicate paired with
- * `lowerBraceGroupUnionArms` (below) is what the lifted position now asks. No
+ * `lowerBraceGroupUnionArms` (params.ts) is what the lifted position now asks. No
  * dispatch or classifier in this codebase still asks the naive two-ended
  * question on its own account — only this predicate's own first statement
  * does, because that statement IS the fast decline every caller relies on.
  *
  * Defined here rather than in `body-type-lowering.ts`, which imports from
  * this module and not the reverse (bug 0039 §Fix's import-direction rule) —
- * the same rule that keeps `hoistInlineObjectType` (above) and
- * `lowerBraceGroupUnionArms` (below) here too. `body-type-lowering.ts`
+ * the same rule that keeps `hoistInlineObjectType` and
+ * `lowerBraceGroupUnionArms` in `params.ts` too. `body-type-lowering.ts`
  * re-exports this name so its own importers (`theta-document.ts`,
  * `query-schema-lowering.ts`) keep reaching it at the same import path.
  */
@@ -150,7 +150,7 @@ function isBraceBalanced(s: string): boolean {
  *
  * Exported, and living here rather than in `body-type-lowering.ts`: that
  * module imports from this one and not the reverse (bug 0039 §Fix), and
- * `lowerLiteralSublanguage` (below) — the one emission every caller sharing
+ * `lowerLiteralSublanguage` (params.ts) — the one emission every caller sharing
  * this recogniser eventually reaches, `lowerParamsFieldType` and
  * `lowerTypeSource` (body-type-lowering.ts) among them — needs this
  * recogniser on the side of that boundary either caller can reach (bug 0056
@@ -187,7 +187,8 @@ export function parseLiteralArm(source: string): { readonly value: unknown } | u
  * silent for: a `LiteralType` atom or union arm (`parseLiteralArm` above
  * recognises it) lowers under its own emission, and any fragment carrying a
  * `{` or `}` anywhere, balanced or not, belongs to the brace frame
- * (`lowerParamsFieldType`'s intercept, `hoistInlineObjectType`, bugs
+ * (`lowerParamsFieldType`'s intercept, `hoistInlineObjectType`, both
+ * params.ts, bugs
  * 0035/0045/0052) rather than to a catch-all refusal — WIDER than
  * "brace-rooted" by operator grant (bug 0059 §Fix, HEAD 948b7814):
  * `splitTopLevel`'s angle-only nesting can hand this arm an UNBALANCED half of
@@ -200,8 +201,8 @@ export function parseLiteralArm(source: string): { readonly value: unknown } | u
  * c: boolean}>`'s middle shard, `b: integer`) carries neither `{` nor `}`
  * and this predicate alone would still call it refusable — that shard no
  * longer reaches this function from the generic-argument recursion (bug 0204
- * §Fix (b)(3), `classifyGenericArgumentSegments` below
- * `lowerGenericArgument`): it is filtered out before the `unspellable` sink
+ * §Fix (b)(3), `classifyGenericArgumentSegments` beside
+ * `lowerGenericArgument` in params.ts): it is filtered out before the `unspellable` sink
  * this predicate reads ever collects it, not by widening what this predicate
  * declines. The filter is per SEGMENT of that split, so a WHOLE argument of
  * the same list still arrives here and is still judged
@@ -212,7 +213,7 @@ export function parseLiteralArm(source: string): { readonly value: unknown } | u
  * 0059's cell d13 already carries.
  *
  * ONE declined predicate for every position that refuses `unspellable` text —
- * `parseParams` below (`params:`, bug 0059 §Fix), the two body-position
+ * `parseParams` (params.ts; the `params:` position, bug 0059 §Fix), the two body-position
  * emitters in `theta-document.ts` (a `schema` object-body field type and a
  * `schema X = …` alias/union arm, bug 0061 §Fix),
  * `annotationSourceIsNotTypeExpression` (type-layer-checks.ts, bug 0124 §Fix,
@@ -340,7 +341,7 @@ export function topLevelColon(entry: string): number {
  *     pieces of such a cut are no longer JUDGED: bug 0204 §Fix (b)(3) marks
  *     each segment whole-in-the-source or not
  *     (`classifyGenericArgumentSegments`, `withoutUnspellableSink`, both
- *     defined below `lowerGenericArgument`) and recurses only the pieces
+ *     defined beside `lowerGenericArgument` in params.ts) and recurses only the pieces
  *     under a `LowerCtx` carrying no `unspellable` sink, so a piece can never
  *     reach `isUnspellableTextRefusable`'s decline while a whole argument
  *     beside it still can.
@@ -354,7 +355,7 @@ export function topLevelColon(entry: string): number {
  *     disagrees with the parser that computes
  *     `theta/parse/generic-arity-mismatch`. And the inline-object FIELD LIST,
  *     where a nested `ObjectType` is a single field's type: `hoistInlineObjectType`
- *     (above) splits it for every type position that hoists, and
+ *     (params.ts) splits it for every type position that hoists, and
  *     `lowerInlineObject` (body-type-lowering.ts) splits it for the annotation
  *     root it lowers in place. `hoistInlineObjectType`'s comment records what an
  *     angle-only split mints there.
