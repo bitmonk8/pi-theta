@@ -21,7 +21,6 @@
 // binder/binder-model-and-context.md, subagent.md.
 
 import { evaluateCallSiteCwd, evaluatePureExpression, raiseInterpolatedResult } from "../runtime/pure-expression-evaluator";
-export { evaluateCallSiteCwd, evaluatePureExpression, raiseInterpolatedResult } from "../runtime/pure-expression-evaluator";
 import {
   LivePromptQueryModel,
   resolveRegistryAuth,
@@ -36,7 +35,6 @@ import {
 } from "./live-prompt-query-driver";
 export * from "./live-prompt-query-driver";
 import { echoTypeFromValue } from "./binder-echo-type";
-export { echoTypeFromValue } from "./binder-echo-type";
 
 import type {
   ExtensionAPI,
