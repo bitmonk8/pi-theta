@@ -21,8 +21,6 @@ import { decodeUtf8, normaliseNewlines, validateUtf8Encoding } from "./encoding"
 import { collapseContinuations } from "./continuation";
 import { contextualDiagnostics } from "./contextual-checks";
 export { decodeUtf8, normaliseNewlines } from "./encoding";
-export { collapseContinuations } from "./continuation";
-export { contextualDiagnostics } from "./contextual-checks";
 export type { Pos, RawToken };
 
 /**
