@@ -218,21 +218,3 @@ survives restarts (bus state does not). Short utility drives append nothing.
 - Entry shell: do entry renderers need a `renderShell: "self"` equivalent
   for full-width background rows, or does the default entry chrome permit
   them?
-
-## Rough implementation shape
-
-1. Runtime: trace seam at statement dispatch (optional fn, `stmt.range` →
-   site).
-2. Bus: heat ring `(file, line)` + `launchSite` on child nodes; snapshot
-   shape + tests; hard-ceiling rows for ring capacity.
-3. Entry channel: `theta-run` entry at drive start; gated
-   `theta-run-summary` at end.
-4. Renderer: viewport(24) + breadcrumb + lexer-backed highlighter + OKLab
-   fade LUT + child markers/roster.
-5. Tick: extend the EXST-6 sink fan-out to invalidate the card entry.
-6. Retire footer-sink/widget-sink rendering in TUI; hide the Running note
-   via a message renderer; spec_topic for the entry payloads (PIC-71
-   sibling).
-
-`src/` changes ⇒ version bump + CHANGELOG + design-review PASS at
-implementation time.
