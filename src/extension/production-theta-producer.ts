@@ -138,6 +138,7 @@ import type {
 } from "../runtime/active-invocation-registry";
 import type { ForwardingSignalSource } from "./session-shutdown";
 import type { ExecutionStatusBus, ParForLaneHooks } from "./execution-status/types";
+import type { RunCardPublisher } from "./execution-status/run-card";
 import { decorateCheckpoint } from "./execution-status/checkpoint-decorator";
 import { attachChildActivityTap } from "./execution-status/child-tap";
 import {
@@ -642,6 +643,13 @@ export interface ProductionProducerInput {
    */
   readonly statusBus?: ExecutionStatusBus;
   /**
+   * RFC 0015 (D3): the run-card publisher `composeThetaFixture.run` calls at
+   * top-level drive start/end (one `theta-run` entry, one gated
+   * `theta-run-summary`). Constructed only in the TUI composition; absent
+   * everywhere else, and the dispatch's `?.` call sites no-op.
+   */
+  readonly runCard?: RunCardPublisher;
+  /**
    * Decision 6 / Increment B2 (session-shutdown-semantics.md sub-step 5): the
    * extension-instance-scoped mutable sink of INVOCATION-SCOPED forwarding
    * listeners, shared with the factory's `session_shutdown` teardown so
@@ -994,6 +1002,12 @@ class ProductionThetaProducer implements ThetaProducerDeps {
    */
   get schemaValidator(): SchemaValidator {
     return this.#input.root.schemaValidator;
+  }
+
+  /** RFC 0015 (D3): expose the composition root's run-card publisher to the
+   *  dispatch seam (`ThetaProducerDeps.runCard`). */
+  get runCard(): RunCardPublisher | undefined {
+    return this.#input.runCard;
   }
 
   async runBinder(binderInput: BinderRunInput): Promise<BinderRunResult> {

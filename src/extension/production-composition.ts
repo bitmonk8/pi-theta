@@ -231,6 +231,7 @@ import type { InProcessToolExecute } from "../runtime/tool-call-execute";
 import { ActiveInvocationRegistry } from "../runtime/active-invocation-registry";
 import type { ForwardingSignalSource } from "./session-shutdown";
 import { createExecutionStatusBus } from "./execution-status/bus";
+import { createRunCardPublisher } from "./execution-status/run-card";
 import { THETA_PROGRESS_TOOL_NAME } from "./execution-status/types";
 import type { ExecutionStatusBus, StatusSink } from "./execution-status/types";
 import { createFooterSink, type FooterUi } from "./execution-status/footer-sink";
@@ -1057,6 +1058,21 @@ async function runComposePass(
   const { dispatchLadderProbe, hostLoopDispatch, subagentOutcomeEvents } =
     buildDispatchLadder({ pi, ctx, clock });
 
+  // RFC 0015 (D3): the run-card publisher — the RFC's TUI-only surface rule
+  // ("Modes and degradation") lands HERE, at composition: print/json/child
+  // compositions (and any harness ctx without `mode: "tui"`) get NO publisher,
+  // so their dispatches append no entries and stay byte-identical. The entry
+  // channel is the appends' only delivery surface (required); the bus is
+  // optional — absent, a gated summary carries zero counters and no profile.
+  const runCard =
+    ctx.mode === "tui" && entryChannel !== undefined
+      ? createRunCardPublisher({
+          entryChannel,
+          clock,
+          ...(statusBus !== undefined ? { statusBus } : {}),
+        })
+      : undefined;
+
   const producerDeps = createProductionProducerDeps({
     pi,
     root,
@@ -1078,6 +1094,9 @@ async function runComposePass(
     // publishes invocation lifecycle, checkpoint, lane, and child-tap material
     // to. Absent ⇒ every hook is a `?.` no-op.
     ...(statusBus !== undefined ? { statusBus } : {}),
+    // RFC 0015 (D3): the TUI run-card publisher (absent ⇒ dispatch appends
+    // no run-card entries; see its construction above).
+    ...(runCard !== undefined ? { runCard } : {}),
     // RFC 0010 (EXST-13): pi-theta's OWN in-process tool handlers (currently
     // `theta_progress`), so a code-side call dispatches directly rather than
     // through the host-loop bridge. Absent ⇒ code-side extension-tool calls

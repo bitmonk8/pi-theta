@@ -42,6 +42,7 @@ import { bindParamsInbound } from "../runtime/inbound-boundary";
 import type { QueryError } from "../runtime/query-error";
 import { createThetaAbort, forwardSlashCommandCancel } from "../runtime/cancellation-core";
 import type { ActiveInvocationTicket } from "../runtime/active-invocation-registry";
+import type { ThetaRunOutcome } from "./execution-status/types";
 import type {
   ThetaCompositionInput,
   ThetaProducerDeps,
@@ -62,6 +63,21 @@ export type {
   ThetaProducerDeps,
 } from "./theta-composition-contract";
 export { surfaceDispatchDefect } from "./dispatch-defect-surface";
+
+/**
+ * RFC 0015 (D3): map the drive's terminal `Result` onto the summary outcome.
+ * `Err(CancelledError)` is the ONLY cancel witness the dispatch boundary sees
+ * (both mode surfaces project a genuine cancel outcome to it); every other
+ * `Err` — a `?`-propagation, an unhandled tail `Err`, an infra failure — is
+ * `"err"`. Read defensively: `terminal.error` is a `ThetaValue`.
+ */
+function terminalRunOutcome(terminal: ResultValue): ThetaRunOutcome {
+  if (terminal.ok) {
+    return "ok";
+  }
+  const kind = (terminal.error as { readonly kind?: unknown } | null | undefined)?.kind;
+  return kind === "cancelled" ? "cancelled" : "err";
+}
 
 /**
  * Project the binder's bound `args` object onto the executor's `paramBindings`
@@ -194,6 +210,32 @@ export function composeThetaFixture(
         }
         return;
       }
+      // RFC 0015 (D3): the run card — one per TOP-LEVEL drive (decision 6).
+      // This site is top-level by construction (invoke-reached callees never
+      // go through `run`), sits AFTER the child-regime return above (a child
+      // process draws no card; its early return must not leave one dangling),
+      // and is keyed on the registry ticket's invocationId — no ticket (a
+      // harness without `beginInvocation`) means no card. The publisher is
+      // wired only in the TUI composition; `?.` no-op everywhere else.
+      if (invocationTicket !== undefined) {
+        deps.runCard?.driveStarted({
+          invocationId: invocationTicket.invocationId,
+          theta: invocationTicket.theta,
+          args,
+          ...(theta.sourcePath !== undefined ? { sourcePath: theta.sourcePath } : {}),
+        });
+      }
+      // RFC 0015 (D3): the decision-7 summary outcome. Seeded `"cancelled"`
+      // as a DELIBERATE projection convention: every binder short-circuit —
+      // needs-info, ambiguous, genuine cancel — ends the drive without a
+      // terminal value, and the summary's coarse RFC vocabulary (ok / err /
+      // cancelled — the RFC's closed set) has no finer bucket for "the body
+      // never ran". Projecting them all to "cancelled" keeps that vocabulary
+      // closed; the binder's own note carries the precise short-circuit
+      // reason. Recorded as a residual for D6's spec topic to codify. The
+      // drive path overwrites the seed from the terminal `Result` and the
+      // defect catch marks `"err"`.
+      let runOutcome: ThetaRunOutcome = "cancelled";
       // TOP-LEVEL runtime-defect / panic surface (error-model.md §"Runtime
       // panics"): the whole dispatch body (binder + bind + the inner
       // teardown/finish try/finally) runs inside this OUTER try so a runtime
@@ -265,6 +307,7 @@ export function composeThetaFixture(
             execution = await executeBody(theta.body, binding.executeDeps);
             return binding.surface(execution);
           })();
+          runOutcome = terminalRunOutcome(terminal);
           // 4. SLSH-3: a top-level `Err(QueryError)` returned to THIS boundary (a
           //    slash caller, no invoke parent — invoke-reached thetas never go
           //    through `run`) gets a one-line `theta-system-note` formatted from the
@@ -300,6 +343,7 @@ export function composeThetaFixture(
         // surfaced as ONE framed `theta-system-note` instead of escaping uncaught
         // to the Pi host. Cancellation and normal Ok/Err are VALUES on the drive
         // path above, so they never reach this catch.
+        runOutcome = "err";
         surfaceDispatchDefect(thrown, theta, deps);
       } finally {
         // The setup wrap inserted the registry entry before the binder await, so
@@ -309,6 +353,13 @@ export function composeThetaFixture(
         // are idempotent, so the normal path settles at its documented moment and
         // this is a no-op after it.
         invocationTicket?.finish();
+        // RFC 0015 (D3): AFTER `finish()` — the bus's `invocationEnded` closes
+        // the final open dwell interval, so the summary's heat profile reads
+        // the SETTLED ring off the node (which lingers `DONE_LINGER_MS`, so a
+        // same-tick read still finds it).
+        if (invocationTicket !== undefined) {
+          deps.runCard?.driveEnded(invocationTicket.invocationId, runOutcome);
+        }
       }
     },
   };

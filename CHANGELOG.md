@@ -4,6 +4,26 @@ All notable changes to `@bitmonk8/pi-theta` will be documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.488.3]
+
+### Added
+- **RFC 0015 Delivery 3 — the run-card entry channel.** Two new custom-entry
+  types on the shipped PIC-71 entry channel (same guarded factory-time
+  registration block, shared dead flag, silent degrade, no `sendMessage`
+  fallback): `theta-run`, appended at every top-level TUI drive start with
+  the static seed `{ invocationId, theta, argsSummary, startedAtMs,
+  sourcePath? }`, and `theta-run-summary`, appended at drive end iff elapsed
+  ≥ `RUN_SUMMARY_GATE_MS` (30 s, decision 7) with outcome (ok/err/cancelled
+  — all binder short-circuits project to `cancelled`), elapsed, counters,
+  children spawned, and a dwell-sorted per-line heat profile (capped at 10
+  lines) read from the D2 heat ring after the end-path dwell close. Static
+  renderers ship for both types (the RFC's degradation form; D5 injects the
+  live card via `createEntryChannel(pi, runRenderer?)`). The publisher is
+  constructed only in TUI compositions — print/json/child behavior is
+  unchanged — and nested invokes append no card (decision 6). The bus gains
+  a cumulative `childrenSpawned` counter so the summary survives child-node
+  linger eviction.
+
 ## [0.488.2]
 
 ### Added

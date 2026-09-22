@@ -48,6 +48,9 @@ function fakeEntryChannel(): { entryChannel: EntryChannelHandle; milestoneCalls:
       milestoneCalls.push(m);
       return true;
     },
+    // RFC 0015 (D3): the run-card arms are unreached by the progress tool.
+    appendRun: () => true,
+    appendRunSummary: () => true,
   };
   return { entryChannel, milestoneCalls };
 }
@@ -276,6 +279,9 @@ describe("T-PRG — L3-B13: dead entry channel — bus still publishes, no miles
         throw new Error("append (message-channel fallback) MUST NOT be called for milestones — EXST-14");
       },
       appendMilestone: (): boolean => false,
+      // RFC 0015 (D3): a dead channel silently skips the run-card arms too.
+      appendRun: (): boolean => false,
+      appendRunSummary: (): boolean => false,
     };
     const { hostApi, calls } = fakeHostApi();
     registerThetaProgressTool(hostApi, baseDeps({ bus: () => bus, entryChannel }));

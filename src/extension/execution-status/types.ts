@@ -42,6 +42,19 @@ export const TAP_LINE_MAX_BYTES = 32768;
  *  while hard-bounding memory against a tight loop smearing across a large
  *  script (EXST-7's bounded-state posture extends to this ring). */
 export const HEAT_RING_CAPACITY = 256;
+/** RFC 0015 (D3, decision 7) — terminal heat-summary gate: a top-level drive
+ *  that ends before this elapsed wall time appends NO `theta-run-summary`
+ *  entry ("short utility drives append nothing"). The ratified decision fixes
+ *  the magnitude ("≥ ~30 s"); the exact value is tuning. */
+export const RUN_SUMMARY_GATE_MS = 30_000;
+/** RFC 0015 (D3) — hard cap on the `theta-run-summary` heat-profile lines: the
+ *  static where-time-went ramp shows the dwell-dominant lines, not the whole
+ *  `HEAT_RING_CAPACITY`-entry ring — a durable transcript row must stay a
+ *  glanceable summary, and the ring's tail is fade bookkeeping, not profile. */
+export const RUN_SUMMARY_PROFILE_MAX_LINES = 10;
+/** RFC 0015 (D3) — clamp on the `theta-run` seed's `argsSummary` (mirrors
+ *  FOOTER_CLAMP_CHARS: the seed is a one-line display string, not the args). */
+export const RUN_CARD_ARGS_CLAMP_CHARS = 200;
 
 // ---------------------------------------------------------------------------
 // L3 `theta_progress` constants (execution-status.md EXST-13/14/15;
@@ -150,6 +163,56 @@ export interface HeatSnapshot {
   readonly clampedLine?: { readonly file: string; readonly line: number };
 }
 
+/**
+ * RFC 0015 (D3) — the `theta-run` custom-entry payload: the STATIC seed the
+ * card renderer degrades to when the bus no longer tracks the invocation
+ * (drive ended and evicted, or session restarted). Exactly the RFC's five
+ * fields; `startedAtMs` is wall-clock epoch ms (`Clock.wallNow`) because the
+ * entry is a durable transcript row that must render a start time after a
+ * restart, when no monotonic origin survives.
+ */
+export interface ThetaRunSeed {
+  readonly invocationId: string;
+  readonly theta: string;
+  readonly argsSummary: string;
+  readonly startedAtMs: number;
+  readonly sourcePath?: string;
+}
+
+/** RFC 0015 (D3) — how a top-level drive ended, as the summary reports it. */
+export type ThetaRunOutcome = "ok" | "err" | "cancelled";
+
+/**
+ * RFC 0015 (D3, decision 7) — one line of the terminal summary's static heat
+ * profile: the accumulated `hits`/`dwellMs` of a `(file, line)` ring entry at
+ * drive end. `lastHitMs` is deliberately absent — the summary is
+ * where-time-WENT, and a fade timestamp is meaningless on a static row.
+ */
+export interface ThetaRunHeatProfileLine {
+  readonly file: string;
+  readonly line: number;
+  readonly hits: number;
+  readonly dwellMs: number;
+  readonly kind: HeatLineKind;
+}
+
+/**
+ * RFC 0015 (D3, decision 7) — the `theta-run-summary` custom-entry payload:
+ * the durable per-run profile artifact appended when a top-level drive ends
+ * after `RUN_SUMMARY_GATE_MS`. `heatProfile` (dwell-descending, capped at
+ * `RUN_SUMMARY_PROFILE_MAX_LINES`) is omitted — never invented — when the bus
+ * no longer holds the node's ring at drive end.
+ */
+export interface ThetaRunSummary {
+  readonly invocationId: string;
+  readonly theta: string;
+  readonly outcome: ThetaRunOutcome;
+  readonly elapsedMs: number;
+  readonly counters: { readonly checkpoints: number; readonly loopIters: number };
+  readonly childrenSpawned: number;
+  readonly heatProfile?: readonly ThetaRunHeatProfileLine[];
+}
+
 export interface EffectRef {
   readonly kind: CheckpointKind; // src/seams/checkpoint.ts:8-14 (five kinds)
   readonly site: CheckpointSite; // {file,line,column} — class-1 source site
@@ -242,6 +305,14 @@ export interface InvocationNodeSnapshot {
   readonly launchSite?: CheckpointSite;
   /** RFC 0015 (D2) — present iff the node's heat ring holds at least one entry. */
   readonly heat?: HeatSnapshot;
+  /**
+   * RFC 0015 (D3) — CUMULATIVE children bound under this node over its whole
+   * lifetime (every `invocationBound` naming it as parent, all modes). Present
+   * iff > 0. Needed because the decision-7 terminal summary reports "children
+   * spawned", and counting child NODES at drive end undercounts: an ended
+   * child is evicted after `DONE_LINGER_MS`, long before a ≥ 30 s drive ends.
+   */
+  readonly childrenSpawned?: number;
   readonly endedAtMs?: number; // set => lingering until eviction
 }
 

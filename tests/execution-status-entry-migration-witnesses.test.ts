@@ -263,7 +263,15 @@ describe("T-ENT — B64: entry renderer registers synchronously in the factory b
 
     createThetaExtension({ fixtures: [] })(pi);
 
-    expect(order).toEqual(["registerMessageRenderer", "registerEntryRenderer"]);
+    // RFC 0015 (D3): the channel now registers THREE entry renderers in the
+    // same synchronous guarded block (theta-progress-entry, theta-run,
+    // theta-run-summary) — still strictly after the message renderer.
+    expect(order).toEqual([
+      "registerMessageRenderer",
+      "registerEntryRenderer",
+      "registerEntryRenderer",
+      "registerEntryRenderer",
+    ]);
   });
 });
 

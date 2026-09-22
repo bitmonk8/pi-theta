@@ -119,6 +119,11 @@ interface NodeState {
   lastInvokeSite: CheckpointSite | undefined;
   /** RFC 0015 (D2): stamped at `invocationBound` from the parent's state. */
   launchSite: CheckpointSite | undefined;
+  /** RFC 0015 (D3): cumulative children bound under this node — the decision-7
+   *  summary's "children spawned" source. A count of child NODES at drive end
+   *  would undercount (ended children evict after `DONE_LINGER_MS`), so the
+   *  parent accumulates at each child's `invocationBound` instead. */
+  childrenSpawned: number;
   /** L3 (EXST-14): the NEWEST class-2 payload on this node; replaced, never queued. */
   authorMessage: ProgressAuthorMessage | undefined;
   /** RFC 0012 §7: the rendered `live in <backend> <handle>` reference, clamped at ingest. */
@@ -211,6 +216,7 @@ class ExecutionStatusBusImpl implements ExecutionStatusBus {
         clampSite: undefined,
         lastInvokeSite: undefined,
         launchSite: undefined,
+        childrenSpawned: 0,
         authorMessage: undefined,
         placement: undefined,
         endedAtMs: undefined,
@@ -248,12 +254,18 @@ class ExecutionStatusBusImpl implements ExecutionStatusBus {
       // as an option for D5+. `subagent-fn` spawns publish no invoke kind at
       // all, so any invoke-derived site would be a STALE earlier launch, not a
       // race — skip attribution entirely for that mode (absent, never wrong).
-      if (info.parentInvocationId !== undefined && info.mode !== "subagent-fn") {
+      if (info.parentInvocationId !== undefined) {
         const parent = this.#nodes.get(info.parentInvocationId);
         if (parent !== undefined) {
-          node.launchSite =
-            parent.lastInvokeSite ??
-            (parent.effectKind === "invoke" ? parent.effectSite : undefined);
+          // RFC 0015 (D3): EVERY bound child counts toward the parent's
+          // cumulative spawn total, `subagent-fn` included — the mode gate
+          // below scopes only launch-SITE attribution, not existence.
+          parent.childrenSpawned += 1;
+          if (info.mode !== "subagent-fn") {
+            node.launchSite =
+              parent.lastInvokeSite ??
+              (parent.effectKind === "invoke" ? parent.effectSite : undefined);
+          }
         }
       }
       this.#markDirty();
@@ -811,6 +823,7 @@ function snapshotOfNode(node: NodeState): InvocationNodeSnapshot {
     ...(node.authorMessage !== undefined ? { authorMessage: node.authorMessage } : {}),
     ...(node.placement !== undefined ? { placement: node.placement } : {}),
     ...(node.launchSite !== undefined ? { launchSite: node.launchSite } : {}),
+    ...(node.childrenSpawned > 0 ? { childrenSpawned: node.childrenSpawned } : {}),
     ...(node.heat.size > 0 ? { heat: snapshotOfHeat(node) } : {}),
     ...(node.endedAtMs !== undefined ? { endedAtMs: node.endedAtMs } : {}),
   };

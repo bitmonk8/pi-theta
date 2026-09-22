@@ -319,6 +319,11 @@ export const SDK_SURFACE_INVENTORY: readonly SurfaceInventoryEntry[] =
     { id: "ctx.shutdown", kind: "ctx-member" },
     { id: "ctx.ui", kind: "ctx-member" },
     { id: "ctx.hasUI", kind: "ctx-member" },
+    // RFC 0015 (D3): the run-mode discriminator (`ExtensionMode`) the run-card
+    // composition gate reads — the card's entry appends are TUI-only
+    // (`ctx.mode === "tui"`), per the RFC's "Modes and degradation". A
+    // presence RECORD like `ctx.hasUI`: advisory input, never a capability gate.
+    { id: "ctx.mode", kind: "ctx-member" },
     // The H8a per-theta run-drive resolves a chained (non-first) query off-session
     // through pi-ai's `complete()` against the dispatch context's current model.
     { id: "ctx.model", kind: "ctx-member" },

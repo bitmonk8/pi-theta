@@ -13,6 +13,7 @@ import type { InvokeResultSource } from "../runtime/invoke-cancellation";
 import type { SubagentLaunchEntry } from "../runtime/subagent-placement";
 import type { ActiveInvocationTicket } from "../runtime/active-invocation-registry";
 import type { Diagnostic } from "../diagnostics/diagnostic";
+import type { RunCardPublisher } from "./execution-status/run-card";
 
 /**
  * The parsed `.theta` the producer maps to a runnable `ThetaFixture`: the `V19a`
@@ -288,6 +289,17 @@ export interface ThetaProducerDeps {
     readonly theta: ThetaCompositionInput;
     readonly thetaAbort: AbortController;
   }): ActiveInvocationTicket;
+  /**
+   * RFC 0015 (D3): the run-card publisher — one `theta-run` entry at top-level
+   * drive start, one gated `theta-run-summary` at drive end (decision 7).
+   * Called ONLY by `composeThetaFixture.run` (the top-level slash entry:
+   * invoke-reached callees drive through `runInvokeChild` and never pass
+   * here), which is what makes decision 6's one-card-per-top-level-drive hold
+   * by construction. Present only in the TUI composition; absent (print/json/
+   * child, harnesses) both call sites are `?.` no-ops and the dispatch is
+   * byte-identical.
+   */
+  readonly runCard?: RunCardPublisher | undefined;
   /**
    * Prompt-mode (`V12a`/`V9c`): bind `V19d`'s executor to the user session —
    * always a body-executing binding (the drive seam runs the body directly).

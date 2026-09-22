@@ -343,6 +343,15 @@ describe("execution-status launch-site attribution (RFC 0015 D2)", () => {
     expect(nodeOf(bus, "child").launchSite).toBeUndefined();
   });
 
+  it("H16c: a subagent-fn bind still increments the parent's cumulative childrenSpawned — the mode gate scopes launch-SITE attribution only, not existence", () => {
+    const clock = new FakeClock();
+    const bus = makeBus(clock);
+    startNode(bus, "parent");
+    startNode(bus, "child");
+    bus.invocationBound("child", { mode: "subagent-fn", parentInvocationId: "parent" });
+    expect(nodeOf(bus, "parent").childrenSpawned).toBe(1);
+  });
+
   it("H16b: the subagent-fn gate is mode-scoped — a non-fn bind after the same sequence still gets the site", () => {
     const clock = new FakeClock();
     const bus = makeBus(clock);
