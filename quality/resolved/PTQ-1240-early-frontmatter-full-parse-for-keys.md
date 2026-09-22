@@ -2,7 +2,7 @@
 id: PTQ-1240
 title: parseThetaDocument runs the entire parseFrontmatter pipeline a second time per document only to read the params: field names, discarding everything else
 lens: D8
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/parser/theta-document.ts:213-232
