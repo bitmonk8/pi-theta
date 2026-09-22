@@ -338,6 +338,23 @@ export interface SystemNoteChannelDeps {
 }
 
 /**
+ * The shared inert note-channel deps (the PTQ-1237 consolidation): a
+ * fresh, all-no-op `SystemNoteChannelDeps` per call for lex/parse paths
+ * that read diagnostics off the returned result (or deliberately discard
+ * them) and must not re-announce through the channel — snippet re-lexing in
+ * the document parser, and the RFC 0015 run-card's re-lex of a script that
+ * already lexed (and already noted) at drive start. Fresh per call keeps
+ * callers free of shared state — no module-level mutable channel.
+ */
+export function inertSystemNoteChannel(): SystemNoteChannelDeps {
+  return {
+    pi: { sendMessage: (): void => {} },
+    ui: { notify: (): void => {} },
+    emitDiagnostic: (): void => {},
+  };
+}
+
+/**
  * PIC-72: deliver one operator-facing note, preferring the LLM-context-free
  * entry channel and falling back to the unchanged `pi.sendMessage`
  * realization. Exactly one channel realizes each note — never both (the

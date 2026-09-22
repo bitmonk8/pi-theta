@@ -23,6 +23,7 @@
 import type { Diagnostic, Position, SourceRange } from "../diagnostics/diagnostic";
 import { assembleDiagnostics } from "../diagnostics/diagnostic";
 import { lexTheta, type LexResult, type ThetaSource, type Token } from "../lexer/lexer";
+import { inertSystemNoteChannel } from "../extension/system-note-channel";
 import { decodeUtf8, normaliseNewlines, validateUtf8Encoding } from "../lexer/encoding";
 import {
   checkThetaLibTopLevelForm,
@@ -1225,18 +1226,15 @@ function walkExprForStatementPlacement(
  * — and already noted — as part of the whole-file body pass. Bug 0255 pinned
  * the V7d design (the channel parameter stays mandatory, and none of these
  * snippet callers may be required to supply a real channel), so the inert
- * channel lives here, in one named place, rather than inline per site. The
- * deps literal is constructed fresh per call, keeping the snippet helpers
- * free of shared state — no module-level mutable channel.
+ * channel comes from the one shared factory (`inertSystemNoteChannel`, the
+ * PTQ-1237 consolidation) rather than inline per site; it constructs the
+ * deps fresh per call, keeping the snippet helpers free of shared state —
+ * no module-level mutable channel.
  */
 function lexSnippetSource(source: string): LexResult {
   return lexTheta(
     { path: "<interpolation>", bytes: encodeSource(source) },
-    {
-      pi: { sendMessage: () => {} },
-      ui: { notify: () => {} },
-      emitDiagnostic: () => {},
-    },
+    inertSystemNoteChannel(),
   );
 }
 

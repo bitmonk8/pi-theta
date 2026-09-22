@@ -4,6 +4,29 @@ All notable changes to `@bitmonk8/pi-theta` will be documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.488.4]
+
+### Added
+- **RFC 0015 Delivery 4 — the pure render substrate** for the run card
+  (`src/extension/execution-status/render/`, zero TUI dependency): SGR color
+  parsing (`38/48;2;R;G;B` exact, `38/48;5;N` via a faithful xterm-256
+  palette clone of the host theme's mapping); OKLab conversions (Ottosson)
+  and blend; the 64-step heat-LUT builder (entry 0 = emit-nothing cold
+  branch, entries 1–63 opening-only background SGRs; quantized once at
+  build to `48;5;N` when the color mode is 256color — decision 2);
+  exponential heat-α (`exp(-age/τ)` rescaled to close exactly at the
+  `HEAT_FADE_MS` = 4 s window, `HEAT_TAU_MS` derived at the ratified 4:1.3
+  ratio — decision 1's single tunable) with the D2 clamp rendering at full
+  heat; polarity/luminance fallback helpers; and the lexer-token →
+  styled-line mapper with per-line comment-gap recovery (comments are lexer
+  gaps) over a caller-owned per-file cache.
+
+### Changed
+- The fully-inert system-note channel used for snippet lexing is now the
+  one exported `inertSystemNoteChannel()` factory (PTQ-1237 consolidation);
+  `lexSnippetSource` and the styled-line mapper share it. Behavior
+  unchanged.
+
 ## [0.488.3]
 
 ### Added
