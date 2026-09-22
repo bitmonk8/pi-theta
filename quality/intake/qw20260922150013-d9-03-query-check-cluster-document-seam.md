@@ -1,0 +1,46 @@
+---
+id: pending
+title: Query-annotation and query-interpolation check clusters live in theta-document.ts although their sole caller is structural-checks.ts walkExpr, creating a circular import
+lens: D9
+status: intake
+verdict: pending
+locations:
+  - src/parser/theta-document.ts:2500-2786
+  - src/parser/theta-document.ts:3386-3477
+  - src/parser/structural-checks.ts:1552-1559
+sites: 8
+fix_scope: cross-module
+d9_class: misplacement
+wave: qw20260922150013
+reported_by: lens-d9-placement (anthropic/claude-fable-5)
+date: 2026-09-22
+---
+
+# Query-annotation and query-interpolation check clusters live in theta-document.ts although their sole caller is structural-checks.ts walkExpr, creating a circular import
+
+## Observation
+When PTQ-1156's fix moved the structural walk (walkExpr et al.) to src/parser/structural-checks.ts, the two per-query-node checks that walk calls — checkQueryAnnotation (theta-document.ts:2611-2786) with its satellites RESULT_APPLICATION (2515), queryResponseAnnotation (2575-2582), queryErrorModelAnnotation (2601-2608), queryAnnotationTypeNotExpressionDiagnostic (2500-2512), and checkQueryTemplateInterpolations (3386-3435) with firstForbiddenInterpolationToken (3444-3455) and firstForbiddenInterpolationForm (3463-3477) — stayed behind in theta-document.ts. structural-checks.ts imports them back from theta-document (lines 48-55) while theta-document imports checkStructural/StructuralRefs from structural-checks (lines 116-122), a two-way import between the siblings.
+
+## Evidence
+Sole caller — structural-checks.ts:1552-1559 (walkExpr's `query` arm):
+```ts
+    case "query":
+      // ... re-lex and inspect them here so the forms expressions.md §"Not
+      // supported" forbids inside `${…}` are rejected at load time.
+      checkQueryTemplateInterpolations(e, file, out);
+      checkQueryAnnotation(e, refs, file, out);
+      return;
+```
+Affinity counted both ways. checkQueryAnnotation touches 2 members of structural-checks (parameter type StructuralRefs, field read refs.typeNames at 2691/2715) and is called by 1 (walkExpr:1558); of its own host file it touches only its 4 satellites (queryResponseAnnotation, queryErrorModelAnnotation, RESULT_APPLICATION, queryAnnotationTypeNotExpressionDiagnostic — each with zero other callers, grep confirmed), 0 other theta-document members: every other dependency is a cross-module import (parseTypeExpression, annotationSourceIsNotTypeExpression from type-grammar/annotation-validation lines 52-61; collectUnresolvedNamedTypes from body-type-lowering line 65; splitTopLevel from params line 69; withBuiltinErrorModelNames, reservedKeywordAsIdentifierDiagnostic, unresolvedNamedTypeDiagnostic from annotation-validation lines 56-60). checkQueryTemplateInterpolations likewise: 1 caller (walkExpr:1557), 0 theta-document callers (grep: only the export at line 136 and the definition at 3386), own-file touches are its 2 private helpers plus expressionChildExprs (shared with walkCallSiteNodesInExpr:975, so it would stay or be imported). Map importer counts for all 8 declarations: 0/0 (file-private but re-exported to the sibling via the export block at 131-142, whose own comment concedes the arrangement: "Shared helpers stay at the document seam; sibling modules call them only during parsing, never during module initialisation"). Sibling pattern: every other check walkExpr's query arm participates in (checkObjectSchema, checkVariantAccess, checkByClause, detectTypeAliasCycles, checkLetBinding, checkFnPlacement) lives in structural-checks.ts or its own leaf module (bindings.ts, control-flow.ts, functions.ts, schema-declarations imports at structural-checks:5-21) — these 8 are the only walkExpr-called checks defined in theta-document.
+
+## Why this is a problem
+Correct code in the wrong module, with counts: 8 declarations (~420 LOC) whose only consumer is structural-checks.ts, which must import them back across the same boundary theta-document imports structural-checks across — a circular dependency the export-block comment has to justify with an initialisation-order caveat. The cluster's data affinity is entirely with the structural walk (it consumes StructuralRefs.typeNames and a QueryExpr the walk hands it) and with type-grammar/annotation-validation facilities structural-checks already imports (parseTypeExpression at structural-checks:24); it touches nothing else in its host.
+
+## Suggested direction (non-binding, optional)
+Hypothesis: move the query-annotation cluster (5 declarations, ~285 LOC) and the query-interpolation cluster (3 declarations, ~130 LOC) into structural-checks.ts (or a query-checks leaf it imports), leaving expressionChildExprs at the document seam (its other caller is walkCallSiteNodesInExpr) or exporting it. This removes 2 of the 7 back-imports at structural-checks:48-55 and shrinks the cycle. The human ratifies the home.
+
+## False-positive check
+Affinity counted both ways with member names (above): 2 foreign members touched + 1 foreign caller vs 0 own-host members beyond the move-together satellites. Sibling-pattern citation: the query arm's co-checks all live in structural-checks.ts or leaf check modules, per structural-checks' own import list (lines 5-24). Caller search: grep for each of the 8 identifiers across src/ — checkQueryAnnotation and checkQueryTemplateInterpolations are referenced only at structural-checks:50-51 (import) and :1557-1558 (calls) plus their definitions/exports; the 6 satellites have single callers inside the cluster. Not a barrel question (the export block at 131-142 is a working-helper export, not a compatibility facade — the header comment says "shared helpers", not re-export). Not D2 dead code: every member has a live production caller. interpolation-parse helpers parseInterpolationSource/lexSnippetSource were NOT counted — parseInterpolationSource is called by checkQueryTemplateInterpolations but also exported theta-document machinery (parseExpressionSource has 3/10 importers per map), so it stays.
+
+## Triage
+verdict: questionable — accounting verified for the annotation cluster and refuted in part for the interpolation cluster: excerpts byte-exact (query arm at structural-checks:1552-1559, back-imports 48-55, forward imports theta-document:116-122, export block 131-142 with its "document seam" comment), the two-way import is real, and the reference hunt across src/extensions/tools/tests reproduces (checkQueryAnnotation/checkQueryTemplateInterpolations called only at structural-checks:1557-1558; the 6 satellites referenced only inside their cluster); checkQueryAnnotation (2611-2786) + RESULT_APPLICATION/queryResponseAnnotation/queryErrorModelAnnotation/queryAnnotationTypeNotExpressionDiagnostic touch 0 own-host members beyond themselves (all other deps are imports from type-grammar/annotation-validation/body-type-lowering/params/theta-ast) vs StructuralRefs + refs.typeNames + 1 foreign caller — that count holds; BUT the interpolation cluster (3386-3477) leans on THREE file-private, un-exported own-host members — parseInterpolationSource (1272), lexSnippetSource (1234), expressionChildExprs (3486); `grep export` for all three = 0, so the filing's "exported theta-document machinery" claim is wrong — against 0 structural-checks members and 1 caller, so moving it would add 3 back-exports for the 1 removed, not shrink the cycle; dedupe clean (PTQ-1156/PTQ-1193 resolved, neither tracks the placement/cycle root cause; not a barrel; not dead); whether the annotation cluster alone moves, and to which home, is a design ruling for a human — never confirmed (triage: claude-fable-5-1)

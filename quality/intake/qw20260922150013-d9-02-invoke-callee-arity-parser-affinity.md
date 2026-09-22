@@ -1,0 +1,46 @@
+---
+id: pending
+title: invoke-callee-arity.ts builds the parser-layer arity/argument-slot type model in src/extension, touching 13 parser members against 1 of its own layer
+lens: D9
+status: intake
+verdict: pending
+locations:
+  - src/extension/invoke-callee-arity.ts:1-262
+sites: 8
+fix_scope: cross-module
+wave: qw20260922150013
+reported_by: lens-d9-placement (anthropic/claude-fable-5)
+date: 2026-09-22
+---
+
+# invoke-callee-arity.ts builds the parser-layer arity/argument-slot type model in src/extension, touching 13 parser members against 1 of its own layer
+
+## Observation
+src/extension/invoke-callee-arity.ts (262 LOC, exempt band — placement review) declares 8 members per the structural map: `buildComposePassSuccessTypes`, `CalleeArityField`, `CalleeArity`, `toolParameterProperties`, `SCHEMA_REFINEMENT_KEYS`, `fieldSchemaType`, `buildInvokeArgSlot`, `dedupeArgType`. Its header (:1-2) states the role: "Compose-pass callee arity and argument-slot type model, including runtime-tool success types and the Pi-tool input-schema subset." Every member is type-model construction over parser-layer vocabulary; the module lives in src/extension.
+
+## Evidence
+Affinity counted both ways. The module touches 13 members of src/parser: `CallableSetSnapshot` (callable-set), `ThetaMode` (frontmatter), `InvokeArgSlot` (invoke-diagnostics), `RUNTIME_TOOL_SIGNATURES`, `RuntimeToolName` (runtime-tools), `StaticTypeInferencePass` (static-type-inference), `Expr` (theta-document), `checkCompatible`, `displayType`, `CompatType`, `TypeEnv` (type-compat), `annotationToCompatType`, `letAnnotationToCompatType` (type-layer-checks). It touches 1 member of its own layer: `collectProvableArgTypes` (./invoke-expr-call-surface). Import block excerpt (:4-13):
+```ts
+import type { CallableSetSnapshot } from "../parser/callable-set";
+import type { ThetaMode } from "../parser/frontmatter";
+import type { InvokeArgSlot } from "../parser/invoke-diagnostics";
+import { RUNTIME_TOOL_SIGNATURES, type RuntimeToolName } from "../parser/runtime-tools";
+import type { StaticTypeInferencePass } from "../parser/static-type-inference";
+import type { Expr } from "../parser/theta-document";
+import { checkCompatible, displayType, type CompatType, type TypeEnv } from "../parser/type-compat";
+import { annotationToCompatType, letAnnotationToCompatType } from "../parser/type-layer-checks";
+import { collectProvableArgTypes } from "./invoke-expr-call-surface";
+```
+Siblings-in-kind live in src/parser, cited per instance: the slot record `buildInvokeArgSlot` returns is `InvokeArgSlot`, declared in src/parser/invoke-diagnostics.ts alongside the `checkInvokeCall`/`checkInvokeArity` consumers the doc comments name; the compat machinery (`CompatType`, `checkCompatible`, `decide` TYPE-6 rule the `dedupeArgType` comment cites) is src/parser/type-compat.ts; the annotation lowerers are src/parser/type-layer-checks.ts; the runtime-tool signature table is src/parser/runtime-tools.ts. Extension-side consumption per the map: `CalleeArity` 1/0, `CalleeArityField` 1/0, `dedupeArgType` 1/0 importers — all via invoke-static-checks.ts, whose header (:3) records the extraction: "the arity/slot model to invoke-callee-arity.ts".
+
+## Why this is a problem
+Counted affinity: 13 foreign-layer member touches vs 1 own-layer touch, and the model's type family and consumers-in-kind (`InvokeArgSlot`, the per-slot mismatch checks, the TYPE-6 compat rules) are all declared in src/parser. The module manufactures parser vocabulary (a `CompatType` union in `dedupeArgType`, `InvokeArgSlot` records, a `CompatType` success-type map) for parser checks to re-decide; its only extension tie is one collector call. This matches the sibling filings already accepted against this family (PTQ-1181 with-clause-gate parser affinity; PTQ-1196 pure-evaluator family in extension), neither of which covers this module.
+
+## Suggested direction (non-binding, optional)
+Hypothesis, unproven: re-home the module to src/parser (e.g. parser/invoke-callee-arity.ts beside invoke-diagnostics.ts), with the single back-reference `collectProvableArgTypes` injected as a parameter or resolved when PTQ-0413's expr-surface move lands — that one call is the only layer edge blocking the move (parser must not import extension). The invoke-static-checks re-export line preserves current importers.
+
+## False-positive check
+Affinity counted both ways with member names listed (13 vs 1, above). Sibling-pattern citation: InvokeArgSlot/type-compat/type-layer-checks/runtime-tools all in src/parser, verified by the import specifiers re-read before filing. Layer-direction check: extension→parser imports are the normal direction, so the claim rests on the counts and sibling pattern, not the crossing alone. Duplicate check: grep over quality/ for invoke-callee-arity — only invoke-static-checks' own header comment; PTQ-1175 (file breakdown), PTQ-1181 (with-clause gate), PTQ-0413 (expr surface) name other hosts. Blocker named: the `collectProvableArgTypes` back-reference is acknowledged, not hidden.
+
+## Triage
+verdict: questionable — accounting verified: size-scan map on a one-line manifest gives 262 LOC / band exempt (placement review applies) with the 8 declarations as listed (CalleeArityField 1/0, CalleeArity 1/0, dedupeArgType 1/0 importers, all via invoke-static-checks.ts:134-140 which re-exports them); the import block byte-matches at :4-12 and recounts to exactly 13 parser members (callable-set 1, frontmatter 1, invoke-diagnostics 1, runtime-tools 2, static-type-inference 1, theta-document 1, type-compat 4, type-layer-checks 2) vs 1 own-layer member (collectProvableArgTypes, invoke-expr-call-surface.ts:35); sibling pattern reproduces — InvokeArgSlot is declared at parser/invoke-diagnostics.ts:233 beside its consumers checkInvokeArgTypes:275 / checkInvokeArity:477 / checkInvokeCall:603, checkCompatible/displayType/CompatType/TypeEnv at type-compat.ts:229/480/87/127, RUNTIME_TOOL_SIGNATURES at runtime-tools.ts:76; no exemptions.json row for the host, not a barrel (declares bodies), git --follow shows a single commit (the PTQ-1175 extraction, no reverted prior move); dedupe: PTQ-1175 (resolved breakdown that minted this file), PTQ-1181/PTQ-1196/PTQ-1212 (other hosts), PTQ-0413/PTQ-1138 (invoke-expr-call-surface) are different root causes. Two caveats for the human ruling, neither refuting the counts: (1) the Observation's "every member is type-model construction over parser-layer vocabulary" overstates — toolParameterProperties/SCHEMA_REFINEMENT_KEYS/fieldSchemaType (96-157, 44 LOC) touch 0 parser and 0 extension members and serve the Pi-tool JSON-schema path whose consumer computeToolArgSchemaConflict lives in runtime/tool-call-static-checks.ts:356, so a parser re-home would carry three layer-neutral helpers along; (2) the direction's "parser must not import extension" is not a current invariant (parser/theta-ast.ts:4 and theta-document.ts:26 already import ../extension/system-note-channel), which weakens the stated blocker but not the affinity claim. Frontmatter omits d9_class but the class is unambiguously misplacement from the title/evidence, so evaluation was not blocked. The target home is a design decision for a human ruling, never confirmed (triage: claude-fable-5-1)
