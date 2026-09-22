@@ -29,14 +29,6 @@ export interface EndpointLadderInputs {
   readonly themeAccentFg?: Rgb;
 }
 
-/** Which ladder rung supplied the BASE (recorded for tests / diagnostics). */
-export type BaseSource = "osc11" | "polarity";
-
-export interface ResolvedEndpoints extends HeatEndpoints {
-  readonly baseSource: BaseSource;
-  readonly polarity: BackgroundPolarity;
-}
-
 /**
  * Resolve the blend endpoints down the spike-Deviation-2 ladder:
  * base = OSC 11 → polarity constant (polarity from the text-fg luminance,
@@ -45,7 +37,7 @@ export interface ResolvedEndpoints extends HeatEndpoints {
  * never blocks on the async terminal query (the shell rebuilds the LUT when
  * the query later resolves).
  */
-export function resolveHeatEndpoints(inputs: EndpointLadderInputs): ResolvedEndpoints {
+export function resolveHeatEndpoints(inputs: EndpointLadderInputs): HeatEndpoints {
   const polarity: BackgroundPolarity =
     inputs.terminalBg !== undefined
       ? // The strongest witness: classify the REAL background directly.
@@ -59,11 +51,6 @@ export function resolveHeatEndpoints(inputs: EndpointLadderInputs): ResolvedEndp
     inputs.terminalBg ?? (polarity === "dark" ? DARK_POLARITY_BASE : LIGHT_POLARITY_BASE);
   const hot =
     inputs.themeAccentFg ?? (polarity === "dark" ? DARK_POLARITY_HOT : LIGHT_POLARITY_HOT);
-  return {
-    base,
-    hot,
-    baseSource: inputs.terminalBg !== undefined ? "osc11" : "polarity",
-    polarity,
-  };
+  return { base, hot };
 }
 

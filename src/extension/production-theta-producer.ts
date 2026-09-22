@@ -121,7 +121,6 @@ import type {
   Message,
   Model,
   ProviderResponse,
-  ToolResultMessage,
 } from "@earendil-works/pi-ai";
 // pi-ai 0.80.x moved the streaming free functions off the package root into
 // the publicly-exported `/compat` subpath (package.json `exports["./compat"]`
@@ -202,7 +201,6 @@ import type {
   InProcessToolExecute,
   ToolLoweringSink,
 } from "../runtime/tool-call-execute";
-import { filterJoinToolText, lowerToolExecuteThrow } from "../runtime/tool-call-execute";
 import {
   buildCodeToolArgSchemaViolation,
   buildCodeToolUnknownTool,
@@ -240,7 +238,6 @@ import {
 import { runCheckpointedBinderCall } from "../runtime/checkpoint-granularity";
 import { runBinderCallWithCancellation } from "../binder/binder-cancellation";
 import { guardToolExecutePromise } from "../runtime/tool-call-swallowing-handler";
-import { guardQueryProviderPromise } from "../runtime/query-swallowing-handler";
 import { guardInvokeExecutionPromise } from "../runtime/invoke-swallowing-handler";
 import type { CheckpointSite } from "../seams/checkpoint";
 import type { Trace } from "../seams/trace";

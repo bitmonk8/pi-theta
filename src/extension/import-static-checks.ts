@@ -127,7 +127,6 @@ import {
 } from "./invoke-imported-checks";
 import { patchSystemTemplateForImports } from "./import-system-template-patch";
 import { resolveReExportClosure } from "./import-reexport-closure";
-export { resolveReExportClosure } from "./import-reexport-closure";
 
 /**
  * `theta/load/unresolvable-thetalib-path` for a spec that RESOLVED (a byte-exact,
