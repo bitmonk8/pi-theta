@@ -4,6 +4,33 @@ All notable changes to `@bitmonk8/pi-theta` will be documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.488.5]
+
+### Added
+- **RFC 0015 Delivery 5 — the live run card.** The `theta-run` entry now
+  renders as a live view over execution-status bus state (injected through
+  the D3 renderer seam): header (`⟳ /<name> · elapsed · cp · iters ·
+  children`), newest `theta_progress` author row, 24-line sticky viewport
+  (recenter only when the current line leaves the middle third; `{expanded}`
+  renders the full script), lexer-backed syntax highlighting over the D4
+  styled-line cache, per-line heat backgrounds from the D2 ring via the D4
+  OKLab LUT (the clamped in-flight effect line renders at full heat —
+  operator ruling; rows pad to width before `ESC[49m`), current-line `▶`
+  gutter, `␂` launch-line markers with right-aligned live badges (and
+  par-for lane summaries), a children roster (cap 8 + `+N more`, lingering
+  `✓`), breadcrumb + 500 ms dwell-damped file following into nested invokes
+  (decision 6), and static degradation to the D3 compact form when the bus
+  no longer knows the invocation. The card rides the existing EXST-6 200 ms
+  tick (new `run-card` sink; the bus keeps ticking through linger while
+  heat fades) and stops when idle. Blend-base acquisition: the TUI handle
+  is captured once via the `ctx.ui.setWidget` factory overload
+  (register+remove, zero-line component) for a fire-and-forget OSC 11
+  query; until/without it the endpoint ladder falls back to theme text-fg
+  polarity, then card constants. The D1 trace seam is now wired TUI-only:
+  top-level binds mint a trace closure over their invocation id and nested
+  prompt→prompt invokes inherit it, so callee heat lands on the top-level
+  card; print/json/child compositions remain unwired and byte-identical.
+
 ## [0.488.4]
 
 ### Added

@@ -9,6 +9,7 @@ import type { Diagnostic } from "../diagnostics/diagnostic";
 import type { InProcessToolExecute } from "../runtime/tool-call-execute";
 import type { ResultChannelClient } from "../runtime/subagent-result-channel";
 import type { EntryChannelHandle } from "./execution-status/entry-channel";
+import type { RunCardController } from "./execution-status/run-card-renderer";
 import type { ExecutionStatusBus } from "./execution-status/types";
 import type { RendererGate, SystemNoteChannelDeps } from "./system-note-channel";
 import type {
@@ -142,6 +143,12 @@ export interface ThetaExtensionDeps {
     // RFC-0012 §5: the factory-owned registered-backend set + discover trigger
     // (the offer subscription lives in the factory body beside it).
     placementRegistration?: PlacementRegistrationHandle,
+    // RFC 0015 (D5): the factory-owned run-card controller's composition view
+    // — the EXST-6 tick-riding sink the TUI composition pushes into the bus's
+    // sink list, and the TUI-handle latch the composition fills from its
+    // `ctx.ui.setWidget` factory-overload capture. The renderer half stays in
+    // the factory (registered with the entry channel at factory time).
+    runCardView?: Pick<RunCardController, "sink" | "attachTui">,
   ) => Promise<ExtensionInstanceWiring>;
 
   /**

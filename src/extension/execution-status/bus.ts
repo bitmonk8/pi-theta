@@ -43,6 +43,7 @@ import {
   STATUS_TICK_MS,
 } from "./types";
 import { clampAuthorMessage } from "./progress-tool";
+import { HEAT_FADE_MS } from "./render/heat";
 import type { Clock, TimerHandle } from "../../seams/clock";
 import type { CheckpointKind, CheckpointSite } from "../../seams/checkpoint";
 import type { TraceKind } from "../../seams/trace";
@@ -664,7 +665,7 @@ class ExecutionStatusBusImpl implements ExecutionStatusBus {
     // a code-only child (the quality loop's `fix-cluster-tree` wrapper drives
     // workers and a gate, taking no turn of its own) publishes nothing for
     // minutes and every rendered age freezes at its first value.
-    if (this.#hasRunningWork()) {
+    if (this.#hasRunningWork() || this.#hasFadingHeat(now)) {
       this.#dirty = true;
     }
     if (!this.#dirty) {
@@ -725,6 +726,31 @@ class ExecutionStatusBusImpl implements ExecutionStatusBus {
   }
 
   /**
+   * RFC 0015 (D5, §Animation): whether any node — lingering ended nodes
+   * included — still holds heat younger than the fade window. The run-card
+   * sink animates the fade on this same coalesced tick ("while (a) any heat
+   * entry is younger than FADE_MS …"), and an ended node's clamp-clear
+   * refreshed its entry's `lastHitMs` to the end instant, so the done-flash
+   * linger is exactly when this predicate extends ticking beyond
+   * `#hasRunningWork` (D2 recorded residual 5: no intermediate linger ticks
+   * fired before D5). Running nodes are already covered by `#hasRunningWork`;
+   * eviction bounds the extension to `DONE_LINGER_MS` per ended node.
+   */
+  #hasFadingHeat(now: number): boolean {
+    for (const node of this.#nodes.values()) {
+      if (node.clampSite !== undefined) {
+        return true;
+      }
+      for (const entry of node.heat.values()) {
+        if (now - entry.lastHitMs < HEAT_FADE_MS) {
+          return true;
+        }
+      }
+    }
+    return false;
+  }
+
+  /**
    * Arm the next tick for the work the SURFACE still owes with no publication
    * to trigger it: a running node owes a re-render at the coalescing cadence
    * (EXST-6's age-liveness, Erratum F — re-armed through `#schedule` so the
@@ -737,7 +763,7 @@ class ExecutionStatusBusImpl implements ExecutionStatusBus {
     if (this.#pending !== undefined || this.#disposed || this.#verbosity === "off") {
       return;
     }
-    if (this.#hasRunningWork()) {
+    if (this.#hasRunningWork() || this.#hasFadingHeat(now)) {
       this.#schedule();
       return;
     }

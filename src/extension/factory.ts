@@ -37,6 +37,11 @@ import type { Diagnostic } from "../diagnostics/diagnostic";
 import { renderUnderlyingError } from "../diagnostics/placeholder";
 import { createSystemNoteRenderer } from "./system-note-renderer";
 import { createEntryChannel } from "./execution-status/entry-channel";
+import {
+  createRunCardController,
+  productionReadSourceBytes,
+  type RunCardController,
+} from "./execution-status/run-card-renderer";
 import type { ExecutionStatusBus } from "./execution-status/types";
 import { THETA_PROGRESS_TOOL_NAME } from "./execution-status/types";
 import {
@@ -484,13 +489,26 @@ export function createThetaExtension(
       );
     }
 
+    // RFC 0015 (D5) — the run-card controller: the LIVE `theta-run` renderer
+    // (injected into the entry channel below via the D3→D5 seam), the EXST-6
+    // tick-riding sink, and the TUI-handle latch. Constructed in the factory
+    // body because the renderer must exist at entry-channel registration
+    // time; its bus/clock deps read the LIVE latches lazily (published at
+    // compose), and until then — or whenever the bus does not track the
+    // invocation — the renderer degrades to the D3 static compact form, so
+    // harness paths that never compose observe the pre-D5 rendering.
+    const runCardController = createRunCardController({
+      bus: () => liveStatusBus,
+      clock: () => liveClock,
+      readSourceBytes: productionReadSourceBytes,
+    });
     // RFC 0010 / PIC-71 — the `theta-progress-entry` channel, registered
     // synchronously BESIDE the message renderer. Deliberately unlike the arm
     // above: both members are optional-capability-class surfaces (PIC-73), so
     // an absent member or a throwing registration degrades the channel
     // SILENTLY (no diagnostic, no refusal) and PIC-72's message-channel
     // fallback owns delivery for the whole session.
-    const entryChannel = createEntryChannel(pi);
+    const entryChannel = createEntryChannel(pi, runCardController.renderer);
 
     // RFC 0010 / EXST-13 — the `theta_progress` tool: ONE `pi.registerTool`
     // call per extension instance, in the factory's SYNCHRONOUS BODY, before
@@ -865,6 +883,9 @@ export function createThetaExtension(
           inProcessTools,
           liveResultChannel,
           placementRegistration,
+          // RFC 0015 (D5): the run-card tick sink + TUI-handle latch, so the
+          // TUI composition can ride the EXST-6 tick and capture the handle.
+          runCardController,
         );
       } catch (e: unknown) { // allow-broad-catch: pi-sdk-boundary — conventions.md Specific exception types only
         if (composeTailSuperseded()) {
@@ -1151,6 +1172,7 @@ export default function thetaExtension(pi: ExtensionAPI): void {
       inProcessTools,
       resultChannel,
       placementRegistration,
+      runCardView,
     ) =>
       composeExtensionInstance(
         pi,
@@ -1169,6 +1191,7 @@ export default function thetaExtension(pi: ExtensionAPI): void {
         entryChannel,
         latchStatusBus,
         inProcessTools,
+        runCardView,
       ),
     isSubagentChild,
   })(pi);

@@ -14,6 +14,7 @@ import type { SubagentLaunchEntry } from "../runtime/subagent-placement";
 import type { ActiveInvocationTicket } from "../runtime/active-invocation-registry";
 import type { Diagnostic } from "../diagnostics/diagnostic";
 import type { RunCardPublisher } from "./execution-status/run-card";
+import type { Trace } from "../seams/trace";
 
 /**
  * The parsed `.theta` the producer maps to a runnable `ThetaFixture`: the `V19a`
@@ -162,6 +163,17 @@ export interface ConversationBindInput {
    * render reads `paramBindings`, the `.theta` callee behaviour.
    */
   readonly systemParams?: ReadonlyMap<string, ThetaValue>;
+  /**
+   * RFC 0015 (D5): the PARENT invocation's already-bound trace closure,
+   * carried onto a nested prompt→prompt `invoke` callee bind so the callee's
+   * statements publish heat under the TOP-LEVEL invocation's id (one card per
+   * top-level drive, decision 6 — the viewport follows into the callee file,
+   * so its heat must land on the same ring; the D2 ring is keyed
+   * `(file, line)` for exactly this). Absent for a top-level slash dispatch
+   * (the bind mints its own closure from the producer's `statusTrace`
+   * factory) and everywhere the composition left the seam unwired.
+   */
+  readonly trace?: Trace;
 }
 
 /**

@@ -246,6 +246,13 @@ export const SDK_SURFACE_INVENTORY: readonly SurfaceInventoryEntry[] =
     { id: "pi.appendEntry", kind: "pi-member" },
     { id: "pi.registerEntryRenderer", kind: "pi-member" },
     { id: "ctx.ui.setStatus", kind: "ctx-member" },
+    // RFC 0015 (D5): besides the widget sink's `string[]` overload, the run
+    // card's TUI-handle capture (`captureTuiRenderHandle`) uses the
+    // `(tui, theme) => Component` FACTORY overload of this same member — a
+    // zero-line component registered and removed in one call, solely to
+    // receive the pi-tui handle (whose `requestRender` /
+    // `queryTerminalBackgroundColor` members are then reached STRUCTURALLY,
+    // never via a `TUI` import — no peer-named-import row joins for them).
     { id: "ctx.ui.setWidget", kind: "ctx-member" },
     { id: "ctx.ui.setWorkingMessage", kind: "ctx-member" },
     // RFC-0005: `createAgentSession` and the former in-process subagent

@@ -55,6 +55,20 @@ export const RUN_SUMMARY_PROFILE_MAX_LINES = 10;
 /** RFC 0015 (D3) — clamp on the `theta-run` seed's `argsSummary` (mirrors
  *  FOOTER_CLAMP_CHARS: the seed is a one-line display string, not the args). */
 export const RUN_CARD_ARGS_CLAMP_CHARS = 200;
+/** RFC 0015 (D5, decision 3) — the collapsed run-card viewport height: 24
+ *  source lines; `{expanded}` renders the full script instead. Normative per
+ *  the ratified decision, not tuning. */
+export const RUN_CARD_VIEWPORT_LINES = 24;
+/** RFC 0015 (D5, decision 6) — the nested-invoke follow dwell: the current
+ *  site must reside in another file this long before the viewport switches
+ *  (and switches back), damping tight call loops. Magnitude ratified
+ *  ("~500 ms"); the exact value is tuning. */
+export const RUN_CARD_FOLLOW_DWELL_MS = 500;
+/** RFC 0015 (D5) — the children-roster row cap ("capped ~8 + `+N more`"):
+ *  rows beyond this collapse into one `+N more` line so a wide par-for
+ *  fan-out cannot grow the card unboundedly (EXST-7's bounded-render
+ *  posture). */
+export const RUN_CARD_CHILD_ROSTER_MAX = 8;
 
 // ---------------------------------------------------------------------------
 // L3 `theta_progress` constants (execution-status.md EXST-13/14/15;
@@ -338,7 +352,7 @@ export interface ParForLaneHooks {
 }
 
 export interface StatusSink {
-  readonly id: "footer" | "widget";
+  readonly id: "footer" | "widget" | "run-card";
   render(
     snapshot: ExecutionStatusSnapshot,
     view: ViewShape,

@@ -243,6 +243,7 @@ import { guardToolExecutePromise } from "../runtime/tool-call-swallowing-handler
 import { guardQueryProviderPromise } from "../runtime/query-swallowing-handler";
 import { guardInvokeExecutionPromise } from "../runtime/invoke-swallowing-handler";
 import type { CheckpointSite } from "../seams/checkpoint";
+import type { Trace } from "../seams/trace";
 import {
   defineRecordField,
   isEnumValue,
@@ -649,6 +650,19 @@ export interface ProductionProducerInput {
    * everywhere else, and the dispatch's `?.` call sites no-op.
    */
   readonly runCard?: RunCardPublisher;
+  /**
+   * RFC 0015 (D5): the per-invocation trace-seam factory — the composition's
+   * `(invocationId) => (site, kind) => statusBus.trace(invocationId, …)`
+   * closure. Constructed ONLY in the TUI composition (the D1 contract keeps
+   * print/json/child compositions unwired and byte-identical); absent, no
+   * `ExecuteBodyDeps.trace` is threaded and the executor pays one
+   * undefined-check per statement. A TOP-LEVEL prompt bind mints the closure
+   * over its own invocation id; a nested prompt-invoke callee bind reuses the
+   * PARENT's closure (`ConversationBindInput.trace`) so callee statements
+   * heat the top-level card's ring under the callee's residence-rule file
+   * (decision 6's follow-the-viewport source — one card per top-level drive).
+   */
+  readonly statusTrace?: (invocationId: string) => Trace;
   /**
    * Decision 6 / Increment B2 (session-shutdown-semantics.md sub-step 5): the
    * extension-instance-scoped mutable sink of INVOCATION-SCOPED forwarding
@@ -2184,7 +2198,7 @@ class ProductionThetaProducer implements ThetaProducerDeps {
   /** Assemble the prompt executor's effect closures over this invocation's live surfaces. */
   #buildPromptHostDeps({
     bindInput, theta, ctx, pi, chain, ticket, checkpoint, signal, thetaAbort,
-    readMessages, readContextPath,
+    readMessages, readContextPath, trace,
   }: {
     bindInput: ConversationBindInput;
     theta: ConversationBindInput["theta"];
@@ -2197,6 +2211,9 @@ class ProductionThetaProducer implements ThetaProducerDeps {
     thetaAbort: AbortController;
     readMessages: () => readonly Message[];
     readContextPath: () => readonly SessionEntry[];
+    /** RFC 0015 (D5): this bind's trace closure, handed down to nested
+     *  prompt-invoke callee binds so their heat keys the top-level card. */
+    trace: Trace | undefined;
   }): EffectfulStatementHostDeps {
     const hostDeps: EffectfulStatementHostDeps = {
       checkpoint,
@@ -2242,7 +2259,7 @@ class ProductionThetaProducer implements ThetaProducerDeps {
       // `#driveCallee` so an `invoke`d prompt-mode callee attaches to this user
       // session (prompt→prompt) rather than spawning fresh.
       resolveInvoke: (expr, env, overrideChain) =>
-        this.#resolveInvoke(theta, expr, env, ctx, overrideChain ?? chain, signal, "prompt", ticket.invocationId),
+        this.#resolveInvoke(theta, expr, env, ctx, overrideChain ?? chain, signal, "prompt", ticket.invocationId, trace),
       // Bug 0088: pair the wrapper `runInvokeEffect` builds for a failed hop
       // with its provenance record.
       recordInvokeHop: (wrapper, calleePath, callSite) =>
@@ -2257,7 +2274,7 @@ class ProductionThetaProducer implements ThetaProducerDeps {
           }
         : {}),
       resolveCallAsInvoke: (expr, env, overrideChain) =>
-        this.#resolveCallAsInvoke(theta, expr, env, ctx, overrideChain ?? chain, signal, "prompt", ticket.invocationId),
+        this.#resolveCallAsInvoke(theta, expr, env, ctx, overrideChain ?? chain, signal, "prompt", ticket.invocationId, trace),
       // RFC 0001 (`subagent fn`, FN-8) / RFC 0012 §10: a prompt-mode theta may
       // call a `subagent fn` — the safe prompt→subagent direction. Each call
       // launches a CHILD of this theta with a `fn` entry under the resolved
@@ -2348,6 +2365,12 @@ class ProductionThetaProducer implements ThetaProducerDeps {
     // no invocation identity, so the id is bound here). Identity passthrough
     // when no bus is wired.
     const checkpoint = decorateCheckpoint(root.checkpoint, statusBus, ticket.invocationId);
+    // RFC 0015 (D5): the statement-trace closure — a nested prompt-invoke
+    // callee bind INHERITS the parent's (so its heat lands on the top-level
+    // card's ring, decision 6); a top-level bind mints one over its own id
+    // from the composition's factory (TUI only; absent ⇒ seam unwired, the
+    // D1 byte-identical contract for print/json/child).
+    const trace = bindInput.trace ?? this.#input.statusTrace?.(ticket.invocationId);
     // EXST-3(c): the `par for` lane-set producer adapter.
     const statusLanes: ParForLaneHooks | undefined =
       statusBus === undefined
@@ -2356,7 +2379,7 @@ class ProductionThetaProducer implements ThetaProducerDeps {
 
     const hostDeps = this.#buildPromptHostDeps({
       bindInput, theta, ctx, pi, chain, ticket, checkpoint, signal, thetaAbort,
-      readMessages, readContextPath,
+      readMessages, readContextPath, trace,
     });
 
     const executeDeps: ExecuteBodyDeps = {
@@ -2386,6 +2409,9 @@ class ProductionThetaProducer implements ThetaProducerDeps {
       // RFC 0010 (EXST-3(c)): absent unless a bus is wired, in which case
       // `evalParFor` is byte-identical to the pre-RFC loop.
       ...(statusLanes !== undefined ? { statusLanes } : {}),
+      // RFC 0015 (D5): the statement-trace seam (guarded spread — absent, the
+      // executor's per-site undefined-check is the whole cost).
+      ...(trace !== undefined ? { trace } : {}),
     };
 
     // Publish the invocation-scoped forwarding sources onto the shared sink LAST
@@ -4753,6 +4779,9 @@ class ProductionThetaProducer implements ThetaProducerDeps {
      * in-memory harness).
      */
     parentInvocationId: string | undefined,
+    /** RFC 0015 (D5): the CALLER's trace closure, inherited by a
+     *  prompt→prompt callee bind (top-level-card heat attribution). */
+    trace: Trace | undefined,
   ): InvokeChild {
     // `expr.args[0]` is the callee path literal; the remaining args are the
     // positional invocation arguments bound to the callee's params.
@@ -4775,6 +4804,7 @@ class ProductionThetaProducer implements ThetaProducerDeps {
       callerMode,
       evaluateCallSiteCwd(expr, env, chain),
       parentInvocationId,
+      trace,
     );
   }
 
@@ -4800,6 +4830,8 @@ class ProductionThetaProducer implements ThetaProducerDeps {
      * in-memory harness).
      */
     parentInvocationId: string | undefined,
+    /** RFC 0015 (D5): the CALLER's trace closure (see `#resolveInvoke`). */
+    trace: Trace | undefined,
   ): InvokeChild {
     const calleePath = thetaCalleePath(theta, expr.callee) ?? `./${expr.callee}.theta`;
     const argValues = expr.args.map((arg) => evaluatePureExpression(arg, env, chain));
@@ -4819,6 +4851,7 @@ class ProductionThetaProducer implements ThetaProducerDeps {
       callerMode,
       rawCwd,
       parentInvocationId,
+      trace,
     );
   }
 
@@ -4845,6 +4878,8 @@ class ProductionThetaProducer implements ThetaProducerDeps {
      * in-memory harness).
      */
     parentInvocationId: string | undefined,
+    /** RFC 0015 (D5): the CALLER's trace closure (see `#resolveInvoke`). */
+    trace: Trace | undefined,
   ): InvokeChild {
     return {
       calleePath,
@@ -4894,6 +4929,7 @@ class ProductionThetaProducer implements ThetaProducerDeps {
             callerMode,
             rawCwd,
             parentInvocationId,
+            trace,
           ),
           signalGuard(parentSignal),
           noopSwallowChannels(),
@@ -4929,6 +4965,10 @@ class ProductionThetaProducer implements ThetaProducerDeps {
      * in-memory harness).
      */
     parentInvocationId: string | undefined,
+    /** RFC 0015 (D5): the CALLER's trace closure — handed to a prompt→prompt
+     *  callee bind below so nested-invoke heat keys the top-level card;
+     *  subagent callees run in a child process and ignore it. */
+    trace: Trace | undefined,
   ): Promise<DrivenInvokeResult> {
     const boundary = await this.#guardInvokeBoundary(theta, calleePath, argValues, ctx, rawCwd);
     if ("result" in boundary) return boundary;
@@ -4965,6 +5005,8 @@ class ProductionThetaProducer implements ThetaProducerDeps {
         // EXST-3(b): guarded spread — `exactOptionalPropertyTypes` distinguishes
         // an omitted key from one set to `undefined`.
         ...(parentInvocationId !== undefined ? { parentInvocationId } : {}),
+        // RFC 0015 (D5): the callee inherits the caller's trace closure.
+        ...(trace !== undefined ? { trace } : {}),
       });
       // Decision 6 / Increment B1: the child bind registered an
       // ActiveInvocationRegistry entry; the `finally` calls its

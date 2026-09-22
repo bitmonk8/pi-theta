@@ -240,6 +240,11 @@ import {
   RESERVED_COMMAND_NAMES,
 } from "./execution-status/status-command";
 import type { EntryChannelHandle } from "./execution-status/entry-channel";
+import {
+  captureTuiRenderHandle,
+  type RunCardController,
+} from "./execution-status/run-card-renderer";
+import type { Trace } from "../seams/trace";
 
 /** Seam overrides for test injection — the FAKE FileWatcher / Clock the
  * watcher-hot-reload integration test drives through the real composition. */
@@ -1073,6 +1078,23 @@ async function runComposePass(
         })
       : undefined;
 
+  // RFC 0015 (D5): the trace-seam wiring — TUI composition ONLY, exactly like
+  // the run-card publisher above (D1 contract: print/json/child compositions
+  // stay unwired and byte-identical; the seam's absence costs one
+  // undefined-check per statement). The factory binds one invocation id per
+  // top-level bind; nested prompt-invoke callees INHERIT the parent's bound
+  // closure (`ConversationBindInput.trace`), so their heat lands on the
+  // top-level card's ring under the callee's residence-rule file — which is
+  // what decision 6's follow-the-viewport rendering reads (the D2 ring is
+  // keyed `(file, line)` precisely because nested invokes switch files).
+  const statusTrace =
+    ctx.mode === "tui" && statusBus !== undefined
+      ? (invocationId: string): Trace =>
+          (site, kind): void => {
+            statusBus.trace(invocationId, site, kind);
+          }
+      : undefined;
+
   const producerDeps = createProductionProducerDeps({
     pi,
     root,
@@ -1097,6 +1119,9 @@ async function runComposePass(
     // RFC 0015 (D3): the TUI run-card publisher (absent ⇒ dispatch appends
     // no run-card entries; see its construction above).
     ...(runCard !== undefined ? { runCard } : {}),
+    // RFC 0015 (D5): the per-invocation trace-seam factory (TUI only; see its
+    // construction above).
+    ...(statusTrace !== undefined ? { statusTrace } : {}),
     // RFC 0010 (EXST-13): pi-theta's OWN in-process tool handlers (currently
     // `theta_progress`), so a code-side call dispatches directly rather than
     // through the host-loop bridge. Absent ⇒ code-side extension-tool calls
@@ -2130,6 +2155,12 @@ export async function composeExtensionInstance(
   // `theta_progress`'s shared-state code-side executor), threaded to every
   // compose pass this call arms so a code-side call dispatches in-process.
   inProcessTools?: Readonly<Record<string, InProcessToolExecute>>,
+  // RFC 0015 (D5): the factory-owned run-card controller's composition view.
+  // TUI-only wiring (below): the tick-riding sink joins the bus's sink list
+  // and the TUI handle is captured for it; print/json/child compositions
+  // leave both untouched, so the card never animates (or queries OSC 11)
+  // outside the interactive host.
+  runCardView?: Pick<RunCardController, "sink" | "attachTui">,
 ): Promise<ExtensionInstanceWiring> {
   // The transient toast + stderr emit. Retained ONLY as the `theta-system-note`
   // channel's own delivery-failure fallback: it MUST stay off-channel so a
@@ -2182,6 +2213,21 @@ export async function composeExtensionInstance(
   // instance at `session_shutdown`, so a fresh `/reload` instance starts with a
   // fresh bus and every sink un-degraded.
   const statusSinks = buildStatusSinks(ctx);
+  // RFC 0015 (D5, §Animation): the run-card sink rides the SAME EXST-6
+  // coalesced tick as the footer/widget sinks — it joins the sink list here,
+  // TUI-only (the RFC's "Modes and degradation"). The TUI handle is captured
+  // through the `ctx.ui.setWidget` factory overload (a zero-line component
+  // registered and removed in one call — see `captureTuiRenderHandle`); a
+  // host without the surface (or a non-TUI mode) simply leaves the card
+  // un-animated and the OSC 11 leg unfired — the endpoint ladder's
+  // fall-through, never a refusal.
+  if (runCardView !== undefined && ctx.mode === "tui") {
+    statusSinks.push(runCardView.sink);
+    const tuiHandle = captureTuiRenderHandle(ctx.ui);
+    if (tuiHandle !== undefined) {
+      runCardView.attachTui(tuiHandle);
+    }
+  }
   const statusBus = createExecutionStatusBus({ clock: root.clock, sinks: statusSinks });
   latchStatusBus?.(statusBus);
 
