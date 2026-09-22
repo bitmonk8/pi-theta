@@ -2,7 +2,7 @@
 id: PTQ-1256
 title: RunCardComponent.#renderLive builds two full deep-copy bus snapshots per animation frame where one suffices
 lens: D8
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/extension/execution-status/run-card-renderer.ts:336-339

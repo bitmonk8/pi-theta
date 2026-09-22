@@ -2,7 +2,7 @@
 id: PTQ-1260
 title: createRunCardController is a 382-LOC closure bundling card-state eviction, TUI-handle/OSC-11 wiring, heat-LUT caching, seed decoding, the live card component, the renderer entry, and the animation sink
 lens: D9
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/extension/execution-status/run-card-renderer.ts:247-628
