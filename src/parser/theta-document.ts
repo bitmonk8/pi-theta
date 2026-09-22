@@ -39,6 +39,7 @@ import {
 } from "./imports";
 import {
   parseFrontmatter,
+  readParamFieldNames,
   type FrontmatterBodyTypes,
   type FrontmatterBlock,
   type ParsedFrontmatter,
@@ -217,17 +218,14 @@ export function parseThetaDocument(
   // always immutable). The authoritative frontmatter parse below needs the
   // body's `bodyTypes` to resolve `params:` NAMED types, so it cannot run
   // first; this early pass reads only the YAML field KEYS — which no `bodyTypes`
-  // resolution touches — and its own diagnostics are discarded (the parse below
-  // is the authoritative one).
+  // resolution touches — via the keys-only `readParamFieldNames` reader, so the
+  // full pipeline (with its diagnostics) runs once, in the authoritative parse
+  // below.
   const paramFieldNames = new Set<string>();
   if (split.frontmatter !== null) {
-    const earlyFm = parseFrontmatter(split.frontmatter, {
-      file,
-      modelMatcher: deps.modelMatcher,
-    });
-    for (const f of earlyFm.paramFields) {
-      if (f.name !== "_") {
-        paramFieldNames.add(f.name);
+    for (const name of readParamFieldNames(split.frontmatter)) {
+      if (name !== "_") {
+        paramFieldNames.add(name);
       }
     }
   }

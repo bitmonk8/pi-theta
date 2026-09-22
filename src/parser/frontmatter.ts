@@ -980,6 +980,38 @@ function buildSystemTemplate(
 }
 
 /**
+ * Keys-only read of the frontmatter `params:` field names — the pipeline's
+ * first phase (YAML document parse + enumeration of the `params:` mapping's
+ * scalar keys) without the recognised-field battery, `params:` schema
+ * lowering, or `system:` template parse. `parseThetaDocument`'s early pass
+ * consumes only these names (they seed `BodyParser`'s immutability map before
+ * the body parse), so it reads them here instead of running the whole
+ * `parseFrontmatter` pipeline twice per document; the authoritative call after
+ * the body parse owns every diagnostic. Mirrors the full pipeline's own
+ * gating: a partially-recovered YAML parse (`doc.errors` non-empty) yields no
+ * fields (FM-5), and only a scalar-keyed `params:` item names a field — the
+ * same set `extractParsedParams` records (refused fields are retained there;
+ * only non-scalar keys are skipped), so the name sets agree.
+ */
+export function readParamFieldNames(block: FrontmatterBlock): Set<string> {
+  const names = new Set<string>();
+  const doc = parseDocument(block.yaml);
+  if (doc.errors.length > 0 || !isMap(doc.contents)) {
+    return names;
+  }
+  for (const item of doc.contents.items) {
+    if (isScalar(item.key) && String(item.key.value) === "params" && isMap(item.value)) {
+      for (const field of item.value.items) {
+        if (isScalar(field.key)) {
+          names.add(String(field.key.value));
+        }
+      }
+    }
+  }
+  return names;
+}
+
+/**
  * Parse a theta file's YAML frontmatter against the theta 1.0 field contract
  * (`frontmatter.md`, `frontmatter/frontmatter-fields-a.md`):
  *
