@@ -2,7 +2,7 @@
 id: PTQ-1246
 title: type-text-split.ts header comments cite five params.ts functions as "(above)"/"(below)" in this file
 lens: D2
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/parser/type-text-split.ts:9-11

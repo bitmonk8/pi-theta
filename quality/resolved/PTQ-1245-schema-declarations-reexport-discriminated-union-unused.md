@@ -2,7 +2,7 @@
 id: PTQ-1245
 title: schema-declarations.ts re-exports discriminated-union-checks symbols nothing imports through it
 lens: D2
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/parser/schema-declarations.ts:33-38

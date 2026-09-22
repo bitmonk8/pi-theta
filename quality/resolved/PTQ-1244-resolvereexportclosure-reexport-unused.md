@@ -2,7 +2,7 @@
 id: PTQ-1244
 title: import-static-checks.ts re-exports resolveReExportClosure through a binding nothing imports
 lens: D2
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/extension/import-static-checks.ts:129-130

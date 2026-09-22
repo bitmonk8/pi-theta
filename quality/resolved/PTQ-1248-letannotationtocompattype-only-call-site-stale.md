@@ -4,7 +4,7 @@ title: letAnnotationToCompatType doc comment claims one call site while three pr
 lens: D2
 wave: qw20260922150013
 reported_by: lens-d2-cruft (anthropic/claude-sonnet-5)
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/parser/annotation-compat.ts:59-67

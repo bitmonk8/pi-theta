@@ -2,7 +2,7 @@
 id: PTQ-1247
 title: Four named imports in production-theta-producer.ts are never referenced in the file
 lens: D2
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/extension/production-theta-producer.ts:124

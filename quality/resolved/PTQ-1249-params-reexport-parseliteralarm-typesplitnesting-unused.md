@@ -2,7 +2,7 @@
 id: PTQ-1249
 title: params.ts re-exports parseLiteralArm and TypeSplitNesting from type-text-split with no importer through that path
 lens: D2
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/parser/params.ts:70-77

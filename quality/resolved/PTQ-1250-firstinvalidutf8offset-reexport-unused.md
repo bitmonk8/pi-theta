@@ -4,7 +4,7 @@ title: lexer.ts re-exports firstInvalidUtf8Offset from encoding.ts but nothing i
 lens: D2
 wave: qw20260922150013
 reported_by: lens-d2-cruft (anthropic/claude-sonnet-5)
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/lexer/lexer.ts:23

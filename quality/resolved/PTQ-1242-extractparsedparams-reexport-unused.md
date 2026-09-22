@@ -2,7 +2,7 @@
 id: PTQ-1242
 title: frontmatter.ts re-exports extractParsedParams but no importer reaches it through that path
 lens: D2
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/parser/frontmatter.ts:47

@@ -2,7 +2,7 @@
 id: PTQ-1243
 title: system-interpolation.ts re-exports renderSystemPrompt/its input/result types that no importer pulls through this module
 lens: D2
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/parser/system-interpolation.ts:43-47

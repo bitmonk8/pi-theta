@@ -2,7 +2,7 @@
 id: PTQ-1241
 title: resolveHeatEndpoints computes baseSource and polarity fields that no caller reads
 lens: D2
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/extension/execution-status/render/endpoint-ladder.ts:33-37
