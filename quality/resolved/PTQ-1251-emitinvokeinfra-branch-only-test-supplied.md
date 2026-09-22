@@ -2,7 +2,7 @@
 id: PTQ-1251
 title: routeSubagentSpawnFailure's emitInvokeInfra branch is supplied only by a test, never by the sole production caller
 lens: D2
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/runtime/subagent-place.ts:134-139

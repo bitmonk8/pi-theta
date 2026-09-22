@@ -2,7 +2,7 @@
 id: PTQ-1252
 title: Two extraction-facade re-exports in production-theta-producer.ts (pure-expression-evaluator, binder-echo-type) have zero importers through this module
 lens: D2
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/extension/production-theta-producer.ts:23-24

@@ -2,7 +2,7 @@
 id: PTQ-1253
 title: lexer.ts re-exports collapseContinuations and contextualDiagnostics that nothing imports through it
 lens: D2
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/lexer/lexer.ts:20-26
