@@ -34,6 +34,7 @@ shipped behaviour until specified and implemented.
 - [0012 — Configurable subagent placement (multiplexer tabs and other launch surfaces)](./0012-configurable-subagent-placement.md) — accepted
 - [0013 — A restart contract for long-running theta panes: recover by re-issuing against durable state](./0013-long-running-theta-restart-contract.md) — draft
 - [0014 — Persisted child sessions](./0014-persisted-child-sessions.md) — queued (not yet drafted)
+- [0015 — The theta run card: a live in-transcript script heatmap](./0015-theta-run-card.md) — draft
 
 Reclassified out of the RFC series:
 
