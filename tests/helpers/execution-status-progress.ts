@@ -141,12 +141,14 @@ export interface RecordedCall {
 
 /**
  * A recording `ExtensionUIContext` double. Only `setStatus` / `setWidget` /
- * `setWorkingMessage` — the three members the footer (L0) and widget (L2)
- * `StatusSink`s touch (`footer-sink.ts` `FooterUi`, `widget-sink.ts`
- * `WidgetUi`) — are wired to record; every other member is a harmless no-op
- * mirroring the runner's own built-in no-op UI context. These cells drive
- * `mode: prompt` thetas with no dialog/editor/theme surface.
- * Working-message recording and timestamps are opt-in.
+ * `setWorkingMessage` — the three members the RFC 0010 footer (L0) and
+ * widget (L2) `StatusSink`s used to touch — are wired to record; every other
+ * member is a harmless no-op mirroring the runner's own built-in no-op UI
+ * context. Since RFC 0015 D6 retired those sinks (decision 4), the live
+ * cells use this double in the ABSENCE direction: a drive must record ZERO
+ * status renders on these members. These cells drive `mode: prompt` thetas
+ * with no dialog/editor/theme surface. Working-message recording and
+ * timestamps are opt-in.
  */
 export function createRecordingUi(options: { readonly recordWorkingMessage?: boolean; readonly now: () => number }): {
   readonly calls: (RecordedCall & { readonly ts: number })[];

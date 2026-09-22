@@ -19,7 +19,7 @@ import {
   RUN_CARD_CHILD_ROSTER_MAX,
   RUN_CARD_FOLLOW_DWELL_MS,
 } from "../types";
-import { formatDuration, renderAuthorMessageSegment } from "../footer-sink";
+import { formatDuration, renderAuthorMessageSegment } from "./format";
 import { lutIndexFor } from "./heat";
 import type { StyledLine, SyntaxRole } from "./styled-lines";
 

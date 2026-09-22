@@ -15,7 +15,7 @@ import type { EntryChannelHandle } from "../src/extension/execution-status/entry
 import { ActiveInvocationRegistry, type ActiveInvocationEntry } from "../src/runtime/active-invocation-registry";
 import { FakeClock } from "./helpers/fake-clock";
 import { ARGS, fakeBus, fakeEntry, fakeHostApi, makeOrderRecordingPi } from "./helpers/execution-status-progress";
-import { renderFooterLine } from "../src/extension/execution-status/footer-sink";
+import { buildCardLines, type CardStyle } from "../src/extension/execution-status/render/card-lines";
 import { createProgressEntryRenderer } from "../src/extension/execution-status/entry-channel";
 import {
   createThetaExtension,
@@ -325,24 +325,26 @@ describe("T-PRG — L3-B15: bus latch undefined but registry live — milestone 
   });
 });
 
-describe("T-PRG — L3-B16: footer render carries the ✎ class-2 segment (EXST-14 grammar)", () => {
-  it("a node snapshot carrying an authorMessage renders '✎ built 3 of 12' on the footer line", () => {
-    const snapshot = {
-      nodes: [
-        {
-          invocationId: "inv-1",
-          theta: "quality-loop",
-          startedAtMs: 0,
-          counters: { checkpoints: 0, loopIters: 0 },
-          authorMessage: { message: "built 3 of 12", scope: "fix", done: 3, total: 12 },
-        },
-      ],
-      untracked: 0,
-    };
-    const line = renderFooterLine(snapshot, "names", 0);
-    // EXST-14 grammar (footer-sink.ts): the class-2 segment renders after the
-    // node's kids and before the trailing elision tail.
-    expect(line).toContain("✎ built 3 of 12");
+describe("T-PRG — L3-B16: the run-card author row carries the ✎ class-2 segment (EXST-14 grammar)", () => {
+  it("a model carrying an authorMessage renders '✎ built 3 of 12' on the card's author row", () => {
+    // D6 (RFC 0015 decision 4): the footer sink retired; the class-2 segment's
+    // transient rendering surface is the run card's author row
+    // (`render/card-lines.ts`, same `renderAuthorMessageSegment` grammar).
+    const plainStyle: CardStyle = { syntaxFg: () => "", accentFg: "", mutedFg: "" };
+    const rows = buildCardLines(
+      {
+        theta: "quality-loop",
+        startedAtMs: 0,
+        nowMs: 0,
+        counters: { checkpoints: 0, loopIters: 0 },
+        activeChildren: 0,
+        authorMessage: { message: "built 3 of 12", scope: "fix", done: 3, total: 12 },
+        children: [],
+      },
+      120,
+      plainStyle,
+    );
+    expect(rows.some((row) => row.includes("✎ built 3 of 12"))).toBe(true);
   });
 });
 

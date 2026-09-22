@@ -74,6 +74,32 @@ export function renderSystemNoteBody(
 }
 
 /**
+ * RFC 0015 (D6, decision 5) — the `Running /<name>` note-class discriminator.
+ *
+ * The binder success echo is one of the channel's INFORMATIONAL notes
+ * (runtime-event-channel.md §"Informational notes carry no `details`"): its
+ * wire shape is pinned as `details`-ABSENT (bug 0401's byte contract), so the
+ * payload could not grow a class marker without changing the LLM-context /
+ * print/json bytes decision 5 requires byte-identical. The discriminator is
+ * therefore CONTENT-SHAPE + details-absence:
+ *
+ *  - `content` starts with the verbatim `Running /` prefix — produced only by
+ *    `renderArgumentEcho` (src/render/argument-echo.ts), the echo's single
+ *    template owner;
+ *  - `details` is absent — which excludes every five-shape `details` note
+ *    whose free-text content could conceivably collide (a diagnostics batch's
+ *    serialised message lines, an event template, …).
+ *
+ * No other details-less informational note's template starts with
+ * `Running /` (they all open `theta …` / `theta: …` / `'system:' …`), so the
+ * pair is exact today; a future informational note MUST NOT adopt the
+ * `Running /` prefix without revisiting decision 5's hiding rule.
+ */
+export function isRunningEchoNote(content: string, details: unknown): boolean {
+  return details === undefined && content.startsWith("Running /");
+}
+
+/**
  * Construction dependencies for the `theta-system-note` renderer. `formatLines`
  * is the dim-styling step PIC-21 wraps: a throw from it is an internal
  * renderer failure the V7d hardening catches, falling back to the raw
@@ -101,6 +127,24 @@ export function createSystemNoteRenderer(
   return (message, _options, _theme): Component | undefined => {
     const content =
       typeof message.content === "string" ? message.content : "";
+    // RFC 0015 (D6, decision 5): the `Running /<name>` binder echo is hidden
+    // in TUI entirely. The hide MUST be a zero-output Component, NOT
+    // `undefined`: the host's `CustomMessageComponent.rebuild()` (pi
+    // dist/modes/interactive/components/custom-message.js) treats a falsy
+    // renderer return as "no custom rendering" and FALLS THROUGH to the
+    // default purple box with a `[theta-system-note]` label and the raw
+    // content — louder than pre-D6, the opposite of hidden. Returning a
+    // component whose `render` yields zero lines (the same zero-line trick
+    // `captureTuiRenderHandle` uses) makes the host adopt it and draw
+    // nothing. Residual: the host constructor adds an unconditional
+    // `Spacer(1)` sibling that `rebuild()` never removes, so a hidden note
+    // still occupies ONE blank line (recorded in PIC-77). Every OTHER note
+    // class (err notes, cancelled, panics, binder failures, diagnostics
+    // batches…) renders exactly as before; the channel emission itself is
+    // untouched (see `isRunningEchoNote`).
+    if (isRunningEchoNote(content, message.details)) {
+      return { render: (): string[] => [], invalidate: (): void => {} };
+    }
     return renderSystemNoteBody(content, message.display, deps?.formatLines);
   };
 }

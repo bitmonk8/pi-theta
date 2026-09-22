@@ -22,6 +22,7 @@ The runtime depends on a small, named surface from `@earendil-works/pi-coding-ag
 - [Subagent](./pi-integration-contract/subagent.md)
 - [Binder inference](./pi-integration-contract/binder-inference.md)
 - [Runtime event channel](./pi-integration-contract/runtime-event-channel.md)
+- [Theta run entries](./pi-integration-contract/theta-run-entries.md)
 - [Host interfaces core](./pi-integration-contract/host-interfaces-core.md)
 - [Host interfaces services](./pi-integration-contract/host-interfaces-services.md)
 - [Inventory audit intro](./pi-integration-contract/inventory-audit-intro.md)

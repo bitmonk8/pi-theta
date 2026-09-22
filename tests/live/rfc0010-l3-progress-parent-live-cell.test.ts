@@ -1,7 +1,13 @@
 // RFC 0010 (Phase 7d, H8a, live, L3) — the parent-regime `theta_progress`
 // arm. Behaviour-matrix row L3-B35 (the pinned cell) plus a cheap
 // model-call-direction bonus. Contract: `execute()`'s parent regime branch
-// + the render grammar (EXST-14) + the milestone entry (PIC-71).
+// + the milestone entry (PIC-71). RFC 0015 (D6, decision 4): the footer/
+// widget render arm of the original cell RETIRED with those sinks — the ✎
+// segment's transient surface is now the run card's author row (unit-pinned
+// in `execution-status-card-lines`/`execution-status-progress-tool`); this
+// cell's UI double therefore asserts the ABSENCE direction (zero status
+// renders), while the milestone-entry and leak-scan assertions — the
+// never-weakened anchors — are unchanged.
 //
 // PRECEDENTS MIRRORED: `execution-status-parfor-ui-live-cell.test.ts`'s
 // `handle.runner.setUIContext(ui, "print")` injection point (the same public,
@@ -62,24 +68,11 @@ import {
   plantThetaWorkspace,
   requireLiveProvider,
 } from "./harness";
-import { createRecordingUi, type RecordedCall } from "../helpers/execution-status-progress";
+import { createRecordingUi } from "../helpers/execution-status-progress";
 
-const AUTHOR_MESSAGE_GLYPH = "\u270E";
-
-/** Whether any recorded call's text/lines carries the `✎ <needle>` segment. */
-function anyCallCarries(calls: readonly RecordedCall[], needle: string): boolean {
-  const fragment = `${AUTHOR_MESSAGE_GLYPH} ${needle}`;
-  return calls.some(
-    (c) =>
-      (typeof c.text === "string" && c.text.includes(fragment)) ||
-      (c.lines !== undefined && c.lines.some((l) => l.includes(fragment))),
-  );
-}
-
-/** Poll bound for the render to catch up with a just-landed milestone
- *  (STATUS_TICK_MS=200ms per `execution-status/types.ts`, generous margin). */
-const RENDER_POLL_BOUND = 30;
-const RENDER_POLL_INTERVAL_MS = 100;
+/** Settle margin for any (wrongly) still-pending status tick before the
+ *  absence read (STATUS_TICK_MS=200ms per `execution-status/types.ts`). */
+const ABSENCE_SETTLE_MS = 1000;
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -164,7 +157,7 @@ const MODEL_SELF_REPORT_CALLER = [
 ].join("\n");
 
 describe("RFC 0010 (H8a, live, L3) — parent-regime theta_progress lands one milestone entry and one rendered ✎ segment", () => {
-  it("code-side call: exactly one milestone entry carrying the exact message, the ✎ segment renders on the UI double, drive Ok, no chat-side progress leakage", async () => {
+  it("code-side call: exactly one milestone entry carrying the exact message, ZERO status renders on the UI double (decision 4), drive Ok, no chat-side progress leakage", async () => {
     const provider = await requireLiveProvider();
     const workspace = plantThetaWorkspace([
       { source: "project", stem: CODE_SIDE_STEM, text: CODE_SIDE_CALLER },
@@ -209,20 +202,18 @@ describe("RFC 0010 (H8a, live, L3) — parent-regime theta_progress lands one mi
       ).toBe(1);
       expect(milestones[0]!.milestone.message).toBe("phase one done");
 
-      // The ✎ segment renders on the UI double (poll for the tick).
-      let rendered = false;
-      for (let attempt = 0; attempt < RENDER_POLL_BOUND; attempt++) {
-        if (anyCallCarries(calls, "phase one done")) {
-          rendered = true;
-          break;
-        }
-        await sleep(RENDER_POLL_INTERVAL_MS);
-      }
+      // Decision 4 (RFC 0015 D6): the milestone landed (asserted above) yet
+      // NOTHING rendered on the retired ctx.ui status surfaces — pre-D6 this
+      // exact double recorded a `✎ phase one done` footer segment here. A
+      // settle sleep first, so a (wrongly) still-scheduled render tick had
+      // every chance to fire before the absence read.
+      await sleep(ABSENCE_SETTLE_MS);
       expect(
-        rendered,
-        "no setStatus/setWidget render carried the `✎ phase one done` segment. Calls: " +
+        calls,
+        "a retired ctx.ui status surface rendered — the footer/widget sinks are " +
+          "superseded by the run card (RFC 0015 decision 4). Calls: " +
           JSON.stringify(calls),
-      ).toBe(true);
+      ).toEqual([]);
 
       // No sendMessage-class progress traffic: the milestone content never
       // enters the chat transcript.

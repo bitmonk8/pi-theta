@@ -4,6 +4,29 @@ All notable changes to `@bitmonk8/pi-theta` will be documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.488.6]
+
+### Changed
+- **RFC 0015 Delivery 6 — supersession.** Decision 4: the run card now
+  supersedes both RFC 0010 TUI status surfaces — the one-line status footer
+  and the 6-line tree widget are composed out of the TUI build (sole status
+  sink: the run card), `footer-sink.ts`/`widget-sink.ts` and their suites
+  are deleted, and the shared formatting grammar
+  (`formatDuration`/`baseFileName`/author-row segment) moves verbatim to
+  `render/format.ts`. The scroll-away gap is accepted per the RFC;
+  `/status` and print/json surfaces are unchanged, and the run card's
+  `ctx.ui.setWidget` TUI-handle capture is preserved. Decision 5: the
+  `Running /<name>` argument-echo note is hidden in TUI — the message
+  renderer returns a zero-output component for that note class (content
+  prefix `Running /` with `details` absent; one blank spacer line remains,
+  a recorded residual) while the note's channel emission stays
+  byte-identical, so LLM context, print/json output, and live-test
+  observables are untouched. New spec topic
+  `pi-integration-contract/theta-run-entries.md` (PIC-75/76/77) codifies
+  the two run-card entry payloads, the 30 s summary gate, the
+  binder-short-circuit→"cancelled" outcome projection, the ended-children
+  ✓-only limitation, renderer degradation, and the supersession rows.
+
 ## [0.488.5]
 
 ### Added

@@ -15,7 +15,7 @@ import {
 import type { Clock, TimerHandle } from "../src/seams/clock";
 import { FakeClock } from "./helpers/fake-clock";
 import { ReloadDebouncer, RELOAD_DEBOUNCE_WINDOW_MS, type RebuildOutcome } from "../src/extension/reload-debounce";
-import { renderNodeHeader } from "../src/extension/execution-status/footer-sink";
+import { formatDuration } from "../src/extension/execution-status/render/format";
 
 // RFC 0010 (execution-status.md EXST-2/3/6/7/9) — `tests/execution-status-bus.test.ts`
 // (T-BUS). Behaviour-matrix rows B1-B20 (bus core, coalescing tick, memory
@@ -26,7 +26,7 @@ import { renderNodeHeader } from "../src/extension/execution-status/footer-sink"
 // snapshot, a scheduled/cleared timer.
 
 /** A `StatusSink` recording every `render`/`clear` call for assertions. */
-function recordingSink(id: "footer" | "widget" = "footer"): StatusSink & {
+function recordingSink(id: "run-card" = "run-card"): StatusSink & {
   readonly renders: Array<{
     snapshot: ExecutionStatusSnapshot;
     view: ViewShape;
@@ -477,7 +477,7 @@ describe("T-BUS — containment (EXST-9) + publish-path discipline (EXST-6)", ()
   it("a throwing subscriber (sink.render) is caught at the bus boundary, disabled for the session, and later publishes render into the SURVIVING sink unharmed", () => {
     const clock = new FakeClock();
     const throwingSink: StatusSink = {
-      id: "footer",
+      id: "run-card",
       render(): void {
         throw new Error("sink boom");
       },
@@ -485,7 +485,7 @@ describe("T-BUS — containment (EXST-9) + publish-path discipline (EXST-6)", ()
         // no-op
       },
     };
-    const survivor = recordingSink("widget");
+    const survivor = recordingSink();
     const bus = makeBus([throwingSink, survivor], clock);
 
     bus.invocationStarted("inv-1", "quality-loop");
@@ -522,15 +522,17 @@ describe("T-BUS — containment (EXST-9) + publish-path discipline (EXST-6)", ()
     }
 
     // …and the RENDERED age advances: the first and last renders are fed
-    // through the shipped header renderer, whose age token is a function of the
-    // render's `nowMs` (`0s` frozen for the whole run was the observed bug).
-    const headerAt = (index: number): string => {
+    // through the shipped elapsed grammar the run-card header draws with
+    // (`render/format.ts` `formatDuration`, D6: the footer's header renderer
+    // retired with the sink), whose age token is a function of the render's
+    // `nowMs` (`0s` frozen for the whole run was the observed bug).
+    const ageAt = (index: number): string => {
       const render = sink.renders[index]!;
       const node = render.snapshot.nodes.find((n) => n.invocationId === "inv-1")!;
-      return renderNodeHeader(node, render.nowMs);
+      return formatDuration(render.nowMs - node.startedAtMs);
     };
-    expect(headerAt(0)).toBe("θ /fix-cluster-tree 0s");
-    expect(headerAt(sink.renders.length - 1)).toBe("θ /fix-cluster-tree 4s");
+    expect(ageAt(0)).toBe("0s");
+    expect(ageAt(sink.renders.length - 1)).toBe("4s");
 
     // Case 2 — nothing running and the linger elapsed: the keepalive stops.
     bus.invocationEnded("inv-1");

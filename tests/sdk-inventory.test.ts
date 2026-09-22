@@ -134,7 +134,8 @@ describe("SDK surface inventory — pi.getAllTools as a factory-probable namespa
 // RFC 0012 — the placement feature's optional-class presence rows and the
 // `--theta-launch` flag's readers. Spec: capability-probe.md PIC-73 (the three
 // RFC-0012 members carry the degrade-silent semantics WITHOUT joining
-// `OPTIONAL_UI_CAPABILITIES`, which stays the five-member UI/entry list);
+// `OPTIONAL_UI_CAPABILITIES`, the UI/entry list — three members since RFC
+// 0015 D6 retired the footer sink's two `ctx.ui.*` surfaces);
 // host-interfaces-core.md #model-registry-pin (`getProviderAuthStatus` is a
 // consumption posture, not a gate); subagent.md #subagent-host-cli-dialect
 // (`ctx.shutdown` after `Ok` in a visible child); registration-steps.md step 1
@@ -147,11 +148,11 @@ describe("SDK surface inventory — RFC 0012 presence rows (pi.events / getProvi
     expect(rows).toHaveLength(1);
     expect(rows[0]?.kind).toBe("pi-member");
     expect(CAPABILITY_OBLIGATIONS.length).toBe(7);
-    expect(OPTIONAL_UI_CAPABILITIES).toHaveLength(5);
+    expect(OPTIONAL_UI_CAPABILITIES).toHaveLength(3);
     expect(OPTIONAL_UI_CAPABILITIES).not.toContain("pi.events");
   });
 
-  it("ctx.modelRegistry.getProviderAuthStatus and ctx.shutdown are ctx-member presence rows, outside the five-member OPTIONAL_UI_CAPABILITIES list", () => {
+  it("ctx.modelRegistry.getProviderAuthStatus and ctx.shutdown are ctx-member presence rows, outside the OPTIONAL_UI_CAPABILITIES list", () => {
     const byId = new Map(SDK_SURFACE_INVENTORY.map((e) => [e.id, e]));
     for (const id of ["ctx.modelRegistry.getProviderAuthStatus", "ctx.shutdown"]) {
       expect(byId.get(id)?.kind, id).toBe("ctx-member");

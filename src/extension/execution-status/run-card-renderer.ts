@@ -51,7 +51,7 @@ import {
   createThetaRunEntryRenderer,
   type ThetaRunEntryRenderer,
 } from "./entry-channel";
-import { baseFileName } from "./footer-sink";
+import { baseFileName } from "./render/format";
 import {
   buildCardLines,
   computeViewportTop,

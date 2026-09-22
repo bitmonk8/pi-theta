@@ -1,73 +1,54 @@
-// RFC 0010 (Phase 7d, H8a, live, L3) — the child-regime wire arm, both
-// directions. Behaviour-matrix rows L3-B33 (PRESENT) / L3-B34 (ABSENT).
-// Contract: child-regime `execute()` branch (EXST-15), `child-tap.ts`'s
-// `theta_progress` ingest branch (EXST-5), PIC-74.
+// RFC 0010 (Phase 7d, H8a, live, L3) — the child-regime wire arm, driven
+// end to end through a REAL spawned subagent child, updated for RFC 0015
+// (D6, decision 4). Contract: child-regime `execute()` branch (EXST-15),
+// `child-tap.ts`'s `theta_progress` ingest branch (EXST-5), PIC-74.
 //
-// H9a OBSERVABLE ROUTE — INVESTIGATED AND REJECTED, WITH REASON:
+// H9a OBSERVABLE ROUTE — INVESTIGATED AND REJECTED, WITH REASON (unchanged):
 //
 // The naive H9a framing spawns an OUTER real `pi -p` process and asks
 // whether ITS captured stdout can see a grandchild's `theta_progress` wire
-// line. It cannot, by construction, and this is not a harness gap: PIC-74's
-// no-relay clause ("nothing here writes stdout; … the only stdout writer is
-// the child-regime EXECUTE arm, never the tap") means the wire line is
-// written to the INNER (grandchild) process's OWN fd 1, consumed inside
-// the OUTER process's own extension instance by
-// `attachChildActivityTap`'s in-process line-pump listener
-// (`production-subagent-host.ts`'s `makeLinePump` fan-out) — never
-// re-emitted onto the OUTER process's stdout. `tests/live/acceptance/
-// harness.ts`'s `spawnPiPrint` captures only the OUTER `pi -p` process's own
-// `child.stdout` (`node:child_process` pipe), which is a sibling stream to
-// the grandchild's — nothing forwards the grandchild's bytes across that
-// boundary. So no H9a spawn, however instrumented, can observe the wire line
-// as a raw stdout string; the wire is parent-tap-internal by construction.
+// line. It cannot, by construction: PIC-74's no-relay clause means the wire
+// line is written to the INNER (grandchild) process's OWN fd 1, consumed
+// inside the OUTER process's own extension instance by
+// `attachChildActivityTap`'s in-process line-pump listener — never
+// re-emitted onto the OUTER process's stdout. The wire is
+// parent-tap-internal by construction; its on-the-wire shape is
+// `tests/live/acceptance/rfc0010-l3-wire-json-mode.test.ts`'s job (H9a).
 //
-// ROUTE CHOSEN — the sanctioned alternative: an H8a-style cell
-// using the REAL spawned child through the production subagent-launch path
-// (`invoke("./child.theta")` against a `mode: subagent` callee, exactly as
-// `execution-status-parfor-ui-live-cell.test.ts` reaches a real child),
-// asserting the PARENT TAP'S OWN observables — the bus fold's rendered ✎
-// segment on the injected UI double (footer/widget), which is the same
-// production surface `child-tap.ts`'s ingest branch (EXST-5) feeds. This is
-// strictly the parent-side effect the wire exists to produce,
-// through the SAME public `ExtensionRunner.setUIContext` seam
-// `execution-status-parfor-ui-live-cell.test.ts` uses, and requires the
-// #subagent-child-pins this file's `./harness` import already sets at module
-// scope (the `invoke(...)` reaches the RFC-0006 child-process launch).
+// D6 RE-ANCHOR (RFC 0015 decision 4): this cell's original PRESENT
+// observable — the parent tap's bus fold rendering the child's newest ✎
+// segment on the injected UI double via the footer/widget sinks — RETIRED
+// with those sinks (the run card, a TUI-only transcript entry, superseded
+// them; a non-TUI composition runs a sink-less bus). What remains live-
+// witnessable here, over the SAME real-child topology and the SAME
+// `ExtensionRunner.setUIContext` seam:
 //
-// PRESENT (L3-B33 analogue): the subagent callee calls `theta_progress`
-// twice, separated by a real model turn (natural real-wall-clock gap, well
-// over the 200ms EXST-14 acceptance interval — no theta-language sleep
-// primitive is needed). Assert: the NEWEST message's ✎ segment
-// (`✎ child tick two`) renders on the UI double, and the drive is Ok.
+//   PRESENT: a child that really emits `theta_progress` wire lines drives to
+//   Ok while (a) ZERO status renders land on the retired ctx.ui surfaces
+//   (decision 4 — pre-D6 this exact double recorded
+//   `θ /l3wirepresentcaller … · ✎ child tick two` setStatus lines here), (b)
+//   NO milestone entry is minted for the wire-ingested self-report (EXST-15:
+//   untrusted wire data stays off the durable transcript — previously only
+//   unit-pinned), and (c) the progress text never leaks into the chat
+//   transcript (EXST-1).
 //
-// ABSENT (L3-B34 analogue): the same topology, but the callee never calls
-// `theta_progress` at all. Assert: ZERO ✎ segments across every recorded
-// render for the WHOLE drive, and the drive is identically Ok — proving the
-// render only exists when the wire fires, not as an artefact of invoking a
-// subagent child per se.
+//   ABSENT: the same topology with a callee that never calls
+//   `theta_progress` behaves identically Ok with the same zero-render /
+//   zero-milestone / zero-leak reads — proving the PRESENT arm's negatives
+//   are not artefacts of invoking a subagent child per se.
 //
-// BUDGET: one small model turn per callee (the fixed-pair arithmetic query
-// that separates the two `theta_progress` calls in the PRESENT callee; a
-// single arithmetic query in the ABSENT callee) — well inside ≤4 tiny turns.
+// RECORDED LIMITATION (D6): the parent tap's POSITIVE fold (wire line →
+// bus class-2 payload → rendered ✎) no longer has a live end-to-end
+// witness — its rendering surface is the TUI run card, which this
+// print-composed harness never arms. The fold stays pinned offline:
+// `child-tap` unit suites (wire parse → bus publish) and the card author-row
+// cells (`execution-status-card-lines` / `execution-status-progress-tool`
+// L3-B16).
 //
-// SCOPE NOTE: this file witnesses the PARENT's OWN ingestion of the wire
-// (child-tap.ts's `theta_progress` branch folding into the bus and rendering
-// on the parent's UI double) — it does NOT witness the raw wire bytes on any
-// process's captured stdout. That is `tests/live/acceptance/
-// rfc0010-l3-wire-json-mode.test.ts`'s job (H9a): it marks the SPAWNED `pi -p`
-// process itself as the subagent child (no grandchild, no relay problem) and
-// scores its OWN captured stdout for schema-valid `theta_progress` lines. The
-// two files are complementary, not duplicates: this one proves the parent's
-// rendered effect; that one proves the wire's on-the-wire shape.
-//
-// RED-DIRECTION PROOF (verified this pass, then restored): temporarily
-// mis-spelled the PRESENT arm's render-poll needle (`"child tick two"` ->
-// `"WRONG NEEDLE child tick two"`). Re-ran: PRESENT reds with `expected false
-// to be true`, and the failure's OWN dumped `calls` array shows the real
-// `✎ child tick two` segment DID land on the UI double
-// (`{"kind":"setStatus","text":"θ /l3wirepresentcaller done · ✎ child tick
-// two"}`) — the scan just stopped matching it under the wrong needle.
-// Restored, green again. This proves the PRESENT assertion is live.
+// BUDGET: one small model turn per callee — well inside ≤4 tiny turns.
+// SUBAGENT CHILD PINS: required — `invoke(...)` reaches the RFC-0006
+// child-process launch; `./harness` sets both pins at module scope.
+// NO SILENT SKIPPING: `requireLiveProvider` fails loudly.
 
 import { describe, expect, it } from "vitest";
 import {
@@ -77,42 +58,51 @@ import {
   plantThetaWorkspace,
   requireLiveProvider,
 } from "./harness";
-import { createRecordingUi, type RecordedCall } from "../helpers/execution-status-progress";
+import { createRecordingUi } from "../helpers/execution-status-progress";
 
-const AUTHOR_MESSAGE_GLYPH = "\u270E";
-
-function anyCallCarries(calls: readonly RecordedCall[], needle: string): boolean {
-  const fragment = `${AUTHOR_MESSAGE_GLYPH} ${needle}`;
-  return calls.some(
-    (c) =>
-      (typeof c.text === "string" && c.text.includes(fragment)) ||
-      (c.lines !== undefined && c.lines.some((l) => l.includes(fragment))),
-  );
-}
-
-/** Whether ANY recorded call carries the glyph at all (the absence-direction
- *  scan — zero hits, not merely zero hits for one particular message). */
-function anyCallCarriesGlyph(calls: readonly RecordedCall[]): boolean {
-  return calls.some(
-    (c) =>
-      (typeof c.text === "string" && c.text.includes(AUTHOR_MESSAGE_GLYPH)) ||
-      (c.lines !== undefined && c.lines.some((l) => l.includes(AUTHOR_MESSAGE_GLYPH))),
-  );
-}
-
-const RENDER_POLL_BOUND = 30;
-const RENDER_POLL_INTERVAL_MS = 100;
+/** Settle margin for any (wrongly) still-pending status tick before the
+ *  absence reads (DONE_LINGER_MS=2000 + STATUS_TICK_MS=200 margin per
+ *  `execution-status/types.ts`). */
+const ABSENCE_SETTLE_MS = 2500;
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-/** Poll bound for the completion settle (mirrors the parfor-ui cell's
- *  DONE_LINGER_MS + STATUS_TICK_MS margin) used by the ABSENT direction to
- *  give the render pipeline every chance to (wrongly) show a ✎ segment
- *  before declaring victory on its absence. */
-const SETTLE_POLL_BOUND = 40;
-const SETTLE_POLL_INTERVAL_MS = 100;
+/** `theta-progress-entry` entries carrying a `milestone` payload (PIC-71). */
+function milestoneEntries(entries: readonly unknown[]): readonly unknown[] {
+  return entries.filter((entry) => {
+    const e = entry as { type?: string; customType?: string; data?: unknown };
+    return (
+      e.type === "custom" &&
+      e.customType === "theta-progress-entry" &&
+      (e.data as { milestone?: unknown } | undefined)?.milestone !== undefined
+    );
+  });
+}
+
+/** Chat-role (user/assistant) texts containing `needle`. */
+function chatLeaks(entries: readonly unknown[], needle: string): readonly string[] {
+  const leaked: string[] = [];
+  for (const entry of entries) {
+    const e = entry as { type?: string; message?: { role?: string; content?: unknown } };
+    if (e.type !== "message") continue;
+    if (e.message?.role !== "user" && e.message?.role !== "assistant") continue;
+    const content = e.message?.content;
+    const texts: string[] =
+      typeof content === "string"
+        ? [content]
+        : Array.isArray(content)
+          ? (content as readonly unknown[])
+              .map((p) => (p as { text?: string }).text)
+              .filter((t): t is string => typeof t === "string")
+          : [];
+    for (const t of texts) {
+      if (t.includes(needle)) leaked.push(t);
+    }
+  }
+  return leaked;
+}
 
 const PRESENT_CALLEE_STEM = "l3wirepresentcallee";
 const PRESENT_CALLEE = [
@@ -154,8 +144,8 @@ const ABSENT_CALLER = [
   "",
 ].join("\n");
 
-describe("RFC 0010 (H8a, live, L3) — PARENT-TAP INGESTION of the theta_progress wire through a real spawned child (complementary to, not a substitute for, the H9a wire-surface gate)", () => {
-  it("PRESENT: a child that calls theta_progress twice lands its newest ✎ segment on the parent's UI double, drive Ok", async () => {
+describe("RFC 0010/0015 (H8a, live, L3/D6) — a real child's theta_progress wire: no retired-surface render, no milestone entry, no chat leak", () => {
+  it("PRESENT: a child that calls theta_progress twice drives Ok with zero ctx.ui status renders, zero wire-sourced milestone entries, zero chat leakage", async () => {
     const provider = await requireLiveProvider();
     const workspace = plantThetaWorkspace([
       { source: "project", stem: PRESENT_CALLEE_STEM, text: PRESENT_CALLEE },
@@ -183,26 +173,34 @@ describe("RFC 0010 (H8a, live, L3) — PARENT-TAP INGESTION of the theta_progres
           JSON.stringify(failureNotes),
       ).toEqual([]);
 
-      let rendered = false;
-      for (let attempt = 0; attempt < RENDER_POLL_BOUND; attempt++) {
-        if (anyCallCarries(calls, "child tick two")) {
-          rendered = true;
-          break;
-        }
-        await sleep(RENDER_POLL_INTERVAL_MS);
-      }
+      // Settle, then the three negatives over a drive whose child REALLY
+      // emitted two wire lines (the callee errored out via `?` had either
+      // theta_progress call failed, so the clean note channel above is the
+      // positive control that both calls executed).
+      await sleep(ABSENCE_SETTLE_MS);
       expect(
-        rendered,
-        "no setStatus/setWidget render carried the child's newest `✎ child tick two` " +
-          "segment via the parent tap. Calls: " + JSON.stringify(calls),
-      ).toBe(true);
+        calls,
+        "a retired ctx.ui status surface rendered — the footer/widget sinks are " +
+          "superseded by the run card (RFC 0015 decision 4). Calls: " +
+          JSON.stringify(calls),
+      ).toEqual([]);
+      const entries = handle.sessionManager.getEntries() as readonly unknown[];
+      expect(
+        milestoneEntries(entries),
+        "a wire-ingested child self-report was appended as a milestone entry — " +
+          "EXST-15 keeps untrusted wire data off the durable transcript",
+      ).toEqual([]);
+      expect(
+        chatLeaks(entries, "child tick"),
+        "the child's progress text leaked into the chat transcript (EXST-1)",
+      ).toEqual([]);
     } finally {
       await handle.dispose();
       workspace.dispose();
     }
   }, 90_000);
 
-  it("ABSENT: a child that never calls theta_progress renders zero ✎ segments anywhere in the drive, drive Ok", async () => {
+  it("ABSENT: a child that never calls theta_progress behaves identically — Ok, zero renders, zero milestones", async () => {
     const provider = await requireLiveProvider();
     const workspace = plantThetaWorkspace([
       { source: "project", stem: ABSENT_CALLEE_STEM, text: ABSENT_CALLEE },
@@ -230,19 +228,15 @@ describe("RFC 0010 (H8a, live, L3) — PARENT-TAP INGESTION of the theta_progres
           JSON.stringify(failureNotes),
       ).toEqual([]);
 
-      // Give the render pipeline the SAME settle budget the PRESENT direction
-      // gets to prove the wire fired, before declaring the negative.
-      for (let attempt = 0; attempt < SETTLE_POLL_BOUND; attempt++) {
-        if (anyCallCarriesGlyph(calls)) break;
-        await sleep(SETTLE_POLL_INTERVAL_MS);
-      }
-
+      await sleep(ABSENCE_SETTLE_MS);
       expect(
-        anyCallCarriesGlyph(calls),
-        "a ✎ segment rendered despite the child never calling theta_progress — the " +
-          "wire (or the parent tap) fired with no source call. Calls: " +
+        calls,
+        "a retired ctx.ui status surface rendered during the ABSENT drive. Calls: " +
           JSON.stringify(calls),
-      ).toBe(false);
+      ).toEqual([]);
+      expect(
+        milestoneEntries(handle.sessionManager.getEntries() as readonly unknown[]),
+      ).toEqual([]);
     } finally {
       await handle.dispose();
       workspace.dispose();

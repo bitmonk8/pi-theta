@@ -9,7 +9,8 @@
 // untouched, per the builder contract). This file adds ONLY the four new
 // rows' cells, plus the seam sheet's explicit "count pins that move: none"
 // regression guards (`CAPABILITY_OBLIGATIONS.length === 7`,
-// `OPTIONAL_UI_CAPABILITIES` length 5), asserted against the SAME imported
+// `OPTIONAL_UI_CAPABILITIES` — length 3 since RFC 0015 D6 retired the footer
+// sink's two `ctx.ui.*` members), asserted against the SAME imported
 // constants `tests/sdk-inventory.test.ts` pins — so a future edit that moves
 // either count reds in both files, not silently in neither.
 
@@ -59,7 +60,12 @@ describe("session-control-sdk-inventory (V24a-T) — count pins that move: none 
     expect(CAPABILITY_OBLIGATIONS.length).toBe(7);
   });
 
-  it("OPTIONAL_UI_CAPABILITIES stays the five-member list (unchanged)", () => {
-    expect(OPTIONAL_UI_CAPABILITIES).toHaveLength(5);
+  it("OPTIONAL_UI_CAPABILITIES is the three-member list (RFC 0015 D6: setStatus/setWorkingMessage left with the retired footer sink; RFC 0011 added none)", () => {
+    expect(OPTIONAL_UI_CAPABILITIES).toHaveLength(3);
+    expect(OPTIONAL_UI_CAPABILITIES).toEqual([
+      "ctx.ui.setWidget",
+      "pi.appendEntry",
+      "pi.registerEntryRenderer",
+    ]);
   });
 });

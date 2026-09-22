@@ -5,6 +5,12 @@
 // `composeThetaFixture.run` (one card per TOP-LEVEL drive; outcome mapping;
 // end-after-finish ordering).
 //
+// Spec: docs/spec_topics/pi-integration-contract/theta-run-entries.md —
+// PIC-75 (the theta-run seed, shared-dead-flag registration, silent-skip
+// degrade, static-degradation renderer form) and PIC-76 (the gated
+// theta-run-summary payload, RUN_SUMMARY_GATE_MS boundary, profile cap, and
+// the closed outcome projection incl. binder short-circuit → "cancelled").
+//
 // TIER: unit, offline, deterministic, provider-free.
 
 import { afterAll, describe, expect, it } from "vitest";

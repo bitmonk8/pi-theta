@@ -3,12 +3,19 @@
 // <handle>`, clamped at ingest, dropped on a lingering / unknown node), the
 // heartbeat frame as the liveness source (the tap subscribes to a
 // channel-adapted child's `onHeartbeat`; the bus folds it as activity with no
-// counters), and the compact-reference rendering on the node header.
+// counters), and the compact-reference rendering on the run-card roster (the
+// RFC 0010 footer/widget node-header grammar retired with those sinks — RFC
+// 0015 decision 4; the card's children roster is the placement's remaining
+// rendering surface).
 
 import { describe, expect, it } from "vitest";
 import { createExecutionStatusBus } from "../src/extension/execution-status/bus";
 import { attachChildActivityTap } from "../src/extension/execution-status/child-tap";
-import { renderNodeHeader } from "../src/extension/execution-status/footer-sink";
+import {
+  buildCardLines,
+  CHILD_MARKER_GLYPH,
+  type CardStyle,
+} from "../src/extension/execution-status/render/card-lines";
 import { NAME_CLAMP_CHARS, type ChildTapEvent } from "../src/extension/execution-status/types";
 import type { SubagentChildProcess } from "../src/runtime/subagent-launcher";
 import { FakeClock } from "./helpers/fake-clock";
@@ -126,8 +133,14 @@ describe("RFC-0012 §7 — the bus: placement field and heartbeat liveness", () 
   });
 });
 
-describe("RFC-0012 §7 — the compact-reference rendering", () => {
-  it("renderNodeHeader appends the placement to the head segment; an ended node renders `done` only", () => {
+describe("RFC-0012 §7 — the compact-reference rendering (run-card roster, D6)", () => {
+  // A style with empty tokens so the roster rows are plain strings (the
+  // card-lines suite owns the SGR discipline; this test owns the placement
+  // grammar riding it).
+  const plainStyle: CardStyle = { syntaxFg: () => "", accentFg: "", mutedFg: "" };
+  const RESET = "\x1b[0m";
+
+  it("a placed running child's roster row carries `live in <backend> <handle>`; an ended child renders `done` instead", () => {
     const clock = new FakeClock({ now: 0 });
     const bus = createExecutionStatusBus({ clock, sinks: [] });
     bus.invocationStarted("i1", "worker");
@@ -135,9 +148,43 @@ describe("RFC-0012 §7 — the compact-reference rendering", () => {
     bus.invocationPlaced("i1", { backend: "herdr", handle: "pane-7" });
     clock.advance(3000);
     const node = bus.snapshot().nodes[0]!;
-    expect(renderNodeHeader(node, 3000)).toBe("θ /worker 3s · live in herdr pane-7");
+    const rowsFor = (child: { placement?: string; endedAtMs?: number }): string[] =>
+      buildCardLines(
+        {
+          theta: "parent",
+          startedAtMs: 0,
+          nowMs: 3000,
+          counters: { checkpoints: 0, loopIters: 0 },
+          activeChildren: child.endedAtMs === undefined ? 1 : 0,
+          children: [
+            {
+              name: "worker",
+              startedAtMs: 0,
+              ...(child.placement !== undefined ? { placement: child.placement } : {}),
+              ...(child.endedAtMs !== undefined ? { endedAtMs: child.endedAtMs } : {}),
+            },
+          ],
+        },
+        120,
+        plainStyle,
+      ).map((row) => row.replaceAll(RESET, ""));
+
+    // The bus-ingested placement string (clamped at ingest) IS the roster's
+    // status segment — the compact reference to a session the operator can
+    // already see.
+    expect(node.placement).toBe("live in herdr pane-7");
+    const running = rowsFor({ placement: node.placement! });
+    expect(
+      running.some((row) =>
+        row.includes(`${CHILD_MARKER_GLYPH} worker   3s  live in herdr pane-7`),
+      ),
+    ).toBe(true);
+
+    // Ended: the roster renders `✓ … done` (D5 recorded limitation: ✓-only —
+    // the bus end publication carries no outcome).
     bus.invocationEnded("i1");
-    expect(renderNodeHeader(bus.snapshot().nodes[0]!, 3000)).toBe("θ /worker done");
+    const ended = rowsFor({ endedAtMs: 3000 });
+    expect(ended.some((row) => row.includes("✓ worker   3s  done"))).toBe(true);
     bus.dispose();
   });
 });

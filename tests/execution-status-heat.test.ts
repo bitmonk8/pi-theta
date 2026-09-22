@@ -262,7 +262,7 @@ describe("execution-status heat ring (RFC 0015 D2)", () => {
     const clock = new FakeClock();
     const renders: ExecutionStatusSnapshot[] = [];
     const sink: StatusSink = {
-      id: "footer",
+      id: "run-card",
       render(snapshot: ExecutionStatusSnapshot, _v: ViewShape, _p: ProgressVerbosity): void {
         renders.push(snapshot);
       },

@@ -313,7 +313,7 @@ interface CountingStatusSink extends StatusSink {
 
 function countingStatusSink(): CountingStatusSink {
   return {
-    id: "footer",
+    id: "run-card",
     renders: 0,
     clears: 0,
     render(): void {

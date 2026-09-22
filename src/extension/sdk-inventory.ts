@@ -132,8 +132,15 @@ export interface SurfaceInventoryEntry {
  * statics, singletons* mutable-binding scan (a frozen runtime-immutable list).
  */
 /**
- * PIC-73 — the optional UI/entry capability class: a frozen five-member list
+ * PIC-73 — the optional UI/entry capability class: a frozen three-member list
  * with failure semantics OPPOSITE to the seven-item SDK capability inventory.
+ * RFC 0015 (D6, decision 4) shrank it from five: `ctx.ui.setStatus` and
+ * `ctx.ui.setWorkingMessage` left with the retired footer sink (nothing
+ * touches them any more — the run card superseded the footer and widget
+ * sinks in TUI), mirroring the RFC-0005 precedent that a surface with no
+ * consumer leaves the inventory rather than lingering as a stale row.
+ * `ctx.ui.setWidget` STAYS: the run card's TUI-handle capture uses its
+ * factory overload (`captureTuiRenderHandle`).
  * Every member is presence-probed `typeof`-only and PER SURFACE; a missing or
  * failing member removes only that surface's consumers, never refuses factory
  * registration, never degrades any theta's registration, and mints NO
@@ -151,9 +158,7 @@ export interface SurfaceInventoryEntry {
  * statics, singletons* mutable-binding scan (a frozen runtime-immutable list).
  */
 export const OPTIONAL_UI_CAPABILITIES: readonly string[] = Object.freeze([
-  "ctx.ui.setStatus",
   "ctx.ui.setWidget",
-  "ctx.ui.setWorkingMessage",
   "pi.appendEntry",
   "pi.registerEntryRenderer",
 ]);
@@ -236,25 +241,28 @@ export const SDK_SURFACE_INVENTORY: readonly SurfaceInventoryEntry[] =
     ...FACTORY_PROBED_SDK_MEMBERS.map(
       (id): SurfaceInventoryEntry => ({ id, kind: "namespace-function" }),
     ),
-    // RFC 0010 / PIC-73: the five OPTIONAL UI/entry surfaces
+    // RFC 0010 / PIC-73: the OPTIONAL UI/entry surfaces
     // (`OPTIONAL_UI_CAPABILITIES`, above) as presence rows — records, never
     // gates: the two `pi.*` members carry the category-(1) `pi-member` kind
     // (the inventory-closure audit's join key for the entry channel's own
-    // `pi.appendEntry` / `pi.registerEntryRenderer` accesses), and the three
-    // `ctx.ui.*` members the category-(3) `ctx-member` kind. None of them joins
+    // `pi.appendEntry` / `pi.registerEntryRenderer` accesses), and the
+    // `ctx.ui.*` member the category-(3) `ctx-member` kind. None of them joins
     // `CAPABILITY_OBLIGATIONS` (GOV-31's seven-set) or the Step 0 (c) probe.
+    // RFC 0015 (D6, decision 4): the `ctx.ui.setStatus` /
+    // `ctx.ui.setWorkingMessage` rows LEFT the inventory with the retired
+    // footer sink (no `src/**` access remains).
     { id: "pi.appendEntry", kind: "pi-member" },
     { id: "pi.registerEntryRenderer", kind: "pi-member" },
-    { id: "ctx.ui.setStatus", kind: "ctx-member" },
-    // RFC 0015 (D5): besides the widget sink's `string[]` overload, the run
-    // card's TUI-handle capture (`captureTuiRenderHandle`) uses the
-    // `(tui, theme) => Component` FACTORY overload of this same member — a
-    // zero-line component registered and removed in one call, solely to
-    // receive the pi-tui handle (whose `requestRender` /
+    // RFC 0015 (D5/D6): with the widget SINK retired (decision 4), the sole
+    // remaining consumer of this member is the run card's TUI-handle capture
+    // (`captureTuiRenderHandle`), which uses the `(tui, theme) => Component`
+    // FACTORY overload — a zero-line component registered and removed in one
+    // call, solely to receive the pi-tui handle (whose `requestRender` /
     // `queryTerminalBackgroundColor` members are then reached STRUCTURALLY,
     // never via a `TUI` import — no peer-named-import row joins for them).
+    // D5 residual 3: this row and the member's reachability MUST survive the
+    // widget-sink retirement.
     { id: "ctx.ui.setWidget", kind: "ctx-member" },
-    { id: "ctx.ui.setWorkingMessage", kind: "ctx-member" },
     // RFC-0005: `createAgentSession` and the former in-process subagent
     // satellites (`SessionManager` / `DefaultResourceLoader` / `getAgentDir` /
     // `defineTool` / `AgentToolResult`) have LEFT the inventory entirely

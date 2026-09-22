@@ -108,7 +108,7 @@ describe("T-CMD — B59: /theta-status min changes the live bus view shape", () 
 describe("T-CMD — B60: /theta-status tree under verbosity off still renders nothing", () => {
   it("view shape reaches 'tree' but verbosity stays 'off' (no widening)", async () => {
     const clock = new FakeClock();
-    const sink: StatusSink = { id: "footer", render: vi.fn(), clear: vi.fn() };
+    const sink: StatusSink = { id: "run-card", render: vi.fn(), clear: vi.fn() };
     const bus: ExecutionStatusBus = createExecutionStatusBus({ clock, sinks: [sink] });
     bus.setViewShape("min");
     bus.setVerbosity("off");

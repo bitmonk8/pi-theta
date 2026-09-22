@@ -234,8 +234,6 @@ import { createExecutionStatusBus } from "./execution-status/bus";
 import { createRunCardPublisher } from "./execution-status/run-card";
 import { THETA_PROGRESS_TOOL_NAME } from "./execution-status/types";
 import type { ExecutionStatusBus, StatusSink } from "./execution-status/types";
-import { createFooterSink, type FooterUi } from "./execution-status/footer-sink";
-import { createWidgetSink, type WidgetUi } from "./execution-status/widget-sink";
 import {
   RESERVED_COMMAND_NAMES,
 } from "./execution-status/status-command";
@@ -2212,9 +2210,18 @@ export async function composeExtensionInstance(
   // global timer). Reused across hot-reload passes and disposed with the
   // instance at `session_shutdown`, so a fresh `/reload` instance starts with a
   // fresh bus and every sink un-degraded.
-  const statusSinks = buildStatusSinks(ctx);
-  // RFC 0015 (D5, §Animation): the run-card sink rides the SAME EXST-6
-  // coalesced tick as the footer/widget sinks — it joins the sink list here,
+  // RFC 0015 (D6, decision 4): the run card SUPERSEDES the RFC 0010 footer
+  // and widget sinks in TUI — nothing is pinned below the editor any more
+  // (`ctx.ui.setStatus` / `ctx.ui.setWorkingMessage` are no longer touched;
+  // the string-array `ctx.ui.setWidget` overload no longer renders a status
+  // tree). The scroll-away gap is ACCEPTED by the ratified decision; the
+  // `/theta-status` command and the print/json (RFC 0007) surfaces are
+  // unchanged. The card sink below is therefore the ONLY StatusSink: a
+  // non-TUI composition runs a sink-less bus. Spec:
+  // docs/spec_topics/pi-integration-contract/theta-run-entries.md (PIC-77).
+  const statusSinks: StatusSink[] = [];
+  // RFC 0015 (D5, §Animation): the run-card sink rides the EXST-6 coalesced
+  // tick — it joins the sink list here,
   // TUI-only (the RFC's "Modes and degradation"). The TUI handle is captured
   // through the `ctx.ui.setWidget` factory overload (a zero-line component
   // registered and removed in one call — see `captureTuiRenderHandle`); a
@@ -2466,49 +2473,6 @@ function makeLoadNoteSink(
     emitGroup: emitLoadNoteGroup,
   };
   return loadSink;
-}
-
-/** Probe optional UI surfaces and construct this instance's status sinks. */
-function buildStatusSinks(ctx: ExtensionContext): StatusSink[] {
-  // PIC-73: each optional UI surface is presence-probed INDEPENDENTLY and
-  // `typeof`-only (the probe never calls the member). A missing surface simply
-  // removes that sink; it never refuses or degrades theta registration and
-  // mints no diagnostic. `ctx.hasUI` is advisory only and gates nothing here.
-  // `ctx.ui` is read IN PLACE at each probe and each call (never captured into
-  // a local binding — the inventory-closure audit's family-(4) shape rule), and
-  // every read is optional-chained so a divergent host missing the whole `ui`
-  // carrier degrades instead of throwing.
-  const statusSinks: StatusSink[] = [];
-  if (
-    typeof (ctx.ui as unknown as Partial<FooterUi> | undefined)?.setStatus === "function" ||
-    typeof (ctx.ui as unknown as Partial<FooterUi> | undefined)?.setWorkingMessage ===
-      "function"
-  ) {
-    statusSinks.push(
-      createFooterSink({
-        setStatus: (key, text) => {
-          (ctx.ui as unknown as Partial<FooterUi> | undefined)?.setStatus?.(key, text);
-        },
-        setWorkingMessage: (message) => {
-          (ctx.ui as unknown as Partial<FooterUi> | undefined)?.setWorkingMessage?.(message);
-        },
-      }),
-    );
-  }
-  if (typeof (ctx.ui as unknown as Partial<WidgetUi> | undefined)?.setWidget === "function") {
-    statusSinks.push(
-      createWidgetSink({
-        setWidget: (key, content, options) => {
-          (ctx.ui as unknown as Partial<WidgetUi> | undefined)?.setWidget?.(
-            key,
-            content,
-            options,
-          );
-        },
-      }),
-    );
-  }
-  return statusSinks;
 }
 
 /**

@@ -29,10 +29,10 @@ export const MAX_LANE_SET_DEPTH = 4;
 export const DONE_LINGER_MS = 2000;
 /** Clamp applied to every rendered identifier (tool names, theta names). */
 export const NAME_CLAMP_CHARS = 64;
-/** Hard clamp on the setStatus / setWorkingMessage strings. */
-export const FOOTER_CLAMP_CHARS = 200;
-/** Widget height budget (EXST-8 — normative 6, not tuning). */
-export const WIDGET_HEIGHT_LINES = 6;
+// RFC 0015 (D6, decision 4): FOOTER_CLAMP_CHARS (200) and WIDGET_HEIGHT_LINES
+// (6) left with the footer/widget sinks they bounded — the run card
+// superseded both in TUI. The 200-char one-line display magnitude they set
+// survives in PROGRESS_MESSAGE_CLAMP_CHARS and RUN_CARD_ARGS_CLAMP_CHARS.
 /** Tap per-line size gate (EXST-5). */
 export const TAP_LINE_MAX_BYTES = 32768;
 /** RFC 0015 (D2) — per-invocation heat-ring capacity: distinct `(file, line)`
@@ -52,8 +52,9 @@ export const RUN_SUMMARY_GATE_MS = 30_000;
  *  `HEAT_RING_CAPACITY`-entry ring — a durable transcript row must stay a
  *  glanceable summary, and the ring's tail is fade bookkeeping, not profile. */
 export const RUN_SUMMARY_PROFILE_MAX_LINES = 10;
-/** RFC 0015 (D3) — clamp on the `theta-run` seed's `argsSummary` (mirrors
- *  FOOTER_CLAMP_CHARS: the seed is a one-line display string, not the args). */
+/** RFC 0015 (D3) — clamp on the `theta-run` seed's `argsSummary` (the shared
+ *  200-char one-line display magnitude: the seed is a one-line display
+ *  string, not the args). */
 export const RUN_CARD_ARGS_CLAMP_CHARS = 200;
 /** RFC 0015 (D5, decision 3) — the collapsed run-card viewport height: 24
  *  source lines; `{expanded}` renders the full script instead. Normative per
@@ -82,7 +83,8 @@ export const THETA_PROGRESS_TOOL_NAME = "theta_progress";
 export const PROGRESS_WIRE_KEY = "theta_progress";
 /** PIC-74 `v` literal. */
 export const PROGRESS_WIRE_VERSION = 1;
-/** EXST-14 length clamps (mirror FOOTER_CLAMP_CHARS / NAME_CLAMP_CHARS magnitudes). */
+/** EXST-14 length clamps (the shared 200-char one-line display magnitude /
+ *  NAME_CLAMP_CHARS). */
 export const PROGRESS_MESSAGE_CLAMP_CHARS = 200;
 export const PROGRESS_SCOPE_CLAMP_CHARS = 64;
 /** EXST-14 acceptance interval (== STATUS_TICK_MS). Counted-but-dropped. */
@@ -352,7 +354,9 @@ export interface ParForLaneHooks {
 }
 
 export interface StatusSink {
-  readonly id: "footer" | "widget" | "run-card";
+  // RFC 0015 (D6, decision 4): the shipped sink set is the run card alone —
+  // the RFC 0010 footer/widget ids left with their retired sinks.
+  readonly id: "run-card";
   render(
     snapshot: ExecutionStatusSnapshot,
     view: ViewShape,
