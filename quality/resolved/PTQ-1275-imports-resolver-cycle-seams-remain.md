@@ -2,7 +2,7 @@
 id: PTQ-1275
 title: src/parser/imports.ts still bundles the parse-phase import checks with the resolver cluster and the cycle detector (754 LOC, zone) after the PTQ-1184 fix landed only Seam A
 lens: D9
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/parser/imports.ts:1-754

@@ -2,7 +2,7 @@
 id: PTQ-1427
 title: production-composition.ts hand-writes the backslash-to-forward-slash rewrite at eight sites instead of the shared normalizePath / canonicalizePath helpers it already imports
 lens: D8
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/extension/production-composition.ts:592

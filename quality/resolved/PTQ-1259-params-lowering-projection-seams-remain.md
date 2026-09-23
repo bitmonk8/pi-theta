@@ -2,7 +2,7 @@
 id: PTQ-1259
 title: src/parser/params.ts still bundles the params parse, the type-expression lowering family, and the render-side projection (1853 LOC, justify) after the PTQ-1149 fix landed only Seam A
 lens: D9
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/parser/params.ts:1-1853

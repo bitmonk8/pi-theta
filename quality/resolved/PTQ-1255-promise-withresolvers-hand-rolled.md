@@ -2,7 +2,7 @@
 id: PTQ-1255
 title: "#openInvocationTicket hand-rolls the Promise.withResolvers() construction its own doc-comment names, via a noop-initialized mutable resolver escape"
 lens: D8
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/extension/production-theta-producer.ts:2124-2127

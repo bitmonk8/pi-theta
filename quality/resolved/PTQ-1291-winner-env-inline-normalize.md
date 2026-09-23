@@ -2,7 +2,7 @@
 id: PTQ-1291
 title: spawnSubagentConversation inlines the backslash-to-slash rewrite for the control-plane winner path instead of the shared normalizePath helper
 lens: D8
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/extension/production-theta-producer.ts:2597-2598

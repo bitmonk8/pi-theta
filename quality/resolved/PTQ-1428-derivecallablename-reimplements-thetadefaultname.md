@@ -2,7 +2,7 @@
 id: PTQ-1428
 title: deriveCallableName hand-rolls the default-name derivation that callable-set.ts's thetaDefaultName declares itself the single implementation of
 lens: D8
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/extension/production-composition.ts:1869-1878
