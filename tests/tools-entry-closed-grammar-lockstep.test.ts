@@ -29,7 +29,7 @@ import { parseDeps } from "./helpers/e2e-s1";
 
 // Bug 0069 §Fix constraint 5, hardened per bug 0107 (§Fix routes (c) + (b)) —
 // the `tools:` entry grammar must have ONE implementation. `presentedCallableNames`
-// (`src/extension/production-theta-producer.ts`, module-private) reads the presented
+// (`src/extension/callable-lowering.ts`) reads the presented
 // callable names off the frozen resolution snapshot when a theta has one, and falls
 // back to deriving them from `frontmatter.tools` when it does not (an in-memory
 // harness fixture). The pinned contract: that fallback owns NO token grammar — it
@@ -69,7 +69,7 @@ import { parseDeps } from "./helpers/e2e-s1";
 //         call of a presented name takes. A snapshot-absent fixture whose entry
 //         names a `.theta` file the fixture directory does not hold fails with
 //         `invoke_infra` / `load_failure` when `thetaCalleePath`
-//         (`src/extension/production-theta-producer.ts`) resolves the entry to a
+//         (`src/extension/callable-lowering.ts`) resolves the entry to a
 //         callee path, and returns the ambient Pi-tool sentinel when it resolves
 //         none. That is the second consequence of the same derivation, and bug
 //         0253 §Fix step 4 requires a witness for it.
@@ -94,8 +94,8 @@ import { parseDeps } from "./helpers/e2e-s1";
 //
 // TIER: unit, offline, provider-free, deterministic. (D1) scans shipped source on
 // the footing `tests/di-seam-skeleton.test.ts` uses for its ambient-primitive scan
-// of the real `src/**` tree, because `presentedCallableNames` appears in no
-// `export`. (D3) reaches the same function behaviourally through the producer
+// of the real `src/**` tree, pinning the shipped body's shape (not just its
+// behaviour). (D3) reaches the same function behaviourally through the producer
 // drive — the harness shape of `runSource` in
 // `tests/conformance/production-conformance.test.ts` (snapshot-absent
 // `ThetaCompositionInput`) plus the producer-level belt harness of
@@ -110,7 +110,7 @@ import { parseDeps } from "./helpers/e2e-s1";
 // --- The shipped source under scan -----------------------------------------
 
 const PRODUCER_SOURCE = readCorpus(
-  "src/extension/production-theta-producer.ts",
+  "src/extension/callable-lowering.ts",
   "group (D1)'s source for the shipped tools-entry grammar scan",
 );
 
@@ -121,10 +121,10 @@ const PRODUCER_SOURCE = readCorpus(
  * anything.
  */
 function topLevelFunctionBody(source: string, name: string): string {
-  const start = source.indexOf(`\nfunction ${name}(`);
+  const start = source.indexOf(`\nexport function ${name}(`);
   if (start < 0) {
     throw new Error(
-      `no top-level \`function ${name}(\` in src/extension/production-theta-producer.ts: ` +
+      `no top-level \`export function ${name}(\` in src/extension/callable-lowering.ts: ` +
         "the lock-step scan has no subject",
     );
   }
@@ -366,7 +366,7 @@ async function beltVerdictFor(entry: string, shadowed: string): Promise<BeltVerd
 /**
  * The two routes a call of a name can leave the snapshot-absent fallback by.
  * `theta-callee` means `thetaCalleePath`
- * (`src/extension/production-theta-producer.ts`) matched the `tools:` entry and
+ * (`src/extension/callable-lowering.ts`) matched the `tools:` entry and
  * the call went out over the invoke path; `pi-tool` means it matched nothing and
  * the call fell through to Pi-tool dispatch.
  */

@@ -14,13 +14,15 @@
 //     in a spawned child `pi` process.
 //
 // This module assembles the mode-routing collaborators against the live host
-// and runtime seams, delegating query driving, echo types, and pure evaluation.
+// and runtime seams, delegating query driving, echo types, pure evaluation,
+// callable-set lowering / drive binding (callable-lowering.ts), and query
+// wire-text rendering (query-text-render.ts).
 //
 // Spec (narrative): pi-integration-contract/extension-bootstrap-and-per-theta.md
 // (§"Per-theta registration"), conversation-drive.md, slash-invocation.md,
 // binder/binder-model-and-context.md, subagent.md.
 
-import { evaluateCallSiteCwd, evaluatePureExpression, raiseInterpolatedResult } from "../runtime/pure-expression-evaluator";
+import { evaluateCallSiteCwd, evaluatePureExpression } from "../runtime/pure-expression-evaluator";
 import {
   LivePromptQueryModel,
   resolveRegistryAuth,
@@ -34,6 +36,31 @@ import {
   type RespondToolExecuteResult,
 } from "./live-prompt-query-driver";
 export * from "./live-prompt-query-driver";
+import {
+  buildBoundEnvironment,
+  buildSubagentDriveBinding,
+  callableSetPiToolNames,
+  callableSetThetaEntries,
+  lowerToolCallParams,
+  presentedCallableNames,
+  promptModeSurface,
+  subagentFnCallableSet,
+  surfaceCalleeFinalValue,
+  thetaCalleePath,
+} from "./callable-lowering";
+export {
+  lowerModelDrivenThetaCall,
+  type LoweredThetaCallableResult,
+  type ModelDrivenThetaCall,
+} from "./callable-lowering";
+import {
+  collectLaunchRespondNames,
+  mergedEnumDeclsOf,
+  mergedSchemaDeclsOf,
+  renderTypedAwareQueryText,
+} from "./query-text-render";
+import { renderQueryText } from "../runtime/query-interpolation";
+export { collectLaunchRespondNames, mergedEnumDeclsOf, mergedSchemaDeclsOf } from "./query-text-render";
 import { echoTypeFromValue } from "./binder-echo-type";
 
 import type {
@@ -49,7 +76,6 @@ import { dirname, isAbsolute, resolve as resolvePath } from "node:path";
 // / `SessionManager` / `getAgentDir` / `defineTool`) are retired — the subagent
 // drive spawns a child `pi` process (subagent.md, RFC-0005).
 import { buildSessionContext } from "@earendil-works/pi-coding-agent";
-import { runSubagentChildTeardown } from "../runtime/subagent-isolation";
 import {
   inferChildTrust,
   placeSubagentChild,
@@ -76,8 +102,6 @@ import type { SubagentChildControlPlane } from "../runtime/subagent-launch-file"
 import type { HostToolSnapshotEntry } from "../seams/host-tool-snapshot";
 import {
   attachSubagentCancellation,
-  driveSubagentChild,
-  type SubagentInvocationResult,
 } from "../runtime/subagent-json-driver";
 import {
   intakeChildParams,
@@ -168,22 +192,12 @@ import {
   type SessionControlCtx,
   type SessionControlPi,
 } from "../runtime/session-control-tools";
-import {
-  buildEnvironment,
-  enumDeclaringKey,
-  type EnumRegistration,
-  type LexicalEnvironment,
-  type MaterializedImport,
-} from "../runtime/lexical-environment";
+import { type LexicalEnvironment } from "../runtime/lexical-environment";
 import {
   executeBody,
-  type BodyExecution,
   type ExecuteBodyDeps,
   type SubagentFnChildRequest,
 } from "../runtime/statement-executor";
-import {
-  extractTrailingTurnText,
-} from "../runtime/conversation-drive";
 import {
   enforceInvokeParamsDepth,
   enforceInvokeReturnDepth,
@@ -204,8 +218,6 @@ import {
   buildCodeToolUnknownTool,
   enforceCodeToolArgDepth,
   enforceModelToolArgDepth,
-  PiToolArgShapeDefectError,
-  ShadowedCalleeDispatchDefectError,
 } from "../runtime/tool-call";
 import type { InvokeChild, DrivenInvokeResult, InvokeResultSource } from "../runtime/invoke-cancellation";
 import type {
@@ -241,39 +253,33 @@ import type { CheckpointSite } from "../seams/checkpoint";
 import type { Trace } from "../seams/trace";
 import {
   defineRecordField,
-  isEnumValue,
   isResultValue,
   makeErr,
   makeOk,
-  schemaTagOf,
   type ThetaValue,
   type ResultValue,
 } from "../runtime/value";
 import type {
   CallExpr,
-  EnumDecl,
   FnDecl,
   InvokeExpr,
   ThetaBody,
   QueryExpr,
-  SchemaDecl,
   SubagentSessionConfig,
 } from "../parser/theta-document";
-import { parseExpressionSource, collectSessionTypedQueries } from "../parser/theta-document";
+import { parseExpressionSource } from "../parser/theta-document";
 import { renderSystemPrompt } from "../parser/system-prompt-render";
 import { lowerQueryResponseSchema } from "../parser/query-schema-lowering";
 import { bindParamsInbound, decodeInboundValue } from "../runtime/inbound-boundary";
 import { projectForValidation } from "../runtime/wire-translation";
 import { inferCalleeReturnAnnotation } from "../parser/functions";
 import type { CompiledValidator, LoweredSchema, SchemaValidator } from "../seams/schema-validator";
-import { parseToolsEntry, thetaDefaultName, type ResolvedCallable } from "../parser/callable-set";
-import { RUNTIME_TOOL_SIGNATURES, type RuntimeToolName } from "../parser/runtime-tools";
+import { RUNTIME_TOOL_SIGNATURES, type RuntimeToolName, type RuntimeToolSignature } from "../parser/runtime-tools";
 import { canonicalForm, toLoweredJsonValue } from "../parser/schema-lowering";
 import type { TypedQuerySchemaValidation } from "../runtime/query-tool-loop";
 import {
   buildTypedQueryValidation,
   respondSchemaSlug,
-  respondToolName,
   type FollowUpDriveFailure,
   type FollowUpRespondOutcome,
 } from "../runtime/typed-query-validation";
@@ -286,20 +292,13 @@ import {
 import {
   HostFatal,
   isThetaPanic,
-  retargetInterpolationPanic,
 } from "../runtime/runtime-panics";
 import {
   createRegistrationCache,
   deriveToolLabel,
   registerToolInCache,
 } from "../runtime/tool-registration";
-import {
-  interpolationTypeOf,
-  lexQueryTemplate,
-  renderEmptyShortCircuit,
-  renderTemplateText,
-  stringifyInterpolatedValue,
-} from "../render/query-render";
+import { renderEmptyShortCircuit } from "../render/query-render";
 import {
   applyBinderBypass,
   buildBinderEnvelopeSchema,
@@ -1033,82 +1032,12 @@ class ProductionThetaProducer implements ThetaProducerDeps {
       this.#emitNoParamsOverflowNote(binderInput);
       return { bound: true, args: {} };
     }
-    // Load-time bypass classification (§Binder bypass): the no-params and
-    // single-string bypasses skip the binder call (and the LLM inference)
-    // entirely and the body runs with the trivially-derived args. Only a
-    // `binder` decision drives a real binder pass.
-    const decision = classifyBinderBypass(params.fields);
-    if (decision.kind !== "binder") {
-      // SLSH-1: the no-params bypass (`params: {}`) also overflows on extra
-      // slash arguments; the single-string bypass consumes the argument as its
-      // sole param, so it never overflows.
-      if (decision.kind === "no-params-bypass") {
-        this.#emitNoParamsOverflowNote(binderInput);
-      }
-      // The bypass args are derived without any binder / LLM call and threaded
-      // into body scope (the single-string bypass sets the sole field to the
-      // trimmed slash-argument string; the no-params bypass yields `{}`).
-      const bypass = applyBinderBypass({ decision, slashArguments: binderInput.args });
-      return { bound: true, args: bypass.args };
+    const bypass = this.#applyBinderBypassOrNull(binderInput, params);
+    if (bypass !== null) {
+      return bypass;
     }
-    // A genuine binder pass over the declared params. DECISION (production
-    // conformance): the binder runs OFF-session and INVISIBLE — no user-visible
-    // streamed turn, no transcript card, and the envelope JSON NEVER reaches the
-    // user session (BND-3). It runs against the RESOLVED BINDER MODEL
-    // (`bind_model:` → `theta.binderModel`, resolved at load time and carried on
-    // the theta), NOT the ambient session model (DISCO-1 runtime facet). The
-    // reference is resolved to a concrete `Model<Api>` via the model registry
-    // by the same exact-match rule the load-time resolution used, so
-    // `model === undefined` is a defensive guard only. WHAT MAKES IT
-    // UNREACHABLE IS THE DISPATCH, NOT THE LOAD GATE: the load gate exempts one
-    // registered non-bypass theta from binder-model resolution — the marked root
-    // of a spawned subagent child (binder-model-and-context.md §"Binder model",
-    // the subagent-root exemption) — so a registered non-bypass theta CAN reach
-    // the runtime carrying no binder model. It cannot reach HERE, because the
-    // slash `run` in `theta-composition-producer.ts` gates
-    // `driveSubagentRootRegime` on `isSubagentRootFor` ahead of `runBinder` and
-    // returns; the exempt set and the short-circuited set are one set, held
-    // together by that single predicate.
-    const binderModelRef = binderInput.theta.binderModel;
-    const model =
-      binderModelRef !== undefined
-        ? matchAvailableModel(binderModelRef, this.#input.modelRegistry.getAvailable())
-        : undefined;
-    if (model === undefined) {
-      // Defensive (unreachable on this dispatch path, per the reasoning above):
-      // surface the malformed failure note rather than crash the dispatch, and
-      // do not run the body.
-      this.#emitBinderFailureNote(binderInput.theta.slashName, { kind: "malformed" }, binderInput.invocationTicket);
-      return { bound: false };
-    }
-    // Bug 0417 (parent adjudication Option A): the binder's supported-api gate,
-    // synthesize-BEFORE-dispatch. An api with no MEASURED forced-tool-choice row
-    // would ship the outside-the-table `{type:"tool",name}` default the provider
-    // rejects as a request-shape 400 (measured on `openai-responses`), burning
-    // BOTH budgeted binder calls per invocation before failing on `argument
-    // binder unavailable`. Mirror the typed-query respond path's gate (the
-    // `synthesizeUnsupportedProviderTransportError` branch that carries a
-    // `gateError` on the respond context): refuse HERE, before any provider
-    // call (zero spend), routed
-    // through the existing transport failure surface + the bug 0397
-    // `details.event` machinery — no new failure class, no new registry code.
-    // The check changes no registration outcome and is registry-drift-safe.
-    //
-    // A pre-call ABORT takes precedence over an api refusal: an invocation the
-    // user already cancelled surfaces the `cancelled` binder note through the
-    // binder-call checkpoint below, not an unsupported-api transport note (the
-    // abort is the higher-priority pre-dispatch guard, CANCEL-4).
-    const preAborted = binderInput.thetaAbort?.signal.aborted === true;
-    if (!preAborted && !binderSupportsApi(String(model.api))) {
-      this.#emitBinderFailureNote(
-        binderInput.theta.slashName,
-        {
-          kind: "transport",
-          provider: String(model.api),
-          message: binderUnsupportedApiMessage(),
-        },
-        binderInput.invocationTicket,
-      );
+    const model = this.#resolveBinderModelOrRefuse(binderInput);
+    if (model === null) {
       return { bound: false };
     }
     const envelopeSchema = buildBinderEnvelopeSchema({
@@ -1126,42 +1055,7 @@ class ProductionThetaProducer implements ThetaProducerDeps {
       this.#emitCustomTypeUnsafeNote(binderInput.theta.slashName, sessionContext.value);
       return { bound: false };
     }
-    // The per-dispatch forced-tool call ingredients (binder-inference.md
-    // §"Binder inference call"), built once and reused across every budgeted
-    // attempt: the slug is content-addressed over the TRUE anyOf envelope
-    // document (not its object attachment wrapper) by the same recipe the
-    // typed-query respond tool name uses; the seed is the FNV-1a hash of the
-    // bare command name; the V11d system prompt carries the whole variable
-    // binding context (theta identity, parameters, raw arguments, and the
-    // BNDR-10 session-context block), so the single user message stays the
-    // fixed literal. The envelope validator compiles AT MOST once per dispatch
-    // and is reused across attempts, deferred to the first extraction so the
-    // checkpoint-gated pre-call abort path performs no validator work.
-    const slug = respondSchemaSlug(envelopeSchema);
-    const fm = binderInput.theta.frontmatter;
-    const systemPrompt = buildBinderSystemPrompt({
-      name: binderInput.theta.slashName,
-      ...(fm.description !== undefined ? { description: fm.description } : {}),
-      ...(fm.argumentHint !== undefined ? { argumentHint: fm.argumentHint } : {}),
-      params: params.fields.map(binderPromptParamField),
-      rawArguments: binderInput.args,
-      ...(sessionContext.kind === "block"
-        ? { sessionContext: { transcriptBody: sessionContext.body } }
-        : {}),
-    });
-    let compiledEnvelope: CompiledValidator | undefined;
-    const dispatch: BinderForcedToolDispatch = {
-      model,
-      systemPrompt,
-      envelopeSchema,
-      slug,
-      toolName: binderToolName(slug),
-      seed: deriveBinderSeed(binderInput.theta.slashName),
-      envelopeValidator: () => {
-        compiledEnvelope ??= this.#input.root.schemaValidator.compile(envelopeSchema);
-        return compiledEnvelope;
-      },
-    };
+    const dispatch = this.#buildBinderDispatch(model, envelopeSchema, sessionContext, params, binderInput);
     const call = await this.#runBudgetedBinderCall(dispatch, binderInput);
     if (call === undefined) {
       return { bound: false };
@@ -1176,18 +1070,176 @@ class ProductionThetaProducer implements ThetaProducerDeps {
       this.#emitBinderFailureNote(binderInput.theta.slashName, outcome, binderInput.invocationTicket);
       return { bound: false };
     }
-    // §Defaulting (defaulting-system-note-echo.md#post-default-merge-ajv-validation;
-    // binder-bypass-and-envelope.md#binder-envelope): defaults are filled by the
-    // runtime AFTER the binder returns, not by the binder. The binder is told
-    // which fields have defaults and MAY omit them from `args`; the runtime then
-    // fills any defaulted wire name absent from `args` (fill-if-absent) and
-    // AJV-validates the merged result before the body runs. Without this merge a
-    // declared default (`count: integer = 3`) never reaches body scope and the
-    // body sees the field as absent (BND-2). Only the genuine binder pass reaches
-    // here — a defaulted field forces the `binder` classification (the
-    // single-string / no-params bypasses carry no defaults), so the bypass arms
-    // above are intentionally left unchanged.
-    const binderArgs = call.okArgs;
+    return this.#settleBinderOutcome(binderInput, params, call.okArgs);
+  }
+
+  /**
+   * Load-time bypass classification (§Binder bypass): the no-params and
+   * single-string bypasses skip the binder call (and the LLM inference)
+   * entirely and the body runs with the trivially-derived args — the returned
+   * result. `null` means a `binder` decision: only that drives a real binder
+   * pass in `runBinder`.
+   */
+  #applyBinderBypassOrNull(
+    binderInput: BinderRunInput,
+    params: NonNullable<ConversationBindInput["theta"]["frontmatter"]["params"]>,
+  ): BinderRunResult | null {
+    const decision = classifyBinderBypass(params.fields);
+    if (decision.kind === "binder") {
+      return null;
+    }
+    // SLSH-1: the no-params bypass (`params: {}`) also overflows on extra
+    // slash arguments; the single-string bypass consumes the argument as its
+    // sole param, so it never overflows.
+    if (decision.kind === "no-params-bypass") {
+      this.#emitNoParamsOverflowNote(binderInput);
+    }
+    // The bypass args are derived without any binder / LLM call and threaded
+    // into body scope (the single-string bypass sets the sole field to the
+    // trimmed slash-argument string; the no-params bypass yields `{}`).
+    const bypass = applyBinderBypass({ decision, slashArguments: binderInput.args });
+    return { bound: true, args: bypass.args };
+  }
+
+  /**
+   * Resolve the binder model and run the pre-dispatch api gate for a genuine
+   * binder pass over the declared params; `null` means the pass was refused
+   * (the failure note is already emitted) and the theta body does not run.
+   *
+   * DECISION (production conformance): the binder runs OFF-session and
+   * INVISIBLE — no user-visible streamed turn, no transcript card, and the
+   * envelope JSON NEVER reaches the user session (BND-3). It runs against the
+   * RESOLVED BINDER MODEL (`bind_model:` → `theta.binderModel`, resolved at
+   * load time and carried on the theta), NOT the ambient session model
+   * (DISCO-1 runtime facet). The reference is resolved to a concrete
+   * `Model<Api>` via the model registry by the same exact-match rule the
+   * load-time resolution used, so `model === undefined` is a defensive guard
+   * only. WHAT MAKES IT UNREACHABLE IS THE DISPATCH, NOT THE LOAD GATE: the
+   * load gate exempts one registered non-bypass theta from binder-model
+   * resolution — the marked root of a spawned subagent child
+   * (binder-model-and-context.md §"Binder model", the subagent-root exemption)
+   * — so a registered non-bypass theta CAN reach the runtime carrying no
+   * binder model. It cannot reach HERE, because the slash `run` in
+   * `theta-composition-producer.ts` gates `driveSubagentRootRegime` on
+   * `isSubagentRootFor` ahead of `runBinder` and returns; the exempt set and
+   * the short-circuited set are one set, held together by that single
+   * predicate.
+   */
+  #resolveBinderModelOrRefuse(binderInput: BinderRunInput): Model<Api> | null {
+    const binderModelRef = binderInput.theta.binderModel;
+    const model =
+      binderModelRef !== undefined
+        ? matchAvailableModel(binderModelRef, this.#input.modelRegistry.getAvailable())
+        : undefined;
+    if (model === undefined) {
+      // Defensive (unreachable on this dispatch path, per the reasoning above):
+      // surface the malformed failure note rather than crash the dispatch, and
+      // do not run the body.
+      this.#emitBinderFailureNote(binderInput.theta.slashName, { kind: "malformed" }, binderInput.invocationTicket);
+      return null;
+    }
+    // Bug 0417 (parent adjudication Option A): the binder's supported-api gate,
+    // synthesize-BEFORE-dispatch. An api with no MEASURED forced-tool-choice row
+    // would ship the outside-the-table `{type:"tool",name}` default the provider
+    // rejects as a request-shape 400 (measured on `openai-responses`), burning
+    // BOTH budgeted binder calls per invocation before failing on `argument
+    // binder unavailable`. Mirror the typed-query respond path's gate (the
+    // `synthesizeUnsupportedProviderTransportError` branch that carries a
+    // `gateError` on the respond context): refuse HERE, before any provider
+    // call (zero spend), routed
+    // through the existing transport failure surface + the bug 0397
+    // `details.event` machinery — no new failure class, no new registry code.
+    // The check changes no registration outcome and is registry-drift-safe.
+    //
+    // A pre-call ABORT takes precedence over an api refusal: an invocation the
+    // user already cancelled surfaces the `cancelled` binder note through the
+    // binder-call checkpoint in `#runBudgetedBinderCall`, not an
+    // unsupported-api transport note (the abort is the higher-priority
+    // pre-dispatch guard, CANCEL-4).
+    const preAborted = binderInput.thetaAbort?.signal.aborted === true;
+    if (!preAborted && !binderSupportsApi(String(model.api))) {
+      this.#emitBinderFailureNote(
+        binderInput.theta.slashName,
+        {
+          kind: "transport",
+          provider: String(model.api),
+          message: binderUnsupportedApiMessage(),
+        },
+        binderInput.invocationTicket,
+      );
+      return null;
+    }
+    return model;
+  }
+
+  /**
+   * Assemble the per-dispatch forced-tool call ingredients (binder-inference.md
+   * §"Binder inference call"), built once and reused across every budgeted
+   * attempt: the slug is content-addressed over the TRUE anyOf envelope
+   * document (not its object attachment wrapper) by the same recipe the
+   * typed-query respond tool name uses; the seed is the FNV-1a hash of the
+   * bare command name; the V11d system prompt carries the whole variable
+   * binding context (theta identity, parameters, raw arguments, and the
+   * BNDR-10 session-context block), so the single user message stays the
+   * fixed literal. The envelope validator compiles AT MOST once per dispatch
+   * and is reused across attempts, deferred to the first extraction so the
+   * checkpoint-gated pre-call abort path performs no validator work.
+   */
+  #buildBinderDispatch(
+    model: Model<Api>,
+    envelopeSchema: BinderEnvelopeSchema,
+    sessionContext: { readonly kind: "none" } | { readonly kind: "block"; readonly body: string },
+    params: NonNullable<ConversationBindInput["theta"]["frontmatter"]["params"]>,
+    binderInput: BinderRunInput,
+  ): BinderForcedToolDispatch {
+    const slug = respondSchemaSlug(envelopeSchema);
+    const fm = binderInput.theta.frontmatter;
+    const systemPrompt = buildBinderSystemPrompt({
+      name: binderInput.theta.slashName,
+      ...(fm.description !== undefined ? { description: fm.description } : {}),
+      ...(fm.argumentHint !== undefined ? { argumentHint: fm.argumentHint } : {}),
+      params: params.fields.map(binderPromptParamField),
+      rawArguments: binderInput.args,
+      ...(sessionContext.kind === "block"
+        ? { sessionContext: { transcriptBody: sessionContext.body } }
+        : {}),
+    });
+    let compiledEnvelope: CompiledValidator | undefined;
+    return {
+      model,
+      systemPrompt,
+      envelopeSchema,
+      slug,
+      toolName: binderToolName(slug),
+      seed: deriveBinderSeed(binderInput.theta.slashName),
+      envelopeValidator: () => {
+        compiledEnvelope ??= this.#input.root.schemaValidator.compile(envelopeSchema);
+        return compiledEnvelope;
+      },
+    };
+  }
+
+  /**
+   * Settle a successful binder envelope: merge declared defaults, route on the
+   * post-merge AJV verdict, and emit the BND-1 success echo.
+   *
+   * §Defaulting (defaulting-system-note-echo.md#post-default-merge-ajv-validation;
+   * binder-bypass-and-envelope.md#binder-envelope): defaults are filled by the
+   * runtime AFTER the binder returns, not by the binder. The binder is told
+   * which fields have defaults and MAY omit them from `args`; the runtime then
+   * fills any defaulted wire name absent from `args` (fill-if-absent) and
+   * AJV-validates the merged result before the body runs. Without this merge a
+   * declared default (`count: integer = 3`) never reaches body scope and the
+   * body sees the field as absent (BND-2). Only the genuine binder pass reaches
+   * here — a defaulted field forces the `binder` classification (the
+   * single-string / no-params bypasses carry no defaults), so the bypass arms
+   * in `#applyBinderBypassOrNull` are intentionally left unchanged.
+   */
+  async #settleBinderOutcome(
+    binderInput: BinderRunInput,
+    params: NonNullable<ConversationBindInput["theta"]["frontmatter"]["params"]>,
+    binderArgs: Record<string, unknown>,
+  ): Promise<BinderRunResult> {
     const merged = await this.#mergeDeclaredDefaults(binderInput.theta, params, binderArgs);
     // The post-default-merge verdict routes BEFORE the success echo: an
     // AJV-on-`args` classification (a merged document AJV refuses, or a
@@ -2553,11 +2605,96 @@ class ProductionThetaProducer implements ThetaProducerDeps {
     // spawn to be initiated at bind time (parallel fan-out), and the launch
     // contract is observable here. `drive()` below only awaits the envelope on
     // the already-spawned child.
-    //
-    // PIC-60: marshal the already-typed params structurally (canonical JSON on
-    // `PI_THETA_PARAMS`, or a 0600 temp file on `PI_THETA_PARAMS_FILE` at/above
-    // the pinned threshold). The child validates against the same `params:`
-    // schema and skips the binder entirely.
+    const { paramsCleanup, parentEnv, controlPlaneEnv } = this.#buildControlPlaneEnv(
+      bindInput,
+      theta,
+      callableHashes,
+    );
+
+    const { child, placement, placementLease, placedHandle } = await this.#launchSubagentChild({
+      theta,
+      model,
+      systemPrompt,
+      piToolNames,
+      noHostTools,
+      projectTrust,
+      respondToolNames,
+      label,
+      entry,
+      // RFC 0009 (invocation.md INV-8; subagent.md #subagent-launch-contract):
+      // the child working directory is the call site's validated, resolved
+      // `cwd` when the dispatching call carried a `with { cwd }` clause,
+      // otherwise the forwarded `ctx.cwd` — the pre-0009 value, byte-identical
+      // in the absent-clause case. NOTHING else in this launch assembly reads
+      // the field (subagent.md #subagent-cwd-identity-location): the clause
+      // relocates the callee's side effects, never its identity.
+      cwd: bindInput.resolvedCwd ?? ctx.cwd,
+      parentEnv,
+      controlPlaneEnv,
+      // INV-4: marshal the CURRENT per-chain depth so the child continues the
+      // depth-32 ceiling across the process hop (wire-level carriage).
+      invokeDepth: chain.depth,
+      emitDiagnostic,
+      paramsCleanup,
+      finishInvocation,
+    });
+    // RFC 0012 §7 (EXST-5 degradation): a non-`pipe` child's `--mode json`
+    // stream is a TTY the parent never sees, so the execution-status node
+    // records WHERE the child lives instead — `live in <backend> <handle>` —
+    // and its liveness rides the channel heartbeat the tap below folds.
+    if (!isPipePlacement(placement)) {
+      statusBus?.invocationPlaced(ticket.invocationId, {
+        backend: placement.name,
+        handle: placedHandle,
+      });
+    }
+    // RFC 0010 (EXST-5): the depth-1 child-activity tap — a SECOND listener on
+    // the child's existing stdout line pump, beside the envelope scan. It never
+    // consumes, detaches, or reorders the drive listener's lines (PIC-59's
+    // stray-line tolerance and terminal-signal ordering are unchanged) and it
+    // forwards only the bounded class-1 projection.
+    const detachChildTap =
+      statusBus === undefined
+        ? undefined
+        : attachChildActivityTap(
+            child,
+            (event) => {
+              statusBus.childEvent(ticket.invocationId, event);
+            },
+            { clock: this.#input.root.clock },
+          );
+
+    // PIC-66: forward cancellation to the `-p` child by killing it (the
+    // child's stdin is spawned closed — bug 0002 — so no in-band stop
+    // channel exists). Handles the spawn-then-immediate-cancel path
+    // synchronously, so correctness does not depend on microtask ordering.
+    const cancellation = attachSubagentCancellation(thetaAbort, child, {
+      emitDiagnostic,
+    });
+
+    return buildSubagentDriveBinding({
+      child, thetaAbort, theta, emitDiagnostic, detachChildTap, placementLease,
+      paramsCleanup, cancellation, ticket, root, finishInvocation,
+    });
+  }
+
+  /**
+   * Marshal the launch's params and assemble its control-plane env carriage.
+   *
+   * PIC-60: marshal the already-typed params structurally (canonical JSON on
+   * `PI_THETA_PARAMS`, or a 0600 temp file on `PI_THETA_PARAMS_FILE` at/above
+   * the pinned threshold). The child validates against the same `params:`
+   * schema and skips the binder entirely.
+   */
+  #buildControlPlaneEnv(
+    bindInput: ConversationBindInput,
+    theta: ConversationBindInput["theta"],
+    callableHashes: Record<string, string>,
+  ): {
+    paramsCleanup: () => void;
+    parentEnv: Readonly<Record<string, string | undefined>>;
+    controlPlaneEnv: Record<string, string | undefined>;
+  } {
     const paramValues: Record<string, unknown> = {};
     if (bindInput.paramBindings !== undefined) {
       for (const [name, value] of bindInput.paramBindings) {
@@ -2601,12 +2738,44 @@ class ProductionThetaProducer implements ThetaProducerDeps {
       [SUBAGENT_ROOT_WINNER_ENV]:
         theta.sourcePath !== undefined ? theta.sourcePath.replace(/\\/g, "/") : undefined,
     };
+    return { paramsCleanup, parentEnv, controlPlaneEnv };
+  }
 
-    // PIC-65 launch. The placement seam (RFC 0012 §1) + executable host are
-    // wired at the composition root; their absence on a non-production harness
-    // is a configuration defect surfaced as an internal error (never a
-    // modelless / childless drive). `subagentSpawn` alone is the `pipe`
-    // shorthand — the pre-RFC launch, verbatim.
+  /**
+   * Resolve the launch's placement lease, assemble the child launch argv, and
+   * spawn the child, routing the two failure arms.
+   *
+   * PIC-65 launch. The placement seam (RFC 0012 §1) + executable host are
+   * wired at the composition root; their absence on a non-production harness
+   * is a configuration defect surfaced as an internal error (never a
+   * modelless / childless drive). `subagentSpawn` alone is the `pipe`
+   * shorthand — the pre-RFC launch, verbatim.
+   */
+  async #launchSubagentChild(input: {
+    theta: ConversationBindInput["theta"];
+    model: Model<Api>;
+    systemPrompt: string | undefined;
+    piToolNames: readonly string[];
+    noHostTools: boolean;
+    projectTrust: ReturnType<typeof inferChildTrust>;
+    respondToolNames: readonly string[];
+    label: string;
+    entry: SubagentLaunchEntry;
+    cwd: string;
+    parentEnv: Readonly<Record<string, string | undefined>>;
+    controlPlaneEnv: Record<string, string | undefined>;
+    invokeDepth: number;
+    emitDiagnostic: (diagnostic: Diagnostic) => void;
+    paramsCleanup: () => void;
+    finishInvocation: () => void;
+  }) {
+    const {
+      theta,
+      model,
+      emitDiagnostic,
+      paramsCleanup,
+      finishInvocation,
+    } = input;
     const executableHost = this.#input.subagentExecutableHost;
     const placementResolver = this.#placementResolver();
     if (placementResolver === undefined || executableHost === undefined) {
@@ -2633,36 +2802,27 @@ class ProductionThetaProducer implements ThetaProducerDeps {
         argv: {
           slug: theta.slashName,
           thetaDirs: this.#input.activeRoots ?? [],
-          systemPrompt: systemPrompt ?? "",
-          hostTools: piToolNames,
-          respondToolNames,
-          noHostTools,
+          systemPrompt: input.systemPrompt ?? "",
+          hostTools: input.piToolNames,
+          respondToolNames: input.respondToolNames,
+          noHostTools: input.noHostTools,
           provider: String(model.provider),
           model: model.id,
-          projectTrust,
+          projectTrust: input.projectTrust,
           presentation,
-          label,
+          label: input.label,
           // RFC 0012 §7: `--no-session` unless the backend declares
           // `persistSession` — the operator then gets a resumable session
           // file; the parent never reads it, so theta semantics are unchanged.
           persistSession: placement.capabilities?.persistSession === true,
         },
-        label,
-        entry,
-        // RFC 0009 (invocation.md INV-8; subagent.md #subagent-launch-contract):
-        // the child working directory is the call site's validated, resolved
-        // `cwd` when the dispatching call carried a `with { cwd }` clause,
-        // otherwise the forwarded `ctx.cwd` — the pre-0009 value, byte-identical
-        // in the absent-clause case. NOTHING else in this launch assembly reads
-        // the field (subagent.md #subagent-cwd-identity-location): the clause
-        // relocates the callee's side effects, never its identity.
-        cwd: bindInput.resolvedCwd ?? ctx.cwd,
-        parentEnv,
-        controlPlaneEnv,
+        label: input.label,
+        entry: input.entry,
+        cwd: input.cwd,
+        parentEnv: input.parentEnv,
+        controlPlaneEnv: input.controlPlaneEnv,
         parentPid: this.#input.subagentParentPid ?? 0,
-        // INV-4: marshal the CURRENT per-chain depth so the child continues the
-        // depth-32 ceiling across the process hop (wire-level carriage).
-        invokeDepth: chain.depth,
+        invokeDepth: input.invokeDepth,
         host: executableHost,
       },
       {
@@ -2690,45 +2850,12 @@ class ProductionThetaProducer implements ThetaProducerDeps {
       });
       throw new SubagentSpawnFailedError(reason);
     }
-    const child = launch.child;
-    // RFC 0012 §7 (EXST-5 degradation): a non-`pipe` child's `--mode json`
-    // stream is a TTY the parent never sees, so the execution-status node
-    // records WHERE the child lives instead — `live in <backend> <handle>` —
-    // and its liveness rides the channel heartbeat the tap below folds.
-    if (!isPipePlacement(placement)) {
-      statusBus?.invocationPlaced(ticket.invocationId, {
-        backend: placement.name,
-        handle: launch.placed.handle,
-      });
-    }
-    // RFC 0010 (EXST-5): the depth-1 child-activity tap — a SECOND listener on
-    // the child's existing stdout line pump, beside the envelope scan. It never
-    // consumes, detaches, or reorders the drive listener's lines (PIC-59's
-    // stray-line tolerance and terminal-signal ordering are unchanged) and it
-    // forwards only the bounded class-1 projection.
-    const detachChildTap =
-      statusBus === undefined
-        ? undefined
-        : attachChildActivityTap(
-            child,
-            (event) => {
-              statusBus.childEvent(ticket.invocationId, event);
-            },
-            { clock: this.#input.root.clock },
-          );
-
-    // PIC-66: forward cancellation to the `-p` child by killing it (the
-    // child's stdin is spawned closed — bug 0002 — so no in-band stop
-    // channel exists). Handles the spawn-then-immediate-cancel path
-    // synchronously, so correctness does not depend on microtask ordering.
-    const cancellation = attachSubagentCancellation(thetaAbort, child, {
-      emitDiagnostic,
-    });
-
-    return buildSubagentDriveBinding({
-      child, thetaAbort, theta, emitDiagnostic, detachChildTap, placementLease,
-      paramsCleanup, cancellation, ticket, root, finishInvocation,
-    });
+    return {
+      child: launch.child,
+      placement,
+      placementLease,
+      placedHandle: launch.placed.handle,
+    };
   }
 
   /** Render the child system prompt, preserving the operator-visible refusal on failure. */
@@ -4366,72 +4493,17 @@ class ProductionThetaProducer implements ThetaProducerDeps {
       evaluatePureExpression(a, env),
     );
 
-    // Default binding: an absent optional arg binds the signature’s default.
-    // compact’s single param has `hasDefault: true` → default "".
-    const boundArgs: ThetaValue[] = [];
-    for (let i = 0; i < sig.params.length; i++) {
-      if (i < argValues.length) {
-        boundArgs.push(argValues[i] as ThetaValue);
-      } else if (sig.params[i]!.hasDefault) {
-        boundArgs.push("" as ThetaValue);
-      }
+    const bound = bindRuntimeToolArgs(sig, argValues, presentedName);
+    if ("violation" in bound) {
+      return bound.violation;
     }
-
-    // §5.4 runtime argument net: every bound arg must be a string (the one
-    // theta 1.x param type). A non-string bound value → the pinned validation
-    // Err, pre-dispatch, no host call.
-    for (let i = 0; i < boundArgs.length; i++) {
-      if (typeof boundArgs[i] !== "string") {
-        const argViolation = makeErr({
-          kind: "code_tool",
-          message: `argument '${sig.params[i]!.name}' must be a string`,
-          tool_name: presentedName,
-          cause: "validation",
-        } as unknown as ThetaValue);
-        return {
-          toolName: presentedName,
-          argViolation,
-          dispatch: () => Promise.resolve(argViolation),
-        };
-      }
-    }
+    const { boundArgs } = bound;
 
     const hosts = this.#input.sessionControlHosts!;
 
-    // Build the dispatch closure per canonical name. The adapter Promise is
-    // wrapped at construction by `guardToolExecutePromise` (CANCEL-3) so a
-    // late settlement after a theta abort is discarded (CNCL-1..3).
-    let dispatchFn: () => Promise<ThetaValue>;
-    switch (canonicalName) {
-      case "compact":
-        dispatchFn = () =>
-          guardToolExecutePromise(
-            executeCompactTool(hosts.ctx, presentedName, boundArgs[0] as string ?? ""),
-            signalGuard(signal),
-            noopSwallowChannels(),
-          );
-        break;
-      case "context_usage":
-        dispatchFn = () =>
-          guardToolExecutePromise(
-            executeContextUsageTool(hosts.ctx, presentedName),
-            signalGuard(signal),
-            noopSwallowChannels(),
-          );
-        break;
-      case "session_name":
-        dispatchFn = () =>
-          guardToolExecutePromise(
-            executeSessionNameTool(hosts.piHandle, presentedName, boundArgs[0] as string),
-            signalGuard(signal),
-            noopSwallowChannels(),
-          );
-        break;
-    }
-
     return {
       toolName: presentedName,
-      dispatch: dispatchFn,
+      dispatch: buildRuntimeToolDispatch(canonicalName, hosts, presentedName, boundArgs, signal),
     };
   }
 
@@ -5152,55 +5224,11 @@ class ProductionThetaProducer implements ThetaProducerDeps {
     // against the *currently* active roots. An escape fails closed with
     // `Err(InvokeInfraError{cause:"load_failure"})` — the runtime backstop to the
     // load-time `theta/load/invoke-path-escape` guard.
-    // Ceiling #4 (hard-ceilings/ceilings-3-and-4.md#ceiling-4-table, the
-    // `params` / `invoke(...)` row; CIO-3 depth-walk-before-AJV): enforce the
-    // JSON-document depth-≤5 cap at the runtime `invoke(...)` `params` argument
-    // boundary. Each positional arg is a JSON document in its own right, so the
-    // walk runs per-arg (a legitimate depth-5 arg stays valid; walking a wrapper
-    // object would false-trip it); a depth-6+ arg surfaces to the invoke parent
-    // as `Err(InvokeInfraError { cause: "validation" })` — distinct from ceiling
-    // #1 chain-depth. Runs before the containment re-check / callee load so a
-    // caller-side depth breach is reported regardless of callee state.
-    for (const argValue of argValues) {
-      const breach = enforceInvokeParamsDepth(calleePath, argValue);
-      if (breach !== undefined) {
-        // This ceiling refusal is THIS hop's own guard on the caller-supplied
-        // argument — the callee never ran (bug 0294 provenance).
-        return { source: "boundary-minted", result: breach.result };
-      }
+    const argGuard = invokeBoundaryArgGuards(calleePath, argValues, ctx, rawCwd);
+    if ("source" in argGuard) {
+      return argGuard;
     }
-
-    // RFC 0009 INV-6 (invocation.md `#options-surface`): validate and resolve the
-    // call-site `cwd` before any dispatch work. An empty string and a non-string
-    // are authoring bugs — `Err(InvokeInfraError { cause: "validation" })`, never
-    // a silent parent-cwd inherit. A relative value resolves against the parent
-    // invocation's effective cwd (`ctx.cwd`, the exact value the default launch
-    // bind forwards), which composes across nesting because a child's `ctx.cwd`
-    // IS its spawn cwd. `path.resolve` is also the Windows separator-spelling
-    // normalisation (the bug 0467 class): both spellings of one directory
-    // converge on the host-native resolved form, which is the spelling the spawn
-    // option wants (diagnostic rendering's POSIX spelling is a separate concern
-    // and is not applied here). This guard is THIS hop's own, pre-spawn,
-    // boundary-minted (bug 0294 provenance).
-    let resolvedCwd: string | undefined;
-    if (rawCwd !== undefined) {
-      if (typeof rawCwd !== "string" || rawCwd === "") {
-        const error: InvokeInfraError = {
-          kind: "invoke_infra",
-          message:
-            typeof rawCwd !== "string"
-              ? `invoke callee '${calleePath}' with-clause cwd is not a string`
-              : `invoke callee '${calleePath}' with-clause cwd is empty`,
-          callee_path: calleePath,
-          cause: "validation",
-        };
-        return {
-          source: "boundary-minted",
-          result: makeErr(error as unknown as ThetaValue),
-        };
-      }
-      resolvedCwd = resolvePath(ctx.cwd, rawCwd);
-    }
+    const { resolvedCwd } = argGuard;
 
     const escape = await this.#recheckCalleeContainment(theta, calleePath);
     if (escape !== undefined) {
@@ -5208,30 +5236,11 @@ class ProductionThetaProducer implements ThetaProducerDeps {
       // (bug 0294 provenance).
       return { source: "boundary-minted", result: makeErr(escape as unknown as ThetaValue) };
     }
-    // Bug 0293 (queryerror-variants.md:182-183): the verdict discriminates the
-    // spec's `load_failure` (callee unreadable / un-loadable) from `parse_failure`
-    // (callee failed to parse) — `internal_error` stays reserved for the
-    // runtime-defect surface (error-model.md §Runtime-panics) and is never minted
-    // here. `undefined` (seam absent, or a non-production stub) defaults to
-    // `load_failure`, preserving the pre-0293 unit-harness behaviour.
-    const parsed = await this.#input.parseCallee?.(theta.sourcePath, calleePath);
-    if (parsed === undefined || parsed.kind !== "ok") {
-      const cause: InvokeInfraCause = parsed?.kind === "unparseable" ? "parse_failure" : "load_failure";
-      const message =
-        parsed?.kind === "unparseable"
-          ? `invoke callee '${calleePath}' failed to parse`
-          : `invoke callee '${calleePath}' could not be loaded`;
-      const error: InvokeInfraError = {
-        kind: "invoke_infra",
-        message,
-        callee_path: calleePath,
-        cause,
-      };
-      // A load / parse failure is THIS hop's own guard — the callee's own code
-      // never ran (bug 0294 provenance).
-      return { source: "boundary-minted", result: makeErr(error as unknown as ThetaValue) };
+    const parseOutcome = await this.#parseCalleeOrErr(theta, calleePath);
+    if ("source" in parseOutcome) {
+      return parseOutcome;
     }
-    const callee = parsed.input;
+    const { callee } = parseOutcome;
     // RFC 0009 INV-8 runtime arm: a clause whose callee was NOT statically
     // resolvable and turns out prompt-mode at runtime refuses here — the same
     // `"validation"` arm the clause's input-shape violations use, minting no new
@@ -5252,6 +5261,39 @@ class ProductionThetaProducer implements ThetaProducerDeps {
       };
     }
     return { callee, resolvedCwd };
+  }
+
+  /**
+   * Load and parse the invoke callee, classifying a failure per bug 0293
+   * (queryerror-variants.md:182-183): the verdict discriminates the spec's
+   * `load_failure` (callee unreadable / un-loadable) from `parse_failure`
+   * (callee failed to parse) — `internal_error` stays reserved for the
+   * runtime-defect surface (error-model.md §Runtime-panics) and is never minted
+   * here. `undefined` (seam absent, or a non-production stub) defaults to
+   * `load_failure`, preserving the pre-0293 unit-harness behaviour.
+   */
+  async #parseCalleeOrErr(
+    theta: ConversationBindInput["theta"],
+    calleePath: string,
+  ): Promise<DrivenInvokeResult | { callee: ConversationBindInput["theta"] }> {
+    const parsed = await this.#input.parseCallee?.(theta.sourcePath, calleePath);
+    if (parsed === undefined || parsed.kind !== "ok") {
+      const cause: InvokeInfraCause = parsed?.kind === "unparseable" ? "parse_failure" : "load_failure";
+      const message =
+        parsed?.kind === "unparseable"
+          ? `invoke callee '${calleePath}' failed to parse`
+          : `invoke callee '${calleePath}' could not be loaded`;
+      const error: InvokeInfraError = {
+        kind: "invoke_infra",
+        message,
+        callee_path: calleePath,
+        cause,
+      };
+      // A load / parse failure is THIS hop's own guard — the callee's own code
+      // never ran (bug 0294 provenance).
+      return { source: "boundary-minted", result: makeErr(error as unknown as ThetaValue) };
+    }
+    return { callee: parsed.input };
   }
 
   /** Bind positional callee params, recovering declared defaults only for omitted slots. */
@@ -5540,941 +5582,153 @@ class ProductionThetaProducer implements ThetaProducerDeps {
   }
 }
 
-/** Project a prompt invocation's terminal outcome onto its PIC-53 surface. */
-function promptModeSurface(readMessages: () => readonly Message[]): BodyExecutingConversationBinding["surface"] {
-      // PIC-53: the prompt-mode return value is the trailing turn's accumulated
-      // assistant text of the driven user session on the SUCCESS path. A failed
-      // run surfaces its real terminal outcome (mirroring the subagent surface):
-      // a `?`-propagated `Err` carries its `QueryError` payload so the
-      // slash-dispatch boundary (SLSH-3) can emit the top-level err note, and
-      // any other fail / cancel surfaces the terminal cancellation `Err` — never
-      // a masking `Ok`. Without this a failed prompt theta was indistinguishable
-      // from a successful one and the SLSH-3 note was never emitted.
-      return (execution: BodyExecution): ResultValue => {
-        if (execution.outcome === "success") {
-          return makeOk(extractTrailingTurnText(readMessages()));
-        }
-        // A `fail` outcome carries the terminating `Err` — a `?`-propagation OR
-        // an unhandled non-cancel effect-`Err` in tail position (ERR-19, e.g. a
-        // `tool_loop_exhausted` breach). Project that real error so the caller
-        // reads the true leaf kind; NEVER fabricate a `cancelled` for a fail
-        // (STL-6). Only a genuine `cancel` outcome (an aborted checkpoint)
-        // yields `CancelledError`.
-        if (execution.outcome === "fail") {
-          return makeErr(execution.error ?? (makeCancelledError() as unknown as ThetaValue));
-        }
-        return makeErr(makeCancelledError() as unknown as ThetaValue);
+/**
+ * Run the invoke boundary's caller-side argument guards, in order:
+ *
+ * Ceiling #4 (hard-ceilings/ceilings-3-and-4.md#ceiling-4-table, the
+ * `params` / `invoke(...)` row; CIO-3 depth-walk-before-AJV): enforce the
+ * JSON-document depth-≤5 cap at the runtime `invoke(...)` `params` argument
+ * boundary. Each positional arg is a JSON document in its own right, so the
+ * walk runs per-arg (a legitimate depth-5 arg stays valid; walking a wrapper
+ * object would false-trip it); a depth-6+ arg surfaces to the invoke parent
+ * as `Err(InvokeInfraError { cause: "validation" })` — distinct from ceiling
+ * #1 chain-depth. Runs before the containment re-check / callee load so a
+ * caller-side depth breach is reported regardless of callee state. This
+ * ceiling refusal is THIS hop's own guard on the caller-supplied argument —
+ * the callee never ran (bug 0294 provenance).
+ *
+ * RFC 0009 INV-6 (invocation.md `#options-surface`): validate and resolve the
+ * call-site `cwd` before any dispatch work. An empty string and a non-string
+ * are authoring bugs — `Err(InvokeInfraError { cause: "validation" })`, never
+ * a silent parent-cwd inherit. A relative value resolves against the parent
+ * invocation's effective cwd (`ctx.cwd`, the exact value the default launch
+ * bind forwards), which composes across nesting because a child's `ctx.cwd`
+ * IS its spawn cwd. `path.resolve` is also the Windows separator-spelling
+ * normalisation (the bug 0467 class): both spellings of one directory
+ * converge on the host-native resolved form, which is the spelling the spawn
+ * option wants (diagnostic rendering's POSIX spelling is a separate concern
+ * and is not applied here). This guard is THIS hop's own, pre-spawn,
+ * boundary-minted (bug 0294 provenance).
+ */
+function invokeBoundaryArgGuards(
+  calleePath: string,
+  argValues: readonly ThetaValue[],
+  ctx: ExtensionCommandContext,
+  rawCwd: ThetaValue | undefined,
+): DrivenInvokeResult | { resolvedCwd: string | undefined } {
+  for (const argValue of argValues) {
+    const breach = enforceInvokeParamsDepth(calleePath, argValue);
+    if (breach !== undefined) {
+      return { source: "boundary-minted", result: breach.result };
+    }
+  }
+
+  let resolvedCwd: string | undefined;
+  if (rawCwd !== undefined) {
+    if (typeof rawCwd !== "string" || rawCwd === "") {
+      const error: InvokeInfraError = {
+        kind: "invoke_infra",
+        message:
+          typeof rawCwd !== "string"
+            ? `invoke callee '${calleePath}' with-clause cwd is not a string`
+            : `invoke callee '${calleePath}' with-clause cwd is empty`,
+        callee_path: calleePath,
+        cause: "validation",
       };
-}
-
-/** Build the launched child's drive/provenance closures and idempotent teardown. */
-function buildSubagentDriveBinding({
-  child, thetaAbort, theta, emitDiagnostic, detachChildTap, placementLease,
-  paramsCleanup, cancellation, ticket, root, finishInvocation,
-}: {
-  child: Parameters<typeof driveSubagentChild>[0]["child"];
-  thetaAbort: AbortController;
-  theta: ConversationBindInput["theta"];
-  emitDiagnostic: (diagnostic: Diagnostic) => void;
-  detachChildTap: (() => void) | undefined;
-  placementLease: PlacementLease;
-  paramsCleanup: () => void;
-  cancellation: ReturnType<typeof attachSubagentCancellation>;
-  ticket: ActiveInvocationTicket;
-  root: RuntimeRoot;
-  finishInvocation: () => void;
-}): ConversationBinding {
-    /**
-     * PIC-59. Await the child's `theta_result` envelope (stray-line tolerant) and
-     * map `ok`/`err` to the invocation `Result`. A child that exits WITHOUT an
-     * envelope maps fail-closed to Err(InvokeInfraError{cause:"internal_error"}).
-     * The file-callee slash/invoke drive seam calls this INSTEAD of executing the
-     * body in-process (the whole callee body ran in the child).
-     */
-    // Bug 0342 §Fix (D3 carriage): the subagent leg's per-position
-    // declaring-enum tags, parsed off the envelope's OPTIONAL `enum_tags`
-    // sidecar on the Ok path. Captured in this closure so the returned
-    // binding's `forwardedEnumTags` can hand them to the invoke-return retag
-    // once `drive()` has actually run; `undefined` until then, and whenever
-    // the envelope carried no sidecar (an enum-free return, or an
-    // envelope-version predating it).
-    let forwardedEnumTagsHolder: readonly EnumTagEntry[] | undefined;
-    // Bug 0294 provenance sidecar (mirrors `forwardedEnumTagsHolder`'s
-    // holder/accessor pattern): an `Ok` settle is always the callee's own
-    // return; an `err` settle carries the envelope-consumption seam's own
-    // `source` tag (`SubagentInvocationResult`'s err arm), which `#driveCallee`
-    // reads via `driveSource()` to source-tag the subagent leg's body outcome.
-    let lastDriveSource: InvokeResultSource = "callee-returned";
-    // RFC 0012 §10: the `fn_tail` marker of the last settled envelope (a
-    // `subagent fn` child's `Result`-valued tail), same holder pattern.
-    let lastFnTail: FnTail | undefined;
-    const drive = async (): Promise<ResultValue> => {
-      const result: SubagentInvocationResult = await driveSubagentChild({
-        child,
-        thetaAbort,
-        calleePath: theta.sourcePath ?? theta.slashName,
-        emitDiagnostic,
-      });
-      lastFnTail = result.fnTail;
-      if (result.ok) {
-        forwardedEnumTagsHolder = result.enumTags;
-        lastDriveSource = "callee-returned";
-        return makeOk(result.value as ThetaValue);
-      }
-      lastDriveSource = result.source;
-      return makeErr(result.error as unknown as ThetaValue);
-    };
-
-    // PIC-65 / PIC-66 child-process teardown. Runs on EVERY exit of the drive
-    // seam's `finally`. Bounded-awaits child exit (already settled on the normal
-    // path — the child self-exits after its envelope) and kills on timeout
-    // (process-tree kill on Windows); detaches the one-shot cancellation listener; deletes any
-    // `PI_THETA_PARAMS_FILE` temp file (PIC-60 backstop). Idempotent; a no-op
-    // when no child was launched (the `subagent fn` in-process path).
-    let toreDown = false;
-    const teardown = async (): Promise<void> => {
-      if (toreDown) return;
-      toreDown = true;
-      // EXST-5: detach the activity tap before the child teardown runs
-      // (idempotent — a Set delete after close is a no-op).
-      detachChildTap?.();
-      // RFC 0012 §6: free this launch's visible slot for the next launch.
-      placementLease.release();
-      // PIC-60 backstop: delete the params temp file regardless of launch outcome.
-      try {
-        paramsCleanup();
-      } catch (cleanupError: unknown) { // allow-broad-catch: PIC-60 temp-file backstop — pi-integration-contract/subagent.md
-        void cleanupError;
-      }
-      await runSubagentChildTeardown(child, {
-        emitDiagnostic,
-        detachAbortListener: cancellation.detach,
-        settleDisposeBarrier: ticket.settleDisposeBarrier,
-        clock: root.clock,
-      });
-    };
-
-    return {
-      drivenAgainst: "subagent-private-session",
-      drive,
-      // Bug 0342 §Fix: hands the subagent leg's per-position declaring-enum
-      // tags (captured by `drive()`, above) to `#validateInvokeReturn`'s
-      // invoke-return retag. Undefined until `drive()` has settled an `Ok`
-      // whose envelope carried the sidecar.
-      forwardedEnumTags: (): readonly EnumTagEntry[] | undefined => forwardedEnumTagsHolder,
-      // Bug 0294: exposes `lastDriveSource` (set by `drive()`, above) so
-      // `#driveCallee` can source-tag the subagent leg's body outcome for the
-      // XMODE-1 wrap without re-deriving it from the settled `Result`'s `kind`.
-      driveSource: (): InvokeResultSource => lastDriveSource,
-      // RFC 0012 §10: the `fn_tail` marker for `#resolveSubagentFnChild`'s
-      // FN-6 projection; `undefined` on every `.theta` callee envelope.
-      driveFnTail: (): FnTail | undefined => lastFnTail,
-      teardown,
-      finishInvocation,
-    };
+      return {
+        source: "boundary-minted",
+        result: makeErr(error as unknown as ThetaValue),
+      };
+    }
+    resolvedCwd = resolvePath(ctx.cwd, rawCwd);
+  }
+  return { resolvedCwd };
 }
 
 /**
- * FN-5 (invocation.md §Final-value propagation across callees): project an
- * `invoke` callee body's terminal execution onto the `Result` value that crosses
- * the invoke boundary. Shared by the subagent spawn path and the prompt→prompt
- * attach path — a callee's final value crosses the boundary identically in
- * either mode (the prompt callee's user-visible turns stream into the shared
- * session, but the value that flows BACK is still the body's final value, not
- * the PIC-53 trailing-turn text of a top-level prompt dispatch).
+ * Bind a runtime tool's positional args against its signature and run the
+ * §5.4 runtime argument net.
  *
- * On success the produced value flows as `Ok`, with the CONV-6 / FN-3 implicit
- * wrap applied ONLY to a non-`Result` operand (a `Result`-typed tail passes
- * through unchanged so `invoke<T>` return validation sees `T`, not `Ok(T)`, and
- * a tail `Err(e)` is not masked as success). A `fail` outcome carries the
- * terminating `Err` (a `?`-propagation or an unhandled non-cancel effect-`Err`
- * in tail position, ERR-19) so the parent's XMODE-1 wrap reads the true leaf
- * kind rather than a fabricated `cancelled` (STL-6); only a genuine `cancel`
- * yields `CancelledError`.
- */
-function surfaceCalleeFinalValue(execution: BodyExecution): ResultValue {
-  if (execution.outcome === "success") {
-    const value = execution.result.value ?? null;
-    return isResultValue(value) ? value : makeOk(value);
-  }
-  if (execution.outcome === "fail") {
-    return makeErr(execution.error ?? (makeCancelledError() as unknown as ThetaValue));
-  }
-  return makeErr(makeCancelledError() as unknown as ThetaValue);
-}
-
-/**
- * RFC 0001 FN-7/FN-9: resolve a `subagent fn`'s spawned-session callable set.
- * With no `with { tools }` override the spawned session INHERITS the calling
- * theta's full frozen callable set. A `with { tools: […] }` override resolves
- * against the CALLING theta's callable set (FN-9): the spawned set is the named
- * SUBSET of the calling theta's entries (matched by presented name or, for a Pi
- * tool, its underlying tool name) — a name absent from the calling set simply
- * does not appear, and the code-driven `<name>(args)` path re-resolves
- * independently, so no name is widened here.
- */
-function subagentFnCallableSet(
-  callingSet: ConversationBindInput["theta"]["callableSet"],
-  config: SubagentSessionConfig,
-): ConversationBindInput["theta"]["callableSet"] {
-  if (callingSet === undefined || config.toolsOverridden !== true) {
-    return callingSet;
-  }
-  const wanted = new Set(config.tools ?? []);
-  const entries = new Map<string, ResolvedCallable>();
-  for (const [name, entry] of callingSet.entries) {
-    const underlying =
-      entry.kind === "pi-tool"
-        ? (entry.toolDefinition as PiToolDispatch).toolName
-        : undefined;
-    if (wanted.has(name) || (underlying !== undefined && wanted.has(underlying))) {
-      entries.set(name, entry);
-    }
-  }
-  return Object.freeze({ entries });
-}
-
-/**
- * QTL-4. The underlying Pi-tool names in the theta's frozen `tools:` callable set
- * — the host tool each `pi-tool` entry dispatches to (an `as`-rename entry
- * carries the underlying tool's own registered name, which is what the model's
- * active-tool set must reference). A theta with no snapshot (an in-memory
- * fixture) or no Pi tools yields `[]`, so the prompt-mode active set stays empty
- * and no ambient tool is installed.
- */
-function callableSetPiToolNames(
-  theta: ConversationBindInput["theta"],
-): readonly string[] {
-  const set = theta.callableSet;
-  if (set === undefined) {
-    return [];
-  }
-  const names: string[] = [];
-  for (const entry of set.entries.values()) {
-    if (entry.kind === "pi-tool") {
-      names.push((entry.toolDefinition as PiToolDispatch).toolName);
-    }
-  }
-  return names;
-}
-
-/** SUBAG-2: the model-facing text/`isError` pair a `.theta` model call lowers to. */
-export interface LoweredThetaCallableResult {
-  readonly text: string;
-  readonly isError: boolean;
-}
-
-/**
- * SUBAG-2: the `.theta`-callable entries in the theta's frozen `tools:` callable
- * set — each carrying its presented (post-`as` / post-hyphen→underscore)
- * callable name and the resolved callee `.theta` path (relative to the caller's
- * directory) read from the frozen entry's `calleePath` (Gap-2: the load-time
- * resolver recorded it from the `tools:` `spec`, so renamed / hyphenated callees
- * carry their real path). Mirrors `callableSetPiToolNames`; the callee schema /
- * param order / description are resolved asynchronously at spawn time via
- * `parseCallee` (the frozen entry carries the callee's `mode` and `calleePath`
- * only; the parsed callee itself is not held on the snapshot). A theta with no
- * snapshot yields `[]`.
- */
-function callableSetThetaEntries(
-  theta: ConversationBindInput["theta"],
-): readonly {
-  readonly presentedName: string;
-  readonly calleePath: string;
-  readonly closureHash?: string;
-}[] {
-  const set = theta.callableSet;
-  if (set === undefined) {
-    return [];
-  }
-  const entries: {
-    readonly presentedName: string;
-    readonly calleePath: string;
-    readonly closureHash?: string;
-  }[] = [];
-  for (const [presentedName, entry] of set.entries) {
-    if (entry.kind !== "theta") {
-      continue;
-    }
-    // Gap-2: read the authoritative callee path the load-time resolver recorded
-    // on the frozen entry (from the `tools:` `spec`), NOT a basename
-    // re-derivation — so renamed / hyphenated callees are presented + dispatchable.
-    // #subagent-theta-callable-hash: carry the LOAD-TIME closure hash the
-    // resolution snapshot captured, so the launch marshals the stored value.
-    entries.push({
-      presentedName,
-      calleePath: entry.calleePath,
-      ...(entry.closureHash !== undefined ? { closureHash: entry.closureHash } : {}),
-    });
-  }
-  return entries;
-}
-
-/**
- * SUBAG-2: lower a `.theta`-callable's returned `Result` (FN-5) to the
- * model-facing tool-result text / `isError` pair. `Ok(string)` surfaces the
- * string verbatim; `Ok(<other>)` its JSON form; an `Err` surfaces
- * `isError: true` carrying the error's `message` (or its JSON form) so the model
- * observes the failure and the loop continues — the same disposition a failing
- * Pi-tool sibling receives (tool-calls.md §Concurrency).
- */
-function lowerThetaCallableModelResult(result: ResultValue): LoweredThetaCallableResult {
-  if (result.ok) {
-    const value = result.value ?? null;
-    return {
-      text: typeof value === "string" ? value : JSON.stringify(value),
-      isError: false,
-    };
-  }
-  const error = result.error as unknown;
-  const message = (error as { readonly message?: unknown }).message;
-  return {
-    text: typeof message === "string" ? message : JSON.stringify(error),
-    isError: true,
-  };
-}
-
-/**
- * The callable-set entry (a `./x.theta` path) that a call name resolves to, or
- * `undefined` when the name binds to no `.theta`-callable (so it is a Pi tool).
+ * Default binding: an absent optional arg binds the signature’s default.
+ * compact’s single param has `hasDefault: true` → default "".
  *
- * Gap-2: resolve the callee path from the FROZEN callable-set snapshot keyed by
- * the presented (post-`as` / post-hyphen→underscore) name, using the
- * `calleePath` the load-time resolver (`resolveCallableSet`) recorded from the
- * entry's `spec`. This replaces the previous basename string-match against
- * `frontmatter.tools`, which dropped renamed (`./c.theta as foo`) and hyphenated
- * (`./my-tool.theta` → `my_tool`) callees — silently omitting them from BOTH the
- * code-driven `<name>(args)` path and the model-driven adapter.
- *
- * A theta carrying NO snapshot (an in-memory harness fixture built with
- * `frontmatter.tools` but no `callableSet`) falls back to matching
- * `frontmatter.tools` by the resolver's own `thetaDefaultName`, the shared
- * derivation `presentedCallableNames` uses, so the fallback agrees with the
- * snapshot arm on a hyphenated stem (bug 0253). This is the same
- * snapshot-absent fallback pattern `#resolvePiToolForTheta` uses. Production
- * discovered thetas always carry a (possibly empty) snapshot, so the fallback
- * never serves a real theta and thus cannot re-open the Gap-2 hole for
- * production (renamed / hyphenated resolve from the snapshot).
+ * §5.4 runtime argument net: every bound arg must be a string (the one
+ * theta 1.x param type). A non-string bound value → the pinned validation
+ * Err, pre-dispatch, no host call — returned as the `violation` refusal
+ * record.
  */
-function thetaCalleePath(
-  theta: ConversationBindInput["theta"],
-  calleeName: string,
-): string | undefined {
-  const set = theta.callableSet;
-  if (set !== undefined) {
-    const entry = set.entries.get(calleeName);
-    return entry !== undefined && entry.kind === "theta" ? entry.calleePath : undefined;
-  }
-  const tools = theta.frontmatter.tools ?? [];
-  return tools.find(
-    (entry) => entry.endsWith(".theta") && thetaDefaultName(entry) === calleeName,
-  );
-}
-
-/**
- * Lower a code-side `<name>(args)` call's arguments to the JSON params object the
- * host tool's `execute(...)` receives (V14g). The call convention is a single
- * object-literal argument (`grep({ pattern, path })`): its fields are evaluated
- * against the environment and become the JSON params object. A callee that a
- * local binding shadows is an internal defect (bug 0016,
- * docs/bugs/0016-shadowed-tool-name-runtime-dispatch.md): the parse gate
- * (`theta/parse/shadowed-callable-call`) rejects that call site, so lowering
- * (and then dispatching) would execute a callable the site does not lexically
- * denote — the guard mirrors the executor's `preEvaluateToolArgs` seam so the
- * 0016 belt, like the 0003 belt, exists in BOTH lowerings. A ZERO-argument
- * call lowers to an empty params object; a NON-object first argument is an
- * internal defect (bug 0003,
- * docs/bugs/0003-tool-arg-shape-rule-not-enforced.md): the parse-time shape
- * gate (`theta/parse/tool-arg-not-object-literal`) rejects that form, so
- * lowering it to `{}` here — the pre-0.16.0 behaviour — would silently drop
- * the author's argument object. Throwing keeps any future parse-gate gap loud.
- */
-function lowerToolCallParams(expr: CallExpr, env: LexicalEnvironment): Record<string, unknown> {
-  if (env.localShadowsCallable(expr.callee)) {
-    throw new ShadowedCalleeDispatchDefectError(expr.callee);
-  }
-  const first = expr.args[0];
-  if (first === undefined) {
-    return {};
-  }
-  if (first.kind !== "object") {
-    throw new PiToolArgShapeDefectError(expr.callee);
-  }
-  const params: Record<string, unknown> = {};
-  for (const field of first.fields) {
-    defineRecordField(params, field.name, evaluatePureExpression(field.value, env) as unknown);
-  }
-  return params;
-}
-
-/**
- * The presented (post-`as` / post-hyphen→underscore) callable names of a
- * theta's `tools:` set, for the environment's resolution arm 4 (bug 0016): the
- * frozen snapshot's keys ARE the presented names; a theta carrying NO snapshot
- * (an in-memory harness fixture) falls back to deriving per-entry names from
- * `frontmatter.tools` — the same snapshot-absent fallback pattern
- * `thetaCalleePath` / `#resolvePiToolForTheta` use, so production always takes
- * the snapshot arm. The fallback answers "which entries exist" from the SAME
- * closed grammar `resolveCallableSet` enforces (`parseToolsEntry`) rather than
- * re-tokenising the entry itself, so the two cannot disagree about a malformed
- * entry (bug 0069 §Fix constraint 5): a malformed entry has no presented name
- * and contributes nothing to the returned list, matching the resolver
- * un-registering the theta outright rather than truncating it to a name. A
- * `.theta` entry's default name is the resolver's shared `thetaDefaultName`
- * (`src/parser/callable-set.ts`), so a hyphenated stem presents the same
- * underscored name on both the snapshot and fallback arms (bug 0253).
- */
-function presentedCallableNames(theta: ConversationBindInput["theta"]): readonly string[] {
-  const set = theta.callableSet;
-  if (set !== undefined) {
-    return [...set.entries.keys()];
-  }
-  const names: string[] = [];
-  for (const entry of theta.frontmatter.tools ?? []) {
-    const parsed = parseToolsEntry(entry.trim());
-    if (parsed.kind !== "ok") {
-      continue;
-    }
-    if (parsed.rename !== undefined) {
-      names.push(parsed.rename);
-      continue;
-    }
-    names.push(
-      /^[A-Za-z_][A-Za-z0-9_]*$/.test(parsed.spec) ? parsed.spec : thetaDefaultName(parsed.spec),
-    );
-  }
-  return names;
-}
-
-/**
- * Build the executor's root environment for a body, binding any invoke-supplied
- * positional args onto the callee's declared params as `params:`-field local
- * slots (V15k final value / arg binding) so the body can read them and the
- * bug-0016 dispatch belt sees them across `fn` activation boundaries exactly
- * as the parse gate does (rootLocals are visible in every plain-`fn` body).
- * The theta's presented
- * callable names populate the environment's arm-4 callable registry (bug
- * 0016): the `localShadowsCallable` dispatch guard needs callable-set
- * membership to fire only where the parse gate
- * (`theta/parse/shadowed-callable-call`) fires — with the registry empty the
- * belt would be inert in production. `resolve()`'s behaviour is otherwise
- * unchanged: every consumer branches only on the "local"/"fn"/"import" arms,
- * treating "callable" and "unresolved" identically.
- */
-function buildBoundEnvironment(
-  body: ThetaBody,
-  paramBindings: ReadonlyMap<string, ThetaValue> | undefined,
-  imports: readonly MaterializedImport[] | undefined,
-  callableNames: readonly string[],
-  resolvedPath: string | undefined,
-): LexicalEnvironment {
-  // Register top-level `enum` declarations (with their captured variant names
-  // and any explicit `= "..."` wire values) so `Enum.Variant` access resolves
-  // to a first-class enum value — carrying the correct wire form — rather than
-  // panicking on a member access against an unresolved name.
-  const enums: EnumRegistration[] = [];
-  for (const stmt of body.statements) {
-    if (stmt.kind === "enum" && stmt.variants !== undefined) {
-      enums.push({
-        name: stmt.name,
-        variants: stmt.variants,
-        ...(stmt.variantValues !== undefined ? { values: stmt.variantValues } : {}),
-        ...(resolvedPath !== undefined
-          ? { declaringKey: enumDeclaringKey(resolvedPath, stmt.name) }
-          : {}),
-      });
-    }
-  }
-  const env = buildEnvironment({
-    body,
-    enums,
-    callables: callableNames,
-    ...(imports !== undefined ? { imports } : {}),
-  });
-  if (paramBindings !== undefined) {
-    for (const [name, value] of paramBindings) {
-      // `params:` fields go through the marking entry point (bug 0016): the
-      // parse gate treats them as in scope inside every plain-`fn` body, so
-      // `localShadowsCallable` must see them across an activation boundary —
-      // a plain `defineLocal` here would leave the dispatch belt blind to a
-      // params-shadowed callee inside an `fn` body.
-      env.defineParamsFieldLocal(name, value);
-    }
-  }
-  return env;
-}
-
-/**
- * SUBAG-2 model-callable `.theta`: the injected drive + setup-throw + param-order
- * collaborators the model-driven `.theta` adapter core dispatches through.
- * Extracted so the model-driven `.theta` seam (arg-mapping declaration order,
- * ceiling-#4 depth block, `Result` lowering, setup-throw translation,
- * re-entrancy) is deterministically testable against scripted collaborators.
- */
-export interface ModelDrivenThetaCall {
-  /** The callee's declared `params:` wire names, in DECLARATION ORDER. */
-  readonly paramOrder: readonly string[];
-  /**
-   * Drive the callee (equivalent to `#driveCallee` bound to the caller theta /
-   * ctx / chain) over the positional `argValues` mapped from the model's object
-   * arguments, returning the callee's top-level `Result` (FN-5).
-   */
-  readonly driveCallee: (
-    argValues: readonly (ThetaValue | undefined)[],
-    toolSignal: AbortSignal,
-  ) => Promise<ResultValue>;
-  /**
-   * Translate a non-`HostFatal` pre-eval setup / body throw into the model-facing
-   * `{ text, isError: true }` pair, emitting the paired
-   * `theta/runtime/internal-error` diagnostic + `theta-system-note` as a side
-   * effect (tool-calls.md:30). A `HostFatal` is NEVER passed here — the core
-   * re-raises it (NOCEIL-3) before calling.
-   */
-  readonly onSetupThrow: (thrown: unknown) => LoweredThetaCallableResult;
-}
-
-/**
- * SUBAG-2 model-callable `.theta` (tool-calls.md §"Argument shape" / §Concurrency;
- * ceiling #4 model-driven row). Lower ONE model-driven `.theta`-callable
- * `tool_use` call to the model-facing text / `isError` pair, in order:
- *
- *   - CEILING #4 (ceilings-3-and-4.md#ceiling-4-table, model-driven row; CIO-3):
- *     the theta-owned depth walk runs over the MODEL-produced `args` document
- *     BEFORE the callee spawns — a depth-6+ argument is fed back as an `isError`
- *     result and the callee never spawns (identical to `lowerModelDrivenToolCall`
- *     for the Pi-tool arm; `#driveCallee`'s own per-arg `enforceInvokeParamsDepth`
- *     is the separate code-path net);
- *   - the model's object arguments are bound to positional `argValues` in the
- *     callee's `params:` DECLARATION ORDER (the SAME binding a code-side
- *     `<name>(args)` / `invoke(...)` uses) and the callee is driven;
- *   - a clean `Result` lowers via `lowerThetaCallableModelResult` (Ok → text;
- *     Err → `isError`);
- *   - a non-`HostFatal` setup / body throw routes through `onSetupThrow`
- *     (tool-calls.md:30); a `HostFatal` re-raises (NOCEIL-3).
- *
- * Re-entrant: it holds no state; two concurrent calls dispatch through their own
- * `spec.driveCallee`, which spawns an independent `AgentSession` each
- * (tool-calls.md §Concurrency).
- */
-export async function lowerModelDrivenThetaCall(
-  args: Record<string, unknown>,
-  spec: ModelDrivenThetaCall,
-  toolSignal: AbortSignal,
-): Promise<LoweredThetaCallableResult> {
-  const argDepthBreach = enforceModelToolArgDepth(args);
-  if (argDepthBreach !== undefined) {
-    return { text: argDepthBreach.message, isError: true };
-  }
-  // Own-key guard distinguishes an explicit JSON `null` from the model (an own
-  // key → stays `null`, preserved end-to-end, symmetric with the invoke path)
-  // from an omitted key (→ `undefined` → default recovery downstream at
-  // `#driveCallee`); `??` conflates the two, which is bug 0409. `Object.hasOwn`
-  // (not `in`) so an inherited `Object.prototype` member cannot be read as a
-  // present param.
-  const argValues: readonly (ThetaValue | undefined)[] = spec.paramOrder.map((name) =>
-    Object.hasOwn(args, name) ? (args[name] as ThetaValue) : undefined,
-  );
-  try {
-    return lowerThetaCallableModelResult(await spec.driveCallee(argValues, toolSignal));
-  } catch (thrown: unknown) { // allow-broad-catch: theta/runtime/internal-error — `.theta`-adapter pre-eval setup throw (tool-calls.md §"Outcome enumeration")
-    // NOCEIL-3 (hard-ceilings): a host fatal is the ONLY thing that propagates
-    // (fail-fast); every other throw routes to the internal-error framing.
-    if (thrown instanceof HostFatal) {
-      throw thrown;
-    }
-    return spec.onSetupThrow(thrown);
-  }
-}
-
-/**
- * Render one `@`-query to its wire text, appending the typed-query JSON-only
- * instruction for a schema-typed query. Bug 0010: this fused conveyance
- * survives ONLY on the DEGRADED arm (an unlowerable annotation, no respond
- * context) of both drivers — the two-phase paths open with the bare rendered
- * template and convey the shape via the respond tool + QRY-15 template
- * instead. The degraded conveyance falls back to the annotation text because
- * the schema did not lower.
- *
- * WHY "JSON value" and not "JSON object" (bug 0028 §Fix): a declared `enum`
- * annotation lowers to a non-object root (schema-subset.md:80 —
- * `{ "type": "string", "enum": […] }`), and type-system.md:15 applies the
- * same type grammar to every `@<T>` position, so a bare enum at the
- * annotation root is legal. The instruction wording is shape-agnostic so it
- * stays true of a lowered enum or primitive root, not only an object root.
- */
-function renderTypedAwareQueryText(
-  expr: QueryExpr,
-  env: LexicalEnvironment,
-  lowered?: LoweredSchema,
-  chain?: InvokeChain,
-): string {
-  const base = renderQueryText(expr, env, chain);
-  if (expr.schema === null) {
-    return base;
-  }
-  const shape = lowered !== undefined ? JSON.stringify(lowered) : expr.schema;
-  return (
-    `${base}\n\nRespond with ONLY a single minified JSON value matching this JSON ` +
-    `schema, and nothing else — no prose, no markdown, no code fences: ${shape}`
-  );
-}
-
-/** The theta body's `schema` declarations, for whole-file named-type resolution. */
-function schemaDeclsOf(body: ThetaBody): SchemaDecl[] {
-  return body.statements.filter((stmt): stmt is SchemaDecl => stmt.kind === "schema");
-}
-
-/**
- * The theta body's SAME-FILE `enum` declarations (bug 0028 §Fix:
- * `schemaDeclsOf`'s enum sibling). Both `lowerQueryResponseSchema` call sites
- * pass `mergedEnumDeclsOf` / `mergedSchemaDeclsOf` (bug 0465), which merge
- * these same-file decls with the theta's imported ones; `enumDeclsOf` /
- * `schemaDeclsOf` supply the same-file half so a declared `enum` annotation
- * (`@<Severity>`) resolves at the typed-query / `invoke<T>` lowering exactly
- * as it does on the `params:` path.
- */
-function enumDeclsOf(body: ThetaBody): EnumDecl[] {
-  return body.statements.filter((stmt): stmt is EnumDecl => stmt.kind === "enum");
-}
-
-/**
- * Bug 0488: the synthesised `__theta_respond_<slug>` tool names for every
- * typed query the session THIS launch spawns will drive — the launch-time
- * input to `SubagentArgvInput.respondToolNames`. A `.theta` callable's
- * `--tools` allowlist must carry these or the ≥0.86 strict allowlist
- * suppresses the child's own mid-session respond-tool registration
- * (docs/bugs/0488-….md).
- *
- * Bodies the driven session executes inline (each contributing its typed
- * queries' respond names):
- *  - `fn` entry — the NAMED `subagent fn`'s own body (an unresolved name
- *    yields no names; the drive path `#driveSubagentFnEntry` reports the
- *    parent/child parse divergence, this function does not speculate about
- *    it), PLUS every SAME-FILE top-level ordinary `fn` body: a sibling
- *    ordinary fn called from the subagent-fn body runs inline in the same
- *    child session and registers its typed queries' respond tools
- *    mid-session, yet it is a statement of the enclosing theta's body — never
- *    of `fn.body` — so `collectSessionTypedQueries(fn.body)` alone misses it.
- *    The enclosing theta's top-level body is NOT added (the fn session does
- *    not drive it — FN-7 symmetry).
- *  - theta entry (the default) — the theta's own body, whose walk already
- *    descends same-file ordinary `fn` bodies and stops at `subagent fn`
- *    boundaries.
- *  - BOTH entries — every imported module's body (`imp.moduleScope.body`):
- *    an imported ordinary `.thetalib` `fn` is inline-callable, and its body
- *    lives only in the import's module scope, never in `theta.body`.
- *    `collectSessionTypedQueries` skips `subagent fn` bodies inside it.
- *
- * Over-collection is SAFE (bug 0488 cell 4: pi ≥0.86 tolerates an allowlist
- * name unknown at startup; the OMP dialect gates all respond names out at the
- * emit site), so this over-approximates rather than tracks reachability.
- *
- * Every schema is lowered against the CALLER theta's merged decls
- * (`mergedSchemaDeclsOf(theta)` / `mergedEnumDeclsOf(theta)`) — parity with
- * the child's actual lowering site: `#driveSubagentFnEntry` binds the body
- * over `configured.theta` (`#applySubagentFnConfig` overrides only frontmatter
- * / callable set, leaving `body`/`imports`/`importedTypeDecls` the caller's),
- * so the child's `#resolvePromptQuery` lowers each query with
- * `mergedSchemaDeclsOf(deps.theta)` = the CALLER theta's decls. Lowering here
- * against any other decl set would mint a name the child never registers.
- * Each lowered schema mints its respond name via the SAME `respondSchemaSlug`
- * + `respondToolName` recipe the drive layer uses (single-source, bug
- * 0099/0488); an unlowerable schema is skipped as the drive layer's degraded
- * arm treats it. Deduped and SORTED for a deterministic argv.
- */
-export function collectLaunchRespondNames(
-  theta: ConversationBindInput["theta"],
-  entry: SubagentLaunchEntry,
-): string[] {
-  const bodies: ThetaBody[] = [];
-  if (entry.kind === "fn") {
-    const lookupEnv = buildBoundEnvironment(
-      theta.body,
-      undefined,
-      theta.imports,
-      presentedCallableNames(theta),
-      theta.sourcePath,
-    );
-    const resolution = lookupEnv.resolve(entry.name);
-    const fn =
-      (resolution.arm === "fn" || resolution.arm === "import") && resolution.fn?.subagent === true
-        ? resolution.fn
-        : undefined;
-    if (fn === undefined) {
-      return [];
-    }
-    bodies.push(fn.body);
-    for (const stmt of theta.body.statements) {
-      if (stmt.kind === "fn" && stmt.subagent !== true) {
-        bodies.push(stmt.body);
-      }
-    }
-  } else {
-    bodies.push(theta.body);
-  }
-  for (const imp of theta.imports ?? []) {
-    if (imp.moduleScope?.body !== undefined) {
-      bodies.push(imp.moduleScope.body);
-    }
-  }
-  const schemaDecls = mergedSchemaDeclsOf(theta);
-  const enumDecls = mergedEnumDeclsOf(theta);
-  const names = new Set<string>();
-  for (const body of bodies) {
-    for (const q of collectSessionTypedQueries(body)) {
-      if (q.schema === null) {
-        continue;
-      }
-      const lowered = lowerQueryResponseSchema(q.schema, schemaDecls, enumDecls);
-      if (lowered === undefined) {
-        continue;
-      }
-      names.add(respondToolName(respondSchemaSlug(lowered)));
-    }
-  }
-  return [...names].sort();
-}
-
-/**
- * Bug 0465 — the merged declaration set `lowerQueryResponseSchema` resolves an
- * annotation against: this theta's OWN `schema` decls, plus every imported
- * schema `checkThetaImports` materialised for it (`theta.importedTypeDecls`,
- * absent for a theta with no top-level `import`, matching `imports`). SAME-FILE
- * WINS a name collision (the existing whole-file rule schema-subset.md already
- * gives a same-file decl over anything else): an imported decl whose name
- * collides with a same-file one is filtered out before the merge, so it is
- * never even offered to `buildBodyTypeSchemas` — not relied on to lose a
- * `.set()` tie-break downstream. Imported decls are listed FIRST only so a
- * same-file decl's later `.set()` write is the one that survives if this
- * filter were ever bypassed; the filter is what actually decides the winner.
- */
-export function mergedSchemaDeclsOf(theta: {
-  readonly body: ThetaBody;
-  readonly importedTypeDecls?: ThetaCompositionInput["importedTypeDecls"];
-}): SchemaDecl[] {
-  const sameFile = schemaDeclsOf(theta.body);
-  const sameFileNames = new Set(sameFile.map((decl) => decl.name));
-  const imported = (theta.importedTypeDecls?.schemas ?? []).filter(
-    (decl) => !sameFileNames.has(decl.name),
-  );
-  return [...imported, ...sameFile];
-}
-
-/** The `enum` sibling of {@link mergedSchemaDeclsOf} — same same-file-wins filter. */
-export function mergedEnumDeclsOf(theta: {
-  readonly body: ThetaBody;
-  readonly importedTypeDecls?: ThetaCompositionInput["importedTypeDecls"];
-}): EnumDecl[] {
-  const sameFile = enumDeclsOf(theta.body);
-  const sameFileNames = new Set(sameFile.map((decl) => decl.name));
-  const imported = (theta.importedTypeDecls?.enums ?? []).filter(
-    (decl) => !sameFileNames.has(decl.name),
-  );
-  return [...imported, ...sameFile];
-}
-
-
-
-/**
- * Render one `@`-query template to its wire text against the lexical
- * environment: lex the template into literal / `${…}` interpolation parts,
- * evaluate each interpolation as a full expression (expressions.md
- * §"Supported forms" — not a dotted-path subset), stringify the resulting
- * runtime value by the QRY-18 rule, and apply the QRY-7 newline-trim → dedent
- * normalisation. An interpolation whose source does not parse, or that has no
- * pure runtime value (an effectful `fn` body / tool-call), yields the inert
- * `null` render — this render's own fallback, not a rule expressions.md states
- * (bug 0116) — rather than a throw; a `Result`-valued interpolation the static
- * type-layer gate could not prove instead aborts the theta with QRY-18's
- * runtime-fallback panic (see `stringifyInterpolation`).
- */
-function renderQueryText(expr: QueryExpr, env: LexicalEnvironment, chain?: InvokeChain): string {
-  const lexed = lexQueryTemplate(expr.template);
-  let text = "";
-  for (const part of lexed.parts) {
-    if (part.kind === "text") {
-      text += part.value;
-      continue;
-    }
-    // Bug 0476 follow-up: `stringifyInterpolation` re-parses `part.exprSource`
-    // standalone (`parseExpressionSource`), so any panic it raises carries an
-    // interpolation-LOCAL coordinate (line 1, column within the `${…}` body),
-    // not a file coordinate. This is the one boundary that knows both that
-    // local coordinate and the enclosing query's own real range (`expr.range`)
-    // — retarget here, then re-throw.
-    try {
-      text += stringifyInterpolation(part.exprSource, env, chain);
-    } catch (thrown) { // allow-broad-catch: ThetaPanic-only, re-raised (bug 0476 follow-up)
-      if (isThetaPanic(thrown)) {
-        retargetInterpolationPanic(thrown, {
-          source: part.exprSource,
-          file: env.currentResidence(),
-          range: expr.range,
-        });
-      }
-      throw thrown;
-    }
-  }
-  return renderTemplateText(text);
-}
-
-/**
- * Evaluate one `${…}` interpolation source and stringify its runtime value by
- * the QRY-18 rule. The source is parsed into the same `Expr` a `let` RHS parses
- * to and evaluated by the shared pure evaluator, so arithmetic, indexing, calls,
- * method calls, ternaries, and `Enum.Variant` access all render their value
- * (EXPR-1/6/7/8, QRY-2/3/4). The `InterpolationType` discriminator is derived
- * from the resulting runtime `ThetaValue` — numbers route through the canonical
- * decimal renderer (so `Infinity`/`NaN` render as `Infinity`/`NaN`, not
- * `null`), an enum renders its bare unquoted wire value, and arrays/objects
- * render as compact JSON. A `Result` value reaching this render is one the
- * static type-layer gate (`src/parser/type-layer-checks.ts`) left unproven: it
- * refuses the load only where the expression's `Result`-ness is certain from its
- * provenance, and defers every other shape — a binding laundered through an
- * unannotated `fn`, a `Result` reached through an operand the inference layer
- * narrows, a `Result` held inside a container. Those shapes arrive here, so this
- * render raises `INTERPOLATED_RESULT_CODE` as a panic (QRY-18's runtime
- * fallback) instead of serialising the interpreter-private carrier (bug 0079).
- */
-function stringifyInterpolation(source: string, env: LexicalEnvironment, chain?: InvokeChain): string {
-  const parsed = parseExpressionSource(source);
-  if (parsed === null) {
-    // An unparseable interpolation has no value; render the inert `null` rather
-    // than throwing out of the render path — this render's own fallback, not a
-    // rule expressions.md states (bug 0116).
-    return "null";
-  }
-  const value = evaluatePureExpression(parsed, env, chain);
-  const type = interpolationTypeOf(value);
-  const reach: NestedResultReach = { found: false };
-  if (type.kind === "object" || type.kind === "array") {
-    // QRY-18: a Schema-typed object / `array<T>` interpolation renders as compact
-    // `JSON.stringify` with wire-name translation applied recursively. The
-    // outbound pass rewrites every renamed field to its wire name at every
-    // nesting level, driven by each object value's declaring-schema brand (with
-    // the declared field type as a fallback for un-branded nested values); theta
-    // code never sees a wire name, and the model never sees a theta-side name.
-    const lowered = translateInterpolationOutbound(value, env, reach);
-    if (!reach.found) {
-      return JSON.stringify(lowered);
-    }
-    // The lowering reached a branded `Result` somewhere inside the container.
-    // Containment does not change QRY-18's disposition (bug 0114): the lowered
-    // tree is discarded unrendered, and the value falls to the `Result` arm
-    // below — the same arm the top-level case already uses.
-  }
-  const rendered = stringifyInterpolatedValue(value, reach.found ? { kind: "result" } : type);
-  if (!rendered.ok) {
-    // QRY-18's runtime fallback (bug 0079, reached at the nested position too
-    // per bug 0114): a `Result` reaching this render — top-level or nested
-    // inside a container, at any depth — is one the static gate left unproven,
-    // so it aborts the theta with the same registered code rather than
-    // rendering the carrier. The sole runtime raise, for both positions.
-    raiseInterpolatedResult(rendered.diagnostic.message);
-  }
-  return rendered.text;
-}
-
-
-/**
- * Whether the outbound lowering (`translateInterpolationOutbound`) reached a
- * branded `Result` anywhere inside the interpolated value. Threaded down the
- * walk as an explicit parameter — no global, no module state — so the reach is
- * exact at whatever depth the lowering itself visits, which is what "no
- * carrier keys at any depth" (bug 0114) requires.
- *
- * No depth cap: this rides the walk `translateInterpolationOutbound` already
- * performs for QRY-18's wire-name translation rather than adding a second
- * traversal, so there is no new depth walk for CIO-3's `MAX_JSON_DEPTH`
- * discipline to bound. A cap here would admit past it the very `Result` this
- * reach exists to catch — the shape of defect bug 0187 documents at a
- * different boundary — trading one leak for another instead of closing this
- * one.
- */
-interface NestedResultReach {
-  found: boolean;
-}
-
-/**
- * Recursively lower an object/array interpolation value to its wire-named JSON
- * form (QRY-18 outbound wire-name translation, runtime-value-model.md §Wire-name
- * translation). Each object-schema value renames its fields theta→wire using the
- * schema resolved from the value's declaring-schema brand (attached at
- * construction) — falling back to the declared field type `typeHint` for a value
- * that carries no brand (e.g. a bare object literal in a schema-typed field).
- * Enum values collapse to their bare wire string; arrays recurse element-wise;
- * primitives pass through. A value whose schema cannot be resolved recurses with
- * its keys unchanged (the safe no-rename default).
- *
- * A branded `Result` reached at any depth records `reach.found` and returns
- * immediately, ahead of schema resolution: `schemaTagOf` never resolves one
- * (it carries `RESULT_TAG`, not `SCHEMA_TAG`), so falling through to the
- * no-rename default would copy its carrier keys straight through unchanged
- * (bug 0114). Classification is `isResultValue` — the non-enumerable brand —
- * never the `{ ok, … }` shape, so an ordinary object whose own declared fields
- * spell `ok` still falls through to that path unchanged (bug 0017).
- */
-function translateInterpolationOutbound(
-  value: ThetaValue,
-  env: LexicalEnvironment,
-  reach: NestedResultReach,
-  typeHint?: string,
-): unknown {
-  if (isEnumValue(value)) {
-    // The enum brand is dropped; the model only ever sees the bare wire string.
-    return String(value);
-  }
-  if (Array.isArray(value)) {
-    const elementHint = typeHint !== undefined ? arrayElementTypeSource(typeHint) : undefined;
-    return value.map((element) => translateInterpolationOutbound(element, env, reach, elementHint));
-  }
-  if (typeof value !== "object" || value === null) {
-    return value;
-  }
-  if (isResultValue(value)) {
-    reach.found = true;
-    return value;
-  }
-
-  // Resolve the declaring schema: the construction-time brand is authoritative;
-  // an un-branded value falls back to the declared field type when that names a
-  // resolvable schema (a bare object literal resolves to neither and recurses
-  // with its keys unchanged).
-  const hintName = typeHint !== undefined ? identifierTypeSource(typeHint) : undefined;
-  const brand = schemaTagOf(value);
-  const schemaName =
-    brand ?? (hintName !== undefined && env.resolveSchema(hintName) !== undefined ? hintName : undefined);
-  const decl = schemaName !== undefined ? env.resolveSchema(schemaName) : undefined;
-  const fields = new Map<string, { readonly wire: string; readonly type: string }>();
-  if (decl?.fields !== undefined) {
-    for (const field of decl.fields) {
-      fields.set(field.name, { wire: field.wireName ?? field.name, type: field.typeSource });
+function bindRuntimeToolArgs(
+  sig: RuntimeToolSignature,
+  argValues: readonly ThetaValue[],
+  presentedName: string,
+): { boundArgs: ThetaValue[] } | { violation: RuntimeToolCall } {
+  const boundArgs: ThetaValue[] = [];
+  for (let i = 0; i < sig.params.length; i++) {
+    if (i < argValues.length) {
+      boundArgs.push(argValues[i] as ThetaValue);
+    } else if (sig.params[i]!.hasDefault) {
+      boundArgs.push("" as ThetaValue);
     }
   }
 
-  // The wire key is as author-controlled as the theta-side name: a rename is
-  // constrained to a non-empty string literal and nothing more (schemas.md:43),
-  // so the inherited-accessor hazard reaches this write too. Defining the key
-  // keeps the QRY-18 render `JSON.stringify` of the value with wire-name
-  // translation applied (query-escapes-stringification.md:27) for every
-  // admitted wire name, the prototype-accessor spelling included.
-  const result: Record<string, unknown> = {};
-  for (const [thetaKey, fieldValue] of Object.entries(value)) {
-    const field = fields.get(thetaKey);
-    const wireKey = field?.wire ?? thetaKey;
-    defineRecordField(result, wireKey, translateInterpolationOutbound(fieldValue, env, reach, field?.type));
+  for (let i = 0; i < boundArgs.length; i++) {
+    if (typeof boundArgs[i] !== "string") {
+      const argViolation = makeErr({
+        kind: "code_tool",
+        message: `argument '${sig.params[i]!.name}' must be a string`,
+        tool_name: presentedName,
+        cause: "validation",
+      } as unknown as ThetaValue);
+      return {
+        violation: {
+          toolName: presentedName,
+          argViolation,
+          dispatch: () => Promise.resolve(argViolation),
+        },
+      };
+    }
   }
-  return result;
+  return { boundArgs };
 }
 
-/** The leading identifier of a type-expression source (`Inner`), else `undefined`. */
-function identifierTypeSource(source: string): string | undefined {
-  const s = source.trim();
-  return /^[A-Za-z_][A-Za-z0-9_]*$/.test(s) ? s : undefined;
-}
-
-/** The element type source of an `array<T>` type-expression source, else `undefined`. */
-function arrayElementTypeSource(source: string): string | undefined {
-  const m = /^array<(.+)>$/.exec(source.trim());
-  return m !== null ? (m[1] as string).trim() : undefined;
+/**
+ * Build the runtime tool's dispatch closure per canonical name. The adapter
+ * Promise is wrapped at construction by `guardToolExecutePromise` (CANCEL-3)
+ * so a late settlement after a theta abort is discarded (CNCL-1..3).
+ */
+function buildRuntimeToolDispatch(
+  canonicalName: RuntimeToolName,
+  hosts: NonNullable<ProductionProducerInput["sessionControlHosts"]>,
+  presentedName: string,
+  boundArgs: readonly ThetaValue[],
+  signal: AbortSignal,
+): () => Promise<ThetaValue> {
+  let dispatchFn: () => Promise<ThetaValue>;
+  switch (canonicalName) {
+    case "compact":
+      dispatchFn = () =>
+        guardToolExecutePromise(
+          executeCompactTool(hosts.ctx, presentedName, boundArgs[0] as string ?? ""),
+          signalGuard(signal),
+          noopSwallowChannels(),
+        );
+      break;
+    case "context_usage":
+      dispatchFn = () =>
+        guardToolExecutePromise(
+          executeContextUsageTool(hosts.ctx, presentedName),
+          signalGuard(signal),
+          noopSwallowChannels(),
+        );
+      break;
+    case "session_name":
+      dispatchFn = () =>
+        guardToolExecutePromise(
+          executeSessionNameTool(hosts.piHandle, presentedName, boundArgs[0] as string),
+          signalGuard(signal),
+          noopSwallowChannels(),
+        );
+      break;
+  }
+  return dispatchFn;
 }
