@@ -112,14 +112,17 @@ describe("bug 0456 — the src/parser/imports.ts line-cites (and the carved-out 
     // Located-by-content == pinned number: fails loudly if imports.ts drifts,
     // guarding every RED cell's re-pin target below.
     const pins: ReadonlyArray<readonly [string, number, (l: string) => boolean, string?]> = [
-      ["checkImportReservedSynthesisedName", 362, (l) => l.startsWith("export function checkImportReservedSynthesisedName")],
-      ["IMPORT_MISSING_FROM_CLAUSE_MESSAGE", 381, (l) => l.startsWith("export const IMPORT_MISSING_FROM_CLAUSE_MESSAGE")],
-      ["checkImportMalformedSpecifierList", 439, (l) => l.startsWith("export function checkImportMalformedSpecifierList")],
-      ["checkImportDanglingAlias", 471, (l) => l.startsWith("export function checkImportDanglingAlias")],
-      ["ImportSpecifier interface", 547, (l) => l.startsWith("export interface ImportSpecifier")],
-      ["ImportSpecifier.local field", 551, (l) => l.trim() === "readonly local: string;"],
-      ["checkImportUnknownSymbols", 575, (l) => l.startsWith("export function checkImportUnknownSymbols")],
-      ["checkImportNameCollisions", 608, (l) => l.startsWith("export function checkImportNameCollisions")],
+      // PTQ-1275 moves the resolver cluster and the cycle detector out of
+      // imports.ts verbatim; the remaining constructs shift up and their
+      // citation anchors follow them (same discipline as the PTQ-1184 note above).
+      ["checkImportReservedSynthesisedName", 205, (l) => l.startsWith("export function checkImportReservedSynthesisedName")],
+      ["IMPORT_MISSING_FROM_CLAUSE_MESSAGE", 224, (l) => l.startsWith("export const IMPORT_MISSING_FROM_CLAUSE_MESSAGE")],
+      ["checkImportMalformedSpecifierList", 282, (l) => l.startsWith("export function checkImportMalformedSpecifierList")],
+      ["checkImportDanglingAlias", 314, (l) => l.startsWith("export function checkImportDanglingAlias")],
+      ["ImportSpecifier interface", 390, (l) => l.startsWith("export interface ImportSpecifier")],
+      ["ImportSpecifier.local field", 394, (l) => l.trim() === "readonly local: string;"],
+      ["checkImportUnknownSymbols", 418, (l) => l.startsWith("export function checkImportUnknownSymbols")],
+      ["checkImportNameCollisions", 451, (l) => l.startsWith("export function checkImportNameCollisions")],
       ["computeThetaLibExports", 61, (l) => l.startsWith("export function computeThetaLibExports"), EXPORTS],
       ["thetalibLocalBindings", 79, (l) => l.startsWith("export function thetalibLocalBindings"), EXPORTS],
       ["computeThetaLibExports contract sentence", 56, (l) => l.includes("Every top-level declaration is auto-exported"), EXPORTS],
@@ -137,9 +140,9 @@ describe("bug 0456 — the src/parser/imports.ts line-cites (and the carved-out 
       [328, "checkImportReservedSynthesisedName", "sep:845 cites line 328"],
       [437, "export function checkImportDanglingAlias", "list:26/755 & sep:28 cite line 437"],
       [302, "export interface ImportSpecifier", "inline:348 cites line 302"],
-      [515, "export function checkImportNameCollisions", "list:815 cites line 515"],
-      [614, "export function computeThetaLibExports", "from:22/473 cite line 614"],
-      [609, "Every top-level declaration is auto-exported", "from:650 assertion message cites line 609"],
+      // The fork's stale lines 515, 614 and 609 now sit past EOF: PTQ-1275's
+      // resolver/cycle extraction shrank imports.ts below them, which is an
+      // even louder form of the same staleness `lineOf` cannot read.
     ];
     for (const [n, symbol, who] of stale) {
       expect(
@@ -151,7 +154,7 @@ describe("bug 0456 — the src/parser/imports.ts line-cites (and the carved-out 
 
   it("cell T2 (GREEN-CONTROL) — current imports.ts symbols sit where bug 0456 re-derived them", () => {
     // Byte-identical control the RED cells lean on; passes now and after the fix.
-    expect(lineOf(IMPORTS, 471).startsWith("export function checkImportDanglingAlias")).toBe(true);
+    expect(lineOf(IMPORTS, 314).startsWith("export function checkImportDanglingAlias")).toBe(true);
     expect(lineOf(EXPORTS, 61).startsWith("export function computeThetaLibExports")).toBe(true);
     expect(lineOf(EXPORTS, 79).startsWith("export function thetalibLocalBindings")).toBe(true);
   });

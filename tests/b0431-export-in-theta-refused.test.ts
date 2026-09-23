@@ -15,7 +15,7 @@ import {
 // §Fix Option 1 (recommended, SETTLED by the operator): refuse the form at a
 // `.theta` top level with a newly minted parse code
 // `theta/parse/export-in-theta` — the inverse of
-// `theta/parse/thetalib-top-level-statement` (src/parser/imports.ts:34), which
+// `theta/parse/thetalib-top-level-statement` (src/parser/imports.ts:33), which
 // keys off the file's `.thetalib` extension and by construction never fires for
 // a `.theta` (src/parser/theta-document.ts:1349). The refusal targets the
 // from-BEARING form only (a non-empty ExportDecl path); the ExportDecl node is
