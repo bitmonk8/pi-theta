@@ -52,6 +52,7 @@ import {
   type ClosureSource,
 } from "../runtime/subagent-callable-hash";
 import {
+  type ChildHashVerifyResult,
   readMarshalledCallableHashes,
   verifyChildCallableHashes,
 } from "../runtime/subagent-child-hash-verify";
@@ -1878,51 +1879,41 @@ function deriveCallableName(sourcePath: string): string {
 }
 
 /**
- * RFC-0005 #subagent-theta-callable-hash child-side verification. Reads the
- * parent-marshalled hashes off the child env, recomputes each marshalled
- * callable's transitive-closure hash from the child-discovered sources, and
- * refuses (drops + emits `theta/runtime/subagent-callable-hash-mismatch`) each
- * callable whose child-recomputed hash does not match — or whose child-side
- * source the child cannot re-resolve (fail-closed). Returns the discovered
- * thetas unchanged when this process is not a subagent child carrying hashes.
+ * A marshalled callable name's child-side alignment: the theta discovered for
+ * that name (to drop on mismatch — `undefined` when the callee was not
+ * separately discovered as a root) and its transitive-closure sources.
  */
-async function refuseDivergedChildCallables(
+interface MarshalledCallableAlignment {
+  readonly theta: ParsedTheta | undefined;
+  readonly sources: readonly ClosureSource[];
+}
+
+/**
+ * {@link refuseDivergedChildCallables}'s alignment pass: maps each
+ * parent-marshalled callable name to a child-discovered theta and its
+ * transitive-closure sources — first through the marked root's frozen
+ * `callableSet` snapshot, then through file-name derivation for any
+ * marshalled name the snapshot pass did not resolve.
+ *
+ * Bug 0330 §Fix: the parent marshals under the PRESENTED name (the frozen
+ * callable-set entry's key, post-`as`/post-hyphen rewrite), so alignment must
+ * resolve through that same key space before ever falling back to file
+ * derivation. The marked root's own `tools:` is the one place the rename
+ * table lives child-side, so this pass reads the root's frozen
+ * `callableSet` snapshot rather than re-deriving names from discovered
+ * basenames. `theta` on the `byName` hit may be `undefined` when the callee
+ * itself was not separately discovered as a root (nothing to drop — bug
+ * 0329's territory, not this pass's).
+ */
+async function alignMarshalledCallables(
   thetas: readonly ParsedTheta[],
   fs: FileSystem,
   ctx: ExtensionContext,
   parseDeps: Parameters<typeof parseThetaDocument>[1],
-  emitDiagnostic: (diagnostic: Diagnostic) => void,
-  regime: RootRegime,
-  // The child env carrier, read through the AUTHENTICATED control-plane view
-  // (the same view the factory's `PI_THETA_SUBAGENT_ROOT` marker read applies)
-  // — so a hash map planted in the ambient environment (a repository `.env` a
-  // host loads, never a real launcher) can neither throw a parse failure out
-  // of the compose pass nor drop discovered callables (subagent.md
-  // #subagent-control-plane-authentication). A real child always
-  // authenticates: its launcher wrote the parent-pid carriage beside the map,
-  // or the launch file carried it (RFC 0012 §2).
-  env: Readonly<Record<string, string | undefined>>,
-): Promise<ParsedTheta[]> {
-  const marshalled = readMarshalledCallableHashes(env);
-  if (marshalled === undefined) {
-    return [...thetas];
-  }
-  // Bug 0330 §Fix: the parent marshals under the PRESENTED name (the frozen
-  // callable-set entry's key, post-`as`/post-hyphen rewrite), so alignment must
-  // resolve through that same key space before ever falling back to file
-  // derivation. The marked root's own `tools:` is the one place the rename
-  // table lives child-side, so this pass reads the root's frozen
-  // `callableSet` snapshot rather than re-deriving names from discovered
-  // basenames. `theta` on the `byName` hit may be `undefined` when the callee
-  // itself was not separately discovered as a root (nothing to drop — bug
-  // 0329's territory, not this pass's).
-  const byName = new Map<
-    string,
-    { readonly theta: ParsedTheta | undefined; readonly sources: readonly ClosureSource[] }
-  >();
-  const markedRoot = regime.active
-    ? thetas.find((theta) => theta.slashName === regime.slug)
-    : undefined;
+  marshalled: ReadonlyMap<string, string>,
+  markedRoot: ParsedTheta | undefined,
+): Promise<Map<string, MarshalledCallableAlignment>> {
+  const byName = new Map<string, MarshalledCallableAlignment>();
   if (markedRoot?.sourcePath !== undefined && markedRoot.callableSet !== undefined) {
     const rootPath = markedRoot.sourcePath;
     // Bug 0329 (0.322.0) coordination note: locate the callee-to-drop by CANONICAL
@@ -1994,13 +1985,22 @@ async function refuseDivergedChildCallables(
     );
     byName.set(name, { theta, sources });
   }
-  const result = verifyChildCallableHashes({
-    env,
-    discovery: (name) => byName.get(name)?.sources,
-  });
-  if (result.refusals.length === 0) {
-    return [...thetas];
-  }
+  return byName;
+}
+
+/**
+ * {@link refuseDivergedChildCallables}'s refusal pass: emits each hash-refusal
+ * diagnostic (attributed to the marked root's own file) and returns the
+ * discovered thetas with every diverged callable — and the marked root itself
+ * (bug 0329 Option A) — dropped.
+ */
+function applyHashRefusals(
+  result: ChildHashVerifyResult,
+  byName: ReadonlyMap<string, MarshalledCallableAlignment>,
+  markedRoot: ParsedTheta | undefined,
+  emitDiagnostic: (diagnostic: Diagnostic) => void,
+  thetas: readonly ParsedTheta[],
+): ParsedTheta[] {
   const dropped = new Set<ParsedTheta>();
   for (const outcome of result.outcomes) {
     if (outcome.verification.ok) {
@@ -2037,6 +2037,50 @@ async function refuseDivergedChildCallables(
     dropped.add(markedRoot);
   }
   return thetas.filter((theta) => !dropped.has(theta));
+}
+
+/**
+ * RFC-0005 #subagent-theta-callable-hash child-side verification. Reads the
+ * parent-marshalled hashes off the child env, recomputes each marshalled
+ * callable's transitive-closure hash from the child-discovered sources, and
+ * refuses (drops + emits `theta/runtime/subagent-callable-hash-mismatch`) each
+ * callable whose child-recomputed hash does not match — or whose child-side
+ * source the child cannot re-resolve (fail-closed). Returns the discovered
+ * thetas unchanged when this process is not a subagent child carrying hashes.
+ */
+async function refuseDivergedChildCallables(
+  thetas: readonly ParsedTheta[],
+  fs: FileSystem,
+  ctx: ExtensionContext,
+  parseDeps: Parameters<typeof parseThetaDocument>[1],
+  emitDiagnostic: (diagnostic: Diagnostic) => void,
+  regime: RootRegime,
+  // The child env carrier, read through the AUTHENTICATED control-plane view
+  // (the same view the factory's `PI_THETA_SUBAGENT_ROOT` marker read applies)
+  // — so a hash map planted in the ambient environment (a repository `.env` a
+  // host loads, never a real launcher) can neither throw a parse failure out
+  // of the compose pass nor drop discovered callables (subagent.md
+  // #subagent-control-plane-authentication). A real child always
+  // authenticates: its launcher wrote the parent-pid carriage beside the map,
+  // or the launch file carried it (RFC 0012 §2).
+  env: Readonly<Record<string, string | undefined>>,
+): Promise<ParsedTheta[]> {
+  const marshalled = readMarshalledCallableHashes(env);
+  if (marshalled === undefined) {
+    return [...thetas];
+  }
+  const markedRoot = regime.active
+    ? thetas.find((theta) => theta.slashName === regime.slug)
+    : undefined;
+  const byName = await alignMarshalledCallables(thetas, fs, ctx, parseDeps, marshalled, markedRoot);
+  const result = verifyChildCallableHashes({
+    env,
+    discovery: (name) => byName.get(name)?.sources,
+  });
+  if (result.refusals.length === 0) {
+    return [...thetas];
+  }
+  return applyHashRefusals(result, byName, markedRoot, emitDiagnostic, thetas);
 }
 
 /**
@@ -3281,6 +3325,276 @@ async function onDiskCalleeName(fs: FileSystem, absolute: string): Promise<strin
 }
 
 /**
+ * The per-entry loop state {@link judgeCalleeToolsEntries} produces for the
+ * stub-resolution / verdict-fold consumer
+ * ({@link resolveCalleeOwnCallableVerdict}) and for
+ * {@link calleeFailsOwnStructuralChecksBody}'s own result shape. Every map is
+ * keyed by the `tools:` spec AS WRITTEN — the same key `resolveThetaCallee`
+ * is later called with.
+ */
+interface CalleeToolsEntryJudgement {
+  readonly readable: ReadonlyMap<string, boolean>;
+  readonly onDiskNames: ReadonlyMap<string, string>;
+  readonly declaredMode: ReadonlyMap<string, ThetaMode>;
+  readonly grandchildFails: ReadonlyMap<string, boolean>;
+  readonly ownEscapes: boolean;
+  readonly consultedVisited: boolean;
+}
+
+/**
+ * {@link calleeFailsOwnStructuralChecksBody}'s per-entry probe / withhold /
+ * recursive-judgement loop: probes each of the callee's OWN `tools:` entries
+ * (bug 0270 pre-resolution + bug 0271 recursive judgement, withholds (a) and
+ * (c)) and returns the loop's state for the stub-resolution / verdict-fold
+ * consumer. See the body's doc-comment below for the full route inventory and
+ * soundness argument.
+ */
+async function judgeCalleeToolsEntries(
+  fs: FileSystem,
+  ctx: ExtensionContext,
+  deps: PassParseDeps,
+  calleeAbsolutePath: string,
+  toolsList: readonly string[],
+  getAllTools: GetAllToolsSnapshot | undefined,
+  activeRoots: readonly string[] | undefined,
+  visited: ReadonlySet<string>,
+  nestedContainment: ReadonlyMap<string, LoadTimeInvokePathResult> | undefined,
+  inProcessToolNames: ReadonlySet<string> | undefined,
+): Promise<CalleeToolsEntryJudgement> {
+  // Bug 0276 §Fix constraint 4: true iff THIS frame took withhold (c) for any
+  // entry, or a recursive child reported it took (or inherited) one — the
+  // taint that gates whether this frame's own verdict may be memoised.
+  let consultedVisited = false;
+
+  // Bug 0270 pre-resolution / bug 0271 recursive judgement, ONE loop, ONE read
+  // per spec: probe each of the callee's OWN `.theta` entries for
+  // existence/readability BEFORE `resolveCallableSet` runs, keyed by the spec
+  // AS WRITTEN — the same key `resolveThetaCallee` below is called with —
+  // resolved against the CALLEE's directory exactly as
+  // `checkNestedToolsContainment` resolves the same callee's entries. A spec
+  // that fails `parseToolsEntry`, is empty, or is a bare Pi-tool name is
+  // skipped exactly like the depth-0 cache loop and `checkNestedToolsContainment`
+  // skip it — it names no `.theta` path, so it is never a candidate for either
+  // map below. The bytes bug 0270's probe reads are the SAME bytes bug 0271's
+  // judgement parses; no second `fs.readBytes` call is made for a spec this
+  // loop already read.
+  const calleeDir = dirname(calleeAbsolutePath);
+  const readable = new Map<string, boolean>();
+  // Bug 0379 byte-match discipline at this recursion depth: the on-disk
+  // basename of each readable nested `.theta` entry, keyed by the spec AS
+  // WRITTEN, so the stub below hands `resolveEntry` the same byte-match target
+  // the primary depth-0 site does. Without it a case-variant nested entry
+  // self-skips the byte-match and registers on a case-insensitive host while a
+  // case-sensitive host refuses — the exact cross-host divergence this fix closes.
+  const onDiskNames = new Map<string, string>();
+  // Bug 0280 §Fix route (a): each readable-and-parsed spec's declared
+  // frontmatter `mode`, keyed exactly as `readable` is (the spec AS
+  // WRITTEN) — the SAME `document` this loop already produces for
+  // `grandchildFails`, no second `fs.readBytes` and no reordering of
+  // read/containment/parse. A spec that escapes containment (withhold (a))
+  // or is unreadable is never entered here, so the stub below keeps its
+  // neutral `mode: "subagent"` default for those — the non-co-fire cell in
+  // `tests/nested-tools-entry-containment.test.ts`: mode is judged from
+  // CONTENT, and content is never reached for a spec containment or
+  // readability already refused.
+  const declaredMode = new Map<string, ThetaMode>();
+  const grandchildFails = new Map<string, boolean>();
+  // Bug 0275 §Fix constraint 1: true iff at least one of THIS frame's own
+  // `tools:` entries was judged `escape` below (withhold (a) taken at THIS
+  // frame). Discarded by the boolean entry point
+  // (`calleeFailsOwnStructuralChecks`) so the entry owner's immediate caller
+  // draws no second row for the entry the relocation already covers; admitted
+  // one level further up, through the recursive call's `recursive.ownEscapes`
+  // fold below, so every caller above that immediate one sees it.
+  let ownEscapes = false;
+  for (const entry of toolsList) {
+    const spec = admissibleToolsSpec(entry, readable);
+    if (spec === undefined) {
+      continue;
+    }
+    const nestedAbsolute = isAbsolute(spec) ? spec : resolvePath(calleeDir, spec);
+    // Rejection-to-`undefined`, the house idiom `parseCalleeForTools` and
+    // `checkNestedToolsContainment` both use for a probe read — never a broad
+    // `catch`.
+    const bytes = await fs.readBytes(nestedAbsolute).then(
+      (value) => value,
+      () => undefined,
+    );
+    readable.set(spec, bytes !== undefined);
+    if (bytes === undefined) {
+      // Unreadable: bug 0270's route owns this spec
+      // (`theta/load/unresolvable-theta-path`, via the stub below) — there is
+      // no document to judge, so this loop has no further business with it.
+      continue;
+    }
+    onDiskNames.set(spec, await onDiskCalleeName(fs, nestedAbsolute));
+
+    // WITHHOLD (c) — termination bound: a resolved absolute path already on
+    // this walk's own recursion stack closes a `tools:` cycle here rather than
+    // recursing again. The read above still stands (bug 0270's route is
+    // unaffected); only the recursive structural judgement is bounded. This is
+    // the predicate's one branch-dependent input (bug 0276 §Fix), so taking
+    // this branch taints this frame's verdict against memoisation.
+    if (visited.has(nestedAbsolute)) {
+      consultedVisited = true;
+      continue;
+    }
+
+    // WITHHOLD (a) — an ESCAPING grandchild's bytes must never be parsed.
+    // `activeRoots` is `undefined` at `parseCalleeTheta`'s dispatch gate, so no
+    // containment judgement runs there, at this depth or any deeper one —
+    // exactly the depth-1 disposition already documented at that call site.
+    if (activeRoots !== undefined) {
+      // PTQ-0349: `nestedContainment` already carries this entry's verdict
+      // when `parseCalleeForTools` precomputed it for THIS frame (depth 0);
+      // every deeper frame (no precomputed map — see this parameter's
+      // doc-comment on this function's signature) falls back to probing
+      // fresh, exactly as every frame did before this fix.
+      const containment =
+        nestedContainment?.get(spec) ??
+        (await checkInvokePathAtLoad({
+          deps: { fs },
+          resolvedPath: nestedAbsolute,
+          literalPath: spec,
+          activeRoots,
+        }).then(
+          (value) => value,
+          () => undefined,
+        ));
+      if (containment?.kind === "escape") {
+        // Bug 0275 §Fix constraint 1: an escaping entry's bytes are still
+        // never parsed — the `continue` is unchanged — but this frame's own
+        // withhold (a) is now an admitted refusal INPUT rather than a
+        // discarded fact, carried separately from `fails` so the one caller
+        // who must not see it (this file's own immediate caller) can still
+        // omit it (see the doc-comment above).
+        ownEscapes = true;
+        continue;
+      }
+    }
+
+    // Read, then containment, then parse — the same order `parseCalleeForTools`
+    // runs at depth 1 — so an escaping spec never reaches this line.
+    const document = parseViaPassCache({ path: nestedAbsolute, bytes }, deps);
+    if (document.frontmatter !== null) {
+      // Bug 0280 §Fix route (a): recorded whenever frontmatter parsed, exactly
+      // as `parseCalleeForTools` reads `document.frontmatter.mode` regardless
+      // of a later `hasLoadParseError` — mode is a property of the
+      // frontmatter, not of whether the body also carries a load error.
+      declaredMode.set(spec, document.frontmatter.mode);
+    }
+    if (document.frontmatter === null || hasLoadParseError(document.diagnostics)) {
+      grandchildFails.set(spec, true);
+      continue;
+    }
+    // Admitted route (iii): the same predicate, one level deeper, through the
+    // memo-consulting wrapper (bug 0276 §Fix) rather than this function
+    // directly — a memo hit here can short-circuit the rest of this branch's
+    // own recursion. The grandchild's declared mode is read above and handed
+    // to the stub below (bug 0280 §Fix); this recursive call still judges
+    // only the grandchild's OWN structural checks, not its mode — mode is
+    // this frame's own `tools:` concern, raised by `resolveEntry` against
+    // THIS frame's file, not folded into `recursive.fails`.
+    const recursive = await calleeFailsOwnStructuralChecksWithTaint(
+      fs,
+      ctx,
+      deps,
+      nestedAbsolute,
+      document.frontmatter,
+      document.body,
+      getAllTools,
+      activeRoots,
+      new Set([...visited, nestedAbsolute]),
+      bytes,
+      // PTQ-0349: no precomputed containment map at this depth — the
+      // grandchild's own `tools:` entries were never scanned by
+      // `parseCalleeForTools` (which only ever probes its IMMEDIATE callee's
+      // list); this recursive frame probes fresh, exactly as before this fix.
+      undefined,
+      inProcessToolNames,
+    );
+    // Bug 0275 §Fix: the DEEP verdict — a grandchild whose OWN `tools:`
+    // entry escapes fails its own structural checks as seen by THIS frame,
+    // exactly as a grandchild that fails any other own-structural-check
+    // does. No relocation reaches this deep, so admitting it here is the
+    // only mechanism that carries the verdict this far.
+    grandchildFails.set(spec, recursive.fails || recursive.ownEscapes);
+    consultedVisited = consultedVisited || recursive.consultedVisited;
+  }
+  return { readable, onDiskNames, declaredMode, grandchildFails, ownEscapes, consultedVisited };
+}
+
+/**
+ * {@link calleeFailsOwnStructuralChecksBody}'s stub-resolution and verdict
+ * fold: resolves the callee's own callable set through a stub fed by the
+ * probe loop's state ({@link judgeCalleeToolsEntries}) and folds the explicit
+ * per-route diagnostic-code list with the recursive grandchild verdicts into
+ * the callee's own `fails` verdict.
+ */
+function resolveCalleeOwnCallableVerdict(
+  judged: CalleeToolsEntryJudgement,
+  calleeAbsolutePath: string,
+  toolsList: readonly string[],
+  body: ThetaBody,
+  ctx: ExtensionContext,
+  getAllTools: GetAllToolsSnapshot | undefined,
+  inProcessToolNames: ReadonlySet<string> | undefined,
+): boolean {
+  const { readable, onDiskNames, declaredMode, grandchildFails } = judged;
+  const stubDeps: CallableSetDeps = {
+    resolvePiTool: (name) => resolveCallablePiTool(name, ctx, getAllTools),
+    ...(inProcessToolNames !== undefined ? { inProcessToolNames } : {}),
+    // `undefined` ONLY for a spec the pre-resolution probe above recorded
+    // unreadable — the one condition `resolveEntry`'s `resolved === undefined`
+    // arm needs to raise `theta/load/unresolvable-theta-path` against the
+    // callee. Every other spec's `mode` comes from `declaredMode` when the
+    // probe above parsed the spec's frontmatter (bug 0280 §Fix route (a));
+    // `"subagent"` remains the default for a spec `declaredMode` never
+    // entered — an escaping spec (withhold (a)) or one whose grandchild
+    // verdict is otherwise carried through `grandchildFails` instead of the
+    // stub's shape (`tests/nested-tools-entry-containment.test.ts:729–743`
+    // needs that default to stay neutral for the escape arm).
+    resolveThetaCallee: (thetaPath) => {
+      if (readable.get(thetaPath) === false) {
+        return undefined;
+      }
+      // Bound once so the `exactOptionalPropertyTypes` spread narrows: a bare
+      // second `Map.get` would re-widen to `string | undefined`.
+      const onDiskName = onDiskNames.get(thetaPath);
+      return {
+        kind: "theta",
+        mode: declaredMode.get(thetaPath) ?? "subagent",
+        calleePath: thetaPath,
+        ...(onDiskName !== undefined ? { onDiskName } : {}),
+      };
+    },
+    reservedNames: collectReservedNames(body),
+  };
+  const result = resolveCallableSet({
+    file: calleeAbsolutePath,
+    tools: { kind: "list", items: toolsList },
+    deps: stubDeps,
+  });
+  // Explicit per-route code list (see the doc-comment above): row 4
+  // (`theta/load/unknown-tool`), bug 0270's route
+  // (`theta/load/unresolvable-theta-path`), and bug 0280's route
+  // (`theta/load/prompt-mode-callable`, raised by `resolveEntry` now that the
+  // stub above reports a real mode) — OR'd with bug 0271's recursive
+  // judgement of the callee's own `tools:` entries — never a general
+  // `registered` verdict, and never an entry-grammar code (bug 0248 D3/D5 stay
+  // out).
+  return (
+    result.diagnostics.some(
+      (d) =>
+        d.severity === "error" &&
+        (d.code === "theta/load/unknown-tool" ||
+          d.code === "theta/load/unresolvable-theta-path" ||
+          d.code === "theta/load/prompt-mode-callable"),
+    ) || [...grandchildFails.values()].some((f) => f)
+  );
+}
+
+/**
  * Bug 0267/0270/0271: whether `calleePath`'s ALREADY-PARSED document fails
  * checks that run after its own `parseThetaDocument` inside `runComposePass` —
  * checks invisible to `parseCalleeForTools`'s own `hasErrors`
@@ -3587,221 +3901,31 @@ async function calleeFailsOwnStructuralChecksBody(
     };
   }
 
-  // Bug 0276 §Fix constraint 4: true iff THIS frame took withhold (c) for any
-  // entry, or a recursive child reported it took (or inherited) one — the
-  // taint that gates whether this frame's own verdict may be memoised.
-  let consultedVisited = false;
-
-  // Bug 0270 pre-resolution / bug 0271 recursive judgement, ONE loop, ONE read
-  // per spec: probe each of the callee's OWN `.theta` entries for
-  // existence/readability BEFORE `resolveCallableSet` runs, keyed by the spec
-  // AS WRITTEN — the same key `resolveThetaCallee` below is called with —
-  // resolved against the CALLEE's directory exactly as
-  // `checkNestedToolsContainment` resolves the same callee's entries. A spec
-  // that fails `parseToolsEntry`, is empty, or is a bare Pi-tool name is
-  // skipped exactly like the depth-0 cache loop and `checkNestedToolsContainment`
-  // skip it — it names no `.theta` path, so it is never a candidate for either
-  // map below. The bytes bug 0270's probe reads are the SAME bytes bug 0271's
-  // judgement parses; no second `fs.readBytes` call is made for a spec this
-  // loop already read.
-  const calleeDir = dirname(calleeAbsolutePath);
-  const readable = new Map<string, boolean>();
-  // Bug 0379 byte-match discipline at this recursion depth: the on-disk
-  // basename of each readable nested `.theta` entry, keyed by the spec AS
-  // WRITTEN, so the stub below hands `resolveEntry` the same byte-match target
-  // the primary depth-0 site does. Without it a case-variant nested entry
-  // self-skips the byte-match and registers on a case-insensitive host while a
-  // case-sensitive host refuses — the exact cross-host divergence this fix closes.
-  const onDiskNames = new Map<string, string>();
-  // Bug 0280 §Fix route (a): each readable-and-parsed spec's declared
-  // frontmatter `mode`, keyed exactly as `readable` is (the spec AS
-  // WRITTEN) — the SAME `document` this loop already produces for
-  // `grandchildFails`, no second `fs.readBytes` and no reordering of
-  // read/containment/parse. A spec that escapes containment (withhold (a))
-  // or is unreadable is never entered here, so the stub below keeps its
-  // neutral `mode: "subagent"` default for those — the non-co-fire cell in
-  // `tests/nested-tools-entry-containment.test.ts`: mode is judged from
-  // CONTENT, and content is never reached for a spec containment or
-  // readability already refused.
-  const declaredMode = new Map<string, ThetaMode>();
-  const grandchildFails = new Map<string, boolean>();
-  // Bug 0275 §Fix constraint 1: true iff at least one of THIS frame's own
-  // `tools:` entries was judged `escape` below (withhold (a) taken at THIS
-  // frame). Discarded by the boolean entry point
-  // (`calleeFailsOwnStructuralChecks`) so the entry owner's immediate caller
-  // draws no second row for the entry the relocation already covers; admitted
-  // one level further up, through the recursive call's `recursive.ownEscapes`
-  // fold below, so every caller above that immediate one sees it.
-  let ownEscapes = false;
-  for (const entry of toolsList) {
-    const spec = admissibleToolsSpec(entry, readable);
-    if (spec === undefined) {
-      continue;
-    }
-    const nestedAbsolute = isAbsolute(spec) ? spec : resolvePath(calleeDir, spec);
-    // Rejection-to-`undefined`, the house idiom `parseCalleeForTools` and
-    // `checkNestedToolsContainment` both use for a probe read — never a broad
-    // `catch`.
-    const bytes = await fs.readBytes(nestedAbsolute).then(
-      (value) => value,
-      () => undefined,
-    );
-    readable.set(spec, bytes !== undefined);
-    if (bytes === undefined) {
-      // Unreadable: bug 0270's route owns this spec
-      // (`theta/load/unresolvable-theta-path`, via the stub below) — there is
-      // no document to judge, so this loop has no further business with it.
-      continue;
-    }
-    onDiskNames.set(spec, await onDiskCalleeName(fs, nestedAbsolute));
-
-    // WITHHOLD (c) — termination bound: a resolved absolute path already on
-    // this walk's own recursion stack closes a `tools:` cycle here rather than
-    // recursing again. The read above still stands (bug 0270's route is
-    // unaffected); only the recursive structural judgement is bounded. This is
-    // the predicate's one branch-dependent input (bug 0276 §Fix), so taking
-    // this branch taints this frame's verdict against memoisation.
-    if (visited.has(nestedAbsolute)) {
-      consultedVisited = true;
-      continue;
-    }
-
-    // WITHHOLD (a) — an ESCAPING grandchild's bytes must never be parsed.
-    // `activeRoots` is `undefined` at `parseCalleeTheta`'s dispatch gate, so no
-    // containment judgement runs there, at this depth or any deeper one —
-    // exactly the depth-1 disposition already documented at that call site.
-    if (activeRoots !== undefined) {
-      // PTQ-0349: `nestedContainment` already carries this entry's verdict
-      // when `parseCalleeForTools` precomputed it for THIS frame (depth 0);
-      // every deeper frame (no precomputed map — see this parameter's
-      // doc-comment on this function's signature) falls back to probing
-      // fresh, exactly as every frame did before this fix.
-      const containment =
-        nestedContainment?.get(spec) ??
-        (await checkInvokePathAtLoad({
-          deps: { fs },
-          resolvedPath: nestedAbsolute,
-          literalPath: spec,
-          activeRoots,
-        }).then(
-          (value) => value,
-          () => undefined,
-        ));
-      if (containment?.kind === "escape") {
-        // Bug 0275 §Fix constraint 1: an escaping entry's bytes are still
-        // never parsed — the `continue` is unchanged — but this frame's own
-        // withhold (a) is now an admitted refusal INPUT rather than a
-        // discarded fact, carried separately from `fails` so the one caller
-        // who must not see it (this file's own immediate caller) can still
-        // omit it (see the doc-comment above).
-        ownEscapes = true;
-        continue;
-      }
-    }
-
-    // Read, then containment, then parse — the same order `parseCalleeForTools`
-    // runs at depth 1 — so an escaping spec never reaches this line.
-    const document = parseViaPassCache({ path: nestedAbsolute, bytes }, deps);
-    if (document.frontmatter !== null) {
-      // Bug 0280 §Fix route (a): recorded whenever frontmatter parsed, exactly
-      // as `parseCalleeForTools` reads `document.frontmatter.mode` regardless
-      // of a later `hasLoadParseError` — mode is a property of the
-      // frontmatter, not of whether the body also carries a load error.
-      declaredMode.set(spec, document.frontmatter.mode);
-    }
-    if (document.frontmatter === null || hasLoadParseError(document.diagnostics)) {
-      grandchildFails.set(spec, true);
-      continue;
-    }
-    // Admitted route (iii): the same predicate, one level deeper, through the
-    // memo-consulting wrapper (bug 0276 §Fix) rather than this function
-    // directly — a memo hit here can short-circuit the rest of this branch's
-    // own recursion. The grandchild's declared mode is read above and handed
-    // to the stub below (bug 0280 §Fix); this recursive call still judges
-    // only the grandchild's OWN structural checks, not its mode — mode is
-    // this frame's own `tools:` concern, raised by `resolveEntry` against
-    // THIS frame's file, not folded into `recursive.fails`.
-    const recursive = await calleeFailsOwnStructuralChecksWithTaint(
-      fs,
-      ctx,
-      deps,
-      nestedAbsolute,
-      document.frontmatter,
-      document.body,
-      getAllTools,
-      activeRoots,
-      new Set([...visited, nestedAbsolute]),
-      bytes,
-      // PTQ-0349: no precomputed containment map at this depth — the
-      // grandchild's own `tools:` entries were never scanned by
-      // `parseCalleeForTools` (which only ever probes its IMMEDIATE callee's
-      // list); this recursive frame probes fresh, exactly as before this fix.
-      undefined,
-      inProcessToolNames,
-    );
-    // Bug 0275 §Fix: the DEEP verdict — a grandchild whose OWN `tools:`
-    // entry escapes fails its own structural checks as seen by THIS frame,
-    // exactly as a grandchild that fails any other own-structural-check
-    // does. No relocation reaches this deep, so admitting it here is the
-    // only mechanism that carries the verdict this far.
-    grandchildFails.set(spec, recursive.fails || recursive.ownEscapes);
-    consultedVisited = consultedVisited || recursive.consultedVisited;
-  }
-
-  const stubDeps: CallableSetDeps = {
-    resolvePiTool: (name) => resolveCallablePiTool(name, ctx, getAllTools),
-    ...(inProcessToolNames !== undefined ? { inProcessToolNames } : {}),
-    // `undefined` ONLY for a spec the pre-resolution probe above recorded
-    // unreadable — the one condition `resolveEntry`'s `resolved === undefined`
-    // arm needs to raise `theta/load/unresolvable-theta-path` against the
-    // callee. Every other spec's `mode` comes from `declaredMode` when the
-    // probe above parsed the spec's frontmatter (bug 0280 §Fix route (a));
-    // `"subagent"` remains the default for a spec `declaredMode` never
-    // entered — an escaping spec (withhold (a)) or one whose grandchild
-    // verdict is otherwise carried through `grandchildFails` instead of the
-    // stub's shape (`tests/nested-tools-entry-containment.test.ts:729–743`
-    // needs that default to stay neutral for the escape arm).
-    resolveThetaCallee: (thetaPath) => {
-      if (readable.get(thetaPath) === false) {
-        return undefined;
-      }
-      // Bound once so the `exactOptionalPropertyTypes` spread narrows: a bare
-      // second `Map.get` would re-widen to `string | undefined`.
-      const onDiskName = onDiskNames.get(thetaPath);
-      return {
-        kind: "theta",
-        mode: declaredMode.get(thetaPath) ?? "subagent",
-        calleePath: thetaPath,
-        ...(onDiskName !== undefined ? { onDiskName } : {}),
-      };
-    },
-    reservedNames: collectReservedNames(body),
-  };
-  const result = resolveCallableSet({
-    file: calleeAbsolutePath,
-    tools: { kind: "list", items: toolsList },
-    deps: stubDeps,
-  });
-  // Explicit per-route code list (see the doc-comment above): row 4
-  // (`theta/load/unknown-tool`), bug 0270's route
-  // (`theta/load/unresolvable-theta-path`), and bug 0280's route
-  // (`theta/load/prompt-mode-callable`, raised by `resolveEntry` now that the
-  // stub above reports a real mode) — OR'd with bug 0271's recursive
-  // judgement of the callee's own `tools:` entries — never a general
-  // `registered` verdict, and never an entry-grammar code (bug 0248 D3/D5 stay
-  // out).
-  const fails =
-    result.diagnostics.some(
-      (d) =>
-        d.severity === "error" &&
-        (d.code === "theta/load/unknown-tool" ||
-          d.code === "theta/load/unresolvable-theta-path" ||
-          d.code === "theta/load/prompt-mode-callable"),
-    ) || [...grandchildFails.values()].some((f) => f);
+  const judged = await judgeCalleeToolsEntries(
+    fs,
+    ctx,
+    deps,
+    calleeAbsolutePath,
+    toolsList,
+    getAllTools,
+    activeRoots,
+    visited,
+    nestedContainment,
+    inProcessToolNames,
+  );
+  const fails = resolveCalleeOwnCallableVerdict(
+    judged,
+    calleeAbsolutePath,
+    toolsList,
+    body,
+    ctx,
+    getAllTools,
+    inProcessToolNames,
+  );
   return {
     fails,
-    ownEscapes,
-    consultedVisited,
+    ownEscapes: judged.ownEscapes,
+    consultedVisited: judged.consultedVisited,
     ...(patchedSystemTemplate !== undefined ? { patchedSystemTemplate } : {}),
     ...(importedTypeDecls !== undefined ? { importedTypeDecls } : {}),
   };
