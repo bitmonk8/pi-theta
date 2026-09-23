@@ -30,25 +30,17 @@
 
 import { describe, expect, it } from "vitest";
 import { FakeActiveSetPi } from "./helpers/fake-active-set-pi";
-import type {
-  ExtensionAPI,
-  ExtensionCommandContext,
-  ModelRegistry,
-} from "@earendil-works/pi-coding-agent";
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
 import type { ActiveSetGateDeps } from "../src/runtime/tool-registration";
 import { withActiveSetGate } from "../src/runtime/tool-registration";
-import { createProductionProducerDeps } from "../src/extension/production-theta-producer";
-import type { ThetaCompositionInput } from "../src/extension/theta-composition-producer";
-import { executeBody, type BodyExecution } from "../src/runtime/statement-executor";
-import { ajv, sessionBranch } from "./helpers/scripted-live-session-harness";
-import type { RuntimeRoot } from "../src/runtime-root";
-import type { ThetaDocument } from "../src/parser/theta-document";
-import { parseDoc } from "./helpers/e2e-s1";
 import {
-  SYSTEM_NOTE_CHANNEL,
-  type SystemNoteChannelDeps,
-} from "../src/extension/system-note-channel";
+  InstantSettleSession,
+  QUERY_REPLY,
+  QUERY_SNAPSHOT,
+  driveQueryWindow,
+  type SystemNoteMessage,
+} from "./helpers/active-set-window-harness";
+import { SYSTEM_NOTE_CHANNEL } from "../src/extension/system-note-channel";
 
 // The runtime diagnostics-registry code the PIC-8 restore-failure protocol emits
 // (diagnostics/code-registry-runtime.md); mirrors the const in
@@ -155,19 +147,15 @@ describe("bug 0433 (RED) — the PIC-8(c) advisory note carries no fabricated ru
 // ===========================================================================
 // Cell 2 (WIRE) — one production window (window 1, the producer prompt-mode
 // query) end-to-end, proving the fabricated payload reaches `pi.sendMessage`.
-// Reuses the `InstantSettleSession` + `driveQuery` window-1 harness of
-// tests/b0372-active-set-restore-protocol.test.ts, but the `sendMessage`
+// Reuses the shared `InstantSettleSession` + `driveQueryWindow` window-1
+// harness (tests/helpers/active-set-window-harness.ts, also driven by
+// tests/b0372-active-set-restore-protocol.test.ts), but the `sendMessage`
 // capture records `details` too (b0372 records only `{ content, display }`). At
 // the fork, the production wiring forwarded `details: note.details` verbatim
 // (production-theta-producer.ts:4136 and the two sibling wirings 5531/7098), so
 // the fork's fabricated bytes landed on the captured wire message; post-fix
 // that forwarding line is gone and the wire message carries no `details` key.
 // ===========================================================================
-
-const ANTHROPIC_MODEL = { id: "m1", api: "anthropic-messages", provider: "anthropic", strictCapable: true };
-const QUERY_SNAPSHOT = ["ambient-x", "ambient-y"];
-const QUERY_REPLY = "604";
-const ONE_QUERY_THETA = ["---", "mode: prompt", "---", "let v = @`Ping`?", "v", ""].join("\n");
 
 /** Gate double for the window: first `setActiveTools` installs, both restore
  *  attempts throw (the double-throw path that fires the PIC-8(c) advisory). */
@@ -202,12 +190,7 @@ interface WireMessage {
   readonly details: unknown;
 }
 
-function recordWire(message: {
-  customType?: string;
-  content?: string;
-  display?: boolean;
-  details?: unknown;
-}): WireMessage | undefined {
+function recordWire(message: SystemNoteMessage): WireMessage | undefined {
   if (message.customType !== SYSTEM_NOTE_CHANNEL) return undefined;
   return {
     content: String(message.content ?? ""),
@@ -217,174 +200,12 @@ function recordWire(message: {
   };
 }
 
-interface SessionEntryDouble {
-  readonly type: "message";
-  readonly id: string;
-  readonly parentId: string | undefined;
-  readonly message: Record<string, unknown>;
-}
-
-/** Instant-settle user-session double (b0288 shape): the reply commits in the
- *  same tick as the user entry, so the drive's fast path binds it. `sendMessage`
- *  captures `theta-system-note`s with their full `details`. */
-class InstantSettleSession {
-  readonly entries: SessionEntryDouble[] = [];
-  readonly wire: WireMessage[] = [];
-
-  constructor(readonly reply: string) {}
-
-  sendUserMessage(text: string): void {
-    this.#appendUser(text);
-    this.#appendAssistant(this.reply);
-  }
-
-  isIdle(): boolean {
-    return true;
-  }
-
-  sendMessage(message: {
-    customType?: string;
-    content?: string;
-    display?: boolean;
-    details?: unknown;
-  }): void {
-    const captured = recordWire(message);
-    if (captured !== undefined) this.wire.push(captured);
-  }
-
-  #appendUser(text: string): void {
-    this.#append({ role: "user", content: [{ type: "text", text }], timestamp: 0 });
-  }
-
-  #appendAssistant(text: string): void {
-    this.#append({
-      role: "assistant",
-      content: [{ type: "text", text }],
-      api: "anthropic-messages",
-      provider: "anthropic",
-      model: "m1",
-      stopReason: "stop",
-      timestamp: 0,
-    });
-  }
-
-  #append(message: Record<string, unknown>): void {
-    const id = `e${this.entries.length + 1}`;
-    const parentId = this.entries.length === 0 ? undefined : `e${this.entries.length}`;
-    this.entries.push({ type: "message", id, parentId, message });
-  }
-}
-
-function parse(src: string): ThetaDocument {
-  const doc = parseDoc(src, "probe.theta");
-  const errors = doc.diagnostics.filter((d) => d.severity === "error").map((d) => d.code);
-  expect(errors, "the fixture theta must parse cleanly before it is driven").toEqual([]);
-  expect(doc.frontmatter, "the fixture theta must carry parseable frontmatter").not.toBeNull();
-  return doc;
-}
-
-/** Synchronous `setTimeout` — the instant-settle turn is already settled at the
- *  send, so every `#pollWhile` observes its clearing condition on entry. */
-function rootDouble(): RuntimeRoot {
-  return {
-    checkpoint: { before: (): Promise<void> => Promise.resolve() },
-    idSource: { newInvocationId: (): string => "inv-1", newToolCallId: (): string => "tc-1" },
-    clock: {
-      now: (): number => 0,
-      wallNow: (): number => 0,
-      setTimeout: (fn: () => void): unknown => {
-        fn();
-        return 0;
-      },
-      clearTimeout: (): void => {},
-    },
-    schemaValidator: ajv(),
-  } as unknown as RuntimeRoot;
-}
-
-function piDouble(session: InstantSettleSession, gate: RestoreThrowingGate): ExtensionAPI {
-  return {
-    sendUserMessage: (content: string): void => session.sendUserMessage(content),
-    getActiveTools: (): string[] => gate.getActiveTools(),
-    setActiveTools: (names: string[]): void => gate.setActiveTools(names),
-    registerTool: (): void => {},
-    on: (): void => {},
-    sendMessage: (message: {
-      customType?: string;
-      content?: string;
-      display?: boolean;
-      details?: unknown;
-    }): void => session.sendMessage(message),
-  } as unknown as ExtensionAPI;
-}
-
-function ctxDouble(session: InstantSettleSession): ExtensionCommandContext {
-  return {
-    model: ANTHROPIC_MODEL,
-    signal: undefined,
-    isIdle: (): boolean => session.isIdle(),
-    waitForIdle: (): Promise<void> => Promise.resolve(),
-    sessionManager: {
-      getEntries: (): readonly SessionEntryDouble[] => [...session.entries],
-      getLeafId: (): undefined => undefined,
-      getBranch: (): readonly SessionEntryDouble[] => sessionBranch(session.entries),
-    },
-  } as unknown as ExtensionCommandContext;
-}
-
-interface QueryDriveResult {
-  readonly execution: BodyExecution;
-  readonly session: InstantSettleSession;
-  readonly gate: RestoreThrowingGate;
-  readonly diagnostics: Diagnostic[];
-  readonly caught: unknown;
-}
-
 /** Drive the one-query theta through the production prompt-mode binding with a
- *  gate whose restore always throws (the PIC-8(c) advisory-firing path). */
-async function driveQueryRestoreThrow(): Promise<QueryDriveResult> {
-  const doc = parse(ONE_QUERY_THETA);
-  const theta: ThetaCompositionInput = {
-    slashName: "probe",
-    sourcePath: "/theta/probe.theta",
-    frontmatter: doc.frontmatter!,
-    body: doc.body,
-  };
-  const session = new InstantSettleSession(QUERY_REPLY);
-  const gate = new RestoreThrowingGate(QUERY_SNAPSHOT);
-  const diagnostics: Diagnostic[] = [];
-  const systemNoteChannel: SystemNoteChannelDeps = {
-    pi: {
-      sendMessage: (message): void => session.sendMessage(message),
-    },
-    ui: { notify: (): void => {} },
-    emitDiagnostic: (d): void => {
-      diagnostics.push(d);
-    },
-  };
-  const deps = createProductionProducerDeps({
-    pi: piDouble(session, gate),
-    root: rootDouble(),
-    modelRegistry: {} as unknown as ModelRegistry,
-    emitDiagnostic: (d): void => {
-      diagnostics.push(d);
-    },
-    systemNoteChannel,
-  });
-  const binding = deps.bindPromptConversation({ theta, args: "", ctx: ctxDouble(session) });
-  expect(
-    binding.drivenAgainst,
-    "the harness must bind the LIVE prompt-mode drive (the user session)",
-  ).toBe("prompt-user-session");
-
-  let execution: BodyExecution | undefined;
-  let caught: unknown;
-  try {
-    execution = await executeBody(theta.body, binding.executeDeps);
-  } catch (thrown) {
-    caught = thrown;
-  }
-  return { execution: execution as BodyExecution, session, gate, diagnostics, caught };
+ *  gate whose restore always throws (the PIC-8(c) advisory-firing path); the
+ *  session capture records each `theta-system-note` with its full `details`. */
+async function driveQueryRestoreThrow() {
+  const session = new InstantSettleSession<WireMessage>(QUERY_REPLY, recordWire);
+  return driveQueryWindow(session, new RestoreThrowingGate(QUERY_SNAPSHOT));
 }
 
 describe("bug 0433 (RED) — the fabricated advisory `details` reaches the wire", () => {
@@ -399,12 +220,12 @@ describe("bug 0433 (RED) — the fabricated advisory `details` reaches the wire"
     expect(r.execution.result.value).toBe(QUERY_REPLY);
 
     // The advisory note reached the wire (the `display: true` verbatim note).
-    const wireNote = r.session.wire.find(
+    const wireNote = r.session.notes.find(
       (m) => m.display === true && m.content === RESTORE_NOTE_VERBATIM("probe"),
     );
     expect(
       wireNote,
-      `the PIC-8(c) advisory note must reach pi.sendMessage; observed wire: ${JSON.stringify(r.session.wire)}`,
+      `the PIC-8(c) advisory note must reach pi.sendMessage; observed wire: ${JSON.stringify(r.session.notes)}`,
     ).toBeDefined();
 
     // PRIMARY (spec pin, runtime-event-channel.md:41): emitters MUST omit

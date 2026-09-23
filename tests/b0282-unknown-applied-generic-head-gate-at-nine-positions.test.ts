@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   createTypePositionMatrix,
   expectCaptured,
+  expectClosedSetRows,
   expectRows,
   loadRowFromBody,
   loadRowFromParam,
@@ -580,7 +581,7 @@ describe("b0282 (B) — the BARE unknown name keeps bug 0262's landed refusal at
 // ===========================================================================
 
 describe("b0282 (DIAG-2) — every asserted code has a registry row", () => {
-  it("b0282-DIAG-2: all seven codes carry an E row of their own phase and a placeholder-bearing Message", () => {
+  it("b0282-DIAG-2: all seven codes carry an E row of their own phase, and the name refusal's Message substitutes its placeholder", () => {
     // DIAG-2: the registry is closed, so a code a test asserts must have a row
     // (`reconcileClosedSet`, tools/code-registry/index.js). No code is minted
     // by this report's route and `tests/fixtures/h7a/permitted-codes.json` is
@@ -596,16 +597,7 @@ describe("b0282 (DIAG-2) — every asserted code has a registry row", () => {
     // that the row exists, is error-severity and parse-phase, and interpolates
     // the head it names. It fails loudly on the unmet precondition rather than
     // letting `msg` above substitute into an absent template.
-    const rows = [UNRESOLVED, RESERVED, ARITY, RESULT_SCHEMA, EMPTY_SCHEMA, UNSUPPORTED, LET_MISMATCH].map(
-      (code) => {
-        const r = REGISTRY.find((x) => x.code === code);
-        return [code, r?.severity, r?.phase] as const;
-      },
-    );
-    expect(
-      rows,
-      `DIAG-2: ${REGISTRY_PATH} must carry a closed-set row for each asserted code`,
-    ).toEqual([
+    expectClosedSetRows(REGISTRY, REGISTRY_PATH, [
       [UNRESOLVED, "E", "parse"],
       [RESERVED, "E", "parse"],
       [ARITY, "E", "parse"],

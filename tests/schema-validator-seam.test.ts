@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { type LoweredSchema } from "../src/seams/schema-validator";
 import { AjvSchemaValidator, type SchemaSlugFn } from "../src/seams/ajv-schema-validator";
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
+import { jsonSlug } from "./helpers/proto-named-harness";
 
 // V8c-T — failing tests for the paired `V8c` `SchemaValidator` seam
 // implementation (`AjvSchemaValidator`). The bullet traces to PIC-11
@@ -14,17 +15,6 @@ import type { Diagnostic } from "../src/diagnostics/diagnostic";
 // implementation under test is absent. Each assertion names the specific PIC-11
 // behaviour it pins so the red is on the assertion, not a fixture or harness
 // throw.
-
-/**
- * A content-addressing function that derives a distinct slug per distinct
- * schema (the canonicalised JSON string is both the slug key and the canonical
- * bytes), so behaviour tests never trip the slug-collision path by accident
- * while identical schemas still hit the cache.
- */
-const jsonSlug: SchemaSlugFn = (schema) => {
-  const bytes = JSON.stringify(schema);
-  return { slug: bytes, canonicalBytes: bytes };
-};
 
 /**
  * A content-addressing function that hands back one fixed slug for every

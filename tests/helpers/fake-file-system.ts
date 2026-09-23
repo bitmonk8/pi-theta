@@ -11,7 +11,7 @@
 //
 // Spec: host-interfaces-services.md PIC-13; lexical.md §Encoding.
 
-import type { DiscoveryInput, DiscoveredTheta } from "../../src/discovery/discovery-walk";
+import type { DiscoveryInput } from "../../src/discovery/discovery-walk";
 import type { PackageDiscoveryInput } from "../../src/discovery/package-discovery";
 import { FakeClock } from "./fake-clock";
 import type { ThetaSettings } from "../../src/discovery/settings";
@@ -551,7 +551,10 @@ export function discoveryInput(fs: FileSystem, extra: Partial<DiscoveryInput> = 
 }
 
 /** The discovered theta bearing a slash name, if any. */
-export function namedTheta(thetas: readonly DiscoveredTheta[], name: string): DiscoveredTheta | undefined {
+export function namedTheta<T extends { readonly name: string }>(
+  thetas: readonly T[],
+  name: string,
+): T | undefined {
   return thetas.find((l) => l.name === name);
 }
 

@@ -58,30 +58,15 @@
 //     (production-theta-producer.ts:6772) is byte-identical in shape to the
 //     other two windows; the fix converts it in the same commit. Called out
 //     here rather than skipped silently.
-import { rootDouble as beltRootDouble } from "./helpers/runtime-belt-probe-harness";
 import { describe, expect, it } from "vitest";
 import { FakeActiveSetPi as RecordingActiveSet, type GateMode } from "./helpers/fake-active-set-pi";
-import type {
-  ExtensionAPI,
-  ExtensionCommandContext,
-  ModelRegistry,
-} from "@earendil-works/pi-coding-agent";
-import { createProductionProducerDeps } from "../src/extension/production-theta-producer";
-import type { ThetaCompositionInput } from "../src/extension/theta-composition-producer";
-import { executeBody, type BodyExecution } from "../src/runtime/statement-executor";
-import { ajv, sessionBranch } from "./helpers/scripted-live-session-harness";
-import type { RuntimeRoot } from "../src/runtime-root";
 import {
-  parseThetaDocument,
-  type ParseThetaDocumentDeps,
-  type ThetaDocument,
-} from "../src/parser/theta-document";
-import type { ThetaSource } from "../src/lexer/lexer";
-import type { ModelReferenceMatcher } from "../src/parser/frontmatter";
-import {
-  SYSTEM_NOTE_CHANNEL,
-  type SystemNoteChannelDeps,
-} from "../src/extension/system-note-channel";
+  InstantSettleSession,
+  QUERY_REPLY,
+  QUERY_SNAPSHOT,
+  driveQueryWindow,
+} from "./helpers/active-set-window-harness";
+import { SYSTEM_NOTE_CHANNEL } from "../src/extension/system-note-channel";
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
 import { runPromptSuspendInvoke } from "../src/runtime/invoke-prompt-suspend";
 
@@ -262,8 +247,8 @@ describe("bug 0372 (RED) — runPromptSuspendInvoke restores under the PIC-8/PIC
 
 // ===========================================================================
 // Window 1 — the producer prompt-mode query window, end-to-end.
-// Harness: the b0288 pattern (tests/b0288-prompt-turn-completion-witness.test.ts)
-// — drive the REAL producer (`createProductionProducerDeps` →
+// Harness: the shared window-1 drive (tests/helpers/active-set-window-harness.ts,
+// the b0288 pattern) — drive the REAL producer (`createProductionProducerDeps` →
 // `bindPromptConversation` → `executeBody`) over an in-memory instant-settle
 // session double with an injected `Clock`, so the REAL `LivePromptQueryModel`
 // (never hand-built; not exported) runs the REAL
@@ -271,191 +256,20 @@ describe("bug 0372 (RED) — runPromptSuspendInvoke restores under the PIC-8/PIC
 // on the restore call(s); the query itself settles cleanly and produces "604".
 // ===========================================================================
 
-const ANTHROPIC_MODEL = { id: "m1", api: "anthropic-messages", provider: "anthropic", strictCapable: true };
-const QUERY_SNAPSHOT = ["ambient-x", "ambient-y"];
-const QUERY_REPLY = "604";
-const ONE_QUERY_THETA = ["---", "mode: prompt", "---", "let v = @`Ping`?", "v", ""].join("\n");
-
-/** A `SessionManager` message entry (the `buildSessionContext` read shape). */
-interface SessionEntryDouble {
-  readonly type: "message";
-  readonly id: string;
-  readonly parentId: string | undefined;
-  readonly message: Record<string, unknown>;
-}
-
-/**
- * The instant-settle user-session double: `sendUserMessage` commits the user
- * entry AND the reply inside the same tick (the b0288 guard-cell shape), so the
- * turn is settled without `isIdle()` ever being observed false and the drive's
- * fast path binds the reply. `sendMessage` captures `theta-system-note`s so the
- * PIC-8(c) note is observable whether the fix routes it through an explicit
- * channel or the producer's default (`this.#input.pi.sendMessage`) one.
- */
-class InstantSettleSession {
-  readonly entries: SessionEntryDouble[] = [];
-  readonly notes: RecordedNote[] = [];
-
-  constructor(readonly reply: string) {}
-
-  sendUserMessage(text: string): void {
-    this.#appendUser(text);
-    this.#appendAssistant(this.reply);
-  }
-
-  isIdle(): boolean {
-    return true;
-  }
-
-  sendMessage(message: { customType?: string; content?: string; display?: boolean }): void {
-    if (message.customType === SYSTEM_NOTE_CHANNEL) {
-      this.notes.push({ content: String(message.content ?? ""), display: message.display === true });
-    }
-  }
-
-  #appendUser(text: string): void {
-    this.#append({ role: "user", content: [{ type: "text", text }], timestamp: 0 });
-  }
-
-  #appendAssistant(text: string): void {
-    this.#append({
-      role: "assistant",
-      content: [{ type: "text", text }],
-      api: "anthropic-messages",
-      provider: "anthropic",
-      model: "m1",
-      stopReason: "stop",
-      timestamp: 0,
-    });
-  }
-
-  #append(message: Record<string, unknown>): void {
-    const id = `e${this.entries.length + 1}`;
-    const parentId = this.entries.length === 0 ? undefined : `e${this.entries.length}`;
-    this.entries.push({ type: "message", id, parentId, message });
-  }
-}
-
-function parseDeps(): ParseThetaDocumentDeps {
-  return {
-    systemNote: {
-      pi: { sendMessage: (): void => {} },
-      ui: { notify: (): void => {} },
-      emitDiagnostic: (): void => {},
-    },
-    modelMatcher: { resolve: (): "resolved" => "resolved" } as ModelReferenceMatcher,
-  };
-}
-
-function parse(src: string): ThetaDocument {
-  const source: ThetaSource = { path: "probe.theta", bytes: new TextEncoder().encode(src) };
-  const doc = parseThetaDocument(source, parseDeps());
-  const errors = doc.diagnostics.filter((d) => d.severity === "error").map((d) => d.code);
-  expect(errors, "the fixture theta must parse cleanly before it is driven").toEqual([]);
-  expect(doc.frontmatter, "the fixture theta must carry parseable frontmatter").not.toBeNull();
-  return doc;
-}
-
-function rootDouble(): RuntimeRoot {
-  return { ...beltRootDouble(), schemaValidator: ajv() };
-}
-
-function piDouble(session: InstantSettleSession, gate: RecordingActiveSet): ExtensionAPI {
-  return {
-    sendUserMessage: (content: string): void => session.sendUserMessage(content),
-    getActiveTools: (): string[] => gate.getActiveTools(),
-    setActiveTools: (names: string[]): void => gate.setActiveTools(names),
-    registerTool: (): void => {},
-    on: (): void => {},
-    sendMessage: (message: { customType?: string; content?: string; display?: boolean }): void =>
-      session.sendMessage(message),
-  } as unknown as ExtensionAPI;
-}
-
-function ctxDouble(session: InstantSettleSession): ExtensionCommandContext {
-  return {
-    model: ANTHROPIC_MODEL,
-    signal: undefined,
-    isIdle: (): boolean => session.isIdle(),
-    waitForIdle: (): Promise<void> => Promise.resolve(),
-    sessionManager: {
-      getEntries: (): readonly SessionEntryDouble[] => [...session.entries],
-      getLeafId: (): undefined => undefined,
-      getBranch: (): readonly SessionEntryDouble[] => sessionBranch(session.entries),
-    },
-  } as unknown as ExtensionCommandContext;
-}
-
-interface QueryDriveResult {
-  readonly execution: BodyExecution;
-  readonly session: InstantSettleSession;
-  readonly gate: RecordingActiveSet;
-  readonly diagnostics: Diagnostic[];
-  readonly caught: unknown;
-}
-
 /**
  * Drive the one-query theta through the production prompt-mode binding with the
- * given gate mode. Captures a THROW out of `executeBody` (the fork's masking
- * shape: a restore throw is a plain `Error` reframed one layer up, above this
- * seam) rather than letting it abort the test as an opaque harness error.
+ * given gate mode. The session capture records each `theta-system-note`'s
+ * `{ content, display }`, so the PIC-8(c) note is observable whether the fix
+ * routes it through an explicit channel or the producer's default
+ * (`this.#input.pi.sendMessage`) one.
  */
-async function driveQuery(mode: GateMode): Promise<QueryDriveResult> {
-  const doc = parse(ONE_QUERY_THETA);
-  const theta: ThetaCompositionInput = {
-    slashName: "probe",
-    sourcePath: "/theta/probe.theta",
-    frontmatter: doc.frontmatter!,
-    body: doc.body,
-  };
-  const session = new InstantSettleSession(QUERY_REPLY);
-  const gate = new RecordingActiveSet(QUERY_SNAPSHOT, mode, "active-set");
-  const diagnostics: Diagnostic[] = [];
-  const systemNoteChannel: SystemNoteChannelDeps = {
-    pi: {
-      sendMessage: (message): void => {
-        if (message.customType === SYSTEM_NOTE_CHANNEL) {
-          session.notes.push({
-            content: String(message.content ?? ""),
-            display: message.display === true,
-          });
-        }
-      },
-    },
-    ui: { notify: (): void => {} },
-    emitDiagnostic: (d): void => {
-      diagnostics.push(d);
-    },
-  };
-  const deps = createProductionProducerDeps({
-    pi: piDouble(session, gate),
-    root: rootDouble(),
-    modelRegistry: {} as unknown as ModelRegistry,
-    emitDiagnostic: (d): void => {
-      diagnostics.push(d);
-    },
-    systemNoteChannel,
-  });
-  const binding = deps.bindPromptConversation({ theta, args: "", ctx: ctxDouble(session) });
-  expect(
-    binding.drivenAgainst,
-    "the harness must bind the LIVE prompt-mode drive (the user session)",
-  ).toBe("prompt-user-session");
-
-  let execution: BodyExecution | undefined;
-  let caught: unknown;
-  try {
-    execution = await executeBody(theta.body, binding.executeDeps);
-  } catch (thrown) {
-    caught = thrown;
-  }
-  return {
-    execution: execution as BodyExecution,
-    session,
-    gate,
-    diagnostics,
-    caught,
-  };
+async function driveQuery(mode: GateMode) {
+  const session = new InstantSettleSession<RecordedNote>(QUERY_REPLY, (message) =>
+    message.customType === SYSTEM_NOTE_CHANNEL
+      ? { content: String(message.content ?? ""), display: message.display === true }
+      : undefined,
+  );
+  return driveQueryWindow(session, new RecordingActiveSet(QUERY_SNAPSHOT, mode, "active-set"));
 }
 
 describe("bug 0372 (RED) — the producer query window restores under the PIC-8 protocol", () => {

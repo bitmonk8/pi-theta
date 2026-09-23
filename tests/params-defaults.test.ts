@@ -5,8 +5,9 @@ import {
   type ParamFieldInput,
 } from "../src/parser/params";
 import { type LoweredSchema } from "../src/seams/schema-validator";
-import { AjvSchemaValidator, type SchemaSlugFn } from "../src/seams/ajv-schema-validator";
+import { AjvSchemaValidator } from "../src/seams/ajv-schema-validator";
 import type { Diagnostic, SourceRange } from "../src/diagnostics/diagnostic";
+import { jsonSlug } from "./helpers/proto-named-harness";
 
 // V6b-T — failing tests for the paired `V6b` "`params` and defaults"
 // implementation.
@@ -57,12 +58,6 @@ function defaulted(
 function withCode(diags: readonly Diagnostic[], code: string): Diagnostic | undefined {
   return diags.find((d) => d.code === code);
 }
-
-/** A content-addressing function deriving a distinct slug per distinct schema. */
-const jsonSlug: SchemaSlugFn = (schema) => {
-  const bytes = JSON.stringify(schema);
-  return { slug: bytes, canonicalBytes: bytes };
-};
 
 /** A real AJV validator (the `V8c` seam) plus its diagnostics sink. */
 function makeValidator(): AjvSchemaValidator {

@@ -11,6 +11,8 @@
 //
 // TIER: offline, deterministic, provider-free; also used by live cells.
 import { PARSE_REGISTRY_PATH as REGISTRY_PAGE, registryLineOf, registryMessageOf } from "./load-row-harness";
+import { hitsFor } from "./e2e-s1";
+import type { Diagnostic } from "../../src/diagnostics/diagnostic";
 import { expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { repoFile } from "./corpus-reader";
@@ -445,4 +447,43 @@ export function schemaRefusal(declName: string): string {
 /** The `params:`-position refusal, rendered for one field name. */
 export function paramsRefusal(field: string): string {
   return registryErrorLine(PARAMS_REFUSAL, [["<param>", field]]);
+}
+
+/** Codes asserted by the bug-0113 family's unreadable-source witnesses. */
+const UNREADABLE_SOURCE_CODE = "theta/load/unreadable-source";
+const MISSING_SOURCE_CODE = "theta/load/missing-source";
+
+/**
+ * The bug-0113-family pin shared by the glob-universe and tree-walk-lstat
+ * witnesses: a traversal failure on `file` surfaced as exactly ONE
+ * `theta/load/unreadable-source` diagnostic with the adjudicated shape —
+ * `warning` severity and the registry row's Message interpolated with
+ * `descriptor` — and no `theta/load/missing-source` companion. The caller
+ * supplies the full PRIMARY prose (quoting the observed diagnostics) so a red
+ * run keeps each file's documented reason.
+ */
+export function expectUnreadableSourceFailure(
+  diagnostics: readonly Diagnostic[],
+  file: string,
+  descriptor: string,
+  primary: string,
+): void {
+  const hits = hitsFor(diagnostics, UNREADABLE_SOURCE_CODE, file);
+  expect(hits.length, primary).toBe(1);
+  const diagnostic = hits[0]!;
+  expect(
+    diagnostic.severity,
+    "the Settings `thetaPaths` entry row's Unreadable cell is a warning " +
+      "(discovery-sources.md:57)",
+  ).toBe("warning");
+  expect(
+    diagnostic.message,
+    "DIAG-4: the message is the registry row's Message column interpolated with " +
+      "the source descriptor (discovery-sources.md:63, package-and-settings.md:97)",
+  ).toBe(interpolate(loadRowMessage(UNREADABLE_SOURCE_CODE), { descriptor }));
+  expect(
+    diagnostics.filter((d) => d.code === MISSING_SOURCE_CODE),
+    "a universe walk never emits missing-source — a pattern resolving to zero " +
+      "paths is silent (package-and-settings.md:29)",
+  ).toHaveLength(0);
 }

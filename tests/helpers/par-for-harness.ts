@@ -16,6 +16,38 @@ import { isResultValue, type ThetaValue } from "../../src/runtime/value";
 import { SEAM_NOOP_CHECKPOINT, SEAM_NOOP_MUTATOR } from "./invoke-seam-scaffold";
 import { flush } from "./fake-clock";
 
+/**
+ * The bounded pure-expression evaluator over the six forms a `par for` body
+ * needs (number / string / bool / null / ident / array). Recursion (the
+ * `array` elements) goes through `evalExpr` so a host with extra cases keeps
+ * handling them; `undefined` means the kind is NOT handled here and the host
+ * falls through to its own arms (or `null`).
+ */
+export function evalBoundedPure(
+  expr: Expr,
+  env: LexicalEnvironment,
+  evalExpr: (expr: Expr, env: LexicalEnvironment) => ThetaValue,
+): ThetaValue | undefined {
+  switch (expr.kind) {
+    case "number":
+      return Number(expr.text);
+    case "string":
+      return expr.value;
+    case "bool":
+      return expr.value;
+    case "null":
+      return null;
+    case "ident": {
+      const r = env.resolve(expr.name);
+      return "value" in r ? ((r.value ?? null) as ThetaValue) : null;
+    }
+    case "array":
+      return expr.elements.map((e) => evalExpr(e, env));
+    default:
+      return undefined;
+  }
+}
+
 /** An `Ok(value)` operation result (the effect succeeded). */
 export function ok(value: ThetaValue): OperationResult {
   return { ok: true, value };
@@ -64,24 +96,8 @@ export class ParForHost implements StatementEvalHost {
   }
 
   #eval(expr: Expr, env: LexicalEnvironment): ThetaValue {
-    switch (expr.kind) {
-      case "number":
-        return Number(expr.text);
-      case "string":
-        return expr.value;
-      case "bool":
-        return expr.value;
-      case "null":
-        return null;
-      case "ident": {
-        const r = env.resolve(expr.name);
-        return "value" in r ? ((r.value ?? null) as ThetaValue) : null;
-      }
-      case "array":
-        return expr.elements.map((e) => this.#eval(e, env));
-      default:
-        return null;
-    }
+    const bounded = evalBoundedPure(expr, env, (e, en) => this.#eval(e, en));
+    return bounded === undefined ? null : bounded;
   }
 }
 

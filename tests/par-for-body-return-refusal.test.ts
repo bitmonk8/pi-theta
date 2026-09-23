@@ -1,4 +1,5 @@
 import { SEAM_NOOP_CHECKPOINT as NOOP_CHECKPOINT, SEAM_NOOP_MUTATOR } from "./helpers/invoke-seam-scaffold";
+import { evalBoundedPure } from "./helpers/par-for-harness";
 import { messagesFor as diagnosticMessagesFor, parseDoc } from "./helpers/e2e-s1";
 import { REGISTRY } from "./helpers/registry-oracle";
 import { describe, expect, it } from "vitest";
@@ -565,35 +566,22 @@ class PureHost implements StatementEvalHost {
   }
 
   #eval(expr: Expr, env: LexicalEnvironment): ThetaValue {
-    switch (expr.kind) {
-      case "number":
-        return Number(expr.text);
-      case "string":
-        return expr.value;
-      case "bool":
-        return expr.value;
-      case "null":
-        return null;
-      case "ident": {
-        const r = env.resolve(expr.name);
-        return "value" in r ? ((r.value ?? null) as ThetaValue) : null;
-      }
-      case "array":
-        return expr.elements.map((e) => this.#eval(e, env));
-      case "binary": {
-        const left = this.#eval(expr.left, env) as number;
-        const right = this.#eval(expr.right, env) as number;
-        if (expr.op === "*") {
-          return left * right;
-        }
-        if (expr.op === "+") {
-          return left + right;
-        }
-        return null;
-      }
-      default:
-        return null;
+    const bounded = evalBoundedPure(expr, env, (e, en) => this.#eval(e, en));
+    if (bounded !== undefined) {
+      return bounded;
     }
+    if (expr.kind === "binary") {
+      const left = this.#eval(expr.left, env) as number;
+      const right = this.#eval(expr.right, env) as number;
+      if (expr.op === "*") {
+        return left * right;
+      }
+      if (expr.op === "+") {
+        return left + right;
+      }
+      return null;
+    }
+    return null;
   }
 }
 

@@ -1,4 +1,4 @@
-import { REGISTRY } from "./helpers/registry-oracle";
+import { REGISTRY, DUP, QUOTED, RENAMED, NOTIDENT, type Exp } from "./helpers/registry-oracle";
 import { describe, expect, it } from "vitest";
 // @ts-expect-error — JS code-registry module, no type declarations.
 import { registryMessage } from "../tools/code-registry/index.js";
@@ -172,10 +172,6 @@ function msg(code: string, fills: ReadonlyArray<readonly [string, string]>): str
 }
 
 const BINDING_CASE = "theta/parse/binding-case-mismatch";
-const NOT_IDENT = "theta/parse/inline-field-name-not-identifier";
-const DUPLICATE_INLINE = "theta/parse/duplicate-inline-field-name";
-const QUOTED_INLINE = "theta/parse/quoted-inline-field-name";
-const RENAMED_INLINE = "theta/parse/renamed-inline-field-name";
 const EMPTY_BODY = "theta/parse/empty-schema-body";
 const VOID_POSITION = "theta/parse/void-in-non-return-position";
 const ARITY_MISMATCH = "theta/parse/generic-arity-mismatch";
@@ -183,29 +179,9 @@ const LET_RHS_MISMATCH = "theta/parse/let-rhs-type-mismatch";
 const ARRAY_ELEMENT_MISMATCH = "theta/parse/array-element-type-mismatch";
 const LET_NO_INIT = "theta/parse/let-without-initialiser";
 
-/** One expected diagnostic, as a code plus the placeholder fills its row needs. */
-interface Exp {
-  readonly severity: "error" | "warning";
-  readonly code: string;
-  readonly fills: ReadonlyArray<readonly [string, string]>;
-}
-
 /** `binding-case-mismatch` — the row §Reproduction (a) measures silent on `Zs`. */
 const CASE: Exp = { severity: "error", code: BINDING_CASE, fills: [] };
 
-/** Bug 0228's raw-key row, which reads `interiorSource` and survives the break. */
-function NOTIDENT(field: string): Exp {
-  return { severity: "error", code: NOT_IDENT, fills: [["<field>", field]] };
-}
-function DUP(field: string): Exp {
-  return { severity: "error", code: DUPLICATE_INLINE, fills: [["<field>", field]] };
-}
-function QUOTED(field: string): Exp {
-  return { severity: "error", code: QUOTED_INLINE, fills: [["<field>", field]] };
-}
-function RENAMED(field: string): Exp {
-  return { severity: "error", code: RENAMED_INLINE, fills: [["<field>", field]] };
-}
 function EMPTY(subject: string): Exp {
   return { severity: "error", code: EMPTY_BODY, fills: [["<X>", subject]] };
 }

@@ -1,18 +1,28 @@
 import { hitsFor } from "./helpers/e2e-s1";
-import { loadRowMessage, interpolate, templateToRegExp } from "./helpers/registry-oracle";
+import {
+  loadRowMessage,
+  interpolate,
+  templateToRegExp,
+  expectUnreadableSourceFailure,
+} from "./helpers/registry-oracle";
 import { describe, expect, it } from "vitest";
-import {
-  discoverThetas,
-  type DiscoveredTheta,
-  type DiscoveryInput,
-} from "../src/discovery/discovery-walk";
-import {
-  discoverPackageThetas,
-  type PackageDiscoveredTheta,
-} from "../src/discovery/package-discovery";
+import { discoverThetas, type DiscoveryInput } from "../src/discovery/discovery-walk";
+import { discoverPackageThetas } from "../src/discovery/package-discovery";
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
 import type { FileStat, FileSystem } from "../src/seams/file-system";
-import { FileSystemDecorator, codeError, FakeFileSystem, ancestors, mergeDirs, buildPackages, packageInput } from "./helpers/fake-file-system";
+import {
+  FileSystemDecorator,
+  codeError,
+  FakeFileSystem,
+  ancestors,
+  mergeDirs,
+  buildPackages,
+  packageInput,
+  DISCOVERY_BASE,
+  DISCOVERY_GLOBAL_ROOT as GLOBAL_ROOT,
+  DISCOVERY_PROJECT_ROOT as PROJECT_ROOT,
+  namedTheta as named,
+} from "./helpers/fake-file-system";
 
 // `listTree` (`src/discovery/discovery-walk.ts`) classifies an
 // entry-level `lstat` rejection by code and carries the non-`ENOENT` path out
@@ -97,8 +107,6 @@ const UNREADABLE_SOURCE = "theta/load/unreadable-source";
 
 const HOME = "/home/theta";
 const CWD = "/project";
-const GLOBAL_ROOT = "/home/theta/.pi/agent/theta";
-const PROJECT_ROOT = "/project/.pi/theta";
 const SETTINGS_BASE = "/project/.pi";
 const PREFIX_ROOT = "/project/.pi/g";
 const DENIED_SUB = "/project/.pi/g/sub";
@@ -110,11 +118,7 @@ const THETA_BODY = "mode: prompt\n---\n";
 /** The conventional roots' ancestor chains plus the settings-base chain, in
  *  every settings fixture, so a cell's diagnostic set is about the path under
  *  test alone and the fixture's directory shape stays self-consistent. */
-const BASE = mergeDirs(
-  ancestors(GLOBAL_ROOT),
-  ancestors(PROJECT_ROOT),
-  ancestors(DENIED_SUB),
-);
+const BASE = mergeDirs(DISCOVERY_BASE, ancestors(DENIED_SUB));
 
 interface FakeSpec {
   readonly dirs?: Record<string, readonly string[]>;
@@ -159,13 +163,6 @@ function settingsInput(fs: FileSystem, thetaPaths: readonly string[]): Discovery
   return { fs, settings: { thetaPaths, thetaPathsBaseDir: SETTINGS_BASE } };
 }
 
-function named(
-  thetas: readonly (DiscoveredTheta | PackageDiscoveredTheta)[],
-  name: string,
-): DiscoveredTheta | PackageDiscoveredTheta | undefined {
-  return thetas.find((t) => t.name === name);
-}
-
 /**
  * The settings-side pin: the entry whose `lstat` rejected is reported exactly
  * once as `theta/load/unreadable-source`, `warning`, with that entry's path in
@@ -179,9 +176,10 @@ function expectEntryLstatFailure(
   descriptor: string,
   why: string,
 ): void {
-  const hits = hitsFor(diagnostics, UNREADABLE_SOURCE, file);
-  expect(
-    hits.length,
+  expectUnreadableSourceFailure(
+    diagnostics,
+    file,
+    descriptor,
     `PRIMARY (bug 0113 residual 1 / bug 0075 §Affected): ${why} — ` +
       `discovery-sources.md:69 forbids silence for a "traversal failure inside a ` +
       `discovery root that does exist" ("an unreadable-source warning, not ` +
@@ -190,23 +188,7 @@ function expectEntryLstatFailure(
       `an entry whose lstat rejects by \`.code\` and carry the non-ENOENT path out ` +
       `in TreeWalk.unreadable, so a shrunken universe is always reported. ` +
       `Observed diagnostics=${JSON.stringify(diagnostics)}`,
-  ).toBe(1);
-  const diagnostic = hits[0]!;
-  expect(
-    diagnostic.severity,
-    "the Settings `thetaPaths` entry row's Unreadable cell is a warning " +
-      "(discovery-sources.md:57)",
-  ).toBe("warning");
-  expect(
-    diagnostic.message,
-    "DIAG-4: the message is the registry row's Message column interpolated with " +
-      "the source descriptor (discovery-sources.md:63, package-and-settings.md:97)",
-  ).toBe(interpolate(loadRowMessage(UNREADABLE_SOURCE), { descriptor }));
-  expect(
-    diagnostics.filter((d) => d.code === MISSING_SOURCE),
-    "a universe walk never emits missing-source — a pattern resolving to zero " +
-      "paths is silent (package-and-settings.md:29)",
-  ).toHaveLength(0);
+  );
 }
 
 // ===========================================================================

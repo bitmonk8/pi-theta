@@ -26,7 +26,11 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, expect } from "vitest";
-import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type {
+  ExtensionAPI,
+  ExtensionCommandContext,
+  ExtensionContext,
+} from "@earendil-works/pi-coding-agent";
 import { createThetaExtension, type ThetaExtensionDeps, type ThetaFixture } from "../../src/extension/factory";
 import { composeExtensionInstance, discoverAndComposeFixtures } from "../../src/extension/production-composition";
 import type { Diagnostic } from "../../src/diagnostics/diagnostic";
@@ -383,6 +387,94 @@ export function makeHelperCtx(
       },
     },
   } as unknown as ExtensionContext;
+}
+
+/** A dispatch-time ctx sized to the prompt bind's session reads (empty session). */
+export function composeDispatchCtx(): ExtensionCommandContext {
+  return {
+    model: { id: "claude-test", provider: "anthropic" },
+    cwd: "/tmp",
+    signal: undefined,
+    sessionManager: {
+      getEntries: () => [],
+      getLeafId: () => undefined,
+      getBranch: () => [],
+    },
+  } as unknown as ExtensionCommandContext;
+}
+
+/** A booted composition's registered dispatch surface. */
+export interface ComposedHostHandle {
+  dispatch(name: string, args: string): Promise<unknown>;
+}
+
+/**
+ * Boot the real factory over the caller's `deps` (each suite keeps its own
+ * `composeInstance` forwarding) against a recording `pi` whose entry surfaces
+ * are PRESENT (so the entry channel is live and only the `ctx.mode` gate
+ * decides mode-dependent wiring), fire `session_start` with the given
+ * `ctx.mode`, and hand back the registered dispatch surface. `piExtras` /
+ * `ctxExtras` merge over the base doubles for the members a specific suite
+ * records or stubs.
+ */
+export async function bootComposedHost(options: {
+  readonly cwd: string;
+  readonly mode: "tui" | "print";
+  readonly deps: ThetaExtensionDeps;
+  readonly piExtras?: Record<string, unknown>;
+  readonly ctxExtras?: Record<string, unknown>;
+}): Promise<ComposedHostHandle> {
+  const commands = new Map<
+    string,
+    { handler: (args: string, ctx: ExtensionCommandContext) => Promise<unknown> | unknown }
+  >();
+  const sessionStartHandlers: ((event: unknown, ctx: ExtensionContext) => unknown)[] = [];
+  const pi = {
+    registerFlag: (): void => {},
+    registerMessageRenderer: (): void => {},
+    registerEntryRenderer: (): void => {},
+    appendEntry: (): void => {},
+    registerCommand: (name: string, commandOptions: unknown): void => {
+      commands.set(name, commandOptions as { handler: never });
+    },
+    on: (event: string, handler: (e: unknown, c: ExtensionContext) => unknown): void => {
+      if (event === "session_start") {
+        sessionStartHandlers.push(handler);
+      }
+    },
+    getFlag: (): undefined => undefined,
+    getCommands: (): { name: string; source: string }[] =>
+      [...commands.keys()].map((name) => ({ name, source: "extension" })),
+    sendMessage: (): void => {},
+    sendUserMessage: (): void => {},
+    ...options.piExtras,
+  } as unknown as ExtensionAPI;
+  const ctx = {
+    cwd: options.cwd,
+    mode: options.mode,
+    hasUI: options.mode === "tui",
+    modelRegistry: {
+      getAvailable: (): readonly unknown[] => [{ id: "claude-test", provider: "anthropic" }],
+    },
+    ui: { notify: (): void => {} },
+    ...options.ctxExtras,
+  } as unknown as ExtensionContext;
+  createThetaExtension(options.deps)(pi);
+  for (const handler of sessionStartHandlers) {
+    await handler({ type: "session_start" }, ctx);
+  }
+  return {
+    dispatch: async (name, args): Promise<unknown> => {
+      const command = commands.get(name);
+      if (command === undefined) {
+        // No silent skipping: an unregistered fixture is a harness fault.
+        throw new Error(
+          `precondition unmet: /${name} never registered (registered: ${[...commands.keys()].join(", ")})`,
+        );
+      }
+      return command.handler(args, composeDispatchCtx());
+    },
+  };
 }
 
 /** A recorded `pi.sendMessage` call (the `theta-system-note` channel). */

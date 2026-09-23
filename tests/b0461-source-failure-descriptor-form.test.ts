@@ -66,13 +66,10 @@ import {
   buildDiscovery as build,
   discoveryInput as input,
   cliSettingsShadowInput,
+  DISCOVERY_GLOBAL_ROOT as GLOBAL_ROOT,
+  DISCOVERY_PROJECT_ROOT as PROJECT_ROOT,
 } from "./helpers/fake-file-system";
 
-// The two conventional roots' resolved directory paths (0268 forward-slashed) —
-// the descriptor VALUEs the fix renders for the project/global kinds.
-// globalAgentDir() = <homedir>/.pi/agent; project root = <cwd>/.pi/theta.
-const GLOBAL_ROOT = "/home/theta/.pi/agent/theta";
-const PROJECT_ROOT = "/project/.pi/theta";
 const SETTINGS_BASE = "/project/.pi";
 const NM = "/project/node_modules";
 

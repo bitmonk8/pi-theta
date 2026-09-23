@@ -135,6 +135,28 @@ export function registryLineOf(
   return `error ${code}: ${registryMessageOf(registry, registryPath, code, fills)}`;
 }
 
+/**
+ * DIAG-2: the registry is closed, so a code a test asserts must have a row
+ * (`reconcileClosedSet`, tools/code-registry/index.js). Assert each asserted
+ * code carries a row of the expected severity and phase, failing loudly on a
+ * missing row rather than letting a message render substitute into an absent
+ * template.
+ */
+export function expectClosedSetRows(
+  registry: readonly ParseCodeRegistryRow[],
+  registryPath: string,
+  expected: ReadonlyArray<readonly [code: string, severity: string, phase: string]>,
+): void {
+  const rows = expected.map(([code]) => {
+    const r = registry.find((x) => x.code === code);
+    return [code, r?.severity, r?.phase] as const;
+  });
+  expect(
+    rows,
+    `DIAG-2: ${registryPath} must carry a closed-set row for each asserted code`,
+  ).toEqual(expected.map((t) => [...t]));
+}
+
 // ===========================================================================
 // The load harness.
 // ===========================================================================

@@ -13,12 +13,7 @@
 
 import { afterAll, describe, expect, it } from "vitest";
 import type { Component } from "@earendil-works/pi-tui";
-import type {
-  ExtensionAPI,
-  ExtensionCommandContext,
-  ExtensionContext,
-} from "@earendil-works/pi-coding-agent";
-import { createThetaExtension, type ThetaExtensionDeps } from "../src/extension/factory";
+import type { ThetaExtensionDeps } from "../src/extension/factory";
 import { composeExtensionInstance } from "../src/extension/production-composition";
 import {
   createSystemNoteRenderer,
@@ -32,6 +27,7 @@ import {
 import { FakeFileWatcher } from "./helpers/fake-file-watcher";
 import { FakeClock } from "./helpers/fake-clock";
 import {
+  bootComposedHost,
   disposeWorkspace,
   plantThetaWorkspace,
   theta,
@@ -191,55 +187,7 @@ async function composeAndDispatch(options: {
   readonly cwd: string;
   readonly mode: "tui" | "print";
 }): Promise<readonly UiCall[]> {
-  const commands = new Map<
-    string,
-    { handler: (args: string, ctx: ExtensionCommandContext) => Promise<unknown> | unknown }
-  >();
   const uiCalls: UiCall[] = [];
-  const sessionStartHandlers: ((event: unknown, ctx: ExtensionContext) => unknown)[] = [];
-  const pi = {
-    registerFlag: (): void => {},
-    registerMessageRenderer: (): void => {},
-    registerEntryRenderer: (): void => {},
-    appendEntry: (): void => {},
-    registerCommand: (name: string, commandOptions: unknown): void => {
-      commands.set(name, commandOptions as { handler: never });
-    },
-    on: (event: string, handler: (e: unknown, c: ExtensionContext) => unknown): void => {
-      if (event === "session_start") {
-        sessionStartHandlers.push(handler);
-      }
-    },
-    getFlag: (): undefined => undefined,
-    getCommands: (): { name: string; source: string }[] =>
-      [...commands.keys()].map((name) => ({ name, source: "extension" })),
-    sendMessage: (): void => {},
-    sendUserMessage: (): void => {},
-  } as unknown as ExtensionAPI;
-  const ctx = {
-    cwd: options.cwd,
-    mode: options.mode,
-    hasUI: options.mode === "tui",
-    modelRegistry: {
-      getAvailable: (): readonly unknown[] => [{ id: "claude-test", provider: "anthropic" }],
-    },
-    // A ctx.ui EXPOSING all three retired-or-kept members, in BOTH modes: the
-    // retirement must hold because the sinks are gone, not because a surface
-    // happened to be absent (the pre-D6 composition presence-probed and would
-    // have rendered against exactly this double).
-    ui: {
-      notify: (): void => {},
-      setStatus: (key: string, _text: string | undefined): void => {
-        uiCalls.push({ member: "setStatus", key });
-      },
-      setWorkingMessage: (_message?: string): void => {
-        uiCalls.push({ member: "setWorkingMessage" });
-      },
-      setWidget: (key: string, content: unknown): void => {
-        uiCalls.push({ member: "setWidget", key, content });
-      },
-    },
-  } as unknown as ExtensionContext;
   const deps: ThetaExtensionDeps = {
     fixtures: [],
     // Position-exact forwarding against BOTH production signatures (the D3
@@ -264,28 +212,30 @@ async function composeAndDispatch(options: {
         clock: new FakeClock(),
       }, undefined, ownRegisteredNames, entryChannel, latchStatusBus, inProcessTools, runCardView),
   };
-  createThetaExtension(deps)(pi);
-  for (const handler of sessionStartHandlers) {
-    await handler({ type: "session_start" }, ctx);
-  }
-  const command = commands.get("demo");
-  if (command === undefined) {
-    // No silent skipping: an unregistered fixture is a harness fault.
-    throw new Error(
-      `precondition unmet: /demo never registered (registered: ${[...commands.keys()].join(", ")})`,
-    );
-  }
-  const dispatchCtx = {
-    model: { id: "claude-test", provider: "anthropic" },
-    cwd: "/tmp",
-    signal: undefined,
-    sessionManager: {
-      getEntries: () => [],
-      getLeafId: () => undefined,
-      getBranch: () => [],
+  const host = await bootComposedHost({
+    cwd: options.cwd,
+    mode: options.mode,
+    deps,
+    ctxExtras: {
+      // A ctx.ui EXPOSING all three retired-or-kept members, in BOTH modes: the
+      // retirement must hold because the sinks are gone, not because a surface
+      // happened to be absent (the pre-D6 composition presence-probed and would
+      // have rendered against exactly this double).
+      ui: {
+        notify: (): void => {},
+        setStatus: (key: string, _text: string | undefined): void => {
+          uiCalls.push({ member: "setStatus", key });
+        },
+        setWorkingMessage: (_message?: string): void => {
+          uiCalls.push({ member: "setWorkingMessage" });
+        },
+        setWidget: (key: string, content: unknown): void => {
+          uiCalls.push({ member: "setWidget", key, content });
+        },
+      },
     },
-  } as unknown as ExtensionCommandContext;
-  await command.handler("", dispatchCtx);
+  });
+  await host.dispatch("demo", "");
   return uiCalls;
 }
 

@@ -17,13 +17,13 @@ import { afterAll, describe, expect, it } from "vitest";
 import type {
   ExtensionAPI,
   ExtensionCommandContext,
-  ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
-import { createThetaExtension, type ThetaExtensionDeps } from "../src/extension/factory";
+import type { ThetaExtensionDeps } from "../src/extension/factory";
 import { composeExtensionInstance } from "../src/extension/production-composition";
 import { SUBAGENT_ROOT_ENV_MARKER } from "../src/runtime/subagent-root-regime";
 import { FakeFileWatcher } from "./helpers/fake-file-watcher";
 import {
+  bootComposedHost,
   disposeWorkspace,
   plantThetaWorkspace,
   theta,
@@ -574,26 +574,11 @@ interface ComposedHost {
   dispatch(name: string, args: string): Promise<unknown>;
 }
 
-/** A dispatch-time ctx sized to the prompt bind's session reads (empty session). */
-function dispatchCtx(): ExtensionCommandContext {
-  return {
-    model: { id: "claude-test", provider: "anthropic" },
-    cwd: "/tmp",
-    signal: undefined,
-    sessionManager: {
-      getEntries: () => [],
-      getLeafId: () => undefined,
-      getBranch: () => [],
-    },
-  } as unknown as ExtensionCommandContext;
-}
-
 /**
  * Boot the real factory over the real composition root (`composeInstance` →
- * `composeExtensionInstance`) against a recording `pi` whose entry surfaces
- * are PRESENT (so the entry channel is live and only the `ctx.mode` gate
- * decides whether the publisher exists), fire `session_start` with the given
- * `ctx.mode`, and hand back the registered dispatch surface.
+ * `composeExtensionInstance`) via the shared `bootComposedHost` scaffold
+ * (tests/helpers/production-load-harness.ts), with a recording `appendEntry`,
+ * and hand back the registered dispatch surface.
  */
 async function composeHost(options: {
   readonly cwd: string;
@@ -601,43 +586,8 @@ async function composeHost(options: {
   /** Compose as a spawned subagent child marked for this slug (child regime). */
   readonly childRegimeSlug?: string;
 }): Promise<ComposedHost> {
-  const commands = new Map<
-    string,
-    { handler: (args: string, ctx: ExtensionCommandContext) => Promise<unknown> | unknown }
-  >();
   const appendCalls: { customType: string; data: unknown }[] = [];
   const envelopeLines: string[] = [];
-  const sessionStartHandlers: ((event: unknown, ctx: ExtensionContext) => unknown)[] = [];
-  const pi = {
-    registerFlag: (): void => {},
-    registerMessageRenderer: (): void => {},
-    registerEntryRenderer: (): void => {},
-    appendEntry: (customType: string, data: unknown): void => {
-      appendCalls.push({ customType, data });
-    },
-    registerCommand: (name: string, commandOptions: unknown): void => {
-      commands.set(name, commandOptions as { handler: never });
-    },
-    on: (event: string, handler: (e: unknown, c: ExtensionContext) => unknown): void => {
-      if (event === "session_start") {
-        sessionStartHandlers.push(handler);
-      }
-    },
-    getFlag: (): undefined => undefined,
-    getCommands: (): { name: string; source: string }[] =>
-      [...commands.keys()].map((name) => ({ name, source: "extension" })),
-    sendMessage: (): void => {},
-    sendUserMessage: (): void => {},
-  } as unknown as ExtensionAPI;
-  const ctx = {
-    cwd: options.cwd,
-    mode: options.mode,
-    hasUI: options.mode === "tui",
-    modelRegistry: {
-      getAvailable: (): readonly unknown[] => [{ id: "claude-test", provider: "anthropic" }],
-    },
-    ui: { notify: (): void => {} },
-  } as unknown as ExtensionContext;
   const deps: ThetaExtensionDeps = {
     fixtures: [],
     // The factory threads its own entry channel (built over the recording `pi`
@@ -661,24 +611,17 @@ async function composeHost(options: {
           : {}),
       }, undefined, ownRegisteredNames, entryChannel, latchStatusBus),
   };
-  createThetaExtension(deps)(pi);
-  for (const handler of sessionStartHandlers) {
-    await handler({ type: "session_start" }, ctx);
-  }
-  return {
-    appendCalls,
-    envelopeLines,
-    dispatch: async (name, args): Promise<unknown> => {
-      const command = commands.get(name);
-      if (command === undefined) {
-        // No silent skipping: an unregistered fixture is a harness fault.
-        throw new Error(
-          `precondition unmet: /${name} never registered (registered: ${[...commands.keys()].join(", ")})`,
-        );
-      }
-      return command.handler(args, dispatchCtx());
+  const host = await bootComposedHost({
+    cwd: options.cwd,
+    mode: options.mode,
+    deps,
+    piExtras: {
+      appendEntry: (customType: string, data: unknown): void => {
+        appendCalls.push({ customType, data });
+      },
     },
-  };
+  });
+  return { appendCalls, envelopeLines, dispatch: host.dispatch };
 }
 
 describe("D3 — composition-level TUI-only gate (production-composition.ts)", () => {

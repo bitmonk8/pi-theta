@@ -1,19 +1,17 @@
 import { hitsFor } from "./helpers/e2e-s1";
 import { makeShippedHarness } from "./helpers/production-load-harness";
-import { loadRowMessage, interpolate, templateToRegExp } from "./helpers/registry-oracle";
+import {
+  loadRowMessage,
+  interpolate,
+  templateToRegExp,
+  expectUnreadableSourceFailure,
+} from "./helpers/registry-oracle";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import {
-  discoverThetas,
-  type DiscoveredTheta,
-  type DiscoveryInput,
-} from "../src/discovery/discovery-walk";
-import {
-  discoverPackageThetas,
-  type PackageDiscoveredTheta,
-} from "../src/discovery/package-discovery";
+import { discoverThetas, type DiscoveryInput } from "../src/discovery/discovery-walk";
+import { discoverPackageThetas } from "../src/discovery/package-discovery";
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
 import type { FileSystem } from "../src/seams/file-system";
 import {
@@ -23,6 +21,10 @@ import {
   mergeDirs,
   buildPackages,
   packageInput,
+  DISCOVERY_BASE,
+  DISCOVERY_GLOBAL_ROOT as GLOBAL_ROOT,
+  DISCOVERY_PROJECT_ROOT as PROJECT_ROOT,
+  namedTheta as named,
   discoveryInput as input,
 } from "./helpers/fake-file-system";
 
@@ -185,8 +187,6 @@ const UNREADABLE_SOURCE = "theta/load/unreadable-source";
 
 const HOME = "/home/theta";
 const CWD = "/project";
-const GLOBAL_ROOT = "/home/theta/.pi/agent/theta";
-const PROJECT_ROOT = "/project/.pi/theta";
 const SETTINGS_BASE = "/project/.pi";
 const PREFIX_ROOT = "/project/.pi/g";
 const DENIED_SUB = "/project/.pi/g/sub";
@@ -198,11 +198,7 @@ const THETA_BODY = "mode: prompt\n---\n";
 /** The two conventional roots' ancestor chains plus the settings-base chain, in
  *  every settings fixture, so a cell's diagnostic set is about the path under
  *  test alone and the fixture's directory shape stays self-consistent. */
-const BASE = mergeDirs(
-  ancestors(GLOBAL_ROOT),
-  ancestors(PROJECT_ROOT),
-  ancestors(DENIED_SUB),
-);
+const BASE = mergeDirs(DISCOVERY_BASE, ancestors(DENIED_SUB));
 
 interface FakeSpec {
   readonly dirs?: Record<string, readonly string[]>;
@@ -237,13 +233,6 @@ function settingsInput(fs: FileSystem, thetaPaths: readonly string[]): Discovery
   return input(fs, { settings: { thetaPaths, thetaPathsBaseDir: SETTINGS_BASE } });
 }
 
-function named(
-  thetas: readonly (DiscoveredTheta | PackageDiscoveredTheta)[],
-  name: string,
-): DiscoveredTheta | PackageDiscoveredTheta | undefined {
-  return thetas.find((t) => t.name === name);
-}
-
 /**
  * The bug-0113 pin: the universe walk's `readdir` failure on `file` surfaced as
  * exactly ONE diagnostic with the adjudicated shape — `theta/load/unreadable-source`,
@@ -259,9 +248,10 @@ function expectUniverseFailure(
   descriptor: string,
   why: string,
 ): void {
-  const hits = hitsFor(diagnostics, UNREADABLE_SOURCE, file);
-  expect(
-    hits.length,
+  expectUnreadableSourceFailure(
+    diagnostics,
+    file,
+    descriptor,
     `PRIMARY (bug 0113): ${why} — discovery-sources.md:69 forbids silence for a ` +
       `"traversal failure inside a discovery root that does exist" ("an ` +
       `unreadable-source warning, not silence"), and :57 gives the Settings row's ` +
@@ -270,24 +260,7 @@ function expectUniverseFailure(
       `without capturing .code and returns from the subtree in silence; ` +
       `it takes no diagnostics parameter, so the shrunken universe is ` +
       `unreported. Observed diagnostics=${JSON.stringify(diagnostics)}`,
-  ).toBe(1);
-  const diagnostic = hits[0]!;
-  expect(
-    diagnostic.severity,
-    "the Settings `thetaPaths` entry row's Unreadable cell is a warning " +
-      "(discovery-sources.md:57), and warning severity is what reaches the " +
-      "theta-system-note channel (cell E1)",
-  ).toBe("warning");
-  expect(
-    diagnostic.message,
-    "DIAG-4: the message is the registry row's Message column interpolated with the " +
-      "source descriptor (discovery-sources.md:63, package-and-settings.md:97)",
-  ).toBe(interpolate(loadRowMessage(UNREADABLE_SOURCE), { descriptor }));
-  expect(
-    diagnostics.filter((d) => d.code === MISSING_SOURCE),
-    "adjudication (4): a universe walk NEVER emits missing-source — a pattern " +
-      "resolving to zero paths is silent (package-and-settings.md:29)",
-  ).toHaveLength(0);
+  );
 }
 
 // ===========================================================================

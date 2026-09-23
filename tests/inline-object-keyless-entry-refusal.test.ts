@@ -1,5 +1,5 @@
 import { registryMessageOrThrow } from "./helpers/load-row-harness";
-import { REGISTRY } from "./helpers/registry-oracle";
+import { REGISTRY, DUP, QUOTED, RENAMED, NOTIDENT, type Exp } from "./helpers/registry-oracle";
 import { describe, expect, it } from "vitest";
 import { lowerQueryResponseSchema } from "../src/parser/query-schema-lowering";
 import { expectGroup as expectGroupShared, type DiagnosticCell, envelope, parseDoc, diagLines, subagentTheta as theta, subagentParamsSrc, loweredParams } from "./helpers/e2e-s1";
@@ -184,20 +184,9 @@ const BINDING_CASE = "theta/parse/binding-case-mismatch";
 const EMPTY_BODY = "theta/parse/empty-schema-body";
 const VOID_POSITION = "theta/parse/void-in-non-return-position";
 const ARITY = "theta/parse/generic-arity-mismatch";
-const DUPLICATE_INLINE = "theta/parse/duplicate-inline-field-name";
-const QUOTED_INLINE = "theta/parse/quoted-inline-field-name";
-const RENAMED_INLINE = "theta/parse/renamed-inline-field-name";
-const NOT_IDENT = "theta/parse/inline-field-name-not-identifier";
 const LET_RHS_MISMATCH = "theta/parse/let-rhs-type-mismatch";
 /** Bug 0252's row, which owns the stray-close class at an annotation (group G). */
 const ANNOTATION_NOT_EXPR = "theta/parse/annotation-type-not-expression";
-
-/** One expected diagnostic, as a code plus the placeholder fills its row needs. */
-interface Exp {
-  readonly severity: "error" | "warning";
-  readonly code: string;
-  readonly fills: ReadonlyArray<readonly [string, string]>;
-}
 
 /** Bug 0244's refusal: the discarded keyless entry's one line. */
 const MALF: Exp = { severity: "error", code: MALFORMED_FIELD, fills: [] };
@@ -217,18 +206,6 @@ function ARITY_OF(ctor: string, expected: string, actual: string): Exp {
       ["<actual>", actual],
     ],
   };
-}
-function DUP(field: string): Exp {
-  return { severity: "error", code: DUPLICATE_INLINE, fills: [["<field>", field]] };
-}
-function QUOTED(field: string): Exp {
-  return { severity: "error", code: QUOTED_INLINE, fills: [["<field>", field]] };
-}
-function RENAMED(field: string): Exp {
-  return { severity: "error", code: RENAMED_INLINE, fills: [["<field>", field]] };
-}
-function NOTIDENT(field: string): Exp {
-  return { severity: "error", code: NOT_IDENT, fills: [["<field>", field]] };
 }
 function LETRHS(name: string, expected: string, actual: string): Exp {
   return {

@@ -1,4 +1,4 @@
-import { user as userMessage } from "./helpers/agent-message-fixtures";
+import { assistant as assistantMessage, user as userMessage } from "./helpers/agent-message-fixtures";
 import {
   span,
   queryConfig,
@@ -8,7 +8,7 @@ import {
 } from "./helpers/invoke-seam-scaffold";
 import { describe, expect, it } from "vitest";
 import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
-import type { AssistantMessage, Message } from "@earendil-works/pi-ai";
+import type { Message } from "@earendil-works/pi-ai";
 import {
   composeThetaFixture,
   type BodyExecutingConversationBinding,
@@ -87,26 +87,6 @@ function queryExpr(template: string): QueryExpr {
 
 function body(statements: readonly [] = [], tail: Expr | null = null): ThetaBody {
   return { statements, tail };
-}
-
-function assistantMessage(text: string): AssistantMessage {
-  return {
-    role: "assistant",
-    content: [{ type: "text", text }],
-    api: "anthropic-messages",
-    provider: "anthropic",
-    model: "claude-test",
-    usage: {
-      input: 0,
-      output: 0,
-      cacheRead: 0,
-      cacheWrite: 0,
-      totalTokens: 0,
-      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
-    },
-    stopReason: "stop",
-    timestamp: 0,
-  } as AssistantMessage;
 }
 
 /** A minimal dispatch context — the producer's collaborators ignore it here. */

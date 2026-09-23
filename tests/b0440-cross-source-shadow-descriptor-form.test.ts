@@ -45,15 +45,11 @@ import {
   cliSettingsShadowInput,
   ancestors,
   mergeDirs,
+  DISCOVERY_GLOBAL_ROOT as GLOBAL_ROOT,
+  DISCOVERY_PROJECT_ROOT as PROJECT_ROOT,
 } from "./helpers/fake-file-system";
 import { soleByFragment } from "./helpers/e2e-s1";
 import { THETA_BODY } from "./helpers/discovery-scratch-harness";
-
-// globalAgentDir() = <homedir>/.pi/agent, project root = <cwd>/.pi/theta —
-// the two conventional roots' resolved directory paths (0268 forward-slashed),
-// which the fix renders as the project/global descriptor VALUES.
-const GLOBAL_ROOT = "/home/theta/.pi/agent/theta";
-const PROJECT_ROOT = "/project/.pi/theta";
 
 // The two message FRAGMENTS the two diagnostics carry — the shadow arm and the
 // same-priority collision arm. Located by fragment (never by registry code) to

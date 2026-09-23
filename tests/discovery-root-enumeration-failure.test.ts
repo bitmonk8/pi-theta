@@ -1,11 +1,7 @@
 import { hitsFor, byCode } from "./helpers/e2e-s1";
 import { loadRowMessage, interpolate, templateToRegExp } from "./helpers/registry-oracle";
 import { describe, expect, it } from "vitest";
-import {
-  discoverThetas,
-  type DiscoveredTheta,
-  type DiscoveryInput,
-} from "../src/discovery/discovery-walk";
+import { discoverThetas, type DiscoveryInput } from "../src/discovery/discovery-walk";
 import {
   discoverPackageThetas,
 } from "../src/discovery/package-discovery";
@@ -21,6 +17,7 @@ import {
   DISCOVERY_BASE as BASE,
   DISCOVERY_GLOBAL_ROOT as GLOBAL_ROOT,
   DISCOVERY_PROJECT_ROOT as PROJECT_ROOT,
+  namedTheta as named,
   discoveryInput as input,
 } from "./helpers/fake-file-system";
 
@@ -203,13 +200,6 @@ function build(spec: FakeSpec): FakeFileSystem {
  * classifies as a directory and only its enumeration fails.
  */
 class ReaddirDenied extends ReaddirDeniedFileSystem {}
-
-function named(
-  thetas: readonly DiscoveredTheta[],
-  name: string,
-): DiscoveredTheta | undefined {
-  return thetas.find((t) => t.name === name);
-}
 
 interface ExpectedFailure {
   readonly code: string;

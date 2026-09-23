@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
 import {
   expectCaptured,
+  expectClosedSetRows,
   expectRows,
   loadRowFromBody,
   loadRowFromParam,
@@ -623,7 +624,7 @@ describe("b0277 (K) — an applied `Ok<…>` / `Err<…>` spelling refuses, at a
 // ===========================================================================
 
 describe("b0277 (DIAG-2) — every asserted code has a registry row", () => {
-  it("b0277-DIAG-2: all four codes carry an E row of their own phase and a placeholder-bearing Message", () => {
+  it("b0277-DIAG-2: all four codes carry an E row of their own phase, and the keyword refusal's Message substitutes its placeholder", () => {
     // DIAG-2: the registry is closed, so a code a test asserts must have a row
     // (`reconcileClosedSet`, tools/code-registry/index.js). No code is minted
     // here. The `theta/parse/reserved-keyword-as-identifier` row's *Trigger*
@@ -633,14 +634,7 @@ describe("b0277 (DIAG-2) — every asserted code has a registry row", () => {
     // registered, and no *Message* byte and no row moves under version 0.275.0.
     // This cell fails loudly on the unmet precondition rather than letting
     // `msg` above substitute into an absent template.
-    const rows = [RESERVED, LET_MISMATCH, EMPTY_SCHEMA, RESULT_SCHEMA].map((code) => {
-      const r = REGISTRY.find((x) => x.code === code);
-      return [code, r?.severity, r?.phase] as const;
-    });
-    expect(
-      rows,
-      `DIAG-2: ${REGISTRY_PATH} must carry a closed-set row for each asserted code`,
-    ).toEqual([
+    expectClosedSetRows(REGISTRY, REGISTRY_PATH, [
       [RESERVED, "E", "parse"],
       [LET_MISMATCH, "E", "type"],
       [EMPTY_SCHEMA, "E", "parse"],

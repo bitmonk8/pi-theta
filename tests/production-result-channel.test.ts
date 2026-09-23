@@ -52,9 +52,9 @@ import {
   type PreparedSubagentLaunch,
 } from "../src/runtime/subagent-launcher";
 import { SUBAGENT_PARAMS_ENV } from "../src/runtime/subagent-params";
-import type { PlacedChild } from "../src/runtime/subagent-placement";
 import { SUBAGENT_ROOT_ENV_MARKER } from "../src/runtime/subagent-root-regime";
 import { FakeClock } from "./helpers/fake-clock";
+import { placedWithoutExit } from "./helpers/result-channel-harness";
 
 // ===========================================================================
 // Tier 1 — node:net adapters.
@@ -67,12 +67,7 @@ describe("RFC-0012 §3 — node:net adapters over the loopback interface", () =>
     const channel = await openResultChannel({ server, clock, token: "t", nonce: "n", silenceBudgetMs: 60_000 });
     expect(channel.port).toBeGreaterThan(0);
     expect(RESULT_CHANNEL_HOST).toBe("127.0.0.1");
-    const placed: PlacedChild = {
-      handle: "h",
-      capabilities: { observesExit: false, inheritsEnv: true, visible: true },
-      onExit: (): void => {},
-      kill: (): void => {},
-    };
+    const placed = placedWithoutExit();
     const drive = driveSubagentChild({
       child: adaptChannelToChildProcess(placed, channel),
       thetaAbort: new AbortController(),
@@ -282,12 +277,7 @@ describe("RFC-0012 §2/§3 — createProductionSubagentWire", () => {
     });
     const wire = await openWire(preparedLaunch());
     expect(fs.files.size).toBe(1);
-    const placed: PlacedChild = {
-      handle: "pane",
-      capabilities: { observesExit: false, inheritsEnv: false, visible: true },
-      onExit: (): void => {},
-      kill: (): void => {},
-    };
+    const placed = placedWithoutExit();
     const child = wire.adapt(placed);
     const exits: unknown[] = [];
     child.onExit((info) => exits.push(info));
@@ -305,12 +295,7 @@ describe("RFC-0012 §2/§3 — createProductionSubagentWire", () => {
       mintSecret: createProductionSecretMint(),
     });
     const wire = await openWire(preparedLaunch());
-    const child = wire.adapt({
-      handle: "h",
-      capabilities: { observesExit: false, inheritsEnv: true, visible: true },
-      onExit: (): void => {},
-      kill: (): void => {},
-    });
+    const child = wire.adapt(placedWithoutExit());
     const exits: unknown[] = [];
     child.onExit((info) => exits.push(info));
     clock.advance(119_999);

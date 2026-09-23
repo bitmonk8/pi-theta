@@ -13,17 +13,13 @@
 // TIER: unit, offline, deterministic, provider-free.
 
 import { afterAll, describe, expect, it } from "vitest";
-import type {
-  ExtensionAPI,
-  ExtensionCommandContext,
-  ExtensionContext,
-} from "@earendil-works/pi-coding-agent";
-import { createThetaExtension, type ThetaExtensionDeps } from "../src/extension/factory";
+import type { ThetaExtensionDeps } from "../src/extension/factory";
 import { composeExtensionInstance } from "../src/extension/production-composition";
 import type { ExecutionStatusBus } from "../src/extension/execution-status/types";
 import { FakeFileWatcher } from "./helpers/fake-file-watcher";
 import { FakeClock } from "./helpers/fake-clock";
 import {
+  bootComposedHost,
   disposeWorkspace,
   plantThetaWorkspace,
   theta,
@@ -34,63 +30,11 @@ interface ComposedHost {
   dispatch(name: string, args: string): Promise<unknown>;
 }
 
-function dispatchCtx(): ExtensionCommandContext {
-  return {
-    model: { id: "claude-test", provider: "anthropic" },
-    cwd: "/tmp",
-    signal: undefined,
-    sessionManager: {
-      getEntries: () => [],
-      getLeafId: () => undefined,
-      getBranch: () => [],
-    },
-  } as unknown as ExtensionCommandContext;
-}
-
 async function composeHost(options: {
   readonly cwd: string;
   readonly mode: "tui" | "print";
 }): Promise<ComposedHost> {
-  const commands = new Map<
-    string,
-    { handler: (args: string, ctx: ExtensionCommandContext) => Promise<unknown> | unknown }
-  >();
-  const sessionStartHandlers: ((event: unknown, ctx: ExtensionContext) => unknown)[] = [];
   let latchedBus: ExecutionStatusBus | undefined;
-  const pi = {
-    registerFlag: (): void => {},
-    registerMessageRenderer: (): void => {},
-    registerEntryRenderer: (): void => {},
-    appendEntry: (): void => {},
-    registerCommand: (name: string, commandOptions: unknown): void => {
-      commands.set(name, commandOptions as { handler: never });
-    },
-    on: (event: string, handler: (e: unknown, c: ExtensionContext) => unknown): void => {
-      if (event === "session_start") {
-        sessionStartHandlers.push(handler);
-      }
-    },
-    // The prompt→prompt attach cell (runPromptSuspendInvoke) snapshots and
-    // restores the active tool set around the callee body; the callable-set
-    // admission reads the registry snapshot. All three are inert here.
-    getActiveTools: (): string[] => [],
-    setActiveTools: (): void => {},
-    getAllTools: (): unknown[] => [],
-    getFlag: (): undefined => undefined,
-    getCommands: (): { name: string; source: string }[] =>
-      [...commands.keys()].map((name) => ({ name, source: "extension" })),
-    sendMessage: (): void => {},
-    sendUserMessage: (): void => {},
-  } as unknown as ExtensionAPI;
-  const ctx = {
-    cwd: options.cwd,
-    mode: options.mode,
-    hasUI: options.mode === "tui",
-    modelRegistry: {
-      getAvailable: (): readonly unknown[] => [{ id: "claude-test", provider: "anthropic" }],
-    },
-    ui: { notify: (): void => {} },
-  } as unknown as ExtensionContext;
   const deps: ThetaExtensionDeps = {
     fixtures: [],
     composeInstance: (composePi, composeCtx, ownRegisteredNames, entryChannel, latchStatusBus) =>
@@ -111,10 +55,19 @@ async function composeHost(options: {
         },
       ),
   };
-  createThetaExtension(deps)(pi);
-  for (const handler of sessionStartHandlers) {
-    await handler({ type: "session_start" }, ctx);
-  }
+  const host = await bootComposedHost({
+    cwd: options.cwd,
+    mode: options.mode,
+    deps,
+    piExtras: {
+      // The prompt→prompt attach cell (runPromptSuspendInvoke) snapshots and
+      // restores the active tool set around the callee body; the callable-set
+      // admission reads the registry snapshot. All three are inert here.
+      getActiveTools: (): string[] => [],
+      setActiveTools: (): void => {},
+      getAllTools: (): unknown[] => [],
+    },
+  });
   return {
     statusBus: (): ExecutionStatusBus => {
       if (latchedBus === undefined) {
@@ -123,15 +76,7 @@ async function composeHost(options: {
       }
       return latchedBus;
     },
-    dispatch: async (name, args): Promise<unknown> => {
-      const command = commands.get(name);
-      if (command === undefined) {
-        throw new Error(
-          `precondition unmet: /${name} never registered (registered: ${[...commands.keys()].join(", ")})`,
-        );
-      }
-      return command.handler(args, dispatchCtx());
-    },
+    dispatch: host.dispatch,
   };
 }
 
