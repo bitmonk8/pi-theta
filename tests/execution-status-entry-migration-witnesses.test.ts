@@ -194,21 +194,18 @@ function loadDiagnosticBatch(): readonly Diagnostic[] {
 }
 
 describe("T-ENT — B53 (bug 0469 fix witness): watcher-driven emission mid-in-flight-tool-call is adjacency-safe", () => {
-  it("live entry channel: the operator-facing batch note lands via appendEntry with ZERO pi.sendMessage calls, even while a tool call is simulated in flight", () => {
+  it("live entry channel: the operator-facing batch note lands via appendEntry with ZERO pi.sendMessage calls, even mid-open-tool-call", () => {
     const { pi, appendCalls } = fakeEntryPi();
     const channel = createEntryChannel(pi);
     const { deps, sentMessages } = recordingSystemNoteDeps(channel);
 
-    // Simulate the bug 0469 scenario: the watcher-driven rescan completes
-    // WHILE a driven tool call is still open (the assistant's tool_use has
-    // been emitted; its toolResult has not arrived yet). Because entries
-    // never enter provider replay, the emission's timing relative to that
-    // open window is irrelevant to session correctness — the assertion
-    // proves it by observing the delivery channel directly: no sendMessage
-    // call is made, regardless of the simulated in-flight state.
-    const toolCallInFlight = { toolUseId: "toolu_sim_0469", settled: false };
-    expect(toolCallInFlight.settled).toBe(false); // precondition: tool call open
-
+    // The bug 0469 scenario: the watcher-driven rescan completes WHILE a
+    // driven tool call is still open (the assistant's tool_use has been
+    // emitted; its toolResult has not arrived yet). Because entries never
+    // enter provider replay, the emission's timing relative to that open
+    // window is irrelevant to session correctness — the assertion proves it
+    // by observing the delivery channel directly: no sendMessage call is
+    // made, so the open window cannot be broken.
     emitDiagnosticBatch(loadDiagnosticBatch(), deps);
 
     expect(appendCalls).toHaveLength(1);
@@ -216,10 +213,6 @@ describe("T-ENT — B53 (bug 0469 fix witness): watcher-driven emission mid-in-f
     // Nothing reached the message channel — the transcript the toolResult
     // will be parented against is untouched, so adjacency cannot break.
     expect(sentMessages).toHaveLength(0);
-
-    // The simulated tool call settles afterward, unaffected by the note.
-    toolCallInFlight.settled = true;
-    expect(toolCallInFlight.settled).toBe(true);
   });
 
   it("red-direction: absent entry channel (fake pi without appendEntry) falls back to sendMessage — the FALLBACK shape, not silence", () => {

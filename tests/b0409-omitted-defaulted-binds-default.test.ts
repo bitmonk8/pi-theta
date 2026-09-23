@@ -83,6 +83,7 @@ import type {
 } from "../src/extension/theta-composition-producer";
 import type { RuntimeRoot } from "../src/runtime-root";
 import { fakeExecutableHost, makeFakeJsonChildLauncher } from "./helpers/fake-json-child";
+import { waitForValue as waitFor } from "./helpers/fake-file-watcher";
 import { SUBAGENT_PARAMS_ENV } from "../src/runtime/subagent-params";
 import { type LoweredSchema } from "../src/seams/schema-validator";
 import { AjvSchemaValidator, type SchemaSlug } from "../src/seams/ajv-schema-validator";
@@ -162,21 +163,6 @@ function ctxDouble(): ExtensionCommandContext {
     cwd: "/tmp",
     signal: undefined,
   } as unknown as ExtensionCommandContext;
-}
-
-/** Poll until `fn` yields a defined value; throw LOUDLY on budget exhaustion. */
-async function waitFor<T>(fn: () => T | undefined, label: string, budgetMs = 5000): Promise<T> {
-  const start = Date.now();
-  for (;;) {
-    const value = fn();
-    if (value !== undefined) {
-      return value;
-    }
-    if (Date.now() - start > budgetMs) {
-      throw new Error(`precondition never met within ${budgetMs}ms: ${label}`);
-    }
-    await new Promise((resolve) => setTimeout(resolve, 5));
-  }
 }
 
 /** The `--system-prompt` argv value (subagent-launcher.ts:452-453). */

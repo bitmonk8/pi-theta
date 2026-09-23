@@ -67,6 +67,10 @@ import type { ThetaSource } from "../src/lexer/lexer";
 import type { ModelReferenceMatcher } from "../src/parser/frontmatter";
 import { type LoweredSchema } from "../src/seams/schema-validator";
 import { AjvSchemaValidator, type SchemaSlug } from "../src/seams/ajv-schema-validator";
+import {
+  makeRecordingChannel,
+  type ChannelFixture,
+} from "./helpers/recording-system-note-channel";
 
 const SYSTEM_NOTE_CHANNEL_TYPE = "theta-system-note";
 
@@ -90,31 +94,21 @@ const STAMP_ERROR_MESSAGE = "clock refused (non-stale)";
 const KNOWN_WALL_NOW = 1720000000000;
 
 /**
- * The `SystemNoteChannelDeps` tail every local channel double in this file
- * shares: a fresh recording `diagnostics` array behind `emitDiagnostic`, a
- * fresh `RendererGate` (available, so `sendSystemNote` stays on its
- * steady-state `pi.sendMessage`-first path, not the degraded ui-only arm),
- * and a fresh `SystemNoteChannelHealth` (so a throw is treated as non-stale,
- * never the PIC-67 stale-dead arm). Each caller supplies only the two fields
- * that vary per scenario — `pi.sendMessage` (throw vs. record) and
- * `ui.notify` (record vs. no-op) — and gets back the built `channel`
- * alongside the `diagnostics` array it records onto.
+ * The canonical recording channel double (`makeRecordingChannel`) with the
+ * setup every local channel double in this file shares: a fresh
+ * `RendererGate` (available, so `sendSystemNote` stays on its steady-state
+ * `pi.sendMessage`-first path, not the degraded ui-only arm) and a fresh
+ * `SystemNoteChannelHealth` (so a throw is treated as non-stale, never the
+ * PIC-67 stale-dead arm). `pi.sendMessage` throws `sendThrows` when given,
+ * else records into `sent`; `ui.notify` records into `notified` and
+ * `emitDiagnostic` into `emitted`.
  */
-function channelWith(
-  sendMessage: SystemNoteChannelDeps["pi"]["sendMessage"],
-  notify: SystemNoteChannelDeps["ui"]["notify"],
-): { readonly channel: SystemNoteChannelDeps; readonly diagnostics: Diagnostic[] } {
-  const diagnostics: Diagnostic[] = [];
-  const channel: SystemNoteChannelDeps = {
-    pi: { sendMessage },
-    ui: { notify },
-    emitDiagnostic: (diagnostic: Diagnostic): void => {
-      diagnostics.push(diagnostic);
-    },
+function channelWith(sendThrows?: unknown): ChannelFixture {
+  return makeRecordingChannel({
+    sendThrows,
     rendererGate: new RendererGate(),
     health: new SystemNoteChannelHealth(),
-  };
-  return { channel, diagnostics };
+  });
 }
 
 // ===========================================================================
@@ -158,14 +152,9 @@ function throwingClock(): { clock: { wallNow: () => number }; calls: () => numbe
   };
 }
 
-interface NotifyCall {
-  readonly message: string;
-  readonly type: "error";
-}
-
 interface RecordingChannel {
   readonly channel: SystemNoteChannelDeps;
-  readonly notifyCalls: NotifyCall[];
+  readonly notified: ChannelFixture["notified"];
   readonly diagnostics: Diagnostic[];
 }
 
@@ -178,16 +167,8 @@ interface RecordingChannel {
  * stale-dead latch never engages).
  */
 function recordingChannel(): RecordingChannel {
-  const notifyCalls: NotifyCall[] = [];
-  const { channel, diagnostics } = channelWith(
-    (): void => {
-      throw new Error(HOST_ERROR_MESSAGE);
-    },
-    (message: string, type: "error"): void => {
-      notifyCalls.push({ message, type });
-    },
-  );
-  return { channel, notifyCalls, diagnostics };
+  const { deps, notified, emitted } = channelWith(new Error(HOST_ERROR_MESSAGE));
+  return { channel: deps, notified, diagnostics: emitted };
 }
 
 /**
@@ -212,8 +193,8 @@ function producerWith(channel: SystemNoteChannelDeps, root: RuntimeRoot = rootDo
 
 interface StampGuardRecording {
   readonly channel: SystemNoteChannelDeps;
-  readonly sends: unknown[];
-  readonly notifyCalls: NotifyCall[];
+  readonly sends: ChannelFixture["sent"];
+  readonly notified: ChannelFixture["notified"];
   readonly diagnostics: Diagnostic[];
 }
 
@@ -226,17 +207,8 @@ interface StampGuardRecording {
  * non-stale.
  */
 function stampGuardChannel(): StampGuardRecording {
-  const sends: unknown[] = [];
-  const notifyCalls: NotifyCall[] = [];
-  const { channel, diagnostics } = channelWith(
-    (message): void => {
-      sends.push(message);
-    },
-    (message: string, type: "error"): void => {
-      notifyCalls.push({ message, type });
-    },
-  );
-  return { channel, sends, notifyCalls, diagnostics };
+  const { deps, sent, notified, emitted } = channelWith();
+  return { channel: deps, sends: sent, notified, diagnostics: emitted };
 }
 
 // A real `QueryError` leaf — a transport error renders cleanly through the
@@ -260,7 +232,7 @@ const PANIC_DIAGNOSTIC: Diagnostic = {
 
 describe("bug 0437 — the producer's public note emitters must route through the channel fallback, not send raw", () => {
   it("emitTopLevelErrNote (group-A): a non-stale host send throw is CONTAINED, not propagated, and the fallback chain runs", () => {
-    const { channel, notifyCalls, diagnostics } = recordingChannel();
+    const { channel, notified, diagnostics } = recordingChannel();
     const deps = producerWith(channel);
 
     // RED ANCHOR (assertion 1): at the fork the raw `#input.pi.sendMessage`
@@ -277,9 +249,9 @@ describe("bug 0437 — the producer's public note emitters must route through th
       chain: [],
     });
     expect(
-      notifyCalls,
+      notified,
       "runtime-event-channel.md:130-135 — a display:true note falls to ctx.ui.notify when pi.sendMessage throws",
-    ).toEqual([{ message: expectedContent, type: "error" }]);
+    ).toEqual([[expectedContent, "error"]]);
 
     // ...and the delivery-failed diagnostic reaches the off-channel sink.
     expect(diagnostics).toHaveLength(1);
@@ -303,7 +275,7 @@ describe("bug 0437 — the producer's public note emitters must route through th
   // unwitnessed (the whole suite stays green) — this cell pins it both directions.
   it("emitTopLevelErrNote (group-A stamp guard): a non-stale Clock.wallNow() throw is CONTAINED by the fallback, with no re-stamp and no double send", () => {
     const { clock, calls } = throwingClock();
-    const { channel, sends, notifyCalls, diagnostics } = stampGuardChannel();
+    const { channel, sends, notified, diagnostics } = stampGuardChannel();
     const deps = producerWith(channel, rootDouble(clock));
 
     // (a) the stamp throw is CONTAINED. With the guard reverted to a bare
@@ -329,7 +301,7 @@ describe("bug 0437 — the producer's public note emitters must route through th
 
     // (c) exactly ONE toast: the `display: true` err note falls to `ui.notify`
     // with the rendered err-note content.
-    expect(notifyCalls).toEqual([{ message: expectedContent, type: "error" }]);
+    expect(notified).toEqual([[expectedContent, "error"]]);
 
     // (d) the channel's own `pi.sendMessage` recorder saw ZERO writes — the guard
     // returns `undefined`, so the caller never sends the note a second time.
@@ -471,14 +443,8 @@ function recordingSystemNoteChannel(): {
   readonly notes: CapturedNote[];
   readonly diagnostics: Diagnostic[];
 } {
-  const notes: CapturedNote[] = [];
-  const { channel, diagnostics } = channelWith(
-    (message): void => {
-      notes.push(message as CapturedNote);
-    },
-    (): void => {},
-  );
-  return { channel, notes, diagnostics };
+  const { deps, sent, emitted } = channelWith();
+  return { channel: deps, notes: sent, diagnostics: emitted };
 }
 
 /** A throwing channel: `pi.sendMessage` throws the host error; records the
@@ -488,12 +454,8 @@ function throwingSystemNoteChannel(): {
   readonly channel: SystemNoteChannelDeps;
   readonly diagnostics: Diagnostic[];
 } {
-  return channelWith(
-    (): void => {
-      throw new Error(HOST_ERROR_MESSAGE);
-    },
-    (): void => {},
-  );
+  const { deps, emitted } = channelWith(new Error(HOST_ERROR_MESSAGE));
+  return { channel: deps, diagnostics: emitted };
 }
 
 /** A recording top-level `pi` — the seam the RAW send lands on today. */

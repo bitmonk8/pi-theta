@@ -44,6 +44,12 @@ import {
   type ModelReferenceMatcher,
 } from "../../src/parser/frontmatter";
 import type { LowerCtx } from "../../src/parser/params";
+import {
+  checkDiscriminatedUnion,
+  type DiscriminatorCandidateField,
+  type UnionVariantSchema,
+} from "../../src/parser/discriminated-union-checks";
+import { site } from "./invoke-seam-scaffold";
 import { StaticTypeInferencePass } from "../../src/parser/static-type-inference";
 import { checkCompatible, displayType, type Compatibility, type TypeEnv } from "../../src/parser/type-compat";
 import type { LoweredSchema } from "../../src/seams/schema-validator";
@@ -60,12 +66,13 @@ const resolvingMatcher: ModelReferenceMatcher = {
   resolve: (): "resolved" => "resolved",
 };
 
-/** Parse a full `.theta` source under the given (default resolving) matcher. */
+/** Parse a full `.theta` source under the given (default resolving) matcher and file name. */
 export function parseFrontmatterSource(
   source: string,
   matcher: ModelReferenceMatcher = resolvingMatcher,
+  file = "test.theta",
 ): FrontmatterParseResult {
-  return parseFrontmatter(source, { file: "test.theta", modelMatcher: matcher });
+  return parseFrontmatter(source, { file, modelMatcher: matcher });
 }
 
 /** Build a `.theta` source from frontmatter lines plus a trivial body. */
@@ -438,7 +445,9 @@ export function isLoadParseError(d: Diagnostic): boolean {
 }
 
 /** Every diagnostic rendered `<severity> <code>: <message>`, in emission order. */
-export function diagLines(source: ThetaDocument | readonly Diagnostic[]): string[] {
+export function diagLines(
+  source: ThetaDocument | FrontmatterParseResult | readonly Diagnostic[],
+): string[] {
   const diags = "diagnostics" in source ? source.diagnostics : source;
   return diags.map((d) => `${d.severity} ${d.code}: ${d.message}`);
 }
@@ -539,7 +548,7 @@ export function messagesFor(source: ThetaDocument | readonly Diagnostic[], code:
 }
 
 /** Every diagnostic rendered `<severity> <code>`, in emission order. */
-export function diagCodes(doc: ThetaDocument): string[] {
+export function diagCodes(doc: ThetaDocument | FrontmatterParseResult): string[] {
   return doc.diagnostics.map((d) => `${d.severity} ${d.code}`);
 }
 
@@ -1601,4 +1610,54 @@ export function thetaCallee(mode: "prompt" | "subagent"): Omit<ResolvedThetaCall
 export function resolveList(items: readonly string[], d: CallableSetDeps): CallableSetResult {
   const tools: ToolsField = { kind: "list", items };
   return resolveCallableSet({ file: "test.theta", tools, deps: d });
+}
+
+/**
+ * The classification shape the discriminator-field classifier produces
+ * (schema-declarations.ts:368), as the `checkDiscriminatedUnion` seam-entry
+ * fixtures below consume it.
+ */
+export type DiscriminatorFieldClassification = Pick<
+  DiscriminatorCandidateField,
+  "literal" | "nested" | "emptyObject"
+>;
+
+/**
+ * `Cat` and `Dog` as the `checkDiscriminatedUnion` seam sees them: `Dog.kind`
+ * is a single string literal, `name` is a non-literal field in both variants,
+ * and `Cat.kind` carries whichever classification the row is about.
+ */
+export function animalVariants(
+  catKind: DiscriminatorFieldClassification,
+): readonly UnionVariantSchema[] {
+  return [
+    { name: "Cat", fields: [{ name: "kind", ...catKind }, { name: "name" }] },
+    {
+      name: "Dog",
+      fields: [
+        { name: "kind", literal: { kind: "string", text: "dog" } },
+        { name: "name" },
+      ],
+    },
+  ];
+}
+
+/**
+ * Every diagnostic `checkDiscriminatedUnion` raised over the `Animal` union,
+ * rendered `<severity> <code>: <message>`: `Cat.kind` carries the given
+ * classification and `by` is the optional explicit discriminator clause.
+ */
+export function seamLines(
+  catKind: DiscriminatorFieldClassification,
+  by: string | undefined,
+  file?: string,
+): string[] {
+  const decl = {
+    name: "Animal",
+    ...(by !== undefined ? { by } : {}),
+    variants: animalVariants(catKind),
+  };
+  return checkDiscriminatedUnion(decl, site(file)).map(
+    (d) => `${d.severity} ${d.code}: ${d.message}`,
+  );
 }

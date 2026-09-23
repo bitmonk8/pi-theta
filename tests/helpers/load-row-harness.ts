@@ -25,7 +25,7 @@ import { parseRegistry, registryMessage } from "../../tools/code-registry/index.
 import type { Diagnostic, SourceRange } from "../../src/diagnostics/diagnostic";
 import type { FnDecl, FnParam, SchemaDecl, ThetaDocument } from "../../src/parser/theta-document";
 import type { LowerCtx } from "../../src/parser/params";
-import { at, topKinds, parseDoc, diagLines, isLoadParseError } from "./e2e-s1";
+import { at, topKinds, parseDoc, diagLines, errorLineAt, isLoadParseError } from "./e2e-s1";
 
 // ===========================================================================
 // The diagnostic oracle — the registry's *Message* column (DIAG-4).
@@ -98,6 +98,45 @@ export function registryMessageOf(
     ).not.toMatch(options.unfilledPattern);
   }
   return out;
+}
+
+/** `PARSE_REGISTRY`'s *Message* template for `code` with placeholders filled (DIAG-4). */
+export function parseMsg(
+  code: string,
+  fills: ReadonlyArray<readonly [string, string]> = [],
+): string {
+  return registryMessageOf(PARSE_REGISTRY, PARSE_REGISTRY_PATH, code, fills);
+}
+
+// ===========================================================================
+// The reserved-keyword-family range builders the bug 0153 / 0242 / 0249
+// witness files share, rendered `severity code @l:c-l:c: message`.
+// ===========================================================================
+
+/** The code the `controlHeads` scan pushes on a body that is not a braced block. */
+export const SINGLE_LINE_IF = "theta/parse/single-line-if";
+
+/** The reserved-spelling refusal `reservedAt` fills and ranges. */
+const RESERVED = "theta/parse/reserved-keyword-as-identifier";
+
+/**
+ * The reserved refusal ranged on the offending NAME itself: one-token names
+ * are ASCII here, so the end column is `column + keyword.length` (1-indexed,
+ * end-exclusive, per lexical.md §"Diagnostic spans").
+ */
+export function reservedAt(keyword: string, line: number, column: number): string {
+  return errorLineAt(
+    RESERVED,
+    parseMsg(RESERVED, [["<keyword>", keyword]]),
+    line,
+    column,
+    column + keyword.length,
+  );
+}
+
+/** The `controlHeads` scan's verdict, ranged on the head token. */
+export function singleLineIfAt(head: string, line: number, column: number): string {
+  return errorLineAt(SINGLE_LINE_IF, parseMsg(SINGLE_LINE_IF, []), line, column, column + head.length);
 }
 
 /**

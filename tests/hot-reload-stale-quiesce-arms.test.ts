@@ -15,47 +15,11 @@ import { installHotReload } from "../src/extension/hot-reload";
 import { STALE_QUIESCE_STDERR_PREFIX } from "../src/extension/stale-ctx";
 import { RELOAD_DEBOUNCE_WINDOW_MS } from "../src/extension/reload-debounce";
 import { ThetaRegistry, type ParsedTheta } from "../src/extension/reload-wiring";
-import type {
-  SystemNoteChannelDeps,
-  SystemNoteSender,
-  SystemNoteDetails,
-} from "../src/extension/system-note-channel";
-import { HOST_STALE_MESSAGE } from "./helpers/recording-system-note-channel";
-import { FakeClock } from "./helpers/fake-clock";
+import { HOST_STALE_MESSAGE, channelHarness } from "./helpers/recording-system-note-channel";
+import { FakeClock, flush } from "./helpers/fake-clock";
 import { FakeFileWatcher } from "./helpers/fake-file-watcher";
 import { makeTheta } from "./helpers/watch-arming-harness";
 import { stderrLinesWithPrefix } from "./helpers/compose-workspace-harness";
-
-/** Flush the microtask queue so the in-flight reload pass settles. */
-async function flush(times = 8): Promise<void> {
-  for (let i = 0; i < times; i++) {
-    await Promise.resolve();
-  }
-}
-
-interface SentNote {
-  readonly customType: string;
-  readonly content: string;
-  readonly display: boolean;
-  readonly details?: SystemNoteDetails;
-}
-
-/** A recording (never-throwing) channel: any post-quiesce delivery would RECORD. */
-function recordingChannel(): {
-  readonly channel: SystemNoteChannelDeps;
-  readonly sent: SentNote[];
-} {
-  const sent: SentNote[] = [];
-  const pi: SystemNoteSender = {
-    sendMessage(message, _options): void {
-      sent.push({ ...message });
-    },
-  };
-  return {
-    channel: { pi, ui: { notify: vi.fn() }, emitDiagnostic: vi.fn() },
-    sent,
-  };
-}
 
 describe("bug 0018 (PIC-67) — mid-flight stale escape from the rediscover pass", () => {
   afterEach(() => {
@@ -75,7 +39,8 @@ describe("bug 0018 (PIC-67) — mid-flight stale escape from the rediscover pass
     const fakeWatcher = new FakeFileWatcher();
     const fakeClock = new FakeClock();
     const registry = new ThetaRegistry([["greet", makeTheta("greet")]]);
-    const { channel, sent } = recordingChannel();
+    // A recording (never-throwing) channel: any post-quiesce delivery would RECORD.
+    const { channel, sent } = channelHarness();
     // The probe PASSES (live runtime at pass entry); the invalidation lands
     // mid-pass, surfacing as the host stale-ctx error out of the rediscover
     // closure — the belt-and-braces arm, not the entry probe.

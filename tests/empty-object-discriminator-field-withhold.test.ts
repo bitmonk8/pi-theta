@@ -2,7 +2,7 @@ import { REGISTRY } from "./helpers/registry-oracle";
 import { describe, expect, it } from "vitest";
 import { PARSE_REGISTRY_PATH, registryLineOf } from "./helpers/load-row-harness";
 import type { SourceRange } from "../src/diagnostics/diagnostic";
-import { parseDoc } from "./helpers/e2e-s1";
+import { body, parseDoc } from "./helpers/e2e-s1";
 
 // Bug 0129 — an empty inline object (`{}`) written as the type of the field an
 // explicit `by <field>` clause names draws TWO `E`-severity diagnostics for one
@@ -160,11 +160,6 @@ function missingDiscriminatorLine(schema: string): string {
 // Fixtures — whole source strings through the shipped load path.
 // ===========================================================================
 
-/** A `mode: prompt` theta whose body is `decls` followed by a tail value. */
-function thetaSrc(decls: string): string {
-  return `---\nmode: prompt\n---\n${decls}\nlet a = 1\na`;
-}
-
 /** `schema Dog { kind: "dog", name: string }` — the literal-discriminator sibling. */
 const DOG = 'schema Dog { kind: "dog", name: string }';
 
@@ -189,17 +184,17 @@ function animalRow(label: string, kindType: string, by: boolean): Row {
   const head = by ? "schema Animal by kind = Cat | Dog" : "schema Animal = Cat | Dog";
   return row(
     label,
-    thetaSrc(`schema Cat { kind: ${kindType}, name: string }\n${DOG}\n${head}`),
+    body(`schema Cat { kind: ${kindType}, name: string }\n${DOG}\n${head}`),
   );
 }
 
 /** The subject document: `kind: {}` under an explicit `by kind` (doc row A2). */
-const A2_SOURCE = thetaSrc(
+const A2_SOURCE = body(
   `schema Cat { kind: {}, name: string }\n${DOG}\nschema Animal by kind = Cat | Dog`,
 );
 
 /** The same declarations with the union written FIRST (doc row A9). */
-const A9_SOURCE = thetaSrc(
+const A9_SOURCE = body(
   `schema Animal by kind = Cat | Dog\nschema Cat { kind: {}, name: string }\n${DOG}`,
 );
 
@@ -243,7 +238,7 @@ describe("bug 0129 — a `by`-named field typed `{}` draws the empty-schema-body
       // theta-side name, so the same field is named and the same text refused.
       row(
         "A10 — wire-renamed `kind as \"Kind\": {}`",
-        thetaSrc(
+        body(
           `schema Cat { kind as "Kind": {}, name: string }\n${DOG}\nschema Animal by kind = Cat | Dog`,
         ),
       ),
@@ -260,7 +255,7 @@ describe("bug 0129 — a `by`-named field typed `{}` draws the empty-schema-body
       // constraint row withholds once, so the count goes 3 -> 2.
       row(
         "A7 — `{}` on BOTH variants",
-        thetaSrc(
+        body(
           "schema Cat { kind: {}, name: string }\nschema Dog { kind: {}, name: string }\nschema Animal by kind = Cat | Dog",
         ),
       ),
@@ -271,7 +266,7 @@ describe("bug 0129 — a `by`-named field typed `{}` draws the empty-schema-body
       // nothing left to fire on.
       row(
         "A13 — three variants, `{}` on the middle one",
-        thetaSrc(
+        body(
           `schema Cat { kind: "cat", name: string }\nschema Dog { kind: {}, name: string }\nschema Cow { kind: "cow", name: string }\nschema Animal by kind = Cat | Dog | Cow`,
         ),
       ),
@@ -282,7 +277,7 @@ describe("bug 0129 — a `by`-named field typed `{}` draws the empty-schema-body
       // empty-schema-body line rather than withheld by it.
       row(
         "the `by` field absent from the other variant",
-        thetaSrc(
+        body(
           "schema Cat { kind: {}, name: string }\nschema Dog { name: string }\nschema Animal by kind = Cat | Dog",
         ),
       ),
@@ -363,7 +358,7 @@ describe("bug 0129 — every neighbouring input keeps its present disposition", 
       // A1 — the same field type with no `by` clause anywhere. This is the
       // disposition the withheld rows above must converge on, measured
       // independently of any union.
-      row("A1 — the field type alone", thetaSrc("schema Cat { kind: {}, name: string }")),
+      row("A1 — the field type alone", body("schema Cat { kind: {}, name: string }")),
       // A4 — the input code-registry-parse.md:109 names verbatim. A tag sits one
       // level down, the construct is a well-formed inline object that drew no
       // refusal of its own, and the verdict is therefore not derived from
@@ -399,7 +394,7 @@ describe("bug 0129 — every neighbouring input keeps its present disposition", 
       // on the unrelated `kind` field.
       row(
         "A8 — `by ghost`",
-        thetaSrc(
+        body(
           `schema Cat { kind: {}, name: string }\n${DOG}\nschema Animal by ghost = Cat | Dog`,
         ),
       ),
@@ -408,7 +403,7 @@ describe("bug 0129 — every neighbouring input keeps its present disposition", 
       // line: the count here is unchanged in both directions.
       row(
         "A14 — `{}` on a field the `by` does not name",
-        thetaSrc(
+        body(
           `schema Cat { kind: "cat", tag: {}, name: string }\n${DOG}\nschema Animal by kind = Cat | Dog`,
         ),
       ),
@@ -416,7 +411,7 @@ describe("bug 0129 — every neighbouring input keeps its present disposition", 
       // with no diagnostic at all, so the fix adds no emission anywhere.
       row(
         "A15 — a non-empty group on an unnamed field",
-        thetaSrc(
+        body(
           `schema Cat { kind: "cat", tag: { a: string }, name: string }\n${DOG}\nschema Animal by kind = Cat | Dog`,
         ),
       ),
@@ -435,7 +430,7 @@ describe("bug 0129 — every neighbouring input keeps its present disposition", 
       // wrongly silence this.
       row(
         "MIXED — `{}` in one variant, a genuine nesting in the other",
-        thetaSrc(
+        body(
           `schema Cat { kind: {}, name: string }\nschema Dog { kind: { type: "y" }, name: string }\nschema Animal by kind = Cat | Dog`,
         ),
       ),

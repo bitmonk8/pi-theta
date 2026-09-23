@@ -1,4 +1,4 @@
-import { registryMessageOf } from "./helpers/load-row-harness";
+import { registryMessageOf, reservedAt } from "./helpers/load-row-harness";
 import { readRegistry, type RegistryRow } from "./helpers/registry-oracle";
 import { describe, expect, it } from "vitest";
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
@@ -217,16 +217,6 @@ const FM = "---\nmode: prompt\n---\n";
 /** Parse `body` as a `.theta` under the standard frontmatter. */
 function theta(body: string): ThetaDocument {
   return parseDoc(FM + body);
-}
-
-/**
- * The reserved diagnostic this bug requires, ranged on the offending NAME
- * itself: one-token names are ASCII here, so the end column is
- * `column + keyword.length` (1-indexed, end-exclusive, per lexical.md
- * §"Diagnostic spans").
- */
-function reservedAt(keyword: string, line: number, column: number): string {
-  return at(RESERVED, reservedMsg(keyword), line, column, column + keyword.length);
 }
 
 /**

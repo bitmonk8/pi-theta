@@ -4,10 +4,16 @@ import { PARSE_REGISTRY_PATH, registryLineOf, registryMessageOf } from "./helper
 import {
   checkDiscriminatedUnion,
   type DiscriminatorCandidateField,
-  type UnionVariantSchema,
 } from "../src/parser/discriminated-union-checks";
 import { site } from "./helpers/invoke-seam-scaffold";
-import { parseDoc, capturedSchemas, type CapturedSchema } from "./helpers/e2e-s1";
+import {
+  animalVariants,
+  body,
+  parseDoc,
+  capturedSchemas,
+  seamLines as seamLinesAt,
+  type CapturedSchema,
+} from "./helpers/e2e-s1";
 
 // Bug 0128 — an explicit `by <field>` clause whose named field RESOLVES in
 // every variant but whose type is not a single literal loads with zero
@@ -162,11 +168,6 @@ function loadRow(label: string, source: string, path = "bug0128.theta"): LoadRow
   };
 }
 
-/** A `mode: prompt` theta whose body is `decls` followed by a final value. */
-function thetaSrc(decls: string): string {
-  return `---\nmode: prompt\n---\n${decls}\nlet a = 1\na`;
-}
-
 /** The declarations under test: `Cat`, `Dog`, and `schema Animal [by kind] = Cat | Dog`. */
 interface AnimalFixture {
   readonly catKind: string;
@@ -181,7 +182,7 @@ interface AnimalFixture {
 function animalSource(f: AnimalFixture): string {
   const head =
     f.head ?? (f.by ? "schema Animal by kind = Cat | Dog" : "schema Animal = Cat | Dog");
-  return thetaSrc(
+  return body(
     `${f.prelude ?? ""}schema Cat { kind: ${f.catKind}, name: string }\n` +
       `schema Dog { kind: ${f.dogKind ?? '"dog"'}, name: string }\n${head}`,
   );
@@ -253,7 +254,7 @@ function a8Row(by: boolean): LoadRow {
     : "schema Animal = Cat | Dog | Fish";
   return loadRow(
     "A8 — a three-arm union",
-    thetaSrc(
+    body(
       `schema Cat { kind: "a" | "b", name: string }\n` +
         `schema Dog { kind: "dog", name: string }\n` +
         `schema Fish { kind: "fish", name: string }\n${head}`,
@@ -273,7 +274,7 @@ function a10Row(by: boolean): LoadRow {
   const head = by ? "schema Animal by kind = Cat | Dog" : "schema Animal = Cat | Dog";
   return loadRow(
     'A10 — `kind as "Kind"` in both variants',
-    thetaSrc(
+    body(
       `schema Cat { kind as "Kind": "a" | "b", name: string }\n` +
         `schema Dog { kind as "Kind": "dog", name: string }\n${head}`,
     ),
@@ -373,7 +374,7 @@ describe("bug 0128 class 1 — an explicit `by` over a resolved non-literal fiel
     // new code names the field the author actually chose.
     const row = loadRow(
       "F1 — `by name` while `kind` is a valid discriminator",
-      thetaSrc(
+      body(
         `schema Cat { kind: "cat", name: string }\n` +
           `schema Dog { kind: "dog", name: string }\n` +
           `schema Animal by name = Cat | Dog`,
@@ -501,7 +502,7 @@ describe("bug 0128 — the captured `typeSource` per field spelling", () => {
       const prelude = kindType === "K" ? "enum K { A, B }\n" : "";
       const row = loadRow(
         `capture — kind: ${kindType}`,
-        thetaSrc(`${prelude}schema Cat { kind: ${kindType}, name: string }`),
+        body(`${prelude}schema Cat { kind: ${kindType}, name: string }`),
       );
       return [kindType, row.schemas.map((s) => s.fields.map((f) => [f.name, f.typeSource]))];
     });
@@ -616,33 +617,9 @@ describe("bug 0128 class 2 — a brace-rooted union-typed `by` field is the same
 /** The classification shape the classifier produces (schema-declarations.ts:368). */
 type FieldClassification = Pick<DiscriminatorCandidateField, "literal" | "nested">;
 
-/**
- * `Cat` and `Dog` as the seam sees them: `Dog.kind` is a single string literal,
- * `name` is a non-literal field in both, and `Cat.kind` carries whichever
- * classification the row is about.
- */
-function animalVariants(catKind: FieldClassification): readonly UnionVariantSchema[] {
-  return [
-    { name: "Cat", fields: [{ name: "kind", ...catKind }, { name: "name" }] },
-    {
-      name: "Dog",
-      fields: [
-        { name: "kind", literal: { kind: "string", text: "dog" } },
-        { name: "name" },
-      ],
-    },
-  ];
-}
-
+/** The shared `Animal` seam fixture, entered at this bug's own `bug0128.theta` site. */
 function seamLines(catKind: FieldClassification, by: string | undefined): string[] {
-  const decl = {
-    name: "Animal",
-    ...(by !== undefined ? { by } : {}),
-    variants: animalVariants(catKind),
-  };
-  return checkDiscriminatedUnion(decl, site("bug0128.theta")).map(
-    (d) => `${d.severity} ${d.code}: ${d.message}`,
-  );
+  return seamLinesAt(catKind, by, "bug0128.theta");
 }
 
 function seamCodes(catKind: FieldClassification, by: string | undefined): string[] {

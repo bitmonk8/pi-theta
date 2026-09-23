@@ -336,6 +336,53 @@ export function productionLoadSuite(
   };
 }
 
+/**
+ * Load one planted workspace PER ROW (`<dirPrefix><stem>-` each) before the
+ * suite, dispose them all after, and expose fail-loudly per-stem accessors
+ * over the `stem -> LoadOutcome` map the loads filled.
+ */
+export function productionLoadRowsSuite(
+  dirPrefix: string,
+  rows: readonly PlantedThetaFile[],
+) {
+  const outcomes = new Map<string, LoadOutcome>();
+  const workspaces: string[] = [];
+
+  beforeAll(async () => {
+    for (const row of rows) {
+      // An absent settings file is silent; "{}" pins the fixture's settings read.
+      const workspaceDir = plantThetaWorkspace(`${dirPrefix}${row.stem}-`, [row], "{}");
+      workspaces.push(workspaceDir);
+      outcomes.set(row.stem, await runProductionLoad(workspaceDir));
+    }
+  });
+
+  afterAll(() => {
+    for (const dir of workspaces) {
+      disposeWorkspace(dir);
+    }
+  });
+
+  /** One row's load outcome, or a loud failure naming the row. */
+  function outcomeOf(stem: string): LoadOutcome {
+    const found = outcomes.get(stem);
+    if (found === undefined) {
+      throw new Error(
+        `no production-load outcome for '${stem}': the planted workspace was never loaded, ` +
+          `so no assertion below it witnesses anything. Loaded: ${JSON.stringify([...outcomes.keys()])}`,
+      );
+    }
+    return found;
+  }
+
+  /** A row's registered / notified sets, rendered for an assertion message. */
+  function observed(stem: string): string {
+    return observedLoad(outcomeOf(stem));
+  }
+
+  return { outcomeOf, observed };
+}
+
 /** Compose a single planted theta and return the runnable count, always disposing it. */
 export async function composedRunnableCount(fileName: string, src: string, dirPrefix: string): Promise<number> {
   const workspace = plantThetaWorkspace(dirPrefix, [{ stem: fileName, text: src }], "{}");

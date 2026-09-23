@@ -3,13 +3,8 @@ import { describe, expect, it } from "vitest";
 import { PARSE_REGISTRY_PATH, registryLineOf } from "./helpers/load-row-harness";
 import { isSingleEnclosingBraceGroup } from "../src/parser/body-type-lowering";
 import { splitTopLevel } from "../src/parser/params";
-import {
-  checkDiscriminatedUnion,
-  type DiscriminatorCandidateField,
-  type UnionVariantSchema,
-} from "../src/parser/discriminated-union-checks";
-import { site } from "./helpers/invoke-seam-scaffold";
-import { parseDoc, capturedSchemas, type CapturedSchema } from "./helpers/e2e-s1";
+import { type DiscriminatorCandidateField } from "../src/parser/discriminated-union-checks";
+import { body, parseDoc, capturedSchemas, seamLines, type CapturedSchema } from "./helpers/e2e-s1";
 
 // Bug 0096 — `classifyDiscriminatorFieldType` guards its nested-object arm with
 // a positional brace test, ordered ahead of its own top-level-`|` split, so a
@@ -458,38 +453,6 @@ describe("bug 0096 item 1 — the brace predicate pair and the classification it
 // Item 2 — the seam, both directions (§Reproduction table E).
 // ===========================================================================
 
-/**
- * `Cat` and `Dog` as `schema Cat { kind: <under test>, name: string }` /
- * `schema Dog { kind: "dog", name: string }` reach
- * `checkDiscriminatedUnion`: `name` is a non-literal field in both variants,
- * `Dog.kind` is a single string literal, and `Cat.kind` carries whichever
- * classification the two predicates produce.
- */
-function animalVariants(catKind: FieldClassification): readonly UnionVariantSchema[] {
-  return [
-    { name: "Cat", fields: [{ name: "kind", ...catKind }, { name: "name" }] },
-    {
-      name: "Dog",
-      fields: [
-        { name: "kind", literal: { kind: "string", text: "dog" } },
-        { name: "name" },
-      ],
-    },
-  ];
-}
-
-/** Every diagnostic the seam raised, rendered `<severity> <code>: <message>`. */
-function seamLines(catKind: FieldClassification, by: string | undefined): string[] {
-  const decl = {
-    name: "Animal",
-    ...(by !== undefined ? { by } : {}),
-    variants: animalVariants(catKind),
-  };
-  return checkDiscriminatedUnion(decl, site()).map(
-    (d) => `${d.severity} ${d.code}: ${d.message}`,
-  );
-}
-
 describe("bug 0096 item 2 — what each classification costs at the discriminator seam", () => {
   it("the explicit `by kind` path distinguishes the two classifications, and only there", () => {
     // The defect's whole reach, both directions in one cell: a nested
@@ -531,11 +494,6 @@ describe("bug 0096 item 2 — what each classification costs at the discriminato
 // (§Reproduction tables B, C row 2, D and G).
 // ===========================================================================
 
-/** A `mode: prompt` theta whose body is `decls` followed by a final value. */
-function thetaSrc(decls: string): string {
-  return `---\nmode: prompt\n---\n${decls}\nlet a = 1\na`;
-}
-
 /** One `parseDoc` row: the rendered diagnostic list and every captured field. */
 interface LoadRow {
   readonly label: string;
@@ -560,7 +518,7 @@ function loadRow(label: string, source: string, path = "bug0096.theta"): LoadRow
 
 /** `Cat` alone, with `kind` typed `kindType`. */
 function catOnly(label: string, kindType: string): LoadRow {
-  return loadRow(label, thetaSrc(`schema Cat { kind: ${kindType}, name: string }`));
+  return loadRow(label, body(`schema Cat { kind: ${kindType}, name: string }`));
 }
 
 /** `Cat` + `Dog` + `schema Animal [by kind] = Cat | Dog`. */
@@ -568,7 +526,7 @@ function animalDoc(label: string, kindType: string, by: boolean): LoadRow {
   const head = by ? "schema Animal by kind = Cat | Dog" : "schema Animal = Cat | Dog";
   return loadRow(
     label,
-    thetaSrc(
+    body(
       `schema Cat { kind: ${kindType}, name: string }\nschema Dog { kind: "dog", name: string }\n${head}`,
     ),
   );
@@ -616,19 +574,19 @@ describe("bug 0096 item 3 — the schema-field position's dispositions are byte-
       catOnly("B row 1 — two brace-group arms", "{a: integer} | {b: string}"),
       loadRow(
         "B row 1 — the multi-line spelling",
-        thetaSrc("schema Cat { kind: {a: integer}\n | {b: string},\n name: string }"),
+        body("schema Cat { kind: {a: integer}\n | {b: string},\n name: string }"),
       ),
       loadRow(
         "B row 1 — no comma before `name`",
-        thetaSrc("schema Cat { kind: {a: integer} | {b: string} name: string }"),
+        body("schema Cat { kind: {a: integer} | {b: string} name: string }"),
       ),
       loadRow(
         "B row 1 — the union field written last",
-        thetaSrc("schema Cat { name: string, kind: {a: integer} | {b: string} }"),
+        body("schema Cat { name: string, kind: {a: integer} | {b: string} }"),
       ),
       loadRow(
         "B row 1 — wire-renamed",
-        thetaSrc('schema Cat { kind as "Kind": {a: integer} | {b: string}, name: string }'),
+        body('schema Cat { kind as "Kind": {a: integer} | {b: string}, name: string }'),
       ),
       loadRow(
         "B row 1 — the same declaration in a .thetalib, no frontmatter",
@@ -642,7 +600,7 @@ describe("bug 0096 item 3 — the schema-field position's dispositions are byte-
       catOnly("B — a literal union", '"a" | "b"'),
       loadRow(
         "C row 2 — the group closed on the next line",
-        thetaSrc("schema Cat { kind: {a: integer\n}, name: string }"),
+        body("schema Cat { kind: {a: integer\n}, name: string }"),
       ),
       catOnly("C row 4 — a nested group", "{a: {b: integer}}"),
       catOnly("C row 5 — a brace inside a string literal", '{a: "}"}'),

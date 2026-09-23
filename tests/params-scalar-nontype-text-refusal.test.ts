@@ -1,10 +1,12 @@
 import { REGISTRY, type RegistryRow } from "./helpers/registry-oracle";
 import { DECLS, TRIAGE_DEF } from "./helpers/triage-fixture";
 import { assertKeysSorted, inlineDefName } from "./helpers/canonical-slug-oracle";
-import { readFileSync, readdirSync } from "node:fs";
-import { join, posix, sep } from "node:path";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { registryMessageOf as readRegistryMessage } from "./helpers/load-row-harness";
+import { committedThetaSources } from "./helpers/theta-corpus";
 import type { EnumDecl, SchemaDecl, ThetaDocument } from "../src/parser/theta-document";
 import { lowerQueryResponseSchema } from "../src/parser/query-schema-lowering";
 import { yamlQuoted, firstDiagnostic, expectParamsDropGateShape, parseDoc, diagLines, diagCodes } from "./helpers/e2e-s1";
@@ -1343,45 +1345,25 @@ describe("bug 0059 (g) — a field already refused keeps exactly its own diagnos
 // newly-refused input set empty over the shipped corpus.
 // ===========================================================================
 
-/** Build and vendor trees the census never descends into. */
-const CENSUS_SKIP_DIRS = new Set(["node_modules", ".git", "dist", "coverage"]);
-
 /**
  * The seeded-invalid fixture, which is malformed on purpose and belongs to the
  * H7b gate's own red-path assertion rather than to the shipped corpus.
  */
 const SEEDED_INVALID = "tests/fixtures/h7b-invalid/malformed.theta";
 
+/** The repository root, resolved from this file's own location (never the process cwd). */
+const REPO_ROOT = fileURLToPath(new URL("..", import.meta.url));
+
 /** Every committed `.theta` / `.thetalib`, as repo-relative POSIX paths. */
-function walkCorpus(dir: string, acc: string[]): string[] {
-  for (const entry of readdirSync(dir, { withFileTypes: true })) {
-    if (entry.isDirectory()) {
-      if (CENSUS_SKIP_DIRS.has(entry.name)) continue;
-      walkCorpus(join(dir, entry.name), acc);
-    } else if (
-      entry.isFile() &&
-      (entry.name.endsWith(".theta") || entry.name.endsWith(".thetalib"))
-    ) {
-      acc.push(join(dir, entry.name));
-    }
-  }
-  return acc;
-}
-
-const REPO_ROOT = process.cwd();
-
-const CORPUS = walkCorpus(REPO_ROOT, [])
-  .map((p) => p.slice(REPO_ROOT.length + 1).split(sep).join(posix.sep))
-  .sort()
-  .filter((p) => p !== SEEDED_INVALID);
+const CORPUS = committedThetaSources().filter((p) => p !== SEEDED_INVALID);
 
 describe("bug 0059 (h) — no committed file changes disposition", () => {
-  it("GREEN (h1): the census walk finds the shipped corpus", () => {
-    // Anti-vacuity. A walk that finds nothing would green h2 and h3 while
+  it("GREEN (h1): the census finds the shipped corpus", () => {
+    // Anti-vacuity. A census that finds nothing would green h2 and h3 while
     // verifying nothing at all.
     if (CORPUS.length === 0) {
       throw new Error(
-        `the census walk found no \`.theta\` / \`.thetalib\` under ${REPO_ROOT}, so the ` +
+        `the census found no \`.theta\` / \`.thetalib\` under ${REPO_ROOT}, so the ` +
           `blast-radius measurement below is vacuous`,
       );
     }
@@ -1403,7 +1385,7 @@ describe("bug 0059 (h) — no committed file changes disposition", () => {
     // (source-language-stability.md:5) has no gate. This is that half.
     const libs = CORPUS.filter((p) => p.endsWith(".thetalib"));
     if (libs.length === 0) {
-      throw new Error("the census walk found no committed `.thetalib`, so h2 verifies nothing");
+      throw new Error("the census found no committed `.thetalib`, so h2 verifies nothing");
     }
     for (const lib of libs) {
       const doc = parseDoc(readFileSync(join(REPO_ROOT, lib), "utf8"), lib);

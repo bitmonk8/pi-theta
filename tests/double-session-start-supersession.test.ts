@@ -63,6 +63,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { RELOAD_DEBOUNCE_WINDOW_MS } from "../src/extension/reload-debounce";
 import { fakeEntry as makeEntry } from "./helpers/execution-status-progress";
+import { sleep } from "./helpers/fake-clock";
 import { waitFor } from "./helpers/fake-file-watcher";
 import {
   GREET_THETA,
@@ -77,10 +78,6 @@ import {
 } from "./helpers/watch-arming-harness";
 
 const SECOND_THETA = ["---", "mode: prompt", "---", "@`hi`", ""].join("\n");
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
 
 function makeBoot(workspace: string, options: { gateComposes?: boolean } = {}): Boot {
   return makeSupersessionBoot(workspace, { ...options, recordUserMessages: true });

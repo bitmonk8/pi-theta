@@ -63,6 +63,7 @@ import type { RuntimeRoot } from "../src/runtime-root";
 import type { Checkpoint } from "../src/seams/checkpoint";
 import { ajv } from "./helpers/scripted-live-session-harness";
 import { fakeExecutableHost, makeFakeJsonChildLauncher } from "./helpers/fake-json-child";
+import { waitForValue as waitFor } from "./helpers/fake-file-watcher";
 import { parseDoc } from "./helpers/e2e-s1";
 
 // ---------------------------------------------------------------------------
@@ -235,24 +236,6 @@ const CONFORMING_REPORT = {
   fixed_confirmed: ["Q-0001"],
   notes: "gate green, review confirmed Q-0001 on attempt 1",
 } as const;
-
-/**
- * Poll until `fn` yields a value, failing loudly on the unmet precondition
- * rather than hanging (the `tests/b0409-*` idiom).
- */
-async function waitFor<T>(fn: () => T | undefined, label: string, budgetMs = 5000): Promise<T> {
-  const start = Date.now();
-  for (;;) {
-    const value = fn();
-    if (value !== undefined) {
-      return value;
-    }
-    if (Date.now() - start > budgetMs) {
-      throw new Error(`harness precondition never met within ${budgetMs}ms: ${label}`);
-    }
-    await new Promise((resolve) => setTimeout(resolve, 5));
-  }
-}
 
 const NOOP_CHECKPOINT: Checkpoint = {
   before(): Promise<void> {

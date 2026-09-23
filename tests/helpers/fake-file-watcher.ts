@@ -113,6 +113,27 @@ export async function waitFor(cond: () => boolean, label: string): Promise<void>
   throw new Error(`timeout waiting for ${label}`);
 }
 
+/** Poll until `fn` yields a defined value; throw LOUDLY on budget exhaustion
+ *  naming the unmet precondition (the `waitFor` idiom, for a VALUE-yielding
+ *  probe rather than a boolean condition). */
+export async function waitForValue<T>(
+  fn: () => T | undefined,
+  label: string,
+  budgetMs = 5000,
+): Promise<T> {
+  const start = Date.now();
+  for (;;) {
+    const value = fn();
+    if (value !== undefined) {
+      return value;
+    }
+    if (Date.now() - start > budgetMs) {
+      throw new Error(`precondition never met within ${budgetMs}ms: ${label}`);
+    }
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+}
+
 /** Best-effort bounded poll of a condition, then RETURN (never throw) once the
  *  bound is exhausted, so the caller's own immediately-following `expect` is
  *  the witness rather than a thrown timeout — unlike `waitFor` above. */

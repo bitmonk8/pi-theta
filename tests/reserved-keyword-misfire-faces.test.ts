@@ -1,7 +1,8 @@
 import {
-  PARSE_REGISTRY as REGISTRY, PARSE_REGISTRY_PATH, registryMessageOf,
+  PARSE_REGISTRY as REGISTRY, parseMsg as msg, reservedAt, singleLineIfAt, SINGLE_LINE_IF,
   type ParseCodeRegistryRow as RegistryRow,
 } from "./helpers/load-row-harness";
+import { FM } from "./helpers/prompt-value-harness";
 import { describe, expect, it } from "vitest";
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
 import { reservedKeywords } from "../src/lexer/lexer";
@@ -133,7 +134,6 @@ import { parseDoc, isLoadParseError, diagLinesWithRange as lines, errorLineAt as
 // ===========================================================================
 
 const RESERVED = "theta/parse/reserved-keyword-as-identifier";
-const SINGLE_LINE_IF = "theta/parse/single-line-if";
 const MUT_IMMUTABLE = "theta/parse/mut-on-immutable-context";
 const IMPORT_MALFORMED = "theta/parse/import-malformed-specifier-list";
 const BINDING_CASE = "theta/parse/binding-case-mismatch";
@@ -151,16 +151,6 @@ const BARE_OBJECT = "theta/parse/bare-object-literal";
 const MALFORMED_FIELD = "theta/parse/malformed-schema-field";
 const EXTRA_FIELD = "theta/parse/extra-object-field";
 
-/**
- * The registry row's normative *Message* template with its named placeholders
- * filled. Definedness and placeholder presence are asserted first, so a missing
- * row or a reworded template reds by naming the registry rather than by a bare
- * `undefined` comparison.
- */
-function msg(code: string, fills: ReadonlyArray<readonly [string, string]>): string {
-  return registryMessageOf(REGISTRY, PARSE_REGISTRY_PATH, code, fills);
-}
-
 /** The registry *Message* for the reserved code with `<keyword>` filled. */
 function reservedMsg(keyword: string): string {
   return msg(RESERVED, [["<keyword>", keyword]]);
@@ -174,9 +164,6 @@ function reservedMsg(keyword: string): string {
 // `parseThetaDocument` wrapped in the standard inert deps — an in-band no-op
 // system-note channel and a resolving `model:` matcher. No behaviour is
 // stubbed: the lexer and parser under assertion are the production ones.
-
-/** Frontmatter for every `.theta` row — occupies lines 1–3, body starts at 4. */
-const FM = "---\nmode: prompt\n---\n";
 
 /** Parse `body` as a `.theta` under the standard frontmatter. */
 function theta(body: string): ThetaDocument {
@@ -200,15 +187,6 @@ function atRange(
 }
 
 /**
- * The reserved refusal ranged on the offending NAME itself: one-token names are
- * ASCII here, so the end column is `column + keyword.length` (1-indexed,
- * end-exclusive, per lexical.md §"Diagnostic spans").
- */
-function reservedAt(keyword: string, line: number, column: number): string {
-  return at(RESERVED, reservedMsg(keyword), line, column, column + keyword.length);
-}
-
-/**
  * Bug 0431 §Fix Option 1: a from-bearing `export … from` at a `.theta` top
  * level co-emits `theta/parse/export-in-theta`, ranged over the whole
  * statement starting at column 1 (`stmt.range`); `endColumn` is the
@@ -216,11 +194,6 @@ function reservedAt(keyword: string, line: number, column: number): string {
  */
 function exportInThetaAt(line: number, endColumn: number): string {
   return at(EXPORT_IN_THETA_CODE, msg(EXPORT_IN_THETA_CODE, []), line, 1, endColumn);
-}
-
-/** The `controlHeads` scan's verdict, ranged on the head token. */
-function singleLineIfAt(head: string, line: number, column: number): string {
-  return at(SINGLE_LINE_IF, msg(SINGLE_LINE_IF, []), line, column, column + head.length);
 }
 
 /** `parseFor` / `parseParFor`'s own modifier verdict, ranged on `mut`. */

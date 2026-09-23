@@ -1,4 +1,7 @@
-import { registryMessageOf } from "./helpers/load-row-harness";
+import {
+  parseMsg as msg, reservedAt as reservedTok, singleLineIfAt, SINGLE_LINE_IF,
+} from "./helpers/load-row-harness";
+import { FM } from "./helpers/prompt-value-harness";
 import { readRegistry, type RegistryRow } from "./helpers/registry-oracle";
 import { describe, expect, it } from "vitest";
 import { reservedKeywords } from "../src/lexer/lexer";
@@ -118,17 +121,12 @@ import { parseDoc, diagLinesWithRange, errorLineAt as at } from "./helpers/e2e-s
 const REGISTRY = readRegistry(["parse"]);
 
 const RESERVED = "theta/parse/reserved-keyword-as-identifier";
-const SINGLE_LINE_IF = "theta/parse/single-line-if";
 const BINDING_CASE = "theta/parse/binding-case-mismatch";
 const LET_RHS_MISMATCH = "theta/parse/let-rhs-type-mismatch";
 const LET_NO_INITIALISER = "theta/parse/let-without-initialiser";
 const EXTRA_FIELD = "theta/parse/extra-object-field";
 const MISSING_FIELD = "theta/parse/missing-object-field";
 const UNKNOWN_IDENT = "theta/parse/unknown-identifier";
-
-function msg(code: string, fills: ReadonlyArray<readonly [string, string]>): string {
-  return registryMessageOf(REGISTRY, "docs/spec_topics/diagnostics/code-registry-parse.md", code, fills);
-}
 
 // ===========================================================================
 // Parse harness and the rendered-diagnostic vocabulary.
@@ -139,9 +137,6 @@ function msg(code: string, fills: ReadonlyArray<readonly [string, string]>): str
 // system-note channel and a resolving `model:` matcher. No behaviour is
 // stubbed: the lexer, the parser and the frontmatter reader under assertion are
 // the production ones.
-
-/** Frontmatter for every `.theta` row — occupies lines 1–3, body starts at 4. */
-const FM = "---\nmode: prompt\n---\n";
 
 /** Every diagnostic rendered `severity code @l:c-l:c: message`, in report order. */
 function lines(src: string, path = "test.theta"): string[] {
@@ -162,17 +157,6 @@ function declLine(code: string, message: string, line: number, text: string): st
 /** The refusal at the inline-object-type leaf: declaration-ranged (`site.range`). */
 function reservedDecl(keyword: string, line: number, text: string): string {
   return declLine(RESERVED, msg(RESERVED, [["<keyword>", keyword]]), line, text);
-}
-
-/** The refusal at a token: the object-literal leaf's `nameTok.range`, and bug 0153's leaves. */
-function reservedTok(keyword: string, line: number, column: number): string {
-  return at(
-    RESERVED,
-    msg(RESERVED, [["<keyword>", keyword]]),
-    line,
-    column,
-    column + keyword.length,
-  );
 }
 
 /** Bug 0154's case rule at the same inline slot — declaration-ranged as well. */
@@ -198,11 +182,6 @@ function letRhsAt(
     line,
     text,
   );
-}
-
-/** The `controlHeads` scan's verdict, ranged on the head token. */
-function singleLineIfAt(head: string, line: number, column: number): string {
-  return at(SINGLE_LINE_IF, msg(SINGLE_LINE_IF, []), line, column, column + head.length);
 }
 
 // --- Column arithmetic over a row's own source line -------------------------

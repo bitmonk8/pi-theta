@@ -1,11 +1,8 @@
-import { disposeWorkspace, plantThetaWorkspace, runProductionLoad, type LoadOutcome } from "./helpers/production-load-harness";
+import { productionLoadRowsSuite } from "./helpers/production-load-harness";
 import { readRegistry, loadRowMessage, type RegistryRow } from "./helpers/registry-oracle";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import {
-  parseFrontmatter,
-  type FrontmatterParseResult,
-  type ModelReferenceMatcher,
-} from "../src/parser/frontmatter";
+import { describe, expect, it } from "vitest";
+import { type FrontmatterParseResult } from "../src/parser/frontmatter";
+import { diagCodes, diagLines, parseFrontmatterSource } from "./helpers/e2e-s1";
 import type { SourceRange } from "../src/diagnostics/diagnostic";
 
 // Bug 0206 — a `tools:` value that IS one of the two admitted spellings (a
@@ -191,21 +188,9 @@ describe("bug 0206 (E1) — the refusal reuses 0104's registered code", () => {
 // no `tools` key and `diags=[]` (measured) — byte-identical to an absent field.
 // ===========================================================================
 
-const matcher: ModelReferenceMatcher = { resolve: () => "resolved" };
-
 /** Parse a whole `.theta` source through the shipped frontmatter reader. */
 function parse(source: string): FrontmatterParseResult {
-  return parseFrontmatter(source, { file: "bug0206.theta", modelMatcher: matcher });
-}
-
-/** Every diagnostic rendered `<severity> <code>`, in emission order. */
-function diagCodes(r: FrontmatterParseResult): string[] {
-  return r.diagnostics.map((d) => `${d.severity} ${d.code}`);
-}
-
-/** Every diagnostic rendered `<severity> <code>: <message>`, in emission order. */
-function diagLines(r: FrontmatterParseResult): string[] {
-  return r.diagnostics.map((d) => `${d.severity} ${d.code}: ${d.message}`);
+  return parseFrontmatterSource(source, undefined, "bug0206.theta");
 }
 
 /** A body that names NO callable, so the `tools:` field is the only subject. */
@@ -623,44 +608,7 @@ const PRODUCTION_ROWS: ReadonlyArray<{
   { stem: "nullexplicit", text: theta(["mode: prompt", "tools: null"], BODY_NO_CALL) },
 ];
 
-const outcomes = new Map<string, LoadOutcome>();
-const workspaces: string[] = [];
-
-beforeAll(async () => {
-  for (const row of PRODUCTION_ROWS) {
-    // An absent settings file is silent; "{}" pins the fixture's settings read.
-    const workspaceDir = plantThetaWorkspace(`theta-bug0206-${row.stem}-`, [row], "{}");
-    workspaces.push(workspaceDir);
-    outcomes.set(row.stem, await runProductionLoad(workspaceDir));
-  }
-});
-
-afterAll(() => {
-  for (const dir of workspaces) {
-    disposeWorkspace(dir);
-  }
-});
-
-/** One row's load outcome, or a loud failure naming the row. */
-function outcomeOf(stem: string): LoadOutcome {
-  const found = outcomes.get(stem);
-  if (found === undefined) {
-    throw new Error(
-      `no production-load outcome for '${stem}': the planted workspace was never loaded, ` +
-        `so no assertion below it witnesses anything. Loaded: ${JSON.stringify([...outcomes.keys()])}`,
-    );
-  }
-  return found;
-}
-
-/** A row's registered / notified sets, rendered for an assertion message. */
-function observed(stem: string): string {
-  const o = outcomeOf(stem);
-  return (
-    ` Registered: ${JSON.stringify(o.registered)}` +
-    ` Notified: ${JSON.stringify(o.notifications)}`
-  );
-}
+const { outcomeOf, observed } = productionLoadRowsSuite("theta-bug0206-", PRODUCTION_ROWS);
 
 // The precondition every cell below rests on: the discovery walk reaches the
 // planted workspaces and the load path resolves `tools:` at all. Without it an
