@@ -45,7 +45,7 @@ import { evalParFor } from "./par-for-executor";
 import { evalSubagentFnCall } from "./subagent-fn-call";
 import { applyBinaryScalar, applyCompound, applyStdlibMethod } from "./executor-operators";
 import { evaluateExpressionList } from "./executor-expression-list";
-import { asResultValue, evalMatch, evalTry } from "./executor-result-flow";
+import { evalCheckpointedEffect, evalMatch, evalTry } from "./executor-result-flow";
 import type {
   BodyExecution,
   EvalResult,
@@ -75,8 +75,6 @@ import type {
 } from "../parser/theta-document";
 import type { CheckpointKind, CheckpointSite } from "../seams/checkpoint";
 import type { TraceSettle } from "../seams/trace";
-import type { CancellableStatement } from "./cancellation-core";
-import { runCancellableSequence, type CancellableSequenceOutcome } from "./cancellation-core";
 import { isThetaPanic, attachPanicSite, pushPanicFrame } from "./runtime-panics";
 import { pushCountableFrame, thetalibFnFrameKind } from "./invoke-depth-cycle";
 import { evaluateForLoop, type ForLoopHost } from "./control-flow";
@@ -626,103 +624,6 @@ async function resolveEnumMemberRead(
     }
     throw thrown;
   }
-}
-
-/** Dispatch the pure/checkpointed tail and dispose its outcome at consumption. */
-async function evalCheckpointedEffect(
-  expr: Expr,
-  env: LexicalEnvironment,
-  deps: ExecuteBodyDeps,
-  atTerminal: boolean,
-): Promise<EvalResult> {
-  const checkpoint = deps.host.checkpointFor(expr);
-  if (checkpoint === null) {
-    // Pure, synchronous, non-checkpointed work — runs to completion regardless
-    // of the abort signal (a straight-line statement boundary is not a
-    // checkpoint).
-    return { flow: "value", value: deps.host.evaluatePure(expr, env, deps.invokeChain) };
-  }
-
-  // A checkpointed effect: segment it onto the real `runCancellableSequence` so
-  // the effect gates on `Checkpoint.before(kind, site)` and the pre-dispatch
-  // signal read. Each checkpointed effect is its own single-statement sequence
-  // so a preceding effect's completed `Err` short-circuits the walk before the
-  // next effect is entered (see notes.md — per-effect sequencing decision).
-  //
-  // RFC 0002: a Pi-tool call's computed field values evaluate left-to-right
-  // before dispatch. Pre-evaluating them here (before the outer effect's
-  // checkpoint fires) makes a field's nested effect dispatch in source order and
-  // a field `?` early-return abort the outer call before it is dispatched.
-  const preArgs = await preEvaluateToolArgs(expr, env, deps);
-  if (!preArgs.ok) {
-    return preArgs.flow;
-  }
-  const statement: CancellableStatement = {
-    binding: "_effect",
-    kind: checkpoint.kind,
-    site: checkpoint.site,
-    run: () => deps.host.runEffect(expr, env, preArgs.args, deps.invokeChain),
-  };
-  const settleTrace = traceEffectDispatch(env, deps, checkpoint.kind, checkpoint.site);
-  let outcome: CancellableSequenceOutcome;
-  try {
-    outcome = await runCancellableSequence(
-      { checkpoint: deps.checkpoint, signal: deps.signal },
-      [statement],
-    );
-  } finally {
-    // RFC 0015 D7: the effect span settles when the awaited effect completes,
-    // on EVERY path — value, `Err`-shaped outcome, cancellation, and a throw
-    // unwinding this await (settle-then-propagate) — so the run card's
-    // in-flight clamp on this line always releases with the effect.
-    settleTrace?.();
-  }
-  const result = outcome.result;
-  if (result.ok) {
-    // Handledness/consumption symmetry with the failure branch below (QRY-8 /
-    // query-forms.md QRY-1/QRY-2: both query forms return a `Result`): a value
-    // position (let-init, reassignment RHS, array element, object field, ctor /
-    // fn-call argument) binds the clean outcome as a `Result` VALUE so the
-    // author's documented `match r { Ok(v) … }` / `let v = r?` consumption sees
-    // an `Ok(payload)`, not the raw payload (which matches no ctor pattern and
-    // fails the ERR-18 `?` brand guard). `asResultValue` mirrors the direct
-    // `?`/`match` scrutinee route (`evalAsResult`) exactly, and is idempotent
-    // for effects whose value is already a `Result` (tool-call / invoke /
-    // `.theta`-callable), so only a query's raw payload/string is wrapped.
-    // A terminal / returning / par-for position stays RAW: the body boundary
-    // (`makeOk(flow.value)`) and the par-for element normaliser re-wrap the
-    // clean value, so a bare tail `@`q`` / `return @`q`` yields `Ok(payload)`
-    // without the double-wrap an unconditional wrap here would produce.
-    if (!atTerminal) {
-      return { flow: "value", value: asResultValue(result.value as ThetaValue) };
-    }
-    return { flow: "value", value: result.value as ThetaValue };
-  }
-  if (result.error.kind === "cancelled") {
-    // A mid-stream cancellation: turns Pi has committed remain final — the
-    // runtime mutates no committed surface and injects no compensating turn
-    // (ERR-8 / ERR-9 / ERR-10 / ERR-12). `handlePartialTerminalOutcome` calls
-    // nothing on the mutator; routing through it makes the contract explicit.
-    handlePartialTerminalOutcome({ path: "cancelled", mode: deps.mode, committed: [] }, deps.mutator);
-    return { flow: "cancel" };
-  }
-  // Handledness is judged AT CONSUMPTION (QRY-8 / error-model.md:10), not at the
-  // effect site: a value position (let-init, array element, object field, ctor
-  // arg, …) binds the failure as `Err(error)` so a downstream `match`/`?` can
-  // observe it — the caller has not yet discarded or returned it, so it is not
-  // unhandled. Only a terminal / returning / discarding position (a bare tail,
-  // a bare action statement, a `return` operand) reaches `fail`: there the `Err`
-  // has nowhere further to be consumed, exactly as a `?`-propagation carries its
-  // `Err` — not a fabricated `cancelled` — through the body's terminal `Result`
-  // (ERR-19).
-  if (!atTerminal) {
-    return { flow: "value", value: makeErr(result.error as unknown as ThetaValue) };
-  }
-  return {
-    flow: "fail",
-    error: result.error as unknown as ThetaValue,
-    ...(result.event !== undefined ? { event: result.event } : {}),
-  };
 }
 
 /**

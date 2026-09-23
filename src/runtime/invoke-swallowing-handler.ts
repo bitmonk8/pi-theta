@@ -31,20 +31,9 @@
 // seam", PIC-10).
 
 import type {
-  AbandonableSettlement,
   SubstrateCancellationGuard,
-  SubstrateDisposition,
   SubstrateSideChannels,
 } from "./cancellation-core";
-
-/**
- * The settlement outcome of the `invoke` child's top-level execution Promise —
- * the value it resolved with, or the reason it rejected with. Enumerated so the
- * discard decision is independent of the late-settle kind (cancellation.md: "the
- * discriminator is whether cancellation has already been surfaced at the
- * checkpoint, not the late-settle kind").
- */
-export type InvokeExecutionSettlement = AbandonableSettlement;
 
 /**
  * The live cancellation state for one invocation. Read at settlement time (not
@@ -62,14 +51,6 @@ export type InvokeCancellationGuard = SubstrateCancellationGuard;
  * channel and the diagnostics channel.
  */
 export type InvokeExecutionSideChannels = SubstrateSideChannels;
-
-/**
- * The disposition of one late settlement: `"discarded"` once cancellation has
- * surfaced (silently absorbed on all three side channels), or `"surfaced"` on
- * the pre-cancellation path where the child result flows to the normal `invoke`
- * Surfacing rules.
- */
-export type InvokeLateSettlementDisposition = SubstrateDisposition;
 
 /**
  * Attach the swallowing handler to the `invoke` child's top-level execution

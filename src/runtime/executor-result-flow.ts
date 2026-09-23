@@ -123,16 +123,45 @@ export async function evalAsResult(
     return evalExpr(operand, env, deps);
   }
 
-  const checkpoint = deps.host.checkpointFor(operand);
+  // A checkpointed effect (or a remaining pure form): the ONE shared
+  // checkpointed-effect dispatch with statement/effect position
+  // (`evalCheckpointedEffect`), at the non-terminal disposition — a clean
+  // value normalises to a `Result` and a non-cancel effect failure binds as
+  // the theta `Err(error)` that `?` propagates and `match` dispatches on.
+  return evalCheckpointedEffect(operand, env, deps, false);
+}
+
+/** Normalise an effect's clean value to a `Result`: a `Result` passes through, else `Ok(value)`. */
+export function asResultValue(value: ThetaValue): ResultValue {
+  return isResultValue(value) ? value : makeOk(value);
+}
+
+/** Dispatch the pure/checkpointed tail and dispose its outcome at consumption. */
+export async function evalCheckpointedEffect(
+  expr: Expr,
+  env: LexicalEnvironment,
+  deps: ExecuteBodyDeps,
+  atTerminal: boolean,
+): Promise<EvalResult> {
+  const checkpoint = deps.host.checkpointFor(expr);
   if (checkpoint === null) {
-    return { flow: "value", value: deps.host.evaluatePure(operand, env, deps.invokeChain) };
+    // Pure, synchronous, non-checkpointed work — runs to completion regardless
+    // of the abort signal (a straight-line statement boundary is not a
+    // checkpoint).
+    return { flow: "value", value: deps.host.evaluatePure(expr, env, deps.invokeChain) };
   }
 
-  // RFC 0002: pre-evaluate a Pi-tool call's computed field values left-to-right
-  // before the outer effect dispatches (see `preEvaluateToolArgs`), so a
-  // `?`- or `match`-wrapped Pi-tool call honours the same field ordering and
-  // field-`?` abort as a bare call.
-  const preArgs = await preEvaluateToolArgs(operand, env, deps);
+  // A checkpointed effect: segment it onto the real `runCancellableSequence` so
+  // the effect gates on `Checkpoint.before(kind, site)` and the pre-dispatch
+  // signal read. Each checkpointed effect is its own single-statement sequence
+  // so a preceding effect's completed `Err` short-circuits the walk before the
+  // next effect is entered (see notes.md — per-effect sequencing decision).
+  //
+  // RFC 0002: a Pi-tool call's computed field values evaluate left-to-right
+  // before dispatch. Pre-evaluating them here (before the outer effect's
+  // checkpoint fires) makes a field's nested effect dispatch in source order and
+  // a field `?` early-return abort the outer call before it is dispatched.
+  const preArgs = await preEvaluateToolArgs(expr, env, deps);
   if (!preArgs.ok) {
     return preArgs.flow;
   }
@@ -140,7 +169,7 @@ export async function evalAsResult(
     binding: "_effect",
     kind: checkpoint.kind,
     site: checkpoint.site,
-    run: () => deps.host.runEffect(operand, env, preArgs.args, deps.invokeChain),
+    run: () => deps.host.runEffect(expr, env, preArgs.args, deps.invokeChain),
   };
   const settleTrace = traceEffectDispatch(env, deps, checkpoint.kind, checkpoint.site);
   let outcome: CancellableSequenceOutcome;
@@ -150,25 +179,58 @@ export async function evalAsResult(
       [statement],
     );
   } finally {
-    // RFC 0015 D7: settle on every completion path (see evalCheckpointedEffect).
+    // RFC 0015 D7: the effect span settles when the awaited effect completes,
+    // on EVERY path — value, `Err`-shaped outcome, cancellation, and a throw
+    // unwinding this await (settle-then-propagate) — so the run card's
+    // in-flight clamp on this line always releases with the effect.
     settleTrace?.();
   }
   const result = outcome.result;
   if (result.ok) {
-    return { flow: "value", value: asResultValue(result.value as ThetaValue) };
+    // Handledness/consumption symmetry with the failure branch below (QRY-8 /
+    // query-forms.md QRY-1/QRY-2: both query forms return a `Result`): a value
+    // position (let-init, reassignment RHS, array element, object field, ctor /
+    // fn-call argument) binds the clean outcome as a `Result` VALUE so the
+    // author's documented `match r { Ok(v) … }` / `let v = r?` consumption sees
+    // an `Ok(payload)`, not the raw payload (which matches no ctor pattern and
+    // fails the ERR-18 `?` brand guard). `asResultValue` mirrors the direct
+    // `?`/`match` scrutinee route (`evalAsResult`) exactly, and is idempotent
+    // for effects whose value is already a `Result` (tool-call / invoke /
+    // `.theta`-callable), so only a query's raw payload/string is wrapped.
+    // A terminal / returning / par-for position stays RAW: the body boundary
+    // (`makeOk(flow.value)`) and the par-for element normaliser re-wrap the
+    // clean value, so a bare tail `@`q`` / `return @`q`` yields `Ok(payload)`
+    // without the double-wrap an unconditional wrap here would produce.
+    if (!atTerminal) {
+      return { flow: "value", value: asResultValue(result.value as ThetaValue) };
+    }
+    return { flow: "value", value: result.value as ThetaValue };
   }
   if (result.error.kind === "cancelled") {
+    // A mid-stream cancellation: turns Pi has committed remain final — the
+    // runtime mutates no committed surface and injects no compensating turn
+    // (ERR-8 / ERR-9 / ERR-10 / ERR-12). `handlePartialTerminalOutcome` calls
+    // nothing on the mutator; routing through it makes the contract explicit.
     handlePartialTerminalOutcome({ path: "cancelled", mode: deps.mode, committed: [] }, deps.mutator);
     return { flow: "cancel" };
   }
-  // A non-cancel effect failure is the theta `Err(error)` — the `Result` value
-  // `?` propagates and `match` dispatches on.
-  return { flow: "value", value: makeErr(result.error as unknown as ThetaValue) };
-}
-
-/** Normalise an effect's clean value to a `Result`: a `Result` passes through, else `Ok(value)`. */
-export function asResultValue(value: ThetaValue): ResultValue {
-  return isResultValue(value) ? value : makeOk(value);
+  // Handledness is judged AT CONSUMPTION (QRY-8 / error-model.md:10), not at the
+  // effect site: a value position (let-init, array element, object field, ctor
+  // arg, …) binds the failure as `Err(error)` so a downstream `match`/`?` can
+  // observe it — the caller has not yet discarded or returned it, so it is not
+  // unhandled. Only a terminal / returning / discarding position (a bare tail,
+  // a bare action statement, a `return` operand) reaches `fail`: there the `Err`
+  // has nowhere further to be consumed, exactly as a `?`-propagation carries its
+  // `Err` — not a fabricated `cancelled` — through the body's terminal `Result`
+  // (ERR-19).
+  if (!atTerminal) {
+    return { flow: "value", value: makeErr(result.error as unknown as ThetaValue) };
+  }
+  return {
+    flow: "fail",
+    error: result.error as unknown as ThetaValue,
+    ...(result.event !== undefined ? { event: result.event } : {}),
+  };
 }
 
 /**

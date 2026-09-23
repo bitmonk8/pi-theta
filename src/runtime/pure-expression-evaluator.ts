@@ -1,10 +1,10 @@
 // Pure-expression evaluation for synchronous theta expressions and call-site cwd values.
 
 import { type LexicalEnvironment } from "./lexical-environment";
-import { BinaryMixedOperandError, BinaryNonNumericError, BooleanPositionKindDefectError, IndexKindDefectError, ThetaFnArityError, UnaryNonNumericError } from "./statement-executor";
+import { BooleanPositionKindDefectError, IndexKindDefectError, ThetaFnArityError, UnaryNonNumericError } from "./statement-executor";
 import { pushCountableFrame, thetalibFnFrameKind, type InvokeChain } from "./invoke-depth-cycle";
-import { buildObjectSchemaValue, defineRecordField, isResultValue, makeErr, makeOk, valuesEqual, type ThetaValue } from "./value";
-import { applyNumericArithmetic, applyStdlibMethod } from "./executor-operators";
+import { buildObjectSchemaValue, defineRecordField, isResultValue, makeErr, makeOk, type ThetaValue } from "./value";
+import { applyBinaryScalar, applyStdlibMethod } from "./executor-operators";
 import type { Block, CallExpr, Expr, FnDecl, InvokeExpr, Stmt } from "../parser/theta-document";
 import { attachPanicRange, attachPanicSite, evaluateIndexAccess, evaluateMemberAccess, evaluateQuestion, InterpolatedResultPanic, isThetaPanic, pushPanicFrame, QuestionOperandDefectError } from "./runtime-panics";
 import { INTERPOLATED_RESULT_MESSAGE } from "../render/query-render";
@@ -523,70 +523,12 @@ function evaluateBinaryExpression(
     return right;
   }
   const right = evaluatePureExpression(rightExpr, env, chain);
-  switch (op) {
-    case "==":
-      return valuesEqual(left, right);
-    case "!=":
-      return !valuesEqual(left, right);
-    case "+": {
-      // Bug 0368 belt: mirrors the executor's `applyBinaryScalar` bug 0368
-      // belt into this pure host, so a statically-deferred mixed operand (a
-      // WITHHELD fn param reaching an interpolation or an invoke argument)
-      // throws loudly instead of being cast to `number` and JS-coerced.
-      // `NaN`/`Infinity` are `typeof "number"`, so the guard does not fire on
-      // them — `+` over a div/mod-by-zero product stays admitted.
-      if (typeof left === "string" && typeof right === "string") {
-        return left + right;
-      }
-      if (typeof left === "number" && typeof right === "number") {
-        return left + right;
-      }
-      throw new BinaryMixedOperandError("+", left, right);
-    }
-    case "-":
-    case "*":
-    case "/":
-    case "%": {
-      // Bug 0338 belt: mirrors the executor's `applyBinaryScalar` bug 0332 belt
-      // (statement-executor.ts) into this pure host, so a statically-deferred
-      // non-numeric operand (a WITHHELD fn param reaching an interpolation or an
-      // invoke argument) throws loudly instead of being cast to `number` and
-      // JS-coerced. `NaN`/`Infinity` are `typeof "number"`, so the guard does not
-      // fire on them — `n % 0` → `NaN` and `n / 0` → `Infinity` over numeric
-      // operands keep the spec's non-panicking div/mod behaviour.
-      if (typeof left !== "number" || typeof right !== "number") {
-        throw new BinaryNonNumericError(op, left, right);
-      }
-      return applyNumericArithmetic(op, left, right);
-    }
-    case "<":
-    case "<=":
-    case ">":
-    case ">=": {
-      // Bug 0368 belt: mirrors the executor's `applyBinaryScalar` bug 0368
-      // belt into this pure host, so a statically-deferred non-orderable
-      // pair (a WITHHELD fn param reaching an interpolation or an invoke
-      // argument) throws loudly instead of applying raw JS relational
-      // coercion. `NaN`/`Infinity` are `typeof "number"` and stay admitted.
-      const bothNumbers = typeof left === "number" && typeof right === "number";
-      const bothStrings = typeof left === "string" && typeof right === "string";
-      if (!bothNumbers && !bothStrings) {
-        throw new BinaryMixedOperandError(op, left, right);
-      }
-      switch (op) {
-        case "<":
-          return (left as number | string) < (right as number | string);
-        case "<=":
-          return (left as number | string) <= (right as number | string);
-        case ">":
-          return (left as number | string) > (right as number | string);
-        case ">=":
-          return (left as number | string) >= (right as number | string);
-      }
-    }
-    default:
-      return null;
-  }
+  // The ONE non-short-circuit scalar disposition, shared with the effectful
+  // executor (`applyBinaryScalar`, executor-operators.ts): structural `==` /
+  // `!=`, the bug 0368/0332 mixed-operand and non-numeric belts, non-panicking
+  // div/mod, and signed-IEEE-754 / UTF-16 ordering — so the two hosts cannot
+  // drift apart.
+  return applyBinaryScalar(op, left, right);
 }
 
 export { evaluateCallSiteCwd, evaluatePureExpression, raiseInterpolatedResult };
