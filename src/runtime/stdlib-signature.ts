@@ -1,7 +1,67 @@
 // Shared stdlib member signatures and runtime argument arity/kind checks.
 
-import { StdlibMethodArgumentDefectError, StdlibMethodArgumentKindDefectError } from "./runtime-panics";
+import { summariseNonResultOperand } from "./runtime-panics";
 import type { ThetaValue } from "./value";
+
+/**
+ * Bug 0315 (docs/bugs/0315-stdlib-method-argument-surface-unchecked.md)
+ * belt-and-braces: a stdlib method call's argument-count precondition is a
+ * static gate — `checkMethodCall` (`../parser/type-layer-checks.ts`) rejects a
+ * wrong-arity call at parse time (`theta/parse/stdlib-arity-mismatch`) when
+ * the receiver's static type is a concretely-resolvable built-in. That gate
+ * defers on a statically-unresolvable ("laundered") receiver — an unannotated
+ * `fn` parameter, e.g. — exactly as the A2 `unknown-method` check does, so a
+ * wrong-arity call on such a receiver reaches `evaluateStringMember` /
+ * `evaluateArrayMember` / `evaluateObjectMember` with the gate never having
+ * run. Those dispatchers otherwise index `args[i] as …` unconditionally, so a
+ * missing argument becomes raw JS `undefined` laundered into the host method
+ * (`"a-b".replace("-")` → `"aundefinedb"`, bug 0315 §Reproduction). Each
+ * dispatcher throws this defect instead, BEFORE the cast, on an out-of-`[min,
+ * max]` `args.length`; it routes through `surfaceUnexpectedThrow` to
+ * `theta/runtime/internal-error` exactly as `QuestionOperandDefectError`
+ * above does, and fires only for a genuine arity mismatch — a correct-arity
+ * call on the same laundered receiver passes through untouched.
+ */
+export class StdlibMethodArgumentDefectError extends Error {
+  public constructor(method: string, min: number, max: number, provided: number) {
+    const arity = min === max ? `exactly ${min}` : `between ${min} and ${max}`;
+    super(
+      `internal defect: stdlib method '${method}' called with ${provided} argument(s), outside its declared arity (expects ${arity}); the parse-time stdlib-arity-mismatch gate (theta/parse/stdlib-arity-mismatch) did not reject this site — a laundered-receiver gate gap (bug 0315)`,
+    );
+    this.name = "StdlibMethodArgumentDefectError";
+  }
+}
+
+/**
+ * Bug 0394 (docs/bugs/0394-stdlib-wrong-kind-args-coerce-and-replace-hangs.md)
+ * belt-and-braces: the bug-0315 arity belt's KIND sibling. A correct-arity
+ * stdlib call with a wrong-KIND positional argument reaches the same three
+ * dispatchers past the arity check, past the `theta/parse/stdlib-arg-type-mismatch`
+ * gate, by either of two routes: the gate defers because the receiver is
+ * statically unresolvable (laundered) and it never gets a static type to
+ * judge (bug 0394), or the gate runs and passes because the argument's static
+ * type is the declared one (`integer`) while the *value* it evaluates to at
+ * runtime is non-integral — `n % m` with a runtime-zero `m` is `NaN`, still
+ * typed `integer` at parse time — the class bug 0402 admitted with its
+ * integrality conjunct in `assertStdlibArgumentKinds` (`stdlib-signature.ts`). Either way the unchecked
+ * `args[i] as …` casts below would otherwise forward the raw value into a
+ * host JS method that either coerces it (e.g. `endsWith(null)` answering over
+ * the literal spelling "null") or, for `replace`'s `from` position, diverges
+ * (a `NaN` cursor makes the scan loop forever). Each dispatcher throws this
+ * instead, AFTER the arity check and BEFORE the switch/cast, on a `typeof` /
+ * `Array.isArray` mismatch against the member's `params` descriptor. It
+ * routes through `surfaceUnexpectedThrow` to `theta/runtime/internal-error`
+ * exactly as `StdlibMethodArgumentDefectError` and
+ * `StdlibJoinElementDefectError` do — no new registry row.
+ */
+export class StdlibMethodArgumentKindDefectError extends Error {
+  public constructor(method: string, argIndex: number, expectedKind: string, actual: ThetaValue) {
+    super(
+      `internal defect: stdlib method '${method}' argument ${argIndex} expects ${expectedKind}, got ${summariseNonResultOperand(actual)}; the parse-time stdlib-arg-type-mismatch gate covers only statically-resolvable mismatches, so this site's argument reached the runtime belt unjudged (bugs 0394/0402)`,
+    );
+    this.name = "StdlibMethodArgumentKindDefectError";
+  }
+}
 
 /**
  * Bug 0315 — the per-parameter type descriptor a stdlib member's positional
@@ -10,7 +70,7 @@ import type { ThetaValue } from "./value";
  * and "any `array<U>`" (for `concat`) respectively; neither descriptor is
  * meaningful outside an array receiver, so `string`/`object` signatures never
  * spell them. Defined once in this shared module, beside the belts' defect
- * errors in `runtime-panics.ts`, rather than redeclared in each stdlib surface,
+ * errors above, rather than redeclared in each stdlib surface,
  * so the parser's type-check arm and the three runtime-belt dispatchers all
  * read ONE shape.
  */

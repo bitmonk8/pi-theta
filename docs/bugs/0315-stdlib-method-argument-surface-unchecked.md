@@ -202,7 +202,8 @@ members are therefore in the shared signature table.
   - `src/runtime/stdlib-array.ts`, `src/runtime/stdlib-object.ts` —
     `ARRAY_MEMBER_SIGNATURES` / `OBJECT_MEMBER_SIGNATURES`; runtime belt in each
     dispatcher.
-  - `src/runtime/runtime-panics.ts` — `StdlibMethodArgumentDefectError` (routes
+  - `src/runtime/runtime-panics.ts` (since re-homed to
+    `src/runtime/stdlib-signature.ts`, PTQ-1271) — `StdlibMethodArgumentDefectError` (routes
     through the existing `surfaceUnexpectedThrow` → `theta/runtime/internal-error`;
     no new runtime registry code), thrown by the three dispatchers on an
     out-of-`[min,max]` `args.length` instead of the unchecked `args[i] as …` cast;

@@ -20,7 +20,7 @@
 // Both codes fire ONLY for a concretely-resolvable receiver kind
 // (`classifyReceiver` answering something other than `"unknown"`); a
 // laundered receiver defers entirely to the runtime dispatcher belt
-// (`StdlibMethodArgumentDefectError`, `../runtime/runtime-panics.ts`).
+// (`StdlibMethodArgumentDefectError`, `../runtime/stdlib-signature.ts`).
 //
 // Spec: expressions.md §"Built-in methods and properties",
 // diagnostics/code-registry-parse.md, diagnostics/placeholder-rendering-a.md.

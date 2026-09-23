@@ -190,7 +190,8 @@ deleted.
 
 - What shipped (settled §Fix — belt arity→kind; belt-law straight case, NO new
   registry row):
-  - `src/runtime/runtime-panics.ts` — new `StdlibMethodArgumentKindDefectError
+  - `src/runtime/runtime-panics.ts` (since re-homed to
+    `src/runtime/stdlib-signature.ts`, PTQ-1271) — new `StdlibMethodArgumentKindDefectError
     extends Error`, the bug-0315 arity belt's KIND sibling; its message names
     the method, argument index, expected kind, and actual value
     (`summariseNonResultOperand`); routes through the existing
