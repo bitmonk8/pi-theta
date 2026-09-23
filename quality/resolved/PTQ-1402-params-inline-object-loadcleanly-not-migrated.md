@@ -2,7 +2,7 @@
 id: PTQ-1402
 title: params-inline-object-lowering.test.ts still carries its own loadCleanly() copy that resolved PTQ-0212 named and tests/helpers/e2e-s1.ts now exports
 lens: D7
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - tests/params-inline-object-lowering.test.ts:291-333

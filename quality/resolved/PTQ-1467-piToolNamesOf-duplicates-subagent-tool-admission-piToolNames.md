@@ -2,7 +2,7 @@
 id: PTQ-1467
 title: session-control-callable-set.test.ts reimplements subagent-tool-admission.test.ts's pi-tool-name filter as piToolNamesOf
 lens: D7
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - tests/session-control-callable-set.test.ts:355-368

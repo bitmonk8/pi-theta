@@ -2,7 +2,7 @@
 id: PTQ-1466
 title: inline-object-nested-lowering.test.ts and inline-object-quoted-field-name-refusal.test.ts each declare a local ajv() that reimplements the canonical capturingAjv() export byte-for-byte
 lens: D7
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - tests/inline-object-nested-lowering.test.ts:536-546

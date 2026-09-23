@@ -2,7 +2,7 @@
 id: PTQ-1404
 title: Both in-scope files redeclare a local registry-message-template renderer instead of the canonical registryMessageOf/registryLineOf
 lens: D7
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - tests/params-block-mapping-rhs-refusal.test.ts:180-215

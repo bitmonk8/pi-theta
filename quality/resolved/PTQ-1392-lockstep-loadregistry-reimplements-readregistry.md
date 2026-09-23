@@ -2,7 +2,7 @@
 id: PTQ-1392
 title: tools-entry-grammar-derivations-lockstep.test.ts re-derives readRegistry's sharded-registry read as a local loadRegistry, despite already importing registry-oracle.ts for registryHintOf
 lens: D7
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - tests/tools-entry-grammar-derivations-lockstep.test.ts:112-123

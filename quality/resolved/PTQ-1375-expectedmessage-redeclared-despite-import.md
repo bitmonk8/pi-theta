@@ -2,7 +2,7 @@
 id: PTQ-1375
 title: theta-callable-call-arity.test.ts and tool-arg-parse-checks.test.ts each redeclare expectedMessage rather than importing the exported helper of the same name from registry-oracle.ts
 lens: D7
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - tests/theta-callable-call-arity.test.ts:62-73

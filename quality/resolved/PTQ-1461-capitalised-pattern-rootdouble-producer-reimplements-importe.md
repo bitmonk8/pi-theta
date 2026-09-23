@@ -2,7 +2,7 @@
 id: PTQ-1461
 title: capitalised-bare-match-pattern-refusal.test.ts hand-rolls rootDouble/producer that duplicate exports of a module it already imports
 lens: D7
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - tests/capitalised-bare-match-pattern-refusal.test.ts:184-203

@@ -2,7 +2,7 @@
 id: PTQ-1376
 title: The Row interface and expectRow driver are duplicated near-verbatim across both in-scope files
 lens: D7
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - tests/loop-element-withhold-binding-scoped.test.ts:242-286

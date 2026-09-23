@@ -2,7 +2,7 @@
 id: PTQ-1496
 title: theta-composition-producer.ts re-exports SelfDrivenConversationBinding and surfaceDispatchDefect that nothing imports through this file
 lens: D2                     # D2 | D4 | D7 | D9 - the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - src/extension/theta-composition-producer.ts:54-65

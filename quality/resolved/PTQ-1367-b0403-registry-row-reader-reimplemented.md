@@ -2,7 +2,7 @@
 id: PTQ-1367
 title: "b0403 hand-rolls markdown table-row splitting and backtick-body extraction already provided by the registry-oracle helper"
 lens: D7
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - tests/b0403-unary-minus-message-registry-divergence.test.ts:106-161

@@ -2,7 +2,7 @@
 id: PTQ-1462
 title: codesFor/observed read-accessor pair over `outcome` is redeclared verbatim as b0248CodesFor/b0248Observed over `b0248Outcome` in the same file
 lens: D7
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - tests/tools-entry-grammar-derivations-lockstep.test.ts:550-552

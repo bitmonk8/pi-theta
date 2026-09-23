@@ -2,7 +2,7 @@
 id: PTQ-1396
 title: uppercase-pi-tool-name-refusal.test.ts's parseExpectedMessage reimplements the expectedMessage it already imports
 lens: D7
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - tests/uppercase-pi-tool-name-refusal.test.ts:211-219

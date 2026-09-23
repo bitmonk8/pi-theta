@@ -2,7 +2,7 @@
 id: PTQ-1403
 title: params-brace-union-rhs-lowering.test.ts reimplements the exported loadCleanly instead of composing over it
 lens: D7
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - tests/params-brace-union-rhs-lowering.test.ts:445-478

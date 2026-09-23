@@ -2,7 +2,7 @@
 id: PTQ-1458
 title: match-arm-scope-inference-pass.test.ts's local armSites AST walker re-derives the canonical binderSites traversal skeleton instead of extending it
 lens: D7
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - tests/match-arm-scope-inference-pass.test.ts:290-416

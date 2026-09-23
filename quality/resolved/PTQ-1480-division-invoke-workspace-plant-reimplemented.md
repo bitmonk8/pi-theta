@@ -2,7 +2,7 @@
 id: PTQ-1480
 title: division-result-type-number-invoke.test.ts hand-rolls the temp-workspace plant/teardown that the same imported module already exports as plantThetaWorkspace/disposeWorkspace
 lens: D7
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - tests/division-result-type-number-invoke.test.ts:1-9

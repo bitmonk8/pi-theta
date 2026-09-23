@@ -2,7 +2,7 @@
 id: PTQ-1470
 title: All three in-scope files reimplement the canonical registryMessageOf lookup-assert-fill loop in a local render()/msg() function instead of calling it with the fills parameter
 lens: D7
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - tests/inline-object-empty-entry-slot-refusal.test.ts:283-294

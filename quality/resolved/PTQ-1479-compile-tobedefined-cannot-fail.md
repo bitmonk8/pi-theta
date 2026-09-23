@@ -2,7 +2,7 @@
 id: PTQ-1479
 title: unresolved-annotation-lowering.test.ts's compile()-then-toBeDefined() pair cannot fail
 lens: D7
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - tests/unresolved-annotation-lowering.test.ts:238-244

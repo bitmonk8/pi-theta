@@ -2,7 +2,7 @@
 id: PTQ-1497
 title: evalBinary's doc comment still cites production-theta-producer.ts as evaluateBinaryExpression's home
 lens: D2
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/runtime/statement-executor.ts:629-640

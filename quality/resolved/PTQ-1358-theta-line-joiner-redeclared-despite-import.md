@@ -2,7 +2,7 @@
 id: PTQ-1358
 title: theta-callable-call-arity.test.ts and tool-arg-runtime-schema-validation.test.ts redeclare the theta() line-joining fixture builder already exported by the production-load-harness module they import
 lens: D7
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - tests/theta-callable-call-arity.test.ts:103-105

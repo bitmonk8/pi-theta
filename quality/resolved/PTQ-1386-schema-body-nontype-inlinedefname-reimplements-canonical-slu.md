@@ -2,7 +2,7 @@
 id: PTQ-1386
 title: schema-body-nontype-text-refusal.test.ts redeclares inlineDefName instead of importing tests/helpers/canonical-slug-oracle.ts
 lens: D7
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - tests/schema-body-nontype-text-refusal.test.ts:1

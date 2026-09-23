@@ -2,7 +2,7 @@
 id: PTQ-1401
 title: params-default-string-literal-raw-newline and params-default-unresolvable-enum-variant redeclare diagCodes (and the first also diagLines) though both already import from the module exporting them
 lens: D7                     # D2 | D4 | D7 | D8 | D9 - the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - tests/params-default-string-literal-raw-newline.test.ts:8

@@ -2,7 +2,7 @@
 id: PTQ-1459
 title: assertRowSurfaceLive positive-control precondition helper duplicated between division-result-type-number-invoke.test.ts and modulo-zero-result-type-number.test.ts
 lens: D7
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - tests/division-result-type-number-invoke.test.ts:155-170

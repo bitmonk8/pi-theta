@@ -2,7 +2,7 @@
 id: PTQ-1378
 title: unterminated-literal-params-type-refusal.test.ts's local msg() reimplements the canonical registryMessageOf reader
 lens: D7
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - tests/unterminated-literal-params-type-refusal.test.ts:161-175
