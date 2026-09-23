@@ -789,92 +789,23 @@ async function runComposePass(
     },
   };
 
-  // Merged, validated settings (V10c) drive the settings discovery source and
-  // the package-walk bounds.
-  const settingsResult = await loadSettings(fileSystem);
-  sink.emitGroup(settingsResult.diagnostics);
-  const settings: ThetaSettings = settingsResult.settings;
-
-  // EXST-10: the telemetry-class ceiling, read like every other settings key
-  // and defaulted at the READ site (an absent OR out-of-range value is absent
-  // in the cleaned view, so both land on `names`). A hot-reload re-compose
-  // pass re-runs this, so a settings edit takes effect at the next reload
-  // without reconstructing the bus.
-  statusBus?.setVerbosity(settings.theta?.progress ?? "names");
-
-  // RFC-0012 §5/§6: placement. Discover registered backends (order-
-  // independent with the factory-body offer subscription), build the `exec`
-  // backend when the GLOBAL settings file carries a template, and resolve the
-  // operator's selector (the one-run env override wins over settings). The
-  // load-time verdict below gates registration of every theta that launches
-  // children (fail-closed on an explicit unavailable choice; `auto` never
-  // refuses); the per-launch policy re-selects at each launch so a backend
-  // registered after this pass is honoured without a reload.
-  passPlacementRegistration?.discover();
-  const placementSelector = resolvePlacementSelector(
-    settings.theta?.subagentPlacement,
-    controlPlaneEnv[SUBAGENT_PLACEMENT_ENV],
-  );
-
-  // RFC-0006 (PIC-58): the subagent-root regime detected once from the process
-  // env, hoisted ahead of the discovery walk so bug 0331's marked-root winner
-  // threads INTO the walk rather than only being consulted after it. Active
-  // ONLY inside a spawned subagent child; drives the child-side in-process
-  // root drive.
-  const subagentRootRegime = detectSubagentRootRegime(controlPlaneEnv);
-  // Bug 0331: the marked root's winning source path, from the SAME
-  // authenticated control-plane channel the callable-hash map rides
-  // (subagent.md #subagent-control-plane-authentication). Constraint: this
-  // reads the authenticated control-plane view rather than raw `process.env`,
-  // so a parent's own top-level prompt-mode registration (regime inactive)
-  // never consults the carrier — the regime gate alone enforces that.
-  // `undefined` when the regime is inactive or the carrier is absent/malformed,
-  // in which case `discoverThetas` falls back to today's collision resolution.
-  const markedRoot = detectMarkedRootWinner(controlPlaneEnv, subagentRootRegime);
-
-  // Discovery walk. CLI `--theta` roots are split on the platform path
-  // delimiter (the walk is platform-independent over already-split paths).
-  const cliPaths = readThetaFlagPaths(pi);
-  // EXST-11: the reserved `/theta-status` stem joins the Pi-owned set the
-  // collision pass reads. The ledger alone would NOT reserve it — PIC-69's
-  // source-conditioned exclusion drops this instance's own registrations from
-  // the collision read — so the reservation is explicit here, and a discovered
-  // theta stem `theta-status` draws the EXISTING cross-format-collision code.
-  const piOwnedNames = [
-    ...readPiOwnedCommands(pi, excludeOwnedNames),
-    ...RESERVED_COMMAND_NAMES.map((name) => ({ name })),
-  ];
-
-  // Package source (V10b, priority 4) — the bounded scan runs FIRST (it needs
-  // the injected clock/bounds the walk itself does not carry) and its results
-  // are handed to `discoverThetas` as `packageCandidates`: the walk pushes them
-  // in as ordinary priority-4 `SourcedCandidate`s and adjudicates them through
-  // the SAME `resolveBySource` → `validateAndRead` → `resolveSlashNames` chain
-  // as the other four sources — the Pi-owned guard, priority order,
-  // cross-source-shadow, same-tier drop-all, slash-name validity, intra-source
-  // case-collision, and readability checks all apply to a package candidate
-  // with no separate merge logic (bugs 0458 / 0462 / 0463).
-  const packageWalk = await discoverPackageThetas({
-    fs: fileSystem,
+  const {
+    settings,
+    placementSelector,
+    subagentRootRegime,
+    walk,
+    packageWalk,
+    discovered,
+  } = await resolvePassInputs({
+    pi,
+    fileSystem,
     clock,
-    settings,
+    sink,
+    controlPlaneEnv,
+    excludeOwnedNames,
+    statusBus,
+    passPlacementRegistration,
   });
-  sink.emitGroup(packageWalk.diagnostics);
-
-  const walk = await discoverThetas({
-    fs: fileSystem,
-    settings,
-    cliPaths,
-    piOwnedNames,
-    markedRoot,
-    packageCandidates: packageWalk.thetas.map((pkg) => ({
-      path: pkg.path,
-      stem: pkg.name,
-      descriptorValue: pkg.descriptorValue,
-    })),
-  });
-  sink.emitGroup(walk.diagnostics);
-  const discovered: DiscoveredTheta[] = [...walk.thetas];
 
   // Parse + compose each discovered theta into a runnable fixture. The
   // model-reference matcher and the note-channel are constructed once and
@@ -1097,138 +1028,30 @@ async function runComposePass(
             statusBus.trace(invocationId, site, kind)
       : undefined;
 
-  const producerDeps = createProductionProducerDeps({
+  const producerDeps = buildProducerDeps({
     pi,
+    ctx,
     root,
-    modelRegistry: ctx.modelRegistry,
-    // Decision 6 / Increment B1: share the in-flight-invocation registry so the
-    // producer's bind choke points register entries the factory's
-    // `session_shutdown` sub-steps 2/3 operate on.
     activeInvocations,
-    // Decision 6 / Increment B2: share the forwarding-listener sink so the
-    // producer's bind choke points push invocation-scoped forwarding sources the
-    // factory's `session_shutdown` sub-step 5 detaches.
     forwardingSignals,
-    // Bug 0073: the per-invocation clean-cancel note rides the SAME
-    // extension-instance `theta-system-note` channel every other note rides, so
-    // it observes this instance's renderer gate and delivery-health latch
-    // instead of a freshly-built channel that carries neither.
-    systemNoteChannel: systemNote,
-    // RFC 0010 (EXST-3): the execution-status bus every bind choke point
-    // publishes invocation lifecycle, checkpoint, lane, and child-tap material
-    // to. Absent ⇒ every hook is a `?.` no-op.
-    ...(statusBus !== undefined ? { statusBus } : {}),
-    // RFC 0015 (D3): the TUI run-card publisher (absent ⇒ dispatch appends
-    // no run-card entries; see its construction above).
-    ...(runCard !== undefined ? { runCard } : {}),
-    // RFC 0015 (D5): the per-invocation trace-seam factory (TUI only; see its
-    // construction above).
-    ...(statusTrace !== undefined ? { statusTrace } : {}),
-    // RFC 0010 (EXST-13): pi-theta's OWN in-process tool handlers (currently
-    // `theta_progress`), so a code-side call dispatches directly rather than
-    // through the host-loop bridge. Absent ⇒ code-side extension-tool calls
-    // route through the PIC-64 ladder unchanged.
-    ...(inProcessTools !== undefined ? { inProcessToolExecutors: inProcessTools } : {}),
-    // H8b: resolve a code-side Pi-tool name to its `execute` dispatch over the
-    // live host `cwd` / `ctx`.
-    resolvePiTool: (name: string) => resolvePiTool(name, ctx),
-    // RFC 0011 §0 C1: composition-scope session-control handles, `Pick`-narrowed.
-    // The same `ctx` / `pi` captures `resolvePiTool` closes over.
-    sessionControlHosts: { ctx, piHandle: pi },
-    // RFC-0005 subagent launch seams (subagent.md #subagent-launch-contract): the
-    // placement backend that puts each child somewhere (RFC 0012 §1 — the
-    // `pipe` backend over the Windows-safe child-`pi`-process spawn function),
-    // the executable-resolution host snapshot, the inherited parent
-    // environment (full inheritance is the credential mechanism), and the
-    // parent PID carried on the env marker.
-    subagentPlacement: placementPolicy,
+    systemNote,
+    statusBus,
+    runCard,
+    statusTrace,
+    inProcessTools,
+    placementPolicy,
     subagentOpenWire,
     subagentExecutableHost,
-    subagentParentEnv: controlPlaneEnv,
-    subagentParentPid: readParentPid(),
-    // RFC-0012 §2/§10: the launch-file facts with no env equivalent — the
-    // entry this process runs, and (a non-`pipe` child) the channel + the
-    // presentation the child-side regime honours.
-    subagentControlPlane: controlPlane,
-    // RFC-0006 (PIC-60): the params-channel filesystem seam (0600 temp file for
-    // the at/above-threshold channel + the parent `finally` backstop unlink).
-    subagentParamsFs: createProductionParamsFs(),
-    // RFC-0006 (PIC-58): the subagent-root regime detected from the process env.
-    // Active only inside a spawned subagent child; drives the child-side
-    // in-process root drive + envelope emission.
+    controlPlane,
+    controlPlaneEnv,
     subagentRootRegime,
-    // RFC-0006 (PIC-59): the child-side stdout return-envelope writer — the
-    // SAME instance hoisted above (bug 0178 element (b)), so the drive's own
-    // envelope and the load pass's marked-root registration-refusal envelope
-    // share one writer.
     emitResultEnvelope,
-    // RFC 0012 §7 (0.478.0): the child-outcome bus, emit-only. Omitted when
-    // `pi.events` is absent (per exactOptionalPropertyTypes).
-    ...(subagentOutcomeEvents !== undefined ? { subagentOutcomeEvents } : {}),
-    // PIC-64: the code-side extension-tool dispatch ladder probe. Rung 1 is
-    // derived above as the upstream surface probe AND a wired rung-1 dispatcher
-    // (none exists at the pin, so it reads false and registration cannot outrun
-    // dispatchability); rung 2 (host-loop dispatch) is establishable wherever the required
-    // Pi surfaces are present — the parent's live user session and the
-    // subagent-root child alike — so a theta whose CODE calls an extension tool
-    // REGISTERS and routes through host-loop dispatch in BOTH modes; a
-    // surfaces-absent context leaves the ladder FAIL-CLOSED
-    // (`theta/load/extension-tool-unreachable`). The ladder + host-loop seams
-    // are unit-tested (host-loop-dispatch.ts, production-host-loop-dispatch.ts).
-    // The same probe drives the LOAD-time reachability refusal (PIC-64 rung 3)
-    // in the registration loop below.
+    subagentOutcomeEvents,
     dispatchLadderProbe,
-    // PIC-64 rung 2: the wired host-loop dispatch seam. Omitted (not set to
-    // `undefined`, per exactOptionalPropertyTypes) only where the surfaces are
-    // absent and the ladder is fail-closed.
-    ...(hostLoopDispatch !== undefined ? { hostLoopDispatch } : {}),
-    // INV-4 (invocation.md §INV-4): when THIS process is a spawned subagent
-    // child, its top-level invoke chain seeds from the depth the parent
-    // marshalled on the child env (`SUBAGENT_INVOKE_DEPTH_ENV`), so the depth-32
-    // ceiling continues across the process hop. A malformed / absent carriage
-    // seeds a fresh chain at depth 0 (INV-4 pins no fail-closed rule).
-    subagentInboundInvokeDepth: parseInboundInvokeDepth(
-      controlPlaneEnv[SUBAGENT_INVOKE_DEPTH_ENV],
-    ),
-    // #subagent-isolation-and-trust: `pi.getAllTools()` (name + `sourceInfo.scope`)
-    // for the project-local trust inference (`--approve` / `--no-approve`).
-    getAllTools: () => pi.getAllTools(),
-    // #subagent-theta-callable-hash: the transitive-closure content hash of each
-    // `.theta` callable (file + `.thetalib` imports) is captured at LOAD time
-    // and stored on the frozen callable-set entry (`attachLoadTimeClosureHashes`
-    // in `resolveThetaToolsAtLoad`); the launch marshals that stored value, so
-    // the producer needs no spawn-time hash resolver.
-    // The runtime-defect / spawn-failure / wire-failure diagnostic sink (the
-    // per-diagnostic arm; runtime emits are not per-file scan batches).
-    emitDiagnostic: sink.emit,
-    // H8b: parse an `invoke` / `.theta`-callable callee against the caller's
-    // directory, reusing the shared parser deps. Bug 0276 SCOPE CONTRACT: a
-    // FRESH registry-snapshot closure per dispatch, deliberately NOT the
-    // hoisted load-pass one above, so gate-side verdict reuse spans exactly
-    // one dispatch walk. The two scopes differ because the memo's registry key
-    // is this closure's IDENTITY while the closure itself forwards to the live
-    // registry — a memo entry filed under a longer-lived closure would keep
-    // answering for a registry a drive-time `pi.registerTool` has since
-    // changed — and because the memo's byte guard covers only the queried
-    // file's own bytes, while a gate-side walk (`activeRoots === undefined`)
-    // recurses into files outside every discovery root that no watcher
-    // re-composes for. Reuse must therefore not outlive the walk that
-    // established the registry and the subtree it was computed against. Inside
-    // ONE dispatch the recursion still shares this single reference, so the
-    // shared-subtree collapse (§Fix constraint 6, cost profile) holds for the
-    // gate's own walk.
-    parseCallee: (callerPath, calleePath) =>
-      parseCalleeTheta(
-        fileSystem,
-        ctx,
-        callerPath,
-        calleePath,
-        parseDeps,
-        () => pi.getAllTools?.() ?? [],
-        inProcessToolNames,
-      ),
-    // INV-1 (invocation.md §Resolution): the runtime open-time containment
-    // re-check consults the same `realpath` seam and active-root union.
+    hostLoopDispatch,
+    sink,
+    parseDeps,
+    inProcessToolNames,
     fileSystem,
     activeRoots,
   });
@@ -1287,345 +1110,32 @@ async function runComposePass(
   // Unioned into `watchRoots` below (excluding a dir already nested under
   // `discoveryWatchRoots`) after the loop, once every walk that ran has run.
   const importClosureDirs = new Set<string>();
+  const composeDeps: ComposeOneThetaDeps = {
+    pi,
+    ctx,
+    fileSystem,
+    sink,
+    parseDeps,
+    registrySnapshot,
+    activeRoots,
+    inProcessToolNames,
+    invokeGraph,
+    dispatchLadderProbe,
+    subagentExecutableProbe,
+    placementAtLoad,
+    modelMatcher,
+    settingsBinderModel,
+    probeStrictCapable,
+    subagentRootRegime,
+    controlPlane,
+    producerDeps,
+    importClosureDirs,
+  };
   for (const input of parsedInputs) {
-    // Step 0 (f): a subagent-mode theta cannot register when the child `pi`
-    // executable is unresolvable — refuse fail-closed here rather than at first
-    // spawn, emitting the pinned diagnostic once per refused theta.
-    if (input.frontmatter.mode === "subagent" && !subagentExecutableProbe.ok) {
-      sink.emit(subagentExecutableProbe.diagnostic);
-      continue;
+    const composed = await composeOneTheta(input, composeDeps);
+    if (composed !== undefined) {
+      thetas.push(composed);
     }
-    // RFC-0012 §6: an EXPLICIT placement selection that is not selectable
-    // refuses every theta that launches children — `mode: subagent`, or one
-    // declaring a `subagent fn` — fail-closed with
-    // `theta/load/subagent-placement-unavailable`, once per refused theta.
-    // Other prompt-mode thetas are unaffected; `auto` never reaches here.
-    if (!placementAtLoad.ok && thetaLaunchesChildren(input)) {
-      sink.emit(placementUnavailableDiagnostic(placementAtLoad, input.sourcePath ?? input.slashName));
-      continue;
-    }
-    // V20a — resolve the `tools:` callable set against the shipped Pi tool
-    // registry at production load time. A `tools:` rejection (unknown Pi tool,
-    // prompt-mode `.theta` callee, name collision, invalid `as` rename, or a
-    // `.theta` callee carrying its own load/parse errors) un-registers the theta
-    // exactly as the isolation-tested `resolveCallableSet` (V6c) and
-    // callee-has-errors (V15f) checks decide.
-    const toolResult = await resolveThetaToolsAtLoad(
-      input,
-      fileSystem,
-      ctx,
-      parseDeps,
-      // Bug 0001 (frontmatter-fields-a.md §`tools`): admission resolves against
-      // the `pi.getAllTools()` registry snapshot in BOTH modes.
-      // Optional-chained: harness `pi` fakes without `getAllTools` yield `[]`.
-      // Bug 0276: the hoisted load-pass `registrySnapshot`, not a fresh
-      // closure per iteration — a fresh closure here would give every
-      // discovered theta's own walk a distinct verdict-memo registry scope,
-      // and no walk would ever share a memoised verdict with another file's.
-      registrySnapshot,
-      // INV-1 (invocation.md §Resolution) / bug 0110: thread the active-root
-      // union so an out-of-root `tools:` `.theta` entry is rejected here,
-      // strictly before `checkInvokeStaticResolution` runs below — the
-      // `continue` a few lines down on any error-severity `tools:` diagnostic
-      // makes that ordering structural rather than a placement choice.
-      activeRoots,
-      // Bug 0487 (1): the in-process-tool name set, so a `tools:` entry naming
-      // one (e.g. `theta_progress`) resolves instead of minting a false
-      // `theta/load/unknown-tool` at this file's own load and at every callee
-      // this walk pre-parses beneath it.
-      inProcessToolNames,
-    );
-    sink.emitGroup(toolResult.diagnostics);
-    if (toolResult.diagnostics.some((diagnostic) => diagnostic.severity === "error")) {
-      continue;
-    }
-
-    // RFC 0011 §3.3: a declared runtime tool whose host member is absent refuses
-    // ONLY the declaring theta, fail-closed, one diagnostic per unavailable
-    // declared tool, then `continue` (the un-registration mechanism).
-    if (toolResult.callableSet !== undefined) {
-      const sessionToolDiags = checkSessionToolAvailability(
-        toolResult.callableSet, { ctx, pi }, input.sourcePath ?? input.slashName,
-      );
-      sink.emitGroup(sessionToolDiags);
-      if (sessionToolDiags.length > 0) { continue; }
-    }
-
-    // PIC-64 rung 3 (LOAD-time): a theta whose CODE calls a callable-set
-    // EXTENSION tool refuses to register when no code-side dispatch rung is
-    // available (fail-closed). This is the load-time realisation of rung 3
-    // (spec option (a)) — it fires wherever the theta reaches load (parent or
-    // spawned child), MODE-INDEPENDENTLY: admission resolves extension tools in
-    // both modes, so refusal tracks RUNG AVAILABILITY, never the process regime
-    // or the frontmatter mode. A MODEL-facing `@`-query use of the tool holds
-    // no code-side call site and is unaffected. The walk covers the ROOT body
-    // (incl. local `fn` bodies); a
-    // transitive-import code-side extension-tool call cannot arise (an imported
-    // `.thetalib` `fn` naming a caller-scoped extension tool fails `.thetalib`
-    // parse with `theta/parse/unknown-identifier` and un-registers the importer
-    // first), so root-body scope is complete here. The runtime
-    // `#dispatchExtensionToolViaLadder` refusal remains a defence-in-depth
-    // backstop.
-    const reachabilityDiagnostics = checkExtensionToolReachability({
-      body: input.body,
-      extensionToolNames: toolResult.extensionToolNames ?? new Set<string>(),
-      probe: dispatchLadderProbe,
-      file: input.sourcePath ?? input.slashName,
-    });
-    sink.emitGroup(reachabilityDiagnostics);
-    if (reachabilityDiagnostics.some((diagnostic) => diagnostic.severity === "error")) {
-      continue;
-    }
-
-    // INV-3 / INV-4 / INV-1 (invocation.md §Resolution): run the invoke static
-    // checks against the resolved callees and the shared invoke graph, over BOTH
-    // the `invoke(...)` call surface and the `.theta`-callable call surface
-    // (tool-calls.md §"Argument shape" binds INV-3 arity to both by name; bug
-    // 0071). An error-severity diagnostic (an arity error, a discovery-root
-    // escape, or an invocation cycle) un-registers the theta.
-    const invokeDiagnostics = await checkInvokeStaticResolution(input, {
-      fs: fileSystem,
-      activeRoots,
-      graph: invokeGraph,
-      resolveCalleeArity: (absolutePath) =>
-        resolveCalleeArity(fileSystem, absolutePath, parseDeps),
-      resolveCalleeReturnType: (absolutePath) =>
-        resolveCalleeReturnType(fileSystem, absolutePath, parseDeps),
-      // `toolResult` is this theta's already-frozen `tools:` snapshot (resolved
-      // above by `resolveThetaToolsAtLoad`); the `.theta`-callable-call arity
-      // loop resolves each call's callee against it. Guarded spread (not a bare
-      // `callableSet: toolResult.callableSet`): `exactOptionalPropertyTypes`
-      // distinguishes an omitted key from one explicitly set to `undefined`.
-      ...(toolResult.callableSet !== undefined
-        ? { callableSet: toolResult.callableSet }
-        : {}),
-    });
-    sink.emitGroup(invokeDiagnostics);
-    if (invokeDiagnostics.some((diagnostic) => diagnostic.severity === "error")) {
-      continue;
-    }
-
-    // RFC 0001 FN-6: run the `subagent fn` static checks against the parsed
-    // body. A `subagent fn` that references itself (or a mutual cycle) is a
-    // length-1 `theta/load/invocation-cycle` that un-registers the enclosing
-    // theta — the load-time bound on unbounded subagent recursion, mirroring the
-    // INV-4 un-registration of a self-cyclic `.theta`. The broken-inline-body
-    // half (`theta/load/callee-has-errors`) is surfaced on the drop path in
-    // `parseDiscoveredTheta` (a broken body is an error-severity parse
-    // diagnostic that already un-registers before reaching here).
-    const subagentFnDiagnostics = checkSubagentFnStaticResolution({
-      body: input.body,
-      file: input.sourcePath ?? input.slashName,
-      parseDiagnostics: [],
-    });
-    sink.emitGroup(subagentFnDiagnostics);
-    if (subagentFnDiagnostics.some((diagnostic) => diagnostic.severity === "error")) {
-      continue;
-    }
-
-    // RFC 0001 FN-7: validate each `subagent fn`'s `with { model }` override at
-    // LOAD through the shared `modelMatcher` — the same bar frontmatter `model:`
-    // is held to — rather than letting an unresolvable override silently fall
-    // back to the inherited session model at runtime. An unresolvable override
-    // is `theta/load/model-unresolved` and un-registers the theta.
-    const subagentFnModelDiagnostics = checkSubagentFnModelOverrides(
-      collectSubagentFns(input.body),
-      input.sourcePath ?? input.slashName,
-      modelMatcher,
-    );
-    sink.emitGroup(subagentFnModelDiagnostics);
-    if (subagentFnModelDiagnostics.some((diagnostic) => diagnostic.severity === "error")) {
-      continue;
-    }
-
-    // IMP-1 / IMP-3 / IMP-4 / IMP-5 (imports.md): resolve each `.thetalib` import,
-    // parse it, and run the unresolvable-path / unknown-symbol / thetalib-top-level /
-    // cycle checks. An error-severity diagnostic un-registers the theta. The
-    // resolved exports are materialised into the theta's runtime environment so an
-    // imported `fn` is callable (IMP-6) and its query body drives the caller's
-    // conversation (IMP-7).
-    const importCheck = await checkThetaImports(input, {
-      fs: fileSystem,
-      parseDeps,
-    });
-    // Bug 0312: fold this theta's resolved `.thetalib` closure into the
-    // pass-wide dir set before the registration decision below — the walk has
-    // now RUN and resolved these paths, so watch coverage does not depend on
-    // whether THIS theta's own import diagnostics un-register it AFTER the
-    // walk (fixing the refused lib must still fire the reload). A theta refused
-    // before this point never reached the walk and contributes nothing.
-    for (const libPath of importCheck.resolvedLibs) {
-      importClosureDirs.add(dirname(libPath).replace(/\\/g, "/"));
-    }
-    // Bug 0264: emit only the UNDELIVERED remainder — `importCheck.undelivered`
-    // already excludes rows the pass cache saw `lexTheta` deliver for this
-    // library earlier in the same pass (route 1). The registration decision
-    // below still tests the FULL, unfiltered `importCheck.diagnostics`
-    // (§Fix: filtering the decision input would change a registration
-    // outcome, which this report does not license).
-    sink.emitGroup(importCheck.undelivered);
-    if (importCheck.diagnostics.some((diagnostic) => diagnostic.severity === "error")) {
-      continue;
-    }
-
-    // RFC 0009 Erratum B (RFC 0012 §10): the deferred half of the call-site
-    // clause classification — a clause on an IMPORTED callee is legal only when
-    // the materialised import is a `subagent fn` (a child-spawning surface);
-    // an imported plain `fn` draws `theta/parse/with-clause-in-process-callee`.
-    // Judged here because only the materialised imports (re-export chains
-    // followed) carry the declaring library's fn kind.
-    const importedClauseDiagnostics = checkImportedWithClauseCallees(
-      input.sourcePath ?? input.slashName,
-      input.body,
-      importCheck.imports,
-      toolResult.callableSet,
-    );
-    sink.emitGroup(importedClauseDiagnostics);
-    if (importedClauseDiagnostics.some((diagnostic) => diagnostic.severity === "error")) {
-      continue;
-    }
-
-    // Binder-model resolution (binder-model-and-context.md §"Binder model"): a
-    // NON-bypass theta's binder model resolves at LOAD time from the two-step
-    // chain (`bind_model:` → `theta.binderModel`) over the SAME shared
-    // `modelMatcher` the `model:` resolution binds. A non-bypass theta whose
-    // chain resolves to no model fails to load with
-    // `theta/load/binder-model-unresolved` (E) — the diagnostic surfaces through
-    // the load-diagnostic sink and the theta does NOT register. Bypass-eligible thetas
-    // (no-params / single-string) skip resolution entirely (they never call the
-    // binder). The resolved reference is carried onto the runnable theta so the
-    // runtime dispatches the binder OFF-session against it.
-    const bypassEligible =
-      classifyBinderBypass(input.frontmatter.params?.fields).kind !== "binder";
-    // Bug 0178 element (a): the marked root of a spawned subagent child
-    // dispatches through `driveSubagentRootRegime` STRICTLY BEFORE
-    // `runBinder` whenever `isSubagentRootFor` holds
-    // (theta-composition-producer.ts's slash-dispatch `run`:
-    // `deps.isSubagentRootFor?.(theta)` gates the regime drive ahead of
-    // `deps.runBinder`) — this predicate is that same test, so the exempt set
-    // here and the binder-skipping set there are ONE set, held together by
-    // that single co-located invariant. A wider exemption (every theta in the
-    // child) would rest on the argv contract instead
-    // (subagent.md#subagent-launch-contract, one invocation per process) and
-    // would register a NESTED `mode: subagent` callee whose OWN dispatch still
-    // reaches `runBinder` (`selectSubagentDriver`'s no-recursion guarantee
-    // spawns that callee its own child) with no resolved binder model —
-    // hitting the `model === undefined` defensive arm `runBinder` itself calls
-    // unreachable for a registered non-bypass theta. Skipping resolution here
-    // also skips the strict-capability probe (it runs INSIDE
-    // `resolveBinderModel`), which is the regime carve-out's own requirement,
-    // not an accident: otherwise `theta/load/binder-model-not-strict-capable`
-    // becomes the next refusal on the very same path.
-    // RFC 0012 §10: a `fn` entry marks the root for one of its `subagent fn`s;
-    // the root itself may be prompt-mode (FN-8), so the mode gate belongs to
-    // the theta entry alone — the same predicate `isSubagentRootFor` applies.
-    const isMarkedRootTheta =
-      subagentRootRegime.active &&
-      subagentRootRegime.slug === input.slashName &&
-      (input.frontmatter.mode === "subagent" || controlPlane.entry.kind === "fn");
-    const binderModelResolution: BinderModelResolution = isMarkedRootTheta
-      ? { resolved: true, diagnostics: [] }
-      : resolveBinderModel({
-          file: input.sourcePath ?? input.slashName,
-          ...(input.frontmatter.bindModel !== undefined
-            ? { bindModel: input.frontmatter.bindModel }
-            : {}),
-          ...(input.frontmatter.bindModelUnresolvable === true
-            ? { bindModelUnresolvable: true }
-            : {}),
-          ...(settingsBinderModel !== undefined ? { settingsBinderModel } : {}),
-          bypassEligible,
-          matcher: modelMatcher,
-          probeStrictCapable,
-        });
-    sink.emitGroup(binderModelResolution.diagnostics);
-    if (!binderModelResolution.resolved) {
-      // A non-bypass theta with no resolvable binder model fails to load.
-      continue;
-    }
-
-    // Bug 0010 increment C (conversation-drive.md §"Provider compatibility for
-    // typed queries"): the LOAD-time typed-query provider gate. A theta that
-    // CARRIES a typed query whose frontmatter `model:` load-resolves to an api
-    // outside the supported set warns with
-    // `theta/load/typed-query-unsupported-provider` — WARNING severity, so the
-    // theta STILL REGISTERS (no `continue`; the runtime gate refuses the typed
-    // dispatch itself). The diagnostic rides the SAME sink every other
-    // load-time warning rides (e.g. the binder-model
-    // strict-capability-unknown warning above), and both production sinks
-    // deliver warnings (bug 0013): the shipped path routes them onto the
-    // `theta-system-note` channel, the helper path mirrors them to headless
-    // stderr — so the gate's two-stage design (warn at load, refuse at
-    // dispatch) is operator-visible. The composition-level integration cell
-    // lives in tests/load-warning-delivery.test.ts (A1).
-    const typedQueryProviderWarning = checkThetaTypedQueryProviderSupport({
-      file: input.sourcePath ?? input.slashName,
-      body: input.body,
-      modelReference: input.frontmatter.model,
-      resolveModel: (reference) =>
-        matchAvailableModel(reference, ctx.modelRegistry.getAvailable()),
-    });
-    if (typedQueryProviderWarning !== null) {
-      sink.emit(typedQueryProviderWarning);
-    }
-
-    // Thread the frozen callable-set snapshot resolved above onto the runnable
-    // theta so the runtime enforces the per-theta `tools:` set (QTL-2: code-driven
-    // calls dispatch only through a held reference; QTL-4: prompt-mode query
-    // turns install exactly this set's underlying Pi-tool names as the model's
-    // active tools), plus the resolved binder-model reference (absent for a
-    // bypass-eligible theta).
-    const composedInput: ThetaCompositionInput = {
-      ...input,
-      ...(importCheck.imports.length > 0 ? { imports: importCheck.imports } : {}),
-      // Bug 0465: thread the imported schema/enum decls the query/invoke
-      // lowering seam needs, exactly as `imports` above is threaded — spread
-      // only when non-empty, so a theta with no lowerable imported decl stays
-      // byte-identical (no `importedTypeDecls` key at all).
-      ...(importCheck.importedTypeDecls.schemas.length > 0 ||
-      importCheck.importedTypeDecls.enums.length > 0
-        ? { importedTypeDecls: importCheck.importedTypeDecls }
-        : {}),
-      // Bug 0423 route (a): thread the load-phase-patched `system:` template
-      // (wire-name sidecars applied to bare imported-schema params) onto the
-      // composed frontmatter exactly as `imports` above is threaded — a NEW
-      // frontmatter object, not an in-place mutation of the readonly parsed
-      // one, preserving every other frontmatter field (systemRange, params,
-      // etc.). Absent `patchedSystemTemplate` (no patchable part, or no
-      // `system:` at all) leaves `frontmatter` untouched, so the byte-identical
-      // constraint holds without a branch here.
-      ...(importCheck.patchedSystemTemplate !== undefined
-        ? { frontmatter: { ...input.frontmatter, system: importCheck.patchedSystemTemplate } }
-        : {}),
-      ...(toolResult.callableSet !== undefined
-        ? { callableSet: toolResult.callableSet }
-        : {}),
-      ...(binderModelResolution.binderModel !== undefined
-        ? { binderModel: binderModelResolution.binderModel }
-        : {}),
-      // Bug 0328 §Fix: thread the root's own captured closure hash so the
-      // producer's marshalling loop can add it to the launch's callable-hash
-      // carrier alongside the `tools:` entries.
-      ...(toolResult.rootClosureHash !== undefined
-        ? { rootClosureHash: toolResult.rootClosureHash }
-        : {}),
-    };
-    // Carry the parsed frontmatter + body onto the runnable theta so the
-    // hot-reload rebuild can swap the `ThetaRegistry` with full `ParsedTheta`
-    // entries; the registration path reads `slashName` + `description` + `run`.
-    // Thread the top-level `description` `composeThetaFixture` computed onto the
-    // pushed theta so factory registration passes it to `pi.registerCommand`
-    // (REQ-PIC-31; frontmatter-fields-a.md autocomplete). Omitted when the theta
-    // declares none. Covers BOTH production paths (composeExtensionInstance and
-    // discoverAndComposeFixtures) — both flow through this pass.
-    const fixture = composeThetaFixture(composedInput, producerDeps);
-    thetas.push({
-      ...composedInput,
-      ...(fixture.description !== undefined
-        ? { description: fixture.description }
-        : {}),
-      run: fixture.run,
-    });
   }
   // RFC-0005 #subagent-theta-callable-hash: when THIS process is a subagent
   // child carrying marshalled `.theta` callable hashes, recompute each
@@ -1865,6 +1375,742 @@ function buildDispatchLadder({ pi, ctx, clock }: {
       ? pi.events
       : undefined;
   return { dispatchLadderProbe, hostLoopDispatch, subagentOutcomeEvents };
+}
+
+/**
+ * Resolve one pass's inputs: load the merged settings (V10c), resolve the
+ * operator's placement selector (RFC-0012 §5/§6) and the subagent-root regime
+ * (RFC-0006 PIC-58, with bug 0331's marked-root winner), then run the package
+ * and five-source discovery walks — delivering every walk's diagnostics to
+ * the pass sink in the same order as before. Extracted verbatim from
+ * `runComposePass` (PTQ-1438 seam C).
+ */
+async function resolvePassInputs({
+  pi,
+  fileSystem,
+  clock,
+  sink,
+  controlPlaneEnv,
+  excludeOwnedNames,
+  statusBus,
+  passPlacementRegistration,
+}: {
+  readonly pi: ExtensionAPI;
+  readonly fileSystem: FileSystem;
+  readonly clock: Clock;
+  readonly sink: LoadDiagnosticSink;
+  readonly controlPlaneEnv: SubagentChildControlPlane["env"];
+  readonly excludeOwnedNames: ReadonlySet<string> | undefined;
+  readonly statusBus: ExecutionStatusBus | undefined;
+  readonly passPlacementRegistration: PlacementRegistrationHandle | undefined;
+}): Promise<{
+  readonly settings: ThetaSettings;
+  readonly placementSelector: ReturnType<typeof resolvePlacementSelector>;
+  readonly subagentRootRegime: RootRegime;
+  readonly markedRoot: ReturnType<typeof detectMarkedRootWinner>;
+  readonly walk: Awaited<ReturnType<typeof discoverThetas>>;
+  readonly packageWalk: Awaited<ReturnType<typeof discoverPackageThetas>>;
+  readonly discovered: DiscoveredTheta[];
+}> {
+  // Merged, validated settings (V10c) drive the settings discovery source and
+  // the package-walk bounds.
+  const settingsResult = await loadSettings(fileSystem);
+  sink.emitGroup(settingsResult.diagnostics);
+  const settings: ThetaSettings = settingsResult.settings;
+
+  // EXST-10: the telemetry-class ceiling, read like every other settings key
+  // and defaulted at the READ site (an absent OR out-of-range value is absent
+  // in the cleaned view, so both land on `names`). A hot-reload re-compose
+  // pass re-runs this, so a settings edit takes effect at the next reload
+  // without reconstructing the bus.
+  statusBus?.setVerbosity(settings.theta?.progress ?? "names");
+
+  // RFC-0012 §5/§6: placement. Discover registered backends (order-
+  // independent with the factory-body offer subscription), build the `exec`
+  // backend when the GLOBAL settings file carries a template, and resolve the
+  // operator's selector (the one-run env override wins over settings). The
+  // load-time verdict below gates registration of every theta that launches
+  // children (fail-closed on an explicit unavailable choice; `auto` never
+  // refuses); the per-launch policy re-selects at each launch so a backend
+  // registered after this pass is honoured without a reload.
+  passPlacementRegistration?.discover();
+  const placementSelector = resolvePlacementSelector(
+    settings.theta?.subagentPlacement,
+    controlPlaneEnv[SUBAGENT_PLACEMENT_ENV],
+  );
+
+  // RFC-0006 (PIC-58): the subagent-root regime detected once from the process
+  // env, hoisted ahead of the discovery walk so bug 0331's marked-root winner
+  // threads INTO the walk rather than only being consulted after it. Active
+  // ONLY inside a spawned subagent child; drives the child-side in-process
+  // root drive.
+  const subagentRootRegime = detectSubagentRootRegime(controlPlaneEnv);
+  // Bug 0331: the marked root's winning source path, from the SAME
+  // authenticated control-plane channel the callable-hash map rides
+  // (subagent.md #subagent-control-plane-authentication). Constraint: this
+  // reads the authenticated control-plane view rather than raw `process.env`,
+  // so a parent's own top-level prompt-mode registration (regime inactive)
+  // never consults the carrier — the regime gate alone enforces that.
+  // `undefined` when the regime is inactive or the carrier is absent/malformed,
+  // in which case `discoverThetas` falls back to today's collision resolution.
+  const markedRoot = detectMarkedRootWinner(controlPlaneEnv, subagentRootRegime);
+
+  // Discovery walk. CLI `--theta` roots are split on the platform path
+  // delimiter (the walk is platform-independent over already-split paths).
+  const cliPaths = readThetaFlagPaths(pi);
+  // EXST-11: the reserved `/theta-status` stem joins the Pi-owned set the
+  // collision pass reads. The ledger alone would NOT reserve it — PIC-69's
+  // source-conditioned exclusion drops this instance's own registrations from
+  // the collision read — so the reservation is explicit here, and a discovered
+  // theta stem `theta-status` draws the EXISTING cross-format-collision code.
+  const piOwnedNames = [
+    ...readPiOwnedCommands(pi, excludeOwnedNames),
+    ...RESERVED_COMMAND_NAMES.map((name) => ({ name })),
+  ];
+
+  // Package source (V10b, priority 4) — the bounded scan runs FIRST (it needs
+  // the injected clock/bounds the walk itself does not carry) and its results
+  // are handed to `discoverThetas` as `packageCandidates`: the walk pushes them
+  // in as ordinary priority-4 `SourcedCandidate`s and adjudicates them through
+  // the SAME `resolveBySource` → `validateAndRead` → `resolveSlashNames` chain
+  // as the other four sources — the Pi-owned guard, priority order,
+  // cross-source-shadow, same-tier drop-all, slash-name validity, intra-source
+  // case-collision, and readability checks all apply to a package candidate
+  // with no separate merge logic (bugs 0458 / 0462 / 0463).
+  const packageWalk = await discoverPackageThetas({
+    fs: fileSystem,
+    clock,
+    settings,
+  });
+  sink.emitGroup(packageWalk.diagnostics);
+
+  const walk = await discoverThetas({
+    fs: fileSystem,
+    settings,
+    cliPaths,
+    piOwnedNames,
+    markedRoot,
+    packageCandidates: packageWalk.thetas.map((pkg) => ({
+      path: pkg.path,
+      stem: pkg.name,
+      descriptorValue: pkg.descriptorValue,
+    })),
+  });
+  sink.emitGroup(walk.diagnostics);
+  const discovered: DiscoveredTheta[] = [...walk.thetas];
+  return {
+    settings,
+    placementSelector,
+    subagentRootRegime,
+    markedRoot,
+    walk,
+    packageWalk,
+    discovered,
+  };
+}
+
+/**
+ * Build the pass's `ProductionProducerDeps` — the single wiring literal every
+ * composed theta's producer closes over. Extracted verbatim from
+ * `runComposePass` (PTQ-1438 seam A); the doc comments on each member carry
+ * the threading contracts unchanged.
+ */
+function buildProducerDeps({
+  pi,
+  ctx,
+  root,
+  activeInvocations,
+  forwardingSignals,
+  systemNote,
+  statusBus,
+  runCard,
+  statusTrace,
+  inProcessTools,
+  placementPolicy,
+  subagentOpenWire,
+  subagentExecutableHost,
+  controlPlane,
+  controlPlaneEnv,
+  subagentRootRegime,
+  emitResultEnvelope,
+  subagentOutcomeEvents,
+  dispatchLadderProbe,
+  hostLoopDispatch,
+  sink,
+  parseDeps,
+  inProcessToolNames,
+  fileSystem,
+  activeRoots,
+}: {
+  readonly pi: ExtensionAPI;
+  readonly ctx: ExtensionContext;
+  readonly root: RuntimeRoot;
+  readonly activeInvocations: ActiveInvocationRegistry;
+  readonly forwardingSignals: ForwardingSignalSource[];
+  readonly systemNote: SystemNoteChannelDeps;
+  readonly statusBus: ExecutionStatusBus | undefined;
+  readonly runCard: ReturnType<typeof createRunCardPublisher> | undefined;
+  readonly statusTrace: ((invocationId: string) => Trace) | undefined;
+  readonly inProcessTools: Readonly<Record<string, InProcessToolExecute>> | undefined;
+  readonly placementPolicy: ReturnType<typeof createPlacementPolicy>;
+  readonly subagentOpenWire: ReturnType<typeof createProductionSubagentWire>;
+  readonly subagentExecutableHost: ExecutableHost;
+  readonly controlPlane: SubagentChildControlPlane;
+  readonly controlPlaneEnv: SubagentChildControlPlane["env"];
+  readonly subagentRootRegime: RootRegime;
+  readonly emitResultEnvelope: (line: string) => void;
+  readonly subagentOutcomeEvents: ExtensionAPI["events"] | undefined;
+  readonly dispatchLadderProbe: DispatchLadderProbe;
+  readonly hostLoopDispatch: ReturnType<typeof createProductionHostLoopDispatch> | undefined;
+  readonly sink: LoadDiagnosticSink;
+  readonly parseDeps: PassClosureDeps;
+  readonly inProcessToolNames: ReadonlySet<string>;
+  readonly fileSystem: FileSystem;
+  readonly activeRoots: string[];
+}): ReturnType<typeof createProductionProducerDeps> {
+  return createProductionProducerDeps({
+    pi,
+    root,
+    modelRegistry: ctx.modelRegistry,
+    // Decision 6 / Increment B1: share the in-flight-invocation registry so the
+    // producer's bind choke points register entries the factory's
+    // `session_shutdown` sub-steps 2/3 operate on.
+    activeInvocations,
+    // Decision 6 / Increment B2: share the forwarding-listener sink so the
+    // producer's bind choke points push invocation-scoped forwarding sources the
+    // factory's `session_shutdown` sub-step 5 detaches.
+    forwardingSignals,
+    // Bug 0073: the per-invocation clean-cancel note rides the SAME
+    // extension-instance `theta-system-note` channel every other note rides, so
+    // it observes this instance's renderer gate and delivery-health latch
+    // instead of a freshly-built channel that carries neither.
+    systemNoteChannel: systemNote,
+    // RFC 0010 (EXST-3): the execution-status bus every bind choke point
+    // publishes invocation lifecycle, checkpoint, lane, and child-tap material
+    // to. Absent ⇒ every hook is a `?.` no-op.
+    ...(statusBus !== undefined ? { statusBus } : {}),
+    // RFC 0015 (D3): the TUI run-card publisher (absent ⇒ dispatch appends
+    // no run-card entries; see its construction above).
+    ...(runCard !== undefined ? { runCard } : {}),
+    // RFC 0015 (D5): the per-invocation trace-seam factory (TUI only; see its
+    // construction above).
+    ...(statusTrace !== undefined ? { statusTrace } : {}),
+    // RFC 0010 (EXST-13): pi-theta's OWN in-process tool handlers (currently
+    // `theta_progress`), so a code-side call dispatches directly rather than
+    // through the host-loop bridge. Absent ⇒ code-side extension-tool calls
+    // route through the PIC-64 ladder unchanged.
+    ...(inProcessTools !== undefined ? { inProcessToolExecutors: inProcessTools } : {}),
+    // H8b: resolve a code-side Pi-tool name to its `execute` dispatch over the
+    // live host `cwd` / `ctx`.
+    resolvePiTool: (name: string) => resolvePiTool(name, ctx),
+    // RFC 0011 §0 C1: composition-scope session-control handles, `Pick`-narrowed.
+    // The same `ctx` / `pi` captures `resolvePiTool` closes over.
+    sessionControlHosts: { ctx, piHandle: pi },
+    // RFC-0005 subagent launch seams (subagent.md #subagent-launch-contract): the
+    // placement backend that puts each child somewhere (RFC 0012 §1 — the
+    // `pipe` backend over the Windows-safe child-`pi`-process spawn function),
+    // the executable-resolution host snapshot, the inherited parent
+    // environment (full inheritance is the credential mechanism), and the
+    // parent PID carried on the env marker.
+    subagentPlacement: placementPolicy,
+    subagentOpenWire,
+    subagentExecutableHost,
+    subagentParentEnv: controlPlaneEnv,
+    subagentParentPid: readParentPid(),
+    // RFC-0012 §2/§10: the launch-file facts with no env equivalent — the
+    // entry this process runs, and (a non-`pipe` child) the channel + the
+    // presentation the child-side regime honours.
+    subagentControlPlane: controlPlane,
+    // RFC-0006 (PIC-60): the params-channel filesystem seam (0600 temp file for
+    // the at/above-threshold channel + the parent `finally` backstop unlink).
+    subagentParamsFs: createProductionParamsFs(),
+    // RFC-0006 (PIC-58): the subagent-root regime detected from the process env.
+    // Active only inside a spawned subagent child; drives the child-side
+    // in-process root drive + envelope emission.
+    subagentRootRegime,
+    // RFC-0006 (PIC-59): the child-side stdout return-envelope writer — the
+    // SAME instance hoisted above (bug 0178 element (b)), so the drive's own
+    // envelope and the load pass's marked-root registration-refusal envelope
+    // share one writer.
+    emitResultEnvelope,
+    // RFC 0012 §7 (0.478.0): the child-outcome bus, emit-only. Omitted when
+    // `pi.events` is absent (per exactOptionalPropertyTypes).
+    ...(subagentOutcomeEvents !== undefined ? { subagentOutcomeEvents } : {}),
+    // PIC-64: the code-side extension-tool dispatch ladder probe. Rung 1 is
+    // derived above as the upstream surface probe AND a wired rung-1 dispatcher
+    // (none exists at the pin, so it reads false and registration cannot outrun
+    // dispatchability); rung 2 (host-loop dispatch) is establishable wherever the required
+    // Pi surfaces are present — the parent's live user session and the
+    // subagent-root child alike — so a theta whose CODE calls an extension tool
+    // REGISTERS and routes through host-loop dispatch in BOTH modes; a
+    // surfaces-absent context leaves the ladder FAIL-CLOSED
+    // (`theta/load/extension-tool-unreachable`). The ladder + host-loop seams
+    // are unit-tested (host-loop-dispatch.ts, production-host-loop-dispatch.ts).
+    // The same probe drives the LOAD-time reachability refusal (PIC-64 rung 3)
+    // in the registration loop below.
+    dispatchLadderProbe,
+    // PIC-64 rung 2: the wired host-loop dispatch seam. Omitted (not set to
+    // `undefined`, per exactOptionalPropertyTypes) only where the surfaces are
+    // absent and the ladder is fail-closed.
+    ...(hostLoopDispatch !== undefined ? { hostLoopDispatch } : {}),
+    // INV-4 (invocation.md §INV-4): when THIS process is a spawned subagent
+    // child, its top-level invoke chain seeds from the depth the parent
+    // marshalled on the child env (`SUBAGENT_INVOKE_DEPTH_ENV`), so the depth-32
+    // ceiling continues across the process hop. A malformed / absent carriage
+    // seeds a fresh chain at depth 0 (INV-4 pins no fail-closed rule).
+    subagentInboundInvokeDepth: parseInboundInvokeDepth(
+      controlPlaneEnv[SUBAGENT_INVOKE_DEPTH_ENV],
+    ),
+    // #subagent-isolation-and-trust: `pi.getAllTools()` (name + `sourceInfo.scope`)
+    // for the project-local trust inference (`--approve` / `--no-approve`).
+    getAllTools: () => pi.getAllTools(),
+    // #subagent-theta-callable-hash: the transitive-closure content hash of each
+    // `.theta` callable (file + `.thetalib` imports) is captured at LOAD time
+    // and stored on the frozen callable-set entry (`attachLoadTimeClosureHashes`
+    // in `resolveThetaToolsAtLoad`); the launch marshals that stored value, so
+    // the producer needs no spawn-time hash resolver.
+    // The runtime-defect / spawn-failure / wire-failure diagnostic sink (the
+    // per-diagnostic arm; runtime emits are not per-file scan batches).
+    emitDiagnostic: sink.emit,
+    // H8b: parse an `invoke` / `.theta`-callable callee against the caller's
+    // directory, reusing the shared parser deps. Bug 0276 SCOPE CONTRACT: a
+    // FRESH registry-snapshot closure per dispatch, deliberately NOT the
+    // hoisted load-pass one above, so gate-side verdict reuse spans exactly
+    // one dispatch walk. The two scopes differ because the memo's registry key
+    // is this closure's IDENTITY while the closure itself forwards to the live
+    // registry — a memo entry filed under a longer-lived closure would keep
+    // answering for a registry a drive-time `pi.registerTool` has since
+    // changed — and because the memo's byte guard covers only the queried
+    // file's own bytes, while a gate-side walk (`activeRoots === undefined`)
+    // recurses into files outside every discovery root that no watcher
+    // re-composes for. Reuse must therefore not outlive the walk that
+    // established the registry and the subtree it was computed against. Inside
+    // ONE dispatch the recursion still shares this single reference, so the
+    // shared-subtree collapse (§Fix constraint 6, cost profile) holds for the
+    // gate's own walk.
+    parseCallee: (callerPath, calleePath) =>
+      parseCalleeTheta(
+        fileSystem,
+        ctx,
+        callerPath,
+        calleePath,
+        parseDeps,
+        () => pi.getAllTools?.() ?? [],
+        inProcessToolNames,
+      ),
+    // INV-1 (invocation.md §Resolution): the runtime open-time containment
+    // re-check consults the same `realpath` seam and active-root union.
+    fileSystem,
+    activeRoots,
+  });
+}
+
+/**
+ * The pass-shared context `composeOneTheta` reads — every member is a
+ * `runComposePass` local shared across the per-theta registration loop's
+ * iterations (PTQ-1438 seam B). `importClosureDirs` is the loop's one
+ * MUTATED member: every resolved `.thetalib` closure dir a theta's import
+ * walk reaches is added whether or not that theta registers (bug 0312).
+ */
+interface ComposeOneThetaDeps {
+  readonly pi: ExtensionAPI;
+  readonly ctx: ExtensionContext;
+  readonly fileSystem: FileSystem;
+  readonly sink: LoadDiagnosticSink;
+  readonly parseDeps: PassClosureDeps;
+  readonly registrySnapshot: GetAllToolsSnapshot;
+  readonly activeRoots: string[];
+  readonly inProcessToolNames: ReadonlySet<string>;
+  readonly invokeGraph: Awaited<ReturnType<typeof buildInvokeGraph>>;
+  readonly dispatchLadderProbe: DispatchLadderProbe;
+  readonly subagentExecutableProbe: ReturnType<typeof probeSubagentExecutable>;
+  readonly placementAtLoad: PlacementSelection;
+  readonly modelMatcher: ReturnType<typeof createModelReferenceMatcher>;
+  readonly settingsBinderModel: NonNullable<ThetaSettings["theta"]>["binderModel"];
+  readonly probeStrictCapable: (
+    reference: string,
+  ) => StrictCapableProbeResult | undefined;
+  readonly subagentRootRegime: RootRegime;
+  readonly controlPlane: SubagentChildControlPlane;
+  readonly producerDeps: ReturnType<typeof createProductionProducerDeps>;
+  readonly importClosureDirs: Set<string>;
+}
+
+/**
+ * Compose ONE parsed theta through the per-theta load gates — the Step 0 (f)
+ * executable probe, the RFC-0012 §6 placement verdict, the V20a `tools:`
+ * resolution, the RFC 0011 §3.3 session-tool availability check, the PIC-64
+ * rung-3 reachability refusal, the INV / FN / IMP static checks, the
+ * Erratum B imported-clause classification, and the binder-model resolution —
+ * returning the runnable `ParsedTheta`, or `undefined` when a gate refused
+ * registration (each gate's diagnostics are already delivered to the pass
+ * sink before it refuses). Extracted verbatim from `runComposePass`'s
+ * registration loop (PTQ-1438 seam B); each former `continue` is a
+ * `return undefined`.
+ */
+async function composeOneTheta(
+  input: ThetaCompositionInput,
+  deps: ComposeOneThetaDeps,
+): Promise<ParsedTheta | undefined> {
+  const {
+    pi,
+    ctx,
+    fileSystem,
+    sink,
+    parseDeps,
+    registrySnapshot,
+    activeRoots,
+    inProcessToolNames,
+    invokeGraph,
+    dispatchLadderProbe,
+    subagentExecutableProbe,
+    placementAtLoad,
+    modelMatcher,
+    settingsBinderModel,
+    probeStrictCapable,
+    subagentRootRegime,
+    controlPlane,
+    producerDeps,
+    importClosureDirs,
+  } = deps;
+  // Step 0 (f): a subagent-mode theta cannot register when the child `pi`
+  // executable is unresolvable — refuse fail-closed here rather than at first
+  // spawn, emitting the pinned diagnostic once per refused theta.
+  if (input.frontmatter.mode === "subagent" && !subagentExecutableProbe.ok) {
+    sink.emit(subagentExecutableProbe.diagnostic);
+    return undefined;
+  }
+  // RFC-0012 §6: an EXPLICIT placement selection that is not selectable
+  // refuses every theta that launches children — `mode: subagent`, or one
+  // declaring a `subagent fn` — fail-closed with
+  // `theta/load/subagent-placement-unavailable`, once per refused theta.
+  // Other prompt-mode thetas are unaffected; `auto` never reaches here.
+  if (!placementAtLoad.ok && thetaLaunchesChildren(input)) {
+    sink.emit(placementUnavailableDiagnostic(placementAtLoad, input.sourcePath ?? input.slashName));
+    return undefined;
+  }
+  // V20a — resolve the `tools:` callable set against the shipped Pi tool
+  // registry at production load time. A `tools:` rejection (unknown Pi tool,
+  // prompt-mode `.theta` callee, name collision, invalid `as` rename, or a
+  // `.theta` callee carrying its own load/parse errors) un-registers the theta
+  // exactly as the isolation-tested `resolveCallableSet` (V6c) and
+  // callee-has-errors (V15f) checks decide.
+  const toolResult = await resolveThetaToolsAtLoad(
+    input,
+    fileSystem,
+    ctx,
+    parseDeps,
+    // Bug 0001 (frontmatter-fields-a.md §`tools`): admission resolves against
+    // the `pi.getAllTools()` registry snapshot in BOTH modes.
+    // Optional-chained: harness `pi` fakes without `getAllTools` yield `[]`.
+    // Bug 0276: the hoisted load-pass `registrySnapshot`, not a fresh
+    // closure per iteration — a fresh closure here would give every
+    // discovered theta's own walk a distinct verdict-memo registry scope,
+    // and no walk would ever share a memoised verdict with another file's.
+    registrySnapshot,
+    // INV-1 (invocation.md §Resolution) / bug 0110: thread the active-root
+    // union so an out-of-root `tools:` `.theta` entry is rejected here,
+    // strictly before `checkInvokeStaticResolution` runs below — the
+    // `continue` a few lines down on any error-severity `tools:` diagnostic
+    // makes that ordering structural rather than a placement choice.
+    activeRoots,
+    // Bug 0487 (1): the in-process-tool name set, so a `tools:` entry naming
+    // one (e.g. `theta_progress`) resolves instead of minting a false
+    // `theta/load/unknown-tool` at this file's own load and at every callee
+    // this walk pre-parses beneath it.
+    inProcessToolNames,
+  );
+  sink.emitGroup(toolResult.diagnostics);
+  if (toolResult.diagnostics.some((diagnostic) => diagnostic.severity === "error")) {
+    return undefined;
+  }
+
+  // RFC 0011 §3.3: a declared runtime tool whose host member is absent refuses
+  // ONLY the declaring theta, fail-closed, one diagnostic per unavailable
+  // declared tool, then `continue` (the un-registration mechanism).
+  if (toolResult.callableSet !== undefined) {
+    const sessionToolDiags = checkSessionToolAvailability(
+      toolResult.callableSet, { ctx, pi }, input.sourcePath ?? input.slashName,
+    );
+    sink.emitGroup(sessionToolDiags);
+    if (sessionToolDiags.length > 0) { return undefined; }
+  }
+
+  // PIC-64 rung 3 (LOAD-time): a theta whose CODE calls a callable-set
+  // EXTENSION tool refuses to register when no code-side dispatch rung is
+  // available (fail-closed). This is the load-time realisation of rung 3
+  // (spec option (a)) — it fires wherever the theta reaches load (parent or
+  // spawned child), MODE-INDEPENDENTLY: admission resolves extension tools in
+  // both modes, so refusal tracks RUNG AVAILABILITY, never the process regime
+  // or the frontmatter mode. A MODEL-facing `@`-query use of the tool holds
+  // no code-side call site and is unaffected. The walk covers the ROOT body
+  // (incl. local `fn` bodies); a
+  // transitive-import code-side extension-tool call cannot arise (an imported
+  // `.thetalib` `fn` naming a caller-scoped extension tool fails `.thetalib`
+  // parse with `theta/parse/unknown-identifier` and un-registers the importer
+  // first), so root-body scope is complete here. The runtime
+  // `#dispatchExtensionToolViaLadder` refusal remains a defence-in-depth
+  // backstop.
+  const reachabilityDiagnostics = checkExtensionToolReachability({
+    body: input.body,
+    extensionToolNames: toolResult.extensionToolNames ?? new Set<string>(),
+    probe: dispatchLadderProbe,
+    file: input.sourcePath ?? input.slashName,
+  });
+  sink.emitGroup(reachabilityDiagnostics);
+  if (reachabilityDiagnostics.some((diagnostic) => diagnostic.severity === "error")) {
+    return undefined;
+  }
+
+  // INV-3 / INV-4 / INV-1 (invocation.md §Resolution): run the invoke static
+  // checks against the resolved callees and the shared invoke graph, over BOTH
+  // the `invoke(...)` call surface and the `.theta`-callable call surface
+  // (tool-calls.md §"Argument shape" binds INV-3 arity to both by name; bug
+  // 0071). An error-severity diagnostic (an arity error, a discovery-root
+  // escape, or an invocation cycle) un-registers the theta.
+  const invokeDiagnostics = await checkInvokeStaticResolution(input, {
+    fs: fileSystem,
+    activeRoots,
+    graph: invokeGraph,
+    resolveCalleeArity: (absolutePath) =>
+      resolveCalleeArity(fileSystem, absolutePath, parseDeps),
+    resolveCalleeReturnType: (absolutePath) =>
+      resolveCalleeReturnType(fileSystem, absolutePath, parseDeps),
+    // `toolResult` is this theta's already-frozen `tools:` snapshot (resolved
+    // above by `resolveThetaToolsAtLoad`); the `.theta`-callable-call arity
+    // loop resolves each call's callee against it. Guarded spread (not a bare
+    // `callableSet: toolResult.callableSet`): `exactOptionalPropertyTypes`
+    // distinguishes an omitted key from one explicitly set to `undefined`.
+    ...(toolResult.callableSet !== undefined
+      ? { callableSet: toolResult.callableSet }
+      : {}),
+  });
+  sink.emitGroup(invokeDiagnostics);
+  if (invokeDiagnostics.some((diagnostic) => diagnostic.severity === "error")) {
+    return undefined;
+  }
+
+  // RFC 0001 FN-6: run the `subagent fn` static checks against the parsed
+  // body. A `subagent fn` that references itself (or a mutual cycle) is a
+  // length-1 `theta/load/invocation-cycle` that un-registers the enclosing
+  // theta — the load-time bound on unbounded subagent recursion, mirroring the
+  // INV-4 un-registration of a self-cyclic `.theta`. The broken-inline-body
+  // half (`theta/load/callee-has-errors`) is surfaced on the drop path in
+  // `parseDiscoveredTheta` (a broken body is an error-severity parse
+  // diagnostic that already un-registers before reaching here).
+  const subagentFnDiagnostics = checkSubagentFnStaticResolution({
+    body: input.body,
+    file: input.sourcePath ?? input.slashName,
+    parseDiagnostics: [],
+  });
+  sink.emitGroup(subagentFnDiagnostics);
+  if (subagentFnDiagnostics.some((diagnostic) => diagnostic.severity === "error")) {
+    return undefined;
+  }
+
+  // RFC 0001 FN-7: validate each `subagent fn`'s `with { model }` override at
+  // LOAD through the shared `modelMatcher` — the same bar frontmatter `model:`
+  // is held to — rather than letting an unresolvable override silently fall
+  // back to the inherited session model at runtime. An unresolvable override
+  // is `theta/load/model-unresolved` and un-registers the theta.
+  const subagentFnModelDiagnostics = checkSubagentFnModelOverrides(
+    collectSubagentFns(input.body),
+    input.sourcePath ?? input.slashName,
+    modelMatcher,
+  );
+  sink.emitGroup(subagentFnModelDiagnostics);
+  if (subagentFnModelDiagnostics.some((diagnostic) => diagnostic.severity === "error")) {
+    return undefined;
+  }
+
+  // IMP-1 / IMP-3 / IMP-4 / IMP-5 (imports.md): resolve each `.thetalib` import,
+  // parse it, and run the unresolvable-path / unknown-symbol / thetalib-top-level /
+  // cycle checks. An error-severity diagnostic un-registers the theta. The
+  // resolved exports are materialised into the theta's runtime environment so an
+  // imported `fn` is callable (IMP-6) and its query body drives the caller's
+  // conversation (IMP-7).
+  const importCheck = await checkThetaImports(input, {
+    fs: fileSystem,
+    parseDeps,
+  });
+  // Bug 0312: fold this theta's resolved `.thetalib` closure into the
+  // pass-wide dir set before the registration decision below — the walk has
+  // now RUN and resolved these paths, so watch coverage does not depend on
+  // whether THIS theta's own import diagnostics un-register it AFTER the
+  // walk (fixing the refused lib must still fire the reload). A theta refused
+  // before this point never reached the walk and contributes nothing.
+  for (const libPath of importCheck.resolvedLibs) {
+    importClosureDirs.add(dirname(libPath).replace(/\\/g, "/"));
+  }
+  // Bug 0264: emit only the UNDELIVERED remainder — `importCheck.undelivered`
+  // already excludes rows the pass cache saw `lexTheta` deliver for this
+  // library earlier in the same pass (route 1). The registration decision
+  // below still tests the FULL, unfiltered `importCheck.diagnostics`
+  // (§Fix: filtering the decision input would change a registration
+  // outcome, which this report does not license).
+  sink.emitGroup(importCheck.undelivered);
+  if (importCheck.diagnostics.some((diagnostic) => diagnostic.severity === "error")) {
+    return undefined;
+  }
+
+  // RFC 0009 Erratum B (RFC 0012 §10): the deferred half of the call-site
+  // clause classification — a clause on an IMPORTED callee is legal only when
+  // the materialised import is a `subagent fn` (a child-spawning surface);
+  // an imported plain `fn` draws `theta/parse/with-clause-in-process-callee`.
+  // Judged here because only the materialised imports (re-export chains
+  // followed) carry the declaring library's fn kind.
+  const importedClauseDiagnostics = checkImportedWithClauseCallees(
+    input.sourcePath ?? input.slashName,
+    input.body,
+    importCheck.imports,
+    toolResult.callableSet,
+  );
+  sink.emitGroup(importedClauseDiagnostics);
+  if (importedClauseDiagnostics.some((diagnostic) => diagnostic.severity === "error")) {
+    return undefined;
+  }
+
+  // Binder-model resolution (binder-model-and-context.md §"Binder model"): a
+  // NON-bypass theta's binder model resolves at LOAD time from the two-step
+  // chain (`bind_model:` → `theta.binderModel`) over the SAME shared
+  // `modelMatcher` the `model:` resolution binds. A non-bypass theta whose
+  // chain resolves to no model fails to load with
+  // `theta/load/binder-model-unresolved` (E) — the diagnostic surfaces through
+  // the load-diagnostic sink and the theta does NOT register. Bypass-eligible thetas
+  // (no-params / single-string) skip resolution entirely (they never call the
+  // binder). The resolved reference is carried onto the runnable theta so the
+  // runtime dispatches the binder OFF-session against it.
+  const bypassEligible =
+    classifyBinderBypass(input.frontmatter.params?.fields).kind !== "binder";
+  // Bug 0178 element (a): the marked root of a spawned subagent child
+  // dispatches through `driveSubagentRootRegime` STRICTLY BEFORE
+  // `runBinder` whenever `isSubagentRootFor` holds
+  // (theta-composition-producer.ts's slash-dispatch `run`:
+  // `deps.isSubagentRootFor?.(theta)` gates the regime drive ahead of
+  // `deps.runBinder`) — this predicate is that same test, so the exempt set
+  // here and the binder-skipping set there are ONE set, held together by
+  // that single co-located invariant. A wider exemption (every theta in the
+  // child) would rest on the argv contract instead
+  // (subagent.md#subagent-launch-contract, one invocation per process) and
+  // would register a NESTED `mode: subagent` callee whose OWN dispatch still
+  // reaches `runBinder` (`selectSubagentDriver`'s no-recursion guarantee
+  // spawns that callee its own child) with no resolved binder model —
+  // hitting the `model === undefined` defensive arm `runBinder` itself calls
+  // unreachable for a registered non-bypass theta. Skipping resolution here
+  // also skips the strict-capability probe (it runs INSIDE
+  // `resolveBinderModel`), which is the regime carve-out's own requirement,
+  // not an accident: otherwise `theta/load/binder-model-not-strict-capable`
+  // becomes the next refusal on the very same path.
+  // RFC 0012 §10: a `fn` entry marks the root for one of its `subagent fn`s;
+  // the root itself may be prompt-mode (FN-8), so the mode gate belongs to
+  // the theta entry alone — the same predicate `isSubagentRootFor` applies.
+  const isMarkedRootTheta =
+    subagentRootRegime.active &&
+    subagentRootRegime.slug === input.slashName &&
+    (input.frontmatter.mode === "subagent" || controlPlane.entry.kind === "fn");
+  const binderModelResolution: BinderModelResolution = isMarkedRootTheta
+    ? { resolved: true, diagnostics: [] }
+    : resolveBinderModel({
+        file: input.sourcePath ?? input.slashName,
+        ...(input.frontmatter.bindModel !== undefined
+          ? { bindModel: input.frontmatter.bindModel }
+          : {}),
+        ...(input.frontmatter.bindModelUnresolvable === true
+          ? { bindModelUnresolvable: true }
+          : {}),
+        ...(settingsBinderModel !== undefined ? { settingsBinderModel } : {}),
+        bypassEligible,
+        matcher: modelMatcher,
+        probeStrictCapable,
+      });
+  sink.emitGroup(binderModelResolution.diagnostics);
+  if (!binderModelResolution.resolved) {
+    // A non-bypass theta with no resolvable binder model fails to load.
+    return undefined;
+  }
+
+  // Bug 0010 increment C (conversation-drive.md §"Provider compatibility for
+  // typed queries"): the LOAD-time typed-query provider gate. A theta that
+  // CARRIES a typed query whose frontmatter `model:` load-resolves to an api
+  // outside the supported set warns with
+  // `theta/load/typed-query-unsupported-provider` — WARNING severity, so the
+  // theta STILL REGISTERS (no `continue`; the runtime gate refuses the typed
+  // dispatch itself). The diagnostic rides the SAME sink every other
+  // load-time warning rides (e.g. the binder-model
+  // strict-capability-unknown warning above), and both production sinks
+  // deliver warnings (bug 0013): the shipped path routes them onto the
+  // `theta-system-note` channel, the helper path mirrors them to headless
+  // stderr — so the gate's two-stage design (warn at load, refuse at
+  // dispatch) is operator-visible. The composition-level integration cell
+  // lives in tests/load-warning-delivery.test.ts (A1).
+  const typedQueryProviderWarning = checkThetaTypedQueryProviderSupport({
+    file: input.sourcePath ?? input.slashName,
+    body: input.body,
+    modelReference: input.frontmatter.model,
+    resolveModel: (reference) =>
+      matchAvailableModel(reference, ctx.modelRegistry.getAvailable()),
+  });
+  if (typedQueryProviderWarning !== null) {
+    sink.emit(typedQueryProviderWarning);
+  }
+
+  // Thread the frozen callable-set snapshot resolved above onto the runnable
+  // theta so the runtime enforces the per-theta `tools:` set (QTL-2: code-driven
+  // calls dispatch only through a held reference; QTL-4: prompt-mode query
+  // turns install exactly this set's underlying Pi-tool names as the model's
+  // active tools), plus the resolved binder-model reference (absent for a
+  // bypass-eligible theta).
+  const composedInput: ThetaCompositionInput = {
+    ...input,
+    ...(importCheck.imports.length > 0 ? { imports: importCheck.imports } : {}),
+    // Bug 0465: thread the imported schema/enum decls the query/invoke
+    // lowering seam needs, exactly as `imports` above is threaded — spread
+    // only when non-empty, so a theta with no lowerable imported decl stays
+    // byte-identical (no `importedTypeDecls` key at all).
+    ...(importCheck.importedTypeDecls.schemas.length > 0 ||
+    importCheck.importedTypeDecls.enums.length > 0
+      ? { importedTypeDecls: importCheck.importedTypeDecls }
+      : {}),
+    // Bug 0423 route (a): thread the load-phase-patched `system:` template
+    // (wire-name sidecars applied to bare imported-schema params) onto the
+    // composed frontmatter exactly as `imports` above is threaded — a NEW
+    // frontmatter object, not an in-place mutation of the readonly parsed
+    // one, preserving every other frontmatter field (systemRange, params,
+    // etc.). Absent `patchedSystemTemplate` (no patchable part, or no
+    // `system:` at all) leaves `frontmatter` untouched, so the byte-identical
+    // constraint holds without a branch here.
+    ...(importCheck.patchedSystemTemplate !== undefined
+      ? { frontmatter: { ...input.frontmatter, system: importCheck.patchedSystemTemplate } }
+      : {}),
+    ...(toolResult.callableSet !== undefined
+      ? { callableSet: toolResult.callableSet }
+      : {}),
+    ...(binderModelResolution.binderModel !== undefined
+      ? { binderModel: binderModelResolution.binderModel }
+      : {}),
+    // Bug 0328 §Fix: thread the root's own captured closure hash so the
+    // producer's marshalling loop can add it to the launch's callable-hash
+    // carrier alongside the `tools:` entries.
+    ...(toolResult.rootClosureHash !== undefined
+      ? { rootClosureHash: toolResult.rootClosureHash }
+      : {}),
+  };
+  // Carry the parsed frontmatter + body onto the runnable theta so the
+  // hot-reload rebuild can swap the `ThetaRegistry` with full `ParsedTheta`
+  // entries; the registration path reads `slashName` + `description` + `run`.
+  // Thread the top-level `description` `composeThetaFixture` computed onto the
+  // pushed theta so factory registration passes it to `pi.registerCommand`
+  // (REQ-PIC-31; frontmatter-fields-a.md autocomplete). Omitted when the theta
+  // declares none. Covers BOTH production paths (composeExtensionInstance and
+  // discoverAndComposeFixtures) — both flow through this pass.
+  const fixture = composeThetaFixture(composedInput, producerDeps);
+  return {
+    ...composedInput,
+    ...(fixture.description !== undefined
+      ? { description: fixture.description }
+      : {}),
+    run: fixture.run,
+  };
 }
 
 /**
@@ -2257,31 +2503,7 @@ export async function composeExtensionInstance(
   // global timer). Reused across hot-reload passes and disposed with the
   // instance at `session_shutdown`, so a fresh `/reload` instance starts with a
   // fresh bus and every sink un-degraded.
-  // RFC 0015 (D6, decision 4): the run card SUPERSEDES the RFC 0010 footer
-  // and widget sinks in TUI — nothing is pinned below the editor any more
-  // (`ctx.ui.setStatus` / `ctx.ui.setWorkingMessage` are no longer touched;
-  // the string-array `ctx.ui.setWidget` overload no longer renders a status
-  // tree). The scroll-away gap is ACCEPTED by the ratified decision; the
-  // `/theta-status` command and the print/json (RFC 0007) surfaces are
-  // unchanged. The card sink below is therefore the ONLY StatusSink: a
-  // non-TUI composition runs a sink-less bus. Spec:
-  // docs/spec_topics/pi-integration-contract/theta-run-entries.md (PIC-77).
-  const statusSinks: StatusSink[] = [];
-  // RFC 0015 (D5, §Animation): the run-card sink rides the EXST-6 coalesced
-  // tick — it joins the sink list here,
-  // TUI-only (the RFC's "Modes and degradation"). The TUI handle is captured
-  // through the `ctx.ui.setWidget` factory overload (a zero-line component
-  // registered and removed in one call — see `captureTuiRenderHandle`); a
-  // host without the surface (or a non-TUI mode) simply leaves the card
-  // un-animated and the OSC 11 leg unfired — the endpoint ladder's
-  // fall-through, never a refusal.
-  if (runCardView !== undefined && ctx.mode === "tui") {
-    statusSinks.push(runCardView.sink);
-    const tuiHandle = captureTuiRenderHandle(ctx.ui);
-    if (tuiHandle !== undefined) {
-      runCardView.attachTui(tuiHandle);
-    }
-  }
+  const statusSinks = wireRunCardSink(ctx, runCardView);
   const statusBus = createExecutionStatusBus({ clock: root.clock, sinks: statusSinks });
   latchStatusBus?.(statusBus);
 
@@ -2299,37 +2521,14 @@ export async function composeExtensionInstance(
   // threaded one, else computed once here so a reload pass never re-reads.
   const instanceControlPlane =
     overrides?.subagentControlPlane ?? readProductionChildControlPlane();
-  // RFC-0012 §3: dial the parent's result channel when the launch file named
-  // one — ONCE per process (the factory hands the live client back in on a
-  // repeat compose; the parent drops a second connection). The hello carries
-  // the token and the consumed launch nonce; the heartbeat runs on the same
-  // `Clock` the rest of the instance measures against. Channel death — a
-  // write error or an observed close before this child's own post-envelope
-  // close — is FATAL to the in-flight invocation (bug 0484): the supervisor
-  // is lost and the envelope has nowhere to go, so the sweep aborts every
-  // registry entry with the CNCL-4 `"theta cancelled by result-channel
-  // death"` reason instead of letting the drive continue headless. The
-  // parent's ordinary post-settlement release (the §8 linger included) also
-  // lands here: by then the envelope has been delivered and the entry is
-  // removed — or, in the teardown-await window, still registered but
-  // completed, where the abort is a tolerated no-op of consequence (no
-  // clean-cancel note: no shutdownReason stamp) — so sweeping a completed
-  // invocation is safe, not impossible.
-  const launch = instanceControlPlane.launch;
-  resultChannel =
-    overrides?.subagentResultChannel ??
-    (launch?.channel !== undefined
-      ? connectResultChannel({
-          client: createProductionChannelClient(),
-          clock: root.clock,
-          port: launch.channel.port,
-          token: launch.channel.token,
-          nonce: launch.nonce,
-          onDead: (): void => {
-            abortInvocationsOnResultChannelDeath(activeInvocations.snapshot());
-          },
-        })
-      : undefined);
+  resultChannel = dialParentResultChannel(
+    overrides,
+    instanceControlPlane.launch,
+    root.clock,
+    (): void => {
+      abortInvocationsOnResultChannelDeath(activeInvocations.snapshot());
+    },
+  );
   const initial = await runComposePass(
     pi,
     ctx,
@@ -2520,6 +2719,83 @@ function makeLoadNoteSink(
     emitGroup: emitLoadNoteGroup,
   };
   return loadSink;
+}
+
+/**
+ * Build the instance's `StatusSink` list — the TUI run-card sink when the
+ * factory handed a run-card view and the host is interactive, else empty.
+ * Extracted verbatim from `composeExtensionInstance` (PTQ-1439 seam B).
+ */
+function wireRunCardSink(
+  ctx: ExtensionContext,
+  runCardView: Pick<RunCardController, "sink" | "attachTui"> | undefined,
+): StatusSink[] {
+  // RFC 0015 (D6, decision 4): the run card SUPERSEDES the RFC 0010 footer
+  // and widget sinks in TUI — nothing is pinned below the editor any more
+  // (`ctx.ui.setStatus` / `ctx.ui.setWorkingMessage` are no longer touched;
+  // the string-array `ctx.ui.setWidget` overload no longer renders a status
+  // tree). The scroll-away gap is ACCEPTED by the ratified decision; the
+  // `/theta-status` command and the print/json (RFC 0007) surfaces are
+  // unchanged. The card sink below is therefore the ONLY StatusSink: a
+  // non-TUI composition runs a sink-less bus. Spec:
+  // docs/spec_topics/pi-integration-contract/theta-run-entries.md (PIC-77).
+  const statusSinks: StatusSink[] = [];
+  // RFC 0015 (D5, §Animation): the run-card sink rides the EXST-6 coalesced
+  // tick — it joins the sink list here,
+  // TUI-only (the RFC's "Modes and degradation"). The TUI handle is captured
+  // through the `ctx.ui.setWidget` factory overload (a zero-line component
+  // registered and removed in one call — see `captureTuiRenderHandle`); a
+  // host without the surface (or a non-TUI mode) simply leaves the card
+  // un-animated and the OSC 11 leg unfired — the endpoint ladder's
+  // fall-through, never a refusal.
+  if (runCardView !== undefined && ctx.mode === "tui") {
+    statusSinks.push(runCardView.sink);
+    const tuiHandle = captureTuiRenderHandle(ctx.ui);
+    if (tuiHandle !== undefined) {
+      runCardView.attachTui(tuiHandle);
+    }
+  }
+  return statusSinks;
+}
+
+/**
+ * RFC-0012 §3: dial the parent's result channel when the launch file named
+ * one — ONCE per process (the factory hands the live client back in on a
+ * repeat compose; the parent drops a second connection). The hello carries
+ * the token and the consumed launch nonce; the heartbeat runs on the same
+ * `Clock` the rest of the instance measures against. Channel death — a
+ * write error or an observed close before this child's own post-envelope
+ * close — is FATAL to the in-flight invocation (bug 0484): the supervisor
+ * is lost and the envelope has nowhere to go, so the sweep aborts every
+ * registry entry with the CNCL-4 `"theta cancelled by result-channel
+ * death"` reason instead of letting the drive continue headless. The
+ * parent's ordinary post-settlement release (the §8 linger included) also
+ * lands here: by then the envelope has been delivered and the entry is
+ * removed — or, in the teardown-await window, still registered but
+ * completed, where the abort is a tolerated no-op of consequence (no
+ * clean-cancel note: no shutdownReason stamp) — so sweeping a completed
+ * invocation is safe, not impossible.
+ * (Extracted verbatim from `composeExtensionInstance`, PTQ-1439 seam A.)
+ */
+function dialParentResultChannel(
+  overrides: ComposeSeamOverrides | undefined,
+  launch: SubagentChildControlPlane["launch"],
+  clock: Clock,
+  onDead: () => void,
+): ResultChannelClient | undefined {
+  return (
+    overrides?.subagentResultChannel ??
+    (launch?.channel !== undefined
+      ? connectResultChannel({
+          client: createProductionChannelClient(),
+          clock,
+          port: launch.channel.port,
+          token: launch.channel.token,
+          nonce: launch.nonce,
+          onDead,
+        })
+      : undefined)
+  );
 }
 
 /**
