@@ -1,9 +1,9 @@
 ---
-id: pending
+id: PTQ-1432
 title: enumsOf, materializeSymbol and referencedNamedTypes remain in import-static-checks.ts with zero in-file callers, forcing import-resolution-kit.ts and import-specifier-facts.ts to import back into the module that imports them
 lens: D9
-status: intake
-verdict: pending
+status: open
+verdict: confirmed
 locations:
   - src/extension/import-static-checks.ts:157-170
   - src/extension/import-static-checks.ts:288-333
@@ -67,3 +67,4 @@ Affinity counts both ways recorded per declaration with call-site line numbers (
 verdict: questionable — accounting verified: all three excerpts are byte-exact at import-static-checks.ts:157-170 / 210-212 / 288-333 (with MATERIALIZE_SYMBOL_DECLARATION_KINDS at 269-273), and a fresh `grep -rn` across src/, extensions/, tools/, tests/ reproduces the affinity both ways — `enumsOf` has exactly 2 callers, both in import-resolution-kit.ts (:164, :192), `materializeSymbol` exactly 1 (kit:225), `referencedNamedTypes` exactly 1 (import-specifier-facts.ts:235), and none of the three is referenced anywhere in its own module outside its declaration/doc comment (test hits are comments only); the back-imports exist verbatim (kit:25, facts:41-46) while the host imports and re-exports the kit (:118-131), so the import-static-checks ⇄ import-resolution-kit cycle is real; size-scan map on a one-line manifest confirms 832 LOC / band zone with importers 1/0 for each of the three; the contrast rows hold (`extractThetaLibForms` :467 and `isRegistrationError` :450 keep live in-file callers in checkTransitiveLibDeclarations); the sibling pattern is real (kit header :1-5 claims the module-scope / re-export materialisation closures; materializeChain/buildModuleScope live there); not dead (live callers), not a barrel (832-LOC implementation module); not a duplicate — PTQ-1147/1208/1284 are resolved breakdown filings whose Seam B direction merely noted these three as "cross-references back into the host", and no open filing keys their placement; D9 misplacement never confirms — the home (kit vs facts vs re-export from the old host) is the human's ruling (triage: claude-fable-5-1)
 verdict: questionable — accounting re-verified independently: excerpts match at import-static-checks.ts:157-170 / 210-212 / 288-333 (MATERIALIZE_SYMBOL_DECLARATION_KINDS 269-273); fresh grep across src/, extensions/, tools/, tests/ gives enumsOf callers = kit:164,192 only, materializeSymbol = kit:225 only, referencedNamedTypes = facts:235 only, zero in-file references beyond declaration/doc comment (all tests/ hits are comments); back-imports verbatim at kit:25 and facts:41-46 while the host imports/re-exports the kit (:115-131), so the ⇄ cycle is real; size-scan map: 832 LOC band zone, importers 1/0 for each of the three; contrast rows hold (extractThetaLibForms :467, isRegistrationError :450 live in checkTransitiveLibDeclarations); not dead, not a barrel; not a duplicate — only open filing touching the host is PTQ-1299 (D4 clone), and PTQ-1147/1208/1284 are resolved breakdowns; D9 misplacement never confirms — the home is a human ruling (triage: claude-fable-5-1)
 triage worker failed (verdict not applied; re-triaged next wave) (loop, 2026-09-23)
+verdict: confirmed — RATIFIED (human, 2026-09-23): confirmed - batch ruling; triage verification trusted.

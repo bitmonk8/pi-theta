@@ -1,9 +1,9 @@
 ---
-id: pending
+id: PTQ-1443
 title: system-note-channel fallback construction cloned across producer and query driver
 lens: D4
-status: intake
-verdict: pending
+status: open
+verdict: confirmed
 locations:
   - src/extension/production-theta-producer.ts:496-513
   - src/extension/production-theta-producer.ts:585-599
@@ -128,3 +128,4 @@ The natural shared home is `src/extension/system-note-channel.ts`, which already
 ## Triage
 <triage appends: verdict + one-line reason. Nothing above this line is edited.>
 triage worker failed (verdict not applied; re-triaged next wave) (loop, 2026-09-23)
+verdict: confirmed — RATIFIED (human, 2026-09-23): confirmed - batch ruling; triage verification trusted.

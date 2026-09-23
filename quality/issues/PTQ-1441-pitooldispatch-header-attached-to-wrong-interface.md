@@ -1,9 +1,9 @@
 ---
-id: pending
+id: PTQ-1441
 title: PiToolDispatch's H8b doc comment is attached to SubagentPlacementResolver instead
 lens: D2
-status: intake
-verdict: pending
+status: open
+verdict: confirmed
 locations:
   - src/extension/production-producer-deps.ts:56-79
 sites: 1
@@ -103,3 +103,4 @@ prose that dangles or misattributes.
 
 ## Triage
 triage worker failed (verdict not applied; re-triaged next wave) (loop, 2026-09-23)
+verdict: confirmed — RATIFIED (human, 2026-09-23): confirmed - batch ruling; triage verification trusted.

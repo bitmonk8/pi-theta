@@ -1,9 +1,9 @@
 ---
-id: pending
+id: PTQ-1417
 title: Model-reference exact-match rule is implemented twice and must stay in step
 lens: D4
-status: intake
-verdict: pending
+status: open
+verdict: confirmed
 locations:
   - src/parser/model-reference-matcher.ts:34-67
   - src/binder/binder-model.ts:133-149
@@ -117,3 +117,4 @@ verdict: questionable — accounting verified: both copies exist at the cited li
 verdict: questionable — accounting re-verified independently: both copies byte-match at model-reference-matcher.ts:34-67 and binder-model.ts:133-147 and encode the same three-arm rule (first-slash provider+id, bare id, exactly-one-match else non-resolution); both are live in src/ (`matchAvailableModel` called at production-composition.ts:910/1565 and production-theta-producer.ts:1075/3209/3225/3574/4063; `createModelReferenceMatcher` at binder-model.ts:463, production-composition.ts:881, reload-wiring.ts:525), `clone-scan map` on model-reference-matcher.ts reports no group so this is a hand-diffed parallel, tests/b0418 imports both and pins them in lockstep, REVIEW_LOG.md:570 routed exactly this pair to D4, and no open/resolved PTQ tracks it (PTQ-0168 = stale doc roster, PTQ-1177 = D9 move) — per the D4 parallel rule the shared source of truth is a human design ruling, never confirmed (triage: claude-fable-5-1)
 verdict: questionable — accounting verified a third time against current code: both excerpts byte-match (model-reference-matcher.ts:38-60 `resolve`, binder-model.ts:133-147 `matchAvailableModel`) and encode one rule (first-slash provider+id / bare id / exactly-one else non-resolution); `matchAvailableModel` is live at production-composition.ts:911/1566 and production-theta-producer.ts:1132/3336/3352/3701 plus an uncited 4190 (drift from the cited 1072/3205/3572 only), `createModelReferenceMatcher` live at binder-model.ts:463, production-composition.ts:882, reload-wiring.ts:525; clone-scan map on a proper one-line manifest for either file reports no group (hand-diffed parallel); tests/b0418 pins both in lockstep; REVIEW_LOG.md:570 routed exactly this pair to D4 and :648 records this filing; no duplicate (PTQ-0168 D2 stale roster, PTQ-0272 D7 fixture, PTQ-1177 D9 move — all fixed, none a dedupe of the rule) — per the D4 parallel rule, accurate accounting → the shared source of truth is a human design ruling, never confirmed (triage: claude-fable-5-1)
 triage worker failed (verdict not applied; re-triaged next wave) (loop, 2026-09-23)
+verdict: confirmed — RATIFIED (human, 2026-09-23): confirmed - batch ruling; triage verification trusted. TARGET SHAPE: ONE exported matcher function (single implementation of the exact-match rule); both current sites import and call it.

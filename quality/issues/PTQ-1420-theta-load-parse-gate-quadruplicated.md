@@ -1,9 +1,9 @@
 ---
-id: pending
+id: PTQ-1420
 title: .theta read/parse/load gate duplicated in four callee and discovered sites
 lens: D4
-status: intake
-verdict: pending
+status: open
+verdict: confirmed
 locations:
   - src/extension/production-discovered-theta.ts:72-82
   - src/extension/callee-load-parse.ts:15-26
@@ -103,3 +103,4 @@ verdict: questionable — all four excerpts match on HEAD and all sites are live
 verdict: questionable — re-verified on HEAD: excerpts at production-discovered-theta.ts:72-82, callee-load-parse.ts:15-26, production-composition.ts:3704-3712 and :4125-4137 all match and every site is live (parseDiscoveredTheta called at :1241; readCalleeDocument at :2561/:2603; the two inline gates sit in calleeFailsOwnStructuralChecks and parseCalleeTheta), and PTQ-1125 (resolved) covered only the two resolveCallee* copies so this is not a duplicate; but only site 4 is a renamed-only clone of readCalleeDocument — site 3's read is at :3645 with readable.set/onDiskCalleeName/visited-bound/containment probe (~55 lines, order pinned by the "Read, then containment, then parse" comment) before the :3704 parse and it records frontmatter.mode between parse and gate, and site 1 returns `{ dropped: [...document.diagnostics...] }` on gate failure (:122) so the undefined-returning helper cannot serve it; the FP-check also misstates the facts (import-static-checks.ts does not import readCalleeDocument — sole importer is production-composition.ts:159; the parseViaPassCache grep actually yields 8 hits incl. :3188 parseCalleeForTools with a frontmatter-null-only gate and import-resolution-kit.ts:313); clone-scan map on callee-load-parse.ts lists no group; the dedupe needs a new structured-result helper shape (document/diagnostics exposed on failure, read decoupled from parse) — a design ruling, not a mechanical collapse (triage: claude-fable-5-1)
 verdict: questionable — re-verified on HEAD with line drift (production-discovered-theta.ts:71-82, callee-load-parse.ts:15-26, production-composition.ts:3419-3489 and :4249-4261): all four sites are live (parseDiscoveredTheta called :1242; readCalleeDocument :2605/:2647, sole importer production-composition.ts:160 — the FP-check's import-static-checks.ts claim is false; the inline gates sit in the visited-bound grandchild walk and parseCalleeTheta) and PTQ-1125 (resolved, G011) covered only the two resolveCallee* copies so not a duplicate; clone-scan map on callee-load-parse.ts lists no group; but the "renamed-only / identical" verdict does not hold across the set — site 3 has ~55 lines (readable.set / onDiskCalleeName / visited bound / containment probe, order pinned by the "Read, then containment, then parse" comment) between read and parse plus a frontmatter.mode record between parse and gate, site 1 returns the undelivered document.diagnostics + subagent-fn framing on gate failure, and even site 4 distinguishes `unreadable` from `unparseable` where readCalleeDocument collapses both to undefined — so no existing helper serves any of the three, and the fix is a new structured-result helper shape (read decoupled from parse, document/diagnostics exposed on failure), a design ruling for a human rather than a mechanical dedupe (triage: claude-fable-5-1)
 triage worker failed (verdict not applied; re-triaged next wave) (loop, 2026-09-23)
+verdict: confirmed — RATIFIED (human, 2026-09-23): confirmed - batch ruling; triage verification trusted.

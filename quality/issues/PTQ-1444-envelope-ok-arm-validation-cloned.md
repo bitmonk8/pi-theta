@@ -1,9 +1,9 @@
 ---
-id: pending
+id: PTQ-1444
 title: subagent ok-envelope depth/representability guard cloned in root and fn entry
 lens: D4
-status: intake
-verdict: pending
+status: open
+verdict: confirmed
 locations:
   - src/extension/subagent-spawn-regime.ts:950-968
   - src/extension/subagent-spawn-regime.ts:1216-1233
@@ -92,3 +92,4 @@ The natural shared home is a private helper inside `SubagentSpawnRegime` (e.g. `
 ## Triage
 <triage appends: verdict + one-line reason. Nothing above this line is edited.>
 triage worker failed (verdict not applied; re-triaged next wave) (loop, 2026-09-23)
+verdict: confirmed — RATIFIED (human, 2026-09-23): confirmed - batch ruling; triage verification trusted.

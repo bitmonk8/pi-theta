@@ -1,9 +1,9 @@
 ---
-id: pending
+id: PTQ-1426
 title: grandchild-callee-drop test repeats the identical notified/offChannel no-side-effect assertion pair ten times
 lens: D7
-status: intake
-verdict: pending
+status: open
+verdict: confirmed
 locations:
   - tests/grandchild-callee-drop-un-registers-depth-two-caller.test.ts:407-408
   - tests/grandchild-callee-drop-un-registers-depth-two-caller.test.ts:437-438
@@ -58,3 +58,4 @@ verdict: questionable — independently re-verified: the stated grep reproduces 
 verdict: questionable — re-verified on a second pass: `grep -n "pass.notified).toEqual(\[\]);"` returns exactly the 10 cited lines (407/437/467/521/563/602/641/679/739/800) and `grep -A1` confirms all 10 are immediately followed by `expect(pass.offChannel).toEqual([]);`; `notified`/`offChannel` are the canonical `LoadPass` fields at tests/helpers/compose-workspace-harness.ts:238-239 (built :257-258) and no `expectNoSideNotifications`-style helper exists in tests/helpers/; not a gate/census file, 0 coverage-matrix hits, bug 0271 does not pin the tail; not a duplicate — resolved PTQ-0230/0267/0427/0716 concern the `runLoadPass` harness itself, not this assertion tail — so the boilerplate observation is real and in-scope, but the anchor is taste-thin (two argument-free, message-free `toEqual([])` one-liners with no per-cell text to drift) and the shape is harness-wide, not localized: the same `notified).toEqual([])` recurs in 13 tests/ files (54 sites: grandchild ×10, callee-post-parse ×6, callee-tools-missing ×6, b0275 ×5, b0280 ×5, bootstrap-sink-liveness ×5, lex-drop ×4, thetalib-reparse ×4, shared-subtree ×3, b0268-separator ×2, b0320 ×2, b0268-load-note ×1, bootstrap-production-wiring ×1), so whether to name the pair is a convention ruling for a human (triage: claude-fable-5-1)
 verdict: questionable — third independent pass reproduces every claim: `grep -n "pass.notified).toEqual(\[\]);"` returns exactly the 10 cited lines (407/437/467/521/563/602/641/679/739/800) and `grep -A1 | grep -c offChannel` returns 10, so every occurrence is followed by the identical `expect(pass.offChannel).toEqual([]);`; `notified`/`offChannel` are canonical `LoadPass` fields (tests/helpers/compose-workspace-harness.ts:238-239, built :257-258) and no `expectNoSideNotifications`-style helper exists under tests/helpers/; not a gate/census file, 0 coverage-matrix hits, bug 0271 does not pin the tail, and no open/resolved PTQ tracks this pair (PTQ-0427 only mentions it in passing; PTQ-0398/0803 are different assertion tails) — real, in-scope D7 boilerplate; but the anchor is taste-thin: two argument-free, message-free `toEqual([])` one-liners carry no per-cell text that can drift, so a helper trades two visible assertion targets for an opaque name, and the pattern spans 13 tests/ files / 54 sites (grandchild ×10, callee-tools-missing ×6, callee-post-parse ×6, bootstrap-sink-liveness ×5, b0280 ×5, b0275 ×5, thetalib-reparse ×4, lex-drop ×4, shared-subtree ×3, b0320 ×2, b0268-separator ×2, bootstrap-production-wiring ×1, b0268-load-note ×1), so `fix_scope: localized` understates it and the decision is a harness-wide convention ruling for a human (triage: claude-fable-5-1)
 triage worker failed (verdict not applied; re-triaged next wave) (loop, 2026-09-23)
+verdict: confirmed — RATIFIED (human, 2026-09-23): confirmed - batch ruling; triage verification trusted.

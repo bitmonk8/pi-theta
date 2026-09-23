@@ -1,9 +1,9 @@
 ---
-id: pending
+id: PTQ-1442
 title: par-for query diagnostic duplicated in statement and expression arms
 lens: D4
-status: intake
-verdict: pending
+status: open
+verdict: confirmed
 locations:
   - src/parser/par-for-body-checks.ts:131-140
   - src/parser/par-for-body-checks.ts:193-202
@@ -68,3 +68,4 @@ A single helper in `src/parser/par-for-body-checks.ts` that accepts a `SourceRan
 
 ## Triage
 triage worker failed (verdict not applied; re-triaged next wave) (loop, 2026-09-23)
+verdict: confirmed — RATIFIED (human, 2026-09-23): confirmed - batch ruling; triage verification trusted.

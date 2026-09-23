@@ -1,9 +1,9 @@
 ---
-id: pending
+id: PTQ-1418
 title: Callee params-field projection duplicated across arity, return-type and type-layer consumers
 lens: D4
-status: intake
-verdict: pending
+status: open
+verdict: confirmed
 locations:
   - src/extension/production-composition.ts:2556-2583
   - src/extension/production-composition.ts:2598-2614
@@ -112,3 +112,4 @@ verdict: questionable — accounting verified: all three excerpts match verbatim
 verdict: questionable — accounting verified independently: all three excerpts byte-match at production-composition.ts:2556-2583/:2598-2614 and theta-document.ts:478-486; `grep -rnE "name: \w+\.wireName|wireName.*typeSource" src/` yields exactly these three `{name: wireName, typeSource: type}` projections (production-theta-producer.ts:1349 is a value/tookDefault echo shape, :6451 is the inverse read of an already-projected field, both correctly uncounted); all three copies are live (arity/return-type wired at :1389-1392, checkTypeLayer on the in-file parse path); no `paramsFieldsFrom*`/`toParamsFieldSource` helper exists in src/; clone-scan map lists no group at these ranges; not a duplicate — PTQ-1125 (resolved) extracted only `readCalleeDocument` and its direction explicitly left each function to "project their own specific fields", and PTQ-1259 is params.ts D9 breakdown; the two target types are separately declared structurally-identical interfaces (`ParamsFieldSource` type-layer-checks.ts:274-279, `CalleeArityField` invoke-callee-arity.ts:48-58), so the shared source of truth and its home is a design decision for a human ruling per the D4 parallel rule (triage: claude-fable-5-1)
 verdict: questionable — accounting re-verified: all three excerpts byte-match on HEAD, with the two production-composition.ts copies drifted to :2600-2631 (`resolveCalleeArity`) and :2642-2658 (`resolveCalleeReturnType`), theta-document.ts:478-486 unchanged; `grep -rnE "name: \w+\.wireName|wireName.*typeSource|typeSource.*wireName" src/` yields exactly these three `{name: wireName, typeSource: type}` projections (production-theta-producer.ts:1401 is a value/type/tookDefault echo shape, query-interpolation.ts:205 reads an already-projected SchemaFieldSource, structural-checks.ts:726 is a comment — all correctly uncounted); all three copies live (arity/return-type wired at :1390-1393, checkTypeLayer on the in-file parse path); no `paramsFieldsFrom*`/`toParamsFieldSource` helper in src/ or tests/; clone-scan map on production-composition.ts reports no groups (sub-floor, as filed); no exemptions.json row for any host; not a duplicate — PTQ-1125 (resolved) extracted only `readCalleeDocument` and its direction text left each function to "project their own specific fields"; the two target shapes are separately declared structurally identical interfaces (`ParamsFieldSource` type-layer-checks.ts:274-279, `CalleeArityField` invoke-callee-arity.ts:48-58), so the shared source of truth and its home is a design decision for a human ruling per the D4 parallel rule (triage: claude-fable-5-1)
 triage worker failed (verdict not applied; re-triaged next wave) (loop, 2026-09-23)
+verdict: confirmed — RATIFIED (human, 2026-09-23): confirmed - batch ruling; triage verification trusted. TARGET SHAPE: ONE exported params-field projection helper in the parser layer; the arity, return-type and type-layer consumers all call it.

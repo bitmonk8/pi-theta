@@ -1,9 +1,9 @@
 ---
-id: pending
+id: PTQ-1422
 title: PascalCase type-name guard re-derived in six production passes
 lens: D4
-status: intake
-verdict: pending
+status: open
+verdict: confirmed
 locations:
   - src/parser/type-compat.ts:163-169
   - src/lexer/contextual-checks.ts:218-219
@@ -117,3 +117,4 @@ verdict: questionable — accounting verified for the root cause: `grep -rn 'fir
 verdict: questionable — re-verified independently: `grep -rn 'first >= "A" && first <= "Z"' src/ tests/ extensions/ tools/` yields exactly the six cited production lines (type-compat.ts:165, contextual-checks.ts:219, body-parser.ts:1226/:1803, frontmatter-params.ts:185, type-walk.ts:374) plus one test comment; every excerpt byte-matches; all six are live enforcement of the single lexical.md:15 first-letter rule and no shared predicate exists in src/ — so the parallel-class accounting holds and per D4 parallel rules the shared source of truth is a human design ruling (never confirmed); two secondary claims are inaccurate and corrected: the type-compat.ts:153-157 comment names five external functions that map 1:1 onto the five external sites (only its file paths are stale post-split), and body-parser.ts:1802 guards schema field names inside `parseSchemaObjectBody`, not match-pattern binders; each site also documents the re-derivation as deliberate ("keeps one spelling across every position"); not a duplicate — PTQ-0087 (resolved) is a type-compat line-citation drift and PTQ-1115 is the `case "named"` alias classifier (triage: claude-fable-5-1)
 verdict: questionable — accounting verified; the shared source of truth is a design decision for a human ruling: third independent re-run of `grep -rn 'first >= "A" && first <= "Z"' src/ tests/ extensions/ tools/` returns exactly the six cited production lines (type-compat.ts:165, contextual-checks.ts:219, body-parser.ts:1226/:1803, frontmatter-params.ts:185, type-walk.ts:374) plus the single comment hit at tests/fn-param-name-case.test.ts:364; every excerpt matches at the cited lines, all six are live enforcement of the one lexical.md:15 first-letter rule, and no `isTypeLikeName`/`isPascalCase`/`isUpperFirst` predicate exists anywhere in src/; two secondary claims remain refuted and do not alter the count — the type-compat.ts:153-157 comment's five external functions map 1:1 onto the five external sites (`parseFnParamList` at body-parser.ts:1124 hosts :1226, `parseSchemaObjectBody` at :1699 hosts :1803; only its pre-split file paths are stale), and :1802 guards schema field names, not match-pattern binders; the sites' own comments call the re-derivation deliberate ("keeps one spelling across every position"), so hoisting is a design ruling; not a duplicate — PTQ-1115 (resolved) is the `case "named"` alias classifier, PTQ-0087 (resolved) is a citation drift, PTQ-1200 (resolved) names `isUpper` only as a D9 inventory local (triage: claude-fable-5-1)
 triage worker failed (verdict not applied; re-triaged next wave) (loop, 2026-09-23)
+verdict: confirmed — RATIFIED (human, 2026-09-23): confirmed - batch ruling; triage verification trusted.

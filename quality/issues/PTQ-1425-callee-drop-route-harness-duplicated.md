@@ -1,9 +1,9 @@
 ---
-id: pending
+id: PTQ-1425
 title: Load-pass witness harness (plantWorkspace / requireCalleeDropRoute / expectCallerRefused) duplicated verbatim between the bug-0267 and bug-0270 witness files
 lens: D7
-status: intake
-verdict: pending
+status: open
+verdict: confirmed
 locations:
   - tests/callee-post-parse-errors-un-register-tools-caller.test.ts:238-250
   - tests/callee-post-parse-errors-un-register-tools-caller.test.ts:254-271
@@ -140,3 +140,4 @@ verdict: questionable — excerpts reproduce at the cited lines (±drift) and th
 verdict: questionable — re-verified independently: all six excerpts reproduce at the cited lines and the 6-hit search reproduces, no prior PTQ covers it (PTQ-0428 fixed the 11 core harness names, PTQ-0300 centralised expectCallerRefusedWithCalleeHasErrors, PTQ-0299 ruled on b0280's planter, PTQ-0525 is live-tier), but "duplicated verbatim" holds only for expectCallerRefused (byte-identical, plus an uncounted third copy at tests/grandchild-callee-drop-un-registers-depth-two-caller.test.ts:368) — b0270's plantWorkspace is a diverged variant (outside/dirs, post-finishWorkspace mkdir) in the local-planter shape both file headers declare ("fixture planting stays local") and PTQ-0299 accepted across 15 files, and b0270's requireCalleeDropRoute differs in filter (normalisePath(d.file) === calleeFile) and message; the sole verbatim copy is a 6-line wrapper binding a per-file REGISTRY that genuinely differs (b0267 parse+load pages, b0270 load only), so hoisting means threading REGISTRY through, which is the shared helper's existing signature — whether that is worth doing needs a human ruling, not a mechanical dedupe (triage: claude-fable-5-1)
 verdict: questionable — re-verified against current code: all six excerpts reproduce at the cited lines and the 6-hit `^function (plantWorkspace|requireCalleeDropRoute|expectCallerRefused)` search reproduces; not a duplicate (PTQ-0428 migrated the 11 core harness names, PTQ-0300 centralised expectCallerRefusedWithCalleeHasErrors, PTQ-0299 ruled on b0280's planter, PTQ-0525/0695/0716 cite other files); but the title's "duplicated verbatim" holds for exactly one of the three helpers — `diff` of the two expectCallerRefused blocks differs only in the doc-comment bug id (and a third uncounted copy at tests/grandchild-callee-drop-un-registers-depth-two-caller.test.ts:368 uses a different normativeMessagePattern arity), whereas b0270's plantWorkspace adds outside/dirs branches and post-finishWorkspace mkdir in the local-planter shape compose-workspace-harness.ts:9-12 documents as deliberate ("stays local and calls finishWorkspace") and both file headers restate (b0267:139, b0270:98), and b0270's requireCalleeDropRoute differs in filter (normalisePath(d.file) === calleeFile) and message; the sole verbatim 6-line wrapper binds a REGISTRY that genuinely differs per file (b0267 flatMaps code-registry-parse+load pages at 231-238, b0270 reads code-registry-load.md alone at 213-220), so hoisting it requires threading REGISTRY — the already-shared helper's own signature — and parameterising the planter/guard is a design call, not a mechanical dedupe; a human should rule on whether the residual is worth a shared adapter (triage: claude-fable-5-1)
 triage worker failed (verdict not applied; re-triaged next wave) (loop, 2026-09-23)
+verdict: confirmed — RATIFIED (human, 2026-09-23): confirmed - batch ruling; triage verification trusted.

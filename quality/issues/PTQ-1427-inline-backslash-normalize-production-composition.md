@@ -1,9 +1,9 @@
 ---
-id: pending
+id: PTQ-1427
 title: production-composition.ts hand-writes the backslash-to-forward-slash rewrite at eight sites instead of the shared normalizePath / canonicalizePath helpers it already imports
 lens: D8
-status: intake
-verdict: pending
+status: open
+verdict: confirmed
 locations:
   - src/extension/production-composition.ts:592
   - src/extension/production-composition.ts:1039
@@ -131,3 +131,4 @@ verdict: questionable — accounting verified: `grep -n 'replace(/\\\\/g' src/ex
 verdict: questionable — re-verified: `grep -n 'replace(/\\\\/g' src/extension/production-composition.ts` → 9 hits, 8 code sites (592/1039/1041/1457/1943/1971/1972/4345; 597 is a comment), each byte-identical to `normalizePath` (src/normalize-path.ts:25-27) or at 1943/1971 to `canonicalizePath` (src/runtime/invocation.ts:131-136, whose `Pick<FileSystem,"realpath">` need both sites already meet by calling `fs.realpath`); `canonicalizePath` imported at 175 and used in 592's other arm, `normalizePath` absent (only the 1019 comment); quality/exemptions.json D8 rows key only discovery-walk#enumerateDirectory and production-theta-producer#firstAdmittingArmProperties; not a duplicate — PTQ-1291 (open) is scoped to production-theta-producer.ts and its triage note explicitly leaves the production-composition.ts copies "outside the shard", PTQ-1127 (fixed, D4) covered the former 4349/4390 cache-key pair only; spec check: the helper implements the Lexical "Path literals" rewrite so delegating drops nothing; the simpler shape is a design decision for a human ruling (triage: claude-fable-5-1)
 verdict: questionable — accounting re-verified against current code: `grep -n 'replace(/\\\\/g' src/extension/production-composition.ts` → 9 hits, 8 code sites now at 593/1040/1042/1458/1934/1962/1963/4469 (line drift only; 598 is a doc comment), each byte-identical to `normalizePath` (src/normalize-path.ts:25-27) or, at 1934/1962, to `canonicalizePath` (src/runtime/invocation.ts:131-136) whose `Pick<FileSystem,"realpath">` need `refuseDivergedChildCallables` meets with its `fs: FileSystem` param (line 1910); `canonicalizePath` imported at 176 and used in 593's other arm, `normalizePath` never imported (sole hit is the 1020 comment); quality/exemptions.json D8 rows key only discovery-walk#enumerateDirectory and production-theta-producer#firstAdmittingArmProperties; not a duplicate — PTQ-1291 (open) locates only production-theta-producer.ts:2597-2598 and its body explicitly leaves the production-composition.ts copies "outside this shard's manifest", PTQ-1127 (fixed) was a D4 pair-dedupe of the former 4349/4390 resolve+normalize blocks, not a delegate-to-helper claim; helper implements the Lexical "Path literals" rewrite so delegating drops no spec behaviour; per D8 rules the simpler shape is a design decision for a human ruling (triage: claude-fable-5-1)
 triage worker failed (verdict not applied; re-triaged next wave) (loop, 2026-09-23)
+verdict: confirmed — RATIFIED (human, 2026-09-23): confirmed - batch ruling; triage verification trusted.

@@ -1,9 +1,9 @@
 ---
-id: pending
+id: PTQ-1440
 title: ProductionThetaProducer.#driveCallee remains 184 LOC after the PTQ-1183 fix, with both mode-fork dispatch legs still inline
 lens: D9
-status: intake
-verdict: pending
+status: open
+verdict: confirmed
 locations:
   - src/extension/production-theta-producer.ts:5026-5209
 sites: 1
@@ -56,3 +56,4 @@ Band: map-quoted 184 LOC / justify, not recounted. Reasons-considered list above
 ## Triage
 verdict: questionable — accounting verified: size-scan map (one-line manifest) reproduces `#driveCallee 5026-5209 / 184 LOC / band justify` (FN justify ≥ 100) and the PTQ-1183 seams are separate members at the cited lines (#guardInvokeBoundary 5212-5264 / 53, #bindCalleeParams 5300-5333 / 34, #projectValidatedReturn 5336-5357 / 22); all four inventory rows re-read at zero drift and the two legs are distinct concerns — prompt-attach leg 5072-5141 (childBinding/outcome, own try/finally → finishInvocation) and spawn leg 5143-5208 (binding/result, own try/finally → teardown+finishInvocation) share no leg-written local, and the only locals written before the fork and read inside a leg are callee/resolvedCwd/returnSite/paramBindings (4 < 6; the other 5 the filing lists are method parameters), so the ≥6-shared-locals reason is correctly defeated; no overlooked reason — two-arm fork is not a spec closed set, ~0 % data/type LOC, hand-authored, quality/exemptions.json holds only the D8 #firstAdmittingArmProperties row for this file, and git log -S shows the PTQ-1183 split landed in 475e62db with no revert; not a duplicate — PTQ-1183 (same member key) is status fixed in quality/resolved so this is the post-fix residual with a fresh ≥2-row inventory, PTQ-1285 keys the FILE host, and no other intake names #driveCallee; whether to lift the legs into two private members is a design decision for a human ruling (triage: claude-fable-5-1)
 triage worker failed (verdict not applied; re-triaged next wave) (loop, 2026-09-23)
+verdict: confirmed — RATIFIED (human, 2026-09-23): confirmed - batch ruling; triage verification trusted.

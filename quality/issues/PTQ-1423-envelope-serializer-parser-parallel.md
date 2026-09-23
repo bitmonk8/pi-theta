@@ -1,9 +1,9 @@
 ---
-id: pending
+id: PTQ-1423
 title: Subagent return-envelope serializer and parser are parallel schema implementations
 lens: D4
-status: intake
-verdict: pending
+status: open
+verdict: confirmed
 locations:
   - src/runtime/subagent-envelope.ts:150-167
   - src/runtime/subagent-envelope.ts:253-268
@@ -127,3 +127,4 @@ verdict: questionable — accounting verified: excerpts match at 150-167, 253-26
 verdict: questionable — re-verified independently: all three excerpts byte-match at 150-167, 253-268, 398-445 (sidecar validators at 352-391, small drift from cited 342); coverage count accurate — writer emits 5 schema fields (`v`, `ok`|`err`, `enum_tags`, `err_provenance`, `fn_tail`) and the reader reads exactly those 5 off an untyped `Record<string, unknown>` (`record.v`/`record.fn_tail`/`record.enum_tags`/`record.err_provenance`, `hasOwnProperty` on `ok`/`err`), so a new optional field added to `EnvelopeOk`/`EnvelopeErr` compiles without touching `parseEnvelopeLine` (no exhaustiveness tether); all sides live in src (serializeErrEnvelope: production-theta-producer.ts:3035, production-composition.ts:1693; serializeOkEnvelope: producer :3138/:3398; parseEnvelopeLine: subagent-json-driver.ts:205); `clone-scan map --files src/runtime/subagent-envelope.ts` → no clone groups, so parallel not clone; dedupe clean — PTQ-1203 (D9 breakdown of this host, fixed) and PTQ-1134/PTQ-0292 (same class, other modules) do not track this pair, and grep of quality/issues+resolved for `parseEnvelopeLine`/`serializeOkEnvelope` hits only PTQ-0003/PTQ-1203; the shared source of truth is a design decision for a human ruling (triage: claude-fable-5-1)
 verdict: questionable — accounting re-verified against current code: all three excerpts match at 150-167, 253-268, 398-445 (validators `parseEnumTagsSidecar`/`parseErrProvenance`/`parseFnTail` at 352-391, drift from cited 342 only); coverage count accurate — `EnvelopeOk` (88-92) and `EnvelopeErr` (123-128) declare exactly `v`, `ok`|`err`, `enum_tags`|`err_provenance`, `fn_tail`, the writers emit those five conditionally, and `parseEnvelopeLine` reads exactly those five off an untyped `Record<string, unknown>` with no type-level tether to the interfaces; all sides live in src (serializeErrEnvelope: production-composition.ts:1694, production-theta-producer.ts:3162; serializeOkEnvelope: producer :3265/:3525; parseEnvelopeLine: subagent-json-driver.ts:205); `clone-scan map --files src/runtime/subagent-envelope.ts` → no clone groups, so parallel not clone; dedupe clean — PTQ-1203 (D9 breakdown of this host, fixed), PTQ-1134/PTQ-1206/PTQ-0292 (encoder/decoder parallels in result-channel and progress-wire, other modules) and PTQ-1330 (D7, a test of this module) do not track this writer/reader pair; per the D4 parallel rule the shared source of truth is a design decision for a human ruling (triage: claude-fable-5-1)
 triage worker failed (verdict not applied; re-triaged next wave) (loop, 2026-09-23)
+verdict: confirmed — RATIFIED (human, 2026-09-23): confirmed - batch ruling; triage verification trusted. TARGET SHAPE: compile-time exhaustiveness tether between the envelope schema's serializer and parser sides (the PTQ-0292/0415/1139 ratified shape) - kind-keyed satisfies-record or never-backstop so schema growth is a tsc error on BOTH sides; do not merge the two directions into one function.
