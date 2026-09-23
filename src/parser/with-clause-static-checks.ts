@@ -1,7 +1,7 @@
 // Compose-pass with-clause cwd type checks and local/imported callee classification.
 
 import type { Diagnostic, SourceRange } from "../diagnostics/diagnostic";
-import type { CallableSetSnapshot } from "../parser/callable-set";
+import type { CallableSetSnapshot } from "./callable-set";
 import {
   invokeArgTypeMismatchMessage,
   withClauseInProcessCalleeMessage,
@@ -11,14 +11,14 @@ import {
   WITH_CLAUSE_IN_PROCESS_CALLEE_HINT,
   WITH_CLAUSE_PI_TOOL_CODE,
   WITH_CLAUSE_PI_TOOL_HINT,
-} from "../parser/invoke-diagnostics";
-import type { StaticTypeInferencePass } from "../parser/static-type-inference";
-import type { CallExpr, CallWithClause, Stmt, ThetaBody } from "../parser/theta-document";
-import { checkCompatible, displayType, type CompatType, type TypeEnv } from "../parser/type-compat";
+} from "./invoke-diagnostics";
+import type { StaticTypeInferencePass } from "./static-type-inference";
+import type { CallExpr, CallWithClause, Stmt, ThetaBody } from "./theta-document";
+import { checkCompatible, displayType, type CompatType, type TypeEnv } from "./type-compat";
 import type { MaterializedImport } from "../runtime/lexical-environment";
 import { checkToolCallArguments } from "../runtime/tool-call";
-import { collectProvableArgTypes, renderCollectedTypes } from "./invoke-expr-call-surface";
-import { collectCallSites } from "./invoke-static-checks";
+import { collectProvableArgTypes, renderCollectedTypes } from "../extension/invoke-expr-call-surface";
+import { collectCallSites } from "../extension/invoke-static-checks";
 
 /**
  * INV-6 (invocation.md `#options-surface`) — judge a call-site `with` clause's
