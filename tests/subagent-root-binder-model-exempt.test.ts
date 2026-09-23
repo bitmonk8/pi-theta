@@ -123,30 +123,21 @@
 import {
   requireRealSubagentPathsFor,
   realExecutableHost,
-  launchRealSubagentChild,
-  childExit,
-  driveWatchedSubagentChild,
-  reapSubagentChildren,
+  CHILD_MODEL_ID,
+  CHILD_MODEL_PROVIDER,
+  driveRealSubagentRoot,
+  dropScratchDir,
+  writeRealSubagentScratchTree,
 } from "./helpers/real-subagent-spawn";
 import { describe, expect, it } from "vitest";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { driveSubagentChild } from "../src/runtime/subagent-json-driver";
 import { type ChildExitInfo, type ExecutableHost } from "../src/runtime/subagent-launcher";
 import { SUBAGENT_CALLABLE_HASHES_ENV } from "../src/runtime/subagent-callable-hash";
 import {
   SUBAGENT_PARAMS_ENV,
   SUBAGENT_PARAMS_FILE_ENV,
 } from "../src/runtime/subagent-params";
-
-/**
- * The marshalled model reference riding the child argv (`--provider`/`--model`,
- * the PIC-62 launch shape). NEVER CONTACTED by the specified behaviour: every
- * fixture body below is a pure tail expression.
- */
-const CHILD_MODEL_PROVIDER = "anthropic";
-const CHILD_MODEL_ID = "claude-fable-5";
 
 /**
  * The planted project-settings binder-model reference. Chosen to match no model
@@ -346,9 +337,15 @@ async function driveDirect(input: {
   readonly params: string | undefined;
   readonly host: ExecutableHost;
 }): Promise<RowOutcome> {
-  const { launch, diagnostics, emitDiagnostic } = launchRealSubagentChild({
+  // Subscribed BEFORE driving so no line and no terminal `'close'` is missed.
+  let stdoutLines = 0;
+  const stderrLines: string[] = [];
+  let exit: ChildExitInfo | "no exit observed" = "no exit observed";
+  // The marshalled model reference is NEVER CONTACTED by the specified
+  // behaviour: every fixture body below is a pure tail expression.
+  const drive = await driveRealSubagentRoot({
     slug: input.slug,
-    thetaDirs: [input.thetaDir],
+    thetaDir: input.thetaDir,
     provider: CHILD_MODEL_PROVIDER,
     model: CHILD_MODEL_ID,
     cwd: input.scratchDir,
@@ -365,8 +362,23 @@ async function driveDirect(input: {
       [SUBAGENT_CALLABLE_HASHES_ENV]: undefined,
     },
     host: input.host,
+    // In-test bound BELOW the outer timeout: on a stall, kill so the drive settles
+    // fail-closed and the row reports loudly instead of hanging the suite with a
+    // live process tree.
+    watchdogMs: ROW_WATCHDOG_MS,
+    onChild: (child) => {
+      child.onStdoutLine((): void => {
+        stdoutLines += 1;
+      });
+      child.onStderrLine((line: string): void => {
+        stderrLines.push(line);
+      });
+    },
+    onExit: (info) => {
+      exit = info;
+    },
   });
-  if (!launch.ok) {
+  if (!drive.ok) {
     return {
       stem: input.slug,
       ok: false,
@@ -375,44 +387,19 @@ async function driveDirect(input: {
       stdoutLines: 0,
       stderrLines: 0,
       stderrTail: [],
-      diagnostics: diagnostics.map((d) => `${d.code}: ${d.message}`),
+      diagnostics: drive.diagnostics.map((d) => `${d.code}: ${d.message}`),
       killedByWatchdog: false,
-      launchFailure: launch.reason,
+      launchFailure: drive.reason,
     };
   }
-  const child = launch.child;
-
-  // Subscribed BEFORE driving so no line and no terminal `'close'` is missed.
-  let stdoutLines = 0;
-  const stderrLines: string[] = [];
-  child.onStdoutLine((): void => {
-    stdoutLines += 1;
-  });
-  child.onStderrLine((line: string): void => {
-    stderrLines.push(line);
-  });
-  let exit: ChildExitInfo | "no exit observed" = "no exit observed";
-  const exitPromise = childExit(child, (info) => { exit = info; });
-
-  // In-test bound BELOW the outer timeout: on a stall, kill so the drive settles
-  // fail-closed and the row reports loudly instead of hanging the suite with a
-  // live process tree.
-  let killedByWatchdog: boolean;
-  let result: Awaited<ReturnType<typeof driveSubagentChild>>;
-  try {
-    ({ result, killedByWatchdog } = await driveWatchedSubagentChild(
-      child, join(input.thetaDir, `${input.slug}.theta`), emitDiagnostic, ROW_WATCHDOG_MS,
-    ));
-  } finally {
-    // Reap on every path (idempotent on an already-exited child), then await its
-    // exit (bounded) before the next row: the dying child's cwd is inside the
-    // scratch tree, so leaving it live could make the final cleanup throw EBUSY
-    // and replace a primary assertion error with a less diagnostic one. Awaiting
-    // here — before the record below is built — is also what makes `exit` and the
-    // final `stdoutLines` count complete for a row whose drive settled on the
-    // envelope rather than on the exit.
-    await reapSubagentChildren([{ kill: () => child.kill(), exited: exitPromise }]);
-  }
+  // The drive reaped the child on every path (idempotent on an already-exited
+  // child) and awaited its exit (bounded) before returning: the dying child's cwd
+  // is inside the scratch tree, so leaving it live could make the final cleanup
+  // throw EBUSY and replace a primary assertion error with a less diagnostic one.
+  // Awaiting there — before the record below is built — is also what makes `exit`
+  // and the final `stdoutLines` count complete for a row whose drive settled on
+  // the envelope rather than on the exit.
+  const { result, killedByWatchdog, diagnostics } = drive;
   return {
     stem: input.slug,
     ok: result.ok,
@@ -435,19 +422,16 @@ describe("bug 0178 — a spawned subagent child registers the marked root theta 
       // One discovery root holds every fixture so the root theta's `./` callee
       // path resolves beside it; the planted settings file sits in `.pi/` with
       // no `theta/` subdirectory, so it adds no discovery root of its own.
-      const scratchDir = mkdtempSync(join(tmpdir(), "pi-theta-bug0178-"));
-      const thetaDir = join(scratchDir, "thetas");
-      mkdirSync(thetaDir, { recursive: true });
+      const { scratchDir, thetaDir } = writeRealSubagentScratchTree("pi-theta-bug0178-", {
+        ...Object.fromEntries(DIRECT_ROWS.map((row) => [`${row.stem}.theta`, row.text])),
+        [`${TOP_STEM}.theta`]: TOP_FIXTURE,
+      });
       mkdirSync(join(scratchDir, ".pi"), { recursive: true });
       writeFileSync(
         join(scratchDir, ".pi", "settings.json"),
         JSON.stringify({ theta: { binderModel: UNMATCHABLE_BINDER_MODEL } }),
         "utf8",
       );
-      for (const row of DIRECT_ROWS) {
-        writeFileSync(join(thetaDir, `${row.stem}.theta`), row.text, "utf8");
-      }
-      writeFileSync(join(thetaDir, `${TOP_STEM}.theta`), TOP_FIXTURE, "utf8");
 
       // Rung-1 executable resolution, exactly as a pi-hosted parent resolves it
       // (node + the entry script); pinned to the repo's own pi install.
@@ -554,11 +538,7 @@ describe("bug 0178 — a spawned subagent child registers the marked root theta 
           )
           .toEqual(true);
       } finally {
-        try {
-          rmSync(scratchDir, { recursive: true, force: true });
-        } catch {
-          // Best-effort scratch cleanup; never mask the primary test failure.
-        }
+        dropScratchDir(scratchDir);
       }
     },
     900_000,

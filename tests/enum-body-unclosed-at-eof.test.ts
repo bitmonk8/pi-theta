@@ -1,9 +1,8 @@
-import { diagnosticHarness, PARSE_REGISTRY as REGISTRY } from "./helpers/load-row-harness";
+import { diagnosticHarness, loweredBodyTypes as lowered, PARSE_REGISTRY as REGISTRY } from "./helpers/load-row-harness";
 import { describe, expect, it } from "vitest";
 // @ts-expect-error — JS code-registry module, no type declarations.
 import { registryMessage } from "../tools/code-registry/index.js";
-import { buildBodyTypeSchemas } from "../src/parser/body-type-lowering";
-import type { EnumDecl, SchemaDecl, ThetaDocument } from "../src/parser/theta-document";
+import type { ThetaDocument } from "../src/parser/theta-document";
 import { parseDoc, topKinds } from "./helpers/e2e-s1";
 
 // Bug 0259 — an `enum` variant list that reaches end of input with at least one
@@ -243,25 +242,7 @@ const OPEN_BRACE = "4:8-4:9";
 /** The same span one line down, for the preceding-statement row (b8). */
 const OPEN_BRACE_L5 = "5:8-5:9";
 
-const { triples, e, quads, q, render, registered } = diagnosticHarness(msg);
-
-/**
- * The single `enum` declaration of `doc`. Presence and uniqueness are asserted
- * before the read, so a row whose declaration vanished reds by naming that
- * rather than by dereferencing `undefined`.
- */
-function enumOf(doc: ThetaDocument): EnumDecl {
-  const decls = doc.body.statements.filter((s) => s.kind === "enum") as EnumDecl[];
-  expect(
-    decls.length,
-    `exactly one \`enum\` declaration is expected; statements=${JSON.stringify(topKinds(doc))}, diagnostics=${render(doc)}`,
-  ).toBe(1);
-  const only = decls[0];
-  if (only === undefined) {
-    throw new Error(`no \`enum\` declaration to read; diagnostics=${render(doc)}`);
-  }
-  return only;
-}
+const { triples, e, quads, q, render, enumOf, registered } = diagnosticHarness(msg);
 
 /**
  * The captured variant names of the single `enum`, in source order. This is the
@@ -270,27 +251,6 @@ function enumOf(doc: ThetaDocument): EnumDecl {
  */
 function variantsOf(doc: ThetaDocument): readonly string[] {
   return enumOf(doc).variants ?? [];
-}
-
-/**
- * The lowered bodies of every `schema` and `enum` the document declares — the
- * third channel, produced by the shipped `buildBodyTypeSchemas` over the parsed
- * statements exactly as the runtime's own lowering call does.
- */
-function lowered(doc: ThetaDocument): Record<string, unknown> {
-  const schemas = (doc.body.statements.filter((s) => s.kind === "schema") as SchemaDecl[]).map(
-    (s) => ({
-      name: s.name,
-      ...(s.fields === undefined ? {} : { fields: s.fields }),
-      ...(s.arms === undefined ? {} : { arms: s.arms }),
-    }),
-  );
-  const enums = (doc.body.statements.filter((s) => s.kind === "enum") as EnumDecl[]).map((d) => ({
-    name: d.name,
-    ...(d.variants === undefined ? {} : { variants: d.variants }),
-    ...(d.variantValues === undefined ? {} : { variantValues: d.variantValues }),
-  }));
-  return Object.fromEntries(buildBodyTypeSchemas(schemas, enums).entries());
 }
 
 /** The lowered fragment of `E` with the single implicit variant `A`. */

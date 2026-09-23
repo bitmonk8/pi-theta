@@ -1,17 +1,23 @@
 import { describe, expect, it } from "vitest";
-// @ts-expect-error — JS code-registry module, no type declarations.
-import { registryMessage } from "../tools/code-registry/index.js";
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
 import type { ThetaDocument } from "../src/parser/theta-document";
 import {
   diagLines,
   documentCodes as diagCodes,
   isLoadParseError as isRegistrationError,
-  parseDoc,
   withCode,
 } from "./helpers/e2e-s1";
-import { REGISTRY, type RegistryRow } from "./helpers/registry-oracle";
-import { loadThetaLibDiags as loadImports } from "./helpers/thetalib-load-harness";
+import {
+  REGISTRY,
+  registeredParseMessage as normativeMessage,
+  type RegistryRow,
+} from "./helpers/registry-oracle";
+import {
+  APP_FIRST_BODY_LINE,
+  loadThetaLibDiags as loadImports,
+  parseImportingApp as parseApp,
+  parseThetaLibBody as parseLib,
+} from "./helpers/thetalib-load-harness";
 
 // Bug 0100 — the shapes the closed `ImportDecl` / `ExportDecl` / `ImportSpec` /
 // `ExportSpec` productions exclude are all structurally reachable inside
@@ -193,24 +199,6 @@ const UNKNOWN_IDENTIFIER_CODE = "theta/parse/unknown-identifier";
 const EXPECTED_TEMPLATE =
   "import / export specifier list must carry at least one specifier, each 'Name' or 'Name as Alias'";
 
-/**
- * A registered code's normative *Message* string (DIAG-4).
- *
- * An absent row is an unmet precondition, so this fails loudly naming the
- * registry page and the code rather than returning a placeholder a later
- * comparison would red on obscurely.
- */
-function normativeMessage(code: string): string {
-  const template = registryMessage(REGISTRY, code) as string | undefined;
-  expect(
-    template,
-    `no registry row for ${code} — DIAG-4 anchor: ` +
-      `docs/spec_topics/diagnostics/code-registry-parse.md must carry its Message row ` +
-      `(mirrored into docs/reference/diagnostics.md in the same commit, DIAG-2)`,
-  ).toBeDefined();
-  return template as string;
-}
-
 /** The new code's message; the template is placeholder-free, so it renders as-is. */
 function malformedListMessage(): string {
   return normativeMessage(CODE);
@@ -220,27 +208,6 @@ function malformedListMessage(): string {
 // Parse drivers and diagnostic readers (the helper set
 // tests/import-export-from-clause-required.test.ts established for 0058).
 // ===========================================================================
-
-/**
- * Parse a `.thetalib` body. `import` / `export` are permitted top-level forms
- * there (imports.md:13), so a degenerate spelling draws no
- * `theta/parse/thetalib-top-level-statement` noise and the whole-list assertions
- * below read only the codes under test.
- */
-function parseLib(body: string): ThetaDocument {
-  return parseDoc(`${body}\n`, "/proj/lib.thetalib");
-}
-
-/** The importing `.theta` frontmatter every `.theta` fixture shares. */
-const APP_FRONTMATTER = ["---", 'model: "sonnet"', "mode: prompt", "---"].join("\n");
-
-/** The line the first body statement occupies under `APP_FRONTMATTER`. */
-const APP_FIRST_BODY_LINE = 5;
-
-/** Parse a `.theta` body under the shared frontmatter. */
-function parseApp(body: string): ThetaDocument {
-  return parseDoc(`${APP_FRONTMATTER}\n${body}`, "/proj/app.theta");
-}
 
 /** The parsed statement list, for the node-shape assertions (§Fix constraint 7). */
 interface ImportNodeShape {

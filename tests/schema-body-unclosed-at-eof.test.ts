@@ -1,10 +1,9 @@
-import { diagnosticHarness, registryMessageOf } from "./helpers/load-row-harness";
+import { diagnosticHarness, loweredBodyTypes as lowered, registryMessageOf } from "./helpers/load-row-harness";
 import { readRegistry } from "./helpers/registry-oracle";
 import { describe, expect, it } from "vitest";
 // @ts-expect-error — JS code-registry module, no type declarations.
 import { registryMessage } from "../tools/code-registry/index.js";
-import { buildBodyTypeSchemas } from "../src/parser/body-type-lowering";
-import type { EnumDecl, SchemaDecl, ThetaDocument } from "../src/parser/theta-document";
+import type { SchemaDecl, ThetaDocument } from "../src/parser/theta-document";
 import { parseDoc, topKinds } from "./helpers/e2e-s1";
 
 // Bug 0245 — a `schema` object body that reaches end of input with at least one
@@ -204,7 +203,7 @@ function theta(body: string): ThetaDocument {
  */
 const OPEN_BRACE = "4:10-4:11";
 
-const { triples, e, quads, q, render, registered } = diagnosticHarness(msg);
+const { triples, e, quads, q, render, enumOf, registered } = diagnosticHarness(msg);
 
 /**
  * The single `schema` declaration of `doc`. Presence and uniqueness are
@@ -224,20 +223,6 @@ function schemaOf(doc: ThetaDocument): SchemaDecl {
   return only;
 }
 
-/** The single `enum` declaration of `doc`, presence asserted before the read. */
-function enumOf(doc: ThetaDocument): EnumDecl {
-  const decls = doc.body.statements.filter((s) => s.kind === "enum") as EnumDecl[];
-  expect(
-    decls.length,
-    `exactly one \`enum\` declaration is expected; statements=${JSON.stringify(topKinds(doc))}, diagnostics=${render(doc)}`,
-  ).toBe(1);
-  const only = decls[0];
-  if (only === undefined) {
-    throw new Error(`no \`enum\` declaration to read; diagnostics=${render(doc)}`);
-  }
-  return only;
-}
-
 /**
  * The recorded field sources of the single `schema`, rendered `name: type` with
  * the `as "WireName"` rename spelled when present. This is the channel the
@@ -248,27 +233,6 @@ function fieldsOf(doc: ThetaDocument): string[] {
   return (schemaOf(doc).fields ?? []).map((f) =>
     f.wireName === undefined ? `${f.name}: ${f.typeSource}` : `${f.name} as "${f.wireName}": ${f.typeSource}`,
   );
-}
-
-/**
- * The lowered bodies of every `schema` and `enum` the document declares — the
- * third channel, produced by the shipped `buildBodyTypeSchemas` over the parsed
- * statements exactly as the runtime's own lowering call does.
- */
-function lowered(doc: ThetaDocument): Record<string, unknown> {
-  const schemas = (doc.body.statements.filter((s) => s.kind === "schema") as SchemaDecl[]).map(
-    (s) => ({
-      name: s.name,
-      ...(s.fields === undefined ? {} : { fields: s.fields }),
-      ...(s.arms === undefined ? {} : { arms: s.arms }),
-    }),
-  );
-  const enums = (doc.body.statements.filter((s) => s.kind === "enum") as EnumDecl[]).map((d) => ({
-    name: d.name,
-    ...(d.variants === undefined ? {} : { variants: d.variants }),
-    ...(d.variantValues === undefined ? {} : { variantValues: d.variantValues }),
-  }));
-  return Object.fromEntries(buildBodyTypeSchemas(schemas, enums).entries());
 }
 
 /** The lowered body of `S` with one required `string` field `a` — groups (a)/(b). */

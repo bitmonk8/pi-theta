@@ -48,7 +48,7 @@ import { scripted } from "./helpers/scripted-complete-queue-mock";
 // query/query-failure-and-repair.md (QRY-22 validate-then-bind),
 // schema-subset.md (SUBS-1 — the emission table the envelope wraps and never
 // rewrites).
-import { assistantReply, contextToolsOf, ajv, appendUserEntry, appendAssistantEntry, ANTHROPIC_MODEL, sessionBranch } from "./helpers/scripted-live-session-harness";
+import { assistantReply, contextToolsOf, ajv, appendUserEntry, appendAssistantEntry, ANTHROPIC_MODEL, sessionBranch, executeResultText } from "./helpers/scripted-live-session-harness";
 import { beforeEach, describe, expect, it } from "vitest";
 
 import type {
@@ -917,17 +917,6 @@ async function driveOnSession(
     executeResult: await placed,
     sessionTurns: session.sendUserMessageCalls,
   };
-}
-
-/** The text parts of one respond-tool `execute` result. */
-function executeResultText(result: unknown): string {
-  const parts =
-    (result as { readonly content?: ReadonlyArray<{ type?: unknown; text?: unknown }> })
-      .content ?? [];
-  return parts
-    .filter((part) => part.type === "text" && typeof part.text === "string")
-    .map((part) => part.text as string)
-    .join("");
 }
 
 describe("bug 0028 wire contract — the registered `execute` against an armed capture (offline)", () => {

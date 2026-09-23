@@ -64,7 +64,7 @@ import {
   type SchemaDecl,
 } from "../src/parser/theta-document";
 import type { ThetaSource } from "../src/lexer/lexer";
-import type { Checkpoint } from "../src/seams/checkpoint";
+import { SEAM_NOOP_CHECKPOINT as NOOP_CHECKPOINT } from "./helpers/invoke-seam-scaffold";
 
 // --- Harness (pattern: tests/production-typed-query-validation.test.ts) -----
 
@@ -238,12 +238,6 @@ describe("bug-0004 (ii) — arm 2 inline object `{ items: array<Item> }`", () =>
 // `runTypedQueryLoop` — no live model. RED today: the validate step's AJV
 // compile throws MissingRefError (#/$defs/Loc) out of the loop.
 // ===========================================================================
-
-const NOOP_CHECKPOINT: Checkpoint = {
-  before(): Promise<void> {
-    return Promise.resolve();
-  },
-};
 
 function liveSignal(): AbortSignal {
   return new AbortController().signal;

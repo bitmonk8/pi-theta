@@ -210,6 +210,18 @@ export function parseImportingApp(body: string, sourcePath = "/proj/app.theta"):
   );
 }
 
+/** The line the first body statement occupies under the shared frontmatter. */
+export const APP_FIRST_BODY_LINE = APP_FRONTMATTER.split("\n").length + 1;
+
+/**
+ * Parse a `.thetalib` body (newline-terminated). `import` / `export` are both
+ * permitted top-level forms there (imports.md:13), so a degenerate spelling on
+ * either keyword draws no `theta/parse/thetalib-top-level-statement` noise.
+ */
+export function parseThetaLibBody(body: string, sourcePath = "/proj/lib.thetalib"): ThetaDocument {
+  return parseDoc(`${body}\n`, sourcePath);
+}
+
 /** Every diagnostic rendered `<severity> <code> <file>: <message>`. */
 export function renderThetaLibDiags(diagnostics: readonly Diagnostic[]): string[] {
   return diagnostics.map(

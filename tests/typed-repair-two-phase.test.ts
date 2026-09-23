@@ -82,6 +82,7 @@ import {
   expectErrOfKind,
   expectValue,
   runGovernorRoundProbe,
+  executeResultText,
 } from "./helpers/scripted-live-session-harness";
 import { renderFollowUpTurn } from "../src/runtime/query-followup-render";
 import {
@@ -225,17 +226,6 @@ function invokeRespondExecute(
       signal: AbortSignal | undefined,
     ) => Promise<unknown>
   )(id, params, new AbortController().signal);
-}
-
-/** Read a respond-tool `execute` result's joined text parts. */
-function executeResultText(result: unknown): string {
-  const shaped = result as {
-    readonly content?: ReadonlyArray<{ readonly type?: unknown; readonly text?: unknown }>;
-  };
-  return (shaped.content ?? [])
-    .filter((part) => part.type === "text" && typeof part.text === "string")
-    .map((part) => part.text as string)
-    .join("");
 }
 
 beforeEach(() => {

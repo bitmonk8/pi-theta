@@ -44,18 +44,10 @@
 
 import {
   requireRealSubagentPathsFor,
-  realExecutableHost,
-  launchRealSubagentChild,
-  childExit,
-  driveWatchedSubagentChild,
-  reapSubagentChildren,
+  runDrivenSubagentFixtureCell,
 } from "./helpers/real-subagent-spawn";
 import { reportOf } from "./helpers/subagent-fn-child-regime";
 import { describe, expect, it } from "vitest";
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { type ExecutableHost } from "../src/runtime/subagent-launcher";
 
 /**
  * The marshalled model reference riding the child argv (`--provider`/`--model`,
@@ -147,51 +139,27 @@ describe("bug 0067 — subagent invoke return: inbound named-enum tag reattachme
       requireRealSubagentPaths();
 
       // One discovery root holds all five fixtures so the root theta's `./`
-      // callee paths resolve beside it.
-      const scratchDir = mkdtempSync(join(tmpdir(), "pi-theta-bug0067-"));
-      const thetaDir = join(scratchDir, "thetas");
-      mkdirSync(thetaDir, { recursive: true });
-      writeFileSync(join(thetaDir, "kid.theta"), KID_ENUM);
-      writeFileSync(join(thetaDir, "kidobj.theta"), KID_OBJECT);
-      writeFileSync(join(thetaDir, "kidarr.theta"), KID_ARRAY);
-      writeFileSync(join(thetaDir, "kidanon.theta"), KID_ANON);
-      writeFileSync(join(thetaDir, "top-typed.theta"), TOP_TYPED);
-
-      // Rung-1 executable resolution, exactly as a pi-hosted parent resolves it
-      // (node + the entry script); pinned to the repo's own pi install.
-      const host: ExecutableHost = realExecutableHost();
-
-      // The REAL production spawn path. The extension pin rides `parentEnv` and
-      // inherits down to the grandchildren the root theta's `invoke`s spawn;
-      // `parentPid` is what authenticates the pin at each level, so omitting it
-      // would strip the pin silently and bind ambient builds instead.
-      const { launch, diagnostics, emitDiagnostic } = launchRealSubagentChild({
-        slug: "top-typed",
-        thetaDirs: [thetaDir],
+      // callee paths resolve beside it. The shared shell launches the REAL
+      // production spawn path (extension pin inherited by the grandchildren
+      // the root theta's `invoke`s spawn) and reaps child and scratch dir on
+      // every path.
+      await runDrivenSubagentFixtureCell({
+        tmpPrefix: "pi-theta-bug0067-",
+        fixtures: {
+          "kid.theta": KID_ENUM,
+          "kidobj.theta": KID_OBJECT,
+          "kidarr.theta": KID_ARRAY,
+          "kidanon.theta": KID_ANON,
+        },
+        rootName: "top-typed",
+        rootSource: TOP_TYPED,
         provider: CHILD_MODEL_PROVIDER,
         model: CHILD_MODEL_ID,
-        cwd: scratchDir,
-        host,
-      });
-      expect(launch.ok, `launch failed: ${JSON.stringify(diagnostics)}`).toBe(true);
-      if (!launch.ok) {
-        return;
-      }
-      const child = launch.child;
-
-      // Subscribed BEFORE driving so the terminal `'close'` is never missed;
-      // hoisted above the `try` so the `finally` can await the exit too.
-      const exitPromise = childExit(child);
-
-      try {
         // In-test bound BELOW the vitest timeout: on a stall (the root child or
         // any of its four grandchildren making no progress) kill the pair so the
-        // drive settles fail-closed and the assertions below report loudly,
-        // instead of the test and a live process tree hanging to the outer
-        // timeout.
-        const { result, killedByWatchdog } = await driveWatchedSubagentChild(
-          child, join(thetaDir, "top-typed.theta"), emitDiagnostic, 90_000,
-        );
+        // drive settles fail-closed and the assertions below report loudly.
+        watchdogMs: 90_000,
+        body: async ({ result, killedByWatchdog, diagnostics, exitPromise }) => {
 
         expect(
           killedByWatchdog,
@@ -298,13 +266,8 @@ describe("bug 0067 — subagent invoke return: inbound named-enum tag reattachme
         const exit = await exitPromise;
         expect(exit.code).toBe(0);
         expect(exit.signal).toBeNull();
-      } finally {
-        // Reap on every path (idempotent on an already-exited child), then await
-        // its exit (bounded) before dropping the scratch dir — the dying child's
-        // cwd is inside scratchDir, so an immediate rmSync could throw EBUSY and
-        // replace the primary assertion error with a less diagnostic one.
-        await reapSubagentChildren([{ kill: () => child.kill(), exited: exitPromise }], scratchDir);
-      }
+        },
+      });
     },
     150_000,
   );

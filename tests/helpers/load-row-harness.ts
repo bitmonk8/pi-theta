@@ -23,7 +23,8 @@ import { expect } from "vitest";
 // @ts-expect-error — JS code-registry module, no type declarations.
 import { parseRegistry, registryMessage } from "../../tools/code-registry/index.js";
 import type { Diagnostic, SourceRange } from "../../src/diagnostics/diagnostic";
-import type { FnDecl, FnParam, SchemaDecl, ThetaDocument } from "../../src/parser/theta-document";
+import { buildBodyTypeSchemas } from "../../src/parser/body-type-lowering";
+import type { EnumDecl, FnDecl, FnParam, SchemaDecl, ThetaDocument } from "../../src/parser/theta-document";
 import type { LowerCtx } from "../../src/parser/params";
 import { at, topKinds, parseDoc, diagLines, errorLineAt, isLoadParseError } from "./e2e-s1";
 
@@ -355,6 +356,24 @@ export function diagnosticHarness(
     return only;
   }
 
+  /**
+   * The single `enum` declaration of `doc`. Presence and uniqueness are
+   * asserted before the read, so a row whose declaration vanished reds by naming
+   * that rather than by dereferencing `undefined`.
+   */
+  function enumOf(doc: ThetaDocument): EnumDecl {
+    const decls = doc.body.statements.filter((s) => s.kind === "enum") as EnumDecl[];
+    expect(
+      decls.length,
+      `exactly one \`enum\` declaration is expected; statements=${JSON.stringify(topKinds(doc))}, diagnostics=${render(doc)}`,
+    ).toBe(1);
+    const only = decls[0];
+    if (only === undefined) {
+      throw new Error(`no \`enum\` declaration to read; diagnostics=${render(doc)}`);
+    }
+    return only;
+  }
+
   /** The recorded `{name, type}` parameter pairs of the single `fn`. */
   function paramsOf(doc: ThetaDocument): FnParam[] {
     return fnOf(doc).params.map((p) => ({ name: p.name, type: p.type }));
@@ -365,7 +384,28 @@ export function diagnosticHarness(
     return !doc.diagnostics.some((d: Diagnostic) => d.severity === "error");
   }
 
-  return { triples, e, quads, q, render, fnOf, paramsOf, registered };
+  return { triples, e, quads, q, render, fnOf, enumOf, paramsOf, registered };
+}
+
+/**
+ * The lowered bodies of every `schema` and `enum` the document declares — the
+ * third channel, produced by the shipped `buildBodyTypeSchemas` over the parsed
+ * statements exactly as the runtime's own lowering call does.
+ */
+export function loweredBodyTypes(doc: ThetaDocument): Record<string, unknown> {
+  const schemas = (doc.body.statements.filter((s) => s.kind === "schema") as SchemaDecl[]).map(
+    (s) => ({
+      name: s.name,
+      ...(s.fields === undefined ? {} : { fields: s.fields }),
+      ...(s.arms === undefined ? {} : { arms: s.arms }),
+    }),
+  );
+  const enums = (doc.body.statements.filter((s) => s.kind === "enum") as EnumDecl[]).map((d) => ({
+    name: d.name,
+    ...(d.variants === undefined ? {} : { variants: d.variants }),
+    ...(d.variantValues === undefined ? {} : { variantValues: d.variantValues }),
+  }));
+  return Object.fromEntries(buildBodyTypeSchemas(schemas, enums).entries());
 }
 
 /** One parsed row: its codes, its rendered lines, and the declarations it captured. */

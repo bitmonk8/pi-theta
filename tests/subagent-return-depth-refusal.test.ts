@@ -171,15 +171,14 @@ import {
 import {
   requireRealSubagentPathsFor,
   realExecutableHost,
-  launchRealSubagentChild,
-  childExit,
-  driveWatchedSubagentChild,
-  reapSubagentChildren,
+  CHILD_MODEL_ID,
+  CHILD_MODEL_PROVIDER,
+  driveRealSubagentRoot,
+  dropScratchDir,
+  writeRealSubagentScratchTree,
 } from "./helpers/real-subagent-spawn";
 import { composePointerMessage, REGISTRY } from "./helpers/registry-oracle";
 import { describe, expect, it } from "vitest";
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
 import { join, resolve, sep } from "node:path";
 // @ts-expect-error — JS code-registry module, no type declarations.
 import { registryMessage } from "../tools/code-registry/index.js";
@@ -205,13 +204,6 @@ import type { Diagnostic } from "../src/diagnostics/diagnostic";
 // ===========================================================================
 // Shared constants.
 // ===========================================================================
-
-/**
- * The marshalled model reference riding the child argv (`--provider`/`--model`,
- * PIC-62). NEVER CONTACTED: no fixture below issues a query.
- */
-const CHILD_MODEL_PROVIDER = "anthropic";
-const CHILD_MODEL_ID = "claude-fable-5";
 
 /** The existing `InvokeInfraCause` route (b) reuses; no enum member is added. */
 const RETURN_VALIDATION_CAUSE = "return_validation";
@@ -1037,12 +1029,10 @@ describe("bug 0187 (UNINFERRED) — what a caller binds at a return boundary tha
 
       // One discovery root holds every fixture so each root's `./` callee paths
       // and `tools:` entries resolve beside it.
-      const scratchDir = mkdtempSync(join(tmpdir(), "pi-theta-bug0187-"));
-      const thetaDir = join(scratchDir, "thetas");
-      mkdirSync(thetaDir, { recursive: true });
-      for (const [name, source] of Object.entries({ ...FIXTURES, ...ROOTS })) {
-        writeFileSync(join(thetaDir, name), source);
-      }
+      const { scratchDir, thetaDir } = writeRealSubagentScratchTree("pi-theta-bug0187-", {
+        ...FIXTURES,
+        ...ROOTS,
+      });
 
       // Rung-1 executable resolution, exactly as a pi-hosted parent resolves it
       // (node + the entry script); pinned to the repo's own pi install. Under
@@ -1050,45 +1040,40 @@ describe("bug 0187 (UNINFERRED) — what a caller binds at a return boundary tha
       // would spawn `node <vitest-entry> …` and the child would die instantly.
       const host: ExecutableHost = realExecutableHost();
 
-      /** Every child launched below, reaped in the `finally` on every path. */
-      const launched: { readonly kill: () => void; readonly exited: Promise<ChildExitInfo> }[] = [];
-
       try {
         /**
          * Drive one root in its own spawned child through the REAL production
          * spawn path. The extension pin rides `parentEnv` and inherits down to
          * the grandchildren the root's calls spawn; `parentPid` is what
          * AUTHENTICATES the pin at each level, so omitting it would strip the
-         * pin silently and bind ambient builds instead.
+         * pin silently and bind ambient builds instead. The marshalled model
+         * reference is NEVER CONTACTED: no fixture below issues a query.
          */
         const driveRoot = async (slug: string): Promise<RootOutcome> => {
-          const { launch, diagnostics, emitDiagnostic } = launchRealSubagentChild({
+          const drive = await driveRealSubagentRoot({
             slug,
-            thetaDirs: [thetaDir],
+            thetaDir,
             provider: CHILD_MODEL_PROVIDER,
             model: CHILD_MODEL_ID,
             cwd: scratchDir,
             host,
+            // In-test bound BELOW the vitest timeout: on a stall (this root or its
+            // grandchild making no progress) kill the pair so the drive settles
+            // fail-closed and the assertions below report loudly, instead of the
+            // test and a live process tree hanging to the outer timeout.
+            watchdogMs: 90_000,
+            // The row asserts the child's own self-exit, so wait for it before
+            // the reap's kill.
+            awaitNaturalExit: true,
           });
-          if (!launch.ok) {
+          if (!drive.ok) {
             throw new Error(
               `precondition unmet: the spawn of root '${slug}' failed, so nothing about the ` +
-                `return boundary was observed — ${JSON.stringify(diagnostics)}`,
+                `return boundary was observed — ${JSON.stringify(drive.diagnostics)}`,
             );
           }
-          const child = launch.child;
-          // Subscribed BEFORE driving so the terminal `'close'` is never missed.
-          const exited = childExit(child);
-          launched.push({ kill: () => child.kill(), exited });
-
-          // In-test bound BELOW the vitest timeout: on a stall (this root or its
-          // grandchild making no progress) kill the pair so the drive settles
-          // fail-closed and the assertions below report loudly, instead of the
-          // test and a live process tree hanging to the outer timeout.
-          const { result, killedByWatchdog } = await driveWatchedSubagentChild(
-            child, join(thetaDir, `${slug}.theta`), emitDiagnostic, 90_000,
-          );
-          const exit = await exited;
+          const { result, killedByWatchdog, diagnostics } = drive;
+          const exit = await drive.exited;
           return { result, exit, diagnostics, killedByWatchdog };
         };
 
@@ -1400,12 +1385,11 @@ describe("bug 0187 (UNINFERRED) — what a caller binds at a return boundary tha
           ).toEqual([[[["red"]]]]);
         }
       } finally {
-        // Reap every child on every path (idempotent on an already-exited
-        // child), then await their exits (bounded) before dropping the scratch
-        // dir — a dying child's cwd is inside scratchDir, so an immediate
+        // Every child was already reaped (bounded) by its own drive on every
+        // path — a dying child's cwd is inside scratchDir, so an immediate
         // rmSync could throw EBUSY and replace the primary assertion error with
         // a less diagnostic one.
-        await reapSubagentChildren(launched, scratchDir);
+        dropScratchDir(scratchDir);
       }
     },
     600_000,

@@ -71,6 +71,7 @@ import {
   expectErrOfKind,
   expectValue,
   runGovernorRoundProbe,
+  executeResultText,
 } from "./helpers/scripted-live-session-harness";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -635,10 +636,7 @@ describe("bug 0010 (regression pins) — live typed query: free phase on-session
       result.isError,
       `a VALID early respond call is not an error result; observed: ${JSON.stringify(result)}`,
     ).toBeFalsy();
-    const resultText = (result.content ?? [])
-      .filter((part) => part.type === "text" && typeof part.text === "string")
-      .map((part) => part.text as string)
-      .join("");
+    const resultText = executeResultText(result);
     expect(
       resultText,
       "the valid early call's tool-result text indicates the final answer was recorded " +
@@ -709,10 +707,7 @@ describe("bug 0010 (regression pins) — live typed query: free phase on-session
       "an INVALID early respond call ({score: 'nope'} vs number) resolves an isError " +
         `tool-result (QRY-14: AJV rejects in execute); observed: ${JSON.stringify(result)}`,
     ).toBe(true);
-    const resultText = (result.content ?? [])
-      .filter((part) => part.type === "text" && typeof part.text === "string")
-      .map((part) => part.text as string)
-      .join("");
+    const resultText = executeResultText(result);
     expect(
       resultText.length > 0,
       "the isError result carries the validation message so the model can correct in-turn; " +

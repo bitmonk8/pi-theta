@@ -9,8 +9,8 @@ import {
 } from "../src/parser/imports";
 import { parseThetaDocument, type ThetaDocument } from "../src/parser/theta-document";
 import type { MaterializedImport } from "../src/runtime/lexical-environment";
-import type { FileSystem } from "../src/seams/file-system";
 import { parseDeps } from "./helpers/e2e-s1";
+import { fakeThetaLibFs } from "./helpers/thetalib-load-harness";
 
 // Bug 0428 — a resolved `.thetalib` whose bytes cannot be read is silently
 // accepted. IMP-1 (docs/spec_topics/imports.md:23) makes a byte-exact entry
@@ -55,65 +55,6 @@ function parse(source: string, path: string): ThetaDocument {
 
 function parseApp(body: string): ThetaDocument {
   return parse(`${APP_FRONTMATTER}\n${body}`, "/proj/app.theta");
-}
-
-/**
- * In-memory `FileSystem` double. Mirrors b0306's `fakeThetaLibFs`, with one
- * addition for this bug: paths in `unreadable` are LISTED by `readdir` on their
- * parent (so IMP-1 resolution succeeds — the entry is byte-exact present) while
- * `readBytes` on them REJECTS with an EACCES-shaped error — the exact
- * "listed-but-unreadable" state the bug names. A path may appear in `files` OR
- * in `unreadable`, never both.
- */
-function fakeThetaLibFs(
-  files: Record<string, string>,
-  unreadable: readonly string[] = [],
-): FileSystem {
-  const dirs = new Map<string, string[]>();
-  const list = (path: string): void => {
-    const slash = path.lastIndexOf("/");
-    const parent = path.slice(0, slash);
-    const entries = dirs.get(parent) ?? [];
-    entries.push(path.slice(slash + 1));
-    dirs.set(parent, entries);
-  };
-  for (const path of Object.keys(files)) list(path);
-  for (const path of unreadable) list(path);
-  const unreadableSet = new Set(unreadable);
-  const reject = (): Promise<never> =>
-    Promise.reject(new Error("filesystem member not exercised by this test"));
-  return {
-    readText: reject,
-    writeText: reject,
-    exists: reject,
-    homedir: (): string => "/home",
-    cwd: (): string => "/proj",
-    configDirName: (): string => ".pi",
-    globalAgentDir: (): string => "/home/.pi/agent",
-    lstat: reject,
-    realpath: reject,
-    readdir: (path: string): Promise<readonly string[]> => {
-      const entries = dirs.get(path);
-      return entries === undefined
-        ? Promise.reject(new Error(`ENOENT: ${path}`))
-        : Promise.resolve(entries);
-    },
-    readBytes: (path: string): Promise<Uint8Array> => {
-      if (unreadableSet.has(path)) {
-        // The read-failure the resolver's `entryReadable` refinement is meant
-        // to pre-empt (IMP-1) but the shipped probe never surfaces.
-        return Promise.reject(
-          Object.assign(new Error(`EACCES: permission denied, open '${path}'`), {
-            code: "EACCES",
-          }),
-        );
-      }
-      const content = files[path];
-      return content === undefined
-        ? Promise.reject(new Error(`ENOENT: ${path}`))
-        : Promise.resolve(new TextEncoder().encode(content));
-    },
-  } as FileSystem;
 }
 
 /** One load-pass measurement over the double: parse codes + the check result. */

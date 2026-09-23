@@ -1,4 +1,12 @@
-import { recordingPiToolResolver } from "./helpers/tool-call-dispatch-harness";
+import {
+  callExpr,
+  identExpr,
+  numberExpr,
+  objectExpr,
+  recordingPiToolResolver,
+  span,
+} from "./helpers/tool-call-dispatch-harness";
+import { SEAM_NOOP_CHECKPOINT as NOOP_CHECKPOINT } from "./helpers/invoke-seam-scaffold";
 import { rootWith } from "./helpers/fixture-dispatch-harness";
 import { describe, expect, it } from "vitest";
 import type {
@@ -15,23 +23,19 @@ import type {
   ConversationBindInput,
 } from "../src/extension/theta-composition-producer";
 import { executeBody } from "../src/runtime/statement-executor";
-import type { Checkpoint } from "../src/seams/checkpoint";
 import { makeOk, type ThetaValue } from "../src/runtime/value";
 import type {
   Block,
-  CallExpr,
   Expr,
   FnDecl,
   ThetaBody,
   MatchArmNode,
   MatchExpr,
-  ObjectFieldNode,
   PatternNode,
   ResultCtorExpr,
   Stmt,
 } from "../src/parser/theta-document";
 import type { ParsedFrontmatter } from "../src/parser/frontmatter";
-import type { SourceRange } from "../src/diagnostics/diagnostic";
 
 // V20e-T — Pure/async evaluator unification (tests).
 //
@@ -48,28 +52,8 @@ import type { SourceRange } from "../src/diagnostics/diagnostic";
 // than the V19c executor. The paired V20e implementation retires that safety net
 // and makes the single executor the one evaluation path.
 
-function span(): SourceRange {
-  return { start: { line: 1, column: 1 }, end: { line: 1, column: 2 } };
-}
-
-function callExpr(callee: string, args: readonly Expr[] = []): CallExpr {
-  return { kind: "call", callee, args, range: span() };
-}
-
-function identExpr(name: string): Expr {
-  return { kind: "ident", name, range: span() };
-}
-
-function numberExpr(text: string): Expr {
-  return { kind: "number", text, numericType: "integer", range: span() };
-}
-
 function stringExpr(value: string): Expr {
   return { kind: "string", value, range: span() };
-}
-
-function objectExpr(typeName: string | null, fields: readonly ObjectFieldNode[]): Expr {
-  return { kind: "object", typeName, fields, range: span() };
 }
 
 function resultCtorExpr(ctor: "Ok" | "Err", arg: Expr): ResultCtorExpr {
@@ -95,12 +79,6 @@ function fnDecl(name: string, params: FnDecl["params"], fnBody: Block): FnDecl {
 function body(statements: readonly Stmt[], tail: Expr | null): ThetaBody {
   return { statements, tail };
 }
-
-const NOOP_CHECKPOINT: Checkpoint = {
-  before(): Promise<void> {
-    return Promise.resolve();
-  },
-};
 
 function ctxDouble(): ExtensionCommandContext {
   return {} as unknown as ExtensionCommandContext;

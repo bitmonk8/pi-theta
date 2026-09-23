@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type {
   ExtensionAPI,
-  ExtensionCommandContext,
   ModelRegistry,
 } from "@earendil-works/pi-coding-agent";
 import {
@@ -21,11 +20,10 @@ import type {
 import { parseThetaDocument } from "../src/parser/theta-document";
 import type { ThetaSource } from "../src/lexer/lexer";
 import { executeBody } from "../src/runtime/statement-executor";
-import type { RuntimeRoot } from "../src/runtime-root";
-import type { Checkpoint } from "../src/seams/checkpoint";
 import type { AgentToolResultEnvelope } from "../src/runtime/tool-call-execute";
 import { readCorpus } from "./helpers/corpus-reader";
 import { parseDeps } from "./helpers/e2e-s1";
+import { ctxDouble, rootDouble } from "./helpers/tool-call-dispatch-harness";
 
 // Bug 0069 §Fix constraint 5, hardened per bug 0107 (§Fix routes (c) + (b)) —
 // the `tools:` entry grammar must have ONE implementation. `presentedCallableNames`
@@ -245,24 +243,6 @@ describe("Bug 0069 (D2) — the presented names of the well-formed entry shapes"
 // Group (D3) — the behavioural half (bug 0107 §Fix (b)): what the
 // SNAPSHOT-ABSENT FALLBACK presents, read through the bug-0016 dispatch belt.
 // ===========================================================================
-
-const NOOP_CHECKPOINT: Checkpoint = {
-  before(): Promise<void> {
-    return Promise.resolve();
-  },
-};
-
-function rootDouble(): RuntimeRoot {
-  return {
-    checkpoint: NOOP_CHECKPOINT,
-    idSource: { newInvocationId: () => "inv-1", newToolCallId: () => "tc-1" },
-    clock: { wallNow: () => 0 },
-  } as unknown as RuntimeRoot;
-}
-
-function ctxDouble(): ExtensionCommandContext {
-  return {} as unknown as ExtensionCommandContext;
-}
 
 /**
  * A `resolvePiTool` double that resolves ANY name to a sentinel-returning

@@ -1,19 +1,21 @@
-import { fakeThetaLibFs } from "./helpers/thetalib-load-harness";
+import {
+  APP_FIRST_BODY_LINE,
+  loadThetaLibDiags as loadImports,
+  parseImportingApp as parseApp,
+  parseThetaLibBody as parseLib,
+} from "./helpers/thetalib-load-harness";
 import { describe, expect, it } from "vitest";
-// @ts-expect-error — JS code-registry module, no type declarations.
-import { registryMessage } from "../tools/code-registry/index.js";
-import { REGISTRY, type RegistryRow } from "./helpers/registry-oracle";
+import {
+  REGISTRY,
+  registeredParseMessage as normativeMessage,
+  type RegistryRow,
+} from "./helpers/registry-oracle";
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
-import { checkThetaImports } from "../src/extension/import-static-checks";
-import type { ThetaCompositionInput } from "../src/extension/theta-composition-producer";
-import type { ParsedFrontmatter } from "../src/parser/frontmatter";
 import { type ThetaDocument } from "../src/parser/theta-document";
 import {
   diagLines,
   documentCodes as diagCodes,
   isLoadParseError as isRegistrationError,
-  parseDeps,
-  parseDoc as parse,
   withCode,
 } from "./helpers/e2e-s1";
 
@@ -182,22 +184,6 @@ const UNKNOWN_SYMBOL_CODE = "theta/parse/import-unknown-symbol";
 const EXPECTED_TEMPLATE =
   "import / export specifier list must carry at least one specifier, each 'Name' or 'Name as Alias'";
 
-/**
- * A registered code's normative *Message* string (DIAG-4).
- *
- * An absent row is an unmet precondition, so this fails loudly naming the
- * registry page and the code rather than returning a placeholder.
- */
-function normativeMessage(code: string): string {
-  const template = registryMessage(REGISTRY, code) as string | undefined;
-  expect(
-    template,
-    `no registry row for ${code} — DIAG-4 anchor: ` +
-      "docs/spec_topics/diagnostics/code-registry-parse.md must carry its Message row",
-  ).toBeDefined();
-  return template as string;
-}
-
 /** The widened code's message; the template is placeholder-free, so it renders as-is. */
 function malformedListMessage(): string {
   return normativeMessage(CODE);
@@ -207,26 +193,6 @@ function malformedListMessage(): string {
 // Parse drivers and diagnostic readers (the helper set bug 0100's witness
 // established, tests/import-specifier-list-production-required.test.ts).
 // ===========================================================================
-
-/**
- * Parse a `.thetalib` body. `import` / `export` are both permitted top-level
- * forms there (imports.md:13), so a degenerate spelling on either keyword draws
- * no `theta/parse/thetalib-top-level-statement` noise.
- */
-function parseLib(body: string): ThetaDocument {
-  return parse(`${body}\n`, "/proj/lib.thetalib");
-}
-
-/** The importing `.theta` frontmatter every `.theta` fixture shares. */
-const APP_FRONTMATTER = ["---", 'model: "sonnet"', "mode: prompt", "---"].join("\n");
-
-/** The line the first body statement occupies under `APP_FRONTMATTER`. */
-const APP_FIRST_BODY_LINE = 5;
-
-/** Parse a `.theta` body under the shared frontmatter. */
-function parseApp(body: string): ThetaDocument {
-  return parse(`${APP_FRONTMATTER}\n${body}`, "/proj/app.theta");
-}
 
 /** The parsed statement, for the node-shape assertions (§Non-goals). */
 interface ImportNodeShape {
@@ -247,38 +213,6 @@ function firstStatement(doc: ThetaDocument): ImportNodeShape {
 /** `[source, local]` pairs, the shape the bug doc §Reproduction records. */
 function specifierPairs(doc: ThetaDocument): Array<readonly [string, string]> {
   return firstStatement(doc).specifiers.map((s) => [s.source, s.local] as const);
-}
-
-// ===========================================================================
-// The in-memory `.thetalib` filesystem double. Only `readdir` / `readBytes` are
-// exercised by `checkThetaImports`; every other member rejects, so an
-// unexpected call reds instead of silently returning a stand-in value.
-// ===========================================================================
-
-/** The load-pass result for one importing `.theta` body over one lib set. */
-async function loadImports(
-  appBody: string,
-  libs: Record<string, string>,
-): Promise<{ readonly diagnostics: readonly Diagnostic[]; readonly materialised: string[] }> {
-  const app = parseApp(appBody);
-  expect(
-    app.frontmatter,
-    `the importing theta's frontmatter must parse, or the load pass reads nothing. Diagnostics: ${JSON.stringify(diagLines(app.diagnostics))}`,
-  ).not.toBeNull();
-  const input: ThetaCompositionInput = {
-    slashName: "app",
-    sourcePath: "/proj/app.theta",
-    frontmatter: app.frontmatter as ParsedFrontmatter,
-    body: app.body,
-  };
-  const result = await checkThetaImports(input, {
-    fs: fakeThetaLibFs(libs),
-    parseDeps: parseDeps(),
-  });
-  return {
-    diagnostics: result.diagnostics,
-    materialised: result.imports.map((m) => `${m.kind} ${m.name}`),
-  };
 }
 
 // ===========================================================================

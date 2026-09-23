@@ -811,6 +811,17 @@ export function messageText(message: unknown): string {
   return "";
 }
 
+/** Read a respond-tool `execute` result's joined text parts. */
+export function executeResultText(result: unknown): string {
+  const shaped = result as {
+    readonly content?: ReadonlyArray<{ readonly type?: unknown; readonly text?: unknown }>;
+  };
+  return (shaped.content ?? [])
+    .filter((part) => part.type === "text" && typeof part.text === "string")
+    .map((part) => part.text as string)
+    .join("");
+}
+
 /**
  * An `AssistantMessage`-shaped reply for the mocked `complete()`. `toolCalls`
  * scripts pi-ai `ToolCall` content parts (`{type: "toolCall", ...}`) alongside

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { type SchemaSidecar } from "../src/parser/schema-lowering";
+import { renamedFieldNamedEnumSidecar } from "./helpers/schema-sidecar-fixture";
 import { makeEnumValue, valuesEqual, type ThetaValue } from "../src/runtime/value";
 import {
   translateInbound,
@@ -31,11 +32,7 @@ import {
 // (`severity: Severity`). The V5f sidecar carries the wire-name map (renamed
 // fields only) and the named-enum-position map (named `enum` positions only).
 function externalUserSidecar(): ReadonlyMap<string, SchemaSidecar> {
-  const sidecar: SchemaSidecar = {
-    wireNames: [{ theta: "first_name", wire: "FirstName" }],
-    namedEnumPositions: [{ pointer: "/properties/severity", enumName: "Severity" }],
-  };
-  return new Map([["ExternalUser", sidecar]]);
+  return new Map([["ExternalUser", renamedFieldNamedEnumSidecar()]]);
 }
 
 describe("V2e-T — inbound wire-name translation (runtime-value-model.md §Wire-name translation, RVM code-keyed area)", () => {

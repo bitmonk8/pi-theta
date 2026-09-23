@@ -1,4 +1,5 @@
 import { parseDoc, schemaDeclsOf, enumDeclsOf } from "./helpers/e2e-s1";
+import { renamedFieldNamedEnumSidecar } from "./helpers/schema-sidecar-fixture";
 import { describe, expect, it } from "vitest";
 import { type ThetaDocument } from "../src/parser/theta-document";
 import { lowerQueryResponseSchema } from "../src/parser/query-schema-lowering";
@@ -39,11 +40,7 @@ function parse(src: string, path = "retag.theta"): ThetaDocument {
 
 /** A hand-built `Person` sidecar: one renamed field, one named-enum field. */
 function personSidecar(): SchemaSidecar {
-  return {
-    wireNames: [{ theta: "first_name", wire: "FirstName" }],
-    namedEnumPositions: [{ pointer: "/properties/severity", enumName: "Severity" }],
-    refTargets: [],
-  };
+  return { ...renamedFieldNamedEnumSidecar(), refTargets: [] };
 }
 
 describe("translateInbound — re-tag and re-brand end state (runtime-value-model.md §Wire-name translation)", () => {
