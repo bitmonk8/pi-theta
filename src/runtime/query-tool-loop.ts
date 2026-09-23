@@ -71,7 +71,7 @@ import {
   type ValidationError,
   type ValidationIssue,
 } from "./query-error";
-import { DEPTH_VIOLATION_MESSAGE, depthWalk } from "./depth-walk";
+import { DEPTH_VIOLATION_MESSAGE, depthWalk, type DepthWalkResult } from "./depth-walk";
 import type { LoweredSchema } from "../seams/schema-validator";
 import { NONCOMPLIANCE_TERMINAL_MESSAGE } from "./query-respond-repair";
 import type {
@@ -608,20 +608,8 @@ export async function runTypedQueryLoop(
   });
 }
 
-/**
- * Settle forced-respond noncompliance, depth and schema failures, or return the
- * validated value. CIO-3 keeps the depth walk before AJV in this sequence.
- */
-async function settleRespondFailure({
-  forced,
-  config,
-  slotCountAtDispatch,
-  rounds,
-  forcedRespond,
-  committed,
-  schemaValidation,
-  lowered,
-}: {
+/** Shared state every forced-respond settlement arm reads. */
+interface SettleRespondParams {
   readonly forced: Exclude<ForcedRespondTurn, { readonly kind: "transport" }>;
   readonly config: QueryToolLoopConfig;
   readonly slotCountAtDispatch: number;
@@ -630,36 +618,16 @@ async function settleRespondFailure({
   readonly committed: readonly CommittedSideEffect[];
   readonly schemaValidation: TypedQuerySchemaValidation | undefined;
   readonly lowered: LoweredSchema | undefined;
-}): Promise<TypedQueryOutcome> {
+}
+
+/**
+ * Settle forced-respond noncompliance, depth and schema failures, or return the
+ * validated value. CIO-3 keeps the depth walk before AJV in this sequence.
+ */
+async function settleRespondFailure(params: SettleRespondParams): Promise<TypedQueryOutcome> {
+  const { forced, config, slotCountAtDispatch, rounds, forcedRespond, committed, schemaValidation, lowered } = params;
   if (forced.kind === "noncompliance") {
-    // ERR-17 / QRY-9 (bug 0010): the forced respond turn resolved normally but
-    // did not call the forced respond tool. There is NO payload — the depth
-    // walk and AJV are unreachable for this arm; the report routes into the
-    // EXISTING respond-repair machinery as the `ValidationFailure`
-    // noncompliance arm (never re-cast through the AJV schema_validation
-    // channel, which would fabricate a validation of `undefined`).
-    if (schemaValidation !== undefined) {
-      const repair = await schemaValidation.runRespondRepair({
-        kind: "noncompliance",
-        branch: forced.branch,
-        raw_response: forced.raw_response,
-      });
-      return respondRepairToQueryOutcome(repair, config, slotCountAtDispatch, rounds, forcedRespond, committed);
-    }
-    // No respond-repair machinery exists (no schema-validation collaborator):
-    // surface the ERR-17 terminal ValidationError DIRECTLY — attempts 0, the
-    // fixed terminal message, the synthesised branch issue, and the driver's
-    // raw_response — never a fabricated `value` outcome (bug 0010 seam law).
-    const error: ValidationError = {
-      kind: "validation",
-      cause: "schema_validation",
-      message: NONCOMPLIANCE_TERMINAL_MESSAGE,
-      attempts: 0,
-      validation_errors: [synthesizeForcedRespondIssue(forced.branch)],
-      raw_response: forced.raw_response,
-    };
-    const event = buildValidationEvent(config, error, slotCountAtDispatch);
-    return { kind: "validation", error, event, rounds, forcedRespond, committed };
+    return settleNoncompliance(params, forced);
   }
 
   // CIO-3: the theta-owned depth walk (`V5e`) runs at the typed-query response
@@ -668,64 +636,7 @@ async function settleRespondFailure({
   // "schema_validation" })` with `schema_keyword: "maxDepth"`.
   const walk = depthWalk(forced.payload);
   if (!walk.ok) {
-    // schema-subset.md:59 (Depth Enforcement row #1): depth violations are
-    // `validation` failures, so typed-query respond-repair follow-ups apply
-    // to them exactly as they apply to AJV non-conformance below. CIO-3 licenses
-    // the walk running BEFORE AJV at this boundary — not a terminal return that
-    // skips repair. QRY-22 routes any non-conforming response through
-    // respond-repair; the depth issue is already a `ValidationIssue`, so it
-    // fits the AJV arm's `schema_validation` failure channel unwidened. Must
-    // land with bug 0353 (the follow-up payload depth re-walk), or a repaired
-    // follow-up's own depth breach would be invisible.
-    if (schemaValidation !== undefined) {
-      const failure: ValidationFailure = {
-        kind: "schema_validation",
-        issues: [walk.issue],
-        raw_response: JSON.stringify(forced.payload),
-      };
-      const repair = await schemaValidation.runRespondRepair(failure);
-      return respondRepairToQueryOutcome(repair, config, slotCountAtDispatch, rounds, forcedRespond, committed);
-    }
-    // No respond-repair machinery exists (no schema-validation collaborator),
-    // mirroring the noncompliance arm's split: surface the depth-violation
-    // terminal ValidationError DIRECTLY — attempts 0, the fixed terminal
-    // message, the depth issue, and the raw payload.
-    const error: ValidationError = {
-      kind: "validation",
-      cause: walk.cause,
-      message: DEPTH_VIOLATION_MESSAGE,
-      attempts: 0,
-      validation_errors: [walk.issue],
-      raw_response: JSON.stringify(forced.payload),
-    };
-    // CIO-4/CIO-6: the co-satisfied ceiling #2 is enumerated on the
-    // operator-facing `RuntimeEvent`'s `masked` (wire location
-    // `details.event.masked`) via `V9d`'s V1-reachable predicate — never on the
-    // `QueryError` itself. `computeMasked` omits `masked` (returns `undefined`,
-    // never `[]`) on every other surface.
-    const masked = computeMasked({
-      kind: "validation",
-      validationCause: walk.cause,
-      atTypedQueryResponse: true,
-      turnKind: "forced_respond",
-      toolLoopSlotCount: slotCountAtDispatch,
-      maxRounds: config.maxRounds,
-    });
-    const event: RuntimeEvent = {
-      kind: "validation",
-      theta: config.thetaSlashName,
-      invocation_id: config.invocationId,
-      query_site: {
-        file: config.querySite.file,
-        line: config.querySite.line,
-        column: config.querySite.column,
-      },
-      message: DEPTH_VIOLATION_MESSAGE,
-      attempts: 0,
-      occurred_at: config.occurredAt,
-      ...(masked !== undefined ? { masked } : {}),
-    };
-    return { kind: "validation", error, event, rounds, forcedRespond, committed };
+    return settleDepthViolation(params, forced.payload, walk);
   }
 
   // V13e (QRY-22): validate the response against the lowered declared schema via
@@ -754,6 +665,85 @@ async function settleRespondFailure({
     forcedRespond,
     committed,
   };
+}
+
+/**
+ * Settle the ERR-17 / QRY-9 noncompliance arm (bug 0010): the forced respond
+ * turn resolved normally but did not call the forced respond tool. There is NO
+ * payload — the depth walk and AJV are unreachable for this arm; the report
+ * routes into the EXISTING respond-repair machinery as the `ValidationFailure`
+ * noncompliance arm (never re-cast through the AJV schema_validation channel,
+ * which would fabricate a validation of `undefined`).
+ */
+async function settleNoncompliance(
+  { config, slotCountAtDispatch, rounds, forcedRespond, committed, schemaValidation }: SettleRespondParams,
+  forced: Extract<ForcedRespondTurn, { readonly kind: "noncompliance" }>,
+): Promise<TypedQueryOutcome> {
+  if (schemaValidation !== undefined) {
+    const repair = await schemaValidation.runRespondRepair({
+      kind: "noncompliance",
+      branch: forced.branch,
+      raw_response: forced.raw_response,
+    });
+    return respondRepairToQueryOutcome(repair, config, slotCountAtDispatch, rounds, forcedRespond, committed);
+  }
+  // No respond-repair machinery exists (no schema-validation collaborator):
+  // surface the ERR-17 terminal ValidationError DIRECTLY — attempts 0, the
+  // fixed terminal message, the synthesised branch issue, and the driver's
+  // raw_response — never a fabricated `value` outcome (bug 0010 seam law).
+  const error: ValidationError = {
+    kind: "validation",
+    cause: "schema_validation",
+    message: NONCOMPLIANCE_TERMINAL_MESSAGE,
+    attempts: 0,
+    validation_errors: [synthesizeForcedRespondIssue(forced.branch)],
+    raw_response: forced.raw_response,
+  };
+  const event = buildValidationEvent(config, error, slotCountAtDispatch);
+  return { kind: "validation", error, event, rounds, forcedRespond, committed };
+}
+
+/**
+ * Settle a CIO-3 depth-walk breach on the forced respond payload.
+ *
+ * schema-subset.md:59 (Depth Enforcement row #1): depth violations are
+ * `validation` failures, so typed-query respond-repair follow-ups apply
+ * to them exactly as they apply to AJV non-conformance. CIO-3 licenses
+ * the walk running BEFORE AJV at this boundary — not a terminal return that
+ * skips repair. QRY-22 routes any non-conforming response through
+ * respond-repair; the depth issue is already a `ValidationIssue`, so it
+ * fits the AJV arm's `schema_validation` failure channel unwidened. Must
+ * land with bug 0353 (the follow-up payload depth re-walk), or a repaired
+ * follow-up's own depth breach would be invisible.
+ */
+async function settleDepthViolation(
+  { config, slotCountAtDispatch, rounds, forcedRespond, committed, schemaValidation }: SettleRespondParams,
+  payload: unknown,
+  walk: Extract<DepthWalkResult, { readonly ok: false }>,
+): Promise<TypedQueryOutcome> {
+  if (schemaValidation !== undefined) {
+    const failure: ValidationFailure = {
+      kind: "schema_validation",
+      issues: [walk.issue],
+      raw_response: JSON.stringify(payload),
+    };
+    const repair = await schemaValidation.runRespondRepair(failure);
+    return respondRepairToQueryOutcome(repair, config, slotCountAtDispatch, rounds, forcedRespond, committed);
+  }
+  // No respond-repair machinery exists (no schema-validation collaborator),
+  // mirroring the noncompliance arm's split: surface the depth-violation
+  // terminal ValidationError DIRECTLY — attempts 0, the fixed terminal
+  // message, the depth issue, and the raw payload.
+  const error: ValidationError = {
+    kind: "validation",
+    cause: walk.cause,
+    message: DEPTH_VIOLATION_MESSAGE,
+    attempts: 0,
+    validation_errors: [walk.issue],
+    raw_response: JSON.stringify(payload),
+  };
+  const event = buildValidationEvent(config, error, slotCountAtDispatch);
+  return { kind: "validation", error, event, rounds, forcedRespond, committed };
 }
 
 /** Map a respond-repair terminal to the typed query's outcome and dispatch records. */
