@@ -2,7 +2,7 @@
 id: PTQ-1456
 title: Binary scalar operator switch is duplicated between executor-operators and pure-expression-evaluator
 lens: D4
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/runtime/executor-operators.ts:98-190

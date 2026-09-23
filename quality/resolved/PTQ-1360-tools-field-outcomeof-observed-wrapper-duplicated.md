@@ -2,7 +2,7 @@
 id: PTQ-1360
 title: tools-field-shape-refusal and tools-field-zero-entry-scalar-refusal each redeclare an identical per-row outcome-map/outcomeOf/observed wrapper around the canonical production-load harness
 lens: D7                     # D2 | D4 | D7 | D8 | D9 - the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - tests/tools-field-shape-refusal.test.ts:653-686

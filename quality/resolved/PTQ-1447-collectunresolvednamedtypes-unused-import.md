@@ -2,7 +2,7 @@
 id: PTQ-1447
 title: structural-checks.ts imports collectUnresolvedNamedTypes but never calls it
 lens: D2
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/parser/structural-checks.ts:20

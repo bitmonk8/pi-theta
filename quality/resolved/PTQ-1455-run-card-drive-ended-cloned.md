@@ -2,7 +2,7 @@
 id: PTQ-1455
 title: Run-card end event is emitted by renamed-only blocks in child-regime and top-level paths
 lens: D4
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/extension/theta-composition-producer.ts:238-241

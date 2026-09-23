@@ -2,7 +2,7 @@
 id: PTQ-1359
 title: toolCallInFlight local-flag assertions in the bug-0469 witness assert only a value the test set itself, never a real observable
 lens: D7
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - tests/execution-status-entry-migration-witnesses.test.ts:197-223

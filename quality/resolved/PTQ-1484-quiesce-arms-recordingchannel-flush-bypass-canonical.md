@@ -2,7 +2,7 @@
 id: PTQ-1484
 title: hot-reload-stale-quiesce-arms.test.ts redeclares two canonical tests/helpers/ exports (recording channel double, microtask flush) it does not import
 lens: D7
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - tests/hot-reload-stale-quiesce-arms.test.ts:29-45

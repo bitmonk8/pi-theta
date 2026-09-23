@@ -2,7 +2,7 @@
 id: PTQ-1448
 title: lowerQueryResponseSchema's doc comment claims "both call sites" pass the merged set, but four production call sites do
 lens: D2
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/parser/query-schema-lowering.ts:151-163

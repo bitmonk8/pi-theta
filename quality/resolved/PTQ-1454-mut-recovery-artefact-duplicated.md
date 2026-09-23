@@ -2,7 +2,7 @@
 id: PTQ-1454
 title: mut-recovery artefact guard is duplicated in for and par-for parsing
 lens: D4
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/parser/body-parser.ts:1023-1033

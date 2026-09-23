@@ -2,7 +2,7 @@
 id: PTQ-1365
 title: params-scalar-nontype-text-refusal.test.ts reimplements the committed .theta/.thetalib corpus discovery tests/helpers/theta-corpus.ts already centralises
 lens: D7                     # D2 | D4 | D7 | D8 | D9 - the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - tests/params-scalar-nontype-text-refusal.test.ts:1346-1376

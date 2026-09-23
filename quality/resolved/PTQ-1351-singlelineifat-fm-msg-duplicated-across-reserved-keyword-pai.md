@@ -2,7 +2,7 @@
 id: PTQ-1351
 title: singleLineIfAt/FM/SINGLE_LINE_IF/msg are redeclared byte-for-byte across the two in-scope reserved-keyword test files
 lens: D7
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - tests/reserved-keyword-inline-object-and-literal-keys.test.ts:121-131

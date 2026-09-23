@@ -2,7 +2,7 @@
 id: PTQ-1371
 title: double-session-start-supersession.test.ts redeclares the canonical sleep helper it could import from tests/helpers/fake-clock.ts
 lens: D7
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - tests/double-session-start-supersession.test.ts:81-83

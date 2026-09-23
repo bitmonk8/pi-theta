@@ -2,7 +2,7 @@
 id: PTQ-1383
 title: reservedTok and reservedAt/reservedMsg compute the identical reserved-refusal range template in the two in-scope files
 lens: D7
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - tests/reserved-keyword-inline-object-and-literal-keys.test.ts:167-176

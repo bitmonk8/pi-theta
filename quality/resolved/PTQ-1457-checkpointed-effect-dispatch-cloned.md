@@ -2,7 +2,7 @@
 id: PTQ-1457
 title: Checkpointed effect dispatch is duplicated between evalAsResult and evalCheckpointedEffect
 lens: D4
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/runtime/executor-result-flow.ts:126-157

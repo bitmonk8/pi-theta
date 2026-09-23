@@ -2,7 +2,7 @@
 id: PTQ-1389
 title: thetaSrc frontmatter-wrapping fixture builder byte-identical across three discriminator test files
 lens: D7
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - tests/empty-object-discriminator-field-withhold.test.ts:164-166

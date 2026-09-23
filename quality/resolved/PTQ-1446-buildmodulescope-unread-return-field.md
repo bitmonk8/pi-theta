@@ -2,7 +2,7 @@
 id: PTQ-1446
 title: createImportResolutionKit's returned buildModuleScope field is never read by its sole caller
 lens: D2
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/extension/import-resolution-kit.ts:499-509

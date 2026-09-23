@@ -2,7 +2,7 @@
 id: PTQ-1450
 title: entry-channel static line components share identical render body
 lens: D4
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/extension/execution-status/entry-channel.ts:143-157

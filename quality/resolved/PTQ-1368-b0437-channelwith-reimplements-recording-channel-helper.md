@@ -2,7 +2,7 @@
 id: PTQ-1368
 title: b0437's local channelWith double reimplements the canonical makeRecordingChannel fixture without importing it
 lens: D7                     # D2 | D4 | D7 | D8 | D9 - the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - tests/b0437-producer-note-raw-send-fallback.test.ts:103-118

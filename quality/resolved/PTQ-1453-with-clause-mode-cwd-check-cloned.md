@@ -2,7 +2,7 @@
 id: PTQ-1453
 title: with-clause prompt-mode refusal and cwd check orchestrated twice across invoke call surfaces
 lens: D4
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/extension/invoke-expr-call-surface.ts:281-305

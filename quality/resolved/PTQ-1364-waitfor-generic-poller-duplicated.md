@@ -2,7 +2,7 @@
 id: PTQ-1364
 title: quality-loop-empty-tail-return-validation.test.ts redeclares the generic waitFor<T> poller already written byte-for-byte in b0409-omitted-defaulted-binds-default.test.ts
 lens: D7
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - tests/quality-loop-empty-tail-return-validation.test.ts:239-251

@@ -2,7 +2,7 @@
 id: PTQ-1452
 title: Schema field type and alias RHS duplicate the same name-resolution and unspellable-text emission block
 lens: D4
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/parser/schema-graph-checks.ts:71-90

@@ -2,7 +2,7 @@
 id: PTQ-1449
 title: two of the four per-site type aliases in tool-call-swallowing-handler.ts have no reader anywhere
 lens: D2                     # D2 | D4 | D7 | D8 | D9 - the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - src/runtime/tool-call-swallowing-handler.ts:54-54

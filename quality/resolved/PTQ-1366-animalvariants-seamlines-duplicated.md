@@ -2,7 +2,7 @@
 id: PTQ-1366
 title: animalVariants and seamLines seam-fixture builders byte-identical between non-literal-by-field-refusal.test.ts and discriminator-field-classifier-brace-group.test.ts
 lens: D7
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - tests/non-literal-by-field-refusal.test.ts:624-646
