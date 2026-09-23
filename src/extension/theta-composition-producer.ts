@@ -1,7 +1,7 @@
 // V19e / V19e-T — the per-theta runnable composition producer.
 //
-// This module owns dispatch composition and re-exports its contract and defect
-// surface seams: `composeThetaFixture(theta, deps)` maps a parsed `.theta` (`V19a`
+// This module owns dispatch composition and re-exports its contract seam
+// (it calls the defect surface seam locally): `composeThetaFixture(theta, deps)` maps a parsed `.theta` (`V19a`
 // frontmatter + body AST under a slash name) to a `H4a` `ThetaFixture`
 // (`{ slashName, run }`) whose `run` composes the existing runtime seams —
 //
@@ -58,11 +58,9 @@ export type {
   DrivenConversation,
   ConversationBindInput,
   BodyExecutingConversationBinding,
-  SelfDrivenConversationBinding,
   ConversationBinding,
   ThetaProducerDeps,
 } from "./theta-composition-contract";
-export { surfaceDispatchDefect } from "./dispatch-defect-surface";
 
 /**
  * RFC 0015 (D3): map the drive's terminal `Result` onto the summary outcome.
