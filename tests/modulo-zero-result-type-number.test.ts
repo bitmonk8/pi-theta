@@ -1,6 +1,6 @@
 import {
   assertNoStemIsASuffix, theta, invokeCaller, diagnosticLineReaders,
-  runProductionLoad, plantThetaWorkspace, disposeWorkspace, type LoadOutcome,
+  perCallerRowPrecondition, runProductionLoad, plantThetaWorkspace, disposeWorkspace, type LoadOutcome,
 } from "./helpers/production-load-harness";
 import { PARSE_REGISTRY_PATH as REGISTRY_PAGE } from "./helpers/load-row-harness";
 import { readFileSync } from "node:fs";
@@ -1261,12 +1261,15 @@ const { linesFor, linesForCode } = diagnosticLineReaders(() => outcome.diagnosti
  * `divplain` is the control chosen for it: bug 0142's mirror is shipped, so its
  * firing is independent of anything this report changes.
  */
-function assertRowSurfaceLive(): void {
-  expect(
-    linesForCode("divplain", INVOKE_ARG_CODE).length,
-    `unmet precondition: ${INVOKE_ARG_CODE} never surfaced for the divplain caller (a \`/\` argument at a \`params: x: string\` callee, which bug 0142's shipped mirror already fires on), so this workspace produces no instance of the row and nothing below measures anything. Lines for that caller: ${JSON.stringify(linesFor("divplain"))}`,
-  ).toBeGreaterThan(0);
-}
+const assertRowSurfaceLive = perCallerRowPrecondition(
+  {
+    code: INVOKE_ARG_CODE,
+    callerStem: "divplain",
+    callerShape:
+      "a `/` argument at a `params: x: string` callee, which bug 0142's shipped mirror already fires on",
+  },
+  { linesFor, linesForCode },
+);
 
 describe("bug 0152 §Fix (c) — the `collectProvableArgTypes` mirror at the invoke sink", () => {
   it("r1: `invoke(\"./cstr.theta\", 1 % 0)` renders `<actual>` = number", () => {

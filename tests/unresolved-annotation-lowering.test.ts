@@ -632,10 +632,11 @@ describe("bug 0028 (a) DEFECT GUARD — the self-recursive $ref document lowers 
         "(schema-subset.md:10)",
     );
     expect(
-      validator,
-      "the compiled validator exists, so neither the DEFECT GUARD nor AJV's " +
-        "reference resolver refused the recursive document",
-    ).toBeDefined();
+      validator.validate({ name: "root", children: [{ name: "leaf", children: [] }] }).ok,
+      "the compiled validator resolves the recursive $ref through a nested level, " +
+        "so neither the DEFECT GUARD nor AJV's reference resolver refused the " +
+        "recursive document and a conforming two-level tree ACCEPTS",
+    ).toBe(true);
   });
 });
 

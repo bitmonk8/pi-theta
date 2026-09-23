@@ -67,6 +67,21 @@ export function callableSetOf(
   return snapshot as CallableSetSnapshot;
 }
 
+/**
+ * The Pi-tool underlying names in a resolved snapshot (the `--tools` allowlist
+ * inputs) — the technique test files use because the spawn seam's private
+ * `callableSetPiToolNames` cannot be imported to exercise directly.
+ */
+export function piToolNames(snapshot: CallableSetSnapshot): string[] {
+  const names: string[] = [];
+  for (const entry of snapshot.entries.values()) {
+    if (entry.kind === "pi-tool") {
+      names.push((entry.toolDefinition as { toolName: string }).toolName);
+    }
+  }
+  return names;
+}
+
 export interface ProductionLoadOptions {
   /** `ctx.modelRegistry.getAvailable()`'s report; default: no available models. */
   readonly availableModels?: readonly unknown[];
@@ -216,6 +231,25 @@ export function invokeArgPreconditions(
   }
 
   return { assertRowSurfaceLive, assertParamTypeDeclarable };
+}
+
+/**
+ * Bind the single-channel positive control to one workspace: the returned
+ * check asserts THIS load attributed `code` at least once to `callerStem` on
+ * the per-caller diagnostic-line channel, so an absence read on that channel
+ * afterwards measures something. `callerShape` describes the control caller's
+ * argument for the failure message.
+ */
+export function perCallerRowPrecondition(
+  control: { readonly code: string; readonly callerStem: string; readonly callerShape: string },
+  { linesFor, linesForCode }: ReturnType<typeof diagnosticLineReaders>,
+): () => void {
+  return (): void => {
+    expect(
+      linesForCode(control.callerStem, control.code).length,
+      `unmet precondition: ${control.code} never surfaced for the ${control.callerStem} caller (${control.callerShape}), so this workspace produces no instance of the row and nothing below measures anything. Lines for that caller: ${JSON.stringify(linesFor(control.callerStem))}`,
+    ).toBeGreaterThan(0);
+  };
 }
 
 /** Guard per-caller diagnostic attribution against planted stems shadowing one another. */

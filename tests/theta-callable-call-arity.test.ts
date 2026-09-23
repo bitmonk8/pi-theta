@@ -1,5 +1,5 @@
-import { disposeWorkspace, plantThetaWorkspace, runProductionLoad, type LoadOutcome } from "./helpers/production-load-harness";
-import { readRegistry } from "./helpers/registry-oracle";
+import { disposeWorkspace, plantThetaWorkspace, runProductionLoad, theta, type LoadOutcome } from "./helpers/production-load-harness";
+import { expectedMessage as filledRegistryMessage, readRegistry } from "./helpers/registry-oracle";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 // @ts-expect-error — JS code-registry module, no type declarations.
 import { registryMessage } from "../tools/code-registry/index.js";
@@ -63,10 +63,7 @@ function expectedMessage(
   code: string,
   subs: Readonly<Record<string, string>>,
 ): string {
-  let message = registryMessage(REGISTRY, code) as string;
-  for (const [placeholder, value] of Object.entries(subs)) {
-    message = message.replaceAll(placeholder, value);
-  }
+  const message = filledRegistryMessage(REGISTRY, code, subs);
   expect(
     message,
     `${code}: an unsubstituted <…> placeholder remains — the registry row's ` +
@@ -98,10 +95,6 @@ function tooMany(callee: string, max: number, provided: number): string {
 interface PlantedTheta {
   readonly stem: string;
   readonly text: string;
-}
-
-function theta(...lines: readonly string[]): string {
-  return lines.join("\n") + "\n";
 }
 
 /**

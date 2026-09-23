@@ -1,5 +1,6 @@
 import { linesOf, readCorpus as readSharedCorpus } from "./helpers/corpus-reader";
 import { parseDeps } from "./helpers/e2e-s1";
+import { readRegistry } from "./helpers/registry-oracle";
 import { describe, expect, it } from "vitest";
 import { parseThetaDocument } from "../src/parser/theta-document";
 import type { ThetaSource } from "../src/lexer/lexer";
@@ -103,61 +104,45 @@ function readCorpus(rel: string): string {
 /** Line wrapping is editorial, so every prose match runs over a flattened run. */
 const flatten = (text: string): string => text.replace(/\s+/g, " ").trim();
 
-/**
- * Split a markdown table body row into trimmed, escape-decoded cells — the
- * `tools/code-registry/index.js` `splitTableRow` semantics, implemented inline
- * so this cell owns its extraction. A `\|` escape does NOT split the row.
- */
-function splitTableCells(line: string): readonly string[] {
-  const inner = line
-    .trim()
-    .replace(/^\|/, "")
-    .replace(/\|\s*$/, "");
-  return inner.split(/(?<!\\)\|/).map((cell) => cell.trim().replace(/\\\|/g, "|"));
-}
-
-/**
- * Extract a cell's backtick-delimited body — the span between its first and
- * last backtick, then the table-cell backtick escape decoded — the
- * `extractMessage` semantics from `tools/code-registry/index.js:74-79`,
- * implemented inline. Used only on the *Message* (last) cell, so a backticked
- * template elsewhere in the row cannot reach it.
- */
-function extractBacktickBody(cell: string): string {
-  const first = cell.indexOf("`");
-  const last = cell.lastIndexOf("`");
-  const body = first >= 0 && last > first ? cell.slice(first + 1, last) : cell;
-  return body.replace(/\\`/g, "`");
-}
-
-interface RegistryRow {
+interface LocatedRow {
   /** 1-based line number, re-derived on every run. */
   readonly line: number;
-  /** The row's cells, split on unescaped `|`. */
-  readonly cells: readonly string[];
+  /** The row's *Trigger* cell, as the real `parseRegistry` splits it. */
+  readonly trigger: string;
+  /** The row's *Message* template, as `parseRegistry` extracts it from the
+   *  last cell — so a backticked template elsewhere in the row cannot reach it. */
+  readonly message: string;
 }
 
 /**
  * Locate the row by its code string. Exactly one body row must carry the code:
  * zero means the row moved out from under the cell (a loud harness failure,
  * since an absent row would score vacuously), more than one means the registry
- * grew a duplicate.
+ * grew a duplicate. The cells come from the shared registry read
+ * (`readRegistry`, the real `parseRegistry`); only the line number, for
+ * failure messages, is derived here.
  */
-function locateRow(): RegistryRow {
+function locateRow(): LocatedRow {
   const lines = linesOf(readCorpus(REGISTRY_PARSE));
-  const hits: RegistryRow[] = [];
+  const hitLines: number[] = [];
   lines.forEach((line, index) => {
     const trimmed = line.trim();
     if (!trimmed.startsWith("|")) return;
     if (!trimmed.includes(`\`${ROW_CODE}\``)) return;
-    hits.push({ line: index + 1, cells: splitTableCells(line) });
+    hitLines.push(index + 1);
   });
-  if (hits.length !== 1) {
+  if (hitLines.length !== 1) {
     throw new Error(
-      `harness precondition unmet: ${REGISTRY_PARSE} carries ${hits.length} body rows for \`${ROW_CODE}\`, expected exactly one — bug 0403 §Fix names this row, so a cell that cannot find it must fail loudly rather than pass vacuously${hits.length > 1 ? ` (lines ${hits.map((h) => h.line).join(", ")})` : ""}`,
+      `harness precondition unmet: ${REGISTRY_PARSE} carries ${hitLines.length} body rows for \`${ROW_CODE}\`, expected exactly one — bug 0403 §Fix names this row, so a cell that cannot find it must fail loudly rather than pass vacuously${hitLines.length > 1 ? ` (lines ${hitLines.join(", ")})` : ""}`,
     );
   }
-  return hits[0] as RegistryRow;
+  const row = readRegistry(["parse"]).find((r) => r.code === ROW_CODE);
+  if (row === undefined) {
+    throw new Error(
+      `harness precondition unmet: parseRegistry yields no row for \`${ROW_CODE}\` from ${REGISTRY_PARSE} line ${hitLines[0]} — the row is malformed, so a cell reading it would score vacuously`,
+    );
+  }
+  return { line: hitLines[0] as number, trigger: row.trigger, message: row.message };
 }
 
 /**
@@ -219,7 +204,7 @@ describe("bug 0403 — the unary-`-` refusal's message diverges from every norma
     // | Message). At the fork the Trigger names the unary firing and cites
     // "(bug 0392)" but carries NO template, so this reds. Option 1 adds the
     // unary template here as prose-with-inline-code → green.
-    const trigger = flatten(ROW.cells[3] ?? "");
+    const trigger = flatten(ROW.trigger);
     expect(
       UNARY_MESSAGE_PATTERN.test(trigger),
       `cell A (bug 0403 §Fix option 1 — "add the unary template to the Trigger column as prose-with-inline-code"): the Trigger cell of \`${ROW_CODE}\` at ${REGISTRY_PARSE} line ${ROW.line} must document the divergent unary template (matching ${UNARY_MESSAGE_PATTERN}). At the fork it names the unary firing and cites "(bug 0392)" but carries no template — the divergent sentence exists on no normative registry surface. Trigger cell: ${trigger.slice(0, 320)}`,
@@ -277,8 +262,7 @@ describe("bug 0403 — the unary-`-` refusal's message diverges from every norma
     // Locks that the fix does NOT touch the *Message* cell, protecting the 13
     // registryMessage-sourcing (bug 0142/0152) tests. Message is the last cell;
     // its normative body is the span between its first and last backtick.
-    const messageCell = ROW.cells[ROW.cells.length - 1] ?? "";
-    const message = extractBacktickBody(messageCell);
+    const message = ROW.message;
     expect(
       message,
       `cell D (bug 0403 §Fix — "the Message cell is UNCHANGED"; §Non-goals — rewording the binary template is a theta 2.0 breaking change): the *Message* cell of \`${ROW_CODE}\` at ${REGISTRY_PARSE} line ${ROW.line} must stay the binary two-operand template byte-for-byte. Found: ${message}`,
@@ -292,8 +276,7 @@ describe("bug 0403 — the unary-`-` refusal's message diverges from every norma
     // (the fix documents the divergence, it does not remove it).
     const errors = parseUnaryRefusalErrors();
     const observed = errors[0]!.message;
-    const messageCell = ROW.cells[ROW.cells.length - 1] ?? "";
-    const template = extractBacktickBody(messageCell);
+    const template = ROW.message;
 
     expect(
       template.includes(BINARY_ARITY_PHRASE),

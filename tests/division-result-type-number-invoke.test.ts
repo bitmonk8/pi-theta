@@ -1,12 +1,9 @@
 import {
   assertNoStemIsASuffix, theta, invokeCaller, diagnosticLineReaders,
-  runProductionLoad, type LoadOutcome,
+  perCallerRowPrecondition, runProductionLoad, plantThetaWorkspace, disposeWorkspace, type LoadOutcome,
 } from "./helpers/production-load-harness";
 import { PARSE_REGISTRY_PATH as REGISTRY_PAGE } from "./helpers/load-row-harness";
 import { readRegistry, invokeArgMessage } from "./helpers/registry-oracle";
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 // @ts-expect-error — JS code-registry module, no type declarations.
 import { registryMessage } from "../tools/code-registry/index.js";
@@ -135,18 +132,12 @@ beforeAll(async () => {
   const stems = THETAS.map((t) => t.stem);
   assertNoStemIsASuffix(stems);
 
-  workspaceDir = mkdtempSync(join(tmpdir(), "theta-bug0142-f1-"));
-  const projectThetaDir = join(workspaceDir, ".pi", "theta");
-  mkdirSync(projectThetaDir, { recursive: true });
-  for (const planted of THETAS) {
-    writeFileSync(join(projectThetaDir, `${planted.stem}.theta`), planted.text, "utf8");
-  }
-  writeFileSync(join(workspaceDir, ".pi", "settings.json"), "{}", "utf8");
+  workspaceDir = plantThetaWorkspace("theta-bug0142-f1-", THETAS, "{}");
   outcome = await runProductionLoad(workspaceDir);
 });
 
 afterAll(() => {
-  rmSync(workspaceDir, { recursive: true, force: true });
+  disposeWorkspace(workspaceDir);
 });
 
 const { linesFor, linesForCode } = diagnosticLineReaders(() => outcome.diagnosticLines);
@@ -160,12 +151,10 @@ const { linesFor, linesForCode } = diagnosticLineReaders(() => outcome.diagnosti
  * what would make the absence cells' own preconditions fail loudly instead of
  * silently agreeing with the reverted arm.
  */
-function assertRowSurfaceLive(): void {
-  expect(
-    linesForCode("divint", CODE).length,
-    `unmet precondition: ${CODE} never surfaced for the divint caller (a \`/\` argument at a \`params: x: string\` callee), so this workspace produces no instance of the row and no absence below measures anything. Lines for that caller: ${JSON.stringify(linesFor("divint"))}`,
-  ).toBeGreaterThan(0);
-}
+const assertRowSurfaceLive = perCallerRowPrecondition(
+  { code: CODE, callerStem: "divint", callerShape: "a `/` argument at a `params: x: string` callee" },
+  { linesFor, linesForCode },
+);
 
 // ===========================================================================
 // Class (i) — the rendering moves; nothing new fires, nothing vanishes.

@@ -1,10 +1,7 @@
 import { observedLoad, disposeWorkspace, plantThetaWorkspace, runProductionLoad, type LoadOutcome } from "./helpers/production-load-harness";
-import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-// @ts-expect-error — JS code-registry module, no type declarations.
-import { parseRegistry, registryMessage } from "../tools/code-registry/index.js";
+import { expectedMessage, readRegistry } from "./helpers/registry-oracle";
 import {
   renderDiagnosticBatch,
   renderDiagnosticLine,
@@ -83,68 +80,35 @@ import {
 // --- Registry Message strings (diagnostics/code-registry-load.md) -----------
 
 /** The live sharded load registry — the *Message* column DIAG-4 makes normative. */
-const REGISTRY = parseRegistry(
-  readFileSync(
-    fileURLToPath(
-      new URL(
-        "../docs/spec_topics/diagnostics/code-registry-load.md",
-        import.meta.url,
-      ),
-    ),
-    "utf8",
-  ),
-) as { code: string; message: string }[];
-
-/**
- * Source a code's registered *Message* template and fill its `<…>`
- * placeholders. DIAG-4 makes the template normative, so no expected string in
- * this file is copy-pasted prose: the fix changes what `<value>` interpolates
- * and nothing else.
- */
-function expectedMessage(
-  code: string,
-  subs: Readonly<Record<string, string>>,
-): string {
-  let message = registryMessage(REGISTRY, code) as string | undefined;
-  expect(
-    message,
-    `${code} has no row in docs/spec_topics/diagnostics/code-registry-load.md,` +
-      " so DIAG-4 has no normative string for this witness to source",
-  ).toBeDefined();
-  let filled = message as string;
-  for (const [placeholder, value] of Object.entries(subs)) {
-    filled = filled.replaceAll(placeholder, value);
-  }
-  return filled;
-}
+const REGISTRY = readRegistry(["load"]);
 
 /** `theta/load/malformed-tool-entry` rendered for one entry text. */
 function malformed(value: string): string {
-  return expectedMessage("theta/load/malformed-tool-entry", {
+  return expectedMessage(REGISTRY, "theta/load/malformed-tool-entry", {
     "<value>": value,
   });
 }
 
 /** `theta/load/unknown-mode-value` rendered for one `mode:` value. */
 function unknownMode(value: string): string {
-  return expectedMessage("theta/load/unknown-mode-value", { "<value>": value });
+  return expectedMessage(REGISTRY, "theta/load/unknown-mode-value", { "<value>": value });
 }
 
 /** `theta/load/model-unresolved` rendered for one `model:` value. */
 function modelUnresolved(value: string): string {
-  return expectedMessage("theta/load/model-unresolved", { "<value>": value });
+  return expectedMessage(REGISTRY, "theta/load/model-unresolved", { "<value>": value });
 }
 
 /** `theta/load/unknown-bind-context-value` rendered for one `bind_context:` value. */
 function unknownBindContext(value: string): string {
-  return expectedMessage("theta/load/unknown-bind-context-value", {
+  return expectedMessage(REGISTRY, "theta/load/unknown-bind-context-value", {
     "<value>": value,
   });
 }
 
 /** `theta/load/unknown-methodology-value` rendered for one methodology value. */
 function unknownMethodology(value: string): string {
-  return expectedMessage("theta/load/unknown-methodology-value", {
+  return expectedMessage(REGISTRY, "theta/load/unknown-methodology-value", {
     "<value>": value,
   });
 }

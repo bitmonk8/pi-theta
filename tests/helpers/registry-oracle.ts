@@ -174,6 +174,10 @@ export function expectedMessage(
   subs: Readonly<Record<string, string>>,
 ): string {
   let message = registryMessage(registry, code) as string;
+  expect(
+    message,
+    `${code} has no registry row, so DIAG-4 has no normative string for this witness to source`,
+  ).toBeDefined();
   for (const [placeholder, value] of Object.entries(subs)) {
     // `replaceAll` — the rename template repeats `<name>`.
     message = message.replaceAll(placeholder, value);

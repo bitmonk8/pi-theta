@@ -27,8 +27,9 @@ import { afterEach, describe, expect, it } from "vitest";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { CallableSetResult } from "../src/parser/callable-set";
 import { RUNTIME_TOOL_NAMES, RUNTIME_TOOL_SIGNATURES, runtimeToolPresentedNames } from "../src/parser/runtime-tools";
-import type { ThetaFixture } from "../src/extension/factory";
-import { disposeWorkspace, plantThetaWorkspace, runProductionLoad, type LoadOutcome } from "./helpers/production-load-harness";
+import {
+  callableSetOf, disposeWorkspace, piToolNames, plantThetaWorkspace, runProductionLoad, type LoadOutcome,
+} from "./helpers/production-load-harness";
 import { FACTORY_PROBED_SDK_MEMBERS } from "../src/extension/capability-probe";
 import { computeActiveSetInstall } from "../src/runtime/conversation-drive";
 import { assembleSubagentArgv, inferChildTrust, PI_CLI_DIALECT } from "../src/runtime/subagent-launcher";
@@ -348,22 +349,6 @@ describe("RFC 0011 §3.4 — V10: a nested `.theta` callee declaring a runtime t
 // §4 — S2 model-facing exclusions.
 // ===========================================================================
 
-/** The Pi-tool underlying names in a resolved snapshot (the `--tools`
- * allowlist inputs) — mirrors `tests/subagent-tool-admission.test.ts`'s local
- * `piToolNames` helper, the same technique this seam's private
- * `callableSetPiToolNames` cannot be imported to exercise directly. */
-function piToolNamesOf(fixture: ThetaFixture): string[] {
-  const snapshot = (fixture as unknown as { callableSet?: { entries: ReadonlyMap<string, { kind: string; toolDefinition?: unknown }> } }).callableSet;
-  const names: string[] = [];
-  for (const entry of snapshot?.entries.values() ?? []) {
-    if (entry.kind === "pi-tool") {
-      // Production stores PiToolDispatch with `toolName`, not `name`.
-      names.push((entry.toolDefinition as { toolName?: string })?.toolName ?? "");
-    }
-  }
-  return names;
-}
-
 describe("RFC 0011 §4 — X1/X2: install-vector exclusions", () => {
   it("X1/X2: a mixed callable set {read (pi-tool), compact (runtime)} excludes 'compact' from both the pi-tool names AND the computed install vector", () => {
     return runLoad({
@@ -373,9 +358,7 @@ describe("RFC 0011 §4 — X1/X2: install-vector exclusions", () => {
         outcome.registered,
         `RED: at HEAD 'compact' is an unknown Pi tool, so the theta never registers at all. Registered: ${JSON.stringify(outcome.registered)}`,
       ).toEqual(["mixed"]);
-      const fixture = outcome.fixtures.find((f) => f.slashName === "mixed");
-      expect(fixture).toBeDefined();
-      const piNames = piToolNamesOf(fixture as ThetaFixture);
+      const piNames = piToolNames(callableSetOf(outcome, "mixed"));
       expect(piNames, "the derived pi-tool name list never carries 'compact'").toEqual(["read"]);
       const installVector = computeActiveSetInstall({
         thetaCallableSetNames: piNames,
@@ -395,9 +378,7 @@ describe("RFC 0011 §4 — X3: an all-runtime-tool set maps to --no-tools (fake-
         outcome.registered,
         `RED: at HEAD both entries are unknown Pi tools, so the theta never registers. Registered: ${JSON.stringify(outcome.registered)}`,
       ).toEqual(["allruntime"]);
-      const fixture = outcome.fixtures.find((f) => f.slashName === "allruntime");
-      expect(fixture).toBeDefined();
-      const piNames = piToolNamesOf(fixture as ThetaFixture);
+      const piNames = piToolNames(callableSetOf(outcome, "allruntime"));
       expect(piNames, "an all-runtime-tool set carries NO pi-tool names").toEqual([]);
       const noHostTools = piNames.length === 0;
       const argv = assembleSubagentArgv(
@@ -530,7 +511,7 @@ describe("RFC 0011 §4 — X4: inferChildTrust inputs are unchanged (green contr
         expect(fixture, "cascaded RED: 'mixed2' did not register (see X1/X2)").toBeDefined();
         return;
       }
-      const piNames = piToolNamesOf(fixture);
+      const piNames = piToolNames(callableSetOf(outcome, "mixed2"));
       const allTools = [{ name: "read", sourceInfo: { scope: "project" } }];
       expect(inferChildTrust(piNames, allTools)).toBe(true);
     });

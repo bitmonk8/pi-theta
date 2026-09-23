@@ -12,6 +12,7 @@ import {
   disposeWorkspace,
   plantThetaWorkspace,
   runProductionLoad,
+  theta,
   type LoadOutcome,
 } from "./helpers/production-load-harness";
 import {
@@ -86,10 +87,6 @@ import {
 // (a) Load-time threading — the built-in's `parameters` must reach the frozen
 // callable-set snapshot entry.
 // ===========================================================================
-
-function theta(...lines: readonly string[]): string {
-  return lines.join("\n") + "\n";
-}
 
 /** The one planted fixture: a prompt-mode theta admitting the built-in `read`. */
 const THREAD_STEM = "b72thread";

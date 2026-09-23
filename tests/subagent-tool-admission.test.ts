@@ -1,12 +1,9 @@
-import { callableSetOf, runProductionLoad, theta, type LoadOutcome } from "./helpers/production-load-harness";
+import { callableSetOf, piToolNames, runProductionLoad, theta, type LoadOutcome } from "./helpers/production-load-harness";
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import type {
-  CallableSetSnapshot,
-  ResolvedCallable,
-} from "../src/parser/callable-set";
+import type { ResolvedCallable } from "../src/parser/callable-set";
 import { inferChildTrust } from "../src/runtime/subagent-launcher";
 
 // RFC-0005 (part 4, closure) + bug 0001 amendment — MODE-INDEPENDENT load-time
@@ -150,17 +147,6 @@ const THETAS: readonly PlantedTheta[] = [
 
 let outcome: LoadOutcome;
 let workspaceDir: string;
-
-/** The Pi-tool underlying names in a resolved snapshot (the `--tools` allowlist inputs). */
-function piToolNames(snapshot: CallableSetSnapshot): string[] {
-  const names: string[] = [];
-  for (const entry of snapshot.entries.values()) {
-    if (entry.kind === "pi-tool") {
-      names.push((entry.toolDefinition as { toolName: string }).toolName);
-    }
-  }
-  return names;
-}
 
 beforeAll(async () => {
   workspaceDir = mkdtempSync(join(tmpdir(), "theta-rfc0005-admission-"));

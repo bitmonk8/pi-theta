@@ -1,5 +1,5 @@
 import { parseDeps, range, withCode } from "./helpers/e2e-s1";
-import { readRegistry } from "./helpers/registry-oracle";
+import { expectedMessage as filledRegistryMessage, readRegistry } from "./helpers/registry-oracle";
 import { describe, expect, it } from "vitest";
 // @ts-expect-error — JS code-registry module, no type declarations.
 import { registryMessage } from "../tools/code-registry/index.js";
@@ -94,15 +94,12 @@ const SHADOW_CODE = "theta/parse/shadowed-callable-call";
 
 /** Source a code's registered *Message* template and fill its `<…>` placeholders. */
 function expectedMessage(code: string, subs: Readonly<Record<string, string>>): string {
-  let message = registryMessage(REGISTRY, code) as string;
   expect(
-    message,
+    registryMessage(REGISTRY, code),
     `${code}: the diagnostics registry carries no Message for this code — the ` +
       "row was renamed or removed and this file's DIAG-4 sourcing is stale",
   ).toBeTypeOf("string");
-  for (const [placeholder, value] of Object.entries(subs)) {
-    message = message.replaceAll(placeholder, value);
-  }
+  const message = filledRegistryMessage(REGISTRY, code, subs);
   expect(
     message,
     `${code}: an unsubstituted <…> placeholder remains — the registry row's ` +

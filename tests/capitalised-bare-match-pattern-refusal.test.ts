@@ -1,7 +1,6 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { createPatternRefusalHarness, capMessage, reservedMessage } from "./helpers/prompt-value-harness";
-import { SEAM_NOOP_CHECKPOINT as NOOP_CHECKPOINT } from "./helpers/invoke-seam-scaffold";
+import { createParsedPromptHarness, createPatternRefusalHarness, capMessage, reservedMessage } from "./helpers/prompt-value-harness";
 import {
   PARSE_REGISTRY_PATH as REGISTRY_PARSE_PAGE,
   type DiagShape,
@@ -11,26 +10,11 @@ import {
 import { readRepoFile } from "./helpers/corpus-reader";
 import { readRegistry, type RegistryRow } from "./helpers/registry-oracle";
 import { describe, expect, it } from "vitest";
-import type {
-  ExtensionAPI,
-  ExtensionCommandContext,
-  ModelRegistry,
-} from "@earendil-works/pi-coding-agent";
 // @ts-expect-error — JS code-registry module, no type declarations.
 import { registryMessage } from "../tools/code-registry/index.js";
 import { parseDocBytes } from "./helpers/e2e-s1";
 import { committedThetaSources } from "./helpers/theta-corpus";
 import type { SourceRange } from "../src/diagnostics/diagnostic";
-import type { ThetaDocument } from "../src/parser/theta-document";
-import type { ParsedFrontmatter } from "../src/parser/frontmatter";
-import { executeBody, type BodyExecution } from "../src/runtime/statement-executor";
-import { createProductionProducerDeps } from "../src/extension/production-theta-producer";
-import type {
-  ConversationBindInput,
-  ThetaCompositionInput,
-} from "../src/extension/theta-composition-producer";
-import type { RuntimeRoot } from "../src/runtime-root";
-import type { ThetaValue } from "../src/runtime/value";
 
 // Bug 0141 — `parsePattern`'s tail arm (src/parser/theta-document.ts:4178–4202)
 // returns `{ kind: "identifier", name: t.text }` for any leading `ident` OR
@@ -181,53 +165,7 @@ function reserved(keyword: string, at: SourceRange): DiagShape {
 // provider-free: no model is dispatched by a query-free prompt body.
 // ===========================================================================
 
-function rootDouble(): RuntimeRoot {
-  return {
-    checkpoint: NOOP_CHECKPOINT,
-    idSource: { newInvocationId: () => "inv-1", newToolCallId: () => "tc-1" },
-  } as unknown as RuntimeRoot;
-}
-
-function producer(): ReturnType<typeof createProductionProducerDeps> {
-  return createProductionProducerDeps({
-    // `sendMessage` satisfies the theta-system-note channel; the active-tools
-    // pair satisfies the PIC-17 snapshot/restore window. No provider, no model.
-    pi: {
-      sendMessage: () => {},
-      getActiveTools: () => [],
-      setActiveTools: () => {},
-    } as unknown as ExtensionAPI,
-    root: rootDouble(),
-    modelRegistry: {} as unknown as ModelRegistry,
-  });
-}
-
-async function execute(doc: ThetaDocument): Promise<BodyExecution> {
-  const input: ThetaCompositionInput = {
-    slashName: "bug0141",
-    sourcePath: "/theta/bug0141.theta",
-    frontmatter: doc.frontmatter as ParsedFrontmatter,
-    body: doc.body,
-  };
-  const bindInput: ConversationBindInput = {
-    theta: input,
-    args: "",
-    ctx: {} as unknown as ExtensionCommandContext,
-  };
-  const binding = producer().bindPromptConversation(bindInput);
-  return executeBody(input.body, binding.executeDeps);
-}
-
-/** Assert the value an already-parsed body evaluates to. */
-async function expectValue(
-  doc: ThetaDocument,
-  value: ThetaValue,
-  why: string,
-): Promise<void> {
-  const execution = await execute(doc);
-  expect(execution.outcome, `${why}: the body reaches a value`).toBe("success");
-  expect(execution.result.value, why).toEqual(value);
-}
+const { execute, expectValue } = createParsedPromptHarness("bug0141", "/theta/bug0141.theta");
 
 // ===========================================================================
 // (r) The registry anchor — DIAG-4's one oracle in this file.

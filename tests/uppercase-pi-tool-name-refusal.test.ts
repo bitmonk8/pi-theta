@@ -207,18 +207,6 @@ const UNRESOLVABLE_PATH_CODE = "theta/load/unresolvable-theta-path";
 const MALFORMED_ENTRY_CODE = "theta/load/malformed-tool-entry";
 const INVOKE_NON_THETA_EXTENSION_CODE = "theta/parse/invoke-non-theta-extension";
 
-/** Source a code's registered *Message* template from the PARSE registry page. */
-function parseExpectedMessage(
-  code: string,
-  subs: Readonly<Record<string, string>>,
-): string {
-  let message = registryMessage(PARSE_REGISTRY, code) as string;
-  for (const [placeholder, value] of Object.entries(subs)) {
-    message = message.replaceAll(placeholder, value);
-  }
-  return message;
-}
-
 /**
  * The *Message* template the new registry row must carry. It names the host
  * registry name and the `as` escape hatch, and speaks of neither a file nor a
@@ -562,7 +550,7 @@ describe("Bug 0108 (C5) — the isBareIdentifier arm split is undisturbed ", () 
           JSON.stringify(r.diagnostics),
       ).toBeDefined();
       expect(dg?.message).toBe(
-        parseExpectedMessage(INVOKE_NON_THETA_EXTENSION_CODE, { "<path>": spec }),
+        expectedMessage(PARSE_REGISTRY, INVOKE_NON_THETA_EXTENSION_CODE, { "<path>": spec }),
       );
       expect(
         withCode(r.diagnostics, UNRESOLVABLE_PATH_CODE),

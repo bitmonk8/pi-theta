@@ -1,12 +1,12 @@
-import { registryHintOf } from "./helpers/registry-oracle";
+import { readCorpus } from "./helpers/corpus-reader";
+import { readRegistry, registryHintOf } from "./helpers/registry-oracle";
 import { disposeWorkspace, plantThetaWorkspace, runProductionLoad as loadWorkspace } from "./helpers/production-load-harness";
-import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 // @ts-expect-error — JS code-registry module, no type declarations.
-import { parseRegistry, registryMessage } from "../tools/code-registry/index.js";
+import { registryMessage } from "../tools/code-registry/index.js";
 import {
   parseThetaDocument,
   type ParseThetaDocumentDeps,
@@ -109,22 +109,12 @@ import type { Diagnostic } from "../src/diagnostics/diagnostic";
 // Registry Message strings (DIAG-4).
 // ===========================================================================
 
-function loadRegistry(relative: string): { code: string; message: string }[] {
-  return parseRegistry(
-    readFileSync(fileURLToPath(new URL(relative, import.meta.url)), "utf8"),
-  ) as { code: string; message: string }[];
-}
-
-const LOAD_REGISTRY = loadRegistry(
-  "../docs/spec_topics/diagnostics/code-registry-load.md",
-);
-const PARSE_REGISTRY = loadRegistry(
-  "../docs/spec_topics/diagnostics/code-registry-parse.md",
-);
+const LOAD_REGISTRY = readRegistry(["load"]);
+const PARSE_REGISTRY = readRegistry(["parse"]);
 
 /** Source a code's registered *Message* template and fill its `<…>` placeholders. */
 function rendered(
-  registry: { code: string; message: string }[],
+  registry: readonly { code: string; message: string }[],
   code: string,
   subs: Readonly<Record<string, string>> = {},
 ): string {
@@ -546,9 +536,9 @@ afterAll(() => {
   disposeWorkspace(outOfRootDir);
 });
 
-/** The codes one planted stem drew, in emission order (`[]` when clean). */
-function codesFor(stem: string): readonly string[] {
-  return outcome.codes.get(stem) ?? [];
+/** The codes one planted stem drew in `from`'s walk, in emission order (`[]` when clean). */
+function codesFor(from: LoadOutcome, stem: string): readonly string[] {
+  return from.codes.get(stem) ?? [];
 }
 
 /**
@@ -556,13 +546,13 @@ function codesFor(stem: string): readonly string[] {
  * plus the mirror lines for ONE stem when the cell is about one file (the
  * whole mirror otherwise — the setup guard, where any file may be the cause).
  */
-function observed(stem?: string): string {
+function observed(from: LoadOutcome, stem?: string): string {
   const mirror =
     stem === undefined
-      ? outcome.raw
-      : outcome.raw.filter((l) => l.includes(`${stem}.theta`));
+      ? from.raw
+      : from.raw.filter((l) => l.includes(`${stem}.theta`));
   return (
-    ` Registered: ${JSON.stringify(outcome.registered)}` +
+    ` Registered: ${JSON.stringify(from.registered)}` +
     ` Mirror${stem === undefined ? "" : `(${stem})`}: ${JSON.stringify(mirror)}`
   );
 }
@@ -574,18 +564,18 @@ describe("bug 0106 (A0) — the production load path discovered the planted work
       outcome.registered.length,
       "the project `.pi/theta/` discovery walk registered nothing — the setup " +
         "precondition is unmet and every code-set assertion below would pass " +
-        "vacuously." + observed(),
+        "vacuously." + observed(outcome),
     ).toBeGreaterThan(0);
     expect(
       outcome.registered,
       "the clean `- ./zgood.theta` control did not register, so no red below " +
-        "can be attributed to the entry grammar." + observed(),
+        "can be attributed to the entry grammar." + observed(outcome),
     ).toContain("ctlgood");
     expect(
-      codesFor("zbroken"),
+      codesFor(outcome, "zbroken"),
       "the erroneous callee must carry its OWN error-severity parse diagnostic, " +
         "or the V15f `hasErrors` subject does not exist and the co-fire cells " +
-        "would pass for the wrong reason." + observed(),
+        "would pass for the wrong reason." + observed(outcome),
     ).toEqual(["theta/parse/unresolved-named-type"]);
   });
 });
@@ -600,7 +590,7 @@ describe("bug 0106 (A0) — the production load path discovered the planted work
  */
 function expectGrammarRejectionAlone(stem: string, entry: string): void {
   expect(
-    codesFor(stem),
+    codesFor(outcome, stem),
     `PRIMARY (bug 0106): the malformed entry \`${entry}\` must draw ` +
       `${MALFORMED} ALONE. At HEAD the pre-parse callee cache keys on ` +
       "`toolsEntrySpec`'s first token (its call in `resolveThetaToolsAtLoad`, " +
@@ -608,12 +598,12 @@ function expectGrammarRejectionAlone(stem: string, entry: string): void {
       "`./zbroken.theta` and the V15f callee-has-errors loop over the cache " +
       `pushes ${CALLEE_HAS_ERRORS} FIRST — two error-severity diagnostics for ` +
       "one entry, and the first names a callee the closed grammar says this " +
-      "entry does not reference (code-registry-load.md:40)." + observed(stem),
+      "entry does not reference (code-registry-load.md:40)." + observed(outcome, stem),
   ).toEqual([MALFORMED]);
   expect(
     outcome.lines.get(stem) ?? [],
     "DIAG-4: the rejection renders the registry Message with the entry text " +
-      "verbatim." + observed(stem),
+      "verbatim." + observed(outcome, stem),
   ).toEqual([`${MALFORMED}: ${malformedMessage(entry)}`]);
 }
 
@@ -641,13 +631,13 @@ describe("bug 0106 (A4) — the four controls stay separable (§Fix constraint 2
     // is broken": narrowing the cache must not stop it firing for an entry the
     // grammar admits.
     expect(
-      codesFor("ctlwell"),
+      codesFor(outcome, "ctlwell"),
       "the well-formed `- ./zbroken.theta` entry must keep drawing " +
-        `${CALLEE_HAS_ERRORS} and nothing else.` + observed("ctlwell"),
+        `${CALLEE_HAS_ERRORS} and nothing else.` + observed(outcome, "ctlwell"),
     ).toEqual([CALLEE_HAS_ERRORS]);
     expect(
       outcome.lines.get("ctlwell") ?? [],
-      "DIAG-4: the callee-has-errors Message is unchanged." + observed("ctlwell"),
+      "DIAG-4: the callee-has-errors Message is unchanged." + observed(outcome, "ctlwell"),
     ).toEqual([
       `${CALLEE_HAS_ERRORS}: ` +
         rendered(LOAD_REGISTRY, CALLEE_HAS_ERRORS, {
@@ -658,17 +648,17 @@ describe("bug 0106 (A4) — the four controls stay separable (§Fix constraint 2
 
   it(`${MALFORMED}: a malformed entry naming NO existing file keeps it alone`, () => {
     expect(
-      codesFor("ctlnofile"),
+      codesFor(outcome, "ctlnofile"),
       "`- ./nosuchfile.theta junk` has no callee to have errors." +
-        observed("ctlnofile"),
+        observed(outcome, "ctlnofile"),
     ).toEqual([MALFORMED]);
   });
 
   it(`${MALFORMED}: a malformed entry naming an ERROR-FREE callee keeps it alone`, () => {
     expect(
-      codesFor("ctlgoodres"),
+      codesFor(outcome, "ctlgoodres"),
       "`- ./zgood.theta junk`'s first token names a clean file, so only the " +
-        "grammar rejection has a subject." + observed("ctlgoodres"),
+        "grammar rejection has a subject." + observed(outcome, "ctlgoodres"),
     ).toEqual([MALFORMED]);
   });
 
@@ -677,16 +667,16 @@ describe("bug 0106 (A4) — the four controls stay separable (§Fix constraint 2
     // identifier out of the callee cache, so this row is already single-coded
     // at HEAD and must stay so after the gate lands.
     expect(
-      codesFor("ctlpitool"),
-      "`- read bash` never enters the callee cache." + observed("ctlpitool"),
+      codesFor(outcome, "ctlpitool"),
+      "`- read bash` never enters the callee cache." + observed(outcome, "ctlpitool"),
     ).toEqual([MALFORMED]);
   });
 
   it("a well-formed entry naming a clean callee draws nothing", () => {
     expect(
-      codesFor("ctlgood"),
+      codesFor(outcome, "ctlgood"),
       "the closed grammar must reject residue, not every `tools:` theta." +
-        observed("ctlgood"),
+        observed(outcome, "ctlgood"),
     ).toEqual([]);
   });
 });
@@ -699,14 +689,14 @@ describe("bug 0106 (A5) — a well-formed entry naming a missing file keeps its 
     // cache narrows which entries are PRE-PARSED; it must not narrow which
     // entries the resolver judges.
     expect(
-      codesFor("ctlmissing"),
+      codesFor(outcome, "ctlmissing"),
       "`- ./nosuchfile.theta` (well-formed, missing file) must keep drawing " +
-        `${UNRESOLVABLE_PATH} alone.` + observed("ctlmissing"),
+        `${UNRESOLVABLE_PATH} alone.` + observed(outcome, "ctlmissing"),
     ).toEqual([UNRESOLVABLE_PATH]);
     expect(
       outcome.lines.get("ctlmissing") ?? [],
       "DIAG-4: the unresolvable-path Message is unchanged." +
-        observed("ctlmissing"),
+        observed(outcome, "ctlmissing"),
     ).toEqual([
       `${UNRESOLVABLE_PATH}: ` +
         rendered(LOAD_REGISTRY, UNRESOLVABLE_PATH, {
@@ -723,7 +713,7 @@ describe("bug 0106 (A6) — the registration outcome is unchanged (§Fix constra
     // for exactly this plant set.
     expect(
       outcome.registered,
-      "the registered set is the fix's invariant, not its subject." + observed(),
+      "the registered set is the fix's invariant, not its subject." + observed(outcome),
     ).toEqual(["ctlgood", "zgood"]);
   });
 });
@@ -978,19 +968,19 @@ describe("bug 0106 (B6) — the two pre-empting gates read the same derived name
 describe("bug 0106 (C1) — the grammar rejection IS reached when the derived name parses clean", () => {
   it(`${MALFORMED}: \`- read bash\` + \`read({ path: "x" })\` reaches the load-time rejection`, () => {
     expect(
-      codesFor("pobj"),
+      codesFor(outcome, "pobj"),
       "the bare-object carve-out stands down for a Pi-tool call site, so no " +
         "error-severity parse diagnostic drops the theta and the closed " +
         "grammar judges the entry — the diagnostic that names the actual " +
-        "authoring mistake." + observed("pobj"),
+        "authoring mistake." + observed(outcome, "pobj"),
     ).toEqual([MALFORMED]);
   });
 
   it(`${MALFORMED}: \`- ./zgood.theta junk\` + \`zgood("x")\` reaches the load-time rejection`, () => {
     expect(
-      codesFor("pthetacall"),
+      codesFor(outcome, "pthetacall"),
       "a `.theta`-callable call of the derived name parses clean, so the " +
-        "grammar rejection fires." + observed("pthetacall"),
+        "grammar rejection fires." + observed(outcome, "pthetacall"),
     ).toEqual([MALFORMED]);
   });
 });
@@ -1003,24 +993,24 @@ describe("bug 0106 (C2) — the grammar rejection is PRE-EMPTED for the two erro
     // `piToolCallableName` would restore the rejection here at the cost of
     // (C1)'s `pobj`, which is the trade the route rejects.
     expect(
-      codesFor("pshape"),
+      codesFor(outcome, "pshape"),
       "the pre-emption is the measured HEAD disposition for this row." +
-        observed("pshape"),
+        observed(outcome, "pshape"),
     ).toEqual([TOOL_ARG_SHAPE]);
     expect(
-      codesFor("pshape"),
+      codesFor(outcome, "pshape"),
       "the closed grammar never judges this entry.",
     ).not.toContain(MALFORMED);
   });
 
   it(`${SHADOWED_CALL} pre-empts ${MALFORMED} for \`- read bash\` + a shadowing local`, () => {
     expect(
-      codesFor("pshadow"),
+      codesFor(outcome, "pshadow"),
       "the pre-emption is the measured HEAD disposition for this row." +
-        observed("pshadow"),
+        observed(outcome, "pshadow"),
     ).toEqual([SHADOWED_CALL, BARE_OBJECT]);
     expect(
-      codesFor("pshadow"),
+      codesFor(outcome, "pshadow"),
       "the closed grammar never judges this entry.",
     ).not.toContain(MALFORMED);
   });
@@ -1028,11 +1018,11 @@ describe("bug 0106 (C2) — the grammar rejection is PRE-EMPTED for the two erro
   it("neither pre-empted theta registers (§Fix constraint 1 holds on both rows)", () => {
     expect(
       outcome.registered,
-      "a theta dropped at the parse gate does not register." + observed("pshape"),
+      "a theta dropped at the parse gate does not register." + observed(outcome, "pshape"),
     ).not.toContain("pshape");
     expect(
       outcome.registered,
-      "same for the shadowing row." + observed("pshadow"),
+      "same for the shadowing row." + observed(outcome, "pshadow"),
     ).not.toContain("pshadow");
   });
 });
@@ -1083,36 +1073,14 @@ describe("bug 0106 (C2) — the grammar rejection is PRE-EMPTED for the two erro
 
 const INVOKE_PATH_ESCAPE = "theta/load/invoke-path-escape";
 
-/** The codes one group-(D) stem drew in its own walk, in emission order. */
-function b0248CodesFor(stem: string): readonly string[] {
-  return b0248Outcome.codes.get(stem) ?? [];
-}
-
 /** The rendered `<code>: <message>` lines one group-(D) stem drew, in order. */
 function b0248LinesFor(stem: string): readonly string[] {
   return b0248Outcome.lines.get(stem) ?? [];
 }
 
-/** `observed`, read off group (D)'s walk. */
-function b0248Observed(stem?: string): string {
-  const mirror =
-    stem === undefined
-      ? b0248Outcome.raw
-      : b0248Outcome.raw.filter((l) => l.includes(`${stem}.theta`));
-  return (
-    ` Registered: ${JSON.stringify(b0248Outcome.registered)}` +
-    ` Mirror${stem === undefined ? "" : `(${stem})`}: ${JSON.stringify(mirror)}`
-  );
-}
-
-const LOAD_REGISTRY_TEXT = readFileSync(
-  fileURLToPath(
-    new URL(
-      "../docs/spec_topics/diagnostics/code-registry-load.md",
-      import.meta.url,
-    ),
-  ),
-  "utf8",
+const LOAD_REGISTRY_TEXT = readCorpus(
+  "docs/spec_topics/diagnostics/code-registry-load.md",
+  "this file's Hint oracle (bug 0248 §Fix (d) 2)",
 );
 
 /**
@@ -1182,18 +1150,18 @@ describe("bug 0248 (D0) — group (D)'s own production load discovered its own p
       b0248Outcome.registered.length,
       "group (D)'s `.pi/theta/` discovery walk registered nothing — the setup " +
         "precondition is unmet and every code-set and un-registration " +
-        "assertion in this group would pass vacuously." + b0248Observed(),
+        "assertion in this group would pass vacuously." + observed(b0248Outcome),
     ).toBeGreaterThan(0);
     expect(
       b0248Outcome.registered,
       `the clean \`- ./${B0248_CLEAN_CALLEE}.theta\` control did not register, ` +
         "so no red in this group can be attributed to the entry grammar or the " +
-        "containment rule." + b0248Observed(),
+        "containment rule." + observed(b0248Outcome),
     ).toContain(B0248_CLEAN_CALLER);
     expect(
-      b0248CodesFor(B0248_CLEAN_CALLER),
+      codesFor(b0248Outcome, B0248_CLEAN_CALLER),
       "the clean control must draw no load diagnostic at all." +
-        b0248Observed(B0248_CLEAN_CALLER),
+        observed(b0248Outcome, B0248_CLEAN_CALLER),
     ).toEqual([]);
   });
 });
@@ -1209,25 +1177,25 @@ describe("bug 0248 (D1) — depth 0: a malformed AND escaping entry draws the gr
       const stem = B0248_MALFORMED_STEMS[index] as string;
       const entry = b0248MalformedEntries(outOfRootDir)[index] as string;
       expect(
-        b0248CodesFor(stem),
+        codesFor(b0248Outcome, stem),
         `bug 0248: the malformed entry \`${entry}\` names a path outside every ` +
           "active discovery root, but a malformed token sequence is not a " +
           "`tools:` `.theta` entry (frontmatter-fields-a.md:88), so it is not " +
           `${INVOKE_PATH_ESCAPE}'s *Trigger* subject ` +
           "(code-registry-load.md:35) and the closed grammar's rejection is the " +
           "entry's only disposition (code-registry-load.md:25)." +
-          b0248Observed(stem),
+          observed(b0248Outcome, stem),
       ).toEqual([MALFORMED]);
       expect(
         b0248LinesFor(stem),
         "DIAG-4: the rejection renders the registry Message with the entry " +
-          "text verbatim." + b0248Observed(stem),
+          "text verbatim." + observed(b0248Outcome, stem),
       ).toEqual([`${MALFORMED}: ${malformedMessage(entry)}`]);
       expect(
         b0248Outcome.registered,
         "the grammar rejection un-registers the whole theta " +
           "(code-registry-load.md:25), so the caller of a malformed entry is " +
-          "absent from the registered set." + b0248Observed(stem),
+          "absent from the registered set." + observed(b0248Outcome, stem),
       ).not.toContain(stem);
     });
   }
@@ -1242,11 +1210,11 @@ describe("bug 0248 (D2) — depth 0 control: the WELL-FORMED escaping entry keep
     // body range, so the refusal is ranged at the caller's file head.
     const spec = outSpec(outOfRootDir);
     expect(
-      b0248CodesFor("b0248ctlesc"),
+      codesFor(b0248Outcome, "b0248ctlesc"),
       "bug 0248 precondition: a well-formed entry naming the same out-of-root " +
         `path must draw ${INVOKE_PATH_ESCAPE} alone, or every absence ` +
         "assertion in this group holds vacuously." +
-        b0248Observed("b0248ctlesc"),
+        observed(b0248Outcome, "b0248ctlesc"),
     ).toEqual([INVOKE_PATH_ESCAPE]);
     const mirror = mirrorWithContinuations("b0248ctlesc");
     expect(
@@ -1254,7 +1222,7 @@ describe("bug 0248 (D2) — depth 0 control: the WELL-FORMED escaping entry keep
       "the refusal is LOCATED at the caller's file head (1:1) and `<path>` " +
         "renders the entry spec AS WRITTEN — the way the stderr mirror carries " +
         "`renderDiagnosticLine`'s located triple." +
-        b0248Observed("b0248ctlesc"),
+        observed(b0248Outcome, "b0248ctlesc"),
     ).toBe(
       `theta: ${plantedPath("b0248ctlesc")}:${FILE_HEAD_LOCATION}: ` +
         `${INVOKE_PATH_ESCAPE}: ${escapeMessage(spec)}`,
@@ -1262,13 +1230,13 @@ describe("bug 0248 (D2) — depth 0 control: the WELL-FORMED escaping entry keep
     expect(
       mirror[1] ?? "",
       "the registered *Hint* (code-registry-load.md:35) reaches the author on " +
-        "the mirror's continuation line." + b0248Observed("b0248ctlesc"),
+        "the mirror's continuation line." + observed(b0248Outcome, "b0248ctlesc"),
     ).toBe(`  hint: ${registryHint(INVOKE_PATH_ESCAPE)}`);
     expect(
       b0248Outcome.registered,
       "tool-calls.md:14: an escaping `tools:` `.theta` entry is rejected and " +
         "the callable is not created, so this caller does not register." +
-        b0248Observed("b0248ctlesc"),
+        observed(b0248Outcome, "b0248ctlesc"),
     ).not.toContain("b0248ctlesc");
   });
 });
@@ -1277,7 +1245,7 @@ describe("bug 0248 (D3) — depth 1: a contained callee whose OWN entry is malfo
   it(`${INVOKE_PATH_ESCAPE} is NOT raised at the caller, the caller registers, and the callee keeps ${MALFORMED} on its own file`, () => {
     const entry = `${outSpec(outOfRootDir)} junk`;
     expect(
-      b0248CodesFor("b0248callnestmesc"),
+      codesFor(b0248Outcome, "b0248callnestmesc"),
       "bug 0248 PRIMARY: the caller's own entry `- ./b0248nestmesc.theta` is " +
         "well-formed, in-root and error-free; the only escaping path in reach " +
         `belongs to the callee's MALFORMED entry \`${entry}\`, which is not a ` +
@@ -1290,7 +1258,7 @@ describe("bug 0248 (D3) — depth 1: a contained callee whose OWN entry is malfo
         "which `parseCalleeForTools`' `hasErrors` input — computed from " +
         "`parseThetaDocument`'s diagnostics alone — cannot see for an " +
         "entry-grammar rejection raised later by `resolveCallableSet`." +
-        b0248Observed("b0248callnestmesc"),
+        observed(b0248Outcome, "b0248callnestmesc"),
     ).toEqual([]);
     expect(
       b0248Outcome.registered,
@@ -1300,24 +1268,24 @@ describe("bug 0248 (D3) — depth 1: a contained callee whose OWN entry is malfo
         "malformed), so the out-of-root class now agrees with it. Nothing " +
         "out-of-root becomes callable: the callee's own callable-set resolution " +
         "rejects the malformed entry by the same closed grammar, and the callee " +
-        "itself does not register." + b0248Observed("b0248callnestmesc"),
+        "itself does not register." + observed(b0248Outcome, "b0248callnestmesc"),
     ).toContain("b0248callnestmesc");
     expect(
-      b0248CodesFor("b0248nestmesc"),
+      codesFor(b0248Outcome, "b0248nestmesc"),
       "the callee still draws the grammar rejection on its OWN file when it is " +
         "discovered, so no input loses its refusal (bug 0248 §Fix (a))." +
-        b0248Observed("b0248nestmesc"),
+        observed(b0248Outcome, "b0248nestmesc"),
     ).toEqual([MALFORMED]);
     expect(
       b0248LinesFor("b0248nestmesc"),
       "DIAG-4: the callee's rejection names its own entry text verbatim." +
-        b0248Observed("b0248nestmesc"),
+        observed(b0248Outcome, "b0248nestmesc"),
     ).toEqual([`${MALFORMED}: ${malformedMessage(entry)}`]);
     expect(
       b0248Outcome.registered,
       "code-registry-load.md:25: one malformed entry un-registers the whole " +
         "theta, so the callee is absent from the registered set." +
-        b0248Observed("b0248nestmesc"),
+        observed(b0248Outcome, "b0248nestmesc"),
     ).not.toContain("b0248nestmesc");
   });
 });
@@ -1330,16 +1298,16 @@ describe("bug 0248 (D4) — depth 1 control: bug 0111's shipped class keeps the 
     // surface is live at depth 1 IN THE SAME RUN in which (D3) observes silence.
     const spec = outSpec(outOfRootDir);
     expect(
-      b0248CodesFor("b0248callnestwesc"),
+      codesFor(b0248Outcome, "b0248callnestwesc"),
       "bug 0248 precondition: the depth-1 containment surface must stay live " +
         "for a WELL-FORMED nested entry, or (D3)'s absence proves nothing." +
-        b0248Observed("b0248callnestwesc"),
+        observed(b0248Outcome, "b0248callnestwesc"),
     ).toEqual([INVOKE_PATH_ESCAPE]);
     expect(
       mirrorWithContinuations("b0248callnestwesc")[0] ?? "",
       "bug 0111's disposition: the refusal is located at the CALLER's file head " +
         "and `<path>` renders the NESTED entry spec as written." +
-        b0248Observed("b0248callnestwesc"),
+        observed(b0248Outcome, "b0248callnestwesc"),
     ).toBe(
       `theta: ${plantedPath("b0248callnestwesc")}:${FILE_HEAD_LOCATION}: ` +
         `${INVOKE_PATH_ESCAPE}: ${escapeMessage(spec)}`,
@@ -1350,12 +1318,12 @@ describe("bug 0248 (D4) — depth 1 control: bug 0111's shipped class keeps the 
         "register the callable, and the refusal is error-severity at the " +
         "caller's file, so this caller does not register either — the half that " +
         "separates (D3)'s registration from a dead containment surface." +
-        b0248Observed("b0248callnestwesc"),
+        observed(b0248Outcome, "b0248callnestwesc"),
     ).not.toContain("b0248callnestwesc");
     expect(
-      b0248CodesFor("b0248nestwesc"),
+      codesFor(b0248Outcome, "b0248nestwesc"),
       "the callee, discovered in its own right, draws the same refusal on its " +
-        "own file." + b0248Observed("b0248nestwesc"),
+        "own file." + observed(b0248Outcome, "b0248nestwesc"),
     ).toEqual([INVOKE_PATH_ESCAPE]);
   });
 });
@@ -1371,7 +1339,7 @@ describe("bug 0248 (D5) — the group's whole registration outcome, exactly", ()
     // never becomes a callable of anything.
     expect(
       b0248Outcome.registered,
-      "the registered set of group (D)'s own walk." + b0248Observed(),
+      "the registered set of group (D)'s own walk." + observed(b0248Outcome),
     ).toEqual(["b0248callnestmesc", B0248_CLEAN_CALLER, B0248_CLEAN_CALLEE]);
     for (const stem of [
       ...B0248_MALFORMED_STEMS,
@@ -1385,14 +1353,14 @@ describe("bug 0248 (D5) — the group's whole registration outcome, exactly", ()
         b0248Outcome.registered,
         `\`${stem}\` carries an error-severity load diagnostic — the grammar ` +
           "rejection (code-registry-load.md:25) or the containment refusal " +
-          "(:35) — so it must not register." + b0248Observed(),
+          "(:35) — so it must not register." + observed(b0248Outcome),
       ).not.toContain(stem);
     }
     expect(
       b0248Outcome.registered,
       "the clean control must register in the SAME run, or every " +
         "un-registration assertion above holds for a load that registered " +
-        "nothing." + b0248Observed(),
+        "nothing." + observed(b0248Outcome),
     ).toContain(B0248_CLEAN_CALLER);
   });
 });
