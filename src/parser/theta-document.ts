@@ -1,7 +1,9 @@
 // V19a / V19a-T — the whole-`.theta`/`.thetalib` program-parser seam.
 //
-// This module orchestrates the parser seam, delegates body parsing and structural
-// checks to sibling modules, and re-exports their seams and the `theta-ast` contract:
+// This module orchestrates the parser seam, delegates body parsing, structural
+// checks, doc-comment recovery, identifier resolution and the lexical
+// call-site walk to sibling modules, and re-exports their seams and the
+// `theta-ast` contract:
 // `parseThetaDocument(source, deps)` parses the *entire* `.theta` / `.thetalib`
 // file into an executable body statement-list AST — the grammar.md
 // §"Block expressions" `ThetaBody ::= Stmt* Expr?` production — alongside the
@@ -42,39 +44,20 @@ import {
   parseFrontmatter,
   readParamFieldNames,
   type FrontmatterBodyTypes,
-  type FrontmatterBlock,
   type ParsedFrontmatter,
   type ParsedToolLoop,
   type ParsedRespondRepair,
 } from "./frontmatter";
-import { checkDocCommentPlacement, joinDocComment } from "./descriptions";
 import type { EnumValueKind } from "./schema-declarations";
-import { parseTypeExpression } from "./type-grammar";
-import { collectPatternBinderNames as collectPatternBindings } from "./match-result";
-import { checkTypeLayer, letAnnotationToCompatType } from "./type-layer-checks";
-import {
-  annotationSourceIsNotTypeExpression,
-  BUILTIN_VALUE_NAMES,
-  reservedKeywordAsIdentifierDiagnostic,
-  unresolvedNamedTypeDiagnostic,
-  withBuiltinErrorModelNames,
-} from "./annotation-validation";
+import { checkTypeLayer } from "./type-layer-checks";
 import { resolveQuerySchemas, type QueryPropagation } from "./query-schema-resolve";
 import {
   buildBodyTypeSchemas,
-  collectUnresolvedNamedTypes,
   type SchemaSlugCollision,
 } from "./body-type-lowering";
 import {
-  splitTopLevel,
   type ParamFieldInput,
 } from "./params";
-// Bug 0072 (tool-calls.md §"Argument shape"): the parser's lexical call-site
-// walk emits the shared arity check's ARITY arm directly (no `argumentSource`,
-// so only that arm can fire from this site) instead of re-deriving the
-// message/severity locally — the same parser→runtime reuse pattern as
-// `checkDiscardedQueryResult` in structural-checks.ts.
-import { checkToolCallArguments } from "../runtime/tool-call-static-checks";
 // A `@`-query template body is captured verbatim at parse time; its `${…}`
 // interpolations are re-lexed here (the same lexer the render path drives) so
 // the parse-time whole-document walk can reject the forms expressions.md
@@ -89,9 +72,7 @@ import {
   WITH_CLAUSE_IN_PROCESS_CALLEE_HINT,
   withClauseInProcessCalleeMessage,
 } from "./invoke-diagnostics";
-import { runtimeToolPresentedNames, RUNTIME_TOOL_SIGNATURES, type RuntimeToolName } from "./runtime-tools";
 import { thetaDefaultName } from "./callable-set";
-import type { CompatType } from "./type-compat";
 import type {
   CallExpr,
   InvokeExpr,
@@ -105,7 +86,6 @@ import type {
   SchemaFieldSource,
   SchemaDecl,
   EnumDecl,
-  DocComment,
   Stmt,
   Block,
   ThetaBody,
@@ -118,8 +98,16 @@ import {
   checkStructural,
   hoistEnumVariants,
   rangeKey,
-  type StructuralRefs,
 } from "./structural-checks";
+import {
+  attachDocDescriptions,
+  mergeByLine,
+  scanDocComments,
+  splitFrontmatter,
+  templateProseLineSpans,
+} from "./doc-comment-recovery";
+import { checkUnknownIdentifiers, collectIdentRoots } from "./ident-resolution";
+import { buildRuntimeToolSuccessTypes, checkLexicalCallSites } from "./lexical-call-sites";
 
 export * from "./theta-ast";
 export { BodyParser } from "./body-parser";
@@ -132,12 +120,14 @@ export {
   bareObjectLiteralDiagnostic,
   blockExprMissingTailDiagnostic,
   capitalisedPatternHeadDiagnostic,
-  checkQueryAnnotation,
   checkQueryTemplateInterpolations,
   classifyEnumValueToken,
   nullExpr,
+  piToolCallableName,
   positionToOffset,
   schemaTypeNotExpressionDiagnostic,
+  toolArgShapeDiagnostic,
+  toolCallableName,
 };
 
 /**
@@ -340,13 +330,7 @@ function runWholeDocumentChecks(
   paramFields: readonly ParamFieldInput[],
   frontmatterRefusedRanges: ReadonlySet<string>,
 ): readonly Diagnostic[][] {
-  // Run the implemented structural (AST-shape) parse-checkers over the whole
-  // parsed body (C2a wiring): the delegated V-slice checkers that need only the
-  // parse-shape, no type inference (control-flow, `fn` placement/first-class
-  // use, `let` initialiser, `mut`-context member/index assignment is emitted
-  // inline by the parser, bare `return`, unreachable code, empty object
-  // schemas, and the position-sensitive type-grammar checks over declared type
-  // sources).
+  // C2a wiring — see `checkStructural`'s own doc block (structural-checks.ts).
   const structuralDiags = checkStructural(
     { statements, tail: resolvedTail },
     bodyTypes,
@@ -364,34 +348,15 @@ function runWholeDocumentChecks(
     priorDiagnostics,
   );
 
-  // REQ-EXPR-7 (expressions.md §"Identifier resolution"); `checkUnknownIdentifiers`'s
-  // own doc comment states the three-way judgement this walk makes, including
-  // the value-position refusal `theta/parse/type-as-value`.
-  //
-  // `collectIdentRoots` itself is UNCHANGED (see its doc comment) — it is
-  // called a SECOND time here, over the `schema`/`enum`-free statement list,
-  // so `nonDeclarationRoots` holds every name a genuine value-binding source
-  // contributes, while `identRoots` (below, and at `checkParamsDefaultNames`'s
-  // call) keeps answering that function's own whole-file resolvability
-  // question unchanged — reusing one function for both calls is what keeps
-  // the two seeds from drifting apart. `typeOnlyNames` is then every declared
-  // `schema` / `enum` name `nonDeclarationRoots` does NOT also claim — a name
-  // only a declaration introduces and no value-binding source also binds.
-  // `bodyTypes.imports` is deliberately excluded from that subtraction's
-  // candidates: an imported symbol is resolution arm (3) (expressions.md:48),
-  // a genuine value, and it is already inside `nonDeclarationRoots` regardless
-  // (an `import` statement is not filtered out of the list below).
-  const identRoots = collectIdentRoots(statements, frontmatter);
-  const nonDeclarationRoots = collectIdentRoots(
-    statements.filter((s) => s.kind !== "schema" && s.kind !== "enum"),
+  // REQ-EXPR-7 (expressions.md §"Identifier resolution") — the seed sets are
+  // built by `identifierRootSeeds` below; `checkUnknownIdentifiers`'s own doc
+  // comment (ident-resolution.ts) states the three-way judgement the walk
+  // makes, including the value-position refusal `theta/parse/type-as-value`.
+  const { identRoots, nonDeclarationRoots, typeOnlyNames } = identifierRootSeeds(
+    statements,
     frontmatter,
+    bodyTypes,
   );
-  const typeOnlyNames = new Set<string>();
-  for (const name of [...bodyTypes.schemas.keys(), ...bodyTypes.enums]) {
-    if (!nonDeclarationRoots.has(name)) {
-      typeOnlyNames.add(name);
-    }
-  }
   const unknownIdentDiags = checkUnknownIdentifiers(
     { statements, tail: resolvedTail },
     {
@@ -402,13 +367,8 @@ function runWholeDocumentChecks(
     file,
   );
 
-  // The `params:` default half's two NAME-resolution side conditions
-  // (grammar.md `NamedValueLit`: "head is an enum name in scope, tail a declared
-  // variant"). They are tested here rather than inside the default's own
-  // is-literal check because that check judges a parsed node the literal
-  // sublanguage builds without either identifier's text, and because this is the
-  // one position that holds the parsed `params:` fields, the body's hoisted
-  // enum-variant sets, and the whole-file identifier roots at once.
+  // grammar.md `NamedValueLit`'s two NAME-resolution side conditions — see
+  // `checkParamsDefaultNames`' own doc block (structural-checks.ts).
   const paramsDefaultNameDiags = checkParamsDefaultNames(
     paramFields,
     hoistEnumVariants(statements),
@@ -417,67 +377,22 @@ function runWholeDocumentChecks(
     file,
   );
 
-  // The lexical call-site walk — bug 0003 (docs/bugs/0003-tool-arg-shape-rule-
-  // not-enforced.md: the surviving RFC 0002 Pi-tool argument SHAPE rule,
-  // `theta/parse/tool-arg-not-object-literal`) and bug 0016
-  // (docs/bugs/0016-shadowed-tool-name-runtime-dispatch.md: a call of a
-  // callable-set name shadowed by a local is erroneous —
-  // `theta/parse/shadowed-callable-call` — and the §Object construction
-  // bare-object carve-out is Pi-tool-callee-only, so the sole bare-object
-  // argument of any OTHER callee is `theta/parse/bare-object-literal`). One
-  // walk resolves each callee per expressions.md §"Identifier resolution" and
-  // emits all three codes from that single judgement.
+  // Bugs 0003/0016 — see `checkLexicalCallSites`' own doc block
+  // (lexical-call-sites.ts) for the four codes one callee resolution emits.
   const callSiteLexicalDiags = checkLexicalCallSites(
     { statements, tail: resolvedTail },
     frontmatter,
     file,
   );
 
-  // C-bucket wiring (V20c): run the `type`-phase checkers against the `V20b`
-  // per-expression static-type substrate so they fire in production
-  // (non-boolean condition, non-array iterand, `?` misuse, array/return LUB,
-  // integer narrowing, match-arm mismatch, non-indexable / object-index /
-  // array-join, and — bug 0050 — a plain `fn` call's argument types). The
-  // `params:` field wire names are the same whole-file local-binder source
-  // `checkLexicalCallSites` above reads, so a frontmatter parameter shadows a
-  // same-named top-level `fn` exactly as a `let` binding does; the declared
-  // type source now rides beside the name in the SAME record, so a `params:`-
-  // declared read also carries its declared type into the walk (bug 0192
-  // §Fix) — one array of `{ name, typeSource }` records rather than two
-  // parallel arrays, so the two channels cannot disagree about which
-  // identifier a field binds.
-  //
-  // NAME-KEYING ADJUDICATION: `wireName` is the body-visible identifier at
-  // this `params:` position — four independent sources agree, not merely a
-  // convenient pick. (i) frontmatter.ts sets `wireName: name` in the SAME loop
-  // iteration that pushes `ParamFieldInput`'s `name` from the same local
-  // variable, so the two are byte-identical by construction. (ii)
-  // src/extension/production-composition.ts's own comment on its tool-arg /
-  // invoke-arg projection: 'wireName is the params: YAML key exactly as
-  // written'. (iii) frontmatter-fields-b-and-templates.md §${param} templates:
-  // '${param.field} paths use theta-side params names throughout — never an
-  // as "WireName" rename target', consistent with the Runtime Value Model
-  // invariant that theta code never sees wire names — that rename applies only
-  // at the schema-field / inline-object positions (bug 0160), never at
-  // `params:`. (iv) `checkLexicalCallSites`'s `rootLocals` above already keys
-  // its root scope by `f.wireName` and is the shipped reader that resolves
-  // body identifiers, so this is that same key.
-  //
-  // REJECTED: `paramFields` (`ParamFieldInput`, `name` + `typeSource`) is also
-  // in scope here and carries identical values for this position, but it is
-  // populated whenever a frontmatter BLOCK exists, whereas `frontmatter` is
-  // `null` when the frontmatter does not register — reading it instead would
-  // silently widen bug 0050's shadowing set for a document with no registered
-  // frontmatter, a behaviour change this report does not claim.
-  // RFC 0011 (seam sheet §0 C6): derive the runtime-tool success-type map
-  // from `frontmatter.tools` so the type layer can structurally type
-  // `let u = context_usage()?` et al. GOV-15 inert: the map is empty for
-  // every 1.0.0-clean file (none declares the three names). The second
-  // sanctioned `letAnnotationToCompatType` call site (bug 0130 flag F-3;
-  // the first is the `let`-annotation arm in type-layer-checks.ts).
+  // RFC 0011 (seam sheet §0 C6) — see `buildRuntimeToolSuccessTypes`' own doc
+  // block (lexical-call-sites.ts).
   const runtimeToolSuccessTypes = buildRuntimeToolSuccessTypes(
     frontmatter?.tools,
   );
+  // C-bucket wiring (V20c) — see `checkTypeLayer`'s own doc block
+  // (type-layer-checks.ts), including the `wireName` NAME-KEYING ADJUDICATION
+  // for the `params:` projection below.
   const typeLayerDiags = checkTypeLayer(
     { statements, tail: resolvedTail },
     file,
@@ -485,41 +400,22 @@ function runWholeDocumentChecks(
     runtimeToolSuccessTypes,
   );
 
-  // imports.md §"`.thetalib` file rules": a `.thetalib` top level may contain only
-  // `import` / `export` / `schema` / `enum` / `fn` declarations; a bare
-  // statement, a `let` binding, or a top-level query is
-  // `theta/parse/thetalib-top-level-statement`. The check keys off the file's
-  // `.thetalib` extension (byte-exact lowercase), so it never fires for a `.theta`
-  // (IMP-4).
+  // imports.md §"`.thetalib` file rules" — see `checkThetaLibTopLevel`'s own
+  // doc block; keyed off the file's `.thetalib` extension (byte-exact
+  // lowercase), so it never fires for a `.theta` (IMP-4).
   const thetalibTopLevelDiags = file.endsWith(".thetalib")
     ? checkThetaLibTopLevel({ statements, tail: resolvedTail }, file)
     : [];
 
-  // RFC 0009 (invocation.md INV-8 default-reject): the `.thetalib` half of the
-  // call-site `with` clause's callee classification. A lib body holds no
-  // callable set, so the classification is vacuous and every clause-bearing
-  // bare-identifier call there is rejected at the library's own parse — keyed on
-  // the same `.thetalib` discriminator as the top-level-form check above. The
-  // `.theta` half lives in the load pass's classifying loop
-  // (`checkInvokeStaticResolution`), which is where the frozen callable set is.
+  // RFC 0009 (invocation.md INV-8 default-reject) — see
+  // `checkThetaLibCallWithClauses`' own doc block; keyed on the same
+  // `.thetalib` discriminator as the top-level-form check above.
   const thetalibCallWithClauseDiags = file.endsWith(".thetalib")
     ? checkThetaLibCallWithClauses({ statements, tail: resolvedTail }, file)
     : [];
 
-  // Bug 0446 §Fix Option 1 (widening bug 0431's top-level-only `.theta`
-  // refusal): a from-bearing `export … from` (non-empty path) is refused at
-  // ANY statement depth, in BOTH hosts — a `.theta` export is never
-  // importable regardless of nesting, and a `.thetalib` export is legal only
-  // at the top level (the same position `thetalibTopLevelDiags` above already
-  // keys its own rule on). Bug 0447 §Fix Option 1 widens the SAME recursive
-  // walk to a from-bearing `import … from` (non-empty path): nested in EITHER
-  // host it is refused with `theta/parse/import-not-top-level`, no host split
-  // — a nested import is never resolved or bound in a `.theta` or a
-  // `.thetalib` alike, only a top-level import stays legal. One recursive walk
-  // drives both statement kinds and both hosts. The ImportDecl / ExportDecl
-  // nodes themselves are left untouched so the shape rules
-  // (import-missing-from-clause, import-malformed-specifier-list) and the
-  // reserved-keyword rule keep firing on the same statement at any depth.
+  // Bugs 0446/0447 §Fix Option 1 — see `checkStatementPlacement`'s own doc
+  // block below.
   const statementPlacementDiags = checkStatementPlacement({ statements, tail: resolvedTail }, file);
 
   return [
@@ -532,6 +428,49 @@ function runWholeDocumentChecks(
     thetalibCallWithClauseDiags,
     statementPlacementDiags,
   ];
+}
+
+/**
+ * Build the three identifier seed sets the unknown-identifier walk and the
+ * `params:`-default name check read (REQ-EXPR-7, expressions.md §"Identifier
+ * resolution").
+ *
+ * `collectIdentRoots` itself is UNCHANGED (see its doc comment,
+ * ident-resolution.ts) — it is called a SECOND time here, over the
+ * `schema`/`enum`-free statement list, so `nonDeclarationRoots` holds every
+ * name a genuine value-binding source contributes, while `identRoots` (read
+ * at `checkParamsDefaultNames`'s call) keeps answering that function's own
+ * whole-file resolvability question unchanged — reusing one function for both
+ * calls is what keeps the two seeds from drifting apart. `typeOnlyNames` is
+ * then every declared `schema` / `enum` name `nonDeclarationRoots` does NOT
+ * also claim — a name only a declaration introduces and no value-binding
+ * source also binds. `bodyTypes.imports` is deliberately excluded from that
+ * subtraction's candidates: an imported symbol is resolution arm (3)
+ * (expressions.md:48), a genuine value, and it is already inside
+ * `nonDeclarationRoots` regardless (an `import` statement is not filtered out
+ * of the filtered list below).
+ */
+function identifierRootSeeds(
+  statements: readonly Stmt[],
+  frontmatter: ParsedFrontmatter | null,
+  bodyTypes: FrontmatterBodyTypes,
+): {
+  identRoots: Set<string>;
+  nonDeclarationRoots: Set<string>;
+  typeOnlyNames: Set<string>;
+} {
+  const identRoots = collectIdentRoots(statements, frontmatter);
+  const nonDeclarationRoots = collectIdentRoots(
+    statements.filter((s) => s.kind !== "schema" && s.kind !== "enum"),
+    frontmatter,
+  );
+  const typeOnlyNames = new Set<string>();
+  for (const name of [...bodyTypes.schemas.keys(), ...bodyTypes.enums]) {
+    if (!nonDeclarationRoots.has(name)) {
+      typeOnlyNames.add(name);
+    }
+  }
+  return { identRoots, nonDeclarationRoots, typeOnlyNames };
 }
 
 /**
@@ -1382,400 +1321,6 @@ function encodeSource(text: string): Uint8Array {
   return new TextEncoder().encode(text);
 }
 
-/**
- * Split a normalised source into its optional leading `---` frontmatter block
- * and the executable body. The frontmatter region is blanked (not removed) in
- * the returned body so body line numbers stay aligned with the original
- * source. The block carries the fence-stripped YAML text plus the file-line
- * offset of the opening fence, in the `FrontmatterBlock` shape
- * `parseFrontmatter` accepts directly. Returns `frontmatter: null` when no
- * leading fence is present.
- */
-function splitFrontmatter(text: string): {
-  frontmatter: FrontmatterBlock | null;
-  bodyText: string;
-} {
-  const lines = text.split("\n");
-  let open = -1;
-  for (let i = 0; i < lines.length; i += 1) {
-    const t = (lines[i] ?? "").trim();
-    if (t === "") {
-      continue;
-    }
-    open = t === "---" ? i : -1;
-    break;
-  }
-  if (open < 0) {
-    return { frontmatter: null, bodyText: text };
-  }
-  let close = -1;
-  for (let i = open + 1; i < lines.length; i += 1) {
-    if ((lines[i] ?? "").trim() === "---") {
-      close = i;
-      break;
-    }
-  }
-  if (close < 0) {
-    // FM-4: an opening `---` with no closing `---` is a malformed, unterminated
-    // frontmatter fence. frontmatter.md delimits the block with a closing
-    // fence; an unclosed block is not a valid frontmatter mapping. Rather than
-    // swallow the whole file as frontmatter and silently register a do-nothing
-    // empty-body theta (dropping the author's query), yield an EMPTY frontmatter
-    // block so `parseFrontmatter` produces `theta/load/missing-mode` and the
-    // theta un-registers with author feedback. The closed diagnostics registry
-    // (docs/reference/diagnostics.md) has no dedicated unterminated-fence code;
-    // missing-mode is the documented "no recognised frontmatter mapping"
-    // surface (see `extractFrontmatterBlock` in frontmatter.ts).
-    return {
-      frontmatter: { yaml: "", lineOffset: open + 1 },
-      bodyText: lines.map(() => "").join("\n"),
-    };
-  }
-  const yaml = lines.slice(open + 1, close).join("\n");
-  const bodyText = lines.map((l, i) => (i <= close ? "" : l)).join("\n");
-  return { frontmatter: { yaml, lineOffset: open + 1 }, bodyText };
-}
-
-// --------------------------------------------------------------------------
-// `///` doc-comment line scan
-// --------------------------------------------------------------------------
-
-/**
- * Classify a `///` run's anchor by RANGE LOOKUP against the already-parsed
- * top-level statement list, per descriptions.md §Placement / grammar.md §`///`
- * placement (five eligible anchors: `schema`, `enum`, schema field, enum
- * variant, `fn`). The verdict is structural — a range containment test —
- * rather than a leading-word sniff, because a field or variant line leads
- * with its own NAME, not a keyword, so no lexical test can place it: `Low,`
- * and `language: string,` carry no shared prefix an eligible-set match could
- * key on, and their only distinguishing fact is that a schema/enum DECLARATION
- * encloses their line.
- *
- * Two passes, in this order, because a declaration HEAD line and a BODY
- * INTERIOR line need different tests and a line can satisfy only one:
- *   1. exact start: `anchorLine` IS a declaration's first line — `schema`,
- *      `enum`, or `fn` (reference/grammar.md:311 `FnDecl ::= SubagentMod?
- *      "fn" …`, so a `subagent fn` head-line still classifies `"fn"`).
- *   2. body interior: `anchorLine` falls strictly inside a schema/enum
- *      declaration's range (after its head, at/before its closing `}`) — a
- *      field row (only when the schema is the object form, `fields` present;
- *      the alias/`by` forms carry no field list to anchor against) or a
- *      variant row.
- * Anything neither pass matches — `let`, `import`, `export`, expression /
- * control-flow statements, or a line past the last statement (EOF) — is
- * `"other"`.
- */
-function classifyDocAnchor(
-  statements: readonly Stmt[],
-  anchorLine: number | undefined,
-): string {
-  if (anchorLine === undefined) {
-    return "other";
-  }
-  for (const stmt of statements) {
-    if (stmt.range.start.line === anchorLine) {
-      if (stmt.kind === "schema") return "schema";
-      if (stmt.kind === "enum") return "enum";
-      if (stmt.kind === "fn") return "fn";
-    }
-  }
-  for (const stmt of statements) {
-    if (stmt.range.start.line < anchorLine && anchorLine <= stmt.range.end.line) {
-      if (stmt.kind === "schema" && stmt.fields !== undefined) return "field";
-      if (stmt.kind === "enum") return "variant";
-    }
-  }
-  return "other";
-}
-
-/** Build the doc-comment scan's template-prose predicate, excluding interpolations. */
-function templateProseLineSpans(tokens: readonly Token[]): (line: number) => boolean {
-  // Bug 0411 §Fix option 1, refined by bug 0420 §Fix option 1 — `scanDocComments`
-  // is the one line-oriented pass over the body text with no `@`...`` template
-  // guard (lexical.md:24 sentence 1: text inside a query template is rendered
-  // prompt, not a comment); the lexer's own `inTemplateProse` and
-  // `contextualDiagnostics`'s `inTemplateBody` both already toggle on backtick
-  // puncts to skip template interiors, so this scan gets the same toggle over
-  // the already-in-scope `tokens`. Backticks are template delimiters and
-  // always pair (matching lexer.ts's own toggle) EXCEPT when lexed inside a
-  // `${…}` interpolation, where a backtick is ordinary punctuation, not a
-  // delimiter (lexer.ts) — so the toggle only fires at interpolation depth 0.
-  // Any document containing an unpaired top-level backtick already refused
-  // upstream of this call, so on an accepted document every depth-0 backtick
-  // token here is a genuine open/close pair, and `templateLineSpans` recovers
-  // every template span exactly as 0411 left it.
-  //
-  // 0411 excluded a template span's lines wholesale, which over-reached into
-  // `${…}` interpolation interiors: lexical.md:24 sentence 2 puts interpolation
-  // contents in expression position, where the SAME `///` line one production
-  // over already draws `doc-comment-misplaced` (grammar.md:204). The walk below
-  // additionally tracks interpolation sub-spans — the lexer marks entry with an
-  // adjacent `$` `{` punct pair (only ever emitted together, from template
-  // prose) and nested `{`/`}` puncts while inside, so a depth counter over
-  // those puncts between a template's `${` and its matching `}` recovers each
-  // sub-span. `isTemplateLine` then excludes a line iff column-1 sits inside a
-  // template span AND NOT inside one of its interpolation sub-spans: prose
-  // stays excluded (sentence 1), interpolation interiors are treated as
-  // ordinary expression position (sentence 2). A line whose column-1 is prose
-  // but that merely CONTAINS a later `${…}` stays excluded — the interpolation
-  // sub-span for that occurrence opens at a column > 1 on the same line, so
-  // column-1 never falls strictly inside it. `docLine` anchors matches at `^`,
-  // so a line with real code before an opening backtick, or after a closing
-  // one, is correctly left un-excluded either way.
-  const templateLineSpans: { open: Position; close: Position }[] = [];
-  const interpSpans: { open: Position; close: Position }[] = [];
-  let openBacktick: Position | undefined;
-  let interpDepth = 0;
-  let interpOpen: Position | undefined;
-  let prevTok: Token | undefined;
-  for (const tok of tokens) {
-    if (tok.kind === "punct" && tok.text === "`" && interpDepth === 0) {
-      if (openBacktick === undefined) {
-        openBacktick = tok.range.start;
-      } else {
-        templateLineSpans.push({ open: openBacktick, close: tok.range.start });
-        openBacktick = undefined;
-      }
-    } else if (tok.kind === "punct" && tok.text === "{") {
-      if (
-        openBacktick !== undefined &&
-        interpDepth === 0 &&
-        prevTok?.kind === "punct" &&
-        prevTok.text === "$"
-      ) {
-        interpDepth = 1;
-        interpOpen = prevTok.range.start;
-      } else if (interpDepth > 0) {
-        interpDepth += 1;
-      }
-    } else if (tok.kind === "punct" && tok.text === "}" && interpDepth > 0) {
-      interpDepth -= 1;
-      if (interpDepth === 0 && interpOpen !== undefined) {
-        interpSpans.push({ open: interpOpen, close: tok.range.start });
-        interpOpen = undefined;
-      }
-    }
-    prevTok = tok;
-  }
-  const posBefore = (a: Position, b: Position): boolean =>
-    a.line < b.line || (a.line === b.line && a.column < b.column);
-  const isTemplateLine = (line: number): boolean => {
-    const lineStart: Position = { line, column: 1 };
-    const inTemplate = templateLineSpans.some(
-      (span) => posBefore(span.open, lineStart) && posBefore(lineStart, span.close),
-    );
-    if (!inTemplate) {
-      return false;
-    }
-    const inInterp = interpSpans.some(
-      (span) => posBefore(span.open, lineStart) && posBefore(lineStart, span.close),
-    );
-    return !inInterp;
-  };
-
-  return isTemplateLine;
-}
-
-/**
- * Recover `///` doc-comment runs from the body text (the lexer emits no
- * comment tokens) and delegate each run's placement to V5c's
- * `checkDocCommentPlacement`. The anchor is derived structurally, by range
- * lookup against the already-parsed statement list (`classifyDocAnchor`), not
- * by sniffing the following line's leading word — the leading word cannot
- * distinguish a schema field or enum variant (which lead with their own name)
- * from any other statement.
- *
- * `isTemplateLine` (bug 0411 §Fix) reports whether a 1-indexed line's
- * column-1 position sits inside a `@`...`` query template body; per
- * lexical.md:24 such a line is rendered prompt text, never a comment, so both
- * scans below treat it as an ordinary non-doc, non-anchor line regardless of
- * what it textually looks like.
- */
-function scanDocComments(
-  bodyText: string,
-  file: string,
-  statements: readonly Stmt[],
-  isTemplateLine: (line: number) => boolean,
-): {
-  nodes: DocComment[];
-  diagnostics: Diagnostic[];
-  attachments: DocDescriptionAttachment[];
-} {
-  const lines = bodyText.split("\n");
-  const nodes: DocComment[] = [];
-  const diagnostics: Diagnostic[] = [];
-  const attachments: DocDescriptionAttachment[] = [];
-  const docLine = /^[ \t]*\/\/\/(?!\/)(.*)$/;
-  // A `///`-shaped line inside a template body is prompt prose, not a doc
-  // comment (lexical.md:24) — never let it seed or extend a run.
-  const matchDocLine = (idx: number): RegExpExecArray | null =>
-    isTemplateLine(idx + 1) ? null : docLine.exec(lines[idx] ?? "");
-
-  let i = 0;
-  while (i < lines.length) {
-    const first = matchDocLine(i);
-    if (first === null) {
-      i += 1;
-      continue;
-    }
-    const startLine = i + 1; // 1-indexed
-    const content: string[] = [];
-    while (i < lines.length) {
-      const m = matchDocLine(i);
-      if (m === null) {
-        break;
-      }
-      content.push(m[1] ?? "");
-      i += 1;
-    }
-    const range: SourceRange = {
-      start: { line: startLine, column: 1 },
-      end: { line: startLine, column: (lines[startLine - 1] ?? "").length + 1 },
-    };
-    nodes.push({ kind: "doc-comment", lines: content, range });
-
-    // The anchor line is the next non-blank, non-comment line's 1-indexed
-    // line number — NOT its leading word (a field or variant line leads with
-    // its own name, which the classifier must not read). `undefined` when no
-    // such line exists (EOF): `classifyDocAnchor` maps that to "other", so a
-    // trailing `///` with no following production stays misplaced. A
-    // template-interior line is skipped here too (bug 0411 §Fix): it is
-    // rendered prose, not a candidate anchor, exactly like a blank or `//`
-    // line.
-    let anchorLine: number | undefined;
-    for (let j = i; j < lines.length; j += 1) {
-      const raw = lines[j] ?? "";
-      if (raw.trim() === "" || /^[ \t]*\/\//.test(raw) || isTemplateLine(j + 1)) {
-        continue;
-      }
-      anchorLine = j + 1;
-      break;
-    }
-    const anchor = classifyDocAnchor(statements, anchorLine);
-    const diag = checkDocCommentPlacement(anchor, { file, range });
-    if (diag !== undefined) {
-      diagnostics.push(diag);
-    }
-    // Every run gets an attachment candidate regardless of anchor kind;
-    // `attachDocDescriptions` decides which anchors actually consume it
-    // (schema/enum decl and field lines only — A1: variant/fn lines are never
-    // read, so their doc text stays AST-only via the floating `DocComment`
-    // node above, not this map).
-    attachments.push({ anchorLine, description: joinDocComment(content) });
-  }
-  return { nodes, diagnostics, attachments };
-}
-
-/**
- * One `///` run's join result, paired with the 1-indexed source line of the
- * production it anchors to (`undefined` when no such line exists, e.g. a
- * trailing run at EOF). `attachDocDescriptions` consumes these by building an
- * anchorLine→description map and reading it only at the schema/enum-DECL and
- * field lines A1 designates as lowering targets.
- */
-interface DocDescriptionAttachment {
-  readonly anchorLine: number | undefined;
-  readonly description: string;
-}
-
-/**
- * Attach `///` descriptions to their anchor declarations by line lookup,
- * BEFORE `mergeByLine` folds the floating `DocComment` nodes back into the
- * statement list. Per the A1 adjudication (docs/bugs/0358-…, §Fix), only
- * schema-DECL, enum-DECL, and schema-FIELD anchors consume a description here;
- * a `fn` head line or an enum variant line is never a key this function reads,
- * so its doc text is never attached (accepted-but-AST-only: it survives only
- * as the floating `DocComment` sibling `mergeByLine` still produces).
- * Statements outside this set (`let`, `import`, `export`, expressions, doc
- * comments themselves) pass through unchanged. Rebuilds by object-spread so
- * every unrelated field/statement is preserved verbatim.
- *
- * Attachment mirrors placement: a `//` or blank line between the trailing
- * `///` run and the anchor does NOT disconnect it (`scanDocComments`'s
- * `anchorLine` scan skips both, 0357's shipped placement behaviour), so a
- * validly-placed run always lowers — never a silent drop. The `//`-terminates
- * rule of `extractDescription` governs run FORMATION (a `//` inside the `///`
- * block breaks the maximal run), which `scanDocComments`'s forward `docLine`
- * scan already enforces.
- */
-function attachDocDescriptions(
-  statements: readonly Stmt[],
-  attachments: readonly DocDescriptionAttachment[],
-): Stmt[] {
-  const byLine = new Map<number, string>();
-  for (const attachment of attachments) {
-    if (attachment.anchorLine !== undefined) {
-      byLine.set(attachment.anchorLine, attachment.description);
-    }
-  }
-  return statements.map((stmt) => {
-    if (stmt.kind === "schema") {
-      const description = byLine.get(stmt.range.start.line);
-      let fields = stmt.fields;
-      let fieldsChanged = false;
-      if (stmt.fields !== undefined) {
-        // Mirror `classifyDocAnchor`'s precedence so one `///` run reaches one
-        // anchor: its exact-start pass (a line that IS the decl head) wins over
-        // its body-interior pass (a field row), and a run keyed to a line
-        // carrying several fields sits immediately above the FIRST of them.
-        // `consumed` records each line whose description a field has already
-        // taken, so the same line's text is never re-attached to a later field
-        // sharing that line.
-        const consumed = new Set<number>();
-        const mapped = stmt.fields.map((field) => {
-          // A field on the decl head line is NOT a field anchor: that line is
-          // the schema-DECL anchor, so a `///` above it lowers into the decl's
-          // own `description` (above) and must not leak onto the field.
-          if (field.line === undefined || field.line === stmt.range.start.line) {
-            return field;
-          }
-          if (consumed.has(field.line)) {
-            return field;
-          }
-          const fieldDescription = byLine.get(field.line);
-          if (fieldDescription === undefined) {
-            return field;
-          }
-          consumed.add(field.line);
-          fieldsChanged = true;
-          return { ...field, description: fieldDescription };
-        });
-        if (fieldsChanged) {
-          fields = mapped;
-        }
-      }
-      if (description === undefined && !fieldsChanged) {
-        return stmt;
-      }
-      return {
-        ...stmt,
-        ...(description !== undefined ? { description } : {}),
-        ...(fields !== undefined ? { fields } : {}),
-      };
-    }
-    if (stmt.kind === "enum") {
-      const description = byLine.get(stmt.range.start.line);
-      return description !== undefined ? { ...stmt, description } : stmt;
-    }
-    return stmt;
-  });
-}
-
-/** Merge doc-comment nodes into the statement list, ordered by source line. */
-function mergeByLine(
-  statements: readonly Stmt[],
-  docs: readonly DocComment[],
-): Stmt[] {
-  const merged: Stmt[] = [...statements, ...docs];
-  return merged.sort((a, b) => {
-    const al = a.range.start.line;
-    const bl = b.range.start.line;
-    if (al !== bl) {
-      return al - bl;
-    }
-    return a.range.start.column - b.range.start.column;
-  });
-}
 
 /**
  * Classify an enum-variant explicit `= <literal>` value token into the
@@ -1864,454 +1409,6 @@ function toolCallableName(entry: string): string {
   return thetaDefaultName(spec);
 }
 
-/**
- * Build the whole-file identifier root scope: every name visible everywhere in
- * the body regardless of source order — hoisted top-level `fn` names, `schema` /
- * `enum` names, imported symbols, `params:` field names, resolved
- * `tools:` callable names, and the stdlib builtins. Theta-level `let` bindings are
- * NOT roots (they bind sequentially and are accumulated as the walk descends).
- *
- * This one fold is deliberately coarser than either of its two callers' own
- * question, because it answers a THIRD, shared one — "is this name bound at
- * all, anywhere in the file" — and each caller narrows it differently. Bug
- * 0197's `checkParamsDefaultNames` reads this set exactly as built, once, over
- * every statement: its own question is whether a `params:` default's head
- * resolves at all, and a `schema` / `enum` name resolving is the right answer
- * to THAT question. `checkUnknownIdentifiers` asks a finer one —
- * `expressions.md` §"Identifier resolution" states four resolution arms and
- * names no declaration form, so a `schema` / `enum` name is not itself an arm
- * — and reads this set a SECOND time, over a `schema`/`enum`-free statement
- * list, to recover the value-binding sources alone; see its own doc comment
- * for the three-way judgement that produces.
- */
-function collectIdentRoots(
-  statements: readonly Stmt[],
-  frontmatter: ParsedFrontmatter | null,
-): Set<string> {
-  const roots = new Set<string>(BUILTIN_VALUE_NAMES);
-  for (const s of statements) {
-    switch (s.kind) {
-      case "fn":
-      case "schema":
-      case "enum":
-        roots.add(s.name);
-        break;
-      case "import":
-        // expressions.md §"Identifier resolution" arm (3) is "a symbol
-        // imported from a `.thetalib` file" — an `export` specifier creates
-        // no local binding (imports.md §"Re-exports"), so it must not seed a
-        // name this whole-file scope treats as bound.
-        for (const sym of s.symbols) {
-          roots.add(sym);
-        }
-        break;
-      default:
-        break;
-    }
-  }
-  if (frontmatter !== null) {
-    for (const f of frontmatter.params?.fields ?? []) {
-      roots.add(f.wireName);
-    }
-    for (const entry of frontmatter.tools ?? []) {
-      const name = toolCallableName(entry);
-      if (name.length > 0) {
-        roots.add(name);
-      }
-    }
-  }
-  return roots;
-}
-
-/**
- * The per-parse walk state `checkUnknownIdentifiers` threads through
- * `walkIdentBlock` / `walkIdentStmt` / `walkIdentExpr` in place of a bare
- * `ReadonlySet<string>` root scope (mirrors the sibling `CallSiteWalkContext`
- * / `walkCtx` convention the lexical call-site walk below uses, for the same
- * naming reason: a parameter literally named `ctx` collides with the
- * pi-integration-contract inventory audit's canonical-carrier convention for
- * that spelling). `roots` alone answers "does this name resolve at all" — the
- * question `collectIdentRoots` was built for, and the one
- * `checkParamsDefaultNames` still asks against its OWN, byte-unchanged call to
- * that function. This walk needs a second question for a name `roots` does
- * not itself resolve: is it declared as a `schema` / `enum` and nothing else?
- * `typeOnlyNames` and `declaredEnums` answer exactly that, without touching
- * `collectIdentRoots` or its first call.
- */
-interface IdentWalkContext {
-  /**
-   * Every name a genuine value-binding source contributes: `collectIdentRoots`
-   * run over the statement list with `schema` / `enum` declarations filtered
-   * OUT, so a `fn`, an imported symbol, a `params:` field, a resolved
-   * `tools:` callable, and the stdlib builtins all still seed scope exactly
-   * as before, and a name only a `schema` or `enum` declares does not.
-   */
-  readonly roots: ReadonlySet<string>;
-  /**
-   * Every `schema` / `enum` name this file declares that `roots` does NOT
-   * also claim — a name a declaration introduces and no value-binding source
-   * also binds. `bodyTypes.imports` is deliberately excluded from the
-   * candidates this set is built from: an imported symbol is resolution arm
-   * (3) (expressions.md:48), a genuine value, not a type-only name.
-   */
-  readonly typeOnlyNames: ReadonlySet<string>;
-  /**
-   * Declared `enum` names (`bodyTypes.enums`), read only by the `member` arm
-   * below. `Enum.Variant` access is licensed at the same identifier-
-   * resolution site a bare value read would use (expressions.md:22), so the
-   * licence has to except the receiver there rather than by leaving the
-   * enum's name in `roots` — which would also silence a bare `enum` name used
-   * as a value. A declared SCHEMA receiver has no bare-member form to license
-   * and keeps firing.
-   */
-  readonly declaredEnums: ReadonlySet<string>;
-}
-
-/**
- * The syntactic position `emitUnknownIdentifier` found a bare identifier at.
- * Read only for a name in `IdentWalkContext.typeOnlyNames` — every other name
- * is refused, or not, exactly as before this type existed, at every site.
- */
-type IdentSite = "value" | "call" | "discarded";
-
-/**
- * Resolve every identifier the walk reaches against three possibilities, not
- * the plain in-scope / not-in-scope test this pass answered before. A name in
- * `walkCtx.roots` — a `params:` field, a `let` binding, a top-level `fn`, an
- * imported symbol, a resolved `tools:` callable, or a stdlib builtin, each a
- * resolution arm `expressions.md` §"Identifier resolution" states (`:46–49`)
- * — is silent. A name that is NOT one of those arms but IS a declared
- * `schema` or `enum` (`walkCtx.typeOnlyNames`) is `theta/parse/type-as-value`
- * at a VALUE position — a declaration introduces a named type
- * (`schemas.md:3`) and matches no arm, the same ground FN-1
- * (`functions.md:20`) already refuses a bare `fn` name on — silent at a
- * DISCARDED expression-statement position (the no-op-statement class bug
- * 0033 / bug 0042 pinned), and `theta/parse/unknown-identifier` at a CALL
- * position: `:44` scopes the four-arm list to call position by its own
- * sentence, and a declaration fails it there exactly as an undeclared name
- * does. Every other name — resolving to no arm and no declaration — is
- * `theta/parse/unknown-identifier` regardless of position (`:51`).
- *
- * Scope is tracked block-locally: `let` bindings accumulate in declaration
- * order, nested blocks inherit a copy, and a `fn` body sees only the
- * whole-file roots plus its own parameters (theta 1.0 has no closures). Only
- * names the walk actually reaches in an identifier / call-callee /
- * member-or-method receiver position are checked; schema-constructor names,
- * member field names, method names, object keys, and `${…}` template
- * interpolations are not identifier-resolution sites here.
- */
-function checkUnknownIdentifiers(
-  body: Block,
-  walkCtx: IdentWalkContext,
-  file: string,
-): Diagnostic[] {
-  const out: Diagnostic[] = [];
-  walkIdentBlock(body, new Set(walkCtx.roots), walkCtx, file, out);
-  return out;
-}
-
-/**
- * The sink every identifier-resolution judgement in this walk funnels
- * through, so the three-way rule `checkUnknownIdentifiers`'s doc comment
- * states is decided in exactly one place. The scope-shadow test runs FIRST
- * and is unconditional: a `let`, a parameter, a `for` / `match` binder, a
- * `params:` field, or a callable-set entry sharing the declaration's spelling
- * is already IN `scope` by the time its own reads are walked, so it wins over
- * the declaration wherever it is in scope, whatever the name is ALSO declared
- * as (bug 0126 group (d); bug 0050's u9b / u9c / u13 rows) — this is why the
- * test is unchanged from before this code existed. Past it, `site` matters
- * only for a name in `walkCtx.typeOnlyNames`: `"value"` refuses it,
- * `"discarded"` leaves it silent, and `"call"` falls through unchanged to the
- * push below.
- */
-function emitUnknownIdentifier(
-  name: string,
-  range: SourceRange,
-  scope: ReadonlySet<string>,
-  walkCtx: IdentWalkContext,
-  file: string,
-  out: Diagnostic[],
-  site: IdentSite = "value",
-): void {
-  if (name.length === 0 || name === "_" || scope.has(name)) {
-    return;
-  }
-  if (walkCtx.typeOnlyNames.has(name)) {
-    if (site === "discarded") {
-      return;
-    }
-    if (site === "value") {
-      out.push({
-        severity: "error",
-        code: "theta/parse/type-as-value",
-        file,
-        range,
-        message: `type '${name}' used as a value; a schema or enum declaration names a type, not a value`,
-      });
-      return;
-    }
-  }
-  out.push({
-    severity: "error",
-    code: "theta/parse/unknown-identifier",
-    file,
-    range,
-    message: `unknown identifier '${name}'`,
-  });
-}
-
-/**
- * Refuse a reassignment TARGET that resolves against no value binding (bug 0370
- * §Fix F6). A write target is NOT a value read: unlike `emitUnknownIdentifier`'s
- * `"value"` site, a type-only `schema` / `enum` name here resolves to no value
- * binding to write, so it is `unknown-identifier`, never the read-position
- * `type-as-value` (which stays firing for genuine RHS reads through the
- * read-oriented emitter). `_` is the discard context, refused at `buildReassign`
- * as `immutable-rebinding`, so the target arm stays silent for it.
- */
-function emitReassignTargetUnknown(
-  target: string,
-  range: SourceRange,
-  file: string,
-  out: Diagnostic[],
-): void {
-  if (target.length === 0 || target === "_") {
-    return;
-  }
-  out.push({
-    severity: "error",
-    code: "theta/parse/unknown-identifier",
-    file,
-    range,
-    message: `unknown identifier '${target}'`,
-  });
-}
-
-function walkIdentBlock(
-  block: Block,
-  scope: Set<string>,
-  walkCtx: IdentWalkContext,
-  file: string,
-  out: Diagnostic[],
-): void {
-  for (const s of block.statements) {
-    walkIdentStmt(s, scope, walkCtx, file, out);
-  }
-  if (block.tail !== null) {
-    walkIdentExpr(block.tail, scope, walkCtx, file, out);
-  }
-}
-
-function walkIdentStmt(
-  s: Stmt,
-  scope: Set<string>,
-  walkCtx: IdentWalkContext,
-  file: string,
-  out: Diagnostic[],
-): void {
-  switch (s.kind) {
-    case "let":
-      if (s.init !== null) {
-        walkIdentExpr(s.init, scope, walkCtx, file, out);
-      }
-      if (s.name !== "_") {
-        scope.add(s.name);
-      }
-      return;
-    case "reassign": {
-      walkIdentExpr(s.value, scope, walkCtx, file, out);
-      // The TARGET resolves against the same scope reads use (bug 0370 §Fix
-      // layer 1): an in-scope target (a `let`, a parameter, a `for` / `par for`
-      // / `match` binder, or a `params:` field already added to `scope`) is
-      // silent here — `buildReassign` handled its immutability, if any. An
-      // out-of-scope target `buildReassign` already refused as immutable carries
-      // `immutableRebindingEmitted`, the EXACT signal that the immutability
-      // check fired (G6); the walk defers to it rather than ALSO drawing
-      // `unknown-identifier`. A write `buildReassign` drew nothing on — an
-      // order-reversed write to a later `let` (F2), or a redeclared name whose
-      // shadowing `let mut` made `buildReassign` see a mutable target — has the
-      // flag unset, so the walk refuses it. Every other out-of-scope or
-      // undeclared target is genuinely unresolvable.
-      if (!scope.has(s.target) && !s.immutableRebindingEmitted) {
-        emitReassignTargetUnknown(s.target, s.range, file, out);
-      }
-      return;
-    }
-    case "if": {
-      walkIdentExpr(s.condition, scope, walkCtx, file, out);
-      walkIdentBlock(s.then, new Set(scope), walkCtx, file, out);
-      if (s.otherwise !== null) {
-        if ("statements" in s.otherwise) {
-          walkIdentBlock(s.otherwise, new Set(scope), walkCtx, file, out);
-        } else {
-          walkIdentStmt(s.otherwise, new Set(scope), walkCtx, file, out);
-        }
-      }
-      return;
-    }
-    case "while":
-      walkIdentExpr(s.condition, scope, walkCtx, file, out);
-      walkIdentBlock(s.body, new Set(scope), walkCtx, file, out);
-      return;
-    case "for": {
-      walkIdentExpr(s.iterand, scope, walkCtx, file, out);
-      const inner = new Set(scope);
-      inner.add(s.variable);
-      walkIdentBlock(s.body, inner, walkCtx, file, out);
-      return;
-    }
-    case "fn": {
-      // A `fn` body is closure-free: it sees only the whole-file roots plus its
-      // own parameters, NOT the enclosing theta-level `let` bindings.
-      const fnScope = new Set(walkCtx.roots);
-      for (const p of s.params) {
-        fnScope.add(p.name);
-      }
-      walkIdentBlock(s.body, fnScope, walkCtx, file, out);
-      return;
-    }
-    case "return":
-      if (s.operand !== null) {
-        walkIdentExpr(s.operand, scope, walkCtx, file, out);
-      }
-      return;
-    case "query":
-      walkIdentExpr(s.query, scope, walkCtx, file, out);
-      return;
-    case "tool-call":
-      walkIdentExpr(s.call, scope, walkCtx, file, out);
-      return;
-    case "invoke":
-      walkIdentExpr(s.invoke, scope, walkCtx, file, out);
-      return;
-    case "expr":
-      // A DISCARDED expression statement — the no-op-statement class bug 0033
-      // / bug 0042 pinned silent for a bare declared name; an undeclared name
-      // at the same position is unaffected and still resolves to nothing
-      // (the walk's own contrast row over this same class).
-      walkIdentExpr(s.expr, scope, walkCtx, file, out, "discarded");
-      return;
-    default:
-      // schema / enum / import / export / break / continue / doc-comment carry
-      // no identifier-resolution sites.
-      return;
-  }
-}
-
-function walkIdentExpr(
-  e: Expr,
-  scope: Set<string>,
-  walkCtx: IdentWalkContext,
-  file: string,
-  out: Diagnostic[],
-  site: IdentSite = "value",
-): void {
-  switch (e.kind) {
-    case "ident":
-      emitUnknownIdentifier(e.name, e.range, scope, walkCtx, file, out, site);
-      return;
-    case "call":
-      // The callee is a bare identifier in CALL position (expressions.md:44);
-      // a name in `typeOnlyNames` still falls through to `unknown-identifier`
-      // here — the value-position refusal is a different sentence
-      // (imports.md:50) for a different position.
-      emitUnknownIdentifier(e.callee, e.range, scope, walkCtx, file, out, "call");
-      // RFC 0009: identifiers inside a call-site `with` clause value resolve as
-      // an argument's do.
-      for (const arg of [...e.args, ...callWithClauseValues(e)]) {
-        walkIdentExpr(arg, scope, walkCtx, file, out);
-      }
-      return;
-    case "binary":
-      walkIdentExpr(e.left, scope, walkCtx, file, out);
-      walkIdentExpr(e.right, scope, walkCtx, file, out);
-      return;
-    case "ternary":
-      walkIdentExpr(e.condition, scope, walkCtx, file, out);
-      walkIdentExpr(e.consequent, scope, walkCtx, file, out);
-      walkIdentExpr(e.alternate, scope, walkCtx, file, out);
-      return;
-    case "try":
-      walkIdentExpr(e.operand, scope, walkCtx, file, out);
-      return;
-    case "invoke":
-      // The callee path is a string literal, not an identifier.
-      for (const arg of [...e.args, ...callWithClauseValues(e)]) {
-        walkIdentExpr(arg, scope, walkCtx, file, out);
-      }
-      return;
-    case "member":
-      // The receiver is an identifier-resolution site; the `.field` name is
-      // not. A receiver naming a declared ENUM is `Enum.Variant` access
-      // (expressions.md:22), licensed here ahead of the walk; a declared
-      // SCHEMA receiver has no such licensed bare-member form and keeps
-      // firing.
-      if (e.target.kind === "ident" && walkCtx.declaredEnums.has(e.target.name)) {
-        return;
-      }
-      walkIdentExpr(e.target, scope, walkCtx, file, out);
-      return;
-    case "index":
-      walkIdentExpr(e.target, scope, walkCtx, file, out);
-      walkIdentExpr(e.index, scope, walkCtx, file, out);
-      return;
-    case "method-call":
-      // The receiver is a resolution site; the method name is A2's concern.
-      walkIdentExpr(e.target, scope, walkCtx, file, out);
-      for (const arg of e.args) {
-        walkIdentExpr(arg, scope, walkCtx, file, out);
-      }
-      return;
-    case "object":
-      // The constructor / object keys are not value-position identifiers.
-      for (const field of e.fields) {
-        walkIdentExpr(field.value, scope, walkCtx, file, out);
-      }
-      return;
-    case "array":
-      for (const el of e.elements) {
-        walkIdentExpr(el, scope, walkCtx, file, out);
-      }
-      return;
-    case "result-ctor":
-      walkIdentExpr(e.arg, scope, walkCtx, file, out);
-      return;
-    case "match":
-      walkIdentExpr(e.scrutinee, scope, walkCtx, file, out);
-      for (const arm of e.arms) {
-        const armScope = new Set(scope);
-        collectPatternBindings(arm.pattern, armScope);
-        walkIdentExpr(arm.body, armScope, walkCtx, file, out);
-      }
-      return;
-    case "par-for": {
-      // The body inherits a COPY of the enclosing scope, not `walkCtx.roots`:
-      // CTRL-4 (control-flow.md:76) states outer bindings and the loop
-      // variable are both readable inside a `par for` body, so the `fn`
-      // arm's whole-file reseeding above is not the model here. Traversal
-      // order (iterand, then `max`, then body) mirrors `walkCallSiteExpr`'s
-      // `case "par-for"` and `walkExpr`'s `case "par-for"`.
-      walkIdentExpr(e.iterand, scope, walkCtx, file, out);
-      if (e.max !== null) {
-        walkIdentExpr(e.max, scope, walkCtx, file, out);
-      }
-      const inner = new Set(scope);
-      inner.add(e.variable);
-      walkIdentBlock(e.body, inner, walkCtx, file, out);
-      return;
-    }
-    case "block":
-      // A CHILD scope (bug 0082 §Fix): a name the block's own `let`s
-      // bind must not leak to the read that follows the block — mirrors the
-      // `if` / `while` / `par-for` arms above, which likewise walk their body
-      // over a COPY of `scope`.
-      walkIdentBlock(e.body, new Set(scope), walkCtx, file, out);
-      return;
-    default:
-      // number / string / bool / null / query — no identifier sites.
-      return;
-  }
-}
 
 // --------------------------------------------------------------------------
 // Lexical call-site rules — bug 0003 (Pi-tool argument shape) + bug 0016
@@ -2474,884 +1571,7 @@ function schemaTypeNotExpressionDiagnostic(
   };
 }
 
-/**
- * The registered `theta/parse/query-annotation-type-not-expression` refusal
- * (bug 0203 §Fix): an AUTHOR-WRITTEN `@<T>` / bare `@Ident` query ascription
- * whose captured source — `annotationSourceIsNotTypeExpression`
- * (type-layer-checks.ts) — derives from none of `Type`'s six alternatives
- * (grammar.md §Type grammar).
- *
- * A ROW OF ITS OWN rather than a fourth position on
- * `annotationTypeNotExpressionDiagnostic` (annotation-validation.ts), for three reasons.
- * (1) That row's Trigger states its unit as the whole annotation "naming the
- * annotation's own binder"; THIS position has none — a bare `@<T>`…`` query
- * STATEMENT declares nothing at all, so there is no identifier for `<name>` to
- * render. (2) That row's withhold contract (the `?`-scope check, the
- * Result-certainty channel, the callee parameter table, the binding record,
- * the `fn` parameter scope, the `subagent fn` FN-6 return boundary) and its
- * `integer|`-at-the-return-slot capture asymmetry are meaningless, or FALSE,
- * at an ascription: this capture is delimited by its own closing `>`, so
- * `@<Ghost|>` captures `Ghost|` whole and absorbs nothing beyond it.
- * (3) This capture already has a position-specific, placeholder-free sibling
- * at the same site — `theta/parse/empty-query-annotation` (bug 0014), raised
- * a few lines above the walk that reaches this builder — and this row matches
- * its shape rather than the annotation row's `<name>`-bearing one.
- */
-function queryAnnotationTypeNotExpressionDiagnostic(
-  range: SourceRange,
-  file: string,
-): Diagnostic {
-  return {
-    severity: "error",
-    code: "theta/parse/query-annotation-type-not-expression",
-    file,
-    range,
-    message:
-      "`@<...>` query annotation declares a type that is not a theta type expression",
-  };
-}
 
-/** A `Result<Ok, Err>` application, captured as its two type arguments. */
-const RESULT_APPLICATION = /^Result\s*<([\s\S]*)>$/;
-
-/**
- * The part of a `QueryExpr.schema` that is the RESPONSE schema — the whole
- * annotation, except that a `Result<T, E>` application yields `T`.
- *
- * WHY: `QueryExpr.schema` is not always something the author wrote at the
- * `@<T>` position. `parseLet` propagates a `let` annotation verbatim onto a
- * bare-query initialiser, and a query's declared value type is
- * `Result<T, QueryError>` (QRY-1) — so `let r: Result<string, QueryError> =
- * @`…`` arrives here as the full `Result<…>` text. Its `E` side is a builtin
- * observed only by theta code and never lowered to a JSON Schema fragment
- * (grammar.md §"Generic-application constructors"). `Result` is admitted
- * there by the grammar and is never itself resolved as a `NamedType` atom
- * (`lowerTypeExpr`'s generic-application arm reads a `ctor` name
- * structurally, never through the identifier-resolution arm), and bug 0262
- * §Fix clause (iv)(2) withholds the `let` capture's own resolution of this
- * SAME propagated text, leaving this arm its sole emitter. What this peel
- * protects is the BUILTIN `QueryError`, by the same builtin error-model
- * admission the `let`, `fn` parameter, `fn` return, `invoke<Type>` and
- * `Result<T, E>` error-side captures carry (`withBuiltinErrorModelNames`) —
- * not the argument slot: the
- * `"query"` arm resolves names in `args[1]` beside the response part it reads
- * from this function (bug 0273 §Fix), so an undeclared head written there is
- * still refused. The `T` side — the shape the response is validated against
- * — is still checked, so a typo in `let r: Result<Tirage, QueryError> =
- * @`…`` is still refused.
- *
- * `undefined` means "this annotation has no response part to check": a `Result`
- * application whose argument count is not 2 draws
- * `theta/parse/generic-arity-mismatch` from the `"query"` arm's own `else`
- * branch (`walkExpr`, this file — bug 0278 §Fix), which re-parses the WHOLE
- * annotation and keeps only that one diagnostic, rather than from this peel;
- * which argument would have been `T` is not determinable. Descending the
- * malformed text as `T` instead would name `QueryError` — the builtin this
- * peel exists to protect — plus every stray argument, as unresolved beside
- * the real arity error.
- *
- * The argument split tracks BRACE depth as well as angle depth
- * (`"angle-and-brace"`): `ObjectType` is a `Type` in every position
- * (grammar.md §"Inline object types"), so an ok side such as
- * `{a: string, b: integer}` carries a top-level-looking comma that is not an
- * argument boundary. Splitting on angle depth alone made the peel disagree
- * with the parser that computes the arity diagnostic — it saw three arguments
- * where the grammar sees two, took this function's non-arity-2 path, and left
- * the whole `Result<…>` text to be descended.
- *
- * This split tracks NEITHER `[…]` bracket depth, and bug 0204 §Fix (b)(3)
- * keeps it that way on stated grounds (`./params`'s `lowerTypeExpr` stays
- * angle-only for the same reason) — so for a bracket-group argument
- * (`Result<enum["a", "b"], string>`) this peel still counts the group's own
- * interior comma as an argument boundary: three segments, where `TypeParser`
- * (fixed for that construct, bug 0236) now counts two. `queryResponseAnnotation`
- * returns `undefined` on any non-2 count, so that spelling takes the same
- * non-arity-2 path it did before — `Result`'s arity goes unreported at the
- * query annotation for it, same as any other non-2 count this function
- * declines. The peel is not made to re-agree for this construct; the earlier
- * bracket-blind agreement claim above this function is corrected to name the
- * residual instead.
- */
-function queryResponseAnnotation(schema: string): string | undefined {
-  const application = RESULT_APPLICATION.exec(schema.trim());
-  if (application === null) {
-    return schema;
-  }
-  const args = splitTopLevel(application[1] ?? "", ",", "angle-and-brace");
-  return args.length === 2 ? args[0] : undefined;
-}
-
-/**
- * The `E` side of the same `Result<T, E>` application `queryResponseAnnotation`
- * peels `T` from — its sibling, not its replacement (bug 0273 §Fix).
- * `queryResponseAnnotation`'s return value and signature are untouched by this
- * function's existence: the response-schema reads, the position-rule walk and
- * the `annotationSourceIsNotTypeExpression` refusal keep consuming `T` alone,
- * and this is the ONLY thing that also looks at `args[1]`.
- *
- * `undefined` means "this annotation has no `E` argument to resolve": either
- * `schema` is not a `Result` application at all (a bare response schema with
- * no error side ever written), or it is one whose argument count is not 2, in
- * which case the `"query"` arm's `else` branch reports
- * `theta/parse/generic-arity-mismatch` from the whole annotation (bug 0278
- * §Fix; see `queryResponseAnnotation`'s doc block, above) and which argument
- * would have been `E` remains, like `T`, not determinable — same as
- * `queryResponseAnnotation`'s own non-arity-2 declination.
- */
-function queryErrorModelAnnotation(schema: string): string | undefined {
-  const application = RESULT_APPLICATION.exec(schema.trim());
-  if (application === null) {
-    return undefined;
-  }
-  const args = splitTopLevel(application[1] ?? "", ",", "angle-and-brace");
-  return args.length === 2 ? args[1] : undefined;
-}
-
-/** Check a query annotation's response and error-model parts in diagnostic order. */
-function checkQueryAnnotation(
-  e: QueryExpr,
-  refs: StructuralRefs,
-  file: string,
-  out: Diagnostic[],
-): void {
-  // Registry row position 2 — the `@<T>` query annotation (bug 0028
-  // §Fix). This one site also covers the DIRECT-LET (`let r: T = @`…``)
-  // and the QRY-2 INFERRED forms: `parseLet`'s direct propagation and
-  // `resolveQuerySchemas` both write the resolved annotation into
-  // `QueryExpr.schema` BEFORE this structural walk runs, so every route
-  // to a schema-bearing query converges on this one check. The empty
-  // annotation (`e.schema === ""`) is skipped — bug 0014's
-  // `theta/parse/empty-query-annotation` already owns that interior, and
-  // a second diagnostic here would double up. Because a propagated `let`
-  // annotation may be the query's `Result<T, QueryError>` value type
-  // rather than a response schema, only the response part is checked
-  // (`queryResponseAnnotation`).
-  if (e.schema !== null && e.schema.trim().length > 0) {
-    const responseAnnotation = queryResponseAnnotation(e.schema);
-    if (responseAnnotation !== undefined) {
-      // `@<Schema>` is a type ASCRIPTION (query-forms.md:44, :57), and
-      // `TypePosition`'s closed classification (type-grammar.ts) puts an
-      // ascription in `"value"`, not `"schema-feeding"`: `void` is
-      // rejected there and `Result` remains admitted (grammar.md §Type
-      // grammar), and `result-in-schema-position` (code-registry-parse.md
-      // :60) does not name this position — `"schema-feeding"` here would
-      // widen that row's trigger, which bug 0044 §Fix Blast-radius
-      // forbids.
-      // Bug 0093 §Fix route 2: a `let x: T = @`…`` (or its `?`-wrapped
-      // form) propagation puts the SAME annotation text here that
-      // `walkStatement`'s `let` arm already walked at the statement's own
-      // range (`parseTypeExpression(s.annotation, "value", …)`, which
-      // runs and pushes FIRST since the statement's diagnostics precede
-      // its initialiser walk). Re-walking it here would double every rule
-      // this shared type-grammar pass owns at position `"value"` —
-      // `empty-schema-body`, `generic-arity-mismatch`,
-      // `void-in-non-return-position` today, and any rule later added to
-      // `walkType` or `"inline-object-shape"` — for one written
-      // occurrence. Withholding only this call, not the arm, keeps the
-      // surviving line at the statement's (wider) range and leaves
-      // `TypePosition` at `"value"` unchanged; it does not reach the
-      // `annotationSourceIsNotTypeExpression` refusal below (that refusal
-      // already gates on `ascriptionWritten === true`, which propagated
-      // text never sets) or the name-resolution loops after it, which
-      // still run for the propagated text (this arm is `Ghost`'s SOLE
-      // emitter — bug 0093 §Reproduction).
-      const positionRuleDiagnostics =
-        e.schemaFromLetAnnotation === true
-          ? []
-          : parseTypeExpression(responseAnnotation, "value", {
-              file,
-              range: e.range,
-            });
-      out.push(...positionRuleDiagnostics);
-      // Bug 0203 §Fix (b)(5): an annotation whose own position-rule walk
-      // just drew an error-severity diagnostic (`void`, a generic-arity
-      // mismatch, an empty inline object, a duplicate inline field name)
-      // keeps that diagnostic ALONE — this refusal judges the SAME text a
-      // second time and would double up on one statement if it fired
-      // beside a verdict that text already earned. §Fix (b)(6): fire only
-      // for an ascription the AUTHOR wrote (`ascriptionWritten === true`)
-      // — a PROPAGATED `let` annotation's junk is the `let` binding's own
-      // text and is refused there instead, by
-      // `theta/parse/annotation-type-not-expression` (bug 0124).
-      if (
-        e.ascriptionWritten === true &&
-        !positionRuleDiagnostics.some((d) => d.severity === "error") &&
-        annotationSourceIsNotTypeExpression(responseAnnotation)
-      ) {
-        out.push(queryAnnotationTypeNotExpressionDiagnostic(e.range, file));
-        // The refusal is the annotation's WHOLE disposition (bug 0203
-        // §Fix): text that derives from no `Type` is neither a name nor a
-        // reserved keyword, so the loops below — which resolve `Ident`s
-        // this refused text is not — do not also run.
-        return;
-      }
-      const annotationReservedKeywords: string[] = [];
-      const annotationUnresolved = collectUnresolvedNamedTypes(
-        responseAnnotation,
-        refs.typeNames,
-        annotationReservedKeywords,
-      );
-      for (const keyword of annotationReservedKeywords) {
-        out.push(reservedKeywordAsIdentifierDiagnostic(keyword, e.range, file));
-      }
-      for (const name of annotationUnresolved) {
-        out.push(unresolvedNamedTypeDiagnostic(name, e.range, file));
-      }
-      // Bug 0273 §Fix: the `E` side of the same `Result<T, E>` application,
-      // resolved beside the response part above rather than instead of it.
-      // This runs for the propagated route too (clause (iv)(2)'s withhold
-      // above gates only `parseTypeExpression`, not this loop) because the
-      // query arm is the propagated text's sole emitter — withholding this
-      // as well would leave the `E` head unrefused everywhere. Bug 0277
-      // §Fix route (a): the sink is rendered directly, exactly as the
-      // response part above and the four already-unfiltered captures do —
-      // no `Type` production derives an unapplied `Result` / `array` /
-      // `Ok` / `Err`, so nothing at this capture withholds the class.
-      const errorModelAnnotation = queryErrorModelAnnotation(e.schema);
-      if (errorModelAnnotation !== undefined) {
-        const errorModelReservedKeywords: string[] = [];
-        const errorModelUnresolved = collectUnresolvedNamedTypes(
-          errorModelAnnotation,
-          withBuiltinErrorModelNames(refs.typeNames),
-          errorModelReservedKeywords,
-        );
-        // The two argument slots are two `collectUnresolvedNamedTypes`
-        // calls, and that function dedupes only within a single call, so a
-        // keyword spelled in BOTH slots of one annotation would otherwise
-        // draw two byte-identical lines at one range. Filtered against the
-        // response part's own hits above (`annotationReservedKeywords`),
-        // mirroring the name loop's own per-annotation seen-set below.
-        const reportedKeywordForThisAnnotation = new Set(annotationReservedKeywords);
-        for (const keyword of errorModelReservedKeywords) {
-          if (reportedKeywordForThisAnnotation.has(keyword)) {
-            continue;
-          }
-          out.push(reservedKeywordAsIdentifierDiagnostic(keyword, e.range, file));
-        }
-        // One written name draws one diagnostic. The two argument slots
-        // are two `collectUnresolvedNamedTypes` calls and that function
-        // dedupes only within a single call, so a head spelled in BOTH
-        // slots of one annotation would otherwise draw two byte-identical
-        // lines at one range where every other capture of the same text
-        // draws one. The unit is the one written annotation: names already
-        // reported for a DIFFERENT annotation or statement are not
-        // suppressed here.
-        const reportedForThisAnnotation = new Set(annotationUnresolved);
-        for (const name of errorModelUnresolved) {
-          if (reportedForThisAnnotation.has(name)) {
-            continue;
-          }
-          out.push(unresolvedNamedTypeDiagnostic(name, e.range, file));
-        }
-      }
-    } else if (e.schemaFromLetAnnotation !== true) {
-      // Bug 0278 §Fix: `queryResponseAnnotation` declined this text because
-      // it is a `Result` application whose argument count is not 2 — the
-      // ONLY reason it returns `undefined` (its own doc block, above). The
-      // arity mint lives in `walkType`'s `"generic"` arm
-      // (`type-grammar.ts`), reachable only through `parseTypeExpression`,
-      // which this capture otherwise never calls for a non-arity-2
-      // application. Feed it the WHOLE annotation (not the peeled,
-      // undefined response part) so that mint fires for an author-written
-      // `@<T>` exactly as it already does for the four full-walk
-      // positions and for `array<Ghost, string>` at this same position.
-      // Withheld under the SAME `e.schemaFromLetAnnotation === true` guard
-      // the response-part call above carries (bug 0093 §Fix route 2): a
-      // propagated `let x: Result<T> = @`…`` annotation is walked by
-      // `walkStatement`'s `let` arm already, at the statement's own range,
-      // so calling this here too would double the line (§Fix constraint 2).
-      const wholeAnnotationDiagnostics = parseTypeExpression(e.schema, "value", {
-        file,
-        range: e.range,
-      });
-      // Reduced to the arity verdict alone, at this call site rather than
-      // in `walkType`: the arm that mints `generic-arity-mismatch` also
-      // unconditionally descends the application's own arguments and
-      // applies `void-in-non-return-position` / `empty-schema-body` there
-      // (e.g. `Result<void>`, `Result<{}>`) — diagnostics this bug's own
-      // §Fix constraint 1 forbids alongside the arity line, because the
-      // peel could not say which argument was meant to be `T` and
-      // descending it names the wrong fault. `.find` also keeps a nested
-      // wrong-arity application (a `Result` argument inside this one) from
-      // adding a second arity line beside the outer one: only the
-      // FIRST — outermost — arity diagnostic in source order survives.
-      const arityDiagnostic = wholeAnnotationDiagnostics.find(
-        (d) => d.code === "theta/parse/generic-arity-mismatch",
-      );
-      if (arityDiagnostic !== undefined) {
-        out.push(arityDiagnostic);
-      }
-    }
-  }
-}
-
-/**
- * One arm-1 local binder tracked by the lexical call-site walk (bug 0016):
- * which construct bound the name, and the 1-indexed source line of that
- * construct where the AST carries one. `line` is absent only for `params:`
- * fields — frontmatter fields carry no body source range — so the rendered
- * binder phrase degrades from e.g. "let binding at line 6" to "params: field".
- * A `FnParam` and a `match` pattern carry no ranges of their own, so those
- * binders borrow the nearest enclosing node's start line: the `fn`
- * declaration (its parameter list sits on the declaration line) and the arm
- * BODY expression (an arm's body starts on the arm's own line, immediately
- * after `=>`).
- */
-interface LocalBinder {
-  readonly kind: "let" | "fn-param" | "for" | "par-for" | "match" | "params-field";
-  readonly line?: number;
-}
-
-/** Render a `LocalBinder` for the shadowed-callable-call message's `<binder>` placeholder. */
-function binderPhrase(binder: LocalBinder): string {
-  const noun: Record<LocalBinder["kind"], string> = {
-    "let": "let binding",
-    "fn-param": "fn parameter",
-    "for": "for variable",
-    "par-for": "par for variable",
-    "match": "match binding",
-    "params-field": "params: field",
-  };
-  const kindText = noun[binder.kind];
-  return binder.line === undefined ? kindText : `${kindText} at line ${binder.line}`;
-}
-
-/**
- * The exact registered diagnostic for one call of a locally shadowed
- * callable-set name (bug 0016; code-registry-parse.md
- * `theta/parse/shadowed-callable-call` row; DIAG-4 message emitted
- * character-for-character with `<name>` / `<binder>` substituted). The `range`
- * targets the CALL node: `CallExpr` carries no separate callee-identifier
- * span, and the call node's start IS the callee's first character, so the
- * author's editor lands on the offending callee. The hint renders the
- * registry row's Hint column verbatim, backticks included — the
- * `immutable-rebinding` / `redundant-wire-name` emitter convention (only the
- * Message column is DIAG-4-normative; keeping the Hint byte-identical too
- * means neither can drift).
- */
-function shadowedCallableCallDiagnostic(
-  callee: string,
-  binder: LocalBinder,
-  callRange: SourceRange,
-  file: string,
-): Diagnostic {
-  return {
-    severity: "error",
-    code: "theta/parse/shadowed-callable-call",
-    file,
-    range: callRange,
-    message: `call of '${callee}' resolves to the local ${binderPhrase(binder)} that shadows the callable-set entry '${callee}'; locals are not callable`,
-    hint: "Rename the local binding, or give the `tools:` entry a distinct name with `as`.",
-  };
-}
-
-/** Check callee resolution and direct-argument legality before descending a call. */
-function checkCallSiteCall(
-  e: CallExpr,
-  localBinder: LocalBinder | undefined,
-  insideParFor: boolean,
-  walkCtx: CallSiteWalkContext,
-): void {
-  // (1) Bug 0016: a call of a locally shadowed callable-set name is
-  // erroneous — arm 1 wins the resolution, and a local never holds a
-  // callable.
-  if (localBinder !== undefined && walkCtx.callables.has(e.callee)) {
-    walkCtx.out.push(
-      shadowedCallableCallDiagnostic(e.callee, localBinder, e.range, walkCtx.file),
-    );
-  }
-  // RFC 0011 (seam sheet §5.1): the callee resolves to a runtime tool iff
-  // the presented name is in the map AND no higher-precedence arm captures
-  // it (local / fn / import wins; a shadowed name keeps `shadowed-callable-call`
-  // ALONE — never the isolated-body code).
-  const resolvesToRuntimeTool =
-    walkCtx.runtimeTools.has(e.callee) &&
-    localBinder === undefined &&
-    !walkCtx.fnImportDecls.has(e.callee);
-  // RFC 0011 §5.3 / §0 C4: a runtime tool called inside a `par for` body
-  // addresses the enclosing conversation and is not available there.
-  // Emitted AFTER the shadow check (a shadowed name keeps its own verdict)
-  // and only when the callee resolves to a runtime tool.
-  if (resolvesToRuntimeTool && insideParFor) {
-    walkCtx.out.push({
-      severity: "error",
-      code: "theta/parse/session-tool-in-isolated-body",
-      file: walkCtx.file,
-      range: e.range,
-      // DIAG-4: exact Message template from the registry row.
-      message: `'${e.callee}' addresses the enclosing conversation and is not available inside a par for body`,
-    });
-  }
-  // The callee is lexically the Pi tool iff no higher-precedence arm
-  // (local / fn / import) captures the name AND it is NOT a runtime tool
-  // (RFC 0011: runtime tools admit positional typed arguments, so the
-  // Pi-tool object-literal shape rule does not apply to them).
-  const resolvesToPiTool =
-    walkCtx.piTools.has(e.callee) &&
-    !resolvesToRuntimeTool &&
-    localBinder === undefined &&
-    !walkCtx.fnImportDecls.has(e.callee);
-  if (resolvesToPiTool) {
-    if (e.args.length > 1) {
-      // (2) Bug 0072: a Pi tool takes a single object argument
-      // (tool-calls.md §"Argument shape"); a multi-argument call is
-      // `theta/parse/tool-arg-arity` regardless of the argument shapes.
-      // No `argumentSource` is supplied, so only the shared check's ARITY
-      // arm can fire from this site; ranged on the CALL node, not on one
-      // argument — the mistake is the argument LIST, and the registry
-      // row's repair ("merge the arguments") is at the call.
-      walkCtx.out.push(
-        ...checkToolCallArguments({
-          toolName: e.callee,
-          calleeKind: "pi-tool",
-          positionalCount: e.args.length,
-          file: walkCtx.file,
-          range: e.range,
-        }),
-      );
-    } else {
-      // (3) Bug 0003: `ToolArg` is a BARE inline object literal — any
-      // non-object node (identifier, string, call, member, …) and a
-      // NAMED schema-constructor (`typeName !== null`) both fail the
-      // shape. Disjoint from (2) by construction: arity owns `> 1`
-      // (handled above), this owns `<= 1`, so the two codes never co-fire
-      // at one call site — the reconciliation bug 0072 §Fix (parse half,
-      // option 1) requires of this walk.
-      const first = e.args[0];
-      if (first !== undefined && !(first.kind === "object" && first.typeName === null)) {
-        walkCtx.out.push(toolArgShapeDiagnostic(e.callee, first.range, walkCtx.file));
-      }
-    }
-  } else if (!resolvesToRuntimeTool) {
-    // (4) Bug 0016 part B; bug 0072: the §Object construction carve-out
-    // admits a bare-object argument ONLY under a
-    // (lexically) Pi-tool callee, at EVERY direct argument position — a
-    // Pi-tool callee's own direct arguments are already owned by (2) /
-    // (3) above, so this arm only ever reaches a non-Pi-tool callee,
-    // where every direct bare-object argument is the ordinary rejection.
-    // The structural walk suppresses exactly these positions
-    // (callee-blind), so this is the single emission site for them.
-    for (const arg of e.args) {
-      if (arg.kind === "object" && arg.typeName === null) {
-        walkCtx.out.push(bareObjectLiteralDiagnostic(arg.range, walkCtx.file));
-      }
-    }
-  }
-}
-
-/**
- * RFC 0011 (seam sheet §0 C6): build the runtime-tool success-type map
- * (`presented name → CompatType`) from the frontmatter `tools:` list.
- * Each declared runtime tool's `successTypeSource` (from `RUNTIME_TOOL_SIGNATURES`)
- * is converted once through `letAnnotationToCompatType` — the second sanctioned
- * TYPE-8 object-arm mint site (bug 0130 flag F-3). GOV-15 inert: the returned
- * map is empty when the `tools:` list declares no runtime tool.
- */
-function buildRuntimeToolSuccessTypes(
-  tools: readonly string[] | undefined,
-): ReadonlyMap<string, CompatType> {
-  const presented = runtimeToolPresentedNames(tools);
-  if (presented.size === 0) {
-    return presented as unknown as ReadonlyMap<string, CompatType>;
-  }
-  const out = new Map<string, CompatType>();
-  for (const [name, canonical] of presented) {
-    const sig = RUNTIME_TOOL_SIGNATURES.get(canonical);
-    if (sig === undefined) {
-      continue;
-    }
-    const type = letAnnotationToCompatType(sig.successTypeSource);
-    if (type !== undefined) {
-      out.set(name, type);
-    }
-  }
-  return out;
-}
-
-/**
- * The per-file invariants of the lexical call-site walk, threaded explicitly
- * through the walkers (no module state) alongside the per-scope `locals` map.
- */
-interface CallSiteWalkContext {
-  /**
-   * The arm-1 binders visible everywhere in the body regardless of source
-   * order: `params:` fields, which materialise as root-environment locals at
-   * runtime (`buildBoundEnvironment` defines them via `defineLocal`), so a
-   * call of a params-shadowed name resolves to the local. Each `fn` body's
-   * scope restarts from this map — theta 1.0 has no closures.
-   */
-  readonly rootLocals: ReadonlyMap<string, LocalBinder>;
-  /**
-   * Whole-file names on resolution arms (2)–(3): top-level `fn` declarations
-   * and imported symbols. A call of such a name is a legal user-fn /
-   * import call, NOT a shadowed-callable-call site (a `tools:` collision with
-   * these names is separately load-rejected via
-   * `theta/load/tool-name-collision`), and its callee is not lexically a Pi
-   * tool, so the carve-out and the shape rule both stand down. `schema` /
-   * `enum` names are deliberately NOT here: they are not call-position
-   * resolution arms (expressions.md §"Identifier resolution" ranks
-   * local > fn > import > callable only), so a callee colliding with one
-   * still resolves to the callable-set entry and keeps the tool's rules.
-   */
-  readonly fnImportDecls: ReadonlySet<string>;
-  /** The Pi-tool subset of the callable set (bare-identifier `tools:` entries, post-`as`). */
-  readonly piTools: ReadonlySet<string>;
-  /** EVERY callable-set name — Pi tools AND `.theta` callables — post-rename. */
-  readonly callables: ReadonlySet<string>;
-  /**
-   * RFC 0011 (seam sheet §5.1 / §0 C4): declared runtime tools, keyed by
-   * PRESENTED (post-rename) name, valued by canonical name. Drives (a) the
-   * lexical exemption from the Pi-tool object-literal shape rule (positional
-   * typed arguments are the admitted spelling for runtime tools), and (b) the
-   * `insideParFor`-gated `theta/parse/session-tool-in-isolated-body` check.
-   * GOV-15 inert: empty for every 1.0.0-clean file.
-   */
-  readonly runtimeTools: ReadonlyMap<string, RuntimeToolName>;
-  readonly file: string;
-  readonly out: Diagnostic[];
-}
-
-/**
- * The whole-body lexical call-site walk. It resolves every `<name>(args)`
- * callee against the expressions.md §"Identifier resolution" first-match order
- * — tracking scopes exactly as `checkUnknownIdentifiers` does (whole-file
- * declarations visible everywhere; `let` bindings shadow from their binding
- * statement onward; `for` / `par for` variables, `match`-arm pattern bindings,
- * and `fn` parameters shadow inside their scopes; an `fn` body sees only the
- * whole-file declarations plus its own parameters — theta 1.0 has no
- * closures) — and emits four registered codes from that single resolution
- * judgement:
- *
- *   1. `theta/parse/shadowed-callable-call` (bug 0016,
- *      docs/bugs/0016-shadowed-tool-name-runtime-dispatch.md) for a call whose
- *      callee resolves to an arm-1 LOCAL while colliding with a callable-set
- *      name (Pi tool or `.theta` callable alike): locals are never callable
- *      (functions are not first-class), so the call site is erroneous — and
- *      before this gate existed the runtime executed the callable at a site
- *      that does not denote it (silently, for the object-literal and zero-arg
- *      forms). Binding the name without calling it stays legal: only CALL
- *      position emits.
- *   2. `theta/parse/tool-arg-arity` (bug 0072,
- *      docs/bugs/0072-tool-arg-checks-dead-and-no-runtime-net.md) for a call
- *      whose callee resolves to a Pi tool and carries MORE THAN ONE positional
- *      argument — tool-calls.md §"Argument shape": "A multi-argument form
- *      (`read({...}, {...})`) is `theta/parse/tool-arg-arity` regardless of
- *      the argument shapes." Emitted through `checkToolCallArguments`
- *      (../runtime/tool-call.ts) with no `argumentSource` supplied, so only
- *      its ARITY arm can fire from this call site; ranged on the CALL node,
- *      not on one argument — the mistake is the argument LIST, and the repair
- *      ("merge the arguments") is at the call.
- *   3. `theta/parse/tool-arg-not-object-literal` (bug 0003,
- *      docs/bugs/0003-tool-arg-shape-rule-not-enforced.md) for a call whose
- *      callee resolves to a Pi tool and carries EXACTLY ONE positional
- *      argument that is not an inline bare object literal — the surviving RFC
- *      0002 shape rule (grammar.md §"Pi-tool argument grammar": field VALUES
- *      are full expressions, the argument SHAPE is one inline `{ ... }`).
- *      Disjoint from (2) by construction — arity owns `> 1` arguments, this
- *      owns `=== 1` — so the two codes can never co-fire at one call site.
- *      Unchanged for unshadowed callees; a locally shadowed callee is not the
- *      tool, so the shape rule stands down there (the callee rejection above
- *      owns the site), and an fn/import-shadowed callee is a user-fn call.
- *      Emission mirrors the SHAPE arm of `checkToolCallArguments`
- *      (../runtime/tool-call.ts) rather than calling it for this arm too:
- *      that arm is gated on an `argumentSource` this walk never supplies (it
- *      owns AST nodes, not source text), so it is structurally unreachable
- *      from here — this walk keeps its own AST-based shape test instead,
- *      holding the message / severity / hint byte-identical to it (DIAG-4).
- *      Zero-argument calls are legal (`read()` lowers to `{}`).
- *   4. `theta/parse/bare-object-literal` (bug 0016 part B; bug 0072) for EVERY
- *      DIRECT bare-object argument of a call whose callee is NOT (lexically)
- *      an unshadowed Pi tool: expressions.md
- *      §"Object construction" scopes the carve-out to Pi-tool callees only —
- *      `f({ ... })` for a user `fn`, a `let`-bound name, a `.theta` callable,
- *      or a shadowed tool name is outside it, at every direct argument
- *      position, not only a sole one. The structural walk (`walkExpr`
- *      `case "call"`) suppresses the check for every direct-call-argument
- *      position UNCONDITIONALLY (position-based, callee-blind), so the two
- *      sites partition the emission (never double-emitting for one node):
- *      this lexical walk owns the callee-sensitive judgement for all of
- *      them, and both build the diagnostic through `bareObjectLiteralDiagnostic`
- *      so the message cannot drift. A Pi-tool callee's own direct arguments
- *      are already owned by (2) or (3) above, so this arm only ever fires
- *      under a non-Pi-tool callee.
- *
- * The walk REPORTS on shadowed names (bug 0016 superseded the earlier
- * under-reporting contract, whose runtime back-stop was loud only for
- * non-object argument nodes); the runtime lowerings still back-stop a gate
- * gap with `ShadowedCalleeDispatchDefectError` / `PiToolArgShapeDefectError`
- * (../runtime/tool-call.ts) — belts behind this gate, not substitutes for it.
- * The walk runs even with an empty callable set: emission (4) is
- * callee-sensitive, not tool-dependent, so `f({ ... })` in a tools-less theta
- * or a `.thetalib` is still rejected.
- */
-function checkLexicalCallSites(
-  body: Block,
-  frontmatter: ParsedFrontmatter | null,
-  file: string,
-): Diagnostic[] {
-  const piTools = new Set<string>();
-  const callables = new Set<string>();
-  for (const entry of frontmatter?.tools ?? []) {
-    const piName = piToolCallableName(entry);
-    if (piName !== undefined && piName.length > 0) {
-      piTools.add(piName);
-    }
-    const presented = toolCallableName(entry);
-    if (presented.length > 0) {
-      callables.add(presented);
-    }
-  }
-
-  const fnImportDecls = new Set<string>();
-  for (const s of body.statements) {
-    switch (s.kind) {
-      case "fn":
-        fnImportDecls.add(s.name);
-        break;
-      case "import":
-        // expressions.md §"Identifier resolution" arm (3) is the import arm
-        // only — an `export` specifier binds nothing (imports.md
-        // §"Re-exports"), so it must not make a call site read as a known
-        // fn/import callee.
-        for (const sym of s.symbols) {
-          fnImportDecls.add(sym);
-        }
-        break;
-      default:
-        break;
-    }
-  }
-
-  const rootLocals = new Map<string, LocalBinder>();
-  for (const f of frontmatter?.params?.fields ?? []) {
-    rootLocals.set(f.wireName, { kind: "params-field" });
-  }
-
-  // RFC 0011 (seam sheet §5.1): derive the presented-name → canonical-name
-  // map for runtime tools, so the walk can (a) exempt them from the Pi-tool
-  // object-literal shape check and (b) emit the isolated-body diagnostic.
-  const runtimeTools = runtimeToolPresentedNames(frontmatter?.tools);
-
-  const walkCtx: CallSiteWalkContext = {
-    rootLocals,
-    fnImportDecls,
-    piTools,
-    callables,
-    runtimeTools,
-    file,
-    out: [],
-  };
-  walkCallSiteBlock(body, new Map(rootLocals), false, walkCtx);
-  return walkCtx.out;
-}
-
-function walkCallSiteBlock(
-  block: Block,
-  locals: Map<string, LocalBinder>,
-  insideParFor: boolean,
-  walkCtx: CallSiteWalkContext,
-): void {
-  for (const s of block.statements) {
-    walkCallSiteStmt(s, locals, insideParFor, walkCtx);
-  }
-  if (block.tail !== null) {
-    walkCallSiteExpr(block.tail, locals, insideParFor, walkCtx);
-  }
-}
-
-function walkCallSiteStmt(
-  s: Stmt,
-  locals: Map<string, LocalBinder>,
-  insideParFor: boolean,
-  walkCtx: CallSiteWalkContext,
-): void {
-  switch (s.kind) {
-    case "let":
-      // The initialiser is evaluated BEFORE the name binds, so a tool call in
-      // it still resolves to the tool; the binding shadows from here onward.
-      if (s.init !== null) {
-        walkCallSiteExpr(s.init, locals, insideParFor, walkCtx);
-      }
-      if (s.name !== "_") {
-        locals.set(s.name, { kind: "let", line: s.range.start.line });
-      }
-      return;
-    case "reassign":
-      walkCallSiteExpr(s.value, locals, insideParFor, walkCtx);
-      return;
-    case "if": {
-      walkCallSiteExpr(s.condition, locals, insideParFor, walkCtx);
-      walkCallSiteBlock(s.then, new Map(locals), insideParFor, walkCtx);
-      if (s.otherwise !== null) {
-        if ("statements" in s.otherwise) {
-          walkCallSiteBlock(s.otherwise, new Map(locals), insideParFor, walkCtx);
-        } else {
-          walkCallSiteStmt(s.otherwise, new Map(locals), insideParFor, walkCtx);
-        }
-      }
-      return;
-    }
-    case "while":
-      walkCallSiteExpr(s.condition, locals, insideParFor, walkCtx);
-      walkCallSiteBlock(s.body, new Map(locals), insideParFor, walkCtx);
-      return;
-    case "for": {
-      walkCallSiteExpr(s.iterand, locals, insideParFor, walkCtx);
-      const inner = new Map(locals);
-      inner.set(s.variable, { kind: "for", line: s.range.start.line });
-      walkCallSiteBlock(s.body, inner, insideParFor, walkCtx);
-      return;
-    }
-    case "fn": {
-      // Closure-free (`walkIdentStmt` precedent): an `fn` body sees only the
-      // whole-file declarations plus its own parameters, so a tool call inside
-      // a helper body is still a tool call — `fn helper() { read(args) }`
-      // fires — while `fn f(read) { read(x) }` is parameter-shadowed. A
-      // `FnParam` carries no range of its own; the declaration's start line
-      // locates the parameter list.
-      // RFC 0011 (seam sheet §0 C4): an `fn` body resets `insideParFor` to
-      // false — a plain `fn` called from outside the body is admitted, and
-      // `fn` nested inside a `par for` body is `theta/parse/nested-fn` (FN-1)
-      // so the reset is parse-error tolerance only.
-      const fnLocals = new Map(walkCtx.rootLocals);
-      for (const p of s.params) {
-        fnLocals.set(p.name, { kind: "fn-param", line: s.range.start.line });
-      }
-      walkCallSiteBlock(s.body, fnLocals, false, walkCtx);
-      return;
-    }
-    case "return":
-      if (s.operand !== null) {
-        walkCallSiteExpr(s.operand, locals, insideParFor, walkCtx);
-      }
-      return;
-    case "query":
-      walkCallSiteExpr(s.query, locals, insideParFor, walkCtx);
-      return;
-    case "tool-call":
-      walkCallSiteExpr(s.call, locals, insideParFor, walkCtx);
-      return;
-    case "invoke":
-      walkCallSiteExpr(s.invoke, locals, insideParFor, walkCtx);
-      return;
-    case "expr":
-      walkCallSiteExpr(s.expr, locals, insideParFor, walkCtx);
-      return;
-    default:
-      // schema / enum / import / export / break / continue / doc-comment carry
-      // no call sites (fn / import names were pre-collected as whole-file
-      // declarations; schema / enum names are not resolution arms).
-      return;
-  }
-}
-
-function walkCallSiteExpr(
-  e: Expr,
-  locals: Map<string, LocalBinder>,
-  insideParFor: boolean,
-  walkCtx: CallSiteWalkContext,
-): void {
-  switch (e.kind) {
-    case "call": {
-      const localBinder = locals.get(e.callee);
-      checkCallSiteCall(e, localBinder, insideParFor, walkCtx);
-      // RFC 0009: the clause values are recursed as arguments are (the direct
-      // bare-object carve-out above is about the ARGUMENT list only — a clause
-      // value holds no `ToolArg` position).
-      for (const arg of [...e.args, ...callWithClauseValues(e)]) {
-        walkCallSiteExpr(arg, locals, insideParFor, walkCtx);
-      }
-      return;
-    }
-    case "binary":
-      walkCallSiteExpr(e.left, locals, insideParFor, walkCtx);
-      walkCallSiteExpr(e.right, locals, insideParFor, walkCtx);
-      return;
-    case "ternary":
-      walkCallSiteExpr(e.condition, locals, insideParFor, walkCtx);
-      walkCallSiteExpr(e.consequent, locals, insideParFor, walkCtx);
-      walkCallSiteExpr(e.alternate, locals, insideParFor, walkCtx);
-      return;
-    case "try":
-      walkCallSiteExpr(e.operand, locals, insideParFor, walkCtx);
-      return;
-    case "invoke":
-      for (const arg of [...e.args, ...callWithClauseValues(e)]) {
-        walkCallSiteExpr(arg, locals, insideParFor, walkCtx);
-      }
-      return;
-    case "member":
-      walkCallSiteExpr(e.target, locals, insideParFor, walkCtx);
-      return;
-    case "index":
-      walkCallSiteExpr(e.target, locals, insideParFor, walkCtx);
-      walkCallSiteExpr(e.index, locals, insideParFor, walkCtx);
-      return;
-    case "method-call":
-      walkCallSiteExpr(e.target, locals, insideParFor, walkCtx);
-      for (const arg of e.args) {
-        walkCallSiteExpr(arg, locals, insideParFor, walkCtx);
-      }
-      return;
-    case "object":
-      // RFC 0002: field VALUES are full expressions — a nested call inside a
-      // legal `{ ... }` argument is itself checked. Bare-object legality in
-      // non-call-argument positions stays the structural walk's concern.
-      for (const field of e.fields) {
-        walkCallSiteExpr(field.value, locals, insideParFor, walkCtx);
-      }
-      return;
-    case "array":
-      for (const el of e.elements) {
-        walkCallSiteExpr(el, locals, insideParFor, walkCtx);
-      }
-      return;
-    case "result-ctor":
-      walkCallSiteExpr(e.arg, locals, insideParFor, walkCtx);
-      return;
-    case "match":
-      walkCallSiteExpr(e.scrutinee, locals, insideParFor, walkCtx);
-      for (const arm of e.arms) {
-        // A pattern node carries no range; the arm's BODY starts on the arm's
-        // own line, so its start line locates the binding for the message.
-        const bound = new Set<string>();
-        collectPatternBindings(arm.pattern, bound);
-        const armLocals = new Map(locals);
-        for (const name of bound) {
-          armLocals.set(name, { kind: "match", line: arm.body.range.start.line });
-        }
-        walkCallSiteExpr(arm.body, armLocals, insideParFor, walkCtx);
-      }
-      return;
-    case "par-for": {
-      // Reached explicitly (unlike the ident walk, which predates RFC 0003):
-      // a `par for` body is a call-site-bearing block and its per-iteration
-      // variable shadows.
-      // RFC 0011 (seam sheet §0 C4): the body descends with `insideParFor`
-      // true; the iterand and max stay under the caller's flag.
-      walkCallSiteExpr(e.iterand, locals, insideParFor, walkCtx);
-      if (e.max !== null) {
-        walkCallSiteExpr(e.max, locals, insideParFor, walkCtx);
-      }
-      const inner = new Map(locals);
-      inner.set(e.variable, { kind: "par-for", line: e.range.start.line });
-      walkCallSiteBlock(e.body, inner, true, walkCtx);
-      return;
-    }
-    case "block":
-      // A CHILD scope, mirroring `walkIdentExpr`'s `case "block"` above: a
-      // call site inside the block still resolves against the enclosing
-      // locals, but a name the block's own `let`s bind must not survive past
-      // it.
-      walkCallSiteBlock(e.body, new Map(locals), insideParFor, walkCtx);
-      return;
-    default:
-      // number / string / bool / null / ident / query — no call sites (a
-      // query's `${…}` interpolations live in its raw template text, not as
-      // AST children).
-      return;
-  }
-}
 
 /**
  * Reject the interpolation forms expressions.md §"Not supported" forbids

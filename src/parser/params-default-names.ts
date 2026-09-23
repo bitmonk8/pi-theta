@@ -16,7 +16,10 @@ import { rangeKey } from "./structural-checks";
  * itself — "head is an enum name in scope, tail a declared variant"
  * (grammar.md) — and the default half's is-literal check cannot test either: the
  * node it judges records only whether the head was a bare identifier, not what
- * the two identifiers spelled. The body tests them (`checkVariantAccess`, from
+ * the two identifiers spelled. They are tested from the whole-document battery
+ * (`runWholeDocumentChecks`, theta-document.ts) because that is the one
+ * position that holds the parsed `params:` fields, the body's hoisted
+ * enum-variant sets, and the whole-file identifier roots at once. The body tests them (`checkVariantAccess`, from
  * `checkStructural`'s walk, and `checkUnknownIdentifiers`), and
  * frontmatter-fields-a.md §Defaults requires the literal sublanguage to be a
  * SUBSET of the body expression grammar, so the same bytes must draw the same

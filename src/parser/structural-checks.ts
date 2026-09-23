@@ -36,9 +36,9 @@ import type {
 import {
   bareObjectLiteralDiagnostic,
   callWithClauseValues,
-  checkQueryAnnotation,
   checkQueryTemplateInterpolations,
 } from "./theta-document";
+import { checkQueryAnnotation } from "./query-annotation-check";
 
 // --------------------------------------------------------------------------
 // Structural (AST-shape) parse checkers (C2a wiring)

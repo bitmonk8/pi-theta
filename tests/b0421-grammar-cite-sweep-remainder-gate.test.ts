@@ -89,7 +89,9 @@ const SCHEMA_UNION = "tests/schema-alias-union-decl.test.ts";
 const BRACE_ROOTED = "tests/brace-rooted-union-arm-capture.test.ts";
 const SCHEMA_RHS_MALFORMED = "tests/schema-alias-rhs-malformed.test.ts";
 const INLINE_EMPTY = "tests/inline-empty-object-type.test.ts";
-const THETA_DOCUMENT = "src/parser/theta-document.ts";
+// The `templateProseLineSpans` comment carrying this cite moved verbatim from
+// theta-document.ts in the PTQ-1264 seam-C extraction.
+const DOC_COMMENT_RECOVERY = "src/parser/doc-comment-recovery.ts";
 const TYPE_LAYER_CHECKS = "src/parser/type-layer-walk.ts";
 
 // The size of bug 0389's total insertion. The alias/schema/lowering/statement/
@@ -643,14 +645,14 @@ describe("bug 0421 — the grammar.md spec cites outside 0405's three-file enume
   it("cell R11 (RE-PIN-RED) — the two `src/` parser comments cite the alias-form lowering and the recursive-descent bullet at current lines", () => {
     const loweringTruth = fnAliasLoweringLine();
     const loweringStale = loweringTruth - MAIN_SHIFT;
-    const doc = readCorpus(THETA_DOCUMENT);
+    const doc = readCorpus(DOC_COMMENT_RECOVERY);
     expect(
       citesSpecLine(doc, loweringStale),
-      `cell R11: ${THETA_DOCUMENT} must no longer carry grammar.md:${loweringStale} — that line is blank (line 818).`,
+      `cell R11: ${DOC_COMMENT_RECOVERY} must no longer carry grammar.md:${loweringStale} — that line is blank.`,
     ).toBe(false);
     expect(
       citesSpecLine(doc, loweringTruth),
-      `cell R11: ${THETA_DOCUMENT} must cite the alias-form lowering sentence at grammar.md:${loweringTruth} (line 818).`,
+      `cell R11: ${DOC_COMMENT_RECOVERY} must cite the alias-form lowering sentence at grammar.md:${loweringTruth}.`,
     ).toBe(true);
 
     const sinkTruth = recursiveLine();
