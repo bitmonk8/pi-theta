@@ -2,10 +2,12 @@
 
 import type { Diagnostic, SourceRange } from "../diagnostics/diagnostic";
 import type { CallableSetSnapshot } from "./callable-set";
+import type { ThetaMode } from "./frontmatter";
 import {
   invokeArgTypeMismatchMessage,
   withClauseInProcessCalleeMessage,
   withClausePiToolMessage,
+  withClausePromptModeRefusal,
   INVOKE_ARG_TYPE_MISMATCH_CODE,
   WITH_CLAUSE_IN_PROCESS_CALLEE_CODE,
   WITH_CLAUSE_IN_PROCESS_CALLEE_HINT,
@@ -108,6 +110,53 @@ function checkClauseCwdType(input: {
     );
   }
   return out;
+}
+
+/**
+ * RFC 0009 clause orchestration shared by BOTH clause-bearing call surfaces
+ * (the literal `invoke(...)` surface, `checkInvokeExprCallSurface`, and the
+ * `.theta`-callable surface, `checkThetaCallableCallSurface`): INV-8 first —
+ * `withClausePromptModeRefusal` refuses a call-site clause on a
+ * statically-resolvable PROMPT-mode callee — and, only when no refusal
+ * fired, INV-6 — `checkClauseCwdType` judges the clause's `cwd` value. A
+ * refused site draws the refusal ALONE (the cwd judgement is withheld), and
+ * keeping the sequence here keeps that precedence/short-circuit rule
+ * identical across the two surfaces. `presented` renders as `<callee>` in
+ * the refusal (each surface's own rendering rule: the verbatim path literal
+ * on the `invoke(...)` surface, the presented callable name on the
+ * `.theta`-callable surface); `range` sites the refusal and is the cwd
+ * check's fallback range.
+ */
+export function checkWithClauseAtCallSurface(input: {
+  readonly clause?: CallWithClause;
+  readonly mode: ThetaMode | undefined;
+  readonly presented: string;
+  readonly surface:
+    | { readonly kind: "invoke"; readonly providedCount: number }
+    | { readonly kind: "theta-callable"; readonly name: string };
+  readonly file: string;
+  readonly range: SourceRange;
+  readonly typeEnv: TypeEnv;
+  readonly typePass: StaticTypeInferencePass;
+}): Diagnostic[] {
+  const refusal = withClausePromptModeRefusal({
+    ...(input.clause !== undefined ? { clause: input.clause } : {}),
+    mode: input.mode,
+    file: input.file,
+    range: input.range,
+    presented: input.presented,
+  });
+  if (refusal !== undefined) {
+    return [refusal];
+  }
+  return checkClauseCwdType({
+    ...(input.clause !== undefined ? { clause: input.clause } : {}),
+    surface: input.surface,
+    file: input.file,
+    fallbackRange: input.range,
+    typeEnv: input.typeEnv,
+    typePass: input.typePass,
+  });
 }
 
 /**
@@ -330,4 +379,4 @@ export function checkImportedWithClauseCallees(
   return diagnostics;
 }
 
-export { checkClauseCwdType, checkWithClauseDefaultReject };
+export { checkWithClauseDefaultReject };

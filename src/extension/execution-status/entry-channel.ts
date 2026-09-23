@@ -133,18 +133,20 @@ export function createEntryChannel(
 }
 
 /**
- * One pre-fitted milestone line. A CLASS (not the note arm's closure-captured
- * object literal) so the rendered line is an own enumerable property: the
- * milestone template is then inspectable on the returned `Component` without
- * a render pass, which is how the L3 suite pins the template. `render`
- * hard-clips rather than wraps — a milestone is one line by contract
- * (PIC-71) — and never throws (PIC-21).
+ * A static pre-fitted-lines entry body, shared by the milestone renderer and
+ * the two run-card renderers below. A CLASS (not the note arm's
+ * closure-captured object literal) so the rendered lines are an own
+ * enumerable property: the entry's template is then inspectable on the
+ * returned `Component` without a render pass, which is how the L3 suite pins
+ * the milestone template. `render` hard-clips rather than wraps — a milestone
+ * is one line by contract (PIC-71) and the run-card lines are pre-fitted —
+ * and never throws (PIC-21 analogue).
  */
-class MilestoneLineComponent implements Component {
+class StaticEntryLinesComponent implements Component {
   readonly lines: readonly string[];
 
-  constructor(line: string) {
-    this.lines = [line];
+  constructor(lines: readonly string[]) {
+    this.lines = lines;
   }
 
   render(width: number): string[] {
@@ -201,9 +203,9 @@ export function createProgressEntryRenderer(): (
       if (typeof milestone !== "object" || milestone === null) {
         return undefined; // malformed milestone payload: render nothing, never throw
       }
-      return new MilestoneLineComponent(
+      return new StaticEntryLinesComponent([
         renderMilestoneLine(milestone as Record<string, unknown>),
-      );
+      ]);
     }
     const content = typeof data?.content === "string" ? data.content : "";
     const display = typeof data?.display === "boolean" ? data.display : undefined;
@@ -219,28 +221,6 @@ export function createProgressEntryRenderer(): (
 // the bus no longer tracks the invocation, which is why the swap is a renderer
 // replacement and not a payload change.
 // ---------------------------------------------------------------------------
-
-/**
- * A static multi-line entry body. Mirrors `MilestoneLineComponent`'s contract:
- * the pre-fitted lines are an own enumerable property (template pinning without
- * a render pass), `render` hard-clips rather than wraps, and it never throws
- * (PIC-21 analogue).
- */
-class StaticEntryLinesComponent implements Component {
-  readonly lines: readonly string[];
-
-  constructor(lines: readonly string[]) {
-    this.lines = lines;
-  }
-
-  render(width: number): string[] {
-    return this.lines.map((line) =>
-      width > 0 && line.length > width ? `${line.slice(0, Math.max(0, width - 1))}…` : line,
-    );
-  }
-
-  invalidate(): void {}
-}
 
 /**
  * Wall-clock epoch ms → `HH:MM:SS` in the HOST'S LOCAL timezone. The card row

@@ -112,6 +112,54 @@ function paramBindingsFrom(
 }
 
 /**
+ * RFC 0015 (D3): publish the run-card start event for one TOP-LEVEL drive.
+ * The ONE emitter for both top-level paths — the child-side subagent-root
+ * regime drive and the ordinary slash dispatch — so the `driveStarted`
+ * payload shape cannot drift between them. Keyed on the registry ticket's
+ * invocationId: no ticket (a harness without `beginInvocation`) means no
+ * card. The publisher is wired only in the TUI composition; `?.` no-op
+ * everywhere else.
+ */
+function publishRunCardStart(
+  deps: ThetaProducerDeps,
+  invocationTicket: ActiveInvocationTicket | undefined,
+  theta: ThetaCompositionInput,
+  args: string,
+): void {
+  if (invocationTicket === undefined) {
+    return;
+  }
+  deps.runCard?.driveStarted({
+    invocationId: invocationTicket.invocationId,
+    theta: invocationTicket.theta,
+    args,
+    ...(theta.sourcePath !== undefined ? { sourcePath: theta.sourcePath } : {}),
+  });
+}
+
+/**
+ * RFC 0015 (D3): finish the registry ticket and publish the run-card end
+ * event for one TOP-LEVEL drive. The ONE emitter for both top-level paths —
+ * the child-side subagent-root regime drive and the ordinary slash dispatch —
+ * so the finish→driveEnded ordering contract cannot drift between them:
+ * `finish()` first (the bus's `invocationEnded` closes the final open dwell
+ * interval), THEN `driveEnded` reads the SETTLED ring off the node (which
+ * lingers `DONE_LINGER_MS`, so a same-tick read still finds it). No ticket
+ * (a harness without `beginInvocation`) means no card. The publisher is
+ * wired only in the TUI composition; `?.` no-op everywhere else.
+ */
+function finishDriveAndPublishRunCardEnd(
+  deps: ThetaProducerDeps,
+  invocationTicket: ActiveInvocationTicket | undefined,
+  outcome: ThetaRunOutcome,
+): void {
+  invocationTicket?.finish();
+  if (invocationTicket !== undefined) {
+    deps.runCard?.driveEnded(invocationTicket.invocationId, outcome);
+  }
+}
+
+/**
  * Compose the per-theta runnable `ThetaFixture` for one parsed `.theta`.
  *
  * The composed `run` realises the extension-bootstrap-and-per-theta.md
@@ -205,14 +253,7 @@ export function composeThetaFixture(
         // (subagent-argv.ts §presentation), so their composition's
         // `ctx.mode !== "tui"` and production-composition.ts constructs NO
         // publisher — both calls below `?.` no-op there.
-        if (invocationTicket !== undefined) {
-          deps.runCard?.driveStarted({
-            invocationId: invocationTicket.invocationId,
-            theta: invocationTicket.theta,
-            args,
-            ...(theta.sourcePath !== undefined ? { sourcePath: theta.sourcePath } : {}),
-          });
-        }
+        publishRunCardStart(deps, invocationTicket, theta, args);
         // A throw escaping the drive (only `HostFatal` — every catchable
         // defect is routed onto the envelope inside the regime) still closes
         // the card, as `"err"`.
@@ -226,19 +267,13 @@ export function composeThetaFixture(
             ...(invocationTicket !== undefined ? { invocationTicket } : {}),
           });
         } finally {
-          // Same ordering contract as the top-level path's `finally` below:
-          // `finish()` first (the bus's `invocationEnded` closes the final
-          // dwell interval), THEN `driveEnded` reads the settled ring. Both
-          // run in this same synchronous continuation of the drive's
-          // settlement — strictly BEFORE the Ok arm's requested
+          // Finish + driveEnded run in this same synchronous continuation of
+          // the drive's settlement — strictly BEFORE the Ok arm's requested
           // `ctx.shutdown()` can take effect, because the host defers
           // shutdown until the session is idle and this handler has not yet
           // resolved — so the card's final entry lands before a visible
           // child's pane closes.
-          invocationTicket?.finish();
-          if (invocationTicket !== undefined) {
-            deps.runCard?.driveEnded(invocationTicket.invocationId, regimeOutcome);
-          }
+          finishDriveAndPublishRunCardEnd(deps, invocationTicket, regimeOutcome);
         }
         return;
       }
@@ -249,14 +284,7 @@ export function composeThetaFixture(
       // keyed on the registry ticket's invocationId — no ticket (a harness
       // without `beginInvocation`) means no card. The publisher is wired only
       // in the TUI composition; `?.` no-op everywhere else.
-      if (invocationTicket !== undefined) {
-        deps.runCard?.driveStarted({
-          invocationId: invocationTicket.invocationId,
-          theta: invocationTicket.theta,
-          args,
-          ...(theta.sourcePath !== undefined ? { sourcePath: theta.sourcePath } : {}),
-        });
-      }
+      publishRunCardStart(deps, invocationTicket, theta, args);
       // RFC 0015 (D3): the decision-7 summary outcome. Seeded `"cancelled"`
       // as a DELIBERATE projection convention: every binder short-circuit —
       // needs-info, ambiguous, genuine cancel — ends the drive without a
@@ -384,14 +412,7 @@ export function composeThetaFixture(
         // (called by the inner `finally` above) finishes the same ticket, and both
         // are idempotent, so the normal path settles at its documented moment and
         // this is a no-op after it.
-        invocationTicket?.finish();
-        // RFC 0015 (D3): AFTER `finish()` — the bus's `invocationEnded` closes
-        // the final open dwell interval, so the summary's heat profile reads
-        // the SETTLED ring off the node (which lingers `DONE_LINGER_MS`, so a
-        // same-tick read still finds it).
-        if (invocationTicket !== undefined) {
-          deps.runCard?.driveEnded(invocationTicket.invocationId, runOutcome);
-        }
+        finishDriveAndPublishRunCardEnd(deps, invocationTicket, runOutcome);
       }
     },
   };

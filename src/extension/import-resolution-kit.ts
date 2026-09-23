@@ -372,7 +372,7 @@ function createMaterializer(
     return undefined;
   };
 
-  return { buildModuleScope, materializeChain };
+  return { materializeChain };
 }
 
 /**
@@ -496,13 +496,12 @@ export function createImportResolutionKit(
     graphEdges.set(resolvedPath, targets);
   };
 
-  const { materializeChain, buildModuleScope } = createMaterializer(parseThetaLib, probe, resolver);
+  const { materializeChain } = createMaterializer(parseThetaLib, probe, resolver);
 
   return {
     parseThetaLib,
     walkThetaLib,
     materializeChain,
-    buildModuleScope,
     parseCache,
     walked,
     graphEdges,

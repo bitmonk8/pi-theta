@@ -69,9 +69,10 @@
 //     lesson) as a parameter and imports back `collectProvableArgTypes` /
 //     `dedupeArgType`, exported below for it.
 //   - RFC 0009 (invocation.md INV-6 / INV-8) — the call-site `with` clause
-//     checks inside `checkInvokeStaticResolution`: `checkClauseCwdType` judges
-//     the clause's `cwd` value as an ordinary `string` argument slot on both
-//     call surfaces (the surface's own arg-type row, no new code); the mode gate
+//     checks inside `checkInvokeStaticResolution`: the shared
+//     `checkWithClauseAtCallSurface` orchestration judges the clause's `cwd`
+//     value as an ordinary `string` argument slot on both call surfaces (the
+//     surface's own arg-type row, no new code) after its mode gate
 //     refuses a clause on a statically-resolvable PROMPT-mode callee
 //     (`theta/parse/with-clause-prompt-mode-callee`); and the Erratum A′ /
 //     Erratum B default-reject loop convicts a clause on any bare-ident
@@ -99,7 +100,7 @@ import type {
 } from "../parser/theta-document";
 import { walkCallSiteNodes } from "../parser/theta-document";
 import type { CallableSetSnapshot } from "../parser/callable-set";
-import { checkInvokeArity, withClausePromptModeRefusal } from "../parser/invoke-diagnostics";
+import { checkInvokeArity } from "../parser/invoke-diagnostics";
 import {
   detectInvocationCycle,
   type InvokeGraph,
@@ -142,7 +143,7 @@ export {
   type CalleeArity,
   type CalleeArityField,
 } from "../parser/invoke-callee-arity";
-import { checkClauseCwdType, checkWithClauseDefaultReject } from "../parser/with-clause-static-checks";
+import { checkWithClauseAtCallSurface, checkWithClauseDefaultReject } from "../parser/with-clause-static-checks";
 export { checkImportedWithClauseCallees } from "../parser/with-clause-static-checks";
 
 /**
@@ -407,40 +408,28 @@ async function checkThetaCallableCallSurface(
     if (arity === undefined) {
       continue;
     }
-    // RFC 0009 (invocation.md INV-8 static mode gate) via the shared
-    // `withClausePromptModeRefusal` helper — the `.theta`-callable half of
-    // the invoke arm's own call to it inside `checkInvokeStaticResolution`.
-    // PRODUCTION-UNREACHABLE: a prompt-mode `.theta` in `tools:` already
-    // un-registers the theta at load (`theta/load/prompt-mode-callable`,
-    // tool-calls.md), so no registered caller can hold this site — the arm
-    // exists so the gate is uniform across both clause-bearing surfaces (and
-    // for harness inputs). `<callee>` is the PRESENTED callable name here,
-    // not the callee path (placeholder-rendering-b.md §7), as this surface's
-    // other rows render it.
-    const clauseRefusal = withClausePromptModeRefusal({
-      ...(site.call.withClause !== undefined ? { clause: site.call.withClause } : {}),
-      mode: arity.mode,
-      file: callerPath,
-      range: site.call.range,
-      presented: site.name,
-    });
-    let clauseRefused = false;
-    if (clauseRefusal !== undefined) {
-      diagnostics.push(clauseRefusal);
-      clauseRefused = true;
-    }
-    if (!clauseRefused) {
-      diagnostics.push(
-        ...checkClauseCwdType({
-          ...(site.call.withClause !== undefined ? { clause: site.call.withClause } : {}),
-          surface: { kind: "theta-callable", name: site.name },
-          file: callerPath,
-          fallbackRange: site.call.range,
-          typeEnv,
-          typePass,
-        }),
-      );
-    }
+    // RFC 0009 (invocation.md INV-8 static mode gate, then INV-6 cwd type)
+    // via the shared `checkWithClauseAtCallSurface` orchestration — the
+    // `.theta`-callable half of the invoke surface's own call to it.
+    // PRODUCTION-UNREACHABLE (the INV-8 arm): a prompt-mode `.theta` in
+    // `tools:` already un-registers the theta at load
+    // (`theta/load/prompt-mode-callable`, tool-calls.md), so no registered
+    // caller can hold this site — the arm exists so the gate is uniform
+    // across both clause-bearing surfaces (and for harness inputs).
+    // `<callee>` is the PRESENTED callable name here, not the callee path
+    // (placeholder-rendering-b.md §7), as this surface's other rows render it.
+    diagnostics.push(
+      ...checkWithClauseAtCallSurface({
+        ...(site.call.withClause !== undefined ? { clause: site.call.withClause } : {}),
+        mode: arity.mode,
+        presented: site.name,
+        surface: { kind: "theta-callable", name: site.name },
+        file: callerPath,
+        range: site.call.range,
+        typeEnv,
+        typePass,
+      }),
+    );
     const arityDiags = checkInvokeArity({
       // The `invoke(...)` arm below renders `<callee>` as the verbatim path
       // literal because that IS the text at its diagnostic range. Here the
@@ -780,7 +769,7 @@ export async function checkInvokeStaticResolution(
           activeRoots: deps.activeRoots,
           resolveCalleeArity: deps.resolveCalleeArity,
           resolveCalleeAbsolute,
-          checkClauseCwdType,
+          checkWithClause: checkWithClauseAtCallSurface,
           buildInvokeArgSlot,
           // Defaulted here, not left optional on `checkInvokeExprCallSurface`'s
           // own deps: that keeps the return-type leg's `if` block below

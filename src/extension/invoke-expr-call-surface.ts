@@ -7,7 +7,6 @@ import {
   checkCalleeHasErrors,
   checkInvokeCall,
   checkInvokeReturnType,
-  withClausePromptModeRefusal,
   type InvokeArgSlot,
 } from "../parser/invoke-diagnostics";
 import {
@@ -159,11 +158,13 @@ export async function checkInvokeExprCallSurface(
     readonly activeRoots: readonly string[];
     readonly resolveCalleeArity: (calleeAbsolutePath: string) => Promise<CalleeArity | undefined>;
     readonly resolveCalleeAbsolute: (callerPath: string, literalPath: string) => string;
-    readonly checkClauseCwdType: (input: {
+    readonly checkWithClause: (input: {
       readonly clause?: CallWithClause;
+      readonly mode: CalleeArity["mode"] | undefined;
+      readonly presented: string;
       readonly surface: { readonly kind: "invoke"; readonly providedCount: number };
       readonly file: string;
-      readonly fallbackRange: SourceRange;
+      readonly range: SourceRange;
       readonly typeEnv: TypeEnv;
       readonly typePass: StaticTypeInferencePass;
     }) => Diagnostic[];
@@ -180,7 +181,7 @@ export async function checkInvokeExprCallSurface(
   },
 ): Promise<Diagnostic[]> {
   const diagnostics: Diagnostic[] = [];
-  const { resolveCalleeAbsolute, checkClauseCwdType, buildInvokeArgSlot } = deps;
+  const { resolveCalleeAbsolute, checkWithClause, buildInvokeArgSlot } = deps;
   for (const invoke of invokeExprs) {
     // A dynamic path (empty literal) or a non-`.theta` extension already
     // produced its own parse error; skip to avoid a confusing second report.
@@ -268,45 +269,34 @@ export async function checkInvokeExprCallSurface(
     // excludes the leading path-literal argument.
     const providedCount = Math.max(0, invoke.args.length - 1);
     const arity = await deps.resolveCalleeArity(resolvedPath);
-    // RFC 0009 (invocation.md INV-8 static mode gate) via the shared
-    // `withClausePromptModeRefusal` helper (also called by the
-    // `.theta`-callable surface's own arm, `checkThetaCallableCallSurface`):
-    // a call-site `with` clause addresses the spawned child process, so a
+    // RFC 0009 (invocation.md INV-8 static mode gate, then INV-6 cwd type)
+    // via the shared `checkWithClauseAtCallSurface` orchestration, threaded
+    // as the `checkWithClause` dep (also called by the `.theta`-callable
+    // surface's own arm, `checkThetaCallableCallSurface`): a call-site
+    // `with` clause addresses the spawned child process, so a
     // statically-resolvable PROMPT-mode callee under a clause is refused
-    // here, before the arity/type block. `arity === undefined` means the
-    // callee is not statically resolvable, and then NO parse code fires —
-    // the runtime validation arm owns that case (registry row Trigger);
-    // passing `arity?.mode` preserves that narrowing. `<callee>` renders
-    // the verbatim path literal, this arm's existing rendering rule.
-    const clauseRefusal = withClausePromptModeRefusal({
-      ...(invoke.withClause !== undefined ? { clause: invoke.withClause } : {}),
-      mode: arity?.mode,
-      file: site.file,
-      range: site.range,
-      presented: invoke.path,
-    });
-    let clauseRefused = false;
-    if (clauseRefusal !== undefined) {
-      diagnostics.push(clauseRefusal);
-      clauseRefused = true;
-    }
-    // INV-6: the clause's `cwd` value is judged exactly as an argument slot —
-    // expected `string`, the ordinary type diagnostic, no dedicated code
-    // (registry `invoke-arg-type-mismatch` Trigger). Independent of the
-    // arity/type block below (a mismatched argument AND a mismatched cwd each
-    // report), withheld only when this site already drew a clause refusal.
-    if (!clauseRefused) {
-      diagnostics.push(
-        ...checkClauseCwdType({
-          ...(invoke.withClause !== undefined ? { clause: invoke.withClause } : {}),
-          surface: { kind: "invoke", providedCount },
-          file: callerPath,
-          fallbackRange: invoke.range,
-          typeEnv,
-          typePass,
-        }),
-      );
-    }
+    // here, before the arity/type block, and the refusal withholds the cwd
+    // judgement. `arity === undefined` means the callee is not statically
+    // resolvable, and then NO parse code fires for the mode gate — the
+    // runtime validation arm owns that case (registry row Trigger); passing
+    // `arity?.mode` preserves that narrowing. The clause's `cwd` value is
+    // judged exactly as an argument slot — expected `string`, the ordinary
+    // type diagnostic, no dedicated code (registry `invoke-arg-type-mismatch`
+    // Trigger), independent of the arity/type block below (a mismatched
+    // argument AND a mismatched cwd each report). `<callee>` renders the
+    // verbatim path literal, this arm's existing rendering rule.
+    diagnostics.push(
+      ...checkWithClause({
+        ...(invoke.withClause !== undefined ? { clause: invoke.withClause } : {}),
+        mode: arity?.mode,
+        presented: invoke.path,
+        surface: { kind: "invoke", providedCount },
+        file: site.file,
+        range: site.range,
+        typeEnv,
+        typePass,
+      }),
+    );
     if (arity !== undefined) {
       // Bug 0137 — `checkInvokeCall`, not a direct `checkInvokeArity` call:
       // it runs arity FIRST and returns its diagnostics ALONE when arity
