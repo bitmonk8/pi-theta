@@ -19,6 +19,8 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { delimiter as PATH_DELIMITER, win32 as pathWin32 } from "node:path";
 import type { Diagnostic } from "../diagnostics/diagnostic";
 import type { DiscoveredTheta, PiOwnedCommand } from "../discovery/discovery-walk";
+import type { ParsedFrontmatter } from "../parser/frontmatter";
+import type { ThetaDocument } from "../parser/theta-document";
 import type { FileSystem } from "../seams/file-system";
 import { parseViaPassCache, type PassParseDeps } from "./pass-parse-cache";
 import { checkSubagentFnStaticResolution } from "./subagent-fn-static-checks";
@@ -37,6 +39,35 @@ export function hasLoadParseError(diagnostics: readonly Diagnostic[]): boolean {
       (diagnostic.code.startsWith("theta/load/") ||
         diagnostic.code.startsWith("theta/parse/")),
   );
+}
+
+/**
+ * Rejection-to-`undefined` probe read of a `.theta` file's bytes — the house
+ * idiom every discovered-theta / callee read uses (never a broad `catch`):
+ * an unreadable path yields `undefined`, and the caller decides what an
+ * unreadable file means at its site.
+ */
+export async function readThetaBytes(
+  fs: FileSystem,
+  path: string,
+): Promise<Uint8Array | undefined> {
+  return fs.readBytes(path).then(
+    (value) => value,
+    () => undefined,
+  );
+}
+
+/**
+ * The shared load/parse gate: a parsed `.theta` is usable iff its frontmatter
+ * parsed AND no error-severity load/parse diagnostic surfaced
+ * ({@link hasLoadParseError}). Narrows `frontmatter` to non-null on the
+ * passing arm; a failing caller decides its own failure payload (drop
+ * diagnostics, mark a grandchild failed, report `unparseable`, …).
+ */
+export function passesLoadParseGate(
+  document: ThetaDocument,
+): document is ThetaDocument & { readonly frontmatter: ParsedFrontmatter } {
+  return document.frontmatter !== null && !hasLoadParseError(document.diagnostics);
 }
 
 /** The `.theta` basename (minus extension) of a path, for the callee slash name. */
@@ -68,10 +99,7 @@ export async function parseDiscoveredTheta(
   theta: DiscoveredTheta,
   deps: PassParseDeps,
 ): Promise<ParsedDiscoveredTheta> {
-  const bytes = await fs.readBytes(theta.path).then(
-    (value) => value,
-    () => undefined,
-  );
+  const bytes = await readThetaBytes(fs, theta.path);
   if (bytes === undefined) {
     return { dropped: [] };
   }
@@ -79,7 +107,7 @@ export async function parseDiscoveredTheta(
   // importer) reaches the SAME file first this pass, the cache returns that
   // parse instead of re-triggering `lexTheta`'s emit.
   const document = parseViaPassCache({ path: theta.path, bytes }, deps);
-  if (document.frontmatter === null || hasLoadParseError(document.diagnostics)) {
+  if (!passesLoadParseGate(document)) {
     // A well-formed `.theta` carries `mode:` frontmatter and produces no
     // error-severity load/parse diagnostic; a frontmatter-less file cannot be
     // composed into a runnable fixture, and a theta that produced an

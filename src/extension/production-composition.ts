@@ -91,10 +91,7 @@ import {
 } from "../runtime/subagent-placement-selection";
 import { createProductionExecCommandRunner } from "./production-subagent-host";
 import { sendSystemNote } from "./system-note-channel";
-import {
-  createPipePlacementBackend,
-  type SubagentPlacementBackend,
-} from "../runtime/subagent-placement";
+import { createPipePlacementBackend } from "../runtime/subagent-placement";
 import {
   detectMarkedRootWinner,
   detectSubagentRootRegime,
@@ -171,7 +168,7 @@ import { normalizePath } from "../normalize-path";
 import { admissibleToolsSpec } from "./tools-entry-gate";
 import { RUNTIME_TOOL_SIGNATURES, type RuntimeToolName } from "../parser/runtime-tools";
 import { checkCalleeHasErrors, checkInvokeExtension } from "../parser/invoke-diagnostics";
-import { inferCalleeReturnPayload } from "../parser/type-layer-checks";
+import { inferCalleeReturnPayload, paramsFieldsFromFrontmatter } from "../parser/type-layer-checks";
 import type { CompatType } from "../parser/type-compat";
 import { canonicalForm, schemaSlug, toLoweredJsonValue } from "../parser/schema-lowering";
 import {
@@ -224,7 +221,9 @@ import {
 import {
   hasLoadParseError,
   parseDiscoveredTheta,
+  passesLoadParseGate,
   readPiOwnedCommands,
+  readThetaBytes,
   readThetaFlagPaths,
   thetaBasename,
 } from "./production-discovered-theta";
@@ -2895,10 +2894,10 @@ async function resolveCalleeArity(
     // (`theta/parse/tool-arg-type-mismatch`, `theta/parse/invoke-arg-type-mismatch`;
     // tool-calls.md §"Argument shape", invocation.md §"Argument binding") need
     // each `params:` field's verbatim declared type AND name, positionally —
-    // `field.type` / `field.wireName` ARE that verbatim source
+    // `paramsFieldsFromFrontmatter` projects exactly that verbatim source
     // (frontmatter.ts's `splitParamValue` sets `type` unchanged; `wireName` is
     // the `params:` YAML key exactly as written, `BypassParamsField`).
-    fields: fields.map((field) => ({ typeSource: field.type, name: field.wireName })),
+    fields: paramsFieldsFromFrontmatter(fields),
     // RFC 0009 (invocation.md INV-8): the call-site `with` clause's static mode
     // gate reads the callee's declared mode off the SAME pass-cached parse the
     // arity counts come from — no second callee read.
@@ -2926,12 +2925,9 @@ async function resolveCalleeReturnType(
   if (document === undefined) {
     return undefined;
   }
-  // Same `wireName`/`type` projection `checkTypeLayer`'s own caller
-  // (theta-document.ts) uses to build `ParamsFieldSource[]` from frontmatter.
-  const paramsFields = (document.frontmatter.params?.fields ?? []).map((field) => ({
-    name: field.wireName,
-    typeSource: field.type,
-  }));
+  // The same `ParamsFieldSource[]` projection `checkTypeLayer`'s own caller
+  // (theta-document.ts) builds from frontmatter.
+  const paramsFields = paramsFieldsFromFrontmatter(document.frontmatter.params?.fields);
   return inferCalleeReturnPayload(document.body, absolutePath, paramsFields);
 }
 
@@ -3694,10 +3690,7 @@ async function judgeCalleeToolsEntries(
     // Rejection-to-`undefined`, the house idiom `parseCalleeForTools` and
     // `checkNestedToolsContainment` both use for a probe read — never a broad
     // `catch`.
-    const bytes = await fs.readBytes(nestedAbsolute).then(
-      (value) => value,
-      () => undefined,
-    );
+    const bytes = await readThetaBytes(fs, nestedAbsolute);
     readable.set(spec, bytes !== undefined);
     if (bytes === undefined) {
       // Unreadable: bug 0270's route owns this spec
@@ -3761,7 +3754,7 @@ async function judgeCalleeToolsEntries(
       // frontmatter, not of whether the body also carries a load error.
       declaredMode.set(spec, document.frontmatter.mode);
     }
-    if (document.frontmatter === null || hasLoadParseError(document.diagnostics)) {
+    if (!passesLoadParseGate(document)) {
       grandchildFails.set(spec, true);
       continue;
     }
@@ -4524,17 +4517,14 @@ async function parseCalleeTheta(
 ): Promise<CalleeParseOutcome> {
   const baseDir = callerPath !== undefined ? dirname(callerPath) : ctx.cwd;
   const absolute = isAbsolute(calleePath) ? calleePath : resolvePath(baseDir, calleePath);
-  const bytes = await fs.readBytes(absolute).then(
-    (value) => value,
-    () => undefined,
-  );
+  const bytes = await readThetaBytes(fs, absolute);
   if (bytes === undefined) {
     return { kind: "unreadable" };
   }
   // Bug 0264: this callee's own dispatch parse may re-reach a path already
   // parsed this pass (e.g. a callee named by two `invoke(...)` call sites).
   const document = parseViaPassCache({ path: absolute, bytes }, deps);
-  if (document.frontmatter === null || hasLoadParseError(document.diagnostics)) {
+  if (!passesLoadParseGate(document)) {
     return { kind: "unparseable" };
   }
   // Bug 0267 §Fix constraint 3: the SAME predicate as `parseCalleeForTools`'s

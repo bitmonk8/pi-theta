@@ -2,6 +2,8 @@
 
 import type { CompatType, PrimitiveName } from "./type-compat";
 import { PRIMITIVE_NAMES, type ParamsFieldSource } from "./type-layer-checks";
+import { annotationSourceIsNotTypeExpression } from "./annotation-validation";
+import type { Expr, FnParam } from "./theta-document";
 
 /**
  * Parse a declared type-annotation source into a `CompatType` for the
@@ -51,6 +53,52 @@ import { PRIMITIVE_NAMES, type ParamsFieldSource } from "./type-layer-checks";
  */
 export function annotationToCompatType(src: string): CompatType | undefined {
   return convertAnnotation(src, false);
+}
+
+/**
+ * The shared per-slot preamble of a user-`fn` call's argument-type loop:
+ * yield each matched `(param, paramType, arg)` triple that survives the
+ * parameter-annotation guards, for both routes that judge the rule — the
+ * parse-time same-file loop (`checkFnCallArgLoop`, type-layer-walk.ts) and
+ * the compose-time imported-`.thetalib` loop (`checkImportedFnCallArgs`,
+ * ../extension/invoke-imported-checks.ts, bug 0138 route 2). Two guards
+ * withhold a slot:
+ *
+ *   - a parameter annotation that derives from none of `Type`'s six
+ *     alternatives (`annotationSourceIsNotTypeExpression`) supports no
+ *     verdict — treated as absent rather than as an opaque nominal reading
+ *     of the junk text; the caller reads the callee's `FnParam` list off
+ *     the declaration verbatim, so the absence invariant is established
+ *     here for both routes;
+ *   - an unannotated parameter (`type` is the empty string, so
+ *     `annotationToCompatType` answers `undefined`) has no declared type to
+ *     judge against (type-system.md §"Absent operands") — nor to be an
+ *     element sink.
+ *
+ * The two routes diverge only AFTER this preamble, in how they prove and
+ * act on the argument's type.
+ */
+export function* fnCallJudgedArgSlots(
+  params: readonly FnParam[],
+  args: readonly Expr[],
+): Generator<{
+  readonly index: number;
+  readonly param: FnParam;
+  readonly paramType: CompatType;
+  readonly arg: Expr;
+}> {
+  const matchedCount = Math.min(args.length, params.length);
+  for (let i = 0; i < matchedCount; i += 1) {
+    const param = params[i] as FnParam;
+    if (param.type.length > 0 && annotationSourceIsNotTypeExpression(param.type)) {
+      continue;
+    }
+    const paramType = annotationToCompatType(param.type);
+    if (paramType === undefined) {
+      continue;
+    }
+    yield { index: i, param, paramType, arg: args[i] as Expr };
+  }
 }
 
 /**

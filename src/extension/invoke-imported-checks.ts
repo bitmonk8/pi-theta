@@ -33,9 +33,7 @@
 
 import type { Diagnostic } from "../diagnostics/diagnostic";
 import type {
-  Expr,
   FnDecl,
-  FnParam,
   ObjectExpr,
   SchemaFieldSource,
   Stmt,
@@ -46,12 +44,11 @@ import { checkVariantAccess } from "../parser/schema-declarations";
 import { checkFnCallArity } from "../parser/invoke-diagnostics";
 import { StaticTypeInferencePass } from "../parser/static-type-inference";
 import {
-  annotationSourceIsNotTypeExpression,
-  annotationToCompatType,
   collectEnumNames,
   collectTypeEnv,
   fnParamNamesAreIdentifiers,
 } from "../parser/type-layer-checks";
+import { fnCallJudgedArgSlots } from "../parser/annotation-compat";
 import { checkCompatible, type TypeEnv } from "../parser/type-compat";
 import { checkFnArgCompat } from "../parser/type-compat-sites";
 import {
@@ -243,23 +240,12 @@ export function checkImportedFnCallArgs(
       }
     }
     const libraryEnv = libraryEnvFor(callee.libraryStatements);
-    const matchedCount = Math.min(call.args.length, callee.fn.params.length);
-    for (let i = 0; i < matchedCount; i += 1) {
-      const param = callee.fn.params[i] as FnParam;
-      if (param.type.length > 0 && annotationSourceIsNotTypeExpression(param.type)) {
-        // The library's own parameter annotation derives from none of
-        // `Type`'s six alternatives — treated as absent rather than as an
-        // opaque nominal reading of the junk text, mirroring
-        // `checkFnCallArgs`'s identical guard on the same-file route.
-        continue;
-      }
-      const paramType = annotationToCompatType(param.type);
-      if (paramType === undefined) {
-        // An unannotated library parameter has no declared type to judge
-        // against (type-system.md §"Absent operands").
-        continue;
-      }
-      const argExpr = call.args[i] as Expr;
+    // The annotation-guard preamble is shared with `checkFnCallArgLoop`'s
+    // same-file route (`fnCallJudgedArgSlots`, ../parser/annotation-compat.ts).
+    for (const { index: i, param, paramType, arg: argExpr } of fnCallJudgedArgSlots(
+      callee.fn.params,
+      call.args,
+    )) {
       const argTypes = collectProvableArgTypes(argExpr, importerEnv, importerPass);
       if (argTypes === undefined) {
         // A value-contributing position past the parser's static view defers

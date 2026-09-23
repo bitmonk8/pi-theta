@@ -32,14 +32,16 @@ import { parseDeps } from "./helpers/e2e-s1";
 // (`src/extension/callable-lowering.ts`) reads the presented
 // callable names off the frozen resolution snapshot when a theta has one, and falls
 // back to deriving them from `frontmatter.tools` when it does not (an in-memory
-// harness fixture). The pinned contract: that fallback owns NO token grammar — it
-// calls the exported `parseToolsEntry` (`src/parser/callable-set.ts`), the same
-// closed grammar `resolveCallableSet` enforces, so the two readers cannot disagree
-// about which entries exist.
+// harness fixture) — through the shared `fallbackPresentedEntries` mapping that
+// `thetaCalleePath` also reads. The pinned contract: that fallback owns NO token
+// grammar — it calls the exported `parseToolsEntry` (`src/parser/callable-set.ts`),
+// the same closed grammar `resolveCallableSet` enforces, so the two readers cannot
+// disagree about which entries exist.
 //
 // WHAT EACH GROUP ASSERTS
 //
-//   (D1) — source shape over the shipped `presentedCallableNames` slice. Two
+//   (D1) — source shape over the shipped `fallbackPresentedEntries` slice (the
+//         snapshot-absent fallback both readers consume). Two
 //         legacy ABSENCE cells (no `split(`, no quoted `as`: the two spellings
 //         the pre-fix body used) plus the bug-0107 §Fix (c) PRESENCE cell: the
 //         scanned body must call `parseToolsEntry`. The absence pair is a
@@ -121,10 +123,10 @@ const PRODUCER_SOURCE = readCorpus(
  * anything.
  */
 function topLevelFunctionBody(source: string, name: string): string {
-  const start = source.indexOf(`\nexport function ${name}(`);
+  const start = source.indexOf(`\nfunction ${name}(`);
   if (start < 0) {
     throw new Error(
-      `no top-level \`export function ${name}(\` in src/extension/callable-lowering.ts: ` +
+      `no top-level \`function ${name}(\` in src/extension/callable-lowering.ts: ` +
         "the lock-step scan has no subject",
     );
   }
@@ -143,12 +145,12 @@ function topLevelFunctionBody(source: string, name: string): string {
 // ===========================================================================
 
 describe("Bug 0069 (D1) — the snapshot-absent fallback carries no entry grammar of its own", () => {
-  const body = topLevelFunctionBody(PRODUCER_SOURCE, "presentedCallableNames");
+  const body = topLevelFunctionBody(PRODUCER_SOURCE, "fallbackPresentedEntries");
 
   it("does not split an entry into tokens itself", () => {
     expect(
       body,
-      "`presentedCallableNames` still tokenises a `tools:` entry, so the tree " +
+      "`fallbackPresentedEntries` still tokenises a `tools:` entry, so the tree " +
         "holds a second answer to which entries exist — and this one admits " +
         "the residue the resolver rejects:\n" + body,
     ).not.toMatch(/\bsplit\(/);
@@ -157,7 +159,7 @@ describe("Bug 0069 (D1) — the snapshot-absent fallback carries no entry gramma
   it("does not re-test the `as` keyword itself", () => {
     expect(
       body,
-      "`presentedCallableNames` still decides the `as` clause locally instead " +
+      "`fallbackPresentedEntries` still decides the `as` clause locally instead " +
         "of asking the shared grammar:\n" + body,
     ).not.toMatch(/["']as["']/);
   });
@@ -171,7 +173,7 @@ describe("Bug 0069 (D1) — the snapshot-absent fallback carries no entry gramma
   it("delegates: the scanned body calls the shared exported grammar — ", () => {
     expect(
       body,
-      "`presentedCallableNames` no longer calls `parseToolsEntry` " +
+      "`fallbackPresentedEntries` no longer calls `parseToolsEntry` " +
         "(exported from src/parser/callable-set.ts precisely so this fallback " +
         "answers 'which entries exist' from the SAME closed grammar " +
         "`resolveCallableSet` enforces — bug 0069 §Fix constraint 5). Whatever " +

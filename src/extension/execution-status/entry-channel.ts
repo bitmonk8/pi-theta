@@ -90,67 +90,44 @@ export function createEntryChannel(
     }
   }
 
+  // The ONE dead-channel degrade discipline every append arm shares
+  // (EXST-8 / EXST-14 / PIC-71/72 / Erratum A): guard on `dead`, attempt the
+  // append, and let the FIRST thrown append permanently degrade the channel
+  // for the session — silently, with no message-channel fallback here (the
+  // note arm's CALLER owns the `sendMessage` fallback a `false` return
+  // triggers; every other arm's `false` is a silent skip).
+  const tryAppend = (type: string, payload: unknown): boolean => {
+    if (dead) {
+      return false;
+    }
+    try {
+      pi.appendEntry(type, payload);
+      return true;
+    } catch { // allow-broad-catch: pi-sdk-boundary — conventions.md Specific exception types only
+      dead = true;
+      return false;
+    }
+  };
+
   return {
     live(): boolean {
       return !dead;
     },
     append(note: SystemNote): boolean {
-      if (dead) {
-        return false;
-      }
-      try {
-        // PIC-72: no dedup on this channel — a re-scan re-appends.
-        pi.appendEntry(THETA_PROGRESS_ENTRY_TYPE, note);
-        return true;
-      } catch { // allow-broad-catch: pi-sdk-boundary — conventions.md Specific exception types only
-        // EXST-8 / PIC-72: the first append failure permanently degrades the
-        // channel; this note and every later one fall back to `sendMessage`.
-        dead = true;
-        return false;
-      }
+      // PIC-72: no dedup on this channel — a re-scan re-appends.
+      return tryAppend(THETA_PROGRESS_ENTRY_TYPE, note);
     },
     appendMilestone(m: ProgressMilestone): boolean {
-      if (dead) {
-        return false;
-      }
-      try {
-        // PIC-71: the milestone shares the SAME `theta-progress-entry` custom-
-        // entry type as the migrated-note payload; the renderer discriminates
-        // on the `milestone` key (PIC-71).
-        pi.appendEntry(THETA_PROGRESS_ENTRY_TYPE, { milestone: m });
-        return true;
-      } catch { // allow-broad-catch: pi-sdk-boundary — conventions.md Specific exception types only
-        // EXST-14: no `sendMessage` fallback for milestones — the channel
-        // simply degrades dead, same as the note-append arm above.
-        dead = true;
-        return false;
-      }
+      // PIC-71: the milestone shares the SAME `theta-progress-entry` custom-
+      // entry type as the migrated-note payload; the renderer discriminates
+      // on the `milestone` key (PIC-71).
+      return tryAppend(THETA_PROGRESS_ENTRY_TYPE, { milestone: m });
     },
     appendRun(seed: ThetaRunSeed): boolean {
-      if (dead) {
-        return false;
-      }
-      try {
-        pi.appendEntry(THETA_RUN_ENTRY_TYPE, seed);
-        return true;
-      } catch { // allow-broad-catch: pi-sdk-boundary — conventions.md Specific exception types only
-        // RFC 0015 (D3): first hard append failure permanently degrades the
-        // channel — the milestone discipline; no message-channel fallback.
-        dead = true;
-        return false;
-      }
+      return tryAppend(THETA_RUN_ENTRY_TYPE, seed);
     },
     appendRunSummary(summary: ThetaRunSummary): boolean {
-      if (dead) {
-        return false;
-      }
-      try {
-        pi.appendEntry(THETA_RUN_SUMMARY_ENTRY_TYPE, summary);
-        return true;
-      } catch { // allow-broad-catch: pi-sdk-boundary — conventions.md Specific exception types only
-        dead = true;
-        return false;
-      }
+      return tryAppend(THETA_RUN_SUMMARY_ENTRY_TYPE, summary);
     },
   };
 }

@@ -49,7 +49,7 @@ import {
   type ParsedRespondRepair,
 } from "./frontmatter";
 import type { EnumValueKind } from "./schema-declarations";
-import { checkTypeLayer } from "./type-layer-checks";
+import { checkTypeLayer, paramsFieldsFromFrontmatter } from "./type-layer-checks";
 import { resolveQuerySchemas, type QueryPropagation } from "./query-schema-resolve";
 import {
   buildBodyTypeSchemas,
@@ -396,7 +396,7 @@ function runWholeDocumentChecks(
   const typeLayerDiags = checkTypeLayer(
     { statements, tail: resolvedTail },
     file,
-    (frontmatter?.params?.fields ?? []).map((f) => ({ name: f.wireName, typeSource: f.type })),
+    paramsFieldsFromFrontmatter(frontmatter?.params?.fields),
     runtimeToolSuccessTypes,
   );
 

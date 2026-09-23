@@ -235,6 +235,36 @@ function lowerThetaCallableModelResult(result: ResultValue): LoweredThetaCallabl
 }
 
 /**
+ * The snapshot-absent fallback's presented-name ↔ entry mapping: each
+ * well-formed `frontmatter.tools` entry paired with its presented
+ * (post-`as` / post-hyphen→underscore) name and its spec as written. Names are
+ * derived through the SAME closed grammar (`parseToolsEntry`) and default-name
+ * rule (`isBareIdentifier` / `thetaDefaultName`) `resolveCallableSet` enforces
+ * (bug 0069 §Fix constraint 5; bug 0253): a malformed entry has no presented
+ * name and contributes nothing, matching the resolver un-registering the theta
+ * outright rather than truncating it to a name. The SINGLE source of truth both
+ * snapshot-absent readers (`thetaCalleePath`, `presentedCallableNames`) consume,
+ * so the bug-0016 dispatch guard's callable registry and the code-driven
+ * `<name>(args)` callee resolution cannot disagree about which names exist.
+ */
+function fallbackPresentedEntries(
+  tools: readonly string[],
+): readonly { readonly name: string; readonly spec: string }[] {
+  const entries: { readonly name: string; readonly spec: string }[] = [];
+  for (const entry of tools) {
+    const parsed = parseToolsEntry(entry.trim());
+    if (parsed.kind !== "ok") {
+      continue;
+    }
+    const name =
+      parsed.rename ??
+      (isBareIdentifier(parsed.spec) ? parsed.spec : thetaDefaultName(parsed.spec));
+    entries.push({ name, spec: parsed.spec });
+  }
+  return entries;
+}
+
+/**
  * The callable-set entry (a `./x.theta` path) that a call name resolves to, or
  * `undefined` when the name binds to no `.theta`-callable (so it is a Pi tool).
  *
@@ -247,11 +277,11 @@ function lowerThetaCallableModelResult(result: ResultValue): LoweredThetaCallabl
  * code-driven `<name>(args)` path and the model-driven adapter.
  *
  * A theta carrying NO snapshot (an in-memory harness fixture built with
- * `frontmatter.tools` but no `callableSet`) falls back to matching
- * `frontmatter.tools` by the resolver's own `thetaDefaultName`, the shared
- * derivation `presentedCallableNames` uses, so the fallback agrees with the
- * snapshot arm on a hyphenated stem (bug 0253). This is the same
- * snapshot-absent fallback pattern `#resolvePiToolForTheta` uses. Production
+ * `frontmatter.tools` but no `callableSet`) falls back to matching the
+ * presented name through the shared `fallbackPresentedEntries` mapping — the
+ * SAME mapping `presentedCallableNames` reads — so the fallback agrees with the
+ * snapshot arm on a hyphenated stem (bug 0253) and the two readers cannot
+ * disagree about which names exist (bug 0069 §Fix constraint 5). Production
  * discovered thetas always carry a (possibly empty) snapshot, so the fallback
  * never serves a real theta and thus cannot re-open the Gap-2 hole for
  * production (renamed / hyphenated resolve from the snapshot).
@@ -265,10 +295,9 @@ export function thetaCalleePath(
     const entry = set.entries.get(calleeName);
     return entry !== undefined && entry.kind === "theta" ? entry.calleePath : undefined;
   }
-  const tools = theta.frontmatter.tools ?? [];
-  return tools.find(
-    (entry) => entry.endsWith(".theta") && thetaDefaultName(entry) === calleeName,
-  );
+  return fallbackPresentedEntries(theta.frontmatter.tools ?? []).find(
+    (entry) => entry.spec.endsWith(".theta") && entry.name === calleeName,
+  )?.spec;
 }
 
 /**
@@ -311,37 +340,18 @@ export function lowerToolCallParams(expr: CallExpr, env: LexicalEnvironment): Re
  * The presented (post-`as` / post-hyphen→underscore) callable names of a
  * theta's `tools:` set, for the environment's resolution arm 4 (bug 0016): the
  * frozen snapshot's keys ARE the presented names; a theta carrying NO snapshot
- * (an in-memory harness fixture) falls back to deriving per-entry names from
- * `frontmatter.tools` — the same snapshot-absent fallback pattern
- * `thetaCalleePath` / `#resolvePiToolForTheta` use, so production always takes
- * the snapshot arm. The fallback answers "which entries exist" from the SAME
- * closed grammar `resolveCallableSet` enforces (`parseToolsEntry`) rather than
- * re-tokenising the entry itself, so the two cannot disagree about a malformed
- * entry (bug 0069 §Fix constraint 5): a malformed entry has no presented name
- * and contributes nothing to the returned list, matching the resolver
- * un-registering the theta outright rather than truncating it to a name. A
- * `.theta` entry's default name is the resolver's shared `thetaDefaultName`
- * (`src/parser/callable-set.ts`), so a hyphenated stem presents the same
- * underscored name on both the snapshot and fallback arms (bug 0253).
+ * (an in-memory harness fixture) falls back to the shared
+ * `fallbackPresentedEntries` mapping — the same snapshot-absent fallback
+ * `thetaCalleePath` reads — so production always takes the snapshot arm and the
+ * two readers cannot disagree about which names exist (bug 0069 §Fix
+ * constraint 5, bug 0253; see `fallbackPresentedEntries` for the derivation).
  */
 export function presentedCallableNames(theta: ConversationBindInput["theta"]): readonly string[] {
   const set = theta.callableSet;
   if (set !== undefined) {
     return [...set.entries.keys()];
   }
-  const names: string[] = [];
-  for (const entry of theta.frontmatter.tools ?? []) {
-    const parsed = parseToolsEntry(entry.trim());
-    if (parsed.kind !== "ok") {
-      continue;
-    }
-    if (parsed.rename !== undefined) {
-      names.push(parsed.rename);
-      continue;
-    }
-    names.push(isBareIdentifier(parsed.spec) ? parsed.spec : thetaDefaultName(parsed.spec));
-  }
-  return names;
+  return fallbackPresentedEntries(theta.frontmatter.tools ?? []).map((entry) => entry.name);
 }
 
 /**

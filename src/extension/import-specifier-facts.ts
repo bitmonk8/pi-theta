@@ -192,25 +192,23 @@ function collectImportedTypeDecls(
   const originalSchemaOf = new Map<string, SchemaDecl>();
   const originalEnumOf = new Map<string, EnumDecl>();
 
-  /** Claim `name` for `decl`, storing `storedValue`; records a bug-0466 collision instead when `name` is already claimed by a different decl. */
-  const claimSchema = (name: string, decl: SchemaDecl, storedValue: SchemaDecl): void => {
-    const claimant = originalSchemaOf.get(name);
-    if (claimant === undefined) {
-      originalSchemaOf.set(name, decl);
-      schemas.set(name, storedValue);
-    } else if (claimant !== decl) {
-      collidedNames.add(name);
-    }
-  };
-  const claimEnum = (name: string, decl: EnumDecl, storedValue: EnumDecl): void => {
-    const claimant = originalEnumOf.get(name);
-    if (claimant === undefined) {
-      originalEnumOf.set(name, decl);
-      enums.set(name, storedValue);
-    } else if (claimant !== decl) {
-      collidedNames.add(name);
-    }
-  };
+  /** Claim `name` for `decl` in one kind's map pair, storing `storedValue`; records a bug-0466 collision instead when `name` is already claimed by a different decl. */
+  const makeClaim =
+    <T extends SchemaDecl | EnumDecl>(
+      originalOf: Map<string, T>,
+      stored: Map<string, T>,
+    ): ((name: string, decl: T, storedValue: T) => void) =>
+    (name, decl, storedValue) => {
+      const claimant = originalOf.get(name);
+      if (claimant === undefined) {
+        originalOf.set(name, decl);
+        stored.set(name, storedValue);
+      } else if (claimant !== decl) {
+        collidedNames.add(name);
+      }
+    };
+  const claimSchema = makeClaim(originalSchemaOf, schemas);
+  const claimEnum = makeClaim(originalEnumOf, enums);
 
   const typeSourcesOf = (decl: SchemaDecl): readonly string[] =>
     decl.fields !== undefined
@@ -450,24 +448,25 @@ async function recordImportedSpecifierFacts(
   // claimed is a diamond (the SAME decl reached twice — exempt) unless the
   // two decls are structurally different, in which case it is the same
   // collision one aggregation level up.
-  for (const [name, decl] of transitiveSchemas) {
-    const existing = importedTypeSchemas.get(name);
-    if (existing === undefined) {
-      importedTypeSchemas.set(name, decl);
-    } else if (isDifferentImportedTypeDecl(existing, decl) && !mintedTypeNameCollisions.has(name)) {
-      mintedTypeNameCollisions.add(name);
-      diagnostics.push(importedTypeNameCollisionDiagnostic(specifierSite, name));
+  const aggregateTransitiveDecls = <T extends SchemaDecl | EnumDecl>(
+    transitive: ReadonlyMap<string, T>,
+    imported: Map<string, T>,
+  ): void => {
+    for (const [name, decl] of transitive) {
+      const existing = imported.get(name);
+      if (existing === undefined) {
+        imported.set(name, decl);
+      } else if (
+        isDifferentImportedTypeDecl(existing, decl) &&
+        !mintedTypeNameCollisions.has(name)
+      ) {
+        mintedTypeNameCollisions.add(name);
+        diagnostics.push(importedTypeNameCollisionDiagnostic(specifierSite, name));
+      }
     }
-  }
-  for (const [name, decl] of transitiveEnums) {
-    const existing = importedTypeEnums.get(name);
-    if (existing === undefined) {
-      importedTypeEnums.set(name, decl);
-    } else if (isDifferentImportedTypeDecl(existing, decl) && !mintedTypeNameCollisions.has(name)) {
-      mintedTypeNameCollisions.add(name);
-      diagnostics.push(importedTypeNameCollisionDiagnostic(specifierSite, name));
-    }
-  }
+  };
+  aggregateTransitiveDecls(transitiveSchemas, importedTypeSchemas);
+  aggregateTransitiveDecls(transitiveEnums, importedTypeEnums);
   const materialized = await materializeChain(
     specifier.source,
     specifier.local,

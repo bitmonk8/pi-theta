@@ -155,25 +155,11 @@ function checkWithClauseDefaultReject(
       if (call.withClause === undefined) {
         continue;
       }
-      // Bug 0071 §Fix constraint 2 / the 0031-0038 hazard rule: `Map.get`
-      // plus an explicit `!== undefined` test — a callee name is
-      // author-controlled source text.
-      const entry = callableSet.entries.get(call.callee);
-      if (entry !== undefined && entry.kind === "theta") {
+      const verdict = classifyWithClauseCallee(call.callee, callableSet, subagentFns, imported);
+      if (verdict === "admit" || verdict === "imported-deferred") {
         continue;
       }
-      // Erratum B: a same-file `subagent fn` is a child-spawning surface.
-      // expressions.md §"Identifier resolution" ranks `fn` above `callable`,
-      // so a name the set ALSO binds resolves to the declaration first.
-      if (entry === undefined && subagentFns.has(call.callee)) {
-        continue;
-      }
-      // An imported name's fn kind is the declaring library's fact; judged
-      // once the import materialises (`checkImportedWithClauseCallees`).
-      if (entry === undefined && imported.has(call.callee)) {
-        continue;
-      }
-      if (entry !== undefined && entry.kind === "pi-tool") {
+      if (verdict === "pi-tool") {
         diagnostics.push({
           severity: "error",
           code: WITH_CLAUSE_PI_TOOL_CODE,
@@ -200,6 +186,73 @@ function checkWithClauseDefaultReject(
     }
   }
   return diagnostics;
+}
+
+/**
+ * The ONE `with`-clause callee classification (invocation.md INV-8, RFC 0009
+ * Erratum A′ + Erratum B) both passes call — the pre-materialisation
+ * default-reject loop (`checkWithClauseDefaultReject`) and the
+ * post-materialisation imported-callee loop (`checkImportedWithClauseCallees`)
+ * — so the set of child-spawning surfaces is written once:
+ *
+ *   - `"admit"` — a legal surface the pre-pass owns: a callee the frozen set
+ *     classifies `theta` (the mode gate owns it), or a same-file top-level
+ *     `subagent fn` (Erratum B, RFC 0012 §10 — the body is a child process;
+ *     expressions.md §"Identifier resolution" ranks `fn` above `callable`,
+ *     so a name the set ALSO binds resolves to the declaration first).
+ *   - `"pi-tool"` — a pre-pass conviction: `theta/parse/with-clause-pi-tool`.
+ *   - `"in-process"` — the pre-pass default conviction: plain `fn`, locals,
+ *     builtins, anything the set does not bind, and the set's
+ *     `"runtime-tool"` classification (RFC 0011 §3.2 row 1) —
+ *     `theta/parse/with-clause-in-process-callee`.
+ *   - `"imported-deferred"` — an imported name judged WITHOUT materialised
+ *     evidence: its fn kind is the declaring library's fact, so the pre-pass
+ *     skips it and the post-pass re-classifies with evidence.
+ *   - `"imported-admit"` / `"imported-in-process"` — the deferred half
+ *     resolved: a materialised imported `subagent fn` is a child-spawning
+ *     surface (FN-9); every other imported callee draws the same default
+ *     conviction. Only the post-pass sees these (it passes
+ *     `materialisedImports`); it acts on `"imported-in-process"` alone —
+ *     every other verdict was the pre-pass's to own.
+ *
+ * Bug 0071 §Fix constraint 2 / the 0031-0038 hazard rule: `Map.get` plus an
+ * explicit `!== undefined` test — a callee name is author-controlled source
+ * text.
+ */
+function classifyWithClauseCallee(
+  callee: string,
+  callableSet: CallableSetSnapshot | undefined,
+  subagentFns: ReadonlySet<string>,
+  importedNames: ReadonlySet<string>,
+  materialisedImports?: ReadonlyMap<string, MaterializedImport>,
+):
+  | "admit"
+  | "pi-tool"
+  | "in-process"
+  | "imported-deferred"
+  | "imported-admit"
+  | "imported-in-process" {
+  const entry = callableSet?.entries.get(callee);
+  if (entry !== undefined && entry.kind === "theta") {
+    return "admit";
+  }
+  if (entry === undefined && subagentFns.has(callee)) {
+    return "admit";
+  }
+  if (entry === undefined && importedNames.has(callee)) {
+    if (materialisedImports === undefined) {
+      return "imported-deferred";
+    }
+    const materialised = materialisedImports.get(callee);
+    if (materialised?.kind === "fn" && materialised.fn?.subagent === true) {
+      return "imported-admit";
+    }
+    return "imported-in-process";
+  }
+  if (entry !== undefined && entry.kind === "pi-tool") {
+    return "pi-tool";
+  }
+  return "in-process";
 }
 
 /** The names of every top-level `subagent fn` declared in `statements` (a declaration-site fact). */
@@ -245,17 +298,24 @@ export function checkImportedWithClauseCallees(
   callableSet: CallableSetSnapshot | undefined,
 ): Diagnostic[] {
   const diagnostics: Diagnostic[] = [];
+  const subagentFns = topLevelSubagentFnNames(body.statements);
   const importedNames = importedLocalNames(body.statements);
   const byName = new Map(imports.map((entry) => [entry.name, entry] as const));
   for (const call of collectCallSites(body).callExprs) {
-    if (call.withClause === undefined || !importedNames.has(call.callee)) {
+    if (call.withClause === undefined) {
       continue;
     }
-    if (callableSet?.entries.get(call.callee) !== undefined) {
-      continue;
-    }
-    const materialised = byName.get(call.callee);
-    if (materialised?.kind === "fn" && materialised.fn?.subagent === true) {
+    // Same classification as the load pass, now WITH materialised evidence;
+    // every verdict but the resolved-deferred conviction was the load pass's
+    // own to admit or convict.
+    const verdict = classifyWithClauseCallee(
+      call.callee,
+      callableSet,
+      subagentFns,
+      importedNames,
+      byName,
+    );
+    if (verdict !== "imported-in-process") {
       continue;
     }
     diagnostics.push({

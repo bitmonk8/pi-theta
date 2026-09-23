@@ -54,14 +54,6 @@ import type { EmissionSink } from "./teardown-emission";
 import type { ThetaCompositionInput } from "./theta-composition-producer";
 
 /**
- * H8b: one resolved host Pi tool the code-side tool-call path dispatches
- * `execute` against. `execute` invokes the host tool's `execute(...)` and maps
- * its `AgentToolResult` to the theta-load-bearing `AgentToolResultEnvelope`
- * (`content` only), or throws when the tool signals failure — the V14g lowering
- * (`runCodeSideToolCall`) turns a clean resolve into `Ok(text)` and a throw into
- * `Err(CodeToolError{cause:"execution"})`.
- */
-/**
  * RFC-0012 §6: per-launch placement resolution. The composition root supplies
  * it over the registered-backend set, the operator's selection and the two
  * per-launch policies (visible cap, credential guard); the producer calls it
@@ -76,6 +68,14 @@ export interface SubagentPlacementResolver {
   }): PlacementLease;
 }
 
+/**
+ * H8b: one resolved host Pi tool the code-side tool-call path dispatches
+ * `execute` against. `execute` invokes the host tool's `execute(...)` and maps
+ * its `AgentToolResult` to the theta-load-bearing `AgentToolResultEnvelope`
+ * (`content` only), or throws when the tool signals failure — the V14g lowering
+ * (`runCodeSideToolCall`) turns a clean resolve into `Ok(text)` and a throw into
+ * `Err(CodeToolError{cause:"execution"})`.
+ */
 export interface PiToolDispatch {
   readonly toolName: string;
   /**

@@ -13,7 +13,6 @@ import type {
   CallExpr,
   Expr,
   FnDecl,
-  FnParam,
   IfStmt,
   ObjectFieldNode,
   PatternNode,
@@ -50,6 +49,7 @@ import { resolveReturnType, type ReturnContribution } from "./functions";
 import { checkFnCallArity, checkInvokeReturnType } from "./invoke-diagnostics";
 import {
   annotationToCompatType,
+  fnCallJudgedArgSlots,
   letAnnotationToCompatType,
   isResultAnnotation,
   patternLiteralType,
@@ -1373,26 +1373,13 @@ class TypeLayerWalk implements TypeWalkContext {
     bindings: ReadonlyMap<string, CompatType>,
     sunkArgs: Set<Expr>,
   ): void {
-    const matchedCount = Math.min(e.args.length, fn.params.length);
-    for (let i = 0; i < matchedCount; i += 1) {
-      const p = fn.params[i] as FnParam;
-      if (p.type.length > 0 && annotationSourceIsNotTypeExpression(p.type)) {
-        // The callee's own parameter annotation derives from none of `Type`'s
-        // six alternatives, so it supports no verdict — treated as absent
-        // rather than as an opaque nominal reading of the junk text. This
-        // reads the callee's `FnParam` list out of `fnDecls`, which carries
-        // the declaration verbatim rather than a projected type, so the
-        // absence invariant (`annotationSourceIsNotTypeExpression`) is
-        // established here; a reader of `fnScope` inherits it instead.
-        continue;
-      }
-      const paramType = annotationToCompatType(p.type);
-      if (paramType === undefined) {
-        // An unannotated parameter (`p.type` is the empty string) has no
-        // declared type to be an element sink either.
-        continue;
-      }
-      const arg = e.args[i] as Expr;
+    // The shared annotation-guard preamble (`fnCallJudgedArgSlots`,
+    // annotation-compat.ts) reads the callee's `FnParam` list out of
+    // `fnDecls`, which carries the declaration verbatim rather than a
+    // projected type, so the absence invariant
+    // (`annotationSourceIsNotTypeExpression`) is established there; a reader
+    // of `fnScope` inherits it instead.
+    for (const { index: i, param: p, paramType, arg } of fnCallJudgedArgSlots(fn.params, e.args)) {
       const argType = provableArgType(this, arg, bindings);
       if (argType !== undefined) {
         // Withheld only when the whole-argument reduction is unprovable

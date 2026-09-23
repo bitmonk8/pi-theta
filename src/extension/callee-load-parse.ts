@@ -4,7 +4,7 @@ import type { FileSystem } from "../seams/file-system";
 import type { ParsedFrontmatter } from "../parser/frontmatter";
 import type { ThetaBody } from "../parser/theta-document";
 import { parseViaPassCache, type PassParseDeps } from "./pass-parse-cache";
-import { hasLoadParseError } from "./production-discovered-theta";
+import { passesLoadParseGate, readThetaBytes } from "./production-discovered-theta";
 
 /** Read a statically resolvable callee's frontmatter and body, or return undefined. */
 export async function readCalleeDocument(
@@ -12,10 +12,7 @@ export async function readCalleeDocument(
   absolutePath: string,
   deps: PassParseDeps,
 ): Promise<{ readonly frontmatter: ParsedFrontmatter; readonly body: ThetaBody } | undefined> {
-  const bytes = await fs.readBytes(absolutePath).then(
-    (value) => value,
-    () => undefined,
-  );
+  const bytes = await readThetaBytes(fs, absolutePath);
   if (bytes === undefined) {
     return undefined;
   }
@@ -23,7 +20,7 @@ export async function readCalleeDocument(
   // have been parsed this pass (a discovered theta, or another `.theta`-callable
   // arity check reaching the same file).
   const document = parseViaPassCache({ path: absolutePath, bytes }, deps);
-  if (document.frontmatter === null || hasLoadParseError(document.diagnostics)) {
+  if (!passesLoadParseGate(document)) {
     return undefined;
   }
   return { frontmatter: document.frontmatter, body: document.body };

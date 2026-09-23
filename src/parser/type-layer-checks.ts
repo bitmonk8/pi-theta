@@ -44,6 +44,7 @@
 // Spec (narrative): expressions.md, control-flow.md, functions.md,
 // type-system.md, runtime-value-model.md.
 
+import type { BypassParamsField } from "../binder/binder-envelope";
 import type { Diagnostic, SourceRange } from "../diagnostics/diagnostic";
 import { classifyNamedDecl } from "./named-type-classification";
 import { containsNamedType } from "./compat-type-traversal";
@@ -276,6 +277,22 @@ export interface ParamsFieldSource {
   readonly name: string;
   /** The field's declared type source, verbatim. */
   readonly typeSource: string;
+}
+
+/**
+ * Project the frontmatter `params:` fields into {@link ParamsFieldSource}
+ * records: `wireName` (the `params:` YAML key exactly as written) becomes
+ * `name`, and `type` (the verbatim declared type source — frontmatter.ts's
+ * `splitParamValue` sets it unchanged) becomes `typeSource`. The ONE
+ * projection the in-file type-layer walk (`theta-document.ts`), the callee
+ * arity check (`resolveCalleeArity`), and the callee return-type inference
+ * (`resolveCalleeReturnType`) all share, so the consumers cannot silently
+ * drift over which identifier carries which declared type.
+ */
+export function paramsFieldsFromFrontmatter(
+  fields: readonly BypassParamsField[] | undefined,
+): readonly ParamsFieldSource[] {
+  return (fields ?? []).map((field) => ({ name: field.wireName, typeSource: field.type }));
 }
 
 /**
