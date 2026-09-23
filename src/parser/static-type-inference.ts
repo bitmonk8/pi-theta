@@ -29,7 +29,18 @@
 // Spec (narrative): type-system.md, expressions.md, control-flow.md,
 // functions.md. Closes no new spec REQ-ID.
 
-import type { Block, Expr, IfStmt, MemberExpr, PatternNode, ThetaBody, Stmt } from "./theta-document";
+import type {
+  ArrayExpr,
+  Block,
+  Expr,
+  IfStmt,
+  MatchExpr,
+  MemberExpr,
+  ParForExpr,
+  PatternNode,
+  ThetaBody,
+  Stmt,
+} from "./theta-document";
 import {
   displayType,
   enumVariantType,
@@ -353,39 +364,8 @@ export class StaticTypeInferencePass {
           type: bindings.get(node.name) ?? { kind: "named", name: node.name },
           members: undefined,
         };
-      case "array": {
-        const elements = node.elements.map((e) => this.#typeValue(e, env, bindings));
-        const element = this.#commonType(
-          elements.map((v) => v.type),
-          env,
-        );
-        const type: CompatType = { kind: "array", element };
-        // MEMBERS — an EXACTNESS-TESTED arm, not a trust of the reduction:
-        // `element` runs through `#commonType`, which can bless an
-        // unresolvable sibling or fall back to `candidates[0]`, either of
-        // which erases a member the runtime can still produce (bug 0072's
-        // false-`E` species). The elements' collected sets are unioned — a
-        // withheld element (e.g. an `ident`) withholds the whole literal, and
-        // `unionMembers` maps an empty element list to `undefined` too, the
-        // same silence the `fn` surface shows on `he([])` — and the arm only
-        // vouches for the literal when their rendering equals the reduction's
-        // element rendering, the set-wise analogue of `provableArgType`'s
-        // `array`-arm exactness test (`isProvenReduction`,
-        // ./type-layer-checks.ts). The Pi-tool consumer stands down either
-        // way (`subsetKinds`, ../runtime/tool-call.ts, admits no `array<…>`
-        // kind); the invoke / `.theta`-callable / imported-`fn` consumers
-        // compare through `checkCompatible`, which decides
-        // `array<string> ⋢ string`.
-        const collected = unionMembers(elements.map((v) => v.members));
-        return {
-          type,
-          members:
-            collected !== undefined &&
-            renderCollectedTypes(collected) === displayType(element)
-              ? [type]
-              : undefined,
-        };
-      }
+      case "array":
+        return this.#typeArrayLiteral(node, env, bindings);
       case "binary":
         return this.#typeBinary(node.op, node.left, node.right, env, bindings);
       case "ternary": {
@@ -419,34 +399,8 @@ export class StaticTypeInferencePass {
         // pass through with the type.
         return this.#typeValue(node.operand, env, bindings);
       }
-      case "match": {
-        // bug 0145 §Fix (a) route 1: an arm body executes under its OWN
-        // pattern's binders (`evalMatch` installs them into a child
-        // environment before the body runs, ../runtime/statement-executor.ts),
-        // never under a same-named ENCLOSING binding — so each arm is typed in
-        // `#matchArmScope`'s copy rather than in the caller's `bindings`.
-        // (Members are scope-blind — the `ident` arm withholds bound and free
-        // names alike — so the arm scope decides only the type half.)
-        //
-        // The arm types reduce through `#matchArmType`, the dominating-member
-        // discipline the checker's `checkMatchArmTypes` enforces on the same
-        // node (`./match-result.ts`) — not `#commonType`, whose union clause the
-        // checker refuses here (docs/reference/type-system.md §"Common-type
-        // rules"): this pass owes the walk a type where the checker owes it a
-        // diagnostic, and the two must agree on which candidate sets have one.
-        // The MEMBERS are the union of the arm-body sets: the scrutinee only
-        // chooses which arm supplies the value.
-        const arms = node.arms.map((arm) =>
-          this.#typeValue(arm.body, env, this.#matchArmScope(arm.pattern, bindings)),
-        );
-        return {
-          type: this.#matchArmType(
-            arms.map((v) => v.type),
-            env,
-          ),
-          members: unionMembers(arms.map((v) => v.members)),
-        };
-      }
+      case "match":
+        return this.#typeMatch(node, env, bindings);
       case "member":
         return { type: this.#memberType(node, env, bindings).type, members: undefined };
       case "index": {
@@ -491,41 +445,8 @@ export class StaticTypeInferencePass {
         return { type: { kind: "named", name: node.ctor }, members: undefined };
       case "method-call":
         return { type: { kind: "named", name: node.method }, members: undefined };
-      case "par-for": {
-        // CTRL-3: the value of a `par for` is `array<Result<U, QueryError>>`,
-        // `U` the body tail type (absent tail → `null`). `CompatType` has no
-        // dedicated `Result` shape, so the element is rendered as a nominal
-        // reference naming `Result<U, QueryError>`; the outer `array` is the
-        // stable, representation-independent surface the checkers consume.
-        // MEMBERS withheld deliberately — same stance as `index` above.
-        //
-        // TYPE-11: the iterand is unfolded before this `kind` test, so a
-        // type-alias-schema iterand supplies `U` exactly as the concrete
-        // array type it is transparent with — this pass's own test, distinct
-        // from the type-layer walk's body-scope element derivation and from
-        // the iterand-admissibility gate (`checkForIterand`).
-        const iterandType = unfoldAlias(this.#typeExpr(node.iterand, env, bindings), env);
-        const elementType: CompatType =
-          iterandType.kind === "array"
-            ? iterandType.element
-            : { kind: "named", name: "unknown" };
-        const inner = new Map(bindings);
-        inner.set(node.variable, elementType);
-        const tailType: CompatType =
-          node.body.tail !== null
-            ? this.#typeExpr(node.body.tail, env, inner)
-            : { kind: "literal", typesAs: "null" };
-        return {
-          type: {
-            kind: "array",
-            element: {
-              kind: "named",
-              name: `Result<${displayType(tailType)}, QueryError>`,
-            },
-          },
-          members: undefined,
-        };
-      }
+      case "par-for":
+        return this.#typeParFor(node, env, bindings);
       case "block":
         // bug 0082 §Fix constraint 3: a block's static type is its tail expression's
         // type, and its VALUE (so its members too) IS the tail's value. Mirrors
@@ -543,6 +464,132 @@ export class StaticTypeInferencePass {
           ? { type: { kind: "named", name: "unknown" }, members: undefined }
           : this.#typeValue(node.body.tail, env, bindings);
     }
+  }
+
+  /**
+   * `#typeValue`'s `array` arm: the reduced `array<element>` type via
+   * `#commonType`, with the provable member set vouched for only when the
+   * elements' collected rendering equals the reduction's element rendering.
+   */
+  #typeArrayLiteral(
+    node: ArrayExpr,
+    env: TypeEnv,
+    bindings: ReadonlyMap<string, CompatType>,
+  ): ExprValueTypes {
+    const elements = node.elements.map((e) => this.#typeValue(e, env, bindings));
+    const element = this.#commonType(
+      elements.map((v) => v.type),
+      env,
+    );
+    const type: CompatType = { kind: "array", element };
+    // MEMBERS — an EXACTNESS-TESTED arm, not a trust of the reduction:
+    // `element` runs through `#commonType`, which can bless an
+    // unresolvable sibling or fall back to `candidates[0]`, either of
+    // which erases a member the runtime can still produce (bug 0072's
+    // false-`E` species). The elements' collected sets are unioned — a
+    // withheld element (e.g. an `ident`) withholds the whole literal, and
+    // `unionMembers` maps an empty element list to `undefined` too, the
+    // same silence the `fn` surface shows on `he([])` — and the arm only
+    // vouches for the literal when their rendering equals the reduction's
+    // element rendering, the set-wise analogue of `provableArgType`'s
+    // `array`-arm exactness test (`isProvenReduction`,
+    // ./type-layer-checks.ts). The Pi-tool consumer stands down either
+    // way (`subsetKinds`, ../runtime/tool-call.ts, admits no `array<…>`
+    // kind); the invoke / `.theta`-callable / imported-`fn` consumers
+    // compare through `checkCompatible`, which decides
+    // `array<string> ⋢ string`.
+    const collected = unionMembers(elements.map((v) => v.members));
+    return {
+      type,
+      members:
+        collected !== undefined &&
+        renderCollectedTypes(collected) === displayType(element)
+          ? [type]
+          : undefined,
+    };
+  }
+
+  /**
+   * `#typeValue`'s `match` arm: each arm body typed under its own pattern's
+   * binders (`#matchArmScope`), the arm types reduced through `#matchArmType`
+   * and the member sets unioned.
+   */
+  #typeMatch(
+    node: MatchExpr,
+    env: TypeEnv,
+    bindings: ReadonlyMap<string, CompatType>,
+  ): ExprValueTypes {
+    // bug 0145 §Fix (a) route 1: an arm body executes under its OWN
+    // pattern's binders (`evalMatch` installs them into a child
+    // environment before the body runs, ../runtime/statement-executor.ts),
+    // never under a same-named ENCLOSING binding — so each arm is typed in
+    // `#matchArmScope`'s copy rather than in the caller's `bindings`.
+    // (Members are scope-blind — the `ident` arm withholds bound and free
+    // names alike — so the arm scope decides only the type half.)
+    //
+    // The arm types reduce through `#matchArmType`, the dominating-member
+    // discipline the checker's `checkMatchArmTypes` enforces on the same
+    // node (`./match-result.ts`) — not `#commonType`, whose union clause the
+    // checker refuses here (docs/reference/type-system.md §"Common-type
+    // rules"): this pass owes the walk a type where the checker owes it a
+    // diagnostic, and the two must agree on which candidate sets have one.
+    // The MEMBERS are the union of the arm-body sets: the scrutinee only
+    // chooses which arm supplies the value.
+    const arms = node.arms.map((arm) =>
+      this.#typeValue(arm.body, env, this.#matchArmScope(arm.pattern, bindings)),
+    );
+    return {
+      type: this.#matchArmType(
+        arms.map((v) => v.type),
+        env,
+      ),
+      members: unionMembers(arms.map((v) => v.members)),
+    };
+  }
+
+  /**
+   * `#typeValue`'s `par-for` arm: `array<Result<U, QueryError>>` per CTRL-3,
+   * `U` the body tail type under the loop variable's element binding; members
+   * deliberately withheld.
+   */
+  #typeParFor(
+    node: ParForExpr,
+    env: TypeEnv,
+    bindings: ReadonlyMap<string, CompatType>,
+  ): ExprValueTypes {
+    // CTRL-3: the value of a `par for` is `array<Result<U, QueryError>>`,
+    // `U` the body tail type (absent tail → `null`). `CompatType` has no
+    // dedicated `Result` shape, so the element is rendered as a nominal
+    // reference naming `Result<U, QueryError>`; the outer `array` is the
+    // stable, representation-independent surface the checkers consume.
+    // MEMBERS withheld deliberately — same stance as the `index` arm.
+    //
+    // TYPE-11: the iterand is unfolded before this `kind` test, so a
+    // type-alias-schema iterand supplies `U` exactly as the concrete
+    // array type it is transparent with — this pass's own test, distinct
+    // from the type-layer walk's body-scope element derivation and from
+    // the iterand-admissibility gate (`checkForIterand`).
+    const iterandType = unfoldAlias(this.#typeExpr(node.iterand, env, bindings), env);
+    const elementType: CompatType =
+      iterandType.kind === "array"
+        ? iterandType.element
+        : { kind: "named", name: "unknown" };
+    const inner = new Map(bindings);
+    inner.set(node.variable, elementType);
+    const tailType: CompatType =
+      node.body.tail !== null
+        ? this.#typeExpr(node.body.tail, env, inner)
+        : { kind: "literal", typesAs: "null" };
+    return {
+      type: {
+        kind: "array",
+        element: {
+          kind: "named",
+          name: `Result<${displayType(tailType)}, QueryError>`,
+        },
+      },
+      members: undefined,
+    };
   }
 
   /**

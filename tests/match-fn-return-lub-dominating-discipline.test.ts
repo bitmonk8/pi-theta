@@ -705,19 +705,22 @@ describe("bug 0158 (D) — the *Trigger*s govern, and `src/` matches them", () =
     // The cell asserts the wiring, not a particular replacement: a dominating
     // member reduction inline or in a private helper both satisfy it, so long as
     // the union LUB is not the one consulted at this node kind.
+    // The `case "match"` arm delegates to the `#typeMatch` private helper
+    // (PTQ-1273 breakdown), so the cell anchors on the helper's definition —
+    // the block that actually reduces the arm types.
     const text = corpus("src/parser/static-type-inference.ts");
-    const start = text.indexOf('case "match":');
+    const start = text.indexOf("#typeMatch(\n");
     if (start < 0) {
       throw new Error(
-        'harness: src/parser/static-type-inference.ts no longer contains `case "match":` in `#typeExpr` — re-anchor this cell rather than letting it pass over an empty slice (bug 0134 covers the line drift, not the disappearance of the anchor)',
+        "harness: src/parser/static-type-inference.ts no longer contains the `#typeMatch(` helper definition — re-anchor this cell rather than letting it pass over an empty slice (bug 0134 covers the line drift, not the disappearance of the anchor)",
       );
     }
     const rest = text.slice(start);
-    const end = rest.slice('case "match":'.length).indexOf('\n      case "');
-    const block = end < 0 ? rest : rest.slice(0, 'case "match":'.length + end);
+    const end = rest.indexOf("\n  }");
+    const block = end < 0 ? rest : rest.slice(0, end);
     expect(
       block,
-      `D2 — the \`case "match"\` block must not consult \`#commonType\` / \`commonType\`: that is the array/ternary union LUB (rule 2), and the checker's \`match\` LUB \`leastUpperBound\` is member-restricted, so routing arm types through it makes \`typeOf\` answer a type \`checkMatchArmTypes\` refuses on the very same node. Offending block: ${JSON.stringify(block)}`,
+      `D2 — the \`match\` typing block (\`#typeMatch\`) must not consult \`#commonType\` / \`commonType\`: that is the array/ternary union LUB (rule 2), and the checker's \`match\` LUB \`leastUpperBound\` is member-restricted, so routing arm types through it makes \`typeOf\` answer a type \`checkMatchArmTypes\` refuses on the very same node. Offending block: ${JSON.stringify(block)}`,
     ).not.toMatch(/commonType\s*\(/);
     expect(
       block,
