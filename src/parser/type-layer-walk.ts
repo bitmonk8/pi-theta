@@ -76,6 +76,7 @@ import {
   checkQueryInterpolationResults,
   checkQuestion,
   isCertainResultNode,
+  parseQueryInterpolations,
 } from "./type-layer-interpolation";
 
 /**
@@ -1549,15 +1550,19 @@ class TypeLayerWalk implements TypeWalkContext {
       case "par-for":
         this.checkParFor(e, bindings, flow);
         return;
-      case "query":
-        checkQueryInterpolationResults(this, e, bindings);
+      case "query": {
+        // Derive the interpolation expressions once (PTQ-1282); both passes
+        // below consume the same lex-then-parse result.
+        const interpolations = parseQueryInterpolations(e);
+        checkQueryInterpolationResults(this, e, interpolations, bindings);
         // Bug 0345 §Fix: appended AFTER the Result-classification call above, not
         // in place of it, so an interpolation that is both a `Result` and an
         // operand violation draws `theta/parse/interpolated-result` (pushed
         // above) BEFORE the operand code (pushed below) — the deliberate
         // ordering the bug doc records.
-        checkQueryInterpolationOperands(this, e, bindings);
+        checkQueryInterpolationOperands(this, e, interpolations, bindings);
         return;
+      }
       case "block":
         // Descend into the block's own body so a nested `type`-phase
         // diagnostic still surfaces (bug 0082 §Fix), over a COPY of

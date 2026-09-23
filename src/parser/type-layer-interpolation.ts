@@ -94,6 +94,24 @@ function questionOperandKind(
 }
 
 /**
+ * Lex `e.template` once and parse each `${…}` interpolation source once,
+ * yielding the shared derivation both passes below consume — the query arm
+ * previously ran this lex-then-parse pipeline twice, back to back, over
+ * identical inputs (once per pass), discarding the first derivation. A `null`
+ * entry records a genuine parse failure; each pass keeps its own skip rule
+ * over the entries.
+ */
+export function parseQueryInterpolations(e: Expr & { kind: "query" }): (Expr | null)[] {
+  const parsed: (Expr | null)[] = [];
+  for (const part of lexQueryTemplate(e.template).parts) {
+    if (part.kind === "interp") {
+      parsed.push(parseExpressionSource(part.exprSource));
+    }
+  }
+  return parsed;
+}
+
+/**
  * Bug 0079 §Fix (a) — the QRY-18 `Result<T, E>` interpolation row: a
  * `${…}` interpolation this walk can PROVE `Result`-valued (see
  * {@link interpolationIsResult}) draws `theta/parse/interpolated-result`,
@@ -107,13 +125,10 @@ function questionOperandKind(
 export function checkQueryInterpolationResults(
   walk: TypeWalkContext,
   e: Expr & { kind: "query" },
+  interpolations: readonly (Expr | null)[],
   bindings: ReadonlyMap<string, CompatType>,
 ): void {
-  for (const part of lexQueryTemplate(e.template).parts) {
-    if (part.kind !== "interp") {
-      continue;
-    }
-    const parsed = parseExpressionSource(part.exprSource);
+  for (const parsed of interpolations) {
     if (parsed === null || parsed.kind === "try") {
       // No parse ⇒ no static type to classify. `?` UNWRAPS, so `${…?}` is
       // never itself the `Result` it consumes — stated here rather than left
@@ -141,7 +156,8 @@ export function checkQueryInterpolationResults(
  * `checkArithmeticOperands`) must reach an interpolation expression too —
  * `checkQueryInterpolationResults` above classifies `Result`-ness only and
  * never fires them. This method parses each interpolation source the same
- * way that classifier does and descends {@link checkInterpolationOperands}
+ * way that classifier does (via the shared {@link parseQueryInterpolations}
+ * derivation) and descends {@link checkInterpolationOperands}
  * over the parsed expression, OPERAND-CHECKS ONLY: it does not run
  * `checkMethodCall` / `checkIndex` / `checkMemberAccess` / `checkQuestion`.
  * Residual 1's non-operand half (unknown-method, non-indexable-receiver,
@@ -159,13 +175,10 @@ export function checkQueryInterpolationResults(
 export function checkQueryInterpolationOperands(
   walk: TypeWalkContext,
   e: Expr & { kind: "query" },
+  interpolations: readonly (Expr | null)[],
   bindings: ReadonlyMap<string, CompatType>,
 ): void {
-  for (const part of lexQueryTemplate(e.template).parts) {
-    if (part.kind !== "interp") {
-      continue;
-    }
-    const parsed = parseExpressionSource(part.exprSource);
+  for (const parsed of interpolations) {
     if (parsed === null) {
       // Only a genuine parse failure is skipped: a `null` yields no static
       // type to walk. A top-level `try` is DESCENDED, not skipped — an
