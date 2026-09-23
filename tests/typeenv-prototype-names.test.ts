@@ -1,6 +1,4 @@
 import { describe, expect, it } from "vitest";
-// @ts-expect-error — JS code-registry module, no type declarations.
-import { registryMessage } from "../tools/code-registry/index.js";
 import type { SourceRange } from "../src/diagnostics/diagnostic";
 import type { Stmt, ThetaDocument } from "../src/parser/theta-document";
 import {
@@ -13,6 +11,7 @@ import { checkLetRhsCompat, classifyIndexReceiver } from "../src/parser/type-com
 import { collectTypeEnv } from "../src/parser/type-layer-checks";
 import { parseDoc, diagLines } from "./helpers/e2e-s1";
 import { REGISTRY } from "./helpers/registry-oracle";
+import { registryMessageOrThrow } from "./helpers/load-row-harness";
 import {
   disposeWorkspace,
   plantThetaWorkspace,
@@ -199,13 +198,11 @@ const SCHEMA_CASE_CODE = "theta/parse/schema-case-mismatch";
  * an assertion below into a comparison against `undefined`.
  */
 function registered(code: string): string {
-  const template = registryMessage(REGISTRY, code) as string | undefined;
-  if (template === undefined) {
-    throw new Error(
-      `harness: docs/spec_topics/diagnostics/code-registry-parse.md carries no Message row for ${code} — the DIAG-4 column is this file's oracle, so a missing row is a harness failure, never a skip`,
-    );
-  }
-  return template;
+  return registryMessageOrThrow(
+    REGISTRY,
+    code,
+    `docs/spec_topics/diagnostics/code-registry-parse.md is this file's registry page.`,
+  );
 }
 
 function letRhsMessage(name: string, expected: string, actual: string): string {

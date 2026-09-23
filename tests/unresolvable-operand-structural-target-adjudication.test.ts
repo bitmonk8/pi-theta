@@ -1,13 +1,12 @@
 import { readCorpus as readSharedCorpus } from "./helpers/corpus-reader";
 import { sliceFrom } from "./helpers/spec-prose-proximity";
 import { REGISTRY, type RegistryRow } from "./helpers/registry-oracle";
+import { registryMessageOf } from "./helpers/load-row-harness";
 import { describe, expect, it } from "vitest";
 import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { producer } from "./helpers/runtime-belt-probe-harness";
 import { rootWith } from "./helpers/fixture-dispatch-harness";
 import { SEAM_NOOP_CHECKPOINT } from "./helpers/invoke-seam-scaffold";
-// @ts-expect-error — JS code-registry module, no type declarations.
-import { registryMessage } from "../tools/code-registry/index.js";
 import type { ParsedFrontmatter } from "../src/parser/frontmatter";
 import type { ThetaDocument } from "../src/parser/theta-document";
 import {
@@ -278,29 +277,9 @@ function row(code: string): RegistryRow {
   return found;
 }
 
-/** The registered *Message* template for `code`. */
-function registered(code: string): string {
-  const template = registryMessage(REGISTRY, code) as string | undefined;
-  if (template === undefined) {
-    throw new Error(
-      `harness: ${REGISTRY_PAGE} carries no Message column for ${code} — DIAG-4 makes it this file's oracle, so a missing template is a harness failure, never a skip`,
-    );
-  }
-  return template;
-}
-
 /** Fill `slots` into `code`'s registered template; every placeholder required. */
 function interpolate(code: string, slots: Readonly<Record<string, string>>): string {
-  let message = registered(code);
-  for (const [slot, value] of Object.entries(slots)) {
-    if (!message.includes(slot)) {
-      throw new Error(
-        `harness: the registered Message for ${code} does not spell ${slot} — this file interpolates it, so an absent placeholder is a harness failure, never a skip. Template: ${message}`,
-      );
-    }
-    message = message.replace(slot, value);
-  }
-  return message;
+  return registryMessageOf(REGISTRY, REGISTRY_PAGE, code, Object.entries(slots));
 }
 
 function fnArgMismatch(

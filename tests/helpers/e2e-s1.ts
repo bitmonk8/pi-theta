@@ -420,6 +420,11 @@ export function errorCodes(thetaText: string, thetaPath: string): readonly strin
   return errors(parseDoc(thetaText, thetaPath).diagnostics).map((d) => d.code).sort();
 }
 
+/** Error-severity diagnostic codes from a parsed doc, in source order. */
+export function errorCodesOf(doc: ThetaDocument): string[] {
+  return errors(doc.diagnostics).map((d) => d.code);
+}
+
 /**
  * True iff `d` is the error-severity `theta/load/*` or `theta/parse/*` refusal
  * that blocks registration (mirrors `hasLoadParseError`,

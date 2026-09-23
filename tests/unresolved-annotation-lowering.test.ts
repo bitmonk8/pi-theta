@@ -98,6 +98,7 @@ import { ajv, assistantReply, contextToolsOf, ANTHROPIC_MODEL } from "./helpers/
 // boundary, so the unit tier is sufficient AND stricter (a live model cannot be
 // asked to prove a diagnostic fires).
 import { REGISTRY } from "./helpers/registry-oracle";
+import { PARSE_REGISTRY_PATH, registryMessageOf } from "./helpers/load-row-harness";
 import { describe, expect, it } from "vitest";
 
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -110,8 +111,6 @@ import type {
   ModelRegistry,
   ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
-// @ts-expect-error — JS code-registry module, no type declarations.
-import { registryMessage } from "../tools/code-registry/index.js";
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
 import type { EnumDecl, SchemaDecl, ThetaDocument } from "../src/parser/theta-document";
 import { lowerQueryResponseSchema } from "../src/parser/query-schema-lowering";
@@ -140,13 +139,7 @@ const CODE = "theta/parse/unresolved-named-type";
  * naming the registry, never by a bare undefined comparison.
  */
 function unresolvedMessage(name: string): string {
-  const template = registryMessage(REGISTRY, CODE) as string | undefined;
-  expect(
-    template,
-    `DIAG-4 anchor: docs/spec_topics/diagnostics/code-registry-parse.md must carry the ` +
-      `Message row for ${CODE}`,
-  ).toBeDefined();
-  return template!.replace("<name>", name);
+  return registryMessageOf(REGISTRY, PARSE_REGISTRY_PATH, CODE, [["<name>", name]]);
 }
 
 // ===========================================================================

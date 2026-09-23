@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseDoc, errors } from "./helpers/e2e-s1";
+import { parseDoc, errorCodesOf as errorCodes } from "./helpers/e2e-s1";
 import {
   SYSTEM_INTERP_BAD_FIELD_CODE,
 } from "../src/parser/system-interpolation";
@@ -18,11 +18,6 @@ import type { ThetaValue } from "../src/runtime/value";
 // a scalar-valued discriminated-union part through the matching scalar row.
 //
 // Harness: `parseDoc` + `renderSystemPrompt` (the spawn-site call pair).
-
-/** Error-severity diagnostic codes from a parsed doc, in source order. */
-function errorCodes(doc: ReturnType<typeof parseDoc>): string[] {
-  return errors(doc.diagnostics).map((d) => d.code);
-}
 
 describe("bug 0408 — scalar-union params render through the JSON row", () => {
   // W1 — `string | null` carrying a string must render the string row (no

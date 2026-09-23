@@ -1,9 +1,8 @@
 import { TRIAGE_DEF } from "./helpers/triage-fixture";
 import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
-// @ts-expect-error — JS code-registry module, no type declarations.
-import { registryMessage } from "../tools/code-registry/index.js";
 import { REGISTRY } from "./helpers/registry-oracle";
+import { PARSE_REGISTRY_PATH, registryLineOf } from "./helpers/load-row-harness";
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
 import type { EnumDecl, SchemaDecl, ThetaDocument } from "../src/parser/theta-document";
 import { lowerQueryResponseSchema } from "../src/parser/query-schema-lowering";
@@ -149,48 +148,14 @@ const UNRESOLVED = "theta/parse/unresolved-named-type";
 const RESULT_IN_SCHEMA = "theta/parse/result-in-schema-position";
 const EMPTY_SCHEMA_BODY = "theta/parse/empty-schema-body";
 
-/**
- * The registry row's normative *Message* template with its single `<name>`
- * placeholder filled. Definedness is asserted first so a missing row reds by
- * naming the registry rather than by a bare `undefined` comparison.
- */
-function unresolvedMessage(name: string): string {
-  const template = registryMessage(REGISTRY, UNRESOLVED) as string | undefined;
-  expect(
-    template,
-    `DIAG-4 anchor: docs/spec_topics/diagnostics/code-registry-parse.md must carry the Message row for ${UNRESOLVED}`,
-  ).toBeDefined();
-  return (template as string).replace("<name>", name);
-}
-
 /** The one rendered line every position of the row must produce for `name`. */
 function unresolvedLine(name: string): string {
-  return `error ${UNRESOLVED}: ${unresolvedMessage(name)}`;
-}
-
-/**
- * The `EMPTY_SCHEMA_BODY` row's normative *Message* template with its single
- * `<X>` placeholder filled. Definedness AND placeholder presence are asserted
- * first, so a missing row — or a template that lost its placeholder — reds by
- * naming the registry rather than by a bare `undefined` comparison or a
- * silently unsubstituted string.
- */
-function emptySchemaBodyMessage(subject: string): string {
-  const template = registryMessage(REGISTRY, EMPTY_SCHEMA_BODY) as string | undefined;
-  expect(
-    template,
-    `DIAG-4 anchor: docs/spec_topics/diagnostics/code-registry-parse.md must carry the Message row for ${EMPTY_SCHEMA_BODY}`,
-  ).toBeDefined();
-  expect(
-    template,
-    `DIAG-4: the ${EMPTY_SCHEMA_BODY} Message template must carry the <X> placeholder; template=${JSON.stringify(template)}`,
-  ).toContain("<X>");
-  return (template as string).replace("<X>", subject);
+  return registryLineOf(REGISTRY, PARSE_REGISTRY_PATH, UNRESOLVED, [["<name>", name]]);
 }
 
 /** The one rendered line an empty inline object type produces (bug 0045 §Fix). */
 function emptySchemaBodyLine(subject: string): string {
-  return `error ${EMPTY_SCHEMA_BODY}: ${emptySchemaBodyMessage(subject)}`;
+  return registryLineOf(REGISTRY, PARSE_REGISTRY_PATH, EMPTY_SCHEMA_BODY, [["<X>", subject]]);
 }
 
 // ===========================================================================

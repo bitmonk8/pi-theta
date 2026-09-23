@@ -7,7 +7,7 @@ import type { Diagnostic } from "../src/diagnostics/diagnostic";
 import { lowerParamsFieldType, lowerTypeExpr, type LowerCtx } from "../src/parser/params";
 import type { ThetaDocument } from "../src/parser/theta-document";
 import { type LoweredSchema } from "../src/seams/schema-validator";
-import { parseDoc } from "./helpers/e2e-s1";
+import { diagCodes, diagLines, parseDoc } from "./helpers/e2e-s1";
 
 // Bug 0040 — nothing reserves the synthesised `__inline_<slug>` `$defs` name
 // against author names, so an IMPORTED binding whose local name equals a minted
@@ -210,16 +210,6 @@ function bodyImportAlias(source: string, local: string): string {
 // ===========================================================================
 // Reading a parsed document. Loud on every unexpected disposition.
 // ===========================================================================
-
-/** Every diagnostic rendered `<severity> <code>: <message>`, in emission order. */
-function diagLines(doc: ThetaDocument): string[] {
-  return doc.diagnostics.map((d) => `${d.severity} ${d.code}: ${d.message}`);
-}
-
-/** Every diagnostic rendered `<severity> <code>` — the count/code/severity triple. */
-function diagCodes(doc: ThetaDocument): string[] {
-  return doc.diagnostics.map((d) => `${d.severity} ${d.code}`);
-}
 
 /** The lowered `params:` document plus its two sub-records. */
 interface LoadedParams {

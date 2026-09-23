@@ -3,8 +3,7 @@ import { readRegistry } from "./helpers/registry-oracle";
 import { describe, expect, it } from "vitest";
 // @ts-expect-error — JS code-registry module, no type declarations.
 import { registryMessage } from "../tools/code-registry/index.js";
-import type { ThetaDocument } from "../src/parser/theta-document";
-import { parseDoc, topKinds } from "./helpers/e2e-s1";
+import { parsePromptBody, topKinds } from "./helpers/e2e-s1";
 
 // Bug 0225 — `parseFn`'s parameter loop records whatever token it advanced over
 // as a `FnParam`, and a list that exits on a `)` belonging to something else is
@@ -225,13 +224,8 @@ const BARE_OBJECT = "theta/parse/bare-object-literal";
 // system-note channel and a resolving `model:` matcher. No behaviour is
 // stubbed: the lexer and parser under assertion are the production ones.
 
-/** Frontmatter for every row — occupies lines 1–3, so body line 1 is file line 4. */
-const FM = "---\nmode: prompt\n---\n";
-
-/** Parse `body` under the standard frontmatter, at `path` (default `.theta`). */
-function theta(body: string, path = "test.theta"): ThetaDocument {
-  return parseDoc(FM + body, path);
-}
+/** Parse `body` under the standard frontmatter — lines 1–3, so body line 1 is file line 4. */
+const theta = parsePromptBody;
 
 const { triples, e, quads, q, render, fnOf, paramsOf, registered } = diagnosticHarness(msg);
 

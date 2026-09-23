@@ -142,6 +142,22 @@ export function createPatternRefusalHarness(
   return { theta, existing, expectDiagnostics, expectRefused };
 }
 
+/**
+ * The registered *Message* renderings for the two pattern-head refusals,
+ * hard-coded (code-registry-parse.md:21 and :23). DIAG-4 makes the registry
+ * the source of truth and each calling file's group (r) is its one anchor
+ * against it; every other row compares against these literals so that a red
+ * anywhere else names the missing diagnostic rather than a harness oracle.
+ */
+export function reservedMessage(keyword: string): string {
+  return `reserved keyword '${keyword}' cannot be used as an identifier`;
+}
+
+/** The capitalised-head refusal's registered *Message* rendering — same posture as `reservedMessage`. */
+export function capMessage(name: string): string {
+  return `capitalised pattern head '${name}' names no pattern production`;
+}
+
 /** Parse + run a self-contained query-free prompt-mode body and return its final value. */
 export async function runValue(src: string, bugTag: string): Promise<ThetaValue | undefined> {
   const doc = parseTheta(`${bugTag}.theta`, FM + src);

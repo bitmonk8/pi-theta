@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { createParsedPromptHarness, createPatternRefusalHarness } from "./helpers/prompt-value-harness";
+import { createParsedPromptHarness, createPatternRefusalHarness, capMessage, reservedMessage } from "./helpers/prompt-value-harness";
 import {
   PARSE_REGISTRY_PATH as REGISTRY_PARSE_PAGE,
   type DiagShape,
@@ -139,10 +139,6 @@ const BARE_OBJECT = "theta/parse/bare-object-literal";
 
 function unresolvedMessage(name: string): string {
   return `unresolved named type '${name}'`;
-}
-
-function reservedMessage(keyword: string): string {
-  return `reserved keyword '${keyword}' cannot be used as an identifier`;
 }
 
 function extraFieldMessage(field: string, schema: string): string {
@@ -778,7 +774,7 @@ describe("0221 (o) — one diagnostic per construct, and no cascade", () => {
           code: CAP,
           file: FILE,
           range: headRange("Zed"),
-          message: `capitalised pattern head 'Zed' names no pattern production`,
+          message: capMessage("Zed"),
         },
       ],
       "§Fix (c)(2): bug 0141's 45-cell witness is a lock; a braced-head check must not reach the bare head",

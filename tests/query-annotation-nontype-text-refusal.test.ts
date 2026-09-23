@@ -1,7 +1,6 @@
 import { REGISTRY, type RegistryRow } from "./helpers/registry-oracle";
+import { registryMessageOrThrow } from "./helpers/load-row-harness";
 import { describe, expect, it } from "vitest";
-// @ts-expect-error — JS code-registry module, no type declarations.
-import { registryMessage } from "../tools/code-registry/index.js";
 import type { ThetaDocument } from "../src/parser/theta-document";
 import { annotationSourceIsNotTypeExpression } from "../src/parser/type-layer-checks";
 import { parseDoc, diagLines, diagCodes } from "./helpers/e2e-s1";
@@ -127,18 +126,13 @@ const CODE = "theta/parse/query-annotation-type-not-expression";
  * collection and take this file's green fences down with it.
  */
 function registryMessageOf(code: string): string {
-  const template = registryMessage(REGISTRY, code) as string | undefined;
-  if (template === undefined) {
-    throw new Error(
-      `harness: the diagnostics code registry carries no Message row for ${code} — DIAG-4 ` +
-        `(docs/spec_topics/diagnostics/diagnostic-shape.md:74) makes that column this file's ` +
-        `only oracle, so a missing row is a loud harness failure, never a skip and never a ` +
-        `hard-coded fallback. DIAG-2 (:72) makes minting the row part of bug 0203's fix, in ` +
-        `the same commit as the site it is raised from ` +
-        `(docs/spec_topics/diagnostics/code-registry-parse.md)`,
-    );
-  }
-  return template;
+  return registryMessageOrThrow(
+    REGISTRY,
+    code,
+    `DIAG-2 (diagnostic-shape.md:72) makes minting the row part of bug 0203's fix, in the ` +
+      `same commit as the site it is raised from ` +
+      `(docs/spec_topics/diagnostics/code-registry-parse.md)`,
+  );
 }
 
 /** One structured registry row, or a loud failure naming the code. */

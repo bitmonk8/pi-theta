@@ -4,7 +4,7 @@ import { readRegistry } from "./helpers/registry-oracle";
 import { describe, expect, it } from "vitest";
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
 import type { ThetaDocument } from "../src/parser/theta-document";
-import { parseDoc, topKinds } from "./helpers/e2e-s1";
+import { parseDoc, parsePromptBody as theta, topKinds } from "./helpers/e2e-s1";
 
 // Bug 0150 — both normative grammar mirrors write `FnParam ::= Ident ":" Type`,
 // yet `parseFn`'s parameter loop guards the annotation read behind
@@ -341,14 +341,6 @@ const UNKNOWN_METHOD = "theta/parse/unknown-method";
 // `parseThetaDocument` wrapped in the standard inert deps — an in-band no-op
 // system-note channel and a resolving `model:` matcher. No behaviour is
 // stubbed: the lexer and parser under assertion are the production ones.
-
-/** Frontmatter for every row — occupies lines 1–3, so body line 1 is file line 4. */
-const FM = "---\nmode: prompt\n---\n";
-
-/** Parse `body` under the standard frontmatter, at `path` (default `.theta`). */
-function theta(body: string, path = "test.theta"): ThetaDocument {
-  return parseDoc(FM + body, path);
-}
 
 const { triples, e, quads, q, render, fnOf, paramsOf } = diagnosticHarness(msg);
 

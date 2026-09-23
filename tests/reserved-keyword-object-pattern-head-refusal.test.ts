@@ -1,4 +1,4 @@
-import { createParsedPromptHarness, createPatternRefusalHarness } from "./helpers/prompt-value-harness";
+import { createParsedPromptHarness, createPatternRefusalHarness, capMessage, reservedMessage } from "./helpers/prompt-value-harness";
 import {
   PARSE_REGISTRY_PATH as REGISTRY_PARSE_PAGE,
   type DiagShape,
@@ -98,14 +98,6 @@ const REST_PATTERN = "theta/parse/rest-pattern-not-supported";
 const INCREMENT_DECREMENT = "theta/parse/increment-decrement";
 const MUT_IMMUTABLE = "theta/parse/mut-on-immutable-context";
 const BARE_OBJECT = "theta/parse/bare-object-literal";
-
-function reservedMessage(keyword: string): string {
-  return `reserved keyword '${keyword}' cannot be used as an identifier`;
-}
-
-function capMessage(name: string): string {
-  return `capitalised pattern head '${name}' names no pattern production`;
-}
 
 // ===========================================================================
 // Parse harness — the shipped `parseThetaDocument` through `parseDoc`

@@ -1,7 +1,6 @@
+import { registryMessageOrThrow } from "./helpers/load-row-harness";
 import { REGISTRY } from "./helpers/registry-oracle";
 import { describe, expect, it } from "vitest";
-// @ts-expect-error — JS code-registry module, no type declarations.
-import { registryMessage } from "../tools/code-registry/index.js";
 import { splitTopLevelSegments, topLevelColon } from "../src/parser/params";
 import { lowerQueryResponseSchema } from "../src/parser/query-schema-lowering";
 import { expectGroup as expectGroupShared, type DiagnosticCell, parseDoc, diagLines, subagentTheta as theta, subagentParamsSrc, loweredParams } from "./helpers/e2e-s1";
@@ -201,20 +200,15 @@ import { expectGroup as expectGroupShared, type DiagnosticCell, parseDoc, diagLi
  * fences down with it.
  */
 function registryMessageOf(code: string): string {
-  const template = registryMessage(REGISTRY, code) as string | undefined;
-  if (template === undefined) {
-    throw new Error(
-      `harness: the diagnostics code registry carries no Message row for ${code} — DIAG-4 ` +
-        `(docs/spec_topics/diagnostics/diagnostic-shape.md) makes that column this file's only ` +
-        `oracle, so a missing row is a loud harness failure, never a skip and never a ` +
-        `hard-coded fallback. Bug 0257's §Fix mints NO code: it REUSES ` +
-        `theta/parse/malformed-schema-field and theta/parse/empty-schema-body ` +
-        `(docs/spec_topics/diagnostics/code-registry-parse.md:99 and ` +
-        `docs/spec_topics/diagnostics/code-registry-parse.md:98), amending their ` +
-        `Trigger prose in the same commit and changing neither Message`,
-    );
-  }
-  return template;
+  return registryMessageOrThrow(
+    REGISTRY,
+    code,
+    `Bug 0257's §Fix mints NO code: it REUSES ` +
+      `theta/parse/malformed-schema-field and theta/parse/empty-schema-body ` +
+      `(docs/spec_topics/diagnostics/code-registry-parse.md:99 and ` +
+      `docs/spec_topics/diagnostics/code-registry-parse.md:98), amending their ` +
+      `Trigger prose in the same commit and changing neither Message`,
+  );
 }
 
 const MALFORMED_FIELD = "theta/parse/malformed-schema-field";

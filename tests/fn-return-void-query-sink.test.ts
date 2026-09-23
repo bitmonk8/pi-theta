@@ -97,7 +97,7 @@ import { readRegistry } from "./helpers/registry-oracle";
 import { describe, expect, it } from "vitest";
 // @ts-expect-error — JS code-registry module, no type declarations.
 import { registryMessage } from "../tools/code-registry/index.js";
-import { collectByKind, parseDoc, rangeDiagnosticTable } from "./helpers/e2e-s1";
+import { body, collectByKind, parseDoc, rangeDiagnosticTable } from "./helpers/e2e-s1";
 
 // ===========================================================================
 // The codes under assertion, checked against the registry before use (DIAG-2).
@@ -125,17 +125,9 @@ for (const code of [VOID_POS, UNRESOLVED]) {
 // §Reproduction measured.
 // ===========================================================================
 
-const FM = "---\nmode: prompt\n---\n";
-const TAIL = "let a = 1\na\n";
-
 /** A `mode: prompt` theta whose body is a block starting on line 4, plus the tail. */
 function blockBody(lines: readonly string[]): string {
-  return `${FM}${lines.join("\n")}\n${TAIL}`;
-}
-
-/** A `mode: prompt` theta whose body is the single statement `stmt` on line 4. */
-function body(stmt: string): string {
-  return blockBody([stmt]);
+  return body(lines.join("\n"));
 }
 
 // ===========================================================================

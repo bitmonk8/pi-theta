@@ -1,6 +1,6 @@
 import { fakeThetaLibFs as w7FakeFs } from "./helpers/thetalib-load-harness";
 import { describe, expect, it } from "vitest";
-import { parseDoc, parseDeps, errors } from "./helpers/e2e-s1";
+import { parseDoc, parseDeps, errorCodesOf as errorCodes } from "./helpers/e2e-s1";
 import {
   SYSTEM_INTERP_BAD_FIELD_CODE,
   type SystemTemplate,
@@ -29,11 +29,6 @@ import type { ThetaValue } from "../src/runtime/value";
 // input object carries theta-side keys, matching the validated-params boundary.
 // The Wn cases assert the specified POST-FIX behaviour and red at the fork; the
 // Gn cases assert a refusal the fix must PRESERVE and are green at the fork.
-
-/** Error-severity diagnostic codes from a parsed doc, in source order. */
-function errorCodes(doc: ReturnType<typeof parseDoc>): string[] {
-  return errors(doc.diagnostics).map((d) => d.code);
-}
 
 // W7 LOAD-path support (bug 0422 flip). W7 no longer pins the parse-only
 // `undefined` render (parse behaviour is unchanged and still admits the typed

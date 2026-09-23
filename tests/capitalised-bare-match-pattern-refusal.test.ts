@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { createPatternRefusalHarness } from "./helpers/prompt-value-harness";
+import { createPatternRefusalHarness, capMessage, reservedMessage } from "./helpers/prompt-value-harness";
 import { SEAM_NOOP_CHECKPOINT as NOOP_CHECKPOINT } from "./helpers/invoke-seam-scaffold";
 import {
   PARSE_REGISTRY_PATH as REGISTRY_PARSE_PAGE,
@@ -143,20 +143,6 @@ const BINDING_CASE = "theta/parse/binding-case-mismatch";
 const NON_STRING_JOIN = "theta/parse/non-string-array-join";
 const UNKNOWN_METHOD = "theta/parse/unknown-method";
 const MATCH_ARM_TYPE_MISMATCH = "theta/parse/match-arm-type-mismatch";
-
-/**
- * The registered *Message* renderings, hard-coded. DIAG-4 makes the registry
- * the source of truth and group (r) is this file's one anchor against it; every
- * other row compares against these literals so that a red anywhere else names
- * the missing diagnostic rather than a harness oracle.
- */
-function capMessage(name: string): string {
-  return `capitalised pattern head '${name}' names no pattern production`;
-}
-
-function reservedMessage(keyword: string): string {
-  return `reserved keyword '${keyword}' cannot be used as an identifier`;
-}
 
 // ===========================================================================
 // Parse harness — the shipped `parseThetaDocument` through `parseDoc`
