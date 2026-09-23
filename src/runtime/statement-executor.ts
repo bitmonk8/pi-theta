@@ -1,7 +1,8 @@
 // V19c / V19c-T — the theta tree-walking statement executor.
 //
 // This module drives statements and expressions, delegating par-for, defects,
-// and subagent calls to sibling modules. `executeBody(body, deps)` walks
+// subagent calls, the host-contract type substrate, the scalar operator
+// family, and the result/match disposition family to sibling modules. `executeBody(body, deps)` walks
 // `V19a`'s parsed `ThetaBody` statement AST
 // top-to-bottom against `V19b`'s lexical environment — `let`/reassign,
 // `if`/`while`/`for` (driving the real `ForLoopHost` / `evaluateForLoop` from
@@ -32,10 +33,7 @@
 // errors-and-results/error-model.md (§Terminal outcomes, ERR-8 … ERR-12).
 
 import {
-  CompoundNonNumericError,
-  BinaryNonNumericError,
   UnaryNonNumericError,
-  BinaryMixedOperandError,
   ForIterandKindDefectError,
   BooleanPositionKindDefectError,
   IndexKindDefectError,
@@ -47,6 +45,22 @@ import { evalParFor } from "./par-for-executor";
 export { evalParFor } from "./par-for-executor";
 import { evalSubagentFnCall } from "./subagent-fn-call";
 export { evalSubagentFnCall } from "./subagent-fn-call";
+import { applyBinaryScalar, applyCompound, applyStdlibMethod } from "./executor-operators";
+import { asResultValue, evalMatch, evalTry } from "./executor-result-flow";
+import type {
+  BodyExecution,
+  EvalResult,
+  ExecuteBodyDeps,
+} from "./statement-executor-types";
+export type {
+  BodyExecution,
+  CheckpointDescriptor,
+  EvalResult,
+  ExecuteBodyDeps,
+  StatementEvalHost,
+  SubagentFnChildOutcome,
+  SubagentFnChildRequest,
+} from "./statement-executor-types";
 
 import type {
   BinaryExpr,
@@ -57,55 +71,30 @@ import type {
   ForStmt,
   IfStmt,
   ThetaBody,
-  MatchExpr,
-  PatternNode,
   Stmt,
-  SubagentSessionConfig,
-  TryExpr,
   WhileStmt,
 } from "../parser/theta-document";
-import type { Checkpoint, CheckpointKind, CheckpointSite } from "../seams/checkpoint";
-import type { Trace, TraceSettle } from "../seams/trace";
-import type { ParForLaneHooks } from "../extension/execution-status/types";
-import type { Diagnostic } from "../diagnostics/diagnostic";
-import type { CancellableStatement, OperationResult } from "./cancellation-core";
+import type { CheckpointKind, CheckpointSite } from "../seams/checkpoint";
+import type { TraceSettle } from "../seams/trace";
+import type { CancellableStatement } from "./cancellation-core";
 import { runCancellableSequence, type CancellableSequenceOutcome } from "./cancellation-core";
 import { isThetaPanic, attachPanicSite, pushPanicFrame } from "./runtime-panics";
-import type { InvokeChain } from "./invoke-depth-cycle";
 import { pushCountableFrame, thetalibFnFrameKind } from "./invoke-depth-cycle";
-import type { InvokeResultSource } from "./invoke-cancellation";
-import type { FnTail } from "./subagent-envelope";
-import type { RuntimeEvent } from "./runtime-event-channel";
 import { evaluateForLoop, type ForLoopHost } from "./control-flow";
 import { PiToolArgShapeDefectError, ShadowedCalleeDispatchDefectError } from "./tool-call";
-import { functionResult, type FunctionResult, type TerminalOutcome } from "./function-result";
+import { functionResult } from "./function-result";
 import type { LexicalEnvironment } from "./lexical-environment";
 import {
   evaluateIndexAccess,
   evaluateMemberAccess,
-  evaluateQuestion,
-  nonObjectReceiverRejection,
-  QuestionOperandDefectError,
 } from "./runtime-panics";
-import { evaluateStringMember } from "./stdlib-string";
-import { evaluateArrayMember } from "./stdlib-array";
-import { evaluateObjectMember } from "./stdlib-object";
-import { selectMatchArm, type MatchSelection, type Pattern } from "./match-result";
-import {
-  handlePartialTerminalOutcome,
-  type CommittedConversationMutator,
-  type DrivenConversationMode,
-} from "./terminal-outcomes";
+import { handlePartialTerminalOutcome } from "./terminal-outcomes";
 import {
   buildObjectSchemaValue,
   defineRecordField,
-  isObjectValue,
-  isResultValue,
   makeErr,
   makeOk,
-  valuesEqual,
   type ThetaValue,
-  type ResultValue,
 } from "./value";
 
 /**
@@ -140,7 +129,7 @@ export function panicSiteFile(env: LexicalEnvironment, deps: ExecuteBodyDeps): s
  * callers DISCARD the return value: a loop boundary is an instant, not a
  * bracketed wait (the seam contract returns `undefined` there).
  */
-function traceEffectDispatch(
+export function traceEffectDispatch(
   env: LexicalEnvironment,
   deps: ExecuteBodyDeps,
   kind: CheckpointKind,
@@ -151,286 +140,6 @@ function traceEffectDispatch(
     kind,
   );
 }
-
-/**
- * The checkpoint a checkpointed effect sub-expression gates on (one of the five
- * fixed sites of cancellation.md §Granularity — `query`, `tool-call`, `invoke`;
- * a loop's per-iteration `loop-iter` boundary is driven by the loop path). Its
- * `kind` and `site` are handed to `V17a`'s `runCancellableSequence` /
- * `Checkpoint.before(kind, site)`.
- */
-export interface CheckpointDescriptor {
-  readonly kind: CheckpointKind;
-  readonly site: CheckpointSite;
-}
-
-/**
- * The effect boundary the executor drives expression evaluation through — the
- * seam `V19d` supplies the real effectful hosts to (query / tool-call / invoke
- * evaluation), and a V19c-T test supplies a recording double.
- *
- *   - `evaluatePure` evaluates a pure (non-checkpointed) sub-expression
- *     synchronously to its value. Pure work is not a checkpoint and runs to
- *     completion (cancellation.md §Granularity — "Synchronous in-process work …
- *     is not a checkpoint").
- *   - `checkpointFor` reports whether `expr` is a checkpointed effect (an
- *     `@`-query, a code-tool call, or an `invoke`) and its checkpoint kind/site,
- *     or `null` for a pure expression. The executor segments each checkpointed
- *     effect in a linear run onto `runCancellableSequence`.
- *   - `runEffect` runs one checkpointed effect sub-expression — committing its
- *     effect — and returns its `OperationResult` (`V17a`). It is invoked from
- *     inside `runCancellableSequence`, after that statement's pre-dispatch
- *     `Checkpoint.before(...)` signal read.
- */
-export interface StatementEvalHost {
-  evaluatePure(expr: Expr, env: LexicalEnvironment, chain?: InvokeChain): ThetaValue;
-  checkpointFor(expr: Expr): CheckpointDescriptor | null;
-  /**
-   * Run one checkpointed effect. `evaluatedToolArgs` (RFC 0002) carries a
-   * Pi-tool call's field values already evaluated left-to-right by the executor
-   * (`preEvaluateToolArgs`); the tool-call host lowers those concrete values
-   * instead of re-deriving them purely. Absent for queries, invokes, and
-   * `.theta`-callable / non-object-literal calls.
-   */
-  runEffect(
-    expr: Expr,
-    env: LexicalEnvironment,
-    evaluatedToolArgs?: Record<string, ThetaValue>,
-    chain?: InvokeChain,
-  ): Promise<OperationResult>;
-  /**
-   * RFC 0002 pre-evaluation gate. Classify a `<name>(args)` call by its resolved
-   * callee: a Pi-tool call consumes the executor-pre-evaluated `evaluatedToolArgs`
-   * on its `runEffect`, whereas a `.theta`-callable call routes through the
-   * invoke trampoline, which ignores `evaluatedToolArgs` and re-lowers the
-   * argument itself. Pre-evaluating a `.theta`-callable call would therefore
-   * double-evaluate effectful field values, so `preEvaluateToolArgs` skips it.
-   * Absent ⇒ the call is treated as a Pi tool (the `V19d`-double behaviour,
-   * where every checkpointed call is a code tool).
-   */
-  classifyCall?(expr: CallExpr, env: LexicalEnvironment): "pi-tool" | "theta-callable" | "runtime-tool";
-  /**
-   * RFC 0003 (`par for`) child-diagnostic drain sink. At a `par for` join —
-   * after all iterations settle — the executor calls this once per input index
-   * in ASCENDING index order, each call carrying that iteration's child
-   * diagnostics in the existing `(file, line, col)` order, so the
-   * nondeterministic completion order becomes the deterministic
-   * (input-index, then (file,line,col)) drain order (control-flow.md CTRL-3).
-   * Optional: a host that does not aggregate child diagnostics omits it.
-   */
-  drainChildDiagnostics?(
-    index: number,
-    diagnostics: readonly Diagnostic[],
-  ): void;
-  /**
-   * RFC 0012 §10 — the PRODUCTION `subagent fn` call: the body runs in a
-   * spawned child `pi` process (the calling theta's slug re-discovered and
-   * re-parsed there; the fn resolved by name; the arguments marshalled on the
-   * PIC-60 params channel), and the call evaluates to the outcome the child's
-   * envelope carried — the same `runInvokeChild` trampoline a `.theta` callable
-   * call drives through. When present the in-memory session-switch hooks below
-   * are NEVER consulted for a `subagent fn` call; the body does not run in this
-   * process at all (D4: no in-process fallback in production).
-   */
-  runSubagentFnChild?(request: SubagentFnChildRequest, chain?: InvokeChain): Promise<SubagentFnChildOutcome>;
-  /**
-   * RFC 0001 (`subagent fn`) in-memory session-switch hooks — the test-double
-   * posture for hosts with no child-process substrate. Around a `subagent fn`
-   * CALL the executor enters a fresh isolated subagent session for the body
-   * (`spawnSubagentSession`) and discards it on return (`exitSubagentSession`,
-   * positional — sessions nest LIFO), so the body's `@` queries / calls target
-   * the spawned session and the caller's conversation stays unpolluted (FN-6). The
-   * spawned session's configuration (`system` / `model` / `tools`, FN-7) is
-   * inherit-then-`with`-override resolved on the `subagent fn` node. Optional:
-   * a host with no isolation substrate omits both, and a `subagent fn` body then
-   * runs against the same host with no session switch. Production supplies
-   * `runSubagentFnChild` instead and never these.
-   */
-  spawnSubagentSession?(config: SubagentSessionConfig, chain?: InvokeChain): void | Promise<void>;
-  exitSubagentSession?(): void | Promise<void>;
-}
-
-/**
- * RFC 0012 §10 — what the executor hands the production host for one
- * `subagent fn` call: the resolved declaration, the caller-evaluated positional
- * arguments (by value, FN-6), the call expression (its `with { cwd }` clause,
- * RFC 0009 Erratum B, is the host's to evaluate against `env`), and the
- * checkpoint site the invoke trampoline gates on.
- */
-export interface SubagentFnChildRequest {
-  readonly fn: FnDecl;
-  readonly args: readonly ThetaValue[];
-  readonly call: CallExpr;
-  readonly env: LexicalEnvironment;
-  readonly site: CheckpointSite;
-}
-
-/**
- * RFC 0012 §10 — the child's outcome as the trampoline surfaces it: the
- * envelope's `Result` with its provenance (`InvokeResultSource`, bug 0294) and
- * the `fn_tail` marker (`subagent-envelope.ts`) naming a `Result`-valued body
- * tail; or a pre-spawn cancellation observed at the invoke checkpoint.
- */
-export type SubagentFnChildOutcome =
-  | {
-      readonly kind: "value";
-      readonly result: ResultValue;
-      readonly source: InvokeResultSource;
-      readonly fnTail?: FnTail;
-    }
-  | { readonly kind: "cancelled" };
-
-/**
- * The collaborators the executor walks the body against. `env` is `V19b`'s
- * real lexical environment; `host` is the `V19d` effect boundary; `checkpoint`
- * and `signal` are `V17a`'s `Checkpoint` seam substrate and the `thetaAbort`
- * signal (never `ctx.signal` directly) the linear-run `runCancellableSequence`
- * reads through; `mutator` and `mode` are the `V4c` partial-append /
- * non-mutation surface a mid-stream terminal event routes through
- * (`handlePartialTerminalOutcome`).
- */
-export interface ExecuteBodyDeps {
-  readonly env: LexicalEnvironment;
-  readonly host: StatementEvalHost;
-  readonly checkpoint: Checkpoint;
-  readonly signal: AbortSignal;
-  readonly mutator: CommittedConversationMutator;
-  readonly mode: DrivenConversationMode;
-  /**
-   * The theta source file stamped onto the `loop-iter` `CheckpointSite` (the
-   * per-iteration cancellation checkpoint of `executeWhile` / `executeFor`);
-   * the other four checkpoint sites are stamped by the effect host from the
-   * same source file. Matches `EffectfulStatementHostDeps.file`.
-   */
-  readonly file: string;
-  /**
-   * The theta's on-disk source path, when it has one (bug 0476). A panic
-   * site or frame raised in the TOP-LEVEL body names this file — `file` above
-   * is the slash name the checkpoint and runtime-diagnostic stamps use, which
-   * is not a path a human can open. An imported `.thetalib` fn body names its
-   * own declaring file through `LexicalEnvironment.currentResidence()` (the
-   * leaf-location rule), so this is only the root body's residence. Absent for
-   * in-memory fixtures, which fall back to `file`.
-   */
-  readonly sourcePath?: string;
-  /**
-   * The runtime-diagnostic channel (bug 0324): `evalParFor`'s width resolve
-   * calls this on a non-number `max` value (the clamp-to-1 disposition) so the
-   * clamp is not silent. OPTIONAL because existing constructors of this
-   * interface omit it; a required field would flip every one of them outside
-   * this fix's enumerated scope.
-   */
-  readonly emitDiagnostic?: (diagnostic: Diagnostic) => void;
-  /**
-   * The per-chain INV-4 depth counter (bug 0354), passed down so
-   * `evalUserFnCall` can push a countable frame for a CROSS-FILE `.thetalib`
-   * `fn` call before its body runs. OPTIONAL because existing constructors of
-   * this interface omit it (the `emitDiagnostic?` precedent) — a required
-   * field would flip every one of them outside this fix's enumerated scope.
-   * Immutable value passed down (never a mutable global), so sibling invokes
-   * never share budget.
-   */
-  readonly invokeChain?: InvokeChain;
-  /**
-   * RFC 0010 (execution-status.md EXST-3(c)): the `par for` lane-set producer
-   * hooks, threaded from the bound invocation's executeDeps. OPTIONAL because
-   * existing constructors of this interface omit it (the `emitDiagnostic?` /
-   * `invokeChain?` precedent) — a required field would flip every one of them
-   * outside this seam's enumerated scope. `evalParFor` opens a lane set and
-   * drives `claim`/`settle`/`close` around each lane body (see
-   * docs/spec_topics/execution-status.md EXST-3 lane lifecycle).
-   */
-  readonly statusLanes?: ParForLaneHooks;
-  /**
-   * RFC 0015 (D1) — the optional statement-trace observability seam. Called
-   * with kind `"stmt"` at every statement dispatch (the statement's own
-   * source site) and with the effect's `CheckpointKind` at every effect
-   * dispatch, beside — never inside — that effect's `checkpoint.before`
-   * (`traceEffectDispatch`). OPTIONAL because the print/json/child
-   * compositions never wire it (the `statusLanes?` precedent): absent, the
-   * cost is one undefined-check per publication site. It gates nothing —
-   * cancellation stays exclusively on the `checkpoint` seam above. The
-   * executor calls it bare: a throwing trace is a defective seam
-   * implementation whose throw propagates to the nearest boundary exactly
-   * like any other executor throw (a `par for` lane downgrades it to that
-   * element's ERR-20 `Err`; only outside any boundary does it abort the
-   * drive — contract in `src/seams/trace.ts`; containment, where wanted,
-   * belongs in the composition-side wrapper).
-   */
-  readonly trace?: Trace;
-}
-
-/**
- * The outcome of driving a `ThetaBody` to completion: the `error-model.md`
- * terminal outcome (`success` / `fail` / `cancel`) and the FN-5 top-level-block
- * final value (present only on the success path).
- */
-export interface BodyExecution {
-  readonly outcome: TerminalOutcome;
-  readonly result: FunctionResult;
-  /**
-   * The `Err` payload that unwound the body — the theta's terminal `Result` on
-   * the fail path is `Err(error)`. Present on the fail outcome for BOTH a
-   * `?`-propagation (ERR-18) and an unhandled non-cancel effect `Err` in
-   * tail/statement position (ERR-19 — e.g. a `tool_loop_exhausted` breach): the
-   * effect's own terminating `QueryError` is carried through so the caller sees
-   * the real leaf kind, not a fabricated `cancelled`. Absent for the cancel
-   * outcome (whose surface is `CancelledError`) and for a thrown `ThetaPanic`
-   * (which never reaches a `fail` outcome). A mode's `surface` projects this
-   * onto the caller-visible `Err` (FN-5 fail path).
-   */
-  readonly error?: ThetaValue;
-  /**
-   * The origin `RuntimeEvent` that produced `error` on the fail path (bug
-   * 0399), when the failing effect already constructed one (currently: a
-   * typed-query `validation` outcome, threaded from `OperationResult.event`
-   * through the `fail` flow cascade). Absent otherwise. A composition-root
-   * boundary passes this verbatim to its re-emission per PIC-1 (f) — never
-   * re-derived.
-   */
-  readonly originEvent?: RuntimeEvent;
-}
-
-// ---------------------------------------------------------------------------
-// Internal control-flow signal
-// ---------------------------------------------------------------------------
-
-/**
- * The control-flow signal one evaluated sub-expression, statement, or block
- * produces as the walk unwinds — the ONE union both the expression layer
- * (`evalExpr`) and the statement layer (`executeStatement` / `executeBlock`)
- * carry, so a non-`value` signal propagates through every boundary unchanged
- * (every `evalExpr` call site forwards a non-`"value"` result verbatim).
- *
- *   - `value`    — the evaluated value: a sub-expression's result, or the
- *     statement/block fall-through carrying the last evaluated value (a
- *     block's tail value, or `null`).
- *   - `return`   — an explicit `return expr` short-circuits the body to `value`.
- *   - `break` / `continue` — steer the nearest enclosing loop. From an
- *     expression, these and `return` are reachable only through a `BlockExpr`
- *     (bug 0082 §Fix) — the block's own statement list can carry any `Stmt`,
- *     including these three control-flow forms.
- *   - `fail`     — an unhandled non-cancel effect `Err` in tail/statement
- *     position (an unhandled `@`-query exhaustion / validation breach not
- *     consumed by a caller `match` and not `?`-propagated) — the
- *     `error-model.md` fail terminal outcome. It carries the effect's own
- *     terminating `QueryError` as `error` so the body's terminal `Result` is
- *     `Err(error)`, exactly as `propagate` carries a `?`-propagated `Err`; no
- *     FN-5 final value flows. (A runtime panic is a thrown `ThetaPanic`, not a
- *     `fail` flow, so it never reaches this variant.)
- *   - `propagate` — a `?`-propagation carrying its `Err` payload so the body's
- *     terminal `Result` is `Err(err)` (ERR-18 / FN-5 fail path).
- *   - `cancel`   — a mid-body cancellation surfaced at a checkpoint — the cancel
- *     terminal outcome; no final value flows (FN-5).
- */
-export type EvalResult =
-  | { readonly flow: "value"; readonly value: ThetaValue }
-  | { readonly flow: "fail"; readonly error: ThetaValue; readonly event?: RuntimeEvent }
-  | { readonly flow: "propagate"; readonly err: ThetaValue }
-  | { readonly flow: "return"; readonly value: ThetaValue }
-  | { readonly flow: "break" }
-  | { readonly flow: "continue" }
-  | { readonly flow: "cancel" };
 
 /**
  * RFC 0002 (docs/rfcs/0002-computed-tool-arguments.md) — evaluate a Pi-tool
@@ -457,7 +166,7 @@ export type EvalResult =
  * `PiToolArgShapeDefectError`. Both defects route to the
  * `theta/runtime/internal-error` surface.
  */
-async function preEvaluateToolArgs(
+export async function preEvaluateToolArgs(
   expr: Expr,
   env: LexicalEnvironment,
   deps: ExecuteBodyDeps,
@@ -544,7 +253,7 @@ export class ThetaFnArityError extends Error {
  * `callable` arm) is NOT a user `fn`; it stays on the effect (tool-call /
  * invoke) path.
  */
-function resolveUserFn(
+export function resolveUserFn(
   callee: string,
   env: LexicalEnvironment,
 ): { readonly fn: FnDecl; readonly moduleEnv?: LexicalEnvironment } | undefined {
@@ -682,47 +391,6 @@ function requireBoolean(value: ThetaValue): boolean {
     throw new BooleanPositionKindDefectError(value);
   }
   return value;
-}
-
-/**
- * Apply a compound-assignment operator. `+=` mirrors `applyBinaryScalar`'s
- * `+` arm exactly (string+string concatenates, two-number addition, else the
- * bug 0368 belt) — the shared runtime semantics for `+`, since bindings.md
- * defines `x += e` as `x = x + e` and the parse-time `+`-operand gate has
- * already refused every statically-resolvable mixed pair; an unresolvable
- * pair defers and takes the same shared `+` arm as the spelled binary, so a
- * mixed pair laundered past the reassign gate must abort loudly rather than
- * silently coerce (bug 0368). `-=`/`*=`/`/=`/`%=` are numeric-only: a
- * non-number operand throws `CompoundNonNumericError` rather than silently
- * computing over a fabricated `0` (bug 0314).
- */
-function applyCompound(
-  op: "+=" | "-=" | "*=" | "/=" | "%=",
-  current: ThetaValue,
-  delta: ThetaValue,
-): ThetaValue {
-  if (op === "+=") {
-    if (typeof current === "string" && typeof delta === "string") {
-      return current + delta;
-    }
-    if (typeof current === "number" && typeof delta === "number") {
-      return current + delta;
-    }
-    throw new BinaryMixedOperandError("+", current, delta);
-  }
-  if (typeof current !== "number" || typeof delta !== "number") {
-    throw new CompoundNonNumericError(op, current, delta);
-  }
-  switch (op) {
-    case "-=":
-      return current - delta;
-    case "*=":
-      return current * delta;
-    case "/=":
-      return current / delta;
-    case "%=":
-      return current % delta;
-  }
 }
 
 // ---------------------------------------------------------------------------
@@ -1126,367 +794,6 @@ async function evalBinary(expr: BinaryExpr, env: LexicalEnvironment, deps: Execu
     return right;
   }
   return { flow: "value", value: applyBinaryScalar(expr.op, left.value, right.value) };
-}
-
-/**
- * Apply a non-short-circuit binary operator to resolved operands — the exact
- * disposition of the pure host's `evaluateBinaryExpression` and the V3a
- * expression-evaluator (`expression-evaluator.ts`): structural `==` / `!=` via
- * the shared V2c `valuesEqual` relation (a cross-type pair is `false`, never a
- * panic), string `+` concatenation vs IEEE-754 addition, non-panicking div/mod,
- * and signed-IEEE-754 / UTF-16 ordering (expressions.md §Equality / §Ordering /
- * §"Other arithmetic"). Reuses the same `valuesEqual` primitive as the pure host
- * so the two paths cannot diverge.
- */
-function applyBinaryScalar(op: string, left: ThetaValue, right: ThetaValue): ThetaValue {
-  switch (op) {
-    case "==":
-      return valuesEqual(left, right);
-    case "!=":
-      return !valuesEqual(left, right);
-    case "+": {
-      // Bug 0368 belt: the parse-time gate (`type-layer-checks.ts`'s
-      // `checkPlusOperands`) refuses a statically-resolvable mixed pair
-      // before this runs; a pair it DEFERRED on (an unannotated fn param,
-      // WITHHELD) can still reach here, so anything other than two strings
-      // or two numbers throws loudly rather than JS-coercing (the original
-      // defect: `"x" + 1` → `"x1"`, `null + 5` → `5`). `NaN`/`Infinity` are
-      // `typeof "number"` and stay admitted — `1 % 0` → `NaN` and `3 / 0` →
-      // `Infinity` flow through `+` unbelted, per the spec's non-panicking
-      // div/mod behaviour.
-      if (typeof left === "string" && typeof right === "string") {
-        return left + right;
-      }
-      if (typeof left === "number" && typeof right === "number") {
-        return left + right;
-      }
-      throw new BinaryMixedOperandError("+", left, right);
-    }
-    case "-":
-    case "*":
-    case "/":
-    case "%": {
-      // Bug 0332 belt: the parse-time gate
-      // (`type-layer-checks.ts`'s `checkArithmeticOperands`) refuses a
-      // statically-resolvable non-numeric pair before this runs; a pair it
-      // DEFERRED on (an unannotated fn param, WITHHELD) can still reach here,
-      // so a non-number operand throws loudly rather than being cast and
-      // JS-coerced (the original silent-`NaN`/small-integer defect). `NaN` is
-      // `typeof "number"` and is NOT caught here — `1 % 0` → `NaN` and
-      // `3 / 0` → `Infinity` stay the spec's non-panicking div/mod behaviour.
-      if (typeof left !== "number" || typeof right !== "number") {
-        throw new BinaryNonNumericError(op, left, right);
-      }
-      switch (op) {
-        case "-":
-          return left - right;
-        case "*":
-          return left * right;
-        case "/":
-          return left / right;
-        case "%":
-          return left % right;
-      }
-    }
-    case "<":
-    case "<=":
-    case ">":
-    case ">=": {
-      // Bug 0368 belt: the parse-time gate (`type-layer-checks.ts`'s
-      // `checkOrderingOperands`) refuses a statically-resolvable
-      // non-orderable pair before this runs; a pair it DEFERRED on (an
-      // unannotated fn param, WITHHELD) can still reach here, so anything
-      // other than two numbers or two strings throws loudly rather than
-      // applying raw JS relational coercion (the original defect: `true < 2`
-      // → `true`, `"5" < 3` → `false`). `NaN`/`Infinity` are `typeof
-      // "number"` and stay admitted — ordering over a div/mod-by-zero product
-      // is the spec's non-panicking behaviour.
-      const bothNumbers = typeof left === "number" && typeof right === "number";
-      const bothStrings = typeof left === "string" && typeof right === "string";
-      if (!bothNumbers && !bothStrings) {
-        throw new BinaryMixedOperandError(op, left, right);
-      }
-      switch (op) {
-        case "<":
-          return (left as number | string) < (right as number | string);
-        case "<=":
-          return (left as number | string) <= (right as number | string);
-        case ">":
-          return (left as number | string) > (right as number | string);
-        case ">=":
-          return (left as number | string) >= (right as number | string);
-      }
-    }
-    default:
-      return null;
-  }
-}
-
-/**
- * Dispatch a stdlib method on resolved operands by the receiver's runtime type —
- * mirrors the pure host's `evaluateStdlibMethod`, reusing the same exported
- * member surfaces (`stdlib-string` / `stdlib-array` / `stdlib-object`); a
- * receiver kind with no built-in method surface — a `number`, a `boolean`, or
- * `null` — is rejected loudly with `theta/runtime/non-object-receiver` (bug
- * 0393 §Fix), the disposition the index arm (`evaluateIndexAccess`) already
- * gives a laundered primitive; a `null` receiver at the index or member read
- * instead raises its dedicated null-access panic ahead of that gate, so `null`
- * carries this code only at the method-call read. An enum value or a `Result`
- * value satisfies the object arm's `typeof` test but is gated ahead of
- * `evaluateObjectMember` (bug 0027 §Fix): neither is an object value in the
- * language's sense, so the call rejects with `theta/runtime/non-object-receiver`
- * rather than answering the carrier's own enumerable properties. This
- * effectful executor and the pure host's `evaluateStdlibMethod`
- * (production-theta-producer.ts) move in lockstep — a gate on one alone leaves
- * the other leaking.
- */
-function applyStdlibMethod(receiver: ThetaValue, method: string, args: readonly ThetaValue[]): ThetaValue {
-  if (typeof receiver === "string") {
-    return evaluateStringMember(receiver, method, args);
-  }
-  if (Array.isArray(receiver)) {
-    return evaluateArrayMember(receiver, method, args);
-  }
-  if (typeof receiver === "object" && receiver !== null) {
-    if (!isObjectValue(receiver)) {
-      throw nonObjectReceiverRejection(`.${method}()`, receiver);
-    }
-    return evaluateObjectMember(receiver as { readonly [k: string]: ThetaValue }, method, args);
-  }
-  throw nonObjectReceiverRejection(`.${method}()`, receiver);
-}
-
-/**
- * Evaluate an expression *as a theta `Result` value* — the operand of `?` and the
- * scrutinee of `match`, both of which operate on `Result` values. A checkpointed
- * effect (query / tool-call / invoke) is dispatched through the real host (so
- * the live resolvers fire for `?`- and `match`-wrapped calls — the "look through
- * `try`/`match` to the inner effect" obligation) and its outcome is normalised
- * to a `Result`:
- *
- *   - a clean dispatch whose value is already a `Result` flows through verbatim
- *     (tool-call / invoke / a bare query that already models `Result`); any
- *     other clean value is wrapped `Ok(value)` (a query's plain terminating
- *     text / typed value);
- *   - a non-cancel effect `Err` (a query exhaustion / validation failure) is
- *     surfaced as the theta `Err(error)` so `?` propagates it and `match` can
- *     catch it;
- *   - a cancellation surfaces the cancel flow (never a `Result`).
- *
- * A pure operand is evaluated through the host and returned verbatim — a
- * `match` scrutinee is whatever value the pure expression produced, and a `?`
- * operand's `Result`-ness is enforced at the unwrap by the ERR-18 parse gate
- * plus `evalTry`'s brand guard (bug 0019: the gate is partial for
- * statically-unresolvable operand types, so the guard is what keeps a raw
- * non-`Result` from reaching the unwrap).
- *
- * `wrapInlineComposites` (default `true`) governs bullet-1 only, and only for
- * the non-`fn`-call kinds: a user-`fn` call is a fallible-computation boundary
- * (FN-5's value is the fn's own final value, so the caller normalises to
- * total `Ok`/`Err` coverage for `?` propagation — CONV-6, bug 0017) and stays
- * wrapped regardless of this flag. An inline object/array literal or a nested
- * `try`/`match` is not a boundary — it is the scrutinee's own value — so
- * `evalMatch` passes `false` to see it raw for by-value arm matching (bug
- * 0316); `evalTry` leaves the default so every `?` operand still normalises.
- */
-async function evalAsResult(
-  operand: Expr,
-  env: LexicalEnvironment,
-  deps: ExecuteBodyDeps,
-  wrapInlineComposites = true,
-): Promise<EvalResult> {
-  // Bullet-1: a nested `try` / `match`, an inline object / array literal, or a
-  // user-`fn` call, all evaluated through the executor. Only a user-`fn` call
-  // is a fallible-computation boundary whose value is normalised to a `Result`
-  // unconditionally; the composite / control-flow kinds normalise only when
-  // `wrapInlineComposites` (the header explains why `evalMatch` opts out).
-  if (
-    operand.kind === "try" ||
-    operand.kind === "match" ||
-    operand.kind === "object" ||
-    operand.kind === "array" ||
-    (operand.kind === "call" && resolveUserFn(operand.callee, env) !== undefined)
-  ) {
-    const isUserFnCall = operand.kind === "call" && resolveUserFn(operand.callee, env) !== undefined;
-    const inner = await evalExpr(operand, env, deps);
-    if (inner.flow !== "value") {
-      return inner;
-    }
-    const wrap = isUserFnCall || wrapInlineComposites;
-    return { flow: "value", value: wrap ? asResultValue(inner.value) : inner.value };
-  }
-
-  // A pure OPERATOR expression as the `?`-operand / `match`-scrutinee: evaluate
-  // it through the async executor so a nested inline-composite effect (e.g.
-  // `[someQuery()][0]`) dispatches, and return the RAW resolved value. NO
-  // `asResultValue` wrap — `match` needs the true scrutinee value (wrapping a
-  // non-Result value in `Ok(...)` would break by-value arm matching); a `?`
-  // operand's `Result`-ness is enforced at the unwrap by ERR-18 plus
-  // `evalTry`'s brand guard (bug 0019 — the raw value may be a non-`Result`
-  // the partial gate could not classify, and the guard rejects it loudly
-  // instead of letting the unwrap corrupt). `evalExpr` fully handles
-  // these kinds (bullet-2), carrying short-circuit / fail / cancel flows and the
-  // same branding primitives as the pure host, so value/branding cannot diverge.
-  if (
-    operand.kind === "index" ||
-    operand.kind === "member" ||
-    operand.kind === "binary" ||
-    operand.kind === "ternary" ||
-    operand.kind === "method-call" ||
-    operand.kind === "result-ctor"
-  ) {
-    return evalExpr(operand, env, deps);
-  }
-
-  const checkpoint = deps.host.checkpointFor(operand);
-  if (checkpoint === null) {
-    return { flow: "value", value: deps.host.evaluatePure(operand, env, deps.invokeChain) };
-  }
-
-  // RFC 0002: pre-evaluate a Pi-tool call's computed field values left-to-right
-  // before the outer effect dispatches (see `preEvaluateToolArgs`), so a
-  // `?`- or `match`-wrapped Pi-tool call honours the same field ordering and
-  // field-`?` abort as a bare call.
-  const preArgs = await preEvaluateToolArgs(operand, env, deps);
-  if (!preArgs.ok) {
-    return preArgs.flow;
-  }
-  const statement: CancellableStatement = {
-    binding: "_effect",
-    kind: checkpoint.kind,
-    site: checkpoint.site,
-    run: () => deps.host.runEffect(operand, env, preArgs.args, deps.invokeChain),
-  };
-  const settleTrace = traceEffectDispatch(env, deps, checkpoint.kind, checkpoint.site);
-  let outcome: CancellableSequenceOutcome;
-  try {
-    outcome = await runCancellableSequence(
-      { checkpoint: deps.checkpoint, signal: deps.signal },
-      [statement],
-    );
-  } finally {
-    // RFC 0015 D7: settle on every completion path (see evalCheckpointedEffect).
-    settleTrace?.();
-  }
-  const result = outcome.result;
-  if (result.ok) {
-    return { flow: "value", value: asResultValue(result.value as ThetaValue) };
-  }
-  if (result.error.kind === "cancelled") {
-    handlePartialTerminalOutcome({ path: "cancelled", mode: deps.mode, committed: [] }, deps.mutator);
-    return { flow: "cancel" };
-  }
-  // A non-cancel effect failure is the theta `Err(error)` — the `Result` value
-  // `?` propagates and `match` dispatches on.
-  return { flow: "value", value: makeErr(result.error as unknown as ThetaValue) };
-}
-
-/** Normalise an effect's clean value to a `Result`: a `Result` passes through, else `Ok(value)`. */
-function asResultValue(value: ThetaValue): ResultValue {
-  return isResultValue(value) ? value : makeOk(value);
-}
-
-/**
- * Evaluate `operand?` (ERR-18 / expressions.md §`?` operator): dispatch the
- * operand to its `Result`, then apply the sync V4b `?` propagation —
- * `Ok(v)` yields `v`, `Err(e)` early-returns the body with `Err(e)` (the
- * `propagate` flow). A panic thrown while producing the operand bypasses `?`
- * unchanged.
- */
-async function evalTry(expr: TryExpr, env: LexicalEnvironment, deps: ExecuteBodyDeps): Promise<EvalResult> {
-  const operand = await evalAsResult(expr.operand, env, deps);
-  if (operand.flow !== "value") {
-    return operand;
-  }
-  // Bug 0019 belt-and-braces: the guard lives HERE, not in `evalAsResult` —
-  // that path also serves `match` scrutinees, which legitimately need the raw
-  // non-`Result` value for by-value arm matching. And it sits AFTER
-  // `evalAsResult` so bullet-1 operands (object / array / user-`fn` call) are
-  // already `asResultValue`-normalised (the pinned implicit-`Ok` wrap-unwrap
-  // stays a silent success) and a genuine stored `Result` passes the brand
-  // test. What remains is a value the partial ERR-18 gate could not classify
-  // (member / index / identifier operands, unknowable-typed ingress):
-  // blind-unwrapping it forges `Err(undefined)` or strips the payload, so
-  // throw the defect instead.
-  const rv = operand.value;
-  if (!isResultValue(rv)) {
-    throw new QuestionOperandDefectError(rv);
-  }
-  const q = evaluateQuestion(() => rv);
-  if (q.kind === "value") {
-    return { flow: "value", value: q.value };
-  }
-  return { flow: "propagate", err: q.err };
-}
-
-/**
- * Evaluate `match <scrutinee> { arm, … }` (expressions.md §`match` expression):
- * dispatch the scrutinee (an effect fires its real host), then apply the sync
- * V4a arm selection (`selectMatchArm`) — first matching arm wins, the selected arm's body is
- * evaluated with the pattern's bindings installed in a child scope. A
- * non-exhaustive match raises `MatchError` (a panic that bypasses `?`/`match`).
- */
-async function evalMatch(
-  expr: MatchExpr,
-  env: LexicalEnvironment,
-  deps: ExecuteBodyDeps,
-  atTerminal: boolean = false,
-): Promise<EvalResult> {
-  const scrutinee = await evalAsResult(expr.scrutinee, env, deps, false);
-  if (scrutinee.flow !== "value") {
-    return scrutinee;
-  }
-  // V20e — pure/async evaluator unification. Select the matching arm and its
-  // pattern bindings through the sync `V4a` pattern dispatch (`selectMatchArm`,
-  // which raises `MatchError` on a non-exhaustive scrutinee), but do NOT
-  // evaluate the arm body there. The selected arm body is
-  // then evaluated through the REAL executor (`evalExpr`) rather than the
-  // producer's partial `evaluatePureExpression` — so a nested `match` in the arm
-  // body, or an effectful expression (a user-`fn` call whose body dispatches an
-  // effect, an `@`-query, a tool-call) in that pure sub-expression position,
-  // resolves through the single `V19c` evaluation path instead of the partial
-  // pure evaluator's `default: return null` safety net.
-  const patterns = expr.arms.map((arm) => toRuntimePattern(arm.pattern));
-  // Drives the `V4a` pattern dispatch + `MatchError` raise; the selection names
-  // the first matching arm and the bindings its pattern introduces.
-  let chosen: MatchSelection;
-  try {
-    chosen = selectMatchArm(scrutinee.value, patterns);
-  } catch (thrown) { // allow-broad-catch: ThetaPanic-only, re-raised (bug 0476 §Fix)
-    if (isThetaPanic(thrown)) {
-      attachPanicSite(thrown, { file: panicSiteFile(env, deps), range: expr.range });
-    }
-    throw thrown;
-  }
-  const armEnv = env.child();
-  for (const [name, value] of Object.entries(chosen.bindings)) {
-    armEnv.defineLocal(name, value, false);
-  }
-  // The chosen arm's body inherits the `match`'s own enclosing position — a
-  // DIRECT effect there is disposed exactly as if it stood where the `match`
-  // itself stands (a `match` is a pass-through, not a boundary).
-  return evalExpr((expr.arms[chosen.index] as MatchExpr["arms"][number]).body, armEnv, deps, atTerminal);
-}
-
-/** Map a parsed {@link PatternNode} onto the runtime `Pattern` dispatch shape. */
-function toRuntimePattern(pattern: PatternNode): Pattern {
-  switch (pattern.kind) {
-    case "wildcard":
-      return { kind: "wildcard" };
-    case "identifier":
-      return { kind: "identifier", name: pattern.name };
-    case "literal":
-      return { kind: "literal", value: pattern.value };
-    case "constructor":
-      return { kind: "constructor", ctor: pattern.ctor, inner: toRuntimePattern(pattern.inner) };
-    case "object":
-      return {
-        kind: "object",
-        fields: pattern.fields.map((f) => ({ name: f.name, pattern: toRuntimePattern(f.pattern) })),
-      };
-    case "array":
-      return { kind: "array", elements: pattern.elements.map(toRuntimePattern) };
-  }
 }
 
 // ---------------------------------------------------------------------------
