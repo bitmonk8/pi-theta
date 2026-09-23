@@ -76,7 +76,7 @@ import { projectForValidation } from "../runtime/wire-translation";
 import type { CheckpointSite } from "../seams/checkpoint";
 import type { CompiledValidator } from "../seams/schema-validator";
 import { echoTypeFromValue } from "./binder-echo-type";
-import { buildBoundEnvironment, presentedCallableNames } from "./callable-lowering";
+import { thetaLookupEnvironment } from "./callable-lowering";
 import { decorateCheckpoint } from "./execution-status/checkpoint-decorator";
 import { OFF_SESSION_NORMAL_STOP_REASONS } from "./live-prompt-query-driver";
 import type { ProductionProducerInput } from "./production-theta-producer";
@@ -988,13 +988,7 @@ export class BinderRunner {
     const fieldsByWireName = new Map(
       (theta.frontmatter.params?.fields ?? []).map((field) => [field.wireName, field] as const),
     );
-    const env = buildBoundEnvironment(
-      theta.body,
-      undefined,
-      theta.imports,
-      presentedCallableNames(theta),
-      theta.sourcePath,
-    );
+    const env = thetaLookupEnvironment(theta);
     const defaults: DefaultedField[] = [];
     for (const wireName of defaultedFields) {
       const defaultSource = fieldsByWireName.get(wireName)?.defaultSource;

@@ -25,7 +25,7 @@ import { lowerQueryResponseSchema } from "../parser/query-schema-lowering";
 import type { LoweredSchema } from "../seams/schema-validator";
 import { respondSchemaSlug, respondToolName } from "../runtime/typed-query-validation";
 import { renderQueryText } from "../runtime/query-interpolation";
-import { buildBoundEnvironment, presentedCallableNames } from "./callable-lowering";
+import { thetaLookupEnvironment } from "./callable-lowering";
 
 /**
  * Render one `@`-query to its wire text, appending the typed-query JSON-only
@@ -67,8 +67,8 @@ function schemaDeclsOf(body: ThetaBody): SchemaDecl[] {
 
 /**
  * The theta body's SAME-FILE `enum` declarations (bug 0028 §Fix:
- * `schemaDeclsOf`'s enum sibling). Both `lowerQueryResponseSchema` call sites
- * pass `mergedEnumDeclsOf` / `mergedSchemaDeclsOf` (bug 0465), which merge
+ * `schemaDeclsOf`'s enum sibling). Every `lowerQueryResponseSchema` call site
+ * passes `mergedEnumDeclsOf` / `mergedSchemaDeclsOf` (bug 0465), which merge
  * these same-file decls with the theta's imported ones; `enumDeclsOf` /
  * `schemaDeclsOf` supply the same-file half so a declared `enum` annotation
  * (`@<Severity>`) resolves at the typed-query / `invoke<T>` lowering exactly
@@ -129,13 +129,7 @@ export function collectLaunchRespondNames(
 ): string[] {
   const bodies: ThetaBody[] = [];
   if (entry.kind === "fn") {
-    const lookupEnv = buildBoundEnvironment(
-      theta.body,
-      undefined,
-      theta.imports,
-      presentedCallableNames(theta),
-      theta.sourcePath,
-    );
+    const lookupEnv = thetaLookupEnvironment(theta);
     const resolution = lookupEnv.resolve(entry.name);
     const fn =
       (resolution.arm === "fn" || resolution.arm === "import") && resolution.fn?.subagent === true

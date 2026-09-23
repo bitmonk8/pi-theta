@@ -43,8 +43,10 @@
 // (`InvokeInfraError`).
 
 import type { Diagnostic } from "../diagnostics/diagnostic";
+import type { DrivenInvokeResult } from "./invoke-cancellation";
 import type { InvokeInfraError } from "./query-error";
 import { InvokeDepthExceededPanic, enterInvokeFrame } from "./runtime-panics";
+import { makeErr, type ThetaValue } from "./value";
 
 // Re-export the depth-cap primitives so consumers reference one import site.
 export {
@@ -259,6 +261,42 @@ export function surfaceDepthOverflow(
       cause: "panic",
     },
   };
+}
+
+/**
+ * INV-4 / ceiling #1 (invocation.md §INV-4, CIO-2): push a countable frame
+ * BEFORE the callee body runs, surfacing a depth overflow as the nested
+ * boundary-minted `Err(InvokeInfraError{cause:"panic"})` — the invoke-style
+ * child builders' shared trampoline guard. Returns the pushed child chain, or
+ * the `refused` `DrivenInvokeResult` when the cap is breached (this ceiling
+ * refusal is THIS hop's own trampoline guard — the callee never ran, bug 0294
+ * provenance). Narrow-and-rethrow: only the ceiling panic routed to the
+ * nested surface is handled; any other throw propagates unchanged.
+ */
+export function pushCountableFrameOrRefuse(
+  chain: InvokeChain,
+  kind: CountableFrameKind,
+  calleePath: string,
+):
+  | { readonly kind: "pushed"; readonly chain: InvokeChain }
+  | { readonly kind: "refused"; readonly refusal: DrivenInvokeResult } {
+  try {
+    return { kind: "pushed", chain: pushCountableFrame(chain, kind) };
+  } catch (panic) { // allow-broad-catch: theta/runtime/invoke-depth-exceeded — hard-ceilings.md
+    if (panic instanceof InvokeDepthExceededPanic) {
+      const surfaced = surfaceDepthOverflow(panic, { topLevel: false, calleePath });
+      if (surfaced.mode === "nested") {
+        return {
+          kind: "refused",
+          refusal: {
+            source: "boundary-minted",
+            result: makeErr(surfaced.error as unknown as ThetaValue),
+          },
+        };
+      }
+    }
+    throw panic;
+  }
 }
 
 // --------------------------------------------------------------------------

@@ -37,9 +37,7 @@ import {
   enforceInvokeReturnDepth,
 } from "../runtime/invoke-ceiling-depth";
 import {
-  pushCountableFrame,
-  surfaceDepthOverflow,
-  InvokeDepthExceededPanic,
+  pushCountableFrameOrRefuse,
   type InvokeChain,
 } from "../runtime/invoke-depth-cycle";
 import { runPromptSuspendInvoke } from "../runtime/invoke-prompt-suspend";
@@ -285,28 +283,11 @@ export class InvokeMachinery {
         // push the 33rd frame; the nested overflow surfaces to this invoke
         // parent as `Err(InvokeInfraError{cause:"panic"})` — the runtime backstop
         // that (with load-time cycle detection) bounds a self-referential theta.
-        let childChain: InvokeChain;
-        try {
-          childChain = pushCountableFrame(chain, "direct-invoke");
-        } catch (panic) { // allow-broad-catch: theta/runtime/invoke-depth-exceeded — hard-ceilings.md
-          // Narrow-and-rethrow: only the ceiling panic is handled (surfaced as
-          // the nested Err backstop); any other throw propagates unchanged.
-          if (panic instanceof InvokeDepthExceededPanic) {
-            const surfaced = surfaceDepthOverflow(panic, {
-              topLevel: false,
-              calleePath,
-            });
-            if (surfaced.mode === "nested") {
-              // This ceiling refusal is THIS hop's own trampoline guard — the
-              // callee never ran (bug 0294 provenance).
-              return Promise.resolve({
-                source: "boundary-minted",
-                result: makeErr(surfaced.error as unknown as ThetaValue),
-              });
-            }
-          }
-          throw panic;
+        const guard = pushCountableFrameOrRefuse(chain, "direct-invoke", calleePath);
+        if (guard.kind === "refused") {
+          return Promise.resolve(guard.refusal);
         }
+        const childChain: InvokeChain = guard.chain;
         // CANCEL-3 (cancellation.md §swallowing-handler attachment): attach the
         // swallowing handler to the `invoke` child's top-level execution Promise
         // at its construction site, before the first microtask boundary, so a

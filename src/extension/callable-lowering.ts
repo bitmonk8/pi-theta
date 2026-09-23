@@ -413,6 +413,27 @@ export function buildBoundEnvironment(
 }
 
 /**
+ * The theta's own no-`paramBindings` lookup environment: `buildBoundEnvironment`
+ * over the theta's body, imports, presented callable names, and source path,
+ * with no bound base object. Shared by declared-default recovery
+ * (`BinderRunner.recoverDeclaredDefaults`), `subagent fn` declaration lookup
+ * (`#resolveSubagentFnDecl`), and the launch-time respond-name collection
+ * (`collectLaunchRespondNames`), so all three resolve names over the SAME
+ * namespace for the same theta.
+ */
+export function thetaLookupEnvironment(
+  theta: ConversationBindInput["theta"],
+): LexicalEnvironment {
+  return buildBoundEnvironment(
+    theta.body,
+    undefined,
+    theta.imports,
+    presentedCallableNames(theta),
+    theta.sourcePath,
+  );
+}
+
+/**
  * SUBAG-2 model-callable `.theta`: the injected drive + setup-throw + param-order
  * collaborators the model-driven `.theta` adapter core dispatches through.
  * Extracted so the model-driven `.theta` seam (arg-mapping declaration order,

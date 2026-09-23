@@ -88,6 +88,31 @@ export interface ForwardingSignalSource {
 }
 
 /**
+ * Decision 6 / Increment B2: publish the invocation-scoped forwarding sources
+ * onto the shared sink (via the producer's tracking seam) and return the
+ * conversation binding's `finishInvocation` closure. Idempotent: the drive
+ * `finally` calls it once; a defensive caller may call again with no effect. A
+ * NORMAL settle detaches the forwarding listeners and splices them off the
+ * shared sink (no accumulation), then finishes the (possibly shared) ticket.
+ * Shared by the prompt-mode and subagent-mode conversation bindings so their
+ * detach-once/finish-once contract cannot drift.
+ */
+export function makeInvocationFinisher(
+  trackForwardingSources: (sources: readonly ForwardingSignalSource[]) => () => void,
+  forwardingSources: readonly ForwardingSignalSource[],
+  ticket: { finish(): void },
+): () => void {
+  const detachForwarding = trackForwardingSources(forwardingSources);
+  let finished = false;
+  return (): void => {
+    if (finished) return;
+    finished = true;
+    detachForwarding();
+    ticket.finish();
+  };
+}
+
+/**
  * The teardown-aware hot-reload debouncer sub-step 4 quiesces (PIC-57). The
  * handler marks it torn-down so no *new* watcher-driven rebuild starts, then
  * awaits `whenIdle()` so an already-in-flight rebuild completes (or no-ops)

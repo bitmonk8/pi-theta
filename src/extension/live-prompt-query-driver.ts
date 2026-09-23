@@ -3,9 +3,13 @@
 import type { ExtensionAPI, ExtensionCommandContext, SessionEntry } from "@earendil-works/pi-coding-agent";
 import type { Api, Message, Model } from "@earendil-works/pi-ai";
 import type { Clock, TimerHandle } from "../seams/clock";
-import { sendSystemNote, type SystemNoteChannelDeps } from "./system-note-channel";
+import {
+  buildPiFallbackSystemNoteChannel,
+  sendSystemNote,
+  type SystemNoteChannelDeps,
+} from "./system-note-channel";
 import { extractTrailingTurnText, computeActiveSetInstall, type CallableSetInstall } from "../runtime/conversation-drive";
-import { extractPromptModeQueryResult, mapPromptModeSyncThrow, mapPromptModeTurnLifecycleExpiry, type PromptModeTurnLifecyclePhase } from "../runtime/prompt-transport-mapping";
+import { probePostTurnFailure, mapPromptModeSyncThrow, mapPromptModeTurnLifecycleExpiry, type PromptModeTurnLifecyclePhase } from "../runtime/prompt-transport-mapping";
 import type { ForcedRespondTurn, FreePhaseTurn, QueryModelDriver } from "../runtime/query-tool-loop";
 import type { CommittedSideEffect } from "../runtime/no-rollback";
 import type { ContextOverflowError, TransportError } from "../runtime/query-error";
@@ -171,17 +175,8 @@ class LivePromptQueryModel implements QueryModelDriver {
    */
   #resolveSystemNoteChannel(): SystemNoteChannelDeps {
     return (
-      this.#systemNoteChannel ?? {
-        pi: {
-          sendMessage: (message, options): void => {
-            this.#pi.sendMessage(message, options);
-          },
-        },
-        emitDiagnostic: this.#emitDiagnostic,
-        ui: {
-          notify: (): void => {},
-        },
-      }
+      this.#systemNoteChannel ??
+      buildPiFallbackSystemNoteChannel(this.#pi, this.#emitDiagnostic)
     );
   }
 
@@ -228,19 +223,20 @@ class LivePromptQueryModel implements QueryModelDriver {
         return this.#exhaustionTurn(this.#exhaustion?.lastToolName);
       }
       // PIC-51/PIC-51b: probe the driven turn's trailing `assistant`
-      // `stopReason` before extracting text. `extractPromptModeQueryResult`
+      // `stopReason` before extracting text. `probePostTurnFailure`
       // classifies `stopReason: "error"`, the PIC-51b non-normal-terminator
       // arms (`"length"` → context_overflow, every other non-normal terminator
       // → transport), and the absent-trailing-assistant case; every non-`Ok`
-      // verdict except `cancelled` diverts here (cancellation is handled by the
-      // enclosing loop's signal guards — bug 0010 F1 / bug 0012 — so it is
-      // excluded, not re-classified).
-      const probe = extractPromptModeQueryResult(this.#readMessages(), {
+      // verdict except `cancelled` diverts here (`excludeCancelled`:
+      // cancellation is handled by the enclosing loop's signal guards — bug
+      // 0010 F1 / bug 0012 — so it is excluded, not re-classified).
+      const failure = probePostTurnFailure(this.#readMessages(), {
         aborted: this.#thetaAbort.signal.aborted,
         provider: this.#provider,
+        excludeCancelled: true,
       });
-      if (!probe.ok && probe.error.kind !== "cancelled") {
-        return { kind: "transport", error: probe.error as TransportError | ContextOverflowError };
+      if (failure !== undefined) {
+        return { kind: "transport", error: failure as TransportError | ContextOverflowError };
       }
       // Bug 0415 route (b): an untyped query (`#respond === undefined`) whose
       // native loop consumed all `max_rounds` allowed rounds then terminated
@@ -407,12 +403,13 @@ class LivePromptQueryModel implements QueryModelDriver {
       if (this.#transportFromThrow !== undefined) {
         return { kind: "transport", error: this.#transportFromThrow };
       }
-      const probe = extractPromptModeQueryResult(this.#readMessages(), {
+      const failure = probePostTurnFailure(this.#readMessages(), {
         aborted: this.#thetaAbort.signal.aborted,
         provider: this.#provider,
+        excludeCancelled: true,
       });
-      if (!probe.ok && probe.error.kind !== "cancelled") {
-        return { kind: "transport", error: probe.error as TransportError | ContextOverflowError };
+      if (failure !== undefined) {
+        return { kind: "transport", error: failure as TransportError | ContextOverflowError };
       }
       const text = extractTrailingTurnText(this.#readMessages());
       const parse = parseStructuredPayload(text);
@@ -551,12 +548,13 @@ class LivePromptQueryModel implements QueryModelDriver {
     // Neither verdict is text-parsed, and neither falls through to the
     // fresh off-session dispatch — an aborted attempt issues NO post-abort
     // provider call.
-    const probe = extractPromptModeQueryResult(this.#readMessages(), {
+    const failure = probePostTurnFailure(this.#readMessages(), {
       aborted: this.#thetaAbort.signal.aborted,
       provider: this.#provider,
+      excludeCancelled: false,
     });
-    if (!probe.ok) {
-      return { kind: "provider_failure", error: probe.error };
+    if (failure !== undefined) {
+      return { kind: "provider_failure", error: failure };
     }
     // PIC-1 (d) / bug 0355: this restarted free phase's OWN slot count — the
     // governor's `roundsAllowed`, read from the exhaustion snapshot
@@ -969,7 +967,7 @@ class LivePromptQueryModel implements QueryModelDriver {
    * `Err` — UNLESS the theta has been cancelled. PIC-51 pins that an observed
    * `thetaAbort.signal.aborted` synthesises `Err(cancelled)` INSTEAD of reading
    * session error state, and that precedence is honoured only by
-   * `extractPromptModeQueryResult`, which every caller skips once
+   * the `probePostTurnFailure` probe, which every caller skips once
    * `#transportFromThrow` is set. Leaving it unset on an aborted drive keeps
    * Esc-before-the-first-token answering `Err(cancelled)` promptly, exactly as
    * the PIC-51 probe already did.

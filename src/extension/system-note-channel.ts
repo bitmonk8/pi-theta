@@ -34,6 +34,7 @@ import {
   type SystemNote,
   type SystemNoteChannelDeps,
   type SystemNoteDetails,
+  type SystemNoteSender,
 } from "../diagnostics/system-note";
 import { isStaleCtxError } from "./stale-ctx";
 
@@ -122,6 +123,35 @@ function withNormalisedFileSpelling(note: SystemNote): SystemNote {
 /** Extract a human-readable message from an arbitrary thrown value. */
 function throwMessage(thrown: unknown): string {
   return thrown instanceof Error ? thrown.message : String(thrown);
+}
+
+/**
+ * Bug 0437 §Fix: the pi-built fallback `SystemNoteChannelDeps` shared by every
+ * site that resolves an extension-instance channel — used when the composition
+ * root wired no `systemNoteChannel`, so a bare-`pi` harness (the bug doc's
+ * §Reproduction shape) still gets a working fallback chain rather than a raw
+ * `pi.sendMessage` throw. No real `ctx.ui` seam reaches these callers: a
+ * production instance always wires a real channel (this fallback is a
+ * harness-only degrade, never the live path), and `sendSystemNote`'s
+ * `ui.notify` arm is itself best-effort, so the no-op only costs the toast
+ * half of the fallback on that harness-only path — never the delivery-failed
+ * diagnostic or terminal log.
+ */
+export function buildPiFallbackSystemNoteChannel(
+  sender: SystemNoteSender,
+  emitDiagnostic: (diagnostic: Diagnostic) => void,
+): SystemNoteChannelDeps {
+  return {
+    pi: {
+      sendMessage: (message, options): void => {
+        sender.sendMessage(message, options);
+      },
+    },
+    emitDiagnostic,
+    ui: {
+      notify: (): void => {},
+    },
+  };
 }
 
 /**

@@ -97,7 +97,7 @@ import type {
   ActiveInvocationEntry,
   ActiveInvocationTicket,
 } from "../runtime/active-invocation-registry";
-import type { ForwardingSignalSource } from "./session-shutdown";
+import { makeInvocationFinisher, type ForwardingSignalSource } from "./session-shutdown";
 import type { ParForLaneHooks } from "./execution-status/types";
 import type { RunCardPublisher } from "./execution-status/run-card";
 import { decorateCheckpoint } from "./execution-status/checkpoint-decorator";
@@ -105,7 +105,11 @@ import {
   emitCancelledBySessionShutdownNote,
   createProductionEmissionSink,
 } from "./teardown-emission";
-import { sendSystemNote, type SystemNoteChannelDeps } from "./system-note-channel";
+import {
+  buildPiFallbackSystemNoteChannel,
+  sendSystemNote,
+  type SystemNoteChannelDeps,
+} from "./system-note-channel";
 import { isStaleCtxError } from "./stale-ctx";
 import type {
   BinderRunInput,
@@ -495,23 +499,11 @@ class ProductionThetaProducer implements ThetaProducerDeps {
    */
   #systemNoteChannel(): SystemNoteChannelDeps {
     return (
-      this.#input.systemNoteChannel ?? {
-        pi: {
-          sendMessage: (message, options): void => {
-            this.#input.pi.sendMessage(message, options);
-          },
-        },
-        emitDiagnostic: this.#input.emitDiagnostic ?? ((): void => {}),
-        // No real `ctx.ui` seam is threaded onto `#input`. A production
-        // instance always wires a real `systemNoteChannel` (this branch is a
-        // harness-only degrade, never the live path); `sendSystemNote`'s
-        // `ui.notify` arm is itself best-effort, so a no-op here only costs the
-        // toast half of the fallback on that harness-only path, never the
-        // delivery-failed diagnostic or terminal log.
-        ui: {
-          notify: (): void => {},
-        },
-      }
+      this.#input.systemNoteChannel ??
+      buildPiFallbackSystemNoteChannel(
+        this.#input.pi,
+        this.#input.emitDiagnostic ?? ((): void => {}),
+      )
     );
   }
 
@@ -578,24 +570,14 @@ class ProductionThetaProducer implements ThetaProducerDeps {
       return;
     }
     // The extension-instance channel is the delivery path whenever the
-    // composition root wired one. The pi-built fallback below keeps a
-    // non-production harness that constructs a producer with `pi` alone (the
-    // bug doc's §Reproduction shape) delivering the note at all — it is also
-    // the path the offline witness cells drive.
-    const channel: SystemNoteChannelDeps = this.#input.systemNoteChannel ?? {
-      pi: {
-        sendMessage: (message, options): void => {
-          this.#input.pi.sendMessage(message, options);
-        },
-      },
-      emitDiagnostic: this.#input.emitDiagnostic ?? ((): void => {}),
-      // Unreachable by construction: this note is always `display: false`, and
-      // `sendSystemNote` skips the `ui.notify` arm on both its send-success and
-      // send-throw paths for such a note.
-      ui: {
-        notify: (): void => {},
-      },
-    };
+    // composition root wired one. The pi-built fallback keeps a non-production
+    // harness that constructs a producer with `pi` alone (the bug doc's
+    // §Reproduction shape) delivering the note at all — it is also the path
+    // the offline witness cells drive. The fallback's no-op `ui.notify` is
+    // unreachable by construction here: this note is always `display: false`,
+    // and `sendSystemNote` skips the `ui.notify` arm on both its send-success
+    // and send-throw paths for such a note.
+    const channel: SystemNoteChannelDeps = this.#systemNoteChannel();
     const sink = this.#input.cleanCancelSink ?? createProductionEmissionSink();
     emitCancelledBySessionShutdownNote(entry, { channel, sink });
   }
@@ -925,18 +907,11 @@ class ProductionThetaProducer implements ThetaProducerDeps {
     // (this method is synchronous and cannot throw between here and the return),
     // so a normal settle removes them via `finishInvocation` and only a
     // still-in-flight-at-shutdown invocation leaves them for sub-step 5.
-    const detachForwarding = this.#trackForwardingSources(forwardingSources);
-    let finished = false;
-    // Idempotent: the DRIVE `finally` calls this once; a defensive caller may
-    // call again with no effect. A NORMAL settle detaches the forwarding
-    // listeners and splices them off the shared sink (no accumulation), then
-    // finishes the (possibly shared) ticket.
-    const finishInvocation = (): void => {
-      if (finished) return;
-      finished = true;
-      detachForwarding();
-      ticket.finish();
-    };
+    const finishInvocation = makeInvocationFinisher(
+      (sources) => this.#trackForwardingSources(sources),
+      forwardingSources,
+      ticket,
+    );
 
     return {
       drivenAgainst: "prompt-user-session",

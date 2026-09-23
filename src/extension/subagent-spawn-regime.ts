@@ -35,9 +35,7 @@ import { bindParamsInbound, decodeInboundValue } from "../runtime/inbound-bounda
 import type { DrivenInvokeResult, InvokeResultSource } from "../runtime/invoke-cancellation";
 import { enforceInvokeParamsDepth } from "../runtime/invoke-ceiling-depth";
 import {
-  pushCountableFrame,
-  surfaceDepthOverflow,
-  InvokeDepthExceededPanic,
+  pushCountableFrameOrRefuse,
   type InvokeChain,
 } from "../runtime/invoke-depth-cycle";
 import { guardInvokeExecutionPromise } from "../runtime/invoke-swallowing-handler";
@@ -100,13 +98,12 @@ import {
 } from "../runtime/value";
 import { makeCancelledError } from "../runtime/cancellation-core";
 import {
-  buildBoundEnvironment,
   buildSubagentDriveBinding,
   callableSetPiToolNames,
   callableSetThetaEntries,
-  presentedCallableNames,
   subagentFnCallableSet,
   surfaceCalleeFinalValue,
+  thetaLookupEnvironment,
 } from "./callable-lowering";
 import { attachChildActivityTap } from "./execution-status/child-tap";
 import type { InvokeReturnSite } from "./invoke-machinery";
@@ -118,8 +115,12 @@ import {
   type SubagentPlacementResolver,
 } from "./production-producer-deps";
 import { collectLaunchRespondNames, mergedEnumDeclsOf, mergedSchemaDeclsOf } from "./query-text-render";
-import type { ForwardingSignalSource } from "./session-shutdown";
-import { sendSystemNote, type SystemNoteChannelDeps } from "./system-note-channel";
+import { makeInvocationFinisher, type ForwardingSignalSource } from "./session-shutdown";
+import {
+  buildPiFallbackSystemNoteChannel,
+  sendSystemNote,
+  type SystemNoteChannelDeps,
+} from "./system-note-channel";
 import type {
   BodyExecutingConversationBinding,
   ConversationBinding,
@@ -293,14 +294,11 @@ export class SubagentSpawnRegime {
       ...(bindInput.launchSite !== undefined ? { launchSite: bindInput.launchSite } : {}),
     });
 
-    const detachForwarding = this.#deps.trackForwardingSources(forwardingSources);
-    let finished = false;
-    const finishInvocation = (): void => {
-      if (finished) return;
-      finished = true;
-      detachForwarding();
-      ticket.finish();
-    };
+    const finishInvocation = makeInvocationFinisher(
+      this.#deps.trackForwardingSources,
+      forwardingSources,
+      ticket,
+    );
 
     // ---- EAGER child-process launch (PIC-65 / PIC-58 / PIC-60 / PIC-66) ----
     // The launch is initiated NOW (not lazily in `drive()`): PIC-22 requires the
@@ -606,17 +604,12 @@ export class SubagentSpawnRegime {
         // extension-instance channel when the composition root wired one,
         // else the pi-built fallback that keeps a `pi`-only harness (and the
         // offline witness cells) delivering.
-        const renderFailChannel: SystemNoteChannelDeps = this.#input.systemNoteChannel ?? {
-          pi: {
-            sendMessage: (message, options): void => {
-              this.#input.pi.sendMessage(message, options);
-            },
-          },
-          emitDiagnostic: this.#input.emitDiagnostic ?? ((): void => {}),
-          ui: {
-            notify: (): void => {},
-          },
-        };
+        const renderFailChannel: SystemNoteChannelDeps =
+          this.#input.systemNoteChannel ??
+          buildPiFallbackSystemNoteChannel(
+            this.#input.pi,
+            this.#input.emitDiagnostic ?? ((): void => {}),
+          );
         sendSystemNote(
           {
             content: `'system:' interpolation for '${theta.slashName}' failed to render (${rendered.diagnostic.code}); refusing to spawn rather than silently drop the system prompt`,
@@ -981,7 +974,9 @@ export class SubagentSpawnRegime {
   }
 
   /**
-   * The root regime's Ok-arm envelope guards. PIC-59: refuse before writing
+   * BOTH child drives' Ok-arm envelope settlement (the theta-root body and a
+   * `subagent fn` entry, which also threads its recovered `fn_tail`).
+   * PIC-59: refuse before writing
    * the envelope, so no invoke parent ever binds a value the callee did not
    * produce — JSON has no form for a non-finite `number`, and
    * `JSON.stringify` would otherwise substitute `null` for it unnoticed.
@@ -1004,6 +999,7 @@ export class SubagentSpawnRegime {
     emitEnvelope: (line: string) => void,
     emitErr: (error: QueryError, provenance?: ErrProvenance, fnTail?: FnTail) => void,
     emitOutcome: (outcome: SubagentChildOutcome) => void,
+    tail?: FnTail,
   ): void {
     const tooDeep = mapTooDeepReturnValue(value, calleePath);
     const nonRepresentable =
@@ -1019,7 +1015,7 @@ export class SubagentSpawnRegime {
       // bare wire string, so the parent's decode can restore it after the
       // ordinary immediate-callee retag (`#validateInvokeReturn`).
       emitEnvelope(
-        serializeOkEnvelope(value, collectForwardedEnumTags(value as ThetaValue)),
+        serializeOkEnvelope(value, collectForwardedEnumTags(value as ThetaValue), tail),
       );
       // RFC 0012 §7: outcome BEFORE the shutdown request, so a
       // subscriber can enqueue its last report before the host begins
@@ -1238,21 +1234,7 @@ export class SubagentSpawnRegime {
         return;
       }
       const payload = isResultValue(value) && value.ok ? value.value : value;
-      const tooDeep = mapTooDeepReturnValue(payload as unknown, calleePath);
-      const nonRepresentable =
-        tooDeep === undefined ? mapNonRepresentableReturnValue(payload as unknown, calleePath) : undefined;
-      if (tooDeep !== undefined) {
-        emitErr(tooDeep, "mint");
-      } else if (nonRepresentable !== undefined) {
-        emitDiagnostic(nonRepresentable.diagnostic);
-        emitErr(nonRepresentable.error, "mint");
-      } else {
-        emitEnvelope(
-          serializeOkEnvelope(payload as unknown, collectForwardedEnumTags(payload as ThetaValue), tail),
-        );
-        emitOutcome("ok");
-        this.#requestVisibleChildShutdown(ctx);
-      }
+      this.#emitOkEnvelopeGuarded(payload, calleePath, ctx, emitEnvelope, emitErr, emitOutcome, tail);
     } catch (thrown: unknown) { // allow-broad-catch: PIC-59 panic→envelope arm — pi-integration-contract/subagent.md
       if (thrown instanceof HostFatal) {
         throw thrown;
@@ -1340,13 +1322,7 @@ export class SubagentSpawnRegime {
     theta: ConversationBindInput["theta"],
     fnName: string,
   ): { readonly lookupEnv: LexicalEnvironment; readonly fn: FnDecl | undefined } {
-    const lookupEnv = buildBoundEnvironment(
-      theta.body,
-      undefined,
-      theta.imports,
-      presentedCallableNames(theta),
-      theta.sourcePath,
-    );
+    const lookupEnv = thetaLookupEnvironment(theta);
     const resolution = lookupEnv.resolve(fnName);
     const fn =
       (resolution.arm === "fn" || resolution.arm === "import") && resolution.fn?.subagent === true
@@ -1479,21 +1455,11 @@ export class SubagentSpawnRegime {
       committed: [],
       fnTail: (): FnTail | undefined => lastFnTail,
       drive: (): Promise<DrivenInvokeResult> => {
-        let childChain: InvokeChain;
-        try {
-          childChain = pushCountableFrame(chain, "subagent-fn");
-        } catch (panic) { // allow-broad-catch: theta/runtime/invoke-depth-exceeded — hard-ceilings.md
-          if (panic instanceof InvokeDepthExceededPanic) {
-            const surfaced = surfaceDepthOverflow(panic, { topLevel: false, calleePath });
-            if (surfaced.mode === "nested") {
-              return Promise.resolve({
-                source: "boundary-minted",
-                result: makeErr(surfaced.error as unknown as ThetaValue),
-              });
-            }
-          }
-          throw panic;
+        const guard = pushCountableFrameOrRefuse(chain, "subagent-fn", calleePath);
+        if (guard.kind === "refused") {
+          return Promise.resolve(guard.refusal);
         }
+        const childChain: InvokeChain = guard.chain;
         return guardInvokeExecutionPromise(
           this.#driveSubagentFnChild(
             theta,

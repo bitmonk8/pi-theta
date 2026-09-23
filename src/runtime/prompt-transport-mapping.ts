@@ -264,6 +264,36 @@ export function extractPromptModeQueryResult(
   return { ok: false, error: transport };
 }
 
+/** `PromptModeProbeCtx` plus the post-turn probe's cancellation-exclusion flag. */
+export interface PostTurnProbeCtx extends PromptModeProbeCtx {
+  /** True to EXCLUDE (not re-classify) a `cancelled` verdict — the free-phase / degraded arms. */
+  readonly excludeCancelled: boolean;
+}
+
+/**
+ * PIC-51 / QRY-11: classify the settled result of a just-driven user-visible
+ * turn — the post-turn probe shared by the free-phase, degraded
+ * forced-respond and restarted-repair paths (`LivePromptQueryModel`). Returns
+ * the failure `QueryError` the caller must surface, or `undefined` to
+ * continue. With `excludeCancelled` true a `cancelled` verdict is excluded,
+ * not re-classified (cancellation is handled by the enclosing loop's signal
+ * guards — bug 0010 F1 / bug 0012); the repair phase passes `false` so EVERY
+ * failure verdict diverts (query-failure-and-repair.md §Non-validation).
+ */
+export function probePostTurnFailure(
+  messages: readonly Message[],
+  probeCtx: PostTurnProbeCtx,
+): QueryError | undefined {
+  const probe = extractPromptModeQueryResult(messages, {
+    aborted: probeCtx.aborted,
+    provider: probeCtx.provider,
+  });
+  if (!probe.ok && !(probeCtx.excludeCancelled && probe.error.kind === "cancelled")) {
+    return probe.error;
+  }
+  return undefined;
+}
+
 /**
  * The final `assistant` message of the driven turn — the last `user` message
  * (the theta-issued `pi.sendUserMessage` turn) plus every subsequent message —
