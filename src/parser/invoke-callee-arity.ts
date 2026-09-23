@@ -1,15 +1,15 @@
 // Compose-pass callee arity and argument-slot type model, including runtime-tool
 // success types and the Pi-tool input-schema subset.
 
-import type { CallableSetSnapshot } from "../parser/callable-set";
-import type { ThetaMode } from "../parser/frontmatter";
-import type { InvokeArgSlot } from "../parser/invoke-diagnostics";
-import { RUNTIME_TOOL_SIGNATURES, type RuntimeToolName } from "../parser/runtime-tools";
-import type { StaticTypeInferencePass } from "../parser/static-type-inference";
-import type { Expr } from "../parser/theta-document";
-import { checkCompatible, displayType, type CompatType, type TypeEnv } from "../parser/type-compat";
-import { annotationToCompatType, letAnnotationToCompatType } from "../parser/type-layer-checks";
-import { collectProvableArgTypes } from "./invoke-expr-call-surface";
+import { collectProvableArgTypes } from "../extension/invoke-expr-call-surface";
+import type { CallableSetSnapshot } from "./callable-set";
+import type { ThetaMode } from "./frontmatter";
+import type { InvokeArgSlot } from "./invoke-diagnostics";
+import { RUNTIME_TOOL_SIGNATURES, type RuntimeToolName } from "./runtime-tools";
+import type { StaticTypeInferencePass } from "./static-type-inference";
+import type { Expr } from "./theta-document";
+import { checkCompatible, displayType, type CompatType, type TypeEnv } from "./type-compat";
+import { annotationToCompatType, letAnnotationToCompatType } from "./type-layer-checks";
 
 /**
  * RFC 0011 §0 C6: build the runtime-tool success-type map for a compose-pass
@@ -178,7 +178,7 @@ function fieldSchemaType(fieldSchema: unknown): string | undefined {
  * `checkCompatible`.
  *
  * Never fabricates a `CompatType` for a withheld slot: `decide`
- * (`../parser/type-compat.ts`) tests `sup.kind === "array"` / `"object"`
+ * (`./type-compat.ts`) tests `sup.kind === "array"` / `"object"`
  * before its `sub.kind === "named"` branch, so a sentinel unresolvable
  * `named` argument type would answer `"incompatible"` at an `array<…>` or
  * inline-object param — a false `E` against a well-typed program.

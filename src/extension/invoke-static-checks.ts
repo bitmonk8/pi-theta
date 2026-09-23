@@ -1,6 +1,6 @@
 // Load-time (compose-pass) orchestration for invoke static checks, with the
 // invoke-expression surface and shared type collection/rendering delegated to
-// invoke-expr-call-surface.ts, the arity/slot model to invoke-callee-arity.ts,
+// invoke-expr-call-surface.ts, the arity/slot model to ../parser/invoke-callee-arity.ts,
 // and with-clause classification/cwd checks to with-clause-static-checks.ts
 // (invocation.md §Argument arity / §Resolution / §Cycle detection). Each check
 // reuses an existing, unit-tested checker rather than reimplementing it:
@@ -136,8 +136,12 @@ import {
   fieldSchemaType,
   toolParameterProperties,
   type CalleeArity,
-} from "./invoke-callee-arity";
-export { dedupeArgType, type CalleeArity, type CalleeArityField } from "./invoke-callee-arity";
+} from "../parser/invoke-callee-arity";
+export {
+  dedupeArgType,
+  type CalleeArity,
+  type CalleeArityField,
+} from "../parser/invoke-callee-arity";
 import { checkClauseCwdType, checkWithClauseDefaultReject } from "./with-clause-static-checks";
 export { checkImportedWithClauseCallees } from "./with-clause-static-checks";
 
