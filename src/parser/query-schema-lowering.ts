@@ -153,7 +153,7 @@ const IDENTIFIER = /^[A-Za-z_][A-Za-z0-9_]*$/;
  * AJV-validatable JSON Schema (QRY-22 / SUBS-1), or `undefined` when the
  * annotation carries no lowerable shape. `annotation` is the verbatim
  * `@<Schema>` text; `schemas` and `enums` are the declarations a named
- * reference resolves against. In production both call sites pass the MERGED
+ * reference resolves against. In production every call site passes the MERGED
  * set — this file's own `schema` / `enum` decls plus the ones its `import`s
  * pull in (`mergedSchemaDeclsOf` / `mergedEnumDeclsOf`,
  * production-theta-producer.ts, bug 0465) — so an imported name lowers to its

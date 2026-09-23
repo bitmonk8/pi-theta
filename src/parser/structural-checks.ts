@@ -17,7 +17,6 @@ import { checkSchemaDeclarationGraph, checkSchemaFieldTypes } from "./schema-gra
 import { checkObjectLiteralFields } from "./literal-sublanguage";
 import { unresolvedNamedTypeDiagnostic, validateTypeAnnotation } from "./annotation-validation";
 import type { PropagationCapture, QueryPropagation } from "./query-schema-resolve";
-import { collectUnresolvedNamedTypes } from "./body-type-lowering";
 // QRY-19 lives in the runtime discard module (it owns the discarded-query
 // discipline shared with the QRY-20 runtime obligation); the parser reuses its
 // pure parse-time check rather than re-deriving the diagnostic. Parser→runtime

@@ -25,6 +25,7 @@ import { parseDelimitedExprs } from "./expr-list";
 import { BUILTIN_VALUE_NAMES, reservedKeywordAsIdentifierDiagnostic, unresolvedNamedTypeDiagnostic } from "./annotation-validation";
 import { splitTopLevelSegments } from "./params";
 import { emitParForBodyDiagnostics } from "./par-for-body-checks";
+import { checkLoopVariableAndConsumeIn } from "./loop-variable-recovery";
 // A `@`-query template body is captured verbatim at parse time; its static body
 // (the literal segments, `${…}` spans dropped) is projected and checked for
 // QRY-6's degenerate-template parse-time warning. The interpolation checks
@@ -1000,36 +1001,19 @@ class BodyParser {
     }
     const variableTok = this.peek();
     const variable = this.advance().text;
-    // lexical.md:20 reserves all 32 spellings from identifier position with no
-    // scope list, and code-registry-parse.md:21's Trigger names no position
-    // either: `ForStmt ::= "for" Ident "in" Expr StmtBlock` (grammar.md) makes
-    // the loop variable an `Ident` terminal the lexer's adjacency dispatch
-    // cannot reach (it keys on `let`/`fn`/`schema`/`enum` tokens, never on
-    // this production). Guarded against the same recovery artefact bug 0148's
-    // `atParamStart` guards for `fn` parameters: `mutConsumed` true with the
-    // captured token reading `in` means no variable was written at all — the
-    // `mut` modifier's own consumption left `in` occupying this slot, and that
-    // artefact must not gain a second diagnostic beside
-    // `mut-on-immutable-context`. The discriminator between that artefact and a
-    // genuine iteration variable spelled `in` behind a `mut` (`for mut in in
-    // xs`) is the FOLLOWING token: the artefact's next token is the iterand
-    // (`xs`), while a genuine variable is followed by the grammar's own `in`
-    // keyword, so only the artefact is suppressed. The lexer's own adjacency
-    // diagnostic is left standing beside this one where the variable is itself `let`/`fn`/
-    // `schema`/`enum` (misfire face, bug 0153 §Fix (c) route (i)): narrowing
-    // the lexer to suppress it would drift bugs 0051/0135's citations there,
-    // and requiring the following token to be `ident`-kind (route (iii)) is
-    // refuted by `let let = 1` firing correctly.
-    const mutRecoveryArtefact =
-      mutConsumed && variableTok.text === "in" && !this.isKeyword("in");
-    if (variableTok.kind === "keyword" && !mutRecoveryArtefact) {
-      this.diagnostics.push(
-        reservedKeywordAsIdentifierDiagnostic(variableTok.text, variableTok.range, this.file),
-      );
-    }
-    if (this.isKeyword("in")) {
-      this.advance();
-    }
+    // `ForStmt ::= "for" Ident "in" Expr StmtBlock` (grammar.md) makes the
+    // loop variable a reserved-keyword-checked `Ident` terminal, guarded
+    // against the `mut`-consumption recovery artefact (bug 0153 §Fix — rule
+    // and rationale on `checkLoopVariableAndConsumeIn`,
+    // loop-variable-recovery.ts).
+    checkLoopVariableAndConsumeIn(
+      this.diagnostics,
+      this.file,
+      variableTok,
+      mutConsumed,
+      () => this.isKeyword("in"),
+      () => this.advance(),
+    );
     const iterand = this.parseHeaderExpression() ?? nullExpr(kw.range);
     // The loop variable is an always-immutable context (bindings.md §"Immutable
     // contexts"); scope it to the body's parse only so a reassignment to it
@@ -3734,20 +3718,16 @@ class BodyParser {
     // `ParForExpr ::= "par" "for" Ident "in" Expr MaxClause? ParForBody`
     // (grammar.md) makes this the second `Ident` terminal position `parseFor`
     // above serves the first of; same rule, same recovery-artefact guard (bug
-    // 0153 §Fix, see `parseFor`'s comment on the same shape). The artefact is
-    // discriminated from a genuine iteration variable spelled `in` behind a
-    // `mut` by the FOLLOWING token: the artefact is followed by the iterand,
-    // the genuine variable by the grammar's own `in` keyword.
-    const mutRecoveryArtefact =
-      mutConsumed && variableTok.text === "in" && !this.isKeyword("in");
-    if (variableTok.kind === "keyword" && !mutRecoveryArtefact) {
-      this.diagnostics.push(
-        reservedKeywordAsIdentifierDiagnostic(variableTok.text, variableTok.range, this.file),
-      );
-    }
-    if (this.isKeyword("in")) {
-      this.advance();
-    }
+    // 0153 §Fix — rule and rationale on `checkLoopVariableAndConsumeIn`,
+    // loop-variable-recovery.ts).
+    checkLoopVariableAndConsumeIn(
+      this.diagnostics,
+      this.file,
+      variableTok,
+      mutConsumed,
+      () => this.isKeyword("in"),
+      () => this.advance(),
+    );
     // Snapshot the outer mutable bindings before the body's own `let`s are
     // recorded, so a body reassignment to an outer `let mut` is detectable.
     const outerMutables = new Set<string>();

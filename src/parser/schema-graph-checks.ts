@@ -20,6 +20,56 @@ import type { SchemaFieldSource, SchemaDecl, Stmt } from "./theta-ast";
 import { schemaTypeNotExpressionDiagnostic } from "./theta-document";
 import { pushDiag, type StructuralRefs } from "./structural-checks";
 
+/**
+ * Resolve the names one schema-declaration `Type` capture references and
+ * refuse its unspellable fragments, pushing diagnostics into `out` — the
+ * shared walk behind both `Type` positions a `schema` declaration carries
+ * (an object-form field type and an alias/union right-hand side). Runs
+ * `collectUnresolvedNamedTypes` (body-type-lowering.ts) over `source`
+ * against `typeNames`, then pushes one reserved-keyword diagnostic per
+ * keyword hit and one unresolved-named-type diagnostic per unresolved name,
+ * all ranged at the declaration. Text no `Type` production spells reaches
+ * `lowerTypeExpr`'s catch-all as `unspellable`; refuse what the shared
+ * decline (`isUnspellableTextRefusable`, params.ts) does not admit, one
+ * `theta/parse/schema-type-not-expression` per offending fragment, no dedup
+ * — under bug 0061 §Fix guard 1: a capture that already drew an
+ * error-severity diagnostic in its own walk (a position rule, a reserved
+ * keyword, or an unresolved name — everything in `out` at or past
+ * `diagStart`) keeps that diagnostic alone, mirroring bug 0059's identical
+ * per-field guard in `parseParams` (params.ts). `parseTimeRefused` is the
+ * caller's bug 0061 guard-2 flag: true suppresses the unspellable refusal
+ * entirely.
+ */
+function checkSchemaTypeCapture(
+  source: string,
+  typeNames: ReadonlySet<string>,
+  s: SchemaDecl,
+  file: string,
+  diagStart: number,
+  out: Diagnostic[],
+  parseTimeRefused = false,
+): void {
+  const reservedKeywords: string[] = [];
+  const unspellable: string[] = [];
+  const unresolved = collectUnresolvedNamedTypes(
+    source,
+    typeNames,
+    reservedKeywords,
+    unspellable,
+  );
+  for (const keyword of reservedKeywords) {
+    out.push(reservedKeywordAsIdentifierDiagnostic(keyword, s.range, file));
+  }
+  for (const name of unresolved) {
+    out.push(unresolvedNamedTypeDiagnostic(name, s.range, file));
+  }
+  if (!parseTimeRefused && !out.slice(diagStart).some((d) => d.severity === "error")) {
+    unspellable
+      .filter(isUnspellableTextRefusable)
+      .forEach(() => out.push(schemaTypeNotExpressionDiagnostic(s.name, s.range, file)));
+  }
+}
+
 /** Check object-schema shape and each field's type with a per-field diagnostic window. */
 function checkSchemaFieldTypes(
   s: SchemaDecl,
@@ -64,34 +114,11 @@ function checkSchemaFieldTypes(
       // not `s.name` is ever referenced by a query annotation, matching
       // the registry row's "resolves to no declaration usable at the
       // position it is written".
-      const fieldReservedKeywords: string[] = [];
-      const fieldUnspellable: string[] = [];
-      const fieldUnresolved = collectUnresolvedNamedTypes(
-        f.typeSource,
-        refs.typeNames,
-        fieldReservedKeywords,
-        fieldUnspellable,
-      );
-      for (const keyword of fieldReservedKeywords) {
-        out.push(reservedKeywordAsIdentifierDiagnostic(keyword, s.range, file));
-      }
-      for (const name of fieldUnresolved) {
-        out.push(unresolvedNamedTypeDiagnostic(name, s.range, file));
-      }
-      // bug 0061 §Fix, guard 1 only: the object body has no parse-time
-      // refusal to mirror the alias position's guard 2
-      // (`emitMalformedAliasRhs`) — a field's type is one verbatim capture
-      // with no separate malformed-right-hand-side emission. A field that
-      // already drew an error-severity diagnostic in its own walk above
-      // (a position rule, a reserved keyword, or an unresolved name)
-      // keeps that diagnostic alone; otherwise refuse what the shared
-      // decline (`isUnspellableTextRefusable`, params.ts) does not admit,
-      // one diagnostic per offending fragment, no dedup.
-      if (!out.slice(fieldDiagStart).some((d) => d.severity === "error")) {
-        fieldUnspellable
-          .filter(isUnspellableTextRefusable)
-          .forEach(() => out.push(schemaTypeNotExpressionDiagnostic(s.name, s.range, file)));
-      }
+      // bug 0061 §Fix, guard 1 only (`parseTimeRefused` stays false): the
+      // object body has no parse-time refusal to mirror the alias position's
+      // guard 2 (`emitMalformedAliasRhs`) — a field's type is one verbatim
+      // capture with no separate malformed-right-hand-side emission.
+      checkSchemaTypeCapture(f.typeSource, refs.typeNames, s, file, fieldDiagStart, out);
     }
   }
 }
@@ -152,40 +179,20 @@ function checkAliasRhs(
   // whole-file resolution walk the object-form field-type position already
   // drives (`collectUnresolvedNamedTypes`, body-type-lowering.ts) over the
   // arms rejoined with the same separator `lowerTypeSource` re-splits on.
-  const aliasReservedKeywords: string[] = [];
-  const aliasUnspellable: string[] = [];
-  const aliasUnresolved = collectUnresolvedNamedTypes(
-    arms.join(" | "),
-    typeNames,
-    aliasReservedKeywords,
-    aliasUnspellable,
-  );
-  for (const keyword of aliasReservedKeywords) {
-    out.push(reservedKeywordAsIdentifierDiagnostic(keyword, s.range, file));
-  }
-  for (const name of aliasUnresolved) {
-    out.push(unresolvedNamedTypeDiagnostic(name, s.range, file));
-  }
-  // bug 0061 §Fix: text no `Type` production spells reaches
-  // `lowerTypeExpr`'s catch-all as `aliasUnspellable`
-  // (`collectUnresolvedNamedTypes`, body-type-lowering.ts); refuse what the
-  // shared decline (`isUnspellableTextRefusable`, type-text-split.ts) does not admit,
-  // one diagnostic per offending fragment, no dedup. Guard 1 — this
-  // declaration already drew an error-severity diagnostic in its own arm
-  // walk above (a position rule, a reserved keyword, or an unresolved
-  // name) — keeps that diagnostic alone. Guard 2 — `emitMalformedAliasRhs`
+  // bug 0061 §Fix, guard 2 (`parseTimeRefused`): `emitMalformedAliasRhs`
   // already refused this right-hand side at PARSE time, into a diagnostic
-  // array this checker pass cannot see — is read off the node flag
+  // array this checker pass cannot see — read off the node flag
   // `finishAliasSchema` recorded (`s.aliasRhsRefused`), so the refusal never
   // cascades onto a right-hand side another row already named.
-  if (
-    s.aliasRhsRefused !== true &&
-    !out.slice(declDiagStart).some((d) => d.severity === "error")
-  ) {
-    aliasUnspellable
-      .filter(isUnspellableTextRefusable)
-      .forEach(() => out.push(schemaTypeNotExpressionDiagnostic(s.name, s.range, file)));
-  }
+  checkSchemaTypeCapture(
+    arms.join(" | "),
+    typeNames,
+    s,
+    file,
+    declDiagStart,
+    out,
+    s.aliasRhsRefused === true,
+  );
   return { byForm, declDiagStart };
 }
 
