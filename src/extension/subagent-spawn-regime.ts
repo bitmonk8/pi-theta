@@ -877,39 +877,13 @@ export class SubagentSpawnRegime {
       return;
     }
 
-    // PIC-60 (child-side): intake the marshalled params from the child env,
-    // validate them against the callee's `params:` schema, and bind them DIRECTLY
-    // (the binder is bypassed on the marshalled path). A parse / schema-validation
-    // failure refuses the invocation fail-closed and reports it through the
-    // envelope as Err(InvokeInfraError{cause:"validation"}).
-    const intake = this.#intakeSubagentRootParams(theta);
-    if (!intake.ok) {
-      (this.#input.emitDiagnostic ?? ((): void => {}))(intake.diagnostic);
-      emitErr({ ...intake.error, callee_path: calleePath } as unknown as QueryError, "mint");
+    // PIC-60 (child-side): intake and bind the marshalled params; `undefined`
+    // means the intake refused and the refusal already went out through the
+    // envelope inside the helper.
+    const paramBindings = this.#bindMarshalledRootParams(theta, calleePath, emitErr);
+    if (paramBindings === undefined) {
       return;
     }
-    // `intake.params` is `undefined` when no params carrier was marshalled (a
-    // callee with no `params:` / a no-arg invocation) — an empty binding set.
-    // runtime-value-model.md §"Wire-name translation" names binder `args` as an
-    // inbound boundary, and the marshalled child-side intake is that boundary's
-    // other projection: it validated against the same lowered `params:`
-    // document, so it performs the same pass before binding.
-    const paramBindings =
-      intake.params !== undefined && intake.params !== null
-        ? bindParamsInbound({
-            params: intake.params as Readonly<Record<string, unknown>>,
-            lowered: theta.frontmatter.params?.loweredSchema as
-              | Record<string, unknown>
-              | undefined,
-            body: theta.body,
-            schemaValidator: this.#input.root.schemaValidator,
-            // Bug 0337: a `.theta`-declared enum `params:` field binds a
-            // file-qualified variant matching a body-constructed one.
-            ...(theta.sourcePath !== undefined
-              ? { enumDeclaringPath: theta.sourcePath }
-              : {}),
-          })
-        : new Map<string, ThetaValue>();
     const rootBindInput: ConversationBindInput = {
       ...bindInput,
       ...(paramBindings.size > 0 ? { paramBindings } : {}),
@@ -932,48 +906,7 @@ export class SubagentSpawnRegime {
       const terminal = surfaceCalleeFinalValue(execution);
       // PIC-59: emit the single machine-readable envelope for the terminal Result.
       if (terminal.ok) {
-        // PIC-59: refuse before writing the envelope, so no invoke parent
-        // ever binds a value the callee did not produce — JSON has no
-        // form for a non-finite `number`, and `JSON.stringify` would
-        // otherwise substitute `null` for it unnoticed. Depth is the FIRST
-        // sub-check (bug 0187 §Fix (b)): a payload past ceiling #4's
-        // cap refuses whatever it carries, so ordering depth first costs
-        // the non-finite search nothing — such a `>cap` payload never
-        // reaches it. Both walks now descend a `Result`'s wire form as a
-        // record (bug 0201 §Fix (a)), so this ordering also decides which
-        // refusal a carrier-nested payload takes. PIC-59's *Result-carriage
-        // bound* (`docs/spec_topics/pi-integration-contract/subagent.md`,
-        // `#subagent-envelope-result-carriage-bound`) states that
-        // reach. The depth refusal emits NO diagnostic (no registry
-        // row exists for a ceiling-#4 breach at this boundary); 0180's
-        // non-representability refusal below keeps its own registered code.
-        const tooDeep = mapTooDeepReturnValue(terminal.value as unknown, calleePath);
-        const nonRepresentable =
-          tooDeep === undefined
-            ? mapNonRepresentableReturnValue(terminal.value as unknown, calleePath)
-            : undefined;
-        if (tooDeep !== undefined) {
-          emitErr(tooDeep, "mint");
-        } else if (nonRepresentable !== undefined) {
-          (this.#input.emitDiagnostic ?? ((): void => {}))(nonRepresentable.diagnostic);
-          emitErr(nonRepresentable.error, "mint");
-        } else {
-          // Bug 0342 §Fix (D3 carriage): record each enum-boxed position's
-          // declaring tag before this envelope collapses the carrier to its
-          // bare wire string, so the parent's decode can restore it after the
-          // ordinary immediate-callee retag (`#validateInvokeReturn`).
-          emitEnvelope(
-            serializeOkEnvelope(
-              terminal.value as unknown,
-              collectForwardedEnumTags(terminal.value as ThetaValue),
-            ),
-          );
-          // RFC 0012 §7: outcome BEFORE the shutdown request, so a
-          // subscriber can enqueue its last report before the host begins
-          // deferring toward shutdown.
-          emitOutcome("ok");
-          this.#requestVisibleChildShutdown(ctx);
-        }
+        this.#emitOkEnvelopeGuarded(terminal.value, calleePath, ctx, emitEnvelope, emitErr, emitOutcome);
       } else {
         // Bug 0347 §Fix: this is the callee's OWN returned Err — whether its
         // body raised it directly or `?`-propagated it from a nested `invoke`
@@ -1001,6 +934,97 @@ export class SubagentSpawnRegime {
     } finally {
       await binding.teardown?.();
       binding.finishInvocation?.();
+    }
+  }
+
+  /**
+   * PIC-60 (child-side): intake the marshalled params from the child env,
+   * validate them against the callee's `params:` schema, and bind them DIRECTLY
+   * (the binder is bypassed on the marshalled path). A parse / schema-validation
+   * failure refuses the invocation fail-closed, reports it through the
+   * envelope as Err(InvokeInfraError{cause:"validation"}), and answers
+   * `undefined`.
+   */
+  #bindMarshalledRootParams(
+    theta: ConversationBindInput["theta"],
+    calleePath: string,
+    emitErr: (error: QueryError, provenance?: ErrProvenance, fnTail?: FnTail) => void,
+  ): Map<string, ThetaValue> | undefined {
+    const intake = this.#intakeSubagentRootParams(theta);
+    if (!intake.ok) {
+      (this.#input.emitDiagnostic ?? ((): void => {}))(intake.diagnostic);
+      emitErr({ ...intake.error, callee_path: calleePath } as unknown as QueryError, "mint");
+      return undefined;
+    }
+    // `intake.params` is `undefined` when no params carrier was marshalled (a
+    // callee with no `params:` / a no-arg invocation) — an empty binding set.
+    // runtime-value-model.md §"Wire-name translation" names binder `args` as an
+    // inbound boundary, and the marshalled child-side intake is that boundary's
+    // other projection: it validated against the same lowered `params:`
+    // document, so it performs the same pass before binding.
+    return intake.params !== undefined && intake.params !== null
+      ? bindParamsInbound({
+          params: intake.params as Readonly<Record<string, unknown>>,
+          lowered: theta.frontmatter.params?.loweredSchema as
+            | Record<string, unknown>
+            | undefined,
+          body: theta.body,
+          schemaValidator: this.#input.root.schemaValidator,
+          // Bug 0337: a `.theta`-declared enum `params:` field binds a
+          // file-qualified variant matching a body-constructed one.
+          ...(theta.sourcePath !== undefined
+            ? { enumDeclaringPath: theta.sourcePath }
+            : {}),
+        })
+      : new Map<string, ThetaValue>();
+  }
+
+  /**
+   * The root regime's Ok-arm envelope guards. PIC-59: refuse before writing
+   * the envelope, so no invoke parent ever binds a value the callee did not
+   * produce — JSON has no form for a non-finite `number`, and
+   * `JSON.stringify` would otherwise substitute `null` for it unnoticed.
+   * Depth is the FIRST sub-check (bug 0187 §Fix (b)): a payload past ceiling
+   * #4's cap refuses whatever it carries, so ordering depth first costs the
+   * non-finite search nothing — such a `>cap` payload never reaches it. Both
+   * walks now descend a `Result`'s wire form as a record (bug 0201 §Fix (a)),
+   * so this ordering also decides which refusal a carrier-nested payload
+   * takes. PIC-59's *Result-carriage bound*
+   * (`docs/spec_topics/pi-integration-contract/subagent.md`,
+   * `#subagent-envelope-result-carriage-bound`) states that reach. The depth
+   * refusal emits NO diagnostic (no registry row exists for a ceiling-#4
+   * breach at this boundary); 0180's non-representability refusal below keeps
+   * its own registered code.
+   */
+  #emitOkEnvelopeGuarded(
+    value: unknown,
+    calleePath: string,
+    ctx: ExtensionCommandContext,
+    emitEnvelope: (line: string) => void,
+    emitErr: (error: QueryError, provenance?: ErrProvenance, fnTail?: FnTail) => void,
+    emitOutcome: (outcome: SubagentChildOutcome) => void,
+  ): void {
+    const tooDeep = mapTooDeepReturnValue(value, calleePath);
+    const nonRepresentable =
+      tooDeep === undefined ? mapNonRepresentableReturnValue(value, calleePath) : undefined;
+    if (tooDeep !== undefined) {
+      emitErr(tooDeep, "mint");
+    } else if (nonRepresentable !== undefined) {
+      (this.#input.emitDiagnostic ?? ((): void => {}))(nonRepresentable.diagnostic);
+      emitErr(nonRepresentable.error, "mint");
+    } else {
+      // Bug 0342 §Fix (D3 carriage): record each enum-boxed position's
+      // declaring tag before this envelope collapses the carrier to its
+      // bare wire string, so the parent's decode can restore it after the
+      // ordinary immediate-callee retag (`#validateInvokeReturn`).
+      emitEnvelope(
+        serializeOkEnvelope(value, collectForwardedEnumTags(value as ThetaValue)),
+      );
+      // RFC 0012 §7: outcome BEFORE the shutdown request, so a
+      // subscriber can enqueue its last report before the host begins
+      // deferring toward shutdown.
+      emitOutcome("ok");
+      this.#requestVisibleChildShutdown(ctx);
     }
   }
 
@@ -1503,34 +1527,11 @@ export class SubagentSpawnRegime {
   ): Promise<DrivenInvokeResult & { readonly fnTail: FnTail | undefined }> {
     const { fn } = request;
     const calleePath = fn.name;
-    // Ceiling #4 at the argument boundary — per positional argument, as
-    // `#driveCallee` walks an `invoke(...)` argument (CIO-3).
-    for (const argValue of request.args) {
-      const breach = enforceInvokeParamsDepth(calleePath, argValue);
-      if (breach !== undefined) {
-        return { source: "boundary-minted", result: breach.result, fnTail: undefined };
-      }
+    const argGuard = this.#guardSubagentFnArgs(calleePath, request.args, ctx, rawCwd);
+    if ("source" in argGuard) {
+      return argGuard;
     }
-    let resolvedCwd: string | undefined;
-    if (rawCwd !== undefined) {
-      if (typeof rawCwd !== "string" || rawCwd === "") {
-        const error: InvokeInfraError = {
-          kind: "invoke_infra",
-          message:
-            typeof rawCwd !== "string"
-              ? `subagent fn '${calleePath}' with-clause cwd is not a string`
-              : `subagent fn '${calleePath}' with-clause cwd is empty`,
-          callee_path: calleePath,
-          cause: "validation",
-        };
-        return {
-          source: "boundary-minted",
-          result: makeErr(error as unknown as ThetaValue),
-          fnTail: undefined,
-        };
-      }
-      resolvedCwd = resolvePath(ctx.cwd, rawCwd);
-    }
+    const { resolvedCwd } = argGuard;
     // FN-7: the launch assembles the child from the configured theta.
     const configured = this.#applySubagentFnConfig(theta, fn.sessionConfig ?? {}, ctx);
     // PIC-60: the fn's arguments, by declared parameter name — the record the
@@ -1556,6 +1557,62 @@ export class SubagentSpawnRegime {
       ...(parentInvocationId !== undefined ? { parentInvocationId } : {}),
       ...(resolvedCwd !== undefined ? { resolvedCwd } : {}),
     });
+    return this.#driveAndValidateFnChild(binding, theta, request, calleePath);
+  }
+
+  /**
+   * The argument-boundary guards of `#driveSubagentFnChild`: ceiling #4 at the
+   * argument boundary — per positional argument, as `#driveCallee` walks an
+   * `invoke(...)` argument (CIO-3) — then INV-6 validation and resolution of
+   * the call site's `with { cwd }` clause. Answers the boundary-minted refusal,
+   * or the resolved cwd (`undefined` when the clause is absent).
+   */
+  #guardSubagentFnArgs(
+    calleePath: string,
+    args: readonly ThetaValue[],
+    ctx: ExtensionCommandContext,
+    rawCwd: ThetaValue | undefined,
+  ): (DrivenInvokeResult & { readonly fnTail: undefined }) | { readonly resolvedCwd: string | undefined } {
+    for (const argValue of args) {
+      const breach = enforceInvokeParamsDepth(calleePath, argValue);
+      if (breach !== undefined) {
+        return { source: "boundary-minted", result: breach.result, fnTail: undefined };
+      }
+    }
+    let resolvedCwd: string | undefined;
+    if (rawCwd !== undefined) {
+      if (typeof rawCwd !== "string" || rawCwd === "") {
+        const error: InvokeInfraError = {
+          kind: "invoke_infra",
+          message:
+            typeof rawCwd !== "string"
+              ? `subagent fn '${calleePath}' with-clause cwd is not a string`
+              : `subagent fn '${calleePath}' with-clause cwd is empty`,
+          callee_path: calleePath,
+          cause: "validation",
+        };
+        return {
+          source: "boundary-minted",
+          result: makeErr(error as unknown as ThetaValue),
+          fnTail: undefined,
+        };
+      }
+      resolvedCwd = resolvePath(ctx.cwd, rawCwd);
+    }
+    return { resolvedCwd };
+  }
+
+  /**
+   * The drive-and-validate half of `#driveSubagentFnChild`: await the spawned
+   * child binding's `drive()`, FN-6-validate the returned value at the
+   * boundary, and tear the child down on every exit path.
+   */
+  async #driveAndValidateFnChild(
+    binding: ConversationBinding,
+    theta: ConversationBindInput["theta"],
+    request: SubagentFnChildRequest,
+    calleePath: string,
+  ): Promise<DrivenInvokeResult & { readonly fnTail: FnTail | undefined }> {
     try {
       // `drive` is always present on the subagent binding; the in-process
       // `surface(executeBody(...))` fallback has no meaning for a fn entry (the

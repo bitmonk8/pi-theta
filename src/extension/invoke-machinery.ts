@@ -390,74 +390,132 @@ export class InvokeMachinery {
     // `parentSignal` (downward-only). Every other cell (a subagent-mode callee,
     // or a subagent-mode caller) spawns fresh below.
     if (callerMode === "prompt" && callee.frontmatter.mode === "prompt") {
-      const childBinding = this.#deps.bindPromptConversation({
-        theta: callee,
-        args: "",
-        ctx,
+      return this.#driveAttachedPromptCallee(
+        callee,
+        calleePath,
+        returnSite,
         paramBindings,
+        ctx,
         chain,
         parentSignal,
-        // EXST-3(b): guarded spread — `exactOptionalPropertyTypes` distinguishes
-        // an omitted key from one set to `undefined`.
-        ...(parentInvocationId !== undefined ? { parentInvocationId } : {}),
-        // RFC 0015 (D5): the callee inherits the caller's trace closure.
-        ...(trace !== undefined ? { trace } : {}),
-      });
-      // Decision 6 / Increment B1: the child bind registered an
-      // ActiveInvocationRegistry entry; the `finally` calls its
-      // `finishInvocation` AFTER the child body (`runPromptSuspendInvoke`, whose
-      // `childBody` runs `executeBody`) + the typed-return validation, so the
-      // entry SPANS the nested callee's real in-flight window.
-      try {
-        const outcome = await runPromptSuspendInvoke<ResultValue>({
-          childCallableSet: callableSetPiToolNames(callee),
-          pi: this.#input.pi,
-          // Bug 0372 §Fix: the compliant `ActiveSetGateDeps` the cross-mode
-          // restore window threads into `withActiveSetGate`.
-          thetaName: callee.slashName,
-          emitDiagnostic: this.#input.emitDiagnostic ?? ((): void => {}),
-          emitSystemNote: (note): void => {
-            sendSystemNote(note, this.#deps.systemNoteChannel());
-          },
-          // PIC-19: a step-1/step-2 setup throw re-propagates out of
-          // `withActiveSetGate` (it calls this hook THEN re-throws), with no
-          // local catch here — the throw unwinds to `runInvokeChild`'s
-          // boundary catch (invoke-cancellation.ts), which converts it into
-          // `Err(InvokeInfraError{cause:"internal_error"})`, the
-          // registry-pinned internal-error channel for an invoke parent. This
-          // hook stays a no-op so the defect is routed exactly once, never
-          // twice.
-          routeInternalError: (): void => {},
-          childBody: async () => {
-            const execution = await executeBody(callee.body, childBinding.executeDeps);
-            // FN-5 (invocation.md §Final-value propagation across callees): an
-            // invoke callee returns its body's terminal FINAL VALUE across the
-            // boundary — NOT the PIC-53 trailing-turn text that
-            // `childBinding.surface` computes for a top-level prompt dispatch.
-            // The callee's user-visible turns already streamed into the shared
-            // session; the value that flows back to the parent is the tail
-            // expression, surfaced by the same FN-5 projection as the subagent
-            // path.
-            return surfaceCalleeFinalValue(execution);
-          },
-        });
-        // The child's own body ran and settled `outcome.result` — callee-returned
-        // (bug 0294 provenance), whatever `kind` its `Err` (if any) carries.
-        const bodySource: InvokeResultSource = "callee-returned";
-        // invocation.md §Typed return (anchor `#typed-return`): apply the `invoke<Schema>` return
-        // validation to the child's `Ok` payload, exactly as the spawn path below.
-        return this.#projectValidatedReturn(
-          calleePath,
-          returnSite,
-          outcome.result,
-          bodySource,
-          callee.sourcePath,
-        );
-      } finally {
-        childBinding.finishInvocation?.();
-      }
+        parentInvocationId,
+        trace,
+      );
     }
+    return this.#driveSpawnedSubagentCallee(
+      callee,
+      calleePath,
+      returnSite,
+      paramBindings,
+      ctx,
+      chain,
+      parentSignal,
+      parentInvocationId,
+      resolvedCwd,
+    );
+  }
 
+  /**
+   * The prompt→prompt attach leg of `#driveCallee`'s cross-mode fork: bind the
+   * callee onto the caller's current user session, run its body under the
+   * suspend-invoke window, and validate the typed return.
+   */
+  async #driveAttachedPromptCallee(
+    callee: ConversationBindInput["theta"],
+    calleePath: string,
+    returnSite: InvokeReturnSite | null,
+    paramBindings: Map<string, ThetaValue>,
+    ctx: ExtensionCommandContext,
+    chain: InvokeChain,
+    parentSignal: AbortSignal,
+    parentInvocationId: string | undefined,
+    trace: Trace | undefined,
+  ): Promise<DrivenInvokeResult> {
+    const childBinding = this.#deps.bindPromptConversation({
+      theta: callee,
+      args: "",
+      ctx,
+      paramBindings,
+      chain,
+      parentSignal,
+      // EXST-3(b): guarded spread — `exactOptionalPropertyTypes` distinguishes
+      // an omitted key from one set to `undefined`.
+      ...(parentInvocationId !== undefined ? { parentInvocationId } : {}),
+      // RFC 0015 (D5): the callee inherits the caller's trace closure.
+      ...(trace !== undefined ? { trace } : {}),
+    });
+    // Decision 6 / Increment B1: the child bind registered an
+    // ActiveInvocationRegistry entry; the `finally` calls its
+    // `finishInvocation` AFTER the child body (`runPromptSuspendInvoke`, whose
+    // `childBody` runs `executeBody`) + the typed-return validation, so the
+    // entry SPANS the nested callee's real in-flight window.
+    try {
+      const outcome = await runPromptSuspendInvoke<ResultValue>({
+        childCallableSet: callableSetPiToolNames(callee),
+        pi: this.#input.pi,
+        // Bug 0372 §Fix: the compliant `ActiveSetGateDeps` the cross-mode
+        // restore window threads into `withActiveSetGate`.
+        thetaName: callee.slashName,
+        emitDiagnostic: this.#input.emitDiagnostic ?? ((): void => {}),
+        emitSystemNote: (note): void => {
+          sendSystemNote(note, this.#deps.systemNoteChannel());
+        },
+        // PIC-19: a step-1/step-2 setup throw re-propagates out of
+        // `withActiveSetGate` (it calls this hook THEN re-throws), with no
+        // local catch here — the throw unwinds to `runInvokeChild`'s
+        // boundary catch (invoke-cancellation.ts), which converts it into
+        // `Err(InvokeInfraError{cause:"internal_error"})`, the
+        // registry-pinned internal-error channel for an invoke parent. This
+        // hook stays a no-op so the defect is routed exactly once, never
+        // twice.
+        routeInternalError: (): void => {},
+        childBody: async () => {
+          const execution = await executeBody(callee.body, childBinding.executeDeps);
+          // FN-5 (invocation.md §Final-value propagation across callees): an
+          // invoke callee returns its body's terminal FINAL VALUE across the
+          // boundary — NOT the PIC-53 trailing-turn text that
+          // `childBinding.surface` computes for a top-level prompt dispatch.
+          // The callee's user-visible turns already streamed into the shared
+          // session; the value that flows back to the parent is the tail
+          // expression, surfaced by the same FN-5 projection as the subagent
+          // path.
+          return surfaceCalleeFinalValue(execution);
+        },
+      });
+      // The child's own body ran and settled `outcome.result` — callee-returned
+      // (bug 0294 provenance), whatever `kind` its `Err` (if any) carries.
+      const bodySource: InvokeResultSource = "callee-returned";
+      // invocation.md §Typed return (anchor `#typed-return`): apply the `invoke<Schema>` return
+      // validation to the child's `Ok` payload, exactly as the spawn path below.
+      return this.#projectValidatedReturn(
+        calleePath,
+        returnSite,
+        outcome.result,
+        bodySource,
+        callee.sourcePath,
+      );
+    } finally {
+      childBinding.finishInvocation?.();
+    }
+  }
+
+  /**
+   * The subagent spawn leg of `#driveCallee`'s cross-mode fork: spawn a fresh
+   * isolated child for the callee, drive it to its terminal envelope (or run
+   * the harness fallback in-process), validate the typed return, and tear the
+   * child down on every exit path.
+   */
+  async #driveSpawnedSubagentCallee(
+    callee: ConversationBindInput["theta"],
+    calleePath: string,
+    returnSite: InvokeReturnSite | null,
+    paramBindings: Map<string, ThetaValue>,
+    ctx: ExtensionCommandContext,
+    chain: InvokeChain,
+    parentSignal: AbortSignal,
+    parentInvocationId: string | undefined,
+    resolvedCwd: string | undefined,
+  ): Promise<DrivenInvokeResult> {
     // CANCEL-5 (cancellation.md §`invoke(...)` entry): hand the parent's
     // `thetaAbort.signal` to the child binding so it constructs its `thetaAbort`
     // as a DERIVED controller (downward-only: the child aborts when the parent
