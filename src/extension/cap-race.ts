@@ -22,10 +22,7 @@ export async function raceAgainstCapTimer(
   delayMs: number,
   clock: Clock,
 ): Promise<void> {
-  let resolveCap: () => void = (): void => {};
-  const capRace = new Promise<void>((resolve) => {
-    resolveCap = resolve;
-  });
+  const { promise: capRace, resolve: resolveCap } = Promise.withResolvers<void>();
   const capHandle = clock.setTimeout(() => resolveCap(), delayMs);
   try {
     await Promise.race([whenIdle(), capRace]); // allow: PIC-57 — pi-integration-contract/session-shutdown-semantics.md

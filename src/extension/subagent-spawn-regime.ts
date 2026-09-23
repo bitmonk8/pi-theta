@@ -24,6 +24,7 @@ import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { resolve as resolvePath } from "node:path";
 import { matchAvailableModel } from "../binder/binder-model";
 import type { Diagnostic } from "../diagnostics/diagnostic";
+import { normalizePath } from "../normalize-path";
 import { inferCalleeReturnAnnotation } from "../parser/functions";
 import { lowerQueryResponseSchema } from "../parser/query-schema-lowering";
 import { renderSystemPrompt } from "../parser/system-prompt-render";
@@ -437,7 +438,7 @@ export class SubagentSpawnRegime {
           ? JSON.stringify(callableHashes)
           : undefined,
       [SUBAGENT_ROOT_WINNER_ENV]:
-        theta.sourcePath !== undefined ? theta.sourcePath.replace(/\\/g, "/") : undefined,
+        theta.sourcePath !== undefined ? normalizePath(theta.sourcePath) : undefined,
     };
     return { paramsCleanup, parentEnv, controlPlaneEnv };
   }

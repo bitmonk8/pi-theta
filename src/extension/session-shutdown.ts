@@ -323,10 +323,7 @@ async function runBoundedDisposeAwait(
 
   let timerHandle: TimerHandle | undefined;
   let timerFired = false;
-  let resolveRace: () => void = (): void => {};
-  const race = new Promise<void>((resolve) => {
-    resolveRace = resolve;
-  });
+  const { promise: race, resolve: resolveRace } = Promise.withResolvers<void>();
 
   if (armed) {
     try {

@@ -632,10 +632,7 @@ class ProductionThetaProducer implements ThetaProducerDeps {
    */
   #openInvocationTicket(theta: string, thetaAbort: AbortController): ActiveInvocationTicket {
     const activeInvocations = this.#input.activeInvocations;
-    let settleDispose: () => void = (): void => {};
-    const disposeBarrier = new Promise<void>((resolve) => {
-      settleDispose = resolve;
-    });
+    const { promise: disposeBarrier, resolve: settleDispose } = Promise.withResolvers<void>();
     const entry: ActiveInvocationEntry = {
       thetaAbort,
       disposeBarrier,
