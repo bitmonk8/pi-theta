@@ -2,7 +2,7 @@
 id: PTQ-1263
 title: structural-checks.ts bundles six declaration clusters (walk, schema graph, params-default names, fn annotations, propagation index, orchestration) at 1586 LOC
 lens: D9
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/parser/structural-checks.ts:1-1586

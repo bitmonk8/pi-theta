@@ -2,7 +2,7 @@
 id: PTQ-1281
 title: type-layer-walk.ts is 2693 LOC around the single module-private 2605-LOC TypeLayerWalk class bundling eight method families
 lens: D9
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/parser/type-layer-walk.ts:1-2693

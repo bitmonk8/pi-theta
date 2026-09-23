@@ -2,7 +2,7 @@
 id: PTQ-1270
 title: runWholeDocumentChecks in theta-document.ts spans 204 LOC across eight independent check phases
 lens: D9
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/parser/theta-document.ts:332-535

@@ -2,7 +2,7 @@
 id: PTQ-1264
 title: src/parser/theta-document.ts still bundles thirteen separable concerns at 3862 LOC after the PTQ-1156 seam A/B/C extractions
 lens: D9
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/parser/theta-document.ts:1-3862

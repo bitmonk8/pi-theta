@@ -2,7 +2,7 @@
 id: PTQ-1273
 title: StaticTypeInferencePass.#typeValue is a 217-LOC twenty-arm Expr switch in the strong band with no strong keep-whole reason
 lens: D9
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/parser/static-type-inference.ts:330-546

@@ -2,7 +2,7 @@
 id: PTQ-1277
 title: Query-annotation and query-interpolation check clusters live in theta-document.ts although their sole caller is structural-checks.ts walkExpr, creating a circular import
 lens: D9
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/parser/theta-document.ts:2500-2786
