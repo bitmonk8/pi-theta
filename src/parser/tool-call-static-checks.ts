@@ -15,11 +15,11 @@
 //     call sites: field values are now full Theta expressions.
 
 import type { Diagnostic, SourceRange } from "../diagnostics/diagnostic";
-import { isBareObjectLiteral } from "../parser/literal-sublanguage";
+import { isBareObjectLiteral } from "./literal-sublanguage";
 // RFC 0002: reuse the single top-level-union splitter (the schema-subset
 // disjointness reduction below and the type-layer checks must agree on arm
 // boundaries); a duplicate previously lived here and was removed.
-import { splitTopLevelUnion } from "../parser/type-layer-checks";
+import { splitTopLevelUnion } from "./type-layer-checks";
 
 // --------------------------------------------------------------------------
 // Parse-time argument checks (arity → not-literal → type; arity before type)

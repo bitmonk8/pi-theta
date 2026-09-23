@@ -15,7 +15,7 @@ import { letAnnotationToCompatType } from "./type-layer-checks";
 // that arm can fire from this site) instead of re-deriving the
 // message/severity locally — the same parser→runtime reuse pattern as
 // `checkDiscardedQueryResult` in structural-checks.ts.
-import { checkToolCallArguments } from "../runtime/tool-call-static-checks";
+import { checkToolCallArguments } from "./tool-call-static-checks";
 import { runtimeToolPresentedNames, RUNTIME_TOOL_SIGNATURES, type RuntimeToolName } from "./runtime-tools";
 import type { CompatType } from "./type-compat";
 import type { Block, CallExpr, Expr, Stmt } from "./theta-ast";

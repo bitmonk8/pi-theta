@@ -5,7 +5,7 @@
 // (tool-calls.md; pi-integration-contract/host-interfaces-core.md
 // §"Tool execution from theta code"):
 //
-// Parse-time argument checks live in `./tool-call-static-checks` and are
+// Parse-time argument checks live in `../parser/tool-call-static-checks` and are
 // re-exported here for existing callers. Runtime responsibilities:
 //
 //   - The closed `CodeToolError.cause` enum surface
@@ -42,7 +42,7 @@ export {
   type ToolCallStaticResolution,
   type ToolArgSchemaConflictFacts,
   type ToolCallArgCheckInput,
-} from "./tool-call-static-checks";
+} from "../parser/tool-call-static-checks";
 
 import { makeErr, makeOk, type ThetaValue, type ResultValue } from "./value";
 import {
