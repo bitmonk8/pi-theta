@@ -14,11 +14,10 @@ import {
   type SchemaSlugCollision,
 } from "../src/parser/body-type-lowering";
 import { hoistInlineObjectType, type LowerCtx } from "../src/parser/params";
-import type { Diagnostic } from "../src/diagnostics/diagnostic";
 import type { SchemaDecl } from "../src/parser/theta-document";
 import { respondToolWireSchema } from "../src/runtime/respond-tool-wire";
 import { type LoweredSchema } from "../src/seams/schema-validator";
-import { AjvSchemaValidator, type SchemaSlug } from "../src/seams/ajv-schema-validator";
+import { capturingAjv as ajv } from "./helpers/scripted-live-session-harness";
 import { loweredAnnotation as lowerAnnotation, loadSchemaDecls, loadCleanly as loadCleanlyShared, type LoadedParams, parseDoc, diagLines } from "./helpers/e2e-s1";
 /**
  * Every `$ref` in a document resolves against the DOCUMENT ROOT's `$defs` —
@@ -530,19 +529,6 @@ function loadCleanly(label: string, source: string): LoadedParams & { readonly p
     properties: properties as Record<string, unknown>,
     defs: loaded.defs,
     loweredSchema: lowered,
-  };
-}
-
-/** A real `AjvSchemaValidator` plus the diagnostics it emitted. */
-function ajv(): { readonly validator: AjvSchemaValidator; readonly emitted: Diagnostic[] } {
-  const emitted: Diagnostic[] = [];
-  const slugOf = (schema: LoweredSchema): SchemaSlug => ({
-    slug: JSON.stringify(schema),
-    canonicalBytes: JSON.stringify(schema),
-  });
-  return {
-    validator: new AjvSchemaValidator({ emit: (d) => emitted.push(d), slugOf }),
-    emitted,
   };
 }
 

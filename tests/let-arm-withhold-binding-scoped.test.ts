@@ -1,13 +1,12 @@
-import { CLEAN, one, two, type Expectation } from "./helpers/load-row-harness";
+import { CLEAN, expectSiteRow, one, two, type SiteRow } from "./helpers/load-row-harness";
 import { interpolateStrict, typeMismatchMessages } from "./helpers/registry-oracle";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { describe, expect, it } from "vitest";
+import { describe, it } from "vitest";
 // @ts-expect-error — JS code-registry module, no type declarations.
 import { parseRegistry, registryMessage } from "../tools/code-registry/index.js";
-import type { Diagnostic } from "../src/diagnostics/diagnostic";
 import type { ThetaDocument } from "../src/parser/theta-document";
-import { at, binderSites, parseDoc, render } from "./helpers/e2e-s1";
+import { binderSites } from "./helpers/e2e-s1";
 
 // Bug 0199 — `TypeLayerWalk.unprovableBindings` (src/parser/type-layer-checks.ts)
 // is a `Set<CompatType>` whose membership test is JavaScript object identity,
@@ -216,53 +215,21 @@ const FILE = "bug0199.theta";
 /** Frontmatter occupies lines 1–3; every fixture body therefore starts at 4. */
 const FM = "---\nmode: prompt\n---\n";
 
-function parse(body: string): ThetaDocument {
-  return parseDoc(FM + body, FILE);
-}
-
-interface Row {
-  readonly label: string;
-  readonly src: string;
-  readonly sites: readonly string[];
-  readonly expected: Expectation;
-  /** Why the spec owes this verdict — quoted in the failure message. */
-  readonly reason: string;
-  /** Optional `severity code @range` list, pinning WHICH node carries a verdict. */
-  readonly located?: readonly string[];
-}
-
 /**
- * One row: the site precondition, then the WHOLE ordered code list, then the
- * whole ordered message list, then (when supplied) the whole ordered located
- * form. Whole-list ordered equality throughout — a containment matcher would
- * let an over-correction's spurious extra emission hide, and this file's whole
- * subject is a MISSING member of that list.
+ * One row through the shared site-precondition driver (`expectSiteRow`):
+ * whole-list ordered equality throughout, because this file's whole subject is
+ * a MISSING member of that list.
  */
-function expectRow(row: Row): ThetaDocument {
-  const doc = parse(row.src);
-  expect(
-    binderSites(doc, "the `let` arm under test", { includeCallArguments: true }),
-    `${row.label} PRECONDITION: the fixture's binding and judged-argument sites must be exactly these, so a drifted or unparsed fixture fails here instead of letting the assertions below measure nothing. Diagnostics: ${render(doc)}`,
-  ).toEqual([...row.sites]);
-  expect(
-    doc.diagnostics.map((d: Diagnostic) => d.code),
-    `${row.label} — ${row.reason}\n  actual diagnostics: ${render(doc)}`,
-  ).toEqual([...row.expected.codes]);
-  expect(
-    doc.diagnostics.map((d: Diagnostic) => d.message),
-    `${row.label} — DIAG-4 (diagnostic-shape.md:74): the rendered messages are the registry *Message* column interpolated\n  actual diagnostics: ${render(doc)}`,
-  ).toEqual([...row.expected.msgs]);
-  const located = row.located;
-  if (located !== undefined) {
-    expect(
-      doc.diagnostics.map((d: Diagnostic) => {
-        const r = d.range;
-        return `${d.severity} ${d.code} @${r === undefined ? "-" : at(r)}`;
-      }),
-      `${row.label} — the verdict belongs to the ARGUMENT node at the judged call, not to the binding and not to the statement. Diagnostics: ${render(doc)}`,
-    ).toEqual([...located]);
-  }
-  return doc;
+function expectRow(row: SiteRow): ThetaDocument {
+  return expectSiteRow(row, {
+    file: FILE,
+    frontmatter: FM,
+    sitesOf: (doc) => binderSites(doc, "the `let` arm under test", { includeCallArguments: true }),
+    sitesClaim:
+      "the fixture's binding and judged-argument sites must be exactly these, so a drifted or unparsed fixture fails here instead of letting the assertions below measure nothing.",
+    locatedClaim:
+      "the verdict belongs to the ARGUMENT node at the judged call, not to the binding and not to the statement.",
+  });
 }
 
 // ===========================================================================

@@ -222,6 +222,67 @@ export function two(first: Expectation, second: Expectation): Expectation {
   };
 }
 
+/** One site-precondition row: a fixture body, its expected sites and diagnostic contract. */
+export interface SiteRow {
+  readonly label: string;
+  /** The fixture body; frontmatter is prepended by `expectSiteRow`. */
+  readonly src: string;
+  /** Overrides the driver's default frontmatter (e.g. a row that needs `params:`). */
+  readonly frontmatter?: string;
+  readonly sites: readonly string[];
+  readonly expected: Expectation;
+  /** Why the spec owes this verdict — quoted in the failure message. */
+  readonly reason: string;
+  /** Optional `severity code @range` list, pinning WHICH node carries a verdict. */
+  readonly located?: readonly string[];
+}
+
+/** A suite's fixture path, default frontmatter, site producer and failure claims. */
+export interface SiteRowDriver {
+  readonly file: string;
+  readonly frontmatter: string;
+  /** The suite's site list for the parsed fixture (the precondition's actual value). */
+  readonly sitesOf: (doc: ThetaDocument) => string[];
+  /** What the precondition requires, quoted after `<label> PRECONDITION: `. */
+  readonly sitesClaim: string;
+  /** What the located list pins, quoted after `<label> — `. */
+  readonly locatedClaim: string;
+}
+
+/**
+ * One row: the site precondition, then the WHOLE ordered code list, then the
+ * whole ordered message list, then (when supplied) the whole ordered located
+ * form. Whole-list ordered equality throughout — a containment matcher would
+ * let an over-correction's spurious extra emission hide. The precondition makes
+ * a drifted or unparsed fixture fail before the assertions below measure nothing.
+ */
+export function expectSiteRow(row: SiteRow, driver: SiteRowDriver): ThetaDocument {
+  const doc = parseDoc((row.frontmatter ?? driver.frontmatter) + row.src, driver.file);
+  expect(
+    driver.sitesOf(doc),
+    `${row.label} PRECONDITION: ${driver.sitesClaim} Diagnostics: ${render(doc)}`,
+  ).toEqual([...row.sites]);
+  expect(
+    doc.diagnostics.map((d: Diagnostic) => d.code),
+    `${row.label} — ${row.reason}\n  actual diagnostics: ${render(doc)}`,
+  ).toEqual([...row.expected.codes]);
+  expect(
+    doc.diagnostics.map((d: Diagnostic) => d.message),
+    `${row.label} — DIAG-4 (diagnostic-shape.md:74): the rendered messages are the registry *Message* column interpolated\n  actual diagnostics: ${render(doc)}`,
+  ).toEqual([...row.expected.msgs]);
+  const located = row.located;
+  if (located !== undefined) {
+    expect(
+      doc.diagnostics.map((d: Diagnostic) => {
+        const r = d.range;
+        return `${d.severity} ${d.code} @${r === undefined ? "-" : at(r)}`;
+      }),
+      `${row.label} — ${driver.locatedClaim} Diagnostics: ${render(doc)}`,
+    ).toEqual([...located]);
+  }
+  return doc;
+}
+
 /** One diagnostic reduced to its structural triple — severity, code, span. */
 interface Triple {
   readonly severity: string;

@@ -5,7 +5,7 @@ import type { BypassParamsField } from "../src/binder/binder-envelope";
 import type { SourceRange } from "../src/diagnostics/diagnostic";
 import { isBareObjectLiteral } from "../src/parser/literal-sublanguage";
 import { parseExpressionSource, type Expr, type ThetaDocument } from "../src/parser/theta-document";
-import { parseDoc, fieldOf } from "./helpers/e2e-s1";
+import { parseDoc, fieldOf, diagLines, diagCodes } from "./helpers/e2e-s1";
 
 // Bug 0102 — a raw newline inside a string literal is refused in theta body code
 // and admitted at the `params:` default RHS: `p: string = "a<LF>b"` loads with
@@ -307,16 +307,6 @@ const TWIN = {
 // ===========================================================================
 // Reading a parsed document. Loud on every unexpected disposition.
 // ===========================================================================
-
-/** Every diagnostic rendered `<severity> <code>: <message>`, in emission order. */
-function diagLines(doc: ThetaDocument): string[] {
-  return doc.diagnostics.map((d) => `${d.severity} ${d.code}: ${d.message}`);
-}
-
-/** Every diagnostic rendered `<severity> <code>` — the count/code/severity triple. */
-function diagCodes(doc: ThetaDocument): string[] {
-  return doc.diagnostics.map((d) => `${d.severity} ${d.code}`);
-}
 
 /** The lowered `params:` document plus the recorded per-field records. */
 interface LoadedParams {

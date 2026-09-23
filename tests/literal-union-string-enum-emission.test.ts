@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import {
   buildBodyTypeSchemas,
@@ -16,6 +15,7 @@ import { respondSchemaSlug } from "../src/runtime/typed-query-validation";
 import type { LoweredSchema } from "../src/seams/schema-validator";
 import { ajv } from "./helpers/scripted-live-session-harness";
 import { parseDoc } from "./helpers/e2e-s1";
+import { assertKeysSorted, inlineDefName } from "./helpers/canonical-slug-oracle";
 
 // Bug 0055 — `docs/spec_topics/schema-subset.md:80` states ONE step-3 emission
 // rule covering TWO source forms — "Enum (or string-literal union):
@@ -190,16 +190,6 @@ const B_XY_CANONICAL =
   '{"additionalProperties":false,"properties":{"b":{"enum":["x","y"],"type":"string"}},' +
   '"required":["b"],"type":"object"}';
 
-/** SHA-256 of the canonical-form bytes, first 16 lowercase hex characters (:106–:107). */
-function slugOfCanonicalForm(canonical: string): string {
-  return createHash("sha256").update(canonical, "utf8").digest("hex").slice(0, 16);
-}
-
-/** The synthesised `$defs` key for a fragment given its canonical form (:73). */
-function inlineDefName(canonical: string): string {
-  return `__inline_${slugOfCanonicalForm(canonical)}`;
-}
-
 const B_XY_INLINE = inlineDefName(B_XY_CANONICAL);
 
 // ===========================================================================
@@ -306,24 +296,9 @@ describe("bug 0055 (0) — the independent `__inline_<slug>` oracle", () => {
       B_XY_CANONICAL,
       `schema-subset.md:101 — no space or newline between tokens; observed ${B_XY_CANONICAL}`,
     ).toBe(JSON.stringify(JSON.parse(B_XY_CANONICAL)));
-    const sorted = (value: unknown): unknown => {
-      if (Array.isArray(value)) {
-        return value.map(sorted);
-      }
-      if (value !== null && typeof value === "object") {
-        return Object.fromEntries(
-          Object.entries(value as Record<string, unknown>)
-            .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
-            .map(([k, v]) => [k, sorted(v)]),
-        );
-      }
-      return value;
-    };
-    expect(
-      B_XY_CANONICAL,
-      `schema-subset.md:100 — object keys sorted by Unicode code point at every level; ` +
-        `schema-subset.md:104 — array elements left in lowering order; observed ${B_XY_CANONICAL}`,
-    ).toBe(JSON.stringify(sorted(B_XY_FRAGMENT)));
+    // schema-subset.md:100 — object keys sorted by Unicode code point at every level;
+    // :104's array order (elements left in lowering order) is o1's value equality.
+    assertKeysSorted("o2", JSON.parse(B_XY_CANONICAL));
   });
 });
 

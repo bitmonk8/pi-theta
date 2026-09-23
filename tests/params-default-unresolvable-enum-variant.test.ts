@@ -3,7 +3,7 @@ import {
   SEAM_NOOP_SINK as NOOP_SINK,
   SEAM_NOOP_MUTATOR,
 } from "./helpers/invoke-seam-scaffold";
-import { parseDeps } from "./helpers/e2e-s1";
+import { parseDeps, diagCodes } from "./helpers/e2e-s1";
 import { rootDouble, scriptEnvelope, EM_DASH, ajvArgsNote } from "./helpers/scripted-live-session-harness";
 import { REGISTRY } from "./helpers/registry-oracle";
 import { readFileSync } from "node:fs";
@@ -604,11 +604,6 @@ function parseCell(name: CellName): ThetaDocument {
     bytes: new TextEncoder().encode(thetaSource(CELLS[name].field, CELLS[name].body)),
   };
   return parseThetaDocument(source, parseDeps());
-}
-
-/** Every diagnostic rendered `<severity> <code>`, in emission order. */
-function diagCodes(doc: ThetaDocument): string[] {
-  return doc.diagnostics.map((d) => `${d.severity} ${d.code}`);
 }
 
 /** The five located-refusal fields this file pins, leaving `hint` and friends free. */

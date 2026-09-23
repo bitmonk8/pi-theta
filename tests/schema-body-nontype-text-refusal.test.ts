@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import { registryMessageOf as readRegistryMessage } from "./helpers/load-row-harness";
 import type { Diagnostic, SourceRange } from "../src/diagnostics/diagnostic";
@@ -12,6 +11,7 @@ import type {
 import { lowerQueryResponseSchema } from "../src/parser/query-schema-lowering";
 import { diagCodes, diagLines, isLoadParseError, parseDoc } from "./helpers/e2e-s1";
 import { REGISTRY, type RegistryRow } from "./helpers/registry-oracle";
+import { inlineDefName } from "./helpers/canonical-slug-oracle";
 
 // Bug 0061 — the two `Type` positions INSIDE a theta body capture their type as
 // source text and never ask whether that text derives from `Type`. A `schema`
@@ -454,16 +454,6 @@ describe("bug 0061 (r) — the registry row this refusal needs", () => {
 // (a0) The independent `__inline_<slug>` oracle group (a) and group (e) mint
 // against. GREEN at HEAD.
 // ===========================================================================
-
-/**
- * SHA-256 of a hand-written canonical form, first 16 lowercase hex characters
- * (schema-subset.md:98 hashes the LOWERED fragment; `:106`/`:107` give the
- * digest and its truncation). `schemaSlug` is deliberately NOT imported — an
- * oracle taken from the implementation under test proves nothing.
- */
-function inlineDefName(canonical: string): string {
-  return `__inline_${createHash("sha256").update(canonical, "utf8").digest("hex").slice(0, 16)}`;
-}
 
 /** `{b: string +}` hoisted — the junk field's type is the refused fragment, the brace is the hoist's. */
 const B_PERMISSIVE = {

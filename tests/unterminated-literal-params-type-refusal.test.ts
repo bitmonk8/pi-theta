@@ -1,7 +1,5 @@
 import { REGISTRY } from "./helpers/registry-oracle";
 import { describe, expect, it } from "vitest";
-// @ts-expect-error — JS code-registry module, no type declarations.
-import { registryMessage } from "../tools/code-registry/index.js";
 import {
   parseTypeExpression,
   type TypeCheckSite,
@@ -9,6 +7,7 @@ import {
 import type { SourceRange } from "../src/diagnostics/diagnostic";
 import type { ThetaDocument } from "../src/parser/theta-document";
 import { expectGroup as expectGroupShared, type DiagnosticCell, parseDoc } from "./helpers/e2e-s1";
+import { registryMessageOf } from "./helpers/load-row-harness";
 
 // =====================================================================
 // THE CLASS (docs/bugs/0232-unterminated-literal-params-type-drops-inline-fields.md)
@@ -99,7 +98,7 @@ import { expectGroup as expectGroupShared, type DiagnosticCell, parseDoc } from 
 //     registry is closed; this route mints no row, so every expectation below
 //     names a row that already ships.
 //   - DIAG-4 (:74) — the *Message* column is normative; every expected message
-//     here is read out of the registry through `registryMessage`, none is
+//     here is read out of the registry through `registryMessageOf`, none is
 //     copied as prose.
 //
 // TIER: unit, offline, deterministic, provider-free. Every claim settles
@@ -159,20 +158,7 @@ interface Exp {
  * by a bare `undefined` comparison.
  */
 function msg(code: string, fills: ReadonlyArray<readonly [string, string]>): string {
-  const template = registryMessage(REGISTRY, code) as string | undefined;
-  expect(
-    template,
-    `DIAG-4 anchor: docs/spec_topics/diagnostics/ must carry the Message row for ${code}`,
-  ).toBeDefined();
-  let out = template as string;
-  for (const [placeholder, value] of fills) {
-    expect(
-      out,
-      `DIAG-4: the ${code} Message template must carry the ${placeholder} placeholder; template=${JSON.stringify(template)}`,
-    ).toContain(placeholder);
-    out = out.replace(placeholder, value);
-  }
-  return out;
+  return registryMessageOf(REGISTRY, "docs/spec_topics/diagnostics/", code, fills);
 }
 
 /** One rendered diagnostic, in the shape `diagLines` produces. */

@@ -8,9 +8,8 @@ import { lowerParamsFieldType, type LowerCtx } from "../src/parser/params";
 import type { ThetaDocument } from "../src/parser/theta-document";
 import { lowerQueryResponseSchema } from "../src/parser/query-schema-lowering";
 import { buildTypedQueryValidation } from "../src/runtime/typed-query-validation";
-import type { Diagnostic } from "../src/diagnostics/diagnostic";
 import { type LoweredSchema } from "../src/seams/schema-validator";
-import { AjvSchemaValidator, type SchemaSlug } from "../src/seams/ajv-schema-validator";
+import { capturingAjv as ajv } from "./helpers/scripted-live-session-harness";
 import { atEveryPosition, parseDoc, typePositions } from "./helpers/e2e-s1";
 
 // Bug 0176 — the inline field-name slot admits a QUOTED key. `{"a": string}`
@@ -315,19 +314,6 @@ function positionCodes(type: string): Record<string, string[]> {
     "union arm": codes(annotSrc(`${type} | null`)),
     "nested one level": codes(annotSrc(`{p: ${type}}`)),
     ".thetalib schema field": codes(`schema S { p: ${type} }\n`, "bug0176.thetalib"),
-  };
-}
-
-/** A real `AjvSchemaValidator` plus the diagnostics it emitted. */
-function ajv(): { readonly validator: AjvSchemaValidator; readonly emitted: Diagnostic[] } {
-  const emitted: Diagnostic[] = [];
-  const slugOf = (schema: LoweredSchema): SchemaSlug => ({
-    slug: JSON.stringify(schema),
-    canonicalBytes: JSON.stringify(schema),
-  });
-  return {
-    validator: new AjvSchemaValidator({ emit: (d) => emitted.push(d), slugOf }),
-    emitted,
   };
 }
 

@@ -1,7 +1,5 @@
-import { REGISTRY, DUP, QUOTED, RENAMED, NOTIDENT, type Exp } from "./helpers/registry-oracle";
+import { DUP, QUOTED, RENAMED, NOTIDENT, renderAll, type Exp } from "./helpers/registry-oracle";
 import { describe, expect, it } from "vitest";
-// @ts-expect-error — JS code-registry module, no type declarations.
-import { registryMessage } from "../tools/code-registry/index.js";
 import type { ThetaDocument } from "../src/parser/theta-document";
 import { lowerQueryResponseSchema } from "../src/parser/query-schema-lowering";
 import { expectGroup as expectGroupShared, type DiagnosticCell, parseDoc, diagLines, isLoadParseError, subagentTheta as theta, subagentParamsSrc as paramsSrc } from "./helpers/e2e-s1";
@@ -148,29 +146,6 @@ import { expectGroup as expectGroupShared, type DiagnosticCell, parseDoc, diagLi
 // The diagnostic oracle — the registry's *Message* column (DIAG-4).
 // ===========================================================================
 
-/**
- * The registry row's normative *Message* template with its named placeholders
- * filled (DIAG-4). Definedness and placeholder presence are asserted first, so
- * a missing row or a reworded template reds by naming the registry rather than
- * by a bare `undefined` comparison.
- */
-function msg(code: string, fills: ReadonlyArray<readonly [string, string]>): string {
-  const template = registryMessage(REGISTRY, code) as string | undefined;
-  expect(
-    template,
-    `DIAG-4 anchor: docs/spec_topics/diagnostics/ must carry the Message row for ${code}`,
-  ).toBeDefined();
-  let out = template as string;
-  for (const [placeholder, value] of fills) {
-    expect(
-      out,
-      `DIAG-4: the ${code} Message template must carry the ${placeholder} placeholder; template=${JSON.stringify(template)}`,
-    ).toContain(placeholder);
-    out = out.replace(placeholder, value);
-  }
-  return out;
-}
-
 const BINDING_CASE = "theta/parse/binding-case-mismatch";
 const EMPTY_BODY = "theta/parse/empty-schema-body";
 const VOID_POSITION = "theta/parse/void-in-non-return-position";
@@ -221,15 +196,6 @@ function ARRAYELEM(index: string, expected: string, actual: string): Exp {
 }
 function NOINIT(name: string): Exp {
   return { severity: "error", code: LET_NO_INIT, fills: [["<name>", name]] };
-}
-
-/** One rendered diagnostic, in the shape `diagLines` produces. */
-function render(exp: Exp): string {
-  return `${exp.severity} ${exp.code}: ${msg(exp.code, exp.fills)}`;
-}
-
-function renderAll(exps: readonly Exp[]): string[] {
-  return exps.map(render);
 }
 
 // ===========================================================================

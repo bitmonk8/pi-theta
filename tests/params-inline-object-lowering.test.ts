@@ -7,9 +7,14 @@ import { registryLineOf } from "./helpers/load-row-harness";
 import type { BypassParamsField } from "../src/binder/binder-envelope";
 import { lowerParamsFieldType, type LowerCtx } from "../src/parser/params";
 import type { ThetaDocument } from "../src/parser/theta-document";
-import type { LoweredSchema } from "../src/seams/schema-validator";
 import { capturingAjv as ajv } from "./helpers/scripted-live-session-harness";
-import { parseDoc, diagLines, fieldOf } from "./helpers/e2e-s1";
+import {
+  parseDoc,
+  diagLines,
+  fieldOf,
+  loadCleanly as loadCleanlyShared,
+  type LoadedParams as SharedLoadedParams,
+} from "./helpers/e2e-s1";
 import { assertKeysSorted, inlineDefName, slugOfCanonicalForm } from "./helpers/canonical-slug-oracle";
 
 // Bug 0035 — an inline object type on the `params:` right-hand side is
@@ -289,47 +294,25 @@ const NESTED_OUTER_FRAGMENT = {
 // ===========================================================================
 
 /** A parsed, cleanly-lowered `params:` block. */
-interface LoadedParams {
+interface LoadedParams extends SharedLoadedParams {
   readonly doc: ThetaDocument;
   readonly properties: Record<string, unknown>;
   readonly required: readonly string[];
-  readonly defs: Record<string, unknown>;
   readonly fields: readonly BypassParamsField[];
-  readonly loweredSchema: LoweredSchema;
 }
 
 /**
  * Parse a fixture that must LOAD, and read its lowered `params:` schema back.
  *
- * The empty-diagnostic assertion runs first (a fixture in this group is correct
- * theta by grammar.md:109, so any diagnostic is the failure), and every absent
- * intermediate — a `null` frontmatter, an absent `params`, an absent
- * `loweredSchema` — THROWS with the diagnostics rendered. A refused parse must
- * never read as a pass.
+ * The shared loader's empty-diagnostic assertion runs first (a fixture in this
+ * group is correct theta by grammar.md:109, so any diagnostic is the failure),
+ * and every absent intermediate — a `null` frontmatter, an absent `params`, an
+ * absent `loweredSchema` — THROWS with the diagnostics rendered. A refused
+ * parse must never read as a pass.
  */
 function loadCleanly(label: string, source: string): LoadedParams {
   const doc = parseDoc(source, "bug0035.theta");
-  expect(
-    diagLines(doc),
-    `${label}: an inline object type is legal theta in every type position (grammar.md:109, type-system.md:15), so this fixture must load with NO diagnostics`,
-  ).toEqual([]);
-  if (doc.frontmatter === null) {
-    throw new Error(
-      `${label}: the theta was REFUSED — frontmatter is null. Diagnostics: ${JSON.stringify(diagLines(doc))}`,
-    );
-  }
-  const params = doc.frontmatter.params;
-  if (params === undefined) {
-    throw new Error(
-      `${label}: the frontmatter carries no parsed params block. Diagnostics: ${JSON.stringify(diagLines(doc))}`,
-    );
-  }
-  const lowered = params.loweredSchema;
-  if (lowered === undefined) {
-    throw new Error(
-      `${label}: the params block lowered to NOTHING (loweredSchema absent), so there is no AJV-validatable document for the argument boundary. Diagnostics: ${JSON.stringify(diagLines(doc))}`,
-    );
-  }
+  const { defs, loweredSchema: lowered } = loadCleanlyShared(label, doc);
   const properties = lowered["properties"];
   if (properties === undefined || typeof properties !== "object" || properties === null) {
     throw new Error(
@@ -340,8 +323,8 @@ function loadCleanly(label: string, source: string): LoadedParams {
     doc,
     properties: properties as Record<string, unknown>,
     required: (lowered["required"] ?? []) as readonly string[],
-    defs: (lowered["$defs"] ?? {}) as Record<string, unknown>,
-    fields: params.fields,
+    defs,
+    fields: doc.frontmatter!.params!.fields,
     loweredSchema: lowered,
   };
 }

@@ -1,5 +1,6 @@
 import { TRIAGE_DEF, BODY } from "./helpers/triage-fixture";
 import { REGISTRY, type RegistryRow } from "./helpers/registry-oracle";
+import { registryMessageOf } from "./helpers/load-row-harness";
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -172,28 +173,18 @@ const EXPECTED_TEMPLATE =
 
 // The live four-page sharded registry, read from the spec corpus and
 // concatenated — the same input tests/code-registry.test.ts reconciles.
-/**
- * A registry row's normative *Message* template with one placeholder filled
- * (DIAG-4). Definedness is asserted first so a missing row reds by naming the
- * registry page, never by a bare `undefined` comparison.
- */
-function templateMessage(code: string, placeholder: string, value: string): string {
-  const template = registryMessage(REGISTRY, code) as string | undefined;
-  expect(
-    template,
-    `DIAG-4 anchor: the diagnostics code registry must carry the Message row for ${code}`,
-  ).toBeDefined();
-  return (template as string).replace(placeholder, value);
-}
+const REGISTRY_PATH = "docs/spec_topics/diagnostics/";
 
 /** The new refusal's message for one field (`<param>` is category-5, unquoted). */
 function refusalMessage(param: string): string {
-  return templateMessage(CODE, "<param>", param);
+  return registryMessageOf(REGISTRY, REGISTRY_PATH, CODE, [["<param>", param]]);
 }
 
 /** The `theta/parse/unresolved-named-type` message for one name (controls F, M). */
 function unresolvedMessage(name: string): string {
-  return templateMessage("theta/parse/unresolved-named-type", "<name>", name);
+  return registryMessageOf(REGISTRY, REGISTRY_PATH, "theta/parse/unresolved-named-type", [
+    ["<name>", name],
+  ]);
 }
 
 /**
@@ -206,19 +197,12 @@ function malformedYamlMessage(
   text: string,
   scope: string,
 ): string {
-  const template = registryMessage(REGISTRY, "theta/load/malformed-frontmatter-yaml") as
-    | string
-    | undefined;
-  expect(
-    template,
-    "DIAG-4 anchor: code-registry-load.md must carry the Message row for " +
-      "theta/load/malformed-frontmatter-yaml",
-  ).toBeDefined();
-  return (template as string)
-    .replace("<line>", String(loc.line))
-    .replace("<column>", String(loc.column))
-    .replace("<text>", text)
-    .replace("<scope>", scope);
+  return registryMessageOf(REGISTRY, REGISTRY_PATH, "theta/load/malformed-frontmatter-yaml", [
+    ["<line>", String(loc.line)],
+    ["<column>", String(loc.column)],
+    ["<text>", text],
+    ["<scope>", scope],
+  ]);
 }
 
 // ===========================================================================

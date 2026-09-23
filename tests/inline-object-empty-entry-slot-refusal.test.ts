@@ -1,5 +1,5 @@
 import { registryMessageOrThrow } from "./helpers/load-row-harness";
-import { REGISTRY } from "./helpers/registry-oracle";
+import { REGISTRY, renderAll } from "./helpers/registry-oracle";
 import { describe, expect, it } from "vitest";
 import { splitTopLevelSegments, topLevelColon } from "../src/parser/params";
 import { lowerQueryResponseSchema } from "../src/parser/query-schema-lowering";
@@ -277,25 +277,6 @@ function DUPLICATE(field: string): Exp {
 
 function QUOTED(field: string): Exp {
   return { severity: "error", code: QUOTED_FIELD, fills: [["<field>", field]] };
-}
-
-/** One rendered diagnostic, in the shape `diagLines` produces. */
-function render(exp: Exp): string {
-  const template = registryMessageOf(exp.code);
-  let out = template;
-  for (const [slot, value] of exp.fills) {
-    expect(
-      template,
-      `DIAG-4: the ${exp.code} row's Message must still carry the ${slot} slot this file ` +
-        `renders; observed template ${JSON.stringify(template)}`,
-    ).toContain(slot);
-    out = out.replaceAll(slot, value);
-  }
-  return `${exp.severity} ${exp.code}: ${out}`;
-}
-
-function renderAll(exps: readonly Exp[]): string[] {
-  return exps.map(render);
 }
 
 // ===========================================================================

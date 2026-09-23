@@ -1,4 +1,4 @@
-import { CLEAN, one, two, type Expectation } from "./helpers/load-row-harness";
+import { CLEAN, expectSiteRow, one, two, type SiteRow } from "./helpers/load-row-harness";
 import {
   fillParseMessage as fill,
   registeredParseMessage as registered,
@@ -14,10 +14,7 @@ import type {
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
 import type { ParsedFrontmatter } from "../src/parser/frontmatter";
 import type {
-  Block,
-  Expr,
   PatternNode,
-  Stmt,
   ThetaDocument,
 } from "../src/parser/theta-document";
 import { executeBody, type BodyExecution } from "../src/runtime/statement-executor";
@@ -28,7 +25,7 @@ import type {
 } from "../src/extension/theta-composition-producer";
 import { rootDouble, noopPi } from "./helpers/call-with-clause-harness";
 import type { ThetaValue } from "../src/runtime/value";
-import { at, render, parseDoc } from "./helpers/e2e-s1";
+import { binderSites, render, parseDoc } from "./helpers/e2e-s1";
 
 // Bug 0145 — `StaticTypeInferencePass`'s `#typeExpr` has no arm-scope concept.
 // Its `case "match"` arm maps every arm body through the `bindings` map it was
@@ -288,179 +285,28 @@ function binders(p: PatternNode): string {
  * demonstrably visited.
  */
 function armSites(doc: ThetaDocument): string[] {
-  const out: string[] = [];
-  const walkExpr = (e: Expr): void => {
-    switch (e.kind) {
-      case "match":
-        out.push(`match@${at(e.range)}`);
-        walkExpr(e.scrutinee);
-        for (const arm of e.arms) {
-          out.push(`arm ${binders(arm.pattern)}@${at(arm.body.range)}`);
-          walkExpr(arm.body);
-        }
-        return;
-      case "call":
-        e.args.forEach((a: Expr, i: number) => {
-          out.push(`arg ${e.callee}#${i}@${at(a.range)}`);
-        });
-        for (const a of e.args) walkExpr(a);
-        return;
-      case "par-for":
-        out.push(`par-for ${e.variable}@${at(e.iterand.range)}`);
-        walkExpr(e.iterand);
-        if (e.max !== null) walkExpr(e.max);
-        walkBlock(e.body);
-        return;
-      case "invoke":
-        for (const a of e.args) walkExpr(a);
-        return;
-      case "method-call":
-        walkExpr(e.target);
-        for (const a of e.args) walkExpr(a);
-        return;
-      case "member":
-        walkExpr(e.target);
-        return;
-      case "index":
-        walkExpr(e.target);
-        walkExpr(e.index);
-        return;
-      case "binary":
-        walkExpr(e.left);
-        walkExpr(e.right);
-        return;
-      case "ternary":
-        walkExpr(e.condition);
-        walkExpr(e.consequent);
-        walkExpr(e.alternate);
-        return;
-      case "array":
-        for (const el of e.elements) walkExpr(el);
-        return;
-      case "object":
-        for (const f of e.fields) walkExpr(f.value);
-        return;
-      case "try":
-        walkExpr(e.operand);
-        return;
-      case "result-ctor":
-        walkExpr(e.arg);
-        return;
-      default:
-        return;
-    }
-  };
-  const walkBlock = (b: Block): void => {
-    for (const s of b.statements) walkStmt(s);
-    if (b.tail !== null) walkExpr(b.tail);
-  };
-  const walkStmt = (s: Stmt): void => {
-    switch (s.kind) {
-      case "let":
-        out.push(`let ${s.name}@${at(s.range)}`);
-        if (s.init !== null) walkExpr(s.init);
-        return;
-      case "for":
-        out.push(`for ${s.variable}@${at(s.iterand.range)}`);
-        walkExpr(s.iterand);
-        walkBlock(s.body);
-        return;
-      case "fn":
-        out.push(`fn ${s.name}(${s.params.map((p) => p.name).join(",")})`);
-        walkBlock(s.body);
-        return;
-      case "while":
-        walkExpr(s.condition);
-        walkBlock(s.body);
-        return;
-      case "if": {
-        out.push(`if@${at(s.condition.range)}`);
-        walkExpr(s.condition);
-        walkBlock(s.then);
-        // `otherwise` is a chained `IfStmt`, an `else` `Block`, or none; only
-        // the statement form carries a `kind` discriminator.
-        const otherwise = s.otherwise;
-        if (otherwise !== null) {
-          if ("kind" in otherwise) walkStmt(otherwise);
-          else walkBlock(otherwise);
-        }
-        return;
-      }
-      case "tool-call":
-        walkExpr(s.call);
-        return;
-      case "invoke":
-        walkExpr(s.invoke);
-        return;
-      case "expr":
-        walkExpr(s.expr);
-        return;
-      case "reassign":
-        walkExpr(s.value);
-        return;
-      case "return":
-        if (s.operand !== null) walkExpr(s.operand);
-        return;
-      default:
-        return;
-    }
-  };
-  const body = doc.body;
-  if (body === null) {
-    throw new Error(
-      `harness: the fixture produced no parsed body, so its diagnostic set is about a parse failure rather than the arm-scope defect under test. Diagnostics: ${render(doc)}`,
-    );
-  }
-  walkBlock(body);
-  return out;
-}
-
-interface Row {
-  readonly label: string;
-  /** The fixture body; frontmatter is prepended by `expectRow`. */
-  readonly src: string;
-  /** `FM` (3 lines) unless the row needs `params:` (`FM_PARAMS`, 5 lines). */
-  readonly frontmatter?: string;
-  readonly sites: readonly string[];
-  readonly expected: Expectation;
-  /** Why the spec owes this verdict, which group, which direction. */
-  readonly reason: string;
-  /** Optional `severity code @range` list, pinning WHICH node carries a verdict. */
-  readonly located?: readonly string[];
+  return binderSites(doc, "the arm-scope defect under test", {
+    includeCallArguments: true,
+    armBinders: binders,
+    includeScopeHeads: true,
+  });
 }
 
 /**
- * One row: the site precondition, then the WHOLE ordered code list, then the
- * whole ordered message list, then (when supplied) the whole ordered located
- * form. Whole-list ordered equality throughout and unfiltered — a containment
- * matcher would let an over-correction's spurious extra emission hide, and half
- * the rows in this file assert an EMPTY list.
+ * One row through the shared site-precondition driver (`expectSiteRow`):
+ * whole-list ordered equality throughout and unfiltered, because half the rows
+ * in this file assert an EMPTY list. A row's frontmatter is `FM` (3 lines)
+ * unless it needs `params:` (`FM_PARAMS`, 5 lines).
  */
-function expectRow(row: Row): ThetaDocument {
-  const doc = parseDoc((row.frontmatter ?? FM) + row.src, FILE);
-  expect(
-    armSites(doc),
-    `${row.label} PRECONDITION: the fixture's binding, \`match\` and arm sites must be exactly these — the arm's binder spelling must still collide with the outer binding's, and the \`match\` node must still be at the asserted range. A drifted or unparsed fixture fails HERE instead of letting the assertions below measure nothing. Diagnostics: ${render(doc)}`,
-  ).toEqual([...row.sites]);
-  expect(
-    doc.diagnostics.map((d: Diagnostic) => d.code),
-    `${row.label} — ${row.reason}\n  actual diagnostics: ${render(doc)}`,
-  ).toEqual([...row.expected.codes]);
-  expect(
-    doc.diagnostics.map((d: Diagnostic) => d.message),
-    `${row.label} — DIAG-4 (diagnostic-shape.md:74): the rendered messages are the registry *Message* column interpolated\n  actual diagnostics: ${render(doc)}`,
-  ).toEqual([...row.expected.msgs]);
-  const located = row.located;
-  if (located !== undefined) {
-    expect(
-      doc.diagnostics.map((d: Diagnostic) => {
-        const r = d.range;
-        return `${d.severity} ${d.code} @${r === undefined ? "-" : at(r)}`;
-      }),
-      `${row.label} — the verdict's range and severity. Diagnostics: ${render(doc)}`,
-    ).toEqual([...located]);
-  }
-  return doc;
+function expectRow(row: SiteRow): ThetaDocument {
+  return expectSiteRow(row, {
+    file: FILE,
+    frontmatter: FM,
+    sitesOf: armSites,
+    sitesClaim:
+      "the fixture's binding, `match` and arm sites must be exactly these — the arm's binder spelling must still collide with the outer binding's, and the `match` node must still be at the asserted range. A drifted or unparsed fixture fails HERE instead of letting the assertions below measure nothing.",
+    locatedClaim: "the verdict's range and severity.",
+  });
 }
 
 // ===========================================================================

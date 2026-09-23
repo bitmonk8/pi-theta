@@ -1,8 +1,6 @@
 import { TRIAGE_DEF, BODY } from "./helpers/triage-fixture";
 import { describe, expect, it } from "vitest";
-// @ts-expect-error — JS code-registry module, no type declarations.
-import { registryMessage } from "../tools/code-registry/index.js";
-import { REGISTRY } from "./helpers/registry-oracle";
+import { registryErrorLine } from "./helpers/registry-oracle";
 import { buildBinderEnvelopeSchema } from "../src/binder/binder-envelope";
 import type { BypassParamsField } from "../src/binder/binder-envelope";
 import { renderBinderParamLine } from "../src/binder/binder-system-prompt";
@@ -10,7 +8,15 @@ import type { Diagnostic } from "../src/diagnostics/diagnostic";
 import type { SchemaDecl } from "../src/parser/theta-document";
 import { type LoweredSchema } from "../src/seams/schema-validator";
 import { AjvSchemaValidator, type SchemaSlug } from "../src/seams/ajv-schema-validator";
-import { loweredAnnotation as lowerAnnotation, loadSchemaDecls, parseDoc, fieldOf, diagLines } from "./helpers/e2e-s1";
+import {
+  loweredAnnotation as lowerAnnotation,
+  loadSchemaDecls,
+  parseDoc,
+  fieldOf,
+  diagLines,
+  loadCleanly as loadCleanlyShared,
+  type LoadedParams as SharedLoadedParams,
+} from "./helpers/e2e-s1";
 import { assertKeysSorted, inlineDefName, slugOfCanonicalForm, expectRefsClosed } from "./helpers/canonical-slug-oracle";
 
 // Bug 0097 — the `params:` right-hand side keeps a naive
@@ -177,44 +183,24 @@ const EMPTY_SCHEMA_BODY = "theta/parse/empty-schema-body";
 const PARAMS_NOT_EXPRESSION = "theta/load/params-type-not-expression";
 const SCHEMA_NOT_EXPRESSION = "theta/parse/schema-type-not-expression";
 
-/**
- * The registry row's normative *Message* template for `code`, with its single
- * `placeholder` replaced by `value`. Definedness AND placeholder presence are
- * asserted first, so a missing row — or a template that lost its placeholder —
- * reds by naming the registry rather than by a bare `undefined` comparison or a
- * silently unsubstituted string.
- */
-function registryLine(code: string, placeholder: string, value: string): string {
-  const template = registryMessage(REGISTRY, code) as string | undefined;
-  expect(
-    template,
-    `DIAG-4 anchor: docs/spec_topics/diagnostics/ must carry the Message row for ${code}`,
-  ).toBeDefined();
-  expect(
-    template,
-    `DIAG-4: the ${code} Message template must carry the ${placeholder} placeholder; template=${JSON.stringify(template)}`,
-  ).toContain(placeholder);
-  return `error ${code}: ${(template as string).replace(placeholder, value)}`;
-}
-
 /** The one rendered line an unresolvable `NamedType` produces (registry row `:94`). */
 function unresolvedLine(name: string): string {
-  return registryLine(UNRESOLVED, "<name>", name);
+  return registryErrorLine(UNRESOLVED, [["<name>", name]]);
 }
 
 /** The one rendered line an empty inline object type produces (registry row `:88`). */
 function emptySchemaBodyLine(subject: string): string {
-  return registryLine(EMPTY_SCHEMA_BODY, "<X>", subject);
+  return registryErrorLine(EMPTY_SCHEMA_BODY, [["<X>", subject]]);
 }
 
 /** The one rendered line a non-`Type` `params:` fragment produces (load registry row `:19`). */
 function paramsNotExpressionLine(param: string): string {
-  return registryLine(PARAMS_NOT_EXPRESSION, "<param>", param);
+  return registryErrorLine(PARAMS_NOT_EXPRESSION, [["<param>", param]]);
 }
 
 /** The one rendered line a non-`Type` body-position fragment produces (registry row `:91`). */
 function schemaNotExpressionLine(decl: string): string {
-  return registryLine(SCHEMA_NOT_EXPRESSION, "<X>", decl);
+  return registryErrorLine(SCHEMA_NOT_EXPRESSION, [["<X>", decl]]);
 }
 
 // ===========================================================================
@@ -428,12 +414,10 @@ function loweredAnnotation(label: string, annotation: string): LoweredSchema {
 }
 
 /** A parsed, cleanly-lowered `params:` block. */
-interface LoadedParams {
+interface LoadedParams extends SharedLoadedParams {
   readonly properties: Record<string, unknown>;
   readonly required: readonly string[];
-  readonly defs: Record<string, unknown>;
   readonly fields: readonly BypassParamsField[];
-  readonly loweredSchema: LoweredSchema;
 }
 
 /**
@@ -444,27 +428,7 @@ interface LoadedParams {
  */
 function loadCleanly(label: string, source: string): LoadedParams {
   const doc = parseDoc(source, "bug0097.theta");
-  expect(
-    diagLines(doc),
-    `${label}: this declaration is legal theta (grammar.md:94/:101/:105), so the fixture must load with NO diagnostics; observed ${JSON.stringify(diagLines(doc))}`,
-  ).toEqual([]);
-  if (doc.frontmatter === null) {
-    throw new Error(
-      `${label}: the theta was REFUSED — frontmatter is null. Diagnostics: ${JSON.stringify(diagLines(doc))}`,
-    );
-  }
-  const params = doc.frontmatter.params;
-  if (params === undefined) {
-    throw new Error(
-      `${label}: the frontmatter carries no parsed params block. Diagnostics: ${JSON.stringify(diagLines(doc))}`,
-    );
-  }
-  const lowered = params.loweredSchema;
-  if (lowered === undefined) {
-    throw new Error(
-      `${label}: the params block lowered to NOTHING (loweredSchema absent), so there is no AJV-validatable document for the argument boundary. Diagnostics: ${JSON.stringify(diagLines(doc))}`,
-    );
-  }
+  const { defs, loweredSchema: lowered } = loadCleanlyShared(label, doc);
   const properties = lowered["properties"];
   if (properties === null || typeof properties !== "object") {
     throw new Error(
@@ -474,8 +438,8 @@ function loadCleanly(label: string, source: string): LoadedParams {
   return {
     properties: properties as Record<string, unknown>,
     required: (lowered["required"] ?? []) as readonly string[],
-    defs: (lowered["$defs"] ?? {}) as Record<string, unknown>,
-    fields: params.fields,
+    defs,
+    fields: doc.frontmatter!.params!.fields,
     loweredSchema: lowered,
   };
 }

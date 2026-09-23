@@ -31,6 +31,7 @@ import {
   type ParseThetaDocumentDeps,
   type SchemaDecl,
   type EnumDecl,
+  type PatternNode,
 } from "../../src/parser/theta-document";
 import type { Diagnostic } from "../../src/diagnostics/diagnostic";
 import type {
@@ -1115,11 +1116,24 @@ export function expectParamsDropGateShape(
  * `includeCallArguments` also records `arg <callee>#<i>@<argument range>`
  * sites and visits statement-position tool calls and invokes. The let-arm
  * witness uses these anchors to prove its diagnostic sinks were reached.
+ *
+ * `armBinders` also records `match@<range>` and `arm <binders>@<body range>`
+ * sites, rendering each arm's pattern through it; `includeScopeHeads` also
+ * records `fn <name>(<params>)` and `if@<condition range>` sites. The
+ * match-arm scope witness uses these to anchor its verdicts on visited nodes.
  */
 export function binderSites(
   doc: ThetaDocument,
   subject: string,
-  { includeCallArguments = false }: { readonly includeCallArguments?: boolean } = {},
+  {
+    includeCallArguments = false,
+    armBinders,
+    includeScopeHeads = false,
+  }: {
+    readonly includeCallArguments?: boolean;
+    readonly armBinders?: (pattern: PatternNode) => string;
+    readonly includeScopeHeads?: boolean;
+  } = {},
 ): string[] {
   const out: string[] = [];
   const walkExpr = (e: Expr): void => {
@@ -1131,8 +1145,14 @@ export function binderSites(
         walkBlock(e.body);
         return;
       case "match":
+        if (armBinders !== undefined) out.push(`match@${at(e.range)}`);
         walkExpr(e.scrutinee);
-        for (const arm of e.arms) walkExpr(arm.body);
+        for (const arm of e.arms) {
+          if (armBinders !== undefined) {
+            out.push(`arm ${armBinders(arm.pattern)}@${at(arm.body.range)}`);
+          }
+          walkExpr(arm.body);
+        }
         return;
       case "call":
         if (includeCallArguments) {
@@ -1197,6 +1217,7 @@ export function binderSites(
         walkBlock(s.body);
         return;
       case "fn":
+        if (includeScopeHeads) out.push(`fn ${s.name}(${s.params.map((p) => p.name).join(",")})`);
         walkBlock(s.body);
         return;
       case "while":
@@ -1204,6 +1225,7 @@ export function binderSites(
         walkBlock(s.body);
         return;
       case "if": {
+        if (includeScopeHeads) out.push(`if@${at(s.condition.range)}`);
         walkExpr(s.condition);
         walkBlock(s.then);
         // `otherwise` is a chained `IfStmt`, an `else` `Block`, or none; only

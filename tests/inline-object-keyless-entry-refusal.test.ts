@@ -1,5 +1,4 @@
-import { registryMessageOrThrow } from "./helpers/load-row-harness";
-import { REGISTRY, DUP, QUOTED, RENAMED, NOTIDENT, type Exp } from "./helpers/registry-oracle";
+import { DUP, QUOTED, RENAMED, NOTIDENT, renderAll, type Exp } from "./helpers/registry-oracle";
 import { describe, expect, it } from "vitest";
 import { lowerQueryResponseSchema } from "../src/parser/query-schema-lowering";
 import { expectGroup as expectGroupShared, type DiagnosticCell, envelope, parseDoc, diagLines, subagentTheta as theta, subagentParamsSrc, loweredParams } from "./helpers/e2e-s1";
@@ -169,16 +168,6 @@ import { expectGroup as expectGroupShared, type DiagnosticCell, envelope, parseD
 // The diagnostic oracle — the registry's *Message* column (DIAG-4).
 // ===========================================================================
 
-function registryMessageOf(code: string): string {
-  return registryMessageOrThrow(
-    REGISTRY,
-    code,
-    `Bug 0244's §Fix carries the row's Trigger widening in the same ` +
-      `commit as the sites it is raised from ` +
-      `(docs/spec_topics/diagnostics/code-registry-parse.md:99)`,
-  );
-}
-
 const MALFORMED_FIELD = "theta/parse/malformed-schema-field";
 const BINDING_CASE = "theta/parse/binding-case-mismatch";
 const EMPTY_BODY = "theta/parse/empty-schema-body";
@@ -221,25 +210,6 @@ function LETRHS(name: string, expected: string, actual: string): Exp {
 /** Bug 0252's refusal, naming the binder or parameter whose annotation is junk. */
 function ANNOT(name: string): Exp {
   return { severity: "error", code: ANNOTATION_NOT_EXPR, fills: [["<name>", name]] };
-}
-
-/** One rendered diagnostic, in the shape `diagLines` produces. */
-function render(exp: Exp): string {
-  const template = registryMessageOf(exp.code);
-  let out = template;
-  for (const [slot, value] of exp.fills) {
-    expect(
-      template,
-      `DIAG-4: the ${exp.code} row's Message must still carry the ${slot} slot this file ` +
-        `renders; observed template ${JSON.stringify(template)}`,
-    ).toContain(slot);
-    out = out.replaceAll(slot, value);
-  }
-  return `${exp.severity} ${exp.code}: ${out}`;
-}
-
-function renderAll(exps: readonly Exp[]): string[] {
-  return exps.map(render);
 }
 
 // ===========================================================================

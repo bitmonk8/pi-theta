@@ -1,13 +1,12 @@
-import { CLEAN, one, two, type Expectation } from "./helpers/load-row-harness";
+import { CLEAN, expectSiteRow, one, two, type SiteRow } from "./helpers/load-row-harness";
 import {
   fillParseMessage as fill,
   registeredParseMessage as registered,
   typeMismatchMessages,
 } from "./helpers/registry-oracle";
-import { describe, expect, it } from "vitest";
-import type { Diagnostic } from "../src/diagnostics/diagnostic";
+import { describe, it } from "vitest";
 import type { ThetaDocument } from "../src/parser/theta-document";
-import { at, binderSites, parseDoc, render } from "./helpers/e2e-s1";
+import { binderSites } from "./helpers/e2e-s1";
 
 // Bug 0194 — `TypeLayerWalk.unprovableBindings` (src/parser/type-layer-checks.ts)
 // is a `Set<CompatType>` whose membership test is JavaScript object identity,
@@ -185,54 +184,21 @@ const FM = "---\nmode: prompt\n---\n";
 /** Group (c) row c4's frontmatter declares a `params:` field: lines 1–5. */
 const FM_PARAMS = "---\nmode: prompt\nparams:\n  xs: array<integer>\n---\n";
 
-function parse(body: string, frontmatter = FM): ThetaDocument {
-  return parseDoc(frontmatter + body, FILE);
-}
-
-interface Row {
-  readonly label: string;
-  readonly src: string;
-  readonly sites: readonly string[];
-  readonly expected: Expectation;
-  /** Why the spec owes this verdict — quoted in the failure message. */
-  readonly reason: string;
-  /** Optional `severity code @range` list, pinning WHICH node carries a verdict. */
-  readonly located?: readonly string[];
-  readonly frontmatter?: string;
-}
-
 /**
- * One row: the binder-site precondition, then the WHOLE ordered code list, then
- * the whole ordered message list, then (when supplied) the whole ordered
- * located form. Whole-list ordered equality throughout — a containment matcher
- * would let an over-correction's spurious extra emission hide, and this file's
- * whole subject is a MISSING member of that list.
+ * One row through the shared site-precondition driver (`expectSiteRow`):
+ * whole-list ordered equality throughout, because this file's whole subject is
+ * a MISSING member of that list.
  */
-function expectRow(row: Row): ThetaDocument {
-  const doc = parse(row.src, row.frontmatter ?? FM);
-  expect(
-    binderSites(doc, "the loop arms under test"),
-    `${row.label} PRECONDITION: the fixture's loop-variable / \`let\` binder sites must be exactly these, so a drifted or unparsed fixture fails here instead of letting the assertions below measure nothing. Diagnostics: ${render(doc)}`,
-  ).toEqual([...row.sites]);
-  expect(
-    doc.diagnostics.map((d: Diagnostic) => d.code),
-    `${row.label} — ${row.reason}\n  actual diagnostics: ${render(doc)}`,
-  ).toEqual([...row.expected.codes]);
-  expect(
-    doc.diagnostics.map((d: Diagnostic) => d.message),
-    `${row.label} — DIAG-4 (diagnostic-shape.md:74): the rendered messages are the registry *Message* column interpolated\n  actual diagnostics: ${render(doc)}`,
-  ).toEqual([...row.expected.msgs]);
-  const located = row.located;
-  if (located !== undefined) {
-    expect(
-      doc.diagnostics.map((d: Diagnostic) => {
-        const r = d.range;
-        return `${d.severity} ${d.code} @${r === undefined ? "-" : at(r)}`;
-      }),
-      `${row.label} — the verdict belongs to the ARGUMENT node inside the loop body, not to the loop and not to the statement. Diagnostics: ${render(doc)}`,
-    ).toEqual([...located]);
-  }
-  return doc;
+function expectRow(row: SiteRow): ThetaDocument {
+  return expectSiteRow(row, {
+    file: FILE,
+    frontmatter: FM,
+    sitesOf: (doc) => binderSites(doc, "the loop arms under test"),
+    sitesClaim:
+      "the fixture's loop-variable / `let` binder sites must be exactly these, so a drifted or unparsed fixture fails here instead of letting the assertions below measure nothing.",
+    locatedClaim:
+      "the verdict belongs to the ARGUMENT node inside the loop body, not to the loop and not to the statement.",
+  });
 }
 
 // ===========================================================================
