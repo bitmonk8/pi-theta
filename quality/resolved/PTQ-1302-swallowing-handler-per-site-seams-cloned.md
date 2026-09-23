@@ -2,7 +2,7 @@
 id: PTQ-1302
 title: Swallowing-handler per-site routing seams are cloned across runtime with an unused generic substrate
 lens: D4
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/runtime/cancellation-core.ts:272-343

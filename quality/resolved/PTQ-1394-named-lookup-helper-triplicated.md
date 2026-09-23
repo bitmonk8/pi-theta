@@ -2,7 +2,7 @@
 id: PTQ-1394
 title: named() theta-lookup helper is byte-identical across all three files in scope
 lens: D7
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - tests/discovery-glob-universe-enumeration-failure.test.ts:240-245

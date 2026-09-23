@@ -2,7 +2,7 @@
 id: PTQ-1313
 title: composition-producer.test.ts hand-rolls a text-only AssistantMessage fixture already exported as `assistant()` by the sibling helper it imports from in the same statement
 lens: D7
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - tests/composition-producer.test.ts:1-1

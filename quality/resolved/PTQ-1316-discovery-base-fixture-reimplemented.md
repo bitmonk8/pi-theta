@@ -2,7 +2,7 @@
 id: PTQ-1316
 title: Discovery root/base fixture constants reimplemented locally in two files despite a canonical export the third file in scope already imports
 lens: D7
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - tests/discovery-glob-universe-enumeration-failure.test.ts:187-190

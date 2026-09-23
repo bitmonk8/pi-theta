@@ -2,7 +2,7 @@
 id: PTQ-1307
 title: The scratch-dir/fixture-write/launch/reap scaffold above launchRealSubagentChild is retyped identically in b0337 and b0342-forwarded-enum-subagent-chain
 lens: D7                     # D2 | D4 | D7 | D8 | D9 - the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - tests/b0337-theta-enum-identity-invoke.test.ts:566-604

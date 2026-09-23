@@ -2,7 +2,7 @@
 id: PTQ-1312
 title: composeHost/composeAndDispatch real-factory-over-recording-pi harness is near-identically redeclared in three files
 lens: D7
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - tests/execution-status-run-card.test.ts:598-680

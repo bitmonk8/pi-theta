@@ -2,7 +2,7 @@
 id: PTQ-1337
 title: inbound-union-arm-dispatch.test.ts redeclares realAjv() byte-for-byte instead of importing the file's own already-open ajv() import line
 lens: D7
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - tests/inbound-union-arm-dispatch.test.ts:163-172

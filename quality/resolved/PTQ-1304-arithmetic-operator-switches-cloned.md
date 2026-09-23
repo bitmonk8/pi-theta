@@ -2,7 +2,7 @@
 id: PTQ-1304
 title: arithmetic operator switches cloned between compound and binary expressions
 lens: D4
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/runtime/statement-executor.ts:746-759

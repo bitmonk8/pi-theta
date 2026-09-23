@@ -2,7 +2,7 @@
 id: PTQ-1370
 title: the DIAG-2 test names claim every listed code's Message carries a placeholder, but only one code's Message is ever rendered
 lens: D7
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - tests/b0277-unapplied-generic-head-at-five-filtered-captures.test.ts:626-653

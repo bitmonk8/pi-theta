@@ -2,7 +2,7 @@
 id: PTQ-1326
 title: Both in-scope files redeclare identical DUP/QUOTED/RENAMED/NOTIDENT Exp-builder functions with no shared tests/helpers/ export
 lens: D7                     # D2 | D4 | D7 | D8 | D9 - the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - tests/inline-object-keyless-entry-refusal.test.ts:221-232

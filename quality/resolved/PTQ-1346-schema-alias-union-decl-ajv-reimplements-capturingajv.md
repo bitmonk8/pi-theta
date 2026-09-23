@@ -2,7 +2,7 @@
 id: PTQ-1346
 title: schema-alias-union-decl.test.ts retypes the {validator, emitted} AJV double instead of importing the canonical capturingAjv() export
 lens: D7
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - tests/schema-alias-union-decl.test.ts:580-590

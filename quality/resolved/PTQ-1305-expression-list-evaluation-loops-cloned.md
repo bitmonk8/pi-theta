@@ -2,7 +2,7 @@
 id: PTQ-1305
 title: expression-list evaluation loops cloned for array literals and method calls
 lens: D4
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/runtime/statement-executor.ts:863-871

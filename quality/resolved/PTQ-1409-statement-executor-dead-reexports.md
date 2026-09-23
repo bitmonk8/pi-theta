@@ -2,7 +2,7 @@
 id: PTQ-1409
 title: statement-executor.ts re-exports evalParFor and evalSubagentFnCall that nothing imports through it
 lens: D2
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/runtime/statement-executor.ts:46-49

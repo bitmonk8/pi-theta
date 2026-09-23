@@ -2,7 +2,7 @@
 id: PTQ-1301
 title: Stdlib method dispatch duplicated across pure and effectful expression evaluators
 lens: D4
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/runtime/pure-expression-evaluator.ts:472-490

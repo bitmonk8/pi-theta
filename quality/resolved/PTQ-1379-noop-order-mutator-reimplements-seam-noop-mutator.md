@@ -2,7 +2,7 @@
 id: PTQ-1379
 title: b0370's NOOP_ORDER_MUTATOR redeclares the SEAM_NOOP_MUTATOR tests/helpers/invoke-seam-scaffold.ts already exports
 lens: D7                     # D2 | D4 | D7 | D8 | D9 - the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - tests/b0370-reassign-target-scope.test.ts:715-721

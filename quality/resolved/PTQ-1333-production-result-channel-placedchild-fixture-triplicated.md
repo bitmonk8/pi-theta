@@ -2,7 +2,7 @@
 id: PTQ-1333
 title: production-result-channel.test.ts reimplements the PlacedChild fixture inline three times instead of the canonical placedWithoutExit() helper
 lens: D7
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - tests/production-result-channel.test.ts:70-75

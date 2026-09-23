@@ -2,7 +2,7 @@
 id: PTQ-1314
 title: the DIAG-2 closed-set registry-row check block is duplicated near-verbatim between b0277 and b0282
 lens: D7
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - tests/b0277-unapplied-generic-head-at-five-filtered-captures.test.ts:625-654

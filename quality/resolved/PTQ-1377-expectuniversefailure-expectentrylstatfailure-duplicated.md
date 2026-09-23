@@ -2,7 +2,7 @@
 id: PTQ-1377
 title: expectUniverseFailure and expectEntryLstatFailure are near-identical assertion helpers duplicated across two files
 lens: D7
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - tests/discovery-glob-universe-enumeration-failure.test.ts:256-291

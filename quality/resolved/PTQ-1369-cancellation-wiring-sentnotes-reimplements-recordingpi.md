@@ -2,7 +2,7 @@
 id: PTQ-1369
 title: production-cancellation-wiring.test.ts reimplements the recordingPi/RecordedMessage double as local sentNotes()/SentNote
 lens: D7
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - tests/production-cancellation-wiring.test.ts:68-80

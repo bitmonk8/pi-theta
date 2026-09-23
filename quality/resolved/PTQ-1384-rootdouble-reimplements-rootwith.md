@@ -2,7 +2,7 @@
 id: PTQ-1384
 title: pure-async-unification.test.ts's local rootDouble() reimplements the canonical rootWith(checkpoint) export from tests/helpers/fixture-dispatch-harness.ts
 lens: D7
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - tests/pure-async-unification.test.ts:120-125

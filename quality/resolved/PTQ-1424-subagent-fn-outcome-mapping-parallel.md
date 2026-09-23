@@ -2,7 +2,7 @@
 id: PTQ-1424
 title: Subagent fn in-process and child outcome mappings are parallel boundary projections
 lens: D4
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/runtime/subagent-fn-call.ts:202-230

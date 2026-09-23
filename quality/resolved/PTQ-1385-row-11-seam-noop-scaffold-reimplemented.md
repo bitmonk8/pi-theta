@@ -2,7 +2,7 @@
 id: PTQ-1385
 title: call-with-clause-failure-arms.test.ts row-11 cell redeclares SEAM_NOOP_SINK and SEAM_NOOP_MUTATOR byte-identically to tests/helpers/invoke-seam-scaffold.ts's exported SEAM_NOOP_SINK/SEAM_NOOP_MUTATOR instead of importing them
 lens: D7
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - tests/call-with-clause-failure-arms.test.ts:430-441

@@ -2,7 +2,7 @@
 id: PTQ-1331
 title: par-for-body-return-refusal.test.ts's PureHost#eval reimplements the canonical ParForHost#eval bounded-pure-evaluator byte-for-byte
 lens: D7                     # D2 | D4 | D7 | D8 | D9 - the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - tests/par-for-body-return-refusal.test.ts:551-598

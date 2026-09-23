@@ -2,7 +2,7 @@
 id: PTQ-1311
 title: b0433's window-1 InstantSettleSession/RestoreThrowingGate/driveQuery harness is a near-identical copy of b0372's own harness
 lens: D7
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - tests/b0433-active-set-advisory-note-no-details.test.ts:174-372

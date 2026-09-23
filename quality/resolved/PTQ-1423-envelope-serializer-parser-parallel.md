@@ -2,7 +2,7 @@
 id: PTQ-1423
 title: Subagent return-envelope serializer and parser are parallel schema implementations
 lens: D4
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/runtime/subagent-envelope.ts:150-167

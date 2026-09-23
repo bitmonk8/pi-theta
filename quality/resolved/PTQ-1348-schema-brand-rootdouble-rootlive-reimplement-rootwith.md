@@ -2,7 +2,7 @@
 id: PTQ-1348
 title: schema-brand-symbol-migration.test.ts's local rootDouble() and rootLive() both reimplement the canonical rootWith(checkpoint, invocationId, clock) export
 lens: D7
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - tests/schema-brand-symbol-migration.test.ts:220-225

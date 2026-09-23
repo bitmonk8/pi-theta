@@ -2,7 +2,7 @@
 id: PTQ-1325
 title: schema-validator-seam.test.ts redeclares the jsonSlug fake despite an exported canonical helper of the same name
 lens: D7
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - tests/schema-validator-seam.test.ts:24-37

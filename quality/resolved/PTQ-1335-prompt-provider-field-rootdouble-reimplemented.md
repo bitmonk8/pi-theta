@@ -2,7 +2,7 @@
 id: PTQ-1335
 title: prompt-provider-field-derivation.test.ts hand-rolls a local rootDouble instead of the canonical override-shaped rootDouble it already imports the sibling helper from
 lens: D7                     # D2 | D4 | D7 | D8 | D9 - the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - tests/prompt-provider-field-derivation.test.ts:208-224

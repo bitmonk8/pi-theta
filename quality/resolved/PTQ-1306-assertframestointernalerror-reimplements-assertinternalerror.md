@@ -2,7 +2,7 @@
 id: PTQ-1306
 title: b0369 and b0370 each redeclare the internal-error framing check tests/helpers/runtime-belt-probe-harness.ts already exports as assertInternalError
 lens: D7                     # D2 | D4 | D7 | D8 | D9 - the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - tests/b0369-control-flow-kind-belts.test.ts:340-356
