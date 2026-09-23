@@ -236,7 +236,8 @@ function scanStringLiteral(cursor: ScannerCursor, sinks: ScannerSinks, file: str
   const { tokens, diagnostics } = sinks;
   const quote = text[cursor.i];
   const start = pos();
-  let raw = advance(); // opening quote
+  const startIndex = cursor.i;
+  advance(); // opening quote
   let value = "";
   let closed = false;
   while (cursor.i < n && text[cursor.i] !== "\n") {
@@ -245,13 +246,13 @@ function scanStringLiteral(cursor: ScannerCursor, sinks: ScannerSinks, file: str
       break;
     }
     if (ch === quote) {
-      raw += advance(); // closing quote
+      advance(); // closing quote
       closed = true;
       break;
     }
     if (ch === "\\") {
       const escStart = pos();
-      raw += advance(); // the backslash
+      advance(); // the backslash
       const e = text[cursor.i];
       if (e === undefined || e === "\n") {
         // Dangling backslash at end of line / EOF: an unrecognised escape.
@@ -266,18 +267,18 @@ function scanStringLiteral(cursor: ScannerCursor, sinks: ScannerSinks, file: str
       }
       if (e === '"' || e === "'" || e === "\\") {
         value += e;
-        raw += advance();
+        advance();
       } else if (e === "n") {
         value += "\n";
-        raw += advance();
+        advance();
       } else if (e === "t") {
         value += "\t";
-        raw += advance();
+        advance();
       } else if (e === "r") {
         value += "\r";
-        raw += advance();
+        advance();
       } else if (e === "u") {
-        raw += advance(); // the `u`
+        advance(); // the `u`
         // `\u{XXXX}` — 1–6 hex digits between braces, a Unicode scalar
         // value (lexical.md §"String literals"). Consume the whole
         // bracketed (or braceless) digit run before judging the form, so
@@ -287,23 +288,19 @@ function scanStringLiteral(cursor: ScannerCursor, sinks: ScannerSinks, file: str
         let braceClosed = false;
         if (text[cursor.i] === "{") {
           braced = true;
-          raw += advance(); // `{`
+          advance(); // `{`
           while (cursor.i < n && isHexDigit(text[cursor.i] ?? "")) {
-            const digit = advance();
-            hex += digit;
-            raw += digit;
+            hex += advance();
           }
           if (text[cursor.i] === "}") {
-            raw += advance(); // `}`
+            advance(); // `}`
             braceClosed = true;
           }
         } else {
           // Braceless `\uXXXX` has no in-form value to judge either, but
           // the digit run still must not leak into `value` as content.
           while (cursor.i < n && isHexDigit(text[cursor.i] ?? "")) {
-            const digit = advance();
-            hex += digit;
-            raw += digit;
+            hex += advance();
           }
         }
         // A malformed FORM (missing `{`, `}`, zero digits, or more than
@@ -345,12 +342,12 @@ function scanStringLiteral(cursor: ScannerCursor, sinks: ScannerSinks, file: str
           range: { start: escStart, end: { line: pos().line, column: pos().column + 1 } },
           message: `illegal escape sequence: \\${e}`,
         });
-        raw += advance(); // consume the offending character
+        advance(); // consume the offending character
       }
       continue;
     }
     value += ch;
-    raw += advance();
+    advance();
   }
   if (!closed) {
     // Single-line-only string literals (lexical.md §"String literals"): a
@@ -376,7 +373,7 @@ function scanStringLiteral(cursor: ScannerCursor, sinks: ScannerSinks, file: str
   }
   tokens.push({
     kind: "string",
-    text: raw,
+    text: text.slice(startIndex, cursor.i),
     value,
     range: { start, end: pos() },
   });
