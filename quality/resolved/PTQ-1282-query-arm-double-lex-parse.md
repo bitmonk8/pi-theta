@@ -2,7 +2,7 @@
 id: PTQ-1282
 title: The type-layer query arm lexes each query template twice and re-lexes/re-parses every interpolation source twice, back-to-back at one call site
 lens: D8
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/parser/type-layer-walk.ts:1918-1926

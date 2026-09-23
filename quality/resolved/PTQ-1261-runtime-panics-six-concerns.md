@@ -2,7 +2,7 @@
 id: PTQ-1261
 title: runtime-panics.ts bundles panic-frame machinery, the closed panic class set, receiver gating, access/`?` evaluators, gate-gap defect classes, and the runtime-defect surface in one 880-LOC module
 lens: D9
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/runtime/runtime-panics.ts:1-880

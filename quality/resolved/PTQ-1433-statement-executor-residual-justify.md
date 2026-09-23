@@ -2,7 +2,7 @@
 id: PTQ-1433
 title: statement-executor.ts remains at 1831 LOC (justify band) after the PTQ-1154 seams landed, still bundling the host-contract type substrate, the expression evaluator, the result/match disposition family, and the statement/loop driver
 lens: D9
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/runtime/statement-executor.ts:1-1831

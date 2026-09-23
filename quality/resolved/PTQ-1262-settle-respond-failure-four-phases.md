@@ -2,7 +2,7 @@
 id: PTQ-1262
 title: settleRespondFailure runs 143 LOC across four settlement phases; the depth arm hand-builds the RuntimeEvent that buildValidationEvent already produces
 lens: D9
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/runtime/query-tool-loop.ts:615-757

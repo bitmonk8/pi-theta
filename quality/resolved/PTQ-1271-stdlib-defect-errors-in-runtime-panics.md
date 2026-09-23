@@ -2,7 +2,7 @@
 id: PTQ-1271
 title: StdlibMethodArgumentDefectError and StdlibMethodArgumentKindDefectError are declared in runtime-panics.ts while their only thrower is stdlib-signature.ts and their sibling defect class lives beside its dispatcher
 lens: D9
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/runtime/runtime-panics.ts:720-728
