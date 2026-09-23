@@ -2,7 +2,7 @@
 id: PTQ-1438
 title: runComposePass remains 1017 LOC (strong band) after the PTQ-1151 fix extracted only the placement and ladder phases
 lens: D9
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/extension/production-composition.ts:681-1697

@@ -2,7 +2,7 @@
 id: PTQ-1430
 title: ProductionThetaProducer.#driveSubagentFnChild sequences argument-boundary guards, child launch assembly, and drive-plus-return-validation in one 97-LOC method
 lens: D9
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/extension/production-theta-producer.ts:3666-3762

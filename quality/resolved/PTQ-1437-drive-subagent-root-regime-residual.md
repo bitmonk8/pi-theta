@@ -2,7 +2,7 @@
 id: PTQ-1437
 title: ProductionThetaProducer.driveSubagentRootRegime remains 175 LOC after the PTQ-1192 fix landed only one of its three ratified seams
 lens: D9
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/extension/production-theta-producer.ts:3130-3304

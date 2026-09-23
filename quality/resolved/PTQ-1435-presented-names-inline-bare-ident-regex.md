@@ -2,7 +2,7 @@
 id: PTQ-1435
 title: presentedCallableNames inlines the bare-identifier tools-spec classifier that callable-set.ts exports as isBareIdentifier
 lens: D8
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/extension/callable-lowering.ts:455-462

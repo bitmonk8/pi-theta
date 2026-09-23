@@ -2,7 +2,7 @@
 id: PTQ-1439
 title: composeExtensionInstance remains 279 LOC (strong band) after the PTQ-1160 fix extracted only the load-note sink
 lens: D9
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/extension/production-composition.ts:2175-2453

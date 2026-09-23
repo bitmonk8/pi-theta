@@ -2,7 +2,7 @@
 id: PTQ-1440
 title: ProductionThetaProducer.#driveCallee remains 184 LOC after the PTQ-1183 fix, with both mode-fork dispatch legs still inline
 lens: D9
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/extension/production-theta-producer.ts:5026-5209

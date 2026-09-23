@@ -2,7 +2,7 @@
 id: PTQ-1432
 title: enumsOf, materializeSymbol and referencedNamedTypes remain in import-static-checks.ts with zero in-file callers, forcing import-resolution-kit.ts and import-specifier-facts.ts to import back into the module that imports them
 lens: D9
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/extension/import-static-checks.ts:157-170
