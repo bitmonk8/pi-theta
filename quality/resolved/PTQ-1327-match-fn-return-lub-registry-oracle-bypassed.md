@@ -2,7 +2,7 @@
 id: PTQ-1327
 title: match-fn-return-lub-dominating-discipline.test.ts reimplements the registry read and Trigger lookup instead of using tests/helpers/registry-oracle.ts's readRegistry
 lens: D7
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - tests/match-fn-return-lub-dominating-discipline.test.ts:6-9

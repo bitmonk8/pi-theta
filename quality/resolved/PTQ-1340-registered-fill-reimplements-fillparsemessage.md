@@ -2,7 +2,7 @@
 id: PTQ-1340
 title: fn-arg-member-read-proof.test.ts redeclares registered()/fill() byte-identical to registry-oracle's registeredParseMessage/fillParseMessage
 lens: D7
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - tests/fn-arg-member-read-proof.test.ts:165-192

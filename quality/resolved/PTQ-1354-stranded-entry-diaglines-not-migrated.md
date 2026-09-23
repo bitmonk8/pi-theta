@@ -2,7 +2,7 @@
 id: PTQ-1354
 title: inline-object-stranded-entry-refusal.test.ts still declares a local diagLines instead of importing the canonical e2e-s1 export its two in-scope siblings already use
 lens: D7                     # D2 | D4 | D7 | D8 | D9 - the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - tests/inline-object-stranded-entry-refusal.test.ts:9,239-242

@@ -2,7 +2,7 @@
 id: PTQ-1332
 title: Local `theta(slashName)` ParsedTheta fixture builder duplicated instead of using the canonical `makeTheta` helper
 lens: D7
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - tests/registration-reload-wiring.test.ts:39-45

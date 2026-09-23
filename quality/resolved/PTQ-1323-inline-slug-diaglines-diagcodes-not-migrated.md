@@ -2,7 +2,7 @@
 id: PTQ-1323
 title: inline-slug-name-reservation redefines diagLines/diagCodes locally despite the canonical e2e-s1 exports its own review sibling already imports
 lens: D7
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - tests/inline-slug-name-reservation.test.ts:214-222

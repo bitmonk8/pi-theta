@@ -2,7 +2,7 @@
 id: PTQ-1349
 title: import-specifier-separator test reimplements the RegistryRow/REGISTRY read instead of importing tests/helpers/registry-oracle
 lens: D7
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - tests/import-specifier-separator-production-required.test.ts:186-211

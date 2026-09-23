@@ -2,7 +2,7 @@
 id: PTQ-1338
 title: RecordingQueryModel QueryModelDriver double reimplemented near-identically in two test files
 lens: D7
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - tests/effectful-statement-host.test.ts:120-136

@@ -2,7 +2,7 @@
 id: PTQ-1319
 title: Local registryMessageOf in entry-slot-refusal.test.ts reimplements the shared registryMessageOrThrow the sibling file's own helper module exports
 lens: D7                     # D2 | D4 | D7 | D8 | D9 - the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - tests/inline-object-empty-entry-slot-refusal.test.ts:1-4,203-217

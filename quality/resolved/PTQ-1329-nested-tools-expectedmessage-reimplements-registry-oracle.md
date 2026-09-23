@@ -2,7 +2,7 @@
 id: PTQ-1329
 title: nested-tools-entry-containment.test.ts re-declares expectedMessage rather than importing the exported helper of the same name in tests/helpers/registry-oracle.ts
 lens: D7
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - tests/nested-tools-entry-containment.test.ts:83-96

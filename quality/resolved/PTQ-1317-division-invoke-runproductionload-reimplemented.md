@@ -2,7 +2,7 @@
 id: PTQ-1317
 title: division-result-type-number-invoke.test.ts hand-rolls runProductionLoad while already importing sibling helpers from the same canonical module
 lens: D7
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - tests/division-result-type-number-invoke.test.ts:1

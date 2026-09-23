@@ -2,7 +2,7 @@
 id: PTQ-1320
 title: "b0406 and b0408 each redeclare an identical local `errorCodes(doc)` helper already covered by e2e-s1's exported reader"
 lens: D7
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - tests/b0406-object-typed-params-misclassified-string.test.ts:33-36

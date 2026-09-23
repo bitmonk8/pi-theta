@@ -2,7 +2,7 @@
 id: PTQ-1342
 title: query-annotation-nontype-text-refusal.test.ts redeclares a local registryMessageOf that reimplements the canonical registryMessageOrThrow
 lens: D7
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - tests/query-annotation-nontype-text-refusal.test.ts:129-140

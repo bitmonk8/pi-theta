@@ -2,7 +2,7 @@
 id: PTQ-1350
 title: session-control-callable-set.test.ts's local runLoad re-implements tests/helpers/production-load-harness.ts's runProductionLoad/plantThetaWorkspace/disposeWorkspace sequence
 lens: D7
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - tests/session-control-callable-set.test.ts:186-256

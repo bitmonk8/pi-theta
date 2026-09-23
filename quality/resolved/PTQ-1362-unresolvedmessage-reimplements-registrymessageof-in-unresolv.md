@@ -2,7 +2,7 @@
 id: PTQ-1362
 title: unresolved-annotation-lowering.test.ts's unresolvedMessage reimplements the canonical registryMessageOf reader
 lens: D7
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - tests/unresolved-annotation-lowering.test.ts:142-149

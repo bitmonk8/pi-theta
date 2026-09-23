@@ -2,7 +2,7 @@
 id: PTQ-1361
 title: typeenv-prototype-names.test.ts's local `registered(code)` reimplements the canonical registryMessageOrThrow
 lens: D7
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - tests/typeenv-prototype-names.test.ts:201-208

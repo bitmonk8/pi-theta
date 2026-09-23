@@ -2,7 +2,7 @@
 id: PTQ-1341
 title: Both in-scope files redeclare a local fetch-assert-substitute registry-message renderer instead of the canonical registryMessageOf/registryMessageOrThrow
 lens: D7
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - tests/union-generic-arm-lowering.test.ts:157-193

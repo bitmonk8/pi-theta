@@ -2,7 +2,7 @@
 id: PTQ-1330
 title: subagent-envelope-nonfinite-ok-refusal.test.ts re-parses the four-shard diagnostics registry instead of importing tests/helpers/registry-oracle.ts's REGISTRY
 lens: D7                     # D2 | D4 | D7 | D8 | D9 - the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - tests/subagent-envelope-nonfinite-ok-refusal.test.ts:190-210

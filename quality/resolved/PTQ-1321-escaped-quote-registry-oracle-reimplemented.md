@@ -2,7 +2,7 @@
 id: PTQ-1321
 title: escaped-quote-inline-field-name-refusal.test.ts re-declares the four-page registry read and message renderer that tests/helpers/registry-oracle.ts already exports
 lens: D7
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - tests/escaped-quote-inline-field-name-refusal.test.ts:153-208

@@ -2,7 +2,7 @@
 id: PTQ-1328
 title: Both in-scope files redeclare a local msg() that reimplements the canonical registryMessageOf/registryLineOf pair from tests/helpers/load-row-harness.ts
 lens: D7
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - tests/inline-empty-object-type.test.ts:137-157

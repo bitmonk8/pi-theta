@@ -2,7 +2,7 @@
 id: PTQ-1353
 title: The console.error prefix-filter harness (quiesce-line vs cascade-line split) is re-implemented in three test files
 lens: D7
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - tests/watcher-terminated-recovery.test.ts:186-201

@@ -2,7 +2,7 @@
 id: PTQ-1334
 title: fn-param-not-identifier and fn-return-void-query-sink reimplement e2e-s1's parsePromptBody/body helpers locally
 lens: D7
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - tests/fn-param-not-identifier.test.ts:229-234

@@ -2,7 +2,7 @@
 id: PTQ-1322
 title: fn-param-annotation-optional / fn-param-list-unclosed each redeclare a local `FM`/`theta(body, path)` pair that is byte-identical to e2e-s1's exported `parsePromptBody`
 lens: D7
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - tests/fn-param-annotation-optional.test.ts:345-351

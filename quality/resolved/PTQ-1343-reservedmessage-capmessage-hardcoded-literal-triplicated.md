@@ -2,7 +2,7 @@
 id: PTQ-1343
 title: reservedMessage/capMessage hard-coded literal builders reimplemented byte-identically across three test files
 lens: D7                     # D2 | D4 | D7 | D8 | D9 - the lens that filed this
-status: open
+status: fixed
 verdict: confirmed
 locations:                   # every cited site, repo-relative path:line-range
   - tests/reserved-keyword-object-pattern-head-refusal.test.ts:102-108

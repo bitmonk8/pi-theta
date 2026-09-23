@@ -2,7 +2,7 @@
 id: PTQ-1324
 title: invoke-arg-array-literal-provable.test.ts hand-rolls the mkdtemp/mkdir/write-loop/settings/rmSync workspace lifecycle that tests/helpers/production-load-harness.ts already centralises as plantThetaWorkspace/disposeWorkspace (or productionLoadSuite)
 lens: D7
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - tests/invoke-arg-array-literal-provable.test.ts:310-335

@@ -2,7 +2,7 @@
 id: PTQ-1355
 title: subagent-tool-admission.test.ts redeclares the canonical theta() fixture-text builder already exported by production-load-harness.ts
 lens: D7
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - tests/subagent-tool-admission.test.ts:78-80

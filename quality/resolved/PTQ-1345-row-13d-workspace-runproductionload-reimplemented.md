@@ -2,7 +2,7 @@
 id: PTQ-1345
 title: call-with-clause-static-checks.test.ts row-13d cell hand-rolls the workspace-plant + fake-host + discoverAndComposeFixtures sequence that tests/helpers/production-load-harness.ts's runProductionLoad already centralises, including within this same review scope
 lens: D7
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - tests/call-with-clause-static-checks.test.ts:137-179

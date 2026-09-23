@@ -2,7 +2,7 @@
 id: PTQ-1339
 title: Both in-scope files locally redeclare registered()/fill(), byte-identical to each other and reimplementing the canonical fillParseMessage
 lens: D7
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - tests/loop-element-withhold-binding-scoped.test.ts:173-207

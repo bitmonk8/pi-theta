@@ -2,7 +2,7 @@
 id: PTQ-1344
 title: respondFixture/qry15Body/RespondFixture redeclared byte-for-byte in typed-repair-two-phase.test.ts and typed-two-phase-live.test.ts
 lens: D7
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - tests/typed-repair-two-phase.test.ts:172-216
