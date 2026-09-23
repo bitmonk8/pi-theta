@@ -1,18 +1,15 @@
-import { assertNoStemIsASuffix, theta, invokeCaller, diagnosticLineReaders } from "./helpers/production-load-harness";
+import {
+  assertNoStemIsASuffix, theta, invokeCaller, diagnosticLineReaders,
+  runProductionLoad, type LoadOutcome,
+} from "./helpers/production-load-harness";
 import { PARSE_REGISTRY_PATH as REGISTRY_PAGE } from "./helpers/load-row-harness";
 import { readRegistry, invokeArgMessage } from "./helpers/registry-oracle";
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import type {
-  ExtensionAPI,
-  ExtensionContext,
-} from "@earendil-works/pi-coding-agent";
 // @ts-expect-error — JS code-registry module, no type declarations.
 import { registryMessage } from "../tools/code-registry/index.js";
-import type { ThetaFixture } from "../src/extension/factory";
-import { discoverAndComposeFixtures } from "../src/extension/production-composition";
 
 // Bug 0142 §Fix (c) — the `collectProvableArgTypes` MIRROR
 // (src/extension/invoke-static-checks.ts's `/` arm) at the INVOKE-argument
@@ -21,11 +18,11 @@ import { discoverAndComposeFixtures } from "../src/extension/production-composit
 // Companion to `division-result-type-number.test.ts`: every cell there settles
 // inside one `parseDoc` call, but this sink is judged by
 // `checkInvokeStaticResolution` over a callee's STATICALLY-RESOLVED `params:`,
-// which only the compose pass reaches. This file therefore copies the
-// fixture-load harness SHAPE from `tests/invoke-arg-type-mismatch-wired.test.ts`
-// (read, not modified): a planted `.pi/theta/` workspace, the production
-// compose helper (`discoverAndComposeFixtures`), and the same two production
-// observables — which slash names registered, and which error-severity
+// which only the compose pass reaches. This file therefore drives the shared
+// fixture-load harness (`runProductionLoad`,
+// tests/helpers/production-load-harness.ts): a planted `.pi/theta/` workspace,
+// the production compose helper (`discoverAndComposeFixtures`), and the same
+// two production observables — which slash names registered, and which error-severity
 // messages reached `ctx.ui.notify` — plus the no-UI stderr mirror, the only
 // channel that can attribute this row's callee-less, caller-less *Message* to
 // one specific caller.
@@ -128,62 +125,8 @@ const THETAS: readonly PlantedTheta[] = [
   { stem: "substr", text: invokeCaller('invoke("./cstr.theta", "a" - "b")?') },
 ];
 
-// ===========================================================================
-// The fake host `pi` / `ctx`, and the load outcome — copied SHAPE from
-// tests/invoke-arg-type-mismatch-wired.test.ts.
-// ===========================================================================
-
-interface LoadOutcome {
-  readonly registered: readonly string[];
-  readonly notifications: readonly string[];
-  readonly diagnosticLines: readonly string[];
-}
-
 let outcome: LoadOutcome;
 let workspaceDir: string;
-
-async function runProductionLoad(cwd: string): Promise<LoadOutcome> {
-  const notifications: string[] = [];
-  const chunks: string[] = [];
-  const pi = {
-    getFlag: (): undefined => undefined,
-    getCommands: (): readonly unknown[] => [],
-    sendMessage: (): void => {},
-    sendUserMessage: (): void => {},
-    getActiveTools: (): readonly string[] => [],
-    setActiveTools: (): void => {},
-  } as unknown as ExtensionAPI;
-  const ctx = {
-    cwd,
-    modelRegistry: { getAvailable: (): readonly unknown[] => [] },
-    ui: {
-      notify: (message: string, _type: "error"): void => {
-        notifications.push(message);
-      },
-    },
-  } as unknown as ExtensionContext;
-
-  const write = process.stderr.write.bind(process.stderr);
-  process.stderr.write = ((chunk: unknown): boolean => {
-    chunks.push(String(chunk));
-    return true;
-  }) as typeof process.stderr.write;
-  const fixtures: readonly ThetaFixture[] = await discoverAndComposeFixtures(
-    pi,
-    ctx,
-  ).finally(() => {
-    process.stderr.write = write;
-  });
-
-  return {
-    registered: fixtures.map((f) => f.slashName),
-    notifications,
-    diagnosticLines: chunks
-      .join("")
-      .split(/\r?\n/)
-      .filter((line) => line.length > 0),
-  };
-}
 
 beforeAll(async () => {
   // No stem may be a suffix of another: the per-caller channel filter matches

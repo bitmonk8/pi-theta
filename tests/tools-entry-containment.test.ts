@@ -1,4 +1,4 @@
-import { readRegistry } from "./helpers/registry-oracle";
+import { expectedMessage as filledRegistryMessage, readRegistry } from "./helpers/registry-oracle";
 import {
   disposeWorkspace,
   plantThetaFile as plant,
@@ -71,10 +71,7 @@ function expectedMessage(
   code: string,
   subs: Readonly<Record<string, string>>,
 ): string {
-  let message = registryMessage(REGISTRY, code) as string;
-  for (const [placeholder, value] of Object.entries(subs)) {
-    message = message.replaceAll(placeholder, value);
-  }
+  const message = filledRegistryMessage(REGISTRY, code, subs);
   expect(
     message,
     `${code}: an unsubstituted <…> placeholder remains — the registry row's ` +

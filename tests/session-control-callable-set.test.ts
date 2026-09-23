@@ -23,15 +23,12 @@
 // `discoverAndComposeFixtures` fixture-plant pattern for the composition-level
 // cells (the load probe lives in the compose loop, not in `resolveCallableSet`).
 import { callableSetDeps as deps, findCode as withCode, parseDoc, resolveScalar } from "./helpers/e2e-s1";
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { CallableSetResult } from "../src/parser/callable-set";
 import { RUNTIME_TOOL_NAMES, RUNTIME_TOOL_SIGNATURES, runtimeToolPresentedNames } from "../src/parser/runtime-tools";
 import type { ThetaFixture } from "../src/extension/factory";
-import { discoverAndComposeFixtures } from "../src/extension/production-composition";
+import { disposeWorkspace, plantThetaWorkspace, runProductionLoad, type LoadOutcome } from "./helpers/production-load-harness";
 import { FACTORY_PROBED_SDK_MEMBERS } from "../src/extension/capability-probe";
 import { computeActiveSetInstall } from "../src/runtime/conversation-drive";
 import { assembleSubagentArgv, inferChildTrust, PI_CLI_DIALECT } from "../src/runtime/subagent-launcher";
@@ -164,13 +161,6 @@ describe("RFC 0011 §3.4 — V7: a theta declaring none of the three runtime too
 // the unit level above.
 // ===========================================================================
 
-interface LoadOutcome {
-  readonly fixtures: readonly ThetaFixture[];
-  readonly registered: string[];
-  readonly notifications: string[];
-  readonly diagnosticLines: string[];
-}
-
 interface FakeHostOpts {
   readonly ctxCompact?: boolean;
   readonly ctxGetContextUsage?: boolean;
@@ -187,71 +177,29 @@ async function runLoad(
   files: Readonly<Record<string, string>>,
   hostOpts?: FakeHostOpts,
 ): Promise<LoadOutcome> {
-  const workspaceDir = mkdtempSync(join(tmpdir(), "theta-rfc0011-callable-set-"));
+  const piExtras: Record<string, unknown> = {};
+  if (hostOpts?.piSetSessionName !== false) {
+    piExtras.setSessionName = (): void => {};
+  }
+  if (hostOpts?.piGetSessionName !== false) {
+    piExtras.getSessionName = (): string | undefined => undefined;
+  }
+  const ctxExtras: Record<string, unknown> = {};
+  if (hostOpts?.ctxCompact !== false) {
+    ctxExtras.compact = (): void => {};
+  }
+  if (hostOpts?.ctxGetContextUsage !== false) {
+    ctxExtras.getContextUsage = (): undefined => undefined;
+  }
+  const workspaceDir = plantThetaWorkspace(
+    "theta-rfc0011-callable-set-",
+    Object.entries(files).map(([stem, text]) => ({ stem, text })),
+    "{}",
+  );
   try {
-    const thetaDir = join(workspaceDir, ".pi", "theta");
-    mkdirSync(thetaDir, { recursive: true });
-    for (const [stem, text] of Object.entries(files)) {
-      writeFileSync(join(thetaDir, `${stem}.theta`), text, "utf8");
-    }
-    writeFileSync(join(workspaceDir, ".pi", "settings.json"), "{}", "utf8");
-
-    const notifications: string[] = [];
-    const piBase: Record<string, unknown> = {
-      getFlag: (): undefined => undefined,
-      getCommands: (): readonly unknown[] => [],
-      sendMessage: (): void => {},
-      sendUserMessage: (): void => {},
-      getActiveTools: (): readonly string[] => [],
-      setActiveTools: (): void => {},
-      getAllTools: (): readonly unknown[] => [],
-    };
-    if (hostOpts?.piSetSessionName !== false) {
-      piBase.setSessionName = (): void => {};
-    }
-    if (hostOpts?.piGetSessionName !== false) {
-      piBase.getSessionName = (): string | undefined => undefined;
-    }
-    const pi = piBase as unknown as ExtensionAPI;
-
-    const ctxBase: Record<string, unknown> = {
-      cwd: workspaceDir,
-      modelRegistry: { getAvailable: (): readonly unknown[] => [] },
-      ui: {
-        notify: (message: string): void => {
-          notifications.push(message);
-        },
-      },
-    };
-    if (hostOpts?.ctxCompact !== false) {
-      ctxBase.compact = (): void => {};
-    }
-    if (hostOpts?.ctxGetContextUsage !== false) {
-      ctxBase.getContextUsage = (): undefined => undefined;
-    }
-    const ctx = ctxBase as unknown as ExtensionContext;
-
-    const chunks: string[] = [];
-    const write = process.stderr.write.bind(process.stderr);
-    process.stderr.write = ((chunk: unknown): boolean => {
-      chunks.push(String(chunk));
-      return true;
-    }) as typeof process.stderr.write;
-    let fixtures: readonly ThetaFixture[];
-    try {
-      fixtures = await discoverAndComposeFixtures(pi, ctx);
-    } finally {
-      process.stderr.write = write;
-    }
-
-    return {
-      fixtures,
-      registered: fixtures.map((f) => f.slashName),
-      notifications,
-      diagnosticLines: chunks.join("").split(/\r?\n/).filter((l) => l.length > 0),
-    };
+    return await runProductionLoad(workspaceDir, { registryTools: [], piExtras, ctxExtras });
   } finally {
-    rmSync(workspaceDir, { recursive: true, force: true });
+    disposeWorkspace(workspaceDir);
   }
 }
 

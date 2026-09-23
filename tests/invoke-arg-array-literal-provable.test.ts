@@ -1,11 +1,8 @@
 import {
   assertNoStemIsASuffix, theta, invokeCaller, diagnosticLineReaders, invokeArgPreconditions, callableCaller,
-  runProductionLoad, type LoadOutcome,
+  runProductionLoad, type LoadOutcome, plantThetaWorkspace, disposeWorkspace,
 } from "./helpers/production-load-harness";
 import { interpolateStrict, readRegistry, invokeArgMessage } from "./helpers/registry-oracle";
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 // @ts-expect-error — JS code-registry module, no type declarations.
 import { registryMessage } from "../tools/code-registry/index.js";
@@ -317,21 +314,15 @@ beforeAll(async () => {
   const stems = THETAS.map((t) => t.stem);
   assertNoStemIsASuffix(stems);
 
-  workspaceDir = mkdtempSync(join(tmpdir(), "theta-bug0146-"));
-  const projectThetaDir = join(workspaceDir, ".pi", "theta");
-  mkdirSync(projectThetaDir, { recursive: true });
-  for (const planted of THETAS) {
-    writeFileSync(join(projectThetaDir, `${planted.stem}.theta`), planted.text, "utf8");
-  }
   // A minimal valid settings file pins the fixture's settings read to a known
   // value. An ABSENT settings file is silent (package-and-settings.md
   // §Failure modes), so the plant is hermeticity, not noise suppression.
-  writeFileSync(join(workspaceDir, ".pi", "settings.json"), "{}", "utf8");
+  workspaceDir = plantThetaWorkspace("theta-bug0146-", THETAS, "{}");
   outcome = await runProductionLoad(workspaceDir);
 });
 
 afterAll(() => {
-  rmSync(workspaceDir, { recursive: true, force: true });
+  disposeWorkspace(workspaceDir);
 });
 
 const { linesFor, linesForCode } = diagnosticLineReaders(() => outcome.diagnosticLines);

@@ -1,12 +1,9 @@
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-// @ts-expect-error — JS code-registry module, no type declarations.
-import { parseRegistry, registryMessage } from "../tools/code-registry/index.js";
 import { lowerParamsFieldType, type LowerCtx } from "../src/parser/params";
 import type { ThetaDocument } from "../src/parser/theta-document";
 import { lowerQueryResponseSchema } from "../src/parser/query-schema-lowering";
 import { expectGroup as expectGroupShared, type DiagnosticCell, parseDoc } from "./helpers/e2e-s1";
+import { DUP, QUOTED, RENAMED, renderAll, type Exp } from "./helpers/registry-oracle";
 
 // Bug 0229 — `topLevelColon` (src/parser/type-text-split.ts) latches a quoted
 // region without a backslash arm, while the split that feeds it
@@ -136,97 +133,20 @@ import { expectGroup as expectGroupShared, type DiagnosticCell, parseDoc } from 
 // The diagnostic oracle — the registry's *Message* column (DIAG-4).
 // ===========================================================================
 
-interface RegistryRow {
-  readonly code: string;
-  readonly message: string;
-  readonly severity: string;
-  readonly namespace: string;
-  readonly phase: string;
-}
+// The four-page registry read, the `Exp` shape, the `render`/`renderAll`
+// composition and the three raw-key builders (`RENAMED`/`QUOTED`/`DUP`) are
+// the shared oracle in tests/helpers/registry-oracle.ts; only the codes and
+// builders this file adds on top stay local.
 
-const DIAGNOSTICS_DIR = "../docs/spec_topics/diagnostics/";
-
-function readDiagnosticsPage(page: string): string {
-  return readFileSync(fileURLToPath(new URL(`${DIAGNOSTICS_DIR}${page}`, import.meta.url)), "utf8");
-}
-
-const REGISTRY = parseRegistry(
-  [
-    "code-registry-parse.md",
-    "code-registry-load.md",
-    "code-registry-runtime.md",
-    "code-registry-host.md",
-  ]
-    .map(readDiagnosticsPage)
-    .join("\n"),
-) as RegistryRow[];
-
-/** The three landed raw-key rows an escape-blind colon scan takes out of play. */
+/** The rename row — the raw-key row the anti-vacuity count (cell F1) names. */
 const RENAMED_INLINE = "theta/parse/renamed-inline-field-name";
-const QUOTED_INLINE = "theta/parse/quoted-inline-field-name";
-const DUPLICATE_INLINE = "theta/parse/duplicate-inline-field-name";
 /** The lowering's own sink — the observable that a field's type was reached. */
 const UNRESOLVED_NAMED = "theta/parse/unresolved-named-type";
-
-/** One expected diagnostic, as a code plus the placeholder fills its row needs. */
-interface Exp {
-  readonly severity: "error" | "warning";
-  readonly code: string;
-  readonly fills: ReadonlyArray<readonly [string, string]>;
-}
-
-/**
- * The registry row's normative *Message* template with its named placeholders
- * filled (DIAG-4). Definedness and placeholder presence are asserted first, so
- * a missing row or a reworded template reds by naming the registry rather than
- * by a bare `undefined` comparison.
- */
-function msg(code: string, fills: ReadonlyArray<readonly [string, string]>): string {
-  const template = registryMessage(REGISTRY, code) as string | undefined;
-  expect(
-    template,
-    `DIAG-4 anchor: docs/spec_topics/diagnostics/ must carry the Message row for ${code}`,
-  ).toBeDefined();
-  let out = template as string;
-  for (const [placeholder, value] of fills) {
-    expect(
-      out,
-      `DIAG-4: the ${code} Message template must carry the ${placeholder} placeholder; template=${JSON.stringify(template)}`,
-    ).toContain(placeholder);
-    out = out.replace(placeholder, value);
-  }
-  return out;
-}
-
-/** One rendered diagnostic, in the shape `diagLines` produces. */
-function render(exp: Exp): string {
-  return `${exp.severity} ${exp.code}: ${msg(exp.code, exp.fills)}`;
-}
-
-function renderAll(exps: readonly Exp[]): string[] {
-  return exps.map(render);
-}
 
 function codesOf(exps: readonly Exp[]): string[] {
   return exps.map((e) => e.code);
 }
 
-/**
- * The rename row's subject is the predicate's capture group — the theta-side
- * identifier — not the raw key, so the widened predicate must keep group 1 at
- * the identifier and the escaped spelling renders exactly as the unescaped one
- * does (code-registry-parse.md:100).
- */
-function REN(field: string): Exp {
-  return { severity: "error", code: RENAMED_INLINE, fills: [["<field>", field]] };
-}
-/** The quoted-led and duplicate rows render the RAW key (their `<field>` carve-outs). */
-function QUOTED(key: string): Exp {
-  return { severity: "error", code: QUOTED_INLINE, fills: [["<field>", key]] };
-}
-function DUP(key: string): Exp {
-  return { severity: "error", code: DUPLICATE_INLINE, fills: [["<field>", key]] };
-}
 function UNRESOLVED(name: string): Exp {
   return { severity: "error", code: UNRESOLVED_NAMED, fills: [["<name>", name]] };
 }
@@ -362,25 +282,25 @@ function positionCells(label: string, type: string, expected: readonly Exp[]): C
 
 function positionRows(): Cell[] {
   return [
-    ...positionCells("ESC", ESC, [REN(ESC_IDENT)]),
-    ...positionCells("CTL", CTL, [REN("a")]),
+    ...positionCells("ESC", ESC, [RENAMED(ESC_IDENT)]),
+    ...positionCells("CTL", CTL, [RENAMED("a")]),
   ];
 }
 
 /** §Reproduction (A) rows A10–A14, at the annotation root and at `params:`. */
 function spellingRows(): Cell[] {
   return [
-    { cell: "a10 two fields, escaped first", src: annotSrc(ESC_TWO), expected: [REN(ESC_IDENT)] },
+    { cell: "a10 two fields, escaped first", src: annotSrc(ESC_TWO), expected: [RENAMED(ESC_IDENT)] },
     {
       cell: "a10 two fields, escaped first (params:)",
       src: paramsSrc(`  p: '${ESC_TWO}'`),
-      expected: [REN(ESC_IDENT)],
+      expected: [RENAMED(ESC_IDENT)],
     },
-    { cell: "a11 two fields, escaped last", src: annotSrc(ESC_TWO_REV), expected: [REN(ESC_IDENT)] },
+    { cell: "a11 two fields, escaped last", src: annotSrc(ESC_TWO_REV), expected: [RENAMED(ESC_IDENT)] },
     {
       cell: "a11 two fields, escaped last (params:)",
       src: paramsSrc(`  p: '${ESC_TWO_REV}'`),
-      expected: [REN(ESC_IDENT)],
+      expected: [RENAMED(ESC_IDENT)],
     },
     // a12 — the quote-led key with the same escape is bug 0176's row's subject,
     // and that row renders the RAW key, so the escape appears in the message.
@@ -393,11 +313,11 @@ function spellingRows(): Cell[] {
     // a13 — the single-quoted rename. An inner `'` survives a single-quoted
     // YAML scalar by doubling (`''`), so the `params:` twin below writes the
     // same interior with the outer quote and both interior quotes doubled.
-    { cell: "a13 single-quoted rename", src: annotSrc(ESC_SINGLE), expected: [REN(ESC_IDENT)] },
+    { cell: "a13 single-quoted rename", src: annotSrc(ESC_SINGLE), expected: [RENAMED(ESC_IDENT)] },
     {
       cell: "a13 single-quoted rename (params:)",
       src: paramsSrc(`  p: '${ESC_SINGLE_YAML}'`),
-      expected: [REN(ESC_IDENT)],
+      expected: [RENAMED(ESC_IDENT)],
     },
     // a14 — one spelling twice is bug 0052's row's subject ALONE, whose
     // precedence is first of the four; it renders the raw key.
@@ -422,18 +342,18 @@ function unresolvedRows(): Cell[] {
     {
       cell: "b1 escaped rename over an unresolved type",
       src: annotSrc('{a as "w\\"x": Cat}'),
-      expected: [REN(ESC_IDENT), UNRESOLVED("Cat")],
+      expected: [RENAMED(ESC_IDENT), UNRESOLVED("Cat")],
     },
     { cell: "b2 control plain field", src: annotSrc("{b: Cat}"), expected: [UNRESOLVED("Cat")] },
     {
       cell: "b3 control unescaped rename",
       src: annotSrc('{a as "w": Cat}'),
-      expected: [REN("a"), UNRESOLVED("Cat")],
+      expected: [RENAMED("a"), UNRESOLVED("Cat")],
     },
     {
       cell: "b4 escaped rename beside a plain field",
       src: annotSrc('{a as "w\\"x": Cat, b: integer}'),
-      expected: [REN(ESC_IDENT), UNRESOLVED("Cat")],
+      expected: [RENAMED(ESC_IDENT), UNRESOLVED("Cat")],
     },
     {
       cell: "b5 escaped quote-led key over an unresolved type",

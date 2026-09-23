@@ -80,6 +80,10 @@ export interface ProductionLoadOptions {
   readonly hasUI?: boolean;
   /** Observe `pi.sendMessage` at load and later fixture dispatch; default: no-op. */
   readonly sendMessage?: (message: { content?: unknown }) => void;
+  /** Extra members merged over the fake `pi` (e.g. RFC 0011 session-control probes); default: none. */
+  readonly piExtras?: Readonly<Record<string, unknown>>;
+  /** Extra members merged over the fake `ctx` (e.g. RFC 0011 session-control probes); default: none. */
+  readonly ctxExtras?: Readonly<Record<string, unknown>>;
 }
 
 /**
@@ -104,6 +108,7 @@ export async function runProductionLoad(
     getActiveTools: (): readonly string[] => [],
     setActiveTools: (): void => {},
     ...(opts.registryTools !== undefined ? { getAllTools: () => opts.registryTools } : {}),
+    ...opts.piExtras,
   } as unknown as ExtensionAPI;
   const ctx = {
     cwd,
@@ -114,6 +119,7 @@ export async function runProductionLoad(
         notifications.push(message);
       },
     },
+    ...opts.ctxExtras,
   } as unknown as ExtensionContext;
 
   // The stderr mirror is a real production channel (a `-p` / CI operator's only

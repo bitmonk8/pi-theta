@@ -1,10 +1,10 @@
 import { CLEAN, one, two, type Expectation } from "./helpers/load-row-harness";
-import { interpolateStrict, typeMismatchMessages } from "./helpers/registry-oracle";
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
+import {
+  fillParseMessage as fill,
+  registeredParseMessage as registered,
+  typeMismatchMessages,
+} from "./helpers/registry-oracle";
 import { describe, expect, it } from "vitest";
-// @ts-expect-error — JS code-registry module, no type declarations.
-import { parseRegistry, registryMessage } from "../tools/code-registry/index.js";
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
 import type { ThetaDocument } from "../src/parser/theta-document";
 import { at, binderSites, parseDoc, render } from "./helpers/e2e-s1";
@@ -156,56 +156,6 @@ import { at, binderSites, parseDoc, render } from "./helpers/e2e-s1";
 // ===========================================================================
 // The DIAG-4 oracle.
 // ===========================================================================
-
-interface RegistryRow {
-  readonly code: string;
-  readonly message: string;
-}
-
-/** The live `theta/parse/*` registry page — this file's primary message oracle. */
-const REGISTRY_PAGE = "docs/spec_topics/diagnostics/code-registry-parse.md";
-
-const REGISTRY = parseRegistry(
-  readFileSync(fileURLToPath(new URL(`../${REGISTRY_PAGE}`, import.meta.url)), "utf8"),
-) as RegistryRow[];
-
-
-/**
- * A registered code's normative *Message* template. Throws naming the row and
- * the page when it is absent, so a registry drift can never degrade an
- * assertion below into a comparison against `undefined`.
- */
-function registered(code: string): string {
-  const template = registryMessage(REGISTRY, code) as string | undefined;
-  if (template === undefined) {
-    throw new Error(
-      `harness: ${REGISTRY_PAGE} carries no Message row for ${code} — the DIAG-4 column (diagnostic-shape.md:74) is this file's oracle, so a missing row is a harness failure, never a skip`,
-    );
-  }
-  return template;
-}
-
-/**
- * Interpolate a registered template's `<…>` placeholders from `subs`, in one
- * pass so a substituted value is never re-scanned — `<expected>` legitimately
- * expands to text containing angle brackets (`array<string>`, row d6ctl).
- *
- * The placeholder set is derived from the TEMPLATE: an unsupplied placeholder
- * and an unused substitution both throw, so a registry row that changes shape
- * fails loudly here instead of quietly producing a string no emission equals.
- */
-function fill(code: string, subs: ReadonlyMap<string, string>): string {
-  const template = registered(code);
-  return interpolateStrict(
-    template,
-    subs,
-    (token) =>
-      `harness: the ${code} Message template carries placeholder ${token}, which this file supplies no substitution for — the registry row changed shape (${REGISTRY_PAGE})`,
-    (token) =>
-      `harness: this file substitutes ${token} into the ${code} Message, which no longer carries it — the registry row changed shape (${REGISTRY_PAGE})`,
-  );
-}
-
 
 const FN_ARG = "theta/parse/fn-arg-type-mismatch";
 const LET_RHS = "theta/parse/let-rhs-type-mismatch";

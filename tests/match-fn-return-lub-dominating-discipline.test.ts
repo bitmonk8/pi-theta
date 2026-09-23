@@ -3,8 +3,7 @@ import { sliceFrom } from "./helpers/spec-prose-proximity";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-// @ts-expect-error — JS code-registry module, no type declarations.
-import { parseRegistry } from "../tools/code-registry/index.js";
+import { readRegistry } from "./helpers/registry-oracle";
 import type { Diagnostic, SourceRange } from "../src/diagnostics/diagnostic";
 import type { Expr, ThetaDocument } from "../src/parser/theta-document";
 import { lexTheta, type ThetaSource } from "../src/lexer/lexer";
@@ -157,12 +156,7 @@ const EXPRESSIONS_PAGE = "docs/spec_topics/expressions.md";
 const MATCH_MISMATCH_CODE = "theta/parse/match-arm-type-mismatch";
 const RETURN_NO_COMMON_CODE = "theta/parse/return-no-common-type";
 
-interface RegistryRow {
-  readonly code: string;
-  readonly trigger: string;
-}
-
-const REGISTRY = parseRegistry(corpus(REGISTRY_PAGE)) as RegistryRow[];
+const REGISTRY = readRegistry(["parse"]);
 
 /** The registered *Trigger* of `code` — the DIAG-2 oracle THE STATED LAW makes normative. */
 function trigger(code: string): string {

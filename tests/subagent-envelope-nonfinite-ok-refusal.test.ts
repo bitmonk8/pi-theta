@@ -81,12 +81,10 @@ import {
   parseTheta,
   envelopeRootDouble as rootDouble,
 } from "./helpers/subagent-fn-child-regime";
-import { composePointerMessage } from "./helpers/registry-oracle";
+import { composePointerMessage, REGISTRY } from "./helpers/registry-oracle";
 import { describe, expect, it } from "vitest";
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
 // @ts-expect-error — JS code-registry module, no type declarations.
-import { parseRegistry, registryMessage } from "../tools/code-registry/index.js";
+import { registryMessage } from "../tools/code-registry/index.js";
 import {
   type EnumDecl,
   type SchemaDecl,
@@ -186,28 +184,6 @@ function exportedRefusalCode(): unknown {
 // composition over the template's two byte-identical halves rather than a bare
 // `===` against the template.
 // ===========================================================================
-
-interface RegistryRow {
-  readonly code: string;
-  readonly message: string;
-}
-
-/** The live sharded registry, read from the spec corpus exactly as the H5a gate reads it. */
-const REGISTRY = parseRegistry(
-  [
-    "code-registry-parse.md",
-    "code-registry-load.md",
-    "code-registry-runtime.md",
-    "code-registry-host.md",
-  ]
-    .map((page) =>
-      readFileSync(
-        fileURLToPath(new URL(`../docs/spec_topics/diagnostics/${page}`, import.meta.url)),
-        "utf8",
-      ),
-    )
-    .join("\n"),
-) as RegistryRow[];
 
 /** The `<value>` placeholder the registry row's *Message* template carries. */
 const VALUE_PLACEHOLDER = "<value>";

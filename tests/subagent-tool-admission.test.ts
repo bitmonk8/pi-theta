@@ -1,4 +1,4 @@
-import { callableSetOf, runProductionLoad, type LoadOutcome } from "./helpers/production-load-harness";
+import { callableSetOf, runProductionLoad, theta, type LoadOutcome } from "./helpers/production-load-harness";
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -73,10 +73,6 @@ const FAKE_ALL_TOOLS = [
 interface PlantedTheta {
   readonly stem: string;
   readonly text: string;
-}
-
-function theta(...lines: readonly string[]): string {
-  return lines.join("\n") + "\n";
 }
 
 const THETAS: readonly PlantedTheta[] = [

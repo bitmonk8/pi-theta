@@ -19,20 +19,15 @@
 // One COMPOSITION-level cell (13d) uses `discoverAndComposeFixtures` per the
 // sheet's explicit "pinned at the COMPOSITION level" instruction.
 
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import {
   buildInvokeGraph,
   type CalleeArity,
 } from "../src/extension/invoke-static-checks";
 import type { CallableSetSnapshot } from "../src/parser/callable-set";
 import type { Expr, LetStmt } from "../src/parser/theta-document";
-import type { ThetaFixture } from "../src/extension/factory";
-import { discoverAndComposeFixtures } from "../src/extension/production-composition";
 import { bodyOf, checkBody, checkInvokeWithClause, R, strExpr, withClause, type FakeCallWithClause } from "./helpers/call-with-clause-harness";
+import { disposeWorkspace, plantThetaWorkspace, runProductionLoad } from "./helpers/production-load-harness";
 
 const WITH_CLAUSE_PROMPT_MODE_CALLEE_CODE = "theta/parse/with-clause-prompt-mode-callee";
 const WITH_CLAUSE_PI_TOOL_CODE = "theta/parse/with-clause-pi-tool";
@@ -138,41 +133,22 @@ describe("RFC 0009 static checks — row 13d: unknown-identifier precedence over
   let workspaceDir: string;
 
   afterEach(() => {
-    if (workspaceDir !== undefined) {
-      rmSync(workspaceDir, { recursive: true, force: true });
-    }
+    disposeWorkspace(workspaceDir);
   });
 
   it("`ghost(1) with { cwd: t }` (ghost bound nowhere) registers theta/parse/unknown-identifier and NEVER with-clause-in-process-callee (finding-3: the parser change HAS landed — repaired to spell the real clause syntax)", async () => {
-    workspaceDir = mkdtempSync(join(tmpdir(), "rfc0009-13d-"));
-    const thetaDir = join(workspaceDir, ".pi", "theta");
-    mkdirSync(thetaDir, { recursive: true });
-    writeFileSync(join(workspaceDir, ".pi", "settings.json"), "{}", "utf8");
-    writeFileSync(
-      join(thetaDir, "ghostcall.theta"),
-      ["---", "mode: subagent", "---", 'let _ = ghost(1) with { cwd: "sub" }', "@`hi`"].join("\n"),
-      "utf8",
-    );
-    const notifications: string[] = [];
-    const pi = {
-      getFlag: (): undefined => undefined,
-      getCommands: (): readonly unknown[] => [],
-      sendMessage: (): void => {},
-      sendUserMessage: (): void => {},
-      getActiveTools: (): readonly string[] => [],
-      setActiveTools: (): void => {},
-    } as unknown as ExtensionAPI;
-    const ctx = {
-      cwd: workspaceDir,
-      modelRegistry: { getAvailable: (): readonly unknown[] => [] },
-      ui: {
-        notify: (message: string): void => {
-          notifications.push(message);
+    workspaceDir = plantThetaWorkspace(
+      "rfc0009-13d-",
+      [
+        {
+          stem: "ghostcall",
+          text: ["---", "mode: subagent", "---", 'let _ = ghost(1) with { cwd: "sub" }', "@`hi`"].join("\n"),
         },
-      },
-    } as unknown as ExtensionContext;
-    const fixtures: readonly ThetaFixture[] = await discoverAndComposeFixtures(pi, ctx);
-    expect(fixtures.map((f) => f.slashName)).not.toContain("ghostcall");
+      ],
+      "{}",
+    );
+    const { registered, notifications } = await runProductionLoad(workspaceDir);
+    expect(registered).not.toContain("ghostcall");
     expect(notifications.some((n) => n.includes("unknown identifier 'ghost'"))).toBe(true);
     expect(notifications.some((n) => n.includes("is not applicable to 'ghost'"))).toBe(false);
   });

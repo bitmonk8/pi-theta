@@ -272,7 +272,7 @@ export function registryFragment(code: string, substitutions: Readonly<Record<st
  * page when the row is absent, so a registry drift can never degrade an
  * assertion below into a comparison against `undefined`.
  */
-function registeredParseMessage(code: string): string {
+export function registeredParseMessage(code: string): string {
   const template = registryMessage(PARSE_REGISTRY, code) as string | undefined;
   if (template === undefined) {
     throw new Error(
