@@ -163,9 +163,11 @@ import { createPassVerdictMemo, type PassVerdictDeps } from "./pass-verdict-memo
 import { checkTypedQueryProviderSupport } from "../runtime/typed-query-provider-gate";
 import {
   resolveCallableSet,
+  thetaDefaultName,
   type CallableSetDeps,
   type CallableSetSnapshot,
 } from "../parser/callable-set";
+import { normalizePath } from "../normalize-path";
 import { admissibleToolsSpec } from "./tools-entry-gate";
 import { RUNTIME_TOOL_SIGNATURES, type RuntimeToolName } from "../parser/runtime-tools";
 import { checkCalleeHasErrors, checkInvokeExtension } from "../parser/invoke-diagnostics";
@@ -590,7 +592,7 @@ async function canonicalWatchRootIdentity(
   fs: Pick<FileSystem, "exists" | "realpath">,
   root: string,
 ): Promise<string> {
-  return (await fs.exists(root)) ? canonicalizePath(fs, root) : root.replace(/\\/g, "/");
+  return (await fs.exists(root)) ? canonicalizePath(fs, root) : normalizePath(root);
 }
 
 /**
@@ -968,9 +970,9 @@ async function runComposePass(
   // theta's import graph), against this discovery-derived base — additive only,
   // so folding the package source in here does not disturb that later fold.
   const discoveryWatchRoots = await dedupeWatchRootsByIdentity(fileSystem, [
-    ...activeRoots.map((r) => r.replace(/\\/g, "/")),
+    ...activeRoots.map((r) => normalizePath(r)),
     ...walk.roots,
-    ...packageWalk.roots.map((r) => r.replace(/\\/g, "/")),
+    ...packageWalk.roots.map((r) => normalizePath(r)),
   ]);
 
   // PIC-64 host-loop-dispatch rung availability is NOT regime-gated — the probe
@@ -1940,7 +1942,7 @@ async function composeOneTheta(
   // walk (fixing the refused lib must still fire the reload). A theta refused
   // before this point never reached the walk and contributes nothing.
   for (const libPath of importCheck.resolvedLibs) {
-    importClosureDirs.add(dirname(libPath).replace(/\\/g, "/"));
+    importClosureDirs.add(normalizePath(dirname(libPath)));
   }
   // Bug 0264: emit only the UNDELIVERED remainder — `importCheck.undelivered`
   // already excludes rows the pass cache saw `lexTheta` deliver for this
@@ -2121,7 +2123,7 @@ async function composeOneTheta(
  * the child's discovered thetas.
  */
 function deriveCallableName(sourcePath: string): string {
-  return thetaBasename(sourcePath).replace(/-/g, "_");
+  return thetaDefaultName(normalizePath(sourcePath));
 }
 
 /**
@@ -2177,7 +2179,7 @@ async function alignMarshalledCallables(
       if (theta.sourcePath === undefined) {
         continue;
       }
-      const canonical = (await fs.realpath(theta.sourcePath)).replace(/\\/g, "/");
+      const canonical = await canonicalizePath(fs, theta.sourcePath);
       if (!thetaByCanonicalPath.has(canonical)) {
         thetaByCanonicalPath.set(canonical, theta);
       }
@@ -2205,8 +2207,8 @@ async function alignMarshalledCallables(
       // fall back to the normalised-exact string); any other realpath error is a
       // real fault and is left to crash (fail-closed — CLAUDE.md "let crash").
       const calleeCanonical = (await fs.exists(calleeAbs))
-        ? (await fs.realpath(calleeAbs)).replace(/\\/g, "/")
-        : calleeAbs.replace(/\\/g, "/");
+        ? await canonicalizePath(fs, calleeAbs)
+        : normalizePath(calleeAbs);
       const calleeTheta = thetaByCanonicalPath.get(calleeCanonical);
       byName.set(presentedName, { theta: calleeTheta, sources });
     }
@@ -4742,7 +4744,7 @@ async function collectCallableClosureSources(
     // is the seam production's four capture routes converge through, so a
     // digest input never sees the two routes' differing native separator
     // spellings (node `resolve` vs discovery joins) for one file.
-    sources.push({ path: absPath.replace(/\\/g, "/"), content: decoder.decode(bytes) });
+    sources.push({ path: normalizePath(absPath), content: decoder.decode(bytes) });
     // Bug 0264: this closure walk re-parses each member on its own
     // (doc-comment above); route through the pass cache so a member already
     // parsed this pass — by the discovery walk, an importer, or another
