@@ -50,6 +50,7 @@ import {
   renderScalarValue,
   renderNonScalarModeKind,
   renderNonScalarBindContextKind,
+  presentScalarOrKind,
   extractToolsList,
   TOOL_LOOP_SUBKEYS,
   RESPOND_REPAIR_SUBKEYS,
@@ -146,11 +147,9 @@ function collectModeField(
   fields: MutableRecognisedFields,
 ): void {
   fields.modePresent = true;
-  if (isScalar(value)) {
-    fields.modeValue = String(value.value);
-  } else {
-    fields.modeValueKind = renderNonScalarModeKind(value);
-  }
+  const v = presentScalarOrKind(value, renderNonScalarModeKind);
+  fields.modeValue = v.value;
+  fields.modeValueKind = v.kind;
   fields.modeRange = valueRange;
 }
 
@@ -277,11 +276,9 @@ function collectBindContextField(
   fields: MutableRecognisedFields,
 ): void {
   fields.bindContextPresent = true;
-  if (isScalar(value)) {
-    fields.bindContextValue = String(value.value);
-  } else {
-    fields.bindContextValueKind = renderNonScalarBindContextKind(value);
-  }
+  const v = presentScalarOrKind(value, renderNonScalarBindContextKind);
+  fields.bindContextValue = v.value;
+  fields.bindContextValueKind = v.kind;
   fields.bindContextRange = valueRange;
 }
 

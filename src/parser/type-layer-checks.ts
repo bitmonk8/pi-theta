@@ -753,7 +753,11 @@ function collectSchemaFields(
   return out;
 }
 
-/** The direct child expressions of an expression node (for the `?` scan). */
+/**
+ * The direct child expressions of an expression node — shared by the `?`
+ * operand scan here and by theta-document.ts's interpolation-form scan and
+ * call-site node walk.
+ */
 function childExprs(e: Expr): readonly Expr[] {
   switch (e.kind) {
     case "binary":

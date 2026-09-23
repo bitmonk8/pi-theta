@@ -47,6 +47,7 @@ import type {
 } from "../parser/frontmatter";
 import {
   createModelReferenceMatcher,
+  matchModelReference,
   type ModelRegistrySurface,
 } from "../parser/model-reference-matcher";
 import type { ThetaSettings } from "../discovery/settings";
@@ -120,29 +121,22 @@ export interface StrictCapableProbeResult extends StrictCapableProbe {
 
 /**
  * Match a resolved binder-model reference string to a single concrete available
- * model, by the same exact-match rule
+ * model, through the same exact-match rule
  * (binder-model-and-context.md#binder-model-parse-rule) the shared
- * `ModelReferenceMatcher` applies: a bare `modelId` matches each available
- * model's `id`; a `provider/modelId` reference matches the short provider-id
- * `provider` plus `id`. Returns the single matched model, or `undefined` when
- * zero or more than one available model matches (the load-time resolver already
- * decided such a reference resolves to no model). Generic over the model shape
- * so every site that resolves a model reference against
- * `modelRegistry.getAvailable()` reuses it.
+ * `ModelReferenceMatcher` applies — both delegate to `matchModelReference`
+ * (src/parser/model-reference-matcher.ts), the rule's one implementation: a
+ * bare `modelId` matches each available model's `id`; a `provider/modelId`
+ * reference matches the short provider-id `provider` plus `id`. Returns the
+ * single matched model, or `undefined` when zero or more than one available
+ * model matches (the load-time resolver already decided such a reference
+ * resolves to no model). Generic over the model shape so every site that
+ * resolves a model reference against `modelRegistry.getAvailable()` reuses it.
  */
 export function matchAvailableModel<M extends { readonly id: string; readonly provider: string }>(
   reference: string,
   available: readonly M[],
 ): M | undefined {
-  const slash = reference.indexOf("/");
-  const matches =
-    slash >= 0
-      ? available.filter(
-          (m) =>
-            m.provider === reference.slice(0, slash) &&
-            m.id === reference.slice(slash + 1),
-        )
-      : available.filter((m) => m.id === reference);
+  const matches = matchModelReference(reference, available);
   return matches.length === 1 ? matches[0] : undefined;
 }
 

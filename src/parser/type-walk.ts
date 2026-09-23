@@ -6,6 +6,7 @@
 // (bug 0384; diagnostic-shape.md single-line-summary rule).
 import { normaliseLiteralValueLineBreaks, type Diagnostic } from "../diagnostics/diagnostic";
 import { reservedKeywords } from "../lexer/lexer";
+import { isTypeLikeName } from "../lexer/name-case";
 import { splitTopLevel, topLevelColon } from "./params";
 import { emptySchemaBodyDiagnostic } from "./schema-declarations";
 import type { TypeNode, TypePosition, TypeCheckRules, TypeCheckSite } from "./type-grammar";
@@ -370,9 +371,7 @@ function walkType(
             });
             continue;
           }
-          const first = name.charAt(0);
-          const isUpper = first >= "A" && first <= "Z";
-          if (isUpper) {
+          if (isTypeLikeName(name)) {
             out.push({
               severity: "error",
               code: "theta/parse/binding-case-mismatch",

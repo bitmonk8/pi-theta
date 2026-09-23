@@ -1,7 +1,7 @@
 // CTRL-4 `par for` body-restriction scan: post-parse diagnostics over a parsed
 // `par for` body (control-flow.md CTRL-4).
 
-import type { Diagnostic } from "../diagnostics/diagnostic";
+import type { Diagnostic, SourceRange } from "../diagnostics/diagnostic";
 import type { Block, Expr, Stmt } from "./theta-ast";
 import { callWithClauseValues } from "./theta-document";
 
@@ -9,6 +9,23 @@ import { callWithClauseValues } from "./theta-document";
 export interface ParForScanContext {
 readonly diagnostics: Diagnostic[];
 readonly file: string;
+}
+
+/**
+ * Emit the CTRL-4 `par-query-in-body` refusal for an `@` query at `range` —
+ * the one diagnostic both syntactic positions a query can occupy (statement
+ * and expression) share, so the two `case "query"` arms below stay in
+ * lockstep on code, severity, and message.
+ */
+function pushParQueryInBodyDiagnostic(sink: ParForScanContext, range: SourceRange): void {
+  sink.diagnostics.push({
+    severity: "error",
+    code: "theta/parse/par-query-in-body",
+    file: sink.file,
+    range,
+    message:
+      "`@` query against the enclosing conversation is not permitted inside a 'par for' body",
+  });
 }
 
 /**
@@ -129,14 +146,7 @@ function scanParForStmt(
       scanParForBlock(sink, s.body, outerMutables, new Set(bodyLocals), loopDepth + 1);
       return;
     case "query":
-      sink.diagnostics.push({
-        severity: "error",
-        code: "theta/parse/par-query-in-body",
-        file: sink.file,
-        range: s.range,
-        message:
-          "`@` query against the enclosing conversation is not permitted inside a 'par for' body",
-      });
+      pushParQueryInBodyDiagnostic(sink, s.range);
       return;
     case "tool-call":
       scanParForExpr(sink, s.call, outerMutables, bodyLocals, loopDepth);
@@ -191,14 +201,7 @@ function scanParForExpr(
       scanParForBlock(sink, e.body, outerMutables, new Set(bodyLocals), loopDepth);
       return;
     case "query":
-      sink.diagnostics.push({
-        severity: "error",
-        code: "theta/parse/par-query-in-body",
-        file: sink.file,
-        range: e.range,
-        message:
-          "`@` query against the enclosing conversation is not permitted inside a 'par for' body",
-      });
+      pushParQueryInBodyDiagnostic(sink, e.range);
       return;
     case "par-for":
       // A nested `par for` emits its own body diagnostics; its iterand / max

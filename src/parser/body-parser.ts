@@ -3,6 +3,7 @@
 import type { Diagnostic, SourceRange } from "../diagnostics/diagnostic";
 import type { Token } from "../lexer/lexer";
 import { validatePathLiteral } from "../lexer/literals";
+import { isTypeLikeName } from "../lexer/name-case";
 import {
   checkImportDanglingAlias,
   checkImportMalformedSpecifierList,
@@ -20,6 +21,7 @@ import {
 import { checkObjectSchema, type EnumValueKind, type EnumVariantDecl } from "./schema-declarations";
 import { collectPatternBinderNames as collectPatternBindings } from "./match-result";
 import { parseObjectPatternFields } from "./object-pattern-fields";
+import { parseDelimitedExprs } from "./expr-list";
 import { BUILTIN_VALUE_NAMES, reservedKeywordAsIdentifierDiagnostic, unresolvedNamedTypeDiagnostic } from "./annotation-validation";
 import { splitTopLevelSegments } from "./params";
 import { emitParForBodyDiagnostics } from "./par-for-body-checks";
@@ -1219,12 +1221,10 @@ class BodyParser {
         // lexical.md §Identifiers requires lowercase-first for a `fn`
         // parameter name, and code-registry-parse.md's binding-case-mismatch
         // row already names the parameter position in its Trigger. The
-        // predicate and the `ident` guard mirror `checkName`'s binding arm
-        // (lexer.ts) so the rule keeps one spelling across every position it
-        // is enforced at.
-        const first = pTok.text[0] ?? "";
-        const isUpper = first >= "A" && first <= "Z";
-        if (isUpper) {
+        // predicate is the shared `isTypeLikeName` guard (lexer/name-case),
+        // the same one `checkName`'s binding arm asks, so the rule keeps one
+        // implementation across every position it is enforced at.
+        if (isTypeLikeName(pTok.text)) {
           this.diagnostics.push({
             severity: "error",
             code: "theta/parse/binding-case-mismatch",
@@ -1778,10 +1778,10 @@ class BodyParser {
       // `ident` token is judged on its first letter under lexical.md
       // §Identifiers / code-registry-parse.md:19. The two subjects are
       // disjoint by construction, so the case arm never sees a reserved
-      // spelling. The case predicate mirrors `checkName`'s own two-comparison
-      // form (lexer.ts) — the same one the `fn` parameter check (bug 0139)
-      // already reuses — so the rule keeps one spelling across every
-      // position it is enforced at.
+      // spelling. The case predicate is the shared `isTypeLikeName` guard
+      // (lexer/name-case) — the same one `checkName` and the `fn` parameter
+      // check (bug 0139) ask — so the rule keeps one implementation across
+      // every position it is enforced at.
       if (nameTok.kind === "keyword") {
         // lexical.md:20 reserves all 32 spellings from identifier position
         // with no scope list, and code-registry-parse.md:21's Trigger names
@@ -1799,9 +1799,7 @@ class BodyParser {
           reservedKeywordAsIdentifierDiagnostic(nameTok.text, nameTok.range, this.file),
         );
       } else if (nameTok.kind === "ident") {
-        const first = nameTok.text[0] ?? "";
-        const isUpper = first >= "A" && first <= "Z";
-        if (isUpper) {
+        if (isTypeLikeName(nameTok.text)) {
           this.diagnostics.push({
             severity: "error",
             code: "theta/parse/binding-case-mismatch",
@@ -3877,52 +3875,29 @@ class BodyParser {
     };
   }
 
+  /** The cursor `parseDelimitedExprs` drives (expr-list.ts). */
+  private readonly exprListCursor = {
+    advance: () => this.advance(),
+    isPunct: (text: string) => this.isPunct(text),
+    atEnd: () => this.atEnd(),
+    parseExpression: () => this.parseExpression(),
+    getSuppressBrace: () => this.suppressBrace,
+    setSuppressBrace: (value: boolean) => {
+      this.suppressBrace = value;
+    },
+  };
+
   private parseArgs(): Expr[] {
-    const args: Expr[] = [];
     if (!this.isPunct("(")) {
-      return args;
+      return [];
     }
     this.advance(); // `(`
-    const saveArgs = this.suppressBrace;
-    this.suppressBrace = false;
-    while (!this.isPunct(")") && !this.atEnd()) {
-      const arg = this.parseExpression();
-      if (arg === null) {
-        this.advance();
-        continue;
-      }
-      args.push(arg);
-      if (this.isPunct(",")) {
-        this.advance();
-      }
-    }
-    this.suppressBrace = saveArgs;
-    if (this.isPunct(")")) {
-      this.advance();
-    }
-    return args;
+    return parseDelimitedExprs(this.exprListCursor, ")");
   }
 
   private parseArray(): Expr {
     const open = this.advance(); // `[`
-    const saveArr = this.suppressBrace;
-    this.suppressBrace = false;
-    const elements: Expr[] = [];
-    while (!this.isPunct("]") && !this.atEnd()) {
-      const el = this.parseExpression();
-      if (el === null) {
-        this.advance();
-        continue;
-      }
-      elements.push(el);
-      if (this.isPunct(",")) {
-        this.advance();
-      }
-    }
-    this.suppressBrace = saveArr;
-    if (this.isPunct("]")) {
-      this.advance();
-    }
+    const elements = parseDelimitedExprs(this.exprListCursor, "]");
     return {
       kind: "array",
       elements,

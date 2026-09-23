@@ -53,22 +53,11 @@ export function isSingleEnclosingBraceGroup(s: string): boolean {
     return false;
   }
   let depth = 0;
-  let quote: string | undefined;
   for (let i = 0; i < s.length; i += 1) {
     const c = s[i] ?? "";
-    if (quote !== undefined) {
-      if (c === "\\" && i + 1 < s.length) {
-        i += 1;
-      } else if (c === quote) {
-        quote = undefined;
-      }
-      continue;
-    }
     if (c === '"' || c === "'") {
-      quote = c;
-      continue;
-    }
-    if (c === "{") {
+      i = skipQuotedRegion(s, i);
+    } else if (c === "{") {
       depth += 1;
     } else if (c === "}") {
       depth -= 1;
@@ -115,22 +104,11 @@ export function isSingleEnclosingBraceGroup(s: string): boolean {
  */
 function isBraceBalanced(s: string): boolean {
   let depth = 0;
-  let quote: string | undefined;
   for (let i = 0; i < s.length; i += 1) {
     const c = s[i] ?? "";
-    if (quote !== undefined) {
-      if (c === "\\" && i + 1 < s.length) {
-        i += 1;
-      } else if (c === quote) {
-        quote = undefined;
-      }
-      continue;
-    }
     if (c === '"' || c === "'") {
-      quote = c;
-      continue;
-    }
-    if (c === "{") {
+      i = skipQuotedRegion(s, i);
+    } else if (c === "{") {
       depth += 1;
     } else if (c === "}") {
       depth -= 1;
@@ -268,11 +246,12 @@ function hasUnterminatedStringLiteral(text: string): boolean {
  * literal never closes. A backslash inside the region consumes the character
  * behind it, so an escaped quote does not close the literal. This is the ONE
  * copy of the quote/escape rule the quote-aware scanners share —
- * `hasUnterminatedStringLiteral` (above) and `topLevelColon` (below) here,
+ * `isSingleEnclosingBraceGroup`, `isBraceBalanced`,
+ * `hasUnterminatedStringLiteral` and `topLevelColon` here,
  * `findCutBracketGroupText` (./params), `splitParamValue`
  * (./frontmatter-params) and `braceGroupCarriesUnmatchedCloseToken`
  * (./annotation-validation) — so all of them agree on what a quoted region
- * is by construction rather than by five mirrored loops. A caller resumes
+ * is by construction rather than by seven mirrored loops. A caller resumes
  * its own scan at the returned index: its loop increment steps past the
  * closing quote, or past the end when the region is unterminated.
  */

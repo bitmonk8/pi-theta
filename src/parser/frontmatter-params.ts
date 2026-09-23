@@ -13,6 +13,7 @@ import {
   isIdentifierShaped,
 } from "./frontmatter-yaml";
 import { skipQuotedRegion } from "./type-text-split";
+import { isTypeLikeName } from "../lexer/name-case";
 
 /**
  * Split a `params:` field value scalar (`<type-expr>` optionally followed by
@@ -181,9 +182,7 @@ function extractParsedParams(
         message: "params key must be an identifier",
       });
     } else {
-      const first = name[0] ?? "";
-      const isUpper = first >= "A" && first <= "Z";
-      if (isUpper) {
+      if (isTypeLikeName(name)) {
         diagnostics.push({
           severity: "error",
           code: "theta/parse/binding-case-mismatch",

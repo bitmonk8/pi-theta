@@ -25,6 +25,30 @@ export interface ModelRegistrySurface {
 }
 
 /**
+ * The ONE implementation of the exact-match rule
+ * (binder-model-and-context.md#binder-model-parse-rule): return every
+ * available model `reference` matches. A `provider/modelId` reference (split
+ * at the first `/`) matches the short provider-id `Model<Api>.provider` (NOT
+ * the api-shaped `.api`) plus `Model<Api>.id`; a bare `modelId` matches each
+ * model's `id`. Callers judge the match count — `resolve` (below) maps it to
+ * a `ModelMatchOutcome`, `matchAvailableModel` (src/binder/binder-model.ts)
+ * to the single matched model or `undefined` — so both stay in step by
+ * construction. Generic over the model shape so a live `Model<Api>` passes
+ * through unchanged.
+ */
+export function matchModelReference<
+  M extends { readonly id: string; readonly provider: string },
+>(reference: string, available: readonly M[]): readonly M[] {
+  const slash = reference.indexOf("/");
+  if (slash >= 0) {
+    const provider = reference.slice(0, slash);
+    const modelId = reference.slice(slash + 1);
+    return available.filter((m) => m.provider === provider && m.id === modelId);
+  }
+  return available.filter((m) => m.id === reference);
+}
+
+/**
  * Construct theta's own exact-match model-reference resolver over
  * `registry.getAvailable()`: a bare `modelId` matches each model's `id`; a
  * `provider/modelId` reference matches `provider` (the short provider-id form,
@@ -41,23 +65,9 @@ export function createModelReferenceMatcher(
       if (typeof reference !== "string") {
         return "no-match";
       }
-      const available = registry.getAvailable();
-      const slash = reference.indexOf("/");
-      if (slash >= 0) {
-        // `provider/modelId`: the provider half compares against the short
-        // provider-id `Model<Api>.provider` (NOT the api-shaped `.api`) and the
-        // modelId half against `Model<Api>.id`.
-        const provider = reference.slice(0, slash);
-        const modelId = reference.slice(slash + 1);
-        const matches = available.filter(
-          (m) => m.provider === provider && m.id === modelId,
-        );
-        return outcomeOf(matches.length);
-      }
-      // A bare `modelId` matches each model's `Model<Api>.id`; a match across
-      // more than one provider is ambiguous (resolves to no model).
-      const matches = available.filter((m) => m.id === reference);
-      return outcomeOf(matches.length);
+      // A bare `modelId` matching across more than one provider is ambiguous
+      // (resolves to no model).
+      return outcomeOf(matchModelReference(reference, registry.getAvailable()).length);
     },
   };
 }

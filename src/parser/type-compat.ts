@@ -31,6 +31,8 @@
 // diagnostic and the runtime AJV check is the safety net (type-system.md
 // §"Unresolvable operands").
 
+import { isTypeLikeName } from "../lexer/name-case";
+
 export {
   checkCommonType,
   checkFnArgCompat,
@@ -149,20 +151,20 @@ export type TypeEnv = Readonly<Record<string, NamedDecl>>;
  * static check — type-system.md §"Unresolvable operands" is the correct
  * disposition, and the `theta/parse/let-rhs-type-mismatch` registry row's
  * "where the RHS type is statically resolvable" qualifier
- * (code-registry-parse.md) already excludes it. The predicate is re-derived
- * from the name's first character rather than shared, matching the lexer's
- * own type-position test (`contextualDiagnostics`, src/lexer/lexer.ts) and
- * the other local re-derivations in this tree (`extractParsedParams`,
- * src/parser/frontmatter.ts; `parseFn` and `parseSchemaObjectBody`,
- * src/parser/theta-document.ts; `walkType`, src/parser/type-grammar.ts).
+ * (code-registry-parse.md) already excludes it. The predicate is the shared
+ * `isTypeLikeName` guard (src/lexer/name-case.ts) — the same one the lexer's
+ * type-position test (`contextualDiagnostics`, src/lexer/contextual-checks.ts)
+ * and the other enforcement sites (`extractParsedParams`,
+ * src/parser/frontmatter-params.ts; `parseFnParamList` and
+ * `parseSchemaObjectBody`, src/parser/body-parser.ts; `walkType`,
+ * src/parser/type-walk.ts) ask.
  * The fence sits at this read seam, not the write seam (`collectTypeEnv`):
  * bug 0038's witness requires a `schema __proto__` declaration to land as
  * an own key of the record (tests/typeenv-prototype-names.test.ts, cell
  * g2), which a write-seam fence would swallow.
  */
 export function resolveNamed(env: TypeEnv, name: string): NamedDecl | undefined {
-  const first = name[0] ?? "";
-  if (!(first >= "A" && first <= "Z")) {
+  if (!isTypeLikeName(name)) {
     return undefined;
   }
   return Object.hasOwn(env, name) ? env[name] : undefined;

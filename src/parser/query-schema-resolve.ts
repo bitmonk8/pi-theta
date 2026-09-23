@@ -302,10 +302,25 @@ class QuerySchemaResolveWalk {
    * blocks so a `return @`…`` deep in the body still sees the declared type.
    */
   private rewriteFnBlock(block: Block, returnFrames: readonly OriginFrame[]): Block {
+    return this.rewriteReturnAwareBlock(block, returnFrames, returnFrames);
+  }
+
+  /**
+   * Rewrite a block inside a `fn`: every statement keeps the return sink
+   * (`rewriteReturnAware`), and the tail rewrites with `tailFrames` — the fn
+   * body and an `if` branch pass the return sink (their tail is the fn's
+   * implicit return / branch value); a loop body passes fresh sink-less frames
+   * (its tail is not the fn's implicit return).
+   */
+  private rewriteReturnAwareBlock(
+    block: Block,
+    returnFrames: readonly OriginFrame[],
+    tailFrames: readonly OriginFrame[],
+  ): Block {
     const statements = block.statements.map((stmt) =>
       this.rewriteReturnAware(stmt, returnFrames),
     );
-    const tail = block.tail === null ? null : this.rewriteExpr(block.tail, returnFrames);
+    const tail = block.tail === null ? null : this.rewriteExpr(block.tail, tailFrames);
     return { statements, tail };
   }
 
@@ -318,10 +333,7 @@ class QuerySchemaResolveWalk {
           : { ...stmt, operand: this.rewriteExpr(stmt.operand, returnFrames) };
       case "if": {
         const rewriteBranch = (b: Block): Block =>
-          ({
-            statements: b.statements.map((s) => this.rewriteReturnAware(s, returnFrames)),
-            tail: b.tail === null ? null : this.rewriteExpr(b.tail, returnFrames),
-          });
+          this.rewriteReturnAwareBlock(b, returnFrames, returnFrames);
         const otherwise =
           stmt.otherwise === null
             ? null
@@ -366,11 +378,7 @@ class QuerySchemaResolveWalk {
    * (sink-less) frames.
    */
   private rewriteLoopBody(block: Block, returnFrames: readonly OriginFrame[]): Block {
-    const statements = block.statements.map((stmt) =>
-      this.rewriteReturnAware(stmt, returnFrames),
-    );
-    const tail = block.tail === null ? null : this.rewriteExpr(block.tail, []);
-    return { statements, tail };
+    return this.rewriteReturnAwareBlock(block, returnFrames, []);
   }
 
   private rewriteIf(stmt: IfStmt): IfStmt {

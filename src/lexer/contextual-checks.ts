@@ -2,6 +2,7 @@
 
 import { type Diagnostic } from "../diagnostics/diagnostic";
 import { type Token } from "./lexer";
+import { isTypeLikeName } from "./name-case";
 
 export { contextualDiagnostics };
 
@@ -215,8 +216,7 @@ function contextualDiagnostics(tokens: readonly Token[], file: string): Diagnost
     if (name.kind !== "ident") {
       return;
     }
-    const first = name.text[0] ?? "";
-    const isUpper = first >= "A" && first <= "Z";
+    const isUpper = isTypeLikeName(name.text);
     if (kind === "binding" && isUpper) {
       diagnostics.push({
         severity: "error",

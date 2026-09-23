@@ -231,6 +231,23 @@ function renderNonScalarBindContextKind(node: unknown): string {
 }
 
 /**
+ * The shared present-but-bad value split for a closed-set frontmatter field
+ * (the `mode:` and `bind_context:` arms, bug 0297): a present scalar yields
+ * its string value; a present non-scalar yields the bounded kind token from
+ * `renderKind` instead, so the field reads as present-but-unrecognised rather
+ * than absent. Exactly one of `value` / `kind` is defined.
+ */
+function presentScalarOrKind(
+  node: Node | null | undefined,
+  renderKind: (node: unknown) => string,
+): { readonly value: string | undefined; readonly kind: string | undefined } {
+  if (isScalar(node)) {
+    return { value: String(node.value), kind: undefined };
+  }
+  return { value: undefined, kind: renderKind(node) };
+}
+
+/**
  * Extract the `tools:` callable set (FRNT-2/FRNT-3): a plain scalar is the
  * comma-separated short form (frontmatter-fields-b-and-templates.md §YAML-shape:
  * the plain scalar split on commas, each entry trimmed) so `read, grep` becomes
@@ -502,6 +519,7 @@ export {
   renderScalarValue,
   renderNonScalarModeKind,
   renderNonScalarBindContextKind,
+  presentScalarOrKind,
   extractToolsList,
   RESERVED_KEYWORDS,
   isIdentifierShaped,

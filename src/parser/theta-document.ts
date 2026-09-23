@@ -49,7 +49,7 @@ import {
   type ParsedRespondRepair,
 } from "./frontmatter";
 import type { EnumValueKind } from "./schema-declarations";
-import { checkTypeLayer, paramsFieldsFromFrontmatter } from "./type-layer-checks";
+import { checkTypeLayer, childExprs, paramsFieldsFromFrontmatter } from "./type-layer-checks";
 import { resolveQuerySchemas, type QueryPropagation } from "./query-schema-resolve";
 import {
   buildBodyTypeSchemas,
@@ -780,7 +780,7 @@ export interface CallSiteWalkOptions {
    * Also descend into a nested `fn` declaration's own `with { … }`
    * session-config field values (RFC 0001 FN-7) — distinct from a call's own
    * `with` clause, which every walk already reaches through
-   * `expressionChildExprs`'s `call` / `invoke` arm.
+   * `childExprs`' `call` / `invoke` arm (type-layer-checks.ts).
    */
   readonly includeFnWithClauseValues?: boolean;
 }
@@ -911,7 +911,7 @@ function walkCallSiteNodesInExpr(
       walkCallSiteNodesInBlock(e.body, visit, options);
       return;
     default:
-      for (const child of expressionChildExprs(e)) {
+      for (const child of childExprs(e)) {
         walkCallSiteNodesInExpr(child, visit, options);
       }
       return;
@@ -1687,50 +1687,13 @@ function firstForbiddenInterpolationForm(e: Expr): string | null {
   if (e.kind === "query") {
     return "@-query template";
   }
-  for (const child of expressionChildExprs(e)) {
+  for (const child of childExprs(e)) {
     const found = firstForbiddenInterpolationForm(child);
     if (found !== null) {
       return found;
     }
   }
   return null;
-}
-
-/**
- * The direct child expressions of `e` (for the interpolation-form scan and the
- * `.thetalib` clause collector above). A call/invoke node's call-site `with`
- * clause values are children exactly as its arguments are (RFC 0009: the
- * positional restrictions inside a clause value are an argument's), so every
- * consumer of this accessor judges them.
- */
-function expressionChildExprs(e: Expr): readonly Expr[] {
-  switch (e.kind) {
-    case "binary":
-      return [e.left, e.right];
-    case "ternary":
-      return [e.condition, e.consequent, e.alternate];
-    case "try":
-      return [e.operand];
-    case "call":
-    case "invoke":
-      return [...e.args, ...callWithClauseValues(e)];
-    case "member":
-      return [e.target];
-    case "index":
-      return [e.target, e.index];
-    case "object":
-      return e.fields.map((f) => f.value);
-    case "match":
-      return [e.scrutinee, ...e.arms.map((arm) => arm.body)];
-    case "result-ctor":
-      return [e.arg];
-    case "method-call":
-      return [e.target, ...e.args];
-    case "array":
-      return e.elements;
-    default:
-      return [];
-  }
 }
 
 // --------------------------------------------------------------------------
