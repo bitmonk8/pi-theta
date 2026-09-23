@@ -2,7 +2,7 @@
 id: PTQ-1288
 title: spawnSubagentConversation remains 282 LOC across seven launch phases after the PTQ-1168 extraction
 lens: D9
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/extension/production-theta-producer.ts:2449-2730

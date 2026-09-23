@@ -2,7 +2,7 @@
 id: PTQ-1289
 title: the QRY-18 interpolation render/outbound-translation cluster lives in production-theta-producer.ts while its whole substrate lives in render/query-render and runtime modules
 lens: D9
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/extension/production-theta-producer.ts:6285-6313

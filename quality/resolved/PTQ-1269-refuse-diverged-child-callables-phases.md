@@ -2,7 +2,7 @@
 id: PTQ-1269
 title: refuseDivergedChildCallables spans 152 LOC across marshalled-read, snapshot alignment, file-derivation fallback, hash verification, and refusal-drop phases
 lens: D9
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/extension/production-composition.ts:1886-2037

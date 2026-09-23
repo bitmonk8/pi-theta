@@ -2,7 +2,7 @@
 id: PTQ-1274
 title: ProductionThetaProducer.#guardInvokeBoundary runs five separable boundary guards in one 116-LOC body
 lens: D9
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/extension/production-theta-producer.ts:5137-5252

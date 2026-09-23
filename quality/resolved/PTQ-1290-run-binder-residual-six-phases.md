@@ -2,7 +2,7 @@
 id: PTQ-1290
 title: runBinder remains 187 LOC across six sequential bind phases after the PTQ-1190 extraction
 lens: D9
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/extension/production-theta-producer.ts:1024-1210

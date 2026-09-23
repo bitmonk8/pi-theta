@@ -2,7 +2,7 @@
 id: PTQ-1266
 title: with-clause-static-checks.ts hosts three with-clause rule checks in src/extension while touching 18 parser members against 3 of its own layer, and its rule sibling already moved to parser/invoke-diagnostics.ts
 lens: D9
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/extension/with-clause-static-checks.ts:38-111

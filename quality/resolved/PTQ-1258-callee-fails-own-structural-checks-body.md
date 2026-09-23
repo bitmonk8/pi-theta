@@ -2,7 +2,7 @@
 id: PTQ-1258
 title: calleeFailsOwnStructuralChecksBody spans 292 LOC across import-check, per-entry probe loop, stub callable-set resolution, and verdict fold
 lens: D9
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/extension/production-composition.ts:3514-3805

@@ -2,7 +2,7 @@
 id: PTQ-1272
 title: The theta-system-note wire/contract declarations live in src/extension/system-note-channel.ts while 8 modules across the lexer, parser, binder, and runtime layers import them upward
 lens: D9
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/extension/system-note-channel.ts:115

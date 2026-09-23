@@ -2,7 +2,7 @@
 id: PTQ-1279
 title: ProductionThetaProducer.#resolveRuntimeToolCall bundles arg binding, the validation net, and per-name dispatch construction in one 102-LOC body
 lens: D9
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/extension/production-theta-producer.ts:4332-4433
