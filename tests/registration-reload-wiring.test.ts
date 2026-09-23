@@ -21,6 +21,7 @@ import type {
   FrontmatterParseResult,
 } from "../src/parser/frontmatter";
 import { model, registryOf } from "./helpers/model-registry-fixture";
+import { makeTheta } from "./helpers/watch-arming-harness";
 
 // V9b-T — registration steps and reload-wiring seams (tests). These tests are
 // written against the seams the paired V9b implementation leaf fills in; they
@@ -36,14 +37,6 @@ function command(name: string, source: SlashCommandInfo["source"]): SlashCommand
   };
 }
 
-const NOOP_RUN = async (): Promise<void> => {};
-const theta = (slashName: string): ParsedTheta => ({
-  slashName,
-  frontmatter: { mode: "prompt" },
-  body: { statements: [], tail: null },
-  run: NOOP_RUN,
-});
-
 // --- PIC-36 — registry swap atomicity ---
 
 describe("V9b-T — registry-swap atomicity (PIC-36)", () => {
@@ -51,7 +44,8 @@ describe("V9b-T — registry-swap atomicity (PIC-36)", () => {
     const registry = new ThetaRegistry();
     const emitDiagnostic = vi.fn<(d: Diagnostic) => void>();
 
-    const staged = new Map<string, ParsedTheta>([["foo", theta("foo")]]);
+    const foo = makeTheta("foo");
+    const staged = new Map<string, ParsedTheta>([["foo", foo]]);
     const published = rebuildAndSwap(
       "/x/foo.theta",
       () => staged,
@@ -59,12 +53,13 @@ describe("V9b-T — registry-swap atomicity (PIC-36)", () => {
     );
 
     expect(published).toBe(true);
-    expect(registry.get("foo")).toEqual(theta("foo"));
+    expect(registry.get("foo")).toEqual(foo);
     expect(emitDiagnostic).not.toHaveBeenCalled();
   });
 
   it("PIC-36: a failed rebuild discards the staging set, keeps the prior snapshot live, and fires theta/runtime/registry-swap-failed", () => {
-    const registry = new ThetaRegistry([["old", theta("old")]]);
+    const old = makeTheta("old");
+    const registry = new ThetaRegistry([["old", old]]);
     const emitDiagnostic = vi.fn<(d: Diagnostic) => void>();
 
     const published = rebuildAndSwap(
@@ -77,7 +72,7 @@ describe("V9b-T — registry-swap atomicity (PIC-36)", () => {
 
     // Discarded swap: prior snapshot remains live, staging set never published.
     expect(published).toBe(false);
-    expect(registry.get("old")).toEqual(theta("old"));
+    expect(registry.get("old")).toEqual(old);
     expect(registry.get("foo")).toBeUndefined();
 
     // Exactly one `theta/runtime/registry-swap-failed` diagnostic, message
@@ -115,7 +110,7 @@ describe("V9b-T — registry-swap atomicity (PIC-36)", () => {
 
 describe("V9b-T — getCommands() snapshot read-only-by-convention (PIC-39)", () => {
   it("PIC-39: the collision pass drops colliding thetas and leaves the snapshot array unmutated in length and order", () => {
-    const pending: readonly ParsedTheta[] = [theta("foo"), theta("bar")];
+    const pending: readonly ParsedTheta[] = [makeTheta("foo"), makeTheta("bar")];
     // A snapshot whose array mutators throw: any in-place write during the
     // single forward pass fails the test rather than passing silently.
     const snapshot: readonly SlashCommandInfo[] = Object.freeze([

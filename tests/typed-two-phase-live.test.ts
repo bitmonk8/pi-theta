@@ -61,6 +61,9 @@ import {
   ANTHROPIC_MODEL,
   AMBIENT_ACTIVE_TOOLS,
   parse,
+  qry15Body,
+  respondFixtureFor,
+  type RespondFixture,
   twoPhaseHarness,
   drive,
   messageText,
@@ -74,11 +77,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import type { ThetaCompositionInput } from "../src/extension/theta-composition-producer";
-import { type LoweredSchema } from "../src/seams/schema-validator";
-import { parseThetaDocument, type SchemaDecl } from "../src/parser/theta-document";
+import { parseThetaDocument } from "../src/parser/theta-document";
 import type { ThetaSource } from "../src/lexer/lexer";
-import { lowerQueryResponseSchema } from "../src/parser/query-schema-lowering";
-import { respondSchemaSlug } from "../src/runtime/typed-query-validation";
 // @ts-expect-error — JS code-registry module, no type declarations.
 import { parseRegistry, registryMessage } from "../tools/code-registry/index.js";
 
@@ -282,60 +282,8 @@ const TYPED_LIVE_THETA_SEAM_BASE = [
 
 // --- The lowered `Verdict` schema / slug / QRY-15 template ---------------------
 
-/**
- * The lowered `Verdict` response schema, its slug, the respond tool name, and
- * the QRY-15 template body — computed through the SAME production collaborators
- * the runtime uses (`lowerQueryResponseSchema` + `respondSchemaSlug`,
- * src/runtime/typed-query-validation.ts), so the pins below are byte-exact
- * against the contract, not against copied constants.
- */
-interface RespondFixture {
-  readonly lowered: LoweredSchema;
-  readonly slug: string;
-  readonly toolName: string;
-}
-
-let cachedRespondFixture: RespondFixture | undefined;
-
-function respondFixture(): RespondFixture {
-  if (cachedRespondFixture !== undefined) {
-    return cachedRespondFixture;
-  }
-  const doc = parse(TYPED_LIVE_THETA);
-  const decls = doc.body.statements.filter(
-    (stmt): stmt is SchemaDecl => stmt.kind === "schema",
-  );
-  const lowered = lowerQueryResponseSchema("Verdict", decls);
-  if (lowered === undefined) {
-    throw new Error("fixture defect: the Verdict schema annotation must lower");
-  }
-  // The slug recipe (bug 0010 design; bug 0099 route A): the canonical-form
-  // slug (schema-subset.md §Canonical schema hash) — shared by registration,
-  // QRY-15, and QRY-12 so tool name ↔ template references stay byte-equal.
-  const slug = respondSchemaSlug(lowered);
-  cachedRespondFixture = {
-    lowered,
-    slug,
-    toolName: `__theta_respond_${slug}`,
-  };
-  return cachedRespondFixture;
-}
-
-/**
- * The QRY-15 initial-respond-turn template body, byte-exact
- * (query-tool-loop.md QRY-15): the instruction sentence naming the backticked
- * respond tool, a single U+000A, `JSON.stringify(lowered, null, 2)`, and the
- * mandated trailing U+000A.
- */
-function qry15Body(lowered: LoweredSchema, toolName: string): string {
-  return (
-    "Return your final answer using the `" +
-    toolName +
-    "` tool, conforming to this schema:\n" +
-    JSON.stringify(lowered, null, 2) +
-    "\n"
-  );
-}
+/** The shared `Verdict` fixture (scripted-live-session-harness) over this suite's theta. */
+const respondFixture = (): RespondFixture => respondFixtureFor(TYPED_LIVE_THETA);
 
 // --- Harness ---------------------------------------------------------------------
 

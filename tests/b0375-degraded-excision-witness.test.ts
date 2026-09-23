@@ -2,8 +2,8 @@ import { describe, expect, it } from "vitest";
 import {
   ThetaRegistry,
   type DrainStateSnapshot,
-  type ParsedTheta,
 } from "../src/extension/reload-wiring";
+import { makeTheta } from "./helpers/watch-arming-harness";
 import {
   resolveSlashDispatch,
   routeDrainStateArm,
@@ -31,14 +31,6 @@ import {
 // and every cell goes green. Retired members are reached only through runtime
 // casts / the module namespace object so this file compiles against the
 // post-deletion tree (no static reference to a deleted export or tag literal).
-
-const noopRun = async (): Promise<void> => {};
-const theta = (slashName: string): ParsedTheta => ({
-  slashName,
-  frontmatter: { mode: "prompt" },
-  body: { statements: [], tail: null },
-  run: noopRun,
-});
 
 describe("bug 0375 — excised degraded-state machinery no longer ships", () => {
   // Cell 1 — surface absence. Fork: `markRuntimeDegraded` exists on the
@@ -73,7 +65,7 @@ describe("bug 0375 — excised degraded-state machinery no longer ships", () => 
   // WHY: the excision makes the retired degraded shape unrepresentable, so this
   // behavioural landmine (a live-spec note one public call away) cannot recur.
   it("a marked-degraded registry still dispatches a present entry (the latent degraded note is gone)", () => {
-    const registry = new ThetaRegistry([["x", theta("x")]]);
+    const registry = new ThetaRegistry([["x", makeTheta("x")]]);
     const mark = (registry as unknown as Record<string, unknown>).markRuntimeDegraded;
     if (typeof mark === "function") {
       (mark as () => void).call(registry);

@@ -69,12 +69,12 @@ import { scripted } from "./helpers/scripted-complete-queue-mock";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
-import type { LoweredSchema } from "../src/seams/schema-validator";
-import type { SchemaDecl } from "../src/parser/theta-document";
 import {
   assistantReply,
   ajv,
-  parse,
+  qry15Body,
+  respondFixtureFor,
+  type RespondFixture,
   twoPhaseHarness,
   drive,
   messageText,
@@ -83,8 +83,6 @@ import {
   expectValue,
   runGovernorRoundProbe,
 } from "./helpers/scripted-live-session-harness";
-import { lowerQueryResponseSchema } from "../src/parser/query-schema-lowering";
-import { respondSchemaSlug } from "../src/runtime/typed-query-validation";
 import { renderFollowUpTurn } from "../src/runtime/query-followup-render";
 import {
   synthesizeForcedRespondIssue,
@@ -162,58 +160,8 @@ const ROUNDS2_REPAIR1_THETA = [
 
 // --- The lowered `Verdict` schema / slug / QRY-15 template ---------------------
 
-/**
- * The lowered `Verdict` response schema, its slug, and the respond tool name —
- * computed through the SAME production collaborators the runtime uses
- * (`lowerQueryResponseSchema` + `respondSchemaSlug`,
- * src/runtime/typed-query-validation.ts), so the pins below are byte-exact
- * against the contract, not against copied constants.
- */
-interface RespondFixture {
-  readonly lowered: LoweredSchema;
-  readonly slug: string;
-  readonly toolName: string;
-}
-
-let cachedRespondFixture: RespondFixture | undefined;
-
-function respondFixture(): RespondFixture {
-  if (cachedRespondFixture !== undefined) {
-    return cachedRespondFixture;
-  }
-  const doc = parse(REPAIR1_THETA);
-  const decls = doc.body.statements.filter(
-    (stmt): stmt is SchemaDecl => stmt.kind === "schema",
-  );
-  const lowered = lowerQueryResponseSchema("Verdict", decls);
-  if (lowered === undefined) {
-    throw new Error("fixture defect: the Verdict schema annotation must lower");
-  }
-  const slug = respondSchemaSlug(lowered);
-  cachedRespondFixture = {
-    lowered,
-    slug,
-    toolName: `__theta_respond_${slug}`,
-  };
-  return cachedRespondFixture;
-}
-
-/**
- * The QRY-15 initial-respond-turn template body, byte-exact
- * (query-tool-loop.md QRY-15): the instruction sentence naming the backticked
- * respond tool, a single U+000A, `JSON.stringify(lowered, null, 2)`, and the
- * mandated trailing U+000A. The REPAIR attempt's fresh respond dispatch trails
- * the SAME template (the restart re-enters the same forced-respond mechanism).
- */
-function qry15Body(lowered: LoweredSchema, toolName: string): string {
-  return (
-    "Return your final answer using the `" +
-    toolName +
-    "` tool, conforming to this schema:\n" +
-    JSON.stringify(lowered, null, 2) +
-    "\n"
-  );
-}
+/** The shared `Verdict` fixture (scripted-live-session-harness) over this suite's theta. */
+const respondFixture = (): RespondFixture => respondFixtureFor(REPAIR1_THETA);
 
 /**
  * The EXACT QRY-12 `validator_error` follow-up bytes for an AJV-rejected

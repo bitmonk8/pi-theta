@@ -536,6 +536,24 @@ export function requireHandler(
   return handler;
 }
 
+/**
+ * The first-arg string lines of a raw `console.error` spy capture that start
+ * with `prefix` — the shared projection the PIC-67 quiesce/cascade stderr
+ * witnesses partition on. The caller supplies the prefix (a constant or a
+ * literal — a RED-at-HEAD re-proof must not fail at collection on an import).
+ */
+export function stderrLinesWithPrefix(
+  calls: readonly (readonly unknown[])[],
+  prefix: string,
+): string[] {
+  return calls
+    .map((args) => args[0])
+    .filter(
+      (first): first is string =>
+        typeof first === "string" && first.startsWith(prefix),
+    );
+}
+
 /** Spy `console.error`, returning its accumulating argument log. */
 export function captureConsoleError(): unknown[][] {
   const calls: unknown[][] = [];

@@ -31,6 +31,7 @@ import {
   HOST_STALE_MESSAGE,
   makeRecordingChannel as makeChannel,
 } from "./helpers/recording-system-note-channel";
+import { stderrLinesWithPrefix } from "./helpers/compose-workspace-harness";
 
 function diag(file: string, line: number, column: number): Diagnostic {
   return {
@@ -390,16 +391,12 @@ describe("bug 0018 (PIC-67) — stale-dead latch and fail-loud-once terminal bou
   });
 
   it("PIC-67 fail-loud-once: two non-stale double-failures log exactly one terminal line with health present, two without", () => {
-    const stderr: unknown[] = [];
+    const stderr: unknown[][] = [];
     vi.spyOn(console, "error").mockImplementation((...args: unknown[]): void => {
-      stderr.push(args[0]);
+      stderr.push(args);
     });
     const terminalLines = (): number =>
-      stderr.filter(
-        (first) =>
-          typeof first === "string" &&
-          first.startsWith("system-note delivery failed:"),
-      ).length;
+      stderrLinesWithPrefix(stderr, "system-note delivery failed:").length;
 
     // Both channels fail (non-stale) → the PIC-54 terminal arm. With a health
     // latch: exactly one line across two failures on the same channel instance.

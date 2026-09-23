@@ -6,6 +6,7 @@ import {
   SEAM_NOOP_MUTATOR,
   SEAM_NOOP_SINK as NOOP_SINK,
 } from "./helpers/invoke-seam-scaffold";
+import { RecordingQueryModel } from "./helpers/scripted-typed-query-harness";
 import { executeBody, type ExecuteBodyDeps } from "../src/runtime/statement-executor";
 import type { ThetaValue } from "../src/runtime/value";
 import { makeOk } from "../src/runtime/value";
@@ -17,13 +18,7 @@ import {
 } from "../src/runtime/effectful-statement-host";
 import { buildEnvironment } from "../src/runtime/lexical-environment";
 import type { DrivenConversationMode } from "../src/runtime/terminal-outcomes";
-import type {
-  ForcedRespondTurn,
-  FreePhaseTurn,
-  QueryModelDriver,
-  QueryToolLoopConfig,
-} from "../src/runtime/query-tool-loop";
-import type { CommittedSideEffect } from "../src/runtime/no-rollback";
+import type { QueryToolLoopConfig } from "../src/runtime/query-tool-loop";
 import type { CodeSideToolCall } from "../src/runtime/tool-call-execute";
 import type { InvokeChild } from "../src/runtime/invoke-cancellation";
 import type { Expr } from "../src/parser/theta-document";
@@ -218,29 +213,6 @@ describe("bug 0316 W8 — let-hoisted fn-call scrutinee (positional control)", (
 // ===========================================================================
 
 const EFFECT_SITE: CheckpointSite = { file: "b0316.theta", line: 1, column: 1 };
-
-/**
- * A scripted `QueryModelDriver` — the legitimate boundary the real query loop
- * drives (the shape tests/effectful-statement-host.test.ts consumes). `turns`
- * scripts the free-phase transcript per 0-based round.
- */
-class RecordingQueryModel implements QueryModelDriver {
-  serviced = false;
-  readonly #turns: readonly FreePhaseTurn[];
-  constructor(turns: readonly FreePhaseTurn[]) {
-    this.#turns = turns;
-  }
-  nextFreePhaseTurn(round: number): Promise<FreePhaseTurn> {
-    return Promise.resolve(this.#turns[round] ?? { kind: "text", text: "" });
-  }
-  runToolBatch(): Promise<readonly CommittedSideEffect[]> {
-    this.serviced = true;
-    return Promise.resolve([]);
-  }
-  forcedRespondTurn(): Promise<ForcedRespondTurn> {
-    return Promise.resolve({ kind: "respond", payload: null });
-  }
-}
 
 function queryConfig(): QueryToolLoopConfig {
   return {

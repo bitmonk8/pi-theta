@@ -6,6 +6,7 @@ import {
   ScriptedCheckpoint,
   RecordingMutator,
 } from "./helpers/invoke-seam-scaffold";
+import { RecordingQueryModel } from "./helpers/scripted-typed-query-harness";
 import { describe, expect, it } from "vitest";
 import { executeBody, type ExecuteBodyDeps } from "../src/runtime/statement-executor";
 import {
@@ -17,11 +18,7 @@ import { buildEnvironment, type LexicalEnvironment } from "../src/runtime/lexica
 import type { Checkpoint } from "../src/seams/checkpoint";
 import type { CommittedConversationMutator, DrivenConversationMode } from "../src/runtime/terminal-outcomes";
 import { makeErr, makeOk, type ThetaValue, type ResultValue } from "../src/runtime/value";
-import type {
-  FreePhaseTurn,
-  ForcedRespondTurn,
-  QueryModelDriver,
-} from "../src/runtime/query-tool-loop";
+import type { QueryModelDriver } from "../src/runtime/query-tool-loop";
 import type { AgentToolResultEnvelope, CodeSideToolCall } from "../src/runtime/tool-call-execute";
 import type { InvokeChild, DrivenInvokeResult } from "../src/runtime/invoke-cancellation";
 import type { CommittedSideEffect } from "../src/runtime/no-rollback";
@@ -110,34 +107,6 @@ function realEnv(): LexicalEnvironment {
 // --- Recording partial-append mutator (V4c) --------------------------------
 
 // --- Boundary doubles the real hosts consume -------------------------------
-
-/**
- * A scripted `QueryModelDriver` — the legitimate boundary the real query loop
- * (`runUntypedQueryLoop` / `runTypedQueryLoop`) drives. `turns` scripts the
- * free-phase transcript per 0-based round. Every driven method records its
- * activity into `log` so a caller can witness that the real loop drove it.
- */
-class RecordingQueryModel implements QueryModelDriver {
-  readonly log: string[] = [];
-  serviced = false;
-  readonly #turns: readonly FreePhaseTurn[];
-  constructor(turns: readonly FreePhaseTurn[]) {
-    this.#turns = turns;
-  }
-  nextFreePhaseTurn(round: number): Promise<FreePhaseTurn> {
-    this.log.push("query:turn");
-    const turn = this.#turns[round] ?? { kind: "text", text: "" };
-    return Promise.resolve(turn);
-  }
-  runToolBatch(): Promise<readonly CommittedSideEffect[]> {
-    this.serviced = true;
-    this.log.push("query:tool-round");
-    return Promise.resolve([]);
-  }
-  forcedRespondTurn(): Promise<ForcedRespondTurn> {
-    return Promise.resolve({ kind: "respond", payload: null });
-  }
-}
 
 /**
  * A recording `CodeSideToolCall` — the legitimate boundary the real code-side

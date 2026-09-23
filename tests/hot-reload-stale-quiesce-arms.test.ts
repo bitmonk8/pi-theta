@@ -23,6 +23,8 @@ import type {
 import { HOST_STALE_MESSAGE } from "./helpers/recording-system-note-channel";
 import { FakeClock } from "./helpers/fake-clock";
 import { FakeFileWatcher } from "./helpers/fake-file-watcher";
+import { makeTheta } from "./helpers/watch-arming-harness";
+import { stderrLinesWithPrefix } from "./helpers/compose-workspace-harness";
 
 /** Flush the microtask queue so the in-flight reload pass settles. */
 async function flush(times = 8): Promise<void> {
@@ -30,14 +32,6 @@ async function flush(times = 8): Promise<void> {
     await Promise.resolve();
   }
 }
-
-const NOOP_RUN = async (): Promise<void> => {};
-const theta = (slashName: string): ParsedTheta => ({
-  slashName,
-  frontmatter: { mode: "prompt" },
-  body: { statements: [], tail: null },
-  run: NOOP_RUN,
-});
 
 interface SentNote {
   readonly customType: string;
@@ -74,25 +68,13 @@ describe("bug 0018 (PIC-67) — mid-flight stale escape from the rediscover pass
       calls.push(args);
     });
     const quiesceLines = (): string[] =>
-      calls
-        .map((args) => args[0])
-        .filter(
-          (first): first is string =>
-            typeof first === "string" &&
-            first.startsWith(STALE_QUIESCE_STDERR_PREFIX),
-        );
+      stderrLinesWithPrefix(calls, STALE_QUIESCE_STDERR_PREFIX);
     const cascadeLines = (): string[] =>
-      calls
-        .map((args) => args[0])
-        .filter(
-          (first): first is string =>
-            typeof first === "string" &&
-            first.startsWith("system-note delivery failed:"),
-        );
+      stderrLinesWithPrefix(calls, "system-note delivery failed:");
 
     const fakeWatcher = new FakeFileWatcher();
     const fakeClock = new FakeClock();
-    const registry = new ThetaRegistry([["greet", theta("greet")]]);
+    const registry = new ThetaRegistry([["greet", makeTheta("greet")]]);
     const { channel, sent } = recordingChannel();
     // The probe PASSES (live runtime at pass entry); the invalidation lands
     // mid-pass, surfacing as the host stale-ctx error out of the rediscover

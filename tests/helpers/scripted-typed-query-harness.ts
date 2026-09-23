@@ -59,6 +59,35 @@ export class OpeningModel implements QueryModelDriver {
   }
 }
 
+/**
+ * A scripted `QueryModelDriver` — the legitimate boundary the real query loop
+ * (`runUntypedQueryLoop` / `runTypedQueryLoop`) drives. `turns` scripts the
+ * free-phase transcript per 0-based round. Every driven method records its
+ * activity into `log` so a caller can witness that the real loop drove it, and
+ * `serviced` flips when a tool round runs.
+ */
+export class RecordingQueryModel implements QueryModelDriver {
+  readonly log: string[] = [];
+  serviced = false;
+  readonly #turns: readonly FreePhaseTurn[];
+  constructor(turns: readonly FreePhaseTurn[]) {
+    this.#turns = turns;
+  }
+  nextFreePhaseTurn(round: number): Promise<FreePhaseTurn> {
+    this.log.push("query:turn");
+    const turn = this.#turns[round] ?? { kind: "text", text: "" };
+    return Promise.resolve(turn);
+  }
+  runToolBatch(): Promise<readonly CommittedSideEffect[]> {
+    this.serviced = true;
+    this.log.push("query:tool-round");
+    return Promise.resolve([]);
+  }
+  forcedRespondTurn(): Promise<ForcedRespondTurn> {
+    return Promise.resolve({ kind: "respond", payload: null });
+  }
+}
+
 export const toolUse = (...ids: string[]): FreePhaseTurn => ({
   kind: "tool_use",
   batch: ids.map((toolUseId) => ({ toolName: "search", toolUseId })),

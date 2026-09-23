@@ -75,6 +75,7 @@ import { HOST_STALE_MESSAGE } from "./helpers/recording-system-note-channel";
 import { FakeClock } from "./helpers/fake-clock";
 import { FakeFileWatcher, waitFor } from "./helpers/fake-file-watcher";
 import { GREET_THETA, SECOND_THETA } from "./helpers/watch-arming-harness";
+import { stderrLinesWithPrefix } from "./helpers/compose-workspace-harness";
 
 /** The PIC-54 terminal-arm stderr prefix (system-note-channel.ts). */
 const CASCADE_PREFIX = "system-note delivery failed:";
@@ -335,25 +336,14 @@ describe("bug 0018 — watcher hot-reload vs bare runtime invalidation (no sessi
    * `containing`.
    */
   function cascades(containing?: string): string[] {
-    return stderrCalls
-      .map((args) => args[0])
-      .filter(
-        (first): first is string =>
-          typeof first === "string" && first.startsWith(CASCADE_PREFIX),
-      )
-      .filter(
-        (line) => containing === undefined || line.includes(containing),
-      );
+    return stderrLinesWithPrefix(stderrCalls, CASCADE_PREFIX).filter(
+      (line) => containing === undefined || line.includes(containing),
+    );
   }
 
   /** The designed PIC-67 stale-quiesce stderr lines (fail-loud-once witness). */
   function quiesceLines(): string[] {
-    return stderrCalls
-      .map((args) => args[0])
-      .filter(
-        (first): first is string =>
-          typeof first === "string" && first.startsWith(QUIESCE_PREFIX),
-      );
+    return stderrLinesWithPrefix(stderrCalls, QUIESCE_PREFIX);
   }
 
   function boot(

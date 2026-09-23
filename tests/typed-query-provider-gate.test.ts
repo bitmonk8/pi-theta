@@ -88,6 +88,8 @@ import { parseDeps } from "./helpers/e2e-s1";
 import {
   assistantReply,
   ANTHROPIC_MODEL,
+  respondFixtureFor,
+  type RespondFixture,
   twoPhaseHarness,
   drive,
   expectErrOfKind,
@@ -95,13 +97,10 @@ import {
 } from "./helpers/scripted-live-session-harness";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { createHash } from "node:crypto";
 import type { BodyExecution } from "../src/runtime/statement-executor";
-import { type LoweredSchema } from "../src/seams/schema-validator";
 import * as thetaDocumentModule from "../src/parser/theta-document";
-import { parseThetaDocument, type SchemaDecl, type ThetaBody, type ThetaDocument } from "../src/parser/theta-document";
+import { parseThetaDocument, type ThetaBody, type ThetaDocument } from "../src/parser/theta-document";
 import type { ThetaSource } from "../src/lexer/lexer";
-import { lowerQueryResponseSchema } from "../src/parser/query-schema-lowering";
 import * as productionComposition from "../src/extension/production-composition";
 import {
   checkTypedQueryProviderSupport,
@@ -196,38 +195,12 @@ const UNTYPED_THETA_MODEL_GEM = [
 
 // --- The lowered `Verdict` schema / slug --------------------------------------
 
-interface RespondFixture {
-  readonly lowered: LoweredSchema;
-  readonly slug: string;
-  readonly toolName: string;
-}
-
-let cachedRespondFixture: RespondFixture | undefined;
-
 /**
- * The lowered `Verdict` schema / slug / respond-tool name, computed through
- * the production collaborators (the AB-suite recipe), so the fallback tool
- * name stays byte-exact against the contract.
+ * The lowered `Verdict` schema / slug / respond-tool name — the shared
+ * fixture (scripted-live-session-harness) over this suite's theta, so the
+ * fallback tool name stays byte-exact against the contract.
  */
-function respondFixture(): RespondFixture {
-  if (cachedRespondFixture !== undefined) {
-    return cachedRespondFixture;
-  }
-  const doc = parse(TYPED_THETA_NO_MODEL);
-  const decls = doc.body.statements.filter(
-    (stmt): stmt is SchemaDecl => stmt.kind === "schema",
-  );
-  const lowered = lowerQueryResponseSchema("Verdict", decls);
-  if (lowered === undefined) {
-    throw new Error("fixture defect: the Verdict schema annotation must lower");
-  }
-  const slug = createHash("sha256")
-    .update(JSON.stringify(lowered))
-    .digest("hex")
-    .slice(0, 16);
-  cachedRespondFixture = { lowered, slug, toolName: `__theta_respond_${slug}` };
-  return cachedRespondFixture;
-}
+const respondFixture = (): RespondFixture => respondFixtureFor(TYPED_THETA_NO_MODEL);
 
 // --- Harness ---------------------------------------------------------------------
 

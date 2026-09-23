@@ -3,8 +3,8 @@ import {
   ThetaRegistry,
   type DrainStateSnapshot,
   type DrainStateTag,
-  type ParsedTheta,
 } from "../src/extension/reload-wiring";
+import { makeTheta } from "./helpers/watch-arming-harness";
 import {
   routeDrainStateArm,
   shouldShortCircuitShutdown,
@@ -152,14 +152,6 @@ describe("V9m-T — drain() and predicate idempotence (PIC-32)", () => {
 // detection) and V9m (superseded-entry dispatch); the assertion below witnesses
 // the V9m superseded-entry-dispatch facet against the shipped ThetaRegistry.
 describe("V9m-T — superseded-entry dispatch (PIC area)", () => {
-  const noopRun = async (): Promise<void> => {};
-  const theta = (slashName: string): ParsedTheta => ({
-    slashName,
-    frontmatter: { mode: "prompt" },
-    body: { statements: [], tail: null },
-    run: noopRun,
-  });
-
   it("PIC area: after a supersession pass drops the entry, a steady-state dispatch reaches arm (a), the entry-table lookup misses, and the fixed superseded note is returned", () => {
     // The entry was dropped (empty table); `readDrainState` returns the
     // steady-state tuple, so arm (a) is selected, the lookup misses, and the
@@ -174,7 +166,7 @@ describe("V9m-T — superseded-entry dispatch (PIC area)", () => {
   });
 
   it("PIC area: a present entry on the steady-state tuple dispatches the theta (the miss path is a sub-case of arm (a))", () => {
-    const registry = new ThetaRegistry([["foo", theta("foo")]]);
+    const registry = new ThetaRegistry([["foo", makeTheta("foo")]]);
     const outcome = resolveSlashDispatch("foo", snap(false, undefined), registry);
     expect(outcome.kind).toBe("dispatch");
     if (outcome.kind === "dispatch") {
@@ -189,19 +181,12 @@ describe("V9m-T — superseded-entry dispatch (PIC area)", () => {
 // This consumer fails safe onto arm (b) shutting-down per the live two-arm
 // contract (drain-state-contract.md#read-failure-fallback).
 describe("V9m — resolveSlashDispatchWithReadFailover (slash-site consumer)", () => {
-  const noopRun = async (): Promise<void> => {};
-  const theta = (slashName: string): ParsedTheta => ({
-    slashName,
-    frontmatter: { mode: "prompt" },
-    body: { statements: [], tail: null },
-    run: noopRun,
-  });
   const throwingRead = (): DrainStateSnapshot => {
     throw new Error("readDrainState blew up");
   };
 
   it("PIC-31: a slash-site read-failure fails safe onto arm (b) shutting-down (live two-arm contract)", () => {
-    const registry = new ThetaRegistry([["foo", theta("foo")]]);
+    const registry = new ThetaRegistry([["foo", makeTheta("foo")]]);
     const outcome = resolveSlashDispatchWithReadFailover(
       "foo",
       throwingRead,
@@ -215,7 +200,7 @@ describe("V9m — resolveSlashDispatchWithReadFailover (slash-site consumer)", (
   });
 
   it("PIC-29/arm-(a): a successful steady-state read with a present entry dispatches the CURRENT registry entry", () => {
-    const registry = new ThetaRegistry([["foo", theta("foo")]]);
+    const registry = new ThetaRegistry([["foo", makeTheta("foo")]]);
     const outcome = resolveSlashDispatchWithReadFailover(
       "foo",
       () => snap(false, undefined),
@@ -241,7 +226,7 @@ describe("V9m — resolveSlashDispatchWithReadFailover (slash-site consumer)", (
   });
 
   it("PIC-29/arm-(b): a successful read of a shutting-down tuple returns the shutting-down note (no dispatch)", () => {
-    const registry = new ThetaRegistry([["foo", theta("foo")]]);
+    const registry = new ThetaRegistry([["foo", makeTheta("foo")]]);
     const outcome = resolveSlashDispatchWithReadFailover(
       "foo",
       () => snap(true, undefined),

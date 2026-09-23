@@ -6,10 +6,8 @@ import {
   armWatcherWithTerminalRecovery,
   WATCHER_TERMINATED_CODE,
 } from "../src/extension/watcher-recovery";
-import {
-  ThetaRegistry,
-  type ParsedTheta,
-} from "../src/extension/reload-wiring";
+import { ThetaRegistry } from "../src/extension/reload-wiring";
+import { makeTheta } from "./helpers/watch-arming-harness";
 import {
   resolveSlashDispatch,
   routeDrainStateArm,
@@ -23,6 +21,7 @@ import {
 import type { Diagnostic } from "../src/diagnostics/diagnostic";
 import type { FileWatchEvent } from "../src/seams/file-watcher";
 import { FakeFileWatcher } from "./helpers/fake-file-watcher";
+import { stderrLinesWithPrefix } from "./helpers/compose-workspace-harness";
 import { channelHarness, HOST_STALE_MESSAGE } from "./helpers/recording-system-note-channel";
 import {
   STALE_QUIESCE_STDERR_PREFIX,
@@ -59,21 +58,14 @@ import {
 
 // The live four-page sharded diagnostics registry, read from the spec corpus —
 // the single source of truth for the `watcher-terminated` *Message* template.
-const NOOP_RUN = async (): Promise<void> => {};
-const theta = (slashName: string): ParsedTheta => ({
-  slashName,
-  frontmatter: { mode: "prompt" },
-  body: { statements: [], tail: null },
-  run: NOOP_RUN,
-});
-
 // ---------------------------------------------------------------------------
 // PIC-55 — stopped-delivering — terminal recovery posture.
 // ---------------------------------------------------------------------------
 
 describe("V9q-T — watcher terminal recovery posture (PIC-55)", () => {
   it("PIC-55: a stopped-delivering terminal signal emits exactly one persistent watcher-terminated system note, leaves the watcher torn down, keeps ThetaRegistry live and dispatchable, and writes no drain-state tag", () => {
-    const registry = new ThetaRegistry([["greet", theta("greet")]]);
+    const greet = makeTheta("greet");
+    const registry = new ThetaRegistry([["greet", greet]]);
     const { channel, sent, notify } = channelHarness();
     const fw = new FakeFileWatcher();
     const watchSpy = vi.spyOn(fw, "watch");
@@ -112,7 +104,7 @@ describe("V9q-T — watcher terminal recovery posture (PIC-55)", () => {
     expect(routeDrainStateArm(snapshot)).toBe("dispatch");
     expect(resolveSlashDispatch("greet", snapshot, registry)).toEqual({
       kind: "dispatch",
-      theta: theta("greet"),
+      theta: greet,
     });
   });
 
@@ -187,16 +179,9 @@ describe("bug 0018 (PIC-67) — terminal signal on an invalidated runtime", () =
     quiesce: string[];
     cascades: string[];
   } {
-    const firsts = spyCalls
-      .map((args) => args[0])
-      .filter((first): first is string => typeof first === "string");
     return {
-      quiesce: firsts.filter((line) =>
-        line.startsWith(STALE_QUIESCE_STDERR_PREFIX),
-      ),
-      cascades: firsts.filter((line) =>
-        line.startsWith("system-note delivery failed:"),
-      ),
+      quiesce: stderrLinesWithPrefix(spyCalls, STALE_QUIESCE_STDERR_PREFIX),
+      cascades: stderrLinesWithPrefix(spyCalls, "system-note delivery failed:"),
     };
   }
 
