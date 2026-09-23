@@ -43,7 +43,7 @@ import {
   type ThetaValue,
 } from "../runtime/value";
 import type { CallExpr, SubagentSessionConfig, ThetaBody } from "../parser/theta-document";
-import { parseToolsEntry, thetaDefaultName, type ResolvedCallable } from "../parser/callable-set";
+import { isBareIdentifier, parseToolsEntry, thetaDefaultName, type ResolvedCallable } from "../parser/callable-set";
 import { HostFatal } from "../runtime/runtime-panics";
 import type { PiToolDispatch } from "./production-theta-producer";
 
@@ -339,9 +339,7 @@ export function presentedCallableNames(theta: ConversationBindInput["theta"]): r
       names.push(parsed.rename);
       continue;
     }
-    names.push(
-      /^[A-Za-z_][A-Za-z0-9_]*$/.test(parsed.spec) ? parsed.spec : thetaDefaultName(parsed.spec),
-    );
+    names.push(isBareIdentifier(parsed.spec) ? parsed.spec : thetaDefaultName(parsed.spec));
   }
   return names;
 }

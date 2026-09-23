@@ -1161,7 +1161,8 @@ Decided by the real H9a run. All nine feature areas passed
 `assertCodesSubsetOfPermitted` and `assertStderrClean`, and
 `theta/load/invoke-path-escape` appears in neither capture. The only `tools:`
 occurrence in H9a's reach is the bare Pi-tool token `read` in
-`acc-code-tool-loop.theta`, which `isBareToolName` filters out before any callee
+`acc-code-tool-loop.theta`, which `isBareIdentifier`
+(`src/parser/callable-set.ts`) filters out before any callee
 is resolved, so the new emission is structurally unreachable from an ordinary
 `pi -p` run over the shipped fixtures. The file is unedited, and the code was
 already absent from it.

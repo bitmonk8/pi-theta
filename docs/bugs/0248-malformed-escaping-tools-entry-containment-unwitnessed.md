@@ -21,7 +21,8 @@
   entry never enters `calleeCache` and neither the V15f `callee-has-errors`
   loop nor the INV-1 escape loop over that cache has a member for it;
   `checkNestedToolsContainment` (same file, bug 0111's depth-1 surface) routes
-  by `isBareToolName` alone and judges containment for a malformed entry.
+  by `isBareIdentifier` (`src/parser/callable-set.ts`) alone and judges
+  containment for a malformed entry.
 - **Affected:**
   - `src/extension/production-composition.ts` — `resolveThetaToolsAtLoad`
     (the `parseToolsEntry` gate on the callee-cache loop, and the escape loop
@@ -69,7 +70,7 @@ nothing registers either way.
 
 The measurement also finds one face the residual does not name.
 `checkNestedToolsContainment`, bug 0111's depth-1 containment surface, did not
-receive the gate: it routes entries by `isBareToolName` and judges containment
+receive the gate: it routes entries by `isBareIdentifier` and judges containment
 for a malformed one. So the identical entry text — `<out-of-root>/far.theta
 junk` — draws `theta/load/malformed-tool-entry` when the discovered caller
 writes it, and `theta/load/invoke-path-escape` against the caller's file when a
@@ -218,7 +219,7 @@ applies the grammar decision on its own side, and names them:
   `parseToolsEntry(entry.trim()).kind !== "ok"` and `continue`s, so a malformed
   entry never becomes a `calleeCache` key.
 - `checkNestedToolsContainment` "applies its own path-shaped routing
-  (`isBareToolName`) rather than the closed grammar, because it judges only
+  (`isBareIdentifier`) rather than the closed grammar, because it judges only
   discovery-root containment, not entry well-formedness".
 
 Both sentences are in the same file. The first says a malformed sequence is not
@@ -526,14 +527,15 @@ Constraints on the implementation:
 - Implementation evidence at `b9cf2f26`, all in
   `src/extension/production-composition.ts` unless noted:
   `resolveThetaToolsAtLoad` — the pre-parse callee-cache loop with its
-  `parseToolsEntry` gate and its `toolsEntrySpec` / `isBareToolName` routing,
+  `parseToolsEntry` gate and its `toolsEntrySpec` / `isBareIdentifier` routing,
   the INV-1 loop over `calleeCache.values()` draining `callee.escape` and
   `callee.nestedToolsEscapes`, and the V15f `checkCalleeHasErrors` loop over the
   same cache; `toolsEntrySpec` and its doc comment naming both callers;
-  `isBareToolName`; `parseCalleeForTools` and its doc comment (containment
+  `isBareIdentifier` (`src/parser/callable-set.ts`); `parseCalleeForTools` and
+  its doc comment (containment
   judged after the read and before `parseThetaDocument`, `nestedToolsEscapes`
   attached to the result); `checkNestedToolsContainment` and its doc comment
-  (the `isBareToolName` routing, the `judged` set, the `checkInvokePathAtLoad`
+  (the `isBareIdentifier` routing, the `judged` set, the `checkInvokePathAtLoad`
   call, the rejection-to-`undefined` idiom); `makeLoadEmit` (the stderr mirror
   the probe reads); `TOOLS_DIAGNOSTIC_RANGE`. In `src/parser/callable-set.ts`:
   `parseToolsEntry` (the closed token-count test) and its use inside

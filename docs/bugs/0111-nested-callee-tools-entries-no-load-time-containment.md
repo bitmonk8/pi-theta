@@ -258,7 +258,8 @@
     `typed-params-across-boundary.theta:5` (`./summarise-doc.theta`). Of those
     five callees, `review-lens.theta` declares `tools: - read` and
     `ralph-step.theta` declares `tools: - read` / `- bash` (bare Pi-tool names,
-    which `isBareToolName` routes away from any callee resolve); `reviewer.theta`,
+    which `isBareIdentifier` (`src/parser/callable-set.ts`) routes away from any
+    callee resolve); `reviewer.theta`,
     `sentiment.theta` and `summarise-doc.theta` declare no `tools:` at all.
     **Zero committed callees declare a `tools:` `.theta` entry**, so the nested
     surface is unexercised by the corpus in either direction.
@@ -1040,7 +1041,8 @@ created at any depth, and no callable set is emptied.
     `nestedToolsEscapes` field; new helper `checkNestedToolsContainment`, which
     resolves each of a `tools:`-reached callee's own `tools:` `.theta` entries
     against the *callee's* directory (absolute specs stay absolute; empty specs
-    and `isBareToolName` names routed away exactly as the depth-0 loop routes
+    and `isBareIdentifier` (`src/parser/callable-set.ts`) names routed away
+    exactly as the depth-0 loop routes
     them) and judges each with the shared primitive `checkInvokePathAtLoad`
     (§Fix constraint 3), `literalPath` being the nested spec **as written**
     (`placeholder-rendering-b.md` category 5). `parseCalleeForTools` calls it
@@ -1182,7 +1184,8 @@ created at any depth, and no callable set is emptied.
      `reviewer.theta`, `summarise-doc.theta` and `sentiment.theta` declare no
      `tools:`; `review-lens.theta` declares `tools: - read`; `ralph-step.theta`
      declares `tools: - read` / `- bash` — bare Pi-tool names, routed away by
-     `isBareToolName` before any nested judgement runs. **Zero** of the five
+     `isBareIdentifier` (`src/parser/callable-set.ts`) before any nested
+     judgement runs. **Zero** of the five
      declares a `tools:` `.theta` entry of its own. Extended to entries
      synthesised as TypeScript string literals in `tests/`: every pre-existing
      fixture plants at most one level, so the only nested fixtures in the tree

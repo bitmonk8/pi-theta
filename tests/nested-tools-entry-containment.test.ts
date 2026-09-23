@@ -740,7 +740,8 @@ describe("bug 0111 cell 5 — the nested entry's containment is decided on `real
 
 // ===========================================================================
 // Cell 6 — bare Pi-tool names in a nested callee's `tools:` are routed away
-// from any callee resolve (`isBareToolName`), so they draw no containment
+// from any callee resolve (`isBareIdentifier`, src/parser/callable-set.ts),
+// so they draw no containment
 // judgement at all.
 // ===========================================================================
 describe("bug 0111 cell 6 — a nested callee whose `tools:` is only bare Pi-tool names is unaffected", () => {

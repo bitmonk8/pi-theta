@@ -117,14 +117,15 @@
   - `src/extension/production-composition.ts:1391–1510` —
     `resolveThetaToolsAtLoad`, the V20a load-time resolution, and the frame both
     diagnostics are raised in. `:1416–1425` the pre-parse callee cache
-    (`toolsEntrySpec` at `:1418`, the `!isBareToolName(spec)` route at `:1419`,
+    (`toolsEntrySpec` at `:1418`, the `!isBareIdentifier(spec)` route at `:1419`,
     `parseCalleeForTools` at `:1422`); `:1427–1442` the V15f callee-has-errors
     loop over that cache, which pushes its diagnostics FIRST; `:1479–1483` the
     `resolveCallableSet` call, `:1484` the append of its diagnostics; `:1488–1491`
     the shared registers-iff-no-error test. Nothing between the cache and the
     resolver consults the grammar, so the cache's membership and the resolver's
     entry set are computed from two different readings of the same strings.
-  - `src/extension/production-composition.ts:1593–1595` — `isBareToolName`, the
+  - `src/extension/production-composition.ts:1593–1595` — the bare-name router
+    (now the shared `isBareIdentifier`, `src/parser/callable-set.ts`), the
     `.theta`-vs-Pi-tool routing the cache applies to `toolsEntrySpec`'s output.
     A malformed entry whose first token is a bare identifier (`read bash`) never
     enters the cache; one whose first token is a path literal does.
@@ -383,7 +384,7 @@ the order `callee-has-errors` → `malformed-tool-entry` (the V15f loop pushes a
 erroneous callee draws `callee-has-errors` alone; a malformed entry naming no
 existing file, a malformed entry naming an error-free callee, and a malformed
 entry whose first token is a bare Pi-tool name each draw the grammar code alone —
-the last because `isBareToolName` (`:1419`) keeps a bare identifier out of the
+the last because `isBareIdentifier` (`:1419`) keeps a bare identifier out of the
 cache. `callee-has-errors` is located (`:1:1`, `TOOLS_DIAGNOSTIC_RANGE`,
 `:1329–1332`) and carries the registry *Hint*; `malformed-tool-entry` is
 file-only. Registration is unchanged: only the two clean fixtures survive.
@@ -577,7 +578,7 @@ readings.** In `resolveThetaToolsAtLoad`:
   const calleeCache = new Map<string, CalleeParse>();
   for (const entry of toolsList) {
     const spec = toolsEntrySpec(entry);
-    if (spec.length > 0 && !isBareToolName(spec) && !calleeCache.has(spec)) {
+    if (spec.length > 0 && !isBareIdentifier(spec) && !calleeCache.has(spec)) {
       calleeCache.set(
         spec,
         await parseCalleeForTools(fs, callerDir, spec, parseDeps),
@@ -776,7 +777,7 @@ grammar test before the cache insertion: either `toolsEntrySpec` returns nothing
 for a malformed entry (disposition (a)(1)), or the loop at
 `production-composition.ts:1416–1425` skips an entry whose `parseToolsEntry`
 result is `malformed`. The second placement keeps the grammar decision at the
-call site where the `isBareToolName` routing already lives and leaves
+call site where the `isBareIdentifier` routing already lives and leaves
 `toolsEntrySpec` a pure projection; the first keeps every caller honest by
 construction. Either way the V15f loop (`:1427–1442`) is unchanged — it walks the
 cache, and the cache is what narrows.
@@ -920,10 +921,11 @@ Constraints on any implementation:
   `continue`), `:1097–1107` (the shipped sink's per-error routing),
   `:1329–1332` (`TOOLS_DIAGNOSTIC_RANGE`), `:1391–1510`
   (`resolveThetaToolsAtLoad`: the callee cache `:1416–1425` with
-  `toolsEntrySpec` at `:1418` and `isBareToolName` at `:1419`, the V15f loop
+  `toolsEntrySpec` at `:1418` and `isBareIdentifier` at `:1419`, the V15f loop
   `:1427–1442` with `relatedSites: []` at `:1437`, the resolver call `:1479–1483`
   and the append at `:1484`, the registration test `:1488–1491`), `:1578–1586`
-  (`toolsEntrySpec` and its doc comment), `:1593–1595` (`isBareToolName`),
+  (`toolsEntrySpec` and its doc comment), `:1593–1595` (the bare-name router, now
+  the shared `isBareIdentifier`),
   `:1604–1630` (`parseCalleeForTools`, `hasErrors` at `:1628`), `:1904–1911`
   (`hasLoadParseError`), `:1938–1993` (`parseDiscoveredTheta`, the drop gate
   `:1951`, the dropped batch `:1979`);

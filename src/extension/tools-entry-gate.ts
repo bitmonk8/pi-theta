@@ -9,7 +9,7 @@
 // past the D9 justify-band LOC threshold, so this lives in its own sibling
 // module and is imported back rather than growing that file further.
 
-import { parseToolsEntry } from "../parser/callable-set";
+import { isBareIdentifier, parseToolsEntry } from "../parser/callable-set";
 
 /**
  * Extract one `tools:` entry's callable spec (the token before an optional
@@ -25,20 +25,11 @@ function toolsEntrySpec(entry: string): string {
 }
 
 /**
- * Whether a `tools:` spec is a bare Pi-tool name (identifier-shaped, no path
- * separator or `.theta` extension) rather than a `.theta` path literal — the same
- * routing `resolveCallableSet` applies internally.
- */
-function isBareToolName(spec: string): boolean {
-  return /^[A-Za-z_][A-Za-z0-9_]*$/.test(spec);
-}
-
-/**
  * The `tools:` entry admission gate every consumer of a `tools:` list applies
  * before doing anything else with an entry (bugs 0111/0248): reject an entry
  * that fails `parseToolsEntry`'s grammar check, extract its spec via
  * {@link toolsEntrySpec}, then withhold it when the spec is empty, is a bare
- * Pi-tool name ({@link isBareToolName}), or is already present in `seen` —
+ * Pi-tool name ({@link isBareIdentifier}), or is already present in `seen` —
  * the SAME subject test at every recursion depth (bug 0111 ruled the
  * `.theta`-entry *Trigger* names the entry KIND, not the entry's depth, so
  * one subject test governs every depth). Returns the extracted spec, or
@@ -55,7 +46,7 @@ export function admissibleToolsSpec(
     return undefined;
   }
   const spec = toolsEntrySpec(entry);
-  if (spec.length === 0 || isBareToolName(spec) || seen.has(spec)) {
+  if (spec.length === 0 || isBareIdentifier(spec) || seen.has(spec)) {
     return undefined;
   }
   return spec;

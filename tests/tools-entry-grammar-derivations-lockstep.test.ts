@@ -272,7 +272,7 @@ const THETAS: readonly PlantedTheta[] = [
     ),
   },
   // Malformed entry whose first token is a bare Pi-tool name: never enters the
-  // cache at all (`isBareToolName` in production-composition.ts).
+  // cache at all (`isBareIdentifier` in src/parser/callable-set.ts).
   {
     stem: "ctlpitool",
     text: theta("---", "mode: prompt", "tools:", "  - read bash", "---", "@`hi`"),
@@ -673,7 +673,7 @@ describe("bug 0106 (A4) — the four controls stay separable (§Fix constraint 2
   });
 
   it(`${MALFORMED}: a malformed entry whose first token is a bare Pi-tool name keeps it alone`, () => {
-    // `isBareToolName` (production-composition.ts) keeps a bare
+    // `isBareIdentifier` (src/parser/callable-set.ts) keeps a bare
     // identifier out of the callee cache, so this row is already single-coded
     // at HEAD and must stay so after the gate lands.
     expect(
