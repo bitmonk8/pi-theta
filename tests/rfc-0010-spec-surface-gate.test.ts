@@ -218,11 +218,22 @@ describe("RFC 0010 spec surface — L3 theta_progress (EXST-13/14/15, PIC-74)", 
     expect(text).toMatch(/MUST NOT be applied to milestones/);
   });
 
-  it("EXST-15 — child-regime execution: exactly one wire line per accepted call touching nothing else, and no milestone entry for a wire-ingested self-report, in GOV-1 dual form", () => {
+  it("EXST-15 — child-regime execution: exactly one wire line per accepted call, own-bus dual-publish after the wire emission touching nothing else, and no milestone entry for a wire-ingested self-report, in GOV-1 dual form", () => {
     const text = readCorpus(EXECUTION_STATUS);
     expect(text).toContain('<a id="exst-15"></a> **EXST-15.**');
     expect(text).toMatch(
-      /each accepted call MUST emit exactly one `theta_progress` reserved-key line on the process's own stdout and MUST touch nothing else/,
+      /each accepted call MUST emit exactly one `theta_progress` reserved-key line on the process's own stdout/,
+    );
+    expect(text).toMatch(
+      /MUST additionally publish the same clamped class-2 payload to the process's \*\*own\*\* execution-status bus, attributed to the ROOT invocation/,
+    );
+    expect(text).toMatch(/AFTER the wire emission/);
+    expect(text).toMatch(/and MUST touch nothing else/);
+    expect(text).toMatch(
+      /The local publication rides only an actually-emitted line/,
+    );
+    expect(text).toMatch(
+      /MUST be dropped from both arms — no wire line, no local bus publication/,
     );
     expect(text).toMatch(
       /a wire-ingested self-report MUST NOT be appended as a milestone entry/,

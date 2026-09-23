@@ -1,6 +1,8 @@
 // RFC 0015 (D3) — the run-card publisher: appends one `theta-run` entry at
 // TOP-LEVEL drive start and one gated `theta-run-summary` entry at drive end
-// (decision 7: only when the drive ran at least `RUN_SUMMARY_GATE_MS`).
+// (decision 7 as re-ruled 2026-09-23: the summary is OPT-IN via the
+// `theta.runSummary` settings key — default off, nothing appended; when opted
+// in, only a drive that ran at least `RUN_SUMMARY_GATE_MS` appends one).
 //
 // Composition contract: constructed ONLY in the TUI composition (the RFC's
 // "Modes and degradation" — `ctx.mode === "tui"`); the print/json/child
@@ -36,6 +38,14 @@ export interface RunCardPublisherDeps {
    *  end. Optional: absent, the summary carries zero counters and no profile
    *  rather than failing (the RFC's omit-not-fail rule). */
   readonly statusBus?: Pick<ExecutionStatusBus, "snapshot">;
+  /**
+   * RFC 0015 decision 7 as re-ruled 2026-09-23: the terminal heat summary is
+   * OPT-IN (`theta.runSummary`, default `false` applied here at the read
+   * site per the settings module's treated-absent convention). Not opted in,
+   * `driveEnded` appends NO summary regardless of elapsed time; opted in, the
+   * decision-7 `RUN_SUMMARY_GATE_MS` gate applies unchanged.
+   */
+  readonly runSummaryEnabled?: boolean;
 }
 
 /** What the dispatch entry knows at top-level drive start. */
@@ -121,12 +131,18 @@ export function createRunCardPublisher(deps: RunCardPublisherDeps): RunCardPubli
     },
 
     driveEnded(invocationId: string, outcome: ThetaRunOutcome): void {
+      // The open-map cleanup runs on EVERY end, opted in or not — the map is
+      // per-drive bookkeeping, not summary state, and must not grow when the
+      // operator leaves the summary off (the default).
       const run = open.get(invocationId);
       open.delete(invocationId);
       if (run === undefined) {
         // No card was opened for this id (cap-evicted, or a start this
         // publisher never saw) — a summary without its card would dangle.
         return;
+      }
+      if (deps.runSummaryEnabled !== true) {
+        return; // decision 7 re-ruling 2026-09-23: default OFF — no summary entry
       }
       const elapsedMs = deps.clock.now() - run.startedMonotonicMs;
       if (elapsedMs < RUN_SUMMARY_GATE_MS) {

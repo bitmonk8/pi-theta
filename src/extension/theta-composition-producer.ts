@@ -197,8 +197,28 @@ export function composeThetaFixture(
         deps.driveSubagentRootRegime !== undefined &&
         deps.isSubagentRootFor?.(theta) === true
       ) {
+        // RFC 0015 (operator ruling 2026-09-23): the regime drive draws its
+        // own run card. A VISIBLE child (RFC 0012 §7) is an interactive TUI
+        // session with no other status surface (D6 retired footer/widget/
+        // note), so without a card the tab looks dead. Headless children need
+        // no gate here: they are launched `--mode json -p …`
+        // (subagent-argv.ts §presentation), so their composition's
+        // `ctx.mode !== "tui"` and production-composition.ts constructs NO
+        // publisher — both calls below `?.` no-op there.
+        if (invocationTicket !== undefined) {
+          deps.runCard?.driveStarted({
+            invocationId: invocationTicket.invocationId,
+            theta: invocationTicket.theta,
+            args,
+            ...(theta.sourcePath !== undefined ? { sourcePath: theta.sourcePath } : {}),
+          });
+        }
+        // A throw escaping the drive (only `HostFatal` — every catchable
+        // defect is routed onto the envelope inside the regime) still closes
+        // the card, as `"err"`.
+        let regimeOutcome: ThetaRunOutcome = "err";
         try {
-          await deps.driveSubagentRootRegime({
+          regimeOutcome = await deps.driveSubagentRootRegime({
             theta,
             args,
             ctx,
@@ -206,17 +226,29 @@ export function composeThetaFixture(
             ...(invocationTicket !== undefined ? { invocationTicket } : {}),
           });
         } finally {
+          // Same ordering contract as the top-level path's `finally` below:
+          // `finish()` first (the bus's `invocationEnded` closes the final
+          // dwell interval), THEN `driveEnded` reads the settled ring. Both
+          // run in this same synchronous continuation of the drive's
+          // settlement — strictly BEFORE the Ok arm's requested
+          // `ctx.shutdown()` can take effect, because the host defers
+          // shutdown until the session is idle and this handler has not yet
+          // resolved — so the card's final entry lands before a visible
+          // child's pane closes.
           invocationTicket?.finish();
+          if (invocationTicket !== undefined) {
+            deps.runCard?.driveEnded(invocationTicket.invocationId, regimeOutcome);
+          }
         }
         return;
       }
       // RFC 0015 (D3): the run card — one per TOP-LEVEL drive (decision 6).
       // This site is top-level by construction (invoke-reached callees never
-      // go through `run`), sits AFTER the child-regime return above (a child
-      // process draws no card; its early return must not leave one dangling),
-      // and is keyed on the registry ticket's invocationId — no ticket (a
-      // harness without `beginInvocation`) means no card. The publisher is
-      // wired only in the TUI composition; `?.` no-op everywhere else.
+      // go through `run`), sits AFTER the child-regime return above (that
+      // path publishes its own card and must not reach this one too), and is
+      // keyed on the registry ticket's invocationId — no ticket (a harness
+      // without `beginInvocation`) means no card. The publisher is wired only
+      // in the TUI composition; `?.` no-op everywhere else.
       if (invocationTicket !== undefined) {
         deps.runCard?.driveStarted({
           invocationId: invocationTicket.invocationId,

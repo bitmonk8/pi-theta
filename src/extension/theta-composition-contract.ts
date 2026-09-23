@@ -15,6 +15,7 @@ import type { SubagentLaunchEntry } from "../runtime/subagent-placement";
 import type { ActiveInvocationTicket } from "../runtime/active-invocation-registry";
 import type { Diagnostic } from "../diagnostics/diagnostic";
 import type { RunCardPublisher } from "./execution-status/run-card";
+import type { ThetaRunOutcome } from "./execution-status/types";
 import type { Trace } from "../seams/trace";
 
 /**
@@ -354,9 +355,14 @@ export interface ThetaProducerDeps {
    * against the child's own host session (prompt-mode mechanics), and emits the
    * single `theta_result` stdout envelope on EVERY exit path — `Ok`, every
    * `Err`, and a panic routed as internal-error (PIC-59). Present only in the
-   * spawned child; the parent-side / harness path never calls it.
+   * spawned child; the parent-side / harness path never calls it. Resolves to
+   * the drive's PIC-76 outcome projection (`ok` / `err` / `cancelled`) so the
+   * dispatch entry can close the regime path's own run card (RFC 0015,
+   * operator ruling 2026-09-23: a VISIBLE child session draws a card) — the
+   * envelope stays the parent-facing contract; the returned outcome is a
+   * process-local mirror of its terminal arm.
    */
-  driveSubagentRootRegime?(input: ConversationBindInput): Promise<void>;
+  driveSubagentRootRegime?(input: ConversationBindInput): Promise<ThetaRunOutcome>;
   /**
    * SLSH-3/SLSH-4/SLSH-5: emit the one-line `theta-system-note` for a top-level
    * `Err(QueryError)` returned to the slash-dispatch boundary (a theta with a

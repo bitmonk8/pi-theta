@@ -51,6 +51,13 @@ export interface ThetasSettings {
    */
   readonly progress?: "off" | "counts" | "names";
   /**
+   * `theta.runSummary` — boolean; opts in the RFC 0015 terminal
+   * `theta-run-summary` entry (decision 7 as re-ruled 2026-09-23: default
+   * OFF). No defaulting here: the `false` default is applied at the read
+   * site, per this module's treated-absent convention.
+   */
+  readonly runSummary?: boolean;
+  /**
    * `theta.subagentPlacement` (RFC 0012 §6) — `auto` / `pipe` / `exec` / a
    * registered backend name (`^[a-z][a-z0-9-]{0,31}$`); either scope. No
    * defaulting here: the `auto` default is applied at the read site.
@@ -179,6 +186,7 @@ const THETAS_SCALAR_KEYS = [
   "scanPackagesMaxFiles",
   "scanPackagesTimeoutMs",
   "progress",
+  "runSummary",
   "subagentPlacement",
   "subagentPlacementMaxVisible",
 ] as const;
@@ -198,6 +206,7 @@ function isScalarKeyValid(key: (typeof THETAS_SCALAR_KEYS)[number], value: unkno
     case "binderModel":
       return typeof value === "string" && value.length > 0;
     case "scanPackages":
+    case "runSummary":
       return typeof value === "boolean";
     case "scanPackagesMaxFiles":
     case "scanPackagesTimeoutMs":

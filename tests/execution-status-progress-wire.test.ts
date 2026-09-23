@@ -49,7 +49,7 @@ function childDeps(overrides: Partial<ProgressToolDeps> = {}): {
 // C. Child regime (EXST-15 / PIC-74 emit side)
 // ---------------------------------------------------------------------------
 
-describe("T-WIRE — L3-B18: one wire line per accepted call, no bus/entry/UI traffic", () => {
+describe("T-WIRE — L3-B18: one wire line per accepted call, no entry/UI traffic (the local bus publish rides BESIDE the wire line — amended EXST-15, next block)", () => {
   it("emits exactly one { theta_progress: { v:1, invocation_id, seq:1, event } } line", async () => {
     const { deps, writtenLines } = childDeps();
     const { hostApi, calls } = fakeHostApi();
@@ -62,6 +62,67 @@ describe("T-WIRE — L3-B18: one wire line per accepted call, no bus/entry/UI tr
     expect(parsed.theta_progress.invocation_id).toBe("root-inv");
     expect(parsed.theta_progress.seq).toBe(1);
     expect(parsed.theta_progress.event.message).toBe("built 3 of 12");
+  });
+});
+
+describe("T-WIRE — RFC 0015 (operator ruling 2026-09-23): a child-regime accepted call ALSO publishes to the child's OWN bus (the visible child's run-card narrative), root-attributed, beside the wire line", () => {
+  it("one wire line AND one local bus.authorMessage per accepted call, attributed to the ROOT invocation", async () => {
+    const authorCalls: { invocationId: string | undefined; message: string }[] = [];
+    const bus = noopExecutionStatusBus({
+      authorMessage: (invocationId, payload): void => {
+        authorCalls.push({ invocationId, message: payload.message });
+      },
+    });
+    const { deps, writtenLines } = childDeps({ bus: () => bus });
+    const { hostApi, calls } = fakeHostApi();
+    registerThetaProgressTool(hostApi, deps);
+    await calls[0]!.execute("c1", ARGS, undefined, undefined, {} as never);
+    // The wire line is untouched (EXST-15's parent-facing arm) …
+    expect(writtenLines).toHaveLength(1);
+    // … and the local publish carries the same clamped payload under the same
+    // root identity the wire line uses — the invocationId the child's card is
+    // keyed on. Headless compositions attach no card sink, so this publication
+    // renders nothing there; it is what the VISIBLE child's card row reads.
+    expect(authorCalls).toEqual([{ invocationId: "root-inv", message: "built 3 of 12" }]);
+  });
+
+  it("the local publish comes AFTER the wire emission (amended EXST-15's ordering, observed across the two sink doubles)", async () => {
+    const order: string[] = [];
+    const bus = noopExecutionStatusBus({
+      authorMessage: (): void => {
+        order.push("bus");
+      },
+    });
+    const { deps } = childDeps({
+      bus: () => bus,
+      writeWireLine: (): void => {
+        order.push("wire");
+      },
+    });
+    const { hostApi, calls } = fakeHostApi();
+    registerThetaProgressTool(hostApi, deps);
+    await calls[0]!.execute("c1", ARGS, undefined, undefined, {} as never);
+    expect(order).toEqual(["wire", "bus"]);
+  });
+
+  it("a line the wire arm DROPPED (PIC-74 over-cap fold) publishes nothing to the local bus either — the card must not show a message the wire counted dropped", async () => {
+    const authorCalls: unknown[] = [];
+    const bus = noopExecutionStatusBus({
+      authorMessage: (invocationId, payload): void => {
+        authorCalls.push({ invocationId, message: payload.message });
+      },
+    });
+    // Post-clamp payloads fit the cap by construction; the reachable over-cap
+    // vector is the envelope's OWN identity field — a root invocation id
+    // longer than the whole line budget forces the defensive PIC-74 drop.
+    const registry = new ActiveInvocationRegistry();
+    registry.add(fakeEntry({ invocationId: "r".repeat(PROGRESS_WIRE_MAX_LINE_BYTES) }));
+    const { deps, writtenLines } = childDeps({ bus: () => bus, invocations: () => registry });
+    const { hostApi, calls } = fakeHostApi();
+    registerThetaProgressTool(hostApi, deps);
+    await calls[0]!.execute("c1", ARGS, undefined, undefined, {} as never);
+    expect(writtenLines).toEqual([]);
+    expect(authorCalls).toEqual([]);
   });
 });
 

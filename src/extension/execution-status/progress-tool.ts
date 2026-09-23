@@ -11,9 +11,12 @@
 //     class-2 bus publication and one durable `theta-progress-entry`
 //     milestone. Never `pi.sendMessage` (EXST-1), never a wire line.
 //   - CHILD regime (EXST-15 / PIC-74): exactly one fd-1 stdout wire line (or,
-//     under a non-`pipe` placement, one result-channel frame — RFC 0012 §3) and
-//     nothing else — no UI, no bus, no entry (the child's `--no-session`
-//     transcript is ephemeral, so the line is the call's entire effect).
+//     under a non-`pipe` placement, one result-channel frame — RFC 0012 §3),
+//     and — RFC 0015 (operator ruling 2026-09-23) — one local bus publication
+//     AFTER the wire emission (the visible child's run card reads the child's
+//     own bus node). No UI, no entry (a headless child's `--no-session`
+//     transcript is ephemeral; its bus has no card sink, so the local publish
+//     renders nothing there).
 //
 // The EXST-14 clamps (strip control/ANSI, 200-char message, 64-char scope,
 // 200 ms minimum inter-acceptance with the counted-but-dropped carry) are
@@ -253,7 +256,19 @@ function executeThetaProgress(
     const payload = clampProgressPayload(params, dropped);
 
     if (deps.isChildRegime) {
-      emitWireLine(payload, registry, deps, state);
+      // RFC 0015 (operator ruling 2026-09-23): the visible child's run card
+      // reads the child's OWN bus node, so the accepted call also publishes
+      // locally — attributed to the ROOT invocation, the same stream identity
+      // the wire line carries and the invocationId the child's card is keyed
+      // on. Wire first, and the local publish happens ONLY when the wire
+      // emission actually emitted (amended EXST-15: the bus publish comes
+      // "AFTER the wire emission"): a line the wire arm dropped — no live root
+      // entry, or the PIC-74 over-cap fold — was counted as dropped on the
+      // parent-facing stream and must not surface on the child's card as if
+      // it had been delivered.
+      if (emitWireLine(payload, registry, deps, state)) {
+        bus?.authorMessage(registry.snapshot()[0]?.invocationId, payload);
+      }
     } else {
       publishParentRegime(payload, registry, deps, bus);
     }
@@ -297,17 +312,20 @@ function publishParentRegime(
  * EXST-15 / PIC-74 child regime: one line, fd 1, nothing else. The line's
  * `invocation_id` is the process's ROOT invocation — the OLDEST live registry
  * entry (insertion order) — so one child is one stream identity regardless of
- * how many nested frames are live when a call lands.
+ * how many nested frames are live when a call lands. Returns whether a line
+ * actually reached a sink — the caller's amended-EXST-15 local bus publish is
+ * gated on it, keeping the two arms convergent (a wire-dropped line never
+ * shows on the child's own card).
  */
 function emitWireLine(
   payload: ProgressAuthorMessage,
   registry: ActiveInvocationRegistry,
   deps: ProgressToolDeps,
   state: ProgressToolState,
-): void {
+): boolean {
   const root = registry.snapshot()[0];
   if (root === undefined) {
-    return;
+    return false;
   }
   const seq = state.wireSeq + 1;
   const line = `${JSON.stringify({
@@ -324,15 +342,16 @@ function emitWireLine(
   // consumed by a line that never reached the wire.
   if (Buffer.byteLength(line, "utf8") > PROGRESS_WIRE_MAX_LINE_BYTES) {
     state.droppedSinceAccept += 1;
-    return;
+    return false;
   }
   state.wireSeq = seq;
   const channel = deps.wireSink?.();
   if (channel !== undefined) {
     channel.writeLine(line);
-    return;
+    return true;
   }
   (deps.writeWireLine ?? defaultWireFdWrite)(line);
+  return true;
 }
 
 /** The narrow `pi.registerTool` surface the tool touches (mirrors

@@ -98,7 +98,7 @@ import type {
   ActiveInvocationTicket,
 } from "../runtime/active-invocation-registry";
 import { makeInvocationFinisher, type ForwardingSignalSource } from "./session-shutdown";
-import type { ParForLaneHooks } from "./execution-status/types";
+import type { ParForLaneHooks, ThetaRunOutcome } from "./execution-status/types";
 import type { RunCardPublisher } from "./execution-status/run-card";
 import { decorateCheckpoint } from "./execution-status/checkpoint-decorator";
 import {
@@ -941,9 +941,10 @@ class ProductionThetaProducer implements ThetaProducerDeps {
 
   /**
    * RFC-0006 child-side subagent-root drive — delegated to the extracted
-   * `SubagentSpawnRegime` (subagent-spawn-regime.ts).
+   * `SubagentSpawnRegime` (subagent-spawn-regime.ts). Resolves to the drive's
+   * PIC-76 outcome projection for the dispatch entry's run card.
    */
-  async driveSubagentRootRegime(bindInput: ConversationBindInput): Promise<void> {
+  async driveSubagentRootRegime(bindInput: ConversationBindInput): Promise<ThetaRunOutcome> {
     return this.#subagentRegime.driveSubagentRootRegime(bindInput);
   }
 

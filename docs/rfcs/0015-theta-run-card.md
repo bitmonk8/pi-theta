@@ -181,6 +181,11 @@ survives restarts (bus state does not). Short utility drives append nothing.
    model visibility and live-test observables intact.
 6. Nested invokes: one card, viewport follows with breadcrumb + dwell.
 7. Terminal heat-summary entry: yes, gated ≥ ~30 s.
+   *Re-ruled (operator, 2026-09-23):* **default OFF** — no `theta-run-summary`
+   entry is appended unless the operator opts in via the validated settings
+   key `theta.runSummary` (boolean, either scope, default `false`). When
+   opted in, the ≥ ~30 s gate applies unchanged. The entry kind, renderer,
+   and constants are retained; the opt-in gates the append only.
 
 ## Modes and degradation
 

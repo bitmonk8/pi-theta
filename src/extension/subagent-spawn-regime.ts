@@ -106,6 +106,7 @@ import {
   thetaLookupEnvironment,
 } from "./callable-lowering";
 import { attachChildActivityTap } from "./execution-status/child-tap";
+import type { ThetaRunOutcome } from "./execution-status/types";
 import type { InvokeReturnSite } from "./invoke-machinery";
 import {
   noopSwallowChannels,
@@ -820,9 +821,12 @@ export class SubagentSpawnRegime {
    * child's own host session (prompt-mode mechanics under the subagent
    * frontmatter contract), and emit the single `theta_result` stdout envelope on
    * EVERY exit path — `Ok`, every `Err`, and a panic routed as internal-error
-   * (PIC-59). The child transcript is process-private (`--no-session`).
+   * (PIC-59). A headless child's transcript is process-private
+   * (`--no-session`); a VISIBLE child (RFC 0012 §7) drives an interactive TUI
+   * session, whose run card the dispatch entry closes with the returned
+   * PIC-76 outcome projection.
    */
-  async driveSubagentRootRegime(bindInput: ConversationBindInput): Promise<void> {
+  async driveSubagentRootRegime(bindInput: ConversationBindInput): Promise<ThetaRunOutcome> {
     const { theta, ctx } = bindInput;
     const calleePath = theta.sourcePath ?? theta.slashName;
     const emitEnvelope =
@@ -853,7 +857,19 @@ export class SubagentSpawnRegime {
         // Swallowed: advisory event; no registry row (DIAG-2).
       }
     };
+    // RFC 0015 (operator ruling 2026-09-23): the drive's PIC-76 outcome
+    // projection, returned so the dispatch entry can close the regime path's
+    // run card. `emitErr` is the SINGLE funnel every non-Ok ending passes
+    // through (the root body's returned/propagated `Err`, every boundary mint,
+    // the fn-entry arms, the panic catch), so recording the projection there
+    // covers them all; a drive that never reaches `emitErr` settled its Ok
+    // envelope and keeps the `"ok"` seed. The mapping mirrors the dispatch
+    // boundary's `terminalRunOutcome`: only a `cancelled`-kinded error is a
+    // cancel witness; every other `Err` — propagated or minted — is `"err"`.
+    let runOutcome: ThetaRunOutcome = "ok";
     const emitErr = (error: QueryError, provenance?: ErrProvenance, fnTail?: FnTail): void => {
+      const kind = (error as { readonly kind?: unknown } | null | undefined)?.kind;
+      runOutcome = kind === "cancelled" ? "cancelled" : "err";
       emitEnvelope(serializeErrEnvelope(error, provenance, fnTail));
       emitOutcome("err");
     };
@@ -863,12 +879,12 @@ export class SubagentSpawnRegime {
     const entry = this.#input.subagentControlPlane?.entry ?? THETA_LAUNCH_ENTRY;
     const model = ctx.model;
     if (!this.#confirmChildModelOrRefuse(theta, entry, model, calleePath, emitErr)) {
-      return;
+      return runOutcome;
     }
 
     if (entry.kind === "fn") {
       await this.#driveSubagentFnEntry(bindInput, entry.name, calleePath, emitEnvelope, emitErr, emitOutcome);
-      return;
+      return runOutcome;
     }
 
     // PIC-60 (child-side): intake and bind the marshalled params; `undefined`
@@ -876,7 +892,7 @@ export class SubagentSpawnRegime {
     // envelope inside the helper.
     const paramBindings = this.#bindMarshalledRootParams(theta, calleePath, emitErr);
     if (paramBindings === undefined) {
-      return;
+      return runOutcome;
     }
     const rootBindInput: ConversationBindInput = {
       ...bindInput,
@@ -929,6 +945,7 @@ export class SubagentSpawnRegime {
       await binding.teardown?.();
       binding.finishInvocation?.();
     }
+    return runOutcome;
   }
 
   /**

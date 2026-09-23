@@ -4,6 +4,26 @@ All notable changes to `@bitmonk8/pi-theta` will be documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.488.8]
+
+### Changed
+- **RFC 0015 Delivery 8 — visible-child run card + summary default-off.**
+  Two operator rulings (2026-09-23). (1) The subagent-root regime path now
+  publishes the run card (`driveStarted`/`driveEnded`, ticket-keyed), so an
+  RFC 0012 visible child tab renders a card again after D6 retired the
+  footer/widget/note surfaces; `driveSubagentRootRegime` returns the drive's
+  `ThetaRunOutcome` (single `emitErr` funnel projection), the card closes
+  before the deferred `ctx.shutdown()` fires, headless children stay
+  card-free via the composition-level TUI gate, and the child's own
+  `theta_progress` author messages dual-publish to the child's bus
+  (root-attributed, only for an actually-emitted wire line — EXST-15
+  amended, PIC-75 updated). (2) The `theta-run-summary` entry is now
+  DEFAULT OFF (dated re-ruling amending RFC 0015 decision 7): a new
+  validated boolean setting `theta.runSummary` (default `false`) opts in;
+  the ≥ 30 s gate still applies when opted in and the publisher's open-map
+  cleanup is unconditional (PIC-76, DISC-7 key list, and the GOV-1 spec
+  gates updated).
+
 ## [0.488.7]
 
 ### Changed

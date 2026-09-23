@@ -37,6 +37,7 @@ import { SEAM_NOOP_CHECKPOINT } from "./invoke-seam-scaffold";
 import type { ParsedFrontmatter } from "../../src/parser/frontmatter";
 import type { Diagnostic } from "../../src/diagnostics/diagnostic";
 import type { SchemaValidator } from "../../src/seams/schema-validator";
+import type { ThetaRunOutcome } from "../../src/extension/execution-status/types";
 import { parseDoc } from "./e2e-s1";
 import { parseExpressionSource, type ThetaDocument } from "../../src/parser/theta-document";
 import { ajv } from "./scripted-live-session-harness";
@@ -241,6 +242,8 @@ export interface ChildDrive {
   readonly diagnostics: readonly Diagnostic[];
   /** RFC 0012 §7 (0.478.0): every `[channel, data]` pair recorded on the injected outcome-events fake. */
   readonly outcomeEmitted: readonly { readonly channel: string; readonly data: unknown }[];
+  /** RFC 0015 (2026-09-23): the PIC-76 outcome projection the regime drive resolved to. */
+  readonly outcome: ThetaRunOutcome | undefined;
 }
 
 const SUBAGENT_FM = "---\nmode: subagent\n---\n";
@@ -255,6 +258,10 @@ export async function driveChildRoot(
   body: string,
   sourcePath: string,
   captureOutcomes = false,
+  // RFC 0015 D8: injectable so a witness can pre-abort the drive — the first
+  // checkpoint then surfaces Err({kind:"cancelled"}) through the regime's
+  // emitErr funnel (the real-drive "cancelled" outcome-projection path).
+  thetaAbort: AbortController = new AbortController(),
 ): Promise<ChildDrive> {
   const doc = parseTheta("worker.theta", SUBAGENT_FM + body);
   const lines: string[] = [];
@@ -289,7 +296,7 @@ export async function driveChildRoot(
     body: doc.body,
     callableSet: { entries: new Map() },
   } as unknown as ThetaCompositionInput;
-  await deps.driveSubagentRootRegime?.({
+  const outcome = await deps.driveSubagentRootRegime?.({
     theta,
     args: "",
     ctx: {
@@ -298,9 +305,9 @@ export async function driveChildRoot(
       // The child's own (empty) host session — the regime drives against it.
       sessionManager: { getEntries: () => [], getLeafId: () => undefined },
     } as unknown as ExtensionCommandContext,
-    thetaAbort: new AbortController(),
+    thetaAbort,
   } as ConversationBindInput);
-  return { lines, diagnostics, outcomeEmitted };
+  return { lines, diagnostics, outcomeEmitted, outcome };
 }
 
 /** The single envelope line the drive wrote, or a loud failure naming what it wrote instead. */

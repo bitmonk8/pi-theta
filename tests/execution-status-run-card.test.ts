@@ -60,6 +60,20 @@ import { makeErr, makeOk, type ResultValue, type ThetaValue } from "../src/runti
 import type { ParsedFrontmatter } from "../src/parser/frontmatter";
 import type { ThetaBody } from "../src/parser/theta-document";
 import { FakeClock } from "./helpers/fake-clock";
+import { loadSettings, type ThetaSettings } from "../src/discovery/settings";
+import { buildSettings, EMPTY_SETTINGS_FILE } from "./helpers/fake-file-system";
+import { byCode } from "./helpers/e2e-s1";
+import {
+  childCtx,
+  driveChildRoot,
+  noopPi,
+  rootDouble,
+  soleEnvelope,
+  subagentTheta as regimeSubagentTheta,
+} from "./helpers/subagent-fn-child-regime";
+import { noopExecutionStatusBus } from "./helpers/execution-status-progress";
+import { createProductionProducerDeps } from "../src/extension/production-theta-producer";
+import type { ModelRegistry } from "@earendil-works/pi-coding-agent";
 
 // ---------------------------------------------------------------------------
 // Fakes (mirrors tests/execution-status-entry-channel.test.ts's recording pi).
@@ -317,21 +331,71 @@ describe("D3 — run-card publisher", () => {
     expect("sourcePath" in runs[0]!).toBe(false);
   });
 
-  it("decision 7: a drive shorter than RUN_SUMMARY_GATE_MS appends NO summary", () => {
+  it("decision 7: even opted in, a drive shorter than RUN_SUMMARY_GATE_MS appends NO summary", () => {
     const clock = new FakeClock();
     const { channel, summaries } = recordingChannel();
-    const publisher = createRunCardPublisher({ entryChannel: channel, clock });
+    const publisher = createRunCardPublisher({ entryChannel: channel, clock, runSummaryEnabled: true });
     publisher.driveStarted({ invocationId: "inv-1", theta: "t", args: "" });
     clock.advance(RUN_SUMMARY_GATE_MS - 1);
     publisher.driveEnded("inv-1", "ok");
     expect(summaries).toHaveLength(0);
   });
 
+  it("decision 7 re-ruling 2026-09-23: DEFAULT OFF — without the theta.runSummary opt-in, a drive well past the gate appends NO summary (the theta-run card is untouched)", () => {
+    const clock = new FakeClock();
+    const bus = createExecutionStatusBus({ clock, sinks: [] });
+    const { channel, runs, summaries } = recordingChannel();
+    // No `runSummaryEnabled` — the read-site default is off.
+    const publisher = createRunCardPublisher({ entryChannel: channel, clock, statusBus: bus });
+    bus.invocationStarted("inv-1", "t");
+    publisher.driveStarted({ invocationId: "inv-1", theta: "t", args: "" });
+    clock.advance(RUN_SUMMARY_GATE_MS * 3);
+    bus.invocationEnded("inv-1");
+    publisher.driveEnded("inv-1", "ok");
+    expect(runs).toHaveLength(1);
+    expect(summaries).toHaveLength(0);
+    // The unconditional open-map cleanup has its failing-capable witness in
+    // the two "unconditional cleanup" tests below — with the summary disabled,
+    // a second end here appends nothing regardless of whether the map was
+    // cleaned, so no assertion on this publisher can red for that defect.
+  });
+
+  it("unconditional cleanup: a sub-gate end deletes the open entry — a repeat end for the same id, now past the gate, finds no run and appends NO summary", () => {
+    const clock = new FakeClock();
+    const { channel, summaries } = recordingChannel();
+    const publisher = createRunCardPublisher({ entryChannel: channel, clock, runSummaryEnabled: true });
+    publisher.driveStarted({ invocationId: "inv-1", theta: "t", args: "" });
+    clock.advance(RUN_SUMMARY_GATE_MS - 1);
+    // Sub-gate end: no summary, but the cleanup MUST run on this return path
+    // too — if `open.delete` regressed below the gate (or the enabled check),
+    // the entry survives this end …
+    publisher.driveEnded("inv-1", "ok");
+    expect(summaries).toHaveLength(0);
+    // … and this repeat end — same id, elapsed now past the gate — would find
+    // the retained entry and append a summary. Zero proves the first end
+    // cleaned the map before any summary gate was consulted.
+    clock.advance(RUN_SUMMARY_GATE_MS);
+    publisher.driveEnded("inv-1", "ok");
+    expect(summaries).toHaveLength(0);
+  });
+
+  it("unconditional cleanup: a past-gate end appends its summary exactly once — a repeat end for the same id is inert (the entry was deleted, not merely consumed)", () => {
+    const clock = new FakeClock();
+    const { channel, summaries } = recordingChannel();
+    const publisher = createRunCardPublisher({ entryChannel: channel, clock, runSummaryEnabled: true });
+    publisher.driveStarted({ invocationId: "inv-1", theta: "t", args: "" });
+    clock.advance(RUN_SUMMARY_GATE_MS);
+    publisher.driveEnded("inv-1", "ok");
+    expect(summaries).toHaveLength(1);
+    publisher.driveEnded("inv-1", "ok");
+    expect(summaries).toHaveLength(1);
+  });
+
   it("a gated drive appends the summary with counters, cumulative children, and the dwell-sorted heat profile off the lingering node", () => {
     const clock = new FakeClock();
     const bus = createExecutionStatusBus({ clock, sinks: [] });
     const { channel, summaries } = recordingChannel();
-    const publisher = createRunCardPublisher({ entryChannel: channel, clock, statusBus: bus });
+    const publisher = createRunCardPublisher({ entryChannel: channel, clock, statusBus: bus, runSummaryEnabled: true });
 
     bus.invocationStarted("inv-1", "quality-loop");
     publisher.driveStarted({ invocationId: "inv-1", theta: "quality-loop", args: "" });
@@ -372,7 +436,7 @@ describe("D3 — run-card publisher", () => {
     const clock = new FakeClock();
     const bus = createExecutionStatusBus({ clock, sinks: [] });
     const { channel, summaries } = recordingChannel();
-    const publisher = createRunCardPublisher({ entryChannel: channel, clock, statusBus: bus });
+    const publisher = createRunCardPublisher({ entryChannel: channel, clock, statusBus: bus, runSummaryEnabled: true });
     bus.invocationStarted("inv-1", "t");
     publisher.driveStarted({ invocationId: "inv-1", theta: "t", args: "" });
     // Lines 1..14: line N's effect span runs N*10 ms (D7 real dwell); line
@@ -401,7 +465,7 @@ describe("D3 — run-card publisher", () => {
     const clock = new FakeClock();
     const bus = createExecutionStatusBus({ clock, sinks: [] });
     const { channel, summaries } = recordingChannel();
-    const publisher = createRunCardPublisher({ entryChannel: channel, clock, statusBus: bus });
+    const publisher = createRunCardPublisher({ entryChannel: channel, clock, statusBus: bus, runSummaryEnabled: true });
     publisher.driveStarted({ invocationId: "ghost", theta: "t", args: "" });
     clock.advance(RUN_SUMMARY_GATE_MS);
     publisher.driveEnded("ghost", "ok");
@@ -414,7 +478,7 @@ describe("D3 — run-card publisher", () => {
   it("driveEnded without a matching driveStarted appends nothing (a summary never dangles without its card)", () => {
     const clock = new FakeClock();
     const { channel, summaries } = recordingChannel();
-    const publisher = createRunCardPublisher({ entryChannel: channel, clock });
+    const publisher = createRunCardPublisher({ entryChannel: channel, clock, runSummaryEnabled: true });
     clock.advance(RUN_SUMMARY_GATE_MS);
     publisher.driveEnded("never-started", "ok");
     expect(summaries).toHaveLength(0);
@@ -426,7 +490,7 @@ describe("D3 — run-card publisher", () => {
 // ---------------------------------------------------------------------------
 
 interface WiringEvent {
-  readonly kind: "started" | "ended" | "finish";
+  readonly kind: "started" | "ended" | "finish" | "regime-drive";
   readonly invocationId?: string;
   readonly theta?: string;
   readonly args?: string;
@@ -448,6 +512,8 @@ function wiringHarness(options: {
   readonly bound?: boolean;
   readonly spawnThrows?: boolean;
   readonly withTicket?: boolean;
+  /** D8: route the dispatch through the child-regime branch instead of the binder+bind path. */
+  readonly regime?: { readonly outcome?: ThetaRunOutcome; readonly throws?: boolean };
 }): { deps: ThetaProducerDeps; events: WiringEvent[] } {
   const events: WiringEvent[] = [];
   const publisher: RunCardPublisher = {
@@ -474,6 +540,17 @@ function wiringHarness(options: {
     },
     emitTopLevelErrNote: (): void => {},
     emitPanicNote: (): void => {},
+    ...(options.regime !== undefined
+      ? {
+          isSubagentRootFor: (): boolean => true,
+          driveSubagentRootRegime: (): Promise<ThetaRunOutcome> => {
+            events.push({ kind: "regime-drive" });
+            return options.regime!.throws === true
+              ? Promise.reject(new Error("host fatal escape"))
+              : Promise.resolve(options.regime!.outcome ?? "ok");
+          },
+        }
+      : {}),
     ...(options.withTicket !== false
       ? {
           beginInvocation: (): ActiveInvocationTicket => ({
@@ -553,6 +630,195 @@ describe("D3 — dispatch wiring (composeThetaFixture.run)", () => {
     const { deps, events } = wiringHarness({ withTicket: false });
     await runFixture(deps);
     expect(events).toHaveLength(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// D8 (operator ruling 2026-09-23): the child-regime path draws its own card.
+// A VISIBLE child (RFC 0012 §7) is an interactive TUI session whose only
+// status surface is the card; the publisher is composed only under
+// `ctx.mode === "tui"`, so headless children stay entry-free with no gating
+// code on this path.
+// ---------------------------------------------------------------------------
+
+describe("D8 — dispatch wiring: the child-regime path draws its own card", () => {
+  it.each(["ok", "err", "cancelled"] as const)(
+    "a regime drive resolving '%s' appends one started seed, then ended with that outcome AFTER finish",
+    async (outcome) => {
+      const { deps, events } = wiringHarness({ regime: { outcome } });
+      await runFixture(deps);
+      const started = events.filter((event) => event.kind === "started");
+      expect(started).toHaveLength(1);
+      expect(started[0]).toMatchObject({
+        invocationId: "inv-77",
+        theta: "demo",
+        args: "some args",
+        sourcePath: "/theta/demo.theta",
+      });
+      // The card opens BEFORE the drive (a live card while the child runs)…
+      expect(events.findIndex((event) => event.kind === "started")).toBeLessThan(
+        events.findIndex((event) => event.kind === "regime-drive"),
+      );
+      const ended = events.filter((event) => event.kind === "ended");
+      expect(ended).toEqual([{ kind: "ended", invocationId: "inv-77", outcome }]);
+      // …and closes AFTER ticket.finish(): the bus's invocationEnded settles
+      // the ring first, the same end-after-finish contract as the top-level path.
+      expect(events.findIndex((event) => event.kind === "finish")).toBeLessThan(
+        events.indexOf(ended[0]!),
+      );
+    },
+  );
+
+  it("a throw escaping the regime drive (only HostFatal can) still closes the card as 'err' and rethrows", async () => {
+    const { deps, events } = wiringHarness({ regime: { throws: true } });
+    const fixture = composeThetaFixture(subagentTheta(), deps);
+    await expect(
+      fixture.run("some args", { signal: undefined, cwd: "/tmp" } as unknown as ExtensionCommandContext),
+    ).rejects.toThrow("host fatal escape");
+    expect(events.filter((event) => event.kind === "ended")).toEqual([
+      { kind: "ended", invocationId: "inv-77", outcome: "err" },
+    ]);
+  });
+
+  it("no registry ticket means no card on the regime path either — but the drive still runs", async () => {
+    const { deps, events } = wiringHarness({ regime: { outcome: "ok" }, withTicket: false });
+    await runFixture(deps);
+    expect(events).toEqual([{ kind: "regime-drive" }]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// D8 — the REAL regime drive (subagent-spawn-regime.ts): PIC-76 outcome
+// projection off the envelope arms, and the visible child's card-close /
+// deferred-shutdown ordering.
+// ---------------------------------------------------------------------------
+
+describe("D8 — the real regime drive resolves the PIC-76 outcome projection", () => {
+  it("an Ok terminal resolves 'ok' (positive control: one ok envelope)", async () => {
+    const drive = await driveChildRoot('"DONE"\n', "/theta/worker.theta");
+    expect(soleEnvelope(drive).kind).toBe("ok");
+    expect(drive.outcome).toBe("ok");
+  });
+
+  it("a returned Err terminal resolves 'err' (one err envelope, propagated)", async () => {
+    const drive = await driveChildRoot('Err("boom")\n', "/theta/worker.theta");
+    expect(soleEnvelope(drive).kind).toBe("err");
+    expect(drive.outcome).toBe("err");
+  });
+
+  it("a panic (non-exhaustive match) routes as the internal-error envelope and resolves 'err'", async () => {
+    const drive = await driveChildRoot('match 5 { "x" => "a" }\n', "/theta/worker.theta");
+    const envelope = soleEnvelope(drive);
+    expect(envelope.kind).toBe("err");
+    expect(drive.outcome).toBe("err");
+  });
+
+  it("a cancelled-kinded Err through the emitErr funnel resolves 'cancelled' (pre-aborted drive: the first loop-iter checkpoint surfaces Err({kind:'cancelled'}))", async () => {
+    const abort = new AbortController();
+    abort.abort();
+    const drive = await driveChildRoot('while true { break }\n"UNREACHED"\n', "/theta/worker.theta", false, abort);
+    const envelope = soleEnvelope(drive);
+    if (envelope.kind !== "err") {
+      throw new Error(`precondition unmet: expected the cancelled err envelope, got ${JSON.stringify(envelope)}`);
+    }
+    // The projection must read the REAL error kind — not map every Err to "err".
+    expect(envelope.error.kind).toBe("cancelled");
+    expect(drive.outcome).toBe("cancelled");
+  });
+});
+
+describe("D8 — visible child: the card's final render lands BEFORE the deferred shutdown fires", () => {
+  it("Ok arm: shutdown is REQUESTED during the drive, but finish → driveEnded run in the same synchronous settle continuation, ahead of the deferred shutdown", async () => {
+    const events: string[] = [];
+    const envelopeLines: string[] = [];
+    // Model the host contract the regime relies on (`ctx.shutdown()` defers
+    // until the session is idle — which cannot precede this very handler's
+    // resolution) as a macrotask: the handler's own continuation chain is all
+    // microtasks, so a correct ordering places every card event before it.
+    const ctx = childCtx((): void => {
+      events.push("shutdown-requested");
+      setTimeout(() => events.push("shutdown-fired"), 0);
+    });
+    const deps = createProductionProducerDeps({
+      pi: noopPi(),
+      root: rootDouble(),
+      modelRegistry: {
+        getAvailable: () => [{ id: "claude-test", provider: "anthropic" }],
+      } as unknown as ModelRegistry,
+      subagentParentEnv: {},
+      subagentRootRegime: { active: true, slug: "worker" },
+      // RFC 0012 §7: the launch-file presentation is what arms the Ok arm's
+      // `#requestVisibleChildShutdown`.
+      subagentControlPlane: {
+        env: {},
+        entry: { kind: "theta" },
+        launch: { nonce: "n", presentation: "visible" },
+      },
+      emitResultEnvelope: (line: string): void => {
+        envelopeLines.push(line);
+      },
+      statusBus: noopExecutionStatusBus({
+        invocationEnded: (): void => {
+          events.push("bus-invocationEnded");
+        },
+      }),
+      runCard: {
+        driveStarted: (): void => {
+          events.push("card-started");
+        },
+        driveEnded: (_invocationId: string, outcome: ThetaRunOutcome): void => {
+          events.push(`card-ended:${outcome}`);
+        },
+      },
+    });
+    const fixture = composeThetaFixture(regimeSubagentTheta('"DONE"'), deps);
+    await fixture.run("", ctx);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(envelopeLines).toHaveLength(1); // positive control: the Ok arm ran
+    expect(events).toEqual([
+      "card-started",
+      "shutdown-requested",
+      "bus-invocationEnded",
+      "card-ended:ok",
+      "shutdown-fired",
+    ]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// D8 — `theta.runSummary` settings validation (decision 7 re-ruling: the
+// opt-in key rides the DISC-7 scalar-key surface like every other theta.* key).
+// ---------------------------------------------------------------------------
+
+function runSummaryOf(settings: ThetaSettings): unknown {
+  return (settings.theta as Record<string, unknown> | undefined)?.["runSummary"];
+}
+
+describe("D8 — theta.runSummary settings validation", () => {
+  it.each([true, false] as const)("a valid boolean %s survives into ThetaSettings.theta.runSummary", async (value) => {
+    const fs = buildSettings({ content: JSON.stringify({ theta: { runSummary: value } }) }, EMPTY_SETTINGS_FILE);
+    const { settings, diagnostics } = await loadSettings(fs);
+    expect(runSummaryOf(settings)).toBe(value);
+    expect(byCode(diagnostics, "theta/load/settings-value-out-of-range")).toHaveLength(0);
+  });
+
+  it.each([
+    ["a string", '"true"'],
+    ["a number", "1"],
+    ["null", "null"],
+  ] as const)("%s is out of range: one diagnostic naming thetas.runSummary, key treated absent", async (_label, jsonLiteral) => {
+    const fs = buildSettings({ content: `{"theta":{"runSummary":${jsonLiteral}}}` }, EMPTY_SETTINGS_FILE);
+    const { settings, diagnostics } = await loadSettings(fs);
+    const hits = byCode(diagnostics, "theta/load/settings-value-out-of-range");
+    expect(hits.find((d) => d.message.includes("thetas.runSummary")), "expected a thetas.runSummary out-of-range diagnostic").toBeDefined();
+    expect(runSummaryOf(settings)).toBeUndefined();
+  });
+
+  it("absent → absent in the cleaned view (the OFF default is applied at the read site)", async () => {
+    const fs = buildSettings(EMPTY_SETTINGS_FILE, EMPTY_SETTINGS_FILE);
+    const { settings, diagnostics } = await loadSettings(fs);
+    expect(runSummaryOf(settings)).toBeUndefined();
+    expect(byCode(diagnostics, "theta/load/settings-value-out-of-range")).toHaveLength(0);
   });
 });
 
@@ -665,12 +931,25 @@ describe("D3 — composition-level TUI-only gate (production-composition.ts)", (
     ).toHaveLength(0);
   });
 
-  it("child regime: a marked-root dispatch takes the early return and draws no card, even with the publisher wired (TUI ctx)", async () => {
+  it("child regime in a TUI composition (RFC 0012 visible child): the marked-root dispatch draws its OWN card — exactly one theta-run entry (operator ruling 2026-09-23)", async () => {
     const host = await composeHost({ cwd: workspace, mode: "tui", childRegimeSlug: "worker" });
-    await host.dispatch("worker", "");
+    await host.dispatch("worker", "fix it");
     // Positive control — the child regime genuinely ran: exactly one PIC-59
-    // result envelope was emitted, so the zero-entries read below measures the
-    // early-return skip, not a dispatch that never happened.
+    // result envelope was emitted.
+    expect(host.envelopeLines).toHaveLength(1);
+    const runEntries = host.appendCalls.filter((c) => c.customType === THETA_RUN_ENTRY_TYPE);
+    expect(runEntries).toHaveLength(1);
+    expect(runEntries[0]!.data).toMatchObject({ theta: "worker", argsSummary: "fix it" });
+    // No summary: the decision-7 gate holds (FakeClock) AND the re-ruled
+    // default is off.
+    expect(
+      host.appendCalls.filter((c) => c.customType === THETA_RUN_SUMMARY_ENTRY_TYPE),
+    ).toHaveLength(0);
+  });
+
+  it("headless child regime (print composition, the `--mode json -p` launch form): NO publisher is constructed, so the same marked-root dispatch appends zero run-card entries", async () => {
+    const host = await composeHost({ cwd: workspace, mode: "print", childRegimeSlug: "worker" });
+    await host.dispatch("worker", "");
     expect(host.envelopeLines).toHaveLength(1);
     expect(
       host.appendCalls.filter((c) => RUN_ENTRY_TYPES.includes(c.customType)),

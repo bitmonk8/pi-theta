@@ -1006,6 +1006,12 @@ async function runComposePass(
           entryChannel,
           clock,
           ...(statusBus !== undefined ? { statusBus } : {}),
+          // RFC 0015 decision 7 as re-ruled 2026-09-23: the terminal summary
+          // is opt-in via `theta.runSummary`; the `false` default is applied
+          // HERE, the read site (the settings module's treated-absent
+          // convention — an absent or invalid value is absent in the cleaned
+          // view and lands on off).
+          runSummaryEnabled: settings.theta?.runSummary === true,
         })
       : undefined;
 
