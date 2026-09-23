@@ -17,12 +17,21 @@ import {
   type Resolver,
   type ThetaLibDirectoryProbe,
 } from "../parser/imports";
-import type { ThetaBody, ThetaDocument } from "../parser/theta-document";
+import {
+  resolveSubagentSessionConfigAt,
+  type ThetaBody,
+  type ThetaDocument,
+} from "../parser/theta-document";
 import type { ParsedFrontmatter } from "../parser/frontmatter";
-import type { MaterializedImport, ModuleScope } from "../runtime/lexical-environment";
+import {
+  enumDeclaringKey,
+  type EnumRegistration,
+  type MaterializedImport,
+  type ModuleScope,
+} from "../runtime/lexical-environment";
 import { parseViaPassCache, type PassParseDeps } from "./pass-parse-cache";
 import { resolveAndParseThetaLibReference, resolveThetaLibImports } from "./thetalib-load-parse";
-import { enumsOf, extractThetaLibForms, materializeSymbol } from "./import-static-checks";
+import { extractThetaLibForms, type ThetaLibDeclarationStmt } from "./import-static-checks";
 
 /**
  * `theta/load/unresolvable-thetalib-path` for a spec that RESOLVED (a byte-exact,
@@ -129,6 +138,101 @@ export class CachingThetaLibProbe implements ThetaLibDirectoryProbe {
 /** A parsed `.thetalib` module, cached per resolved path across the load pass. */
 export interface ParsedThetaLib {
   readonly document: ThetaDocument;
+}
+
+/**
+ * The `enum` declarations of a `.thetalib` body, as `EnumRegistration`s tagged
+ * with their declaring-declaration identity key (bug 0303 / bug 0305): a
+ * module-scope enum read and a caller-side imported read of the SAME
+ * declaration mint identical `enumDeclaringKey(resolvedPath, name)` tags, so
+ * they compare `==` equal.
+ */
+export function enumsOf(body: ThetaBody, resolvedPath: string): EnumRegistration[] {
+  const out: EnumRegistration[] = [];
+  for (const stmt of body.statements) {
+    if (stmt.kind === "enum" && stmt.variants !== undefined) {
+      out.push({
+        name: stmt.name,
+        variants: stmt.variants,
+        ...(stmt.variantValues !== undefined ? { values: stmt.variantValues } : {}),
+        declaringKey: enumDeclaringKey(resolvedPath, stmt.name),
+      });
+    }
+  }
+  return out;
+}
+
+/**
+ * Completeness ledger for `materializeSymbol`'s per-kind `if`-chain below:
+ * each key names one kind that chain's own return-shape logic handles by
+ * hand (its per-kind result shape is the behaviour, so it does not switch
+ * through {@link isThetaLibDeclarationStmt}). `satisfies` fails `tsc` the
+ * moment {@link ThetaLibDeclarationStmt} gains a kind not also listed here.
+ */
+const MATERIALIZE_SYMBOL_DECLARATION_KINDS = {
+  fn: true,
+  schema: true,
+  enum: true,
+} satisfies Record<ThetaLibDeclarationStmt["kind"], true>;
+
+/**
+ * Materialise one imported symbol from the resolved `.thetalib`'s body into a
+ * runtime binding (imports.md §Visibility): an imported `fn` carries its
+ * `FnDecl` body (callable), an imported `schema` / `enum` registers its
+ * constructor / variants. The resolved declaration is found by its SOURCE name
+ * (the name in the `.thetalib` file) and bound under the specifier's LOCAL name (the
+ * `as` alias, or the source name when unaliased), which the runtime keys imports
+ * by. `resolvedPath` is the LIB `body` was parsed from — for an `enum` it feeds
+ * the declaring-declaration tag (`enumDeclaringKey`, bug 0305), so the runtime
+ * keys enum identity on the declaration, not the local alias. Returns
+ * `undefined` when the source names no top-level declaration (an unknown
+ * symbol — already diagnosed by IMP-3).
+ */
+export function materializeSymbol(
+  source: string,
+  local: string,
+  resolvedPath: string,
+  body: ThetaBody,
+  callingFrontmatter: ParsedFrontmatter | null,
+): MaterializedImport | undefined {
+  for (const stmt of body.statements) {
+    if (stmt.kind === "fn" && stmt.name === source) {
+      // RFC 0001 FN-9: a `.thetalib` `subagent fn`'s session config was resolved
+      // at PARSE time against the `.thetalib`'s own (absent) frontmatter, so it
+      // carries only its `with`-clause overrides. Re-resolve it against the
+      // CALLING theta's frontmatter here (materialisation runs in the calling
+      // theta's compose context) so the spawned session inherits the CALLING
+      // theta's model / tools / tool_loop / respond_repair — the same anchor as
+      // the existing "calling theta's conversation" rule for library functions.
+      const fn =
+        stmt.subagent === true
+          ? {
+              ...stmt,
+              sessionConfig: resolveSubagentSessionConfigAt(stmt, callingFrontmatter),
+            }
+          : stmt;
+      return { name: local, kind: "fn", fn };
+    }
+    if (stmt.kind === "schema" && stmt.name === source) {
+      return { name: local, kind: "schema" };
+    }
+    if (stmt.kind === "enum" && stmt.name === source) {
+      return {
+        name: local,
+        kind: "enum",
+        variants: stmt.variants ?? [],
+        ...(stmt.variantValues !== undefined ? { values: stmt.variantValues } : {}),
+        // The declaring-declaration identity (bug 0305): keyed on the LIB
+        // this declaration is found in (`resolvedPath`) and its declared
+        // name (`source`), not the importing specifier's local alias
+        // (`local`) — so two aliases of one declaration, or a direct import
+        // and a re-export rename of the same declaration, mint the same
+        // runtime tag.
+        declaringKey: enumDeclaringKey(resolvedPath, source),
+      };
+    }
+  }
+  return undefined;
 }
 
 /** Create the mutually recursive module-scope and re-export materializers with their own caches. */

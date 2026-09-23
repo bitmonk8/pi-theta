@@ -38,10 +38,10 @@ import {
   type CachingThetaLibProbe,
   type ParsedThetaLib,
 } from "./import-resolution-kit";
+import { collectUnresolvedNamedTypes } from "../parser/body-type-lowering";
 import {
   extractThetaLibForms,
   isRegistrationError,
-  referencedNamedTypes,
   type ThetaLibDeclarationStmt,
 } from "./import-static-checks";
 
@@ -112,6 +112,20 @@ function isDifferentImportedTypeDecl(
         )
       : value;
   return JSON.stringify(a, stripPosition) !== JSON.stringify(b, stripPosition);
+}
+
+/**
+ * Bug 0465 — the `NamedType` identifiers a schema field's / alias arm's type
+ * SOURCE references, e.g. `"Detail"` off `"array<Detail>"` or `"Detail | null"`.
+ * `collectUnresolvedNamedTypes` (body-type-lowering.ts) reports every
+ * `NamedType` in `source` that resolves against NONE of `declared` — handing it
+ * an EMPTY declared set turns that refusal list into a plain reference walk:
+ * every named type the source mentions comes back unresolved, since nothing
+ * was ever declared to resolve against. Reused rather than re-deriving a
+ * second identifier scanner over the type-source grammar.
+ */
+export function referencedNamedTypes(typeSource: string): readonly string[] {
+  return collectUnresolvedNamedTypes(typeSource, new Set());
 }
 
 /**
