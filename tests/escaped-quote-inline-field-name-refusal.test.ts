@@ -8,10 +8,10 @@ import type { ThetaDocument } from "../src/parser/theta-document";
 import { lowerQueryResponseSchema } from "../src/parser/query-schema-lowering";
 import { expectGroup as expectGroupShared, type DiagnosticCell, parseDoc } from "./helpers/e2e-s1";
 
-// Bug 0229 — `topLevelColon` (src/parser/params.ts) latches a quoted
+// Bug 0229 — `topLevelColon` (src/parser/type-text-split.ts) latches a quoted
 // region without a backslash arm, while the split that feeds it
 // consumes `\` plus the character behind it (`splitTopLevelSegments`,
-// src/parser/params.ts). An inline object entry whose wire-name
+// src/parser/type-text-split.ts). An inline object entry whose wire-name
 // string carries an escaped quote — `{a as "w\"x": integer}` — therefore has
 // no `:` at depth 0: the scan closes the literal at the ESCAPED `"`, opens a
 // new one at the `"` behind `x`, and returns `-1`. Every consumer
@@ -30,7 +30,7 @@ import { expectGroup as expectGroupShared, type DiagnosticCell, parseDoc } from 
 // =====================================================================
 // 0229 §Fix (a) — the escape-aware colon scan — with the rename predicate
 // widened so the returned key reaches a row rather than falling through:
-//   1. `topLevelColon` (src/parser/params.ts) gains the backslash arm its
+//   1. `topLevelColon` (src/parser/type-text-split.ts) gains the backslash arm its
 //      sibling split already has, so `a as "w\"x": integer` yields the colon
 //      the author wrote and the key is `a as "w\"x"`.
 //   2. `INLINE_FIELD_RENAME` (src/parser/type-grammar.ts:153) widens its
@@ -49,8 +49,8 @@ import { expectGroup as expectGroupShared, type DiagnosticCell, parseDoc } from 
 // nothing at this route's HEAD — recorded then as a BOUND of this route
 // (0229 §Fix Residuals item 1). CLOSED by bug 0232 (v0.188.0): `params:` now
 // raises its own registered `theta/load/params-type-not-expression` directly
-// off a new params.ts-local unterminated-literal predicate
-// (`hasUnterminatedStringLiteral`, src/parser/params.ts), so the field is
+// off a new type-text-split.ts-local unterminated-literal predicate
+// (`hasUnterminatedStringLiteral`, src/parser/type-text-split.ts), so the field is
 // refused rather than silently dropped — see
 // tests/unterminated-literal-params-type-refusal.test.ts. §Fix
 // (c) therefore does not arise, and the four-way precedence fixed at

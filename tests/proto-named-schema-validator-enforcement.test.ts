@@ -580,7 +580,7 @@ describe("bug 0212 (D) — a document declaring no `__proto__` field is unmoved"
 
   it("CONTROL (D2): a `$defs`/`$ref` document with an object-typed field is unmoved", () => {
     // The nested control for cell (F)'s depth lock: an inline object type, which
-    // `hoistInlineObjectType` (`src/parser/params.ts`) hoists into a `$defs`
+    // `hoistInlineObjectType` (`src/parser/params-lowering.ts`) hoists into a `$defs`
     // fragment reached by `$ref` (schema-subset.md:76). Declaring no `__proto__`
     // anywhere, it must keep today's bytes — INCLUDING the content-derived
     // `__inline_<slug>` fragment name, which is a slug preimage — and today's
@@ -684,7 +684,7 @@ describe("bug 0212 (E) — the binder's post-merge `params` check refuses unboun
 // ===========================================================================
 // (F) THE DEPTH LOCK — the same three directions for a `__proto__`-named
 // property sitting inside a `$defs` fragment reached by `$ref`, which is the
-// shape `hoistInlineObjectType` (`src/parser/params.ts`) produces for an inline
+// shape `hoistInlineObjectType` (`src/parser/params-lowering.ts`) produces for an inline
 // object type (schema-subset.md:76; bug 0210 cell C3 pins the emission). The
 // mechanism is depth-independent — `allSchemaProperties` is consulted per
 // subschema — so a route that repairs only the ROOT document leaves this red.

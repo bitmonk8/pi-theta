@@ -140,7 +140,7 @@ const DEFS_REF_PREFIX = "#/$defs/";
  * WHY the attachment copy INLINES `$defs` refs instead of transporting them
  * (bug 0011 live round): provider tool input-schema handling of `$ref`/`$defs`
  * degrades the forced arguments — every NamedType bind (whose params lower to
- * `{ "$ref": "#/$defs/<name>" }`, params.ts) failed live with the
+ * `{ "$ref": "#/$defs/<name>" }`, params-lowering.ts) failed live with the
  * malformed-parse note while every ref-free envelope bound; the pass/fail
  * partition was exactly the `$ref`/`$defs` axis (the d848f1b2 failure class,
  * scoped to refs). So every `#/$defs/<name>` reference in the attachment copy
@@ -242,7 +242,7 @@ function restoreDroppedOwnKeys(source: unknown, wrapped: unknown): void {
  * no entry in the root table — is left verbatim in the attachment, which keeps
  * the inliner TOTAL for an input it cannot resolve. No author input reaches
  * that branch: the `params:` document's root `$defs` holds the transitive
- * closure of every ref the lowering mints (`hoistNestedDefs`, params.ts, lifts
+ * closure of every ref the lowering mints (`hoistNestedDefs`, schema-defs.ts, lifts
  * each fragment-local closure to that document's own root, so a name reached
  * only THROUGH another name is still root-resolvable), and
  * `buildBinderEnvelopeSchema` hoists that same table verbatim to the envelope

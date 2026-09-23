@@ -28,7 +28,7 @@ import { expectGroup as expectGroupShared, type DiagnosticCell, envelope, parseD
 // entry on the text before that entry's own top-level colon — its own doc
 // comment states the exclusion, "An entry with no top-level `:` contributes no
 // key". The two lowerers keyed on the same split, `hoistInlineObjectType`
-// (src/parser/params.ts) and `lowerInlineObject`
+// (src/parser/params-lowering.ts) and `lowerInlineObject`
 // (src/parser/body-type-lowering.ts), write no property for the entry either.
 //
 // =====================================================================
@@ -121,7 +121,7 @@ import { expectGroup as expectGroupShared, type DiagnosticCell, envelope, parseD
 //   - (G) THE ADJUDICATION FENCES: GREEN at HEAD and after, all 13 diagnostic
 //     cells and 4 lowering cells.
 //   - (J) the paren-carrying and CROSSED-bracket keyless entries, which
-//     `topLevelColon` (src/parser/params.ts) reads as contributing no key
+//     `topLevelColon` (src/parser/type-text-split.ts) reads as contributing no key
 //     because its typed opener stack holds `(` beside `<` and `{` and pops
 //     only on a matching top: RED at the eight subject cells and all four
 //     lowering cells; GREEN at the two colon-present controls. The group also
@@ -641,7 +641,7 @@ describe("bug 0244 (E) — the lowerings, and the params: fields that must stop 
       },
       "a red reporting `{\"p\":{}}` at e7 or e8 is bug 0244 at the wire: the `params:` field " +
         "declares an object type whose every entry was discarded, `hoistInlineObjectType` " +
-        "(src/parser/params.ts) wrote no property for any of them, and the author's parameter " +
+        "(src/parser/params-lowering.ts) wrote no property for any of them, and the author's parameter " +
         "reaches the provider unconstrained. A red at e9 reporting a `$defs` envelope is the " +
         "same document registering with an unjudged entry standing at a `Type` position",
     ).toEqual({ e7: "null", e8: "null", e9: "null" });
@@ -846,7 +846,7 @@ describe("bug 0244 (G) — the adjudication fences: bug 0238's tolerance and bug
 // ===========================================================================
 // (J) THE PAREN-CARRYING KEYLESS ENTRIES.
 //
-// `topLevelColon` (src/parser/params.ts) tracks `(`/`)` in the same typed
+// `topLevelColon` (src/parser/type-text-split.ts) tracks `(`/`)` in the same typed
 // opener stack it tracks `<`/`{` in, so a `:` inside a paren group is not
 // top-level and `(b: c)` contributes no key to `inlineObjectFieldKeys` and no
 // property to `hoistInlineObjectType`. The entry is therefore KEYLESS under
@@ -865,7 +865,7 @@ const PAREN_BESIDE_FIELD = "{a: integer, (b: c)}";
 const PAREN_IN_TYPE = "{a: integer, b: (x)}";
 /**
  * CROSSED brackets — the paren and the angle group interleave rather than
- * nest. `topLevelColon` (src/parser/params.ts) leaves `['(', '<']` open after
+ * nest. `topLevelColon` (src/parser/type-text-split.ts) leaves `['(', '<']` open after
  * `( <`, treats the mismatched `)` as inert, pops `<` on the `>` and so reads
  * the `:` under a non-empty stack: the entry contributes no key. A paren DEPTH
  * counter cannot reach that verdict, because it cannot see the `<` stacked
@@ -876,7 +876,7 @@ const CROSSED_ONLY = "{( < ) > : x}";
 const CROSSED_BESIDE_FIELD = "{( < ) > : x, a: integer}";
 /**
  * The ENTRY BOUNDARY parity, which disagrees with the colon rule about parens
- * on purpose: `splitTopLevel(…, ",", "angle-and-brace")` (src/parser/params.ts)
+ * on purpose: `splitTopLevel(…, ",", "angle-and-brace")` (src/parser/params-lowering.ts)
  * tracks braces and angles only, so a paren does NOT protect a comma and this
  * interior is TWO keyless entries — two refusals, one per entry (bug 0129's
  * count law).
@@ -947,7 +947,7 @@ describe("bug 0244 (J) — a paren group that swallows the entry's only colon le
         },
       ],
       "the refusal's scope is the entry that contributes NO KEY, and `topLevelColon` " +
-        "(src/parser/params.ts) is the function that decides that for every keyed consumer: its " +
+        "(src/parser/type-text-split.ts) is the function that decides that for every keyed consumer: its " +
         "typed opener stack holds `(`, so `(b: c)` yields no key and no property. A red at " +
         "j1–j4 reporting `[]` is `TypeParser.classifyEntry` (src/parser/type-grammar.ts) reading " +
         "a paren-swallowed `:` as top-level where every keyed consumer reads it as absent — the " +

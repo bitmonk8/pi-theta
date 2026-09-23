@@ -565,7 +565,7 @@ describe("bug 0044 (a) — the 32-keyword × four-position matrix", () => {
   it("a3: the `params:` right-hand side reports the keyword class, never an unresolved name", () => {
     // The longest column: it is still the only one of the four that does not
     // route through `lowerTypeSource`. It reaches `parseLiteralArm` too, but
-    // through the shared `lowerLiteralSublanguage` helper (params.ts) instead
+    // through the shared `lowerLiteralSublanguage` helper (params-lowering.ts) instead
     // — a recogniser that declines every keyword spelling but `true` /
     // `false` / `null`, so the reserved-keyword-as-identifier class this cell
     // measures is `lowerTypeExpr`'s own delegation, reached for exactly the

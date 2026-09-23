@@ -31,7 +31,7 @@
 // THE §FIX SUB-CHOICE, adjudicated on the record to candidate (i): the gate
 // pushes the HEAD TEXT (`a b`), not the whole application text. The head is
 // brace-free by construction, so the shared decline
-// `isUnspellableTextRefusable` (src/parser/params.ts lines 1825–1826) never
+// `isUnspellableTextRefusable` (src/parser/type-text-split.ts lines 1825–1826) never
 // declines it. That choice is discriminated OFFLINE, by the `a b<{x: integer}>`
 // cell of the companion witness; this cell scopes the registration outcome
 // alone.

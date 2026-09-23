@@ -242,7 +242,7 @@ export function lowerInlineObject(
  * The inline-object arm recurses each field's type through `lowerTypeSource`
  * itself (an inner helper closing over `sinks`), not through `lowerTypeExpr`:
  * this function checks the SHARED literal sublanguage
- * (`lowerLiteralSublanguage`, params.ts — also `lowerParamsFieldType`'s,
+ * (`lowerLiteralSublanguage`, params-lowering.ts — also `lowerParamsFieldType`'s,
  * bug 0056 §Fix) before either dispatch below, so a field's type has to
  * re-enter HERE, where that check runs again, or a nested `"x" | "y"` would
  * lower `anyOf: [{}, {}]` instead of the `schema-subset.md:80` enum form (a
@@ -250,11 +250,11 @@ export function lowerInlineObject(
  * SUBS-1, `:81`, governs).
  *
  * THE SINGLE-GROUP CHECK AND `lowerBraceGroupUnionArms` ARE ASKED IN THAT
- * ORDER FOR READABILITY, NOT NECESSITY — `lowerParamsFieldType` (params.ts,
+ * ORDER FOR READABILITY, NOT NECESSITY — `lowerParamsFieldType` (params-lowering.ts,
  * bug 0097 §Fix) now asks the identical predicate pair in the identical
  * order, so the two type-lowering entry points agree by construction rather
  * than by two independently-maintained copies. `lowerBraceGroupUnionArms`'s
- * own doc comment (params.ts) proves the two guards disjoint and states why a
+ * own doc comment (params-lowering.ts) proves the two guards disjoint and states why a
  * union with no brace-group arm or a SHREDDED segment set — the angle-only
  * `|` split cut through a brace group — declines and is handed whole to
  * `lowerTypeExpr`, unchanged from what that function's own union split
@@ -316,7 +316,7 @@ export function lowerTypeSource(
       : {}),
   };
 
-  // Shared with `lowerParamsFieldType` (params.ts, bug 0056 §Fix): one
+  // Shared with `lowerParamsFieldType` (params-lowering.ts, bug 0056 §Fix): one
   // recogniser and one emission, so this function's three callers and the
   // `params:` position agree on a literal source's bytes by construction.
   const literal = lowerLiteralSublanguage(s);
@@ -342,7 +342,7 @@ export function lowerTypeSource(
 
   // The two checks below are asked in this order for readability, not
   // necessity: `isSingleEnclosingBraceGroup(s)` and the arm guard
-  // `lowerBraceGroupUnionArms` (params.ts) applies are provably disjoint (see
+  // `lowerBraceGroupUnionArms` (params-lowering.ts) applies are provably disjoint (see
   // that function's own doc comment), so asking the containing case first
   // only leaves the arm call reasoning about sources that are not one brace
   // group — it does not change which branch a source ultimately takes.
@@ -395,7 +395,7 @@ export interface SchemaSlugCollision {
  * order, then REPLACES the placeholder's own keys with the computed ones —
  * clear-then-`Object.assign`, not a fresh `bodies.set` — so the placeholder's
  * OBJECT IDENTITY survives. That identity is what makes a forward, self, or
- * mutual reference resolve: `lowerTypeExpr`'s identifier atom (params.ts)
+ * mutual reference resolve: `lowerTypeExpr`'s identifier atom (params-lowering.ts)
  * looks the name up in `bodies` while every body is lowering, not only the
  * ones lowered so far, so it finds the (possibly still-empty, but PRESENT)
  * placeholder and mints a `$ref` instead of taking the unresolved arm

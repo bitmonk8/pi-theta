@@ -13,7 +13,7 @@ import {
 
 // Bug 0217 — an inline `enum[…]` written inside a generic argument draws NO
 // diagnostic at any position (HEAD `e5d760bd`, before this file's fix).
-// `lowerTypeExpr`'s generic-application arm (src/parser/params.ts) splits its
+// `lowerTypeExpr`'s generic-application arm (src/parser/params-lowering.ts) splits its
 // argument-list interior angle-only (`splitTopLevel(interior, ",")`),
 // classifies the same cut points per segment
 // (`classifyGenericArgumentSegments`) and recurses every segment
@@ -379,7 +379,7 @@ describe("bug 0217 (a) — the split and the segment classification are byte-unt
 
   // -------------------------------------------------------------------------
   // The direct seam on `findCutBracketGroupText` itself (route §Fix (b)(2)'s
-  // sibling helper, src/parser/params.ts, beside `classifyGenericArgumentSegments`
+  // sibling helper, src/parser/params-lowering.ts, beside `classifyGenericArgumentSegments`
   // / `withoutUnspellableSink`): the interior→group-text mapping, the
   // left-extension over the preceding identifier run, and the innermost-group
   // choice when brackets nest. FENCE in both directions — this helper's

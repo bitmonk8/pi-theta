@@ -290,7 +290,7 @@ function extractToolsList(node: unknown, yamlSource: string): readonly string[] 
  * The reserved-keyword spellings a `params:` key can carry (lexical.md
  * §Reserved words), read from the lexer's own set (`reservedKeywords()`,
  * lexer.ts) rather than restated here as a second source of truth — the same
- * reuse `params.ts`'s `RESERVED_KEYWORDS` makes for its atom classification. A
+ * reuse `params-lowering.ts`'s `RESERVED_KEYWORDS` makes for its atom classification. A
  * `Set`, not a plain object keyed by author text: a record keyed by arbitrary
  * source spellings needs a null prototype and an own-key guard to be indexed
  * safely by author input, which a `Set.has` call needs neither of. Immutable

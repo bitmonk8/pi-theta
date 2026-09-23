@@ -26,7 +26,7 @@ import {
 //
 // THE SEAM, one arm and two sinks. `lowerTypeExpr`'s generic-application arm
 // tests only WHERE the `<` sits (`const lt = s.indexOf("<")`,
-// src/parser/params.ts line 770) and slices whatever precedes it as the head
+// src/parser/params-lowering.ts line 770) and slices whatever precedes it as the head
 // (`const ctor = s.slice(0, lt).trim()`, line 772). Three gates then judge that
 // head: the `array` arity-1 branch (line 791), bug 0281's reserved-head gate
 // (line 795), and bug 0282's landed closed-set gate (line 809,
@@ -73,7 +73,7 @@ import {
 //
 // WHAT THE SUB-CHOICE COSTS, and where this file pins it: group (S). The head
 // text is BRACE-FREE BY CONSTRUCTION, so the shared decline
-// `isUnspellableTextRefusable` (src/parser/params.ts lines 1825–1826:
+// `isUnspellableTextRefusable` (src/parser/type-text-split.ts lines 1825–1826:
 // `parseLiteralArm(text) === undefined && !text.includes("{") &&
 // !text.includes("}")`) never declines it, and `p: 'a b<{x: integer}>'`
 // REFUSES. The rejected candidate (ii), pushing the WHOLE application text,
@@ -241,7 +241,7 @@ describe("b0284 (P) — a non-identifier applied head is refused at the `params:
   it("b0284-P: each of the five spellings draws the load refusal, lowers nothing and does not register", () => {
     // RED at HEAD: all five diagnostic lists are EMPTY, `lowered` is a present
     // object whose `p` is `{}`, and every document REGISTERS — the head passes
-    // bug 0281's reserved gate (src/parser/params.ts line 795) and bug 0282's
+    // bug 0281's reserved gate (src/parser/params-lowering.ts line 795) and bug 0282's
     // closed-set gate (line 809, whose `IDENTIFIER.test(ctor)` conjunct fails
     // on every head here) and falls to the permissive catch-all (lines
     // 861–878), which pushes it onto no sink. The `params:` reader then filters
@@ -280,7 +280,7 @@ describe("b0284 (S) — the head text, not the whole application, is what reache
     // and the adjudication on the record is candidate (i): push the HEAD text.
     //
     // WHY IT DISCRIMINATES. The shared decline
-    // `isUnspellableTextRefusable` (src/parser/params.ts lines 1825–1826)
+    // `isUnspellableTextRefusable` (src/parser/type-text-split.ts lines 1825–1826)
     // declines any fragment carrying a `{` or `}`. Under candidate (i) the sink
     // receives `a b` — brace-free by construction, since the head is the slice
     // BEFORE the first `<` (line 772) — so the decline never fires and the
@@ -347,7 +347,7 @@ describe("b0284 (M) — a head the argument split manufactured keeps the refusal
   it("b0284-M: an inline object cut in two by the angle-only split still resolves its nested names", () => {
     // GREEN at HEAD and after — a pin on what the new gate must NOT remove.
     //
-    // `splitTopLevel(interior, ",")` (src/parser/params.ts, the generic-
+    // `splitTopLevel(interior, ",")` (src/parser/params-lowering.ts, the generic-
     // application arm) tracks ANGLE depth only, so a comma inside an inline
     // object type cuts the argument in two and manufactures the shard
     // `{a: array<Ghost>`. That shard satisfies the same arm's positional
@@ -578,7 +578,7 @@ describe("b0284 (X) — at a BODY capture, `a b<integer>` and `1x<integer>` keep
     // (`annotationSourceIsNotTypeExpression`, `collectUnresolvedNamedTypes` →
     // `lowerTypeSource` → `lowerTypeExpr`, independent of the real lexer's own
     // pass over the same statement) and this bug's new gate
-    // (`src/parser/params.ts`, beside bug 0282's) now judges that text on its
+    // (`src/parser/params-lowering.ts`, beside bug 0282's) now judges that text on its
     // OWN production-derivation reading, exactly as §Fix requires for every
     // head that is not identifier-shaped: `1x` is no `Ident`, so `1x<integer>`
     // derives from no `Type` alternative and this capture's not-expression row
@@ -646,7 +646,7 @@ describe("b0284 (C) — every control of §Reproduction is byte-unchanged", () =
   it("b0284-C-empty-head: `' <integer>'` keeps the row it already draws", () => {
     // GREEN at HEAD and after — the empty-head control §Fix names under "What
     // must not move". `s.indexOf("<")` is `0` here, so the `lt > 0` test at
-    // src/parser/params.ts line 770 DECLINES the generic-application arm
+    // src/parser/params-lowering.ts line 770 DECLINES the generic-application arm
     // entirely and the text reaches the ATOM catch-all, which does push it
     // (line 962). It must keep drawing exactly this row through that route,
     // never through the new gate.
@@ -659,7 +659,7 @@ describe("b0284 (C) — every control of §Reproduction is byte-unchanged", () =
   it("b0284-C-0282: `Nope<integer>` keeps bug 0282's landed name refusal", () => {
     // GREEN at HEAD and after (§Non-goals, first bullet: bug 0282's
     // identifier-headed class is not reopened). The new gate sits AFTER bug
-    // 0282's (src/parser/params.ts line 809); a gate ordered ahead of it, or
+    // 0282's (src/parser/params-lowering.ts line 809); a gate ordered ahead of it, or
     // one keyed on the presence of an argument list, would capture this text
     // and change its code — and would render `unresolved named type` from the
     // wrong sink. Reds here if so.
@@ -671,7 +671,7 @@ describe("b0284 (C) — every control of §Reproduction is byte-unchanged", () =
 
   it("b0284-C-0281: `Ok<integer>` keeps bug 0281's landed reserved refusal", () => {
     // GREEN at HEAD and after (§Non-goals, second bullet). Bug 0281's gate
-    // stands at src/parser/params.ts line 795, ahead of both later gates; a new
+    // stands at src/parser/params-lowering.ts line 795, ahead of both later gates; a new
     // gate written before it would capture this reserved head and change its
     // code.
     const r = paramsTheta("C-0281 — params: 'p: Ok<integer>'", "Ok<integer>");

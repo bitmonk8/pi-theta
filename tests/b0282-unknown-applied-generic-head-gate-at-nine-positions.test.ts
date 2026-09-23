@@ -31,8 +31,8 @@ import {
 // `GENERIC_ARITY` table lookup guarded by a definedness test, so a head the
 // table does not hold is walked, its arguments are checked, and the head itself
 // is discarded. The lowering repeats the omission: `lowerTypeExpr`
-// (`src/parser/params.ts`) splits the text at its first `<`
-// (`const lt = s.indexOf("<")`, src/parser/params.ts line 770), special-cases
+// (`src/parser/params-lowering.ts`) splits the text at its first `<`
+// (`const lt = s.indexOf("<")`, src/parser/params-lowering.ts line 770), special-cases
 // `array` at arity 1 (line 791), refuses a RESERVED head that is no
 // constructor keyword (bug 0281's landed gate, lines 795–808), and — as of
 // this fix (bug 0282 0.280.0) — now ALSO refuses an `Ident`-shaped head outside
@@ -232,7 +232,7 @@ describe("b0282 (M) — an applied unknown head is refused at all nine type-refe
     // judged by neither — `walkType`'s only rule about a generic node's own
     // head is a `GENERIC_ARITY` lookup guarded by a definedness test, and
     // `lowerTypeExpr`'s catch-all returned the empty type at HEAD
-    // (src/parser/params.ts line 826 at HEAD `42226b1e`; the fix's own gate now
+    // (src/parser/params-lowering.ts line 826 at HEAD `42226b1e`; the fix's own gate now
     // intercepts before that catch-all is ever reached, at line 809, and the
     // catch-all itself is now at line 878, after bug 0284's own added gate).
     // Unlike bug 0281's reserved heads, an
@@ -507,7 +507,7 @@ describe("b0282 (K) — the applied RESERVED head keeps bug 0281's landed verdic
   it("b0282-K: `Ok<integer>` draws the keyword refusal at eight positions and the alias triple at the ninth", () => {
     // GREEN at HEAD and after. Bug 0281's fix (version 0.277.0) gates a head
     // that is a RESERVED spelling and no constructor keyword
-    // (src/parser/params.ts lines 795–808), and this report's gate sits
+    // (src/parser/params-lowering.ts lines 795–808), and this report's gate sits
     // immediately after it. Order matters: a closed-set gate written ahead of
     // the reserved gate would capture `Ok<integer>` and change its code, so
     // this cell is where such a mis-ordering reds. The alias cell keeps its

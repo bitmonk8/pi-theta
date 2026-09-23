@@ -36,7 +36,7 @@ import { assertKeysSorted, compareCodePoint, slugOfCanonicalForm } from "./helpe
 //     to `schemaSlug(toLoweredJsonValue(lowered))` — the CANONICAL form, not
 //     the emitted serialisation. It names `__theta_respond_<slug>` and
 //     `__theta_bind_<slug>`, agreeing with `__inline_<slug>`
-//     (src/parser/params.ts `hoistInlineObjectType`), which mints from the
+//     (src/parser/params-lowering.ts `hoistInlineObjectType`), which mints from the
 //     same `canonicalForm` / `schemaSlug` (src/parser/schema-lowering.ts).
 //  2. PIC-44 (docs/spec_topics/pi-integration-contract/tool-registration-lifetime.md:9)
 //     requires the registration cache to store the canonical-form bytes;
@@ -363,7 +363,7 @@ describe("bug 0099 (2) — key insertion order does not move the slug", () => {
 // (3) ONE FRAGMENT, ONE SLUG ACROSS MINTS — schema-subset.md:108 names four
 // synthesised-name forms minted from ONE recipe. `__inline_<slug>` is reached
 // through the shipped load path (a `params:` inline object hoisted by
-// `hoistInlineObjectType`, src/parser/params.ts), `__theta_respond_<slug>`
+// `hoistInlineObjectType`, src/parser/params-lowering.ts), `__theta_respond_<slug>`
 // through `respondSchemaSlug`, over a BYTE-IDENTICAL fragment.
 // RED at HEAD.
 // ===========================================================================

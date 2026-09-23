@@ -19,7 +19,7 @@ import { yamlQuoted, parseDoc, diagLines } from "./helpers/e2e-s1";
 //     sublanguage: `parseLiteralArm` over every `|` arm, then the settled
 //     emission.
 //   - The `params:` right-hand side enters `lowerParamsFieldType`
-//     (src/parser/params.ts), which routes a non-brace-rooted source straight
+//     (src/parser/params-lowering.ts), which routes a non-brace-rooted source straight
 //     to `lowerTypeExpr`. That function has no literal arm, so a literal falls
 //     to its trailing catch-all and returns the permissive `{}`; an all-literal
 //     union lowers each arm to `{}`, `classifyLoweredUnionArm` reads each as

@@ -91,7 +91,7 @@ const MALFORMED_SCHEMA_FIELD = "theta/parse/malformed-schema-field";
  * projection bug 0251 §Fix describes must be observable in how this descriptor's
  * `type` is derived — either inside `renderBinderParamLine` or through an
  * exported projection this mirror can call. It calls the latter,
- * `projectRenderedParamType` (src/parser/params.ts), the same function
+ * `projectRenderedParamType` (src/parser/params-render.ts), the same function
  * production's own `binderPromptParamField` calls, so this mirror exercises
  * the real projection rather than a second copy of it. Production's own USE of
  * that projection — which a mirror cannot witness — is cell 8's subject: it

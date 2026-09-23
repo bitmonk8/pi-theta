@@ -7,7 +7,7 @@ import { join } from "node:path";
 // Convention. A citation from a comment, doc comment or assertion-message
 // string in `src/**`, `tests/**`, the spec pages or `docs/reference/**` into a
 // TypeScript construct names the FILE and the SYMBOL, never a line — e.g.
-// "`lowerParamsFieldType` (`src/parser/params.ts`)". A `path:<line>` citation
+// "`lowerParamsFieldType` (`src/parser/params-lowering.ts`)". A `path:<line>` citation
 // into a converted file is refused.
 //
 // Why the line form is refused: a line number is a claim about a position, and

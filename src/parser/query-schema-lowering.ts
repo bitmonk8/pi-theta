@@ -87,11 +87,11 @@
 //     or any other non-literal shape — recurses its element type through
 //     `lowerTypeExpr` directly: `items: {}`. (An argument the literal
 //     sublanguage ACCEPTS is consulted before that recursion ever runs —
-//     `lowerGenericArgument`, params.ts, bug 0164 §Fix — and reaches the
+//     `lowerGenericArgument`, params-lowering.ts, bug 0164 §Fix — and reaches the
 //     whole-source emission below instead; see the paragraph after this
 //     list.) A UNION ARM whose SEGMENT SET IS SHREDDED — a nested `|`
 //     the angle-only split cut through a brace group, so `isBraceBalanced`
-//     (params.ts) declines at least one segment — still lands here at every
+//     (type-text-split.ts) declines at least one segment — still lands here at every
 //     position alike: `{ a: string | null } | Cat` presents as the three arms
 //     `{ a: string`, `null }`, `Cat`, none of them a brace group, and even a
 //     segment that would be a clean brace group standing alone (`{b:
@@ -99,7 +99,7 @@
 //     with the shredded set and lowers `{}` rather than hoisting. A union
 //     whose segments are ALL brace-balanced, with at least one a single
 //     enclosing brace group, does not reach this arm at the `params:`
-//     position: `lowerBraceGroupUnionArms` (params.ts, bug 0097 §Fix) hoists
+//     position: `lowerBraceGroupUnionArms` (params-lowering.ts, bug 0097 §Fix) hoists
 //     that arm there, so a `params:` field's `{a: integer} | integer`
 //     hoists its object arm identically to what `lowerTypeSource` already
 //     produces for the same text. Every OTHER brace-rooted type position, at
@@ -120,7 +120,7 @@
 //     `array<"x" | "y">` reaches the SAME whole-source emission `array<Sev>`'s
 //     alias RHS reaches, `items: {"type":"string","enum":["x","y"]}`, instead
 //     of this catch-all's `{}` per arm. The MIXED-arm-set gate
-//     (`isMixedLiteralArmSet`, params.ts, bug 0184 §Fix) is unrelated and
+//     (`isMixedLiteralArmSet`, params-lowering.ts, bug 0184 §Fix) is unrelated and
 //     unmoved — it governs a union's OWN per-arm recursion inside
 //     `lowerTypeExpr`, not the generic-argument recursion this paragraph
 //     describes — so a MIXED union's own literal arm still leaves this family

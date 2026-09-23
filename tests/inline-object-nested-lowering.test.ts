@@ -39,7 +39,7 @@ import { assertKeysSorted, inlineDefName, slugOfCanonicalForm, expectRefsClosed 
 //
 //   A. `lowerInlineObject` (src/parser/body-type-lowering.ts:153) splits its
 //      interior field list with `splitTopLevel(body, ",")` — the nesting
-//      argument omitted, so the default `"angle"` applies (src/parser/params.ts)
+//      argument omitted, so the default `"angle"` applies (src/parser/type-text-split.ts)
 //      and `{…}` is not depth. `{a: integer, b: {x: integer, y: string}}` reads
 //      as the THREE entries `a: integer`, `b: {x: integer`, `y: string}`.
 //      `topLevelColon` does track brace depth, so each truncated entry still
@@ -149,7 +149,7 @@ import { assertKeysSorted, inlineDefName, slugOfCanonicalForm, expectRefsClosed 
 // THE PERMISSIVE `{}` FAMILY KEEPS THE MEMBERS §Fix EXCLUDES BY NAME, and their
 // controls are what keeps the fix from over-reaching: `array<{…}>` keeps
 // `items: {}` because `lowerTypeExpr`'s generic ARGUMENT split stays angle-only
-// (src/parser/params.ts), an unresolved name keeps its `{}`, and a
+// (src/parser/params-lowering.ts), an unresolved name keeps its `{}`, and a
 // LITERAL arm of a mixed union keeps its `{}` (a10, g7). Bug 0039 §Fix
 // constraint 1 admits a permissive lowering and forbids a wrong one, so
 // converting one of those would be a regression, not an improvement.
@@ -781,7 +781,7 @@ describe("bug 0039 (a) — a nested inline object at the `@<T>` annotation root 
 
   it("CONTROL (a8, fixtures G3/G4/G5): the permissive dispositions bug 0039 §Expected leaves unchanged", () => {
     // `array<{…}>`'s `{}` is load-bearing: the generic ARGUMENT split stays
-    // angle-only (`TypeSplitNesting`, params.ts), so a two-OR-MORE-field
+    // angle-only (`TypeSplitNesting`, type-text-split.ts), so a two-OR-MORE-field
     // element type presents as that many arguments and the `array` arm does
     // not match at all — widening the split would not repair
     // `generic-arity-mismatch` agreement (angle-only is already the mode
@@ -1658,7 +1658,7 @@ describe("bug 0039 (g) — the hoist's retention, its cross-scope re-registratio
     // the whole-source delegation made on it.
     //
     // ONE MEMBER LEFT THE FAMILY LATER: bug 0184 §Fix gives
-    // `lowerBraceGroupUnionArms`' non-brace-arm call (src/parser/params.ts)
+    // `lowerBraceGroupUnionArms`' non-brace-arm call (src/parser/params-lowering.ts)
     // the same literal consult it gives `lowerTypeExpr`'s union split — both
     // sites move together, or one type expression's answer would split by
     // whether a SIBLING arm happens to be brace-rooted (bug 0184 §Fix
@@ -1744,7 +1744,7 @@ describe("bug 0039 (g) — the hoist's retention, its cross-scope re-registratio
 
 // ===========================================================================
 // (h) THE SHREDDED-SEGMENT GUARD — `arms.every(isBraceBalanced)`, the
-// module-private predicate (src/parser/params.ts) that guards
+// module-private predicate (src/parser/params-lowering.ts) that guards
 // `lowerBraceGroupUnionArms`, the arm dispatch `lowerTypeSource` relies on to
 // decide whether the `|` segments of a source are ARMS at all.
 //

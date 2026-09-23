@@ -166,7 +166,7 @@ export const BUILTIN_VALUE_NAMES: ReadonlySet<string> = new Set([
  *     widening it would disagree with `theta/parse/generic-arity-mismatch`;
  *     measured, angle-only is the mode that DISAGREES with that parser (an
  *     angle-only split counts three arguments where `parseGeneric` counts
- *     one). `TypeSplitNesting`'s own doc (params.ts) states the relation
+ *     one). `TypeSplitNesting`'s own doc (type-text-split.ts) states the relation
  *     correctly. The reason angle-only stands is the honesty one below: a
  *     brace-under-generic argument that widened would present as one
  *     argument and lower `{"type":"array","items":{}}`, asserting arrayness
@@ -184,7 +184,7 @@ export const BUILTIN_VALUE_NAMES: ReadonlySet<string> = new Set([
  *     as a segment, a NESTED arm inside the destroyed group rather than an arm
  *     of this union, so `Ghost` raises nowhere (bug 0033 §Fix residual (ii);
  *     `SchemaDecl.arms`' own caveat records the same split from the capture
- *     side, and `isBraceBalanced` (params.ts, module-private) states why a
+ *     side, and `isBraceBalanced` (type-text-split.ts, module-private) states why a
  *     balanced shard is no exception).
  *
  * `splitTopLevel`'s `"angle"` default keeps that permissive outcome HONEST for

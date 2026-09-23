@@ -473,7 +473,7 @@ export function toSystemParamType(
     return inlineObjectType(s, bodyTypes, resolving);
   }
   // The top-level union split is tested BEFORE the generic `<>` check, matching
-  // the canonical structural order of `lowerTypeExpr` (params.ts: union split
+  // the canonical structural order of `lowerTypeExpr` (params-lowering.ts: union split
   // then generic) and of `classifyDiscriminatorFieldType` (theta-document.ts).
   // A union whose arms carry generics (`Cat | array<Cat>`) both contains a `<`
   // and ends with `>`, so testing the generic branch first would swallow the

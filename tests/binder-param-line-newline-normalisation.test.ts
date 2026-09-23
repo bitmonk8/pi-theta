@@ -803,7 +803,7 @@ describe("bug 0060 (d) — the rendered `<literal>` is one line and denotes the 
       // reads is the notation :142 names.
       expect(
         checkLiteralSublanguage(literal, LITERAL_SITE).map((d) => d.code),
-        `${label}: the rendered literal must draw no diagnostic from the is-literal check the same position runs (src/parser/params.ts, the per-field default loop)`,
+        `${label}: the rendered literal must draw no diagnostic from the is-literal check the same position runs (\`checkParamsDefaults\`, src/parser/params.ts, the per-field default loop)`,
       ).toEqual([]);
     });
 

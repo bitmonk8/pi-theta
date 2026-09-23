@@ -4451,7 +4451,7 @@ describe("H8a-T — bug 0052: a repeated field name inside an inline object body
 // alias-RHS and `@<T>` positions lowered the ENFORCING `{"type":"string",
 // "enum":[...]}` / `{"const":"x"}`
 // (docs/bugs/0056-params-literal-sublanguage-absent-lowers-permissive.md).
-// `lowerParamsFieldType` (src/parser/params.ts) now checks the shared
+// `lowerParamsFieldType` (src/parser/params-lowering.ts) now checks the shared
 // `lowerLiteralSublanguage` recogniser BEFORE its brace test, so the
 // `params:` position mints the same fragment the other three positions do,
 // at every nesting depth.
@@ -4900,7 +4900,7 @@ describe("H8a-T — bug 0059: a params: right-hand side spelling no Type product
 // two body positions — the per-field call in `walkStatement`'s `schema` arm
 // and the joined-arms call in `checkSchemaDeclarationGraph`
 // (src/parser/theta-document.ts) — and refuses what the SAME shared decline
-// bug 0059 already uses (`isUnspellableTextRefusable`, params.ts) does not
+// bug 0059 already uses (`isUnspellableTextRefusable`, type-text-split.ts) does not
 // admit, one error-severity `theta/parse/schema-type-not-expression` per
 // offending fragment. `hasLoadParseError` (production-composition.ts)
 // un-registers the theta at the SAME site the bug 0070/0071/0077/0079(a)/
@@ -11603,7 +11603,7 @@ describe("H8a-T -- bug 0210 (cell cell 69): the spawnSubagentConversation params
 
 // ===========================================================================
 // cell 70 — bug 0204 (cell 69): `lowerTypeExpr`'s generic-application arm
-// (src/parser/params.ts) reads a `GenericType` argument list with
+// (src/parser/params-lowering.ts) reads a `GenericType` argument list with
 // `splitTopLevel`'s `"angle"` default, which counts `<`/`>` and never
 // `{`/`}` (`splitTopLevelSegments`' `tracksBraces` gate). A `params:` field
 // declaring `array<{a: string, b: integer, c: boolean}>` — an `ObjectType`

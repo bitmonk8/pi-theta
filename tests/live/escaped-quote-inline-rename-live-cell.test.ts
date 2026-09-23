@@ -1,4 +1,4 @@
-// H8a live witness — bug 0229: `topLevelColon` (`src/parser/params.ts`) tracked
+// H8a live witness — bug 0229: `topLevelColon` (`src/parser/type-text-split.ts`) tracked
 // a quoted region without honouring a backslash escape, while the split
 // feeding it (`splitTopLevelSegments`) already did, so an inline object field
 // whose wire-name string carries an escaped quote —

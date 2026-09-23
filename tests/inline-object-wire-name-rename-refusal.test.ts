@@ -129,7 +129,7 @@ import { expectGroup as expectGroupShared, type DiagnosticCell, parseDoc, diagLi
 // `parseDeps` double), one direct lowerer call (`lowerQueryResponseSchema`
 // src/runtime/query-schema-lowering.ts:153, `buildBodyTypeSchemas`
 // src/parser/body-type-lowering.ts:428, `lowerParamsFieldType`
-// src/parser/params.ts), one `respondToolWireSchema`
+// src/parser/params-lowering.ts), one `respondToolWireSchema`
 // (src/runtime/respond-tool-wire.ts:92) or one real `AjvSchemaValidator.compile`
 // (src/seams/schema-validator.ts:384, `#build` at :435). Two live halves cover
 // the registration-facing surface this tier cannot reach —
@@ -669,7 +669,7 @@ function boundaryRows(): Cell[] {
     { cell: "g19", src: annotSrc('{p: {q: {a as "w": integer}}}'), expected: [REN("a")] },
     // g20 / g21 — a wire name carrying an ESCAPED quote, at the annotation
     // root and at `params:` alike. CLOSED by bug 0229: `topLevelColon`
-    // (`params.ts`) was escape-blind while its sibling split,
+    // (`type-text-split.ts`) was escape-blind while its sibling split,
     // `splitTopLevelSegments`, already consumed the backslash and the
     // character behind it — so the entry's `:` was never seen at top level
     // and the entry spelled no key. `topLevelColon` now shares the split's

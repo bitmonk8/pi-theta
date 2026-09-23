@@ -95,7 +95,7 @@ import { atEveryPosition, parseDoc, typePositions } from "./helpers/e2e-s1";
 // standard inert `parseDeps` double), one direct lowerer call
 // (`lowerQueryResponseSchema` src/runtime/query-schema-lowering.ts:153,
 // `buildBodyTypeSchemas` src/parser/body-type-lowering.ts:428,
-// `lowerParamsFieldType` src/parser/params.ts), one real
+// `lowerParamsFieldType` src/parser/params-lowering.ts), one real
 // `AjvSchemaValidator.compile` (src/seams/schema-validator.ts:384, `#build` at
 // :435) or one real `buildTypedQueryValidation`
 // (src/runtime/typed-query-validation.ts:169) drive over a SCRIPTED follow-up.
@@ -535,7 +535,7 @@ describe("bug 0176 (C) — the quoted-key fragment the lowerers mint, by direct 
     // read-back could not stay green. `buildBodyTypeSchemas`
     // (src/parser/body-type-lowering.ts:428) is handed the field source a
     // `schema S { p: {"a": string} }` body would retain, and
-    // `lowerParamsFieldType` (src/parser/params.ts) is handed the `params:`
+    // `lowerParamsFieldType` (src/parser/params-lowering.ts) is handed the `params:`
     // field's own type source.
     expect(
       Object.fromEntries(

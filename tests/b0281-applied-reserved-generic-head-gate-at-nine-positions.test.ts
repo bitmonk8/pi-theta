@@ -30,7 +30,7 @@ import {
 // `GENERIC_ARITY` table lookup guarded by a definedness test, so a head the
 // table does not hold is walked, its arguments are checked, and the head itself
 // is discarded. The lowering repeats the omission: `lowerTypeExpr`
-// (`src/parser/params.ts`) splits the text at its first `<`, special-cases
+// (`src/parser/params-lowering.ts`) splits the text at its first `<`, special-cases
 // `array`, and lowers every other head permissively to the empty type. The atom
 // arm below it — the reserved-keyword classification whose sink bug 0277's fix
 // rendered at all nine positions, and the `NamedType ::= Ident` resolution
@@ -40,7 +40,7 @@ import {
 //
 // THE ADJUDICATED ROUTE THIS FILE ENCODES: bug 0281 §Fix route (a), taken in
 // its NARROW variant — a RESERVED-HEAD GATE. The head is judged at
-// `lowerTypeExpr`'s generic-application arm (`src/parser/params.ts`) when it is
+// `lowerTypeExpr`'s generic-application arm (`src/parser/params-lowering.ts`) when it is
 // "a reserved spelling that is not a constructor keyword", and only then; one
 // judgement covers every one of the nine type-reference positions and the
 // nested interior positions alike, because all nine run their type-side checks
@@ -619,7 +619,7 @@ describe("b0281 (A) — a primitive spelling written with an angle list follows 
     // constructor keyword, so the narrow gate draws the same row group (M)
     // asserts, at the `let` position's own start. The bare `integer` is a `PrimitiveType`,
     // taken by the primitive test ahead of the reserved branch in
-    // `lowerTypeExpr` (`src/parser/params.ts`), and is untouched: the control
+    // `lowerTypeExpr` (`src/parser/params-lowering.ts`), and is untouched: the control
     // below is green before and after.
     const applied = theta("A — `let a: integer<string> = 3`", 'let a: integer<string> = 3\n"ok"');
     expectCaptured([applied], []);

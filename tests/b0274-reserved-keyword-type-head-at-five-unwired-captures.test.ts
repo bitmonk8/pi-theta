@@ -28,7 +28,7 @@ import {
 // sink (the `schema X = …` alias/union right-hand side, the `schema` body field
 // type, and the `@<T>` query capture's RESPONSE part), and the `params:`
 // right-hand side reaches it through its own lowering
-// (`src/parser/params.ts`) — four emitting callers, the number that sink's own
+// (`src/parser/params-lowering.ts`) — four emitting callers, the number that sink's own
 // comment names. Five pass none, so at those five the class is computed and
 // discarded: the `let` annotation, the `fn` parameter type, the `fn` return
 // type, the `invoke<Type>` ascription, and the `E`-side block bug 0273 landed
@@ -49,7 +49,7 @@ import {
 // SCOPE'S LOAD-BEARING LOCK. `reservedKeywords()` (`src/lexer/lexer.ts`) holds
 // 32 spellings. Five of them — `string`, `number`, `integer`, `boolean`,
 // `null` — are taken by the `PRIMITIVE_TYPES` test in `lowerTypeExpr`'s atom
-// arm (`src/parser/params.ts`) BEFORE the reserved branch, so they never reach
+// arm (`src/parser/params-lowering.ts`) BEFORE the reserved branch, so they never reach
 // the sink at all; `true`, `false` and `void` are dispositioned inside the
 // reserved branch and never pushed. Of the 24 that do reach it, four are
 // withheld at the five NEW sites and only there:
@@ -542,7 +542,7 @@ describe("b0274 (X) — the withheld set's own scoping, restated under bug 0277 
     //
     //   EIGHT ROWS write an UNAPPLIED `Result` / `array` / `Ok` / `Err` — no
     //   argument list — which reaches `lowerTypeExpr`'s atom arm
-    //   (`src/parser/params.ts`) precisely because it carries none.
+    //   (`src/parser/params-lowering.ts`) precisely because it carries none.
     //   Bug 0277 §Fix's own reading is that no `Type` production derives that
     //   shape (`GenericType`'s two alternatives each spell their own
     //   `"<" … ">"`, grammar.md:99–:100), so the atom arm's classification —

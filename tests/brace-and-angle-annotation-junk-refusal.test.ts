@@ -23,7 +23,7 @@ import { expectGroup as expectGroupShared, type DiagnosticCell, parseDoc, diagLi
 // (docs/bugs/0134-params-shift-induced-stale-citations.md) is the adjudicated
 // stale-citation class). The route below edits
 // `src/parser/type-layer-checks.ts` and reads a predicate out of
-// `src/parser/params.ts`, so every citation into either names a function and
+// `src/parser/type-text-split.ts`, so every citation into either names a function and
 // its module. Spec sentences, which have no symbol to name, keep their line.
 //
 // THE MECHANISM. `annotationSourceIsNotTypeExpression` asks whether the text
@@ -44,7 +44,7 @@ import { expectGroup as expectGroupShared, type DiagnosticCell, parseDoc, diagLi
 // §Fix ROUTE (a), NARROWED TO THE AUTHOR-WRITTEN BRACE GROUP. For an
 // annotation carrying both a brace and an angle bracket:
 //   1. if the text is NOT a single enclosing brace group
-//      (`isSingleEnclosingBraceGroup`, src/parser/params.ts — the predicate the
+//      (`isSingleEnclosingBraceGroup`, src/parser/type-text-split.ts — the predicate the
 //      shared sink itself uses to decide the brace-group entry), the SHRED
 //      decline stands exactly as landed. Only a brace group nested inside a
 //      generic argument or a union arm can be cut into a shard, so this is the
@@ -362,7 +362,7 @@ describe("bug 0252 (B) — each half of the conjunct refuses what their conjunct
     //
     // B5 IS A FENCE, GREEN IN BOTH TREES: `array<{a: integer--}>` is NOT a
     // single enclosing brace group (`isSingleEnclosingBraceGroup`,
-    // src/parser/params.ts), so step 1 keeps the SHRED decline landed as bug
+    // src/parser/type-text-split.ts), so step 1 keeps the SHRED decline landed as bug
     // 0124 wrote it and the row keeps its `let-rhs-type-mismatch`. Its
     // `<expected>` column renders the junk text `array<{a: integer--}>`
     // verbatim, which is no static type — that is bug 0247's class
@@ -535,7 +535,7 @@ describe("bug 0252 (D) — the `params:` position does not move", () => {
   it("D1/D2: both rows load clean and lower BYTE-IDENTICALLY ", () => {
     // The report's position comparison: ONE interior, TWO positions, and at
     // HEAD two dispositions. Bug 0238's typed opener stacks
-    // (`splitTopLevelSegments` / `topLevelColon`, src/parser/params.ts) made the
+    // (`splitTopLevelSegments` / `topLevelColon`, src/parser/type-text-split.ts) made the
     // stray-token row lower byte-identically to its control here, so the
     // `params:` face is already correct and this route must leave it alone —
     // the route touches `annotationSourceIsNotTypeExpression` and the `let`
@@ -756,7 +756,7 @@ describe("bug 0252 (U) — annotationSourceIsNotTypeExpression at its own seam",
     //
     // The two `false` expectations are load-bearing in the opposite direction:
     // `array<{a: integer--}>` is no single enclosing brace group
-    // (`isSingleEnclosingBraceGroup`, src/parser/params.ts), so step 1 keeps
+    // (`isSingleEnclosingBraceGroup`, src/parser/type-text-split.ts), so step 1 keeps
     // the SHRED decline and the predicate must keep declining it — that is
     // cell B5's disposition read one layer down, and the reason the fix cannot
     // be "delete the conjunct".

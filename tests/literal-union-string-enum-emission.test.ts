@@ -688,7 +688,7 @@ describe("bug 0055 (e) — the position bug 0056 reaches, and the three that sta
     // the three `lowerTypeSource` positions and left the `params:` bytes
     // frozen; bug 0056 §Fix constraint 1 is the authority that lifts that
     // freeze for the all-literal class, by moving the recogniser and ONE shared
-    // emission helper into `params.ts` and calling them from
+    // emission helper into `params-lowering.ts` and calling them from
     // `lowerParamsFieldType` ahead of its brace test
     // (docs/bugs/0056-params-literal-sublanguage-absent-lowers-permissive.md).
     // The emission this cell reads is still 0055's, verbatim and key-order
@@ -729,7 +729,7 @@ describe("bug 0055 (e) — the position bug 0056 reaches, and the three that sta
     const lowered = lowerSource("e3", '"x" | string');
     expect(
       lowered,
-      `bug 0055 §Non-goals — \`parseLiteralArm\` (params.ts) fails on ` +
+      `bug 0055 §Non-goals — \`parseLiteralArm\` (type-text-split.ts) fails on ` +
         `\`string\`, so the whole-union literal check never fires and the source goes ` +
         `whole to \`lowerTypeExpr\`. THAT MECHANISM IS UNCHANGED; THE DISPOSITION MOVED: bug ` +
         `0184 §Fix consults the same sublanguage PER ARM of a mixed union, so the whole-source ` +

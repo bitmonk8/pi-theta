@@ -151,7 +151,7 @@ import { yamlQuoted, firstDiagnostic, expectParamsDropGateShape, parseDoc, diagL
 // unchanged and still their subject: at HEAD their argument arms reached
 // `lowerTypeExpr`'s catch-all and landed in the sink, so only the caller's
 // literal decline kept them silent — and that decline is unchanged, because
-// `isUnspellableTextRefusable` (src/parser/params.ts) is what withholds the
+// `isUnspellableTextRefusable` (src/parser/type-text-split.ts) is what withholds the
 // refusal and bug 0164 §Fix constraint 7 registers no diagnostic. What that fix
 // changed is where the argument text GOES, so the sink is no longer even fed for
 // these three. The remaining sharpest tripwires are d4 (`array<{a: string}>`)
@@ -455,7 +455,7 @@ describe("bug 0059 (a) — text no `Type` production spells is refused at `param
    *     which is what "at any depth" means for the reaches above.
    *   - a25 — the SAME hoisted-field reach as a22/a23, but the hoist is reached
    *     through a top-level union arm rather than the whole right-hand side:
-   *     `lowerBraceGroupUnionArms` (src/parser/params.ts, bug 0097 §Fix) hoists
+   *     `lowerBraceGroupUnionArms` (src/parser/params-lowering.ts, bug 0097 §Fix) hoists
    *     the arm through the identical `hoistInlineObjectType` call a22
    *     reaches, so the arm's OWN braces belong to the hoist and its field's
    *     fragment arrives brace-free at the judgement exactly as a22's does.
@@ -773,7 +773,7 @@ describe("bug 0059 (c) — the three other type positions keep their bytes and t
    * `8e2a199c`): `c4` and `c7` were the FIELD position's `???` and `[a, b]`;
    * `c5` was the ALIAS position's `???`. Each is text no `Type` production
    * spells and carries no brace, so the ONE SHARED decline
-   * (`isUnspellableTextRefusable`, params.ts) this bug's and bug 0061's
+   * (`isUnspellableTextRefusable`, type-text-split.ts) this bug's and bug 0061's
    * refusal both read cannot decline it without narrowing this bug's own
    * landed refusal too — no implementation faithful to bug 0061 §Fix
    * constraint 4 keeps these three cells silent. The lowered bytes are
@@ -906,7 +906,7 @@ describe("bug 0059 (d0) — the independent `__inline_<slug>` oracle's own hones
  *   - the 0164 tripwire (`array<"x" | "y">`, `array<1 | 2>` and their nested
  *     form): at HEAD their argument arms reached the catch-all and landed in
  *     the sink, so only the caller's literal decline via `parseLiteralArm`
- *     (src/parser/params.ts, reached from `lowerParamsFieldType`'s call to
+ *     (src/parser/type-text-split.ts, reached from `lowerParamsFieldType`'s call to
  *     `lowerLiteralSublanguage`) kept them silent. Bug 0164 §Fix
  *     (v0.123.0) re-routed the generic-ARGUMENT recursion through that same
  *     sublanguage, so their bytes were re-derived here — while the decline that
@@ -931,7 +931,7 @@ describe("bug 0059 (d0) — the independent `__inline_<slug>` oracle's own hones
  * covered by it — the hoist strips the braces on the way in and the fragment
  * arrives brace-free, so `{a: ???}` is refused whether the hoist is reached
  * directly (a22) or through a top-level union arm `lowerBraceGroupUnionArms`
- * (src/parser/params.ts, bug 0097 §Fix) now hoists (a25, from
+ * (src/parser/params-lowering.ts, bug 0097 §Fix) now hoists (a25, from
  * `string | {a: ???}`, which is not part of this family for exactly that
  * reason) — while `array<{a: ???}>` stays silent (d13) because a generic
  * argument is not a hoist. One `{a: ???}`, two dispositions, decided by which
@@ -1082,7 +1082,7 @@ describe("bug 0059 (d) — grammar-admitted catch-all traffic and the brace unde
     // Held OUT of the invariance loop above because this row's BYTES are the
     // ones bug 0097 §Fix moves, while its silence is unchanged: the text is
     // still one this recogniser must decline, and it still draws no diagnostic.
-    // `lowerBraceGroupUnionArms` (src/parser/params.ts) hoists the brace arm on
+    // `lowerBraceGroupUnionArms` (src/parser/params-lowering.ts) hoists the brace arm on
     // its own terms, so the arm lands under the name every other type position
     // mints for `{a: string}` rather than on `lowerTypeExpr`'s catch-all.
     // Group (a)'s a25 is the diagnostic half of the same route.

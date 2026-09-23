@@ -686,7 +686,7 @@ function checkAliasRhs(
   // bug 0061 §Fix: text no `Type` production spells reaches
   // `lowerTypeExpr`'s catch-all as `aliasUnspellable`
   // (`collectUnresolvedNamedTypes`, body-type-lowering.ts); refuse what the
-  // shared decline (`isUnspellableTextRefusable`, params.ts) does not admit,
+  // shared decline (`isUnspellableTextRefusable`, type-text-split.ts) does not admit,
   // one diagnostic per offending fragment, no dedup. Guard 1 — this
   // declaration already drew an error-severity diagnostic in its own arm
   // walk above (a position rule, a reserved keyword, or an unresolved

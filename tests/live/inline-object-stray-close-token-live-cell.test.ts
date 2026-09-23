@@ -16,12 +16,12 @@
 // .pi/tmp/fixes/0238-premeasure.md). `>` closes only a `<`, `}` only a `{`,
 // `)` only a `(`; a close token whose innermost OPEN frame is not its own
 // matching opener (or none) is INERT. Applied in `splitTopLevelSegments` and
-// `topLevelColon` (src/parser/params.ts) and in `TypeParser.skipMalformedEntry`
+// `topLevelColon` (src/parser/type-text-split.ts) and in `TypeParser.skipMalformedEntry`
 // (src/parser/type-grammar.ts), so the two inventories of one interior agree
 // (§Expected behaviour 1). No diagnostic code is minted and no registry row
 // moves. Symbol-level citations only: bug 0134
 // (docs/bugs/0134-params-shift-induced-stale-citations.md) is the adjudicated
-// stale-citation class for absolute line numbers into src/parser/params.ts,
+// stale-citation class for absolute line numbers into src/parser/type-text-split.ts,
 // which this route edits.
 //
 // WHAT THIS COVERS THAT THE OFFLINE WITNESS DOES NOT.

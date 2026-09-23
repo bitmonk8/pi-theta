@@ -34,7 +34,7 @@ import { yamlQuoted, parseDoc, diagLines } from "./helpers/e2e-s1";
 //     `non-primitive` (its key count is 0, not a sole `type` naming a
 //     primitive), so `lowerUnion` (src/parser/schema-lowering.ts:175) emits the
 //     `anyOf` form with `{}` as one variant.
-//   - `lowerBraceGroupUnionArms` (`src/parser/params.ts`) hoists each brace-group
+//   - `lowerBraceGroupUnionArms` (`src/parser/params-lowering.ts`) hoists each brace-group
 //     arm and sends every OTHER arm — a literal one included — to `lowerTypeExpr`,
 //     not to the literal-aware `lowerFieldType` it was handed. So
 //     `{ a: string } | "lit"` loses the same emission on a path that never
@@ -208,7 +208,7 @@ import { yamlQuoted, parseDoc, diagLines } from "./helpers/e2e-s1";
 // an all-literal arm set) stayed exactly what it was — the whole of (e), `f2`
 // (the surface-type `Parameters:` line) and `g3`'s `Sev | null` row. NO new
 // diagnostic is asserted anywhere in this file, because
-// `isUnspellableTextRefusable` (`src/parser/params.ts`) and all three of its
+// `isUnspellableTextRefusable` (`src/parser/type-text-split.ts`) and all three of its
 // readers stay byte-unchanged (§Fix constraint 4); what the fix does is make
 // that predicate's stated premise TRUE at an arm.
 //
@@ -673,7 +673,7 @@ const PARITY_ROWS: ReadonlyArray<readonly [string, string, string, unknown, stri
     "Sev | true",
     { anyOf: [{ $ref: "#/$defs/Sev" }, { const: true }] },
     "§Fix constraint 1's BOOLEAN row, which is UNCHANGED bytes: bug 0044's fix (0.54.0) gave " +
-      "`lowerTypeExpr`'s (params.ts) atom section its own `true` / `false` arm ahead of " +
+      "`lowerTypeExpr`'s (params-lowering.ts) atom section its own `true` / `false` arm ahead of " +
       "the `IDENTIFIER` test, so this arm already emits schema-subset.md :79's `const`. " +
       "It is a no-op control " +
       "here and the pin that a per-arm consult must not change an emission that already agrees",
@@ -710,7 +710,7 @@ const PARITY_ROWS: ReadonlyArray<readonly [string, string, string, unknown, stri
     '{ a: string } | "lit"',
     { anyOf: [{ $ref: `#/$defs/${A_STRING_INLINE}` }, { const: "lit" }] },
     "the SECOND recursion site (§Fix constraint 6): `lowerBraceGroupUnionArms` " +
-      "(params.ts) hoists the brace arm and sends every other arm to `lowerTypeExpr`, " +
+      "(params-lowering.ts) hoists the brace arm and sends every other arm to `lowerTypeExpr`, " +
       "a path that never touches `lowerTypeExpr`'s own union split — so a fix at one " +
       "site alone would split one type expression's answer by whether a SIBLING arm happens " +
       "to be brace-rooted",
@@ -1257,7 +1257,7 @@ describe("bug 0184 (d) — every arm the consult declines keeps its bytes", () =
       'array<"x" | "y">',
       { type: "array", items: { type: "string", enum: ["x", "y"] } },
       "BUG 0164's SUBJECT, and the placement adjudication's own control. This ALL-literal union " +
-        "is reached through `lowerTypeExpr`'s (params.ts) GENERIC-ARGUMENT recursion, not " +
+        "is reached through `lowerTypeExpr`'s (params-lowering.ts) GENERIC-ARGUMENT recursion, not " +
         "through either whole-source caller. BUG 0164 §Fix (v0.123.0) HAS NOW DONE EXACTLY WHAT " +
         "THIS CELL SAID ITS REMEDY WOULD: it re-routes that argument recursion through " +
         "`lowerLiteralSublanguage`, so these bytes are the WHOLE-SOURCE " +

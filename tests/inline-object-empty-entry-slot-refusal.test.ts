@@ -36,7 +36,7 @@ import { expectGroup as expectGroupShared, type DiagnosticCell, parseDoc, diagLi
 //      branch is therefore an undecidable slot, which is why the legal subset
 //      (`{a: integer,}`, `{a: integer, }`) is a hard bound the fix cannot move.
 //   3. THE RAW-KEY SPLIT SPELLS THE SLOT AND YIELDS NO KEY.
-//      `splitTopLevelSegments` / `topLevelColon` (`src/parser/params.ts`)
+//      `splitTopLevelSegments` / `topLevelColon` (`src/parser/type-text-split.ts`)
 //      divide `a: integer,,b: string` into three segments, the middle one
 //      empty, and `inlineObjectFieldKeys` (src/parser/type-grammar.ts)
 //      `continue`s on a segment spelling no top-level `:`. The slot is in
@@ -463,7 +463,7 @@ describe("bug 0257 (SPLIT-FENCE) — the raw-key split is unmoved by the refusal
     }
     expect(
       actual,
-      "`splitTopLevelSegments` / `topLevelColon` (`src/parser/params.ts`) are the shared key " +
+      "`splitTopLevelSegments` / `topLevelColon` (`src/parser/type-text-split.ts`) are the shared key " +
         "rule the four raw-key rows and both lowerers read (bug 0159's by-construction " +
         "agreement). An empty segment stands in the split for the LEGAL spelling too " +
         "(`a: integer,` yields one), so the split alone cannot divide legal from illegal and " +

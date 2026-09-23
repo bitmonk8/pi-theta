@@ -15,7 +15,7 @@ import { parseDoc, diagLines } from "./helpers/e2e-s1";
 
 // Bug 0204 — `lowerTypeExpr`'s generic-application arm reads its argument list
 // with `splitTopLevel`'s `"angle"` default, whose brace/bracket tracking is off
-// (`splitTopLevelSegments`' `tracksBraces` gate, src/parser/params.ts), so a
+// (`splitTopLevelSegments`' `tracksBraces` gate, src/parser/type-text-split.ts), so a
 // derivable `GenericType` argument the author wrote as ONE unit is cut into
 // fragments the source never spells. `array<{a: string, b: integer, c:
 // boolean}>` becomes `{a: string` / `b: integer` / `c: boolean}`; each fragment
@@ -873,7 +873,7 @@ describe("bug 0204 (k) — the theta registers again", () => {
 // integer, c: boolean}, ???>` spells `???` as a WHOLE argument, and a list
 // whose OTHER comma sat inside the `{…}` group would carry it out of judgement
 // with the manufactured shards. So wholeness is decided per segment:
-// `classifyGenericArgumentSegments` (src/parser/params.ts) reproduces the
+// `classifyGenericArgumentSegments` (src/parser/params-lowering.ts) reproduces the
 // angle-only split's cut points and marks a segment whole iff both delimiting
 // commas sat at `{}`/`[]` depth 0 and the segment's own groups balance.
 //

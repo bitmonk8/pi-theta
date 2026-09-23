@@ -136,7 +136,7 @@ import { committedThetaSources } from "./helpers/theta-corpus";
 // `fn` parameter type, and NOT at the `fn` return slot: there the trailing `|`
 // opens a union arm, so the capture absorbs the body and becomes `integer|{1}`,
 // whose brace-carrying shard the ONE SHARED decline
-// (`isUnspellableTextRefusable`, src/parser/params.ts) declines — the same
+// (`isUnspellableTextRefusable`, src/parser/type-text-split.ts) declines — the same
 // mechanism that keeps `fn f(): integer< { 1 }` silent. This is the capture's
 // asymmetry, not a per-position judgement: nothing the refusal adds
 // distinguishes the three positions. Cells `a20 (let)`, `a20 (param)` and
@@ -715,7 +715,7 @@ describe("bug 0124 (a) — the punctuation trailers are refused at all three pos
   // brace handling absorbs the BODY and the capture becomes `integer|{1}`.
   // That capture shreds to `integer` plus `{1}`, and the brace-carrying shard is
   // declined by the ONE SHARED decline (`isUnspellableTextRefusable`,
-  // src/parser/params.ts) — the same decline that keeps
+  // src/parser/type-text-split.ts) — the same decline that keeps
   // `fn f(): integer< { 1 }` silent in group (e). NOTHING THIS FIX ADDS
   // DISTINGUISHES THE THREE POSITIONS; the capture does.
   it("RED (a20, let): `integer|` draws exactly one refusal", () => {
@@ -730,7 +730,7 @@ describe("bug 0124 (a) — the punctuation trailers are refused at all three pos
     // The capture is `integer|{1}`, not `integer|`: the return slot's `|` takes
     // the body into the annotation. The brace-carrying shard `{ 1 }` is
     // declined by the shared brace decline (`isUnspellableTextRefusable`,
-    // src/parser/params.ts), which is why this cell reports `[]` — GREEN at
+    // src/parser/type-text-split.ts), which is why this cell reports `[]` — GREEN at
     // HEAD `537c274c`. The same shard is a KEYLESS inline-object entry (`1`
     // spells no top-level `:`) reached at a `Type` position through that
     // decline's recursive parse, so bug 0244's operator-adjudicated scoping

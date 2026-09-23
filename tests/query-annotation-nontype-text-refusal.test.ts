@@ -13,7 +13,7 @@ import { parseDoc, diagLines, diagCodes } from "./helpers/e2e-s1";
 // the result is joined and trimmed. So `@<Ghost-->` captures the annotation
 // text `"Ghost--"`, `Ghost--` is no `Ident` and therefore no `NamedType`
 // (docs/spec_topics/grammar.md:98), `lowerTypeExpr`'s trailing catch-all
-// (src/parser/params.ts) takes it, nothing lands in the `unresolved` sink, and
+// (src/parser/params-lowering.ts) takes it, nothing lands in the `unresolved` sink, and
 // `walkExpr`'s `"query"` arm reports NOTHING — while `@<Ghost>`, the same
 // program with the trailer removed, draws
 // `theta/parse/unresolved-named-type 'Ghost'` at one of that row's OWN five
@@ -39,7 +39,7 @@ import { parseDoc, diagLines, diagCodes } from "./helpers/e2e-s1";
 // of the type-grammar verdict is written anywhere, and its two declines (the
 // `[`/`]` decline and the brace-and-angle SHRED decline, both guards at the
 // head of that same function, and the shared fragment decline
-// `isUnspellableTextRefusable`, src/parser/params.ts) are inherited verbatim.
+// `isUnspellableTextRefusable`, src/parser/type-text-split.ts) are inherited verbatim.
 //
 // WHY A ROW OF ITS OWN rather than a fourth position on bug 0124's
 // `theta/parse/annotation-type-not-expression`: that row's Trigger states its

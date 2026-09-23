@@ -29,7 +29,7 @@ import { parseDoc, capturedSchemas, type CapturedSchema } from "./helpers/e2e-s1
 // variant … not a literal-union", the rule the split implements.
 //
 // THE FIX THIS FILE PINS. Substitute the exported structural predicate
-// `isSingleEnclosingBraceGroup` (`src/parser/params.ts`, whose own first
+// `isSingleEnclosingBraceGroup` (`src/parser/type-text-split.ts`, whose own first
 // statement IS the naive test) for the naive expression at the one site. The
 // brace test keeps running FIRST, so a single enclosing group whose interior
 // carries a union (`{ type: "x" | "y" }`) still reports nested.
@@ -64,7 +64,7 @@ import { parseDoc, capturedSchemas, type CapturedSchema } from "./helpers/e2e-s1
 // (`src/parser/theta-document.ts`) is not exported and §Fix forbids
 // exporting it for a test, so item 1's classification columns are COMPOSED from
 // the two exported production units the fix wires together —
-// `isSingleEnclosingBraceGroup` and `splitTopLevel` (`src/parser/params.ts`)
+// `isSingleEnclosingBraceGroup` and `splitTopLevel` (`src/parser/type-text-split.ts`)
 // — by `classifyWith` below. The classifications of every source reachable
 // through `parseDoc` are pinned by item 3 against the shipped load path, and
 // the crossing set's classifications by the inherited item 4.
@@ -396,7 +396,7 @@ describe("bug 0096 item 1 — the brace predicate pair and the classification it
 
   it("the substitution is a strict refinement: structural implies naive at every source", () => {
     // `isSingleEnclosingBraceGroup`'s own first statement
-    // (src/parser/params.ts) is the naive test, so the implication holds by
+    // (src/parser/type-text-split.ts) is the naive test, so the implication holds by
     // construction. Asserting it is what makes "no source that already reached
     // the `|` split changes route" executable rather than a claim about the
     // predicate's body. The violating rows are collected so a

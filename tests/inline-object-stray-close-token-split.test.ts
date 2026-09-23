@@ -17,15 +17,15 @@ import { expectGroup as expectGroupShared, type DiagnosticCell, envelope, parseD
 //
 // THE MECHANISM (cited BY SYMBOL — bug 0134
 // (docs/bugs/0134-params-shift-induced-stale-citations.md) is the adjudicated
-// stale-citation class for absolute line numbers into src/parser/params.ts, and
+// stale-citation class for absolute line numbers into src/parser/type-text-split.ts, and
 // a route that edits that file shifts them, so every citation below names a
 // function and its module and never a line in it; docs/STYLE.md §Citations).
-// `splitTopLevelSegments` (src/parser/params.ts) increments its `depth` on `<`
+// `splitTopLevelSegments` (src/parser/type-text-split.ts) increments its `depth` on `<`
 // — and on `{` when `nesting === "angle-and-brace"` — decrements it
 // unconditionally on `>` / `}`, and honours a separator only at `depth === 0`.
 // A close token that opens nothing drives `depth` to `-1`, nothing raises it
 // again in these fixtures, and the rest of the source accretes into one final
-// segment. `topLevelColon` (src/parser/params.ts) repeats the shape and returns
+// segment. `topLevelColon` (src/parser/type-text-split.ts) repeats the shape and returns
 // `-1` for the merged segment. Measured at HEAD:
 //
 //     splitTopLevelSegments("a: integer, b > c, m: integer", ",", "angle-and-brace")
@@ -36,7 +36,7 @@ import { expectGroup as expectGroupShared, type DiagnosticCell, envelope, parseD
 // `topLevelColon` is negative, because that is also what a legitimately keyless
 // entry looks like: `inlineObjectFieldKeys` (src/parser/type-grammar.ts), the
 // sole key source for the four raw-key rules; `hoistInlineObjectType`
-// (src/parser/params.ts), where the `params:` fields disappear; and
+// (src/parser/params-lowering.ts), where the `params:` fields disappear; and
 // `lowerInlineObject` (src/parser/body-type-lowering.ts). None of the three
 // emits anything on the skip, so the contract is deleted in silence.
 //
@@ -59,11 +59,11 @@ import { expectGroup as expectGroupShared, type DiagnosticCell, envelope, parseD
 // is not its own matching opener (or none) is INERT — it neither opens nor
 // closes a nesting level. The rule is §Kind 1's own words ("a close token with
 // no matching opener") and it is applied in `splitTopLevelSegments` and
-// `topLevelColon` (src/parser/params.ts), with the same rule in
+// `topLevelColon` (src/parser/type-text-split.ts), with the same rule in
 // `TypeParser.skipMalformedEntry` (src/parser/type-grammar.ts) so the two
 // inventories of one interior agree (§Expected behaviour 1). In `"angle"` mode
 // the typed rule and a bare floor coincide, so `classifyGenericArgumentSegments`
-// and `findCutBracketGroupText` (src/parser/params.ts) — the angle-only scans
+// and `findCutBracketGroupText` (src/parser/params-lowering.ts) — the angle-only scans
 // bug 0204 §Fix (b)(3) requires reproduce the split byte for byte (§Fix
 // constraint 3) — take the floor. No diagnostic code is minted and no registry
 // row moves: the only newly-refusing inputs draw codes already registered for
@@ -509,7 +509,7 @@ describe("bug 0238 (B) — the four raw-key rules, control and behind-a-stray-cl
       })),
       "a red here reporting `[]` against the control's own line is bug 0238: " +
         "`inlineObjectFieldKeys` (src/parser/type-grammar.ts) reads " +
-        "`splitTopLevelSegments` + `topLevelColon` (src/parser/params.ts), the underflowed " +
+        "`splitTopLevelSegments` + `topLevelColon` (src/parser/type-text-split.ts), the underflowed " +
         "depth merged every entry behind `b > c` into one segment whose `topLevelColon` is -1, " +
         "and the `colon < 0` skip emptied the key list the four rules compare — the four rules " +
         "bugs 0159, 0176, 0160/0229 and 0227 each landed reverting behind one token",
@@ -646,7 +646,7 @@ describe("bug 0238 (D) — the boundaries this report measures and must not move
         "`theta/load/params-type-not-expression` (code-registry-load.md:19) and W18/W19 keep " +
         "the alias-RHS rows (code-registry-parse.md:105 and :116). A red at W18 or W19 is " +
         "route (a) having moved bug 0042's count comparison between " +
-        "`splitTopLevelSegments` and `splitTopLevel` (src/parser/params.ts); a red at W14 or " +
+        "`splitTopLevelSegments` and `splitTopLevel` (src/parser/type-text-split.ts); a red at W14 or " +
         "W17 is the brace exemption having been widened, which §Non-goals forbids",
     );
   });
@@ -732,7 +732,7 @@ describe("bug 0238 (P) — the same class at a second position", () => {
       "a red at W22 reporting `[]` against its control's line is bug 0238 at the `let` " +
         "annotation: the same merged segment, the same emptied key list " +
         "(`inlineObjectFieldKeys`, src/parser/type-grammar.ts, over " +
-        "`splitTopLevelSegments` + `topLevelColon`, src/parser/params.ts)",
+        "`splitTopLevelSegments` + `topLevelColon`, src/parser/type-text-split.ts)",
     );
   });
 });
@@ -813,7 +813,7 @@ describe("bug 0238 (U) — splitTopLevelSegments / topLevelColon at their own se
     // MATCHING opener; a close token that does have one keeps closing its
     // level, which is what these five observables pin. §Fix constraint 3: the
     // angle-only scans (`classifyGenericArgumentSegments`,
-    // `findCutBracketGroupText`, src/parser/params.ts) reproduce this idiom
+    // `findCutBracketGroupText`, src/parser/params-lowering.ts) reproduce this idiom
     // byte for byte, so a change here moves them too.
     expect(
       {
@@ -857,7 +857,7 @@ describe("bug 0238 (U) — splitTopLevelSegments / topLevelColon at their own se
       },
       "a red reporting `split: [\"a: integer\", \"b > c, m: integer\"]` with " +
         "`colonOfMerged: -1` is bug 0238's root cause at its own seam: " +
-        "`splitTopLevelSegments`' decrement (src/parser/params.ts) has no floor and no opener " +
+        "`splitTopLevelSegments`' decrement (src/parser/type-text-split.ts) has no floor and no opener " +
         "type, so the stray `>` took `depth` to -1 and the `depth === 0` separator test never " +
         "fired again",
     ).toEqual({

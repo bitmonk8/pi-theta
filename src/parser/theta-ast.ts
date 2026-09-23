@@ -675,7 +675,7 @@ export interface SchemaDecl extends NodeBase {
    * (body-type-lowering.ts) re-applies at lowering. Absent for the object form
    * and for the head-only form.
    *
-   * CAVEAT — what "top-level" means to the split. `splitTopLevel` (params.ts)
+   * CAVEAT — what "top-level" means to the split. `splitTopLevel` (type-text-split.ts)
    * runs in its default `"angle"` nesting, which tracks `<…>` and quotes but
    * NOT braces, so a `|` written INSIDE an inline-object arm reads as an arm
    * separator: `schema X = { a: string | null } | Cat` yields the three

@@ -2451,7 +2451,7 @@ function capitalisedPatternHeadDiagnostic(
  * The registered `theta/parse/schema-type-not-expression` refusal (bug 0061
  * §Fix): a `schema` object-body field type, or an arm of a `schema X = …` /
  * `schema X by f = …` alias/union declaration, whose text reaches
- * `lowerTypeExpr`'s trailing catch-all (params.ts) carrying a FRAGMENT no
+ * `lowerTypeExpr`'s trailing catch-all (params-lowering.ts) carrying a FRAGMENT no
  * `Type` production spells. `<X>` renders the DECLARATION's identifier, the
  * same category-7 slot `unresolvedNamedTypeDiagnostic`'s sibling rows use for
  * `<name>` — `SchemaFieldSource` and an arm string carry no range or name of

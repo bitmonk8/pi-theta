@@ -17,7 +17,7 @@ import type { TypeNode, TypePosition, TypeCheckRules, TypeCheckSite } from "./ty
  * because `tokeniseType` has no keyword kind at all and would otherwise
  * present every one of them exactly as it presents `Ys`. Derived ONCE at
  * module scope from the lexer's own exported set, the same shape
- * `src/parser/params.ts` and `src/parser/frontmatter.ts` already use for the
+ * `src/parser/params-lowering.ts` and `src/parser/frontmatter.ts` already use for the
  * identical exclusion at their own field-name positions — a module-private
  * immutable derived set, not a mutable global.
  */
@@ -64,7 +64,7 @@ const INLINE_FIELD_IDENT = /^[A-Za-z_][A-Za-z0-9_]*$/;
 /**
  * The closed `GenericType` set (grammar.md:99–:100, :107 — "No other
  * identifier is parameterisable"). Exported for `lowerTypeExpr`
- * (`src/parser/params.ts`), which exempts these two constructor keywords
+ * (`src/parser/params-lowering.ts`), which exempts these two constructor keywords
  * from its reserved-head refusal by membership here rather than by name —
  * one closed set read by both places that judge a generic head, rather than
  * a second copy that could drift.
@@ -252,7 +252,7 @@ function inlineObjectFieldKeys(interiorSource: string): string[] {
  * three `"all"`-only checks are withheld. The rules at the `object` arm
  * below judge the SOURCE key at every depth and through every generic
  * argument alike — the LOWERING never dividing a generic argument's interior
- * into fields (`params.ts`'s `lowerTypeExpr`) bounds the WIRE consequence a
+ * into fields (`params-lowering.ts`'s `lowerTypeExpr`) bounds the WIRE consequence a
  * key has, not whether the source spelling is judged — so `walkType` carries
  * no flag distinguishing a generic argument's subtree from any other.
  */

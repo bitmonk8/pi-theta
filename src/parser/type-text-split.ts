@@ -1,14 +1,14 @@
 // Shared type-text splitters and predicates for parser consumers.
 // Literal-atom recognition lives here with the refusal predicate so this
-// module has no import back to params.ts or body-type-lowering.ts.
+// module has no import back to params-lowering.ts or body-type-lowering.ts.
 
 /**
  * Whether `s` is a SINGLE enclosing brace group: the `{` at index 0 is closed
  * by the `}` at the final index, with no unmatched close before then (quote
  * contents are skipped so a brace inside a string literal cannot perturb
  * depth). `lowerTypeSource` (body-type-lowering.ts) and `lowerParamsFieldType`
- * (params.ts) both ask this of the whole source, then of each arm of a union
- * through `lowerBraceGroupUnionArms` (params.ts) — every caller needs it rather
+ * (params-lowering.ts) both ask this of the whole source, then of each arm of a union
+ * through `lowerBraceGroupUnionArms` (params-lowering.ts) — every caller needs it rather
  * than a naive `startsWith("{") && endsWith("}")`, which also matches
  * `{a: integer} | {b: integer}`: a UNION of two object arms whose first `{`
  * closes at `{a: integer}`, well short of the string's end. Reading that
@@ -32,11 +32,11 @@
  * The predicate serves callers beyond the type-lowering dispatches: the
  * discriminator-field classifier in `theta-document.ts` asks it for the same
  * reason at a non-lowering position (bug 0096 §Fix). `lowerParamsFieldType`
- * (params.ts) asks it too, in place of the positional `startsWith("{") &&
+ * (params-lowering.ts) asks it too, in place of the positional `startsWith("{") &&
  * endsWith("}")` test bug 0039 §Fix's byte-freeze had kept there: bug 0097
  * §Fix is the authority that lifts the freeze for a top-level union of
  * brace-balanced arms, and this predicate paired with
- * `lowerBraceGroupUnionArms` (params.ts) is what the lifted position now asks. No
+ * `lowerBraceGroupUnionArms` (params-lowering.ts) is what the lifted position now asks. No
  * dispatch or classifier in this codebase still asks the naive two-ended
  * question on its own account — only this predicate's own first statement
  * does, because that statement IS the fast decline every caller relies on.
@@ -44,7 +44,7 @@
  * Defined here rather than in `body-type-lowering.ts`, which imports from
  * this module and not the reverse (bug 0039 §Fix's import-direction rule) —
  * the same rule that keeps `hoistInlineObjectType` and
- * `lowerBraceGroupUnionArms` in `params.ts` too. `body-type-lowering.ts`
+ * `lowerBraceGroupUnionArms` in `params-lowering.ts` too. `body-type-lowering.ts`
  * re-exports this name so its own importers (`theta-document.ts`,
  * `query-schema-lowering.ts`) keep reaching it at the same import path.
  */
@@ -150,7 +150,7 @@ function isBraceBalanced(s: string): boolean {
  *
  * Exported, and living here rather than in `body-type-lowering.ts`: that
  * module imports from this one and not the reverse (bug 0039 §Fix), and
- * `lowerLiteralSublanguage` (params.ts) — the one emission every caller sharing
+ * `lowerLiteralSublanguage` (params-lowering.ts) — the one emission every caller sharing
  * this recogniser eventually reaches, `lowerParamsFieldType` and
  * `lowerTypeSource` (body-type-lowering.ts) among them — needs this
  * recogniser on the side of that boundary either caller can reach (bug 0056
@@ -188,7 +188,7 @@ export function parseLiteralArm(source: string): { readonly value: unknown } | u
  * recognises it) lowers under its own emission, and any fragment carrying a
  * `{` or `}` anywhere, balanced or not, belongs to the brace frame
  * (`lowerParamsFieldType`'s intercept, `hoistInlineObjectType`, both
- * params.ts, bugs
+ * params-lowering.ts, bugs
  * 0035/0045/0052) rather than to a catch-all refusal — WIDER than
  * "brace-rooted" by operator grant (bug 0059 §Fix, HEAD 948b7814):
  * `splitTopLevel`'s angle-only nesting can hand this arm an UNBALANCED half of
@@ -355,7 +355,7 @@ export function topLevelColon(entry: string): number {
  *     disagrees with the parser that computes
  *     `theta/parse/generic-arity-mismatch`. And the inline-object FIELD LIST,
  *     where a nested `ObjectType` is a single field's type: `hoistInlineObjectType`
- *     (params.ts) splits it for every type position that hoists, and
+ *     (params-lowering.ts) splits it for every type position that hoists, and
  *     `lowerInlineObject` (body-type-lowering.ts) splits it for the annotation
  *     root it lowers in place. `hoistInlineObjectType`'s comment records what an
  *     angle-only split mints there.

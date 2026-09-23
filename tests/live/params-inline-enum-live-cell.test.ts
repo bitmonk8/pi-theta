@@ -5,7 +5,7 @@
 // §Fix route (a) wires the SAME registered `theta/parse/inline-enum` row over
 // the `params:` field's own top-level captured type text
 // (`checkInlineEnumForm`, reused from src/parser/schema-declarations.ts, wired
-// into src/parser/params.ts's per-field loop) that already fires for the two
+// into `parseParams`'s per-field loop (src/parser/params.ts)) that already fires for the two
 // `schema` declaration positions — INSTEAD OF the generic
 // `theta/load/params-type-not-expression` text refusal. The GOV-15
 // emission-set addition this fix makes is `p: 'enum[{a: string}]'`: at HEAD

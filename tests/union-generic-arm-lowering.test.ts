@@ -13,7 +13,7 @@ import { AjvSchemaValidator, type SchemaSlug } from "../src/seams/ajv-schema-val
 import { yamlQuoted, parseDoc, diagLines } from "./helpers/e2e-s1";
 import { compareCodePoint, expectRefsClosed as expectRefsClosedShared, inlineDefName } from "./helpers/canonical-slug-oracle";
 
-// Bug 0043 — `lowerTypeExpr` (src/parser/params.ts) tests for a generic
+// Bug 0043 — `lowerTypeExpr` (src/parser/params-lowering.ts) tests for a generic
 // application BEFORE it splits a union, so any union whose source text ends in
 // `>` is consumed whole by the generic arm and never split
 // (docs/bugs/0043-union-nonprimitive-arm-lowers-permissive.md).
@@ -95,7 +95,7 @@ import { compareCodePoint, expectRefsClosed as expectRefsClosedShared, inlineDef
 //        "items":{"type":"integer"}}]}` — correct today, and unmoved by this
 //        fix. The `params:` position reaches the SAME dispatch: bug 0097 §Fix
 //        gave `lowerParamsFieldType` the structural `isSingleEnclosingBraceGroup`
-//        test and the `lowerBraceGroupUnionArms` arm path (both params.ts), so
+//        test and the `lowerBraceGroupUnionArms` arm path (both params-lowering.ts), so
 //        this source — two brace-balanced segments, the first a single
 //        enclosing brace group — hoists its object arm here too. The
 //        SCHEMA-BODY FIELD position carries the spelling as well: bug 0095 §Fix
@@ -439,7 +439,7 @@ describe("bug 0043 (a) — a union whose LAST arm is `array<T>` lowers SUBS-1's 
           fragment,
           `${label} [${position}]: schema-subset.md:81 (SUBS-1) requires \`{"anyOf":[...]}\` in ` +
             `source order for a union with a non-primitive arm, and :77 gives \`array<T>\` its ` +
-            `bytes; \`lowerTypeExpr\`'s generic-application arm (params.ts) swallows the whole union ` +
+            `bytes; \`lowerTypeExpr\`'s generic-application arm (params-lowering.ts) swallows the whole union ` +
             `instead. observed=${JSON.stringify(fragment)}`,
         ).toEqual(expected);
       });
@@ -513,7 +513,7 @@ describe("bug 0043 (b) — an `array`-headed union lowers each arm, not one mis-
         expect(
           fragment,
           `${label} [${position}]: the mis-sliced single-argument \`array\` branch ` +
-            `(\`lowerTypeExpr\`, params.ts) emits arrayness while dropping every arm the author wrote; ` +
+            `(\`lowerTypeExpr\`, params-lowering.ts) emits arrayness while dropping every arm the author wrote; ` +
             `SUBS-1 requires the \`anyOf\`. observed=${JSON.stringify(fragment)}`,
         ).toEqual(expected);
       });
@@ -780,7 +780,7 @@ describe("bug 0043 (e) — a name in ANY arm of ANY spelling raises unresolved-n
           `${label} [${position}]: code-registry-parse.md's ` +
             `\`${UNRESOLVED}\` row triggers on any \`NamedType\` resolving to no declaration ` +
             `usable at the position it is written, and each arm lowers through the identifier ` +
-            `arm (\`lowerTypeExpr\`, params.ts); observed ${JSON.stringify(read.diags)}`,
+            `arm (\`lowerTypeExpr\`, params-lowering.ts); observed ${JSON.stringify(read.diags)}`,
         ).toEqual(EXPECTED);
       });
     }
@@ -908,7 +908,7 @@ describe("bug 0043 (f) — an affected annotation stops colliding on the permiss
 // ===========================================================================
 // (g) THE SINGLE-TERM PATH AND THE LITERAL SUBLANGUAGE — no-op cells. The
 // reorder is a no-op for every source without a top-level `|`
-// (`splitTopLevel(s, "|")` tracks angle depth, params.ts), so each of these
+// (`splitTopLevel(s, "|")` tracks angle depth, params-lowering.ts), so each of these
 // keeps its exact bytes. Reading the union split as unconditional is the
 // mutation this group catches.
 // ===========================================================================
@@ -1020,7 +1020,7 @@ describe("bug 0043 (g) — a source with no top-level `|` is byte-unchanged", ()
   it("CONTROL (g7): the LITERAL union `\"x\" | \"y\"` lowers alike at all four positions", () => {
     // All four positions run the same literal check now: bug 0056 §Fix
     // constraint 1 moved the recogniser and ONE shared emission helper into
-    // `params.ts`, and `lowerParamsFieldType` calls them ahead of its brace test
+    // `params-lowering.ts`, and `lowerParamsFieldType` calls them ahead of its brace test
     // (docs/bugs/0056-params-literal-sublanguage-absent-lowers-permissive.md),
     // so the `params:` position carries schema-subset.md:80's spelled emission
     // the other three have carried since bug 0055 §Fix landed. Neither spelling
@@ -1157,7 +1157,7 @@ describe("bug 0043 (h) — `array`-guarded recursion lowers a self-`$ref` `anyOf
 // runs, which the bug doc's §Reproduction (written at 0.45.0, before bug 0039
 // landed in 0.49.0) predates. One structural predicate and one arm path serve
 // all four positions: `isSingleEnclosingBraceGroup` and
-// `lowerBraceGroupUnionArms` (both src/parser/params.ts), asked by
+// `lowerBraceGroupUnionArms` (src/parser/type-text-split.ts and src/parser/params-lowering.ts), asked by
 // `lowerTypeSource` for the alias, annotation and schema-body positions and by
 // `lowerParamsFieldType` for `params:` (bug 0097 §Fix). A union whose segments
 // are brace-balanced and one of which is a single enclosing brace group
@@ -1208,7 +1208,7 @@ describe("bug 0043 (i) — the brace-arm union, whose four positions agree byte 
     // former positional `startsWith("{") && endsWith("}")` test (bug 0097
     // §Fix), so this source — a union whose two segments are both
     // brace-balanced and whose first is itself a single enclosing brace
-    // group — takes `lowerBraceGroupUnionArms` (src/parser/params.ts): the
+    // group — takes `lowerBraceGroupUnionArms` (src/parser/params-lowering.ts): the
     // first arm hoists through `hoistInlineObjectType` and the second lowers
     // through `lowerTypeExpr`, exactly as bug 0039 §Fix part B already
     // dispatches the alias and annotation positions' arms (i1).

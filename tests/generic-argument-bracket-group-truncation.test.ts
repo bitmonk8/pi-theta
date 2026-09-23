@@ -45,7 +45,7 @@ import { expectGroup as expectGroupShared, type DiagnosticCell, diagLines, parse
 // `TypeParser.skipMalformedEntry` (bug 0231) runs only from `parseObject`'s
 // FIELD loop and its depth counter tracks `{`/`<` and `}`/`>` only, so a `[` is
 // depth-neutral to it. `findCutBracketGroupText` (bug 0217,
-// `src/parser/params.ts`) runs on the LOWERING side over the interior STRING
+// `src/parser/params-lowering.ts`) runs on the LOWERING side over the interior STRING
 // and feeds one refusal sink; it computes no argument count and is reached only
 // from the three schema-feeding positions — which is exactly the difference
 // between the `schema` / alias / `params:` rows of group (B) and its `fn`,
@@ -697,7 +697,7 @@ describe("bug 0236 (E) — no lowered byte and no lowering-side counter moves", 
   });
 
   it("§Reproduction (f): the two lowering-side argument counters are untouched", () => {
-    // `splitTopLevel` (src/parser/params.ts) is the second and third counters'
+    // `splitTopLevel` (src/parser/type-text-split.ts) is the second and third counters'
     // shared splitter: `"angle-and-brace"` is the query peel's mode and
     // `"angle"` is `lowerTypeExpr`'s. Neither tracks `[…]`, and route 1 changes
     // neither — the count the fix repairs is `parseGeneric`'s, which is the

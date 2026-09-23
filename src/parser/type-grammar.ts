@@ -1183,7 +1183,7 @@ class TypeParser {
    * its inventory of an interior stops agreeing with the raw-key split's
    * (bug 0159's by-construction agreement, bug 0238 §Fix):
    *
-   *   - `colonOpen` mirrors `topLevelColon` (`src/parser/params.ts`), the
+   *   - `colonOpen` mirrors `topLevelColon` (`src/parser/type-text-split.ts`), the
    *     function that decides whether this same entry text contributes a key
    *     to `inlineObjectFieldKeys` and a property to the two lowerers. ONE
    *     typed opener stack carrying `(` beside `<` and `{`; a close token
@@ -1196,7 +1196,7 @@ class TypeParser {
    *     no property while this scan withheld the refusal, and an interior of
    *     nothing but such entries would lower the permissive `{}`.
    *   - `boundaryOpen` mirrors `splitTopLevelSegments(…, ",",
-   *     "angle-and-brace")` (`src/parser/params.ts`) and
+   *     "angle-and-brace")` (`src/parser/type-text-split.ts`) and
    *     `skipMalformedEntry` (above): a BRACE-AND-ANGLE-only typed stack in
    *     which parens are wholly transparent — `(` and `)` neither push nor
    *     pop nor mark anything. A `,` ends the entry only when that stack is

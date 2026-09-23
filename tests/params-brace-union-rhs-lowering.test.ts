@@ -20,7 +20,7 @@ import { assertKeysSorted, inlineDefName, slugOfCanonicalForm, expectRefsClosed 
 //
 // ONE DISPATCH, TWO ELEMENTS.
 //
-//   THE DISPATCH. `lowerParamsFieldType` (`src/parser/params.ts`) tests
+//   THE DISPATCH. `lowerParamsFieldType` (`src/parser/params-lowering.ts`) tests
 //   `s.startsWith("{") && s.endsWith("}")`. That question is
 //   POSITIONAL — a `{` at index 0 and a `}` at the last index — not
 //   STRUCTURAL, so `{a: integer} | {b: integer}` answers yes on its FIRST
@@ -782,7 +782,7 @@ describe("bug 0097 (a) — the `params:` shapes the dispatch keeps byte-for-byte
 describe("bug 0097 (b) — a top-level union of object arms on the `params:` RHS lowers `anyOf` over hoisted arms", () => {
   it("RED (b1): `p: \"{a: integer} | {b: integer}\"` hoists BOTH arms and refs them in source order", () => {
     // The defect in one line: `lowerParamsFieldType`'s dispatch
-    // (`src/parser/params.ts`) tests the first and last CHARACTERS — the
+    // (`src/parser/params-lowering.ts`) tests the first and last CHARACTERS — the
     // inline `s.startsWith("{") && s.endsWith("}")` — so the first arm's `{`
     // and the last arm's `}` are read as one group and
     // `a: integer} | {b: integer` is handed to `hoistInlineObjectType` as a
@@ -914,7 +914,7 @@ describe("bug 0097 (b) — a top-level union of object arms on the `params:` RHS
     // §Fix constraint 1, table row 2. `integer | {b: integer}` never satisfies
     // the naive test — its last character is `}` but its first is `i` — so it
     // lowers per-segment today and the brace arm reaches `lowerTypeExpr`'s
-    // (`src/parser/params.ts`) catch-all, which has no inline-object arm at
+    // (`src/parser/params-lowering.ts`) catch-all, which has no inline-object arm at
     // any depth. The arm dispatch
     // (src/parser/body-type-lowering.ts:446–:459) is what descends into it.
     const loaded = loadCleanly("b7", paramSrc("integer | {b: integer}"));

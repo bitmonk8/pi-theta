@@ -125,7 +125,7 @@ import {
 // `parseDeps` double), one AST read-back, or one direct lowerer call
 // (`lowerQueryResponseSchema`, src/runtime/query-schema-lowering.ts:153 — the
 // same call `src/extension/production-theta-producer.ts:2672` makes on
-// `QueryExpr.schema`; `lowerParamsFieldType`, src/parser/params.ts). The two
+// `QueryExpr.schema`; `lowerParamsFieldType`, src/parser/params-lowering.ts). The two
 // live halves cover only the registration-facing surface this tier cannot
 // reach: tests/live/inline-field-name-not-identifier-live-cell.test.ts
 // (H8a) and

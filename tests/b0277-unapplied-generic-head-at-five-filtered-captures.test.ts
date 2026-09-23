@@ -21,7 +21,7 @@ import {
 // (docs/bugs/0277-unapplied-generic-head-admitted-and-inert-at-five-type-positions.md).
 //
 // THE SEAM, AS FIXED (bug 0277 §Fix route (a), landed). `lowerTypeExpr`'s atom
-// arm (`RESERVED_KEYWORDS.has(s)`, `src/parser/params.ts`) is reached only
+// arm (`RESERVED_KEYWORDS.has(s)`, `src/parser/params-lowering.ts`) is reached only
 // after the generic-application arm has declined the text, so an APPLIED head
 // never arrives there and an unapplied one always does. The atom arm
 // classifies the spelling as a reserved keyword read where an `Ident` is read
@@ -34,7 +34,7 @@ import {
 // and its `E` argument, the `let` annotation, the `fn` parameter type, the
 // `fn` return type and the `invoke<Type>` ascription
 // (`src/parser/theta-document.ts`), and the `params:` right-hand side, which
-// builds its own diagnostic (`src/parser/params.ts` lines 240–248). At HEAD,
+// builds its own diagnostic (`parseParams`, `src/parser/params.ts`). At HEAD,
 // before this fix, the five newly-wired sites (the `let` annotation, the `fn`
 // parameter type, the `fn` return type, the `invoke<Type>` ascription and the
 // `E` argument) rendered through `admittedReservedKeywords`, whose
@@ -585,7 +585,7 @@ describe("b0277 (K) — an applied `Ok<…>` / `Err<…>` spelling refuses, at a
   // docs/bugs/0281-applied-ok-err-generic-application-silent-at-every-capture.md
   // §Fix route (a), NARROW variant). The route gates the seam an applied
   // spelling reaches — `lowerTypeExpr`'s generic-application arm,
-  // `src/parser/params.ts` — on "a reserved spelling that is not a
+  // `src/parser/params-lowering.ts` — on "a reserved spelling that is not a
   // constructor keyword", so `Ok` and `Err` written with an argument list
   // converge on the same `theta/parse/reserved-keyword-as-identifier` refusal
   // their bare spelling already draws at these five captures: one reading for

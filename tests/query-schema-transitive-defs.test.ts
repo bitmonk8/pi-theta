@@ -380,7 +380,7 @@ describe("bug-0004 (iv) — controls green before and after the fix", () => {
 
   it("an UNDECLARED name under a generic stays permissive and compilable (cell-v note: the precise-error path is unreachable from source)", () => {
     // Bug-0004 cell (v) is UNREACHABLE from source: `lowerTypeExpr`
-    // (src/parser/params.ts) lowers an unresolved NamedType permissively to `{}`
+    // (src/parser/params-lowering.ts) lowers an unresolved NamedType permissively to `{}`
     // (recording it in `ctx.unresolved`) — it never mints a `$ref` whose target
     // is absent. The ONLY source-constructible dangling ref is the nesting
     // defect itself, so no "genuinely missing def" unit test exists; instead

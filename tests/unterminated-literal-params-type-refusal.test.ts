@@ -38,9 +38,9 @@ import { expectGroup as expectGroupShared, type DiagnosticCell, parseDoc } from 
 // lexed positions, breaking Constraint 3)
 // =====================================================================
 // §Fix (b)'s OTHER named arm — "raise `theta/load/params-type-not-expression`
-// from the intercept's decline directly" — living in `src/parser/params.ts`
+// from the intercept's decline directly" — living in `src/parser/type-text-split.ts`
 // ALONE:
-//   1. `isUnspellableTextRefusable` (src/parser/params.ts) is LEFT
+//   1. `isUnspellableTextRefusable` (src/parser/type-text-split.ts) is LEFT
 //      UNCHANGED, byte-for-byte: its brace exemption and its four other
 //      readers (theta-document.ts:7069, :7536, type-layer-checks.ts:1148) are
 //      untouched, so narrowing it never happens and Constraint 3 holds by
@@ -371,7 +371,7 @@ describe("bug 0232 (A) — the ninth position answers as the eight lexed ones do
         "frontmatter-fields-a.md:58 parses the `params:` type half with the same grammar as " +
         "every other annotation position. A red on an A9 U1/U2 cell showing `[]` IS bug 0232. A " +
         "red on any A1–A8 cell, or on any CTL cell, is Constraint 3 violated — this route touches " +
-        "src/parser/params.ts alone and must move none of them",
+        "`parseParams`/`checkParamsDefaults` (src/parser/params.ts) alone and must move none of them",
     );
   });
 });
