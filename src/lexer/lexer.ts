@@ -201,6 +201,29 @@ interface ScannerSinks {
 }
 
 /**
+ * Query-template body state machine (grammar.md §Comments / §Lexical: "Text
+ * inside a `@`...`` query template is not a comment", and "stray backslash
+ * outside any string literal, path literal, or `@`...`` query-template body").
+ * Between the backticks of a `@`...`` template the text is PROSE, not code,
+ * so `//`, `/*`, and `\` are ordinary characters — NOT a line-comment,
+ * block-comment, or stray-backslash. `inTemplateProse` is set on the opening
+ * backtick and cleared on the matching closing backtick. A `${...}`
+ * interpolation temporarily leaves prose for normal code lexing (comments ARE
+ * valid inside `${...}`), tracked by `interpDepth` (brace nesting; 0 ⇒ not in
+ * an interpolation, so a `}` returning it to 0 resumes prose).
+ * `templateOpenStart` is the position of the opening backtick of the
+ * currently-open `@`...`` template, or `null` when none is open. Threaded so
+ * the EOF check can span the diagnostic's range from that backtick rather
+ * than pointing only at EOF (QRY-17; code-registry-parse.md's
+ * `theta/parse/unterminated-template` row).
+ */
+interface TemplateState {
+  inTemplateProse: boolean;
+  interpDepth: number;
+  templateOpenStart: Pos | null;
+}
+
+/**
  * String literals: single- or double-quoted, single-line. The escape table
  * (`\"`, `\'`, `\\`, `\n`, `\t`, `\r`, `\u{XXXX}`) is decoded into the
  * token's `value`; `text` keeps the verbatim source slice. An unrecognised
@@ -460,6 +483,126 @@ function scanNumberLiteral(cursor: ScannerCursor, sinks: ScannerSinks, file: str
 }
 
 /**
+ * Consume one character (or delimiter / escape pair / `${` entry) of a
+ * template PROSE region, consuming verbatim. The parser recovers the template
+ * by slicing the raw body between the backtick TOKENS (theta-document.ts
+ * parseQuery) and re-lexes `${...}` from that slice (query-render.ts
+ * lexQueryTemplate), so prose needs no interior tokens — only the backtick
+ * delimiters and interpolation `${` must still tokenise. Advancing keeps
+ * line/column correct for those delimiter spans.
+ */
+function scanTemplateProse(
+  cursor: ScannerCursor,
+  sinks: ScannerSinks,
+  tmpl: TemplateState,
+): void {
+  const { text, n, pos, advance } = cursor;
+  const { tokens } = sinks;
+  const c = text[cursor.i];
+  if (c === "`") {
+    const start = pos();
+    advance();
+    tokens.push({ kind: "punct", text: "`", range: { start, end: pos() } });
+    tmpl.inTemplateProse = false; // closing delimiter — resume code lexing
+    tmpl.templateOpenStart = null; // the template closed; no longer owed an EOF diagnostic
+    return;
+  }
+  if (c === "\\") {
+    // A backslash escapes the next character in template prose (`\`` is a
+    // literal backtick, `\$` suppresses interpolation); consume the pair so
+    // an escaped backtick / `${` is never mistaken for a delimiter, mirroring
+    // query-render.ts lexQueryTemplate. It is NOT a stray backslash.
+    advance(); // the backslash
+    if (cursor.i < n && text[cursor.i] !== undefined) {
+      advance(); // the escaped character
+    }
+    return;
+  }
+  if (c === "$" && text[cursor.i + 1] === "{") {
+    // Enter a `${...}` interpolation: emit the `$` and `{` delimiter puncts
+    // (the same tokens the code path would, so the continuation/bracket pass
+    // is unaffected) and resume normal code lexing.
+    const dollarStart = pos();
+    advance(); // `$`
+    tokens.push({ kind: "punct", text: "$", range: { start: dollarStart, end: pos() } });
+    const braceStart = pos();
+    advance(); // `{`
+    tokens.push({ kind: "punct", text: "{", range: { start: braceStart, end: pos() } });
+    tmpl.inTemplateProse = false;
+    tmpl.interpDepth = 1;
+    return;
+  }
+  // Any other prose character (incl. `//`, `/*`, brackets, whitespace, and
+  // newlines): consume it with no token and no diagnostic.
+  advance();
+}
+
+/** Scan an identifier or keyword run (the current char is an ident start). */
+function scanIdentifier(
+  cursor: ScannerCursor,
+  sinks: ScannerSinks,
+  reserved: ReadonlySet<string>,
+): void {
+  const { text, n, pos, advance } = cursor;
+  const start = pos();
+  let value = "";
+  while (cursor.i < n) {
+    const d = text[cursor.i];
+    if (d === undefined || !isIdentPart(d)) {
+      break;
+    }
+    value += advance();
+  }
+  sinks.tokens.push({
+    kind: reserved.has(value) ? "keyword" : "ident",
+    text: value,
+    range: { start, end: pos() },
+  });
+}
+
+/**
+ * Emit `theta/parse/unterminated-template` when EOF is reached while a
+ * `@`...`` query template is still open (QRY-17,
+ * query-escapes-stringification.md#qry-17; code-registry-parse.md's
+ * `theta/parse/unterminated-template` row, phase `lex`). Both `inTemplateProse`
+ * (prose region, never re-entered a `${...}` interpolation) and `interpDepth >
+ * 0` (EOF arrived mid-interpolation, so the flag was cleared at `${` but the
+ * template is still open — the row's Trigger, "EOF reached while scanning a
+ * @`...` query template", covers this sub-case without naming it separately)
+ * are open-template states at loop exit. Mirrors the
+ * `theta/parse/unterminated-string` EOF/newline split in scanStringLiteral,
+ * minus the newline branch: a template has no single-line restriction, so only
+ * EOF ends it unterminated.
+ */
+function emitUnterminatedTemplate(
+  cursor: ScannerCursor,
+  sinks: ScannerSinks,
+  tmpl: TemplateState,
+  file: string,
+): void {
+  if (!tmpl.inTemplateProse && tmpl.interpDepth <= 0) {
+    return;
+  }
+  if (tmpl.templateOpenStart === null) {
+    // Unreachable by construction: both open-template states are entered only
+    // where `templateOpenStart` is set to the opening backtick's position, and
+    // cleared only where the template actually closes. A null here would mean
+    // the state machine's invariant broke, not a legitimate EOF — fail loudly
+    // rather than mint a diagnostic with a fabricated range.
+    throw new Error(
+      "lexer invariant violated: open @\`...\` template at EOF with no recorded opening backtick position",
+    );
+  }
+  sinks.diagnostics.push({
+    severity: "error",
+    code: "theta/parse/unterminated-template",
+    file,
+    range: { start: tmpl.templateOpenStart, end: cursor.pos() },
+    message: "unterminated @\`...\` query template",
+  });
+}
+
+/**
  * Tokenise the normalised stream into raw tokens (newlines preserved as
  * `newline` markers for the continuation pass) and the lexical diagnostics that
  * surface during scanning (`theta/parse/block-comment`,
@@ -480,23 +623,12 @@ function scanTokens(
   let line = 1;
   let column = 1;
 
-  // Query-template body state machine (grammar.md §Comments / §Lexical: "Text
-  // inside a `@`...`` query template is not a comment", and "stray backslash
-  // outside any string literal, path literal, or `@`...`` query-template body").
-  // Between the backticks of a `@`...`` template the text is PROSE, not code,
-  // so `//`, `/*`, and `\` are ordinary characters — NOT a line-comment,
-  // block-comment, or stray-backslash. `inTemplateProse` is set on the opening
-  // backtick and cleared on the matching closing backtick. A `${...}`
-  // interpolation temporarily leaves prose for normal code lexing (comments ARE
-  // valid inside `${...}`), tracked by `interpDepth` (brace nesting; 0 ⇒ not in
-  // an interpolation, so a `}` returning it to 0 resumes prose).
-  let inTemplateProse = false;
-  let interpDepth = 0;
-  // Position of the opening backtick of the currently-open `@`...`` template,
-  // or `null` when none is open. Threaded so the EOF branch below can span the
-  // diagnostic's range from that backtick rather than pointing only at EOF
-  // (QRY-17; code-registry-parse.md's `theta/parse/unterminated-template` row).
-  let templateOpenStart: Pos | null = null;
+  // Query-template body state machine — see TemplateState above.
+  const tmpl: TemplateState = {
+    inTemplateProse: false,
+    interpDepth: 0,
+    templateOpenStart: null,
+  };
 
   const pos = (): Pos => ({ line, column });
   const advance = (): string => {
@@ -526,49 +658,9 @@ function scanTokens(
       break;
     }
 
-    // Template PROSE region: consume verbatim. The parser recovers the template
-    // by slicing the raw body between the backtick TOKENS (theta-document.ts
-    // parseQuery) and re-lexes `${...}` from that slice (query-render.ts
-    // lexQueryTemplate), so prose needs no interior tokens — only the backtick
-    // delimiters and interpolation `${` must still tokenise. Advancing keeps
-    // line/column correct for those delimiter spans.
-    if (inTemplateProse) {
-      if (c === "`") {
-        const start = pos();
-        advance();
-        tokens.push({ kind: "punct", text: "`", range: { start, end: pos() } });
-        inTemplateProse = false; // closing delimiter — resume code lexing
-        templateOpenStart = null; // the template closed; no longer owed an EOF diagnostic
-        continue;
-      }
-      if (c === "\\") {
-        // A backslash escapes the next character in template prose (`\`` is a
-        // literal backtick, `\$` suppresses interpolation); consume the pair so
-        // an escaped backtick / `${` is never mistaken for a delimiter, mirroring
-        // query-render.ts lexQueryTemplate. It is NOT a stray backslash.
-        advance(); // the backslash
-        if (i < n && text[i] !== undefined) {
-          advance(); // the escaped character
-        }
-        continue;
-      }
-      if (c === "$" && text[i + 1] === "{") {
-        // Enter a `${...}` interpolation: emit the `$` and `{` delimiter puncts
-        // (the same tokens the code path would, so the continuation/bracket pass
-        // is unaffected) and resume normal code lexing.
-        const dollarStart = pos();
-        advance(); // `$`
-        tokens.push({ kind: "punct", text: "$", range: { start: dollarStart, end: pos() } });
-        const braceStart = pos();
-        advance(); // `{`
-        tokens.push({ kind: "punct", text: "{", range: { start: braceStart, end: pos() } });
-        inTemplateProse = false;
-        interpDepth = 1;
-        continue;
-      }
-      // Any other prose character (incl. `//`, `/*`, brackets, whitespace, and
-      // newlines): consume it with no token and no diagnostic.
-      advance();
+    // Template PROSE region: consumed verbatim by scanTemplateProse.
+    if (tmpl.inTemplateProse) {
+      scanTemplateProse(cursor, sinks, tmpl);
       continue;
     }
 
@@ -632,20 +724,7 @@ function scanTokens(
     }
 
     if (isIdentStart(c)) {
-      const start = pos();
-      let value = "";
-      while (i < n) {
-        const d = text[i];
-        if (d === undefined || !isIdentPart(d)) {
-          break;
-        }
-        value += advance();
-      }
-      tokens.push({
-        kind: reserved.has(value) ? "keyword" : "ident",
-        text: value,
-        range: { start, end: pos() },
-      });
+      scanIdentifier(cursor, sinks, reserved);
       continue;
     }
 
@@ -680,51 +759,25 @@ function scanTokens(
     }
     advance();
     tokens.push({ kind: "punct", text: c, range: { start, end: pos() } });
-    if (c === "`" && interpDepth === 0) {
+    if (c === "`" && tmpl.interpDepth === 0) {
       // Opening backtick of a `@`...`` template. Only at top-level code: inside a
       // `${...}` interpolation a backtick is ordinary punctuation, matching the
       // parser, which stops its template walk at the first backtick token.
-      inTemplateProse = true;
-      templateOpenStart = start; // recovered if EOF arrives before the closing backtick
-    } else if (interpDepth > 0 && c === "{") {
-      interpDepth += 1;
-    } else if (interpDepth > 0 && c === "}") {
-      interpDepth -= 1;
-      if (interpDepth === 0) {
-        inTemplateProse = true; // interpolation closed — resume template prose
+      tmpl.inTemplateProse = true;
+      tmpl.templateOpenStart = start; // recovered if EOF arrives before the closing backtick
+    } else if (tmpl.interpDepth > 0 && c === "{") {
+      tmpl.interpDepth += 1;
+    } else if (tmpl.interpDepth > 0 && c === "}") {
+      tmpl.interpDepth -= 1;
+      if (tmpl.interpDepth === 0) {
+        tmpl.inTemplateProse = true; // interpolation closed — resume template prose
       }
     }
   }
 
-  // EOF reached while a `@`...`` query template was still open (QRY-17,
-  // query-escapes-stringification.md#qry-17; code-registry-parse.md's
-  // `theta/parse/unterminated-template` row, phase `lex`). Both `inTemplateProse`
-  // (prose region, never re-entered a `${...}` interpolation) and `interpDepth >
-  // 0` (EOF arrived mid-interpolation, so the flag was cleared at `${` but the
-  // template is still open — the row's Trigger, "EOF reached while scanning a
-  // @`...` query template", covers this sub-case without naming it separately)
-  // are open-template states at loop exit. Mirrors the `theta/parse/unterminated-string`
-  // EOF/newline split above, minus the newline branch: a template has no
-  // single-line restriction, so only EOF ends it unterminated.
-  if (inTemplateProse || interpDepth > 0) {
-    if (templateOpenStart === null) {
-      // Unreachable by construction: both open-template states are entered only
-      // where `templateOpenStart` is set to the opening backtick's position, and
-      // cleared only where the template actually closes. A null here would mean
-      // the state machine's invariant broke, not a legitimate EOF — fail loudly
-      // rather than mint a diagnostic with a fabricated range.
-      throw new Error(
-        "lexer invariant violated: open @\`...\` template at EOF with no recorded opening backtick position",
-      );
-    }
-    diagnostics.push({
-      severity: "error",
-      code: "theta/parse/unterminated-template",
-      file,
-      range: { start: templateOpenStart, end: pos() },
-      message: "unterminated @\`...\` query template",
-    });
-  }
+  // EOF reached while a `@`...`` query template was still open — see
+  // emitUnterminatedTemplate (QRY-17).
+  emitUnterminatedTemplate(cursor, sinks, tmpl, file);
 
   return { tokens, diagnostics };
 }
