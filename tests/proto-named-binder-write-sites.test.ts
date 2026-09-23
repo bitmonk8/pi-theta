@@ -419,7 +419,8 @@ describe("bug 0214 (2b) — the ordinary-name control: the attached bytes are un
 //
 // WHY THIS GROUP READS PRODUCTION SOURCE AS TEXT. Both production lines are
 // private — `#emitBinderEchoNote`
-// (`src/extension/production-theta-producer.ts:985`) is a private method and
+// (`src/extension/binder-run.ts`, extracted from production-theta-producer.ts
+// by PTQ-1285) is a private method and
 // `echoTypeFromValue` (`:5973`) is a module-private function — and the enclosing
 // method sends a session note through the pi seam, so there is no offline seam
 // to either. 0214 §Provenance states the method this file follows (0210's, for
@@ -435,9 +436,10 @@ describe("bug 0214 (2b) — the ordinary-name control: the attached bytes are un
 // claim about production both as a shape and as a consequence.
 // ===========================================================================
 
-/** `src/extension/production-theta-producer.ts`, read as text (group (3) only). */
+/** `src/extension/binder-run.ts` (the extracted binder run hosting
+ *  `#emitBinderEchoNote`), read as text (group (3) only). */
 const PRODUCTION_PRODUCER_SOURCE = readCorpus(
-  "src/extension/production-theta-producer.ts",
+  "src/extension/binder-run.ts",
   "group (3)'s source for the production echo read",
 );
 
@@ -451,12 +453,12 @@ function echoReadStatement(): string {
   const match = /const value = [^;]*;/.exec(PRODUCTION_PRODUCER_SOURCE);
   if (match === null) {
     throw new Error(
-      "harness: `#emitBinderEchoNote`'s per-field `const value = …;` read statement is no longer present in production-theta-producer.ts — group (3) cannot check the read it exists for. Re-anchor the cell against the current source; do not skip it",
+      "harness: `#emitBinderEchoNote`'s per-field `const value = …;` read statement is no longer present in binder-run.ts — group (3) cannot check the read it exists for. Re-anchor the cell against the current source; do not skip it",
     );
   }
   if (!match[0].includes("mergedArgs")) {
     throw new Error(
-      `harness: the first \`const value = …;\` statement in production-theta-producer.ts no longer reads \`mergedArgs\` — group (3)'s anchor has drifted onto another statement (${match[0]}); re-anchor rather than skip`,
+      `harness: the first \`const value = …;\` statement in binder-run.ts no longer reads \`mergedArgs\` — group (3)'s anchor has drifted onto another statement (${match[0]}); re-anchor rather than skip`,
     );
   }
   return match[0];

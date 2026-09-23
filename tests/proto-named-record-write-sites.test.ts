@@ -310,9 +310,15 @@ function marshalledInlineParams(record: Record<string, unknown>): unknown {
 // remains the end-to-end behavioural witness that the real loops behave.
 // ===========================================================================
 
-/** `src/extension/production-theta-producer.ts`, read as text (cell A-SRC only). */
+/**
+ * `src/extension/subagent-spawn-regime.ts`, read as text (cell A-SRC only) —
+ * both production loops (`#renderChildSystemPrompt`'s `system:`-render record
+ * and `#buildControlPlaneEnv`'s `paramValues` marshalling record) moved there
+ * with the PTQ-1285 subagent-spawn cluster extraction from
+ * `production-theta-producer.ts`.
+ */
 const PRODUCTION_PRODUCER_SOURCE = readCorpus(
-  "src/extension/production-theta-producer.ts",
+  "src/extension/subagent-spawn-regime.ts",
   "cell A-SRC's source for the production record loops",
 );
 

@@ -65,7 +65,10 @@ function readCorpus(rel: string): string {
 
 const RUNTIME_EVENT_CHANNEL =
   "docs/spec_topics/pi-integration-contract/runtime-event-channel.md";
-const PRODUCER = "src/extension/production-theta-producer.ts";
+// The render-fail refusal note's emission site (`#renderChildSystemPrompt`)
+// moved with the PTQ-1285 subagent-spawn cluster extraction; the code↔doc tie
+// follows the shipped bytes.
+const PRODUCER = "src/extension/subagent-spawn-regime.ts";
 
 /**
  * The render-fail refusal note's verbatim content template, invented at the
