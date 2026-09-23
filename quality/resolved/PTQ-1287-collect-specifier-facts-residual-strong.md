@@ -2,7 +2,7 @@
 id: PTQ-1287
 title: collectImportedSpecifierFacts remains at 219 LOC (strong band) after PTQ-1159's Seam A landed, with the IMP-4 admit block PTQ-1159's Seam B named still inline
 lens: D9
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/extension/import-static-checks.ts:980-1198

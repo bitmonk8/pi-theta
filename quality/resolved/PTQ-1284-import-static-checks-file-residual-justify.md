@@ -2,7 +2,7 @@
 id: PTQ-1284
 title: import-static-checks.ts remains at 1899 LOC (justify band) after PTQ-1147's Seam A landed alone, still hosting the resolution-kit and per-specifier-facts concern groups PTQ-1147's Seams B and C named
 lens: D9
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/extension/import-static-checks.ts:1-1899

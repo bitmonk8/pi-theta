@@ -2,7 +2,7 @@
 id: PTQ-1268
 title: invoke-callee-arity.ts builds the parser-layer arity/argument-slot type model in src/extension, touching 13 parser members against 1 of its own layer
 lens: D9
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/extension/invoke-callee-arity.ts:1-262

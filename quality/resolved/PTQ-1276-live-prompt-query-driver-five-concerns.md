@@ -2,7 +2,7 @@
 id: PTQ-1276
 title: live-prompt-query-driver.ts bundles the on-session turn driver, the turn-settlement predicate family, the respond-capture contract, repair-outcome mapping, and the off-session forced respond dispatch in one 1685-LOC module
 lens: D9
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/extension/live-prompt-query-driver.ts:1-1685

@@ -2,7 +2,7 @@
 id: PTQ-1254
 title: statement-executor carries two isomorphic 7-arm control-flow unions (Flow, EvalResult) bridged by mechanical arm-to-arm mappers at every layer boundary
 lens: D8
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/runtime/statement-executor.ts:403-410

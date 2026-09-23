@@ -2,7 +2,7 @@
 id: PTQ-1257
 title: evalMatch drives evaluateMatch with sentinel arm bodies that record a side-channel selection and discard the documented return value, then recovers the selection through an unchecked cast
 lens: D8
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/runtime/statement-executor.ts:1472-1495
