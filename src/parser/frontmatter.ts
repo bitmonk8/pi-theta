@@ -12,9 +12,10 @@
 // seam this leaf defines.
 //
 // V6a-T (tests-task) declared the seam shapes — `parseFrontmatter`, the
-// `ModelReferenceMatcher` injection interface, and the result/option records —
-// and stubbed `parseFrontmatter`; V6a (this leaf) implements the whole field
-// contract above.
+// `ModelReferenceMatcher` injection interface, and the result/option records
+// (now hosted in frontmatter-contract.ts and re-exported here) — and stubbed
+// `parseFrontmatter`; V6a (this leaf) implements the whole field contract
+// above.
 
 import {
   normaliseLiteralValueLineBreaks, type Diagnostic,
@@ -29,7 +30,6 @@ import {
   type Node,
   type YAMLMap,
 } from "yaml";
-import { type LoweredSchema } from "../seams/schema-validator";
 import {
   type ParamFieldInput,
   type BodyTypeDeclaration,
@@ -39,10 +39,7 @@ import {
   type SystemParamType,
   type SystemTemplate,
 } from "./system-interpolation";
-import {
-  classifyBinderBypass,
-  type BypassParamsField,
-} from "../binder/binder-envelope";
+import { classifyBinderBypass } from "../binder/binder-envelope";
 import { toSystemParamType } from "./system-param-types";
 import { extractParsedParams } from "./frontmatter-params";
 import {
@@ -61,270 +58,19 @@ import {
   resolveNonNegIntBlock,
   checkMethodology,
 } from "./frontmatter-yaml";
+import {
+  type ThetaMode,
+  type ModelReferenceMatcher,
+  type ParsedToolLoop,
+  type ParsedRespondRepair,
+  type ParsedFrontmatter,
+  type FrontmatterParseResult,
+  type ParseFrontmatterOptions,
+} from "./frontmatter-contract";
 
 export { toSystemParamType } from "./system-param-types";
 export * from "./frontmatter-yaml";
-
-/** A theta 1.0 invocation mode (`frontmatter-fields-a.md` field contract). */
-export type ThetaMode = "prompt" | "subagent";
-
-/**
- * The outcome of resolving a present `model:` reference against the available
- * model set, per the [binder-model parse rule]:
- *   - `resolved`  — exactly one available model matches.
- *   - `no-match`  — the reference (including a non-string scalar or a malformed
- *                   / `provider/modelId` reference) matches no available model.
- *   - `ambiguous` — a bare `modelId` matching models under more than one
- *                   provider (resolves to no model — not pick-first).
- */
-export type ModelMatchOutcome = "resolved" | "no-match" | "ambiguous";
-
-/**
- * The **model-reference-matcher injection seam** V6a defines: the interface the
- * parser's `model:` resolution hook calls. The concrete matcher (constructed and
- * injected by V9b's production wiring point) binds V11a's shared exact-match
- * resolution contract — theta's own exact-match resolver over
- * `ctx.modelRegistry.getAvailable()` matching a bare `modelId` against each
- * model's `Model<Api>.id` and a `provider/modelId` reference against
- * `Model<Api>.provider` (the short provider-id form, not the api-shaped
- * `Model<Api>.api`) plus `Model<Api>.id` — so this `model:` resolution and
- * V11a's binder-model resolution cannot decide "reference matches no available
- * model" differently. Declared in-leaf so V6a carries no forward `Deps.` edge
- * onto the downstream binder-model machinery.
- */
-export interface ModelReferenceMatcher {
-  /** Resolve a present, raw `model:` value against the available model set. */
-  resolve(reference: unknown): ModelMatchOutcome;
-}
-
-/**
- * The parsed `tool_loop` block (FRNT-1). `maxRounds` is a non-negative integer
- * bounding free-phase tool-call rounds; `0` disables model-driven tool calls.
- * Absent / empty (`tool_loop: {}`) blocks default to `{ maxRounds: 25 }`.
- */
-export interface ParsedToolLoop {
-  /** The non-negative-integer free-phase round cap (FRNT-1). */
-  readonly maxRounds: number;
-}
-
-/**
- * The parsed `respond_repair` block. `attempts` is a non-negative integer
- * bounding respond-repair follow-up turns. Absent / empty (`respond_repair: {}`)
- * blocks default to `{ attempts: 3 }`.
- */
-export interface ParsedRespondRepair {
-  /** The non-negative-integer respond-repair follow-up budget. */
-  readonly attempts: number;
-}
-
-/**
- * The theta's lowered `params:` object schema plus the load-time bypass inputs the
- * binder needs. Present iff the theta declares a `params:` block. `loweredSchema`
- * is the AJV-validatable object document (`V6b`), absent when the block did not
- * lower cleanly (e.g. an unresolved named type); `defaultedFields` names the
- * fields that declared a `= <literal>` default; `fields` is the per-field bypass
- * classification input (`classifyBinderBypass`).
- */
-export interface ParsedParams {
-  /** The lowered `params:` object schema, when the block lowered cleanly. */
-  readonly loweredSchema?: LoweredSchema;
-  /** The wire names of fields that declared a default. */
-  readonly defaultedFields: readonly string[];
-  /** The per-field bypass-classification input, in declaration order. */
-  readonly fields: readonly BypassParamsField[];
-}
-
-/** The recognised, defaulted frontmatter a successfully-loaded theta exposes. */
-export interface ParsedFrontmatter {
-  /** The required `mode:` field. */
-  readonly mode: ThetaMode;
-  /** The present `model:` reference, when one was declared and resolved. */
-  readonly model?: string;
-  /**
-   * The `bind_model:` reference verbatim, when declared. The binder pass over
-   * `params:` uses it (chain step 1); absent when no `bind_model:` is declared.
-   */
-  readonly bindModel?: string;
-  /**
-   * A present `bind_model:` whose value is a non-scalar YAML node (sequence /
-   * mapping / alias): present-but-unresolvable, NOT absent (bug 0297). Threaded
-   * into binder-model resolution so the chain does NOT fall back to the
-   * `theta.binderModel` setting (the ABSENT-field behaviour) — a non-bypass
-   * theta fails `theta/load/binder-model-unresolved`; a bypass-eligible theta
-   * keeps its existing silently-ignored disposition. Absent for every scalar or
-   * absent `bind_model:`.
-   */
-  readonly bindModelUnresolvable?: true;
-  /**
-   * The `bind_echo:` flag (defaulting-system-note-echo.md §"Echo policy";
-   * default `true`). Present only when explicitly declared as a boolean; the
-   * binder pass suppresses the success echo when this is `false` (the bypass
-   * arms auto-suppress independently). Absent → the default-on behaviour.
-   */
-  readonly bindEcho?: boolean;
-  /**
-   * The lowered `params:` schema + bypass inputs, present iff the theta declares
-   * a `params:` block. Consumed by the binder pass to classify bypass and build
-   * the per-theta envelope schema.
-   */
-  readonly params?: ParsedParams;
-  /**
-   * The parsed `tool_loop` block (FRNT-1). Populated on every registered theta
-   * — the default `{ maxRounds: 25 }` when the block is absent or empty. Owned
-   * by the `V6e` implementation leaf; the `V6e-T` seam declares the shape.
-   */
-  readonly toolLoop?: ParsedToolLoop;
-  /**
-   * The parsed `respond_repair` block. Populated on every registered theta —
-   * the default `{ attempts: 3 }` when the block is absent or empty. Owned by
-   * the `V6e` implementation leaf; the `V6e-T` seam declares the shape.
-   */
-  readonly respondRepair?: ParsedRespondRepair;
-  /**
-   * The theta's callable set (`tools:` field, FRNT-2/FRNT-3). Each entry is
-   * either a Pi-tool name (`grep`) or a `.theta`-callable path
-   * (`./sentiment.theta`). Present iff the theta declares a `tools:` field that
-   * yields at least one entry: an absent field and `tools: []` both leave this
-   * property undefined, and so does a scalar or sequence whose value node the
-   * frontmatter layer refused before this result was built (bugs 0104, 0206).
-   * Consumed by the `H8b` live tool-call / invoke resolvers to route a
-   * `<name>(args)` call to the Pi-tool `execute` dispatch or the `.theta`
-   * spawn-and-drive invoke path.
-   */
-  readonly tools?: readonly string[];
-  /**
-   * The parsed `system:` template (subagent-mode only). Present iff the theta
-   * declares a valid `system:` field (no error-severity interpolation
-   * diagnostic). Rendered at conversation-creation time via `renderSystemPrompt`
-   * and installed as the spawned subagent session's system prompt (SUBAG-1;
-   * subagent.md §"Subagent state-isolation matrix"). Absent → the spawned
-   * conversation runs under the model's training defaults.
-   */
-  readonly system?: SystemTemplate;
-  /**
-   * The `system:` value's located range, present iff `system` is present
-   * (bug 0422 route (a)): the load-phase template-revalidation consumer
-   * (`import-static-checks.ts`) needs a range to site its own diagnostic on
-   * when a walked-off imported field is found post-load, and `SystemTemplate`
-   * itself carries no range of its own (it is built once, at parse, from a
-   * `systemValue` string with no positional trailer). Carrying it here —
-   * rather than re-deriving it — keeps the load-phase diagnostic Located
-   * (file + range) per diagnostic-shape.md's located-site classification.
-   */
-  readonly systemRange?: SourceRange;
-  /**
-   * The resolved `bind_context:` value (BNDR-10) — `"session"` when the theta
-   * declares `bind_context: session` (prompt-mode only; on a subagent-mode theta
-   * it is inert and treated as `"none"`), else `"none"`. Drives whether the
-   * slash-argument binder receives a *Recent session context* block
-   * (binder/binder-model-and-context.md §Binder context). Absent ⇒ `"none"`.
-   */
-  readonly bindContext?: "none" | "session";
-  /**
-   * The theta's `description:` frontmatter (frontmatter-fields-a.md) — mirrors
-   * Pi's prompt-template spelling. Populates the slash-command autocomplete
-   * entry via `pi.registerCommand(name, { description, handler })`. Absent when
-   * omitted or empty (the command registers without description text).
-   */
-  readonly description?: string;
-  /**
-   * The theta's `argument-hint:` frontmatter (frontmatter-fields-a.md) —
-   * binder-grounding-only in theta 1.0: it renders as the binder system
-   * prompt's `Argument hint:` line (binder-bypass-and-envelope.md
-   * §System-prompt structure item 3). Absent when omitted, empty, or a
-   * non-string scalar (the line is then omitted entirely).
-   */
-  readonly argumentHint?: string;
-}
-
-/** The outcome of a frontmatter parse: registration decision + diagnostics. */
-export interface FrontmatterParseResult {
-  /**
-   * Whether the theta is registered. `false` for a load-time error (missing
-   * `mode:`, unresolvable `model:`); `true` when the theta loads (including the
-   * tolerated unknown-key warning case).
-   */
-  readonly registered: boolean;
-  /** The defaulted frontmatter, present iff `registered` is `true`. */
-  readonly frontmatter?: ParsedFrontmatter;
-  /**
-   * The `params:` fields as written, in declaration order — the located form
-   * carrying each field's own `range` and its verbatim `defaultSource`.
-   * `ParsedFrontmatter.params.fields` is the binder's bypass-classification
-   * projection and carries no range, so a whole-file check that must point at a
-   * `params:` line (rather than at the synthesized zero body range) reads this
-   * instead. Empty when the source declares no `params:` block.
-   */
-  readonly paramFields: readonly ParamFieldInput[];
-  /** Every diagnostic raised during the parse, in source order. */
-  readonly diagnostics: readonly Diagnostic[];
-}
-
-/** One body-level `schema` object field, as the whole-file resolution sees it. */
-export interface FrontmatterSchemaField {
-  readonly name: string;
-  readonly typeSource: string;
-  /**
-   * The explicit `as "Wire"` rename, when present (schemas.md §Wire-name
-   * renaming). Needed so `toSystemParamType` can build the outbound
-   * wire-name-translation sidecars for a body-schema `system:` render
-   * (bug 0407) — without it, the `system:` surface would have no way to know
-   * a field's wire spelling differs from its theta-side name.
-   */
-  readonly wireName?: string;
-}
-
-/**
- * The whole-file named-type set the `params:` / `system:` value-validations
- * resolve a `NamedType` against: the body `schema` declarations (carrying their
- * object field sources when present), the body `enum` declarations, and the
- * symbols pulled in by body `import` declarations. Resolution is whole-file, so
- * a frontmatter → body forward reference resolves; supplying only the names is
- * sufficient to decide `theta/parse/unresolved-named-type`, and the schema field
- * sources let the `system:` interpolation surface descend `.Ident` steps.
- */
-export interface FrontmatterBodyTypes {
-  readonly schemas: ReadonlyMap<string, readonly FrontmatterSchemaField[] | undefined>;
-  readonly enums: ReadonlySet<string>;
-  readonly imports: ReadonlySet<string>;
-  /**
-   * The alias/union right-hand side arms captured on `SchemaDecl.arms`
-   * (theta-document.ts), keyed by schema name — present iff the decl is the
-   * `schema X = A | B` alias/union form (bug 0427 §Fix). Empty for a schema
-   * with an object body (its shape is already on `schemas`) and for a
-   * genuinely head-only decl (unreachable in a registering doc). Lets
-   * `toSystemParamType`'s `fields === undefined` arm dispatch on what the
-   * alias actually names instead of falling to the permissive `string`
-   * terminal.
-   */
-  readonly aliasArms: ReadonlyMap<string, readonly string[]>;
-  /**
-   * The lowered JSON-Schema fragment each body-level named type contributes,
-   * keyed by name: a body `schema` lowers to its object body, a body `enum` to
-   * `{ type: "string", enum: [<wire values>] }`, and an imported symbol to a
-   * permissive `{}` (precise cross-file lowering is out of scope — the name
-   * resolves so `theta/parse/unresolved-named-type` does not fire). Supplied so a
-   * `params:` field of a `NamedType` produces a present, correct `loweredSchema`
-   * rather than being mis-classified as a no-params theta. Absent name → the
-   * `NamedType` resolves against no declaration (frontmatter-only parse).
-   */
-  readonly lowered: ReadonlyMap<string, Record<string, unknown>>;
-}
-
-/** Inputs to a frontmatter parse. */
-export interface ParseFrontmatterOptions {
-  /** The source file path, for located diagnostics. */
-  readonly file: string;
-  /** The injected model-reference matcher the `model:` hook consults. */
-  readonly modelMatcher: ModelReferenceMatcher;
-  /**
-   * The whole-file named-type set the `params:` named-type resolution and the
-   * `system:` interpolation checks resolve against. Absent when the caller has
-   * no body AST (a frontmatter-only parse); a `NamedType` param then resolves
-   * against no declaration.
-   */
-  readonly bodyTypes?: FrontmatterBodyTypes;
-}
+export * from "./frontmatter-contract";
 
 /**
  * Frontmatter field names reserved for deferred theta 1.0 features named in
@@ -382,6 +128,266 @@ interface RecognisedFields {
   readonly toolsMalformedRange: SourceRange | undefined;
 }
 
+/** The writable accumulator shape the field-loop handlers assign into. */
+type MutableRecognisedFields = {
+  -readonly [K in keyof RecognisedFields]: RecognisedFields[K];
+};
+
+/**
+ * The `mode:` arm. A present non-scalar `mode:` value is present-but-bad, not
+ * absent: record presence so the required-mode arm keys on genuine absence,
+ * and the value's bounded kind token so the unknown-mode-value arm can name
+ * the shape. `modeValueKind` is set for exactly the non-scalar present case
+ * (where `modeValue` stays undefined).
+ */
+function collectModeField(
+  value: Node | null | undefined,
+  valueRange: SourceRange | undefined,
+  fields: MutableRecognisedFields,
+): void {
+  fields.modePresent = true;
+  if (isScalar(value)) {
+    fields.modeValue = String(value.value);
+  } else {
+    fields.modeValueKind = renderNonScalarModeKind(value);
+  }
+  fields.modeRange = valueRange;
+}
+
+/** The `model:` arm: record presence, the raw value, and its range. */
+function collectModelField(
+  rawValue: unknown,
+  valueRange: SourceRange | undefined,
+  fields: MutableRecognisedFields,
+): void {
+  fields.modelPresent = true;
+  fields.modelRaw = rawValue;
+  fields.modelRange = valueRange;
+}
+
+/**
+ * The `bind_model:` arm. A present non-scalar `bind_model:` is
+ * present-but-unresolvable, not absent: it must NOT fall back to the
+ * `theta.binderModel` settings the spec reserves for an ABSENT field
+ * (frontmatter-fields-a.md). Record an unresolvable marker (no fabricated
+ * string) so binder-model resolution routes it through the existing
+ * `theta/load/binder-model-unresolved` machinery exactly as an unresolvable
+ * declared string (bug 0297).
+ */
+function collectBindModelField(
+  value: Node | null | undefined,
+  fields: MutableRecognisedFields,
+): void {
+  if (isScalar(value)) {
+    fields.bindModelValue = String(value.value);
+  } else {
+    fields.bindModelUnresolvable = true;
+  }
+}
+
+/**
+ * The `description:` arm. frontmatter-fields-a.md: `description` mirrors Pi's
+ * prompt-template spelling and populates the slash-command autocomplete entry
+ * (passed to `pi.registerCommand(name, { description, handler })`). Retained
+ * here so the composition can thread it onto the `ThetaFixture`.
+ *
+ * A null scalar (bare key / `null` / `~`) is the spec's own name for
+ * "no description" (frontmatter-fields-a.md:37) — excluded here so it
+ * maps to absent instead of the fabricated text "null" (bug 0299).
+ */
+function collectDescriptionField(
+  value: Node | null | undefined,
+  fields: MutableRecognisedFields,
+): void {
+  fields.descriptionValue =
+    isScalar(value) && value.value !== null ? String(value.value) : undefined;
+}
+
+/**
+ * The `argument-hint:` arm. frontmatter-fields-a.md: `argument-hint` is
+ * binder-grounding-only in theta 1.0 (Pi has no `argumentHint` slot for
+ * extension commands) — that grounding is the binder system prompt's
+ * `Argument hint:` line (binder-bypass-and-envelope.md §System-prompt
+ * structure item 3), so the scalar VALUE is retained alongside the presence +
+ * range the advisory `theta/load/argument-hint-not-displayed` reads (fired
+ * when no `description:` accompanies it — an empty autocomplete entry).
+ */
+function collectArgumentHintField(
+  value: Node | null | undefined,
+  keyRange: SourceRange | undefined,
+  fields: MutableRecognisedFields,
+): void {
+  fields.argumentHintPresent = true;
+  fields.argumentHintRange = keyRange;
+  fields.argumentHintValue =
+    isScalar(value) && typeof value.value === "string" ? value.value : undefined;
+}
+
+/**
+ * The `bind_echo:` arm. §"Echo policy": `bind_echo:` (`true` | `false`;
+ * default `true`) is a closed-set field. A present value outside the two
+ * booleans is present-but-bad, not absent, and draws
+ * theta/load/unknown-bind-echo-value (0.332.0) — mirroring the bind_context:
+ * recognised-key/unrecognised-value split. No truth-coercion: a string
+ * "false" refuses rather than reading as the boolean false. The key range
+ * feeds the bypass advisories; the value range ranges the refusal.
+ */
+function collectBindEchoField(
+  value: Node | null | undefined,
+  rawValue: unknown,
+  keyRange: SourceRange | undefined,
+  valueRange: SourceRange | undefined,
+  fields: MutableRecognisedFields,
+): void {
+  fields.bindEchoPresent = true;
+  if (typeof rawValue === "boolean") {
+    fields.bindEchoValue = rawValue;
+  } else if (isScalar(value)) {
+    fields.bindEchoScalar = String(value.value);
+  } else {
+    fields.bindEchoValueKind = renderNonScalarBindContextKind(value);
+  }
+  fields.bindEchoRange = keyRange;
+  fields.bindEchoValueRange = valueRange;
+}
+
+/** The `params:` arm: record the value node, presence, and range. */
+function collectParamsField(
+  value: Node | null | undefined,
+  keyRange: SourceRange | undefined,
+  valueRange: SourceRange | undefined,
+  fields: MutableRecognisedFields,
+): void {
+  fields.paramsNode = value;
+  fields.paramsPresent = true;
+  fields.paramsRange = valueRange ?? keyRange;
+}
+
+/**
+ * The `bind_context:` arm. A present non-scalar `bind_context:` value is
+ * present-but-bad, not absent: record presence so the unknown-value arm keys
+ * on presence, and the value's bounded kind token so it can name the shape
+ * (bug 0297, mirroring the `mode:` arm). `bindContextValueKind` is set for
+ * exactly the non-scalar present case (where `bindContextValue` stays
+ * undefined).
+ */
+function collectBindContextField(
+  value: Node | null | undefined,
+  valueRange: SourceRange | undefined,
+  fields: MutableRecognisedFields,
+): void {
+  fields.bindContextPresent = true;
+  if (isScalar(value)) {
+    fields.bindContextValue = String(value.value);
+  } else {
+    fields.bindContextValueKind = renderNonScalarBindContextKind(value);
+  }
+  fields.bindContextRange = valueRange;
+}
+
+/**
+ * The `tools:` arm. FRNT-2/FRNT-3 callable set: a scalar (`tools: grep`) or a
+ * sequence (`tools:\n  - ./sentiment.theta`) of Pi-tool names /
+ * `.theta`-callable paths. Surfaced verbatim; the H8b resolvers classify each
+ * entry. A value that is neither spelling (a mapping, an alias, or no value
+ * node at all) is refused at this layer, where the YAML node and its range
+ * are still in hand (bug 0104) — the same reachability argument that put
+ * `params: null` here rather than in the resolver.
+ *
+ * The scalar arm is checked separately from the sequence arm (rather than
+ * testing `extractToolsList`'s return value once) because a zero-entry SCALAR
+ * (a quoted or block spelling whose comma split yields no entry, e.g.
+ * `tools: ""`) is present-but-bad and must be refused under this same code
+ * (bug 0206), while a zero-entry SEQUENCE (`tools: []`) collapses to the
+ * identical `undefined` return and MUST stay silent — it is the one spelling
+ * the spec declares equivalent to an absent field. Keying on the return value
+ * alone cannot tell the two apart; keying on the arm can, because the arm
+ * already knows which spelling produced it. The refusal is ranged on the
+ * value node, falling back to the key for a pair that carries no value node
+ * at all, which is the range convention every other frontmatter-shape
+ * refusal here follows.
+ */
+function collectToolsField(
+  value: Node | null | undefined,
+  keyRange: SourceRange | undefined,
+  valueRange: SourceRange | undefined,
+  block: FrontmatterBlock | undefined,
+  fields: MutableRecognisedFields,
+): void {
+  if (isScalar(value)) {
+    fields.toolsValue = extractToolsList(value, block?.yaml ?? "");
+    if (fields.toolsValue === undefined) {
+      fields.toolsMalformedRange = valueRange ?? keyRange;
+    }
+  } else if (isSeq(value)) {
+    fields.toolsValue = extractToolsList(value, block?.yaml ?? "");
+  } else {
+    fields.toolsMalformedRange = valueRange ?? keyRange;
+  }
+}
+
+/**
+ * The `system:` arm. Captured for the subagent-mode-only rule + the `${…}`
+ * interpolation checks, run once the whole-file named-type set is known.
+ */
+function collectSystemField(
+  value: Node | null | undefined,
+  keyRange: SourceRange | undefined,
+  valueRange: SourceRange | undefined,
+  fields: MutableRecognisedFields,
+): void {
+  fields.systemPresent = true;
+  if (!isScalar(value)) {
+    fields.systemValue = undefined;
+  } else if (value.value === null) {
+    // A value-less `system:` (bare key / `null` / `~`) carries no prompt: map
+    // it to the empty template so it renders byte-identically to `system: ""`
+    // (a zero-part template) instead of the fabricated text "null" — the null
+    // VALUE is the spec's own name for the absent case (bug 0299). It maps to
+    // `""`, not `undefined`: `undefined` is the sentinel the malformed-field
+    // check below keys on to raise `theta/load/malformed-system-field`, a code
+    // reserved for a present NON-scalar `system:` — a null scalar IS a scalar,
+    // so refusing it here would misclassify an absent value as malformed.
+    fields.systemValue = "";
+  } else {
+    fields.systemValue = String(value.value);
+  }
+  fields.systemRange = valueRange ?? keyRange;
+}
+
+/**
+ * The deferred-field / unknown-key fallback: a key no recognised arm claimed.
+ * A key reserved for a deferred theta 1.0 feature warns with the dedicated
+ * code (not the generic unknown-key code); any other key draws the
+ * forward-compat `theta/load/unknown-frontmatter-field` warning (the theta
+ * 1.0 vocabulary, `frontmatter-fields-a.md` §Field contract). Both are
+ * tolerated; the theta still registers.
+ */
+function reportUnrecognisedKey(
+  key: string,
+  keyRange: SourceRange | undefined,
+  file: string,
+  diagnostics: Diagnostic[],
+): void {
+  if (DEFERRED_FRONTMATTER_FIELDS.has(key)) {
+    diagnostics.push({
+      severity: "warning",
+      code: "theta/load/deferred-frontmatter-field",
+      file,
+      ...(keyRange !== undefined ? { range: keyRange } : {}),
+      message: `frontmatter field '${key}' is reserved for a deferred theta 1.0 feature`,
+    });
+  } else {
+    diagnostics.push({
+      severity: "warning",
+      code: "theta/load/unknown-frontmatter-field",
+      file,
+      ...(keyRange !== undefined ? { range: keyRange } : {}),
+      message: `unknown frontmatter field '${normaliseLiteralValueLineBreaks(key)}'`,
+    });
+  }
+}
+
 /** Collect recognised fields and emit per-key diagnostics in YAML source order. */
 function collectRecognisedFields(
   map: YAMLMap<unknown, Node | null> | undefined,
@@ -393,7 +399,7 @@ function collectRecognisedFields(
 ): RecognisedFields {
   // The recognised fields the contract pins behaviour for, accumulated in one
   // mutable record the field loop assigns into and the function returns as-is.
-  const fields: { -readonly [K in keyof RecognisedFields]: RecognisedFields[K] } =
+  const fields: MutableRecognisedFields =
     {
       modeValue: undefined,
       modeRange: undefined,
@@ -447,165 +453,43 @@ function collectRecognisedFields(
       );
 
       if (key === "mode") {
-        // A present non-scalar `mode:` value is present-but-bad, not absent:
-        // record presence so the required-mode arm keys on genuine absence, and
-        // the value's bounded kind token so the unknown-mode-value arm can name
-        // the shape. `modeValueKind` is set for exactly the non-scalar present
-        // case (where `modeValue` stays undefined).
-        fields.modePresent = true;
-        if (isScalar(item.value)) {
-          fields.modeValue = String(item.value.value);
-        } else {
-          fields.modeValueKind = renderNonScalarModeKind(item.value);
-        }
-        fields.modeRange = valueRange;
+        collectModeField(item.value, valueRange, fields);
         continue;
       }
       if (key === "model") {
-        fields.modelPresent = true;
-        fields.modelRaw = rawValue;
-        fields.modelRange = valueRange;
+        collectModelField(rawValue, valueRange, fields);
         continue;
       }
       if (key === "bind_model") {
-        // A present non-scalar `bind_model:` is present-but-unresolvable, not
-        // absent: it must NOT fall back to the `theta.binderModel` settings the
-        // spec reserves for an ABSENT field (frontmatter-fields-a.md). Record an
-        // unresolvable marker (no fabricated string) so binder-model resolution
-        // routes it through the existing `theta/load/binder-model-unresolved`
-        // machinery exactly as an unresolvable declared string (bug 0297).
-        if (isScalar(item.value)) {
-          fields.bindModelValue = String(item.value.value);
-        } else {
-          fields.bindModelUnresolvable = true;
-        }
+        collectBindModelField(item.value, fields);
         continue;
       }
       if (key === "description") {
-        // frontmatter-fields-a.md: `description` mirrors Pi's prompt-template
-        // spelling and populates the slash-command autocomplete entry (passed to
-        // `pi.registerCommand(name, { description, handler })`). Retained here so
-        // the composition can thread it onto the `ThetaFixture`.
-        //
-        // A null scalar (bare key / `null` / `~`) is the spec's own name for
-        // "no description" (frontmatter-fields-a.md:37) — excluded here so it
-        // maps to absent instead of the fabricated text "null" (bug 0299).
-        fields.descriptionValue =
-          isScalar(item.value) && item.value.value !== null
-            ? String(item.value.value)
-            : undefined;
+        collectDescriptionField(item.value, fields);
         continue;
       }
       if (key === "argument-hint") {
-        // frontmatter-fields-a.md: `argument-hint` is binder-grounding-only in
-        // theta 1.0 (Pi has no `argumentHint` slot for extension commands) —
-        // that grounding is the binder system prompt's `Argument hint:` line
-        // (binder-bypass-and-envelope.md §System-prompt structure item 3), so
-        // the scalar VALUE is retained alongside the presence + range the
-        // advisory `theta/load/argument-hint-not-displayed` reads (fired when
-        // no `description:` accompanies it — an empty autocomplete entry).
-        fields.argumentHintPresent = true;
-        fields.argumentHintRange = keyRange;
-        fields.argumentHintValue =
-          isScalar(item.value) && typeof item.value.value === "string"
-            ? item.value.value
-            : undefined;
+        collectArgumentHintField(item.value, keyRange, fields);
         continue;
       }
       if (key === "bind_echo") {
-        // §"Echo policy": `bind_echo:` (`true` | `false`; default `true`) is a closed-set
-        // field. A present value outside the two booleans is present-but-bad, not absent,
-        // and draws theta/load/unknown-bind-echo-value (0.332.0) — mirroring the bind_context:
-        // recognised-key/unrecognised-value split. No truth-coercion: a string "false"
-        // refuses rather than reading as the boolean false. The key range feeds the bypass
-        // advisories; the value range ranges the refusal.
-        fields.bindEchoPresent = true;
-        if (typeof rawValue === "boolean") {
-          fields.bindEchoValue = rawValue;
-        } else if (isScalar(item.value)) {
-          fields.bindEchoScalar = String(item.value.value);
-        } else {
-          fields.bindEchoValueKind = renderNonScalarBindContextKind(item.value);
-        }
-        fields.bindEchoRange = keyRange;
-        fields.bindEchoValueRange = valueRange;
+        collectBindEchoField(item.value, rawValue, keyRange, valueRange, fields);
         continue;
       }
       if (key === "params") {
-        fields.paramsNode = item.value;
-        fields.paramsPresent = true;
-        fields.paramsRange = valueRange ?? keyRange;
+        collectParamsField(item.value, keyRange, valueRange, fields);
         continue;
       }
       if (key === "bind_context") {
-        // A present non-scalar `bind_context:` value is present-but-bad, not
-        // absent: record presence so the unknown-value arm keys on presence, and
-        // the value's bounded kind token so it can name the shape (bug 0297,
-        // mirroring the `mode:` arm). `bindContextValueKind` is set for exactly
-        // the non-scalar present case (where `bindContextValue` stays undefined).
-        fields.bindContextPresent = true;
-        if (isScalar(item.value)) {
-          fields.bindContextValue = String(item.value.value);
-        } else {
-          fields.bindContextValueKind = renderNonScalarBindContextKind(item.value);
-        }
-        fields.bindContextRange = valueRange;
+        collectBindContextField(item.value, valueRange, fields);
         continue;
       }
       if (key === "tools") {
-        // FRNT-2/FRNT-3 callable set: a scalar (`tools: grep`) or a sequence
-        // (`tools:\n  - ./sentiment.theta`) of Pi-tool names / `.theta`-callable
-        // paths. Surfaced verbatim; the H8b resolvers classify each entry. A
-        // value that is neither spelling (a mapping, an alias, or no value node
-        // at all) is refused at this layer, where the YAML node and its range
-        // are still in hand (bug 0104) — the same reachability argument that
-        // put `params: null` here rather than in the resolver.
-        //
-        // The scalar arm is checked separately from the sequence arm (rather
-        // than testing `extractToolsList`'s return value once) because a
-        // zero-entry SCALAR (a quoted or block spelling whose comma split
-        // yields no entry, e.g. `tools: ""`) is present-but-bad and must be
-        // refused under this same code (bug 0206), while a zero-entry SEQUENCE
-        // (`tools: []`) collapses to the identical `undefined` return and MUST
-        // stay silent — it is the one spelling the spec declares equivalent to
-        // an absent field. Keying on the return value alone cannot tell the two
-        // apart; keying on the arm can, because the arm already knows which
-        // spelling produced it. The refusal is ranged on the value node,
-        // falling back to the key for a pair that carries no value node at
-        // all, which is the range convention every other frontmatter-shape
-        // refusal here follows.
-        if (isScalar(item.value)) {
-          fields.toolsValue = extractToolsList(item.value, block?.yaml ?? "");
-          if (fields.toolsValue === undefined) {
-            fields.toolsMalformedRange = valueRange ?? keyRange;
-          }
-        } else if (isSeq(item.value)) {
-          fields.toolsValue = extractToolsList(item.value, block?.yaml ?? "");
-        } else {
-          fields.toolsMalformedRange = valueRange ?? keyRange;
-        }
+        collectToolsField(item.value, keyRange, valueRange, block, fields);
         continue;
       }
       if (key === "system") {
-        // Captured for the subagent-mode-only rule + the `${…}` interpolation
-        // checks, run once the whole-file named-type set is known.
-        fields.systemPresent = true;
-        if (!isScalar(item.value)) {
-          fields.systemValue = undefined;
-        } else if (item.value.value === null) {
-          // A value-less `system:` (bare key / `null` / `~`) carries no prompt: map
-          // it to the empty template so it renders byte-identically to `system: ""`
-          // (a zero-part template) instead of the fabricated text "null" — the null
-          // VALUE is the spec's own name for the absent case (bug 0299). It maps to
-          // `""`, not `undefined`: `undefined` is the sentinel the malformed-field
-          // check below keys on to raise `theta/load/malformed-system-field`, a code
-          // reserved for a present NON-scalar `system:` — a null scalar IS a scalar,
-          // so refusing it here would misclassify an absent value as malformed.
-          fields.systemValue = "";
-        } else {
-          fields.systemValue = String(item.value.value);
-        }
-        fields.systemRange = valueRange ?? keyRange;
+        collectSystemField(item.value, keyRange, valueRange, fields);
         continue;
       }
       if (key === "tool_loop") {
@@ -627,32 +511,130 @@ function collectRecognisedFields(
         });
         continue;
       }
-      if (DEFERRED_FRONTMATTER_FIELDS.has(key)) {
-        // Reserved-for-a-deferred-feature seam: a key reserved for a deferred
-        // theta 1.0 feature warns with the dedicated code (not the generic
-        // unknown-key code) and is tolerated; the theta still registers.
-        diagnostics.push({
-          severity: "warning",
-          code: "theta/load/deferred-frontmatter-field",
-          file,
-          ...(keyRange !== undefined ? { range: keyRange } : {}),
-          message: `frontmatter field '${key}' is reserved for a deferred theta 1.0 feature`,
-        });
-      } else {
-        // Forward-compat seam: a key no arm above recognised (the theta 1.0
-        // vocabulary, `frontmatter-fields-a.md` §Field contract) warns once and
-        // is tolerated.
-        diagnostics.push({
-          severity: "warning",
-          code: "theta/load/unknown-frontmatter-field",
-          file,
-          ...(keyRange !== undefined ? { range: keyRange } : {}),
-          message: `unknown frontmatter field '${normaliseLiteralValueLineBreaks(key)}'`,
-        });
-      }
+      reportUnrecognisedKey(key, keyRange, file, diagnostics);
     }
   }
   return fields;
+}
+
+/**
+ * Push the closed-set present-but-unrecognised value refusal the `mode:` /
+ * `bind_context:` / `bind_echo:` rules share, gated on the caller-evaluated
+ * `refused` predicate (present-but-outside-the-closed-set): a scalar renders
+ * its recovered bytes verbatim (line-break-normalised); a non-scalar renders
+ * the bounded kind token the field's collect arm recorded. `kindToken` is
+ * defined whenever `scalarValue` is undefined at a refusing call site (each
+ * arm's invariant), so the cast names that invariant rather than widening the
+ * type (bug 0297).
+ */
+function pushUnknownValueDiagnostic(
+  refused: boolean,
+  scalarValue: string | undefined,
+  kindToken: string | undefined,
+  range: SourceRange | undefined,
+  code: string,
+  fieldName: string,
+  expected: string,
+  file: string,
+  diagnostics: Diagnostic[],
+): void {
+  if (!refused) {
+    return;
+  }
+  const renderedValue =
+    scalarValue !== undefined
+      ? normaliseLiteralValueLineBreaks(scalarValue)
+      : (kindToken as string);
+  diagnostics.push({
+    severity: "error",
+    code,
+    file,
+    ...(range !== undefined ? { range } : {}),
+    message: `unknown '${fieldName}:' value '${renderedValue}'; expected ${expected}`,
+  });
+}
+
+/**
+ * Resolve a present `model:` reference through the injected matcher seam,
+ * returning the resolved reference, or pushing `theta/load/model-unresolved`
+ * and returning undefined on no-match / ambiguity. An absent `model:` stays
+ * silently undefined.
+ */
+function resolveModelReference(
+  modelPresent: boolean,
+  modelRaw: unknown,
+  modelRange: SourceRange | undefined,
+  modelMatcher: ModelReferenceMatcher,
+  file: string,
+  diagnostics: Diagnostic[],
+): string | undefined {
+  if (!modelPresent) {
+    return undefined;
+  }
+  const outcome = modelMatcher.resolve(modelRaw);
+  if (outcome === "resolved") {
+    return renderScalarValue(modelRaw);
+  }
+  diagnostics.push({
+    severity: "error",
+    code: "theta/load/model-unresolved",
+    file,
+    ...(modelRange !== undefined ? { range: modelRange } : {}),
+    message: `theta 'model:' value '${normaliseLiteralValueLineBreaks(
+      renderScalarValue(modelRaw),
+    )}' resolves to no available model, or is ambiguous across providers`,
+  });
+  return undefined;
+}
+
+/**
+ * FRNT-1: parse + range-validate the `tool_loop` / `respond_repair` blocks,
+ * defaulting to `{ maxRounds: 25 }` / `{ attempts: 3 }` when absent or empty,
+ * and emit the out-of-range / malformed-shape / unknown-sub-key diagnostics
+ * for both blocks in that order.
+ */
+function resolveFrontmatterBlocks(
+  toolLoopNode: Node | null | undefined,
+  respondRepairNode: Node | null | undefined,
+  file: string,
+  lineCounter: LineCounter,
+  lineOffset: number,
+  diagnostics: Diagnostic[],
+): {
+  toolLoopResult: ReturnType<typeof resolveNonNegIntBlock>;
+  respondRepairResult: ReturnType<typeof resolveNonNegIntBlock>;
+} {
+  const toolLoopResult = resolveNonNegIntBlock(
+    toolLoopNode,
+    "max_rounds",
+    "tool_loop.max_rounds",
+    25,
+    file,
+    lineCounter,
+    lineOffset,
+  );
+  const respondRepairResult = resolveNonNegIntBlock(
+    respondRepairNode,
+    "attempts",
+    "respond_repair.attempts",
+    3,
+    file,
+    lineCounter,
+    lineOffset,
+  );
+  if ("diagnostic" in toolLoopResult) {
+    diagnostics.push(toolLoopResult.diagnostic);
+  }
+  if ("diagnostic" in respondRepairResult) {
+    diagnostics.push(respondRepairResult.diagnostic);
+  }
+  const toolLoopMalformed = checkBlockShape(toolLoopNode, "tool_loop", "theta/load/malformed-tool-loop-field", file, lineCounter, lineOffset);
+  if (toolLoopMalformed !== undefined) diagnostics.push(toolLoopMalformed);
+  diagnostics.push(...unknownSubKeyDiagnostics(toolLoopNode, "tool_loop", TOOL_LOOP_SUBKEYS, file, lineCounter, lineOffset));
+  const respondRepairMalformed = checkBlockShape(respondRepairNode, "respond_repair", "theta/load/malformed-respond-repair-field", file, lineCounter, lineOffset);
+  if (respondRepairMalformed !== undefined) diagnostics.push(respondRepairMalformed);
+  diagnostics.push(...unknownSubKeyDiagnostics(respondRepairNode, "respond_repair", RESPOND_REPAIR_SUBKEYS, file, lineCounter, lineOffset));
+  return { toolLoopResult, respondRepairResult };
 }
 
 /** Check cross-field contracts and resolve model and block defaults in diagnostic order. */
@@ -745,123 +727,49 @@ function checkRecognisedFields(
   }
 
   // Present `model:` — resolved through the injected matcher seam.
-  let resolvedModel: string | undefined;
-  if (modelPresent) {
-    const outcome = modelMatcher.resolve(modelRaw);
-    if (outcome === "resolved") {
-      resolvedModel = renderScalarValue(modelRaw);
-    } else {
-      diagnostics.push({
-        severity: "error",
-        code: "theta/load/model-unresolved",
-        file,
-        ...(modelRange !== undefined ? { range: modelRange } : {}),
-        message: `theta 'model:' value '${normaliseLiteralValueLineBreaks(
-          renderScalarValue(modelRaw),
-        )}' resolves to no available model, or is ambiguous across providers`,
-      });
-    }
-  }
+  const resolvedModel = resolveModelReference(
+    modelPresent, modelRaw, modelRange, modelMatcher, file, diagnostics,
+  );
 
   // FRNT-1: parse + range-validate the `tool_loop` / `respond_repair` blocks,
   // defaulting to `{ maxRounds: 25 }` / `{ attempts: 3 }` when absent or empty.
-  const toolLoopResult = resolveNonNegIntBlock(
+  const { toolLoopResult, respondRepairResult } = resolveFrontmatterBlocks(
     toolLoopNode,
-    "max_rounds",
-    "tool_loop.max_rounds",
-    25,
-    file,
-    lineCounter,
-    lineOffset,
-  );
-  const respondRepairResult = resolveNonNegIntBlock(
     respondRepairNode,
-    "attempts",
-    "respond_repair.attempts",
-    3,
     file,
     lineCounter,
     lineOffset,
+    diagnostics,
   );
-  if ("diagnostic" in toolLoopResult) {
-    diagnostics.push(toolLoopResult.diagnostic);
-  }
-  if ("diagnostic" in respondRepairResult) {
-    diagnostics.push(respondRepairResult.diagnostic);
-  }
-  const toolLoopMalformed = checkBlockShape(toolLoopNode, "tool_loop", "theta/load/malformed-tool-loop-field", file, lineCounter, lineOffset);
-  if (toolLoopMalformed !== undefined) diagnostics.push(toolLoopMalformed);
-  diagnostics.push(...unknownSubKeyDiagnostics(toolLoopNode, "tool_loop", TOOL_LOOP_SUBKEYS, file, lineCounter, lineOffset));
-  const respondRepairMalformed = checkBlockShape(respondRepairNode, "respond_repair", "theta/load/malformed-respond-repair-field", file, lineCounter, lineOffset);
-  if (respondRepairMalformed !== undefined) diagnostics.push(respondRepairMalformed);
-  diagnostics.push(...unknownSubKeyDiagnostics(respondRepairNode, "respond_repair", RESPOND_REPAIR_SUBKEYS, file, lineCounter, lineOffset));
 
   // A present-but-unrecognised `mode:` is the separate unknown-mode-value error
   // (distinct from missing-mode, which fired above only when `mode:` is absent);
   // "missing" and "present-but-bad" do not collapse into one code.
-  if (
-    modePresent &&
-    modeValue !== "prompt" &&
-    modeValue !== "subagent"
-  ) {
-    // A scalar renders its recovered bytes verbatim (line-break-normalised); a
-    // non-scalar renders the kind token recorded at the mode arm. `modeValueKind`
-    // is defined whenever `modeValue` is undefined on this branch (the mode arm's
-    // invariant), so the cast names that invariant rather than widening the type.
-    const renderedModeValue =
-      modeValue !== undefined
-        ? normaliseLiteralValueLineBreaks(modeValue)
-        : (modeValueKind as string);
-    diagnostics.push({
-      severity: "error",
-      code: "theta/load/unknown-mode-value",
-      file,
-      ...(modeRange !== undefined ? { range: modeRange } : {}),
-      message: `unknown 'mode:' value '${renderedModeValue}'; expected 'prompt' or 'subagent'`,
-    });
-  }
+  pushUnknownValueDiagnostic(
+    modePresent && modeValue !== "prompt" && modeValue !== "subagent",
+    modeValue, modeValueKind, modeRange,
+    "theta/load/unknown-mode-value", "mode", "'prompt' or 'subagent'",
+    file, diagnostics,
+  );
 
   // A present `bind_context:` value other than `none` / `session` (incl.
   // non-string scalars) is the unknown-bind-context-value load error.
-  if (
-    bindContextPresent &&
-    bindContextValue !== "none" &&
-    bindContextValue !== "session"
-  ) {
-    // A scalar renders its recovered bytes verbatim (line-break-normalised); a
-    // non-scalar renders the kind token recorded at the bind_context arm.
-    // `bindContextValueKind` is defined whenever `bindContextValue` is undefined
-    // on this branch (the bind_context arm's invariant), so the cast names that
-    // invariant rather than widening the type (bug 0297).
-    const renderedBindContextValue =
-      bindContextValue !== undefined
-        ? normaliseLiteralValueLineBreaks(bindContextValue)
-        : (bindContextValueKind as string);
-    diagnostics.push({
-      severity: "error",
-      code: "theta/load/unknown-bind-context-value",
-      file,
-      ...(bindContextRange !== undefined ? { range: bindContextRange } : {}),
-      message: `unknown 'bind_context:' value '${renderedBindContextValue}'; expected 'none' or 'session'`,
-    });
-  }
+  pushUnknownValueDiagnostic(
+    bindContextPresent && bindContextValue !== "none" && bindContextValue !== "session",
+    bindContextValue, bindContextValueKind, bindContextRange,
+    "theta/load/unknown-bind-context-value", "bind_context", "'none' or 'session'",
+    file, diagnostics,
+  );
 
   // A present `bind_echo:` value that is neither boolean is the unknown-bind-echo-value
   // load error (0.332.0) — a scalar renders String(value) line-break-normalised, a
   // non-scalar renders the kind token recorded at the bind_echo arm.
-  if (bindEchoPresent && bindEchoValue === undefined) {
-    const renderedBindEchoValue =
-      bindEchoScalar !== undefined
-        ? normaliseLiteralValueLineBreaks(bindEchoScalar)
-        : (bindEchoValueKind as string);
-    diagnostics.push({
-      severity: "error",
-      code: "theta/load/unknown-bind-echo-value",
-      file,
-      ...(bindEchoValueRange !== undefined ? { range: bindEchoValueRange } : {}),
-      message: `unknown 'bind_echo:' value '${renderedBindEchoValue}'; expected true or false`,
-    });
-  }
+  pushUnknownValueDiagnostic(
+    bindEchoPresent && bindEchoValue === undefined,
+    bindEchoScalar, bindEchoValueKind, bindEchoValueRange,
+    "theta/load/unknown-bind-echo-value", "bind_echo", "true or false",
+    file, diagnostics,
+  );
 
   // The redundant `params: null` is rejected — omit `params:` or use `params: {}`
   // (both of which are equivalent no-params forms).
