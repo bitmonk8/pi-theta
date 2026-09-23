@@ -2,7 +2,7 @@
 id: PTQ-1436
 title: callable-lowering.ts bundles the RFC-0006 subagent drive/teardown binding with four pure callable-set lowering families at 604 LOC
 lens: D9
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/extension/callable-lowering.ts:1-604

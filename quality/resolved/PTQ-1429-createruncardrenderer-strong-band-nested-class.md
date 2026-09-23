@@ -2,7 +2,7 @@
 id: PTQ-1429
 title: createRunCardRenderer is a 235-LOC strong-band factory whose body is a nested class definition plus the renderer entry closure
 lens: D9
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/extension/execution-status/render/run-card-component.ts:101-335

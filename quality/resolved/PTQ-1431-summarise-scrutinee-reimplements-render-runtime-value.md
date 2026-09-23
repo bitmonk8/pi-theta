@@ -2,7 +2,7 @@
 id: PTQ-1431
 title: summariseScrutinee in match-result.ts hand-rolls the category-2 runtime-value rendering that diagnostics/placeholder.ts renderRuntimeValue already implements
 lens: D8
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/runtime/match-result.ts:54-86

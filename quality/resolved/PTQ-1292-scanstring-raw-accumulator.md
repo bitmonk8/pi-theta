@@ -2,7 +2,7 @@
 id: PTQ-1292
 title: scanStringLiteral hand-accumulates the token's verbatim text through 14 `raw +=` sites when it is a single slice of the cursor's own text/index state
 lens: D8
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/lexer/lexer.ts:211-355
