@@ -2,7 +2,7 @@
 id: PTQ-1303
 title: brace-scanning loop cloned between two predicates in type-text-split
 lens: D4
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/parser/type-text-split.ts:55-75

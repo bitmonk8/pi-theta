@@ -2,7 +2,7 @@
 id: PTQ-1293
 title: SubagentPlacementBackend type import is never referenced in production-composition.ts
 lens: D2
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/extension/production-composition.ts:93-96

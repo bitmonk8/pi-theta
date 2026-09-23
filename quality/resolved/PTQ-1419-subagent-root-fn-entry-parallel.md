@@ -2,7 +2,7 @@
 id: PTQ-1419
 title: Child-side subagent theta-root and fn-entry drives are parallel envelope-contract implementations
 lens: D4
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/extension/production-theta-producer.ts:3049-3172

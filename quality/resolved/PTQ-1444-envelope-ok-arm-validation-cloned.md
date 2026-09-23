@@ -2,7 +2,7 @@
 id: PTQ-1444
 title: subagent ok-envelope depth/representability guard cloned in root and fn entry
 lens: D4
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/extension/subagent-spawn-regime.ts:950-968

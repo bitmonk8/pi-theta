@@ -2,7 +2,7 @@
 id: PTQ-1265
 title: src/runtime/tool-call-static-checks.ts is a parse-time diagnostic module living in runtime/ — every import and every emitted code is parse-layer, zero runtime members touched
 lens: D9
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/runtime/tool-call-static-checks.ts:1-368

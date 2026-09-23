@@ -2,7 +2,7 @@
 id: PTQ-1420
 title: .theta read/parse/load gate duplicated in four callee and discovered sites
 lens: D4
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/extension/production-discovered-theta.ts:72-82

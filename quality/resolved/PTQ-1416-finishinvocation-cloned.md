@@ -2,7 +2,7 @@
 id: PTQ-1416
 title: finishInvocation idempotent cleanup closure duplicated in prompt and subagent conversation bindings
 lens: D4
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/extension/production-theta-producer.ts:2475-2481

@@ -2,7 +2,7 @@
 id: PTQ-1441
 title: PiToolDispatch's H8b doc comment is attached to SubagentPlacementResolver instead
 lens: D2
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/extension/production-producer-deps.ts:56-79

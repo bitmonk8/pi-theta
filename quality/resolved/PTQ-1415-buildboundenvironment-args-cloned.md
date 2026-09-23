@@ -2,7 +2,7 @@
 id: PTQ-1415
 title: buildBoundEnvironment argument list duplicated in default recovery and subagent-fn decl lookup
 lens: D4
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/extension/production-theta-producer.ts:1817-1823

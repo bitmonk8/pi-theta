@@ -2,7 +2,7 @@
 id: PTQ-1296
 title: expression child accessor duplicated between theta-document and type-layer-checks
 lens: D4
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/parser/theta-document.ts:3486-3514

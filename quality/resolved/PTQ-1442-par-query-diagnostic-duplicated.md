@@ -2,7 +2,7 @@
 id: PTQ-1442
 title: par-for query diagnostic duplicated in statement and expression arms
 lens: D4
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/parser/par-for-body-checks.ts:131-140

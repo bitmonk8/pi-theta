@@ -2,7 +2,7 @@
 id: PTQ-1443
 title: system-note-channel fallback construction cloned across producer and query driver
 lens: D4
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/extension/production-theta-producer.ts:496-513

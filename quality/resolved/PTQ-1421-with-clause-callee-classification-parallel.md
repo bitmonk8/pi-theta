@@ -2,7 +2,7 @@
 id: PTQ-1421
 title: with-clause callee classification split across pre- and post-materialisation passes
 lens: D4
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/extension/with-clause-static-checks.ts:144-203

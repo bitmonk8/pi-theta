@@ -2,7 +2,7 @@
 id: PTQ-1295
 title: entry-channel append methods duplicated
 lens: D4
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/extension/execution-status/entry-channel.ts:97-111

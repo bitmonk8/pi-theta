@@ -2,7 +2,7 @@
 id: PTQ-1414
 title: Invoke depth-overflow trampoline guard duplicated in subagent-fn and direct-invoke child builders
 lens: D4
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/extension/production-theta-producer.ts:3756-3769

@@ -2,7 +2,7 @@
 id: PTQ-1297
 title: fn-body and loop-body query-schema rewrites are cloned
 lens: D4
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/parser/query-schema-resolve.ts:304-310

@@ -2,7 +2,7 @@
 id: PTQ-1418
 title: Callee params-field projection duplicated across arity, return-type and type-layer consumers
 lens: D4
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/extension/production-composition.ts:2556-2583

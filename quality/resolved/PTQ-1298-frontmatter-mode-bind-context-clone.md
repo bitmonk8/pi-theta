@@ -2,7 +2,7 @@
 id: PTQ-1298
 title: mode and bind_context frontmatter arms are a renamed-only copy
 lens: D4
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/parser/frontmatter.ts:449-464

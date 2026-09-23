@@ -2,7 +2,7 @@
 id: PTQ-1294
 title: argument-list and array-literal element parsers cloned in body-parser
 lens: D4
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/parser/body-parser.ts:4132-4148

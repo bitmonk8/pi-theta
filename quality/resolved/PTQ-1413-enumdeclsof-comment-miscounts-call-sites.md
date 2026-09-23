@@ -2,7 +2,7 @@
 id: PTQ-1413
 title: enumDeclsOf docstring claims "both" lowerQueryResponseSchema call sites when four exist
 lens: D2
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/extension/query-text-render.ts:68-79

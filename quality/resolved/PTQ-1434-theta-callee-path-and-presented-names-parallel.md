@@ -2,7 +2,7 @@
 id: PTQ-1434
 title: thetaCalleePath and presentedCallableNames encode parallel callable-name resolution truth
 lens: D4
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/extension/callable-lowering.ts:376-387

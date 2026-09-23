@@ -2,7 +2,7 @@
 id: PTQ-1299
 title: imported-fn call argument loop preamble cloned from parse-time checkFnCallArgLoop
 lens: D4
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/extension/invoke-imported-checks.ts:248-263

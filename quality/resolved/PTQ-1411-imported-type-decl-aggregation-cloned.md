@@ -2,7 +2,7 @@
 id: PTQ-1411
 title: recordImportedSpecifierFacts aggregates schema and enum collisions with duplicated loops
 lens: D4
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/extension/import-specifier-facts.ts:439-447

@@ -2,7 +2,7 @@
 id: PTQ-1422
 title: PascalCase type-name guard re-derived in six production passes
 lens: D4
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/parser/type-compat.ts:163-169

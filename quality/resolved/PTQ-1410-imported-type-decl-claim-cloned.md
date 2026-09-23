@@ -2,7 +2,7 @@
 id: PTQ-1410
 title: collectImportedTypeDecls claims imported schema and enum names with duplicated helper logic
 lens: D4
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/extension/import-specifier-facts.ts:182-189

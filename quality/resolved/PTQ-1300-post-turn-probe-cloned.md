@@ -2,7 +2,7 @@
 id: PTQ-1300
 title: Post-turn probe sequence duplicated across three control paths in live prompt-query driver
 lens: D4
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/extension/live-prompt-query-driver.ts:333-339

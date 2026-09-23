@@ -2,7 +2,7 @@
 id: PTQ-1417
 title: Model-reference exact-match rule is implemented twice and must stay in step
 lens: D4
-status: open
+status: fixed
 verdict: confirmed
 locations:
   - src/parser/model-reference-matcher.ts:34-67
