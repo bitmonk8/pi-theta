@@ -56,12 +56,11 @@
 // unmet precondition). The belt-ii row DELIBERATELY feeds `executeBody` a body
 // the Layer-1 gate refuses (an immutable same-scope write) to reach the runtime
 // belt in isolation — documented at its call site.
-import { type Probe, render, producer } from "./helpers/runtime-belt-probe-harness";
+import { type Probe, assertInternalError, render, producer } from "./helpers/runtime-belt-probe-harness";
 import { parseDeps } from "./helpers/e2e-s1";
 import { describe, expect, it } from "vitest";
 import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import type { ThetaSource } from "../src/lexer/lexer";
-import type { Diagnostic } from "../src/diagnostics/diagnostic";
 import type { ParsedFrontmatter } from "../src/parser/frontmatter";
 import {
   parseThetaDocument,
@@ -69,15 +68,8 @@ import {
 } from "../src/parser/theta-document";
 import { executeBody, type ExecuteBodyDeps, type StatementEvalHost } from "../src/runtime/statement-executor";
 import type { Expr, ThetaBody } from "../src/parser/theta-document";
-import type {
-  CommittedConversationMutator,
-  DrivenConversationMode,
-} from "../src/runtime/terminal-outcomes";
-import {
-  isThetaPanic,
-  surfaceUnexpectedThrow,
-  INTERNAL_ERROR_CODE,
-} from "../src/runtime/runtime-panics";
+import type { DrivenConversationMode } from "../src/runtime/terminal-outcomes";
+import { SEAM_NOOP_MUTATOR } from "./helpers/invoke-seam-scaffold";
 import type { ThetaValue } from "../src/runtime/value";
 import type {
   ConversationBindInput,
@@ -208,20 +200,12 @@ function assertLoudThrow(probe: Probe, leak: string, what: string): void {
     ).toBe("runtime loud throw");
     return;
   }
-  expect(
-    isThetaPanic(probe.thrown),
+  assertInternalError(
+    probe.thrown,
+    SITE,
+    what,
     `${what}: the loud throw is a plain Error, NOT a ThetaPanic. Thrown: ${String(probe.thrown)}`,
-  ).toBe(false);
-  const diagnostic = surfaceUnexpectedThrow(probe.thrown, SITE);
-  expect(diagnostic, `${what}: surfaceUnexpectedThrow returns a Diagnostic`).toBeDefined();
-  const diag = diagnostic as Diagnostic;
-  expect(diag.code, `${what}: routes to the existing internal-error surface`).toBe(
-    INTERNAL_ERROR_CODE,
   );
-  expect(
-    diag.message,
-    `${what}: the internal-error template prefix (tail wording is the implementer's)`,
-  ).toMatch(/^internal error: /);
 }
 
 // ===========================================================================
@@ -712,14 +696,6 @@ describe("bug 0370 F6 — a type-only-named reassign TARGET draws unknown-identi
 // isolated to the arm. RED-capable: swap the two reads back and it reds with 12.
 // ===========================================================================
 
-const NOOP_ORDER_MUTATOR: CommittedConversationMutator = {
-  truncate(): void {},
-  rewrite(): void {},
-  replace(): void {},
-  remove(): void {},
-  injectCompensatingTurn(): void {},
-};
-
 describe("bug 0370 Layer-3 order (unit) — the compound arm reads the target BEFORE evaluating the RHS", () => {
   it("RED-capable (order): a target-mutating RHS yields target-first 3, not RHS-first 12", async () => {
     const env = new LexicalEnvironment({ body: { statements: [], tail: null } });
@@ -751,7 +727,7 @@ describe("bug 0370 Layer-3 order (unit) — the compound arm reads the target BE
       host,
       checkpoint: { before: (): Promise<void> => Promise.resolve() },
       signal: new AbortController().signal,
-      mutator: NOOP_ORDER_MUTATOR,
+      mutator: SEAM_NOOP_MUTATOR,
       mode: "prompt" as DrivenConversationMode,
       file: "b0370.theta",
     };

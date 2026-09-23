@@ -33,7 +33,6 @@ import { createUnhandledRejectionTrap, settleAndObserve } from "./helpers/unhand
 import { RecordingCheckpoint } from "./helpers/invoke-seam-scaffold";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type {
-  ExtensionAPI,
   ExtensionCommandContext,
   ModelRegistry,
 } from "@earendil-works/pi-coding-agent";
@@ -48,7 +47,7 @@ import type {
 } from "../src/extension/theta-composition-producer";
 import { abortForAgentEnd } from "../src/runtime/cancellation-core";
 import { executeBody } from "../src/runtime/statement-executor";
-import { rootWith } from "./helpers/fixture-dispatch-harness";
+import { rootWith, recordingPi, type RecordedMessage } from "./helpers/fixture-dispatch-harness";
 import type { AgentToolResultEnvelope } from "../src/runtime/tool-call-execute";
 import type { ParsedFrontmatter } from "../src/parser/frontmatter";
 import type { ThetaValue } from "../src/runtime/value";
@@ -63,23 +62,6 @@ import {
   promptTheta,
 } from "./helpers/tool-call-dispatch-harness";
 
-// --- system-note recorder ---------------------------------------------------
-
-interface SentNote {
-  readonly customType: string;
-  readonly content: string;
-}
-
-function sentNotes(): { readonly notes: SentNote[]; readonly pi: ExtensionAPI } {
-  const notes: SentNote[] = [];
-  const pi = {
-    sendMessage: (message: { customType: string; content: string }): void => {
-      notes.push({ customType: message.customType, content: message.content });
-    },
-  } as unknown as ExtensionAPI;
-  return { notes, pi };
-}
-
 function ctxWithSignal(signal: AbortSignal | undefined): ExtensionCommandContext {
   return { signal } as unknown as ExtensionCommandContext;
 }
@@ -90,7 +72,7 @@ function ctxWithSignal(signal: AbortSignal | undefined): ExtensionCommandContext
 
 describe("CANCEL-2 — prompt binding gates on a fresh thetaAbort (never ctx.signal directly)", () => {
   it("CANCEL-2: an aborted ctx.signal at bind time forwards INTO thetaAbort (the executor signal IS thetaAbort.signal, and carries the source reason)", () => {
-    const { pi } = sentNotes();
+    const pi = recordingPi([]);
     const deps = createProductionProducerDeps({
       pi,
       root: rootWith(new RecordingCheckpoint()),
@@ -118,7 +100,7 @@ describe("CANCEL-2 — prompt binding gates on a fresh thetaAbort (never ctx.sig
   });
 
   it("CANCEL-2: with an idle (undefined) ctx.signal the binding is NOT spuriously aborted, and the agent_end trigger flips the SAME controller the executor holds", () => {
-    const { pi } = sentNotes();
+    const pi = recordingPi([]);
     const deps = createProductionProducerDeps({
       pi,
       root: rootWith(new RecordingCheckpoint()),
@@ -186,7 +168,8 @@ function binderTheta(): ThetaCompositionInput {
 describe("CANCEL-4 — binder-call checkpoint gates the binder LLM call", () => {
   it("CANCEL-4: a pre-call abort fires the binder-call checkpoint, skips the LLM call, synthesises the cancelled-binder note, and does not run the theta", async () => {
     const checkpoint = new RecordingCheckpoint();
-    const { notes, pi } = sentNotes();
+    const notes: RecordedMessage[] = [];
+    const pi = recordingPi(notes);
     // A model registry that resolves the binder model but whose `complete()`
     // path must never be reached (a pre-call abort skips it). getApiKeyAndHeaders
     // would only be called from inside `complete()`, so a throwing stub proves
@@ -238,7 +221,7 @@ afterEach(rejectionTrap.dispose);
 
 describe("CANCEL-3 — code-side execute() dispatch attaches a construction-site swallowing handler", () => {
   it("CANCEL-3: a rejecting tool execute() driven through the real production dispatch raises no Node unhandledRejection and surfaces Err(code_tool) once", async () => {
-    const { pi } = sentNotes();
+    const pi = recordingPi([]);
     // The tool's execute() rejects on a later macrotask — the swallowing handler
     // must be attached at the dispatch construction site (before the first
     // microtask boundary) so no `unhandledRejection` escapes the wired path.

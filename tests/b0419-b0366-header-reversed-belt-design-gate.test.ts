@@ -1,5 +1,4 @@
-import { fileURLToPath } from "node:url";
-import { readFileSync } from "node:fs";
+import { linesOf, readCorpus as readSharedCorpus } from "./helpers/corpus-reader";
 import { describe, expect, it } from "vitest";
 
 // b0419 — the reversed-belt-design gate over bug 0366's witness header.
@@ -41,32 +40,15 @@ import { describe, expect, it } from "vitest";
 //   reads real content: the correctly-framed b0394 sibling header keeps its
 //   "superseded post-fix" framing byte-for-byte through this fix.
 
-const repoFile = (rel: string): string =>
-  fileURLToPath(new URL(`../${rel}`, import.meta.url));
-
 /**
  * Read a corpus file. A missing or empty file is a HARNESS failure that names
  * the unmet precondition and throws — never a skip, never an early return, so
- * an absent source cannot let a cell pass vacuously (the b0405 `readCorpus`
- * pattern this file mirrors).
+ * an absent source cannot let a cell pass vacuously (the shared `readCorpus`
+ * helper this file names its owner clause for).
  */
 function readCorpus(rel: string): string {
-  let text: string;
-  try {
-    text = readFileSync(repoFile(rel), "utf8");
-  } catch (cause) {
-    throw new Error(
-      `harness precondition unmet: ${rel} is unreadable, and it is a source this oracle scores for the bug 0419 header re-frame — a missing corpus file is a loud failure, never a skip (${String(cause)})`,
-    );
-  }
-  if (text.trim() === "") {
-    throw new Error(`harness precondition unmet: ${rel} is empty; nothing to score`);
-  }
-  return text;
+  return readSharedCorpus(rel, "a source this oracle scores for the bug 0419 header re-frame");
 }
-
-/** Line splitting tolerates a CRLF terminator. */
-const linesOf = (text: string): readonly string[] => text.split(/\r?\n/);
 
 /** A comment run flattened to one line: `//` markers dropped, whitespace collapsed. */
 const flattenComments = (lines: readonly string[]): string =>

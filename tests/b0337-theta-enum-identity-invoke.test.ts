@@ -85,11 +85,7 @@
 
 import {
   requireRealSubagentPathsFor,
-  realExecutableHost,
-  launchRealSubagentChild,
-  childExit,
-  driveWatchedSubagentChild,
-  reapSubagentChildren,
+  runDrivenSubagentFixtureCell,
 } from "./helpers/real-subagent-spawn";
 import { describe, expect, it } from "vitest";
 import type {
@@ -97,9 +93,6 @@ import type {
   ExtensionCommandContext,
   ModelRegistry,
 } from "@earendil-works/pi-coding-agent";
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import type { ThetaSource } from "../src/lexer/lexer";
 import type { SystemNoteChannelDeps } from "../src/extension/system-note-channel";
 import type { ModelReferenceMatcher, ParsedFrontmatter } from "../src/parser/frontmatter";
@@ -121,7 +114,6 @@ import type { AgentToolResultEnvelope } from "../src/runtime/tool-call-execute";
 import type { RuntimeRoot } from "../src/runtime-root";
 import type { Checkpoint } from "../src/seams/checkpoint";
 import type { FileSystem } from "../src/seams/file-system";
-import { type ExecutableHost } from "../src/runtime/subagent-launcher";
 import { parseDeps } from "./helpers/e2e-s1";
 /** The production AJV validator with the shipped `JSON.stringify` content-addressing, for the `invoke<T>` return gate. */
 import { ajv as realAjvValidator } from "./helpers/scripted-live-session-harness";
@@ -563,44 +555,14 @@ describe("bug 0337 (4) MODE-INVARIANCE — cross-file enum inequality is identic
     async () => {
       requireRealSubagentPaths();
 
-      const scratchDir = mkdtempSync(join(tmpdir(), "pi-theta-bug0337-"));
-      const thetaDir = join(scratchDir, "thetas");
-      mkdirSync(thetaDir, { recursive: true });
-      for (const [name, source] of Object.entries(CELL4_FIXTURES)) {
-        writeFileSync(join(thetaDir, name), source);
-      }
-      writeFileSync(join(thetaDir, "top.theta"), CELL4_ROOT);
-
-      const host: ExecutableHost = realExecutableHost();
-
-      // The REAL production spawn path with ALL THREE child pins: the executable
-      // (host.argv1 → PI_CLI_ENTRY), the extension identity
-      // (SUBAGENT_EXTENSION_PIN_ENV → this tree's extensions/, which inherits down
-      // to grandchildren the subagent-mode invokes spawn), and parentPid (which
-      // AUTHENTICATES the pin at each level — omitting it strips the pin silently).
-      const { launch, diagnostics, emitDiagnostic } = launchRealSubagentChild({
-        slug: "top",
-        thetaDirs: [thetaDir],
+      await runDrivenSubagentFixtureCell({
+        tmpPrefix: "pi-theta-bug0337-",
+        fixtures: CELL4_FIXTURES,
+        rootSource: CELL4_ROOT,
         provider: CHILD_MODEL_PROVIDER,
         model: CHILD_MODEL_ID,
-        cwd: scratchDir,
-        host,
-      });
-      expect(launch.ok, `launch failed: ${JSON.stringify(diagnostics)}`).toBe(true);
-      if (!launch.ok) {
-        return;
-      }
-      const child = launch.child;
-
-      const exitPromise = childExit(child);
-
-      try {
-        // In-test watchdog BELOW the vitest timeout: on a stall kill the tree so
-        // the drive settles fail-closed and the assertions report loudly, rather
-        // than hanging to the outer timeout.
-        const { result, killedByWatchdog } = await driveWatchedSubagentChild(
-          child, join(thetaDir, "top.theta"), emitDiagnostic, 90_000,
-        );
+        watchdogMs: 90_000,
+        body: async ({ result, killedByWatchdog, diagnostics, exitPromise }) => {
 
         expect(
           killedByWatchdog,
@@ -679,9 +641,8 @@ describe("bug 0337 (4) MODE-INVARIANCE — cross-file enum inequality is identic
         const exit = await exitPromise;
         expect(exit.code).toBe(0);
         expect(exit.signal).toBeNull();
-      } finally {
-        await reapSubagentChildren([{ kill: () => child.kill(), exited: exitPromise }], scratchDir);
-      }
+        },
+      });
     },
     150_000,
   );

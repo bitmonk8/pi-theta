@@ -52,7 +52,7 @@
 // §provider derivation), pi-integration-contract/conversation-drive.md
 // (PIC-50 provider derivation + sync-throw mapping, PIC-51 error-stop probe,
 // PIC-53 trailing-turn extraction), query/query-forms.md (QRY-1).
-import { ANTHROPIC_MODEL, type SessionEntryDouble, ajv, parse, appendUserEntry, appendAssistantEntry, sessionBranch } from "./helpers/scripted-live-session-harness";
+import { ANTHROPIC_MODEL, type SessionEntryDouble, parse, appendUserEntry, appendAssistantEntry, sessionBranch, rootDouble as harnessRootDouble } from "./helpers/scripted-live-session-harness";
 import { describe, expect, it } from "vitest";
 import type {
   ExtensionAPI,
@@ -206,9 +206,7 @@ class LiveSessionDouble {
  * real timers, and the turn-lifecycle polling still runs the production code.
  */
 function rootDouble(session: LiveSessionDouble): RuntimeRoot {
-  return {
-    checkpoint: { before: (): Promise<void> => Promise.resolve() },
-    idSource: { newInvocationId: (): string => "inv-1", newToolCallId: (): string => "tc-1" },
+  return harnessRootDouble({
     clock: {
       now: (): number => 0,
       wallNow: (): number => 0,
@@ -219,8 +217,7 @@ function rootDouble(session: LiveSessionDouble): RuntimeRoot {
       },
       clearTimeout: (): void => {},
     },
-    schemaValidator: ajv(),
-  } as unknown as RuntimeRoot;
+  });
 }
 
 /**

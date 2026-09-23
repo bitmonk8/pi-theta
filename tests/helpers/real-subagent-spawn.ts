@@ -1,7 +1,9 @@
 // Shared real-process launch, watchdog, and teardown plumbing for subagent and live acceptance witnesses.
 // Fixtures, assertions, control-plane overrides, and watchdog bounds stay with each caller.
 import { spawn } from "node:child_process";
-import { existsSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { Diagnostic } from "../../src/diagnostics/diagnostic";
 import { createProductionSpawnFn } from "../../src/extension/production-subagent-host";
@@ -144,6 +146,70 @@ export async function reapSubagentChildren(
     } catch {
       // Best-effort scratch cleanup; never mask the primary test failure.
     }
+  }
+}
+
+/** What a driven fixture cell's assertion body receives from `runDrivenSubagentFixtureCell`. */
+export interface DrivenSubagentFixtureOutcome {
+  readonly result: Awaited<ReturnType<typeof driveSubagentChild>>;
+  readonly killedByWatchdog: boolean;
+  readonly diagnostics: readonly Diagnostic[];
+  readonly exitPromise: Promise<ChildExitInfo>;
+}
+
+/**
+ * The scratch-dir → fixture-write → launch-guard → watchdog-drive →
+ * try/finally-reap shell shared by the real-subagent integration cells: write
+ * the fixture map plus a `top.theta` root under a fresh tmp dir, launch the
+ * REAL production spawn path with all three child pins (executable, extension
+ * identity — inherited by grandchildren — and the authenticating parent PID),
+ * drive it under the caller's in-test watchdog bound (BELOW the vitest timeout,
+ * so a stall settles fail-closed and reports loudly rather than hanging to the
+ * outer timeout), hand the outcome to the caller's assertion body, and reap
+ * child and scratch dir on every path. A failed launch throws loudly with the
+ * drained diagnostics — never a silent skip.
+ */
+export async function runDrivenSubagentFixtureCell(input: {
+  readonly tmpPrefix: string;
+  readonly fixtures: Readonly<Record<string, string>>;
+  readonly rootSource: string;
+  readonly provider: string;
+  readonly model: string;
+  readonly watchdogMs: number;
+  readonly body: (outcome: DrivenSubagentFixtureOutcome) => Promise<void> | void;
+}): Promise<void> {
+  const scratchDir = mkdtempSync(join(tmpdir(), input.tmpPrefix));
+  const thetaDir = join(scratchDir, "thetas");
+  mkdirSync(thetaDir, { recursive: true });
+  for (const [name, source] of Object.entries(input.fixtures)) {
+    writeFileSync(join(thetaDir, name), source);
+  }
+  writeFileSync(join(thetaDir, "top.theta"), input.rootSource);
+
+  const host: ExecutableHost = realExecutableHost();
+
+  const { launch, diagnostics, emitDiagnostic } = launchRealSubagentChild({
+    slug: "top",
+    thetaDirs: [thetaDir],
+    provider: input.provider,
+    model: input.model,
+    cwd: scratchDir,
+    host,
+  });
+  if (!launch.ok) {
+    throw new Error(`launch failed: ${JSON.stringify(diagnostics)}`);
+  }
+  const child = launch.child;
+
+  const exitPromise = childExit(child);
+
+  try {
+    const { result, killedByWatchdog } = await driveWatchedSubagentChild(
+      child, join(thetaDir, "top.theta"), emitDiagnostic, input.watchdogMs,
+    );
+    await input.body({ result, killedByWatchdog, diagnostics, exitPromise });
+  } finally {
+    await reapSubagentChildren([{ kill: () => child.kill(), exited: exitPromise }], scratchDir);
   }
 }
 

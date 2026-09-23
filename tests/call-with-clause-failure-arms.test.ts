@@ -61,12 +61,8 @@ import {
 } from "../src/runtime/effectful-statement-host";
 import { executeBody, type ExecuteBodyDeps } from "../src/runtime/statement-executor";
 import { buildEnvironment } from "../src/runtime/lexical-environment";
-import type { ToolLoweringSink } from "../src/runtime/tool-call-execute";
-import type {
-  CommittedConversationMutator,
-  CommittedSurface,
-  DrivenConversationMode,
-} from "../src/runtime/terminal-outcomes";
+import type { DrivenConversationMode } from "../src/runtime/terminal-outcomes";
+import { SEAM_NOOP_MUTATOR, SEAM_NOOP_SINK } from "./helpers/invoke-seam-scaffold";
 import type { ResultValue } from "../src/runtime/value";
 import { FakeFileSystem } from "./helpers/fake-file-system";
 
@@ -426,19 +422,6 @@ describe("RFC 0009 failure arms — R2: theta/runtime/subagent-spawn-failed name
 // absent (defaults every call to Pi-tool routing per the host's own doc
 // comment).
 // ===========================================================================
-
-const SEAM_NOOP_SINK: ToolLoweringSink = {
-  diagnostic(): void {},
-  systemNote(): void {},
-};
-
-const SEAM_NOOP_MUTATOR: CommittedConversationMutator = {
-  truncate(): void {},
-  rewrite(): void {},
-  replace(): void {},
-  remove(): void {},
-  injectCompensatingTurn(_surface: CommittedSurface): void {},
-};
 
 describe("RFC 0009 failure arms — row 11: the runtime Pi-tool belt refuses a clause-bearing call before dispatch (RED)", () => {
   it("a clause-bearing Pi-tool call reaching runToolCallEffect directly is refused with Err(InvokeInfraError{cause:'validation'}), never executed", async () => {

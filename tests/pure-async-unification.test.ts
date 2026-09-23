@@ -1,4 +1,5 @@
 import { recordingPiToolResolver } from "./helpers/tool-call-dispatch-harness";
+import { rootWith } from "./helpers/fixture-dispatch-harness";
 import { describe, expect, it } from "vitest";
 import type {
   ExtensionAPI,
@@ -14,7 +15,6 @@ import type {
   ConversationBindInput,
 } from "../src/extension/theta-composition-producer";
 import { executeBody } from "../src/runtime/statement-executor";
-import type { RuntimeRoot } from "../src/runtime-root";
 import type { Checkpoint } from "../src/seams/checkpoint";
 import { makeOk, type ThetaValue } from "../src/runtime/value";
 import type {
@@ -102,13 +102,6 @@ const NOOP_CHECKPOINT: Checkpoint = {
   },
 };
 
-function rootDouble(): RuntimeRoot {
-  return {
-    checkpoint: NOOP_CHECKPOINT,
-    idSource: { newInvocationId: () => "inv-1", newToolCallId: () => "tc-1" },
-  } as unknown as RuntimeRoot;
-}
-
 function ctxDouble(): ExtensionCommandContext {
   return {} as unknown as ExtensionCommandContext;
 }
@@ -120,7 +113,7 @@ interface ProducerOpts {
 function producer(opts: ProducerOpts) {
   return createProductionProducerDeps({
     pi: {} as unknown as ExtensionAPI,
-    root: rootDouble(),
+    root: rootWith(NOOP_CHECKPOINT),
     modelRegistry: {} as unknown as ModelRegistry,
     ...(opts.resolvePiTool !== undefined ? { resolvePiTool: opts.resolvePiTool } : {}),
   });

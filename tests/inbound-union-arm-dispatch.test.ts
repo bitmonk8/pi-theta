@@ -1,5 +1,5 @@
 import { scripted } from "./helpers/scripted-complete-queue-mock";
-import { assistantReply, contextToolsOf, ANTHROPIC_MODEL as SCRIPTED_MODEL } from "./helpers/scripted-live-session-harness";
+import { ajv as realAjv, assistantReply, contextToolsOf, ANTHROPIC_MODEL as SCRIPTED_MODEL } from "./helpers/scripted-live-session-harness";
 import {
   requireRealSubagentPathsFor,
   realExecutableHost,
@@ -63,7 +63,7 @@ import { driveSubagentChild } from "../src/runtime/subagent-json-driver";
 import { type ChildExitInfo, type ExecutableHost } from "../src/runtime/subagent-launcher";
 import { SUBAGENT_PARAMS_ENV, SUBAGENT_PARAMS_FILE_ENV } from "../src/runtime/subagent-params";
 import { type LoweredSchema, type SchemaValidator } from "../src/seams/schema-validator";
-import { AjvSchemaValidator, type SchemaSlug } from "../src/seams/ajv-schema-validator";
+import { type AjvSchemaValidator } from "../src/seams/ajv-schema-validator";
 import {
   brandSchemaValue,
   makeEnumValue,
@@ -158,17 +158,6 @@ function loadFixture(src: string, path: string): ThetaDocument {
     );
   }
   return doc;
-}
-
-/** The production content-addressing of `src/extension/production-composition.ts:3789-3818`. */
-function realAjv(): AjvSchemaValidator {
-  return new AjvSchemaValidator({
-    emit: (): void => {},
-    slugOf: (schema: LoweredSchema): SchemaSlug => {
-      const canonicalBytes = JSON.stringify(schema);
-      return { slug: canonicalBytes, canonicalBytes };
-    },
-  });
 }
 
 /**

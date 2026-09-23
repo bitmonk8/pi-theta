@@ -70,17 +70,9 @@
 
 import {
   requireRealSubagentPathsFor,
-  realExecutableHost,
-  launchRealSubagentChild,
-  childExit,
-  driveWatchedSubagentChild,
-  reapSubagentChildren,
+  runDrivenSubagentFixtureCell,
 } from "./helpers/real-subagent-spawn";
 import { describe, expect, it } from "vitest";
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { type ExecutableHost } from "../src/runtime/subagent-launcher";
 
 /** The marshalled model reference riding the child argv (PIC-62). NEVER CONTACTED: no fixture issues a query. */
 const CHILD_MODEL_PROVIDER = "anthropic";
@@ -186,45 +178,14 @@ describe("bug 0342 — a forwarded enum keeps its declaring file's identity acro
     async () => {
       requireRealSubagentPaths();
 
-      const scratchDir = mkdtempSync(join(tmpdir(), "pi-theta-bug0342-"));
-      const thetaDir = join(scratchDir, "thetas");
-      mkdirSync(thetaDir, { recursive: true });
-      for (const [name, source] of Object.entries(CELL_FIXTURES)) {
-        writeFileSync(join(thetaDir, name), source);
-      }
-      writeFileSync(join(thetaDir, "top.theta"), TOP_ROOT);
-
-      const host: ExecutableHost = realExecutableHost();
-
-      // The REAL production spawn path with ALL THREE child pins: the executable
-      // (host.argv1 → PI_CLI_ENTRY), the extension identity
-      // (SUBAGENT_EXTENSION_PIN_ENV → this tree's extensions/, which inherits down
-      // to the grandchildren the depth-2 invokes spawn), and parentPid (which
-      // AUTHENTICATES the pin at each level — omitting it strips the pin silently).
-      const { launch, diagnostics, emitDiagnostic } = launchRealSubagentChild({
-        slug: "top",
-        thetaDirs: [thetaDir],
+      await runDrivenSubagentFixtureCell({
+        tmpPrefix: "pi-theta-bug0342-",
+        fixtures: CELL_FIXTURES,
+        rootSource: TOP_ROOT,
         provider: CHILD_MODEL_PROVIDER,
         model: CHILD_MODEL_ID,
-        cwd: scratchDir,
-        host,
-      });
-      expect(launch.ok, `launch failed: ${JSON.stringify(diagnostics)}`).toBe(true);
-      if (!launch.ok) {
-        return;
-      }
-      const child = launch.child;
-
-      const exitPromise = childExit(child);
-
-      try {
-        // In-test watchdog BELOW the vitest timeout: on a stall (the root child or
-        // any grandchild making no progress) kill the tree so the drive settles
-        // fail-closed and the assertions report loudly, rather than hanging to the
-        // outer timeout.
-        const { result, killedByWatchdog } = await driveWatchedSubagentChild(
-          child, join(thetaDir, "top.theta"), emitDiagnostic, 100_000,
-        );
+        watchdogMs: 100_000,
+        body: async ({ result, killedByWatchdog, diagnostics, exitPromise }) => {
 
         expect(
           killedByWatchdog,
@@ -305,9 +266,8 @@ describe("bug 0342 — a forwarded enum keeps its declaring file's identity acro
         const exit = await exitPromise;
         expect(exit.code).toBe(0);
         expect(exit.signal).toBeNull();
-      } finally {
-        await reapSubagentChildren([{ kill: () => child.kill(), exited: exitPromise }], scratchDir);
-      }
+        },
+      });
     },
     180_000,
   );

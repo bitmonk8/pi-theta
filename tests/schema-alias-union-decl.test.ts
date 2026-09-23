@@ -1,10 +1,9 @@
 import { REGISTRY } from "./helpers/registry-oracle";
 import { describe, expect, it } from "vitest";
 import { registryMessageOf } from "./helpers/load-row-harness";
-import type { Diagnostic } from "../src/diagnostics/diagnostic";
 import type { ThetaDocument } from "../src/parser/theta-document";
 import { type LoweredSchema } from "../src/seams/schema-validator";
-import { AjvSchemaValidator, type SchemaSlug } from "../src/seams/ajv-schema-validator";
+import { capturingAjv as ajv } from "./helpers/scripted-live-session-harness";
 import { codes, parseDoc, diagLines, loadCleanly } from "./helpers/e2e-s1";
 
 // Bug 0033 — the `schema X = A | B` type-alias / union declaration does not
@@ -575,19 +574,6 @@ function expectArmMatchesFieldControl(
       `answers to exactly what the object form's field-type position answers to; ` +
       `field-control=${JSON.stringify(diagLines(fieldDoc))}`,
   ).toEqual([...expected]);
-}
-
-/** A real `AjvSchemaValidator` plus the diagnostics it emitted (V8c seam). */
-function ajv(): { readonly validator: AjvSchemaValidator; readonly emitted: Diagnostic[] } {
-  const emitted: Diagnostic[] = [];
-  const slugOf = (schema: LoweredSchema): SchemaSlug => ({
-    slug: JSON.stringify(schema),
-    canonicalBytes: JSON.stringify(schema),
-  });
-  return {
-    validator: new AjvSchemaValidator({ emit: (d) => emitted.push(d), slugOf }),
-    emitted,
-  };
 }
 
 /** A parsed, cleanly-lowered `params:` document. */

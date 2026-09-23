@@ -57,10 +57,10 @@
 //
 // HARNESSES. The parse cells reuse `tests/helpers/e2e-s1.ts`'s `parseDoc` (the
 // bug 0122 witness `tests/interpolation-parse-diagnostics.test.ts` shape). The
-// render cells reproduce the bug 0338 instant-settle drive
-// (`tests/b0338-pure-host-arithmetic-non-numeric-belt.test.ts`'s `driveInterp`)
-// rather than importing it, so this file does not depend on those files'
-// internals. The bug 0345 fix DOES re-pin the enumerated flip cells in both the
+// render cells drive the bug 0338 instant-settle shape through the shared
+// `tests/helpers/runtime-belt-probe-harness.ts` (`makeBeltProbes`'s
+// `driveInterp`), the same harness the b0338/b0368/b0369 witnesses use.
+// The bug 0345 fix DOES re-pin the enumerated flip cells in both the
 // bug 0122 and bug 0338 witnesses (the string-operand interpolation cells move
 // from a runtime observable to a load refusal); those re-pins are the fix's, not
 // this file's.
@@ -68,30 +68,14 @@
 // No silent skipping: every unmet precondition below throws naming itself.
 
 import { describe, expect, it } from "vitest";
-import type {
-  ExtensionAPI,
-  ExtensionCommandContext,
-  ModelRegistry,
-} from "@earendil-works/pi-coding-agent";
 import type { Diagnostic, SourceRange } from "../src/diagnostics/diagnostic";
-import type { ParsedFrontmatter } from "../src/parser/frontmatter";
 import type { ThetaDocument } from "../src/parser/theta-document";
 import {
   INTERPOLATED_RESULT_CODE,
   INTERPOLATED_RESULT_MESSAGE,
 } from "../src/render/query-render";
-import { executeBody } from "../src/runtime/statement-executor";
-import {
-  INTERNAL_ERROR_CODE,
-  isThetaPanic,
-  surfaceUnexpectedThrow,
-} from "../src/runtime/runtime-panics";
-import type { ThetaValue } from "../src/runtime/value";
-import { createProductionProducerDeps } from "../src/extension/production-theta-producer";
-import type { ThetaCompositionInput } from "../src/extension/theta-composition-producer";
-import type { RuntimeRoot } from "../src/runtime-root";
 import { parseDoc, show, soleQueryRange as soleQueryRangeShared } from "./helpers/e2e-s1";
-import { sessionBranch } from "./helpers/scripted-live-session-harness";
+import { assertInternalError, makeBeltProbes } from "./helpers/runtime-belt-probe-harness";
 
 // The three registered operand codes (expressions.md §"`+` operator", §"Other
 // arithmetic", §"Ordering comparisons").
@@ -441,7 +425,7 @@ describe("bug 0345 (parse) F3 — stated residual: par-for-in-interpolation oper
 
 // ===========================================================================
 // RENDER cells — the bug 0338 instant-settle drive over the production
-// prompt-mode binding, reproduced here (that file is a lock). An untyped
+// prompt-mode binding, via the shared runtime-belt-probe harness. An untyped
 // prompt-mode query dispatches no `complete()`, so no provider and no model is
 // involved: the injected Clock's `setTimeout` ticks the double.
 // ===========================================================================
@@ -454,62 +438,6 @@ const SITE = {
     end: { line: 1, column: 1, offset: 0 },
   },
 };
-
-/** The instant-settle user session: one send commits user + reply synchronously. */
-class InstantSettleSession {
-  readonly entries: Array<Record<string, unknown>> = [];
-  readonly sent: string[] = [];
-
-  sendUserMessage(text: string): void {
-    this.sent.push(text);
-    this.entries.push({
-      type: "message",
-      id: `u${this.entries.length + 1}`,
-      parentId: undefined,
-      message: { role: "user", content: [{ type: "text", text }] },
-    });
-    this.entries.push({
-      type: "message",
-      id: `a${this.entries.length + 1}`,
-      parentId: `u${this.entries.length}`,
-      message: {
-        role: "assistant",
-        content: [{ type: "text", text: "settled-reply" }],
-        api: "anthropic-messages",
-        provider: "anthropic",
-        model: "m1",
-        stopReason: "stop",
-      },
-    });
-  }
-
-  isIdle(): boolean {
-    return true;
-  }
-}
-
-function rootDouble(): RuntimeRoot {
-  return {
-    checkpoint: { before: (): Promise<void> => Promise.resolve() },
-    idSource: { newInvocationId: (): string => "inv-1", newToolCallId: (): string => "tc-1" },
-    // The prompt-mode drive's only wait primitive is `Clock.setTimeout`; fire the
-    // callback synchronously so the instant-settle turn completes deterministically.
-    clock: {
-      now: (): number => 0,
-      wallNow: (): number => 0,
-      setTimeout: (fn: () => void): unknown => {
-        fn();
-        return 0;
-      },
-      clearTimeout: (): void => {},
-    },
-  } as unknown as RuntimeRoot;
-}
-
-/** One interpolation drive's disposition: the query rendered + sent, or a throw. */
-type InterpProbe =
-  | { readonly kind: "rendered"; readonly sent: readonly string[]; readonly outcome: string; readonly value: ThetaValue | undefined }
-  | { readonly kind: "threw"; readonly sent: readonly string[]; readonly thrown: unknown };
 
 /** Parse a fixture, failing LOUDLY on any error-severity diagnostic before driving it. */
 function parseCleanBody(src: string): ThetaDocument {
@@ -525,65 +453,17 @@ function parseCleanBody(src: string): ThetaDocument {
   return doc;
 }
 
-async function driveInterp(src: string): Promise<InterpProbe> {
-  const doc = parseCleanBody(src);
-  const session = new InstantSettleSession();
-  const pi = {
-    sendUserMessage: (content: string): void => session.sendUserMessage(content),
-    getActiveTools: (): string[] => [],
-    setActiveTools: (): void => {},
-    registerTool: (): void => {},
-    on: (): void => {},
-    sendMessage: (): void => {},
-  } as unknown as ExtensionAPI;
-  const deps = createProductionProducerDeps({
-    pi,
-    root: rootDouble(),
-    modelRegistry: {} as unknown as ModelRegistry,
-  });
-  const ctx = {
-    model: { id: "m1", api: "anthropic-messages", provider: "anthropic", strictCapable: true },
-    signal: undefined,
-    isIdle: (): boolean => session.isIdle(),
-    waitForIdle: (): Promise<void> => Promise.resolve(),
-    sessionManager: {
-      getEntries: (): readonly unknown[] => [...session.entries],
-      getLeafId: (): undefined => undefined,
-      getBranch: (): readonly unknown[] => sessionBranch(session.entries),
-    },
-  } as unknown as ExtensionCommandContext;
-  const theta: ThetaCompositionInput = {
-    slashName: "b0345",
-    sourcePath: "/proj/b0345.theta",
-    frontmatter: doc.frontmatter as ParsedFrontmatter,
-    body: doc.body,
-  };
-  const binding = deps.bindPromptConversation({ theta, args: "", ctx });
-  try {
-    const execution = await executeBody(theta.body, binding.executeDeps);
-    return {
-      kind: "rendered",
-      sent: session.sent,
-      outcome: execution.outcome,
-      value: execution.result.value,
-    };
-  } catch (thrown) {
-    return { kind: "threw", sent: session.sent, thrown };
-  }
-}
+/** The shared PURE-HOST interpolation drive (instant-settle session, fixed-clock root). */
+const { driveInterp } = makeBeltProbes(parseCleanBody, "b0345");
 
 /** A caught throw must be the bug 0338 belt's plain `Error` that frames to internal-error. */
 function assertFramesToInternalError(thrown: unknown, what: string): void {
-  expect(
-    isThetaPanic(thrown),
+  assertInternalError(
+    thrown,
+    SITE,
+    what,
     `${what}: the belt is a plain Error, NOT a ThetaPanic; thrown: ${String(thrown)}`,
-  ).toBe(false);
-  const diagnostic = surfaceUnexpectedThrow(thrown, SITE);
-  const diag = diagnostic as Diagnostic;
-  expect(
-    diag.code,
-    `${what}: the belt throw routes to the internal-error surface (theta/runtime/internal-error)`,
-  ).toBe(INTERNAL_ERROR_CODE);
+  );
 }
 
 describe("bug 0345 (render) — numeric baseline and deferral parity (green now and after)", () => {

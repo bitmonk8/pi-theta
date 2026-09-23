@@ -8,6 +8,7 @@ import {
   sessionBranch,
 } from "./helpers/scripted-live-session-harness";
 import { SEAM_NOOP_CHECKPOINT as NOOP_CHECKPOINT } from "./helpers/invoke-seam-scaffold";
+import { rootWith } from "./helpers/fixture-dispatch-harness";
 import { describe, expect, it } from "vitest";
 import type {
   ExtensionAPI,
@@ -217,13 +218,6 @@ function asObjectValue(value: ThetaValue | undefined, what: string): object {
 // bindPromptConversation → executeBody.
 // ===========================================================================
 
-function rootDouble(): RuntimeRoot {
-  return {
-    checkpoint: NOOP_CHECKPOINT,
-    idSource: { newInvocationId: () => "inv-1", newToolCallId: () => "tc-1" },
-  } as unknown as RuntimeRoot;
-}
-
 function producer() {
   return createProductionProducerDeps({
     pi: {
@@ -231,7 +225,7 @@ function producer() {
       getActiveTools: () => [],
       setActiveTools: () => {},
     } as unknown as ExtensionAPI,
-    root: rootDouble(),
+    root: rootWith(NOOP_CHECKPOINT),
     modelRegistry: {} as unknown as ModelRegistry,
   });
 }
@@ -331,9 +325,7 @@ function livePi(session: LiveSessionDouble): ExtensionAPI {
 
 function rootLive(session: LiveSessionDouble): RuntimeRoot {
   return {
-    checkpoint: NOOP_CHECKPOINT,
-    idSource: { newInvocationId: () => "inv-1", newToolCallId: () => "tc-1" },
-    clock: {
+    ...rootWith(NOOP_CHECKPOINT, "inv-1", {
       now: (): number => 0,
       wallNow: (): number => 0,
       setTimeout: (fn: () => void): unknown => {
@@ -342,7 +334,7 @@ function rootLive(session: LiveSessionDouble): RuntimeRoot {
         return 0;
       },
       clearTimeout: (): void => {},
-    },
+    }),
     schemaValidator: ajv(),
   } as unknown as RuntimeRoot;
 }
