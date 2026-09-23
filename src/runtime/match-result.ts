@@ -125,6 +125,40 @@ export interface MatchArm {
   readonly body: (bindings: Bindings) => ThetaValue;
 }
 
+/** The arm a `match` dispatch selected: its index and the bindings its pattern introduces. */
+export interface MatchSelection {
+  readonly index: number;
+  readonly bindings: Bindings;
+}
+
+/**
+ * Dispatch `scrutinee` against `patterns` in order — first matching pattern
+ * wins — and return the selected arm's index with the bindings its pattern
+ * introduces. When `scrutinee` matches none of the patterns, raise
+ * `MatchError` (`theta/runtime/match-error`) — theta 1.0 performs no static
+ * exhaustiveness check, so non-exhaustion surfaces at runtime
+ * (expressions.md §"Exhaustiveness"). The async executor (`evalMatch`)
+ * consumes the selection directly and evaluates the chosen arm's body through
+ * its own effectful path; `evaluateMatch` composes it with a sync body thunk.
+ */
+export function selectMatchArm(
+  scrutinee: ThetaValue,
+  patterns: readonly Pattern[],
+): MatchSelection {
+  for (let index = 0; index < patterns.length; index += 1) {
+    const bindings: Record<string, ThetaValue> = {};
+    if (matchPattern(patterns[index] as Pattern, scrutinee, bindings)) {
+      return { index, bindings };
+    }
+  }
+  // The scrutinee matched none of the six pattern forms: raise the runtime
+  // non-exhaustive-`match` panic carrying its registered message template
+  // (`MatchError: no arm matched <scrutinee summary>`,
+  // diagnostics/code-registry-runtime.md). theta 1.0 performs no static
+  // exhaustiveness check (expressions.md §"Exhaustiveness").
+  throw new MatchError(`MatchError: no arm matched ${summariseScrutinee(scrutinee)}`);
+}
+
 /**
  * Evaluate a `match` expression: dispatch `scrutinee` against `arms` in order,
  * first matching arm wins, and evaluate the selected arm's `body` with the
@@ -138,18 +172,11 @@ export function evaluateMatch(
   arms: readonly MatchArm[],
 ): ThetaValue {
   // First matching arm wins; a non-selected arm's body is never evaluated.
-  for (const arm of arms) {
-    const bindings: Record<string, ThetaValue> = {};
-    if (matchPattern(arm.pattern, scrutinee, bindings)) {
-      return arm.body(bindings);
-    }
-  }
-  // The scrutinee matched none of the six pattern forms: raise the runtime
-  // non-exhaustive-`match` panic carrying its registered message template
-  // (`MatchError: no arm matched <scrutinee summary>`,
-  // diagnostics/code-registry-runtime.md). theta 1.0 performs no static
-  // exhaustiveness check (expressions.md §"Exhaustiveness").
-  throw new MatchError(`MatchError: no arm matched ${summariseScrutinee(scrutinee)}`);
+  const { index, bindings } = selectMatchArm(
+    scrutinee,
+    arms.map((arm) => arm.pattern),
+  );
+  return (arms[index] as MatchArm).body(bindings);
 }
 
 /**

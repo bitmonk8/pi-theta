@@ -6,7 +6,7 @@ import type { InvokeCalleeError, InvokeInfraError, QueryError } from "./query-er
 import { HostFatal, isThetaPanic } from "./runtime-panics";
 import { pushCountableFrame } from "./invoke-depth-cycle";
 import { makeErr, type ThetaValue } from "./value";
-import { evalExpr, executeBlock, panicSiteFile, ThetaFnArityError, type ExecuteBodyDeps, type EvalResult, type Flow, type SubagentFnChildOutcome } from "./statement-executor";
+import { evalExpr, executeBlock, panicSiteFile, ThetaFnArityError, type ExecuteBodyDeps, type EvalResult, type SubagentFnChildOutcome } from "./statement-executor";
 
 /**
  * Build the caller-visible `InvokeCalleeError` for a `subagent fn` callee that
@@ -157,7 +157,7 @@ async function runSubagentFnInProcess(
   // caller. `entered` guards `exitSubagentSession` so a spawn that threw before
   // pushing a session is not popped.
   let entered = false;
-  let flow: Flow;
+  let flow: EvalResult;
   try {
     await deps.host.spawnSubagentSession?.(fn.sessionConfig ?? {}, deps.invokeChain);
     entered = true;
@@ -199,10 +199,10 @@ async function runSubagentFnInProcess(
 }
 
 /** Map a completed in-process body flow across the subagent-fn boundary. */
-function mapSubagentFnFlow(flow: Flow, fn: FnDecl): EvalResult {
-  switch (flow.kind) {
+function mapSubagentFnFlow(flow: EvalResult, fn: FnDecl): EvalResult {
+  switch (flow.flow) {
     case "return":
-    case "normal":
+    case "value":
       // Success — the callee's final value (FN-5) crosses the boundary.
       return { flow: "value", value: flow.value };
     case "break":
@@ -214,7 +214,7 @@ function mapSubagentFnFlow(flow: Flow, fn: FnDecl): EvalResult {
       // A callee-returned / `?`-propagated Err crosses wrapped as
       // InvokeCalleeError{inner:<raw Err>}, exactly like an invoked subagent
       // callee (invocation.md §Failures).
-      const raw = flow.kind === "propagate" ? flow.err : flow.error;
+      const raw = flow.flow === "propagate" ? flow.err : flow.error;
       return {
         flow: "value",
         value: makeErr(subagentCalleeError(raw, fn.name) as unknown as ThetaValue),

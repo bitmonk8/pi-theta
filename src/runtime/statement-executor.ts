@@ -90,7 +90,7 @@ import {
 import { evaluateStringMember } from "./stdlib-string";
 import { evaluateArrayMember } from "./stdlib-array";
 import { evaluateObjectMember } from "./stdlib-object";
-import { evaluateMatch, type Bindings, type MatchArm, type Pattern } from "./match-result";
+import { selectMatchArm, type MatchSelection, type Pattern } from "./match-result";
 import {
   handlePartialTerminalOutcome,
   type CommittedConversationMutator,
@@ -396,12 +396,20 @@ export interface BodyExecution {
 // ---------------------------------------------------------------------------
 
 /**
- * The control-flow signal one statement or block produces as the walk unwinds.
+ * The control-flow signal one evaluated sub-expression, statement, or block
+ * produces as the walk unwinds — the ONE union both the expression layer
+ * (`evalExpr`) and the statement layer (`executeStatement` / `executeBlock`)
+ * carry, so a non-`value` signal propagates through every boundary unchanged
+ * (every `evalExpr` call site forwards a non-`"value"` result verbatim).
  *
- *   - `normal`   — fall through to the next statement; `value` is the last
- *     evaluated value (a block's tail value, or `null`).
+ *   - `value`    — the evaluated value: a sub-expression's result, or the
+ *     statement/block fall-through carrying the last evaluated value (a
+ *     block's tail value, or `null`).
  *   - `return`   — an explicit `return expr` short-circuits the body to `value`.
- *   - `break` / `continue` — steer the nearest enclosing loop.
+ *   - `break` / `continue` — steer the nearest enclosing loop. From an
+ *     expression, these and `return` are reachable only through a `BlockExpr`
+ *     (bug 0082 §Fix) — the block's own statement list can carry any `Stmt`,
+ *     including these three control-flow forms.
  *   - `fail`     — an unhandled non-cancel effect `Err` in tail/statement
  *     position (an unhandled `@`-query exhaustion / validation breach not
  *     consumed by a caller `match` and not `?`-propagated) — the
@@ -410,27 +418,10 @@ export interface BodyExecution {
  *     `Err(error)`, exactly as `propagate` carries a `?`-propagated `Err`; no
  *     FN-5 final value flows. (A runtime panic is a thrown `ThetaPanic`, not a
  *     `fail` flow, so it never reaches this variant.)
+ *   - `propagate` — a `?`-propagation carrying its `Err` payload so the body's
+ *     terminal `Result` is `Err(err)` (ERR-18 / FN-5 fail path).
  *   - `cancel`   — a mid-body cancellation surfaced at a checkpoint — the cancel
  *     terminal outcome; no final value flows (FN-5).
- */
-export type Flow =
-  | { readonly kind: "normal"; readonly value: ThetaValue }
-  | { readonly kind: "return"; readonly value: ThetaValue }
-  | { readonly kind: "break" }
-  | { readonly kind: "continue" }
-  | { readonly kind: "fail"; readonly error: ThetaValue; readonly event?: RuntimeEvent }
-  | { readonly kind: "propagate"; readonly err: ThetaValue }
-  | { readonly kind: "cancel" };
-
-/**
- * The outcome of evaluating a single sub-expression (pure or checkpointed).
- * `return` / `break` / `continue` (bug 0082 §Fix) are reachable only
- * from a `BlockExpr` — the block's own statement list can carry any `Stmt`,
- * including these three control-flow forms, and `evalExpr`'s `"block"` case
- * lifts `executeBlock`'s `Flow` onto these matching `EvalResult` variants so
- * the signal propagates through the ordinary EvalResult chain (every other
- * `evalExpr` call site already forwards a non-`"value"` result unchanged)
- * until it reaches a site that converts back to `Flow` via `terminalFlow`.
  */
 export type EvalResult =
   | { readonly flow: "value"; readonly value: ThetaValue }
@@ -440,30 +431,6 @@ export type EvalResult =
   | { readonly flow: "break" }
   | { readonly flow: "continue" }
   | { readonly flow: "cancel" };
-
-/**
- * Lift a terminal `EvalResult` (every variant but `value`) onto the matching
- * `Flow`. A `?`-propagation carries its `Err` payload through so the body's
- * terminal `Result` is `Err(err)` (ERR-18 / FN-5 fail path); `return` /
- * `break` / `continue` carry a `BlockExpr`'s own non-normal flow back onto the
- * `Flow` the enclosing statement / block unwinds on (bug 0082 §Fix).
- */
-function terminalFlow(result: Exclude<EvalResult, { flow: "value" }>): Flow {
-  switch (result.flow) {
-    case "fail":
-      return { kind: "fail", error: result.error, ...(result.event !== undefined ? { event: result.event } : {}) };
-    case "propagate":
-      return { kind: "propagate", err: result.err };
-    case "return":
-      return { kind: "return", value: result.value };
-    case "break":
-      return { kind: "break" };
-    case "continue":
-      return { kind: "continue" };
-    case "cancel":
-      return { kind: "cancel" };
-  }
-}
 
 /**
  * RFC 0002 (docs/rfcs/0002-computed-tool-arguments.md) — evaluate a Pi-tool
@@ -666,7 +633,7 @@ async function evalUserFnCall(
       }
     }
   }
-  let flow: Flow;
+  let flow: EvalResult;
   try {
     flow = await executeBlock(fn.body, scope, bodyDeps);
   } catch (thrown) { // allow-broad-catch: ThetaPanic-only, re-raised (bug 0476 §Fix)
@@ -683,9 +650,9 @@ async function evalUserFnCall(
     }
     throw thrown;
   }
-  switch (flow.kind) {
+  switch (flow.flow) {
     case "return":
-    case "normal":
+    case "value":
       return { flow: "value", value: flow.value };
     case "break":
     case "continue":
@@ -807,32 +774,15 @@ export async function evalExpr(
   // A `BlockExpr` (grammar.md §"Block expressions", the two grammar.md:114 sites: a
   // `let`-RHS, a `match`-arm body): run the existing `executeBlock` in a CHILD
   // scope, so a name the block's own `let`s bind does not leak into `env`, and
-  // the block's value is its tail expression's value — the same `Flow`
-  // conversion `executeIf` / `executeWhile` / `executeFor` apply at their own
-  // `executeBlock` call sites, lifted onto `EvalResult` here because a block is
-  // an EXPRESSION, not a statement.
+  // the block's value is its tail expression's value; `executeBlock`'s own
+  // `EvalResult` carries the block's flow (bug 0082 §Fix: `return` / `break` /
+  // `continue` from a `BlockExpr` propagate through the expression chain).
   if (expr.kind === "block") {
     // The enclosing position threads down: a value-position block's tail is a
     // consumed value, not a returned/discarded one, so `executeBlock` must
     // dispose its tail query the same way this `block` expression itself is
     // disposed.
-    const flow = await executeBlock(expr.body, env.child(), deps, atTerminal);
-    switch (flow.kind) {
-      case "normal":
-        return { flow: "value", value: flow.value };
-      case "return":
-        return { flow: "return", value: flow.value };
-      case "break":
-        return { flow: "break" };
-      case "continue":
-        return { flow: "continue" };
-      case "fail":
-        return { flow: "fail", error: flow.error, ...(flow.event !== undefined ? { event: flow.event } : {}) };
-      case "propagate":
-        return { flow: "propagate", err: flow.err };
-      case "cancel":
-        return { flow: "cancel" };
-    }
+    return executeBlock(expr.body, env.child(), deps, atTerminal);
   }
   // A `<name>(args)` call whose callee resolves to a user `fn` executes the
   // function body in-process (FN-1…FN-5); it is not a host tool-call / invoke
@@ -1472,7 +1422,7 @@ async function evalTry(expr: TryExpr, env: LexicalEnvironment, deps: ExecuteBody
 /**
  * Evaluate `match <scrutinee> { arm, … }` (expressions.md §`match` expression):
  * dispatch the scrutinee (an effect fires its real host), then apply the sync
- * V4a `evaluateMatch` — first matching arm wins, the selected arm's body is
+ * V4a arm selection (`selectMatchArm`) — first matching arm wins, the selected arm's body is
  * evaluated with the pattern's bindings installed in a child scope. A
  * non-exhaustive match raises `MatchError` (a panic that bypasses `?`/`match`).
  */
@@ -1487,40 +1437,27 @@ async function evalMatch(
     return scrutinee;
   }
   // V20e — pure/async evaluator unification. Select the matching arm and its
-  // pattern bindings through the sync `V4a` pattern dispatch (`evaluateMatch`,
-  // which still raises `MatchError` on a non-exhaustive scrutinee), but do NOT
-  // evaluate the arm body inside that sync thunk: the selecting thunk only
-  // records the chosen arm index and its bindings. The selected arm body is
+  // pattern bindings through the sync `V4a` pattern dispatch (`selectMatchArm`,
+  // which raises `MatchError` on a non-exhaustive scrutinee), but do NOT
+  // evaluate the arm body there. The selected arm body is
   // then evaluated through the REAL executor (`evalExpr`) rather than the
   // producer's partial `evaluatePureExpression` — so a nested `match` in the arm
   // body, or an effectful expression (a user-`fn` call whose body dispatches an
   // effect, an `@`-query, a tool-call) in that pure sub-expression position,
   // resolves through the single `V19c` evaluation path instead of the partial
   // pure evaluator's `default: return null` safety net.
-  let selection: { readonly index: number; readonly bindings: Bindings } | undefined;
-  const arms: MatchArm[] = expr.arms.map((arm, index) => ({
-    pattern: toRuntimePattern(arm.pattern),
-    body: (bindings) => {
-      selection = { index, bindings };
-      // A sentinel: the real arm body runs asynchronously through `evalExpr`
-      // below; `evaluateMatch`'s returned value is discarded.
-      return null;
-    },
-  }));
-  // Drives the `V4a` pattern dispatch + `MatchError` raise; the thunk above sets
-  // `selection` for the first matching arm (a non-selected arm's body thunk is
-  // never invoked).
+  const patterns = expr.arms.map((arm) => toRuntimePattern(arm.pattern));
+  // Drives the `V4a` pattern dispatch + `MatchError` raise; the selection names
+  // the first matching arm and the bindings its pattern introduces.
+  let chosen: MatchSelection;
   try {
-    evaluateMatch(scrutinee.value, arms);
+    chosen = selectMatchArm(scrutinee.value, patterns);
   } catch (thrown) { // allow-broad-catch: ThetaPanic-only, re-raised (bug 0476 §Fix)
     if (isThetaPanic(thrown)) {
       attachPanicSite(thrown, { file: panicSiteFile(env, deps), range: expr.range });
     }
     throw thrown;
   }
-  // `evaluateMatch` returned normally, so a matching arm's thunk ran and set
-  // `selection` (a non-exhaustive scrutinee would have thrown `MatchError`).
-  const chosen = selection as { readonly index: number; readonly bindings: Bindings };
   const armEnv = env.child();
   for (const [name, value] of Object.entries(chosen.bindings)) {
     armEnv.defineLocal(name, value, false);
@@ -1561,7 +1498,7 @@ function toRuntimePattern(pattern: PatternNode): Pattern {
  * `enum` / `import` / `export` / doc-comments) are hoisted / registered by
  * `V19b`'s environment at build time, so they are inert at execution time.
  */
-async function executeStatement(stmt: Stmt, env: LexicalEnvironment, deps: ExecuteBodyDeps): Promise<Flow> {
+async function executeStatement(stmt: Stmt, env: LexicalEnvironment, deps: ExecuteBodyDeps): Promise<EvalResult> {
   if (deps.trace !== undefined) {
     // RFC 0015: the site names the file a human can open — the same residence
     // rule panic sites use (a `.thetalib` fn body names its declaring file) —
@@ -1572,45 +1509,37 @@ async function executeStatement(stmt: Stmt, env: LexicalEnvironment, deps: Execu
     );
   }
   switch (stmt.kind) {
-    case "expr": {
+    case "expr":
       // A bare expression statement's value is discarded (no `let` binds it, no
       // downstream `match`/`?` can observe it) — a terminal/discarding position.
-      const r = await evalExpr(stmt.expr, env, deps, true);
-      return r.flow === "value" ? { kind: "normal", value: r.value } : terminalFlow(r);
-    }
-    case "tool-call": {
+      return evalExpr(stmt.expr, env, deps, true);
+    case "tool-call":
       // A bare action statement discards its result — terminal/discarding.
-      const r = await evalExpr(stmt.call, env, deps, true);
-      return r.flow === "value" ? { kind: "normal", value: r.value } : terminalFlow(r);
-    }
-    case "query": {
+      return evalExpr(stmt.call, env, deps, true);
+    case "query":
       // A bare action statement discards its result — terminal/discarding.
-      const r = await evalExpr(stmt.query, env, deps, true);
-      return r.flow === "value" ? { kind: "normal", value: r.value } : terminalFlow(r);
-    }
-    case "invoke": {
+      return evalExpr(stmt.query, env, deps, true);
+    case "invoke":
       // A bare action statement discards its result — terminal/discarding.
-      const r = await evalExpr(stmt.invoke, env, deps, true);
-      return r.flow === "value" ? { kind: "normal", value: r.value } : terminalFlow(r);
-    }
+      return evalExpr(stmt.invoke, env, deps, true);
     case "let": {
       let value: ThetaValue = null;
       if (stmt.init !== null) {
         const r = await evalExpr(stmt.init, env, deps);
         if (r.flow !== "value") {
-          return terminalFlow(r);
+          return r;
         }
         value = r.value;
       }
       env.defineLocal(stmt.name, value, stmt.mutable);
-      return { kind: "normal", value: null };
+      return { flow: "value", value: null };
     }
     case "reassign": {
       let next: ThetaValue;
       if (stmt.op === "=") {
         const r = await evalExpr(stmt.value, env, deps);
         if (r.flow !== "value") {
-          return terminalFlow(r);
+          return r;
         }
         next = r.value;
       } else {
@@ -1622,7 +1551,7 @@ async function executeStatement(stmt: Stmt, env: LexicalEnvironment, deps: Execu
         const current = env.resolve(stmt.target).value ?? null;
         const r = await evalExpr(stmt.value, env, deps);
         if (r.flow !== "value") {
-          return terminalFlow(r);
+          return r;
         }
         next = applyCompound(stmt.op, current, r.value);
       }
@@ -1635,7 +1564,7 @@ async function executeStatement(stmt: Stmt, env: LexicalEnvironment, deps: Execu
         // mutation with no diagnostic.
         throw new RejectedWriteDefectError(stmt.target);
       }
-      return { kind: "normal", value: null };
+      return { flow: "value", value: null };
     }
     case "if":
       return executeIf(stmt, env, deps);
@@ -1644,20 +1573,20 @@ async function executeStatement(stmt: Stmt, env: LexicalEnvironment, deps: Execu
     case "for":
       return executeFor(stmt, env, deps);
     case "break":
-      return { kind: "break" };
+      return { flow: "break" };
     case "continue":
-      return { kind: "continue" };
+      return { flow: "continue" };
     case "return": {
       if (stmt.operand === null) {
-        return { kind: "return", value: null };
+        return { flow: "return", value: null };
       }
       // A `return` operand's `Err` is returned — unhandled per error-model.md:10
       // — a terminal/returning position.
       const r = await evalExpr(stmt.operand, env, deps, true);
       if (r.flow !== "value") {
-        return terminalFlow(r);
+        return r;
       }
-      return { kind: "return", value: r.value };
+      return { flow: "return", value: r.value };
     }
     case "fn":
     case "schema":
@@ -1666,7 +1595,7 @@ async function executeStatement(stmt: Stmt, env: LexicalEnvironment, deps: Execu
     case "export":
     case "doc-comment":
       // Declarations are hoisted / registered by `V19b`'s environment; inert here.
-      return { kind: "normal", value: null };
+      return { flow: "value", value: null };
   }
 }
 
@@ -1682,7 +1611,7 @@ export async function executeBlock(
   env: LexicalEnvironment,
   deps: ExecuteBodyDeps,
   atTerminal: boolean = true,
-): Promise<Flow> {
+): Promise<EvalResult> {
   // A trailing bare-expression statement contributes the block's FN-5 final
   // value (V20e). The parser promotes a trailing bare expression form to the
   // block `tail` and leaves only lone call/invoke/query actions (and non-
@@ -1697,7 +1626,7 @@ export async function executeBlock(
   let trailingExprValue: { readonly value: ThetaValue } | undefined;
   for (const stmt of block.statements) {
     const flow = await executeStatement(stmt, env, deps);
-    if (flow.kind !== "normal") {
+    if (flow.flow !== "value") {
       return flow;
     }
     trailingExprValue = stmt.kind === "expr" ? { value: flow.value } : undefined;
@@ -1709,23 +1638,22 @@ export async function executeBlock(
     // terminal boundary re-wraps once) — the two positions need opposite
     // `atTerminal` dispositions, so the caller-supplied flag (not a hard-coded
     // terminal default) decides how THIS tail's query outcome disposes.
-    const r = await evalExpr(block.tail, env, deps, atTerminal);
-    return r.flow === "value" ? { kind: "normal", value: r.value } : terminalFlow(r);
+    return evalExpr(block.tail, env, deps, atTerminal);
   }
-  return { kind: "normal", value: trailingExprValue !== undefined ? trailingExprValue.value : null };
+  return { flow: "value", value: trailingExprValue !== undefined ? trailingExprValue.value : null };
 }
 
 /** Execute a statement-form `if` / `else if` / `else` (control-flow.md). */
-async function executeIf(stmt: IfStmt, env: LexicalEnvironment, deps: ExecuteBodyDeps): Promise<Flow> {
+async function executeIf(stmt: IfStmt, env: LexicalEnvironment, deps: ExecuteBodyDeps): Promise<EvalResult> {
   const condition = await evalExpr(stmt.condition, env, deps);
   if (condition.flow !== "value") {
-    return terminalFlow(condition);
+    return condition;
   }
   if (requireBoolean(condition.value)) {
     return executeBlock(stmt.then, env.child(), deps);
   }
   if (stmt.otherwise === null) {
-    return { kind: "normal", value: null };
+    return { flow: "value", value: null };
   }
   // The `else` arm is a chained `IfStmt` (an `else if`) or an `else` `Block`.
   if ("statements" in stmt.otherwise) {
@@ -1775,26 +1703,26 @@ async function executeWhile(
   stmt: WhileStmt,
   env: LexicalEnvironment,
   deps: ExecuteBodyDeps,
-): Promise<Flow> {
+): Promise<EvalResult> {
   const site = loopIterSite(stmt, deps);
   for (;;) {
     traceEffectDispatch(env, deps, "loop-iter", site);
     const aborted = await loopIterCheckpoint(site, deps);
     if (aborted) {
-      return { kind: "cancel" };
+      return { flow: "cancel" };
     }
     const condition = await evalExpr(stmt.condition, env, deps);
     if (condition.flow !== "value") {
-      return terminalFlow(condition);
+      return condition;
     }
     if (!requireBoolean(condition.value)) {
-      return { kind: "normal", value: null };
+      return { flow: "value", value: null };
     }
     const flow = await executeBlock(stmt.body, env.child(), deps);
-    if (flow.kind === "break") {
-      return { kind: "normal", value: null };
+    if (flow.flow === "break") {
+      return { flow: "value", value: null };
     }
-    if (flow.kind === "continue" || flow.kind === "normal") {
+    if (flow.flow === "continue" || flow.flow === "value") {
       continue;
     }
     return flow;
@@ -1810,10 +1738,10 @@ async function executeWhile(
  * the loop variable (bindings.md); `break` / `continue` steer the loop and
  * `return` / `fail` / `cancel` unwind out of it.
  */
-async function executeFor(stmt: ForStmt, env: LexicalEnvironment, deps: ExecuteBodyDeps): Promise<Flow> {
+async function executeFor(stmt: ForStmt, env: LexicalEnvironment, deps: ExecuteBodyDeps): Promise<EvalResult> {
   const iterand = await evalExpr(stmt.iterand, env, deps);
   if (iterand.flow !== "value") {
-    return terminalFlow(iterand);
+    return iterand;
   }
   // Bug 0369 belt: a non-array iterand that evaded the parse refusal by static
   // unresolvability must abort loudly, not silently satisfy the loop with a
@@ -1841,19 +1769,19 @@ async function executeFor(stmt: ForStmt, env: LexicalEnvironment, deps: ExecuteB
     traceEffectDispatch(env, deps, "loop-iter", site);
     const aborted = await loopIterCheckpoint(site, deps);
     if (aborted) {
-      return { kind: "cancel" };
+      return { flow: "cancel" };
     }
     const iterationScope = env.bindIterationVariable(stmt.variable, element);
     const flow = await executeBlock(stmt.body, iterationScope, deps);
-    if (flow.kind === "break") {
+    if (flow.flow === "break") {
       break;
     }
-    if (flow.kind === "continue" || flow.kind === "normal") {
+    if (flow.flow === "continue" || flow.flow === "value") {
       continue;
     }
     return flow;
   }
-  return { kind: "normal", value: null };
+  return { flow: "value", value: null };
 }
 
 /**
@@ -1871,10 +1799,10 @@ async function executeFor(stmt: ForStmt, env: LexicalEnvironment, deps: ExecuteB
  */
 export async function executeBody(body: ThetaBody, deps: ExecuteBodyDeps): Promise<BodyExecution> {
   const flow = await executeBlock(body, deps.env, deps);
-  switch (flow.kind) {
+  switch (flow.flow) {
     case "return":
       return { outcome: "success", result: functionResult("success", flow.value) };
-    case "normal":
+    case "value":
       return { outcome: "success", result: functionResult("success", flow.value) };
     case "fail":
       // An unhandled non-cancel effect `Err` terminated the body. Surface the

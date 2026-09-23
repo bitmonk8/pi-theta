@@ -9,7 +9,7 @@ import type { LexicalEnvironment } from "./lexical-environment";
 import { handlePartialTerminalOutcome } from "./terminal-outcomes";
 import { makeErr, makeOk, type ThetaValue, type ResultValue } from "./value";
 import { ForIterandKindDefectError, ParForUnwrittenSlotError } from "./executor-defects";
-import { evalExpr, executeBlock, panicSiteFile, type ExecuteBodyDeps, type EvalResult, type Flow, type StatementEvalHost } from "./statement-executor";
+import { evalExpr, executeBlock, panicSiteFile, type ExecuteBodyDeps, type EvalResult, type StatementEvalHost } from "./statement-executor";
 
 /**
  * The `par for` in-flight width throttle (control-flow.md CTRL-2 /
@@ -108,12 +108,12 @@ function makeParForIterationHost(
 
 /** Map a completed iteration's flow to its element result or whole-theta cancellation. */
 function parForOutcomeOf(
-  flow: Flow,
+  flow: EvalResult,
   signal: AbortSignal,
   diagnostics: readonly Diagnostic[] | undefined,
 ): ParForIterationOutcome {
-  switch (flow.kind) {
-    case "normal":
+  switch (flow.flow) {
+    case "value":
       return { kind: "result", result: makeOk(flow.value), diagnostics };
     case "return":
       // Barred by the parser (par-return-in-body); defensively folded into the
@@ -175,7 +175,7 @@ async function runParForIteration(
   const iterationHost = makeParForIterationHost(deps.host, collectedDiagnostics);
   const iterationDeps: ExecuteBodyDeps = { ...deps, host: iterationHost };
 
-  let flow: Flow;
+  let flow: EvalResult;
   try {
     flow = await executeBlock(expr.body, scope, iterationDeps);
   } catch (thrown) { // allow-broad-catch: ERR-20 — errors-and-results.md#err-20

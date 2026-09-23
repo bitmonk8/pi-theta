@@ -38,8 +38,9 @@ import type {
 //     Err consumed by the next statement's `match` is NOT unhandled.
 //
 // Mechanism (statement-executor.ts): `evalExpr`'s checkpointed-effect arm lowers
-// a non-cancel query failure to `{ flow: "fail", error }`, which `terminalFlow`
-// turns into the body's terminal `Err`. That arm serves every value position
+// a non-cancel query failure to `{ flow: "fail", error }`, which propagates
+// unchanged through `executeStatement`/`executeBlock` until `executeBody`
+// surfaces it as the body's terminal `Err`. That arm serves every value position
 // (let-init, array element, ctor arg, …) as well as the true terminal positions.
 // `evalAsResult` (the `?`-operand / `match`-scrutinee route) already binds the
 // same failure as `Err(...)`. The fix makes value positions bind and reserves
